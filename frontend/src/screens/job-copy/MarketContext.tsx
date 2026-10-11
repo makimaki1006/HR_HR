@@ -51,7 +51,7 @@ function MarketContextForJob({ job, view, mode }: { job: JobCopyRecord; view: 'c
       '応募と市場の取得期間は一致するとは限りません。それぞれの対象月を確認して比べてください。',
       '応募数はHubSpotに記録されたものだけで、市場の数字とは出所が異なります。',
     ]} />
-    {loading && <p role="status">市場データを取得中…</p>}{error && <><p role="alert">{error}</p><button type="button" className="jc-button" onClick={() => { setLoading(true); setError(''); setRetry(value => value + 1); }} disabled={loading}>市場データを再取得</button></>}
+    {loading && <p role="status">市場データを読み込み中…</p>}{error && <><p role="alert">{error}</p><button type="button" className="jc-button" onClick={() => { setLoading(true); setError(''); setRetry(value => value + 1); }} disabled={loading}>市場データを再読み込み</button></>}
     {data && <div className="jc-analysis-controls"><label>比較する市場職種<select value={title} onChange={event => { setLoading(true); setTitle(event.target.value); }}><option value="">選択してください</option>{data.titles.map(value => <option key={value}>{value}</option>)}</select></label><label>比較する都道府県<select value={prefecture} onChange={event => { setLoading(true); setPrefecture(event.target.value); }}><option value="">選択してください</option>{data.prefectures.map(value => <option key={value}>{value}</option>)}</select></label></div>}
     {!loading && !error && data && <><p>出典：{plainWording(data.source)}</p>
       {shown.length > 0 ? <>

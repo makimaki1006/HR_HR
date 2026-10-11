@@ -195,9 +195,12 @@ export interface StatusMessage {
 
 export interface PipelineState {
   kind: InputKind;
+  sourceKind: InputKind;
   titleHint: string;
   sourceText: string;
+  rawSourceText?: string | undefined;
   jobs: NormalizedJob[];
+  selectedJobIndex: number | null;
   /** 職種名欄 (②市場分析で使用)。取り込み時に title_hint で初期化。 */
   jobTitle: string;
   /** 職種名で市場分析してよいとコンサルが確認したか (一括実行ゲート)。 */
@@ -217,6 +220,7 @@ export interface PipelineState {
   imagesNumberCheck: string;
   mobile: MobileResult[];
   hrhacker: HrhackerResult | null;
+  hrhackerCreatedAt: string | null;
   ab: AbResult | null;
   status: Record<StepKey, StepStatus>;
   /** コンサルが目視確認済み (ページ内 state のみ・永続化なし)。 */
@@ -256,9 +260,11 @@ function allSteps<T>(v: T): Record<StepKey, T> {
 export function initialState(): PipelineState {
   return {
     kind: 'free_text',
+    sourceKind: 'free_text',
     titleHint: '',
     sourceText: '',
     jobs: [],
+    selectedJobIndex: null,
     jobTitle: '',
     jobTitleConfirmed: false,
     facts: null,
@@ -275,6 +281,7 @@ export function initialState(): PipelineState {
     imagesNumberCheck: '',
     mobile: [],
     hrhacker: null,
+    hrhackerCreatedAt: null,
     ab: null,
     status: allSteps<StepStatus>('wait'),
     confirmed: allSteps(false),
@@ -294,6 +301,7 @@ export function initialState(): PipelineState {
 export function resetResults(s: PipelineState): PipelineState {
   return {
     ...s,
+    selectedJobIndex: null,
     facts: null,
     factsText: '',
     category: '',
@@ -308,6 +316,7 @@ export function resetResults(s: PipelineState): PipelineState {
     imagesNumberCheck: '',
     mobile: [],
     hrhacker: null,
+    hrhackerCreatedAt: null,
     ab: null,
     status: allSteps<StepStatus>('wait'),
     confirmed: allSteps(false),
@@ -358,5 +367,5 @@ export function strategyHint(s: PipelineState): string {
 
 /** 一括実行は「求人取り込み済み」かつ「職種名の確認済み」で解禁。 */
 export function canRunAll(s: PipelineState): boolean {
-  return !!s.sourceText && !s.running && s.jobTitleConfirmed;
+  return !!s.sourceText && !s.running && !s.normalizing && s.jobTitleConfirmed;
 }

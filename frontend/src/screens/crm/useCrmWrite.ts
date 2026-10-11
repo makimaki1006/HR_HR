@@ -8,7 +8,7 @@ import type { EditSchema, PatchPartial, PropValues, WriteObject } from './writeT
 export type FieldStatus =
   | { phase: 'saving' }
   | { phase: 'saved' }
-  /** 一時保存した。`slow` は 10 分たってもまだ反映されていない */
+  /** 一時保存した。`slow` は 30 分(表示していた時間で数える)たってもまだ反映されていない */
   | { phase: 'queued'; slow: boolean }
   /** 保存できていない。`req` があれば同じ操作 (同じ operation_id) で再試行できる */
   | { phase: 'error'; message: string; req: SaveRequest | null }
@@ -32,8 +32,17 @@ export type SchemaState =
   | { phase: 'ready'; schema: EditSchema }
   | { phase: 'error' };
 
-export const POLL_INTERVAL_MS = 10_000;
-export const POLL_MAX_MS = 10 * 60_000;
+/** 最初の確認までの間隔。以降は倍々(5, 10, 20, 40 秒)で、最大 `POLL_INTERVAL_MS * 12`(60 秒) */
+export const POLL_INTERVAL_MS = 5_000;
+/** 確認をやめるまで。タブが隠れていた時間は数えない(やめても黄色のまま「まだ反映待ちです」と出す) */
+export const POLL_MAX_MS = 30 * 60_000;
+/** 確認の間隔の上限は最初の間隔の何倍か(5 秒なら 60 秒) */
+const POLL_CAP_FACTOR = 12;
+
+/** `n` 回目(0 始まり)の確認までの待ち。5, 10, 20, 40, 60, 60, ... 秒(`firstMs` = 5 秒のとき) */
+export function pollDelayMs(n: number, firstMs: number = POLL_INTERVAL_MS): number {
+  return Math.min(firstMs * 2 ** Math.min(n, 30), firstMs * POLL_CAP_FACTOR);
+}
 
 export const WRITES_OFF_NOTE = 'この案件はまだ編集できません（試験運用中）';
 
@@ -77,6 +86,8 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
   const [conflict, setConflict] = useState<ConflictState | null>(null);
   const opIds = useRef(new Map<string, string>());
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  /** タブが隠れて止めている確認を、表示に戻ったときに再開する登録(外すための関数) */
+  const parked = useRef(new Set<() => void>());
   const alive = useRef(true);
   const isAlive = () => alive.current;
   const onSavedRef = useRef(onSaved);
@@ -85,7 +96,8 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
   useEffect(() => {
     alive.current = true;
     const t = timers.current;
-    return () => { alive.current = false; t.forEach(x => { clearTimeout(x); }); t.clear(); };
+    const p = parked.current;
+    return () => { alive.current = false; t.forEach(x => { clearTimeout(x); }); t.clear(); p.forEach(off => { off(); }); p.clear(); };
   }, []);
 
   // 編集できる項目の一覧 (案件を選んだら読む。読めなければ編集の入口を出さない)
@@ -137,14 +149,32 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
   }, []);
 
   const poll = useCallback((opId: string, req: SaveRequest) => {
-    const maxPolls = Math.max(1, Math.ceil(POLL_MAX_MS / pollIntervalMs));
+    // 状態の確認は台帳を読むことがあるので、間隔を倍々に延ばし、隠れたタブでは止める
+    // (負荷試験: 一定の 10 秒間隔だと、台帳が詰まるほど確認が増えて Turso の読み取りが膨らんだ)。
+    // 上限の時間は、最初の間隔に比例させる(テストで間隔を縮めても同じ形になる)
+    const budgetMs = POLL_MAX_MS * (pollIntervalMs / POLL_INTERVAL_MS);
     let n = 0;
+    let waitedMs = 0;
     const schedule = () => {
-      const t = setTimeout(() => { timers.current.delete(t); void tick(); }, pollIntervalMs);
+      const delay = pollDelayMs(n, pollIntervalMs);
+      const t = setTimeout(() => { timers.current.delete(t); void tick(delay); }, delay);
       timers.current.add(t);
     };
-    const tick = async () => {
+    const tick = async (delay: number) => {
       if (!isAlive()) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        // 隠れている間は確認しない(時間も数えない)。表示に戻ったらすぐ確認する
+        const resume = () => {
+          if (document.visibilityState === 'hidden') return;
+          off();
+          void tick(0);
+        };
+        const off = () => { document.removeEventListener('visibilitychange', resume); parked.current.delete(off); };
+        document.addEventListener('visibilitychange', resume);
+        parked.current.add(off);
+        return;
+      }
+      waitedMs += delay;
       n += 1;
       const r = await apiRef.current.operation(opId);
       if (!isAlive()) return;
@@ -159,7 +189,7 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
         clearPending(req);
         return;
       }
-      if (n >= maxPolls) { setStatus(keysOf(req), { phase: 'queued', slow: true }); return; }
+      if (waitedMs >= budgetMs) { setStatus(keysOf(req), { phase: 'queued', slow: true }); return; }
       schedule();
     };
     schedule();

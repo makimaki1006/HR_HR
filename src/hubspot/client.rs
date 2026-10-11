@@ -591,6 +591,41 @@ impl HubSpotClient {
         parse_record(&v)
     }
 
+    /// 求人の案だけが使う読み取り。関所の相乗りをせず競合確認する。
+    pub(crate) async fn get_listing_fresh(
+        &self,
+        id: &str,
+        properties: &[&str],
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        check_id(id)?;
+        let path = format!("/crm/v3/objects/0-420/{id}");
+        let value = self
+            .send_uncoalesced(
+                &Method::GET,
+                &path,
+                &[("properties", properties.join(","))],
+                None,
+            )
+            .await?;
+        parse_record(&value)
+    }
+
+    /// 求人の案の固定5項目だけを書ける。CRMの汎用PATCHの対象は広げない。
+    pub(crate) async fn patch_listing_draft(
+        &self,
+        id: &str,
+        properties: &BTreeMap<String, Option<String>>,
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        if properties.is_empty()
+            || properties
+                .keys()
+                .any(|key| !crate::job_gen::drafts::PROPERTIES.contains(&key.as_str()))
+        {
+            return Err(HubSpotError::Decode("invalid draft properties".into()));
+        }
+        self.patch_object_inner("0-420", id, properties).await
+    }
+
     /// `PATCH /crm/v3/objects/{object}/{id}` (プロパティの書き込み。Contact / Company / Deal のみ)。
     ///
     /// **1 回だけ送る** (retry しない・他の呼び出しと相乗りしない)。失敗の扱い (キューに積むか) は呼び出し側が決める
@@ -605,6 +640,15 @@ impl HubSpotClient {
         if !RecordType::ALL.iter().any(|t| t.api_name() == object) {
             return Err(HubSpotError::Decode("invalid object".into()));
         }
+        self.patch_object_inner(object, id, properties).await
+    }
+
+    async fn patch_object_inner(
+        &self,
+        object: &str,
+        id: &str,
+        properties: &BTreeMap<String, Option<String>>,
+    ) -> Result<HubSpotRecord, HubSpotError> {
         check_id(id)?;
         let props: serde_json::Map<String, Value> = properties
             .iter()
@@ -612,8 +656,14 @@ impl HubSpotClient {
             .collect();
         let body = json!({ "properties": props });
         let path = format!("/crm/v3/objects/{object}/{id}");
+        // 書き込みの続き: 同じ保存の読み取りは済んでいるので、新しい読み取りより先に関所を通す
+        // (背景の再送 worker は背景のまま)
+        let priority = match self.priority {
+            Priority::Interactive => Priority::Continuation,
+            other => other,
+        };
         let reply = self
-            .raw_once(&Method::PATCH, &path, &[], Some(&body))
+            .raw_once_with(priority, &Method::PATCH, &path, &[], Some(&body))
             .await?;
         match reply.status {
             200..=299 => {
@@ -922,10 +972,22 @@ impl HubSpotClient {
         query: &[(&str, String)],
         body: Option<&Value>,
     ) -> Result<RawReply, HubSpotError> {
+        self.raw_once_with(self.priority, method, path, query, body)
+            .await
+    }
+
+    async fn raw_once_with(
+        &self,
+        priority: Priority,
+        method: &Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+    ) -> Result<RawReply, HubSpotError> {
         let lane = lane_of(path);
         self.inner
             .gateway
-            .acquire(lane, self.priority)
+            .acquire(lane, priority)
             .await
             .map_err(|_| HubSpotError::Busy)?;
         self.inner.gateway.record_call(endpoint_group(path), lane);

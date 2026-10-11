@@ -56,7 +56,7 @@ function CategoryTable({ label, classification, withSelected, selectionsUnread =
   const result = tally(classification.applications);
   const unit = classification.unit === 'text' ? '記述' : '応募';
   return <>
-    <p>n={result.n}（{unit}{result.n}件）{withSelected && <> · 選択済み{result.selectedN}件</>}{selectionsUnread && <> · 選択済み 未取得</>} · キーワードで推定{result.estimatedN}件 · 分類できない{result.unclassified}件</p>
+    <p>n={result.n}（{unit}{result.n}件）{withSelected && <> · 選択済み{result.selectedN}件</>}{selectionsUnread && <> · 分類の選択件数は未取得</>} · キーワードで推定{result.estimatedN}件 · 分類できない{result.unclassified}件</p>
     {result.n === 0 ? <p>{unread > 0 ? `読み込めた記述がありません（記入あり ${String(unread)}件 は読み込める上限を超えたため読み込んでいません。0件という意味ではありません）。` : '分類できる記録はありません。'}</p> : <div className="ar-table-scroll" role="region" aria-label={label} tabIndex={0}><table className="ar-table">
       <thead><tr><th scope="col">分類</th><th scope="col">{withSelected ? '合計' : '件数（キーワードで推定）'}</th>{withSelected && <><th scope="col">選択済み</th><th scope="col">キーワードで推定</th></>}<th scope="col">nに対する割合</th></tr></thead>
       <tbody>{result.counts.map(row => <tr key={row.category}><th scope="row">{row.category}</th><td>{row.total}件</td>{withSelected && <><td>{row.selected}件</td><td>{row.estimated}件</td></>}<td>{shareText(row.total, result.n) ?? `n=${String(result.n)}のため出しません`}</td></tr>)}</tbody>
@@ -73,7 +73,7 @@ export function unnamedSelectionNote(status: OptionLabelsStatus | null, applicat
   const lead = `分類が選ばれているのに分類の名前を読み取れなかった応募が ${String(applications)}件 あります。この応募は選択済みに数えず、文があれば言葉で推定しています。`;
   if (status === 'read') return `選ばれた分類が今のHubSpotの選択肢の一覧にない応募が ${String(applications)}件 あります（選択肢が消されたか、名前が変わった可能性があります）。この応募は選択済みに数えず、文があれば言葉で推定しています。開き直しても変わりません。`;
   if (status === 'unavailable') return `${lead}時間をおいて開き直すと読み取れることがあります。`;
-  return `${lead}保存された取得データに分類の名前が入っていないため、開き直しても変わりません。`;
+  return `${lead}保存データに分類の名前が入っていないため、開き直しても変わりません。`;
 }
 function unnamedRowNote(status: OptionLabelsStatus | null): string {
   return status === 'read'
@@ -107,13 +107,13 @@ export const ReasonCategorySummary = memo(function ReasonCategorySummary({ colle
     <section className="ar-category-group" aria-label="応募理由の分類">
     <h3>応募理由の分類</h3>
     <p>HubSpotで分類が選ばれた応募は「選択済み」、分類が選ばれていない応募は応募動機・応募理由の文から言葉で分類した「キーワードで推定」として、分けて数えます。1件の応募が複数の分類に入ることがあります。</p>
-    {collection.selections === null && <p className="jc-notice">この取得データには「応募理由の分類」の記録欄が含まれていません（未取得）。選択済みの件数は0件ではなく不明です。</p>}
+    {collection.selections === null && <p className="jc-notice">この保存データには「応募理由の分類」の記録欄が含まれていません（未取得）。選択済みの件数は0件ではなく不明です。</p>}
     {reasons && <CategoryTable label="応募理由の分類の件数" classification={reasons} withSelected={collection.selections !== null} selectionsUnread={collection.selections === null} unread={unreadTexts(collection, APPLICATION_TEXT_SOURCES)} />}
     {reasons && reasons.unnamedApplications > 0 && <p className="jc-notice">{unnamedSelectionNote(collection.optionLabels, reasons.unnamedApplications)}</p>}
     {reasons && reasons.unsetOnly > 0 && (collection.truncated
       ? <p>分類が「未設定」で、読み込めた文もない応募 {reasons.unsetOnly}件 は数えていません（読み込めなかった文がある応募も含まれることがあります）。</p>
       : <p>分類が「未設定」で文もない応募 {reasons.unsetOnly}件 は数えていません。</p>)}
-    {reasons?.unit === 'text' && <p className="jc-notice">この取得データでは同じ応募の記述を見分けられないため、記述ごとに数えています。1件の応募が複数回数えられていることがあります。</p>}
+    {reasons?.unit === 'text' && <p className="jc-notice">この保存データでは同じ応募の記述を見分けられないため、記述ごとに数えています。1件の応募が複数回数えられていることがあります。</p>}
     {reasons && <Unclassified classification={reasons} optionLabels={collection.optionLabels} />}
     </section>
     <section className="ar-category-group" aria-label="今の仕事・前の仕事から転職する理由の分類">

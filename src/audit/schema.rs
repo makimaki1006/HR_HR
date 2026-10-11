@@ -12,12 +12,17 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
             .map_err(|e| format!("audit schema failed on `{sql}`: {e}"))?;
     }
     tracing::info!(
-        "audit tables ensured (accounts/login_sessions/activity_logs/crm_pending_operations)"
+        "audit tables ensured (accounts/login_sessions/activity_logs/crm_pending_operations/job_copy_draft_operations)"
     );
     Ok(())
 }
 
 const TABLE_DDL: &[&str] = &[
+    // ADR-019: 求人本文の複製DBではなく、書き込みの再送と冪等性だけの台帳。
+    r#"CREATE TABLE IF NOT EXISTS job_copy_draft_operations (
+        operation_id TEXT PRIMARY KEY, operator_email TEXT NOT NULL, listing_id TEXT NOT NULL,
+        payload TEXT NOT NULL, status TEXT NOT NULL, next_retry_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )"#,
     // accounts: メール単位で 1 行。password_hash は持たず、既存の config ベース
     //           認証結果に対して upsert するだけの台帳。
     r#"CREATE TABLE IF NOT EXISTS accounts (
@@ -78,6 +83,7 @@ const TABLE_DDL: &[&str] = &[
 ];
 
 const INDEX_DDL: &[&str] = &[
+    "CREATE INDEX IF NOT EXISTS idx_job_copy_draft_retry ON job_copy_draft_operations(status, next_retry_at)",
     "CREATE INDEX IF NOT EXISTS idx_accounts_email ON accounts(email)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_account_started ON login_sessions(account_id, started_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_started ON login_sessions(started_at DESC)",

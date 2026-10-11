@@ -12,7 +12,7 @@ describe('image request lifecycle', () => {
     render(createElement(ImageGallery, { title: '合成画像', images: [{ id: 'synthetic', url, caption: '合成写真', contentHash: 'a'.repeat(64) }] }));
     const region = screen.getByRole('region', { name: '合成画像' });
     const open = within(region).getByRole<HTMLButtonElement>('button', { name: '画像1を拡大: 合成写真' });
-    expect(within(region).getByRole('status').textContent).toContain('画像を取得中');
+    expect(within(region).getByRole('status').textContent).toContain('画像を読み込み中');
     expect(open.disabled).toBe(true);
     expect(within(region).queryByRole('alert')).toBeNull();
     const initial = within(region).getByRole<HTMLImageElement>('img');
@@ -24,7 +24,7 @@ describe('image request lifecycle', () => {
     const retried = within(region).getByRole<HTMLImageElement>('img');
     expect(retried).not.toBe(initial);
     expect(retried.getAttribute('src')).toBe(url);
-    expect(within(region).getByRole('status').textContent).toContain('画像を取得中');
+    expect(within(region).getByRole('status').textContent).toContain('画像を読み込み中');
     expect(open.disabled).toBe(true);
     fireEvent.load(retried);
     expect(within(region).queryByRole('status')).toBeNull();

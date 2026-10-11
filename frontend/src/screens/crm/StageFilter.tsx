@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useDismiss } from './useDismiss';
 import { eligibleStageIds, stageName } from './queuePipelines';
 import type { QueuePipelineDef } from './queuePipelines';
 import { normalizeStages } from './queueModel';
@@ -22,6 +23,12 @@ export function StageFilter({ pipeline, selected, labelsUnavailable = false, onA
   const current = selected.length > 0 ? selected : eligible;
   const [draft, setDraft] = useState<Set<string> | null>(null);
   const open = draft !== null;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  // 外側のクリック / Esc は適用せずに閉じる (Esc はボタンへフォーカスを戻す)
+  const discard = useCallback(() => { setDraft(null); }, []);
+  const discardAndFocus = useCallback(() => { setDraft(null); toggleRef.current?.focus(); }, []);
+  useDismiss(rootRef, open, discard, discardAndFocus);
   const excluded = [...pipeline.stages.filter(s => s.rule === 'exclude'), ...pipeline.unknownStages];
   const unknownIds = new Set(pipeline.unknownStages.map(s => s.id));
   const panelId = `cq-stage-list-${pipeline.id}`;
@@ -39,8 +46,8 @@ export function StageFilter({ pipeline, selected, labelsUnavailable = false, onA
     setDraft(null);
   }
 
-  return <div className="cq-stage-filter" onKeyDown={e => { if (e.key === 'Escape' && open) { e.stopPropagation(); setDraft(null); } }}>
-    <button type="button" className="cq-btn cq-stage-toggle" aria-expanded={open} aria-controls={panelId}
+  return <div className="cq-stage-filter" ref={rootRef}>
+    <button type="button" ref={toggleRef} className="cq-btn cq-stage-toggle" aria-expanded={open} aria-controls={panelId}
       onClick={() => { setDraft(open ? null : new Set(current)); }}>
       ステージ（{current.length}件選択）</button>
     {open && <div id={panelId} className="cq-stage-panel" role="group" aria-label="ステージの選択">

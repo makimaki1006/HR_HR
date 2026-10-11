@@ -1,5 +1,8 @@
 // ⑦ 84 列 CSV (旧 static/jobgen.html の downloadCsv)。
-// UTF-8 BOM 付き・ヘッダ 1 行 + データ 1 行・CRLF。列順は row のキー順 (= HRHACKER_COLUMNS)。
+// UTF-8 BOM 付き・ヘッダ 1 行 + データ 1 行・CRLF。列順は Rust の正本から生成。
+import columns from '../../generated/jobgen/columns.json';
+
+export const HRHACKER_COLUMNS: readonly string[] = columns;
 
 function quote(v: string | null | undefined): string {
   const s = v ?? '';
@@ -7,7 +10,7 @@ function quote(v: string | null | undefined): string {
 }
 
 export function buildHrhackerCsv(row: Record<string, string>): string {
-  const cols = Object.keys(row);
+  const cols = HRHACKER_COLUMNS;
   return (
     '﻿' +
     cols.map(quote).join(',') +

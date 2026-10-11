@@ -5,7 +5,7 @@ export interface HrhPerformanceRow {
 export interface HrhPerformanceCollection {
   schema_version: 1; source: 'hrhacker'; job_id: string; captured_at: string; rows: HrhPerformanceRow[];
 }
-const invalid = (): never => { throw new Error('HRハッカー実績の求人ID・期間・数値を確認してください。'); };
+const invalid = (): never => { throw new Error('HRハッカー実績の媒体の求人番号・期間・数値を確認してください。'); };
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid();
   return value as Record<string, unknown>;

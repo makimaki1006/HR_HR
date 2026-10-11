@@ -100,6 +100,9 @@ mod tests {
         for path in [
             "/api/job-copy/moc",
             "/api/job-copy/listing-status",
+            "/api/job-copy/listings",
+            "/api/job-copy/listing-comparison?ids=10,11",
+            "/api/job-copy/listings/10/versions",
             "/api/job-copy/image?company_id=10&listing_id=30&manifest_id=40&slot=1",
         ] {
             let response = app

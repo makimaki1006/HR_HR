@@ -18,7 +18,7 @@ for (const scenario of cases) {
       status: scenario.status, contentType: 'application/json',
       body: JSON.stringify({ code: scenario.code, message: 'PRIVATE_SYNTHETIC_SERVER_DETAIL' }),
     }));
-    await page.goto('/app/job-copy');
+    await page.goto('/app/job-copy?data=actual');
     const alert = page.getByRole('alert');
     await expect(alert).toContainText(scenario.text);
     await expect(alert).not.toContainText(scenario.code);

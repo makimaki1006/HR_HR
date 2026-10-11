@@ -39,18 +39,18 @@ describe('a stored file without category selections', () => {
   it('shows 選択済み as 未取得 on the 応募理由 tab, with no 0件 選択済み count or column', () => {
     render(<ApplicantReasons job={{ ...demo(), applicantReasons: legacy() }} />);
     const summary = screen.getByRole('region', { name: '応募理由の分類' });
-    expect(summary.textContent).toContain('n=7（記述7件） · 選択済み 未取得 · キーワードで推定6件 · 分類できない1件');
+    expect(summary.textContent).toContain('n=7（記述7件） · 分類の選択件数は未取得 · キーワードで推定6件 · 分類できない1件');
     expect(summary.textContent).not.toContain('選択済み0件');
     const table = within(screen.getByRole('region', { name: '応募理由の分類の件数' })).getByRole('table');
     expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['分類', '件数（キーワードで推定）', 'nに対する割合']);
     expect(within(table).getAllByRole('row')[1]?.textContent).toBe('給与2件29%');
   });
 
-  it('shows 選択済み 未取得 in every period of the timeline table', () => {
+  it('shows 分類の選択件数は未取得 in every period of the timeline table', () => {
     render(<JobTimeline job={{ ...demo(), applicantReasons: legacy() }} marketMode="demo" />);
     const table = within(screen.getByRole('region', { name: '期間ごとの応募理由の数値' })).getByRole('table');
     const basis = [...table.querySelectorAll('td.jt-reason-basis')].map(cell => cell.textContent);
-    expect(basis.slice(0, 2)).toEqual(['選択済み 未取得推定2件分類できない0件', '選択済み 未取得推定3件分類できない1件']);
+    expect(basis.slice(0, 2)).toEqual(['分類の選択件数は未取得推定2件分類できない0件', '分類の選択件数は未取得推定3件分類できない1件']);
     expect(table.textContent).not.toContain('選択済み0件');
   });
 });
