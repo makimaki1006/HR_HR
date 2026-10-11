@@ -229,7 +229,14 @@ pub(in crate::crm) async fn send_email(
     .await
     {
         Ok(t) => t,
-        Err(_) => return error(EmailError::Tracking),
+        Err(_) => {
+            tracing::warn!("email tracking preparation failed; sending without measurements");
+            // Keep the original body: no unsaved redirect or pixel may reach Gmail.
+            tracking::TrackedEmail {
+                tracking_id: String::new(),
+                html: req.html.clone(),
+            }
+        }
     };
     let email = EmailOperation {
         reply: None,

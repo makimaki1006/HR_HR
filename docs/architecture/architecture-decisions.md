@@ -334,3 +334,6 @@ Status: Accepted for this implementation (2026-10-11、ユーザー指定)
 - HubSpot保存待ちなら `bind_sent(..., None, gmail_message_id)`。保存完了後、同じ計測ID・Gmail IDで `Some(hubspot_email_id)` を結び付け直せる。既存の別IDへの変更は拒否。
 - 公開側の有効化条件は `CRM_EMAIL_ENABLED=1`・`CRM_EMAIL_TOKEN_KEY` が標準Base64の32バイト・監査DBあり。鍵はAと同じ標準Base64の32バイトを検証し、無効な鍵では表初期化・計測・表示を無効にする。
 - HubSpot保存失敗時に本文を再度 instrument したり Gmail を再送したりしない。最初の計測IDをAの再送状態に保持する。
+
+- 結合時の本文: HubSpot の `hs_email_html` は相手に届けた計測付き HTML と一致させる。業務履歴に送信内容をそのまま残し、CRM の表示では DOMPurify に渡す前に不活性な template 内で計測画像を除き、リンクを保存された元 URL に戻す。活動ログ閲覧は開封・クリックを記録しない。
+- 計測障害: 送信前の計測保存に失敗した場合は、計測前の本文で送る。保存されていない転送先は本文に含めない。送信後の ID 結合失敗も送信・HubSpot 記録の成功を失敗や再試行へ変更しない (その場合、計測表示は欠落しうる)。送信の重複を防ぐ操作台帳の保存は引き続き必須で、台帳保存に失敗した場合は送らない。

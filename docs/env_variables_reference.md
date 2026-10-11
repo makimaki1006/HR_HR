@@ -257,7 +257,7 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 
 既存 `GOOGLE_OIDC_CLIENT_ID` / `GOOGLE_OIDC_CLIENT_SECRET` / `GOOGLE_OIDC_REDIRECT_URL` / `GOOGLE_OIDC_HOSTED_DOMAIN` と `AUDIT_TURSO_URL` / `AUDIT_TURSO_TOKEN` も必要。既存 OIDC callback は維持し、Gmail 用 URI を追加する。Gmail API を有効化し、同意画面は会社の Internal とする。要求する追加スコープは gmail.send と gmail.readonly。HubSpot に emails の読み取り・検索・作成・関連付けができる既存アプリの権限も必要 (本 PR では本番の権限は変更しない)。
 
-許可の開始・callback の間だけ `hrhr_gmail_tx` (HttpOnly / SameSite=Lax / 五分 / 本番 Secure) を使う。既存ログインの Cookie を変更しない。監査 DB に記録できなければメールを送らない。ローカル試験は偽 Gmail・偽 HubSpot・SQLite に裏打ちした偽 Turso だけを使う。
+許可の開始・callback の間だけ `hrhr_gmail_tx` (HttpOnly / SameSite=Lax / 五分 / 本番 Secure) を使う。既存ログインの Cookie を変更しない。送信の操作台帳を監査 DB に記録できなければメールを送らない。計測表だけの保存失敗は計測なしで送る。ローカル試験は偽 Gmail・偽 HubSpot・SQLite に裏打ちした偽 Turso だけを使う。
 
 ### CRM メール計測 (既定 OFF)
 

@@ -34,3 +34,22 @@ for (const tracked of [true, false]) {
     await page.screenshot({ path: path.join(out, tracked ? 'email-tracked.png' : 'email-untracked.png'), fullPage: true });
   });
 }
+
+test('送信済み本文の表示は開封画像を取得せずリンクを元に戻す', async ({ page }) => {
+  const measurements: string[] = [];
+  page.on('request', req => { if (/\/t\/[oc]\//.test(req.url())) measurements.push(req.url()); });
+  await page.route('**/t/o/**', route => route.fulfill({ status: 200, contentType: 'image/gif', body: Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64') }));
+  await page.route('**/api/crm/emails/*/tracking', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(summary) }));
+  await page.goto('/static/app/__tracking_preview?tracked=1&html=1');
+  await expect(page.getByTestId('activity-card')).toBeVisible();
+  const expand = page.getByRole('button', { name: '全文を表示' });
+  if (await expand.count()) await expand.click();
+  const body = page.getByTestId('activity-body');
+  await expect(body).toBeVisible();
+  await expect(body.locator('img')).toHaveCount(0);
+  await expect(body.getByRole('link', { name: '資料リンク' })).toHaveAttribute('href', 'https://example.invalid/docs?a=1&b=2');
+  await expect(body).not.toContainText('/t/o/');
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(measurements).toEqual([]);
+  await expect(page.getByTestId('email-tracking-summary')).toHaveText('開封 2 回（最後 10/12 14:03）・クリック 1 回');
+});
