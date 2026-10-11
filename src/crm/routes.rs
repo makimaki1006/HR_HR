@@ -377,7 +377,7 @@ async fn get_metadata(
         return denied.into_response();
     }
     // 2) HubSpot 設定
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     // 3) 取得 (全体に締め切りを付ける。ロックを持ったまま待たないよう timeout は外側)
@@ -650,7 +650,7 @@ async fn handle(
         return error_json(StatusCode::BAD_REQUEST, "invalid_id");
     }
     // 3) HubSpot 設定
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     // 4) 読み取り。同時実行の枠待ちも含めて全体に締め切りを付ける

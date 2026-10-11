@@ -547,7 +547,7 @@ Core Seat 運用へ戻すことは可能。
 
 決定済み (2026-09-29、ユーザー決定):
 
-- HubSpot の認証: 既存の Service Key (sales-automation-api) を共有して使う。環境変数は `HUBSPOT_ACCESS_TOKEN`。HR_HR 専用キーは発行しない
+- HubSpot の認証 (2026-10-12 改訂、ADR-025): `HUBSPOT_CRM_ACCESS_TOKEN` があれば CRM は専用 private app の鍵を使い、未設定なら既存の `HUBSPOT_ACCESS_TOKEN` を共有する。CRM 以外は従来の鍵を使う。専用鍵を発行しない旧決定を任意設定へ変更する。
 - 読み取りの retry/backoff: 既存バッチとレート上限を共有するため、Search は HR_HR から 1 req/秒まで。429 は max(Retry-After, 最低 1 秒) を待って最大 2 回、401/403 は retry しない
 - 純正ログの再現: しない。純正連携が作った Call に紐づける (ADR-007 改訂、§7)
 - BPO も会社の Google Workspace アカウントを持つ。CRM の認可は Google ログインを前提にする
@@ -557,7 +557,7 @@ Core Seat 運用へ戻すことは可能。
 
 ## 18. HubSpot 呼び出しの関所 (2026-10-08)
 
-状態: 実装済み (PR「HubSpot 呼び出しの関所」)。CRM 利用者 約 100 人の同時利用に備える。
+状態: 実装済み (PR「HubSpot 呼び出しの関所」)。CRM 利用者 約 100 人の同時利用に備える。2026-10-12 に ADR-025 で鍵ごとの枠へ変更。短時間枠は private app 別だが、日次上限と Search の公式上限はアカウントで共有する。管理画面の観測は選択された CRM の鍵の枠を表示する。
 
 ### 背景 / 問題
 
@@ -569,7 +569,7 @@ Core Seat 運用へ戻すことは可能。
 
 ### 決定
 
-1. **関所 (`src/hubspot/gateway.rs`)**: プロセスに 1 つ。本番の HubSpot クライアントは全部 `HubSpotClient::for_production` でこれに繋ぐ (CRM・求人票コピー・営業KPI 直読み・管理画面の鍵確認)。求人票コピーの独自クライアントは `HubSpotClient::read_raw` (retry しない生の読み取り) に置き換えた。画像連携の運用 CLI の書き込み 2 本 (プロパティ作成・PATCH) は読み取り専用クライアントに書き込み API を置かない方針のため独自の HTTP のまま、ただし送る前に関所の許可を得る。
+1. **関所 (`src/hubspot/gateway.rs`)**: プロセス内の鍵ごとに 1 つ (ADR-025)。同じ鍵の本番 HubSpot クライアントは全部 `HubSpotClient::for_production` でこれに繋ぐ (CRM・求人票コピー・営業KPI 直読み・管理画面の鍵確認)。求人票コピーの独自クライアントは `HubSpotClient::read_raw` (retry しない生の読み取り) に置き換えた。画像連携の運用 CLI の書き込み 2 本 (プロパティ作成・PATCH) は読み取り専用クライアントに書き込み API を置かない方針のため独自の HTTP のまま、ただし送る前に関所の許可を得る。
    - 窓: Search 以外は「1 秒 8 回・10 秒 80 回」、Search は「1 秒 3 回」(環境変数で変更可。`docs/env_variables_reference.md` §2d-2)。直近の許可時刻で数えるので、どの区間を切り取っても超えない。HubSpot の上限の残り (10 秒 110 回・1 秒 11 回・Search 2 回/秒) は外部バッチの分。Search は従来クライアントごとに 1 回/秒だったが、負荷試験 (100 人、2026-10-08) で朝の架電キューの先頭ページの約 9 割が 20 秒の締め切りに間に合わず、HubSpot の上限には届いていなかったため 3 回/秒に上げた (§17 の「Search は 1 req/秒」の決定をこの節で置き換える)。
    - 優先度: `Interactive` (画面の操作) と `Background` (定義系キャッシュの先読み・営業KPI 直読み・運用 CLI)。待ち行列は優先度ごとで、画面の操作の列が空のときだけ背景が進む。
    - 待ちの上限: 画面の操作 5 秒・背景 60 秒。並んだ時点の見込み (窓が空くまで + 前に並ぶ数 × 間隔) が上限を超えるなら並ばずに、並んだ後でも上限に達したら列から抜けて、HubSpot を呼ばずに `HubSpotError::Busy` → 503 `hubspot_busy`。画面は「HubSpot が混み合っています。少し待ってから再試行してください」。締め切りで打ち切られた要求の順番待ちは列から外れる (後ろの人の Search の順番を食わない)。

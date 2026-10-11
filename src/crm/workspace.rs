@@ -588,7 +588,7 @@ pub(super) async fn get_workspace_deal(
         return error_json(StatusCode::BAD_REQUEST, "invalid_properties");
     };
     // 3) HubSpot 設定
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     // 4) キャッシュ。`fresh` ならその案件の全キーを捨てて読み直す (画面の「最新にする」・通話が終わった後)。

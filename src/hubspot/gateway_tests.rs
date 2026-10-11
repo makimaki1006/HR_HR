@@ -483,3 +483,51 @@ async fn 受け入れの見積もりは枠も列も取らずに_読み取りと_
         let _ = w.await;
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn 同じ鍵は共有し異なる鍵の通常枠と検索枠と429停止を分離する() {
+    let a = Gateway::shared_for_token("fake-crm-scope-pool-A-6543");
+    let a2 = Gateway::shared_for_token(" fake-crm-scope-pool-A-6543 ");
+    let b = Gateway::shared_for_token("fake-batch-scope-pool-B-9876");
+    assert!(Arc::ptr_eq(&a, &a2));
+    assert!(!Arc::ptr_eq(&a, &b));
+    assert_eq!(a.cfg.per_second, 8);
+    assert_eq!(a.cfg.per_10s, 80);
+    assert_eq!(a.cfg.search_interval, Duration::from_millis(333));
+    for _ in 0..8 {
+        a.acquire(Lane::General, Priority::Interactive)
+            .await
+            .unwrap();
+    }
+    let waiting = {
+        let a = a.clone();
+        tokio::spawn(async move { a.acquire(Lane::General, Priority::Interactive).await })
+    };
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished());
+    let now = Instant::now();
+    b.acquire(Lane::General, Priority::Interactive)
+        .await
+        .unwrap();
+    assert_eq!(Instant::now(), now, "別の鍵は通常枠が満杯でも待たない");
+    a.acquire(Lane::Search, Priority::Interactive)
+        .await
+        .unwrap();
+    let search_wait = {
+        let a = a.clone();
+        tokio::spawn(async move { a.acquire(Lane::Search, Priority::Interactive).await })
+    };
+    tokio::task::yield_now().await;
+    assert!(!search_wait.is_finished());
+    b.acquire(Lane::Search, Priority::Interactive)
+        .await
+        .unwrap();
+    assert_eq!(Instant::now(), now, "別の鍵は検索枠を共有しない");
+    a.on_rate_limited(Some(Duration::from_secs(2)));
+    b.acquire(Lane::General, Priority::Interactive)
+        .await
+        .unwrap();
+    assert_eq!(Instant::now(), now, "429 の停止も鍵ごと");
+    waiting.abort();
+    search_wait.abort();
+}

@@ -86,9 +86,17 @@ pub struct AppState {
     /// Google Workspace OIDC ログイン (ADR-017)。GOOGLE_OIDC_* が 4 つ揃っていなければ None で、
     /// ログイン画面にボタンを出さず /auth/google/* は 404。
     pub google_oidc: Option<Arc<auth::google_oidc::GoogleOidc>>,
-    /// HubSpot CRM API (読み取り、Headless CRM)。`HUBSPOT_ACCESS_TOKEN` 未設定なら None で、
-    /// `/api/crm/*` は 503 `not_configured`。
+    /// 従来の共通 HubSpot クライアント。CRM 専用鍵がなければ CRM もこれを使う。
     pub hubspot: Option<Arc<hubspot::HubSpotClient>>,
+    /// CRM 専用。未設定時は既存の hubspot を共用する。
+    pub crm_hubspot: Option<Arc<hubspot::HubSpotClient>>,
+}
+
+impl AppState {
+    /// CRM の画面・保存・返信巡回は同じクライアントを使う。
+    pub fn crm_hubspot(&self) -> Option<Arc<hubspot::HubSpotClient>> {
+        self.crm_hubspot.clone().or_else(|| self.hubspot.clone())
+    }
 }
 
 /// アプリケーションRouter構築
