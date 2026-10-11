@@ -1,4 +1,5 @@
 //! Background-only reply import. Gmail is read only for IDs from our send ledger.
+mod history;
 mod parser;
 use super::{EmailError, EmailService};
 use crate::{
@@ -22,7 +23,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use tower_sessions::Session;
 use ts_rs::TS;
 
@@ -133,38 +134,42 @@ impl EmailService {
             .send()
             .await
             .map_err(|_| EmailError::GmailUnavailable)?;
-        match response.status().as_u16() {
-            401 => Err(EmailError::GrantRequired),
-            403 => {
-                let body: Value = response.json().await.unwrap_or_default();
-                let quota = body["error"]["errors"].as_array().is_some_and(|errors| {
-                    errors.iter().any(|e| {
-                        matches!(
-                            e["reason"].as_str(),
-                            Some(
-                                "rateLimitExceeded"
-                                    | "userRateLimitExceeded"
-                                    | "quotaExceeded"
-                                    | "dailyLimitExceeded"
-                            )
-                        )
-                    })
-                });
-                Err(if quota {
-                    EmailError::GmailUnavailable
-                } else {
-                    EmailError::GrantRequired
-                })
-            }
-            404 => Ok(Value::Null), // A deleted thread/message must not block other replies.
-            200..=299 => response
-                .json()
-                .await
-                .map_err(|_| EmailError::GmailUnavailable),
-            _ => Err(EmailError::GmailUnavailable),
-        }
+        gmail_response(response).await
     }
 }
+async fn gmail_response(response: reqwest::Response) -> Result<Value, EmailError> {
+    match response.status().as_u16() {
+        401 => Err(EmailError::GrantRequired),
+        403 => {
+            let body: Value = response.json().await.unwrap_or_default();
+            let quota = body["error"]["errors"].as_array().is_some_and(|errors| {
+                errors.iter().any(|e| {
+                    matches!(
+                        e["reason"].as_str(),
+                        Some(
+                            "rateLimitExceeded"
+                                | "userRateLimitExceeded"
+                                | "quotaExceeded"
+                                | "dailyLimitExceeded"
+                        )
+                    )
+                })
+            });
+            Err(if quota {
+                EmailError::GmailUnavailable
+            } else {
+                EmailError::GrantRequired
+            })
+        }
+        404 => Ok(Value::Null), // A deleted thread/message must not block other replies.
+        200..=299 => response
+            .json()
+            .await
+            .map_err(|_| EmailError::GmailUnavailable),
+        _ => Err(EmailError::GmailUnavailable),
+    }
+}
+
 async fn db<T: Send + 'static>(
     audit: &AuditDb,
     f: impl FnOnce(&TursoDb) -> Result<T, String> + Send + 'static,
@@ -213,117 +218,104 @@ pub async fn run_round(
             if !threads.is_empty() {
                 let refresh = service.refresh_token(audit, &who).await?;
                 let token = service.access_token(&refresh).await?;
-                let mut checked = HashSet::new();
-                for original in threads {
-                    let Some(email) = original.payload.email.as_ref() else {
-                        continue;
-                    };
-                    let Some(gmail) = &email.gmail else {
-                        continue;
-                    };
-                    if !checked.insert(gmail.thread_id.clone()) {
+                let old = history::cursor(audit, &who).await?;
+                let (next, candidates) =
+                    history::candidates(service, &token, old.as_deref(), threads).await?;
+                let mut complete = true;
+                for (metadata, original) in candidates {
+                    let metadata = &metadata;
+                    let email = original.payload.email.as_ref().ok_or(EmailError::Invalid)?;
+                    let gmail = email.gmail.as_ref().ok_or(EmailError::Invalid)?;
+                    if imports >= 50 {
+                        complete = false;
+                        break;
+                    }
+                    if !parser::external(metadata, &who, domains, &email.sent_at) {
                         continue;
                     }
-                    let thread = match service
-                        .reply_get(&token, "threads", &gmail.thread_id, "metadata")
-                        .await
+                    let rfc = parser::header(metadata, "Message-ID");
+                    if rfc.is_empty() {
+                        continue;
+                    }
+                    let op = operation_id(&rfc);
+                    let key = op.clone();
+                    if db(audit, move |t| pending::get_op(t, &key))
+                        .await?
+                        .is_some()
                     {
-                        Ok(thread) => thread,
+                        continue;
+                    }
+                    let Some(id) = metadata["id"].as_str() else {
+                        continue;
+                    };
+                    let message = match service.reply_get(&token, "messages", id, "full").await {
+                        Ok(message) => message,
                         Err(EmailError::GrantRequired) => return Err(EmailError::GrantRequired),
                         Err(e) => {
-                            tracing::warn!(error_kind = e.code(), "Gmail reply thread unavailable");
-                            continue;
+                            tracing::warn!(
+                                error_kind = e.code(),
+                                "Gmail reply message unavailable"
+                            );
+                            return Err(e);
                         }
                     };
-                    let Some(messages) = thread["messages"].as_array() else {
+                    if message.is_null() {
                         continue;
+                    }
+                    if message["threadId"].as_str() != Some(&gmail.thread_id)
+                        || message["id"].as_str() != Some(id)
+                        || parser::header(&message, "Message-ID") != rfc
+                    {
+                        return Err(EmailError::Invalid);
+                    }
+                    if !parser::external(&message, &who, domains, &email.sent_at) {
+                        continue;
+                    }
+                    let incoming = match parser::parse(&message, email) {
+                        Ok(incoming) => incoming,
+                        Err(e) => {
+                            tracing::warn!(
+                                error_kind = e.code(),
+                                "Gmail reply content unavailable"
+                            );
+                            return Err(e);
+                        }
                     };
-                    for metadata in messages {
-                        if imports >= 50 {
-                            break;
+                    let key = op.clone();
+                    let name = who.clone();
+                    let deal = original.deal_id.clone();
+                    let payload = pending::Payload {
+                        steps: vec![],
+                        email: Some(incoming),
+                    };
+                    let inserted = db(audit, move |t| {
+                        if pending::get_op(t, &key)?.is_some() {
+                            return Ok(false);
                         }
-                        if !parser::external(metadata, &who, domains, &email.sent_at) {
-                            continue;
-                        }
-                        let rfc = parser::header(metadata, "Message-ID");
-                        if rfc.is_empty() {
-                            continue;
-                        }
-                        let op = operation_id(&rfc);
-                        let key = op.clone();
-                        if db(audit, move |t| pending::get_op(t, &key))
-                            .await?
-                            .is_some()
-                        {
-                            continue;
-                        }
-                        let Some(id) = metadata["id"].as_str() else {
-                            continue;
-                        };
-                        let message = match service.reply_get(&token, "messages", id, "full").await
-                        {
-                            Ok(message) => message,
-                            Err(EmailError::GrantRequired) => {
-                                return Err(EmailError::GrantRequired)
-                            }
+                        match pending::insert_op(t, &key, &name, &deal, &payload, "emails") {
+                            Ok(()) => Ok(true),
                             Err(e) => {
-                                tracing::warn!(
-                                    error_kind = e.code(),
-                                    "Gmail reply message unavailable"
-                                );
-                                continue;
-                            }
-                        };
-                        if message["threadId"].as_str() != Some(&gmail.thread_id)
-                            || message["id"].as_str() != Some(id)
-                            || parser::header(&message, "Message-ID") != rfc
-                            || !parser::external(&message, &who, domains, &email.sent_at)
-                        {
-                            continue;
-                        }
-                        let incoming = match parser::parse(&message, email) {
-                            Ok(incoming) => incoming,
-                            Err(e) => {
-                                tracing::warn!(
-                                    error_kind = e.code(),
-                                    "Gmail reply content unavailable"
-                                );
-                                continue;
-                            }
-                        };
-                        let key = op.clone();
-                        let name = who.clone();
-                        let deal = original.deal_id.clone();
-                        let payload = pending::Payload {
-                            steps: vec![],
-                            email: Some(incoming),
-                        };
-                        let inserted = db(audit, move |t| {
-                            if pending::get_op(t, &key)?.is_some() {
-                                return Ok(false);
-                            }
-                            match pending::insert_op(t, &key, &name, &deal, &payload, "emails") {
-                                Ok(()) => Ok(true),
-                                Err(e) => {
-                                    if pending::get_op(t, &key)?.is_some() {
-                                        Ok(false)
-                                    } else {
-                                        Err(e)
-                                    }
+                                if pending::get_op(t, &key)?.is_some() {
+                                    Ok(false)
+                                } else {
+                                    Err(e)
                                 }
                             }
-                        })
-                        .await?;
-                        if !inserted {
-                            continue;
                         }
-                        imports += 1;
-                        let mut incoming = db(audit, move |t| pending::get_op(t, &op))
-                            .await?
-                            .ok_or(EmailError::Storage)?;
-                        record(audit, client, &mut incoming).await?;
-                        super::write_wake();
+                    })
+                    .await?;
+                    if !inserted {
+                        continue;
                     }
+                    imports += 1;
+                    let mut incoming = db(audit, move |t| pending::get_op(t, &op))
+                        .await?
+                        .ok_or(EmailError::Storage)?;
+                    record(audit, client, &mut incoming).await?;
+                    super::write_wake();
+                }
+                if complete {
+                    history::save(audit, &who, old, next).await?;
                 }
             }
             Ok::<_, EmailError>(())
