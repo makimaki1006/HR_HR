@@ -54,9 +54,14 @@ describe('全文で検知して列で特定する', () => {
     expect(result.status).toBe('changed');
     expect(result.changes.map(item => item.key)).toEqual(['案件名']);
   });
-  it('両端の空白・改行コードだけは揃え、内部の空白を保持する', () => {
-    expect(compareColumns(before, `\u3000\r\n${before.replaceAll('\n', '\r\n')}\r\n `).status).toBe('unchanged');
+  it('両端の空白・改行コードも原文の変更として保持する', () => {
+    expect(compareColumns(before, `\u3000\r\n${before.replaceAll('\n', '\r\n')}\r\n `).status).toBe('changed');
     expect(compareColumns('仕事内容：配送 スタッフ', '仕事内容：配送　スタッフ').status).toBe('changed');
+  });
+  it.each([' ', '　', '\t', '\n', '\r\n'])('末尾の空白%jを列の変更として示す', suffix => {
+    const result = compareColumns('仕事内容：配送', `仕事内容：配送${suffix}`);
+    expect(result.status).toBe('changed');
+    expect(result.changes).toMatchObject([{ key: '仕事内容', before: '配送', after: `配送${suffix}` }]);
   });
   it('列定義にない見出しとその複数行本文をその他として捨てない', () => {
     const left = `${before}\n独自の待遇：家賃補助20,000円/月\n祝い金あり`;

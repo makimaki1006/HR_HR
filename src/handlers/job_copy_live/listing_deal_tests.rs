@@ -1,6 +1,55 @@
 //! Concrete summary and batch paging tests, using local mock servers only.
 use super::*;
 #[test]
+fn job_copy_deal_salary_sort_matches_display_normalization() {
+    for salary in [
+        "250000 ",
+        " 250000",
+        "　２５０，０００　",
+        "250,000\t",
+        "250000.5 ",
+    ] {
+        let record: Record =
+            serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"H1"}})).unwrap();
+        let mut first = listing(&record, &[]).unwrap();
+        first.summary.salary_min = Some(salary.into());
+        first.summary.salary_max = Some(salary.into());
+        let mut second = first.clone();
+        second.id = "2".into();
+        second.summary.salary_min = Some("9000".into());
+        second.summary.salary_max = Some("9000".into());
+        let index = Index {
+            records: vec![first, second],
+            deals: vec![],
+            titles: vec![],
+            built_at: "2026-10-11T00:00:00Z".into(),
+        };
+        for sort in ["salary_min", "salary_max"] {
+            for descending in [false, true] {
+                let (_, rows) = selected_page(
+                    &index,
+                    &ListingsQuery {
+                        sort: Some(sort.into()),
+                        descending: Some(descending),
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(
+                    rows.iter()
+                        .map(|row| row.listing.id.as_str())
+                        .collect::<Vec<_>>(),
+                    if descending {
+                        vec!["1", "2"]
+                    } else {
+                        vec!["2", "1"]
+                    },
+                    "{salary:?} {sort} descending={descending}"
+                );
+            }
+        }
+    }
+}
+#[test]
 fn job_copy_deal_summary_sort_and_body_date_are_explicit_columns() {
     let record: Record = serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"H1","todoufuken":"沖縄県","shikuchouson":"那覇市","hrh_kyuujinhyou_honbun":"仕事内容：月給99万円で日曜日が休みです\nIndeed表示職種名：配送ドライバー\n給与形態：月給\n基本給与 最小：250000\n基本給与 最大：300000\n勤務時間：8:00〜17:00\n自由項目1のタイトル：休日・休暇\n自由項目1の内容：土日休み"}})).unwrap();
     let mut first = listing(&record, &[]).unwrap();

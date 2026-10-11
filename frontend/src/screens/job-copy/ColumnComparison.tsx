@@ -3,7 +3,6 @@ import draftColumns from '../../generated/jobgen/columns.json';
 import { manualLabel } from './manualEditModel';
 import { compareCopy, markInlineChanges, type CopyComparison, type MarkedDiffLine } from './diff';
 const columns = [...new Set([...draftColumns, ...shared])];
-export const normalizeFullBody = (text: string) => text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
 /** 保存形式の列名＋区切り文字だけを読む。本文の意味や保険・手当などの語では分類しない。 */
 export function savedColumns(text: string, referenceRow?: Readonly<Record<string, string>>): Map<string, string> {
   const result = new Map<string, string>();
@@ -54,8 +53,9 @@ export function savedColumns(text: string, referenceRow?: Readonly<Record<string
 export interface ColumnChange { key: string; before: string | undefined; after: string | undefined; kind: '追加' | '削除' | '変更'; lines: MarkedDiffLine[] }
 export interface ColumnResult extends CopyComparison { changes: ColumnChange[]; beforeValues?: Record<string, string>; afterValues?: Record<string, string> }
 export function compareColumns(before: string | null, after: string | null, beforeRow?: Readonly<Record<string, string>>, afterRow?: Readonly<Record<string, string>>): ColumnResult {
-  const left = before === null ? null : normalizeFullBody(before);
-  const right = after === null ? null : normalizeFullBody(after);
+  // 空白や改行コードも保存された値の一部として比較する。
+  const left = before;
+  const right = after;
   const raw = compareCopy(left, right);
   const comparison: CopyComparison = left !== null && right !== null ? {
     ...raw, status: left === right && !(beforeRow && afterRow && [...new Set([...Object.keys(beforeRow), ...Object.keys(afterRow)])].some(key => beforeRow[key] !== afterRow[key])) ? 'unchanged' : 'changed',
