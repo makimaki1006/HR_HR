@@ -2,8 +2,10 @@
 import type { DraftSource } from "./DraftSource";
 import type { DraftStatus } from "./DraftStatus";
 import type { FactField } from "./FactField";
+import type { ManualEdit } from "./ManualEdit";
+import type { ReviewEvent } from "./ReviewEvent";
 
 /**
  * 自己完結した控えで、項目ごとの履歴時刻のずれ・同じ本文の再保存にも対応する。
  */
-export type DraftSnapshot = { schema_version: number, draft_id: string, created_at: string, source_kind: DraftSource, review_status: DraftStatus, row: { [key in string]: string }, facts: { [key in string]: FactField }, source_text?: string, };
+export type DraftSnapshot = { schema_version: number, draft_id: string, created_at: string, source_kind: DraftSource, review_status: DraftStatus, row: { [key in string]: string }, facts: { [key in string]: FactField }, source_text?: string, manual_edit?: ManualEdit, review_events?: Array<ReviewEvent>, };

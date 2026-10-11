@@ -17,12 +17,14 @@ const conditional = /^条件付き給与([1-3])(?:の|\s*)(条件|深夜帯|最�
  * column-like lines in an earlier multiline value. The source format is unescaped.
  */
 export function parseHrhFields(body: string): Map<string, string> {
-  const lines = body.split(/\r?\n/);
-  const candidates: { line: number; rank: number; value: string; length: number; next: number | null }[] = [];
+  const lines = body.split('\n');
+  const offsets: number[] = []; let offset = 0;
+  for (const line of lines) { offsets.push(offset); offset += line.length + 1; }
+  const candidates: { line: number; rank: number; start: number; length: number; next: number | null }[] = [];
   lines.forEach((line, index) => {
-    const match = /^([^：:]+)[：:](.*)$/.exec(line);
+    const match = /^([^：:]+)[：:]([\s\S]*)$/.exec(line);
     const rank = columns.indexOf(match?.[1]?.trim() ?? '');
-    if (match && rank >= 0) candidates.push({ line: index, rank, value: match[2] ?? '', length: 1, next: null });
+    if (match && rank >= 0) candidates.push({ line: index, rank, start: (offsets[index] ?? 0) + (match[1]?.length ?? 0) + 1, length: 1, next: null });
   });
   const best: (number | undefined)[] = Array.from({ length: columns.length });
   for (let i = candidates.length - 1; i >= 0; i--) {
@@ -38,8 +40,10 @@ export function parseHrhFields(body: string): Map<string, string> {
   let index: number | null = candidates.length ? 0 : null;
   while (index !== null) {
     const candidate = candidates[index]; if (!candidate) break;
-    const end = candidate.next === null ? lines.length : candidates[candidate.next]?.line ?? lines.length;
-    fields.set(columns[candidate.rank] ?? '', [candidate.value, ...lines.slice(candidate.line + 1, end)].join('\n').trim());
+    let end = candidate.next === null ? body.length : offsets[candidates[candidate.next]?.line ?? lines.length] ?? body.length;
+    // 次の項目との区切り一つだけを除き、値内の空白・改行は原文のまま保持する。
+    if (candidate.next !== null && body[end - 1] === '\n') { end--; if (body[end - 1] === '\r') end--; }
+    fields.set(columns[candidate.rank] ?? '', body.slice(candidate.start, end));
     index = candidate.next;
   }
   return fields;
@@ -55,7 +59,8 @@ export function hrhCopySections(body: string): BodySection[] {
   const fields = parseHrhFields(body);
   // Earlier saved plain descriptions are still readable.
   if (!fields.size) return [{ heading: '仕事内容', text: body }];
-  const get = (key: string) => fields.get(key) ?? '';
+  // 読みやすさのための整形は表示だけに限定する。編集・保存用の値は加工しない。
+  const get = (key: string) => (fields.get(key) ?? '').trim();
   const sections: BodySection[] = [];
   const add = (heading: string, text: string) => { if (text.trim()) sections.push({ heading, text }); };
   const simple = (keys: string[]) => { for (const key of keys) add(labels[key] ?? 'その他', get(key)); };
@@ -74,7 +79,7 @@ export function hrhCopySections(body: string): BodySection[] {
   if (get('給与形態') || get('基本給与 最小') || get('基本給与 最大')) add('給与', composeSalary(get('給与形態'), get('基本給与 最小'), get('基本給与 最大')));
   const payDetails = workTime();
   for (let n = 1; n <= 3; n++) {
-    const conditionFields = [...fields].filter(([key]) => conditional.exec(key)?.[1] === String(n));
+    const conditionFields = [...fields].map(([key, value]) => [key, value.trim()] as const).filter(([key]) => conditional.exec(key)?.[1] === String(n));
     const value = (suffix: string) => conditionFields.find(([key]) => conditional.exec(key)?.[2] === suffix)?.[1] ?? '';
     if (conditionFields.some(([, text]) => text)) {
       const amount = value('最小給与') || value('最大給与') ? composeSalary(get('給与形態'), value('最小給与'), value('最大給与')) : '';

@@ -87,6 +87,35 @@ pub struct DraftSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub source_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub manual_edit: Option<ManualEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub review_events: Option<Vec<ReviewEvent>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ManualDraftRequest {
+    pub operation_id: String,
+    pub base_revision: String,
+    pub base_body_hash: String,
+    pub base_draft_id: Option<String>,
+    pub row: BTreeMap<String, String>,
+    pub reason: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ManualEdit {
+    pub published_hash: String,
+    pub base_draft_id: Option<String>,
+    pub reason: String,
+    pub changed_conditions: Vec<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ReviewEvent {
+    pub actor: String,
+    pub at: String,
+    pub status: DraftStatus,
 }
 pub fn hash(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
@@ -170,6 +199,8 @@ impl DraftSnapshot {
             })
             .collect();
         let result = Self {
+            manual_edit: None,
+            review_events: None,
             schema_version: 1,
             draft_id: req.operation_id.clone(),
             created_at: created.to_rfc3339(),

@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import type { JobCopyRecord } from './data';
-import { listingRecord, mediaLabel } from './hubspotListings';
+import { listingRecord, mediaLabel, draftStateLabel } from './hubspotListings';
 import type { HubSpotListingPage, HubSpotVersions } from './hubspotListings';
 import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined }) {
+export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; revision?: number }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
   const [media, setMedia] = useState('');
+  const [publication, setPublication] = useState('');
+  const [draftStatus, setDraftStatus] = useState('');
   const [sort, setSort] = useState('title');
   const [titles, setTitles] = useState<string[]>([]);
   const [page, setPage] = useState<HubSpotListingPage | null>(null);
@@ -28,22 +30,27 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     if (prefecture) query.set('prefecture', prefecture);
     if (title) query.set('title', title);
     if (media) query.set('media', media);
+    if (publication) query.set('publication', publication);
+    if (draftStatus) query.set('draft_status', draftStatus);
     const result = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${query.toString()}`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
     if (result.ok) { setPage(result.data); if (result.data.titles.length) setTitles(result.data.titles); } else setError(message(result.error));
     setBusy(false);
-  }, [prefecture, title, media, sort]);
+  }, [prefecture, title, media, sort, publication, draftStatus]);
   useEffect(() => {
     if (!active) { listRequest.current?.abort(); detailRequest.current?.abort(); return; }
     const timer = window.setTimeout(() => { void load(); }, 0);
     return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
-  }, [active, load]);
+  }, [active, load, revision]);
   useEffect(() => {
     if (!active || page?.status !== 'preparing' || busy || error) return;
     const timer = window.setTimeout(() => { void load(); }, 5_000);
     return () => { window.clearTimeout(timer); };
   }, [active, page, busy, error, load]);
+  const opened = useRef('');
+  const restored = useRef('');
   const openId = useCallback(async (id: string) => {
+    opened.current = id;
     detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
     setSelected(id); setError(''); onLoading?.();
     const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
@@ -51,8 +58,13 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     if (result.ok) { onOpen(listingRecord(result.data)); }
     else { const text = message(result.error); setError(text); onFailure?.(text); }
   }, [onOpen, onLoading, onFailure]);
-  const opened = useRef('');
-  useEffect(() => { if (active && initialListingId && /^\d{1,20}$/.test(initialListingId) && opened.current !== initialListingId) { opened.current = initialListingId; void openId(initialListingId); } }, [active, initialListingId, openId]);
+  useEffect(() => {
+    if (!active) return;
+    if (!initialListingId) { restored.current = ''; return; }
+    if (!/^\d{1,20}$/.test(initialListingId) || restored.current === initialListingId) return;
+    restored.current = initialListingId;
+    if (opened.current !== initialListingId) void openId(initialListingId);
+  }, [active, initialListingId, openId]);
   const rows = sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [];
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
     <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>
@@ -60,6 +72,8 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
       <label>都道府県<select aria-label="都道府県" value={prefecture} onChange={event => { setPrefecture(event.target.value); }}><option value="">すべて</option>{AREA_MASTER.map(([pref]) => <option key={pref} value={pref}>{pref}</option>)}</select></label>
       <label>職種の分類<select aria-label="職種の分類" value={title} onChange={event => { setTitle(event.target.value); }}><option value="">すべて</option><option value="unknown">不明</option>{titles.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
       <label>媒体<select aria-label="媒体" value={media} onChange={event => { setMedia(event.target.value); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label>
+      <label>公開状況<select aria-label="公開状況" value={publication} onChange={event => { setPublication(event.target.value); }}><option value="">すべて</option><option value="unknown">未取得</option>{(page?.publication_statuses ?? ['公開', '非公開', '公開開始前', '公開終了', '掲載中', '掲載終了']).map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+      <label>案の確認状態<select aria-label="案の確認状態で絞り込む" value={draftStatus} onChange={event => { setDraftStatus(event.target.value); }}><option value="">すべて</option><option value="pending">確認待ち</option><option value="adopted">採用</option><option value="rejected">見送り</option><option value="none">案なし・未取得</option></select></label>
       <label>並び順<select aria-label="並び順" value={sort} onChange={event => { setSort(event.target.value); }}><option value="title">求人名順</option><option value="media">媒体順</option><option value="applications">表示中の応募が多い順</option></select></label>
     </div></details>
     <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(); }}>求人を取得</button>
@@ -69,7 +83,7 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
       {page.refreshing && <p role="status">一覧を更新中です。表示している時点の一覧を利用できます。</p>}
       {page.refresh_failed && <p role="status">一覧の更新を取得できませんでした。表示している時点の一覧を利用しています。</p>}
       <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の本文を見る`} onClick={() => { void openId(row.id); }}>
-        <strong>{row.title ?? '求人名未取得'}</strong><span className="jc-job-company"><span className="jc-publication">{row.publication_status ?? '未取得'}</span></span>
+        <strong>{row.title ?? '求人名未取得'}</strong><span className="jc-job-company"><span className="jc-publication">{row.publication_status ?? '未取得'}</span><span>案：{row.draft_status ? draftStateLabel(row.draft_status) : '案なし・未取得'}</span></span>
         <span className="jc-job-location">{row.prefecture ?? '不明'}{row.municipality ?? ''} · {mediaLabel(row.media)} · {row.category ?? '職種不明'}</span>
         <span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small></span>
         <span className="jc-visually-hidden">媒体の一覧で最後に確認した日：{formatDateTimeJst(row.last_csv_detected_at, '未取得')}</span>
