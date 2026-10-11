@@ -564,3 +564,221 @@ fn export_tracking_types() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend/src/generated");
     EmailTrackingSummary::export_all(&ts_rs::Config::new().with_out_dir(dir)).unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn yearly_purge_uses_sent_time_and_removes_all_three_tables_together() {
+    let (store, conn) = store().await;
+    let cutoff = 1_800_000_000_000i64;
+    for (n, created_at, sent_at) in [
+        (1, cutoff - 100, Some(cutoff - 1)),
+        (2, cutoff - 100, Some(cutoff)),
+        (3, cutoff - 100, Some(cutoff + 1)),
+        (4, cutoff - 1, None),
+        (5, cutoff + 1, None),
+    ] {
+        let id = format!("{n:032x}");
+        store
+            .save(
+                SentEmail {
+                    tracking_id: id.clone(),
+                    meta: meta(),
+                    created_at,
+                    sent_at: None,
+                },
+                vec![TrackingLink {
+                    link_no: 1,
+                    url: "https://saved.invalid".into(),
+                }],
+            )
+            .await
+            .unwrap();
+        conn.lock()
+            .unwrap()
+            .execute(
+                "UPDATE crm_email_tracking SET sent_at=? WHERE tracking_id=?",
+                rusqlite::params![sent_at, id],
+            )
+            .unwrap();
+        for (kind, link_no) in [("open", 0), ("click", 1)] {
+            store
+                .record(TrackingEvent {
+                    tracking_id: id.clone(),
+                    kind,
+                    link_no,
+                    at: cutoff + 100,
+                    automatic: false,
+                })
+                .await
+                .unwrap();
+        }
+    }
+    // A database created by the first version has the tables but no purge trigger yet.
+    conn.lock()
+        .unwrap()
+        .execute("DROP TRIGGER crm_email_tracking_delete_children", [])
+        .unwrap();
+    let db = store.audit.turso().clone();
+    tokio::task::spawn_blocking(move || {
+        purge_old_tracking(&db, cutoff).unwrap();
+        purge_old_tracking(&db, cutoff).unwrap();
+    })
+    .await
+    .unwrap();
+    {
+        let db = conn.lock().unwrap();
+        for (table, expected) in [
+            ("crm_email_tracking", 3),
+            ("crm_email_tracking_links", 3),
+            ("crm_email_tracking_events", 6),
+        ] {
+            assert_eq!(
+                db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                expected
+            );
+        }
+        let remaining = db
+            .prepare("SELECT tracking_id FROM crm_email_tracking ORDER BY tracking_id")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(remaining, [2, 3, 5].map(|n| format!("{n:032x}")));
+    }
+    let app = router(Arc::new(TrackingContext::new(
+        Some(store),
+        CrmAccess::default(),
+    )))
+    .with_state(state());
+    let expired = format!("{:032x}", 1);
+    assert_eq!(
+        get(&app, &format!("/t/c/{expired}/1")).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        body(get(&app, &format!("/t/o/{expired}.gif")).await).await,
+        GIF
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_child_purge_rolls_back_parent_and_all_measurements() {
+    let (store, conn) = store().await;
+    let tracked = instrument_html(
+        store.as_ref(),
+        "https://hr.invalid",
+        "<a href='https://saved.invalid'>x</a>",
+        meta(),
+    )
+    .await
+    .unwrap();
+    store
+        .record(TrackingEvent {
+            tracking_id: tracked.tracking_id,
+            kind: "open",
+            link_no: 0,
+            at: 1,
+            automatic: false,
+        })
+        .await
+        .unwrap();
+    conn.lock().unwrap().execute_batch(
+        "CREATE TRIGGER fail_tracking_purge BEFORE DELETE ON crm_email_tracking_events BEGIN SELECT RAISE(ABORT,'test failure'); END;"
+    ).unwrap();
+    let db = store.audit.turso().clone();
+    let cutoff = Utc::now().timestamp_millis() + 60_000;
+    tokio::task::spawn_blocking(move || assert!(purge_old_tracking(&db, cutoff).is_err()))
+        .await
+        .unwrap();
+    {
+        let db = conn.lock().unwrap();
+        for table in [
+            "crm_email_tracking",
+            "crm_email_tracking_links",
+            "crm_email_tracking_events",
+        ] {
+            assert_eq!(
+                db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+        }
+        db.execute("DROP TRIGGER fail_tracking_purge", []).unwrap();
+    }
+    let db = store.audit.turso().clone();
+    tokio::task::spawn_blocking(move || purge_old_tracking(&db, cutoff).unwrap())
+        .await
+        .unwrap();
+    for table in [
+        "crm_email_tracking",
+        "crm_email_tracking_links",
+        "crm_email_tracking_events",
+    ] {
+        assert_eq!(
+            conn.lock()
+                .unwrap()
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn existing_audit_purge_handles_uninstalled_and_disabled_tracking() {
+    let (audit, conn) = crate::audit::fake_turso::start_sqlite_audit().await;
+    let first = audit.clone();
+    tokio::task::spawn_blocking(move || crate::audit::purge_old_activity(&first).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        conn.lock()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'crm_email_tracking%'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    let db = audit.turso().clone();
+    tokio::task::spawn_blocking(move || ensure_tables(&db).unwrap())
+        .await
+        .unwrap();
+    let old = (Utc::now() - chrono::Duration::days(366)).timestamp_millis();
+    let store = AuditTrackingStore::new(audit.clone());
+    store
+        .save(
+            SentEmail {
+                tracking_id: format!("{:032x}", 1),
+                meta: meta(),
+                created_at: old,
+                sent_at: None,
+            },
+            vec![TrackingLink {
+                link_no: 1,
+                url: "https://saved.invalid".into(),
+            }],
+        )
+        .await
+        .unwrap();
+    // No feature/key check in the scheduler path: cleanup keeps working after disabling sending.
+    tokio::task::spawn_blocking(move || crate::audit::purge_old_activity(&audit).unwrap())
+        .await
+        .unwrap();
+    for table in ["crm_email_tracking", "crm_email_tracking_links"] {
+        assert_eq!(
+            conn.lock()
+                .unwrap()
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+}

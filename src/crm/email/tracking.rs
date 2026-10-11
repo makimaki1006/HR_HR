@@ -250,11 +250,39 @@ pub const TRACKING_DDL: &[&str] = &[
     // One measured event per minute, per link and automatic/non-automatic category.
     "CREATE TABLE IF NOT EXISTS crm_email_tracking_events (tracking_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('open','click')), link_no INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, automatic INTEGER NOT NULL CHECK(automatic IN (0,1)), minute INTEGER NOT NULL, PRIMARY KEY(tracking_id,kind,link_no,automatic,minute))",
 ];
+// SQLite executes this trigger in the same transaction as the parent DELETE.
+// Concurrent measurements cannot leave orphaned links/events, and failures roll back all three.
+const PURGE_TRIGGER: &str = "CREATE TRIGGER IF NOT EXISTS crm_email_tracking_delete_children AFTER DELETE ON crm_email_tracking BEGIN DELETE FROM crm_email_tracking_links WHERE tracking_id=OLD.tracking_id; DELETE FROM crm_email_tracking_events WHERE tracking_id=OLD.tracking_id; END";
 pub fn ensure_tables(db: &crate::db::turso_http::TursoDb) -> Result<(), String> {
     for sql in TRACKING_DDL {
         db.execute(sql, &[])?;
     }
+    db.execute(PURGE_TRIGGER, &[])?;
     Ok(())
+}
+
+/// Called by the existing daily audit purge, including when the email feature is OFF.
+/// Unsent preparations have no sent_at, so use created_at to avoid retaining them forever.
+pub fn purge_old_tracking(
+    db: &crate::db::turso_http::TursoDb,
+    cutoff_ms: i64,
+) -> Result<(), String> {
+    let tables = db.query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('crm_email_tracking','crm_email_tracking_links','crm_email_tracking_events')",
+        &[],
+    )?;
+    if tables.is_empty() {
+        return Ok(());
+    }
+    if tables.len() != 3 {
+        return Err("email tracking schema is incomplete".into());
+    }
+    // Also install on databases initialized by the first version, without enabling sending.
+    db.execute(PURGE_TRIGGER, &[])?;
+    db.execute(
+        "DELETE FROM crm_email_tracking WHERE COALESCE(sent_at,created_at) < ?",
+        &[&cutoff_ms],
+    )
 }
 
 /// Uses the existing audit DB. A bounded blocking pool also limits work after HTTP cancellation.
