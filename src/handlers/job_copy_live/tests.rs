@@ -1487,6 +1487,8 @@ async fn job_copy_listings_auth_and_mock_contract() {
                 if query.contains("after=12") {json!({"results":[{"id":"12","properties":{"id_hrhakkaa":"HR-12","todoufuken":"沖縄県","hrh_kyuujinhyou_honbun":"Indeed表示職種名：看護師"}}]})}
                 else if query.contains("after=") {json!({"results":[record], "paging":{"next":{"after":"12"}}})}
                 else {json!({"results":[{"id":"11","properties":{"id_airwork":"AW-11","airwork_account_login_id":"synthetic-account","qinwude":"東京都新宿区","zhizhong":"看護師"}}],"paging":{"next":{"after":"11"}}})}
+            } else if path == "/crm/v4/objects/0-420/10/associations/deals" {
+                json!({"results":[]})
             } else if path == "/crm/v4/associations/0-420/0-421/batch/read" {
                 assert_eq!(req.method(), Method::POST);
                 let body: Value = serde_json::from_slice(&to_bytes(req.into_body(), 4096).await.unwrap()).unwrap();
@@ -1630,7 +1632,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     );
     assert_eq!(data["history_counts"]["hrh_kyuujinhyou_honbun"], 2);
     assert_eq!(data["history_may_be_incomplete"], false);
-    assert_eq!(calls.lock().unwrap().len(), 5); // three index pages, one association batch, one history GET
+    assert_eq!(calls.lock().unwrap().len(), 6); // index, counts, history and detail-only company associations
     session
         .insert(SESSION_USER_KEY, "outside@example.test")
         .await
@@ -1647,6 +1649,6 @@ async fn job_copy_listings_auth_and_mock_contract() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(calls.lock().unwrap().len(), 5);
+    assert_eq!(calls.lock().unwrap().len(), 6);
     task.abort();
 }

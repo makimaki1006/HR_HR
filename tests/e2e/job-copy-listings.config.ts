@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
-  testDir: '.', testIgnore: '**/pr/**', testMatch: ['job_copy_listings.spec.ts', 'job_copy_listings_workspace.spec.ts', 'job_copy_sidebar.spec.ts'], workers: 1, retries: 0,
+  testDir: '.', testIgnore: '**/pr/**', testMatch: ['job_copy_listings.spec.ts', 'job_copy_listings_workspace.spec.ts', 'job_copy_sidebar.spec.ts', 'job_copy_ui_polish.spec.ts'], workers: 1, retries: 0,
   // ユーザー指示: 今回はパソコンのみ確認（スマホの既存テストは実行しない）。
   grepInvert: /390/,
   timeout: 60_000, reporter: 'list', outputDir: '../../data/job-copy-local/listings/test-results',

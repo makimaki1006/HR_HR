@@ -20,7 +20,7 @@ test('30-second image response does not block full body, application counts or t
     await route.fulfill({ status: 200, contentType: 'image/png', body: imageBytes });
     settled = true;
   });
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'body');
   const bodyPanel = jobFeaturePanel(page, 'body');
   const picture = bodyPanel.getByRole('img', { name: '合成の遅延画像', exact: true });
@@ -50,7 +50,7 @@ test('image failure stays separate from zero and retry restores the same referen
     attempts += 1;
     return attempts === 1 ? route.fulfill({ status: 503, body: '' }) : route.fulfill({ status: 200, contentType: 'image/png', body: imageBytes });
   });
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'body');
   const panel = jobFeaturePanel(page, 'body');
   await panel.locator('.jc-image-section').scrollIntoViewIfNeeded();

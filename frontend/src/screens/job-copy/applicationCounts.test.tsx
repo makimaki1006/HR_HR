@@ -18,7 +18,7 @@ const snapshot = () => ({ schemaVersion: 1, capturedAt, capture_bundle: { schema
     joint_demographics: { total: 34, cells: [{ gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 新宿区西新宿2-8-1 ○○ビル301', count: 31 }, { gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 港区芝公園4-2-8', count: 1 }, { gender: '男性', age: '30代', prefecture: '大分県', municipality: '大分県 / 大分市府内町1-1', count: 2 }] } },
   dated_comparison: { total: 34, unknown: 34, basis: '合成の日付対応', by_version: { [versionId]: { count: 0, dimensions: { gender: empty, age: empty, prefecture: empty, municipality: empty } } }, daily_representatives: {} } }] });
 
-beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); });
+beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy?data=actual'); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('one application denominator across panels', () => {

@@ -16,7 +16,7 @@ const market = (path: string) => path.startsWith('/api/job-copy/market') ? Promi
 const loading = () => screen.queryByText(/求人一覧・本文・応募集計を読み込んでいます|読み込みに時間がかかっています/);
 const retry = () => screen.getByRole('button', { name: '求人データを再取得' });
 
-beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); });
+beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy?data=actual'); });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('snapshot recovery without fictional replacement', () => {

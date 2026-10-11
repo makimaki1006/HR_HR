@@ -116,7 +116,7 @@ describe('real-data banner', () => {
   const capturedAt = '2026-10-06T00:00:00.000Z';
   const snapshot = { schemaVersion: 1, capturedAt, capture_bundle: { schemaVersion: 1, capturedAt, jobs: [{ id: 'synthetic-banner', hubspotListingId: '30', title: '合成の求人', company: '合成会社', media: 'HRハッカー', mediaJobId: '12345678', location: '東京都', body: '合成の本文', images: [] }] },
     results: [{ listing_id: '30', summary: { total: 1, missing_date: 0, by_date: { '2026-09-10': 1 }, dimensions: { gender: { 男性: 1 } } }, dated_comparison: null }] };
-  beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); try { window.localStorage.removeItem(DUMMY_BILLING_STORAGE_KEY); } catch { /* storage may be blocked */ } });
+  beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy?data=actual'); try { window.localStorage.removeItem(DUMMY_BILLING_STORAGE_KEY); } catch { /* storage may be blocked */ } });
 
   it('says the billing amounts are made up while 仮の課金データを表示 is on, and not after it is turned off', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify(snapshot), { status: 200, headers: { 'content-type': 'application/json' } }))));

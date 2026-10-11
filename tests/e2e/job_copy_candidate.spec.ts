@@ -86,7 +86,7 @@ test('all 28 linked jobs render 45 proxy references matching 34 unique original 
   const verified = await open(page);
   for (const target of targets) {
     await page.locator('.jc-job').nth(target.index).click();
-    const gallery = page.getByRole('region', { name: 'この版の掲載画像', exact: true });
+    const gallery = page.getByRole('region', { name: 'この本文に対応する掲載画像', exact: true });
     await expect(gallery.getByRole('img')).toHaveCount(target.images.length);
     for (const image of target.images) {
       const imageIndex = await gallery.getByRole('img').evaluateAll((nodes, expected) => nodes.findIndex(node => node.getAttribute('src') === expected), image.url);
@@ -178,7 +178,7 @@ test('expanded image data retains real application totals and the richest job di
     await page.setViewportSize({ width, height: width === 375 ? 812 : 1100 });
     await page.locator('.jc-job').nth(index).click();
     await selectJobFeature(page, 'body');
-    const image = page.getByRole('region', { name: 'この版の掲載画像', exact: true }).getByRole('img').first();
+    const image = page.getByRole('region', { name: 'この本文に対応する掲載画像', exact: true }).getByRole('img').first();
     await image.scrollIntoViewIfNeeded();
     await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

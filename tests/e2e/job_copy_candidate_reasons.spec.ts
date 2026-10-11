@@ -21,7 +21,7 @@ function fixture() {
 
 test('reason originals stay collapsed and escaped, unknown cohorts separate, source filtering and print exclusion', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'reasons');
   const reasons = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
   await expect(reasons).toContainText('応募2件 · 確認した記録欄3つ（応募ごと）');
@@ -59,7 +59,7 @@ test('only explicit published-version associations appear in before and after re
   before.version_id = 'synthetic-before';
   after.version_id = `capture-synthetic-reaction-${data.capturedAt}`;
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'reasons');
   const reasons = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
   await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('表示対象1件');
@@ -90,7 +90,7 @@ function currentFixture() {
 
 test('reason categories: chosen and keyword counts apart, the timeline lane and the overview column', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(currentFixture()) }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'reasons');
   const summary = page.getByRole('region', { name: '応募理由の分類', exact: true });
   await expect(summary).toContainText('n=2（応募2件） · 選択済み1件 · キーワードで推定1件 · 分類できない0件');
@@ -136,7 +136,7 @@ for (const width of [1280, 1440]) {
   test(`the reason column and the period reason table fit at ${String(width)} without squeezing other columns`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(wideFixture()) }));
-    await page.goto('/app/job-copy');
+    await page.goto('/app/job-copy?data=actual');
     await selectJobFeature(page, 'timeline');
     const reasonTable = page.getByRole('region', { name: '期間ごとの応募理由の数値', exact: true });
     await expect(reasonTable).toBeVisible();
@@ -161,7 +161,7 @@ for (const width of [1280, 1440]) {
 
 test('an old stored file: the overview counts texts, says the choices were not read, and the lane says so too', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'timeline');
   await expect(page.getByText('このデータでは分類の選択を取得していないため、数はすべて文から言葉で推定したものです（選択済みは0件ではなく未取得）')).toBeVisible();
   await page.getByRole('button', { name: '横断比較', exact: true }).click();
