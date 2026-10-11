@@ -11,6 +11,9 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
             .execute(sql, &[])
             .map_err(|e| format!("audit schema failed on `{sql}`: {e}"))?;
     }
+    if crate::crm::email::tracking::enabled_from_env() {
+        crate::crm::email::tracking::ensure_tables(turso)?;
+    }
     tracing::info!(
         "audit tables ensured (accounts/login_sessions/activity_logs/crm_pending_operations/job_copy_draft_operations)"
     );

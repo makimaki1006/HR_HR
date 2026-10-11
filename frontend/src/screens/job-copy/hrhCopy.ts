@@ -1,4 +1,5 @@
 import columns from '../../generated/jobgen/columns.json';
+import { displayCode } from './copyDisplay';
 /** HRハッカー compose_copy_body の列を、読みやすい求人票に組み直す。 */
 export interface BodySection { heading: string; text: string }
 const labels: Record<string, string> = {
@@ -52,7 +53,7 @@ const money = (value: string) => /^\d+(?:\.\d+)?$/.test(value.normalize('NFKC').
   ? `${Number(value.normalize('NFKC').replace(/,/g, '')).toLocaleString('ja-JP')}円` : value;
 export function composeSalary(kind: string, min: string, max: string): string {
   const range = min ? `${money(min)}${max ? min === max ? '' : `〜${money(max)}` : '〜'}` : max ? `${money(max)}まで` : '金額は未取得';
-  return `${kind || '給与形態は不明'} ${range}`;
+  return `${displayCode('給与形態', kind) || '給与形態は不明'} ${range}`;
 }
 export function hrhCopySections(body: string): BodySection[] {
   if (!body.trim()) return [];
@@ -60,7 +61,7 @@ export function hrhCopySections(body: string): BodySection[] {
   // Earlier saved plain descriptions are still readable.
   if (!fields.size) return [{ heading: '仕事内容', text: body }];
   // 読みやすさのための整形は表示だけに限定する。編集・保存用の値は加工しない。
-  const get = (key: string) => (fields.get(key) ?? '').trim();
+  const get = (key: string) => displayCode(key, (fields.get(key) ?? '').trim());
   const sections: BodySection[] = [];
   const add = (heading: string, text: string) => { if (text.trim()) sections.push({ heading, text }); };
   const simple = (keys: string[]) => { for (const key of keys) add(labels[key] ?? 'その他', get(key)); };
@@ -80,7 +81,7 @@ export function hrhCopySections(body: string): BodySection[] {
   const payDetails = workTime();
   for (let n = 1; n <= 3; n++) {
     const conditionFields = [...fields].map(([key, value]) => [key, value.trim()] as const).filter(([key]) => conditional.exec(key)?.[1] === String(n));
-    const value = (suffix: string) => conditionFields.find(([key]) => conditional.exec(key)?.[2] === suffix)?.[1] ?? '';
+    const value = (suffix: string) => displayCode(`条件付き給与${String(n)} ${suffix}`, conditionFields.find(([key]) => conditional.exec(key)?.[2] === suffix)?.[1] ?? '');
     if (conditionFields.some(([, text]) => text)) {
       const amount = value('最小給与') || value('最大給与') ? composeSalary(get('給与形態'), value('最小給与'), value('最大給与')) : '';
       payDetails.push([value('条件') || '条件に応じた給与', value('深夜帯') ? `深夜の勤務：${value('深夜帯')}` : '', amount].filter(Boolean).join(' ／ '));

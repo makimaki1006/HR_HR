@@ -1,0 +1,69 @@
+import { test, expect } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+const counts = (count: number, first_at: string | null = null, last_at: string | null = null) => ({ count, first_at, last_at });
+const summary = {
+  opens: counts(2, '2026-10-12T04:00:00Z', '2026-10-12T05:03:00Z'), clicks: counts(1),
+  automatic_opens: counts(3), automatic_clicks: counts(1),
+  links: [{ link_no: 1, url: 'https://example.invalid/guide', clicks: counts(1), automatic_clicks: counts(1) }],
+};
+for (const tracked of [true, false]) {
+  test(tracked ? '計測ありのメールカード' : '計測なしのメールカード', async ({ page }) => {
+    const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+    await page.route('**/api/crm/emails/*/tracking', route => route.fulfill(tracked ? { status: 200, contentType: 'application/json', body: JSON.stringify(summary) } : { status: 204 }));
+    await page.goto(`/static/app/__tracking_preview?tracked=${tracked ? '1' : '0'}`);
+    await expect(page.getByTestId('activity-card')).toBeVisible();
+    if (tracked) {
+      await expect(page.getByTestId('email-tracking')).toContainText('開封 2 回（最後 10/12 14:03）・クリック 1 回');
+      await expect(page.getByLabel('開封・クリックの詳細', { exact: true })).toHaveText('開封 2 回（最後 10/12 14:03）・クリック 1 回');
+      await expect(page.getByTestId('email-tracking').locator('details')).not.toHaveAttribute('open');
+      await expect(page.getByTestId('email-tracking-automatic')).toBeHidden();
+      await page.getByLabel('開封・クリックの詳細', { exact: true }).click();
+      await expect(page.getByText(/送った本人が Gmail の送信済みメールを開いた場合も、開封として数えることがあります。/)).toBeVisible();
+      await expect(page.getByTestId('email-tracking-automatic')).toHaveText('ほかに自動の確認とみられるもの：開封 3 回・クリック 1 回（数に含めていません）');
+      await expect(page.getByText('https://example.invalid/guide', { exact: true }).locator('..')).toHaveText('https://example.invalid/guide：クリック 1 回（ほかに自動 1 回）');
+      await expect(page.getByTestId('email-tracking')).toContainText('最初の開封 10/12 13:00');
+      await page.getByLabel('開封・クリックの詳細', { exact: true }).click();
+      await expect(page.getByTestId('email-tracking-automatic')).toBeHidden();
+      await expect(page.getByTestId('email-tracking').locator('details')).not.toHaveAttribute('open');
+    } else {
+      await expect(page.getByTestId('activity-title')).toHaveText('先日のご相談について（架空）');
+      await expect(page.getByTestId('email-tracking')).toHaveCount(0);
+    }
+    expect(errors).toEqual([]);
+    const out = process.env.SCREENSHOT_DIR ?? 'test-results/email-tracking'; await mkdir(out, { recursive: true });
+    await page.screenshot({ path: path.join(out, tracked ? 'email-tracked.png' : 'email-untracked.png'), fullPage: true });
+  });
+}
+
+test('送信済み本文の表示は開封画像を取得せずリンクを元に戻す', async ({ page }) => {
+  const measurements: string[] = [];
+  page.on('request', req => { if (/\/t\/[oc]\//.test(req.url())) measurements.push(req.url()); });
+  await page.route('**/t/o/**', route => route.fulfill({ status: 200, contentType: 'image/gif', body: Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64') }));
+  await page.route('**/api/crm/emails/*/tracking', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(summary) }));
+  await page.goto('/static/app/__tracking_preview?tracked=1&html=1');
+  await expect(page.getByTestId('activity-card')).toBeVisible();
+  const expand = page.getByRole('button', { name: '全文を表示' });
+  if (await expand.count()) await expand.click();
+  const body = page.getByTestId('activity-body');
+  await expect(body).toBeVisible();
+  await expect(body.locator('img')).toHaveCount(0);
+  await expect(body.getByRole('link', { name: '資料リンク' })).toHaveAttribute('href', 'https://example.invalid/docs?a=1&b=2');
+  await expect(body).not.toContainText('/t/o/');
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(measurements).toEqual([]);
+  await expect(page.getByTestId('email-tracking-summary')).toHaveText('開封 2 回（最後 10/12 14:03）・クリック 1 回');
+});
+
+
+test('取り込んだ受信メールは計測を問い合わせず表示しない', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', req => { if (/\/api\/crm\/emails\/[^/]+\/tracking/.test(req.url())) requests.push(req.url()); });
+  await page.route('**/api/crm/emails/*/tracking', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(summary) }));
+  await page.goto('/static/app/__tracking_preview?tracked=1&incoming=1');
+  await expect(page.getByTestId('activity-card')).toBeVisible();
+  await expect(page.getByTestId('activity-direction')).toHaveText('受信');
+  await expect(page.getByTestId('email-tracking')).toHaveCount(0);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(requests).toEqual([]);
+});

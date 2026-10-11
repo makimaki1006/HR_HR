@@ -512,10 +512,9 @@ pub fn usage_by_account(turso: &TursoDb, since_iso: &str, limit: i64) -> Vec<Usa
 
 /// 1年より古いログを削除 (日次バッチから呼ぶ)
 pub fn purge_old_activity(audit: &AuditDb) -> Result<(), String> {
-    // 365日前の ISO8601
-    let cutoff = (chrono::Utc::now() - chrono::Duration::days(365))
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string();
+    let cutoff_at = chrono::Utc::now() - chrono::Duration::days(365);
+    // activity / sessions are ISO8601, email measurements use milliseconds.
+    let cutoff = cutoff_at.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     audit
         .turso()
         .execute("DELETE FROM activity_logs WHERE at < ?1", &[&cutoff])?;
@@ -523,7 +522,8 @@ pub fn purge_old_activity(audit: &AuditDb) -> Result<(), String> {
         "DELETE FROM login_sessions WHERE started_at < ?1",
         &[&cutoff],
     )?;
-    tracing::info!(cutoff = %cutoff, "purged activity/sessions older than 1 year");
+    crate::crm::email::tracking::purge_old_tracking(audit.turso(), cutoff_at.timestamp_millis())?;
+    tracing::info!(cutoff = %cutoff, "purged activity/sessions/email tracking older than 1 year");
     Ok(())
 }
 

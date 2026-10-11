@@ -176,7 +176,11 @@ pub struct EmailOperation {
     pub cc: Vec<String>,
     pub subject: String,
     pub html: String,
+    /// Uninstrumented body for HubSpot; older sender ledger rows already contain clean HTML.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_html: Option<String>,
     pub owner_id: String,
+    /// Empty means this message was sent without measurements. Keeps existing ledger format.
     pub tracking_id: String,
     pub requested_message_id: String,
     pub rfc_message_id: Option<String>,
@@ -309,6 +313,7 @@ fn finish(row: &mut OpRow, status: &str, code: &str) {
         // Keep IDs only: the receipt must outlive the normal seven-day PATCH retention.
         if let Some(e) = row.payload.email.as_mut() {
             e.html.clear();
+            e.original_html = None;
             e.subject.clear();
             e.to.clear();
             e.cc.clear();
@@ -372,6 +377,9 @@ pub async fn record(
         // Persist Gmail identity before any HubSpot CREATE.
         persist(audit, row).await?;
     }
+    // Tracking is optional; the durable send/record ledger remains mandatory.
+    // Bind Gmail first so pending HubSpot history does not misclassify late opens as prefetch.
+    bind_tracking(audit, &email, None).await;
     let outcome = async {
         if email.hubspot_email_id.is_none() {
             let rfc = email.rfc_message_id.clone().ok_or(HubSpotError::Decode("missing message id".into()))?;
@@ -383,7 +391,7 @@ pub async fn record(
                 email.create_uncertain = true;
                 row.payload.email = Some(email.clone());
                 persist(audit, row).await.map_err(|_| HubSpotError::Transport("ledger_unavailable".into()))?;
-                let properties = json!({"hs_email_direction":"EMAIL","hs_email_status":"SENT","hs_timestamp":email.sent_at,"hs_email_headers":json!({"from":{"email":row.operator_email},"to":[{"email":email.to}],"cc":email.cc.iter().map(|e|json!({"email":e})).collect::<Vec<_>>(),"bcc":[]}).to_string(),"hs_email_subject":email.subject,"hs_email_html":email.html,"hs_email_message_id":rfc,"hs_email_thread_id":email.gmail.as_ref().map(|m|&m.thread_id),"hubspot_owner_id":email.owner_id});
+                let properties = json!({"hs_email_direction":"EMAIL","hs_email_status":"SENT","hs_timestamp":email.sent_at,"hs_email_headers":json!({"from":{"email":row.operator_email},"to":[{"email":email.to}],"cc":email.cc.iter().map(|e|json!({"email":e})).collect::<Vec<_>>(),"bcc":[]}).to_string(),"hs_email_subject":email.subject,"hs_email_html":email.original_html.as_deref().unwrap_or(&email.html),"hs_email_message_id":rfc,"hs_email_thread_id":email.gmail.as_ref().map(|m|&m.thread_id),"hubspot_owner_id":email.owner_id});
                 match client.create_email(properties, &row.deal_id, &email.contact_ids).await {
                     Ok(id) => { email.hubspot_email_id = Some(id); email.create_uncertain = false; }
                     Err(e) => {
@@ -400,7 +408,7 @@ pub async fn record(
         // Idempotent PUT also repairs an interrupted association after a reconciled CREATE.
         client.associate_email(id, "deals", &row.deal_id, 210).await?;
         for contact in &email.contact_ids { client.associate_email(id, "contacts", contact, 198).await?; }
-        tracking::bind_sent(audit, &email.tracking_id, Some(id), &email.gmail.as_ref().ok_or(HubSpotError::Decode("missing gmail id".into()))?.id).await.map_err(|_| HubSpotError::Transport("tracking_unavailable".into()))?;
+        bind_tracking(audit, &email, Some(id)).await;
         Ok::<_, HubSpotError>(())
     }.await;
     row.payload.email = Some(email);
@@ -472,4 +480,19 @@ pub struct PendingEmailActivity {
     pub to: String,
     pub cc: Vec<String>,
     pub sent_at: String,
+}
+
+/// A measurement outage must not change a successful send/history into a retry or failure.
+async fn bind_tracking(audit: &AuditDb, email: &EmailOperation, hubspot_id: Option<&str>) {
+    if email.tracking_id.is_empty() {
+        return;
+    }
+    if let Some(gmail) = &email.gmail {
+        if tracking::bind_sent(audit, &email.tracking_id, hubspot_id, &gmail.id)
+            .await
+            .is_err()
+        {
+            tracing::warn!("email tracking identity binding failed");
+        }
+    }
 }

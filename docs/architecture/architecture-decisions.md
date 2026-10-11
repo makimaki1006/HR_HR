@@ -315,3 +315,28 @@ Status: Accepted (2026-10-11 ユーザー決定。依頼の ADR-019 は既存の
 - 制約: `CRM_EMAIL_ENABLED=1`、専用鍵、追加 callback URL、既存 Google 設定、監査接続がそろった場合だけ有効。トークン・本文をログへ出さない。現行の単一 Render インスタンスで操作ごとのロックを共有する。返信取り込みには audit 台帳の条件付き claim を使う。送信 API を複数インスタンスで動かすには送信側にも条件付き claim が別途必要。
 
 参照: [Google OAuth (offline / incremental)](https://developers.google.com/identity/protocols/oauth2/web-server)、[Gmail send](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send)、[HubSpot email activity](https://developers.hubspot.com/docs/api-reference/legacy/crm/activities/emails/guide)。
+
+## ADR-023 — HR_HR 送信メールの計測情報は既存監査 Turso に置く
+
+Status: Accepted for this implementation (2026-10-11、ユーザー指定)
+
+- 現行の決定: HubSpot が Contact / Deal / Email 活動の正本 (ADR-005)。独自 CRM DB は作らない (ADR-006)。
+- 具体的な問題: HubSpot の標準メール開封・クリック数は API 書き込み不可。Gmail で送信したメールに対する HR_HR の計測には、公開リンクの転送先と再起動後も読める集計が必要。
+- 採用する変更: 既存監査 Turso に `crm_email_tracking`・`crm_email_tracking_links`・`crm_email_tracking_events` を追加。本文・連絡先の複製は持たず、操作者、参照 ID、件名、送信 ID、転送先、計測時刻と自動確認の可能性だけを保存する。生 IP・User-Agent・Referer は保存しない。CRM_EMAIL_ENABLED=1 と暗号化鍵がある場合のみ、既存の起動時初期化で表を作る。実 DB の設定・起動はユーザーが行う。
+- 変える利点: 新規 DB / サービスを増やさず、HR_HR 固有の計測を永続化する。メールの業務履歴と関連付けは引き続き HubSpot に置く。
+- 現行を保つ利点: DB 負荷が増えない。ただし独自計測は再起動で失われ、転送リンクも維持できない。
+- 制約: 同一計測 ID・種類・リンク・自動判定の組合せはプロセス内で60秒に1回、DBでは1分の窓で1回にまとめる。保存は全体120件/分、DB照会は公開ルート全体600回/分、同時DB処理8件、キャッシュ各2000件まで。上限時の計測は失われる。件数は実際の人の操作回数の保証ではない。Apple の画像プロキシなど識別情報のない自動取得は判別できない。
+- 保持期間: 既存 activity と同じ1年 (365日)。送信時刻 (`sent_at`、未送信の準備は `created_at`) から365日より古い送信記録・リンク・出来事を、既存の監査 purge (起動10分後、その後24時間ごと) で削除する。親記録の削除に連動するSQLiteトリガーにより、3表を同じトランザクションで削除し、失敗時はまとめて戻す。機能OFF・鍵未設定でも既存表の削除を続け、未導入なら表を作らず何もしない。削除済みの転送リンクは404になり、プロセスの既存キャッシュも最大60秒で消える。件名・転送先は認証済みCRMユーザーだけに返す。
+- 移行 / 戻すコスト: 表3つとBの計測モジュール・公開2ルート・集計1ルート・表示部品。環境変数を未設定にすれば計測と表示を止められる。ただし既送信メールの転送リンクも404となるため、停止は既送信リンクへの影響を考慮する。
+
+### 送信 PR との接続
+
+- `&AuditDb` をそのまま渡す (同じDBアダプター・同時処理上限を使用)。明示する場合は `AuditTrackingStore::new(audit.clone())` を共有し、共通ブリーフの `instrument_html` / `bind_sent` を呼ぶ。送信処理・鍵の検証・再送台帳はAが担当。
+- HubSpot保存待ちなら `bind_sent(..., None, gmail_message_id)`。保存完了後、同じ計測ID・Gmail IDで `Some(hubspot_email_id)` を結び付け直せる。既存の別IDへの変更は拒否。
+- 公開側の有効化条件は `CRM_EMAIL_ENABLED=1`・`CRM_EMAIL_TOKEN_KEY` が標準Base64の32バイト・監査DBあり。鍵はAと同じ標準Base64の32バイトを検証し、無効な鍵では表初期化・計測・表示を無効にする。
+- HubSpot保存失敗時に本文を再度 instrument したり Gmail を再送したりしない。最初の計測IDをAの再送状態に保持する。
+
+- 結合時の本文 (ユーザー指定で判断変更): 従来は相手に届けた計測付き HTML を HubSpot に残していた。これは本文の完全一致を保てる利点があるが、HubSpot のタイムライン・プレビュー・通知から社員が閲覧すると相手の開封・クリックとして数えてしまい、HR_HR の表示側対策では防げない。HubSpot の `hs_email_html` は計測前の本文に変更し、Gmail にだけ計測付き本文を渡す。社内の HubSpot 閲覧による自己計測を防ぐ利点を優先する。移行・戻すコストは既存の再送台帳 payload に任意の計測前本文を保持する変更のみで、新しい保存先は増やさない。本文は記録完了・送信拒否時に両方とも消し、以前の送信 PR の台帳は追加フィールドなしでも読める。CRM の表示時の画像除去・元リンクへの復元も、過去の本文への対策として維持する。送った本人が Gmail の送信済みメールを開いた場合も、開封として数えることがあります。
+- 計測障害: 送信前の計測保存に失敗した場合は、計測前の本文で送る。保存されていない転送先は本文に含めない。送信後の ID 結合失敗も送信・HubSpot 記録の成功を失敗や再試行へ変更しない (その場合、計測表示は欠落しうる)。送信の重複を防ぐ操作台帳の保存は引き続き必須で、台帳保存に失敗した場合は送らない。
+
+- 返信取り込みとの接続: main の返信処理・ADR-022 を維持する。受信メールは計測 ID に結び付けず、カードの計測問い合わせ・表示は方向が `EMAIL` かつ状態が `SENT` の送信済みメールだけに限る。

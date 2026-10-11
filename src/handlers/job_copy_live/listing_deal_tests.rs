@@ -162,3 +162,70 @@ async fn job_copy_deal_batch_pages_are_complete_and_missing_rows_fail() {
     .is_err());
     task.abort();
 }
+
+#[tokio::test]
+async fn job_copy_visible_history_reads_are_batches_of_fifty_and_exclude_other_rows() {
+    use axum::{
+        body::{to_bytes, Body},
+        http::Request,
+        routing::any,
+    };
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = calls.clone();
+    let app = Router::new().fallback(any(move |req: Request<Body>| { let seen = seen.clone(); async move {
+        assert_eq!(req.uri().path(), "/crm/v3/objects/0-420/batch/read");
+        let input: Value = serde_json::from_slice(&to_bytes(req.into_body(),100000).await.unwrap()).unwrap();
+        let ids = input["inputs"].as_array().unwrap();
+        assert!(ids.len() <= 50);
+        assert_eq!(input["propertiesWithHistory"], json!(["hrh_kyuujinhyou_honbun","shigotonaiyou"]));
+        seen.lock().unwrap().push(ids.clone());
+        Json(json!({"status":"COMPLETE","startedAt":"2026-10-11T00:00:00Z","completedAt":"2026-10-11T00:00:01Z","results":ids.iter().map(|v| json!({"id":v["id"],"properties":{"id_airwork":"123","shigotonaiyou":"架空の本文"},"propertiesWithHistory":{"shigotonaiyou":[{"value":"架空の本文","timestamp":"2026-10-10T00:00:00Z","sourceType":"API","sourceId":"synthetic"}]},"createdAt":"2026-10-01T00:00:00Z","updatedAt":"2026-10-11T00:00:00Z","archived":false})).collect::<Vec<_>>() }))
+    }}));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let service = JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let ids: Vec<_> = (51..=151).map(|n| n.to_string()).collect();
+    let result = deals::body_dates(&service, &ids).await.unwrap();
+    assert_eq!(
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(Vec::len)
+            .collect::<Vec<_>>(),
+        vec![50, 50, 1]
+    );
+    assert_eq!(result["dates"].as_object().unwrap().len(), 101);
+    assert_eq!(result["dates"]["51"], "2026-10-10T00:00:00+00:00");
+    assert!(result["dates"].get("1").is_none());
+    task.abort();
+}
+#[test]
+fn job_copy_airwork_real_response_shape_maps_independent_fields_without_salary_inference() {
+    let record: Record = serde_json::from_value(json!({"id":"1","properties":{"hs_name":"架空の配送スタッフ","id_airwork":"123","shigotonaiyou":"箱を積み込んで届けます。","kyuuyokeitai":"月給","qinwude":"東京都江東区","zhizhong":"配送ドライバー","kinmujikan":"8:00〜17:00","kyuujitsu":null,"guyongxingtai":null,"hrh_kyuujinhyou_honbun":null}})).unwrap();
+    let row = listing(&record, &[]).unwrap();
+    assert_eq!(row.summary.salary_kind.as_deref(), Some("月給"));
+    assert_eq!(row.summary.salary_min, None);
+    assert_eq!(row.summary.location.as_deref(), Some("東京都江東区"));
+    assert_eq!(row.summary.hours.as_deref(), Some("8:00〜17:00"));
+    let fields = deals::comparison_fields(&record, "airwork");
+    assert_eq!(fields["仕事内容"], "箱を積み込んで届けます。");
+    assert_eq!(fields["給与形態"], "月給");
+    assert_eq!(fields["勤務地"], "東京都江東区");
+    assert!(!fields.contains_key("基本給与 最小"));
+    assert!(!fields.contains_key("雇用形態"));
+}
+#[test]
+fn job_copy_holidays_can_be_work_supplement_two_instead_of_free_one() {
+    let record: Record = serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"123","hrh_kyuujinhyou_honbun":"仕事内容：棚の品物を集めます\n仕事情報補足2のタイトル：休日休暇\n仕事情報補足2の内容：週休2日・夏季休暇\n自由項目1のタイトル：応募案内\n自由項目1の内容：電話でご連絡ください"}})).unwrap();
+    assert_eq!(
+        summary(&record, "hrh").holidays.as_deref(),
+        Some("週休2日・夏季休暇")
+    );
+    assert_eq!(
+        deals::comparison_fields(&record, "hrh")["休日・休暇"],
+        "週休2日・夏季休暇"
+    );
+}
