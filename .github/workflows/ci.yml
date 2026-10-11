@@ -25,6 +25,8 @@ jobs:
           python-version: "3.11"
       - name: Statistical claims lint
         run: python scripts/lint_statistical_claims.py
+      - name: 読み取り専用の文一致率実測の検査
+        run: python -m unittest discover -s scripts -p 'test_measure_sentence_overlap.py'
 
   # -----------------------------------------------------------------------
   # CSS クラス存在検査 (段 1 / 静的)

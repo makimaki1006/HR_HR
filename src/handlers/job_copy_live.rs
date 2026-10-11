@@ -27,6 +27,7 @@ mod hrh_copy;
 mod listing_status;
 mod listings;
 mod manual_edit;
+mod rikurozi;
 
 #[derive(Debug)]
 pub struct ReadError(pub(super) StatusCode, pub(super) &'static str);
@@ -2106,6 +2107,10 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route(
             "/api/job-copy/listings/{id}/versions",
             get(listings::read_versions),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/rikurozi-draft",
+            axum::routing::post(rikurozi::generate),
         )
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
