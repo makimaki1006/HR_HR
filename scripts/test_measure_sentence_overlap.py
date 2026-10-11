@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
-from measure_sentence_overlap import Reader, measure, overlap, samples, summary
+from measure_sentence_overlap import Reader, measure, overlap, samples, summary, publication
 
 
 class MeasurementTests(unittest.TestCase):
@@ -13,6 +13,39 @@ class MeasurementTests(unittest.TestCase):
             with self.subTest(case=case):
                 self.assertEqual(overlap(case["generated"], case["original"], case["minimum"]),
                                  (case["ratio"], case["whole"]))
+
+    def test_publication_uses_verified_normalized_field_without_guessing_raw_codes(self):
+        fixture = Path(__file__).resolve().parents[1] / "tests/fixtures/rikurozi_publication.json"
+        for case in json.loads(fixture.read_text()):
+            normalized = case["normalized"] if case["air_only"] else None
+            self.assertEqual(publication(case["raw"], normalized), case["expected"])
+
+    def test_related_reads_are_cached_only_in_memory(self):
+        reader = Reader("mock-token")
+        calls = []
+        def request(path, body):
+            calls.append(body)
+            return {"results": [{"from": {"id": item["id"]}, "to": [{"toObjectId": 8}]} for item in body["inputs"]]}
+        reader.request = request
+        first = reader.associations("0-420", ["1", "2"], "deals")
+        second = reader.associations("0-420", ["2", "3"], "deals")
+        self.assertEqual(first, {"1": {"8"}, "2": {"8"}})
+        self.assertEqual(second, {"2": {"8"}, "3": {"8"}})
+        self.assertEqual([len(call["inputs"]) for call in calls], [2, 1])
+
+    def test_company_candidates_start_with_known_published_airwork(self):
+        reader = Reader("mock-token")
+        requests = []
+        def request(path, body):
+            requests.append(body)
+            return {"results": [{"id": "1"}, {"id": "2"}]}
+        reader.request = request
+        reader.associations = lambda source, ids, target: ({"1": {"deal1"}, "2": {"deal2"}} if source == "0-420" else {"deal1": {"company1"}, "deal2": {"company2"}})
+        self.assertEqual(reader.companies(2), ["company1", "company2"])
+        filters = requests[0]["filterGroups"][0]["filters"]
+        self.assertIn({"propertyName": "kyuujin_status", "operator": "EQ", "value": "公開中"}, filters)
+        self.assertIn({"propertyName": "id_airwork", "operator": "HAS_PROPERTY"}, filters)
+        self.assertIn({"propertyName": "id_hrhakkaa", "operator": "NOT_HAS_PROPERTY"}, filters)
 
     def test_percentiles_and_tenth_bins_preserve_unavailable(self):
         result = summary([0.0, .2, .5, 1.0], 1, 2)

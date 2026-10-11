@@ -11,13 +11,21 @@ const PROPERTIES: &[&str] = &[
     "id_airwork",
     "shigotonaiyou",
     "baitai_genjoukyou_airwork",
+    "kyuujin_status",
     "todoufuken",
     "shikuchouson",
 ];
-fn publication(value: Option<&str>) -> Option<&'static str> {
+fn publication(value: Option<&str>, normalized: Option<&str>) -> Option<&'static str> {
+    match normalized.map(str::trim) {
+        Some("公開中") => return Some("掲載中"),
+        Some("公開前" | "公開終了") => return None,
+        _ => {}
+    }
     match value.map(str::trim) {
-        Some("公開" | "掲載中") => Some("掲載中"),
-        Some("非公開" | "公開終了" | "掲載終了" | "公開開始前") => None,
+        Some("公開" | "掲載中" | "公開中") => Some("掲載中"),
+        Some(
+            "非公開" | "公開終了" | "掲載終了" | "公開開始前" | "未掲載" | "掲載停止" | "停止中",
+        ) => None,
         _ => Some("掲載中か不明"),
     }
 }
@@ -112,7 +120,14 @@ impl JobReadService {
             .filter_map(|r| {
                 Some(Comparison {
                     title: r.value("hs_name").unwrap_or("求人名未取得").into(),
-                    publication: publication(r.value("baitai_genjoukyou_airwork"))?.into(),
+                    publication: publication(
+                        r.value("baitai_genjoukyou_airwork"),
+                        r.value("id_hrhakkaa")
+                            .is_none()
+                            .then(|| r.value("kyuujin_status"))
+                            .flatten(),
+                    )?
+                    .into(),
                     body: r.value("shigotonaiyou").unwrap_or("").into(),
                 })
             })
@@ -180,8 +195,23 @@ mod tests {
     use super::*;
     #[test]
     fn publication_uses_only_media_status_and_includes_unknown() {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/rikurozi_publication.json"
+        ))
+        .unwrap();
+        for case in cases.as_array().unwrap() {
+            let normalized = case["air_only"]
+                .as_bool()
+                .unwrap()
+                .then(|| case["normalized"].as_str())
+                .flatten();
+            assert_eq!(
+                publication(case["raw"].as_str(), normalized),
+                case["expected"].as_str()
+            );
+        }
         for value in [Some("公開"), Some("掲載中")] {
-            assert_eq!(publication(value), Some("掲載中"));
+            assert_eq!(publication(value, None), Some("掲載中"));
         }
         for value in [
             Some("非公開"),
@@ -189,10 +219,10 @@ mod tests {
             Some("掲載終了"),
             Some("公開開始前"),
         ] {
-            assert_eq!(publication(value), None);
+            assert_eq!(publication(value, None), None);
         }
         for value in [None, Some(""), Some("不明"), Some("active"), Some("募集中")] {
-            assert_eq!(publication(value), Some("掲載中か不明"));
+            assert_eq!(publication(value, None), Some("掲載中か不明"));
         }
     }
     #[tokio::test]
@@ -216,14 +246,15 @@ mod tests {
                     json!({"results":[{"from":{"id":"10"},"to":[{"toObjectId":1},{"toObjectId":2}]},{"from":{"id":"20"},"to":[{"toObjectId":2},{"toObjectId":3},{"toObjectId":4},{"toObjectId":5}]}]})
                 },
                 "/crm/v3/objects/0-420/batch/read" => {
+                    assert!(body["properties"].as_array().unwrap().iter().any(|p| p == "kyuujin_status"));
                     let ids: Vec<_> = body["inputs"].as_array().unwrap().iter().map(|v| v["id"].as_str().unwrap()).collect();
                     assert!(!ids.contains(&"99")); // Other company is never requested.
                     let rows: Vec<_> = ids.iter().map(|id| {
                         let properties = match *id {
                             "1" => json!({"id_hrhakkaa":"1234567","id_shop_hrhakkaa":"4081","hrh_kyuujinhyou_honbun":"案件名：基準の求人\n仕事内容：品物を集めます\n雇用形態：パート\n給与形態：時給\n基本給与 最小：1200\n勤務時間：9:00〜18:00\n自由項目1の内容：土日休み", "hrh_kyuujinhyou_gazou":"画像1：https://example.invalid/one.jpg\n画像2：なし\n画像3：https://example.invalid/three.png"}),
-                            "2" => json!({"hs_name":"公開の求人","id_airwork":"77","shigotonaiyou":"棚卸しします","baitai_genjoukyou_airwork":"公開"}),
+                            "2" => json!({"hs_name":"公開の求人","id_airwork":"77","shigotonaiyou":"棚卸しします","baitai_genjoukyou_airwork":"01","kyuujin_status":"公開中"}),
                             "3" => json!({"hs_name":"公開状況不明の求人","id_airwork":"77","shigotonaiyou":"箱を運びます"}),
-                            "4" => json!({"hs_name":"掲載終了の求人","id_airwork":"78","baitai_genjoukyou_airwork":"掲載終了"}),
+                            "4" => json!({"hs_name":"掲載終了の求人","id_airwork":"78","baitai_genjoukyou_airwork":"02","kyuujin_status":"公開終了"}),
                             "5" => json!({"hs_name":"別のHRハッカー","id_hrhakkaa":"98765"}),
                             _ => panic!("unexpected id"),
                         }; json!({"id":id,"properties":properties})
