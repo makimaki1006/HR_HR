@@ -143,6 +143,14 @@ pub(super) async fn generate(
             "draft_configuration_invalid",
         )
     })?;
+    let min_chars =
+        draft::min_sentence_chars(std::env::var("RIKUROZI_MIN_SENTENCE_CHARS").ok().as_deref())
+            .map_err(|_| {
+                ReadError(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "draft_configuration_invalid",
+                )
+            })?;
     let service = access.service.as_ref().ok_or(ReadError(
         StatusCode::SERVICE_UNAVAILABLE,
         "hubspot_not_configured",
@@ -151,12 +159,19 @@ pub(super) async fn generate(
     let result = draft::run(
         &source,
         threshold,
+        min_chars,
         |prompt, schema, temperature| async move {
             crate::job_gen::handlers::jobgen_llm(&prompt, &schema, temperature).await
         },
     )
     .await
-    .map_err(|_| fail("draft_generation_failed"))?;
+    .map_err(|error| {
+        if error.downcast_ref::<draft::CopyMismatch>().is_some() {
+            ReadError(StatusCode::UNPROCESSABLE_ENTITY, "draft_copy_mismatch")
+        } else {
+            fail("draft_generation_failed")
+        }
+    })?;
     Ok(([(header::CACHE_CONTROL, "private, no-store")], Json(result)))
 }
 

@@ -287,6 +287,21 @@ pub fn validate_generated(
     raw: &Value,
     ng: &NgRules,
 ) -> BTreeMap<String, GeneratedField> {
+    validate_generated_impl(source_text, raw, ng, true)
+}
+/// リクロジ案は独自の表記一致検査を使い、文字数・禁止表現を共通化する。
+pub(super) fn validate_generated_text(
+    raw: &Value,
+    ng: &NgRules,
+) -> BTreeMap<String, GeneratedField> {
+    validate_generated_impl("", raw, ng, false)
+}
+fn validate_generated_impl(
+    source_text: &str,
+    raw: &Value,
+    ng: &NgRules,
+    check_numbers: bool,
+) -> BTreeMap<String, GeneratedField> {
     let mut out = BTreeMap::new();
     for spec in GENERATION_FIELD_SPECS.iter() {
         let text = raw
@@ -302,9 +317,12 @@ pub fn validate_generated(
         }
 
         // (a) 数値照合(段①数字 + 段②数値単位ペア)。
-        let unsupported = crate::job_gen::validate::find_unsupported_numbers(source_text, &text);
-        if !unsupported.is_empty() {
-            issues.push(format!("unsupported_numbers:{}", unsupported.join(",")));
+        if check_numbers {
+            let unsupported =
+                crate::job_gen::validate::find_unsupported_numbers(source_text, &text);
+            if !unsupported.is_empty() {
+                issues.push(format!("unsupported_numbers:{}", unsupported.join(",")));
+            }
         }
 
         // (b) 文字数上限(Unicode コードポイント数。Python の len(str) と一致)。
