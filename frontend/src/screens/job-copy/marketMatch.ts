@@ -27,13 +27,14 @@ export function matchMarketTitle(jobTitle: string, titles: readonly string[]): T
   if (!target) return null;
   const exact = titles.find(title => normalize(title) === target);
   if (exact) return { title: exact, how: 'exact', candidates: [exact] };
+  // Stable tie order shared with the Rust listings API, independent of locale.
   const candidates = titles
     .filter(title => {
       const value = normalize(title);
       // One-character categories match far too much; require at least two characters.
       return value.length >= 2 && (target.includes(value) || value.includes(target));
     })
-    .sort((a, b) => normalize(b).length - normalize(a).length || a.localeCompare(b, 'ja'));
+    .sort((a, b) => normalize(b).length - normalize(a).length || (a < b ? -1 : a > b ? 1 : 0));
   const first = candidates[0];
   return first ? { title: first, how: 'partial', candidates } : null;
 }

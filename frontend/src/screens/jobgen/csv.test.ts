@@ -3,9 +3,12 @@ import fixtures from '../../generated/jobgen/fixtures.json';
 import { buildHrhackerCsv, hrhackerCsvFileName } from './csv';
 
 describe('buildHrhackerCsv', () => {
-  it('BOM 付き・ヘッダ 1 行 + データ 1 行・CRLF・カンマ/改行/引用符はダブルクォート', () => {
-    const csv = buildHrhackerCsv({ a: '1', 'b,c': 'x"y', d: 'l1\nl2', e: '' });
-    expect(csv).toBe('﻿a,"b,c",d,e\r\n1,"x""y","l1\nl2",\r\n');
+  it('BOM と CRLF、カンマ・改行・引用符を含む値を保持する', () => {
+    const csv = buildHrhackerCsv({ '案件名': '倉庫, 配送', '仕事内容': '確認"済み"\n梱包', '公開': '非公開' });
+    expect(csv.startsWith('\uFEFF求人id,店舗id,職種id,案件名,')).toBe(true);
+    expect(csv).toContain('"倉庫, 配送"');
+    expect(csv).toContain('"確認""済み""\n梱包"');
+    expect(csv.endsWith(',非公開\r\n')).toBe(true);
   });
 
   it('fixture の 84 列は row のキー順で並ぶ (先頭 求人id、末尾 公開)', () => {

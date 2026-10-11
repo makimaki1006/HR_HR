@@ -24,6 +24,7 @@ export default defineConfig({
   outputDir: '../../test-results-job-copy',
   use: {
     ...devices['Desktop Chrome'],
+    viewport: { width: 1440, height: 1000 },
     baseURL: JOB_COPY_BASE_URL,
     storageState: JOB_COPY_STATE,
     trace: 'off', screenshot: 'off', video: 'off',

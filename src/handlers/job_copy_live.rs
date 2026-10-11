@@ -22,7 +22,12 @@ use std::{
 use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
+mod drafts;
+mod hrh_copy;
 mod listing_status;
+mod listings;
+mod manual_edit;
+mod rikurozi;
 
 #[derive(Debug)]
 pub struct ReadError(pub(super) StatusCode, pub(super) &'static str);
@@ -191,6 +196,7 @@ pub struct JobReadService {
     hs: crate::hubspot::HubSpotClient,
     labels: Arc<std::sync::Mutex<LabelCache>>,
     publication: listing_status::Cache,
+    listing_index: listings::Cache,
 }
 /// Maps a client failure (nothing usable came back from HubSpot) to this API's codes.
 fn client_error(e: crate::hubspot::HubSpotError) -> ReadError {
@@ -232,6 +238,7 @@ impl JobReadService {
             hs,
             labels: Arc::default(),
             publication: Arc::default(),
+            listing_index: Arc::default(),
         }
     }
     /// The HubSpot client (the image bridge's operator writes wait on its gateway too).
@@ -244,17 +251,25 @@ impl JobReadService {
         query: &[(&str, String)],
         body: Option<Value>,
     ) -> Result<Value, ReadError> {
+        self.request_with_client(&self.hs, path, query, body).await
+    }
+    async fn request_with_client(
+        &self,
+        hs: &crate::hubspot::HubSpotClient,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<Value>,
+    ) -> Result<Value, ReadError> {
         // POST is used only for HubSpot's batch/read endpoints. No create/update/delete.
         for attempt in 0..2 {
-            let reply = self
-                .hs
+            let reply = hs
                 .read_raw(body.is_some(), path, query, body.as_ref())
                 .await
                 .map_err(client_error)?;
             let status = reply.status;
             if attempt == 0 && (status == 429 || (500..600).contains(&status)) {
                 let wait = reply.retry_after_secs.unwrap_or(1);
-                if wait <= 2 {
+                if wait <= 2 || hs.priority() == crate::hubspot::gateway::Priority::Background {
                     // A 429 also paused the shared gateway; the retry waits there as well.
                     tokio::time::sleep(Duration::from_secs(wait)).await;
                     continue;
@@ -783,7 +798,16 @@ fn round_snapshot_areas(data: &mut Value) {
     };
     for result in results {
         protect_applicant_areas(result);
-        if let Some(selections) = result["applicant_reasons"]["selections"].as_array_mut() {
+        // get_mut only: indexing a missing key with `value["key"]` on a mutable Value inserts it as
+        // null (and turns a missing object into {}), which made a stored file without selections
+        // arrive as "selections": null and the screen reject the whole snapshot (2026-10-09).
+        let Some(reasons) = result
+            .get_mut("applicant_reasons")
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        if let Some(selections) = reasons.get_mut("selections").and_then(Value::as_array_mut) {
             for selection in selections {
                 for key in ["value", "label"] {
                     if let Some(text) = selection[key].as_str() {
@@ -796,7 +820,7 @@ fn round_snapshot_areas(data: &mut Value) {
                 }
             }
         }
-        if let Some(items) = result["applicant_reasons"]["items"].as_array_mut() {
+        if let Some(items) = reasons.get_mut("items").and_then(Value::as_array_mut) {
             for item in items {
                 if let Some(text) = item["text"].as_str() {
                     // Cut after masking, as extract() does (a mask can make the text longer).
@@ -2017,7 +2041,14 @@ async fn image(
     )
         .into_response())
 }
+#[cfg(test)]
 pub fn router() -> Router<Arc<AppState>> {
+    router_with_index(None)
+}
+pub fn router_for_state(state: &Arc<AppState>) -> Router<Arc<AppState>> {
+    router_with_index(Some(state))
+}
+fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
     let allowed = std::env::var("JOB_COPY_ALLOWED_EMAILS")
         .unwrap_or_default()
         .split(',')
@@ -2028,6 +2059,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .ok()
         .and_then(|t| JobReadService::new(t).ok())
         .map(Arc::new);
+    if let (Some(service), Some(db)) = (&service, state.and_then(|state| state.indeed_db.as_ref()))
+    {
+        listings::start_worker(service, db.clone());
+    }
     let snapshot_reader = super::job_copy_drive::DriveReader::from_env()
         .ok()
         .map(Arc::new);
@@ -2045,30 +2080,45 @@ pub fn router() -> Router<Arc<AppState>> {
         parse_drive_listings(&std::env::var("JOB_COPY_DRIVE_LISTINGS").unwrap_or_default());
     let drive_config_error = parsed_listings.as_ref().err().copied();
     let drive_listings = parsed_listings.unwrap_or_default();
+    let access = Access {
+        allowed,
+        service,
+        images,
+        drive_listings,
+        drive_config_error,
+        snapshot_reader,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
+        moc_drive: snapshot_pointer(
+            std::env::var("JOB_COPY_MOC_DRIVE_FILE_ID").ok().as_deref(),
+            std::env::var("JOB_COPY_MOC_DRIVE_SHA256").ok().as_deref(),
+        ),
+        moc_path: std::env::var_os("JOB_COPY_MOC_PATH")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from),
+    };
     Router::new()
         .route("/api/job-copy/live", get(read))
+        .route("/api/job-copy/listings", get(listings::read))
+        .route(
+            "/api/job-copy/listing-comparison",
+            get(listings::read_comparison),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/versions",
+            get(listings::read_versions),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/rikurozi-draft",
+            axum::routing::post(rikurozi::generate),
+        )
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
         .route("/api/job-copy/snapshot-image", get(snapshot_image))
         .route("/api/job-copy/market", get(super::job_copy_market::read))
         .route("/api/job-copy/listing-status", get(listing_status::read))
-        .layer(Extension(Access {
-            allowed,
-            service,
-            images,
-            drive_listings,
-            drive_config_error,
-            snapshot_reader,
-            snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
-            resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
-            moc_drive: snapshot_pointer(
-                std::env::var("JOB_COPY_MOC_DRIVE_FILE_ID").ok().as_deref(),
-                std::env::var("JOB_COPY_MOC_DRIVE_SHA256").ok().as_deref(),
-            ),
-            moc_path: std::env::var_os("JOB_COPY_MOC_PATH")
-                .filter(|path| !path.is_empty())
-                .map(PathBuf::from),
-        }))
+        .merge(drafts::router(state, access.clone()))
+        .layer(Extension(access))
 }
 
 #[cfg(test)]
@@ -2686,6 +2736,26 @@ mod tests {
             Some("千代田区丸の内1-1-1 ○○マンション305"),
         ));
         assert_eq!(area.municipality.as_deref(), Some("千代田区"));
+    }
+
+    #[test]
+    fn snapshot_masking_never_adds_missing_reason_keys() {
+        // A stored file written before 2026-10-08 has no selections; a result may have no reasons.
+        let mut data = json!({"results": [
+            {"listing_id": "1", "applicant_reasons": {"items": [{"text": "連絡先 090-1234-5678"}], "source_counts": {}}},
+            {"listing_id": "2"},
+        ]});
+        round_snapshot_areas(&mut data);
+        let reasons = &data["results"][0]["applicant_reasons"];
+        assert!(
+            reasons.get("selections").is_none(),
+            "selections must stay absent: {reasons}"
+        );
+        assert!(!reasons["items"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("090-1234-5678"));
+        assert!(data["results"][1].get("applicant_reasons").is_none());
     }
 
     #[test]

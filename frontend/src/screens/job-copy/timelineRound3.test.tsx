@@ -4,6 +4,9 @@
  * keyboard-reachable explanations, the top-bar count, short overview windows, demo market data in
  * 市場分析, YYYY/MM months and plain wording in the diff panel and the header.
  */
+import { beforeEach as pinSidebarBeforeEach, afterEach as clearSidebarAfterEach } from 'vitest';
+pinSidebarBeforeEach(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pinned'); });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EChartProps } from '../../components/EChart';
@@ -44,14 +47,14 @@ describe('salary direction (▲ only for a raise)', () => {
     render(<JobTimeline job={demo('demo-job-001')} marketMode="demo" />);
     const labels = [...screen.getByRole('group', { name: '給与' }).querySelectorAll('.jt-salary-label')].map(label => label.textContent);
     expect(labels).toEqual(['月給25万〜28万円', '▲月給27万〜30万円', '▼月給25万〜28万円']);
-    expect(screen.getByRole('img', { name: '前の版より下がった' }).textContent).toBe('▼');
-    expect(screen.getByRole('img', { name: '前の版より上がった' }).textContent).toBe('▲');
+    expect(screen.getByRole('img', { name: '前回の本文より下がった' }).textContent).toBe('▼');
+    expect(screen.getByRole('img', { name: '前回の本文より上がった' }).textContent).toBe('▲');
   });
   it('says 変更 (not ▲ or ▼) when the kind of pay changes', () => {
     const job = synthetic([version('a', '2026-07-01T00:00:00Z', '給与：月給250,000円'), version('b', '2026-08-01T00:00:00Z', '給与：時給1,500円')]);
     expect(versionChanges(job).map(change => change.salaryDirection)).toEqual([null, 'other']);
     render(<JobTimeline job={job} marketMode="demo" />);
-    expect(screen.getByRole('img', { name: '前の版から変わった' }).textContent).toBe('変更');
+    expect(screen.getByRole('img', { name: '前回の本文から変わった' }).textContent).toBe('変更');
   });
   it('compares the upper bound when the lower bound is the same', () => {
     const job = synthetic([version('a', '2026-07-01T00:00:00Z', '給与：月給250,000円〜300,000円'), version('b', '2026-08-01T00:00:00Z', '給与：月給250,000円〜280,000円')]);
@@ -60,16 +63,16 @@ describe('salary direction (▲ only for a raise)', () => {
 });
 
 describe('selection, retry focus and announcements', () => {
-  it('scrolls the 選んだ版 panel into view after a mark is chosen, and the panel sits right under the lanes', () => {
+  it('scrolls the 選んだ本文 panel into view after a mark is chosen, and the panel sits right under the lanes', () => {
     const scroll = vi.fn();
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, writable: true, value: scroll });
     render(<JobTimeline job={demo('demo-job-001')} marketMode="demo" onOpenVersion={() => undefined} onCompareVersions={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: /給与・勤務条件変更の本文/ }));
-    const panel = screen.getByRole('region', { name: '選んだ版' });
+    const panel = screen.getByRole('region', { name: '選んだ本文' });
     expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
     expect(scroll.mock.contexts.at(-1)).toBe(panel);
     expect(panel.previousElementSibling?.classList.contains('jt-lanes')).toBe(true);
-    expect(within(panel).getByRole('button', { name: '前の版との差分を開く' })).toBeTruthy();
+    expect(within(panel).getByRole('button', { name: '前回の本文との違いを見る' })).toBeTruthy();
   });
 
   it('keeps the retry button while retrying, then moves focus to 職種 and announces the result', async () => {
@@ -85,16 +88,16 @@ describe('selection, retry focus and announcements', () => {
     });
     render(<JobTimeline job={demo('demo-job-001')} />);
     const status = () => screen.getByRole('group', { name: '市場' }).parentElement?.querySelector('[role="status"]')?.textContent;
-    const retry = await screen.findByRole('button', { name: '市場データを再取得' });
-    expect(status()).toBe('市場データの取得に失敗しました。「市場データを再取得」で取り直せます');
+    const retry = await screen.findByRole('button', { name: '市場データを再読み込み' });
+    expect(status()).toBe('市場データの取得に失敗しました。「市場データを再読み込み」で取り直せます');
     retry.focus();
     fireEvent.click(retry);
     // Still on screen (aria-disabled) while loading, so focus stays on it.
-    expect(screen.getByRole('button', { name: '市場データを再取得' }).getAttribute('aria-disabled')).toBe('true');
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: '市場データを再取得' }));
+    expect(screen.getByRole('button', { name: '市場データを再読み込み' }).getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '市場データを再読み込み' }));
     expect(status()).toBe('市場データを取り直しています');
     await act(async () => { release({ ok: true, data: { ...list, series } }); await Promise.resolve(); });
-    await waitFor(() => { expect(screen.queryByRole('button', { name: '市場データを再取得' })).toBeNull(); });
+    await waitFor(() => { expect(screen.queryByRole('button', { name: '市場データを再読み込み' })).toBeNull(); });
     // Focus moves in a passive effect that can run after the commit that removes the button (the
     // update may land outside act), so wait for it instead of reading activeElement right away.
     await waitFor(() => { expect(document.activeElement).toBe(screen.getByLabelText('職種')); });
@@ -166,7 +169,7 @@ describe('市場分析 in demo mode and month labels', () => {
   it('styles the retry button as a button', async () => {
     api.mockResolvedValue({ ok: false });
     render(<MarketContext job={demo('demo-job-001')} />);
-    const button = await screen.findByRole('button', { name: '市場データを再取得' });
+    const button = await screen.findByRole('button', { name: '市場データを再読み込み' });
     expect(button.className).toBe('jc-button');
     expect(button.getAttribute('type')).toBe('button');
   });
@@ -191,9 +194,9 @@ describe('plain wording for versions, the header and the diff panel', () => {
   it('shows plain header wording and one image notice in the diff panel', () => {
     render(<JobCopyScreen />);
     const meta = document.querySelector('.jc-record-meta');
-    expect(meta?.textContent).toContain('表示中の文面: 初回文面への復帰');
+    expect(meta?.textContent).toContain('表示中の本文: 初回文面への復帰');
     expect(meta?.textContent).toContain('HubSpotの求人と未連携');
-    expect(meta?.textContent).not.toMatch(/接続待ち|実求人ID|取得した版/u);
+    expect(meta?.textContent).not.toMatch(/接続待ち|実求人ID|確認した本文/u);
     fireEvent.click(screen.getByRole('tab', { name: '比較・報告' }));
     const diffTab = screen.queryByRole('tab', { name: '変更差分' });
     if (diffTab) fireEvent.click(diffTab);

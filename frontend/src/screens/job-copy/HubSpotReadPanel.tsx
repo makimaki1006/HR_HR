@@ -64,7 +64,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     setBusy(true); setError(''); setApplications(null);
     const result = await apiGet<JobPage>(`/api/job-copy/live?company=${encodeURIComponent(customer)}&offset=${String(offset)}`, requestOptions);
     if (request !== generation.current) return;
-    if (result.ok) { setPage(result.data); setContract(''); setMessage('関連する求人を取得しました。'); }
+    if (result.ok) { setPage(result.data); setContract(''); setMessage('関連する求人を読み込みました。'); }
     else failure(result.error);
     setBusy(false);
   }
@@ -84,7 +84,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
       ...(page.portal_id ? { hubspotUrl: `https://app.hubspot.com/contacts/${page.portal_id}/record/0-420/${record.id}` } : {}),
       versions: body ? [{ id: `hubspot-${record.id}-${page.fetched_at}`, label: 'HubSpotの現在の仕事内容', observedAt: page.fetched_at,
         kind: 'received', certainty: 'unknown', source: HUBSPOT_BODY_SOURCE, body, applications: null,
-        note: 'HubSpotの現在値です。媒体の求人票全文・日次履歴・画像はまだ接続していません。取得日を掲載が変わった日として扱いません。' }] : [],
+        note: 'HubSpotの現在値です。媒体の求人票全文・日次履歴・画像はまだ接続していません。本文を確認した日を掲載が変わった日として扱いません。' }] : [],
     };
     onOpen(selectedJob);
     const result = await apiGet<ApplicantPage>(`/api/job-copy/live?company=${encodeURIComponent(page.company_id)}&listing=${encodeURIComponent(record.id)}`, requestOptions);
@@ -124,15 +124,15 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     {after && <button className="jc-button" disabled={busy} onClick={() => { void loadCustomers(true); }}>取引先をさらに取得</button>}
     <label>取得済みの取引先を検索<input value={search} onChange={event => { setSearch(event.target.value); }} /></label>
     <label>HubSpotの取引先<select disabled={busy} value={customer} onChange={event => { ++generation.current; setCustomer(event.target.value); setPage(null); setApplications(null); }}><option value="">取引先を選択</option>{customers.filter(row => (row.properties.name ?? '').includes(search)).map(row => <option key={row.id} value={row.id}>{row.properties.name ?? '名称未取得'}</option>)}</select></label>
-    <button className="jc-button" disabled={busy || !customer} onClick={() => { void loadJobs(); }}>関連する求人を取得</button>
+    <button className="jc-button" disabled={busy || !customer} onClick={() => { void loadJobs(); }}>関連する求人を読み込む</button>
     {busy && <p role="status">HubSpotを読み取り中…</p>}{message && <p role="status">{message}</p>}{error && <p className="jc-error" role="alert">{error}</p>}
     {page && <><p>関連する求人は{page.total}件。このページは{page.jobs.length}件です。現契約・旧契約を含む現在の関連を使用しています。</p>
-      <label>契約で絞り込む<select value={contract} onChange={event => { setContract(event.target.value); }}><option value="">このページの全契約</option>{page.contracts.map(row => <option key={row.id} value={row.id}>{row.properties.dealname ?? row.id} / {row.properties.code_of_customer ?? 'コード未取得'}</option>)}</select></label>
+      <label>契約で絞り込む<select value={contract} onChange={event => { setContract(event.target.value); }}><option value="">このページの全契約</option>{page.contracts.map(row => <option key={row.id} value={row.id}>{row.properties.dealname ?? '契約名未取得'}</option>)}</select></label>
       <div className="jc-live-jobs">{page.jobs.filter(job => !contract || job.deal_ids.includes(contract)).map(({ record, deal_ids }) => <button className="jc-button" key={record.id} disabled={busy} onClick={() => { void open(record); }}>{record.properties.hs_name ?? '求人名未取得'}（関連契約{deal_ids.length}件）</button>)}</div>
       {page.next_offset !== null && <button className="jc-button" disabled={busy} onClick={() => { void loadJobs(page.next_offset ?? 0); }}>次の20件</button>}
     </>}
     {applications && <section aria-label="実応募の読み取り結果"><h2>{plainWording(applications.metric)}: {applications.summary.total}件</h2><p>{plainWording(applications.version_attribution)}</p><p>{joinPresent([plainWording(applications.attribute_basis), `応募日不明${String(applications.summary.missing_date)}件`, `取得${formatDateTimeJst(applications.fetched_at, applications.fetched_at)}`])}</p>
-      <p>{applications.dated_comparison ? `${plainWording(applications.dated_comparison.basis)} どの版への応募か不明${String(applications.dated_comparison.unknown)}件。本文・履歴と応募者構成のタブで確認できます。` : '日付ごとの版がまだつながっていないため、ここでは求人全体の構成を表示します。'}</p>
+      <p>{applications.dated_comparison ? `${plainWording(applications.dated_comparison.basis)} どの本文への応募か不明${String(applications.dated_comparison.unknown)}件。本文・履歴と応募者構成のタブで確認できます。` : '日付ごとの本文がまだつながっていないため、ここでは求人全体の構成を表示します。'}</p>
       <details><summary>求人全体の応募属性を開く</summary>{Object.entries(applications.summary.dimensions).map(([dimension, buckets]) => <section key={dimension}><h3>{labels[dimension] ?? '属性'}</h3><table><thead><tr><th scope="col">区分</th><th scope="col">件数</th><th scope="col">割合</th></tr></thead><tbody>{orderCategories(dimension, Object.entries(dimension === 'prefecture' || dimension === 'municipality' ? roundAreaCounts(dimension, buckets) : buckets).map(([category, count]) => ({ category, count }))).map(({ category: label, count }) => <tr key={label}><th scope="row">{label}</th><td>{count}件</td><td>{applications.summary.total ? `${(100 * count / applications.summary.total).toFixed(1)}%` : '算出不可'}</td></tr>)}</tbody></table></section>)}</details>
     </section>}
   </details>;

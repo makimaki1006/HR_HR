@@ -1,3 +1,5 @@
+import { test as sidebarSetup } from '@playwright/test';
+sidebarSetup.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); });
 import { selectJobFeature } from './job-copy-navigation';
 import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
@@ -21,10 +23,11 @@ function fixture() {
 
 test('joined HR Hacker metrics show exact rates, period delta and meaningful joint reverse search', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'performance');
   const metrics = page.getByRole('region', { name: 'HRハッカー課金・クリック実績', exact: true });
-  await expect(metrics).toContainText('01234567');
+  await expect(metrics).toContainText('HRハッカー · 合成分析求人');
+  await expect(metrics).not.toContainText(/01234567|求人ID/);
   const first = metrics.locator('tbody tr').first();
   await expect(first.locator('td').nth(2)).toHaveText('5%');
   await expect(first.locator('td').nth(4)).toHaveText('200円');
@@ -67,7 +70,7 @@ test('market selection keeps period and source separate from applications and hi
     const selected = url.searchParams.get('title') === '合成職種' && url.searchParams.get('prefecture') === '大分県';
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ source: '合成市場レポート', titles: ['合成職種'], prefectures: ['大分県'], ctk_basis: 'Indeed行動データ。応募数ではありません。', series: selected ? { prefecture: '大分県', months: ['2026-08'], job_count: [100], ctk_count: [300], employer_count: [20], seekers_per_posting: [3] } : null }) });
   });
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'market');
   await page.getByLabel('比較する市場職種').selectOption('合成職種');
   await page.getByLabel('比較する都道府県').selectOption('大分県');
@@ -105,7 +108,7 @@ test('market graphs retain missing months and real zero and hide stale charts du
     if (url.searchParams.get('prefecture') === '福岡県') await new Promise<void>(resolve => { release = resolve; });
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ source: '合成市場レポート', titles: ['合成職種'], prefectures: ['大分県', '福岡県'], ctk_basis: '応募数ではありません。', series: url.searchParams.get('prefecture') === '大分県' ? { prefecture: '大分県', months: ['2026-07', '2026-09'], job_count: [100, 0], ctk_count: [300, 100], employer_count: [20, null], seekers_per_posting: [3, null] } : null }) });
   });
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'market');
   await page.getByLabel('比較する市場職種').selectOption('合成職種');
   await page.getByLabel('比較する都道府県').selectOption('大分県');
@@ -123,7 +126,7 @@ test('market graphs retain missing months and real zero and hide stale charts du
   await page.locator('.jc-market-charts').scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(visuals, 'market-graphs-desktop.png') });
   await page.getByLabel('比較する都道府県').selectOption('福岡県');
-  await expect(page.getByRole('status')).toContainText('市場データを取得中');
+  await expect(page.getByRole('status')).toContainText('市場データを読み込み中');
   await expect(page.getByTestId('jc-market-jobs')).toHaveCount(0);
   await expect(page.getByRole('tabpanel', { name: '市場グラフ', exact: true }).getByTestId('jc-applications-monthly')).toHaveCount(0);
   await expect.poll(() => Boolean(release)).toBe(true);

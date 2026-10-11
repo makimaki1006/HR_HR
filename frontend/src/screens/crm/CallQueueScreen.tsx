@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
+import { DatePicker } from '../../components/DatePicker';
 import { OwnerFilter } from './OwnerFilter';
 import { ownerNameMap } from './ownerModel';
 import { formatPhoneForDisplay } from './phone';
@@ -711,6 +712,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     </div>,
   };
 
+  const fullNote = mode === 'live' ? (crmWrite.writesEnabled === true ? 'HubSpot への書き込みは、編集した項目だけです' : 'HubSpot への書き込みはしません') : '表示内容はすべて架空です。HubSpot には接続しません。';
   return <div className="crm-app cq-app">
     {writeBindings.conflict !== null && <ConflictDialog view={writeBindings.conflict} />}
     {/* 画面全体の読み上げ欄 (記録した・記録できない理由)。常に置いておき、中身だけ変える */}
@@ -719,9 +721,10 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       <span className="crm-topbar-divider" /><h1 className="cq-title">架電</h1>
       <div className={`cq-mode cq-mode-${mode}`} role="status" aria-label="データの種類">
         <strong className="cq-mode-badge">{mode === 'live' ? '実データ(HubSpot)' : '架空サンプル'}</strong>
-        <span className="cq-mode-note">{mode === 'live' ? (crmWrite.writesEnabled === true ? 'HubSpot への書き込みは、編集した項目だけです' : 'HubSpot への書き込みはしません') : '表示内容はすべて架空です。HubSpot には接続しません。'}</span>
-        <span className="cq-mode-note-short">{mode === 'live' ? (crmWrite.writesEnabled === true ? '編集した項目だけ書き込み' : 'HubSpot 書き込みなし') : '架空・未接続'}</span>
+        <span className="cq-mode-note" title={fullNote}>{fullNote}</span>
+        <span className="cq-mode-note-short" title={fullNote}>{mode === 'live' ? (crmWrite.writesEnabled === true ? '編集した項目だけ書き込み' : 'HubSpot 書き込みなし') : '架空・未接続'}</span>
       </div>
+      <div className="cq-topbar-actions">
       {mode === 'live' && <button type="button" ref={zoomToggleRef} className={`cq-zoom-toggle is-${readiness}`} aria-expanded={drawerOpen}
         aria-controls="cq-zoom-drawer" data-testid="zoom-toggle" title={drawerOpen ? 'Zoom の枠を閉じる' : 'Zoom の枠を開く(消音・保留・通話を切る・サインインはこちら)'}
         onClick={() => { if (drawerOpen) closeZoom(); else openZoom(); }}>
@@ -734,6 +737,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           title={inCall ? '通話中は切り替えられません(切り替えると電話の枠が閉じて通話が切れます)' : undefined}
           onClick={() => { switchMode('fixture'); }}>架空サンプル</button>
       </span>
+      </div>
     </header>
 
     <form className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
@@ -763,11 +767,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} />}
         <div className="cq-ranges">
           <fieldset className="cq-range"><legend>次回架電日</legend>
-            <label>から<input type="date" value={filters.nextFrom} onChange={e => { update({ nextFrom: e.target.value }); }} /></label>
-            <label>まで<input type="date" value={filters.nextTo} onChange={e => { update({ nextTo: e.target.value }); }} /></label></fieldset>
+            <label>から<DatePicker value={filters.nextFrom} onChange={v => { update({ nextFrom: v }); }} /></label>
+            <label>まで<DatePicker value={filters.nextTo} onChange={v => { update({ nextTo: v }); }} /></label></fieldset>
           <fieldset className="cq-range"><legend>最終架電日</legend>
-            <label>から<input type="date" value={filters.lastFrom} onChange={e => { update({ lastFrom: e.target.value }); }} /></label>
-            <label>まで<input type="date" value={filters.lastTo} onChange={e => { update({ lastTo: e.target.value }); }} /></label></fieldset>
+            <label>から<DatePicker value={filters.lastFrom} onChange={v => { update({ lastFrom: v }); }} /></label>
+            <label>まで<DatePicker value={filters.lastTo} onChange={v => { update({ lastTo: v }); }} /></label></fieldset>
         </div>
       </div>
     </form>

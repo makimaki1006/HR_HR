@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useDismiss } from './useDismiss';
 import { ownerLabel, visibleOwners } from './ownerModel';
 import type { OwnersState } from './useOwners';
 
@@ -18,32 +19,48 @@ interface Props {
 export function OwnerFilter({ owner, effective, needsPick, onChange, owners, onReload }: Props) {
   const current = owner !== '' ? owner : (effective ?? '');
   const isId = /^\d+$/.test(owner);
-  const [pickMode, setPickMode] = useState(isId);
+  // 一覧は「開いている間」だけ出す。選ぶ・外をクリック・Esc・フォーカスが外れる、で閉じる
+  const [pickMode, setPickMode] = useState(false);
+  const rootRef = useRef<HTMLFieldSetElement>(null);
+  const triggerRef = useRef<HTMLSelectElement>(null);
   const [query, setQuery] = useState('');
   const [includeArchived, setIncludeArchived] = useState(false);
   // 自分の所有者が見つからないときは、最初から一覧を開いて選んでもらう
-  const showPick = pickMode || needsPick || isId;
+  const showPick = pickMode || (needsPick && !isId);
 
-  const selectValue = showPick ? 'pick' : current;
+  const closePick = useCallback(() => { setPickMode(false); }, []);
+  const closeAndFocus = useCallback(() => { setPickMode(false); triggerRef.current?.focus(); }, []);
+  useDismiss(rootRef, pickMode, closePick, closeAndFocus);
+
+  const selectValue = showPick ? 'pick' : isId ? `id:${owner}` : current;
 
   function chooseMode(v: string) {
     if (v === 'pick') {
       setPickMode(true);
-    } else {
+    } else if (!v.startsWith('id:')) {
       setPickMode(false);
       onChange(v);
     }
+  }
+  function choose(id: string) {
+    onChange(id);
+    closeAndFocus();
   }
 
   const list = owners.phase === 'ready' ? owners.owners : [];
   const shown = visibleOwners(list, query, includeArchived, isId ? owner : '');
   const known = isId && list.some(o => o.id === owner);
+  const picked = isId ? list.find(o => o.id === owner) : undefined;
 
-  return <fieldset className="cq-owner"><legend>所有者</legend>
-    <select aria-label="所有者" value={selectValue} onChange={e => { chooseMode(e.target.value); }}>
+  return <fieldset className="cq-owner" ref={rootRef}
+    onBlur={e => { if (pickMode && e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget)) closePick(); }}>
+    <legend>所有者</legend>
+    <select aria-label="所有者" ref={triggerRef} value={selectValue} onChange={e => { chooseMode(e.target.value); }}>
       {current === '' && !showPick && <option value="">(確認中)</option>}
       <option value="all">全員分</option><option value="unassigned">担当者なし</option>
-      <option value="me">自分</option><option value="pick">一覧から選ぶ</option></select>
+      <option value="me">自分</option>
+      {isId && <option value={`id:${owner}`}>{picked ? ownerLabel(picked) : `ID ${owner}`}</option>}
+      <option value="pick">一覧から選ぶ</option></select>
 
     {needsPick && !isId && <p role="status" className="cq-owner-note cq-owner-err">所有者を選んでください(あなたに対応する HubSpot の所有者が見つかりません)。</p>}
 
@@ -63,7 +80,7 @@ export function OwnerFilter({ owner, effective, needsPick, onChange, owners, onR
       <label className="cq-check"><input type="checkbox" checked={includeArchived}
         onChange={e => { setIncludeArchived(e.target.checked); }} />退職者も表示</label>
       <select aria-label="所有者を選ぶ" size={Math.min(8, Math.max(2, shown.length + (isId && !known ? 1 : 0)))}
-        value={isId ? owner : ''} onChange={e => { onChange(e.target.value); }}>
+        value={isId ? owner : ''} onChange={e => { choose(e.target.value); }}>
         {isId && !known && <option value={owner}>ID {owner}(一覧にありません)</option>}
         {shown.map(o => <option key={o.id} value={o.id}>{ownerLabel(o)}</option>)}
       </select>

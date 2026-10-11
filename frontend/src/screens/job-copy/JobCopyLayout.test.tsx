@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 // 配置の組み直し（2026-10-08）と、課金CSV → タイムラインの課金レーンのつながりを、画面全体で確かめる。
+import { beforeEach as pinSidebarBeforeEach, afterEach as clearSidebarAfterEach } from 'vitest';
+pinSidebarBeforeEach(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pinned'); });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobCopyScreen } from './JobCopyScreen';
