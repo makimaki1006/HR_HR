@@ -1,3 +1,5 @@
+import { QueuePropertyFilter } from './QueuePropertyConditions';
+import { conditionLabel } from './queuePropertyFilter';
 import { EMAIL_SAVED } from './emailApi';
 import type { SavedEmailNotice } from './emailApi';
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
@@ -287,7 +289,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 「プロパティ」パネルで表示する項目 (このブラウザに残す)。項目の一覧に無いもの (HubSpot で消された等) は送らない
   const roleLayout = useRolePropertyLayout(mode, localStorageOrNull(), selection !== null);
   const storedProps = roleLayout.selection;
-  const catalog = usePropertyCatalog(mode, selection !== null, catalogFetcher);
+  const catalog = usePropertyCatalog(mode, selection !== null || panelOpen || filters.conditions.length > 0, catalogFetcher);
   const selectedProps = useMemo(() => (catalog.state.phase === 'ready' ? sanitizeSelected(storedProps, catalog.state.index) : storedProps), [catalog.state, storedProps]);
   const applyProps = roleLayout.apply;
   // 通話が終わったが、まだ読み直していない案件 (次に開くときサーバのキャッシュを使わずに読む)
@@ -456,8 +458,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     state.nextCursor, loadMore);
   // 条件を変えて取り直したら一覧の枠を先頭に戻す (前の一覧の下端の位置のままだと、スクロールしていないのに続きを読んでしまう)
   useEffect(() => { if (listScrollRef.current) listScrollRef.current.scrollTop = 0; }, [state.reqId]);
-  const chips = conditionChips(filters, ownerNames, pipeline);
-  const detailCount = (filters.stages.length > 0 ? 1 : 0) + (filters.nextFrom || filters.nextTo ? 1 : 0) + (filters.lastFrom || filters.lastTo ? 1 : 0);
+  const chips: ConditionChip[] = [...conditionChips(filters, ownerNames, pipeline), ...filters.conditions.map((c, i) => ({
+    key: `property-${String(i)}`, label: conditionLabel(c, catalog.state.phase === 'ready' ? catalog.state.index.deals.get(c.property)?.prop : undefined),
+    clear: { conditions: filters.conditions.filter((_, j) => j !== i) },
+  }))];
+  const detailCount = filters.conditions.length + (filters.stages.length > 0 ? 1 : 0) + (filters.nextFrom || filters.nextTo ? 1 : 0) + (filters.lastFrom || filters.lastTo ? 1 : 0);
 
   /** パイプラインの切り替え: ステージの選択は既定 (すべて) に戻し、先頭から読み直す */
   function changePipeline(id: string) {
@@ -769,6 +774,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>
         <button type="button" className="cq-btn cq-more-toggle" aria-expanded={panelOpen} aria-controls="cq-advanced"
           onClick={() => { setPanelOpen(o => !o); }}>詳細条件{detailCount > 0 && <span className="cq-badge">{detailCount}</span>}</button>
+        <button type="button" className="cq-btn" onClick={() => { setPanelOpen(true); }} disabled={filters.conditions.length >= 3}>条件を追加</button>
         <button type="button" className="cq-btn cq-btn-quiet" onClick={clearAll} disabled={!hasConditions && qDraft === ''}>条件をクリア</button>
       </div>
       {chips.length > 0 && <ul className="cq-chips" aria-label="適用中の条件">
@@ -776,6 +782,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           <button type="button" aria-label={`「${c.label}」を外す`} onClick={() => { removeChip(c); }}>×</button></li>)}
       </ul>}
       <div id="cq-advanced" className="cq-advanced" hidden={!panelOpen}>
+        {panelOpen && <QueuePropertyFilter catalog={catalog.state} count={filters.conditions.length} onReload={catalog.reload}
+          onAdd={c => { update({ conditions: [...filters.conditions, c] }); }} />}
         {pipeline && <StageFilter key={`${mode}|${pipeline.id}`} pipeline={pipeline} selected={filters.stages}
           labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} />}
         <div className="cq-ranges">

@@ -1,0 +1,6 @@
+.cq-property-filter { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; border: 1px solid var(--crm-border, #d8dde5); border-radius: 8px; padding: 12px; width: 100%; min-width: 0; }
+.cq-property-filter > label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.cq-property-filter input:not([type=checkbox]), .cq-property-filter select { max-width: 270px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: white; color: #26354a; }
+.cq-property-filter small { width: 100%; color: #637086; }
+.cq-property-options { max-height: 160px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 8px; max-width: 500px; border: 1px solid #d8dde5; }
+.cq-property-options label { white-space: nowrap; }
