@@ -272,7 +272,7 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
     </div>
     {acts.length === 0 && <p className="crm-muted">{data.activities.length === 0 ? '表示できる活動履歴はありません。' : 'この種類の活動はありません。'}</p>}
     {(kind === 'all' || kind === 'email') && <EmailPendingLog key={data.deal.id} dealId={data.deal.id} sample={sample} />}
-    <ul className="wd-acts">{acts.map(a => <ActivityCard key={`${a.kind}-${a.id}`} a={a} ownerNames={ownerNames} highlighted={shown && a.id === visibleId} />)}</ul>
+    <ul className="wd-acts">{acts.map(a => <ActivityCard key={`${a.kind}-${a.id}`} a={a} ownerNames={ownerNames} highlighted={shown && a.kind === 'email' && a.id === visibleId} />)}</ul>
   </section>;
 }
 
