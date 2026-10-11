@@ -15,7 +15,8 @@ describe('リクロジメディア向けの案', () => {
     expect(container.textContent).toContain('文の一致率：未取得（要確認）');
     expect(container.textContent).toContain('時給 1,200円〜1,400円');
     expect(container.textContent).toContain('8文字未満の文は一致率に数えません');
-    expect(container.textContent).toContain('合格ラインは暫定（実際の案で要確認の出方を見て調整する）');
+    expect(container.textContent).toContain('同じ文が1つでもある場合');
+    expect(container.textContent).toContain('既知の項目見出しを除いて文を比べます');
     expect(container.textContent).toContain('休日・休暇（要確認）');
     expect(container.textContent).toContain('日給1100円');
     expect(container.textContent).toContain('配送の手順を研修で学びます');

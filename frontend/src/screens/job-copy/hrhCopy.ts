@@ -81,7 +81,7 @@ export function hrhCopySections(body: string): BodySection[] {
   const payDetails = workTime();
   for (let n = 1; n <= 3; n++) {
     const conditionFields = [...fields].map(([key, value]) => [key, value.trim()] as const).filter(([key]) => conditional.exec(key)?.[1] === String(n));
-    const value = (suffix: string) => conditionFields.find(([key]) => conditional.exec(key)?.[2] === suffix)?.[1] ?? '';
+    const value = (suffix: string) => displayCode(`条件付き給与${String(n)} ${suffix}`, conditionFields.find(([key]) => conditional.exec(key)?.[2] === suffix)?.[1] ?? '');
     if (conditionFields.some(([, text]) => text)) {
       const amount = value('最小給与') || value('最大給与') ? composeSalary(get('給与形態'), value('最小給与'), value('最大給与')) : '';
       payDetails.push([value('条件') || '条件に応じた給与', value('深夜帯') ? `深夜の勤務：${value('深夜帯')}` : '', amount].filter(Boolean).join(' ／ '));

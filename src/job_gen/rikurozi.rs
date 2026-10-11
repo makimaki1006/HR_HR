@@ -66,9 +66,22 @@ pub fn threshold(raw: Option<&str>) -> anyhow::Result<f64> {
     );
     Ok(n)
 }
-/// NFKCと前後の空白除去だけ。内部の空白や言い換えは保持する。
+/// 既知のCSV項目の行頭見出しだけを除く。値の内部空白や言い換えは保持する。
 fn sentence_text(text: &str) -> String {
-    text.nfkc().collect::<String>().trim().to_owned()
+    text.nfkc()
+        .collect::<String>()
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            trimmed
+                .split_once(':')
+                .filter(|(key, _)| hrhacker::HRHACKER_COLUMNS.contains(&key.trim()))
+                .map_or(trimmed, |(_, value)| value.trim())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
 }
 pub fn sentences(text: &str, min_chars: usize) -> Vec<String> {
     sentence_text(text)
@@ -498,7 +511,9 @@ pub fn finish(
             title,
             media,
             publication,
-            too_similar: whole_match || ratio.is_some_and(|r| r >= threshold),
+            too_similar: whole_match
+                || !matched_sentences.is_empty()
+                || ratio.is_some_and(|r| r >= threshold),
             whole_match,
             matched_sentences,
             ratio,
@@ -758,7 +773,7 @@ mod tests {
         let mut s = source();
         s.comparisons[0].body = "一文目。二文目。別の文。".into();
         let mut generated_raw = json!({"job_description":generated});
-        for (limit, expected) in [(0.1999, true), (0.2, true), (0.2001, false)] {
+        for (limit, expected) in [(0.1999, true), (0.2, true), (0.2001, true)] {
             assert_eq!(
                 finish(&s, &generated_raw, limit, 0).unwrap().comparisons[1].too_similar,
                 expected
@@ -826,7 +841,7 @@ mod tests {
         s.comparisons[0].body = "未経験歓迎。配送の手順を学べます。".into();
         let draft = finish(&s, &generated_raw, limit, min_chars).unwrap();
         assert_eq!(draft.comparisons[1].ratio, Some(0.1));
-        assert!(!draft.comparisons[1].too_similar);
+        assert!(draft.comparisons[1].too_similar);
     }
     #[test]
     fn missing_original_conditions_and_unread_comparisons_remain_unknown() {
@@ -946,6 +961,70 @@ mod tests {
         assert_eq!(result.regeneration_count, 2);
         assert!(result.review_required);
         assert!(result.comparisons[1].too_similar);
+    }
+    #[tokio::test]
+    async fn labelled_baseline_copy_is_rewritten_even_below_ratio_threshold() {
+        let mut s = source();
+        let copied = "架空の倉庫で仕分け作業を行っていただける方を募集中です";
+        s.body = format!("仕事内容：{copied}。\n応募資格：必要な経験はありません。");
+        s.comparisons[0].body = "別の場所で荷物を届ける業務です。".into();
+        let generated = format!("{copied}。")
+            + &[
+                "あ", "い", "う", "え", "お", "か", "き", "く", "け", "こ", "さ", "し",
+            ]
+            .into_iter()
+            .map(|n| format!("新しい案内の文章その{n}を加えています。"))
+            .collect::<String>();
+        let draft = finish(&s, &json!({"job_description":generated}), 0.2, 8).unwrap();
+        assert_eq!(draft.comparisons[0].matched_sentences, vec![copied]);
+        assert!(draft.comparisons[0].ratio.unwrap() < 0.2);
+        assert!(draft.comparisons[0].too_similar);
+        let calls = std::sync::Mutex::new(Vec::new());
+        let result = run(&s, 0.2, 8, |prompt, _, _| {
+            let count = {
+                let mut calls = calls.lock().unwrap();
+                calls.push(prompt);
+                calls.len()
+            };
+            let generated = generated.clone();
+            async move {
+                Ok(if count == 1 {
+                    json!({})
+                } else {
+                    json!({"job_description":generated})
+                })
+            }
+        })
+        .await
+        .unwrap();
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 4);
+        for prompt in &calls[2..] {
+            assert!(prompt.contains("一致した文（引用）"));
+            assert!(prompt.contains(copied));
+        }
+        assert_eq!(result.regeneration_count, 2);
+        assert!(result.review_required);
+    }
+    #[test]
+    fn only_known_line_headings_are_removed_from_sentence_comparison() {
+        assert_eq!(
+            sentences(
+                "仕事内容：荷物の仕分けを担当します。\n応募資格:経験は問いません。",
+                8
+            ),
+            vec!["荷物の仕分けを担当します", "経験は問いません"]
+        );
+        assert_eq!(
+            sentences(
+                "注意：仕事の内容は異なります。\n担当する仕事内容：荷物の確認です。",
+                0
+            ),
+            vec![
+                "注意:仕事の内容は異なります",
+                "担当する仕事内容:荷物の確認です"
+            ]
+        );
     }
     #[tokio::test]
     async fn rewrite_stops_as_soon_as_similarity_passes() {
