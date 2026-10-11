@@ -94,12 +94,12 @@ describe('the chosen properties (stored per browser)', () => {
     expect(selectedQuery({ deals: [], contacts: [], companies: [] })).toBe('');
   });
 
-  it('names missing from the catalog are dropped (same object back when nothing changes); display follows the HubSpot order', () => {
+  it('names missing from the catalog are dropped (same object back when nothing changes); display follows the selected order', () => {
     const idx = catalogIndex(FIXTURE_CATALOG);
     expect(sanitizeSelected(DEFAULT_SELECTED, idx)).toBe(DEFAULT_SELECTED);
     const stale = { ...LEGACY_DEFAULT_SELECTED, deals: ['bpo_32', 'deleted_prop', 'bpo_10'] };
     expect(sanitizeSelected(stale, idx).deals).toEqual(['bpo_32', 'bpo_10']);
-    expect(orderedSelection('deals', stale, idx).map(e => e.prop.name)).toEqual(['bpo_10', 'bpo_32']);
+    expect(orderedSelection('deals', stale, idx).map(e => e.prop.name)).toEqual(['bpo_32', 'bpo_10']);
     expect(orderedSelection('deals', stale, idx).map(e => e.group)).toEqual(['Deal information', 'Deal information']);
   });
 
