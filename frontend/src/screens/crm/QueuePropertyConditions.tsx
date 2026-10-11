@@ -28,17 +28,17 @@ export function QueuePropertyFilter({ catalog, count, onAdd, onReload }: {
     {catalog.phase === 'error' && <p role="alert">{catalog.message} <button type="button" onClick={onReload}>項目を読み直す</button></p>}
     {count >= MAX_PROPERTY_CONDITIONS ? <p>追加条件は 3 つまでです。条件を外すと追加できます。</p> : catalog.phase === 'ready' && <>
       <label>項目を検索<input type="search" value={query} onChange={e => { setQuery(e.target.value); }} placeholder="取引の項目名" /></label>
-      <label>項目<select value={property?.name ?? ''} onChange={e => { pick(props.find(p => p.name === e.target.value) ?? null); }}>
+      <label>項目<select aria-label="項目" value={property?.name ?? ''} onChange={e => { pick(props.find(p => p.name === e.target.value) ?? null); }}>
         <option value="">項目を選択</option>{options.map(p => <option key={p.name} value={p.name}>{p.label}</option>)}</select></label>
-      {property && <><label>条件<select value={operator} onChange={e => { setOperator(e.target.value); setValues(property.property_type === 'bool' ? ['true'] : []); }}>
+      {property && <><label>条件<select aria-label="条件" value={operator} onChange={e => { setOperator(e.target.value); setValues(property.property_type === 'bool' ? ['true'] : []); }}>
         {operatorsFor(property).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
       {!empty && (property.property_type === 'enumeration' ? <fieldset className="cq-property-options"><legend>値(複数選択)</legend>
         {property.options.map(o => <label key={o.value}><input type="checkbox" checked={values.includes(o.value)}
           onChange={e => { setValues(prev => e.target.checked ? [...prev, o.value] : prev.filter(v => v !== o.value)); }} />{o.label}</label>)}
         {property.options.length === 0 && <p>この項目に選べる値はありません。</p>}</fieldset>
-        : property.property_type === 'bool' ? <label>値<select value={value} onChange={e => { setValues([e.target.value]); }}><option value="true">はい</option><option value="false">いいえ</option></select></label>
-        : ['date', 'datetime'].includes(property.property_type) ? <label>値<DatePicker value={value} onChange={v => { setValues([v]); }} /></label>
-        : <label>値<input type={property.property_type === 'number' ? 'number' : 'text'} value={value} maxLength={200} step="any"
+        : property.property_type === 'bool' ? <label>値<select aria-label="値" value={value} onChange={e => { setValues([e.target.value]); }}><option value="true">はい</option><option value="false">いいえ</option></select></label>
+        : ['date', 'datetime'].includes(property.property_type) ? <label>値<DatePicker aria-label="値" value={value} onChange={v => { setValues([v]); }} /></label>
+        : <label>値<input aria-label="値" type={property.property_type === 'number' ? 'number' : 'text'} value={value} maxLength={200} step="any"
           onChange={e => { setValues([e.target.value]); }} /></label>)}
       <button type="button" className="cq-btn" disabled={!valid} onClick={() => { onAdd({ property: property.name, operator, values: empty ? [] : values }); pick(null); setQuery(''); }}>この条件を追加</button></>}
       <small>最大 3 つ。追加したすべての条件に合う架電先を表示します。</small>

@@ -1879,9 +1879,9 @@ async fn execute(
             };
             super::queue_property_filter::append(groups, &params.property_filters)
                 .map(|groups| (p, groups))
-                .map_err(condition_error)
         })
-        .collect::<Result<Vec<_>, _>>()?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(condition_error)?
         .into_iter()
         .filter(|(_, g)| !g.is_empty())
         .collect();

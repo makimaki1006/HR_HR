@@ -201,7 +201,7 @@ mod tests {
             Err(LIMIT_MESSAGE)
         );
         assert_eq!(
-            append(vec![json!({"filters":vec![extra.clone();4]}); 5], &[]),
+            append(vec![json!({"filters":vec![extra;4]}); 5], &[]),
             Err(LIMIT_MESSAGE)
         );
         assert_eq!(
