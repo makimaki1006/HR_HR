@@ -303,6 +303,7 @@ Status: Accepted (2026-10-11 ユーザー決定。依頼の ADR-019 は既存の
 - 具体的な問題: HR_HR の画面から本人の 1 対 1 営業メールを送る必要がある。HubSpot の公開 emails API は記録用で、1 対 1 送信の公開 API はない。マーケティング向け single-send は今回の用途ではない。
 - 採用する変更: 操作者本人の Gmail API で送信し、HR_HR が HubSpot の emails に SENT の記録を作り、取引と宛先・CC の関連コンタクトに結び付ける。Call は引き続き作らない。`hubspot_owner_id` は取引所有者ではなく操作者本人を使用する。
 - 追加許可: 既存 Google Workspace OIDC の client に incremental authorization と offline consent を追加する。gmail.send / gmail.readonly を同時に要求する (readonly は送信結果確認と今後の返信取り込み用)。state・PKCE・ID token の nonce / aud / 署名 / ドメイン / 本人一致を確認する。
+- 追加許可のクライアント分離（2026-10-12 ユーザー決定）: ログイン用プロジェクトが外部・テスト中で Internal に変更できないため、`CRM_EMAIL_GOOGLE_CLIENT_ID` / `_SECRET` を両方設定すると Gmail 許可だけ Internal の専用クライアントを使う。Gmail の aud は専用 ID、ログインの aud は従来 ID のまま、他の本人検証は共通で維持する。従来設定は管理が簡単なので両方未設定時の互換経路として残し、片方だけなら無効化する。本番の既存許可は 0 件で移行不要。戻す場合は専用許可を取り消して両変数を外し、再許可する（DB の変更なし）。
 - 保存先: 既存 audit Turso の `crm_gmail_grants` に refresh token を AES-256-GCM (32 バイトの専用環境変数鍵、操作者 email を AAD) で暗号化して保存する。新しい DB は作らない。取り消し時はローカルの token を消し、Google へも取り消しを要求する。Google の取り消しが失敗した場合は利用者へ Google アカウントでも取り消すよう案内する。
 - 冪等・再試行: 送信前に既存 `crm_pending_operations` にメール操作を永続化する。Gmail の送信結果と HubSpot の記録結果を分ける。worker はメールを送らず、記録のみ再試行する。送信途中の中断は Gmail の RFC Message-ID を検索して確認する。HubSpot は CREATE 前に `hs_email_message_id` で検索し、見つかれば作成しない。CREATE の結果が不明な場合は検索の反映を待ち、見つからなくても二度目の CREATE は行わない。上限後は管理者確認が必要になる。
 - 返信取り込み: 本人の追加許可で gmail.readonly を使い、既定 10 分おき（`CRM_EMAIL_REPLY_INTERVAL_SECS`）に HR_HR の送信台帳にある送信後 30 日以内のスレッドだけを自動確認する。自分・許可ドメインからの返信は除外し、自動返信を含む外部の受信を同じ取引・コンタクトの HubSpot emails に記録する。

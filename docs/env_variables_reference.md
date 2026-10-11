@@ -253,9 +253,11 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 |---|---|
 | `CRM_EMAIL_ENABLED` | `1` のときのみ有効。未設定なら実データの画面にメール送信を出さない |
 | `CRM_EMAIL_TOKEN_KEY` | Base64 形式のランダムな 32 バイト AES-256-GCM 鍵。既存の Cookie / Scout の鍵を流用しない。欠落・不正なら無効。設定後の変更は保存済み token を復号できなくなるため、先に許可を取り消して再許可する |
+| `CRM_EMAIL_GOOGLE_CLIENT_ID` | Gmail 追加許可専用の OAuth クライアント ID（Internal プロジェクト）。専用 ID と secret が両方あれば認可・token 交換・refresh に使用し、ID token の aud もこの ID に一致させる。両方未設定なら従来の `GOOGLE_OIDC_*` を使用。片方だけなら warn を出して Gmail 機能を無効化（空白だけは未設定扱い） |
+| `CRM_EMAIL_GOOGLE_CLIENT_SECRET` | 専用クライアントの secret。サーバだけが使用し、ブラウザ・ログには出さない。上記 ID と必ずセットで設定 |
 | `CRM_EMAIL_REDIRECT_URL` | Google Cloud の承認済み URI と一致する追加許可 callback。例 `https://hr-hw.onrender.com/api/crm/gmail/callback`。HTTPS 必須 (ローカルの localhost / 127.0.0.1 は HTTP 可) |
 
-既存 `GOOGLE_OIDC_CLIENT_ID` / `GOOGLE_OIDC_CLIENT_SECRET` / `GOOGLE_OIDC_REDIRECT_URL` / `GOOGLE_OIDC_HOSTED_DOMAIN` と `AUDIT_TURSO_URL` / `AUDIT_TURSO_TOKEN` も必要。既存 OIDC callback は維持し、Gmail 用 URI を追加する。Gmail API を有効化し、同意画面は会社の Internal とする。要求する追加スコープは gmail.send と gmail.readonly。HubSpot に emails の読み取り・検索・作成・関連付けができる既存アプリの権限も必要 (本 PR では本番の権限は変更しない)。
+既存 `GOOGLE_OIDC_CLIENT_ID` / `GOOGLE_OIDC_CLIENT_SECRET` / `GOOGLE_OIDC_REDIRECT_URL` / `GOOGLE_OIDC_HOSTED_DOMAIN` と `AUDIT_TURSO_URL` / `AUDIT_TURSO_TOKEN` も必要。ログインのクライアント・OIDC callback は維持する。Gmail 専用クライアントを設定する場合は、そのクライアントに `CRM_EMAIL_REDIRECT_URL` を登録する（従来設定を使う場合はログイン用クライアントへ Gmail 用 URI を追加する）。署名・iss・exp・nonce・hd・email_verified・操作者本人一致の検証は維持する。取り消しは専用クライアントで得た refresh token を Google revoke endpoint に渡す（Google の revoke は client_id / secret を受け取らない）。クライアントを変更すると既存許可は使えないため、許可のある環境では取り消して再許可する。Gmail API を有効化し、同意画面は会社の Internal とする。要求する追加スコープは gmail.send と gmail.readonly。HubSpot に emails の読み取り・検索・作成・関連付けができる既存アプリの権限も必要 (本 PR では本番の権限は変更しない)。
 
 許可の開始・callback の間だけ `hrhr_gmail_tx` (HttpOnly / SameSite=Lax / 五分 / 本番 Secure) を使う。既存ログインの Cookie を変更しない。送信の操作台帳を監査 DB に記録できなければメールを送らない。計測表だけの保存失敗は計測なしで送る。ローカル試験は偽 Gmail・偽 HubSpot・SQLite に裏打ちした偽 Turso だけを使う。
 
