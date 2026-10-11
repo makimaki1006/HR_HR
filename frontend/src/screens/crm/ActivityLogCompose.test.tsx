@@ -25,10 +25,11 @@ it('resets filter and scroll only for this deal; waits for refresh before a five
   log.scrollTop=300;
   const original=data.activities[0]; if (!original) throw new Error('activity missing');
   const sent={...original,id:'902',kind:'email',title:'採用のご相談',direction:'EMAIL',status:'SENT'};
-  view.rerender(<ActivityLog data={{...data,activities:[sent,...data.activities]}} {...props} />);
+  view.rerender(<ActivityLog data={{...data,activities:[sent,{...original,id:'902',kind:'call',title:'以前の通話'},...data.activities]}} {...props} />);
   expect(log.scrollTop).toBe(0);
   const card=screen.getByText('採用のご相談').closest('li');
   expect(card?.getAttribute('data-highlighted')).toBe('true');
+  expect(view.container.querySelectorAll('[data-highlighted="true"]')).toHaveLength(1);
   act(() => { vi.advanceTimersByTime(4999); });
   expect(card?.className).toContain('crm-email-highlight');
   act(() => { vi.advanceTimersByTime(1); });
