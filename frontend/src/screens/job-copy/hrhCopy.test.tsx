@@ -81,3 +81,22 @@ describe('本番形式のHRハッカー求人票', () => {
     expect(hrhCopySections('仕事内容：本文のみ')).toEqual([{ heading: '仕事内容', text: '本文のみ' }]);
   });
 });
+it('does not show undefined numeric codes in the readable original or infer holidays from an unrelated field', () => {
+  const body = '仕事内容：棚の商品を集めます\n雇用形態：999\n給与形態：月給\n基本給与 最小：213000\n基本給与 最大：249000\n試用・研修の有無：999\n試用・研修時の雇用条件：999\n試用・研修期の雇用形態：999\n試用・研修期の給与のタイプ：999\n試用・研修期の基本給与 最小：180000';
+  const text = hrhCopySections(body).map(section => section.text).join('\n');
+  expect(text).toContain('月給 213,000円〜249,000円');
+  expect(text).toContain('試用・研修：確認が必要');
+  expect(text).toContain('雇用条件：確認が必要');
+  expect(text).toContain('雇用形態：確認が必要');
+  expect(text).toContain('180,000円');
+  expect(text).not.toContain('999');
+});
+it('hides the numeric night-work code in every conditional salary group', () => {
+  for (const group of [1, 2, 3]) {
+    const body = `仕事内容：荷物の確認を担当します\n給与形態：月給\n条件付き給与${String(group)} 条件：夜の仕事\n条件付き給与${String(group)} 深夜帯：999\n条件付き給与${String(group)} 最小給与：213000`;
+    const text = hrhCopySections(body).map(section => section.text).join('\n');
+    expect(text).toContain('深夜の勤務：確認が必要');
+    expect(text).not.toContain('999');
+    expect(text).toContain('213,000円');
+  }
+});
