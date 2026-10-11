@@ -86,7 +86,7 @@ describe('email composer', () => {
     expect(screen.queryByText('Gmail の許可を取り消す')).toBeNull();
     fireEvent.click(write);
     expect(view.baseElement.querySelector('details')?.open).toBe(false);
-    expect(screen.getByText('Gmail の許可を取り消す').closest('details')).toBe(view.container.querySelector('details'));
+    expect(screen.getByText('Gmail の許可を取り消す').closest('details')).toBe(view.baseElement.querySelector('details'));
     expect(a.revoke).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('その他'));
     expect(screen.getByRole('button', { name: 'Gmail の許可を取り消す' })).toBeTruthy();
