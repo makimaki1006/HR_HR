@@ -76,6 +76,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await page.goto('/app/job-copy?listing=31&demo=1');
       await page.getByRole('button', { name: '今の版を手直しする' }).click();
       await expect(page.getByLabel('仕事の内容', { exact: true })).toHaveValue(body);
+      await page.getByLabel('変更した項目と内容を確認しました').check();
       await page.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
       expect(requests[0].body.row['仕事内容']).toBe(body);
       expect(requests[0].body.row['基本給与 最小']).toBe('');
@@ -86,21 +87,28 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await expect(page.getByLabel('求人票')).toContainText('勤務時間：9〜18時');
       await shot(page, width, '05-airwork-preserved');
     });
-    test('求人見出しの給与変更にも警告と理由を求める', async ({ page }) => {
+    for (const [before, after] of [['土日休みの配送', '日曜休みの配送'], ['東京都の配送', '大阪府の配送'], ['月給25万円の配送', '月給30万円の配送']]) test(`見出しの${before}→${after}は一覧で確認し意味で分類しない`, async ({ page }) => {
       const { requests } = await mockFlow(page);
+      const current = { ...row, '案件名': before };
+      await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({ json: { listing: { id: '30', media: 'hrh', title: '架空配送スタッフ' }, current_row: current, versions: [{ written_at: '2026-10-01T00:00:00Z', body: composeFixtureBody(current), image_urls: null }], drafts: [], draft_revision: 'a'.repeat(64), can_write_drafts: true, history_counts: {}, history_may_be_incomplete: false } }));
       await page.goto('/app/job-copy?listing=30&demo=1');
       await page.getByRole('button', { name: '今の版を手直しする' }).click();
       const editor = page.getByRole('region', { name: '求人の手直し' });
-      await editor.getByLabel('求人の見出し').fill('月給25万円の配送スタッフ');
-      await editor.getByLabel('求人の見出し').fill('月給30万円の配送スタッフ');
-      await expect(editor.getByRole('alert')).toContainText('求人の見出し');
-      await expect(editor.getByRole('button', { name: '確認待ちの案として保存して比較' })).toBeDisabled();
-      expect(requests).toHaveLength(0);
-      await editor.getByLabel('条件を変更する理由').fill('募集担当者に給与変更を確認したため');
-      await editor.getByRole('alert').scrollIntoViewIfNeeded(); await shot(page, width, '06-heading-condition-warning');
-      await editor.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
-      expect(requests[0].body.row['案件名']).toBe('月給30万円の配送スタッフ');
-      expect(requests[0].body.reason).toBe('募集担当者に給与変更を確認したため');
+      await editor.getByLabel('求人の見出し').fill(after!);
+      await expect(editor.getByRole('alert')).toHaveCount(0);
+      await expect(editor.getByLabel('条件を変更する理由')).toHaveCount(0);
+      const preview = editor.getByRole('region', { name: '保存前の変更確認' });
+      await expect(preview).toContainText(before!); await expect(preview).toContainText(after!);
+      await expect(preview.locator('ins')).toBeVisible(); await expect(preview.locator('del')).toBeVisible();
+      const save = editor.getByRole('button', { name: '確認待ちの案として保存して比較' });
+      await expect(save).toBeDisabled(); expect(requests).toHaveLength(0);
+      await preview.getByRole('checkbox').check();
+      await editor.getByLabel('求人の見出し').fill(`${after!} `);
+      await expect(preview.getByRole('checkbox')).not.toBeChecked(); await expect(save).toBeDisabled();
+      await preview.getByRole('checkbox').check();
+      if (before!.startsWith('土日')) { await preview.scrollIntoViewIfNeeded(); await shot(page, width, '07-heading-change-confirmation'); }
+      await save.click();
+      expect(requests[0].body.row['案件名']).toBe(`${after!} `); expect(requests[0].body.reason).toBe('');
     });
     test('給与変更と理由、保存状態、二つの案の比較、採用CSVの84列と具体値', async ({ page }) => {
       const { requests } = await mockFlow(page);
@@ -126,6 +134,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await expect(editor.getByRole('alert')).toContainText('募集条件に関わる変更');
       await expect(save).toBeDisabled(); expect(requests).toHaveLength(0);
       await editor.getByLabel('条件を変更する理由').fill('募集担当者に給与の下限の変更を確認したため');
+      await editor.getByLabel('変更した項目と内容を確認しました').check();
       await expect(save).toBeEnabled();
       await editor.getByRole('alert').scrollIntoViewIfNeeded(); await shot(page, width, '02-edit-warning');
       await save.click(); await expect(page.locator('.jc-comparison')).toBeVisible();
@@ -134,12 +143,12 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await expect(list).toContainText('案：確認待ち');
       const table = page.locator('.jc-column-comparison');
       const salary = table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '給与の下限', exact: true }) });
-      await expect(salary).toContainText('250000'); await expect(salary).toContainText('270000');
+      await expect(salary).toContainText('月給 250,000円'); await expect(salary).toContainText('月給 270,000円');
       await expect(salary.locator('ins')).toBeVisible(); await expect(salary.locator('del')).toBeVisible();
       await page.getByText('元データを見る', { exact: true }).click(); await expect(page.locator('.jc-draft-source')).not.toContainText(/secret-|基本給与|求人id|店舗id/);
       await table.scrollIntoViewIfNeeded(); await shot(page, width, '03-compare');
       await page.getByLabel('比較元', { exact: true }).selectOption('hubspot-draft-10000000-0000-4000-8000-000000000001');
-      await expect(salary).toContainText('250000'); await expect(salary).toContainText('270000');
+      await expect(salary).toContainText('月給 250,000円'); await expect(salary).toContainText('月給 270,000円');
       await page.getByLabel('比較元', { exact: true }).selectOption('hubspot-history-30-0');
       await page.locator('.jc-draft-review').getByRole('combobox', { name: '案の確認状態', exact: true }).selectOption('adopted');
       await page.getByRole('button', { name: '確認状態を保存' }).click();
@@ -170,7 +179,8 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       const editor = page.getByRole('region', { name: '求人の手直し' });
       await expect(editor.getByLabel('仕事の内容', { exact: true })).toHaveValue('チームで日用品を配送します。');
       await editor.getByLabel('求人の見出し').fill('手直しした配送スタッフ');
-      await editor.getByLabel('条件を変更する理由').fill('仕事内容を確認したため');
+      await expect(editor.getByLabel('条件を変更する理由')).toHaveCount(0);
+      await page.getByLabel('変更した項目と内容を確認しました').check();
       await editor.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
       await expect(page.locator('.jc-comparison')).toBeVisible();
       expect(requests[0].body.base_draft_id).toBe('10000000-0000-4000-8000-000000000001');
@@ -192,6 +202,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await expect(page.getByRole('button', { name: '保存済みの案を手直しする' })).toBeDisabled(); expect(requests).toHaveLength(0);
       await mockFlow(page, true, true); await page.reload();
       await page.getByRole('button', { name: '今の版を手直しする' }).click();
+      await page.getByLabel('変更した項目と内容を確認しました').check();
       await page.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
       await expect(page.getByRole('region', { name: '求人の手直し' })).toContainText('案を保存する権限がありません');
     });
@@ -203,6 +214,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       const editor = page.getByRole('region', { name: '求人の手直し' });
       await editor.getByLabel('求人の見出し').fill('見出しを手直しした配送スタッフ');
       await expect(editor.getByLabel('条件を変更する理由')).toHaveCount(0);
+      await page.getByLabel('変更した項目と内容を確認しました').check();
       await editor.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
       await expect(page.locator('.jc-comparison')).toBeVisible();
       expect(requests[0].body.row).toMatchObject({ '求人id': 'secret-job', '店舗id': 'secret-shop', '職種id': 'secret-role' });
