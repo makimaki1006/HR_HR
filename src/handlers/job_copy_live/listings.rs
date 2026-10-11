@@ -1,7 +1,17 @@
-//! Complete, in-memory listing index. No Search calls, stored bodies or applicant properties.
+//! Complete in-memory index: deal associations and structured comparison summaries.
+//! Bodies/history are transient; applicant properties are never read or stored.
 use super::*;
 use axum::extract::Path as AxumPath;
 use unicode_normalization::UnicodeNormalization;
+#[path = "listing_deals.rs"]
+mod deals;
+pub(super) use deals::read_comparison;
+use deals::{
+    body_changed_at, deal_candidates, index_associations, publication, summary, Deal, Summary,
+};
+#[cfg(test)]
+#[path = "listing_deal_tests.rs"]
+mod deal_tests;
 
 const PROPERTIES: &[&str] = &[
     "hs_name",
@@ -29,6 +39,10 @@ pub(super) struct ListingsQuery {
     #[serde(default)]
     offset: usize,
     sort: Option<String>,
+    deal: Option<String>,
+    deal_search: Option<String>,
+    publication: Option<String>,
+    descending: Option<bool>,
 }
 #[derive(Clone, Debug, Serialize)]
 struct Listing {
@@ -42,6 +56,10 @@ struct Listing {
     category: Option<String>,
     publication_status: Option<String>,
     last_csv_detected_at: Option<String>,
+    deal_ids: Vec<String>,
+    summary: Summary,
+    #[serde(skip)]
+    indexed_application_count: Option<usize>,
 }
 fn normalize(value: &str) -> String {
     value
@@ -128,13 +146,14 @@ fn listing(record: &Record, titles: &[String]) -> Option<Listing> {
         prefecture,
         municipality,
         category: match_title(&occupation, titles),
-        publication_status: record
-            .value(if media == "hrh" {
-                "baitai_genjoukyou_hrhakkaa"
-            } else {
-                "baitai_genjoukyou_airwork"
-            })
-            .map(str::to_owned),
+        publication_status: publication(record.value(if media == "hrh" {
+            "baitai_genjoukyou_hrhakkaa"
+        } else {
+            "baitai_genjoukyou_airwork"
+        })),
+        deal_ids: vec![],
+        summary: summary(record, media),
+        indexed_application_count: None,
         last_csv_detected_at: record.value("saishuu_csv_kenshutsu_bi").map(str::to_owned),
     })
 }
@@ -186,6 +205,7 @@ struct Index {
     records: Vec<Listing>,
     titles: Vec<String>,
     built_at: String,
+    deals: Vec<Deal>,
 }
 #[derive(Serialize)]
 struct PageListing {
@@ -194,7 +214,7 @@ struct PageListing {
     application_count: Option<usize>,
 }
 
-/// One complete build. A page's body exists only until its title line is classified.
+/// One complete build. Page bodies/history are discarded after their summaries are read.
 async fn build_index(
     service: &JobReadService,
     titles: Vec<String>,
@@ -208,11 +228,18 @@ async fn build_index(
     let properties = PROPERTIES
         .iter()
         .copied()
-        .filter(|p| !["hrh_kyuujinhyou_gazou", "shigotonaiyou"].contains(p))
+        .filter(|p| *p != "hrh_kyuujinhyou_gazou")
         .collect::<Vec<_>>()
         .join(",");
     loop {
-        let mut params = vec![("limit", "100".into()), ("properties", properties.clone())];
+        let mut params = vec![
+            ("limit", "100".into()),
+            ("properties", properties.clone()),
+            (
+                "propertiesWithHistory",
+                "hrh_kyuujinhyou_honbun,shigotonaiyou".into(),
+            ),
+        ];
         if let Some(cursor) = &after {
             params.push(("after", cursor.clone()));
         }
@@ -220,7 +247,7 @@ async fn build_index(
             .request_with_client(&background, "/crm/v3/objects/0-420", &params, None)
             .await?;
         let page: Page =
-            serde_json::from_value(data).map_err(|_| fail("hubspot_invalid_response"))?;
+            serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
         if page.results.len() > 100 {
             return Err(fail("hubspot_invalid_response"));
         }
@@ -228,7 +255,11 @@ async fn build_index(
             valid_id(&record.id).map_err(|_| fail("hubspot_invalid_response"))?;
             // Stable IDs can repeat if a listing moves between pages during the read.
             if ids.insert(record.id.clone()) {
-                if let Some(row) = listing(&record, &titles) {
+                if let Some(mut row) = listing(&record, &titles) {
+                    row.summary.body_changed_at = data["results"]
+                        .as_array()
+                        .and_then(|rows| rows.iter().find(|v| v["id"].as_str() == Some(&record.id)))
+                        .and_then(|v| body_changed_at(v, row.media));
                     records.push(row);
                 }
             }
@@ -245,11 +276,69 @@ async fn build_index(
             }
         }
     }
+    let listing_ids: Vec<_> = records.iter().map(|r| r.id.clone()).collect();
+    let mapping = index_associations(service, &background, &listing_ids, "deals").await?;
+    // Count one chunk at a time; do not retain every applicant association in the build.
+    for rows in records.chunks_mut(1000) {
+        let ids: Vec<_> = rows.iter().map(|r| r.id.clone()).collect();
+        let counts = index_associations(service, &background, &ids, "0-421").await?;
+        for row in rows {
+            row.indexed_application_count = counts.get(&row.id).map(Vec::len);
+        }
+    }
+    let deal_ids: Vec<_> = mapping
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut names = BTreeMap::new();
+    for chunk in deal_ids.chunks(100) {
+        let data = service.request_with_client(&background, "/crm/v3/objects/deals/batch/read", &[], Some(json!({"properties":["dealname"],"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>()}))).await?;
+        let page: Page =
+            serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
+        if data
+            .get("errors")
+            .and_then(Value::as_array)
+            .is_some_and(|v| !v.is_empty())
+            || page.results.len() != chunk.len()
+            || page.results.iter().map(|r| &r.id).collect::<BTreeSet<_>>()
+                != chunk.iter().collect::<BTreeSet<_>>()
+        {
+            return Err(fail("hubspot_partial_read"));
+        }
+        for record in page.results {
+            names.insert(
+                record.id.clone(),
+                record.value("dealname").map(str::to_owned),
+            );
+        }
+    }
+    let mut deal_counts = BTreeMap::<String, usize>::new();
+    for row in &mut records {
+        row.deal_ids = mapping
+            .get(&row.id)
+            .ok_or_else(|| fail("hubspot_partial_read"))?
+            .clone();
+        for id in &row.deal_ids {
+            *deal_counts.entry(id.clone()).or_default() += 1;
+        }
+    }
+    let deals = deal_counts
+        .into_iter()
+        .map(|(id, count)| Deal {
+            name: names.remove(&id).flatten(),
+            id,
+            count,
+        })
+        .collect();
     records.shrink_to_fit();
     Ok(Index {
         records,
         titles,
         built_at: chrono::Utc::now().to_rfc3339(),
+        deals,
     })
 }
 pub(super) async fn refresh(
@@ -311,7 +400,17 @@ pub(super) fn start_worker(service: &Arc<JobReadService>, db: crate::db::local_s
     }));
 }
 fn matches(row: &Listing, query: &ListingsQuery) -> bool {
-    query.media.as_ref().is_none_or(|v| v == row.media)
+    query.deal.as_ref().is_none_or(|v| {
+        if v == "none" {
+            row.deal_ids.is_empty()
+        } else {
+            row.deal_ids.contains(v)
+        }
+    }) && query
+        .publication
+        .as_ref()
+        .is_none_or(|v| row.publication_status.as_ref() == Some(v))
+        && query.media.as_ref().is_none_or(|v| v == row.media)
         && query
             .prefecture
             .as_ref()
@@ -332,7 +431,59 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
         .collect();
     rows.sort_by(|a, b| {
         let id_order = || a.id.len().cmp(&b.id.len()).then_with(|| a.id.cmp(&b.id));
-        if query.sort.as_deref() == Some("id") {
+        fn summary_value<'a>(r: &'a Listing, sort: Option<&str>) -> Option<&'a str> {
+            match sort {
+                Some("occupation") => r.summary.occupation.as_deref(),
+                Some("location") => r.summary.location.as_deref(),
+                Some("salary_kind") => r.summary.salary_kind.as_deref(),
+                Some("salary_min") => r.summary.salary_min.as_deref(),
+                Some("salary_max") => r.summary.salary_max.as_deref(),
+                Some("hours") => r.summary.hours.as_deref(),
+                Some("holidays") => r.summary.holidays.as_deref(),
+                Some("body_changed_at") => r.summary.body_changed_at.as_deref(),
+                Some("publication") => r.publication_status.as_deref(),
+                _ => None,
+            }
+        }
+        let field_order = if query.sort.as_deref() == Some("applications") {
+            Some(
+                a.indexed_application_count
+                    .cmp(&b.indexed_application_count),
+            )
+        } else if [
+            "occupation",
+            "location",
+            "salary_kind",
+            "salary_min",
+            "salary_max",
+            "hours",
+            "holidays",
+            "body_changed_at",
+            "publication",
+        ]
+        .contains(&query.sort.as_deref().unwrap_or(""))
+        {
+            let left = summary_value(a, query.sort.as_deref());
+            let right = summary_value(b, query.sort.as_deref());
+            let number = |v: Option<&str>| {
+                v.and_then(|v| v.replace(',', "").parse::<f64>().ok())
+                    .filter(|v| v.is_finite())
+            };
+            Some(
+                if ["salary_min", "salary_max"].contains(&query.sort.as_deref().unwrap_or("")) {
+                    number(left)
+                        .partial_cmp(&number(right))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                } else {
+                    left.cmp(&right)
+                },
+            )
+        } else {
+            None
+        };
+        let order = if let Some(order) = field_order {
+            order.then_with(id_order)
+        } else if query.sort.as_deref() == Some("id") {
             id_order()
         } else if query.sort.as_deref() == Some("media") {
             a.media
@@ -341,6 +492,11 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
                 .then_with(id_order)
         } else {
             a.title.cmp(&b.title).then_with(id_order)
+        };
+        if query.descending == Some(true) {
+            order.reverse()
+        } else {
+            order
         }
     });
     let total = rows.len();
@@ -350,7 +506,7 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
         .take(PAGE_SIZE)
         .map(|row| PageListing {
             listing: row.clone(),
-            application_count: None,
+            application_count: row.indexed_application_count,
         })
         .collect();
     (total, page)
@@ -374,7 +530,7 @@ pub(super) async fn read(
             Json(json!({
                 "status":"preparing", "listings":[], "total":null, "index_built_at":null,
                 "offset":query.offset, "next_offset":null, "titles":[], "refreshing":refreshing,
-                "refresh_failed":refresh_failed
+                "refresh_failed":refresh_failed, "deals":[]
             })),
         ));
     };
@@ -390,23 +546,35 @@ pub(super) async fn read(
             .prefecture
             .as_ref()
             .is_some_and(|v| !crate::models::job_seeker::PREFECTURE_ORDER.contains(&v.as_str()))
-        || query
-            .sort
-            .as_deref()
-            .is_some_and(|v| !["title", "id", "media"].contains(&v))
+        || query.sort.as_deref().is_some_and(|v| {
+            ![
+                "title",
+                "id",
+                "media",
+                "occupation",
+                "location",
+                "salary_kind",
+                "salary_min",
+                "salary_max",
+                "hours",
+                "holidays",
+                "applications",
+                "body_changed_at",
+                "publication",
+            ]
+            .contains(&v)
+        })
     {
         return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
     }
-    let (total, mut rows) = selected_page(&index, &query);
-    if !rows.is_empty() {
-        let counts = service.request("/crm/v4/associations/0-420/0-421/batch/read", &[],
-            Some(json!({"inputs":rows.iter().map(|row| json!({"id":row.listing.id})).collect::<Vec<_>>()}))).await;
-        if let Ok(data) = counts {
-            for row in &mut rows {
-                row.application_count = association_count(&data, &row.listing.id);
-            }
-        }
+    if query
+        .deal
+        .as_ref()
+        .is_some_and(|id| id != "none" && !index.deals.iter().any(|d| &d.id == id))
+    {
+        return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
     }
+    let (total, rows) = selected_page(&index, &query);
     let next_offset = query
         .offset
         .checked_add(rows.len())
@@ -416,10 +584,11 @@ pub(super) async fn read(
         Json(json!({
             "status":"ready", "listings":rows, "total":total, "index_built_at":index.built_at,
             "offset":query.offset, "next_offset":next_offset, "titles":index.titles,
-            "refreshing":refreshing, "refresh_failed":refresh_failed
+            "refreshing":refreshing, "refresh_failed":refresh_failed, "deals":deal_candidates(&index, query.deal_search.as_deref().unwrap_or("")), "no_deal_count":index.records.iter().filter(|r| r.deal_ids.is_empty()).count()
         })),
     ))
 }
+#[cfg(test)]
 fn association_count(data: &Value, id: &str) -> Option<usize> {
     if data
         .get("errors")
@@ -753,6 +922,7 @@ mod tests {
             records: vec![row],
             titles,
             built_at: "2026-10-10T00:00:00Z".into(),
+            deals: vec![],
         };
         let (total, page) = selected_page(
             &index,
@@ -883,18 +1053,33 @@ mod tests {
         let app = Router::new().fallback(any(move |req: Request<Body>| {
             let calls = calls.clone(); let fail_next = fail_next.clone();
             async move {
-                assert_eq!(req.uri().path(), "/crm/v3/objects/0-420");
+                let path = req.uri().path().to_owned();
+                if path.contains("/associations/") {
+                    calls.lock().unwrap().push(path.clone());
+                    let bytes = axum::body::to_bytes(req.into_body(), 100000).await.unwrap();
+                    let input: Value = serde_json::from_slice(&bytes).unwrap();
+                    return Json(json!({"results":input["inputs"].as_array().unwrap().iter().map(|v| {
+                        let id = v["id"].as_str().unwrap();
+                        let targets = if path.contains("/deals/") { match id { "1" => vec![json!({"toObjectId":901}),json!({"toObjectId":902})], "2" => vec![json!({"toObjectId":901})], _ => vec![] } } else { vec![json!({"toObjectId":7001}),json!({"toObjectId":7002})] };
+                        json!({"from":{"id":id},"to":targets})
+                    }).collect::<Vec<_>>()})).into_response();
+                }
+                if path == "/crm/v3/objects/deals/batch/read" {
+                    calls.lock().unwrap().push(path);
+                    return Json(json!({"results":[{"id":"901","properties":{"dealname":"沖縄配送・契約A"}},{"id":"902","properties":{"dealname":"沖縄配送・契約B"}}]})).into_response();
+                }
+                assert_eq!(path, "/crm/v3/objects/0-420");
                 let query = req.uri().query().unwrap_or("");
                 assert!(query.contains("limit=100"));
                 assert!(!query.contains("hrh_kyuujinhyou_gazou"));
-                assert!(!query.contains("shigotonaiyou"));
+                assert!(query.contains("shigotonaiyou"));
                 calls.lock().unwrap().push(query.into());
                 if fail_next.load(Ordering::Relaxed) { return (StatusCode::FORBIDDEN, Json(json!({}))).into_response(); }
                 let start = if query.contains("after=200") {201} else if query.contains("after=100") {101} else {1};
                 let end = (start + 99).min(203);
                 let results: Vec<Value> = (start..=end).map(|id| {
                     let (pref, title, airwork) = if id <= 150 {("沖縄県", "看護師", false)} else if id <= 180 {("沖縄県", "看護師", true)} else if id <= 200 {("大分県", "ドライバー", false)} else {("沖縄県", "清掃スタッフ", false)};
-                    let mut properties = json!({"hs_name":format!("合成求人{id:03}"),"todoufuken":pref,"shikuchouson":"合成市","hrh_kyuujinhyou_honbun":format!("Indeed表示職種名：{title}\n仕事内容：索引に残さない合成の長い本文"),"zhizhong":title,"qinwude":format!("{pref}合成市")});
+                    let mut properties = json!({"hs_name":format!("合成求人{id:03}"),"todoufuken":pref,"shikuchouson":"合成市","hrh_kyuujinhyou_honbun":format!("仕事内容：索引に残さない合成の長い本文\nIndeed表示職種名：{title}"),"zhizhong":title,"qinwude":format!("{pref}合成市")});
                     if airwork { properties["id_airwork"] = json!(format!("AW-{id}")); properties["airwork_account_login_id"] = json!("synthetic-account"); }
                     else { properties["id_hrhakkaa"] = json!(format!("HR-{id}")); }
                     json!({"id":id.to_string(),"properties":properties})
@@ -922,12 +1107,36 @@ mod tests {
         .unwrap();
         let old = cache.state.read().await.snapshot.clone().unwrap();
         assert_eq!(old.records.len(), 203);
-        assert_eq!(seen.lock().unwrap().len(), 3);
+        assert_eq!(seen.lock().unwrap().len(), 6);
+        assert_eq!(old.records[0].deal_ids, vec!["901", "902"]);
+        assert_eq!(old.records[0].indexed_application_count, Some(2));
+        assert_eq!(
+            deal_candidates(&old, "配送")
+                .iter()
+                .map(|d| (d.name.as_deref().unwrap(), d.count))
+                .collect::<Vec<_>>(),
+            vec![("沖縄配送・契約A", 2), ("沖縄配送・契約B", 1)]
+        );
+        assert!(deal_candidates(&old, "合わない取引").is_empty());
         let encoded = serde_json::to_string(&old.records).unwrap();
         assert!(!encoded.contains("hrh_kyuujinhyou_honbun"));
         assert!(!encoded.contains("索引に残さない"));
         assert!(!encoded.contains("application_count"));
         let parse = |v: Value| serde_json::from_value::<ListingsQuery>(v).unwrap();
+        assert_eq!(
+            selected_page(
+                &old,
+                &parse(json!({"deal":"901","prefecture":"沖縄県","title":"看護師","media":"hrh"}))
+            )
+            .0,
+            2
+        );
+        assert_eq!(selected_page(&old, &parse(json!({"deal":"902"}))).0, 1);
+        assert_eq!(selected_page(&old, &parse(json!({"deal":"none"}))).0, 201);
+        assert_eq!(
+            selected_page(&old, &parse(json!({"deal":"901","media":"airwork"}))).0,
+            0
+        );
         assert_eq!(
             selected_page(&old, &parse(json!({"prefecture":"沖縄県"}))).0,
             183
@@ -978,7 +1187,7 @@ mod tests {
         assert_eq!(state.snapshot.as_ref().unwrap().built_at, old.built_at);
         assert!(state.refresh_failed);
         assert!(!state.refreshing);
-        assert_eq!(seen.lock().unwrap().len(), 4);
+        assert_eq!(seen.lock().unwrap().len(), 7);
         task.abort();
     }
     #[test]

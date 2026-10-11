@@ -1487,13 +1487,17 @@ async fn job_copy_listings_auth_and_mock_contract() {
                 if query.contains("after=12") {json!({"results":[{"id":"12","properties":{"id_hrhakkaa":"HR-12","todoufuken":"沖縄県","hrh_kyuujinhyou_honbun":"Indeed表示職種名：看護師"}}]})}
                 else if query.contains("after=") {json!({"results":[record], "paging":{"next":{"after":"12"}}})}
                 else {json!({"results":[{"id":"11","properties":{"id_airwork":"AW-11","airwork_account_login_id":"synthetic-account","qinwude":"東京都新宿区","zhizhong":"看護師"}}],"paging":{"next":{"after":"11"}}})}
+            } else if path == "/crm/v3/objects/0-420/batch/read" {
+                let body: Value = serde_json::from_slice(&to_bytes(req.into_body(),4096).await.unwrap()).unwrap();
+                assert_eq!(body["inputs"],json!([{"id":"10"},{"id":"11"}]));
+                json!({"results":[record,{"id":"11","properties":{"id_airwork":"AW-11","hs_name":"合成別媒体","shigotonaiyou":"合成AirWorkの本文"}}]})
             } else if path == "/crm/v4/objects/0-420/10/associations/deals" {
                 json!({"results":[]})
             } else if path == "/crm/v4/associations/0-420/0-421/batch/read" {
                 assert_eq!(req.method(), Method::POST);
                 let body: Value = serde_json::from_slice(&to_bytes(req.into_body(), 4096).await.unwrap()).unwrap();
-                assert_eq!(body, json!({"inputs":[{"id":"10"}]}));
-                json!({"results":[{"from":{"id":"10"},"to":[{"toObjectId":21},{"toObjectId":22}]}]})
+                assert_eq!(body, json!({"inputs":[{"id":"11"},{"id":"10"},{"id":"12"}]}));
+                json!({"results":[{"from":{"id":"10"},"to":[{"toObjectId":21},{"toObjectId":22}]},{"from":{"id":"11"},"to":[]},{"from":{"id":"12"},"to":[]}]})
             } else if path == "/crm/v3/objects/0-420/10" {
                 let mut record = record;
                 let mut req = crate::job_gen::drafts::tests::request();
@@ -1505,6 +1509,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
                 for (key, value) in current { record["properties"][key] = json!(value); }
                 record["propertiesWithHistory"] = json!({"hrh_kyuujinhyou_honbun":[{"timestamp":"2026-10-01T00:00:00Z","value":"合成の旧本文"},{"timestamp":"2026-10-02T00:00:00Z","value":"合成の新本文"}], crate::job_gen::drafts::FACTS: [ {"timestamp":"2026-10-10T00:00:00Z","value":serde_json::to_string(&first).unwrap()}, {"timestamp":"2026-10-10T01:00:00Z","value":serde_json::to_string(&second).unwrap()} ]});
                 record
+            } else if path == "/crm/v4/associations/0-420/deals/batch/read" { json!({"results":[{"from":{"id":"10"},"to":[]},{"from":{"id":"11"},"to":[]},{"from":{"id":"12"},"to":[]}]})
             } else {panic!("unexpected upstream path: {path}");};
             Json(data)
         }
@@ -1536,6 +1541,10 @@ async fn job_copy_listings_auth_and_mock_contract() {
     let app = Router::new()
         .route("/api/job-copy/listings", get(listings::read))
         .route(
+            "/api/job-copy/listing-comparison",
+            get(listings::read_comparison),
+        )
+        .route(
             "/api/job-copy/listings/{id}/versions",
             get(listings::read_versions),
         )
@@ -1544,6 +1553,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
         .layer(tower_sessions::SessionManagerLayer::new(store.clone()).with_secure(false));
     for path in [
         "/api/job-copy/listings",
+        "/api/job-copy/listing-comparison?ids=10,11",
         "/api/job-copy/listings/10/versions",
     ] {
         let response = app
@@ -1595,7 +1605,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
             )
             .await
             .unwrap();
-            assert_eq!(calls.lock().unwrap().len(), 3);
+            assert_eq!(calls.lock().unwrap().len(), 5);
         }
         let response = app.clone().oneshot(Request::builder().uri("/api/job-copy/listings?prefecture=%E5%A4%A7%E5%88%86%E7%9C%8C&title=%E3%83%89%E3%83%A9%E3%82%A4%E3%83%90%E3%83%BC&media=hrh").header("cookie", format!("id={}", session.id().unwrap())).body(Body::empty()).unwrap()).await.unwrap();
         if method == "password" {
@@ -1610,6 +1620,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
         );
         let data: Value =
             serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(calls.lock().unwrap().len(), 5); // filters/pages use the index only
         assert_eq!(data["listings"].as_array().unwrap().len(), 1);
         assert_eq!(data["listings"][0]["media_job_id"], "HR-10");
         assert_eq!(data["listings"][0]["category"], "ドライバー");
@@ -1652,7 +1663,45 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["drafts"][1]["review_status"], "pending");
     assert_eq!(data["draft_revision"].as_str().unwrap().len(), 64);
     assert_eq!(data["can_write_drafts"], false);
-    assert_eq!(calls.lock().unwrap().len(), 6); // index, counts, history and detail-only company associations
+    assert_eq!(calls.lock().unwrap().len(), 7); // index + association batches, history and detail-only company associations
+    for ids in ["10", "10,10", "10,11,12,13,14,15", "10,not-an-id"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/job-copy/listing-comparison?ids={ids}"))
+                    .header("cookie", format!("id={}", session.id().unwrap()))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(calls.lock().unwrap().len(), 7);
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/listing-comparison?ids=10,11")
+                .header("cookie", format!("id={}", session.id().unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let data: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+    assert_eq!(data["jobs"].as_array().unwrap().len(), 2);
+    assert_eq!(data["jobs"][0]["listing"]["media"], "hrh");
+    assert_eq!(data["jobs"][1]["listing"]["media"], "airwork");
+    assert_eq!(data["jobs"][1]["body"], "合成AirWorkの本文");
+    assert_eq!(calls.lock().unwrap().len(), 8); // one read for selected jobs
     session
         .insert(SESSION_USER_KEY, "outside@example.test")
         .await
@@ -1669,6 +1718,6 @@ async fn job_copy_listings_auth_and_mock_contract() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(calls.lock().unwrap().len(), 6);
+    assert_eq!(calls.lock().unwrap().len(), 8);
     task.abort();
 }
