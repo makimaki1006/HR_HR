@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 const shots = path.resolve('docs/screenshots/rikurozi-draft');
 const csv = '\ufeff求人id,店舗id,画像1\r\n1234567,4081,https://example.invalid/one.jpg\r\n';
 const result = {
-  review_required: true, threshold: 0.2, min_sentence_chars: 0, csv,
+  review_required: true, threshold: 0.2, min_sentence_chars: 8, csv,
   comparisons: [
     { title: '配送ドライバー・大分1', media: 'HRハッカー', publication: '基準', ratio: 0.1, too_similar: false, whole_match: false, matched_sentences: [] },
     { title: '日用品の配送', media: 'AirWork', publication: '掲載中', ratio: 0.2, too_similar: true, whole_match: false, matched_sentences: ['配送の手順を研修で学びます'] },

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RikuroziDraftPanel } from './RikuroziDraftPanel';
 import type { RikuroziDraft } from './RikuroziDraftPanel';
-const draft: RikuroziDraft = { review_required: true, threshold: 0.2, min_sentence_chars: 0, csv: '\ufeff求人id,店舗id\r\n1234567,4081\r\n', comparisons: [{ title: '倉庫の仕分け', media: 'AirWork', publication: '掲載中か不明', ratio: 0.2, too_similar: true, whole_match: false, matched_sentences: ['配送の手順を研修で学びます'] }, { title: '基準の求人', media: 'HRハッカー', publication: '基準', ratio: null, too_similar: false, whole_match: false, matched_sentences: [] }], copied: [{ label: '給与', value: '時給 1,200円〜1,400円', review: false, reason: null, missing_chunks: [] }, { label: '休日・休暇', value: null, review: true, reason: '原本から取得できていません。', missing_chunks: [] }], generated: [{ label: '仕事内容', value: null, review: true, reason: '原文にない数字の表記があるため空欄にしました。', missing_chunks: ['日給1100円'] }] };
+const draft: RikuroziDraft = { review_required: true, threshold: 0.2, min_sentence_chars: 8, csv: '\ufeff求人id,店舗id\r\n1234567,4081\r\n', comparisons: [{ title: '倉庫の仕分け', media: 'AirWork', publication: '掲載中か不明', ratio: 0.2, too_similar: true, whole_match: false, matched_sentences: ['配送の手順を研修で学びます'] }, { title: '基準の求人', media: 'HRハッカー', publication: '基準', ratio: null, too_similar: false, whole_match: false, matched_sentences: [] }], copied: [{ label: '給与', value: '時給 1,200円〜1,400円', review: false, reason: null, missing_chunks: [] }, { label: '休日・休暇', value: null, review: true, reason: '原本から取得できていません。', missing_chunks: [] }], generated: [{ label: '仕事内容', value: null, review: true, reason: '原文にない数字の表記があるため空欄にしました。', missing_chunks: ['日給1100円'] }] };
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe('リクロジメディア向けの案', () => {
   it('要確認と未取得と重なりの具体値を示し、識別値・列名は表示しない', async () => {
@@ -14,6 +14,8 @@ describe('リクロジメディア向けの案', () => {
     expect(container.textContent).toContain('掲載中か不明 ／ 文の一致率：20.0％ ／ 似すぎ・不合格（要確認）');
     expect(container.textContent).toContain('文の一致率：未取得（要確認）');
     expect(container.textContent).toContain('時給 1,200円〜1,400円');
+    expect(container.textContent).toContain('8文字未満の文は一致率に数えません');
+    expect(container.textContent).toContain('合格ラインは暫定（実際の案で要確認の出方を見て調整する）');
     expect(container.textContent).toContain('休日・休暇（要確認）');
     expect(container.textContent).toContain('日給1100円');
     expect(container.textContent).toContain('配送の手順を研修で学びます');
