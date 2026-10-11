@@ -375,3 +375,27 @@
   .jc-fixed-applications { text-align: right; white-space: nowrap; }
   .jc-fixed-list > :not(.jc-list-scroll) { flex-shrink: 0; }
 }
+/* Deal comparison stays within the existing desktop detail pane. */
+.jc-deal-comparison { min-width:0; }
+.jc-deal-comparison > header { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+.jc-deal-controls { display:flex; gap:16px; align-items:end; margin:16px 0; flex-wrap:wrap; }
+.jc-deal-controls label { display:grid; gap:6px; }
+.jc-deal-controls select { padding:8px; border:1px solid #cbd5e1; border-radius:6px; background:white; }
+.jc-deal-table-scroll { overflow:auto; max-width:100%; margin:16px 0; }
+.jc-deal-table, .jc-parallel-table { border-collapse:collapse; width:100%; font-size:13px; }
+.jc-deal-table { min-width:1650px; }
+.jc-deal-table th, .jc-deal-table td, .jc-parallel-table th, .jc-parallel-table td { border:1px solid #dbe3ec; padding:12px; text-align:left; vertical-align:top; }
+.jc-deal-table th { background:#edf3f8; white-space:nowrap; }
+.jc-deal-table th button, .jc-deal-open { font:inherit; color:inherit; background:transparent; border:0; cursor:pointer; text-align:left; }
+.jc-deal-table tbody tr { cursor:pointer; }
+.jc-deal-table tbody tr:hover { background:#f3f7fb; }
+.jc-deal-open { color:#155e75; text-decoration:underline; min-width:170px; }
+.jc-deal-selection { padding:16px; border:1px solid #dbe3ec; border-radius:8px; margin:20px 0; }
+.jc-deal-selection button { margin:4px; }
+.jc-parallel-table { table-layout:fixed; min-width:750px; }
+.jc-parallel-table th { background:#edf3f8; }
+.jc-parallel-table th:first-child { width:160px; }
+.jc-parallel-table td { white-space:pre-wrap; overflow-wrap:anywhere; }
+.jc-parallel-table small { display:block; margin-top:6px; }
+.jc-comparison-different td { background:#fff7d6; }
+.jc-hubspot-filters input { width:100%; min-width:0; box-sizing:border-box; padding:8px; border:1px solid #cbd5e1; border-radius:6px; }

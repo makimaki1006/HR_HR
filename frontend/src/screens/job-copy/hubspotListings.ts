@@ -8,9 +8,14 @@ export interface HubSpotListing {
   id: string; media: 'hrh' | 'airwork'; media_job_id: string; account_id: string | null;
   title: string | null; prefecture: string | null; municipality: string | null; category: string | null;
   draft_status?: DraftSnapshot['review_status'] | null;
+  deal_ids?: string[]; summary?: ListingSummary;
   publication_status: string | null; last_csv_detected_at: string | null; application_count: number | null;
 }
-interface ListingPageBase { publication_statuses?: string[]; listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
+export interface ListingSummary { occupation: string | null; location: string | null; salary_kind: string | null; salary_min: string | null; salary_max: string | null; hours: string | null; holidays: string | null; body_changed_at: string | null }
+export interface DealCandidate { id: string; name: string | null; count: number }
+export interface DealSelection { id: string; name: string; prefecture: string; title: string; media: string; publication?: string; draftStatus?: string }
+export const publicationLabel = (value: string | null) => value == null ? '未取得' : ['公開', '公開中', '掲載中', '非公開', '公開終了', '公開開始前', '掲載終了', '募集中', '募集終了'].includes(value) ? value : '不明';
+interface ListingPageBase { publication_statuses?: string[]; deals?: DealCandidate[]; no_deal_count?: number; listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
 export type HubSpotListingPage = ListingPageBase & (
   { status: 'ready'; total: number; index_built_at: string } |
   { status: 'preparing'; total: null; index_built_at: null }

@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import type { JobCopyRecord } from './data';
-import { listingRecord, mediaLabel, draftStateLabel } from './hubspotListings';
-import type { HubSpotListingPage, HubSpotVersions } from './hubspotListings';
+import { listingRecord, mediaLabel, publicationLabel, draftStateLabel } from './hubspotListings';
+import type { HubSpotListingPage, HubSpotVersions, DealSelection } from './hubspotListings';
 import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; revision?: number }) {
+export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId, onShowDeal, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; revision?: number }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
   const [media, setMedia] = useState('');
+  const [deal, setDeal] = useState('');
+  const [dealName, setDealName] = useState('');
+  const [dealSearch, setDealSearch] = useState('');
   const [publication, setPublication] = useState('');
   const [draftStatus, setDraftStatus] = useState('');
   const [sort, setSort] = useState('title');
@@ -30,18 +33,20 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     if (prefecture) query.set('prefecture', prefecture);
     if (title) query.set('title', title);
     if (media) query.set('media', media);
+    if (deal) query.set('deal', deal);
+    if (dealSearch) query.set('deal_search', dealSearch);
     if (publication) query.set('publication', publication);
     if (draftStatus) query.set('draft_status', draftStatus);
     const result = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${query.toString()}`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
     if (result.ok) { setPage(result.data); if (result.data.titles.length) setTitles(result.data.titles); } else setError(message(result.error));
     setBusy(false);
-  }, [prefecture, title, media, sort, publication, draftStatus]);
+  }, [prefecture, title, media, sort, deal, dealSearch, publication, draftStatus]);
   useEffect(() => {
     if (!active) { listRequest.current?.abort(); detailRequest.current?.abort(); return; }
-    const timer = window.setTimeout(() => { void load(); }, 0);
+    const timer = window.setTimeout(() => { void load(); }, dealSearch ? 250 : 0);
     return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
-  }, [active, load, revision]);
+  }, [active, load, dealSearch, revision]);
   useEffect(() => {
     if (!active || page?.status !== 'preparing' || busy || error) return;
     const timer = window.setTimeout(() => { void load(); }, 5_000);
@@ -69,6 +74,9 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
     <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>
     <details className="jc-hubspot-filter-details" open={filtersOpen} onToggle={event => { setFiltersOpen(event.currentTarget.open); }}><summary>絞り込み・並び順</summary><div className="jc-hubspot-filters">
+      <label>取引名を検索<input value={dealSearch} onChange={event => { setDealSearch(event.target.value); }} placeholder="取引名の一部" /></label>
+      <label>取引<select aria-label="取引" value={deal} onChange={event => { const id = event.target.value; setDeal(id); setDealName(id === 'none' ? '取引なし' : page?.deals?.find(row => row.id === id)?.name ?? '取引名未取得'); }}><option value="">すべての取引</option><option value="none">取引なし{page?.no_deal_count === undefined ? '' : `（${String(page.no_deal_count)}件）`}</option>{deal && deal !== 'none' && !page?.deals?.some(row => row.id === deal) && <option value={deal}>{dealName}</option>}{page?.deals?.map(row => <option key={row.id} value={row.id}>{row.name ?? '取引名未取得'}（{row.count}件）</option>)}</select></label>
+      {dealSearch && <p>候補は取引名順で最大30件です。見つからない場合は取引名を長く入力してください。</p>}
       <label>都道府県<select aria-label="都道府県" value={prefecture} onChange={event => { setPrefecture(event.target.value); }}><option value="">すべて</option>{AREA_MASTER.map(([pref]) => <option key={pref} value={pref}>{pref}</option>)}</select></label>
       <label>職種の分類<select aria-label="職種の分類" value={title} onChange={event => { setTitle(event.target.value); }}><option value="">すべて</option><option value="unknown">不明</option>{titles.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
       <label>媒体<select aria-label="媒体" value={media} onChange={event => { setMedia(event.target.value); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label>
@@ -77,13 +85,14 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
       <label>並び順<select aria-label="並び順" value={sort} onChange={event => { setSort(event.target.value); }}><option value="title">求人名順</option><option value="media">媒体順</option><option value="applications">表示中の応募が多い順</option></select></label>
     </div></details>
     <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(); }}>求人を取得</button>
+    {deal && onShowDeal && <button type="button" className="jc-button" onClick={() => { onShowDeal({ id: deal, name: dealName, prefecture, title, media, ...(publication ? { publication } : {}), ...(draftStatus ? { draftStatus } : {}) }); }}>この取引の求人</button>}
     {busy && !page && <p role="status">求人の一覧を取得しています…</p>}{error && <p role="alert">{error}</p>}
-    {page?.status === 'preparing' && <div className="jc-index-preparing" role="status"><strong>求人の一覧を準備しています</strong><p>初回の準備には約7分が目安です。あと数分かかる場合があります。準備が終わると自動で一覧を表示します。</p>{page.refresh_failed && <p>準備を取得できませんでした。時間を置いて自動で確認します。</p>}<progress aria-label="求人の一覧を準備中" /></div>}
+    {page?.status === 'preparing' && <div className="jc-index-preparing" role="status"><strong>求人の一覧を準備しています</strong><p>初回の準備には数分以上かかる場合があります。準備が終わると自動で一覧を表示します。</p>{page.refresh_failed && <p>準備を取得できませんでした。時間を置いて自動で確認します。</p>}<progress aria-label="求人の一覧を準備中" /></div>}
     {page?.status === 'ready' && <><p className="jc-index-date">{formatDateTimeJst(page.index_built_at, '日時不明')}時点</p>
       {page.refreshing && <p role="status">一覧を更新中です。表示している時点の一覧を利用できます。</p>}
       {page.refresh_failed && <p role="status">一覧の更新を取得できませんでした。表示している時点の一覧を利用しています。</p>}
       <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の本文を見る`} onClick={() => { void openId(row.id); }}>
-        <strong>{row.title ?? '求人名未取得'}</strong><span className="jc-job-company"><span className="jc-publication">{row.publication_status ?? '未取得'}</span><span>案：{row.draft_status ? draftStateLabel(row.draft_status) : '案なし・未取得'}</span></span>
+        <strong>{row.title ?? '求人名未取得'}</strong><span className="jc-job-company"><span className="jc-publication">{publicationLabel(row.publication_status)}</span><span>案：{row.draft_status ? draftStateLabel(row.draft_status) : '案なし・未取得'}</span></span>
         <span className="jc-job-location">{row.prefecture ?? '不明'}{row.municipality ?? ''} · {mediaLabel(row.media)} · {row.category ?? '職種不明'}</span>
         <span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small></span>
         <span className="jc-visually-hidden">媒体の一覧で最後に確認した日：{formatDateTimeJst(row.last_csv_detected_at, '未取得')}</span>
