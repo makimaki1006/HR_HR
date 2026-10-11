@@ -169,3 +169,15 @@ it.each(['list-first', 'detail-first'])('shows zero applications from a direct l
   await waitFor(() => { expect(applications()).toContain('応募数0件'); });
   expect(screen.getByRole('button', { name: `${listing.title}の本文を見る` }).textContent).toContain('応募 0件');
 });
+
+it.each([0, 7, null])('uses the detail count %s for a direct link outside the first fifty rows', async count => {
+  const rows = Array.from({ length: 50 }, (_, index) => ({ ...listing, id: String(index + 2), title: `架空求人${String(index + 2)}`, application_count: 99 }));
+  api.mockImplementation((path: string) => Promise.resolve(path.includes('/versions') ? { ok: true, data: { listing: { ...listing, application_count: count }, versions: [{ written_at: '2026-10-11T00:00:00Z', body: rowBody({ 案件名: listing.title, 仕事内容: description }), image_urls: [] }], history_counts: {}, history_may_be_incomplete: false } } : path.includes('/listings?') ? { ok: true, data: { status: 'ready', listings: rows, total: 51, offset: 0, next_offset: 50, titles: [], index_built_at: '2026-10-11T00:00:00Z', refreshing: false, refresh_failed: false } } : { ok: false, error: new Error('offline') }));
+  window.history.replaceState(null, '', '/app/job-copy?listing=1');
+  localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true');
+  render(<JobCopyScreen />);
+  await screen.findByRole('button', { name: '架空求人2の本文を見る' });
+  expect(screen.queryByRole('button', { name: `${listing.title}の本文を見る` })).toBeNull();
+  fireEvent.click(await screen.findByRole('button', { name: '求人の内容を確認する' }));
+  expect(screen.getByRole('dialog').querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '未取得' : `${String(count)}件`}`);
+});

@@ -1665,6 +1665,8 @@ async fn job_copy_listings_auth_and_mock_contract() {
         airwork["current_fields"]["仕事内容"],
         "箱を仕分けます。\n最後に持ち場を片付けます。"
     );
+    assert_eq!(airwork["listing"]["application_count"], 0);
+    assert_eq!(data["listing"]["application_count"], 2);
     assert_eq!(airwork["current_fields"]["勤務地"], "東京都江東区");
     assert_eq!(airwork["current_fields"]["雇用形態"], "正社員");
     assert_eq!(airwork["current_fields"]["福利厚生"], "社会保険");
