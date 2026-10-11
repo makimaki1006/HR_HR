@@ -1214,3 +1214,37 @@ async fn tracking_bind_failure_does_not_retry_successful_history_or_resend() {
     assert_eq!(f.sends, 1);
     assert_eq!(f.create_calls, 1);
 }
+
+#[tokio::test]
+async fn imported_reply_has_no_tracking_binding_or_summary() {
+    let e = reply_env().await;
+    scan(&e).await;
+    let reply = incoming_row(&e).await;
+    let email = reply.payload.email.as_ref().unwrap();
+    assert_eq!(reply.status, "saved");
+    assert_eq!(email.hubspot_email_id.as_deref(), Some("903"));
+    assert!(email.tracking_id.is_empty());
+    assert_eq!(
+        e.conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM crm_email_tracking", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    let r = e
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/crm/emails/903/tracking")
+                .header(header::COOKIE, &e.cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    assert_eq!(e.fake.lock().unwrap().sends, 1);
+}

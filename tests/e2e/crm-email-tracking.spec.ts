@@ -54,3 +54,16 @@ test('送信済み本文の表示は開封画像を取得せずリンクを元�
   expect(measurements).toEqual([]);
   await expect(page.getByTestId('email-tracking-summary')).toHaveText('開封 2 回（最後 10/12 14:03）・クリック 1 回');
 });
+
+
+test('取り込んだ受信メールは計測を問い合わせず表示しない', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', req => { if (/\/api\/crm\/emails\/[^/]+\/tracking/.test(req.url())) requests.push(req.url()); });
+  await page.route('**/api/crm/emails/*/tracking', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(summary) }));
+  await page.goto('/static/app/__tracking_preview?tracked=1&incoming=1');
+  await expect(page.getByTestId('activity-card')).toBeVisible();
+  await expect(page.getByTestId('activity-direction')).toHaveText('受信');
+  await expect(page.getByTestId('email-tracking')).toHaveCount(0);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(requests).toEqual([]);
+});

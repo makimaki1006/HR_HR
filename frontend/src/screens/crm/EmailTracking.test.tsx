@@ -19,6 +19,17 @@ const data: EmailTrackingSummary = {
 const a: WorkspaceActivity = { id: '999', kind: 'email', timestamp: '2026-10-12T03:00:00Z', title: 'ご案内（架空）', body: '資料をご覧ください。', direction: 'EMAIL', status: 'SENT', duration_ms: null, owner_id: null, source: null, via: 'deal', via_id: '100' };
 
 describe('メールカードの計測', () => {
+  it.each([
+    { direction: 'INCOMING_EMAIL', status: null },
+    { direction: 'INCOMING_EMAIL', status: 'SENT' },
+    { direction: 'EMAIL', status: 'DRAFT' },
+  ])('受信・未送信のカードは計測を問い合わせず表示しない ($direction / $status)', async ({ direction, status }) => {
+    get.mockResolvedValue({ ok: true, data });
+    render(<ul><ActivityCard a={{ ...a, direction, status }} ownerNames={new Map()} /></ul>);
+    await waitFor(() => { expect(screen.getByTestId('activity-card')).toBeTruthy(); });
+    expect(get).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('email-tracking')).toBeNull();
+  });
   it('通常の具体的な件数と日本時間、自動の可能性を分けて表示する', async () => {
     get.mockResolvedValue({ ok: true, data });
     render(<ul><ActivityCard a={a} ownerNames={new Map()} /></ul>);
