@@ -401,7 +401,7 @@ export function countApplications(byDate: Record<string, number> | undefined, st
 
 /**
  * The 本文 lane mark. The visible text and the spoken label come from the same status, so a
- * screen reader never hears "N行追加" for a mark that shows 改行のみ or 同じ. An empty or unread body
+ * screen reader never hears "N行追加" for a mark that shows 同じ. An empty or unread body
  * is 比べられない, never 追加0・削除0 (which would read as "nothing changed").
  */
 export function bodyMark(change: Pick<VersionChange, 'index' | 'bodyStatus' | 'bodyAdded' | 'bodyRemoved'>): { text: string; spoken: string } {
