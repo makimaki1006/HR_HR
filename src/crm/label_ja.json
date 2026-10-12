@@ -88,7 +88,10 @@
    "analyticsinformation": "アナリティクス情報",
    "sales_properties": "営業プロパティ",
    "dealstages": "取引ステージのプロパティ",
-   "buyer_attribution": "購入者の属性"
+   "buyer_attribution": "購入者の属性",
+   "dealscripted": "計算された取引情報",
+   "hubspotmetrics": "HubSpot指標",
+   "deal_information": "取引情報"
   }
  },
  "contacts": {
@@ -383,7 +386,12 @@
    "sales_properties": "営業プロパティ",
    "analyticsinformation": "アナリティクス情報",
    "contact_activity": "コンタクトの活動",
-   "contentmembershipinformation": "会員情報"
+   "contentmembershipinformation": "会員情報",
+   "deal_information": "取引情報",
+   "contactscripted": "計算されたコンタクト情報",
+   "facebook_ads_properties": "Facebook広告のプロパティ",
+   "contactlcs": "コンタクトのライフサイクルステージのプロパティ",
+   "prospecting_agent_information": "見込み客開拓エージェント情報"
   }
  },
  "companies": {
@@ -558,7 +566,12 @@
    "analyticsinformation": "アナリティクス情報",
    "socialmediainformation": "ソーシャルメディア情報",
    "sales_properties": "営業プロパティ",
-   "web_technologies": "Webテクノロジー"
+   "web_technologies": "Webテクノロジー",
+   "company_signals": "会社のシグナル",
+   "prospectingagent": "見込み客開拓エージェント",
+   "conversioninformation": "コンバージョン情報",
+   "targetaccountsinformation": "ターゲットアカウント情報",
+   "companylcs": "会社のライフサイクルステージのプロパティ"
   }
  }
 }
