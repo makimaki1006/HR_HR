@@ -160,6 +160,8 @@
 .cq-row-l3 { gap: 0 10px; font-size: 11px; color: var(--cq-faint); overflow: hidden; white-space: nowrap; }
 .cq-row-l3 > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cq-row-l3 > span { white-space: nowrap; }
+.cq-row-extra { display: block; margin-top: 1px; font-size: 11px; color: var(--cq-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cq-row-extra-v { color: var(--cq-sub); font-variant-numeric: tabular-nums; }
 .cq-phone { font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: .01em; }
 .cq-flag { color: #8a5a00 !important; }
 .cq-row-l1 .cq-flag { flex: none; padding: 0 5px; border-radius: 3px; background: #fff3d6; font-size: 11px; font-weight: 700; }

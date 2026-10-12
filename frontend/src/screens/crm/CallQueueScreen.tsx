@@ -53,8 +53,9 @@ import type { DockAction, PanelId } from './dockModel';
 import { PropertyPanel } from './PropertyPanel';
 import { sanitizeSelected } from './propertyModel';
 import { useRolePropertyLayout } from './useRolePropertyLayout';
-import type { SelectedProps } from './propertyModel';
+import type { CatalogEntry, CatalogObject, SelectedProps } from './propertyModel';
 import { usePropertyCatalog } from './usePropertyCatalog';
+import { extraLine, extraParts } from './queueExtra';
 import type { CatalogFetch } from './usePropertyCatalog';
 import { PARTIAL_LABELS } from './workspaceModel';
 import {
@@ -209,7 +210,8 @@ export const UNSAVED_RECORDED_TITLE = '入力をこの画面に残せていま�
 
 
 /** 行は props が同じなら描き直さない (架電結果を 1 文字打つたび・矢印キーで 1 行動くたびに全行を描き直さない) */
-const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, stopLabel, onSelect }: {
+const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, stopLabel, onSelect, catalogIndex }: {
+  catalogIndex: Record<CatalogObject, Map<string, CatalogEntry>> | null;
   item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; recorded: boolean; unsaved: boolean;
   stopLabel: StopLabel; onSelect: (id: string) => void;
 }) {
@@ -218,6 +220,7 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
   const last = md(item.last_call_date);
   const dates = [ymd(item.next_call_date) && `次回架電 ${ymd(item.next_call_date) ?? ''}`, ymd(item.last_call_date) && `最終架電 ${ymd(item.last_call_date) ?? ''}`]
     .filter(Boolean).join(' / ');
+  const extra = extraParts(item, catalogIndex);
   const flag = item.stop.unreachable_check ? stopLabel('bpo_10', item.stop.unreachable_check) : null;
   const source = item.phone_source ? `${PHONE_SOURCE_LABELS[item.phone_source] ?? item.phone_source}の番号` : undefined;
   return <li className={`cq-row${selected ? ' is-selected' : ''}`}>
@@ -246,6 +249,9 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
         <span>最終 {last ? <span>{last}</span> : '未架電'}</span>
         <span>担当 {item.owner_id ? <span title={ownerName ? undefined : `HubSpot の所有者 ID: ${item.owner_id}`}>{ownerName ?? '担当あり'}</span> : 'なし'}</span>
       </span>
+      {extra.length > 0 && <span className="cq-row-extra" title={extraLine(extra)} data-testid="queue-row-extra">
+        {extra.map((x, i) => <span key={x.label}>{i > 0 && <span className="cq-sep" aria-hidden="true"> · </span>}{x.label} <span className="cq-row-extra-v">{x.text}</span></span>)}
+      </span>}
     </button>
   </li>;
 });
@@ -715,7 +721,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
                 {state.items.map((item, i) => <QueueRow key={item.deal_id} item={item}
                   selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
                   recorded={isRecorded(item.deal_id)} unsaved={persistFailed} stopLabel={stopLabel}
-                  onSelect={selectByClick} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
+                  onSelect={selectByClick} catalogIndex={catalog.state.phase === 'ready' ? catalog.state.index : null} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
               {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
                 {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
               {/* 続きの自動読み込みの目印 (ここが見えるところまでスクロールしたら読む) */}

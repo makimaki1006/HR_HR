@@ -3,6 +3,7 @@ import type { CallQueueCompany } from "./CallQueueCompany";
 import type { CallQueueContact } from "./CallQueueContact";
 import type { CallQueueDeepLinks } from "./CallQueueDeepLinks";
 import type { CallQueueStop } from "./CallQueueStop";
+import type { QueueExtraValue } from "./QueueExtraValue";
 
 export type CallQueueItem = { deal_id: string, deal_name: string | null, stage_id: string, 
 /**
@@ -16,4 +17,9 @@ phone: string | null,
 /**
  * `deal` / `contact` / `mobile` / `company`。番号を判断できなかった行は null
  */
-phone_source: string | null, deep_links: CallQueueDeepLinks, };
+phone_source: string | null, deep_links: CallQueueDeepLinks, 
+/**
+ * 詳細条件・項目での並べ替えに使った項目の値 (並べ替えの項目が先、最大 4)。
+ * 使った項目が無いときは省く。値は HubSpot の文字列のまま (無い・空は null)
+ */
+extra?: Array<QueueExtraValue>, };

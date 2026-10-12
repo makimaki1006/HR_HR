@@ -51,7 +51,24 @@ const SEEDS: Seed[] = [
 
 const pipelineOf = (s: Seed) => s.pipeline ?? DEFAULT_PIPELINE_ID;
 
-function toItem(s: Seed): CallQueueItem {
+/** 架空サンプルの項目の値 (架空の値だけ)。項目の種類に応じて決まった値を返す */
+function fixtureValue(s: Seed, name: string): string | null {
+  const n = Number(s.id.slice(2));
+  const base: Record<string, string | null> = { amount: String(n * 1000), dealname: `${s.company} 採用支援`, hubspot_owner_id: s.owner, bpo_13: s.next, bpo_14: s.time, bpo_20: s.last, bpo_29: s.phone };
+  if (name in base) return base[name] ?? null;
+  const prop = FIXTURE_CATALOG.objects.find(o => o.object_type === 'deals')?.groups.flatMap(g => g.properties).find(x => x.name === name);
+  if (prop === undefined || n % 5 === 0) return null;
+  switch (prop.property_type) {
+    case 'number': return String(n * 1000);
+    case 'date': return `2026-09-${String(10 + n).padStart(2, '0')}`;
+    case 'datetime': return `2026-10-0${String(1 + (n % 5))}T05:30:00Z`;
+    case 'bool': return n % 2 === 0 ? 'true' : 'false';
+    case 'enumeration': return prop.options.length > 0 ? prop.options[n % prop.options.length]?.value ?? null : null;
+    default: return `サンプル${String(n)}`;
+  }
+}
+
+function toItem(s: Seed, shown: readonly string[] = []): CallQueueItem {
   const label = fixturePipeline(pipelineOf(s))?.stages.find(x => x.id === s.stage)?.label ?? null;
   return {
     deal_id: s.id, deal_name: `${s.company} 採用支援`, stage_id: s.stage, stage_label: label,
@@ -61,6 +78,7 @@ function toItem(s: Seed): CallQueueItem {
     company: { id: `co-${s.id}`, name: s.company, phone: null },
     phone: s.phone, phone_source: s.phone ? 'contact' : null,
     deep_links: { deal: `https://example.invalid/deal/${s.id}`, contact: null, company: null },
+    ...(shown.length > 0 ? { extra: shown.map(property => ({ property, value: fixtureValue(s, property) })) } : {}),
   };
 }
 
@@ -97,7 +115,7 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     const properties: Record<string, string | null> = { dealname: `${s.company} 採用支援`, hubspot_owner_id: s.owner,
       bpo_13: s.next, bpo_14: s.time, bpo_20: s.last, bpo_29: s.phone, bpo_3: s.prohibited ?? null, bpo_4: s.block ?? null,
       bpo_10: s.id === 'f-3' ? '通話中が続く' : null, amount: String(Number(s.id.slice(2)) * 1000) };
-    return gs.length === 0 || gs.some(g => g.every(c => matchesCondition(c, properties[c.property] ?? null, FIXTURE_TODAY, propertyTypes.get(c.property))));
+    return gs.length === 0 || gs.some(g => g.every(c => matchesCondition(c, properties[c.property] ?? fixtureValue(s, c.property), FIXTURE_TODAY, propertyTypes.get(c.property))));
   });
   const asc = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   const isDue = (s: Seed) => s.next !== null && s.next <= FIXTURE_TODAY;
@@ -124,11 +142,14 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     }
     return byLastAsc(a, b);
   });
+  // 並べ替えの項目 → 条件の項目 (出てきた順・重複なし・最大 4)。固定で出している項目は除く
+  const BUILT_IN = ['dealname', 'bpo_13', 'bpo_20', 'hubspot_owner_id', 'dealstage', 'pipeline'];
+  const shown = [...new Set([parsePropertySort(f.sort)?.property, ...gs.flat().map(c => c.property)].filter((x): x is string => x !== undefined && !BUILT_IN.includes(x)))].slice(0, 4);
   const offset = cursor ? Number(cursor.replace(/^fx:/, '')) || 0 : 0;
   const page = sorted.slice(offset, offset + FIXTURE_PAGE_SIZE);
   const end = offset + FIXTURE_PAGE_SIZE;
   return {
-    items: page.map(toItem),
+    items: page.map(x => toItem(x, shown)),
     next_cursor: end < sorted.length ? `fx:${String(end)}` : null,
     total: sorted.length, truncated: false,
     scope: {
