@@ -6,7 +6,7 @@ import { CallQueueScreen, KEY_SELECT_DELAY_MS, partialNotes } from './CallQueueS
 import type { DetailFetch } from './useDealDetail';
 import type { OwnersFetch } from './useOwners';
 import { makeItem, makeResponse, deferredFetcher, okMetadataFetch, okPipelinesFetch, okUserFetch, pipelinesResponse, okCatalogFetch, resetDockStorage } from './queueTestUtil';
-import { DEFAULT_FILTERS, parseFilters } from './queueModel';
+import { DEFAULT_FILTERS, parseFilters, groupsOf } from './queueModel';
 
 beforeEach(() => { resetDockStorage(); });
 afterEach(() => { cleanup(); });
@@ -641,4 +641,19 @@ it('条件上限の400では同じ条件の再試行を表示しない', async (
   await act(async()=>{calls[0]?.resolve({ok:false,error:new ApiHttpError(400,{error_kind:'condition_limit'})});await Promise.resolve();});
   expect(screen.getByRole('alert').textContent).toContain('条件が多すぎます。条件かまとまりを減らしてください。');
   expect(screen.queryByRole('button',{name:'再試行'})).toBeNull();expect(calls).toHaveLength(1);
+});
+
+it('上の要約にまとまりの全条件と「または」を並べ、外す条件だけを取り除く', async () => {
+  const groups=[[{property:'amount',operator:'GTE',values:['8000']},{property:'bpo_20',operator:'NOT_HAS_PROPERTY',values:[]}],[{property:'amount',operator:'LTE',values:['2000']}]];
+  const {calls,fetcher}=deferredFetcher();
+  render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch={'?condition_groups='+encodeURIComponent(JSON.stringify(groups))} />);
+  await ready(calls);
+  const summary=await screen.findByRole('list',{name:'適用中の条件'});
+  await waitFor(()=>{expect(within(summary).getAllByRole('listitem').map(li=>li.textContent)).toEqual(['金額 以上 8,000×','最終架電日 空×','または','金額 以下 2,000×']);});
+  expect(within(summary).getAllByRole('button')).toHaveLength(3);
+  fireEvent.click(within(summary).getByRole('button',{name:'「金額 以上 8,000」を外す'}));
+  expect(groupsOf(calls[1]?.filters ?? DEFAULT_FILTERS)).toEqual([[groups[0]?.[1]],[groups[1]?.[0]]]);
+  fireEvent.click(within(summary).getByRole('button',{name:'「最終架電日 空」を外す'}));
+  expect(groupsOf(calls[2]?.filters ?? DEFAULT_FILTERS)).toEqual([groups[1]]);
+  expect(within(summary).queryByText('または')).toBeNull();
 });

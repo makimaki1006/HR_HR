@@ -41,3 +41,5 @@
 .cq-sort-picker > label { display:flex; flex-direction:column; gap:4px; }
 .cq-sort-picker :is(input,select) { padding:8px; border:1px solid #cbd5e1; border-radius:5px; }
 @media (max-width:900px) { .cq-app .cq-filter-drawer { width:min(380px, calc(100vw - 48px)); right:12px; } }
+
+.cq-chip-or { align-self:center; list-style:none; padding:0 4px; color:#53657a; font-size:12px; font-weight:600; }

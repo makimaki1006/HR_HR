@@ -2345,4 +2345,24 @@ mod queue_v2_tests {
             json!([[filter]])
         );
     }
+    #[test]
+    fn saved_view_query_accepts_or_relative_dates_and_property_sort() {
+        let groups = json!([
+            [{"property":"amount","operator":"GTE","values":["8000"]},
+             {"property":"sample_date","operator":"LAST_N_DAYS","values":["60"]}],
+            [{"property":"amount","operator":"LTE","values":["2000"]}]
+        ])
+        .to_string();
+        let query = format!(
+            "condition_groups={}&sort=property:amount:desc",
+            urlencoding::encode(&groups)
+        );
+        assert_eq!(validate_saved_query(&query), Ok(()));
+        let parsed = parse_params(&query).unwrap();
+        assert_eq!(parsed.property_groups.len(), 2);
+        assert_eq!(parsed.property_groups[0].len(), 2);
+        assert_eq!(parsed.property_groups[0][1].operator, "LAST_N_DAYS");
+        assert_eq!(parsed.property_groups[0][1].values, vec!["60"]);
+        assert_eq!(parsed.custom_sort, Some(("amount".to_string(), true)));
+    }
 }

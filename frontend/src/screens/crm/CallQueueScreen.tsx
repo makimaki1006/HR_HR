@@ -6,7 +6,7 @@ import { groupsOf, groupPatch } from './queueModel';
 import { conditionLabel, parsePropertySort, PROPERTY_SORT_NOTE } from './queuePropertyFilter';
 import { EMAIL_SAVED } from './emailApi';
 import type { SavedEmailNotice } from './emailApi';
-import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
 import { DatePicker } from '../../components/DatePicker';
@@ -173,7 +173,7 @@ export function ownerScopeTitle(scopeOwner: string, names: ReadonlyMap<string, s
   return SCOPE_WORDS[scopeOwner] !== undefined || names.has(scopeOwner) ? undefined : `HubSpot の所有者 ID: ${scopeOwner}`;
 }
 
-export interface ConditionChip { key: string; label: string; clear: Partial<QueueFilters>; title?: string | undefined }
+export interface ConditionChip { key: string; label: string; clear: Partial<QueueFilters>; title?: string | undefined; separator?: boolean }
 
 const range = (from: string, to: string) => `${from ? from.replaceAll('-', '/') : ''}〜${to ? to.replaceAll('-', '/') : ''}`;
 
@@ -263,6 +263,24 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const navigateView = useCallback((next: string) => { window.location.assign(`${window.location.pathname}${next}`); }, []);
   const [qDraft, setQDraft] = useState(filters.q);
   const [panelOpen, setPanelOpen] = useState(false);
+  const filterBarRef = useRef<HTMLFormElement>(null);
+  const [drawerTop, setDrawerTop] = useState(130);
+  useLayoutEffect(() => {
+    if (!panelOpen || !filterBarRef.current) return;
+    const bar = filterBarRef.current;
+    const root = bar.parentElement;
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    function measure() {
+      const tabs = root?.querySelector('.sv');
+      if (tabs) resize?.observe(tabs);
+      setDrawerTop(Math.max(bar.getBoundingClientRect().bottom, tabs?.getBoundingClientRect().bottom ?? 0) + 8);
+    }
+    measure(); resize?.observe(bar);
+    const mutation = new MutationObserver(measure);
+    if (root) mutation.observe(root, { childList: true });
+    window.addEventListener('resize', measure);
+    return () => { resize?.disconnect(); mutation.disconnect(); window.removeEventListener('resize', measure); };
+  }, [panelOpen]);
   const [sortOpen, setSortOpen] = useState(false);
   // 日付の検証に使う JST の今日。JST 0 時・画面に戻ったときに取り直す (開いたまま日付をまたいでも昨日を通さない)
   const [nowFn] = useState(() => now ?? Date.now);
@@ -299,7 +317,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 「プロパティ」パネルで表示する項目 (このブラウザに残す)。項目の一覧に無いもの (HubSpot で消された等) は送らない
   const roleLayout = useRolePropertyLayout(mode, localStorageOrNull(), selection !== null);
   const storedProps = roleLayout.selection;
-  const catalog = usePropertyCatalog(mode, selection !== null || panelOpen || sortOpen || filters.conditions.length > 0 || parsePropertySort(filters.sort) !== null, catalogFetcher);
+  const catalog = usePropertyCatalog(mode, selection !== null || panelOpen || sortOpen || groupsOf(filters).length > 0 || parsePropertySort(filters.sort) !== null, catalogFetcher);
   const selectedProps = useMemo(() => (catalog.state.phase === 'ready' ? sanitizeSelected(storedProps, catalog.state.index) : storedProps), [catalog.state, storedProps]);
   const applyProps = roleLayout.apply;
   // 通話が終わったが、まだ読み直していない案件 (次に開くときサーバのキャッシュを使わずに読む)
@@ -468,10 +486,14 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     state.nextCursor, loadMore);
   // 条件を変えて取り直したら一覧の枠を先頭に戻す (前の一覧の下端の位置のままだと、スクロールしていないのに続きを読んでしまう)
   useEffect(() => { if (listScrollRef.current) listScrollRef.current.scrollTop = 0; }, [state.reqId]);
-  const chips: ConditionChip[] = [...conditionChips(filters, ownerNames, pipeline), ...(groupsOf(filters).length < 2 ? filters.conditions : []).map((c, i) => ({
-    key: `property-${String(i)}`, label: conditionLabel(c, catalog.state.phase === 'ready' ? catalog.state.index.deals.get(c.property)?.prop : undefined),
-    clear: { conditions: filters.conditions.filter((_, j) => j !== i) },
-  }))];
+  const propertyGroups = groupsOf(filters);
+  const chips: ConditionChip[] = [...conditionChips(filters, ownerNames, pipeline), ...propertyGroups.flatMap((cs, group) => [
+    ...(group > 0 ? [{ key: `or-${String(group)}`, label: 'または', clear: {}, separator: true }] : []),
+    ...cs.map((c, i) => ({
+      key: `property-${String(group)}-${String(i)}`, label: conditionLabel(c, catalog.state.phase === 'ready' ? catalog.state.index.deals.get(c.property)?.prop : undefined),
+      clear: groupPatch(propertyGroups.map((g, n) => n === group ? g.filter((_, j) => j !== i) : g).filter(g => g.length > 0)),
+    })),
+  ])];
   const detailCount = groupsOf(filters).reduce((n, g) => n + g.length, 0) + (filters.stages.length > 0 ? 1 : 0) + (filters.nextFrom || filters.nextTo ? 1 : 0) + (filters.lastFrom || filters.lastTo ? 1 : 0);
 
   /** パイプラインの切り替え: ステージの選択は既定 (すべて) に戻し、先頭から読み直す */
@@ -768,7 +790,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       </div>
     </header>
 
-    <form className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
+    <form ref={filterBarRef} className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
       <div className="cq-bar">
         <select className="cq-pipeline" aria-label="パイプライン" value={filters.pipeline}
           title={pipelines.labelsUnavailable ? 'HubSpot からパイプライン名を読めなかったため、設定上の呼び名で表示しています' : undefined}
@@ -789,11 +811,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         <button type="button" className="cq-btn cq-btn-quiet" onClick={clearAll} disabled={!hasConditions && qDraft === ''}>条件をクリア</button>
       </div>
       {chips.length > 0 && <ul className="cq-chips" aria-label="適用中の条件">
-        {chips.map(c => <li key={c.key} className="cq-chip"><span title={c.title}>{c.label}</span>
-          <button type="button" aria-label={`「${c.label}」を外す`} onClick={() => { removeChip(c); }}>×</button></li>)}
+        {chips.map(c => <li key={c.key} className={c.separator ? 'cq-chip-or' : 'cq-chip'}><span title={c.title}>{c.label}</span>
+          {!c.separator && <button type="button" aria-label={`「${c.label}」を外す`} onClick={() => { removeChip(c); }}>×</button>}</li>)}
       </ul>}
       {parsePropertySort(filters.sort) !== null && <p className="cq-sort-note">{PROPERTY_SORT_NOTE}</p>}
-      <div id="cq-advanced" role="dialog" aria-label="詳細条件" className="cq-advanced cq-filter-drawer" hidden={!panelOpen} onKeyDown={e => { if (e.key === 'Escape') setPanelOpen(false); }}>
+      <div id="cq-advanced" role="dialog" aria-label="詳細条件" className="cq-advanced cq-filter-drawer" style={{top: drawerTop}} hidden={!panelOpen} onKeyDown={e => { if (e.key === 'Escape') setPanelOpen(false); }}>
         <div className="cq-drawer-heading"><h2>詳細条件</h2><button type="button" className="cq-btn" onClick={() => { setPanelOpen(false); }}>条件のパネルを閉じる</button></div>
         {panelOpen && <QueueGroupEditor catalog={catalog.state} groups={groupsOf(filters)} filters={{...filters, owner: filters.owner || (effectiveOwner ?? (mode === 'live' ? 'me' : ''))}} onReload={catalog.reload}
           onChange={gs => { update(groupPatch(gs)); }} />}
