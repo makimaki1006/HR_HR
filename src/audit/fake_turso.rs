@@ -52,7 +52,7 @@ fn cell(v: SqlValue) -> Value {
 fn run(conn: &Connection, sql: &str, args: &[SqlValue]) -> Result<Value, String> {
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let params = rusqlite::params_from_iter(args.iter());
-    if stmt.readonly() {
+    if stmt.readonly() || stmt.column_count() > 0 {
         let cols: Vec<Value> = stmt
             .column_names()
             .iter()

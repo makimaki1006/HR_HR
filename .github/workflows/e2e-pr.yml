@@ -69,6 +69,9 @@ jobs:
       - name: Role property layout E2E
         run: npx playwright test -c tests/e2e/crm-property-layout.config.ts
 
+      - name: Saved queue views E2E (fictional data only)
+        run: npx playwright test -c tests/e2e/crm-saved-views.config.ts
+
       - name: Upload traces and screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4

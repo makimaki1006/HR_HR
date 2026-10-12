@@ -1,3 +1,5 @@
+import { SavedViews } from './SavedViews';
+import { queueQuery, selectedViewId, viewSearch } from './savedViewsModel';
 import { QueuePropertyFilter } from './QueuePropertyConditions';
 import { conditionLabel } from './queuePropertyFilter';
 import { EMAIL_SAVED } from './emailApi';
@@ -252,6 +254,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const search = initialSearch ?? window.location.search;
   const [mode, setMode] = useState<QueueMode>(() => parseMode(search));
   const [filters, setFilters] = useState<QueueFilters>(() => parseFilters(search));
+  const [initialQueue] = useState(() => queueQuery(search));
+  const [initialQueueKey] = useState(() => filtersKey(filters));
+  const [initialMode] = useState(mode);
+  const currentQuery = filtersKey(filters) === initialQueueKey && mode === initialMode ? initialQueue : queueQuery(screenSearch(filters, mode));
+  const navigateView = useCallback((next: string) => { window.location.assign(`${window.location.pathname}${next}`); }, []);
   const [qDraft, setQDraft] = useState(filters.q);
   const [panelOpen, setPanelOpen] = useState(false);
   // 日付の検証に使う JST の今日。JST 0 時・画面に戻ったときに取り直す (開いたまま日付をまたいでも昨日を通さない)
@@ -430,8 +437,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 条件を URL に残す (再読み込みで復元)。履歴は増やさない
   useEffect(() => {
     if (initialSearch !== undefined) return;
-    try { window.history.replaceState(null, '', screenSearch(filters, mode) || window.location.pathname); } catch { /* URL を書けない環境では何もしない */ }
-  }, [filters, mode, initialSearch]);
+    try { window.history.replaceState(null, '', viewSearch(currentQuery, selectedViewId(search), mode === 'fixture') || window.location.pathname); } catch { /* URL を書けない環境では何もしない */ }
+  }, [currentQuery, search, mode, initialSearch]);
 
   // 「条件をクリア」はパイプラインを残す (選んだパイプラインの中で条件だけ戻す)
   const hasConditions = useMemo(() => filtersKey(filters) !== filtersKey({ ...DEFAULT_FILTERS, pipeline: filters.pipeline }), [filters]);
@@ -796,6 +803,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         </div>
       </div>
     </form>
+    <SavedViews query={currentQuery} search={search} fixture={mode === 'fixture'} onNavigate={navigateView} />
     {layoutNote && <p className="cq-layout-note" role="status" data-testid="layout-note">{LAYOUT_UPDATED_NOTE}
       <button type="button" onClick={() => { setLayoutNote(false); }}>閉じる</button></p>}
 

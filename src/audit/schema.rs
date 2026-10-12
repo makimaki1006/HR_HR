@@ -21,6 +21,12 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
 }
 
 const TABLE_DDL: &[&str] = &[
+    r#"CREATE TABLE IF NOT EXISTS crm_saved_views (
+        id TEXT PRIMARY KEY, creator_email TEXT NOT NULL, name TEXT NOT NULL,
+        scope TEXT NOT NULL CHECK(scope IN ('private','shared')), query TEXT NOT NULL,
+        position REAL NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )"#,
+    "CREATE INDEX IF NOT EXISTS crm_saved_views_visibility ON crm_saved_views(scope, creator_email)",
     r#"CREATE TABLE IF NOT EXISTS crm_role_property_layouts (
         role TEXT NOT NULL, object_type TEXT NOT NULL, properties TEXT NOT NULL,
         updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(role, object_type)
