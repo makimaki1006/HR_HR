@@ -608,11 +608,12 @@ struct Env {
     hs: Shared<FakeHs>,
     admin: String,
     bpo: String,
+    client: Arc<HubSpotClient>,
 }
 
 async fn env(fake: FakeHs) -> Env {
     let (client, hs) = start_hs(fake).await;
-    let app = make_app(test_state(Some(client)));
+    let app = make_app(test_state(Some(client.clone())));
     let admin = login(&app, ADMIN, "google_oidc").await;
     let bpo = login(&app, BPO, "google_oidc").await;
     Env {
@@ -620,6 +621,7 @@ async fn env(fake: FakeHs) -> Env {
         hs,
         admin,
         bpo,
+        client,
     }
 }
 
@@ -1771,7 +1773,7 @@ async fn env_with_clock(fake: FakeHs) -> (Env, String, TestClock) {
             cache,
         ))
         .route("/__test/session", post(inject_session))
-        .with_state(test_state(Some(client)))
+        .with_state(test_state(Some(client.clone())))
         .layer(SessionManagerLayer::new(MemoryStore::default()));
     let admin = login(&app, ADMIN, "google_oidc").await;
     let bpo = login(&app, BPO, "google_oidc").await;
@@ -1782,6 +1784,7 @@ async fn env_with_clock(fake: FakeHs) -> (Env, String, TestClock) {
             hs,
             admin,
             bpo,
+            client,
         },
         min_user,
         clock,
@@ -2068,4 +2071,82 @@ async fn 遅延_500ms_の偽_hubspot_で開く時間は_3_段分_キャッシュ
     assert!(warm < LAT * 4, "3 段で終わる: {warm:?}");
     assert!(cold < LAT * 4, "冷えていても 3 段: {cold:?}");
     assert!(hit < Duration::from_millis(100), "{hit:?}");
+}
+
+fn granted(e: &Env, priority: &str) -> u64 {
+    e.client.gateway().snapshot().granted_by_priority[priority]
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 先読みは背景の優先度で読み_キャッシュの鍵は変わらず_通常の要求は画面の優先度のまま() {
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    let (e, _, _) = env_with_clock(f).await;
+    // 通常の要求: 関所の許可はすべて interactive (background は 0)
+    let (s, v) = e.admin_get("5001").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let normal_calls = e.total() as u64;
+    assert!(normal_calls > 0);
+    assert_eq!(granted(&e, "background"), 0);
+    assert_eq!(granted(&e, "interactive"), normal_calls);
+    // 先読み (別の案件): 同じ回数の読み取りがすべて background。interactive は増えない
+    e.hs.lock()
+        .unwrap()
+        .deal("5002", BPO_OWNER, UNPROCESSED, &[]);
+    let before = e.total() as u64;
+    let (s, cc, v) = get_raw(
+        &e.app,
+        &format!("{}?prefetch=1", url("5002")),
+        Some(&e.admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(cc, "no-store");
+    assert_eq!(v["deal"]["id"], "5002");
+    let calls = e.total() as u64 - before;
+    assert!(calls > 0);
+    assert_eq!(granted(&e, "background"), calls);
+    assert_eq!(granted(&e, "interactive"), normal_calls);
+    // 先読みは同じキャッシュの鍵に入る: 通常の要求は HubSpot を呼ばずに cached=true
+    let before = e.total();
+    let (s, v) = e.admin_get("5002").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["cached"], true);
+    assert_eq!(e.total(), before, "{:?}", e.calls());
+    // キャッシュにあれば先読みも HubSpot を呼ばない (cached=true)
+    let (s, _, v) = get_raw(
+        &e.app,
+        &format!("{}?prefetch=1", url("5002")),
+        Some(&e.admin),
+    )
+    .await;
+    assert_eq!((s, v["cached"].clone()), (StatusCode::OK, json!(true)));
+    assert_eq!(e.total(), before);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 先読みも認可を通す_権限なしは_hubspot_を呼ばず_キャッシュの案件も関門で_403() {
+    let mut f = FakeHs::new();
+    // 他人 (222) の担当。最小権限の人 (owner 111) のキューには出ない
+    full(&mut f, OTHER_OWNER);
+    f.owners.insert(MIN_USER.to_string(), BPO_OWNER.to_string());
+    let (e, min_user, _) = env_with_clock(f).await;
+    let pre = format!("{}?prefetch=1", url(DEAL));
+    // 未ログイン・許可リスト外
+    let (s, _, v) = get_raw(&e.app, &pre, None).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::UNAUTHORIZED, Some("login_required"))
+    );
+    let out = login(&e.app, OUTSIDER, "google_oidc").await;
+    let (s, _, v) = get_raw(&e.app, &pre, Some(&out)).await;
+    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
+    assert_eq!(e.total(), 0, "{:?}", e.calls());
+    // 管理者の先読みでキャッシュに入った案件を、最小権限の人が先読みしても関門で 403 (本文は返さない)
+    let (s, _, v) = get_raw(&e.app, &pre, Some(&e.admin)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, _, v) = get_raw(&e.app, &pre, Some(&min_user)).await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(kind(&v), Some("forbidden_record"));
+    assert!(v.get("deal").is_none());
 }

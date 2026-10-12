@@ -40,6 +40,14 @@ pub enum Priority {
 }
 
 impl Priority {
+    fn idx(self) -> usize {
+        match self {
+            Priority::Continuation => 0,
+            Priority::Interactive => 1,
+            Priority::Background => 2,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Priority::Continuation => "continuation",
@@ -344,6 +352,8 @@ struct Counters {
     coalesced: AtomicU64,
     busy: AtomicU64,
     granted: AtomicU64,
+    /// 許可した回数の優先度別 (`Priority::idx` の順)
+    granted_by_priority: [AtomicU64; 3],
 }
 
 /// 最後に見た `X-HubSpot-RateLimit-*` (HubSpot の応答ヘッダの値そのまま)
@@ -385,6 +395,8 @@ pub struct GatewaySnapshot {
     pub coalesced: u64,
     pub busy: u64,
     pub granted: u64,
+    /// 許可した回数の優先度別 (continuation / interactive / background)
+    pub granted_by_priority: BTreeMap<&'static str, u64>,
     pub queue_general: usize,
     pub queue_search: usize,
     /// 429 で止めている残り時間 (止めていなければ None)
@@ -584,6 +596,8 @@ impl Gateway {
                         let waited = now - started;
                         self.record_wait(now, waited);
                         self.counters.granted.fetch_add(1, Ordering::Relaxed);
+                        self.counters.granted_by_priority[priority.idx()]
+                            .fetch_add(1, Ordering::Relaxed);
                         return Ok(waited);
                     }
                     ready
@@ -723,6 +737,19 @@ impl Gateway {
             coalesced: self.counters.coalesced.load(Ordering::Relaxed),
             busy: self.counters.busy.load(Ordering::Relaxed),
             granted: self.counters.granted.load(Ordering::Relaxed),
+            granted_by_priority: [
+                Priority::Continuation,
+                Priority::Interactive,
+                Priority::Background,
+            ]
+            .into_iter()
+            .map(|p| {
+                (
+                    p.as_str(),
+                    self.counters.granted_by_priority[p.idx()].load(Ordering::Relaxed),
+                )
+            })
+            .collect(),
             queue_general,
             queue_search,
             paused_for,

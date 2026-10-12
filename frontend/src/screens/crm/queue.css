@@ -430,3 +430,9 @@
 .wd-card-quoted { opacity: .85; }
 .wd-card-more { margin-top: 6px; background: none; border: 0; padding: 0; color: var(--cq-accent); cursor: pointer; font-size: 12px; text-decoration: underline; }
 .wd-card-quote { margin-top: 4px; }
+
+/* 詳細を読み込む間に、一覧の行の値だけで出す見出し */
+.cq-preview { padding: 10px 12px; }
+.cq-preview-company { margin: 0 0 4px; font-size: 15px; font-weight: 700; }
+.cq-preview-line { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin: 2px 0; color: var(--cq-sub); font-size: 12px; }
+.cq-preview-loading { margin: 8px 0 0; }
