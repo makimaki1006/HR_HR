@@ -59,7 +59,7 @@ describe('publicationLane', () => {
   it('public: the bar runs from the start to the last CSV day, and the set end date is only in the tooltip', () => {
     const lane = publicationLane(base, range);
     expect(lane.bar).toEqual({ start: '2026-09-10', endExclusive: '2026-10-08', status: 'public' });
-    expect(lane.label).toBe('2026/10/07時点で公開・公開開始 2026/09/10');
+    expect(lane.label).toBe('2026/10/07時点で掲載中・公開開始 2026/09/10');
     expect(lane.label).not.toContain('2030');
     expect(lane.title).toContain('媒体に設定された公開終了日: 2030/01/01（予定の日付で、実際に終わった日ではありません）');
   });
@@ -68,20 +68,20 @@ describe('publicationLane', () => {
     const lane = publicationLane({ ...base, start: '2023-12-25' }, range);
     expect(lane.bar?.start).toBe('2026-09-01');
     expect(lane.startsBefore).toBe('2023-12-25');
-    expect(lane.label).toBe('2026/10/07時点で公開・公開開始 2023/12/25（表示期間より前）');
+    expect(lane.label).toBe('2026/10/07時点で掲載中・公開開始 2023/12/25（表示期間より前）');
   });
 
   it('private: ends where the stop was recorded, or draws no days when the stop day is unknown', () => {
     const known = publicationLane({ ...base, status: 'private', privateRecordedOn: '2026-10-01' }, range);
     expect(known.bar).toEqual({ start: '2026-09-10', endExclusive: '2026-10-01', status: 'private' });
-    expect(known.label).toBe('非公開（2026/10/01までに終了）・公開開始 2026/09/10');
+    expect(known.label).toBe('掲載終了（2026/10/01までに終了）・公開開始 2026/09/10');
     const unknown = publicationLane({ ...base, status: 'private' }, range);
     expect(unknown.bar).toBeNull();
-    expect(unknown.label).toBe('非公開（終了した日は不明）・公開開始 2026/09/10');
+    expect(unknown.label).toBe('掲載終了（終了した日は不明）・公開開始 2026/09/10');
   });
 
   it('missing values say 未取得 or 不明, never a made-up period', () => {
-    expect(publicationLane({ ...base, start: null }, range)).toMatchObject({ bar: null, label: '2026/10/07時点で公開・公開開始日は未取得' });
+    expect(publicationLane({ ...base, start: null }, range)).toMatchObject({ bar: null, label: '2026/10/07時点で掲載中・公開開始日は未取得' });
     expect(publicationLane({ ...base, status: null }, range)).toMatchObject({ bar: null, label: '公開状況は未取得・公開開始 2026/09/10' });
     expect(publicationLane({ ...base, status: 'unknown' }, range).label).toBe('公開状況は不明・公開開始 2026/09/10');
     expect(publicationLane('unavailable', range)).toMatchObject({ bar: null, label: '媒体の公開状況は取得できませんでした（時間をおいて開き直してください）' });
@@ -94,7 +94,7 @@ describe('the 媒体の公開状況 lane on the timeline', () => {
   it('is shown only for a job that carries the publication', () => {
     render(<JobTimeline job={{ ...job, mediaPublication: base }} marketMode="demo" now={new Date('2026-10-08T00:00:00+09:00')} />);
     const lane = screen.getByRole('group', { name: '媒体の公開状況' });
-    expect(within(lane).getByText('2026/10/07時点で公開・公開開始 2026/09/10')).toBeTruthy();
+    expect(within(lane).getByText('2026/10/07時点で掲載中・公開開始 2026/09/10')).toBeTruthy();
     // The set end date is in the help text (reachable without hovering), named as a plan.
     expect(document.body.textContent).toContain('媒体に設定された公開終了日: 2030/01/01（予定の日付で、実際に終わった日ではありません）');
     expect(within(screen.getByRole('group', { name: '凡例' })).getByText('公開開始〜最後に公開を確認した日（途中で止めたかは不明）')).toBeTruthy();
@@ -103,4 +103,8 @@ describe('the 媒体の公開状況 lane on the timeline', () => {
     render(<JobTimeline job={job} marketMode="demo" now={new Date('2026-10-08T00:00:00+09:00')} />);
     expect(screen.queryByRole('group', { name: '媒体の公開状況' })).toBeNull();
   });
+});
+
+it('shows before-publication status without inventing a published interval', () => {
+  expect(publicationLane({ ...base, status: 'scheduled' }, range)).toMatchObject({ bar: null, label: '掲載前・公開開始 2026/09/10' });
 });

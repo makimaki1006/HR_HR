@@ -38,12 +38,20 @@ describe('job copy comparison', () => {
     ['残業あり', '残業なし'],
     ['勤務時間 9:00–18:00', '勤務時間 9:00–17:00'],
     ['給与１２万円', '給与12万円'],
-    ['月給 200000 円', '月給200000円'],
-    ['接客\n', '接客'],
-    ['接客\r補助', '接客\n補助'],
   ])('does not normalize away a material or unsupported formatting difference: %s → %s', (before, after) => {
     const comparison = compareCopy(before, after);
     expect(comparison.status).toBe('changed');
+    expect(reconstruct(comparison.lines, 'before')).toBe(before);
+    expect(reconstruct(comparison.lines, 'after')).toBe(after);
+  });
+
+  it.each([
+    ['月給 200000 円', '月給200000円'],
+    ['接客\n', '接客'],
+    ['接客\r補助', '接客\n補助'],
+  ])('ignores whitespace-only changes while retaining exact source lines: %s → %s', (before, after) => {
+    const comparison = compareCopy(before, after);
+    expect(comparison.status).toBe('unchanged');
     expect(reconstruct(comparison.lines, 'before')).toBe(before);
     expect(reconstruct(comparison.lines, 'after')).toBe(after);
   });

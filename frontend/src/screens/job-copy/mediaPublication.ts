@@ -15,7 +15,7 @@ export interface MediaPublication {
   /** End day set on the media. A plan, not the day it really stopped. */
   plannedEnd: string | null;
   /** 'unknown': a status value this screen does not know. null: not acquired. */
-  status: 'public' | 'private' | 'unknown' | null;
+  status: 'public' | 'private' | 'scheduled' | 'unknown' | null;
   /** Last day the job was in the media CSV. */
   lastInCsv: string | null;
   /** Day the change from 公開 to 非公開 was recorded (it stopped on that day or before). */
@@ -27,7 +27,7 @@ export type MediaPublicationState = MediaPublication | 'unavailable';
 const calendarDay = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
   && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 const day = (value: unknown): string | null | undefined => value === null || value === undefined ? null : calendarDay(value) ? value : undefined;
-const STATUSES = ['public', 'private', 'unknown'] as const;
+const STATUSES = ['public', 'private', 'scheduled', 'unknown'] as const;
 
 /**
  * Listing ID -> publication (null for a listing that is not an HRハッカー job). A listing whose
@@ -93,16 +93,16 @@ export function publicationLane(publication: MediaPublicationState, range: Timel
   const clipped = start !== null && start < range.start;
   const startText = start ? `公開開始 ${formatDay(start)}${clipped ? '（表示期間より前）' : ''}` : '公開開始日は未取得';
   // The status first: a short bar cuts the end of the text.
-  const statusText = status === 'public' ? lastInCsv ? `${formatDay(lastInCsv)}時点で公開` : '公開（確認した日は未取得）'
-    : status === 'private' ? privateRecordedOn ? `非公開（${formatDay(privateRecordedOn)}までに終了）` : '非公開（終了した日は不明）'
-      : status === 'unknown' ? '公開状況は不明' : '公開状況は未取得';
+  const statusText = status === 'public' ? lastInCsv ? `${formatDay(lastInCsv)}時点で掲載中` : '掲載中（確認した日は未取得）'
+    : status === 'private' ? privateRecordedOn ? `掲載終了（${formatDay(privateRecordedOn)}までに終了）` : '掲載終了（終了した日は不明）'
+      : status === 'scheduled' ? '掲載前' : status === 'unknown' ? '公開状況は不明' : '公開状況は未取得';
   const label = `${statusText}・${startText}`;
   const title = publicationNotes(publication).join('\n');
   // From the start to the last day it was seen published (公開), or up to the day the stop was
   // recorded (非公開; that day is left out). Whether it was published on every day between is not
   // known, so the bar is drawn hatched.
   const end = status === 'public' && lastInCsv ? addDays(lastInCsv, 1) : status === 'private' && privateRecordedOn ? privateRecordedOn : null;
-  if (!start || !end || end <= start || status === null || status === 'unknown') return { bar: null, startsBefore: null, label, title };
+  if (!start || !end || end <= start || status === null || status === 'unknown' || status === 'scheduled') return { bar: null, startsBefore: null, label, title };
   if (end <= range.start || start > range.end) return { bar: null, startsBefore: null, label: `${label}（表示期間の外）`, title };
   return { bar: { start: clipped ? range.start : start, endExclusive: end > addDays(range.end, 1) ? addDays(range.end, 1) : end, status }, startsBefore: clipped ? start : null, label, title };
 }

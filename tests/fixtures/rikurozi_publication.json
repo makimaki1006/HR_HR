@@ -2,12 +2,14 @@
   {"raw":"01","normalized":"公開中","air_only":true,"expected":"掲載中"},
   {"raw":"02","normalized":"公開終了","air_only":true,"expected":null},
   {"raw":"01","normalized":"公開前","air_only":true,"expected":null},
-  {"raw":"02","normalized":"公開中","air_only":false,"expected":"掲載中か不明"},
-  {"raw":"01","normalized":null,"air_only":true,"expected":"掲載中か不明"},
+  {"raw":"02","normalized":"公開中","air_only":false,"expected":"掲載中"},
+  {"raw":"01","normalized":null,"air_only":true,"expected":null},
   {"raw":null,"normalized":null,"air_only":true,"expected":"掲載中か不明"},
-  {"raw":"公開","normalized":"unset","air_only":true,"expected":"掲載中"},
+  {"raw":"公開","normalized":"unset","air_only":true,"expected":"掲載中か不明"},
   {"raw":"掲載中","normalized":null,"air_only":false,"expected":"掲載中"},
   {"raw":"未掲載","normalized":null,"air_only":true,"expected":null},
   {"raw":"掲載停止","normalized":null,"air_only":true,"expected":null},
-  {"raw":" 公開中 ","normalized":" 公開中 ","air_only":true,"expected":"掲載中"}
+  {"raw":" 公開中 ","normalized":" 公開中 ","air_only":true,"expected":"掲載中"},
+  {"raw":"02","normalized":"","air_only":true,"expected":"掲載中"},
+  {"raw":"01","normalized":"","air_only":true,"expected":null}
 ]

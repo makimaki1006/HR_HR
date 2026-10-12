@@ -88,7 +88,7 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
     <div ref={scroller} className="jc-listing-popup-scroll" aria-busy={busy}>
       {busy && <p role="status">求人の内容を読み込んでいます…</p>}{error && <p role="alert">{error}</p>}
       <dl className="jc-listing-popup-summary">{[['求人名', model.title], ['媒体', displayed.media], ['公開状況', model.publication], ['勤務地', model.location], ['給与', model.salary], ['応募数', model.applications]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      <p className="jc-listing-popup-note">本文が記録された日時です。掲載開始日時とは異なります。{selectedVersion?.source === 'HubSpotの現在の本文' && ' 現在の本文は確認した日時です。本文の記録日時は不明です。'}{model.hasCurrentConditions && ' 左の本文以外の補足条件・公開状況は現在の取得値です。過去の本文に補っていません。'} 応募数は求人全体の取得値で、この本文への応募数ではありません。</p>
+      <p className="jc-listing-popup-note">本文が記録された日時です。掲載開始日時とは異なります。{selectedVersion?.source === 'HubSpotの現在の本文' && ' 現在の本文は確認した日時です。本文の記録日時は不明です。'}{model.hasCurrentConditions && ` ${old ? '左の' : ''}本文以外の補足条件・公開状況は現在の取得値です。過去の本文に補っていません。`} 応募数は求人全体の取得値で、この本文への応募数ではありません。</p>
       {selectedVersion?.kind === 'ai_draft' && <p className="jc-notice">未掲載の案です。</p>}
       {!model.bodyAvailable && <p className="jc-notice">本文を取得できていません。</p>}
       {old && <label className="jc-listing-changes"><input type="checkbox" checked={changesOnly} onChange={event => { setChangesOnly(event.target.checked); }} />変わった項目だけ表示（{changedCount}項目）</label>}
