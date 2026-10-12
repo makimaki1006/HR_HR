@@ -42,9 +42,11 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const row = Object.fromEntries(fields);
   const get = (key: string) => fields.get(key) ?? '';
   const entry = (key: string): ListingEntry => ({ key, label: comparisonLabel(key), value: comparisonValue(key, get(key), raw, row) });
-  const hasSalary = ['給与形態', '基本給与 最小', '基本給与 最大'].some(key => get(key).trim());
+  const salaryFieldKeys = ['給与形態', '基本給与 最小', '基本給与 最大'];
+  const salaryKnown = bodyAvailable && salaryFieldKeys.every(key => fields.has(key));
+  const hasSalary = salaryFieldKeys.some(key => get(key).trim());
   const salary = hasSalary ? composeSalary(get('給与形態').trim(), get('基本給与 最小').trim(), get('基本給与 最大').trim())
-    : bodyAvailable && (structured || ['給与形態', '基本給与 最小', '基本給与 最大'].every(key => fields.has(key))) ? '記載なし' : '取得できていません';
+    : salaryKnown ? '記載なし' : '取得できていません';
   const consumed = new Set(['案件名', '公開', ...imageKeys]);
   const sections: ListingSection[] = groups.map(([heading, keys]) => {
     keys.forEach(key => consumed.add(key));
@@ -54,7 +56,7 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
       if (hasSalary) entries.unshift({ key: 'salary', label: '給与', value: salary });
     }
     if (groups.findIndex(group => group[0] === heading) < 7 && (heading === '給与' ? !hasSalary : !get(keys[0] ?? '').trim())) {
-      const known = bodyAvailable && (heading === '勤務地・アクセス' ? fields.has('勤務地') : structured || fields.has(keys[0] ?? ''));
+      const known = heading === '給与' ? salaryKnown : bodyAvailable && (heading === '勤務地・アクセス' ? fields.has('勤務地') : structured || fields.has(keys[0] ?? ''));
       entries.unshift({ key: heading === '給与' ? 'salary' : keys[0] ?? heading, label: heading, value: known ? '記載なし' : '取得できていません', unavailable: !known });
     }
     return { heading, entries };
@@ -77,11 +79,12 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const publication = get('公開').trim() ? displayCode('公開', get('公開')) === '確認が必要' ? '確認が必要' : publicationLabel(get('公開'))
     : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : (current || !version) ? publicationLabel(job.listingPublicationStatus ?? null) : '未取得';
   const title = get('案件名').trim() || job.title;
-  const location = get('勤務地').trim() || ((current || !version) ? job.location : '') || (bodyAvailable && fields.has('勤務地') ? '記載なし' : '取得できていません');
+  const location = get('勤務地').trim() || (bodyAvailable && fields.has('勤務地') ? '記載なし' : '取得できていません');
   const mainKeys = new Set(['案件名', '公開', '仕事内容', '勤務地', '勤務時間', '応募資格', '休日・休暇', '福利厚生', '給与形態', '基本給与 最小', '基本給与 最大', ...imageKeys]);
-  const missing = bodyAvailable && structured ? columns.filter(key => !isManagement(key) && !mainKeys.has(key) && !get(key).trim()).map(comparisonLabel) : [];
+  const optionalFieldsKnown = bodyAvailable && structured;
+  const missing = optionalFieldsKnown ? columns.filter(key => !isManagement(key) && !mainKeys.has(key) && !get(key).trim()).map(comparisonLabel) : [];
   const total = (current || !version) ? job.overallApplications?.total ?? job.listingApplicationCount : undefined;
-  return { sections, missing, images, observedImages, imageReason, imageSignature, bodyAvailable, structured, hasCurrentConditions, salary, publication,
+  return { sections, missing, images, observedImages, imageReason, imageSignature, bodyAvailable, structured, optionalFieldsKnown, hasCurrentConditions, salary, publication,
     title, location,
     applications: total == null ? '未取得' : `${String(total)}件`,
   };

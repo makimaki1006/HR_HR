@@ -38,7 +38,7 @@ describe('salary extraction from the body', () => {
   it('returns null when the body has no salary line', () => {
     expect(extractSalary('仕事内容：配送\n勤務時間：8:00〜17:00')).toBeNull();
     expect(extractSalary('')).toBeNull();
-    expect(salaryLabel(null)).toBe('給与の記載なし');
+    expect(salaryLabel(null)).toBe('未取得');
   });
   it('does not read hours as pay and compares by kind and amounts', () => {
     expect(parseSalaryText('時給1,100円（1日8時間）')).toMatchObject({ min: 1100, max: 1100 });

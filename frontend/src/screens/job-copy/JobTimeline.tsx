@@ -416,7 +416,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           return <div key={change.versionId} className="jt-salary-item">
             <div className={`jt-salary${className}`} aria-hidden="true" style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), bottom: `calc(${String(height)}% + 14px)` }} />
             <div className={`jt-salary-label${className}`} style={{ ...pinned(period.start, range), top: `${String(8 + (labelRows[index] ?? 0) * 28)}px` }}
-              title={`${info ? `${change.label}: ${info.raw || '記載なし'}` : `${change.label}: 給与の記載なし`}${change.salaryDirection ? `（${salaryWord[change.salaryDirection]}）` : ''}`}>
+              title={`${info ? `${change.label}: ${info.raw || '記載なし'}` : `${change.label}: 給与は未取得`}${change.salaryDirection ? `（${salaryWord[change.salaryDirection]}）` : ''}`}>
               {change.salaryDirection && <i className={`jt-salary-dir jt-salary-${change.salaryDirection}`} role="img" aria-label={salaryWord[change.salaryDirection]}>{salaryMark[change.salaryDirection]}</i>}<span>{salaryLabel(info)}</span>
             </div>
           </div>;

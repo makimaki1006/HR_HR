@@ -87,7 +87,7 @@ export interface MarkedDiffLine extends CopyDiffLine {
   segments?: InlineSegment[];
 }
 
-/** Bound on token pairs compared within one line pair; longer pairs keep the whole-line colour only. */
+/** Bound on differing token pairs after removing the common prefix and suffix. */
 const MAX_INLINE_CELLS = 250_000;
 
 /** Runs of digits (with , and .) and of Latin letters stay whole, so 250,000 → 270,000 marks the number. */
@@ -96,7 +96,14 @@ function tokens(text: string): string[] {
 }
 
 function inlineSegments(before: string, after: string): [InlineSegment[], InlineSegment[]] | null {
-  const a = tokens(before); const b = tokens(after);
+  const originalA = tokens(before); const originalB = tokens(after);
+  let start = 0;
+  while (start < originalA.length && start < originalB.length && originalA[start] === originalB[start]) start += 1;
+  let endA = originalA.length; let endB = originalB.length;
+  while (endA > start && endB > start && originalA[endA - 1] === originalB[endB - 1]) { endA -= 1; endB -= 1; }
+  const prefix = originalA.slice(0, start).join('');
+  const suffix = originalA.slice(endA).join('');
+  const a = originalA.slice(start, endA); const b = originalB.slice(start, endB);
   if ((a.length + 1) * (b.length + 1) > MAX_INLINE_CELLS) return null;
   const width = b.length + 1;
   const lengths = new Uint32Array((a.length + 1) * width);
@@ -110,12 +117,14 @@ function inlineSegments(before: string, after: string): [InlineSegment[], Inline
     const last = list[list.length - 1];
     if (last?.changed === changed) last.text += text; else list.push({ text, changed });
   };
+  if (prefix) { push(left, prefix, false); push(right, prefix, false); }
   let i = 0; let j = 0;
   while (i < a.length || j < b.length) {
     if (i < a.length && j < b.length && a[i] === b[j]) { push(left, at(a, i), false); push(right, at(b, j), false); i += 1; j += 1; }
     else if (i < a.length && (j === b.length || at(lengths, (i + 1) * width + j) >= at(lengths, i * width + j + 1))) { push(left, at(a, i), true); i += 1; }
     else { push(right, at(b, j), true); j += 1; }
   }
+  if (suffix) { push(left, suffix, false); push(right, suffix, false); }
   return [readable(left), readable(right)];
 }
 
@@ -158,4 +167,12 @@ export function markInlineChanges(lines: readonly CopyDiffLine[]): MarkedDiffLin
     }
   }
   return result;
+}
+
+/** A replaced field must remain coloured even when no characters are shared or
+ * the bounded inline comparison falls back to a whole-field replacement. */
+export function markValueChanges(before: string, after: string): InlineSegment[] {
+  if (before === after) return [{ text: after, changed: false }];
+  return markInlineChanges([{ kind: 'removed', text: before }, { kind: 'added', text: after }])
+    .find(line => line.kind === 'added')?.segments ?? [{ text: after, changed: true }];
 }

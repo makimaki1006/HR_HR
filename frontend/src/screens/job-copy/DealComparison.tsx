@@ -9,7 +9,7 @@ import type { JobCopyRecord } from './data';
 import { compareJobs, comparisonValue, salaryAmount } from './dealComparisonModel';
 import { composeSalary } from './hrhCopy';
 import type { ComparedJob } from './dealComparisonModel';
-import { markInlineChanges } from './diff';
+import { markValueChanges } from './diff';
 const columns = [['title', '求人名'], ['media', '媒体'], ['publication', '公開状況'], ['occupation', '職種'], ['location', '勤務地'], ['salary', '給与'], ['applications', '応募数'], ['body_changed_at', '本文の最終変更日'], ['hours', '勤務時間'], ['holidays', '休日'], ['salary_kind', '給与形態'], ['salary_min', '給与の下限'], ['salary_max', '給与の上限']] as const;
 const optionalColumns = columns.slice(8);
 type ColumnKey = typeof columns[number][0];
@@ -36,7 +36,7 @@ function ComparisonCell({ value, reference, different }: { value: string; refere
     observer.observe(element);
     return () => { observer.disconnect(); };
   }, [value, expanded]);
-  const segments = different && value !== '未取得' && reference !== '未取得' ? markInlineChanges([{ kind: 'removed', text: reference }, { kind: 'added', text: value }]).find(line => line.kind === 'added')?.segments : undefined;
+  const segments = different && value !== '未取得' && reference !== '未取得' ? markValueChanges(reference, value) : undefined;
   const content = segments ? segments.map((segment, i) => segment.changed ? <mark className="jc-mark-added" key={i}>{segment.text}</mark> : segment.text) : value;
   const long = clipped || value.length > 100 || value.split('\n').length > 3;
   return <><div ref={preview} className={expanded ? 'jc-comparison-full' : 'jc-comparison-preview'}>{content}</div>{long && <button className="jc-button" aria-expanded={expanded} onClick={() => { setExpanded(!expanded); }}>{expanded ? '閉じる' : '全文を見る'}</button>}</>;

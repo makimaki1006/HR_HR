@@ -140,3 +140,14 @@ it('reads only displayed rows for dates, preserves unknowns and drops a previous
   expect(table.textContent).not.toContain('2026/01/01');
   expect(api.mock.calls.filter(call => String(call[0]).includes('listing-body-dates')).map(call => String(call[0]).split('ids=')[1])).toEqual(['1', '51']);
 });
+
+it.each([['検品', '梱包'], ['検'.repeat(600), '梱'.repeat(600)]])('colours whole field replacements in the deal comparison for %s', (before, after) => {
+  const { container } = render(<ParallelJobs jobs={[
+    { id: '1', title: '検品の求人', media: 'HRハッカー', body: `仕事内容：${before}` },
+    { id: '2', title: '梱包の求人', media: 'AirWork', body: `仕事内容：${after}` },
+  ]} />);
+  const marks = container.querySelectorAll('mark');
+  expect(marks).toHaveLength(2);
+  expect(marks[0]?.textContent).toBe(before);
+  expect(marks[1]?.textContent).toBe(after);
+});

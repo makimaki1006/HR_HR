@@ -101,3 +101,11 @@ describe('markInlineChanges', () => {
     expect(unrelated.every(line => line.segments === undefined)).toBe(true);
   });
 });
+
+it('keeps the 598 common characters plain in a 600-character inline comparison', () => {
+  const prefix = '前'.repeat(299), suffix = '後'.repeat(299);
+  const before = prefix + '検品' + suffix, after = prefix + '梱包' + suffix;
+  const lines = markInlineChanges([{ kind: 'removed', text: before }, { kind: 'added', text: after }]);
+  expect(lines[0]?.segments).toEqual([{ text: prefix, changed: false }, { text: '検品', changed: true }, { text: suffix, changed: false }]);
+  expect(lines[1]?.segments).toEqual([{ text: prefix, changed: false }, { text: '梱包', changed: true }, { text: suffix, changed: false }]);
+});

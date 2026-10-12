@@ -313,3 +313,44 @@ it('keeps the current copy while loading and after a failed switch, then permits
   expect(screen.getByRole('heading', { name: '確認中の求人' })).toBeTruthy();
   expect(screen.getByRole('button', { name: '次の求人 ›' })).toHaveProperty('disabled', false);
 });
+
+it.each([
+  [{ 給与形態: '' }, '取得できていません'],
+  [{ 給与形態: '', '基本給与 最小': '' }, '取得できていません'],
+  [{ 給与形態: '', '基本給与 最小': '', '基本給与 最大': '' }, '記載なし'],
+] as const)('uses the same salary availability in the AirWork summary and body for %j', (fields, expected) => {
+  const job = listingRecord({ listing: { ...listing, media: 'airwork' }, current_fields: fields, versions: [{ written_at: '2026-10-11T00:00:00Z', body: '商品を検品します。', image_urls: null }], history_counts: {}, history_may_be_incomplete: false });
+  render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
+  const dialog = screen.getByRole('dialog');
+  expect(dialog.querySelector('.jc-listing-popup-summary > div:nth-child(5) dd')?.textContent).toBe(expected);
+  const salary = [...dialog.querySelectorAll('.jc-listing-popup-section')].find(section => section.querySelector('h3')?.textContent === '給与');
+  expect(salary?.querySelector('p')?.textContent).toBe(expected);
+  expect(dialog.querySelectorAll('.jc-listing-popup-missing')).toHaveLength(0);
+  expect(screen.getByText('任意項目の記載状況を取得できていません。')).toBeTruthy();
+  expect(dialog.textContent).not.toContain('記載のない任意項目（0件）');
+});
+
+it('does not replace an explicitly empty acquired location with the current summary location', () => {
+  const job = record(); job.currentListingFields = { 勤務地: '' };
+  const model = listingPopupModel(job, job.versions[0]);
+  expect(model.location).toBe('記載なし');
+  expect(model.sections.find(section => section.heading === '勤務地・アクセス')?.entries[0]?.value).toBe('記載なし');
+});
+
+it.each([
+  ['検品', '梱包', '検品', '梱包'],
+  ['前'.repeat(299) + '検品' + '後'.repeat(299), '前'.repeat(299) + '梱包' + '後'.repeat(299), '検品', '梱包'],
+  ['検'.repeat(600), '梱'.repeat(600), '検'.repeat(600), '梱'.repeat(600)],
+])('colours changed text on both sides for %s → %s', (before, after, removed, added) => {
+  const job = record({ 仕事内容: after });
+  const selected = job.versions[0]; if (!selected) throw new Error('掲載本文が必要です');
+  job.versions.unshift({ ...selected, id: 'before-text', comparisonBody: rowBody({ 案件名: listing.title, 仕事内容: before, 給与形態: '月給', '基本給与 最小': '213000', '基本給与 最大': '249000', 公開: '公開' }) });
+  render(<ListingPopup job={job} version={selected} onClose={vi.fn()} />);
+  const row = screen.getByRole('dialog').querySelector('.jc-listing-comparison-row');
+  expect(row?.querySelectorAll('[aria-label="変更あり"]')).toHaveLength(2);
+  const paragraphs = row?.querySelectorAll('p');
+  expect(paragraphs?.[0]?.textContent).toBe(after);
+  expect(paragraphs?.[1]?.textContent).toBe(before);
+  expect([...paragraphs?.[0]?.querySelectorAll('mark') ?? []].map(mark => mark.textContent).join('')).toBe(added);
+  expect([...paragraphs?.[1]?.querySelectorAll('mark') ?? []].map(mark => mark.textContent).join('')).toBe(removed);
+});

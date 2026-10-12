@@ -99,3 +99,49 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   await expect(dialog).toContainText('1 / 3件目');
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
 });
+
+for (const width of [1440, 1920]) test(`取得不能の給与・任意項目と短文・600文字の色付け ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 742 });
+  if (!process.env.JOB_COPY_POPUP_LOCAL) await login(page);
+  await page.addInitScript(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+  const listing = { id: '31', media: 'airwork', media_job_id: 'hidden-aw-id', account_id: null, title: '架空の作業スタッフ', prefecture: '東京都', municipality: '江東区', category: null, publication_status: '公開', last_csv_detected_at: null, application_count: null };
+  let before = '検品', after = '梱包';
+  await page.route('**/api/job-copy/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/listings')) return route.fulfill({ json: { status: 'ready', listings: [listing], total: 1, offset: 0, next_offset: null, titles: [], index_built_at: '2026-10-11T00:00:00Z', refreshing: false, refresh_failed: false } });
+    if (path.endsWith('/versions')) return route.fulfill({ json: { listing, current_fields: { 給与形態: '' }, versions: [
+      { written_at: '2026-10-01T00:00:00Z', body: before, image_urls: null },
+      { written_at: '2026-10-11T00:00:00Z', body: after, image_urls: null },
+    ], history_counts: {}, history_may_be_incomplete: false } });
+    return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
+  });
+  for (const scenario of [
+    { before: '検品', after: '梱包', removed: '検品', added: '梱包', shot: 'review-01-short-replacement' },
+    { before: '前'.repeat(299) + '検品' + '後'.repeat(299), after: '前'.repeat(299) + '梱包' + '後'.repeat(299), removed: '検品', added: '梱包', shot: 'review-02-600-character-change' },
+    { before: '検'.repeat(600), after: '梱'.repeat(600), removed: '検'.repeat(600), added: '梱'.repeat(600), shot: 'review-03-600-character-replacement' },
+  ]) {
+    before = scenario.before; after = scenario.after;
+    await page.goto('/app/job-copy?listing=31');
+    await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.locator('.jc-listing-popup-summary > div').filter({ has: page.locator('dt', { hasText: '給与' }) }).locator('dd')).toHaveText('取得できていません');
+    const salary = dialog.locator('.jc-listing-comparison-row').filter({ has: page.getByRole('heading', { name: '給与', exact: true }) });
+    await expect(salary.locator('p')).toHaveText(['取得できていません', '取得できていません']);
+    await expect(dialog).not.toContainText('記載のない任意項目（0件）');
+    await expect(dialog.getByText('任意項目の記載状況を取得できていません。', { exact: true })).toHaveCount(2);
+    const row = dialog.locator('.jc-listing-comparison-row').first();
+    await expect(row.locator('p')).toHaveText([after, before]);
+    await expect(row.locator('mark')).toHaveText([scenario.added, scenario.removed]);
+    expect(await row.locator('mark').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 209, 158)');
+    if (width === 1440) {
+      await mkdir(shots, { recursive: true });
+      await row.locator('mark').first().scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${shots}/${scenario.shot}.png` });
+      if (scenario.after === '梱包') {
+        await dialog.locator('.jc-listing-popup-scroll').evaluate(element => { element.scrollTop = element.scrollHeight; });
+        await page.screenshot({ path: `${shots}/review-04-optional-unavailable.png` });
+      }
+    }
+    await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
+  }
+});
