@@ -60,7 +60,7 @@ import { AssumptionsNote } from './AssumptionsNote';
 import { DUMMY_BILLING_ENABLED } from './dummyBilling';
 import './job-copy.css';
 
-const statusLabels = { initial: '過去の本文がないため比較できません', unchanged: '前の本文と同じ', format_only: '前の本文と表記だけが異なります', changed: '前の本文から内容が変わっています', unavailable: '本文が未取得のため比較できません' };
+const statusLabels = { initial: '過去の本文がないため比較できません', unchanged: '前の本文と同じ', changed: '前の本文から内容が変わっています', unavailable: '本文が未取得のため比較できません' };
 const certaintyLabels = { confirmed: '確定', estimated: '推定', unknown: '不明' };
 const date = (value: string) => formatDateTimeJst(value, '日時不明');
 const published = (job: JobCopyRecord) => job.versions.filter(version => version.kind === 'published');

@@ -70,3 +70,47 @@ for (const width of [1440, 1920]) test(`公開状況・空白だけの本文比�
   await expect(dialog).not.toContainText('左の本文');
   await shot('05-single-column-note');
 });
+
+for (const width of [1440, 1920]) test(`AirWorkの改行コードと空白だけの違いは上部とポップアップで同じ判定 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 742 });
+  if (!process.env.JOB_COPY_STATUS_LOCAL) await login(page);
+  await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'));
+  const listing = { id: '1', media: 'airwork', media_job_id: 'hidden-media-key', account_id: null, title: '架空の出荷準備スタッフ', prefecture: '東京都', municipality: '江東区', category: null, publication_status: '掲載中', last_csv_detected_at: null, application_count: null };
+  const before = '棚から集めます。\r\n箱に詰めます。';
+  let after = '棚から集めます。\n箱に詰めます。';
+  await page.route('**/api/job-copy/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/listings')) return route.fulfill({ json: { status: 'ready', listings: [listing], total: 1, offset: 0, next_offset: null, titles: [], index_built_at: '2026-10-12T00:00:00Z', refreshing: false, refresh_failed: false } });
+    if (path.endsWith('/versions')) return route.fulfill({ json: { listing, versions: [
+      { written_at: '2026-10-01T00:00:00Z', body: before, image_urls: null },
+      { written_at: '2026-10-12T00:00:00Z', body: after, image_urls: null },
+    ], history_counts: {}, history_may_be_incomplete: false } });
+    return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
+  });
+  for (const text of ['棚から集めます。\n箱に詰めます。', '\n 棚から集めます。　\r\n箱に詰めます。\n']) {
+    after = text;
+    await page.goto('/app/job-copy?listing=1');
+    await expect(page.locator('.jc-detail-heading .jc-badge')).toHaveText('本文：前の本文と同じ');
+    if (width === 1440 && text === '棚から集めます。\n箱に詰めます。') {
+      await mkdir(shots, { recursive: true });
+      await page.screenshot({ path: `${shots}/06-airwork-body-summary.png` });
+    }
+    await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('checkbox', { name: '変わった項目だけ表示（0項目）' })).toBeVisible();
+    await expect(dialog.locator('.jc-listing-change-dot, mark')).toHaveCount(0);
+    expect(await dialog.locator('.jc-listing-comparison-row').first().locator('p').first().textContent()).toBe(after);
+    if (width === 1440 && text === '棚から集めます。\n箱に詰めます。') {
+      await mkdir(shots, { recursive: true });
+      await page.screenshot({ path: `${shots}/07-airwork-line-endings-popup.png` });
+    }
+    await page.keyboard.press('Escape');
+  }
+  after = '棚から集めます。\n箱に詰め、伝票を確認します。';
+  await page.goto('/app/job-copy?listing=1');
+  await expect(page.locator('.jc-detail-heading .jc-badge')).toHaveText('本文：前の本文から内容が変わっています');
+  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('checkbox', { name: '変わった項目だけ表示（1項目）' })).toBeVisible();
+  await expect(dialog.locator('.jc-listing-change-dot')).toHaveCount(2);
+});

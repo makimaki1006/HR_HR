@@ -1,4 +1,4 @@
-export type CopyComparisonStatus = 'initial' | 'unchanged' | 'format_only' | 'changed' | 'unavailable';
+export type CopyComparisonStatus = 'initial' | 'unchanged' | 'changed' | 'unavailable';
 export interface CopyDiffLine { kind: 'same' | 'added' | 'removed'; text: string }
 export interface CopyComparison { status: CopyComparisonStatus; lines: CopyDiffLine[] }
 
@@ -79,11 +79,10 @@ export function compareCopy(before: string | null, after: string | null): CopyCo
   if (before === after) {
     return { status: 'unchanged', lines: rawLines(after).map((text) => ({ kind: 'same', text })) };
   }
-  if (before.replace(/\r\n/g, '\n') !== after.replace(/\r\n/g, '\n') && comparisonWhitespace(before) === comparisonWhitespace(after)) {
+  if (comparisonWhitespace(before) === comparisonWhitespace(after)) {
     return { status: 'unchanged', lines: compareLines(rawLines(before), rawLines(after)) };
   }
-  const status = before.replace(/\r\n/g, '\n') === after.replace(/\r\n/g, '\n') ? 'format_only' : 'changed';
-  return { status, lines: compareLines(rawLines(before), rawLines(after)) };
+  return { status: 'changed', lines: compareLines(rawLines(before), rawLines(after)) };
 }
 
 /** A piece of a changed line: changed pieces are the words or characters that differ from the paired line. */

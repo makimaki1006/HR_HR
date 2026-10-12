@@ -25,7 +25,7 @@ export function ConsultantReview({ job, draft, onDraft, billing }: { job: JobCop
   const imageChange = compareImages(versions.length > 1 ? referenceImages(previous) : undefined, referenceImages(current));
   const demo = job.id.startsWith('demo-job-');
   const cost = reportBillingText(job, billing);
-  const labels = { initial: '比較する過去の本文がないため、変更の有無は不明', changed: '本文の内容変更あり', unchanged: '本文は同じ', format_only: '本文の表記差のみ', unavailable: '比較する本文が未取得のため、変更の有無は不明' };
+  const labels = { initial: '比較する過去の本文がないため、変更の有無は不明', changed: '本文の内容変更あり', unchanged: '本文は同じ', unavailable: '比較する本文が未取得のため、変更の有無は不明' };
   const questions: [string, string, string][] = [
     ['hypothesis', '仮説', '何を変えると、どの応募者層に届くと考えるか'],
     ['criterion', '評価基準', '対象層の応募件数・構成比など、期間とともに記入'],
