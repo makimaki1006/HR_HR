@@ -1,12 +1,13 @@
-.tm { flex-shrink: 0; padding: 4px 16px; border-bottom: 1px solid #dbe3ee; background: #f8fafc; font-size: .8rem; color: #334155; }
-.tm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; min-height: 28px; }
+.tm { flex-shrink: 0; padding: 0 16px; line-height: 1.2; border-bottom: 1px solid #dbe3ee; background: #f8fafc; font-size: .8rem; color: #334155; }
+.tm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; min-height: 20px; }
 .tm-asof { color: #64748b; }
 .tm-warn { color: #92400e; }
 .tm-toggle { margin-left: auto; border: 0; background: transparent; color: #0e7490; cursor: pointer; font: inherit; }
-.tm-items { display: flex; flex-wrap: wrap; gap: 4px 24px; list-style: none; margin: 0; padding: 0; }
-.tm-item { display: flex; align-items: baseline; gap: 8px; }
+.tm-items { display: flex; flex-wrap: wrap; gap: 2px 14px; list-style: none; margin: 0; padding: 0; }
+.tm-item { display: flex; align-items: baseline; gap: 5px; }
 .tm-label { color: #64748b; }
-.tm-value { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tm-value { font-size: .95rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tm-sub, .tm-cmp { color: #64748b; font-variant-numeric: tabular-nums; }
 .tm-rank { font-weight: 600; color: #0e7490; }
 .tm-foot, .tm-note { margin: 0 0 2px; color: #64748b; font-size: .72rem; }
+.tm-pop { color: #64748b; font-size: .72rem; cursor: help; }

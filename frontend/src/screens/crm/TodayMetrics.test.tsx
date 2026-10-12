@@ -15,7 +15,8 @@ describe('今日の成績の帯', () => {
     expect(screen.getByTestId('metric-duration').textContent).toBe('通話時間合計55:12平均 2:18平均 44:002位 / 8人');
     expect(screen.getByTestId('metric-appointments').textContent).toBe('アポ2平均 1.11位 / 8人');
     expect(screen.getByTestId('metrics-as-of').textContent).toBe('14時05分時点');
-    expect(screen.getByText(/同じチーム（架空BPOチーム）で今日架電した 8 人/)).toBeTruthy();
+    expect(screen.getByTestId('metrics-population').textContent).toContain('同じチーム 8人と比較');
+    expect(screen.getByTestId('metrics-population').getAttribute('title')).toBe('同じチーム（架空BPOチーム）で今日架電した 8 人と比べています。最初の架電 9:03・最後の架電 14:01。');
   });
 
   it('担当者が引けないときは理由を出す', async () => {

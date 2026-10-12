@@ -19,6 +19,7 @@ export function TodayMetricsView({ data, refreshFailed, collapsed, onToggle }: {
   const items = stripItems(data);
   const first = clockJst(data.me?.metrics.first_call_at ?? null);
   const last = clockJst(data.me?.metrics.last_call_at ?? null);
+  const detail = `${populationLabel(data)}と比べています。${first !== null && last !== null ? `最初の架電 ${first}・最後の架電 ${last}。` : ''}${data.me?.rank.outbound === null ? '今日はまだ架電がないため、順位は出ません。' : ''}`;
   return <section className="tm" aria-label="今日の架電成績" data-testid="today-metrics">
     <div className="tm-head">
       <strong>今日の成績</strong>
@@ -32,15 +33,13 @@ export function TodayMetricsView({ data, refreshFailed, collapsed, onToggle }: {
           <span className="tm-rank">{it.rank === null ? '順位なし' : `${String(it.rank)}位 / ${String(data.population_size)}人`}</span>
         </li>)}
       </ul>}
+      {!collapsed && items !== null && <span className="tm-pop" data-testid="metrics-population" title={detail}>
+        {data.population === 'team' ? '同じチーム' : '全員'} {String(data.population_size)}人と比較
+      </span>}
       {(data.stale || refreshFailed) && <span className="tm-warn" role="status">最新の数字を読めていません（前回の数字を表示中）</span>}
       <button type="button" className="tm-toggle" aria-expanded={!collapsed} onClick={onToggle}>{collapsed ? '開く' : '閉じる'}</button>
     </div>
-    {!collapsed && (items === null
-      ? <p className="tm-note" role="status">{data.message ?? '個人の成績を出せません。'}</p>
-      : <p className="tm-foot">
-        {populationLabel(data)}と比べています。{first !== null && last !== null && `最初の架電 ${first}・最後の架電 ${last}。`}
-        {data.me?.rank.outbound === null && '今日はまだ架電がないため、順位は出ません。'}
-      </p>)}
+    {!collapsed && items === null && <p className="tm-note" role="status">{data.message ?? '個人の成績を出せません。'}</p>}
   </section>;
 }
 

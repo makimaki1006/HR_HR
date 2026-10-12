@@ -13,7 +13,7 @@ test('appointer strip shows own values with average and rank; collapses; no live
   await expect(page.getByTestId('metric-over_90s')).toContainText('2位 / 8人');
   await expect(page.getByTestId('metric-duration')).toContainText('55:12');
   await expect(page.getByTestId('metric-appointments')).toContainText('1位 / 8人');
-  const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(80);
+  const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(24);
   await shot(page,'metrics-strip.png');
   await page.getByRole('button',{name:'閉じる'}).click();
   await expect(page.getByTestId('metric-outbound')).toHaveCount(0);
