@@ -176,15 +176,64 @@ def image_url(value, page_url):
     return resolved
 
 
+def _split_arguments(text):
+    """Split the top-level arguments of the minified window.__NUXT__ call."""
+    parts, depth, start, quote, escaped = [], 0, 0, None, False
+    for index, char in enumerate(text):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif char in '"\'':
+            quote = char
+        elif char in '[{(':
+            depth += 1
+        elif char in ']})':
+            depth -= 1
+        elif char == ',' and depth == 0:
+            parts.append(text[start:index].strip())
+            start = index + 1
+    parts.append(text[start:].strip())
+    return parts
+
+
+def nuxt_images_empty(html_text):
+    """True only when the embedded job data positively lists zero images."""
+    position = html_text.find('window.__NUXT__')
+    if position < 0:
+        return False
+    script = html_text[position:html_text.find('</script>', position) if '</script>' in html_text[position:] else len(html_text)]
+    found = re.search(r'jobOverViewSection:\{.*?\bimages:(\[[^\]]*\]|[A-Za-z_$][\w$]*)', script, re.S)
+    if not found:
+        return False
+    value = found.group(1)
+    if value.startswith('['):
+        return value.replace(' ', '') == '[]'
+    function = re.match(r'window\.__NUXT__=\(function\(([^)]*)\)\{', script)
+    call = re.search(r'\}\((.*)\)\);?\s*$', script, re.S)
+    if not function or not call:
+        return False
+    names = [name.strip() for name in function.group(1).split(',')]
+    values = _split_arguments(call.group(1))
+    return value in names and len(names) == len(values) and values[names.index(value)].replace(' ', '') == '[]'
+
+
 def parse_gallery(html, page_url):
     gallery = Gallery()
     try:
-        gallery.feed(html.decode('utf-8', errors='strict'))
+        html_text = html.decode('utf-8', errors='strict')
+        gallery.feed(html_text)
     except UnicodeError:
         raise CaptureError('invalid_page_encoding') from None
     if gallery.canonicals != [page_url]:
         raise CaptureError('page_identity_mismatch')
     if not gallery.has_gallery:
+        # A normal page with no photos has no slider; its embedded data says so with an empty list.
+        if nuxt_images_empty(html_text):
+            return []
         raise CaptureError('gallery_layout_unrecognized')
     if len(gallery.images) > MAX_IMAGES:
         raise CaptureError('gallery_image_limit')

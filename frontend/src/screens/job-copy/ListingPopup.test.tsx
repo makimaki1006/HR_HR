@@ -406,6 +406,27 @@ it('shows all five AirWork saved images in the popup and preserves their observa
   expect(screen.getAllByRole('img').map(image => image.getAttribute('src'))).toEqual(Array.from({ length: 5 }, (_, i) => `/api/job-copy/image?synthetic=${String(i + 1)}`));
   expect(screen.getByText(/本文の記録時点の画像とは限りません/).textContent).toContain('2026/10/12 09:00 JST');
 });
+it('shows AirWork image URLs from the listing field in order, five or more, and in history', () => {
+  const urls = Array.from({ length: 6 }, (_, i) => `https://cdn.example.invalid/p/${String(i + 1)}.jpg`);
+  const job = listingRecord({ listing: { ...listing, media: 'airwork' }, versions: [{ written_at: '2026-10-11T00:00:00Z', body: '架空の検品業務です。', image_urls: urls.slice(0, 5), images_registered: true }], current_images_registered: true, history_counts: {}, history_may_be_incomplete: false });
+  expect(job.versions[0]?.images?.map(image => image.url)).toEqual(urls.slice(0, 5));
+  render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
+  expect(screen.getAllByRole('img').map(image => image.getAttribute('src'))).toEqual(urls.slice(0, 5));
+  cleanup();
+  const current = listingRecord({ listing: { ...listing, media: 'airwork' }, versions: [], current: { checked_at: '2026-10-12T00:00:00Z', body: '現在の検品業務です。', image_urls: urls, images_registered: true }, history_counts: {}, history_may_be_incomplete: false });
+  render(<ListingPopup job={current} version={current.versions[0]} onClose={vi.fn()} />);
+  expect(screen.getAllByRole('img').map(image => image.getAttribute('src'))).toEqual(urls);
+});
+it('says an AirWork listing has no images only for the explicit no-image marker', () => {
+  const marked = listingRecord({ listing: { ...listing, media: 'airwork' }, versions: [{ written_at: '2026-10-11T00:00:00Z', body: '架空の検品業務です。', image_urls: [], images_registered: false }], current_images_registered: false, history_counts: {}, history_may_be_incomplete: false });
+  expect(listingPopupModel(marked, marked.versions[0]).imageReason).toBe('この求人には画像がありません');
+  render(<ListingPopup job={marked} version={marked.versions[0]} onClose={vi.fn()} />);
+  expect(screen.getByText('この求人には画像がありません')).toBeTruthy();
+  expect(screen.queryByText('画像を取得できませんでした')).toBeNull();
+  cleanup();
+  const unset = listingRecord({ listing: { ...listing, media: 'airwork' }, versions: [{ written_at: '2026-10-11T00:00:00Z', body: '架空の検品業務です。', image_urls: null }], history_counts: {}, history_may_be_incomplete: false });
+  expect(listingPopupModel(unset, unset.versions[0]).imageReason).toBe('画像を取得できませんでした');
+});
 it.each([['公開終了', '掲載が終わっているため画像を取得できません'], ['公開中', '画像を取得できませんでした'], [null, '画像を取得できませんでした']])('explains unavailable AirWork images for %s without guessing zero', (status, reason) => {
   const job = listingRecord({ listing: { ...listing, media: 'airwork', publication_status: status }, versions: [{ written_at: '2026-10-11T00:00:00Z', body: '架空の検品業務です。', image_urls: null }], history_counts: {}, history_may_be_incomplete: false });
   render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);

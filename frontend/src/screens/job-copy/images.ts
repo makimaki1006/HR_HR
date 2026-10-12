@@ -122,3 +122,8 @@ export function airworkImageReason(job: { media: string; listingPublicationStatu
   return ['公開終了', '掲載終了'].includes(job.listingPublicationStatus ?? '')
     ? '掲載が終わっているため画像を取得できません' : '画像を取得できませんでした';
 }
+
+/** AirWork pages that were checked and had no photos are stored as an explicit marker, shown as such. */
+export function airworkEmptyMessage(job: { media: string }): string | undefined {
+  return job.media === 'AirWork' ? 'この求人には画像がありません' : undefined;
+}

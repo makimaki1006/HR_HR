@@ -13,6 +13,11 @@ pub(super) use deals::{read_body_dates, read_comparison};
 #[path = "listing_deal_tests.rs"]
 mod deal_tests;
 
+/// AirWork image URLs, one per line. Written by `scripts/job_copy_airwork_image_urls.py`.
+pub(super) const AW_IMAGES: &str = "aw_kyuujinhyou_gazou";
+/// Marker line meaning "the public page was checked and has no photos".
+pub(super) const AW_NO_IMAGES: &str = "NO_IMAGES";
+const AW_IMAGE_LIMIT: usize = 50;
 const PROPERTIES: &[&str] = &[
     "jobgen_draft_status",
     "hs_name",
@@ -22,6 +27,7 @@ const PROPERTIES: &[&str] = &[
     "id_shop_hrhakkaa",
     "hrh_kyuujinhyou_honbun",
     "hrh_kyuujinhyou_gazou",
+    AW_IMAGES,
     "todoufuken",
     "shikuchouson",
     "qinwude",
@@ -262,7 +268,7 @@ async fn build_index(
     let properties = PROPERTIES
         .iter()
         .copied()
-        .filter(|p| *p != "hrh_kyuujinhyou_gazou")
+        .filter(|p| *p != "hrh_kyuujinhyou_gazou" && *p != AW_IMAGES)
         .collect::<Vec<_>>()
         .join(",");
     loop {
@@ -723,7 +729,34 @@ fn images_registered_value(value: &str) -> bool {
         !matches!(reference.trim(), "" | "なし" | "画像なし" | "未登録")
     })
 }
+/// AirWork image field: (urls in order, registered). Empty or unrecognised text is unknown,
+/// never "no images"; only the explicit marker line means the page was checked and had none.
+type AwImages = (Option<Vec<String>>, Option<bool>);
+fn aw_images(value: &str) -> AwImages {
+    let lines: Vec<&str> = value
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if lines == [AW_NO_IMAGES] {
+        return (Some(vec![]), Some(false));
+    }
+    let urls: Vec<String> = lines
+        .iter()
+        .filter(|l| l.starts_with("https://") && reqwest::Url::parse(l).is_ok())
+        .take(AW_IMAGE_LIMIT)
+        .map(|l| (*l).to_owned())
+        .collect();
+    if urls.is_empty() {
+        (None, None)
+    } else {
+        (Some(urls), Some(true))
+    }
+}
 fn current_image_registration(record: &Record, media: &str) -> Option<bool> {
+    if media == "airwork" {
+        return record.value(AW_IMAGES).and_then(|v| aw_images(v).1);
+    }
     if record
         .value(super::super::job_copy_image_bridge::PROPERTY)
         .is_some_and(|value| !value.trim().is_empty())
@@ -759,7 +792,7 @@ fn versions(
     let properties = if media == "hrh" {
         vec!["hrh_kyuujinhyou_honbun", "hrh_kyuujinhyou_gazou"]
     } else {
-        vec!["shigotonaiyou"]
+        vec!["shigotonaiyou", AW_IMAGES]
     };
     let mut counts = BTreeMap::new();
     let mut events: BTreeMap<chrono::DateTime<chrono::Utc>, BTreeMap<&str, String>> =
@@ -795,6 +828,9 @@ fn versions(
             images = Some(image_urls(value));
             images_registered = Some(images_registered_value(value));
         }
+        if let Some(value) = changes.get(AW_IMAGES) {
+            (images, images_registered) = aw_images(value);
+        }
         if let Some(body) = &body {
             if result.last().is_some_and(|last| {
                 &last.body == body
@@ -821,18 +857,24 @@ fn current_body(record: &Record, media: &str) -> Option<Value> {
         "shigotonaiyou"
     };
     let body = record.value(property)?;
-    let images = if media == "hrh" {
-        record.value("hrh_kyuujinhyou_gazou").map(image_urls)
+    let (images, registered) = if media == "hrh" {
+        (
+            record.value("hrh_kyuujinhyou_gazou").map(image_urls),
+            record
+                .value("hrh_kyuujinhyou_gazou")
+                .map(images_registered_value),
+        )
     } else {
-        None
+        record.value(AW_IMAGES).map_or((None, None), aw_images)
     };
     Some(
-        json!({"checked_at":chrono::Utc::now().to_rfc3339(),"body":body,"image_urls":images,"images_registered":if media == "hrh" { record.value("hrh_kyuujinhyou_gazou").map(images_registered_value) } else { None }}),
+        json!({"checked_at":chrono::Utc::now().to_rfc3339(),"body":body,"image_urls":images,"images_registered":registered}),
     )
 }
 // Available observed images can accompany an AirWork body; never relabel them as historical images.
 async fn observed_images(record: &Record, access: &Access) -> Option<Value> {
     use super::super::job_copy_image_bridge::{Pointer, PROPERTY};
+
     let bridge = access.images.as_ref()?;
     let pointer: Pointer = serde_json::from_str(record.value(PROPERTY)?).ok()?;
     pointer.validate().ok()?;
@@ -908,7 +950,7 @@ pub(super) async fn read_versions(
                 (
                     "propertiesWithHistory",
                     format!(
-                        "hrh_kyuujinhyou_honbun,hrh_kyuujinhyou_gazou,shigotonaiyou,{}",
+                        "hrh_kyuujinhyou_honbun,hrh_kyuujinhyou_gazou,shigotonaiyou,{AW_IMAGES},{}",
                         crate::job_gen::drafts::FACTS
                     ),
                 ),
@@ -935,7 +977,12 @@ pub(super) async fn read_versions(
             .last()
             .is_none_or(|version| Some(version.body.as_str()) != value["body"].as_str())
     });
-    let current_images = observed_images(&record, &access).await;
+    // AirWork images come from `aw_kyuujinhyou_gazou`; the Drive manifest path is not used for it.
+    let current_images = if row.media == "airwork" {
+        None
+    } else {
+        observed_images(&record, &access).await
+    };
     let current_images_registered = current_image_registration(&record, row.media);
     let company_name = listing_company_name(service(&access)?, &id)
         .await
@@ -1295,6 +1342,61 @@ mod tests {
         let (aw, _, _) = versions(&json!({"propertiesWithHistory":{"shigotonaiyou":[{"timestamp":"2026-10-01T00:00:00Z","value":"合成仕事内容"}]}}), "airwork").unwrap();
         assert_eq!(aw[0].body, "合成仕事内容");
         assert_eq!(aw[0].image_urls, None);
+    }
+    #[test]
+    fn job_copy_airwork_images_use_their_own_field_in_order_and_history() {
+        let urls: Vec<String> = (1..=6)
+            .map(|i| format!("https://cdn.example.invalid/p/{i}.jpg"))
+            .collect();
+        let raw = urls.join("\n");
+        let (list, registered) = aw_images(&format!("{raw}\n"));
+        assert_eq!(list, Some(urls.clone()));
+        assert_eq!(registered, Some(true));
+        assert_eq!(aw_images("NO_IMAGES\n"), (Some(vec![]), Some(false)));
+        assert_eq!(aw_images(""), (None, None));
+        assert_eq!(aw_images("画像なし"), (None, None));
+        assert_eq!(
+            aw_images("NO_IMAGES\nhttps://cdn.example.invalid/x.jpg").1,
+            Some(true)
+        );
+        let data = json!({"propertiesWithHistory": {
+            "shigotonaiyou":[{"timestamp":"2026-10-01T00:00:00Z","value":"本文"}],
+            "aw_kyuujinhyou_gazou":[{"timestamp":"2026-10-02T00:00:00Z","value":"NO_IMAGES"},{"timestamp":"2026-10-03T00:00:00Z","value":raw}],
+            "hrh_kyuujinhyou_gazou":[{"timestamp":"2026-10-02T00:00:00Z","value":"https://hrh.example.invalid/other.png"}]
+        }});
+        let (rows, counts, _) = versions(&data, "airwork").unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].image_urls, None);
+        assert_eq!(rows[1].image_urls, Some(vec![]));
+        assert_eq!(rows[1].images_registered, Some(false));
+        assert_eq!(rows[2].image_urls, Some(urls.clone()));
+        assert_eq!(counts["aw_kyuujinhyou_gazou"], 2);
+        assert!(!counts.contains_key("hrh_kyuujinhyou_gazou"));
+        // A listing carrying both media fields: each media reads only its own field.
+        let both: Record = serde_json::from_value(json!({"id":"7","properties":{
+            "id_airwork":"AW-7","shigotonaiyou":"本文","aw_kyuujinhyou_gazou":raw,
+            "hrh_kyuujinhyou_honbun":"hrh本文","hrh_kyuujinhyou_gazou":"https://hrh.example.invalid/other.png"}})).unwrap();
+        let aw = current_body(&both, "airwork").unwrap();
+        assert_eq!(aw["image_urls"].as_array().unwrap().len(), 6);
+        assert_eq!(aw["image_urls"][5], "https://cdn.example.invalid/p/6.jpg");
+        assert_eq!(aw["images_registered"], true);
+        let hrh = current_body(&both, "hrh").unwrap();
+        assert_eq!(
+            hrh["image_urls"],
+            json!(["https://hrh.example.invalid/other.png"])
+        );
+        assert_eq!(current_image_registration(&both, "airwork"), Some(true));
+        let none: Record = serde_json::from_value(json!({"id":"8","properties":{"id_airwork":"AW-8","shigotonaiyou":"本文","aw_kyuujinhyou_gazou":"NO_IMAGES","hrh_kyuujinhyou_gazou":"https://hrh.example.invalid/other.png"}})).unwrap();
+        assert_eq!(current_image_registration(&none, "airwork"), Some(false));
+        let nothing: Record = serde_json::from_value(
+            json!({"id":"9","properties":{"id_airwork":"AW-9","shigotonaiyou":"本文"}}),
+        )
+        .unwrap();
+        assert_eq!(
+            current_body(&nothing, "airwork").unwrap()["image_urls"],
+            Value::Null
+        );
+        assert_eq!(current_image_registration(&nothing, "airwork"), None);
     }
     #[test]
     fn job_copy_image_registration_retains_filenames_and_distinguishes_absence() {
