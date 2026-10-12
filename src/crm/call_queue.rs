@@ -625,6 +625,11 @@ pub(super) fn parse_date(v: &str) -> Option<NaiveDate> {
         .filter(|d| (2000..=2100).contains(&d.year()))
 }
 
+/// Saved views delegate query validation here without knowing the filter representation.
+pub(crate) fn validate_saved_query(raw: &str) -> Result<(), &'static str> {
+    parse_params(raw).map(|_| ())
+}
+
 /// 不正なパラメータ名を `Err` で返す
 fn parse_params(raw: &str) -> Result<Params, &'static str> {
     let url = reqwest::Url::parse(&format!("http://x/?{raw}")).map_err(|_| "query")?;

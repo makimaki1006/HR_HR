@@ -184,6 +184,7 @@ pub(super) struct CrmCtx {
     /// 「プロパティ」パネルで選べる項目の一覧 (数時間キャッシュ。workspace の選んだ項目の許可リストにも使う)
     pub(super) catalog: super::property_catalog::PropertyCatalogCache,
     pub(super) layouts: super::property_layouts::LayoutCache,
+    pub(super) views: super::saved_views::ViewsStore,
     /// 架電キュー (`call_queue`) の状態 (owner / ステージ名のキャッシュ、cursor の署名鍵)
     pub(super) queue: super::call_queue::CallQueueState,
     /// レコード読み取りの同時実行数の上限。HubSpot の鍵は既存の営業自動化バッチと共有で
@@ -259,6 +260,7 @@ pub(super) fn router_with_write(
         metadata_cache: MetadataCache::with_refresh_floor(METADATA_REFRESH_FLOOR),
         catalog: super::property_catalog::PropertyCatalogCache::default(),
         layouts: super::property_layouts::LayoutCache::default(),
+        views: super::saved_views::ViewsStore::default(),
         queue,
         read_slots: tokio::sync::Semaphore::new(MAX_CONCURRENT_RECORD_READS),
         queue_slots: tokio::sync::Semaphore::new(MAX_CONCURRENT_QUEUE_READS),
@@ -268,6 +270,18 @@ pub(super) fn router_with_write(
         write_rate,
     });
     Router::new()
+        .route(
+            "/api/crm/views",
+            get(super::saved_views::list)
+                .post(super::saved_views::create)
+                .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
+        )
+        .route(
+            "/api/crm/views/{id}",
+            patch(super::saved_views::update)
+                .delete(super::saved_views::delete)
+                .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
+        )
         .route(
             "/api/crm/property-layouts",
             get(super::property_layouts::get),

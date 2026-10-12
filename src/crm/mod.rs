@@ -55,3 +55,5 @@ mod workspace_tests;
 mod write_tests;
 
 pub mod property_layouts;
+
+pub mod saved_views;
