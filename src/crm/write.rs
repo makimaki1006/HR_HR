@@ -2545,6 +2545,7 @@ mod tests {
         CrmCatalogProperty {
             name: "x".into(),
             label: "x".into(),
+            label_en: None,
             property_type: t.into(),
             field_type: ft.into(),
             options: opts

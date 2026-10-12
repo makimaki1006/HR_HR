@@ -1480,7 +1480,7 @@ async fn 項目の一覧は_6_回で読み_キャッシュし_非表示の項目
         .collect();
     assert_eq!(objs, ["deals", "contacts", "companies"]);
     let deal_group = &v["objects"][0]["groups"][0];
-    assert_eq!(deal_group["label"], "Deal information");
+    assert_eq!(deal_group["label"], "取引情報");
     let names: Vec<&str> = deal_group["properties"]
         .as_array()
         .unwrap()

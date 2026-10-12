@@ -138,7 +138,8 @@ fn parse_properties(
         out.push(CrmPropertyDefinition {
             object_type: api_name.to_owned(),
             name: p.name,
-            label: p.label,
+            label: crate::crm::label_ja::property_label(api_name, name, &item)
+                .map_or(p.label, str::to_owned),
             property_type: p.property_type,
             field_type: p.field_type,
             options: p.options,

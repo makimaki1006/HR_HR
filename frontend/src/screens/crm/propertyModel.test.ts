@@ -100,7 +100,7 @@ describe('the chosen properties (stored per browser)', () => {
     const stale = { ...LEGACY_DEFAULT_SELECTED, deals: ['bpo_32', 'deleted_prop', 'bpo_10'] };
     expect(sanitizeSelected(stale, idx).deals).toEqual(['bpo_32', 'bpo_10']);
     expect(orderedSelection('deals', stale, idx).map(e => e.prop.name)).toEqual(['bpo_32', 'bpo_10']);
-    expect(orderedSelection('deals', stale, idx).map(e => e.group)).toEqual(['Deal information', 'Deal information']);
+    expect(orderedSelection('deals', stale, idx).map(e => e.group)).toEqual(['取引情報', '取引情報']);
   });
 
   it('toggling respects the per-object limit', () => {

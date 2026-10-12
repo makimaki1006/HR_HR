@@ -10,6 +10,10 @@ export type CrmCatalogProperty = {
  */
 name: string, label: string, 
 /**
+ * 日本語に置き換えた項目の元の表示名 (英語)。検索で英語名でも見つけるために添える。訳していない項目には無い
+ */
+label_en?: string, 
+/**
  * `string` / `number` / `date` / `datetime` / `enumeration` / `bool` 等 (HubSpot の `type`)
  */
 property_type: string, 
