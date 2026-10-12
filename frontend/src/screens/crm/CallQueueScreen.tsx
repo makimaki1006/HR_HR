@@ -231,7 +231,7 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
         {item.stop.prohibited_reason && <span className="cq-stop-badge" title={item.stop.prohibited_reason}>架電禁止</span>}
         {item.stop.block_reason && <span className="cq-stop-badge" title={item.stop.block_reason}>ブロック</span>}
         {flag && <span className="cq-flag" title={`不通時チェック: ${flag}`} aria-label={`不通時チェック: ${flag}`}>不通チェック</span>}
-        <span className="cq-stage">{item.stage_label ?? '(ステージ不明)'}</span>
+        <span className="cq-stage" title={item.stage_label ?? undefined}>{item.stage_label ?? '(ステージ不明)'}</span>
       </span>
       <span className="cq-row-l2">
         {item.contact ? <span className="cq-row-contact">{item.contact.name ?? '(氏名なし)'}
