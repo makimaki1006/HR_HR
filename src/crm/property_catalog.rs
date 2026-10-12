@@ -61,6 +61,10 @@ pub struct CrmCatalogProperty {
     /// HubSpot の内部名 (画面には出さない。値の取得と保存に使う)
     pub name: String,
     pub label: String,
+    /// 日本語に置き換えた項目の元の表示名 (英語)。検索で英語名でも見つけるために添える。訳していない項目には無い
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub label_en: Option<String>,
     /// `string` / `number` / `date` / `datetime` / `enumeration` / `bool` 等 (HubSpot の `type`)
     pub property_type: String,
     /// `text` / `textarea` / `select` / `radio` / `checkbox` / `booleancheckbox` / `phonenumber` 等 (HubSpot の `fieldType`)
@@ -353,9 +357,13 @@ pub(crate) fn build_object(
         if name.is_empty() || is_true(g, "archived") {
             continue;
         }
-        let label = match str_field(g, "label").trim() {
-            "" => name.to_string(),
-            l => l.to_string(),
+        let label = match (
+            super::label_ja::group_label(object.api_name(), name),
+            str_field(g, "label").trim(),
+        ) {
+            (Some(ja), _) => ja.to_string(),
+            (None, "") => name.to_string(),
+            (None, l) => l.to_string(),
         };
         by_group.insert(name.to_string(), (order_of(g), label, Vec::new()));
     }
@@ -388,20 +396,25 @@ pub(crate) fn build_object(
                     .collect()
             })
             .unwrap_or_default();
-        let label = match str_field(p, "label").trim() {
+        let original = match str_field(p, "label").trim() {
             "" => name.to_string(),
             l => l.to_string(),
+        };
+        let (label, label_en) = match super::label_ja::property_label(object.api_name(), name, p) {
+            Some(ja) => (ja.to_string(), Some(original.clone())),
+            None => (original.clone(), None),
         };
         let writable = is_writable(
             p,
             name,
-            &label,
+            &original,
             str_field(p, "type"),
             str_field(p, "fieldType"),
         );
         let prop = CrmCatalogProperty {
             name: name.to_string(),
             label,
+            label_en,
             property_type: str_field(p, "type").to_string(),
             field_type: str_field(p, "fieldType").to_string(),
             options,
@@ -577,10 +590,10 @@ mod tests {
             shape,
             vec![
                 (
-                    "Deal information".to_string(),
+                    "取引情報".to_string(),
                     vec!["bpo_10".to_string(), "bpo_32".to_string()]
                 ),
-                ("Deal revenue".to_string(), vec!["amount".to_string()]),
+                ("取引の売上".to_string(), vec!["amount".to_string()]),
                 (OTHER_GROUP_LABEL.to_string(), vec!["orphan".to_string()]),
             ]
         );
@@ -589,6 +602,67 @@ mod tests {
         assert_eq!(bpo10.property_type, "enumeration");
         assert_eq!(bpo10.options.len(), 1, "非表示の選択肢は除く");
         assert_eq!(bpo10.options[0].label, "受付拒否");
+    }
+
+    #[test]
+    fn 標準項目と標準グループは日本語にし_会社の英語名と未登録の名前はそのまま() {
+        let props = json!({"results": [
+            {"name": "amount", "label": "Amount", "type": "number", "fieldType": "number", "groupName": "dealinformation", "displayOrder": 1, "hubspotDefined": true},
+            {"name": "bpo_hsurl", "label": "BPO_HSURL", "type": "string", "fieldType": "text", "groupName": "dealinformation", "displayOrder": 2, "hubspotDefined": false},
+            {"name": "ai_email_alert_test", "label": "AI Email Alert (Test)", "type": "string", "fieldType": "text", "groupName": "dealinformation", "displayOrder": 3},
+            {"name": "hs_unlisted_example", "label": "Unlisted Example", "type": "string", "fieldType": "text", "groupName": "dealinformation", "displayOrder": 4},
+            {"name": "createdate", "label": "Create Date", "type": "datetime", "fieldType": "date", "groupName": "dealinformation", "displayOrder": 5},
+            {"name": "bpo_10", "label": "不通時チェック", "type": "string", "fieldType": "text", "groupName": "dealinformation", "displayOrder": 6},
+            {"name": "x_custom", "label": "Custom Thing", "type": "string", "fieldType": "text", "groupName": "custom_group", "displayOrder": 7}
+        ]});
+        let groups = json!({"results": [
+            {"name": "dealinformation", "label": "Deal information", "displayOrder": 0},
+            {"name": "custom_group", "label": "Custom Group", "displayOrder": 1}
+        ]});
+        let o = build_object(RecordType::Deal, &props, &groups).unwrap();
+        assert_eq!(o.groups[0].name, "dealinformation");
+        assert_eq!(o.groups[0].label, "取引情報");
+        assert_eq!(
+            o.groups[1].label, "Custom Group",
+            "未登録のグループはそのまま"
+        );
+        let by = |n: &str| {
+            o.groups
+                .iter()
+                .flat_map(|g| &g.properties)
+                .find(|p| p.name == n)
+                .unwrap()
+        };
+        assert_eq!(by("amount").label, "金額");
+        assert_eq!(
+            by("amount").label_en.as_deref(),
+            Some("Amount"),
+            "元の英語名は検索用に残す"
+        );
+        assert_eq!(by("createdate").label, "作成日");
+        assert_eq!(
+            by("bpo_hsurl").label,
+            "BPO_HSURL",
+            "hubspotDefined=false は訳さない"
+        );
+        assert_eq!(by("ai_email_alert_test").label, "AI Email Alert (Test)");
+        assert_eq!(by("ai_email_alert_test").label_en, None);
+        assert_eq!(
+            by("hs_unlisted_example").label,
+            "Unlisted Example",
+            "表に無い名前はそのまま"
+        );
+        assert_eq!(by("bpo_10").label, "不通時チェック");
+        assert_eq!(by("x_custom").label, "Custom Thing");
+        // 内部名は変えない (保存済みのビューや URL は内部名だけを持つ)
+        assert_eq!(by("amount").name, "amount");
+        // 訳した項目の書き込み可否は元の定義で決める (表示名を変えても変わらない)
+        let serialized = serde_json::to_value(by("amount")).unwrap();
+        assert_eq!(serialized["label_en"], "Amount");
+        assert!(serde_json::to_value(by("bpo_10"))
+            .unwrap()
+            .get("label_en")
+            .is_none());
     }
 
     #[test]

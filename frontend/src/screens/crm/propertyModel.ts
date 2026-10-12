@@ -21,6 +21,13 @@ export const OBJECT_LABELS: Record<CatalogObject, string> = { deals: '案件', c
 /** 値を出すレコード (担当者・会社は主のもの) の見出し */
 export const OBJECT_VALUE_LABELS: Record<CatalogObject, string> = { deals: '案件', contacts: '担当者(主)', companies: '会社(主)' };
 
+/** 項目の検索。日本語の表示名に加え、訳す前の英語名 (`label_en`) でも見つける */
+export function matchesLabel(p: { label: string; label_en?: string }, query: string): boolean {
+  const q = query.trim().normalize('NFKC').toLowerCase();
+  if (q === '') return true;
+  return [p.label, p.label_en ?? ''].some(l => l.normalize('NFKC').toLowerCase().includes(q));
+}
+
 export type SelectedProps = Record<CatalogObject, string[]>;
 
 /** 1 つの型で一度に表示できる項目の最大数 (サーバの MAX_SELECTED_PER_OBJECT と同じ) */

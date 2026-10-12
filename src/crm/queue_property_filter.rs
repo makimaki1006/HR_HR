@@ -299,6 +299,7 @@ mod tests {
         CrmCatalogProperty {
             name: "amount".into(),
             label: "金額".into(),
+            label_en: None,
             property_type: kind.into(),
             field_type: "text".into(),
             options: vec![],
@@ -398,6 +399,7 @@ mod v2_tests {
         CrmCatalogProperty {
             name: "sample_value".into(),
             label: "架空項目".into(),
+            label_en: None,
             property_type: kind.into(),
             field_type: "text".into(),
             writable: false,
