@@ -34,6 +34,10 @@ it('架空値のまたはで3件から5件へ変わり、項目順と続きも�
   expect(fixtureQueuePage({...DEFAULT_FILTERS,sort:'property:amount:asc'},all.next_cursor).items.map(i=>i.deal_id)).toEqual(['f-6','f-7','f-8','f-10','f-11']);
 });
 it('範囲・相対日付・否定・真偽を具体値で評価する',()=>{
+  expect(matchesCondition(c('EQ',['23.0']),'23','2026-02-04','number')).toBe(true);
+  expect(matchesCondition(c('NEQ',['23.0']),'23','2026-02-04','number')).toBe(false);
+  expect(matchesCondition(c('EQ',['001']),'1','2026-02-04','string')).toBe(false);
+  expect(fixtureQueuePage({...DEFAULT_FILTERS,conditions:[c('EQ',['8000.0'])]},null).items.map(i=>i.deal_id)).toEqual(['f-8']);
   expect(matchesCondition(c('BETWEEN',['17','29']),'23','2026-02-04')).toBe(true);
   expect(matchesCondition(c('BETWEEN',['17','29']),'30','2026-02-04')).toBe(false);
   expect(matchesCondition(c('LAST_N_DAYS',['3']),'2026-02-02','2026-02-04')).toBe(true);

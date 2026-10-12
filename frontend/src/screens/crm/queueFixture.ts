@@ -8,6 +8,8 @@ import { matchesCondition, parsePropertySort, LIMIT_MESSAGE } from './queuePrope
 import { groupsOf } from './queueModel';
 import type { QueueFilters } from './queueModel';
 import { ApiHttpError } from '../../api/client';
+import { FIXTURE_CATALOG } from './usePropertyCatalog';
+const propertyTypes = new Map(FIXTURE_CATALOG.objects.find(o => o.object_type === 'deals')?.groups.flatMap(g => g.properties.map(p => [p.name, p.property_type] as const)));
 
 /**
  * 固定の架空データ。実データの名前・電話番号・ID は一切含まない
@@ -120,7 +122,7 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     const properties: Record<string, string | null> = { dealname: `${s.company} 採用支援`, hubspot_owner_id: s.owner,
       bpo_13: s.next, bpo_14: s.time, bpo_20: s.last, bpo_29: s.phone, bpo_3: null, bpo_4: null,
       bpo_10: s.id === 'f-3' ? '通話中が続く' : null, amount: String(Number(s.id.slice(2)) * 1000) };
-    return gs.length === 0 || gs.some(g => g.every(c => matchesCondition(c, properties[c.property] ?? null, FIXTURE_TODAY)));
+    return gs.length === 0 || gs.some(g => g.every(c => matchesCondition(c, properties[c.property] ?? null, FIXTURE_TODAY, propertyTypes.get(c.property))));
   });
   const asc = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   const isDue = (s: Seed) => s.next !== null && s.next <= FIXTURE_TODAY;
@@ -132,7 +134,7 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     if (custom) {
       const property = (s: Seed): string | null => ({ amount: String(Number(s.id.slice(2))*1000), dealname: `${s.company} 採用支援`, bpo_13: s.next, bpo_20: s.last, hubspot_owner_id: s.owner, bpo_14: s.time, bpo_29: s.phone } as Record<string,string|null>)[custom.property] ?? null;
       const av=property(a), bv=property(b);
-      const order = av===bv ? 0 : av===null ? 1 : bv===null ? -1 : custom.property==='amount' ? Number(av)-Number(bv) : asc(av,bv);
+      const order = av===bv ? 0 : av===null ? 1 : bv===null ? -1 : propertyTypes.get(custom.property)==='number' ? Number(av)-Number(bv) : asc(av,bv);
       return custom.direction==='desc' ? -order : order;
     }
     if (f.sort === 'last_call_asc') return byLastAsc(a, b);

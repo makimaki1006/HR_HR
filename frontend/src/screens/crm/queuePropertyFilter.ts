@@ -60,7 +60,7 @@ function shiftDate(today: string, days: number): string {
   const d = new Date(`${today}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10);
 }
 /** 架空サンプルの条件評価。実データの相対日付はRustで解決する。 */
-export function matchesCondition(c: PropertyCondition, value: string | null, today: string): boolean {
+export function matchesCondition(c: PropertyCondition, value: string | null, today: string, kind = 'string'): boolean {
   const present = value !== null && value !== '';
   const first = c.values[0] ?? '';
   const cmp = (v: string) => Number.isFinite(Number(value)) && Number.isFinite(Number(v)) ? Number(value) - Number(v) : (value ?? '').localeCompare(v);
@@ -73,8 +73,8 @@ export function matchesCondition(c: PropertyCondition, value: string | null, tod
     case 'NOT_HAS_PROPERTY': return !present;
     case 'IN': return present && c.values.includes(value);
     case 'NOT_IN': return present && !c.values.includes(value);
-    case 'EQ': return present && value.toLowerCase() === first.toLowerCase();
-    case 'NEQ': return present && value.toLowerCase() !== first.toLowerCase();
+    case 'EQ': return present && (kind === 'number' ? cmp(first) === 0 : value.toLowerCase() === first.toLowerCase());
+    case 'NEQ': return present && (kind === 'number' ? cmp(first) !== 0 : value.toLowerCase() !== first.toLowerCase());
     case 'IS_TRUE': return value === 'true';
     case 'IS_FALSE': return value === 'false';
     case 'CONTAINS_TOKEN': return token();
