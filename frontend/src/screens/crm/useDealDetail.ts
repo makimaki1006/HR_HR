@@ -1,5 +1,5 @@
 import { EMAIL_CHANGED, fakeEmailActivities } from "./emailApi";
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiAbortedError, ApiHttpError, AuthRequiredError, apiGet } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
@@ -9,9 +9,14 @@ import { applyFakeWrites } from './fakeWrite';
 import type { QueueMode } from './queueModel';
 import { selectedQuery } from './propertyModel';
 import type { SelectedProps } from './propertyModel';
+import { DetailCache, detailCacheFor } from './detailCache';
 
 /** `fresh` はサーバの短いキャッシュ (60 秒) を使わずに HubSpot から読み直す (「最新にする」・通話が終わった後) */
-export interface DetailFetchOptions { fresh?: boolean }
+export interface DetailFetchOptions {
+  fresh?: boolean;
+  /** 先読み (次の行・ポインタを置いた行)。サーバは背景の優先度で読み、混んでいれば 503 を返す。結果は画面のキャッシュに入れるだけ */
+  prefetch?: boolean;
+}
 
 /** `props` は「プロパティ」パネルで選んだ項目 (同じ読み取りで値も受け取る。HubSpot の呼び出し回数は増えない) */
 export type DetailFetch = (dealId: string, signal: AbortSignal, props?: SelectedProps, opts?: DetailFetchOptions) => Promise<ApiResult<WorkspaceResponse>>;
@@ -20,6 +25,7 @@ export type DetailFetch = (dealId: string, signal: AbortSignal, props?: Selected
 export function detailUrl(dealId: string, props?: SelectedProps, opts?: DetailFetchOptions): string {
   const q = new URLSearchParams(props ? selectedQuery(props).replace(/^\?/u, '') : '');
   if (opts?.fresh === true) q.set('fresh', '1');
+  if (opts?.prefetch === true) q.set('prefetch', '1');
   const s = q.toString();
   return `/api/crm/workspace/deals/${encodeURIComponent(dealId)}${s === '' ? '' : `?${s}`}`;
 }
@@ -75,16 +81,24 @@ export function useDealDetail(dealId: string | null, mode: QueueMode, fetcher?: 
   const propsKey = props ? selectedQuery(props) : '';
   const baseKey = `${dealId ?? ''}|${mode}|${propsKey}`;
   const reqId = `${baseKey}|${String(reloadToken.n)}`;
+  // この要求を `fresh` で読むか (要求を出す描画の時点の値。通話が終わった案件の一覧が後で変わっても読み直さない)
+  const fresh = dealId !== null && (reloadToken.freshFor === reqId || staleIds?.has(dealId) === true);
+  // 画面のキャッシュ (60 秒)。`fresh` の読み直しでは使わない。あれば開いた瞬間に出し、裏で読み直して入れ替える
+  const cache = detailCacheFor(fetchDetail);
+  const cacheKey = DetailCache.key(dealId ?? '', mode, propsKey);
+  const cachedData = dealId !== null && !fresh ? cache.get(cacheKey) : null;
   const state: DetailState = dealId === null ? blank(reqId, 'idle')
     : raw.s.reqId === reqId ? raw.s
       : raw.baseKey === baseKey && raw.s.phase === 'ready' && raw.s.data !== null ? { ...raw.s, reqId, refreshing: true, refreshError: null }
-        : blank(reqId, 'loading');
-  // この要求を `fresh` で読むか (要求を出す描画の時点の値。通話が終わった案件の一覧が後で変わっても読み直さない)
-  const fresh = dealId !== null && (reloadToken.freshFor === reqId || staleIds?.has(dealId) === true);
+        : cachedData !== null ? { ...blank(reqId, 'ready'), data: cachedData }
+          : blank(reqId, 'loading');
 
   useEffect(() => {
     if (dealId === null) return;
     const ctl = new AbortController();
+    // 読み直し (fresh) はその案件の古い内容を捨てる。通常の読みは、あれば開いた内容を残したまま裏で確かめる
+    if (fresh) cache.dropDeal(dealId);
+    const shown = fresh ? null : cache.get(cacheKey);
     void fetchDetail(dealId, ctl.signal, props, fresh ? { fresh: true } : undefined).then(res => {
       if (ctl.signal.aborted) return;
       // 「最新にする」は 1 回だけ (同じ案件を後で開き直したときに、また fresh で読まない)
@@ -94,6 +108,7 @@ export function useDealDetail(dealId: string | null, mode: QueueMode, fetcher?: 
           setRaw({ baseKey, s: { ...blank(reqId, 'error'), message: '応答の案件が選んだ案件と一致しなかったため、表示を取りやめました。再読み込みしてください。', errorKind: 'deal_mismatch' } });
           return;
         }
+        cache.set(cacheKey, dealId, res.data);
         setRaw({ baseKey, s: { ...blank(reqId, 'ready'), data: res.data } });
         if (fresh) onFreshLoaded?.(dealId);
         return;
@@ -103,6 +118,7 @@ export function useDealDetail(dealId: string | null, mode: QueueMode, fetcher?: 
         ? (res.error.body as { error_kind?: unknown }) : null;
       const kind = typeof body?.error_kind === 'string' ? body.error_kind : null;
       const status = res.error instanceof ApiHttpError ? res.error.status : null;
+      if (res.error instanceof AuthRequiredError || status === 401 || status === 403) cache.dropDeal(dealId);
       if (res.error instanceof AuthRequiredError || status === 401) {
         setRaw({ baseKey, s: { ...blank(reqId, 'forbidden'), message: 'ログインが必要です。Google Workspace でログインし直してください。', errorKind: kind ?? 'login_required' } });
       } else if (status === 403) {
@@ -112,7 +128,10 @@ export function useDealDetail(dealId: string | null, mode: QueueMode, fetcher?: 
         // 読み直しの失敗: 前の内容は残し、読み直せなかったことだけを添える
         setRaw(prev => (prev.baseKey === baseKey && prev.s.phase === 'ready' && prev.s.data !== null
           ? { baseKey, s: { ...prev.s, reqId, refreshing: false, refreshError: message } }
-          : { baseKey, s: { ...blank(reqId, 'error'), message, errorKind: kind } }));
+          : shown !== null
+            // 画面のキャッシュで開いた内容は、確かめに失敗しても残す (読み直せなかったことを添える)
+            ? { baseKey, s: { ...blank(reqId, 'ready'), data: shown, refreshError: message } }
+            : { baseKey, s: { ...blank(reqId, 'error'), message, errorKind: kind } }));
       }
     });
     return () => { ctl.abort(); };
@@ -123,11 +142,44 @@ export function useDealDetail(dealId: string | null, mode: QueueMode, fetcher?: 
 
   const reload = useCallback(() => { setReloadToken(t => ({ n: t.n + 1, freshFor: null })); }, []);
   /** サーバのキャッシュを使わずに読み直す (前の内容は出したまま) */
-  const refresh = useCallback(() => { setReloadToken(t => ({ n: t.n + 1, freshFor: `${baseKey}|${String(t.n + 1)}` })); }, [baseKey]);
+  const refresh = useCallback(() => {
+    if (dealId !== null) cache.dropDeal(dealId);
+    setReloadToken(t => ({ n: t.n + 1, freshFor: `${baseKey}|${String(t.n + 1)}` }));
+  }, [baseKey, cache, dealId]);
   useEffect(() => {
     const handler = (e: Event) => { if ((e as CustomEvent<string>).detail === dealId) refresh(); };
     window.addEventListener(EMAIL_CHANGED, handler);
     return () => { window.removeEventListener(EMAIL_CHANGED, handler); };
   }, [dealId, refresh]);
   return { state, reload, refresh };
+}
+
+export type PrefetchResult = 'started' | 'cached' | 'busy';
+
+/**
+ * 案件の詳細の先読み (次の行・ポインタを置いた行)。結果は画面のキャッシュに入れるだけで、表示は変えない。
+ * - 同時に 1 本まで。キャッシュにあれば読まない。失敗 (混雑の 503 を含む) は黙って捨てる
+ * - 通話が終わったばかりの案件 (`staleIds`) は読まない (開くとき fresh で読み直すので無駄になる)
+ */
+export function useDetailPrefetch(mode: QueueMode, fetcher?: DetailFetch, props?: SelectedProps, staleIds?: ReadonlySet<string>) {
+  const fetchDetail = fetcher ?? (mode === 'fixture' ? fixtureDetailFetch : liveDetailFetch);
+  const propsKey = props ? selectedQuery(props) : '';
+  const latest = useRef({ fetchDetail, mode, props, propsKey, staleIds });
+  useEffect(() => { latest.current = { fetchDetail, mode, props, propsKey, staleIds }; });
+  const inflight = useRef<AbortController | null>(null);
+  useEffect(() => () => { inflight.current?.abort(); inflight.current = null; }, []);
+  return useCallback((dealId: string): PrefetchResult => {
+    const cur = latest.current;
+    const cache = detailCacheFor(cur.fetchDetail);
+    const key = DetailCache.key(dealId, cur.mode, cur.propsKey);
+    if (cache.has(key)) return 'cached';
+    if (inflight.current !== null || cur.staleIds?.has(dealId) === true) return 'busy';
+    const ctl = new AbortController();
+    inflight.current = ctl;
+    void cur.fetchDetail(dealId, ctl.signal, cur.props, { prefetch: true }).then(res => {
+      if (ctl.signal.aborted) return;
+      if (res.ok && res.data.deal.id === dealId) cache.set(key, dealId, res.data);
+    }, () => undefined).finally(() => { if (inflight.current === ctl) inflight.current = null; });
+    return 'started';
+  }, []);
 }

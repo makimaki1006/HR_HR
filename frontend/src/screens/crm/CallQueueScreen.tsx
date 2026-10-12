@@ -37,7 +37,9 @@ import { useWriteBindings } from './writeBindings';
 import type { FieldDef } from './writeModel';
 import type { CallBarInfo, StopLabel } from './DealDetail';
 import { ZoomPhonePanel } from './ZoomPhonePanel';
-import { fixtureDetailFetch, liveDetailFetch, useDealDetail } from './useDealDetail';
+import { fixtureDetailFetch, liveDetailFetch, useDealDetail, useDetailPrefetch } from './useDealDetail';
+import { dropDealEverywhere } from './detailCache';
+import { RowPreview } from './RowPreview';
 import type { DetailFetch } from './useDealDetail';
 import { useZoomPhone } from './useZoomPhone';
 import type { ZoomOptions } from './useZoomPhone';
@@ -130,6 +132,8 @@ export const LAYOUT_UPDATED_NOTE = '画面の配置を更新しました。「�
 
 /** 矢印キーで行を移ったとき、詳細の取得を待つ時間 (押しっぱなしで HubSpot を連続で呼ばない) */
 export const KEY_SELECT_DELAY_MS = 300;
+/** 行にポインタ・フォーカスを置いてから、その行の詳細を先読みするまでの時間 (通り過ぎただけでは読まない) */
+export const HOVER_PREFETCH_DELAY_MS = 200;
 
 const ymd = (raw: string | null) => dateValue(raw)?.replaceAll('-', '/') ?? null;
 /** 一覧の行は幅が狭いので月日だけ (年は title に残す) */
@@ -219,7 +223,9 @@ export const UNSAVED_RECORDED_TITLE = '入力をこの画面に残せていま�
 
 
 /** 行は props が同じなら描き直さない (架電結果を 1 文字打つたび・矢印キーで 1 行動くたびに全行を描き直さない) */
-const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, stopLabel, onSelect, catalogIndex }: {
+const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, stopLabel, onSelect, onHoverStart, onHoverEnd, catalogIndex }: {
+  /** ポインタ・フォーカスを置いた (先読みの合図) / 離れた */
+  onHoverStart?: ((id: string) => void) | undefined; onHoverEnd?: (() => void) | undefined;
   catalogIndex: Record<CatalogObject, Map<string, CatalogEntry>> | null;
   item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; recorded: boolean; unsaved: boolean;
   stopLabel: StopLabel; onSelect: (id: string) => void;
@@ -234,7 +240,9 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
   const source = item.phone_source ? `${PHONE_SOURCE_LABELS[item.phone_source] ?? item.phone_source}の番号` : undefined;
   return <li className={`cq-row${selected ? ' is-selected' : ''}`}>
     <button type="button" className="cq-row-button" aria-pressed={selected} tabIndex={focusable ? 0 : -1}
-      title={item.deal_name ?? undefined} onClick={() => { onSelect(item.deal_id); }}>
+      title={item.deal_name ?? undefined} onClick={() => { onSelect(item.deal_id); }}
+      onPointerEnter={() => { onHoverStart?.(item.deal_id); }} onPointerLeave={onHoverEnd}
+      onFocus={() => { onHoverStart?.(item.deal_id); }} onBlur={onHoverEnd}>
       <span className="cq-row-l1">
         <strong className="cq-row-company">{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
         {recorded && (unsaved
@@ -350,6 +358,31 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     });
   }, []);
   const detail = useDealDetail(detailId, mode, detailFetcher, selectedProps, staleDeals, freshLoaded);
+  // 先読み: 開いた案件の詳細が届いたら次の 1 行、行にポインタ・フォーカスを 200ms 置いたらその行 (同時に 1 本。表示は変えず画面のキャッシュに入れるだけ)
+  const prefetchDetail = useDetailPrefetch(mode, detailFetcher, selectedProps, staleDeals);
+  const prefetchRef = useRef(prefetchDetail);
+  useEffect(() => { prefetchRef.current = prefetchDetail; });
+  const selectedRef = useRef<string | null>(null);
+  useEffect(() => { selectedRef.current = selectedId; });
+  const hoverTimer = useRef<number | null>(null);
+  const hoverEnd = useCallback(() => { if (hoverTimer.current !== null) { window.clearTimeout(hoverTimer.current); hoverTimer.current = null; } }, []);
+  const hoverStart = useCallback((id: string) => {
+    hoverEnd();
+    // 選んでいる行は先読みしない (矢印キーで動いたときは、すぐ後に本読みが始まる)
+    hoverTimer.current = window.setTimeout(() => { hoverTimer.current = null; if (selectedRef.current !== id) prefetchRef.current(id); }, HOVER_PREFETCH_DELAY_MS);
+  }, [hoverEnd]);
+  useEffect(() => hoverEnd, [hoverEnd]);
+  const nextPrefetched = useRef<string | null>(null);
+  const loadedDealId = detail.state.phase === 'ready' && !detail.state.refreshing ? detail.state.data?.deal.id ?? null : null;
+  useEffect(() => {
+    if (loadedDealId === null || loadedDealId !== detailId) return;
+    const doneKey = `${mode}|${loadedDealId}`;
+    if (nextPrefetched.current === doneKey) return;
+    const at = state.items.findIndex(i => i.deal_id === loadedDealId);
+    const next = at >= 0 ? state.items[at + 1] : undefined;
+    nextPrefetched.current = doneKey;
+    if (next && prefetchRef.current(next.deal_id) === 'busy') nextPrefetched.current = null;
+  }, [loadedDealId, detailId, mode, state.items]);
   // 項目の一覧を読み終える前に送った項目に、一覧に無いもの (HubSpot で隠された・消された項目) があると 400 invalid_properties になる。
   // 一覧を読み終えると一覧に無い項目を外して読み直すので、その間は失敗を出さずに「読み込み中」とする
   const detailState = useMemo(() => (detail.state.phase === 'error' && detail.state.errorKind === 'invalid_properties' && catalog.state.phase === 'loading'
@@ -637,7 +670,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 「求人検索・リンク先」パネルの中のタブ (求人検索 / ホームページ / 求人票 / 開いたリンク)。案件を選び直したら開いたリンクは閉じる
   const loadedData = !waitingKey && detailState.phase === 'ready' && detailState.data?.deal.id === selectedId ? detailState.data : null;
   // 項目の書き換え。保存した値は、読み直した詳細に切り替わるまで仮に重ねて表示する
-  const effectiveWriteApi = writeApi ?? (mode === 'fixture' ? fakeWriteApi : liveWriteApi);
+  const baseWriteApi = writeApi ?? (mode === 'fixture' ? fakeWriteApi : liveWriteApi);
+  // 書き込みを送ったら、その案件の画面のキャッシュを捨てる (サーバのキャッシュも書き込みで捨てられる。古い値を先に見せない)
+  const effectiveWriteApi = useMemo<WriteApi>(() => ({
+    ...baseWriteApi,
+    patchDeal: (id, body) => { dropDealEverywhere(id); return baseWriteApi.patchDeal(id, body); },
+  }), [baseWriteApi]);
   const crmWrite = useCrmWrite({
     dealId: detailId, api: effectiveWriteApi, pollIntervalMs: writePollMs,
     onSaved: id => { if (id === detailId) detail.refresh(); },
@@ -693,6 +731,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   }, [defs.state]);
   const anyFocusable = state.items.some(i => i.deal_id === selectedId);
 
+  // 詳細を読み込む間は、一覧の行がすでに持っている値で見出しを出す (詳細が届いたら入れ替える)
+  const previewItem = selectedId !== null && (waitingKey || detailState.phase === 'loading') ? state.items.find(i => i.deal_id === selectedId) ?? null : null;
+  const previewOwner = previewItem?.owner_id ? ownerNames.get(previewItem.owner_id) : undefined;
   const detailPhase = waitingKey ? 'waiting' : detailState.phase;
   const placeholder = panelPlaceholder(selectedId !== null, detailPhase);
   const panels: Record<PanelId, React.ReactNode> = {
@@ -729,7 +770,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
                 {state.items.map((item, i) => <QueueRow key={item.deal_id} item={item}
                   selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
                   recorded={isRecorded(item.deal_id)} unsaved={persistFailed} stopLabel={stopLabel}
-                  onSelect={selectByClick} catalogIndex={catalog.state.phase === 'ready' ? catalog.state.index : null} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
+                  onSelect={selectByClick} onHoverStart={hoverStart} onHoverEnd={hoverEnd} catalogIndex={catalog.state.phase === 'ready' ? catalog.state.index : null} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
               {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
                 {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
               {/* 続きの自動読み込みの目印 (ここが見えるところまでスクロールしたら読む) */}
@@ -744,9 +785,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     properties: <PropertyPanel roleLayout={roleLayout} catalog={catalog.state} onReloadCatalog={catalog.reload} selection={selectedProps} onApply={applyProps}
       data={shownData} placeholder={placeholder} ownerNames={ownerNames} hasSelection={selectedId !== null} write={writeBindings.panel} />,
     overview: <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
-      {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
+      {waitingKey ? <div className="cq-detail-scroll">{previewItem ? <RowPreview item={previewItem} ownerName={previewOwner} /> : <p role="status" className="cq-loading">詳細を読み込み中…</p>}</div>
         : <DealOverview state={detailState} reload={detail.reload} refresh={detail.refresh} zoom={zoomForDetail} stopLabel={stopLabel}
-          callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} density={density} stageMove={writeBindings.stage} sample={mode === 'fixture'} />}
+          callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} density={density} stageMove={writeBindings.stage} sample={mode === 'fixture'} previewItem={previewItem} previewOwner={previewOwner} />}
     </section>,
     activity: <ActivityLog data={shownData} placeholder={placeholder} ownerNames={ownerNames} sample={mode === 'fixture'} />,
     // 架電結果の入力欄。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない

@@ -499,9 +499,24 @@ pub(super) struct WorkspaceQuery {
     contact_props: Option<String>,
     company_props: Option<String>,
     fresh: Option<String>,
+    /// 先読み (次の行・ポインタを置いた行)。画面の操作ではないので関所の背景の優先度で読む。キャッシュの鍵は変えない
+    prefetch: Option<String>,
 }
 
+/// 先読みが読み取りの枠から取らずに残す数 (画面の操作が枠待ちにならないように)
+const PREFETCH_SLOT_RESERVE: usize = 2;
+/// 先読みの全体の締め切り。超えたら 503 `hubspot_busy` (画面は先読みの失敗を無視する)
+const PREFETCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
 impl WorkspaceQuery {
+    /// `prefetch=1` / `prefetch=true` だけを真とみなす
+    fn prefetch(&self) -> bool {
+        matches!(
+            self.prefetch.as_deref().map(str::trim),
+            Some("1") | Some("true")
+        )
+    }
+
     /// `fresh=1` / `fresh=true` だけを真とみなす
     fn fresh(&self) -> bool {
         matches!(
@@ -591,6 +606,13 @@ pub(super) async fn get_workspace_deal(
     let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
+    // 先読みは背景の優先度で読む (関所の列で画面の操作より後ろ。キャッシュの鍵は変えない)
+    let prefetch = query.prefetch();
+    let client = if prefetch {
+        Arc::new(client.background())
+    } else {
+        client
+    };
     // 4) キャッシュ。`fresh` ならその案件の全キーを捨てて読み直す (画面の「最新にする」・通話が終わった後)。
     //    レコード単位の関門が要る人 (役割が決まっていない最小権限) には、関門を通してからでないと返さない
     let key = WorkspaceCacheKey::new(&id, &selected.deal, &selected.contact, &selected.company);
@@ -614,12 +636,25 @@ pub(super) async fn get_workspace_deal(
     }
     // 5) 同時実行の枠待ちも含めて全体に締め切りを付ける
     let started = std::time::Instant::now();
-    let _slot = match super::routes::acquire_read_slot(&ctx, &client).await {
-        Ok(permit) => permit,
-        Err(resp) => return resp,
+    let _slot = if prefetch {
+        // 先読みは待たない: 枠が残り少なければ (画面の操作を優先して) すぐ断る
+        match ctx.read_slots.try_acquire() {
+            Ok(permit) if ctx.read_slots.available_permits() >= PREFETCH_SLOT_RESERVE => permit,
+            _ => return hubspot_error_response(&HubSpotError::Busy),
+        }
+    } else {
+        match super::routes::acquire_read_slot(&ctx, &client).await {
+            Ok(permit) => permit,
+            Err(resp) => return resp,
+        }
     };
     let email = principal.email.clone().unwrap_or_default();
-    let remaining = CRM_REQUEST_DEADLINE.saturating_sub(started.elapsed());
+    let deadline = if prefetch {
+        CRM_REQUEST_DEADLINE.min(PREFETCH_DEADLINE)
+    } else {
+        CRM_REQUEST_DEADLINE
+    };
+    let remaining = deadline.saturating_sub(started.elapsed());
     let work = async {
         // 役割が決まっていない人 (最小権限) だけレコード関門を通す (安全側)。
         // 関門には自分の owner が要る。引けなければ何も読ませない (全員分に倒さない)
@@ -649,6 +684,10 @@ pub(super) async fn get_workspace_deal(
         Ok(Json(body).into_response())
     };
     match tokio::time::timeout(remaining, work).await {
+        Err(_elapsed) if prefetch => {
+            tracing::debug!("crm workspace prefetch gave up");
+            hubspot_error_response(&HubSpotError::Busy)
+        }
         Err(_elapsed) => {
             tracing::warn!(error_kind = "crm_timeout", "crm workspace timed out");
             timeout_response()

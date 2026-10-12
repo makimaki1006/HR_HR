@@ -5,6 +5,8 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { EMAIL_SAVED } from './emailApi';
 import type { SavedEmailNotice } from './emailApi';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
+import type { CallQueueItem } from '../../generated/CallQueueItem';
+import { RowPreview } from './RowPreview';
 import { formatPhoneForDisplay, toDomesticPhone } from './phone';
 import { toE164Jp } from './smartEmbed';
 import type { DialResult, ZoomPhone } from './useZoomPhone';
@@ -296,8 +298,11 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom, density, stageMove, sample = false }: {
+function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom, density, stageMove, sample = false, previewItem, previewOwner }: {
   sample?: boolean;
+  /** 詳細を読み込む間、見出しに出す一覧の行 (無ければ「読み込み中」だけ) */
+  previewItem?: CallQueueItem | null | undefined;
+  previewOwner?: string | undefined;
   state: DetailState; reload: () => void; zoom: ZoomPhone; stopLabel?: StopLabel;
   /** サーバのキャッシュを使わずに読み直す (「最新にする」) */
   refresh?: (() => void) | undefined;
@@ -314,6 +319,7 @@ function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLab
     return <><Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
       refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} /><EmailPanel key={state.data.deal.id} data={state.data} sample={sample} onSaved={refresh} context={<div className="crm-email-context"><strong>{state.data.companies.find(c => c.is_primary)?.name ?? state.data.deal.name}</strong>{state.data.dial && <PhoneRow blocked={(Boolean(state.data.deal.stop.prohibited_reason) || Boolean(state.data.deal.stop.block_reason))} label={SOURCE_LABELS[state.data.dial.source] ?? '電話'} raw={state.data.dial.number} zoom={zoom} primary compact />}</div>} /></>;
   }
+  if (state.phase === 'loading' && previewItem) return <div className="cq-detail-scroll"><RowPreview item={previewItem} ownerName={previewOwner} /></div>;
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }
 
