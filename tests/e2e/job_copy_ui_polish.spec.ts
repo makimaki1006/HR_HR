@@ -49,7 +49,7 @@ test('会社名が未取得なら省略し、絞り込みの具体値を送る',
   await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'));
   await page.goto('/app/job-copy');
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
-  await expect(page.locator('.jc-detail-heading p')).toHaveText('大分県大分市 · HRハッカー');
+  await expect(page.locator('.jc-detail-heading p')).toHaveText('大分県大分市 · HRハッカー ／ 公開状況：掲載終了');
   await page.locator('.jc-hubspot-filter-details > summary').click();
   const request = page.waitForRequest(request => new URL(request.url()).searchParams.get('prefecture') === '沖縄県');
   await page.getByLabel('都道府県', { exact: true }).selectOption('沖縄県');
@@ -66,7 +66,7 @@ test('固定一覧の空項目は区切りごと省略し、近接する給与�
   await page.goto('/app/job-copy?data=actual');
   await expect(page.locator('.jc-fixed-list .jc-job')).toHaveCount(1);
   await expect(page.locator('.jc-fixed-list .jc-job')).not.toContainText('·');
-  await expect(page.locator('.jc-detail-heading p')).toHaveText('HRハッカー');
+  await expect(page.locator('.jc-detail-heading p')).toHaveText('HRハッカー ／ 公開状況：不明');
   await selectJobFeature(page, 'timeline');
   const marker = page.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark');
   await expect(marker).toHaveCount(1);
