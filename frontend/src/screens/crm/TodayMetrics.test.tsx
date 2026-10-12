@@ -10,13 +10,12 @@ afterEach(() => { cleanup(); vi.useRealTimers(); window.localStorage.clear(); })
 describe('今日の成績の帯', () => {
   it('値・平均・順位・時点を出す', async () => {
     render(<TodayMetrics fixture />);
-    expect(await screen.findByTestId('metric-outbound')).toHaveProperty('textContent', '架電数52着信 3平均 47.53位 / 8人');
-    expect(screen.getByTestId('metric-over_90s').textContent).toBe('90秒以上1121.2%平均 8.42位 / 8人');
-    expect(screen.getByTestId('metric-duration').textContent).toBe('通話時間合計55:12平均 2:18平均 44:002位 / 8人');
-    expect(screen.getByTestId('metric-appointments').textContent).toBe('アポ2平均 1.11位 / 8人');
+    expect((await screen.findByTestId('metric-outbound')).textContent).toBe('架電数52（チーム平均 47.5・3位/8人）着信 3');
+    expect(screen.getByTestId('metric-over_90s').textContent).toBe('90秒以上11・21.2%（チーム平均 8.4・2位/8人）');
+    expect(screen.getByTestId('metric-duration').textContent).toBe('通話時間55:12・1件 2:18（チーム平均 44:00・2位/8人）');
+    expect(screen.getByTestId('metric-appointments').textContent).toBe('アポ2（チーム平均 1.1・1位/8人）');
     expect(screen.getByTestId('metrics-as-of').textContent).toBe('14時05分時点');
-    expect(screen.getByTestId('metrics-population').textContent).toContain('同じチーム 8人と比較');
-    expect(screen.getByTestId('metrics-population').getAttribute('title')).toBe('同じチーム（架空BPOチーム）で今日架電した 8 人と比べています。最初の架電 9:03・最後の架電 14:01。');
+    expect(screen.getByText('今日の成績').getAttribute('title')).toBe('同じチーム（架空BPOチーム）で今日架電した 8 人と比べています。最初の架電 9:03・最後の架電 14:01。');
   });
 
   it('担当者が引けないときは理由を出す', async () => {

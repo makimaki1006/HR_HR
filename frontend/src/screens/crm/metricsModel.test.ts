@@ -33,16 +33,18 @@ describe('割合・平均・時刻', () => {
 });
 
 describe('stripItems', () => {
-  it('4 項目に値・平均・順位が入る', () => {
+  it('各項目が「自分の値（チーム平均・順位/人数）」にそろう', () => {
     const items = stripItems(FIXTURE_TODAY);
-    expect(items?.map(i => [i.key, i.value, i.avg, i.rank])).toEqual([
-      ['outbound', '52', '47.5', 3],
-      ['over_90s', '11', '8.4', 2],
-      ['duration', '55:12', '44:00', 2],
-      ['appointments', '2', '1.1', 1],
+    expect(items?.map(i => [i.key, i.label, i.value, i.compare, i.extra])).toEqual([
+      ['outbound', '架電数', '52', 'チーム平均 47.5・3位/8人', '着信 3'],
+      ['over_90s', '90秒以上', '11・21.2%', 'チーム平均 8.4・2位/8人', null],
+      ['duration', '通話時間', '55:12・1件 2:18', 'チーム平均 44:00・2位/8人', null],
+      ['appointments', 'アポ', '2', 'チーム平均 1.1・1位/8人', null],
     ]);
-    expect(items?.[0]?.sub).toBe('着信 3');
-    expect(items?.[1]?.sub).toBe('21.2%');
+  });
+  it('比較が全員に落ちたら「全体平均」', () => {
+    const items = stripItems({ ...FIXTURE_TODAY, population: 'all' });
+    expect(items?.[0]?.compare).toBe('全体平均 47.5・3位/8人');
   });
   it('本人が引けなければ null', () => {
     expect(stripItems({ ...FIXTURE_TODAY, me: null })).toBeNull();

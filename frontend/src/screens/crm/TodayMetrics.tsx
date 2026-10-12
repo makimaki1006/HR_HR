@@ -22,20 +22,16 @@ export function TodayMetricsView({ data, refreshFailed, collapsed, onToggle }: {
   const detail = `${populationLabel(data)}と比べています。${first !== null && last !== null ? `最初の架電 ${first}・最後の架電 ${last}。` : ''}${data.me?.rank.outbound === null ? '今日はまだ架電がないため、順位は出ません。' : ''}`;
   return <section className="tm" aria-label="今日の架電成績" data-testid="today-metrics">
     <div className="tm-head">
-      <strong>今日の成績</strong>
+      <strong title={detail}>今日の成績</strong>
       <span className="tm-asof" data-testid="metrics-as-of">{asOfLabel(data.as_of)}</span>
       {!collapsed && items !== null && <ul className="tm-items">
         {items.map(it => <li key={it.key} className="tm-item" data-testid={`metric-${it.key}`}>
           <span className="tm-label">{it.label}</span>
           <span className="tm-value">{it.value}</span>
-          {it.sub !== null && <span className="tm-sub">{it.sub}</span>}
-          <span className="tm-cmp">平均 {it.avg}</span>
-          <span className="tm-rank">{it.rank === null ? '順位なし' : `${String(it.rank)}位 / ${String(data.population_size)}人`}</span>
+          <span className="tm-cmp">（{it.compare}）</span>
+          {it.extra !== null && <span className="tm-sub">{it.extra}</span>}
         </li>)}
       </ul>}
-      {!collapsed && items !== null && <span className="tm-pop" data-testid="metrics-population" title={detail}>
-        {data.population === 'team' ? '同じチーム' : '全員'} {String(data.population_size)}人と比較
-      </span>}
       {(data.stale || refreshFailed) && <span className="tm-warn" role="status">最新の数字を読めていません（前回の数字を表示中）</span>}
       <button type="button" className="tm-toggle" aria-expanded={!collapsed} onClick={onToggle}>{collapsed ? '開く' : '閉じる'}</button>
     </div>

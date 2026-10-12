@@ -8,11 +8,11 @@ test('appointer strip shows own values with average and rank; collapses; no live
   await expect(strip).toBeVisible();
   await expect(page.getByTestId('metrics-as-of')).toHaveText('14時05分時点');
   await expect(page.getByTestId('metric-outbound')).toContainText('52');
-  await expect(page.getByTestId('metric-outbound')).toContainText('平均 47.5');
-  await expect(page.getByTestId('metric-outbound')).toContainText('3位 / 8人');
-  await expect(page.getByTestId('metric-over_90s')).toContainText('2位 / 8人');
-  await expect(page.getByTestId('metric-duration')).toContainText('55:12');
-  await expect(page.getByTestId('metric-appointments')).toContainText('1位 / 8人');
+  await expect(page.getByTestId('metric-outbound')).toContainText('チーム平均 47.5');
+  await expect(page.getByTestId('metric-outbound')).toContainText('3位/8人');
+  await expect(page.getByTestId('metric-over_90s')).toContainText('2位/8人');
+  await expect(page.getByTestId('metric-duration')).toContainText('55:12・1件 2:18');
+  await expect(page.getByTestId('metric-appointments')).toContainText('1位/8人');
   const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(24);
   await shot(page,'metrics-strip.png');
   await page.getByRole('button',{name:'閉じる'}).click();
@@ -29,4 +29,14 @@ test('admin table sorts and filters by team (fictional)',async({page})=>{
   await shot(page,'metrics-admin.png');
   await page.getByLabel('チームで絞り込む').selectOption('架空営業チーム');
   await expect(page.getByTestId('callers-count')).toHaveText('1 人');
+});
+test('1024px: the strip wraps without overflowing or hiding the toggle',async({page})=>{
+  await page.setViewportSize({width:1024,height:800});
+  await page.goto('/static/app/__metrics_crm?mode=fixture&owner=unassigned');
+  const strip=page.getByTestId('today-metrics');await expect(strip).toBeVisible();
+  const box=await strip.boundingBox();expect(box!.width).toBe(1024);expect(box!.height).toBeLessThanOrEqual(64);
+  for(const li of await strip.locator('.tm-item').all()){const b=await li.boundingBox();expect(b!.x+b!.width).toBeLessThanOrEqual(1024);}
+  const t=await strip.getByRole('button',{name:'閉じる'}).boundingBox();expect(t!.x+t!.width).toBeLessThanOrEqual(1024);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await expect(strip.locator('.tm-cmp').first()).toHaveText('（チーム平均 47.5・3位/8人）');
 });

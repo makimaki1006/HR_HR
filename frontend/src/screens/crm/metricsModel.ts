@@ -52,24 +52,28 @@ export function asOfLabel(iso: string): string {
 export interface StripItem {
   key: 'outbound' | 'over_90s' | 'duration' | 'appointments';
   label: string;
+  /** 自分の値。割合・1 件あたりは「・」でつなぐ */
   value: string;
-  /** 補足 (90 秒以上の割合など) */
-  sub: string | null;
-  avg: string;
-  rank: number | null;
+  /** 比較の括弧の中身 (「チーム平均 47.5・3位/8人」) */
+  compare: string;
+  /** 括弧の外の補足 (着信) */
+  extra: string | null;
 }
 
-/** 帯に出す 4 項目 */
+/** 帯に出す 4 項目。各項目は「自分の値（チーム平均 ○○・○位/○人）」にそろえる */
 export function stripItems(res: TodayMetricsResponse): StripItem[] | null {
   if (res.me === null) return null;
   const m = res.me.metrics;
   const a = res.team_avg;
   const r = res.me.rank;
+  const avgLabel = res.population === 'team' ? 'チーム平均' : '全体平均';
+  const cmp = (avg: string, rank: number | null) =>
+    `${avgLabel} ${avg}・${rank === null ? '順位なし' : `${String(rank)}位/${String(res.population_size)}人`}`;
   return [
-    { key: 'outbound', label: '架電数', value: String(m.outbound), sub: m.inbound > 0 ? `着信 ${String(m.inbound)}` : null, avg: formatAvg(a?.outbound), rank: r.outbound },
-    { key: 'over_90s', label: '90秒以上', value: String(m.over_90s), sub: m.rate_90s === null ? null : formatRate(m.rate_90s), avg: formatAvg(a?.over_90s), rank: r.over_90s },
-    { key: 'duration', label: '通話時間合計', value: formatDuration(m.total_duration_ms), sub: m.avg_duration_ms === null ? null : `平均 ${formatDuration(m.avg_duration_ms)}`, avg: a ? formatDuration(Math.round(a.total_duration_ms)) : '-', rank: r.total_duration },
-    { key: 'appointments', label: 'アポ', value: String(m.appointments), sub: null, avg: formatAvg(a?.appointments), rank: r.appointments },
+    { key: 'outbound', label: '架電数', value: String(m.outbound), compare: cmp(formatAvg(a?.outbound), r.outbound), extra: m.inbound > 0 ? `着信 ${String(m.inbound)}` : null },
+    { key: 'over_90s', label: '90秒以上', value: m.rate_90s === null ? String(m.over_90s) : `${String(m.over_90s)}・${formatRate(m.rate_90s)}`, compare: cmp(formatAvg(a?.over_90s), r.over_90s), extra: null },
+    { key: 'duration', label: '通話時間', value: m.avg_duration_ms === null ? formatDuration(m.total_duration_ms) : `${formatDuration(m.total_duration_ms)}・1件 ${formatDuration(m.avg_duration_ms)}`, compare: cmp(a ? formatDuration(Math.round(a.total_duration_ms)) : '-', r.total_duration), extra: null },
+    { key: 'appointments', label: 'アポ', value: String(m.appointments), compare: cmp(formatAvg(a?.appointments), r.appointments), extra: null },
   ];
 }
 
