@@ -59,7 +59,7 @@ it('keeps numeric codes as review-needed, and never turns missing salaries or co
   expect(model.sections.find(section => section.heading === 'その他')?.entries.find(item => item.key === '雇用形態')?.value).toBe('確認が必要');
   expect(model.publication).toBe('確認が必要');
   const missing = record({ 給与形態: '', '基本給与 最小': '', '基本給与 最大': '' }); missing.listingApplicationCount = null;
-  expect(listingPopupModel(missing, missing.versions[0])).toMatchObject({ salary: '未取得', applications: '未取得' });
+  expect(listingPopupModel(missing, missing.versions[0])).toMatchObject({ salary: '記載なし', applications: '未取得' });
   missing.listingApplicationCount = 0;
   expect(listingPopupModel(missing, missing.versions[0]).applications).toBe('0件');
 });
@@ -71,7 +71,7 @@ it('shows AirWork independent conditions only with its latest body, retaining hi
   const old = listingPopupModel(job, job.versions[0]);
   expect(old.sections[0]).toEqual({ heading: '仕事内容', entries: [{ key: '仕事内容', label: '仕事内容', value: '過去の仕事内容。\n最後の文章。' }] });
   expect(old.sections.slice(1).flatMap(section => section.entries).map(entry => entry.value)).toEqual(Array(6).fill('取得できていません'));
-  expect(old).toMatchObject({ location: '未取得', publication: '未取得', hasCurrentConditions: false });
+  expect(old).toMatchObject({ location: '取得できていません', publication: '未取得', hasCurrentConditions: false });
   const current = listingPopupModel(job, job.versions[1]);
   expect(current.sections.flatMap(section => section.entries).map(item => item.value)).toContain('社会保険');
   expect(current).toMatchObject({ location: '東京都江東区', salary: '月給 金額は未取得', hasCurrentConditions: true });
@@ -130,7 +130,7 @@ it('retains acquired conditions and separately observed images when no body has 
   expect(model.missing).toEqual([]);
   expect(model.missing).not.toContain('画像');
   expect(model.observedImages?.observedAt).toBe('2026-10-11T01:00:00Z');
-  expect(model).toMatchObject({ publication: '公開', applications: '12件', salary: '未取得' });
+  expect(model).toMatchObject({ publication: '公開', applications: '12件', salary: '取得できていません' });
 });
 
 it('excludes acquired summary values from the exact missing names and count', () => {
@@ -251,7 +251,7 @@ it('distinguishes absent images, unresolved filenames and unknown registration, 
   expect(listingPopupModel(job, job.versions[0]).observedImages?.images[0]?.url).toBe('/api/job-copy/image?sample=1');
   const url = record({ 画像1: 'https://example.invalid/warehouse.jpg' });
   expect(listingPopupModel(url, url.versions[0]).images?.[0]?.url).toBe('https://example.invalid/warehouse.jpg');
-  const none = record();
+  const none = record({ 画像1: 'なし', 画像2: '未登録' });
   expect(listingPopupModel(none, none.versions[0]).imageReason).toBe('この求人には画像が登録されていません');
   expect(listingPopupModel({ ...none, versions: [] }).imageReason).toBe('画像の登録状況を取得できていません');
 });

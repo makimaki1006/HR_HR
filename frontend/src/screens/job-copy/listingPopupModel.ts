@@ -42,17 +42,18 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const row = Object.fromEntries(fields);
   const get = (key: string) => fields.get(key) ?? '';
   const entry = (key: string): ListingEntry => ({ key, label: comparisonLabel(key), value: comparisonValue(key, get(key), raw, row) });
-  const salary = ['給与形態', '基本給与 最小', '基本給与 最大'].some(key => get(key).trim())
-    ? composeSalary(get('給与形態').trim(), get('基本給与 最小').trim(), get('基本給与 最大').trim()) : '未取得';
+  const hasSalary = ['給与形態', '基本給与 最小', '基本給与 最大'].some(key => get(key).trim());
+  const salary = hasSalary ? composeSalary(get('給与形態').trim(), get('基本給与 最小').trim(), get('基本給与 最大').trim())
+    : bodyAvailable && (structured || ['給与形態', '基本給与 最小', '基本給与 最大'].every(key => fields.has(key))) ? '記載なし' : '取得できていません';
   const consumed = new Set(['案件名', '公開', ...imageKeys]);
   const sections: ListingSection[] = groups.map(([heading, keys]) => {
     keys.forEach(key => consumed.add(key));
     let entries = keys.filter(key => get(key).trim()).map(entry);
     if (heading === '給与') {
       entries = entries.filter(item => !['給与形態', '基本給与 最小', '基本給与 最大'].includes(item.key));
-      if (salary !== '未取得') entries.unshift({ key: 'salary', label: '給与', value: salary });
+      if (hasSalary) entries.unshift({ key: 'salary', label: '給与', value: salary });
     }
-    if (groups.findIndex(group => group[0] === heading) < 7 && (heading === '給与' ? salary === '未取得' : !get(keys[0] ?? '').trim())) {
+    if (groups.findIndex(group => group[0] === heading) < 7 && (heading === '給与' ? !hasSalary : !get(keys[0] ?? '').trim())) {
       const known = bodyAvailable && (heading === '勤務地・アクセス' ? fields.has('勤務地') : structured || fields.has(keys[0] ?? ''));
       entries.unshift({ key: heading === '給与' ? 'salary' : keys[0] ?? heading, label: heading, value: known ? '記載なし' : '取得できていません', unavailable: !known });
     }
@@ -70,13 +71,13 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const observedImages = (current || !version) && !images?.length && job.currentImageObservation?.images.length ? job.currentImageObservation : undefined;
   const registered = current || !version ? job.currentImagesRegistered ?? version?.imagesRegistered : version.imagesRegistered;
   const imageValuesKnown = bodyAvailable && structured && imageKeys.every(key => fields.has(key));
-  const hasImageReferences = imageKeys.some(key => get(key).trim()) || registered === true;
-  const imageSignature = imageValuesKnown ? JSON.stringify(imageKeys.map(key => get(key).trim()).filter(value => value && value !== 'なし')) : recordedImages?.length ? JSON.stringify(recordedImages.map(image => image.sourceReferenceHash ?? image.url)) : registered === false ? '[]' : undefined;
+  const hasImageReferences = imageKeys.some(key => !['', 'なし', '画像なし', '未登録'].includes(get(key).trim())) || registered === true;
+  const imageSignature = imageValuesKnown ? JSON.stringify(imageKeys.map(key => get(key).trim()).filter(value => !['', 'なし', '画像なし', '未登録'].includes(value))) : recordedImages?.length ? JSON.stringify(recordedImages.map(image => image.sourceReferenceHash ?? image.url)) : registered === false ? '[]' : undefined;
   const imageReason = images?.length || observedImages ? undefined : hasImageReferences ? '画像はありますが、取得できていません' : imageValuesKnown || registered === false ? 'この求人には画像が登録されていません' : '画像の登録状況を取得できていません';
   const publication = get('公開').trim() ? displayCode('公開', get('公開')) === '確認が必要' ? '確認が必要' : publicationLabel(get('公開'))
     : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : (current || !version) ? publicationLabel(job.listingPublicationStatus ?? null) : '未取得';
   const title = get('案件名').trim() || job.title;
-  const location = get('勤務地').trim() || ((current || !version) ? job.location : '') || '未取得';
+  const location = get('勤務地').trim() || ((current || !version) ? job.location : '') || (bodyAvailable && fields.has('勤務地') ? '記載なし' : '取得できていません');
   const mainKeys = new Set(['案件名', '公開', '仕事内容', '勤務地', '勤務時間', '応募資格', '休日・休暇', '福利厚生', '給与形態', '基本給与 最小', '基本給与 最大', ...imageKeys]);
   const missing = bodyAvailable && structured ? columns.filter(key => !isManagement(key) && !mainKeys.has(key) && !get(key).trim()).map(comparisonLabel) : [];
   const total = (current || !version) ? job.overallApplications?.total ?? job.listingApplicationCount : undefined;
