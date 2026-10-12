@@ -40,23 +40,23 @@ function fixtureCardProps(): CrmCatalogProperty[] {
 export const FIXTURE_CATALOG: CrmPropertyCatalogResponse = {
   objects: [
     { object_type: 'deals', groups: [
-      { name: 'dealinformation', label: 'Deal information', properties: [
+      { name: 'dealinformation', label: '取引情報', properties: [
         p('dealname', '案件名', 'string', 'text'), p('hubspot_owner_id', '案件担当者', 'enumeration', 'select'),
         moc('bpo_13'), moc('bpo_14'), p('bpo_20', '最終架電日', 'date', 'date'), moc('bpo_10'), moc('bpo_32'),
         moc('bpo_21'), moc('bpo_22'), moc('bpo_50'),
       ] },
-      { name: 'dealstages', label: 'Deal Stage Properties', properties: [moc('bpo_3'), moc('bpo_4')] },
+      { name: 'dealstages', label: '取引ステージのプロパティ', properties: [moc('bpo_3'), moc('bpo_4')] },
       { name: 'call_list', label: '架電リスト(架空のグループ)', properties: fixtureCardProps() },
-      { name: 'deal_revenue', label: 'Deal revenue', properties: [p('amount', '金額', 'number', 'number')] },
+      { name: 'deal_revenue', label: '取引の売上', properties: [p('amount', '金額', 'number', 'number')] },
     ] },
     { object_type: 'contacts', groups: [
-      { name: 'contactinformation', label: 'Contact information', properties: [
+      { name: 'contactinformation', label: 'コンタクト情報', properties: [
         p('lastname', '姓', 'string', 'text'), p('firstname', '名', 'string', 'text'), p('phone', '電話番号', 'string', 'phonenumber'),
         p('mobilephone', '携帯電話番号', 'string', 'phonenumber'), p('jobtitle', '役職', 'string', 'text'), p('email', 'メール', 'string', 'text'),
       ] },
     ] },
     { object_type: 'companies', groups: [
-      { name: 'companyinformation', label: 'Company information', properties: [
+      { name: 'companyinformation', label: '会社情報', properties: [
         p('name', '会社名', 'string', 'text'), p('website', 'ウェブサイトURL', 'string', 'text'), p('industry', '業種', 'string', 'text'),
         p('numberofemployees', '従業員数', 'number', 'number'),
       ] },

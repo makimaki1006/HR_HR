@@ -3,7 +3,7 @@ import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { PropLink } from './CenterTabs';
 import { HUBSPOT_CARDS } from './hubspotCards';
 import {
-  CATALOG_OBJECTS, DEFAULT_SELECTED, MAX_SELECTED_PER_OBJECT, OBJECT_LABELS, OBJECT_VALUE_LABELS, cardAvailableNames, cardSections, orderedSelection,
+  CATALOG_OBJECTS, DEFAULT_SELECTED, MAX_SELECTED_PER_OBJECT, OBJECT_LABELS, OBJECT_VALUE_LABELS, cardAvailableNames, cardSections, matchesLabel, orderedSelection,
   sameSelected, selectedValue, toggleSelected, viewValue,
 } from './propertyModel';
 import type { CardSection, CatalogEntry, CatalogObject, SelectedProps } from './propertyModel';
@@ -143,7 +143,7 @@ export function PropertyPicker({ catalog, selection, onApply, onCancel, roleLayo
   const searchId = useId();
   const q = query.trim().normalize('NFKC').toLowerCase();
   const shown = useMemo(() => (catalog.catalog.objects.find(o => o.object_type === obj)?.groups ?? []).map(g => ({
-    group: g, props: q === '' ? g.properties : g.properties.filter(p => p.label.normalize('NFKC').toLowerCase().includes(q)),
+    group: g, props: q === '' ? g.properties : g.properties.filter(p => matchesLabel(p, q)),
   })).filter(x => x.props.length > 0), [catalog.catalog, obj, q]);
   const count = draft[obj].length;
   const atLimit = count >= MAX_SELECTED_PER_OBJECT;

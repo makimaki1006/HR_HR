@@ -281,7 +281,7 @@ describe('selected properties are read in the same detail request', () => {
     fireEvent.click(within(panel).getByRole('button', { name: '表示する項目を選ぶ' }));
     const picker = screen.getByRole('region', { name: '表示する項目を選ぶ' });
     // グループを開いて 1 項目足す
-    fireEvent.click(within(picker).getByRole('button', { name: /Deal revenue/ }));
+    fireEvent.click(within(picker).getByRole('button', { name: /取引の売上/ }));
     fireEvent.click(within(picker).getByRole('checkbox', { name: '金額' }));
     // 名前で探す
     fireEvent.change(within(picker).getByLabelText('項目名で探す'), { target: { value: '架電' } });
@@ -301,9 +301,9 @@ describe('selected properties are read in the same detail request', () => {
     fireEvent.click(tab('プロパティ'));
     fireEvent.click(screen.getByRole('button', { name: '表示する項目を選ぶ' }));
     const picker = screen.getByRole('region', { name: '表示する項目を選ぶ' });
-    const all = within(picker).getByRole<HTMLInputElement>('checkbox', { name: '「Deal Stage Properties」の項目をまとめて選ぶ' });
+    const all = within(picker).getByRole<HTMLInputElement>('checkbox', { name: '「取引ステージのプロパティ」の項目をまとめて選ぶ' });
     expect(all.checked).toBe(false);
-    const info = within(picker).getByRole<HTMLInputElement>('checkbox', { name: '「Deal information」の項目をまとめて選ぶ' });
+    const info = within(picker).getByRole<HTMLInputElement>('checkbox', { name: '「取引情報」の項目をまとめて選ぶ' });
     expect(info.checked).toBe(false);
     expect(info.indeterminate).toBe(true);
     fireEvent.click(info);

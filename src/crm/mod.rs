@@ -23,6 +23,7 @@ pub mod assoc_labels;
 pub mod call_queue;
 pub mod clock;
 pub mod email;
+pub mod label_ja;
 pub mod op_status;
 pub mod owners;
 pub mod pending;

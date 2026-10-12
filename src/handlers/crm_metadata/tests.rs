@@ -70,7 +70,7 @@ async fn upstream(
             "bpo_42"
         };
         serde_json::json!({"results":[
-            {"name":name,"label":"実アカウントの項目名","type":"enumeration","fieldType":"select",
+            {"name":name,"label":"実アカウントの項目名","hubspotDefined":false,"type":"enumeration","fieldType":"select",
              "options":[{"label":"表示ラベル","value":"internal_value","hidden":true}]},
             {"name":"unreviewed_private_field","label":"Do not expose","type":"string","fieldType":"text"}]})
     };
@@ -390,4 +390,14 @@ fn deal_allowlist_covers_every_call_result_form_property() {
     }
     assert!(!allowed_property("deals", "bpo_20"));
     assert!(!allowed_property("contacts", "bpo_57"));
+}
+
+#[test]
+fn 標準項目の表示名は日本語にする() {
+    let v = serde_json::json!({"results":[
+        {"name":"firstname","label":"First Name","type":"string","fieldType":"text"},
+        {"name":"jobtitle","label":"Job Title","hubspotDefined":false,"type":"string","fieldType":"text"}]});
+    let props = parse_properties(RecordType::Contact, &v).unwrap();
+    assert_eq!(props[0].label, "名");
+    assert_eq!(props[1].label, "Job Title");
 }
