@@ -104,7 +104,13 @@ export function DealComparison({ deal, onOpen, onClose }: { deal: DealSelection;
     {!page.listings.length && <p>条件に合う求人はありません。</p>}
     <div className="jc-deal-controls"><span>{page.total && page.listings.length ? `${String(offset + 1)}〜${String(offset + page.listings.length)}件` : ''}</span><button className="jc-button" disabled={offset === 0} onClick={() => { setOffset(value => Math.max(0, value - 50)); }}>前の50件</button><button className="jc-button" disabled={page.next_offset === null} onClick={() => { setOffset(page.next_offset ?? 0); }}>次の50件</button></div></>}
     <div className="jc-deal-selection"><p>比較に選択：{selected.length}件（2〜5件）。ページを移動しても選択を保ちます。</p>{selected.map(row => <button className="jc-button" key={row.id} onClick={() => { setComparison(null); setSelected(items => items.filter(item => item.id !== row.id)); }}>{row.title ?? '求人名未取得'}を外す</button>)}<button className="jc-button" disabled={selected.length < 2 || busy} onClick={() => { void compare(); }}>横に並べて比べる</button></div>
-    {popup && <ListingPopup job={popup.job} version={popup.job.versions.filter(item => item.kind === 'published').at(-1)} returnFocus={popup.opener} onClose={() => { setPopup(null); }} />}
+    {popup && <ListingPopup navigation={{ ids: (page?.listings ?? []).map(row => `hubspot-history-${row.id}`), load: async (id, signal) => {
+      const row = page?.listings.find(item => `hubspot-history-${item.id}` === id);
+      if (!row) throw new Error('求人を取得できません');
+      const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(row.id)}/versions`, { signal, timeoutMs: 120_000 });
+      if (!result.ok) throw result.error;
+      return listingRecord(result.data, row);
+    } }} job={popup.job} version={popup.job.versions.filter(item => item.kind === 'published').at(-1)} returnFocus={popup.opener} onClose={() => { setPopup(null); }} />}
     {comparison && <ParallelJobs jobs={comparison} />}
   </main>;
 }

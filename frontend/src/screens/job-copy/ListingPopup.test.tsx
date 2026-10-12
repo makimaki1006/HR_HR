@@ -44,10 +44,12 @@ it('counts exact missing names and retains every other value without exposing a 
   const job = record({ ...all, 勤務時間: '', 応募資格: '', 仕事情報補足4の内容: '' });
   job.currentListingFields = { 勤務地: '東京都江東区', '休日・休暇': '土日休み', 福利厚生: '交通費支給', unmapped_field: '落としてはいけない案内' };
   const model = listingPopupModel(job, job.versions[0]);
-  expect(model.missing).toEqual(['仕事の案内4の本文', '応募に必要な資格・経験', '勤務時間']);
+  expect(model.missing).toEqual(['仕事の案内4の本文']);
   expect(model.sections.find(section => section.heading === 'その他')?.entries).toContainEqual({ key: 'unmapped_field', label: 'その他の案内', value: '落としてはいけない案内' });
   render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
-  expect(screen.getByRole('heading', { name: '未取得の項目（3件）' })).toBeTruthy();
+  expect(screen.getByText('記載のない任意項目（1件）')).toBeTruthy();
+  expect(screen.getByText('記載のない任意項目（1件）').closest('details')?.open).toBe(false);
+  expect(screen.getAllByText('記載なし')).toHaveLength(2);
   expect(screen.getByRole('dialog').textContent).not.toContain('unmapped_field');
 });
 it('keeps numeric codes as review-needed, and never turns missing salaries or counts into zero', () => {
@@ -67,7 +69,8 @@ it('shows AirWork independent conditions only with its latest body, retaining hi
     { written_at: '2026-10-11T00:00:00Z', body: '現在の仕事内容。', image_urls: null },
   ], history_counts: { shigotonaiyou: 2 }, history_may_be_incomplete: false });
   const old = listingPopupModel(job, job.versions[0]);
-  expect(old.sections).toEqual([{ heading: '仕事内容', entries: [{ key: '仕事内容', label: '仕事内容', value: '過去の仕事内容。\n最後の文章。' }] }]);
+  expect(old.sections[0]).toEqual({ heading: '仕事内容', entries: [{ key: '仕事内容', label: '仕事内容', value: '過去の仕事内容。\n最後の文章。' }] });
+  expect(old.sections.slice(1).flatMap(section => section.entries).map(entry => entry.value)).toEqual(Array(6).fill('取得できていません'));
   expect(old).toMatchObject({ location: '未取得', publication: '未取得', hasCurrentConditions: false });
   const current = listingPopupModel(job, job.versions[1]);
   expect(current.sections.flatMap(section => section.entries).map(item => item.value)).toContain('社会保険');
@@ -122,8 +125,9 @@ it('retains acquired conditions and separately observed images when no body has 
     current_images: { observed_at: '2026-10-11T01:00:00Z', image_urls: ['/api/job-copy/image?sample=1'] },
   });
   const model = listingPopupModel(job);
-  expect(model.sections.map(section => section.heading)).toEqual(['勤務地・アクセス', '福利厚生']);
-  expect(model.missing).toContain('仕事内容');
+  expect(model.sections.map(section => section.heading)).toEqual(['仕事内容', '給与', '勤務地・アクセス', '勤務時間', '休日・休暇', '応募資格', '福利厚生']);
+  expect(model.sections[0]?.entries[0]?.value).toBe('取得できていません');
+  expect(model.missing).toEqual([]);
   expect(model.missing).not.toContain('画像');
   expect(model.observedImages?.observedAt).toBe('2026-10-11T01:00:00Z');
   expect(model).toMatchObject({ publication: '公開', applications: '12件', salary: '未取得' });
@@ -136,13 +140,13 @@ it('excludes acquired summary values from the exact missing names and count', ()
   job.currentListingFields = { '休日・休暇': '土日休み', 福利厚生: '交通費支給' };
   const model = listingPopupModel(job, job.versions[0]);
   expect(model).toMatchObject({ title: listing.title, location: '東京都江東区', publication: '非公開' });
-  expect(model.missing).toEqual(['仕事の案内4の本文', '応募に必要な資格・経験', '勤務時間']);
+  expect(model.missing).toEqual(['仕事の案内4の本文']);
   render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
   const dialog = screen.getByRole('dialog');
-  expect(within(dialog).getByRole('heading', { name: '未取得の項目（3件）' })).toBeTruthy();
+  expect(within(dialog).getByText('記載のない任意項目（1件）')).toBeTruthy();
   expect(dialog.querySelector('.jc-listing-popup-missing')?.textContent).not.toMatch(/公開状況|求人名|勤務地|給与/);
   job.listingPublicationStatus = null; job.location = ''; job.title = '求人名未取得';
-  expect(listingPopupModel(job, job.versions[0]).missing).toEqual(['求人名', '仕事の案内4の本文', '応募に必要な資格・経験', '勤務時間', '公開状況', '勤務地']);
+  expect(listingPopupModel(job, job.versions[0]).missing).toEqual(['仕事の案内4の本文']);
 });
 
 it.each(['list-first', 'detail-first'])('shows zero applications from a direct link with %s responses, even in an open popup', async order => {
@@ -222,4 +226,90 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   await waitFor(() => { expect(screen.queryByText('求人の一覧を準備しています')).toBeNull(); });
   expect(api.mock.calls.filter(call => String(call[0]).includes('/versions'))).toHaveLength(1);
   expect(api.mock.calls.filter(call => String(call[0]).endsWith('/applications'))).toHaveLength(1);
+});
+
+it('renders exactly two changed rows with colored characters and no mark for unavailable pairs', () => {
+  const job = record({ 仕事内容: '商品を確認して梱包します。', 勤務時間: '9:00〜18:00', 応募資格: '' });
+  const latest = job.versions[0];
+  if (!latest) throw new Error('掲載本文が必要です');
+  job.versions.unshift({ ...latest, id: 'previous', observedAt: '2026-10-01T00:00:00Z', comparisonBody: (latest.comparisonBody ?? '').replace('商品を確認して梱包します。', '商品を確認して出荷します。').replace('9:00〜18:00', '8:00〜17:00'), body: '商品を確認して出荷します。' });
+  render(<ListingPopup job={job} version={latest} onClose={vi.fn()} />);
+  const dialog = screen.getByRole('dialog');
+  expect(dialog.querySelectorAll('[data-changed="true"]')).toHaveLength(2);
+  expect(dialog.querySelectorAll('[aria-label="変更あり"]')).toHaveLength(4);
+  expect([...dialog.querySelectorAll('mark')].map(element => element.textContent).join('')).toContain('梱包');
+  fireEvent.click(screen.getByRole('checkbox', { name: '変わった項目だけ表示（2項目）' }));
+  expect(dialog.querySelectorAll('.jc-listing-comparison-row')).toHaveLength(2);
+  expect(dialog.textContent).not.toContain('記載のない任意項目');
+  expect(dialog.textContent).not.toContain('記載なし');
+});
+
+it('distinguishes absent images, unresolved filenames and unknown registration, and prefers acquired URLs over empty arrays', () => {
+  const job = record({ 画像1: 'warehouse.jpg' });
+  expect(listingPopupModel(job, job.versions[0]).imageReason).toBe('画像はありますが、取得できていません');
+  job.currentImageObservation = { observedAt: '2026-10-11T01:00:00Z', images: [{ id: 'photo', url: '/api/job-copy/image?sample=1', caption: '職場' }] };
+  expect(listingPopupModel(job, job.versions[0]).observedImages?.images[0]?.url).toBe('/api/job-copy/image?sample=1');
+  const url = record({ 画像1: 'https://example.invalid/warehouse.jpg' });
+  expect(listingPopupModel(url, url.versions[0]).images?.[0]?.url).toBe('https://example.invalid/warehouse.jpg');
+  const none = record();
+  expect(listingPopupModel(none, none.versions[0]).imageReason).toBe('この求人には画像が登録されていません');
+  expect(listingPopupModel({ ...none, versions: [] }).imageReason).toBe('画像の登録状況を取得できていません');
+});
+
+it('switches in the supplied order, uses the latest published copy, and ignores arrows in inputs', async () => {
+  const first = record({ 案件名: '最初の求人', 仕事内容: '最初の本文です。' });
+  const second = { ...record({ 案件名: '次の求人', 仕事内容: '最新の本文です。' }), id: 'second' };
+  const published = second.versions[0];
+  if (!published) throw new Error('掲載本文が必要です');
+  second.versions.push({ ...published, id: 'draft', kind: 'ai_draft', comparisonBody: rowBody({ 案件名: '未掲載の案' }), body: '未掲載の案です。' });
+  const load = vi.fn((id: string) => Promise.resolve(id === first.id ? first : second));
+  render(<ListingPopup job={second} version={second.versions[0]} navigation={{ ids: [first.id, second.id], load }} onClose={vi.fn()} />);
+  const dialog = screen.getByRole('dialog');
+  expect(screen.getByText('2 / 2件目')).toBeTruthy();
+  expect(screen.getByRole('button', { name: '次の求人 ›' })).toHaveProperty('disabled', true);
+  fireEvent.keyDown(dialog, { key: 'ArrowLeft' });
+  await screen.findByRole('heading', { name: '最初の求人' });
+  expect(screen.getByRole('dialog')).toBe(dialog);
+  expect(screen.getByText('1 / 2件目')).toBeTruthy();
+  expect(screen.getByRole('button', { name: '‹ 前の求人' })).toHaveProperty('disabled', true);
+  const input = document.createElement('input'); dialog.append(input);
+  fireEvent.keyDown(input, { key: 'ArrowRight' }); expect(load).toHaveBeenCalledTimes(1); input.remove();
+  fireEvent.keyDown(dialog, { key: 'ArrowRight' });
+  await screen.findByRole('heading', { name: '次の求人' });
+  expect(dialog.textContent).toContain('最新の本文です。');
+  expect(dialog.textContent).not.toContain('未掲載の案です。');
+});
+
+it('does not mark unknown historical conditions and shows changed image references in the changes filter', () => {
+  const aw = listingRecord({ listing: { ...listing, media: 'airwork' }, current_fields: { 勤務時間: '9:00〜18:00' }, versions: [
+    { written_at: '2026-10-01T00:00:00Z', body: '荷物を確認します。', image_urls: null },
+    { written_at: '2026-10-11T00:00:00Z', body: '荷物を確認します。', image_urls: null },
+  ], history_counts: {}, history_may_be_incomplete: false });
+  const { unmount } = render(<ListingPopup job={aw} version={aw.versions[1]} onClose={vi.fn()} />);
+  expect(screen.getByRole('dialog').querySelectorAll('[aria-label="変更あり"]')).toHaveLength(0);
+  unmount();
+  const job = record({ 画像1: 'new.jpg' });
+  const selected = job.versions[0];
+  if (!selected) throw new Error('掲載本文が必要です');
+  job.versions.unshift({ ...selected, id: 'before-image', comparisonBody: (selected.comparisonBody ?? '').replace('new.jpg', 'old.jpg') });
+  render(<ListingPopup job={job} version={selected} onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole('checkbox', { name: '変わった項目だけ表示（1項目）' }));
+  expect(screen.getByRole('dialog').querySelectorAll('[aria-label="変更あり"]')).toHaveLength(2);
+  expect(screen.getAllByText('画像はありますが、取得できていません')).toHaveLength(2);
+  expect(screen.getByRole('dialog').textContent).not.toMatch(/new.jpg|old.jpg/);
+});
+
+it('keeps the current copy while loading and after a failed switch, then permits retry', async () => {
+  const job = record({ 案件名: '確認中の求人' });
+  let reject!: (reason: Error) => void;
+  const pending = new Promise<JobCopyRecord>((_, fail) => { reject = fail; });
+  const load = vi.fn(() => pending);
+  render(<ListingPopup job={job} version={job.versions[0]} navigation={{ ids: [job.id, 'next'], load }} onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: '次の求人 ›' }));
+  expect(screen.getByRole('heading', { name: '確認中の求人' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '次の求人 ›' })).toHaveProperty('disabled', true);
+  await act(async () => { reject(new Error('offline')); await Promise.resolve(); });
+  expect(screen.getByRole('alert').textContent).toBe('切り替え先の求人を取得できませんでした。もう一度切り替えてください。');
+  expect(screen.getByRole('heading', { name: '確認中の求人' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '次の求人 ›' })).toHaveProperty('disabled', false);
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import type { JobCopyRecord } from './data';
 import { listingRecord, mediaLabel, publicationLabel, draftStateLabel } from './hubspotListings';
@@ -7,7 +7,7 @@ import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; revision?: number }) {
+export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; revision?: number }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
@@ -104,7 +104,8 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     if (opened.current !== initialListingId) void openId(initialListingId);
   }, [active, initialListingId, openId]);
   const conditions = [deal ? dealName : '', prefecture, title === 'unknown' ? '職種不明' : title, media === 'hrh' ? 'HRハッカー' : media === 'airwork' ? 'AirWork' : '', publication === 'unknown' ? '公開状況は未取得' : publication, draftStatus ? draftStatus === 'none' ? '案なし・確認状態は未取得' : ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' } as Record<string, string>)[draftStatus] ?? '不明' : ''].filter(Boolean).join(' ／ ') || 'すべての求人';
-  const rows = sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [];
+  const rows = useMemo(() => sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [], [page, sort]);
+  useEffect(() => { if (active) onVisibleRows?.(rows); }, [active, rows, onVisibleRows]);
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
     <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>
     <details className="jc-hubspot-filter-details" open={filtersOpen} onToggle={event => { setFiltersOpen(event.currentTarget.open); }}><summary>絞り込み・並び順</summary><div className="jc-hubspot-filters">
