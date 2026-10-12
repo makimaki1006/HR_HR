@@ -706,11 +706,38 @@ struct Version {
     written_at: String,
     body: String,
     image_urls: Option<Vec<String>>,
+    images_registered: Option<bool>,
 }
 #[derive(Deserialize)]
 struct History {
     timestamp: String,
     value: String,
+}
+fn images_registered_value(value: &str) -> bool {
+    value.split_whitespace().any(|part| {
+        let reference = if part.starts_with("画像") {
+            part.split_once(['：', ':'])
+                .map_or(part, |(_, value)| value)
+        } else {
+            part
+        };
+        !matches!(reference.trim(), "" | "なし" | "画像なし" | "未登録")
+    })
+}
+fn current_image_registration(record: &Record, media: &str) -> Option<bool> {
+    if record
+        .value(super::super::job_copy_image_bridge::PROPERTY)
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return Some(true);
+    }
+    if media == "hrh" {
+        record
+            .value("hrh_kyuujinhyou_gazou")
+            .map(images_registered_value)
+    } else {
+        None
+    }
 }
 pub(super) fn image_urls(value: &str) -> Vec<String> {
     // Image fields may contain labelled lines; retain slot order and allow only web URLs.
@@ -759,6 +786,7 @@ fn versions(
     let body_property = properties[0];
     let mut body: Option<String> = None;
     let mut images = None;
+    let mut images_registered = None;
     let mut result: Vec<Version> = Vec::new();
     for (time, changes) in events {
         if let Some(value) = changes.get(body_property) {
@@ -766,18 +794,21 @@ fn versions(
         }
         if let Some(value) = changes.get("hrh_kyuujinhyou_gazou") {
             images = Some(image_urls(value));
+            images_registered = Some(images_registered_value(value));
         }
         if let Some(body) = &body {
-            if result
-                .last()
-                .is_some_and(|last| &last.body == body && last.image_urls == images)
-            {
+            if result.last().is_some_and(|last| {
+                &last.body == body
+                    && last.image_urls == images
+                    && last.images_registered == images_registered
+            }) {
                 continue;
             }
             result.push(Version {
                 written_at: time.to_rfc3339(),
                 body: body.clone(),
                 image_urls: images.clone(),
+                images_registered,
             });
         }
     }
@@ -796,7 +827,9 @@ fn current_body(record: &Record, media: &str) -> Option<Value> {
     } else {
         None
     };
-    Some(json!({"checked_at":chrono::Utc::now().to_rfc3339(),"body":body,"image_urls":images}))
+    Some(
+        json!({"checked_at":chrono::Utc::now().to_rfc3339(),"body":body,"image_urls":images,"images_registered":if media == "hrh" { record.value("hrh_kyuujinhyou_gazou").map(images_registered_value) } else { None }}),
+    )
 }
 // Available observed images can accompany an AirWork body; never relabel them as historical images.
 async fn observed_images(record: &Record, access: &Access) -> Option<Value> {
@@ -904,6 +937,7 @@ pub(super) async fn read_versions(
             .is_none_or(|version| Some(version.body.as_str()) != value["body"].as_str())
     });
     let current_images = observed_images(&record, &access).await;
+    let current_images_registered = current_image_registration(&record, row.media);
     let company_name = listing_company_name(service(&access)?, &id)
         .await
         .unwrap_or_else(|error| {
@@ -930,7 +964,7 @@ pub(super) async fn read_versions(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"current_fields":current_fields,"company_name":company_name,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
+            json!({"current_fields":current_fields,"company_name":company_name,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
         ),
     ))
 }
@@ -1262,6 +1296,30 @@ mod tests {
         let (aw, _, _) = versions(&json!({"propertiesWithHistory":{"shigotonaiyou":[{"timestamp":"2026-10-01T00:00:00Z","value":"合成仕事内容"}]}}), "airwork").unwrap();
         assert_eq!(aw[0].body, "合成仕事内容");
         assert_eq!(aw[0].image_urls, None);
+    }
+    #[test]
+    fn job_copy_image_registration_retains_filenames_and_distinguishes_absence() {
+        assert!(!images_registered_value(""));
+        assert!(!images_registered_value("なし"));
+        assert!(!images_registered_value(
+            "画像1：なし\n画像2：\n画像3：未登録"
+        ));
+        assert!(images_registered_value("画像1：warehouse.jpg\n画像2：なし"));
+        assert!(images_registered_value(
+            "https://example.invalid/warehouse.jpg"
+        ));
+        let data = json!({"propertiesWithHistory": {
+            "hrh_kyuujinhyou_honbun":[{"timestamp":"2026-10-01T00:00:00Z","value":"本文"}],
+            "hrh_kyuujinhyou_gazou":[
+                {"timestamp":"2026-10-01T00:00:00Z","value":"warehouse.jpg"},
+                {"timestamp":"2026-10-02T00:00:00Z","value":""}
+            ]
+        }});
+        let (rows, _, _) = versions(&data, "hrh").unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].image_urls, Some(vec![]));
+        assert_eq!(rows[0].images_registered, Some(true));
+        assert_eq!(rows[1].images_registered, Some(false));
     }
     #[test]
     fn job_copy_media_keys_and_unknown_values() {

@@ -131,7 +131,7 @@ export function sameSalary(left: SalaryInfo | null, right: SalaryInfo | null): b
 const man = (value: number) => `${(value / 10_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}万`;
 /** Short label for the timeline ("月給25万〜28万円", "時給1,100円", "日給12,000円"). */
 export function salaryLabel(info: SalaryInfo | null): string {
-  if (!info) return '給与の記載なし';
+  if (!info) return '未取得';
   if (info.kind === '不明') return '不明';
   const format = (value: number) => info.kind === '時給' || info.kind === '日給' ? value.toLocaleString('ja-JP') : man(value);
   if (info.min === null) return info.max === null ? '不明' : `${info.kind}${format(info.max)}円まで`;

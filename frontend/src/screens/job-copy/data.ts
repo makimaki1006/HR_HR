@@ -23,6 +23,7 @@ export interface CopyVersion {
   bodySections?: { heading: string; text: string }[];
   applications: { confirmed: number; estimated: number; unknown: number } | null;
   images?: CopyImage[];
+  imagesRegistered?: boolean | undefined;
   imageReferences?: { referenceHash: string; slot: number }[];
   historicalImageBytesAvailable?: boolean;
   note: string;
@@ -33,6 +34,7 @@ export interface CopyVersion {
 }
 
 export interface JobCopyRecord {
+  currentImagesRegistered?: boolean | undefined;
   currentListingFields?: Record<string, string>;
   listingPublicationStatus?: string | null;
   listingApplicationCount?: number | null;

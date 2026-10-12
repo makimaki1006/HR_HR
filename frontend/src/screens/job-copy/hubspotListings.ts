@@ -28,10 +28,11 @@ export interface HubSpotVersions {
   draft_revision?: string;
   can_write_drafts?: boolean;
   draft_history_may_be_incomplete?: boolean;
-  current?: { checked_at: string; body: string; image_urls: string[] | null } | null;
+  current?: { checked_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null } | null;
+  current_images_registered?: boolean | null;
   current_images?: { observed_at: string; image_urls: string[] } | null;
   listing: HubSpotListing;
-  versions: { written_at: string; body: string; image_urls: string[] | null }[];
+  versions: { written_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null }[];
   history_counts: Record<string, number>; history_may_be_incomplete: boolean;
 }
 export const draftStateLabel = (status: DraftSnapshot['review_status']) => ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' })[status];
@@ -44,6 +45,7 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
   const row = data.listing;
   const copy = (body: string) => row.media === 'hrh' ? { comparisonBody: body, body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: '仕事内容', text: body }] : [] };
   return {
+    currentImagesRegistered: data.current_images_registered ?? undefined,
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
     currentDraftRow: data.current_row ?? undefined, draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
     ...(data.current_fields ? { currentListingFields: data.current_fields } : {}),
@@ -57,8 +59,9 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
       observedAt: version.written_at, ...copy(version.body), kind: 'published' as const, certainty: 'unknown' as const,
       source: 'HubSpotに記録された本文', applications: null,
       ...(version.image_urls !== null ? { images: version.image_urls.map((url, slot) => ({ id: `history-image-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}),
+      imagesRegistered: version.images_registered ?? undefined,
       historicalImageBytesAvailable: false,
       note: '本文がHubSpotに記録された日時です。掲載開始日時は不明です。画像は当時と異なる可能性があります。この本文への応募件数は未取得です。',
-    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: `${formatDateTimeJst(data.current.checked_at, '日時不明')} に確認した現在の本文`, observedAt: data.current.checked_at, ...copy(data.current.body), kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotの現在の本文', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '以前の本文を確認できないため、現在の本文を表示しています。日時は今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' }] : []), ...(data.drafts ?? []).map(draftVersion)],
+    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: `${formatDateTimeJst(data.current.checked_at, '日時不明')} に確認した現在の本文`, observedAt: data.current.checked_at, ...copy(data.current.body), imagesRegistered: data.current.images_registered ?? undefined, kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotの現在の本文', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '以前の本文を確認できないため、現在の本文を表示しています。日時は今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' }] : []), ...(data.drafts ?? []).map(draftVersion)],
   };
 }
