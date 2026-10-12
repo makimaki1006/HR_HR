@@ -10,6 +10,9 @@ use deals::{
 };
 pub(super) use deals::{read_body_dates, read_comparison};
 #[cfg(test)]
+#[path = "listing_cache_tests.rs"]
+mod cache_tests;
+#[cfg(test)]
 #[path = "listing_deal_tests.rs"]
 mod deal_tests;
 
@@ -926,15 +929,29 @@ async fn listing_company_name(
         .and_then(|record| record.value("name"))
         .map(str::to_owned))
 }
-pub(super) async fn read_versions(
-    State(state): State<Arc<AppState>>,
-    Extension(access): Extension<Access>,
-    session: Session,
-    AxumPath(id): AxumPath<String>,
-) -> Result<impl IntoResponse, ReadError> {
-    authorized_user(&state, &access, &session).await?;
-    valid_id(&id)?;
-    let data = service(&access)?
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FreshQuery {
+    fresh: Option<String>,
+}
+impl FreshQuery {
+    fn requested(&self) -> bool {
+        matches!(self.fresh.as_deref(), Some("1" | "true"))
+    }
+}
+/// The listing record with its history. Reused for 60 seconds across users; `fresh=1` rereads.
+async fn listing_data(
+    service: &JobReadService,
+    id: &str,
+    fresh: bool,
+) -> Result<(Arc<Value>, Option<u64>), ReadError> {
+    let epoch = service.detail_cache.epoch();
+    if !fresh {
+        if let Some(data) = service.detail_cache.detail.get(id) {
+            return Ok((data, None));
+        }
+    }
+    let data = service
         .request(
             &format!("/crm/v3/objects/0-420/{id}"),
             &[
@@ -958,6 +975,20 @@ pub(super) async fn read_versions(
             None,
         )
         .await?;
+    Ok((Arc::new(data), Some(epoch)))
+}
+pub(super) async fn read_versions(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    AxumPath(id): AxumPath<String>,
+    Query(fresh): Query<FreshQuery>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    valid_id(&id)?;
+    let (data_arc, fetched_at_epoch) =
+        listing_data(service(&access)?, &id, fresh.requested()).await?;
+    let data = &*data_arc;
     let record: Record =
         serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
     if record.id != id {
@@ -971,7 +1002,7 @@ pub(super) async fn read_versions(
         StatusCode::UNPROCESSABLE_ENTITY,
         "listing_media_unknown",
     ))?;
-    let (versions, counts, may_be_incomplete) = versions(&data, row.media)?;
+    let (versions, counts, may_be_incomplete) = versions(data, row.media)?;
     let current = current_body(&record, row.media).filter(|value| {
         versions
             .last()
@@ -984,13 +1015,14 @@ pub(super) async fn read_versions(
         observed_images(&record, &access).await
     };
     let current_images_registered = current_image_registration(&record, row.media);
-    let company_name = listing_company_name(service(&access)?, &id)
-        .await
-        .unwrap_or_else(|error| {
-            tracing::warn!(reason = error.1, "job-copy company name unavailable");
-            None
-        });
-    let (drafts, draft_history_may_be_incomplete) = crate::job_gen::drafts::history(&data);
+    // Whole answer parsed and checked: only now is a fresh HubSpot read worth keeping. A read
+    // served from the cache is not stored again, so the 60 seconds never slide.
+    if let Some(epoch) = fetched_at_epoch {
+        service(&access)?
+            .detail_cache
+            .store_detail(&id, data_arc.clone(), epoch);
+    }
+    let (drafts, draft_history_may_be_incomplete) = crate::job_gen::drafts::history(data);
     // Independent conditions are current values, not historical conditions.
     let current_fields = deals::comparison_fields(&record, row.media);
     let draft_revision = crate::job_gen::drafts::revision(&record.properties);
@@ -1010,8 +1042,39 @@ pub(super) async fn read_versions(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"current_fields":current_fields,"company_name":company_name,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
+            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
         ),
+    ))
+}
+/// The customer name for the detail header. Separate from `read_versions` because it needs three
+/// more HubSpot reads and is only a label: the body and images should not wait for it.
+pub(super) async fn read_company(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    AxumPath(id): AxumPath<String>,
+    Query(fresh): Query<FreshQuery>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    valid_id(&id)?;
+    let service = service(&access)?;
+    let cached = if fresh.requested() {
+        None
+    } else {
+        service.detail_cache.company.get(&id)
+    };
+    let company_name = match cached {
+        Some(name) => name,
+        None => {
+            // A failure is an error for the caller (it just leaves the name blank) and is not cached.
+            let name = listing_company_name(service, &id).await?;
+            service.detail_cache.company.put(&id, name.clone());
+            name
+        }
+    };
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({"listing_id":id,"company_name":company_name})),
     ))
 }
 #[cfg(test)]
@@ -1137,6 +1200,7 @@ mod tests {
                 Extension(access.clone()),
                 session.clone(),
                 AxumPath("51".into()),
+                Query(FreshQuery::default()),
             )
             .await
             .unwrap()
@@ -1187,8 +1251,10 @@ mod tests {
             .await,
             Err(ReadError(StatusCode::BAD_REQUEST, _))
         ));
-        // Exactly the existing detail and company-association reads for each request.
-        assert_eq!(calls.load(Ordering::Relaxed), 10);
+        // One listing read for the first detail request; the other four are served from the
+        // 60-second cache (only the counts, computed from the index, differ per mode). The
+        // company is no longer read by the detail request at all.
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
         task.abort();
     }
     #[tokio::test]

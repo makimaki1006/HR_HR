@@ -1,6 +1,6 @@
 import type { ListingNavigation } from './ListingPopup';
 import { listingRecord, publicationLabel } from './hubspotListings';
-import type { HubSpotListing, HubSpotVersions } from './hubspotListings';
+import type { HubSpotListing } from './hubspotListings';
 import { ListingPopup } from './ListingPopup';
 import { DealComparison } from './DealComparison';
 import type { DealSelection } from './hubspotListings';
@@ -39,6 +39,7 @@ import { ConsultantReview } from './ConsultantReview';
 import { HubSpotReadPanel } from './HubSpotReadPanel';
 import { RikuroziDraftPanel } from './RikuroziDraftPanel';
 import { HubSpotListingsPanel } from './HubSpotListingsPanel';
+import { loadCompany, loadVersions, peekCompany, prefetchNeighbors } from './listingDetailCache';
 import { HUBSPOT_BODY_SOURCE } from './liveApplications';
 import { JobTimeline } from './JobTimeline';
 import { parseListingStatus, withPublicationFor } from './mediaPublication';
@@ -382,7 +383,14 @@ export function JobCopyScreen() {
       return !open;
     });
   }
-  function openListingHistory(job: JobCopyRecord) {
+  function openListingHistory(opened: JobCopyRecord) {
+    // 会社名は本文とは別に読む。手元にあれば最初から入れ、なければ届いてから差し込む。
+    const known = opened.hubspotId ? peekCompany(opened.hubspotId) : undefined;
+    const job = known && !opened.company ? { ...opened, company: known } : opened;
+    if (job.hubspotId && !job.company) {
+      const id = job.hubspotId;
+      void loadCompany(id).then(name => { if (name) setRecords(items => items.map(item => item.hubspotId === id && !item.company ? { ...item, company: name } : item)); });
+    }
     if (!records.some(item => item.id.startsWith('hubspot-history-'))) originalListing.current = { records, snapshotAt, live, captured, selectedId };
     const url = new URL(window.location.href); if (job.hubspotId) url.searchParams.set('listing', job.hubspotId); window.history.replaceState(null, '', url);
     stopSnapshot(); setSnapshotAt(''); setListingDetail('ready');
@@ -426,8 +434,9 @@ export function JobCopyScreen() {
       load: async (id, signal) => {
         const row = popupRows.find(item => `hubspot-history-${item.id}` === id);
         if (!row) throw new Error('求人を取得できません');
-        const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(row.id)}/versions`, { signal, timeoutMs: 120_000 });
+        const result = await loadVersions(row.id, { signal });
         if (!result.ok) throw result.error;
+        if (!signal.aborted) prefetchNeighbors(popupRows.map(item => item.id), row.id);
         return listingRecord(result.data, row);
       },
     } : { ids: visible.map(item => item.id), load: id => { const next = visible.find(item => item.id === id); return next ? Promise.resolve(next) : Promise.reject(new Error('求人を取得できません')); } }} billing={billingByJob[selected.id]} showDummyBilling={showDummyBilling} demo={demoMode} request={featureRequest} onDraftSaved={(draft, revision) => { setListingRevision(value => value + 1); setRecords(items => items.map(item => item.id === selected.id ? { ...item, draftRevision: revision, latestDraftId: draft.draft_id, versions: item.versions.some(version => version.draft?.draft_id === draft.draft_id) ? item.versions.map((version, index) => version.draft?.draft_id === draft.draft_id ? draftVersion(draft, item.versions.slice(0, index).filter(v => v.draft).length) : version) : [...item.versions, draftVersion(draft, item.versions.filter(v => v.draft).length)] } : item)); }} reviewed={reviewed} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{snapshotLoading ? '求人データを読み込んでいます' : records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{snapshotLoading ? '読み込み後に本文と応募集計を表示します。' : records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</>}</div></div>

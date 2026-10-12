@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiGet, apiPatch, apiPost, ApiHttpError } from '../../api/client';
 import type { DraftSnapshot } from '../../generated/DraftSnapshot';
+import { invalidateListingUrl } from './listingDetailCache';
 import type { DraftOperationResponse } from '../../generated/DraftOperationResponse';
 export type DraftResult = DraftOperationResponse;
 export function draftError(error: Error): string {
@@ -28,6 +29,8 @@ export function useDraftMutation(onSaved: (draft: DraftSnapshot, revision: strin
     operation.id = String(operation.body.operation_id); pending.current = operation;
     setBusy(true); setMessage('案の保存結果を確認しています…'); setUncertain(false);
     let result = await (operation.method === 'post' ? apiPost<DraftResult> : apiPatch<DraftResult>)(operation.url, operation.body, { timeoutMs: 120_000 });
+    // 保存した求人の手元の読み込み結果は古くなるので捨てる（結果が不明なときも念のため）。
+    invalidateListingUrl(operation.url);
     if (!mounted.current) return;
     const finish = () => {
       if (!mounted.current) return;

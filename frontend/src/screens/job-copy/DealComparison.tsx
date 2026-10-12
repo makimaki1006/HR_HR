@@ -1,10 +1,11 @@
 import { ListingPopup } from './ListingPopup';
+import { loadVersions, prefetchNeighbors } from './listingDetailCache';
 import { useEffect, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { formatDateTimeJst } from './format';
 import { HUBSPOT_BUSY_MESSAGE, isHubSpotBusy } from './SnapshotErrorNotice';
 import { listingRecord, mediaLabel, publicationLabel } from './hubspotListings';
-import type { DealSelection, HubSpotListingPage, HubSpotVersions, HubSpotListing } from './hubspotListings';
+import type { DealSelection, HubSpotListingPage, HubSpotListing } from './hubspotListings';
 import type { JobCopyRecord } from './data';
 import { compareJobs, comparisonValue, salaryAmount } from './dealComparisonModel';
 import { composeSalary } from './hrhCopy';
@@ -83,9 +84,9 @@ export function DealComparison({ deal, onOpen, onClose }: { deal: DealSelection;
   useEffect(() => () => { action.current?.abort(); }, []);
   const open = async (row: HubSpotListing, opener?: HTMLElement) => {
     action.current?.abort(); const controller = new AbortController(); action.current = controller; setBusy(true); setError('');
-    const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(row.id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
+    const result = await loadVersions(row.id, { signal: controller.signal });
     if (controller.signal.aborted) return;
-    if (result.ok) { const job = listingRecord(result.data, row); if (opener) setPopup({ job, opener }); else onOpen(job); } else setError(failure(result.error));
+    if (result.ok) { const job = listingRecord(result.data, row); if (opener) setPopup({ job, opener }); else onOpen(job); prefetchNeighbors((page?.listings ?? []).map(item => item.id), row.id); } else setError(failure(result.error));
     setBusy(false);
   };
   const compare = async () => {
@@ -107,8 +108,9 @@ export function DealComparison({ deal, onOpen, onClose }: { deal: DealSelection;
     {popup && <ListingPopup navigation={{ ids: (page?.listings ?? []).map(row => `hubspot-history-${row.id}`), load: async (id, signal) => {
       const row = page?.listings.find(item => `hubspot-history-${item.id}` === id);
       if (!row) throw new Error('求人を取得できません');
-      const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(row.id)}/versions`, { signal, timeoutMs: 120_000 });
+      const result = await loadVersions(row.id, { signal });
       if (!result.ok) throw result.error;
+      if (!signal.aborted) prefetchNeighbors((page?.listings ?? []).map(item => item.id), row.id);
       return listingRecord(result.data, row);
     } }} job={popup.job} version={popup.job.versions.filter(item => item.kind === 'published').at(-1)} returnFocus={popup.opener} onClose={() => { setPopup(null); }} />}
     {comparison && <ParallelJobs jobs={comparison} />}

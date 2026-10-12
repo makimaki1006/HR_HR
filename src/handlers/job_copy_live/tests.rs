@@ -1703,7 +1703,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["drafts"][1]["review_status"], "pending");
     assert_eq!(data["draft_revision"].as_str().unwrap().len(), 64);
     assert_eq!(data["can_write_drafts"], false);
-    assert_eq!(calls.lock().unwrap().len(), 9); // index + association batches, history and detail-only company associations
+    assert_eq!(calls.lock().unwrap().len(), 7); // index + association batches and history; the company name is a separate request now
     for ids in ["10", "10,10", "10,11,12,13,14,15", "10,not-an-id"] {
         let response = app
             .clone()
@@ -1717,7 +1717,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(calls.lock().unwrap().len(), 9);
+        assert_eq!(calls.lock().unwrap().len(), 7);
     }
     let response = app
         .clone()
@@ -1741,7 +1741,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["jobs"][0]["listing"]["media"], "hrh");
     assert_eq!(data["jobs"][1]["listing"]["media"], "airwork");
     assert_eq!(data["jobs"][1]["body"], "合成AirWorkの本文");
-    assert_eq!(calls.lock().unwrap().len(), 10); // one read for selected jobs
+    assert_eq!(calls.lock().unwrap().len(), 8); // one read for selected jobs
     session
         .insert(SESSION_USER_KEY, "outside@example.test")
         .await
@@ -1758,6 +1758,6 @@ async fn job_copy_listings_auth_and_mock_contract() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(calls.lock().unwrap().len(), 10);
+    assert_eq!(calls.lock().unwrap().len(), 8);
     task.abort();
 }

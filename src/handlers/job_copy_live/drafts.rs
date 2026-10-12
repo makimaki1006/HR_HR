@@ -210,6 +210,10 @@ async fn process(
             Err(e) => Err((e.is_transient(), "draft_read_failed")),
         }
     };
+    // HubSpot was (or may have been) written for this listing: never serve the older read.
+    if let Some(service) = &access.service {
+        service.detail_cache.forget_listing(&op.listing);
+    }
     match result {
         Ok(()) => {
             op.status = "saved".into();
@@ -801,6 +805,10 @@ mod tests {
     #[tokio::test]
     async fn save_payload_author_audit_idempotency_and_review_only_touch_draft() {
         let (state, access, writes, session, remote) = setup().await;
+        // An older read of this listing (and of another) is in the shared detail cache.
+        let cache = &access.service.as_ref().unwrap().detail_cache;
+        cache.detail.put("30", Arc::new(json!({"old":true})));
+        cache.detail.put("31", Arc::new(json!({"other":true})));
         let r = save_fixture(
             state.clone(),
             access.clone(),
@@ -811,6 +819,11 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(r.status(), StatusCode::OK);
+        assert!(
+            cache.detail.get("30").is_none(),
+            "a saved draft drops the cached read of that listing"
+        );
+        assert!(cache.detail.get("31").is_some(), "other listings stay");
         let p = remote.lock().unwrap().patches[0]["properties"].clone();
         assert_eq!(p.as_object().unwrap().len(), 5);
         assert_eq!(p[drafts::STATUS], "pending");
