@@ -24,6 +24,7 @@ mod applicant_extensions;
 pub mod applicant_reasons;
 mod drafts;
 mod hrh_copy;
+mod listing_cache;
 mod listing_status;
 mod listings;
 mod manual_edit;
@@ -197,6 +198,8 @@ pub struct JobReadService {
     labels: Arc<std::sync::Mutex<LabelCache>>,
     publication: listing_status::Cache,
     listing_index: listings::Cache,
+    /// HubSpot listing record (60 s) and customer name (6 h) reads, shared across users.
+    detail_cache: Arc<listing_cache::DetailCaches>,
 }
 /// Maps a client failure (nothing usable came back from HubSpot) to this API's codes.
 fn client_error(e: crate::hubspot::HubSpotError) -> ReadError {
@@ -239,6 +242,7 @@ impl JobReadService {
             labels: Arc::default(),
             publication: Arc::default(),
             listing_index: Arc::default(),
+            detail_cache: Arc::default(),
         }
     }
     /// The HubSpot client (the image bridge's operator writes wait on its gateway too).
@@ -2111,6 +2115,10 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route(
             "/api/job-copy/listings/{id}/versions",
             get(listings::read_versions),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/company",
+            get(listings::read_company),
         )
         .route(
             "/api/job-copy/listings/{id}/applications",

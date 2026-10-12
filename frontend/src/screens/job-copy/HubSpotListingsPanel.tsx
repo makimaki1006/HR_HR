@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
+import { loadVersions, prefetchNeighbors } from './listingDetailCache';
 import type { JobCopyRecord } from './data';
 import { listingRecord, mediaLabel, publicationLabel, draftStateLabel } from './hubspotListings';
-import type { HubSpotListingPage, HubSpotVersions, HubSpotListing, DealSelection } from './hubspotListings';
+import type { HubSpotListingPage, HubSpotListing, DealSelection } from './hubspotListings';
 import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
@@ -56,6 +57,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     const timer = window.setTimeout(() => { void load(); }, 5_000);
     return () => { window.clearTimeout(timer); };
   }, [active, page, busy, error, load]);
+  const orderRef = useRef<string[]>([]);
   const opened = useRef('');
   const restored = useRef('');
   const openId = useCallback(async (id: string, listedRow?: HubSpotListing) => {
@@ -63,11 +65,13 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     countRequest.current?.controller.abort(); countRequest.current = null;
     detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
     setSelected(id); setError(''); onLoading?.();
-    const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
+    const result = await loadVersions(id, { signal: controller.signal });
     if (controller.signal.aborted) return;
     if (result.ok) {
       const record = listingRecord(result.data, listedRow ?? pageRef.current?.listings.find(row => row.id === id));
       loadedRecord.current = record; onOpen(record);
+      // 表示が済んだあとで、前後の求人を裏で読んでおく。
+      prefetchNeighbors(orderRef.current, id);
     }
     else { const text = message(result.error); setError(text); onFailure?.(text); }
   }, [onOpen, onLoading, onFailure]);
@@ -105,6 +109,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   }, [active, initialListingId, openId]);
   const conditions = [deal ? dealName : '', prefecture, title === 'unknown' ? '職種不明' : title, media === 'hrh' ? 'HRハッカー' : media === 'airwork' ? 'AirWork' : '', publication === 'unknown' ? '公開状況は不明' : publication, draftStatus ? draftStatus === 'none' ? '案なし・確認状態は未取得' : ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' } as Record<string, string>)[draftStatus] ?? '不明' : ''].filter(Boolean).join(' ／ ') || 'すべての求人';
   const rows = useMemo(() => sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [], [page, sort]);
+  useEffect(() => { orderRef.current = rows.map(item => item.id); }, [rows]);
   useEffect(() => { if (active) onVisibleRows?.(rows); }, [active, rows, onVisibleRows]);
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
     <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>

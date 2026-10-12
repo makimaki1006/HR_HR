@@ -164,3 +164,47 @@ it('ignores a delayed count for the previous job after switching jobs', async ()
   expect(onApplicationsLoaded).not.toHaveBeenCalled();
   expect(onOpen.mock.calls.at(-1)?.[0].listingApplicationCount).toBe(7);
 });
+
+describe('opening a listing quickly', () => {
+  const versionCalls = (id: string) => api.mock.calls.filter(call => String(call[0]) === `/api/job-copy/listings/${id}/versions`).length;
+  const reply = (path: string, company?: Promise<unknown>) => {
+    if (path.endsWith('/company')) return company ?? Promise.resolve({ ok: true, data: { listing_id: row.id, company_name: '合成運輸株式会社' } });
+    const id = /listings\/(\d+)\/versions/.exec(path)?.[1];
+    if (id) return Promise.resolve({ ok: true, data: { ...history, listing: id === row.id ? row : { ...row, id, title: `合成求人${id}` } } });
+    return Promise.resolve({ ok: true, data: path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.endsWith('/moc') ? { error: 'x' } : page });
+  };
+  it('draws the body before the customer name and fills the name in when it arrives', async () => {
+    window.history.replaceState(null, '', '/app/job-copy?demo=1');
+    let resolveCompany!: (value: unknown) => void;
+    const company = new Promise(resolve => { resolveCompany = resolve; });
+    api.mockImplementation((path: string) => reply(path, company));
+    const { container } = render(<JobCopyScreen />);
+    fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
+    fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
+    await waitFor(() => { expect(container.querySelector('.jc-detail-heading h1')?.textContent).toBe('合成配送求人'); });
+    // The body is on screen and the name has been asked for, but has not arrived.
+    expect(api.mock.calls.some(call => String(call[0]) === '/api/job-copy/listings/10/company')).toBe(true);
+    expect(container.querySelector('.jc-detail-heading p')?.textContent).not.toContain('合成運輸株式会社');
+    await act(async () => { resolveCompany({ ok: true, data: { listing_id: '10', company_name: '合成運輸株式会社' } }); await company; });
+    await waitFor(() => { expect(container.querySelector('.jc-detail-heading p')?.textContent).toContain('合成運輸株式会社'); });
+  });
+  it('shows a reopened listing from the kept result without asking the server again, and warms only its neighbours', async () => {
+    api.mockImplementation((path: string) => reply(path));
+    const onOpen = vi.fn<(job: JobCopyRecord) => void>();
+    render(<HubSpotListingsPanel onOpen={onOpen} />);
+    fireEvent.click(await screen.findByRole('button', { name: '合成求人12の本文を見る' }));
+    await waitFor(() => { expect(onOpen).toHaveBeenCalledTimes(1); });
+    // Only the next and the previous listing (13 and 11) are read in the background.
+    await waitFor(() => { expect(versionCalls('11')).toBe(1); expect(versionCalls('13')).toBe(1); });
+    expect(['10', '14', '15', '59'].map(versionCalls)).toEqual([0, 0, 0, 0]);
+    expect(versionCalls('12')).toBe(1);
+    // The next listing was warmed: opening it adds no request; neither does going back.
+    fireEvent.click(screen.getByRole('button', { name: '合成求人13の本文を見る' }));
+    await waitFor(() => { expect(onOpen).toHaveBeenCalledTimes(2); });
+    expect(onOpen.mock.calls[1]?.[0].hubspotId).toBe('13');
+    fireEvent.click(screen.getByRole('button', { name: '合成求人12の本文を見る' }));
+    await waitFor(() => { expect(onOpen).toHaveBeenCalledTimes(3); });
+    expect(versionCalls('13')).toBe(1);
+    expect(versionCalls('12')).toBe(1);
+  });
+});
