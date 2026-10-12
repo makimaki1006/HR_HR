@@ -187,6 +187,8 @@
 .cq-ctab button[role="tab"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; padding: 5px 12px; font-size: 12px; cursor: pointer; color: var(--cq-sub); }
 .cq-ctab.is-active button[role="tab"] { color: var(--cq-text); font-weight: 700; box-shadow: inset 0 2px 0 var(--cq-accent); }
 .crm-app .cq-ctab button[role="tab"]:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: -2px; }
+.cq-ctab.is-missing:not(.is-active) button[role="tab"] { color: var(--cq-faint); }
+.cq-linkview-missing { margin: 24px 16px; }
 .cq-ctab-close { flex: none; background: transparent; border: 0; padding: 2px 8px 2px 0; font-size: 14px; line-height: 1; color: var(--cq-faint) !important; cursor: pointer; }
 .cq-ctab-close:hover { color: var(--cq-text) !important; }
 .cq-cpanels { flex: 1 1 auto; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }

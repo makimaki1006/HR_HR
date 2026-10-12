@@ -206,8 +206,8 @@ describe('layout v2: migration, maximize, compact summary', () => {
   it('広げる lays the link panel over the whole dock without moving it (same iframe element, other columns inert); Esc and 戻す restore it', async () => {
     const c = counted();
     await openDeal(c);
-    fireEvent.click(within(screen.getByRole('region', { name: 'リンク' })).getByRole('link', { name: /求人を検索する/ }));
-    const frame = within(document.getElementById('cq-cpanel-search') ?? document.body).getByTestId('link-frame');
+    // 求人検索のタブは最初から前に出ていて、枠がある
+    const frame = await within(document.getElementById('cq-cpanel-search') ?? document.body).findByTestId('link-frame');
     const zoomFrame = screen.getByTitle('Zoom Phone');
     const before = { ...c.n };
     const toggle = screen.getByTestId('links-maximize');

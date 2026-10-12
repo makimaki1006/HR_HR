@@ -1,14 +1,15 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import {
-  closeLink, DEAL_TAB, initialCenterTabs, isHubspotUrl, makeLinkTab, openLink, safeHttpUrl, SEARCH_TAB,
+  closeLink, initialCenterTabs, isHubspotUrl, makeLinkTab, openLink, safeHttpUrl, SEARCH_TAB,
 } from './centerLinks';
-import type { CenterTabsState, LinkTab } from './centerLinks';
+import type { CenterTabsState, FixedLink, LinkTab } from './centerLinks';
 import { FrameExtensionBadge } from './FrameExtensionBadge';
 import { shouldShowFrameHint, useFrameExtension } from './useFrameExtension';
 
 /**
- * 「求人検索・リンク先」パネルの中のタブ: 「リンク一覧」(いつもある) / 「求人検索」(検索の URL があるとき) / 開いたリンク (最大 5)。
+ * 「求人検索・リンク先」パネルの中のタブ: 固定の「求人検索」「ホームページ」「求人票」(いつもある。URL が無いときは案内だけ) /
+ * あるときだけ「会社のサイト」「求人媒体」/ 開いたリンク (最大 5)。
  * タブは消さずに隠すだけなので、切り替えても枠の中のページは読み直さない。
  */
 
@@ -39,44 +40,59 @@ export function PropLink({ url, label, children }: { url: string; label?: string
   return <a className="wd-link" href={href} target="_blank" rel="noopener noreferrer" title={href} onClick={onClick}>{children ?? href}</a>;
 }
 
+export interface FixedTab {
+  def: FixedLink;
+  /** 枠に出すタブ。URL が無いときは null */
+  tab: LinkTab | null;
+  /** 一度でも前に出したか (出すまでは枠を作らない = 外のサイトを読みに行かない) */
+  opened: boolean;
+}
+
 export interface CenterTabs {
   active: string;
   links: LinkTab[];
-  searchUrl: string | null;
-  /** 求人検索のタブを一度でも開いたか (開くまでは枠を作らない = Google を読みに行かない) */
-  searchOpened: boolean;
+  fixed: FixedTab[];
   open: OpenLink;
   close: (id: string) => void;
   activate: (id: string) => void;
 }
 
-/** パネルの中のタブの状態。`resetKey` (選んだ案件) が変わったら、開いたリンクを閉じてリンク一覧に戻す */
-export function useCenterTabs(resetKey: string | null, searchUrl: string | null): CenterTabs {
+type HookState = CenterTabsState & { opened: string[] };
+const freshState = (): HookState => ({ ...initialCenterTabs, opened: [SEARCH_TAB] });
+const withOpened = (opened: string[], id: string) => (opened.includes(id) ? opened : [...opened, id]);
+
+/**
+ * パネルの中のタブの状態。`resetKey` (選んだ案件) が変わったら、開いたリンクを閉じて求人検索に戻す。
+ * `fixed` は案件ごとの固定のタブ (求人検索・ホームページ・求人票 …)
+ */
+export function useCenterTabs(resetKey: string | null, fixed: readonly FixedLink[]): CenterTabs {
   const { installed } = useFrameExtension();
-  const [state, setState] = useState<CenterTabsState & { searchOpened: boolean }>({ ...initialCenterTabs, searchOpened: false });
+  const [state, setState] = useState<HookState>(freshState);
   const [seenKey, setSeenKey] = useState(resetKey);
   if (seenKey !== resetKey) {
     setSeenKey(resetKey);
-    setState({ ...initialCenterTabs, searchOpened: false });
+    setState(freshState());
   }
-  const active = state.active === SEARCH_TAB && searchUrl === null ? DEAL_TAB : state.active;
+  const active = fixed.length === 0 || state.links.some(l => l.id === state.active) || fixed.some(f => f.id === state.active) ? state.active : SEARCH_TAB;
   const open = useCallback<OpenLink>((url, label) => {
     setState(s => {
-      const next = openLink(s, url, label, searchUrl, installed);
-      return { ...next, searchOpened: s.searchOpened || next.active === SEARCH_TAB };
+      const next = openLink(s, url, label, fixed, installed);
+      return { ...next, opened: withOpened(s.opened, next.active) };
     });
-  }, [searchUrl, installed]);
-  // 最後のリンクを閉じたら、タブの並びで左隣 (求人検索があればそれ、無ければ案件) に戻る
+  }, [fixed, installed]);
   const close = useCallback((id: string) => {
-    setState(s => ({ ...s, ...closeLink(s, id, searchUrl !== null ? SEARCH_TAB : DEAL_TAB) }));
-  }, [searchUrl]);
-  const activate = useCallback((id: string) => {
-    setState(s => ({ ...s, active: id, searchOpened: s.searchOpened || id === SEARCH_TAB }));
+    setState(s => ({ ...s, ...closeLink(s, id, SEARCH_TAB) }));
   }, []);
-  return { active, links: state.links, searchUrl, searchOpened: state.searchOpened, open, close, activate };
+  const activate = useCallback((id: string) => {
+    setState(s => ({ ...s, active: id, opened: withOpened(s.opened, id) }));
+  }, []);
+  const fixedTabs = useMemo<FixedTab[]>(() => fixed.map(def => ({
+    def, tab: def.url === null ? null : makeLinkTab(def.id, def.url, def.label, installed), opened: state.opened.includes(def.id),
+  })), [fixed, installed, state.opened]);
+  return { active, links: state.links, fixed: fixedTabs, open, close, activate };
 }
 
-interface TabDef { id: string; label: string; title: string; closable: boolean }
+interface TabDef { id: string; label: string; title: string; closable: boolean; missing?: boolean }
 
 export const tabDomId = (id: string) => `cq-ctab-${id}`;
 export const panelDomId = (id: string) => `cq-cpanel-${id}`;
@@ -84,8 +100,7 @@ export const panelDomId = (id: string) => `cq-cpanel-${id}`;
 /** タブの並び (矢印キー・Home / End で移動して開く。Delete で開いたリンクのタブを閉じる) */
 export function CenterTabBar({ tabs }: { tabs: CenterTabs }) {
   const defs: TabDef[] = [
-    { id: DEAL_TAB, label: 'リンク一覧', title: '案件・会社に登録されたリンク', closable: false },
-    ...(tabs.searchUrl !== null ? [{ id: SEARCH_TAB, label: '求人検索', title: 'Google で求人を検索した結果', closable: false }] : []),
+    ...tabs.fixed.map(f => ({ id: f.def.id, label: f.def.label, title: f.def.url ?? '登録されていません', closable: false, missing: f.def.url === null })),
     ...tabs.links.map(l => ({ id: l.id, label: l.label, title: l.url, closable: true })),
   ];
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -119,7 +134,7 @@ export function CenterTabBar({ tabs }: { tabs: CenterTabs }) {
   return <div className="cq-ctabs" role="tablist" aria-label="求人検索・リンク先の表示" ref={listRef} onKeyDown={onKeyDown} data-testid="center-tabs">
     {defs.map(d => {
       const selected = d.id === tabs.active;
-      return <span key={d.id} className={`cq-ctab${selected ? ' is-active' : ''}`} role="presentation">
+      return <span key={d.id} className={`cq-ctab${selected ? ' is-active' : ''}${d.missing ? ' is-missing' : ''}`} role="presentation">
         <button type="button" role="tab" id={tabDomId(d.id)} aria-selected={selected} aria-controls={panelDomId(d.id)}
           tabIndex={selected ? 0 : -1} title={d.title} onClick={() => { tabs.activate(d.id); }}>{d.label}</button>
         {/* 閉じるボタンはマウス用 (キーボードはタブで Delete、またはタブの中の「このタブを閉じる」) */}
@@ -216,7 +231,8 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
   </div>;
 }
 
-/** 求人検索のタブの中身 (検索の URL をリンクのタブと同じ形にする) */
-export function searchTab(url: string): LinkTab | null {
-  return makeLinkTab(SEARCH_TAB, url, '求人検索');
+/** 固定のタブの中身: URL があれば枠 (一度前に出すまでは作らない)、無ければ案内 */
+export function FixedPanelBody({ item }: { item: FixedTab }) {
+  if (item.tab === null) return <div className="cq-notice cq-empty cq-linkview-missing" data-testid={`link-missing-${item.def.id}`}><p>{item.def.missing}</p></div>;
+  return item.opened ? <LinkView key={item.tab.url} tab={item.tab} /> : null;
 }

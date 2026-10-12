@@ -41,7 +41,7 @@ export function fixtureDetail(dealId: string, props?: SelectedProps): WorkspaceR
       next_call_time: item.next_call_time, last_call_date: item.last_call_date, stop: item.stop, bpo_phone: null,
       // 求人検索は HubSpot の「URL_求人検索」と同じ形 (余計な項目付き)。ホームページは IANA の例示用ドメイン
       job_search_url: jobSearch,
-      homepage_url: 'https://www.example.com/', media_job_urls: null, job_posting_url: null,
+      homepage_url: 'https://www.example.com/', media_job_urls: null, job_posting_url: Number(item.deal_id.replace(/\D/gu, '')) % 2 === 1 ? 'https://www.example.com/jobs/' : null, // 偶数番の案件は求人票なし (タブの案内の確認用)
       deep_link: item.deep_links.deal,
     },
     dial: phone ? { number: phone, source: 'contact' } : null,

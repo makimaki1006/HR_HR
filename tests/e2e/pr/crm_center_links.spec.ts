@@ -2,7 +2,7 @@ import { expect, Page, test } from '@playwright/test';
 import { login } from './helpers/login';
 
 /**
- * 架電画面 (/app/crm?mode=fixture) の「求人検索・リンク先」パネル: 案件のリンクを、新しいブラウザのタブではなくパネルの中に開く。
+ * 架電画面 (/app/crm?mode=fixture) の「求人検索・リンク先」パネル: 「求人検索」「ホームページ」「求人票」のタブが並び、1 回押すだけでそのページがパネルの中に出る。
  *
  * - 架空サンプルの詳細 (workspaceFixture.ts) の「URL_求人検索」は Google 検索の URL (余計な項目付き)。
  *   枠には `igu=1` を付けて組み立て直した URL を出し、「新しいタブで開く」は元の URL のまま。
@@ -42,23 +42,16 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     const memo = form.locator('textarea').first();
     await memo.fill('受付で不在。来週火曜に再架電');
 
-    // 選んだだけでは Google を読みに行かない
-    expect(external).toEqual([]);
     const tabs = page.getByRole('tablist', { name: '求人検索・リンク先の表示' });
-    await expect(tabs.getByRole('tab')).toHaveText(['リンク一覧', '求人検索']);
-    await expect(tabs.getByRole('tab', { name: 'リンク一覧' })).toHaveAttribute('aria-selected', 'true');
-
-    const searchLink = page.getByRole('region', { name: 'リンク' }).getByRole('link', { name: /求人を検索する/ });
-    const stored = await searchLink.getAttribute('href');
-    expect(stored).toContain('sca_esv=sample');
-    await searchLink.click();
-
-    // ブラウザの新しいタブは開かず、パネルの「求人検索」タブに枠が出る
-    expect(page.context().pages()).toHaveLength(1);
+    await expect(tabs.getByRole('tab')).toHaveText(['求人検索', 'ホームページ', '求人票']);
     await expect(tabs.getByRole('tab', { name: '求人検索' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: 'リンク一覧' })).toHaveCount(0);
+    // 最初に前に出る「求人検索」だけが枠を作る。ホームページは押すまで読みに行かない
+    expect(page.context().pages()).toHaveLength(1);
     const panel = page.locator('#cq-cpanel-search');
     const frame = panel.locator('iframe[data-testid="link-frame"]');
     await expect(frame).toBeVisible();
+    expect(external.some(u => u.includes('example.com'))).toBe(false);
     const src = await frame.getAttribute('src');
     const u = new URL(src ?? '');
     expect(u.origin + u.pathname).toBe('https://www.google.com/search');
@@ -69,7 +62,8 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
     // CSP が https の枠を許している (代わりの HTML が枠の中に表示される)
     await expect(page.frameLocator('#cq-cpanel-search iframe').locator('#stub')).toHaveText('外部ページ(テスト用の代わり)');
-    await expect(panel.getByRole('link', { name: '新しいタブで開く' })).toHaveAttribute('href', stored ?? '');
+    const stored = await panel.getByRole('link', { name: '新しいタブで開く' }).getAttribute('href');
+    expect(stored).toContain('sca_esv=sample');
     await expect(panel.getByText('表示されない場合は新しいタブで開いてください')).toBeVisible();
     // 右の列に開くので、案件の概要と架電結果の入力 (中央の列) は見えたまま。メモもそのまま
     await expect(article).toBeVisible();
@@ -78,13 +72,13 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     await expect(memo).toHaveValue('受付で不在。来週火曜に再架電');
     await expect(frame).toBeVisible();
 
-    // ホームページは別のタブに開き、×で閉じると求人検索のタブに戻る
-    await tabs.getByRole('tab', { name: 'リンク一覧' }).click();
-    await page.getByRole('region', { name: 'リンク' }).getByRole('link', { name: 'https://www.example.com/' }).click();
-    await expect(tabs.getByRole('tab')).toHaveText(['リンク一覧', '求人検索', 'ホームページ']);
-    await expect(page.frameLocator('iframe[src="https://www.example.com/"]').locator('#stub')).toBeVisible();
-    await tabs.getByRole('button', { name: '「ホームページ」のタブを閉じる' }).click();
-    await expect(tabs.getByRole('tab')).toHaveText(['リンク一覧', '求人検索']);
+    // ホームページ・求人票は 1 回押すだけで表示される (閉じるボタンは無い)
+    await tabs.getByRole('tab', { name: 'ホームページ' }).click();
+    await expect(page.frameLocator('#cq-cpanel-home iframe').locator('#stub')).toBeVisible();
+    await tabs.getByRole('tab', { name: '求人票' }).click();
+    await expect(page.frameLocator('#cq-cpanel-posting iframe').locator('#stub')).toBeVisible();
+    await expect(tabs.getByRole('button', { name: /のタブを閉じる/ })).toHaveCount(0);
+    await tabs.getByRole('tab', { name: '求人検索' }).click();
     await expect(tabs.getByRole('tab', { name: '求人検索' })).toHaveAttribute('aria-selected', 'true');
   });
 });
@@ -103,7 +97,6 @@ test.describe('CRM 架電画面: 求人検索の枠の「戻る」と案内', ()
     const openSearch = async () => {
       await page.goto(SCREEN_URL);
       await page.getByRole('list', { name: '架電キュー' }).locator('li.cq-row button.cq-row-button').first().click();
-      await page.getByRole('region', { name: 'リンク' }).getByRole('link', { name: /求人を検索する/ }).click();
     };
     await openSearch();
     const panel = page.locator('#cq-cpanel-search');

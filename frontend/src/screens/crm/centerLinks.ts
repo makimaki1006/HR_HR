@@ -16,11 +16,14 @@
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { formatPhoneForDisplay } from './phone';
 
-/** 「リンク一覧」のタブの ID (常にある。以前の「案件」のタブ) */
-export const DEAL_TAB = 'deal';
-/** 求人検索のタブの ID (検索の URL があるときだけ) */
+/** 求人検索のタブの ID (いつもある。案件を選んだときの最初のタブ) */
 export const SEARCH_TAB = 'search';
-/** 必要なときに開くリンクのタブの最大数 (リンク一覧・求人検索は数えない) */
+/** ホームページ・求人票のタブの ID (いつもある。URL が無いときは中身に案内だけ出す) */
+export const HOME_TAB = 'home';
+export const POSTING_TAB = 'posting';
+/** 会社のサイト・求人媒体のタブの ID (あるときだけ。求人媒体は `media-0` から) */
+export const SITE_TAB = 'site';
+/** 必要なときに開くリンクのタブの最大数 (固定のタブは数えない) */
 export const MAX_LINK_TABS = 5;
 
 /** http(s) の URL だけを返す (前後の空白は除く)。それ以外は null */
@@ -117,6 +120,40 @@ export function isEmptyGoogleSearch(raw: string): boolean {
   return (u.searchParams.get('q') ?? '').replace(/求人/gu, '').trim() === '';
 }
 
+/** 固定のタブ (閉じられない)。url が null のときもタブは出し、中身に `missing` の案内を出す */
+export interface FixedLink {
+  id: string;
+  label: string;
+  url: string | null;
+  /** url が無いときに中身へ出す案内 */
+  missing: string;
+}
+
+/**
+ * 案件のリンクから固定のタブを作る。並びは 求人検索 / ホームページ / 求人票 を必ず、
+ * そのあとに 会社のサイト (ホームページと違うときだけ) と 求人媒体 (あるだけ)。
+ * ホームページは案件の「ホームページ」、無ければ主担当会社のサイト
+ */
+export function dealFixedLinks(data: WorkspaceResponse): FixedLink[] {
+  const d = data.deal;
+  const company = data.companies.find(c => c.is_primary) ?? null;
+  const dealHome = safeHttpUrl(d.homepage_url)?.toString() ?? null;
+  const site = safeHttpUrl(company?.website)?.toString() ?? null;
+  const home = dealHome ?? site;
+  const posting = d.job_posting_url !== null && !isEmptyGoogleSearch(d.job_posting_url) ? safeHttpUrl(d.job_posting_url)?.toString() ?? null : null;
+  const media = extractUrls(d.media_job_urls);
+  const out: FixedLink[] = [
+    { id: SEARCH_TAB, label: '求人検索', url: dealJobSearchUrl(data), missing: 'この案件には求人検索の URL も、架ける番号もありません。' },
+    { id: HOME_TAB, label: 'ホームページ', url: home, missing: 'この案件にはホームページが登録されていません。' },
+    { id: POSTING_TAB, label: '求人票', url: posting, missing: 'この案件には求人票が登録されていません。' },
+  ];
+  if (site !== null && site !== home) out.push({ id: SITE_TAB, label: '会社のサイト', url: site, missing: '' });
+  media.forEach((u, i) => {
+    out.push({ id: `media-${String(i)}`, label: media.length > 1 ? `求人媒体 ${String(i + 1)}` : '求人媒体', url: u, missing: '' });
+  });
+  return out;
+}
+
 export interface LinkTab {
   id: string;
   /** タブに出す名前 (項目名、無ければホスト名) */
@@ -143,16 +180,17 @@ export interface CenterTabsState {
   seq: number;
 }
 
-export const initialCenterTabs: CenterTabsState = { active: DEAL_TAB, links: [], seq: 1 };
+export const initialCenterTabs: CenterTabsState = { active: SEARCH_TAB, links: [], seq: 1 };
 
 /**
- * リンクを開く。同じ URL のタブがあればそれを前に出す (求人検索のタブと同じ URL ならそちら)。
+ * リンクを開く。同じ URL のタブがあればそれを前に出す (固定のタブと同じ URL ならそちら)。
  * 上限を超えるときは、いちばん前に開いたタブを閉じてから開く
  */
-export function openLink(s: CenterTabsState, raw: string, label: string | undefined, searchUrl: string | null, hubspotEmbeddable = false): CenterTabsState {
+export function openLink(s: CenterTabsState, raw: string, label: string | undefined, fixed: readonly Pick<FixedLink, 'id' | 'url'>[], hubspotEmbeddable = false): CenterTabsState {
   const tab = makeLinkTab(`link-${String(s.seq)}`, raw, label, hubspotEmbeddable);
   if (tab === null) return s;
-  if (searchUrl !== null && tab.url === searchUrl) return { ...s, active: SEARCH_TAB };
+  const fixedSame = fixed.find(f => f.url !== null && f.url === tab.url);
+  if (fixedSame) return { ...s, active: fixedSame.id };
   const same = s.links.find(l => l.url === tab.url);
   if (same) return { ...s, active: same.id };
   const links = [...s.links, tab];
@@ -160,8 +198,8 @@ export function openLink(s: CenterTabsState, raw: string, label: string | undefi
   return { active: tab.id, links, seq: s.seq + 1 };
 }
 
-/** リンクのタブを閉じる。開いていたタブを閉じたら、隣のリンク (無ければ `fallback` = 求人検索か案件) を前に出す */
-export function closeLink(s: CenterTabsState, id: string, fallback: string = DEAL_TAB): CenterTabsState {
+/** リンクのタブを閉じる。開いていたタブを閉じたら、隣のリンク (無ければ `fallback` = 求人検索) を前に出す */
+export function closeLink(s: CenterTabsState, id: string, fallback: string = SEARCH_TAB): CenterTabsState {
   const i = s.links.findIndex(l => l.id === id);
   if (i < 0) return s;
   const links = s.links.filter(l => l.id !== id);
