@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { toLive } from './barMenuTestUtil';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../../api/client';
@@ -28,11 +29,11 @@ async function ready(calls: ReturnType<typeof deferredFetcher>['calls'], items =
 }
 
 describe('CallQueueScreen', () => {
-  it('shows loading, then rows with domestic phone numbers (raw value kept in the title) and the live-mode badge', async () => {
+  it('shows loading, then rows with domestic phone numbers (raw value kept in the title) and no data-type banner in live mode', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     expect(screen.getByText('読み込み中…')).toBeTruthy();
-    expect(screen.getByText('実データ(HubSpot)')).toBeTruthy();
+    expect(screen.queryByTestId('fixture-banner')).toBeNull();
     await ready(calls, [
       makeItem('1', { phone: '+81312345678' }),
       makeItem('2', { phone: '03-1111-2222', phone_source: 'deal', next_call_date: '2026-10-05', next_call_time: '10:30', stop: { prohibited_reason: null, block_reason: null, unreachable_check: '通話中' } }),
@@ -206,13 +207,13 @@ describe('CallQueueScreen', () => {
     vi.stubGlobal('fetch', spy);
     try {
       render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
-      expect(screen.getByText('表示内容はすべて架空です。HubSpot には接続しません。')).toBeTruthy();
+      expect(screen.getByTestId('fixture-banner').textContent).toContain('架空サンプルを表示中です。表示内容はすべて架空で、HubSpot には接続しません。');
       await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
       // 架空サンプルでも全体の件数を出す (1 ページ 5 件)
       expect(screen.getByTestId('queue-count').textContent).toBe('全 10 件中 5 件を表示(全件数は電話番号のない架電先なども含む)');
       expect(spy).not.toHaveBeenCalled();
-      fireEvent.click(screen.getByRole('button', { name: '実データ' }));
-      expect(screen.getByText('実データ(HubSpot)')).toBeTruthy();
+      toLive();
+      expect(screen.queryByTestId('fixture-banner')).toBeNull();
       await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('ネットワーク'); });
       // キュー (1 回) と、所有者の一覧 (全員が使う。実データのときだけ) だけ
       const urls = spy.mock.calls.map(c => (typeof c[0] === 'string' ? c[0] : ''));
@@ -268,19 +269,78 @@ describe('calling cockpit layout', () => {
     expect(rows[1]?.lastElementChild?.textContent).toBe('次回 なし最終 未架電担当 なし');
   });
 
-  it('the topbar is compact: title 架電, the mode badge and switch, no link to the old workspace', async () => {
+  it('there is no dark top bar in live mode: no title row, no data-type badge, no layout-reset / mode buttons outside the 「…」 menu', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    const { container } = render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="" />);
+    await ready(calls);
+    expect(container.querySelector('header.crm-topbar, .cq-topbar')).toBeNull();
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.queryByText('HR_HR')).toBeNull();
+    expect(screen.queryByText('実データ(HubSpot)')).toBeNull();
+    expect(screen.queryByText('HubSpot への書き込みはしません')).toBeNull();
+    expect(screen.queryByRole('status', { name: 'データの種類' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'データの切り替え' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '元の配置に戻す' })).toBeNull();
+    expect(screen.queryByTestId('zoom-toggle')).toBeNull();
+    expect(screen.queryByTestId('zoom-warning')).toBeNull();
+  });
+
+  it('fixture mode shows a banner with the exact notice, and 「実データに戻す」 switches back to live (banner gone)', async () => {
+    const spy = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline')));
+    vi.stubGlobal('fetch', spy);
+    try {
+      render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
+      const banner = screen.getByRole('status', { name: 'データの種類' });
+      expect(banner.textContent).toBe('架空サンプルを表示中です。表示内容はすべて架空で、HubSpot には接続しません。実データに戻す');
+      fireEvent.click(within(banner).getByRole('button', { name: '実データに戻す' }));
+      expect(screen.queryByRole('status', { name: 'データの種類' })).toBeNull();
+      await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('ネットワーク'); });
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('the 「…」 menu at the end of the filter bar: ARIA menu button, two items, Esc / outside click close it, arrow keys move, 架空サンプルを表示 switches mode', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="" />);
     await ready(calls);
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('架電');
-    const modeStatus = screen.getByRole('status', { name: 'データの種類' });
-    expect(modeStatus.querySelector('.cq-mode-badge')?.textContent).toBe('実データ(HubSpot)');
-    // 広い画面の文と、幅が狭いとき (1279px 以下) に代わりに出す短い文。どちらも「書き込まない」と言う
-    expect(modeStatus.querySelector('.cq-mode-note')?.textContent).toBe('HubSpot への書き込みはしません');
-    expect(modeStatus.querySelector('.cq-mode-note-short')?.textContent).toBe('HubSpot 書き込みなし');
-    expect(screen.queryByText('架電ワークスペースへ')).toBeNull();
-    expect(within(screen.getByRole('group', { name: 'データの切り替え' })).getAllByRole('button').map(b => [b.textContent, b.getAttribute('aria-pressed')]))
-      .toEqual([['実データ', 'true'], ['架空サンプル', 'false']]);
+    const bar = screen.getByRole('form', { name: '絞り込みと並び替え' });
+    const btn = within(bar).getByRole('button', { name: 'その他の操作' });
+    // 絞り込みバーの行の最後の要素
+    expect(btn.closest('.cq-bar')?.lastElementChild?.contains(btn)).toBe(true);
+    expect(btn.textContent).toBe('…');
+    expect(btn.getAttribute('aria-haspopup')).toBe('menu');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.click(btn);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    const menu = screen.getByRole('menu', { name: 'その他の操作' });
+    expect(within(menu).getAllByRole('menuitem').map(i => i.textContent)).toEqual(['元の配置に戻す', '架空サンプルを表示']);
+    // 開くと先頭の項目にフォーカス、矢印で移る
+    const [reset, fixture] = within(menu).getAllByRole('menuitem');
+    expect(document.activeElement).toBe(reset);
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(fixture);
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(reset);
+    // Esc で閉じ、フォーカスは「…」へ
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(btn);
+    // 外側のクリックで閉じる
+    fireEvent.click(btn);
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+    // 元の配置に戻す: メニューが閉じる
+    fireEvent.click(btn);
+    fireEvent.click(screen.getByRole('menuitem', { name: '元の配置に戻す' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    // 架空サンプルを表示 → 帯が出て、メニューの項目は「実データに戻す」に変わる
+    fireEvent.click(btn);
+    fireEvent.click(screen.getByRole('menuitem', { name: '架空サンプルを表示' }));
+    expect(screen.getByTestId('fixture-banner')).toBeTruthy();
+    fireEvent.click(btn);
+    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map(i => i.textContent)).toEqual(['元の配置に戻す', '実データに戻す']);
+    fireEvent.click(screen.getByRole('menuitem', { name: '実データに戻す' }));
+    expect(screen.queryByTestId('fixture-banner')).toBeNull();
   });
 
   it('詳細条件 opens and closes the stage / date panel; the button counts the detailed conditions in use', () => {
@@ -635,7 +695,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
     expect(screen.queryByText('架空食品株式会社')).toBeNull();
     expect(screen.getByTestId('queue-count').textContent).toContain('全 3 件中 3 件を表示');
     // 実データに切り替えると、架空のパイプラインは既定に戻す
-    fireEvent.click(screen.getByRole('button', { name: '実データ' }));
+    toLive();
     expect(screen.getByRole('button',{name:'パイプライン'}).textContent).toContain('bpo_リクロジ');
   });
 });

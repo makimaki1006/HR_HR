@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { toLive } from './barMenuTestUtil';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../../api/client';
@@ -754,7 +755,7 @@ describe('call-result form (draft only)', () => {
     fireEvent.click(recordBtn());
     expect(within(form()).getByText('表示中の一覧に未記録の架電先はありません。')).toBeTruthy();
     expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toMatchObject({ recorded: { 'fixture:1': true, 'fixture:2': true } });
-    fireEvent.click(within(screen.getByRole('group', { name: 'データの切り替え' })).getByRole('button', { name: '実データ' }));
+    toLive();
     await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
     expect(within(list()).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     open('1');

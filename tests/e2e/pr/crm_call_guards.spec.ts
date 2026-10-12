@@ -92,7 +92,8 @@ test.describe('CRM 架電画面 (実データの表示、API は架空の応答)
   test('選択肢の読み込みが上限で失敗 → 待って再試行の案内 (直接入力は案内しない)。一覧の読み直し中・失敗時は記録しない', async ({ page }) => {
     const m = await mockCrm(page, { status: 503, kind: 'hubspot_rate_limited' });
     await page.goto('/app/crm');
-    await expect(page.getByRole('status', { name: 'データの種類' })).toContainText('実データ(HubSpot)');
+    // 実データでは上のバー・架空サンプルの帯は出ない
+    await expect(page.getByTestId('fixture-banner')).toHaveCount(0);
     await expect(list(page).locator('.cq-row-company')).toHaveText(['架空会社1', '架空会社2']);
     await list(page).getByText('架空会社1').click();
 

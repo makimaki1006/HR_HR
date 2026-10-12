@@ -8,7 +8,7 @@ export const EMBED_LOAD_TIMEOUT_MS = 12_000;
 export const DIAL_STALL_MS = 6_000;
 
 export type EmbedPhase = 'disabled' | 'loading' | 'loaded' | 'timeout';
-export type DialResult = 'sent' | 'not_dialable' | 'embed_loading' | 'embed_unavailable' | 'busy';
+export type DialResult = 'sent' | 'not_dialable' | 'embed_loading' | 'embed_unavailable' | 'busy' | 'login_required';
 
 export interface DialRequest { number: string; at: number }
 
@@ -29,6 +29,8 @@ export interface ZoomPhone {
   /** 時刻 (通話の経過時間の表示に使う。通話の開始時刻と同じ時計) */
   now: () => number;
   dial: (rawNumber: string | null | undefined) => DialResult;
+  /** 架電画面が付ける案内: Zoom にログインしてから、もう一度発信を押してもらう / ログインできた */
+  loginNotice?: 'required' | 'done' | null | undefined;
 }
 
 export interface ZoomOptions { loadTimeoutMs?: number; stallMs?: number; now?: () => number }

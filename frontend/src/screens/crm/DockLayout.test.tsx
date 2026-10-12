@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { clickBarMenuItem } from './barMenuTestUtil';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResult } from '../../api/client';
@@ -117,7 +118,7 @@ describe('panel layout (dock)', () => {
     expect(columnOfPanel('activity')).toBe('dock-col-2');
     moveVia('案件の概要', '左へ移動');
     expect(screen.getByTestId('dock-pinned').closest('[data-testid="dock-col-0"]')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '元の配置に戻す' }));
+    clickBarMenuItem('元の配置に戻す');
     expect(columnOfPanel('activity')).toBe('dock-col-1');
     expect(screen.getByTestId('dock-pinned').closest('[data-testid="dock-col-1"]')).not.toBeNull();
     expect(screen.getByTitle('Zoom Phone')).toBe(zoomFrame);
