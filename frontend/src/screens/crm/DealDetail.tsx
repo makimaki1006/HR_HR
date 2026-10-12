@@ -43,10 +43,11 @@ const DIAL_MESSAGES: Record<DialResult, string> = {
  * 電話番号 1 つ分: 表示(ハイフン区切り) / 発信(Smart Embed、元の値) / コピー(国内形式の数字) / tel:
  * `primary` は「架ける番号」の大きい表示
  */
-export function PhoneRow({ label, raw, zoom, primary = false, compact = false }: {
+export function PhoneRow({ label, raw, zoom, primary = false, compact = false, blocked = false }: {
   label: string; raw: string; zoom: ZoomPhone; primary?: boolean;
   /** 1 行の表示 (番号と発信だけ。コピーと端末の電話は「詳しく表示」で出す) */
   compact?: boolean;
+  blocked?: boolean;
 }) {
   const shown = formatPhoneForDisplay(raw) ?? raw;
   const copyValue = toDomesticPhone(raw) ?? raw;
@@ -61,7 +62,7 @@ export function PhoneRow({ label, raw, zoom, primary = false, compact = false }:
   if (compact) {
     return <span className="wd-phone wd-phone-primary wd-phone-compact">
       <span className="cq-phone" title={`${label}: ${raw}`}>{shown}</span>
-      <button type="button" className="wd-dial" onClick={dial} disabled={e164 === null || zoom.embed === 'disabled'}
+      <button type="button" className="wd-dial" onClick={dial} disabled={e164 === null || zoom.embed === 'disabled' || blocked}
         aria-label={`${label} ${shown} に発信`}>発信</button>
       {e164 === null && <small className="crm-muted">ダイヤルできる形式ではありません</small>}
       {note && <small role="status">{note}</small>}
@@ -71,10 +72,10 @@ export function PhoneRow({ label, raw, zoom, primary = false, compact = false }:
     <span className="wd-phone-label">{label}</span>
     <span className="cq-phone" title={raw}>{shown}</span>
     <span className="wd-phone-actions">
-      <button type="button" className="wd-dial" onClick={dial} disabled={e164 === null || zoom.embed === 'disabled'}
+      <button type="button" className="wd-dial" onClick={dial} disabled={e164 === null || zoom.embed === 'disabled' || blocked}
         aria-label={`${label} ${shown} に発信`}>発信</button>
       <button type="button" className="wd-copy" onClick={copy} aria-label={`${label} ${shown} の番号をコピー`}>番号をコピー</button>
-      {e164 !== null && <a href={`tel:${e164}`} aria-label={`${label} ${shown} へ端末の電話で発信`}
+      {!blocked && e164 !== null && <a href={`tel:${e164}`} aria-label={`${label} ${shown} へ端末の電話で発信`}
         title="このパソコン・スマートフォンの電話アプリで発信します(tel: リンク)">端末の電話で発信</a>}
     </span>
     {e164 === null && <small className="crm-muted">ダイヤルできる形式ではありません</small>}
@@ -161,6 +162,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
   stageMove?: StageMoveCtx | null | undefined;
 }) {
   const d = data.deal;
+  const blocked = (Boolean(d.stop.prohibited_reason) || Boolean(d.stop.block_reason));
   const company = data.companies.find(c => c.is_primary) ?? null;
   const notes = partialNotes(data.partial);
   const stopReasons = [d.stop.prohibited_reason && `架電禁止理由: ${d.stop.prohibited_reason}`, d.stop.block_reason && `ブロック理由: ${stopLabel('bpo_4', d.stop.block_reason)}`,
@@ -182,7 +184,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
           <span className="wd-line-sep" aria-hidden="true">·</span>
           <span className="wd-line-contact">{contact?.name ?? <span className="crm-muted">担当者なし</span>}</span>
           <span className="wd-line-sep" aria-hidden="true">·</span>
-          {data.dial ? <PhoneRow label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary compact />
+          {data.dial ? <PhoneRow blocked={blocked} label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary compact />
             : <span className="crm-muted">番号を確認できません</span>}
           {status !== null && callBar?.kind !== 'failed' && <span className={`wd-line-status wd-callbar-${callBar?.kind ?? ''}`} role="status" data-testid="call-bar-status">
             <strong>{status.label}</strong>{status.extra && <span> {status.extra}</span>}</span>}
@@ -222,10 +224,10 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
 
       <section className="wd-dialbox" aria-label="架ける番号">
         <h3 className="wd-dial-title">架ける番号</h3>
-        {data.dial ? <PhoneRow label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary />
+        {data.dial ? <PhoneRow blocked={blocked} label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary />
           : <p className="crm-muted">番号を確認できません。担当者・会社の情報を HubSpot で確認してください。</p>}
         {otherPhones.length > 0 && <details className="wd-other"><summary>ほかの番号({otherPhones.length})</summary>
-          <div className="wd-other-list">{otherPhones.map(p => <PhoneRow key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</div></details>}
+          <div className="wd-other-list">{otherPhones.map(p => <PhoneRow blocked={blocked} key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</div></details>}
       </section>
       {callBar && <CallBar info={callBar} now={zoom.now} onOpenZoom={onOpenZoom} />}
       {stopReasons.length > 0 && <ul className="wd-stop" aria-label="架電の注意">{stopReasons.map(s => <li key={s} className="cq-flag">{s}</li>)}</ul>}
@@ -342,7 +344,7 @@ function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLab
 }) {
   if (state.phase === 'ready' && state.data !== null) {
     return <><Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
-      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} /><EmailPanel key={state.data.deal.id} data={state.data} sample={sample} onSaved={refresh} context={<div className="crm-email-context"><strong>{state.data.companies.find(c => c.is_primary)?.name ?? state.data.deal.name}</strong>{state.data.dial && <PhoneRow label={SOURCE_LABELS[state.data.dial.source] ?? '電話'} raw={state.data.dial.number} zoom={zoom} primary compact />}</div>} /></>;
+      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} /><EmailPanel key={state.data.deal.id} data={state.data} sample={sample} onSaved={refresh} context={<div className="crm-email-context"><strong>{state.data.companies.find(c => c.is_primary)?.name ?? state.data.deal.name}</strong>{state.data.dial && <PhoneRow blocked={(Boolean(state.data.deal.stop.prohibited_reason) || Boolean(state.data.deal.stop.block_reason))} label={SOURCE_LABELS[state.data.dial.source] ?? '電話'} raw={state.data.dial.number} zoom={zoom} primary compact />}</div>} /></>;
   }
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }

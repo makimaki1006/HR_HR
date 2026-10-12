@@ -1,12 +1,12 @@
 import { conditionsFit } from './queueConditionBudget';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
-import { DEFAULT_PIPELINE_ID, FIXTURE_PIPELINE_ID, FIXTURE_PIPELINES, eligibleStageIds } from './queuePipelines';
+import { DEFAULT_PIPELINE_ID, FIXTURE_PIPELINE_ID, FIXTURE_PIPELINES } from './queuePipelines';
 
 /** 架空サンプルのパイプライン (ステージ名は固定) */
 const fixturePipeline = (id: string) => FIXTURE_PIPELINES.find(p => p.id === id);
 import { matchesCondition, parsePropertySort, LIMIT_MESSAGE } from './queuePropertyFilter';
-import { groupsOf } from './queueModel';
+import { groupsOf, selectedPipelineIds, selectedStageIds } from './queueModel';
 import type { QueueFilters } from './queueModel';
 import { ApiHttpError } from '../../api/client';
 import { FIXTURE_CATALOG } from './usePropertyCatalog';
@@ -22,7 +22,7 @@ export const FIXTURE_OWNER_ME = '9001';
 
 interface Seed {
   id: string; company: string; contact: string | null; stage: string; owner: string | null;
-  next: string | null; time: string | null; last: string | null; phone: string | null; mobile?: boolean;
+  next: string | null; time: string | null; last: string | null; phone: string | null; mobile?: boolean; prohibited?: string; block?: string;
   /** 既定は bpo_リクロジ */
   pipeline?: string;
 }
@@ -44,7 +44,7 @@ const SEEDS: Seed[] = [
   { id: 'f-13', company: '架空倉庫サービス', contact: '丑川 光', stage: 'fx-new', owner: '9001', next: null, time: null, last: null, phone: '03-0000-0013', pipeline: FIXTURE_PIPELINE_ID },
   { id: 'f-14', company: '架空ベーカリー', contact: '寅田 静', stage: 'fx-follow', owner: '9002', next: '2026-10-02', time: '11:30', last: '2026-09-30', phone: '03-0000-0014', pipeline: FIXTURE_PIPELINE_ID },
   { id: 'f-15', company: '架空塾', contact: '卯月 望', stage: 'fx-follow', owner: '9001', next: '2026-10-09', time: '10:00', last: '2026-10-01', phone: '03-0000-0015', pipeline: FIXTURE_PIPELINE_ID },
-  { id: 'f-16', company: '架空クリーニング', contact: '辰野 晴', stage: 'fx-stop', owner: '9001', next: '2026-10-01', time: null, last: '2026-09-20', phone: '03-0000-0016', pipeline: FIXTURE_PIPELINE_ID },
+  { id: 'f-16', company: '架空クリーニング', contact: '辰野 晴', stage: 'fx-stop', owner: '9001', next: '2026-10-01', time: null, last: '2026-09-20', phone: '03-0000-0016', pipeline: FIXTURE_PIPELINE_ID, prohibited:'架空の確認待ち', block:'架空の受付停止' },
   // 長い社名の見出し崩れの確認用 (案件の概要の見出しが 1 文字ずつ縦に並ばないこと)
   { id: 'f-17', company: '架空サーモスタット工業株式会社', contact: '巳野 久', stage: 'fx-new', owner: '9001', next: null, time: null, last: null, phone: '03-0000-0017', pipeline: FIXTURE_PIPELINE_ID },
 ];
@@ -56,7 +56,7 @@ function toItem(s: Seed): CallQueueItem {
   return {
     deal_id: s.id, deal_name: `${s.company} 採用支援`, stage_id: s.stage, stage_label: label,
     owner_id: s.owner, next_call_date: s.next, next_call_time: s.time, last_call_date: s.last,
-    stop: { prohibited_reason: null, block_reason: null, unreachable_check: s.id === 'f-3' ? '通話中が続く' : null },
+    stop: { prohibited_reason: s.prohibited ?? null, block_reason: s.block ?? null, unreachable_check: s.id === 'f-3' ? '通話中が続く' : null },
     contact: s.contact ? { id: `c-${s.id}`, name: s.contact, phone: s.phone, mobile: null, job_title: '採用担当', extra_count: s.id === 'f-5' ? 2 : 0 } : null,
     company: { id: `co-${s.id}`, name: s.company, phone: null },
     phone: s.phone, phone_source: s.phone ? 'contact' : null,
@@ -77,16 +77,16 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
   if (!conditionsFit(f, gs, FIXTURE_TODAY)) throw new ApiHttpError(400, { error_kind: 'condition_limit', message: LIMIT_MESSAGE });
 
   const q = f.q.trim().normalize('NFKC').toLowerCase();
-  const stages = f.stages.length ? f.stages : eligibleStageIds(f.pipeline);
-  const rules = fixturePipeline(f.pipeline)?.stages ?? [];
+  const stages = f.stages.length ? f.stages : selectedStageIds(f);
+  const rules = selectedPipelineIds(f).flatMap(id=>fixturePipeline(id)?.stages ?? []);
   const rows = SEEDS.filter(s => {
-    if (pipelineOf(s) !== f.pipeline || !stages.includes(s.stage)) return false;
+    if (!selectedPipelineIds(f).includes(pipelineOf(s)) || !stages.includes(s.stage)) return false;
     const rule = rules.find(x => x.id === s.stage)?.rule ?? 'exclude';
     const due = s.next !== null && s.next <= FIXTURE_TODAY;
-    if (rule === 'exclude') return false;
-    if (rule === 'due' && !due) return false; // 常に出すステージ (未済など) 以外は次回日が来たものだけ
-    if (f.due === 'today' && !due) return false;
-    if (s.phone === null) return false; // 電話番号なしはキューに出さない
+    if (f.target!=='all' && (rule==='exclude' || s.prohibited || s.block)) return false;
+    if (f.target!=='all' && rule === 'due' && !due) return false; // 常に出すステージ (未済など) 以外は次回日が来たものだけ
+    if (f.target!=='all' && f.due === 'today' && !due) return false;
+    if (f.target!=='all' && s.phone === null) return false; // 電話番号なしはキューに出さない
     if (f.owner === 'unassigned' ? s.owner !== null : f.owner === 'me' ? s.owner !== FIXTURE_OWNER_ME
       : f.owner !== '' && f.owner !== 'all' ? s.owner !== f.owner : false) return false;
     if (q && !`${s.company} ${s.contact ?? ''}`.normalize('NFKC').toLowerCase().includes(q)) return false;
@@ -95,7 +95,7 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     if (f.lastFrom && !(s.last !== null && s.last >= f.lastFrom)) return false;
     if (f.lastTo && !(s.last !== null && s.last <= f.lastTo)) return false;
     const properties: Record<string, string | null> = { dealname: `${s.company} 採用支援`, hubspot_owner_id: s.owner,
-      bpo_13: s.next, bpo_14: s.time, bpo_20: s.last, bpo_29: s.phone, bpo_3: null, bpo_4: null,
+      bpo_13: s.next, bpo_14: s.time, bpo_20: s.last, bpo_29: s.phone, bpo_3: s.prohibited ?? null, bpo_4: s.block ?? null,
       bpo_10: s.id === 'f-3' ? '通話中が続く' : null, amount: String(Number(s.id.slice(2)) * 1000) };
     return gs.length === 0 || gs.some(g => g.every(c => matchesCondition(c, properties[c.property] ?? null, FIXTURE_TODAY, propertyTypes.get(c.property))));
   });
@@ -105,6 +105,9 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
   const byLastAsc = (a: Seed, b: Seed) => (a.last === b.last ? 0 : a.last === null ? -1 : b.last === null ? 1 : asc(a.last, b.last));
   const byLastDesc = (a: Seed, b: Seed) => (a.last === b.last ? 0 : a.last === null ? 1 : b.last === null ? -1 : asc(b.last, a.last));
   const sorted = [...rows].sort((a, b) => {
+    if (f.sort==='created_desc') return Number(b.id.slice(2))-Number(a.id.slice(2));
+    if (f.target==='all' && f.sort.startsWith('next_call')) return f.sort.endsWith('desc')?asc(b.next ?? '',a.next ?? ''):asc(a.next ?? '',b.next ?? '');
+
     const custom = parsePropertySort(f.sort);
     if (custom) {
       const property = (s: Seed): string | null => ({ amount: String(Number(s.id.slice(2))*1000), dealname: `${s.company} 採用支援`, bpo_13: s.next, bpo_20: s.last, hubspot_owner_id: s.owner, bpo_14: s.time, bpo_29: s.phone } as Record<string,string|null>)[custom.property] ?? null;
@@ -129,7 +132,7 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     next_cursor: end < sorted.length ? `fx:${String(end)}` : null,
     total: sorted.length, truncated: false,
     scope: {
-      pipeline: f.pipeline, owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
+      pipeline: selectedPipelineIds(f).join(','), ...(f.target?{target:f.target}:{}), owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
       stages: [...stages].sort(), due: f.due, sort: f.sort, q: f.q.trim() || null, limit: FIXTURE_PAGE_SIZE,
       next_from: f.nextFrom || null, next_to: f.nextTo || null, last_from: f.lastFrom || null, last_to: f.lastTo || null,
     },

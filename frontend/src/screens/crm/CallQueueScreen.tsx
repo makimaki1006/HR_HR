@@ -1,3 +1,5 @@
+import { QueuePipelinePicker } from './QueuePipelinePicker';
+import { selectedPipelineIds, withPipelines, withTarget, sortsFor } from './queueModel';
 import { SavedViews } from './SavedViews';
 import { queueQuery, selectedViewId, viewSearch } from './savedViewsModel';
 import { QueueSortDialog } from './QueueSortDialog';
@@ -14,11 +16,11 @@ import { OwnerFilter } from './OwnerFilter';
 import { ownerNameMap } from './ownerModel';
 import { formatPhoneForDisplay } from './phone';
 import {
-  DEFAULT_FILTERS, QUEUE_SORTS, QUEUE_TOTAL_NOTE, QUEUE_TOTAL_NOTE_SHORT, dateValue, filtersKey, parseFilters, parseMode,
+  DEFAULT_FILTERS, QUEUE_TOTAL_NOTE, QUEUE_TOTAL_NOTE_SHORT, dateValue, filtersKey, parseFilters, parseMode,
   queueCountText, screenSearch, withPipeline,
 } from './queueModel';
 import type { QueueFilters, QueueMode, QueueSort } from './queueModel';
-import { DEFAULT_PIPELINE_ID, findPipeline, pipelineName, pipelinesFor, stageName } from './queuePipelines';
+import { DEFAULT_PIPELINE_ID, findPipeline, pipelinesFor, stageName } from './queuePipelines';
 import type { QueuePipelineDef } from './queuePipelines';
 import { StageFilter } from './StageFilter';
 import { useQueuePipelines } from './useQueuePipelines';
@@ -226,6 +228,8 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
         {recorded && (unsaved
           ? <span className="cq-recorded is-unsaved" title={UNSAVED_RECORDED_TITLE}>記録済み(画面を閉じると消えます)</span>
           : <span className="cq-recorded" title={RECORDED_TITLE}>記録済み(HubSpot 未送信)</span>)}
+        {item.stop.prohibited_reason && <span className="cq-stop-badge" title={item.stop.prohibited_reason}>架電禁止</span>}
+        {item.stop.block_reason && <span className="cq-stop-badge" title={item.stop.block_reason}>ブロック</span>}
         {flag && <span className="cq-flag" title={`不通時チェック: ${flag}`} aria-label={`不通時チェック: ${flag}`}>不通チェック</span>}
         <span className="cq-stage">{item.stage_label ?? '(ステージ不明)'}</span>
       </span>
@@ -416,9 +420,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   }
   // 結果のボタンへフォーカスを移し終えた通話 (同じ通話で何度もフォーカスを奪わない)
   const [handledCall, setHandledCall] = useState<string | null>(null);
+  const dialingStopped = detailState.phase === 'ready' && (Boolean(detailState.data?.deal.stop.prohibited_reason) || Boolean(detailState.data?.deal.stop.block_reason));
   const zoomForDetail = useMemo<ZoomPhone>(() => ({
     ...zoom,
     dial: (raw: string | null | undefined): DialResult => {
+      if (dialingStopped) return 'not_dialable';
       const r = zoom.dial(raw);
       // 読み込んでから Zoom が一度も何も言ってこない (サインインしていない可能性が高い) まま発信したら、枠を開いて見せる
       if (r !== 'not_dialable' && !zoom.heard) autoOpenZoom();
@@ -427,7 +433,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       }
       return r;
     },
-  }), [zoom, detailId, mode, autoOpenZoom]);
+  }), [zoom, detailId, mode, autoOpenZoom, dialingStopped]);
 
   useEffect(() => () => { if (keyTimer.current !== null) window.clearTimeout(keyTimer.current); }, []);
 
@@ -498,12 +504,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
   /** パイプラインの切り替え: ステージの選択は既定 (すべて) に戻し、先頭から読み直す */
   function changePipeline(id: string) {
-    setFilters(prev => (prev.pipeline === id ? prev : withPipeline(prev, id)));
+    setFilters(prev => (prev.pipeline === id && selectedPipelineIds(prev).length===1 ? prev : withPipeline(prev, id)));
   }
   /** モードの切り替え: そのモードで選べないパイプラインは既定に戻す (架空のパイプラインを実データに送らない) */
   function switchMode(next: QueueMode) {
     setMode(next);
-    if (!pipelinesFor(next).some(p => p.id === filters.pipeline)) changePipeline(DEFAULT_PIPELINE_ID);
+    if (selectedPipelineIds(filters).some(id=>!pipelinesFor(next).some(p=>p.id===id))) changePipeline(DEFAULT_PIPELINE_ID);
   }
   function removeChip(c: ConditionChip) {
     if (c.clear.q !== undefined) setQDraft('');
@@ -680,8 +686,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-busy={state.phase === 'loading'}>
           <div className="cq-list-head">
             {state.phase === 'ready' && <p className="cq-count" role="status" data-testid="queue-count"
-              title={total !== null ? QUEUE_TOTAL_NOTE : undefined}>{queueCountText(total, state.items.length)}
-              {total !== null && <span>({QUEUE_TOTAL_NOTE_SHORT})</span>}</p>}
+              title={total !== null ? (filters.target==='all'?'条件に合うすべての取引の件数です。':QUEUE_TOTAL_NOTE) : undefined}>{queueCountText(total, state.items.length)}
+              {total !== null && <span>({filters.target==='all'?'条件に合う取引の総数':QUEUE_TOTAL_NOTE_SHORT})</span>}</p>}
             {mode === 'live' && state.last !== null && <p className="cq-scope-note" data-testid="scope-note"
               title={[ownerScopeTitle(state.last.scope.owner, ownerNames), 'HubSpot の全件から、上の所有者の選択で切り替えられます'].filter(Boolean).join('。')}>所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</p>}
           </div>
@@ -792,19 +798,17 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
     <form ref={filterBarRef} className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
       <div className="cq-bar">
-        <select className="cq-pipeline" aria-label="パイプライン" value={filters.pipeline}
-          title={pipelines.labelsUnavailable ? 'HubSpot からパイプライン名を読めなかったため、設定上の呼び名で表示しています' : undefined}
-          onChange={e => { changePipeline(e.target.value); }}>
-          {pipelines.pipelines.map(p => <option key={p.id} value={p.id}>{pipelineName(p)}</option>)}</select>
+        <QueuePipelinePicker pipelines={pipelines.pipelines} selected={selectedPipelineIds(filters)} onApply={ids=>{setFilters(prev=>withPipelines(prev,ids));}} />
+        <label className="cq-target-label">対象<select aria-label="対象" value={filters.target ?? 'calling'} onChange={e=>{setFilters(prev=>withTarget(prev,e.target.value==='all'?'all':undefined));}}><option value="calling">架電対象だけ</option><option value="all">すべての取引</option></select></label>
         <input className="cq-search" type="search" aria-label="キーワード(会社名・案件名)" value={qDraft} maxLength={100}
           placeholder="会社名・案件名で検索" onChange={e => { setQDraft(e.target.value); }} />
         <OwnerFilter owner={filters.owner} effective={effectiveOwner} needsPick={needsOwnerPick}
           onChange={owner => { update({ owner }); }} owners={owners.state} onReload={owners.reload} />
         <select className="cq-sort" aria-label="並び替え" value={filters.sort} onChange={e => { if (e.target.value === 'other') { setSortOpen(true); setPanelOpen(false); } else update({ sort: e.target.value as QueueSort }); }}>
-          {QUEUE_SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          {sortsFor(filters).map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           {parsePropertySort(filters.sort) !== null && <option value={filters.sort}>{catalog.state.phase === 'ready' ? catalog.state.index.deals.get(parsePropertySort(filters.sort)?.property ?? '')?.prop.label ?? '選んだ項目' : '選んだ項目'} {parsePropertySort(filters.sort)?.direction === 'desc' ? '降順' : '昇順'}</option>}<option value="other">ほかの項目で並べ替え…</option></select>
-        <label className="cq-toggle"><input type="checkbox" checked={filters.due === 'today'}
-          onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>
+        {filters.target !== 'all' && <label className="cq-toggle"><input type="checkbox" checked={filters.due === 'today'}
+          onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>}
         <button type="button" className="cq-btn cq-more-toggle" aria-expanded={panelOpen} aria-controls="cq-advanced"
           onClick={() => { setPanelOpen(o => !o); }}>詳細条件{detailCount > 0 && <span className="cq-badge">{detailCount}</span>}</button>
         <button type="button" className="cq-btn" onClick={() => { setPanelOpen(true); }} >条件を追加</button>
@@ -814,12 +818,13 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         {chips.map(c => <li key={c.key} className={c.separator ? 'cq-chip-or' : 'cq-chip'}><span title={c.title}>{c.label}</span>
           {!c.separator && <button type="button" aria-label={`「${c.label}」を外す`} onClick={() => { removeChip(c); }}>×</button>}</li>)}
       </ul>}
-      {parsePropertySort(filters.sort) !== null && <p className="cq-sort-note">{PROPERTY_SORT_NOTE}</p>}
+      {filters.target !== 'all' && parsePropertySort(filters.sort) !== null && <p className="cq-sort-note">{PROPERTY_SORT_NOTE}</p>}
+      {filters.target === 'all' && <p className="cq-sort-note">選んだパイプラインのすべてのステージを表示します。件数は条件に合う取引の総数です。架電禁止・ブロックには発信できません。</p>}
       <div id="cq-advanced" role="dialog" aria-label="詳細条件" className="cq-advanced cq-filter-drawer" style={{top: drawerTop}} hidden={!panelOpen} onKeyDown={e => { if (e.key === 'Escape') setPanelOpen(false); }}>
         <div className="cq-drawer-heading"><h2>詳細条件</h2><button type="button" className="cq-btn" onClick={() => { setPanelOpen(false); }}>条件のパネルを閉じる</button></div>
         {panelOpen && <QueueGroupEditor catalog={catalog.state} groups={groupsOf(filters)} filters={{...filters, owner: filters.owner || (effectiveOwner ?? (mode === 'live' ? 'me' : ''))}} onReload={catalog.reload}
           onChange={gs => { update(groupPatch(gs)); }} />}
-        {pipeline && <StageFilter key={`${mode}|${pipeline.id}`} pipeline={pipeline} selected={filters.stages}
+        {pipeline && <StageFilter key={`${mode}|${selectedPipelineIds(filters).join(',')}|${filters.target ?? ''}`} pipeline={pipeline} selected={filters.stages} pipelines={pipelines.pipelines.filter(p=>selectedPipelineIds(filters).includes(p.id))} all={filters.target==='all'}
           labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} />}
         <div className="cq-ranges">
           <fieldset className="cq-range"><legend>次回架電日</legend>

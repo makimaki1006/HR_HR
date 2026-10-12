@@ -1,11 +1,11 @@
 import type { QueueFilters } from './queueModel';
-import { groupsOf } from './queueModel';
-import { eligibleStageIds, findPipeline } from './queuePipelines';
+import { groupsOf, selectedPipelineIds, selectedStageIds } from './queueModel';
+import { findPipeline } from './queuePipelines';
 import { parsePropertySort } from './queuePropertyFilter';
 import type { PropertyCondition } from './queuePropertyFilter';
 export function conditionsFit(f: QueueFilters, gs = groupsOf(f), today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date())): boolean {
-  const stagesForLimit = f.stages.length ? f.stages : eligibleStageIds(f.pipeline);
-  const selectedRules = (findPipeline(f.pipeline)?.stages ?? []).filter(s => stagesForLimit.includes(s.id));
+  const stagesForLimit = f.stages.length ? f.stages : selectedStageIds(f);
+  const selectedRules = selectedPipelineIds(f).flatMap(id=>findPipeline(id)?.stages ?? []).filter(s => stagesForLimit.includes(s.id));
   const always = selectedRules.some(s => s.rule === 'all');
   const whenDue = selectedRules.some(s => s.rule === 'due');
   const ownerCount = f.owner !== '' && f.owner !== 'all' ? 1 : 0;
@@ -24,7 +24,7 @@ export function conditionsFit(f: QueueFilters, gs = groupsOf(f), today = new Int
     if (scope === 'tail') return !always || nextCount > 0 && !tailExists ? [] : nextCount ? [2 + Number(Boolean(f.nextTo)) + common] : [2 + common, 2 + common];
     return [...(always ? [1 + nextCount + common] : []), ...(whenDue && dueExists ? [dueSize] : [])];
   };
-  const scopes = parsePropertySort(f.sort) !== null ? [sizes(f.due === 'today' ? 'due' : 'queue', false)]
+  const scopes = f.target === 'all' ? [[1+ownerCount+lastCount+nextCount]] : (parsePropertySort(f.sort) !== null || f.sort==='created_desc') ? [sizes(f.due === 'today' ? 'due' : 'queue', false)]
     : f.sort.startsWith('last_call_') ? [...(lastCount ? [] : [sizes(f.due === 'today' ? 'due' : 'queue', true)]), sizes(f.due === 'today' ? 'due' : 'queue', true)]
     : [sizes('due', false), ...(f.due === 'today' ? [] : [...(lastCount ? [] : [sizes('tail', true)]), sizes('tail', true)])];
   if (gs.length > 3 || gs.some(g => g.length > 6) || scopes.some(bs => bs.length * gs.length > 5

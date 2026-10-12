@@ -40,6 +40,8 @@ pub struct QueuePageKey {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QueueFilterKey {
     pub pipeline: String,
+    pub target: bool,
+    pub scope_stages: Vec<String>,
     pub q: Option<String>,
     pub property_conditions: Vec<super::queue_property_filter::PropertyCondition>,
     /// 相対日付を解決した後の検索条件。まとまりの違いも区別する。

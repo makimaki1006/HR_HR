@@ -1,7 +1,8 @@
+import { selectedPipelineIds, selectedStageIds } from './queueModel';
 import type { ApiResult } from '../../api/client';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
-import { FIXTURE_PIPELINES, LIVE_PIPELINES, eligibleStageIds } from './queuePipelines';
+import { FIXTURE_PIPELINES, LIVE_PIPELINES } from './queuePipelines';
 import type { CallQueuePipelinesResponse } from '../../generated/CallQueuePipelinesResponse';
 import type { PipelinesFetch } from './useQueuePipelines';
 import type { QueueFilters } from './queueModel';
@@ -33,8 +34,8 @@ export function makeResponse(f: QueueFilters, items: CallQueueItem[], over: Part
   return {
     items, next_cursor: null, total: items.length, truncated: false,
     scope: {
-      pipeline: f.pipeline, owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
-      stages: [...(f.stages.length ? f.stages : eligibleStageIds(f.pipeline))].sort(), due: f.due, sort: f.sort,
+      pipeline: selectedPipelineIds(f).join(','), ...(f.target?{target:f.target}:{}), owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
+      stages: [...(f.stages.length ? f.stages : selectedStageIds(f))].sort(), due: f.due, sort: f.sort,
       q: f.q.trim() || null, limit: 50,
       next_from: f.nextFrom || null, next_to: f.nextTo || null, last_from: f.lastFrom || null, last_to: f.lastTo || null,
     },
