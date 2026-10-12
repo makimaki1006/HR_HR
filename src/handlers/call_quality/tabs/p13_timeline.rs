@@ -956,10 +956,10 @@ mod tests {
     #[test]
     fn 担当者名がid形式ならフェーズkpiにフォールバックする() {
         assert_eq!(
-            resolve_consultant_name("1867408508", Some("***REMOVED***")),
-            "***REMOVED***"
+            resolve_consultant_name("1867408508", Some("担当417")),
+            "担当417"
         );
-        assert_eq!(resolve_consultant_name("", Some("***REMOVED***")), "***REMOVED***");
+        assert_eq!(resolve_consultant_name("", Some("担当417")), "担当417");
         assert_eq!(
             resolve_consultant_name("山田太郎", Some("別の名前")),
             "山田太郎",
