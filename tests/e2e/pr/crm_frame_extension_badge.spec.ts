@@ -8,9 +8,9 @@ test('拡張機能の属性を付けるとリンクの操作行にバッジが�
     route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>stub</title><p>stub</p>' }));
   await page.goto('/app/crm?mode=fixture');
   await page.getByRole('list', { name: '架電キュー' }).locator('li.cq-row button.cq-row-button').first().click();
-  await page.getByRole('region', { name: 'リンク' }).getByRole('link').filter({ hasNotText: /求人を検索する/ }).first().click();
+  await page.getByRole('tablist', { name: '求人検索・リンク先の表示' }).getByRole('tab', { name: 'ホームページ' }).click();
 
-  const bar = page.locator('.cq-linkbar').first();
+  const bar = page.locator('#cq-cpanel-home .cq-linkbar');
   await expect(bar).toBeVisible();
   await expect(page.getByTestId('frame-extension-badge')).toHaveCount(0);
   await page.evaluate(() => { document.documentElement.dataset.hrhrFrames = '9.9.9'; });

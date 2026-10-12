@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  closeLink, DEAL_TAB, dealJobSearchUrl, embedUrlFor, extractUrls, initialCenterTabs, isEmptyGoogleSearch, isHubspotUrl, jobSearchUrl, makeLinkTab,
-  MAX_LINK_TABS, openLink, safeHttpUrl, SEARCH_TAB,
+  closeLink, dealFixedLinks, dealJobSearchUrl, embedUrlFor, extractUrls, initialCenterTabs, isEmptyGoogleSearch, isHubspotUrl, jobSearchUrl, makeLinkTab,
+  HOME_TAB, MAX_LINK_TABS, openLink, POSTING_TAB, safeHttpUrl, SEARCH_TAB, SITE_TAB,
 } from './centerLinks';
 import type { CenterTabsState } from './centerLinks';
+import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 
 // HubSpot の「URL_求人検索」(bpo_32) の実際の形 (番号は架空)。古いセッションの項目が多く付いている
 const STORED = 'https://www.google.com/search?q=022-000-0001+%E6%B1%82%E4%BA%BA&sca_esv=658d&rlz=1C1&ei=abc&gs_lp=Egx&sclient=gws-wiz-serp';
@@ -109,17 +110,17 @@ describe('extractUrls / jobSearchUrl / isEmptyGoogleSearch', () => {
 });
 
 describe('openLink / closeLink', () => {
-  const open = (s: CenterTabsState, n: number) => openLink(s, `https://site${String(n)}.example.com/`, undefined, null);
+  const open = (s: CenterTabsState, n: number) => openLink(s, `https://site${String(n)}.example.com/`, undefined, []);
   it('opens and activates a tab; the same URL re-activates the existing tab', () => {
     const a = open(initialCenterTabs, 1);
     expect(a.links.map(l => l.host)).toEqual(['site1.example.com']);
     expect(a.active).toBe(a.links[0]?.id);
-    const b = openLink({ ...a, active: DEAL_TAB }, 'https://site1.example.com/', undefined, null);
+    const b = openLink({ ...a, active: SEARCH_TAB }, 'https://site1.example.com/', undefined, []);
     expect(b.links).toHaveLength(1);
     expect(b.active).toBe(a.links[0]?.id);
   });
   it('the job search URL activates the 求人検索 tab instead of a new tab', () => {
-    const s = openLink(initialCenterTabs, STORED, '求人検索', STORED);
+    const s = openLink(initialCenterTabs, STORED, '求人検索', [{ id: SEARCH_TAB, url: STORED }]);
     expect(s.active).toBe(SEARCH_TAB);
     expect(s.links).toHaveLength(0);
   });
@@ -131,15 +132,54 @@ describe('openLink / closeLink', () => {
     expect(s.active).toBe(s.links[4]?.id);
   });
   it('ignores javascript: links', () => {
-    expect(openLink(initialCenterTabs, 'javascript:alert(1)', undefined, null)).toBe(initialCenterTabs);
+    expect(openLink(initialCenterTabs, 'javascript:alert(1)', undefined, [])).toBe(initialCenterTabs);
   });
-  it('closing the active tab activates its neighbour, then the 案件 tab', () => {
+  it('closing the active tab activates its neighbour, then the 求人検索 tab', () => {
     let s = open(open(initialCenterTabs, 1), 2);
     const [first, second] = s.links;
     s = closeLink(s, second?.id ?? '');
     expect(s.active).toBe(first?.id);
     s = closeLink(s, first?.id ?? '');
-    expect(s.active).toBe(DEAL_TAB);
+    expect(s.active).toBe(SEARCH_TAB);
+    expect(s.links).toHaveLength(0);
+  });
+});
+
+describe('dealFixedLinks', () => {
+  const base = (deal: Record<string, unknown>, website: string | null = null): WorkspaceResponse => ({
+    deal: { job_search_url: null, homepage_url: null, media_job_urls: null, job_posting_url: null, ...deal },
+    dial: { number: '03-0000-0001', source: 'contact' },
+    companies: [{ is_primary: true, website }],
+  }) as unknown as WorkspaceResponse;
+  const byId = (l: ReturnType<typeof dealFixedLinks>, id: string) => l.find(f => f.id === id);
+
+  it('always has 求人検索 / ホームページ / 求人票 in this order, even with no URLs', () => {
+    const l = dealFixedLinks(base({}));
+    expect(l.map(f => f.label)).toEqual(['求人検索', 'ホームページ', '求人票']);
+    expect(l.map(f => f.id)).toEqual([SEARCH_TAB, HOME_TAB, POSTING_TAB]);
+    expect(byId(l, HOME_TAB)?.url).toBeNull();
+    expect(byId(l, HOME_TAB)?.missing).toBe('この案件にはホームページが登録されていません。');
+    expect(byId(l, POSTING_TAB)?.missing).toBe('この案件には求人票が登録されていません。');
+    expect(byId(l, SEARCH_TAB)?.url).toContain('https://www.google.com/search');
+  });
+  it('the homepage falls back to the primary company website; the 会社のサイト tab only appears when different', () => {
+    const l = dealFixedLinks(base({}, 'https://www.example.com/'));
+    expect(byId(l, HOME_TAB)?.url).toBe('https://www.example.com/');
+    expect(byId(l, SITE_TAB)).toBeUndefined();
+    const l2 = dealFixedLinks(base({ homepage_url: 'https://home.example.com/' }, 'https://www.example.com/'));
+    expect(byId(l2, HOME_TAB)?.url).toBe('https://home.example.com/');
+    expect(l2.map(f => f.label)).toEqual(['求人検索', 'ホームページ', '求人票', '会社のサイト']);
+  });
+  it('求人票 skips an empty Google search; 求人媒体 tabs are numbered only when several', () => {
+    expect(byId(dealFixedLinks(base({ job_posting_url: 'https://www.google.com/search?q=+%E6%B1%82%E4%BA%BA' })), POSTING_TAB)?.url).toBeNull();
+    expect(byId(dealFixedLinks(base({ job_posting_url: 'https://jobs.example.com/1' })), POSTING_TAB)?.url).toBe('https://jobs.example.com/1');
+    expect(dealFixedLinks(base({ media_job_urls: 'https://a.example.com/' })).map(f => f.label).slice(3)).toEqual(['求人媒体']);
+    expect(dealFixedLinks(base({ media_job_urls: 'https://a.example.com/ https://b.example.com/' })).map(f => f.label).slice(3)).toEqual(['求人媒体 1', '求人媒体 2']);
+  });
+  it('a link equal to a fixed tab URL focuses that tab instead of opening a new one', () => {
+    const l = dealFixedLinks(base({ homepage_url: 'https://home.example.com/' }));
+    const s = openLink(initialCenterTabs, 'https://home.example.com/', undefined, l);
+    expect(s.active).toBe(HOME_TAB);
     expect(s.links).toHaveLength(0);
   });
 });

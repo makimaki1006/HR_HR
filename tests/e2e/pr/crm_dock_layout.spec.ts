@@ -147,7 +147,6 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     await openFirst(page);
     // 背の高い画面では案件の概要は詳しい表示
     await expect(page.getByTestId('overview-compact')).toHaveCount(0);
-    await page.getByRole('region', { name: 'リンク' }).getByRole('link', { name: /求人を検索する/ }).click();
     const frame = page.locator('#cq-cpanel-search iframe[data-testid="link-frame"]');
     await expect(frame).toBeVisible();
     const box = await frame.boundingBox();

@@ -27,7 +27,7 @@ import { useQueuePipelines } from './useQueuePipelines';
 import type { PipelinesFetch } from './useQueuePipelines';
 import { useCallQueue } from './useCallQueue';
 import { useAutoLoadMore } from './useAutoLoadMore';
-import { ActivityLog, DealLinks, DealOverview, rawStopLabel } from './DealDetail';
+import { ActivityLog, DealOverview, rawStopLabel } from './DealDetail';
 import { ConflictDialog } from './WriteWidgets';
 import { fakeWriteApi } from './fakeWrite';
 import { liveWriteApi } from './crmWrite';
@@ -45,8 +45,9 @@ import type { QueueFetch } from './useCallQueue';
 import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
 import { CallResultForm } from './CallResultForm';
-import { CenterPanel, CenterTabBar, LinkOpenerContext, LinkView, searchTab, useCenterTabs } from './CenterTabs';
-import { DEAL_TAB, SEARCH_TAB, dealJobSearchUrl } from './centerLinks';
+import { CenterPanel, CenterTabBar, FixedPanelBody, LinkOpenerContext, LinkView, useCenterTabs } from './CenterTabs';
+import { dealFixedLinks, HOME_TAB, POSTING_TAB, SEARCH_TAB } from './centerLinks';
+import type { FixedLink } from './centerLinks';
 import { Dock } from './Dock';
 import { clearLegacyLayout, columnOf, dockReducer, loadLayoutWithNotice, localStorageOrNull, saveLayout } from './dockModel';
 import type { DockAction, PanelId } from './dockModel';
@@ -99,6 +100,14 @@ export function bindsToDial(d: DialedFor, call: CallState): boolean {
   const n = toE164Jp(call.number);
   return d.number === null || n === null || n === d.number;
 }
+
+/** 詳細を読み込む前のリンクのタブ (名前だけ。中身は案内) */
+const WAITING_NOTE = '案件の詳細を読み込むと表示されます。';
+const EMPTY_FIXED: readonly FixedLink[] = [
+  { id: SEARCH_TAB, label: '求人検索', url: null, missing: WAITING_NOTE },
+  { id: HOME_TAB, label: 'ホームページ', url: null, missing: WAITING_NOTE },
+  { id: POSTING_TAB, label: '求人票', url: null, missing: WAITING_NOTE },
+];
 
 const PHONE_SOURCE_LABELS: Record<string, string> = { deal: '案件', contact: '担当者', mobile: '担当者(携帯)', company: '会社' };
 
@@ -625,7 +634,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   }, [selectedId]);
 
   const waitingKey = selectedId !== null && selectedId !== detailId;
-  // 「求人検索・リンク先」パネルの中のタブ (リンク一覧 / 求人検索 / 開いたリンク)。案件を選び直したら開いたリンクは閉じる
+  // 「求人検索・リンク先」パネルの中のタブ (求人検索 / ホームページ / 求人票 / 開いたリンク)。案件を選び直したら開いたリンクは閉じる
   const loadedData = !waitingKey && detailState.phase === 'ready' && detailState.data?.deal.id === selectedId ? detailState.data : null;
   // 項目の書き換え。保存した値は、読み直した詳細に切り替わるまで仮に重ねて表示する
   const effectiveWriteApi = writeApi ?? (mode === 'fixture' ? fakeWriteApi : liveWriteApi);
@@ -648,9 +657,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     ownerNames, loadValues: loadWriteValues,
   });
   const shownData = writeBindings.view;
-  const searchUrl = useMemo(() => (shownData !== null ? dealJobSearchUrl(shownData) : null), [shownData]);
-  const center = useCenterTabs(selectedId === null ? null : `${mode}:${selectedId}`, searchUrl);
-  const searchLink = useMemo(() => (searchUrl !== null ? searchTab(searchUrl) : null), [searchUrl]);
+  const fixedLinks = useMemo(() => (shownData !== null ? dealFixedLinks(shownData) : EMPTY_FIXED), [shownData]);
+  const center = useCenterTabs(selectedId === null ? null : `${mode}:${selectedId}`, fixedLinks);
   // 通話が終わったら「架電結果の入力」を前に出す (どの列に置いていても。リンクのタブは閉じない)
   const endedKey = endedCall === null ? null : (endedCall.callId ?? 'ended');
   const [seenEnded, setSeenEnded] = useState<string | null>(null);
@@ -760,13 +768,10 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           onClick={() => { if (!maxLinks) dispatchLayout({ type: 'activate', panel: 'links' }); setMaxLinks(m => !m); }}>{maxLinks ? '戻す' : '広げる'}</button>
       </div>
       <div className="cq-cpanels">
-        <CenterPanel id={DEAL_TAB} active={center.active === DEAL_TAB}>
-          <div className="dock-scroll">{shownData !== null ? <DealLinks data={shownData} /> : <p className="dock-placeholder">{placeholder}</p>}</div>
-        </CenterPanel>
-        {searchLink !== null && <CenterPanel id={SEARCH_TAB} active={center.active === SEARCH_TAB}>
-          {/* 開くまでは枠を作らない (案件を選ぶたびに Google を読みに行かない) */}
-          {center.searchOpened && <LinkView key={searchLink.url} tab={searchLink} />}
-        </CenterPanel>}
+        {/* 固定のタブ。前に出すまで枠は作らない (最初に前に出るのは求人検索だけ) */}
+        {center.fixed.map(f => <CenterPanel key={f.def.id} id={f.def.id} active={center.active === f.def.id}>
+          <FixedPanelBody item={f} />
+        </CenterPanel>)}
         {center.links.map(l => <CenterPanel key={l.id} id={l.id} active={center.active === l.id}>
           <LinkView tab={l} onClose={() => { center.close(l.id); }} />
         </CenterPanel>)}

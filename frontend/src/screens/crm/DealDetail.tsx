@@ -18,8 +18,6 @@ import { ActivityCard } from './ActivityCard';
 import { EmailThreadCard } from './EmailThreadCard';
 import { groupActivityEmails } from './emailThreads';
 import { RESULT_LABELS, useTicking } from './ZoomPhonePanel';
-import { dealJobSearchUrl, extractUrls, isEmptyGoogleSearch, safeHttpUrl } from './centerLinks';
-import { PropLink } from './CenterTabs';
 import type { ZoomEvent } from './smartEmbed';
 import { StageMover } from './StageMove';
 import type { StageMoveCtx } from './writeBindings';
@@ -288,36 +286,6 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
 
 /** 親 (架電画面) が描き直しても、props が同じなら描き直さない */
 export const ActivityLog = memo(ActivityLogImpl);
-
-/**
- * 案件・会社のリンク (求人検索・ホームページ・求人票・求人媒体)。クリックで「求人検索・リンク先」パネルのタブに開く。
- * 求人検索は「URL_求人検索」、無ければ架ける番号で検索する URL
- */
-function DealLinksImpl({ data }: { data: WorkspaceResponse }) {
-  const d = data.deal;
-  const company = data.companies.find(c => c.is_primary) ?? null;
-  const search = dealJobSearchUrl(data);
-  const homepage = safeHttpUrl(d.homepage_url)?.toString() ?? null;
-  const site = safeHttpUrl(company?.website)?.toString() ?? null;
-  const posting = d.job_posting_url !== null && !isEmptyGoogleSearch(d.job_posting_url) ? safeHttpUrl(d.job_posting_url)?.toString() ?? null : null;
-  const media = extractUrls(d.media_job_urls);
-  const rows: { key: string; dt: string; url: string; label: string; note?: string }[] = [];
-  if (search !== null) rows.push({ key: 'search', dt: '求人検索', url: search, label: '求人検索',
-    ...(safeHttpUrl(d.job_search_url) === null ? { note: '(架ける番号で検索)' } : {}) });
-  if (homepage !== null) rows.push({ key: 'home', dt: 'ホームページ', url: homepage, label: 'ホームページ' });
-  if (site !== null && site !== homepage) rows.push({ key: 'site', dt: '会社のサイト', url: site, label: '会社のサイト' });
-  if (posting !== null) rows.push({ key: 'posting', dt: '求人票', url: posting, label: '求人票' });
-  media.forEach((u, i) => { rows.push({ key: `media-${String(i)}`, dt: media.length > 1 ? `求人媒体 ${String(i + 1)}` : '求人媒体', url: u, label: media.length > 1 ? `求人媒体 ${String(i + 1)}` : '求人媒体' }); });
-  return <section className="wd-card" aria-label="リンク">
-    <h3>リンク<small>クリックすると、このパネルの中に開きます</small></h3>
-    {rows.length === 0 ? <p className="crm-muted">登録されたリンクはありません。</p>
-      : <dl className="wd-links">{rows.map(r => <div key={r.key}><dt>{r.dt}</dt>
-        <dd><PropLink url={r.url} label={r.label}>{r.key === 'search' ? <>求人を検索する{r.note && <small> {r.note}</small>}</> : r.url}</PropLink></dd></div>)}</dl>}
-  </section>;
-}
-
-/** 親が描き直しても、案件が同じなら描き直さない */
-export const DealLinks = memo(DealLinksImpl);
 
 function DetailMessage({ state, reload }: { state: DetailState; reload: () => void }) {
   if (state.phase === 'idle') return <div className="cq-notice cq-empty wd-empty"><strong>架電一覧から架電先を選んでください</strong>
