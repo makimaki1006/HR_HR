@@ -97,6 +97,23 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(link.call_args.args[0][-1], '--apply')
             capture.assert_not_called()
 
+    def test_capture_resume_rejects_old_unbound_source_or_changed_account(self):
+        self.args.apply = True
+        session = Session({PAGE: Response(html()), FIRST: Response(png('red'), 'image/png')})
+        capture = collector.capture_jobs
+        with patch.object(pipeline, 'capture_jobs', side_effect=lambda payload, output: capture(payload, output, session)):
+            self.run_pipeline()
+        path = self.args.output / 'capture/0/archive-samples.json'
+        original = json.loads(path.read_bytes())
+        for source in [None, {'mediaJobId': '456', 'accountKey': 'synthetic-account'}, {'mediaJobId': '123', 'accountKey': 'different-account'}]:
+            samples = json.loads(json.dumps(original))
+            if source is None: samples['samples'][0].pop('airwork_source')
+            else: samples['samples'][0]['airwork_source'] = source
+            path.write_text(json.dumps(samples))
+            with self.assertRaisesRegex(collector.CaptureError, 'checkpoint_samples_mismatch'):
+                self.run_pipeline()
+        self.assertEqual(len(session.calls), 2)
+
     def test_changed_plan_rejected_before_get(self):
         self.args.apply = True
         self.args.output.mkdir()

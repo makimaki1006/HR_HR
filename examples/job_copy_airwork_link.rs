@@ -65,8 +65,7 @@ async fn run() -> Result<(), &'static str> {
     std::fs::create_dir_all(&output).map_err(|_| "output_unavailable")?;
     let mut results = vec![];
     for (company, listing, pointer) in prepared {
-        bridge.require_public_airwork(listing).await?;
-        let status = bridge.publish(company, listing, &pointer).await?;
+        let status = bridge.publish_airwork(company, listing, &pointer).await?;
         results.push(json!({"listing_id":listing,"status":status}));
         let temporary = output.join("link-results.tmp");
         std::fs::write(

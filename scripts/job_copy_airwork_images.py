@@ -18,6 +18,8 @@ from urllib.parse import urlsplit, urljoin
 import requests
 from PIL import Image
 from job_copy_snapshot_store import LocalSnapshotStore
+from job_copy_drive_manifest import validate_airwork_source
+from job_copy_drive_pilot import PilotError
 
 MAX_PAGE_BYTES = 2 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -75,6 +77,10 @@ def validate_jobs(payload):
             raise CaptureError('invalid_account_key')
         site = _site(job.get('recruitSiteUrl'))
         media = _id(job.get('mediaJobId'))
+        try:
+            validate_airwork_source({'mediaJobId': media, 'accountKey': account})
+        except PilotError:
+            raise CaptureError('invalid_source_identity') from None
         if accounts.setdefault(account, site) != site or sites.setdefault(site, account) != account:
             raise CaptureError('ambiguous_account_site')
         if (account, media) in seen:
@@ -300,7 +306,8 @@ def _capture_jobs(payload, output, session=None):
                 for image in row['images']:
                     sample = {'listing_id': job['hubspotListingId'], 'company_ids': job['companyIds'],
                               'observed_at': started, 'source_slot': image['slot'], 'source_path': image['sourcePath'],
-                              'sha256': image['sha256'], 'bytes': image['bytes']}
+                              'sha256': image['sha256'], 'bytes': image['bytes'],
+                              'airwork_source': {'mediaJobId': job['mediaJobId'], 'accountKey': job['accountKey']}}
                     if job.get('previousManifestFileId'):
                         sample.update(previous_manifest_file_id=job['previousManifestFileId'],
                                       previous_manifest_sha256=job['previousManifestSha256'])

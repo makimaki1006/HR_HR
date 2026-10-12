@@ -36,6 +36,8 @@ struct Fixture {
     requests: Mutex<Vec<Seen>>,
     patch: PatchMode,
     public_airwork: Mutex<bool>,
+    airwork_properties: Mutex<Value>,
+    change_source_on_image_read: Mutex<bool>,
 }
 struct Upstream {
     base: String,
@@ -65,6 +67,7 @@ fn manifest(id: &str, bytes: &[u8], date: &str, previous: Option<&Pointer>) -> M
             size: bytes.len(),
         }],
         operation_id: "1".repeat(64),
+        airwork_source: None,
         previous_manifest_file_id: previous.map(|p| p.file_id.clone()),
         previous_manifest_sha256: previous.map(|p| p.sha256.clone()),
     }
@@ -114,6 +117,10 @@ impl Upstream {
             requests: Mutex::new(vec![]),
             patch: mode,
             public_airwork: Mutex::new(false),
+            change_source_on_image_read: Mutex::new(false),
+            airwork_properties: Mutex::new(
+                json!({"id_airwork":"123","airwork_account_login_id":"synthetic-account","kyuujin_status":"公開中"}),
+            ),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -181,6 +188,9 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
         );
     }
     if let Some(file) = path.strip_prefix("/drive/v3/files/") {
+        if file == CURRENT_IMAGE && *fixture.change_source_on_image_read.lock().unwrap() {
+            fixture.airwork_properties.lock().unwrap()["id_airwork"] = json!("456");
+        }
         return match fixture.files.lock().unwrap().get(file) {
             Some((mime, raw)) => response(200, mime, raw.clone()),
             None => json_response(404, json!({"error":"synthetic-file-unavailable"})),
@@ -216,10 +226,18 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
             .as_ref()
             .map(|p| serde_json::to_string(p).unwrap())
             .unwrap_or_default();
-        let mut properties = json!({PROPERTY:raw});
+        let mut properties = json!({PROPERTY:raw,"id_hrhakkaa":"synthetic-hrh-job"});
         if *fixture.public_airwork.lock().unwrap() {
-            properties["id_airwork"] = json!("123");
-            properties["kyuujin_status"] = json!("公開中");
+            properties["id_hrhakkaa"] = Value::Null;
+            for (key, value) in fixture
+                .airwork_properties
+                .lock()
+                .unwrap()
+                .as_object()
+                .unwrap()
+            {
+                properties[key] = value.clone();
+            }
         }
         return json_response(200, json!({"properties":properties}));
     }
@@ -387,7 +405,7 @@ async fn airwork_registration_requires_live_public_airwork_identity() {
     assert_eq!(
         upstream
             .bridge()
-            .require_public_airwork("30")
+            .require_public_airwork("30", &airwork_source())
             .await
             .unwrap_err(),
         "public_airwork_listing_required"
@@ -408,9 +426,140 @@ async fn airwork_registration_accepts_live_public_identity_without_writing() {
     *upstream.fixture.public_airwork.lock().unwrap() = true;
     upstream
         .bridge()
-        .require_public_airwork("30")
+        .require_public_airwork("30", &airwork_source())
         .await
         .unwrap();
     assert_eq!(upstream.calls().len(), 1);
     assert_eq!(upstream.calls()[0].method, "GET");
+}
+
+fn airwork_source() -> AirworkSource {
+    AirworkSource {
+        media_job_id: "123".into(),
+        account_key: "synthetic-account".into(),
+    }
+}
+fn attach_airwork_source(upstream: &mut Upstream) {
+    let mut current = manifest(CURRENT_IMAGE, NEW_BYTES, "2026-10-05T00:00:00Z", None);
+    current.airwork_source = Some(airwork_source());
+    let (pointer, raw) = evidence(CURRENT_MANIFEST, &current);
+    upstream.pointer = pointer;
+    upstream
+        .fixture
+        .files
+        .lock()
+        .unwrap()
+        .insert(CURRENT_MANIFEST.into(), ("application/json".into(), raw));
+    *upstream.fixture.public_airwork.lock().unwrap() = true;
+}
+#[tokio::test]
+async fn airwork_wrong_job_or_account_or_status_or_missing_field_never_patches() {
+    for (key, value) in [
+        ("id_airwork", json!("456")),
+        ("airwork_account_login_id", json!("different-account")),
+        ("kyuujin_status", json!("公開終了")),
+        ("id_airwork", Value::Null),
+        ("airwork_account_login_id", Value::Null),
+    ] {
+        let mut upstream = Upstream::start(PatchMode::Success, false).await;
+        attach_airwork_source(&mut upstream);
+        upstream.fixture.airwork_properties.lock().unwrap()[key] = value;
+        for generic in [false, true] {
+            let bridge = upstream.bridge();
+            let result = if generic {
+                bridge.publish("10", "30", &upstream.pointer).await
+            } else {
+                bridge.publish_airwork("10", "30", &upstream.pointer).await
+            };
+            assert_eq!(result.unwrap_err(), "public_airwork_listing_required");
+        }
+        assert_eq!(
+            upstream
+                .calls()
+                .iter()
+                .filter(|call| call.method == "PATCH")
+                .count(),
+            0
+        );
+    }
+}
+#[tokio::test]
+async fn airwork_missing_saved_source_never_patches() {
+    let upstream = Upstream::start(PatchMode::Success, false).await;
+    *upstream.fixture.public_airwork.lock().unwrap() = true;
+    assert_eq!(
+        upstream
+            .bridge()
+            .publish_airwork("10", "30", &upstream.pointer)
+            .await
+            .unwrap_err(),
+        "airwork_source_required"
+    );
+    assert_eq!(
+        upstream
+            .bridge()
+            .publish("10", "30", &upstream.pointer)
+            .await
+            .unwrap_err(),
+        "image_source_identity_required"
+    );
+    assert_eq!(
+        upstream
+            .calls()
+            .iter()
+            .filter(|call| call.method == "PATCH")
+            .count(),
+        0
+    );
+}
+#[tokio::test]
+async fn airwork_exact_source_match_links_once_after_lost_acknowledgement() {
+    let mut upstream = Upstream::start(PatchMode::LostAcknowledgement, false).await;
+    attach_airwork_source(&mut upstream);
+    let bridge = upstream.bridge();
+    assert_eq!(
+        bridge
+            .publish_airwork("10", "30", &upstream.pointer)
+            .await
+            .unwrap(),
+        "linked"
+    );
+    assert_eq!(
+        bridge
+            .publish_airwork("10", "30", &upstream.pointer)
+            .await
+            .unwrap(),
+        "already_linked"
+    );
+    assert_eq!(
+        upstream
+            .calls()
+            .iter()
+            .filter(|call| call.method == "PATCH")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn airwork_source_changed_during_original_readback_never_patches() {
+    let mut upstream = Upstream::start(PatchMode::Success, false).await;
+    attach_airwork_source(&mut upstream);
+    *upstream.fixture.change_source_on_image_read.lock().unwrap() = true;
+    assert_eq!(
+        upstream
+            .bridge()
+            .publish_airwork("10", "30", &upstream.pointer)
+            .await
+            .unwrap_err(),
+        "public_airwork_listing_required"
+    );
+    assert_eq!(
+        upstream
+            .calls()
+            .iter()
+            .filter(|call| call.method == "PATCH")
+            .count(),
+        0
+    );
 }

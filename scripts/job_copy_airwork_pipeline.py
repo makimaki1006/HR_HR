@@ -74,6 +74,7 @@ def captured(job, folder):
     expected = [{'listing_id': job['hubspotListingId'], 'company_ids': job['companyIds'],
                  'observed_at': rows[0]['observationStartedAt'], 'source_slot': image['slot'],
                  'source_path': image['sourcePath'], 'sha256': image['sha256'], 'bytes': image['bytes'],
+                 'airwork_source': {'mediaJobId': job['mediaJobId'], 'accountKey': job['accountKey']},
                  **({'previous_manifest_file_id': job['previousManifestFileId'],
                      'previous_manifest_sha256': job['previousManifestSha256']} if job.get('previousManifestFileId') else {})}
                 for image in rows[0]['images']]

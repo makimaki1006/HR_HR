@@ -12,7 +12,8 @@ from PIL import Image
 import requests
 
 import job_copy_airwork_images as collector
-from job_copy_drive_manifest import build_manifests
+from job_copy_drive_manifest import build_manifests, validate_manifest
+from job_copy_drive_pilot import PilotError
 
 SITE = 'https://arwrk.net/recruit/synthetic-account'
 PAGE = SITE + '/123/'
@@ -293,6 +294,15 @@ class AirWorkImagesTests(unittest.TestCase):
                                'original_bytes': len(self.raw), 'readback_hash_matches': True}}]
         manifest = build_manifests(result['archive'], uploads, 'synthetic_folder_12345')[0]
         self.assertEqual([image['slot'] for image in manifest['images']], [1, 2, 3, 4])
+        self.assertEqual(manifest['airworkSource'], {'mediaJobId': '123', 'accountKey': 'synthetic-account'})
+        self.assertEqual(result['archive']['samples'][3]['airwork_source'], manifest['airworkSource'])
+        conflicting = copy.deepcopy(result['archive'])
+        conflicting['samples'][3]['airwork_source']['mediaJobId'] = '456'
+        with self.assertRaisesRegex(PilotError, 'listing_observation_conflict'):
+            build_manifests(conflicting, uploads, 'synthetic_folder_12345')
+        for source in [None, {}, {'mediaJobId': '123'}, {'mediaJobId': 'abc', 'accountKey': 'synthetic-account'}, {'mediaJobId': '123', 'accountKey': ''}]:
+            with self.assertRaisesRegex(PilotError, 'invalid_airwork_source'):
+                validate_manifest({**manifest, 'airworkSource': source})
 
     def test_interrupted_batch_never_leaves_previous_archive_success_publishable(self):
         self.capture()
