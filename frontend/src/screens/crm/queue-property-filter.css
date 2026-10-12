@@ -4,3 +4,11 @@
 .cq-property-filter small { width: 100%; color: #637086; }
 .cq-property-options { max-height: 160px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 8px; max-width: 500px; border: 1px solid #d8dde5; }
 .cq-property-options label { white-space: nowrap; }
+
+.cq-group-editor { width:100%; min-width:0; }
+.cq-group-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:8px 0; }
+.cq-group-toolbar small,.cq-sort-note { color:#53657a; font-size:12px; }
+.cq-condition-groups { display:flex; flex-wrap:wrap; align-items:stretch; gap:10px; margin:8px 0; }
+.cq-condition-group { padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#f5f8fc; }
+.cq-condition-group > strong { margin-right:10px; font-size:12px; }
+.cq-or-label { font-size:12px; font-weight:600; margin:0 0 4px; color:#53657a; }

@@ -42,6 +42,8 @@ pub struct QueueFilterKey {
     pub pipeline: String,
     pub q: Option<String>,
     pub property_conditions: Vec<super::queue_property_filter::PropertyCondition>,
+    /// 相対日付を解決した後の検索条件。まとまりの違いも区別する。
+    pub property_group_key: String,
     /// 昇順・重複なし (空 = パイプラインの全部)
     pub stages: Vec<String>,
     /// 解決済みの担当者 (`all` / `unassigned` / `id:<owner id>`)

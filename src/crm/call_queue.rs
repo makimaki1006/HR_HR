@@ -537,6 +537,7 @@ enum SortKey {
     NextCallDesc,
     LastCallAsc,
     LastCallDesc,
+    Property,
 }
 
 impl SortKey {
@@ -547,6 +548,7 @@ impl SortKey {
             "next_call_desc" => SortKey::NextCallDesc,
             "last_call_asc" => SortKey::LastCallAsc,
             "last_call_desc" => SortKey::LastCallDesc,
+            custom if custom_sort(custom).is_some() => SortKey::Property,
             _ => return None,
         })
     }
@@ -557,7 +559,38 @@ impl SortKey {
             SortKey::NextCallDesc => "next_call_desc",
             SortKey::LastCallAsc => "last_call_asc",
             SortKey::LastCallDesc => "last_call_desc",
+            SortKey::Property => "property",
         }
+    }
+}
+
+fn custom_sort(s: &str) -> Option<(String, bool)> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 3
+        || parts[0] != "property"
+        || parts[1].is_empty()
+        || parts[1].len() > 200
+        || !parts[1]
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return None;
+    }
+    Some((
+        parts[1].into(),
+        match parts[2] {
+            "asc" => false,
+            "desc" => true,
+            _ => return None,
+        },
+    ))
+}
+impl Params {
+    fn sort_label(&self) -> String {
+        self.custom_sort.as_ref().map_or_else(
+            || self.sort.as_str().into(),
+            |(p, desc)| format!("property:{p}:{}", if *desc { "desc" } else { "asc" }),
+        )
     }
 }
 
@@ -588,6 +621,9 @@ struct Params {
     fresh: bool,
     property_conditions: Vec<super::queue_property_filter::PropertyCondition>,
     property_filters: Vec<Value>,
+    property_groups: Vec<Vec<super::queue_property_filter::PropertyCondition>>,
+    property_filter_groups: Vec<Vec<Value>>,
+    custom_sort: Option<(String, bool)>,
 }
 
 /// 日付 (JST) の範囲。両端を含む。`from <= to` は解析時に確認済み
@@ -641,9 +677,11 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     let mut owner = None;
     let mut due = None;
     let mut sort = None;
+    let mut custom = None;
     let mut dates: [Option<NaiveDate>; 4] = [None; 4];
     let mut fresh = false;
     let mut property_conditions = Vec::new();
+    let mut property_groups = Vec::new();
     let mut seen: HashSet<&'static str> = HashSet::new();
     let mut once = |name: &'static str| -> Result<(), &'static str> {
         if seen.insert(name) {
@@ -656,8 +694,23 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
         match k.as_ref() {
             "conditions" => {
                 once("conditions")?;
-                property_conditions =
-                    super::queue_property_filter::parse(&v).map_err(|_| "conditions")?;
+                property_conditions = super::queue_property_filter::parse(&v).map_err(|m| {
+                    if m == super::queue_property_filter::LIMIT_MESSAGE {
+                        "condition_limit"
+                    } else {
+                        "conditions"
+                    }
+                })?;
+            }
+            "condition_groups" => {
+                once("condition_groups")?;
+                property_groups = super::queue_property_filter::parse_groups(&v).map_err(|m| {
+                    if m == super::queue_property_filter::LIMIT_MESSAGE {
+                        "condition_limit"
+                    } else {
+                        "conditions"
+                    }
+                })?;
             }
             "pipeline" => {
                 once("pipeline")?;
@@ -711,6 +764,7 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
             "sort" => {
                 once("sort")?;
                 sort = Some(SortKey::parse(&v).ok_or("sort")?);
+                custom = custom_sort(&v);
             }
             "fresh" => {
                 once("fresh")?;
@@ -744,6 +798,12 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
             return Err("last_to");
         }
     }
+    if seen.contains("conditions") && seen.contains("condition_groups") {
+        return Err("conditions");
+    }
+    if property_groups.is_empty() && !property_conditions.is_empty() {
+        property_groups.push(property_conditions.clone());
+    }
     let pipeline = pipeline.unwrap_or_else(default_pipeline);
     if stages.iter().any(|s| !pipeline.is_eligible(s)) {
         return Err("stage");
@@ -770,6 +830,9 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
         fresh,
         property_conditions,
         property_filters: Vec::new(),
+        property_groups,
+        property_filter_groups: Vec::new(),
+        custom_sort: custom,
     })
 }
 
@@ -902,6 +965,16 @@ fn phases(sort: SortKey, due: Due, last_range: bool) -> Vec<Phase> {
         ]
     };
     let all = match (sort, due) {
+        (SortKey::Property, due) => vec![p(
+            if due == Due::Today {
+                Scope::Due
+            } else {
+                Scope::Queue
+            },
+            LastCall::Any,
+            "hs_object_id",
+            false,
+        )],
         (SortKey::Default | SortKey::NextCallAsc, Due::All) => {
             let mut v = vec![p(Scope::Due, LastCall::Any, "bpo_13", false)];
             v.extend(tail(Scope::NotDueAlways));
@@ -1097,6 +1170,19 @@ fn search_body(
 }
 
 /// 段階の件数だけを数える Search (行は 1 件だけ・ID だけ読む。並びは件数に関係しないので付けない)
+fn property_search_body(
+    groups: Vec<Value>,
+    phase: Phase,
+    params: &Params,
+    after: Option<u64>,
+) -> Value {
+    let mut body = search_body(groups, phase, params.limit, after, params.q.as_deref());
+    if let Some((property, desc)) = &params.custom_sort {
+        body["sorts"] = json!([{"propertyName":property,"direction":if *desc {"DESCENDING"} else {"ASCENDING"}}]);
+    }
+    body
+}
+
 fn count_body(groups: Vec<Value>, q: Option<&str>) -> Value {
     let mut body = json!({
         "filterGroups": groups,
@@ -1174,9 +1260,10 @@ fn condition_hash(
         params.q.clone().unwrap_or_default(),
         params.stages.join(","),
         serde_json::to_string(&params.property_conditions).expect("conditions json"),
+        serde_json::to_string(&params.property_filter_groups).expect("groups json"),
         owner_label(owner),
         params.due.as_str().to_string(),
-        params.sort.as_str().to_string(),
+        params.sort_label(),
         today_ms.to_string(),
         params.next.start_text().unwrap_or_default(),
         params.next.end_text().unwrap_or_default(),
@@ -1555,7 +1642,12 @@ fn condition_error(message: &str) -> Response {
     (
         StatusCode::BAD_REQUEST,
         Json(CrmErrorResponse {
-            error_kind: "invalid_conditions".into(),
+            error_kind: if message == super::queue_property_filter::LIMIT_MESSAGE {
+                "condition_limit"
+            } else {
+                "invalid_conditions"
+            }
+            .into(),
             message: Some(message.into()),
         }),
     )
@@ -1563,9 +1655,12 @@ fn condition_error(message: &str) -> Response {
 }
 
 fn bad_param(name: &str) -> Response {
+    if name == "condition_limit" {
+        return condition_error(super::queue_property_filter::LIMIT_MESSAGE);
+    }
     if name == "conditions" {
         return condition_error(
-            "追加条件は 3 つまで、値は 200 文字・選択肢は 20 個までです。指定を見直してください。",
+            "まとまりは 3 つ、各条件は 6 つまでです。値は 200 文字・選択肢は 20 個までで指定してください。",
         );
     }
 
@@ -1604,22 +1699,45 @@ pub(super) async fn get_call_queue(
     let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
-    if !params.property_conditions.is_empty() {
+    let now = ctx.queue.now();
+    if !params.property_groups.is_empty() || params.custom_sort.is_some() {
         let entry = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.catalog.get(&client)).await
         {
             Ok(Ok((entry, _))) => entry,
             Ok(Err(e)) => return hubspot_error_response(&e),
             Err(_) => return timeout_response(),
         };
-        for c in &params.property_conditions {
-            match super::queue_property_filter::validate(c, entry.property("deals", &c.property)) {
-                Ok(f) => params.property_filters.push(f),
-                Err(message) => return condition_error(message),
+        for group in &params.property_groups {
+            let mut fs = Vec::new();
+            for c in group {
+                match super::queue_property_filter::resolve(
+                    c,
+                    entry.property("deals", &c.property),
+                    now,
+                ) {
+                    Ok(f) => fs.push(f),
+                    Err(message) => return condition_error(message),
+                }
+            }
+            params.property_filter_groups.push(fs);
+        }
+        params.property_filters = params
+            .property_filter_groups
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        if let Some((property, _)) = &params.custom_sort {
+            if !entry
+                .property("deals", property)
+                .is_some_and(super::queue_property_filter::sortable)
+            {
+                return condition_error(
+                    "この項目では並べ替えできません。取引の項目から選び直してください。",
+                );
             }
         }
     }
     // 5) cursor (署名・条件・有効期限。HubSpot は呼ばない)
-    let now = ctx.queue.now();
     let today_ms = jst_today_ms(now);
     let hash = condition_hash(&email, role, &params, &owner, today_ms);
     let start = match params.cursor.as_deref() {
@@ -1766,10 +1884,12 @@ fn filter_key(params: &Params, owner_key: &str, today_ms: i64) -> QueueFilterKey
         pipeline: params.pipeline.id.to_string(),
         q: params.q.clone(),
         property_conditions: params.property_conditions.clone(),
+        property_group_key: serde_json::to_string(&params.property_filter_groups)
+            .expect("resolved groups"),
         stages: params.stages.clone(),
         owner: owner_key.to_string(),
         due: params.due.as_str().to_string(),
-        sort: params.sort.as_str().to_string(),
+        sort: params.sort_label(),
         today_ms,
         next_from: params.next.start_text(),
         next_to: params.next.end_text(),
@@ -1828,7 +1948,7 @@ fn assemble(
                 s
             },
             due: params.due.as_str().to_string(),
-            sort: params.sort.as_str().to_string(),
+            sort: params.sort_label(),
             q: params.q.clone(),
             limit: params.limit,
             next_from: params.next.start_text(),
@@ -1879,10 +1999,15 @@ async fn execute(
                     owner_filter,
                     today_ms,
                     &ranges,
-                    params.property_filters.len(),
+                    params
+                        .property_filter_groups
+                        .iter()
+                        .map(Vec::len)
+                        .max()
+                        .unwrap_or(0),
                 )
             };
-            super::queue_property_filter::append(groups, &params.property_filters)
+            super::queue_property_filter::append_groups(groups, &params.property_filter_groups)
                 .map(|groups| (p, groups))
         })
         .collect::<Result<Vec<_>, _>>()
@@ -1890,6 +2015,16 @@ async fn execute(
         .into_iter()
         .filter(|(_, g)| !g.is_empty())
         .collect();
+    // HubSpotの本文上限も、全段階を検索する前に確認する。続きの最大桁数で判定する。
+    if active.iter().any(|(phase, groups)| {
+        property_search_body(groups.clone(), *phase, params, Some(SEARCH_WINDOW))
+            .to_string()
+            .encode_utf16()
+            .count()
+            > 3000
+    }) {
+        return Err(condition_error(super::queue_property_filter::LIMIT_MESSAGE));
+    }
     let (start_phase, start_after) = start;
     // 発行した cursor は必ず存在する段階を指す。段階の数が合わないものは使えない
     if params.cursor.is_some() && start_phase as usize >= active.len() {
@@ -1906,13 +2041,7 @@ async fn execute(
 
     while phase_idx < active.len() {
         let (phase, groups) = &active[phase_idx];
-        let body = search_body(
-            groups.clone(),
-            *phase,
-            params.limit,
-            after,
-            params.q.as_deref(),
-        );
+        let body = property_search_body(groups.clone(), *phase, params, after);
         let v = client.search("deals", body).await.map_err(&fail)?;
         let page = parse_search(&v).map_err(&fail)?;
         visited += 1;
@@ -2173,4 +2302,47 @@ pub(super) async fn get_call_queue_pipelines(
         labels_available: defs.is_some(),
     })
     .into_response()
+}
+
+#[cfg(test)]
+mod queue_v2_tests {
+    use super::*;
+    #[test]
+    fn 解決済み条件とまとまりと並びでキャッシュとcursorを分離する() {
+        let mut p = parse_params("sort=property:sample_value:asc").unwrap();
+        let filter = json!({"propertyName":"sample_date","operator":"BETWEEN","value":"1770076800000","highValue":"1770076800000"});
+        p.property_filter_groups = vec![vec![filter.clone()]];
+        let key = filter_key(&p, "all", 0);
+        let hash = condition_hash(
+            "sample@example.invalid",
+            CrmRole::Admin,
+            &p,
+            &OwnerParam::All,
+            0,
+        );
+        let mut changed = p.clone();
+        changed.custom_sort = Some(("sample_value".into(), true));
+        assert_ne!(key, filter_key(&changed, "all", 0));
+        assert_ne!(
+            hash,
+            condition_hash(
+                "sample@example.invalid",
+                CrmRole::Admin,
+                &changed,
+                &OwnerParam::All,
+                0
+            )
+        );
+        changed = p.clone();
+        changed.property_filter_groups = vec![vec![filter.clone()], vec![filter.clone()]];
+        assert_ne!(key, filter_key(&changed, "all", 0));
+        changed = p;
+        changed.property_filter_groups[0][0]["value"] = json!("1770163200000");
+        changed.property_filter_groups[0][0]["highValue"] = json!("1770163200000");
+        assert_ne!(key, filter_key(&changed, "all", 0));
+        assert_eq!(
+            serde_json::from_str::<Value>(&key.property_group_key).unwrap(),
+            json!([[filter]])
+        );
+    }
 }

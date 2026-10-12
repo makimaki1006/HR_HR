@@ -42,17 +42,17 @@ describe('取引の追加条件', () => {
   it('型ごとの演算子と真偽・日付・複数選択を用意する', () => {
     const base = state.index.deals.get('amount')?.prop;
     if (!base) throw new Error('金額の定義が必要');
-    for (const [kind, expected] of Object.entries({ enumeration:['IN','NOT_IN'], string:['CONTAINS_TOKEN','EQ','NOT_HAS_PROPERTY','HAS_PROPERTY'], number:['EQ','GTE','LTE','NOT_HAS_PROPERTY','HAS_PROPERTY'], date:['GTE','LTE','NOT_HAS_PROPERTY','HAS_PROPERTY'], bool:['EQ'] })) {
+    for (const [kind, expected] of Object.entries({ enumeration:['IN','NOT_IN','NOT_HAS_PROPERTY','HAS_PROPERTY'], string:['CONTAINS_TOKEN','NOT_CONTAINS_TOKEN','EQ','NEQ','NOT_HAS_PROPERTY','HAS_PROPERTY'], number:['EQ','NEQ','GTE','LTE','BETWEEN','NOT_HAS_PROPERTY','HAS_PROPERTY'], date:['GTE','LTE','BETWEEN','TODAY','BEFORE_TODAY','LAST_N_DAYS','NEXT_N_DAYS','NOT_HAS_PROPERTY','HAS_PROPERTY'], bool:['IS_TRUE','IS_FALSE','NOT_HAS_PROPERTY'] })) {
       expect(operatorsFor({ ...base, property_type:kind }).map(o => o.value)).toEqual(expected);
     }
-    expect(operatorsFor({ ...base,property_type:'date' }).map(o => o.label)).toEqual(['以降','以前','空','空でない']);
+    expect(operatorsFor({ ...base,property_type:'date' }).map(o => o.label)).toEqual(['以降','以前','範囲','今日','今日より前','過去 N 日以内','今後 N 日以内','空','空でない']);
     expect(conditionLabel({property:'amount',operator:'EQ',values:['false']},{...base,property_type:'bool'})).toBe('金額: いいえ');
   });
-  it('3 件で追加を止め、壊れた URL と長すぎる値を復元しない', () => {
+  it('6 件で追加を止め、壊れた URL と長すぎる値を復元しない', () => {
     const c = {property:'amount',operator:'EQ',values:['1']};
-    render(<QueuePropertyFilter catalog={state} count={3} onAdd={() => { throw new Error('追加不可'); }} onReload={() => undefined} />);
-    expect(screen.getByText('追加条件は 3 つまでです。条件を外すと追加できます。')).not.toBeNull();
-    expect(parseConditions(JSON.stringify([c,c,c,c]))).toEqual([]);
+    render(<QueuePropertyFilter catalog={state} count={6} onAdd={() => { throw new Error('追加不可'); }} onReload={() => undefined} />);
+    expect(screen.getByText('このまとまりは 6 条件までです。条件を外すと追加できます。')).not.toBeNull();
+    expect(parseConditions(JSON.stringify([c,c,c,c,c,c,c]))).toEqual([]);
     expect(parseConditions(JSON.stringify([{...c,values:['a'.repeat(201)]}]))).toEqual([]);
     expect(parseConditions('{broken')).toEqual([]);
   });

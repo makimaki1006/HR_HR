@@ -444,7 +444,7 @@ async fn start_hs(fake: FakeHs) -> (Arc<HubSpotClient>, Shared<FakeHs>) {
             .route("/crm/v3/owners", get(hs_owners))
             .route("/crm/v3/pipelines/deals", get(hs_pipelines))
             .route("/crm/v3/properties/{o}/groups", get(|| async { Json(json!({"results":[{"name":"dealinfo","label":"取引","displayOrder":0}]})) }))
-            .route("/crm/v3/properties/{o}", get(|| async { Json(json!({"results":[{"name":"amount","label":"金額","type":"number","fieldType":"number","groupName":"dealinfo"},{"name":"dealname","label":"案件名","type":"string","fieldType":"text","groupName":"dealinfo"}]})) }))
+            .route("/crm/v3/properties/{o}", get(|| async { Json(json!({"results":[{"name":"amount","label":"金額","type":"number","fieldType":"number","groupName":"dealinfo"},{"name":"dealname","label":"案件名","type":"string","fieldType":"text","groupName":"dealinfo"},{ "name":"sample_date","label":"架空日付","type":"date","fieldType":"date","groupName":"dealinfo"},{"name":"sample_multi","label":"架空複数選択","type":"enumeration","fieldType":"checkbox","groupName":"dealinfo"},{"name":"sample_json","label":"架空構造","type":"json","fieldType":"text","groupName":"dealinfo"}]})) }))
             .with_state(st.clone()),
     )
     .await;
@@ -3537,5 +3537,198 @@ async fn 許可外の項目と型違いと上限超過は400で検索しない()
     let (status,body)=e.admin_get(&conditions_query(conditions,"&owner=111&last_from=2026-10-01&last_to=2026-10-05&next_from=2026-10-01&next_to=2026-10-05")).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["message"], super::queue_property_filter::LIMIT_MESSAGE);
+    assert_eq!(e.hs.lock().unwrap().search_calls, 0);
+}
+
+fn v2_query(gs: Value, sort: &str) -> String {
+    let mut url = reqwest::Url::parse("http://sample.invalid/").unwrap();
+    url.query_pairs_mut()
+        .append_pair("condition_groups", &gs.to_string())
+        .append_pair("sort", sort);
+    format!("?{}", url.query().unwrap())
+}
+#[tokio::test]
+async fn またはのまとまりは既存条件とのandで同じ三段階だけを検索する() {
+    let e = env(FakeHs::new()).await;
+    let gs = json!([[{"property":"amount","operator":"GTE","values":["17000"]}],[{"property":"amount","operator":"LTE","values":["29000"]}]]);
+    assert_eq!(
+        e.admin_get(&v2_query(gs.clone(), "default")).await.0,
+        StatusCode::OK
+    );
+    let calls = e.hs.lock().unwrap().search_calls;
+    assert_eq!(calls, 3);
+    assert_eq!(
+        e.admin_get(&v2_query(gs, "default")).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(e.hs.lock().unwrap().search_calls, calls);
+    for body in e.hs.lock().unwrap().search_bodies() {
+        let groups = body["filterGroups"].as_array().unwrap();
+        assert!(groups.len() <= 5);
+        assert!(
+            groups
+                .iter()
+                .map(|g| g["filters"].as_array().unwrap().len())
+                .sum::<usize>()
+                <= 18
+        );
+        for group in groups {
+            let fs = group["filters"].as_array().unwrap();
+            assert!(fs.len() <= 6);
+            assert!(fs.iter().any(|f| f["propertyName"] == "dealstage"));
+            assert_eq!(
+                fs.iter().filter(|f| f["propertyName"] == "amount").count(),
+                1
+            );
+        }
+    }
+}
+#[tokio::test]
+async fn 項目順のページ送りは一段階で並びを変えたcursorを拒否する() {
+    let mut f = FakeHs::new();
+    f.search = Box::new(|_, _| {
+        (
+            200,
+            Page::new(vec![Deal::new("701", UNPROCESSED)])
+                .total(2)
+                .next("1")
+                .json(),
+        )
+    });
+    let e = env(f).await;
+    let q = v2_query(
+        json!([[{"property":"amount","operator":"BETWEEN","values":["17","29"]}]]),
+        "property:amount:asc",
+    );
+    let (status, body) = e.admin_get(&q).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total"], 2);
+    let cursor = body["next_cursor"].as_str().unwrap();
+    assert_eq!(e.hs.lock().unwrap().search_calls, 1);
+    assert_eq!(e.admin_get(&q).await.0, StatusCode::OK);
+    assert_eq!(e.hs.lock().unwrap().search_calls, 1);
+    let (s, _) = e.admin_get(&format!("{q}&cursor={cursor}")).await;
+    assert_eq!(s, StatusCode::OK);
+    let bodies = e.hs.lock().unwrap().search_bodies();
+    assert_eq!(
+        bodies[0]["sorts"],
+        json!([{"propertyName":"amount","direction":"ASCENDING"}])
+    );
+    assert_eq!(bodies[1]["after"], "1");
+    let (status, _) = e
+        .admin_get(&format!("{}&cursor={cursor}", q.replace("asc", "desc")))
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        e.admin_get(&q.replace("asc", "desc")).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        e.hs.lock().unwrap().search_bodies().last().unwrap()["sorts"][0]["direction"],
+        "DESCENDING"
+    );
+}
+#[tokio::test]
+async fn まとまりの合成上限と許可外の並べ替えは400で検索しない() {
+    let e = env(FakeHs::new()).await;
+    let gs = json!(vec![
+        vec![
+            json!({"property":"amount","operator":"EQ","values":["17"]})
+        ];
+        3
+    ]);
+    let (s, v) = e.admin_get(&v2_query(gs, "default")).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error_kind"], "condition_limit");
+    assert_eq!(v["message"], super::queue_property_filter::LIMIT_MESSAGE);
+    for name in ["outside_property", "sample_multi", "sample_json"] {
+        let (s, v) = e.admin_get(&format!("?sort=property:{name}:asc")).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+        assert_eq!(v["error_kind"], "invalid_conditions");
+    }
+    assert_eq!(e.hs.lock().unwrap().search_calls, 0);
+}
+#[tokio::test]
+async fn 相対日付はjst午前零時で絶対値へ変わる() {
+    let query = conditions_query(
+        json!([{"property":"sample_date","operator":"TODAY","values":[]}]),
+        "&sort=property:amount:asc",
+    );
+    for (utc, expected) in [
+        ("2026-10-04T14:59:59Z", "1791072000000"),
+        ("2026-10-04T15:00:00Z", "1791158400000"),
+    ] {
+        let e = env_at(FakeHs::new(), utc.parse().unwrap()).await;
+        assert_eq!(e.admin_get(&query).await.0, StatusCode::OK);
+        let hs = e.hs.lock().unwrap();
+        assert_eq!(hs.search_calls, 1);
+        for group in hs.search_bodies()[0]["filterGroups"].as_array().unwrap() {
+            let date = group["filters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|f| f["propertyName"] == "sample_date")
+                .unwrap();
+            assert_eq!(date["operator"], "BETWEEN");
+            assert_eq!(date["value"], expected);
+            assert_eq!(date["highValue"], expected);
+        }
+    }
+}
+
+#[tokio::test]
+async fn 項目順でも停止理由とブロック理由を持つ架空案件は除外する() {
+    let rows = vec![
+        Deal::new("705", UNPROCESSED)
+            .p("dealname", "sample")
+            .p("amount", "23")
+            .p("bpo_3", "架空の停止理由"),
+        Deal::new("706", UNPROCESSED)
+            .p("dealname", "sample")
+            .p("amount", "23")
+            .p("bpo_4", "架空のブロック理由"),
+        Deal::new("707", UNPROCESSED)
+            .p("dealname", "sample")
+            .p("amount", "23"),
+    ];
+    let e = env(FakeHs::new().page(Page::new(rows))).await;
+    let gs = json!([[{"property":"amount","operator":"GTE","values":["17"]},{"property":"dealname","operator":"EQ","values":["sample"]}],[{"property":"amount","operator":"LTE","values":["29"]},{"property":"dealname","operator":"EQ","values":["sample"]}]]);
+    let (s, v) = e.admin_get(&v2_query(gs, "property:amount:asc")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(ids(&v), vec!["707"]);
+    assert_eq!(v["partial"]["excluded"]["stop_reason"], 2);
+    assert_eq!(e.hs.lock().unwrap().search_calls, 1);
+    let hs = e.hs.lock().unwrap();
+    let body = &hs.search_bodies()[0];
+    assert_eq!(body["filterGroups"].as_array().unwrap().len(), 4);
+    assert!(body["filterGroups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|g| g["filters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["propertyName"] == "dealname" && f["value"] == "sample")));
+}
+
+#[tokio::test]
+async fn 長い値を組み合わせた検索本文も送る前に400にする() {
+    let e = env(FakeHs::new()).await;
+    let gs = json!(vec![
+        vec![
+            json!({"property":"dealname","operator":"EQ","values":["x".repeat(200)]});
+            5
+        ];
+        3
+    ]);
+    let (s, v) = e
+        .admin_get(&format!(
+            "{}&stage={UNPROCESSED}",
+            v2_query(gs, "property:amount:asc")
+        ))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error_kind"], "condition_limit");
     assert_eq!(e.hs.lock().unwrap().search_calls, 0);
 }
