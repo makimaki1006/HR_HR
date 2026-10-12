@@ -6,13 +6,15 @@
 //   /app/admin?view=user&id=<aid>  -> user detail       (old: /admin/users/{aid})
 //   /app/admin?view=login-failures -> login failures    (old: /admin/login-failures)
 //   /app/admin?view=hubspot        -> HubSpot usage     (new 2026-10-08, no old page)
+//   /app/admin?view=callers        -> today's callers   (new 2026-10-13; add &mode=fixture for fake data)
 
 export type AdminRoute =
   | { view: 'usage'; days: number }
   | { view: 'users' }
   | { view: 'user'; id: string }
   | { view: 'login-failures' }
-  | { view: 'hubspot' };
+  | { view: 'hubspot' }
+  | { view: 'callers' };
 
 /** Same default as the Rust handler (`q.days.unwrap_or(30)`). */
 export const DEFAULT_USAGE_DAYS = 30;
@@ -30,6 +32,8 @@ export function parseAdminRoute(search: string): AdminRoute {
       return { view: 'login-failures' };
     case 'hubspot':
       return { view: 'hubspot' };
+    case 'callers':
+      return { view: 'callers' };
     default: {
       // Rust clamps to 1..=365 server-side; the response's `days` is what the UI shows.
       const days = Number.parseInt(q.get('days') ?? '', 10);
@@ -59,5 +63,7 @@ export function adminApiPath(route: AdminRoute): string {
       return '/api/admin/login-failures';
     case 'hubspot':
       return '/api/admin/hubspot-usage';
+    case 'callers':
+      return '/api/crm/metrics/today/all';
   }
 }

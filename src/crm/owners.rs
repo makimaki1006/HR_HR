@@ -47,6 +47,8 @@ pub struct CrmOwner {
     pub email: Option<String>,
     /// 退職者など (HubSpot 上でアーカイブ済み)
     pub archived: bool,
+    /// 所属チーム名 (HubSpot の teams[].name。無ければ空)
+    pub teams: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -79,7 +81,10 @@ impl OwnerListCache {
     }
 
     /// 有効期間内ならキャッシュを返し、そうでなければ取得する (取得中は他の要求を待たせて 1 回にまとめる)
-    async fn get(&self, client: &HubSpotClient) -> Result<Arc<CrmOwnersResponse>, HubSpotError> {
+    pub(super) async fn get(
+        &self,
+        client: &HubSpotClient,
+    ) -> Result<Arc<CrmOwnersResponse>, HubSpotError> {
         let mut slot = self.slot.lock().await;
         if let Some((at, v)) = slot.as_ref() {
             if at.elapsed() < self.ttl {
@@ -158,11 +163,17 @@ fn parse_owner(v: &Value, archived: bool) -> Option<CrmOwner> {
     } else {
         "(名前なし)".to_string()
     };
+    let teams = v
+        .get("teams")
+        .and_then(Value::as_array)
+        .map(|ts| ts.iter().filter_map(|t| s(t, "name")).collect::<Vec<_>>())
+        .unwrap_or_default();
     Some(CrmOwner {
         id,
         name,
         email,
         archived,
+        teams,
     })
 }
 

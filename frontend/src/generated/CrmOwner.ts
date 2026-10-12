@@ -12,4 +12,8 @@ name: string, email: string | null,
 /**
  * 退職者など (HubSpot 上でアーカイブ済み)
  */
-archived: boolean, };
+archived: boolean, 
+/**
+ * 所属チーム名 (HubSpot の teams[].name。無ければ空)
+ */
+teams: Array<string>, };

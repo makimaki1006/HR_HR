@@ -1,0 +1,32 @@
+import {expect,test} from '@playwright/test';
+import path from 'node:path';
+const shot=async(page:import('@playwright/test').Page,name:string)=>{if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,name),fullPage:false});};
+test('appointer strip shows own values with average and rank; collapses; no live requests in fixture mode',async({page})=>{
+  const requests:string[]=[];page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/crm/'))requests.push(r.url());});
+  await page.goto('/static/app/__metrics_crm?mode=fixture&owner=unassigned');
+  const strip=page.getByTestId('today-metrics');
+  await expect(strip).toBeVisible();
+  await expect(page.getByTestId('metrics-as-of')).toHaveText('14時05分時点');
+  await expect(page.getByTestId('metric-outbound')).toContainText('52');
+  await expect(page.getByTestId('metric-outbound')).toContainText('平均 47.5');
+  await expect(page.getByTestId('metric-outbound')).toContainText('3位 / 8人');
+  await expect(page.getByTestId('metric-over_90s')).toContainText('2位 / 8人');
+  await expect(page.getByTestId('metric-duration')).toContainText('55:12');
+  await expect(page.getByTestId('metric-appointments')).toContainText('1位 / 8人');
+  const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(80);
+  await shot(page,'metrics-strip.png');
+  await page.getByRole('button',{name:'閉じる'}).click();
+  await expect(page.getByTestId('metric-outbound')).toHaveCount(0);
+  expect(requests.filter(u=>u.includes('/metrics/'))).toEqual([]);
+});
+test('admin table sorts and filters by team (fictional)',async({page})=>{
+  await page.goto('/static/app/__metrics_admin?view=callers&mode=fixture');
+  const rows=page.getByTestId('callers-table').locator('tbody tr');
+  await expect(rows).toHaveCount(5);
+  await expect(rows.first().locator('td').first()).toHaveText('サンプル 二郎');
+  await page.getByRole('button',{name:/アポ/}).click();
+  await expect(rows.first().locator('td').first()).toHaveText('架空 花子');
+  await shot(page,'metrics-admin.png');
+  await page.getByLabel('チームで絞り込む').selectOption('架空営業チーム');
+  await expect(page.getByTestId('callers-count')).toHaveText('1 人');
+});
