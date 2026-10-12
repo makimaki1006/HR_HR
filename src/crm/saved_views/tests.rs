@@ -371,8 +371,8 @@ async fn saves_filters_without_cursor_or_view_and_preserves_encoded_values() {
     let (audit, _, _) = start_sqlite_audit_with_queries().await;
     let store = ViewsStore::default();
     let email = "sample@example.invalid";
-    let raw = "owner=all&q=two%20words&cursor=page-two&%76iew=other&stage=sample-a&stage=sample-b";
-    let expected = "owner=all&q=two%20words&stage=sample-a&stage=sample-b";
+    let raw = "q=two%20words&cursor=page-two&%76iew=other&owner=all&sort=next_call_desc";
+    let expected = "q=two%20words&owner=all&sort=next_call_desc";
     let view = store
         .mutate(
             audit.clone(),
