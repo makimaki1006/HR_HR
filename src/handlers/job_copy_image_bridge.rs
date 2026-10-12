@@ -342,7 +342,7 @@ impl ImageBridge {
                 &format!("/crm/v3/objects/0-420/{listing}"),
                 &[(
                     "properties",
-                    "id_airwork,airwork_account_login_id,kyuujin_status".to_owned(),
+                    "id_airwork,airwork_account_login_id,id_hrhakkaa,kyuujin_status".to_owned(),
                 )],
             )
             .await?;
@@ -350,6 +350,9 @@ impl ImageBridge {
             || record["properties"]["id_airwork"].as_str() != Some(source.media_job_id.as_str())
             || record["properties"]["airwork_account_login_id"].as_str()
                 != Some(source.account_key.as_str())
+            || record["properties"]["id_hrhakkaa"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
             || record["properties"]["kyuujin_status"] != "公開中"
         {
             return Err("public_airwork_listing_required");

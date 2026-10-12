@@ -458,6 +458,7 @@ async fn airwork_wrong_job_or_account_or_status_or_missing_field_never_patches()
         ("id_airwork", json!("456")),
         ("airwork_account_login_id", json!("different-account")),
         ("kyuujin_status", json!("公開終了")),
+        ("id_hrhakkaa", json!("synthetic-hrh-job")),
         ("id_airwork", Value::Null),
         ("airwork_account_login_id", Value::Null),
     ] {
