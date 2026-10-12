@@ -411,6 +411,18 @@ pub struct CallQueueItem {
     /// `deal` / `contact` / `mobile` / `company`。番号を判断できなかった行は null
     pub phone_source: Option<String>,
     pub deep_links: CallQueueDeepLinks,
+    /// 詳細条件・項目での並べ替えに使った項目の値 (並べ替えの項目が先、最大 4)。
+    /// 使った項目が無いときは省く。値は HubSpot の文字列のまま (無い・空は null)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub extra: Option<Vec<QueueExtraValue>>,
+}
+
+/// 行に添える項目 1 つ分の値
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct QueueExtraValue {
+    pub property: String,
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -635,7 +647,37 @@ struct Params {
     custom_sort: Option<(String, bool)>,
 }
 
+/// 行にすでに出している固定の項目 (重ねて出さない)
+const BUILT_IN_SHOWN: &[&str] = &[
+    "dealname",
+    "bpo_13",
+    "bpo_20",
+    "hubspot_owner_id",
+    "dealstage",
+    "pipeline",
+];
+
 impl Params {
+    /// 行に値を添える項目: 並べ替えの項目 → 詳細条件の項目 (出てきた順・重複なし)。固定の項目は除く。最大 4
+    fn shown_properties(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let sort = self.custom_sort.iter().map(|(p, _)| p.as_str());
+        let conds = self
+            .property_groups
+            .iter()
+            .flatten()
+            .map(|c| c.property.as_str());
+        for p in sort.chain(conds) {
+            if out.len() >= 4 {
+                break;
+            }
+            if BUILT_IN_SHOWN.contains(&p) || out.iter().any(|o| o == p) {
+                continue;
+            }
+            out.push(p.to_string());
+        }
+        out
+    }
     fn pipeline_key(&self) -> String {
         if self.pipelines.len() == 1 {
             return self.pipeline.id.to_string();
@@ -1288,6 +1330,16 @@ fn property_search_body(
     if let Some((property, desc)) = &params.custom_sort {
         body["sorts"] = json!([{"propertyName":property,"direction":if *desc {"DESCENDING"} else {"ASCENDING"}}]);
     }
+    let shown = params.shown_properties();
+    if !shown.is_empty() {
+        let mut props: Vec<String> = DEAL_PROPERTIES.iter().map(|p| p.to_string()).collect();
+        for p in shown {
+            if !props.contains(&p) {
+                props.push(p);
+            }
+        }
+        body["properties"] = json!(props);
+    }
     body
 }
 
@@ -1500,6 +1552,7 @@ pub(super) fn contact_name(rec: &HubSpotRecord) -> Option<String> {
 }
 
 /// 関連の取得状況
+#[derive(Default)]
 struct Related {
     contacts_known: bool,
     companies_known: bool,
@@ -1614,6 +1667,7 @@ fn build_item_for_scope(
     portal: &str,
     no_phone: &mut u32,
     keep_no_phone: bool,
+    shown: &[String],
 ) -> Option<CallQueueItem> {
     let contact_refs = rel
         .contact_refs
@@ -1686,6 +1740,19 @@ fn build_item_for_scope(
         company,
         phone,
         phone_source,
+        extra: if shown.is_empty() {
+            None
+        } else {
+            Some(
+                shown
+                    .iter()
+                    .map(|p| QueueExtraValue {
+                        property: p.clone(),
+                        value: nz(deal, p),
+                    })
+                    .collect(),
+            )
+        },
     })
 }
 
@@ -2357,6 +2424,7 @@ async fn execute(
             }
         };
         let portal = hubspot_portal_id();
+        let shown = params.shown_properties();
         for d in &deals {
             if let Some(item) = build_item_for_scope(
                 d,
@@ -2365,6 +2433,7 @@ async fn execute(
                 &portal,
                 &mut partial.excluded.no_phone,
                 params.all_deals,
+                &shown,
             ) {
                 items.push(item);
             }
@@ -2483,6 +2552,87 @@ pub(super) async fn get_call_queue_pipelines(
 #[cfg(test)]
 mod queue_v2_tests {
     use super::*;
+    #[test]
+    fn 行に添える項目は並べ替えが先で重複と固定項目を除き最大4つ() {
+        let conds = json!([[
+            {"property":"dealname","operator":"EQ","values":["x"]},
+            {"property":"amount","operator":"GTE","values":["100"]},
+            {"property":"sample_a","operator":"GTE","values":["1"]},
+            {"property":"bpo_13","operator":"HAS_PROPERTY","values":[]},
+            {"property":"sample_b","operator":"GTE","values":["1"]}
+        ],[
+            {"property":"sample_c","operator":"GTE","values":["1"]},
+            {"property":"sample_a","operator":"LTE","values":["9"]}
+        ]])
+        .to_string();
+        let q = format!(
+            "condition_groups={}&sort=property:sample_c:desc",
+            urlencoding::encode(&conds)
+        );
+        let p = parse_params(&q).unwrap();
+        assert_eq!(
+            p.shown_properties(),
+            vec!["sample_c", "amount", "sample_a", "sample_b"]
+        );
+        let phase = phases(p.sort, p.due, false)[0];
+        let body = property_search_body(vec![], phase, &p, None);
+        let props: Vec<&str> = body["properties"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(props.len(), DEAL_PROPERTIES.len() + 4);
+        assert_eq!(
+            &props[DEAL_PROPERTIES.len()..],
+            ["sample_c", "amount", "sample_a", "sample_b"]
+        );
+        let plain = parse_params("").unwrap();
+        assert!(plain.shown_properties().is_empty());
+        let body = property_search_body(vec![], phase, &plain, None);
+        assert_eq!(
+            body["properties"].as_array().unwrap().len(),
+            DEAL_PROPERTIES.len()
+        );
+    }
+    #[test]
+    fn 行の項目値は指定順で空はnullになり使わない時は省く() {
+        let mut rec = HubSpotRecord {
+            id: "1".into(),
+            properties: BTreeMap::new(),
+            created_at: None,
+            updated_at: None,
+            archived: false,
+        };
+        rec.properties.insert("dealstage".into(), Some("s1".into()));
+        rec.properties
+            .insert("amount".into(), Some("1080000".into()));
+        rec.properties.insert("sample_a".into(), Some("  ".into()));
+        let rel = Related::default();
+        let labels = HashMap::new();
+        let mut n = 0;
+        let shown = vec![
+            "amount".to_string(),
+            "sample_a".to_string(),
+            "sample_z".to_string(),
+        ];
+        let item = build_item_for_scope(&rec, &rel, &labels, "1", &mut n, true, &shown).unwrap();
+        let extra = item.extra.clone().unwrap();
+        assert_eq!(
+            extra
+                .iter()
+                .map(|e| (e.property.as_str(), e.value.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("amount", Some("1080000")),
+                ("sample_a", None),
+                ("sample_z", None)
+            ]
+        );
+        let none = build_item_for_scope(&rec, &rel, &labels, "1", &mut n, true, &[]).unwrap();
+        assert!(none.extra.is_none());
+        assert!(serde_json::to_value(&none).unwrap().get("extra").is_none());
+    }
     #[test]
     fn 解決済み条件とまとまりと並びでキャッシュとcursorを分離する() {
         let mut p = parse_params("sort=property:sample_value:asc").unwrap();
