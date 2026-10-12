@@ -39,6 +39,9 @@ describe('saved views',()=>{
   const api=client();api.list=()=>Promise.reject(new Error('offline'));render(<SavedViews query="" search="" fixture={false} client={api} onNavigate={vi.fn()}/>);
   await screen.findByText('ビューを読み込めませんでした');expect(screen.queryByRole('tablist')).toBeNull();
  });
+ it('removes page and view metadata while preserving the original filter bytes',()=>{
+  expect(queueQuery(`?q=two%20words&cursor=page-two&view=${id}&owner=all&%63ursor=page-three`)).toBe('q=two%20words&owner=all');
+ });
  it('fixture saves persist across a reopened client without API writes',async()=>{
   const api=fixtureViews(localStorage);await api.create(id,{name:'架空一覧',scope:'private',query:'owner=unassigned'});
   expect((await fixtureViews(localStorage).list(new AbortController().signal)).map(v=>[v.name,v.query])).toEqual([['架空一覧','owner=unassigned']]);

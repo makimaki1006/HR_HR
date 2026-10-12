@@ -11,7 +11,7 @@ export interface ViewsClient {
 export function queueQuery(search:string):string {
   return search.replace(/^\?/u,'').split('&').filter(part=>{
     let key=part.split('=')[0] ?? '';try{key=decodeURIComponent(key);}catch{/* preserve invalid input for server validation */}
-    return key!=='view' && key!=='mode';
+    return key!=='view' && key!=='cursor' && key!=='mode';
   }).join('&');
 }
 export function selectedViewId(search:string):string|null {

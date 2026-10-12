@@ -15,7 +15,7 @@ function SaveDialog({view,query,onSave,onClose}:{view:SavedView|null;query:strin
       <label>共有範囲<select value={scope} onChange={e=>{setScope(e.target.value as 'private'|'shared');}}><option value="private">自分だけ</option><option value="shared">全員に共有</option></select></label>
       {query.length>2000&&<p role="alert">条件が長すぎるため保存できません。条件を減らしてください。</p>}
       {error&&<p role="alert">{error}</p>}
-      <div className="sv-actions"><button type="submit" disabled={busy||!name.trim()||query.length>2000}>{busy?'保存中…':'保存'}</button><button type="button" disabled={busy} onClick={onClose}>やめる</button></div>
+      <div className="sv-actions"><button className="sv-primary" type="submit" disabled={busy||!name.trim()||query.length>2000}>{busy?'保存中…':'保存'}</button><button type="button" disabled={busy} onClick={onClose}>やめる</button></div>
     </form>
   </section></div>;
 }
@@ -26,6 +26,9 @@ export function SavedViews({query,search,fixture,client:provided,onNavigate}:Pro
   useEffect(() => { try { sessionStorage.removeItem('hrhr.crm.viewNotice'); } catch { /* optional notice */ } }, []);
   const [menu,setMenu]=useState<string|null>(null);const [dialog,setDialog]=useState<{view:SavedView|null;query:string}|null>(null);
   const [deleting,setDeleting]=useState<SavedView|null>(null);const [busy,setBusy]=useState(false);
+  const [overflow,setOverflow]=useState(false);
+  const [visibleIds,setVisibleIds]=useState<string[]|null>(null);
+  const strip=useRef<HTMLDivElement>(null);const actions=useRef<HTMLDivElement>(null);const measurements=useRef<HTMLDivElement>(null);
   const id=selectedViewId(search);const active=rows?.find(v=>v.id===id) ?? null;
   const initial=useRef({id,query:queueQuery(search)});const restored=useRef(false);
   useEffect(()=>{
@@ -40,6 +43,24 @@ export function SavedViews({query,search,fixture,client:provided,onNavigate}:Pro
       else if(initial.current.query===''&&view.query!=='')onNavigate(viewSearch(view.query,view.id,fixture));
     }
   },[rows,fixture,onNavigate]);
+  useEffect(()=>{
+    if(!rows || !strip.current || !actions.current || !measurements.current)return;
+    const measure=()=>{
+      if(!strip.current || !actions.current || !measurements.current)return;
+      const widths=new Map(Array.from(measurements.current.children).map((el)=>[(el as HTMLElement).dataset.id ?? '',el.getBoundingClientRect().width]));
+      const budget=strip.current.clientWidth-actions.current.getBoundingClientRect().width-24-(widths.get('all') ?? 70);
+      const width=(v:SavedView)=>(widths.get(v.id) ?? 160)+(v.id===id&&v.can_edit?28:0);
+      const total=rows.reduce((sum,v)=>sum+width(v),0);
+      let remaining=budget-(total>budget?84:0)-(active?width(active):0);
+      const selected=new Set(active?[active.id]:[]);
+      for(const v of rows){if(v.id!==active?.id&&width(v)<=remaining){selected.add(v.id);remaining-=width(v);}}
+      const next=rows.filter(v=>selected.has(v.id)).map(v=>v.id);
+      setVisibleIds(old=>old?.join('|')===next.join('|')?old:next);
+    };
+    const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(measure);observer?.observe(strip.current);observer?.observe(actions.current);
+    window.addEventListener('resize',measure);const frame=window.setTimeout(measure,0);
+    return ()=>{observer?.disconnect();window.removeEventListener('resize',measure);window.clearTimeout(frame);};
+  },[rows,id,active,query]);
   async function refresh(){const list=await client.list(new AbortController().signal);setLoaded({client,views:list});return list;}
   async function run(task:()=>Promise<void>){setBusy(true);setNote('');try{await task();}catch(e){setNote(e instanceof Error?e.message:'変更できませんでした。');}finally{setBusy(false);}}
   if(error)return <p className="sv-notice" role="status">ビューを読み込めませんでした</p>;
@@ -52,24 +73,34 @@ export function SavedViews({query,search,fixture,client:provided,onNavigate}:Pro
   async function move(view:SavedView,delta:number){const index=rows?.findIndex(v=>v.id===view.id) ?? -1;const neighbor=rows?.[index+delta];if(!neighbor)return;
     const beyond=rows[index+2*delta];const position=beyond?(neighbor.position+beyond.position)/2:neighbor.position+delta;
     await client.patch(view.id,{position});await refresh();}
-  return <div className="sv" data-testid="saved-views">
+  const visible=rows.filter(v=>visibleIds===null||visibleIds.includes(v.id));
+  const hidden=rows.filter(v=>visibleIds!==null&&!visibleIds.includes(v.id));
+  return <div className="sv" data-testid="saved-views" ref={strip}>
+    <div className="sv-measurements" ref={measurements} aria-hidden="true">
+      <span data-id="all" className="sv-label">すべて</span>
+      {rows.map(v=><span className="sv-label" data-id={v.id} key={v.id}>{v.name}{v.scope==='shared'&&<small className="sv-shared">共有</small>}</span>)}
+    </div>
     <div className="sv-tabs" role="tablist" aria-label="架電一覧のビュー">
       <button type="button" role="tab" aria-selected={!active} onClick={()=>{onNavigate(viewSearch('',null,fixture));}}>すべて</button>
-      {rows.map(v=><div className="sv-tab" key={v.id}>
-        <button type="button" role="tab" aria-label={v.scope==='shared'?`${v.name}（全員に共有）`:v.name} aria-selected={id===v.id} onClick={()=>{onNavigate(viewSearch(v.query,v.id,fixture));}}>{v.scope==='shared'&&<span aria-label="全員に共有">◈ </span>}{v.name}</button>
-        {v.can_edit&&<button className="sv-menu-toggle" type="button" aria-label={`${v.name}のメニュー`} aria-expanded={menu===v.id} onClick={()=>{setMenu(menu===v.id?null:v.id);}}>⋯</button>}
+      {visible.map(v=><div className="sv-tab" key={v.id}>
+        <button type="button" role="tab" aria-label={v.scope==='shared'?`${v.name}（全員に共有）`:v.name} aria-selected={id===v.id} onClick={()=>{onNavigate(viewSearch(v.query,v.id,fixture));}}><span className="sv-name" title={v.name}>{v.name}</span>{v.scope==='shared'&&<small className="sv-shared">共有</small>}</button>
+        {v.can_edit&&id===v.id&&<button className="sv-menu-toggle" type="button" aria-label={`${v.name}のメニュー`} aria-expanded={menu===v.id} onClick={()=>{setMenu(menu===v.id?null:v.id);}}>⋯</button>}
         {menu===v.id&&<div className="sv-menu" role="group" aria-label={`${v.name}の操作`}>
           <button type="button" disabled={busy} onClick={()=>{setMenu(null);setDialog({view:v,query:v.query});}}>名前の変更</button>
           <button type="button" disabled={busy} onClick={()=>{void run(async()=>{await client.patch(v.id,{scope:v.scope==='shared'?'private':'shared'});const next=await refresh();setMenu(null);if(id===v.id&&!next.some(r=>r.id===id))onNavigate(viewSearch('',null,fixture));});}}>{v.scope==='shared'?'自分だけにする':'全員に共有する'}</button>
           <button type="button" disabled={busy||rows.indexOf(v)===0} onClick={()=>{void run(()=>move(v,-1));}}>左へ移す</button>
           <button type="button" disabled={busy||rows.indexOf(v)===rows.length-1} onClick={()=>{void run(()=>move(v,1));}}>右へ移す</button>
-          <button type="button" disabled={busy} onClick={()=>{setMenu(null);setDeleting(v);}}>削除</button>
+          <button className="sv-danger" type="button" disabled={busy} onClick={()=>{setMenu(null);setDeleting(v);}}>削除</button>
         </div>}
       </div>)}
+      {hidden.length>0&&<div className="sv-tab sv-overflow">
+        <button type="button" aria-expanded={overflow} onClick={()=>{setOverflow(o=>!o);}}>その他 ▾</button>
+        {overflow&&<div className="sv-menu" role="group" aria-label="その他のビュー">{hidden.map(v=><button type="button" key={v.id} onClick={()=>{onNavigate(viewSearch(v.query,v.id,fixture));}}>{v.name}{v.scope==='shared'&&<small className="sv-shared">共有</small>}</button>)}</div>}
+      </div>}
     </div>
-    <div className="sv-actions">
+    <div className="sv-bar-actions" ref={actions}>
       {changed&&active!==null&&<><strong className="sv-changed">変更あり</strong>{active.can_edit&&<button type="button" disabled={busy} onClick={()=>{void run(async()=>{await client.patch(active.id,{query});await refresh();});}}>上書き保存</button>}<button type="button" onClick={()=>{onNavigate(viewSearch(active.query,active.id,fixture));}}>元に戻す</button></>}
-      <button type="button" onClick={()=>{setDialog({view:null,query});}}>新しいビューとして保存</button>
+      <button type="button" onClick={()=>{setDialog({view:null,query});}}>＋ ビューを保存</button>
     </div>
     {note&&<p role="status" className="sv-notice">{note}</p>}
     {dialog&&<SaveDialog view={dialog.view} query={dialog.query} onSave={save} onClose={()=>{setDialog(null);}} />}

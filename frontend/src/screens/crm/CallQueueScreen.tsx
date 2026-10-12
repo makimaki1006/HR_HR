@@ -653,7 +653,6 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const panels: Record<PanelId, React.ReactNode> = {
     queue: <>
         <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-busy={state.phase === 'loading'}>
-          <SavedViews query={currentQuery} search={search} fixture={mode === 'fixture'} onNavigate={navigateView} />
           <div className="cq-list-head">
             {state.phase === 'ready' && <p className="cq-count" role="status" data-testid="queue-count"
               title={total !== null ? QUEUE_TOTAL_NOTE : undefined}>{queueCountText(total, state.items.length)}
@@ -804,6 +803,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         </div>
       </div>
     </form>
+    <SavedViews query={currentQuery} search={search} fixture={mode === 'fixture'} onNavigate={navigateView} />
     {layoutNote && <p className="cq-layout-note" role="status" data-testid="layout-note">{LAYOUT_UPDATED_NOTE}
       <button type="button" onClick={() => { setLayoutNote(false); }}>閉じる</button></p>}
 

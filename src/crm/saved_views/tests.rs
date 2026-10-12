@@ -365,3 +365,57 @@ async fn api_enforces_auth_csrf_bad_query_and_missing_audit() {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn saves_filters_without_cursor_or_view_and_preserves_encoded_values() {
+    let (audit, _, _) = start_sqlite_audit_with_queries().await;
+    let store = ViewsStore::default();
+    let email = "sample@example.invalid";
+    let raw = "owner=all&q=two%20words&cursor=page-two&%76iew=other&stage=sample-a&stage=sample-b";
+    let expected = "owner=all&q=two%20words&stage=sample-a&stage=sample-b";
+    let view = store
+        .mutate(
+            audit.clone(),
+            email.into(),
+            false,
+            create(600, "private", raw),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.query, expected);
+    let view = store
+        .mutate(
+            audit.clone(),
+            email.into(),
+            false,
+            Mutation::Update(
+                id(600),
+                Patch {
+                    query: Some("view=self&owner=unassigned&cursor=page-three".into()),
+                    ..Patch::default()
+                },
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.query, "owner=unassigned");
+    assert_eq!(
+        store.list(audit, email.into()).await.unwrap()[0].query,
+        "owner=unassigned"
+    );
+}
+
+#[test]
+fn email_is_required_before_loading_or_creating_views() {
+    assert_eq!(principal_email(None), Err(StatusCode::UNAUTHORIZED));
+    assert_eq!(
+        principal_email(Some("   ".into())),
+        Err(StatusCode::UNAUTHORIZED)
+    );
+    assert_eq!(
+        principal_email(Some(" SAMPLE@EXAMPLE.INVALID ".into())),
+        Ok("sample@example.invalid".into())
+    );
+}

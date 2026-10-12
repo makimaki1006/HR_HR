@@ -115,6 +115,18 @@ fn valid(name: &str, scope: &str, query: &str, position: Option<f64>) -> Result<
     }
     super::call_queue::validate_saved_query(query).map_err(|_| Error::Invalid)
 }
+/// Remove navigation metadata without decoding or re-encoding filter values.
+fn saved_query(query: &str) -> String {
+    query
+        .split('&')
+        .filter(|part| {
+            !urlencoding::decode(part.split('=').next().unwrap_or_default())
+                .is_ok_and(|key| matches!(key.as_ref(), "cursor" | "view"))
+        })
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
 fn valid_id(id: &str) -> bool {
     id.len() == 36 && uuid::Uuid::parse_str(id).is_ok_and(|u| u.to_string() == id)
 }
@@ -127,7 +139,17 @@ impl ViewsStore {
             }
         }
         let owner = email.clone();
-        let rows=tokio::task::spawn_blocking(move||read_rows(&audit,"SELECT * FROM crm_saved_views WHERE (creator_email=? AND scope='private') OR scope='shared' ORDER BY position,created_at,id LIMIT 150",&[&owner])).await.map_err(|_|Error::Unavailable)??;
+        let rows = tokio::task::spawn_blocking(move || {
+            read_rows(
+                &audit,
+                "SELECT * FROM crm_saved_views
+                 WHERE (creator_email=? AND scope='private') OR scope='shared'
+                 ORDER BY position,created_at,id LIMIT 150",
+                &[&owner],
+            )
+        })
+        .await
+        .map_err(|_| Error::Unavailable)??;
         if cache.len() >= 512 {
             cache.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
             if cache.len() >= 512 {
@@ -193,7 +215,8 @@ fn write(
         return Err(Error::Invalid);
     }
     let old = read_rows(audit, "SELECT * FROM crm_saved_views WHERE id=?", &[&id])?.pop();
-    if let Mutation::Create(c) = mutation {
+    if let Mutation::Create(mut c) = mutation {
+        c.query = saved_query(&c.query);
         valid(&c.name, &c.scope, &c.query, c.position)?;
         if let Some(v) = old {
             if v.creator_email == email
@@ -208,7 +231,35 @@ fn write(
         }
         let now = chrono::Utc::now().to_rfc3339();
         let name = c.name.trim().to_owned();
-        let rows=audit.turso().query("INSERT INTO crm_saved_views(id,creator_email,name,scope,query,position,created_at,updated_at) SELECT ?,?,?,?,?,COALESCE(?,(SELECT COALESCE(MAX(position),0)+1 FROM crm_saved_views)),?,? WHERE (?='private' AND (SELECT COUNT(*) FROM crm_saved_views WHERE creator_email=? AND scope='private')<50) OR (?='shared' AND (SELECT COUNT(*) FROM crm_saved_views WHERE scope='shared')<100) RETURNING *",&[&c.id,&email,&name,&c.scope,&c.query,&Position(c.position),&now,&now,&c.scope,&email,&c.scope]).map_err(|_|Error::Unavailable)?;
+        let sql = "INSERT INTO crm_saved_views
+                   (id,creator_email,name,scope,query,position,created_at,updated_at)
+            SELECT ?,?,?,?,?,
+                   COALESCE(?,(SELECT COALESCE(MAX(position),0)+1 FROM crm_saved_views)),?,?
+            WHERE (?='private' AND
+                   (SELECT COUNT(*) FROM crm_saved_views
+                    WHERE creator_email=? AND scope='private')<50)
+               OR (?='shared' AND
+                   (SELECT COUNT(*) FROM crm_saved_views WHERE scope='shared')<100)
+            RETURNING *";
+        let rows = audit
+            .turso()
+            .query(
+                sql,
+                &[
+                    &c.id,
+                    &email,
+                    &name,
+                    &c.scope,
+                    &c.query,
+                    &Position(c.position),
+                    &now,
+                    &now,
+                    &c.scope,
+                    &email,
+                    &c.scope,
+                ],
+            )
+            .map_err(|_| Error::Unavailable)?;
         return result_view(rows).map(Some);
     }
     let old = old.ok_or(Error::Missing)?;
@@ -220,7 +271,14 @@ fn write(
     }
     let allowed = if admin { 1i64 } else { 0 };
     if let Mutation::Delete(id) = mutation {
-        audit.turso().execute("DELETE FROM crm_saved_views WHERE id=? AND (creator_email=? OR (scope='shared' AND ?=1))",&[&id,&email,&allowed]).map_err(|_|Error::Unavailable)?;
+        audit
+            .turso()
+            .execute(
+                "DELETE FROM crm_saved_views
+                 WHERE id=? AND (creator_email=? OR (scope='shared' AND ?=1))",
+                &[&id, &email, &allowed],
+            )
+            .map_err(|_| Error::Unavailable)?;
         return Ok(None);
     }
     let Mutation::Update(id, p) = mutation else {
@@ -228,11 +286,41 @@ fn write(
     };
     let name = p.name.unwrap_or(old.name).trim().to_owned();
     let scope = p.scope.unwrap_or(old.scope);
-    let query = p.query.unwrap_or(old.query);
+    let query = saved_query(&p.query.unwrap_or(old.query));
     let position = p.position.unwrap_or(old.position);
     valid(&name, &scope, &query, Some(position))?;
     let now = chrono::Utc::now().to_rfc3339();
-    let rows=audit.turso().query("UPDATE crm_saved_views SET name=?,scope=?,query=?,position=?,updated_at=? WHERE id=? AND (creator_email=? OR (scope='shared' AND ?=1)) AND ((?='private' AND (SELECT COUNT(*) FROM crm_saved_views WHERE creator_email=? AND scope='private' AND id<>?)<50) OR (?='shared' AND (SELECT COUNT(*) FROM crm_saved_views WHERE scope='shared' AND id<>?)<100)) RETURNING *",&[&name,&scope,&query,&position,&now,&id,&email,&allowed,&scope,&old.creator_email,&id,&scope,&id]).map_err(|_|Error::Unavailable)?;
+    let sql = "UPDATE crm_saved_views
+        SET name=?,scope=?,query=?,position=?,updated_at=?
+        WHERE id=? AND (creator_email=? OR (scope='shared' AND ?=1))
+          AND ((?='private' AND
+                (SELECT COUNT(*) FROM crm_saved_views
+                 WHERE creator_email=? AND scope='private' AND id<>?)<50)
+            OR (?='shared' AND
+                (SELECT COUNT(*) FROM crm_saved_views
+                 WHERE scope='shared' AND id<>?)<100))
+        RETURNING *";
+    let rows = audit
+        .turso()
+        .query(
+            sql,
+            &[
+                &name,
+                &scope,
+                &query,
+                &position,
+                &now,
+                &id,
+                &email,
+                &allowed,
+                &scope,
+                &old.creator_email,
+                &id,
+                &scope,
+                &id,
+            ],
+        )
+        .map_err(|_| Error::Unavailable)?;
     result_view(rows).map(Some)
 }
 fn result_view(mut rows: Vec<HashMap<String, serde_json::Value>>) -> Result<View, Error> {
@@ -240,6 +328,15 @@ fn result_view(mut rows: Vec<HashMap<String, serde_json::Value>>) -> Result<View
     serde_json::from_value(serde_json::to_value(row).map_err(|_| Error::Unavailable)?)
         .map_err(|_| Error::Unavailable)
 }
+fn principal_email(email: Option<String>) -> Result<String, StatusCode> {
+    let email = email.unwrap_or_default().trim().to_lowercase();
+    if email.is_empty() {
+        Err(StatusCode::UNAUTHORIZED)
+    } else {
+        Ok(email)
+    }
+}
+
 async fn principal(
     session: &Session,
     state: &Arc<AppState>,
@@ -249,7 +346,7 @@ async fn principal(
         .await
         .map_err(IntoResponse::into_response)?;
     let admin = rbac::resolve_role(&p).is_admin();
-    let email = p.email.unwrap_or_default().trim().to_lowercase();
+    let email = principal_email(p.email).map_err(|status| error_json(status, "login_required"))?;
     let audit = state
         .audit
         .clone()
@@ -265,7 +362,17 @@ pub(super) async fn list(
         Ok(p) => p,
         Err(r) => return r,
     };
-    match tokio::time::timeout(CRM_REQUEST_DEADLINE,ctx.views.list(audit,email.clone())).await {Ok(Ok(rows))=>Json(serde_json::json!({"views":rows.into_iter().map(|v|Item::new(v,&email,admin)).collect::<Vec<_>>()})).into_response(),Ok(Err(e))=>e.into_response(),Err(_)=>Error::Unavailable.into_response()}
+    match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.views.list(audit, email.clone())).await {
+        Ok(Ok(rows)) => {
+            let views = rows
+                .into_iter()
+                .map(|v| Item::new(v, &email, admin))
+                .collect::<Vec<_>>();
+            Json(serde_json::json!({"views": views})).into_response()
+        }
+        Ok(Err(e)) => e.into_response(),
+        Err(_) => Error::Unavailable.into_response(),
+    }
 }
 async fn mutate(
     session: Session,
