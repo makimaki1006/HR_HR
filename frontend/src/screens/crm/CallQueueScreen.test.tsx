@@ -634,3 +634,11 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
     expect(screen.getByLabelText<HTMLSelectElement>('パイプライン').value).toBe('753186575');
   });
 });
+
+it('条件上限の400では同じ条件の再試行を表示しない', async () => {
+  const {calls,fetcher}=deferredFetcher();
+  render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+  await act(async()=>{calls[0]?.resolve({ok:false,error:new ApiHttpError(400,{error_kind:'condition_limit'})});await Promise.resolve();});
+  expect(screen.getByRole('alert').textContent).toContain('条件が多すぎます。条件かまとまりを減らしてください。');
+  expect(screen.queryByRole('button',{name:'再試行'})).toBeNull();expect(calls).toHaveLength(1);
+});

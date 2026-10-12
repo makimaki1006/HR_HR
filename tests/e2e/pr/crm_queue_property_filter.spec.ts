@@ -9,19 +9,20 @@ test('追加条件で架電一覧と件数が変わり、URL復元・2条件・�
   await expect(page.getByText(/全 10 件中/)).toBeVisible();
   await page.getByRole('button', { name:'条件を追加', exact:true }).click();
   await page.getByLabel('項目を検索', {exact:true}).fill('金額');
-  await page.getByLabel('項目', {exact:true}).selectOption('amount');
+  await page.getByRole('option',{name:'金額',exact:true}).click();
   await page.getByLabel('条件', {exact:true}).selectOption('GTE');
   await page.getByLabel('値', {exact:true}).fill('8000');
   const dir = process.env.A_FILTER_SCREENSHOTS;
   if (dir) { await mkdir(dir,{recursive:true}); await page.screenshot({path:`${dir}/filter-add.png`,fullPage:true}); }
   await page.getByRole('button',{name:'この条件を追加',exact:true}).click();
   await expect(page.getByText('全 3 件中 3 件を表示')).toBeVisible();
-  await expect(page.getByRole('list',{name:'適用中の条件'})).toContainText('金額 以上 8000');
+  await expect(page.getByRole('list',{name:'適用中の条件'})).toContainText('金額 以上 8,000');
   expect(JSON.parse(new URL(page.url()).searchParams.get('conditions')!)).toEqual([{property:'amount',operator:'GTE',values:['8000']}]);
   await page.reload();
   await expect(page.getByText('全 3 件中 3 件を表示')).toBeVisible();
   await page.getByRole('button',{name:'条件を追加',exact:true}).click();
-  await page.getByLabel('項目', {exact:true}).selectOption('bpo_20');
+  await page.getByRole('button',{name:'＋ 条件を追加',exact:true}).click();
+  await page.getByLabel('項目を検索',{exact:true}).fill('最終架電日');await page.getByRole('option',{name:'最終架電日',exact:true}).click();
   await page.getByLabel('条件',{exact:true}).selectOption('NOT_HAS_PROPERTY');
   await page.getByRole('button',{name:'この条件を追加',exact:true}).click();
   await expect(page.getByText('全 1 件中 1 件を表示')).toBeVisible();

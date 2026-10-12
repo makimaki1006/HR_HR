@@ -1,6 +1,7 @@
 import { SavedViews } from './SavedViews';
 import { queueQuery, selectedViewId, viewSearch } from './savedViewsModel';
-import { QueueGroupEditor, QueueGroupSummary, PropertySortPicker } from './QueueConditionGroups';
+import { QueueSortDialog } from './QueueSortDialog';
+import { QueueGroupEditor, PropertySortPicker } from './QueueConditionGroups';
 import { groupsOf, groupPatch } from './queueModel';
 import { conditionLabel, parsePropertySort, PROPERTY_SORT_NOTE } from './queuePropertyFilter';
 import { EMAIL_SAVED } from './emailApi';
@@ -262,6 +263,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const navigateView = useCallback((next: string) => { window.location.assign(`${window.location.pathname}${next}`); }, []);
   const [qDraft, setQDraft] = useState(filters.q);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   // 日付の検証に使う JST の今日。JST 0 時・画面に戻ったときに取り直す (開いたまま日付をまたいでも昨日を通さない)
   const [nowFn] = useState(() => now ?? Date.now);
   const [today, setToday] = useState(() => todayJst(nowFn()));
@@ -297,7 +299,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 「プロパティ」パネルで表示する項目 (このブラウザに残す)。項目の一覧に無いもの (HubSpot で消された等) は送らない
   const roleLayout = useRolePropertyLayout(mode, localStorageOrNull(), selection !== null);
   const storedProps = roleLayout.selection;
-  const catalog = usePropertyCatalog(mode, selection !== null || panelOpen || filters.conditions.length > 0 || parsePropertySort(filters.sort) !== null, catalogFetcher);
+  const catalog = usePropertyCatalog(mode, selection !== null || panelOpen || sortOpen || filters.conditions.length > 0 || parsePropertySort(filters.sort) !== null, catalogFetcher);
   const selectedProps = useMemo(() => (catalog.state.phase === 'ready' ? sanitizeSelected(storedProps, catalog.state.index) : storedProps), [catalog.state, storedProps]);
   const applyProps = roleLayout.apply;
   // 通話が終わったが、まだ読み直していない案件 (次に開くときサーバのキャッシュを使わずに読む)
@@ -670,7 +672,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             {state.phase === 'error' && needsOwnerPick && <div className="cq-notice cq-warn" role="status" data-testid="owner-pick-prompt">
               <strong>所有者を選んでください</strong><p>{state.message}</p></div>}
             {state.phase === 'error' && !needsOwnerPick && <div className="cq-notice cq-error" role="alert"><strong>取得できませんでした</strong><p>{state.message}</p>
-              <button type="button" onClick={reload}>再試行</button></div>}
+              {state.errorKind !== 'condition_limit' && <button type="button" onClick={reload}>再試行</button>}</div>}
 
             {state.phase === 'ready' && <>
               {state.last?.truncated && <div className="cq-notice cq-warn" role="status">HubSpot の検索は 1 万件までしか取得できないため、これより先は表示できません。条件を絞ってください。</div>}
@@ -776,9 +778,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           placeholder="会社名・案件名で検索" onChange={e => { setQDraft(e.target.value); }} />
         <OwnerFilter owner={filters.owner} effective={effectiveOwner} needsPick={needsOwnerPick}
           onChange={owner => { update({ owner }); }} owners={owners.state} onReload={owners.reload} />
-        <select className="cq-sort" aria-label="並び替え" value={filters.sort} onChange={e => { update({ sort: e.target.value as QueueSort }); }}>
+        <select className="cq-sort" aria-label="並び替え" value={filters.sort} onChange={e => { if (e.target.value === 'other') { setSortOpen(true); setPanelOpen(false); } else update({ sort: e.target.value as QueueSort }); }}>
           {QUEUE_SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          {parsePropertySort(filters.sort) !== null && <option value={filters.sort}>{catalog.state.phase === 'ready' ? catalog.state.index.deals.get(parsePropertySort(filters.sort)?.property ?? '')?.prop.label ?? '選んだ項目' : '選んだ項目'} {parsePropertySort(filters.sort)?.direction === 'desc' ? '降順' : '昇順'}</option>}</select>
+          {parsePropertySort(filters.sort) !== null && <option value={filters.sort}>{catalog.state.phase === 'ready' ? catalog.state.index.deals.get(parsePropertySort(filters.sort)?.property ?? '')?.prop.label ?? '選んだ項目' : '選んだ項目'} {parsePropertySort(filters.sort)?.direction === 'desc' ? '降順' : '昇順'}</option>}<option value="other">ほかの項目で並べ替え…</option></select>
         <label className="cq-toggle"><input type="checkbox" checked={filters.due === 'today'}
           onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>
         <button type="button" className="cq-btn cq-more-toggle" aria-expanded={panelOpen} aria-controls="cq-advanced"
@@ -790,12 +792,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         {chips.map(c => <li key={c.key} className="cq-chip"><span title={c.title}>{c.label}</span>
           <button type="button" aria-label={`「${c.label}」を外す`} onClick={() => { removeChip(c); }}>×</button></li>)}
       </ul>}
-      <QueueGroupSummary catalog={catalog.state} groups={groupsOf(filters)} onChange={gs => { update(groupPatch(gs)); }} />
       {parsePropertySort(filters.sort) !== null && <p className="cq-sort-note">{PROPERTY_SORT_NOTE}</p>}
-      <div id="cq-advanced" className="cq-advanced" hidden={!panelOpen}>
-        {panelOpen && <QueueGroupEditor catalog={catalog.state} groups={groupsOf(filters)} onReload={catalog.reload}
+      <div id="cq-advanced" role="dialog" aria-label="詳細条件" className="cq-advanced cq-filter-drawer" hidden={!panelOpen} onKeyDown={e => { if (e.key === 'Escape') setPanelOpen(false); }}>
+        <div className="cq-drawer-heading"><h2>詳細条件</h2><button type="button" className="cq-btn" onClick={() => { setPanelOpen(false); }}>条件のパネルを閉じる</button></div>
+        {panelOpen && <QueueGroupEditor catalog={catalog.state} groups={groupsOf(filters)} filters={{...filters, owner: filters.owner || (effectiveOwner ?? (mode === 'live' ? 'me' : ''))}} onReload={catalog.reload}
           onChange={gs => { update(groupPatch(gs)); }} />}
-        {panelOpen && <PropertySortPicker key={filters.sort} catalog={catalog.state} sort={filters.sort} onChange={sort => { update({ sort }); }} />}
         {pipeline && <StageFilter key={`${mode}|${pipeline.id}`} pipeline={pipeline} selected={filters.stages}
           labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} />}
         <div className="cq-ranges">
@@ -809,6 +810,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       </div>
     </form>
     <SavedViews query={currentQuery} search={search} fixture={mode === 'fixture'} onNavigate={navigateView} />
+    {sortOpen && <QueueSortDialog onClose={() => { setSortOpen(false); }}><PropertySortPicker key={filters.sort} catalog={catalog.state} sort={filters.sort} onChange={sort => { update({ sort }); setSortOpen(false); }} /></QueueSortDialog>}
     {layoutNote && <p className="cq-layout-note" role="status" data-testid="layout-note">{LAYOUT_UPDATED_NOTE}
       <button type="button" onClick={() => { setLayoutNote(false); }}>閉じる</button></p>}
 

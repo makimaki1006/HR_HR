@@ -1,3 +1,4 @@
+import { conditionsFit } from './queueConditionBudget';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import { DEFAULT_PIPELINE_ID, FIXTURE_PIPELINE_ID, FIXTURE_PIPELINES, eligibleStageIds } from './queuePipelines';
@@ -73,33 +74,7 @@ export function fixtureItem(id: string): CallQueueItem | null {
 export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQueueResponse {
   const gs = groupsOf(f);
   // 検索へ必ず入る条件を数える。停止理由の任意フィルターを省いても収まらなければ拒否する。
-  const stagesForLimit = f.stages.length ? f.stages : eligibleStageIds(f.pipeline);
-  const selectedRules = (fixturePipeline(f.pipeline)?.stages ?? []).filter(s => stagesForLimit.includes(s.id));
-  const always = selectedRules.some(s => s.rule === 'all');
-  const whenDue = selectedRules.some(s => s.rule === 'due');
-  const ownerCount = f.owner !== '' && f.owner !== 'all' ? 1 : 0;
-  const lastCount = Number(Boolean(f.lastFrom)) + Number(Boolean(f.lastTo));
-  const nextCount = Number(Boolean(f.nextFrom)) + Number(Boolean(f.nextTo));
-  const dueEnd = f.nextTo && f.nextTo < FIXTURE_TODAY ? f.nextTo : FIXTURE_TODAY;
-  const dueExists = !f.nextFrom || f.nextFrom <= dueEnd;
-  const tomorrowDate = new Date(`${FIXTURE_TODAY}T00:00:00Z`); tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
-  const tomorrow = tomorrowDate.toISOString().slice(0, 10);
-  const tailStart = f.nextFrom && f.nextFrom > tomorrow ? f.nextFrom : tomorrow;
-  const tailExists = !f.nextTo || tailStart <= f.nextTo;
-  const sizes = (scope: 'due' | 'tail' | 'queue', last: boolean): number[] => {
-    const common = ownerCount + (lastCount || Number(last));
-    const dueSize = 2 + Number(Boolean(f.nextFrom)) + common;
-    if (scope === 'due') return (always || whenDue) && dueExists ? [dueSize] : [];
-    if (scope === 'tail') return !always || nextCount > 0 && !tailExists ? [] : nextCount ? [2 + Number(Boolean(f.nextTo)) + common] : [2 + common, 2 + common];
-    return [...(always ? [1 + nextCount + common] : []), ...(whenDue && dueExists ? [dueSize] : [])];
-  };
-  const scopes = parsePropertySort(f.sort) !== null ? [sizes(f.due === 'today' ? 'due' : 'queue', false)]
-    : f.sort.startsWith('last_call_') ? [...(lastCount ? [] : [sizes(f.due === 'today' ? 'due' : 'queue', true)]), sizes(f.due === 'today' ? 'due' : 'queue', true)]
-    : [sizes('due', false), ...(f.due === 'today' ? [] : [...(lastCount ? [] : [sizes('tail', true)]), sizes('tail', true)])];
-  if (gs.length > 3 || gs.some(g => g.length > 6) || scopes.some(bs => bs.length * gs.length > 5
-    || bs.some(n => gs.some(g => n + g.length > 6)) || bs.reduce((sum, n) => sum + gs.reduce((m, g) => m + n + g.length, 0), 0) > 18)) {
-    throw new ApiHttpError(400, { error_kind: 'condition_limit', message: LIMIT_MESSAGE });
-  }
+  if (!conditionsFit(f, gs, FIXTURE_TODAY)) throw new ApiHttpError(400, { error_kind: 'condition_limit', message: LIMIT_MESSAGE });
 
   const q = f.q.trim().normalize('NFKC').toLowerCase();
   const stages = f.stages.length ? f.stages : eligibleStageIds(f.pipeline);

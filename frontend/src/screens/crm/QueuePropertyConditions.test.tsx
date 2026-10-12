@@ -31,13 +31,13 @@ describe('取引の追加条件', () => {
   it('検索して数値条件を追加する。表示に演算子の内部名を出さない', () => {
     render(<Harness />);
     fireEvent.change(screen.getByLabelText('項目を検索'), { target: { value: '金額' } });
-    expect(screen.getByLabelText('項目').querySelectorAll('option')).toHaveLength(2);
-    fireEvent.change(screen.getByLabelText('項目'), { target: { value: 'amount' } });
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('option',{name:'金額'}));
     fireEvent.change(screen.getByLabelText('条件'), { target: { value: 'GTE' } });
     fireEvent.change(screen.getByLabelText('値'), { target: { value: '8000' } });
     fireEvent.click(screen.getByRole('button', { name: 'この条件を追加' }));
     expect(screen.getByRole('status').textContent).toBe('[{"property":"amount","operator":"GTE","values":["8000"]}]');
-    expect(conditionLabel({ property:'amount',operator:'GTE',values:['8000'] },state.index.deals.get('amount')?.prop)).toBe('金額 以上 8000');
+    expect(conditionLabel({ property:'amount',operator:'GTE',values:['8000'] },state.index.deals.get('amount')?.prop)).toBe('金額 以上 8,000');
   });
   it('型ごとの演算子と真偽・日付・複数選択を用意する', () => {
     const base = state.index.deals.get('amount')?.prop;
