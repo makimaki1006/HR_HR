@@ -3732,3 +3732,155 @@ async fn 長い値を組み合わせた検索本文も送る前に400にする()
     assert_eq!(v["error_kind"], "condition_limit");
     assert_eq!(e.hs.lock().unwrap().search_calls, 0);
 }
+
+#[tokio::test]
+async fn scope_all_combines_two_pipelines_in_one_search_and_keeps_stopped_and_phone_less_deals() {
+    use super::queue_pipelines::{StageRule, QUEUE_PIPELINES};
+    let second = &QUEUE_PIPELINES[1];
+    let stop = QUEUE_PIPELINES[0]
+        .stages
+        .iter()
+        .find(|(_, r)| *r == StageRule::Exclude)
+        .unwrap()
+        .0;
+    let second_stage = second.stages[0].0;
+    let mut phone_less = Deal::new("703", UNPROCESSED);
+    phone_less.unset("bpo_29");
+    let rows = vec![
+        Deal::new("701", stop)
+            .p("bpo_3", "架空の確認待ち")
+            .p("bpo_4", "架空の停止理由"),
+        Deal::new("702", second_stage).p("pipeline", second.id),
+        phone_less,
+        Deal::new("704", "780001"),
+    ];
+    let mut fake = FakeHs::new().page(Page::new(rows).total(73).next("4"));
+    fake.stages.as_mut().unwrap().extend([
+        (stop.to_string(), "架空の終了ステージ".into()),
+        ("780001".into(), "架空の追加ステージ".into()),
+    ]);
+    fake.extra_pipelines.push(json!({"id":second.id,"label":"架空の第二パイプライン","stages":[{"id":second_stage,"label":"架空の開始ステージ"}]}));
+    let e = env(fake).await;
+    let query = format!("?pipelines={},{}&scope=all", second.id, PIPELINE);
+    let (s, v) = e.admin_get(&query).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(ids(&v), vec!["701", "702", "703", "704"]);
+    assert_eq!(v["total"], 73);
+    assert_eq!(v["items"][0]["stop"]["prohibited_reason"], "架空の確認待ち");
+    assert_eq!(v["items"][0]["stop"]["block_reason"], "架空の停止理由");
+    assert_eq!(v["items"][2]["phone"], Value::Null);
+    assert_eq!(v["partial"]["excluded"]["no_phone"], 0);
+    assert_eq!(v["scope"]["target"], "all");
+    assert_eq!(v["partial"]["unknown_stages"], 0);
+    assert_eq!(v["scope"]["sort"], "created_desc");
+    let body = &e.searches()[0];
+    assert_eq!(body["filterGroups"].as_array().unwrap().len(), 1);
+    let mut expected = vec![UNPROCESSED, FUZAI, stop, second_stage, "780001"];
+    expected.sort();
+    expected.dedup();
+    assert_eq!(
+        body["filterGroups"][0]["filters"],
+        json!([{"propertyName":"dealstage","operator":"IN","values":expected}])
+    );
+    assert_eq!(
+        body["sorts"],
+        json!([{"propertyName":"createdate","direction":"DESCENDING"}])
+    );
+    let (s2, v2) = e
+        .admin_get(&format!("?scope=all&pipelines={PIPELINE},{}", second.id))
+        .await;
+    assert_eq!(s2, StatusCode::OK);
+    assert_eq!(v2["total"], 73);
+    assert_eq!(e.searches().len(), 1);
+    let cursor = v["next_cursor"].as_str().unwrap();
+    let (s3, _) = e
+        .admin_get(&format!(
+            "?pipelines={PIPELINE},{}&cursor={}",
+            second.id,
+            urlencoding::encode(cursor)
+        ))
+        .await;
+    assert_eq!(s3, StatusCode::BAD_REQUEST);
+    assert_eq!(e.searches().len(), 1);
+    let (stage_status, _) = e
+        .admin_get(&format!(
+            "?pipelines={PIPELINE},{}&scope=all&stage={second_stage}",
+            second.id
+        ))
+        .await;
+    assert_eq!(stage_status, StatusCode::OK);
+    assert_eq!(
+        e.searches().last().unwrap()["filterGroups"][0]["filters"][0]["values"],
+        json!([second_stage])
+    );
+}
+
+#[tokio::test]
+async fn scope_calling_combines_stage_rules_without_multiplying_phases() {
+    use super::queue_pipelines::QUEUE_PIPELINES;
+    let second = &QUEUE_PIPELINES[1];
+    let e = env(FakeHs::new()).await;
+    let (s, v) = e
+        .admin_get(&format!("?pipelines={PIPELINE},{}", second.id))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(e.searches().len(), 3);
+    let bodies = e.searches();
+    let stage = &bodies[0]["filterGroups"][0]["filters"][0];
+    let values = stage["values"].as_array().unwrap();
+    assert!(values.contains(&json!(UNPROCESSED)));
+    assert!(values.contains(&json!(FUZAI)));
+    assert!(values.contains(&json!(second.eligible_stages()[0])));
+    for b in bodies {
+        let gs = groups(&b);
+        assert!(gs.len() <= 5);
+        assert!(gs
+            .iter()
+            .all(|g| g["filters"].as_array().unwrap().len() <= 6));
+    }
+}
+
+#[tokio::test]
+async fn scope_rejects_conflicting_or_unknown_pipelines_and_unknown_selected_stages_before_search()
+{
+    let e = env(FakeHs::new()).await;
+    for q in [
+        format!("?pipeline={PIPELINE}&pipelines={PIPELINE}"),
+        "?pipelines=not-allowed".into(),
+        format!("?pipelines={PIPELINE},not-allowed"),
+        "?pipelines=".into(),
+        format!("?pipeline={PIPELINE}&scope=all&stage=780999"),
+    ] {
+        let (s, _) = e.admin_get(&q).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{q}");
+    }
+    assert!(e.searches().is_empty());
+}
+
+#[tokio::test]
+async fn scope_union_and_all_mode_still_reject_excess_groups_or_filters_before_search() {
+    use super::queue_pipelines::QUEUE_PIPELINES;
+    let e = env(FakeHs::new()).await;
+    let groups = json!([[{"property":"amount","operator":"GTE","values":["17"]}],[{"property":"amount","operator":"LTE","values":["29"]}],[{"property":"amount","operator":"EQ","values":["23"]}]]);
+    let q = format!(
+        "{}&pipelines={PIPELINE},{}",
+        v2_query(groups, "default"),
+        QUEUE_PIPELINES[1].id
+    );
+    let (s, v) = e.admin_get(&q).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error_kind"], "condition_limit");
+    let cs = json!(vec![
+        json!({"property":"amount","operator":"GTE","values":["17"]});
+        6
+    ]);
+    let (s, v) = e
+        .admin_get(&format!(
+            "?scope=all&conditions={}",
+            urlencoding::encode(&cs.to_string())
+        ))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error_kind"], "condition_limit");
+    assert!(e.searches().is_empty());
+}

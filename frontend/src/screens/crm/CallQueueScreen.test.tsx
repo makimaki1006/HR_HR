@@ -126,14 +126,14 @@ describe('CallQueueScreen', () => {
     expect((screen.getByLabelText<HTMLInputElement>('次回日が来たものだけ')).checked).toBe(true);
     openDetails();
     expect(screen.getByRole('button', { name: 'ステージ（1件選択）' })).toBeTruthy();
-    expect((screen.getByLabelText<HTMLSelectElement>('パイプライン')).value).toBe('753186575');
+    expect(screen.getByRole('button',{name:'パイプライン'}).textContent).toContain('bpo_リクロジ');
     expect((screen.getByLabelText<HTMLInputElement>('キーワード(会社名・案件名)')).value).toBe('架空');
   });
 
   it('changing the sort, due toggle, stage and dates aborts the old request and refetches with the new condition', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={okPipelinesFetch} initialSearch="?view=queue" />);
-    await waitFor(() => { expect(screen.getAllByRole('option', { name: 'bpo_リクロジ' })).toHaveLength(1); });
+    await waitFor(() => { expect(screen.getByRole('button', { name: 'パイプライン' }).textContent).toContain('bpo_リクロジ'); });
     fireEvent.change(screen.getByLabelText('並び替え'), { target: { value: 'last_call_asc' } });
     expect(calls).toHaveLength(2);
     expect(calls[0]?.signal.aborted).toBe(true);
@@ -529,14 +529,16 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
   it('lists the allowed pipelines with HubSpot names (table names until loaded); switching resets the stages and refetches with pipeline=…', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={okPipelinesFetch} initialSearch="?stage=1095387445&due=today" />);
-    const select = screen.getByLabelText<HTMLSelectElement>('パイプライン');
-    expect(select.value).toBe('753186575');
-    // 名前を読むまでは表の呼び名
-    expect(Array.from(select.options).map(o => o.textContent)).toContain('リクロジ受注管理_アポ前');
-    await waitFor(() => { expect(Array.from(select.options).map(o => o.textContent)).toContain('アポ前'); });
-    expect(Array.from(select.options).map(o => o.value)).toEqual(['753186575', 'default', '62583420', '21724969', '681393283', '913508269']);
-    expect(calls[0]?.filters.stages).toEqual(['1095387445']);
-    fireEvent.change(select, { target: { value: 'default' } });
+    const select = screen.getByRole('button',{name:'パイプライン'});
+    expect(select.textContent).toContain('bpo_リクロジ');
+    fireEvent.click(select);
+    const menu=screen.getByRole('region',{name:'パイプラインの選択'});
+    expect(within(menu).getAllByRole('checkbox')).toHaveLength(6);
+    await waitFor(()=>{expect(within(menu).getByLabelText('アポ前')).toBeTruthy();});
+    expect(calls[0]?.filters.stages).toHaveLength(1);
+    fireEvent.click(within(menu).getByLabelText('アポ前'));
+    fireEvent.click(within(menu).getByLabelText('bpo_リクロジ'));
+    fireEvent.click(within(menu).getByRole('button',{name:'パイプラインを適用'}));
     const last = calls.at(-1);
     expect(calls[0]?.signal.aborted).toBe(true);
     expect(last?.filters.pipeline).toBe('default');
@@ -555,7 +557,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
     const { calls, fetcher } = deferredFetcher();
     const pipelinesFetcher = () => Promise.resolve({ ok: true as const, data: pipelinesResponse([{ id: '1500000001', label: '新しいステージ' }]) });
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={pipelinesFetcher} initialSearch="" />);
-    await waitFor(() => { expect(screen.getAllByRole('option', { name: 'bpo_リクロジ' })).toHaveLength(1); });
+    await waitFor(() => { expect(screen.getByRole('button', { name: 'パイプライン' }).textContent).toContain('bpo_リクロジ'); });
     openDetails();
     fireEvent.click(screen.getByRole('button', { name: 'ステージ（16件選択）' }));
     const panel = screen.getByRole('group', { name: 'ステージの選択' });
@@ -601,7 +603,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
   it('the stage checklist closes on Esc and on outside click without applying', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="" />);
-    await waitFor(() => { expect(screen.getAllByRole('option', { name: 'bpo_リクロジ' })).toHaveLength(1); });
+    await waitFor(() => { expect(screen.getByRole('button', { name: 'パイプライン' }).textContent).toContain('bpo_リクロジ'); });
     openDetails();
     const before = calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'ステージ（16件選択）' }));
@@ -620,9 +622,12 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
   it('fixture mode has a second fictional pipeline: always-shown and due stages appear, excluded and future ones do not', async () => {
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} initialSearch="?mode=fixture" />);
     await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
-    const select = screen.getByLabelText<HTMLSelectElement>('パイプライン');
-    expect(Array.from(select.options).map(o => o.textContent)).toEqual(['bpo_リクロジ', '架空パイプライン(確認用)']);
-    fireEvent.change(select, { target: { value: 'fx-sample' } });
+    fireEvent.click(screen.getByRole('button',{name:'パイプライン'}));
+    const menu=screen.getByRole('region',{name:'パイプラインの選択'});
+    expect(within(menu).getAllByRole('checkbox')).toHaveLength(2);
+    fireEvent.click(within(menu).getByLabelText('架空パイプライン(確認用)'));
+    fireEvent.click(within(menu).getByLabelText('bpo_リクロジ'));
+    fireEvent.click(within(menu).getByRole('button',{name:'パイプラインを適用'}));
     await waitFor(() => { expect(screen.getByText('架空倉庫サービス')).toBeTruthy(); });
     expect(screen.getByText('架空ベーカリー')).toBeTruthy();
     expect(screen.queryByText('架空塾')).toBeNull(); // 次回日が未来
@@ -631,7 +636,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
     expect(screen.getByTestId('queue-count').textContent).toContain('全 3 件中 3 件を表示');
     // 実データに切り替えると、架空のパイプラインは既定に戻す
     fireEvent.click(screen.getByRole('button', { name: '実データ' }));
-    expect(screen.getByLabelText<HTMLSelectElement>('パイプライン').value).toBe('753186575');
+    expect(screen.getByRole('button',{name:'パイプライン'}).textContent).toContain('bpo_リクロジ');
   });
 });
 

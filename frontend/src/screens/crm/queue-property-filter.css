@@ -43,3 +43,21 @@
 @media (max-width:900px) { .cq-app .cq-filter-drawer { width:min(380px, calc(100vw - 48px)); right:12px; } }
 
 .cq-chip-or { align-self:center; list-style:none; padding:0 4px; color:#53657a; font-size:12px; font-weight:600; }
+.cq-pipeline-picker { position:relative; }
+.cq-pipeline-options { position:absolute; top:calc(100% + 6px); left:0; z-index:150; min-width:260px; padding:14px; border:1px solid #cbd5e1; border-radius:8px; background:white; box-shadow:0 8px 24px #172a4622; }
+.cq-pipeline-options label { display:flex; gap:8px; padding:8px 0; font-size:13px; }
+.cq-pipeline-options > div { display:flex; gap:8px; margin-top:12px; }
+.cq-pipeline-options p { margin:0 0 8px; font-size:12px; color:#53657a; }
+.cq-target-label { display:flex; align-items:center; gap:6px; font-size:12px; }
+.cq-target-label select { padding:6px; border:1px solid #cbd5e1; border-radius:5px; }
+.cq-stop-badge { color:#991b1b; background:#fee2e2; border-radius:4px; padding:2px 4px; font-size:11px; }
+.cq-stage-pipeline h3 { font-size:13px; padding:8px; margin:6px 0; background:#f1f5f9; }
+.cq-stage-panel { max-height:min(65vh, 560px); }
+.cq-stage-pipeline .cq-stage-list { max-height:170px; overflow-y:auto; }
+.cq-pipeline-options input[type=checkbox] { width:14px!important; height:14px; padding:0; flex:none; margin:0; }
+.cq-pipeline-options label { align-items:center; }
+.cq-target-label { white-space:nowrap; flex-shrink:0; }
+.cq-stop-badge { white-space:nowrap; }
+.cq-filter-drawer .cq-stage-panel { position:static; width:100%; box-sizing:border-box; max-height:370px; margin-top:6px; box-shadow:none; }
+.cq-filter-drawer .cq-stage-pipeline .cq-stage-list { max-height:120px; }
+.cq-filter-drawer > .cq-drawer-heading { position:sticky; top:-16px; z-index:25; background:white; padding:12px 0; border-bottom:1px solid #e2e8f0; }

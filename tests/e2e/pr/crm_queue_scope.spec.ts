@@ -1,0 +1,34 @@
+import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+import { login } from './helpers/login';
+const directory=process.env.A_SCOPE_SCREENSHOTS;
+async function snap(page:Page,name:string){if(directory){await mkdir(directory,{recursive:true});await page.screenshot({path:`${directory}/scope-${name}.png`,fullPage:true});}}
+test('架空の2パイプラインの全取引を条件で探し、停止の印と保存ビューの復元を確認する',async({page})=>{
+  await page.setViewportSize({width:1440,height:900});await login(page);await page.goto('/app/crm?mode=fixture');
+  await expect(page.getByTestId('queue-count')).toContainText('全 10 件中');
+  await page.getByRole('button',{name:'パイプライン',exact:true}).click();const choices=page.getByRole('region',{name:'パイプラインの選択'});
+  await expect(choices.getByRole('checkbox').first()).toBeDisabled();await choices.getByLabel('架空パイプライン(確認用)',{exact:true}).check();await snap(page,'pipelines');
+  await choices.getByRole('button',{name:'パイプラインを適用'}).click();await expect(page.getByTestId('queue-count')).toContainText('全 13 件中');
+  await expect(page.getByRole('button',{name:'パイプライン',exact:true})).toContainText('ほか 1');
+  await page.getByLabel('対象',{exact:true}).selectOption('all');await expect(page.getByTestId('queue-count')).toContainText('全 17 件中');
+  await expect(page.getByLabel('並び替え',{exact:true})).toHaveValue('created_desc');await expect(page.getByLabel('次回日が来たものだけ')).toHaveCount(0);
+  await page.getByRole('button',{name:'条件を追加',exact:true}).click();await page.getByRole('combobox',{name:'項目を検索',exact:true}).fill('金額');await page.getByRole('option',{name:'金額',exact:true}).click();
+  await page.getByLabel('条件',{exact:true}).selectOption('GTE');await page.getByLabel('値',{exact:true}).fill('8000');await page.getByRole('button',{name:'この条件を追加',exact:true}).click();
+  await expect(page.getByTestId('queue-count')).toContainText('全 10 件中');
+  await page.getByRole('button',{name:/ステージ（/}).click();const stages=page.getByRole('group',{name:'ステージの選択'});
+  await expect(stages.getByRole('heading',{name:'bpo_リクロジ',exact:true})).toBeVisible();await expect(stages.getByRole('heading',{name:'架空パイプライン(確認用)',exact:true})).toBeVisible();await expect(stages.getByLabel('対象外',{exact:true})).toBeEnabled();await stages.getByRole('button',{name:'適用',exact:true}).scrollIntoViewIfNeeded();await snap(page,'stages');
+  await stages.getByRole('button',{name:'キャンセル'}).click();await page.getByRole('button',{name:'条件のパネルを閉じる'}).click();
+  const list=page.getByRole('list',{name:'架電キュー'});const stopped=list.getByRole('button').filter({hasText:'架空クリーニング'});
+  await expect(stopped.getByText('架電禁止',{exact:true})).toBeVisible();await expect(stopped.getByText('ブロック',{exact:true})).toBeVisible();await snap(page,'all');
+  await stopped.click();await expect(page.getByRole('article',{name:'架電先の詳細'})).toContainText('架空の確認待ち');
+  await expect(page.getByRole('article',{name:'架電先の詳細'}).getByRole('button',{name:/に発信/}).first()).toBeDisabled();await expect(page.getByRole('link',{name:/端末の電話で発信/})).toHaveCount(0);
+  const original=new URL(page.url()).searchParams;expect(original.get('scope')).toBe('all');expect(original.get('pipelines')?.split(',')).toHaveLength(2);expect(original.has('pipeline')).toBe(false);
+  await page.getByRole('button',{name:'＋ ビューを保存'}).click();await page.getByLabel('ビューの名前').fill('架空の全取引確認');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('tab',{name:'架空の全取引確認',exact:true})).toHaveAttribute('aria-selected','true');
+  const id=new URL(page.url()).searchParams.get('view');expect(id).not.toBeNull();await page.getByRole('tab',{name:'すべて',exact:true}).click();await expect(page.getByLabel('対象',{exact:true})).toHaveValue('calling');
+  await page.goto('/app/crm?mode=fixture&view='+encodeURIComponent(id ?? ''));await expect(page.getByTestId('queue-count')).toContainText('全 10 件中');await expect(page.getByLabel('対象',{exact:true})).toHaveValue('all');
+  expect(new URL(page.url()).searchParams.get('pipelines')).toBe(original.get('pipelines'));expect(new URL(page.url()).searchParams.get('conditions')).toBe(original.get('conditions'));
+  await expect(list.locator('.cq-row-company').first()).toHaveText('架空サーモスタット工業株式会社');await page.getByRole('button',{name:'さらに読み込む'}).click();await expect(page.getByText('番号未登録の架空商店',{exact:true})).toBeVisible();
+  await expect(list).toContainText('架空介護サービス');await expect(page.getByTestId('queue-count')).toContainText('全 10 件中 10 件を表示');
+  await page.setViewportSize({width:1024,height:900});await page.getByRole('button',{name:/詳細条件/}).click();const panel=await page.getByRole('dialog',{name:'詳細条件',exact:true}).boundingBox();const rows=await list.boundingBox();expect(rows!.x+rows!.width).toBeLessThanOrEqual(panel!.x);await snap(page,'1024');
+});

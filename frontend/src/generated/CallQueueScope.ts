@@ -2,7 +2,7 @@
 
 export type CallQueueScope = { 
 /**
- * 実際に使ったパイプライン ID (指定なしは既定の bpo_リクロジ)
+ * 選んだパイプライン ID (複数は昇順のカンマ連結。指定なしは既定)
  */
 pipeline: string, 
 /**
@@ -25,7 +25,7 @@ stages: Array<string>,
 /**
  * `all` / `today`
  */
-due: string, sort: string, q: string | null, limit: number, 
+due: string, target?: string, sort: string, q: string | null, limit: number, 
 /**
  * 次回架電日 `bpo_13` の範囲 (JST の日付 `YYYY-MM-DD`。指定がなければ null)
  */

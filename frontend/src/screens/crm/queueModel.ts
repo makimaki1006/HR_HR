@@ -15,7 +15,7 @@ export const QUEUE_SORTS = [
   { value: 'last_call_asc', label: '最終架電日が古い順(未架電が先頭)' },
   { value: 'last_call_desc', label: '最終架電日が新しい順' },
 ] as const;
-export type QueueSort = (typeof QUEUE_SORTS)[number]['value'] | PropertySort;
+export type QueueSort = (typeof QUEUE_SORTS)[number]['value'] | 'created_desc' | PropertySort;
 const SORT_VALUES: readonly string[] = QUEUE_SORTS.map(s => s.value);
 
 export type QueueDue = 'all' | 'today';
@@ -24,6 +24,8 @@ export type QueueMode = 'live' | 'fixture';
 export interface QueueFilters {
   /** HubSpot のパイプライン ID (既定は bpo_リクロジ。切り替えるとステージの選択は既定に戻す) */
   pipeline: string;
+  pipelines?: string[] | undefined;
+  target?: 'all' | undefined;
   q: string;
   /** 選んだパイプラインの対象ステージのうち、出すもの。空 = すべて (既定) */
   stages: string[];
@@ -45,6 +47,21 @@ export const DEFAULT_FILTERS: QueueFilters = {
 };
 
 /** 旧URLのconditionsは一つのまとまり。空のまとまりを保存しない。 */
+export function selectedPipelineIds(f: Pick<QueueFilters, 'pipeline' | 'pipelines'>): string[] { return [...new Set(f.pipelines ?? [f.pipeline])].sort(); }
+export function selectedStageIds(f: QueueFilters): string[] { return selectedPipelineIds(f).flatMap(id => {
+  const p = pipelinesFor('fixture').find(p=>p.id===id) ?? pipelinesFor('live').find(p=>p.id===id);
+  return p?.stages.filter(s=>f.target==='all'||s.rule!=='exclude').map(s=>s.id) ?? [];
+}); }
+export function withPipelines(f: QueueFilters, ids: string[]): QueueFilters {
+  const chosen=[...new Set(ids)].sort();if(chosen.length===0)return f;
+  return {...f,pipeline:chosen[0] ?? DEFAULT_PIPELINE_ID,pipelines:chosen.length>1?chosen:undefined,stages:[]};
+}
+export function withTarget(f: QueueFilters, target: 'all' | undefined): QueueFilters {
+  return {...f,target,stages:[],due:'all',sort:target==='all'?'created_desc':'default'};
+}
+export function sortsFor(f: QueueFilters): {value:QueueSort;label:string}[] {
+  return f.target==='all' ? [{value:'created_desc',label:'作成日の新しい順'},...QUEUE_SORTS.filter(s=>s.value!=='default').map(s=>({value:s.value,label:s.label.replace('(未架電が先頭)','')}))] : [...QUEUE_SORTS];
+}
 export function groupsOf(f: Pick<QueueFilters, 'conditions' | 'conditionGroups'>): PropertyCondition[][] {
   return f.conditionGroups ?? (f.conditions.length ? [f.conditions] : []);
 }
@@ -90,10 +107,13 @@ export function validateFilters(f: QueueFilters): string[] {
  */
 export function parseFilters(search: string): QueueFilters {
   const p = new URLSearchParams(search);
-  const wanted = p.get('pipeline') ?? '';
-  const pipeline = pipelinesFor(parseMode(search)).some(x => x.id === wanted) ? wanted : DEFAULT_PIPELINE_ID;
-  const eligible = eligibleStageIds(pipeline);
-  const stageSet = new Set(p.getAll('stage').filter(s => eligible.includes(s)));
+  const wanted = p.get('pipelines')?.split(',') ?? [p.get('pipeline') ?? DEFAULT_PIPELINE_ID];
+  const valid = pipelinesFor(parseMode(search));
+  const ids = [...new Set(wanted.filter(id=>valid.some(p=>p.id===id)))].sort();
+  const pipeline = ids[0] ?? DEFAULT_PIPELINE_ID;
+  const target = p.get('scope') === 'all' ? 'all' as const : undefined;
+  const eligible = (ids.length?ids:[pipeline]).flatMap(id=>valid.find(p=>p.id===id)?.stages.filter(s=>target==='all'||s.rule!=='exclude').map(s=>s.id) ?? []);
+  const stageSet = new Set(p.getAll('stage').filter(s => eligible.includes(s) || target==='all' && /^[A-Za-z0-9_-]{1,100}$/.test(s)));
   const sort = p.get('sort') ?? '';
   const owner = p.get('owner') ?? '';
   const gs = parseConditionGroups(p.get('condition_groups'));
@@ -102,14 +122,16 @@ export function parseFilters(search: string): QueueFilters {
     return isValidDate(v) ? v : '';
   };
   // 全部選んだのは既定 (すべて) と同じ
-  const stages = stageSet.size === eligible.length ? [] : eligible.filter(id => stageSet.has(id));
+  const stages = target==='all' ? [...stageSet].sort() : stageSet.size === eligible.length ? [] : eligible.filter(id => stageSet.has(id));
   return {
     pipeline,
+    ...(ids.length>1?{pipelines:ids}:{}),
+    ...(target?{target}:{}),
     q: (p.get('q') ?? '').slice(0, 100),
     stages,
     owner: isValidOwner(owner) ? owner : '',
-    due: p.get('due') === 'today' ? 'today' : 'all',
-    sort: SORT_VALUES.includes(sort) || parsePropertySort(sort) !== null ? (sort as QueueSort) : 'default',
+    due: target ? 'all' : p.get('due') === 'today' ? 'today' : 'all',
+    sort: sort==='created_desc'||SORT_VALUES.includes(sort) || parsePropertySort(sort) !== null ? (target && sort==='default'?'created_desc':sort as QueueSort) : target?'created_desc':'default',
     nextFrom: date('next_from'), nextTo: date('next_to'),
     lastFrom: date('last_from'), lastTo: date('last_to'),
     conditions: gs[0] ?? parseConditions(p.get('conditions')),
@@ -124,7 +146,9 @@ export function parseMode(search: string): QueueMode {
 /** 既定と違う条件だけを並べた検索文字列 (API と URL の共通部分。cursor / limit は含めない) */
 export function filtersToParams(f: QueueFilters): URLSearchParams {
   const p = new URLSearchParams();
-  if (f.pipeline !== DEFAULT_PIPELINE_ID) p.set('pipeline', f.pipeline);
+  const ids = selectedPipelineIds(f);
+  if (ids.length>1) p.set('pipelines',ids.join(','));else if(f.pipeline!==DEFAULT_PIPELINE_ID)p.set('pipeline',f.pipeline);
+  if(f.target==='all')p.set('scope','all');
   if (f.q.trim()) p.set('q', f.q.trim());
   for (const s of f.stages) p.append('stage', s);
   if (f.owner) p.set('owner', f.owner);
@@ -192,7 +216,7 @@ export function normalizeStages(pipeline: string, selected: Iterable<string>): s
 
 /** パイプラインを切り替えた条件 (ステージの選択は既定 = すべてに戻す。ほかの条件は残す) */
 export function withPipeline(f: QueueFilters, pipeline: string): QueueFilters {
-  return { ...f, pipeline, stages: [] };
+  return { ...f, pipeline, pipelines: undefined, stages: [] };
 }
 
 /** 条件が同じかの比較用キー (取得のやり直し判定) */
@@ -205,15 +229,16 @@ export function filtersKey(f: QueueFilters): string {
  * owner は、画面が既定 ('') のときサーバの既定 (管理者=all / それ以外=me) を受け入れる。
  */
 export function scopeMatches(scope: CallQueueScope, f: QueueFilters): boolean {
-  const wantStages = [...(f.stages.length ? f.stages : eligibleStageIds(f.pipeline))].sort();
+  const wantStages = [...(f.stages.length ? f.stages : selectedStageIds(f))].sort();
   const gotStages = [...scope.stages].sort();
   const ownerOk = f.owner === '' ? true : scope.owner === f.owner;
-  return scope.pipeline === f.pipeline
+  return scope.pipeline === selectedPipelineIds(f).join(',')
+    && (scope.target ?? '') === (f.target ?? '')
     && ownerOk
     && scope.due === f.due
     && scope.sort === f.sort
     && (scope.q ?? '') === f.q.trim()
-    && wantStages.length === gotStages.length && wantStages.every((s, i) => s === gotStages[i])
+    && (f.target === 'all' && f.stages.length === 0 || wantStages.length === gotStages.length && wantStages.every((s, i) => s === gotStages[i]))
     && (scope.next_from ?? '') === f.nextFrom && (scope.next_to ?? '') === f.nextTo
     && (scope.last_from ?? '') === f.lastFrom && (scope.last_to ?? '') === f.lastTo;
 }

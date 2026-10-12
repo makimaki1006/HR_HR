@@ -415,7 +415,7 @@ pub struct CallQueueItem {
 
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct CallQueueScope {
-    /// 実際に使ったパイプライン ID (指定なしは既定の bpo_リクロジ)
+    /// 選んだパイプライン ID (複数は昇順のカンマ連結。指定なしは既定)
     pub pipeline: String,
     /// `all` / `me` / `unassigned` / owner id
     pub owner: String,
@@ -428,6 +428,9 @@ pub struct CallQueueScope {
     pub stages: Vec<String>,
     /// `all` / `today`
     pub due: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub target: Option<String>,
     pub sort: String,
     pub q: Option<String>,
     pub limit: u32,
@@ -538,12 +541,14 @@ enum SortKey {
     LastCallAsc,
     LastCallDesc,
     Property,
+    CreatedDesc,
 }
 
 impl SortKey {
     fn parse(s: &str) -> Option<Self> {
         Some(match s {
             "default" => SortKey::Default,
+            "created_desc" => SortKey::CreatedDesc,
             "next_call_asc" => SortKey::NextCallAsc,
             "next_call_desc" => SortKey::NextCallDesc,
             "last_call_asc" => SortKey::LastCallAsc,
@@ -560,6 +565,7 @@ impl SortKey {
             SortKey::LastCallAsc => "last_call_asc",
             SortKey::LastCallDesc => "last_call_desc",
             SortKey::Property => "property",
+            SortKey::CreatedDesc => "created_desc",
         }
     }
 }
@@ -607,6 +613,9 @@ enum OwnerParam {
 #[derive(Debug, Clone)]
 struct Params {
     pipeline: &'static QueuePipeline,
+    pipelines: Vec<&'static QueuePipeline>,
+    all_deals: bool,
+    all_stages: Vec<String>,
     limit: u32,
     cursor: Option<String>,
     q: Option<String>,
@@ -624,6 +633,51 @@ struct Params {
     property_groups: Vec<Vec<super::queue_property_filter::PropertyCondition>>,
     property_filter_groups: Vec<Vec<Value>>,
     custom_sort: Option<(String, bool)>,
+}
+
+impl Params {
+    fn pipeline_key(&self) -> String {
+        if self.pipelines.len() == 1 {
+            return self.pipeline.id.to_string();
+        }
+        self.pipelines
+            .iter()
+            .map(|p| p.id)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+    fn stage_ids(&self) -> Vec<String> {
+        if !self.stages.is_empty() {
+            return self.stages.clone();
+        }
+        if self.all_deals {
+            return self.all_stages.clone();
+        }
+        let mut stages: Vec<_> = self
+            .pipelines
+            .iter()
+            .flat_map(|p| p.eligible_stages())
+            .map(str::to_string)
+            .collect();
+        if self.pipelines.len() > 1 {
+            stages.sort();
+            stages.dedup();
+        }
+        stages
+    }
+    fn selected_rules(&self) -> Vec<(&str, StageRule)> {
+        let chosen = self.stage_ids();
+        chosen
+            .iter()
+            .filter_map(|id| {
+                self.pipelines
+                    .iter()
+                    .flat_map(|p| p.stages.iter())
+                    .find(|(s, _)| *s == id)
+                    .map(|(id, r)| (*id, *r))
+            })
+            .collect()
+    }
 }
 
 /// 日付 (JST) の範囲。両端を含む。`from <= to` は解析時に確認済み
@@ -670,6 +724,8 @@ pub(crate) fn validate_saved_query(raw: &str) -> Result<(), &'static str> {
 fn parse_params(raw: &str) -> Result<Params, &'static str> {
     let url = reqwest::Url::parse(&format!("http://x/?{raw}")).map_err(|_| "query")?;
     let mut pipeline: Option<&'static QueuePipeline> = None;
+    let mut pipeline_ids: Option<Vec<&'static QueuePipeline>> = None;
+    let mut all_deals = false;
     let mut limit: Option<u32> = None;
     let mut cursor = None;
     let mut q = None;
@@ -715,6 +771,27 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
             "pipeline" => {
                 once("pipeline")?;
                 pipeline = Some(find_pipeline(&v).ok_or("pipeline")?);
+            }
+            "pipelines" => {
+                once("pipelines")?;
+                let ids: Vec<_> = v.split(',').collect();
+                if ids.is_empty() || ids.len() > QUEUE_PIPELINES.len() || v.len() > 200 {
+                    return Err("pipelines");
+                }
+                let mut ps = ids
+                    .into_iter()
+                    .map(|id| find_pipeline(id).ok_or("pipelines"))
+                    .collect::<Result<Vec<_>, _>>()?;
+                ps.sort_by_key(|p| p.id);
+                ps.dedup_by_key(|p| p.id);
+                pipeline_ids = Some(ps);
+            }
+            "scope" => {
+                once("scope")?;
+                if v != "all" {
+                    return Err("scope");
+                }
+                all_deals = true;
             }
             "limit" => {
                 once("limit")?;
@@ -804,21 +881,46 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     if property_groups.is_empty() && !property_conditions.is_empty() {
         property_groups.push(property_conditions.clone());
     }
-    let pipeline = pipeline.unwrap_or_else(default_pipeline);
-    if stages.iter().any(|s| !pipeline.is_eligible(s)) {
+    if seen.contains("pipeline") && seen.contains("pipelines") {
+        return Err("pipelines");
+    }
+    let pipelines = pipeline_ids.unwrap_or_else(|| vec![pipeline.unwrap_or_else(default_pipeline)]);
+    let pipeline = pipelines[0];
+    if stages.iter().any(|s| {
+        if all_deals {
+            s.is_empty()
+                || s.len() > 100
+                || !s
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        } else {
+            !pipelines.iter().any(|p| p.is_eligible(s))
+        }
+    }) {
         return Err("stage");
     }
     stages.sort();
     stages.dedup();
     Ok(Params {
         pipeline,
+        pipelines,
+        all_deals,
+        all_stages: Vec::new(),
         limit: limit.unwrap_or(DEFAULT_LIMIT),
         cursor,
         q,
         stages,
         owner: owner.unwrap_or(OwnerParam::Unspecified),
-        due: due.unwrap_or(Due::All),
-        sort: sort.unwrap_or(SortKey::Default),
+        due: if all_deals {
+            Due::All
+        } else {
+            due.unwrap_or(Due::All)
+        },
+        sort: if all_deals && matches!(sort, None | Some(SortKey::Default)) {
+            SortKey::CreatedDesc
+        } else {
+            sort.unwrap_or(SortKey::Default)
+        },
         next: DateRange {
             from: dates[0],
             to: dates[1],
@@ -965,7 +1067,7 @@ fn phases(sort: SortKey, due: Due, last_range: bool) -> Vec<Phase> {
         ]
     };
     let all = match (sort, due) {
-        (SortKey::Property, due) => vec![p(
+        (SortKey::Property | SortKey::CreatedDesc, due) => vec![p(
             if due == Due::Today {
                 Scope::Due
             } else {
@@ -1034,17 +1136,7 @@ fn f_has(prop: &str, has: bool) -> Value {
 /// グループあたりのフィルタ数は最大 6 (HubSpot の上限)。範囲の指定でフィルタが増えて 6 に収まらないときは、
 /// 架電禁止理由・ブロック理由の NOT_HAS_PROPERTY を Search に入れず、返ってきた行を後段で外す
 /// (`execute` の後段確認。外した件数は `partial.excluded.stop_reason`)。
-fn filter_groups(
-    phase: Phase,
-    pipeline: &QueuePipeline,
-    stages: &[&str],
-    owner: Option<&Value>,
-    today_ms: i64,
-    r: &Ranges,
-) -> Vec<Value> {
-    filter_groups_budget(phase, pipeline, stages, owner, today_ms, r, 0)
-}
-
+#[cfg(test)]
 fn filter_groups_budget(
     phase: Phase,
     pipeline: &QueuePipeline,
@@ -1054,17 +1146,30 @@ fn filter_groups_budget(
     r: &Ranges,
     extra_count: usize,
 ) -> Vec<Value> {
-    let today = today_ms.to_string();
-    // 選んだステージを決まりで分ける (表に無い・`exclude` は parse_params で弾いている)
-    let always: Vec<&str> = stages
+    let rules: Vec<_> = stages
         .iter()
-        .copied()
-        .filter(|s| pipeline.rule(s) == Some(StageRule::All))
+        .map(|s| (*s, pipeline.rule(s).unwrap_or(StageRule::Exclude)))
         .collect();
-    let when_due: Vec<&str> = stages
+    filter_groups_rules(phase, &rules, owner, today_ms, r, extra_count)
+}
+fn filter_groups_rules(
+    phase: Phase,
+    rules: &[(&str, StageRule)],
+    owner: Option<&Value>,
+    today_ms: i64,
+    r: &Ranges,
+    extra_count: usize,
+) -> Vec<Value> {
+    let today = today_ms.to_string();
+    let always: Vec<&str> = rules
         .iter()
-        .copied()
-        .filter(|s| pipeline.rule(s) == Some(StageRule::Due))
+        .filter(|(_, r)| *r == StageRule::All)
+        .map(|(id, _)| *id)
+        .collect();
+    let when_due: Vec<&str> = rules
+        .iter()
+        .filter(|(_, r)| *r == StageRule::Due)
+        .map(|(id, _)| *id)
         .collect();
     let finish = |mut fs: Vec<Value>| -> Value {
         if r.has_last() {
@@ -1177,6 +1282,9 @@ fn property_search_body(
     after: Option<u64>,
 ) -> Value {
     let mut body = search_body(groups, phase, params.limit, after, params.q.as_deref());
+    if params.sort == SortKey::CreatedDesc {
+        body["sorts"] = json!([{ "propertyName":"createdate", "direction":"DESCENDING" }]);
+    }
     if let Some((property, desc)) = &params.custom_sort {
         body["sorts"] = json!([{"propertyName":property,"direction":if *desc {"DESCENDING"} else {"ASCENDING"}}]);
     }
@@ -1252,8 +1360,10 @@ fn condition_hash(
     today_ms: i64,
 ) -> String {
     let parts = [
-        "v3".to_string(),
-        params.pipeline.id.to_string(),
+        "v4".to_string(),
+        params.all_deals.to_string(),
+        params.all_stages.join(","),
+        params.pipeline_key(),
         email.trim().to_lowercase(),
         role.as_str().to_string(),
         params.limit.to_string(),
@@ -1497,12 +1607,13 @@ async fn load_related(
 }
 
 /// 1 Deal 分の行を作る。電話番号がどこにも無く、かつ関連を読めていたなら `None` (外す)。
-fn build_item(
+fn build_item_for_scope(
     deal: &HubSpotRecord,
     rel: &Related,
     labels: &HashMap<String, String>,
     portal: &str,
     no_phone: &mut u32,
+    keep_no_phone: bool,
 ) -> Option<CallQueueItem> {
     let contact_refs = rel
         .contact_refs
@@ -1526,7 +1637,7 @@ fn build_item(
     let found = candidates
         .into_iter()
         .find_map(|(src, v)| v.map(|v| (src, v)));
-    if found.is_none() && rel.contacts_known && rel.companies_known {
+    if !keep_no_phone && found.is_none() && rel.contacts_known && rel.companies_known {
         *no_phone += 1;
         return None;
     }
@@ -1737,6 +1848,31 @@ pub(super) async fn get_call_queue(
             }
         }
     }
+    if params.all_deals {
+        let defs = match tokio::time::timeout(
+            CRM_REQUEST_DEADLINE,
+            ctx.queue.pipeline_defs(&client),
+        )
+        .await
+        {
+            Ok(Ok(d)) => d,
+            Ok(Err(e)) => return hubspot_error_response(&e),
+            Err(_) => return timeout_response(),
+        };
+        for p in &params.pipelines {
+            let Some(def) = defs.iter().find(|d| d.id == p.id) else {
+                return error_json(StatusCode::SERVICE_UNAVAILABLE, "pipeline_unavailable");
+            };
+            params
+                .all_stages
+                .extend(def.stages.iter().map(|s| s.id.clone()));
+        }
+        params.all_stages.sort();
+        params.all_stages.dedup();
+        if params.stages.iter().any(|s| !params.all_stages.contains(s)) {
+            return bad_param("stage");
+        }
+    }
     // 5) cursor (署名・条件・有効期限。HubSpot は呼ばない)
     let today_ms = jst_today_ms(now);
     let hash = condition_hash(&email, role, &params, &owner, today_ms);
@@ -1881,7 +2017,9 @@ async fn resolve_owner(
 /// キャッシュのキーにする絞り込み (利用者によらない部分だけ)
 fn filter_key(params: &Params, owner_key: &str, today_ms: i64) -> QueueFilterKey {
     QueueFilterKey {
-        pipeline: params.pipeline.id.to_string(),
+        pipeline: params.pipeline_key(),
+        target: params.all_deals,
+        scope_stages: params.all_stages.clone(),
         q: params.q.clone(),
         property_conditions: params.property_conditions.clone(),
         property_group_key: serde_json::to_string(&params.property_filter_groups)
@@ -1920,16 +2058,7 @@ fn assemble(
     hash: &str,
     teams: Vec<String>,
 ) -> CallQueueResponse {
-    let selected: Vec<String> = if params.stages.is_empty() {
-        params
-            .pipeline
-            .eligible_stages()
-            .into_iter()
-            .map(str::to_string)
-            .collect()
-    } else {
-        params.stages.clone()
-    };
+    let selected = params.stage_ids();
     CallQueueResponse {
         items: core.items.clone(),
         next_cursor: core
@@ -1938,7 +2067,7 @@ fn assemble(
         total: core.total,
         truncated: core.truncated,
         scope: CallQueueScope {
-            pipeline: params.pipeline.id.to_string(),
+            pipeline: params.pipeline_key(),
             owner: owner_label(owner),
             role: if role.is_admin() { "admin" } else { "own" }.to_string(),
             teams,
@@ -1948,6 +2077,7 @@ fn assemble(
                 s
             },
             due: params.due.as_str().to_string(),
+            target: params.all_deals.then(|| "all".to_string()),
             sort: params.sort_label(),
             q: params.q.clone(),
             limit: params.limit,
@@ -1979,23 +2109,48 @@ async fn execute(
         hubspot_error_response(&e)
     };
     // 段階 (ステージの絞り込み後に検索するものがあるものだけ)
-    let pipeline = params.pipeline;
-    let selected: Vec<&str> = if params.stages.is_empty() {
-        pipeline.eligible_stages()
-    } else {
-        params.stages.iter().map(String::as_str).collect()
-    };
+    let selected = params.stage_ids();
+    let rules = params.selected_rules();
     let ranges = Ranges::of(params);
-    let active: Vec<(Phase, Vec<Value>)> = phases(params.sort, params.due, ranges.has_last())
+    let queue_phases = if params.all_deals {
+        vec![Phase {
+            scope: Scope::Queue,
+            last: LastCall::Any,
+            sort_prop: match params.sort {
+                SortKey::NextCallAsc | SortKey::NextCallDesc => "bpo_13",
+                SortKey::LastCallAsc | SortKey::LastCallDesc => "bpo_20",
+                _ => "createdate",
+            },
+            desc: !matches!(params.sort, SortKey::NextCallAsc | SortKey::LastCallAsc),
+        }]
+    } else {
+        phases(params.sort, params.due, ranges.has_last())
+    };
+    let active: Vec<(Phase, Vec<Value>)> = queue_phases
         .into_iter()
         .map(|p| {
-            let groups = if params.property_filters.is_empty() {
-                filter_groups(p, pipeline, &selected, owner_filter, today_ms, &ranges)
+            let groups = if params.all_deals {
+                let ids: Vec<_> = selected.iter().map(String::as_str).collect();
+                let mut fs = vec![f_in("dealstage", &ids)];
+                fs.extend(next_filters(ranges.next_from, ranges.next_to).unwrap_or_default());
+                if let Some(v) = ranges.last_from {
+                    fs.push(f_op("bpo_20", "GTE", &v.to_string()));
+                }
+                if let Some(v) = ranges.last_to {
+                    fs.push(f_op("bpo_20", "LTE", &v.to_string()));
+                }
+                if let Some(o) = owner_filter {
+                    fs.push(o.clone());
+                }
+                if ids.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![json!({"filters":fs})]
+                }
             } else {
-                filter_groups_budget(
+                filter_groups_rules(
                     p,
-                    pipeline,
-                    &selected,
+                    &rules,
                     owner_filter,
                     today_ms,
                     &ranges,
@@ -2140,11 +2295,11 @@ async fn execute(
     let mut deals: Vec<HubSpotRecord> = Vec::new();
     for d in page_deals {
         let in_scope = !d.archived
-            && nz(&d, "pipeline").as_deref() == Some(pipeline.id)
-            && nz(&d, "dealstage").is_some_and(|s| pipeline.is_eligible(&s));
+            && nz(&d, "pipeline").is_some_and(|id| params.pipelines.iter().any(|p| p.id == id))
+            && nz(&d, "dealstage").is_some_and(|s| selected.contains(&s));
         if !in_scope {
             partial.excluded.out_of_scope += 1;
-        } else if nz(&d, "bpo_3").is_some() || nz(&d, "bpo_4").is_some() {
+        } else if !params.all_deals && (nz(&d, "bpo_3").is_some() || nz(&d, "bpo_4").is_some()) {
             partial.excluded.stop_reason += 1;
         } else {
             deals.push(d);
@@ -2160,7 +2315,15 @@ async fn execute(
         total_all = counted;
         // 行が無いときは失敗を partial に出さない (ステージ名を出す行が無い)。表に無いステージの数だけ分からない
         if let Ok(defs) = defs {
-            partial.unknown_stages = unknown_stages(&defs, pipeline).len() as u32;
+            partial.unknown_stages = if params.all_deals {
+                0
+            } else {
+                params
+                    .pipelines
+                    .iter()
+                    .map(|p| unknown_stages(&defs, p).len())
+                    .sum::<usize>() as u32
+            };
         }
     } else {
         let deal_ids: Vec<String> = deals.iter().map(|d| d.id.clone()).collect();
@@ -2173,7 +2336,15 @@ async fn execute(
         total_all = counted;
         let labels = match defs {
             Ok(defs) => {
-                partial.unknown_stages = unknown_stages(&defs, pipeline).len() as u32;
+                partial.unknown_stages = if params.all_deals {
+                    0
+                } else {
+                    params
+                        .pipelines
+                        .iter()
+                        .map(|p| unknown_stages(&defs, p).len())
+                        .sum::<usize>() as u32
+                };
                 stage_label_map(&defs)
             }
             Err(e) => {
@@ -2187,9 +2358,14 @@ async fn execute(
         };
         let portal = hubspot_portal_id();
         for d in &deals {
-            if let Some(item) =
-                build_item(d, &rel, &labels, &portal, &mut partial.excluded.no_phone)
-            {
+            if let Some(item) = build_item_for_scope(
+                d,
+                &rel,
+                &labels,
+                &portal,
+                &mut partial.excluded.no_phone,
+                params.all_deals,
+            ) {
                 items.push(item);
             }
         }
@@ -2364,5 +2540,48 @@ mod queue_v2_tests {
         assert_eq!(parsed.property_groups[0][1].operator, "LAST_N_DAYS");
         assert_eq!(parsed.property_groups[0][1].values, vec!["60"]);
         assert_eq!(parsed.custom_sort, Some(("amount".to_string(), true)));
+    }
+    #[test]
+    fn scope_legacy_single_pipeline_filters_are_unchanged_and_keys_separate_scope() {
+        let p=parse_params(&format!("pipeline={}&{}", QUEUE_PIPELINES[0].id, "sort=last_call_desc&conditions=%5B%7B%22property%22%3A%22amount%22%2C%22operator%22%3A%22GTE%22%2C%22values%22%3A%5B%2217%22%5D%7D%5D")).unwrap();
+        let r = Ranges::of(&p);
+        let stages = p.pipeline.eligible_stages();
+        for phase in phases(p.sort, p.due, false) {
+            assert_eq!(
+                filter_groups_budget(phase, p.pipeline, &stages, None, 0, &r, 1),
+                filter_groups_rules(phase, &p.selected_rules(), None, 0, &r, 1)
+            );
+        }
+        let mut all = p.clone();
+        all.all_deals = true;
+        all.all_stages = vec!["780001".into()];
+        assert_ne!(filter_key(&p, "all", 0), filter_key(&all, "all", 0));
+        let role = CrmRole::Admin;
+        let email = "operator@example.invalid";
+        assert_ne!(
+            condition_hash(email, role, &p, &OwnerParam::All, 0),
+            condition_hash(email, role, &all, &OwnerParam::All, 0)
+        );
+        let a = parse_params(&format!(
+            "pipelines={},{}",
+            QUEUE_PIPELINES[0].id, QUEUE_PIPELINES[1].id
+        ))
+        .unwrap();
+        let b = parse_params(&format!(
+            "pipelines={},{}",
+            QUEUE_PIPELINES[1].id, QUEUE_PIPELINES[0].id
+        ))
+        .unwrap();
+        assert_eq!(filter_key(&a, "all", 0), filter_key(&b, "all", 0));
+        assert_eq!(
+            condition_hash(email, role, &a, &OwnerParam::All, 0),
+            condition_hash(email, role, &b, &OwnerParam::All, 0)
+        );
+        let changed = parse_params(&format!(
+            "pipelines={},{}",
+            QUEUE_PIPELINES[0].id, QUEUE_PIPELINES[2].id
+        ))
+        .unwrap();
+        assert_ne!(filter_key(&a, "all", 0), filter_key(&changed, "all", 0));
     }
 }
