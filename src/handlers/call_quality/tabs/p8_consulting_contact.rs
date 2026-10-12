@@ -70,7 +70,7 @@
 //!   散布図の y 軸上限は 1 → 100 になる（表示は同じ）。
 //! - **率は件数から計算し直す**。GAS はシートの `continuation_rate` 列をそのまま使う。
 //!   実データでは `n_continued / n_decided` と完全一致することを確認済み
-//!   （例: 藤中 6/7 = 0.857142857… がシート値と一致）。計算し直す理由は
+//!   （例: 担当416 6/7 = 0.857142857… がシート値と一致）。計算し直す理由は
 //!   **決着0件のときに 0% でなく null を返すため**（tabs/mod.rs の約束2）。
 //! - **並びは Rust の安定ソート**で、同値のときシートの行順を保つ。GAS は
 //!   `Array.prototype.sort`(ES2019 以降は安定) に依存していたので挙動は同じ。
@@ -1581,9 +1581,9 @@ mod tests {
             ],
             &[
                 // 決着5件(<10) → low_sample。解約率 0%
-                &["1", "浅川 紘誠", "5", "5", "0", "0", "5", "1.0", "4.79"],
+                &["1", "担当415", "5", "5", "0", "0", "5", "1.0", "4.79"],
                 // 決着20件 → 解約率 50%
-                &["2", "藤中 萌衣", "22", "10", "10", "2", "20", "0.5", "2.96"],
+                &["2", "担当416", "22", "10", "10", "2", "20", "0.5", "2.96"],
                 // 決着0件（結果待ちだけ）→ 率は null
                 &["3", "結果待ち 太郎", "3", "0", "0", "3", "0", "", "1.20"],
                 // 外れ値。95パーセンタイル上限の検証用
@@ -1636,14 +1636,14 @@ mod tests {
             .table
             .rows
             .iter()
-            .find(|r| r.consultant_name == "浅川 紘誠")
+            .find(|r| r.consultant_name == "担当415")
             .unwrap();
         assert!(asa.low_sample, "決着5件(<10)は low_sample");
         let fuji = p
             .table
             .rows
             .iter()
-            .find(|r| r.consultant_name == "藤中 萌衣")
+            .find(|r| r.consultant_name == "担当416")
             .unwrap();
         assert!(!fuji.low_sample, "決着20件は low_sample にしない");
         // 行は消さない（事実は見せる）
@@ -1667,14 +1667,14 @@ mod tests {
             .iter()
             .map(|r| r.consultant_name.as_str())
             .collect();
-        // 0%(浅川) と null(結果待ち→0扱い) が先、50% の2人が後
-        assert_eq!(names[0], "浅川 紘誠");
-        assert!(names[2] == "藤中 萌衣" || names[2] == "外れ 値男");
+        // 0%(担当415) と null(結果待ち→0扱い) が先、50% の2人が後
+        assert_eq!(names[0], "担当415");
+        assert!(names[2] == "担当416" || names[2] == "外れ 値男");
 
         // 月平均Call の降順
         let by_call = sorted(SortDir::Desc, BenchSortKey::CallsPerDealPerMonth);
         assert_eq!(by_call.table.rows[0].consultant_name, "外れ 値男");
-        assert_eq!(by_call.table.rows[1].consultant_name, "浅川 紘誠");
+        assert_eq!(by_call.table.rows[1].consultant_name, "担当415");
 
         // 解約数の降順
         let by_churn = sorted(SortDir::Desc, BenchSortKey::NChurned);
@@ -1683,7 +1683,7 @@ mod tests {
 
     #[test]
     fn 同値の行はシート順を保って並びが安定する() {
-        // 藤中と外れ値男はどちらも解約率50%。毎回同じ並びで返ること
+        // 担当416と外れ値男はどちらも解約率50%。毎回同じ並びで返ること
         let a = sorted(SortDir::Asc, BenchSortKey::ChurnRate);
         let b = sorted(SortDir::Asc, BenchSortKey::ChurnRate);
         let names = |p: &BenchPanel| -> Vec<String> {
@@ -1695,7 +1695,7 @@ mod tests {
         };
         assert_eq!(names(&a), names(&b), "同じ入力なら同じ並び");
         let n = names(&a);
-        let i_fuji = n.iter().position(|x| x == "藤中 萌衣").unwrap();
+        let i_fuji = n.iter().position(|x| x == "担当416").unwrap();
         let i_hazure = n.iter().position(|x| x == "外れ 値男").unwrap();
         assert!(i_fuji < i_hazure, "同値のときシートの行順を保つ");
     }
@@ -1825,16 +1825,16 @@ mod tests {
             ],
             &[
                 // 同じ Deal が週次で複数行に出る → 1件に畳む
-                &["100", "A社", "鶴見", "2026-06-02", "24", "True"],
-                &["100", "A社", "鶴見", "2026-06-02", "24", "True"],
+                &["100", "A社", "担当417", "2026-06-02", "24", "True"],
+                &["100", "A社", "担当417", "2026-06-02", "24", "True"],
                 // Call が1度も無い（空欄）→ 末尾へ
-                &["200", "B社", "永田", "", "", "True"],
+                &["200", "B社", "担当421", "", "", "True"],
                 // 7日台
-                &["300", "C社", "酒匂", "2026-08-08", "8", "True"],
+                &["300", "C社", "担当422", "2026-08-08", "8", "True"],
                 // アラート対象外
-                &["400", "D社", "浅川", "2026-08-15", "1", "False"],
+                &["400", "D社", "担当415", "2026-08-15", "1", "False"],
                 // 除外リスト入り
-                &["500", "E社", "藤中", "2026-07-01", "46", "True"],
+                &["500", "E社", "担当416", "2026-07-01", "46", "True"],
             ],
         )
     }
@@ -1893,7 +1893,7 @@ mod tests {
                 &[
                     "1",
                     "A社",
-                    "鶴見",
+                    "担当417",
                     "リクロジ_納品管理",
                     "定期1",
                     "2026-07",
@@ -1908,7 +1908,7 @@ mod tests {
                 &[
                     "1",
                     "A社",
-                    "鶴見",
+                    "担当417",
                     "リクロジ_納品管理",
                     "定期1",
                     "2026-08",
@@ -1922,7 +1922,7 @@ mod tests {
                 &[
                     "2",
                     "B社",
-                    "永田",
+                    "担当421",
                     "リクロジ_納品管理",
                     "定期2",
                     "2026-08",

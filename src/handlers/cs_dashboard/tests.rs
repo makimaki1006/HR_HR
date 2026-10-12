@@ -2785,7 +2785,7 @@ fn 担当の交代はオプション契約を外す() {
 #[test]
 fn 担当の交代でメールアドレスを名前として出さない() {
     use super::routes::person_label;
-    assert_eq!(person_label("田野 詩央里").as_deref(), Some("田野 詩央里"));
+    assert_eq!(person_label("担当420").as_deref(), Some("担当420"));
     assert_eq!(person_label("  "), None);
     let l = person_label("someone@example.co.jp").unwrap();
     assert!(!l.contains('@'), "メールアドレスがそのまま出ている: {l}");
