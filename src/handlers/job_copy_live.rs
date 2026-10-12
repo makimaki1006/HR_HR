@@ -1353,17 +1353,17 @@ fn valid_copy(entry: &Value) -> bool {
             keys_only(acquisition, &["expected", "downloaded", "failed"])
                 && ["expected", "downloaded", "failed"]
                     .iter()
-                    .all(|key| acquisition[*key].as_u64().is_some_and(|n| n <= 3))
+                    .all(|key| acquisition[*key].as_u64().is_some_and(|n| n <= 100))
         })
         && entry.get("images").is_none_or(|images| {
             images
                 .as_array()
-                .is_some_and(|images| images.len() <= 3 && images.iter().all(valid_image))
+                .is_some_and(|images| images.len() <= 100 && images.iter().all(valid_image))
         })
         && entry.get("imageReferences").is_none_or(|references| {
             references.as_array().is_some_and(|references| {
                 let mut slots = BTreeSet::new();
-                references.len() <= 3
+                references.len() <= 100
                     && references.iter().all(|reference| {
                         keys_only(reference, &["referenceHash", "slot"])
                             && reference["referenceHash"].as_str().is_some_and(|sha| {
@@ -1371,7 +1371,7 @@ fn valid_copy(entry: &Value) -> bool {
                             })
                             && reference["slot"]
                                 .as_u64()
-                                .is_some_and(|slot| (1..=3).contains(&slot) && slots.insert(slot))
+                                .is_some_and(|slot| (1..=100).contains(&slot) && slots.insert(slot))
                     })
             })
         })
@@ -1754,7 +1754,7 @@ struct SnapshotImageQuery {
     image_hash: String,
 }
 fn snapshot_image_entry(job: &Value, version: usize, slot: usize) -> Result<&Value, ReadError> {
-    if slot == 0 || slot > 3 || version > 10 {
+    if slot == 0 || slot > 100 || version > 10 {
         return Err(ReadError(
             StatusCode::BAD_REQUEST,
             "invalid_snapshot_image_request",
@@ -1833,7 +1833,7 @@ async fn snapshot_image(
     valid_id(&query.listing_id)?;
     if !valid_image_hash(&query.image_hash)
         || query.slot == 0
-        || query.slot > 3
+        || query.slot > 100
         || query.version > 10
     {
         return Err(ReadError(
@@ -2215,6 +2215,22 @@ mod tests {
         data["results"][0]["dated_comparison"]["by_version"]["version-1"]["properties"] =
             json!({"phone":"synthetic-private"});
         assert!(validate_moc(&data).is_err());
+    }
+    #[test]
+    fn capture_retains_five_images_and_resolves_fifth_slot() {
+        let mut data = moc_fixture();
+        let image = json!({"id":"synthetic","url":"data:image/png;base64,YQ==","contentHash":"a".repeat(64)});
+        data["capture_bundle"]["jobs"][0]["images"] = json!((1..=5)
+            .map(|slot| {
+                let mut item = image.clone();
+                item["id"] = json!(format!("photo-{slot}"));
+                item
+            })
+            .collect::<Vec<_>>());
+        validate_moc(&data).unwrap();
+        let job = &data["capture_bundle"]["jobs"][0];
+        assert_eq!(snapshot_image_entry(job, 0, 5).unwrap()["id"], "photo-5");
+        assert!(snapshot_image_entry(job, 0, 101).is_err());
     }
     #[test]
     fn moc_rejects_bad_dates_versions_and_remote_or_script_image_urls() {

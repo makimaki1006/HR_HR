@@ -1645,7 +1645,7 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         let related = Arc::new(AtomicBool::new(true));
         let date = "2026-10-10T00:00:00Z";
-        let manifest = json!({"schemaVersion":1,"listingId":"30","companyIds":["10"],"observedAt":date,"operationId":"a".repeat(64),"images":[{"slot":1,"fileId":"synthetic_image_001","sha256":"b".repeat(64),"mimeType":"image/png","size":100}]});
+        let manifest = json!({"schemaVersion":1,"listingId":"30","companyIds":["10"],"observedAt":date,"operationId":"a".repeat(64),"images":(1..=5).rev().map(|slot| json!({"slot":slot,"fileId":format!("synthetic_image_{slot:03}"),"sha256":"b".repeat(64),"mimeType":"image/png","size":100})).collect::<Vec<_>>()});
         let raw = serde_json::to_vec(&manifest).unwrap();
         let pointer = json!({"fileId":"synthetic_manifest_001","sha256":format!("{:x}", Sha256::digest(&raw)),"observedAt":date}).to_string();
         let relation = related.clone();
@@ -1692,6 +1692,8 @@ mod tests {
         let observation = observed_images(&record, &access).await.unwrap();
         assert_eq!(observation["observed_at"], date);
         assert_eq!(observation["image_urls"][0], "/api/job-copy/image?company_id=10&listing_id=30&manifest_id=synthetic_manifest_001&slot=1");
+        assert_eq!(observation["image_urls"].as_array().unwrap().len(), 5);
+        assert_eq!(observation["image_urls"][4], "/api/job-copy/image?company_id=10&listing_id=30&manifest_id=synthetic_manifest_001&slot=5");
         related.store(false, Ordering::Relaxed);
         assert!(observed_images(&record, &access).await.is_none());
         assert!(observed_images(

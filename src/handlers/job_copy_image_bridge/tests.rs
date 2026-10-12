@@ -35,6 +35,7 @@ struct Fixture {
     current: Mutex<Option<Pointer>>,
     requests: Mutex<Vec<Seen>>,
     patch: PatchMode,
+    public_airwork: Mutex<bool>,
 }
 struct Upstream {
     base: String,
@@ -112,6 +113,7 @@ impl Upstream {
             }),
             requests: Mutex::new(vec![]),
             patch: mode,
+            public_airwork: Mutex::new(false),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -214,7 +216,12 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
             .as_ref()
             .map(|p| serde_json::to_string(p).unwrap())
             .unwrap_or_default();
-        return json_response(200, json!({"properties":{PROPERTY:raw}}));
+        let mut properties = json!({PROPERTY:raw});
+        if *fixture.public_airwork.lock().unwrap() {
+            properties["id_airwork"] = json!("123");
+            properties["kyuujin_status"] = json!("公開中");
+        }
+        return json_response(200, json!({"properties":properties}));
     }
     json_response(404, json!({"error":"unexpected-local-fixture-path"}))
 }
@@ -356,4 +363,54 @@ async fn historical_chain_uses_verified_predecessor_and_returns_old_original() {
     assert!(!calls
         .iter()
         .any(|call| call.path == format!("/drive/v3/files/{CURRENT_IMAGE}")));
+}
+
+#[tokio::test]
+async fn airwork_missing_property_stops_with_only_one_read() {
+    let upstream = Upstream::start(PatchMode::Success, false).await;
+    assert_eq!(
+        upstream.bridge().require_property().await.unwrap_err(),
+        "existing_image_property_required"
+    );
+    let calls = upstream.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "GET");
+    assert_eq!(
+        calls[0].path,
+        format!("/crm/v3/properties/0-420/{PROPERTY}")
+    );
+}
+
+#[tokio::test]
+async fn airwork_registration_requires_live_public_airwork_identity() {
+    let upstream = Upstream::start(PatchMode::Success, false).await;
+    assert_eq!(
+        upstream
+            .bridge()
+            .require_public_airwork("30")
+            .await
+            .unwrap_err(),
+        "public_airwork_listing_required"
+    );
+    assert_eq!(
+        upstream
+            .calls()
+            .iter()
+            .filter(|call| call.method == "PATCH")
+            .count(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn airwork_registration_accepts_live_public_identity_without_writing() {
+    let upstream = Upstream::start(PatchMode::Success, false).await;
+    *upstream.fixture.public_airwork.lock().unwrap() = true;
+    upstream
+        .bridge()
+        .require_public_airwork("30")
+        .await
+        .unwrap();
+    assert_eq!(upstream.calls().len(), 1);
+    assert_eq!(upstream.calls()[0].method, "GET");
 }

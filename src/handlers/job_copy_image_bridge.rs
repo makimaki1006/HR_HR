@@ -302,6 +302,37 @@ impl ImageBridge {
         }
         Err("manifest_chain_limit")
     }
+    /// Recheck publication before an operator AirWork PATCH; stale exports must stop.
+    pub async fn require_public_airwork(&self, listing: &str) -> BridgeResult<()> {
+        if !record_id(listing) {
+            return Err("invalid_listing_id");
+        }
+        let (status, record) = self
+            .get(
+                &format!("/crm/v3/objects/0-420/{listing}"),
+                &[("properties", "id_airwork,kyuujin_status".to_owned())],
+            )
+            .await?;
+        if !status.is_success()
+            || record["properties"]["id_airwork"]
+                .as_str()
+                .is_none_or(|value| value.is_empty())
+            || record["properties"]["kyuujin_status"] != "公開中"
+        {
+            return Err("public_airwork_listing_required");
+        }
+        Ok(())
+    }
+    /// The AirWork operator never provisions properties. Missing schema stops before PATCH.
+    pub async fn require_property(&self) -> BridgeResult<()> {
+        let (status, value) = self
+            .get(&format!("/crm/v3/properties/0-420/{PROPERTY}"), &[])
+            .await?;
+        if !status.is_success() {
+            return Err("existing_image_property_required");
+        }
+        validate_property(&value)
+    }
     /// Explicit operator CLI only: provision one namespaced string property idempotently.
     pub async fn ensure_property(&self) -> BridgeResult<()> {
         let path = format!("/crm/v3/properties/0-420/{PROPERTY}");

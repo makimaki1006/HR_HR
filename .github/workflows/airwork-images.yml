@@ -1,0 +1,18 @@
+name: AirWork image contracts
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  offline-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests Pillow google-auth
+      - name: 画像取得・再開・既存保存の模擬検証
+        run: |
+          python -m unittest discover -s scripts -p 'test_job_copy_airwork*.py'
+          python -m unittest discover -s scripts -p 'test_job_copy_drive*.py'
+          python -m unittest discover -s scripts -p 'test_job_copy_archive_batch.py'
