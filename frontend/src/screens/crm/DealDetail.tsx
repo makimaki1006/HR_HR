@@ -37,6 +37,8 @@ const DIAL_MESSAGES: Record<DialResult, string> = {
   embed_loading: 'Zoom を読み込み中です。少し待ってからもう一度発信するか、「番号をコピー」か「端末の電話で発信」を使ってください。',
   embed_unavailable: 'Zoom Phone が使えません。「番号をコピー」か「端末の電話で発信」を使ってください。',
   busy: '通話中のため、新しい発信はできません。',
+  // ログインの案内は「架ける番号」の欄の警告 (ZoomWarn) に出す
+  login_required: '',
 };
 
 /**
@@ -94,9 +96,14 @@ export type CallBarInfo =
 /** Zoom が発信の依頼に応えなかったときの案内 */
 export const ZOOM_NO_RESPONSE = 'Zoomが応答しません。Zoomアプリを起動してサインインしてから、もう一度発信してください';
 
+export const ZOOM_LOGIN_REQUIRED = 'Zoom にログインしてください。ログインできたら、もう一度発信を押してください';
+export const ZOOM_LOGIN_DONE = 'Zoom にログインしました。発信ボタンを押してください';
+
 /** 発信の近くに出す Zoom の警告 (使えるときは null = 何も出さない)。架空サンプルでは出さない */
 export function zoomWarning(zoom: ZoomPhone, sample: boolean, callFailed: boolean): string | null {
   if (sample || zoom.call.phase === 'ringing' || zoom.call.phase === 'connected') return null;
+  if (zoom.loginNotice === 'required' && zoom.embed !== 'timeout') return ZOOM_LOGIN_REQUIRED;
+  if (zoom.loginNotice === 'done') return ZOOM_LOGIN_DONE;
   if (zoom.embed === 'timeout') return 'Zoom Phone が使えません。Zoomアプリを起動してサインインしてください';
   if (zoom.embed === 'loading') return 'Zoom Phone を準備しています。少しお待ちください';
   if (zoom.stalled && !callFailed) return ZOOM_NO_RESPONSE;

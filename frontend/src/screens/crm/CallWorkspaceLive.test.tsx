@@ -7,7 +7,7 @@ import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { toFixture, toLive } from './barMenuTestUtil';
 import { CallQueueScreen, ZOOM_DRAWER_KEY, bindsToDial } from './CallQueueScreen';
-import { ZOOM_NO_RESPONSE } from './DealDetail';
+import { ZOOM_LOGIN_DONE, ZOOM_LOGIN_REQUIRED, ZOOM_NO_RESPONSE } from './DealDetail';
 import type { DialedFor } from './CallQueueScreen';
 import { EMPTY_CALL } from './smartEmbed';
 import type { CallState } from './smartEmbed';
@@ -80,12 +80,14 @@ const fail = (status: number, kind: string): ApiResult<WorkspaceResponse> => ({ 
  * iframe の contentWindow を偽物に差し替える (happy-dom は外部ページを読まない)。
  * `load` が true なら iframe の load も起こす (読み込み済みでないと発信は送らない)
  */
-function fakeZoomWindow({ load = true }: { load?: boolean } = {}) {
+/** signedIn: Zoom が何か言ってきた状態 (ログイン済み)。false なら一度も何も言ってこない (未ログイン) */
+function fakeZoomWindow({ load = true, signedIn = true }: { load?: boolean; signedIn?: boolean } = {}) {
   const iframe = screen.getByTitle<HTMLIFrameElement>('Zoom Phone');
   const postMessage = vi.fn();
   const win = { postMessage } as unknown as Window;
   Object.defineProperty(iframe, 'contentWindow', { configurable: true, get: () => win });
   if (load) fireEvent.load(iframe);
+  if (load && signedIn) zoomEvent(win, { type: 'zp-some-status', data: {} });
   return { win, postMessage, iframe };
 }
 /** Zoom の枠 (引き出しが閉じている間は読み上げから外れているので hidden も含めて探す) */
@@ -372,7 +374,7 @@ describe('Zoom Phone (Smart Embed)', () => {
     expect(screen.getByText('Zoom Phone を読み込み中…')).toBeTruthy();
     fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
     expect(postMessage).not.toHaveBeenCalled();
-    expect(screen.getByText(/^Zoom を読み込み中です。少し待ってからもう一度発信するか/)).toBeTruthy();
+    expect(screen.getByTestId('zoom-warning').textContent).toBe(`${ZOOM_LOGIN_REQUIRED}Zoomを開く`);
     expect(screen.queryByText(/への発信を依頼しました/)).toBeNull();
     // 読み込みが終わらない (iframe の load が起きない)
     setZoomOptions({ loadTimeoutMs: 1, stallMs: 40 });
@@ -548,7 +550,7 @@ describe('Zoom の枠 (右から開く引き出し)', () => {
   const drawer = () => screen.getByTestId('zoom-drawer');
   const closeBtn = () => within(drawer()).getByRole('button', { name: 'Zoom の枠を閉じる' });
   /** Zoom の枠を開く: Zoom がまだ何も送っていない状態で発信すると自動で開く */
-  const autoOpen = () => { fakeZoomWindow(); dialFirst(); };
+  const autoOpen = () => { fakeZoomWindow({ signedIn: false }); dialFirst(); };
   const dialFirst = () => { fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ }))); };
   /** 枠から通話以外のメッセージが来た (サインイン済みの枠は何かしら送ってくる) */
   const hello = (win: Window) => { zoomEvent(win, { type: 'zp-some-status', data: {} }); };
@@ -592,11 +594,12 @@ describe('Zoom の枠 (右から開く引き出し)', () => {
 
   it('opens by itself when 発信 is pressed before Zoom has sent anything (probably not signed in), without taking focus', async () => {
     await openDeal1();
-    const { postMessage } = fakeZoomWindow();
+    const { postMessage } = fakeZoomWindow({ signedIn: false });
     const btn = first(screen.getAllByRole('button', { name: /に発信$/ }));
     btn.focus();
     fireEvent.click(btn);
-    expect(postMessage).toHaveBeenCalledTimes(1);
+    // 発信の指示は送らず、Zoom のログイン画面 (枠) を開く
+    expect(postMessage).not.toHaveBeenCalled();
     expect(drawer().className).toContain('is-open');
     expect(document.activeElement).toBe(btn);
     // 自動で開いたことは、このブラウザの選択としては残さない
@@ -791,5 +794,87 @@ describe('架空サンプルの Zoom', () => {
       expect(screen.queryByTestId('zoom-warning')).toBeNull();
       expect(screen.getByTestId('zoom-drawer').className).not.toContain('is-open');
     } finally { vi.unstubAllGlobals(); }
+  });
+});
+
+describe('発信したときに Zoom にログインしていない', () => {
+  afterEach(() => { try { window.localStorage.clear(); } catch { /* 無い環境 */ } });
+  const MAKE_CALL = { type: 'zp-make-call', data: { number: '+81312345678', autoDial: true } };
+  const dialFirst = () => { fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ }))); };
+  const drawer = () => screen.getByTestId('zoom-drawer');
+  const warning = () => screen.queryByTestId('zoom-warning')?.textContent ?? null;
+  async function openDeal(zoomOptions: ZoomOptions = { loadTimeoutMs: 600_000 }) {
+    const { calls, fetcher } = detailFetcher();
+    await renderQueue(fetcher, [makeItem('1'), makeItem('2')], zoomOptions);
+    open('1');
+    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    return calls;
+  }
+
+  it('not signed in: 発信 sends nothing and opens the Zoom frame (login screen) with a short notice', async () => {
+    await openDeal();
+    const { postMessage } = fakeZoomWindow({ signedIn: false });
+    dialFirst();
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(drawer().className).toContain('is-open');
+    expect(warning()).toBe(`${ZOOM_LOGIN_REQUIRED}Zoomを開く`);
+    expect(ZOOM_LOGIN_REQUIRED).toBe('Zoom にログインしてください。ログインできたら、もう一度発信を押してください');
+    expect(screen.queryByTestId('call-bar')).toBeNull();
+  });
+
+  it('login completes: back to the app screen (frame closed), a one-time notice, and still no dial; pressing 発信 again dials exactly once', async () => {
+    await openDeal();
+    const { win, postMessage } = fakeZoomWindow({ signedIn: false });
+    dialFirst();
+    expect(drawer().className).toContain('is-open');
+    zoomEvent(win, { type: 'zp-some-status', data: {} });
+    expect(drawer().className).not.toContain('is-open');
+    expect(window.localStorage.getItem(ZOOM_DRAWER_KEY)).toBeNull();
+    expect(postMessage).toHaveBeenCalledTimes(0);
+    expect(warning()).toBe(`${ZOOM_LOGIN_DONE}Zoomを開く`);
+    expect(ZOOM_LOGIN_DONE).toBe('Zoom にログインしました。発信ボタンを押してください');
+    // もう一度連絡が来ても、発信しない・案内は増えない
+    zoomEvent(win, { type: 'zp-some-status', data: {} });
+    expect(postMessage).toHaveBeenCalledTimes(0);
+    dialFirst();
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledWith(MAKE_CALL, 'https://applications.zoom.us');
+    expect(warning()).toBeNull();
+    expect(drawer().className).not.toContain('is-open');
+  });
+
+  it('a frame the user already had open stays open after login (only the frame opened for the login is closed)', async () => {
+    window.localStorage.setItem(ZOOM_DRAWER_KEY, '1');
+    await openDeal();
+    const { win, postMessage } = fakeZoomWindow({ signedIn: false });
+    dialFirst();
+    zoomEvent(win, { type: 'zp-some-status', data: {} });
+    expect(drawer().className).toContain('is-open');
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it('the Zoom iframe is the same element across login, deal switches and dialing (the Zoom session is never rebuilt)', async () => {
+    const calls = await openDeal();
+    const { win, iframe } = fakeZoomWindow({ signedIn: false });
+    dialFirst();
+    zoomEvent(win, { type: 'zp-some-status', data: {} });
+    open('2');
+    await act(async () => { calls[1]?.resolve(ok(detail('2'))); await Promise.resolve(); });
+    expect(warning()).toBeNull();
+    open('1');
+    dialFirst();
+    expect(screen.getByTitle('Zoom Phone')).toBe(iframe);
+    expect(drawer().contains(iframe)).toBe(true);
+  });
+
+  it('a stopped deal or a call in progress never goes to the login prompt', async () => {
+    await openDeal();
+    const { win, postMessage } = fakeZoomWindow();
+    dialFirst();
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: { callId: 'x', direction: 'outbound', callee: { phoneNumber: '+81312345678' } } });
+    dialFirst();
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(warning()).toBeNull();
   });
 });

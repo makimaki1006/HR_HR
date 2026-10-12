@@ -108,24 +108,30 @@ test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
     // 画面の外に置いた枠で横スクロールが出ない
     expect(closed.sw).toBe(closed.vw);
 
-    // 閉じたまま発信 (枠は読み込み済みだが、まだ何も言ってこないので枠は自動で開く)
+    // ログインしていない (枠がまだ何も言ってこない) 状態で発信: 発信の指示は送らず、枠 (ログイン画面) を開く
     const frame = page.frameLocator('iframe[title="Zoom Phone"]');
     await expect(frame.locator('body')).toContainText('架空の Zoom');
     const iframeHandle = await page.locator('iframe[title="Zoom Phone"]').elementHandle();
+    const zoomFrame = () => page.frames().find((f) => f.url().includes('applications.zoom.us'));
     await page.getByRole('button', { name: /に発信$/ }).first().click();
-    await expect(page.getByTestId('call-bar-status')).toHaveText('呼び出し中');
-    const got = await page.frames().find((f) => f.url().includes('applications.zoom.us'))?.evaluate(() => (window as unknown as { __got: string[] }).__got);
-    expect(got).toEqual(['+81300000001']);
-    // 一度も応答していない枠への発信なので開いている (サインインの確認のため)。Esc で閉じる
+    await expect(page.getByTestId('zoom-warning')).toContainText('Zoom にログインしてください。ログインできたら、もう一度発信を押してください');
+    expect(await zoomFrame()?.evaluate(() => (window as unknown as { __got: string[] }).__got)).toEqual([]);
+    await expect(page.getByTestId('call-bar')).toHaveCount(0);
     await expect(drawer(page)).toHaveClass(/is-open/);
     // 開く動き (0.18 秒) が終わってから、右端に 360px で重なっていること
     await expect.poll(async () => {
       const b = await drawer(page).boundingBox();
       return [Math.round(b?.width ?? 0), Math.round((b?.x ?? 0) + (b?.width ?? 0))];
     }).toEqual([360, 1440]);
-    await drawer(page).getByRole('button', { name: 'Zoom の枠を閉じる' }).focus();
-    await page.keyboard.press('Escape');
+    // ログインが終わった (枠が何かを言ってきた): 枠が閉じて画面へ戻り、発信はしない。案内を 1 回出す
+    await zoomFrame()?.evaluate(() => { parent.postMessage({ type: 'zp-some-status', data: {} }, '*'); });
     await expect(drawer(page)).not.toHaveClass(/is-open/);
+    await expect(page.getByTestId('zoom-warning')).toContainText('Zoom にログインしました。発信ボタンを押してください');
+    expect(await zoomFrame()?.evaluate(() => (window as unknown as { __got: string[] }).__got)).toEqual([]);
+    // もう一度発信を押すと 1 回だけ発信する
+    await page.getByRole('button', { name: /に発信$/ }).first().click();
+    await expect(page.getByTestId('call-bar-status')).toHaveText('呼び出し中');
+    expect(await zoomFrame()?.evaluate(() => (window as unknown as { __got: string[] }).__got)).toEqual(['+81300000001']);
 
     // 開け閉め (通話の様子の「Zoomを開く」から開く)・案件の切り替えで同じ iframe のまま
     await page.getByTestId('call-bar').getByRole('button', { name: 'Zoomを開く' }).click();

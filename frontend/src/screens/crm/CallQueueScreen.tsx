@@ -467,19 +467,39 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 結果のボタンへフォーカスを移し終えた通話 (同じ通話で何度もフォーカスを奪わない)
   const [handledCall, setHandledCall] = useState<string | null>(null);
   const dialingStopped = detailState.phase === 'ready' && (Boolean(detailState.data?.deal.stop.prohibited_reason) || Boolean(detailState.data?.deal.stop.block_reason));
+  const [loginPrompt, setLoginPrompt] = useState<{ restore: boolean } | null>(null);
+  const [loginDone, setLoginDone] = useState(false);
+  const busyNow = zoom.call.phase === 'ringing' || zoom.call.phase === 'connected';
+  // ログインできた (Zoom が何か言ってきた): 枠を開けたのがこの案内なら閉じて画面へ戻す。発信はしない
+  if (loginPrompt !== null && zoom.heard) {
+    setLoginPrompt(null);
+    setLoginDone(true);
+    if (loginPrompt.restore) setDrawerOpen(false);
+  }
+  // 別の案件へ移ったら案内は消す
+  const [noticeDeal, setNoticeDeal] = useState(detailId);
+  if (noticeDeal !== detailId) { setNoticeDeal(detailId); setLoginDone(false); setLoginPrompt(null); }
+  const loginNotice = loginPrompt !== null ? 'required' as const : loginDone ? 'done' as const : null;
   const zoomForDetail = useMemo<ZoomPhone>(() => ({
     ...zoom,
+    loginNotice,
     dial: (raw: string | null | undefined): DialResult => {
       if (dialingStopped) return 'not_dialable';
+      setLoginDone(false);
+      // 読み込んでから Zoom が一度も何も言ってこない (ログインしていない可能性が高い) ときは、発信せずに Zoom のログイン画面 (枠) を開いて見せる。
+      // ログインできたら枠を閉じて画面へ戻し (発信はしない)、もう一度発信を押してもらう
+      if (!zoom.heard && zoom.embed !== 'timeout' && zoom.embed !== 'disabled' && toE164Jp(raw) !== null && !busyNow) {
+        setLoginPrompt({ restore: !drawerOpen });
+        autoOpenZoom();
+        return 'login_required';
+      }
       const r = zoom.dial(raw);
-      // 読み込んでから Zoom が一度も何も言ってこない (サインインしていない可能性が高い) まま発信したら、枠を開いて見せる
-      if (r !== 'not_dialable' && !zoom.heard) autoOpenZoom();
       if (r === 'sent' && detailId !== null) {
         setDialedFor({ dealId: detailId, mode, number: toE164Jp(raw), staleCallId: zoom.call.callId, callId: null });
       }
       return r;
     },
-  }), [zoom, detailId, mode, autoOpenZoom, dialingStopped]);
+  }), [zoom, detailId, mode, autoOpenZoom, dialingStopped, loginNotice, busyNow, drawerOpen]);
 
   useEffect(() => () => { if (keyTimer.current !== null) window.clearTimeout(keyTimer.current); }, []);
 
