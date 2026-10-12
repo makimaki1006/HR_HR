@@ -5,6 +5,7 @@ import { ApiHttpError } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
+import { toFixture, toLive } from './barMenuTestUtil';
 import { CallQueueScreen, ZOOM_DRAWER_KEY, bindsToDial } from './CallQueueScreen';
 import { ZOOM_NO_RESPONSE } from './DealDetail';
 import type { DialedFor } from './CallQueueScreen';
@@ -443,7 +444,8 @@ describe('bindsToDial', () => {
 });
 
 describe('Zoom Phone と画面の切り替え', () => {
-  const modeBtn = (name: string) => within(screen.getByRole('group', { name: 'データの切り替え' })).getByRole<HTMLButtonElement>('button', { name });
+  const fixtureItem = () => screen.getByRole('menuitem', { name: '架空サンプルを表示' });
+  const openMenu = () => { fireEvent.click(screen.getByRole('button', { name: 'その他の操作' })); };
 
   it('the switch to sample data is disabled during a call (it would close the phone frame and end the call); after it, a fresh frame starts from loading', async () => {
     const { calls, fetcher } = detailFetcher();
@@ -451,21 +453,30 @@ describe('Zoom Phone と画面の切り替え', () => {
     open('1');
     await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
     const { win, iframe } = fakeZoomWindow();
-    expect(modeBtn('架空サンプル').disabled).toBe(false);
+    openMenu();
+    expect((fixtureItem() as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'その他の操作' }));
     fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
     const c1 = { callId: 'c1', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
     zoomEvent(win, { type: 'zp-call-ringing-event', data: c1 });
-    expect(modeBtn('架空サンプル').disabled).toBe(true);
+    openMenu();
+    expect((fixtureItem() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'その他の操作' }));
     zoomEvent(win, { type: 'zp-call-connected-event', data: c1 });
-    expect(modeBtn('架空サンプル').disabled).toBe(true);
-    expect(modeBtn('架空サンプル').title).toContain('通話が切れます');
-    fireEvent.click(modeBtn('架空サンプル'));
+    openMenu();
+    expect((fixtureItem() as HTMLButtonElement).disabled).toBe(true);
+    expect(fixtureItem().title).toContain('通話が切れます');
+    fireEvent.click(fixtureItem());
     expect(screen.getByTitle('Zoom Phone')).toBe(iframe);
+    expect(screen.queryByTestId('fixture-banner')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'その他の操作' }));
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c1, result: 'ended' } });
-    expect(modeBtn('架空サンプル').disabled).toBe(false);
-    fireEvent.click(modeBtn('架空サンプル'));
+    openMenu();
+    expect((fixtureItem() as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(fixtureItem());
     expect(screen.queryByTitle('Zoom Phone')).toBeNull();
-    fireEvent.click(modeBtn('実データ'));
+    expect(screen.getByTestId('fixture-banner')).toBeTruthy();
+    toLive();
     await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
     // 新しい枠: 前の通話・読み込み済みの状態は残らない
     expect(screen.getByTitle('Zoom Phone')).not.toBe(iframe);
@@ -485,7 +496,7 @@ describe('Zoom Phone と画面の切り替え', () => {
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c1, result: 'ended' } });
     expect(screen.getByTestId('ended-call')).toBeTruthy();
     // 同じ取得関数 (同じ ID の案件) で架空サンプルに切り替え、案件 1 を選ぶ
-    fireEvent.click(modeBtn('架空サンプル'));
+    toFixture();
     await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
     open('1');
     expect(screen.getByTestId('result-slot').getAttribute('data-deal-id')).toBe('1');
@@ -535,7 +546,9 @@ describe('架空サンプル', () => {
 describe('Zoom の枠 (右から開く引き出し)', () => {
   afterEach(() => { vi.useRealTimers(); try { window.localStorage.clear(); } catch { /* 無い環境 */ } });
   const drawer = () => screen.getByTestId('zoom-drawer');
-  const toggle = () => screen.getByTestId('zoom-toggle');
+  const closeBtn = () => within(drawer()).getByRole('button', { name: 'Zoom の枠を閉じる' });
+  /** Zoom の枠を開く: Zoom がまだ何も送っていない状態で発信すると自動で開く */
+  const autoOpen = () => { fakeZoomWindow(); dialFirst(); };
   const dialFirst = () => { fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ }))); };
   /** 枠から通話以外のメッセージが来た (サインイン済みの枠は何かしら送ってくる) */
   const hello = (win: Window) => { zoomEvent(win, { type: 'zp-some-status', data: {} }); };
@@ -554,15 +567,14 @@ describe('Zoom の枠 (右から開く引き出し)', () => {
     expect(drawer().className).not.toContain('is-open');
     expect(drawer().getAttribute('aria-hidden')).toBe('true');
     expect(drawer().hasAttribute('inert')).toBe(true);
-    expect(toggle().getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(toggle());
+    autoOpen();
     expect(drawer().className).toContain('is-open');
     expect(drawer().getAttribute('aria-hidden')).toBe('false');
     expect(drawer().hasAttribute('inert')).toBe(false);
     expect(screen.getByTitle('Zoom Phone')).toBe(iframe);
     open('2');
     await act(async () => { calls[1]?.resolve(ok(detail('2'))); await Promise.resolve(); });
-    fireEvent.click(toggle());
+    fireEvent.click(closeBtn());
     expect(drawer().className).not.toContain('is-open');
     open('1');
     expect(screen.getByTitle('Zoom Phone')).toBe(iframe);
@@ -605,7 +617,6 @@ describe('Zoom の枠 (右から開く引き出し)', () => {
     expect(drawer().className).toContain('is-open');
     expect(screen.getByTestId('call-bar-status').textContent).toBe('発信できませんでした');
     expect(screen.getByText(ZOOM_NO_RESPONSE)).toBeTruthy();
-    expect(toggle().textContent).toBe('Zoom応答なし');
   });
 
   it('does not open when ringing arrives within 6 seconds', async () => {
@@ -620,25 +631,37 @@ describe('Zoom の枠 (右から開く引き出し)', () => {
     expect(drawer().className).not.toContain('is-open');
     expect(screen.getByTestId('call-bar-status').textContent).toBe('呼び出し中');
     expect(screen.queryByText(ZOOM_NO_RESPONSE)).toBeNull();
-    expect(toggle().textContent).toBe('Zoom呼び出し中');
   });
 
-  it('the toggle moves focus into the drawer; Esc closes it and focus returns to the toggle; the choice is remembered in this browser', async () => {
-    await openDeal1();
-    toggle().focus();
-    fireEvent.click(toggle());
-    const close = within(drawer()).getByRole('button', { name: 'Zoom の枠を閉じる' });
-    expect(document.activeElement).toBe(close);
+  it('「Zoomを開く」 in the warning moves focus into the drawer; Esc closes it; the choice is remembered in this browser', async () => {
+    await openDeal1({ loadTimeoutMs: 1 });
+    const warn = await screen.findByTestId('zoom-warning');
+    fireEvent.click(within(warn).getByRole('button', { name: 'Zoomを開く' }));
+    expect(document.activeElement).toBe(closeBtn());
     expect(window.localStorage.getItem(ZOOM_DRAWER_KEY)).toBe('1');
-    fireEvent.keyDown(close, { key: 'Escape' });
+    fireEvent.keyDown(closeBtn(), { key: 'Escape' });
     expect(drawer().className).not.toContain('is-open');
-    expect(document.activeElement).toBe(toggle());
     expect(window.localStorage.getItem(ZOOM_DRAWER_KEY)).toBe('0');
     // 開いたまま閉じた画面を開き直すと、開いた状態から始まる
-    fireEvent.click(toggle());
+    fireEvent.click(within(screen.getByTestId('zoom-warning')).getByRole('button', { name: 'Zoomを開く' }));
     cleanup();
     await openDeal1();
     expect(drawer().className).toContain('is-open');
+  });
+
+  it('the Zoom warning sits in the 架ける番号 box next to 発信: shown while Zoom is loading, gone once the frame has loaded', async () => {
+    await openDeal1({ loadTimeoutMs: 600_000 });
+    const box = screen.getByRole('region', { name: '架ける番号' });
+    expect(within(box).getByTestId('zoom-warning').textContent).toContain('Zoom Phone を準備しています');
+    fakeZoomWindow();
+    expect(screen.queryByTestId('zoom-warning')).toBeNull();
+  });
+
+  it('the Zoom warning says Zoom Phone cannot be used when the frame did not load in time, with 「Zoomを開く」', async () => {
+    await openDeal1({ loadTimeoutMs: 1 });
+    const warn = await screen.findByTestId('zoom-warning');
+    expect(warn.textContent).toBe('Zoom Phone が使えません。Zoomアプリを起動してサインインしてくださいZoomを開く');
+    expect(within(screen.getByRole('region', { name: '架ける番号' })).getByTestId('zoom-warning')).toBe(warn);
   });
 
   it('the call bar under the number shows a live timer while connected and the talk time after it ends; 「Zoomを開く」 opens the drawer', async () => {
@@ -656,7 +679,6 @@ describe('Zoom の枠 (右から開く引き出し)', () => {
     act(() => { vi.advanceTimersByTime(1_000); });
     expect(screen.getByTestId('call-bar-status').textContent).toBe('通話中');
     expect(screen.getByTestId('call-bar-timer').textContent).toBe('01:05');
-    expect(toggle().textContent).toBe('Zoom通話中');
     fireEvent.click(within(screen.getByTestId('call-bar')).getByRole('button', { name: 'Zoomを開く' }));
     expect(drawer().className).toContain('is-open');
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c, result: 'ended' } });
@@ -758,14 +780,15 @@ describe('詳細の鮮度 (「○秒前の情報」と「最新にする」)', (
   });
 });
 
-describe('架空サンプルの Zoom ボタン', () => {
-  it('is not shown in sample data (there is no Zoom frame)', async () => {
+describe('架空サンプルの Zoom', () => {
+  it('shows no Zoom button or warning in sample data (there is no Zoom frame)', async () => {
     const spy = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline')));
     vi.stubGlobal('fetch', spy);
     try {
       render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
       await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
       expect(screen.queryByTestId('zoom-toggle')).toBeNull();
+      expect(screen.queryByTestId('zoom-warning')).toBeNull();
       expect(screen.getByTestId('zoom-drawer').className).not.toContain('is-open');
     } finally { vi.unstubAllGlobals(); }
   });

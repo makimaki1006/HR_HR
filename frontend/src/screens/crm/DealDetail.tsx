@@ -94,6 +94,15 @@ export type CallBarInfo =
 /** Zoom が発信の依頼に応えなかったときの案内 */
 export const ZOOM_NO_RESPONSE = 'Zoomが応答しません。Zoomアプリを起動してサインインしてから、もう一度発信してください';
 
+/** 発信の近くに出す Zoom の警告 (使えるときは null = 何も出さない)。架空サンプルでは出さない */
+export function zoomWarning(zoom: ZoomPhone, sample: boolean, callFailed: boolean): string | null {
+  if (sample || zoom.call.phase === 'ringing' || zoom.call.phase === 'connected') return null;
+  if (zoom.embed === 'timeout') return 'Zoom Phone が使えません。Zoomアプリを起動してサインインしてください';
+  if (zoom.embed === 'loading') return 'Zoom Phone を準備しています。少しお待ちください';
+  if (zoom.stalled && !callFailed) return ZOOM_NO_RESPONSE;
+  return null;
+}
+
 /** 通話の様子の文言 (と、終わった通話の通話時間) */
 export function callBarLabel(info: CallBarInfo): { label: string; extra: string | null } {
   if (info.kind === 'dialing') return { label: '発信しています…', extra: null };
@@ -154,7 +163,14 @@ function DensityToggle({ density }: { density: OverviewDensity }) {
     {density.compact ? '詳しく表示' : '1 行にする'}</button>;
 }
 
-function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refreshError, onRefresh, density, stageMove }: {
+function ZoomWarn({ text, onOpenZoom }: { text: string | null; onOpenZoom?: (() => void) | undefined }) {
+  if (text === null) return null;
+  return <p className="wd-zoom-warn" role="status" data-testid="zoom-warning"><span>{text}</span>
+    {onOpenZoom && <button type="button" onClick={onOpenZoom}>Zoomを開く</button>}</p>;
+}
+
+function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refreshError, onRefresh, density, stageMove, zoomNotice = null }: {
+  zoomNotice?: string | null;
   data: WorkspaceResponse; zoom: ZoomPhone; stopLabel: StopLabel;
   callBar?: CallBarInfo | null | undefined; onOpenZoom?: (() => void) | undefined;
   refreshing: boolean; refreshError: string | null; onRefresh?: (() => void) | undefined;
@@ -186,6 +202,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
           <span className="wd-line-sep" aria-hidden="true">·</span>
           {data.dial ? <PhoneRow blocked={blocked} label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary compact />
             : <span className="crm-muted">番号を確認できません</span>}
+          {zoomNotice !== null && <ZoomWarn text={zoomNotice} onOpenZoom={onOpenZoom} />}
           {status !== null && callBar?.kind !== 'failed' && <span className={`wd-line-status wd-callbar-${callBar?.kind ?? ''}`} role="status" data-testid="call-bar-status">
             <strong>{status.label}</strong>{status.extra && <span> {status.extra}</span>}</span>}
           {status !== null && callBar?.kind !== 'failed' && onOpenZoom && <button type="button" className="wd-callbar-open" onClick={onOpenZoom}
@@ -228,6 +245,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
           : <p className="crm-muted">番号を確認できません。担当者・会社の情報を HubSpot で確認してください。</p>}
         {otherPhones.length > 0 && <details className="wd-other"><summary>ほかの番号({otherPhones.length})</summary>
           <div className="wd-other-list">{otherPhones.map(p => <PhoneRow blocked={blocked} key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</div></details>}
+        <ZoomWarn text={zoomNotice} onOpenZoom={onOpenZoom} />
       </section>
       {callBar && <CallBar info={callBar} now={zoom.now} onOpenZoom={onOpenZoom} />}
       {stopReasons.length > 0 && <ul className="wd-stop" aria-label="架電の注意">{stopReasons.map(s => <li key={s} className="cq-flag">{s}</li>)}</ul>}
@@ -317,6 +335,7 @@ function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLab
 }) {
   if (state.phase === 'ready' && state.data !== null) {
     return <><Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
+      zoomNotice={zoomWarning(zoom, sample, callBar?.kind === 'failed')}
       refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} /><EmailPanel key={state.data.deal.id} data={state.data} sample={sample} onSaved={refresh} context={<div className="crm-email-context"><strong>{state.data.companies.find(c => c.is_primary)?.name ?? state.data.deal.name}</strong>{state.data.dial && <PhoneRow blocked={(Boolean(state.data.deal.stop.prohibited_reason) || Boolean(state.data.deal.stop.block_reason))} label={SOURCE_LABELS[state.data.dial.source] ?? '電話'} raw={state.data.dial.number} zoom={zoom} primary compact />}</div>} /></>;
   }
   if (state.phase === 'loading' && previewItem) return <div className="cq-detail-scroll"><RowPreview item={previewItem} ownerName={previewOwner} /></div>;

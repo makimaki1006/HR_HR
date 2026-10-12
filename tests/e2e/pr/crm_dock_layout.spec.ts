@@ -105,7 +105,8 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     expect(Math.abs((await colWidth(page, 0)) - leftDragged)).toBeLessThanOrEqual(2);
 
     // 元の配置に戻す
-    await page.getByRole('button', { name: '元の配置に戻す' }).click();
+    await page.getByRole('button', { name: 'その他の操作' }).click();
+    await page.getByRole('menuitem', { name: '元の配置に戻す' }).click();
     await expect(tablist(page, '左').getByRole('tab')).toHaveText(['架電一覧', 'プロパティ']);
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力']);
     await expect(tablist(page, '右').getByRole('tab')).toHaveText(['求人検索・リンク先']);

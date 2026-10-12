@@ -80,7 +80,6 @@ async function mockCrm(page: Page): Promise<{ writes: string[] }> {
 }
 
 const drawer = (page: Page) => page.getByTestId('zoom-drawer');
-const toggle = (page: Page) => page.getByTestId('zoom-toggle');
 
 test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
   test.beforeEach(async ({ page }) => { await login(page); });
@@ -89,13 +88,12 @@ test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const m = await mockCrm(page);
     await page.goto('/app/crm');
-    await expect(page.getByRole('status', { name: 'データの種類' })).toContainText('実データ(HubSpot)');
+    await expect(page.getByTestId('fixture-banner')).toHaveCount(0);
     const list = page.getByRole('list', { name: '架電キュー' });
     await list.getByText('架空会社1').click();
     await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('h2')).toHaveText('架空会社1');
 
     // 閉じている: 枠は画面の外 (同じ幅のまま)、パネルの置き場は右端まで広がる
-    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
     await expect(drawer(page)).toHaveAttribute('aria-hidden', 'true');
     const closed = await page.evaluate(() => {
       const d = document.querySelector('[data-testid="zoom-drawer"]')?.getBoundingClientRect();
@@ -118,8 +116,7 @@ test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
     await expect(page.getByTestId('call-bar-status')).toHaveText('呼び出し中');
     const got = await page.frames().find((f) => f.url().includes('applications.zoom.us'))?.evaluate(() => (window as unknown as { __got: string[] }).__got);
     expect(got).toEqual(['+81300000001']);
-    await expect(toggle(page)).toContainText('呼び出し中');
-    // 一度も応答していない枠への発信なので開いている (サインインの確認のため)。Esc で閉じ、フォーカスは「Zoom」ボタンへ
+    // 一度も応答していない枠への発信なので開いている (サインインの確認のため)。Esc で閉じる
     await expect(drawer(page)).toHaveClass(/is-open/);
     // 開く動き (0.18 秒) が終わってから、右端に 360px で重なっていること
     await expect.poll(async () => {
@@ -129,12 +126,12 @@ test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
     await drawer(page).getByRole('button', { name: 'Zoom の枠を閉じる' }).focus();
     await page.keyboard.press('Escape');
     await expect(drawer(page)).not.toHaveClass(/is-open/);
-    await expect(toggle(page)).toBeFocused();
 
-    // 開け閉め・案件の切り替えで同じ iframe のまま
-    await toggle(page).click();
+    // 開け閉め (通話の様子の「Zoomを開く」から開く)・案件の切り替えで同じ iframe のまま
+    await page.getByTestId('call-bar').getByRole('button', { name: 'Zoomを開く' }).click();
     await expect(drawer(page).getByRole('button', { name: 'Zoom の枠を閉じる' })).toBeFocused();
-    await toggle(page).click();
+    await page.keyboard.press('Escape');
+    await expect(drawer(page)).not.toHaveClass(/is-open/);
     await list.getByText('架空会社2').click();
     await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('h2')).toHaveText('架空会社2');
     const same = await page.locator('iframe[title="Zoom Phone"]').evaluate((el, h) => el === h, iframeHandle);
@@ -144,7 +141,8 @@ test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
     await page.getByRole('button', { name: '「活動ログ」の移動' }).click();
     await page.getByRole('menu', { name: '「活動ログ」の移動' }).getByRole('menuitem', { name: '右へ移動' }).click();
     await expect(page.getByRole('tablist', { name: '右の列のパネル' }).getByRole('tab', { name: '活動ログ' })).toHaveAttribute('aria-selected', 'true');
-    await page.getByRole('button', { name: '元の配置に戻す' }).click();
+    await page.getByRole('button', { name: 'その他の操作' }).click();
+    await page.getByRole('menuitem', { name: '元の配置に戻す' }).click();
     await expect(page.getByRole('tablist', { name: '中央の列のパネル' }).getByRole('tab', { name: '活動ログ' })).toBeVisible();
     expect(await page.locator('iframe[title="Zoom Phone"]').evaluate((el, h) => el === h, iframeHandle)).toBe(true);
     expect(m.writes).toEqual([]);

@@ -1,6 +1,7 @@
 import { QueuePipelinePicker } from './QueuePipelinePicker';
 import { selectedPipelineIds, withPipelines, withTarget, sortsFor } from './queueModel';
 import { SavedViews } from './SavedViews';
+import { BarMenu } from './BarMenu';
 import { queueQuery, selectedViewId, viewSearch } from './savedViewsModel';
 import { QueueSortDialog } from './QueueSortDialog';
 import { QueueGroupEditor, PropertySortPicker } from './QueueConditionGroups';
@@ -392,7 +393,6 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // Zoom の枠は右から開く引き出し。閉じている間も iframe は画面の外に置いたまま (発信の依頼は届く)
   const [drawerOpenRaw, setDrawerOpen] = useState(loadDrawerOpen);
   const drawerOpen = drawerOpenRaw && mode === 'live';
-  const zoomToggleRef = useRef<HTMLButtonElement | null>(null);
   const drawerRef = useRef<HTMLDivElement | null>(null);
   // 開け閉めの後にフォーカスを移す先 (利用者が開けたときは枠の中へ、閉じたときは「Zoom」ボタンへ)
   const focusAfterToggle = useRef<'drawer' | 'toggle' | null>(null);
@@ -404,7 +404,6 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     const target = focusAfterToggle.current;
     focusAfterToggle.current = null;
     if (target === 'drawer' && drawerOpen) drawerRef.current?.querySelector<HTMLElement>('.zp-close')?.focus();
-    if (target === 'toggle' && !drawerOpen) zoomToggleRef.current?.focus();
   }, [drawerOpen]);
   // 発信したのに Zoom が応答しないときは枠を開く (サインインやアプリの起動が要る)
   const [seenStalled, setSeenStalled] = useState(false);
@@ -412,7 +411,6 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     setSeenStalled(zoom.stalled);
     if (zoom.stalled) setDrawerOpen(true);
   }
-  const readiness = zoomReadiness(zoom.embed, zoom.call, zoom.stalled);
   const listRef = useRef<HTMLUListElement | null>(null);
   const scrollSelectedRow = useRef(false);
   // 記録して次へで移った案件 (その入力欄が開いたら結果のボタンへフォーカスする)
@@ -820,33 +818,15 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     </div>,
   };
 
-  const fullNote = mode === 'live' ? (crmWrite.writesEnabled === true ? 'HubSpot への書き込みは、編集した項目だけです' : 'HubSpot への書き込みはしません') : '表示内容はすべて架空です。HubSpot には接続しません。';
   return <div className="crm-app cq-app">
     {writeBindings.conflict !== null && <ConflictDialog view={writeBindings.conflict} />}
     {/* 画面全体の読み上げ欄 (記録した・記録できない理由)。常に置いておき、中身だけ変える */}
     <p className="cq-sr-only" role="status" data-testid="screen-announcement">{announcement.text}{announcement.n % 2 === 1 ? '\u00a0' : ''}</p>
-    <header className="crm-topbar cq-topbar"><a className="crm-home" href="/">HR_HR</a>
-      <span className="crm-topbar-divider" /><h1 className="cq-title">架電</h1>
-      <div className={`cq-mode cq-mode-${mode}`} role="status" aria-label="データの種類">
-        <strong className="cq-mode-badge">{mode === 'live' ? '実データ(HubSpot)' : '架空サンプル'}</strong>
-        <span className="cq-mode-note" title={fullNote}>{fullNote}</span>
-        <span className="cq-mode-note-short" title={fullNote}>{mode === 'live' ? (crmWrite.writesEnabled === true ? '編集した項目だけ書き込み' : 'HubSpot 書き込みなし') : '架空・未接続'}</span>
-      </div>
-      <div className="cq-topbar-actions">
-      {mode === 'live' && <button type="button" ref={zoomToggleRef} className={`cq-zoom-toggle is-${readiness}`} aria-expanded={drawerOpen}
-        aria-controls="cq-zoom-drawer" data-testid="zoom-toggle" title={drawerOpen ? 'Zoom の枠を閉じる' : 'Zoom の枠を開く(消音・保留・通話を切る・サインインはこちら)'}
-        onClick={() => { if (drawerOpen) closeZoom(); else openZoom(); }}>
-        Zoom<span className="cq-zoom-dot" aria-hidden="true" /><span className="cq-zoom-state">{ZOOM_READINESS_LABELS[readiness]}</span></button>}
-      <button type="button" className="cq-layout-reset" onClick={() => { dispatchLayout({ type: 'reset' }); }}
-        title="パネルの置き場所と列の幅を、最初の配置に戻します(表示する項目の選択はそのまま)">元の配置に戻す</button>
-      <span className="cq-mode-switch" role="group" aria-label="データの切り替え">
-        <button type="button" aria-pressed={mode === 'live'} onClick={() => { switchMode('live'); }}>実データ</button>
-        <button type="button" aria-pressed={mode === 'fixture'} disabled={inCall}
-          title={inCall ? '通話中は切り替えられません(切り替えると電話の枠が閉じて通話が切れます)' : undefined}
-          onClick={() => { switchMode('fixture'); }}>架空サンプル</button>
-      </span>
-      </div>
-    </header>
+    {mode === 'fixture' && <div className="cq-fixture-banner" role="status" aria-label="データの種類" data-testid="fixture-banner">
+      <strong>架空サンプルを表示中です。表示内容はすべて架空で、HubSpot には接続しません。</strong>
+      <button type="button" disabled={inCall} onClick={() => { switchMode('live'); }}
+        title={inCall ? undefined : '実際の HubSpot のデータに戻します'}>実データに戻す</button>
+    </div>}
 
     <form ref={filterBarRef} className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
       <div className="cq-bar">
@@ -865,6 +845,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           onClick={() => { setPanelOpen(o => !o); }}>詳細条件{detailCount > 0 && <span className="cq-badge">{detailCount}</span>}</button>
         <button type="button" className="cq-btn" onClick={() => { setPanelOpen(true); }} >条件を追加</button>
         <button type="button" className="cq-btn cq-btn-quiet" onClick={clearAll} disabled={!hasConditions && qDraft === ''}>条件をクリア</button>
+        <BarMenu mode={mode} inCall={inCall} onResetLayout={() => { dispatchLayout({ type: 'reset' }); }}
+          onSwitchMode={() => { switchMode(mode === 'live' ? 'fixture' : 'live'); }} />
       </div>
       {chips.length > 0 && <ul className="cq-chips" aria-label="適用中の条件">
         {chips.map(c => <li key={c.key} className={c.separator ? 'cq-chip-or' : 'cq-chip'}><span title={c.title}>{c.label}</span>
