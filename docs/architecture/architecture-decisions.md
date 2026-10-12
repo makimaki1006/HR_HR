@@ -344,7 +344,7 @@ Status: Accepted for this implementation (2026-10-11、ユーザー指定)
 
 ## ADR-024 — 役割ごとのプロパティ欄の設定は既存監査 Turso に置く
 
-Status: Accepted (2026-10-12、Claude の判断。ユーザー確認待ち)
+Status: Accepted (2026-10-12、Claude の判断を同日ユーザーが承認)
 
 - HR_HR の表示項目と順番は HubSpot の顧客データや UI 設定とは別の、ADR-006 の「HR_HR 固有の永続データ」。既存 audit Turso に `crm_role_property_layouts` を追加し、新しい DB は増やさない。
 - 個人設定、accounts.role の標準、hubspotCards の既定の順で選ぶ。CRM の権限判定は変更せず、admin だけが項目カタログにある項目を保存できる。
@@ -354,7 +354,7 @@ Status: Accepted (2026-10-12、Claude の判断。ユーザー確認待ち)
 
 ## ADR-025 — CRM は任意の専用 HubSpot private app の鍵を使う
 
-Status: Accepted for this implementation (2026-10-12、ユーザー決定)。PR 作成直前の main は ADR-023 までだが、並行 PR #158 の ADR-024 と衝突しない番号を使用。
+Status: Accepted for this implementation (2026-10-12、Claude の判断を同日ユーザーが承認)。PR 作成直前の main は ADR-023 までだが、並行 PR #158 の ADR-024 と衝突しない番号を使用。
 
 - 現行の決定・問題: §17 の共通 Service Key は管理が簡単だが、CRM と既存バッチが短時間の枠を共有し、架電中の操作が待たされる。
 - 変更・利点: `HUBSPOT_CRM_ACCESS_TOKEN` があれば CRM の読み書き・メール記録・返信・保存待ち再送だけに使い、なければ従来の `HUBSPOT_ACCESS_TOKEN` を使う。同じ鍵は同じ gateway、別の鍵は別の gateway とし、各枠の既定 8/s・80/10s・Search 3/s は維持する。起動ログは選択した変数名だけを出す。

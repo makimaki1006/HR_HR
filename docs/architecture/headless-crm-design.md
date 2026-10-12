@@ -547,7 +547,7 @@ Core Seat 運用へ戻すことは可能。
 
 決定済み (2026-09-29、ユーザー決定):
 
-- HubSpot の認証 (2026-10-12 改訂、ADR-025): `HUBSPOT_CRM_ACCESS_TOKEN` があれば CRM は専用 private app の鍵を使い、未設定なら既存の `HUBSPOT_ACCESS_TOKEN` を共有する。CRM 以外は従来の鍵を使う。専用鍵を発行しない旧決定を任意設定へ変更する。
+- HubSpot の認証 (2026-10-12 改訂、ADR-025。Claude の判断を同日ユーザーが承認): `HUBSPOT_CRM_ACCESS_TOKEN` があれば CRM は専用 private app の鍵を使い、未設定なら既存の `HUBSPOT_ACCESS_TOKEN` を共有する。CRM 以外は従来の鍵を使う。専用鍵を発行しない旧決定を任意設定へ変更する。
 - 読み取りの retry/backoff: 既存バッチとレート上限を共有するため、Search は HR_HR から 1 req/秒まで。429 は max(Retry-After, 最低 1 秒) を待って最大 2 回、401/403 は retry しない
 - 純正ログの再現: しない。純正連携が作った Call に紐づける (ADR-007 改訂、§7)
 - BPO も会社の Google Workspace アカウントを持つ。CRM の認可は Google ログインを前提にする
