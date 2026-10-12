@@ -75,12 +75,19 @@ pub(super) fn summary(record: &Record, media: &str) -> Summary {
         body_changed_at: None,
     }
 }
-pub(super) fn publication(raw: Option<&str>) -> Option<String> {
-    raw.map(|v| match v.trim() {
-        "公開" | "公開中" | "掲載中" | "非公開" | "公開終了" | "公開開始前" | "掲載終了"
-        | "募集中" | "募集終了" => v.trim().to_owned(),
-        _ => "不明".to_owned(),
-    })
+pub(super) fn publication(record: &Record, media: &str) -> Option<String> {
+    Some(
+        crate::job_gen::publication::label(
+            record.value("kyuujin_status"),
+            record.value(if media == "hrh" {
+                "baitai_genjoukyou_hrhakkaa"
+            } else {
+                "baitai_genjoukyou_airwork"
+            }),
+            media,
+        )
+        .to_owned(),
+    )
 }
 pub(super) fn body_changed_at(data: &Value, media: &str) -> Option<String> {
     let key = if media == "hrh" {

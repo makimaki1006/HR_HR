@@ -182,9 +182,11 @@ def publication(raw, normalized):
         return "掲載中"
     if normalized in {"公開前", "公開終了"}:
         return None
-    if raw in {"公開", "掲載中", "公開中"}:
+    if normalized:
+        return "掲載中か不明"
+    if raw in {"02", "公開", "掲載中", "公開中"}:
         return "掲載中"
-    if raw in {"非公開", "公開終了", "掲載終了", "公開開始前", "未掲載", "掲載停止", "停止中"}:
+    if raw in {"01", "非公開", "公開終了", "掲載終了", "公開開始前", "未掲載", "掲載停止", "停止中"}:
         return None
     return "掲載中か不明"
 

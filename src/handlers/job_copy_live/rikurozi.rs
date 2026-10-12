@@ -16,16 +16,9 @@ const PROPERTIES: &[&str] = &[
     "shikuchouson",
 ];
 fn publication(value: Option<&str>, normalized: Option<&str>) -> Option<&'static str> {
-    match normalized.map(str::trim) {
-        Some("公開中") => return Some("掲載中"),
-        Some("公開前" | "公開終了") => return None,
-        _ => {}
-    }
-    match value.map(str::trim) {
-        Some("公開" | "掲載中" | "公開中") => Some("掲載中"),
-        Some(
-            "非公開" | "公開終了" | "掲載終了" | "公開開始前" | "未掲載" | "掲載停止" | "停止中",
-        ) => None,
+    match crate::job_gen::publication::label(normalized, value, "airwork") {
+        "掲載中" => Some("掲載中"),
+        "掲載前" | "掲載終了" => None,
         _ => Some("掲載中か不明"),
     }
 }

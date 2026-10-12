@@ -70,15 +70,6 @@ fn day(raw: Option<&str>) -> Option<String> {
     Some(date.to_string())
 }
 
-fn status(raw: Option<&str>) -> Option<&'static str> {
-    match raw?.trim() {
-        "" => None,
-        "公開" => Some("public"),
-        "非公開" => Some("private"),
-        _ => Some("unknown"),
-    }
-}
-
 /// The day (JST) the change from 公開 to 非公開 was recorded, when the latest status is 非公開 and
 /// the history shows that change. The listing stopped on that day or before it.
 fn private_recorded_on(history: &Value) -> Option<String> {
@@ -112,7 +103,14 @@ pub fn summarize(record: &Value) -> Value {
     if !hrhacker {
         return json!({"hrhacker": false});
     }
-    let status = status(value(STATUS));
+    let status = Some(
+        match crate::job_gen::publication::label(value("kyuujin_status"), value(STATUS), "hrh") {
+            "掲載中" => "public",
+            "掲載終了" => "private",
+            "掲載前" => "scheduled",
+            _ => "unknown",
+        },
+    );
     json!({
         "hrhacker": true,
         "start": day(value(START)),
@@ -152,7 +150,7 @@ impl JobReadService {
                     "/crm/v3/objects/0-420/batch/read",
                     &[],
                     Some(json!({
-                        "properties": [START, PLANNED_END, STATUS, LAST_IN_CSV, HRH_ID],
+                        "properties": [START, PLANNED_END, STATUS, "kyuujin_status", LAST_IN_CSV, HRH_ID],
                         "propertiesWithHistory": [STATUS],
                         "inputs": chunk.iter().map(|id| json!({"id": id})).collect::<Vec<_>>(),
                     })),
@@ -235,6 +233,23 @@ mod tests {
         json!({"id": "1", "properties": properties, "propertiesWithHistory": {STATUS: history}})
     }
 
+    #[test]
+    fn normalized_status_takes_priority_and_preserves_before_publication() {
+        for (normalized, raw, expected) in [
+            ("公開前", "公開", "scheduled"),
+            ("公開中", "非公開", "public"),
+            ("公開終了", "公開", "private"),
+            ("", "公開開始前", "scheduled"),
+            ("", "公開終了", "private"),
+            ("", "", "unknown"),
+        ] {
+            let row = listing(
+                json!({HRH_ID:"H1", STATUS:raw, "kyuujin_status":normalized}),
+                json!([]),
+            );
+            assert_eq!(summarize(&row)["status"], expected);
+        }
+    }
     #[test]
     fn public_listing_keeps_the_dates_as_days_and_the_planned_end_apart() {
         let row = listing(

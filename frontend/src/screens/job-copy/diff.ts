@@ -1,4 +1,4 @@
-export type CopyComparisonStatus = 'initial' | 'unchanged' | 'format_only' | 'changed' | 'unavailable';
+export type CopyComparisonStatus = 'initial' | 'unchanged' | 'changed' | 'unavailable';
 export interface CopyDiffLine { kind: 'same' | 'added' | 'removed'; text: string }
 export interface CopyComparison { status: CopyComparisonStatus; lines: CopyDiffLine[] }
 
@@ -11,7 +11,7 @@ function at<T>(values: ArrayLike<T>, index: number): T {
 }
 
 // Splitting only on LF keeps the original CR and trailing empty line visible in
-// the raw comparison. Only the status calculation normalizes CRLF.
+// the raw comparison. Status calculation ignores whitespace-only differences.
 function rawLines(text: string): string[] {
   return text.split('\n');
 }
@@ -67,6 +67,9 @@ function compareLines(before: string[], after: string[]): CopyDiffLine[] {
   return lines;
 }
 
+/** Comparison only: preserve the stored and displayed original text. */
+export const comparisonWhitespace = (value: string) => value.replace(/\s/gu, '');
+
 /** Compare received text without claiming that the publisher updated a listing. */
 export function compareCopy(before: string | null, after: string | null): CopyComparison {
   if (after === null || after.trim() === '') return { status: 'unavailable', lines: [] };
@@ -76,8 +79,10 @@ export function compareCopy(before: string | null, after: string | null): CopyCo
   if (before === after) {
     return { status: 'unchanged', lines: rawLines(after).map((text) => ({ kind: 'same', text })) };
   }
-  const status = before.replace(/\r\n/g, '\n') === after.replace(/\r\n/g, '\n') ? 'format_only' : 'changed';
-  return { status, lines: compareLines(rawLines(before), rawLines(after)) };
+  if (comparisonWhitespace(before) === comparisonWhitespace(after)) {
+    return { status: 'unchanged', lines: compareLines(rawLines(before), rawLines(after)) };
+  }
+  return { status: 'changed', lines: compareLines(rawLines(before), rawLines(after)) };
 }
 
 /** A piece of a changed line: changed pieces are the words or characters that differ from the paired line. */

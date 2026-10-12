@@ -14,7 +14,14 @@ export interface HubSpotListing {
 export interface ListingSummary { occupation: string | null; location: string | null; salary_kind: string | null; salary_min: string | null; salary_max: string | null; hours: string | null; holidays: string | null; body_changed_at: string | null }
 export interface DealCandidate { id: string; name: string | null; count: number }
 export interface DealSelection { id: string; name: string; prefecture: string; title: string; media: string; publication?: string; draftStatus?: string }
-export const publicationLabel = (value: string | null) => value == null ? '未取得' : ['公開', '公開中', '掲載中', '非公開', '公開終了', '公開開始前', '掲載終了', '募集中', '募集終了'].includes(value) ? value : '不明';
+export const publicationLabel = (value: string | null) => {
+  switch (value?.trim()) {
+    case '公開': case '公開中': case '掲載中': return '掲載中';
+    case '非公開': case '公開終了': case '掲載終了': return '掲載終了';
+    case '公開開始前': case '公開前': case '掲載前': return '掲載前';
+    default: return '不明';
+  }
+};
 interface ListingPageBase { publication_statuses?: string[]; deals?: DealCandidate[]; no_deal_count?: number; listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
 export type HubSpotListingPage = ListingPageBase & (
   { status: 'ready'; total: number; index_built_at: string } |

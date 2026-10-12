@@ -104,8 +104,7 @@ fn job_copy_deal_summary_sort_and_body_date_are_explicit_columns() {
     assert!(summary.salary_min.is_none());
     assert!(summary.holidays.is_none());
     assert!(summary.hours.is_none());
-    assert_eq!(publication(Some("01")).as_deref(), Some("不明"));
-    assert_eq!(publication(None), None);
+    assert_eq!(publication(&plain, "airwork").as_deref(), Some("不明"));
     let data = json!({"properties":{"hrh_kyuujinhyou_honbun":"現在"},"propertiesWithHistory":{"hrh_kyuujinhyou_honbun":[{"timestamp":"2026-10-11T00:00:00Z","value":"現在"},{"timestamp":"2026-10-10T00:00:00Z","value":"現在"},{"timestamp":"2026-10-09T00:00:00Z","value":"以前"}]}});
     assert_eq!(
         body_changed_at(&data, "hrh").as_deref(),

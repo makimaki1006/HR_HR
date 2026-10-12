@@ -32,6 +32,7 @@ const PROPERTIES: &[&str] = &[
     "kyuujitsu",
     "guyongxingtai",
     "fukurikousei",
+    "kyuujin_status",
     "baitai_genjoukyou_hrhakkaa",
     "baitai_genjoukyou_airwork",
     "saishuu_csv_kenshutsu_bi",
@@ -154,11 +155,7 @@ fn listing(record: &Record, titles: &[String]) -> Option<Listing> {
         prefecture,
         municipality,
         category: match_title(&occupation, titles),
-        publication_status: publication(record.value(if media == "hrh" {
-            "baitai_genjoukyou_hrhakkaa"
-        } else {
-            "baitai_genjoukyou_airwork"
-        })),
+        publication_status: publication(record, media),
         deal_ids: vec![],
         summary: summary(record, media),
         indexed_application_count: None,
@@ -447,7 +444,9 @@ fn matches(row: &Listing, query: &ListingsQuery) -> bool {
         }
     }) && query.publication.as_ref().is_none_or(|v| {
         if v == "unknown" {
-            row.publication_status.is_none()
+            row.publication_status
+                .as_deref()
+                .is_none_or(|status| status == "不明")
         } else {
             Some(v) == row.publication_status.as_ref()
         }
@@ -1322,6 +1321,44 @@ mod tests {
         assert_eq!(rows[1].images_registered, Some(false));
     }
     #[test]
+    fn job_copy_listing_publication_rebuild_and_filter() {
+        assert!(PROPERTIES.contains(&"kyuujin_status"));
+        for (media, normalized, raw, expected) in [
+            ("airwork", "", "02", "掲載中"),
+            ("airwork", "", "01", "掲載終了"),
+            ("airwork", "公開前", "02", "掲載前"),
+            ("airwork", "公開中", "01", "掲載中"),
+            ("hrh", "公開終了", "公開", "掲載終了"),
+            ("hrh", "", "公開", "掲載中"),
+            ("hrh", "", "", "不明"),
+        ] {
+            let record: Record = serde_json::from_value(json!({"id":"42","properties":{
+                if media == "hrh" { "id_hrhakkaa" } else { "id_airwork" }: "42",
+                "kyuujin_status": normalized,
+                if media == "hrh" { "baitai_genjoukyou_hrhakkaa" } else { "baitai_genjoukyou_airwork" }: raw
+            }})).unwrap();
+            let row = listing(&record, &[]).unwrap();
+            assert_eq!(row.publication_status.as_deref(), Some(expected));
+            assert!(matches(
+                &row,
+                &ListingsQuery {
+                    publication: Some(expected.into()),
+                    ..Default::default()
+                }
+            ));
+            assert_eq!(
+                matches(
+                    &row,
+                    &ListingsQuery {
+                        publication: Some("unknown".into()),
+                        ..Default::default()
+                    }
+                ),
+                expected == "不明"
+            );
+        }
+    }
+    #[test]
     fn job_copy_media_keys_and_unknown_values() {
         let titles = vec!["ドライバー".into()];
         let make = |id: &str, account: &str| {
@@ -1334,7 +1371,7 @@ mod tests {
         assert_eq!(first.prefecture, Some("千葉県".into()));
         assert_eq!(first.municipality, Some("市川市".into()));
         assert_eq!(first.category, None);
-        assert_eq!(first.publication_status, None);
+        assert_eq!(first.publication_status.as_deref(), Some("不明"));
         let mut published = make("12", "synthetic-c");
         published
             .properties
@@ -1406,6 +1443,7 @@ mod tests {
                 assert!(query.contains("limit=100"));
                 assert!(!query.contains("hrh_kyuujinhyou_gazou"));
                 assert!(query.contains("shigotonaiyou"));
+                assert!(query.contains("kyuujin_status"));
                 // Like HubSpot: history reads above 50 objects are rejected with 400.
                 if query.contains("propertiesWithHistory") && query.contains("limit=100") { return (StatusCode::BAD_REQUEST, Json(json!({"message":"You can only request at most 50 objects in one request for properties with history."}))).into_response(); }
                 calls.lock().unwrap().push(query.into());
@@ -1414,7 +1452,7 @@ mod tests {
                 let end = (start + 99).min(203);
                 let results: Vec<Value> = (start..=end).map(|id| {
                     let (pref, title, airwork) = if id <= 150 {("沖縄県", "看護師", false)} else if id <= 180 {("沖縄県", "看護師", true)} else if id <= 200 {("大分県", "ドライバー", false)} else {("沖縄県", "清掃スタッフ", false)};
-                    let mut properties = json!({"hs_name":format!("合成求人{id:03}"),"todoufuken":pref,"shikuchouson":"合成市","hrh_kyuujinhyou_honbun":format!("仕事内容：索引に残さない合成の長い本文\nIndeed表示職種名：{title}"),"zhizhong":title,"qinwude":format!("{pref}合成市")});
+                    let mut properties = json!({"hs_name":format!("合成求人{id:03}"),"todoufuken":pref,"shikuchouson":"合成市","hrh_kyuujinhyou_honbun":format!("仕事内容：索引に残さない合成の長い本文\nIndeed表示職種名：{title}"),"zhizhong":title,"qinwude":format!("{pref}合成市"),"kyuujin_status":"公開中"});
                     if airwork { properties["id_airwork"] = json!(format!("AW-{id}")); properties["airwork_account_login_id"] = json!("synthetic-account"); }
                     else { properties["id_hrhakkaa"] = json!(format!("HR-{id}")); }
                     json!({"id":id.to_string(),"properties":properties})
@@ -1448,6 +1486,10 @@ mod tests {
         .await;
         let old = cache.state.read().await.snapshot.clone().unwrap();
         assert_eq!(old.records.len(), 203);
+        assert!(old
+            .records
+            .iter()
+            .all(|row| row.publication_status.as_deref() == Some("掲載中")));
         assert_eq!(seen.lock().unwrap().len(), 6);
         assert_eq!(old.records[0].deal_ids, vec!["901", "902"]);
         assert_eq!(old.records[0].indexed_application_count, Some(2));

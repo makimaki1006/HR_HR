@@ -14,7 +14,7 @@ class MeasurementTests(unittest.TestCase):
                 self.assertEqual(overlap(case["generated"], case["original"], case["minimum"]),
                                  (case["ratio"], case["whole"]))
 
-    def test_publication_uses_verified_normalized_field_without_guessing_raw_codes(self):
+    def test_publication_matches_verified_normalized_and_media_values(self):
         fixture = Path(__file__).resolve().parents[1] / "tests/fixtures/rikurozi_publication.json"
         for case in json.loads(fixture.read_text()):
             normalized = case["normalized"] if case["air_only"] else None

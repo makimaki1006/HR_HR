@@ -35,6 +35,7 @@ pub mod inputs;
 pub mod journey;
 pub mod knowledge;
 pub mod ng_words;
+pub mod publication;
 pub mod review_roles;
 pub mod rikurozi;
 pub mod salary_breakdown;

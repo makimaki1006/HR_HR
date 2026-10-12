@@ -42,13 +42,13 @@ describe('本文 lane mark', () => {
   ] };
 
   it('shows 比べられない (not 追加0・削除0) for an empty body and speaks what is shown', () => {
-    expect(versionChanges(job).map(change => change.bodyStatus)).toEqual(['initial', 'format_only', 'unavailable', 'unavailable']);
+    expect(versionChanges(job).map(change => change.bodyStatus)).toEqual(['initial', 'unchanged', 'unavailable', 'unavailable']);
     render(<JobTimeline job={job} marketMode="demo" now={new Date('2026-10-05T03:00:00Z')} />);
     const marks = [...screen.getByRole('group', { name: '本文' }).querySelectorAll('button')];
-    expect(marks.map(mark => mark.textContent)).toEqual(['最初', '改行のみ', '比べられない', '比べられない']);
+    expect(marks.map(mark => mark.textContent)).toEqual(['最初', '同じ', '比べられない', '比べられない']);
     expect(marks.map(mark => mark.getAttribute('aria-label'))).toEqual([
       '初回の本文：最初の本文',
-      '改行違いの本文：改行だけが違います',
+      '改行違いの本文：前回の本文と同じ',
       '空本文の本文：本文が無いため、前回の本文と比べられません',
       '同じ本文の本文：本文が無いため、前回の本文と比べられません',
     ]);

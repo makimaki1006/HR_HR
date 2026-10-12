@@ -5,7 +5,7 @@ import { useState } from 'react';
 import columns from '../../generated/jobgen/columns.json';
 import { ListingPopup } from './ListingPopup';
 import { listingPopupModel } from './listingPopupModel';
-import { listingRecord } from './hubspotListings';
+import { listingRecord, publicationLabel } from './hubspotListings';
 import { rowBody } from './manualEditModel';
 import { JobCopyScreen } from './JobCopyScreen';
 import { jobs } from './data';
@@ -57,7 +57,7 @@ it('keeps numeric codes as review-needed, and never turns missing salaries or co
   const model = listingPopupModel(job, job.versions[0]);
   expect(model.salary).toBe('確認が必要 213,000円〜249,000円');
   expect(model.sections.find(section => section.heading === 'その他')?.entries.find(item => item.key === '雇用形態')?.value).toBe('確認が必要');
-  expect(model.publication).toBe('確認が必要');
+  expect(model.publication).toBe('掲載中');
   const missing = record({ 給与形態: '', '基本給与 最小': '', '基本給与 最大': '' }); missing.listingApplicationCount = null;
   expect(listingPopupModel(missing, missing.versions[0])).toMatchObject({ salary: '記載なし', applications: '未取得' });
   missing.listingApplicationCount = 0;
@@ -130,7 +130,7 @@ it('retains acquired conditions and separately observed images when no body has 
   expect(model.missing).toEqual([]);
   expect(model.missing).not.toContain('画像');
   expect(model.observedImages?.observedAt).toBe('2026-10-11T01:00:00Z');
-  expect(model).toMatchObject({ publication: '公開', applications: '12件', salary: '取得できていません' });
+  expect(model).toMatchObject({ publication: '掲載中', applications: '12件', salary: '取得できていません' });
 });
 
 it('excludes acquired summary values from the exact missing names and count', () => {
@@ -139,7 +139,7 @@ it('excludes acquired summary values from the exact missing names and count', ()
   job.listingPublicationStatus = '非公開';
   job.currentListingFields = { '休日・休暇': '土日休み', 福利厚生: '交通費支給' };
   const model = listingPopupModel(job, job.versions[0]);
-  expect(model).toMatchObject({ title: listing.title, location: '東京都江東区', publication: '非公開' });
+  expect(model).toMatchObject({ title: listing.title, location: '東京都江東区', publication: '掲載終了' });
   expect(model.missing).toEqual(['仕事の案内4の本文']);
   render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
   const dialog = screen.getByRole('dialog');
@@ -353,4 +353,49 @@ it.each([
   expect(paragraphs?.[1]?.textContent).toBe(before);
   expect([...paragraphs?.[0]?.querySelectorAll('mark') ?? []].map(mark => mark.textContent).join('')).toBe(added);
   expect([...paragraphs?.[1]?.querySelectorAll('mark') ?? []].map(mark => mark.textContent).join('')).toBe(removed);
+});
+
+it('ignores whitespace-only changes without altering original values and matches the body status', async () => {
+  const before = '土日休み。\n夏季休暇あり。';
+  const after = '\n  土日休み。　\r\n夏季休暇あり。\n';
+  const job = record({ 自由項目1のタイトル: '休日・休暇', 自由項目1の内容: after });
+  const current = job.versions[0];
+  if (!current) throw new Error('比較する本文が必要です');
+  job.versions.unshift({ ...current, id: 'previous', comparisonBody: rowBody({ 自由項目1のタイトル: '休日・休暇', 自由項目1の内容: before }) });
+  render(<ListingPopup job={job} version={current} onClose={vi.fn()} />);
+  const row = screen.getByRole('dialog').querySelectorAll('.jc-listing-comparison-row');
+  const holiday = [...row].find(element => element.textContent.includes('休日・休暇'));
+  expect(holiday?.getAttribute('data-changed')).toBe('false');
+  expect(holiday?.querySelectorAll('mark, .jc-listing-change-dot')).toHaveLength(0);
+  expect(holiday?.querySelector('p')?.textContent).toBe(after);
+  const { compareCopy } = await import('./diff');
+  expect(compareCopy(before, after).status).toBe('unchanged');
+});
+it('counts omitted optional HRH fields from a sparse body and retains unknown for unstructured text', () => {
+  const body = '案件名：架空のピッキング作業スタッフ\n仕事内容：注文の商品を棚から集めます。\n勤務時間：9:00〜18:00';
+  const job = listingRecord({ listing, versions: [{ written_at: '2026-10-11T00:00:00Z', body, image_urls: null }], history_counts: {}, history_may_be_incomplete: false });
+  const model = listingPopupModel(job, job.versions[0]);
+  expect(model.optionalFieldsKnown).toBe(true);
+  expect(model.missing.length).toBe(70);
+  expect(model.missing).toContain('仕事の案内4の本文');
+  render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
+  expect(screen.getByText('記載のない任意項目（70件）')).toBeTruthy();
+  expect(screen.getByRole('dialog').textContent).not.toContain('左の本文');
+  expect(screen.getByRole('dialog').textContent).not.toContain('任意項目の記載状況を取得できていません');
+  const current = job.versions[0];
+  if (!current) throw new Error('比較する本文が必要です');
+  current.comparisonBody = '見出しを含まない過去の本文';
+  expect(listingPopupModel(job, job.versions[0]).optionalFieldsKnown).toBe(false);
+});
+
+it.each([['公開', '掲載中'], ['非公開', '掲載終了'], ['公開終了', '掲載終了'], ['公開開始前', '掲載前'], ['掲載前', '掲載前'], [null, '不明']])('uses the same display label for %s', (raw, expected) => {
+  expect(publicationLabel(raw)).toBe(expected);
+});
+it('prioritizes current normalized publication over the body status while preserving historical labels', () => {
+  const job = record({ 公開: '公開開始前' });
+  const current = job.versions[0];
+  if (!current) throw new Error('比較する本文が必要です');
+  job.listingPublicationStatus = '掲載終了';
+  expect(listingPopupModel(job, current).publication).toBe('掲載終了');
+  expect(listingPopupModel(job, { ...current, id: 'past' }).publication).toBe('掲載前');
 });

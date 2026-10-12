@@ -2,7 +2,8 @@ import columns from '../../generated/jobgen/columns.json';
 import type { CopyVersion, JobCopyRecord } from './data';
 import { parseHrhFields, composeSalary } from './hrhCopy';
 import { comparisonLabel, comparisonValue } from './dealComparisonModel';
-import { displayCode, holidayValue, welfareValue } from './copyDisplay';
+import { holidayValue, welfareValue } from './copyDisplay';
+import { comparisonWhitespace } from './diff';
 import { imagesByVersion } from './images';
 import { publicationLabel } from './hubspotListings';
 
@@ -26,6 +27,7 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const current = version !== undefined && version.id === latest?.id;
   const raw = version?.comparisonBody ?? version?.body ?? '';
   const fields = version?.draft ? new Map(Object.entries(version.draft.row)) : version?.comparisonBody !== undefined ? parseHrhFields(raw) : new Map<string, string>();
+  const hrhBodyKnown = job.media === 'HRハッカー' && version?.comparisonBody !== undefined && fields.size > 0;
   if (!fields.size && raw.trim()) fields.set('仕事内容', raw);
   const hasCurrentConditions = (current || !version) && job.currentListingFields !== undefined;
   if (hasCurrentConditions) for (const [key, value] of Object.entries(job.currentListingFields ?? {})) {
@@ -38,12 +40,12 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   if (welfare && !fields.get('福利厚生')?.trim()) fields.set('福利厚生', welfare);
   if ((current || !version) && !fields.has('勤務地') && job.location) fields.set('勤務地', job.location);
   const bodyAvailable = Boolean(raw.trim());
-  const structured = version?.draft !== undefined || columns.every(key => fields.has(key));
+  const structured = hrhBodyKnown || version?.draft !== undefined || columns.every(key => fields.has(key));
   const row = Object.fromEntries(fields);
   const get = (key: string) => fields.get(key) ?? '';
   const entry = (key: string): ListingEntry => ({ key, label: comparisonLabel(key), value: comparisonValue(key, get(key), raw, row) });
   const salaryFieldKeys = ['給与形態', '基本給与 最小', '基本給与 最大'];
-  const salaryKnown = bodyAvailable && salaryFieldKeys.every(key => fields.has(key));
+  const salaryKnown = bodyAvailable && (structured || salaryFieldKeys.every(key => fields.has(key)));
   const hasSalary = salaryFieldKeys.some(key => get(key).trim());
   const salary = hasSalary ? composeSalary(get('給与形態').trim(), get('基本給与 最小').trim(), get('基本給与 最大').trim())
     : salaryKnown ? '記載なし' : '取得できていません';
@@ -76,8 +78,9 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const hasImageReferences = imageKeys.some(key => !['', 'なし', '画像なし', '未登録'].includes(get(key).trim())) || registered === true;
   const imageSignature = imageValuesKnown ? JSON.stringify(imageKeys.map(key => get(key).trim()).filter(value => !['', 'なし', '画像なし', '未登録'].includes(value))) : recordedImages?.length ? JSON.stringify(recordedImages.map(image => image.sourceReferenceHash ?? image.url)) : registered === false ? '[]' : undefined;
   const imageReason = images?.length || observedImages ? undefined : hasImageReferences ? '画像はありますが、取得できていません' : imageValuesKnown || registered === false ? 'この求人には画像が登録されていません' : '画像の登録状況を取得できていません';
-  const publication = get('公開').trim() ? displayCode('公開', get('公開')) === '確認が必要' ? '確認が必要' : publicationLabel(get('公開'))
-    : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : (current || !version) ? publicationLabel(job.listingPublicationStatus ?? null) : '未取得';
+  const publication = current && !version.draft ? publicationLabel(job.listingPublicationStatus ?? null)
+    : get('公開').trim() ? publicationLabel(get('公開'))
+    : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : !version ? publicationLabel(job.listingPublicationStatus ?? null) : '未取得';
   const title = get('案件名').trim() || job.title;
   const location = get('勤務地').trim() || (bodyAvailable && fields.has('勤務地') ? '記載なし' : '取得できていません');
   const mainKeys = new Set(['案件名', '公開', '仕事内容', '勤務地', '勤務時間', '応募資格', '休日・休暇', '福利厚生', '給与形態', '基本給与 最小', '基本給与 最大', ...imageKeys]);
@@ -99,7 +102,7 @@ export function listingComparisonRows(current: ReturnType<typeof listingPopupMod
     const label = a?.label ?? b?.label ?? 'その他の案内';
     const value = a?.value ?? (current.bodyAvailable && current.structured ? '記載なし' : '取得できていません');
     const before = b?.value ?? (previous?.bodyAvailable && previous.structured ? '記載なし' : '取得できていません');
-    const different = Boolean(previous && current.bodyAvailable && previous.bodyAvailable && !a?.unavailable && !b?.unavailable && value !== '取得できていません' && before !== '取得できていません' && value !== before);
+    const different = Boolean(previous && current.bodyAvailable && previous.bodyAvailable && !a?.unavailable && !b?.unavailable && value !== '取得できていません' && before !== '取得できていません' && comparisonWhitespace(value) !== comparisonWhitespace(before));
     return { key, label, heading: a?.heading ?? b?.heading, value, before, different };
   });
 }

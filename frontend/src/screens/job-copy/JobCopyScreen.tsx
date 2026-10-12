@@ -1,5 +1,5 @@
 import type { ListingNavigation } from './ListingPopup';
-import { listingRecord } from './hubspotListings';
+import { listingRecord, publicationLabel } from './hubspotListings';
 import type { HubSpotListing, HubSpotVersions } from './hubspotListings';
 import { ListingPopup } from './ListingPopup';
 import { DealComparison } from './DealComparison';
@@ -60,7 +60,7 @@ import { AssumptionsNote } from './AssumptionsNote';
 import { DUMMY_BILLING_ENABLED } from './dummyBilling';
 import './job-copy.css';
 
-const statusLabels = { initial: '過去の本文がないため比較できません', unchanged: '前の本文と同じ', format_only: '前の本文と表記だけが異なります', changed: '前の本文から内容が変わっています', unavailable: '本文が未取得のため比較できません' };
+const statusLabels = { initial: '過去の本文がないため比較できません', unchanged: '前の本文と同じ', changed: '前の本文から内容が変わっています', unavailable: '本文が未取得のため比較できません' };
 const certaintyLabels = { confirmed: '確定', estimated: '推定', unknown: '不明' };
 const date = (value: string) => formatDateTimeJst(value, '日時不明');
 const published = (job: JobCopyRecord) => job.versions.filter(version => version.kind === 'published');
@@ -178,7 +178,7 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, review
   }
 
   return <article ref={detailElement} className="jc-detail" id="job-details" tabIndex={-1}>
-    <header className="jc-detail-heading"><div><div className="jc-detail-title-row"><h1>{job.title}</h1><button className="jc-button" onClick={() => { setListingPopupOpen(true); }}>求人の内容を確認する</button></div><p>{joinPresent([job.company, job.location, job.media])}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
+    <header className="jc-detail-heading"><div><div className="jc-detail-title-row"><h1>{job.title}</h1><button className="jc-button" onClick={() => { setListingPopupOpen(true); }}>求人の内容を確認する</button></div><p>{joinPresent([job.company, job.location, job.media])}{job.dataSource === 'hubspot' && <span className="jc-publication"> ／ 公開状況：{publicationLabel(job.listingPublicationStatus ?? null)}</span>}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
     {listingPopupOpen && <ListingPopup navigation={popupNavigation} job={job} version={version} onClose={() => { setListingPopupOpen(false); }} />}
     {job.id.startsWith('hubspot-history-') && job.media === 'HRハッカー' && job.hubspotId && <RikuroziDraftPanel listingId={job.hubspotId} />}
     {job.historyMayBeIncomplete && <p className="jc-notice" role="status">履歴は項目ごとに20件までの可能性があり、過去の文面がすべて含まれているとは限りません。</p>}
@@ -209,7 +209,7 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, review
       <section className="jc-reading">{version ? <><div className="jc-reading-title"><div><h2>{job.id.startsWith('hubspot-history-') ? version.label : `${version.label}の文面`}</h2><p className="jc-muted">{joinPresent([plainWording(version.source), date(version.observedAt)])}</p></div><button className="jc-button" onClick={() => { onReview(version.id); }}>{reviewed.includes(version.id) ? '未確認に戻す' : '確認済みにする'}</button></div>
         {version.draft && <div className="jc-flow-actions"><button className="jc-button" disabled={!job.canWriteDrafts || !current?.body || editing !== null} onClick={() => { setEditing(version); }}>この案を手直しする</button>{version.draft.review_status === 'adopted' ? <button className="jc-button jc-primary" onClick={() => { if (version.draft) downloadHrhackerCsv(version.draft.row); }}>採用した案をHRハッカーのCSVで保存</button> : <p>比較画面で案を採用すると、HRハッカーのCSVで保存できます。</p>}</div>}
         {version.note.trim() && (job.id.startsWith('hubspot-history-') ? <details className="jc-originals"><summary>本文と画像の日時について</summary><p className="jc-notice">{plainWording(version.note)}</p></details> : <p className="jc-notice">{plainWording(version.note)}</p>)}
-        {version.observedPublicationStatus !== undefined && <p>媒体の求人一覧の公開状況: {version.observedPublicationStatus || '未取得'}</p>}
+        {version.observedPublicationStatus !== undefined && <p>媒体の求人一覧の公開状況: {publicationLabel(version.observedPublicationStatus || null)}</p>}
         {job.id.startsWith('hubspot-history-') ? <div className="jc-copy-content"><JobCopyBody body={version.body} sections={version.bodySections} /><div>{versionImages(version) === undefined && job.currentImageObservation ? <><ImageGallery title="現在取得できる掲載画像" images={job.currentImageObservation.images} /><p className="jc-muted">画像を確認した日時：{date(job.currentImageObservation.observedAt)}。この本文が記録された時点の画像は不明です。</p></> : <ImageGallery title="この本文に対応する掲載画像" images={versionImages(version)} />}</div></div> : <><ImageGallery title="この本文に対応する掲載画像" images={versionImages(version)} /><div className="jc-full-copy-heading"><h3>{version.source === HUBSPOT_BODY_SOURCE ? '仕事内容（HubSpotの現在値）' : '求人票の本文（全文）'}</h3><span>読み取り専用 · 原文の段落・改行を保持</span></div><pre className="jc-body">{version.body}</pre></>}
         {job.hubspotUrl && <a href={job.hubspotUrl} target="_blank" rel="noreferrer">HubSpotで求人レコードを開く</a>}
         {version.kind === 'received' ? <p className="jc-notice">応募情報は未取得です。0件とは判定していません。</p> : <ApplicationSummary job={job} version={version} live={job.dataSource === 'hubspot'} />}

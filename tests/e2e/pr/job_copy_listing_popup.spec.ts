@@ -59,7 +59,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await expect(dialog).toContainText('2026/10/11 09:00 JST');
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('月給 213,000円〜249,000円');
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('0件');
-  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('非公開');
+  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('掲載終了');
   await expect(dialog.locator('.jc-listing-popup-missing').first()).not.toContainText(/公開状況|求人名|勤務地|給与形態/);
   expect(await dialog.locator('.jc-listing-popup-section').first().locator('p').textContent()).toBe(description);
   await expect(dialog).toContainText('確認が必要');
@@ -146,7 +146,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   const dialog = page.getByRole('dialog', { name: hrh.title });
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('0件');
   await expect(dialog.locator('.jc-listing-popup-summary')).not.toContainText('99件');
-  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('非公開');
+  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('掲載終了');
   await expect(dialog.locator('.jc-listing-popup-missing').first()).not.toContainText('公開状況');
   await expect(dialog).not.toContainText(/hidden-hrh-id|hidden-job-id|hidden-shop-id/);
   expect(await dialog.locator('.jc-listing-popup-scroll').evaluate(element => element.scrollWidth - element.clientWidth)).toBe(0);
