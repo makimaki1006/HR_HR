@@ -32,7 +32,7 @@ describe('private media capture import', () => {
     `https://example.test${snapshotRoute}`, `//example.test${snapshotRoute}`, `${snapshotRoute}#image`, `${snapshotRoute}&token=secret`, `${snapshotRoute}&slot=1`, `${snapshotRoute}\n`,
     snapshotRoute.replace('listing_id=30', 'listing_id='), snapshotRoute.replace('listing_id=30', 'listing_id=' + '9'.repeat(31)), snapshotRoute.replace('listing_id=30', 'listing_id=%33%30'),
     snapshotRoute.replace('version=10', 'version=11'), snapshotRoute.replace('version=10', 'version=01'), snapshotRoute.replace('version=10', 'version=-1'), snapshotRoute.replace('version=10', 'version=1.0'),
-    snapshotRoute.replace('slot=3', 'slot=0'), snapshotRoute.replace('slot=3', 'slot=4'), snapshotRoute.replace('slot=3', 'slot=03'), snapshotRoute.replace('listing_id=30&version=10', 'version=10&listing_id=30'),
+    snapshotRoute.replace('slot=3', 'slot=0'), snapshotRoute.replace('slot=3', 'slot=101'), snapshotRoute.replace('slot=3', 'slot=03'), snapshotRoute.replace('listing_id=30&version=10', 'version=10&listing_id=30'),
     snapshotRoute.replace('/snapshot-image', '/other'),
     snapshotRoute.replace('&image_hash=' + 'a'.repeat(64), ''), snapshotRoute.replace('a'.repeat(64), 'A'.repeat(64)), snapshotRoute.replace('a'.repeat(64), 'b'.repeat(64)), snapshotRoute.replace('a'.repeat(64), 'a'.repeat(63)),
   ])('rejects ambiguous or noncanonical delayed image URLs: %s', url => {
@@ -85,7 +85,7 @@ describe('private media capture import', () => {
     for (const imageReferences of [
       [{ referenceHash: 'invalid', slot: 1 }],
       [{ referenceHash: 'b'.repeat(64), slot: 0 }],
-      [{ referenceHash: 'b'.repeat(64), slot: 4 }],
+      [{ referenceHash: 'b'.repeat(64), slot: 101 }],
       [{ referenceHash: 'b'.repeat(64), slot: 1 }, { referenceHash: 'c'.repeat(64), slot: 1 }],
     ]) {
       expect(() => parseMediaCapture(JSON.stringify({ ...source, jobs: [{ ...source.jobs[0], imageReferences }] }))).toThrow();
@@ -228,7 +228,7 @@ describe('private media capture import', () => {
     if (!job) throw new Error('Missing test fixture.');
     expect(() => parseMediaCapture(JSON.stringify({ ...source, jobs: [{ ...job, title: 'x'.repeat(501) }] }))).toThrow();
     expect(() => parseMediaCapture(JSON.stringify({ ...source, jobs: [{ ...job, body: 'x'.repeat(100_001) }] }))).toThrow();
-    expect(() => parseMediaCapture(JSON.stringify({ ...source, jobs: [{ ...job, images: Array.from({ length: 4 }, (_, i) => ({ ...job.images[0], id: `image-${String(i)}` })) }] }))).toThrow();
+    expect(() => parseMediaCapture(JSON.stringify({ ...source, jobs: [{ ...job, images: Array.from({ length: 101 }, (_, i) => ({ ...job.images[0], id: `image-${String(i)}` })) }] }))).toThrow();
     expect(() => parseMediaCapture(JSON.stringify({ ...source, jobs: [{ ...job, images: [{ ...job.images[0], url: `data:image/jpeg;base64,${'A'.repeat(2 * 1024 * 1024)}` }] }] }))).toThrow();
   });
 
@@ -252,4 +252,16 @@ describe('private media capture import', () => {
     expect(html).toContain('サーバーには送らず');
     expect(html).not.toContain('保存データを表示');
   });
+});
+
+it('preserves five images, references and the authorized fifth delayed route', () => {
+  const source = sample();
+  const original = source.jobs[0]?.images[0];
+  if (!original) throw new Error('Missing synthetic image.');
+  const images = Array.from({ length: 5 }, (_, index) => ({ ...original, id: `photo-${String(index + 1)}`, sourceSlot: index + 1, url: `/api/job-copy/snapshot-image?listing_id=30&version=0&slot=${String(index + 1)}&image_hash=${'a'.repeat(64)}` }));
+  const jobs = [{ ...source.jobs[0], images, imageReferences: images.map(item => ({ referenceHash: 'b'.repeat(64), slot: item.sourceSlot })), imageAcquisition: { expected: 5, downloaded: 5, failed: 0 } }];
+  const version = parseMediaCapture(JSON.stringify({ ...source, jobs }))[0]?.versions[0];
+  expect(version?.images?.map(item => item.sourceSlot)).toEqual([1, 2, 3, 4, 5]);
+  expect(version?.images?.[4]?.url).toBe(images[4]?.url);
+  expect(version?.imageReferences?.map(item => item.slot)).toEqual([1, 2, 3, 4, 5]);
 });

@@ -52,6 +52,26 @@ pub struct ManifestImage {
     pub mime_type: String,
     pub size: usize,
 }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AirworkSource {
+    pub media_job_id: String,
+    pub account_key: String,
+}
+impl AirworkSource {
+    fn validate(&self) -> BridgeResult<()> {
+        if !record_id(&self.media_job_id)
+            || self.account_key.is_empty()
+            || self.account_key.len() > 200
+            || self.account_key.trim() != self.account_key
+            || self.account_key.chars().any(char::is_control)
+        {
+            return Err("invalid_airwork_source");
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Manifest {
@@ -61,6 +81,8 @@ pub struct Manifest {
     pub observed_at: String,
     pub images: Vec<ManifestImage>,
     pub operation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub airwork_source: Option<AirworkSource>,
     #[serde(default)]
     pub previous_manifest_file_id: Option<String>,
     #[serde(default)]
@@ -68,6 +90,9 @@ pub struct Manifest {
 }
 impl Manifest {
     pub fn validate(&self) -> BridgeResult<()> {
+        if let Some(source) = &self.airwork_source {
+            source.validate()?;
+        }
         let mut slots = BTreeSet::new();
         if self.schema_version != 1
             || !record_id(&self.listing_id)
@@ -302,6 +327,68 @@ impl ImageBridge {
         }
         Err("manifest_chain_limit")
     }
+    /// Recheck publication before an operator AirWork PATCH; stale exports must stop.
+    pub async fn require_public_airwork(
+        &self,
+        listing: &str,
+        source: &AirworkSource,
+    ) -> BridgeResult<()> {
+        source.validate()?;
+        if !record_id(listing) {
+            return Err("invalid_listing_id");
+        }
+        let (status, record) = self
+            .get(
+                &format!("/crm/v3/objects/0-420/{listing}"),
+                &[(
+                    "properties",
+                    "id_airwork,airwork_account_login_id,id_hrhakkaa,kyuujin_status".to_owned(),
+                )],
+            )
+            .await?;
+        if !status.is_success()
+            || record["properties"]["id_airwork"].as_str() != Some(source.media_job_id.as_str())
+            || record["properties"]["airwork_account_login_id"].as_str()
+                != Some(source.account_key.as_str())
+            || record["properties"]["id_hrhakkaa"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+            || record["properties"]["kyuujin_status"] != "公開中"
+        {
+            return Err("public_airwork_listing_required");
+        }
+        Ok(())
+    }
+    /// Unbound legacy manifests are accepted only for unambiguous HRH listings.
+    async fn require_legacy_hrh(&self, listing: &str) -> BridgeResult<()> {
+        let (status, record) = self
+            .get(
+                &format!("/crm/v3/objects/0-420/{listing}"),
+                &[("properties", "id_hrhakkaa,id_airwork".to_owned())],
+            )
+            .await?;
+        if !status.is_success()
+            || record["properties"]["id_hrhakkaa"]
+                .as_str()
+                .is_none_or(|value| value.is_empty())
+            || record["properties"]["id_airwork"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+        {
+            return Err("image_source_identity_required");
+        }
+        Ok(())
+    }
+    /// The AirWork operator never provisions properties. Missing schema stops before PATCH.
+    pub async fn require_property(&self) -> BridgeResult<()> {
+        let (status, value) = self
+            .get(&format!("/crm/v3/properties/0-420/{PROPERTY}"), &[])
+            .await?;
+        if !status.is_success() {
+            return Err("existing_image_property_required");
+        }
+        validate_property(&value)
+    }
     /// Explicit operator CLI only: provision one namespaced string property idempotently.
     pub async fn ensure_property(&self) -> BridgeResult<()> {
         let path = format!("/crm/v3/properties/0-420/{PROPERTY}");
@@ -332,10 +419,33 @@ impl ImageBridge {
         listing: &str,
         pointer: &Pointer,
     ) -> BridgeResult<&'static str> {
+        self.publish_checked(company, listing, pointer, false).await
+    }
+    /// AirWork source comes only from hash-verified immutable evidence, never CLI override values.
+    pub async fn publish_airwork(
+        &self,
+        company: &str,
+        listing: &str,
+        pointer: &Pointer,
+    ) -> BridgeResult<&'static str> {
+        self.publish_checked(company, listing, pointer, true).await
+    }
+    async fn publish_checked(
+        &self,
+        company: &str,
+        listing: &str,
+        pointer: &Pointer,
+        require_airwork: bool,
+    ) -> BridgeResult<&'static str> {
         self.authorize(company, listing).await?;
         let manifest = self.manifest(pointer).await?;
         if manifest.listing_id != listing || !manifest.company_ids.iter().any(|c| c == company) {
             return Err("manifest_customer_mismatch");
+        }
+        match &manifest.airwork_source {
+            Some(source) => self.require_public_airwork(listing, source).await?,
+            None if require_airwork => return Err("airwork_source_required"),
+            None => self.require_legacy_hrh(listing).await?,
         }
         let current = self.current(listing).await?;
         // A pointer alone does not prove the originals are still available on retries.
@@ -364,6 +474,12 @@ impl ImageBridge {
             }
         }
         validate_transition(current.as_ref(), &manifest)?;
+        // Original readback can take time. Recheck the source immediately before PATCH too.
+        if let Some(source) = &manifest.airwork_source {
+            self.require_public_airwork(listing, source).await?;
+        } else {
+            self.require_legacy_hrh(listing).await?;
+        }
         let payload = serde_json::to_string(pointer).map_err(|_| "pointer_serialization_failed")?;
         // No other properties or associations are mutated. Readback, not HTTP acknowledgement, completes the operation.
         self.write_slot(&format!("/crm/v3/objects/0-420/{listing}"))

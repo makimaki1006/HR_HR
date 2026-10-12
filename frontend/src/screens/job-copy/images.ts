@@ -115,3 +115,10 @@ export const IMAGE_CHANGE_MARK: Record<ImageChangeKind, { text: string; spoken: 
   same: { text: '同じ', spoken: '画像の参照先と並び順は前回と同じです' },
   unknown: { text: '不明', spoken: '前回の画像の情報が未取得のため比べられません' },
 };
+
+/** No claim about why a public page failed; ended status comes from the listing. */
+export function airworkImageReason(job: { media: string; listingPublicationStatus?: string | null }): string | undefined {
+  if (job.media !== 'AirWork') return undefined;
+  return ['公開終了', '掲載終了'].includes(job.listingPublicationStatus ?? '')
+    ? '掲載が終わっているため画像を取得できません' : '画像を取得できませんでした';
+}

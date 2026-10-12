@@ -399,3 +399,16 @@ it('prioritizes current normalized publication over the body status while preser
   expect(listingPopupModel(job, current).publication).toBe('掲載終了');
   expect(listingPopupModel(job, { ...current, id: 'past' }).publication).toBe('掲載前');
 });
+
+it('shows all five AirWork saved images in the popup and preserves their observation date', () => {
+  const job = listingRecord({ listing: { ...listing, media: 'airwork' }, versions: [{ written_at: '2026-10-11T00:00:00Z', body: '架空の検品業務です。', image_urls: null }], current_images: { observed_at: '2026-10-12T00:00:00Z', image_urls: Array.from({ length: 5 }, (_, i) => `/api/job-copy/image?synthetic=${String(i + 1)}`) }, history_counts: {}, history_may_be_incomplete: false });
+  render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
+  expect(screen.getAllByRole('img').map(image => image.getAttribute('src'))).toEqual(Array.from({ length: 5 }, (_, i) => `/api/job-copy/image?synthetic=${String(i + 1)}`));
+  expect(screen.getByText(/本文の記録時点の画像とは限りません/).textContent).toContain('2026/10/12 09:00 JST');
+});
+it.each([['公開終了', '掲載が終わっているため画像を取得できません'], ['公開中', '画像を取得できませんでした'], [null, '画像を取得できませんでした']])('explains unavailable AirWork images for %s without guessing zero', (status, reason) => {
+  const job = listingRecord({ listing: { ...listing, media: 'airwork', publication_status: status }, versions: [{ written_at: '2026-10-11T00:00:00Z', body: '架空の検品業務です。', image_urls: null }], history_counts: {}, history_may_be_incomplete: false });
+  render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
+  expect(screen.getByText(reason)).toBeTruthy();
+  expect(screen.queryByText('この求人には画像が登録されていません')).toBeNull();
+});

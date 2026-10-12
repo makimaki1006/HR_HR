@@ -12,10 +12,10 @@ function trustedImageRoute(url: string, contentHash: string): boolean {
   if (/[\r\n]/.test(url)) return false;
   // Literal canonical same-origin path only: no URL resolution, decoding or
   // permissive URLSearchParams parsing that could hide duplicate parameters.
-  const deferred = /^\/api\/job-copy\/snapshot-image\?listing_id=\d{1,30}&version=(?:[0-9]|10)&slot=[1-3]&image_hash=([a-f0-9]{64})$/.exec(url);
-  if (deferred) return deferred[1] === contentHash.toLowerCase();
+  const deferred = /^\/api\/job-copy\/snapshot-image\?listing_id=\d{1,30}&version=(?:[0-9]|10)&slot=([1-9]\d?|100)&image_hash=([a-f0-9]{64})$/.exec(url);
+  if (deferred) return deferred[2] === contentHash.toLowerCase();
   const match = /^\/api\/job-copy\/image\?company_id=\d{1,30}&listing_id=\d{1,30}&manifest_id=[A-Za-z0-9_-]{10,200}&slot=([1-9]\d*)$/.exec(url);
-  return match !== null && Number.isSafeInteger(Number(match[1]));
+  return match !== null && Number.isSafeInteger(Number(match[1])) && Number(match[1]) <= 100;
 }
 
 function invalid(): never {
@@ -54,7 +54,7 @@ function image(value: unknown): CopyImage {
   if (!trustedImageRoute(url, contentHash) && (!encoded || encoded.length % 4 !== 0)) return invalid();
   const reference = item.sourceReferenceHash === undefined ? undefined : text(item.sourceReferenceHash, 64);
   if (reference !== undefined && !/^[a-fA-F0-9]{64}$/.test(reference)) return invalid();
-  if (item.sourceSlot !== undefined && (typeof item.sourceSlot !== 'number' || !Number.isInteger(item.sourceSlot) || item.sourceSlot < 1 || item.sourceSlot > 3)) return invalid();
+  if (item.sourceSlot !== undefined && (typeof item.sourceSlot !== 'number' || !Number.isInteger(item.sourceSlot) || item.sourceSlot < 1 || item.sourceSlot > 100)) return invalid();
   return { id: text(item.id, 200), caption: text(item.caption, 500, true), url, contentHash: contentHash.toLowerCase(), ...(reference === undefined ? {} : { sourceReferenceHash: reference.toLowerCase() }), ...(typeof item.sourceSlot === 'number' ? { sourceSlot: item.sourceSlot } : {}) };
 }
 
@@ -74,7 +74,7 @@ function acquisition(value: unknown, downloaded: number): { note: string; unavai
 }
 
 function observedVersion(item: Record<string, unknown>, id: string, capturedAt: string, historical: boolean): CopyVersion {
-  if (!Array.isArray(item.images) || item.images.length > 3) return invalid();
+  if (!Array.isArray(item.images) || item.images.length > 100) return invalid();
   const images = item.images.map((value: unknown) => image(value));
   if (new Set(images.map(value => value.id)).size !== images.length) return invalid();
   const status = acquisition(item.imageAcquisition, images.length);
@@ -87,10 +87,10 @@ function observedVersion(item: Record<string, unknown>, id: string, capturedAt: 
   const historicBytes = item.historicalImageBytesAvailable ?? (historical ? false : undefined);
   let references: { referenceHash: string; slot: number }[] | undefined;
   if (item.imageReferences !== undefined) {
-    if (!Array.isArray(item.imageReferences) || item.imageReferences.length > 3) return invalid();
+    if (!Array.isArray(item.imageReferences) || item.imageReferences.length > 100) return invalid();
     references = item.imageReferences.map((value: unknown) => {
       const reference = record(value);
-      if (typeof reference.referenceHash !== 'string' || !/^[a-f0-9]{64}$/i.test(reference.referenceHash) || typeof reference.slot !== 'number' || !Number.isInteger(reference.slot) || reference.slot < 1 || reference.slot > 3) return invalid();
+      if (typeof reference.referenceHash !== 'string' || !/^[a-f0-9]{64}$/i.test(reference.referenceHash) || typeof reference.slot !== 'number' || !Number.isInteger(reference.slot) || reference.slot < 1 || reference.slot > 100) return invalid();
       return { referenceHash: reference.referenceHash.toLowerCase(), slot: reference.slot };
     });
     if (new Set(references.map(reference => reference.slot)).size !== references.length) return invalid();

@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import tempfile
 import time
+import unicodedata
 
 from job_copy_drive_pilot import DrivePilot, PilotError, CliError, GwsCli, evidence, identifier, FILE_FIELDS, MAX_BYTES
 from job_copy_snapshot_store import canonical
@@ -36,15 +37,28 @@ def observed(value):
     return value
 
 
+def validate_airwork_source(source):
+    if not isinstance(source, dict) or set(source) != {'mediaJobId', 'accountKey'}:
+        raise PilotError('invalid_airwork_source')
+    job, account = source['mediaJobId'], source['accountKey']
+    if (not isinstance(job, str) or not re.fullmatch(r'[0-9]{1,30}', job)
+            or not isinstance(account, str) or not 1 <= len(account.encode('utf-8')) <= 200
+            or account != account.strip() or any(unicodedata.category(c) == 'Cc' for c in account)):
+        raise PilotError('invalid_airwork_source')
+    return source
+
+
 def validate_manifest(manifest):
     required = {'schemaVersion', 'listingId', 'companyIds', 'observedAt', 'images', 'operationId'}
-    allowed = required | {'previousManifestFileId', 'previousManifestSha256'}
+    allowed = required | {'previousManifestFileId', 'previousManifestSha256', 'airworkSource'}
     if (not isinstance(manifest, dict) or set(manifest) - allowed
             or not required.issubset(manifest) or type(manifest.get('schemaVersion')) is not int
             or manifest.get('schemaVersion') != 1):
         raise PilotError('invalid_manifest_schema')
     if not isinstance(manifest.get('operationId'), str) or not re.fullmatch(r'[a-f0-9]{64}', manifest['operationId']):
         raise PilotError('manifest_operation_mismatch')
+    if 'airworkSource' in manifest:
+        validate_airwork_source(manifest['airworkSource'])
     decimal(manifest.get('listingId'))
     observed(manifest.get('observedAt'))
     companies = manifest.get('companyIds')
@@ -132,11 +146,13 @@ def build_manifests(samples, uploads, folder_id, *, identity_folder_id=None):
                 raise PilotError('invalid_previous_manifest_hash')
         base = {'schemaVersion': 1, 'listingId': listing, 'companyIds': companies,
                 'observedAt': timestamp, 'images': []}
+        if 'airwork_source' in sample:
+            base['airworkSource'] = validate_airwork_source(sample['airwork_source'])
         if previous is not None:
             base['previousManifestFileId'] = previous
             base['previousManifestSha256'] = previous_hash
         job = jobs.setdefault(listing, base)
-        if any(job.get(k) != base.get(k) for k in ['companyIds', 'observedAt', 'previousManifestFileId', 'previousManifestSha256']):
+        if any(job.get(k) != base.get(k) for k in ['companyIds', 'observedAt', 'previousManifestFileId', 'previousManifestSha256', 'airworkSource']):
             raise PilotError('listing_observation_conflict')
         if any(image['slot'] == slot for image in job['images']):
             raise PilotError('duplicate_image_slot')

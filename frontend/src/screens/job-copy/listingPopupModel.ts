@@ -4,7 +4,7 @@ import { parseHrhFields, composeSalary } from './hrhCopy';
 import { comparisonLabel, comparisonValue } from './dealComparisonModel';
 import { holidayValue, welfareValue } from './copyDisplay';
 import { comparisonWhitespace } from './diff';
-import { imagesByVersion } from './images';
+import { airworkImageReason, imagesByVersion } from './images';
 import { publicationLabel } from './hubspotListings';
 
 export interface ListingEntry { key: string; label: string; value: string; unavailable?: boolean }
@@ -77,7 +77,7 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const imageValuesKnown = bodyAvailable && structured && imageKeys.every(key => fields.has(key));
   const hasImageReferences = imageKeys.some(key => !['', 'なし', '画像なし', '未登録'].includes(get(key).trim())) || registered === true;
   const imageSignature = imageValuesKnown ? JSON.stringify(imageKeys.map(key => get(key).trim()).filter(value => !['', 'なし', '画像なし', '未登録'].includes(value))) : recordedImages?.length ? JSON.stringify(recordedImages.map(image => image.sourceReferenceHash ?? image.url)) : registered === false ? '[]' : undefined;
-  const imageReason = images?.length || observedImages ? undefined : hasImageReferences ? '画像はありますが、取得できていません' : imageValuesKnown || registered === false ? 'この求人には画像が登録されていません' : '画像の登録状況を取得できていません';
+  const imageReason = images?.length || observedImages ? undefined : airworkImageReason(job) ?? (hasImageReferences ? '画像はありますが、取得できていません' : imageValuesKnown || registered === false ? 'この求人には画像が登録されていません' : '画像の登録状況を取得できていません');
   const publication = current && !version.draft ? publicationLabel(job.listingPublicationStatus ?? null)
     : get('公開').trim() ? publicationLabel(get('公開'))
     : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : !version ? publicationLabel(job.listingPublicationStatus ?? null) : '未取得';
