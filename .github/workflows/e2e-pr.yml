@@ -72,6 +72,9 @@ jobs:
       - name: Saved queue views E2E (fictional data only)
         run: npx playwright test -c tests/e2e/crm-saved-views.config.ts
 
+      - name: Today's caller metrics E2E (fictional data only)
+        run: npx playwright test -c tests/e2e/crm-caller-metrics.config.ts
+
       - name: Upload traces and screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -13,7 +13,7 @@ import type { OwnersFetch } from './useOwners';
 beforeEach(() => { resetDockStorage(); });
 afterEach(() => { cleanup(); });
 
-const o = (id: string, name: string, email: string | null, archived = false): CrmOwner => ({ id, name, email, archived });
+const o = (id: string, name: string, email: string | null, archived = false): CrmOwner => ({ id, name, email, archived, teams: [] });
 const LIST = [
   o('101', '架空 一郎', 'ichiro@example.invalid'),
   o('102', '架空 一郎', 'ichiro2@example.invalid'),

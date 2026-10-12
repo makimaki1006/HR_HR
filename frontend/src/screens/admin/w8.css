@@ -304,3 +304,12 @@ dl.w8-dl dd {
 code.w8-code {
   font-size: 12px;
 }
+.w8-sort {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CrmOwner } from '../../generated/CrmOwner';
 import { FIXTURE_OWNERS, ownerLabel, ownerNameMap, visibleOwners } from './ownerModel';
 
-const o = (id: string, name: string, email: string | null, archived = false): CrmOwner => ({ id, name, email, archived });
+const o = (id: string, name: string, email: string | null, archived = false): CrmOwner => ({ id, name, email, archived, teams: [] });
 const LIST = [
   o('1', '架空 一郎', 'ichiro@example.invalid'),
   o('2', '架空 一郎', 'ichiro2@example.invalid'),

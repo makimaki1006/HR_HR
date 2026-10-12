@@ -202,6 +202,8 @@ pub(super) struct CrmCtx {
     pub(super) write: super::write::WriteConfig,
     /// 書き込みの受付の速さの制限 (操作者ごと)
     pub(super) write_rate: super::write::WriteRateLimiter,
+    /// 今日の架電成績 (プロセス内の今日の Call と集計。ADR-027)
+    pub(super) caller_metrics: super::caller_metrics::CallerMetricsState,
 }
 
 /// レコード読み取りの同時実行数。HubSpot への流量は関所 (`hubspot::gateway`) が絞るので、ここは
@@ -268,6 +270,7 @@ pub(super) fn router_with_write(
         assoc_labels: super::assoc_labels::AssocLabelCache::default(),
         write,
         write_rate,
+        caller_metrics: super::caller_metrics::CallerMetricsState::new(),
     });
     Router::new()
         .route(
@@ -320,6 +323,14 @@ pub(super) fn router_with_write(
             get(super::call_queue::get_call_queue_pipelines),
         )
         .route("/api/crm/owners", get(super::owners::get_owners))
+        .route(
+            "/api/crm/metrics/today",
+            get(super::caller_metrics::get_today),
+        )
+        .route(
+            "/api/crm/metrics/today/all",
+            get(super::caller_metrics::get_today_all),
+        )
         .route(
             "/api/crm/property-catalog",
             get(super::property_catalog::get_property_catalog),

@@ -45,6 +45,7 @@ import type { DetailFetch } from './useDealDetail';
 import { useZoomPhone } from './useZoomPhone';
 import type { ZoomOptions } from './useZoomPhone';
 import type { QueueFetch } from './useCallQueue';
+import { TodayMetrics } from './TodayMetrics';
 import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
 import { CallResultForm } from './CallResultForm';
@@ -890,6 +891,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         </div>
       </div>
     </form>
+    <TodayMetrics fixture={mode === 'fixture'} />
     <SavedViews query={currentQuery} search={search} fixture={mode === 'fixture'} onNavigate={navigateView} />
     {sortOpen && <QueueSortDialog onClose={() => { setSortOpen(false); }}><PropertySortPicker key={filters.sort} catalog={catalog.state} sort={filters.sort} onChange={sort => { update({ sort }); setSortOpen(false); }} /></QueueSortDialog>}
     {layoutNote && <p className="cq-layout-note" role="status" data-testid="layout-note">{LAYOUT_UPDATED_NOTE}

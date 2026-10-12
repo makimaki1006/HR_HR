@@ -34,8 +34,8 @@ export function ownerNameMap(owners: readonly CrmOwner[]): Map<string, string> {
 
 /** 画面に出す架空の担当者 (架空サンプルのモード用。実在の人は含まない) */
 export const FIXTURE_OWNERS: CrmOwner[] = [
-  { id: '9001', name: '架空 一郎', email: 'ichiro@example.invalid', archived: false },
-  { id: '9002', name: 'サンプル 二郎', email: 'jiro@example.invalid', archived: false },
-  { id: '9003', name: '架空 一郎', email: 'ichiro2@example.invalid', archived: false },
-  { id: '9004', name: 'ダミー 退職', email: null, archived: true },
+  { id: '9001', name: '架空 一郎', email: 'ichiro@example.invalid', archived: false, teams: [] },
+  { id: '9002', name: 'サンプル 二郎', email: 'jiro@example.invalid', archived: false, teams: [] },
+  { id: '9003', name: '架空 一郎', email: 'ichiro2@example.invalid', archived: false, teams: [] },
+  { id: '9004', name: 'ダミー 退職', email: null, archived: true, teams: [] },
 ];
