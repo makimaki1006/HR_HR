@@ -22,7 +22,8 @@ export const liveFetch: QueueFetch = (filters, cursor, signal, fresh = false) =>
 export const fixtureFetch: QueueFetch = async (filters, cursor, signal) => {
   await Promise.resolve();
   if (signal.aborted) return { ok: false, error: new ApiAbortedError('aborted') };
-  return { ok: true, data: fixtureQueuePage(filters, cursor) };
+  try { return { ok: true, data: fixtureQueuePage(filters, cursor) }; }
+  catch (error) { if (error instanceof ApiHttpError) return { ok: false, error }; throw error; }
 };
 
 export type QueuePhase = 'invalid' | 'loading' | 'ready' | 'error' | 'unauthorized';

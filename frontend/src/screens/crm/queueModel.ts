@@ -1,5 +1,5 @@
-import { parseConditions } from './queuePropertyFilter';
-import type { PropertyCondition } from './queuePropertyFilter';
+import { parseConditions, parseConditionGroups, parsePropertySort, LIMIT_MESSAGE } from './queuePropertyFilter';
+import type { PropertyCondition, PropertySort } from './queuePropertyFilter';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueScope } from '../../generated/CallQueueScope';
 import { ApiDataError, ApiHttpError, ApiInvalidResponseError, ApiTimeoutError } from '../../api/client';
@@ -15,7 +15,7 @@ export const QUEUE_SORTS = [
   { value: 'last_call_asc', label: '最終架電日が古い順(未架電が先頭)' },
   { value: 'last_call_desc', label: '最終架電日が新しい順' },
 ] as const;
-export type QueueSort = (typeof QUEUE_SORTS)[number]['value'];
+export type QueueSort = (typeof QUEUE_SORTS)[number]['value'] | PropertySort;
 const SORT_VALUES: readonly string[] = QUEUE_SORTS.map(s => s.value);
 
 export type QueueDue = 'all' | 'today';
@@ -36,12 +36,22 @@ export interface QueueFilters {
   lastFrom: string;
   lastTo: string;
   conditions: PropertyCondition[];
+  conditionGroups?: PropertyCondition[][] | undefined;
 }
 
 export const DEFAULT_FILTERS: QueueFilters = {
   pipeline: DEFAULT_PIPELINE_ID, q: '', stages: [], owner: '', due: 'all', sort: 'default',
   nextFrom: '', nextTo: '', lastFrom: '', lastTo: '', conditions: [],
 };
+
+/** 旧URLのconditionsは一つのまとまり。空のまとまりを保存しない。 */
+export function groupsOf(f: Pick<QueueFilters, 'conditions' | 'conditionGroups'>): PropertyCondition[][] {
+  return f.conditionGroups ?? (f.conditions.length ? [f.conditions] : []);
+}
+export function groupPatch(groups: PropertyCondition[][]): Pick<QueueFilters, 'conditions' | 'conditionGroups'> {
+  const nonempty = groups.filter(g => g.length > 0);
+  return { conditions: nonempty[0] ?? [], conditionGroups: nonempty.length > 1 ? nonempty : undefined };
+}
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** 実在する日付で、サーバ (2000〜2100 年) が受け付ける範囲か */
@@ -86,6 +96,7 @@ export function parseFilters(search: string): QueueFilters {
   const stageSet = new Set(p.getAll('stage').filter(s => eligible.includes(s)));
   const sort = p.get('sort') ?? '';
   const owner = p.get('owner') ?? '';
+  const gs = parseConditionGroups(p.get('condition_groups'));
   const date = (k: string) => {
     const v = p.get(k) ?? '';
     return isValidDate(v) ? v : '';
@@ -98,10 +109,11 @@ export function parseFilters(search: string): QueueFilters {
     stages,
     owner: isValidOwner(owner) ? owner : '',
     due: p.get('due') === 'today' ? 'today' : 'all',
-    sort: SORT_VALUES.includes(sort) ? (sort as QueueSort) : 'default',
+    sort: SORT_VALUES.includes(sort) || parsePropertySort(sort) !== null ? (sort as QueueSort) : 'default',
     nextFrom: date('next_from'), nextTo: date('next_to'),
     lastFrom: date('last_from'), lastTo: date('last_to'),
-    conditions: parseConditions(p.get('conditions')),
+    conditions: gs[0] ?? parseConditions(p.get('conditions')),
+    ...(gs.length > 1 ? { conditionGroups: gs } : {}),
   };
 }
 
@@ -122,7 +134,9 @@ export function filtersToParams(f: QueueFilters): URLSearchParams {
   if (f.nextTo) p.set('next_to', f.nextTo);
   if (f.lastFrom) p.set('last_from', f.lastFrom);
   if (f.lastTo) p.set('last_to', f.lastTo);
-  if (f.conditions.length) p.set('conditions', JSON.stringify(f.conditions));
+  const gs = groupsOf(f);
+  if (gs.length > 1) p.set('condition_groups', JSON.stringify(gs));
+  else if (f.conditions.length) p.set('conditions', JSON.stringify(f.conditions));
   return p;
 }
 
@@ -250,6 +264,7 @@ export function errorMessage(kind: string | null, status: number | null): string
     case 'hubspot_decode': return 'HubSpot の応答を読み取れませんでした。管理者に連絡してください。';
     case 'not_configured': return 'HubSpot への接続が設定されていません。管理者に連絡してください。';
     case 'cursor_mismatch': return '続きの読み込みに使う情報が古くなりました。最初から読み直してください。';
+    case 'condition_limit': return LIMIT_MESSAGE;
     case 'invalid_conditions': return '追加条件を使えません。項目・値を確認し、追加条件・担当者・日付の指定を減らして再試行してください。';
     case 'invalid_param': return '条件の指定が正しくないため取得できませんでした。条件を見直してください。';
     case CLIENT_TIMEOUT_KIND: return '応答が時間内に返りませんでした。少し待ってから再試行してください。';

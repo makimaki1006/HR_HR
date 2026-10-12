@@ -4,3 +4,42 @@
 .cq-property-filter small { width: 100%; color: #637086; }
 .cq-property-options { max-height: 160px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 8px; max-width: 500px; border: 1px solid #d8dde5; }
 .cq-property-options label { white-space: nowrap; }
+
+.cq-group-editor { width:100%; min-width:0; }
+.cq-group-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:8px 0; }
+.cq-group-toolbar small,.cq-sort-note { color:#53657a; font-size:12px; }
+.cq-condition-groups { display:flex; flex-wrap:wrap; align-items:stretch; gap:10px; margin:8px 0; }
+.cq-condition-group { padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#f5f8fc; }
+.cq-condition-group > strong { margin-right:10px; font-size:12px; }
+.cq-or-label { font-size:12px; font-weight:600; margin:0 0 4px; color:#53657a; }
+
+/* 編集欄は右に重ね、条件バーや一覧の開始位置は動かさない。 */
+.cq-app .cq-filter-drawer { position:fixed; z-index:60; top:130px; bottom:16px; right:16px; width:min(420px, calc(100vw - 500px)); display:block; overflow-y:auto; padding:16px; background:var(--cq-surface, white); border:1px solid var(--cq-line, #cbd5e1); border-radius:12px; box-shadow:0 8px 32px #172a4633; }
+.cq-app .cq-filter-drawer[hidden] { display:none; }
+.cq-drawer-heading, .cq-group-heading, .cq-group-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.cq-drawer-heading { margin-bottom:16px; }
+.cq-drawer-heading h2 { font-size:16px; margin:0; }
+.cq-filter-drawer .cq-group-editor > small { display:block; margin-bottom:12px; }
+.cq-filter-drawer .cq-condition-group { margin:0; padding:12px; }
+.cq-group-heading { margin-bottom:8px; }
+.cq-group-heading strong { font-size:13px; }
+.cq-group-actions { margin:10px 0; flex-wrap:wrap; }
+.cq-group-actions small { font-size:12px; }
+.cq-filter-drawer .cq-or-label { text-align:center; margin:12px 0; }
+.cq-add-or { margin:12px 0; width:100%; }
+.cq-app .cq-filter-drawer .cq-property-filter { display:flex; flex-direction:column; align-items:stretch; border:1px solid #d8dde5; padding:12px; margin-top:8px; }
+.cq-filter-drawer .cq-property-filter > label { width:100%; }
+.cq-property-picker { position:relative; width:100%; }
+.cq-property-picker label { display:flex; flex-direction:column; gap:4px; font-size:12px; }
+.cq-property-picker input { width:100%; box-sizing:border-box; max-width:none!important; }
+.cq-property-picker ul { list-style:none; margin:4px 0 0; padding:4px; max-height:180px; overflow-y:auto; border:1px solid #cbd5e1; border-radius:6px; background:white; }
+.cq-property-picker li button { width:100%; text-align:left; border:0; background:white; padding:8px; color:#26354a; cursor:pointer; }
+.cq-property-picker li button:hover, .cq-property-picker li button:focus { background:#eaf1fb; }
+.cq-sort-dialog { width:360px; max-width:calc(100vw - 48px); padding:20px; border:1px solid #cbd5e1; border-radius:12px; color:#26354a; overflow:visible; }
+.cq-sort-dialog::backdrop { background:#172a4644; }
+.cq-sort-picker { display:flex; flex-direction:column; gap:16px; }
+.cq-sort-picker > label { display:flex; flex-direction:column; gap:4px; }
+.cq-sort-picker :is(input,select) { padding:8px; border:1px solid #cbd5e1; border-radius:5px; }
+@media (max-width:900px) { .cq-app .cq-filter-drawer { width:min(380px, calc(100vw - 48px)); right:12px; } }
+
+.cq-chip-or { align-self:center; list-style:none; padding:0 4px; color:#53657a; font-size:12px; font-weight:600; }

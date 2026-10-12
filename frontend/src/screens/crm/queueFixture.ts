@@ -1,11 +1,16 @@
+import { conditionsFit } from './queueConditionBudget';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import { DEFAULT_PIPELINE_ID, FIXTURE_PIPELINE_ID, FIXTURE_PIPELINES, eligibleStageIds } from './queuePipelines';
 
 /** 架空サンプルのパイプライン (ステージ名は固定) */
 const fixturePipeline = (id: string) => FIXTURE_PIPELINES.find(p => p.id === id);
-import { matchesCondition } from './queuePropertyFilter';
+import { matchesCondition, parsePropertySort, LIMIT_MESSAGE } from './queuePropertyFilter';
+import { groupsOf } from './queueModel';
 import type { QueueFilters } from './queueModel';
+import { ApiHttpError } from '../../api/client';
+import { FIXTURE_CATALOG } from './usePropertyCatalog';
+const propertyTypes = new Map(FIXTURE_CATALOG.objects.find(o => o.object_type === 'deals')?.groups.flatMap(g => g.properties.map(p => [p.name, p.property_type] as const)));
 
 /**
  * 固定の架空データ。実データの名前・電話番号・ID は一切含まない
@@ -67,6 +72,10 @@ export function fixtureItem(id: string): CallQueueItem | null {
 
 /** サーバ (call_queue.rs) の抽出・並びの要点だけを真似る。実サーバの代わりではなく、画面の確認用 */
 export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQueueResponse {
+  const gs = groupsOf(f);
+  // 検索へ必ず入る条件を数える。停止理由の任意フィルターを省いても収まらなければ拒否する。
+  if (!conditionsFit(f, gs, FIXTURE_TODAY)) throw new ApiHttpError(400, { error_kind: 'condition_limit', message: LIMIT_MESSAGE });
+
   const q = f.q.trim().normalize('NFKC').toLowerCase();
   const stages = f.stages.length ? f.stages : eligibleStageIds(f.pipeline);
   const rules = fixturePipeline(f.pipeline)?.stages ?? [];
@@ -88,7 +97,7 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     const properties: Record<string, string | null> = { dealname: `${s.company} 採用支援`, hubspot_owner_id: s.owner,
       bpo_13: s.next, bpo_14: s.time, bpo_20: s.last, bpo_29: s.phone, bpo_3: null, bpo_4: null,
       bpo_10: s.id === 'f-3' ? '通話中が続く' : null, amount: String(Number(s.id.slice(2)) * 1000) };
-    return f.conditions.every(c => matchesCondition(c, properties[c.property] ?? null));
+    return gs.length === 0 || gs.some(g => g.every(c => matchesCondition(c, properties[c.property] ?? null, FIXTURE_TODAY, propertyTypes.get(c.property))));
   });
   const asc = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   const isDue = (s: Seed) => s.next !== null && s.next <= FIXTURE_TODAY;
@@ -96,6 +105,13 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
   const byLastAsc = (a: Seed, b: Seed) => (a.last === b.last ? 0 : a.last === null ? -1 : b.last === null ? 1 : asc(a.last, b.last));
   const byLastDesc = (a: Seed, b: Seed) => (a.last === b.last ? 0 : a.last === null ? 1 : b.last === null ? -1 : asc(b.last, a.last));
   const sorted = [...rows].sort((a, b) => {
+    const custom = parsePropertySort(f.sort);
+    if (custom) {
+      const property = (s: Seed): string | null => ({ amount: String(Number(s.id.slice(2))*1000), dealname: `${s.company} 採用支援`, bpo_13: s.next, bpo_20: s.last, hubspot_owner_id: s.owner, bpo_14: s.time, bpo_29: s.phone } as Record<string,string|null>)[custom.property] ?? null;
+      const av=property(a), bv=property(b);
+      const order = av===bv ? 0 : av===null ? 1 : bv===null ? -1 : propertyTypes.get(custom.property)==='number' ? Number(av)-Number(bv) : asc(av,bv);
+      return custom.direction==='desc' ? -order : order;
+    }
     if (f.sort === 'last_call_asc') return byLastAsc(a, b);
     if (f.sort === 'last_call_desc') return byLastDesc(a, b);
     // 既定 / 次回架電日順: 次回日が来たもの (次回日順) → それ以外の未済 (未架電 → 最終架電日の古い順)
