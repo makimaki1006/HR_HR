@@ -30,9 +30,10 @@ function counted() {
   const n = { queue: 0, detail: 0, catalog: 0, metadata: 0, owners: 0 };
   const props: (SelectedProps | undefined)[] = [];
   const queue = (f: QueueFilters) => { n.queue += 1; return Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, [makeItem('1'), makeItem('2')]) }); };
-  const detail: DetailFetch = (id, _signal, p) => {
-    n.detail += 1;
-    props.push(p);
+  const detail: DetailFetch = (id, _signal, p, opts) => {
+    // 先読み (次の行) は数えない。ここで数えるのは画面が開いた案件の読み取りだけ
+    if (opts?.prefetch !== true) n.detail += 1;
+    if (opts?.prefetch !== true) props.push(p);
     const d = fixtureDetail(sampleId, p);
     if (d === null) throw new Error('fixture');
     return Promise.resolve({ ok: true, data: { ...d, deal: { ...d.deal, id } } });

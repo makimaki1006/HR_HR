@@ -51,7 +51,8 @@ function detail(id: string, over: Partial<WorkspaceResponse> = {}): WorkspaceRes
 interface Pending { id: string; signal: AbortSignal; resolve: (r: ApiResult<WorkspaceResponse>) => void; fresh: boolean }
 function detailFetcher() {
   const calls: Pending[] = [];
-  const fetcher: DetailFetch = (id, signal, _props, opts) => new Promise(resolve => { calls.push({ id, signal, resolve, fresh: opts?.fresh === true }); });
+  // 先読み (次の行) は記録せず応答もしない (ここで調べるのは画面が開いた案件の読み取りだけ)
+  const fetcher: DetailFetch = (id, signal, _props, opts) => new Promise(resolve => { if (opts?.prefetch !== true) calls.push({ id, signal, resolve, fresh: opts?.fresh === true }); });
   return { calls, fetcher };
 }
 
