@@ -359,11 +359,12 @@ it('ignores whitespace-only changes without altering original values and matches
   const before = '土日休み。\n夏季休暇あり。';
   const after = '\n  土日休み。　\r\n夏季休暇あり。\n';
   const job = record({ 自由項目1のタイトル: '休日・休暇', 自由項目1の内容: after });
-  const current = job.versions[0]!;
+  const current = job.versions[0];
+  if (!current) throw new Error('比較する本文が必要です');
   job.versions.unshift({ ...current, id: 'previous', comparisonBody: rowBody({ 自由項目1のタイトル: '休日・休暇', 自由項目1の内容: before }) });
   render(<ListingPopup job={job} version={current} onClose={vi.fn()} />);
   const row = screen.getByRole('dialog').querySelectorAll('.jc-listing-comparison-row');
-  const holiday = [...row].find(element => element.textContent?.includes('休日・休暇'));
+  const holiday = [...row].find(element => element.textContent.includes('休日・休暇'));
   expect(holiday?.getAttribute('data-changed')).toBe('false');
   expect(holiday?.querySelectorAll('mark, .jc-listing-change-dot')).toHaveLength(0);
   expect(holiday?.querySelector('p')?.textContent).toBe(after);
@@ -381,7 +382,9 @@ it('counts omitted optional HRH fields from a sparse body and retains unknown fo
   expect(screen.getByText('記載のない任意項目（70件）')).toBeTruthy();
   expect(screen.getByRole('dialog').textContent).not.toContain('左の本文');
   expect(screen.getByRole('dialog').textContent).not.toContain('任意項目の記載状況を取得できていません');
-  job.versions[0]!.comparisonBody = '見出しを含まない過去の本文';
+  const current = job.versions[0];
+  if (!current) throw new Error('比較する本文が必要です');
+  current.comparisonBody = '見出しを含まない過去の本文';
   expect(listingPopupModel(job, job.versions[0]).optionalFieldsKnown).toBe(false);
 });
 
@@ -390,7 +393,8 @@ it.each([['公開', '掲載中'], ['非公開', '掲載終了'], ['公開終了'
 });
 it('prioritizes current normalized publication over the body status while preserving historical labels', () => {
   const job = record({ 公開: '公開開始前' });
-  const current = job.versions[0]!;
+  const current = job.versions[0];
+  if (!current) throw new Error('比較する本文が必要です');
   job.listingPublicationStatus = '掲載終了';
   expect(listingPopupModel(job, current).publication).toBe('掲載終了');
   expect(listingPopupModel(job, { ...current, id: 'past' }).publication).toBe('掲載前');

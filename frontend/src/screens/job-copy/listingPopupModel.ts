@@ -78,7 +78,7 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const hasImageReferences = imageKeys.some(key => !['', 'なし', '画像なし', '未登録'].includes(get(key).trim())) || registered === true;
   const imageSignature = imageValuesKnown ? JSON.stringify(imageKeys.map(key => get(key).trim()).filter(value => !['', 'なし', '画像なし', '未登録'].includes(value))) : recordedImages?.length ? JSON.stringify(recordedImages.map(image => image.sourceReferenceHash ?? image.url)) : registered === false ? '[]' : undefined;
   const imageReason = images?.length || observedImages ? undefined : hasImageReferences ? '画像はありますが、取得できていません' : imageValuesKnown || registered === false ? 'この求人には画像が登録されていません' : '画像の登録状況を取得できていません';
-  const publication = current && !version?.draft ? publicationLabel(job.listingPublicationStatus ?? null)
+  const publication = current && !version.draft ? publicationLabel(job.listingPublicationStatus ?? null)
     : get('公開').trim() ? publicationLabel(get('公開'))
     : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : !version ? publicationLabel(job.listingPublicationStatus ?? null) : '未取得';
   const title = get('案件名').trim() || job.title;
