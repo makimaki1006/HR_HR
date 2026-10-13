@@ -5,5 +5,5 @@ export function FrameExtensionBadge() {
   const { installed, version } = useFrameExtension();
   if (installed) return null;
   return <span className="cq-linkbar-ext is-off" data-testid="frame-extension-badge" data-version={version ?? ''}
-    title="枠の拡張機能が入っていないため、埋め込みを禁止しているサイトは枠の中で表示できません">拡張機能: 無効</span>;
+    title="拡張機能を入れると枠の中で開けるサイトが増えます">枠で開けないサイトがあります</span>;
 }

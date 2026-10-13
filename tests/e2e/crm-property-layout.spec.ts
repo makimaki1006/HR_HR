@@ -9,7 +9,8 @@ test('admin can save an ordered BPO standard; BPO reads it and resets personal s
     else await route.fulfill({ json: { role: admin ? 'admin' : 'bpo', can_edit: admin, layouts: { deal: layout } } });
   });
   await page.goto('/static/app/__layout_preview');
-  await page.getByText('表示する項目を選ぶ').click();
+  await page.getByRole('button', { name: '表示設定 ▾' }).click();
+  await page.getByRole('menuitem', { name: '表示する項目を選ぶ' }).click();
   await page.getByLabel('案件名を下へ').click();
   await page.getByRole('button', { name: 'この並びを BPO の標準にする' }).click();
   await expect(page.getByText('BPOの案件の標準を保存しました。')).toBeVisible();
@@ -19,12 +20,14 @@ test('admin can save an ordered BPO standard; BPO reads it and resets personal s
   await page.reload();
   const names = page.locator('.pp-list dt');
   await expect(names).toHaveText(['金額', '案件名']);
-  await page.getByText('表示する項目を選ぶ').click();
+  await page.getByRole('button', { name: '表示設定 ▾' }).click();
+  await page.getByRole('menuitem', { name: '表示する項目を選ぶ' }).click();
   await expect(page.getByRole('button', { name: /この並びを/ })).toHaveCount(0);
   await page.getByLabel('金額を下へ').click();
   await page.getByText('この項目で表示する').click();
   await expect(names).toHaveText(['案件名', '金額']);
-  await page.getByText('役割の標準に戻す').click();
+  await page.getByRole('button', { name: '表示設定 ▾' }).click();
+  await page.getByRole('menuitem', { name: '役割の標準に戻す' }).click();
   await expect(names).toHaveText(['金額', '案件名']);
   if (dir) await page.screenshot({ path: path.join(dir, 'layout-bpo.png'), fullPage: true });
 });

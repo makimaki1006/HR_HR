@@ -10,6 +10,7 @@ import type { CardSection, CatalogEntry, CatalogObject, SelectedProps } from './
 import type { CatalogState } from './usePropertyCatalog';
 import type { CrmPropertyGroup } from '../../generated/CrmPropertyGroup';
 import { EditableValue } from './WriteWidgets';
+import { useDismiss } from './useDismiss';
 import { WRITES_OFF_NOTE } from './useCrmWrite';
 import type { PanelWrite } from './writeBindings';
 import './property-panel.css';
@@ -236,10 +237,9 @@ function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data,
   const nothing = entries !== null && shownCards.length === 0 && CATALOG_OBJECTS.every(o => entries[o].length === 0);
   return <div className="pp dock-scroll" data-testid="property-panel">
     <div className="pp-head">
-      <button type="button" className="pp-pick" aria-expanded={picking} aria-controls={pickerId} disabled={ready === null}
-        onClick={() => { setPicking(p => !p); }}>表示する項目を選ぶ</button>
+      <SettingsMenu disabled={ready === null} canReset={Boolean(roleLayout)} controls={pickerId} picking={picking}
+        onPick={() => { setPicking(p => !p); }} onReset={() => { setPicking(false); roleLayout?.reset(); }} />
     </div>
-    {roleLayout && <button type="button" className="pp-role-reset" onClick={() => { setPicking(false); roleLayout.reset(); }}>役割の標準に戻す</button>}
     <div id={pickerId}>{picking && ready !== null && <PropertyPicker roleLayout={roleLayout} catalog={ready} selection={selection}
       onApply={next => { setPicking(false); onApply(next); }} onCancel={() => { setPicking(false); }} />}</div>
     {write?.writesEnabled === false && hasSelection && <p className="crm-muted pp-note" data-testid="writes-off-note">{WRITES_OFF_NOTE}</p>}
@@ -255,6 +255,34 @@ function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data,
                 {CATALOG_OBJECTS.map(o => <ObjectValues key={o} obj={o} entries={entries[o]} data={data} ownerNames={ownerNames} write={write}
                   title={o === 'deals' && shownCards.length > 0 ? '案件(そのほかの項目)' : undefined} />)}
               </>}
+  </div>;
+}
+
+/** 見出しの右の「表示設定」: 押すと「表示する項目を選ぶ」「役割の標準に戻す」のメニューが開く (Esc・外側のクリックで閉じる、↑↓で移動) */
+function SettingsMenu({ disabled, canReset, controls, picking, onPick, onReset }: {
+  disabled: boolean; canReset: boolean; controls: string; picking: boolean; onPick: () => void; onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+  const close = () => { setOpen(false); };
+  useDismiss(wrap, open, close, () => { setOpen(false); trigger.current?.focus(); });
+  useEffect(() => { if (open) wrap.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus(); }, [open]);
+  const move = (e: React.KeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const items = Array.from(wrap.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    e.preventDefault();
+    items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+  };
+  return <div className="pp-menu" ref={wrap}>
+    <button type="button" ref={trigger} className="pp-pick" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
+      disabled={disabled} onClick={() => { setOpen(o => !o); }}>表示設定 ▾</button>
+    {open && <div id={menuId} className="pp-menu-list" role="menu" aria-label="表示設定" onKeyDown={move}>
+      <button type="button" role="menuitem" aria-expanded={picking} aria-controls={controls} onClick={() => { close(); onPick(); }}>表示する項目を選ぶ</button>
+      {canReset && <button type="button" role="menuitem" onClick={() => { close(); onReset(); }}>役割の標準に戻す</button>}
+    </div>}
   </div>;
 }
 

@@ -46,7 +46,7 @@ describe('LinkView 戻る / 案内', () => {
 
   it('hint shows on Google search tabs, dismiss persists', () => {
     const { unmount } = render(<LinkView tab={tab()} />);
-    expect(screen.getByTestId('link-hint').textContent).toContain('⌘ / Ctrl を押しながらクリック');
+    expect(screen.getByTestId('link-hint').textContent).toContain('⌘/Ctrl＋クリックで新しいタブ');
     fireEvent.click(screen.getByRole('button', { name: '案内を閉じる' }));
     expect(screen.queryByTestId('link-hint')).toBeNull();
     expect(window.localStorage.getItem('crm.linkHintDismissed')).toBe('1');

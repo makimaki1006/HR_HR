@@ -159,7 +159,7 @@ const HUBSPOT_NOTE = 'HubSpot のログイン画面が繰り返し出る場合�
 const isHubspotHost = (host: string) => host === 'hubspot.com' || host.endsWith('.hubspot.com') || host === 'hubspot.jp' || host.endsWith('.hubspot.jp');
 
 const HINT_KEY = 'crm.linkHintDismissed';
-const HINT_TEXT = '求人サイト（Indeed など）は枠の中では開けないことがあります。⌘ / Ctrl を押しながらクリックすると新しいタブで開きます。';
+const HINT_TEXT = '一部の求人サイトはこの枠で開けません（⌘/Ctrl＋クリックで新しいタブ）';
 function readHintDismissed(): boolean {
   try { return window.localStorage.getItem(HINT_KEY) === '1'; } catch { return false; }
 }

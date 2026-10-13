@@ -27,14 +27,32 @@ describe('role property layout', () => {
     localStorage.setItem(PROPS_STORAGE_KEY, JSON.stringify({ v: 2, deals: ['amount'], contacts: [], companies: [] }));
     render(<Harness />);
     expect(screen.getByTestId('names').textContent).toBe('amount');
-    fireEvent.click(screen.getByText('役割の標準に戻す'));
+    fireEvent.click(screen.getByText('表示設定 ▾'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '役割の標準に戻す' }));
     await waitFor(() => { expect(screen.getByTestId('names').textContent).toBe('dealname,bpo_10'); });
     expect(localStorage.getItem(PROPS_STORAGE_KEY)).toBeNull();
-    fireEvent.click(screen.getByText('表示する項目を選ぶ'));
+    fireEvent.click(screen.getByText('表示設定 ▾'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '表示する項目を選ぶ' }));
     expect(screen.getByLabelText('表示の順番').querySelectorAll('li')[0]?.textContent).toContain('案件名');
     expect(screen.queryByText(/この並びを/)).toBeNull();
     fireEvent.click(screen.getByLabelText('案件名を下へ'));
     fireEvent.click(screen.getByText('この項目で表示する'));
     expect(screen.getByTestId('names').textContent).toBe('bpo_10,dealname');
+  });
+});
+
+describe('表示設定メニュー', () => {
+  it('開くと2項目、Esc で閉じて引き金に戻る、外側のクリックでも閉じる', () => {
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: '表示設定 ▾' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.click(trigger);
+    expect(screen.getAllByRole('menuitem').map(i => i.textContent)).toEqual(['表示する項目を選ぶ', '役割の標準に戻す']);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(trigger);
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 });

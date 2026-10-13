@@ -173,7 +173,8 @@ test('台帳 (監査 DB) に記録できない → 書かずに 503 queue_unavai
 async function openContactJobtitle(page: import('@playwright/test').Page) {
   await page.getByRole('tab', { name: 'プロパティ' }).click();
   const panel = page.getByTestId('property-panel');
-  await panel.getByRole('button', { name: '表示する項目を選ぶ' }).click();
+  await panel.getByRole('button', { name: '表示設定 ▾' }).click();
+  await panel.getByRole('menuitem', { name: '表示する項目を選ぶ' }).click();
   await panel.getByRole('button', { name: /^担当者/ }).click();
   await panel.getByRole('searchbox', { name: '項目名で探す' }).fill('役職');
   await panel.getByRole('checkbox', { name: /役職/ }).check();

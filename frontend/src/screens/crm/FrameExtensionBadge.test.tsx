@@ -38,13 +38,13 @@ describe('useFrameExtension', () => {
 });
 
 describe('FrameExtensionBadge', () => {
-  it('入っていないときだけ「拡張機能: 無効」と理由が出て、入ると消える (正常なときは出さない)', async () => {
+  it('入っていないときだけ「枠で開けないサイトがあります」と理由が出て、入ると消える (正常なときは出さない)', async () => {
     render(<FrameExtensionBadge />);
-    const b = screen.getByText('拡張機能: 無効');
-    expect(b.getAttribute('title')).toBe('枠の拡張機能が入っていないため、埋め込みを禁止しているサイトは枠の中で表示できません');
+    const b = screen.getByText('枠で開けないサイトがあります');
+    expect(b.getAttribute('title')).toBe('拡張機能を入れると枠の中で開けるサイトが増えます');
     await act(async () => { el.dataset.hrhrFrames = '1.0.0'; await Promise.resolve(); });
-    expect(screen.queryByText('拡張機能: 無効')).toBeNull();
-    expect(screen.queryByText('拡張機能: 有効')).toBeNull();
+    expect(screen.queryByText('枠で開けないサイトがあります')).toBeNull();
+    expect(screen.queryByText('枠で開けないサイトがあります')).toBeNull();
   });
 });
 

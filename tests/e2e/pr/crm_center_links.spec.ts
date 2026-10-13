@@ -105,7 +105,7 @@ test.describe('CRM 架電画面: 求人検索の枠の「戻る」と案内', ()
     const crmUrl = page.url();
 
     const hint = panel.getByTestId('link-hint');
-    await expect(hint).toContainText('⌘ / Ctrl を押しながらクリック');
+    await expect(hint).toContainText('⌘/Ctrl＋クリックで新しいタブ');
 
     const back = panel.getByRole('button', { name: '戻る' });
     await expect(back).toBeDisabled();
