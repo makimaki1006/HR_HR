@@ -4,7 +4,7 @@
 .dock-col.is-max { position: absolute; inset: 0; z-index: 25; border: 0; box-shadow: 0 0 0 1px var(--cq-line-strong); }
 .dock-col.is-max .dock-pinned, .dock-col.is-max .dock-pinned-chip { display: none; }
 .dock.has-max .dock-divider { visibility: hidden; }
-.dock-col { min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--cq-bg); border-right: 1px solid var(--cq-line); }
+.dock-col { min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--cq-bg); border-right: 0; }
 .dock-col:last-child { border-right: 0; }
 .dock-col.is-over { box-shadow: inset 0 0 0 2px var(--cq-accent); }
 
@@ -18,7 +18,7 @@
 .dock-pinned { flex: none; display: flex; flex-direction: column; min-height: 0; max-height: 60%; overflow: auto; }
 
 /* タブの並び */
-.dock-tabrow { flex: none; display: flex; align-items: flex-end; gap: 4px; padding: 4px 6px 0; background: var(--cq-bg); border-bottom: 1px solid var(--cq-line-strong); min-height: 31px; }
+.dock-tabrow { flex: none; display: flex; align-items: flex-end; gap: 4px; padding: 4px 6px 0; background: var(--cq-bg); border-bottom: 3px solid var(--cq-pane-line); min-height: 31px; }
 .dock-tabs { flex: 1 1 auto; min-width: 0; display: flex; gap: 2px; overflow-x: auto; }
 .dock-tab { flex: none; display: inline-flex; align-items: center; max-width: 14em; border: 1px solid transparent; border-bottom: 0; border-radius: 4px 4px 0 0; margin-bottom: -1px; cursor: grab; }
 .dock-tab.is-active { background: var(--cq-surface); border-color: var(--cq-line-strong); }
@@ -58,9 +58,11 @@
 .dock-pinned .dock-slot, .dock-pinned .dock-host { flex: none; }
 
 /* 区切り */
-.dock-divider { position: relative; cursor: col-resize; background: var(--cq-line); touch-action: none; }
+.dock { --cq-pane-line: #7d8996; }
+.dock-divider { position: relative; cursor: col-resize; background: var(--cq-bg); touch-action: none; }
+.dock-divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 3px; margin-left: -1.5px; background: var(--cq-pane-line); }
 .dock-divider::after { content: ""; position: absolute; inset: 0 -3px; }
-.dock-divider:hover, .dock-divider:focus-visible { background: var(--cq-accent); }
+.dock-divider:hover::before, .dock-divider:focus-visible::before { background: var(--cq-accent); width: 5px; margin-left: -2.5px; }
 .crm-app .dock-divider:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: 0; }
 
 /* パネルの中の共通の枠 */
