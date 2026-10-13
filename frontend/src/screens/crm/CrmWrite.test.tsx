@@ -114,6 +114,53 @@ describe('編集できる項目とできない項目', () => {
   });
 });
 
+describe('値の行のダブルクリックで編集を始める', () => {
+  const valueOf = (label: string) => {
+    const dt = screen.getAllByText(label).find(e => e.tagName === 'DT');
+    return dt?.nextElementSibling?.querySelector<HTMLElement>('.wr-val') ?? document.body;
+  };
+
+  it('編集できる項目の値をダブルクリックすると入力欄が出る (title つき)', async () => {
+    await setup(schemaOf(), vi.fn());
+    const v = valueOf('募集職種（リストデータ）');
+    expect(v.getAttribute('title')).toBe('ダブルクリックで編集');
+    expect(screen.queryByRole('textbox', { name: '募集職種（リストデータ）' })).toBeNull();
+    fireEvent.doubleClick(v);
+    expect(screen.getByRole('textbox', { name: '募集職種（リストデータ）' })).toBeTruthy();
+  });
+
+  it('未入力の項目でもダブルクリックで入力欄が出る', async () => {
+    await setup(schemaOf(), vi.fn());
+    const v = valueOf('アポ取得日');
+    fireEvent.doubleClick(v);
+    expect(screen.getByTestId('edit-aposyutokubi')).toBeTruthy();
+  });
+
+  it('編集できない項目 (案件名) と書き込み OFF では何も起きない', async () => {
+    await setup(schemaOf(), vi.fn());
+    const dt = screen.getAllByText('案件名').find(e => e.tagName === 'DT');
+    fireEvent.doubleClick(dt?.nextElementSibling as HTMLElement);
+    expect(screen.queryByTestId('edit-dealname')).toBeNull();
+    cleanup();
+    await setup(schemaOf({ writes_enabled: false }), vi.fn());
+    expect(document.querySelector('.wr-val')).toBeNull();
+    expect(document.querySelector('[data-testid^="edit-"]')).toBeNull();
+  });
+
+  it('リンクの上のダブルクリックと 1 回のクリックでは編集にならず、リンクの外側なら始まる', () => {
+    const def = { object: 'deal' as const, name: 'u', label: 'リンク項目', kind: 'text' as const, options: [] };
+    render(<EditableValue def={def} raw="https://example.com/" display={<span>前置き <a href="https://example.com/">https://example.com/</a></span>}
+      status={undefined} onSave={vi.fn()} />);
+    const link = screen.getByRole('link');
+    fireEvent.click(link);
+    expect(screen.queryByRole('textbox', { name: 'リンク項目' })).toBeNull();
+    fireEvent.doubleClick(link);
+    expect(screen.queryByRole('textbox', { name: 'リンク項目' })).toBeNull();
+    fireEvent.doubleClick(screen.getByText('前置き', { exact: false }));
+    expect(screen.getByRole('textbox', { name: 'リンク項目' })).toBeTruthy();
+  });
+});
+
 describe('項目の保存', () => {
   it('編集を始めた時点の値が base になる (編集中に表示が変わっても変えない)', () => {
     const onSave = vi.fn();

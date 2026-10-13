@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react';
-import type { KeyboardEvent, ReactNode } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { draftToValue, initialDraft, sameValue } from './writeModel';
 import type { FieldDef } from './writeModel';
 import type { FieldStatus } from './useCrmWrite';
@@ -85,10 +85,17 @@ export function EditableValue({ def, raw, display, status, onSave, onRetry }: {
       </span>
     </span>;
   }
+  function begin() { setSession({ base: raw ?? null, draft: initialDraft(def.kind, raw) }); }
+  // 値の行のダブルクリックでも編集を始める (リンクの上と保存中は除く)。選択された単語は外す
+  function onDouble(e: MouseEvent<HTMLSpanElement>) {
+    if (busy || (e.target as HTMLElement).closest('a, button') !== null) return;
+    window.getSelection()?.removeAllRanges();
+    begin();
+  }
   return <span className="wr-view">
-    {display}
+    <span className="wr-val" title="ダブルクリックで編集" onDoubleClick={onDouble}>{display}</span>
     <button type="button" ref={editBtn} className="wr-edit-btn" title="編集" disabled={busy} aria-label={`${def.label}を編集`}
-      onClick={() => { setSession({ base: raw ?? null, draft: initialDraft(def.kind, raw) }); }} />
+      onClick={begin} />
     <SaveStatus status={status} onRetry={onRetry} />
   </span>;
 }
