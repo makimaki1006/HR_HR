@@ -12,7 +12,7 @@ import { toE164Jp } from './smartEmbed';
 import type { DialResult, ZoomPhone } from './useZoomPhone';
 import type { DetailState } from './useDealDetail';
 import {
-  ACTIVITY_FILTERS, filterActivities, partialNotes,
+  ACTIVITY_FILTERS, ACTIVITY_KIND_LABELS, filterActivities, formatTimestamp, partialNotes,
 } from './workspaceModel';
 import type { ActivityKindFilter } from './workspaceModel';
 import { FRESHNESS_TICK_MS, clock, freshnessLabel } from './workspaceModel';
@@ -45,8 +45,18 @@ const DIAL_MESSAGES: Record<DialResult, string> = {
  * 電話番号 1 つ分: 表示(ハイフン区切り) / 発信(Smart Embed、元の値) / コピー(国内形式の数字) / tel:
  * `primary` は「架ける番号」の大きい表示
  */
-export function PhoneRow({ label, raw, zoom, primary = false, compact = false, blocked = false }: {
+/** 発信を押せない理由 (押せるときは null)。判定は PhoneRow の disabled と同じ */
+export function dialDisabledReason(e164: string | null, embed: ZoomPhone['embed'], blocked: boolean, blockReason?: string | null): string | null {
+  if (blocked) return blockReason ?? '架電禁止またはブロックのため発信できません';
+  if (e164 === null) return 'ダイヤルできる形式ではないため発信できません';
+  if (embed === 'disabled') return 'Zoom を読み込めないため発信できません';
+  return null;
+}
+
+export function PhoneRow({ label, raw, zoom, primary = false, compact = false, blocked = false, blockReason = null }: {
   label: string; raw: string; zoom: ZoomPhone; primary?: boolean;
+  /** 架電禁止・ブロックの理由の文言 (発信を押せない理由として出す) */
+  blockReason?: string | null;
   /** 1 行の表示 (番号と発信だけ。コピーと端末の電話は「詳しく表示」で出す) */
   compact?: boolean;
   blocked?: boolean;
@@ -55,6 +65,7 @@ export function PhoneRow({ label, raw, zoom, primary = false, compact = false, b
   const copyValue = toDomesticPhone(raw) ?? raw;
   const e164 = toE164Jp(raw);
   const [note, setNote] = useState('');
+  const disabledReason = dialDisabledReason(e164, zoom.embed, blocked, blockReason);
   function dial() { setNote(DIAL_MESSAGES[zoom.dial(raw)]); }
   function copy() {
     const clip = typeof navigator === 'undefined' ? undefined : (navigator as { clipboard?: Clipboard }).clipboard;
@@ -64,9 +75,9 @@ export function PhoneRow({ label, raw, zoom, primary = false, compact = false, b
   if (compact) {
     return <span className="wd-phone wd-phone-primary wd-phone-compact">
       <span className="cq-phone" title={`${label}: ${raw}`}>{shown}</span>
-      <button type="button" className="wd-dial" onClick={dial} disabled={e164 === null || zoom.embed === 'disabled' || blocked}
+      <button type="button" className="wd-dial" onClick={dial} disabled={disabledReason !== null} title={disabledReason ?? undefined}
         aria-label={`${label} ${shown} に発信`}>発信</button>
-      {e164 === null && <small className="crm-muted">ダイヤルできる形式ではありません</small>}
+      {disabledReason !== null && <small className="wd-dial-reason" data-testid="dial-disabled-reason">{disabledReason}</small>}
       {note && <small role="status">{note}</small>}
     </span>;
   }
@@ -74,13 +85,13 @@ export function PhoneRow({ label, raw, zoom, primary = false, compact = false, b
     <span className="wd-phone-label">{label}</span>
     <span className="cq-phone" title={raw}>{shown}</span>
     <span className="wd-phone-actions">
-      <button type="button" className="wd-dial" onClick={dial} disabled={e164 === null || zoom.embed === 'disabled' || blocked}
+      <button type="button" className="wd-dial" onClick={dial} disabled={disabledReason !== null} title={disabledReason ?? undefined}
         aria-label={`${label} ${shown} に発信`}>発信</button>
       <button type="button" className="wd-copy" onClick={copy} aria-label={`${label} ${shown} の番号をコピー`}>番号をコピー</button>
       {!blocked && e164 !== null && <a href={`tel:${e164}`} aria-label={`${label} ${shown} へ端末の電話で発信`}
         title="このパソコン・スマートフォンの電話アプリで発信します(tel: リンク)">端末の電話で発信</a>}
     </span>
-    {e164 === null && <small className="crm-muted">ダイヤルできる形式ではありません</small>}
+    {disabledReason !== null && <small className="wd-dial-reason" data-testid="dial-disabled-reason">{disabledReason}</small>}
     {note && <small role="status">{note}</small>}
   </div>;
 }
@@ -170,6 +181,24 @@ function DensityToggle({ density }: { density: OverviewDensity }) {
     {density.compact ? '詳しく表示' : '1 行にする'}</button>;
 }
 
+/** 前回の活動 1 行 (活動の先頭 1 件)。活動が無ければ null */
+export function lastActivityLine(activities: WorkspaceResponse['activities']): { text: string; full: string } | null {
+  const a = activities[0];
+  if (!a) return null;
+  const when = formatTimestamp(a.timestamp)?.match(/\/(\d{1,2})\/(\d{1,2})/u);
+  const date = when ? `${when[1]?.padStart(2, '0') ?? ''}/${when[2]?.padStart(2, '0') ?? ''}` : null;
+  const kind = ACTIVITY_KIND_LABELS[a.kind] ?? a.kind;
+  const body = (a.body ?? a.title ?? '').replace(/\s+/gu, ' ').trim();
+  const full = `前回 ${date ? `${date} ` : ''}${kind}${body ? `・${body}` : ''}`;
+  return { text: full, full };
+}
+
+function LastActivity({ data }: { data: WorkspaceResponse }) {
+  const line = lastActivityLine(data.activities);
+  if (line === null) return null;
+  return <p className="wd-last" title={line.full} data-testid="last-activity">{line.text}</p>;
+}
+
 function ZoomWarn({ text, onOpenZoom }: { text: string | null; onOpenZoom?: (() => void) | undefined }) {
   if (text === null) return null;
   return <p className="wd-zoom-warn" role="status" data-testid="zoom-warning"><span>{text}</span>
@@ -186,6 +215,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
 }) {
   const d = data.deal;
   const blocked = (Boolean(d.stop.prohibited_reason) || Boolean(d.stop.block_reason));
+  const blockReason = d.stop.prohibited_reason ? '架電禁止のため発信できません' : d.stop.block_reason ? 'ブロックのため発信できません' : null;
   const company = data.companies.find(c => c.is_primary) ?? null;
   const notes = partialNotes(data.partial);
   const stopReasons = [d.stop.prohibited_reason && `架電禁止理由: ${d.stop.prohibited_reason}`, d.stop.block_reason && `ブロック理由: ${stopLabel('bpo_4', d.stop.block_reason)}`,
@@ -202,13 +232,18 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
     const status = callBar ? callBarLabel(callBar) : null;
     return <article className="wd wd-compact" aria-label="架電先の詳細" data-testid="overview-compact">
       <div className="wd-top wd-top-compact">
-        <div className="wd-line">
-          <h2 className="wd-line-company" title={d.name ?? undefined}>{company?.name ?? d.name ?? '(名称なし)'}</h2>
+        <div className="wd-line wd-line-1" data-testid="head-line-1">
+          <h2 className="wd-line-company" title={company?.name ?? d.name ?? undefined}>{company?.name ?? d.name ?? '(名称なし)'}</h2>
           <span className="wd-line-sep" aria-hidden="true">·</span>
-          <span className="wd-line-contact">{contact?.name ?? <span className="crm-muted">担当者なし</span>}</span>
-          <span className="wd-line-sep" aria-hidden="true">·</span>
-          {data.dial ? <PhoneRow blocked={blocked} label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary compact />
-            : <span className="crm-muted">番号を確認できません</span>}
+          <span className="wd-line-contact" title={contact?.name ?? undefined}>{contact?.name ?? <span className="crm-muted">担当者なし</span>}</span>
+          <span className="wd-line-end">
+            <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
+            <DensityToggle density={density} />
+          </span>
+        </div>
+        <div className="wd-line wd-line-2" data-testid="head-line-2">
+          {data.dial ? <PhoneRow blocked={blocked} blockReason={blockReason} label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary compact />
+            : <span className="wd-dial-reason" data-testid="dial-disabled-reason">電話番号がありません</span>}
           {zoomNotice !== null && <ZoomWarn text={zoomNotice} onOpenZoom={onOpenZoom} />}
           {status !== null && callBar?.kind !== 'failed' && <span className={`wd-line-status wd-callbar-${callBar?.kind ?? ''}`} role="status" data-testid="call-bar-status">
             <strong>{status.label}</strong>{status.extra && <span> {status.extra}</span>}</span>}
@@ -216,11 +251,8 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
             title="消音・保留・通話を切る・数字の入力は Zoom の枠で行います">Zoomを開く</button>}
           {stopReasons.length > 0 && <span className="cq-flag wd-line-flag" title={stopReasons.join(' / ')}>架電の注意 {String(stopReasons.length)} 件</span>}
           {notes.length > 0 && <span className="cq-flag wd-line-flag" title={notes.join(' / ')}>一部の情報が欠けています</span>}
-          <span className="wd-line-end">
-            <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
-            <DensityToggle density={density} />
-          </span>
         </div>
+        <LastActivity data={data} />
         {/* 発信できなかったときは、何をすればよいかを 1 行の下に出す */}
         {callBar?.kind === 'failed' && <CallBar info={callBar} now={zoom.now} onOpenZoom={onOpenZoom} />}
       </div>
@@ -245,13 +277,14 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
           <Freshness fetchedAt={data.fetched_at} now={zoom.now} refreshing={refreshing} refreshError={refreshError} onRefresh={onRefresh} />
         </div>
       </header>
+      <LastActivity data={data} />
 
       <section className="wd-dialbox" aria-label="架ける番号">
         <h3 className="wd-dial-title">架ける番号</h3>
-        {data.dial ? <PhoneRow blocked={blocked} label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary />
+        {data.dial ? <PhoneRow blocked={blocked} blockReason={blockReason} label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary />
           : <p className="crm-muted">番号を確認できません。担当者・会社の情報を HubSpot で確認してください。</p>}
         {otherPhones.length > 0 && <details className="wd-other"><summary>ほかの番号({otherPhones.length})</summary>
-          <div className="wd-other-list">{otherPhones.map(p => <PhoneRow blocked={blocked} key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</div></details>}
+          <div className="wd-other-list">{otherPhones.map(p => <PhoneRow blocked={blocked} blockReason={blockReason} key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</div></details>}
         <ZoomWarn text={zoomNotice} onOpenZoom={onOpenZoom} />
       </section>
       {callBar && <CallBar info={callBar} now={zoom.now} onOpenZoom={onOpenZoom} />}
