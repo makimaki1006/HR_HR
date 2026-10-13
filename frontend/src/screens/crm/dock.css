@@ -28,6 +28,17 @@
 .crm-app .dock-tab button[role="tab"]:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: -2px; }
 .dock-pinned-chip { flex: none; display: inline-flex; align-items: center; gap: 2px; margin: 0 0 3px auto; padding: 0 0 0 8px; font-size: 11px; color: var(--cq-sub); border: 1px solid var(--cq-line); border-radius: 10px; background: var(--cq-surface); cursor: grab; }
 
+/* 左の列の縦のつまみ (列の右端。中央の列に面した側)。縦の位置は中央の列の発信ボタンのあたり */
+.dock-side { flex: none; width: 28px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding-top: var(--dock-side-top, 40px); background: var(--cq-bg); border-left: 1px solid var(--cq-line); }
+.dock-side-tabs { display: flex; flex-direction: column; gap: 6px; }
+.dock-side-tab { display: block; max-width: none; margin: 0; border: 0; border-radius: 0; cursor: grab; }
+.dock-side-tab.is-active { background: transparent; }
+.dock-side-tab button[role="tab"] { writing-mode: vertical-rl; width: 28px; min-height: 88px; padding: 10px 0; display: flex; align-items: center; justify-content: center; letter-spacing: .12em; font-size: 12px; background: var(--cq-bg); color: var(--cq-sub); border: 1px solid var(--cq-line-strong); border-right: 0; border-radius: 8px 0 0 8px; text-overflow: clip; }
+.dock-side-tab.is-active button[role="tab"] { background: var(--cq-surface); color: var(--cq-text); font-weight: 700; box-shadow: inset 3px 0 0 var(--cq-accent); }
+.dock-side-tab button[role="tab"]:hover { background: var(--cq-surface); }
+.dock-side .dock-move { margin: 0; }
+.dock-side .dock-menu { right: 100%; top: 0; }
+
 /* 移動のメニュー */
 .dock-move { position: relative; flex: none; display: inline-flex; margin-bottom: 2px; }
 .dock-move-btn { border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 0 6px; font-size: 14px; line-height: 22px; cursor: pointer; color: var(--cq-sub) !important; }
@@ -39,7 +50,8 @@
 .crm-app .dock-menu button:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: -2px; }
 
 /* パネルの枠 (重ねて置き、前に出ていないものは見えなくする。外さないので中身と枠の中のページが残る) */
-.dock-panels { flex: 1 1 auto; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); background: var(--cq-surface); }
+.dock-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.dock-panels { flex: 1 1 auto; min-width: 0; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); background: var(--cq-surface); }
 .dock-panel { grid-area: 1 / 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .dock-panel:not(.is-active) { visibility: hidden; }
 .dock-slot, .dock-host { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
@@ -62,4 +74,8 @@
   .dock-panel { overflow: visible; }
   .dock-panel:not(.is-active) { display: none; }
   .dock-pinned { max-height: none; }
+  .dock-body.has-side { flex-direction: column; }
+  .dock-side { width: auto; flex-direction: row; padding: 0 6px; border-left: 0; border-top: 1px solid var(--cq-line); order: -1; align-items: center; }
+  .dock-side-tabs { flex-direction: row; }
+  .dock-side-tab button[role="tab"] { writing-mode: horizontal-tb; width: auto; min-height: 32px; padding: 0 12px; border-right: 1px solid var(--cq-line-strong); border-radius: 6px 6px 0 0; }
 }

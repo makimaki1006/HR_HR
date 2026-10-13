@@ -295,9 +295,8 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
   const entries = groupActivityEmails(acts);
   const emailTotal = acts.filter(a => a.kind === 'email').length;
   return <section ref={log} className="wd-log dock-scroll" aria-label="活動ログ" data-testid="activity-log">
-    <p className="wd-log-head"><strong>{entries.length} 件</strong>{emailTotal > 0 && <small>（メール {emailTotal} 件）</small>}{data.activities_truncated && <small>(これより古い履歴は表示していません)</small>}</p>
-    <p className="wd-scope">{data.activity_scope}</p>
-    <ReplySyncStatus key={`reply:${data.deal.id}`} dealId={data.deal.id} sample={sample} />
+    <p className="wd-log-head"><strong>{entries.length} 件</strong><span className="cq-info wd-scope" data-glyph="ⓘ" tabIndex={0} role="img" aria-label={data.activity_scope} title={data.activity_scope} data-testid="activity-scope" />{emailTotal > 0 && <small>（メール {emailTotal} 件）</small>}{data.activities_truncated && <small>(これより古い履歴は表示していません)</small>}</p>
+        <ReplySyncStatus key={`reply:${data.deal.id}`} dealId={data.deal.id} sample={sample} />
     <div className="wd-filters" role="group" aria-label="活動の種類">
       {ACTIVITY_FILTERS.map(f => <button key={f.value} type="button" aria-pressed={kind === f.value} onClick={() => { setKind(f.value); }}>{f.label}</button>)}
     </div>
@@ -315,7 +314,7 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
 export const ActivityLog = memo(ActivityLogImpl);
 
 function DetailMessage({ state, reload }: { state: DetailState; reload: () => void }) {
-  if (state.phase === 'idle') return <div className="cq-notice cq-empty wd-empty"><strong>架電一覧から架電先を選んでください</strong>
+  if (state.phase === 'idle') return <div className="cq-notice cq-empty wd-empty"><strong>取引一覧から架電先を選んでください</strong>
     <p>案件・担当者・会社・活動履歴を HubSpot から読み込みます。</p></div>;
   if (state.phase === 'loading') return <p role="status" className="cq-loading">詳細を読み込み中…</p>;
   if (state.phase === 'forbidden') return <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p></div>;

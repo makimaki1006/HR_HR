@@ -37,9 +37,9 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFirst(page);
 
-    // 既定 (v2): 左 = 架電一覧 (前) + プロパティ、中央 = 案件の概要 (上端に固定) + 活動ログ (前) / 架電結果の入力、右 = 求人検索・リンク先
-    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['架電一覧', 'プロパティ']);
-    await expect(tablist(page, '左').getByRole('tab', { name: '架電一覧' })).toHaveAttribute('aria-selected', 'true');
+    // 既定 (v2): 左 = 取引一覧 (前) + プロパティ、中央 = 案件の概要 (上端に固定) + 活動ログ (前) / 架電結果の入力、右 = 求人検索・リンク先
+    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ']);
+    await expect(tablist(page, '左').getByRole('tab', { name: '取引一覧' })).toHaveAttribute('aria-selected', 'true');
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力']);
     await expect(tablist(page, '右').getByRole('tab')).toHaveText(['求人検索・リンク先']);
     await expect(page.getByRole('region', { name: '活動ログ' })).toBeVisible();
@@ -68,7 +68,7 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     const menu = page.getByRole('menu', { name: '「活動ログ」の移動' });
     await expect(menu.getByRole('menuitem')).toHaveText(['左へ移動', '右へ移動', 'この列で後ろへ']);
     await menu.getByRole('menuitem', { name: '左へ移動' }).click();
-    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['架電一覧', 'プロパティ', '活動ログ']);
+    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ', '活動ログ']);
     await expect(tablist(page, '左').getByRole('tab', { name: '活動ログ' })).toHaveAttribute('aria-selected', 'true');
     await expect(tablist(page, '左').getByRole('tab', { name: '活動ログ' })).toBeFocused();
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['架電結果の入力']);
@@ -100,14 +100,14 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     expect(stored).toContain('"activity"');
     await page.reload();
     await expect(page.getByRole('status', { name: 'データの種類' })).toContainText('架空サンプル');
-    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['架電一覧', 'プロパティ', '活動ログ']);
+    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ', '活動ログ']);
     await expect(separator(page)).toHaveAttribute('aria-valuenow', pct ?? '');
     expect(Math.abs((await colWidth(page, 0)) - leftDragged)).toBeLessThanOrEqual(2);
 
     // 元の配置に戻す
     await page.getByRole('button', { name: 'その他の操作' }).click();
     await page.getByRole('menuitem', { name: '元の配置に戻す' }).click();
-    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['架電一覧', 'プロパティ']);
+    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ']);
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力']);
     await expect(tablist(page, '右').getByRole('tab')).toHaveText(['求人検索・リンク先']);
     await expect(separator(page)).toHaveAttribute('aria-valuenow', '38');
@@ -119,7 +119,7 @@ test.describe('CRM 架電画面: パネルの配置', () => {
   test('壊れた配置が残っていても既定の配置で開く', async ({ page }) => {
     await page.addInitScript((k) => { window.localStorage.setItem(k, '{"v":2,"columns":[{"panels":["queue","queue"]}'); }, DOCK_STORAGE_KEY);
     await openFirst(page);
-    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['架電一覧', 'プロパティ']);
+    await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ']);
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力']);
     await expect(tablist(page, '右').getByRole('tab')).toHaveText(['求人検索・リンク先']);
   });

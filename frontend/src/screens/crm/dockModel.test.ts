@@ -23,7 +23,7 @@ function memoryStorage(initial: Record<string, string> = {}, opts: { throwOnSet?
 }
 
 describe('dockReducer', () => {
-  it('the default (v2): left = 架電一覧 + プロパティ (架電一覧 in front), center = 案件の概要 (fixed) + 活動ログ / 架電結果の入力, right = 求人検索・リンク先 (wide)', () => {
+  it('the default (v2): left = 取引一覧 + プロパティ (取引一覧 in front), center = 案件の概要 (fixed) + 活動ログ / 架電結果の入力, right = 求人検索・リンク先 (wide)', () => {
     expect(panelsOf(DEFAULT_LAYOUT)).toEqual([['queue', 'properties'], ['overview', 'activity', 'result'], ['links']]);
     expect(activeOf(DEFAULT_LAYOUT)).toEqual(['queue', 'activity', 'links']);
     expect(tabPanels(DEFAULT_LAYOUT.columns[1])).toEqual(['activity', 'result']);

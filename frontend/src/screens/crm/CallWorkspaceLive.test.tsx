@@ -103,7 +103,7 @@ describe('架電ワークスペース (実データ)', () => {
     window.localStorage.setItem(PROPS_STORAGE_KEY, JSON.stringify({ v: 2, ...LEGACY_DEFAULT_SELECTED }));
     const { calls, fetcher } = detailFetcher();
     await renderQueue(fetcher);
-    expect(screen.getByText('架電一覧から架電先を選んでください')).toBeTruthy();
+    expect(screen.getByText('取引一覧から架電先を選んでください')).toBeTruthy();
     expect(calls).toHaveLength(0);
     open('1');
     expect(screen.getByText('詳細を読み込み中…')).toBeTruthy();

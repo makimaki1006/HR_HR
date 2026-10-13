@@ -48,7 +48,7 @@ describe('CallQueueScreen', () => {
     expect(screen.getByTitle('不通時チェック: 通話中').textContent).toBe('不通チェック');
     expect(screen.getByText('番号を確認できません')).toBeTruthy();
     expect(screen.getByText('担当者情報を取得できませんでした')).toBeTruthy();
-    expect(screen.getByTestId('queue-count').textContent).toBe('全 3 件中 3 件を表示(全件数は電話番号のない架電先なども含む)');
+    expect(screen.getByTestId('queue-count').textContent).toBe('全 3 件中 3 件を表示');
   });
 
   it('empty: with no conditions and with conditions show different messages; no cursor means no load-more button', async () => {
@@ -79,6 +79,10 @@ describe('CallQueueScreen', () => {
       truncated: true,
       partial: { missing_contacts: 1, missing_companies: 2, failed: ['associations', 'contacts', 'stage_labels', 'something_new'], excluded: { no_phone: 3, stop_reason: 4, out_of_scope: 5 }, unknown_stages: 0 },
     });
+    // 1 行に畳む: 概要は 1 つの summary、内訳は開くまで見えない (文言は変えない)
+    const mini = screen.getByTestId<HTMLDetailsElement>('queue-notes');
+    expect(mini.open).toBe(false);
+    expect(mini.querySelector('summary')?.textContent).toBe('⚠ 一部の情報が欠けています（6 項目）');
     expect(screen.getByText('一部の情報が欠けています')).toBeTruthy();
     expect(screen.getByText('担当者情報を取得できなかった行が 1 件あります')).toBeTruthy();
     expect(screen.getByText('会社情報を取得できなかった行が 2 件あります')).toBeTruthy();
@@ -210,7 +214,7 @@ describe('CallQueueScreen', () => {
       expect(screen.getByTestId('fixture-banner').textContent).toContain('架空サンプルを表示中です。表示内容はすべて架空で、HubSpot には接続しません。');
       await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
       // 架空サンプルでも全体の件数を出す (1 ページ 5 件)
-      expect(screen.getByTestId('queue-count').textContent).toBe('全 10 件中 5 件を表示(全件数は電話番号のない架電先なども含む)');
+      expect(screen.getByTestId('queue-count').textContent).toBe('全 10 件中 5 件を表示');
       expect(spy).not.toHaveBeenCalled();
       toLive();
       expect(screen.queryByTestId('fixture-banner')).toBeNull();
@@ -488,14 +492,14 @@ describe('CallQueueScreen: total and auto-load', () => {
     const fifty = Array.from({ length: 50 }, (_, i) => makeItem(String(i + 1)));
     await ready(calls, fifty, { total: 22864, next_cursor: 'c1' });
     const count = screen.getByTestId('queue-count');
-    expect(count.textContent).toBe('全 22,864 件中 50 件を表示(全件数は電話番号のない架電先なども含む)');
+    expect(count.textContent).toBe('全 22,864 件中 50 件を表示');
     expect(count.getAttribute('title')).toContain('電話番号がない架電先');
     fireEvent.click(screen.getByText('さらに読み込む'));
     await act(async () => {
       calls[1]?.resolve({ ok: true, data: makeResponse(calls[1].filters, [makeItem('51'), makeItem('52')], { total: null }) });
       await Promise.resolve();
     });
-    expect(screen.getByTestId('queue-count').textContent).toBe('全 22,864 件中 52 件を表示(全件数は電話番号のない架電先なども含む)');
+    expect(screen.getByTestId('queue-count').textContent).toBe('全 22,864 件中 52 件を表示');
   });
 
   it('without a known total shows only the loaded count', async () => {
@@ -722,3 +726,12 @@ it('上の要約にまとまりの全条件と「または」を並べ、外す�
   expect(groupsOf(calls[2]?.filters ?? DEFAULT_FILTERS)).toEqual([groups[1]]);
   expect(within(summary).queryByText('または')).toBeNull();
 });
+
+  it('「条件をクリア」は条件が何もないときは出さず、条件があるときだけ出る', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    await ready(calls, [makeItem('1')]);
+    expect(screen.queryByRole('button', { name: '条件をクリア' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('キーワード(会社名・案件名)'), { target: { value: '架空' } });
+    expect(screen.getByRole('button', { name: '条件をクリア' })).toBeTruthy();
+  });

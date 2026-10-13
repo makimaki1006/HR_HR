@@ -18,7 +18,7 @@ describe('saved views',()=>{
  });
  it('restores a visible view when URL contains only its id; an inaccessible id returns to all with a notice',async()=>{
   const navigate=vi.fn();const api=client();const r=render(<SavedViews query="" search={`?view=${id}`} fixture={false} client={api} onNavigate={navigate}/>);
-  await waitFor(()=>{expect(navigate).toHaveBeenCalledWith(`?owner=unassigned&view=${id}`);});
+  await waitFor(()=>{expect(navigate).toHaveBeenCalledWith(`?owner=unassigned&view=${id}`,{quiet:true});});
   r.unmount();navigate.mockClear();render(<SavedViews query="" search="?view=not-visible" fixture={false} client={client([])} onNavigate={navigate}/>);
   await waitFor(()=>{expect(navigate).toHaveBeenCalledWith('');});expect(screen.getByText('このビューは見られないため、「すべて」に戻しました。')).toBeTruthy();
  });
@@ -47,5 +47,31 @@ describe('saved views',()=>{
   expect((await fixtureViews(localStorage).list(new AbortController().signal)).map(v=>[v.name,v.query])).toEqual([['架空一覧','owner=unassigned']]);
   await api.patch(id,{name:'架空の共有一覧',scope:'shared',position:-1});expect((await api.list(new AbortController().signal))[0]?.scope).toBe('shared');
   await api.remove(id);expect(await api.list(new AbortController().signal)).toEqual([]);
+ });
+
+ it('panel: lists すべて + saved views as pressed buttons; opening one navigates; 別名で保存 saves the current query as a new view; the name is reported for the bar',async()=>{
+  const api=client();const navigate=vi.fn();const names:(string|null)[]=[];
+  render(<SavedViews query="owner=all" search={`?owner=all&view=${id}`} fixture={false} client={api} onNavigate={navigate} onActiveName={n=>{names.push(n);}}/>);
+  const open=await screen.findByRole('button',{name:'架空の未担当一覧（全員に共有）'});
+  expect(open.getAttribute('aria-pressed')).toBe('true');expect(screen.getByRole('button',{name:/^すべて/u}).getAttribute('aria-pressed')).toBe('false');
+  expect(names.at(-1)).toBe('架空の未担当一覧');
+  fireEvent.click(screen.getByRole('button',{name:/^すべて/u}));expect(navigate).toHaveBeenCalledWith('');
+  fireEvent.click(screen.getByRole('button',{name:'別名で保存'}));
+  fireEvent.change(screen.getByLabelText('ビューの名前'),{target:{value:'架空の別名'}});
+  fireEvent.click(screen.getByRole('button',{name:/^保存$/u}));
+  await waitFor(()=>{expect(api.create).toHaveBeenCalledWith(expect.any(String),{name:'架空の別名',scope:'private',query:'owner=all'});});
+  await waitFor(()=>{expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^\?owner=all&view=/u));});
+ });
+ it('panel: ＋ ビューを保存 on the unmodified list saves the current query; the dialog is outside the surrounding form',async()=>{
+  const api=client([]);const navigate=vi.fn();
+  const r=render(<form><SavedViews query="q=%E6%9E%B6%E7%A9%BA" search="?q=%E6%9E%B6%E7%A9%BA" fixture={false} client={api} onNavigate={navigate}/></form>);
+  fireEvent.click(await screen.findByRole('button',{name:'＋ ビューを保存'}));
+  expect(r.container.querySelector('form form')).toBeNull();expect(r.container.querySelector('[role=dialog]')).toBeNull();
+  fireEvent.change(screen.getByLabelText('ビューの名前'),{target:{value:'架空の新規'}});fireEvent.click(screen.getByRole('button',{name:/^保存$/u}));
+  await waitFor(()=>{expect(api.create).toHaveBeenCalledWith(expect.any(String),{name:'架空の新規',scope:'private',query:'q=%E6%9E%B6%E7%A9%BA'});});
+ });
+ it('panel: audit failure shows one line inside the section',async()=>{
+  const api=client();api.list=()=>Promise.reject(new Error('offline'));render(<SavedViews query="" search="" fixture={false} client={api} onNavigate={vi.fn()}/>);
+  const note=await screen.findByText('ビューを読み込めませんでした');expect(note.closest('[data-testid=saved-views]')).not.toBeNull();
  });
 });

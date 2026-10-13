@@ -212,11 +212,11 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
     <div className="cq-linkbar">
       <span className="cq-linkbar-host" title={tab.url}>{tab.host}</span>
       <FrameExtensionBadge />
-      <a className="cq-linkbar-open" href={tab.url} target="_blank" rel="noopener noreferrer">新しいタブで開く</a>
+      <a className="cq-linkbar-open" href={tab.url} target="_blank" rel="noopener noreferrer"
+        {...(tab.embed !== null ? { title: '表示されない場合は新しいタブで開いてください' } : {})}>新しいタブで開く</a>
       {tab.embed !== null && <button type="button" disabled={navs === 0} onClick={back}>戻る</button>}
       {tab.embed !== null && <button type="button" onClick={reload}>再読み込み</button>}
       {onClose && <button type="button" onClick={onClose}>このタブを閉じる</button>}
-      {tab.embed !== null && <small className="cq-linkbar-note">表示されない場合は新しいタブで開いてください</small>}
     </div>
     {hubspotNote && <small className="cq-linkbar-note" data-testid="hubspot-note">{HUBSPOT_NOTE}</small>}
     {isSearch && <SearchHint />}

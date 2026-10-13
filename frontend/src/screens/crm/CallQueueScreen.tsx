@@ -81,7 +81,7 @@ import './queue.css';
 
 /** パネルの中で、架電先を選ぶ前・読み込み中・失敗のときに出す一言 (詳しい案内は「案件の概要」に出す) */
 export function panelPlaceholder(selected: boolean, phase: 'idle' | 'loading' | 'ready' | 'error' | 'forbidden' | 'waiting'): string {
-  if (!selected || phase === 'idle') return '架電一覧から架電先を選ぶと、ここに表示します。';
+  if (!selected || phase === 'idle') return '取引一覧から架電先を選ぶと、ここに表示します。';
   if (phase === 'loading' || phase === 'waiting') return '案件の情報を読み込み中…';
   return '案件の情報を表示できません。「案件の概要」の案内を確認してください。';
 }
@@ -275,6 +275,8 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
   </li>;
 });
 
+const REOPEN_PANEL_KEY = 'hrhr.crm.reopenAdvancedPanel';
+
 export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, pipelinesFetcher, catalogFetcher, writeApi, writePollMs, zoomOptions, initialSearch, now }: {
   fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; metadataFetcher?: MetadataFetch; userFetcher?: UserFetch;
   pipelinesFetcher?: PipelinesFetch; catalogFetcher?: CatalogFetch;
@@ -289,20 +291,23 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const [initialQueueKey] = useState(() => filtersKey(filters));
   const [initialMode] = useState(mode);
   const currentQuery = filtersKey(filters) === initialQueueKey && mode === initialMode ? initialQueue : queueQuery(screenSearch(filters, mode));
-  const navigateView = useCallback((next: string) => { window.location.assign(`${window.location.pathname}${next}`); }, []);
+  const navigateView = useCallback((next: string, opts?: { quiet?: boolean }) => { try { if (opts?.quiet !== true) sessionStorage.setItem(REOPEN_PANEL_KEY, '1'); } catch { /* optional */ } window.location.assign(`${window.location.pathname}${next}`); }, []);
   const [qDraft, setQDraft] = useState(filters.q);
-  const [panelOpen, setPanelOpen] = useState(false);
+  // ビューを開く・保存すると画面ごと読み込み直すので、詳細条件のパネルは開いたままにする (結果をすぐ見られる)
+  const [panelOpen, setPanelOpen] = useState(() => {
+    try { return sessionStorage.getItem(REOPEN_PANEL_KEY) === '1'; } catch { return false; }
+  });
+  useEffect(() => { try { sessionStorage.removeItem(REOPEN_PANEL_KEY); } catch { /* optional */ } }, []);
   const filterBarRef = useRef<HTMLFormElement>(null);
   const [drawerTop, setDrawerTop] = useState(130);
+  const [viewName, setViewName] = useState<string | null>(null);
   useLayoutEffect(() => {
     if (!panelOpen || !filterBarRef.current) return;
     const bar = filterBarRef.current;
     const root = bar.parentElement;
     const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     function measure() {
-      const tabs = root?.querySelector('.sv');
-      if (tabs) resize?.observe(tabs);
-      setDrawerTop(Math.max(bar.getBoundingClientRect().bottom, tabs?.getBoundingClientRect().bottom ?? 0) + 8);
+      setDrawerTop(bar.getBoundingClientRect().bottom + 8);
     }
     measure(); resize?.observe(bar);
     const mutation = new MutationObserver(measure);
@@ -760,10 +765,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-busy={state.phase === 'loading'}>
           <div className="cq-list-head">
             {state.phase === 'ready' && <p className="cq-count" role="status" data-testid="queue-count"
-              title={total !== null ? (filters.target==='all'?'条件に合うすべての取引の件数です。':QUEUE_TOTAL_NOTE) : undefined}>{queueCountText(total, state.items.length)}
-              {total !== null && <span>({filters.target==='all'?'条件に合う取引の総数':QUEUE_TOTAL_NOTE_SHORT})</span>}</p>}
-            {mode === 'live' && state.last !== null && <p className="cq-scope-note" data-testid="scope-note"
-              title={[ownerScopeTitle(state.last.scope.owner, ownerNames), 'HubSpot の全件から、上の所有者の選択で切り替えられます'].filter(Boolean).join('。')}>所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</p>}
+              title={total !== null ? [(filters.target==='all'?'条件に合うすべての取引の件数です。':QUEUE_TOTAL_NOTE), `(${filters.target==='all'?'条件に合う取引の総数':QUEUE_TOTAL_NOTE_SHORT})`].join(' ') : undefined}>{queueCountText(total, state.items.length)}
+              {total !== null && <span className="cq-info" data-glyph="ⓘ" aria-hidden="true" />}</p>}
+            {mode === 'live' && state.last !== null && <p className="cq-scope-note cq-info" data-testid="scope-note" tabIndex={0}
+              title={[`所有者: ${ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中`, ownerScopeTitle(state.last.scope.owner, ownerNames), 'HubSpot の全件から、上の所有者の選択で切り替えられます'].filter(Boolean).join('。')}>
+              <span className="cq-sr-only">所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</span><span data-glyph="ⓘ" aria-hidden="true" className="cq-glyph" /></p>}
           </div>
           <div className="cq-list-scroll" ref={listScrollRef}>
             {state.phase === 'invalid' && <div className="cq-notice cq-error" role="alert"><strong>条件を確認してください</strong>
@@ -778,8 +784,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
             {state.phase === 'ready' && <>
               {state.last?.truncated && <div className="cq-notice cq-warn" role="status">HubSpot の検索は 1 万件までしか取得できないため、これより先は表示できません。条件を絞ってください。</div>}
-              {notes.length > 0 && <div className="cq-notice cq-warn" role="status"><strong>一部の情報が欠けています</strong>
-                <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div>}
+              {notes.length > 0 && <details className="cq-notes-mini" role="status" data-testid="queue-notes"><summary><span aria-hidden="true">⚠ </span><strong>一部の情報が欠けています</strong><small>（{notes.length} 項目）</small></summary>
+                <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></details>}
               {state.items.length === 0 && <div className="cq-notice cq-empty">
                 {state.nextCursor ? <p>このページには表示できる行がありません。続きを読み込んでください。</p>
                   : hasConditions ? <><strong>条件に一致する架電先がありません</strong><p>条件を変えるか、クリアしてください。</p>
@@ -862,10 +868,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           {parsePropertySort(filters.sort) !== null && <option value={filters.sort}>{catalog.state.phase === 'ready' ? catalog.state.index.deals.get(parsePropertySort(filters.sort)?.property ?? '')?.prop.label ?? '選んだ項目' : '選んだ項目'} {parsePropertySort(filters.sort)?.direction === 'desc' ? '降順' : '昇順'}</option>}<option value="other">ほかの項目で並べ替え…</option></select>
         {filters.target !== 'all' && <label className="cq-toggle"><input type="checkbox" checked={filters.due === 'today'}
           onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>}
+        {viewName !== null && <span className="cq-view-name" data-testid="current-view-name" title={`開いている保存済みのビュー: ${viewName}`}>ビュー: {viewName}</span>}
         <button type="button" className="cq-btn cq-more-toggle" aria-expanded={panelOpen} aria-controls="cq-advanced"
           onClick={() => { setPanelOpen(o => !o); }}>詳細条件{detailCount > 0 && <span className="cq-badge">{detailCount}</span>}</button>
         <button type="button" className="cq-btn" onClick={() => { setPanelOpen(true); }} >条件を追加</button>
-        <button type="button" className="cq-btn cq-btn-quiet" onClick={clearAll} disabled={!hasConditions && qDraft === ''}>条件をクリア</button>
+        {(hasConditions || qDraft !== '') && <button type="button" className="cq-btn cq-btn-quiet" onClick={clearAll}>条件をクリア</button>}
         <BarMenu mode={mode} inCall={inCall} onResetLayout={() => { dispatchLayout({ type: 'reset' }); }}
           onSwitchMode={() => { switchMode(mode === 'live' ? 'fixture' : 'live'); }} />
       </div>
@@ -889,10 +896,10 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             <label>から<DatePicker value={filters.lastFrom} onChange={v => { update({ lastFrom: v }); }} /></label>
             <label>まで<DatePicker value={filters.lastTo} onChange={v => { update({ lastTo: v }); }} /></label></fieldset>
         </div>
+        <SavedViews query={currentQuery} search={search} fixture={mode === 'fixture'} onNavigate={navigateView} onActiveName={setViewName} />
       </div>
     </form>
     <TodayMetrics fixture={mode === 'fixture'} />
-    <SavedViews query={currentQuery} search={search} fixture={mode === 'fixture'} onNavigate={navigateView} />
     {sortOpen && <QueueSortDialog onClose={() => { setSortOpen(false); }}><PropertySortPicker key={filters.sort} catalog={catalog.state} sort={filters.sort} onChange={sort => { update({ sort }); setSortOpen(false); }} /></QueueSortDialog>}
     {layoutNote && <p className="cq-layout-note" role="status" data-testid="layout-note">{LAYOUT_UPDATED_NOTE}
       <button type="button" onClick={() => { setLayoutNote(false); }}>閉じる</button></p>}
