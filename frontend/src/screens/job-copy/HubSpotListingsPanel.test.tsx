@@ -9,7 +9,6 @@ import { JobCopyScreen } from './JobCopyScreen';
 import type { JobCopyRecord } from './data';
 import { listingRecord } from './hubspotListings';
 import type { HubSpotListing, HubSpotVersions } from './hubspotListings';
-import { matchMarketTitle } from './marketMatch';
 import { CAUSAL_PATTERN, JARGON_PATTERN } from './format';
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', async importOriginal => ({ ...await importOriginal<typeof import('../../api/client')>(), apiGet: api }));
@@ -26,7 +25,6 @@ function mock() {
 }
 describe('HubSpot listing history', () => {
   it('preserves body, ordered URLs and unknown dates and counts in the existing record shape', () => {
-    expect(matchMarketTitle('看護師・介護職', ['看護師', '介護職'])?.title).toBe('介護職');
     const record = listingRecord(history);
     expect(record.accountId).toBe('synthetic-account');
     expect(record.mediaJobId).toBe('AW-10');

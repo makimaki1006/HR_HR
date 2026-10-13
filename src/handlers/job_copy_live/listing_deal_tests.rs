@@ -11,7 +11,7 @@ fn job_copy_deal_salary_sort_matches_display_normalization() {
     ] {
         let record: Record =
             serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"H1"}})).unwrap();
-        let mut first = listing(&record, &[]).unwrap();
+        let mut first = listing(&record).unwrap();
         first.summary.salary_min = Some(salary.into());
         first.summary.salary_max = Some(salary.into());
         let mut second = first.clone();
@@ -52,7 +52,7 @@ fn job_copy_deal_salary_sort_matches_display_normalization() {
 #[test]
 fn job_copy_deal_summary_sort_and_body_date_are_explicit_columns() {
     let record: Record = serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"H1","todoufuken":"沖縄県","shikuchouson":"那覇市","hrh_kyuujinhyou_honbun":"仕事内容：月給99万円で日曜日が休みです\nIndeed表示職種名：配送ドライバー\n給与形態：月給\n基本給与 最小：250000\n基本給与 最大：300000\n勤務時間：8:00〜17:00\n自由項目1のタイトル：休日・休暇\n自由項目1の内容：土日休み"}})).unwrap();
-    let mut first = listing(&record, &[]).unwrap();
+    let mut first = listing(&record).unwrap();
     assert_eq!(first.summary.salary_kind.as_deref(), Some("月給"));
     assert_eq!(first.summary.salary_min.as_deref(), Some("250000"));
     assert_eq!(first.summary.salary_max.as_deref(), Some("300000"));
@@ -204,7 +204,7 @@ async fn job_copy_visible_history_reads_are_batches_of_fifty_and_exclude_other_r
 #[test]
 fn job_copy_airwork_real_response_shape_maps_independent_fields_without_salary_inference() {
     let record: Record = serde_json::from_value(json!({"id":"1","properties":{"hs_name":"架空の配送スタッフ","id_airwork":"123","shigotonaiyou":"箱を積み込んで届けます。","kyuuyokeitai":"月給","qinwude":"東京都江東区","zhizhong":"配送ドライバー","kinmujikan":"8:00〜17:00","kyuujitsu":null,"guyongxingtai":null,"hrh_kyuujinhyou_honbun":null}})).unwrap();
-    let row = listing(&record, &[]).unwrap();
+    let row = listing(&record).unwrap();
     assert_eq!(row.summary.salary_kind.as_deref(), Some("月給"));
     assert_eq!(row.summary.salary_min, None);
     assert_eq!(row.summary.location.as_deref(), Some("東京都江東区"));

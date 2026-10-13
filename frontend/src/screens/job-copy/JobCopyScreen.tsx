@@ -26,6 +26,8 @@ import { MediaCaptureImport } from './MediaCaptureImport';
 import { ApplicantComposition } from './ApplicantComposition';
 import { HrhPerformance } from './HrhPerformance';
 import { MarketContext } from './MarketContext';
+import type { IndeedTitleChange } from './MarketOccupationSlot';
+import { prefectureFromLocation } from './marketMatch';
 import { ApplicationTrend } from './ApplicationTrend';
 import { MarketFactors } from './MarketFactors';
 import { ApplicantReasonReview } from './ApplicantReasonReview';
@@ -92,7 +94,7 @@ function ApplicationSummary({ job, version, live = false }: { job: JobCopyRecord
 /** 画面の外（データ取込など）から、この求人の機能を開くための依頼。nonce が変わるたびに 1 回だけ開く。 */
 export interface FeatureRequest { feature: JobFeature; nonce: number }
 
-function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, reviewed, onReview, billing, demo = false, request = null, showDummyBilling = DUMMY_BILLING_ENABLED }: { job: JobCopyRecord; records: JobCopyRecord[]; popupNavigation: ListingNavigation; onAdd: (version: CopyVersion) => void; onDraftSaved: (draft: DraftSnapshot, revision: string) => void; reviewed: string[]; onReview: (id: string) => void; billing?: readonly BillingEntry[] | undefined; demo?: boolean; request?: FeatureRequest | null; showDummyBilling?: boolean }) {
+function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, onIndeedTitleChanged, reviewed, onReview, billing, demo = false, request = null, showDummyBilling = DUMMY_BILLING_ENABLED }: { job: JobCopyRecord; records: JobCopyRecord[]; popupNavigation: ListingNavigation; onAdd: (version: CopyVersion) => void; onDraftSaved: (draft: DraftSnapshot, revision: string) => void; onIndeedTitleChanged: (change: IndeedTitleChange) => void; reviewed: string[]; onReview: (id: string) => void; billing?: readonly BillingEntry[] | undefined; demo?: boolean; request?: FeatureRequest | null; showDummyBilling?: boolean }) {
   const detailElement = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const scroll = detailElement.current?.closest('.jc-main');
@@ -137,6 +139,7 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, review
   const [diffLimit, setDiffLimit] = useState(300);
   const [changesOnly, setChangesOnly] = useState(false);
   const [fullTextOpen, setFullTextOpen] = useState(false);
+  const [bandCompareOpen, setBandCompareOpen] = useState(false);
   const version = job.versions.find(item => item.id === selected) ?? current;
   const left = job.versions.find(item => item.id === before);
   const right = job.versions.find(item => item.id === after);
@@ -184,7 +187,8 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, review
 
   const realBillingEntries = useMemo(() => realBilling(billingEntries(job, billing, { dummy: false })), [job, billing]);
   return <article ref={detailElement} className="jc-detail" id="job-details" tabIndex={-1}>
-    <DetailBand job={job} billing={realBillingEntries} onOpenFullCompare={() => { openFeatureFromContent('diff'); }} />
+    <DetailBand job={job} billing={realBillingEntries} onOpenFullCompare={() => { setBandCompareOpen(true); }} />
+    <FullTextCompareDialog record={job} open={bandCompareOpen} onClose={() => { setBandCompareOpen(false); }} />
     <div className="jc-detail-cols"><div className="jc-detail-content">
     <header className="jc-detail-heading"><div><div className="jc-detail-title-row"><h1>{job.title}</h1><button className="jc-button" onClick={() => { setListingPopupOpen(true); }}>求人の内容を確認する</button></div><p>{joinPresent([job.company, job.location, job.media])}{job.dataSource === 'hubspot' && <span className="jc-publication"> ／ 公開状況：{publicationLabel(job.listingPublicationStatus ?? null)}</span>}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
     {listingPopupOpen && <ListingPopup navigation={popupNavigation} job={job} version={version} onClose={() => { setListingPopupOpen(false); }} />}
@@ -201,7 +205,7 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, review
     <JobFeaturePanel feature="reasons" active={tab === 'reasons'} prefix={tabPrefix}>{visited.includes('reasons') && <ApplicantReasonReview job={job} />}</JobFeaturePanel>
     <JobFeaturePanel feature="ab" active={tab === 'ab'} prefix={tabPrefix}><AbComparison job={job} records={records} /></JobFeaturePanel>
     <JobFeaturePanel feature="performance" active={tab === 'performance'} prefix={tabPrefix}>{tab === 'performance' && <HrhPerformance job={job} />}</JobFeaturePanel>
-    <JobFeaturePanel feature={tab === 'market-table' ? 'market-table' : 'market'} active={tab === 'market' || tab === 'market-table'} prefix={tabPrefix}>{(visited.includes('market') || visited.includes('market-table')) && <MarketContext job={job} mode={demo ? 'demo' : 'api'} view={tab === 'market' ? 'charts' : tab === 'market-table' ? 'table' : 'inactive'} />}</JobFeaturePanel>
+    <JobFeaturePanel feature={tab === 'market-table' ? 'market-table' : 'market'} active={tab === 'market' || tab === 'market-table'} prefix={tabPrefix}>{(visited.includes('market') || visited.includes('market-table')) && <><p className="jc-muted">市場と比べる職種は、右の「数字の前提」で指定します。</p><MarketContext job={job} mode={demo ? 'demo' : 'api'} view={tab === 'market' ? 'charts' : tab === 'market-table' ? 'table' : 'inactive'} /></>}</JobFeaturePanel>
     {tab !== 'market-table' && <JobFeaturePanel feature="market-table" active={false} prefix={tabPrefix}>{null}</JobFeaturePanel>}
     {tab === 'market-table' && <JobFeaturePanel feature="market" active={false} prefix={tabPrefix}>{null}</JobFeaturePanel>}
     <JobFeaturePanel feature="factors" active={tab === 'factors'} prefix={tabPrefix}>{visited.includes('factors') && <MarketFactors job={job} />}</JobFeaturePanel>
@@ -251,7 +255,7 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, review
     </section>}</JobFeaturePanel>
     </JobFeatureTabs>
     </div>
-    <AssumptionsRail job={job} billing={realBillingEntries} mode={demo ? 'demo' : 'api'} />
+    <AssumptionsRail job={job} billing={realBillingEntries} mode={demo ? 'demo' : 'api'} onIndeedTitleChanged={onIndeedTitleChanged} />
     </div>
   </article>;
 }
@@ -449,6 +453,6 @@ export function JobCopyScreen() {
         if (!signal.aborted) prefetchNeighbors(popupRows.map(item => item.id), row.id);
         return listingRecord(result.data, row);
       },
-    } : { ids: visible.map(item => item.id), load: id => { const next = visible.find(item => item.id === id); return next ? Promise.resolve(next) : Promise.reject(new Error('求人を取得できません')); } }} billing={billingByJob[selected.id]} showDummyBilling={showDummyBilling} demo={demoMode} request={featureRequest} onDraftSaved={(draft, revision) => { setListingRevision(value => value + 1); setRecords(items => items.map(item => item.id === selected.id ? { ...item, draftRevision: revision, latestDraftId: draft.draft_id, versions: item.versions.some(version => version.draft?.draft_id === draft.draft_id) ? item.versions.map((version, index) => version.draft?.draft_id === draft.draft_id ? draftVersion(draft, item.versions.slice(0, index).filter(v => v.draft).length) : version) : [...item.versions, draftVersion(draft, item.versions.filter(v => v.draft).length)] } : item)); }} reviewed={reviewed} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{snapshotLoading ? '求人データを読み込んでいます' : records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{snapshotLoading ? '読み込み後に本文と応募集計を表示します。' : records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</>}</div></div>
+    } : { ids: visible.map(item => item.id), load: id => { const next = visible.find(item => item.id === id); return next ? Promise.resolve(next) : Promise.reject(new Error('求人を取得できません')); } }} billing={billingByJob[selected.id]} showDummyBilling={showDummyBilling} demo={demoMode} request={featureRequest} onIndeedTitleChanged={change => { setRecords(items => items.map(item => item.id === selected.id ? { ...item, ...change } : item)); }} onDraftSaved={(draft, revision) => { setListingRevision(value => value + 1); setRecords(items => items.map(item => item.id === selected.id ? { ...item, draftRevision: revision, latestDraftId: draft.draft_id, versions: item.versions.some(version => version.draft?.draft_id === draft.draft_id) ? item.versions.map((version, index) => version.draft?.draft_id === draft.draft_id ? draftVersion(draft, item.versions.slice(0, index).filter(v => v.draft).length) : version) : [...item.versions, draftVersion(draft, item.versions.filter(v => v.draft).length)] } : item)); }} reviewed={reviewed} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{snapshotLoading ? '求人データを読み込んでいます' : records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{snapshotLoading ? '読み込み後に本文と応募集計を表示します。' : records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</>}</div></div>
   </div></MarketCacheContext.Provider>;
 }

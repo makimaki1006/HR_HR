@@ -1,7 +1,8 @@
 /**
  * Choose the market (prefecture × Indeed job category) to show next to one job.
- * Never picks a "close enough" category: with no exact or contained match the result is null and
- * the screen asks the user to choose.
+ *
+ * The occupation is never guessed from the job's text: a person designates it per job (the HubSpot
+ * property 「比べる Indeed 職種」). Without a designation there is no market comparison.
  */
 const PREFECTURE = /^(北海道|東京都|京都府|大阪府|[^\s都道府県]{2,3}県)/;
 
@@ -13,40 +14,37 @@ export function prefectureFromLocation(location: string, prefectures?: readonly 
   return found;
 }
 
-const normalize = (value: string) => value.normalize('NFKC').replace(/[\s・／/()（）【】]/g, '').toLowerCase();
+/** set: a title was designated. none: 「市場と比べない」 was chosen on purpose. unset: nobody decided yet. */
+export type IndeedTitleState = 'set' | 'none' | 'unset';
 
-export interface TitleMatch {
-  title: string;
-  how: 'exact' | 'partial';
-  /** Every category that matched, longest first (the first one is chosen). */
-  candidates: string[];
+export interface IndeedTitleFields { indeedTitle?: string | null | undefined; indeedTitleState?: IndeedTitleState | undefined }
+
+/** The state of a job; a record without the fields (an older response) counts as 未指定. */
+/** The designated title without surrounding blanks; null when there is none (a blank-only title counts as none). */
+export function designatedTitle(job: IndeedTitleFields): string | null {
+  const title = job.indeedTitleState === 'set' ? job.indeedTitle?.trim() : undefined;
+  return title === undefined || title === '' ? null : title;
+}
+export function indeedTitleState(job: IndeedTitleFields): IndeedTitleState {
+  if (designatedTitle(job)) return 'set';
+  return job.indeedTitleState === 'none' ? 'none' : 'unset';
 }
 
-export function matchMarketTitle(jobTitle: string, titles: readonly string[]): TitleMatch | null {
-  const target = normalize(jobTitle);
-  if (!target) return null;
-  const exact = titles.find(title => normalize(title) === target);
-  if (exact) return { title: exact, how: 'exact', candidates: [exact] };
-  // Stable tie order shared with the Rust listings API, independent of locale.
-  const candidates = titles
-    .filter(title => {
-      const value = normalize(title);
-      // One-character categories match far too much; require at least two characters.
-      return value.length >= 2 && (target.includes(value) || value.includes(target));
-    })
-    .sort((a, b) => normalize(b).length - normalize(a).length || (a < b ? -1 : a > b ? 1 : 0));
-  const first = candidates[0];
-  return first ? { title: first, how: 'partial', candidates } : null;
+/** The plain note shown instead of market data when there is no designated title. */
+export function marketTitleNote(state: IndeedTitleState): string | null {
+  if (state === 'unset') return '市場と比べる職種が未指定です';
+  if (state === 'none') return '市場と比べないと指定されています';
+  return null;
 }
 
 export interface MarketChoice {
+  /** The designated title, or null (nothing is compared). */
   title: string | null;
+  titleState: IndeedTitleState;
   prefecture: string | null;
-  titleHow: TitleMatch['how'] | null;
-  candidates: string[];
 }
 
-export function chooseMarket(job: { title: string; location: string }, titles: readonly string[], prefectures: readonly string[]): MarketChoice {
-  const match = matchMarketTitle(job.title, titles);
-  return { title: match?.title ?? null, prefecture: prefectureFromLocation(job.location, prefectures), titleHow: match?.how ?? null, candidates: match?.candidates ?? [] };
+export function chooseMarket(job: IndeedTitleFields & { location: string }, prefectures: readonly string[]): MarketChoice {
+  const titleState = indeedTitleState(job);
+  return { title: designatedTitle(job), titleState, prefecture: prefectureFromLocation(job.location, prefectures) };
 }

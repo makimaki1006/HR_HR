@@ -1483,11 +1483,11 @@ async fn job_copy_listings_auth_and_mock_contract() {
             let path = req.uri().path().to_owned();
             let query = req.uri().query().unwrap_or("").to_owned();
             seen.lock().unwrap().push(format!("{} {}?{}", req.method(), path, query));
-            let record = json!({"id":"10", "properties":{"hs_name":"合成配送求人", "id_hrhakkaa":"HR-10", "todoufuken":"大分県", "shikuchouson":"大分市", "hrh_kyuujinhyou_honbun":"Indeed表示職種名：配送ドライバー", "baitai_genjoukyou_hrhakkaa":"公開中"}});
+            let record = json!({"id":"10", "properties":{"hs_name":"合成配送求人", "id_hrhakkaa":"HR-10", "todoufuken":"大分県", "shikuchouson":"大分市", "hrh_kyuujinhyou_honbun":"Indeed表示職種名：配送ドライバー", "jobcopy_indeed_title":"ドライバー", "baitai_genjoukyou_hrhakkaa":"公開中"}});
             let data = if path == "/crm/v3/objects/0-420" {
-                if query.contains("after=12") {json!({"results":[{"id":"12","properties":{"id_hrhakkaa":"HR-12","todoufuken":"沖縄県","hrh_kyuujinhyou_honbun":"Indeed表示職種名：看護師"}}]})}
+                if query.contains("after=12") {json!({"results":[{"id":"12","properties":{"id_hrhakkaa":"HR-12","todoufuken":"沖縄県","hrh_kyuujinhyou_honbun":"Indeed表示職種名：看護師","jobcopy_indeed_title":"看護師"}}]})}
                 else if query.contains("after=") {json!({"results":[record], "paging":{"next":{"after":"12"}}})}
-                else {json!({"results":[{"id":"11","properties":{"id_airwork":"AW-11","airwork_account_login_id":"synthetic-account","qinwude":"東京都新宿区","zhizhong":"看護師"}}],"paging":{"next":{"after":"11"}}})}
+                else {json!({"results":[{"id":"11","properties":{"id_airwork":"AW-11","airwork_account_login_id":"synthetic-account","qinwude":"東京都新宿区","zhizhong":"看護師","jobcopy_indeed_title":"看護師"}}],"paging":{"next":{"after":"11"}}})}
             } else if path == "/crm/v3/objects/0-420/batch/read" {
                 let body: Value = serde_json::from_slice(&to_bytes(req.into_body(),4096).await.unwrap()).unwrap();
                 assert_eq!(body["inputs"],json!([{"id":"10"},{"id":"11"}]));
@@ -1629,6 +1629,8 @@ async fn job_copy_listings_auth_and_mock_contract() {
         assert_eq!(data["listings"].as_array().unwrap().len(), 1);
         assert_eq!(data["listings"][0]["media_job_id"], "HR-10");
         assert_eq!(data["listings"][0]["category"], "ドライバー");
+        assert_eq!(data["listings"][0]["indeed_title"], "ドライバー");
+        assert_eq!(data["listings"][0]["indeed_title_state"], "set");
         assert_eq!(data["listings"][0]["application_count"], 2);
         assert_eq!(data["next_offset"], Value::Null);
         assert_eq!(data["total"], 1);

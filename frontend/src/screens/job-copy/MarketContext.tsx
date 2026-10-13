@@ -3,6 +3,7 @@ import { EChart } from '../../components/EChart';
 import type { JobCopyRecord } from './data';
 import { marketRows, trendOption, type MarketData } from './marketChartModel';
 import { useMarketFetch } from './marketSource';
+import { designatedTitle, indeedTitleState, marketTitleNote, prefectureFromLocation } from './marketMatch';
 import { lastMarketMonth, marketDataUntil } from './timelineModel';
 import { AssumptionsNote } from './AssumptionsNote';
 import { InfoTip } from './InfoTip';
@@ -15,25 +16,30 @@ export function MarketContext({ job, view = 'charts', mode = 'api' }: { job: Job
   return <MarketContextForJob key={job.id} job={job} view={view} mode={mode} />;
 }
 function MarketContextForJob({ job, view, mode }: { job: JobCopyRecord; view: 'charts' | 'table' | 'inactive'; mode: 'api' | 'demo' }) {
-  const [data, setData] = useState<MarketData | null>(null);
-  const [title, setTitle] = useState(''); const [prefecture, setPrefecture] = useState('');
-  const [error, setError] = useState(''); const [loading, setLoading] = useState(true);
+  // The occupation is only what a person designated for this job; nothing is guessed from its text.
+  const titleState = indeedTitleState(job); const title = designatedTitle(job) ?? '';
+  const [prefecture, setPrefecture] = useState(() => prefectureFromLocation(job.location) ?? '');
   const [range, setRange] = useState('all');
   const [retry, setRetry] = useState(0);
   // Shared with the timeline's 市場 lane (one cache per screen), so opening this tab after the
   // timeline does not fetch the same list or months again. A failed request is not cached.
   const fetchMarket = useMarketFetch(mode);
+  // The answer of one request is kept with the request it belongs to: an answer for another title /
+  // prefecture / retry counts as "still loading", and a job without a designation shows no data.
+  const requestKey = `${title}|${prefecture}|${String(retry)}`;
+  const [answer, setAnswer] = useState<{ key: string; data: MarketData | null } | null>(null);
   useEffect(() => {
+    if (titleState !== 'set') return;
     let cancelled = false;
-    const failed = () => { if (!cancelled) { setError('市場データを取得できませんでした。接続・権限を確認してください。'); setLoading(false); } };
     void fetchMarket(title, prefecture).then(result => {
-      if (cancelled) return;
-      if (result.ok) { setData(result.data); setError(''); }
-      else { setError('市場データを取得できませんでした。接続・権限を確認してください。'); }
-      setLoading(false);
-    }, failed);
+      if (!cancelled) setAnswer({ key: requestKey, data: result.ok ? result.data : null });
+    }, () => { if (!cancelled) setAnswer({ key: requestKey, data: null }); });
     return () => { cancelled = true; };
-  }, [title, prefecture, retry, fetchMarket]);
+  }, [title, titleState, prefecture, requestKey, fetchMarket]);
+  const settled = titleState === 'set' && answer?.key === requestKey ? answer : null;
+  const loading = titleState === 'set' && !settled;
+  const data = settled?.data ?? null;
+  const error = settled && !settled.data ? '市場データを取得できませんでした。接続・権限を確認してください。' : '';
   const rows = useMemo(() => data?.series ? marketRows(data.series) : [], [data]);
   const shown = range === '12' ? rows.slice(-12) : rows;
   const lastMonth = lastMarketMonth(rows);
@@ -51,8 +57,9 @@ function MarketContextForJob({ job, view, mode }: { job: JobCopyRecord; view: 'c
       '応募と市場の取得期間は一致するとは限りません。それぞれの対象月を確認して比べてください。',
       '応募数はHubSpotに記録されたものだけで、市場の数字とは出所が異なります。',
     ]} />
-    {loading && <p role="status">市場データを読み込み中…</p>}{error && <><p role="alert">{error}</p><button type="button" className="jc-button" onClick={() => { setLoading(true); setError(''); setRetry(value => value + 1); }} disabled={loading}>市場データを再読み込み</button></>}
-    {data && <div className="jc-analysis-controls"><label>比較する市場職種<select value={title} onChange={event => { setLoading(true); setTitle(event.target.value); }}><option value="">選択してください</option>{data.titles.map(value => <option key={value}>{value}</option>)}</select></label><label>比較する都道府県<select value={prefecture} onChange={event => { setLoading(true); setPrefecture(event.target.value); }}><option value="">選択してください</option>{data.prefectures.map(value => <option key={value}>{value}</option>)}</select></label></div>}
+    {marketTitleNote(titleState) && <p role="status">{marketTitleNote(titleState)}</p>}
+    {loading && <p role="status">市場データを読み込み中…</p>}{error && <><p role="alert">{error}</p><button type="button" className="jc-button" onClick={() => { setRetry(value => value + 1); }} disabled={loading}>市場データを再読み込み</button></>}
+    {data && <div className="jc-analysis-controls"><p>市場と比べる職種：{title}（人が指定）</p><label>比較する都道府県<select value={prefecture} onChange={event => { setPrefecture(event.target.value); }}><option value="">選択してください</option>{data.prefectures.map(value => <option key={value}>{value}</option>)}</select></label></div>}
     {!loading && !error && data && <><p>出典：{plainWording(data.source)}</p>
       {shown.length > 0 ? <>
         <div className="jc-analysis-controls"><label>市場グラフの表示期間<select value={range} onChange={event => { setRange(event.target.value); }}><option value="all">取得済みの全期間</option><option value="12">取得済みの最新12か月</option></select></label></div>

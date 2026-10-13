@@ -277,7 +277,7 @@ pub(in crate::handlers::job_copy_live) async fn read_comparison(
             .iter()
             .find(|r| r.id == id)
             .ok_or_else(|| fail("hubspot_partial_read"))?;
-        let listing = listing(record, &[]).ok_or_else(|| fail("listing_media_invalid"))?;
+        let listing = listing(record).ok_or_else(|| fail("listing_media_invalid"))?;
         let body = record.value(if listing.media == "hrh" {
             "hrh_kyuujinhyou_honbun"
         } else {

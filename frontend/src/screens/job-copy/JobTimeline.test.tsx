@@ -34,7 +34,7 @@ describe('job timeline lanes', () => {
     render(<JobTimeline job={demo('demo-job-001')} marketMode="demo" />);
     const lanes = screen.getAllByRole('group').map(group => group.getAttribute('aria-label'));
     expect(lanes.filter(name => ['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場'].includes(name ?? ''))).toEqual(['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場']);
-    await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
+    await screen.findByText('市場と比べる職種：ドライバー（人が指定）');
     const table = within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table');
     const rows = within(table).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
     // The demo's HRハッカー amounts are made up, and say so in the table (the banner is not printed).
@@ -77,7 +77,7 @@ describe('job timeline lanes', () => {
     expect(jobsSeries?.data.map(point => point[1])).toEqual([110, null, null]);
     expect(series.find(item => item.name === 'Indeed閲覧者指標')?.data.map(point => point[1])).toEqual([320, null, null]);
     expect(screen.getByText('市場データは2026年8月まで（毎月更新）。2026年9月以降はデータなしとして表示しています')).toBeTruthy();
-    expect(screen.getByLabelText<HTMLSelectElement>('職種').value).toBe('ドライバー');
+    expect(screen.getByText('市場と比べる職種：ドライバー（人が指定）')).toBeTruthy();
     expect(screen.getByLabelText<HTMLSelectElement>('都道府県').value).toBe('大分県');
     // The first period is all in 2026-09, after the data ends: say up to which month there is data.
     expect(within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし（市場求人数は2026年8月まで）');
@@ -109,15 +109,14 @@ describe('job timeline lanes', () => {
 
   it('says how the prefecture was chosen, separately from the occupation', async () => {
     render(<JobTimeline job={demo('demo-job-001')} marketMode="demo" />);
-    await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
+    await screen.findByText('市場と比べる職種：ドライバー（人が指定）');
     expect(screen.getByText('勤務地から大分県を自動で選びました')).toBeTruthy();
     const other = [...screen.getByLabelText<HTMLSelectElement>('都道府県').options].map(option => option.value).find(value => value && value !== '大分県');
     if (!other) throw new Error('No other prefecture in the demo market data');
     fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: other } });
     expect(await screen.findByText('手で選んだ都道府県です')).toBeTruthy();
-    // The occupation was not touched, so its note stays.
-    expect(screen.getByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください')).toBeTruthy();
-    expect(screen.queryByText('手で選んだ職種です')).toBeNull();
+    // The occupation is only what was designated, so its note stays.
+    expect(screen.getByText('市場と比べる職種：ドライバー（人が指定）')).toBeTruthy();
   });
 
   it('shows 未取得 (not 0件) in the period table when application dates were never fetched', () => {
@@ -129,14 +128,26 @@ describe('job timeline lanes', () => {
     expect(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table').textContent).not.toMatch(/0件|0\.00件\/日/);
   });
 
-  it('asks for a category instead of guessing when the title matches none', async () => {
-    render(<JobTimeline job={demo('demo-job-002')} marketMode="demo" />);
-    expect(await screen.findByText('求人名から職種を決められませんでした')).toBeTruthy();
-    expect(screen.getByLabelText<HTMLSelectElement>('職種').value).toBe('');
-    expect(screen.getByLabelText<HTMLSelectElement>('都道府県').value).toBe('大分県');
+  it('fetches no market data and says so when nobody designated the occupation (never guessed from the name)', async () => {
+    // Its own name is a market title, but nothing was designated: still nothing is compared.
+    render(<JobTimeline job={{ ...demo('demo-job-002'), title: '倉庫作業', indeedTitle: null, indeedTitleState: 'unset' }} />);
+    expect(await screen.findByText('市場と比べる職種が未指定です')).toBeTruthy();
+    expect(screen.queryByLabelText('職種')).toBeNull();
     expect(lastChart('jt-market')).toBeUndefined();
-    fireEvent.change(screen.getByLabelText('職種'), { target: { value: '倉庫作業' } });
-    expect(await screen.findByText('手で選んだ職種です')).toBeTruthy();
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  it('fetches nothing when 市場と比べない was chosen on purpose', async () => {
+    render(<JobTimeline job={{ ...demo('demo-job-002'), indeedTitle: null, indeedTitleState: 'none' }} />);
+    expect(await screen.findByText('市場と比べないと指定されています')).toBeTruthy();
+    expect(lastChart('jt-market')).toBeUndefined();
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  it('uses the designated occupation for the market and the prefecture from the work location', async () => {
+    render(<JobTimeline job={demo('demo-job-002')} marketMode="demo" />);
+    expect(await screen.findByText('市場と比べる職種：倉庫作業（人が指定）')).toBeTruthy();
+    expect(screen.getByLabelText<HTMLSelectElement>('都道府県').value).toBe('大分県');
     await waitFor(() => { expect(lastChart('jt-market')).toBeDefined(); });
   });
 
@@ -174,7 +185,7 @@ describe('job copy screen integration (demo mode)', () => {
     expect(within(primary).getAllByRole('tab')[0]?.textContent).toBe('タイムライン');
     expect(within(primary).getByRole('tab', { name: 'タイムライン' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByRole('group', { name: '応募' })).toBeTruthy();
-    await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
+    await screen.findByText('市場と比べる職種：ドライバー（人が指定）');
     expect(api).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '横断比較' }));
     const table = screen.getByRole('region', { name: '求人の横断比較の表' });
@@ -213,7 +224,7 @@ describe('market cells of the period table while loading or after a failure (rev
   it('says 取得中… while the chosen market is loading', async () => {
     api.mockImplementation((path: string) => path.includes('title=') ? new Promise(() => undefined) : Promise.resolve({ ok: true, data: list }));
     render(<JobTimeline job={demo('demo-job-001')} />);
-    await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
+    await screen.findByText('市場と比べる職種：ドライバー（人が指定）');
     expect(screen.getAllByText('市場データを読み込み中…')).toHaveLength(4);
     expect(marketCells()).toEqual(['市場データを読み込み中…', '市場データを読み込み中…', '市場データを読み込み中…']);
     expect(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table').textContent).not.toContain('市場を選ぶと表示');

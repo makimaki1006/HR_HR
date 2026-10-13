@@ -5,10 +5,11 @@ import { lastMarketMonth } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import { publicationLabel } from './hubspotListings';
 import { joinPresent } from './format';
-import { chooseMarket } from './marketMatch';
+import { chooseMarket, prefectureFromLocation } from './marketMatch';
 import { marketRows } from './marketChartModel';
 import { useMarketFetch } from './marketSource';
 import { MarketOccupationSlot } from './MarketOccupationSlot';
+import type { IndeedTitleChange } from './MarketOccupationSlot';
 
 const jpDate = (value: string | null) => value ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, (_all, y: string, m: string, d: string) => `${y}年${String(Number(m))}月${String(Number(d))}日`) : 'なし';
 
@@ -38,7 +39,7 @@ function useAutoMarket(job: JobCopyRecord, mode: 'api' | 'demo') {
       try {
         const list = await fetchMarket('', '');
         if (stopped() || !list.ok) return;
-        const choice = chooseMarket(job, list.data.titles, list.data.prefectures);
+        const choice = chooseMarket(job, list.data.prefectures);
         setState({ title: choice.title, prefecture: choice.prefecture, now: null });
         if (!choice.title || !choice.prefecture) return;
         const series = await fetchMarket(choice.title, choice.prefecture);
@@ -55,7 +56,7 @@ function useAutoMarket(job: JobCopyRecord, mode: 'api' | 'demo') {
 }
 
 /** 右に常に出す「数字の前提」。どのデータの、どの範囲の数字かを示す。 */
-export function AssumptionsRail({ job, billing, mode }: { job: JobCopyRecord; billing: readonly BillingEntry[] | undefined; mode: 'api' | 'demo' }) {
+export function AssumptionsRail({ job, billing, mode, onIndeedTitleChanged }: { job: JobCopyRecord; billing: readonly BillingEntry[] | undefined; mode: 'api' | 'demo'; onIndeedTitleChanged: (change: IndeedTitleChange) => void }) {
   const n = bandNumbers(job, billing);
   const market = useAutoMarket(job, mode);
   return <aside className="jc-rail" aria-label="数字の前提">
@@ -66,7 +67,7 @@ export function AssumptionsRail({ job, billing, mode }: { job: JobCopyRecord; bi
       {n.asOf ? <p className="jc-muted">4週は、応募を取得した{jpDate(n.asOf)}までの28日です。</p> : <p className="jc-muted" role="status">応募の取得日が分かりません</p>}
     </section>
     <section aria-label="市場と比べる範囲"><h3>市場（Indeed）と比べる範囲</h3>
-      <MarketOccupationSlot listing={job} marketTitle={market.title} prefecture={market.prefecture} />
+      <MarketOccupationSlot record={job} prefecture={prefectureFromLocation(job.location)} onChanged={onIndeedTitleChanged} />
     </section>
     {market.now && <section aria-label="市場の今"><h3>市場の今</h3>
       <dl><dt>市場の求人数（{market.now.month.replace('-', '年')}月）</dt><dd data-testid="rail-market-jobs">{market.now.jobs === null ? '—' : `${market.now.jobs.toLocaleString('ja-JP')}件`}</dd></dl>
