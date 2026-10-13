@@ -45,7 +45,7 @@ function ValueList({ obj, entries, data, ownerNames, id, write }: {
     const def = write?.def(obj, e) ?? null;
     const st = write?.status(obj, e.prop.name);
     const failedReq = st?.phase === 'error' ? st.req : null;
-    return <div key={e.prop.name}>
+    return <div key={e.prop.name} className="pp-row">
       <dt>{e.prop.label}</dt>
       <dd>{def !== null && write ? <EditableValue def={def} raw={raw} display={<Value entry={e} raw={raw} ownerNames={ownerNames} />}
         status={write.status(obj, e.prop.name)}

@@ -114,6 +114,59 @@ describe('編集できる項目とできない項目', () => {
   });
 });
 
+describe('値の行のダブルクリックで編集を始める', () => {
+  const dtOf = (label: string): HTMLElement => screen.getAllByText(label).find(e => e.tagName === 'DT') ?? document.body;
+  const rowOf = (label: string): HTMLElement => dtOf(label).parentElement ?? document.body;
+
+  it('編集できる項目の値をダブルクリックすると入力欄が出る (title つき)', async () => {
+    await setup(schemaOf(), vi.fn());
+    const v = rowOf('募集職種（リストデータ）');
+    expect(v.getAttribute('title')).toBe('ダブルクリックで編集');
+    expect(screen.queryByRole('textbox', { name: '募集職種（リストデータ）' })).toBeNull();
+    fireEvent.doubleClick(dtOf('募集職種（リストデータ）')); // 項目名の上でも始まる
+    expect(screen.getByRole('textbox', { name: '募集職種（リストデータ）' })).toBeTruthy();
+  });
+
+  it('未入力の項目でもダブルクリックで入力欄が出る', async () => {
+    await setup(schemaOf(), vi.fn());
+    const v = rowOf('アポ取得日');
+    fireEvent.doubleClick(within(v).getByText('未入力'));
+    expect(screen.getByTestId('edit-aposyutokubi')).toBeTruthy();
+  });
+
+  it('編集できない項目 (案件名) と書き込み OFF では何も起きない', async () => {
+    await setup(schemaOf(), vi.fn());
+    const dt = dtOf('案件名');
+    const row = rowOf('案件名');
+    expect(row.getAttribute('title')).toBeNull();
+    expect(row.className).not.toContain('wr-row-editable');
+    fireEvent.doubleClick(dt);
+    fireEvent.doubleClick(within(row).getByText('ダミー建設', { exact: false }));
+    expect(screen.queryByTestId('edit-dealname')).toBeNull();
+    cleanup();
+    await setup(schemaOf({ writes_enabled: false }), vi.fn());
+    expect(document.querySelector('.wr-row-editable')).toBeNull();
+    expect(document.querySelector('[data-testid^="edit-"]')).toBeNull();
+  });
+
+  it('リンクの上のダブルクリックと 1 回のクリックでは編集にならず、リンクの外側なら始まる', () => {
+    const def = { object: 'deal' as const, name: 'u', label: 'リンク項目', kind: 'text' as const, options: [] };
+    render(<EditableValue def={def} raw="https://example.com/" display={<span>前置き <a href="https://example.com/">https://example.com/</a></span>}
+      status={undefined} onSave={vi.fn()} />);
+    const link = screen.getByRole('link');
+    fireEvent.click(link);
+    expect(screen.queryByRole('textbox', { name: 'リンク項目' })).toBeNull();
+    fireEvent.doubleClick(link);
+    expect(screen.queryByRole('textbox', { name: 'リンク項目' })).toBeNull();
+    fireEvent.doubleClick(screen.getByText('前置き', { exact: false }));
+    expect(screen.getByRole('textbox', { name: 'リンク項目' })).toBeTruthy();
+    // 編集中の入力欄の中のダブルクリックでは、やり直さない (入力した文字を保つ)
+    fireEvent.change(screen.getByRole('textbox', { name: 'リンク項目' }), { target: { value: '入力中' } });
+    fireEvent.doubleClick(screen.getByRole('textbox', { name: 'リンク項目' }));
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'リンク項目' }).value).toBe('入力中');
+  });
+});
+
 describe('項目の保存', () => {
   it('編集を始めた時点の値が base になる (編集中に表示が変わっても変えない)', () => {
     const onSave = vi.fn();

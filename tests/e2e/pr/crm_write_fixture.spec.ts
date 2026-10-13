@@ -41,6 +41,18 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     expect(crm).toEqual([]);
   });
 
+  test('値の行をダブルクリックしても編集が始まる。編集できない項目では始まらない', async ({ page }) => {
+    await openFirst(page);
+    await page.getByRole('tab', { name: 'プロパティ' }).click();
+    const panel = page.getByTestId('property-panel');
+    await panel.locator('dt', { hasText: '募集職種（リストデータ）' }).dblclick();
+    await expect(panel.getByRole('textbox', { name: '募集職種（リストデータ）' })).toBeVisible();
+    await panel.getByRole('button', { name: 'やめる' }).click();
+    // 編集できない項目 (※編集不可) の項目名をダブルクリックしても始まらない
+    await panel.locator('dt', { hasText: 'URL_求人検索' }).dblclick();
+    await expect(panel.locator('.wr-edit')).toHaveCount(0);
+  });
+
   test('必須項目のあるステージへ移す: 項目の入力画面 → 入力するまで「移す」は押せない → 保存済み', async ({ page }) => {
     await openFirst(page);
     const select = page.getByRole('combobox', { name: 'ステージを変更' });

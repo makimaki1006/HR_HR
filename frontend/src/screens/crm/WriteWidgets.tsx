@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { draftToValue, initialDraft, sameValue } from './writeModel';
 import type { FieldDef } from './writeModel';
@@ -76,8 +76,28 @@ export function EditableValue({ def, raw, display, status, onSave, onRetry }: {
     if (e.key === 'Enter' && def.kind !== 'textarea' && !e.nativeEvent.isComposing) { e.preventDefault(); commit(); }
     if (e.key === 'Enter' && def.kind === 'textarea' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
   }
+  function begin() { setSession({ base: raw ?? null, draft: initialDraft(def.kind, raw) }); }
+  // 項目 1 つ分のまとまり (項目名と値の行。無ければ値の行) のどこをダブルクリックしても編集を始める。
+  // リンク・ボタン・入力欄の上、保存中、編集中は除く。選択された単語は外す
+  const latest = useRef<(e: globalThis.MouseEvent) => void>(() => undefined);
+  const onRowDouble = (e: globalThis.MouseEvent) => {
+    if (busy || session !== null || (e.target as HTMLElement).closest('a, button, input, textarea, select') !== null) return;
+    window.getSelection()?.removeAllRanges();
+    begin();
+  };
+  useEffect(() => { latest.current = onRowDouble; });
+  const rootRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    const row = rootRef.current?.closest<HTMLElement>('.pp-row') ?? rootRef.current;
+    if (!row) return;
+    const fn = (e: globalThis.MouseEvent) => { latest.current(e); };
+    row.classList.add('wr-row-editable');
+    row.title = 'ダブルクリックで編集';
+    row.addEventListener('dblclick', fn);
+    return () => { row.classList.remove('wr-row-editable'); row.removeAttribute('title'); row.removeEventListener('dblclick', fn); };
+  }, []);
   if (session !== null) {
-    return <span className="wr-edit" data-testid={`edit-${def.name}`}>
+    return <span className="wr-edit" ref={rootRef} data-testid={`edit-${def.name}`}>
       <PropInput def={def} id={inputId} value={session.draft} autoFocus onKeyDown={key} onChange={v => { setSession(s => (s === null ? s : { ...s, draft: v })); }} />
       <span className="wr-edit-actions">
         <button type="button" className="wr-save" onClick={commit}>保存</button>
@@ -85,10 +105,10 @@ export function EditableValue({ def, raw, display, status, onSave, onRetry }: {
       </span>
     </span>;
   }
-  return <span className="wr-view">
+  return <span className="wr-view" ref={rootRef}>
     {display}
     <button type="button" ref={editBtn} className="wr-edit-btn" title="編集" disabled={busy} aria-label={`${def.label}を編集`}
-      onClick={() => { setSession({ base: raw ?? null, draft: initialDraft(def.kind, raw) }); }} />
+      onClick={begin} />
     <SaveStatus status={status} onRetry={onRetry} />
   </span>;
 }
