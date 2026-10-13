@@ -48,7 +48,8 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     await panel.locator('dt', { hasText: '募集職種（リストデータ）' }).dblclick();
     await expect(panel.getByRole('textbox', { name: '募集職種（リストデータ）' })).toBeVisible();
     await panel.getByRole('button', { name: 'やめる' }).click();
-    await panel.locator('dt', { hasText: /^案件名$/ }).locator('xpath=following-sibling::dd[1]').dblclick();
+    // 編集できない項目 (※編集不可) の項目名をダブルクリックしても始まらない
+    await panel.locator('dt', { hasText: 'URL_求人検索' }).dblclick();
     await expect(panel.locator('.wr-edit')).toHaveCount(0);
   });
 
