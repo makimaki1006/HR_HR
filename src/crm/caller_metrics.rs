@@ -60,7 +60,25 @@ const PAGE: u32 = 200;
 
 /// アポとして数えるステージ。(パイプライン名, ステージ ID)。営業側 `52035886` (sales_kpi の `ST_APO`) は
 /// 営業向けの画面を作るときにここへ足す。
+/// アポを取った人 (アポ獲得者) の取引項目。値は HubSpot の owner ID (enumeration)。
+/// 取引の `hubspot_owner_id` は新規営業の担当者で、アポを取った BPO のコーラーではない。
+/// 「誰のアポか」はこの項目で決める (直近 30 日のアポすべてに値があることを本番で確認済み)。
+/// 空の取引だけ従来どおり `hubspot_owner_id` に付ける。
+pub const APPOINTER_PROPERTY: &str = "bpo_26";
+
 pub const APPOINTMENT_STAGES: &[(&str, &str)] = &[("bpo_リクロジ", "1095457875")];
+
+/// アポを数えているチーム (`APPOINTMENT_STAGES` と対応)。見ている人がこのチームに入っていないと、
+/// 自分の画面にアポ欄を出さない (新規営業などは「0」が並ぶだけで意味がないため)。
+pub const APPOINTMENT_TEAMS: &[&str] = &["BPO_リクロジ"];
+
+/// 画面にアポ欄を出すか。チームが無い人 (管理者など) は従来どおり出す。
+pub fn appointments_tracked(viewer_teams: &[String]) -> bool {
+    viewer_teams.is_empty()
+        || viewer_teams
+            .iter()
+            .any(|t| APPOINTMENT_TEAMS.contains(&t.as_str()))
+}
 
 /// 通話時間のしきい値 (ミリ秒)
 pub const T30: i64 = 30_000;
@@ -146,6 +164,8 @@ pub struct TodayMetricsResponse {
     /// "team" = 同じチームの人、"all" = 今日架電した全員
     pub population: String,
     pub team_names: Vec<String>,
+    /// false のとき画面はアポ欄(数・平均・順位)を出さない
+    pub appointments_tracked: bool,
     /// me が null のときの理由 (そのまま画面に出せる文)
     pub message: Option<String>,
 }
@@ -502,7 +522,12 @@ async fn fetch_calls(
     Ok(out)
 }
 
-/// 今日アポ日確定に入った取引を担当者ごとに数える
+/// 取引 1 件のアポを付ける owner ID。アポ獲得者 (`bpo_26`) を優先し、空なら担当者
+pub fn appointment_owner(properties: &Value) -> Option<&str> {
+    prop_str(properties, APPOINTER_PROPERTY).or_else(|| prop_str(properties, "hubspot_owner_id"))
+}
+
+/// 今日アポ日確定に入った取引をアポ獲得者 (空なら担当者) ごとに数える
 async fn fetch_appointments(
     client: &HubSpotClient,
     day_start: i64,
@@ -524,7 +549,7 @@ async fn fetch_appointments(
                     flt(&prop, "GTE", json!(day_start.to_string())),
                     flt(&prop, "LT", json!(day_end.to_string())),
                 ]}],
-                "properties": ["hubspot_owner_id", prop],
+                "properties": ["hubspot_owner_id", APPOINTER_PROPERTY, prop],
                 "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
                 "limit": PAGE,
             });
@@ -542,10 +567,7 @@ async fn fetch_appointments(
                 if !seen.insert(id) {
                     continue;
                 }
-                if let Some(o) = r
-                    .get("properties")
-                    .and_then(|p| prop_str(p, "hubspot_owner_id"))
-                {
+                if let Some(o) = r.get("properties").and_then(appointment_owner) {
                     *by.entry(o.to_string()).or_default() += 1;
                 }
             }
@@ -796,6 +818,7 @@ pub(super) async fn get_today(
     } else {
         None
     };
+    let appointments_tracked = appointments_tracked(&viewer_teams);
     Json(TodayMetricsResponse {
         as_of: as_of_text(snap.as_of),
         day: snap.day.to_string(),
@@ -805,6 +828,7 @@ pub(super) async fn get_today(
         population_size,
         population: label.to_string(),
         team_names: viewer_teams,
+        appointments_tracked,
         message,
     })
     .into_response()

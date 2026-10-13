@@ -20,6 +20,10 @@ stale: boolean, me: MyTodayMetrics | null, team_avg: TeamAverage | null, populat
  */
 population: string, team_names: Array<string>, 
 /**
+ * false のとき画面はアポ欄(数・平均・順位)を出さない
+ */
+appointments_tracked: boolean, 
+/**
  * me が null のときの理由 (そのまま画面に出せる文)
  */
 message: string | null, };

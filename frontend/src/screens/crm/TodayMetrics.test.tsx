@@ -18,6 +18,14 @@ describe('今日の成績の帯', () => {
     expect(screen.getByText('今日の成績').getAttribute('title')).toBe('同じチーム（架空BPOチーム）で今日架電した 8 人と比べています。最初の架電 9:03・最後の架電 14:01。');
   });
 
+  it('アポを数えないチームの人にはアポ欄を出さない', async () => {
+    const f = () => Promise.resolve({ ok: true as const, data: { ...FIXTURE_TODAY, appointments_tracked: false } });
+    render(<TodayMetrics fixture={false} fetcher={f} />);
+    await screen.findByTestId('metric-outbound');
+    expect(screen.queryByTestId('metric-appointments')).toBeNull();
+    expect(screen.queryByText('アポ')).toBeNull();
+  });
+
   it('担当者が引けないときは理由を出す', async () => {
     const f = () => Promise.resolve({ ok: true as const, data: { ...FIXTURE_TODAY, me: null, message: '結び付けられません' } });
     render(<TodayMetrics fixture={false} fetcher={f} />);
