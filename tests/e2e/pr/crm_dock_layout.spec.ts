@@ -37,7 +37,7 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFirst(page);
 
-    // 既定 (v2): 左 = 架電一覧 (前) + プロパティ、中央 = 案件の概要 (上端に固定) + 活動ログ (前) / 架電結果の入力、右 = 求人検索・リンク先
+    // 既定 (v2): 左 = 取引一覧 (前) + プロパティ、中央 = 案件の概要 (上端に固定) + 活動ログ (前) / 架電結果の入力、右 = 求人検索・リンク先
     await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ']);
     await expect(tablist(page, '左').getByRole('tab', { name: '取引一覧' })).toHaveAttribute('aria-selected', 'true');
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力']);

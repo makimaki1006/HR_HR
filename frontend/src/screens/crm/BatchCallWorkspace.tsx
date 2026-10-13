@@ -128,7 +128,7 @@ export function BatchCallWorkspace() {
       <div className="batch-call-status" role="status"><span className={activeCall ? 'batch-status-active' : ''}>
         {activeCall ? `${contacts.find(c => c.id === activeCall.id)?.name ?? ''}さん · 通話デモ中 ${durationLabel(seconds)}` : 'Zoom Phone未接続 · 発信デモを利用できます'}</span>
         <span>{activeCall ? '別の顧客への発信を停止中' : '結果を記録すると、次の発信ボタンへ移動します。'}</span></div>
-      <div className="batch-table-container" role="region" aria-label="架電一覧（スクロール可能）" tabIndex={0}><table className="batch-table"><caption className="batch-sr-only">複数顧客の架電一覧。各行で発信と結果入力を行います。</caption>
+      <div className="batch-table-container" role="region" aria-label="取引一覧（スクロール可能）" tabIndex={0}><table className="batch-table"><caption className="batch-sr-only">複数顧客の架電一覧。各行で発信と結果入力を行います。</caption>
         <colgroup><col className="batch-col-customer" /><col className="batch-col-history" /><col className="batch-col-call" /><col className="batch-col-record" /></colgroup>
         <thead><tr><th scope="col">架電案件・担当者</th><th scope="col">前回の電話・申し送り</th><th scope="col">発信</th><th scope="col">今回の結果・タスクメモ</th></tr></thead>
         <tbody>{visibleContacts.map(record => {

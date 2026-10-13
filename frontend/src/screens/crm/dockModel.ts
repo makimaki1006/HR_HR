@@ -10,7 +10,7 @@ export type PanelId = 'queue' | 'properties' | 'overview' | 'activity' | 'result
 export const PANEL_IDS: readonly PanelId[] = ['queue', 'properties', 'overview', 'activity', 'result', 'links'];
 
 export const PANEL_LABELS: Record<PanelId, string> = {
-  queue: '架電一覧', properties: 'プロパティ', overview: '案件の概要', activity: '活動ログ', result: '架電結果の入力', links: '求人検索・リンク先',
+  queue: '取引一覧', properties: 'プロパティ', overview: '案件の概要', activity: '活動ログ', result: '架電結果の入力', links: '求人検索・リンク先',
 };
 
 /** タブ (つまみ) に出す名前。「取引一覧」はタブの表示名だけ (ほかの場所の文言は PANEL_LABELS のまま) */
@@ -37,7 +37,7 @@ export interface DockLayout {
 }
 
 /**
- * 既定の配置 (v2, 2026-10-08): 左 = 架電一覧 + プロパティ、中央 = 案件の概要 (上端) + 活動ログ / 架電結果の入力、
+ * 既定の配置 (v2, 2026-10-08): 左 = 取引一覧 + プロパティ、中央 = 案件の概要 (上端) + 活動ログ / 架電結果の入力、
  * 右 = 求人検索・リンク先 (Google の検索結果を広く・高く出す)。
  * 幅の比は 1440px で 左 ≈ 300px / 中央 ≈ 490px / 右 ≈ 640px (45%)。1366 / 1280px でも同じ比 (左 ≈ 285 / 265px)
  */

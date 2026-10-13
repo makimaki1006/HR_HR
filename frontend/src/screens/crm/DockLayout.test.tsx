@@ -63,7 +63,7 @@ function moveVia(panel: string, label: string) {
 }
 
 describe('panel layout (dock)', () => {
-  it('default (v2): left = 架電一覧 (front) + プロパティ, center = 案件の概要 fixed on top + 活動ログ (front) / 架電結果の入力, right = 求人検索・リンク先', async () => {
+  it('default (v2): left = 取引一覧 (front) + プロパティ, center = 案件の概要 fixed on top + 活動ログ (front) / 架電結果の入力, right = 求人検索・リンク先', async () => {
     const c = counted();
     await openDeal(c);
     const left = within(screen.getByRole('tablist', { name: '左の列のパネル' })).getAllByRole('tab');
@@ -79,7 +79,7 @@ describe('panel layout (dock)', () => {
     expect(screen.getByTestId('dock').style.gridTemplateColumns).toBe('minmax(220px, 0.21fr) 6px minmax(220px, 0.34fr) 6px minmax(220px, 0.45fr)');
     // 初めて開いた (以前の配置が無い) ときは案内を出さない
     expect(screen.queryByTestId('layout-note')).toBeNull();
-    // 架電先を選んでも、左の列は「架電一覧」のまま
+    // 架電先を選んでも、左の列は「取引一覧」のまま
     expect(tab('取引一覧').getAttribute('aria-selected')).toBe('true');
   });
 

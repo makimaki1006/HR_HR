@@ -50,7 +50,7 @@
 /* ---- 絞り込みバー ---- */
 .cq-filters { flex: none; background: var(--cq-surface); border-bottom: 1px solid var(--cq-line); padding: 8px 16px; display: flex; flex-direction: column; gap: 8px; }
 .cq-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.cq-app .cq-search { flex: 1 1 220px; width: auto; min-width: 160px; max-width: 360px; }
+.cq-app .cq-search { flex: 1 1 140px; width: auto; min-width: 120px; max-width: 360px; }
 .cq-app .cq-sort { width: auto; flex: 0 1 230px; min-width: 0; }
 .cq-toggle { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; padding: 4px 10px; border: 1px solid var(--cq-line-strong); border-radius: 999px; cursor: pointer; user-select: none; }
 .cq-app .cq-toggle input { width: auto; margin: 0; accent-color: var(--cq-accent); }
@@ -414,6 +414,6 @@
 .cq-notes-mini summary small { margin-left: 4px; font-size: 11px; }
 .cq-notes-mini[open] summary { border-radius: 4px 4px 0 0; }
 .cq-notes-mini ul { margin: 0; padding: 6px 10px 6px 24px; background: #fff8e1; border: 1px solid #f0d98a; border-top: 0; border-radius: 0 0 4px 4px; color: var(--cq-text); }
-.cq-view-name { font-size: 11px; color: #0e7490; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: center; }
+.cq-view-name { font-size: 11px; color: #0e7490; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: center; }
 .cq-info::before, .cq-glyph::before { content: attr(data-glyph); }
 .cq-scope-note.cq-info { margin: 0; }

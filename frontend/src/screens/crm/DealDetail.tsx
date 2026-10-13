@@ -314,7 +314,7 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
 export const ActivityLog = memo(ActivityLogImpl);
 
 function DetailMessage({ state, reload }: { state: DetailState; reload: () => void }) {
-  if (state.phase === 'idle') return <div className="cq-notice cq-empty wd-empty"><strong>架電一覧から架電先を選んでください</strong>
+  if (state.phase === 'idle') return <div className="cq-notice cq-empty wd-empty"><strong>取引一覧から架電先を選んでください</strong>
     <p>案件・担当者・会社・活動履歴を HubSpot から読み込みます。</p></div>;
   if (state.phase === 'loading') return <p role="status" className="cq-loading">詳細を読み込み中…</p>;
   if (state.phase === 'forbidden') return <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p></div>;

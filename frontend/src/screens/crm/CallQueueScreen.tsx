@@ -81,7 +81,7 @@ import './queue.css';
 
 /** パネルの中で、架電先を選ぶ前・読み込み中・失敗のときに出す一言 (詳しい案内は「案件の概要」に出す) */
 export function panelPlaceholder(selected: boolean, phase: 'idle' | 'loading' | 'ready' | 'error' | 'forbidden' | 'waiting'): string {
-  if (!selected || phase === 'idle') return '架電一覧から架電先を選ぶと、ここに表示します。';
+  if (!selected || phase === 'idle') return '取引一覧から架電先を選ぶと、ここに表示します。';
   if (phase === 'loading' || phase === 'waiting') return '案件の情報を読み込み中…';
   return '案件の情報を表示できません。「案件の概要」の案内を確認してください。';
 }
@@ -868,7 +868,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           {parsePropertySort(filters.sort) !== null && <option value={filters.sort}>{catalog.state.phase === 'ready' ? catalog.state.index.deals.get(parsePropertySort(filters.sort)?.property ?? '')?.prop.label ?? '選んだ項目' : '選んだ項目'} {parsePropertySort(filters.sort)?.direction === 'desc' ? '降順' : '昇順'}</option>}<option value="other">ほかの項目で並べ替え…</option></select>
         {filters.target !== 'all' && <label className="cq-toggle"><input type="checkbox" checked={filters.due === 'today'}
           onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>}
-        {viewName !== null && <span className="cq-view-name" data-testid="current-view-name" title="開いている保存済みのビュー">ビュー: {viewName}</span>}
+        {viewName !== null && <span className="cq-view-name" data-testid="current-view-name" title={`開いている保存済みのビュー: ${viewName}`}>ビュー: {viewName}</span>}
         <button type="button" className="cq-btn cq-more-toggle" aria-expanded={panelOpen} aria-controls="cq-advanced"
           onClick={() => { setPanelOpen(o => !o); }}>詳細条件{detailCount > 0 && <span className="cq-badge">{detailCount}</span>}</button>
         <button type="button" className="cq-btn" onClick={() => { setPanelOpen(true); }} >条件を追加</button>
