@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
-import { loadVersions, prefetchNeighbors } from './listingDetailCache';
+import { loadCompanies, loadVersions, prefetchNeighbors } from './listingDetailCache';
 import type { JobCopyRecord } from './data';
 import { listingRecord, mediaLabel, publicationLabel, draftStateLabel } from './hubspotListings';
 import type { HubSpotListingPage, HubSpotListing, DealSelection } from './hubspotListings';
@@ -110,6 +110,8 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   const conditions = [deal ? dealName : '', prefecture, title === 'unknown' ? '職種不明' : title, media === 'hrh' ? 'HRハッカー' : media === 'airwork' ? 'AirWork' : '', publication === 'unknown' ? '公開状況は不明' : publication, draftStatus ? draftStatus === 'none' ? '案なし・確認状態は未取得' : ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' } as Record<string, string>)[draftStatus] ?? '不明' : ''].filter(Boolean).join(' ／ ') || 'すべての求人';
   const rows = useMemo(() => sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [], [page, sort]);
   useEffect(() => { orderRef.current = rows.map(item => item.id); }, [rows]);
+  // 一覧に出ている求人の会社名をまとめて読んでおく。求人を開いたとき会社名がすぐ出る。
+  useEffect(() => { if (active && page?.status === 'ready' && rows.length) void loadCompanies(rows.map(item => item.id)); }, [active, page?.status, rows]);
   useEffect(() => { if (active) onVisibleRows?.(rows); }, [active, rows, onVisibleRows]);
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
     <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>

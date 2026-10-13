@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import type { ApiResult } from '../../api/client';
-import { invalidateListingUrl, loadCompany, loadVersions, MAX_PREFETCH, peekVersions, prefetchNeighbors } from './listingDetailCache';
+import { firstImageUrls, invalidateListingUrl, loadCompanies, loadCompany, loadVersions, MAX_IMAGE_PREFETCH, MAX_PREFETCH, peekVersions, prefetchNeighbors } from './listingDetailCache';
 import type { HubSpotVersions } from './hubspotListings';
 
 const api = vi.hoisted(() => vi.fn());
@@ -160,5 +160,85 @@ describe('customer name', () => {
     expect(await loadCompany('11')).toBeNull();
     expect(await loadCompany('11')).toBeNull();
     expect(api).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('customer names read together for the visible list', () => {
+  it('fills the names in one request so opening a listing reads nothing more', async () => {
+    api.mockResolvedValueOnce({ ok: true, data: { companies: { '10': '合成運輸株式会社', '11': null } } });
+    await loadCompanies(['10', '11', '10']);
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(String(api.mock.calls[0]?.[0])).toBe('/api/job-copy/listings/companies?ids=10,11');
+    expect(await loadCompany('10')).toBe('合成運輸株式会社');
+    expect(await loadCompany('11')).toBeNull();
+    expect(api).toHaveBeenCalledTimes(1);
+    // Names already known are not asked for again.
+    await loadCompanies(['10', '11']);
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+  it('waits for a batch already running instead of reading the same name again', async () => {
+    hold();
+    const batch = loadCompanies(['10']);
+    const opened = loadCompany('10');
+    await tick();
+    expect(pending).toHaveLength(1);
+    answer(waiting(), { ok: true, data: { companies: { '10': '合成運輸株式会社' } } });
+    await batch;
+    expect(await opened).toBe('合成運輸株式会社');
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+  it('does not wait long for a slow batch: after 1.5 seconds the listing reads its own name', async () => {
+    vi.useFakeTimers();
+    hold();
+    void loadCompanies(['10']);
+    const opened = loadCompany('10');
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(pending).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(2);
+    expect(pending.map(item => item.path)).toEqual(['/api/job-copy/listings/companies?ids=10', '/api/job-copy/listings/10/company']);
+    answer(pending.find(item => item.path.endsWith("/company")) ?? waiting());
+    expect(await opened).toBe('合成運輸株式会社');
+  });
+  it('splits a long list into requests of 50, and a failed batch falls back to the single read', async () => {
+    const ids = Array.from({ length: 120 }, (_, index) => String(index + 1));
+    api.mockResolvedValue({ ok: false, error: new Error('busy') });
+    await loadCompanies(ids);
+    expect(calls('/companies?ids=').map(path => path.split(',').length)).toEqual([50, 50, 20]);
+    api.mockResolvedValueOnce({ ok: true, data: { listing_id: '7', company_name: '合成運輸株式会社' } });
+    expect(await loadCompany('7')).toBe('合成運輸株式会社');
+    expect(calls('/listings/7/company')).toHaveLength(1);
+  });
+  it('asks for nothing when no listing id is usable', async () => {
+    await loadCompanies(['', 'x/../1']);
+    expect(api).not.toHaveBeenCalled();
+  });
+});
+
+describe('images of the neighbouring listings', () => {
+  const loading: { src: string; onload: (() => void) | null; onerror: (() => void) | null }[] = [];
+  beforeEach(() => {
+    loading.length = 0;
+    vi.stubGlobal('Image', class { src = ''; onload: (() => void) | null = null; onerror: (() => void) | null = null; constructor() { loading.push(this); } });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const withImages = (id: string, urls: string[]) => ({ ...detail(id), current: { checked_at: '2026-10-13T00:00:00Z', body: 'x', image_urls: urls } }) as unknown as HubSpotVersions;
+  it('takes the first few https images of what is shown first', () => {
+    const urls = ['https://cdn.example.invalid/1.jpg', '/api/job-copy/image?x=1', 'https://cdn.example.invalid/2.jpg', 'https://cdn.example.invalid/3.jpg', 'https://cdn.example.invalid/4.jpg', 'https://cdn.example.invalid/5.jpg', 'https://cdn.example.invalid/6.jpg'];
+    expect(MAX_IMAGE_PREFETCH).toBe(4);
+    expect(firstImageUrls(withImages('1', urls))).toEqual(['https://cdn.example.invalid/1.jpg', 'https://cdn.example.invalid/2.jpg', 'https://cdn.example.invalid/3.jpg', 'https://cdn.example.invalid/4.jpg']);
+    const history = { ...detail('1'), versions: [{ written_at: 'a', body: 'a', image_urls: ['https://cdn.example.invalid/old.jpg'] }, { written_at: 'b', body: 'b', image_urls: null }] } as unknown as HubSpotVersions;
+    expect(firstImageUrls(history)).toEqual(['https://cdn.example.invalid/old.jpg']);
+    expect(firstImageUrls(detail('1'))).toEqual([]);
+  });
+  it('loads the neighbours images after their text, two at a time, and never twice', async () => {
+    const pages = new Map([['3', withImages('3', ['https://cdn.example.invalid/a.jpg', 'https://cdn.example.invalid/b.jpg', 'https://cdn.example.invalid/c.jpg'])], ['5', withImages('5', ['https://cdn.example.invalid/a.jpg'])]]);
+    api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: pages.get(idOf(path)) }));
+    prefetchNeighbors(['1', '2', '3', '4', '5'], '4');
+    await tick(); await tick();
+    // Two images start at once; the rest wait for a free slot. The repeated URL is read once.
+    expect(loading.map(image => image.src)).toEqual(['https://cdn.example.invalid/a.jpg', 'https://cdn.example.invalid/b.jpg']);
+    loading[0]?.onload?.();
+    expect(loading.map(image => image.src)).toEqual(['https://cdn.example.invalid/a.jpg', 'https://cdn.example.invalid/b.jpg', 'https://cdn.example.invalid/c.jpg']);
+    expect(api.mock.calls.every(call => String(call[0]).includes('/versions'))).toBe(true);
   });
 });
