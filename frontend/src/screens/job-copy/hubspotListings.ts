@@ -4,9 +4,12 @@ import type { CopyVersion } from './data';
 import columns from '../../generated/jobgen/columns.json';
 import { hrhCopySections, composeHrhBody } from './hrhCopy';
 import type { JobCopyRecord } from './data';
+import type { IndeedTitleState } from './marketMatch';
 export interface HubSpotListing {
   id: string; media: 'hrh' | 'airwork'; media_job_id: string; account_id: string | null;
   title: string | null; prefecture: string | null; municipality: string | null; category: string | null;
+  /** 人が指定した「比べる Indeed 職種」。state: set / none（市場と比べない）/ unset。古い応答には無い。 */
+  indeed_title?: string | null; indeed_title_state?: IndeedTitleState;
   draft_status?: DraftSnapshot['review_status'] | null;
   deal_ids?: string[]; summary?: ListingSummary;
   publication_status: string | null; last_csv_detected_at: string | null; application_count: number | null;
@@ -60,6 +63,7 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
     title: row.title ?? '求人名未取得', company: data.company_name ?? '', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),
     location: [row.prefecture, row.municipality].filter(Boolean).join('') || '',
+    indeedTitle: row.indeed_title ?? null, indeedTitleState: row.indeed_title_state ?? 'unset',
     ...(data.current_images ? { currentImageObservation: { observedAt: data.current_images.observed_at, images: data.current_images.image_urls.map((url, index) => ({ id: `observed-${String(index)}`, url, caption: `現在の画像${String(index + 1)}` })) } } : {}),
     versions: [...data.versions.map((version, index) => ({
       id: `hubspot-history-${row.id}-${String(index)}`, label: `${formatDateTimeJst(version.written_at, '日時不明')} にHubSpotに記録された本文`,

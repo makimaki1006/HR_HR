@@ -45,6 +45,7 @@ const PROPERTIES: &[&str] = &[
     "baitai_genjoukyou_hrhakkaa",
     "baitai_genjoukyou_airwork",
     "saishuu_csv_kenshutsu_bi",
+    INDEED_TITLE_PROPERTY,
 ];
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -70,7 +71,11 @@ struct Listing {
     title: Option<String>,
     prefecture: Option<String>,
     municipality: Option<String>,
+    /// 人が指定した Indeed 職種（指定済みのときだけ）。一覧の「職種」絞り込みはこれを使う。
     category: Option<String>,
+    indeed_title: Option<String>,
+    /// "set"（職種を指定）/ "none"（市場と比べない）/ "unset"（未指定）
+    indeed_title_state: &'static str,
     publication_status: Option<String>,
     draft_status: Option<String>,
     last_csv_detected_at: Option<String>,
@@ -86,31 +91,17 @@ fn normalize(value: &str) -> String {
         .flat_map(char::to_lowercase)
         .collect()
 }
-fn match_title(value: &str, titles: &[String]) -> Option<String> {
-    let target = normalize(value);
-    if target.is_empty() {
-        return None;
+/// 「市場と比べない」を表す保存値。Indeed の職種名とは重ならない。
+pub(super) const INDEED_TITLE_NONE: &str = "__none__";
+/// HubSpot の求人の項目。人が指定した Indeed 職種（または `__none__`）を持つ。
+pub(super) use crate::hubspot::client::INDEED_TITLE_PROPERTY;
+/// 指定の状態。職種は人が指定したものだけを使い、文面からは推測しない。
+fn indeed_title_of(record: &Record) -> (Option<String>, &'static str) {
+    match record.value(INDEED_TITLE_PROPERTY).map(str::trim) {
+        None | Some("") => (None, "unset"),
+        Some(INDEED_TITLE_NONE) => (None, "none"),
+        Some(v) => (Some(v.to_owned()), "set"),
     }
-    if let Some(exact) = titles.iter().find(|t| normalize(t) == target) {
-        return Some(exact.clone());
-    }
-    let mut candidates: Vec<_> = titles
-        .iter()
-        .filter(|t| {
-            let category = normalize(t);
-            category.chars().count() >= 2
-                && (target.contains(&category) || category.contains(&target))
-        })
-        .collect();
-    // Match marketMatch.ts without depending on the server/browser locale.
-    candidates.sort_by(|a, b| {
-        normalize(b)
-            .chars()
-            .count()
-            .cmp(&normalize(a).chars().count())
-            .then_with(|| a.cmp(b))
-    });
-    candidates.first().map(|t| (*t).clone())
 }
 fn location(value: &str) -> (Option<String>, Option<String>) {
     let text: String = value.nfkc().collect();
@@ -126,7 +117,7 @@ fn location(value: &str) -> (Option<String>, Option<String>) {
         None => (None, None),
     }
 }
-fn listing(record: &Record, titles: &[String]) -> Option<Listing> {
+fn listing(record: &Record) -> Option<Listing> {
     let hrh = record.value("id_hrhakkaa");
     let aw = record.value("id_airwork");
     let (media, media_job_id, account_id) = match (hrh, aw) {
@@ -134,27 +125,15 @@ fn listing(record: &Record, titles: &[String]) -> Option<Listing> {
         (None, Some(id)) => ("airwork", id, record.value("airwork_account_login_id")),
         _ => return None,
     };
-    let (prefecture, municipality, occupation) = if media == "hrh" {
-        let body = record.value("hrh_kyuujinhyou_honbun").unwrap_or("");
-        let occupation = super::hrh_copy::fields(body)
-            .remove("Indeed表示職種名")
-            .unwrap_or_default()
-            .lines()
-            .map(str::trim)
-            .collect::<String>();
+    let (prefecture, municipality) = if media == "hrh" {
         (
             record.value("todoufuken").map(str::to_owned),
             record.value("shikuchouson").map(str::to_owned),
-            occupation,
         )
     } else {
-        let (pref, city) = location(record.value("qinwude").unwrap_or(""));
-        (
-            pref,
-            city,
-            record.value("zhizhong").unwrap_or("").to_owned(),
-        )
+        location(record.value("qinwude").unwrap_or(""))
     };
+    let (indeed_title, indeed_title_state) = indeed_title_of(record);
     Some(Listing {
         id: record.id.clone(),
         media,
@@ -163,7 +142,9 @@ fn listing(record: &Record, titles: &[String]) -> Option<Listing> {
         title: record.value("hs_name").map(str::to_owned),
         prefecture,
         municipality,
-        category: match_title(&occupation, titles),
+        category: indeed_title.clone(),
+        indeed_title,
+        indeed_title_state,
         publication_status: publication(record, media),
         deal_ids: vec![],
         summary: summary(record, media),
@@ -234,6 +215,31 @@ struct PageListing {
     application_count: Option<usize>,
 }
 
+/// 職種の指定を書けたら、全件索引の行にも反映する（再構築を待たない）。
+/// `value` は書いた保存値（職種名、または `__none__`）。
+pub(super) async fn update_indeed_title(service: &JobReadService, id: &str, value: &str) {
+    let mut cache = service.listing_index.state.write().await;
+    if let Some(index) = cache.snapshot.as_mut() {
+        let index = Arc::make_mut(index);
+        if let Some(row) = index.records.iter_mut().find(|r| r.id == id) {
+            if value == INDEED_TITLE_NONE {
+                row.indeed_title = None;
+                row.indeed_title_state = "none";
+            } else {
+                row.indeed_title = Some(value.to_owned());
+                row.indeed_title_state = "set";
+            }
+            row.category = row.indeed_title.clone();
+        }
+    }
+}
+/// 市場データにある職種名の一覧（指定できる職種）。
+pub(super) fn market_titles(
+    db: &crate::db::local_sqlite::LocalDb,
+) -> Result<Vec<String>, ReadError> {
+    taxonomy(db)
+}
+
 // 保存に成功した案だけ一覧へ反映する。全件索引の絞り込み・件数にも使用する。
 pub(super) async fn update_draft_state(
     service: &JobReadService,
@@ -294,7 +300,7 @@ async fn build_index(
             valid_id(&record.id).map_err(|_| fail("hubspot_invalid_response"))?;
             // Stable IDs can repeat if a listing moves between pages during the read.
             if ids.insert(record.id.clone()) {
-                if let Some(mut row) = listing(&record, &titles) {
+                if let Some(mut row) = listing(&record) {
                     row.summary.body_changed_at = data["results"]
                         .as_array()
                         .and_then(|rows| rows.iter().find(|v| v["id"].as_str() == Some(&record.id)))
@@ -1057,11 +1063,11 @@ pub(super) async fn read_versions(
     if record.id != id {
         return Err(fail("hubspot_invalid_response"));
     }
-    let db = state.indeed_db.as_ref().ok_or(ReadError(
+    state.indeed_db.as_ref().ok_or(ReadError(
         StatusCode::SERVICE_UNAVAILABLE,
         "market_data_unavailable",
     ))?;
-    let row = listing(&record, &taxonomy(db)?).ok_or(ReadError(
+    let row = listing(&record).ok_or(ReadError(
         StatusCode::UNPROCESSABLE_ENTITY,
         "listing_media_unknown",
     ))?;
@@ -1191,6 +1197,12 @@ pub(super) async fn read_companies(
         Json(json!({ "companies": names })),
     ))
 }
+/// テスト用: 一覧の行の職種指定（職種名, 状態）。
+#[cfg(test)]
+pub(super) fn tests_listing(record: &Record) -> (Option<String>, &'static str) {
+    let row = listing(record).unwrap();
+    (row.indeed_title, row.indeed_title_state)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1270,7 +1282,7 @@ mod tests {
             };
             let records: Vec<_> = (1..=51)
                 .map(|id| {
-                    let mut row = listing(&record, &[]).unwrap();
+                    let mut row = listing(&record).unwrap();
                     row.id = id.to_string();
                     row.title = Some(format!("架空求人{id:03}"));
                     row.indexed_application_count = if id == 51 { count } else { Some(99) };
@@ -1445,9 +1457,9 @@ mod tests {
     }
     #[test]
     fn job_copy_multiline_occupation_is_classified_and_filtered() {
-        let record: Record = serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"HR-1","hrh_kyuujinhyou_honbun":"仕事内容：配送します\nIndeed表示職種名：\n配送\nドライバー\n応募資格：普通免許","todoufuken":"沖縄県"}})).unwrap();
+        let record: Record = serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"HR-1","hrh_kyuujinhyou_honbun":"仕事内容：配送します\nIndeed表示職種名：\n配送\nドライバー\n応募資格：普通免許","todoufuken":"沖縄県","jobcopy_indeed_title":"配送ドライバー"}})).unwrap();
         let titles = vec!["配送ドライバー".into()];
-        let row = listing(&record, &titles).unwrap();
+        let row = listing(&record).unwrap();
         assert_eq!(row.category.as_deref(), Some("配送ドライバー"));
         let index = Index {
             records: vec![row],
@@ -1468,26 +1480,7 @@ mod tests {
         assert_eq!(page[0].listing.id, "1");
     }
     #[test]
-    fn job_copy_title_and_prefecture_specific_values() {
-        let titles = vec![
-            "ドライバー".into(),
-            "配送ドライバー".into(),
-            "看護師".into(),
-        ];
-        assert_eq!(
-            match_title("配送 ドライバー", &titles),
-            Some("配送ドライバー".into())
-        );
-        assert_eq!(
-            match_title("夜間配送ドライバー募集", &titles),
-            Some("配送ドライバー".into())
-        );
-        assert_eq!(match_title("運転手", &titles), None);
-        assert_eq!(
-            match_title("看護師・介護職", &["看護師".into(), "介護職".into()]),
-            Some("介護職".into())
-        );
-        assert_eq!(match_title("", &titles), None);
+    fn job_copy_prefecture_specific_values() {
         assert_eq!(
             location(" 大分県大分市中央町1-1 "),
             (Some("大分県".into()), Some("大分市".into()))
@@ -1619,7 +1612,7 @@ mod tests {
                 "kyuujin_status": normalized,
                 if media == "hrh" { "baitai_genjoukyou_hrhakkaa" } else { "baitai_genjoukyou_airwork" }: raw
             }})).unwrap();
-            let row = listing(&record, &[]).unwrap();
+            let row = listing(&record).unwrap();
             assert_eq!(row.publication_status.as_deref(), Some(expected));
             assert!(matches(
                 &row,
@@ -1642,12 +1635,11 @@ mod tests {
     }
     #[test]
     fn job_copy_media_keys_and_unknown_values() {
-        let titles = vec!["ドライバー".into()];
         let make = |id: &str, account: &str| {
             serde_json::from_value::<Record>(json!({"id":id,"properties":{"id_airwork":"same-id","airwork_account_login_id":account,"qinwude":"千葉県市川市合成勤務地","zhizhong":"運転手"}})).unwrap()
         };
-        let first = listing(&make("10", "synthetic-a"), &titles).unwrap();
-        let second = listing(&make("11", "synthetic-b"), &titles).unwrap();
+        let first = listing(&make("10", "synthetic-a")).unwrap();
+        let second = listing(&make("11", "synthetic-b")).unwrap();
         assert_eq!(first.media_job_id, second.media_job_id);
         assert_ne!(first.account_id, second.account_id);
         assert_eq!(first.prefecture, Some("千葉県".into()));
@@ -1659,7 +1651,7 @@ mod tests {
             .properties
             .insert("baitai_genjoukyou_airwork".into(), Some("掲載中".into()));
         assert_eq!(
-            listing(&published, &titles).unwrap().publication_status,
+            listing(&published).unwrap().publication_status,
             Some("掲載中".into())
         );
 
@@ -1734,7 +1726,7 @@ mod tests {
                 let end = (start + 99).min(203);
                 let results: Vec<Value> = (start..=end).map(|id| {
                     let (pref, title, airwork) = if id <= 150 {("沖縄県", "看護師", false)} else if id <= 180 {("沖縄県", "看護師", true)} else if id <= 200 {("大分県", "ドライバー", false)} else {("沖縄県", "清掃スタッフ", false)};
-                    let mut properties = json!({"hs_name":format!("合成求人{id:03}"),"todoufuken":pref,"shikuchouson":"合成市","hrh_kyuujinhyou_honbun":format!("仕事内容：索引に残さない合成の長い本文\nIndeed表示職種名：{title}"),"zhizhong":title,"qinwude":format!("{pref}合成市"),"kyuujin_status":"公開中"});
+                    let mut properties = json!({"hs_name":format!("合成求人{id:03}"),"todoufuken":pref,"shikuchouson":"合成市","hrh_kyuujinhyou_honbun":format!("仕事内容：索引に残さない合成の長い本文\nIndeed表示職種名：{title}"),"zhizhong":title,"jobcopy_indeed_title":if title == "清掃スタッフ" { "" } else { title },"qinwude":format!("{pref}合成市"),"kyuujin_status":"公開中"});
                     if airwork { properties["id_airwork"] = json!(format!("AW-{id}")); properties["airwork_account_login_id"] = json!("synthetic-account"); }
                     else { properties["id_hrhakkaa"] = json!(format!("HR-{id}")); }
                     json!({"id":id.to_string(),"properties":properties})

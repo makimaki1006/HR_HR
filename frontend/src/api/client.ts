@@ -387,6 +387,27 @@ export async function apiPatch<T>(
   );
 }
 
+/** PUT a JSON body. Same result/error contract as apiPatch. */
+export async function apiPut<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<T>> {
+  return sendFetch<T>(
+    path,
+    {
+      method: 'PUT',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...REQUESTED_WITH,
+      },
+      body: JSON.stringify(body),
+    },
+    options,
+  );
+}
+
 /**
  * POST application/x-www-form-urlencoded (existing `/api/set_*` handlers).
  * Those answer `Html("OK")`, so pass `{ expect: 'text' }` to accept it as success.

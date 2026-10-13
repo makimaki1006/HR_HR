@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseMarket, matchMarketTitle, prefectureFromLocation } from './marketMatch';
+import { chooseMarket, indeedTitleState, marketTitleNote, prefectureFromLocation } from './marketMatch';
 
 describe('market choice for a job', () => {
   it('takes the prefecture from the work location', () => {
@@ -10,13 +10,18 @@ describe('market choice for a job', () => {
     expect(prefectureFromLocation('大分市')).toBeNull();
     expect(prefectureFromLocation('大分県大分市', ['福岡県'])).toBeNull();
   });
-  it('prefers an exact category, then the longest contained one', () => {
-    expect(matchMarketTitle('ドライバー', ['ドライバー', '配送ドライバー'])).toEqual({ title: 'ドライバー', how: 'exact', candidates: ['ドライバー'] });
-    expect(matchMarketTitle('地域配送ドライバー', ['ドライバー', '配送ドライバー', '事務'])).toEqual({ title: '配送ドライバー', how: 'partial', candidates: ['配送ドライバー', 'ドライバー'] });
+  it('uses only the designated title and never guesses one from the job', () => {
+    const job = { title: '地域配送ドライバー', location: '大分県大分市' };
+    expect(chooseMarket({ ...job, indeedTitle: '配送ドライバー', indeedTitleState: 'set' }, ['大分県'])).toEqual({ title: '配送ドライバー', titleState: 'set', prefecture: '大分県' });
+    // The job's own name equals a market title, but nothing was designated: still no title.
+    expect(chooseMarket({ title: 'ドライバー', location: '大分県大分市', indeedTitleState: 'unset' }, ['大分県'])).toEqual({ title: null, titleState: 'unset', prefecture: '大分県' });
+    expect(chooseMarket({ ...job, indeedTitle: null, indeedTitleState: 'none' }, ['大分県'])).toEqual({ title: null, titleState: 'none', prefecture: '大分県' });
+    expect(chooseMarket(job, ['大分県']).titleState).toBe('unset');
   });
-  it('returns null with no candidate instead of picking a near one', () => {
-    expect(matchMarketTitle('倉庫内ピッキングスタッフ', ['倉庫作業', '製造スタッフ'])).toBeNull();
-    expect(matchMarketTitle('', ['ドライバー'])).toBeNull();
-    expect(chooseMarket({ title: '倉庫内ピッキングスタッフ', location: '大分県別府市' }, ['倉庫作業'], ['大分県'])).toEqual({ title: null, prefecture: '大分県', titleHow: null, candidates: [] });
+  it('treats a record without a title as 未指定 and names each state plainly', () => {
+    expect(indeedTitleState({ indeedTitleState: 'set', indeedTitle: null })).toBe('unset');
+    expect(marketTitleNote('unset')).toBe('市場と比べる職種が未指定です');
+    expect(marketTitleNote('none')).toBe('市場と比べないと指定されています');
+    expect(marketTitleNote('set')).toBeNull();
   });
 });

@@ -30,6 +30,11 @@ use super::types::{
 
 pub const DEFAULT_BASE_URL: &str = "https://api.hubapi.com";
 
+/// 求人の項目「比べる Indeed 職種」。値は Indeed の職種名、または「市場と比べない」を表す印。
+pub(crate) const INDEED_TITLE_PROPERTY: &str = "jobcopy_indeed_title";
+/// その項目が HubSpot に無いときの `HubSpotError::Decode` の中身。
+pub(crate) const INDEED_TITLE_PROPERTY_MISSING: &str = "indeed_title_property_missing";
+
 /// HubSpot API の接続先。`HUBSPOT_BASE_URL` (負荷試験の偽 HubSpot 用) が `http://` / `https://` で
 /// 始まればそれを、そうでなければ [`DEFAULT_BASE_URL`]。**鍵 (Bearer) はこの接続先に送られる**ので本番では設定しない
 pub fn base_url_from_env() -> String {
@@ -625,6 +630,55 @@ impl HubSpotClient {
             return Err(HubSpotError::Decode("invalid draft properties".into()));
         }
         self.patch_object_inner("0-420", id, properties).await
+    }
+
+    /// 求人に「比べる Indeed 職種」だけを書く (`jobcopy_indeed_title`)。1 回だけ送り、retry しない。
+    /// 項目が HubSpot に無いときは `Decode(INDEED_TITLE_PROPERTY_MISSING)`。
+    pub(crate) async fn patch_listing_indeed_title(
+        &self,
+        id: &str,
+        value: &str,
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        check_id(id)?;
+        let body = json!({ "properties": { INDEED_TITLE_PROPERTY: value } });
+        let path = format!("/crm/v3/objects/0-420/{id}");
+        let priority = match self.priority {
+            Priority::Interactive => Priority::Continuation,
+            other => other,
+        };
+        let reply = self
+            .raw_once_with(priority, &Method::PATCH, &path, &[], Some(&body))
+            .await?;
+        match reply.status {
+            200..=299 => {
+                let v = reply
+                    .body
+                    .ok_or_else(|| HubSpotError::Decode("empty body".into()))?;
+                parse_record(&v)
+            }
+            // 失敗の本文は読めないので、項目の有無を定義で確かめる (無ければ 404)。
+            400 => {
+                let definition = self
+                    .read_raw(
+                        false,
+                        &format!("/crm/v3/properties/0-420/{INDEED_TITLE_PROPERTY}"),
+                        &[],
+                        None,
+                    )
+                    .await?;
+                if definition.status == 404 {
+                    Err(HubSpotError::Decode(INDEED_TITLE_PROPERTY_MISSING.into()))
+                } else {
+                    Err(HubSpotError::Upstream { status: 400 })
+                }
+            }
+            401 | 403 => Err(HubSpotError::Auth {
+                status: reply.status,
+            }),
+            404 => Err(HubSpotError::NotFound),
+            429 => Err(HubSpotError::RateLimited),
+            s => Err(HubSpotError::Upstream { status: s }),
+        }
     }
 
     /// `PATCH /crm/v3/objects/{object}/{id}` (プロパティの書き込み。Contact / Company / Deal のみ)。

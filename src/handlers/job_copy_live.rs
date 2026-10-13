@@ -24,6 +24,7 @@ mod applicant_extensions;
 pub mod applicant_reasons;
 mod drafts;
 mod hrh_copy;
+mod indeed_title;
 mod listing_cache;
 mod listing_status;
 mod listings;
@@ -2131,6 +2132,10 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route(
             "/api/job-copy/listings/{id}/rikurozi-draft",
             axum::routing::post(rikurozi::generate),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/indeed-title",
+            axum::routing::put(indeed_title::put),
         )
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
