@@ -82,7 +82,14 @@ describe('CallQueueScreen', () => {
     // 1 行に畳む: 概要は 1 つの summary、内訳は開くまで見えない (文言は変えない)
     const mini = screen.getByTestId<HTMLDetailsElement>('queue-notes');
     expect(mini.open).toBe(false);
-    expect(mini.querySelector('summary')?.textContent).toBe('⚠ 一部の情報が欠けています（6 項目）');
+    // 件数の行の右端に小さな「⚠6」の印。押すと内訳が開く
+    const summary = mini.querySelector('summary');
+    expect(summary?.textContent).toBe('⚠6');
+    expect(summary?.getAttribute('aria-label')).toBe('一部の情報が欠けています(6 項目)');
+    expect(screen.getByTestId('queue-count').parentElement?.contains(mini)).toBe(true);
+    if (!summary) throw new Error('summary');
+    fireEvent.click(summary);
+    expect(mini.open).toBe(true);
     expect(screen.getByText('一部の情報が欠けています')).toBeTruthy();
     expect(screen.getByText('担当者情報を取得できなかった行が 1 件あります')).toBeTruthy();
     expect(screen.getByText('会社情報を取得できなかった行が 2 件あります')).toBeTruthy();
@@ -347,6 +354,42 @@ describe('calling cockpit layout', () => {
     expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map(i => i.textContent)).toEqual(['元の配置に戻す', '実データに戻す']);
     fireEvent.click(screen.getByRole('menuitem', { name: '実データに戻す' }));
     expect(screen.queryByTestId('fixture-banner')).toBeNull();
+  });
+
+  it('詳細条件のパネルは、外側のクリックと Esc で閉じる。パネルの中・日付選択の中のクリックでは閉じない', () => {
+    const { fetcher } = deferredFetcher();
+    render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    const panel = document.getElementById('cq-advanced');
+    const toggle = screen.getByRole('button', { name: /^詳細条件/ });
+    fireEvent.click(toggle);
+    expect(panel?.hidden).toBe(false);
+    // 中のクリック
+    fireEvent.mouseDown(screen.getByRole('heading', { name: '詳細条件' }));
+    expect(panel?.hidden).toBe(false);
+    // 日付選択 (body 直下) の中のクリックは外側に数えない
+    const pop = document.createElement('div'); pop.className = 'dp-pop'; const inner = document.createElement('button'); pop.appendChild(inner); document.body.appendChild(pop);
+    fireEvent.mouseDown(inner);
+    expect(panel?.hidden).toBe(false);
+    pop.remove();
+    // 外側
+    fireEvent.mouseDown(document.body);
+    expect(panel?.hidden).toBe(true);
+    // Esc (フォーカスがパネルの中にあるとき)
+    fireEvent.click(toggle);
+    expect(panel?.hidden).toBe(false);
+    screen.getByRole('button', { name: '条件のパネルを閉じる' }).focus();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    expect(panel?.hidden).toBe(true);
+  });
+
+  it('バーの「条件を追加」はパネルを開いて項目の検索欄へフォーカスする。「詳細条件」は開くだけで、検索欄は出さない', async () => {
+    const { fetcher } = deferredFetcher();
+    render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    fireEvent.click(screen.getByRole('button', { name: /^詳細条件/ }));
+    expect(screen.queryByRole('combobox', { name: '項目を検索' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^詳細条件/ }));
+    fireEvent.click(screen.getByRole('button', { name: '条件を追加' }));
+    await waitFor(() => { expect(document.activeElement).toBe(screen.getByRole('combobox', { name: '項目を検索' })); });
   });
 
   it('詳細条件 opens and closes the stage / date panel; the button counts the detailed conditions in use', () => {

@@ -49,6 +49,23 @@ const memoBox = (): HTMLTextAreaElement => { const t = form().querySelector('tex
 async function formReady() { await within(form()).findByRole('group', { name: '今回の結果' }); }
 
 describe('call-result form (draft only)', () => {
+  it('一覧の選んでいる行で Enter を押すと、架電結果の入力を前に出して結果のボタンへフォーカスする。選んでいない行の Enter は選ぶだけ', async () => {
+    await renderScreen();
+    const btn = (n: string) => within(rowOf(n)).getByRole('button', { name: /架空会社/ });
+    // まだ選んでいない行: Enter は preventDefault されない (ボタン既定の「選ぶ」に任せる)
+    const free = fireEvent.keyDown(btn('2'), { key: 'Enter' });
+    expect(free).toBe(true);
+    fireEvent.click(btn('2'));
+    await waitFor(() => { expect(selectedId()).toBe('2'); });
+    btn('2').focus();
+    // 選んでいる行: 結果のボタンへ
+    const handled = fireEvent.keyDown(btn('2'), { key: 'Enter' });
+    expect(handled).toBe(false);
+    await formReady();
+    await waitFor(() => { expect(document.activeElement?.classList.contains('rf-outcome')).toBe(true); });
+    expect(form().contains(document.activeElement)).toBe(true);
+  });
+
   it('callback: 再架電 is pre-selected, inline messages keep the button disabled until date + time are set; never claims HubSpot saved', async () => {
     await renderScreen();
     open('1');
@@ -615,7 +632,7 @@ describe('call-result form (draft only)', () => {
     expect(selectedId()).toBe('2');
     expect(within(rowOf('1')).getByText('記録済み(画面を閉じると消えます)')).toBeTruthy();
     expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
-    expect(within(rowOf('1')).getByText('記録済み(画面を閉じると消えます)').className).toContain('is-unsaved');
+    expect(within(rowOf('1')).getByText('記録済み(画面を閉じると消えます)').closest('.cq-recorded')?.className).toContain('is-unsaved');
   });
 
   it('when writes to sessionStorage throw (quota / blocked), the alert shows and a reload really loses the marks', async () => {
@@ -642,7 +659,8 @@ describe('call-result form (draft only)', () => {
     expect(within(form()).getByText('この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません')).toBeTruthy();
     fireEvent.click(outcome('担当者と会話'));
     fireEvent.click(recordBtn());
-    expect(within(rowOf('1')).getByText('記録済み(HubSpot 未送信)').getAttribute('title')).toBe('この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません');
+    expect(within(rowOf('1')).getByText('記録済み(HubSpot 未送信)').closest('.cq-recorded')?.textContent).toBe('✓記録済記録済み(HubSpot 未送信)');
+    expect(within(rowOf('1')).getByText('記録済み(HubSpot 未送信)').closest('.cq-recorded')?.getAttribute('title')).toBe('この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません');
     expect(document.body.textContent).not.toMatch(/このブラウザで|送信は未実装|代用/);
   });
 

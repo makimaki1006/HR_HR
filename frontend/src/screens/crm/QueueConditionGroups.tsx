@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CatalogState } from './usePropertyCatalog';
 import { QueuePropertyFilter } from './QueuePropertyConditions';
 import { QueuePropertyPicker } from './QueuePropertyPicker';
@@ -7,13 +7,27 @@ import type { PropertyCondition } from './queuePropertyFilter';
 import type { QueueFilters, QueueSort } from './queueModel';
 import { remainingConditions } from './queueConditionBudget';
 
-export function QueueGroupEditor({ catalog, groups, filters, onChange, onReload }: {
+export function QueueGroupEditor({ catalog, groups, filters, onChange, onReload, focusAdd = false, onFocusAddDone }: {
   catalog: CatalogState; groups: PropertyCondition[][]; filters: QueueFilters; onChange: (gs: PropertyCondition[][]) => void; onReload: () => void;
+  /** バーの「条件を追加」から来た: 最後のまとまりの項目検索欄を開いてフォーカスする */
+  focusAdd?: boolean; onFocusAddDone?: () => void;
 }) {
-  const [editing, setEditing] = useState<number | null>(groups.length ? null : 0);
+  const [editing, setEditing] = useState<number | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const lastIdx = Math.max(0, groups.length - 1);
+  const canAdd = remainingConditions(filters, groups, lastIdx) > 0;
+  // 「条件を追加」から来たときは、最後のまとまりの検索欄を開く (上限に達していれば何も開かない)
+  if (focusAdd && canAdd && editing !== lastIdx) setEditing(lastIdx);
+  useEffect(() => { if (focusAdd && !canAdd) onFocusAddDone?.(); }, [focusAdd, canAdd, onFocusAddDone]);
+  // 項目の検索欄ができたら、フォーカスを置く
+  useEffect(() => {
+    if (!focusAdd || editing === null) return;
+    const input = rootRef.current?.querySelector<HTMLInputElement>('.cq-property-filter input[role="combobox"]');
+    if (input) { input.focus(); onFocusAddDone?.(); }
+  });
   const [draft, setDraft] = useState(false);
   const shown = groups.length ? [...groups, ...(draft ? [[]] : [])] : [[]];
-  return <div className="cq-group-editor"><small>まとまりの中はすべての条件、まとまり同士はいずれかに合う架電先を表示します。</small>
+  return <div className="cq-group-editor" ref={rootRef}><small>まとまりの中はすべての条件、まとまり同士はいずれかに合う架電先を表示します。</small>
     {shown.map((cs, i) => { const remaining = remainingConditions(filters, groups, i); return <div key={i}>
       {i > 0 && <p className="cq-or-label">または</p>}
       <section className="cq-condition-group" aria-label={`まとまり ${String(i + 1)}`}><div className="cq-group-heading"><strong>まとまり {i + 1}</strong>

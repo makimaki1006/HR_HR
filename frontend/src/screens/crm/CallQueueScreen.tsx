@@ -3,6 +3,7 @@ import { selectedPipelineIds, withPipelines, withTarget, sortsFor } from './queu
 import { SavedViews } from './SavedViews';
 import { BarMenu } from './BarMenu';
 import { queueQuery, selectedViewId, viewSearch } from './savedViewsModel';
+import { useDismiss } from './useDismiss';
 import { QueueSortDialog } from './QueueSortDialog';
 import { QueueGroupEditor, PropertySortPicker } from './QueueConditionGroups';
 import { groupsOf, groupPatch } from './queueModel';
@@ -220,6 +221,8 @@ export function conditionChips(f: QueueFilters, ownerNames: ReadonlyMap<string, 
 }
 
 /** 架電結果の印 (この画面のタブだけに残る) の説明 */
+/** 詳細条件のパネルを閉じるクリックに数えない、body 直下などに描く子の画面 */
+const DISMISS_IGNORE = '.dp-pop, .sv-backdrop, .cq-sort-dialog, [role="listbox"]';
 export const RECORDED_TITLE = 'この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません';
 export const UNSAVED_RECORDED_TITLE = '入力をこの画面に残せていません。閉じたり再読み込みしたりすると消えます。HubSpot にも保存されていません';
 
@@ -248,8 +251,8 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
       <span className="cq-row-l1">
         <strong className="cq-row-company">{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
         {recorded && (unsaved
-          ? <span className="cq-recorded is-unsaved" title={UNSAVED_RECORDED_TITLE}>記録済み(画面を閉じると消えます)</span>
-          : <span className="cq-recorded" title={RECORDED_TITLE}>記録済み(HubSpot 未送信)</span>)}
+          ? <span className="cq-recorded is-unsaved" title={UNSAVED_RECORDED_TITLE}><span aria-hidden="true">⚠記録済</span><span className="cq-sr-only">記録済み(画面を閉じると消えます)</span></span>
+          : <span className="cq-recorded" title={RECORDED_TITLE}><span aria-hidden="true">✓記録済</span><span className="cq-sr-only">記録済み(HubSpot 未送信)</span></span>)}
         {item.stop.prohibited_reason && <span className="cq-stop-badge" title={item.stop.prohibited_reason}>架電禁止</span>}
         {item.stop.block_reason && <span className="cq-stop-badge" title={item.stop.block_reason}>ブロック</span>}
         {flag && <span className="cq-flag" title={`不通時チェック: ${flag}`} aria-label={`不通時チェック: ${flag}`}>不通チェック</span>}
@@ -316,6 +319,19 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     return () => { resize?.disconnect(); mutation.disconnect(); window.removeEventListener('resize', measure); };
   }, [panelOpen]);
   const [sortOpen, setSortOpen] = useState(false);
+  // 詳細条件のパネル: 外側のクリックと Esc で閉じる (入力中の内容は条件の変更ごとに URL へ反映済みで、閉じても消えない)。
+  // 日付選択・並べ替えの小さな画面・ビューの確認ダイアログは body 直下に描くので、外側に数えない
+  const closePanel = useCallback(() => { setPanelOpen(false); }, []);
+  // Esc は、フォーカスがパネルの中か、どこにも無い (押したボタンが消えた後など) ときに閉じる。ほかの選択欄の Esc とは重ねない
+  const escapePanel = useCallback(() => {
+    // パネルの中で開いている選択欄 (ステージ・パイプライン等) があれば、その Esc は選択欄だけを閉じる
+    if (document.querySelector('#cq-advanced [aria-expanded="true"]')) return;
+    const a = document.activeElement;
+    if (a === null || a === document.body || a.closest('#cq-advanced')) setPanelOpen(false);
+  }, []);
+  useDismiss(filterBarRef, panelOpen, closePanel, escapePanel, DISMISS_IGNORE);
+  const [addFocus, setAddFocus] = useState(false);
+  const addFocusDone = useCallback(() => { setAddFocus(false); }, []);
   // 日付の検証に使う JST の今日。JST 0 時・画面に戻ったときに取り直す (開いたまま日付をまたいでも昨日を通さない)
   const [nowFn] = useState(() => now ?? Date.now);
   const [today, setToday] = useState(() => todayJst(nowFn()));
@@ -445,6 +461,20 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     setPersisted({ store: next, persistFailed: loadedFor === null || loadedFor === undefined || !saveStore(sessionStorageOrNull(), next, loadedFor), loadedFor });
   };
   const [formCollapsed, setFormCollapsed] = useState(false);
+  // 一覧の選んでいる行で Enter: 架電結果の入力を前に出し、結果のボタンへフォーカスを移す
+  const [resultFocusN, setResultFocusN] = useState(0);
+  const focusResultForm = useCallback(() => {
+    dispatchLayout({ type: 'activate', panel: 'result' });
+    setFormCollapsed(false);
+    setResultFocusN(n => n + 1);
+  }, []);
+  useEffect(() => {
+    if (resultFocusN === 0) return undefined;
+    const id = requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>('form[aria-label="架電結果の入力"] button.rf-outcome[tabindex="0"]')?.focus();
+    });
+    return () => { cancelAnimationFrame(id); };
+  }, [resultFocusN]);
   useEffect(() => {
     const refresh = () => { setToday(todayJst(nowFn())); };
     const t = window.setTimeout(refresh, msUntilNextJstMidnight(nowFn()) + 1000);
@@ -591,6 +621,14 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
   // 一覧にフォーカスがあるとき、上下の矢印キーで選択を移す
   function onListKey(e: React.KeyboardEvent<HTMLUListElement>) {
+    // 選んでいる行で Enter: 架電結果の入力を前に出して結果のボタンへ (まだ選んでいない行の Enter は、行のボタンの既定どおり選ぶだけ)
+    if (e.key === 'Enter') {
+      const t = e.target;
+      if (state.phase !== 'ready' || !(t instanceof HTMLButtonElement) || t.getAttribute('aria-pressed') !== 'true' || selectedId === null) return;
+      e.preventDefault();
+      focusResultForm();
+      return;
+    }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     if (state.phase !== 'ready' || state.items.length === 0) return;
     e.preventDefault();
@@ -769,6 +807,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             {state.phase === 'ready' && <p className="cq-count" role="status" data-testid="queue-count"
               title={total !== null ? [(filters.target==='all'?'条件に合うすべての取引の件数です。':QUEUE_TOTAL_NOTE), `(${filters.target==='all'?'条件に合う取引の総数':QUEUE_TOTAL_NOTE_SHORT})`].join(' ') : undefined}>{queueCountText(total, state.items.length)}
               {total !== null && <span className="cq-info" data-glyph="ⓘ" aria-hidden="true" />}</p>}
+            {state.phase === 'ready' && notes.length > 0 && <details className="cq-notes-mini" role="status" data-testid="queue-notes"><summary title="一部の情報が欠けています" aria-label={`一部の情報が欠けています(${String(notes.length)} 項目)`}><span aria-hidden="true">⚠{notes.length}</span></summary>
+              <div className="cq-notes-pop"><strong>一部の情報が欠けています</strong><small>（{notes.length} 項目）</small><ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div></details>}
             {mode === 'live' && state.last !== null && <p className="cq-scope-note cq-info" data-testid="scope-note" tabIndex={0}
               title={[`所有者: ${ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中`, ownerScopeTitle(state.last.scope.owner, ownerNames), 'HubSpot の全件から、上の所有者の選択で切り替えられます'].filter(Boolean).join('。')}>
               <span className="cq-sr-only">所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</span><span data-glyph="ⓘ" aria-hidden="true" className="cq-glyph" /></p>}
@@ -786,8 +826,6 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
             {state.phase === 'ready' && <>
               {state.last?.truncated && <div className="cq-notice cq-warn" role="status">HubSpot の検索は 1 万件までしか取得できないため、これより先は表示できません。条件を絞ってください。</div>}
-              {notes.length > 0 && <details className="cq-notes-mini" role="status" data-testid="queue-notes"><summary><span aria-hidden="true">⚠ </span><strong>一部の情報が欠けています</strong><small>（{notes.length} 項目）</small></summary>
-                <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></details>}
               {state.items.length === 0 && <div className="cq-notice cq-empty">
                 {state.nextCursor ? <p>このページには表示できる行がありません。{state.loadingMore ? '続きを読み込んでいます。' : <>続きを読み込んでください。 <button type="button" className="cq-btn" onClick={loadMore}>続きを読み込む</button></>}</p>
                   : hasConditions ? <><strong>条件に一致する架電先がありません</strong><p>条件を変えるか、クリアしてください。</p>
@@ -875,7 +913,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         {viewName !== null && <span className="cq-view-name" data-testid="current-view-name" title={`開いている保存済みのビュー: ${viewName}`}>ビュー: {viewName}</span>}
         <button type="button" className={`cq-btn cq-btn-main cq-more-toggle${detailCount > 0 ? ' is-set' : ''}`} aria-expanded={panelOpen} aria-controls="cq-advanced"
           onClick={() => { setPanelOpen(o => !o); }}>詳細条件{detailCount > 0 && <span className="cq-badge">{detailCount}</span>}</button>
-        <button type="button" className="cq-btn cq-btn-main" onClick={() => { setPanelOpen(true); }} >条件を追加</button>
+        <button type="button" className="cq-btn cq-btn-main" onClick={() => { setPanelOpen(true); setAddFocus(true); }}>条件を追加</button>
         {(hasConditions || qDraft !== '') && <button type="button" className="cq-btn cq-btn-quiet" onClick={clearAll}>条件をクリア</button>}
         <BarMenu mode={mode} inCall={inCall} onResetLayout={() => { dispatchLayout({ type: 'reset' }); }}
           onSwitchMode={() => { switchMode(mode === 'live' ? 'fixture' : 'live'); }} />
@@ -886,9 +924,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       </ul>}
       {filters.target !== 'all' && parsePropertySort(filters.sort) !== null && <p className="cq-sort-note">{PROPERTY_SORT_NOTE}</p>}
       {filters.target === 'all' && <p className="cq-sort-note">選んだパイプラインのすべてのステージを表示します。件数は条件に合う取引の総数です。架電禁止・ブロックには発信できません。</p>}
-      <div id="cq-advanced" role="dialog" aria-label="詳細条件" className="cq-advanced cq-filter-drawer" style={{top: drawerTop}} hidden={!panelOpen} onKeyDown={e => { if (e.key === 'Escape') setPanelOpen(false); }}>
+      <div id="cq-advanced" role="dialog" aria-label="詳細条件" className="cq-advanced cq-filter-drawer" style={{top: drawerTop}} hidden={!panelOpen}>
         <div className="cq-drawer-heading"><h2>詳細条件</h2><button type="button" className="cq-btn" onClick={() => { setPanelOpen(false); }}>条件のパネルを閉じる</button></div>
-        {panelOpen && <QueueGroupEditor catalog={catalog.state} groups={groupsOf(filters)} filters={{...filters, owner: filters.owner || (effectiveOwner ?? (mode === 'live' ? 'me' : ''))}} onReload={catalog.reload}
+        {panelOpen && <QueueGroupEditor catalog={catalog.state} groups={groupsOf(filters)} filters={{...filters, owner: filters.owner || (effectiveOwner ?? (mode === 'live' ? 'me' : ''))}} onReload={catalog.reload} focusAdd={addFocus} onFocusAddDone={addFocusDone}
           onChange={gs => { update(groupPatch(gs)); }} />}
         {pipeline && <StageFilter key={`${mode}|${selectedPipelineIds(filters).join(',')}|${filters.target ?? ''}`} pipeline={pipeline} selected={filters.stages} pipelines={pipelines.pipelines.filter(p=>selectedPipelineIds(filters).includes(p.id))} all={filters.target==='all'}
           labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} />}
