@@ -7,7 +7,7 @@ export const EMPTY_TEXT = '（記載なし）';
 export const NOT_RECORDED_TEXT = '記録していません';
 /** AirWork の履歴に残る項目。ほかの項目は履歴に残らないので「記録していません」と出す。 */
 export const AIRWORK_RECORDED_ITEMS = ['案件名', '仕事内容', '勤務時間', '給与', '職種'];
-const ITEM_LABELS: Record<string, string> = { 案件名: '求人名', Indeed表示職種名: '職種' };
+const ITEM_LABELS: Record<string, string> = { 案件名: '求人名' };
 export const itemLabel = (key: string) => ITEM_LABELS[key] ?? key;
 export const isAirwork = (record: Pick<JobCopyRecord, 'media'>) => /air/i.test(record.media);
 
@@ -15,7 +15,7 @@ export function versionItems(version: CopyVersion | undefined): Map<string, stri
   const items = new Map<string, string>();
   if (!version?.body.trim()) return items;
   for (const section of version.bodySections ?? jobCopySections(version.body)) {
-    const key = section.heading === 'Indeed表示職種名' ? '職種' : section.heading;
+    const key = section.heading;
     const text = section.text.replace(/\r\n/g, '\n').trim();
     items.set(key, items.has(key) ? `${items.get(key) ?? ''}\n${text}` : text);
   }
@@ -30,9 +30,8 @@ export function compareRows(record: Pick<JobCopyRecord, 'media'>, left: CopyVers
   const keys = [...new Set([...(airwork ? AIRWORK_RECORDED_ITEMS : []), ...a.keys(), ...b.keys()])];
   return keys.map(key => {
     const x = a.get(key); const y = b.get(key);
-    if (airwork && (x === undefined || y === undefined)) return { key, label: itemLabel(key), left: x ?? null, right: y ?? null, different: false };
-    const l = x ?? ''; const r = y ?? '';
-    return { key, label: itemLabel(key), left: l, right: r, different: l !== r };
+    if (x === undefined || y === undefined) return { key, label: itemLabel(key), left: x ?? null, right: y ?? null, different: false };
+    return { key, label: itemLabel(key), left: x, right: y, different: x !== y };
   });
 }
 /** 比べられる項目（どちらかの版に記録がある項目）。 */

@@ -70,3 +70,17 @@ it('renders nothing when closed', () => {
   render(<FullTextCompareDialog record={record()} open={false} onClose={vi.fn()} />);
   expect(screen.queryByRole('dialog')).toBeNull();
 });
+
+it('treats 職種 and Indeed表示職種名 as separate items; a heading missing on one side is not counted as different', () => {
+  const r = record();
+  r.versions = [version('p1', '前', '2026-09-01T00:00:00Z', [{ heading: '職種', text: 'a' }, { heading: 'Indeed表示職種名', text: 'b' }]), version('p2', '後', '2026-09-10T00:00:00Z', [{ heading: '職種', text: 'a' }])];
+  render(<FullTextCompareDialog record={r} open onClose={vi.fn()} />);
+  expect(screen.getByRole('status').textContent).toContain('全 2 項目のうち 0 項目が違います。');
+  expect(screen.getByText('違う項目はありません。')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '全文' }));
+  const rows = [...document.querySelectorAll('.jc-ftc-row')].filter(row => row.querySelector('.jc-ftc-label'));
+  const indeed = rows.find(row => row.querySelector('.jc-ftc-label')?.textContent === 'Indeed表示職種名');
+  expect(indeed?.textContent).toContain('b');
+  expect(indeed?.textContent).toContain('記録していません');
+  expect(rows.find(row => row.querySelector('.jc-ftc-label')?.textContent === '職種')?.getAttribute('data-changed')).toBe('false');
+});
