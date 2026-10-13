@@ -21,8 +21,8 @@ use std::{
 };
 use tower_sessions::Session;
 mod applicant_extensions;
-mod deal_summary;
 pub mod applicant_reasons;
+mod deal_summary;
 mod drafts;
 mod hrh_copy;
 mod listing_cache;

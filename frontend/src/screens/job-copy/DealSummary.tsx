@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { apiGet } from '../../api/client';
+import { fetchBodyDates } from './bodyDatesShared';
 import { EChart } from '../../components/EChart';
 import { mediaLabel, publicationLabel } from './hubspotListings';
 import type { DealSelection, HubSpotListing, HubSpotListingPage } from './hubspotListings';
@@ -39,7 +40,7 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
         const ids = rows.slice(0, 30).map(row => encodeURIComponent(row.id)).join(',');
         const [apps, dates] = await Promise.all([
           apiGet<DealApplications>(`/api/job-copy/deal-applications?deal=${encodeURIComponent(deal.id)}&ids=${ids}`, { signal: controller.signal, timeoutMs: 120_000 }),
-          apiGet<{ dates?: Record<string, string | null> }>(`/api/job-copy/listing-body-dates?ids=${rows.map(row => encodeURIComponent(row.id)).join(',')}`, { signal: controller.signal, timeoutMs: 120_000 }),
+          fetchBodyDates(rows.map(row => row.id)),
         ]);
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- aborted can change while awaiting
         if (controller.signal.aborted) return;

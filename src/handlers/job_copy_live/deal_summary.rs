@@ -32,7 +32,11 @@ fn count_by_date(dates: &[Option<&str>]) -> (BTreeMap<String, usize>, usize) {
     let mut missing = 0;
     for value in dates {
         match value.and_then(|v| NaiveDate::parse_from_str(v, "%Y-%m-%d").ok()) {
-            Some(date) => *by_date.entry(date.format("%Y-%m-%d").to_string()).or_insert(0) += 1,
+            Some(date) => {
+                *by_date
+                    .entry(date.format("%Y-%m-%d").to_string())
+                    .or_insert(0) += 1
+            }
             None => missing += 1,
         }
     }
@@ -137,7 +141,14 @@ mod tests {
 
     #[test]
     fn shared_applications_are_those_in_two_or_more_listings() {
-        let set = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<BTreeSet<String>>();
-        assert_eq!(shared_count(&[set(&["1", "2", "3"]), set(&["3", "4"]), set(&["3", "2"])]), 2);
+        let set = |v: &[&str]| {
+            v.iter()
+                .map(|s| s.to_string())
+                .collect::<BTreeSet<String>>()
+        };
+        assert_eq!(
+            shared_count(&[set(&["1", "2", "3"]), set(&["3", "4"]), set(&["3", "2"])]),
+            2
+        );
     }
 }

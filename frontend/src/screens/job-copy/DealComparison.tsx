@@ -1,4 +1,5 @@
 import { DealSummary } from './DealSummary';
+import { fetchBodyDates } from './bodyDatesShared';
 import type { BillingEntry } from './timelineModel';
 import { ListingPopup } from './ListingPopup';
 import { loadVersions, prefetchNeighbors } from './listingDetailCache';
@@ -76,7 +77,7 @@ export function DealComparison({ deal, onOpen, onClose, billingByJob }: { deal: 
     void apiGet<HubSpotListingPage>(`/api/job-copy/listings?${query.toString()}`, { signal: controller.signal, timeoutMs: 120_000 }).then(result => { if (controller.signal.aborted) return; if (result.ok) {
       setPage(result.data); setError('');
       const ids = result.data.listings.map(row => row.id);
-      if (ids.length) void apiGet<{ dates?: Record<string, string | null> }>(`/api/job-copy/listing-body-dates?ids=${ids.map(encodeURIComponent).join(',')}`, { signal: controller.signal, timeoutMs: 120_000 }).then(history => {
+      if (ids.length) void fetchBodyDates(ids).then(history => {
         if (controller.signal.aborted) return;
         if (history.ok && history.data.dates) { const dates = history.data.dates; setPage(current => current === result.data ? { ...current, listings: current.listings.map(row => ({ ...row, ...(row.summary ? { summary: { ...row.summary, body_changed_at: dates[row.id] ?? null } } : {}) })) } : current); }
       });
