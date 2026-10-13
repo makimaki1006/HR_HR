@@ -46,7 +46,8 @@ import { parseListingStatus, withPublicationFor } from './mediaPublication';
 import { JobOverview } from './JobOverview';
 import { MarketCacheContext } from './marketSource';
 import type { MarketCache } from './marketSource';
-import { billingEntriesByJob } from './timelineModel';
+import { billingEntries, billingEntriesByJob, realBilling } from './timelineModel';
+import { AssumptionsRail, DetailBand } from './DetailBand';
 import type { BillingEntry } from './timelineModel';
 import type { ConsultantDraft } from './ConsultantReview';
 import { apiGet } from '../../api/client';
@@ -179,7 +180,10 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, review
     setMessage('確認待ちの文面として画面内のデモ履歴に追加しました。媒体での掲載確認・HubSpot保存は行っていません。');
   }
 
+  const realBillingEntries = useMemo(() => realBilling(billingEntries(job, billing, { dummy: false })), [job, billing]);
   return <article ref={detailElement} className="jc-detail" id="job-details" tabIndex={-1}>
+    <DetailBand job={job} billing={realBillingEntries} onOpenFullCompare={() => { openFeatureFromContent('diff'); }} />
+    <div className="jc-detail-cols"><div className="jc-detail-content">
     <header className="jc-detail-heading"><div><div className="jc-detail-title-row"><h1>{job.title}</h1><button className="jc-button" onClick={() => { setListingPopupOpen(true); }}>求人の内容を確認する</button></div><p>{joinPresent([job.company, job.location, job.media])}{job.dataSource === 'hubspot' && <span className="jc-publication"> ／ 公開状況：{publicationLabel(job.listingPublicationStatus ?? null)}</span>}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
     {listingPopupOpen && <ListingPopup navigation={popupNavigation} job={job} version={version} onClose={() => { setListingPopupOpen(false); }} />}
     {job.id.startsWith('hubspot-history-') && job.media === 'HRハッカー' && job.hubspotId && <RikuroziDraftPanel listingId={job.hubspotId} />}
@@ -243,6 +247,9 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, review
       <p className="jc-notice">将来の文字起こし → AI文面案の生成は、タイムラインの「AI案」として接続予定です。この画面はまだAIを呼び出しません。</p>
     </section>}</JobFeaturePanel>
     </JobFeatureTabs>
+    </div>
+    <AssumptionsRail job={job} billing={realBillingEntries} mode={demo ? 'demo' : 'api'} />
+    </div>
   </article>;
 }
 
@@ -407,7 +414,7 @@ export function JobCopyScreen() {
     originalListing.current = null;
     if (!original.records.length && snapshotRequested) retrySnapshot();
   }
-  return <MarketCacheContext.Provider value={marketCache}><div className="jc-app"><div className="jc-topline"><header className="jc-page-heading"><h1>求人文面管理</h1><InfoTip className="jc-mode jc-infotip-left" label="試作画面"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip></header>
+  return <MarketCacheContext.Provider value={marketCache}><div className="jc-app"><div className="jc-topline"><header className="jc-page-heading"><h1>案件管理</h1><InfoTip className="jc-mode jc-infotip-left" label="試作画面"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip></header>
     <div className="jc-demo" title={bannerText}><strong>{bannerLabel}</strong><span>{bannerText}</span></div>
     {snapshotAt && <InfoTip className="jc-snapshot-tip" label="取り込んだ内容"><section className="jc-snapshot-summary" aria-label="取り込んだ内容の内訳"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>取り込んだ本文</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募（HubSpot記録分・求人ごとの件数の合計（重複あり））</span><span>どの本文への応募か分からない応募 <strong>{records.reduce((sum, job) => sum + (unmatchedApplicationCount(job) ?? 0), 0)}</strong>件（求人ごとの件数の合計（重複あり））</span><span>期間比較表の本文の行に入らない応募 <strong>{records.reduce((sum, job) => sum + (applicationsOutsideTimeline(job) ?? 0), 0)}</strong>件（求人ごとの件数の合計（重複あり））</span></section><p className="jc-snapshot-note">1件の応募が複数の求人に関連することがあるため、求人ごとの件数を足した値は応募の実数より多いことがあります。「期間比較表の本文の行に入らない応募」は、応募日が無い応募、最初の確認より前・文面を確認した日の間・最後の確認より後の日付の応募、複数の求人に関連する応募です。</p></InfoTip>}
     <button type="button" className="jc-button jc-import-toggle" aria-expanded={importOpen} aria-controls="job-copy-data-import" onClick={toggleImport}>データ取込</button></div>
