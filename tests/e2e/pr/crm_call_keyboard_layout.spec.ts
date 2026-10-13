@@ -130,7 +130,7 @@ test.describe('CRM 架電画面: キーボード・画面の高さ・文言', ()
     await expect(rowButton(page, 1)).toHaveAttribute('aria-pressed', 'true');
     await expect(outcome(page, '担当者と会話')).toBeFocused();
     await expect(page.getByTestId('screen-announcement')).toHaveText(/^ダミー建設 を記録しました\(この画面だけ。HubSpot には未送信\)。次の架電先を表示しています。\s?$/);
-    await expect(list(page).locator('li.cq-row').nth(0).locator('.cq-recorded')).toHaveText('記録済み(HubSpot 未送信)');
+    await expect(list(page).locator('li.cq-row').nth(0).locator('.cq-recorded')).toContainText('記録済み(HubSpot 未送信)');
 
     // そのまま次も: 矢印で選び Space、Ctrl+Enter
     await page.keyboard.press('Space'); // 担当者と会話

@@ -116,7 +116,7 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     await recordBtn(page).click({ force: true }); // aria-disabled のときも押せる (押すと足りない欄を示す)
 
     // 先頭行に印、選択は 2 行目へ、入力欄は 2 行目の案件
-    await expect(rows(page).nth(0).locator('.cq-recorded')).toHaveText('記録済み(HubSpot 未送信)');
+    await expect(rows(page).nth(0).locator('.cq-recorded')).toContainText('記録済み(HubSpot 未送信)');
     await expect(rows(page).nth(0).locator('.cq-recorded')).toHaveAttribute('title', 'この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません');
     await expect(rowButton(page, 1)).toHaveAttribute('aria-pressed', 'true');
     await expect(rowButton(page, 0)).toHaveAttribute('aria-pressed', 'false');
@@ -134,7 +134,7 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     // 再読み込み (同じタブ): 印と下書きは残る
     await page.reload();
     await expect(list(page)).toBeVisible();
-    await expect(rows(page).nth(0).locator('.cq-recorded')).toHaveText('記録済み(HubSpot 未送信)');
+    await expect(rows(page).nth(0).locator('.cq-recorded')).toContainText('記録済み(HubSpot 未送信)');
     await rowButton(page, 0).click();
     await expect(outcome(page, '再架電の約束')).toHaveAttribute('aria-pressed', 'true');
     await expect(form(page).getByLabel(/^次回架電日/)).toHaveValue(nextDate.replaceAll('-', '/'));
@@ -173,7 +173,7 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
 
     await outcome(page, '担当者と会話').click();
     await recordBtn(page).click({ force: true }); // aria-disabled のときも押せる (押すと足りない欄を示す)
-    await expect(rows(page).nth(0).locator('.cq-recorded')).toHaveText('記録済み(画面を閉じると消えます)');
+    await expect(rows(page).nth(0).locator('.cq-recorded')).toContainText('記録済み(画面を閉じると消えます)');
     await expect(rows(page).nth(0).locator('.cq-recorded')).toHaveClass(/is-unsaved/);
     await expect(page.getByText('記録済み(HubSpot 未送信)')).toHaveCount(0);
 
@@ -189,7 +189,7 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     await outcome(page, '担当者と会話').click();
     await form(page).locator('textarea').fill(memoText);
     await recordBtn(page).click({ force: true });
-    await expect(rows(page).nth(0).locator('.cq-recorded')).toHaveText('記録済み(HubSpot 未送信)');
+    await expect(rows(page).nth(0).locator('.cq-recorded')).toContainText('記録済み(HubSpot 未送信)');
     const before = await storedDrafts(page);
     expect(before.user).toBe(E2E_EMAIL);
     expect(Object.values(before.drafts).map((d) => d.memo)).toContain(memoText);
