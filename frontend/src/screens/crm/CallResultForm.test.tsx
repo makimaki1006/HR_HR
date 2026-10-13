@@ -257,6 +257,33 @@ describe('call-result form (draft only)', () => {
     expect(within(within(form()).getByRole('group', { name: '今回の結果' })).getAllByRole('button').map(b => b.tabIndex)).toEqual([-1, -1, -1, 0, -1, -1]);
   });
 
+  it('3 列 x 2 行の格子では上下の矢印キーが 1 行 (3 個) 分動く', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    const btns = within(within(form()).getByRole('group', { name: '今回の結果' })).getAllByRole('button');
+    btns.forEach((b, i) => { Object.defineProperty(b, 'offsetTop', { configurable: true, value: i < 3 ? 0 : 40 }); });
+    const b1 = nth(btns, 1);
+    b1.focus();
+    fireEvent.keyDown(b1, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(btns[4]);
+    fireEvent.keyDown(nth(btns, 4), { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(btns[1]);
+    fireEvent.keyDown(nth(btns, 1), { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(btns[0]);
+  });
+
+  it('タスクメモの説明は ⓘ (キーボードで届く) にあり、入力欄の下には出ない', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    const info = within(form()).getByRole('button', { name: '保存についての説明' });
+    expect(info.tabIndex).toBe(0);
+    const tip = document.getElementById(info.getAttribute('aria-describedby') ?? '');
+    expect(tip?.textContent).toBe('タスクメモはまだ HubSpot に送られません。送るようになると、HubSpot にある今の内容は書き換えられます。');
+    expect(within(form()).getAllByText(/タスクメモはまだ HubSpot に送られません/)).toHaveLength(1);
+  });
+
   it('選択を外す keeps focus in the same field (moves to its first choice instead of <body>)', async () => {
     await renderScreen();
     open('1');

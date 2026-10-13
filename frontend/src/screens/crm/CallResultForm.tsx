@@ -141,7 +141,7 @@ export function CallResultForm({
     const btns = outcomeButtons();
     const cur = btns.findIndex(b => b === document.activeElement);
     if (cur === -1) return;
-    // 1 行に並んでいる数 (幅が狭いと 3 列 × 2 行)。上下は 1 行分動く
+    // 1 行に並んでいる数 (3 列 × 2 行)。上下は 1 行分動く
     const firstTop = btns[0]?.offsetTop ?? 0;
     const cols = btns.filter(b => b.offsetTop === firstTop).length;
     const rowStep = cols >= btns.length ? 1 : cols;
@@ -234,6 +234,10 @@ export function CallResultForm({
         <span aria-hidden="true">{collapsed ? '▲' : '▼'}</span> 架電結果</button>
       {ended && <span className="rf-call" data-testid="ended-call">通話終了{talk !== null ? ` 通話時間 ${clock(talk)}` : endedCall.result ? `(${ENDED_LABELS[endedCall.result] ?? 'つながらず'})` : ''}</span>}
       {collapsed && ready && <span className="rf-summary" data-testid="draft-summary">{draftSummary(draft, defs)}</span>}
+      <span className="rf-info">
+        <button type="button" className="rf-info-btn" aria-label="保存についての説明" aria-describedby={`${uid}-memo-info`}>ⓘ</button>
+        <span className="rf-info-tip" role="tooltip" id={`${uid}-memo-info`}>タスクメモはまだ HubSpot に送られません。送るようになると、HubSpot にある今の内容は書き換えられます。</span>
+      </span>
       <span className={`rf-status${persistFailed ? ' is-unsaved' : recorded ? ' is-recorded' : ''}`} role="status">{status}</span>
     </div>
 
@@ -272,7 +276,6 @@ export function CallResultForm({
             {dateInput({ f: 'nextCallDate', required: needNext })}{choice({ f: 'nextCallTime', required: needNext })}</div>}
         </div>}
         {textInput({ f: 'memo', multiline: true })}
-        <small className="rf-muted">タスクメモはまだ HubSpot に送られません。送るようになると、HubSpot にある今の内容は書き換えられます。</small>
       </>}
     </div>
 
