@@ -73,10 +73,10 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
   test('案を明示保存し、給与・文字色・事実の違い・過去の案・確認状態を確認', async ({page}) => {
     const {writes} = await mock(page); await login(page); await generate(page); expect(writes).toHaveLength(0);
     await page.getByRole('button',{name:'架空配送スタッフの本文を見る'}).click(); await expect(page.getByRole('button',{name:'この求人に案を保存'})).toBeEnabled();
-    await page.getByRole('button',{name:'この求人に案を保存'}).click(); await expect(page.getByRole('link',{name:'求人文面管理で今の版と案を比べる'})).toBeVisible();
+    await page.getByRole('button',{name:'この求人に案を保存'}).click(); await expect(page.getByRole('link',{name:'案件管理で今の版と案を比べる'})).toBeVisible();
     expect(writes).toHaveLength(1); expect(writes[0].body).toMatchObject({source_kind:'free_text',source_text:source,row:{'基本給与 最小':'270000','基本給与 最大':'300000'},facts}); expect(Object.keys(writes[0].body.row)).toHaveLength(84);
     if (width === 1440) { fs.mkdirSync(directory,{recursive:true}); await page.getByRole('heading',{name:'作った案を求人に保存'}).scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'01-save-1440.png')}); }
-    await page.getByRole('link',{name:'求人文面管理で今の版と案を比べる'}).click(); await expect(page.locator('.jc-comparison')).toBeVisible();
+    await page.getByRole('link',{name:'案件管理で今の版と案を比べる'}).click(); await expect(page.locator('.jc-comparison')).toBeVisible();
     await expect(page.getByLabel('比較元', {exact:true})).toHaveValue('hubspot-history-30-0'); await expect(page.getByLabel('比較先',{exact:true})).toHaveValue(`hubspot-draft-${writes[0].body.operation_id}`);
     await expect(page.locator('.jc-column-comparison')).toContainText('月給 270,000円');
     await expect(page.locator('.jc-column-comparison')).toContainText('月給 250,000円');
@@ -132,5 +132,5 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
     }
   });
   test('権限・設定がない求人には保存できない', async ({page}) => { const {writes} = await mock(page,{allowed:false}); await login(page); await generate(page); await page.getByRole('button',{name:'架空配送スタッフの本文を見る'}).click(); await expect(page.getByRole('button',{name:'この求人に案を保存'})).toBeDisabled(); await expect(page.getByText('案を保存する権限または利用設定がありません。')).toBeVisible(); expect(writes).toHaveLength(0); });
-  test('再送待ちの結果を照会し、保存完了まで待つ', async ({page}) => { const {writes} = await mock(page,{queued:true}); await login(page); await generate(page); await page.getByRole('button',{name:'架空配送スタッフの本文を見る'}).click(); await page.getByRole('button',{name:'この求人に案を保存'}).click(); await expect(page.getByText('案の保存を受け付けました。時間を置いて自動で再確認します。')).toBeVisible(); await expect(page.getByRole('button',{name:'この求人に案を保存'})).toBeDisabled(); await expect(page.getByRole('link',{name:'求人文面管理で今の版と案を比べる'})).toBeVisible(); expect(writes).toHaveLength(1); });
+  test('再送待ちの結果を照会し、保存完了まで待つ', async ({page}) => { const {writes} = await mock(page,{queued:true}); await login(page); await generate(page); await page.getByRole('button',{name:'架空配送スタッフの本文を見る'}).click(); await page.getByRole('button',{name:'この求人に案を保存'}).click(); await expect(page.getByText('案の保存を受け付けました。時間を置いて自動で再確認します。')).toBeVisible(); await expect(page.getByRole('button',{name:'この求人に案を保存'})).toBeDisabled(); await expect(page.getByRole('link',{name:'案件管理で今の版と案を比べる'})).toBeVisible(); expect(writes).toHaveLength(1); });
 });

@@ -9,7 +9,7 @@ const api = createServer((request, response) => {
   const url = new URL(request.url, 'http://localhost');
   response.setHeader('Content-Type', 'application/json');
   const send = (data, status = 200) => { response.writeHead(status); response.end(JSON.stringify(data)); };
-  if (url.pathname === '/api/nav') return send({ user_email: 'review@example.invalid', is_admin: false, header_links: [], groups: [], items: [{ id: 'job-copy', label: '求人文面管理', title: null, kind: 'app', href: '/app/job-copy', group: null, hidden: false, hidden_reason: null, hidden_since: null }] });
+  if (url.pathname === '/api/nav') return send({ user_email: 'review@example.invalid', is_admin: false, header_links: [], groups: [], items: [{ id: 'job-copy', label: '案件管理', title: null, kind: 'app', href: '/app/job-copy', group: null, hidden: false, hidden_reason: null, hidden_since: null }] });
   if (url.pathname.endsWith('/market')) return send({ titles: ['ドライバー', '看護師'], prefectures: ['大分県', '沖縄県', '東京都'], series: null });
   if (url.pathname.endsWith('/listings')) {
     const cookie = request.headers.cookie ?? '';
@@ -27,7 +27,7 @@ const api = createServer((request, response) => {
   return send({ code: 'synthetic_unavailable' }, 503);
 });
 await new Promise(resolve => api.listen(port + 1, '127.0.0.1', resolve));
-const vite = await createViteServer({ plugins: [{ name: 'review-shell', configureServer(server) { server.middlewares.use(async (request, response, next) => { if (!request.url?.startsWith('/app/job-copy')) return next(); const html = await server.transformIndexHtml(request.url, '<!doctype html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>求人文面管理・操作確認</title></head><body><div id="app-root"></div><script type="module" src="/src/entries/job-copy.tsx"></script></body></html>'); response.setHeader('Content-Type', 'text/html'); response.end(html); }); } }], root: fileURLToPath(new URL('../../frontend', import.meta.url)), server: { host: '127.0.0.1', port, strictPort: true, proxy: { '/api/nav': apiBase, '/api/job-copy': apiBase } } });
+const vite = await createViteServer({ plugins: [{ name: 'review-shell', configureServer(server) { server.middlewares.use(async (request, response, next) => { if (!request.url?.startsWith('/app/job-copy')) return next(); const html = await server.transformIndexHtml(request.url, '<!doctype html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>案件管理・操作確認</title></head><body><div id="app-root"></div><script type="module" src="/src/entries/job-copy.tsx"></script></body></html>'); response.setHeader('Content-Type', 'text/html'); response.end(html); }); } }], root: fileURLToPath(new URL('../../frontend', import.meta.url)), server: { host: '127.0.0.1', port, strictPort: true, proxy: { '/api/nav': apiBase, '/api/job-copy': apiBase } } });
 await vite.listen();
 const close = async () => { await vite.close(); api.close(); process.exit(); };
 process.on('SIGTERM', close); process.on('SIGINT', close);

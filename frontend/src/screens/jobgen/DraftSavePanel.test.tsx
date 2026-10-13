@@ -19,7 +19,7 @@ it('explicitly selects a job and saves all 84 values and facts, retaining source
   const state = { ...initialState(), kind:'pdf' as const, sourceKind:'csv' as const, hrhackerCreatedAt:'2026-10-10T00:00:00Z', sourceText:fixtures.source_text, rawSourceText:'職種,給与\r\n配送,270000　', facts:fixtures.responses.extract.facts, hrhacker:{...fixtures.responses.hrhacker,row:draftFixture().row}, status:{...initialState().status,hrhacker:'review' as const} };
   render(<DraftSavePanel s={state} />); expect(fetchMock).not.toHaveBeenCalled(); fireEvent.click(screen.getByRole('button',{name:'保存先の求人を選ぶ'})); await waitFor(() => { expect(screen.getByRole('button',{name:'架空配送スタッフの本文を見る'})).toBeTruthy(); });
   expect(bodies).toHaveLength(0); fireEvent.click(screen.getByRole('button',{name:'架空配送スタッフの本文を見る'})); await waitFor(() => { expect(screen.getByRole('button',{name:'この求人に案を保存'})).toBeTruthy(); }); fireEvent.click(screen.getByRole('button',{name:'この求人に案を保存'}));
-  await waitFor(() => { expect(screen.getByRole('link',{name:'求人文面管理で今の版と案を比べる'})).toBeTruthy(); });
+  await waitFor(() => { expect(screen.getByRole('link',{name:'案件管理で今の版と案を比べる'})).toBeTruthy(); });
   expect(bodies).toHaveLength(1); expect(bodies[0]).toMatchObject({base_revision:'a'.repeat(64),source_kind:'csv',original_source_text:'職種,給与\r\n配送,270000　',created_at:'2026-10-10T00:00:00Z',row:{'基本給与 最小':'270000','基本給与 最大':'300000'},source_text:fixtures.source_text,facts:fixtures.responses.extract.facts}); expect(Object.keys((bodies[0] as {row:Record<string,string>}).row)).toHaveLength(84);
 });
 it.each<[string, Partial<PipelineState>]>([
@@ -47,7 +47,7 @@ it.each<[string, Partial<PipelineState>]>([
   rerender(<DraftSavePanel s={state} />);
   expect(screen.getByRole('button', { name: 'この求人に案を保存' }).hasAttribute('disabled')).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'この求人に案を保存' }));
-  await waitFor(() => { expect(screen.getByRole('link', { name: '求人文面管理で今の版と案を比べる' })).toBeTruthy(); });
+  await waitFor(() => { expect(screen.getByRole('link', { name: '案件管理で今の版と案を比べる' })).toBeTruthy(); });
   expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
 });
 it('reading a new multi-job file clears the earlier row and preserves its new input kind', async () => {
