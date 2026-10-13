@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { login } from './helpers/login';
 
 /**
- * 求人文面管理 (/app/job-copy) を Rust が配る React 画面で確かめる。
+ * 案件管理 (/app/job-copy) を Rust が配る React 画面で確かめる。
  * 求人と応募の取得 (/api/job-copy/moc) は Drive の保存データを読むので、PR の fixture には無い。
  * ここでは合成データを page.route で返し、市場 (/api/job-copy/market) も合成の月次データを返す。
  * 確かめること: 最初のタブがタイムライン、7 レーンの値、2 つの ECharts の描画完了、期間比較表の具体値、
@@ -56,7 +56,7 @@ async function seriesLengths(page: Page, testId: string) {
   });
 }
 
-test.describe('求人文面管理のタイムライン', () => {
+test.describe('案件管理のタイムライン', () => {
   test('最初のタブがタイムラインで、7 レーン・グラフ・期間比較表に具体値が出る', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
     const calls = await open(page);
