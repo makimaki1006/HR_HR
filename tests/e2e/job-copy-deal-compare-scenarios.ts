@@ -43,6 +43,8 @@ export function registerDealCompareTests(path: string) {
     await page.route('**/api/job-copy/**', async route => {
       const url = new URL(route.request().url());
       if (url.pathname.endsWith('/listing-body-dates')) return route.fulfill({ json: { dates: Object.fromEntries((url.searchParams.get('ids') ?? '').split(',').map(id => [id, '2026-10-10T00:00:00Z'])) } });
+      // Customer names for the visible rows are a background read; keep them out of the list requests checked below.
+      if (url.pathname.endsWith('/listings/companies')) return route.fulfill({ json: { companies: {} } });
       requests.push(url);
       if (url.pathname.endsWith('/market')) return route.fulfill({ json: { titles: [], prefectures: [], series: null } });
       if (url.pathname.endsWith('/listing-comparison')) return route.fulfill({ json: { jobs: (url.searchParams.get('ids') ?? '').split(',').map(id => ({ listing: jobs.find(row => row.id === id), body: body(250000 + (Number(id) - 1) * 1000) })) } });

@@ -929,6 +929,69 @@ async fn listing_company_name(
         .and_then(|record| record.value("name"))
         .map(str::to_owned))
 }
+/// The same answer as `listing_company_name`, for many listings at once: one batch association
+/// read (listing to deal), one (deal to company) and one company batch read, instead of the
+/// same three reads per listing. A listing is blank (`None`) under the same rules as the
+/// single read: no deal, more than 100 deals, or not exactly one related company.
+async fn listing_company_names(
+    service: &JobReadService,
+    ids: &[String],
+) -> Result<BTreeMap<String, Option<String>>, ReadError> {
+    if ids.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let deals_of = service.association_map("0-420", ids, "deals").await?;
+    let usable = |deals: &Vec<String>| !deals.is_empty() && deals.len() <= 100;
+    let all_deals: Vec<String> = deals_of
+        .values()
+        .filter(|deals| usable(deals))
+        .flatten()
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let companies_of = service
+        .association_map("deals", &all_deals, "companies")
+        .await?;
+    let mut company_of: BTreeMap<String, Option<String>> = BTreeMap::new();
+    for id in ids {
+        let companies: BTreeSet<&String> = match deals_of.get(id) {
+            Some(deals) if usable(deals) => deals
+                .iter()
+                .flat_map(|deal| companies_of.get(deal).into_iter().flatten())
+                .collect(),
+            _ => BTreeSet::new(),
+        };
+        company_of.insert(
+            id.clone(),
+            (companies.len() == 1)
+                .then(|| companies.into_iter().next().cloned().unwrap_or_default()),
+        );
+    }
+    let wanted: Vec<String> = company_of
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let names: BTreeMap<String, Option<String>> = service
+        .batch("companies", &wanted, &["name"])
+        .await?
+        .into_iter()
+        .map(|record| {
+            let name = record.value("name").map(str::to_owned);
+            (record.id, name)
+        })
+        .collect();
+    Ok(company_of
+        .into_iter()
+        .map(|(id, company)| {
+            let name = company.and_then(|company| names.get(&company).cloned().flatten());
+            (id, name)
+        })
+        .collect())
+}
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct FreshQuery {
@@ -1075,6 +1138,57 @@ pub(super) async fn read_company(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(json!({"listing_id":id,"company_name":company_name})),
+    ))
+}
+const COMPANY_BATCH_MAX: usize = 100;
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CompaniesQuery {
+    ids: String,
+    fresh: Option<String>,
+}
+/// Customer names for the listings shown in the list, in a few HubSpot reads instead of three
+/// per listing. Same authorization and same names as `read_company`; names already known (6 h
+/// cache) are not read again. A failed read is an error and nothing is cached for it.
+pub(super) async fn read_companies(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    Query(query): Query<CompaniesQuery>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    let mut ids: Vec<String> = Vec::new();
+    for id in query.ids.split(',') {
+        valid_id(id)?;
+        if !ids.iter().any(|known| known == id) {
+            ids.push(id.to_owned());
+        }
+    }
+    if ids.len() > COMPANY_BATCH_MAX {
+        return Err(ReadError(StatusCode::BAD_REQUEST, "too_many_ids"));
+    }
+    let service = service(&access)?;
+    let fresh = matches!(query.fresh.as_deref(), Some("1" | "true"));
+    let mut names: BTreeMap<String, Option<String>> = BTreeMap::new();
+    let mut missing = Vec::new();
+    for id in &ids {
+        match (!fresh)
+            .then(|| service.detail_cache.company.get(id))
+            .flatten()
+        {
+            Some(name) => {
+                names.insert(id.clone(), name);
+            }
+            None => missing.push(id.clone()),
+        }
+    }
+    for (id, name) in listing_company_names(service, &missing).await? {
+        service.detail_cache.company.put(&id, name.clone());
+        names.insert(id, name);
+    }
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({ "companies": names })),
     ))
 }
 #[cfg(test)]

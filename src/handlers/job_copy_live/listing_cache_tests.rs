@@ -41,14 +41,57 @@ impl Fixture {
                         }
                         Json(json!({"results":[{"toObjectId":"20"}]})).into_response()
                     }
-                    "/crm/v4/associations/deals/companies/batch/read" => Json(json!({"results":[
-                        {"from":{"id":"20"},"to":[{"toObjectId":"10"}]}
-                    ]}))
-                    .into_response(),
-                    "/crm/v3/objects/companies/batch/read" => Json(
-                        json!({"results":[{"id":"10","properties":{"name":"合成運輸株式会社"}}]}),
-                    )
-                    .into_response(),
+                    "/crm/v4/objects/0-420/31/associations/deals" => {
+                        Json(json!({"results":[{"toObjectId":"21"},{"toObjectId":"22"}]}))
+                            .into_response()
+                    }
+                    "/crm/v4/objects/0-420/32/associations/deals" => {
+                        Json(json!({"results":[]})).into_response()
+                    }
+                    "/crm/v4/objects/0-420/33/associations/deals" => {
+                        Json(json!({"results":[{"toObjectId":"23"}]})).into_response()
+                    }
+                    "/crm/v4/associations/0-420/deals/batch/read" => {
+                        let rows = batch_inputs(request).await;
+                        let results: Vec<Value> = rows
+                            .iter()
+                            .map(|id| {
+                                let to = match id.as_str() {
+                                    "30" => vec!["20"],
+                                    "31" => vec!["21", "22"],
+                                    "33" => vec!["23"],
+                                    _ => vec![],
+                                };
+                                json!({"from":{"id":id},"to":to.iter().map(|t| json!({"toObjectId":t})).collect::<Vec<_>>()})
+                            })
+                            .collect();
+                        Json(json!({"results":results})).into_response()
+                    }
+                    "/crm/v4/associations/deals/companies/batch/read" => {
+                        let rows = batch_inputs(request).await;
+                        let results: Vec<Value> = rows
+                            .iter()
+                            .map(|id| {
+                                let company = match id.as_str() {
+                                    "20" | "21" => "10",
+                                    _ => "11",
+                                };
+                                json!({"from":{"id":id},"to":[{"toObjectId":company}]})
+                            })
+                            .collect();
+                        Json(json!({"results":results})).into_response()
+                    }
+                    "/crm/v3/objects/companies/batch/read" => {
+                        let rows = batch_inputs(request).await;
+                        let results: Vec<Value> = rows
+                            .iter()
+                            .map(|id| {
+                                let name = if id == "10" { "合成運輸株式会社" } else { "別の合成株式会社" };
+                                json!({"id":id,"properties":{"name":name}})
+                            })
+                            .collect();
+                        Json(json!({"results":results})).into_response()
+                    }
                     other => panic!("unexpected read: {other}"),
                 }
             }
@@ -125,6 +168,24 @@ impl Fixture {
         .await;
         body(result).await
     }
+    async fn companies(
+        &self,
+        session: &Session,
+        ids: &str,
+        fresh: bool,
+    ) -> Result<Value, StatusCode> {
+        let result = read_companies(
+            State(self.state.clone()),
+            Extension(self.access.clone()),
+            session.clone(),
+            Query(CompaniesQuery {
+                ids: ids.into(),
+                fresh: fresh.then(|| "1".into()),
+            }),
+        )
+        .await;
+        body(result).await
+    }
     /// How many times each HubSpot path was read so far.
     fn counts(&self) -> Counts<String, usize> {
         let mut counts = Counts::new();
@@ -136,6 +197,17 @@ impl Fixture {
     fn total(&self) -> usize {
         self.paths.lock().unwrap().len()
     }
+}
+/// The `id`s a HubSpot batch read asked for.
+async fn batch_inputs(request: Request<Body>) -> Vec<String> {
+    let bytes = to_bytes(request.into_body(), 1 << 20).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    body["inputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|input| input["id"].as_str().unwrap().to_owned())
+        .collect()
 }
 async fn body(result: Result<impl IntoResponse, ReadError>) -> Result<Value, StatusCode> {
     match result {
@@ -282,4 +354,102 @@ async fn a_failed_company_read_is_an_error_and_is_not_remembered() {
     let ok = f.company(&f.session, "30", false).await.unwrap();
     assert_eq!(ok["company_name"], "合成運輸株式会社");
     assert_eq!(f.total(), 4, "1 failed read + 3 reads of the retry");
+}
+
+#[tokio::test]
+async fn batch_names_equal_the_single_reads_and_cost_three_reads() {
+    let f = Fixture::new().await;
+    let batch = f.companies(&f.session, "30,31,32,33", false).await.unwrap();
+    assert_eq!(
+        batch,
+        json!({"companies":{
+            "30":"合成運輸株式会社",
+            "31":null,
+            "32":null,
+            "33":"別の合成株式会社"
+        }}),
+        "30 one company; 31 two companies is blank; 32 no deal is blank; 33 another company"
+    );
+    assert_eq!(
+        f.counts(),
+        Counts::from([
+            ("/crm/v4/associations/0-420/deals/batch/read".to_owned(), 1),
+            (
+                "/crm/v4/associations/deals/companies/batch/read".to_owned(),
+                1
+            ),
+            ("/crm/v3/objects/companies/batch/read".to_owned(), 1),
+        ]),
+        "four listings cost one read of each kind"
+    );
+    // The batch answer is cached: asking again, or one at a time, reads nothing more.
+    assert_eq!(
+        f.companies(&f.session, "30,31,32,33", false).await.unwrap(),
+        batch
+    );
+    for (id, name) in batch["companies"].as_object().unwrap() {
+        let single = f.company(&f.session, id, true).await.unwrap();
+        assert_eq!(
+            &single["company_name"], name,
+            "listing {id}: single read agrees"
+        );
+    }
+}
+
+#[tokio::test]
+async fn batch_names_use_the_cache_and_read_only_what_is_missing() {
+    let f = Fixture::new().await;
+    f.company(&f.session, "30", false).await.unwrap();
+    assert_eq!(f.total(), 3);
+    let only_known = f.companies(&f.session, "30", false).await.unwrap();
+    assert_eq!(only_known, json!({"companies":{"30":"合成運輸株式会社"}}));
+    assert_eq!(f.total(), 3, "everything was cached: HubSpot is not called");
+    let mixed = f.companies(&f.session, "30,33", false).await.unwrap();
+    assert_eq!(mixed["companies"]["33"], "別の合成株式会社");
+    assert_eq!(f.total(), 6, "only listing 33 was resolved (3 reads)");
+    // The batch filled the cache the single endpoint uses.
+    f.company(&f.session, "33", false).await.unwrap();
+    assert_eq!(f.total(), 6);
+    // `fresh=1` rereads even known names.
+    f.companies(&f.session, "30", true).await.unwrap();
+    assert_eq!(f.total(), 9);
+}
+
+#[tokio::test]
+async fn batch_names_refuse_bad_requests_and_unauthorized_users_before_any_read() {
+    let f = Fixture::new().await;
+    assert_eq!(
+        f.companies(&session_for(None).await, "30", false)
+            .await
+            .unwrap_err(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        f.companies(
+            &session_for(Some("outside@example.test")).await,
+            "30",
+            false
+        )
+        .await
+        .unwrap_err(),
+        StatusCode::FORBIDDEN
+    );
+    for bad in ["", "30,,31", "30,x/../1", "30,"] {
+        assert_eq!(
+            f.companies(&f.session, bad, false).await.unwrap_err(),
+            StatusCode::BAD_REQUEST,
+            "{bad:?}"
+        );
+    }
+    let hundred_and_one = (1..=101)
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    assert_eq!(
+        f.companies(&f.session, &hundred_and_one, false)
+            .await
+            .unwrap_err(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(f.total(), 0, "refused requests read nothing");
 }
