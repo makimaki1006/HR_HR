@@ -294,7 +294,13 @@
 .wd-line-status { border-radius: var(--cq-radius); padding: 1px 8px; font-size: 12px; }
 .wd-line-status strong { font-size: 12px; }
 .wd-line-flag { font-size: 11px; }
-.wd-line-end { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+.wd-line-1 { flex-wrap: nowrap; }
+.wd-line-1 .wd-line-company { min-width: 0; }
+.wd-line-2 { min-height: 32px; }
+.wd-line-contact { flex: 0 100 auto; min-width: 0; }
+.wd-dial-reason { color: #8a1c14; font-size: 11px; white-space: nowrap; }
+.wd-last { margin: 0; font-size: 12px; color: var(--cq-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wd-line-end { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .wd-line .wd-callbar-open { margin-left: 0; }
 
 /* 「求人検索・リンク先」の上の行 (タブ + 広げる) */

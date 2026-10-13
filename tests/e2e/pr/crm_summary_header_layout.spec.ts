@@ -66,8 +66,8 @@ test.describe('CRM 架電画面: 案件の概要の見出し', () => {
       if (SHOT) await page.screenshot({ path: `${SHOT}/expanded-${tag}.png` });
       expect(h2.width).toBeGreaterThanOrEqual(150);
       expect(h2.height).toBeLessThanOrEqual(60);
-      // 概要は幅で並べ替わる (crm_summary_responsive.spec.ts)。既定の配置 (約 430px) は 2 列で 275px 以内、380px 台は縦積みで 330px 以内
-      expect(top.height).toBeLessThanOrEqual(narrow ? 330 : 275);
+      // 概要は幅で並べ替わる (crm_summary_responsive.spec.ts)。既定の配置 (約 430px) は 2 列で 315px 以内、380px 台は縦積みで 345px 以内 (前回の活動の 1 行を含む)
+      expect(top.height).toBeLessThanOrEqual(narrow ? 345 : 315);
       // 見出しの中の操作が列からはみ出さない
       const sel = await box(page, '.wr-stage-select');
       expect(sel.x + sel.width).toBeLessThanOrEqual(center.x + center.width + 1);
