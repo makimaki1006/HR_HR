@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { apiGet, apiPut, ApiHttpError, AuthRequiredError } from '../../api/client';
 import type { JobCopyRecord } from './data';
@@ -79,7 +80,7 @@ function OccupationDrawer({ record, onClose, onSaved }: { record: JobCopyRecord;
     else setError(errorText(result.error));
   }
 
-  return <div className="mo-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+  return createPortal(<div className="mo-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose(); }}>
     <aside className="mo-drawer" role="dialog" aria-modal="true" aria-labelledby={headingId}>
       <header><h2 id={headingId}>市場と比べる職種を指定する</h2><button type="button" className="jc-button" aria-label="閉じる" onClick={onClose} disabled={saving}>×</button></header>
       <div className="mo-body">
@@ -101,5 +102,5 @@ function OccupationDrawer({ record, onClose, onSaved }: { record: JobCopyRecord;
       </div>
       <footer><button type="button" className="jc-button" onClick={onClose} disabled={saving}>やめる</button><button type="button" className="jc-button" disabled={choice === null || saving || !record.hubspotId} onClick={() => { void save(); }}>この職種を指定する</button></footer>
     </aside>
-  </div>;
+  </div>, document.body);
 }

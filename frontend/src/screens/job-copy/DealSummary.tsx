@@ -19,7 +19,7 @@ const PALETTE = ['#1f6f8b', '#c2571a', '#5b8c2a', '#8a4fa0', '#b8860b', '#2e8b7a
 const ENDED_GRAY = '#b4b4b4';
 const yen = (value: number | null) => value === null ? '—' : formatYen(value);
 const count = (value: number | null) => value === null ? '—' : `${String(value)}件`;
-type IndeedRow = HubSpotListing & { indeed_title_state?: string | null };
+const indeedCell = (row: HubSpotListing): string => row.indeed_title_state === 'set' && row.indeed_title?.trim() ? row.indeed_title.trim() : row.indeed_title_state === 'none' ? '市場と比べない' : '未指定';
 
 export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealSelection; billingByJob: Readonly<Record<string, readonly BillingEntry[]>>; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void }) {
   const [source, setSource] = useState<Source>({ status: 'loading' });
@@ -104,7 +104,7 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
     yAxis: { type: 'value', show: false, min: 0 },
     series: [{ type: 'bar', name: '課金', data: series.billing, itemStyle: { color: '#a36816' } }],
   } : null;
-  const showIndeed = source.rows.some(row => (row as IndeedRow).indeed_title_state !== undefined);
+  const showIndeed = source.rows.some(row => row.indeed_title_state !== undefined);
 
   return <section className="ds-root" aria-label="案件のまとめ">
     <div className="ds-band" role="group" aria-label="案件の合計">
@@ -143,7 +143,7 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
                 <td>{share === null ? '—' : <><span className="ds-bar" aria-hidden="true"><i style={{ width: `${String(share)}%`, background: colorOf(row.id) }} /></span> {String(share)}%</>}</td>
                 <td>{yen(n?.billing ?? null)}</td>
                 <td>{yen(n?.perApplication ?? null)}</td>
-                {showIndeed && <td>{(row as IndeedRow).indeed_title_state ?? '—'}</td>}
+                {showIndeed && <td>{indeedCell(row)}</td>}
               </tr>;
             })}
           </tbody></table></div>
