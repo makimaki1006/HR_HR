@@ -52,7 +52,7 @@ export function OwnerFilter({ owner, effective, needsPick, onChange, owners, onR
   const known = isId && list.some(o => o.id === owner);
   const picked = isId ? list.find(o => o.id === owner) : undefined;
 
-  return <fieldset className="cq-owner" ref={rootRef}
+  return <fieldset className={`cq-owner${owner !== '' && owner !== 'all' ? ' is-set' : ''}`} ref={rootRef}
     onBlur={e => { if (pickMode && e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget)) closePick(); }}>
     <legend>所有者</legend>
     <select aria-label="所有者" ref={triggerRef} value={selectValue} onChange={e => { chooseMode(e.target.value); }}>
