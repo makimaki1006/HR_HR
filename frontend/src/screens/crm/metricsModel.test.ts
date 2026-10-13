@@ -45,6 +45,7 @@ describe('stripItems', () => {
   it('比較が全員に落ちたら「全体平均」', () => {
     const items = stripItems({ ...FIXTURE_TODAY, population: 'all' });
     expect(items?.[0]?.compare).toBe('全体平均 47.5・3位/8人');
+    expect(items?.[0]?.compareShort).toBe('平均47.5・3位/8');
   });
   it('本人が引けなければ null', () => {
     expect(stripItems({ ...FIXTURE_TODAY, me: null })).toBeNull();

@@ -10,3 +10,19 @@
 .tm-sub, .tm-cmp { color: #667382; font-variant-numeric: tabular-nums; }
 .tm-foot, .tm-note { margin: 0 0 2px; color: #64748b; font-size: .72rem; }
 .tm-cmp { font-size: .72rem; }
+/* 狭い幅: 比較を短くして 1 行に収める。短い文は data-short から出し、全文は li の title に残す */
+@media (max-width: 1440px) {
+  .tm { padding-left: 12px; }
+  .tm-head { gap: 2px 8px; }
+  .tm-items { gap: 2px 8px; flex-wrap: nowrap; }
+  .tm-item { gap: 4px; white-space: nowrap; }
+  .tm-cmp { font-size: 0; }
+  .tm-cmp::after { content: attr(data-short); font-size: .72rem; }
+}
+@media (max-width: 1320px) {
+  .tm-asof { display: none; }
+  .tm-sub { display: none; }
+}
+@media (max-width: 1100px) {
+  .tm-items { flex-wrap: wrap; }
+}
