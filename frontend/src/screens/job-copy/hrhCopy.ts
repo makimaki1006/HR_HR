@@ -12,6 +12,8 @@ const labels: Record<string, string> = {
   '試用・研修期の平均稼働時間': '平均の勤務時間', '試用・研修期の平均稼働日数': '平均の勤務日数', '試用・研修期の固定残業代': '固定残業代', '試用・研修期の想定残業時間': '想定される残業時間', '試用・研修の詳細情報': '詳細',
   勤務時間: '勤務時間', 勤務時間帯: '勤務時間帯', 受動喫煙対策: '受動喫煙対策', 受動喫煙についての補足情報: '喫煙に関する案内', 応募方法: '応募方法', 応募後のプロセス: '応募後の流れ', 採用予定人数: '採用予定人数',
 };
+/** 本文の見出しとして知っている語（HRハッカーの列名と、求人票での呼び名）。 */
+export const knownHeadings: ReadonlySet<string> = new Set([...columns, ...Object.values(labels)]);
 const conditional = /^条件付き給与([1-3])(?:の|\s*)(条件|深夜帯|最小給与|最大給与)$/;
 /** Choose the longest forward column sequence, anchored at the first field.
  * Equal sequences for the same column prefer the later occurrence, preserving

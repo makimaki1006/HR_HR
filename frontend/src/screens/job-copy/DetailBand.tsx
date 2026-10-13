@@ -17,7 +17,7 @@ const jpDate = (value: string | null) => value ? value.replace(/^(\d{4})-(\d{2})
 export function DetailBand({ job, billing, onOpenFullCompare }: { job: JobCopyRecord; billing: readonly BillingEntry[] | undefined; onOpenFullCompare: () => void }) {
   const n = bandNumbers(job, billing);
   return <div className="jc-band" role="region" aria-label="この案件の要点">
-    <div className="jc-band-name"><strong title={job.title}>{job.title}</strong><span>{joinPresent([job.media, job.dataSource === 'hubspot' ? `公開状況：${publicationLabel(job.listingPublicationStatus ?? null)}` : ''])}</span></div>
+    <div className="jc-band-name"><h1 title={job.title}>{job.title}</h1><span>{joinPresent([job.media, job.dataSource === 'hubspot' ? `公開状況：${publicationLabel(job.listingPublicationStatus ?? null)}` : ''])}</span></div>
     <dl className="jc-band-numbers">
       <div><dt>直近4週の応募</dt><dd data-testid="band-recent">{n.recent ?? '—'}<small>{n.previous === null ? '' : `前の4週 ${String(n.previous)}`}</small></dd></div>
       <div><dt>応募1件あたり</dt><dd data-testid="band-per-application">{formatBandYen(n.perApplicationYen)}</dd></div>

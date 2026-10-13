@@ -441,7 +441,7 @@
 .jc-detail { --jc-band-h: 96px; }
 .jc-band { position: sticky; top: 0; z-index: 6; min-height: var(--jc-band-h); display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 10px 0; margin-bottom: 8px; background: var(--jc-paper); border-bottom: 1px solid var(--jc-border); box-sizing: border-box; }
 .jc-band-name { flex: 1 1 220px; min-width: 0; display: grid; gap: 2px; }
-.jc-band-name strong { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jc-band-name h1 { margin: 0; font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jc-band-name span { color: var(--jc-muted); font-size: 12px; }
 .jc-band-numbers { display: flex; gap: 22px; margin: 0; flex-wrap: wrap; }
 .jc-band-numbers dt { color: var(--jc-muted); font-size: 11px; }

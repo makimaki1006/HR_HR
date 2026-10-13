@@ -16,7 +16,7 @@
 .jc-ftc-pill[aria-pressed="true"] { background:#007c91; color:#fff; border-color:#007c91; }
 .jc-ftc-pill[aria-pressed="true"] small { color:#e6f4f7; }
 .jc-ftc-range { margin:0; font-size:12px; color:#52697a; }
-.jc-ftc-summary { margin:14px 0 8px; font-weight:600; }
+.jc-ftc-summary { margin:22px 0 10px; font-weight:600; }
 .jc-ftc-row { padding:10px 0 10px 10px; border-top:1px solid #d4dfe7; border-left:4px solid transparent; }
 .jc-ftc-row[data-changed="true"] { border-left-color:#007c91; background:#f4f9fa; }
 .jc-ftc-row p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.8; }

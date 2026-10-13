@@ -30,7 +30,7 @@ export function MarketOccupationSlot({ record, prefecture, onChanged }: Props) {
   const label = state === 'set' ? designatedTitle(record) ?? '' : state === 'none' ? '市場と比べない' : '未指定';
   return <div className="mo-slot" data-state={state}>
     <span className="mo-label">職種</span>
-    <strong className="mo-value">{label}</strong>
+    {state !== 'unset' && <strong className="mo-value">{label}</strong>}
     <span className={`mo-chip mo-chip-${state}`}>{state === 'set' ? '指定済み' : state === 'none' ? '市場と比べない' : '未指定'}</span>
     {prefecture && <span className="mo-pref">都道府県：{prefecture}</span>}
     <button type="button" className="jc-button mo-open" onClick={() => { setOpen(true); }}>{state === 'unset' ? '職種を指定する' : '職種を変える'}</button>
