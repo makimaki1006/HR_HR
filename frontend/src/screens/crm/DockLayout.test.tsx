@@ -280,7 +280,8 @@ describe('selected properties are read in the same detail request', () => {
     expect(c.props[0]).toEqual(DEFAULT_SELECTED);
     fireEvent.click(tab('プロパティ'));
     const panel = screen.getByTestId('property-panel');
-    fireEvent.click(within(panel).getByRole('button', { name: '表示する項目を選ぶ' }));
+    fireEvent.click(within(panel).getByRole("button", { name: "表示設定 ▾" }));
+    fireEvent.click(within(panel).getByRole("menuitem", { name: "表示する項目を選ぶ" }));
     const picker = screen.getByRole('region', { name: '表示する項目を選ぶ' });
     // グループを開いて 1 項目足す
     fireEvent.click(within(picker).getByRole('button', { name: /取引の売上/ }));
@@ -301,7 +302,8 @@ describe('selected properties are read in the same detail request', () => {
   it('a whole group can be picked with one checkbox (partly chosen = mixed), and 既定に戻す restores the default', async () => {
     await openDeal(counted());
     fireEvent.click(tab('プロパティ'));
-    fireEvent.click(screen.getByRole('button', { name: '表示する項目を選ぶ' }));
+    fireEvent.click(screen.getByRole("button", { name: "表示設定 ▾" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "表示する項目を選ぶ" }));
     const picker = screen.getByRole('region', { name: '表示する項目を選ぶ' });
     const all = within(picker).getByRole<HTMLInputElement>('checkbox', { name: '「取引ステージのプロパティ」の項目をまとめて選ぶ' });
     expect(all.checked).toBe(false);
@@ -319,7 +321,8 @@ describe('selected properties are read in the same detail request', () => {
     const c = counted();
     await openDeal(c);
     fireEvent.click(tab('プロパティ'));
-    fireEvent.click(screen.getByRole('button', { name: '表示する項目を選ぶ' }));
+    fireEvent.click(screen.getByRole("button", { name: "表示設定 ▾" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "表示する項目を選ぶ" }));
     const picker = screen.getByRole('region', { name: '表示する項目を選ぶ' });
     const presets = within(picker).getByRole('group', { name: 'HubSpotのカードから選ぶ' });
     // カードの選択は種類の切り替えより上にある
@@ -340,7 +343,8 @@ describe('selected properties are read in the same detail request', () => {
     // リスト情報は出さない (選んだ項目が 0)
     const panel = screen.getByTestId('property-panel');
     await waitFor(() => { expect(within(panel).queryByTestId('pp-card-list_info')).toBeNull(); });
-    fireEvent.click(within(panel).getByRole('button', { name: '表示する項目を選ぶ' }));
+    fireEvent.click(within(panel).getByRole("button", { name: "表示設定 ▾" }));
+    fireEvent.click(within(panel).getByRole("menuitem", { name: "表示する項目を選ぶ" }));
     const again = screen.getByRole('region', { name: '表示する項目を選ぶ' });
     fireEvent.click(within(again).getByRole('button', { name: '既定に戻す' }));
     fireEvent.click(within(again).getByRole('button', { name: 'この項目で表示する' }));
