@@ -271,8 +271,8 @@ test.describe('案件管理のタイムライン', () => {
     await expect(timeline.getByText('市場と比べる職種：配送ドライバー（人が指定）', { exact: true })).toBeVisible();
     const market = await seriesLengths(page, 'jt-market');
     expect(market).toEqual([2, 2]);
-    // 再取得は選んだ市場の月次だけを取り直す（一覧は 1 回）
-    expect(calls.filter(search => !search.includes('title='))).toHaveLength(1);
+    // 一覧は右の「数字の前提」が最初に取り、画面で共有しているので、再取得で取り直すのは選んだ市場の月次だけ
+    expect(calls.filter(search => !search.includes('title='))).toHaveLength(0);
     expect(calls.filter(search => search.includes('title='))).toHaveLength(2);
   });
 
