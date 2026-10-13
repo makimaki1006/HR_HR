@@ -4,6 +4,10 @@ import type { TeamAverage } from "./TeamAverage";
 
 export type TodayMetricsResponse = { 
 /**
+ * true のとき、今日の最初の読み込みが背景で進んでいて数字はまだ無い (画面は「集計中」を出して取り直す)
+ */
+loading: boolean, 
+/**
  * この数字を読んだ時刻 (RFC 3339)
  */
 as_of: string, 

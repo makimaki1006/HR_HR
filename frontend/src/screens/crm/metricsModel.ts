@@ -154,6 +154,7 @@ function metrics(outbound: number, o30: number, o90: number, o360: number, talke
 export const FIXTURE_AS_OF = '2026-10-13T05:05:00Z';
 
 export const FIXTURE_TODAY: TodayMetricsResponse = {
+  loading: false,
   as_of: FIXTURE_AS_OF,
   day: '2026-10-13',
   stale: false,
@@ -174,6 +175,7 @@ export const FIXTURE_TODAY: TodayMetricsResponse = {
 };
 
 export const FIXTURE_ALL: AllCallersResponse = {
+  loading: false,
   as_of: FIXTURE_AS_OF,
   day: '2026-10-13',
   stale: false,

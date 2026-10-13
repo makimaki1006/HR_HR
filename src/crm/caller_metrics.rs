@@ -13,7 +13,7 @@
 //! - 順位は 1 が最良 (多い順)。同じ値は同順位 (1, 1, 3)。集団に入っていない人 (今日の架電が 0) は順位なし。
 //!
 //! ## データの流れ (新しい DB は作らない。ADR-006 / ADR-027)
-//! プロセス内に今日の Call を持つ。最初の要求で今日の分を全部読み (Search、200 件ずつ、1 つの窓の合計が
+//! プロセス内に今日の Call を持つ。起動時 (または最初の要求) に背景で今日の分を全部読み (要求は待たず `loading: true` を返す) (Search、200 件ずつ、1 つの窓の合計が
 //! 9,000 件を超えるときは時間で半分に割る)、以降は `hs_lastmodifieddate` が前回の読み始めの 2 分前以降のものだけを読んで
 //! id で上書きする。JST の 0 時を過ぎたら捨てる。読み直しは 2 分に 1 回まで (要求が来たときだけ。利用者をまたいで共有)。
 //! 全部 `Background` 優先度。混んでいる・失敗したときは前回の結果を `stale: true` で返す。
@@ -152,6 +152,8 @@ pub struct MyTodayMetrics {
 
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct TodayMetricsResponse {
+    /// true のとき、今日の最初の読み込みが背景で進んでいて数字はまだ無い (画面は「集計中」を出して取り直す)
+    pub loading: bool,
     /// この数字を読んだ時刻 (RFC 3339)
     pub as_of: String,
     /// 集計の日 (JST、YYYY-MM-DD)
@@ -180,6 +182,8 @@ pub struct CallerRowOut {
 
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct AllCallersResponse {
+    /// true のとき、今日の最初の読み込みが背景で進んでいて表はまだ空 (画面は「集計中」を出して取り直す)
+    pub loading: bool,
     pub as_of: String,
     pub day: String,
     pub stale: bool,
@@ -636,6 +640,44 @@ pub struct CallerMetricsState {
     store: tokio::sync::Mutex<Store>,
     snapshot: RwLock<Option<Arc<Snapshot>>>,
     next_try: Mutex<Option<DateTime<Utc>>>,
+    /// 最初の読み込み (背景) が走っている間 true。二重に走らせない
+    warming: std::sync::atomic::AtomicBool,
+}
+
+/// `get_or_warm` の結果
+pub enum Warm {
+    /// 数字がある。(結果, 古いまま返しているか)
+    Ready(Arc<Snapshot>, bool),
+    /// 今日の最初の読み込みが背景で進んでいる
+    Loading,
+}
+
+/// 背景の読み込みが終わった (落ちた) ら `warming` を戻す
+struct WarmGuard(Arc<CallerMetricsState>);
+impl Drop for WarmGuard {
+    fn drop(&mut self) {
+        self.0
+            .warming
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+/// 本番のルーターと起動時の温めが共有する状態
+pub fn shared() -> Arc<CallerMetricsState> {
+    static SHARED: std::sync::OnceLock<Arc<CallerMetricsState>> = std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| Arc::new(CallerMetricsState::new()))
+        .clone()
+}
+
+/// 起動時に背景で今日の最初の読み込みを始める (要求を待たずに温める)。HubSpot の鍵が無ければ何もしない
+pub fn spawn_warmup(state: Arc<AppState>) {
+    let Some(client) = state.crm_hubspot() else {
+        return;
+    };
+    tokio::spawn(async move {
+        let _ = shared().get_or_warm(&client, Utc::now()).await;
+    });
 }
 
 impl CallerMetricsState {
@@ -658,6 +700,46 @@ impl CallerMetricsState {
             .ok()
             .and_then(|g| *g)
             .is_some_and(|t| now < t)
+    }
+
+    /// 要求用。今日の数字がまだ無いとき (再起動直後・日替わり) は、読み込みを要求から切り離して背景で
+    /// 1 本だけ走らせ、すぐ `Loading` を返す (要求の締め切りで読み込みごと打ち切られないように)。
+    /// 失敗したあとは `RETRY_AFTER_FAILURE` の間は読まずに `Busy`、過ぎたら次の要求で読み直す。
+    pub async fn get_or_warm(
+        self: &Arc<Self>,
+        client: &Arc<HubSpotClient>,
+        now: DateTime<Utc>,
+    ) -> Result<Warm, HubSpotError> {
+        let (day, _, _) = jst_day(now);
+        if self.current().is_some_and(|s| s.day == day) {
+            return self
+                .get(client, now)
+                .await
+                .map(|(s, st)| Warm::Ready(s, st));
+        }
+        if self.backing_off(now) {
+            return Err(HubSpotError::Busy);
+        }
+        if self
+            .warming
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .is_err()
+        {
+            return Ok(Warm::Loading);
+        }
+        let this = self.clone();
+        let client = client.clone();
+        tokio::spawn(async move {
+            let _guard = WarmGuard(this.clone());
+            // 失敗は get が next_try に記録する
+            let _ = this.get(&client, now).await;
+        });
+        Ok(Warm::Loading)
     }
 
     /// 今日の結果を返す。(結果, 古いまま返しているか)
@@ -782,7 +864,10 @@ pub(super) async fn get_today(
     let email = principal.email.clone().unwrap_or_default();
     let now = ctx.queue.now();
     let work = async {
-        let (snap, stale) = ctx.caller_metrics.get(&client, now).await?;
+        let (snap, stale) = match ctx.caller_metrics.get_or_warm(&client, now).await? {
+            Warm::Ready(s, st) => (s, st),
+            Warm::Loading => return Ok(None),
+        };
         let me_ref = ctx.queue.owner_info_for(&client, &email).await?;
         // チームの照合に必要なときだけ担当者一覧 (10 分キャッシュ) を読む。取れなければ全員で比べる
         let viewer_teams = me_ref.as_ref().map(|o| o.teams.clone()).unwrap_or_default();
@@ -799,13 +884,30 @@ pub(super) async fn get_today(
         } else {
             viewer_teams
         };
-        Ok::<_, HubSpotError>((snap, stale, me_ref, eff_teams, teams_of))
+        Ok::<_, HubSpotError>(Some((snap, stale, me_ref, eff_teams, teams_of)))
     };
     let (snap, stale, me_ref, viewer_teams, teams_of) =
         match tokio::time::timeout(CRM_REQUEST_DEADLINE, work).await {
             Err(_) => return super::routes::timeout_response(),
             Ok(Err(e)) => return hubspot_error_response(&e),
-            Ok(Ok(v)) => v,
+            Ok(Ok(None)) => {
+                let (day, _, _) = jst_day(now);
+                return Json(TodayMetricsResponse {
+                    loading: true,
+                    as_of: String::new(),
+                    day: day.to_string(),
+                    stale: false,
+                    me: None,
+                    team_avg: None,
+                    population_size: 0,
+                    population: "all".to_string(),
+                    team_names: Vec::new(),
+                    appointments_tracked: true,
+                    message: None,
+                })
+                .into_response();
+            }
+            Ok(Ok(Some(v))) => v,
         };
     let my_owner = me_ref.as_ref().map(|o| o.id.as_str());
     let (me, team_avg, population_size, label) =
@@ -820,6 +922,7 @@ pub(super) async fn get_today(
     };
     let appointments_tracked = appointments_tracked(&viewer_teams);
     Json(TodayMetricsResponse {
+        loading: false,
         as_of: as_of_text(snap.as_of),
         day: snap.day.to_string(),
         stale,
@@ -851,15 +954,30 @@ pub(super) async fn get_today_all(
     };
     let now = ctx.queue.now();
     let work = async {
-        let (snap, stale) = ctx.caller_metrics.get(&client, now).await?;
+        let (snap, stale) = match ctx.caller_metrics.get_or_warm(&client, now).await? {
+            Warm::Ready(s, st) => (s, st),
+            Warm::Loading => return Ok(None),
+        };
         // 名前・チームは付け足し。取れなくても数字は返す
         let owners = ctx.queue.owner_list.get(&client).await.ok();
-        Ok::<_, HubSpotError>((snap, stale, owners))
+        Ok::<_, HubSpotError>(Some((snap, stale, owners)))
     };
     let (snap, stale, owners) = match tokio::time::timeout(CRM_REQUEST_DEADLINE, work).await {
         Err(_) => return super::routes::timeout_response(),
         Ok(Err(e)) => return hubspot_error_response(&e),
-        Ok(Ok(v)) => v,
+        Ok(Ok(None)) => {
+            let (day, _, _) = jst_day(now);
+            return Json(AllCallersResponse {
+                loading: true,
+                as_of: String::new(),
+                day: day.to_string(),
+                stale: false,
+                teams: Vec::new(),
+                callers: Vec::new(),
+            })
+            .into_response();
+        }
+        Ok(Ok(Some(v))) => v,
     };
     let info: HashMap<&str, &super::owners::CrmOwner> = owners
         .as_ref()
@@ -892,6 +1010,7 @@ pub(super) async fn get_today_all(
         .flat_map(|c| c.teams.iter().cloned())
         .collect();
     Json(AllCallersResponse {
+        loading: false,
         as_of: as_of_text(snap.as_of),
         day: snap.day.to_string(),
         stale,
