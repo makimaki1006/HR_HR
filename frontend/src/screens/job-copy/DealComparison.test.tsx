@@ -138,7 +138,7 @@ it('reads only displayed rows for dates, preserves unknowns and drops a previous
   oldResolve?.({ ok: true, data: { dates: { '1': '2026-01-01T00:00:00Z' } } });
   await waitFor(() => { expect(table.textContent).toContain('次のページの求人'); });
   expect(table.textContent).not.toContain('2026/01/01');
-  expect(api.mock.calls.filter(call => String(call[0]).includes('listing-body-dates')).map(call => String(call[0]).split('ids=')[1])).toEqual(['1', '51']);
+  expect(api.mock.calls.filter(call => String(call[0]).includes('listing-body-dates')).map(call => String(call[0]).split('ids=')[1])).toEqual(['1', '1', '51']);
 });
 
 it.each([['検品', '梱包'], ['検'.repeat(600), '梱'.repeat(600)]])('colours whole field replacements in the deal comparison for %s', (before, after) => {

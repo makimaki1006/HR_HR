@@ -21,6 +21,7 @@ use std::{
 };
 use tower_sessions::Session;
 mod applicant_extensions;
+mod deal_summary;
 pub mod applicant_reasons;
 mod drafts;
 mod hrh_copy;
@@ -2137,6 +2138,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route("/api/job-copy/snapshot-image", get(snapshot_image))
         .route("/api/job-copy/market", get(super::job_copy_market::read))
         .route("/api/job-copy/listing-status", get(listing_status::read))
+        .route("/api/job-copy/deal-applications", get(deal_summary::read))
         .merge(drafts::router(state, access.clone()))
         .layer(Extension(access))
 }
