@@ -15,7 +15,7 @@ export const jobFeatureGroups: { id: string; label: string; hidden?: boolean; fe
     { id: 'performance', label: '課金・クリック', description: '媒体の期間別実績を確認します。未接続のデータは表示しません。' },
   ] },
   { id: 'market', label: '市場分析', features: [
-    { id: 'market', label: '市場グラフ', description: '市場職種と都道府県を選び、各指標の月次推移を確認します。' },
+    { id: 'market', label: '市場グラフ', description: '各指標の月次推移を確認します。市場と比べる職種は右の欄で指定します。' },
     { id: 'market-table', label: '市場データ', description: '市場グラフと同じ職種・地域・期間の実数を確認します。' },
     { id: 'factors', label: '要因・仮説', description: '本文・画像を確認した履歴と、次に確認する要因を整理します。' },
   ] },

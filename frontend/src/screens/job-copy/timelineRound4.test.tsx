@@ -98,7 +98,7 @@ describe('billing CSV media names', () => {
 });
 
 const series = (months: string[]) => ({ prefecture: '大分県', months, job_count: months.map((_, index) => 100 + index * 10), ctk_count: months.map(() => 300), employer_count: months.map(() => 1), seekers_per_posting: months.map(() => 3) });
-const marketData = (path: string, months: string[]) => ({ ok: true, data: { source: '合成', titles: ['ドライバー', '倉庫作業'], prefectures: ['大分県'], ctk_basis: '応募数ではありません', series: path.includes('title=') ? series(months) : null } });
+const marketData = (path: string, months: string[]) => ({ ok: true, data: { source: '合成', titles: ['ドライバー', '倉庫作業'], prefectures: ['大分県', '福岡県'], ctk_basis: '応募数ではありません', series: path.includes('title=') ? series(months) : null } });
 
 describe('the last market month comes from the data', () => {
   it('shows 市場データは2026年10月まで when the monthly refresh reached October, with no no-data band', async () => {
@@ -120,8 +120,6 @@ describe('the last market month comes from the data', () => {
   });
   it('shows the last month on the 市場分析 tab too, under the plain label 市場環境', async () => {
     render(<MarketContext job={demo('demo-job-001')} mode="demo" view="table" />);
-    fireEvent.change(await screen.findByLabelText('比較する市場職種'), { target: { value: 'ドライバー' } });
-    fireEvent.change(screen.getByLabelText('比較する都道府県'), { target: { value: '大分県' } });
     expect(await screen.findByText('市場データは2026年8月まで（毎月更新）')).toBeTruthy();
     expect(screen.getByRole('region', { name: '市場環境' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: /要因/u })).toBeNull();
@@ -142,7 +140,7 @@ describe('market data cache', () => {
     api.mockImplementation((path: string) => Promise.resolve(marketData(path, ['2026-08', '2026-09'])));
     const cache: MarketCache = new Map();
     const first = { ...demo('demo-job-001'), title: 'ドライバー' };
-    const second = { ...demo('demo-job-002'), title: 'ドライバー', location: '大分県別府市' };
+    const second = { ...demo('demo-job-002'), title: 'ドライバー', indeedTitle: 'ドライバー', location: '大分県別府市' };
     const view = (job: JobCopyRecord) => <MarketCacheContext.Provider value={cache}><JobTimeline job={job} /></MarketCacheContext.Provider>;
     const { rerender } = render(view(first));
     await screen.findByText(/^市場データは2026年9月まで（毎月更新）/u);
@@ -152,20 +150,20 @@ describe('market data cache', () => {
     await screen.findByText(/^市場データは2026年9月まで（毎月更新）/u);
     expect(api.mock.calls.map(call => String(call[0]))).toEqual(['/api/job-copy/market', `/api/job-copy/market?${new URLSearchParams({ title: 'ドライバー', prefecture: '大分県' }).toString()}`]);
   });
-  it('keeps the market chart mounted while the months of a new occupation load', async () => {
+  it('keeps the market chart mounted while the months of a new prefecture load', async () => {
     let release: (value: unknown) => void = () => undefined;
-    api.mockImplementation((path: string) => path.includes(encodeURIComponent('倉庫作業'))
+    api.mockImplementation((path: string) => path.includes(encodeURIComponent('福岡県'))
       ? new Promise(resolve => { release = resolve; })
       : Promise.resolve(marketData(path, ['2026-08', '2026-09'])));
     render(<JobTimeline job={{ ...demo('demo-job-001'), title: 'ドライバー' }} />);
     await screen.findByText(/^市場データは2026年9月まで（毎月更新）/u);
     // The month label can render before the market chart's mount effect has run.
     await waitFor(() => { expect(charts.mounts).toBe(2); });
-    fireEvent.change(screen.getByLabelText('職種'), { target: { value: '倉庫作業' } });
+    fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: '福岡県' } });
     // Still the same chart element while loading, with the loading note shown.
     expect(screen.getByTestId('jt-market')).toBeTruthy();
     expect(within(screen.getByRole('group', { name: '市場' })).getByText('市場データを読み込み中…')).toBeTruthy();
-    await act(async () => { release(marketData('?title=倉庫作業', ['2026-08', '2026-09', '2026-10'])); await Promise.resolve(); });
+    await act(async () => { release(marketData('?title=ドライバー', ['2026-08', '2026-09', '2026-10'])); await Promise.resolve(); });
     await screen.findByText(/^市場データは2026年10月まで（毎月更新）/u);
     expect(screen.getByTestId('jt-market')).toBeTruthy();
     // The applications chart and the market chart were each mounted once: no re-creation.

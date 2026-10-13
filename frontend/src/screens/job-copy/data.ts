@@ -46,6 +46,9 @@ export interface JobCopyRecord {
   id: string;
   currentImageObservation?: { observedAt: string; images: CopyImage[] };
   hubspotId?: string;
+  /** 人が指定した「比べる Indeed 職種」。指定が無ければ市場とは比べない。 */
+  indeedTitle?: string | null | undefined;
+  indeedTitleState?: 'set' | 'none' | 'unset' | undefined;
   historyMayBeIncomplete?: boolean;
   dataSource?: 'hubspot';
   hubspotUrl?: string;
@@ -82,7 +85,7 @@ const driverRevision = "キャッチコピー：土日は自分の時間に。�
 
 export const jobs: JobCopyRecord[] = [
   {
-    id: 'demo-job-001', title: '地域配送ドライバー', company: 'デモ運輸A',
+    id: 'demo-job-001', indeedTitle: 'ドライバー', indeedTitleState: 'set', title: '地域配送ドライバー', company: 'デモ運輸A',
     media: 'HRハッカー', mediaJobId: 'DEMO-HRH-001', accountId: 'DEMO-SHOP-01', location: '大分県大分市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
@@ -128,7 +131,7 @@ export const jobs: JobCopyRecord[] = [
     ],
   },
   {
-    id: 'demo-job-002', title: '倉庫内ピッキングスタッフ', company: 'デモ物流B',
+    id: 'demo-job-002', indeedTitle: '倉庫作業', indeedTitleState: 'set', title: '倉庫内ピッキングスタッフ', company: 'デモ物流B',
     media: 'Airワーク', mediaJobId: 'DEMO-AIR-002', accountId: 'DEMO-ACCOUNT-01', location: '大分県別府市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
@@ -151,7 +154,7 @@ export const jobs: JobCopyRecord[] = [
     ],
   },
   {
-    id: 'demo-job-003', title: '受付事務スタッフ', company: 'デモサービスC',
+    id: 'demo-job-003', indeedTitle: '受付事務', indeedTitleState: 'set', title: '受付事務スタッフ', company: 'デモサービスC',
     media: 'HRハッカー', mediaJobId: 'DEMO-HRH-003', accountId: 'DEMO-SHOP-01', location: '大分県大分市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
@@ -179,7 +182,7 @@ export const jobs: JobCopyRecord[] = [
     ],
   },
   {
-    id: 'demo-job-004', title: '施設清掃スタッフ', company: 'デモ環境D',
+    id: 'demo-job-004', indeedTitle: '清掃スタッフ', indeedTitleState: 'set', title: '施設清掃スタッフ', company: 'デモ環境D',
     media: 'Airワーク', mediaJobId: 'DEMO-AIR-004', accountId: 'DEMO-ACCOUNT-01', location: '大分県中津市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
@@ -201,7 +204,7 @@ export const jobs: JobCopyRecord[] = [
     ],
   },
   {
-    id: 'demo-job-005', title: '調理補助スタッフ', company: 'デモフードE',
+    id: 'demo-job-005', indeedTitle: '調理補助', indeedTitleState: 'set', title: '調理補助スタッフ', company: 'デモフードE',
     media: 'HRハッカー', mediaJobId: 'DEMO-HRH-005', accountId: 'DEMO-SHOP-01', location: '大分県日田市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
@@ -224,7 +227,7 @@ export const jobs: JobCopyRecord[] = [
     ],
   },
   {
-    id: 'demo-job-006', title: '製造ラインスタッフ', company: 'デモ製作F',
+    id: 'demo-job-006', indeedTitle: '製造スタッフ', indeedTitleState: 'set', title: '製造ラインスタッフ', company: 'デモ製作F',
     media: 'Airワーク', mediaJobId: 'DEMO-AIR-006', accountId: 'DEMO-ACCOUNT-01', location: '大分県宇佐市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
@@ -247,7 +250,7 @@ export const jobs: JobCopyRecord[] = [
     ],
   },
   {
-    id: 'demo-job-007', title: '店舗販売スタッフ', company: 'デモリテールG',
+    id: 'demo-job-007', indeedTitle: '販売スタッフ', indeedTitleState: 'set', title: '店舗販売スタッフ', company: 'デモリテールG',
     media: 'HRハッカー', mediaJobId: 'DEMO-HRH-007', accountId: 'DEMO-SHOP-01', location: '大分県佐伯市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。

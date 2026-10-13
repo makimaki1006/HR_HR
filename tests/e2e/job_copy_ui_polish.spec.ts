@@ -119,7 +119,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       expect((await filters.boundingBox())!.y).toBe(top);
       await page.locator('.jc-fixed-list .jc-list-scroll').evaluate(element => { element.scrollTop = 0; });
       await cards.nth(1).click();
-      await expect(page.locator('.jc-detail-heading')).toContainText('特殊機械の組立スタッフ2');
+      await expect(page.locator('.jc-band')).toContainText('特殊機械の組立スタッフ2');
       if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
       await expect.poll(() => wholeCards(page, '.jc-fixed-list .jc-job')).toBeGreaterThanOrEqual(5);
       if (!pinned) {

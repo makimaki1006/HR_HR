@@ -1,0 +1,28 @@
+.jc-ftc { position:fixed; inset:24px 0; margin:auto; box-sizing:border-box; width:min(1320px, calc(100% - 32px)); height:calc(100dvh - 48px); padding:0; border:1px solid #d4dfe7; border-radius:14px; color:#25394c; background:#fff; overflow:hidden; box-shadow:0 20px 80px rgb(0 0 0 / 25%); }
+.jc-ftc[open] { display:flex; flex-direction:column; }
+.jc-ftc::backdrop { background:rgb(18 32 47 / 55%); }
+.jc-ftc-head { display:flex; align-items:center; gap:16px; flex-shrink:0; padding:14px 24px; border-bottom:1px solid #d4dfe7; background:#f4f9fa; }
+.jc-ftc-head > div:first-child { flex:1; min-width:0; }
+.jc-ftc-head h2 { font-size:20px; margin:0 0 4px; }
+.jc-ftc-head p { margin:0; font-size:12px; color:#52697a; overflow-wrap:anywhere; }
+.jc-ftc-toggle { display:flex; gap:0; }
+.jc-ftc-toggle .jc-button[aria-pressed="true"] { background:#007c91; color:#fff; border-color:#007c91; }
+.jc-ftc-scroll { min-height:0; overflow-y:auto; padding:16px 24px 24px; }
+.jc-ftc-grid { display:grid; grid-template-columns:160px minmax(0,1fr) minmax(0,1fr); gap:0 20px; }
+.jc-ftc-picker { min-width:0; }
+.jc-ftc-picker > div { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
+.jc-ftc-pill { display:flex; flex-direction:column; align-items:flex-start; padding:6px 12px; border:1px solid #94a9b9; border-radius:999px; background:#fff; font-size:12px; }
+.jc-ftc-pill small { font-size:10px; color:#52697a; }
+.jc-ftc-pill[aria-pressed="true"] { background:#007c91; color:#fff; border-color:#007c91; }
+.jc-ftc-pill[aria-pressed="true"] small { color:#e6f4f7; }
+.jc-ftc-range { margin:0; font-size:12px; color:#52697a; }
+.jc-ftc-summary { margin:22px 0 10px; font-weight:600; }
+.jc-ftc-row { padding:10px 0 10px 10px; border-top:1px solid #d4dfe7; border-left:4px solid transparent; }
+.jc-ftc-row[data-changed="true"] { border-left-color:#007c91; background:#f4f9fa; }
+.jc-ftc-row p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.8; }
+.jc-ftc-label { font-weight:600; font-size:13px; }
+.jc-ftc-tag { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:#007c91; color:#fff; font-size:10px; font-weight:400; }
+.jc-ftc-muted { color:#52697a; }
+.jc-ftc-note { margin-top:16px; font-size:12px; color:#52697a; }
+.jc-ftc ins.jc-mark-added { background:#8fd19e; color:#0b3d1a; text-decoration:none; border-radius:2px; }
+.jc-ftc del.jc-mark-removed { background:#f2a3a3; color:#5c0f0f; border-radius:2px; }

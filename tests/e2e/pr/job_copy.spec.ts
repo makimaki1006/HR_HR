@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { login } from './helpers/login';
 
 /**
- * 求人文面管理 (/app/job-copy) を Rust が配る React 画面で確かめる。
+ * 案件管理 (/app/job-copy) を Rust が配る React 画面で確かめる。
  * 求人と応募の取得 (/api/job-copy/moc) は Drive の保存データを読むので、PR の fixture には無い。
  * ここでは合成データを page.route で返し、市場 (/api/job-copy/market) も合成の月次データを返す。
  * 確かめること: 最初のタブがタイムライン、7 レーンの値、2 つの ECharts の描画完了、期間比較表の具体値、
@@ -27,9 +27,12 @@ function snapshot(capturedAt = defaultCapturedAt) {
 async function open(page: Page, capturedAt = defaultCapturedAt, options: { seriesFailures?: number } = {}) {
   const calls: string[] = [];
   let seriesFailures = options.seriesFailures ?? 0;
+  // 市場の職種は人が指定するまで空。指定している間は月次の取得を止め、指定後に画面の「再読み込み」で取り直す。
+  let designating = false;
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshot(capturedAt)) }));
   await page.route('**/api/job-copy/market*', route => {
     const url = new URL(route.request().url());
+    if (designating && url.searchParams.has('title')) return route.abort();
     calls.push(url.search);
     if (url.searchParams.has('title') && seriesFailures > 0) {
       seriesFailures -= 1;
@@ -44,6 +47,24 @@ async function open(page: Page, capturedAt = defaultCapturedAt, options: { serie
   await login(page);
   await page.goto('/app/job-copy?data=actual');
   await expect(page.locator('.jc-job')).toHaveCount(1);
+  // 職種を指定する（HubSpot への保存は合成の応答）。指定前は市場を取りにいかないことも確かめる。
+  await page.route('**/api/job-copy/listings/30/indeed-title', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ listing_id: '30', indeed_title: '配送ドライバー', indeed_title_state: 'set' }) }));
+  const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
+  await expect(timeline).toContainText('市場と比べる職種が未指定です');
+  expect(calls.filter(search => search.includes('title='))).toHaveLength(0);
+  const tabs = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
+  await tabs.getByRole('tab', { name: '市場分析', exact: true }).click();
+  await page.getByRole('button', { name: '職種を指定する', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: '市場と比べる職種を指定する' });
+  await drawer.getByLabel('配送ドライバー', { exact: true }).check();
+  calls.length = 0;
+  designating = true;
+  await drawer.getByRole('button', { name: 'この職種を指定する', exact: true }).click();
+  await expect(drawer).toBeHidden();
+  await tabs.getByRole('tab', { name: 'タイムライン', exact: true }).click();
+  await expect(timeline.getByRole('button', { name: '市場データを再読み込み', exact: true })).toBeVisible();
+  designating = false;
+  await timeline.getByRole('button', { name: '市場データを再読み込み', exact: true }).click();
   return calls;
 }
 
@@ -56,7 +77,7 @@ async function seriesLengths(page: Page, testId: string) {
   });
 }
 
-test.describe('求人文面管理のタイムライン', () => {
+test.describe('案件管理のタイムライン', () => {
   test('最初のタブがタイムラインで、7 レーン・グラフ・期間比較表に具体値が出る', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
     const calls = await open(page);
@@ -76,8 +97,8 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(billingLane.locator('.jt-billing-dummy')).toHaveCount(2);
     await expect(timeline.getByRole('note').filter({ hasText: '実際の請求額ではありません' })).toBeVisible();
     await expect(timeline).toContainText('応募日が分からない応募 1件 はグラフに含めていません');
-    // 市場は求人タイトルと勤務地から自動で選び、選んだ値を見せる
-    await expect(timeline.getByLabel('職種')).toHaveValue('配送ドライバー');
+    // 市場は人が指定した職種と、勤務地から選んだ都道府県で取る
+    await expect(timeline.getByText('市場と比べる職種：配送ドライバー（人が指定）', { exact: true })).toBeVisible();
     await expect(timeline.getByLabel('都道府県')).toHaveValue('大分県');
     expect(calls.some(search => search.includes('title=%E9%85%8D%E9%80%81%E3%83%89%E3%83%A9%E3%82%A4%E3%83%90%E3%83%BC'))).toBe(true);
     const applications = await seriesLengths(page, 'jt-applications');
@@ -131,8 +152,18 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(page.getByRole('checkbox', { name: '仮の課金データを表示', exact: true })).not.toBeChecked();
     await page.getByRole('checkbox', { name: '仮の課金データを表示', exact: true }).check();
     await expect(page.getByRole('region', { name: 'タイムライン', exact: true }).getByRole('group', { name: '課金', exact: true }).locator('.jt-billing-dummy')).toHaveCount(2);
-    // 市場の選び方: 職種と都道府県を別々に、自動で選んだことを示す
-    await expect(timeline.getByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください', { exact: true })).toBeVisible();
+    // 保存先は合成の応答なので、再読み込みで職種は未指定に戻る。指定し直すと市場が出る
+    await expect(timeline).toContainText('市場と比べる職種が未指定です');
+    const tabs = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
+    await tabs.getByRole('tab', { name: '市場分析', exact: true }).click();
+    await page.getByRole('button', { name: '職種を指定する', exact: true }).click();
+    const drawer = page.getByRole('dialog', { name: '市場と比べる職種を指定する' });
+    await drawer.getByLabel('配送ドライバー', { exact: true }).check();
+    await drawer.getByRole('button', { name: 'この職種を指定する', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await tabs.getByRole('tab', { name: 'タイムライン', exact: true }).click();
+    // 市場の選び方: 職種は人が指定、都道府県は勤務地から自動
+    await expect(timeline.getByText('市場と比べる職種：配送ドライバー（人が指定）', { exact: true })).toBeVisible();
     await expect(timeline.getByText('勤務地から大分県を自動で選びました', { exact: true })).toBeVisible();
     // 主作業の外: データ取込は閉じていて、逆検索は押すまで出ない。旧来の操作バーも無い。
     await expect(page.locator('.jc-data-import')).toBeHidden();
@@ -237,11 +268,11 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(rows.nth(1).locator('td').nth(4)).toHaveText('市場データを確認できませんでした');
     await timeline.getByRole('button', { name: '市場データを再読み込み', exact: true }).click();
     await expect(rows.nth(1).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件）');
-    await expect(timeline.getByLabel('職種')).toHaveValue('配送ドライバー');
+    await expect(timeline.getByText('市場と比べる職種：配送ドライバー（人が指定）', { exact: true })).toBeVisible();
     const market = await seriesLengths(page, 'jt-market');
     expect(market).toEqual([2, 2]);
-    // 再取得は選んだ市場の月次だけを取り直す（一覧は 1 回）
-    expect(calls.filter(search => !search.includes('title='))).toHaveLength(1);
+    // 一覧は右の「数字の前提」が最初に取り、画面で共有しているので、再取得で取り直すのは選んだ市場の月次だけ
+    expect(calls.filter(search => !search.includes('title='))).toHaveLength(0);
     expect(calls.filter(search => search.includes('title='))).toHaveLength(2);
   });
 

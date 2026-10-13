@@ -23,23 +23,27 @@ describe('market UI evidence and recovery', () => {
     expect(screen.getByText(/応募日別集計が未取得/)).toBeTruthy();
     expect(api).not.toHaveBeenCalled();
   });
+  const designated: JobCopyRecord = { ...job, indeedTitle: '合成職種', indeedTitleState: 'set' };
   it('can retry the initial failed market request without navigating away', async () => {
     api.mockResolvedValueOnce({ ok: false }).mockResolvedValueOnce({ ok: true, data: metadata });
-    render(<MarketContext job={job} />);
+    render(<MarketContext job={designated} />);
     expect(await screen.findByRole('alert')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '市場データを再読み込み' }));
-    expect(await screen.findByLabelText('比較する市場職種')).toBeTruthy();
+    expect(await screen.findByText('市場と比べる職種：合成職種（人が指定）')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(api).toHaveBeenCalledTimes(2);
   });
-  it('clears the preceding market scope when the selected job changes', async () => {
+  it('fetches only the designated title, and nothing for a job without a designation', async () => {
     api.mockResolvedValue({ ok: true, data: metadata });
-    const view = render(<MarketContext job={job} />);
-    fireEvent.change(await screen.findByLabelText('比較する市場職種'), { target: { value: '合成職種' } });
-    await waitFor(() => { expect(api).toHaveBeenCalledTimes(2); });
-    view.rerender(<MarketContext job={{ ...job, id: 'other-job' }} />);
-    await waitFor(() => { expect(api).toHaveBeenCalledTimes(3); });
-    expect(screen.getByLabelText<HTMLSelectElement>('比較する市場職種').value).toBe('');
-    expect(api.mock.calls.at(-1)?.[0]).toBe('/api/job-copy/market');
+    const view = render(<MarketContext job={designated} />);
+    await waitFor(() => { expect(api).toHaveBeenCalledTimes(1); });
+    expect(api.mock.calls[0]?.[0]).toBe(`/api/job-copy/market?${new URLSearchParams({ title: '合成職種', prefecture: '合成県' }).toString()}`);
+    // Another job nobody designated: the note replaces the data, and no request is made.
+    view.rerender(<MarketContext job={{ ...job, id: 'other-job', title: '合成職種' }} />);
+    expect(await screen.findByText('市場と比べる職種が未指定です')).toBeTruthy();
+    expect(screen.queryByText(/人が指定/)).toBeNull();
+    view.rerender(<MarketContext job={{ ...job, id: 'third-job', indeedTitleState: 'none' }} />);
+    expect(await screen.findByText('市場と比べないと指定されています')).toBeTruthy();
+    expect(api).toHaveBeenCalledTimes(1);
   });
 });

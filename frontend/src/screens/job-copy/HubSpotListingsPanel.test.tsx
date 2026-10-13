@@ -9,7 +9,6 @@ import { JobCopyScreen } from './JobCopyScreen';
 import type { JobCopyRecord } from './data';
 import { listingRecord } from './hubspotListings';
 import type { HubSpotListing, HubSpotVersions } from './hubspotListings';
-import { matchMarketTitle } from './marketMatch';
 import { CAUSAL_PATTERN, JARGON_PATTERN } from './format';
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', async importOriginal => ({ ...await importOriginal<typeof import('../../api/client')>(), apiGet: api }));
@@ -26,7 +25,6 @@ function mock() {
 }
 describe('HubSpot listing history', () => {
   it('preserves body, ordered URLs and unknown dates and counts in the existing record shape', () => {
-    expect(matchMarketTitle('看護師・介護職', ['看護師', '介護職'])?.title).toBe('介護職');
     const record = listingRecord(history);
     expect(record.accountId).toBe('synthetic-account');
     expect(record.mediaJobId).toBe('AW-10');
@@ -181,7 +179,7 @@ describe('opening a listing quickly', () => {
     const { container } = render(<JobCopyScreen />);
     fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
     fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
-    await waitFor(() => { expect(container.querySelector('.jc-detail-heading h1')?.textContent).toBe('合成配送求人'); });
+    await waitFor(() => { expect(container.querySelector('.jc-band h1')?.textContent).toBe('合成配送求人'); });
     // The body is on screen and the name has been asked for, but has not arrived.
     expect(api.mock.calls.some(call => String(call[0]) === '/api/job-copy/listings/10/company')).toBe(true);
     expect(container.querySelector('.jc-detail-heading p')?.textContent).not.toContain('合成運輸株式会社');

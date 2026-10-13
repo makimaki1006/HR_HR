@@ -6,7 +6,7 @@ import type { JobCopyRecord } from './data';
 import { marketRows } from './marketChartModel';
 import type { MarketData, MarketRow } from './marketChartModel';
 import { useMarketFetch } from './marketSource';
-import { chooseMarket } from './marketMatch';
+import { chooseMarket, designatedTitle, marketTitleNote } from './marketMatch';
 import { salaryLabel } from './salaryExtract';
 import { plainWording } from './format';
 import { InfoTip } from './InfoTip';
@@ -27,8 +27,8 @@ interface MarketState {
   meta: MarketData | null;
   title: string;
   prefecture: string;
-  /** How the occupation was chosen. */
-  titleBy: 'auto-exact' | 'auto-partial' | 'user' | 'none';
+  /** Where the occupation comes from: always a person's designation (never guessed). */
+  titleBy: 'set' | 'missing' | 'none' | 'unset';
   /** How the prefecture was chosen (from the job's work location, or by the user). */
   prefectureBy: 'auto' | 'user' | 'none';
   rows: MarketRow[] | null;
@@ -48,31 +48,36 @@ interface MarketFocus { retryButton: RefObject<HTMLButtonElement | null>; titleS
 
 function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: MarketFocus) {
   const fetchMarket = useMarketFetch(mode);
-  const [state, setState] = useState<MarketState>({ status: 'loading', meta: null, title: '', prefecture: '', titleBy: 'none', prefectureBy: 'none', rows: null, staleRows: null, retrying: false });
+  const designated = chooseMarket(job, []).titleState;
+  const designatedName = designatedTitle(job) ?? '';
+  const [state, setState] = useState<MarketState>({ status: 'loading', meta: null, title: '', prefecture: '', titleBy: designated, prefectureBy: 'none', rows: null, staleRows: null, retrying: false });
   // attempt: re-fetch the list of occupations / prefectures. seriesAttempt: re-fetch only the
-  // months for the current choice (a retry after the list was read keeps a hand-picked choice).
+  // months for the current choice (a retry after the list was read keeps a hand-picked prefecture).
   const [attempt, setAttempt] = useState(0);
   const [seriesAttempt, setSeriesAttempt] = useState(0);
   useEffect(() => {
+    // A job whose occupation nobody designated fetches no market data (it is never guessed).
+    if (designated !== 'set') return;
     let cancelled = false;
     void fetchMarket('', '').then(result => {
       if (cancelled) return;
       if (!result.ok) { setState(previous => ({ ...previous, status: 'error', rows: null, staleRows: null, retrying: false })); return; }
-      const choice = chooseMarket(job, result.data.titles, result.data.prefectures);
+      const choice = chooseMarket(job, result.data.prefectures);
       setState(previous => {
-        // A choice the user made by hand stays when it is still in the list.
-        const keepTitle = previous.titleBy === 'user' && result.data.titles.includes(previous.title);
+        // A prefecture the user chose by hand stays when it is still in the list.
         const keepPrefecture = previous.prefectureBy === 'user' && result.data.prefectures.includes(previous.prefecture);
-        const title = keepTitle ? previous.title : choice.title ?? '';
+        // The designated title may be missing from the market list; then there is nothing to compare.
+        const listed = result.data.titles.includes(designatedName);
+        const title = listed ? designatedName : '';
         const prefecture = keepPrefecture ? previous.prefecture : choice.prefecture ?? '';
-        const titleBy: MarketState['titleBy'] = keepTitle ? 'user' : choice.title ? (choice.titleHow === 'exact' ? 'auto-exact' : 'auto-partial') : 'none';
+        const titleBy: MarketState['titleBy'] = listed ? 'set' : 'missing';
         const prefectureBy: MarketState['prefectureBy'] = keepPrefecture ? 'user' : choice.prefecture ? 'auto' : 'none';
         const status: MarketState['status'] = title && prefecture ? 'loading' : 'ready';
         return { status, meta: result.data, title, prefecture, titleBy, prefectureBy, rows: null, staleRows: null, retrying: previous.retrying && status === 'loading' };
       });
     }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error', rows: null, staleRows: null, retrying: false })); });
     return () => { cancelled = true; };
-  }, [job, fetchMarket, attempt]);
+  }, [job, designated, designatedName, fetchMarket, attempt]);
   const { title, prefecture, meta } = state;
   useEffect(() => {
     if (!meta || !title || !prefecture) return;
@@ -87,11 +92,11 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
     }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error', rows: null, staleRows: null, retrying: false })); });
     return () => { cancelled = true; };
   }, [meta, title, prefecture, fetchMarket, seriesAttempt]);
-  const choose = (next: { title?: string; prefecture?: string }) => {
+  const choose = (next: { prefecture?: string }) => {
     setState(previous => {
-      const title = next.title ?? previous.title; const prefecture = next.prefecture ?? previous.prefecture;
+      const title = previous.title; const prefecture = next.prefecture ?? previous.prefecture;
       const status: MarketState['status'] = title && prefecture ? 'loading' : 'ready';
-      return { ...previous, title, prefecture, titleBy: next.title === undefined ? previous.titleBy : 'user', prefectureBy: next.prefecture === undefined ? previous.prefectureBy : 'user', rows: null,
+      return { ...previous, title, prefecture, prefectureBy: next.prefecture === undefined ? previous.prefectureBy : 'user', rows: null,
         staleRows: status === 'loading' ? previous.rows ?? previous.staleRows : null, status };
     });
   };
@@ -115,7 +120,9 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
     if (state.status === 'error') retryButton.current?.focus();
     else (titleSelect.current ?? retryButton.current)?.focus();
   }, [state.status, retryButton, titleSelect]);
-  return { state, choose, retry };
+  // A job without a designated occupation shows no market, whatever an earlier job left in state.
+  const shown: MarketState = designated === 'set' ? state : { status: 'ready', meta: null, title: '', prefecture: '', titleBy: designated, prefectureBy: 'none', rows: null, staleRows: null, retrying: false };
+  return { state: shown, choose, retry };
 }
 
 const salaryMark = { up: '▲', down: '▼', other: '変更' } as const;
@@ -492,14 +499,13 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         {lane?.noDataFrom && <div className="jt-nodata" style={span(range, `${lane.noDataFrom}-01` > range.start ? `${lane.noDataFrom}-01` : range.start, addDays(range.end, 1))} title={lane.lastDataMonth ? marketDataUntil(lane.lastDataMonth) : undefined}>データなし</div>}
         {marketOption && market.state.status === 'loading' && <p className="jt-empty jt-market-loading" role="status">市場データを読み込み中…</p>}
         {marketOption ? <EChart option={marketOption} testId="jt-market" height={72} renderer="svg" />
-          : <p className="jt-empty">{market.state.status === 'loading' ? '市場データを読み込み中…' : market.state.status === 'error' ? '市場データを取得できませんでした' : !market.state.title ? '職種を選ぶと市場の動きを表示します' : !market.state.prefecture ? '都道府県を選ぶと市場の動きを表示します' : 'この職種・都道府県の市場データはありません'}</p>}
+          : <p className="jt-empty">{market.state.status === 'loading' ? '市場データを読み込み中…' : market.state.status === 'error' ? '市場データを取得できませんでした' : market.state.titleBy === 'unset' || market.state.titleBy === 'none' ? marketTitleNote(market.state.titleBy) : market.state.titleBy === 'missing' ? '指定された職種は市場データの一覧にありません' : !market.state.title ? '職種を選ぶと市場の動きを表示します' : !market.state.prefecture ? '都道府県を選ぶと市場の動きを表示します' : 'この職種・都道府県の市場データはありません'}</p>}
       </Lane>
       <div className="jt-lane-tools jt-market-tools">
         <div className="jt-market-key"><i className="jt-key jt-key-jobs" />市場求人数 <i className="jt-key jt-key-viewers" /><InfoTip className="jc-infotip-left" label="Indeed閲覧者指標"><p>{plainWording(marketMeta?.ctk_basis ?? 'Indeed閲覧者指標は、求職者の人数やこの求人への応募数ではありません。')}</p></InfoTip></div>
         {marketMeta && <>
-          <label>職種<select ref={titleSelect} value={market.state.title} onChange={event => { market.choose({ title: event.target.value }); }}><option value="">選んでください</option>{marketMeta.titles.map(value => <option key={value}>{value}</option>)}</select></label>
-          <label>都道府県<select value={market.state.prefecture} onChange={event => { market.choose({ prefecture: event.target.value }); }}><option value="">選んでください</option>{marketMeta.prefectures.map(value => <option key={value}>{value}</option>)}</select></label>
-          <span className="jt-choice">{market.state.titleBy === 'auto-exact' ? '求人名と同じ職種を自動で選びました' : market.state.titleBy === 'auto-partial' ? '求人名に含まれる職種を自動で選びました。違う場合は選び直してください' : market.state.titleBy === 'user' ? '手で選んだ職種です' : '求人名から職種を決められませんでした'}</span>
+          <span className="jt-choice">市場と比べる職種：{market.state.title || '（なし）'}（人が指定）</span>
+          <label>都道府県<select ref={titleSelect} value={market.state.prefecture} onChange={event => { market.choose({ prefecture: event.target.value }); }}><option value="">選んでください</option>{marketMeta.prefectures.map(value => <option key={value}>{value}</option>)}</select></label>
           <span className="jt-choice">{market.state.prefectureBy === 'auto' ? `勤務地から${market.state.prefecture}を自動で選びました` : market.state.prefectureBy === 'user' ? '手で選んだ都道府県です' : '勤務地から都道府県を決められませんでした'}</span>
         </>}
         {(market.state.status === 'error' || market.state.retrying) && <button type="button" ref={retryButton} className="jc-button" aria-disabled={market.state.status === 'loading'} onClick={market.retry}>市場データを再読み込み</button>}

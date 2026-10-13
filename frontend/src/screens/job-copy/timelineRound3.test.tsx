@@ -75,7 +75,7 @@ describe('selection, retry focus and announcements', () => {
     expect(within(panel).getByRole('button', { name: '前回の本文との違いを見る' })).toBeTruthy();
   });
 
-  it('keeps the retry button while retrying, then moves focus to 職種 and announces the result', async () => {
+  it('keeps the retry button while retrying, then moves focus to 都道府県 and announces the result', async () => {
     const list = { source: '合成', titles: ['ドライバー'], prefectures: ['大分県'], ctk_basis: '応募数ではありません', series: null };
     const series = { prefecture: '大分県', months: ['2026-08', '2026-09'], job_count: [100, 110], ctk_count: [300, 310], employer_count: [1, 1], seekers_per_posting: [3, 3] };
     let release: (value: unknown) => void = () => undefined;
@@ -100,7 +100,7 @@ describe('selection, retry focus and announcements', () => {
     await waitFor(() => { expect(screen.queryByRole('button', { name: '市場データを再読み込み' })).toBeNull(); });
     // Focus moves in a passive effect that can run after the commit that removes the button (the
     // update may land outside act), so wait for it instead of reading activeElement right away.
-    await waitFor(() => { expect(document.activeElement).toBe(screen.getByLabelText('職種')); });
+    await waitFor(() => { expect(document.activeElement).toBe(screen.getByLabelText('都道府県')); });
     await waitFor(() => { expect(status()).toBe('市場データを表示しました（ドライバー・大分県）'); });
   });
 });

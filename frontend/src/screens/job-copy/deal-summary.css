@@ -1,0 +1,25 @@
+.ds-root { display: grid; gap: 16px; margin-bottom: 24px; }
+.ds-band { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; padding: 10px 14px; background: var(--jc-surface, #fff); border: 1px solid var(--jc-border, #d9d9d9); border-radius: 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06); }
+.ds-band > div { display: grid; gap: 2px; }
+.ds-band span { font-size: 12px; color: var(--jc-muted, #5b5b5b); }
+.ds-band strong { font-size: 20px; }
+.ds-band small, .ds-note, .ds-table small { color: var(--jc-muted, #5b5b5b); font-size: 12px; }
+.ds-table small { display: block; }
+.ds-grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 20px; align-items: start; }
+.ds-main { display: grid; gap: 20px; min-width: 0; }
+.ds-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ds-toggle { display: flex; gap: 6px; }
+.ds-toggle [aria-pressed='true'] { font-weight: 700; outline: 2px solid currentColor; }
+.ds-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; list-style: none; padding: 0; margin: 4px 0; font-size: 12px; }
+.ds-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
+.ds-billing-label { margin: 8px 0 0; }
+.ds-bar { display: inline-block; width: 60px; height: 8px; background: #e6e6e6; border-radius: 4px; vertical-align: middle; overflow: hidden; }
+.ds-bar i { display: block; height: 100%; }
+.ds-events { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.ds-events li { display: grid; grid-template-columns: 90px 1fr; gap: 2px 10px; padding-bottom: 8px; border-bottom: 1px solid var(--jc-border, #e3e3e3); }
+.ds-events small { grid-column: 2; color: var(--jc-muted, #5b5b5b); }
+.ds-rail { font-size: 13px; padding: 12px; border: 1px solid var(--jc-border, #d9d9d9); border-radius: 8px; position: sticky; top: 96px; }
+.ds-rail ul { padding-left: 16px; margin: 4px 0 8px; }
+@media (max-width: 900px) { .ds-grid { grid-template-columns: 1fr; } .ds-rail { position: static; } }
+.jc-deal-table.ds-table th:first-child { width: 24%; }
+.ds-table td:first-child .jc-button { white-space: normal; text-align: left; }

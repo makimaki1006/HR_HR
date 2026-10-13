@@ -256,7 +256,7 @@ function parseBody<T>(contentType: string, text: string, expect: ApiExpect): Api
 }
 
 interface FetchInit {
-  method: 'GET' | 'POST' | 'PATCH';
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT';
   headers: Record<string, string>;
   body?: string;
 }
@@ -376,6 +376,27 @@ export async function apiPatch<T>(
     path,
     {
       method: 'PATCH',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...REQUESTED_WITH,
+      },
+      body: JSON.stringify(body),
+    },
+    options,
+  );
+}
+
+/** PUT a JSON body. Same result/error contract as apiPatch. */
+export async function apiPut<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<T>> {
+  return sendFetch<T>(
+    path,
+    {
+      method: 'PUT',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',

@@ -22,8 +22,10 @@ use std::{
 use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
+mod deal_summary;
 mod drafts;
 mod hrh_copy;
+mod indeed_title;
 mod listing_cache;
 mod listing_status;
 mod listings;
@@ -2132,11 +2134,16 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             "/api/job-copy/listings/{id}/rikurozi-draft",
             axum::routing::post(rikurozi::generate),
         )
+        .route(
+            "/api/job-copy/listings/{id}/indeed-title",
+            axum::routing::put(indeed_title::put),
+        )
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
         .route("/api/job-copy/snapshot-image", get(snapshot_image))
         .route("/api/job-copy/market", get(super::job_copy_market::read))
         .route("/api/job-copy/listing-status", get(listing_status::read))
+        .route("/api/job-copy/deal-applications", get(deal_summary::read))
         .merge(drafts::router(state, access.clone()))
         .layer(Extension(access))
 }

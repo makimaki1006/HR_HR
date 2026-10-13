@@ -35,7 +35,7 @@ export function sidebarTests() {
       const title = await card.locator('strong').innerText();
       await card.click();
       await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-      await expect(page.locator('.jc-detail-heading h1')).toHaveText(title);
+      await expect(page.locator('.jc-band h1')).toHaveText(title);
       await expect(page.locator('#job-details')).toBeFocused();
       await trigger.hover();
       await page.getByRole('button', { name: '固定', exact: true }).click();
