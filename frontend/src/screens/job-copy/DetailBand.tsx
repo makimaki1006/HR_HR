@@ -63,7 +63,7 @@ export function AssumptionsRail({ job, billing, mode }: { job: JobCopyRecord; bi
     <section aria-label="データ"><h3>データ</h3>
       <dl><dt>応募データの最後の日</dt><dd data-testid="rail-last-application">{jpDate(n.lastApplicationDate)}</dd>
         <dt>課金データの最後の日</dt><dd data-testid="rail-last-billing">{jpDate(n.lastBillingDate)}</dd></dl>
-      <p className="jc-muted">4週は、応募を確認した{jpDate(n.asOf)}までの28日です。</p>
+      {n.asOf ? <p className="jc-muted">4週は、応募を取得した{jpDate(n.asOf)}までの28日です。</p> : <p className="jc-muted" role="status">応募の取得日が分かりません</p>}
     </section>
     <section aria-label="市場と比べる範囲"><h3>市場（Indeed）と比べる範囲</h3>
       <MarketOccupationSlot listing={job} marketTitle={market.title} prefecture={market.prefecture} />

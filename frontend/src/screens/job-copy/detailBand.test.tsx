@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jobs } from './data';
 import type { JobCopyRecord } from './data';
 import { AssumptionsRail, DetailBand } from './DetailBand';
-import { bandNumbers } from './detailBandModel';
+import { applicationsCutoffDate, bandNumbers, billingInWindow } from './detailBandModel';
 import type { BillingEntry } from './timelineModel';
 
 afterEach(() => { cleanup(); });
@@ -38,6 +38,35 @@ describe('案件の上の帯の数字', () => {
     const rest: JobCopyRecord = { ...job };
     delete rest.overallApplications;
     expect(bandNumbers(rest, undefined)).toMatchObject({ recent: null, previous: null, lastApplicationDate: null });
+  });
+});
+
+describe('基準日と窓の課金', () => {
+  const withApps = (fetchedAt: string, data: Record<string, number>): JobCopyRecord => ({ ...job, overallApplications: { total: 0, missingDate: 0, fetchedAt, distributions: {}, byDate: data } });
+  it('窓の終わりは取得日。最後の応募の日ではない', () => {
+    const j = withApps('2026-10-13T09:00:00+09:00', { '2026-10-03': 4 });
+    expect(applicationsCutoffDate(j)).toBe('2026-10-13');
+    expect(bandNumbers(j, undefined)).toMatchObject({ asOf: '2026-10-13', lastApplicationDate: '2026-10-03', recent: 4 });
+  });
+  it('取得日が10-10なら09-13は窓の内、10-11は外。直近111・前12', () => {
+    const j = withApps('2026-10-10T09:00:00+09:00', { '2026-09-13': 111, '2026-10-11': 50, '2026-09-12': 12 });
+    expect(bandNumbers(j, undefined)).toMatchObject({ asOf: '2026-10-10', recent: 111, previous: 12 });
+  });
+  it('取得日が無いときは今日で代用せず、数字は不明', () => {
+    const j = withApps('', { '2026-10-03': 4 });
+    expect(applicationsCutoffDate(j)).toBeNull();
+    expect(bandNumbers(j, [bill('2026-09-01', '2026-09-30', 30000)])).toMatchObject({ asOf: null, recent: null, previous: null, perApplicationYen: null });
+  });
+  it('9月30,000円は、取得日10-13の窓（09-16〜10-13）では15,000円', () => {
+    expect(billingInWindow([bill('2026-09-01', '2026-09-30', 30000)], '2026-09-16', '2026-10-13')).toBe(15000);
+  });
+  it('1件あたりは窓の課金15,000円÷窓の応募で、最後に1回だけ丸める', () => {
+    const j = withApps('2026-10-13T09:00:00+09:00', { '2026-10-01': 7 });
+    expect(bandNumbers(j, [bill('2026-09-01', '2026-09-30', 30000)]).perApplicationYen).toBe(2143);
+  });
+  it('窓の中に金額不明または重なる課金があれば不明', () => {
+    expect(billingInWindow([bill('2026-09-01', '2026-09-30', 30000), bill('2026-10-01', '2026-10-31', null)], '2026-09-16', '2026-10-13')).toBeNull();
+    expect(billingInWindow([bill('2026-09-01', '2026-09-30', 30000), bill('2026-09-20', '2026-10-31', 1000)], '2026-09-16', '2026-10-13')).toBeNull();
   });
 });
 

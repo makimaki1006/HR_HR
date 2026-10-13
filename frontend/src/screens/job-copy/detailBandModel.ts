@@ -4,7 +4,7 @@
  * 増えた・減ったの判定語は付けず、件数と差だけを出す。
  */
 import type { JobCopyRecord } from './data';
-import { addDays, asOfDate, countApplications, daysBetween } from './timelineModel';
+import { addDays, countApplications, daysBetween, jstDate } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -12,7 +12,7 @@ const WINDOW_DAYS = 28;
 
 export interface BandNumbers {
   /** 応募を確認した日（直近4週の最後の日）。 */
-  asOf: string;
+  asOf: string | null;
   /** 直近4週の応募。応募の日別データが無いときは null。 */
   recent: number | null;
   /** その前の4週の応募。 */
@@ -45,16 +45,47 @@ function latestBilling(entries: readonly BillingEntry[]): { per4Weeks: number | 
   return { per4Weeks: only ?? null, lastDate };
 }
 
+/**
+ * 応募件数を取得した日（JST の日付）。「直近4週」の最後の日。
+ * 取得日が分からないときは今日で代用せず null を返す。案件の画面でも同じ基準を使う。
+ */
+export function applicationsCutoffDate(job: Pick<JobCopyRecord, 'overallApplications'>): string | null {
+  return jstDate(job.overallApplications?.fetchedAt);
+}
+
+/**
+ * 窓（start〜end、両端を含む）に入る課金を日割りで足した額。
+ * 窓に重なる期間に金額の分からないものがある、または期間どうしが重なるときは null。
+ * 丸めは最後に1回だけ。
+ */
+export function billingInWindow(entries: readonly BillingEntry[], start: string, end: string): number | null {
+  const inside = entries.filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end && entry.start <= end && entry.end >= start);
+  if (!inside.length) return null;
+  if (inside.some(entry => entry.amountYen === null)) return null;
+  const sorted = [...inside].sort((a, b) => a.start.localeCompare(b.start));
+  if (sorted.some((entry, index) => index > 0 && entry.start <= (sorted[index - 1]?.end ?? ''))) return null;
+  let total = 0;
+  for (const entry of inside) {
+    const days = daysBetween(entry.start, entry.end) + 1;
+    const overlapStart = entry.start > start ? entry.start : start;
+    const overlapEnd = entry.end < end ? entry.end : end;
+    total += (entry.amountYen ?? 0) * (daysBetween(overlapStart, overlapEnd) + 1) / days;
+  }
+  return Math.round(total);
+}
+
 export function bandNumbers(job: JobCopyRecord, billing: readonly BillingEntry[] | undefined): BandNumbers {
-  const asOf = asOfDate(job);
+  const asOf = applicationsCutoffDate(job);
   const byDate = job.overallApplications?.byDate;
-  const recentStart = addDays(asOf, -(WINDOW_DAYS - 1));
-  const endExclusive = addDays(asOf, 1);
-  const previousStart = addDays(recentStart, -WINDOW_DAYS);
-  const recent = byDate ? countApplications(byDate, recentStart, endExclusive) : null;
-  const previous = byDate ? countApplications(byDate, previousStart, recentStart) : null;
   const dates = Object.keys(byDate ?? {}).filter(date => DATE.test(date)).sort();
   const { per4Weeks, lastDate } = latestBilling(billing ?? []);
-  const perApplicationYen = per4Weeks !== null && recent ? Math.round(per4Weeks / recent) : null;
-  return { asOf, recent, previous, perApplicationYen, billingPer4WeeksYen: per4Weeks, lastApplicationDate: dates.at(-1) ?? null, lastBillingDate: lastDate };
+  const base = { asOf, billingPer4WeeksYen: per4Weeks, lastApplicationDate: dates.at(-1) ?? null, lastBillingDate: lastDate };
+  if (!asOf) return { ...base, recent: null, previous: null, perApplicationYen: null };
+  const recentStart = addDays(asOf, -(WINDOW_DAYS - 1));
+  const previousStart = addDays(recentStart, -WINDOW_DAYS);
+  const recent = byDate ? countApplications(byDate, recentStart, addDays(asOf, 1)) : null;
+  const previous = byDate ? countApplications(byDate, previousStart, recentStart) : null;
+  const windowBilling = billingInWindow(billing ?? [], recentStart, asOf);
+  const perApplicationYen = windowBilling !== null && recent ? Math.round(windowBilling / recent) : null;
+  return { ...base, recent, previous, perApplicationYen };
 }
