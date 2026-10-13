@@ -58,11 +58,12 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openScreen(page);
 
-    // 一覧: 架空サンプルの 1 ページ目 (5 件)。先頭行の会社・担当者・番号・ステージ
-    await expect(page.locator('.cq-count')).toContainText('全 10 件中 5 件を表示');
-    await expect(rows(page)).toHaveCount(5);
-    // 値は frontend/src/screens/crm/queueFixture.ts の SEEDS (既定の並び: f-5, f-2, f-11, f-7, f-3)
-    await expect(rows(page).locator('.cq-row-company')).toHaveText(['ダミー建設', '架空食品株式会社', '架空ホテル', '見本不動産', 'サンプル運輸']);
+    // 一覧: 目印が最初から見えているので、2 ページ目も自動で読み足され全 10 件になる。先頭行の会社・担当者・番号・ステージ
+    await expect(page.locator('.cq-count')).toContainText('全 10 件中 10 件を表示');
+    await expect(rows(page)).toHaveCount(10);
+    // 値は frontend/src/screens/crm/queueFixture.ts の SEEDS (既定の並び: f-5, f-2, f-11, f-7, f-3 が先頭 5 件)
+    const firstFive = ['ダミー建設', '架空食品株式会社', '架空ホテル', '見本不動産', 'サンプル運輸'];
+    for (const [i, name] of firstFive.entries()) await expect(rows(page).nth(i).locator('.cq-row-company')).toHaveText(name);
     await expect(rows(page).nth(0).locator('.cq-row-contact')).toHaveText('丁野 三郎 ほか2人');
     await expect(rows(page).nth(0).locator('.cq-phone')).toHaveText('03-0000-0005');
     await expect(rows(page).nth(0).locator('.cq-stage')).toHaveText('担当者ブロック');
@@ -148,7 +149,7 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     const tab2 = await context.newPage();
     const crm2 = watchCrmRequests(tab2);
     await openScreen(tab2);
-    await expect(rows(tab2)).toHaveCount(5);
+    await expect(rows(tab2)).toHaveCount(10);
     await expect(tab2.locator('.cq-recorded')).toHaveCount(0);
     await tab2.close();
 
@@ -199,7 +200,7 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     const other = 'e2e-other@f-a-c.co.jp';
     await login(page, other);
     await openScreen(page);
-    await expect(rows(page)).toHaveCount(5);
+    await expect(rows(page)).toHaveCount(10);
     await expect(page.locator('.cq-recorded')).toHaveCount(0);
     await rowButton(page, 0).click();
     await expect(outcome(page, '担当者と会話')).toHaveAttribute('aria-pressed', 'false');

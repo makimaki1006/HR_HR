@@ -54,7 +54,7 @@ test.describe('CRM 架電画面: 入力を失わないための仕組み', () =>
     await page.unroute(block);
     await alert.getByRole('button', { name: '再読み込み' }).click();
     await expect(list(page)).toBeVisible();
-    await expect(rows(page)).toHaveCount(5);
+    await expect(rows(page)).toHaveCount(10);
     await expect(rows(page).locator('.cq-row-company').first()).toHaveText('ダミー建設');
     await expect(page.getByRole('alert').filter({ hasText: '画面を読み込めませんでした' })).toHaveCount(0);
   });
