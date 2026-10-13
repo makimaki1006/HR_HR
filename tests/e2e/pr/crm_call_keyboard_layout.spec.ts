@@ -172,7 +172,7 @@ test.describe('CRM 架電画面: キーボード・画面の高さ・文言', ()
     await openFirst(page);
     await expect(form(page).locator('.rf-hint')).toHaveText('今回の結果を選んでください。');
     expect(await form(page).locator('.rf-hint').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(91, 107, 122)');
-    expect(await form(page).locator('small.rf-muted').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(91, 107, 122)');
+    expect(await /* メモの下の注記は ⓘ に移した。同じ色の状態行で確かめる */ form(page).locator('p.rf-muted.rf-live').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(91, 107, 122)');
     expect(await form(page).locator('.rf-count').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(91, 107, 122)');
     // キーボードでフォーカス (focus-visible) した結果のボタン・記録ボタンの枠
     await outcome(page, '担当者と会話').focus();
