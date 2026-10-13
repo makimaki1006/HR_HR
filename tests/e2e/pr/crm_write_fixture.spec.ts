@@ -45,7 +45,7 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     await openFirst(page);
     await page.getByRole('tab', { name: 'プロパティ' }).click();
     const panel = page.getByTestId('property-panel');
-    await panel.locator('dt', { hasText: '募集職種（リストデータ）' }).locator('xpath=following-sibling::dd[1]').locator('.wr-val').dblclick();
+    await panel.locator('dt', { hasText: '募集職種（リストデータ）' }).dblclick();
     await expect(panel.getByRole('textbox', { name: '募集職種（リストデータ）' })).toBeVisible();
     await panel.getByRole('button', { name: 'やめる' }).click();
     await panel.locator('dt', { hasText: /^案件名$/ }).locator('xpath=following-sibling::dd[1]').dblclick();
