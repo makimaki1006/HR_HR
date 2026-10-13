@@ -14,12 +14,16 @@ describe('market choice for a job', () => {
     const job = { title: '地域配送ドライバー', location: '大分県大分市' };
     expect(chooseMarket({ ...job, indeedTitle: '配送ドライバー', indeedTitleState: 'set' }, ['大分県'])).toEqual({ title: '配送ドライバー', titleState: 'set', prefecture: '大分県' });
     // The job's own name equals a market title, but nothing was designated: still no title.
-    expect(chooseMarket({ title: 'ドライバー', location: '大分県大分市', indeedTitleState: 'unset' }, ['大分県'])).toEqual({ title: null, titleState: 'unset', prefecture: '大分県' });
+    expect(chooseMarket({ location: '大分県大分市', indeedTitleState: 'unset' }, ['大分県'])).toEqual({ title: null, titleState: 'unset', prefecture: '大分県' });
     expect(chooseMarket({ ...job, indeedTitle: null, indeedTitleState: 'none' }, ['大分県'])).toEqual({ title: null, titleState: 'none', prefecture: '大分県' });
     expect(chooseMarket(job, ['大分県']).titleState).toBe('unset');
   });
   it('treats a record without a title as 未指定 and names each state plainly', () => {
     expect(indeedTitleState({ indeedTitleState: 'set', indeedTitle: null })).toBe('unset');
+    // 前後の空白は取り除き、空白だけの職種は未指定。
+    expect(chooseMarket({ location: '大分県大分市', indeedTitle: '  看護師　', indeedTitleState: 'set' }, ['大分県']).title).toBe('看護師');
+    expect(indeedTitleState({ indeedTitleState: 'set', indeedTitle: ' 　 ' })).toBe('unset');
+    expect(chooseMarket({ location: '大分県大分市', indeedTitle: '   ', indeedTitleState: 'set' }, ['大分県'])).toEqual({ title: null, titleState: 'unset', prefecture: '大分県' });
     expect(marketTitleNote('unset')).toBe('市場と比べる職種が未指定です');
     expect(marketTitleNote('none')).toBe('市場と比べないと指定されています');
     expect(marketTitleNote('set')).toBeNull();

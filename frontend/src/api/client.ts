@@ -256,7 +256,7 @@ function parseBody<T>(contentType: string, text: string, expect: ApiExpect): Api
 }
 
 interface FetchInit {
-  method: 'GET' | 'POST' | 'PATCH';
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT';
   headers: Record<string, string>;
   body?: string;
 }

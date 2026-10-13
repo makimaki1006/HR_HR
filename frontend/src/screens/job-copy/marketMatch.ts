@@ -20,8 +20,13 @@ export type IndeedTitleState = 'set' | 'none' | 'unset';
 export interface IndeedTitleFields { indeedTitle?: string | null | undefined; indeedTitleState?: IndeedTitleState | undefined }
 
 /** The state of a job; a record without the fields (an older response) counts as 未指定. */
+/** The designated title without surrounding blanks; null when there is none (a blank-only title counts as none). */
+export function designatedTitle(job: IndeedTitleFields): string | null {
+  const title = job.indeedTitleState === 'set' ? job.indeedTitle?.trim() : undefined;
+  return title === undefined || title === '' ? null : title;
+}
 export function indeedTitleState(job: IndeedTitleFields): IndeedTitleState {
-  if (job.indeedTitleState === 'set' && job.indeedTitle) return 'set';
+  if (designatedTitle(job)) return 'set';
   return job.indeedTitleState === 'none' ? 'none' : 'unset';
 }
 
@@ -41,5 +46,5 @@ export interface MarketChoice {
 
 export function chooseMarket(job: IndeedTitleFields & { location: string }, prefectures: readonly string[]): MarketChoice {
   const titleState = indeedTitleState(job);
-  return { title: titleState === 'set' ? job.indeedTitle ?? null : null, titleState, prefecture: prefectureFromLocation(job.location, prefectures) };
+  return { title: designatedTitle(job), titleState, prefecture: prefectureFromLocation(job.location, prefectures) };
 }

@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { apiGet, apiPut, ApiHttpError, AuthRequiredError } from '../../api/client';
 import type { JobCopyRecord } from './data';
-import { indeedTitleState } from './marketMatch';
+import { designatedTitle, indeedTitleState } from './marketMatch';
 import type { MarketData } from './marketChartModel';
 import './market-occupation.css';
 
@@ -26,7 +26,7 @@ function errorText(error: unknown): string {
 export function MarketOccupationSlot({ record, prefecture, onChanged }: Props) {
   const state = indeedTitleState(record);
   const [open, setOpen] = useState(false);
-  const label = state === 'set' ? record.indeedTitle ?? '' : state === 'none' ? '市場と比べない' : '未指定';
+  const label = state === 'set' ? designatedTitle(record) ?? '' : state === 'none' ? '市場と比べない' : '未指定';
   return <div className="mo-slot" data-state={state}>
     <span className="mo-label">職種</span>
     <strong className="mo-value">{label}</strong>
@@ -66,7 +66,8 @@ function OccupationDrawer({ record, onClose, onSaved }: { record: JobCopyRecord;
     return (titles ?? []).filter(title => !needle || normalize(title).includes(needle));
   }, [titles, query]);
   const fields = record.currentListingFields ?? {};
-  const hints = [['求人票の職種', fields['職種'] ?? ''], ['Indeed表示職種名', fields['Indeed表示職種名'] ?? '']].filter(([, value]) => value.trim());
+  const hints: [string, string][] = [['求人票の職種', fields['職種'] ?? ''], ['Indeed表示職種名', fields['Indeed表示職種名'] ?? '']];
+  const shownHints = hints.filter(([, value]) => value.trim());
 
   async function save() {
     if (choice === null || !record.hubspotId) return;
@@ -84,7 +85,7 @@ function OccupationDrawer({ record, onClose, onSaved }: { record: JobCopyRecord;
       <div className="mo-body">
         <section className="mo-hints" aria-label="選ぶときの手がかり">
           <h3>選ぶときの手がかり（自動では決めません）</h3>
-          {hints.length ? <dl>{hints.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl> : <p>この求人から読み取れる手がかりはありません。</p>}
+          {shownHints.length ? <dl>{shownHints.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl> : <p>この求人から読み取れる手がかりはありません。</p>}
         </section>
         <label className="mo-search">職種を探す<input ref={search} type="search" value={query} onChange={event => { setQuery(event.target.value); }} placeholder="例：ドライバー" /></label>
         {loadError && <p role="alert">職種の一覧を取得できませんでした。</p>}

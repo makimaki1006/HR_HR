@@ -3,7 +3,7 @@ import { EChart } from '../../components/EChart';
 import type { JobCopyRecord } from './data';
 import { marketRows, trendOption, type MarketData } from './marketChartModel';
 import { useMarketFetch } from './marketSource';
-import { indeedTitleState, marketTitleNote, prefectureFromLocation } from './marketMatch';
+import { designatedTitle, indeedTitleState, marketTitleNote, prefectureFromLocation } from './marketMatch';
 import { lastMarketMonth, marketDataUntil } from './timelineModel';
 import { AssumptionsNote } from './AssumptionsNote';
 import { InfoTip } from './InfoTip';
@@ -17,7 +17,7 @@ export function MarketContext({ job, view = 'charts', mode = 'api' }: { job: Job
 }
 function MarketContextForJob({ job, view, mode }: { job: JobCopyRecord; view: 'charts' | 'table' | 'inactive'; mode: 'api' | 'demo' }) {
   // The occupation is only what a person designated for this job; nothing is guessed from its text.
-  const titleState = indeedTitleState(job); const title = titleState === 'set' ? job.indeedTitle ?? '' : '';
+  const titleState = indeedTitleState(job); const title = designatedTitle(job) ?? '';
   const [prefecture, setPrefecture] = useState(() => prefectureFromLocation(job.location) ?? '');
   const [range, setRange] = useState('all');
   const [retry, setRetry] = useState(0);

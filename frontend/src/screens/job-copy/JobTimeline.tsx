@@ -6,7 +6,7 @@ import type { JobCopyRecord } from './data';
 import { marketRows } from './marketChartModel';
 import type { MarketData, MarketRow } from './marketChartModel';
 import { useMarketFetch } from './marketSource';
-import { chooseMarket, marketTitleNote } from './marketMatch';
+import { chooseMarket, designatedTitle, marketTitleNote } from './marketMatch';
 import { salaryLabel } from './salaryExtract';
 import { plainWording } from './format';
 import { InfoTip } from './InfoTip';
@@ -49,7 +49,7 @@ interface MarketFocus { retryButton: RefObject<HTMLButtonElement | null>; titleS
 function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: MarketFocus) {
   const fetchMarket = useMarketFetch(mode);
   const designated = chooseMarket(job, []).titleState;
-  const designatedTitle = designated === 'set' ? job.indeedTitle ?? '' : '';
+  const designatedName = designatedTitle(job) ?? '';
   const [state, setState] = useState<MarketState>({ status: 'loading', meta: null, title: '', prefecture: '', titleBy: designated, prefectureBy: 'none', rows: null, staleRows: null, retrying: false });
   // attempt: re-fetch the list of occupations / prefectures. seriesAttempt: re-fetch only the
   // months for the current choice (a retry after the list was read keeps a hand-picked prefecture).
@@ -67,8 +67,8 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
         // A prefecture the user chose by hand stays when it is still in the list.
         const keepPrefecture = previous.prefectureBy === 'user' && result.data.prefectures.includes(previous.prefecture);
         // The designated title may be missing from the market list; then there is nothing to compare.
-        const listed = result.data.titles.includes(designatedTitle);
-        const title = listed ? designatedTitle : '';
+        const listed = result.data.titles.includes(designatedName);
+        const title = listed ? designatedName : '';
         const prefecture = keepPrefecture ? previous.prefecture : choice.prefecture ?? '';
         const titleBy: MarketState['titleBy'] = listed ? 'set' : 'missing';
         const prefectureBy: MarketState['prefectureBy'] = keepPrefecture ? 'user' : choice.prefecture ? 'auto' : 'none';
@@ -77,7 +77,7 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
       });
     }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error', rows: null, staleRows: null, retrying: false })); });
     return () => { cancelled = true; };
-  }, [job, designated, designatedTitle, fetchMarket, attempt]);
+  }, [job, designated, designatedName, fetchMarket, attempt]);
   const { title, prefecture, meta } = state;
   useEffect(() => {
     if (!meta || !title || !prefecture) return;
