@@ -152,6 +152,16 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(page.getByRole('checkbox', { name: '仮の課金データを表示', exact: true })).not.toBeChecked();
     await page.getByRole('checkbox', { name: '仮の課金データを表示', exact: true }).check();
     await expect(page.getByRole('region', { name: 'タイムライン', exact: true }).getByRole('group', { name: '課金', exact: true }).locator('.jt-billing-dummy')).toHaveCount(2);
+    // 保存先は合成の応答なので、再読み込みで職種は未指定に戻る。指定し直すと市場が出る
+    await expect(timeline).toContainText('市場と比べる職種が未指定です');
+    const tabs = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
+    await tabs.getByRole('tab', { name: '市場分析', exact: true }).click();
+    await page.getByRole('button', { name: '職種を指定する', exact: true }).click();
+    const drawer = page.getByRole('dialog', { name: '市場と比べる職種を指定する' });
+    await drawer.getByLabel('配送ドライバー', { exact: true }).check();
+    await drawer.getByRole('button', { name: 'この職種を指定する', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await tabs.getByRole('tab', { name: 'タイムライン', exact: true }).click();
     // 市場の選び方: 職種は人が指定、都道府県は勤務地から自動
     await expect(timeline.getByText('市場と比べる職種：配送ドライバー（人が指定）', { exact: true })).toBeVisible();
     await expect(timeline.getByText('勤務地から大分県を自動で選びました', { exact: true })).toBeVisible();
