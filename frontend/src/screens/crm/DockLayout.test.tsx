@@ -67,7 +67,7 @@ describe('panel layout (dock)', () => {
     const c = counted();
     await openDeal(c);
     const left = within(screen.getByRole('tablist', { name: '左の列のパネル' })).getAllByRole('tab');
-    expect(left.map(t => [t.textContent, t.getAttribute('aria-selected')])).toEqual([['架電一覧', 'true'], ['プロパティ', 'false']]);
+    expect(left.map(t => [t.textContent, t.getAttribute('aria-selected')])).toEqual([['取引一覧', 'true'], ['プロパティ', 'false']]);
     const center = within(screen.getByRole('tablist', { name: '中央の列のパネル' })).getAllByRole('tab');
     expect(center.map(t => [t.textContent, t.getAttribute('aria-selected')])).toEqual([['活動ログ', 'true'], ['架電結果の入力', 'false']]);
     const right = within(screen.getByRole('tablist', { name: '右の列のパネル' })).getAllByRole('tab');
@@ -80,7 +80,7 @@ describe('panel layout (dock)', () => {
     // 初めて開いた (以前の配置が無い) ときは案内を出さない
     expect(screen.queryByTestId('layout-note')).toBeNull();
     // 架電先を選んでも、左の列は「架電一覧」のまま
-    expect(tab('架電一覧').getAttribute('aria-selected')).toBe('true');
+    expect(tab('取引一覧').getAttribute('aria-selected')).toBe('true');
   });
 
   it('moving 活動ログ to the left via the menu: no HubSpot call, the panel keeps its state (filter), the typed memo and the Zoom iframe stay the same elements', async () => {
@@ -101,7 +101,7 @@ describe('panel layout (dock)', () => {
     moveVia('活動ログ', '左へ移動');
     expect(columnOfPanel('activity')).toBe('dock-col-0');
     expect(tab('活動ログ').getAttribute('aria-selected')).toBe('true');
-    expect(within(screen.getByRole('tablist', { name: '左の列のパネル' })).getAllByRole('tab').map(t => t.textContent)).toEqual(['架電一覧', 'プロパティ', '活動ログ']);
+    expect(within(screen.getByRole('tablist', { name: '左の列のパネル' })).getAllByRole('tab').map(t => t.textContent)).toEqual(['取引一覧', 'プロパティ', '活動ログ']);
     // 中央は残りの先頭 (架電結果の入力) が前に出る
     expect(tab('架電結果の入力').getAttribute('aria-selected')).toBe('true');
     // 中身の状態はそのまま (同じ要素・選んだ絞り込み・入力途中のメモ)
@@ -401,3 +401,31 @@ it('successful own email opens activity without changing panel placement or colu
   expect(columnOfPanel('activity')).toBe(column);
   expect(screen.getByTestId('dock').style.gridTemplateColumns).toBe(grid);
 });
+
+  it('左の列の切り替えは縦のつまみ: 「取引一覧」「プロパティ」、列の右端、上端のタブの行は無い。矢印の上下で切り替わり、中身が変わる', async () => {
+    const c = counted();
+    await openDeal(c);
+    const left = screen.getByRole('tablist', { name: '左の列のパネル' });
+    expect(left.getAttribute('aria-orientation')).toBe('vertical');
+    expect(within(left).getAllByRole('tab').map(t => t.textContent)).toEqual(['取引一覧', 'プロパティ']);
+    // つまみは .dock-side (列の右端) の中にあり、左の列に上端のタブの行 (.dock-tabrow) は無い
+    expect(left.closest('.dock-side')).not.toBeNull();
+    expect(screen.getByTestId('dock-col-0').querySelector('.dock-tabrow')).toBeNull();
+    expect(screen.getByTestId('dock-col-1').querySelector('.dock-tabrow')).not.toBeNull();
+    expect(tab('取引一覧').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy();
+    // 矢印の下 → プロパティ (中身が入れ替わる)
+    tab('取引一覧').focus();
+    fireEvent.keyDown(tab('取引一覧'), { key: 'ArrowDown' });
+    expect(tab('プロパティ').getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tab('プロパティ'));
+    expect(document.getElementById('dock-panel-properties')?.hasAttribute('inert')).toBe(false);
+    expect(document.getElementById('dock-panel-queue')?.hasAttribute('inert')).toBe(true);
+    // 矢印の左右は縦のつまみでは使わない。上で戻る
+    fireEvent.keyDown(tab('プロパティ'), { key: 'ArrowRight' });
+    expect(tab('プロパティ').getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(tab('プロパティ'), { key: 'ArrowUp' });
+    expect(tab('取引一覧').getAttribute('aria-selected')).toBe('true');
+    // 「⋮」(欄のメニュー) はつまみの下に残り、機能を失っていない
+    expect(left.closest('.dock-side')?.querySelector('.dock-move-btn')).not.toBeNull();
+  });

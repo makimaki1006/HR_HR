@@ -295,9 +295,8 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
   const entries = groupActivityEmails(acts);
   const emailTotal = acts.filter(a => a.kind === 'email').length;
   return <section ref={log} className="wd-log dock-scroll" aria-label="活動ログ" data-testid="activity-log">
-    <p className="wd-log-head"><strong>{entries.length} 件</strong>{emailTotal > 0 && <small>（メール {emailTotal} 件）</small>}{data.activities_truncated && <small>(これより古い履歴は表示していません)</small>}</p>
-    <p className="wd-scope">{data.activity_scope}</p>
-    <ReplySyncStatus key={`reply:${data.deal.id}`} dealId={data.deal.id} sample={sample} />
+    <p className="wd-log-head"><strong>{entries.length} 件</strong><span className="cq-info wd-scope" data-glyph="ⓘ" tabIndex={0} role="img" aria-label={data.activity_scope} title={data.activity_scope} data-testid="activity-scope" />{emailTotal > 0 && <small>（メール {emailTotal} 件）</small>}{data.activities_truncated && <small>(これより古い履歴は表示していません)</small>}</p>
+        <ReplySyncStatus key={`reply:${data.deal.id}`} dealId={data.deal.id} sample={sample} />
     <div className="wd-filters" role="group" aria-label="活動の種類">
       {ACTIVITY_FILTERS.map(f => <button key={f.value} type="button" aria-pressed={kind === f.value} onClick={() => { setKind(f.value); }}>{f.label}</button>)}
     </div>

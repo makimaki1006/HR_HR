@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { CSSProperties, DragEvent, KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  COLUMN_INDEXES, COLUMN_LABELS, KEY_RESIZE_STEP, PANEL_IDS, PANEL_LABELS, PINNED_PANEL, columnOf, isEmptyColumn, leftPercent, tabPanels,
+  COLUMN_INDEXES, COLUMN_LABELS, KEY_RESIZE_STEP, PANEL_IDS, PANEL_LABELS, PINNED_PANEL, TAB_LABELS, columnOf, isEmptyColumn, leftPercent, tabPanels,
 } from './dockModel';
 import type { ColumnIndex, DockAction, DockLayout, PanelId } from './dockModel';
 import './dock.css';
@@ -13,6 +13,8 @@ import './dock.css';
  * - パネルの中身は 1 回だけ描き、パネル用の箱 (DOM) に入れて、置いた列の枠へ箱ごと差し込む
  *   (React の部品は作り直さないので、入力途中の内容・選んだタブなどの状態は移しても残る。
  *   枠の中のページ (iframe) は箱を移すとブラウザが読み直す)
+ * - 左の列 (0 番) のタブは、上端の行ではなく、列の右端 (中央の列に面した側) の縦のつまみにする (列の内側の右端に固定。
+ *   配置を変えても列の番号が基準なので、つまみは常に左の列の右端にある)。ほかの列は従来どおり上端の行
  * - タブはドラッグで別の列へ移せる。キーボードでは各タブの「移動」から「左へ移動 / 中央へ移動 / 右へ移動」
  * - 列の間の区切りはドラッグか矢印キーで幅を変える
  * - 配置を変えても HubSpot は呼ばない (画面の中だけの状態)
@@ -109,12 +111,14 @@ function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging, max
   const pinned = col.panels.includes(PINNED_PANEL);
   const [over, setOver] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
+  /** 左の列は、タブを右端の縦のつまみにする */
+  const side = index === 0;
 
   function onTabKey(e: KeyboardEvent<HTMLDivElement>) {
     const i = tabs.findIndex(p => p === col.active);
     let to: number | null = null;
-    if (e.key === 'ArrowRight') to = (i + 1) % tabs.length;
-    else if (e.key === 'ArrowLeft') to = (i - 1 + tabs.length) % tabs.length;
+    if (e.key === (side ? 'ArrowDown' : 'ArrowRight')) to = (i + 1) % tabs.length;
+    else if (e.key === (side ? 'ArrowUp' : 'ArrowLeft')) to = (i - 1 + tabs.length) % tabs.length;
     else if (e.key === 'Home') to = 0;
     else if (e.key === 'End') to = tabs.length - 1;
     const target = to === null ? undefined : tabs[to];
@@ -160,29 +164,43 @@ function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging, max
   return <section className={`dock-col${over ? ' is-over' : ''}${max === 'max' ? ' is-max' : ''}`} aria-label={`${COLUMN_LABELS[index]}の列`}
     data-testid={`dock-col-${String(index)}`} inert={max === 'under'} {...dropProps}>
     {pinned && <div className="dock-pinned" data-testid="dock-pinned"><Slot host={hosts[PINNED_PANEL]} /></div>}
-    <div className="dock-tabrow">
-      {tabs.length > 0 && <div className="dock-tabs" role="tablist" aria-label={`${COLUMN_LABELS[index]}の列のパネル`} ref={listRef} onKeyDown={onTabKey}>
+    {(!side || pinned) && <div className="dock-tabrow">
+      {!side && tabs.length > 0 && <div className="dock-tabs" role="tablist" aria-label={`${COLUMN_LABELS[index]}の列のパネル`} ref={listRef} onKeyDown={onTabKey}>
         {tabs.map(p => {
           const selected = p === col.active;
           return <span key={p} className={`dock-tab${selected ? ' is-active' : ''}${dragging === p ? ' is-dragging' : ''}`} role="presentation" data-dock-tab={p} {...dragProps(p)}>
             <button type="button" role="tab" id={dockTabId(p)} aria-selected={selected} aria-controls={dockPanelId(p)} tabIndex={selected ? 0 : -1}
-              title="クリックで表示。ドラッグで別の列へ移せます" onClick={() => { dispatch({ type: 'activate', panel: p }); }}>{PANEL_LABELS[p]}</button>
+              title="クリックで表示。ドラッグで別の列へ移せます" onClick={() => { dispatch({ type: 'activate', panel: p }); }}>{TAB_LABELS[p]}</button>
           </span>;
         })}
       </div>}
       {/* 前に出ているタブの「移動」(キーボードではタブから Tab で届く。ほかのタブは矢印キーで前に出してから) */}
-      {col.active !== null && <MoveMenu key={col.active} panel={col.active} layout={layout} dispatch={dispatch} />}
+      {!side && col.active !== null && <MoveMenu key={col.active} panel={col.active} layout={layout} dispatch={dispatch} />}
       {pinned && <span className="dock-pinned-chip" data-dock-tab={PINNED_PANEL} {...dragProps(PINNED_PANEL)} title="「案件の概要」はこの列の上端に固定で出ます。ドラッグで別の列へ移せます">
         <span>{PANEL_LABELS[PINNED_PANEL]}</span><MoveMenu panel={PINNED_PANEL} layout={layout} dispatch={dispatch} />
       </span>}
-    </div>
-    {tabs.length > 0 && <div className="dock-panels">
-      {/* 枠は決まった順に並べる (タブの並びを変えても枠は動かさない = 枠の中のページを読み直さない) */}
-      {PANEL_IDS.filter(p => tabs.includes(p)).map(p => <div key={p} role="tabpanel" id={dockPanelId(p)} aria-labelledby={dockTabId(p)}
-        className={`dock-panel${p === col.active ? ' is-active' : ''}`} inert={p !== col.active} data-testid={`dock-panel-${p}`}>
-        <Slot host={hosts[p]} />
-      </div>)}
     </div>}
+    <div className={`dock-body${side ? ' has-side' : ''}`}>
+      {tabs.length > 0 && <div className="dock-panels">
+        {/* 枠は決まった順に並べる (タブの並びを変えても枠は動かさない = 枠の中のページを読み直さない) */}
+        {PANEL_IDS.filter(p => tabs.includes(p)).map(p => <div key={p} role="tabpanel" id={dockPanelId(p)} aria-labelledby={dockTabId(p)}
+          className={`dock-panel${p === col.active ? ' is-active' : ''}`} inert={p !== col.active} data-testid={`dock-panel-${p}`}>
+          <Slot host={hosts[p]} />
+        </div>)}
+      </div>}
+      {side && tabs.length > 0 && <div className="dock-side" data-testid="dock-side">
+        <div className="dock-side-tabs" role="tablist" aria-orientation="vertical" aria-label={`${COLUMN_LABELS[index]}の列のパネル`} ref={listRef} onKeyDown={onTabKey}>
+          {tabs.map(p => {
+            const selected = p === col.active;
+            return <span key={p} className={`dock-tab dock-side-tab${selected ? ' is-active' : ''}${dragging === p ? ' is-dragging' : ''}`} role="presentation" data-dock-tab={p} {...dragProps(p)}>
+              <button type="button" role="tab" id={dockTabId(p)} aria-selected={selected} aria-controls={dockPanelId(p)} tabIndex={selected ? 0 : -1}
+                title="クリックで表示。ドラッグで別の列へ移せます" onClick={() => { dispatch({ type: 'activate', panel: p }); }}>{TAB_LABELS[p]}</button>
+            </span>;
+          })}
+        </div>
+        {col.active !== null && <MoveMenu key={col.active} panel={col.active} layout={layout} dispatch={dispatch} />}
+      </div>}
+    </div>
   </section>;
 }
 

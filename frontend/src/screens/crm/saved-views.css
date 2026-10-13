@@ -1,24 +1,25 @@
-.sv { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 16px; align-items: center; flex-shrink: 0; min-height: 44px; padding: 0 16px; border-bottom: 1px solid #dbe3ee; background: white; }
-.sv-tabs { display: flex; flex-wrap: nowrap; align-items: stretch; min-width: 0; height: 44px; }
-.sv-tab { display: flex; position: relative; flex-shrink: 0; }
-.sv button { border: 0; background: transparent; color: #475569; cursor: pointer; font: inherit; font-size: .8rem; white-space: nowrap; }
-.sv-tabs > button, .sv-tab > button[role=tab], .sv-overflow > button { display: flex; align-items: center; gap: 6px; padding: 0 12px; border-bottom: 2px solid transparent; }
-.sv-tabs button:hover { background: #f1f5f9; }
-.sv [role=tab][aria-selected=true] { color: #0e7490; border-bottom-color: #0e7490; font-weight: 600; }
-.sv-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
-.sv-shared { margin-left: 4px; font-size: .65rem; font-weight: 400; color: #64748b; }
+.sv { display: grid; gap: 6px; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid #dbe3ee; }
+.sv h3 { margin: 0; font-size: .85rem; color: #0f172a; }
+.sv-hint { margin: 0; font-size: .72rem; color: #64748b; }
+.sv button { border: 0; background: transparent; color: #475569; cursor: pointer; font: inherit; font-size: .8rem; }
+.sv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 220px; overflow-y: auto; }
+.sv-item { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; }
+.sv-open { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid #dbe3ee !important; border-radius: 4px; text-align: left; }
+.sv-open:hover { background: #f1f5f9; }
+.sv-open[aria-pressed=true] { color: #0e7490; border-color: #0e7490 !important; background: #ecfeff; font-weight: 600; }
+.sv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-shared { margin-left: auto; font-size: .65rem; font-weight: 400; color: #64748b; flex: none; }
 .sv button:disabled { opacity: .45; cursor: default; }
 .sv-menu-toggle { width: 28px; padding: 0; }
-.sv-bar-actions { display: flex; flex-wrap: nowrap; gap: 12px; align-items: center; white-space: nowrap; }
-.sv-bar-actions button { color: #0e7490; padding: 6px 0; }
+.sv-bar-actions { display: flex; gap: 12px; align-items: center; }
+.sv-bar-actions button, .sv-changed-row button { color: #0e7490; padding: 6px 0; }
+.sv-changed-row { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
 .sv-changed { color: #92400e; font-size: .75rem; }
-.sv-menu { position: absolute; top: 100%; left: 0; z-index: 120; min-width: 180px; max-width: 300px; max-height: 60vh; overflow-y: auto; background: white; border: 1px solid #dbe3ee; border-radius: 6px; padding: 4px; box-shadow: 0 4px 12px #0002; display: grid; }
-.sv-menu button { text-align: left; padding: 9px 12px; border: 0; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; }
-.sv-menu button:hover { background: #f1f5f9; }
+.sv-menu { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 2px 4px; padding: 4px; margin: 2px 0 4px; background: #f8fafc; border: 1px solid #dbe3ee; border-radius: 6px; }
+.sv-menu button { padding: 6px 10px; border-radius: 3px; }
+.sv-menu button:hover { background: #e2e8f0; }
 .sv-menu .sv-danger { color: #b91c1c; }
-.sv-notice { grid-column: 1 / -1; font-size: .8rem; color: #64748b; padding: .3rem; margin: 0; }
-.sv-measurements { position: absolute; visibility: hidden; pointer-events: none; display: flex; height: 0; overflow: hidden; }
-.sv-label { display: flex; flex-shrink: 0; align-items: center; gap: 6px; max-width: 216px; padding: 0 12px; font-size: .8rem; font-weight: 600; white-space: nowrap; }
+.sv-notice { font-size: .8rem; color: #64748b; padding: .3rem 0; margin: 0; }
 .sv-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
 .sv-backdrop { position: fixed; inset: 0; background: #0005; display: grid; place-items: center; z-index: 200; padding: 1rem; }
 .sv-dialog { background: white; border-radius: 8px; padding: 1.25rem; width: min(420px,100%); color: #334155; box-shadow: 0 8px 30px #0003; }

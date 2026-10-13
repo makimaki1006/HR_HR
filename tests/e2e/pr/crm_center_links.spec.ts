@@ -64,7 +64,7 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     await expect(page.frameLocator('#cq-cpanel-search iframe').locator('#stub')).toHaveText('外部ページ(テスト用の代わり)');
     const stored = await panel.getByRole('link', { name: '新しいタブで開く' }).getAttribute('href');
     expect(stored).toContain('sca_esv=sample');
-    await expect(panel.getByText('表示されない場合は新しいタブで開いてください')).toBeVisible();
+    await expect(panel.getByRole('link', { name: '新しいタブで開く' })).toHaveAttribute('title', '表示されない場合は新しいタブで開いてください');
     // 右の列に開くので、案件の概要と架電結果の入力 (中央の列) は見えたまま。メモもそのまま
     await expect(article).toBeVisible();
     await expect(article.locator('h2')).toHaveText('ダミー建設');

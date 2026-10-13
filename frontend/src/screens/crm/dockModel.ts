@@ -13,6 +13,9 @@ export const PANEL_LABELS: Record<PanelId, string> = {
   queue: '架電一覧', properties: 'プロパティ', overview: '案件の概要', activity: '活動ログ', result: '架電結果の入力', links: '求人検索・リンク先',
 };
 
+/** タブ (つまみ) に出す名前。「取引一覧」はタブの表示名だけ (ほかの場所の文言は PANEL_LABELS のまま) */
+export const TAB_LABELS: Record<PanelId, string> = { ...PANEL_LABELS, queue: '取引一覧' };
+
 /** 列の上端に固定で出すパネル (タブにしない) */
 export const PINNED_PANEL: PanelId = 'overview';
 

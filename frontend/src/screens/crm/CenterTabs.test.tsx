@@ -96,7 +96,7 @@ describe('求人検索・リンク先 panel (flat tabs)', () => {
     const openNew = within(panel('search')).getByRole('link', { name: '新しいタブで開く' });
     expect(openNew.getAttribute('href')).toBe(STORED);
     expect(openNew.getAttribute('rel')).toBe('noopener noreferrer');
-    expect(within(panel('search')).getByText('表示されない場合は新しいタブで開いてください')).toBeTruthy();
+    expect(within(panel('search')).getByText('新しいタブで開く').getAttribute('title')).toBe('表示されない場合は新しいタブで開いてください');
     // 架電結果の入力の入力欄は、外さずに隠すだけ
     fireEvent.click(tab('架電結果の入力'));
     expect(form.querySelector('textarea')).toBe(memo);
