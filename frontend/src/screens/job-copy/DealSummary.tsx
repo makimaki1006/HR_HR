@@ -5,14 +5,14 @@ import { fetchBodyDates } from './bodyDatesShared';
 import { EChart } from '../../components/EChart';
 import { mediaLabel, publicationLabel } from './hubspotListings';
 import type { DealSelection, HubSpotListing, HubSpotListingPage } from './hubspotListings';
-import { dealEvents, dealTotals, listingNumbers, mediaCutoffs, shareOfDeal, weeklySeries } from './dealSummaryModel';
+import { dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, shareOfDeal, weeklySeries } from './dealSummaryModel';
 import type { DealListingInput } from './dealSummaryModel';
 import { formatDay, formatYen, jstDate, todayJst } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import './deal-summary.css';
 
-interface DealApplications { listings: { listing_id: string; total?: number; by_date?: Record<string, number>; error?: string }[]; shared_applications: number }
-type Source = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; rows: HubSpotListing[]; capped: boolean; applications: Map<string, Record<string, number> | null>; shared: number; bodyDates: Record<string, string | null> };
+interface DealApplications { listings: { listing_id: string; total?: number; by_date?: Record<string, number>; fetched_at?: string; error?: string }[]; shared_applications: number; shared_by_date?: Record<string, number> }
+type Source = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; rows: HubSpotListing[]; capped: boolean; applications: Map<string, Record<string, number> | null>; shared: number; overlap: Record<string, number>; fetched: Map<string, string | null>; bodyDates: Record<string, string | null> };
 
 const PALETTE = ['#1f6f8b', '#c2571a', '#5b8c2a', '#8a4fa0', '#b8860b', '#2e8b7a', '#a33b4e', '#4a5fa8'];
 const ENDED_GRAY = '#b4b4b4';
@@ -23,7 +23,6 @@ type IndeedRow = HubSpotListing & { indeed_title_state?: string | null };
 export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealSelection; billingByJob: Readonly<Record<string, readonly BillingEntry[]>>; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void }) {
   const [source, setSource] = useState<Source>({ status: 'loading' });
   const [colored, setColored] = useState(true);
-  const asOf = useMemo(() => todayJst(), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -35,6 +34,8 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
       const rows = page.data.listings;
       let applications = new Map<string, Record<string, number> | null>(rows.map(row => [row.id, null]));
       let shared = 0;
+      let overlap: Record<string, number> = {};
+      let fetched = new Map<string, string | null>();
       let bodyDates: Record<string, string | null> = {};
       if (rows.length) {
         const ids = rows.slice(0, 30).map(row => encodeURIComponent(row.id)).join(',');
@@ -47,10 +48,12 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
         if (apps.ok) {
           applications = new Map(rows.map(row => { const found = apps.data.listings.find(item => item.listing_id === row.id); return [row.id, found?.by_date && !found.error ? found.by_date : null]; }));
           shared = apps.data.shared_applications;
+          overlap = apps.data.shared_by_date ?? {};
+          fetched = new Map(rows.map(row => [row.id, jstDate(apps.data.listings.find(item => item.listing_id === row.id)?.fetched_at)]));
         }
         if (dates.ok && dates.data.dates) bodyDates = dates.data.dates;
       }
-      setSource({ status: 'ready', rows, capped: page.data.next_offset !== null, applications, shared, bodyDates });
+      setSource({ status: 'ready', rows, capped: page.data.next_offset !== null, applications, shared, overlap, fetched, bodyDates });
     })();
     return () => { controller.abort(); };
   }, [deal.id]);
@@ -60,21 +63,23 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
     const inputs: DealListingInput[] = source.rows.map(row => ({
       id: row.id, title: row.title ?? '求人名未取得', media: row.media, ended: publicationLabel(row.publication_status) === '掲載終了',
       byDate: source.applications.get(row.id) ?? null, billing: billingByJob[`hubspot-history-${row.id}`] ?? [],
+      fetchedDate: source.fetched.get(row.id) ?? null,
     }));
+    const asOf = dealCutoff(inputs) ?? todayJst();
     const titleOf = (id: string) => inputs.find(input => input.id === id)?.title ?? '求人';
-    const totals = dealTotals(inputs, asOf);
+    const totals = dealTotals(inputs, asOf, source.overlap);
     return {
-      inputs, totals, series: weeklySeries(inputs, asOf), titleOf, cutoffs: mediaCutoffs(inputs),
+      inputs, totals, asOf, series: weeklySeries(inputs, asOf, source.overlap), titleOf, cutoffs: mediaCutoffs(inputs),
       numbers: new Map(inputs.map(input => [input.id, listingNumbers(input, asOf)])),
-      events: dealEvents(inputs, source.rows.map(row => ({ listingId: row.id, bodyChangedAt: jstDate(source.bodyDates[row.id] ?? row.summary?.body_changed_at) })), asOf, titleOf, formatYen),
+      events: dealEvents(inputs, source.rows.map(row => ({ listingId: row.id, bodyChangedAt: jstDate(source.bodyDates[row.id] ?? row.summary?.body_changed_at) })), asOf, titleOf, formatYen, source.overlap),
     };
-  }, [source, billingByJob, asOf]);
+  }, [source, billingByJob]);
 
   if (source.status === 'loading') return <section className="ds-root" aria-label="案件のまとめ"><p role="status">案件のまとめを読み込んでいます…</p></section>;
   if (source.status === 'error') return <section className="ds-root" aria-label="案件のまとめ"><p role="alert">{source.message}</p></section>;
   if (!model || !source.rows.length) return <section className="ds-root" aria-label="案件のまとめ"><p>この案件の求人はありません。</p></section>;
 
-  const { inputs, totals, series, numbers, events, cutoffs } = model;
+  const { inputs, totals, series, numbers, events, cutoffs, asOf } = model;
   const colorOf = (id: string) => { const index = inputs.findIndex(input => input.id === id); return inputs[index]?.ended ? ENDED_GRAY : PALETTE[index % PALETTE.length] ?? ENDED_GRAY; };
   const labels = series.weeks.map(week => formatDay(week).slice(5));
   const chartSeries = colored
@@ -104,7 +109,7 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
     <div className="ds-band" role="group" aria-label="案件の合計">
       <div><span>直近4週の応募（案件の合計）</span><strong>{count(totals.recent)}</strong><small>前の4週 {count(totals.previous)}</small></div>
       <div><span>応募1件あたり</span><strong>{yen(totals.perApplication)}</strong><small>課金の合計 ÷ 応募の合計</small></div>
-      <div><span>今の課金（求人の合計）/4週</span><strong>{yen(totals.billing)}</strong>{totals.unknownBilling > 0 && <small>課金が分からない掲載中の求人 {String(totals.unknownBilling)}件は含みません</small>}</div>
+      <div><span>今の課金（求人の合計）/4週</span><strong>{yen(totals.billing)}</strong>{totals.unknownBilling > 0 && <small>課金が分からない求人が {String(totals.unknownBilling)}件あるため、合計は出していません</small>}</div>
       <div><span>求人 {String(totals.listings)} 件</span><strong>掲載中 {String(totals.live)} ・ 終了 {String(totals.ended)}</strong>{totals.unknownApplications > 0 && <small>応募日が未取得の求人 {String(totals.unknownApplications)}件は含みません</small>}</div>
     </div>
     {source.capped && <p className="ds-note">求人が多いため、先頭の50件までで集計しています。</p>}
@@ -119,7 +124,7 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
           {series.perListing.every(row => row.counts === null) ? <p className="ds-note">応募日別の件数を取得できませんでした。</p> : <EChart option={applicationOption} testId="ds-applications" height={220} renderer="svg" />}
           {colored && <ul className="ds-legend">{inputs.map(input => <li key={input.id}><i style={{ background: colorOf(input.id) }} aria-hidden="true" />{input.title}{input.ended ? '（終了）' : ''}</li>)}</ul>}
           {billingOption ? <><p className="ds-note ds-billing-label">課金（求人の合計、日割り）</p><EChart option={billingOption} testId="ds-billing" height={64} renderer="svg" /></> : <p className="ds-note">課金は取り込まれていません（課金CSVを取り込むと表示します）。</p>}
-          {source.shared > 0 && <p className="ds-note">{String(source.shared)}件の応募は複数の求人に関連づいており、求人ごとの数にそれぞれ入っています。合計はそれらを重ねて数えます。</p>}
+          {source.shared > 0 && <p className="ds-note">同じ応募が複数の求人に結び付いているので、案件の合計では1回だけ数えています</p>}
         </section>
 
         <section aria-label="この案件の求人">
@@ -147,7 +152,7 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
           <h2>この案件の出来事</h2>
           {events.length ? <ol className="ds-events">{events.map((event, index) => <li key={`${event.date}-${event.kind}-${event.listingId}-${String(index)}`}>
             <time>{formatDay(event.date)}</time><span>{event.text}</span>
-            <small>案件の応募：前の4週 {count(event.before)} → 後の4週 {event.after === null ? '（まだ4週たっていません）' : count(event.after)}</small>
+            <small>案件の応募：前の4週 {event.beforeIncomplete ? '（前の期間がそろっていません）' : count(event.before)} → 後の4週 {event.after === null ? '（まだ4週たっていません）' : count(event.after)}</small>
           </li>)}</ol> : <p className="ds-note">記録できる出来事はまだありません。</p>}
           <p className="ds-note">本文を変えた日は最後の1回だけです。画像の変更と掲載の開始・終了は、各求人を開くと確認できます。</p>
         </section>
@@ -155,6 +160,8 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
 
       <aside className="ds-rail" aria-label="数字の前提">
         <h2>数字の前提</h2>
+        <h3>データ</h3>
+        <p>直近4週の終わり：{formatDay(asOf)}（全部の求人の応募データがそろっている最後の日）</p>
         <h3>データの最終日</h3>
         <ul>{cutoffs.map(cutoff => <li key={cutoff.media}><strong>{mediaLabel(cutoff.media)}</strong><br />応募：{cutoff.lastApplication ? formatDay(cutoff.lastApplication) : '未取得'}<br />課金：{cutoff.lastBilling ? formatDay(cutoff.lastBilling) : '未取り込み'}</li>)}</ul>
         <h3>案件の合計の数え方</h3>

@@ -9,7 +9,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use chrono::NaiveDate;
+use chrono::{DateTime, FixedOffset, NaiveDate};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
@@ -26,33 +26,56 @@ pub(super) struct DealSummaryQuery {
     ids: String,
 }
 
+/// The calendar day (JST) of an application date: a plain `YYYY-MM-DD`, or a timestamp
+/// (RFC 3339) converted to Japan time. None when unreadable.
+fn jst_day(value: &str) -> Option<String> {
+    let value = value.trim();
+    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        return Some(date.format("%Y-%m-%d").to_string());
+    }
+    let jst = FixedOffset::east_opt(9 * 3600)?;
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|time| time.with_timezone(&jst).format("%Y-%m-%d").to_string())
+}
+
 /// Counts of dated applications by day, and the number without a usable date.
-fn count_by_date(dates: &[Option<&str>]) -> (BTreeMap<String, usize>, usize) {
+fn count_by_date(days: &[Option<String>]) -> (BTreeMap<String, usize>, usize) {
     let mut by_date = BTreeMap::new();
     let mut missing = 0;
-    for value in dates {
-        match value.and_then(|v| NaiveDate::parse_from_str(v, "%Y-%m-%d").ok()) {
-            Some(date) => {
-                *by_date
-                    .entry(date.format("%Y-%m-%d").to_string())
-                    .or_insert(0) += 1
-            }
+    for day in days {
+        match day {
+            Some(day) => *by_date.entry(day.clone()).or_insert(0) += 1,
             None => missing += 1,
         }
     }
     (by_date, missing)
 }
 
-/// Applications linked to more than one of the requested listings (counted once per listing in
-/// each listing's own series, so a sum of the series can exceed the number of applications).
-fn shared_count(per_listing: &[BTreeSet<String>]) -> usize {
-    let mut seen = BTreeMap::<&str, usize>::new();
-    for set in per_listing {
-        for id in set {
-            *seen.entry(id.as_str()).or_insert(0) += 1;
+/// Applications linked to more than one of the requested listings. Each is counted once per
+/// listing in the listing's own series, so the deal total must subtract the extra copies:
+/// (number of such applications, extra copies by day, extra copies without a date).
+fn shared_overlap(
+    per_listing: &[Vec<(String, Option<String>)>],
+) -> (usize, BTreeMap<String, usize>, usize) {
+    let mut seen = BTreeMap::<&str, (usize, Option<&str>)>::new();
+    for listing in per_listing {
+        for (id, day) in listing {
+            let entry = seen.entry(id.as_str()).or_insert((0, day.as_deref()));
+            entry.0 += 1;
         }
     }
-    seen.values().filter(|n| **n > 1).count()
+    let mut by_day = BTreeMap::new();
+    let mut undated = 0;
+    let mut shared = 0;
+    for (times, day) in seen.values().filter(|(times, _)| *times > 1) {
+        shared += 1;
+        match day {
+            Some(day) => *by_day.entry((*day).to_owned()).or_insert(0) += times - 1,
+            None => undated += times - 1,
+        }
+    }
+    (shared, by_day, undated)
 }
 
 pub(super) async fn read(
@@ -82,41 +105,48 @@ pub(super) async fn read(
         valid_id(id)?;
     }
     let mut listings = Vec::new();
-    let mut sets = Vec::new();
+    let mut linked = Vec::new();
     for id in &ids {
-        let read: Result<(Value, BTreeSet<String>), ReadError> = async {
+        let read: Result<(Value, Vec<(String, Option<String>)>), ReadError> = async {
             let deals = service.all_associations("0-420", id, "deals").await?;
             if !deals.contains(&query.deal) {
                 return Err(ReadError(StatusCode::FORBIDDEN, "listing_not_in_deal"));
             }
             let applications = service.all_associations("0-420", id, "0-421").await?;
             let rows = service.batch("0-421", &applications, &["yingmuri"]).await?;
-            let dates: Vec<Option<&str>> = rows.iter().map(|r| r.value("yingmuri")).collect();
-            let (by_date, missing) = count_by_date(&dates);
-            let set: BTreeSet<String> = applications.into_iter().collect();
+            let days: Vec<Option<String>> = rows
+                .iter()
+                .map(|r| r.value("yingmuri").and_then(jst_day))
+                .collect();
+            let (by_date, missing) = count_by_date(&days);
+            let pairs = rows.iter().map(|r| r.id.clone()).zip(days).collect();
             Ok((
-                json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"by_date":by_date}),
-                set,
+                json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"by_date":by_date,
+                    "fetched_at":chrono::Utc::now().to_rfc3339()}),
+                pairs,
             ))
         }
         .await;
         match read {
-            Ok((value, set)) => {
+            Ok((value, pairs)) => {
                 listings.push(value);
-                sets.push(set);
+                linked.push(pairs);
             }
             // The deal relation is a permission check: fail the whole request.
             Err(error) if error.0 == StatusCode::FORBIDDEN => return Err(error),
             Err(error) => listings.push(json!({"listing_id":id,"error":error.1})),
         }
     }
+    let (shared, shared_by_date, shared_missing_date) = shared_overlap(&linked);
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(json!({
             "deal_id": query.deal,
             "fetched_at": chrono::Utc::now().to_rfc3339(),
             "listings": listings,
-            "shared_applications": shared_count(&sets),
+            "shared_applications": shared,
+            "shared_by_date": shared_by_date,
+            "shared_missing_date": shared_missing_date,
         })),
     ))
 }
@@ -127,28 +157,52 @@ mod tests {
 
     #[test]
     fn counts_dated_and_undated_applications() {
-        let (by_date, missing) = count_by_date(&[
+        let days: Vec<Option<String>> = [
             Some("2026-10-01"),
             Some("2026-10-01"),
             Some("2026-10-03"),
             None,
             Some("bad"),
-        ]);
+        ]
+        .iter()
+        .map(|v| v.and_then(jst_day))
+        .collect();
+        let (by_date, missing) = count_by_date(&days);
         assert_eq!(by_date.get("2026-10-01"), Some(&2));
         assert_eq!(by_date.get("2026-10-03"), Some(&1));
         assert_eq!(missing, 2);
     }
 
     #[test]
-    fn shared_applications_are_those_in_two_or_more_listings() {
-        let set = |v: &[&str]| {
-            v.iter()
-                .map(|s| s.to_string())
-                .collect::<BTreeSet<String>>()
-        };
+    fn timestamps_are_counted_on_their_japan_time_day() {
+        // 2026-09-30 16:30 UTC is 2026-10-01 01:30 in Japan.
         assert_eq!(
-            shared_count(&[set(&["1", "2", "3"]), set(&["3", "4"]), set(&["3", "2"])]),
-            2
+            jst_day("2026-09-30T16:30:00Z").as_deref(),
+            Some("2026-10-01")
         );
+        assert_eq!(
+            jst_day("2026-10-01T08:00:00+09:00").as_deref(),
+            Some("2026-10-01")
+        );
+        assert_eq!(jst_day("2026-10-01").as_deref(), Some("2026-10-01"));
+        assert_eq!(jst_day("not a date"), None);
+    }
+
+    #[test]
+    fn shared_applications_are_subtracted_by_day() {
+        let app = |id: &str, day: Option<&str>| (id.to_owned(), day.map(str::to_owned));
+        let a = vec![
+            app("1", Some("2026-10-01")),
+            app("2", Some("2026-10-02")),
+            app("3", None),
+        ];
+        let b = vec![app("3", None), app("4", Some("2026-10-01"))];
+        let c = vec![app("2", Some("2026-10-02")), app("3", None)];
+        let (shared, by_day, undated) = shared_overlap(&[a, b, c]);
+        // 2 is in a and c (1 extra on 10-02); 3 is in a, b and c (2 extra, undated).
+        assert_eq!(shared, 2);
+        assert_eq!(by_day.get("2026-10-02"), Some(&1));
+        assert_eq!(by_day.len(), 1);
+        assert_eq!(undated, 2);
     }
 }

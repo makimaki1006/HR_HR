@@ -18,6 +18,24 @@ export interface DealListingInput {
   byDate: Record<string, number> | null;
   /** この求人の課金 (課金CSV)。取り込みが無ければ空。 */
   billing: readonly BillingEntry[];
+  /** この求人の応募データを取得した日 (JST)。分からないときは null。 */
+  fetchedDate: string | null;
+}
+
+/** 複数の求人に結び付いた応募の「余分な写し」の数を日ごとに持つ。案件の合計から引く。 */
+export type Overlap = Readonly<Record<string, number>>;
+function overlapIn(overlap: Overlap, from: string, toExclusive: string): number {
+  return countApplications(overlap, from, toExclusive);
+}
+
+/**
+ * 案件の「直近4週」の終わりの日。応募データがある求人の取得日のうち、いちばん早い日
+ * (全部の求人のデータがそろっている最後の日)。ひとつも無ければ null。
+ * 求人の取得日は record.overallApplications.fetchedAt の JST の日 (#185 の帯と同じ定義)。
+ */
+export function dealCutoff(listings: readonly DealListingInput[]): string | null {
+  const dates = listings.filter(listing => listing.byDate && listing.fetchedDate).map(listing => listing.fetchedDate ?? '');
+  return dates.length ? dates.reduce((a, b) => a < b ? a : b) : null;
 }
 
 export interface ListingNumbers {
@@ -68,30 +86,31 @@ export interface DealTotals {
   /** 応募日が分からず合計に入っていない求人の数。 */
   unknownApplications: number;
   billing: number | null;
-  /** 課金が分からず合計に入っていない、掲載中の求人の数。 */
+  /** 課金が分からない求人の数 (終了した求人を含む)。ひとつでもあれば課金の合計は出さない。 */
   unknownBilling: number;
-  /** 課金の合計 ÷ 応募の合計。どちらも分かる求人だけで割る。 */
+  /** 課金の合計 ÷ 応募の合計。全部の求人の課金と応募が分かるときだけ出す。 */
   perApplication: number | null;
   listings: number;
   live: number;
   ended: number;
 }
 
-export function dealTotals(listings: readonly DealListingInput[], asOf: string): DealTotals {
+export function dealTotals(listings: readonly DealListingInput[], asOf: string, overlap: Overlap = {}): DealTotals {
+  const { recentStart, previousStart, end } = windows(asOf);
   const numbers = listings.map(listing => listingNumbers(listing, asOf));
   const known = numbers.filter(n => n.recent !== null);
   const sum = (values: (number | null)[]) => values.reduce<number>((total, value) => total + (value ?? 0), 0);
-  const billed = numbers.filter(n => n.billing !== null);
-  const bothKnown = numbers.filter(n => n.billing !== null && n.recent !== null);
-  const billingOfBoth = sum(bothKnown.map(n => n.billing));
-  const applicationsOfBoth = sum(bothKnown.map(n => n.recent));
+  const recent = known.length ? sum(known.map(n => n.recent)) - overlapIn(overlap, recentStart, end) : null;
+  const unknownBilling = numbers.filter(n => n.billing === null).length;
+  const unknownApplications = numbers.length - known.length;
+  const billing = numbers.length && unknownBilling === 0 ? sum(numbers.map(n => n.billing)) : null;
   return {
-    recent: known.length ? sum(known.map(n => n.recent)) : null,
-    previous: known.length ? sum(known.map(n => n.previous)) : null,
-    unknownApplications: numbers.length - known.length,
-    billing: billed.length ? sum(billed.map(n => n.billing)) : null,
-    unknownBilling: listings.filter((listing, index) => !listing.ended && numbers[index]?.billing === null).length,
-    perApplication: bothKnown.length && applicationsOfBoth > 0 ? Math.round(billingOfBoth / applicationsOfBoth) : null,
+    recent,
+    previous: known.length ? sum(known.map(n => n.previous)) - overlapIn(overlap, previousStart, recentStart) : null,
+    unknownApplications,
+    billing,
+    unknownBilling,
+    perApplication: billing !== null && recent && unknownApplications === 0 ? Math.round(billing / recent) : null,
     listings: listings.length,
     live: listings.filter(listing => !listing.ended).length,
     ended: listings.filter(listing => listing.ended).length,
@@ -114,22 +133,22 @@ export interface WeeklySeries {
   weeks: string[];
   /** 求人ごとの週ごとの応募。応募日が未取得の求人は counts が null。 */
   perListing: { id: string; counts: number[] | null }[];
-  /** 求人の合計の週ごとの応募 (応募日が分かる求人だけ)。 */
+  /** 案件の合計の週ごとの応募 (応募日が分かる求人だけ。重なる応募は1回だけ)。 */
   total: number[];
-  /** 週ごとの課金の合計 (日割り、課金が分かる求人だけ)。課金が一件も分からなければ null。 */
+  /** 週ごとの課金の合計 (日割り)。課金が分からない求人がひとつでもあれば null。 */
   billing: number[] | null;
 }
 
-export function weeklySeries(listings: readonly DealListingInput[], asOf: string, weekCount = 12): WeeklySeries {
+export function weeklySeries(listings: readonly DealListingInput[], asOf: string, overlap: Overlap = {}, weekCount = 12): WeeklySeries {
   const last = weekStart(asOf);
   const weeks = Array.from({ length: weekCount }, (_, i) => addDays(last, -7 * (weekCount - 1 - i)));
   const perListing = listings.map(listing => ({
     id: listing.id,
     counts: listing.byDate ? weeks.map(week => countApplications(listing.byDate ?? undefined, week, addDays(week, 7))) : null,
   }));
-  const total = weeks.map((_, i) => perListing.reduce((sum, row) => sum + (row.counts?.[i] ?? 0), 0));
-  const billedListings = listings.filter(listing => listing.billing.length && !billingOverlaps(listing.billing) && listing.billing.every(entry => entry.amountYen !== null));
-  const billing = billedListings.length ? weeks.map(week => billedListings.reduce((sum, listing) => sum + (billingInRange(listing.billing, week, addDays(week, 7)) ?? 0), 0)) : null;
+  const total = weeks.map((week, i) => perListing.reduce((sum, row) => sum + (row.counts?.[i] ?? 0), 0) - overlapIn(overlap, week, addDays(week, 7)));
+  const cells = weeks.map(week => listings.map(listing => billingInRange(listing.billing, week, addDays(week, 7))));
+  const billing = listings.length > 0 && cells.every(row => row.every(cell => cell !== null)) ? cells.map(row => row.reduce<number>((sum, cell) => sum + cell, 0)) : null;
   return { weeks, perListing, total, billing };
 }
 
@@ -140,21 +159,30 @@ export interface DealEvent {
   text: string;
   /** その日の前の4週・後の4週の、案件の応募の合計。分からない・4週たっていないときは null。 */
   before: number | null;
+  /** 前の4週が、応募データの最初の日より前にかかっていて数えられない。 */
+  beforeIncomplete: boolean;
   after: number | null;
 }
 
 /** 案件の応募の合計 (応募日が分かる求人だけ) の [from, toExclusive)。 */
-export function dealApplicationsBetween(listings: readonly DealListingInput[], from: string, toExclusive: string): number | null {
+export function dealApplicationsBetween(listings: readonly DealListingInput[], from: string, toExclusive: string, overlap: Overlap = {}): number | null {
   const known = listings.filter(listing => listing.byDate);
   if (!known.length) return null;
-  return known.reduce((sum, listing) => sum + countApplications(listing.byDate ?? undefined, from, toExclusive), 0);
+  return known.reduce((sum, listing) => sum + countApplications(listing.byDate ?? undefined, from, toExclusive), 0) - overlapIn(overlap, from, toExclusive);
+}
+
+/** 応募データの最初の日 (どの求人でもいちばん古い応募の日)。 */
+export function firstDataDate(listings: readonly DealListingInput[]): string | null {
+  const dates = listings.flatMap(listing => Object.entries(listing.byDate ?? {}).filter(([, count]) => count > 0).map(([date]) => date));
+  return dates.length ? dates.reduce((a, b) => a < b ? a : b) : null;
 }
 
 export interface EventSource { listingId: string; bodyChangedAt: string | null }
 
 /** 新しい順。課金は期間の開始・終了、本文は最後に変えた日。画像の変更は版を読み込んでいないため含めない。 */
-export function dealEvents(listings: readonly DealListingInput[], sources: readonly EventSource[], asOf: string, titleOf: (id: string) => string, formatYen: (value: number) => string): DealEvent[] {
-  const events: Omit<DealEvent, 'before' | 'after'>[] = [];
+export function dealEvents(listings: readonly DealListingInput[], sources: readonly EventSource[], asOf: string, titleOf: (id: string) => string, formatYen: (value: number) => string, overlap: Overlap = {}): DealEvent[] {
+  const events: Omit<DealEvent, 'before' | 'after' | 'beforeIncomplete'>[] = [];
+  const first = firstDataDate(listings);
   for (const listing of listings) {
     const title = titleOf(listing.id);
     const entries = [...listing.billing].sort((a, b) => a.start.localeCompare(b.start));
@@ -174,10 +202,13 @@ export function dealEvents(listings: readonly DealListingInput[], sources: reado
   return events.sort((a, b) => b.date.localeCompare(a.date)).map(event => {
     const afterEnd = addDays(event.date, WINDOW_DAYS);
     const complete = afterEnd <= addDays(asOf, 1);
+    const beforeStart = addDays(event.date, -WINDOW_DAYS);
+    const beforeIncomplete = first === null || beforeStart < first;
     return {
       ...event,
-      before: dealApplicationsBetween(listings, addDays(event.date, -WINDOW_DAYS), event.date),
-      after: complete ? dealApplicationsBetween(listings, event.date, afterEnd) : null,
+      before: beforeIncomplete ? null : dealApplicationsBetween(listings, beforeStart, event.date, overlap),
+      beforeIncomplete,
+      after: complete ? dealApplicationsBetween(listings, event.date, afterEnd, overlap) : null,
     };
   });
 }

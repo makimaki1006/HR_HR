@@ -22,7 +22,7 @@ it('案件の合計: 20/9/10/0 → 39件、前の4週31件、課金6万円 → 1
   });
   const start = addDays(todayJst(), -27); const end = todayJst();
   const csv = (amountYen: number) => [{ source: 'csv' as const, start, end, amountYen }];
-  render(<DealSummary deal={{ id: '9', name: '案件', prefecture: '', title: '', media: '' }} billingByJob={{ 'hubspot-history-1': csv(30000), 'hubspot-history-2': csv(15000), 'hubspot-history-3': csv(15000) }} onOpenListing={vi.fn()} />);
+  render(<DealSummary deal={{ id: '9', name: '案件', prefecture: '', title: '', media: '' }} billingByJob={{ 'hubspot-history-1': csv(30000), 'hubspot-history-2': csv(15000), 'hubspot-history-3': csv(15000), 'hubspot-history-4': [{ source: 'csv' as const, start: '2026-01-01', end: '2026-01-31', amountYen: 5000 }] }} onOpenListing={vi.fn()} />);
   const band = await screen.findByRole('group', { name: '案件の合計' });
   await waitFor(() => { expect(band.textContent).toContain('39件'); });
   expect(band.textContent).toContain('前の4週 31件');
