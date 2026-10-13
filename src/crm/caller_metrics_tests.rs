@@ -977,3 +977,52 @@ async fn 利用者が増えても_hubspot_の_search_は共有される() {
     assert_eq!(searches_of(&e.st, "calls").len(), 1);
     assert_eq!(searches_of(&e.st, "deals").len(), 1);
 }
+
+#[test]
+fn アポはアポ獲得者に付き_空なら担当者に付く() {
+    // アポ獲得者あり: 担当者 (新規営業) ではなく獲得者
+    let with = json!({"hubspot_owner_id": "sales1", "bpo_26": "caller1"});
+    assert_eq!(appointment_owner(&with), Some("caller1"));
+    // 空文字・空白だけ・項目なしは担当者
+    let empty = json!({"hubspot_owner_id": "sales1", "bpo_26": ""});
+    assert_eq!(appointment_owner(&empty), Some("sales1"));
+    let blank = json!({"hubspot_owner_id": "sales2", "bpo_26": "  "});
+    assert_eq!(appointment_owner(&blank), Some("sales2"));
+    let absent = json!({"hubspot_owner_id": "sales3"});
+    assert_eq!(appointment_owner(&absent), Some("sales3"));
+    // どちらも無ければ数えない
+    assert_eq!(appointment_owner(&json!({"bpo_26": null})), None);
+}
+
+#[test]
+fn 架電0件のアポ獲得者は一覧に出て_集団には入らない() {
+    let calls = [out("1", "c1", 1000), out("2", "c2", 2000)];
+    // c3 は今日 1 件も架電していないがアポを取った
+    let apo = HashMap::from([("c1".to_string(), 1u32), ("c3".to_string(), 2u32)]);
+    let all = aggregate(&calls, &apo);
+    let z = &all["c3"];
+    assert_eq!(
+        (z.appointments, z.outbound, z.inbound, z.talked),
+        (2, 0, 0, 0)
+    );
+    assert!(z.first_call_at.is_none() && z.last_call_at.is_none());
+    // 管理者の一覧の条件 (get_today_all) に当たる
+    assert!(z.outbound > 0 || z.inbound > 0 || z.appointments > 0);
+    assert!(!is_caller(z));
+    // 集団 (平均・順位の母数) は架電した c1, c2 の 2 人だけ
+    let (me, avg, n, label) = build_today(&all, Some("c3"), &[], &HashMap::new());
+    assert_eq!((n, label), (2, "all"));
+    assert_eq!(me.as_ref().unwrap().rank.appointments, None);
+    // 平均のアポは (1 + 0) / 2。c3 の 2 件は入らない
+    assert_eq!(avg.unwrap().appointments, 0.5);
+}
+
+#[test]
+fn アポ欄はアポを数えるチームの人かチーム無しの人にだけ出す() {
+    let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert!(appointments_tracked(&t(&["BPO_リクロジ"])));
+    assert!(!appointments_tracked(&t(&["新規営業"])));
+    assert!(appointments_tracked(&[]));
+    assert!(appointments_tracked(&t(&["BPO_リクロジ", "新規営業"])));
+    assert!(!appointments_tracked(&t(&["新規営業", "コンサル営業"])));
+}
