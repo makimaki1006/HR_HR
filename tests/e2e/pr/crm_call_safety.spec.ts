@@ -7,8 +7,8 @@ import { startWithResultPanelInFront } from './helpers/crm_layout';
  *
  * - 画面ファイルを読み込めなかったとき: 白い画面ではなく、案内と再読み込みのボタンが出る。押すと画面が出る
  * - 「下書きを消す」: 1 回押しただけでは消さず確かめる。やめる / Esc ではメモが残る。下書きが空なら押せない
- * - 「記録して次へ」: 読み込んだ行が全部記録済みでも続きのページがあれば、「さらに読み込む」を案内する
- * - 一覧を下端までスクロールすると続きのページを読み、全件を読んだら止まる (見出しは「全 N 件中 M 件を表示」)
+ * - 「記録して次へ」: 一覧は下端の手前で続きのページを自動で読み足すので、5 件目を記録すると 6 件目が選ばれる
+ * - 続きのページは自動で読み足し、全件を読んだら止まる (見出しは「全 N 件中 M 件を表示」、下に「すべて表示しました（N 件）」)
  *
  * 架空サンプルは frontend/src/screens/crm/queueFixture.ts の固定値 (1 ページ 5 件、既定の条件で全 10 件)。/api/crm/* は呼ばない。
  * この画面にグラフ (ECharts) は無い。値は描画された文字と sessionStorage の中身で確かめる。
@@ -54,7 +54,7 @@ test.describe('CRM 架電画面: 入力を失わないための仕組み', () =>
     await page.unroute(block);
     await alert.getByRole('button', { name: '再読み込み' }).click();
     await expect(list(page)).toBeVisible();
-    await expect(rows(page)).toHaveCount(5);
+    await expect(rows(page)).toHaveCount(10);
     await expect(rows(page).locator('.cq-row-company').first()).toHaveText('ダミー建設');
     await expect(page.getByRole('alert').filter({ hasText: '画面を読み込めませんでした' })).toHaveCount(0);
   });
@@ -92,8 +92,10 @@ test.describe('CRM 架電画面: 入力を失わないための仕組み', () =>
     expect(await storedDrafts(page)).toMatchObject({ drafts: {}, recorded: {} });
   });
 
-  test('読み込んだ 5 件を全部記録しても続きがあれば「さらに読み込む」を案内し、押すと続きの未記録の行が出る', async ({ page }) => {
+  test('「記録して次へ」で 5 件目を記録すると、自動で読み足された続きの 6 件目が選ばれる', async ({ page }) => {
     await openScreen(page);
+    // 目印が最初から見えているので、続きのページ (6〜10 件目) は自動で読み足される
+    await expect(rows(page)).toHaveCount(10);
     await rowButton(page, 0).click();
     for (let i = 0; i < 5; i += 1) {
       await expect(rowButton(page, i)).toHaveAttribute('aria-pressed', 'true');
@@ -101,26 +103,18 @@ test.describe('CRM 架電画面: 入力を失わないための仕組み', () =>
       await recordBtn(page).click();
     }
     await expect(rows(page).locator('.cq-recorded')).toHaveCount(5);
-    await expect(form(page).locator('.rf-notice'))
-      .toHaveText('表示中の一覧に未記録の架電先はありません。一覧の下の「さらに読み込む」で続きを表示できます。');
-    await page.getByRole('button', { name: 'さらに読み込む' }).click();
-    await expect(rows(page)).toHaveCount(10);
+    await expect(rowButton(page, 5)).toHaveAttribute('aria-pressed', 'true');
     await expect(rows(page).nth(5).locator('.cq-recorded')).toHaveCount(0);
   });
-  test('一覧を下端までスクロールすると続きを読み込み、全件を読んだら止まる', async ({ page }) => {
+  test('続きは自動で読み足され、全件を読んだら止まって件数を 1 行で知らせる', async ({ page }) => {
     // 5 行で一覧の枠がスクロールするよう、画面の高さを低くする
     await page.setViewportSize({ width: 1280, height: 480 });
     await openScreen(page);
-    await expect(rows(page)).toHaveCount(5);
-    await expect(page.locator('.cq-count')).toContainText('全 10 件中 5 件を表示');
-    const scroller = page.locator('.cq-list-scroll');
-    expect(await scroller.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
-    // 開いただけでは読まない
-    await expect(rows(page)).toHaveCount(5);
-    await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    // 「さらに読み込む」のボタンは無く、スクロールしなくても続きが読まれる
+    await expect(page.getByRole('button', { name: 'さらに読み込む' })).toHaveCount(0);
     await expect(rows(page)).toHaveCount(10);
     await expect(page.locator('.cq-count')).toContainText('全 10 件中 10 件を表示');
-    await expect(page.getByText('これで最後です。')).toBeVisible();
+    await expect(page.getByText('すべて表示しました（10 件）')).toBeVisible();
     await expect(page.getByTestId('queue-load-sentinel')).toHaveCount(0);
     // 同じ行を 2 回出さない (行の文字 = 会社・担当者・番号 が 10 通り)
     const texts = await rows(page).locator('button.cq-row-button').allTextContents();

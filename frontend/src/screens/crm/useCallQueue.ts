@@ -88,13 +88,16 @@ function classify(error: ApiError): Failure {
   return { phase: 'error', message: errorMessage(kind, status), kind };
 }
 
+/** 混雑 (hubspot_busy) で続きの読み込みが断られたとき、自動でやり直すまでの待ち (ms)。1 回だけ */
+export const BUSY_RETRY_MS = 5000;
+
 export const SCOPE_MISMATCH_MESSAGE = '応答の条件が画面の条件と一致しなかったため、表示を取りやめました。再読み込みしてください。';
 
 /**
  * 架電キューの取得。
  * - 条件 (filters / mode / reload) が変わったら、古い要求を AbortController で中断して先頭から取り直す。
  * - 応答の scope が現在の条件と一致しなければ表示に使わない。
- * - 続きのページ (一覧の下端までのスクロール・「さらに読み込む」) は、直前に表示した次ページの cursor にだけ追記し、deal_id で重複排除する。
+ * - 続きのページ (一覧の下端までのスクロールで自動で読む) は、直前に表示した次ページの cursor にだけ追記し、deal_id で重複排除する。
  *   読み込み中は次を始めない (同じページを 2 回読まない)。
  * - `refreshKey` が変わったときも取り直す (例: 「次回日が来たものだけ」の間に日付が変わった)。
  */
@@ -107,6 +110,8 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
   const fetchPage = fetcher ?? (mode === 'fixture' ? fixtureFetch : liveFetch);
   const moreCtl = useRef<AbortController | null>(null);
   const moreBusy = useRef(false);
+  const runMoreRef = useRef<(cursor: string, retried: boolean) => void>(() => undefined);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filtersRef = useRef(filters);
   // 条件の「中身」が変わったときだけ取り直す (同じ中身の新しいオブジェクトでは取り直さない)
   const key = filtersKey(filters);
@@ -121,6 +126,7 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
     if (hasInvalid) return; // 条件の誤りは取得せず、返す値 (下) で知らせる
     const ctl = new AbortController();
     moreBusy.current = false;
+    if (retryTimer.current !== null) { clearTimeout(retryTimer.current); retryTimer.current = null; }
     // 「再試行」「最初から読み直す」で読み直すときは、サーバのキャッシュを使わない
     const ff = freshFor.current;
     const fresh = reloadToken > 0 && ff.token === reloadToken && (ff.reqId === null || ff.reqId === reqId);
@@ -143,14 +149,16 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
         last: res.data, total: res.data.total, partial: addPartial(EMPTY_PARTIAL, res.data.partial), role: res.data.scope.role,
       });
     });
-    return () => { ctl.abort(); moreCtl.current?.abort(); };
+    return () => {
+      ctl.abort(); moreCtl.current?.abort();
+      if (retryTimer.current !== null) { clearTimeout(retryTimer.current); retryTimer.current = null; }
+    };
   // 条件の中身・モード・再読み込みは reqId に入っている。fetchPage は mode / fetcher で決まる
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqId, hasInvalid, fetcher]);
 
-  const loadMore = useCallback(() => {
-    const cursor = state.nextCursor;
-    if (state.phase !== 'ready' || !cursor || moreBusy.current) return;
+  // 続きのページを 1 回読む。混雑 (hubspot_busy) のときだけ 5 秒後に 1 回自動でやり直す
+  const runMore = useCallback((cursor: string, retried: boolean) => {
     const f = filtersRef.current;
     const ctl = new AbortController();
     moreCtl.current = ctl;
@@ -158,13 +166,23 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
     setState(prev => ({ ...prev, loadingMore: true, moreError: null }));
     void fetchRef.current(f, cursor, ctl.signal).then(res => {
       if (ctl.signal.aborted) return;
-      moreBusy.current = false;
       if (!res.ok) {
-        if (res.error instanceof ApiAbortedError) return;
+        if (res.error instanceof ApiAbortedError) { moreBusy.current = false; return; }
         const fail = classify(res.error);
+        if (fail.kind === 'hubspot_busy' && !retried) {
+          // 読み込み中の表示のまま待つ (moreBusy も保つので、待つ間に別の読み込みは始まらない)
+          retryTimer.current = setTimeout(() => {
+            retryTimer.current = null;
+            if (ctl.signal.aborted) return;
+            runMoreRef.current(cursor, true);
+          }, BUSY_RETRY_MS);
+          return;
+        }
+        moreBusy.current = false;
         setState(prev => ({ ...prev, loadingMore: false, moreError: { message: fail.message, kind: fail.kind } }));
         return;
       }
+      moreBusy.current = false;
       const data = res.data;
       if (!scopeMatches(data.scope, f)) {
         setState(prev => ({ ...prev, loadingMore: false, moreError: { message: SCOPE_MISMATCH_MESSAGE, kind: 'scope_mismatch' } }));
@@ -180,7 +198,15 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
         };
       });
     });
-  }, [state.nextCursor, state.phase]);
+  }, []);
+
+  useEffect(() => { runMoreRef.current = runMore; }, [runMore]);
+
+  const loadMore = useCallback(() => {
+    const cursor = state.nextCursor;
+    if (state.phase !== 'ready' || !cursor || moreBusy.current) return;
+    runMore(cursor, false);
+  }, [state.nextCursor, state.phase, runMore]);
 
   const reload = useCallback(() => {
     setReloadToken(n => { freshFor.current = { token: n + 1, reqId: null }; return n + 1; });

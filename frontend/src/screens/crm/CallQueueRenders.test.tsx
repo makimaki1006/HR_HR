@@ -25,7 +25,7 @@ const list = () => screen.getByRole('list', { name: '架電キュー' });
 const rows = () => within(list()).getAllByRole('button');
 const rowAt = (i: number): HTMLElement => { const b = rows()[i]; if (!b) throw new Error(`row ${String(i)}`); return b; };
 
-// 一覧は 40 行 (「さらに読み込む」を重ねた長い一覧の代わり)。詳細は架空サンプルの 1 件を ID だけ変えて返す
+// 一覧は 40 行 (続きを自動で読み足した長い一覧の代わり)。詳細は架空サンプルの 1 件を ID だけ変えて返す
 const ITEMS = Array.from({ length: 40 }, (_, i) => makeItem(String(i + 1)));
 const queue = (f: QueueFilters) => Promise.resolve({ ok: true as const, data: makeResponse(f, ITEMS) });
 const sampleId = fixtureQueuePage(DEFAULT_FILTERS, null).items[0]?.deal_id ?? '';
