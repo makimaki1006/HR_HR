@@ -556,12 +556,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const needsOwnerPick = state.phase === 'error' && state.errorKind === 'owner_not_resolved';
   const notes = partialNotes(state.partial);
   const total = state.total;
-  // 一覧を下端近くまでスクロールしたら続きを読む (読み込み中・失敗中・続きなしは読まない)。ボタンでも読める
+  // 一覧を下端近くまでスクロールしたら続きを自動で読む (読み込み中・失敗中・続きなしは読まない)
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   useAutoLoadMore(listScrollRef, sentinelRef,
     state.phase === 'ready' && state.nextCursor !== null && !state.loadingMore && state.moreError === null,
-    state.nextCursor, loadMore);
+    state.nextCursor, state.reqId, loadMore);
   // 条件を変えて取り直したら一覧の枠を先頭に戻す (前の一覧の下端の位置のままだと、スクロールしていないのに続きを読んでしまう)
   useEffect(() => { if (listScrollRef.current) listScrollRef.current.scrollTop = 0; }, [state.reqId]);
   const propertyGroups = groupsOf(filters);
@@ -604,6 +604,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     const target = items[nextIdx];
     if (!target) return;
     if (target.deal_id !== selectedId) select(target.deal_id, 'key');
+    // キーボードで最後の行まで来たら、続きを読み足す (失敗中は「再試行」で読む)
+    if (nextIdx === items.length - 1 && step === 1 && state.nextCursor && !state.loadingMore && !state.moreError) loadMore();
     const btn = buttons[nextIdx];
     btn?.focus();
     if (typeof btn?.scrollIntoView === 'function') btn.scrollIntoView({ block: 'nearest' });
@@ -668,7 +670,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     if (next === null) {
       // 続きのページがあるときは、一覧が終わったと読まれないよう続きの出し方も書く
       const none = state.nextCursor
-        ? '表示中の一覧に未記録の架電先はありません。一覧の下の「さらに読み込む」で続きを表示できます。'
+        ? '表示中の一覧に未記録の架電先はありません。一覧を下へスクロールすると続きが表示されます。'
         : '表示中の一覧に未記録の架電先はありません。';
       setFormNotice({ dealId: selectedId, text: none });
       announce(`${done}${none}`);
@@ -787,7 +789,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
               {notes.length > 0 && <details className="cq-notes-mini" role="status" data-testid="queue-notes"><summary><span aria-hidden="true">⚠ </span><strong>一部の情報が欠けています</strong><small>（{notes.length} 項目）</small></summary>
                 <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></details>}
               {state.items.length === 0 && <div className="cq-notice cq-empty">
-                {state.nextCursor ? <p>このページには表示できる行がありません。続きを読み込んでください。</p>
+                {state.nextCursor ? <p>このページには表示できる行がありません。{state.loadingMore ? '続きを読み込んでいます。' : <>続きを読み込んでください。 <button type="button" className="cq-btn" onClick={loadMore}>続きを読み込む</button></>}</p>
                   : hasConditions ? <><strong>条件に一致する架電先がありません</strong><p>条件を変えるか、クリアしてください。</p>
                     <button type="button" onClick={clearAll}>条件をクリア</button></>
                     : <><strong>いま架電キューに出ている架電先はありません</strong></>}</div>}
@@ -796,13 +798,15 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
                   selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
                   recorded={isRecorded(item.deal_id)} unsaved={persistFailed} stopLabel={stopLabel}
                   onSelect={selectByClick} onHoverStart={hoverStart} onHoverEnd={hoverEnd} catalogIndex={catalog.state.phase === 'ready' ? catalog.state.index : null} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
-              {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
-                {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
-              {/* 続きの自動読み込みの目印 (ここが見えるところまでスクロールしたら読む) */}
+              {/* 続きの自動読み込みの目印 (下端の手前に入ったら読む) */}
               {state.nextCursor && <div ref={sentinelRef} className="cq-load-sentinel" aria-hidden="true" data-testid="queue-load-sentinel" />}
-              {state.nextCursor && <button type="button" className="cq-btn cq-load-more" disabled={state.loadingMore} onClick={loadMore}>
-                {state.loadingMore ? '読み込み中…' : 'さらに読み込む'}</button>}
-              {!state.nextCursor && state.items.length > 0 && <p className="cq-end">これで最後です。</p>}
+              {state.loadingMore && <p role="status" className="cq-more-status">読み込み中…</p>}
+              {state.moreError && !state.loadingMore && <p role="alert" className="cq-more-status cq-more-error" title={state.moreError.message}>
+                読み込めませんでした{' '}
+                {state.moreError.kind === 'cursor_mismatch'
+                  ? <button type="button" className="cq-link" onClick={reload}>最初から読み直す</button>
+                  : <button type="button" className="cq-link" onClick={loadMore}>再試行</button>}</p>}
+              {!state.nextCursor && state.items.length > 0 && <p className="cq-more-status cq-end">すべて表示しました（{state.items.length.toLocaleString('ja-JP')} 件）</p>}
             </>}
           </div>
         </section>

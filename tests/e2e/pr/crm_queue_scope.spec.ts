@@ -29,7 +29,7 @@ test('架空の2パイプラインの全取引を条件で探し、停止の印�
   const id=new URL(page.url()).searchParams.get('view');expect(id).not.toBeNull();await views.getByRole('button',{name:/^すべて/}).click();await expect(page.getByLabel('対象',{exact:true})).toHaveValue('calling');
   await page.goto('/app/crm?mode=fixture&view='+encodeURIComponent(id ?? ''));await expect(page.getByTestId('queue-count')).toContainText('全 10 件中');await expect(page.getByLabel('対象',{exact:true})).toHaveValue('all');
   expect(new URL(page.url()).searchParams.get('pipelines')).toBe(original.get('pipelines'));expect(new URL(page.url()).searchParams.get('conditions')).toBe(original.get('conditions'));
-  await expect(list.locator('.cq-row-company').first()).toHaveText('架空サーモスタット工業株式会社');await page.getByRole('button',{name:'さらに読み込む'}).click();await expect(page.getByText('番号未登録の架空商店',{exact:true})).toBeVisible();
+  await expect(list.locator('.cq-row-company').first()).toHaveText('架空サーモスタット工業株式会社');await expect(page.getByText('番号未登録の架空商店',{exact:true})).toBeVisible();
   await expect(list).toContainText('架空介護サービス');await expect(page.getByTestId('queue-count')).toContainText('全 10 件中 10 件を表示');
   await page.setViewportSize({width:1024,height:900});await page.getByRole('button',{name:/詳細条件/}).click();const panel=await page.getByRole('dialog',{name:'詳細条件',exact:true}).boundingBox();const rows=await list.boundingBox();expect(rows!.x+rows!.width).toBeLessThanOrEqual(panel!.x);await snap(page,'1024');
 });

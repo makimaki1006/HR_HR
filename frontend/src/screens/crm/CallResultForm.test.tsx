@@ -545,14 +545,13 @@ describe('call-result form (draft only)', () => {
     expect(clearBtn().disabled).toBe(true);
   });
 
-  it('記録して次へ with every loaded row recorded but more pages left says 「さらに読み込む」 shows the rest', async () => {
+  it('記録して次へ with every loaded row recorded but more pages left says scrolling shows the rest', async () => {
     await renderScreen({ items: [makeItem('1')], nextCursor: 'c2' });
     open('1');
     await formReady();
     fireEvent.click(outcome('不在・応答なし'));
     fireEvent.click(recordBtn());
-    expect(within(form()).getByText('表示中の一覧に未記録の架電先はありません。一覧の下の「さらに読み込む」で続きを表示できます。')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'さらに読み込む' })).toBeTruthy();
+    expect(within(form()).getByText('表示中の一覧に未記録の架電先はありません。一覧を下へスクロールすると続きが表示されます。')).toBeTruthy();
   });
 
   it('another person logging in on the same tab sees none of the previous person\'s memos or recorded marks, and they are overwritten', async () => {
