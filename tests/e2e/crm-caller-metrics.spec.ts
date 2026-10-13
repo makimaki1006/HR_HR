@@ -40,3 +40,17 @@ test('1024px: the strip wraps without overflowing or hiding the toggle',async({p
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   await expect(strip.locator('.tm-cmp').first()).toHaveText('（チーム平均 47.5・3位/8人）');
 });
+for(const w of [1366,1280]){
+  test(`${w}px: the strip stays on one line with the short comparison`,async({page})=>{
+    await page.setViewportSize({width:w,height:768});
+    await page.goto('/static/app/__metrics_crm?mode=fixture&owner=unassigned');
+    const strip=page.getByTestId('today-metrics');await expect(strip).toBeVisible();
+    const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(32);
+    const cmp=strip.locator('.tm-cmp').first();
+    expect(await cmp.evaluate(e=>getComputedStyle(e,'::after').content)).toBe('"（平均47.5・3位/8）"');
+    await expect(cmp).toHaveText('（チーム平均 47.5・3位/8人）');
+    await expect(page.getByTestId('metric-outbound')).toHaveAttribute('title',/チーム平均 47\.5・3位\/8人/);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+    await shot(page,`metrics-strip-${w}.png`);
+  });
+}
