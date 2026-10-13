@@ -36,7 +36,7 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     await expect(article.locator('h2')).toHaveText('ダミー建設');
     const dockTab = (name: string) => page.getByRole('tablist', { name: '中央の列のパネル' }).getByRole('tab', { name, exact: true });
     // 既定の配置 (v2): 「求人検索・リンク先」は右の列で前に出ている
-    await expect(page.getByRole('tablist', { name: '右の列のパネル' }).getByRole('tab', { name: '求人検索・リンク先' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tablist', { name: '右の列のパネル' })).toHaveCount(0);
     await dockTab('架電結果の入力').click();
     const form = page.getByRole('form', { name: '架電結果の入力' });
     const memo = form.locator('textarea').first();

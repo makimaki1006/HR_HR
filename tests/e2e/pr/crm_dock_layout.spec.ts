@@ -41,7 +41,7 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ']);
     await expect(tablist(page, '左').getByRole('tab', { name: '取引一覧' })).toHaveAttribute('aria-selected', 'true');
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力']);
-    await expect(tablist(page, '右').getByRole('tab')).toHaveText(['求人検索・リンク先']);
+    await expect(tablist(page, '右')).toHaveCount(0);
     await expect(page.getByRole('region', { name: '活動ログ' })).toBeVisible();
     await expect(page.getByRole('region', { name: '活動ログ' }).locator('.wd-act-call .wd-act-meta').first()).toHaveText('発信 · 完了 · 通話時間 1分05秒');
     await expect(page.getByRole('region', { name: '右の列(空き)' })).toHaveCount(0);
@@ -109,11 +109,44 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     await page.getByRole('menuitem', { name: '元の配置に戻す' }).click();
     await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ']);
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力']);
-    await expect(tablist(page, '右').getByRole('tab')).toHaveText(['求人検索・リンク先']);
+    await expect(tablist(page, '右')).toHaveCount(0);
     await expect(separator(page)).toHaveAttribute('aria-valuenow', '38');
 
     // 架空サンプルでは /api/crm/* を一度も呼ばない (配置の変更でも)
     expect(crm).toEqual([]);
+  });
+
+  test('右の列はパネルが 1 つだけなので見出しのタブの行が無く、「⋮」から移せる。複数パネルの列ではタブの行が出て、元に戻せる', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openFirst(page);
+    const right = page.getByTestId('dock-col-2');
+    await expect(right.locator('.dock-tabrow')).toHaveCount(0);
+    await expect(right.getByRole('tab', { name: '求人検索・リンク先' })).toHaveCount(0);
+    // 中身のタブの行 (求人検索 / ホームページ / 求人票) と「広げる」が列の最上段に来る
+    const tabs = right.getByRole('tablist', { name: '求人検索・リンク先の表示' });
+    await expect(tabs.getByRole('tab')).toHaveText(['求人検索', 'ホームページ', '求人票']);
+    const colBox = await right.boundingBox();
+    const tabsBox = await tabs.boundingBox();
+    if (!colBox || !tabsBox) throw new Error('box');
+    expect(tabsBox.y - colBox.y).toBeLessThanOrEqual(8);
+    // 「⋮」は「広げる」の右隣
+    const more = right.getByRole('button', { name: '「求人検索・リンク先」の移動' });
+    const maximize = right.getByTestId('links-maximize');
+    const mb = await more.boundingBox();
+    const xb = await maximize.boundingBox();
+    if (!mb || !xb) throw new Error('box');
+    expect(mb.x).toBeGreaterThanOrEqual(xb.x + xb.width - 1);
+    // 「⋮」から中央の列へ移すと、中央にタブの行が出て 3 つのタブになり、右の列は空く
+    await more.click();
+    await page.getByRole('menu', { name: '「求人検索・リンク先」の移動' }).getByRole('menuitem', { name: '中央へ移動' }).click();
+    await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力', '求人検索・リンク先']);
+    await expect(tablist(page, '中央').getByRole('tab', { name: '求人検索・リンク先' })).toHaveAttribute('aria-selected', 'true');
+    // 元の配置に戻す
+    await page.getByRole('button', { name: 'その他の操作' }).click();
+    await page.getByRole('menuitem', { name: '元の配置に戻す' }).click();
+    await expect(tablist(page, '右')).toHaveCount(0);
+    await expect(page.getByTestId('dock-col-2').locator('.dock-tabrow')).toHaveCount(0);
+    await expect(page.getByTestId('dock-col-2').getByRole('button', { name: '「求人検索・リンク先」の移動' })).toBeVisible();
   });
 
   test('壊れた配置が残っていても既定の配置で開く', async ({ page }) => {
@@ -121,7 +154,7 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     await openFirst(page);
     await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ']);
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力']);
-    await expect(tablist(page, '右').getByRole('tab')).toHaveText(['求人検索・リンク先']);
+    await expect(tablist(page, '右')).toHaveCount(0);
   });
 
   test('以前の版 (v1) の配置が残っていたら、1 回だけ新しい既定の配置にして案内する', async ({ page }) => {
@@ -131,7 +164,7 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     await page.evaluate(([k, v]) => { window.localStorage.removeItem('hrhr.crm.dockLayout.v2'); window.localStorage.setItem(k, v); }, [LEGACY_DOCK_STORAGE_KEY, v1] as const);
     await openFirst(page);
     await expect(page.getByTestId('layout-note')).toContainText('画面の配置を更新しました。「求人検索・リンク先」を右の列に移し');
-    await expect(tablist(page, '右').getByRole('tab')).toHaveText(['求人検索・リンク先']);
+    await expect(tablist(page, '右')).toHaveCount(0);
     expect(await page.evaluate((k) => window.localStorage.getItem(k), LEGACY_DOCK_STORAGE_KEY)).toBeNull();
     await page.reload();
     await expect(page.getByRole('status', { name: 'データの種類' })).toContainText('架空サンプル');

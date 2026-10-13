@@ -45,8 +45,8 @@ function Slot({ host }: { host: HTMLElement }) {
 /** 描き直しの後に、移したパネルのタブ (固定のパネルは「移動」のボタン) へフォーカスを移す */
 function focusPanelControl(panel: PanelId) {
   requestAnimationFrame(() => {
-    const id = panel === PINNED_PANEL ? menuButtonId(panel) : dockTabId(panel);
-    document.getElementById(id)?.focus();
+    // 見出しのタブが無い (列にパネルが 1 つだけの) ときは「⋮」へ
+    (document.getElementById(dockTabId(panel)) ?? document.getElementById(menuButtonId(panel)))?.focus();
   });
 }
 
@@ -109,6 +109,8 @@ function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging, max
   const col = layout.columns[index];
   const tabs = tabPanels(col);
   const pinned = col.panels.includes(PINNED_PANEL);
+  /** 列にパネルが 1 つだけ (固定のパネルも無い) なら、見出しのタブの行は出さない。「⋮」だけパネルの右上に重ねる */
+  const solo = index !== 0 && !pinned && tabs.length === 1;
   const [over, setOver] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   /** 左の列は、タブを右端の縦のつまみにする */
@@ -161,10 +163,10 @@ function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging, max
       <span className="dock-empty-label" aria-hidden="true">{dragging !== null ? 'ここに置く' : '＋'}</span>
     </section>;
   }
-  return <section className={`dock-col${over ? ' is-over' : ''}${max === 'max' ? ' is-max' : ''}`} aria-label={`${COLUMN_LABELS[index]}の列`}
+  return <section className={`dock-col${over ? ' is-over' : ''}${max === 'max' ? ' is-max' : ''}${solo ? ' is-solo' : ''}`} aria-label={`${COLUMN_LABELS[index]}の列`}
     data-testid={`dock-col-${String(index)}`} inert={max === 'under'} {...dropProps}>
     {pinned && <div className="dock-pinned" data-testid="dock-pinned"><Slot host={hosts[PINNED_PANEL]} /></div>}
-    {(!side || pinned) && <div className="dock-tabrow">
+    {(!side || pinned) && !solo && <div className="dock-tabrow">
       {!side && tabs.length > 0 && <div className="dock-tabs" role="tablist" aria-label={`${COLUMN_LABELS[index]}の列のパネル`} ref={listRef} onKeyDown={onTabKey}>
         {tabs.map(p => {
           const selected = p === col.active;
@@ -180,6 +182,7 @@ function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging, max
         <span>{PANEL_LABELS[PINNED_PANEL]}</span><MoveMenu panel={PINNED_PANEL} layout={layout} dispatch={dispatch} />
       </span>}
     </div>}
+    {solo && col.active !== null && <div className="dock-solo-menu" data-testid="dock-solo-menu"><MoveMenu key={col.active} panel={col.active} layout={layout} dispatch={dispatch} /></div>}
     <div className={`dock-body${side ? ' has-side' : ''}`}>
       {tabs.length > 0 && <div className="dock-panels">
         {/* 枠は決まった順に並べる (タブの並びを変えても枠は動かさない = 枠の中のページを読み直さない) */}
