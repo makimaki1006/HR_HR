@@ -78,7 +78,8 @@ describe('求人検索・リンク先 panel (flat tabs)', () => {
     expect(tabNames()).toEqual(['求人検索', 'ホームページ', '求人票', '求人媒体']);
     expect(screen.queryByRole('tab', { name: 'リンク一覧' })).toBeNull();
     expect(tab('求人検索').getAttribute('aria-selected')).toBe('true');
-    expect(tab('求人検索・リンク先').getAttribute('aria-selected')).toBe('true');
+    // 外側の見出しのタブは出さない (パネルが 1 つだけの列)
+    expect(screen.queryByRole('tab', { name: '求人検索・リンク先' })).toBeNull();
     expect(byId('dock-panel-links').closest('[data-testid="dock-col-2"]')).not.toBeNull();
     // 固定のタブは閉じるボタンを持たない
     expect(screen.queryByRole('button', { name: /のタブを閉じる/ })).toBeNull();
@@ -154,7 +155,7 @@ describe('求人検索・リンク先 panel (flat tabs)', () => {
   it('a property link equal to the homepage focuses the ホームページ tab instead of adding a tab', async () => {
     await openDeal(detailWithProp(DEAL_LINKS, 'https://www.example.com/'));
     await clickPropertyLink('https://www.example.com/');
-    expect(tab('求人検索・リンク先').getAttribute('aria-selected')).toBe('true');
+    expect(byId('dock-panel-links').classList.contains('is-active')).toBe(true);
     expect(tab('ホームページ').getAttribute('aria-selected')).toBe('true');
     expect(tabNames()).toEqual(['求人検索', 'ホームページ', '求人票', '求人媒体']);
     expect(within(panel('home')).getByTestId('link-frame').getAttribute('src')).toBe('https://www.example.com/');

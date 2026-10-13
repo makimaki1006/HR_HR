@@ -63,6 +63,17 @@ function moveVia(panel: string, label: string) {
 }
 
 describe('panel layout (dock)', () => {
+  it('右の列 (パネル 1 つ) は「⋮」から移せる。複数パネルの列になるとタブの行が出て、右の列は空く', async () => {
+    const c = counted();
+    await openDeal(c);
+    expect(screen.getByTestId('dock-col-2').querySelector('.dock-tabrow')).toBeNull();
+    moveVia('求人検索・リンク先', '中央へ移動');
+    const center = within(screen.getByRole('tablist', { name: '中央の列のパネル' })).getAllByRole('tab');
+    expect(center.map(t => t.textContent)).toEqual(['活動ログ', '架電結果の入力', '求人検索・リンク先']);
+    expect(screen.getByTestId('dock-col-1').querySelector('.dock-tabrow')).not.toBeNull();
+    expect(screen.queryByTestId('dock-solo-menu')).toBeNull();
+  });
+
   it('default (v2): left = 取引一覧 (front) + プロパティ, center = 案件の概要 fixed on top + 活動ログ (front) / 架電結果の入力, right = 求人検索・リンク先', async () => {
     const c = counted();
     await openDeal(c);
@@ -70,8 +81,10 @@ describe('panel layout (dock)', () => {
     expect(left.map(t => [t.textContent, t.getAttribute('aria-selected')])).toEqual([['取引一覧', 'true'], ['プロパティ', 'false']]);
     const center = within(screen.getByRole('tablist', { name: '中央の列のパネル' })).getAllByRole('tab');
     expect(center.map(t => [t.textContent, t.getAttribute('aria-selected')])).toEqual([['活動ログ', 'true'], ['架電結果の入力', 'false']]);
-    const right = within(screen.getByRole('tablist', { name: '右の列のパネル' })).getAllByRole('tab');
-    expect(right.map(t => [t.textContent, t.getAttribute('aria-selected')])).toEqual([['求人検索・リンク先', 'true']]);
+    // 右の列はパネルが 1 つだけ: 見出しのタブの行は無く、「⋮」(移動のメニュー) だけが右上にある
+    expect(screen.queryByRole('tablist', { name: '右の列のパネル' })).toBeNull();
+    expect(screen.getByTestId('dock-col-2').querySelector('.dock-tabrow')).toBeNull();
+    expect(within(screen.getByTestId('dock-solo-menu')).getByRole('button', { name: '「求人検索・リンク先」の移動' })).toBeTruthy();
     expect(screen.getByTestId('dock-pinned').closest('[data-testid="dock-col-1"]')).not.toBeNull();
     expect(within(screen.getByTestId('dock-pinned')).getByRole('article', { name: '架電先の詳細' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: '右の列(空き)' })).toBeNull();

@@ -28,6 +28,12 @@
 .crm-app .dock-tab button[role="tab"]:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: -2px; }
 .dock-pinned-chip { flex: none; display: inline-flex; align-items: center; gap: 2px; margin: 0 0 3px auto; padding: 0 0 0 8px; font-size: 11px; color: var(--cq-sub); border: 1px solid var(--cq-line); border-radius: 10px; background: var(--cq-surface); cursor: grab; }
 
+/* パネルが 1 つだけの列: 見出しのタブの行は無く、「⋮」(移動のメニュー) を右上に重ねる (中身の「広げる」の右隣) */
+.dock-col.is-solo:not(.is-max) { position: relative; }
+.dock-solo-menu { position: absolute; top: 4px; right: 2px; z-index: 6; }
+.dock-solo-menu .dock-move { margin: 0; }
+.dock-col.is-solo .cq-linkpanel-head { padding-right: 30px; }
+
 /* 左の列の縦のつまみ (列の右端。中央の列に面した側)。縦の位置は中央の列の発信ボタンのあたり */
 .dock-side { flex: none; width: 28px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding-top: var(--dock-side-top, 40px); background: var(--cq-bg); border-left: 1px solid var(--cq-line); }
 .dock-side-tabs { display: flex; flex-direction: column; gap: 6px; }
