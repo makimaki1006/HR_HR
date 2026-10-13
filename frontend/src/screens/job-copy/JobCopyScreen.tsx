@@ -27,7 +27,6 @@ import { ApplicantComposition } from './ApplicantComposition';
 import { HrhPerformance } from './HrhPerformance';
 import { MarketContext } from './MarketContext';
 import type { IndeedTitleChange } from './MarketOccupationSlot';
-import { prefectureFromLocation } from './marketMatch';
 import { ApplicationTrend } from './ApplicationTrend';
 import { MarketFactors } from './MarketFactors';
 import { ApplicantReasonReview } from './ApplicantReasonReview';

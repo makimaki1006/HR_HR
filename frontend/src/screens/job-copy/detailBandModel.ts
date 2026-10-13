@@ -49,7 +49,7 @@ function latestBilling(entries: readonly BillingEntry[]): { per4Weeks: number | 
  * 応募件数を取得した日（JST の日付）。「直近4週」の最後の日。
  * 取得日が分からないときは今日で代用せず null を返す。案件の画面でも同じ基準を使う。
  */
-export function applicationsCutoffDate(job: Pick<JobCopyRecord, 'overallApplications'>): string | null {
+export function applicationsCutoffDate(job: { overallApplications?: { fetchedAt?: string | null | undefined } | undefined }): string | null {
   return jstDate(job.overallApplications?.fetchedAt);
 }
 

@@ -5,6 +5,7 @@ import { fetchBodyDates } from './bodyDatesShared';
 import { EChart } from '../../components/EChart';
 import { mediaLabel, publicationLabel } from './hubspotListings';
 import type { DealSelection, HubSpotListing, HubSpotListingPage } from './hubspotListings';
+import { applicationsCutoffDate } from './detailBandModel';
 import { dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, shareOfDeal, weeklySeries } from './dealSummaryModel';
 import type { DealListingInput } from './dealSummaryModel';
 import { formatDay, formatYen, jstDate, todayJst } from './timelineModel';
@@ -49,7 +50,7 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
           applications = new Map(rows.map(row => { const found = apps.data.listings.find(item => item.listing_id === row.id); return [row.id, found?.by_date && !found.error ? found.by_date : null]; }));
           shared = apps.data.shared_applications;
           overlap = apps.data.shared_by_date ?? {};
-          fetched = new Map(rows.map(row => [row.id, jstDate(apps.data.listings.find(item => item.listing_id === row.id)?.fetched_at)]));
+          fetched = new Map(rows.map(row => [row.id, applicationsCutoffDate({ overallApplications: { fetchedAt: apps.data.listings.find(item => item.listing_id === row.id)?.fetched_at } })]));
         }
         if (dates.ok && dates.data.dates) bodyDates = dates.data.dates;
       }

@@ -85,10 +85,10 @@ describe('案件の上の帯と数字の前提の表示', () => {
     expect(screen.getByTestId('band-per-application').textContent).toBe('—');
     expect(screen.getByTestId('band-billing').textContent).toBe('—');
   });
-  it('右の前提にデータの最後の日と、自動で選んだ地域を出す', async () => {
-    render(<AssumptionsRail job={job} billing={[bill('2026-09-08', '2026-10-05', 30000)]} mode="demo" />);
+  it('右の前提にデータの最後の日と、指定した職種・地域を出す', async () => {
+    render(<AssumptionsRail job={job} billing={[bill('2026-09-08', '2026-10-05', 30000)]} mode="demo" onIndeedTitleChanged={() => undefined} />);
     expect(screen.getByTestId('rail-last-application').textContent).toBe('2026年10月5日');
     expect(screen.getByTestId('rail-last-billing').textContent).toBe('2026年10月5日');
-    await waitFor(() => { expect(screen.getByText('大分県')).toBeTruthy(); });
+    await waitFor(() => { expect(screen.getByText('都道府県：大分県')).toBeTruthy(); });
   });
 });
