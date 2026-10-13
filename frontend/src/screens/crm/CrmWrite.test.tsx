@@ -578,7 +578,8 @@ describe('ステージの変更', () => {
     fireEvent.change(stageSelect(), { target: { value: 'st-appo' } });
     const dlg = await screen.findByRole('dialog');
     expect(within(dlg).getByText('このステージに移すには次の項目が必要です')).toBeTruthy();
-    expect(within(dlg).getByText(/アポ取得日/).textContent).toContain('(必須)');
+    // ダイアログは「いまの値を読み込み中…」の状態で先に現れる。項目が出るまで待ってから確かめる
+    expect((await within(dlg).findByText(/アポ取得日/)).textContent).toContain('(必須)');
     // 現在の値が入った状態で開く
     await waitFor(() => { expect(within(dlg).getByLabelText<HTMLTextAreaElement>(new RegExp(bikouLabel.slice(0, 6))).value).toBe(bikouRaw); });
     const move = within(dlg).getByRole('button', { name: '移す' });
