@@ -54,7 +54,8 @@ describe('saved views',()=>{
   render(<SavedViews query="owner=all" search={`?owner=all&view=${id}`} fixture={false} client={api} onNavigate={navigate} onActiveName={n=>{names.push(n);}}/>);
   const open=await screen.findByRole('button',{name:'架空の未担当一覧（全員に共有）'});
   expect(open.getAttribute('aria-pressed')).toBe('true');expect(screen.getByRole('button',{name:/^すべて/u}).getAttribute('aria-pressed')).toBe('false');
-  expect(names.at(-1)).toBe('架空の未担当一覧');
+  // 名前の通知は描画後の effect で行われ、ボタンが見えた時点ではまだ届いていないことがある（null が先に届く）ので待つ
+  await waitFor(()=>{expect(names.at(-1)).toBe('架空の未担当一覧');});
   fireEvent.click(screen.getByRole('button',{name:/^すべて/u}));expect(navigate).toHaveBeenCalledWith('');
   fireEvent.click(screen.getByRole('button',{name:'別名で保存'}));
   fireEvent.change(screen.getByLabelText('ビューの名前'),{target:{value:'架空の別名'}});
