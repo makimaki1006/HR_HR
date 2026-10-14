@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { login } from './helpers/login';
-import { openOtherAnalysis, closeOtherAnalysis } from '../job-copy-navigation';
+import { openOtherAnalysis, closeOtherAnalysis, findListings } from '../job-copy-navigation';
 
 // AirWork images are plain URLs from the Listing field, shown the same way as HRハッカー.
 // The image host is answered by the test itself; nothing is fetched from the internet.
@@ -30,6 +30,8 @@ test('AirWorkの画像URL: 5枚の順序・画像なし・取得できない', a
   const shot = async (name: string) => { await mkdir(folder, { recursive: true }); await page.screenshot({ path: `${folder}/${name}.png` }); };
 
   await page.goto('/app/job-copy?listing=1');
+
+  await findListings(page);
   await openOtherAnalysis(page, '本文・画像');
   const gallery = page.getByRole('region', { name: 'この本文に対応する掲載画像', exact: true });
   await expect(gallery.locator('img')).toHaveCount(5);
@@ -58,10 +60,13 @@ test('AirWorkの画像URL: 5枚の順序・画像なし・取得できない', a
   await page.keyboard.press('Escape');
 
   await page.goto('/app/job-copy?listing=2');
+
+  await findListings(page);
   await openOtherAnalysis(page, '本文・画像');
   await expect(page.getByText('この求人には画像がありません', { exact: true })).toBeVisible();
   await shot('04-body-no-images');
   await page.goto('/app/job-copy?listing=3');
+  await findListings(page);
   await openOtherAnalysis(page, '本文・画像');
   await expect(page.getByText('画像を取得できませんでした', { exact: true })).toBeVisible();
 });

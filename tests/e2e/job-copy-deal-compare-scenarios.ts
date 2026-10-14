@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
+import { findListings } from './job-copy-navigation';
 const body = (amount: number) => `求人id：hidden-media-id\n案件名：配送スタッフ\n仕事内容：日用品を決まったルートで届けます。\nIndeed表示職種名：ドライバー\n給与形態：月給\n基本給与 最小：${amount}\n基本給与 最大：320000\n勤務時間：8:00〜17:00\n自由項目1のタイトル：休日・休暇\n自由項目1の内容：土日休み`;
 export function registerDealCompareTests(path: string) {
   for (const width of [1440, 1920]) test(`末尾空白の比較と給与表示 ${width}`, async ({ page }) => {
@@ -13,6 +14,7 @@ export function registerDealCompareTests(path: string) {
       return route.fulfill({ status: 503, json: {} });
     });
     await page.goto(path);
+    await findListings(page);
     const panel = page.getByRole('region', { name: 'HubSpot の求人' });
     await panel.getByText('絞り込み・並び順', { exact: true }).click();
     await panel.getByLabel('取引', { exact: true }).selectOption('901');
@@ -61,6 +63,7 @@ export function registerDealCompareTests(path: string) {
       return route.fulfill({ status: 503, json: {} });
     });
     await page.goto(path);
+    await findListings(page);
     const panel = page.getByRole('region', { name: 'HubSpot の求人' });
     await panel.getByText('絞り込み・並び順', { exact: true }).click();
     await panel.getByLabel('取引名を検索').fill('那覇');

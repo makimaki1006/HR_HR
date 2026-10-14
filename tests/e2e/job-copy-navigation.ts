@@ -65,5 +65,8 @@ export async function closeOtherAnalysis(page: Page) {
 export async function findListings(page: Page) {
   await page.locator('.jc-sidebar').hover();
   const button = page.getByRole('button', { name: '求人を探す', exact: true });
+  const open = page.getByRole('button', { name: '求人の検索を閉じる', exact: true });
+  // マウスで開く側は展開に時間がかかる。すでに開いている・ボタンが無い画面（固定一覧など）では待たずに抜ける。
+  await button.or(open).first().waitFor({ state: 'visible', timeout: 2_000 }).catch(() => undefined);
   if (await button.isVisible()) await button.click();
 }

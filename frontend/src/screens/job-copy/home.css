@@ -45,4 +45,4 @@
 .jc-side-context li button { width: 100%; text-align: left; display: grid; gap: 2px; padding: 8px 10px; border: 1px solid #d4dfe7; border-radius: 7px; background: #fff; cursor: pointer; font: inherit; }
 .jc-side-context li button[aria-current='true'] { border-color: #007c91; background: #eaf5f7; }
 .jc-side-context li small { color: #52697a; font-size: 12px; }
-.jc-side-find { width: 100%; }
+.jc-button.jc-side-find { width: 100%; flex-shrink: 0; min-height: 28px; padding-block: 2px; }
