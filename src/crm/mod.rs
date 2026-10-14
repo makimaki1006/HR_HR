@@ -23,6 +23,7 @@
 pub mod assoc_labels;
 pub mod call_queue;
 pub mod caller_metrics;
+pub mod caller_metrics_month;
 pub mod clock;
 pub mod email;
 pub mod label_ja;

@@ -107,6 +107,10 @@ mod tests {
             .expect("TodayMetricsResponse の TS 型を書き出せない");
         crate::crm::caller_metrics::AllCallersResponse::export_all(&cfg)
             .expect("AllCallersResponse の TS 型を書き出せない");
+        crate::crm::caller_metrics_month::MonthMetricsResponse::export_all(&cfg)
+            .expect("MonthMetricsResponse の TS 型を書き出せない");
+        crate::crm::caller_metrics_month::MonthAllResponse::export_all(&cfg)
+            .expect("MonthAllResponse の TS 型を書き出せない");
         crate::crm::owners::CrmOwnersResponse::export_all(&cfg)
             .expect("CrmOwnersResponse の TS 型を書き出せない");
         crate::crm::workspace::WorkspaceResponse::export_all(&cfg)

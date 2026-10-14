@@ -203,7 +203,7 @@ async fn fetch_kind(
     Ok(true)
 }
 
-async fn fetch_all(client: &HubSpotClient) -> Result<CrmOwnersResponse, HubSpotError> {
+pub(super) async fn fetch_all(client: &HubSpotClient) -> Result<CrmOwnersResponse, HubSpotError> {
     let mut owners = Vec::new();
     let t1 = fetch_kind(client, false, &mut owners).await?;
     let t2 = fetch_kind(client, true, &mut owners).await?;
