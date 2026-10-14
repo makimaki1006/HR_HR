@@ -96,7 +96,7 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
     for (const day of Object.values(representatives)) if (typeof object(day).version_id !== 'string' || !job.versions.some(version => version.id === object(day).version_id)) return invalid();
     return { ...job, hubspotId: listing, dataSource: 'hubspot', attributionUnknown: unknown,
       applicantReasons: parseApplicantReasons(result.applicant_reasons, total, job.versions.filter(version => version.kind === 'published').map(version => version.id)),
-      hrhPerformance: result.hrh_performance == null ? undefined : parseHrhPerformance(result.hrh_performance, job.mediaJobId),
+      hrhPerformance: result.hrh_performance == null ? job.hrhPerformance : parseHrhPerformance(result.hrh_performance, job.mediaJobId),
       jointDemographics: summary.joint_demographics == null ? undefined : parseJointDemographics(summary.joint_demographics, total),
       overallApplications: { total, missingDate, fetchedAt, distributions, byDate, ...(multiListing ? { multiListing } : {}) },
       versions: job.versions.map(version => {

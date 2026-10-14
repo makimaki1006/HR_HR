@@ -18,6 +18,22 @@ mod deal_tests;
 
 /// AirWork image URLs, one per line. Written by `scripts/job_copy_airwork_image_urls.py`.
 pub(super) const AW_IMAGES: &str = "aw_kyuujinhyou_gazou";
+/// Weekly Indeed (HRハッカー) results as JSON. Written by `scripts/indeed_weekly_import.py`.
+const INDEED_WEEKLY_PERF: &str = "indeed_weekly_perf";
+const INDEED_PERF_MAX_BYTES: usize = 200_000;
+/// The stored JSON as a value, or None when it is empty, too large or not the expected shape.
+/// The screen checks every field again; a bad value must never break the page.
+fn indeed_weekly_perf(record: &Record) -> Option<Value> {
+    let raw = record.value(INDEED_WEEKLY_PERF)?;
+    if raw.len() > INDEED_PERF_MAX_BYTES {
+        return None;
+    }
+    let value: Value = serde_json::from_str(raw).ok()?;
+    (value.get("schema_version").and_then(Value::as_u64) == Some(1)
+        && value.get("source").and_then(Value::as_str) == Some("hrhacker")
+        && value.get("rows").is_some_and(Value::is_array))
+    .then_some(value)
+}
 /// Marker line meaning "the public page was checked and has no photos".
 pub(super) const AW_NO_IMAGES: &str = "NO_IMAGES";
 const AW_IMAGE_LIMIT: usize = 50;
@@ -1027,8 +1043,9 @@ async fn listing_data(
                 (
                     "properties",
                     format!(
-                        "{},{},{}",
+                        "{},{},{},{}",
                         PROPERTIES.join(","),
+                        INDEED_WEEKLY_PERF,
                         super::super::job_copy_image_bridge::PROPERTY,
                         crate::job_gen::drafts::PROPERTIES.join(",")
                     ),
@@ -1095,6 +1112,11 @@ pub(super) async fn read_versions(
     // Independent conditions are current values, not historical conditions.
     let current_fields = deals::comparison_fields(&record, row.media);
     let draft_revision = crate::job_gen::drafts::revision(&record.properties);
+    let indeed_perf = if row.media == "hrh" {
+        indeed_weekly_perf(&record)
+    } else {
+        None
+    };
     let can_write_drafts = state.audit.is_some() && super::drafts::Writes::from_env().allows(&id);
     // Use the same acquired counts as the list/deal table, across the entire index.
     // An absent index/record/count stays unknown; no additional HubSpot read is needed.
@@ -1111,7 +1133,7 @@ pub(super) async fn read_versions(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
+            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf}),
         ),
     ))
 }
@@ -1594,6 +1616,22 @@ mod tests {
         assert_eq!(rows[0].image_urls, Some(vec![]));
         assert_eq!(rows[0].images_registered, Some(true));
         assert_eq!(rows[1].images_registered, Some(false));
+    }
+    #[test]
+    fn indeed_weekly_perf_is_read_only_when_well_formed() {
+        let rec = |v: serde_json::Value| -> Record {
+            serde_json::from_value(json!({"id":"1","properties":{"indeed_weekly_perf":v}})).unwrap()
+        };
+        let good = r#"{"schema_version":1,"source":"hrhacker","job_id":"1234567","captured_at":"2026-10-14T00:00:00Z","rows":[{"period_start":"2026-10-05","period_end":"2026-10-11","impressions":10,"clicks":2,"cost_yen":1500,"applications":1}]}"#;
+        let value = indeed_weekly_perf(&rec(json!(good))).unwrap();
+        assert_eq!(value["rows"][0]["cost_yen"], 1500);
+        assert!(indeed_weekly_perf(&rec(json!("not json"))).is_none());
+        assert!(indeed_weekly_perf(&rec(json!(
+            r#"{"schema_version":2,"source":"hrhacker","rows":[]}"#
+        )))
+        .is_none());
+        assert!(indeed_weekly_perf(&rec(json!(null))).is_none());
+        assert!(indeed_weekly_perf(&rec(json!(" "))).is_none());
     }
     #[test]
     fn job_copy_listing_publication_rebuild_and_filter() {

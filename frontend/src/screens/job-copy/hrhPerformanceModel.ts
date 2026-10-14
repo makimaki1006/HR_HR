@@ -27,7 +27,7 @@ function metric(value: unknown, integer = true): number | null {
 export function parseHrhPerformance(value: unknown, jobId: string): HrhPerformanceCollection {
   const data = object(value);
   exactKeys(data, ['schema_version', 'source', 'job_id', 'captured_at', 'rows']);
-  if (data.schema_version !== 1 || data.source !== 'hrhacker' || typeof data.job_id !== 'string' || !/^\d{8}$/.test(data.job_id) || data.job_id !== jobId || typeof data.captured_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(data.captured_at) || !Number.isFinite(Date.parse(data.captured_at)) || !Array.isArray(data.rows) || data.rows.length > 1000) return invalid();
+  if (data.schema_version !== 1 || data.source !== 'hrhacker' || typeof data.job_id !== 'string' || !/^\d{7,8}$/.test(data.job_id) || data.job_id !== jobId || typeof data.captured_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(data.captured_at) || !Number.isFinite(Date.parse(data.captured_at)) || !Array.isArray(data.rows) || data.rows.length > 1000) return invalid();
   metricDate(data.captured_at.slice(0, 10));
   const rows = data.rows.map(raw => {
     const row = object(raw);
