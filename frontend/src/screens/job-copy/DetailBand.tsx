@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { JobCopyRecord } from './data';
 import { bandNumbers, formatBandYen } from './detailBandModel';
 import { lastMarketMonth } from './timelineModel';
@@ -17,7 +17,19 @@ const jpDate = (value: string | null) => value ? value.replace(/^(\d{4})-(\d{2})
 /** 詳細を縦にスクロールしても見え続ける上の帯。 */
 export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpenLatest, onNewPattern, newPatternDisabled = false }: { job: JobCopyRecord; billing: readonly BillingEntry[] | undefined; onOpenFullCompare: () => void; latestEvent?: { date: string; title: string } | null; onOpenLatest?: () => void; onNewPattern?: () => void; newPatternDisabled?: boolean }) {
   const n = bandNumbers(job, billing);
-  return <div className="jc-band" role="region" aria-label="この案件の要点">
+  const band = useRef<HTMLDivElement>(null);
+  // 帯の実際の高さを --jc-band-h に持たせ、右の欄・下の固定見出しの位置をそこから決める
+  useEffect(() => {
+    const element = band.current;
+    const host = element?.closest<HTMLElement>('.jc-detail');
+    if (!element || !host || typeof ResizeObserver === 'undefined') return;
+    const apply = () => { host.style.setProperty('--jc-band-h', `${String(Math.ceil(element.getBoundingClientRect().height))}px`); };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(element);
+    return () => { observer.disconnect(); host.style.removeProperty('--jc-band-h'); };
+  }, []);
+  return <div className="jc-band" ref={band} role="region" aria-label="この案件の要点">
     <div className="jc-band-name"><h1 title={job.title}>{job.title}</h1><span>{joinPresent([job.media, job.dataSource === 'hubspot' ? `公開状況：${publicationLabel(job.listingPublicationStatus ?? null)}` : ''])}</span></div>
     <dl className="jc-band-numbers">
       <div><dt>直近4週の応募</dt><dd data-testid="band-recent">{n.recent ?? '—'}<small>{n.previous === null ? '' : `前の4週 ${String(n.previous)}`}</small></dd></div>

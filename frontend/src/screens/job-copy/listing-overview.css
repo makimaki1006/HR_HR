@@ -77,3 +77,17 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .jc-band-latest strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .jc-band-spacer { flex: 1 1 8px; }
 .lo-draft-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; }
+
+/* 帯は1440幅で1行に収める（ボタンは折り返さず右端、名前と最新の出来事は縮む） */
+@media (min-width: 801px) {
+  .jc-detail .jc-band { flex-wrap: nowrap; gap: 12px; }
+  .jc-detail .jc-band-name { flex: 1 1 90px; min-width: 90px; }
+  .jc-detail .jc-band-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .jc-detail .jc-band-numbers { flex-wrap: nowrap; gap: 12px; flex: 0 0 auto; }
+  .jc-detail .jc-band-numbers dd { font-size: 18px; }
+  .jc-detail .jc-band-numbers dd small { display: block; margin-left: 0; font-size: 11px; }
+  .jc-detail .jc-band-numbers dt { white-space: nowrap; font-size: 11px; }
+  .jc-detail .jc-band-latest { flex: 0 1 150px; min-width: 100px; padding: 3px 8px; }
+  .jc-detail .jc-band-spacer { flex: 0 0 0; }
+  .jc-detail .jc-band > .jc-button { flex: 0 0 auto; white-space: nowrap; padding-inline: 8px; font-size: 13px; }
+}
