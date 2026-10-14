@@ -3,7 +3,7 @@ import type { EChartsCoreOption } from 'echarts/core';
 import { EChart } from '../../components/EChart';
 import { mediaLabel, publicationLabel } from './hubspotListings';
 import type { DealSelection, HubSpotListing } from './hubspotListings';
-import { companyRollup, dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, ROLLUP_RULES, shareOfDeal, weeklySeries } from './dealSummaryModel';
+import { companyRollup, dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, ROLLUP_RULES, shareOfDeal, shortYen, weeklySeries } from './dealSummaryModel';
 import { dealGroup, loadDealData } from './dealSummaryLoad';
 import type { DealData } from './dealSummaryLoad';
 import { formatDay, formatYen, jstDate, todayJst } from './timelineModel';
@@ -16,8 +16,7 @@ export type Billing = Readonly<Record<string, readonly BillingEntry[]>>;
 
 const PALETTE = ['#1f6f8b', '#c2571a', '#5b8c2a', '#8a4fa0', '#b8860b', '#2e8b7a', '#a33b4e', '#4a5fa8'];
 const ENDED_GRAY = '#b4b4b4';
-const EVENT_LIMIT = 10;
-const yen = (value: number | null) => value === null ? '—' : formatYen(value);
+const EVENT_LIMIT = 10;const yen = (value: number | null) => value === null ? '—' : formatYen(value);
 const count = (value: number | null) => value === null ? '—' : `${String(value)}件`;
 const indeedCell = (row: HubSpotListing): string => row.indeed_title_state === 'set' && row.indeed_title?.trim() ? row.indeed_title.trim() : row.indeed_title_state === 'none' ? '市場と比べない' : '未指定';
 
@@ -83,11 +82,11 @@ export function SummaryView({ scope, source, billingByJob, onOpenListing, onOpen
   const billingOption: EChartsCoreOption | null = series.billing ? {
     animation: false,
     aria: { enabled: true, description: '週ごとの課金の合計' },
-    grid: { left: 36, right: 8, top: 4, bottom: 4 },
+    grid: { left: 36, right: 8, top: 18, bottom: 4 },
     tooltip: { trigger: 'axis', confine: true, valueFormatter: (value: unknown) => yen(Number(value)) },
     xAxis: { type: 'category', data: labels, show: false },
     yAxis: { type: 'value', show: false, min: 0 },
-    series: [{ type: 'bar', name: '課金', data: series.billing, itemStyle: { color: '#a36816' } }],
+    series: [{ type: 'bar', name: '課金', data: series.billing, itemStyle: { color: '#a36816' }, label: { show: true, position: 'top', fontSize: 10, formatter: (item: { value?: unknown }) => shortYen(Number(item.value)) } }],
   } : null;
   const rowsOf = (data: DealData) => data.rows;
   const allRows = source.datas.flatMap(rowsOf);
@@ -133,7 +132,7 @@ export function SummaryView({ scope, source, billingByJob, onOpenListing, onOpen
             </div></header>
           {series.perListing.every(row => row.counts === null) ? <p className="ds-note">応募日別の件数を取得できませんでした。</p> : <EChart option={applicationOption} testId="ds-applications" height={220} renderer="svg" />}
           {colored && <ul className="ds-legend">{inputs.map(input => <li key={input.id}><i style={{ background: colorOf(input.id) }} aria-hidden="true" />{input.title}{input.ended ? '（終了）' : ''}</li>)}</ul>}
-          {billingOption ? <><p className="ds-note ds-billing-label">課金（求人の合計、日割り）</p><EChart option={billingOption} testId="ds-billing" height={64} renderer="svg" /></> : <p className="ds-note">課金の合計は出せません（課金が分からない求人があるか、課金のある求人がありません）。</p>}
+          {billingOption ? <><p className="ds-note ds-billing-label">課金（求人の合計、日割り）</p><EChart option={billingOption} testId="ds-billing" height={84} renderer="svg" /></> : <p className="ds-note">課金の合計は出せません（課金が分からない求人があるか、課金のある求人がありません）。</p>}
           {shared > 0 && <p className="ds-note">同じ応募が複数の求人に結び付いているので、{noun}の合計では1回だけ数えています</p>}
         </section>
 

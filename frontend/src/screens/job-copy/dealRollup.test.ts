@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { companyRollup, dealTotals, perfBillingEntries, weeklySeries } from './dealSummaryModel';
+import { billingEvents, companyRollup, dealTotals, perfBillingEntries, shortYen, weeklySeries } from './dealSummaryModel';
+import { addDays } from './timelineModel';
 import type { DealListingInput } from './dealSummaryModel';
 
 const ASOF = '2026-10-12';
@@ -46,6 +47,31 @@ describe('週ごとの実績から作る課金と、AirWork の扱い', () => {
     const series = weeklySeries([hrh('a', 1, 7000), air('w', 1)], ASOF);
     const index = series.weeks.indexOf('2026-09-21');
     expect(series.billing?.[index]).toBe(7000);
+  });
+});
+
+describe('課金の出来事', () => {
+  const wk = (start: string, cost: number | null) => ({ source: 'hrhacker' as const, start, end: addDays(start, 6), amountYen: cost });
+  it('最後の週まで費用が続くなら、始まりだけで「止まった」は出ない。週ごとの上下は出来事にしない', () => {
+    const events = billingEvents([wk('2026-09-14', 7000), wk('2026-09-21', 7100), wk('2026-09-28', 6900), wk('2026-10-05', 7200)]);
+    expect(events).toEqual([{ date: '2026-09-14', kind: 'start', amountYen: 7000 }]);
+  });
+  it('途中で費用0が2週以上続くと、その最初の週に1件だけ出る (再開は始まりとして出る)', () => {
+    const events = billingEvents([wk('2026-09-07', 5000), wk('2026-09-14', 0), wk('2026-09-21', 0), wk('2026-09-28', 0), wk('2026-10-05', 4000)]);
+    expect(events).toEqual([
+      { date: '2026-09-07', kind: 'start', amountYen: 5000 },
+      { date: '2026-09-14', kind: 'stop', amountYen: 0 },
+      { date: '2026-10-05', kind: 'start', amountYen: 4000 },
+    ]);
+  });
+  it('費用0が1週だけなら止まったとはしない。費用0から始まる週は「始まり」にしない', () => {
+    expect(billingEvents([wk('2026-09-07', 0), wk('2026-09-14', 3000), wk('2026-09-21', 0), wk('2026-09-28', 3000)])).toEqual([{ date: '2026-09-14', kind: 'start', amountYen: 3000 }]);
+  });
+});
+
+describe('帯の短い金額', () => {
+  it('9.4万・5,000円。0 と不明は空', () => {
+    expect([shortYen(94286), shortYen(5000), shortYen(0), shortYen(Number.NaN)]).toEqual(['9.4万', '5000円', '', '']);
   });
 });
 

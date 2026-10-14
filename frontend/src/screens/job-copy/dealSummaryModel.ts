@@ -190,6 +190,30 @@ export function firstDataDate(listings: readonly DealListingInput[]): string | n
   return dates.length ? dates.reduce((a, b) => a < b ? a : b) : null;
 }
 
+/**
+ * 課金の出来事。週ごとの実績は1本の流れとして見る。
+ * 出すのは「課金が始まった週（初めて費用が出た週、止まったあとに再開した週）」と
+ * 「費用0の週が2週以上続いた、その最初の週」だけ。週ごとの費用の上下と、データの最後より後の空白は出来事にしない。
+ */
+export function billingEvents(entries: readonly BillingEntry[]): { date: string; kind: 'start' | 'stop'; amountYen: number }[] {
+  const sorted = [...entries].sort((a, b) => a.start.localeCompare(b.start));
+  const out: { date: string; kind: 'start' | 'stop'; amountYen: number }[] = [];
+  let running = false;
+  sorted.forEach((entry, i) => {
+    if (entry.amountYen !== null && entry.amountYen > 0) {
+      if (!running) out.push({ date: entry.start, kind: 'start', amountYen: entry.amountYen });
+      running = true;
+    } else if (entry.amountYen === 0 && running && sorted[i + 1]?.amountYen === 0) {
+      out.push({ date: entry.start, kind: 'stop', amountYen: 0 });
+      running = false;
+    }
+  });
+  return out;
+}
+
+/** 帯の上に出す短い金額 (例 94,286 → 9.4万)。0・不明は空。 */
+export const shortYen = (value: number): string => !Number.isFinite(value) || value <= 0 ? '' : value >= 10000 ? `${(Math.round(value / 1000) / 10).toFixed(1)}万` : `${String(Math.round(value))}円`;
+
 export interface EventSource { listingId: string; bodyChangedAt: string | null }
 
 /** 新しい順。課金は期間の開始・終了、本文は最後に変えた日。画像の変更は版を読み込んでいないため含めない。 */
@@ -198,15 +222,11 @@ export function dealEvents(listings: readonly DealListingInput[], sources: reado
   const first = firstDataDate(listings);
   for (const listing of listings) {
     const title = titleOf(listing.id);
-    const entries = [...listing.billing].sort((a, b) => a.start.localeCompare(b.start));
-    entries.forEach((entry, index) => {
-      const amount = entry.amountYen === null ? '金額なし' : formatYen(entry.amountYen);
-      const previous = entries[index - 1];
-      const changed = previous?.amountYen !== entry.amountYen;
-      if (changed) events.push({ date: entry.start, kind: 'billing_start', listingId: listing.id, text: `${title}：課金が${previous ? '変わりました' : '始まりました'}（${amount}）` });
-      const next = entries[index + 1];
-      if (next?.start !== addDays(entry.end, 1)) events.push({ date: entry.end, kind: 'billing_end', listingId: listing.id, text: `${title}：課金の期間が終わりました` });
-    });
+    for (const event of billingEvents(listing.billing)) {
+      events.push(event.kind === 'start'
+        ? { date: event.date, kind: 'billing_start', listingId: listing.id, text: `${title}：課金が始まりました（${formatYen(event.amountYen)}）` }
+        : { date: event.date, kind: 'billing_end', listingId: listing.id, text: `${title}：課金が止まりました` });
+    }
   }
   for (const source of sources) {
     if (!source.bodyChangedAt) continue;
