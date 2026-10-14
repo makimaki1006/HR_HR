@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { fixtureHistory, fixtureImage } from './job-copy-listings-fixture.mjs';
-import { selectJobFeature } from './job-copy-navigation';
+import { selectJobFeature, openOtherAnalysis, closeOtherAnalysis } from './job-copy-navigation';
 const shots = path.resolve(__dirname, '../../docs/screenshots/job-copy-ui-polish');
 test.beforeEach(async ({ page }) => { await page.setViewportSize({ width: 1440, height: 900 }); });
 async function wholeCards(page: import('@playwright/test').Page, selector = '.jc-listings-panel .jc-job') {
@@ -33,7 +33,9 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       expect((await filters.boundingBox())!.y).toBe(top);
       await page.locator('.jc-listings-panel .jc-list-scroll').evaluate(element => { element.scrollTop = 0; });
       await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
+      await openOtherAnalysis(page, '本文・画像');
       await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
+      await closeOtherAnalysis(page);
       await expect(page.locator('.jc-detail-heading')).toContainText('合成運輸株式会社 · 大分県大分市 · HRハッカー');
       await expect(page.locator('.jc-record-meta')).toContainText('2026/10/02 09:00 JST にHubSpotに記録された本文');
       await expect(page.locator('.jc-main')).not.toContainText(/保存を確認・掲載時刻不明|確認した本文 1|取引先名未取得/);
@@ -135,6 +137,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await expect(page.locator('.jc-reading')).not.toContainText(/この版|前の版|媒体CSVから/);
       await expect(page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true })).toBeVisible();
       await expect(page.locator('.jc-main')).not.toContainText('この版を前の版と比較する');
+      await closeOtherAnalysis(page);
       const scope = page.locator('.jc-snapshot-tip');
       await scope.locator('summary').click();
       await expect(page.getByRole('region', { name: '取り込んだ内容の内訳' })).toContainText('37取り込んだ本文');
@@ -149,6 +152,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await expect(page.locator('.ac-overall')).toContainText('どの本文への応募か不明');
       await expect(page.locator('.ac-composition')).not.toContainText('版');
       await selectJobFeature(page, 'body');
+      await closeOtherAnalysis(page);
       if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
       if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-fixed-detail-1440.png') });
     });
