@@ -5,4 +5,8 @@ export type CrmEditableProperty = {
 /**
  * `deal` / `contact` / `company`
  */
-object: string, name: string, label: string, type: string, field_type: string, options: Array<CrmPropertyOption>, max_length: number | null, };
+object: string, name: string, label: string, type: string, field_type: string, options: Array<CrmPropertyOption>, 
+/**
+ * 値が担当者 (owner) の ID の項目。画面は担当者の一覧から選ばせる
+ */
+owner_ref: boolean, max_length: number | null, };

@@ -7,12 +7,21 @@ import {
 import { HUBSPOT_CARDS, HUBSPOT_CARDS_CHECKED_AT, cardPropertyNames } from './hubspotCards';
 import { FIXTURE_CATALOG } from './usePropertyCatalog';
 
-const prop = (over: Partial<CrmCatalogProperty>): CrmCatalogProperty => ({ name: 'x', label: 'X', property_type: 'string', field_type: 'text', options: [], ...over });
+const prop = (over: Partial<CrmCatalogProperty>): CrmCatalogProperty => ({ name: 'x', label: 'X', property_type: 'string', field_type: 'text', options: [], owner_ref: false, ...over });
 const owners = new Map([['9001', '架空 一郎']]);
 const text = (p: CrmCatalogProperty, raw: string | null) => {
   const v = viewValue(p, raw, owners);
   return v.kind === 'text' ? v.text : v.kind;
 };
+
+describe('担当者を選ぶ型の項目の表示', () => {
+  it('owner_ref の項目は、値 (owner ID) を名前で出す。一覧に無ければ「担当あり」', () => {
+    const p = prop({ name: 'aposyutokusya', label: 'アポ取得者', property_type: 'enumeration', field_type: 'select', owner_ref: true });
+    expect(text(p, '9001')).toBe('架空 一郎');
+    expect(text(p, '424242')).toBe('担当あり');
+    expect(text(p, null)).toBe('empty');
+  });
+});
 
 describe('viewValue (how a property value is shown)', () => {
   it('enumeration values show the option label; multiple values (a;b) are joined; unknown values stay as they are', () => {

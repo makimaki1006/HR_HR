@@ -303,6 +303,7 @@ mod tests {
             property_type: kind.into(),
             field_type: "text".into(),
             options: vec![],
+            owner_ref: false,
             writable: false,
         }
     }
@@ -402,6 +403,7 @@ mod v2_tests {
             label_en: None,
             property_type: kind.into(),
             field_type: "text".into(),
+            owner_ref: false,
             writable: false,
             options: vec![crate::handlers::crm_metadata::CrmPropertyOption {
                 label: "架空選択肢".into(),

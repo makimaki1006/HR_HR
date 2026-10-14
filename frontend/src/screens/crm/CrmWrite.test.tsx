@@ -583,9 +583,12 @@ describe('ステージの変更', () => {
     // 現在の値が入った状態で開く
     await waitFor(() => { expect(within(dlg).getByLabelText<HTMLTextAreaElement>(new RegExp(bikouLabel.slice(0, 6))).value).toBe(bikouRaw); });
     const move = within(dlg).getByRole('button', { name: '移す' });
-    expect((move as HTMLButtonElement).disabled).toBe(true);
+    // 未入力の必須があるあいだは「押せない」(aria-disabled)。押すと最初の未入力へ移るだけで、送らない
+    expect(move.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(move);
+    expect(patch).not.toHaveBeenCalled();
     fireEvent.change((within(dlg).getAllByLabelText(/アポ取得日/)[0] as HTMLInputElement), { target: { value: '2026-11-01' } });
-    expect((move as HTMLButtonElement).disabled).toBe(false);
+    expect(move.getAttribute('aria-disabled')).toBe('false');
     fireEvent.click(move);
     await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull(); });
     expect(patch).toHaveBeenCalledTimes(1);
@@ -676,5 +679,8 @@ describe('契約の読み取り', () => {
     expect(kindOf('enumeration', 'checkbox', 2)).toBe('multi');
     expect(kindOf('datetime', 'date', 0)).toBeNull();
     expect(kindOf('bool', 'booleancheckbox', 2)).toBe('bool');
+    // 担当者を選ぶ型 (選択肢は担当者の一覧から。選択肢が無くても入力欄になる)
+    expect(kindOf('enumeration', 'select', 0, true)).toBe('owner');
+    expect(kindOf('string', 'text', 0, true)).toBe('text');
   });
 });

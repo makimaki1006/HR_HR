@@ -70,6 +70,25 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     await expect(page.getByRole('article', { name: '架電先の詳細' }).getByText('✓ 保存済み')).toBeVisible();
     await expect(select.locator('option:checked')).toHaveText('アポ日確定');
   });
+  test('必須項目が多いステージ: 見出しで区切り、必須の残り数を出す。アポ獲得者は本人が最初から入り、担当者は名前で選べる', async ({ page }) => {
+    await openFirst(page);
+    await page.getByRole('combobox', { name: 'ステージを変更' }).selectOption({ label: 'アポ日確定(多項目・確認用)' });
+    const dlg = page.getByTestId('stage-modal');
+    await expect(dlg.getByRole('heading', { level: 4 })).toHaveText(['アポ情報(架空)', 'ヒアリング内容(架空)', '契約・連絡先(架空)']);
+    // 必須 21 項目のうち、アポ獲得者は本人 (架空の「架空 一郎」) が入っているので残り 20
+    await expect(dlg.getByTestId('stage-remaining')).toContainText('必須 あと 20 項目');
+    const owner = dlg.getByRole('combobox', { name: 'アポ獲得者' });
+    await expect(owner).toHaveValue('架空 一郎');
+    await owner.click();
+    await dlg.getByRole('option', { name: /サンプル 二郎/ }).click();
+    await expect(owner).toHaveValue('サンプル 二郎');
+    // 「移す」「やめる」はスクロールしても見える。残り数を押すと最初の未入力へ移る
+    await dlg.getByTestId('stage-remaining').click();
+    await expect(dlg.getByRole('textbox', { name: 'アポ先の会社名' })).toBeFocused();
+    await expect(dlg.getByRole('button', { name: '移す' })).toBeInViewport();
+    await expect(dlg.getByRole('button', { name: 'やめる' })).toBeInViewport();
+    await expect(dlg.getByRole('button', { name: '移す' })).toBeDisabled();
+  });
   test('日付の項目: カレンダーで土曜は青・日曜と祝日は赤 (5/4 みどりの日など)。日を選ぶと緑の「保存済み」', async ({ page }) => {
     const crm: string[] = [];
     page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/api/crm/')) crm.push(r.url()); });

@@ -3,6 +3,7 @@
 import type { ApiResult } from '../../api/client';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import type { WriteApi, PatchOutcome } from './crmWrite';
+import { FIXTURE_APPO_REQUIRED } from './fixtureAppoFields';
 import { DEFAULT_PIPELINE_ID, FIXTURE_PIPELINE_ID } from './queuePipelines';
 import type { EditSchema, OperationStatus, PatchRequest, PropValues, WriteObject } from './writeTypes';
 
@@ -18,9 +19,12 @@ const slot = (dealId: string): DealWrites => {
   return s;
 };
 
+/** 必須項目が多いステージ (確認用。画面の見出し分け・2 列・必須の残り数を見る) */
+export const FIXTURE_LONG_STAGE_ID = 'fx-appo-long';
+
 const STAGES = [
   ['1095387442', '未済'], ['1095387443', '不通'], ['1095387444', '受付ブロック'], ['1095387445', '不在'], ['1095387446', '担当者ブロック'],
-  ['1319310149', '日程確保'], ['1095457875', 'アポ日確定'],
+  ['1319310149', '日程確保'], ['1095457875', 'アポ日確定'], [FIXTURE_LONG_STAGE_ID, 'アポ日確定(多項目・確認用)'],
 ] as const;
 
 export const FAKE_SCHEMA = (dealId: string): EditSchema => ({
@@ -29,6 +33,7 @@ export const FAKE_SCHEMA = (dealId: string): EditSchema => ({
   editable: [], editable_all: true, read_only: ['bpo_hsurl', 'bpo_32', 'rikulogi_1', 'hubspot_owner_id'],
   stages: [
     { id: '1095457875', label: 'アポ日確定', required: ['aposyutokubi'], shown: ['aposyutokubi', 'risuto_bikou'] },
+    { id: FIXTURE_LONG_STAGE_ID, label: 'アポ日確定(多項目・確認用)', required: FIXTURE_APPO_REQUIRED, shown: FIXTURE_APPO_REQUIRED },
   ],
   pipelines: [
     { id: DEFAULT_PIPELINE_ID, label: 'bpo_リクロジ', stages: STAGES.map(([id, label]) => ({ id, label })) },

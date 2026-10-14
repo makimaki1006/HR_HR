@@ -316,6 +316,7 @@ Durable Retry の保存技術は ADR-018 (2026-10-09) で **既存の監査 Turs
 - 実装済み: `PATCH /api/crm/deals/{id}` (既定 OFF。`CRM_WRITES_ENABLED` / `CRM_WRITE_DEAL_ALLOWLIST`)、
   一時障害 (429・5xx・タイムアウト・接続失敗・混雑) だけを `pending` にして 202、worker が再送
   (1 分・5 分・30 分・2 時間・以降 6 時間、最大 8 回。**再送のたびに競合と必須項目を確かめ、HubSpot の値が変わっていたら上書きせず `failed`**)。
+- 書ける項目 (ADR-018): 担当者 (owner) を選ぶ型の項目 (`referencedObjectType=OWNER`。アポ獲得者・FS担当者など) も含む。ステージの必須項目にあり、書けないと移せないため。値は担当者の一覧にある owner ID だけ許す (`hubspot_owner_id` は対象外のまま)。移す画面は「アポ獲得者」「アポ取得者」が空なら操作者本人を最初から入れる (2026-10-14)。
 - 恒久エラー (400 / 401 / 403 / 404 / 422)・競合・上限超えは即 `failed`。管理者の一覧 `GET /api/admin/crm-operations?status=failed|pending`、
   再試行 / 破棄 `POST /api/admin/crm-operations/{id}/retry|discard`。
 - 表は起動時に自動作成 (`CREATE TABLE IF NOT EXISTS`)。Turso への書き込みは受付・送信結果ごと・1 日 1 回の掃除だけで、

@@ -252,6 +252,7 @@ ADR-009 が保留していた「Durable Retry / Pending Sync の保存技術」�
 
 - 競合は上書きしない (409 と現在値を返す)。再送でも HubSpot の値が変わっていたら `failed`。
 - 書けるのは「プロパティ」パネルで選べる全ての項目のうち HubSpot が API で書かせるもの (読み取り専用・計算・`hs_*` / `hubspot_*`・「※編集不可」・`bpo_hsurl` / `bpo_transactio_id`・`dealstage` / `pipeline` を除く)。ステージはパイプライン内・パイプライン間の移動を許す。
+  - 2026-10-14 追記: 選択肢が外部にある項目 (`externalOptions`) は書けない項目のままだが、`referencedObjectType` が `OWNER` の選択式 (アポ獲得者・FS担当者など担当者を選ぶ型) だけは書ける項目に含める。ステージの必須項目にこの型があり (「アポ日確定」など 5 ステージ)、画面に出せないと 422 `missing_required` で移せないため。値は実在する HubSpot の owner ID だけ許す (担当者の一覧と突き合わせ。一覧が途中で切れている場合のみ確認を省く)。取引の担当者 (`hubspot_owner_id`) は従来どおり対象外。
 - ステージの必須項目は HubSpot が API の書き込みでは強制しないため、HR_HR が移動前に確かめる (`src/crm/stage_rules.json`、HubSpot の画面の内部 API を 2026-10-09 に読み取り専用で写した。6 時間おきに公開のパイプライン API と突き合わせ、ずれを `GET /api/admin/crm-stage-rules-drift` に出す)。
 - 失敗 (恒久エラー) した操作は管理者の一覧 (`/api/admin/crm-operations`) に出す。
 

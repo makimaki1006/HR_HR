@@ -27,3 +27,36 @@
 .wr-edit-btn::before { content: '編集'; } /* 文字は見た目だけ (値の文字列に混ざらないよう aria-label で名前を付ける) */
 .wr-row-editable { border-radius: 3px; }
 .wr-row-editable:hover { background: rgba(0, 0, 0, 0.04); }
+
+/* ステージを移す画面: 見出し (上に固定) / 項目 (ここだけスクロール) / ボタン (下に固定) */
+.wr-dialog-stage { padding: 0; gap: 0; overflow: hidden; max-height: min(90vh, 760px); }
+.wr-dialog-stage.is-wide { width: min(880px, 94vw); }
+.wr-dialog-head { padding: 14px 18px 8px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid #e5e7eb; flex: none; }
+.wr-dialog-head .wr-target { margin: 0; font-size: 12px; }
+.wr-dialog-body { padding: 10px 18px; overflow-y: auto; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.wr-dialog-stage .wr-dialog-actions { padding: 10px 18px; border-top: 1px solid #e5e7eb; background: #fff; flex: none; }
+.wr-remaining { align-self: flex-start; font-size: 13px; font-weight: 700; color: #991b1b; background: #fee2e2; border: 1px solid #fca5a5; border-radius: 999px; padding: 3px 12px; cursor: pointer; margin: 0; }
+.wr-remaining:hover { background: #fecaca; }
+.wr-remaining-go { font-weight: 400; font-size: 11px; margin-left: 6px; }
+.wr-remaining.is-done { color: #166534; background: #dcfce7; border-color: #86efac; cursor: default; font-weight: 600; }
+.wr-section { display: flex; flex-direction: column; gap: 6px; }
+.wr-section-title { margin: 0; font-size: 12px; font-weight: 700; color: #374151; border-left: 3px solid var(--cq-accent, #1d4ed8); padding-left: 6px; }
+.wr-dialog-stage .wr-fields { display: grid; grid-template-columns: 1fr; gap: 8px 14px; }
+.wr-dialog-stage.is-wide .wr-fields { grid-template-columns: 1fr 1fr; }
+.wr-field { border-radius: 4px; padding: 3px 6px; margin: 0 -6px; }
+.wr-label-text { font-weight: 600; }
+.wr-field.is-full { grid-column: 1 / -1; }
+.wr-field.is-missing { background: #fff7f7; box-shadow: inset 3px 0 0 #dc2626; }
+.wr-field.is-missing input, .wr-field.is-missing select, .wr-field.is-missing textarea { border-color: #dc2626; }
+.wr-dialog-stage input[type='text'], .wr-dialog-stage input[type='number'], .wr-dialog-stage select, .wr-dialog-stage textarea { width: 100%; box-sizing: border-box; }
+
+/* 担当者を選ぶ入力欄 (名前で絞り込める) */
+.wr-owner { position: relative; display: block; }
+.wr-owner input { width: 100%; box-sizing: border-box; }
+.wr-owner-list { position: absolute; z-index: 20; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 2px 0; list-style: none; max-height: 220px; overflow-y: auto; background: #fff; border: 1px solid var(--cq-line-strong, #9ca3af); border-radius: 4px; box-shadow: 0 6px 16px rgba(0, 0, 0, .18); }
+.wr-owner-opt { padding: 4px 8px; font-size: 12px; cursor: pointer; }
+.wr-owner-opt.is-active { background: #dbeafe; }
+.wr-owner-opt.is-picked { font-weight: 700; }
+.wr-owner-empty { padding: 4px 8px; font-size: 11px; color: #6b7280; }
+.wr-owner-note { font-size: 12px; color: #4b5563; }
+.wr-owner-fallback { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }

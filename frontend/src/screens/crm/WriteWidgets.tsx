@@ -5,6 +5,7 @@ import type { FieldDef } from './writeModel';
 import type { FieldStatus } from './useCrmWrite';
 import type { ConflictView } from './writeBindings';
 import { DatePicker } from '../../components/DatePicker';
+import { OwnerSelect } from './OwnerSelect';
 import './write.css';
 
 /** 値を入れる欄 (項目の種類ごと)。値は文字列 (日付は YYYY-MM-DD、真偽は true/false、複数選択は ; 区切り) */
@@ -20,6 +21,8 @@ export function PropInput({ def, value, onChange, autoFocus, onKeyDown, id }: {
         <option value="">(未入力)</option>
         {def.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>;
+    case 'owner':
+      return <OwnerSelect id={id} label={def.label} value={value} onChange={onChange} autoFocus={autoFocus} onKeyDown={onKeyDown} />;
     case 'multi': {
       const chosen = value === '' ? [] : value.split(';');
       return <span role="group" aria-label={def.label} className="wr-multi">

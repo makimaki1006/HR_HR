@@ -204,6 +204,8 @@ pub struct CrmEditableProperty {
     pub property_type: String,
     pub field_type: String,
     pub options: Vec<CrmPropertyOption>,
+    /// 値が担当者 (owner) の ID の項目。画面は担当者の一覧から選ばせる
+    pub owner_ref: bool,
     pub max_length: Option<u32>,
 }
 
@@ -560,6 +562,12 @@ pub fn validate_value(def: &CrmCatalogProperty, v: &Option<String>) -> Result<()
         return Ok(());
     };
     match def.property_type.as_str() {
+        // 担当者を選ぶ型: 形だけここで見る (実在する owner ID かは `build_steps` が担当者の一覧で確かめる)
+        "enumeration" if def.owner_ref => s
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+            .then_some(())
+            .ok_or_else(|| "担当者の ID が不正です".to_string()),
         "enumeration" => {
             let allowed: HashSet<&str> = def.options.iter().map(|o| o.value.as_str()).collect();
             let parts: Vec<&str> = if def.field_type == "checkbox" {
@@ -667,6 +675,7 @@ pub(super) async fn get_edit_schema(
                 property_type: p.property_type.clone(),
                 field_type: p.field_type.clone(),
                 options: p.options.clone(),
+                owner_ref: p.owner_ref,
                 max_length: matches!(p.property_type.as_str(), "string" | "phone_number")
                     .then(|| max_length(p)),
             });
@@ -1064,12 +1073,15 @@ fn replay_response(row: &pending::OpRow) -> Response {
 /// 検証して実行の段にする。失敗は (status, 本文)
 async fn build_steps(
     client: &HubSpotClient,
+    owners: &super::owners::OwnerListCache,
     catalog: &CatalogEntry,
     deal_id: &str,
     req: &CrmDealPatchRequest,
 ) -> Result<Vec<Step>, (StatusCode, Value)> {
     let mut errors: BTreeMap<String, String> = BTreeMap::new();
     let mut steps: Vec<Step> = Vec::new();
+    // 担当者を選ぶ型の項目に書く値 (エラーの鍵, owner ID)。あとで担当者の一覧と突き合わせる
+    let mut owner_values: Vec<(String, String)> = Vec::new();
 
     let mut add_step = |api: &str,
                         id: &str,
@@ -1105,6 +1117,11 @@ async fn build_steps(
             if let Err(m) = validate_value(def, value) {
                 errors.insert(key(name), m);
                 continue;
+            }
+            if def.owner_ref {
+                if let Some(v) = value.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+                    owner_values.push((key(name), v.to_string()));
+                }
             }
             if !base.contains_key(name) {
                 errors.insert(key(name), "変更前の値 (base) が必要です".into());
@@ -1167,6 +1184,26 @@ async fn build_steps(
     }
     if steps.iter().all(|s| s.set.is_empty() && s.stage.is_none()) && errors.is_empty() {
         errors.insert("_".into(), "変更がありません".into());
+    }
+    if errors.is_empty() && !owner_values.is_empty() {
+        match owners.get(client).await {
+            Ok(list) => {
+                // 一覧が途中で切れているときは、載っていないだけかもしれないので断定しない
+                if !list.truncated {
+                    for (key, id) in &owner_values {
+                        if !list.owners.iter().any(|o| &o.id == id) {
+                            errors.insert(key.clone(), "担当者の一覧にない ID です".into());
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::BAD_GATEWAY),
+                    json!({"error": e.error_kind(), "error_kind": e.error_kind()}),
+                ))
+            }
+        }
     }
     if !errors.is_empty() {
         return Err(invalid(errors, vec![]));
@@ -1383,7 +1420,7 @@ async fn run_patch(
             return hubspot_error_response(&e);
         }
     };
-    let mut steps = match build_steps(client, &catalog, deal_id, req).await {
+    let mut steps = match build_steps(client, &ctx.queue.owner_list, &catalog, deal_id, req).await {
         Ok(s) => s,
         Err((status, v)) => {
             count_rejection(v["error_kind"].as_str().unwrap_or("validation"));
@@ -2556,8 +2593,24 @@ mod tests {
                     hidden: false,
                 })
                 .collect(),
+            owner_ref: false,
             writable: true,
         }
+    }
+
+    #[test]
+    fn 担当者を選ぶ型の値は_数字の_id_だけ形を許す() {
+        let mut d = def("enumeration", "select", &[]);
+        d.owner_ref = true;
+        assert!(validate_value(&d, &Some("12345".into())).is_ok());
+        assert!(validate_value(&d, &Some("abc".into())).is_err());
+        assert!(validate_value(&d, &Some("12 3".into())).is_err());
+        assert!(validate_value(&d, &None).is_ok(), "消去は今の規則に従う");
+        let plain = def("enumeration", "select", &[]);
+        assert!(
+            validate_value(&plain, &Some("12345".into())).is_err(),
+            "担当者型でない選択式は選択肢が無ければ通らない"
+        );
     }
 
     #[test]

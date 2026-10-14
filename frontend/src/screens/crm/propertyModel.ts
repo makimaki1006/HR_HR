@@ -219,7 +219,7 @@ export function viewValue(prop: CrmCatalogProperty | undefined, raw: string | nu
   if (raw === null || raw === undefined || raw.trim() === '') return { kind: 'empty' };
   const v = raw.trim();
   if (prop === undefined) return { kind: 'text', text: v };
-  const isOwner = prop.name === 'hubspot_owner_id' || (prop.property_type === 'enumeration' && prop.options.length === 0 && /owner/i.test(prop.name));
+  const isOwner = prop.name === 'hubspot_owner_id' || prop.owner_ref || (prop.property_type === 'enumeration' && prop.options.length === 0 && /owner/i.test(prop.name));
   if (isOwner) return { kind: 'text', text: ownerNames.get(v) ?? '担当あり' };
   switch (prop.property_type) {
     case 'enumeration': {

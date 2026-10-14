@@ -5,4 +5,9 @@ export type CrmOwnersResponse = { owners: Array<CrmOwner>,
 /**
  * ページ数の上限で一覧が途中で切れた
  */
-truncated: boolean, generated_at: string, };
+truncated: boolean, generated_at: string, 
+/**
+ * 操作している本人の owner ID (`?me=1` を付け、メールで引けた場合だけ。引けなければ無い)。
+ * 一覧のキャッシュには入れず、応答のたびに付ける。ステージ移動の画面が「アポ獲得者」に本人を入れるために使う
+ */
+me_id?: string, };

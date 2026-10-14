@@ -5,6 +5,7 @@ import type { CrmCatalogProperty } from '../../generated/CrmCatalogProperty';
 import type { CrmPropertyCatalogResponse } from '../../generated/CrmPropertyCatalogResponse';
 import { HUBSPOT_CARDS } from './hubspotCards';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
+import { FIXTURE_APPO_GROUPS } from './fixtureAppoFields';
 import { catalogIndex } from './propertyModel';
 import type { CatalogEntry, CatalogObject } from './propertyModel';
 import type { QueueMode } from './queueModel';
@@ -14,7 +15,7 @@ export type CatalogFetch = (signal: AbortSignal) => Promise<ApiResult<CrmPropert
 export const liveCatalogFetch: CatalogFetch = signal => apiGet<CrmPropertyCatalogResponse>('/api/crm/property-catalog', { signal, timeoutMs: 35_000 });
 
 const p = (name: string, label: string, property_type: string, field_type: string, options: CrmCatalogProperty['options'] = []): CrmCatalogProperty =>
-  ({ name, label, property_type, field_type, options });
+  ({ name, label, property_type, field_type, options, owner_ref: false });
 const moc = (name: string): CrmCatalogProperty => {
   const d = MOC_DEAL_PROPERTIES[name];
   return d ? p(d.name, d.label, d.type, d.fieldType, d.options.filter(o => !o.hidden)) : p(name, name, 'string', 'text');
@@ -48,6 +49,7 @@ export const FIXTURE_CATALOG: CrmPropertyCatalogResponse = {
       { name: 'dealstages', label: '取引ステージのプロパティ', properties: [moc('bpo_3'), moc('bpo_4')] },
       { name: 'call_list', label: '架電リスト(架空のグループ)', properties: fixtureCardProps() },
       { name: 'deal_revenue', label: '取引の売上', properties: [p('amount', '金額', 'number', 'number')] },
+      ...FIXTURE_APPO_GROUPS,
     ] },
     { object_type: 'contacts', groups: [
       { name: 'contactinformation', label: 'コンタクト情報', properties: [

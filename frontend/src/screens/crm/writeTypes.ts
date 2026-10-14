@@ -23,8 +23,10 @@ export type WriteObject = 'deal' | 'contact' | 'company';
 export type EditOption = Pick<CrmPropertyOption, 'value' | 'label'>;
 
 /** 書き換えてよい項目 1 件 */
-export type EditableProp = Omit<CrmEditableProperty, 'object' | 'options' | 'max_length'> & {
+export type EditableProp = Omit<CrmEditableProperty, 'object' | 'options' | 'max_length' | 'owner_ref'> & {
   object: WriteObject;
+  /** 値が担当者の ID の項目 (無ければ false 扱い) */
+  owner_ref?: boolean;
   options: EditOption[];
   max_length?: CrmEditableProperty['max_length'];
 };
