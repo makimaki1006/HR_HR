@@ -8,6 +8,7 @@ import { listingPopupModel } from './listingPopupModel';
 import { listingRecord, publicationLabel } from './hubspotListings';
 import { rowBody } from './manualEditModel';
 import { JobCopyScreen } from './JobCopyScreen';
+import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import { jobs } from './data';
 import type { JobCopyRecord } from './data';
 const api = vi.hoisted(() => vi.fn());
@@ -106,8 +107,10 @@ it('opens the selected timeline version from the detail heading, initially the l
   opener.focus(); fireEvent.click(opener);
   expect(screen.getByRole('dialog').textContent).toContain(jobs[0]?.versions[2]?.body);
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
-  fireEvent.click(screen.getByRole('tab', { name: '求人内容' }));
-  fireEvent.click(screen.getByRole('button', { name: /給与・勤務条件変更.*2026\/09\/15/ }));
+  const drawer = openOtherAnalysis('タイムライン');
+  fireEvent.click(within(drawer).getByRole('tab', { name: '求人内容' }));
+  fireEvent.click(within(drawer).getByRole('button', { name: /給与・勤務条件変更.*2026\/09\/15/ }));
+  fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);
   expect(screen.getByRole('dialog').textContent).toContain(jobs[0]?.versions[1]?.body);
   expect(screen.getByRole('dialog').textContent).toContain('2026/09/15 10:30 JST');
@@ -165,7 +168,7 @@ it.each(['list-first', 'detail-first'])('shows zero applications from a direct l
   if (order === 'list-first') await act(async () => { resolveList(listResult); await listResponse; });
   await act(async () => { resolveDetail(detailResult); await detailResponse; });
   fireEvent.click(await screen.findByRole('button', { name: '求人の内容を確認する' }));
-  const applications = () => screen.getByRole('dialog').querySelector('.jc-listing-popup-summary')?.textContent;
+  const applications = () => screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent;
   if (order === 'detail-first') {
     expect(applications()).toContain('応募数未取得');
     await act(async () => { resolveList(listResult); await listResponse; });
@@ -183,7 +186,7 @@ it.each([0, 7, null])('uses the detail count %s for a direct link outside the fi
   await screen.findByRole('button', { name: '架空求人2の本文を見る' });
   expect(screen.queryByRole('button', { name: `${listing.title}の本文を見る` })).toBeNull();
   fireEvent.click(await screen.findByRole('button', { name: '求人の内容を確認する' }));
-  expect(screen.getByRole('dialog').querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '未取得' : `${String(count)}件`}`);
+  expect(screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '未取得' : `${String(count)}件`}`);
 });
 
 it.each([0, 7, null])('refreshes only the acquired count %s after a cold index is ready, retaining the popup and selected body', async count => {
@@ -205,7 +208,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   await screen.findByText('求人の一覧を準備しています');
   const opener = await screen.findByRole('button', { name: '求人の内容を確認する' });
   fireEvent.click(opener);
-  const dialog = screen.getByRole('dialog');
+  const dialog = screen.getByRole('dialog', { name: listing.title });
   expect(dialog.querySelector('.jc-listing-popup-summary')?.textContent).toContain('応募数未取得');
   expect(api.mock.calls.filter(call => String(call[0]).endsWith('/applications'))).toHaveLength(0);
   // Finish preparation through the same list reload used by the automatic poll.
@@ -213,14 +216,16 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   fireEvent.click(screen.getByRole('button', { name: '求人を読み込む' }));
   await waitFor(() => { expect(api.mock.calls.filter(call => String(call[0]).endsWith('/applications'))).toHaveLength(1); });
   await act(async () => { resolveCount({ ok: true, data: { listing_id: '1', application_count: count } }); await countResponse; });
-  expect(screen.getByRole('dialog')).toBe(dialog);
+  expect(screen.getByRole('dialog', { name: listing.title })).toBe(dialog);
   expect(dialog.querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '未取得' : `${String(count)}件`}`);
   expect(dialog.textContent).toContain('現在の本文です。');
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
-  fireEvent.click(screen.getByRole('button', { name: /2026\/10\/01 09:00 JST にHubSpotに記録された本文/ }));
+  const drawer = openOtherAnalysis('本文・画像');
+  fireEvent.click(within(drawer).getByRole('button', { name: /2026\/10\/01 09:00 JST にHubSpotに記録された本文/ }));
+  fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);
-  expect(screen.getByRole('dialog').textContent).toContain('以前の本文です。');
-  expect(screen.getByRole('dialog').querySelector('.jc-listing-popup-summary')?.textContent).toContain('応募数未取得');
+  expect(screen.getByRole('dialog', { name: listing.title }).textContent).toContain('以前の本文です。');
+  expect(screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent).toContain('応募数未取得');
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
   fireEvent.click(screen.getByRole('button', { name: '求人を読み込む' }));
   await waitFor(() => { expect(screen.queryByText('求人の一覧を準備しています')).toBeNull(); });

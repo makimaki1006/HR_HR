@@ -14,6 +14,7 @@ import type { JobCopyRecord } from './data';
 import { JobTimeline } from './JobTimeline';
 import { JobOverview } from './JobOverview';
 import { JobCopyScreen } from './JobCopyScreen';
+import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import { JARGON_PATTERN } from './format';
 import { bodyMark, versionChanges } from './timelineModel';
 
@@ -131,7 +132,7 @@ describe('plain names for version kinds and counts', () => {
   it('labels the per-version counts in plain words', () => {
     window.history.replaceState(null, '', '/app/job-copy?demo=1');
     render(<JobCopyScreen />);
-    fireEvent.click(screen.getByRole('tab', { name: '求人内容' }));
+    openOtherAnalysis('本文・画像');
     const counts = document.querySelector('.jc-counts')?.textContent ?? '';
     expect(counts).toMatch(/^応募日で結びついた応募\d+件気づいた日の本文で数えた応募\d+件どの本文への応募か不明（求人全体）\d+件どんな応募か ⓘ/);
   });

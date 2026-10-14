@@ -19,6 +19,7 @@ clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pin
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { jobs } from './data';
+import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import type { CopyVersion, JobCopyRecord } from './data';
 import type { CopyImage } from './images';
 import { IMAGE_CHANGE_MARK, imageChangeKind } from './images';
@@ -194,7 +195,11 @@ describe('3. applications linked to more than one job', () => {
 
 describe('6–8. dummy billing switch, selected subset, sort note', () => {
   beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy?demo=1'); vi.stubGlobal('fetch', vi.fn()); });
-  const billingLane = () => screen.getByRole('group', { name: '課金' });
+  // タイムラインは「ほかの分析」の横画面にある。開いていなければ開く。
+  const billingLane = () => {
+    if (!screen.queryByRole('dialog', { name: 'ほかの分析' })) openOtherAnalysis('タイムライン');
+    return screen.getByRole('group', { name: '課金' });
+  };
   const chooseJob = (title: string) => {
     const button = [...document.querySelectorAll<HTMLButtonElement>('.jc-job')].find(item => item.textContent.includes(title));
     if (!button) throw new Error(`missing ${title}`);
