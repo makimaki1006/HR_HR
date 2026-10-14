@@ -423,6 +423,50 @@ pub async fn load_principal(session: &Session) -> Principal {
     }
 }
 
+/// セッションの内容 (Google ログイン・許可メール) と会社ドメインの判定。同期で、DB は引かない。
+/// ナビの CRM 表示 ([`session_may_open_crm`]) と [`authorize`] が同じ規則を使うための共有部分。
+pub fn check_session_and_domain(
+    principal: &Principal,
+    record: Option<RecordType>,
+    access: &CrmAccess,
+    allowed_domains: &[String],
+) -> Result<(), Denied> {
+    can_read(principal, record, access)?;
+    let email = principal.email.clone().unwrap_or_default();
+    // 会社ドメイン (ALLOWED_DOMAINS。外部追加ドメインは含めない)。OIDC のログイン時にも見ているが、ここでも確かめる
+    if !crate::auth::validate_email_domain(&email, allowed_domains) {
+        return Err(Denied::NotAllowed);
+    }
+    Ok(())
+}
+
+/// [`check_session_and_domain`] に、無効化アカウントの照会を足したもの (役割は引かない)。
+pub async fn check_session_and_account(
+    principal: &Principal,
+    record: Option<RecordType>,
+    state: &Arc<AppState>,
+    access: &CrmAccess,
+) -> Result<(), Denied> {
+    check_session_and_domain(principal, record, access, &state.config.allowed_domains)?;
+    let email = principal.email.clone().unwrap_or_default();
+    if crate::account_is_disabled(state, &email).await {
+        return Err(Denied::AccountDisabled);
+    }
+    Ok(())
+}
+
+/// ナビに CRM を出してよい人か。`/api/crm/*` の [`authorize`] と同じ規則 (役割は問わない)。
+pub async fn session_may_open_crm(
+    session: &Session,
+    state: &Arc<AppState>,
+    access: &CrmAccess,
+) -> bool {
+    let principal = load_principal(session).await;
+    check_session_and_account(&principal, None, state, access)
+        .await
+        .is_ok()
+}
+
 /// 認可の入口。通れば役割入りの [`Principal`]、通らなければ [`Denied`] (そのまま応答にできる)。
 /// **HubSpot の設定有無を見る前に呼ぶ** (未認可の人に 503 など設定状況を見せない)。
 /// 役割は監査 DB (Turso) だけを読む。**HubSpot は呼ばない**。
@@ -433,15 +477,8 @@ pub async fn authorize(
     record: Option<RecordType>,
 ) -> Result<Principal, Denied> {
     let mut principal = load_principal(session).await;
-    can_read(&principal, record, access)?;
+    check_session_and_account(&principal, record, state, access).await?;
     let email = principal.email.clone().unwrap_or_default();
-    // 会社ドメイン (ALLOWED_DOMAINS。外部追加ドメインは含めない)。OIDC のログイン時にも見ているが、ここでも確かめる
-    if !crate::auth::validate_email_domain(&email, &state.config.allowed_domains) {
-        return Err(Denied::NotAllowed);
-    }
-    if crate::account_is_disabled(state, &email).await {
-        return Err(Denied::AccountDisabled);
-    }
     let role = access.role_of(state, &email).await;
     principal.role = Some(role);
     Ok(principal)
@@ -476,6 +513,39 @@ mod tests {
         assert!(!a.is_empty());
         assert!(CrmAccess::from_list("").is_empty());
         assert!(CrmAccess::from_list(" , ").is_empty());
+    }
+
+    /// ナビの CRM 表示と authorize が共有する判定 (同期部分): Google ログイン × 会社ドメイン × 許可リスト
+    #[test]
+    fn 一般の会社ドメインのgoogleログインはナビにも出る判定を通る() {
+        let domains = vec!["f-a-c.co.jp".to_string()];
+        let open = CrmAccess::from_list("");
+        let oidc = Some(LOGIN_METHOD_GOOGLE_OIDC);
+        let ok = |email: &str, method: Option<&str>, access: &CrmAccess| {
+            check_session_and_domain(&p(Some(email), method), None, access, &domains)
+        };
+        // 管理者でない一般の人も通る (役割は見ない)
+        assert_eq!(ok("staff@f-a-c.co.jp", oidc, &open), Ok(()));
+        // パスワードログイン (社内・社外) は通らない
+        for m in [
+            LOGIN_METHOD_PASSWORD,
+            LOGIN_METHOD_PASSWORD_INTERNAL,
+            LOGIN_METHOD_PASSWORD_EXTERNAL,
+        ] {
+            assert_eq!(
+                ok("staff@f-a-c.co.jp", Some(m), &open),
+                Err(Denied::GoogleLoginRequired)
+            );
+        }
+        // 社外ドメインは通らない
+        assert_eq!(ok("x@example.com", oidc, &open), Err(Denied::NotAllowed));
+        // 許可リストが設定されていれば、リスト外は通らない
+        let limited = CrmAccess::from_list("taro@f-a-c.co.jp");
+        assert_eq!(ok("taro@f-a-c.co.jp", oidc, &limited), Ok(()));
+        assert_eq!(
+            ok("staff@f-a-c.co.jp", oidc, &limited),
+            Err(Denied::NotAllowed)
+        );
     }
 
     /// ログイン方式 × 許可リスト × email の表
