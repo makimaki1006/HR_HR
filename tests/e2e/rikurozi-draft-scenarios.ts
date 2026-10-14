@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
+import { findListings } from './job-copy-navigation';
 const shots = path.resolve('docs/screenshots/rikurozi-draft');
 const csv = '\ufeff求人id,店舗id,画像1\r\n1234567,4081,https://example.invalid/one.jpg\r\n';
 const result = {
@@ -36,7 +37,9 @@ for (const width of [1440, 1920]) {
       expect(route.request().method()).toBe('POST'); return route.fulfill({ json: result });
     });
     await page.goto('/app/job-copy?demo=1');
+    await findListings(page);
     await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+    await findListings(page);
     await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
     await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
     const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
@@ -73,7 +76,9 @@ test('1440px: failure is readable and allows retry', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.route('**/api/job-copy/listings/1/rikurozi-draft', route => route.fulfill({ status: 422, json: { code: 'customer_relation_unknown' } }));
   await page.goto('/app/job-copy?demo=1');
+  await findListings(page);
   await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
   await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
@@ -86,7 +91,9 @@ test('1440px: copied condition mismatch stops CSV output', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.route('**/api/job-copy/listings/1/rikurozi-draft', route => route.fulfill({ status: 422, json: { code: 'draft_copy_mismatch' } }));
   await page.goto('/app/job-copy?demo=1');
+  await findListings(page);
   await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
   await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
