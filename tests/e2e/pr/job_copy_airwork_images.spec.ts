@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { login } from './helpers/login';
+import { openOtherAnalysis, closeOtherAnalysis } from '../job-copy-navigation';
 
 for (const width of [1440, 1920]) test(`AirWork保存画像5枚と取得不可の表示 ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 742 });
@@ -23,6 +24,7 @@ for (const width of [1440, 1920]) test(`AirWork保存画像5枚と取得不可�
     return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
   });
   await page.goto('/app/job-copy?listing=1');
+  await openOtherAnalysis(page, '本文・画像');
   const gallery = page.getByRole('region', { name: '現在取得できる掲載画像', exact: true });
   await expect(gallery.locator('img')).toHaveCount(5);
   await expect(gallery.locator('img').nth(4)).toHaveAttribute('src', /slot=5$/);
@@ -30,6 +32,7 @@ for (const width of [1440, 1920]) test(`AirWork保存画像5枚と取得不可�
   await expect.poll(() => gallery.locator('img').evaluateAll(images => images.filter(image => (image as HTMLImageElement).naturalWidth > 0).length)).toBe(5);
   const shot = async (name: string) => { if (width === 1440) { await mkdir('docs/screenshots/job-copy-airwork-images', { recursive: true }); await page.screenshot({ path: `docs/screenshots/job-copy-airwork-images/${name}.png` }); } };
   await shot('01-body-five-images');
+  await closeOtherAnalysis(page);
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   const dialog = page.getByRole('dialog').first();
   await dialog.locator('.jc-listing-popup-scroll').evaluate(element => { element.scrollTop = element.scrollHeight; });
@@ -45,6 +48,7 @@ for (const width of [1440, 1920]) test(`AirWork保存画像5枚と取得不可�
   await expect(dialog).toContainText('画像を取得できませんでした');
   await page.keyboard.press('Escape');
   await page.goto('/app/job-copy?listing=3');
+  await openOtherAnalysis(page, '本文・画像');
   await expect(page.getByText('画像を取得できませんでした', { exact: true })).toBeVisible();
   expect(externalMedia).toEqual([]);
 });

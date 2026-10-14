@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mkdir, readFile } from 'node:fs/promises';
 import { login } from './helpers/login';
+import { openOtherAnalysis, closeOtherAnalysis } from '../job-copy-navigation';
 const screenshots = 'docs/screenshots/job-copy-listing-popup-v2';
 const description = '出荷リストを確認し、日用品を棚から集めます。\n\n商品の種類と数量を照合し、配送先ごとに箱へまとめます。\n台車を使い、通路の安全を確認しながら出荷場所へ運びます。\n\n困ったときは近くの担当者へ確認してください。\n最後の作業では翌日の出荷予定を確認し、持ち場を片付けます。';
 const awDescription = '届いた商品を配送先ごとに分ける仕事です。\n\n伝票を見て種類と数量を照合します。\n商品を台車へ載せ、指定された場所へ運びます。\n\nはじめは先輩と一緒に、伝票の見方と安全な運び方を覚えます。';
@@ -82,7 +83,9 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await page.keyboard.press('Tab');
   const focusInside = await dialog.evaluate(element => element.contains(document.activeElement)); expect(focusInside).toBe(true);
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect(opener).toBeFocused();
+  await openOtherAnalysis(page, '本文・画像');
   await page.getByRole('button', { name: /2026\/10\/01 09:00 JST にHubSpotに記録された本文/ }).click();
+  await closeOtherAnalysis(page);
   await opener.click(); await expect(dialog).toContainText('以前の本文の最後の文章です。'); await expect(dialog).not.toContainText('最後の作業では翌日の出荷予定を確認');
   await dialog.getByRole('button', { name: '求人の内容を閉じる' }).click(); await expect(opener).toBeFocused();
   await opener.click(); await page.mouse.click(20, 20); await expect(dialog).toHaveCount(0); await expect(opener).toBeFocused();

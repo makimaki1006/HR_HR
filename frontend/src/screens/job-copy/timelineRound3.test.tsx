@@ -17,6 +17,7 @@ import { JobOverview } from './JobOverview';
 import { MarketContext } from './MarketContext';
 import { ApplicationTrend } from './ApplicationTrend';
 import { JobCopyScreen } from './JobCopyScreen';
+import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import { versionChanges } from './timelineModel';
 import { applicationsOutsideTimeline } from './applicationCountsModel';
 import { MIN_RATE_DAYS, overviewRows, sortOverview } from './overviewModel';
@@ -197,9 +198,7 @@ describe('plain wording for versions, the header and the diff panel', () => {
     expect(meta?.textContent).toContain('表示中の本文: 初回文面への復帰');
     expect(meta?.textContent).toContain('HubSpotの求人と未連携');
     expect(meta?.textContent).not.toMatch(/接続待ち|実求人ID|確認した本文/u);
-    fireEvent.click(screen.getByRole('tab', { name: '比較・報告' }));
-    const diffTab = screen.queryByRole('tab', { name: '変更差分' });
-    if (diffTab) fireEvent.click(diffTab);
+    openOtherAnalysis('変更差分');
     const overview = screen.getByRole('region', { name: '比較結果の要約' });
     expect(overview.textContent).toContain('画像の差し替え・並び順');
     expect(overview.textContent).toContain('画像の中身');

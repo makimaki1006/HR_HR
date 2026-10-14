@@ -32,7 +32,13 @@ export async function selectJobFeature(page: Page, key: JobFeature) {
     await page.getByRole('button', { name: '外部文面を照合する', exact: true }).click();
     return;
   }
-  await page.getByRole('tablist', { name: '求人管理の機能', exact: true }).getByRole('tab', { name: group, exact: true }).click();
+  // 旧タブは「ほかの分析」の横画面の中にある。開いていなければ、機能のボタンから開く（その機能が選ばれた状態で開く）。
+  const tablist = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
+  if (!await tablist.isVisible()) {
+    await openOtherAnalysis(page, label);
+    return;
+  }
+  await tablist.getByRole('tab', { name: group, exact: true }).click();
   if (singleFeatureGroups.has(group)) return;
   await page.getByRole('tablist', { name: `${group}の表示`, exact: true }).getByRole('tab', { name: label, exact: true }).click();
 }
@@ -40,4 +46,17 @@ export async function selectJobFeature(page: Page, key: JobFeature) {
 /** The panel of one function (a single-function group's panel is named by its group tab, so look it up by id). */
 export function jobFeaturePanel(page: Page, key: JobFeature) {
   return page.locator(`[role="tabpanel"][id$="-panel-${key}"]`);
+}
+
+/** 「ほかの分析」の機能ボタン（ページの本体にある）から、横に出る詳細を開く。ボタンの文字は機能の名前。 */
+export async function openOtherAnalysis(page: Page, label = 'タイムライン') {
+  await page.getByRole('region', { name: 'ほかの分析', exact: true }).getByRole('button', { name: label, exact: true }).click();
+  await page.getByRole('dialog', { name: 'ほかの分析', exact: true }).waitFor({ state: 'visible' });
+}
+
+/** 「ほかの分析」の横画面を閉じる（閉じると元の位置に戻り、ページが操作できるようになる）。 */
+export async function closeOtherAnalysis(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'ほかの分析', exact: true });
+  await dialog.getByRole('button', { name: '閉じる', exact: true }).first().click();
+  await dialog.waitFor({ state: 'hidden' });
 }

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobCopyScreen } from './JobCopyScreen';
 import { jobApplicationTotal, linkedApplicationCount, noLinkedApplicationsMessage, unmatchedApplicationCount } from './applicationCountsModel';
 import { jobs } from './data';
+import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import type { JobCopyRecord } from './data';
 
 const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
@@ -25,7 +26,9 @@ describe('one application denominator across panels', () => {
   it('shows the same 34 unmatched applications on 本文・画像 and 応募者構成, with the plain no-linked sentence', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(snapshot()))));
     const { container } = render(<JobCopyScreen />);
-    // 最初のタブはタイムライン。本文・画像へ切り替えてから確かめる
+    // 主領域は週ごとの応募。ほかの分析から本文・画像を開いてから確かめる
+    await screen.findByRole('region', { name: 'ほかの分析' });
+    openOtherAnalysis('本文・画像');
     fireEvent.click(await screen.findByRole('tab', { name: '求人内容' }));
     const summary = await screen.findByRole('region', { name: '本文ごとの応募状況' });
     expect(within(summary).getByRole('status').textContent).toBe('この本文に結びつく応募はまだありません（求人全体では34件）');

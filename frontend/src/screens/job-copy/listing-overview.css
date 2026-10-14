@@ -1,0 +1,93 @@
+/* 案3-2 求人の画面: 週ごとの応募のグラフ・出来事の一覧・横から出る詳細 */
+.lo-main { display: grid; gap: 20px; min-width: 0; }
+.lo-main h2, .lo-card h2 { margin: 0; font-size: 16px; }
+.lo-card { background: var(--jc-paper); border: 1px solid var(--jc-border); border-radius: 8px; padding: 16px 18px; min-width: 0; }
+.lo-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.lo-head span { color: var(--jc-muted); font-size: 12px; }
+.lo-note { margin: 4px 0 10px; color: var(--jc-muted); font-size: 12px; }
+.lo-chart { display: grid; grid-template-columns: 48px minmax(0, 1fr); margin-top: 12px; }
+.lo-y { position: relative; }
+.lo-y span { position: absolute; right: 8px; transform: translateY(50%); font-size: 11px; color: var(--jc-muted); white-space: nowrap; }
+.lo-plot { position: relative; border-left: 1px solid #c3d1db; border-bottom: 1px solid #8ea3b3; }
+.lo-grid { position: absolute; left: 0; right: 0; border-top: 1px solid #eef2f5; }
+.lo-bar { position: absolute; bottom: 0; background: #3f5a70; border-radius: 2px 2px 0 0; }
+.lo-shade { position: absolute; bottom: 0; }
+.lo-shade-before { background: #dfe6ec; opacity: 0.7; }
+.lo-shade-after { background: #cdeaee; opacity: 0.85; }
+.lo-pin { position: absolute; transform: translateX(-50%); width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 14px; border: 2px solid var(--jc-accent); background: var(--jc-paper); color: var(--jc-accent); font-weight: 700; font-size: 13px; line-height: 1; cursor: pointer; z-index: 2; }
+.lo-pin.lo-on { background: var(--jc-accent); color: #fff; }
+.lo-pin:focus-visible, .lo-event-head:focus-visible { outline: 3px solid #1e3a8a; outline-offset: 2px; }
+.lo-pin-line { position: absolute; bottom: 0; border-left: 2px solid #9fb2c1; z-index: 1; }
+.lo-pin-line.lo-on { border-left-color: var(--jc-accent); }
+.lo-cutoff { position: absolute; bottom: 0; border-left: 2px dashed #b45309; z-index: 1; }
+.lo-cutoff-label { position: absolute; transform: translateX(-100%); margin-left: -4px; font-size: 11px; color: #9a3412; background: rgb(255 255 255 / 80%); white-space: nowrap; z-index: 1; }
+.lo-lane-label { display: flex; align-items: center; font-size: 12px; color: var(--jc-muted); }
+.lo-lane { position: relative; height: 46px; }
+.lo-month { position: absolute; top: 2px; font-size: 11px; color: var(--jc-muted); }
+.lo-band { position: absolute; top: 18px; height: 26px; box-sizing: border-box; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 4px; color: #78350f; font-size: 12px; overflow: hidden; white-space: nowrap; }
+.lo-band small { font-size: 10px; }
+.lo-lane-empty { position: absolute; top: 24px; font-size: 12px; color: var(--jc-muted); }
+.lo-events { display: grid; gap: 8px; }
+.lo-event { background: var(--jc-paper); border: 1px solid var(--jc-border); border-radius: 8px; scroll-margin-top: 130px; }
+.lo-event.lo-open { border: 2px solid var(--jc-accent); }
+.lo-event-head { width: 100%; display: grid; grid-template-columns: 34px 52px minmax(0, 1fr) minmax(200px, 300px) 18px; gap: 10px; align-items: center; padding: 10px 14px; background: transparent; border: 0; text-align: left; color: var(--jc-ink); cursor: pointer; font: inherit; }
+.lo-num { width: 28px; height: 28px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-weight: 700; background: var(--jc-paper); color: var(--jc-accent); border: 2px solid var(--jc-accent); }
+.lo-open .lo-num { background: var(--jc-accent); color: #fff; }
+.lo-date { color: var(--jc-muted); }
+.lo-title { font-weight: 700; overflow-wrap: anywhere; }
+.lo-result { display: grid; text-align: right; }
+.lo-result small { color: var(--jc-muted); font-size: 11px; }
+.lo-caret { color: var(--jc-muted); }
+.lo-event-body { padding: 0 14px 14px 58px; display: grid; gap: 10px; }
+.lo-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.lo-checks li { display: grid; grid-template-columns: 56px 80px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 12px; }
+.lo-mark { text-align: center; font-size: 11px; border-radius: 10px; padding: 1px 0; border: 1px solid transparent; }
+.lo-mark-small { background: #eaf5f7; color: #0b5563; border-color: #a9d6de; }
+.lo-mark-caution { background: #fff4e5; color: #9a3412; border-color: #f4b97a; font-weight: 700; }
+.lo-mark-unknown { background: #f1f5f8; color: #475b6b; border-color: #cbd5de; }
+.lo-summary { margin: 0; font-size: 12px; }
+.lo-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.lo-more { margin-top: 20px; background: var(--jc-paper); border: 1px solid var(--jc-border); border-radius: 8px; padding: 12px 16px; display: grid; gap: 8px; }
+.lo-more h2 { margin: 0; font-size: 14px; }
+.lo-more p { margin: 0; color: var(--jc-muted); font-size: 12px; }
+.lo-more div { display: flex; flex-wrap: wrap; gap: 8px; }
+.lo-rules { margin: 0; padding-left: 18px; list-style: disc; font-size: 12px; color: var(--jc-ink); }
+@media (max-width: 800px) {
+  .lo-event-head { grid-template-columns: 34px 48px minmax(0, 1fr); }
+  .lo-result, .lo-caret { grid-column: 3; text-align: left; }
+  .lo-event-body { padding-left: 14px; }
+  .lo-checks li { grid-template-columns: 56px minmax(0, 1fr); }
+  .lo-checks li strong { display: none; }
+}
+
+/* 横から出る詳細（本文・応募者・市場・課金・その他の分析） */
+dialog.lo-drawer { --jc-band-h: 0px; position: fixed; inset: 0 0 0 auto; margin: 0 0 0 auto; width: min(560px, 100%); max-width: 100%; height: 100dvh; max-height: 100dvh; padding: 0; border: 0; background: var(--jc-paper); color: var(--jc-ink); box-shadow: -8px 0 24px rgb(15 23 42 / 20%); }
+dialog.lo-drawer.lo-wide { width: min(1040px, 100%); }
+dialog.lo-drawer[open] { display: flex; flex-direction: column; }
+dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
+.lo-drawer-head { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--jc-border); }
+.lo-drawer-head h2 { margin: 0; flex: 1; font-size: 17px; }
+.lo-drawer-body { padding: 16px 20px; overflow-y: auto; flex: 1; display: grid; gap: 14px; align-content: start; }
+.lo-drawer-context { margin: 0; font-size: 12px; color: var(--jc-muted); }
+.lo-other-list { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 上の帯の追加部分 */
+.jc-band-latest { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 4px 12px; border: 1px solid #a9d6de; background: var(--jc-soft); border-radius: 8px; color: var(--jc-ink); text-align: left; cursor: pointer; font: inherit; max-width: 360px; }
+.jc-band-latest small { font-size: 11px; color: #0b5563; }
+.jc-band-latest strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.jc-band-spacer { flex: 1 1 8px; }
+.lo-draft-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; }
+
+/* 帯は1440幅で1行に収める（ボタンは折り返さず右端、名前と最新の出来事は縮む） */
+@media (min-width: 801px) {
+  .jc-detail .jc-band { flex-wrap: nowrap; gap: 12px; }
+  .jc-detail .jc-band-name { flex: 1 1 90px; min-width: 90px; }
+  .jc-detail .jc-band-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .jc-detail .jc-band-numbers { flex-wrap: nowrap; gap: 12px; flex: 0 0 auto; }
+  .jc-detail .jc-band-numbers dd { font-size: 18px; }
+  .jc-detail .jc-band-numbers dd small { display: block; margin-left: 0; font-size: 11px; }
+  .jc-detail .jc-band-numbers dt { white-space: nowrap; font-size: 11px; }
+  .jc-detail .jc-band-latest { flex: 0 1 150px; min-width: 100px; padding: 3px 8px; }
+  .jc-detail .jc-band-spacer { flex: 0 0 0; }
+  .jc-detail .jc-band > .jc-button { flex: 0 0 auto; white-space: nowrap; padding-inline: 8px; font-size: 13px; }
+}

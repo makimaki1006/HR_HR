@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { login } from './helpers/login';
+import { closeOtherAnalysis, openOtherAnalysis, selectJobFeature } from '../job-copy-navigation';
 
 /**
  * 案件管理 (/app/job-copy) を Rust が配る React 画面で確かめる。
@@ -24,7 +25,12 @@ function snapshot(capturedAt = defaultCapturedAt) {
   };
 }
 
-async function open(page: Page, capturedAt = defaultCapturedAt, options: { seriesFailures?: number } = {}) {
+/**
+ * 画面を開き、市場と比べる職種を指定する。タイムラインなど旧タブは「ほかの分析」の横画面の中にある。
+ * 既定では最後に横画面を閉じる（ページ本体の操作は横画面が開いている間はできないため）。
+ * 再取得の回数を数える試験など、閉じて開き直すと取得が増える試験は keepOpen で開いたままにする。
+ */
+async function open(page: Page, capturedAt = defaultCapturedAt, options: { seriesFailures?: number; keepOpen?: boolean } = {}) {
   const calls: string[] = [];
   let seriesFailures = options.seriesFailures ?? 0;
   // 市場の職種は人が指定するまで空。指定している間は月次の取得を止め、指定後に画面の「再読み込み」で取り直す。
@@ -50,10 +56,11 @@ async function open(page: Page, capturedAt = defaultCapturedAt, options: { serie
   // 職種を指定する（HubSpot への保存は合成の応答）。指定前は市場を取りにいかないことも確かめる。
   await page.route('**/api/job-copy/listings/30/indeed-title', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ listing_id: '30', indeed_title: '配送ドライバー', indeed_title_state: 'set' }) }));
   const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
+  await openOtherAnalysis(page, 'タイムライン');
   await expect(timeline).toContainText('市場と比べる職種が未指定です');
   expect(calls.filter(search => search.includes('title='))).toHaveLength(0);
-  const tabs = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-  await tabs.getByRole('tab', { name: '市場分析', exact: true }).click();
+  // 職種の指定は右の「数字の前提」の欄から行う（横画面が開いている間は操作できないので閉じる）
+  await closeOtherAnalysis(page);
   await page.getByRole('button', { name: '職種を指定する', exact: true }).click();
   const drawer = page.getByRole('dialog', { name: '市場と比べる職種を指定する' });
   await drawer.getByLabel('配送ドライバー', { exact: true }).check();
@@ -61,10 +68,11 @@ async function open(page: Page, capturedAt = defaultCapturedAt, options: { serie
   designating = true;
   await drawer.getByRole('button', { name: 'この職種を指定する', exact: true }).click();
   await expect(drawer).toBeHidden();
-  await tabs.getByRole('tab', { name: 'タイムライン', exact: true }).click();
+  await openOtherAnalysis(page, 'タイムライン');
   await expect(timeline.getByRole('button', { name: '市場データを再読み込み', exact: true })).toBeVisible();
   designating = false;
   await timeline.getByRole('button', { name: '市場データを再読み込み', exact: true }).click();
+  if (!options.keepOpen) await closeOtherAnalysis(page);
   return calls;
 }
 
@@ -78,9 +86,22 @@ async function seriesLengths(page: Page, testId: string) {
 }
 
 test.describe('案件管理のタイムライン', () => {
-  test('最初のタブがタイムラインで、7 レーン・グラフ・期間比較表に具体値が出る', async ({ page }) => {
+  test('最初に週ごとの応募と出来事が出て、ほかの分析（旧タブ）の 7 レーン・グラフ・期間比較表に具体値が出る', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
     const calls = await open(page);
+    // 最初の画面: 週ごとの応募のグラフと、出来事（新しい順）の一覧。旧タブは主領域に出ていない
+    await expect(page.getByRole('heading', { name: '週ごとの応募', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '出来事（新しい順）', exact: true })).toBeVisible();
+    await expect(page.locator('.lo-chart')).toBeVisible();
+    await expect(page.getByRole('tablist', { name: '求人管理の機能', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'タイムライン', exact: true })).toHaveCount(0);
+    // 出来事は新しい順: 2026/08/20 の給与の変更が先で、2026/07/01 の掲載開始が後
+    const eventHeads = page.locator('.lo-event-head');
+    await expect(eventHeads).toHaveCount(2);
+    await expect(eventHeads.nth(0)).toContainText('給与を変更');
+    await expect(eventHeads.nth(1)).toContainText('掲載を開始');
+    // ここから「ほかの分析」の横画面（旧タブ全体）の中を確かめる
+    await openOtherAnalysis(page, 'タイムライン');
     const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
     await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '求人内容', '応募分析', '市場分析', '比較・報告']);
     await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
@@ -130,6 +151,8 @@ test.describe('案件管理のタイムライン', () => {
     await expect(timeline.getByRole('group', { name: '凡例', exact: true })).toContainText('掲載日は不明（文面を確認した日で表示）');
     await expect(timeline).not.toContainText(/変更日|本文が切り替わった日|掲載日の確かさ/u);
     await expect(page.locator('body')).not.toContainText(/過去CSVの本文|媒体CSV取得本文|接続待ち|実求人ID|原本不足/u);
+    // ここから先は画面本体の操作なので、横画面を閉じる（開いている間は本体を操作できない）
+    await closeOtherAnalysis(page);
     // 上の帯の件数は期間比較表と同じ割り当てで数える（全 6 件のうち、本文の行に入った応募は無い）
     await page.locator('.jc-snapshot-tip > summary').click();
     const summary = page.getByRole('region', { name: '取り込んだ内容の内訳' });
@@ -146,25 +169,28 @@ test.describe('案件管理のタイムライン', () => {
     await expect(page.locator('.jc-demo')).toContainText('課金額は、実際の課金データがまだ無いため仮の金額（ダミー）を表示しています。実際の請求額ではありません');
     await toggle.uncheck();
     await expect(page.locator('.jc-demo')).not.toContainText('ダミー');
+    await openOtherAnalysis(page, 'タイムライン');
     await expect(billingLane.locator('.jt-billing')).toHaveCount(0);
     await expect(billingLane).toContainText('課金データなし（0円という意味ではありません）');
+    await closeOtherAnalysis(page);
     await page.reload();
     await expect(page.getByRole('checkbox', { name: '仮の課金データを表示', exact: true })).not.toBeChecked();
     await page.getByRole('checkbox', { name: '仮の課金データを表示', exact: true }).check();
+    await openOtherAnalysis(page, 'タイムライン');
     await expect(page.getByRole('region', { name: 'タイムライン', exact: true }).getByRole('group', { name: '課金', exact: true }).locator('.jt-billing-dummy')).toHaveCount(2);
     // 保存先は合成の応答なので、再読み込みで職種は未指定に戻る。指定し直すと市場が出る
     await expect(timeline).toContainText('市場と比べる職種が未指定です');
-    const tabs = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-    await tabs.getByRole('tab', { name: '市場分析', exact: true }).click();
+    await closeOtherAnalysis(page);
     await page.getByRole('button', { name: '職種を指定する', exact: true }).click();
     const drawer = page.getByRole('dialog', { name: '市場と比べる職種を指定する' });
     await drawer.getByLabel('配送ドライバー', { exact: true }).check();
     await drawer.getByRole('button', { name: 'この職種を指定する', exact: true }).click();
     await expect(drawer).toBeHidden();
-    await tabs.getByRole('tab', { name: 'タイムライン', exact: true }).click();
+    await openOtherAnalysis(page, 'タイムライン');
     // 市場の選び方: 職種は人が指定、都道府県は勤務地から自動
     await expect(timeline.getByText('市場と比べる職種：配送ドライバー（人が指定）', { exact: true })).toBeVisible();
     await expect(timeline.getByText('勤務地から大分県を自動で選びました', { exact: true })).toBeVisible();
+    await closeOtherAnalysis(page);
     // 主作業の外: データ取込は閉じていて、逆検索は押すまで出ない。旧来の操作バーも無い。
     await expect(page.locator('.jc-data-import')).toBeHidden();
     await expect(page.locator('.jc-reverse-search')).toHaveCount(0);
@@ -176,7 +202,7 @@ test.describe('案件管理のタイムライン', () => {
 
   test('最新の本文の給与・本文・画像の印が右端で切れずに読める', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
-    await open(page);
+    await open(page, defaultCapturedAt, { keepOpen: true });
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     // 最新の本文は文面を確認した日 (08-20) に始まり、時間軸の右端 (約 99%) に来る。
     const checks: [string, string, string][] = [
@@ -222,7 +248,7 @@ test.describe('案件管理のタイムライン', () => {
 
   test('1100x623 で上の帯が 1 行に収まり、印を選ぶと「選んだ本文」が画面内に出る', async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 623 });
-    await open(page);
+    await open(page, defaultCapturedAt, { keepOpen: true });
     const topline = await page.locator('.jc-topline').evaluate(element => element.getBoundingClientRect().height);
     expect(topline).toBeLessThan(60);
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
@@ -237,7 +263,7 @@ test.describe('案件管理のタイムライン', () => {
 
   test('市場データ（毎月更新）が 2026-08 で終わり、期間がそれより先まで続くとき、データのある月で比べてそれ以降は「データなし」と示す', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
-    await open(page, '2026-10-05T00:00:00Z');
+    await open(page, '2026-10-05T00:00:00Z', { keepOpen: true });
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
     // 文面を確認した日は 07-01 と 10-05。その間（07-02〜10-05、文面を確認した日 10-05 を含む）は給与が変わった期間で、どちらの内容か分からない。
@@ -259,7 +285,7 @@ test.describe('案件管理のタイムライン', () => {
 
   test('市場データの取得に失敗したら期間比較表にもそう書き、再取得すると具体値とグラフが出る', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
-    const calls = await open(page, defaultCapturedAt, { seriesFailures: 1 });
+    const calls = await open(page, defaultCapturedAt, { seriesFailures: 1, keepOpen: true });
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
     await expect(timeline.getByRole('group', { name: '市場', exact: true })).toContainText('市場データを取得できませんでした');
@@ -271,9 +297,8 @@ test.describe('案件管理のタイムライン', () => {
     await expect(timeline.getByText('市場と比べる職種：配送ドライバー（人が指定）', { exact: true })).toBeVisible();
     const market = await seriesLengths(page, 'jt-market');
     expect(market).toEqual([2, 2]);
-    // 一覧は右の「数字の前提」が最初に取り、画面で共有しているので、再取得で取り直すのは選んだ市場の月次だけ
-    expect(calls.filter(search => !search.includes('title='))).toHaveLength(0);
-    expect(calls.filter(search => search.includes('title='))).toHaveLength(2);
+    // 画面の本体（出来事の市場の確認）も同じ月次を読むため、月次の取得は 2 回以上になりうる。失敗 1 回のあと取り直して成功している
+    expect(calls.filter(search => search.includes('title=')).length).toBeGreaterThanOrEqual(2);
   });
 
   test('課金CSVを読み込むと課金の段と期間比較表に入り、再読み込みで消えることを示す', async ({ page }) => {
@@ -286,6 +311,7 @@ test.describe('案件管理のタイムライン', () => {
     await page.getByRole('button', { name: '求人と照合する', exact: true }).click();
     await page.getByRole('button', { name: '一致した1行を課金として反映', exact: true }).click();
     await page.getByRole('region', { name: 'データ取込', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
+    await openOtherAnalysis(page, 'タイムライン');
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     // 07 月は課金CSVの金額に置き換わり、仮の課金データ（ダミー）は CSV に無い 08 月分だけ残る
     await expect(timeline.getByRole('group', { name: '課金', exact: true }).locator('.jt-billing')).toHaveText(['3万1,000円', 'ダミー 4万7,097円']);
@@ -301,8 +327,7 @@ test.describe('案件管理のタイムライン', () => {
     await expect(timeline.getByRole('region', { name: '期間比較表の数値' })).not.toContainText(/7万5,742円|4万4,742円/u);
     await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
     // 印刷する報告（比較・報告）も、反映した課金CSVを読む（画面と食い違わない）
-    await page.getByRole('tablist', { name: '求人管理の機能', exact: true }).getByRole('tab', { name: '比較・報告', exact: true }).click();
-    await page.getByRole('tab', { name: '顧客報告・検証', exact: true }).click();
+    await selectJobFeature(page, 'report');
     const report = page.getByRole('region', { name: '顧客報告と検証記録', exact: true });
     await expect(report).toContainText('読み込んだ課金CSV：1行・2026/07/01〜2026/07/31・金額の分かる行の合計 3万1,000円');
     await expect(report).not.toContainText('課金情報は未取得');
@@ -318,6 +343,7 @@ test.describe('案件管理のタイムライン', () => {
     await page.getByRole('button', { name: '求人と照合する', exact: true }).click();
     await page.getByRole('button', { name: '一致した1行を課金として反映', exact: true }).click();
     await page.getByRole('region', { name: 'データ取込', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
+    await openOtherAnalysis(page, 'タイムライン');
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     const table = timeline.getByRole('region', { name: '期間比較表の数値' });
     const rows = table.locator('tbody tr');
@@ -333,9 +359,52 @@ test.describe('案件管理のタイムライン', () => {
     await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="jt-market"][data-chart-ready="true"]')).toHaveCount(1);
     // 求人内容でも、内部の呼び方（媒体取得本文・受信本文・確定対応・推定対応）を出さない
-    await page.getByRole('tablist', { name: '求人管理の機能', exact: true }).getByRole('tab', { name: '求人内容', exact: true }).click();
+    await selectJobFeature(page, 'body');
     await expect(page.locator('.jc-reading')).toBeVisible();
     await expect(page.locator('body')).not.toContainText(/媒体取得本文|受信本文|確定対応|推定対応/u);
     await expect(page.locator('.jc-mode')).not.toHaveAttribute('title', /.+/u);
+  });
+
+  test('最初の画面: 出来事の一覧・最新の出来事の印・展開時の 3 つの確認・応募者の前後の横画面・ほかの分析の 13 のボタン', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page);
+    // 出来事（新しい順）: 合成データは 2026/08/20 の給与の変更と 2026/07/01 の掲載開始の 2 件
+    const eventsSection = page.locator('section[aria-labelledby="lo-events-title"]');
+    await expect(eventsSection.getByRole('heading', { name: '出来事（新しい順）', exact: true })).toBeVisible();
+    const heads = eventsSection.locator('.lo-event-head');
+    await expect(heads).toHaveCount(2);
+    await expect(heads.nth(0)).toContainText('給与を変更');
+    await expect(heads.nth(1)).toContainText('掲載を開始');
+    // 上の帯の「最新の出来事」は新しい順の先頭と同じ出来事
+    const chip = page.getByTestId('band-latest-event');
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText('給与を変更');
+    // 出来事を開くと、応募を動かしそうな ほかのことの確認が出る（課金・ほかの変更は常に、市場は該当するときだけ）
+    await heads.nth(0).click();
+    await expect(heads.nth(0)).toHaveAttribute('aria-expanded', 'true');
+    const checks = eventsSection.getByRole('list', { name: 'ほかに応募を動かしそうなこと' }).locator('li');
+    const labels = await checks.locator('strong').allTextContents();
+    expect(labels).toContain('課金');
+    expect(labels).toContain('ほかの変更');
+    for (const label of labels) expect(['課金', '市場', 'ほかの変更']).toContain(label);
+    expect(labels.filter(label => label === '市場').length).toBeLessThanOrEqual(1);
+    for (const mark of await checks.locator('.lo-mark').allTextContents()) expect(['小さい', '要注意', '未確認', '未指定']).toContain(mark);
+    // 課金のデータが無い合成データなので、課金の確認は「未確認」
+    await expect(checks.filter({ hasText: '課金' }).first().locator('.lo-mark')).toHaveText('未確認');
+    await expect(eventsSection.getByRole('button', { name: 'この出来事の前と後の全文を比べる', exact: true })).toBeVisible();
+    // 応募者・応募理由の前後は横から出る。Escape で閉じる
+    await eventsSection.getByRole('button', { name: '応募者・応募理由の前後を見る', exact: true }).click();
+    const who = page.getByRole('dialog', { name: '応募者・応募理由の前後', exact: true });
+    await expect(who).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(who).toBeHidden();
+    // 出来事の説明に、原因を決める言葉を使わない
+    await expect(eventsSection).not.toContainText(/増えた|減った|効果/u);
+    // これまでの分析は、1 つずつ機能のボタンとして「ほかの分析」に並ぶ（13 個）
+    const more = page.getByRole('region', { name: 'ほかの分析', exact: true });
+    await expect(more.getByRole('button')).toHaveText([
+      'タイムライン', '本文・画像', '応募推移', '応募者構成', '応募理由', '課金・クリック', '市場グラフ', '市場データ', '要因・仮説', '変更差分', '2求人のA/B比較', '顧客報告・検証', '外部文面を確認',
+    ]);
+    await expect(page.getByRole('dialog', { name: 'ほかの分析', exact: true })).toHaveCount(0);
   });
 });

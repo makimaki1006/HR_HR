@@ -5,6 +5,7 @@ clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pin
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobCopyScreen } from './JobCopyScreen';
+import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import { jobs } from './data';
 import { CAUSAL_PATTERN, JARGON_PATTERN } from './format';
 
@@ -42,6 +43,10 @@ describe('job copy screen wording', () => {
       const job = container.querySelectorAll<HTMLButtonElement>('.jc-job')[index];
       if (!job) throw new Error('missing job button');
       fireEvent.click(job);
+      // 主領域（週ごとの応募・出来事）の言葉も確かめ、旧タブは「ほかの分析」の横画面から開く
+      expect(visibleWording(), job.textContent).not.toMatch(JARGON_PATTERN);
+      expect(visibleWording(), job.textContent).not.toMatch(CAUSAL_PATTERN);
+      if (!screen.queryByRole('dialog', { name: 'ほかの分析' })) openOtherAnalysis('タイムライン');
       // 上の段 5 つ（タイムライン・求人内容はサブタブなし）と、サブタブ 10 個
       const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"][id*="-group-"], [role="tab"][id*="-feature-"]')];
       expect(tabs.length).toBe(15);
@@ -100,6 +105,7 @@ describe('job copy screen wording', () => {
     expect(visibleWording()).not.toMatch(JARGON_PATTERN);
     expect(visibleWording()).not.toContain('shigotonaiyou');
     // HubSpot の応募日（4件、日付不明1件）がタイムラインと横断比較に届いている。
+    openOtherAnalysis('タイムライン');
     const lane = screen.getByRole('group', { name: '応募' });
     expect(lane.textContent).not.toContain('応募日別の件数は未取得です');
     expect(screen.getByText('応募日が分からない応募 1件 はグラフに含めていません')).toBeTruthy();

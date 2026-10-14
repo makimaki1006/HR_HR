@@ -9,6 +9,9 @@ use deals::{
     body_changed_at, deal_candidates, index_associations, publication, summary, Deal, Summary,
 };
 pub(super) use deals::{read_body_dates, read_comparison};
+#[path = "listing_home.rs"]
+mod home;
+pub(super) use home::read as read_home;
 #[cfg(test)]
 #[path = "listing_cache_tests.rs"]
 mod cache_tests;
@@ -82,6 +85,8 @@ const PROPERTIES: &[&str] = &[
     "baitai_genjoukyou_airwork",
     "saishuu_csv_kenshutsu_bi",
     INDEED_TITLE_PROPERTY,
+    INDEED_WEEKLY_PERF,
+    AIRWORK_WEEKLY_PERF,
 ];
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -97,6 +102,10 @@ pub(super) struct ListingsQuery {
     publication: Option<String>,
     descending: Option<bool>,
     draft_status: Option<String>,
+    /// 職種の指定状態で絞る: unset（未指定）/ assigned（指定済み＝職種を指定、または市場と比べない）。
+    indeed_state: Option<String>,
+    /// 求人名に含まれる文字で絞る（空白・記号・大小を無視）。
+    q: Option<String>,
 }
 #[derive(Clone, Debug, Serialize)]
 struct Listing {
@@ -119,6 +128,9 @@ struct Listing {
     summary: Summary,
     #[serde(skip)]
     indexed_application_count: Option<usize>,
+    /// 週ごとの実績の要約（ホーム用）。週ごとの JSON そのものは索引に残さない。
+    #[serde(skip)]
+    perf: Option<home::PerfDigest>,
 }
 fn normalize(value: &str) -> String {
     value
@@ -185,6 +197,7 @@ fn listing(record: &Record) -> Option<Listing> {
         deal_ids: vec![],
         summary: summary(record, media),
         indexed_application_count: None,
+        perf: home::PerfDigest::from_record(record, media),
         draft_status: record
             .value("jobgen_draft_status")
             .filter(|v| ["pending", "adopted", "rejected"].contains(v))
@@ -219,6 +232,8 @@ const PAGE_SIZE: usize = 50;
 pub(super) struct IndexCache {
     state: tokio::sync::RwLock<IndexState>,
     worker: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// ホームの事業所の対応（取引→事業所）。索引ごとに一度だけ読む。
+    home_companies: tokio::sync::Mutex<Option<home::CompanyMap>>,
 }
 impl Drop for IndexCache {
     fn drop(&mut self) {
@@ -486,8 +501,21 @@ pub(super) fn start_worker(service: &Arc<JobReadService>, db: crate::db::local_s
         }
     }));
 }
+fn indeed_state_matches(row: &Listing, state: Option<&str>) -> bool {
+    match state {
+        Some("unset") => row.indeed_title_state == "unset",
+        Some("assigned") => row.indeed_title_state != "unset",
+        _ => true,
+    }
+}
 fn matches(row: &Listing, query: &ListingsQuery) -> bool {
-    query.deal.as_ref().is_none_or(|v| {
+    matches_except_state(row, query) && indeed_state_matches(row, query.indeed_state.as_deref())
+}
+fn matches_except_state(row: &Listing, query: &ListingsQuery) -> bool {
+    query.q.as_ref().is_none_or(|q| {
+        let needle = normalize(q);
+        needle.is_empty() || normalize(row.title.as_deref().unwrap_or("")).contains(&needle)
+    }) && query.deal.as_ref().is_none_or(|v| {
         if v == "none" {
             row.deal_ids.is_empty()
         } else {
@@ -593,6 +621,16 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
         };
         let order = if let Some(order) = field_order {
             order.then_with(id_order)
+        } else if query.sort.as_deref() == Some("bulk") {
+            // 職種の一括指定: 掲載中を先に、応募の多い順（同数は番号順）。
+            let not_live = |r: &Listing| r.publication_status.as_deref() != Some("掲載中");
+            not_live(a)
+                .cmp(&not_live(b))
+                .then_with(|| {
+                    b.indexed_application_count
+                        .cmp(&a.indexed_application_count)
+                })
+                .then_with(id_order)
         } else if query.sort.as_deref() == Some("id") {
             id_order()
         } else if query.sort.as_deref() == Some("media") {
@@ -649,6 +687,11 @@ pub(super) async fn read(
         .as_deref()
         .is_some_and(|v| !["pending", "adopted", "rejected", "none"].contains(&v))
         || query.publication.as_ref().is_some_and(|v| v.len() > 100)
+        || query.q.as_ref().is_some_and(|v| v.chars().count() > 100)
+        || query
+            .indeed_state
+            .as_deref()
+            .is_some_and(|v| !["unset", "assigned"].contains(&v))
         || query
             .media
             .as_deref()
@@ -676,6 +719,7 @@ pub(super) async fn read(
                 "applications",
                 "body_changed_at",
                 "publication",
+                "bulk",
             ]
             .contains(&v)
         })
@@ -690,6 +734,19 @@ pub(super) async fn read(
         return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
     }
     let (total, rows) = selected_page(&index, &query);
+    // 職種の指定状態の件数（状態以外の絞り込みは反映）。画面のタブと進み具合に使う。
+    let mut counts = (0usize, 0usize, 0usize);
+    for row in index
+        .records
+        .iter()
+        .filter(|r| matches_except_state(r, &query))
+    {
+        match row.indeed_title_state {
+            "set" => counts.0 += 1,
+            "none" => counts.1 += 1,
+            _ => counts.2 += 1,
+        }
+    }
     let next_offset = query
         .offset
         .checked_add(rows.len())
@@ -700,6 +757,7 @@ pub(super) async fn read(
             "publication_statuses": index.records.iter().filter_map(|r| r.publication_status.clone()).collect::<BTreeSet<_>>(),
             "status":"ready", "listings":rows, "total":total, "index_built_at":index.built_at,
             "offset":query.offset, "next_offset":next_offset, "titles":index.titles,
+            "indeed_title_counts":{"set":counts.0,"none":counts.1,"unset":counts.2},
             "refreshing":refreshing, "refresh_failed":refresh_failed, "deals":deal_candidates(&index, query.deal_search.as_deref().unwrap_or("")), "no_deal_count":index.records.iter().filter(|r| r.deal_ids.is_empty()).count()
         })),
     ))
@@ -1521,6 +1579,55 @@ mod tests {
         );
         assert_eq!(total, 1);
         assert_eq!(page[0].listing.id, "1");
+    }
+    #[test]
+    fn job_copy_bulk_occupation_filter_search_and_order() {
+        let mk = |id: &str, title: &str, status: &str, apps: usize, prop: &str| {
+            let mut properties =
+                json!({"id_hrhakkaa":format!("HR-{id}"),"hs_name":title,"kyuujin_status":status});
+            if !prop.is_empty() {
+                properties["jobcopy_indeed_title"] = json!(prop);
+            }
+            let record: Record =
+                serde_json::from_value(json!({"id":id,"properties":properties})).unwrap();
+            let mut row = listing(&record).unwrap();
+            row.indexed_application_count = Some(apps);
+            row
+        };
+        let index = Index {
+            records: vec![
+                mk("1", "配送A", "公開中", 3, ""),
+                mk("2", "配送B", "公開中", 9, "配送ドライバー"),
+                mk("3", "事務C", "公開中", 9, "__none__"),
+                mk("4", "配送D", "公開終了", 50, ""),
+                mk("5", "配送E", "公開中", 7, ""),
+            ],
+            titles: vec!["配送ドライバー".into()],
+            built_at: "2026-10-10T00:00:00Z".into(),
+            deals: vec![],
+        };
+        let ids = |q: ListingsQuery| {
+            selected_page(&index, &q)
+                .1
+                .into_iter()
+                .map(|r| r.listing.id)
+                .collect::<Vec<_>>()
+        };
+        let q = |sort: Option<&str>, state: Option<&str>, text: Option<&str>| ListingsQuery {
+            sort: sort.map(Into::into),
+            indeed_state: state.map(Into::into),
+            q: text.map(Into::into),
+            ..Default::default()
+        };
+        // 掲載中が先、応募の多い順、同数は番号順。掲載終了(50件)は最後。
+        assert_eq!(ids(q(Some("bulk"), None, None)), ["2", "3", "5", "1", "4"]);
+        assert_eq!(ids(q(Some("bulk"), Some("unset"), None)), ["5", "1", "4"]);
+        assert_eq!(ids(q(Some("bulk"), Some("assigned"), None)), ["2", "3"]);
+        assert_eq!(
+            ids(q(Some("bulk"), Some("unset"), Some("配送"))),
+            ["5", "1", "4"]
+        );
+        assert_eq!(ids(q(Some("bulk"), None, Some("事務"))), ["3"]);
     }
     #[test]
     fn job_copy_prefecture_specific_values() {

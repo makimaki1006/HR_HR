@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import columns from '../../frontend/src/generated/jobgen/columns.json';
-import { selectJobFeature } from './job-copy-navigation';
+import { selectJobFeature, openOtherAnalysis, closeOtherAnalysis } from './job-copy-navigation';
 import { composeFixtureBody } from './job-copy-listings-fixture.mjs';
 import type { DraftSnapshot } from '../../frontend/src/generated/DraftSnapshot';
 const shots = path.resolve('docs/screenshots/job-copy-manage-edit-flow');
@@ -47,6 +47,12 @@ function parseCsv(text: string): string[][] {
   }
   return rows;
 }
+/** 本文は「ほかの分析」の横画面にある。開いて確かめ、ページを操作できるよう閉じる。 */
+async function expectBodyContains(page: Page, text: string) {
+  await openOtherAnalysis(page, '本文・画像');
+  await expect(page.getByLabel('求人票')).toContainText(text);
+  await closeOtherAnalysis(page);
+}
 export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
   test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); if (login) await login(page); });
   for (const width of [1440, 1920]) test.describe(`${width}px 管理→修正→比較→表示`, () => {
@@ -56,17 +62,17 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       const fetched: string[] = [];
       page.on('request', request => { if (/\/listings\/\d+\/versions$/.test(request.url())) fetched.push(new URL(request.url()).pathname); });
       await page.goto('/app/job-copy?listing=30&demo=1');
-      await expect(page.getByLabel('求人票')).toContainText('日用品を配送します。');
+      await expectBodyContains(page, '日用品を配送します。');
       const list = page.getByRole('region', { name: 'HubSpot の求人' });
       await list.getByRole('button', { name: '架空看護スタッフの本文を見る' }).click();
-      await expect(page.getByLabel('求人票')).toContainText('健康を支える看護');
+      await expectBodyContains(page, '健康を支える看護');
       await expect(page).toHaveURL(/listing=31/);
       await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
       await expect(page.getByLabel('仕事の内容', { exact: true })).toHaveValue('健康を支える看護のお仕事です。時給1,800円。9時〜18時、週休2日。');
       await page.getByRole('button', { name: '手直しを閉じる' }).click();
       expect(fetched).toEqual(['/api/job-copy/listings/30/versions', '/api/job-copy/listings/31/versions']);
       await list.getByRole('button', { name: '架空配送スタッフの本文を見る' }).click();
-      await expect(page.getByLabel('求人票')).toContainText('日用品を配送します。');
+      await expectBodyContains(page, '日用品を配送します。');
       await expect(page).toHaveURL(/listing=30/);
     });
     test('AirWorkの冒頭と給与を手直しから保存・表示まで保持する', async ({ page }) => {
@@ -207,7 +213,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       expect(csv[1][columns.indexOf('仕事内容')]).toBe(requests[0].body.row['仕事内容']);
       expect(csv[1][columns.indexOf('求人id')]).toBe('secret-job');
       expect(csv[1][columns.indexOf('公開')]).toBe('非公開');
-      await page.reload(); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案');
+      await page.reload(); await openOtherAnalysis(page, '変更差分'); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案');
       expect(await page.locator('.jc-app').innerText()).not.toMatch(/secret-|private-reviewer@|基本給与|求人id|店舗id/);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     });
@@ -227,7 +233,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
     });
     test('AirWorkの本文を基に84項目の案へ進み、条件未取得を0にしない', async ({ page }) => {
       await mockFlow(page); await page.goto('/app/job-copy?listing=31&demo=1');
-      await expect(page.getByLabel('求人票')).toContainText('時給1,800円');
+      await expectBodyContains(page, '時給1,800円');
       await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
       const editor = page.getByRole('region', { name: '求人の手直し' });
       await expect(editor.getByLabel('仕事の内容', { exact: true })).toHaveValue('健康を支える看護のお仕事です。時給1,800円。9時〜18時、週休2日。');

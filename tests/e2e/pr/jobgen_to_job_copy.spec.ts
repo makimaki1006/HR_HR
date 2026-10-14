@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { login } from './helpers/login';
+import { selectJobFeature } from '../job-copy-navigation';
 import fixtures from '../../../frontend/src/generated/jobgen/fixtures.json';
 import columns from '../../../frontend/src/generated/jobgen/columns.json';
 import fs from 'node:fs';
@@ -47,7 +48,7 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
   test('列順と区切りだけの違いを全文表示し、その他でも管理情報を隠す', async ({page}) => {
     const full = columns.map(column => `${column}：${row[column] ?? ''}`).join('\n');
     const {writes} = await mock(page, {benefits: '夜勤手当3,500円/回', currentBody: full.replace('求人id：', '求人id:')});
-    await login(page); await page.goto('/app/job-copy?listing=30');
+    await login(page); await page.goto('/app/job-copy?listing=30'); await selectJobFeature(page, 'diff');
     const table = page.locator('.jc-column-comparison');
     await expect(page.locator('.jc-diff-summary')).toContainText('変更あり');
     await expect(table).not.toContainText('hidden-');
@@ -76,7 +77,7 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
     await page.getByRole('button',{name:'この求人に案を保存'}).click(); await expect(page.getByRole('link',{name:'案件管理で今の版と案を比べる'})).toBeVisible();
     expect(writes).toHaveLength(1); expect(writes[0].body).toMatchObject({source_kind:'free_text',source_text:source,row:{'基本給与 最小':'270000','基本給与 最大':'300000'},facts}); expect(Object.keys(writes[0].body.row)).toHaveLength(84);
     if (width === 1440) { fs.mkdirSync(directory,{recursive:true}); await page.getByRole('heading',{name:'作った案を求人に保存'}).scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'01-save-1440.png')}); }
-    await page.getByRole('link',{name:'案件管理で今の版と案を比べる'}).click(); await expect(page.locator('.jc-comparison')).toBeVisible();
+    await page.getByRole('link',{name:'案件管理で今の版と案を比べる'}).click(); await selectJobFeature(page, 'diff'); await expect(page.locator('.jc-comparison')).toBeVisible();
     await expect(page.getByLabel('比較元', {exact:true})).toHaveValue('hubspot-history-30-0'); await expect(page.getByLabel('比較先',{exact:true})).toHaveValue(`hubspot-draft-${writes[0].body.operation_id}`);
     await expect(page.locator('.jc-column-comparison')).toContainText('月給 270,000円');
     await expect(page.locator('.jc-column-comparison')).toContainText('月給 250,000円');
@@ -90,13 +91,13 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
     if (width === 1440) { await page.locator('.jc-draft-review').scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'02-compare-1440.png')}); }
     await page.getByLabel('比較先',{exact:true}).selectOption('hubspot-draft-20000000-0000-4000-8000-000000000002'); await expect(page.locator('.jc-draft-review')).toContainText('過去の案です'); await expect(page.getByRole('button',{name:'確認状態を保存'})).toHaveCount(0);
     await page.getByLabel('比較先',{exact:true}).selectOption(`hubspot-draft-${writes[0].body.operation_id}`); await page.getByRole('combobox',{name:'案の確認状態',exact:true}).selectOption('adopted'); await page.getByRole('button',{name:'確認状態を保存'}).click(); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案'); expect(writes).toHaveLength(2); expect(writes[1].method).toBe('PATCH'); expect(writes[1].body).toMatchObject({draft_id:writes[0].body.operation_id,status:'adopted',base_revision:'b'.repeat(64)});
-    await expect(page.locator('.jc-diff-lines')).toContainText('月給 250,000円'); await page.reload(); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案');
+    await expect(page.locator('.jc-diff-lines')).toContainText('月給 250,000円'); await page.reload(); await selectJobFeature(page, 'diff'); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth); expect(overflow).toBe(false);
   });
   test('家賃補助・祝い金・インセンティブ・残業代の一致を保険と分けて確認', async ({page}) => {
     const benefits = '家賃補助20,000円/月\n祝い金20,000円\nインセンティブ20,000円/月\n残業代20,000円/月';
     const { writes } = await mock(page, { benefits });
-    await login(page); await page.goto('/app/job-copy?listing=30');
+    await login(page); await page.goto('/app/job-copy?listing=30'); await selectJobFeature(page, 'diff');
     await expect(page.locator('.jc-comparison')).toBeVisible();
     await expect(page.locator('.jc-column-comparison')).not.toContainText('家賃補助');
     await expect(page.getByText('元データの事実と今の版の確認')).toHaveCount(0);
@@ -110,7 +111,7 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
   test('次の行の条件追加を全文と項目で検知し、確認操作と説明文の配置を確認', async ({page}) => {
     const benefits = '夜勤手当3,500円/回\n（月4回まで）';
     const { writes } = await mock(page, { benefits, currentBenefits: '夜勤手当3,500円/回' });
-    await login(page); await page.goto('/app/job-copy?listing=30');
+    await login(page); await page.goto('/app/job-copy?listing=30'); await selectJobFeature(page, 'diff');
     await expect(page.locator('.jc-diff-summary')).toContainText('変更あり');
     const table = page.locator('.jc-column-comparison');
     await expect(table).toContainText('（月4回まで）');

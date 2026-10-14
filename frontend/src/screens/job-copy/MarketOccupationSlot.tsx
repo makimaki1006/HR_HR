@@ -12,7 +12,7 @@ interface Props { record: JobCopyRecord; prefecture: string | null; onChanged: (
 const NONE = '__none__';
 const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/gu, '').toLowerCase();
 
-function errorText(error: unknown): string {
+export function errorText(error: unknown): string {
   if (error instanceof AuthRequiredError) return 'Googleでログインしてから保存してください。';
   if (error instanceof ApiHttpError) {
     const code = typeof error.body === 'object' && error.body !== null && 'code' in error.body ? (error.body as { code?: unknown }).code : undefined;
@@ -34,6 +34,7 @@ export function MarketOccupationSlot({ record, prefecture, onChanged }: Props) {
     <span className={`mo-chip mo-chip-${state}`}>{state === 'set' ? '指定済み' : state === 'none' ? '市場と比べない' : '未指定'}</span>
     {prefecture && <span className="mo-pref">都道府県：{prefecture}</span>}
     <button type="button" className="jc-button mo-open" onClick={() => { setOpen(true); }}>{state === 'unset' ? '職種を指定する' : '職種を変える'}</button>
+    {state === 'unset' && <a className="mo-bulk-link" href="/app/job-copy?view=occupations">職種が未指定の求人をまとめて指定する</a>}
     {open && <OccupationDrawer record={record} onClose={() => { setOpen(false); }} onSaved={next => { onChanged(next); setOpen(false); }} />}
   </div>;
 }

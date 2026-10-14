@@ -27,7 +27,7 @@ export const publicationLabel = (value: string | null) => {
     default: return '不明';
   }
 };
-interface ListingPageBase { publication_statuses?: string[]; deals?: DealCandidate[]; no_deal_count?: number; listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
+interface ListingPageBase { indeed_title_counts?: { set: number; none: number; unset: number }; publication_statuses?: string[]; deals?: DealCandidate[]; no_deal_count?: number; listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
 export type HubSpotListingPage = ListingPageBase & (
   { status: 'ready'; total: number; index_built_at: string } |
   { status: 'preparing'; total: null; index_built_at: null }

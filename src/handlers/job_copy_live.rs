@@ -2106,6 +2106,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/job-copy/live", get(read))
         .route("/api/job-copy/listings", get(listings::read))
+        .route("/api/job-copy/home", get(listings::read_home))
         .route(
             "/api/job-copy/listing-body-dates",
             get(listings::read_body_dates),

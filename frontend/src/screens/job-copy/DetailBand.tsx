@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { JobCopyRecord } from './data';
 import { bandNumbers, formatBandYen } from './detailBandModel';
 import { lastMarketMonth } from './timelineModel';
+import { md, MARKET_CAUTION_PCT, BILLING_EVENT_MIN_PCT } from './listingEventsModel';
 import type { BillingEntry } from './timelineModel';
 import { publicationLabel } from './hubspotListings';
 import { joinPresent } from './format';
@@ -14,16 +15,31 @@ import type { IndeedTitleChange } from './MarketOccupationSlot';
 const jpDate = (value: string | null) => value ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, (_all, y: string, m: string, d: string) => `${y}年${String(Number(m))}月${String(Number(d))}日`) : 'なし';
 
 /** 詳細を縦にスクロールしても見え続ける上の帯。 */
-export function DetailBand({ job, billing, onOpenFullCompare }: { job: JobCopyRecord; billing: readonly BillingEntry[] | undefined; onOpenFullCompare: () => void }) {
+export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpenLatest, onNewPattern, newPatternDisabled = false }: { job: JobCopyRecord; billing: readonly BillingEntry[] | undefined; onOpenFullCompare: () => void; latestEvent?: { date: string; title: string } | null; onOpenLatest?: () => void; onNewPattern?: () => void; newPatternDisabled?: boolean }) {
   const n = bandNumbers(job, billing);
-  return <div className="jc-band" role="region" aria-label="この案件の要点">
+  const band = useRef<HTMLDivElement>(null);
+  // 帯の実際の高さを --jc-band-h に持たせ、右の欄・下の固定見出しの位置をそこから決める
+  useEffect(() => {
+    const element = band.current;
+    const host = element?.closest<HTMLElement>('.jc-detail');
+    if (!element || !host || typeof ResizeObserver === 'undefined') return;
+    const apply = () => { host.style.setProperty('--jc-band-h', `${String(Math.ceil(element.getBoundingClientRect().height))}px`); };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(element);
+    return () => { observer.disconnect(); host.style.removeProperty('--jc-band-h'); };
+  }, []);
+  return <div className="jc-band" ref={band} role="region" aria-label="この案件の要点">
     <div className="jc-band-name"><h1 title={job.title}>{job.title}</h1><span>{joinPresent([job.media, job.dataSource === 'hubspot' ? `公開状況：${publicationLabel(job.listingPublicationStatus ?? null)}` : ''])}</span></div>
     <dl className="jc-band-numbers">
       <div><dt>直近4週の応募</dt><dd data-testid="band-recent">{n.recent ?? '—'}<small>{n.previous === null ? '' : `前の4週 ${String(n.previous)}`}</small></dd></div>
       <div><dt>応募1件あたり</dt><dd data-testid="band-per-application">{formatBandYen(n.perApplicationYen)}</dd></div>
       <div><dt>今の課金（4週あたり）</dt><dd data-testid="band-billing">{formatBandYen(n.billingPer4WeeksYen)}</dd></div>
     </dl>
+    {latestEvent && onOpenLatest && <button type="button" className="jc-band-latest" data-testid="band-latest-event" onClick={onOpenLatest}><small>最新の出来事</small><strong>{md(latestEvent.date)} {latestEvent.title}</strong></button>}
+    <span className="jc-band-spacer" />
     <button type="button" className="jc-button" onClick={onOpenFullCompare}>求人の全文を比べる</button>
+    {onNewPattern && <button type="button" className="jc-button jc-primary" disabled={newPatternDisabled} title={newPatternDisabled ? '現在の本文が未取得、または手直しを保存できない求人です。' : undefined} onClick={onNewPattern}>この求人から新しいパターンを作る</button>}
   </div>;
 }
 
@@ -68,6 +84,14 @@ export function AssumptionsRail({ job, billing, mode, onIndeedTitleChanged }: { 
     </section>
     <section aria-label="市場と比べる範囲"><h3>市場（Indeed）と比べる範囲</h3>
       <MarketOccupationSlot record={job} prefecture={prefectureFromLocation(job.location)} onChanged={onIndeedTitleChanged} />
+    </section>
+    <section aria-label="出来事の見方"><h3>出来事の見方</h3>
+      <p className="jc-muted">出来事の日の前の4週と後の4週の応募を、件数だけで比べます。増えた・減ったの判定はしません。</p>
+      <ul className="lo-rules">
+        <li>課金: 前後4週にほかの課金の変更（開始・停止・{BILLING_EVENT_MIN_PCT}%以上の増減）があれば「要注意」、なければ「小さい」。</li>
+        <li>市場: 職種を指定した求人だけ。前後4週で競合の求人数が{MARKET_CAUTION_PCT}%以上動いていれば「要注意」。</li>
+        <li>ほかの変更: 前後4週に別の出来事があれば「要注意」。</li>
+      </ul>
     </section>
     {market.now && <section aria-label="市場の今"><h3>市場の今</h3>
       <dl><dt>市場の求人数（{market.now.month.replace('-', '年')}月）</dt><dd data-testid="rail-market-jobs">{market.now.jobs === null ? '—' : `${market.now.jobs.toLocaleString('ja-JP')}件`}</dd></dl>
