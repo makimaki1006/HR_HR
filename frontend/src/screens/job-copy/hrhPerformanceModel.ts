@@ -3,7 +3,7 @@ export interface HrhPerformanceRow {
   impressions: number | null; clicks: number | null; cost_yen: number | null; applications: number | null;
 }
 export interface HrhPerformanceCollection {
-  schema_version: 1; source: 'hrhacker'; job_id: string; captured_at: string; rows: HrhPerformanceRow[];
+  schema_version: 1; source: 'hrhacker' | 'airwork'; job_id: string; captured_at: string; rows: HrhPerformanceRow[];
 }
 const invalid = (): never => { throw new Error('HRハッカー実績の媒体の求人番号・期間・数値を確認してください。'); };
 function object(value: unknown): Record<string, unknown> {
@@ -24,10 +24,11 @@ function metric(value: unknown, integer = true): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > Number.MAX_SAFE_INTEGER || (integer && !Number.isSafeInteger(value))) return invalid();
   return value;
 }
-export function parseHrhPerformance(value: unknown, jobId: string): HrhPerformanceCollection {
+/** 週ごとの実績の読み取り。source ごとに媒体の求人番号の形を確かめる (HRハッカーは7〜8桁、AirWork は数字のみ)。 */
+export function parseHrhPerformance(value: unknown, jobId: string, source: 'hrhacker' | 'airwork' = 'hrhacker'): HrhPerformanceCollection {
   const data = object(value);
   exactKeys(data, ['schema_version', 'source', 'job_id', 'captured_at', 'rows']);
-  if (data.schema_version !== 1 || data.source !== 'hrhacker' || typeof data.job_id !== 'string' || !/^\d{7,8}$/.test(data.job_id) || data.job_id !== jobId || typeof data.captured_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(data.captured_at) || !Number.isFinite(Date.parse(data.captured_at)) || !Array.isArray(data.rows) || data.rows.length > 1000) return invalid();
+  if (data.schema_version !== 1 || data.source !== source || typeof data.job_id !== 'string' || !(source === 'hrhacker' ? /^\d{7,8}$/ : /^\d+$/).test(data.job_id) || data.job_id !== jobId || typeof data.captured_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(data.captured_at) || !Number.isFinite(Date.parse(data.captured_at)) || !Array.isArray(data.rows) || data.rows.length > 1000) return invalid();
   metricDate(data.captured_at.slice(0, 10));
   const rows = data.rows.map(raw => {
     const row = object(raw);
@@ -41,7 +42,7 @@ export function parseHrhPerformance(value: unknown, jobId: string): HrhPerforman
     const current = rows[index]; const previous = rows[index - 1];
     if (current && previous && current.period_start <= previous.period_end) return invalid();
   }
-  return { schema_version: 1, source: 'hrhacker', job_id: data.job_id, captured_at: data.captured_at, rows };
+  return { schema_version: 1, source, job_id: data.job_id, captured_at: data.captured_at, rows };
 }
 export function performanceRatios(row: HrhPerformanceRow) {
   return {

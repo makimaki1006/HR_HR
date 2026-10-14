@@ -50,6 +50,24 @@ describe('週ごとの実績から作る課金と、AirWork の扱い', () => {
   });
 });
 
+describe('AirWork の週ごとの実績', () => {
+  const awPerf = (id: string, weeklyCost: number) => perfBillingEntries({ source: 'airwork', rows: [week('2026-09-14', '2026-09-20', weeklyCost), week('2026-09-21', '2026-09-27', weeklyCost), week('2026-09-28', '2026-10-04', weeklyCost), week('2026-10-05', '2026-10-11', weeklyCost)] }, id);
+  const airBilled = (id: string, recent: number, weeklyCost: number): DealListingInput => ({ ...air(id, recent), billing: awPerf(id, weeklyCost), billingUnavailable: false });
+  it('実績のある AirWork は合計と 1件あたりに入る (週 3,500 円 = 1日 500 円 × 27 日)', () => {
+    const totals = dealTotals([airBilled('w', 5, 3500)], ASOF);
+    expect(totals.billing).toBe(13500);
+    expect(totals.excludedBilling).toBe(0);
+    expect(totals.perApplication).toBe(2700);
+    expect(awPerf('w', 3500)[0]?.media).toBe('AirWork');
+  });
+  it('混ざった取引: 実績のない AirWork だけが外れる', () => {
+    const totals = dealTotals([hrh('a', 10, 7000), airBilled('w', 5, 3500), air('x', 50)], ASOF);
+    expect(totals.billing).toBe(27000 + 13500);
+    expect(totals.excludedBilling).toBe(1);
+    expect(totals.perApplication).toBe(Math.round(40500 / 15));
+  });
+});
+
 describe('課金の出来事', () => {
   const wk = (start: string, cost: number | null) => ({ source: 'hrhacker' as const, start, end: addDays(start, 6), amountYen: cost });
   it('最後の週まで費用が続くなら、始まりだけで「止まった」は出ない。週ごとの上下は出来事にしない', () => {

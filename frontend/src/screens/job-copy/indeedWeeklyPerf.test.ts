@@ -16,6 +16,25 @@ const base = jobs.find(job => job.id === 'demo-job-001');
 if (!base) throw new Error('demo missing');
 const real = (patch: Partial<JobCopyRecord>): JobCopyRecord => ({ ...base, id: 'hubspot-history-1', dataSource: 'hubspot', hrhPerformance: undefined, ...patch });
 
+describe('AirWork 週ごとの実績', () => {
+  const aw = (jobId: string) => ({ ...collection(jobId), source: 'airwork' });
+  it('数字だけの求人番号が一致するときだけ使い、HRハッカーの形や別の番号は無視する', () => {
+    expect(indeedWeeklyPerformance(aw('98765'), 'airwork', '98765')?.rows[0]?.cost_yen).toBe(12000);
+    expect(indeedWeeklyPerformance(aw('98765'), 'airwork', '11111')).toBeUndefined();
+    expect(indeedWeeklyPerformance(aw('AW-1'), 'airwork', 'AW-1')).toBeUndefined();
+    expect(indeedWeeklyPerformance(collection('1234567'), 'airwork', '1234567')).toBeUndefined();
+    expect(indeedWeeklyPerformance(aw('98765'), 'hrh', '98765')).toBeUndefined();
+    expect(indeedWeeklyPerformance('{broken', 'airwork', '98765')).toBeUndefined();
+  });
+  it('課金の行は AirWork の実績として出て、実績のない AirWork に仮の金額は出ない', () => {
+    const perf = parseHrhPerformance(aw('98765'), '98765', 'airwork');
+    const entries = billingEntries(real({ mediaJobId: '98765', media: 'AirWork', hrhPerformance: perf }), undefined, { asOf: '2026-10-14' });
+    expect(realBilling(entries).map(entry => [entry.media, entry.amountYen])).toEqual([['AirWork', 12000], ['AirWork', 9500]]);
+    expect(dummyBilling(entries)).toHaveLength(0);
+    expect(billingEntries(real({ media: 'AirWork' }), undefined, { asOf: '2026-10-14' })).toHaveLength(0);
+  });
+});
+
 describe('Indeed 週ごとの実績', () => {
   it('accepts 7 and 8 digit job numbers that match the record', () => {
     expect(parseHrhPerformance(collection('1234567'), '1234567').rows).toHaveLength(2);

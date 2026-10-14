@@ -20,17 +20,37 @@ mod deal_tests;
 pub(super) const AW_IMAGES: &str = "aw_kyuujinhyou_gazou";
 /// Weekly Indeed (HRハッカー) results as JSON. Written by `scripts/indeed_weekly_import.py`.
 pub(super) const INDEED_WEEKLY_PERF: &str = "indeed_weekly_perf";
+/// Weekly AirWork results as JSON, same shape with `"source":"airwork"`. Filled by a separate sync.
+pub(super) const AIRWORK_WEEKLY_PERF: &str = "airwork_weekly_perf";
 const INDEED_PERF_MAX_BYTES: usize = 200_000;
 /// The stored JSON as a value, or None when it is empty, too large or not the expected shape.
 /// The screen checks every field again; a bad value must never break the page.
 pub(super) fn indeed_weekly_perf(record: &Record) -> Option<Value> {
-    let raw = record.value(INDEED_WEEKLY_PERF)?;
+    weekly_perf(record, INDEED_WEEKLY_PERF, "hrhacker", None)
+}
+/// AirWork results; `job_id` must be a non-empty digit string equal to the listing's AirWork id.
+pub(super) fn airwork_weekly_perf(record: &Record) -> Option<Value> {
+    let own = record.value("id_airwork")?.trim();
+    if own.is_empty() || !own.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    weekly_perf(record, AIRWORK_WEEKLY_PERF, "airwork", Some(own))
+}
+/// Media-agnostic reader of a weekly-results property.
+fn weekly_perf(
+    record: &Record,
+    property: &str,
+    source: &str,
+    job_id: Option<&str>,
+) -> Option<Value> {
+    let raw = record.value(property)?;
     if raw.len() > INDEED_PERF_MAX_BYTES {
         return None;
     }
     let value: Value = serde_json::from_str(raw).ok()?;
     (value.get("schema_version").and_then(Value::as_u64) == Some(1)
-        && value.get("source").and_then(Value::as_str) == Some("hrhacker")
+        && value.get("source").and_then(Value::as_str) == Some(source)
+        && job_id.is_none_or(|id| value.get("job_id").and_then(Value::as_str) == Some(id))
         && value.get("rows").is_some_and(Value::is_array))
     .then_some(value)
 }
@@ -1043,9 +1063,10 @@ async fn listing_data(
                 (
                     "properties",
                     format!(
-                        "{},{},{},{}",
+                        "{},{},{},{},{}",
                         PROPERTIES.join(","),
                         INDEED_WEEKLY_PERF,
+                        AIRWORK_WEEKLY_PERF,
                         super::super::job_copy_image_bridge::PROPERTY,
                         crate::job_gen::drafts::PROPERTIES.join(",")
                     ),
@@ -1112,10 +1133,10 @@ pub(super) async fn read_versions(
     // Independent conditions are current values, not historical conditions.
     let current_fields = deals::comparison_fields(&record, row.media);
     let draft_revision = crate::job_gen::drafts::revision(&record.properties);
-    let indeed_perf = if row.media == "hrh" {
-        indeed_weekly_perf(&record)
+    let (indeed_perf, airwork_perf) = if row.media == "hrh" {
+        (indeed_weekly_perf(&record), None)
     } else {
-        None
+        (None, airwork_weekly_perf(&record))
     };
     let can_write_drafts = state.audit.is_some() && super::drafts::Writes::from_env().allows(&id);
     // Use the same acquired counts as the list/deal table, across the entire index.
@@ -1133,7 +1154,7 @@ pub(super) async fn read_versions(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf}),
+            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf,"airwork_weekly_perf":airwork_perf}),
         ),
     ))
 }
@@ -1632,6 +1653,27 @@ mod tests {
         .is_none());
         assert!(indeed_weekly_perf(&rec(json!(null))).is_none());
         assert!(indeed_weekly_perf(&rec(json!(" "))).is_none());
+    }
+    #[test]
+    fn airwork_weekly_perf_needs_matching_digit_job_id() {
+        let rec = |id: serde_json::Value, v: &str| -> Record {
+            serde_json::from_value(
+                json!({"id":"1","properties":{"id_airwork":id,"airwork_weekly_perf":v}}),
+            )
+            .unwrap()
+        };
+        let body = |source: &str, job: &str| {
+            format!(
+                r#"{{"schema_version":1,"source":"{source}","job_id":"{job}","captured_at":"2026-10-14T00:00:00Z","rows":[{{"period_start":"2026-10-05","period_end":"2026-10-11","impressions":10,"clicks":2,"cost_yen":2500,"applications":1}}]}}"#
+            )
+        };
+        let ok = airwork_weekly_perf(&rec(json!("98765"), &body("airwork", "98765"))).unwrap();
+        assert_eq!(ok["rows"][0]["cost_yen"], 2500);
+        // other listing's id, wrong source, non-digit id, bad json: all ignored
+        assert!(airwork_weekly_perf(&rec(json!("98765"), &body("airwork", "11111"))).is_none());
+        assert!(airwork_weekly_perf(&rec(json!("98765"), &body("hrhacker", "98765"))).is_none());
+        assert!(airwork_weekly_perf(&rec(json!("AW-1"), &body("airwork", "AW-1"))).is_none());
+        assert!(airwork_weekly_perf(&rec(json!("98765"), "{oops")).is_none());
     }
     #[test]
     fn job_copy_listing_publication_rebuild_and_filter() {
