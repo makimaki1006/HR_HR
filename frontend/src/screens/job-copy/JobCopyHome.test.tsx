@@ -71,7 +71,7 @@ it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客�
   expect(names()).toEqual(['合成介護']);
   fireEvent.click(screen.getByRole('button', { name: '合成介護を開く' }));
   expect(open).toHaveBeenCalledWith({ id: '12', name: '合成介護' });
-  expect(screen.getByText(/取引に結び付いていない掲載中の求人が 2 件/)).toBeTruthy();
+  expect(screen.getByText(/納品管理の案件に結び付いていない掲載中の求人が 2 件/)).toBeTruthy();
 });
 
 it('一覧を準備中のときは待ち、読めなかったときは理由を出す', async () => {

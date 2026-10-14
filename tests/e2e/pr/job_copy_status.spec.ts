@@ -1,3 +1,4 @@
+import { findListings } from '../job-copy-navigation';
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { login } from './helpers/login';
@@ -24,6 +25,7 @@ for (const width of [1440, 1920]) test(`公開状況・空白だけの本文比�
   });
   const shot = async (name: string) => { if (width === 1440) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/${name}.png` }); } };
   await page.goto('/app/job-copy?listing=1');
+  await findListings(page);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
   await panel.getByText('絞り込み・並び順', { exact: true }).click();
   const selector = panel.getByLabel('公開状況', { exact: true });
@@ -90,6 +92,7 @@ for (const width of [1440, 1920]) test(`AirWorkの改行コードと空白だけ
   for (const text of ['棚から集めます。\n箱に詰めます。', '\n 棚から集めます。　\r\n箱に詰めます。\n']) {
     after = text;
     await page.goto('/app/job-copy?listing=1');
+    await findListings(page);
     await expect(page.locator('.jc-detail-heading .jc-badge')).toHaveText('本文：前の本文と同じ');
     if (width === 1440 && text === '棚から集めます。\n箱に詰めます。') {
       await mkdir(shots, { recursive: true });
@@ -108,6 +111,7 @@ for (const width of [1440, 1920]) test(`AirWorkの改行コードと空白だけ
   }
   after = '棚から集めます。\n箱に詰め、伝票を確認します。';
   await page.goto('/app/job-copy?listing=1');
+  await findListings(page);
   await expect(page.locator('.jc-detail-heading .jc-badge')).toHaveText('本文：前の本文から内容が変わっています');
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   const dialog = page.getByRole('dialog');

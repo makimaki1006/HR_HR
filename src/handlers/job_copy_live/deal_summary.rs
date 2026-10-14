@@ -117,43 +117,6 @@ async fn deal_company(
         .map(|name| (company.clone(), name.to_owned())))
 }
 
-#[derive(Deserialize)]
-pub(super) struct CompanyDealsQuery {
-    company: String,
-}
-
-/// The deals of one company (事業所), with their names. Read-only; ids only come from HubSpot.
-pub(super) async fn company_deals(
-    State(state): State<Arc<AppState>>,
-    Extension(access): Extension<Access>,
-    session: Session,
-    Query(query): Query<CompanyDealsQuery>,
-) -> Result<impl IntoResponse, ReadError> {
-    authorized_user(&state, &access, &session).await?;
-    let service = access.service.as_ref().ok_or(ReadError(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "hubspot_not_configured",
-    ))?;
-    valid_id(&query.company)?;
-    let ids = service
-        .all_associations("companies", &query.company, "deals")
-        .await?;
-    let records = service.batch("deals", &ids, &["dealname"]).await?;
-    let deals: Vec<Value> = records
-        .iter()
-        .map(|r| json!({"id": r.id, "name": r.value("dealname")}))
-        .collect();
-    let name = service
-        .batch("companies", std::slice::from_ref(&query.company), &["name"])
-        .await?
-        .first()
-        .and_then(|record| record.value("name").map(str::to_owned));
-    Ok((
-        [(header::CACHE_CONTROL, "private, no-store")],
-        Json(json!({"company": {"id": query.company, "name": name}, "deals": deals})),
-    ))
-}
-
 pub(super) async fn read(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,

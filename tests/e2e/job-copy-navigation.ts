@@ -60,3 +60,10 @@ export async function closeOtherAnalysis(page: Page) {
   await dialog.getByRole('button', { name: '閉じる', exact: true }).first().click();
   await dialog.waitFor({ state: 'hidden' });
 }
+
+/** 左の一覧は「求人を探す」を押すまで求人を読まない（案件管理 2026-10-15）。押して、求人の一覧を開く。 */
+export async function findListings(page: Page) {
+  await page.locator('.jc-sidebar').hover();
+  const button = page.getByRole('button', { name: '求人を探す', exact: true });
+  if (await button.isVisible()) await button.click();
+}

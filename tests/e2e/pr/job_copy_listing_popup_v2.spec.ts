@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFile, mkdir } from 'node:fs/promises';
 import { login } from './helpers/login';
-import { openOtherAnalysis, closeOtherAnalysis } from '../job-copy-navigation';
+import { openOtherAnalysis, closeOtherAnalysis, findListings } from '../job-copy-navigation';
 const shots = 'docs/screenshots/job-copy-listing-popup-v2';
 for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・画像・矢印で切り替え ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 742 });
@@ -31,6 +31,7 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   });
   await page.route('**/popup-workplace.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="520" height="180"><rect width="520" height="180" fill="#eaf5f7"/><path d="M50 120h420M80 50h80v70H80zM200 50h80v70h-80zM320 50h80v70h-80z" stroke="#357d87" stroke-width="8" fill="#c2e0e5"/><text x="165" y="158" font-size="18" fill="#25394c">職場の案内画像（架空）</text></svg>' }));
   await page.goto('/app/job-copy?listing=1');
+  await findListings(page);
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('1 / 3件目');

@@ -14,6 +14,8 @@ import type { DraftSnapshot } from '../../generated/DraftSnapshot';
 import { JobCopySidebar, useJobCopySidebar } from './JobCopySidebar';
 import { JobCopyHome } from './JobCopyHome';
 import { CompanyView } from './CompanyView';
+import { SidebarDeals, sidebarMode } from './SidebarContext';
+import { loadCompanyDeals } from './companyDeals';
 import { Breadcrumbs } from './Breadcrumbs';
 import { buildCrumbs, readTrail, trailAt, writeTrail } from './trail';
 import type { Level, Trail, TrailNames } from './trail';
@@ -344,6 +346,8 @@ function JobCopyMain() {
   const [initialDeal] = useState<DealSelection | null>(() => initialTrail.deal && !initialTrail.listing ? { id: initialTrail.deal, name: '', prefecture: '', title: '', media: '' } : null);
   const [trail, setTrail] = useState<Trail>(initialTrail);
   const [trailNames, setTrailNames] = useState<TrailNames>({});
+  /** 左の「求人を探す」を開いているか。開くまで、左に求人の一覧は出さない。 */
+  const [finding, setFinding] = useState(false);
   const [dealSel, setDealSel] = useState<DealSelection | null>(initialDeal);
   const [openRequest, setOpenRequest] = useState('');
   const trailKeep = useRef(Boolean(initialTrail.listing && (initialTrail.company !== undefined || initialTrail.deal !== undefined)));
@@ -461,16 +465,16 @@ function JobCopyMain() {
     const url = new URL(window.location.href); url.search = writeTrail(url.search, next); window.history.replaceState(null, '', url);
   }
   function goTo(level: Level) {
-    setOpenRequest(''); setListingDetail('idle'); setMobileListingView('list');
+    setOpenRequest(''); setListingDetail('idle'); setMobileListingView('list'); setFinding(false);
     setComparisonDeal(level === 'deal' ? dealSel : null);
     applyTrail(trailAt(trail, level));
   }
   function openCompany(company: { id: string; name: string }) {
-    setTrailNames({ company: company.name }); setDealSel(null); setComparisonDeal(null); setOpenRequest(''); setListingDetail('idle');
+    setFinding(false); setTrailNames({ company: company.name }); setDealSel(null); setComparisonDeal(null); setOpenRequest(''); setListingDetail('idle');
     applyTrail({ company: company.id });
   }
   function openDeal(selection: DealSelection, companyId?: string) {
-    setDealSel(selection); setComparisonDeal(selection); setOpenRequest('');
+    setFinding(false); setDealSel(selection); setComparisonDeal(selection); setOpenRequest('');
     setTrailNames(names => ({ company: companyId ? names.company : undefined, deal: selection.name }));
     applyTrail(companyId ? { company: companyId, deal: selection.id } : { deal: selection.id });
   }
@@ -479,7 +483,7 @@ function JobCopyMain() {
     const company = trail.company; const deal = trail.deal;
     if (listingSource !== 'hubspot' || !company || (trailNames.company && (!deal || trailNames.deal || dealSel?.name))) return;
     const controller = new AbortController();
-    void apiGet<{ company: { name: string | null }; deals: { id: string; name: string | null }[] }>(`/api/job-copy/company-deals?company=${encodeURIComponent(company)}`, { signal: controller.signal, timeoutMs: 60_000 }).then(result => {
+    void loadCompanyDeals(company).then(result => {
       if (controller.signal.aborted || !result.ok) return;
       const dealName = deal ? result.data.deals.find(item => item.id === deal)?.name ?? undefined : undefined;
       setTrailNames(names => ({ ...names, company: names.company ?? result.data.company.name ?? undefined, deal: names.deal ?? dealName }));
@@ -511,6 +515,10 @@ function JobCopyMain() {
     originalListing.current = null;
     if (!original.records.length && snapshotRequested) retrySnapshot();
   }
+  const sideLevel: Level = comparisonDeal ? 'deal' : listingDetail === 'idle' ? trail.company ? 'company' : 'home' : 'listing';
+  const sideDealId = comparisonDeal?.id ?? (listingDetail === 'idle' ? undefined : trail.deal);
+  const sideMode = sidebarMode(sideLevel, Boolean(sideDealId));
+  const scopeDeal = sideMode === 'listings' && !finding && sideDealId ? { id: sideDealId, name: [comparisonDeal?.name, trailNames.deal, dealSel?.name].find(Boolean) ?? '' } : undefined;
   const shownTrail: Trail = comparisonDeal ? { ...(trail.company ? { company: trail.company } : {}), deal: comparisonDeal.id } : listingDetail === 'idle' ? trail.company ? { company: trail.company } : {} : trail;
   return <MarketCacheContext.Provider value={marketCache}><div className="jc-app"><div className="jc-topline"><header className="jc-page-heading"><h1>案件管理</h1><InfoTip className="jc-mode jc-infotip-left" label="試作画面"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip></header>
     <div className="jc-demo" title={bannerText}><strong>{bannerLabel}</strong><span>{bannerText}</span></div>
@@ -527,7 +535,10 @@ function JobCopyMain() {
       <section className="jc-receive-entry" aria-labelledby="job-copy-receive-entry-heading"><h3 id="job-copy-receive-entry-heading">外部文面を確認</h3><p>外部から届いた本文を、選んでいる求人{selected ? `「${selected.title}」` : ''}の現在の本文と照合します。求人本文は書き換えません。</p><button type="button" className="jc-button" disabled={!selected} onClick={openReceive}>外部文面を照合する</button></section>
     </JobCopyDataImport>
     <div className={`jc-workspace jc-mobile-${mobileListingView} ${sidebar.pinned ? 'jc-sidebar-pinned' : 'jc-sidebar-collapsed'} ${sidebar.expanded ? 'jc-sidebar-open' : ''}`} ref={workspace} style={{ '--jc-workspace-top': `${String(workspaceTop)}px` } as CSSProperties}><JobCopySidebar {...sidebar} title={listingSource === 'hubspot' && listingDetail !== 'ready' ? '求人を選択' : selected?.title ?? '求人未選択'}><nav className="jc-list-source" aria-label="求人一覧の選択"><button type="button" aria-pressed={listingSource === 'hubspot'} onClick={() => { if (listingSource === 'hubspot') return; originalListing.current = { records, snapshotAt, live, captured, selectedId }; stopSnapshot(); setListingSource('hubspot'); setListingDetail('idle'); setMobileListingView('list'); }}>HubSpot の求人</button><button type="button" aria-pressed={listingSource === 'fixed'} onClick={restoreOriginalListing}>固定一覧を表示</button></nav>
-      <HubSpotListingsPanel onVisibleRows={setPopupRows} onApplicationsLoaded={(id, count) => { setRecords(items => items.map(item => item.hubspotId === id && item.listingApplicationCount == null ? { ...item, listingApplicationCount: count } : item)); }} onShowDeal={selection => { openDeal(selection); }} revision={listingRevision} initialListingId={openRequest || (new URLSearchParams(location.search).get('listing') ?? undefined)} active={listingSource === 'hubspot'} onOpen={openListingHistory} onLoading={() => { if (trailKeep.current) trailKeep.current = false; else { setTrailNames({}); setDealSel(null); applyTrail({}); } setComparisonDeal(null); sidebar.selected(); setListingDetail('loading'); setMobileListingView('detail'); }} onFailure={text => { setListingDetail('error'); setListingFailure(text); }} />
+      {listingSource === 'hubspot' && sideMode === 'deals' && trail.company && <SidebarDeals companyId={trail.company} onOpenDeal={deal => { openDeal({ ...deal, prefecture: '', title: '', media: '' }, trail.company); }} />}
+      {listingSource === 'hubspot' && !(sideMode === 'listings' && !finding) && <button type="button" className="jc-button jc-side-find" aria-expanded={finding} onClick={() => { setFinding(value => !value); }}>{finding ? '求人の検索を閉じる' : '求人を探す'}</button>}
+      {listingSource === 'hubspot' && sideMode === 'listings' && !finding && <button type="button" className="jc-button jc-side-find" onClick={() => { setFinding(true); }}>ほかの案件の求人も探す</button>}
+      <HubSpotListingsPanel scopeDeal={scopeDeal} autoLoad={scopeDeal !== undefined || finding} onVisibleRows={setPopupRows} onApplicationsLoaded={(id, count) => { setRecords(items => items.map(item => item.hubspotId === id && item.listingApplicationCount == null ? { ...item, listingApplicationCount: count } : item)); }} onShowDeal={selection => { openDeal(selection); }} revision={listingRevision} initialListingId={openRequest || (new URLSearchParams(location.search).get('listing') ?? undefined)} active={listingSource === 'hubspot'} onOpen={openListingHistory} onLoading={() => { if (trailKeep.current) trailKeep.current = false; else if (!scopeDeal) { setTrailNames({}); setDealSel(null); applyTrail({}); } setComparisonDeal(null); sidebar.selected(); setListingDetail('loading'); setMobileListingView('detail'); }} onFailure={text => { setListingDetail('error'); setListingFailure(text); }} />
       <div className="jc-fixed-list" hidden={listingSource !== 'fixed'}><div className="jo-view-toggle" role="group" aria-label="表示の切り替え"><button type="button" aria-pressed={view === 'list'} onClick={() => { setView('list'); }}>一覧</button><button type="button" aria-pressed={view === 'overview'} onClick={() => { setView('overview'); }}>横断比較</button></div><div className="jc-list-heading"><h2 id="job-list-heading" tabIndex={-1}>求人レコード</h2><span aria-live="polite" aria-atomic="true">{snapshotLoading ? '読み込み中' : snapshotError && !records.length ? '未取得' : `${String(visible.length)} / ${String(records.length)}件`}</span><button type="button" className="jc-button jc-reverse-toggle" aria-label="応募者の条件で探す" aria-expanded={reverseOpen} aria-controls="job-copy-reverse-search" title="応募者の性別・年代・地域の組み合わせから、該当する応募が多い求人を探します" onClick={() => { setReverseOpen(open => !open); if (!reverseOpen) window.requestAnimationFrame(() => { document.getElementById('job-copy-reverse-search-heading')?.focus(); }); }}>応募者で探す</button></div><label className="jc-list-search"><span className="jc-visually-hidden">求人名・企業名・勤務地で検索</span><input id="job-list-search" type="search" value={search} placeholder="求人名・企業名・勤務地で検索" onChange={event => { setSearch(event.target.value); }} /></label>
       <details className="jc-filter-more"><summary>絞り込み{filterCount > 0 ? `（${String(filterCount)}）` : ''}・並び順</summary><div className="jc-filter-body"><label>取引先<select aria-label="取引先" value={customer} onChange={event => { setCustomer(event.target.value); }}><option value="all">すべての取引先</option>{captured ? <option value="unlinked">取引先未紐付け</option> : [...new Set(records.map(job => job.company))].map(value => <option key={value} value={value}>{value}{live ? '' : '（架空）'}</option>)}</select></label>
       <div className="jc-filters"><label>媒体<select value={media} onChange={event => { setMedia(event.target.value); }}><option value="all">すべて</option>{[...new Set(records.map(job => job.media))].map(value => <option key={value}>{value}</option>)}</select></label><label>変更判定<select value={status} onChange={event => { setStatus(event.target.value); }}><option value="all">すべて</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>

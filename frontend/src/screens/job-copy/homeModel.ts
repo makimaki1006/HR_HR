@@ -5,7 +5,7 @@ export interface HomeCustomer { company_id: string; name: string | null; deals: 
 export interface HomeData { cards: HomeCard[]; customers: HomeCustomer[]; live_without_company: number; median_cost_per_app: number | null }
 export type HomeResponse =
   | { status: 'preparing' }
-  | { status: 'ready'; index_built_at: string; today: string; companies_ok: boolean; rules: { trend_min_diff: number; cost_floor_yen: number; cost_per_app_times: number; stale_days: number; list_cap: number }; home: HomeData };
+  | { status: 'ready'; index_built_at: string; today: string; companies_ok: boolean; rules: { trend_min_diff: number; cost_floor_yen: number; cost_per_app_times: number; stale_days: number; list_cap: number; delivery_pipelines?: { id: string; label: string }[] }; home: HomeData };
 
 export type CustomerSort = 'name' | 'deals' | 'live' | 'apps' | 'cost' | 'cpa';
 export const customerName = (customer: HomeCustomer) => customer.name ?? '顧客名未取得';

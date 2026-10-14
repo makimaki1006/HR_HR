@@ -109,6 +109,7 @@ describe('HubSpot listing history', () => {
     const { container } = render(<JobCopyScreen />);
     const originalCount = container.querySelectorAll('.jc-fixed-list .jc-job').length;
     fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
+    fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
     fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(1); });
     const main = within(openOtherAnalysis('本文・画像'));
@@ -131,6 +132,7 @@ describe('HubSpot listing history', () => {
     const { container } = render(<JobCopyScreen />);
     await waitFor(() => { expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成の固定求人'); });
     fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
+    fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
     fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成配送求人'); });
     expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(1);
@@ -179,6 +181,7 @@ describe('opening a listing quickly', () => {
     api.mockImplementation((path: string) => reply(path, company));
     const { container } = render(<JobCopyScreen />);
     fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
+    fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
     fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(container.querySelector('.jc-band h1')?.textContent).toBe('合成配送求人'); });
     // The body is on screen and the name has been asked for, but has not arrived.

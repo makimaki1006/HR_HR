@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mkdir, readFile } from 'node:fs/promises';
 import { login } from './helpers/login';
-import { openOtherAnalysis, closeOtherAnalysis } from '../job-copy-navigation';
+import { openOtherAnalysis, closeOtherAnalysis, findListings } from '../job-copy-navigation';
 const screenshots = 'docs/screenshots/job-copy-listing-popup-v2';
 const description = '出荷リストを確認し、日用品を棚から集めます。\n\n商品の種類と数量を照合し、配送先ごとに箱へまとめます。\n台車を使い、通路の安全を確認しながら出荷場所へ運びます。\n\n困ったときは近くの担当者へ確認してください。\n最後の作業では翌日の出荷予定を確認し、持ち場を片付けます。';
 const awDescription = '届いた商品を配送先ごとに分ける仕事です。\n\n伝票を見て種類と数量を照合します。\n商品を台車へ載せ、指定された場所へ運びます。\n\nはじめは先輩と一緒に、伝票の見方と安全な運び方を覚えます。';
@@ -46,6 +46,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   });
   await page.route('**/static/app/popup-fixture.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#eaf5f7"/><text x="210" y="130" font-size="25" fill="#25394c">架空の職場の案内画像</text></svg>' }));
   await page.goto('/app/job-copy?listing=1');
+  await findListings(page);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
   const opener = page.getByRole('button', { name: '求人の内容を確認する' });
   await expect(opener).toBeVisible();
@@ -141,6 +142,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
     return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
   });
   await page.goto('/app/job-copy?listing=1');
+  await findListings(page);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
   await expect(panel.locator('.jc-hubspot-job')).toHaveCount(50);
   await expect(panel.getByRole('button', { name: `${hrh.title}の本文を見る` })).toHaveCount(0);
@@ -178,6 +180,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
     return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
   });
   await page.goto('/app/job-copy?listing=1');
+  await findListings(page);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
   await expect(panel.getByText('求人の一覧を準備しています', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();

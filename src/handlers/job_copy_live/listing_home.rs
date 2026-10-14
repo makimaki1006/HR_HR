@@ -379,7 +379,7 @@ pub(in crate::handlers::job_copy_live) async fn read(
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(json!({
             "status":"ready", "index_built_at":index.built_at, "today":today.to_string(), "companies_ok":companies_ok,
-            "rules": {"trend_min_diff":TREND_MIN_DIFF, "cost_floor_yen":COST_FLOOR_YEN, "cost_per_app_times":COST_PER_APP_TIMES, "stale_days":STALE_DAYS, "list_cap":LIST_CAP},
+            "rules": {"trend_min_diff":TREND_MIN_DIFF, "cost_floor_yen":COST_FLOOR_YEN, "cost_per_app_times":COST_PER_APP_TIMES, "stale_days":STALE_DAYS, "list_cap":LIST_CAP, "delivery_pipelines":super::pipelines::DELIVERY_PIPELINES.iter().map(|(id, label)| json!({"id":id,"label":label})).collect::<Vec<_>>()},
             "home": home,
         })),
     ))

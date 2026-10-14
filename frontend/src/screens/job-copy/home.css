@@ -36,3 +36,13 @@
 .jh-deals { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 8px 0 0; padding: 0; }
 @media (max-width: 900px) { .jh-cards { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 560px) { .jh-cards { grid-template-columns: 1fr; } .jh-crumbs { padding: 10px 16px 0; } }
+.jh-deal-table { min-width: 980px; }
+.jh-deal-table .jh-closed { color: var(--jc-muted, #52697a); background: #f6f8fa; }
+.jh-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 10px; background: #e6edf2; color: #52697a; font-size: 11px; }
+.jc-side-context { display: grid; gap: 8px; padding: 8px 0; }
+.jc-side-context h3 { margin: 0; font-size: 13px; color: #52697a; }
+.jc-side-context ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.jc-side-context li button { width: 100%; text-align: left; display: grid; gap: 2px; padding: 8px 10px; border: 1px solid #d4dfe7; border-radius: 7px; background: #fff; cursor: pointer; font: inherit; }
+.jc-side-context li button[aria-current='true'] { border-color: #007c91; background: #eaf5f7; }
+.jc-side-context li small { color: #52697a; font-size: 12px; }
+.jc-side-find { width: 100%; }
