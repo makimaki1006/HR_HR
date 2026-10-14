@@ -83,7 +83,7 @@ pub enum Feature {
     KeywordTools,
     /// `GEMINI_API_KEY` がある (`media_engine::config::gemini_api_key`)。
     JobgenTools,
-    /// CRM (`/app/crm`)。今は管理者だけ (`crm_visible`)。
+    /// CRM (`/app/crm`)。`/api/crm/*` を使える人に出す (`crm_visible`)。
     Crm,
 }
 
@@ -92,7 +92,7 @@ pub enum Feature {
 pub struct NavFeatures {
     pub keyword_tools: bool,
     pub jobgen_tools: bool,
-    /// CRM を出すか。環境変数ではなく利用者の役割で決まる (`crm_visible`)。`from_env()` では false。
+    /// CRM を出すか。環境変数ではなく利用者の認可で決まる (`crm_visible`)。`from_env()` では false で、`api_nav` が入れる。
     pub crm: bool,
 }
 
@@ -115,11 +115,12 @@ impl NavFeatures {
     }
 }
 
-/// CRM をナビに出す条件 (1 箇所)。**役割が決まったら差し替える**。
-/// 今は管理者 (`is_admin`) だけに出す。さらに `/app/crm` が `KNOWN_SCREENS` に登録されるまでは
-/// 出さない (未登録のうちは 404 のリンクになるため。crm-team の画面 PR とマージ順を問わない)。
-pub fn crm_visible(is_admin: bool) -> bool {
-    is_admin && crm_screen_registered()
+/// CRM をナビに出す条件 (1 箇所)。`may_open` は `/api/crm/*` の認可と同じ規則
+/// (`crm::rbac::session_may_open_crm`: Google ログイン・会社ドメイン・無効化されていない・
+/// `CRM_METADATA_ALLOWED_EMAILS` の絞り込み)。役割 (管理者か) は問わない。
+/// さらに `/app/crm` が `KNOWN_SCREENS` に登録されるまでは出さない (未登録のうちは 404 のリンクになるため)。
+pub fn crm_visible(may_open: bool) -> bool {
+    may_open && crm_screen_registered()
 }
 
 /// `/app/crm` が React 画面として公開済みか (`spa_shell::KNOWN_SCREENS`)。
@@ -294,7 +295,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: None,
         hidden: None,
     },
-    // CRM (React 画面 /app/crm)。`crm_visible` を満たすときだけ items に入る (今は管理者のみ)。
+    // CRM (React 画面 /app/crm)。`crm_visible` を満たすときだけ items に入る (`/api/crm/*` を使える人)。
     NavDef {
         id: "crm",
         label: "CRM",
@@ -599,7 +600,7 @@ pub fn build_nav_response(
     features: &NavFeatures,
 ) -> NavResponse {
     let features = &NavFeatures {
-        crm: crm_visible(is_admin),
+        crm: crm_visible(features.crm),
         ..*features
     };
     NavResponse {
@@ -716,11 +717,16 @@ pub async fn api_nav(State(state): State<Arc<AppState>>, session: Session) -> Js
         .flatten()
         .unwrap_or_else(|| "unknown".to_string());
     let admin = is_admin(&state.config, &user_email);
-    Json(build_nav_response(
-        user_email,
-        admin,
-        &NavFeatures::from_env(),
-    ))
+    let features = NavFeatures {
+        crm: crate::crm::rbac::session_may_open_crm(
+            &session,
+            &state,
+            &crate::crm::rbac::CrmAccess::from_env(),
+        )
+        .await,
+        ..NavFeatures::from_env()
+    };
+    Json(build_nav_response(user_email, admin, &features))
 }
 
 /// `/api/nav` のルータ。`protected_routes` に merge する。
@@ -1002,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    fn crmは管理者のときだけitemsに入る() {
+    fn crmは認可された人だけitemsに入る() {
         // 項目の形と位置は、CRM を出す features で直接確かめる
         let with_crm = nav_items(
             NAV_DEFS,
@@ -1024,15 +1030,28 @@ mod tests {
         let pos = |items: &[NavItem], id: &str| items.iter().position(|i| i.id == id).unwrap();
         assert_eq!(pos(&with_crm, "crm"), pos(&with_crm, "consulting") + 1);
 
-        // 実際に出すかは「管理者」かつ「/app/crm が KNOWN_SCREENS に登録済み」
-        let admin = build_nav_response("a@f-a-c.co.jp".into(), true, &features(false, false));
-        assert_eq!(
-            ids(&admin.items).contains(&"crm"),
-            crm_screen_registered(),
-            "admin の CRM 表示は /app/crm の登録有無と一致する"
-        );
-        let user = build_nav_response("u@f-a-c.co.jp".into(), false, &features(false, false));
-        assert!(!ids(&user.items).contains(&"crm"));
+        // 実際に出すかは「/api/crm/* を使える人 (features.crm)」かつ「/app/crm が登録済み」。管理者かどうかは見ない
+        for is_admin in [true, false] {
+            let allowed = build_nav_response(
+                "a@f-a-c.co.jp".into(),
+                is_admin,
+                &NavFeatures {
+                    crm: true,
+                    ..features(false, false)
+                },
+            );
+            assert_eq!(
+                ids(&allowed.items).contains(&"crm"),
+                crm_screen_registered(),
+                "認可された人 (admin={is_admin}) の CRM 表示は /app/crm の登録有無と一致する"
+            );
+            let denied =
+                build_nav_response("u@f-a-c.co.jp".into(), is_admin, &features(false, false));
+            assert!(
+                !ids(&denied.items).contains(&"crm"),
+                "認可されない人には admin={is_admin} でも出ない"
+            );
+        }
         // from_env() では crm は false (役割は build_nav_response が決める)
         assert!(!NavFeatures::from_env().crm);
         assert_eq!(crm_visible(true), crm_screen_registered());

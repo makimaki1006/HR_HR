@@ -558,7 +558,7 @@ Core Seat 運用へ戻すことは可能。
 - 書き込みの retry/backoff policy (読み取りは下記で決定済み)
 - Dead Letter の管理者通知先
 - HubSpot custom properties の追加有無
-- 役割 (RBAC role) の種類と保持先 (ADR-017 の候補から選ぶ)。決まるまで `/api/crm/*` は Google ログインかつ role=admin だけ許可
+- 役割 (RBAC role) の種類と保持先 (ADR-017 の候補から選ぶ)。`/api/crm/*` と ナビの CRM は、Google ログインした会社ドメイン (`ALLOWED_DOMAINS`) の無効化されていない人全員に開く (2026-10-14 ユーザー決定「現場にテストしてもらいたい」。`CRM_METADATA_ALLOWED_EMAILS` を設定すればその人だけに絞れる。判定は `rbac::check_session_and_domain` をナビと認可で共有)。管理画面・全員分の指標・`/api/admin/*`・役割の変更は引き続き管理者だけ
 - レコード単位のアクセス範囲 (他部署のレコードを読めるか)
 
 決定済み (2026-09-29、ユーザー決定):
