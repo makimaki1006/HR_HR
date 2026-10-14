@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CallQueueScreen } from './CallQueueScreen';
 import { makeItem, makeResponse, okMetadataFetch, okUserFetch, okCatalogFetch, resetDockStorage } from './queueTestUtil';
+import { fakeWriteApi } from './fakeWrite';
 import { DEFAULT_FILTERS } from './queueModel';
 import type { QueueFilters } from './queueModel';
 import { fixtureQueuePage } from './queueFixture';
@@ -36,12 +37,12 @@ const detailFetch: DetailFetch = id => {
 };
 
 async function openFirst() {
-  render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={detailFetch} metadataFetcher={okMetadataFetch}
+  render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={detailFetch} metadataFetcher={okMetadataFetch} writeApi={fakeWriteApi}
     zoomOptions={{ loadTimeoutMs: 60_000 }} initialSearch="?view=queue&owner=all" />);
   await waitFor(() => { expect(rows()).toHaveLength(40); });
   fireEvent.click(rowAt(0));
   const form = await screen.findByRole('form', { name: '架電結果の入力' });
-  await within(form).findByRole('group', { name: '今回の結果' });
+  await within(form).findByRole('textbox', { name: 'タスクメモに追記' });
   // 詳細欄 (電話番号) まで出し切る
   await waitFor(() => { expect(screen.getByRole('region', { name: '選んだ架電先の詳細' }).textContent).toContain('発信'); });
   return form;

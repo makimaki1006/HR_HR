@@ -88,6 +88,12 @@ export function fixtureItem(id: string): CallQueueItem | null {
   return s ? toItem(s) : null;
 }
 
+/** 架空の案件のパイプライン ID (無ければ null) */
+export function fixturePipelineOf(id: string): string | null {
+  const s = SEEDS.find(x => x.id === id);
+  return s ? pipelineOf(s) : null;
+}
+
 /** サーバ (call_queue.rs) の抽出・並びの要点だけを真似る。実サーバの代わりではなく、画面の確認用 */
 export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQueueResponse {
   const gs = groupsOf(f);

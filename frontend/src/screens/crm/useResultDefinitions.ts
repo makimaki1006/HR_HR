@@ -7,7 +7,14 @@ import { MOC_DEAL_PROPERTIES } from './mocProperties';
 import type { MocPropertyDefinition } from './mocProperties';
 import { CLIENT_TIMEOUT_KIND, INVALID_RESPONSE_KIND, failureOf } from './queueModel';
 import type { QueueMode } from './queueModel';
-import { FALLBACK_LABELS, REQUIRED_DEFINITIONS, REQUIRED_TYPED_DEFINITIONS } from './callResultModel';
+
+/**
+ * 一覧・案件の概要で、停止の理由 (不通時チェック・ブロック理由) を HubSpot の表示ラベルで出すための項目 (選択肢が要る)。
+ * 架電結果の入力欄は、2026-10-14 から編集できる項目の一覧 (edit-schema / property-catalog) の定義を使うので、ここには無い
+ */
+export const REQUIRED_DEFINITIONS: readonly string[] = ['bpo_10', 'bpo_4'];
+/** 定義が手元に無いときの見出し (HubSpot のラベルと同じ。内部名は画面に出さない) */
+export const FALLBACK_LABELS: Readonly<Record<string, string>> = { bpo_10: '不通時チェック', bpo_4: 'ブロック理由' };
 
 export type MetadataFetch = (signal: AbortSignal) => Promise<ApiResult<CrmMetadataResponse>>;
 export const liveMetadataFetch: MetadataFetch = signal => apiGet<CrmMetadataResponse>('/api/crm/metadata', { signal, timeoutMs: 35_000 });
@@ -18,13 +25,10 @@ export type DefinitionsState =
   | { phase: 'error'; message: string };
 
 /**
- * 応答に入っていない (選択肢を出せない)、または型が想定と違う項目の内部名。
- * 選択肢のある項目は選択肢が 1 つ以上、日付・文字の項目はその型の定義があること
+ * 応答に入っていない (選択肢を出せない) 項目の内部名
  */
 export function missingDefinitions(defs: Record<string, MocPropertyDefinition>): string[] {
-  const noOptions = REQUIRED_DEFINITIONS.filter(name => (defs[name]?.options.length ?? 0) === 0);
-  const wrongType = Object.entries(REQUIRED_TYPED_DEFINITIONS).filter(([name, type]) => defs[name]?.type !== type).map(([name]) => name);
-  return [...noOptions, ...wrongType];
+  return REQUIRED_DEFINITIONS.filter(name => (defs[name]?.options.length ?? 0) === 0);
 }
 
 /** 画面に出す項目名 (日本語だけ。内部名は出さない) */
@@ -60,7 +64,7 @@ export function metadataErrorMessage(error: unknown): string {
 }
 
 /**
- * 架電結果の入力欄の選択肢。
+ * 停止の理由の表示ラベル (不通時チェック・ブロック理由) の選択肢。
  * - 架空サンプル: mocProperties.ts の固定定義 (HubSpot には接続しない)
  * - 実データ: GET /api/crm/metadata。失敗したら error (固定定義で代用しない)。必要な項目が応答に無いときも error
  * `enabled` が false の間は取得しない (案件を選ぶまで HubSpot を呼ばない)

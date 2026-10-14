@@ -18,6 +18,8 @@ import { liveDetailFetch } from './useDealDetail';
 import type { DetailFetch } from './useDealDetail';
 import type { CatalogFetch } from './usePropertyCatalog';
 import { fixtureOwnersFetch } from './useOwners';
+import { fakeWriteApi } from './fakeWrite';
+import { RESULT_PROPERTY_NAMES } from './callResultModel';
 import type { OwnersFetch } from './useOwners';
 import type { MetadataFetch } from './useResultDefinitions';
 
@@ -47,7 +49,7 @@ function counted() {
 
 async function openDeal(c: ReturnType<typeof counted>) {
   const r = render(<CallQueueScreen catalogFetcher={c.catalog} userFetcher={okUserFetch} fetcher={c.queue} ownersFetcher={c.owners} detailFetcher={c.detail}
-    metadataFetcher={c.metadata} pipelinesFetcher={okPipelinesFetch} zoomOptions={{ loadTimeoutMs: 60_000 }} initialSearch="?view=queue&owner=all" />);
+    metadataFetcher={c.metadata} pipelinesFetcher={okPipelinesFetch} writeApi={fakeWriteApi} zoomOptions={{ loadTimeoutMs: 60_000 }} initialSearch="?view=queue&owner=all" />);
   const list = await screen.findByRole('list', { name: '架電キュー' });
   fireEvent.click(within(list).getAllByRole('button')[0] ?? list);
   await screen.findByRole('region', { name: '活動ログ' });
@@ -117,7 +119,7 @@ describe('panel layout (dock)', () => {
     const zoomFrame = screen.getByTitle('Zoom Phone');
     fireEvent.click(tab('架電結果の入力'));
     const form = await screen.findByRole('form', { name: '架電結果の入力' });
-    await within(form).findByRole('group', { name: '今回の結果' });
+    await within(form).findByRole('textbox', { name: 'タスクメモに追記' });
     const memo = form.querySelector('textarea');
     if (!memo) throw new Error('memo');
     fireEvent.change(memo, { target: { value: '受付で不在' } });
@@ -365,9 +367,11 @@ describe('selected properties are read in the same detail request', () => {
     expect([list.checked, bpo.checked, bpo.indeterminate]).toEqual([false, false, true]);
     fireEvent.click(within(picker).getByRole('button', { name: 'この項目で表示する' }));
     await waitFor(() => { expect(c.n.detail).toBe(2); });
+    // 選んだ項目 (BPOアポ情報の残り + 架電結果のカード) に、架電結果の入力欄の項目を足して読む (同じ 1 回の読み取り)
     expect(c.props[1]?.deals).toEqual(['bpo_appo_date', 'scheduled_business_meeting_date', 'negotiation_type', 'bpo_20251', 'bpo_24', 'bpo_20252', 'bpo_2', 'bpo_1',
       'recruitment_issues', 'bpo_20253', 'remarks_after_calling', 'charge_impression', 'bpo_29', 'bpo_apo_rikulogi', 'bpo_transactio_id', 'bpo_hsurl',
-      'nkadainofukasa', 'tjikanjiku', 'ckyougoujoukyou', 'ahkessaifuro']);
+      'nkadainofukasa', 'tjikanjiku', 'ckyougoujoukyou', 'ahkessaifuro', 'bpo_13', 'bpo_14', 'bpo_16', 'bpo_51', 'nitteigiri',
+      ...RESULT_PROPERTY_NAMES.filter(n => n.startsWith('risuto_') || n === 'saikadenn_zikan')]);
     // リスト情報は出さない (選んだ項目が 0)
     const panel = screen.getByTestId('property-panel');
     await waitFor(() => { expect(within(panel).queryByTestId('pp-card-list_info')).toBeNull(); });
@@ -387,7 +391,7 @@ describe('selected properties are read in the same detail request', () => {
     const list = within(panel).getByRole('region', { name: 'リスト情報' });
     const bpo = within(panel).getByRole('region', { name: 'BPOアポ情報' });
     // HubSpot と同じ順 (リスト情報 → BPOアポ情報)
-    expect([...panel.querySelectorAll('.pp-card')].map(el => el.getAttribute('aria-label'))).toEqual(['リスト情報', 'BPOアポ情報']);
+    expect([...panel.querySelectorAll('.pp-card')].map(el => el.getAttribute('aria-label'))).toEqual(['リスト情報', 'BPOアポ情報', '架電結果']);
     const listToggle = within(list).getByRole('button', { name: /リスト情報/ });
     const bpoToggle = within(bpo).getByRole('button', { name: /BPOアポ情報/ });
     expect([listToggle.getAttribute('aria-expanded'), bpoToggle.getAttribute('aria-expanded')]).toEqual(['true', 'false']);

@@ -756,4 +756,73 @@ mod tests {
         assert_eq!(entry.unknown("deals", &wanted), vec!["nope"]);
         assert_eq!(entry.unknown("contacts", &wanted), vec!["bpo_10", "nope"]);
     }
+
+    /// 架電結果の入力欄 (frontend/src/screens/crm/callResultModel.ts の RESULT_GROUPS) と、
+    /// 左の欄の「架電結果」カードの項目は、どれも書ける項目であること。
+    /// 定義は 2026-10-14 に HubSpot の取引プロパティ定義を読み取りで確かめた型・入力形式・読み取り専用の設定と同じ
+    #[test]
+    fn 架電結果の入力欄の項目はどれも書ける() {
+        let rw = json!({"readOnlyDefinition": false, "readOnlyValue": false});
+        let defs = [
+            ("risuto_kadennbi", "架電日", "date", "date", json!(null)),
+            (
+                "risuto_saikadennbi",
+                "再架電日",
+                "date",
+                "date",
+                json!(null),
+            ),
+            (
+                "saikadenn_zikan",
+                "再架電時間",
+                "number",
+                "number",
+                json!(null),
+            ),
+            (
+                "risuto_bikou",
+                "激アツメモ（決済・利用サービス・決算・職種など）",
+                "string",
+                "text",
+                json!(null),
+            ),
+            ("bpo_13", "次回架電日", "date", "date", json!(null)),
+            (
+                "bpo_14",
+                "次回架電時間",
+                "enumeration",
+                "radio",
+                json!(null),
+            ),
+            ("bpo_16", "タスクメモ", "string", "textarea", json!(null)),
+            ("bpo_51", "接触", "enumeration", "select", json!(null)),
+            ("nitteigiri", "日程切り", "number", "number", json!(null)),
+            // 新規営業の「TEL_アポ日確定」の必須項目 (担当者を選ぶ型)
+            (
+                "aposyutokusya",
+                "アポ取得者",
+                "enumeration",
+                "select",
+                json!("OWNER"),
+            ),
+        ];
+        for (name, label, ptype, field_type, referenced) in defs {
+            let mut p = json!({
+                "name": name, "label": label, "type": ptype, "fieldType": field_type,
+                "calculated": false, "modificationMetadata": rw.clone(),
+            });
+            if !referenced.is_null() {
+                p["externalOptions"] = json!(true);
+                p["referencedObjectType"] = referenced;
+            }
+            assert!(
+                is_writable(&p, name, label, ptype, field_type),
+                "{name} は書ける項目のはず"
+            );
+        }
+        // 自動で付く項目・試作の項目は入力欄に入れないが、仮に読み取り専用なら書けないと判定される
+        let ro = json!({"name": "bpo_5", "label": "x", "type": "string", "fieldType": "text",
+            "modificationMetadata": {"readOnlyValue": true}});
+        assert!(!is_writable(&ro, "bpo_5", "x", "string", "text"));
+    }
 }

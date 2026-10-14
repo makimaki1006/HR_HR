@@ -1,7 +1,7 @@
 {
   "source": "HubSpot の取引 (deal) レコード画面の左サイドバーのカード。カードの構成は公開 API で読めないため、画面を目視で確認して写した (読み取りのみ)",
   "checked_at": "2026-10-08",
-  "note": "label は HubSpot のカードに出ている表示名、name は取引プロパティの内部名 (どちらも確認済み・一意)。並びはカードの並び。HubSpot でカードを変えたらここを直す",
+  "note": "label は HubSpot のカードに出ている表示名、name は取引プロパティの内部名 (どちらも確認済み・一意)。並びはカードの並び。HubSpot でカードを変えたらここを直す。最後の「架電結果」は HubSpot のカードではなく、架電結果の入力欄 (BPO の組) の項目のうち上の 2 枚に無いものを、左の欄でも入力できるよう HR_HR が足したもの (2026-10-14)",
   "cards": [
     {
       "id": "list_info",
@@ -286,6 +286,33 @@
         {
           "label": "A/H（決裁フロー）",
           "name": "ahkessaifuro"
+        }
+      ]
+    },
+    {
+      "id": "call_result",
+      "title": "架電結果",
+      "expanded": true,
+      "items": [
+        {
+          "label": "次回架電日",
+          "name": "bpo_13"
+        },
+        {
+          "label": "次回架電時間",
+          "name": "bpo_14"
+        },
+        {
+          "label": "タスクメモ",
+          "name": "bpo_16"
+        },
+        {
+          "label": "接触",
+          "name": "bpo_51"
+        },
+        {
+          "label": "日程切り",
+          "name": "nitteigiri"
         }
       ]
     }

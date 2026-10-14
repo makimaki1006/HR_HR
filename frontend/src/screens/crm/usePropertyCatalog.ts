@@ -30,12 +30,25 @@ function fixtureCardProps(): CrmCatalogProperty[] {
   for (const c of HUBSPOT_CARDS) {
     for (const it of c.items) {
       if (FIXTURE_BASE_DEAL_PROPS.has(it.name) || out.some(x => x.name === it.name)) continue;
-      out.push(it.name === 'scheduled_business_meeting_date' ? p(it.name, it.label, 'datetime', 'date')
-        : FIXTURE_DATE_PROPS.has(it.name) ? p(it.name, it.label, 'date', 'date') : p(it.name, it.label, 'string', it.name === 'risuto_bikou' ? 'textarea' : 'text'));
+      const typed = FIXTURE_TYPED_PROPS[it.name];
+      out.push(typed ? { ...typed, label: it.label } : it.name === 'scheduled_business_meeting_date' ? p(it.name, it.label, 'datetime', 'date')
+        : FIXTURE_DATE_PROPS.has(it.name) ? p(it.name, it.label, 'date', 'date') : p(it.name, it.label, 'string', 'text'));
     }
   }
+  // アポ取得者 (担当者を選ぶ型。新規営業の「TEL_アポ日確定」の必須項目)
+  out.push({ ...p('aposyutokusya', 'アポ取得者', 'enumeration', 'select'), owner_ref: true });
   return out;
 }
+
+/** 架電結果の入力欄で使う項目の型 (HubSpot の実際の型と同じ。値・選択肢は架空) */
+const FIXTURE_TYPED_PROPS: Record<string, CrmCatalogProperty> = {
+  bpo_16: moc('bpo_16'),
+  bpo_51: p('bpo_51', '接触', 'enumeration', 'select', [{ value: 'true', label: 'はい', hidden: false }]),
+  nitteigiri: p('nitteigiri', '日程切り', 'number', 'number'),
+  saikadenn_zikan: p('saikadenn_zikan', '再架電時間', 'number', 'number'),
+  // 激アツメモは HubSpot では 1 行のテキスト
+  risuto_bikou: p('risuto_bikou', '激アツメモ', 'string', 'text'),
+};
 
 /** 架空サンプルの項目の一覧 (HubSpot には接続しない。表示名・選択肢は MOC の定義・HubSpot のカードの表示名と架空の値) */
 export const FIXTURE_CATALOG: CrmPropertyCatalogResponse = {

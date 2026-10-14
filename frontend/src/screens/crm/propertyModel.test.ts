@@ -63,11 +63,11 @@ describe('viewValue (how a property value is shown)', () => {
 });
 
 describe('the chosen properties (stored per browser)', () => {
-  it('the default is the items of the HubSpot cards リスト情報 + BPOアポ情報 (deal properties, card order, no duplicates); no contact / company items', () => {
+  it('the default is the items of the HubSpot cards リスト情報 + BPOアポ情報 + 架電結果 (deal properties, card order, no duplicates); no contact / company items', () => {
     expect(DEFAULT_SELECTED.deals).toEqual(cardPropertyNames());
-    expect(DEFAULT_SELECTED.deals).toHaveLength(63);
+    expect(DEFAULT_SELECTED.deals).toHaveLength(68);
     expect(DEFAULT_SELECTED.deals.slice(0, 4)).toEqual(['bpo_32', 'risuto_kadennbi', 'risuto_saikadennbi', 'saikadenn_zikan']);
-    expect(DEFAULT_SELECTED.deals.slice(-3)).toEqual(['tjikanjiku', 'ckyougoujoukyou', 'ahkessaifuro']);
+    expect(DEFAULT_SELECTED.deals.slice(-6)).toEqual(['ahkessaifuro', 'bpo_13', 'bpo_14', 'bpo_16', 'bpo_51', 'nitteigiri']);
     expect(DEFAULT_SELECTED.deals.length).toBeLessThanOrEqual(MAX_SELECTED_PER_OBJECT);
     expect(DEFAULT_SELECTED.contacts).toEqual([]);
     expect(DEFAULT_SELECTED.companies).toEqual([]);
@@ -121,9 +121,14 @@ describe('the chosen properties (stored per browser)', () => {
 });
 
 describe('HubSpot sidebar cards (hubspotCards.json, copied from the HubSpot deal record on 2026-10-08)', () => {
-  it('has リスト情報 (open) then BPOアポ情報 (closed), with the exact internal names in HubSpot order', () => {
+  it('has リスト情報 (open) then BPOアポ情報 (closed), with the exact internal names in HubSpot order, then 架電結果 (added by HR_HR, open)', () => {
     expect(HUBSPOT_CARDS_CHECKED_AT).toBe('2026-10-08');
-    expect(HUBSPOT_CARDS.map(c => [c.title, c.expanded, c.items.length])).toEqual([['リスト情報', true, 43], ['BPOアポ情報', false, 25]]);
+    expect(HUBSPOT_CARDS.map(c => [c.title, c.expanded, c.items.length])).toEqual([['リスト情報', true, 43], ['BPOアポ情報', false, 25], ['架電結果', true, 5]]);
+    // 架電結果の入力欄 (BPO の組) の項目のうち、上の 2 枚に無いもの
+    expect(HUBSPOT_CARDS[2]?.items).toEqual([
+      { label: '次回架電日', name: 'bpo_13' }, { label: '次回架電時間', name: 'bpo_14' }, { label: 'タスクメモ', name: 'bpo_16' },
+      { label: '接触', name: 'bpo_51' }, { label: '日程切り', name: 'nitteigiri' },
+    ]);
     expect(HUBSPOT_CARDS[0]?.items.map(i => i.name)).toEqual([
       'bpo_32', 'risuto_kadennbi', 'risuto_saikadennbi', 'saikadenn_zikan', 'risuto_bikou', 'service1', 'bpo_43', 'syuuryou', 'kyotenkessaiari',
       'syokusyu_risuto', 'tanntousya', 'hurigana_', 'risuto_tanntouyakusyoku', 'ketteishamei', 'ketteishanoyakushoku', 'kessaishamei',
@@ -148,22 +153,22 @@ describe('HubSpot sidebar cards (hubspotCards.json, copied from the HubSpot deal
     const idx = catalogIndex(FIXTURE_CATALOG);
     const sel = { deals: [...DEFAULT_SELECTED.deals, 'bpo_50', 'gone_from_hubspot'], contacts: [], companies: [] };
     const { sections, others } = cardSections(sel, idx);
-    expect(sections.map(x => x.card.title)).toEqual(['リスト情報', 'BPOアポ情報']);
+    expect(sections.map(x => x.card.title)).toEqual(['リスト情報', 'BPOアポ情報', '架電結果']);
     expect(sections[0]?.entries.slice(0, 3).map(e => e.prop.label)).toEqual(['URL_求人検索 ※編集不可', '架電日', '再架電日']);
     expect(sections[0]?.entries).toHaveLength(43);
     expect(sections[1]?.entries.map(e => e.prop.name)).toContain('tanntousya');
     expect(sections[0]?.entries.map(e => e.prop.name)).toContain('tanntousya');
-    expect(sections.map(x => x.unavailable)).toEqual([0, 0]);
+    expect(sections.map(x => x.unavailable)).toEqual([0, 0, 0]);
     expect(others.map(e => e.prop.name)).toEqual(['bpo_50']);
     // 一覧に無い (HubSpot で隠された) カードの項目は数えるだけで出さない
     const without = catalogIndex({ ...FIXTURE_CATALOG, objects: FIXTURE_CATALOG.objects.map(o => (o.object_type !== 'deals' ? o
       : { ...o, groups: o.groups.map(g => ({ ...g, properties: g.properties.filter(p => p.name !== 'risuto_bikou') })) })) });
-    expect(cardSections(DEFAULT_SELECTED, without).sections.map(x => [x.entries.length, x.unavailable])).toEqual([[42, 1], [25, 0]]);
+    expect(cardSections(DEFAULT_SELECTED, without).sections.map(x => [x.entries.length, x.unavailable])).toEqual([[42, 1], [25, 0], [5, 0]]);
     const listCard = HUBSPOT_CARDS[0];
     if (listCard === undefined) throw new Error('card');
     expect(cardAvailableNames(listCard, without)).toHaveLength(42);
     // 外した項目はどちらのカードにも出ない
     const fewer = toggleSelected(DEFAULT_SELECTED, 'deals', ['tanntousya'], false);
-    expect(cardSections(fewer, idx).sections.map(x => x.entries.some(e => e.prop.name === 'tanntousya'))).toEqual([false, false]);
+    expect(cardSections(fewer, idx).sections.map(x => x.entries.some(e => e.prop.name === 'tanntousya'))).toEqual([false, false, false]);
   });
 });

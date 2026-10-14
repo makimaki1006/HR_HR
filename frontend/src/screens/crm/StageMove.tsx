@@ -3,8 +3,9 @@ import { PropInput, SaveStatus } from './WriteWidgets';
 import { APPOINTER_FIELDS, draftToValue, initialDraft, ruleFieldNames, sameValue } from './writeModel';
 import type { FieldChange, FieldDef } from './writeModel';
 import type { StageMoveCtx } from './writeBindings';
+import type { SaveOutcome } from './useCrmWrite';
 
-interface Target { pipeline_id: string; stage_id: string; label: string }
+export interface Target { pipeline_id: string; stage_id: string; label: string }
 
 /** 項目の見出しがまとめて決まらないとき (項目の一覧が読めていない・どのグループにも無い) の見出し */
 const OTHER_SECTION = 'その他の項目';
@@ -22,7 +23,16 @@ export function sectionsOf(defs: readonly FieldDef[], groupOf: (name: string) =>
   return out;
 }
 
-function MoveModal({ ctx, target, onClose }: { ctx: StageMoveCtx; target: Target; onClose: () => void }) {
+/**
+ * ステージを移す画面 (必須の項目の確認)。
+ * 架電結果の入力欄から開くときは、入力欄の変更 (`extraChanges`) も同じ 1 回の保存で送る。
+ * この画面に出す項目と重なる入力欄の値は `presets` で最初から入れる (この画面の値を優先して送る)。
+ * 移し終えた (保存済み・反映待ち・競合) ときは `onDone` で結果を返す
+ */
+export function MoveModal({ ctx, target, onClose, extraChanges = [], presets = {}, onDone }: {
+  ctx: StageMoveCtx; target: Target; onClose: () => void;
+  extraChanges?: readonly FieldChange[]; presets?: Readonly<Record<string, string>>; onDone?: ((out: SaveOutcome) => void) | undefined;
+}) {
   const titleId = useId();
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rule = ctx.ruleOf(target.stage_id);
@@ -44,8 +54,8 @@ function MoveModal({ ctx, target, onClose }: { ctx: StageMoveCtx; target: Target
     void ctx.currentValues(defs).then(v => {
       if (!live) return;
       setCurrent(v);
-      setDraft(Object.fromEntries(defs.map(d => [d.name, initialDraft(d.kind, v[d.name])])));
-    }, () => { if (live) { setCurrent({}); setMessage('いまの値を読み込めませんでした。空欄から入力してください。'); setDraft(Object.fromEntries(defs.map(d => [d.name, '']))); } });
+      setDraft(Object.fromEntries(defs.map(d => [d.name, presets[d.name] ?? initialDraft(d.kind, v[d.name])])));
+    }, () => { if (live) { setCurrent({}); setMessage('いまの値を読み込めませんでした。空欄から入力してください。'); setDraft(Object.fromEntries(defs.map(d => [d.name, presets[d.name] ?? '']))); } });
     return () => { live = false; };
   // defs は defsKey で表している
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,6 +90,8 @@ function MoveModal({ ctx, target, onClose }: { ctx: StageMoveCtx; target: Target
       const value = draftToValue(d.kind, valueOf(d));
       return sameValue(value, draftToValue(d.kind, initialDraft(d.kind, base))) ? [] : [{ object: d.object, name: d.name, base, value }];
     });
+    // 入力欄の変更のうち、この画面に出していない項目も一緒に送る (この画面に出した項目はこの画面の値を使う)
+    for (const c of extraChanges) if (!defs.some(d => d.name === c.name && d.object === c.object)) changes.push(c);
     setSending(true); setErrors({}); setMessage('');
     const out = await ctx.move(target, changes);
     setSending(false);
@@ -95,8 +107,9 @@ function MoveModal({ ctx, target, onClose }: { ctx: StageMoveCtx; target: Target
       setMessage(parts.length > 0 ? parts.join('。') : '入力を確認してください。');
       return;
     }
-    if (out.kind === 'error') setMessage(`保存できていません: ${out.message}`);
-    else onClose();
+    if (out.kind === 'error') { setMessage(`保存できていません: ${out.message}`); return; }
+    onClose();
+    onDone?.(out);
   }
 
   const field = (d: FieldDef) => {

@@ -1,5 +1,5 @@
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
-import { fixtureItem } from './queueFixture';
+import { fixtureItem, fixturePipelineOf } from './queueFixture';
 import { formatPhoneForDisplay } from './phone';
 import type { SelectedProps } from './propertyModel';
 
@@ -22,8 +22,12 @@ export function fixtureDetail(dealId: string, props?: SelectedProps): WorkspaceR
     bpo_20: item.last_call_date, bpo_10: item.stop.unreachable_check, bpo_3: null, bpo_4: null, bpo_32: jobSearch, amount: '120000',
     bpo_50: '受付の方は親切。採用担当は午後在席(架空)',
     // HubSpot のカード「リスト情報」「BPOアポ情報」の項目 (架空。無いものは未入力)
-    risuto_kadennbi: item.last_call_date, risuto_saikadennbi: item.next_call_date, saikadenn_zikan: item.next_call_time,
-    risuto_bikou: '決裁は本社。拠点は採用人数だけ決める(架空)\n来月から媒体の契約見直し', tanntousya: item.contact?.name ?? null,
+    risuto_kadennbi: item.last_call_date, risuto_saikadennbi: item.next_call_date,
+    // 再架電時間は HubSpot では数値 (時)。激アツメモは 1 行のテキスト
+    saikadenn_zikan: item.next_call_time ? String(Number(item.next_call_time.slice(0, 2))) : null,
+    risuto_bikou: '決裁は本社。拠点は採用人数だけ決める(架空) / 来月から媒体の契約見直し', tanntousya: item.contact?.name ?? null,
+    // 架電結果の入力欄 (BPO の組) の項目 (架空)
+    bpo_16: '09/28 受付で不在。採用担当は火曜午後(架空)\n10/02 再度不在。折り返し依頼済み', bpo_51: null, nitteigiri: null, aposyutokusya: null,
     risuto_tanntouyakusyoku: item.contact?.job_title ?? null, syokusyu_risuto: 'ドライバー(架空)', risuto_ninnzuu: '3',
     recruit_media_observed_urls: 'https://www.example.com/job/1\nhttps://www.example.com/job/2',
     bpo_hsurl: 'https://app.hubspot.com/contacts/0/record/0-3/1',
@@ -36,7 +40,7 @@ export function fixtureDetail(dealId: string, props?: SelectedProps): WorkspaceR
   const companyValues: Values = item.company ? { name: item.company.name, website: 'https://www.example.com/', industry: '架空業', numberofemployees: '25' } : {};
   return {
     deal: {
-      id: item.deal_id, name: item.deal_name, stage_id: item.stage_id, stage_label: item.stage_label, pipeline_id: '753186575',
+      id: item.deal_id, name: item.deal_name, stage_id: item.stage_id, stage_label: item.stage_label, pipeline_id: fixturePipelineOf(dealId) ?? '753186575',
       owner_id: item.owner_id, amount: '120000', close_date: null, next_call_date: item.next_call_date,
       next_call_time: item.next_call_time, last_call_date: item.last_call_date, stop: item.stop, bpo_phone: null,
       // 求人検索は HubSpot の「URL_求人検索」と同じ形 (余計な項目付き)。ホームページは IANA の例示用ドメイン

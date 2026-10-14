@@ -1591,7 +1591,7 @@ async fn 選んだ項目の値は同じ読み取りで返り_呼び出し回数�
     );
 }
 
-/// 架電画面の「プロパティ」パネルの既定 (HubSpot の取引レコードの左サイドバーのカード「リスト情報」「BPOアポ情報」)。
+/// 架電画面の「プロパティ」パネルの既定 (HubSpot の取引レコードの左サイドバーのカード「リスト情報」「BPOアポ情報」と、HR_HR が足した「架電結果」)。
 /// 画面 (frontend/src/screens/crm/hubspotCards.ts) と同じファイルを読む
 const HUBSPOT_CARDS_JSON: &str = include_str!("../../frontend/src/screens/crm/hubspotCards.json");
 
@@ -1615,9 +1615,13 @@ fn hubspot_card_names() -> Vec<String> {
 const DEAL_READ_URL_BUDGET: usize = 2_048;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn hubspot_のカードの項目_63_件は同じ読み取りで返り_呼び出し回数は増えず_url_は上限内() {
+async fn hubspot_のカードの項目_68_件は同じ読み取りで返り_呼び出し回数は増えず_url_は上限内() {
     let names = hubspot_card_names();
-    assert_eq!(names.len(), 63, "リスト情報 43 + BPOアポ情報 25 - 重複 5");
+    assert_eq!(
+        names.len(),
+        68,
+        "リスト情報 43 + BPOアポ情報 25 - 重複 5 + 架電結果 5"
+    );
     assert_eq!(&names[..2], ["bpo_32", "risuto_kadennbi"]);
     let mut f = FakeHs::new();
     full(&mut f, BPO_OWNER);
@@ -1646,7 +1650,7 @@ async fn hubspot_のカードの項目_63_件は同じ読み取りで返り_呼�
         "案件の本体の読み取りは 1 回"
     );
     let sel = v["selected"]["deal"].as_object().unwrap();
-    assert_eq!(sel.len(), 63);
+    assert_eq!(sel.len(), 68);
     assert_eq!(sel["risuto_kadennbi"], "2026-09-25");
     assert_eq!(
         sel["bpo_hsurl"],

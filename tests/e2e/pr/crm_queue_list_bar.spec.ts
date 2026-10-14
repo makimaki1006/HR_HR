@@ -18,15 +18,15 @@ async function shot(page: Page, name: string) {
   await page.screenshot({ path: `${dir}/${name}.png` });
 }
 
-test('記録済みの印は短く、詳しい説明は title に。選んでいる行の Enter で結果のボタンへ。⚠ の印を押すと内訳が開く', async ({ page }) => {
+test('記録済みの印は短く、詳しい説明は title に。選んでいる行の Enter でステージのボタンへ。⚠ の印を押すと内訳が開く', async ({ page }) => {
   await open(page, 1512, 742);
   await rows(page).first().locator('button.cq-row-button').click();
   await page.getByRole('tab', { name: '架電結果の入力' }).click();
-  await page.getByRole('button', { name: '担当者と会話' }).click();
+  await page.getByRole('form', { name: '架電結果の入力' }).getByRole('button', { name: '受付ブロック', exact: true }).click();
   await page.getByRole('button', { name: /記録して次へ/ }).click();
   const mark = rows(page).first().locator('.cq-recorded');
   await expect(mark.locator('[aria-hidden="true"]')).toHaveText('✓記録済');
-  await expect(mark).toHaveAttribute('title', /HubSpot には保存されません/);
+  await expect(mark).toHaveAttribute('title', /HubSpot に保存しました/);
   const box = await mark.boundingBox();
   expect(box?.width ?? 999).toBeLessThan(70);
   // 会社名が切れない
@@ -46,11 +46,11 @@ test('記録済みの印は短く、詳しい説明は title に。選んでい�
   await shot(page, 'g3-notes-open');
   await notes.locator('summary').click();
 
-  // 選んでいる行で Enter → 結果のボタンにフォーカス (別のパネルが前に出ていても前に出す)
+  // 選んでいる行で Enter → ステージのボタンにフォーカス (別のパネルが前に出ていても前に出す)
   await page.getByRole('tab', { name: '活動ログ' }).click();
   await page.locator('button.cq-row-button[aria-pressed="true"]').focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('form[aria-label="架電結果の入力"] button.rf-outcome:focus')).toHaveCount(1);
+  await expect(page.locator('form[aria-label="架電結果の入力"] .rf-stage-buttons button:focus')).toHaveCount(1);
 });
 
 test('詳細条件は外側のクリックと Esc で閉じ、パネルの中では閉じない。「条件を追加」は検索欄へフォーカスする', async ({ page }) => {

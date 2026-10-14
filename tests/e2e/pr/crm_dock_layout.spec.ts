@@ -56,7 +56,8 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     const value = (label: string) => props.locator('dt').filter({ hasText: new RegExp(`^${label}$`, 'u') }).locator('xpath=following-sibling::dd[1]');
     await expect(value('架電日')).toHaveText('2026/09/25');
     await expect(value('再架電日')).toHaveText('2026/09/30');
-    await expect(value('再架電時間')).toHaveText('16:00');
+    // 再架電時間は HubSpot では数値 (時)
+    await expect(value('再架電時間')).toHaveText('16');
     await expect(value('利用中サービス')).toHaveText('未入力');
     await expect(value('担当者名')).toHaveText('丁野 三郎');
     await expect(props).not.toContainText('bpo_');
