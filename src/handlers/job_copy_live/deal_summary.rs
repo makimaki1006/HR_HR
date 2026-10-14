@@ -1,7 +1,8 @@
 //! Read-only: the application dates of every listing in one deal (案件の画面の週ごとの応募)。
 //! Counts and dates only; no applicant attribute leaves the server. The relation listing -> deal
 //! is checked against HubSpot for each listing, so a browser-provided id is not trusted.
-use super::{authorized_user, valid_id, Access, ReadError};
+use super::listings::{indeed_weekly_perf, INDEED_WEEKLY_PERF};
+use super::{authorized_user, valid_id, Access, ReadError, Record};
 use crate::AppState;
 use axum::{
     extract::{Query, State},
@@ -78,6 +79,70 @@ fn shared_overlap(
     (shared, by_day, undated)
 }
 
+/// The weekly Indeed results of each listing, read for all of them in one batch call.
+/// A listing with no usable value is simply absent (the screen shows "no billing data").
+fn perf_by_listing(records: &[Record]) -> BTreeMap<String, Value> {
+    records
+        .iter()
+        .filter_map(|record| Some((record.id.clone(), indeed_weekly_perf(record)?)))
+        .collect()
+}
+
+/// The one company related to the deal (id, name). None when there are none or several.
+async fn deal_company(
+    service: &super::JobReadService,
+    deal: &str,
+) -> Result<Option<(String, String)>, ReadError> {
+    let companies = service.all_associations("deals", deal, "companies").await?;
+    let [company] = companies.as_slice() else {
+        return Ok(None);
+    };
+    let records = service
+        .batch("companies", std::slice::from_ref(company), &["name"])
+        .await?;
+    Ok(records
+        .first()
+        .and_then(|record| record.value("name"))
+        .map(|name| (company.clone(), name.to_owned())))
+}
+
+#[derive(Deserialize)]
+pub(super) struct CompanyDealsQuery {
+    company: String,
+}
+
+/// The deals of one company (事業所), with their names. Read-only; ids only come from HubSpot.
+pub(super) async fn company_deals(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    Query(query): Query<CompanyDealsQuery>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    let service = access.service.as_ref().ok_or(ReadError(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "hubspot_not_configured",
+    ))?;
+    valid_id(&query.company)?;
+    let ids = service
+        .all_associations("companies", &query.company, "deals")
+        .await?;
+    let records = service.batch("deals", &ids, &["dealname"]).await?;
+    let deals: Vec<Value> = records
+        .iter()
+        .map(|r| json!({"id": r.id, "name": r.value("dealname")}))
+        .collect();
+    let name = service
+        .batch("companies", std::slice::from_ref(&query.company), &["name"])
+        .await?
+        .first()
+        .and_then(|record| record.value("name").map(str::to_owned));
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({"company": {"id": query.company, "name": name}, "deals": deals})),
+    ))
+}
+
 pub(super) async fn read(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
@@ -138,10 +203,24 @@ pub(super) async fn read(
         }
     }
     let (shared, shared_by_date, shared_missing_date) = shared_overlap(&linked);
+    // One batch call for every listing's weekly results; a failure only hides billing.
+    let perf = match service.batch("0-420", &ids, &[INDEED_WEEKLY_PERF]).await {
+        Ok(records) => perf_by_listing(&records),
+        Err(error) => {
+            tracing::warn!(code = error.1, "job-copy deal billing read failed");
+            BTreeMap::new()
+        }
+    };
+    for entry in &mut listings {
+        let found = entry["listing_id"].as_str().and_then(|id| perf.get(id));
+        entry["indeed_weekly_perf"] = found.cloned().unwrap_or(Value::Null);
+    }
+    let company = deal_company(service, &query.deal).await.ok().flatten();
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(json!({
             "deal_id": query.deal,
+            "company": company.map(|(id, name)| json!({"id": id, "name": name})),
             "fetched_at": chrono::Utc::now().to_rfc3339(),
             "listings": listings,
             "shared_applications": shared,
@@ -154,6 +233,29 @@ pub(super) async fn read(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn perf_is_taken_from_valid_json_and_bad_values_are_ignored() {
+        let rec = |id: &str, v: Value| -> Record {
+            serde_json::from_value(json!({"id":id,"properties":{"indeed_weekly_perf":v}})).unwrap()
+        };
+        let good = json!({"schema_version":1,"source":"hrhacker","job_id":"1234567","captured_at":"2026-10-05T00:00:00Z",
+            "rows":[{"period_start":"2026-09-28","period_end":"2026-10-04","impressions":100,"clicks":5,"cost_yen":12345.5,"applications":2}]})
+        .to_string();
+        let records = vec![
+            rec("1", json!(good)),
+            rec("2", json!("{not json")),
+            rec("3", json!(null)),
+            rec(
+                "4",
+                json!(r#"{"schema_version":2,"source":"hrhacker","rows":[]}"#),
+            ),
+        ];
+        let map = perf_by_listing(&records);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map["1"]["rows"][0]["cost_yen"], 12345.5);
+        assert!(!map.contains_key("2") && !map.contains_key("3") && !map.contains_key("4"));
+    }
 
     #[test]
     fn counts_dated_and_undated_applications() {

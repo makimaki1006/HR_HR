@@ -1,4 +1,5 @@
 import { DealSummary } from './DealSummary';
+import { CompanySummary } from './CompanySummary';
 import { fetchBodyDates } from './bodyDatesShared';
 import type { BillingEntry } from './timelineModel';
 import { ListingPopup } from './ListingPopup';
@@ -51,6 +52,7 @@ export function ParallelJobs({ jobs }: { jobs: ComparedJob[] }) {
   return <section aria-label="選んだ求人の横並び比較"><h2>選んだ求人を比べる</h2><p>媒体ごとに別の求人として並べています。取得できた求人の項目を比べます。</p><p>{result.fullDifferent ? '本文には違いがあります。' : '確認した本文は同じです。'} 値がない項目は「未取得」で表示します。</p><h3>違う項目（{result.rows.filter(row => row.different).length}項目）</h3>{table(true)}<details><summary>同じ項目（{result.rows.filter(row => !row.different).length}項目）</summary>{table(false)}</details>{result.unstructured.length > 0 && <p>項目に分けられない本文があります。給与や休日を文章から推測して補っていません。求人の詳細で確認してください。</p>}{jobs.some(job => job.body === null) && <p>本文が未取得の求人があります。</p>}</section>;
 }
 export function DealComparison({ deal, onOpen, onClose, billingByJob }: { deal: DealSelection; onOpen: (job: JobCopyRecord) => void; onClose: () => void; billingByJob?: Readonly<Record<string, readonly BillingEntry[]>> }) {
+  const [company, setCompany] = useState<{ id: string; name: string } | null>(null);
   const [popup, setPopup] = useState<{ job: JobCopyRecord; opener: HTMLElement } | null>(null);
   const [extraColumns, setExtraColumns] = useState<ColumnKey[]>([]);
   const visibleColumns = columns.filter(([key], index) => index < 8 || extraColumns.includes(key));
@@ -99,7 +101,17 @@ export function DealComparison({ deal, onOpen, onClose, billingByJob }: { deal: 
     if (result.ok) setComparison(result.data.jobs.map(job => ({ id: job.listing.id, title: job.listing.title ?? '求人名未取得', media: mediaLabel(job.listing.media), body: job.body, ...(job.fields ? { fields: job.fields } : {}) }))); else setError(failure(result.error));
     setBusy(false);
   };
-  return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><header><div><h1>この取引の求人</h1><p>{deal.name}</p></div><button className="jc-button" onClick={onClose}>詳細に戻る</button></header><DealSummary deal={deal} billingByJob={billingByJob ?? {}} onOpenListing={(row, opener) => { void open(row, opener); }} /><p>取引に関連する求人を50件ずつ表示します。都道府県・職種・案の状態は左の絞り込み条件を引き継ぎます。</p>
+  const openListing = (row: HubSpotListing, opener?: HTMLElement) => { void open(row, opener); };
+  const popupView = popup && <ListingPopup navigation={{ ids: (page?.listings ?? []).map(row => `hubspot-history-${row.id}`), load: async (id, signal) => {
+      const row = page?.listings.find(item => `hubspot-history-${item.id}` === id);
+      if (!row) throw new Error('求人を取得できません');
+      const result = await loadVersions(row.id, { signal });
+      if (!result.ok) throw result.error;
+      if (!signal.aborted) prefetchNeighbors((page?.listings ?? []).map(item => item.id), row.id);
+      return listingRecord(result.data, row);
+    } }} job={popup.job} version={popup.job.versions.filter(item => item.kind === 'published').at(-1)} returnFocus={popup.opener} onClose={() => { setPopup(null); }} />;
+  if (company) return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><header><div><h1>この事業所の求人</h1><p>{company.name}</p></div><button className="jc-button" onClick={() => { setCompany(null); }}>取引に戻る</button></header><CompanySummary company={company} billingByJob={billingByJob ?? {}} onOpenListing={openListing} />{error && <p role="alert">{error}</p>}{busy && <p role="status">選んだ求人を読み込みしています…</p>}{popupView}</main>;
+  return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><header><div><h1>この取引の求人</h1><p>{deal.name}</p></div><button className="jc-button" onClick={onClose}>詳細に戻る</button></header><DealSummary deal={deal} billingByJob={billingByJob ?? {}} onOpenListing={openListing} onOpenCompany={setCompany} /><p>取引に関連する求人を50件ずつ表示します。都道府県・職種・案の状態は左の絞り込み条件を引き継ぎます。</p>
     <div className="jc-deal-controls"><label>表の媒体<select value={media} onChange={event => { setMedia(event.target.value); setOffset(0); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label><label>表の公開状況<select value={publication} onChange={event => { setPublication(event.target.value); setOffset(0); }}><option value="">すべて</option><option value="unknown">未取得</option>{['公開', '公開中', '掲載中', '非公開', '公開終了', '公開開始前', '掲載終了', '募集中', '募集終了', '不明'].map(value => <option key={value}>{value}</option>)}</select></label><button className="jc-button" onClick={() => { setReload(value => value + 1); }}>表を再読み込み</button></div>
     <details className="jc-deal-column-options"><summary>表示する列を選ぶ</summary><div>{optionalColumns.map(([key, label]) => <label key={key}><input type="checkbox" checked={extraColumns.includes(key)} onChange={event => { setExtraColumns(keys => event.target.checked ? [...keys, key] : keys.filter(item => item !== key)); }} />{label}</label>)}</div></details>
     {error && <p role="alert">{error}</p>}{!page && <p role="status">この取引の求人を読み込みしています…</p>}{busy && <p role="status">選んだ求人を読み込みしています…</p>}
