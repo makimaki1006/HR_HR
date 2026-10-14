@@ -154,7 +154,7 @@ export function dummyBilling(entries: readonly BillingEntry[]): BillingEntry[] {
 function realBillingEntries(job: JobCopyRecord, injected?: readonly BillingEntry[]): BillingEntry[] {
   const fromHrh: BillingEntry[] = (job.hrhPerformance?.rows ?? []).map(row => ({
     source: 'hrhacker', start: row.period_start, end: row.period_end, amountYen: row.cost_yen, taxIncluded: null,
-    media: 'HRハッカー', mediaJobId: job.mediaJobId, impressions: row.impressions, clicks: row.clicks, mediaApplications: row.applications,
+    media: job.hrhPerformance?.source === 'airwork' ? 'AirWork' : 'HRハッカー', mediaJobId: job.mediaJobId, impressions: row.impressions, clicks: row.clicks, mediaApplications: row.applications,
     ...(isDemoJob(job) ? { fictional: true } : {}),
   }));
   const csv = (injected ?? []).filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end);

@@ -164,14 +164,14 @@ export function SummaryView({ scope, source, billingByJob, onOpenListing, onOpen
         <h3>データ</h3>
         <p>直近4週の終わり：{formatDay(asOf)}（全部の求人の応募データがそろっている最後の日）</p>
         <h3>データの最終日</h3>
-        <ul>{cutoffs.map(cutoff => <li key={cutoff.media}><strong>{mediaLabel(cutoff.media)}</strong><br />応募：{cutoff.lastApplication ? formatDay(cutoff.lastApplication) : '未取得'}<br />課金：{cutoff.media === 'airwork' ? '課金データなし' : cutoff.lastBilling ? formatDay(cutoff.lastBilling) : '未取り込み'}</li>)}</ul>
+        <ul>{cutoffs.map(cutoff => <li key={cutoff.media}><strong>{mediaLabel(cutoff.media)}</strong><br />応募：{cutoff.lastApplication ? formatDay(cutoff.lastApplication) : '未取得'}<br />課金：{cutoff.lastBilling ? formatDay(cutoff.lastBilling) : cutoff.media === 'airwork' ? '課金データなし' : '未取り込み'}</li>)}</ul>
         {lastBilling !== null && lastBilling < asOf && <p>課金は {formatDay(lastBilling)} までの週の分です。それより後の日は課金に含まれません。</p>}
         <h3>{noun}の合計の数え方</h3>
         <p>{scope === 'deal' ? 'この案件の求人を合計します。' : 'この事業所の全部の取引の求人を、同じ求人は1回だけ数えて合計します。'}掲載を終えた求人も、掲載していた間の応募と課金を含みます。</p>
         <p>直近4週は{formatDay(asOf)}までの28日間、前の4週はその前の28日間です。{ROLLUP_RULES.period}。</p>
         <p>複数の取引に結び付いた求人：{ROLLUP_RULES.multiDeal}。{model.multiCount > 0 ? `この${noun}には ${String(model.multiCount)}件あります。` : ''}</p>
         {scope === 'company' && <p>{ROLLUP_RULES.company}。</p>}
-        <p>課金は HRハッカーの Indeed の週ごとの実績です。AirWork は課金データがないため、課金の合計と応募1件あたりから外しています{model.excluded > 0 ? `（${String(model.excluded)}件）` : ''}。</p>
+        <p>課金は Indeed と AirWork の週ごとの実績です。課金データのない求人（AirWork でまだ取り込めていないもの）は、課金の合計と応募1件あたりから外しています{model.excluded > 0 ? `（${String(model.excluded)}件）` : ''}。</p>
         <p>{noun}の画面では市場の数字を合計しません。求人ごとに職種が違うことがあるためです。</p>
       </aside>
     </div>

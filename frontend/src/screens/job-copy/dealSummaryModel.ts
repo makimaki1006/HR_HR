@@ -259,8 +259,8 @@ export function mediaCutoffs(listings: readonly DealListingInput[]): MediaCutoff
 }
 
 /** 課金の週ごとの行 (HRハッカー実績) を、日割りの計算に使う期間に直す。 */
-export function perfBillingEntries(perf: { rows: readonly { period_start: string; period_end: string; cost_yen: number | null }[] } | undefined, mediaJobId: string): BillingEntry[] {
-  return (perf?.rows ?? []).map(row => ({ source: 'hrhacker' as const, start: row.period_start, end: row.period_end, amountYen: row.cost_yen, taxIncluded: null, media: 'HRハッカー', mediaJobId }));
+export function perfBillingEntries(perf: { source?: 'hrhacker' | 'airwork'; rows: readonly { period_start: string; period_end: string; cost_yen: number | null }[] } | undefined, mediaJobId: string): BillingEntry[] {
+  return (perf?.rows ?? []).map(row => ({ source: 'hrhacker' as const, start: row.period_start, end: row.period_end, amountYen: row.cost_yen, taxIncluded: null, media: perf?.source === 'airwork' ? 'AirWork' : 'HRハッカー', mediaJobId }));
 }
 
 /** 事業所（会社）の集計で、どの求人を何回数えるかを決める1か所の規則。 */

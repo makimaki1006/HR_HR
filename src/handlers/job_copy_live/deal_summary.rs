@@ -1,7 +1,9 @@
 //! Read-only: the application dates of every listing in one deal (案件の画面の週ごとの応募)。
 //! Counts and dates only; no applicant attribute leaves the server. The relation listing -> deal
 //! is checked against HubSpot for each listing, so a browser-provided id is not trusted.
-use super::listings::{indeed_weekly_perf, INDEED_WEEKLY_PERF};
+use super::listings::{
+    airwork_weekly_perf, indeed_weekly_perf, AIRWORK_WEEKLY_PERF, INDEED_WEEKLY_PERF,
+};
 use super::{authorized_user, valid_id, Access, ReadError, Record};
 use crate::AppState;
 use axum::{
@@ -79,12 +81,21 @@ fn shared_overlap(
     (shared, by_day, undated)
 }
 
-/// The weekly Indeed results of each listing, read for all of them in one batch call.
-/// A listing with no usable value is simply absent (the screen shows "no billing data").
-fn perf_by_listing(records: &[Record]) -> BTreeMap<String, Value> {
+/// The weekly results (Indeed for HRハッカー, AirWork for AirWork) of each listing, read for all of
+/// them in one batch call. A listing with no usable value is simply absent (the screen shows
+/// "no billing data").
+fn perf_by_listing(records: &[Record]) -> BTreeMap<String, (&'static str, Value)> {
     records
         .iter()
-        .filter_map(|record| Some((record.id.clone(), indeed_weekly_perf(record)?)))
+        .filter_map(|record| {
+            if let Some(v) = indeed_weekly_perf(record) {
+                return Some((record.id.clone(), ("indeed_weekly_perf", v)));
+            }
+            Some((
+                record.id.clone(),
+                ("airwork_weekly_perf", airwork_weekly_perf(record)?),
+            ))
+        })
         .collect()
 }
 
@@ -204,7 +215,14 @@ pub(super) async fn read(
     }
     let (shared, shared_by_date, shared_missing_date) = shared_overlap(&linked);
     // One batch call for every listing's weekly results; a failure only hides billing.
-    let perf = match service.batch("0-420", &ids, &[INDEED_WEEKLY_PERF]).await {
+    let perf = match service
+        .batch(
+            "0-420",
+            &ids,
+            &[INDEED_WEEKLY_PERF, AIRWORK_WEEKLY_PERF, "id_airwork"],
+        )
+        .await
+    {
         Ok(records) => perf_by_listing(&records),
         Err(error) => {
             tracing::warn!(code = error.1, "job-copy deal billing read failed");
@@ -213,7 +231,11 @@ pub(super) async fn read(
     };
     for entry in &mut listings {
         let found = entry["listing_id"].as_str().and_then(|id| perf.get(id));
-        entry["indeed_weekly_perf"] = found.cloned().unwrap_or(Value::Null);
+        entry["indeed_weekly_perf"] = Value::Null;
+        entry["airwork_weekly_perf"] = Value::Null;
+        if let Some((key, value)) = found {
+            entry[*key] = value.clone();
+        }
     }
     let company = deal_company(service, &query.deal).await.ok().flatten();
     Ok((
@@ -235,6 +257,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn airwork_rows_are_read_with_their_own_id() {
+        let aw = json!({"schema_version":1,"source":"airwork","job_id":"555","captured_at":"2026-10-05T00:00:00Z",
+            "rows":[{"period_start":"2026-09-28","period_end":"2026-10-04","impressions":100,"clicks":5,"cost_yen":8000,"applications":2}]})
+        .to_string();
+        let rec = |id: &str, own: &str| -> Record {
+            serde_json::from_value(
+                json!({"id":id,"properties":{"id_airwork":own,"airwork_weekly_perf":aw}}),
+            )
+            .unwrap()
+        };
+        let map = perf_by_listing(&[rec("7", "555"), rec("8", "556")]);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map["7"].0, "airwork_weekly_perf");
+        assert_eq!(map["7"].1["rows"][0]["cost_yen"], 8000);
+    }
+
+    #[test]
     fn perf_is_taken_from_valid_json_and_bad_values_are_ignored() {
         let rec = |id: &str, v: Value| -> Record {
             serde_json::from_value(json!({"id":id,"properties":{"indeed_weekly_perf":v}})).unwrap()
@@ -253,7 +292,8 @@ mod tests {
         ];
         let map = perf_by_listing(&records);
         assert_eq!(map.len(), 1);
-        assert_eq!(map["1"]["rows"][0]["cost_yen"], 12345.5);
+        assert_eq!(map["1"].0, "indeed_weekly_perf");
+        assert_eq!(map["1"].1["rows"][0]["cost_yen"], 12345.5);
         assert!(!map.contains_key("2") && !map.contains_key("3") && !map.contains_key("4"));
     }
 

@@ -2,7 +2,7 @@
 import { apiGet } from '../../api/client';
 import { fetchBodyDates } from './bodyDatesShared';
 import { applicationsCutoffDate } from './detailBandModel';
-import { indeedWeeklyPerformance } from './hubspotListings';
+import { indeedWeeklyPerformance, weeklyPerfRaw } from './hubspotListings';
 import type { HubSpotListing, HubSpotListingPage } from './hubspotListings';
 import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import { perfBillingEntries } from './dealSummaryModel';
@@ -11,7 +11,7 @@ import { publicationLabel } from './hubspotListings';
 import type { BillingEntry } from './timelineModel';
 
 interface DealApplications {
-  listings: { listing_id: string; total?: number; by_date?: Record<string, number>; fetched_at?: string; error?: string; indeed_weekly_perf?: unknown }[];
+  listings: { listing_id: string; total?: number; by_date?: Record<string, number>; fetched_at?: string; error?: string; indeed_weekly_perf?: unknown; airwork_weekly_perf?: unknown }[];
   shared_applications: number;
   shared_by_date?: Record<string, number>;
   company?: { id: string; name: string } | null;
@@ -53,21 +53,21 @@ export async function loadDealData(dealId: string, name: string, signal: AbortSi
     data.shared = apps.data.shared_applications;
     data.overlap = apps.data.shared_by_date ?? {};
     data.fetched = new Map(rows.map(row => [row.id, applicationsCutoffDate({ overallApplications: { fetchedAt: find(row.id)?.fetched_at } })]));
-    data.perf = new Map(rows.map(row => [row.id, indeedWeeklyPerformance(find(row.id)?.indeed_weekly_perf, row.media, row.media_job_id)]));
+    data.perf = new Map(rows.map(row => [row.id, indeedWeeklyPerformance(weeklyPerfRaw(find(row.id) ?? {}, row.media), row.media, row.media_job_id)]));
     data.company = apps.data.company ?? null;
   }
   if (dates.ok && dates.data.dates) data.bodyDates = dates.data.dates;
   return data;
 }
 
-/** 計算に渡す求人。HRハッカーは HubSpot の週ごとの実績 (と取り込んだ課金CSV)、AirWork は課金データなし。 */
+/** 計算に渡す求人。HRハッカーは HubSpot の週ごとの実績 (と取り込んだ課金CSV)、AirWork は HubSpot の週ごとの実績があるものだけ (無い求人は課金データなし)。 */
 export function dealInputs(data: DealData, billingByJob: Readonly<Record<string, readonly BillingEntry[]>>): DealListingInput[] {
   return data.rows.map(row => ({
     id: row.id, title: row.title ?? '求人名未取得', media: row.media, ended: publicationLabel(row.publication_status) === '掲載終了',
     byDate: data.applications.get(row.id) ?? null,
-    billing: row.media === 'airwork' ? [] : [...perfBillingEntries(data.perf.get(row.id), row.media_job_id), ...(billingByJob[`hubspot-history-${row.id}`] ?? [])],
+    billing: row.media === 'airwork' ? perfBillingEntries(data.perf.get(row.id), row.media_job_id) : [...perfBillingEntries(data.perf.get(row.id), row.media_job_id), ...(billingByJob[`hubspot-history-${row.id}`] ?? [])],
     fetchedDate: data.fetched.get(row.id) ?? null,
-    billingUnavailable: row.media === 'airwork',
+    billingUnavailable: row.media === 'airwork' && data.perf.get(row.id) === undefined,
     inOtherDeals: (row.deal_ids?.length ?? 0) > 1,
   }));
 }
