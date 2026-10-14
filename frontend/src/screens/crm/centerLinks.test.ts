@@ -116,6 +116,17 @@ describe('extractUrls / searchUrlFor / isEmptyGoogleSearch', () => {
     expect(dealJobSearchUrl(data, 'phone')).toBe(rowJobSearchUrl(row, 'phone'));
     expect(dealJobSearchUrl(data, 'company')).toBe(rowJobSearchUrl(row, 'company'));
   });
+  it('長野の 10 桁の番号はハイフン区切りで検索し、行を選んだ直後と詳細が届いた後で同じ URL', () => {
+    const row = { phone: '0262765000', company: null, deal_name: '案件A' };
+    const want = 'https://www.google.com/search?q=026-276-5000+%E6%B1%82%E4%BA%BA';
+    expect(rowJobSearchUrl(row, 'phone')).toBe(want);
+    const deal = { job_search_url: null, name: '案件A' } as unknown as Parameters<typeof dealJobSearchUrl>[0]['deal'];
+    for (const number of ['0262765000', '+81262765000', '026-276-5000']) {
+      const data = { deal, dial: { number, source: 'contact' as const }, companies: [] } as unknown as Parameters<typeof dealJobSearchUrl>[0];
+      expect(dealJobSearchUrl(data, 'phone')).toBe(want);
+    }
+    expect(waitingFixedLinks(row, 'phone', '読み込み中')[0]?.url).toBe(want);
+  });
   it('詳細を読む前でも、行があれば求人検索の URL がある', () => {
     const row = { phone: '03-0000-0001', company: null, deal_name: null };
     const l = waitingFixedLinks(row, 'phone', '待ち');
