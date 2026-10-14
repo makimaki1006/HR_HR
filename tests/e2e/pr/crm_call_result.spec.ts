@@ -82,8 +82,9 @@ test.describe('CRM 架電画面: 架電結果を実在の取引プロパティ�
     await expect(form(page).locator('.rf-stage-head')).toContainText('今: 担当者ブロック');
     await expect(form(page).getByRole('group', { name: 'ステージ(よく使うもの)' }).getByRole('button')).toHaveText(['不在', '受付ブロック', '不通要入力', '担当者ブロック', '日程確保', 'アポ日確定要入力']);
     await expect(stageBtn(page, '担当者ブロック')).toBeDisabled();
-    // 架電日は入っている日 (2026-09-25) のまま。次回架電日・時間は今の値。次回架電時間は HubSpot の定義どおり 45 択 + 未入力
-    await expect(field(page, '架電日')).toHaveValue('2026/09/25');
+    // 架電日は前回の日 (2026-09-25) が入っていても今日。前回の日は欄の横に小さく出す。次回架電日・時間は今の値。次回架電時間は HubSpot の定義どおり 45 択 + 未入力
+    await expect(field(page, '架電日')).toHaveValue(jstDate(0).replaceAll('-', '/'));
+    await expect(form(page).getByTestId('call-date-prev')).toHaveText('前回: 09/25');
     await expect(field(page, '次回架電日')).toHaveValue('2026/09/30');
     await expect(field(page, '次回架電時間').locator('option')).toHaveCount(46);
     // メモは今の内容を読み取りで出し、下の欄は追記

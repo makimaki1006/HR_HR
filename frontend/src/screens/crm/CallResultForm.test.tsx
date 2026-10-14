@@ -78,12 +78,13 @@ describe('架電結果の入力欄: チームごとの項目の組', () => {
 });
 
 describe('架電結果の入力欄: 初期値と追記', () => {
-  it('架電日が空なら今日 (JST) を最初から入れ、入っていればその日のまま', async () => {
+  it('架電日が空なら今日 (JST) を最初から入れる。前回の日は無いので出さない', async () => {
     const { api, patch } = spyApi();
     await renderFixture('&q=架空商事', api);
     open('架空商事株式会社');
     await formReady();
     expect(input('架電日').value).toBe('2026/10/14');
+    expect(within(form()).queryByTestId('call-date-prev')).toBeNull();
     // 何も変えずに記録すると、架電日 (今日) だけを送る
     fireEvent.click(recordBtn());
     await waitFor(() => { expect(patch).toHaveBeenCalledTimes(1); });
@@ -92,12 +93,29 @@ describe('架電結果の入力欄: 初期値と追記', () => {
     expect(bodyOf(patch).stage).toBeUndefined();
   });
 
-  it('入っている架電日は変えず、変えなければ送らない', async () => {
-    const { api } = spyApi();
+  it('前回の架電日が入っていても今日を最初から入れ、前回の日は欄の横に小さく出す。保存すると今日で上書きする', async () => {
+    const { api, patch } = spyApi();
     await renderFixture('', api);
     open('架空食品株式会社');
     await formReady();
-    expect(input('架電日').value).toBe('2026/09/28');
+    expect(input('架電日').value).toBe('2026/10/14');
+    expect(within(form()).getByTestId('call-date-prev').textContent).toBe('前回: 09/28');
+    fireEvent.click(recordBtn());
+    await waitFor(() => { expect(patch).toHaveBeenCalledTimes(1); });
+    expect(bodyOf(patch).set).toEqual({ risuto_kadennbi: TODAY });
+    expect(bodyOf(patch).base).toEqual({ risuto_kadennbi: '2026-09-28' });
+  });
+
+  it('架電日は変えられる (前回と同じ日に戻せば送らない)', async () => {
+    const { api, patch } = spyApi();
+    await renderFixture('', api);
+    open('架空食品株式会社');
+    await formReady();
+    fireEvent.change(input('架電日'), { target: { value: '2026/09/28' } });
+    fireEvent.change(input('日程切り'), { target: { value: '1' } });
+    fireEvent.click(recordBtn());
+    await waitFor(() => { expect(patch).toHaveBeenCalledTimes(1); });
+    expect(bodyOf(patch).set).toEqual({ nitteigiri: '1' });
   });
 
   it('タスクメモ (複数行) は、今の内容の末尾に改行と日付を付けて足す。今の内容は読み取りで上に出す', async () => {
@@ -143,8 +161,8 @@ describe('架電結果の入力欄: 保存', () => {
     expect(patch).toHaveBeenCalledTimes(1);
     const b = bodyOf(patch);
     expect(b.stage).toEqual({ pipeline_id: '753186575', stage_id: '1095387444' });
-    expect(b.set).toEqual({ bpo_13: '2026-10-16', bpo_14: '9:15' });
-    expect(b.base).toEqual({ bpo_13: '2026-10-01', bpo_14: '10:00' });
+    expect(b.set).toEqual({ risuto_kadennbi: TODAY, bpo_13: '2026-10-16', bpo_14: '9:15' });
+    expect(b.base).toEqual({ risuto_kadennbi: '2026-09-28', bpo_13: '2026-10-01', bpo_14: '10:00' });
     // 前の行に保存済みの印。次の行の入力欄に、前の行を保存したことを緑で出す
     expect(within(within(list()).getByText('架空食品株式会社').closest('li') as HTMLElement).getByText('記録済み(HubSpot に保存済み)')).toBeTruthy();
     await waitFor(() => { expect(within(form()).getByTestId('result-notice').textContent).toBe('前の架電先: 架空食品株式会社 を HubSpot に保存しました。'); });
@@ -160,7 +178,7 @@ describe('架電結果の入力欄: 保存', () => {
     fireEvent.change(input('日程切り'), { target: { value: '2' } });
     fireEvent.keyDown(input('日程切り'), { key: 'Enter', ctrlKey: true });
     await waitFor(() => { expect(selectedId()).not.toBe(from); });
-    expect(bodyOf(patch).set).toEqual({ nitteigiri: '2' });
+    expect(bodyOf(patch).set).toEqual({ risuto_kadennbi: TODAY, nitteigiri: '2' });
   });
 
   it('必須のあるステージ: ステージを移す画面で必須を確かめ、入力欄の変更と一緒に 1 回で送る', async () => {
@@ -186,7 +204,7 @@ describe('架電結果の入力欄: 保存', () => {
     expect(patch).toHaveBeenCalledTimes(1);
     const b = bodyOf(patch);
     expect(b.stage).toEqual({ pipeline_id: '753186575', stage_id: '1095387443' });
-    expect(Object.keys(b.set).sort()).toEqual(['bpo_10', 'bpo_16']);
+    expect(Object.keys(b.set).sort()).toEqual(['bpo_10', 'bpo_16', 'risuto_kadennbi']);
     expect(b.set.bpo_10).toBe(opt);
     expect(b.set.bpo_16).toMatch(/\n10\/14 番号が通じない$/u);
   });

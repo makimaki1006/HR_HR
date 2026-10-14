@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BPO_PIPELINE_ID, DRAFT_STORAGE_KEY, RESULT_GROUPS, RESULT_PROPERTY_NAMES, appendMemo, clearDraftEntry, emptyResultDraft, isCalendarDate, isEmptyDraft,
   loadStore, markRecorded, memoDatePrefix, msUntilNextJstMidnight, nextUnrecorded, optionLabel, parseStore, putDraft, quickStagesOf, resultChanges, resultTeamOf,
-  saveStore, shownValue, todayJst, withResultProps,
+  previousDateLabel, saveStore, shownValue, todayJst, withResultProps,
 } from './callResultModel';
 import type { ResultFieldSpec } from './callResultModel';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
@@ -68,10 +68,13 @@ describe('初期値と保存する変更', () => {
     { spec: spec('nitteigiri', 'plain'), def: def('nitteigiri', 'number') },
   ];
   const at = (i: number) => { const f = fields[i]; if (!f) throw new Error(String(i)); return f; };
-  it('架電日は空なら今日、入っていればその日。メモの欄は空 (足す文だけを書く)', () => {
+  it('架電日は前回の日が入っていても毎回今日。メモの欄は空 (足す文だけを書く)', () => {
     const d = emptyResultDraft();
     expect(shownValue(at(0).spec, at(0).def, d, { risuto_kadennbi: null }, TODAY)).toBe(TODAY);
-    expect(shownValue(at(0).spec, at(0).def, d, { risuto_kadennbi: '2026-09-28' }, TODAY)).toBe('2026-09-28');
+    expect(shownValue(at(0).spec, at(0).def, d, { risuto_kadennbi: '2026-09-28' }, TODAY)).toBe(TODAY);
+    expect(previousDateLabel('2026-09-28')).toBe('09/28');
+    expect(previousDateLabel(null)).toBeNull();
+    expect(previousDateLabel('')).toBeNull();
     expect(shownValue(at(2).spec, at(2).def, d, { bpo_16: '前のメモ' }, TODAY)).toBe('');
     // 利用者が空にした架電日は今日に戻さない
     expect(shownValue(at(0).spec, at(0).def, { stageId: '', values: { risuto_kadennbi: '' } }, { risuto_kadennbi: null }, TODAY)).toBe('');

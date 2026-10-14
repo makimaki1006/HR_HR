@@ -79,3 +79,5 @@
 @media (max-height: 820px) and (min-width: 1000px) {
   .rf-stage-btn { min-height: 30px; padding: 4px; font-size: 12px; }
 }
+.rf-label-row { display: flex; align-items: baseline; gap: 8px; }
+.rf-prev { color: var(--cq-sub); font-size: 11px; }

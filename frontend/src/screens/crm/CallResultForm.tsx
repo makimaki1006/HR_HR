@@ -8,7 +8,7 @@ import { ruleFieldNames } from './writeModel';
 import type { FieldChange, FieldDef } from './writeModel';
 import type { SaveOutcome } from './useCrmWrite';
 import type { StageMoveCtx } from './writeBindings';
-import { RESULT_GROUPS, appendMemo, isEmptyDraft, memoDatePrefix, quickStagesOf, resultChanges, shownValue } from './callResultModel';
+import { RESULT_GROUPS, appendMemo, isEmptyDraft, memoDatePrefix, previousDateLabel, quickStagesOf, resultChanges, shownValue } from './callResultModel';
 import type { ResultDraft, ResultFieldSpec, ResultTeam } from './callResultModel';
 import './result-form.css';
 
@@ -220,8 +220,11 @@ export function CallResultForm({
         {err !== undefined && <small className="rf-err" role="alert">{err}</small>}
       </div>;
     }
+    const prev = spec.role === 'callDate' ? previousDateLabel(cur) : null;
     return <label key={spec.name} className={`rf-field${spec.primary ? '' : ' rf-minor'}`} data-field={spec.name}>
-      <span className="rf-label">{name}</span>
+      {prev !== null
+        ? <span className="rf-label-row"><span className="rf-label">{name}</span><small className="rf-prev" data-testid="call-date-prev">前回: {prev}</small></span>
+        : <span className="rf-label">{name}</span>}
       <PropInput def={def} value={shownValue(spec, def, draft, current, today)} onChange={v => { setValue(spec.name, v); }} />
       {err !== undefined && <small className="rf-err" role="alert">{err}</small>}
     </label>;

@@ -13,7 +13,7 @@ import { draftToValue, initialDraft, sameValue } from './writeModel';
 
 export type ResultTeam = 'bpo' | 'sales';
 
-/** 項目の役目。callDate = 空なら今日を入れる / memo = 追記で入れる */
+/** 項目の役目。callDate = 毎回今日 (JST) を最初から入れる / memo = 追記で入れる */
 export type ResultFieldRole = 'callDate' | 'nextDate' | 'memo' | 'plain';
 
 export interface ResultFieldSpec {
@@ -116,6 +116,12 @@ export const ONE_LINE_SEPARATOR = ' / ';
  * いまの内容の末尾へ、日付を付けた 1 行を足した値。足すものが空なら null (変えない)。
  * 複数行の項目は改行で、1 行の項目は「 / 」で足す (1 行の項目に改行を入れない)
  */
+/** 架電日の欄の横に出す前回の日 (MM/DD)。前回が無い・日付でなければ null */
+export function previousDateLabel(raw: string | null | undefined): string | null {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(raw ?? '');
+  return m ? `${m[1] ?? ''}/${m[2] ?? ''}` : null;
+}
+
 export function appendMemo(current: string | null | undefined, add: string, kind: FieldKind, today: string): string | null {
   const multiline = kind === 'textarea';
   const text = multiline ? add.replace(/\s+$/u, '').replace(/^\s+/u, '') : add.replace(/\s*\r?\n\s*/gu, ' ').trim();
@@ -137,14 +143,16 @@ export interface ResultDraft {
 export const emptyResultDraft = (): ResultDraft => ({ stageId: '', values: {} });
 export const isEmptyDraft = (d: ResultDraft): boolean => d.stageId === '' && Object.keys(d.values).length === 0;
 
-/** 入力欄に出す値。手を入れていなければ HubSpot の今の値 (架電日が空なら今日、メモは空の追記欄) */
+/**
+ * 入力欄に出す値。手を入れていなければ HubSpot の今の値。
+ * 架電日は前回の日が入っていても毎回今日 (通話の当日に書き換えるのが 71%。2026-10-14 調査)。メモは空の追記欄
+ */
 export function shownValue(spec: ResultFieldSpec, def: FieldDef, draft: ResultDraft, current: Readonly<Record<string, string | null>>, today: string): string {
   const v = draft.values[spec.name];
   if (v !== undefined) return v;
   if (spec.role === 'memo') return '';
-  const cur = initialDraft(def.kind, current[spec.name]);
-  if (spec.role === 'callDate' && cur === '') return today;
-  return cur;
+  if (spec.role === 'callDate') return today;
+  return initialDraft(def.kind, current[spec.name]);
 }
 
 /**
