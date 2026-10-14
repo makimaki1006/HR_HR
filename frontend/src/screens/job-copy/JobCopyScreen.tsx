@@ -46,6 +46,7 @@ import { HUBSPOT_BODY_SOURCE } from './liveApplications';
 import { JobTimeline } from './JobTimeline';
 import { parseListingStatus, withPublicationFor } from './mediaPublication';
 import { JobOverview } from './JobOverview';
+import { OccupationBulk } from './OccupationBulk';
 import { MarketCacheContext } from './marketSource';
 import type { MarketCache } from './marketSource';
 import { billingEntries, billingEntriesByJob, realBilling } from './timelineModel';
@@ -271,7 +272,7 @@ function writeDummyBillingChoice(value: boolean) {
   try { window.localStorage.setItem(DUMMY_BILLING_STORAGE_KEY, value ? '1' : '0'); } catch { /* 覚えられなくても表示は切り替える */ }
 }
 
-export function JobCopyScreen() {
+function JobCopyMain() {
   const sidebar = useJobCopySidebar();
   const query = new URLSearchParams(window.location.search);
   const [initialId] = useState(query.get('job'));
@@ -454,4 +455,9 @@ export function JobCopyScreen() {
       },
     } : { ids: visible.map(item => item.id), load: id => { const next = visible.find(item => item.id === id); return next ? Promise.resolve(next) : Promise.reject(new Error('求人を取得できません')); } }} billing={billingByJob[selected.id]} showDummyBilling={showDummyBilling} demo={demoMode} request={featureRequest} onIndeedTitleChanged={change => { setRecords(items => items.map(item => item.id === selected.id ? { ...item, ...change } : item)); }} onDraftSaved={(draft, revision) => { setListingRevision(value => value + 1); setRecords(items => items.map(item => item.id === selected.id ? { ...item, draftRevision: revision, latestDraftId: draft.draft_id, versions: item.versions.some(version => version.draft?.draft_id === draft.draft_id) ? item.versions.map((version, index) => version.draft?.draft_id === draft.draft_id ? draftVersion(draft, item.versions.slice(0, index).filter(v => v.draft).length) : version) : [...item.versions, draftVersion(draft, item.versions.filter(v => v.draft).length)] } : item)); }} reviewed={reviewed} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{snapshotLoading ? '求人データを読み込んでいます' : records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{snapshotLoading ? '読み込み後に本文と応募集計を表示します。' : records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</>}</div></div>
   </div></MarketCacheContext.Provider>;
+}
+
+/** `?view=occupations` は職種の一括指定画面。それ以外は従来の案件管理。 */
+export function JobCopyScreen() {
+  return new URLSearchParams(window.location.search).get('view') === 'occupations' ? <OccupationBulk /> : <JobCopyMain />;
 }
