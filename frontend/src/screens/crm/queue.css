@@ -182,7 +182,6 @@
 .cq-linkbar-host { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cq-linkbar button { border: 1px solid var(--cq-line-strong); background: #fff; border-radius: 4px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
 .cq-linkbar-note { color: var(--cq-sub); font-size: 11px; }
-.cq-linkbar-ext { color: var(--cq-sub); font-size: 11px; border: 1px solid currentColor; border-radius: 8px; padding: 0 6px; white-space: nowrap; }
 .cq-linkframe { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; background: #fff; }
 .cq-linkview-blocked { margin: 24px 16px; }
 .cq-linkview-blocked .cq-linkbar-open { display: inline-block; margin-top: 8px; }
@@ -414,7 +413,6 @@
 /* 「必要なときに見に行くもの」は小さく畳む (2026-10-13): ⓘ のツールチップ・1 行の注記 */
 .cq-info { color: var(--cq-faint); font-size: 12px; cursor: help; margin: 0 0 0 4px; font-weight: 400; }
 .cq-info:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: 1px; border-radius: 3px; }
-.cq-linkbar-ext.is-off { color: #92400e; }
 .cq-notes-mini { position: relative; margin: 0; font-size: 11px; color: #92400e; flex: none; }
 .cq-notes-mini summary { cursor: pointer; padding: 0 6px; background: #fff8e1; border: 1px solid #f0d98a; border-radius: 4px; list-style: none; white-space: nowrap; font-weight: 700; }
 .cq-notes-mini summary::-webkit-details-marker { display: none; }
@@ -473,3 +471,10 @@
 .cq-app .cq-bar .cq-toggle:hover { border-color: #4f5f6e; }
 .cq-app .cq-bar .cq-toggle:has(input:checked) { border-color: var(--cq-accent); background: var(--cq-accent-weak); color: #0a5a61; }
 .cq-app .cq-bar .cq-toggle:has(input:focus-visible) { outline: 2px solid var(--cq-accent); outline-offset: 2px; }
+.wd-last-btn { all: unset; display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; color: inherit; }
+.wd-last-btn:hover { text-decoration: underline; }
+.wd-last-btn:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: 1px; }
+.cq-searchmode { display: flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 12px; border-bottom: 1px solid var(--cq-line, #dde3e8); }
+.cq-searchmode-label { color: var(--cq-sub); margin-right: 2px; }
+.cq-searchmode button { border: 1px solid var(--cq-line, #c8d0d8); background: transparent; border-radius: 10px; padding: 1px 10px; font-size: 12px; cursor: pointer; }
+.cq-searchmode button.is-active { border-color: var(--cq-accent); background: var(--cq-accent-weak); color: #0a5a61; font-weight: 600; }

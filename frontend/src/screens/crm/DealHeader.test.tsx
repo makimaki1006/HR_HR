@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { DealOverview, dialDisabledReason, lastActivityLine } from './DealDetail';
@@ -103,5 +103,18 @@ describe('why 発信 is disabled', () => {
     d.dial = null;
     show(d, true);
     expect(screen.getByTestId('dial-disabled-reason').textContent).toBe('電話番号がありません');
+  });
+
+  it('「前回 …」の行は押せるボタンで、押すと活動ログを開く合図が出る (つながっていないときは文字だけ)', () => {
+    const calls: string[] = [];
+    const state = { phase: 'ready', data: base(), refreshing: false, refreshError: null } as unknown as DetailState;
+    render(<DealOverview state={state} reload={() => undefined} zoom={zoom()} density={{ compact: true, onToggle: () => undefined }} onOpenActivity={() => { calls.push('open'); }} />);
+    const btn = within(screen.getByTestId('last-activity')).getByRole('button');
+    expect(btn.textContent).toMatch(/^前回 /u);
+    fireEvent.click(btn);
+    expect(calls).toEqual(['open']);
+    cleanup();
+    show(base(), true);
+    expect(within(screen.getByTestId('last-activity')).queryByRole('button')).toBeNull();
   });
 });

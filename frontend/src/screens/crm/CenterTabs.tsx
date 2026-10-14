@@ -1,10 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import {
-  closeLink, initialCenterTabs, isHubspotUrl, makeLinkTab, openLink, safeHttpUrl, SEARCH_TAB,
+  closeLink, initialCenterTabs, isHubspotUrl, makeLinkTab, openLink, safeHttpUrl, SEARCH_MODES, SEARCH_TAB,
 } from './centerLinks';
-import type { CenterTabsState, FixedLink, LinkTab } from './centerLinks';
-import { FrameExtensionBadge } from './FrameExtensionBadge';
+import type { CenterTabsState, FixedLink, LinkTab, SearchMode } from './centerLinks';
 import { shouldShowFrameHint, useFrameExtension } from './useFrameExtension';
 
 /**
@@ -164,8 +163,8 @@ function readHintDismissed(): boolean {
   try { return window.localStorage.getItem(HINT_KEY) === '1'; } catch { return false; }
 }
 
-/** Google 検索のタブの先頭に出す 1 行の案内 (閉じた記録は localStorage に残す。使えなくても動く) */
-function SearchHint() {
+/** 枠で開けないサイトがある旨の 1 行の案内 (枠を出すタブの先頭。拡張機能が入っていれば出さない)。閉じた記録は localStorage に残す。使えなくても動く */
+function FrameHint() {
   const [hidden, setHidden] = useState(readHintDismissed);
   const { installed } = useFrameExtension();
   if (hidden || !shouldShowFrameHint(installed)) return null;
@@ -190,7 +189,6 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
   /** 「戻る」で起きる枠の読み込み (移動ではない) を数えないための、まだ来ていない読み込みの数 */
   const pendingBack = useRef(0);
   const hubspotNote = tab.embed !== null && isHubspotHost(tab.host);
-  const isSearch = tab.embed !== null && tab.host.replace(/^www\./, '').startsWith('google.');
   function onLoad() {
     if (!loaded.current) { loaded.current = true; return; }
     if (pendingBack.current > 0) { pendingBack.current -= 1; return; }
@@ -211,7 +209,6 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
   return <div className="cq-linkview">
     <div className="cq-linkbar">
       <span className="cq-linkbar-host" title={tab.url}>{tab.host}</span>
-      <FrameExtensionBadge />
       <a className="cq-linkbar-open" href={tab.url} target="_blank" rel="noopener noreferrer"
         {...(tab.embed !== null ? { title: '表示されない場合は新しいタブで開いてください' } : {})}>新しいタブで開く</a>
       {tab.embed !== null && <button type="button" disabled={navs === 0} onClick={back}>戻る</button>}
@@ -219,7 +216,7 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
       {onClose && <button type="button" onClick={onClose}>このタブを閉じる</button>}
     </div>
     {hubspotNote && <small className="cq-linkbar-note" data-testid="hubspot-note">{HUBSPOT_NOTE}</small>}
-    {isSearch && <SearchHint />}
+    {tab.embed !== null && <FrameHint />}
     {tab.embed !== null
       ? <iframe key={reloads} className="cq-linkframe" src={tab.embed} title={`${tab.label}(${tab.host})`}
         sandbox={LINK_FRAME_SANDBOX} referrerPolicy="no-referrer" data-testid="link-frame" onLoad={onLoad} />
@@ -231,8 +228,36 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
   </div>;
 }
 
-/** 固定のタブの中身: URL があれば枠 (一度前に出すまでは作らない)、無ければ案内 */
-export function FixedPanelBody({ item }: { item: FixedTab }) {
-  if (item.tab === null) return <div className="cq-notice cq-empty cq-linkview-missing" data-testid={`link-missing-${item.def.id}`}><p>{item.def.missing}</p></div>;
-  return item.opened ? <LinkView key={item.tab.url} tab={item.tab} /> : null;
+const MODE_KEY = 'crm.jobSearchMode';
+function readSearchMode(): SearchMode {
+  try { return window.localStorage.getItem(MODE_KEY) === 'company' ? 'company' : 'phone'; } catch { return 'phone'; }
+}
+
+/** 求人検索の切り替え (電話番号 / 会社名)。前回選んだ方をブラウザに覚える。使えなくても動く */
+export function useSearchMode(): [SearchMode, (m: SearchMode) => void] {
+  const [mode, setMode] = useState<SearchMode>(readSearchMode);
+  const choose = useCallback((m: SearchMode) => {
+    setMode(m);
+    try { window.localStorage.setItem(MODE_KEY, m); } catch { /* 保存できなくても切り替えは効く */ }
+  }, []);
+  return [mode, choose];
+}
+
+/** 求人検索のタブの先頭に出す小さな切り替え */
+export function SearchModeSwitch({ mode, onChange }: { mode: SearchMode; onChange: (m: SearchMode) => void }) {
+  return <div className="cq-searchmode" role="radiogroup" aria-label="求人検索のキーワード" data-testid="search-mode">
+    <span className="cq-searchmode-label">検索:</span>
+    {SEARCH_MODES.map(m => <button key={m.id} type="button" role="radio" aria-checked={mode === m.id}
+      className={mode === m.id ? 'is-active' : ''} onClick={() => { if (mode !== m.id) onChange(m.id); }}>{m.label}</button>)}
+  </div>;
+}
+
+/** 固定のタブの中身: URL があれば枠 (一度前に出すまでは作らない)、無ければ案内。求人検索のタブには電話番号 / 会社名の切り替えを付ける */
+export function FixedPanelBody({ item, searchMode, onSearchMode }: {
+  item: FixedTab; searchMode?: SearchMode | undefined; onSearchMode?: ((m: SearchMode) => void) | undefined;
+}) {
+  const sw = item.def.id === SEARCH_TAB && searchMode !== undefined && onSearchMode !== undefined
+    ? <SearchModeSwitch mode={searchMode} onChange={onSearchMode} /> : null;
+  if (item.tab === null) return <>{sw}<div className="cq-notice cq-empty cq-linkview-missing" data-testid={`link-missing-${item.def.id}`}><p>{item.def.missing}</p></div></>;
+  return item.opened ? <>{sw}<LinkView key={item.tab.url} tab={item.tab} /></> : null;
 }

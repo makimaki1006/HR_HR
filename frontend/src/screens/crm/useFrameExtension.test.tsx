@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render, renderHook, screen } from '@testing-library/react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { FrameExtensionBadge } from './FrameExtensionBadge';
 import { shouldShowFrameHint, useFrameExtension } from './useFrameExtension';
 
 const el = document.documentElement;
@@ -34,17 +33,6 @@ describe('useFrameExtension', () => {
       unmount();
       expect(disconnected).toBe(1);
     } finally { globalThis.MutationObserver = Orig; }
-  });
-});
-
-describe('FrameExtensionBadge', () => {
-  it('入っていないときだけ「枠で開けないサイトがあります」と理由が出て、入ると消える (正常なときは出さない)', async () => {
-    render(<FrameExtensionBadge />);
-    const b = screen.getByText('枠で開けないサイトがあります');
-    expect(b.getAttribute('title')).toBe('拡張機能を入れると枠の中で開けるサイトが増えます');
-    await act(async () => { el.dataset.hrhrFrames = '1.0.0'; await Promise.resolve(); });
-    expect(screen.queryByText('枠で開けないサイトがあります')).toBeNull();
-    expect(screen.queryByText('枠で開けないサイトがあります')).toBeNull();
   });
 });
 

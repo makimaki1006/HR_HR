@@ -63,7 +63,7 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     // CSP が https の枠を許している (代わりの HTML が枠の中に表示される)
     await expect(page.frameLocator('#cq-cpanel-search iframe').locator('#stub')).toHaveText('外部ページ(テスト用の代わり)');
     const stored = await panel.getByRole('link', { name: '新しいタブで開く' }).getAttribute('href');
-    expect(stored).toContain('sca_esv=sample');
+    expect(stored).toBe('https://www.google.com/search?q=03-0000-0005+%E6%B1%82%E4%BA%BA');
     await expect(panel.getByRole('link', { name: '新しいタブで開く' })).toHaveAttribute('title', '表示されない場合は新しいタブで開いてください');
     // 右の列に開くので、案件の概要と架電結果の入力 (中央の列) は見えたまま。メモもそのまま
     await expect(article).toBeVisible();
@@ -80,6 +80,14 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     await expect(tabs.getByRole('button', { name: /のタブを閉じる/ })).toHaveCount(0);
     await tabs.getByRole('tab', { name: '求人検索' }).click();
     await expect(tabs.getByRole('tab', { name: '求人検索' })).toHaveAttribute('aria-selected', 'true');
+
+    // 電話番号 / 会社名の切り替え: 会社名にすると「会社名 求人」の検索になり、前回の選択を覚える
+    await expect(panel.getByRole('radio', { name: '電話番号' })).toHaveAttribute('aria-checked', 'true');
+    await panel.getByRole('radio', { name: '会社名' }).click();
+    await expect.poll(async () => new URL((await frame.getAttribute('src')) ?? '').searchParams.get('q')).toBe('ダミー建設 求人');
+    await page.reload();
+    await page.getByRole('list', { name: '架電キュー' }).locator('li.cq-row button.cq-row-button').first().click();
+    await expect(page.locator('#cq-cpanel-search').getByRole('radio', { name: '会社名' })).toHaveAttribute('aria-checked', 'true');
   });
 });
 

@@ -16,7 +16,7 @@ beforeEach(() => { try { window.sessionStorage.clear(); } catch { /* ignore */ }
 beforeEach(() => { resetDockStorage(); setScreenHeight(900); });
 afterEach(() => { cleanup(); });
 
-const STORED = 'https://www.google.com/search?q=03-0000-0001+%E6%B1%82%E4%BA%BA&sca_esv=x&ei=y';
+const STORED = 'https://www.google.com/search?q=03-0000-0005+%E6%B1%82%E4%BA%BA&sca_esv=x&ei=y';
 const ITEMS = [makeItem('1'), makeItem('2')];
 const queue = (f: QueueFilters) => Promise.resolve({ ok: true as const, data: makeResponse(f, ITEMS) });
 const sampleId = fixtureQueuePage(DEFAULT_FILTERS, null).items[0]?.deal_id ?? '';
@@ -91,11 +91,11 @@ describe('求人検索・リンク先 panel (flat tabs)', () => {
     if (!memo) throw new Error('memo');
     fireEvent.change(memo, { target: { value: '受付で不在。来週再架電' } });
     const frame = within(panel('search')).getByTestId('link-frame');
-    expect(frame.getAttribute('src')).toBe('https://www.google.com/search?q=03-0000-0001+%E6%B1%82%E4%BA%BA&igu=1');
+    expect(frame.getAttribute('src')).toBe('https://www.google.com/search?q=03-0000-0005+%E6%B1%82%E4%BA%BA&igu=1');
     expect(frame.getAttribute('sandbox')).toBe(LINK_FRAME_SANDBOX);
     expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer');
     const openNew = within(panel('search')).getByRole('link', { name: '新しいタブで開く' });
-    expect(openNew.getAttribute('href')).toBe(STORED);
+    expect(openNew.getAttribute('href')).toBe('https://www.google.com/search?q=03-0000-0005+%E6%B1%82%E4%BA%BA');
     expect(openNew.getAttribute('rel')).toBe('noopener noreferrer');
     expect(within(panel('search')).getByText('新しいタブで開く').getAttribute('title')).toBe('表示されない場合は新しいタブで開いてください');
     // 架電結果の入力の入力欄は、外さずに隠すだけ
@@ -249,5 +249,48 @@ describe('求人検索・リンク先 panel (flat tabs)', () => {
     await openDeal(detailWith({ ...DEAL_LINKS, job_search_url: null }));
     const src = within(panel('search')).getByTestId('link-frame').getAttribute('src') ?? '';
     expect(new URL(src).searchParams.get('q')).toMatch(/^0\d{1,4}-\d{1,4}-\d{4} 求人$/u);
+  });
+
+  describe('求人検索の 電話番号 / 会社名 の切り替え', () => {
+    const qOf = () => new URL(within(panel('search')).getByTestId('link-frame').getAttribute('src') ?? '').searchParams.get('q');
+    const radio = (name: string) => within(panel('search')).getByRole('radio', { name });
+    beforeEach(() => { try { window.localStorage.removeItem('crm.jobSearchMode'); } catch { /* ignore */ } });
+
+    it('既定は電話番号。会社名に切り替えると会社名 + 求人の検索になり、前回の選択を覚える', async () => {
+      await openDeal(detailWith(DEAL_LINKS));
+      expect(radio('電話番号').getAttribute('aria-checked')).toBe('true');
+      expect(qOf()).toMatch(/^0\d{1,4}-\d{1,4}-\d{4} 求人$/u);
+      fireEvent.click(radio('会社名'));
+      const company = fixtureDetail(sampleId)?.companies.find(c => c.is_primary)?.name ?? '';
+      expect(company).not.toBe('');
+      expect(qOf()).toBe(`${company} 求人`);
+      expect(window.localStorage.getItem('crm.jobSearchMode')).toBe('company');
+      cleanup();
+      // 次に開いたときは前回の会社名で始まる
+      await openDeal(detailWith(DEAL_LINKS));
+      expect(radio('会社名').getAttribute('aria-checked')).toBe('true');
+      expect(qOf()).toBe(`${company} 求人`);
+    });
+
+    it('案件の詳細を読み込む前でも、選んだ行の番号で求人検索の枠が開き、詳細が届いても読み直さない', async () => {
+      let release: (() => void) | undefined;
+      const slow: DetailFetch = id => new Promise(resolve => {
+        release = () => { const d = fixtureDetail(sampleId); if (d === null) throw new Error('fixture'); resolve({ ok: true, data: { ...d, deal: { ...d.deal, id }, dial: { number: '+81300000001', source: 'contact' } } }); };
+      });
+      render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={slow} metadataFetcher={okMetadataFetch}
+        zoomOptions={{ loadTimeoutMs: 60_000 }} initialSearch="?view=queue&owner=all" />);
+      const list = await screen.findByRole('list', { name: '架電キュー' });
+      const first = within(list).getAllByRole('button')[0];
+      if (!first) throw new Error('row');
+      fireEvent.click(first);
+      const frame = await screen.findByTestId('link-frame');
+      // makeItem('1') の番号 (詳細はまだ来ていない)
+      expect(new URL(frame.getAttribute('src') ?? '').searchParams.get('q')).toBe('03-0000-0001 求人');
+      release?.();
+      await screen.findByRole('form', { name: '架電結果の入力' });
+      // 詳細が届いても同じ URL なので、枠は同じ要素のまま (読み直さない)
+      await waitFor(() => { expect(screen.getByTestId('link-frame')).toBe(frame); });
+      expect(qOf()).toBe('03-0000-0001 求人');
+    });
   });
 });

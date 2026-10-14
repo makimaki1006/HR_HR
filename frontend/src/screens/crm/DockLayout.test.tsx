@@ -74,6 +74,21 @@ describe('panel layout (dock)', () => {
     expect(screen.queryByTestId('dock-solo-menu')).toBeNull();
   });
 
+  it('見出しの下の「前回 …」を押すと、どの列に置いていても活動ログのタブが前に出る', async () => {
+    const c = counted();
+    await openDeal(c);
+    fireEvent.click(tab('架電結果の入力'));
+    expect(tab('活動ログ').getAttribute('aria-selected')).toBe('false');
+    fireEvent.click(within(screen.getByTestId('last-activity')).getByRole('button'));
+    expect(tab('活動ログ').getAttribute('aria-selected')).toBe('true');
+    // 活動ログを左の列へ移し、左で別のタブを前に出していても、押すとそのタブが前に出る
+    moveVia('活動ログ', '左へ移動');
+    fireEvent.click(tab('取引一覧'));
+    expect(tab('活動ログ').getAttribute('aria-selected')).toBe('false');
+    fireEvent.click(within(screen.getByTestId('last-activity')).getByRole('button'));
+    expect(tab('活動ログ').getAttribute('aria-selected')).toBe('true');
+  });
+
   it('default (v2): left = 取引一覧 (front) + プロパティ, center = 案件の概要 fixed on top + 活動ログ (front) / 架電結果の入力, right = 求人検索・リンク先', async () => {
     const c = counted();
     await openDeal(c);
