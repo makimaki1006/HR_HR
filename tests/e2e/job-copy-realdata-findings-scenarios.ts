@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
+import { findListings } from './job-copy-navigation';
 export function registerRealdataFindingsTests() {
 for (const width of [1440, 1920]) test(`実応答の形を使った表・横並び・全文・本文変更日 ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
@@ -25,6 +26,7 @@ for (const width of [1440, 1920]) test(`実応答の形を使った表・横並�
     return route.fulfill({ status: 503, json: {} });
   });
   await page.goto('/app/job-copy');
+  await findListings(page);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
   await panel.getByText('絞り込み・並び順', { exact: true }).click();
   await panel.getByLabel('取引', { exact: true }).selectOption('901');
@@ -69,7 +71,9 @@ test('作り直し回数と写した条件の表示を1440×900で確認する',
     generated: [{ label: '仕事内容', value: '品物を棚から集める業務を担当します。', review: false, reason: null, missing_chunks: [] }],
   } }));
   await page.goto('/app/job-copy?demo=1');
+  await findListings(page);
   await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
   await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });

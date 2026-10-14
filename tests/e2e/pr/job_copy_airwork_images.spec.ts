@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { login } from './helpers/login';
-import { openOtherAnalysis, closeOtherAnalysis } from '../job-copy-navigation';
+import { openOtherAnalysis, closeOtherAnalysis, findListings } from '../job-copy-navigation';
 
 for (const width of [1440, 1920]) test(`AirWork保存画像5枚と取得不可の表示 ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 742 });
@@ -24,6 +24,7 @@ for (const width of [1440, 1920]) test(`AirWork保存画像5枚と取得不可�
     return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
   });
   await page.goto('/app/job-copy?listing=1');
+  await findListings(page);
   await openOtherAnalysis(page, '本文・画像');
   const gallery = page.getByRole('region', { name: '現在取得できる掲載画像', exact: true });
   await expect(gallery.locator('img')).toHaveCount(5);
@@ -48,6 +49,7 @@ for (const width of [1440, 1920]) test(`AirWork保存画像5枚と取得不可�
   await expect(dialog).toContainText('画像を取得できませんでした');
   await page.keyboard.press('Escape');
   await page.goto('/app/job-copy?listing=3');
+  await findListings(page);
   await openOtherAnalysis(page, '本文・画像');
   await expect(page.getByText('画像を取得できませんでした', { exact: true })).toBeVisible();
   expect(externalMedia).toEqual([]);

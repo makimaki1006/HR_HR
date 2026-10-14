@@ -9,6 +9,9 @@ use deals::{
     body_changed_at, deal_candidates, index_associations, publication, summary, Deal, Summary,
 };
 pub(super) use deals::{read_body_dates, read_comparison};
+#[path = "listing_pipelines.rs"]
+mod pipelines;
+pub(super) use pipelines::company_deals;
 #[path = "listing_home.rs"]
 mod home;
 pub(super) use home::read as read_home;
@@ -234,6 +237,8 @@ pub(super) struct IndexCache {
     worker: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// ホームの事業所の対応（取引→事業所）。索引ごとに一度だけ読む。
     home_companies: tokio::sync::Mutex<Option<home::CompanyMap>>,
+    /// 取引のパイプライン・ステージの名前（6 時間使い回す）。
+    pipeline_defs: tokio::sync::Mutex<Option<pipelines::CachedDefs>>,
 }
 impl Drop for IndexCache {
     fn drop(&mut self) {
@@ -391,7 +396,7 @@ async fn build_index(
         .collect();
     let mut names = BTreeMap::new();
     for chunk in deal_ids.chunks(100) {
-        let data = service.request_with_client(&background, "/crm/v3/objects/deals/batch/read", &[], Some(json!({"properties":["dealname"],"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>()}))).await?;
+        let data = service.request_with_client(&background, "/crm/v3/objects/deals/batch/read", &[], Some(json!({"properties":["dealname","pipeline"],"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>()}))).await?;
         let page: Page =
             serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
         if data
@@ -404,11 +409,14 @@ async fn build_index(
         {
             return Err(fail("hubspot_partial_read"));
         }
+        // 納品管理のパイプラインの取引だけを扱う。ほかの取引は無いものとして数える。
         for record in page.results {
-            names.insert(
-                record.id.clone(),
-                record.value("dealname").map(str::to_owned),
-            );
+            if pipelines::is_delivery(record.value("pipeline")) {
+                names.insert(
+                    record.id.clone(),
+                    record.value("dealname").map(str::to_owned),
+                );
+            }
         }
     }
     let mut deal_counts = BTreeMap::<String, usize>::new();
@@ -416,7 +424,10 @@ async fn build_index(
         row.deal_ids = mapping
             .get(&row.id)
             .ok_or_else(|| fail("hubspot_partial_read"))?
-            .clone();
+            .iter()
+            .filter(|id| names.contains_key(*id))
+            .cloned()
+            .collect();
         for id in &row.deal_ids {
             *deal_counts.entry(id.clone()).or_default() += 1;
         }
@@ -1889,7 +1900,7 @@ mod tests {
                     let (mut results, mut empty) = (vec![], vec![]);
                     for v in input["inputs"].as_array().unwrap() {
                         let id = v["id"].as_str().unwrap();
-                        let targets = if path.contains("/deals/") { match id { "1" => vec![json!({"toObjectId":901}),json!({"toObjectId":902})], "2" => vec![json!({"toObjectId":901})], _ => vec![] } } else { vec![json!({"toObjectId":7001}),json!({"toObjectId":7002})] };
+                        let targets = if path.contains("/deals/") { match id { "1" => vec![json!({"toObjectId":901}),json!({"toObjectId":902}),json!({"toObjectId":903})], "2" => vec![json!({"toObjectId":901})], _ => vec![] } } else { vec![json!({"toObjectId":7001}),json!({"toObjectId":7002})] };
                         if targets.is_empty() { empty.push(json!(id)); } else { results.push(json!({"from":{"id":id},"to":targets})); }
                     }
                     let errors: Vec<Value> = empty.chunks(50).map(|ids| json!({"status":"error","category":"OBJECT_NOT_FOUND","subCategory":"crm.associations.NO_ASSOCIATIONS_FOUND","context":{"fromObjectId":ids,"fromObjectType":["listing"],"toObjectType":["deal"]}})).collect();
@@ -1897,7 +1908,7 @@ mod tests {
                 }
                 if path == "/crm/v3/objects/deals/batch/read" {
                     calls.lock().unwrap().push(path);
-                    return Json(json!({"results":[{"id":"901","properties":{"dealname":"沖縄配送・契約A"}},{"id":"902","properties":{"dealname":"沖縄配送・契約B"}}]})).into_response();
+                    return Json(json!({"results":[{"id":"901","properties":{"dealname":"沖縄配送・契約A","pipeline":"21596025"}},{"id":"902","properties":{"dealname":"沖縄配送・契約B","pipeline":"743961896"}},{"id":"903","properties":{"dealname":"沖縄配送・計上","pipeline":"22417753"}}]})).into_response();
                 }
                 assert_eq!(path, "/crm/v3/objects/0-420");
                 let query = req.uri().query().unwrap_or("");

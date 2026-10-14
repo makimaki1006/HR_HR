@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { fixtureHistory, fixtureImage } from './job-copy-listings-fixture.mjs';
-import { selectJobFeature, openOtherAnalysis, closeOtherAnalysis } from './job-copy-navigation';
+import { selectJobFeature, openOtherAnalysis, closeOtherAnalysis, findListings } from './job-copy-navigation';
 const shots = path.resolve(__dirname, '../../docs/screenshots/job-copy-ui-polish');
 test.beforeEach(async ({ page }) => { await page.setViewportSize({ width: 1440, height: 900 }); });
 async function wholeCards(page: import('@playwright/test').Page, selector = '.jc-listings-panel .jc-job') {
@@ -20,6 +20,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await page.route('**/api/job-copy/listings/1/versions', route => route.fulfill({ json: { ...fixtureHistory('1'), company_name: '合成運輸株式会社' } }));
       await page.setViewportSize({ width, height });
       await page.goto('/app/job-copy');
+      await findListings(page);
       if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
       await expect(page.getByRole('button', { name: 'HubSpot の求人', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await expect(page.locator('.jc-hubspot-job')).toHaveCount(40);
@@ -50,6 +51,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
 test('会社名が未取得なら省略し、絞り込みの具体値を送る', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'));
   await page.goto('/app/job-copy');
+  await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
   await expect(page.locator('.jc-detail-heading p')).toHaveText('大分県大分市 · HRハッカー ／ 公開状況：掲載終了');
   await page.locator('.jc-hubspot-filter-details > summary').click();
@@ -66,6 +68,7 @@ test('固定一覧の空項目は区切りごと省略し、近接する給与�
   // Snapshot parser uses observations as the body history; the exact API shape is asserted in unit tests too.
   await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt, capture_bundle: { schemaVersion: 1, capturedAt, jobs: [job] }, results: [{ listing_id: '30', summary: { total: 0, missing_date: 0, by_date: {}, dimensions: {} }, dated_comparison: null }] } }));
   await page.goto('/app/job-copy?data=actual');
+  await findListings(page);
   await expect(page.locator('.jc-fixed-list .jc-job')).toHaveCount(1);
   await expect(page.locator('.jc-fixed-list .jc-job')).not.toContainText('·');
   await expect(page.locator('.jc-detail-heading p')).toHaveText('HRハッカー ／ 公開状況：不明');
@@ -84,6 +87,7 @@ test('近い3つの日時でも給与「不明」と本文「同じ」が重な�
   const history = fixtureHistory('1');
   await page.route('**/api/job-copy/listings/1/versions', route => route.fulfill({ json: { ...history, versions: ['00:00', '00:01', '00:02'].map(time => ({ written_at: `2026-10-09T${time}:00Z`, body: '仕事内容：特殊機械を組み立てます。\n給与：不明', image_urls: [] })) } }));
   await page.goto('/app/job-copy');
+  await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
   await selectJobFeature(page, 'timeline');
   const body = page.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark');
@@ -107,6 +111,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt, capture_bundle: { schemaVersion: 1, capturedAt, jobs }, results: jobs.map(job => ({ listing_id: job.hubspotListingId, summary: { total: 0, missing_date: 0, by_date: {}, dimensions: {} }, dated_comparison: null })) } }));
       await page.setViewportSize({ width, height });
       await page.goto('/app/job-copy?data=actual');
+      await findListings(page);
       if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
       const cards = page.locator('.jc-fixed-list .jc-job');
       await expect(cards).toHaveCount(36);

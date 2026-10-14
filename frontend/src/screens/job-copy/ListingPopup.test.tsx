@@ -161,6 +161,7 @@ it.each(['list-first', 'detail-first'])('shows zero applications from a direct l
   window.history.replaceState(null, '', '/app/job-copy?listing=1');
   localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true');
   render(<JobCopyScreen />);
+  fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
   const listResult = { ok: true, data: { status: 'ready', listings: [{ ...listing, application_count: 0 }], total: 1, offset: 0, next_offset: null, titles: [], index_built_at: '2026-10-11T00:00:00Z', refreshing: false, refresh_failed: false } };
   const detailResult = { ok: true, data: { listing: { ...listing, application_count: null }, versions: [{ written_at: '2026-10-11T00:00:00Z', body: rowBody({ 案件名: listing.title, 仕事内容: description }), image_urls: [] }], history_counts: {}, history_may_be_incomplete: false } };
   // Wait for both requests to start before deciding which response arrives first.
@@ -183,6 +184,7 @@ it.each([0, 7, null])('uses the detail count %s for a direct link outside the fi
   window.history.replaceState(null, '', '/app/job-copy?listing=1');
   localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true');
   render(<JobCopyScreen />);
+  fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
   await screen.findByRole('button', { name: '架空求人2の本文を見る' });
   expect(screen.queryByRole('button', { name: `${listing.title}の本文を見る` })).toBeNull();
   fireEvent.click(await screen.findByRole('button', { name: '求人の内容を確認する' }));
@@ -205,6 +207,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   window.history.replaceState(null, '', '/app/job-copy?listing=1');
   localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true');
   render(<JobCopyScreen />);
+  fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
   await screen.findByText('求人の一覧を準備しています');
   const opener = await screen.findByRole('button', { name: '求人の内容を確認する' });
   fireEvent.click(opener);

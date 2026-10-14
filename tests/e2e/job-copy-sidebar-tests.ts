@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { openOtherAnalysis, closeOtherAnalysis } from './job-copy-navigation';
+import { openOtherAnalysis, closeOtherAnalysis, findListings } from './job-copy-navigation';
 import { fixtureJobs, fixtureHistory } from './job-copy-listings-fixture.mjs';
 
 const triggerName = '求人一覧を開く';
@@ -72,6 +72,7 @@ export function sidebarTests() {
       }
       await openList();
       await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+      await findListings(page);
       await expect(region.locator('.jc-job')).toHaveCount(40);
       await expectFullDetail();
       await page.keyboard.press('Escape');
@@ -195,6 +196,7 @@ export function sidebarTests() {
     const trigger = page.getByRole('button', { name: triggerName });
     await trigger.hover();
     await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+    await findListings(page);
     const region = page.getByRole('region', { name: 'HubSpot の求人' });
     await expect(region.locator('.jc-job')).toHaveCount(40);
     await region.getByText('絞り込み・並び順', { exact: true }).click();

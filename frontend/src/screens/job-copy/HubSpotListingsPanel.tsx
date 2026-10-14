@@ -8,13 +8,15 @@ import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; revision?: number }) {
+export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, revision = 0, scopeDeal, autoLoad = true }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; revision?: number; /** 案件の求人だけを出す。指定すると取引の選択は出さない。 */ scopeDeal?: { id: string; name: string } | undefined; /** false の間は一覧を読まず、隠しておく（求人を探すを押すまで） */ autoLoad?: boolean }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
   const [media, setMedia] = useState('');
-  const [deal, setDeal] = useState('');
-  const [dealName, setDealName] = useState('');
+  const [dealPick, setDeal] = useState('');
+  const [dealPickName, setDealName] = useState('');
+  const deal = scopeDeal?.id ?? dealPick;
+  const dealName = scopeDeal ? scopeDeal.name || '案件' : dealPickName;
   const [dealSearch, setDealSearch] = useState('');
   const [publication, setPublication] = useState('');
   const [draftStatus, setDraftStatus] = useState('');
@@ -49,14 +51,15 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   }, [prefecture, title, media, sort, deal, dealSearch, publication, draftStatus]);
   useEffect(() => {
     if (!active) { listRequest.current?.abort(); detailRequest.current?.abort(); countRequest.current?.controller.abort(); return; }
+    if (!autoLoad) { listRequest.current?.abort(); return; }
     const timer = window.setTimeout(() => { void load(); }, dealSearch ? 250 : 0);
     return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
-  }, [active, load, dealSearch, revision]);
+  }, [active, autoLoad, load, dealSearch, revision]);
   useEffect(() => {
-    if (!active || page?.status !== 'preparing' || busy || error) return;
+    if (!active || !autoLoad || page?.status !== 'preparing' || busy || error) return;
     const timer = window.setTimeout(() => { void load(); }, 5_000);
     return () => { window.clearTimeout(timer); };
-  }, [active, page, busy, error, load]);
+  }, [active, autoLoad, page, busy, error, load]);
   const orderRef = useRef<string[]>([]);
   const opened = useRef('');
   const restored = useRef('');
@@ -113,12 +116,14 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   // 一覧に出ている求人の会社名をまとめて読んでおく。求人を開いたとき会社名がすぐ出る。
   useEffect(() => { if (active && page?.status === 'ready' && rows.length) void loadCompanies(rows.map(item => item.id)); }, [active, page?.status, rows]);
   useEffect(() => { if (active) onVisibleRows?.(rows); }, [active, rows, onVisibleRows]);
-  return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
-    <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>
+  return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active || !autoLoad}>
+    <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">{scopeDeal ? 'この案件の求人' : 'HubSpot の求人'}</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>
     <details className="jc-hubspot-filter-details" open={filtersOpen} onToggle={event => { setFiltersOpen(event.currentTarget.open); }}><summary>絞り込み・並び順</summary><div className="jc-hubspot-filters">
+      {!scopeDeal && <>
       <label>取引名を検索<input value={dealSearch} onChange={event => { setDealSearch(event.target.value); }} placeholder="取引名の一部" /></label>
       <label>取引<select aria-label="取引" value={deal} onChange={event => { const id = event.target.value; setDeal(id); setDealName(id === 'none' ? '取引なし' : page?.deals?.find(row => row.id === id)?.name ?? '取引名未取得'); }}><option value="">すべての取引</option><option value="none">取引なし{page?.no_deal_count === undefined ? '' : `（${String(page.no_deal_count)}件）`}</option>{deal && deal !== 'none' && !page?.deals?.some(row => row.id === deal) && <option value={deal}>{dealName}</option>}{page?.deals?.map(row => <option key={row.id} value={row.id}>{row.name ?? '取引名未取得'}（{row.count}件）</option>)}</select></label>
       {dealSearch && <p>候補は取引名順で最大30件です。見つからない場合は取引名を長く入力してください。</p>}
+      </>}
       <label>都道府県<select aria-label="都道府県" value={prefecture} onChange={event => { setPrefecture(event.target.value); }}><option value="">すべて</option>{AREA_MASTER.map(([pref]) => <option key={pref} value={pref}>{pref}</option>)}</select></label>
       <label>職種の分類<select aria-label="職種の分類" value={title} onChange={event => { setTitle(event.target.value); }}><option value="">すべて</option><option value="unknown">不明</option>{titles.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
       <label>媒体<select aria-label="媒体" value={media} onChange={event => { setMedia(event.target.value); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label>
@@ -128,7 +133,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     </div><button type="button" className="jc-button" onClick={() => { setFiltersOpen(false); }}>条件を畳む</button></details>
     {conditions !== 'すべての求人' && <p className="jc-filter-summary" title={conditions} aria-label="選択中の条件">{conditions}</p>}
     <div className="jc-list-actions"><button type="button" className="jc-button" disabled={busy} onClick={() => { void load(); }}>求人を読み込む</button>
-    {deal && onShowDeal && <button type="button" className="jc-button" onClick={() => { onShowDeal({ id: deal, name: dealName, prefecture, title, media, ...(publication ? { publication } : {}), ...(draftStatus ? { draftStatus } : {}) }); }}>この取引の求人</button>}
+    {deal && !scopeDeal && onShowDeal && <button type="button" className="jc-button" onClick={() => { onShowDeal({ id: deal, name: dealName, prefecture, title, media, ...(publication ? { publication } : {}), ...(draftStatus ? { draftStatus } : {}) }); }}>この取引の求人</button>}
     </div>
     {busy && !page && <p role="status">求人の一覧を読み込んでいます…</p>}{error && <p role="alert">{error}</p>}
     {page?.status === 'preparing' && <div className="jc-index-preparing" role="status"><strong>求人の一覧を準備しています</strong><p>最初の一覧表示には数分以上かかる場合があります。準備が終わると自動で一覧を表示します。</p>{page.refresh_failed && <p>一覧の準備状況を確認できませんでした。時間を置いて自動で確認します。</p>}<progress aria-label="求人の一覧を準備中" /></div>}
