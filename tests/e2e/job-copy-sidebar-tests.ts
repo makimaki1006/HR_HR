@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
+import { openOtherAnalysis, closeOtherAnalysis } from './job-copy-navigation';
 import { fixtureJobs, fixtureHistory } from './job-copy-listings-fixture.mjs';
 
 const triggerName = '求人一覧を開く';
@@ -88,7 +89,9 @@ export function sidebarTests() {
       await expect.poll(() => Boolean(deliver)).toBe(true);
       if (!deliver) throw new Error('合成求人の取得待ちがありません');
       await deliver();
+      await openOtherAnalysis(page, '本文・画像');
       await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
+      await closeOtherAnalysis(page);
       await expectFullDetail();
       await screenshot('closed');
       await openList();
@@ -209,6 +212,8 @@ export function sidebarTests() {
     expect(await scroll.evaluate(element => element.scrollTop)).toBe(before);
     await region.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await openOtherAnalysis(page, '本文・画像');
     await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
+    await closeOtherAnalysis(page);
   });
 }

@@ -6,6 +6,7 @@ clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pin
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobCopyScreen } from './JobCopyScreen';
+import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 
 vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }));
 
@@ -20,14 +21,21 @@ const lane = (name: string) => screen.getByRole('group', { name });
 const periodTable = () => within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table');
 
 describe('job copy layout', () => {
-  it('opens on the timeline with the list beside it and keeps imports and the applicant search out of the main flow', () => {
+  it('opens on the weekly chart and event list with the list beside it, keeps the old tabs inside ほかの分析, and keeps imports and the applicant search out of the main flow', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     render(<JobCopyScreen />);
-    const primary = screen.getByRole('tablist', { name: '求人管理の機能' });
+    // 初期表示は「週ごとの応募」と「出来事」。旧タブは主領域に出ない。
+    expect(screen.getByRole('heading', { name: '週ごとの応募' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '出来事（新しい順）' })).toBeTruthy();
+    expect(screen.queryByRole('tablist', { name: '求人管理の機能' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'ほかの分析' })).toBeNull();
+    // ほかの分析からタイムラインを開くと、従来のタブがそのまま使える
+    const drawer = openOtherAnalysis('タイムライン');
+    const primary = within(drawer).getByRole('tablist', { name: '求人管理の機能' });
     expect(within(primary).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '求人内容', '応募分析', '市場分析', '比較・報告']);
     expect(within(primary).getByRole('tab', { name: 'タイムライン' }).getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByRole('region', { name: 'タイムライン' })).toBeTruthy();
+    expect(within(drawer).getByRole('region', { name: 'タイムライン' })).toBeTruthy();
     // 1 つしかないサブタブの段は出さない。旧来の操作バーも無い。
     expect(screen.queryByRole('tablist', { name: 'タイムラインの表示' })).toBeNull();
     expect(screen.queryByRole('tablist', { name: '求人内容の表示' })).toBeNull();
@@ -75,6 +83,7 @@ describe('job copy layout', () => {
   it('puts billing CSV rows on the timeline lane and the period table, matched on media + account login ID + job ID', async () => {
     vi.stubGlobal('fetch', vi.fn());
     render(<JobCopyScreen />);
+    openOtherAnalysis('タイムライン');
     // 取り込む前: demo-001 は HRハッカー実績の 3万円（09-01〜09-14）
     expect(within(periodTable()).getAllByRole('row')[1]?.textContent).toContain('3万円');
     expect(screen.queryByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。')).toBeNull();
@@ -94,6 +103,7 @@ describe('job copy layout', () => {
     const airJob = [...document.querySelectorAll<HTMLButtonElement>('.jc-job')].find(button => button.textContent.includes('倉庫内ピッキングスタッフ'));
     if (!airJob) throw new Error('missing demo-job-002');
     fireEvent.click(airJob);
+    if (!screen.queryByRole('dialog', { name: 'ほかの分析' })) openOtherAnalysis('タイムライン');
     await waitFor(() => { expect(lane('課金').textContent).toContain('4万円'); });
     // 横断比較の課金合計にも同じ値が入る
     fireEvent.click(screen.getByRole('button', { name: '横断比較' }));
