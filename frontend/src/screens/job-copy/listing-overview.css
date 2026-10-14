@@ -76,3 +76,4 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .jc-band-latest small { font-size: 11px; color: #0b5563; }
 .jc-band-latest strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .jc-band-spacer { flex: 1 1 8px; }
+.lo-draft-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; }

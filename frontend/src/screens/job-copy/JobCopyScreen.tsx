@@ -142,8 +142,8 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, onInde
   useEffect(() => {
     if (!request || handledRequest.current === request.nonce) return;
     handledRequest.current = request.nonce;
-    // 求人を開いたときの「本文を見せる」依頼では、横からの詳細を開かない（最初の画面は出来事のまま）。
-    openFeatureFromContent(request.feature, request.feature === 'body');
+    // 求人を開いたときの「本文・案を見せる」依頼では、横からの詳細を自動で開かない（最初の画面は出来事のまま。ページが操作できなくなるため）。
+    openFeatureFromContent(request.feature, request.feature === 'body' || request.feature === 'diff');
     // openFeatureFromContent は毎回作り直す関数なので、依頼の nonce だけで動かす
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request]);
@@ -226,6 +226,7 @@ function CopyDetail({ job, records, popupNavigation, onAdd, onDraftSaved, onInde
     {message && <p className="jc-message" role="status">{message}</p>}
     {job.hubspotId && <nav className="jc-flow-actions" aria-label="求人を管理して手直しする流れ">{!current?.body && <p>現在の本文が未取得のため、手直しを保存できません。求人を読み込み直して内容を確認してください。</p>}<span>求人を選ぶ → 手直し → 比較・確認 → 求人票を見る</span><button className="jc-button" disabled={!job.canWriteDrafts || !current?.body || editing !== null} onClick={() => { if (current) { setEditing(current); setTab('body'); } }}>現在の文面を手直しする</button>{draft && <button className="jc-button" disabled={!job.canWriteDrafts || !current?.body || editing !== null} onClick={() => { setEditing(draft); setTab('body'); }}>保存済みの案を手直しする</button>}{!job.canWriteDrafts && <p>案を保存する権限または利用設定がありません。</p>}<button className="jc-button" onClick={() => { setBefore(current?.id ?? ''); setAfter(draft?.id ?? current?.id ?? ''); openFeatureFromContent('diff'); }}>現在の文面と案を比較する</button>{draft?.draft?.review_status === 'adopted' && <button className="jc-button" onClick={() => { setSelected(draft.id); openFeatureFromContent('body'); }}>採用した案を求人票で見る</button>}</nav>}
     {editing && current && <div id="jc-manual-editor"><ManualDraftEditor key={editing.id} job={job} current={current} base={editing} onCancel={() => { setEditing(null); }} onSaved={(saved, revision) => { onDraftSaved(saved, revision); setEditing(null); setBefore(current.id); setAfter(`hubspot-draft-${saved.draft_id}`); openFeatureFromContent('diff'); }} /></div>}
+    {draft && <p className="jc-notice lo-draft-notice" role="status">確認待ちの案があります。<button type="button" className="jc-button" onClick={() => { openFeatureFromContent('diff'); }}>案の確認・比較を開く</button></p>}
     <ListingOverview job={job} events={listingEvents} billing={realBillingEntries} market={listingMarket} selectedId={selectedEventId} onSelect={setSelectedEventId}
       onCompare={(left, right) => { setEventCompare({ left, right }); }}
       onOpenDrawer={(kind, event) => { setWhoSelection(event?.previousVersionId && event.versionId ? [event.previousVersionId, event.versionId] : undefined); setOtherOpen(false); setDrawer({ kind, event }); }} />
