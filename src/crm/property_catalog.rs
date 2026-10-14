@@ -71,6 +71,9 @@ pub struct CrmCatalogProperty {
     pub field_type: String,
     /// 選択肢 (非表示の選択肢は除く)
     pub options: Vec<CrmPropertyOption>,
+    /// 値が HubSpot の担当者 (owner) の ID である項目 (`referencedObjectType` が `OWNER` の選択式。選択肢は `options` に無い)。
+    /// 画面は担当者の一覧から選ばせ、書き込みは実在する owner ID かを確かめる
+    pub owner_ref: bool,
     /// HubSpot の API で書き込める項目か (読み取り専用・計算・システム項目などは false)。
     /// 書き込み API (`crm::write`) の許可リストに使う。応答 JSON には出さない
     #[serde(skip)]
@@ -418,6 +421,7 @@ pub(crate) fn build_object(
             property_type: str_field(p, "type").to_string(),
             field_type: str_field(p, "fieldType").to_string(),
             options,
+            owner_ref: is_owner_ref(p, str_field(p, "type")),
             writable,
         };
         // 定義に無いグループ名の項目は「その他の項目」にまとめる (内部名を見出しにしない)
@@ -453,6 +457,11 @@ pub(crate) fn build_object(
     })
 }
 
+/// 担当者 (owner) の ID を値に持つ選択式の項目か (`referencedObjectType` が `OWNER` の enumeration)
+fn is_owner_ref(p: &Value, ptype: &str) -> bool {
+    ptype == "enumeration" && str_field(p, "referencedObjectType").eq_ignore_ascii_case("OWNER")
+}
+
 /// 書き込めない項目 (専用の経路がある・システムが管理する・外部システムの ID)
 const NEVER_WRITABLE: &[&str] = &[
     // ステージ・パイプラインは `stage` で移す (必須項目の確認が要る)
@@ -464,7 +473,7 @@ const NEVER_WRITABLE: &[&str] = &[
 ];
 
 /// 書き込める項目か。読み取り専用 (`modificationMetadata.readOnlyValue`)・計算・`hs_*` と `hubspot_*` のシステム項目・
-/// ラベルに「※編集不可」を含む項目・選択肢が外部にある項目 (担当者など)・書き込めない型は false
+/// ラベルに「※編集不可」を含む項目・選択肢が外部にある項目 (担当者を選ぶ型を除く)・書き込めない型は false
 fn is_writable(p: &Value, name: &str, label: &str, ptype: &str, field_type: &str) -> bool {
     let read_only = p
         .pointer("/modificationMetadata/readOnlyValue")
@@ -472,7 +481,7 @@ fn is_writable(p: &Value, name: &str, label: &str, ptype: &str, field_type: &str
         .unwrap_or(false);
     if read_only
         || is_true(p, "calculated")
-        || is_true(p, "externalOptions")
+        || (is_true(p, "externalOptions") && !is_owner_ref(p, ptype))
         || name.starts_with("hs_")
         || name.starts_with("hubspot_")
         || label.contains("※編集不可")
@@ -602,6 +611,48 @@ mod tests {
         assert_eq!(bpo10.property_type, "enumeration");
         assert_eq!(bpo10.options.len(), 1, "非表示の選択肢は除く");
         assert_eq!(bpo10.options[0].label, "受付拒否");
+    }
+
+    #[test]
+    fn 担当者を選ぶ型は書ける項目になり_ほかの外部選択肢は書けないまま() {
+        let props = json!({"results": [
+            {"name": "bpo_26", "label": "アポ獲得者", "type": "enumeration", "fieldType": "select", "groupName": "g",
+             "externalOptions": true, "referencedObjectType": "OWNER", "options": []},
+            {"name": "other_ext", "label": "外部の選択肢", "type": "enumeration", "fieldType": "select", "groupName": "g",
+             "externalOptions": true, "referencedObjectType": "CONTACT", "options": []},
+            {"name": "ext_no_ref", "label": "参照先なし", "type": "enumeration", "fieldType": "select", "groupName": "g",
+             "externalOptions": true, "options": []},
+            {"name": "hubspot_owner_id", "label": "取引担当者", "type": "enumeration", "fieldType": "select", "groupName": "g",
+             "externalOptions": true, "referencedObjectType": "OWNER", "options": []},
+            {"name": "owner_ro", "label": "担当(読み取り専用)", "type": "enumeration", "fieldType": "select", "groupName": "g",
+             "externalOptions": true, "referencedObjectType": "OWNER", "modificationMetadata": {"readOnlyValue": true}},
+            {"name": "plain", "label": "ふつう", "type": "string", "fieldType": "text", "groupName": "g"}
+        ]});
+        let groups = json!({"results": [{"name": "g", "label": "G", "displayOrder": 0}]});
+        let o = build_object(RecordType::Deal, &props, &groups).unwrap();
+        let by = |n: &str| {
+            o.groups
+                .iter()
+                .flat_map(|g| g.properties.iter())
+                .find(|p| p.name == n)
+                .unwrap()
+        };
+        assert!(by("bpo_26").writable && by("bpo_26").owner_ref);
+        assert!(
+            !by("other_ext").writable,
+            "担当者以外の外部選択肢は書けない"
+        );
+        assert!(!by("other_ext").owner_ref);
+        assert!(!by("ext_no_ref").writable);
+        assert!(
+            !by("hubspot_owner_id").writable,
+            "取引の担当者は今までどおり対象外"
+        );
+        assert!(
+            !by("owner_ro").writable,
+            "読み取り専用は担当者型でも書けない"
+        );
+        assert!(by("plain").writable && !by("plain").owner_ref);
     }
 
     #[test]

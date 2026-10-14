@@ -2,7 +2,7 @@
 import type { CatalogEntry, CatalogObject } from './propertyModel';
 import type { EditSchema, EditableProp, EditOption, PatchRequest, PropValues, StageRule, WriteObject } from './writeTypes';
 
-export type FieldKind = 'text' | 'textarea' | 'select' | 'multi' | 'date' | 'number' | 'bool';
+export type FieldKind = 'text' | 'textarea' | 'select' | 'multi' | 'date' | 'number' | 'bool' | 'owner';
 
 export interface FieldDef {
   object: WriteObject;
@@ -17,12 +17,21 @@ export interface FieldDef {
 export const WRITE_OBJECT: Record<CatalogObject, WriteObject> = { deals: 'deal', contacts: 'contact', companies: 'company' };
 export const CATALOG_OF: Record<WriteObject, CatalogObject> = { deal: 'deals', contact: 'contacts', company: 'companies' };
 
-interface DefSource { name: string; label: string; type: string; field_type: string; options: readonly { value: string; label: string; hidden?: boolean }[]; max_length?: number | null }
+interface DefSource { name: string; label: string; type: string; field_type: string; options: readonly { value: string; label: string; hidden?: boolean }[]; max_length?: number | null; owner_ref?: boolean | undefined }
 
-/** HubSpot の種類 → 入力部品。編集できない種類 (日時・選択肢の無い選択式 = 担当者など) は null */
-export function kindOf(type: string, fieldType: string, optionCount: number): FieldKind | null {
+/**
+ * ステージを移す画面で、空なら操作している本人の担当者 ID を最初から入れる項目 (HubSpot の内部名)。
+ * 「アポ獲得者」(bpo_26) と「アポ取得者」(aposyutokusya) は、アポを取った本人を入れる項目で、
+ * 今日の成績のアポ数もこの項目で数えている。本人が移す操作をするのが普通なので、入力の手間を省く。
+ * FS担当者・IS担当者・コンサル担当などは本人とは限らないので初期値を入れない
+ */
+export const APPOINTER_FIELDS: readonly string[] = ['bpo_26', 'aposyutokusya'];
+
+/** HubSpot の種類 → 入力部品。編集できない種類 (日時・選択肢の無い選択式) は null。担当者を選ぶ型は 'owner' */
+export function kindOf(type: string, fieldType: string, optionCount: number, ownerRef = false): FieldKind | null {
   if (type === 'bool' || fieldType === 'booleancheckbox') return 'bool';
   if (type === 'enumeration') {
+    if (ownerRef) return 'owner';
     if (optionCount === 0) return null;
     return fieldType === 'checkbox' ? 'multi' : 'select';
   }
@@ -36,7 +45,7 @@ export function kindOf(type: string, fieldType: string, optionCount: number): Fi
 export function fieldDefFrom(object: WriteObject, src: DefSource): FieldDef | null {
   if (src.label.includes('※編集不可') || src.name.startsWith('hs_')) return null;
   const options = src.options.filter(o => o.hidden !== true).map(o => ({ value: o.value, label: o.label }));
-  const kind = kindOf(src.type, src.field_type, options.length);
+  const kind = kindOf(src.type, src.field_type, options.length, src.owner_ref === true);
   if (kind === null) return null;
   return { object, name: src.name, label: src.label, kind, options, maxLength: src.max_length ?? undefined };
 }
@@ -46,7 +55,7 @@ export function fieldDefFromEditable(p: EditableProp): FieldDef | null {
 }
 
 export function fieldDefFromCatalog(object: WriteObject, e: CatalogEntry): FieldDef | null {
-  return fieldDefFrom(object, { name: e.prop.name, label: e.prop.label, type: e.prop.property_type, field_type: e.prop.field_type, options: e.prop.options });
+  return fieldDefFrom(object, { name: e.prop.name, label: e.prop.label, type: e.prop.property_type, field_type: e.prop.field_type, options: e.prop.options, owner_ref: e.prop.owner_ref });
 }
 
 /**

@@ -57,6 +57,11 @@ pub struct CrmOwnersResponse {
     /// ページ数の上限で一覧が途中で切れた
     pub truncated: bool,
     pub generated_at: String,
+    /// 操作している本人の owner ID (`?me=1` を付け、メールで引けた場合だけ。引けなければ無い)。
+    /// 一覧のキャッシュには入れず、応答のたびに付ける。ステージ移動の画面が「アポ獲得者」に本人を入れるために使う
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub me_id: Option<String>,
 }
 
 /// 一覧のキャッシュ (`CallQueueState` が持つ)
@@ -220,18 +225,27 @@ async fn fetch_all(client: &HubSpotClient) -> Result<CrmOwnersResponse, HubSpotE
         owners,
         truncated: t1 || t2,
         generated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        me_id: None,
     })
+}
+
+#[derive(serde::Deserialize)]
+pub(super) struct OwnersQuery {
+    /// `1` なら本人の owner ID (`me_id`) も引く (メールで引く 1 回の HubSpot 呼び出しが増える。10 分キャッシュ)
+    me: Option<String>,
 }
 
 pub(super) async fn get_owners(
     session: Session,
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<Arc<CrmCtx>>,
+    axum::extract::Query(q): axum::extract::Query<OwnersQuery>,
 ) -> Response {
     // 一覧は CRM の利用者全員が使える (所有者の選択のため)。認可で落ちる人は HubSpot を呼ばない
-    if let Err(denied) = rbac::authorize(&session, &state, &ctx.access, None).await {
-        return denied.into_response();
-    }
+    let principal = match rbac::authorize(&session, &state, &ctx.access, None).await {
+        Ok(p) => p,
+        Err(denied) => return denied.into_response(),
+    };
     let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
@@ -246,7 +260,16 @@ pub(super) async fn get_owners(
         }
         Ok(Ok(list)) => {
             super::routes::refresh_ahead(&ctx, &client);
-            Json((*list).clone()).into_response()
+            let mut body = (*list).clone();
+            // 本人の owner ID (10 分キャッシュ。引けなくても一覧は返す)
+            if let Some(email) = principal
+                .email
+                .as_deref()
+                .filter(|e| !e.is_empty() && q.me.as_deref() == Some("1"))
+            {
+                body.me_id = ctx.queue.owner_for(&client, email).await.ok().flatten();
+            }
+            Json(body).into_response()
         }
     }
 }

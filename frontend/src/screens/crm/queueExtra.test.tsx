@@ -11,7 +11,7 @@ import type { CrmPropertyCatalogResponse } from '../../generated/CrmPropertyCata
 import type { QueueFilters } from './queueModel';
 
 const prop = (name: string, label: string, property_type: string, field_type = 'text', options: { value: string; label: string }[] = []) =>
-  ({ name, label, property_type, field_type, options: options.map(o => ({ ...o, display_order: 0, hidden: false })) });
+  ({ name, label, property_type, field_type, options: options.map(o => ({ ...o, display_order: 0, hidden: false })), owner_ref: false });
 const CATALOG: CrmPropertyCatalogResponse = { ...FIXTURE_CATALOG, objects: [{ object_type: 'deals', groups: [{ name: 'g', label: 'g', properties: [
   prop('amount', '金額', 'number', 'number'), prop('d1', '架空日付', 'date', 'date'), prop('t1', '架空日時', 'datetime', 'date'),
   prop('e1', '架空区分', 'enumeration', 'select', [{ value: 'a', label: 'Aランク' }]), prop('b1', '架空フラグ', 'bool', 'booleancheckbox'), prop('s1', '架空メモ', 'string'),

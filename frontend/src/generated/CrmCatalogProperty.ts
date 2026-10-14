@@ -24,4 +24,9 @@ field_type: string,
 /**
  * 選択肢 (非表示の選択肢は除く)
  */
-options: Array<CrmPropertyOption>, };
+options: Array<CrmPropertyOption>, 
+/**
+ * 値が HubSpot の担当者 (owner) の ID である項目 (`referencedObjectType` が `OWNER` の選択式。選択肢は `options` に無い)。
+ * 画面は担当者の一覧から選ばせ、書き込みは実在する owner ID かを確かめる
+ */
+owner_ref: boolean, };

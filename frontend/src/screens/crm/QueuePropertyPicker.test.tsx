@@ -5,7 +5,7 @@ import type { CrmCatalogProperty } from '../../generated/CrmCatalogProperty';
 import { QueuePropertyPicker } from './QueuePropertyPicker';
 import { matchesLabel } from './propertyModel';
 
-const p = (name: string, label: string, label_en?: string): CrmCatalogProperty => ({ name, label, ...(label_en ? { label_en } : {}), property_type: 'number', field_type: 'number', options: [] });
+const p = (name: string, label: string, label_en?: string): CrmCatalogProperty => ({ name, label, ...(label_en ? { label_en } : {}), property_type: 'number', field_type: 'number', options: [], owner_ref: false });
 const amount = p('amount', '金額', 'Amount');
 const custom = p('bpo_hsurl', 'BPO_HSURL');
 const props = [amount, p('dealname', '取引名', 'Deal Name'), custom];

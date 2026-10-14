@@ -39,3 +39,6 @@ export const FIXTURE_OWNERS: CrmOwner[] = [
   { id: '9003', name: '架空 一郎', email: 'ichiro2@example.invalid', archived: false, teams: [] },
   { id: '9004', name: 'ダミー 退職', email: null, archived: true, teams: [] },
 ];
+
+/** 架空サンプルで「本人」にあたる担当者の ID (FIXTURE_OWNERS の先頭) */
+export const FIXTURE_ME_ID = '9001';

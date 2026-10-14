@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use axum::{
     body::Body,
-    extract::{Path, RawQuery, State},
+    extract::{Path, Query, RawQuery, State},
     http::{header, Method, Request, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -213,6 +213,8 @@ async fn hs_props(State(st): State<Shared<Fake>>, Path(o): Path<String>) -> Resp
             {"name": "bpo_10", "label": "不通時チェック", "type": "enumeration", "fieldType": "select", "groupName": "g",
              "options": [{"label": "受付拒否", "value": "reception_refused"}, {"label": "その他", "value": "other"}]},
             {"name": "bpo_13", "label": "次回架電日", "type": "date", "fieldType": "date", "groupName": "g"},
+            {"name": "bpo_26", "label": "アポ獲得者", "type": "enumeration", "fieldType": "select", "groupName": "g",
+             "externalOptions": true, "referencedObjectType": "OWNER", "options": []},
             {"name": "bpo_50", "label": "架電メモ", "type": "string", "fieldType": "textarea", "groupName": "g"},
             {"name": "amount", "label": "金額", "type": "number", "fieldType": "number", "groupName": "g"},
             {"name": "bpo_hsurl", "label": "BPO_HSURL", "type": "string", "fieldType": "text", "groupName": "g"},
@@ -231,6 +233,18 @@ async fn hs_props(State(st): State<Shared<Fake>>, Path(o): Path<String>) -> Resp
         ]),
     };
     Json(json!({"results": results})).into_response()
+}
+
+/// 偽の担当者一覧 (有効な 2 人。退職者は空)
+async fn hs_owners(Query(q): Query<HashMap<String, String>>) -> Response {
+    if q.get("archived").map(String::as_str) == Some("true") {
+        return Json(json!({"results": []})).into_response();
+    }
+    Json(json!({"results": [
+        {"id": "9001", "firstName": "架空", "lastName": "一郎", "email": "ichiro@example.invalid"},
+        {"id": "9002", "firstName": "サンプル", "lastName": "二郎", "email": "jiro@example.invalid"}
+    ]}))
+    .into_response()
 }
 
 async fn hs_groups(Path(_o): Path<String>) -> Response {
@@ -284,6 +298,7 @@ async fn start_hs_gw(
     let base = spawn(
         Router::new()
             .route("/crm/v3/objects/{o}/{id}", get(hs_get).patch(hs_patch))
+            .route("/crm/v3/owners", get(hs_owners))
             .route("/crm/v3/properties/{o}", get(hs_props))
             .route("/crm/v3/properties/{o}/groups", get(hs_groups))
             .route("/crm/v3/pipelines/deals", get(hs_pipelines))
@@ -682,6 +697,38 @@ async fn 選択肢にない値_日付と数値の形は_422() {
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(v["errors"]["bpo_50"].is_string());
     assert_eq!(e.calls("PATCH"), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 担当者を選ぶ型の項目は_実在する_owner_id_だけ書ける() {
+    let e = env().await;
+    // 存在しない owner ID は 422 で、HubSpot へ書かない
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-owner-bad-0001",
+            "base": {"bpo_26": null}, "set": {"bpo_26": "424242"}}))
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert!(v["errors"]["bpo_26"].is_string(), "{v}");
+    // 数字でない値も 422
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-owner-bad-0002",
+            "base": {"bpo_26": null}, "set": {"bpo_26": "ichiro"}}))
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(e.calls("PATCH"), 0);
+    // 実在する owner ID は書ける
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-owner-ok-0001",
+            "base": {"bpo_26": null}, "set": {"bpo_26": "9001"}}))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(e.calls("PATCH"), 1);
+    // 空にするのは今の規則どおり (担当者の一覧を引かずに通る)
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-owner-clear-0001",
+            "base": {"bpo_26": "9001"}, "set": {"bpo_26": null}}))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

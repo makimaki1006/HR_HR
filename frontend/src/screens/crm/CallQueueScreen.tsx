@@ -15,6 +15,8 @@ import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
 import { DatePicker } from '../../components/DatePicker';
 import { OwnerFilter } from './OwnerFilter';
+import { OwnerChoicesProvider } from './OwnerSelect';
+import type { OwnerChoices } from './OwnerSelect';
 import { ownerNameMap } from './ownerModel';
 import { formatPhoneForDisplay } from './phone';
 import {
@@ -583,6 +585,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 所有者の一覧は CRM の利用者全員が使える。実データでは HubSpot、架空サンプルでは架空の一覧
   const owners = useOwners(true, mode === 'fixture' ? fixtureOwnersFetch : (ownersFetcher ?? liveOwnersFetch));
   const ownerNames = useMemo(() => ownerNameMap(owners.state.phase === 'ready' ? owners.state.owners : []), [owners.state]);
+  const meOwnerId = owners.state.phase === 'ready' ? owners.state.meId : null;
+  const ownerChoices = useMemo<OwnerChoices>(() => ({ state: owners.state, meId: meOwnerId, reload: owners.reload }), [owners.state, owners.reload, meOwnerId]);
   const needsOwnerPick = state.phase === 'error' && state.errorKind === 'owner_not_resolved';
   const notes = partialNotes(state.partial);
   const total = state.total;
@@ -756,7 +760,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   }, [detailFetcher, mode]);
   const writeBindings = useWriteBindings({
     write: crmWrite, dealId: detailId, data: loadedData, index: catalog.state.phase === 'ready' ? catalog.state.index : null,
-    ownerNames, loadValues: loadWriteValues,
+    ownerNames, meOwnerId, loadValues: loadWriteValues,
   });
   const shownData = writeBindings.view;
   const fixedLinks = useMemo(() => (shownData !== null ? dealFixedLinks(shownData) : EMPTY_FIXED), [shownData]);
@@ -887,7 +891,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     </div>,
   };
 
-  return <div className="crm-app cq-app">
+  return <OwnerChoicesProvider value={ownerChoices}><div className="crm-app cq-app">
     {writeBindings.conflict !== null && <ConflictDialog view={writeBindings.conflict} />}
     {/* 画面全体の読み上げ欄 (記録した・記録できない理由)。常に置いておき、中身だけ変える */}
     <p className="cq-sr-only" role="status" data-testid="screen-announcement">{announcement.text}{announcement.n % 2 === 1 ? '\u00a0' : ''}</p>
@@ -956,5 +960,5 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       onKeyDown={e => { if (e.key === 'Escape' && drawerOpen) { e.preventDefault(); closeZoom(); } }}>
       <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} link={endedCall !== null ? 'selected' : callRecorded ? 'recorded' : 'none'} onClose={closeZoom} />
     </div>
-  </div>;
+  </div></OwnerChoicesProvider>;
 }

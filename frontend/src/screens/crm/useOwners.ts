@@ -3,24 +3,24 @@ import { ApiAbortedError, ApiError, ApiHttpError, apiGet } from '../../api/clien
 import type { ApiResult } from '../../api/client';
 import type { CrmOwner } from '../../generated/CrmOwner';
 import type { CrmOwnersResponse } from '../../generated/CrmOwnersResponse';
-import { FIXTURE_OWNERS } from './ownerModel';
+import { FIXTURE_ME_ID, FIXTURE_OWNERS } from './ownerModel';
 import { errorMessage } from './queueModel';
 
 export type OwnersFetch = (signal: AbortSignal) => Promise<ApiResult<CrmOwnersResponse>>;
 
 export const liveOwnersFetch: OwnersFetch = signal =>
-  apiGet<CrmOwnersResponse>('/api/crm/owners', { signal, timeoutMs: 30_000 });
+  apiGet<CrmOwnersResponse>('/api/crm/owners?me=1', { signal, timeoutMs: 30_000 });
 
 export const fixtureOwnersFetch: OwnersFetch = async signal => {
   await Promise.resolve();
   if (signal.aborted) return { ok: false, error: new ApiAbortedError('aborted') };
-  return { ok: true, data: { owners: FIXTURE_OWNERS, truncated: false, generated_at: '2026-10-05T03:00:00Z' } };
+  return { ok: true, data: { owners: FIXTURE_OWNERS, truncated: false, generated_at: '2026-10-05T03:00:00Z', me_id: FIXTURE_ME_ID } };
 };
 
 export type OwnersState =
   | { phase: 'idle' }
   | { phase: 'loading' }
-  | { phase: 'ready'; owners: CrmOwner[]; truncated: boolean }
+  | { phase: 'ready'; owners: CrmOwner[]; truncated: boolean; meId: string | null }
   | { phase: 'error'; message: string };
 
 function failureMessage(error: ApiError): string {
@@ -33,7 +33,7 @@ function failureMessage(error: ApiError): string {
   return errorMessage(null, null);
 }
 
-type Settled = { phase: 'ready'; owners: CrmOwner[]; truncated: boolean } | { phase: 'error'; message: string };
+type Settled = { phase: 'ready'; owners: CrmOwner[]; truncated: boolean; meId: string | null } | { phase: 'error'; message: string };
 
 /**
  * 担当者の一覧 (管理者だけ。enabled のときに 1 回取る。絞り込み条件が変わっても取り直さない)。
@@ -51,7 +51,7 @@ export function useOwners(enabled: boolean, fetcher: OwnersFetch = liveOwnersFet
       if (!ctl.signal.aborted) setResult({ fetcher, nonce, settled });
     };
     void fetcher(ctl.signal).then(r => {
-      if (r.ok) done({ phase: 'ready', owners: r.data.owners, truncated: r.data.truncated });
+      if (r.ok) done({ phase: 'ready', owners: r.data.owners, truncated: r.data.truncated, meId: r.data.me_id ?? null });
       else done({ phase: 'error', message: failureMessage(r.error) });
     }).catch(() => { done({ phase: 'error', message: errorMessage(null, null) }); });
     return () => { ctl.abort(); };

@@ -31,6 +31,12 @@ export interface StageMoveCtx {
   ruleOf(stageId: string): StageRule | undefined;
   status: FieldStatus | undefined;
   defOf(name: string): FieldDef | null;
+  /** 項目の見出し用のグループ名 (HubSpot のプロパティのグループ。項目の一覧が読めていなければ null) */
+  groupOf(name: string): string | null;
+  /** 画面に出せない項目も含めた表示名 (項目の一覧から。分からなければ null) */
+  labelOf(name: string): string | null;
+  /** 操作している本人の担当者 ID (引けなければ null)。「アポ獲得者」等の初期値に使う */
+  meOwnerId: string | null;
   /** 画面に出している案件の、その項目のいまの値 (未取得の項目は HubSpot から読む) */
   currentValues(defs: readonly FieldDef[]): Promise<Record<string, string | null>>;
   move(target: { pipeline_id: string; stage_id: string; label: string }, changes: FieldChange[]): Promise<SaveOutcome>;
@@ -49,11 +55,13 @@ export interface WriteBindingsInput {
   data: WorkspaceResponse | null;
   index: Index | null;
   ownerNames: ReadonlyMap<string, string>;
+  /** 操作している本人の担当者 ID (引けなければ null) */
+  meOwnerId?: string | null;
   /** 項目の値を HubSpot から読む (ステージの規則で出す項目のうち、パネルで選んでいないもの) */
   loadValues: (dealId: string, defs: readonly FieldDef[]) => Promise<Record<string, string | null>>;
 }
 
-export function useWriteBindings({ write, dealId, data, index, ownerNames, loadValues }: WriteBindingsInput) {
+export function useWriteBindings({ write, dealId, data, index, ownerNames, meOwnerId = null, loadValues }: WriteBindingsInput) {
   const schema = write.schema.phase === 'ready' ? write.schema.schema : null;
   const primaryContact = data?.contacts.find(c => c.is_primary) ?? data?.contacts[0] ?? null;
   const primaryCompany = data?.companies.find(c => c.is_primary) ?? data?.companies[0] ?? null;
@@ -107,9 +115,20 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, loadV
       const listed = schema.editable.find(p => p.name === name && p.object === 'deal') ?? schema.editable.find(p => p.name === name);
       if (listed) return fieldDefFromEditable(listed);
       if (index === null || (schema.read_only ?? []).includes(name)) return null;
-      for (const o of CATALOG_OBJECTS) { const e = index[o].get(name); if (e) return fieldDefFromCatalog(WRITE_OBJECT[o], e); }
+      for (const o of CATALOG_OBJECTS) {
+        const e = index[o].get(name);
+        // 担当者を選ぶ型は、書ける項目の一覧 (editable) にあるものだけ。HubSpot が担当者の項目として持つだけの項目 (取引の担当者など) は出さない
+        if (e) return e.prop.owner_ref && schema.editable_all !== true ? null : fieldDefFromCatalog(WRITE_OBJECT[o], e);
+      }
       return null;
     };
+    const entryOf = (name: string): CatalogEntry | undefined => {
+      if (index === null) return undefined;
+      for (const o of CATALOG_OBJECTS) { const e = index[o].get(name); if (e) return e; }
+      return undefined;
+    };
+    const groupOf = (name: string): string | null => entryOf(name)?.group ?? null;
+    const labelOf = (name: string): string | null => entryOf(name)?.prop.label ?? schema?.editable.find(p => p.name === name)?.label ?? null;
     const pipelineId = data.deal.pipeline_id ?? schema?.pipeline_id ?? null;
     return {
       writesEnabled: write.writesEnabled,
@@ -118,7 +137,7 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, loadV
       pipelines: schema?.pipelines ?? [],
       ruleOf: id => schema?.stages.find(r => r.id === id),
       status: write.statuses[stageKey(dealId)],
-      defOf,
+      defOf, groupOf, labelOf, meOwnerId,
       currentValues: async defs => {
         const out: Record<string, string | null> = {};
         const missing: FieldDef[] = [];
@@ -133,7 +152,7 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, loadV
       move: (target, changes) => write.save({ dealId, changes, stage: target, recordIds, fetchedAt }),
       retry: req => { void write.save(req); },
     };
-  }, [dealId, data, schema, index, write, view, recordIds, fetchedAt, loadValues]);
+  }, [dealId, data, schema, index, write, view, recordIds, fetchedAt, loadValues, meOwnerId]);
 
   const conflict = useMemo<ConflictView | null>(() => {
     const c = write.conflict;
@@ -144,6 +163,7 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, loadV
       if (index !== null) for (const o of CATALOG_OBJECTS) { entry = entry ?? index[o].get(name); }
       const label = listed?.label ?? entry?.prop.label ?? '項目';
       const text = (raw: string | null): string => {
+        if (listed?.owner_ref === true) return raw === null || raw === '' ? '未入力' : (ownerNames.get(raw) ?? '担当あり');
         if (listed && entry === undefined) return raw === null || raw === '' ? '未入力' : (listed.options.find(o => o.value === raw)?.label ?? raw);
         const v = viewValue(entry?.prop, raw, ownerNames);
         return v.kind === 'empty' ? '未入力' : v.kind === 'links' ? v.urls.join(' ') : v.text;
