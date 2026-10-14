@@ -31,6 +31,7 @@ export function PropInput({ def, value, onChange, autoFocus, onKeyDown, id }: {
       </span>;
     }
     case 'date':
+    case 'datetime':
       return <DatePicker id={id} aria-label={def.label} autoFocus={autoFocus} onKeyDown={onKeyDown} value={value} onChange={onChange} />;
     case 'number':
       return <input {...common} type="number" value={value} onChange={e => { onChange(e.target.value); }} />;

@@ -169,6 +169,22 @@ describe('架電結果の入力欄: 保存', () => {
     expect(within(form()).getByTestId('result-notice').classList.contains('is-saved')).toBe(true);
   });
 
+  it('選んでいるステージのボタンをもう一度押しても選択は外れない。外すのは「(変えない)」を選ぶとき', async () => {
+    const { api, patch } = spyApi();
+    await renderFixture('', api);
+    open('架空食品株式会社');
+    await formReady();
+    const btn = () => within(form()).getByRole('button', { name: /^受付ブロック/ });
+    fireEvent.click(btn());
+    fireEvent.click(btn());
+    expect(btn().getAttribute('aria-pressed')).toBe('true');
+    const select = within(form()).getByRole<HTMLSelectElement>('combobox', { name: 'ステージを選ぶ' });
+    expect(select.selectedOptions[0]?.textContent).toBe('受付ブロック');
+    fireEvent.change(select, { target: { value: '' } });
+    expect(btn().getAttribute('aria-pressed')).toBe('false');
+    expect(patch).not.toHaveBeenCalled();
+  });
+
   it('Ctrl+Enter でも記録して次へ', async () => {
     const { api, patch } = spyApi();
     await renderFixture('', api);
