@@ -136,6 +136,8 @@ export interface BillingOptions {
 export function billingEntries(job: JobCopyRecord, injected?: readonly BillingEntry[], options: BillingOptions = {}): BillingEntry[] {
   const real = realBillingEntries(job, injected);
   if (!(options.dummy ?? DUMMY_BILLING_ENABLED)) return real;
+  // 実データの求人: Indeed の実績がある求人と、課金を集めていない AirWork 求人に仮の金額は出さない。
+  if (job.dataSource === 'hubspot' && (job.hrhPerformance !== undefined || job.media === 'AirWork' || job.media === 'Airワーク')) return real;
   const asOf = options.asOf ?? asOfDate(job);
   const first = buildPeriods(job, asOf)[0]?.start;
   if (!first) return real;

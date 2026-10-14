@@ -1,4 +1,6 @@
 import { formatDateTimeJst } from './format';
+import { parseHrhPerformance } from './hrhPerformanceModel';
+import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import type { DraftSnapshot } from '../../generated/DraftSnapshot';
 import type { CopyVersion } from './data';
 import columns from '../../generated/jobgen/columns.json';
@@ -41,6 +43,8 @@ export interface HubSpotVersions {
   current?: { checked_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null } | null;
   current_images_registered?: boolean | null;
   current_images?: { observed_at: string; image_urls: string[] } | null;
+  /** HRハッカー求人の Indeed 週ごとの実績（HubSpot の indeed_weekly_perf）。無い・読めないときは null。 */
+  indeed_weekly_perf?: unknown;
   listing: HubSpotListing;
   versions: { written_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null }[];
   history_counts: Record<string, number>; history_may_be_incomplete: boolean;
@@ -51,11 +55,17 @@ export function draftVersion(draft: DraftSnapshot, index: number): CopyVersion {
   return { id: `hubspot-draft-${draft.draft_id}`, draft, label: `${draftStateLabel(draft.review_status)}の案 ${String(index + 1)}`, observedAt: draft.created_at, comparisonBody: raw, body: composeHrhBody(raw), bodySections: hrhCopySections(raw), kind: 'ai_draft', certainty: 'unknown', applications: null, source: draft.manual_edit ? '手直しで保存した案' : '求人票作成で保存した案', note: '未掲載の案です。掲載開始日時と応募は対応させていません。' };
 }
 export const mediaLabel = (media: HubSpotListing['media']) => media === 'hrh' ? 'HRハッカー' : 'AirWork';
+/** HubSpot に保存された Indeed の週ごとの実績。HRハッカー求人で、求人番号が一致し、形が正しいときだけ使う。 */
+export function indeedWeeklyPerformance(raw: unknown, media: HubSpotListing['media'], mediaJobId: string): HrhPerformanceCollection | undefined {
+  if (media !== 'hrh' || raw === null || raw === undefined) return undefined;
+  try { return parseHrhPerformance(raw, mediaJobId); } catch { return undefined; }
+}
 export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing): JobCopyRecord {
   const row = data.listing;
   const copy = (body: string) => row.media === 'hrh' ? { comparisonBody: body, body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: '仕事内容', text: body }] : [] };
   return {
     currentImagesRegistered: data.current_images_registered ?? undefined,
+    ...(indeedWeeklyPerformance(data.indeed_weekly_perf, row.media, row.media_job_id) ? { hrhPerformance: indeedWeeklyPerformance(data.indeed_weekly_perf, row.media, row.media_job_id) } : {}),
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
     currentDraftRow: data.current_row ?? undefined, draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
     ...(data.current_fields ? { currentListingFields: data.current_fields } : {}),

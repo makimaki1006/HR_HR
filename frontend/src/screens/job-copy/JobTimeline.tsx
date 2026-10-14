@@ -356,7 +356,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   // Name only the sources that have rows on this job: an AirWork job with dummy billing only
   // must not suggest the made-up amounts come from HRハッカー.
   const billingSource = [
-    hrhBilling ? fictionalBilling ? `HRハッカーの期間別実績（${DEMO_BILLING_LABEL}）` : 'HRハッカーの期間別実績' : '',
+    hrhBilling ? fictionalBilling ? `HRハッカーの期間別実績（${DEMO_BILLING_LABEL}）` : 'Indeed の実績（週ごと）' : '',
     csvBilling ? '読み込んだ課金CSV' : '',
     hasDummyBilling ? DUMMY_BILLING_LABEL : '',
   ].filter(Boolean).join('・') || '出典なし';
