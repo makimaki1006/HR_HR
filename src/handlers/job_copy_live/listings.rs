@@ -9,6 +9,9 @@ use deals::{
     body_changed_at, deal_candidates, index_associations, publication, summary, Deal, Summary,
 };
 pub(super) use deals::{read_body_dates, read_comparison};
+#[path = "listing_home.rs"]
+mod home;
+pub(super) use home::read as read_home;
 #[cfg(test)]
 #[path = "listing_cache_tests.rs"]
 mod cache_tests;
@@ -82,6 +85,8 @@ const PROPERTIES: &[&str] = &[
     "baitai_genjoukyou_airwork",
     "saishuu_csv_kenshutsu_bi",
     INDEED_TITLE_PROPERTY,
+    INDEED_WEEKLY_PERF,
+    AIRWORK_WEEKLY_PERF,
 ];
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -123,6 +128,9 @@ struct Listing {
     summary: Summary,
     #[serde(skip)]
     indexed_application_count: Option<usize>,
+    /// 週ごとの実績の要約（ホーム用）。週ごとの JSON そのものは索引に残さない。
+    #[serde(skip)]
+    perf: Option<home::PerfDigest>,
 }
 fn normalize(value: &str) -> String {
     value
@@ -189,6 +197,7 @@ fn listing(record: &Record) -> Option<Listing> {
         deal_ids: vec![],
         summary: summary(record, media),
         indexed_application_count: None,
+        perf: home::PerfDigest::from_record(record, media),
         draft_status: record
             .value("jobgen_draft_status")
             .filter(|v| ["pending", "adopted", "rejected"].contains(v))
@@ -223,6 +232,8 @@ const PAGE_SIZE: usize = 50;
 pub(super) struct IndexCache {
     state: tokio::sync::RwLock<IndexState>,
     worker: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// ホームの事業所の対応（取引→事業所）。索引ごとに一度だけ読む。
+    home_companies: tokio::sync::Mutex<Option<home::CompanyMap>>,
 }
 impl Drop for IndexCache {
     fn drop(&mut self) {
