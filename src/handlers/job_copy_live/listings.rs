@@ -19,11 +19,11 @@ mod deal_tests;
 /// AirWork image URLs, one per line. Written by `scripts/job_copy_airwork_image_urls.py`.
 pub(super) const AW_IMAGES: &str = "aw_kyuujinhyou_gazou";
 /// Weekly Indeed (HRハッカー) results as JSON. Written by `scripts/indeed_weekly_import.py`.
-const INDEED_WEEKLY_PERF: &str = "indeed_weekly_perf";
+pub(super) const INDEED_WEEKLY_PERF: &str = "indeed_weekly_perf";
 const INDEED_PERF_MAX_BYTES: usize = 200_000;
 /// The stored JSON as a value, or None when it is empty, too large or not the expected shape.
 /// The screen checks every field again; a bad value must never break the page.
-fn indeed_weekly_perf(record: &Record) -> Option<Value> {
+pub(super) fn indeed_weekly_perf(record: &Record) -> Option<Value> {
     let raw = record.value(INDEED_WEEKLY_PERF)?;
     if raw.len() > INDEED_PERF_MAX_BYTES {
         return None;

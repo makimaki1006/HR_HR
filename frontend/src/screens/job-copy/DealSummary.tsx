@@ -1,94 +1,79 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
-import { apiGet } from '../../api/client';
-import { fetchBodyDates } from './bodyDatesShared';
 import { EChart } from '../../components/EChart';
 import { mediaLabel, publicationLabel } from './hubspotListings';
-import type { DealSelection, HubSpotListing, HubSpotListingPage } from './hubspotListings';
-import { applicationsCutoffDate } from './detailBandModel';
-import { dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, shareOfDeal, weeklySeries } from './dealSummaryModel';
-import type { DealListingInput } from './dealSummaryModel';
+import type { DealSelection, HubSpotListing } from './hubspotListings';
+import { companyRollup, dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, ROLLUP_RULES, shareOfDeal, weeklySeries } from './dealSummaryModel';
+import { dealGroup, loadDealData } from './dealSummaryLoad';
+import type { DealData } from './dealSummaryLoad';
 import { formatDay, formatYen, jstDate, todayJst } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import './deal-summary.css';
 
-interface DealApplications { listings: { listing_id: string; total?: number; by_date?: Record<string, number>; fetched_at?: string; error?: string }[]; shared_applications: number; shared_by_date?: Record<string, number> }
-type Source = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; rows: HubSpotListing[]; capped: boolean; applications: Map<string, Record<string, number> | null>; shared: number; overlap: Record<string, number>; fetched: Map<string, string | null>; bodyDates: Record<string, string | null> };
+export type SummarySource = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; datas: DealData[]; notes?: string[] };
+type Source = SummarySource;
+export type Billing = Readonly<Record<string, readonly BillingEntry[]>>;
 
 const PALETTE = ['#1f6f8b', '#c2571a', '#5b8c2a', '#8a4fa0', '#b8860b', '#2e8b7a', '#a33b4e', '#4a5fa8'];
 const ENDED_GRAY = '#b4b4b4';
+const EVENT_LIMIT = 10;
 const yen = (value: number | null) => value === null ? '—' : formatYen(value);
 const count = (value: number | null) => value === null ? '—' : `${String(value)}件`;
 const indeedCell = (row: HubSpotListing): string => row.indeed_title_state === 'set' && row.indeed_title?.trim() ? row.indeed_title.trim() : row.indeed_title_state === 'none' ? '市場と比べない' : '未指定';
 
-export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealSelection; billingByJob: Readonly<Record<string, readonly BillingEntry[]>>; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void }) {
+export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany }: { deal: DealSelection; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void }) {
   const [source, setSource] = useState<Source>({ status: 'loading' });
-  const [colored, setColored] = useState(true);
-
   useEffect(() => {
     const controller = new AbortController();
-    const fail = (message: string) => { if (!controller.signal.aborted) setSource({ status: 'error', message }); };
-    void (async () => {
-      const page = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${new URLSearchParams({ deal: deal.id, offset: '0', sort: 'title', descending: 'false' }).toString()}`, { signal: controller.signal, timeoutMs: 120_000 });
+    void loadDealData(deal.id, deal.name, controller.signal).then(data => {
       if (controller.signal.aborted) return;
-      if (!page.ok) { fail('この案件の求人を読み込めませんでした。時間を置いて再取得してください。'); return; }
-      const rows = page.data.listings;
-      let applications = new Map<string, Record<string, number> | null>(rows.map(row => [row.id, null]));
-      let shared = 0;
-      let overlap: Record<string, number> = {};
-      let fetched = new Map<string, string | null>();
-      let bodyDates: Record<string, string | null> = {};
-      if (rows.length) {
-        const ids = rows.slice(0, 30).map(row => encodeURIComponent(row.id)).join(',');
-        const [apps, dates] = await Promise.all([
-          apiGet<DealApplications>(`/api/job-copy/deal-applications?deal=${encodeURIComponent(deal.id)}&ids=${ids}`, { signal: controller.signal, timeoutMs: 120_000 }),
-          fetchBodyDates(rows.map(row => row.id)),
-        ]);
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- aborted can change while awaiting
-        if (controller.signal.aborted) return;
-        if (apps.ok) {
-          applications = new Map(rows.map(row => { const found = apps.data.listings.find(item => item.listing_id === row.id); return [row.id, found?.by_date && !found.error ? found.by_date : null]; }));
-          shared = apps.data.shared_applications;
-          overlap = apps.data.shared_by_date ?? {};
-          fetched = new Map(rows.map(row => [row.id, applicationsCutoffDate({ overallApplications: { fetchedAt: apps.data.listings.find(item => item.listing_id === row.id)?.fetched_at } })]));
-        }
-        if (dates.ok && dates.data.dates) bodyDates = dates.data.dates;
-      }
-      setSource({ status: 'ready', rows, capped: page.data.next_offset !== null, applications, shared, overlap, fetched, bodyDates });
-    })();
+      setSource(data ? { status: 'ready', datas: [data] } : { status: 'error', message: 'この案件の求人を読み込めませんでした。時間を置いて再取得してください。' });
+    });
     return () => { controller.abort(); };
-  }, [deal.id]);
+  }, [deal.id, deal.name]);
+  return <SummaryView scope="deal" source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} {...(onOpenCompany ? { onOpenCompany } : {})} />;
+}
+
+export function SummaryView({ scope, source, billingByJob, onOpenListing, onOpenCompany }: { scope: 'deal' | 'company'; source: Source; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void }) {
+  const [colored, setColored] = useState(true);
+  const [showAllEvents, setShowAllEvents] = useState(false);
+  const noun = scope === 'deal' ? '案件' : '事業所';
+  const aria = `${noun}のまとめ`;
 
   const model = useMemo(() => {
     if (source.status !== 'ready') return null;
-    const inputs: DealListingInput[] = source.rows.map(row => ({
-      id: row.id, title: row.title ?? '求人名未取得', media: row.media, ended: publicationLabel(row.publication_status) === '掲載終了',
-      byDate: source.applications.get(row.id) ?? null, billing: billingByJob[`hubspot-history-${row.id}`] ?? [],
-      fetchedDate: source.fetched.get(row.id) ?? null,
-    }));
+    const groups = source.datas.map(data => dealGroup(data, billingByJob));
+    const rollup = companyRollup(groups);
+    const inputs = rollup.inputs.map(input => ({ ...input, inOtherDeals: input.inOtherDeals === true || groups.filter(group => group.inputs.some(item => item.id === input.id)).length > 1 }));
     const asOf = dealCutoff(inputs) ?? todayJst();
     const titleOf = (id: string) => inputs.find(input => input.id === id)?.title ?? '求人';
-    const totals = dealTotals(inputs, asOf, source.overlap);
+    const rows = new Map(source.datas.flatMap(data => data.rows.map(row => [row.id, row] as const)));
+    const bodyDates: Record<string, string | null> = Object.assign({}, ...source.datas.map(data => data.bodyDates)) as Record<string, string | null>;
+    const totals = dealTotals(inputs, asOf, rollup.overlap);
     return {
-      inputs, totals, asOf, series: weeklySeries(inputs, asOf, source.overlap), titleOf, cutoffs: mediaCutoffs(inputs),
+      inputs, totals, asOf, series: weeklySeries(inputs, asOf, rollup.overlap), titleOf, cutoffs: mediaCutoffs(inputs),
       numbers: new Map(inputs.map(input => [input.id, listingNumbers(input, asOf)])),
-      events: dealEvents(inputs, source.rows.map(row => ({ listingId: row.id, bodyChangedAt: jstDate(source.bodyDates[row.id] ?? row.summary?.body_changed_at) })), asOf, titleOf, formatYen, source.overlap),
+      events: dealEvents(inputs, [...rows.keys()].map(id => ({ listingId: id, bodyChangedAt: jstDate(bodyDates[id] ?? rows.get(id)?.summary?.body_changed_at) })), asOf, titleOf, formatYen, rollup.overlap),
+      groupTotals: source.datas.map((data, index) => ({ data, totals: dealTotals(groups[index]?.inputs ?? [], asOf, groups[index]?.overlap ?? {}) })),
+      company: source.datas.map(data => data.company).find(company => company !== null) ?? null,
+      excluded: inputs.filter(input => input.billingUnavailable).length,
+      multiCount: inputs.filter(input => input.inOtherDeals).length,
     };
   }, [source, billingByJob]);
 
-  if (source.status === 'loading') return <section className="ds-root" aria-label="案件のまとめ"><p role="status">案件のまとめを読み込んでいます…</p></section>;
-  if (source.status === 'error') return <section className="ds-root" aria-label="案件のまとめ"><p role="alert">{source.message}</p></section>;
-  if (!model || !source.rows.length) return <section className="ds-root" aria-label="案件のまとめ"><p>この案件の求人はありません。</p></section>;
+  if (source.status === 'loading') return <section className="ds-root" aria-label={aria}><p role="status">{noun}のまとめを読み込んでいます…</p></section>;
+  if (source.status === 'error') return <section className="ds-root" aria-label={aria}><p role="alert">{source.message}</p></section>;
+  if (!model?.inputs.length) return <section className="ds-root" aria-label={aria}><p>この{noun}の求人はありません。</p></section>;
 
-  const { inputs, totals, series, numbers, events, cutoffs, asOf } = model;
+  const { inputs, totals, series, numbers, events, cutoffs, asOf, groupTotals } = model;
   const colorOf = (id: string) => { const index = inputs.findIndex(input => input.id === id); return inputs[index]?.ended ? ENDED_GRAY : PALETTE[index % PALETTE.length] ?? ENDED_GRAY; };
   const labels = series.weeks.map(week => formatDay(week).slice(5));
   const chartSeries = colored
     ? series.perListing.flatMap(row => row.counts ? [{ type: 'bar' as const, stack: 'applications', name: model.titleOf(row.id), data: row.counts, itemStyle: { color: colorOf(row.id) } }] : [])
-    : [{ type: 'bar' as const, name: '案件の合計', data: series.total, itemStyle: { color: '#1f6f8b' } }];
+    : [{ type: 'bar' as const, name: `${noun}の合計`, data: series.total, itemStyle: { color: '#1f6f8b' } }];
   const applicationOption: EChartsCoreOption = {
     animation: false,
-    aria: { enabled: true, description: '案件の週ごとの応募件数' },
+    aria: { enabled: true, description: `${noun}の週ごとの応募件数` },
     grid: { left: 36, right: 8, top: 16, bottom: 24 },
     tooltip: { trigger: 'axis', confine: true, axisPointer: { type: 'shadow' } },
     xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 10 } },
@@ -104,16 +89,40 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
     yAxis: { type: 'value', show: false, min: 0 },
     series: [{ type: 'bar', name: '課金', data: series.billing, itemStyle: { color: '#a36816' } }],
   } : null;
-  const showIndeed = source.rows.some(row => row.indeed_title_state !== undefined);
+  const rowsOf = (data: DealData) => data.rows;
+  const allRows = source.datas.flatMap(rowsOf);
+  const showIndeed = allRows.some(row => row.indeed_title_state !== undefined);
+  const capped = source.datas.some(data => data.capped);
+  const shared = source.datas.reduce((sum, data) => sum + data.shared, 0);
+  const lastBilling = cutoffs.find(cutoff => cutoff.media === 'hrh')?.lastBilling ?? null;
+  const columns = 7 + (showIndeed ? 1 : 0);
+  const listingRow = (row: HubSpotListing) => {
+    const n = numbers.get(row.id);
+    const input = inputs.find(item => item.id === row.id);
+    const share = shareOfDeal(n?.recent ?? null, totals.recent);
+    const status = publicationLabel(row.publication_status);
+    return <tr key={row.id}>
+      <td><button type="button" className="jc-button" onClick={event => { onOpenListing(row, event.currentTarget); }}>{row.title ?? '求人名未取得'}</button>{input?.inOtherDeals && <small>ほかの取引にも結び付いています</small>}</td>
+      <td>{mediaLabel(row.media)}</td>
+      <td>{status}{row.last_csv_detected_at ? <small>最後に確認 {formatDay(jstDate(row.last_csv_detected_at) ?? '—')}</small> : <small>開始日・終了日は未取得</small>}</td>
+      <td>{count(n?.recent ?? null)}（{count(n?.previous ?? null)}）</td>
+      <td>{share === null ? '—' : <><span className="ds-bar" aria-hidden="true"><i style={{ width: `${String(share)}%`, background: colorOf(row.id) }} /></span> {String(share)}%</>}</td>
+      <td>{input?.billingUnavailable ? <small>課金データなし</small> : yen(n?.billing ?? null)}</td>
+      <td>{input?.billingUnavailable ? '—' : yen(n?.perApplication ?? null)}</td>
+      {showIndeed && <td>{indeedCell(row)}</td>}
+    </tr>;
+  };
 
-  return <section className="ds-root" aria-label="案件のまとめ">
-    <div className="ds-band" role="group" aria-label="案件の合計">
-      <div><span>直近4週の応募（案件の合計）</span><strong>{count(totals.recent)}</strong><small>前の4週 {count(totals.previous)}</small></div>
+  return <section className="ds-root" aria-label={aria}>
+    {scope === 'deal' && model.company && onOpenCompany && <p className="ds-note ds-company-link">この案件の事業所：<button type="button" className="jc-button" onClick={() => { if (model.company) onOpenCompany(model.company); }}>{model.company.name}の合計を見る</button></p>}
+    <div className="ds-band" role="group" aria-label={`${noun}の合計`}>
+      <div><span>直近4週の応募（{noun}の合計）</span><strong>{count(totals.recent)}</strong><small>前の4週 {count(totals.previous)}</small></div>
       <div><span>応募1件あたり</span><strong>{yen(totals.perApplication)}</strong><small>課金の合計 ÷ 応募の合計</small></div>
-      <div><span>今の課金（求人の合計）/4週</span><strong>{yen(totals.billing)}</strong>{totals.unknownBilling > 0 && <small>課金が分からない求人が {String(totals.unknownBilling)}件あるため、合計は出していません</small>}</div>
-      <div><span>求人 {String(totals.listings)} 件</span><strong>掲載中 {String(totals.live)} ・ 終了 {String(totals.ended)}</strong>{totals.unknownApplications > 0 && <small>応募日が未取得の求人 {String(totals.unknownApplications)}件は含みません</small>}</div>
+      <div><span>今の課金（求人の合計）/4週</span><strong>{yen(totals.billing)}</strong>{totals.unknownBilling > 0 && <small>課金が分からない求人が {String(totals.unknownBilling)}件あるため、合計は出していません</small>}{totals.excludedBilling > 0 && <small>課金データのない求人 {String(totals.excludedBilling)}件（AirWork）は含みません</small>}</div>
+      <div><span>求人 {String(totals.listings)} 件{scope === 'company' ? ` ・ 取引 ${String(source.datas.length)} 件` : ''}</span><strong>掲載中 {String(totals.live)} ・ 終了 {String(totals.ended)}</strong>{totals.unknownApplications > 0 && <small>応募日が未取得の求人 {String(totals.unknownApplications)}件は含みません</small>}</div>
     </div>
-    {source.capped && <p className="ds-note">求人が多いため、先頭の50件までで集計しています。</p>}
+    {capped && <p className="ds-note">求人が多いため、先頭の50件までで集計しています。</p>}
+    {source.notes?.map(note => <p className="ds-note" key={note}>{note}</p>)}
     <div className="ds-grid">
       <div className="ds-main">
         <section aria-label="週ごとの応募">
@@ -124,37 +133,29 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
             </div></header>
           {series.perListing.every(row => row.counts === null) ? <p className="ds-note">応募日別の件数を取得できませんでした。</p> : <EChart option={applicationOption} testId="ds-applications" height={220} renderer="svg" />}
           {colored && <ul className="ds-legend">{inputs.map(input => <li key={input.id}><i style={{ background: colorOf(input.id) }} aria-hidden="true" />{input.title}{input.ended ? '（終了）' : ''}</li>)}</ul>}
-          {billingOption ? <><p className="ds-note ds-billing-label">課金（求人の合計、日割り）</p><EChart option={billingOption} testId="ds-billing" height={64} renderer="svg" /></> : <p className="ds-note">課金は取り込まれていません（課金CSVを取り込むと表示します）。</p>}
-          {source.shared > 0 && <p className="ds-note">同じ応募が複数の求人に結び付いているので、案件の合計では1回だけ数えています</p>}
+          {billingOption ? <><p className="ds-note ds-billing-label">課金（求人の合計、日割り）</p><EChart option={billingOption} testId="ds-billing" height={64} renderer="svg" /></> : <p className="ds-note">課金の合計は出せません（課金が分からない求人があるか、課金のある求人がありません）。</p>}
+          {shared > 0 && <p className="ds-note">同じ応募が複数の求人に結び付いているので、{noun}の合計では1回だけ数えています</p>}
         </section>
 
-        <section aria-label="この案件の求人">
-          <h2>この案件の求人</h2>
-          <div className="jc-deal-table-scroll"><table className="jc-deal-table ds-table"><thead><tr><th>求人</th><th>媒体</th><th>掲載期間</th><th>直近4週の応募（前の4週）</th><th>案件の応募に占める割合</th><th>課金/4週</th><th>応募1件あたり</th>{showIndeed && <th>市場の職種</th>}</tr></thead><tbody>
-            {source.rows.map(row => {
-              const n = numbers.get(row.id);
-              const share = shareOfDeal(n?.recent ?? null, totals.recent);
-              const status = publicationLabel(row.publication_status);
-              return <tr key={row.id}>
-                <td><button type="button" className="jc-button" onClick={event => { onOpenListing(row, event.currentTarget); }}>{row.title ?? '求人名未取得'}</button></td>
-                <td>{mediaLabel(row.media)}</td>
-                <td>{status}{row.last_csv_detected_at ? <small>最後に確認 {formatDay(jstDate(row.last_csv_detected_at) ?? '—')}</small> : <small>開始日・終了日は未取得</small>}</td>
-                <td>{count(n?.recent ?? null)}（{count(n?.previous ?? null)}）</td>
-                <td>{share === null ? '—' : <><span className="ds-bar" aria-hidden="true"><i style={{ width: `${String(share)}%`, background: colorOf(row.id) }} /></span> {String(share)}%</>}</td>
-                <td>{yen(n?.billing ?? null)}</td>
-                <td>{yen(n?.perApplication ?? null)}</td>
-                {showIndeed && <td>{indeedCell(row)}</td>}
-              </tr>;
-            })}
-          </tbody></table></div>
+        <section aria-label={scope === 'deal' ? 'この案件の求人' : 'この事業所の求人'}>
+          <h2>{scope === 'deal' ? 'この案件の求人' : 'この事業所の取引と求人'}</h2>
+          <div className="jc-deal-table-scroll"><table className="jc-deal-table ds-table"><thead><tr><th>求人</th><th>媒体</th><th>掲載期間</th><th>直近4週の応募（前の4週）</th><th>{noun}の応募に占める割合</th><th>課金/4週</th><th>応募1件あたり</th>{showIndeed && <th>市場の職種</th>}</tr></thead>
+            {scope === 'deal'
+              ? <tbody>{allRows.map(listingRow)}</tbody>
+              : groupTotals.map(({ data, totals: dealTotal }) => <tbody key={data.id}>
+                <tr className="ds-group-row"><th colSpan={columns} scope="colgroup"><span className="ds-group-name">{data.name}</span> <span className="ds-group-sum">求人 {String(dealTotal.listings)}件 ・ 直近4週の応募 {count(dealTotal.recent)} ・ 課金/4週 {yen(dealTotal.billing)} ・ 1件あたり {yen(dealTotal.perApplication)}</span></th></tr>
+                {data.rows.map(listingRow)}
+              </tbody>)}
+          </table></div>
         </section>
 
-        <section aria-label="この案件の出来事">
-          <h2>この案件の出来事</h2>
-          {events.length ? <ol className="ds-events">{events.map((event, index) => <li key={`${event.date}-${event.kind}-${event.listingId}-${String(index)}`}>
+        <section aria-label={`この${noun}の出来事`}>
+          <h2>この{noun}の出来事</h2>
+          {events.length ? <ol className="ds-events">{events.slice(0, showAllEvents ? events.length : EVENT_LIMIT).map((event, index) => <li key={`${event.date}-${event.kind}-${event.listingId}-${String(index)}`}>
             <time>{formatDay(event.date)}</time><span>{event.text}</span>
-            <small>案件の応募：前の4週 {event.beforeIncomplete ? '（前の期間がそろっていません）' : count(event.before)} → 後の4週 {event.after === null ? '（まだ4週たっていません）' : count(event.after)}</small>
+            <small>{noun}の応募：前の4週 {event.beforeIncomplete ? '（前の期間がそろっていません）' : count(event.before)} → 後の4週 {event.after === null ? '（まだ4週たっていません）' : count(event.after)}</small>
           </li>)}</ol> : <p className="ds-note">記録できる出来事はまだありません。</p>}
+          {events.length > EVENT_LIMIT && <button type="button" className="jc-button" onClick={() => { setShowAllEvents(value => !value); }}>{showAllEvents ? '新しい10件だけにする' : `すべて表示（${String(events.length)}件）`}</button>}
           <p className="ds-note">本文を変えた日は最後の1回だけです。画像の変更と掲載の開始・終了は、各求人を開くと確認できます。</p>
         </section>
       </div>
@@ -164,11 +165,15 @@ export function DealSummary({ deal, billingByJob, onOpenListing }: { deal: DealS
         <h3>データ</h3>
         <p>直近4週の終わり：{formatDay(asOf)}（全部の求人の応募データがそろっている最後の日）</p>
         <h3>データの最終日</h3>
-        <ul>{cutoffs.map(cutoff => <li key={cutoff.media}><strong>{mediaLabel(cutoff.media)}</strong><br />応募：{cutoff.lastApplication ? formatDay(cutoff.lastApplication) : '未取得'}<br />課金：{cutoff.lastBilling ? formatDay(cutoff.lastBilling) : '未取り込み'}</li>)}</ul>
-        <h3>案件の合計の数え方</h3>
-        <p>この案件の求人を合計します。掲載を終えた求人も、掲載していた間の応募と課金を含みます。</p>
-        <p>直近4週は今日までの28日間、前の4週はその前の28日間です。</p>
-        <p>案件の画面では市場の数字を合計しません。求人ごとに職種が違うことがあるためです。</p>
+        <ul>{cutoffs.map(cutoff => <li key={cutoff.media}><strong>{mediaLabel(cutoff.media)}</strong><br />応募：{cutoff.lastApplication ? formatDay(cutoff.lastApplication) : '未取得'}<br />課金：{cutoff.media === 'airwork' ? '課金データなし' : cutoff.lastBilling ? formatDay(cutoff.lastBilling) : '未取り込み'}</li>)}</ul>
+        {lastBilling !== null && lastBilling < asOf && <p>課金は {formatDay(lastBilling)} までの週の分です。それより後の日は課金に含まれません。</p>}
+        <h3>{noun}の合計の数え方</h3>
+        <p>{scope === 'deal' ? 'この案件の求人を合計します。' : 'この事業所の全部の取引の求人を、同じ求人は1回だけ数えて合計します。'}掲載を終えた求人も、掲載していた間の応募と課金を含みます。</p>
+        <p>直近4週は{formatDay(asOf)}までの28日間、前の4週はその前の28日間です。{ROLLUP_RULES.period}。</p>
+        <p>複数の取引に結び付いた求人：{ROLLUP_RULES.multiDeal}。{model.multiCount > 0 ? `この${noun}には ${String(model.multiCount)}件あります。` : ''}</p>
+        {scope === 'company' && <p>{ROLLUP_RULES.company}。</p>}
+        <p>課金は HRハッカーの Indeed の週ごとの実績です。AirWork は課金データがないため、課金の合計と応募1件あたりから外しています{model.excluded > 0 ? `（${String(model.excluded)}件）` : ''}。</p>
+        <p>{noun}の画面では市場の数字を合計しません。求人ごとに職種が違うことがあるためです。</p>
       </aside>
     </div>
   </section>;

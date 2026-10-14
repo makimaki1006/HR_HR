@@ -20,6 +20,10 @@ export interface DealListingInput {
   billing: readonly BillingEntry[];
   /** この求人の応募データを取得した日 (JST)。分からないときは null。 */
   fetchedDate: string | null;
+  /** 課金データを集めていない媒体 (AirWork)。課金の合計・1件あたりから外す。 */
+  billingUnavailable?: boolean;
+  /** ほかの取引にも結び付いている求人。 */
+  inOtherDeals?: boolean;
 }
 
 /** 複数の求人に結び付いた応募の「余分な写し」の数を日ごとに持つ。案件の合計から引く。 */
@@ -76,7 +80,7 @@ export function listingNumbers(listing: DealListingInput, asOf: string): Listing
   const { recentStart, previousStart, end } = windows(asOf);
   const recent = listing.byDate ? countApplications(listing.byDate, recentStart, end) : null;
   const previous = listing.byDate ? countApplications(listing.byDate, previousStart, recentStart) : null;
-  const billing = billingInRange(listing.billing, recentStart, end);
+  const billing = listing.billingUnavailable ? null : billingInRange(listing.billing, recentStart, end);
   return { id: listing.id, recent, previous, billing, perApplication: billing !== null && recent ? Math.round(billing / recent) : null };
 }
 
@@ -93,6 +97,8 @@ export interface DealTotals {
   listings: number;
   live: number;
   ended: number;
+  /** 課金データがないため、課金の合計・1件あたりに入れていない求人の数 (AirWork)。 */
+  excludedBilling: number;
 }
 
 export function dealTotals(listings: readonly DealListingInput[], asOf: string, overlap: Overlap = {}): DealTotals {
@@ -101,19 +107,25 @@ export function dealTotals(listings: readonly DealListingInput[], asOf: string, 
   const known = numbers.filter(n => n.recent !== null);
   const sum = (values: (number | null)[]) => values.reduce<number>((total, value) => total + (value ?? 0), 0);
   const recent = known.length ? sum(known.map(n => n.recent)) - overlapIn(overlap, recentStart, end) : null;
-  const unknownBilling = numbers.filter(n => n.billing === null).length;
+  const billed = listings.map((listing, index) => ({ listing, n: numbers[index] })).filter(item => !item.listing.billingUnavailable);
+  const excludedBilling = listings.length - billed.length;
+  const unknownBilling = billed.filter(item => item.n?.billing === null).length;
   const unknownApplications = numbers.length - known.length;
-  const billing = numbers.length && unknownBilling === 0 ? sum(numbers.map(n => n.billing)) : null;
+  const billedUnknownApps = billed.filter(item => item.n?.recent === null).length;
+  const billing = billed.length && unknownBilling === 0 ? sum(billed.map(item => item.n?.billing ?? null)) : null;
+  // 課金のない求人があるときは、課金のある求人だけの応募で割る (重なる応募の引き算は求人を絞れないので使わない)。
+  const billedRecent = excludedBilling === 0 ? recent : billedUnknownApps === billed.length ? null : sum(billed.map(item => item.n?.recent ?? null));
   return {
     recent,
     previous: known.length ? sum(known.map(n => n.previous)) - overlapIn(overlap, previousStart, recentStart) : null,
     unknownApplications,
     billing,
     unknownBilling,
-    perApplication: billing !== null && recent && unknownApplications === 0 ? Math.round(billing / recent) : null,
+    perApplication: billing !== null && billedRecent && billedUnknownApps === 0 ? Math.round(billing / billedRecent) : null,
     listings: listings.length,
     live: listings.filter(listing => !listing.ended).length,
     ended: listings.filter(listing => listing.ended).length,
+    excludedBilling,
   };
 }
 
@@ -147,8 +159,9 @@ export function weeklySeries(listings: readonly DealListingInput[], asOf: string
     counts: listing.byDate ? weeks.map(week => countApplications(listing.byDate ?? undefined, week, addDays(week, 7))) : null,
   }));
   const total = weeks.map((week, i) => perListing.reduce((sum, row) => sum + (row.counts?.[i] ?? 0), 0) - overlapIn(overlap, week, addDays(week, 7)));
-  const cells = weeks.map(week => listings.map(listing => billingInRange(listing.billing, week, addDays(week, 7))));
-  const billing = listings.length > 0 && cells.every(row => row.every(cell => cell !== null)) ? cells.map(row => row.reduce<number>((sum, cell) => sum + cell, 0)) : null;
+  const billedListings = listings.filter(listing => !listing.billingUnavailable);
+  const cells = weeks.map(week => billedListings.map(listing => billingInRange(listing.billing, week, addDays(week, 7))));
+  const billing = billedListings.length > 0 && cells.every(row => row.every(cell => cell !== null)) ? cells.map(row => row.reduce<number>((sum, cell) => sum + cell, 0)) : null;
   return { weeks, perListing, total, billing };
 }
 
@@ -223,4 +236,32 @@ export function mediaCutoffs(listings: readonly DealListingInput[]): MediaCutoff
     const ends = own.flatMap(listing => listing.billing.map(entry => entry.end));
     return { media, lastApplication: dates.length ? dates.reduce((a, b) => a > b ? a : b) : null, lastBilling: ends.length ? ends.reduce((a, b) => a > b ? a : b) : null };
   });
+}
+
+/** 課金の週ごとの行 (HRハッカー実績) を、日割りの計算に使う期間に直す。 */
+export function perfBillingEntries(perf: { rows: readonly { period_start: string; period_end: string; cost_yen: number | null }[] } | undefined, mediaJobId: string): BillingEntry[] {
+  return (perf?.rows ?? []).map(row => ({ source: 'hrhacker' as const, start: row.period_start, end: row.period_end, amountYen: row.cost_yen, taxIncluded: null, media: 'HRハッカー', mediaJobId }));
+}
+
+/** 事業所（会社）の集計で、どの求人を何回数えるかを決める1か所の規則。 */
+export const ROLLUP_RULES = {
+  /** 複数の取引に結び付いた求人: 取引の集計ではどの取引でも全部数え、事業所の集計では1回だけ数える。 */
+  multiDeal: '取引の集計ではそれぞれ全部数え、事業所の集計では1回だけ数える',
+  /** 集計する期間は絞らない。 */
+  period: '契約期間では絞らず、取得できている全期間',
+  /** 事業所 = 取引に結び付いた会社。 */
+  company: '事業所は、取引に結び付いた会社',
+  /** 取引が多い事業所は先頭だけ集計する。 */
+  maxDeals: 10,
+} as const;
+
+export interface DealGroup { id: string; name: string; inputs: DealListingInput[]; overlap: Overlap }
+
+/** 事業所の集計に使う求人 (同じ求人は1回だけ) と、重なる応募 (日ごとに、取引のうち最大のもの)。 */
+export function companyRollup(groups: readonly DealGroup[]): { inputs: DealListingInput[]; overlap: Overlap } {
+  const byId = new Map<string, DealListingInput>();
+  for (const group of groups) for (const input of group.inputs) if (!byId.has(input.id)) byId.set(input.id, input);
+  const overlap: Record<string, number> = {};
+  for (const group of groups) for (const [day, value] of Object.entries(group.overlap)) overlap[day] = Math.max(overlap[day] ?? 0, value);
+  return { inputs: [...byId.values()], overlap };
 }
