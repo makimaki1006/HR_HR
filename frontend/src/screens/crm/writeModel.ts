@@ -2,7 +2,7 @@
 import type { CatalogEntry, CatalogObject } from './propertyModel';
 import type { EditSchema, EditableProp, EditOption, PatchRequest, PropValues, StageRule, WriteObject } from './writeTypes';
 
-export type FieldKind = 'text' | 'textarea' | 'select' | 'multi' | 'date' | 'number' | 'bool' | 'owner';
+export type FieldKind = 'text' | 'textarea' | 'select' | 'multi' | 'date' | 'datetime' | 'number' | 'bool' | 'owner';
 
 export interface FieldDef {
   object: WriteObject;
@@ -27,7 +27,7 @@ interface DefSource { name: string; label: string; type: string; field_type: str
  */
 export const APPOINTER_FIELDS: readonly string[] = ['bpo_26', 'aposyutokusya'];
 
-/** HubSpot の種類 → 入力部品。編集できない種類 (日時・選択肢の無い選択式) は null。担当者を選ぶ型は 'owner' */
+/** HubSpot の種類 → 入力部品。編集できない種類 (選択肢の無い選択式) は null。日時 (datetime) は日付で入力して JST の 0 時で送る 'datetime'。担当者を選ぶ型は 'owner' */
 export function kindOf(type: string, fieldType: string, optionCount: number, ownerRef = false): FieldKind | null {
   if (type === 'bool' || fieldType === 'booleancheckbox') return 'bool';
   if (type === 'enumeration') {
@@ -36,7 +36,7 @@ export function kindOf(type: string, fieldType: string, optionCount: number, own
     return fieldType === 'checkbox' ? 'multi' : 'select';
   }
   if (type === 'date') return 'date';
-  if (type === 'datetime') return null;
+  if (type === 'datetime') return 'datetime';
   if (type === 'number') return 'number';
   return fieldType === 'textarea' ? 'textarea' : 'text';
 }
@@ -73,13 +73,33 @@ export function resolveFieldDef(schema: EditSchema, object: WriteObject, name: s
 export function initialDraft(kind: FieldKind, raw: string | null | undefined): string {
   const v = raw ?? '';
   if (kind === 'date') return /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : '';
+  if (kind === 'datetime') return datetimeToJstDate(v);
   if (kind === 'bool') return v.toLowerCase() === 'true' ? 'true' : 'false';
   return v;
+}
+
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/** HubSpot の日時 (ミリ秒または ISO 8601) → JST の暦日 YYYY-MM-DD。読めなければ空 */
+export function datetimeToJstDate(raw: string): string {
+  const t = raw.trim();
+  const ms = /^\d{10,}$/.test(t) ? Number(t) : Date.parse(t);
+  if (!Number.isFinite(ms)) return '';
+  return new Date(ms + JST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** JST の暦日 YYYY-MM-DD → その日の 0 時 (JST) のミリ秒 (文字列)。日付でなければ null */
+export function jstDateToMillis(date: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return null;
+  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) - JST_OFFSET_MS;
+  return Number.isFinite(ms) ? String(ms) : null;
 }
 
 /** 編集欄の値 → HubSpot に送る文字列 (空は null = 消す)。日付は暦日の YYYY-MM-DD (架電結果の bpo_13 と同じ) */
 export function draftToValue(kind: FieldKind, draft: string): string | null {
   if (kind === 'bool') return draft === 'true' ? 'true' : 'false';
+  if (kind === 'datetime') return jstDateToMillis(draft.trim());
   const v = kind === 'textarea' ? draft.replace(/\s+$/u, '') : draft.trim();
   return v === '' ? null : v;
 }

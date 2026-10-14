@@ -261,7 +261,7 @@ export function CallResultForm({
             {quick.map(s => <button key={s.id} type="button" className={`rf-stage-btn${s.id === ctx.stageId ? ' is-current' : ''}`}
               aria-pressed={draft.stageId === s.id} disabled={s.id === ctx.stageId}
               title={s.id === ctx.stageId ? '今のステージです' : ruleFieldNames(ctx.ruleOf(s.id)).length > 0 ? '移すときに入力する項目があります' : undefined}
-              onClick={() => { setStage(draft.stageId === s.id ? '' : s.id); }}>{s.label}{ruleFieldNames(ctx.ruleOf(s.id)).length > 0 && <span className="rf-need" aria-hidden="true">要入力</span>}</button>)}
+              onClick={() => { setStage(s.id); }}>{s.label}{ruleFieldNames(ctx.ruleOf(s.id)).length > 0 && <span className="rf-need" aria-hidden="true">要入力</span>}</button>)}
           </div>}
           <label className="rf-stage-other"><span className="rf-sub">ほかのステージ</span>
             <select aria-label="ステージを選ぶ" value={draft.stageId} onChange={e => { setStage(e.target.value); }}>

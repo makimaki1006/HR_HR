@@ -825,4 +825,49 @@ mod tests {
             "modificationMetadata": {"readOnlyValue": true}});
         assert!(!is_writable(&ro, "bpo_5", "x", "string", "text"));
     }
+
+    /// ステージの必須項目は、すべて「書ける項目」でなければならない (書けない必須項目は、そのステージへ HR_HR から移せない)。
+    /// 定義は 2026-10-14 に HubSpot から読み取りだけで写したもの (`stage_rule_property_defs.json`)
+    #[test]
+    fn ステージの必須項目はすべて書ける項目() {
+        let defs: Value =
+            serde_json::from_str(include_str!("stage_rule_property_defs.json")).unwrap();
+        let defs = defs["deals"].as_array().unwrap();
+        let mut required: std::collections::BTreeSet<String> = Default::default();
+        for r in super::super::stage_rules::rules().all() {
+            for p in r.props.iter().filter(|p| p.required) {
+                required.insert(p.name.clone());
+            }
+        }
+        assert!(required.contains("deadline_of_cloud_sign"));
+        for name in &required {
+            let p = defs
+                .iter()
+                .find(|d| d["name"] == name.as_str())
+                .unwrap_or_else(|| panic!("{name} の定義が fixture に無い"));
+            let (label, ptype, ft) = (
+                str_field(p, "label"),
+                str_field(p, "type"),
+                str_field(p, "fieldType"),
+            );
+            assert!(
+                is_writable(p, name, label, ptype, ft),
+                "必須の {name} ({label}, {ptype}/{ft}) が書けない項目になっている"
+            );
+        }
+        // クラウドサイン送付期限: type=datetime / fieldType=date でも書ける
+        let d = defs
+            .iter()
+            .find(|d| d["name"] == "deadline_of_cloud_sign")
+            .unwrap();
+        assert_eq!(str_field(d, "type"), "datetime");
+        assert_eq!(str_field(d, "fieldType"), "date");
+        assert!(is_writable(
+            d,
+            "deadline_of_cloud_sign",
+            "クラウドサイン送付期限",
+            "datetime",
+            "date"
+        ));
+    }
 }

@@ -677,7 +677,7 @@ describe('契約の読み取り', () => {
     expect(kindOf('enumeration', 'select', 2)).toBe('select');
     expect(kindOf('enumeration', 'select', 0)).toBeNull();
     expect(kindOf('enumeration', 'checkbox', 2)).toBe('multi');
-    expect(kindOf('datetime', 'date', 0)).toBeNull();
+    expect(kindOf('datetime', 'date', 0)).toBe('datetime');
     expect(kindOf('bool', 'booleancheckbox', 2)).toBe('bool');
     // 担当者を選ぶ型 (選択肢は担当者の一覧から。選択肢が無くても入力欄になる)
     expect(kindOf('enumeration', 'select', 0, true)).toBe('owner');

@@ -1,0 +1,2019 @@
+{
+ "_note": "2026-10-14 に HubSpot の取引プロパティ定義 (読み取りのみ) から、stage_rules.json に出てくる項目だけを写した。選択肢は有無のみ。ステージの必須項目が画面で入力できるかの検査用",
+ "deals": [
+  {
+   "name": "ahkessaifuro",
+   "label": "A/H（決裁フロー）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "amount",
+   "label": "Amount",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "apomikakuteiriyuu",
+   "label": "アポ未確定理由",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "aposyutokubi",
+   "label": "アポ取得日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "aposyutokusya",
+   "label": "アポ取得者",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": true,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "referencedObjectType": "OWNER",
+   "options": []
+  },
+  {
+   "name": "apoyoukenwomitashiteimashitaka",
+   "label": "アポ要件を満たしていましたか？",
+   "type": "bool",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "authority________",
+   "label": "Authority（決済）について",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "b__________",
+   "label": "滞留理由をメモに記入した",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "boshuuhaikeinoshousaijiyuukinyuu",
+   "label": "募集背景の詳細（自由記入）",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "boshuuhaikeisentaku",
+   "label": "募集背景（選択）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bosyuriyu",
+   "label": "募集理由",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_10",
+   "label": "不通時チェック",
+   "type": "enumeration",
+   "fieldType": "radio",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_13",
+   "label": "次回架電日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_14",
+   "label": "次回架電時間",
+   "type": "enumeration",
+   "fieldType": "radio",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_16",
+   "label": "タスクメモ",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_21",
+   "label": "担当者名（漢字）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_22",
+   "label": "担当者名（よみ）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_23",
+   "label": "商談予定日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_24",
+   "label": "募集職種（現在）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_25",
+   "label": "採用に関する課題感",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_26",
+   "label": "アポ獲得者",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": true,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "referencedObjectType": "OWNER",
+   "options": []
+  },
+  {
+   "name": "bpo_27",
+   "label": "商談時間予告",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_28",
+   "label": "伝えた商談時間",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_29",
+   "label": "担当者接続電話番号",
+   "type": "string",
+   "fieldType": "phonenumber",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_3",
+   "label": "架電禁止理由",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_31",
+   "label": "その他詳細",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bpo_33",
+   "label": "商談方法（bpo用）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_34",
+   "label": "募集種別（bpo用）",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_35",
+   "label": "有料サービス使用歴（bpo用）",
+   "type": "enumeration",
+   "fieldType": "radio",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_4",
+   "label": "ブロック理由",
+   "type": "enumeration",
+   "fieldType": "radio",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_43",
+   "label": "現在利用中のサービス",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_47",
+   "label": "アポ種別",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo_51",
+   "label": "接触",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpo__",
+   "label": "商談予定時間（bpo用）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bpoapo",
+   "label": "BPOアポ",
+   "type": "bool",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bposashimodoshi",
+   "label": "BPO差し戻し",
+   "type": "enumeration",
+   "fieldType": "radio",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "bposhoudanjisshikekka",
+   "label": "BPO商談実施結果",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "budget________",
+   "label": "Budget（予算）について",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "c_______",
+   "label": "決済フローをメモに記入した",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "charge_impression",
+   "label": "人物感",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "ckyougoujoukyou",
+   "label": "C（競合状況）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "closed_lost_reason",
+   "label": "失注の理由",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "closed_lost_reason_detail",
+   "label": "失注の理由（詳細）",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "company_name",
+   "label": "会社名",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "company_name_kana",
+   "label": "会社名（カナ）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "consultant",
+   "label": "コンサル担当",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": true,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "referencedObjectType": "OWNER",
+   "options": []
+  },
+  {
+   "name": "contract_expiration_date",
+   "label": "契約満了日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "contract_period",
+   "label": "契約期間",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "contract_plan",
+   "label": "契約プラン",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "contract_start_date",
+   "label": "契約開始日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "contract_type",
+   "label": "契約種別 (20251031更新)",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "d___budget_____________",
+   "label": "Dヨミ Budget 費用面での完全NG無し",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "d___need________",
+   "label": "Dヨミ Need 担当者の良いね",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "date_of_next_action",
+   "label": "FS次回アクション日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "deadline_of_cloud_sign",
+   "label": "クラウドサイン送付期限",
+   "type": "datetime",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "dennwabangou",
+   "label": "電話番号",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "discount_amount",
+   "label": "商品値引額",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "etc_",
+   "label": "業種_中分類（一般貨物自動車運送事業/食料品製造業/紙製造業/医薬品製造業etc）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "forbidden_destination_of_call",
+   "label": "架電禁止先",
+   "type": "enumeration",
+   "fieldType": "radio",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "fshoyuukigenbi",
+   "label": "FS保有期限日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "fstantousha",
+   "label": "FS担当者",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": true,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "referencedObjectType": "OWNER",
+   "options": []
+  },
+  {
+   "name": "genjou",
+   "label": "Cヨミ　現状の施策について（利用媒体や終了時期など　聞くor検索）",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "goui",
+   "label": "Bヨミ　決裁者の口頭合意済",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "gyoukai",
+   "label": "業種_大分類（物流/製造/倉庫etc）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "head_office_address",
+   "label": "本社住所",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "head_office_address_kana",
+   "label": "本社住所（カナ）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "honsya",
+   "label": "本社担当者名",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "hubspot_owner_id",
+   "label": "Deal owner",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": true,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "referencedObjectType": "OWNER",
+   "options": []
+  },
+  {
+   "name": "invoice_mail_address_1",
+   "label": "請求書送付メールアドレス①",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "invoice_sending_method",
+   "label": "請求書送付方法",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "istantousha",
+   "label": "IS担当者",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": true,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "referencedObjectType": "OWNER",
+   "options": []
+  },
+  {
+   "name": "itijitaiou",
+   "label": "一次対応の要否（契約）",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "jikan",
+   "label": "商談予定時間",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kadainogutainaiyoujiyuukinyuu",
+   "label": "課題の具体内容（自由記入）",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kadenkinsi",
+   "label": "架電禁止チェック",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "kanoubi",
+   "label": "請求書送付期限（通常フローで問題無い場合は通常フローと記載）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "keijoushubetsu1or2",
+   "label": "計上種別（1or2）",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "keikennoumu",
+   "label": "経験の有無（紹介経由の採用が経験者のみか）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "keisaisu",
+   "label": "掲載求人数",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kessaiflow",
+   "label": "Cヨミ　決済フローが明確（登場人物・手法・スケジュール感）",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kessaishamei",
+   "label": "決裁者名",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kessaishanoyakushoku",
+   "label": "決裁者の役職",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kessaisyagameikaku",
+   "label": "Cヨミ　最終意思決定者（役職、名前も分かれば）が明確",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "ketteishamei",
+   "label": "決定者名",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "ketteishanoyakushoku",
+   "label": "決定者の役職",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kigyouzentaininzuu",
+   "label": "企業全体人数（従業員数）",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kyougou",
+   "label": "Cヨミ　新たに検討中の競合把握（サービス名・費用など）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "mailing_address",
+   "label": "請求書送付先ー住所",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "miapokayouinjiyuukinyuu",
+   "label": "未アポ化要因（自由記入）",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "miapokayouinsentaku",
+   "label": "未アポ化要因（選択）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "name_of_person_in_charge",
+   "label": "担当者氏名",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "needs_________",
+   "label": "Needs（ニーズ）について",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "negotiation_type",
+   "label": "商談種別",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "nextaction",
+   "label": "FS次回アクション",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "nitteigiri",
+   "label": "日程切り",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "nkadainofukasa",
+   "label": "N（課題の深さ）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "number_of_payments",
+   "label": "支払回数",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "number_of_sales",
+   "label": "売上回数",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "payment",
+   "label": "入金方法",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "payment_method",
+   "label": "支払方法",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "person_in_charge_title",
+   "label": "担当者役職",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "position_of_representative",
+   "label": "代表者役職",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "postal_code_main_office",
+   "label": "郵便番号（本社）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "postcode_invoice",
+   "label": "請求書送付先ー郵便番号",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "quantity",
+   "label": "数量",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "reason_of_the_deadline",
+   "label": "送付期限の理由",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "recruitment_method",
+   "label": "採用手法",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "remarks_after_calling",
+   "label": "備考（架電後）",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "representative_name",
+   "label": "代表者氏名",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "ringityuu",
+   "label": "Bヨミ　C以下を全て満たし稟議進行中",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "risuto_adoresu",
+   "label": "メールアドレス",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "risuto_kadennbi",
+   "label": "架電日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "risuto_ninnzuu",
+   "label": "募集人数",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "risuto_saikadennbi",
+   "label": "再架電日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "risuto_tanntouyakusyoku",
+   "label": "担当者の役職",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "saiyoujiki",
+   "label": "進捗確認　採用時期とその理由",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "scheduled_business_meeting_date",
+   "label": "商談予定日時",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "scheduled_date_of_conclusion_cloud_sign",
+   "label": "クラウドサイン回収日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "sending_address_of_cloud_sign",
+   "label": "クラウドサイン送付アドレス",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "service",
+   "label": "現在利用中の媒体・サービス（検索して）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "service1",
+   "label": "利用中サービス",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "shitsuchuujiki",
+   "label": "失注／未実施決定時期",
+   "type": "enumeration",
+   "fieldType": "radio",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "shoudanfb",
+   "label": "アポ質FB",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "shoudanmijisshiriyuu",
+   "label": "商談未実施理由",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "shoudanmijisshiriyuushousai",
+   "label": "商談未実施理由詳細",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "shoudanzokusei",
+   "label": "商談属性",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "shoukaifi",
+   "label": "紹介フィー",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "sihonkin",
+   "label": "資本金",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "sinntyokukkauninn",
+   "label": "進捗確認　募集人数",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "syokusyu",
+   "label": "進捗確認　募集職種",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "syokusyu_risuto",
+   "label": "募集職種（リストデータ）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "syokusyusu",
+   "label": "掲載職種数",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "syoudandouga",
+   "label": "商談動画リンク",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "syoudangomemo",
+   "label": "商談後メモを記入した",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "syuuryou",
+   "label": "利用中の媒体・サービスの終了日（検索or聞いた情報）",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "tagettogairiyuu",
+   "label": "ターゲット外理由",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "tagettogairiyuushousai",
+   "label": "ターゲット外理由詳細",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "tanntousya",
+   "label": "担当者名",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "teiannn",
+   "label": "提案",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "teianplan",
+   "label": "提案プラン",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "timeframe______",
+   "label": "Timeframe（導入時期）について",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "tjikanjiku",
+   "label": "T（時間軸）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "unit_price",
+   "label": "単価",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "website_url",
+   "label": "ホームページ",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  }
+ ]
+}
