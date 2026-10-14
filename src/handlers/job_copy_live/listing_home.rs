@@ -10,6 +10,23 @@ use std::time::Instant as StdInstant;
 pub(super) const TREND_MIN_DIFF: i64 = 2;
 /// 「課金が高いまま応募が少ない」の下限。直近 4 週の課金がこの金額（円）以上であること。
 pub(super) const COST_FLOOR_YEN: i64 = 10_000;
+
+/// 画面の文言用の金額表記。1万円以上で万円で割り切れるときは「1万円」、それ以外は「9,500円」。
+fn yen_label(value: i64) -> String {
+    if value >= 10_000 && value % 10_000 == 0 {
+        format!("{}万円", value / 10_000)
+    } else {
+        let digits = value.to_string();
+        let mut out = String::new();
+        for (i, c) in digits.chars().enumerate() {
+            if i > 0 && (digits.len() - i) % 3 == 0 {
+                out.push(',');
+            }
+            out.push(c);
+        }
+        format!("{out}円")
+    }
+}
 /// 直近 4 週の応募 1 件あたりが、応募のある求人の中央値のこの倍以上なら「高い」。応募 0 件ならその時点で対象。
 pub(super) const COST_PER_APP_TIMES: i64 = 2;
 /// 最新の週の終わりがこの日数より前なら「データが止まっている」。
@@ -224,7 +241,7 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
         card("more", "直近4週の応募が、前の4週より多い求人", format!("掲載中で、直近4週の応募が前の4週より{TREND_MIN_DIFF}件以上多い求人。週ごとの実績がある求人だけを数えます。"), pick(&|d| d >= TREND_MIN_DIFF)),
         card("same", "直近4週の応募が、前の4週とほぼ同じ求人", format!("掲載中で、直近4週と前の4週の応募の差が{TREND_MIN_DIFF}件未満の求人。"), pick(&|d| d.abs() < TREND_MIN_DIFF)),
         card("less", "直近4週の応募が、前の4週より少ない求人", format!("掲載中で、直近4週の応募が前の4週より{TREND_MIN_DIFF}件以上少ない求人。"), pick(&|d| d <= -TREND_MIN_DIFF)),
-        card("costly", "課金が高いまま応募が少ない求人", format!("掲載中で、直近4週の課金が{COST_FLOOR_YEN}円以上あり、応募が0件、または応募1件あたりの課金が応募のある求人の中央値の{COST_PER_APP_TIMES}倍以上の求人。"), costly),
+        card("costly", "課金が高いまま応募が少ない求人", format!("掲載中で、直近4週の課金が{}以上あり、応募が0件、または応募1件あたりの課金が応募のある求人の中央値の{COST_PER_APP_TIMES}倍以上の求人。", yen_label(COST_FLOOR_YEN)), costly),
         card("stale", "データが止まっている求人", format!("掲載中で、週ごとの実績の最新の週が{STALE_DAYS}日より前に終わっている求人。この間の応募・課金は少なく見えます。"), stale),
         card("occupation", "市場の職種が未指定の求人", "掲載中で、市場と比べる職種をまだ指定していない求人。".to_owned(), unset),
     ];
