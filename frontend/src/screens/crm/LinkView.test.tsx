@@ -55,11 +55,16 @@ describe('LinkView 戻る / 案内', () => {
     expect(screen.queryByTestId('link-hint')).toBeNull();
   });
 
-  it('no hint on non-search tabs', () => {
+  it('案内は 1 つだけ (検索以外の枠でも同じ 1 行。小さな印は出さない)', () => {
     const t = makeLinkTab('x', 'https://www.example.com/', 'x');
     if (t === null) throw new Error('tab');
     render(<LinkView tab={t} />);
+    expect(screen.getAllByTestId('link-hint')).toHaveLength(1);
+    expect(screen.queryByTestId('frame-extension-badge')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '案内を閉じる' }));
     expect(screen.queryByTestId('link-hint')).toBeNull();
+    expect(screen.queryByTestId('frame-extension-badge')).toBeNull();
+    expect(screen.queryByText('枠で開けないサイトがあります')).toBeNull();
   });
 
   it('hint is hidden when the extension attribute is present, shown without it', () => {

@@ -68,7 +68,7 @@ describe('CallQueueScreen re-render cost', () => {
     fireEvent.keyDown(rowAt(0), { key: 'ArrowDown' });
     expect(rows().map(b => b.getAttribute('aria-pressed')).slice(0, 3)).toEqual(['false', 'true', 'false']);
     expect(document.activeElement).toBe(rowAt(1));
-    // 変わった 2 行 + 詳細を待つ間に出す見出し (一覧の行の値。番号を 1 回整形する)
-    expect(phoneCalls.n).toBe(3);
+    // 変わった 2 行 + 詳細を待つ間に出す見出し (一覧の行の値。番号を 1 回整形する) + 行の番号で先に開く求人検索の URL (1 回)
+    expect(phoneCalls.n).toBe(4);
   });
 });

@@ -193,10 +193,13 @@ export function lastActivityLine(activities: WorkspaceResponse['activities']): {
   return { text: full, full };
 }
 
-function LastActivity({ data }: { data: WorkspaceResponse }) {
+function LastActivity({ data, onOpenActivity }: { data: WorkspaceResponse; onOpenActivity?: (() => void) | undefined }) {
   const line = lastActivityLine(data.activities);
   if (line === null) return null;
-  return <p className="wd-last" title={line.full} data-testid="last-activity">{line.text}</p>;
+  // 押すと「活動ログ」のタブを前に出す (つながっていないときは文字だけ)
+  if (onOpenActivity === undefined) return <p className="wd-last" title={line.full} data-testid="last-activity">{line.text}</p>;
+  return <p className="wd-last" data-testid="last-activity">
+    <button type="button" className="wd-last-btn" title={`${line.full}（押すと活動ログを開きます）`} onClick={onOpenActivity}>{line.text}</button></p>;
 }
 
 function ZoomWarn({ text, onOpenZoom }: { text: string | null; onOpenZoom?: (() => void) | undefined }) {
@@ -205,8 +208,9 @@ function ZoomWarn({ text, onOpenZoom }: { text: string | null; onOpenZoom?: (() 
     {onOpenZoom && <button type="button" onClick={onOpenZoom}>Zoomを開く</button>}</p>;
 }
 
-function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refreshError, onRefresh, density, stageMove, zoomNotice = null }: {
+function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refreshError, onRefresh, density, stageMove, zoomNotice = null, onOpenActivity }: {
   zoomNotice?: string | null;
+  onOpenActivity?: (() => void) | undefined;
   data: WorkspaceResponse; zoom: ZoomPhone; stopLabel: StopLabel;
   callBar?: CallBarInfo | null | undefined; onOpenZoom?: (() => void) | undefined;
   refreshing: boolean; refreshError: string | null; onRefresh?: (() => void) | undefined;
@@ -252,7 +256,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
           {stopReasons.length > 0 && <span className="cq-flag wd-line-flag" title={stopReasons.join(' / ')}>架電の注意 {String(stopReasons.length)} 件</span>}
           {notes.length > 0 && <span className="cq-flag wd-line-flag" title={notes.join(' / ')}>一部の情報が欠けています</span>}
         </div>
-        <LastActivity data={data} />
+        <LastActivity data={data} onOpenActivity={onOpenActivity} />
         {/* 発信できなかったときは、何をすればよいかを 1 行の下に出す */}
         {callBar?.kind === 'failed' && <CallBar info={callBar} now={zoom.now} onOpenZoom={onOpenZoom} />}
       </div>
@@ -277,7 +281,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
           <Freshness fetchedAt={data.fetched_at} now={zoom.now} refreshing={refreshing} refreshError={refreshError} onRefresh={onRefresh} />
         </div>
       </header>
-      <LastActivity data={data} />
+      <LastActivity data={data} onOpenActivity={onOpenActivity} />
 
       <section className="wd-dialbox" aria-label="架ける番号">
         <h3 className="wd-dial-title">架ける番号</h3>
@@ -355,8 +359,10 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom, density, stageMove, sample = false, previewItem, previewOwner }: {
+function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom, density, stageMove, sample = false, previewItem, previewOwner, onOpenActivity }: {
   sample?: boolean;
+  /** 「前回 …」の行を押したときに活動ログを前に出す */
+  onOpenActivity?: (() => void) | undefined;
   /** 詳細を読み込む間、見出しに出す一覧の行 (無ければ「読み込み中」だけ) */
   previewItem?: CallQueueItem | null | undefined;
   previewOwner?: string | undefined;
@@ -375,7 +381,7 @@ function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLab
   if (state.phase === 'ready' && state.data !== null) {
     return <><Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
       zoomNotice={zoomWarning(zoom, sample, callBar?.kind === 'failed')}
-      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} /><EmailPanel key={state.data.deal.id} data={state.data} sample={sample} onSaved={refresh} context={<div className="crm-email-context"><strong>{state.data.companies.find(c => c.is_primary)?.name ?? state.data.deal.name}</strong>{state.data.dial && <PhoneRow blocked={(Boolean(state.data.deal.stop.prohibited_reason) || Boolean(state.data.deal.stop.block_reason))} label={SOURCE_LABELS[state.data.dial.source] ?? '電話'} raw={state.data.dial.number} zoom={zoom} primary compact />}</div>} /></>;
+      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} onOpenActivity={onOpenActivity} /><EmailPanel key={state.data.deal.id} data={state.data} sample={sample} onSaved={refresh} context={<div className="crm-email-context"><strong>{state.data.companies.find(c => c.is_primary)?.name ?? state.data.deal.name}</strong>{state.data.dial && <PhoneRow blocked={(Boolean(state.data.deal.stop.prohibited_reason) || Boolean(state.data.deal.stop.block_reason))} label={SOURCE_LABELS[state.data.dial.source] ?? '電話'} raw={state.data.dial.number} zoom={zoom} primary compact />}</div>} /></>;
   }
   if (state.phase === 'loading' && previewItem) return <div className="cq-detail-scroll"><RowPreview item={previewItem} ownerName={previewOwner} /></div>;
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;

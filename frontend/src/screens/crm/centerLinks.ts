@@ -13,6 +13,7 @@
  * - 断るかどうかは別オリジンなので確実には分からない。枠を出すときは必ず「新しいタブで開く」を並べる
  */
 
+import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { formatPhoneForDisplay } from './phone';
 
@@ -96,21 +97,74 @@ export function extractUrls(raw: string | null | undefined): string[] {
   return out;
 }
 
-/** 求人検索の URL: 案件の「URL_求人検索」(bpo_32)。無ければ架ける番号で Google 検索 (番号 + 求人) を作る */
-export function jobSearchUrl(storedUrl: string | null | undefined, phone: string | null | undefined): string | null {
-  const stored = safeHttpUrl(storedUrl);
-  if (stored !== null) return stored.toString();
-  const p = typeof phone === 'string' ? phone.trim() : '';
-  if (p === '') return null;
+/** 求人検索の切り替え: 架ける番号で探す / 会社名 (事業所名) で探す */
+export type SearchMode = 'phone' | 'company';
+export const SEARCH_MODES: readonly { id: SearchMode; label: string }[] = [
+  { id: 'phone', label: '電話番号' },
+  { id: 'company', label: '会社名' },
+];
+
+function googleJobSearch(word: string): string | null {
+  const w = word.trim();
+  if (w === '') return null;
   const u = new URL('https://www.google.com/search');
-  u.searchParams.set('q', `${p} 求人`);
+  u.searchParams.set('q', `${w} 求人`);
   return u.toString();
 }
 
-/** 案件の求人検索の URL (「URL_求人検索」、無ければ架ける番号をハイフン区切りにして検索) */
-export function dealJobSearchUrl(data: Pick<WorkspaceResponse, 'deal' | 'dial'>): string | null {
-  const n = data.dial?.number ?? null;
-  return jobSearchUrl(data.deal.job_search_url, n === null ? null : (formatPhoneForDisplay(n) ?? n));
+/**
+ * 求人検索の URL。
+ * 電話番号: 架ける番号 (ハイフン区切り) + 求人。番号が無いときだけ、案件の「URL_求人検索」(bpo_32。同じ番号の検索) を使う。
+ * 会社名: 会社名 + 求人
+ */
+export function searchUrlFor(mode: SearchMode, input: { phone: string | null | undefined; company: string | null | undefined; stored?: string | null | undefined }): string | null {
+  if (mode === 'company') return googleJobSearch(input.company ?? '');
+  return googleJobSearch(input.phone ?? '') ?? safeHttpUrl(input.stored)?.toString() ?? null;
+}
+
+/** 求人検索の番号 (ハイフン区切りにして検索) */
+const displayPhone = (n: string | null | undefined): string | null => (typeof n === 'string' && n.trim() !== '' ? (formatPhoneForDisplay(n) ?? n) : null);
+
+/** 会社名 (事業所名): 取引の主担当会社の名前、無ければ案件名。事業所名を表す専用のプロパティは CRM に無い */
+export function dealCompanyName(data: Pick<WorkspaceResponse, 'deal' | 'companies'>): string | null {
+  const c = data.companies.find(x => x.is_primary) ?? null;
+  const name = (c?.name ?? '').trim() || (data.deal.name ?? '').trim();
+  return name === '' ? null : name;
+}
+
+/** 案件の求人検索の URL */
+export function dealJobSearchUrl(data: Pick<WorkspaceResponse, 'deal' | 'dial'> & Partial<Pick<WorkspaceResponse, 'companies'>>, mode: SearchMode = 'phone'): string | null {
+  return searchUrlFor(mode, {
+    phone: displayPhone(data.dial?.number), stored: data.deal.job_search_url,
+    company: dealCompanyName({ deal: data.deal, companies: data.companies ?? [] }),
+  });
+}
+
+/** 一覧の行 (詳細を読み込む前) の求人検索の URL。詳細が届いたあとも同じ URL になるよう、同じ組み立てを使う */
+export function rowJobSearchUrl(item: Pick<CallQueueItem, 'phone' | 'company' | 'deal_name'>, mode: SearchMode = 'phone'): string | null {
+  return searchUrlFor(mode, { phone: displayPhone(item.phone), company: (item.company?.name ?? '').trim() || item.deal_name });
+}
+
+/** 詳細を読み込む前の固定のタブ。求人検索だけは一覧の行の情報で先に開き、ほかは案内だけ */
+export function waitingFixedLinks(item: Pick<CallQueueItem, 'phone' | 'company' | 'deal_name'> | null, mode: SearchMode, waiting: string): FixedLink[] {
+  return [
+    { id: SEARCH_TAB, label: '求人検索', url: item === null ? null : rowJobSearchUrl(item, mode), missing: item === null ? waiting : SEARCH_MISSING[mode] },
+    { id: HOME_TAB, label: 'ホームページ', url: null, missing: waiting },
+    { id: POSTING_TAB, label: '求人票', url: null, missing: waiting },
+  ];
+}
+
+const SEARCH_MISSING: Record<SearchMode, string> = {
+  phone: 'この案件には架ける番号がありません。「会社名」に切り替えて探せます。',
+  company: 'この案件には会社名がありません。「電話番号」に切り替えて探せます。',
+};
+
+/** どちらも Google 検索で、検索語 (q) が同じか */
+function sameGoogleQuery(a: string, b: string): boolean {
+  const ua = safeHttpUrl(a); const ub = safeHttpUrl(b);
+  if (ua === null || ub === null || !isGoogleSearch(ua) || !isGoogleSearch(ub)) return false;
+  const qa = (ua.searchParams.get('q') ?? '').trim();
+  return qa !== '' && qa === (ub.searchParams.get('q') ?? '').trim();
 }
 
 /** 検索語が「求人」だけ・空の Google 検索 (番号が入っていない URL。開いても役に立たない) */
@@ -134,7 +188,7 @@ export interface FixedLink {
  * そのあとに 会社のサイト (ホームページと違うときだけ) と 求人媒体 (あるだけ)。
  * ホームページは案件の「ホームページ」、無ければ主担当会社のサイト
  */
-export function dealFixedLinks(data: WorkspaceResponse): FixedLink[] {
+export function dealFixedLinks(data: WorkspaceResponse, mode: SearchMode = 'phone'): FixedLink[] {
   const d = data.deal;
   const company = data.companies.find(c => c.is_primary) ?? null;
   const dealHome = safeHttpUrl(d.homepage_url)?.toString() ?? null;
@@ -143,7 +197,7 @@ export function dealFixedLinks(data: WorkspaceResponse): FixedLink[] {
   const posting = d.job_posting_url !== null && !isEmptyGoogleSearch(d.job_posting_url) ? safeHttpUrl(d.job_posting_url)?.toString() ?? null : null;
   const media = extractUrls(d.media_job_urls);
   const out: FixedLink[] = [
-    { id: SEARCH_TAB, label: '求人検索', url: dealJobSearchUrl(data), missing: 'この案件には求人検索の URL も、架ける番号もありません。' },
+    { id: SEARCH_TAB, label: '求人検索', url: dealJobSearchUrl(data, mode), missing: SEARCH_MISSING[mode] },
     { id: HOME_TAB, label: 'ホームページ', url: home, missing: 'この案件にはホームページが登録されていません。' },
     { id: POSTING_TAB, label: '求人票', url: posting, missing: 'この案件には求人票が登録されていません。' },
   ];
@@ -189,7 +243,8 @@ export const initialCenterTabs: CenterTabsState = { active: SEARCH_TAB, links: [
 export function openLink(s: CenterTabsState, raw: string, label: string | undefined, fixed: readonly Pick<FixedLink, 'id' | 'url'>[], hubspotEmbeddable = false): CenterTabsState {
   const tab = makeLinkTab(`link-${String(s.seq)}`, raw, label, hubspotEmbeddable);
   if (tab === null) return s;
-  const fixedSame = fixed.find(f => f.url !== null && f.url === tab.url);
+  // 同じ URL、または同じ検索語の Google 検索 (HubSpot に貼られた古い URL など) は、求人検索のタブを前に出す
+  const fixedSame = fixed.find(f => f.url !== null && (f.url === tab.url || (f.id === SEARCH_TAB && sameGoogleQuery(f.url, tab.url))));
   if (fixedSame) return { ...s, active: fixedSame.id };
   const same = s.links.find(l => l.url === tab.url);
   if (same) return { ...s, active: same.id };

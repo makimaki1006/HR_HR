@@ -50,6 +50,10 @@ test.describe('CRM 架電画面: 案件の見出し (2 行)', () => {
       expect(short.phone.y).toBeGreaterThan(short.link.y + short.link.height - 2);
       expect(Math.abs(short.dial.y + short.dial.height / 2 - (short.phone.y + short.phone.height / 2))).toBeLessThan(14);
       await expect(page.getByTestId('last-activity')).toHaveText('前回 10/03 通話・受付で不在。来週再架電。');
+      // 押せる行: 押すと活動ログのタブが前に出る
+      await page.getByRole('tab', { name: '架電結果の入力' }).click();
+      await page.getByTestId('last-activity').getByRole('button').click();
+      await expect(page.getByRole('tab', { name: '活動ログ' })).toHaveAttribute('aria-selected', 'true');
       await pick(page, LONG);
       const long = await measure(page);
       if (SHOT && w === 1512) await page.screenshot({ path: `${SHOT}/g2-long.png` });

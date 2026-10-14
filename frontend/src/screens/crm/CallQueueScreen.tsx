@@ -52,9 +52,8 @@ import { TodayMetrics } from './TodayMetrics';
 import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
 import { CallResultForm } from './CallResultForm';
-import { CenterPanel, CenterTabBar, FixedPanelBody, LinkOpenerContext, LinkView, useCenterTabs } from './CenterTabs';
-import { dealFixedLinks, HOME_TAB, POSTING_TAB, SEARCH_TAB } from './centerLinks';
-import type { FixedLink } from './centerLinks';
+import { CenterPanel, CenterTabBar, FixedPanelBody, LinkOpenerContext, LinkView, useCenterTabs, useSearchMode } from './CenterTabs';
+import { dealFixedLinks, waitingFixedLinks } from './centerLinks';
 import { Dock } from './Dock';
 import { clearLegacyLayout, columnOf, dockReducer, loadLayoutWithNotice, localStorageOrNull, saveLayout } from './dockModel';
 import type { DockAction, PanelId } from './dockModel';
@@ -110,11 +109,6 @@ export function bindsToDial(d: DialedFor, call: CallState): boolean {
 
 /** 詳細を読み込む前のリンクのタブ (名前だけ。中身は案内) */
 const WAITING_NOTE = '案件の詳細を読み込むと表示されます。';
-const EMPTY_FIXED: readonly FixedLink[] = [
-  { id: SEARCH_TAB, label: '求人検索', url: null, missing: WAITING_NOTE },
-  { id: HOME_TAB, label: 'ホームページ', url: null, missing: WAITING_NOTE },
-  { id: POSTING_TAB, label: '求人票', url: null, missing: WAITING_NOTE },
-];
 
 const PHONE_SOURCE_LABELS: Record<string, string> = { deal: '案件', contact: '担当者', mobile: '担当者(携帯)', company: '会社' };
 
@@ -763,7 +757,10 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     ownerNames, meOwnerId, loadValues: loadWriteValues,
   });
   const shownData = writeBindings.view;
-  const fixedLinks = useMemo(() => (shownData !== null ? dealFixedLinks(shownData) : EMPTY_FIXED), [shownData]);
+  const [searchMode, setSearchMode] = useSearchMode();
+  // 詳細を読み込む前でも、選んだ行の番号・会社名で求人検索を先に開く (詳細が届いて同じ URL なら読み直さない)
+  const selectedRow = selectedId === null ? null : state.items.find(i => i.deal_id === selectedId) ?? null;
+  const fixedLinks = useMemo(() => (shownData !== null ? dealFixedLinks(shownData, searchMode) : waitingFixedLinks(selectedRow, searchMode, WAITING_NOTE)), [shownData, searchMode, selectedRow]);
   const center = useCenterTabs(selectedId === null ? null : `${mode}:${selectedId}`, fixedLinks);
   // 通話が終わったら「架電結果の入力」を前に出す (どの列に置いていても。リンクのタブは閉じない)
   const endedKey = endedCall === null ? null : (endedCall.callId ?? 'ended');
@@ -778,6 +775,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     centerOpen(url, label);
     dispatchLayout({ type: 'activate', panel: 'links' });
   }, [centerOpen]);
+  // 「前回 …」の行から活動ログのタブを前に出す (別の列に置いていてもそのタブが前に出る)
+  const openActivity = useCallback(() => { dispatchLayout({ type: 'activate', panel: 'activity' }); }, []);
   const layoutDispatch = useCallback((a: DockAction) => { dispatchLayout(a); }, []);
   // 「求人検索・リンク先」を置き場全体に広げる (Esc か「戻す」で戻る)。列を重ねるだけなので枠の中のページは読み直さない。
   // 同じ列で別のタブを前に出した・架電先の選択を外したときは戻す
@@ -857,7 +856,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       data={shownData} placeholder={placeholder} ownerNames={ownerNames} hasSelection={selectedId !== null} write={writeBindings.panel} />,
     overview: <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
       {waitingKey ? <div className="cq-detail-scroll">{previewItem ? <RowPreview item={previewItem} ownerName={previewOwner} /> : <p role="status" className="cq-loading">詳細を読み込み中…</p>}</div>
-        : <DealOverview state={detailState} reload={detail.reload} refresh={detail.refresh} zoom={zoomForDetail} stopLabel={stopLabel}
+        : <DealOverview onOpenActivity={openActivity} state={detailState} reload={detail.reload} refresh={detail.refresh} zoom={zoomForDetail} stopLabel={stopLabel}
           callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} density={density} stageMove={writeBindings.stage} sample={mode === 'fixture'} previewItem={previewItem} previewOwner={previewOwner} />}
     </section>,
     activity: <ActivityLog data={shownData} placeholder={placeholder} ownerNames={ownerNames} sample={mode === 'fixture'} />,
@@ -882,7 +881,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       <div className="cq-cpanels">
         {/* 固定のタブ。前に出すまで枠は作らない (最初に前に出るのは求人検索だけ) */}
         {center.fixed.map(f => <CenterPanel key={f.def.id} id={f.def.id} active={center.active === f.def.id}>
-          <FixedPanelBody item={f} />
+          <FixedPanelBody item={f} searchMode={searchMode} onSearchMode={setSearchMode} />
         </CenterPanel>)}
         {center.links.map(l => <CenterPanel key={l.id} id={l.id} active={center.active === l.id}>
           <LinkView tab={l} onClose={() => { center.close(l.id); }} />

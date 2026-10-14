@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  closeLink, dealFixedLinks, dealJobSearchUrl, embedUrlFor, extractUrls, initialCenterTabs, isEmptyGoogleSearch, isHubspotUrl, jobSearchUrl, makeLinkTab,
+  closeLink, dealFixedLinks, dealJobSearchUrl, embedUrlFor, extractUrls, initialCenterTabs, isEmptyGoogleSearch, isHubspotUrl, makeLinkTab, rowJobSearchUrl, searchUrlFor, waitingFixedLinks,
   HOME_TAB, MAX_LINK_TABS, openLink, POSTING_TAB, safeHttpUrl, SEARCH_TAB, SITE_TAB,
 } from './centerLinks';
 import type { CenterTabsState } from './centerLinks';
@@ -86,16 +86,42 @@ describe('makeLinkTab', () => {
   });
 });
 
-describe('extractUrls / jobSearchUrl / isEmptyGoogleSearch', () => {
+describe('extractUrls / searchUrlFor / isEmptyGoogleSearch', () => {
   it('splits several URLs and drops non-http values and duplicates', () => {
     expect(extractUrls('https://a.example.com/1\nhttps://b.example.com/2, javascript:x  https://a.example.com/1')).toEqual([
       'https://a.example.com/1', 'https://b.example.com/2']);
     expect(extractUrls(null)).toEqual([]);
   });
-  it('uses the stored search URL, else builds "<number> 求人"', () => {
-    expect(jobSearchUrl(STORED, '03-0000-0001')).toBe(STORED);
-    expect(jobSearchUrl('javascript:alert(1)', '03-0000-0001')).toBe('https://www.google.com/search?q=03-0000-0001+%E6%B1%82%E4%BA%BA');
-    expect(jobSearchUrl(null, null)).toBeNull();
+  it('電話番号: 番号 + 求人。番号が無いときだけ保存済みの URL_求人検索を使う', () => {
+    const Q = 'https://www.google.com/search?q=03-0000-0001+%E6%B1%82%E4%BA%BA';
+    expect(searchUrlFor('phone', { phone: '03-0000-0001', company: 'テスト商事', stored: STORED })).toBe(Q);
+    expect(searchUrlFor('phone', { phone: null, company: 'テスト商事', stored: STORED })).toBe(STORED);
+    expect(searchUrlFor('phone', { phone: null, company: null, stored: 'javascript:alert(1)' })).toBeNull();
+  });
+  it('会社名: 会社名 + 求人。切り替えると URL が変わる', () => {
+    const input = { phone: '03-0000-0001', company: 'テスト商事 株式会社' };
+    const phone = searchUrlFor('phone', input);
+    const company = searchUrlFor('company', input);
+    expect(new URL(company ?? '').searchParams.get('q')).toBe('テスト商事 株式会社 求人');
+    expect(company).not.toBe(phone);
+    expect(searchUrlFor('company', { phone: '03-0000-0001', company: '  ' })).toBeNull();
+  });
+  it('行 (詳細の前) と詳細が同じ URL になる。会社名が無ければ案件名', () => {
+    const row = { phone: '+81312345678', company: { id: '1', name: 'テスト商事', phone: null }, deal_name: '案件A' };
+    expect(rowJobSearchUrl(row, 'phone')).toBe('https://www.google.com/search?q=03-1234-5678+%E6%B1%82%E4%BA%BA');
+    expect(new URL(rowJobSearchUrl(row, 'company') ?? '').searchParams.get('q')).toBe('テスト商事 求人');
+    expect(new URL(rowJobSearchUrl({ ...row, company: null }, 'company') ?? '').searchParams.get('q')).toBe('案件A 求人');
+    const deal = { job_search_url: null, name: '案件A' } as unknown as Parameters<typeof dealJobSearchUrl>[0]['deal'];
+    const data = { deal, dial: { number: '+81312345678', source: 'contact' as const }, companies: [{ id: '1', name: 'テスト商事', is_primary: true }] } as unknown as Parameters<typeof dealJobSearchUrl>[0];
+    expect(dealJobSearchUrl(data, 'phone')).toBe(rowJobSearchUrl(row, 'phone'));
+    expect(dealJobSearchUrl(data, 'company')).toBe(rowJobSearchUrl(row, 'company'));
+  });
+  it('詳細を読む前でも、行があれば求人検索の URL がある', () => {
+    const row = { phone: '03-0000-0001', company: null, deal_name: null };
+    const l = waitingFixedLinks(row, 'phone', '待ち');
+    expect(l[0]?.url).toContain('03-0000-0001');
+    expect(l[1]?.url).toBeNull();
+    expect(waitingFixedLinks(null, 'phone', '待ち')[0]?.url).toBeNull();
   });
   it('formats the dial number with hyphens when deriving the search', () => {
     const deal = { job_search_url: null } as unknown as Parameters<typeof dealJobSearchUrl>[0]['deal'];

@@ -25,7 +25,7 @@ export function TodayMetricsView({ data, refreshFailed, collapsed, onToggle }: {
       <strong title={detail}>今日の成績</strong>
       <span className="tm-asof" title={asOfLabel(data.as_of)} data-testid="metrics-as-of">{asOfLabel(data.as_of)}</span>
       {!collapsed && items !== null && <ul className="tm-items">
-        {items.map(it => <li key={it.key} className="tm-item" data-testid={`metric-${it.key}`} title={`${it.label} ${it.value}（${it.compare}）${it.extra ?? ''}`}>
+        {items.map(it => <li key={it.key} className="tm-item" data-testid={`metric-${it.key}`} title={`${it.label} ${it.value}（${it.compare}）${it.extra !== null ? `・${it.extra}` : ''}`}>
           <span className="tm-label">{it.label}</span>
           <span className="tm-value">{it.value}</span>
           <span className="tm-cmp" data-short={`（${it.compareShort}）`}>（{it.compare}）</span>
