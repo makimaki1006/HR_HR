@@ -20,9 +20,8 @@
 //! アポの取引は 1 日 数十件なので増分にせず、毎回今日の分を読み直す (担当者の付け替えも拾える)。
 //! **単一インスタンス前提** (record_lock と同じ)。複数台になると各台が別々に読む (結果は同じだが HubSpot への呼び出しが台数倍)。
 //!
-//! ## 将来 (作らない): 「今月」
-//! 営業チーム向けの今月 = 既存の日次バッチ (昨日まで) + 今日のこの集計。`aggregate` が日付に依らない純粋な関数なので、
-//! 昨日までの件数に足し合わせる形で追加できる。
+//! ## 今月 (新規営業向け)
+//! `caller_metrics_month.rs` が受け持つ。BPO は今日だけ、新規営業は今月を主にする。定義は §19 / ADR-027。
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
@@ -56,7 +55,7 @@ pub const OVERLAP: Duration = Duration::seconds(120);
 pub const SPLIT_AT: u64 = 9_000;
 /// 1 回の読み直しで打つ Search の上限 (暴走の安全装置)
 pub const MAX_SEARCHES: u32 = 200;
-const PAGE: u32 = 200;
+pub(super) const PAGE: u32 = 200;
 
 /// アポとして数えるステージ。(パイプライン名, ステージ ID)。営業側 `52035886` (sales_kpi の `ST_APO`) は
 /// 営業向けの画面を作るときにここへ足す。
@@ -168,6 +167,8 @@ pub struct TodayMetricsResponse {
     pub team_names: Vec<String>,
     /// false のとき画面はアポ欄(数・平均・順位)を出さない
     pub appointments_tracked: bool,
+    /// true のとき画面は「今月」の帯を主にする (見ている人が新規営業のチーム)。BPO は false で今日のまま
+    pub month_view: bool,
     /// me が null のときの理由 (そのまま画面に出せる文)
     pub message: Option<String>,
 }
@@ -402,11 +403,18 @@ pub fn build_today(
 // Search の本文と応答の読み取り
 // ---------------------------------------------------------------------------
 
-fn flt(name: &str, op: &str, value: Value) -> Value {
+pub(super) fn flt(name: &str, op: &str, value: Value) -> Value {
     json!({"propertyName": name, "operator": op, "value": value})
 }
 
-fn call_body(prop: &str, from: i64, to: i64, day_start: Option<i64>, after: Option<&str>) -> Value {
+fn call_body(
+    prop: &str,
+    from: i64,
+    to: i64,
+    day_start: Option<i64>,
+    owners: Option<&[String]>,
+    after: Option<&str>,
+) -> Value {
     let mut filters = vec![
         flt("hs_call_source", "EQ", json!(CALL_SOURCE)),
         flt(prop, "GTE", json!(from.to_string())),
@@ -414,6 +422,10 @@ fn call_body(prop: &str, from: i64, to: i64, day_start: Option<i64>, after: Opti
     ];
     if let Some(s) = day_start {
         filters.push(flt("hs_timestamp", "GTE", json!(s.to_string())));
+    }
+    if let Some(o) = owners {
+        // 今月の集計: 新規営業のチームの担当者だけに絞って件数を減らす
+        filters.push(json!({"propertyName": "hubspot_owner_id", "operator": "IN", "values": o}));
     }
     let mut body = json!({
         "filterGroups": [{"filters": filters}],
@@ -477,13 +489,16 @@ pub fn parse_call(v: &Value) -> Option<CallRow> {
 }
 
 /// `[from, to)` の Call を `prop` (hs_timestamp か hs_lastmodifieddate) で読む。合計が多ければ時間で割る
-async fn fetch_calls(
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn fetch_calls(
     client: &HubSpotClient,
     prop: &str,
     from: i64,
     to: i64,
     day_start: Option<i64>,
+    owners: Option<&[String]>,
     searches: &mut u32,
+    max_searches: u32,
 ) -> Result<Vec<CallRow>, HubSpotError> {
     let mut out = Vec::new();
     let mut stack = vec![(from, to)];
@@ -492,11 +507,14 @@ async fn fetch_calls(
         let mut first = true;
         loop {
             *searches += 1;
-            if *searches > MAX_SEARCHES {
+            if *searches > max_searches {
                 return Err(HubSpotError::Decode("too many searches".into()));
             }
             let v = client
-                .search("calls", call_body(prop, a, b, day_start, after.as_deref()))
+                .search(
+                    "calls",
+                    call_body(prop, a, b, day_start, owners, after.as_deref()),
+                )
                 .await?;
             if first {
                 first = false;
@@ -639,6 +657,8 @@ pub struct Snapshot {
 pub struct CallerMetricsState {
     store: tokio::sync::Mutex<Store>,
     snapshot: RwLock<Option<Arc<Snapshot>>>,
+    /// 新規営業向けの「今月」(日ごとに確定した件数。`caller_metrics_month`)
+    pub(super) month: Arc<super::caller_metrics_month::MonthState>,
     next_try: Mutex<Option<DateTime<Utc>>>,
     /// 最初の読み込み (背景) が走っている間 true。二重に走らせない
     warming: std::sync::atomic::AtomicBool,
@@ -676,7 +696,13 @@ pub fn spawn_warmup(state: Arc<AppState>) {
         return;
     };
     tokio::spawn(async move {
-        let _ = shared().get_or_warm(&client, Utc::now()).await;
+        let st = shared();
+        let _ = st.get_or_warm(&client, Utc::now()).await;
+        // 今日の集計の温めのあと、新規営業の「今月」を背景で読み始める
+        if let Ok(list) = super::owners::fetch_all(&client.background()).await {
+            let ids = super::caller_metrics_month::sales_owner_ids(&list.owners);
+            let _ = st.get_month_or_warm(&client, &ids, Utc::now()).await;
+        }
     });
 }
 
@@ -804,7 +830,19 @@ async fn refresh(
     let bg = client.background();
     let mut searches = 0u32;
     let rows = match store.last_fetch_start {
-        None => fetch_calls(&bg, "hs_timestamp", start, end, None, &mut searches).await?,
+        None => {
+            fetch_calls(
+                &bg,
+                "hs_timestamp",
+                start,
+                end,
+                None,
+                None,
+                &mut searches,
+                MAX_SEARCHES,
+            )
+            .await?
+        }
         Some(prev) => {
             let from = ((prev - OVERLAP).timestamp_millis()).max(start);
             let to = (now + Duration::hours(1)).timestamp_millis();
@@ -814,7 +852,9 @@ async fn refresh(
                 from,
                 to,
                 Some(start),
+                None,
                 &mut searches,
+                MAX_SEARCHES,
             )
             .await?
         }
@@ -838,11 +878,11 @@ async fn refresh(
 // ハンドラ
 // ---------------------------------------------------------------------------
 
-fn as_of_text(t: DateTime<Utc>) -> String {
+pub(super) fn as_of_text(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-fn teams_map(owners: &[super::owners::CrmOwner]) -> HashMap<String, Vec<String>> {
+pub(super) fn teams_map(owners: &[super::owners::CrmOwner]) -> HashMap<String, Vec<String>> {
     owners
         .iter()
         .map(|o| (o.id.clone(), o.teams.clone()))
@@ -903,6 +943,7 @@ pub(super) async fn get_today(
                     population: "all".to_string(),
                     team_names: Vec::new(),
                     appointments_tracked: true,
+                    month_view: false,
                     message: None,
                 })
                 .into_response();
@@ -932,6 +973,9 @@ pub(super) async fn get_today(
         population: label.to_string(),
         team_names: viewer_teams,
         appointments_tracked,
+        month_view: me_ref
+            .as_ref()
+            .is_some_and(|o| super::caller_metrics_month::is_sales(&o.teams)),
         message,
     })
     .into_response()

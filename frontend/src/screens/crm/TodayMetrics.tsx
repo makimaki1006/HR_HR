@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { asOfLabel, clockJst, populationLabel, stripItems } from './metricsModel';
-import { fixtureTodayFetch, liveTodayFetch, useMetrics } from './useTodayMetrics';
+import { MonthMetrics } from './MonthMetrics';
+import { liveTodayFetch, pickFixtureToday, useMetrics } from './useTodayMetrics';
 import type { MetricsFetch } from './useTodayMetrics';
+import type { MonthMetricsResponse } from '../../generated/MonthMetricsResponse';
 import type { TodayMetricsResponse } from '../../generated/TodayMetricsResponse';
 import './metrics.css';
 
@@ -40,8 +42,10 @@ export function TodayMetricsView({ data, refreshFailed, collapsed, onToggle }: {
 }
 
 /** 架電画面の上に出す今日の成績の帯。2 分ごとに自動で更新する。fixture のときは架空の数字 */
-export function TodayMetrics({ fixture, fetcher }: { fixture: boolean; fetcher?: MetricsFetch<TodayMetricsResponse> }) {
-  const f = fetcher ?? (fixture ? fixtureTodayFetch : liveTodayFetch);
+export function TodayMetrics({ fixture, fetcher, monthFetcher }: {
+  fixture: boolean; fetcher?: MetricsFetch<TodayMetricsResponse>; monthFetcher?: MetricsFetch<MonthMetricsResponse> | undefined;
+}) {
+  const f = fetcher ?? (fixture ? pickFixtureToday() : liveTodayFetch);
   const { state, reload } = useMetrics(f);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   if (state.phase === 'loading') return <section className="tm" aria-label="今日の架電成績"><div className="tm-head"><strong>今日の成績</strong><span className="tm-asof">読み込んでいます</span></div></section>;
@@ -54,6 +58,11 @@ export function TodayMetrics({ fixture, fetcher }: { fixture: boolean; fetcher?:
       <span className="tm-warn" role="status">{state.message}</span>
       <button type="button" className="tm-toggle" onClick={reload}>再読み込み</button></div></section>;
   }
-  return <TodayMetricsView data={state.data} refreshFailed={state.refreshFailed} collapsed={collapsed}
-    onToggle={() => { const next = !collapsed; setCollapsed(next); writeCollapsed(next); }} />;
+  const onToggle = () => { const next = !collapsed; setCollapsed(next); writeCollapsed(next); };
+  const today = <TodayMetricsView data={state.data} refreshFailed={state.refreshFailed} collapsed={collapsed} onToggle={onToggle} />;
+  // 新規営業の人は今月の帯を主にする (BPO は今日のまま)。今月が読めるまでは今日の帯を出す
+  if (state.data.month_view) {
+    return <MonthMetrics fixture={fixture} fetcher={monthFetcher} fallback={today} collapsed={collapsed} onToggle={onToggle} />;
+  }
+  return today;
 }

@@ -28,6 +28,10 @@ population: string, team_names: Array<string>,
  */
 appointments_tracked: boolean, 
 /**
+ * true のとき画面は「今月」の帯を主にする (見ている人が新規営業のチーム)。BPO は false で今日のまま
+ */
+month_view: boolean, 
+/**
  * me が null のときの理由 (そのまま画面に出せる文)
  */
 message: string | null, };

@@ -364,6 +364,8 @@ struct FakeHs {
     calls: Vec<FakeCall>,
     /// (id, owner, 入った時刻 ms)
     deals: Vec<(String, String, i64)>,
+    /// (ステージ ID, 取引 id, 担当者, 入った時刻 ms)。空でなければ `deals` の代わりにこちらを使う
+    stage_deals: Vec<(String, String, String, i64)>,
     /// メール → (id, teams)
     owners_by_email: HashMap<String, (String, Vec<String>)>,
     owner_list: Vec<Value>,
@@ -420,8 +422,20 @@ async fn hs_search(
                 return Json(json!({"results": [], "total": 10_000})).into_response();
             }
         }
+        let owner_in: Option<Vec<String>> = filters
+            .iter()
+            .find(|f| f["propertyName"] == "hubspot_owner_id" && f["operator"] == "IN")
+            .map(|f| {
+                f["values"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_str().unwrap().to_string())
+                    .collect()
+            });
         s.calls
             .iter()
+            .filter(|c| owner_in.as_ref().is_none_or(|o| o.contains(&c.owner)))
             .filter(|c| src_ok && c.source == CALL_SOURCE)
             .filter(|c| ts_a.is_none_or(|a| c.ts >= a) && ts_b.is_none_or(|b| c.ts < b))
             .filter(|c| lm_a.is_none_or(|a| c.modified >= a) && lm_b.is_none_or(|b| c.modified < b))
@@ -437,11 +451,22 @@ async fn hs_search(
         let prop = filters[0]["propertyName"].as_str().unwrap().to_string();
         assert!(prop.starts_with("hs_v2_date_entered_"), "{prop}");
         let (a, b) = (bound(&prop, "GTE"), bound(&prop, "LT"));
-        s.deals
-            .iter()
-            .filter(|(_, _, t)| a.is_none_or(|a| *t >= a) && b.is_none_or(|b| *t < b))
-            .map(|(id, owner, _)| json!({"id": id, "properties": {"hubspot_owner_id": owner}}))
-            .collect()
+        let in_range = |t: &i64| a.is_none_or(|a| *t >= a) && b.is_none_or(|b| *t < b);
+        if s.stage_deals.is_empty() {
+            s.deals
+                .iter()
+                .filter(|(_, _, t)| in_range(t))
+                .map(|(id, owner, _)| json!({"id": id, "properties": {"hubspot_owner_id": owner}}))
+                .collect()
+        } else {
+            s.stage_deals
+                .iter()
+                .filter(|(st, _, _, t)| {
+                    prop == format!("hs_v2_date_entered_{st}") && in_range(t)
+                })
+                .map(|(_, id, owner, _)| json!({"id": id, "properties": {"hubspot_owner_id": owner}}))
+                .collect()
+        }
     };
     let total = rows.len();
     let page: Vec<Value> = rows.into_iter().skip(after).take(limit).collect();
@@ -1127,4 +1152,497 @@ fn アポ欄はアポを数えるチームの人かチーム無しの人にだ�
     assert!(appointments_tracked(&[]));
     assert!(appointments_tracked(&t(&["BPO_リクロジ", "新規営業"])));
     assert!(!appointments_tracked(&t(&["新規営業", "コンサル営業"])));
+}
+
+// ---------------------------------------------------------------------------
+// 新規営業の「今月」 (caller_metrics_month)
+// ---------------------------------------------------------------------------
+
+use super::caller_metrics_month::*;
+use chrono::NaiveDate;
+use std::collections::BTreeMap;
+
+const SALES: &str = "sales@f-a-c.co.jp";
+const SALES_TEAM_NAME: &str = "新規営業";
+
+/// JST の日時 → UTC エポック ms
+fn jst_ms(y: i32, mo: u32, d: u32, h: u32) -> i64 {
+    Utc.with_ymd_and_hms(y, mo, d, h, 0, 0)
+        .unwrap()
+        .timestamp_millis()
+        - 9 * 3_600_000
+}
+
+fn s_owners() -> Vec<String> {
+    vec!["s1".to_string(), "s2".to_string()]
+}
+
+/// 新規営業 s1・s2、BPO b1。今月 (2026-10) の Call とアポ
+fn month_fake() -> FakeHs {
+    let mut f = FakeHs::default();
+    f.owners_by_email = HashMap::from([
+        (
+            SALES.to_string(),
+            ("s1".to_string(), vec![SALES_TEAM_NAME.to_string()]),
+        ),
+        (
+            BPO.to_string(),
+            ("b1".to_string(), vec!["BPO_リクロジ".to_string()]),
+        ),
+        (ADMIN.to_string(), ("a1".to_string(), vec![])),
+    ]);
+    f.owner_list = vec![
+        owner("s1", "太郎", &[SALES_TEAM_NAME]),
+        owner("s2", "花子", &[SALES_TEAM_NAME]),
+        owner("b1", "次郎", &["BPO_リクロジ"]),
+    ];
+    let t = |d: u32, h: u32| jst_ms(2026, 10, d, h);
+    f.calls = vec![
+        // 10/2: s1 が 2 件 (60 秒と 0 秒)・s2 が 1 件
+        fc("1", "s1", "OUTBOUND", 60_000, t(2, 10), t(2, 10)),
+        fc("2", "s1", "OUTBOUND", 0, t(2, 11), t(2, 11)),
+        fc("3", "s2", "OUTBOUND", 30_000, t(2, 12), t(2, 12)),
+        // 10/3: s1 が 1 件 (着信は数えない)
+        fc("4", "s1", "OUTBOUND", 120_000, t(3, 10), t(3, 10)),
+        fc("5", "s1", "INBOUND", 50_000, t(3, 11), t(3, 11)),
+        // 9/30 の最後の 1 秒前 (先月) は入らない
+        fc(
+            "6",
+            "s1",
+            "OUTBOUND",
+            99_000,
+            jst_ms(2026, 10, 1, 0) - 1000,
+            jst_ms(2026, 10, 1, 0),
+        ),
+        // BPO の人は新規営業の集計に入らない
+        fc("7", "b1", "OUTBOUND", 90_000, t(3, 10), t(3, 10)),
+        // 今日 (10/5): s1 が 2 件
+        fc("8", "s1", "OUTBOUND", 40_000, t(5, 9), t(5, 9)),
+        fc("9", "s1", "OUTBOUND", 0, t(5, 10), t(5, 10)),
+    ];
+    f.stage_deals = vec![
+        // アポ日確定 (営業) に s1 が 10/3、BPO の方に s1 が 10/4 と s2 が 10/1 0:00 ちょうど
+        ("52035886".into(), "d1".into(), "s1".into(), t(3, 9)),
+        ("1095457875".into(), "d2".into(), "s1".into(), t(4, 9)),
+        (
+            "1095457875".into(),
+            "d3".into(),
+            "s2".into(),
+            jst_ms(2026, 10, 1, 0),
+        ),
+        // 先月 (JST 9/30 23:59:59) と翌月 (JST 11/1 0:00) は入らない
+        (
+            "52035886".into(),
+            "d4".into(),
+            "s1".into(),
+            jst_ms(2026, 10, 1, 0) - 1000,
+        ),
+        (
+            "52035886".into(),
+            "d5".into(),
+            "s1".into(),
+            jst_ms(2026, 11, 1, 0),
+        ),
+        // 担当者が新規営業でない取引は入らない
+        ("52035886".into(), "d6".into(), "b1".into(), t(3, 9)),
+        // 同じ取引が両方のステージに入っても 1 件
+        ("1095457875".into(), "d1".into(), "s1".into(), t(3, 9)),
+    ];
+    f
+}
+
+async fn month_ready(
+    st: &Arc<CallerMetricsState>,
+    client: &Arc<HubSpotClient>,
+    owners: &[String],
+    now: DateTime<Utc>,
+) -> Result<MonthWarm, crate::hubspot::HubSpotError> {
+    for _ in 0..200 {
+        match st.get_month_or_warm(client, owners, now).await? {
+            MonthWarm::Loading => tokio::time::sleep(StdDuration::from_millis(25)).await,
+            r => return Ok(r),
+        }
+    }
+    panic!("今月の集計中のまま終わらない");
+}
+
+fn ready_all(w: MonthWarm) -> HashMap<String, MonthMetrics> {
+    match w {
+        MonthWarm::Ready { all, .. } => all,
+        MonthWarm::Loading => panic!("loading"),
+    }
+}
+
+fn owner_in_count(st: &Shared) -> usize {
+    searches_of(st, "calls")
+        .iter()
+        .filter(|b| {
+            b["filterGroups"][0]["filters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["propertyName"] == "hubspot_owner_id")
+        })
+        .count()
+}
+
+/// 今月のアポの Search (今日の集計のアポはアポ獲得者の項目 `bpo_26` も読むので区別できる)
+fn month_deal_searches(st: &Shared) -> usize {
+    searches_of(st, "deals")
+        .iter()
+        .filter(|b| !b.to_string().contains("bpo_26"))
+        .count()
+}
+
+#[test]
+fn 今月の境は_jst_の1日0時で_12月は翌年1月() {
+    let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+    assert_eq!(
+        month_bounds(d(2026, 10, 14)),
+        (d(2026, 10, 1), d(2026, 11, 1))
+    );
+    assert_eq!(
+        month_bounds(d(2026, 12, 31)),
+        (d(2026, 12, 1), d(2027, 1, 1))
+    );
+    // JST 10/1 0:00 = UTC 9/30 15:00
+    assert_eq!(
+        jst_midnight_ms(d(2026, 10, 1)),
+        Utc.with_ymd_and_hms(2026, 9, 30, 15, 0, 0)
+            .unwrap()
+            .timestamp_millis()
+    );
+    // UTC 9/30 15:00 はもう JST 10 月
+    let (day, _, _) = jst_day(Utc.with_ymd_and_hms(2026, 9, 30, 15, 0, 0).unwrap());
+    assert_eq!(month_bounds(day).0, d(2026, 10, 1));
+    let (day, _, _) = jst_day(Utc.with_ymd_and_hms(2026, 9, 30, 14, 59, 59).unwrap());
+    assert_eq!(month_bounds(day).0, d(2026, 9, 1));
+}
+
+#[test]
+fn 確定した日と今日とアポを足し_新規営業以外は入らない() {
+    let d = |dd| NaiveDate::from_ymd_opt(2026, 10, dd).unwrap();
+    let dt = |o: u32, t: u32, ms: i64| DayTotals {
+        outbound: o,
+        talked: t,
+        total_duration_ms: ms,
+    };
+    let days = BTreeMap::from([
+        (
+            d(1),
+            HashMap::from([
+                ("s1".to_string(), dt(10, 4, 400_000)),
+                ("b1".to_string(), dt(99, 99, 1)),
+            ]),
+        ),
+        (d(2), HashMap::from([("s1".to_string(), dt(5, 1, 100_000))])),
+    ]);
+    let today = aggregate(
+        &[
+            out("t1", "s1", 60_000),
+            out("t2", "s1", 0),
+            out("t3", "b1", 5000),
+        ],
+        &HashMap::new(),
+    );
+    let apo = HashMap::from([
+        ("s1".to_string(), 3u32),
+        ("b1".to_string(), 7u32),
+        ("s2".to_string(), 1u32),
+    ]);
+    let all = combine(&days, &today, &apo, &s_owners());
+    // s1 = 10 + 5 + 今日 2。b1 は日別にも今日にもアポにも入らない
+    assert_eq!(
+        all["s1"],
+        MonthMetrics {
+            outbound: 17,
+            today_outbound: 2,
+            talked: 6,
+            total_duration_ms: 560_000,
+            avg_duration_ms: Some(93_333),
+            appointments: 3,
+        }
+    );
+    // s2 はアポだけ
+    assert_eq!((all["s2"].outbound, all["s2"].appointments), (0, 1));
+    assert!(!all.contains_key("b1"));
+}
+
+#[test]
+fn 順位は新規営業の中で_今月架電していない人は順位なし() {
+    let mk = |o: u32, d: i64, a: u32| MonthMetrics {
+        outbound: o,
+        talked: u32::from(d > 0),
+        total_duration_ms: d,
+        appointments: a,
+        ..MonthMetrics::default()
+    };
+    let all = HashMap::from([
+        ("a".to_string(), mk(100, 1000, 1)),
+        ("b".to_string(), mk(300, 500, 5)),
+        ("c".to_string(), mk(200, 900, 5)),
+        ("d".to_string(), mk(0, 0, 2)),
+    ]);
+    let (me, avg, n) = build_month(&all, "a");
+    assert_eq!(n, 3, "架電 0 の d は集団に入らない");
+    assert_eq!(
+        (
+            me.rank.outbound,
+            me.rank.total_duration,
+            me.rank.appointments
+        ),
+        (Some(3), Some(1), Some(3))
+    );
+    let avg = avg.unwrap();
+    assert_eq!(avg.outbound, 200.0);
+    assert!((avg.appointments - 11.0 / 3.0).abs() < 1e-9);
+    let (d, _, _) = build_month(&all, "d");
+    assert_eq!(d.rank, MonthRanks::default());
+    assert_eq!(d.metrics.appointments, 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 今月は日ごとに確定して読み_確定した日は読み直さない() {
+    let (client, st) = start_hs(month_fake()).await;
+    let state = Arc::new(CallerMetricsState::new());
+    let owners = s_owners();
+    // 最初は読み込み中
+    assert!(matches!(
+        state
+            .get_month_or_warm(&client, &owners, now0())
+            .await
+            .unwrap(),
+        MonthWarm::Loading
+    ));
+    let all = ready_all(month_ready(&state, &client, &owners, now0()).await.unwrap());
+    // s1: 10/2 の 2 件 + 10/3 の 1 件 (着信・先月・BPO は入らない) + 今日 2 件 = 5
+    // 通話あり 10/2:1 + 10/3:1 + 今日:1 = 3、合計 60+120+40 = 220 秒
+    let s1 = &all["s1"];
+    assert_eq!(
+        (
+            s1.outbound,
+            s1.today_outbound,
+            s1.talked,
+            s1.total_duration_ms
+        ),
+        (5, 2, 3, 220_000)
+    );
+    assert_eq!(s1.avg_duration_ms, Some(73_333));
+    // s2 は 10/2 の 1 件
+    assert_eq!((all["s2"].outbound, all["s2"].today_outbound), (1, 0));
+    // アポ: s1 は d1 (2 ステージにあっても 1 件) と d2 の 2 件、s2 は 10/1 0:00 ちょうどの d3。先月・翌月・BPO 担当は入らない
+    assert_eq!((s1.appointments, all["s2"].appointments), (2, 1));
+    assert!(!all.contains_key("b1"));
+
+    // 過去 4 日 (10/1〜4) を 1 日 1 回ずつ (担当者 IN) + 今日の集計 1 回 = calls の Search 5 回
+    let calls = searches_of(&st, "calls");
+    assert_eq!(calls.len(), 5, "{calls:?}");
+    for b in &calls {
+        let f = b["filterGroups"][0]["filters"].as_array().unwrap();
+        if let Some(o) = f.iter().find(|f| f["propertyName"] == "hubspot_owner_id") {
+            assert_eq!(o["operator"], "IN");
+            assert_eq!(o["values"], json!(["s1", "s2"]));
+        }
+    }
+    assert_eq!(owner_in_count(&st), 4);
+    // アポ: 2 ステージで 2 回
+    assert_eq!(month_deal_searches(&st), 2);
+
+    // 130 秒後 (今日の集計は増分で読み直す。過去の日とアポは読み直さない)
+    let before = searches_of(&st, "calls").len();
+    let later = now0() + Duration::seconds(130);
+    let all = ready_all(month_ready(&state, &client, &owners, later).await.unwrap());
+    assert_eq!(all["s1"].outbound, 5);
+    let calls = searches_of(&st, "calls");
+    assert_eq!(calls.len(), before + 1, "今日の増分の 1 回だけ");
+    assert!(calls
+        .last()
+        .unwrap()
+        .to_string()
+        .contains("hs_lastmodifieddate"));
+    assert_eq!(month_deal_searches(&st), 2, "アポは 5 分キャッシュ");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn アポは5分たてば読み直し_日が変われば前日だけ確定する() {
+    let (client, st) = start_hs(month_fake()).await;
+    let state = Arc::new(CallerMetricsState::new());
+    let owners = s_owners();
+    ready_all(month_ready(&state, &client, &owners, now0()).await.unwrap());
+    // 5 分後: アポだけ読み直す (新しいアポが増えている)
+    st.lock().unwrap().stage_deals.push((
+        "52035886".into(),
+        "d7".into(),
+        "s2".into(),
+        jst_ms(2026, 10, 5, 11),
+    ));
+    let later = now0() + Duration::seconds(310);
+    let all = ready_all(month_ready(&state, &client, &owners, later).await.unwrap());
+    assert_eq!(all["s2"].appointments, 2);
+    assert_eq!(month_deal_searches(&st), 4);
+    // 翌日 (10/6 JST) 昼: 10/5 だけを新しく確定させる。10/1〜4 は読み直さない
+    let before = owner_in_count(&st);
+    let next_day = now0() + Duration::hours(24);
+    let all = ready_all(
+        month_ready(&state, &client, &owners, next_day)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        owner_in_count(&st) - before,
+        1,
+        "確定の読み込みは 10/5 の 1 回だけ"
+    );
+    // 10/5 の s1 の 2 件が確定に入り、10/6 の今日は 0 件
+    assert_eq!((all["s1"].outbound, all["s1"].today_outbound), (5, 0));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 上限を超えたら失敗し_確定した日は残して次の試行で続きから読む() {
+    let (client, st) = start_hs(month_fake()).await;
+    let state = Arc::new(CallerMetricsState::new());
+    let owners = s_owners();
+    // 1 回の読み込みで 2 回までしか Search しない (10/1・10/2 の 2 日で尽きる)
+    state.month.set_max_searches(2);
+    assert!(matches!(
+        state
+            .get_month_or_warm(&client, &owners, now0())
+            .await
+            .unwrap(),
+        MonthWarm::Loading
+    ));
+    // 失敗したあと 30 秒は読まない (Busy)
+    let mut busy = false;
+    for _ in 0..200 {
+        match state.get_month_or_warm(&client, &owners, now0()).await {
+            Err(crate::hubspot::HubSpotError::Busy) => {
+                busy = true;
+                break;
+            }
+            _ => tokio::time::sleep(StdDuration::from_millis(25)).await,
+        }
+    }
+    assert!(busy, "上限で失敗したら再試行の時刻まで待つ");
+    assert_eq!(
+        owner_in_count(&st),
+        2,
+        "上限の 2 回で止まる (3 回目は送らない)"
+    );
+    // 上限を戻して 31 秒後: 残りの日だけ読み、確定した 10/1・10/2 は読み直さない
+    state.month.set_max_searches(0);
+    let later = now0() + Duration::seconds(31);
+    let all = ready_all(month_ready(&state, &client, &owners, later).await.unwrap());
+    assert_eq!(owner_in_count(&st), 2 + 2, "10/3・10/4 の 2 日だけ");
+    assert_eq!(all["s1"].outbound, 5);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 新規営業が1人もいなければ空で確定する() {
+    let (client, st) = start_hs(month_fake()).await;
+    let state = Arc::new(CallerMetricsState::new());
+    let all = ready_all(month_ready(&state, &client, &[], now0()).await.unwrap());
+    assert!(all.is_empty());
+    assert_eq!(month_deal_searches(&st), 0);
+}
+
+struct MonthEnv {
+    app: Router,
+    st: Shared,
+    admin: String,
+    sales: String,
+    bpo: String,
+}
+
+async fn menv() -> MonthEnv {
+    let (client, st) = start_hs(month_fake()).await;
+    let app = Router::new()
+        .merge(super::routes::router_with_queue(
+            CrmAccess::from_list(&format!("{ADMIN},{BPO},{SALES}"))
+                .with_test_role(ADMIN, CrmRole::Admin)
+                .with_test_role(BPO, CrmRole::Bpo)
+                .with_test_role(SALES, CrmRole::Bpo),
+            CallQueueState::for_test([7u8; 32], now0()),
+        ))
+        .route("/__test/session", post(inject_session))
+        .with_state(test_state(Some(client)))
+        .layer(SessionManagerLayer::new(MemoryStore::default()));
+    MonthEnv {
+        admin: login(&app, ADMIN).await,
+        sales: login(&app, SALES).await,
+        bpo: login(&app, BPO).await,
+        app,
+        st,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_新規営業の今月_最初は集計中で_やがて数字() {
+    let e = menv().await;
+    let (s, raw) = get_json_raw(&e.app, "/api/crm/metrics/month", Some(&e.sales)).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(raw["loading"], true);
+    assert!(raw["me"].is_null());
+    let (s, v) = get_json(&e.app, "/api/crm/metrics/month", Some(&e.sales)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["month"], "2026-10");
+    assert_eq!(v["me"]["owner_id"], "s1");
+    let m = &v["me"]["metrics"];
+    assert_eq!(
+        (
+            m["outbound"].as_u64(),
+            m["today_outbound"].as_u64(),
+            m["appointments"].as_u64()
+        ),
+        (Some(5), Some(2), Some(2))
+    );
+    // 30/90/360 秒の基準は出さない
+    assert!(m.get("over_90s").is_none() && m.get("rate_30s").is_none());
+    // 集団 = 今月架電した新規営業の s1・s2
+    assert_eq!(v["population_size"], 2);
+    assert_eq!(v["team_avg"]["outbound"], 3.0);
+    assert_eq!(v["me"]["rank"]["outbound"], 1);
+    assert_eq!(v["me"]["rank"]["appointments"], 1);
+    // 今日の成績の側は month_view を立てる (BPO は立てない)
+    let (_, t) = get_json(&e.app, "/api/crm/metrics/today", Some(&e.sales)).await;
+    assert_eq!(t["month_view"], true);
+    let (_, t) = get_json(&e.app, "/api/crm/metrics/today", Some(&e.bpo)).await;
+    assert_eq!(t["month_view"], false);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_新規営業でない人には今月を出さない() {
+    let e = menv().await;
+    for c in [&e.bpo, &e.admin] {
+        let (s, v) = get_json(&e.app, "/api/crm/metrics/month", Some(c)).await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(v["me"].is_null(), "{v}");
+        assert!(v["message"].as_str().unwrap().contains("新規営業"));
+    }
+    assert!(
+        searches_of(&e.st, "calls").is_empty(),
+        "対象外の人の要求では読まない"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_今月の全員の表は管理者だけで_新規営業の人だけが並ぶ() {
+    let e = menv().await;
+    let (s, _) = get_json(&e.app, "/api/crm/metrics/month/all", Some(&e.sales)).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, _) = get_json(&e.app, "/api/crm/metrics/month/all", Some(&e.bpo)).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, v) = get_json(&e.app, "/api/crm/metrics/month/all", Some(&e.admin)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let rows = v["callers"].as_array().unwrap();
+    let ids: Vec<&str> = rows
+        .iter()
+        .map(|r| r["owner_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["s1", "s2"],
+        "架電数の多い順。BPO の b1 は入らない"
+    );
+    assert_eq!(rows[0]["metrics"]["outbound"], 5);
+    assert_eq!(rows[1]["metrics"]["appointments"], 1);
 }

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiAbortedError, ApiHttpError, apiGet } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 import type { AllCallersResponse } from '../../generated/AllCallersResponse';
+import type { MonthAllResponse } from '../../generated/MonthAllResponse';
+import type { MonthMetricsResponse } from '../../generated/MonthMetricsResponse';
 import type { TodayMetricsResponse } from '../../generated/TodayMetricsResponse';
-import { FIXTURE_ALL, FIXTURE_TODAY } from './metricsModel';
+import { FIXTURE_ALL, FIXTURE_MONTH, FIXTURE_MONTH_ALL, FIXTURE_TODAY, FIXTURE_TODAY_SALES } from './metricsModel';
 
 /** 読み直す間隔。サーバも 2 分に 1 回までしか HubSpot を読み直さない */
 export const METRICS_REFRESH_MS = 120_000;
@@ -17,12 +19,26 @@ export const liveTodayFetch: MetricsFetch<TodayMetricsResponse> = signal =>
 export const liveAllFetch: MetricsFetch<AllCallersResponse> = signal =>
   apiGet<AllCallersResponse>('/api/crm/metrics/today/all', { signal, timeoutMs: 30_000 });
 
+export const liveMonthFetch: MetricsFetch<MonthMetricsResponse> = signal =>
+  apiGet<MonthMetricsResponse>('/api/crm/metrics/month', { signal, timeoutMs: 30_000 });
+export const liveMonthAllFetch: MetricsFetch<MonthAllResponse> = signal =>
+  apiGet<MonthAllResponse>('/api/crm/metrics/month/all', { signal, timeoutMs: 30_000 });
+
 const fixtureOf = <T,>(data: T): MetricsFetch<T> => async signal => {
   await Promise.resolve();
   return signal.aborted ? { ok: false, error: new ApiAbortedError('aborted') } : { ok: true, data };
 };
 export const fixtureTodayFetch = fixtureOf(FIXTURE_TODAY);
 export const fixtureAllFetch = fixtureOf(FIXTURE_ALL);
+export const fixtureSalesTodayFetch = fixtureOf(FIXTURE_TODAY_SALES);
+export const fixtureMonthFetch = fixtureOf(FIXTURE_MONTH);
+export const fixtureMonthAllFetch = fixtureOf(FIXTURE_MONTH_ALL);
+
+/** fixture のとき、URL の `metrics=sales` なら新規営業の人の見え方 (今月の帯) にする */
+export function pickFixtureToday(): MetricsFetch<TodayMetricsResponse> {
+  const sales = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('metrics') === 'sales';
+  return sales ? fixtureSalesTodayFetch : fixtureTodayFetch;
+}
 
 export type MetricsState<T> =
   | { phase: 'loading' }

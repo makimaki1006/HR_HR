@@ -358,6 +358,14 @@ fn router_full(
             get(super::caller_metrics::get_today_all),
         )
         .route(
+            "/api/crm/metrics/month",
+            get(super::caller_metrics_month::get_month),
+        )
+        .route(
+            "/api/crm/metrics/month/all",
+            get(super::caller_metrics_month::get_month_all),
+        )
+        .route(
             "/api/crm/property-catalog",
             get(super::property_catalog::get_property_catalog),
         )

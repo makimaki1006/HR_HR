@@ -1,5 +1,7 @@
 import type { AllCallersResponse } from '../../generated/AllCallersResponse';
 import type { CallerMetrics } from '../../generated/CallerMetrics';
+import type { MonthAllResponse } from '../../generated/MonthAllResponse';
+import type { MonthMetricsResponse } from '../../generated/MonthMetricsResponse';
 import type { TodayMetricsResponse } from '../../generated/TodayMetricsResponse';
 
 /**
@@ -85,6 +87,30 @@ export function stripItems(res: TodayMetricsResponse): StripItem[] | null {
   return items;
 }
 
+/** 「今月」の帯の 3 項目。新規営業の人向け。各項目は「自分の値（チーム平均 ○○・○位/○人）」にそろえる */
+export function monthStripItems(res: MonthMetricsResponse): StripItem[] | null {
+  if (res.me === null) return null;
+  const m = res.me.metrics;
+  const a = res.team_avg;
+  const r = res.me.rank;
+  const rankText = (rank: number | null) => (rank === null ? '順位なし' : `${String(rank)}位/${String(res.population_size)}人`);
+  const rankShort = (rank: number | null) => (rank === null ? '順位なし' : `${String(rank)}位/${String(res.population_size)}`);
+  const cmp = (avg: string, rank: number | null) => `チーム平均 ${avg}・${rankText(rank)}`;
+  const short = (avg: string, rank: number | null) => `平均${avg}・${rankShort(rank)}`;
+  const avgDur = a ? formatDuration(Math.round(a.total_duration_ms)) : '-';
+  return [
+    { key: 'outbound', label: '架電数', value: String(m.outbound), compare: cmp(formatAvg(a?.outbound), r.outbound), compareShort: short(formatAvg(a?.outbound), r.outbound), extra: `今日 ${String(m.today_outbound)}` },
+    { key: 'duration', label: '通話時間', value: m.avg_duration_ms === null ? formatDuration(m.total_duration_ms) : `${formatDuration(m.total_duration_ms)}・1件 ${formatDuration(m.avg_duration_ms)}`, compare: cmp(avgDur, r.total_duration), compareShort: short(avgDur, r.total_duration), extra: null },
+    { key: 'appointments', label: 'アポ', value: String(m.appointments), compare: cmp(formatAvg(a?.appointments), r.appointments), compareShort: short(formatAvg(a?.appointments), r.appointments), extra: null },
+  ];
+}
+
+/** 「2026-10」→「10月」。読めなければ「今月」 */
+export function monthName(month: string): string {
+  const m = /^\d{4}-(\d{2})$/.exec(month);
+  return m?.[1] === undefined ? '今月' : `${String(Number(m[1]))}月`;
+}
+
 export function populationLabel(res: TodayMetricsResponse): string {
   if (res.population === 'team') return `同じチーム（${res.team_names.join('・')}）で今日架電した ${String(res.population_size)} 人`;
   return `今日架電した ${String(res.population_size)} 人`;
@@ -135,6 +161,38 @@ export function filterByTeam(rows: readonly Row[], team: string): Row[] {
   return team === '' ? [...rows] : rows.filter(r => r.teams.includes(team));
 }
 
+// --- 管理者の表 (今月) ---------------------------------------------------
+
+export type MonthSortKey = 'name' | 'outbound' | 'today_outbound' | 'total_duration' | 'avg_duration' | 'appointments';
+type MonthRow = MonthAllResponse['callers'][number];
+
+function monthSortValue(r: MonthRow, key: MonthSortKey): string | number | null {
+  const m = r.metrics;
+  switch (key) {
+    case 'name': return r.name;
+    case 'outbound': return m.outbound;
+    case 'today_outbound': return m.today_outbound;
+    case 'total_duration': return m.total_duration_ms;
+    case 'avg_duration': return m.avg_duration_ms;
+    case 'appointments': return m.appointments;
+  }
+}
+
+/** 並べ替え。値の無い行 (null) は昇順でも降順でも最後。同じ値は元の順を保つ */
+export function sortMonthRows(rows: readonly MonthRow[], key: MonthSortKey, dir: 'asc' | 'desc'): MonthRow[] {
+  const sign = dir === 'asc' ? 1 : -1;
+  return rows
+    .map((r, i) => ({ r, i, v: monthSortValue(r, key) }))
+    .sort((a, b) => {
+      if (a.v === null && b.v === null) return a.i - b.i;
+      if (a.v === null) return 1;
+      if (b.v === null) return -1;
+      const c = typeof a.v === 'string' && typeof b.v === 'string' ? a.v.localeCompare(b.v, 'ja') : Number(a.v) - Number(b.v);
+      return c !== 0 ? sign * c : a.i - b.i;
+    })
+    .map(x => x.r);
+}
+
 // --- 架空サンプル --------------------------------------------------------
 
 const BASE: CallerMetrics = {
@@ -171,6 +229,7 @@ export const FIXTURE_TODAY: TodayMetricsResponse = {
   population: 'team',
   team_names: ['架空BPOチーム'],
   appointments_tracked: true,
+  month_view: false,
   message: null,
 };
 
@@ -186,5 +245,47 @@ export const FIXTURE_ALL: AllCallersResponse = {
     { owner_id: '9003', name: '架空 花子', teams: ['架空BPOチーム'], metrics: metrics(38, 20, 12, 3, 20, 4140, 3, 5, '2026-10-13T00:20:00Z', '2026-10-13T04:58:00Z') },
     { owner_id: '9004', name: 'ダミー 三郎', teams: ['架空営業チーム'], metrics: metrics(24, 9, 4, 0, 11, 1180, 0, 2, '2026-10-13T01:00:00Z', '2026-10-13T04:40:00Z') },
     { owner_id: '9005', name: '架空 四郎', teams: [], metrics: { ...BASE, inbound: 4, appointments: 1 } },
+  ],
+};
+
+/** 新規営業の人から見た今日の成績 (month_view = true。画面は今月の帯を主にする) */
+export const FIXTURE_TODAY_SALES: TodayMetricsResponse = {
+  ...FIXTURE_TODAY,
+  team_names: ['新規営業'],
+  appointments_tracked: false,
+  month_view: true,
+};
+
+export const FIXTURE_MONTH: MonthMetricsResponse = {
+  loading: false,
+  as_of: FIXTURE_AS_OF,
+  month: '2026-10',
+  stale: false,
+  me: {
+    owner_id: '9001',
+    metrics: { outbound: 812, today_outbound: 52, talked: 301, total_duration_ms: 36_900_000, avg_duration_ms: 122_591, appointments: 9 },
+    rank: { outbound: 3, total_duration: 2, appointments: 1 },
+  },
+  team_avg: { outbound: 760.4, total_duration_ms: 34_200_000, avg_duration_ms: 118_000, appointments: 6.2 },
+  population_size: 14,
+  message: null,
+};
+
+const monthRow = (id: string, name: string, outbound: number, today: number, talked: number, totalSec: number, apo: number): MonthAllResponse['callers'][number] => ({
+  owner_id: id, name, teams: ['新規営業'],
+  metrics: { outbound, today_outbound: today, talked, total_duration_ms: totalSec * 1000, avg_duration_ms: talked > 0 ? Math.round((totalSec * 1000) / talked) : null, appointments: apo },
+});
+
+export const FIXTURE_MONTH_ALL: MonthAllResponse = {
+  loading: false,
+  as_of: FIXTURE_AS_OF,
+  month: '2026-10',
+  stale: false,
+  callers: [
+    monthRow('9011', '架空 太郎', 903, 61, 340, 41_800, 7),
+    monthRow('9012', 'サンプル 花子', 851, 48, 322, 39_500, 11),
+    monthRow('9001', '架空 一郎', 812, 52, 301, 36_900, 9),
+    monthRow('9013', 'ダミー 次郎', 640, 0, 233, 27_100, 4),
+    monthRow('9014', '架空 三郎', 55, 0, 0, 0, 1),
   ],
 };
