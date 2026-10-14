@@ -45,6 +45,10 @@ export function TodayMetrics({ fixture, fetcher }: { fixture: boolean; fetcher?:
   const { state, reload } = useMetrics(f);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   if (state.phase === 'loading') return <section className="tm" aria-label="今日の架電成績"><div className="tm-head"><strong>今日の成績</strong><span className="tm-asof">読み込んでいます</span></div></section>;
+  if (state.phase === 'warming') {
+    return <section className="tm" aria-label="今日の架電成績"><div className="tm-head"><strong>今日の成績</strong>
+      <span className="tm-asof" role="status" data-testid="metrics-warming">今日の成績を集計しています…</span></div></section>;
+  }
   if (state.phase === 'error') {
     return <section className="tm" aria-label="今日の架電成績"><div className="tm-head"><strong>今日の成績</strong>
       <span className="tm-warn" role="status">{state.message}</span>

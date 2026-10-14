@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FIXTURE_ALL } from '../crm/metricsModel';
 import { CallersPanel, CallersTable } from './CallersPanel';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const firstColumn = () => within(screen.getByTestId('callers-table')).getAllByRole('row').slice(1).map(r => r.querySelector('td')?.textContent);
 
@@ -40,5 +40,21 @@ describe('今日の架電成績（全員）', () => {
     const { ApiHttpError } = await import('../../api/client');
     render(<CallersPanel fetcher={() => Promise.resolve({ ok: false, error: new ApiHttpError(403) })} />);
     expect((await screen.findByRole('alert')).textContent).toContain('権限がありません');
+  });
+
+  it('集計中は表を出さず、取り直して表が来たら出す', async () => {
+    vi.useFakeTimers();
+    const loading = { ...FIXTURE_ALL, loading: true, as_of: '', callers: [], teams: [] };
+    const f = vi.fn()
+      .mockResolvedValueOnce({ ok: true as const, data: loading })
+      .mockResolvedValue({ ok: true as const, data: FIXTURE_ALL });
+    render(<CallersPanel fetcher={f} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(screen.getByTestId('callers-warming')).toBeTruthy();
+    expect(screen.queryByTestId('admin-error')).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(13_000); });
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('callers-table')).toBeTruthy();
+    expect(screen.queryByTestId('callers-warming')).toBeNull();
   });
 });

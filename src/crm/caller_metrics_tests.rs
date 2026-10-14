@@ -676,6 +676,96 @@ async fn 失敗したら前回の結果を古いと示して返し_30秒は再�
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn 空の状態ではすぐ集計中を返し_背景の読み込みは1本だけ_終われば数字() {
+    let t = day_start();
+    let mut f = FakeHs::default();
+    f.calls = vec![fc("1", "7", "OUTBOUND", 100_000, t + 1000, t + 1000)];
+    let (client, st) = start_hs(f).await;
+    let state = Arc::new(CallerMetricsState::new());
+    // 同時に 3 つの要求が来ても読み込みは 1 本
+    let a = state.get_or_warm(&client, now0()).await.unwrap();
+    let b = state.get_or_warm(&client, now0()).await.unwrap();
+    let c = state.get_or_warm(&client, now0()).await.unwrap();
+    assert!(matches!(
+        (a, b, c),
+        (Warm::Loading, Warm::Loading, Warm::Loading)
+    ));
+    let mut ready = None;
+    for _ in 0..200 {
+        if let Warm::Ready(s, stale) = state.get_or_warm(&client, now0()).await.unwrap() {
+            ready = Some((s, stale));
+            break;
+        }
+        tokio::time::sleep(StdDuration::from_millis(25)).await;
+    }
+    let (snap, stale) = ready.expect("読み込みが終わる");
+    assert!(!stale);
+    assert_eq!(snap.all["7"].outbound, 1);
+    assert_eq!(
+        searches_of(&st, "calls").len(),
+        1,
+        "背景の読み込みは 1 本だけ"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 最初の読み込みが失敗したら再試行の時刻まで待ち_過ぎたら読み直す() {
+    let t = day_start();
+    let mut f = FakeHs::default();
+    f.fail_search = true;
+    f.calls = vec![fc("1", "7", "OUTBOUND", 0, t + 1000, t + 1000)];
+    let (client, st) = start_hs(f).await;
+    let state = Arc::new(CallerMetricsState::new());
+    assert!(matches!(
+        state.get_or_warm(&client, now0()).await.unwrap(),
+        Warm::Loading
+    ));
+    // 失敗が記録されるまで待つ
+    for _ in 0..200 {
+        if state.get_or_warm(&client, now0()).await.is_err() {
+            break;
+        }
+        tokio::time::sleep(StdDuration::from_millis(25)).await;
+    }
+    let before = st.lock().unwrap().searches.len();
+    assert!(state
+        .get_or_warm(&client, now0() + Duration::seconds(10))
+        .await
+        .is_err());
+    assert_eq!(st.lock().unwrap().searches.len(), before, "30 秒は読まない");
+    // 直って 30 秒過ぎたら次の要求で読み直す
+    st.lock().unwrap().fail_search = false;
+    let later = now0() + Duration::seconds(31);
+    assert!(matches!(
+        state.get_or_warm(&client, later).await.unwrap(),
+        Warm::Loading
+    ));
+    let mut got = false;
+    for _ in 0..200 {
+        if matches!(state.get_or_warm(&client, later).await, Ok(Warm::Ready(..))) {
+            got = true;
+            break;
+        }
+        tokio::time::sleep(StdDuration::from_millis(25)).await;
+    }
+    assert!(got);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_最初の要求は集計中を返し_やがて数字になる() {
+    let e = env().await;
+    let (s, v) = get_json_raw(&e.app, "/api/crm/metrics/today", Some(&e.bpo)).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["loading"], true);
+    assert!(v["me"].is_null());
+    let (s, v) = get_json_raw(&e.app, "/api/crm/metrics/today/all", Some(&e.admin)).await;
+    assert_eq!((s, v["loading"].as_bool()), (StatusCode::OK, Some(true)));
+    let (_, v) = get_json(&e.app, "/api/crm/metrics/today", Some(&e.bpo)).await;
+    assert_eq!(v["loading"], false);
+    assert_eq!(v["me"]["metrics"]["outbound"], 4);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn 最初の読み込みが失敗したらエラー() {
     let mut f = FakeHs::default();
     f.fail_search = true;
@@ -761,7 +851,19 @@ async fn login(app: &Router, email: &str) -> String {
         .expect("cookie")
 }
 
+/// 「集計中」(`loading: true`) の間は取り直す (画面の自動の取り直しと同じ)
 async fn get_json(app: &Router, uri: &str, cookie: Option<&str>) -> (StatusCode, Value) {
+    for _ in 0..200 {
+        let (s, v) = get_json_raw(app, uri, cookie).await;
+        if v["loading"] != true {
+            return (s, v);
+        }
+        tokio::time::sleep(StdDuration::from_millis(25)).await;
+    }
+    panic!("集計中のまま終わらない: {uri}");
+}
+
+async fn get_json_raw(app: &Router, uri: &str, cookie: Option<&str>) -> (StatusCode, Value) {
     let mut b = Request::builder().uri(uri);
     if let Some(c) = cookie {
         b = b.header(header::COOKIE, c);

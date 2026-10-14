@@ -91,6 +91,7 @@ export function CallersPanel({ fetcher }: { fetcher?: MetricsFetch<AllCallersRes
       <h1 className="w8-h1" style={{ marginBottom: 4 }}>今日の架電成績（全員）</h1>
       {fixture && <p className="w8-alert" role="status">架空サンプルを表示中です。</p>}
       {state.phase === 'loading' && <p className="w8-subtle" role="status">読み込み中…</p>}
+      {state.phase === 'warming' && <p className="w8-subtle" role="status" data-testid="callers-warming">今日の成績を集計しています…</p>}
       {state.phase === 'error' && (
         <div role="alert" className="w8-alert" data-testid="admin-error">
           <p>{state.message}</p>

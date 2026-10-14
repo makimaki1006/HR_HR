@@ -203,7 +203,7 @@ pub(super) struct CrmCtx {
     /// 書き込みの受付の速さの制限 (操作者ごと)
     pub(super) write_rate: super::write::WriteRateLimiter,
     /// 今日の架電成績 (プロセス内の今日の Call と集計。ADR-027)
-    pub(super) caller_metrics: super::caller_metrics::CallerMetricsState,
+    pub(super) caller_metrics: Arc<super::caller_metrics::CallerMetricsState>,
 }
 
 /// レコード読み取りの同時実行数。HubSpot への流量は関所 (`hubspot::gateway`) が絞るので、ここは
@@ -220,10 +220,18 @@ pub const METADATA_REFRESH_FLOOR: Duration = Duration::from_secs(5);
 /// **`protected_routes` (auth_middleware) の外に merge する**。未ログインを /login への 303 ではなく
 /// JSON の 401 で返すため。認可は各ハンドラの先頭で `rbac::authorize` が行う。GET のみ。
 pub fn router(access: CrmAccess) -> Router<Arc<AppState>> {
-    router_with_queue(access, super::call_queue::CallQueueState::new())
+    router_full(
+        access,
+        super::call_queue::CallQueueState::new(),
+        super::workspace_cache::WorkspaceCache::default(),
+        super::write::WriteConfig::from_env(),
+        // 起動時の温め (caller_metrics::spawn_warmup) と同じ入れ物
+        super::caller_metrics::shared(),
+    )
 }
 
 /// [`router`] の架電キュー状態を差し替えられる版 (テストで時刻・署名鍵を固定する)。
+#[cfg(test)]
 pub(super) fn router_with_queue(
     access: CrmAccess,
     queue: super::call_queue::CallQueueState,
@@ -236,6 +244,7 @@ pub(super) fn router_with_queue(
 }
 
 /// [`router_with_queue`] のワークスペースのキャッシュも差し替えられる版 (テストで時計を進める)。
+#[cfg(test)]
 pub(super) fn router_with_parts(
     access: CrmAccess,
     queue: super::call_queue::CallQueueState,
@@ -250,11 +259,28 @@ pub(super) fn router_with_parts(
 }
 
 /// [`router_with_parts`] の書き込みの設定も差し替えられる版 (テストで栓・上限を固定する)。
+#[cfg(test)]
 pub(super) fn router_with_write(
     access: CrmAccess,
     queue: super::call_queue::CallQueueState,
     workspace_cache: super::workspace_cache::WorkspaceCache,
     write: super::write::WriteConfig,
+) -> Router<Arc<AppState>> {
+    router_full(
+        access,
+        queue,
+        workspace_cache,
+        write,
+        Arc::new(super::caller_metrics::CallerMetricsState::new()),
+    )
+}
+
+fn router_full(
+    access: CrmAccess,
+    queue: super::call_queue::CallQueueState,
+    workspace_cache: super::workspace_cache::WorkspaceCache,
+    write: super::write::WriteConfig,
+    caller_metrics: Arc<super::caller_metrics::CallerMetricsState>,
 ) -> Router<Arc<AppState>> {
     let write_rate = super::write::WriteRateLimiter::new(write.rate_per_min);
     let ctx = Arc::new(CrmCtx {
@@ -270,7 +296,7 @@ pub(super) fn router_with_write(
         assoc_labels: super::assoc_labels::AssocLabelCache::default(),
         write,
         write_rate,
-        caller_metrics: super::caller_metrics::CallerMetricsState::new(),
+        caller_metrics,
     });
     Router::new()
         .route(

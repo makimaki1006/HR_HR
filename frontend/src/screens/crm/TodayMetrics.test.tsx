@@ -70,4 +70,35 @@ describe('今日の成績の帯', () => {
     expect(screen.getByTestId('metric-outbound')).toBeTruthy();
     expect(screen.getByText(/前回の数字を表示中/)).toBeTruthy();
   });
+
+  it('集計中は赤いエラーにせず、12 秒おきに取り直して数字が来たら表示する', async () => {
+    vi.useFakeTimers();
+    const loading = { ...FIXTURE_TODAY, loading: true, as_of: '', me: null, team_avg: null };
+    const f = vi.fn()
+      .mockResolvedValueOnce({ ok: true as const, data: loading })
+      .mockResolvedValueOnce({ ok: true as const, data: loading })
+      .mockResolvedValue({ ok: true as const, data: FIXTURE_TODAY });
+    render(<TodayMetrics fixture={false} fetcher={f} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(screen.getByTestId('metrics-warming').textContent).toBe('今日の成績を集計しています…');
+    expect(screen.queryByText('今日の成績を読み込めませんでした。')).toBeNull();
+    expect(screen.queryByRole('button', { name: '再読み込み' })).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(11_000); });
+    expect(f).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('metrics-warming')).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+    expect(f).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId('metric-outbound').textContent).toContain('52');
+    expect(screen.queryByTestId('metrics-warming')).toBeNull();
+  });
+
+  it('本当の失敗は今のまま「読み込めませんでした」と再読み込みを出す', async () => {
+    const f = () => Promise.resolve({ ok: false as const, error: new Error('boom') });
+    render(<TodayMetrics fixture={false} fetcher={f} />);
+    expect(await screen.findByText('今日の成績を読み込めませんでした。')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '再読み込み' })).toBeTruthy();
+    expect(screen.queryByTestId('metrics-warming')).toBeNull();
+  });
 });
