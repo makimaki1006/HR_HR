@@ -11,6 +11,22 @@ describe('formatPhoneForDisplay', () => {
     ['0111234567', '011-123-4567'],
     ['045-123-4567', '045-123-4567'],
     ['0521234567', '052-123-4567'],
+    // 総務省の番号区画の表による 3〜5 桁の市外局番
+    ['0262765000', '026-276-5000'],
+    ['0312345678', '03-1234-5678'],
+    ['0663312200', '06-6331-2200'],
+    ['0185520007', '0185-52-0007'],
+    ['0261234567', '0261-23-4567'],
+    ['0422123456', '0422-12-3456'],
+    ['0466123456', '0466-12-3456'],
+    ['0429925000', '04-2992-5000'],
+    ['0471234567', '04-7123-4567'],
+    ['0126721234', '01267-2-1234'],
+    ['0499221234', '04992-2-1234'],
+    ['+81262765000', '026-276-5000'],
+    ['026-276-5000', '026-276-5000'],
+    ['0185-52-0007', '0185-52-0007'],
+    ['０２６２７６５０００', '026-276-5000'],
     // 携帯・IP
     ['+81 90-0000-0003', '090-0000-0003'],
     ['09000000099', '090-0000-0099'],
@@ -31,10 +47,9 @@ describe('formatPhoneForDisplay', () => {
     expect(formatPhoneForDisplay(raw)).toBe(want);
   });
 
-  it('falls back to the toDomesticPhone digits when the area code length cannot be told from the prefix', () => {
-    // 0422 (武蔵野) と 042 (八王子等) のように先頭が同じで桁数が違う局番は区切らない
-    expect(formatPhoneForDisplay('0422-12-3456')).toBe('0422123456');
-    expect(formatPhoneForDisplay('0466123456')).toBe('0466123456');
+  it('falls back to the toDomesticPhone digits when the area code is not in the table', () => {
+    // 表にない局番 (0100 など未割り当て) は区切らない
+    expect(formatPhoneForDisplay('0100123456')).toBe('0100123456');
     // 050 なのに 10 桁 (桁数が合わない) も区切らない
     expect(formatPhoneForDisplay('+81500000006')).toBe('0500000006');
     // 9 桁
@@ -49,7 +64,7 @@ describe('formatPhoneForDisplay', () => {
   });
 
   it('removing the hyphens gives back exactly the toDomesticPhone value (the one used for copy)', () => {
-    for (const raw of ['0300000005', '+819012345678', '0120123456', '08001234567', '0466123456']) {
+    for (const raw of ['0300000005', '+819012345678', '0120123456', '08001234567', '0466123456', '0262765000', '0185520007']) {
       expect(formatPhoneForDisplay(raw)?.replaceAll('-', '')).toBe(toDomesticPhone(raw));
     }
   });
