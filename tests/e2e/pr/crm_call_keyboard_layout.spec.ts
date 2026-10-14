@@ -11,13 +11,13 @@ import { startWithResultPanelInFront } from './helpers/crm_layout';
  */
 
 const SCREEN_URL = '/app/crm?mode=fixture';
-const STORAGE_KEY = 'hrhr.crm.callResult.v1';
+const STORAGE_KEY = 'hrhr.crm.callResult.v2';
 
 const list = (page: Page) => page.getByRole('list', { name: '架電キュー' });
 const rowButton = (page: Page, i: number) => list(page).locator('li.cq-row').nth(i).locator('button.cq-row-button');
 const form = (page: Page) => page.getByRole('form', { name: '架電結果の入力' });
-const outcomes = (page: Page) => form(page).getByRole('group', { name: '今回の結果' });
-const outcome = (page: Page, label: string) => outcomes(page).getByRole('button', { name: label, exact: true });
+const stages = (page: Page) => form(page).getByRole('group', { name: 'ステージ(よく使うもの)' });
+const stage = (page: Page, label: string) => stages(page).getByRole('button', { name: label, exact: true });
 const article = (page: Page) => page.getByRole('article', { name: '架電先の詳細' });
 
 async function openFirst(page: Page): Promise<void> {
@@ -26,7 +26,9 @@ async function openFirst(page: Page): Promise<void> {
   await expect(list(page).locator('.cq-row-company').first()).toHaveText('ダミー建設');
   await rowButton(page, 0).click();
   await expect(article(page).locator('h2')).toHaveText('ダミー建設');
-  await expect(outcomes(page).getByRole('button')).toHaveCount(6);
+  // BPO の組: よく使うステージのボタン (架空サンプルのパイプラインにあるもの)。今のステージ (担当者ブロック) は押せない
+  await expect(stages(page).getByRole('button')).toHaveText(['不在', '受付ブロック', '不通要入力', '担当者ブロック', '日程確保', 'アポ日確定要入力']);
+  await expect(stage(page, '担当者ブロック')).toBeDisabled();
 }
 
 async function recordedMap(page: Page): Promise<Record<string, boolean>> {
@@ -59,25 +61,23 @@ test.describe('CRM 架電画面: キーボード・画面の高さ・文言', ()
   test('1 行の入力欄・日付欄で Enter を押しても記録しない (Ctrl+Enter だけが記録する)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFirst(page);
-    await outcome(page, '架電停止の希望').click();
-    const reason = form(page).getByLabel(/^架電禁止理由/);
-    await reason.fill('今後不要');
-    await reason.press('Enter');
+    const count = form(page).getByLabel('日程切り', { exact: true });
+    await count.fill('2');
+    await count.press('Enter');
     await expect(page.getByTestId('result-slot')).toHaveAttribute('data-deal-id', 'f-5');
     await expect(rowButton(page, 0)).toHaveAttribute('aria-pressed', 'true');
     expect(await recordedMap(page)).toEqual({});
 
-    await outcome(page, '再架電の約束').click();
     const tomorrow = new Date(Date.now() + 9 * 3600_000 + 86_400_000).toISOString().slice(0, 10);
-    const date = form(page).getByLabel(/^次回架電日/);
-    await date.fill(tomorrow);
-    await form(page).getByLabel(/^次回架電時間/).selectOption('9:15');
+    const date = form(page).getByLabel('次回架電日', { exact: true });
+    await date.fill(tomorrow.replaceAll('-', '/'));
+    await form(page).getByLabel('次回架電時間', { exact: true }).selectOption('9:15');
     await date.focus();
     await date.press('Enter');
     await expect(page.getByTestId('result-slot')).toHaveAttribute('data-deal-id', 'f-5');
     expect(await recordedMap(page)).toEqual({});
 
-    // Ctrl+Enter は記録する
+    // Ctrl+Enter は記録する (HubSpot に保存。架空サンプルでは画面の中だけ)
     await date.press('Control+Enter');
     await expect(page.getByTestId('result-slot')).toHaveAttribute('data-deal-id', 'f-2');
     expect(await recordedMap(page)).toEqual({ 'fixture:f-5': true });
@@ -89,8 +89,8 @@ test.describe('CRM 架電画面: キーボード・画面の高さ・文言', ()
       await openFirst(page);
       for (const step of ['before', 'after'] as const) {
         if (step === 'after') {
-          await outcome(page, 'アポイント獲得').click();
-          await expect(form(page).getByLabel(/^商談予定日/)).toBeVisible();
+          await stage(page, '受付ブロック').click();
+          await expect(form(page).getByRole('textbox', { name: 'タスクメモに追記' })).toBeVisible();
         }
         const v = await dialVisibility(page);
         expect(v.numberText, step).toBe('03-0000-0005');
@@ -108,42 +108,32 @@ test.describe('CRM 架電画面: キーボード・画面の高さ・文言', ()
     });
   }
 
-  test('キーボードだけで続けて記録できる: 記録の後は次の案件の結果のボタンへ、矢印キーで結果を選び、Ctrl+Enter で記録', async ({ page }) => {
+  test('キーボードだけで続けて記録できる: 記録の後は次の案件のステージのボタンへ、Space でステージを選び、Ctrl+Enter で記録', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 768 });
     await openFirst(page);
-    // 結果のボタンは Tab では 1 か所。矢印キーで移る
-    await outcome(page, '担当者と会話').focus();
-    await page.keyboard.press('ArrowRight');
-    await expect(outcome(page, '不在・応答なし')).toBeFocused();
-    await page.keyboard.press('End');
-    await expect(outcome(page, '架電停止の希望')).toBeFocused();
-    await page.keyboard.press('Home');
-    await expect(outcome(page, '担当者と会話')).toBeFocused();
-    expect(await outcomes(page).getByRole('button').evaluateAll((bs) => bs.map((b) => (b as HTMLElement).tabIndex))).toEqual([0, -1, -1, -1, -1, -1]);
-
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('Space'); // 不在・応答なし
-    await expect(outcome(page, '不在・応答なし')).toHaveAttribute('aria-pressed', 'true');
+    await stage(page, '不在').focus();
+    await page.keyboard.press('Space');
+    await expect(stage(page, '不在')).toHaveAttribute('aria-pressed', 'true');
     await page.keyboard.press('Control+Enter');
-    // 次の案件 (架空食品株式会社) の結果のボタンにフォーカス。読み上げ欄に記録した会社
+    // 次の案件 (架空食品株式会社) のステージのボタン (今のステージ「不在」は押せないので、その次) にフォーカス。読み上げ欄に保存した会社
     await expect(article(page).locator('h2')).toHaveText('架空食品株式会社');
     await expect(rowButton(page, 1)).toHaveAttribute('aria-pressed', 'true');
-    await expect(outcome(page, '担当者と会話')).toBeFocused();
-    await expect(page.getByTestId('screen-announcement')).toHaveText(/^ダミー建設 を記録しました\(この画面だけ。HubSpot には未送信\)。次の架電先を表示しています。\s?$/);
-    await expect(list(page).locator('li.cq-row').nth(0).locator('.cq-recorded')).toContainText('記録済み(HubSpot 未送信)');
+    await expect(stage(page, '受付ブロック')).toBeFocused();
+    await expect(page.getByTestId('screen-announcement')).toHaveText(/^ダミー建設 を HubSpot に保存しました。次の架電先を表示しています。\s?$/);
+    await expect(list(page).locator('li.cq-row').nth(0).locator('.cq-recorded')).toContainText('記録済み(HubSpot に保存済み)');
+    await expect(form(page).getByTestId('result-notice')).toHaveText('前の架電先: ダミー建設 を HubSpot に保存しました。');
 
-    // そのまま次も: 矢印で選び Space、Ctrl+Enter
-    await page.keyboard.press('Space'); // 担当者と会話
+    // そのまま次も: Space、Ctrl+Enter
+    await page.keyboard.press('Space'); // 受付ブロック
     await page.keyboard.press('Control+Enter');
     await expect(article(page).locator('h2')).toHaveText('架空ホテル');
-    await expect(outcome(page, '担当者と会話')).toBeFocused();
     expect(await recordedMap(page)).toEqual({ 'fixture:f-5': true, 'fixture:f-2': true });
   });
 
-  test('折りたたみ中の Ctrl+Enter は記録せず、入力欄を開いて知らせる。選択を外すでフォーカスが body に落ちない', async ({ page }) => {
+  test('折りたたみ中の Ctrl+Enter は記録せず、入力欄を開いて知らせる', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFirst(page);
-    await outcome(page, '担当者と会話').click();
+    await stage(page, '不在').click();
     const toggle = form(page).getByRole('button', { name: /架電結果/ });
     await toggle.focus();
     await page.keyboard.press('Enter');
@@ -151,34 +141,24 @@ test.describe('CRM 架電画面: キーボード・画面の高さ・文言', ()
     const bodyId = await toggle.getAttribute('aria-controls');
     expect(bodyId).toBeTruthy();
     await expect(page.locator(`[id="${bodyId}"]`)).toBeHidden();
+    await expect(form(page).getByTestId('draft-summary')).toHaveText('ステージ: 不在');
     await page.keyboard.press('Control+Enter');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(form(page).locator('.rf-notice')).toHaveText('入力欄を開きました。内容を確かめてから、もう一度「記録して次へ」を押してください。');
     expect(await recordedMap(page)).toEqual({});
-
-    // 選択を外す: フォーカスは同じ欄の最初の選択肢へ
-    const group = form(page).getByRole('group', { name: '接触結果' });
-    await group.getByRole('radio').first().check();
-    const clear = group.getByRole('button', { name: '選択を外す' });
-    await clear.focus();
-    await page.keyboard.press('Enter');
-    await expect(clear).toHaveCount(0);
-    await expect(group.getByRole('radio').first()).toBeFocused();
-    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('INPUT');
   });
 
   test('フォーカスの枠と小さい注記の色は白地で十分なコントラスト (枠 #0d7680 / 注記 #5b6b7a)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFirst(page);
-    await expect(form(page).locator('.rf-hint')).toHaveText('今回の結果を選んでください。');
-    expect(await form(page).locator('.rf-hint').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(91, 107, 122)');
-    expect(await /* メモの下の注記は ⓘ に移した。同じ色の状態行で確かめる */ form(page).locator('p.rf-muted.rf-live').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(91, 107, 122)');
-    expect(await form(page).locator('.rf-count').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(91, 107, 122)');
-    // キーボードでフォーカス (focus-visible) した結果のボタン・記録ボタンの枠
-    await outcome(page, '担当者と会話').focus();
-    await page.keyboard.press('ArrowRight');
+    await expect(form(page).locator('.rf-hint').first()).toHaveText('書いた内容は、今の内容の末尾に日付を付けて足します。全文を直すときは、左のプロパティ欄の編集を使ってください。');
+    expect(await form(page).locator('.rf-hint').first().evaluate((e) => getComputedStyle(e).color)).toBe('rgb(91, 107, 122)');
+    expect(await form(page).locator('.rf-sub').first().evaluate((e) => getComputedStyle(e).color)).toBe('rgb(91, 107, 122)');
+    // キーボードでフォーカス (focus-visible) したステージのボタン・記録ボタンの枠
+    await stage(page, '不在').focus();
+    await page.keyboard.press('Tab');
     const ring = (sel: string) => page.locator(sel).evaluate((e) => { const s = getComputedStyle(e); return `${s.outlineColor} ${s.outlineStyle}`; });
-    expect(await ring('.rf-outcome[data-outcome]:focus')).toBe('rgb(13, 118, 128) solid');
+    expect(await ring('.rf-stage-btn:focus')).toBe('rgb(13, 118, 128) solid');
     await form(page).getByRole('button', { name: /記録して次へ/ }).focus();
     await page.keyboard.press('Shift+Tab');
     await page.keyboard.press('Tab');
@@ -199,5 +179,7 @@ test.describe('CRM 架電画面: キーボード・画面の高さ・文言', ()
     const visible = await page.evaluate(() => document.body.innerText);
     expect(visible).not.toMatch(/COMPLETED|NO_ANSWER|tel:|approved|Developer Docs|未確認|hubspot_|stage_labels|associations|通話ID/);
     expect(visible).not.toContain('記録済み(未送信)');
+    // 架電結果の入力欄に内部名を出さない (パイプラインの名前「bpo_リクロジ」は HubSpot の表示名なので一覧の側にはある)
+    expect(await page.locator('form[aria-label="架電結果の入力"]').evaluate((e) => e.textContent ?? '')).not.toMatch(/bpo_|risuto_|nitteigiri|saikadenn/);
   });
 });

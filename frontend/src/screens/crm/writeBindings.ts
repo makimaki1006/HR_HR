@@ -40,6 +40,10 @@ export interface StageMoveCtx {
   /** 画面に出している案件の、その項目のいまの値 (未取得の項目は HubSpot から読む) */
   currentValues(defs: readonly FieldDef[]): Promise<Record<string, string | null>>;
   move(target: { pipeline_id: string; stage_id: string; label: string }, changes: FieldChange[]): Promise<SaveOutcome>;
+  /** ステージは変えずに項目だけを保存する (架電結果の入力欄。複数の項目を 1 回で送る) */
+  saveFields(changes: FieldChange[]): Promise<SaveOutcome>;
+  /** 編集できる項目の一覧を読めなかった (権限が無い・通信の失敗) */
+  schemaFailed: boolean;
   retry(req: SaveRequest): void;
 }
 
@@ -150,6 +154,8 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, meOwn
         return out;
       },
       move: (target, changes) => write.save({ dealId, changes, stage: target, recordIds, fetchedAt }),
+      saveFields: changes => write.save({ dealId, changes, recordIds, fetchedAt }),
+      schemaFailed: write.schema.phase === 'error',
       retry: req => { void write.save(req); },
     };
   }, [dealId, data, schema, index, write, view, recordIds, fetchedAt, loadValues, meOwnerId]);

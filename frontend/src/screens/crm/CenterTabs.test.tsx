@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CallQueueScreen } from './CallQueueScreen';
 import { makeItem, makeResponse, okMetadataFetch, okUserFetch, okCatalogFetch, resetDockStorage, setScreenHeight } from './queueTestUtil';
+import { fakeWriteApi } from './fakeWrite';
 import type { QueueFilters } from './queueModel';
 import { fixtureQueuePage } from './queueFixture';
 import { DEFAULT_FILTERS } from './queueModel';
@@ -37,7 +38,7 @@ const DEAL_LINKS: Partial<WorkspaceDeal> = {
 };
 
 async function openDeal(fetcher: DetailFetch) {
-  render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={fetcher} metadataFetcher={okMetadataFetch}
+  render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={fetcher} metadataFetcher={okMetadataFetch} writeApi={fakeWriteApi}
     zoomOptions={{ loadTimeoutMs: 60_000 }} initialSearch="?view=queue&owner=all" />);
   const list = await screen.findByRole('list', { name: '架電キュー' });
   const first = within(list).getAllByRole('button')[0];
@@ -87,6 +88,7 @@ describe('求人検索・リンク先 panel (flat tabs)', () => {
 
   it('the 求人検索 tab shows the sandboxed Google frame with igu=1; the call-result panel keeps the typed draft', async () => {
     const form = await openDeal(detailWith(DEAL_LINKS));
+    await within(form).findByRole('textbox', { name: 'タスクメモに追記' });
     const memo = form.querySelector('textarea');
     if (!memo) throw new Error('memo');
     fireEvent.change(memo, { target: { value: '受付で不在。来週再架電' } });

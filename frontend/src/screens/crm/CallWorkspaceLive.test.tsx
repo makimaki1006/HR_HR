@@ -15,6 +15,7 @@ import { LEGACY_DEFAULT_SELECTED, PROPS_STORAGE_KEY } from './propertyModel';
 import { makeItem, makeResponse, okMetadataFetch, okUserFetch, okCatalogFetch, resetDockStorage, setScreenHeight } from './queueTestUtil';
 import { ZOOM_EMBED_ORIGIN } from './smartEmbed';
 import { fixtureOwnersFetch } from './useOwners';
+import { fakeWriteApi } from './fakeWrite';
 import type { DetailFetch } from './useDealDetail';
 import { DIAL_STALL_MS } from './useZoomPhone';
 import type { ZoomOptions } from './useZoomPhone';
@@ -60,7 +61,7 @@ function detailFetcher() {
 async function renderQueue(df: DetailFetch, items = [makeItem('1'), makeItem('2')], zoomOptions?: ZoomOptions) {
   const queue = (filters: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(filters, items) });
   const fetcher = (f: QueueFilters) => queue(f);
-  const el = (z: ZoomOptions | undefined) => <CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} ownersFetcher={fixtureOwnersFetch} detailFetcher={df} metadataFetcher={okMetadataFetch} zoomOptions={z} initialSearch="?view=queue" />;
+  const el = (z: ZoomOptions | undefined) => <CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} ownersFetcher={fixtureOwnersFetch} detailFetcher={df} metadataFetcher={okMetadataFetch} writeApi={fakeWriteApi} zoomOptions={z} initialSearch="?view=queue" />;
   const r = render(el(zoomOptions));
   await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
   /** 同じ画面のまま Zoom の待ち時間だけ変える (読み込みの待ちが切れた状態を、実時間に頼らずに作る) */
@@ -143,12 +144,12 @@ describe('架電ワークスペース (実データ)', () => {
     fireEvent.click(within(log).getByRole('button', { name: 'メモ' }));
     expect(within(log).queryByText('架電1')).toBeNull();
     expect(within(log).getByText('受付で不在')).toBeTruthy();
-    // 書き込みはしない: 概要・活動ログに保存ボタンは無く、入力欄は「HubSpot 未送信」の下書きと明示する
+    // 概要・活動ログに保存ボタンは無い。保存は「架電結果の入力」の「記録して次へ」だけ
     expect(within(d).queryByRole('button', { name: /保存|記録/ })).toBeNull();
     expect(within(log).queryByRole('button', { name: /保存|記録/ })).toBeNull();
     const form = await screen.findByRole('form', { name: '架電結果の入力' });
-    expect(within(form).getByText('下書き(HubSpot 未送信)')).toBeTruthy();
-    expect(within(form).getByText(/HubSpot には保存されません/)).toBeTruthy();
+    expect(within(form).getByRole('button', { name: /記録して次へ/ })).toBeTruthy();
+    expect(form.textContent).not.toMatch(/保存しました/);
   });
 
   it('drops a stale detail response when another deal was chosen (and aborts the old request)', async () => {
@@ -271,7 +272,7 @@ describe('Zoom Phone (Smart Embed)', () => {
     open('1');
     await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
     const form = await screen.findByRole('form', { name: '架電結果の入力' });
-    await within(form).findByRole('group', { name: '今回の結果' });
+    await within(form).findByRole('button', { name: /^受付ブロック/ });
     // 折りたたんでおいても、通話が終わったら開く
     fireEvent.click(within(form).getByRole('button', { name: /架電結果/, expanded: true }));
     const { win } = fakeZoomWindow();
@@ -283,10 +284,11 @@ describe('Zoom Phone (Smart Embed)', () => {
     t += 65_000;
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
     expect(screen.getByTestId('ended-call').textContent).toBe('通話終了 通話時間 01:05');
-    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は「架電結果の入力」に下書きとして入力できます。HubSpot にはまだ保存されません。');
-    const first6 = within(screen.getByRole('group', { name: '今回の結果' })).getAllByRole('button');
-    expect(first6.map(b => b.textContent)).toEqual(['担当者と会話', '不在・応答なし', '再架電の約束', 'アポイント獲得', '番号違い', '架電停止の希望']);
-    expect(document.activeElement).toBe(first6[0]);
+    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は「架電結果の入力」に入力し、「記録して次へ」で HubSpot に保存します。');
+    // ステージのボタン (よく使うもの) の先頭へフォーカスする
+    const stageButtons = within(screen.getByRole('group', { name: 'ステージ(よく使うもの)' })).getAllByRole('button');
+    expect(stageButtons.map(b => b.textContent)).toEqual(['不在', '受付ブロック', '不通要入力', '担当者ブロック', '日程確保', 'アポ日確定要入力']);
+    expect(document.activeElement).toBe(stageButtons[0]);
     // 別の案件の入力欄には出さない (電話の枠の案内も「選んでから」に変わる)
     open('2');
     expect(screen.queryByTestId('ended-call')).toBeNull();
@@ -346,7 +348,7 @@ describe('Zoom Phone (Smart Embed)', () => {
     open('1');
     await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
     const form = await screen.findByRole('form', { name: '架電結果の入力' });
-    await within(form).findByRole('group', { name: '今回の結果' });
+    await within(form).findByRole('button', { name: /^受付ブロック/ });
     const { win } = fakeZoomWindow();
     fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
     const base = { callId: 'call-m', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
@@ -354,13 +356,13 @@ describe('Zoom Phone (Smart Embed)', () => {
     zoomEvent(win, { type: 'zp-call-connected-event', data: base });
     // 通話中に「架電結果の入力」を開いてメモを打っている
     fireEvent.click(screen.getByRole('tab', { name: '架電結果の入力' }));
-    const memo = within(form).getByLabelText<HTMLTextAreaElement>(/^タスクメモ/);
+    const memo = within(form).getByRole<HTMLTextAreaElement>('textbox', { name: 'タスクメモに追記' });
     memo.focus();
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
     expect(screen.getByTestId('ended-call').textContent).toBe('通話終了 通話時間 00:00');
     expect(document.activeElement).toBe(memo);
-    // 結果はどれも選ばれていない (Space / Enter で誤って選ぶ経路を作らない)
-    expect(within(form).getByRole('group', { name: '今回の結果' }).querySelector('[aria-pressed="true"]')).toBeNull();
+    // ステージはどれも選ばれていない (Space / Enter で誤って選ぶ経路を作らない)
+    expect(within(form).getByRole('group', { name: 'ステージ(よく使うもの)' }).querySelector('[aria-pressed="true"]')).toBeNull();
   });
 
   it('while the embed is loading or cannot be loaded, a dial is not sent and the copy / tel: guidance shows at once', async () => {
@@ -511,20 +513,20 @@ describe('Zoom Phone と画面の切り替え', () => {
     open('1');
     await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
     const form = await screen.findByRole('form', { name: '架電結果の入力' });
-    await within(form).findByRole('group', { name: '今回の結果' });
+    await within(form).findByRole('button', { name: /^受付ブロック/ });
     const { win } = fakeZoomWindow();
     fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
     const c1 = { callId: 'c1', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
     zoomEvent(win, { type: 'zp-call-ringing-event', data: c1 });
     zoomEvent(win, { type: 'zp-call-connected-event', data: c1 });
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c1, result: 'ended' } });
-    fireEvent.click(within(form).getByRole('button', { name: '担当者と会話' }));
+    fireEvent.click(within(form).getByRole('button', { name: /^不在/ }));
     fireEvent.click(within(form).getByRole('button', { name: /記録して次へ/ }));
-    expect(screen.getByTestId('result-slot').getAttribute('data-deal-id')).toBe('2');
-    expect(screen.getByTestId('zp-result-hint').textContent).toBe('この通話の結果は、発信した架電先に記録済みです(HubSpot には未送信)。');
+    await waitFor(() => { expect(screen.getByTestId('result-slot').getAttribute('data-deal-id')).toBe('2'); });
+    expect(screen.getByTestId('zp-result-hint').textContent).toBe('この通話の結果は、発信した架電先で HubSpot に保存しました。');
     // 発信した案件に戻れば、その入力欄に結び付いている案内に戻る
     open('1');
-    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は「架電結果の入力」に下書きとして入力できます。HubSpot にはまだ保存されません。');
+    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は「架電結果の入力」に入力し、「記録して次へ」で HubSpot に保存します。');
   });
 });
 

@@ -21,6 +21,8 @@ const slot = (dealId: string): DealWrites => {
 
 /** 必須項目が多いステージ (確認用。画面の見出し分け・2 列・必須の残り数を見る) */
 export const FIXTURE_LONG_STAGE_ID = 'fx-appo-long';
+/** 架空パイプラインの「TEL_アポ日確定」(新規営業の組で、アポ取得者が必須のステージの確認用) */
+export const FIXTURE_SALES_APPO_STAGE_ID = 'fx-appo';
 
 const STAGES = [
   ['1095387442', '未済'], ['1095387443', '不通'], ['1095387444', '受付ブロック'], ['1095387445', '不在'], ['1095387446', '担当者ブロック'],
@@ -34,10 +36,13 @@ export const FAKE_SCHEMA = (dealId: string): EditSchema => ({
   stages: [
     { id: '1095457875', label: 'アポ日確定', required: ['aposyutokubi'], shown: ['aposyutokubi', 'risuto_bikou'] },
     { id: FIXTURE_LONG_STAGE_ID, label: 'アポ日確定(多項目・確認用)', required: FIXTURE_APPO_REQUIRED, shown: FIXTURE_APPO_REQUIRED },
+    // 実データと同じ: 「不通」には不通時チェックが必須。新規営業の「TEL_アポ日確定」にはアポ取得者・架電日が必須
+    { id: '1095387443', label: '不通', required: ['bpo_10'], shown: ['bpo_10'] },
+    { id: FIXTURE_SALES_APPO_STAGE_ID, label: 'TEL_アポ日確定', required: ['aposyutokusya', 'risuto_kadennbi', 'aposyutokubi'], shown: ['aposyutokusya', 'risuto_kadennbi', 'aposyutokubi'] },
   ],
   pipelines: [
     { id: DEFAULT_PIPELINE_ID, label: 'bpo_リクロジ', stages: STAGES.map(([id, label]) => ({ id, label })) },
-    { id: FIXTURE_PIPELINE_ID, label: '架空パイプライン(確認用)', stages: [{ id: 'fx-new', label: '新規' }, { id: 'fx-follow', label: '追客' }] },
+    { id: FIXTURE_PIPELINE_ID, label: '架空パイプライン(確認用)', stages: [{ id: 'fx-new', label: '新規' }, { id: 'fx-follow', label: '追客' }, { id: FIXTURE_SALES_APPO_STAGE_ID, label: 'TEL_アポ日確定' }] },
   ],
   writes_enabled: true,
 });

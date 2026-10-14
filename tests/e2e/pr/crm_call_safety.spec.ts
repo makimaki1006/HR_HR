@@ -6,8 +6,8 @@ import { startWithResultPanelInFront } from './helpers/crm_layout';
  * 架電画面 (/app/crm、架空サンプル `?mode=fixture`) で、入力を失わないための仕組みの PR 用 E2E。
  *
  * - 画面ファイルを読み込めなかったとき: 白い画面ではなく、案内と再読み込みのボタンが出る。押すと画面が出る
- * - 「下書きを消す」: 1 回押しただけでは消さず確かめる。やめる / Esc ではメモが残る。下書きが空なら押せない
- * - 「記録して次へ」: 一覧は下端の手前で続きのページを自動で読み足すので、5 件目を記録すると 6 件目が選ばれる
+ * - 「入力を消す」: 1 回押しただけでは消さず確かめる。やめる / Esc ではメモが残る。入力が空なら押せない
+ * - 「記録して次へ」(HubSpot へ保存。架空サンプルでは画面の中だけ): 一覧は下端の手前で続きのページを自動で読み足すので、5 件目を記録すると 6 件目が選ばれる
  * - 続きのページは自動で読み足し、全件を読んだら止まる (見出しは「全 N 件中 M 件を表示」、下に「すべて表示しました（N 件）」)
  *
  * 架空サンプルは frontend/src/screens/crm/queueFixture.ts の固定値 (1 ページ 5 件、既定の条件で全 10 件)。/api/crm/* は呼ばない。
@@ -15,15 +15,14 @@ import { startWithResultPanelInFront } from './helpers/crm_layout';
  */
 
 const SCREEN_URL = '/app/crm?mode=fixture';
-const STORAGE_KEY = 'hrhr.crm.callResult.v1';
+const STORAGE_KEY = 'hrhr.crm.callResult.v2';
 
 const list = (page: Page) => page.getByRole('list', { name: '架電キュー' });
 const rows = (page: Page) => list(page).locator('li.cq-row');
 const rowButton = (page: Page, i: number) => rows(page).nth(i).locator('button.cq-row-button');
 const form = (page: Page) => page.getByRole('form', { name: '架電結果の入力' });
-const outcome = (page: Page, label: string) => form(page).getByRole('group', { name: '今回の結果' }).getByRole('button', { name: label, exact: true });
 const recordBtn = (page: Page) => form(page).getByRole('button', { name: /記録して次へ/ });
-const memo = (page: Page) => form(page).getByLabel(/^タスクメモ/);
+const memo = (page: Page) => form(page).getByRole('textbox', { name: 'タスクメモに追記' });
 
 async function openScreen(page: Page): Promise<void> {
   await page.goto(SCREEN_URL);
@@ -31,7 +30,7 @@ async function openScreen(page: Page): Promise<void> {
   await expect(list(page)).toBeVisible();
 }
 
-async function storedDrafts(page: Page): Promise<{ drafts: Record<string, Record<string, unknown>>; recorded: Record<string, boolean> }> {
+async function storedDrafts(page: Page): Promise<{ drafts: Record<string, { stageId: string; values: Record<string, string> }>; recorded: Record<string, boolean> }> {
   return page.evaluate((k) => JSON.parse(window.sessionStorage.getItem(k) ?? '{"drafts":{},"recorded":{}}'), STORAGE_KEY);
 }
 
@@ -59,19 +58,20 @@ test.describe('CRM 架電画面: 入力を失わないための仕組み', () =>
     await expect(page.getByRole('alert').filter({ hasText: '画面を読み込めませんでした' })).toHaveCount(0);
   });
 
-  test('下書きを消す: 確かめてから消す。やめる / Esc ではメモが残り、空の下書きでは押せない', async ({ page }) => {
+  test('入力を消す: 確かめてから消す。やめる / Esc ではメモが残り、空の入力では押せない', async ({ page }) => {
     await openScreen(page);
     await rowButton(page, 0).click();
-    const clearBtn = form(page).getByRole('button', { name: '下書きを消す' });
+    const clearBtn = form(page).getByRole('button', { name: '入力を消す' });
+    await expect(memo(page)).toBeVisible();
     await expect(clearBtn).toBeDisabled();
 
-    await outcome(page, '担当者と会話').click();
+    await form(page).getByRole('button', { name: '受付ブロック', exact: true }).click();
     await memo(page).fill('求人票を送る');
     await expect(clearBtn).toBeEnabled();
 
     await clearBtn.click();
-    const ask = form(page).getByRole('group', { name: '下書きを消すか確認' });
-    await expect(ask).toContainText('入力した内容(メモを含む)と「記録済み」の印を消します。元に戻せません。');
+    const ask = form(page).getByRole('group', { name: '入力を消すか確認' });
+    await expect(ask).toContainText('入力した内容を消します(HubSpot の値は変わりません)。');
     // 隣の「記録して次へ」と押し間違えないよう、フォーカスは「やめる」
     await expect(ask.getByRole('button', { name: 'やめる' })).toBeFocused();
     await ask.getByRole('button', { name: 'やめる' }).click();
@@ -82,12 +82,12 @@ test.describe('CRM 架電画面: 入力を失わないための仕組み', () =>
     await page.keyboard.press('Escape');
     await expect(ask).toHaveCount(0);
     await expect(memo(page)).toHaveValue('求人票を送る');
-    expect(Object.values((await storedDrafts(page)).drafts).map((d) => d.memo)).toEqual(['求人票を送る']);
+    expect(Object.values((await storedDrafts(page)).drafts).map((d) => d.values.bpo_16)).toEqual(['求人票を送る']);
 
     await clearBtn.click();
     await ask.getByRole('button', { name: '消す', exact: true }).click();
     await expect(memo(page)).toHaveValue('');
-    await expect(outcome(page, '担当者と会話')).toHaveAttribute('aria-pressed', 'false');
+    await expect(form(page).getByRole('button', { name: '受付ブロック', exact: true })).toHaveAttribute('aria-pressed', 'false');
     await expect(clearBtn).toBeDisabled();
     expect(await storedDrafts(page)).toMatchObject({ drafts: {}, recorded: {} });
   });
@@ -99,7 +99,8 @@ test.describe('CRM 架電画面: 入力を失わないための仕組み', () =>
     await rowButton(page, 0).click();
     for (let i = 0; i < 5; i += 1) {
       await expect(rowButton(page, i)).toHaveAttribute('aria-pressed', 'true');
-      await outcome(page, '不在・応答なし').click();
+      await expect(memo(page)).toBeVisible();
+      await memo(page).fill(`E2E ${String(i + 1)} 件目`);
       await recordBtn(page).click();
     }
     await expect(rows(page).locator('.cq-recorded')).toHaveCount(5);
