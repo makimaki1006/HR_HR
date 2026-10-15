@@ -7,14 +7,14 @@ export const LIMIT_MESSAGE = '条件が多すぎます。条件かまとまり�
 export const OPERATORS: Record<string, string> = {
   IN: 'いずれかに一致', NOT_IN: 'いずれにも一致しない', CONTAINS_TOKEN: 'を含む', NOT_CONTAINS_TOKEN: 'を含まない',
   EQ: 'と一致', NEQ: 'と一致しない', GTE: '以上', LTE: '以下', BETWEEN: '範囲',
-  TODAY: '今日', BEFORE_TODAY: '今日より前', LAST_N_DAYS: '過去 N 日以内', NEXT_N_DAYS: '今後 N 日以内',
+  TODAY: '今日', BEFORE_TODAY: '今日より前', THIS_MONTH: '今月', LAST_N_DAYS: '過去 N 日以内', NEXT_N_DAYS: '今後 N 日以内',
   IS_TRUE: 'はい', IS_FALSE: 'いいえ', HAS_PROPERTY: '空でない', NOT_HAS_PROPERTY: '空',
 };
 export function operatorsFor(p: CrmCatalogProperty): { value: string; label: string }[] {
   const ops = p.property_type === 'enumeration' ? ['IN', 'NOT_IN', 'NOT_HAS_PROPERTY', 'HAS_PROPERTY']
     : p.property_type === 'string' ? ['CONTAINS_TOKEN', 'NOT_CONTAINS_TOKEN', 'EQ', 'NEQ', 'NOT_HAS_PROPERTY', 'HAS_PROPERTY']
     : p.property_type === 'number' ? ['EQ', 'NEQ', 'GTE', 'LTE', 'BETWEEN', 'NOT_HAS_PROPERTY', 'HAS_PROPERTY']
-    : ['date', 'datetime'].includes(p.property_type) ? ['GTE', 'LTE', 'BETWEEN', 'TODAY', 'BEFORE_TODAY', 'LAST_N_DAYS', 'NEXT_N_DAYS', 'NOT_HAS_PROPERTY', 'HAS_PROPERTY']
+    : ['date', 'datetime'].includes(p.property_type) ? ['GTE', 'LTE', 'BETWEEN', 'TODAY', 'BEFORE_TODAY', 'THIS_MONTH', 'LAST_N_DAYS', 'NEXT_N_DAYS', 'NOT_HAS_PROPERTY', 'HAS_PROPERTY']
     : p.property_type === 'bool' ? ['IS_TRUE', 'IS_FALSE', 'NOT_HAS_PROPERTY'] : [];
   return ops.map(value => ({ value, label: p.property_type === 'number' && value === 'EQ' ? '='
     : p.property_type === 'number' && value === 'NEQ' ? '≠'
@@ -84,6 +84,7 @@ export function matchesCondition(c: PropertyCondition, value: string | null, tod
     case 'BETWEEN': return present && cmp(first) >= 0 && cmp(c.values[1] ?? '') <= 0;
     case 'TODAY': return present && value.slice(0, 10) === today;
     case 'BEFORE_TODAY': return present && value < today;
+    case 'THIS_MONTH': return present && value.slice(0, 7) === today.slice(0, 7);
     case 'LAST_N_DAYS': return present && value >= shiftDate(today, -Number(first) + 1) && value <= today;
     case 'NEXT_N_DAYS': return present && value >= today && value <= shiftDate(today, Number(first) - 1);
     default: return false;

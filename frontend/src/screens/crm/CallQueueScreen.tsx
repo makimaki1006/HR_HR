@@ -337,7 +337,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const [nowFn] = useState(() => now ?? Date.now);
   const [today, setToday] = useState(() => todayJst(nowFn()));
   // 「次回日が来たものだけ」は今日で決まるので、日付が変わったら一覧も取り直す
-  const { state: rawState, loadMore, reload } = useCallQueue(filters, mode, fetcher, filters.due === 'today' || groupsOf(filters).some(g => g.some(c => ['TODAY', 'BEFORE_TODAY', 'LAST_N_DAYS', 'NEXT_N_DAYS'].includes(c.operator))) ? today : '');
+  const { state: rawState, loadMore, reload } = useCallQueue(filters, mode, fetcher, filters.due === 'today' || groupsOf(filters).some(g => g.some(c => ['TODAY', 'BEFORE_TODAY', 'THIS_MONTH', 'LAST_N_DAYS', 'NEXT_N_DAYS'].includes(c.operator))) ? today : '');
   // 選んだ案件。モードを切り替えたら選び直す (実データの ID と架空の ID を取り違えない)
   const [selection, setSelection] = useState<{ id: string; mode: QueueMode } | null>(null);
   const selectedId = selection !== null && selection.mode === mode ? selection.id : null;
@@ -377,7 +377,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 「プロパティ」パネルで表示する項目 (このブラウザに残す)。項目の一覧に無いもの (HubSpot で消された等) は送らない
   const roleLayout = useRolePropertyLayout(mode, localStorageOrNull(), selection !== null);
   const storedProps = roleLayout.selection;
-  const catalog = usePropertyCatalog(mode, selection !== null || panelOpen || sortOpen || groupsOf(filters).length > 0 || parsePropertySort(filters.sort) !== null, catalogFetcher);
+  // 成績の帯の「⚙ 項目」を開いている (自分の項目の条件に項目の一覧を使う)
+  const [metricsSettingsOpen, setMetricsSettingsOpen] = useState(false);
+  const catalog = usePropertyCatalog(mode, selection !== null || panelOpen || sortOpen || metricsSettingsOpen || groupsOf(filters).length > 0 || parsePropertySort(filters.sort) !== null, catalogFetcher);
   const selectedProps = useMemo(() => (catalog.state.phase === 'ready' ? sanitizeSelected(storedProps, catalog.state.index) : storedProps), [catalog.state, storedProps]);
   const applyProps = roleLayout.apply;
   // 通話が終わったが、まだ読み直していない案件 (次に開くときサーバのキャッシュを使わずに読む)
@@ -989,7 +991,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         <SavedViews query={currentQuery} search={search} fixture={mode === 'fixture'} onNavigate={navigateView} onActiveName={setViewName} />
       </div>
     </form>
-    <TodayMetrics fixture={mode === 'fixture'} />
+    <TodayMetrics fixture={mode === 'fixture'} settings={{ catalog: catalog.state, onReloadCatalog: catalog.reload, onOpenChange: setMetricsSettingsOpen,
+      choices: { pipelines: pipelines.pipelines, selectedPipelineIds: pipelines.pipelines.map(p => p.id), allDeals: false, owners: owners.state } }} />
     {sortOpen && <QueueSortDialog onClose={() => { setSortOpen(false); }}><PropertySortPicker key={filters.sort} catalog={catalog.state} sort={filters.sort} onChange={sort => { update({ sort }); setSortOpen(false); }} /></QueueSortDialog>}
     {layoutNote && <p className="cq-layout-note" role="status" data-testid="layout-note">{LAYOUT_UPDATED_NOTE}
       <button type="button" onClick={() => { setLayoutNote(false); }}>閉じる</button></p>}

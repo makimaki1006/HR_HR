@@ -1,8 +1,13 @@
-.tm { position: relative; flex-shrink: 0; padding: 0 56px 0 16px; line-height: 1.2; border-bottom: 1px solid #dbe3ee; background: #f8fafc; font-size: .78rem; color: #334155; }
+.tm { position: relative; flex-shrink: 0; padding: 0 128px 0 16px; line-height: 1.2; border-bottom: 1px solid #dbe3ee; background: #f8fafc; font-size: .78rem; color: #334155; }
 .tm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-height: 28px; }
 .tm-asof { color: #64748b; }
 .tm-warn { color: #92400e; }
-.tm-toggle { position: absolute; top: 0; right: 16px; line-height: 24px; border: 0; background: transparent; color: #0e7490; cursor: pointer; font: inherit; }
+.tm-toggle { line-height: 24px; border: 0; background: transparent; color: #0e7490; cursor: pointer; font: inherit; padding: 0 2px; }
+.tm-head > .tm-toggle { position: absolute; top: 0; right: 16px; }
+/* 右端のボタン (⚙ 項目・閉じる) */
+.tm-actions { position: absolute; top: 2px; right: 16px; display: flex; gap: 10px; }
+.tm-item-note { font-size: .72rem; color: #92400e; }
+.tm-stale { color: #92400e; }
 .tm-items { display: flex; flex-wrap: wrap; gap: 2px 12px; list-style: none; margin: 0; padding: 0; }
 .tm-item { display: flex; align-items: baseline; gap: 6px; }
 .tm-label { color: #475569; font-weight: 600; }
@@ -26,3 +31,43 @@
 @media (max-width: 1100px) {
   .tm-items { flex-wrap: wrap; }
 }
+/* 1 行に収まらないとき (幅は JS で測る): まず比べる部分を短くし、それでも入らなければ横に流さず 2 行にする */
+.tm.tm-short .tm-items { gap: 2px 8px; }
+.tm.tm-short .tm-item { gap: 4px; white-space: nowrap; }
+.tm.tm-short .tm-cmp { font-size: 0; }
+.tm.tm-short .tm-cmp::after { content: attr(data-short); font-size: .72rem; }
+.tm.tm-wrap .tm-items { flex: 1 1 0; flex-wrap: wrap; min-width: 0; }
+
+/* 帯の項目の設定 (右端の「⚙ 項目」から開く) */
+.tm-settings { position: absolute; z-index: 70; top: calc(100% + 4px); right: 16px; width: min(460px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 210px)); overflow-y: auto;
+  box-sizing: border-box; padding: 14px 16px; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; box-shadow: 0 8px 32px #172a4633; font-size: .8rem; color: #26354a; line-height: 1.4; }
+.tm-set-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.tm-set-head strong { font-size: .9rem; }
+.tm-set-note { margin: 0 0 8px; padding: 6px 8px; border-radius: 6px; background: #fef3c7; color: #92400e; }
+.tm-set-sub { margin: 10px 0 4px; color: #64748b; font-size: .72rem; }
+.tm-set-list { list-style: none; margin: 0; padding: 0; border: 1px solid #e2e8f0; border-radius: 6px; }
+.tm-set-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; border-top: 1px solid #eef2f7; }
+.tm-set-row:first-child { border-top: 0; }
+.tm-settings .tm-set-name { display: flex; flex: 1 1 auto; flex-direction: row; align-items: center; justify-content: flex-start; gap: 6px; min-width: 0; margin: 0; text-align: left; font-size: .8rem; }
+.tm-set-name > span { white-space: nowrap; }
+.tm-set-name input { margin: 0; }
+.tm-set-kind { color: #64748b; font-size: .7rem; white-space: nowrap; }
+.tm-set-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.tm-set-btn { border: 1px solid #cbd5e1; background: #fff; border-radius: 4px; padding: 2px 8px; font: inherit; font-size: .75rem; color: #26354a; cursor: pointer; white-space: nowrap; }
+.tm-set-btn:disabled { color: #94a3b8; cursor: default; }
+.tm-set-main { border-color: #0e7490; color: #0e7490; font-weight: 600; }
+.tm-set-add { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 10px 0; }
+.tm-set-add small, .tm-set-foot small, .tm-set-conds small { color: #64748b; font-size: .72rem; }
+.tm-set-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.tm-set-ok { color: #047857; }
+.tm-set-err { color: #b91c1c; }
+.tm-set-editor { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }
+.tm-set-editor > legend { font-weight: 700; padding: 0 4px; }
+.tm-set-editor > label { display: flex; flex-direction: column; gap: 4px; font-size: .75rem; }
+.tm-set-editor input:not([type=radio]):not([type=checkbox]), .tm-set-editor select { padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #26354a; font: inherit; }
+.tm-set-kinds { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 6px; }
+.tm-set-kinds legend { font-size: .75rem; padding: 0 4px; }
+.tm-set-conds { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.tm-settings .cq-property-filter { flex-direction: column; align-items: stretch; background: #fff; }
+.tm-settings input[type=checkbox], .tm-settings input[type=radio] { width: auto; min-width: 0; flex: 0 0 auto; margin: 0; }
+.tm-set-kinds label { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 6px; }

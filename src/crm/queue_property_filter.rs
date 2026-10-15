@@ -1,11 +1,11 @@
 //! 取引カタログで追加条件と並べ替えを検証する。新旧のURLを同じ条件へ解決する。
 use super::property_catalog::CrmCatalogProperty;
-use chrono::{DateTime, Duration, FixedOffset, Utc};
+use chrono::{DateTime, Datelike, Duration, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub const LIMIT_MESSAGE: &str = "条件が多すぎます。条件かまとまりを減らしてください。";
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct PropertyCondition {
     pub property: String,
@@ -100,18 +100,31 @@ pub fn resolve(
     if date
         && matches!(
             op.as_str(),
-            "TODAY" | "BEFORE_TODAY" | "LAST_N_DAYS" | "NEXT_N_DAYS"
+            "TODAY" | "BEFORE_TODAY" | "LAST_N_DAYS" | "NEXT_N_DAYS" | "THIS_MONTH"
         )
     {
         let today = now
             .with_timezone(&FixedOffset::east_opt(9 * 3600).expect("JST"))
             .date_naive();
-        if matches!(op.as_str(), "TODAY" | "BEFORE_TODAY") && !values.is_empty() {
+        if matches!(op.as_str(), "TODAY" | "BEFORE_TODAY" | "THIS_MONTH") && !values.is_empty() {
             return Err("この日付条件に値は指定できません。");
         }
         let (lo, hi) = match op.as_str() {
             "TODAY" => (today, today),
             "BEFORE_TODAY" => (today, today),
+            // 今月 = JST の今日を含む月の 1 日から末日まで
+            "THIS_MONTH" => {
+                let first = today.with_day(1).expect("1st");
+                let next = if first.month() == 12 {
+                    first
+                        .with_year(first.year() + 1)
+                        .and_then(|d| d.with_month(1))
+                } else {
+                    first.with_month(first.month() + 1)
+                }
+                .expect("next month");
+                (first, next - Duration::days(1))
+            }
             _ => {
                 if values.len() != 1 {
                     return Err("日数を指定してください。");
@@ -619,6 +632,28 @@ mod v2_tests {
         let past = resolve(&cond("BEFORE_TODAY", &[]), Some(&prop("datetime")), now()).unwrap();
         assert_eq!(past["operator"], "LT");
         assert_eq!(past["value"], now().timestamp_millis().to_string());
+        // 今月 (JST): now() は JST 2026-02-04 0 時
+        assert_eq!(
+            resolve(&cond("THIS_MONTH", &[]), Some(&prop("date")), now()).unwrap(),
+            resolve(
+                &cond("BETWEEN", &["2026-02-01", "2026-02-28"]),
+                Some(&prop("date")),
+                now()
+            )
+            .unwrap()
+        );
+        let dec = Utc.with_ymd_and_hms(2026, 12, 15, 0, 0, 0).unwrap();
+        assert_eq!(
+            resolve(&cond("THIS_MONTH", &[]), Some(&prop("date")), dec).unwrap(),
+            resolve(
+                &cond("BETWEEN", &["2026-12-01", "2026-12-31"]),
+                Some(&prop("date")),
+                dec
+            )
+            .unwrap()
+        );
+        assert!(resolve(&cond("THIS_MONTH", &["1"]), Some(&prop("date")), now()).is_err());
+        assert!(resolve(&cond("THIS_MONTH", &[]), Some(&prop("number")), now()).is_err());
         for n in ["0", "3651", "1.5", "NaN"] {
             assert!(resolve(&cond("LAST_N_DAYS", &[n]), Some(&prop("date")), now()).is_err());
         }

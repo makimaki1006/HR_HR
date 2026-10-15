@@ -3,12 +3,16 @@
 /**
  * 集団の 1 人あたり平均
  */
-export type TeamAverage = { outbound: number, over_30s: number, over_90s: number, over_360s: number, 
+export type TeamAverage = { outbound: number, over_30s: number, over_60s: number, over_90s: number, over_360s: number, 
 /**
  * 件数の合計から計算 (架電数の合計 0 は null)
  */
-rate_30s: number | null, rate_90s: number | null, rate_360s: number | null, total_duration_ms: number, 
+rate_30s: number | null, rate_60s: number | null, rate_90s: number | null, rate_360s: number | null, total_duration_ms: number, 
 /**
  * 通話時間の合計 ÷ 通話ありの件数の合計
  */
-avg_duration_ms: number | null, appointments: number, };
+avg_duration_ms: number | null, appointments: number, 
+/**
+ * 着信の 1 人あたり (帯の項目を自分で選んだときに出す)
+ */
+inbound: number, };

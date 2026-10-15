@@ -3,4 +3,12 @@
 /**
  * 順位 (1 が最良。集団に入っていなければ null)
  */
-export type Ranks = { outbound: number | null, total_duration: number | null, over_90s: number | null, appointments: number | null, };
+export type Ranks = { outbound: number | null, total_duration: number | null, over_90s: number | null, appointments: number | null, 
+/**
+ * 以下は帯の項目を自分で選んだときに出す (30 / 60 / 360 秒以上・着信・1 件平均)
+ */
+over_30s: number | null, over_60s: number | null, over_360s: number | null, inbound: number | null, 
+/**
+ * 1 件平均の通話時間 (長い順)。通話のない人は比べない
+ */
+avg_duration: number | null, };

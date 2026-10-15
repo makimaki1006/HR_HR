@@ -54,3 +54,38 @@ for(const w of [1366,1280]){
     await shot(page,`metrics-strip-${w}.png`);
   });
 }
+test('1512px: custom items sit in the strip like the built-in ones; long strips shorten, then wrap instead of scrolling',async({page})=>{
+  await page.setViewportSize({width:1512,height:742});
+  await page.goto('/static/app/__metrics_crm?mode=fixture&owner=unassigned&metrics=custom');
+  const strip=page.getByTestId('today-metrics');await expect(strip).toBeVisible();
+  await expect(page.getByTestId('metric-c-absent')).toContainText('不在');
+  await expect(page.getByTestId('metric-c-absent')).toContainText(/位\/8/);
+  await expect(page.getByTestId('metric-c-amount')).toContainText(/今月の金額[\d,]+/);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  for(const li of await strip.locator('.tm-item').all()){const b=await li.boundingBox();expect(b!.x+b!.width).toBeLessThanOrEqual(1512);}
+  const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(64);
+  await shot(page,'strip-custom.png');
+  await page.getByRole('button',{name:'⚙ 項目'}).click();
+  const panel=page.getByTestId('metrics-settings');await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('metric-setting-c-amount')).toContainText('自分の項目・合計');
+  await shot(page,'strip-settings.png');
+  await panel.getByRole('button',{name:'直す'}).last().click();
+  await expect(panel.getByLabel('名前')).toHaveValue('今月の金額');
+  await panel.getByRole('button',{name:'この項目を決める'}).scrollIntoViewIfNeeded();
+  await shot(page,'strip-settings-editor.png');
+  expect((await panel.boundingBox())!.x).toBeGreaterThanOrEqual(0);
+});
+test('settings: hide an item and save; the strip follows the saved order (fixture, no requests)',async({page})=>{
+  const requests:string[]=[];page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/crm/metrics'))requests.push(r.url());});
+  await page.goto('/static/app/__metrics_crm?mode=fixture&owner=unassigned');
+  await page.getByRole('button',{name:'⚙ 項目'}).click();
+  const panel=page.getByTestId('metrics-settings');
+  await panel.getByRole('checkbox',{name:'アポを帯に出す'}).uncheck();
+  await panel.getByRole('button',{name:'通話時間を上へ'}).click();
+  await panel.getByRole('button',{name:'保存'}).click();
+  await expect(panel.getByText('保存しました')).toBeVisible();
+  await expect(page.getByTestId('metric-appointments')).toHaveCount(0);
+  const keys=await page.getByTestId('today-metrics').locator('.tm-item').evaluateAll(ls=>ls.map(l=>l.getAttribute('data-testid')));
+  expect(keys).toEqual(['metric-outbound','metric-duration','metric-over_90s']);
+  expect(requests).toEqual([]);
+});
