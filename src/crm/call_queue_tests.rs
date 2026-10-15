@@ -444,7 +444,7 @@ async fn start_hs(fake: FakeHs) -> (Arc<HubSpotClient>, Shared<FakeHs>) {
             .route("/crm/v3/owners", get(hs_owners))
             .route("/crm/v3/pipelines/deals", get(hs_pipelines))
             .route("/crm/v3/properties/{o}/groups", get(|| async { Json(json!({"results":[{"name":"dealinfo","label":"取引","displayOrder":0}]})) }))
-            .route("/crm/v3/properties/{o}", get(|| async { Json(json!({"results":[{"name":"amount","label":"金額","type":"number","fieldType":"number","groupName":"dealinfo"},{"name":"dealname","label":"案件名","type":"string","fieldType":"text","groupName":"dealinfo"},{ "name":"sample_date","label":"架空日付","type":"date","fieldType":"date","groupName":"dealinfo"},{"name":"sample_multi","label":"架空複数選択","type":"enumeration","fieldType":"checkbox","groupName":"dealinfo"},{"name":"sample_json","label":"架空構造","type":"json","fieldType":"text","groupName":"dealinfo"}]})) }))
+            .route("/crm/v3/properties/{o}", get(|| async { Json(json!({"results":[{"name":"amount","label":"金額","type":"number","fieldType":"number","groupName":"dealinfo"},{"name":"dealname","label":"案件名","type":"string","fieldType":"text","groupName":"dealinfo"},{ "name":"sample_date","label":"架空日付","type":"date","fieldType":"date","groupName":"dealinfo"},{"name":"sample_multi","label":"架空複数選択","type":"enumeration","fieldType":"checkbox","groupName":"dealinfo"},{"name":"sample_json","label":"架空構造","type":"json","fieldType":"text","groupName":"dealinfo"},{"name":"dealstage","label":"取引ステージ","type":"enumeration","fieldType":"select","groupName":"dealinfo","options":[{"label":"全パイプライン混在","value":"mixed-other-pipeline","hidden":false}]},{"name":"hubspot_owner_id","label":"案件担当者","type":"enumeration","fieldType":"select","groupName":"dealinfo","externalOptions":true,"referencedObjectType":"OWNER","options":[]}]})) }))
             .with_state(st.clone()),
     )
     .await;
@@ -3883,4 +3883,74 @@ async fn scope_union_and_all_mode_still_reject_excess_groups_or_filters_before_s
     assert_eq!(s, StatusCode::BAD_REQUEST);
     assert_eq!(v["error_kind"], "condition_limit");
     assert!(e.searches().is_empty());
+}
+
+#[tokio::test]
+async fn 取引ステージの条件は選んだパイプラインのステージだけで検索の本文に入る() {
+    use super::queue_pipelines::QUEUE_PIPELINES;
+    let e = env(FakeHs::new()).await;
+    let stage = |v: &str| json!([[{"property":"dealstage","operator":"IN","values":[v]}]]);
+    // 選んだパイプライン (既定) のステージ → 200 で、検索の全グループに dealstage の条件が入る
+    let (s, _) = e
+        .admin_get(&format!(
+            "{}&pipeline={PIPELINE}",
+            v2_query(stage("1095387443"), "default")
+        ))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let bodies = e.searches();
+    assert!(!bodies.is_empty());
+    for body in bodies {
+        for g in groups(&body) {
+            let fs = g["filters"].as_array().unwrap();
+            assert!(
+                fs.iter().any(|f| f["propertyName"] == "dealstage"
+                    && f["operator"] == "IN"
+                    && f["values"] == json!(["1095387443"])),
+                "条件のステージが検索に入る: {fs:?}"
+            );
+        }
+    }
+    let before = e.hs.lock().unwrap().search_calls;
+    // 別パイプラインのステージ・定義の選択肢にだけある値 → 400 で検索しない
+    let other = QUEUE_PIPELINES[1].stages[0].0;
+    for bad in [other, "mixed-other-pipeline", "nope"] {
+        let (s, v) = e
+            .admin_get(&format!(
+                "{}&pipeline={PIPELINE}",
+                v2_query(stage(bad), "default")
+            ))
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}");
+        assert_eq!(v["error_kind"], "invalid_conditions");
+    }
+    // パイプラインを足すと、そのステージも選べる
+    let (s, _) = e
+        .admin_get(&format!(
+            "{}&pipelines={PIPELINE},{}",
+            v2_query(stage(other), "default"),
+            QUEUE_PIPELINES[1].id
+        ))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(e.hs.lock().unwrap().search_calls > before);
+}
+#[tokio::test]
+async fn 担当者を選ぶ項目は数字のidだけ受け付ける() {
+    let e = env(FakeHs::new()).await;
+    let q = |v: &str| {
+        v2_query(
+            json!([[{"property":"hubspot_owner_id","operator":"IN","values":[v]}]]),
+            "default",
+        )
+    };
+    assert_eq!(e.admin_get(&q("123456")).await.0, StatusCode::OK);
+    assert!(e.searches().iter().all(|b| groups(b).iter().all(|g| {
+        g["filters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["propertyName"] == "hubspot_owner_id" && f["values"] == json!(["123456"]))
+    })));
+    assert_eq!(e.admin_get(&q("abc")).await.0, StatusCode::BAD_REQUEST);
 }

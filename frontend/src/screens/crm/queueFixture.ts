@@ -54,7 +54,7 @@ const pipelineOf = (s: Seed) => s.pipeline ?? DEFAULT_PIPELINE_ID;
 /** 架空サンプルの項目の値 (架空の値だけ)。項目の種類に応じて決まった値を返す */
 function fixtureValue(s: Seed, name: string): string | null {
   const n = Number(s.id.slice(2));
-  const base: Record<string, string | null> = { amount: String(n * 1000), dealname: `${s.company} 採用支援`, hubspot_owner_id: s.owner, bpo_13: s.next, bpo_14: s.time, bpo_20: s.last, bpo_29: s.phone };
+  const base: Record<string, string | null> = { amount: String(n * 1000), dealname: `${s.company} 採用支援`, hubspot_owner_id: s.owner, dealstage: s.stage, bpo_13: s.next, bpo_14: s.time, bpo_20: s.last, bpo_29: s.phone };
   if (name in base) return base[name] ?? null;
   const prop = FIXTURE_CATALOG.objects.find(o => o.object_type === 'deals')?.groups.flatMap(g => g.properties).find(x => x.name === name);
   if (prop === undefined || n % 5 === 0) return null;

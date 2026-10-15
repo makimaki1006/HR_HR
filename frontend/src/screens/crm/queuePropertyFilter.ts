@@ -40,12 +40,12 @@ export function parseConditionGroups(raw: string | null): PropertyCondition[][] 
     return Array.isArray(gs) && gs.length <= 3 && gs.every((g: unknown) => Array.isArray(g) && g.length > 0 && g.length <= 6 && g.every(shaped)) ? gs as PropertyCondition[][] : [];
   } catch { return []; }
 }
-export function conditionLabel(c: PropertyCondition, p: CrmCatalogProperty | undefined): string {
+export function conditionLabel(c: PropertyCondition, p: CrmCatalogProperty | undefined, valueLabelOf?: (value: string) => string | undefined): string {
   if (!p) return '追加条件(項目の一覧を確認してください)';
   if (p.property_type === 'bool' && c.operator === 'EQ') return `${p.label}: ${c.values[0] === 'true' ? 'はい' : 'いいえ'}`;
   const op = operatorsFor(p).find(o => o.value === c.operator)?.label ?? '条件';
   if (['LAST_N_DAYS', 'NEXT_N_DAYS'].includes(c.operator)) return `${p.label} ${op.replace('N', c.values[0] ?? '')}`;
-  return `${p.label} ${op}${c.values.length ? ` ${c.values.map(v => p.property_type === 'number' && Number.isFinite(Number(v)) ? new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 20 }).format(Number(v)) : p.options.find(o => o.value === v)?.label ?? v).join(c.operator === 'BETWEEN' ? ' 〜 ' : '、')}` : ''}`;
+  return `${p.label} ${op}${c.values.length ? ` ${c.values.map(v => p.property_type === 'number' && Number.isFinite(Number(v)) ? new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 20 }).format(Number(v)) : valueLabelOf?.(v) ?? p.options.find(o => o.value === v)?.label ?? v).join(c.operator === 'BETWEEN' ? ' 〜 ' : '、')}` : ''}`;
 }
 export type PropertySort = `property:${string}:${'asc' | 'desc'}`;
 export function parsePropertySort(s: string): { property: string; direction: 'asc' | 'desc' } | null {
