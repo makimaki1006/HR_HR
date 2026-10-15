@@ -713,14 +713,14 @@ async fn 空の状態ではすぐ集計中を返し_背景の読み込みは1本
     f.calls = vec![fc("1", "7", "OUTBOUND", 100_000, t + 1000, t + 1000)];
     let (client, st) = start_hs(f).await;
     let state = Arc::new(CallerMetricsState::new());
-    // 同時に 3 つの要求が来ても読み込みは 1 本
+    // 続けて 3 つの要求が来ても読み込みは 1 本。最初の要求は必ず集計中で、
+    // 背景の読み込みが速く終われば 2 つ目以降はもう数字を返しうる (CI で時々そうなった)
     let a = state.get_or_warm(&client, now0()).await.unwrap();
-    let b = state.get_or_warm(&client, now0()).await.unwrap();
-    let c = state.get_or_warm(&client, now0()).await.unwrap();
-    assert!(matches!(
-        (a, b, c),
-        (Warm::Loading, Warm::Loading, Warm::Loading)
-    ));
+    assert!(matches!(a, Warm::Loading));
+    for _ in 0..2 {
+        let w = state.get_or_warm(&client, now0()).await.unwrap();
+        assert!(matches!(w, Warm::Loading | Warm::Ready(..)));
+    }
     let mut ready = None;
     for _ in 0..200 {
         if let Warm::Ready(s, stale) = state.get_or_warm(&client, now0()).await.unwrap() {
