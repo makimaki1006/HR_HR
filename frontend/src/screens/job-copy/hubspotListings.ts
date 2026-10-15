@@ -47,6 +47,10 @@ export interface HubSpotVersions {
   indeed_weekly_perf?: unknown;
   /** AirWork 求人の週ごとの実績（HubSpot の airwork_weekly_perf）。無い・読めないときは null。 */
   airwork_weekly_perf?: unknown;
+  /** HubSpot の公開開始日時（koukai_kaishi_nichiji）の日付。無いとき null。 */
+  listing_started_on?: string | null;
+  /** 公開状況の履歴（欄ごと、古い順）。 */
+  status_history?: Record<string, { timestamp: string; value: string }[]>;
   listing: HubSpotListing;
   versions: { written_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null }[];
   history_counts: Record<string, number>; history_may_be_incomplete: boolean;
@@ -64,6 +68,13 @@ export function indeedWeeklyPerformance(raw: unknown, media: HubSpotListing['med
 }
 /** 一覧・詳細の応答から、その求人の媒体に合う週ごとの実績の元データを選ぶ。 */
 export const weeklyPerfRaw = (data: { indeed_weekly_perf?: unknown; airwork_weekly_perf?: unknown }, media: HubSpotListing['media']) => media === 'hrh' ? data.indeed_weekly_perf : data.airwork_weekly_perf;
+/** 求人の媒体に合う公開状況の履歴。HRハッカーは媒体の状況欄が無ければ求人の公開状況の欄。 */
+export function statusEntries(data: Pick<HubSpotVersions, 'status_history'>, media: HubSpotListing['media']): { at: string; value: string }[] {
+  const history = data.status_history ?? {};
+  const own = history[media === 'hrh' ? 'baitai_genjoukyou_hrhakkaa' : 'baitai_genjoukyou_airwork'] ?? [];
+  const list = own.length ? own : history.kyuujin_status ?? [];
+  return list.map(entry => ({ at: entry.timestamp, value: entry.value }));
+}
 export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing): JobCopyRecord {
   const row = data.listing;
   const copy = (body: string) => row.media === 'hrh' ? { comparisonBody: body, body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: '仕事内容', text: body }] : [] };
@@ -73,6 +84,7 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
     currentDraftRow: data.current_row ?? undefined, draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
     ...(data.current_fields ? { currentListingFields: data.current_fields } : {}),
+    listingStartedOn: data.listing_started_on ?? null, applicationDates: 'loading', statusHistory: statusEntries(data, row.media),
     listingPublicationStatus: row.publication_status, listingApplicationCount: row.application_count ?? (listedRow?.id === row.id ? listedRow.application_count : null),
     title: row.title ?? '求人名未取得', company: data.company_name ?? '', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),

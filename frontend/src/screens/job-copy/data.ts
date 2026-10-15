@@ -33,11 +33,24 @@ export interface CopyVersion {
   observedPublicationStatus?: string;
 }
 
+/** 応募1件ぶんの、日付と分かる属性（HubSpot の応募記録）。key は応募理由と結ぶ印。 */
+export interface ApplicationRow { key: string; date: string | null; gender: string | null; age: string | null; prefecture: string | null; municipality: string | null }
+/** 公開状況の履歴の1件（古い順）。 */
+export interface StatusEntry { at: string; value: string }
+
 export interface JobCopyRecord {
+  /** 応募1件ずつ（日付が分かるものは出来事に出す）。 */
+  applicationRows?: ApplicationRow[] | undefined;
+  /** HubSpot の公開状況の履歴（求人の媒体に合う欄）。 */
+  statusHistory?: StatusEntry[] | undefined;
   currentImagesRegistered?: boolean | undefined;
   currentListingFields?: Record<string, string>;
   listingPublicationStatus?: string | null;
   listingApplicationCount?: number | null;
+  /** HubSpot の公開開始日時（日付だけ）。無い・読めないとき null/未設定。 */
+  listingStartedOn?: string | null;
+  /** 応募の日別データの状態。overallApplications があれば読み込み済み。loading=読み込み中、failed=取得に失敗。 */
+  applicationDates?: 'loading' | 'failed' | undefined;
   currentDraftRow?: Record<string, string> | undefined;
   draftRevision?: string | undefined;
   canWriteDrafts?: boolean | undefined;

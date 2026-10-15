@@ -47,11 +47,13 @@ describe('求人の画面（案3-2）', () => {
     expect(head.getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('グラフの番号を押すと同じ出来事が開く', () => {
+  it('出来事を押すと、横の時間軸のその週に印が付く', () => {
     render(<JobCopyScreen />);
-    fireEvent.click(screen.getByRole('button', { name: /^出来事 3：/u }));
-    const open = query('.lo-event.lo-open');
-    expect(open.querySelector('.lo-num')?.textContent).toBe('3');
+    expect(screen.queryByTestId('lifeline-selected')).toBeNull();
+    fireEvent.click(query('.lo-event-head'));
+    const mark = screen.getByTestId('lifeline-selected');
+    expect(mark.style.width).toBe('56px');
+    expect(query('.lo-event.lo-open .lo-num').textContent).toBe('5');
   });
 
   it('応募者・応募理由の前後は横から出て、閉じられる。「ほかの分析」に旧機能が13個残る', () => {

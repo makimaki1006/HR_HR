@@ -182,7 +182,7 @@ describe('job copy screen integration (demo mode)', () => {
   it('opens on the weekly chart, opens the timeline tab from ほかの分析, and switches the list to the cross-job overview', async () => {
     window.history.replaceState(null, '', '/app/job-copy?demo=1');
     render(<JobCopyScreen />);
-    expect(screen.getByRole('heading', { name: '週ごとの応募' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '求人のライフライン' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '出来事（新しい順）' })).toBeTruthy();
     expect(screen.queryByRole('tablist', { name: '求人管理の機能' })).toBeNull();
     const drawer = openOtherAnalysis('タイムライン');

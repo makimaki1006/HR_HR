@@ -90,13 +90,13 @@ test.describe('案件管理のタイムライン', () => {
     await page.setViewportSize({ width: 1440, height: 800 });
     const calls = await open(page);
     // 最初の画面: 週ごとの応募のグラフと、出来事（新しい順）の一覧。旧タブは主領域に出ていない
-    await expect(page.getByRole('heading', { name: '週ごとの応募', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '求人のライフライン', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: '出来事（新しい順）', exact: true })).toBeVisible();
-    await expect(page.locator('.lo-chart')).toBeVisible();
+    await expect(page.getByTestId('lifeline')).toBeVisible();
     await expect(page.getByRole('tablist', { name: '求人管理の機能', exact: true })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'タイムライン', exact: true })).toHaveCount(0);
     // 出来事は新しい順: 2026/08/20 の給与の変更が先で、2026/07/01 の掲載開始が後
-    const eventHeads = page.locator('.lo-event-head');
+    const eventHeads = page.locator('.lo-event:not(.lo-kind-application) .lo-event-head');
     await expect(eventHeads).toHaveCount(2);
     await expect(eventHeads.nth(0)).toContainText('給与を変更');
     await expect(eventHeads.nth(1)).toContainText('掲載を開始');

@@ -87,6 +87,7 @@ const PROPERTIES: &[&str] = &[
     "baitai_genjoukyou_hrhakkaa",
     "baitai_genjoukyou_airwork",
     "saishuu_csv_kenshutsu_bi",
+    "koukai_kaishi_nichiji",
     INDEED_TITLE_PROPERTY,
     INDEED_WEEKLY_PERF,
     AIRWORK_WEEKLY_PERF,
@@ -826,6 +827,93 @@ pub(super) async fn read_applications(
         Json(json!({"listing_id":id,"application_count":application_count})),
     ))
 }
+/// The applications of one listing by application day (JST), for the listing detail. Separate from
+/// `read_versions` because it reads every application record. `total` 0 is a real answer (no
+/// applicants), not an unknown.
+pub(super) async fn read_application_dates(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    AxumPath(id): AxumPath<String>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    valid_id(&id)?;
+    let service = service(&access)?;
+    let applications = service.all_associations("0-420", &id, "0-421").await?;
+    let mut properties = vec![
+        "yingmuri",
+        "seibetsu",
+        "nenrei",
+        "todoufuken",
+        "shikuchouson",
+    ];
+    properties.extend(super::applicant_reasons::PROPERTIES);
+    let pending_labels = service.reason_option_labels();
+    let rows = service.batch("0-421", &applications, &properties).await?;
+    let labels = match pending_labels {
+        super::PendingLabels::Ready(labels) => labels,
+        super::PendingLabels::Reading(mut handle) => {
+            tokio::time::timeout(super::LABEL_GRACE, &mut handle)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten()
+        }
+    };
+    let days: Vec<Option<String>> = rows
+        .iter()
+        .map(|r| r.value("yingmuri").and_then(super::deal_summary::jst_day))
+        .collect();
+    let (by_date, missing) = super::deal_summary::count_by_date(&days);
+    let people: Vec<Value> = rows
+        .iter()
+        .zip(&days)
+        .take(APPLICATION_ROWS_MAX)
+        .map(|(r, day)| {
+            json!({"key": super::applicant_reasons::applicant_key(&id, &r.id), "date": day,
+                "gender": r.value("seibetsu"), "age": r.value("nenrei"),
+                "prefecture": r.value("todoufuken"), "municipality": r.value("shikuchouson")})
+        })
+        .collect();
+    let reasons = super::applicant_reasons::extract_with_labels(
+        &id,
+        &rows,
+        chrono::Utc::now().to_rfc3339(),
+        labels.as_ref(),
+        super::applicant_reasons::OptionLabelsStatus::Unavailable,
+    );
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(
+            json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"by_date":by_date,
+            "applications":people,"applicant_reasons":reasons,
+            "fetched_at":chrono::Utc::now().to_rfc3339()}),
+        ),
+    ))
+}
+const APPLICATION_ROWS_MAX: usize = 2000;
+/// The history of the status properties (公開状況), oldest first, for the listing's 出来事.
+fn status_history(data: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for key in [
+        "kyuujin_status",
+        "baitai_genjoukyou_hrhakkaa",
+        "baitai_genjoukyou_airwork",
+    ] {
+        let mut entries: Vec<Value> = data["propertiesWithHistory"][key]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter(|e| e["timestamp"].is_string())
+                    .map(|e| json!({"timestamp": e["timestamp"], "value": e["value"].as_str().unwrap_or("")}))
+                    .collect()
+            })
+            .unwrap_or_default();
+        entries.sort_by(|a, b| a["timestamp"].as_str().cmp(&b["timestamp"].as_str()));
+        out.insert(key.to_owned(), Value::Array(entries));
+    }
+    Value::Object(out)
+}
 #[cfg(test)]
 fn association_count(data: &Value, id: &str) -> Option<usize> {
     if data
@@ -1176,7 +1264,7 @@ async fn listing_data(
                 (
                     "propertiesWithHistory",
                     format!(
-                        "hrh_kyuujinhyou_honbun,hrh_kyuujinhyou_gazou,shigotonaiyou,{AW_IMAGES},{}",
+                        "hrh_kyuujinhyou_honbun,hrh_kyuujinhyou_gazou,shigotonaiyou,kyuujin_status,baitai_genjoukyou_hrhakkaa,baitai_genjoukyou_airwork,{AW_IMAGES},{}",
                         crate::job_gen::drafts::FACTS
                     ),
                 ),
@@ -1256,7 +1344,7 @@ pub(super) async fn read_versions(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf,"airwork_weekly_perf":airwork_perf}),
+            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf,"airwork_weekly_perf":airwork_perf,"listing_started_on":super::listing_status::day(record.value("koukai_kaishi_nichiji")),"status_history":status_history(data)}),
         ),
     ))
 }
@@ -1964,6 +2052,29 @@ mod tests {
         );
 
         assert_eq!(image_urls("画像1：https://example.invalid/img,a.png 画像2：なし 画像3：https://example.invalid/3.png"), vec!["https://example.invalid/img,a.png", "https://example.invalid/3.png"]);
+    }
+    #[test]
+    fn job_copy_status_history_is_sorted_and_keeps_only_status_fields() {
+        let data = json!({"propertiesWithHistory": {
+            "baitai_genjoukyou_hrhakkaa": [
+                {"timestamp": "2026-08-17T03:00:00Z", "value": "公開"},
+                {"timestamp": "2026-06-15T00:00:00Z", "value": "公開"},
+                {"timestamp": "2026-08-03T03:00:00Z", "value": "非公開"}],
+            "shigotonaiyou": [{"timestamp": "2026-06-15T00:00:00Z", "value": "本文"}]}});
+        let history = status_history(&data);
+        let values: Vec<&str> = history["baitai_genjoukyou_hrhakkaa"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["value"].as_str().unwrap())
+            .collect();
+        assert_eq!(values, vec!["公開", "非公開", "公開"]);
+        assert_eq!(
+            history["baitai_genjoukyou_hrhakkaa"][0]["timestamp"],
+            "2026-06-15T00:00:00Z"
+        );
+        assert_eq!(history["kyuujin_status"], json!([]));
+        assert!(history.get("shigotonaiyou").is_none());
     }
     #[test]
     fn job_copy_counts_do_not_invent_zero() {

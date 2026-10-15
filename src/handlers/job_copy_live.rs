@@ -2128,6 +2128,10 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             get(listings::read_company),
         )
         .route(
+            "/api/job-copy/listings/{id}/application-dates",
+            get(listings::read_application_dates),
+        )
+        .route(
             "/api/job-copy/listings/{id}/applications",
             get(listings::read_applications),
         )
