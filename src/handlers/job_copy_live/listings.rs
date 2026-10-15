@@ -236,8 +236,8 @@ const PAGE_SIZE: usize = 50;
 pub(super) struct IndexCache {
     state: tokio::sync::RwLock<IndexState>,
     worker: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-    /// ホームの事業所の対応（取引→事業所）。索引ごとに一度だけ読む。
-    home_companies: tokio::sync::Mutex<Option<home::CompanyMap>>,
+    /// Home company refresh and encoded response caches (process-local only).
+    home: home::Cache,
     /// 取引のパイプライン・ステージの名前（6 時間使い回す）。
     pipeline_defs: tokio::sync::Mutex<Option<pipelines::CachedDefs>>,
 }
@@ -468,6 +468,7 @@ pub(super) async fn refresh(
     titles: Vec<String>,
     pause: Duration,
 ) -> Result<(), ReadError> {
+    let started = std::time::Instant::now();
     cache.state.write().await.refreshing = true;
     let result = build_index(service, titles, pause).await;
     let mut state = cache.state.write().await;
@@ -481,7 +482,13 @@ pub(super) async fn refresh(
                 }
             }
             state.draft_updates.clear();
-            state.snapshot = Some(Arc::new(index));
+            let index = Arc::new(index);
+            tracing::info!(
+                count = index.records.len(),
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "job-copy index build"
+            );
+            state.snapshot = Some(index);
             Ok(())
         }
         Err(error) => Err(error), // Atomic replacement: an incomplete build never removes the old index.
@@ -515,6 +522,15 @@ pub(super) fn start_worker(service: &Arc<JobReadService>, db: crate::db::local_s
             };
             if let Err(error) = &result {
                 tracing::warn!(code = error.code(), "job-copy listing index refresh failed");
+            }
+            if result.is_ok() {
+                let snapshot = cache.state.read().await.snapshot.clone();
+                if let Some(index) = snapshot {
+                    // Attach the shared cache: the worker's temporary service has its own caches.
+                    let mut home_service = service.clone();
+                    home_service.listing_index = cache.clone();
+                    home::prefetch(&home_service, &index).await;
+                }
             }
             let delay = if result.is_ok() {
                 INDEX_TTL

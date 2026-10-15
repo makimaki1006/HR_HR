@@ -1,6 +1,6 @@
 //! 案件管理ホーム: 「まず見るもの」の件数と、事業所（顧客）ごとの表。
 //! 全件索引（メモリ上）と、求人に付いた週ごとの実績だけから計算する。求人ごとの HubSpot 呼び出しはしない。
-//! 事業所は 取引→事業所 の関連を一度だけ読み、索引を作り直すか 30 分たつまで使い回す。
+//! 事業所は索引完成後に先読みし、更新中は前回分を返す。読み直しは背景で 1 本だけ。
 //! 見る基準はすべてこのファイルの定数。画面にも同じ数字を注記として出す（基準は合意前の仮置き）。
 use super::*;
 use chrono::NaiveDate;
@@ -360,14 +360,110 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
     }
 }
 
-async fn load_companies(service: &JobReadService, index: &Index) -> Result<CompanyMap, ReadError> {
-    let mut slot = service.listing_index.home_companies.lock().await;
-    if let Some(map) = slot.as_ref() {
-        if map.built_for == index.built_at && map.at.is_some_and(|at| at.elapsed() < COMPANY_TTL) {
-            return Ok(map.clone());
-        }
+/// Short locks only: HubSpot I/O never holds the company-state lock.
+#[derive(Default)]
+pub(super) struct CompanyState {
+    map: Option<Arc<CompanyMap>>,
+    refreshing: bool,
+    failed_at: Option<StdInstant>,
+}
+#[derive(Default)]
+pub(super) struct Cache {
+    companies: tokio::sync::Mutex<CompanyState>,
+    changed: tokio::sync::Notify,
+    response: tokio::sync::Mutex<Option<CachedHome>>,
+}
+struct CachedHome {
+    // Holding this Arc also makes local index edits copy-on-write, invalidating this key.
+    index: Arc<Index>,
+    company_at: Option<StdInstant>,
+    today: NaiveDate,
+    body: axum::body::Bytes,
+}
+const COMPANY_RETRY: Duration = Duration::from_secs(10);
+
+/// Used by both the index worker and requests; reserves the single refresh before spawning.
+async fn companies_or_refresh(
+    service: &JobReadService,
+    index: &Arc<Index>,
+) -> Option<Arc<CompanyMap>> {
+    let cache = &service.listing_index.home;
+    let mut state = cache.companies.lock().await;
+    let fresh = state.map.as_ref().is_some_and(|map| {
+        map.built_for == index.built_at && map.at.is_some_and(|at| at.elapsed() < COMPANY_TTL)
+    });
+    if !fresh
+        && !state.refreshing
+        && !state
+            .failed_at
+            .is_some_and(|at| at.elapsed() < COMPANY_RETRY)
+    {
+        state.refreshing = true;
+        state.failed_at = None;
+        let mut service = service.clone();
+        service.hs = service.hs.background();
+        let index = index.clone();
+        tokio::spawn(async move {
+            let result = fetch_companies(&service, &index).await;
+            let cache = &service.listing_index.home;
+            let mut state = cache.companies.lock().await;
+            match result {
+                Ok(map) => {
+                    state.map = Some(Arc::new(map));
+                    state.failed_at = None;
+                }
+                Err(_) => {
+                    state.failed_at = Some(StdInstant::now());
+                    tracing::warn!("job-copy home company refresh failed");
+                }
+            }
+            state.refreshing = false;
+            drop(state);
+            cache.changed.notify_waiters();
+        });
     }
+    state.map.clone()
+}
+
+pub(super) async fn prefetch(service: &JobReadService, index: &Arc<Index>) {
+    companies_or_refresh(service, index).await;
+}
+
+async fn load_companies(
+    service: &JobReadService,
+    index: &Arc<Index>,
+) -> Result<Arc<CompanyMap>, ReadError> {
+    loop {
+        // Register before inspecting state so a fast completion cannot be missed.
+        let changed = service.listing_index.home.changed.notified();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        if let Some(map) = companies_or_refresh(service, index).await {
+            return Ok(map);
+        }
+        if service
+            .listing_index
+            .home
+            .companies
+            .lock()
+            .await
+            .failed_at
+            .is_some()
+        {
+            return Err(fail("home_companies_unavailable"));
+        }
+        changed.await;
+    }
+}
+
+async fn fetch_companies(service: &JobReadService, index: &Index) -> Result<CompanyMap, ReadError> {
+    let started = StdInstant::now();
+    let stage = StdInstant::now();
     let defs = super::pipelines::load_defs(service).await;
+    tracing::info!(
+        elapsed_ms = stage.elapsed().as_millis() as u64,
+        "job-copy home pipeline definitions"
+    );
     let deal_info: BTreeMap<String, DealInfo> = index
         .deals
         .iter()
@@ -389,9 +485,15 @@ async fn load_companies(service: &JobReadService, index: &Index) -> Result<Compa
         })
         .collect();
     let deal_ids: Vec<String> = index.deals.iter().map(|d| d.id.clone()).collect();
+    let stage = StdInstant::now();
     let related = service
         .association_map("deals", &deal_ids, "companies")
         .await?;
+    tracing::info!(
+        count = deal_ids.len(),
+        elapsed_ms = stage.elapsed().as_millis() as u64,
+        "job-copy home company associations"
+    );
     // 事業所が 2 つ以上ある取引は、結び付けを決められないので事業所なしとして扱う。
     let deal_company: BTreeMap<String, String> = related
         .into_iter()
@@ -406,6 +508,7 @@ async fn load_companies(service: &JobReadService, index: &Index) -> Result<Compa
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    let stage = StdInstant::now();
     let names = service
         .batch("companies", &wanted, &["name"])
         .await?
@@ -415,6 +518,11 @@ async fn load_companies(service: &JobReadService, index: &Index) -> Result<Compa
             (record.id, name)
         })
         .collect();
+    tracing::info!(
+        count = wanted.len(),
+        elapsed_ms = stage.elapsed().as_millis() as u64,
+        "job-copy home company names"
+    );
     let map = CompanyMap {
         built_for: index.built_at.clone(),
         at: Some(StdInstant::now()),
@@ -422,8 +530,65 @@ async fn load_companies(service: &JobReadService, index: &Index) -> Result<Compa
         names,
         deal_info,
     };
-    *slot = Some(map.clone());
+    tracing::info!(
+        count = map.names.len(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "job-copy home company refresh"
+    );
     Ok(map)
+}
+
+/// Cache the complete encoded answer: neither scanning nor JSON encoding repeats on a hit.
+async fn answer(
+    service: &JobReadService,
+    index: Arc<Index>,
+    today: NaiveDate,
+) -> axum::body::Bytes {
+    let started = StdInstant::now();
+    let (map, companies_ok) = match load_companies(service, &index).await {
+        Ok(map) => (map, true),
+        Err(_) => (Arc::new(CompanyMap::default()), false),
+    };
+    tracing::info!(
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "job-copy home company wait"
+    );
+    let mut slot = service.listing_index.home.response.lock().await;
+    if let Some(cached) = slot.as_ref() {
+        if Arc::ptr_eq(&cached.index, &index)
+            && cached.company_at == map.at
+            && cached.today == today
+        {
+            return cached.body.clone();
+        }
+    }
+    let stage = StdInstant::now();
+    let home = compute(&index.records, &map, today);
+    tracing::info!(
+        count = index.records.len(),
+        elapsed_ms = stage.elapsed().as_millis() as u64,
+        "job-copy home compute"
+    );
+    let stage = StdInstant::now();
+    let body = axum::body::Bytes::from(serde_json::to_vec(&json!({
+        "status":"ready", "index_built_at":index.built_at, "today":today.to_string(), "companies_ok":companies_ok,
+        "rules": {"trend_min_diff":TREND_MIN_DIFF, "cost_floor_yen":COST_FLOOR_YEN, "cost_per_app_times":COST_PER_APP_TIMES, "stale_days":STALE_DAYS, "list_cap":LIST_CAP, "delivery_pipelines":super::pipelines::DELIVERY_PIPELINES.iter().map(|(id, label)| json!({"id":id,"label":label})).collect::<Vec<_>>()},
+        "home": home,
+    })).expect("home response contains only JSON-safe values"));
+    tracing::info!(
+        count = body.len(),
+        elapsed_ms = stage.elapsed().as_millis() as u64,
+        "job-copy home JSON bytes"
+    );
+    if companies_ok {
+        *slot = Some(CachedHome {
+            index,
+            company_at: map.at,
+            today,
+            body: body.clone(),
+        });
+    }
+    body
 }
 
 pub(in crate::handlers::job_copy_live) async fn read(
@@ -431,32 +596,41 @@ pub(in crate::handlers::job_copy_live) async fn read(
     Extension(access): Extension<Access>,
     session: Session,
 ) -> Result<impl IntoResponse, ReadError> {
+    let started = StdInstant::now();
     authorized_user(&state, &access, &session).await?;
     let service = service(&access)?;
+    let stage = StdInstant::now();
+    // Refreshing/failed builds retain the last complete snapshot.
     let snapshot = service.listing_index.state.read().await.snapshot.clone();
-    let Some(index) = snapshot else {
-        return Ok((
-            [(header::CACHE_CONTROL, "private, no-store")],
-            Json(json!({"status":"preparing"})),
-        ));
+    tracing::info!(
+        elapsed_ms = stage.elapsed().as_millis() as u64,
+        "job-copy home index wait"
+    );
+    let body = match snapshot {
+        Some(index) => {
+            let today = (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive();
+            answer(service, index, today).await
+        }
+        None => axum::body::Bytes::from_static(br#"{"status":"preparing"}"#),
     };
-    let today = (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive();
-    // 事業所が読めなくてもカードは返す。表は空にして、理由を伝える。
-    let (map, companies_ok) = match load_companies(service, &index).await {
-        Ok(map) => (map, true),
-        Err(_) => (CompanyMap::default(), false),
-    };
-    let home = compute(&index.records, &map, today);
+    tracing::info!(
+        count = body.len(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "job-copy home request"
+    );
     Ok((
-        [(header::CACHE_CONTROL, "private, no-store")],
-        Json(json!({
-            "status":"ready", "index_built_at":index.built_at, "today":today.to_string(), "companies_ok":companies_ok,
-            "rules": {"trend_min_diff":TREND_MIN_DIFF, "cost_floor_yen":COST_FLOOR_YEN, "cost_per_app_times":COST_PER_APP_TIMES, "stale_days":STALE_DAYS, "list_cap":LIST_CAP, "delivery_pipelines":super::pipelines::DELIVERY_PIPELINES.iter().map(|(id, label)| json!({"id":id,"label":label})).collect::<Vec<_>>()},
-            "home": home,
-        })),
+        [
+            (header::CACHE_CONTROL, "private, no-store"),
+            (header::CONTENT_TYPE, "application/json"),
+        ],
+        body,
     ))
 }
 
 #[cfg(test)]
 #[path = "listing_home_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "listing_home_loading_tests.rs"]
+mod loading_tests;

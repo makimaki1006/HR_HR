@@ -40,7 +40,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing }: { onOpenCompany: (
   }, [reload]);
   useEffect(() => {
     if (data?.status !== 'preparing') return;
-    const timer = window.setTimeout(() => { setReload(value => value + 1); }, 5_000);
+    const timer = window.setTimeout(() => { setReload(value => value + 1); }, 2_000);
     return () => { window.clearTimeout(timer); };
   }, [data]);
   const customers = useMemo<HomeCustomer[]>(() => data?.status === 'ready' ? sortCustomers(filterCustomers(data.home.customers, query, onlyActive), sort, descending) : [], [data, query, onlyActive, sort, descending]);

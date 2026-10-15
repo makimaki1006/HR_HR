@@ -429,3 +429,39 @@ test('電話ヒアリングを開くとデモの聞き取りと通話記録を�
   await section.locator('summary').scrollIntoViewIfNeeded();
   if (process.env.PHONE_HEARING_SCREENSHOT) await page.screenshot({ path: process.env.PHONE_HEARING_SCREENSHOT, fullPage: true });
 });
+
+test('ホームは初回準備の2秒後にカードと顧客表を表示する', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  let homeCalls = 0;
+  const titles = [
+    ['more', '直近4週の応募が、前の4週より多い求人', 8],
+    ['same', '直近4週の応募が、前の4週とほぼ同じ求人', 12],
+    ['less', '直近4週の応募が、前の4週より少ない求人', 3],
+    ['costly', '課金が高いまま応募が少ない求人', 2],
+    ['stale', 'データが止まっている求人', 1],
+    ['occupation', '市場の職種が未指定の求人', 4],
+  ] as const;
+  await page.route('**/api/job-copy/home', route => {
+    homeCalls += 1;
+    return route.fulfill({ json: homeCalls === 1 ? { status: 'preparing' } : {
+      status: 'ready', index_built_at: '2026-10-15T00:00:00Z', today: '2026-10-15', companies_ok: true,
+      rules: { trend_min_diff: 2, cost_floor_yen: 10000, cost_per_app_times: 2, stale_days: 14, list_cap: 100 },
+      home: {
+        cards: titles.map(([key, title, count]) => ({ key, title, count, rule: '掲載中の求人を、週ごとの実績から数えています。', listings: [] })),
+        customers: [
+          { company_id: '101', name: 'デモ事業所A', deals: 3, active_deals: 2, latest_deal: { name: '配送スタッフ募集（デモ）', stage_label: '契約中', active: true, created_at: '2026-10-01' }, total_listings: 15, live_listings: 10, recent_apps: 24, prev_apps: 18, recent_cost: 60000, cost_per_app: 2500 },
+          { company_id: '102', name: 'デモ事業所B', deals: 1, active_deals: 1, latest_deal: { name: '事務スタッフ募集（デモ）', stage_label: '契約中', active: true, created_at: '2026-09-25' }, total_listings: 8, live_listings: 6, recent_apps: 12, prev_apps: 14, recent_cost: 36000, cost_per_app: 3000 },
+        ], live_without_company: 0, median_cost_per_app: 2500,
+      },
+    } });
+  });
+  await login(page);
+  await page.goto('/app/job-copy');
+  await expect(page.getByText('求人の一覧を準備しています', { exact: true })).toBeVisible();
+  await expect(page.locator('.jh-card .jh-count')).toHaveText(['8件', '12件', '3件', '2件', '1件', '4件'], { timeout: 4_000 });
+  await expect(page.locator('.jh-customer-table tbody tr')).toHaveCount(2);
+  await expect(page.locator('.jh-customer-table')).toContainText('18 → 24 件');
+  await expect(page.locator('.jh-customer-table')).toContainText('¥2,500');
+  expect(homeCalls).toBe(2);
+  if (process.env.HOME_SPEED_SCREENSHOT) await page.screenshot({ path: process.env.HOME_SPEED_SCREENSHOT, fullPage: true });
+});
