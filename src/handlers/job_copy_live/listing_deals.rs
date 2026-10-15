@@ -152,8 +152,7 @@ fn no_association_ids(error: &Value) -> Option<Vec<String>> {
 // Strict batch paging: missing/error rows never turn into a false "no deal" or zero count.
 /// Four batch reads at most; continuations stay within their original chunk.
 pub(super) async fn index_associations(
-    service: &JobReadService,
-    client: &crate::hubspot::HubSpotClient,
+    reader: &IndexReader,
     ids: &[String],
     to: &str,
 ) -> Result<BTreeMap<String, Vec<String>>, ReadError> {
@@ -161,14 +160,8 @@ pub(super) async fn index_associations(
     for group in ids.chunks(4_000) {
         let mut tasks = tokio::task::JoinSet::new();
         for chunk in group.chunks(1_000) {
-            let (service, client, ids, to) = (
-                service.clone(),
-                client.clone(),
-                chunk.to_vec(),
-                to.to_owned(),
-            );
-            tasks
-                .spawn(async move { index_associations_chunk(&service, &client, &ids, &to).await });
+            let (reader, ids, to) = (reader.clone(), chunk.to_vec(), to.to_owned());
+            tasks.spawn(async move { index_associations_chunk(&reader, &ids, &to).await });
         }
         while let Some(result_chunk) = tasks.join_next().await {
             result.extend(result_chunk.map_err(|_| fail("hubspot_read_failed"))??);
@@ -178,8 +171,7 @@ pub(super) async fn index_associations(
 }
 
 async fn index_associations_chunk(
-    service: &JobReadService,
-    client: &crate::hubspot::HubSpotClient,
+    reader: &IndexReader,
     ids: &[String],
     to: &str,
 ) -> Result<BTreeMap<String, Vec<String>>, ReadError> {
@@ -193,12 +185,12 @@ async fn index_associations_chunk(
                 .iter()
                 .filter_map(|v| v["id"].as_str().map(str::to_owned))
                 .collect();
-            let data = service
-                .request_with_client(
-                    client,
+            let data = reader
+                .read(
                     &format!("/crm/v4/associations/0-420/{to}/batch/read"),
                     &[],
-                    Some(json!({"inputs":pending})),
+                    Some(&json!({"inputs":pending})),
+                    &super::super::listing_retry::DELAYS,
                 )
                 .await?;
             let mut actual = BTreeSet::new();
@@ -269,6 +261,51 @@ async fn index_associations_chunk(
     }
     Ok(result)
 }
+/// Deal names and home columns: batches of 100, at most four in flight.
+pub(super) async fn index_deal_records(
+    reader: &IndexReader,
+    ids: &[String],
+) -> Result<Vec<Record>, ReadError> {
+    let mut records = Vec::new();
+    for group in ids.chunks(400) {
+        let mut tasks = tokio::task::JoinSet::new();
+        for chunk in group.chunks(100) {
+            let (reader, ids) = (reader.clone(), chunk.to_vec());
+            tasks.spawn(async move {
+                let body = json!({
+                    "properties": ["dealname", "pipeline", "dealstage", "createdate"],
+                    "inputs": ids.iter().map(|id| json!({"id": id})).collect::<Vec<_>>()
+                });
+                let data = reader
+                    .read(
+                        "/crm/v3/objects/deals/batch/read",
+                        &[],
+                        Some(&body),
+                        &super::super::listing_retry::DELAYS,
+                    )
+                    .await?;
+                let page: Page = serde_json::from_value(data.clone())
+                    .map_err(|_| fail("hubspot_invalid_response"))?;
+                if data
+                    .get("errors")
+                    .and_then(Value::as_array)
+                    .is_some_and(|v| !v.is_empty())
+                    || page.results.len() != ids.len()
+                    || page.results.iter().map(|r| &r.id).collect::<BTreeSet<_>>()
+                        != ids.iter().collect::<BTreeSet<_>>()
+                {
+                    return Err(fail("hubspot_partial_read"));
+                }
+                Ok::<_, ReadError>(page.results)
+            });
+        }
+        while let Some(result) = tasks.join_next().await {
+            records.extend(result.map_err(|_| fail("hubspot_read_failed"))??);
+        }
+    }
+    Ok(records)
+}
+
 pub(super) fn deal_candidates(index: &Index, search: &str) -> Vec<Deal> {
     let search = normalize(search);
     let mut deals: Vec<_> = index

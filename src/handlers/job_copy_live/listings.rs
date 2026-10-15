@@ -1,5 +1,6 @@
 //! Complete in-memory index: deal associations and structured comparison summaries.
 //! Bodies/history are transient; applicant properties are never read or stored.
+use super::listing_retry::IndexReader;
 use super::*;
 use axum::extract::Path as AxumPath;
 use unicode_normalization::UnicodeNormalization;
@@ -228,10 +229,11 @@ pub(super) fn service(access: &Access) -> Result<&JobReadService, ReadError> {
     ))
 }
 const INDEX_TTL: Duration = Duration::from_secs(6 * 60 * 60);
-// The Background gateway already enforces the shared windows; do not throttle twice.
+// No fixed pause between completed pages; starts are spaced across the whole build.
 const PAGE_PAUSE: Duration = Duration::ZERO;
 // Initial display estimate from the October 2026 production count; never used for indexing.
 const INITIAL_ESTIMATED_TOTAL: usize = 41_000;
+const INDEX_RANGE_COUNT: usize = 8;
 fn retry_delay(failures: usize) -> Duration {
     Duration::from_secs(match failures {
         0 | 1 => 60,
@@ -362,19 +364,113 @@ pub(super) async fn update_draft_state(
     }
 }
 
-/// One complete build. Page bodies/history are discarded after their summaries are read.
-async fn build_index(
+/// Half-open ranges [lower, upper); the first/last ranges cover both open tails.
+#[derive(Clone, Copy, Debug)]
+struct IdRange {
+    lower: u128,
+    upper: Option<u128>,
+}
+fn numeric_id(id: &str) -> Result<u128, ReadError> {
+    valid_id(id).map_err(|_| fail("hubspot_invalid_response"))?;
+    id.parse().map_err(|_| fail("hubspot_invalid_response"))
+}
+fn ranges_from_cuts(mut cuts: Vec<u128>) -> Vec<IdRange> {
+    cuts.push(0);
+    cuts.sort_unstable();
+    cuts.dedup();
+    cuts.iter()
+        .enumerate()
+        .map(|(i, &lower)| IdRange {
+            lower,
+            upper: cuts.get(i + 1).copied(),
+        })
+        .collect()
+}
+async fn index_ranges(
     cache: &Cache,
-    service: &JobReadService,
-    titles: Vec<String>,
+    reader: &IndexReader,
+    count: usize,
+) -> Result<Vec<IdRange>, ReadError> {
+    let previous = cache.state.read().await.snapshot.clone();
+    if let Some(index) = previous {
+        let mut ids = index
+            .records
+            .iter()
+            .map(|r| numeric_id(&r.id))
+            .collect::<Result<Vec<_>, _>>()?;
+        ids.sort_unstable();
+        ids.dedup();
+        if !ids.is_empty() {
+            return Ok(ranges_from_cuts(
+                (1..count).map(|i| ids[ids.len() * i / count]).collect(),
+            ));
+        }
+    }
+    // Lightweight first page establishes the minimum. Small/empty accounts need no Search.
+    let data = reader
+        .read(
+            "/crm/v3/objects/0-420",
+            &[
+                ("limit", "100".into()),
+                ("properties", "hs_object_id".into()),
+            ],
+            None,
+            &super::listing_retry::DELAYS[..1],
+        )
+        .await?;
+    let page: Page = serde_json::from_value(data).map_err(|_| fail("hubspot_invalid_response"))?;
+    if page.paging.and_then(|p| p.next).is_none() {
+        return Ok(ranges_from_cuts(vec![]));
+    }
+    let min = page
+        .results
+        .first()
+        .ok_or_else(|| fail("hubspot_invalid_response"))?;
+    let min = numeric_id(&min.id)?;
+    // Search is used only for the maximum ID, never for paging beyond its 10k cap.
+    let body = json!({
+        "limit": 1,
+        "properties": ["hs_object_id"],
+        "sorts": [{"propertyName": "hs_object_id", "direction": "DESCENDING"}]
+    });
+    let data = reader
+        .read(
+            "/crm/v3/objects/0-420/search",
+            &[],
+            Some(&body),
+            &super::listing_retry::DELAYS[..1],
+        )
+        .await?;
+    let page: Page = serde_json::from_value(data).map_err(|_| fail("hubspot_invalid_response"))?;
+    let max = numeric_id(
+        &page
+            .results
+            .first()
+            .ok_or_else(|| fail("hubspot_invalid_response"))?
+            .id,
+    )?;
+    if max < min {
+        return Err(fail("hubspot_invalid_response"));
+    }
+    Ok(ranges_from_cuts(
+        (1..count)
+            .map(|i| min + (max - min + 1) * i as u128 / count as u128)
+            .collect(),
+    ))
+}
+async fn read_index_range(
+    cache: &Cache,
+    reader: &IndexReader,
+    range: IdRange,
+    number: usize,
     pause: Duration,
-) -> Result<Index, ReadError> {
+) -> Result<(BTreeSet<String>, Vec<Listing>), ReadError> {
     let started = std::time::Instant::now();
-    let background = service.hs.background();
-    let mut records = Vec::new();
     let mut ids = BTreeSet::new();
-    let mut cursors = BTreeSet::new();
-    let mut after: Option<String> = None;
+    let mut rows = Vec::new();
+    // Verified against the real HubSpot 0-420 list API on 2026-10-15:
+    // after=X includes X (IDs >= X), so [lower, upper) starts at after=lower.
+    let mut after = range.lower;
     let properties = PROPERTIES
         .iter()
         .copied()
@@ -382,81 +478,148 @@ async fn build_index(
         .collect::<Vec<_>>()
         .join(",");
     loop {
-        // No propertiesWithHistory here: HubSpot caps history reads at 50 objects per request
-        // (400 at limit=100), and full body histories for ~40k listings are too heavy for the
-        // index. The body's last-change date is therefore not indexed (shown as 未取得).
-        let mut params = vec![("limit", "100".into()), ("properties", properties.clone())];
-        if let Some(cursor) = &after {
-            params.push(("after", cursor.clone()));
-        }
-        let data = service
-            .request_with_client(&background, "/crm/v3/objects/0-420", &params, None)
+        let mut query = vec![("limit", "100".into()), ("properties", properties.clone())];
+        query.push(("after", after.to_string()));
+        // Retry only this failed page once; completed pages/ranges are never restarted.
+        let data = reader
+            .read(
+                "/crm/v3/objects/0-420",
+                &query,
+                None,
+                &super::listing_retry::DELAYS[..1],
+            )
             .await?;
         let page: Page =
             serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
         if page.results.len() > 100 {
             return Err(fail("hubspot_invalid_response"));
         }
+        let mut crossed = false;
+        let before = ids.len();
+        let mut last = None;
         for record in page.results {
-            valid_id(&record.id).map_err(|_| fail("hubspot_invalid_response"))?;
-            // Stable IDs can repeat if a listing moves between pages during the read.
+            let id = numeric_id(&record.id)?;
+            if id < after || last.is_some_and(|last| id < last) {
+                return Err(fail("listing_paging_invalid"));
+            }
+            last = Some(id);
+            if range.upper.is_some_and(|upper| id >= upper) {
+                crossed = true;
+                continue;
+            }
+            if id < range.lower {
+                return Err(fail("listing_paging_invalid"));
+            }
             if ids.insert(record.id.clone()) {
                 if let Some(mut row) = listing(&record) {
                     row.summary.body_changed_at = data["results"]
                         .as_array()
-                        .and_then(|rows| rows.iter().find(|v| v["id"].as_str() == Some(&record.id)))
+                        .and_then(|rs| rs.iter().find(|v| v["id"].as_str() == Some(&record.id)))
                         .and_then(|v| body_changed_at(v, row.media));
-                    records.push(row);
+                    rows.push(row);
                 }
             }
         }
         {
             let mut state = cache.state.write().await;
-            state.read_count = ids.len();
+            state.read_count += ids.len() - before;
             if let Some(total) = data["total"].as_u64().and_then(|n| usize::try_from(n).ok()) {
                 state.estimated_total = Some(total);
             }
         }
-        after = page.paging.and_then(|p| p.next).map(|n| n.after);
-        match &after {
-            None => break,
-            Some(cursor) => {
-                valid_id(cursor).map_err(|_| fail("listing_paging_invalid"))?;
-                if !cursors.insert(cursor.clone()) {
-                    return Err(fail("listing_paging_invalid"));
-                }
-                if !pause.is_zero() {
-                    tokio::time::sleep(pause).await;
-                }
-            }
+        if crossed {
+            break;
+        }
+        let Some(next) = page.paging.and_then(|p| p.next) else {
+            break;
+        };
+        let next = numeric_id(&next.after)?;
+        // Verified against the real HubSpot 0-420 list API on 2026-10-15:
+        // next.after is the last ID + 1, not the last ID. Only require forward
+        // progress beyond the last record; a numeric cursor can fall in an ID gap.
+        if next <= after || last.is_none_or(|last| next <= last) {
+            return Err(fail("listing_paging_invalid"));
+        }
+        after = next;
+        if !pause.is_zero() {
+            tokio::time::sleep(pause).await;
         }
     }
     tracing::info!(
+        range_number = number,
         count = ids.len(),
         elapsed_ms = started.elapsed().as_millis() as u64,
-        "job-copy index pages"
+        "job-copy index range"
     );
-    let listing_ids: Vec<_> = records.iter().map(|r| r.id.clone()).collect();
-    let stage = std::time::Instant::now();
-    let mapping = index_associations(service, &background, &listing_ids, "deals").await?;
-    tracing::info!(
-        count = listing_ids.len(),
-        elapsed_ms = stage.elapsed().as_millis() as u64,
-        "job-copy index deal associations"
-    );
-    let stage = std::time::Instant::now();
-    // Retain at most four chunks of applicant associations, then discard their targets.
-    for rows in records.chunks_mut(4000) {
-        let ids: Vec<_> = rows.iter().map(|r| r.id.clone()).collect();
-        let counts = index_associations(service, &background, &ids, "0-421").await?;
-        for row in rows {
-            row.indexed_application_count = counts.get(&row.id).map(Vec::len);
-        }
+    Ok((ids, rows))
+}
+
+/// One complete build. Page bodies/history are discarded after their summaries are read.
+async fn build_index(
+    cache: &Cache,
+    service: &JobReadService,
+    titles: Vec<String>,
+    pause: Duration,
+    range_count: usize,
+) -> Result<Index, ReadError> {
+    let started = std::time::Instant::now();
+    let reader = IndexReader::new(&service.hs.background());
+    let ranges = if range_count == 1 {
+        ranges_from_cuts(vec![])
+    } else {
+        index_ranges(cache, &reader, range_count).await?
+    };
+    tracing::info!(range_count = ranges.len(), "job-copy index ranges");
+    let mut tasks = tokio::task::JoinSet::new();
+    for (number, range) in ranges.into_iter().enumerate() {
+        let (cache, reader) = (cache.clone(), reader.clone());
+        tasks.spawn(async move { read_index_range(&cache, &reader, range, number, pause).await });
     }
+    let mut ids = BTreeSet::new();
+    let mut records = Vec::new();
+    let mut counted = 0;
+    let mut mapping = BTreeMap::new();
+    while let Some(result) = tasks.join_next().await {
+        let (range_ids, mut rows) = result.map_err(|_| fail("hubspot_read_failed"))??;
+        counted += range_ids.len();
+        // Enrich one completed range while the other ranges keep reading pages.
+        // Only one enrichment runs at a time, retaining the four-batch bound.
+        let listing_ids: Vec<_> = rows.iter().map(|r| r.id.clone()).collect();
+        let stage = std::time::Instant::now();
+        mapping.extend(index_associations(&reader, &listing_ids, "deals").await?);
+        for group in rows.chunks_mut(4000) {
+            let ids: Vec<_> = group.iter().map(|r| r.id.clone()).collect();
+            let counts = index_associations(&reader, &ids, "0-421").await?;
+            for row in group {
+                row.indexed_application_count = counts.get(&row.id).map(Vec::len);
+            }
+        }
+        tracing::info!(
+            count = rows.len(),
+            elapsed_ms = stage.elapsed().as_millis() as u64,
+            "job-copy index range associations"
+        );
+        for row in rows {
+            if !ids.contains(&row.id) {
+                records.push(row);
+            }
+        }
+        ids.extend(range_ids);
+    }
+    // Every ID has exactly one owning range. Deduplicate defensively and reconcile
+    // raw IDs (including records without a supported media) with aggregate progress.
+    let mut state = cache.state.write().await;
+    if counted != ids.len() || state.read_count != ids.len() {
+        return Err(fail("hubspot_partial_read"));
+    }
+    state.read_count = ids.len();
+    let expected_total = state.estimated_total;
+    drop(state);
     tracing::info!(
-        count = listing_ids.len(),
-        elapsed_ms = stage.elapsed().as_millis() as u64,
-        "job-copy index application associations"
+        expected_total,
+        count = ids.len(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "job-copy index pages and associations"
     );
     let stage = std::time::Instant::now();
     let deal_ids: Vec<_> = mapping
@@ -467,35 +630,20 @@ async fn build_index(
         .into_iter()
         .collect();
     let mut names = BTreeMap::new();
-    for chunk in deal_ids.chunks(100) {
-        let data = service.request_with_client(&background, "/crm/v3/objects/deals/batch/read", &[], Some(json!({"properties":["dealname","pipeline","dealstage","createdate"],"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>()}))).await?;
-        let page: Page =
-            serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
-        if data
-            .get("errors")
-            .and_then(Value::as_array)
-            .is_some_and(|v| !v.is_empty())
-            || page.results.len() != chunk.len()
-            || page.results.iter().map(|r| &r.id).collect::<BTreeSet<_>>()
-                != chunk.iter().collect::<BTreeSet<_>>()
-        {
-            return Err(fail("hubspot_partial_read"));
-        }
-        // 納品管理のパイプラインの取引だけを扱う。ほかの取引は無いものとして数える。
-        for record in page.results {
-            if pipelines::is_delivery(record.value("pipeline")) {
-                names.insert(
-                    record.id.clone(),
-                    (
-                        record.value("dealname").map(str::to_owned),
-                        record.value("pipeline").map(str::to_owned),
-                        record.value("dealstage").map(str::to_owned),
-                        record
-                            .value("createdate")
-                            .map(|v| v.chars().take(10).collect()),
-                    ),
-                );
-            }
+    // 納品管理のパイプラインの取引だけを扱う。ほかの取引は無いものとして数える。
+    for record in deals::index_deal_records(&reader, &deal_ids).await? {
+        if pipelines::is_delivery(record.value("pipeline")) {
+            names.insert(
+                record.id.clone(),
+                (
+                    record.value("dealname").map(str::to_owned),
+                    record.value("pipeline").map(str::to_owned),
+                    record.value("dealstage").map(str::to_owned),
+                    record
+                        .value("createdate")
+                        .map(|v| v.chars().take(10).collect()),
+                ),
+            );
         }
     }
     tracing::info!(
@@ -552,7 +700,7 @@ pub(super) async fn refresh(
         state.retry_at = None;
         state.read_count = 0;
     }
-    let result = build_index(cache, service, titles, pause).await;
+    let result = build_index(cache, service, titles, pause, INDEX_RANGE_COUNT).await;
     let mut state = cache.state.write().await;
     state.refreshing = false;
     state.refresh_failed = result.is_err();
@@ -576,6 +724,11 @@ pub(super) async fn refresh(
             Ok(())
         }
         Err(error) => {
+            tracing::warn!(
+                count = state.read_count,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "job-copy index build failed"
+            );
             state.failed();
             Err(error) // An incomplete build never removes the previous snapshot.
         }
@@ -2241,17 +2394,24 @@ mod tests {
                     calls.lock().unwrap().push(path);
                     return Json(json!({"results":[{"id":"901","properties":{"dealname":"沖縄配送・契約A","pipeline":"21596025"}},{"id":"902","properties":{"dealname":"沖縄配送・契約B","pipeline":"743961896"}},{"id":"903","properties":{"dealname":"沖縄配送・計上","pipeline":"22417753"}}]})).into_response();
                 }
+                if path == "/crm/v3/objects/0-420/search" {
+                    calls.lock().unwrap().push(path);
+                    return Json(json!({"results":[{"id":"203","properties":{}}]})).into_response();
+                }
                 assert_eq!(path, "/crm/v3/objects/0-420");
                 let query = req.uri().query().unwrap_or("");
                 assert!(query.contains("limit=100"));
                 assert!(!query.contains("hrh_kyuujinhyou_gazou"));
-                assert!(query.contains("shigotonaiyou"));
-                assert!(query.contains("kyuujin_status"));
+                if !query.contains("properties=hs_object_id") {
+                    assert!(query.contains("shigotonaiyou"));
+                    assert!(query.contains("kyuujin_status"));
+                }
                 // Like HubSpot: history reads above 50 objects are rejected with 400.
                 if query.contains("propertiesWithHistory") && query.contains("limit=100") { return (StatusCode::BAD_REQUEST, Json(json!({"message":"You can only request at most 50 objects in one request for properties with history."}))).into_response(); }
                 calls.lock().unwrap().push(query.into());
                 if fail_next.load(Ordering::Relaxed) { return (StatusCode::FORBIDDEN, Json(json!({}))).into_response(); }
-                let start = if query.contains("after=200") {201} else if query.contains("after=100") {101} else {1};
+                let start = query.split('&').find_map(|p| p.strip_prefix("after="))
+                    .map(|s| s.parse::<usize>().unwrap().max(1)).unwrap_or(1);
                 let end = (start + 99).min(203);
                 let results: Vec<Value> = (start..=end).map(|id| {
                     let (pref, title, airwork) = if id <= 150 {("沖縄県", "看護師", false)} else if id <= 180 {("沖縄県", "看護師", true)} else if id <= 200 {("大分県", "ドライバー", false)} else {("沖縄県", "清掃スタッフ", false)};
@@ -2261,7 +2421,8 @@ mod tests {
                     json!({"id":id.to_string(),"properties":properties})
                 }).collect();
                 let mut data = json!({"results":results});
-                if end < 203 {data["paging"] = json!({"next":{"after":end.to_string()}});}
+                // Real 0-420 behavior verified 2026-10-15: inclusive after, last ID + 1.
+                if end < 203 {data["paging"] = json!({"next":{"after":(end + 1).to_string()}});}
                 Json(data).into_response()
             }
         }));
@@ -2293,8 +2454,11 @@ mod tests {
             .records
             .iter()
             .all(|row| row.publication_status.as_deref() == Some("掲載中")));
-        assert_eq!(seen.lock().unwrap().len(), 6);
-        assert_eq!(old.records[0].deal_ids, vec!["901", "902"]);
+        assert_eq!(seen.lock().unwrap().len(), 27);
+        assert_eq!(
+            old.records.iter().find(|r| r.id == "1").unwrap().deal_ids,
+            vec!["901", "902"]
+        );
         assert_eq!(old.records[0].indexed_application_count, Some(2));
         assert_eq!(
             deal_candidates(&old, "配送")
@@ -2385,6 +2549,7 @@ mod tests {
             service.hs.background().priority(),
             crate::hubspot::gateway::Priority::Background
         );
+        let before_failure = seen.lock().unwrap().len();
         failed.store(true, Ordering::Relaxed);
         assert!(
             refresh(&cache, &service, old.titles.clone(), Duration::ZERO)
@@ -2396,7 +2561,7 @@ mod tests {
         assert_eq!(state.snapshot.as_ref().unwrap().built_at, old.built_at);
         assert!(state.refresh_failed);
         assert!(!state.refreshing);
-        assert_eq!(seen.lock().unwrap().len(), 7);
+        assert!((1..=8).contains(&(seen.lock().unwrap().len() - before_failure)));
         task.abort();
     }
     #[test]

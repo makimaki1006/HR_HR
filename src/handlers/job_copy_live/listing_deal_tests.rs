@@ -140,7 +140,7 @@ async fn job_copy_deal_batch_pages_are_complete_and_missing_rows_fail() {
         axum::serve(listener, server).await.unwrap();
     });
     let ids: Vec<_> = (1..=1001).map(|v| v.to_string()).collect();
-    let mapping = index_associations(&service, &service.hs.background(), &ids, "deals")
+    let mapping = index_associations(&IndexReader::new(&service.hs.background()), &ids, "deals")
         .await
         .unwrap();
     assert_eq!(mapping.len(), 1001);
@@ -162,8 +162,7 @@ async fn job_copy_deal_batch_pages_are_complete_and_missing_rows_fail() {
     );
     assert!(requests.contains(&json!({"inputs":[{"id":"1001"}]})));
     assert!(index_associations(
-        &service,
-        &service.hs.background(),
+        &IndexReader::new(&service.hs.background()),
         &["9999".into()],
         "deals"
     )
