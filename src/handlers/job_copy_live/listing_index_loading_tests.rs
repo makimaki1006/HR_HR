@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct Fixture {
     service: JobReadService,
     calls: Arc<AtomicUsize>,
+    payload_bytes: Arc<AtomicUsize>,
     server: tokio::task::JoinHandle<()>,
     association_calls: Arc<AtomicUsize>,
     fail_on: Arc<AtomicUsize>,
@@ -50,9 +51,14 @@ impl Fixture {
             fail_status.clone(),
             max_active.clone(),
         );
+        let payload_bytes = Arc::new(AtomicUsize::new(0));
+        let payload = payload_bytes.clone();
         let observed = calls.clone();
+        let bandwidth = Arc::new(tokio::sync::Mutex::new(()));
         let app = Router::new().fallback(any(move |request: Request<Body>| {
             let calls = observed.clone();
+            let bandwidth = bandwidth.clone();
+            let payload = payload.clone();
             let (ids, page_failed, page_status, pages, times) = (ids.clone(), page_failed.clone(), page_status.clone(), pages.clone(), times.clone());
             let (seen, failed, status, active, maximum) = (seen.clone(), failed.clone(), status.clone(), active.clone(), maximum.clone());
             async move {
@@ -60,6 +66,7 @@ impl Fixture {
                 let path = request.uri().path().to_owned();
                 times.lock().unwrap().push((path.ends_with("/search"), std::time::Instant::now()));
                 let light = request.uri().query().is_some_and(|q| q.contains("properties=hs_object_id"));
+                let wants_body = request.uri().query().is_some_and(|q| q.contains("hrh_kyuujinhyou_honbun"));
                 let is_page = path == "/crm/v3/objects/0-420" && !light;
                 let page_nth = if is_page { pages.fetch_add(1, Ordering::SeqCst) + 1 } else { 0 };
                 let is_association = path.contains("/associations/");
@@ -87,25 +94,46 @@ impl Fixture {
                     let end = (start + 100).min(total);
                     let results: Vec<_> = ids[start..end].iter().map(|id| {
                         if light { json!({"id":id.to_string(),"properties":{"hs_object_id":id.to_string()}}) }
-                        else { json!({"id":id.to_string(),"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":"合成求人","kyuujin_status":"公開中","hrh_kyuujinhyou_honbun":if large_body {"合".repeat(5300)} else {String::new()}}}) }
+                        else {
+                            let position = ids.binary_search(id).unwrap();
+                            let mut row = json!({"id":id.to_string(),"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":"合成求人","kyuujin_status":if position < 3000 {"公開中"} else {"公開終了"}}});
+                            if large_body { row["properties"]["indeed_weekly_perf"] = json!("x".repeat(2300)); }
+                            if wants_body { row["properties"]["hrh_kyuujinhyou_honbun"] = json!(if large_body {"x".repeat(13500)} else {String::new()}); }
+                            row
+                        }
                     }).collect();
                     let mut body = json!({"results":results,"total":total});
                     // next.after is the last ID + 1, even when the next ID is far away.
                     if end < total { body["paging"] = json!({"next":{"after":(ids[end-1] + 1).to_string()}}); }
+                    if large_body && latency.is_zero() && !light {
+                        let size = serde_json::to_vec(&body).unwrap().len();
+                        payload.fetch_add(size, Ordering::SeqCst);
+                        let _guard = bandwidth.lock().await;
+                        tokio::time::sleep(Duration::from_secs_f64(size as f64 / 3_000_000.0)).await;
+                    }
                     return Json(body).into_response();
                 }
                 let bytes = axum::body::to_bytes(request.into_body(),1_000_000).await.unwrap();
                 let body: Value = serde_json::from_slice(&bytes).unwrap();
                 let results: Vec<_> = body["inputs"].as_array().unwrap().iter().map(|v| {
                     let id = v["id"].as_str().unwrap();
-                    if path.contains("/associations/") {
+                    if path == "/crm/v3/objects/0-420/batch/read" {
+                        json!({"id":id,"properties":{"hrh_kyuujinhyou_honbun":if large_body {"x".repeat(13500)} else {String::new()}}})
+                    } else if path.contains("/associations/") {
                         let targets = if path.contains("/deals/") {vec![json!({"toObjectId":(id.parse::<u128>().unwrap()%205+1).to_string()})]} else {vec![]};
                         json!({"from":{"id":id},"to":targets})
                     } else {
                         json!({"id":id,"properties":{"dealname":"合成案件","pipeline":"21596025"}})
                     }
                 }).collect();
-                Json(json!({"results":results})).into_response()
+                let response = json!({"results":results});
+                if large_body && latency.is_zero() && path == "/crm/v3/objects/0-420/batch/read" {
+                    let size = serde_json::to_vec(&response).unwrap().len();
+                    payload.fetch_add(size, Ordering::SeqCst);
+                    let _guard = bandwidth.lock().await;
+                    tokio::time::sleep(Duration::from_secs_f64(size as f64 / 3_000_000.0)).await;
+                }
+                Json(response).into_response()
             }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -129,6 +157,7 @@ impl Fixture {
         Self {
             service,
             calls,
+            payload_bytes,
             server,
             association_calls,
             fail_on,
@@ -678,4 +707,19 @@ async fn next_cursor_must_exceed_last_id_but_need_not_equal_last_plus_one() {
         }
         server.abort();
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "41,000 synthetic records, 3 MB/s shared response bandwidth"]
+async fn index_payload_latency_probe() {
+    let f = Fixture::with_ids(production_like_ids(), Duration::ZERO, true, true).await;
+    let started = std::time::Instant::now();
+    refresh(&f.service.listing_index, &f.service, vec![], PAGE_PAUSE)
+        .await
+        .unwrap();
+    let state = f.service.listing_index.state.read().await;
+    assert_eq!(state.snapshot.as_ref().unwrap().records.len(), 41000);
+    assert_eq!(state.snapshot.as_ref().unwrap().deals.len(), 205);
+    let (one, ten) = assert_windows(&f);
+    eprintln!("payload_probe records=41000 active=3000 elapsed_ms={} bytes={} pages={} calls={} max_1s={one} max_10s={ten}", started.elapsed().as_millis(), f.payload_bytes.load(Ordering::SeqCst), f.page_calls.load(Ordering::SeqCst), f.calls.load(Ordering::SeqCst));
 }

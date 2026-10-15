@@ -6,9 +6,7 @@ use axum::extract::Path as AxumPath;
 use unicode_normalization::UnicodeNormalization;
 #[path = "listing_deals.rs"]
 mod deals;
-use deals::{
-    body_changed_at, deal_candidates, index_associations, publication, summary, Deal, Summary,
-};
+use deals::{deal_candidates, index_associations, publication, summary, Deal, Summary};
 pub(super) use deals::{read_body_dates, read_comparison};
 #[path = "listing_pipelines.rs"]
 mod pipelines;
@@ -471,12 +469,7 @@ async fn read_index_range(
     // Verified against the real HubSpot 0-420 list API on 2026-10-15:
     // after=X includes X (IDs >= X), so [lower, upper) starts at after=lower.
     let mut after = range.lower;
-    let properties = PROPERTIES
-        .iter()
-        .copied()
-        .filter(|p| *p != "hrh_kyuujinhyou_gazou" && *p != AW_IMAGES)
-        .collect::<Vec<_>>()
-        .join(",");
+    let properties = index_properties().join(",");
     loop {
         let mut query = vec![("limit", "100".into()), ("properties", properties.clone())];
         query.push(("after", after.to_string()));
@@ -511,11 +504,7 @@ async fn read_index_range(
                 return Err(fail("listing_paging_invalid"));
             }
             if ids.insert(record.id.clone()) {
-                if let Some(mut row) = listing(&record) {
-                    row.summary.body_changed_at = data["results"]
-                        .as_array()
-                        .and_then(|rs| rs.iter().find(|v| v["id"].as_str() == Some(&record.id)))
-                        .and_then(|v| body_changed_at(v, row.media));
+                if let Some(row) = listing(&record) {
                     rows.push(row);
                 }
             }
@@ -554,7 +543,7 @@ async fn read_index_range(
     Ok((ids, rows))
 }
 
-/// One complete build. Page bodies/history are discarded after their summaries are read.
+/// One complete build. Only non-ended listings fetch bodies for structured summaries.
 async fn build_index(
     cache: &Cache,
     service: &JobReadService,
@@ -581,6 +570,7 @@ async fn build_index(
     let mut mapping = BTreeMap::new();
     while let Some(result) = tasks.join_next().await {
         let (range_ids, mut rows) = result.map_err(|_| fail("hubspot_read_failed"))??;
+        enrich_index_summaries(&reader, &mut rows).await?;
         counted += range_ids.len();
         // Enrich one completed range while the other ranges keep reading pages.
         // Only one enrichment runs at a time, retaining the four-batch bound.
@@ -2390,6 +2380,11 @@ mod tests {
                     let errors: Vec<Value> = empty.chunks(50).map(|ids| json!({"status":"error","category":"OBJECT_NOT_FOUND","subCategory":"crm.associations.NO_ASSOCIATIONS_FOUND","context":{"fromObjectId":ids,"fromObjectType":["listing"],"toObjectType":["deal"]}})).collect();
                     return Json(json!({"status":"COMPLETE","results":results,"errors":errors})).into_response();
                 }
+                if path == "/crm/v3/objects/0-420/batch/read" {
+                    let bytes = axum::body::to_bytes(req.into_body(), 100000).await.unwrap();
+                    let input: Value = serde_json::from_slice(&bytes).unwrap();
+                    return Json(json!({"results":input["inputs"].as_array().unwrap().iter().map(|v| json!({"id":v["id"],"properties":{}})).collect::<Vec<_>>()})).into_response();
+                }
                 if path == "/crm/v3/objects/deals/batch/read" {
                     calls.lock().unwrap().push(path);
                     return Json(json!({"results":[{"id":"901","properties":{"dealname":"沖縄配送・契約A","pipeline":"21596025"}},{"id":"902","properties":{"dealname":"沖縄配送・契約B","pipeline":"743961896"}},{"id":"903","properties":{"dealname":"沖縄配送・計上","pipeline":"22417753"}}]})).into_response();
@@ -2403,7 +2398,8 @@ mod tests {
                 assert!(query.contains("limit=100"));
                 assert!(!query.contains("hrh_kyuujinhyou_gazou"));
                 if !query.contains("properties=hs_object_id") {
-                    assert!(query.contains("shigotonaiyou"));
+                    assert!(!query.contains("shigotonaiyou"));
+                    assert!(!query.contains("hrh_kyuujinhyou_honbun"));
                     assert!(query.contains("kyuujin_status"));
                 }
                 // Like HubSpot: history reads above 50 objects are rejected with 400.
@@ -2680,3 +2676,7 @@ mod tests {
 #[cfg(test)]
 #[path = "listing_index_loading_tests.rs"]
 mod index_loading_tests;
+
+#[path = "listing_index_summary.rs"]
+mod index_summary;
+use index_summary::{enrich_index_summaries, index_properties};
