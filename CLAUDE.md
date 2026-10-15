@@ -527,6 +527,7 @@ turso db shell salesnow "SELECT COUNT(*) FROM v2_salesnow_companies"
 | `docs/design_agoop_*.md` | Agoop 人流データ設計 (backend/frontend/jinryu) |
 | `docs/requirements_*.md` | 要件定義 |
 | [`docs/sales_call_analysis/2026-10-13_apo_talk_hypotheses_v0.md`](docs/sales_call_analysis/2026-10-13_apo_talk_hypotheses_v0.md) | テレアポ通話の分析: アポが取れるトークの仮説 v0 (抽出の定義は同じフォルダの `specs/`) |
+| `docs/sales_call_analysis/knowledge_*.md` | トークの実例集 (冒頭・今かける理由・切り返し・「何の件?」)。前後の流れごとのまとまりで、取れた例と同じ形で取れなかった例を並べる。全件は `knowledge_flow_cases/` |
 
 ### 運用・移行
 | ファイル | 内容 |
