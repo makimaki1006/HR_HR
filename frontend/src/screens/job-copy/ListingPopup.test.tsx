@@ -33,7 +33,7 @@ it('keeps the full exact description, orders sections and formats salary with ex
   render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
   const dialog = screen.getByRole('dialog');
   expect(dialog.querySelector('.jc-listing-popup-section p')?.textContent).toBe(description);
-  expect(dialog.textContent).toContain('2026/10/11 09:00 JST');
+  expect(dialog.textContent).toContain('2026/10/11 09:00');
   expect(dialog.textContent).toContain('初日の流れ');
   expect(dialog.textContent).toContain('文章確認済み');
   expect(dialog.textContent).not.toMatch(/hidden-job-id|hidden-shop-id|hidden-media-id|基本給与 最小|求人id|店舗id/);
@@ -113,7 +113,7 @@ it('opens the selected timeline version from the detail heading, initially the l
   fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);
   expect(screen.getByRole('dialog').textContent).toContain(jobs[0]?.versions[1]?.body);
-  expect(screen.getByRole('dialog').textContent).toContain('2026/09/15 10:30 JST');
+  expect(screen.getByRole('dialog').textContent).toContain('2026/09/15 10:30');
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
   const main = opener.closest('.jc-main');
   if (!main) throw new Error('詳細の領域がありません');
@@ -224,7 +224,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   expect(dialog.textContent).toContain('現在の本文です。');
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
   const drawer = openOtherAnalysis('本文・画像');
-  fireEvent.click(within(drawer).getByRole('button', { name: /2026\/10\/01 09:00 JST にHubSpotに記録された本文/ }));
+  fireEvent.click(within(drawer).getByRole('button', { name: /2026\/10\/01 09:00 にHubSpotに記録された本文/ }));
   fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);
   expect(screen.getByRole('dialog', { name: listing.title }).textContent).toContain('以前の本文です。');
@@ -412,7 +412,7 @@ it('shows all five AirWork saved images in the popup and preserves their observa
   const job = listingRecord({ listing: { ...listing, media: 'airwork' }, versions: [{ written_at: '2026-10-11T00:00:00Z', body: '架空の検品業務です。', image_urls: null }], current_images: { observed_at: '2026-10-12T00:00:00Z', image_urls: Array.from({ length: 5 }, (_, i) => `/api/job-copy/image?synthetic=${String(i + 1)}`) }, history_counts: {}, history_may_be_incomplete: false });
   render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
   expect(screen.getAllByRole('img').map(image => image.getAttribute('src'))).toEqual(Array.from({ length: 5 }, (_, i) => `/api/job-copy/image?synthetic=${String(i + 1)}`));
-  expect(screen.getByText(/本文の記録時点の画像とは限りません/).textContent).toContain('2026/10/12 09:00 JST');
+  expect(screen.getByText(/本文の記録時点の画像とは限りません/).textContent).toContain('2026/10/12 09:00');
 });
 it('shows AirWork image URLs from the listing field in order, five or more, and in history', () => {
   const urls = Array.from({ length: 6 }, (_, i) => `https://cdn.example.invalid/p/${String(i + 1)}.jpg`);

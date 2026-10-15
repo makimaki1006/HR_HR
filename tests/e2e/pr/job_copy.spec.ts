@@ -419,6 +419,9 @@ test('電話ヒアリングを開くとデモの聞き取りと通話記録を�
   await section.locator('summary').click();
   const card = section.locator('article').first();
   await expect(card).toContainText('応募日：2026/09/24');
+  await expect(section.locator('.ph-card h3')).toHaveCount(0);
+  await expect(card.locator('.ph-note > p').first()).toHaveText('2026/09/24 13:30');
+  await expect(section).not.toContainText('JST');
   await expect(card).toContainText('勤務条件の優先順位');
   await expect(card).toContainText('通勤時間、休日、給与の順で希望');
   await expect(card).toContainText('【架電】土日休みと、見学できる日程を確認したい。');

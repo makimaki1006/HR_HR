@@ -21,7 +21,7 @@ describe('求人票の読み取り', () => {
   });
   it('uses a separately labelled current value when history is unavailable', () => {
     const record = listingRecord({ listing: { id: '42', media: 'airwork', media_job_id: 'AW-42', account_id: null, title: '合成求人', prefecture: null, municipality: null, category: null, publication_status: null, last_csv_detected_at: null, application_count: null }, history_counts: { shigotonaiyou: 0 }, history_may_be_incomplete: false, versions: [], current: { body: '現在の仕事内容', checked_at: '2026-10-10T00:00:00Z', image_urls: null }, current_images: { observed_at: '2026-10-09T00:00:00Z', image_urls: ['/api/job-copy/image?sample=1'] } });
-    expect(record.versions[0]?.label).toBe('2026/10/10 09:00 JST に確認した現在の本文');
+    expect(record.versions[0]?.label).toBe('2026/10/10 09:00 に確認した現在の本文');
     expect(record.versions[0]?.body).toBe('現在の仕事内容');
     expect(record.versions[0]?.note).toContain('本文が記録された日時と掲載開始日時は不明');
     expect(record.currentImageObservation?.observedAt).toBe('2026-10-09T00:00:00Z');

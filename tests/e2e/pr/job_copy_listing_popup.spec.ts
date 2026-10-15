@@ -58,7 +58,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   const dialog = page.getByRole('dialog', { name: hrh.title });
   await expect(dialog).toBeFocused();
   await expect(dialog).toHaveAttribute('aria-modal', 'true');
-  await expect(dialog).toContainText('2026/10/11 09:00 JST');
+  await expect(dialog).toContainText('2026/10/11 09:00');
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('月給 213,000円〜249,000円');
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('0件');
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('掲載終了');
@@ -85,7 +85,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   const focusInside = await dialog.evaluate(element => element.contains(document.activeElement)); expect(focusInside).toBe(true);
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect(opener).toBeFocused();
   await openOtherAnalysis(page, '本文・画像');
-  await page.getByRole('button', { name: /2026\/10\/01 09:00 JST にHubSpotに記録された本文/ }).click();
+  await page.getByRole('button', { name: /2026\/10\/01 09:00 にHubSpotに記録された本文/ }).click();
   await closeOtherAnalysis(page);
   await opener.click(); await expect(dialog).toContainText('以前の本文の最後の文章です。'); await expect(dialog).not.toContainText('最後の作業では翌日の出荷予定を確認');
   await dialog.getByRole('button', { name: '求人の内容を閉じる' }).click(); await expect(opener).toBeFocused();

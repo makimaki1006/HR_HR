@@ -17,12 +17,29 @@ describe('電話ヒアリング', () => {
     expect(cards.length).toBe(3);
     expect(cards[0]?.textContent).toContain('応募日：2026/09/24');
     expect(cards[0]?.textContent).toContain('応募媒体：求人検索サイト');
-    expect(cards[0]?.textContent).toContain('応募者の属性は記録されていません');
+    expect(container.querySelectorAll('.ph-card h3')).toHaveLength(0);
+    expect(container.textContent).not.toContain('応募者の属性は記録されていません');
     expect(cards[0]?.textContent).toContain('勤務条件の優先順位通勤時間、休日、給与の順で希望');
-    expect(cards[0]?.textContent).toContain('2026/09/24 13:30');
+    expect(cards[0]?.querySelector('.ph-note > p')?.textContent).toBe('2026/09/24 13:30');
+    expect(container.textContent).not.toContain('JST');
     expect(cards[0]?.textContent).toContain('【架電】土日休みと、見学できる日程を確認したい。');
     expect(cards[1]?.textContent).toContain('ほかの求人にも関連する応募');
     expect(cards[2]?.textContent).toContain('応募媒体：記録なし');
+  });
+  it('属性がある応募だけ年代・性別を表示し、空欄や不明の応募は行ごと省く', () => {
+    const { container, rerender } = render(<PhoneHearingContent data={demoPhoneHearing} applicationRows={[
+      { key: '8'.repeat(64), date: '2026-09-24', age: '30代', gender: '女性', prefecture: null, municipality: null },
+      { key: '4'.repeat(64), date: '2026-09-16', age: null, gender: null, prefecture: null, municipality: null },
+      { key: '1'.repeat(64), date: '2026-09-02', age: ' ', gender: '不明', prefecture: null, municipality: null },
+    ]} />);
+    const cards = container.querySelectorAll('article');
+    expect(cards[0]?.querySelector('h3')?.textContent).toBe('応募者：30代・女性');
+    expect(cards[1]?.querySelector('h3')).toBeNull();
+    expect(cards[2]?.querySelector('h3')).toBeNull();
+    rerender(<PhoneHearingContent data={demoPhoneHearing} applicationRows={[
+      { key: '8'.repeat(64), date: '2026-09-24', age: null, gender: '女性', prefecture: null, municipality: null },
+    ]} />);
+    expect(container.querySelector('h3')?.textContent).toBe('応募者：女性');
   });
   it('記録なしは失敗と区別し、上限で切った場合に注記する', () => {
     const { rerender } = render(<PhoneHearingContent data={{ total_applicants: 22, items: [], truncated: false }} />);
