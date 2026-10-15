@@ -373,6 +373,8 @@
   .cq-linkframe { flex: none; height: 75vh; }
 }
 @media (max-width: 560px) {
+  /* 成績の比較文も項目内で折り返し、細い画面からはみ出さない */
+  .cq-app .tm-item { flex-wrap: wrap; }
   .cq-app .cq-search { max-width: none; flex-basis: 100%; }
   .cq-owner { flex: 1 1 120px; }
   .cq-app .cq-sort { flex: 1 1 160px; }
