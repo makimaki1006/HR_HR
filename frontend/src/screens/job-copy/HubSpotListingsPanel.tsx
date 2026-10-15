@@ -68,7 +68,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   }, [active, autoLoad, load, dealSearch, revision]);
   useEffect(() => {
     if (!active || !autoLoad || (page?.status !== 'preparing' && !page?.refreshing) || busy || error) return;
-    const timer = window.setTimeout(() => { void load(page?.offset ?? 0); }, 5_000);
+    const timer = window.setTimeout(() => { void load(page.offset); }, 5_000);
     return () => { window.clearTimeout(timer); };
   }, [active, autoLoad, page, busy, error, load]);
   const orderRef = useRef<string[]>([]);
