@@ -1,6 +1,6 @@
 //! Deal batch index reads and column-only comparison summaries.
 use super::*;
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct Summary {
     pub(super) occupation: Option<String>,
     pub(super) location: Option<String>,
@@ -11,7 +11,7 @@ pub(super) struct Summary {
     pub(super) holidays: Option<String>,
     pub(super) body_changed_at: Option<String>,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct Deal {
     pub(super) id: String,
     pub(super) name: Option<String>,

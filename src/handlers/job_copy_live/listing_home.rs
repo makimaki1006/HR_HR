@@ -38,7 +38,7 @@ pub(super) const LIST_CAP: usize = 100;
 const COMPANY_TTL: Duration = Duration::from_secs(30 * 60);
 
 /// 週ごとの実績から求人ごとに 1 度だけ作る要約。週ごとの JSON は索引に残さない。
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) struct PerfDigest {
     pub(super) latest_end: NaiveDate,
     /// 最新の週を含む 4 週（週の開始日が最新の開始日の 21 日前まで）の応募と課金。

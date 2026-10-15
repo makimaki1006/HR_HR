@@ -210,3 +210,24 @@ describe('opening a listing quickly', () => {
     expect(versionCalls('12')).toBe(1);
   });
 });
+
+it('shows the restored list and its Japanese date while the latest list loads', async () => {
+  api.mockResolvedValue({ ok: true, data: { ...page, refreshing: true } });
+  render(<HubSpotListingsPanel onOpen={vi.fn()} />);
+  expect(await screen.findByText('2026/10/10 09:00時点の一覧を表示しています。最新の一覧を読み込み中です')).toBeTruthy();
+  expect(screen.getByRole('button', { name: '合成配送求人の本文を見る' })).toBeTruthy();
+});
+
+it('rechecks a ready list during refresh and removes the notice when the new list arrives', async () => {
+  vi.useFakeTimers();
+  try {
+    api.mockResolvedValue({ ok: true, data: { ...page, refreshing: true } });
+    render(<HubSpotListingsPanel onOpen={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.getByText(/時点の一覧を表示しています。最新の一覧を読み込み中です/)).toBeTruthy();
+    api.mockResolvedValue({ ok: true, data: { ...page, listings: [{ ...row, title: '合成の更新後の求人' }], refreshing: false, index_built_at: '2026-10-16T00:00:00Z' } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(screen.getByRole('button', { name: '合成の更新後の求人の本文を見る' })).toBeTruthy();
+    expect(screen.queryByText(/最新の一覧を読み込み中です/)).toBeNull();
+  } finally { vi.useRealTimers(); }
+});
