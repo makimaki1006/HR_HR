@@ -1,13 +1,15 @@
 //! 案件管理ホーム: 「まず見るもの」の件数と、事業所（顧客）ごとの表。
 //! 全件索引（メモリ上）と、求人に付いた週ごとの実績だけから計算する。求人ごとの HubSpot 呼び出しはしない。
 //! 事業所は 取引→事業所 の関連を一度だけ読み、索引を作り直すか 30 分たつまで使い回す。
-//! 見る基準はすべてこのファイルの定数。画面にも同じ数字を注記として出す（基準は合意前の仮置き）。
+//! 見る基準はすべてこのファイルの定数。画面にも同じ数字を注記として出す（応募の増減は 2026-10-15 合意）。
 use super::*;
 use chrono::NaiveDate;
 use std::time::Instant as StdInstant;
 
-/// 「前の 4 週より多い／少ない」と言うために必要な応募の差（件）。差がこれ未満なら「ほぼ同じ」。
+/// 応募の増減を数える差（件）。割合の基準と、どちらかを満たせば対象。
 pub(super) const TREND_MIN_DIFF: i64 = 2;
+/// 前の 4 週の応募に対する増減の割合（%）。
+pub(super) const TREND_MIN_PERCENT: i64 = 20;
 /// 「課金が高いまま応募が少ない」の下限。直近 4 週の課金がこの金額（円）以上であること。
 pub(super) const COST_FLOOR_YEN: i64 = 10_000;
 
@@ -181,6 +183,26 @@ fn cost_per_app(perf: &PerfDigest) -> Option<i64> {
     (perf.recent_apps > 0).then(|| perf.recent_cost / perf.recent_apps)
 }
 
+/// 応募の増減の 5 分類は排他的。割合の掛け算は i128 に広げて桁あふれも防ぐ。
+fn trend_key(perf: &PerfDigest) -> &'static str {
+    let (prev, recent) = (perf.prev_apps, perf.recent_apps);
+    let changed = |diff: i64| {
+        diff >= TREND_MIN_DIFF
+            || i128::from(diff) * 100 >= i128::from(TREND_MIN_PERCENT) * i128::from(prev)
+    };
+    if prev == 0 && recent == 0 {
+        "zero_stay"
+    } else if recent == 0 {
+        "to_zero"
+    } else if recent < prev && changed(prev - recent) {
+        "less"
+    } else if recent > prev && (prev == 0 || changed(recent - prev)) {
+        "more"
+    } else {
+        "flat"
+    }
+}
+
 pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -> Home {
     let company_of = |row: &Listing| -> Option<String> {
         row.deal_ids
@@ -217,15 +239,16 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
             .map(|row| row_of(row))
             .collect(),
     };
-    let pick = |test: &dyn Fn(i64) -> bool| -> Vec<&Listing> {
-        live.iter()
+    let pick = |key: &str| -> Vec<&Listing> {
+        let mut picked: Vec<_> = live
+            .iter()
             .copied()
-            .filter(|row| {
-                row.perf
-                    .as_ref()
-                    .is_some_and(|p| test(p.recent_apps - p.prev_apps))
-            })
-            .collect()
+            .filter(|row| row.perf.as_ref().is_some_and(|p| trend_key(p) == key))
+            .collect();
+        if key == "zero_stay" {
+            picked.sort_by_key(|row| std::cmp::Reverse(row.perf.as_ref().map(|p| p.recent_cost)));
+        }
+        picked
     };
     let costly: Vec<&Listing> = live
         .iter()
@@ -255,9 +278,11 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
         .filter(|row| row.indeed_title_state == "unset")
         .collect();
     let cards = vec![
-        card("more", "直近4週の応募が、前の4週より多い求人", format!("掲載中で、直近4週の応募が前の4週より{TREND_MIN_DIFF}件以上多い求人。週ごとの実績がある求人だけを数えます。"), pick(&|d| d >= TREND_MIN_DIFF)),
-        card("same", "直近4週の応募が、前の4週とほぼ同じ求人", format!("掲載中で、直近4週と前の4週の応募の差が{TREND_MIN_DIFF}件未満の求人。"), pick(&|d| d.abs() < TREND_MIN_DIFF)),
-        card("less", "直近4週の応募が、前の4週より少ない求人", format!("掲載中で、直近4週の応募が前の4週より{TREND_MIN_DIFF}件以上少ない求人。"), pick(&|d| d <= -TREND_MIN_DIFF)),
+        card("zero_stay", "応募がゼロのままの求人", "掲載中で、前の4週も直近4週も応募が0件の求人。直近4週の課金が多い順に表示します。".to_owned(), pick("zero_stay")),
+        card("to_zero", "応募がゼロになった求人", "掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。".to_owned(), pick("to_zero")),
+        card("less", "直近4週の応募が、前の4週より少ない求人", format!("掲載中で、直近4週の応募が1件以上あり、前の4週より{TREND_MIN_DIFF}件以上、または{TREND_MIN_PERCENT}%以上少ない求人。"), pick("less")),
+        card("more", "直近4週の応募が、前の4週より多い求人", format!("掲載中で、直近4週の応募が前の4週より{TREND_MIN_DIFF}件以上、または{TREND_MIN_PERCENT}%以上多い求人。前の4週が0件で応募があった求人も含みます。"), pick("more")),
+        card("flat", "応募はあるが、前の4週とほぼ同じ求人", format!("掲載中で、直近4週に応募があり、前の4週と同じ件数、または差が{TREND_MIN_DIFF}件未満かつ{TREND_MIN_PERCENT}%未満の求人。"), pick("flat")),
         card("costly", "課金が高いまま応募が少ない求人", format!("掲載中で、直近4週の課金が{}以上あり、応募が0件、または応募1件あたりの課金が応募のある求人の中央値の{COST_PER_APP_TIMES}倍以上の求人。", yen_label(COST_FLOOR_YEN)), costly),
         card("stale", "データが止まっている求人", format!("掲載中で、週ごとの実績の最新の週が{STALE_DAYS}日より前に終わっている求人。この間の応募・課金は少なく見えます。"), stale),
         card("occupation", "市場の職種が未指定の求人", "掲載中で、市場と比べる職種をまだ指定していない求人。".to_owned(), unset),
@@ -451,7 +476,7 @@ pub(in crate::handlers::job_copy_live) async fn read(
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(json!({
             "status":"ready", "index_built_at":index.built_at, "today":today.to_string(), "companies_ok":companies_ok,
-            "rules": {"trend_min_diff":TREND_MIN_DIFF, "cost_floor_yen":COST_FLOOR_YEN, "cost_per_app_times":COST_PER_APP_TIMES, "stale_days":STALE_DAYS, "list_cap":LIST_CAP, "delivery_pipelines":super::pipelines::DELIVERY_PIPELINES.iter().map(|(id, label)| json!({"id":id,"label":label})).collect::<Vec<_>>()},
+            "rules": {"trend_min_diff":TREND_MIN_DIFF, "trend_min_percent":TREND_MIN_PERCENT, "cost_floor_yen":COST_FLOOR_YEN, "cost_per_app_times":COST_PER_APP_TIMES, "stale_days":STALE_DAYS, "list_cap":LIST_CAP, "delivery_pipelines":super::pipelines::DELIVERY_PIPELINES.iter().map(|(id, label)| json!({"id":id,"label":label})).collect::<Vec<_>>()},
             "home": home,
         })),
     ))

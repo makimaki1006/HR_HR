@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { JobCopyHome } from './JobCopyHome';
+import { demoHome } from './demoHome';
 import { Breadcrumbs } from './Breadcrumbs';
 import { buildCrumbs } from './trail';
 import type { HomeCard, HomeCustomer, HomeResponse } from './homeModel';
@@ -19,9 +20,9 @@ const customers: HomeCustomer[] = [
 ];
 const response: HomeResponse = {
   status: 'ready', index_built_at: '2026-10-14T01:00:00Z', today: '2026-10-14', companies_ok: true,
-  rules: { trend_min_diff: 2, cost_floor_yen: 10000, cost_per_app_times: 2, stale_days: 14, list_cap: 100 },
+  rules: { trend_min_diff: 2, trend_min_percent: 20, cost_floor_yen: 10000, cost_per_app_times: 2, stale_days: 14, list_cap: 100 },
   home: {
-    cards: [card('more', '直近4週の応募が、前の4週より多い求人', [row('1', '配送ドライバー・大分1', 20, 13)]), card('same', '直近4週の応募が、前の4週とほぼ同じ求人', []), card('less', '直近4週の応募が、前の4週より少ない求人', [row('2', '介護スタッフ・熊本', 6, 7)], 130), card('costly', '課金が高いまま応募が少ない求人', []), card('stale', 'データが止まっている求人', []), card('occupation', '市場の職種が未指定の求人', [row('3', '事務スタッフ・大分', 1, 1)])],
+    cards: [card('more', '直近4週の応募が、前の4週より多い求人', [row('1', '配送ドライバー・大分1', 20, 13)]), card('flat', '応募はあるが、前の4週とほぼ同じ求人', []), card('less', '直近4週の応募が、前の4週より少ない求人', [row('2', '介護スタッフ・熊本', 4, 5)], 130), card('costly', '課金が高いまま応募が少ない求人', []), card('stale', 'データが止まっている求人', []), card('occupation', '市場の職種が未指定の求人', [row('3', '事務スタッフ・大分', 1, 1)])],
     customers, live_without_company: 2, median_cost_per_app: 7000,
   },
 };
@@ -101,4 +102,29 @@ it('パンくずは現在地だけがリンクにならず、上の階層を押�
   expect(within(nav).getByText('配送ドライバー').getAttribute('aria-current')).toBe('page');
   fireEvent.click(within(nav).getByRole('button', { name: '合成運輸' }));
   expect(select).toHaveBeenCalledWith('company');
+});
+
+it('新しい8枚の見出し・件数・説明と、ゼロのままの求人の課金を出す', async () => {
+  api.mockResolvedValue({ ok: true, data: demoHome });
+  renderHome();
+  await screen.findByRole('button', { name: /応募がゼロのままの求人/ });
+  const cards = screen.getAllByRole('button').filter(button => button.classList.contains('jh-card'));
+  expect(cards).toHaveLength(8);
+  for (const [index, item] of demoHome.home.cards.entries()) {
+    const button = at(cards, index);
+    expect(within(button).getByText(item.title)).toBeTruthy();
+    expect(within(button).getByText(String(item.count))).toBeTruthy();
+    expect(within(button).getByText(item.rule)).toBeTruthy();
+  }
+  expect(at(cards, 0).classList.contains('jh-alert')).toBe(true);
+  expect(at(cards, 1).classList.contains('jh-alert')).toBe(true);
+  expect(screen.getByText(/2件以上、または20%以上の差を増減/)).toBeTruthy();
+  fireEvent.click(at(cards, 0));
+  const list = screen.getByRole('region', { name: '応募がゼロのままの求人の一覧' });
+  expect(within(list).getByRole('columnheader', { name: '課金（直近 4 週）' })).toBeTruthy();
+  const rows = within(list).getAllByRole('row').slice(1);
+  expect(rows.map(row => row.textContent)).toEqual([
+    '合成求人・配送合成事業所HRハッカー0 → 0 件¥24,0002026-10-11',
+    '合成求人・清掃合成事業所HRハッカー0 → 0 件¥02026-10-11',
+  ]);
 });
