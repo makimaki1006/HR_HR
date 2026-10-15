@@ -939,7 +939,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       {filters.target === 'all' && <p className="cq-sort-note">選んだパイプラインのすべてのステージを表示します。件数は条件に合う取引の総数です。架電禁止・ブロックには発信できません。</p>}
       <div id="cq-advanced" role="dialog" aria-label="詳細条件" className="cq-advanced cq-filter-drawer" style={{top: drawerTop}} hidden={!panelOpen}>
         <div className="cq-drawer-heading"><h2>詳細条件</h2><button type="button" className="cq-btn" onClick={() => { setPanelOpen(false); }}>条件のパネルを閉じる</button></div>
-        {panelOpen && <QueueGroupEditor catalog={catalog.state} groups={groupsOf(filters)} filters={{...filters, owner: filters.owner || (effectiveOwner ?? (mode === 'live' ? 'me' : ''))}} onReload={catalog.reload} focusAdd={addFocus} onFocusAddDone={addFocusDone}
+        {panelOpen && <QueueGroupEditor catalog={catalog.state} groups={groupsOf(filters)} filters={{...filters, owner: filters.owner || (effectiveOwner ?? (mode === 'live' ? 'me' : ''))}} choices={{ pipelines: pipelines.pipelines, selectedPipelineIds: selectedPipelineIds(filters), allDeals: filters.target === 'all', owners: owners.state }} onReload={catalog.reload} focusAdd={addFocus} onFocusAddDone={addFocusDone}
           onChange={gs => { update(groupPatch(gs)); }} />}
         {pipeline && <StageFilter key={`${mode}|${selectedPipelineIds(filters).join(',')}|${filters.target ?? ''}`} pipeline={pipeline} selected={filters.stages} pipelines={pipelines.pipelines.filter(p=>selectedPipelineIds(filters).includes(p.id))} all={filters.target==='all'}
           labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} />}

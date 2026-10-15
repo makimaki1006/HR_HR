@@ -69,3 +69,21 @@ test('または・相対日付・項目順を含むビューを保存して開�
   await expect(page.getByText('選んだ項目の順に並べます。段階ごとの優先順は使わず、次回日の条件は絞り込みとして適用します。')).toBeVisible();
   await expect(page.getByRole('region',{name:'まとまり 1',exact:true})).toContainText('最終架電日 過去 60 日以内');await snap(page,'with-views');
 });
+
+test('取引ステージを条件にすると、選んだパイプラインのステージが名前付きで並び、絞り込める',async({page})=>{
+  await page.setViewportSize({width:1512,height:742});await login(page);await page.goto('/app/crm?mode=fixture');
+  await expect(page.getByText(/全 10 件中/)).toBeVisible();
+  await page.getByRole('button',{name:'条件を追加',exact:true}).click();
+  await pick(page,'取引ステージ');
+  await expect(page.getByText('この項目に選べる値はありません。')).toHaveCount(0);
+  const values=page.getByRole('group',{name:'値(複数選択)'});
+  await expect(values.getByLabel('bpo_リクロジ / 未済',{exact:true})).toBeVisible();
+  await expect(values.getByLabel('bpo_リクロジ / ニーズあり/有料あり',{exact:true})).toBeVisible();
+  await expect(values.getByLabel('架空パイプライン(確認用) / 新規')).toHaveCount(0);
+  await values.getByLabel('bpo_リクロジ / 未済',{exact:true}).check();
+  const shot=process.env.A_QF2_STAGE_SHOT;if(shot) await page.screenshot({path:shot});
+  await page.getByRole('button',{name:'この条件を追加',exact:true}).click();
+  await expect(page.getByText(/全 5 件中/)).toBeVisible();
+  expect(JSON.parse(new URL(page.url()).searchParams.get('conditions')!)).toEqual([{property:'dealstage',operator:'IN',values:['1095387442']}]);
+  await expect(page.getByRole('region',{name:'まとまり 1',exact:true})).toContainText('取引ステージ いずれかに一致 bpo_リクロジ / 未済');
+});

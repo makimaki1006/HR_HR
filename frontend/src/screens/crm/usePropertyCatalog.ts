@@ -55,7 +55,7 @@ export const FIXTURE_CATALOG: CrmPropertyCatalogResponse = {
   objects: [
     { object_type: 'deals', groups: [
       { name: 'dealinformation', label: '取引情報', properties: [
-        p('dealname', '案件名', 'string', 'text'), p('hubspot_owner_id', '案件担当者', 'enumeration', 'select'),
+        p('dealname', '案件名', 'string', 'text'), { ...p('hubspot_owner_id', '案件担当者', 'enumeration', 'select'), owner_ref: true }, p('dealstage', '取引ステージ', 'enumeration', 'select'),
         moc('bpo_13'), moc('bpo_14'), p('bpo_20', '最終架電日', 'date', 'date'), moc('bpo_10'), moc('bpo_32'),
         moc('bpo_21'), moc('bpo_22'), moc('bpo_50'),
       ] },

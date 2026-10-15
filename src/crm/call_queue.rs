@@ -1852,6 +1852,26 @@ fn bad_param(name: &str) -> Response {
         .into_response()
 }
 
+/// 詳細条件で選択肢がプロパティ定義の外にある項目 (取引ステージ・パイプライン) の、選べる値。
+/// ステージは選んだパイプラインのもの (すべての取引のときは HubSpot の定義から集めた全ステージ)
+fn condition_value_scope(params: &Params) -> super::queue_property_filter::ValueScope {
+    let mut stages: Vec<String> = if params.all_deals {
+        params.all_stages.clone()
+    } else {
+        params
+            .pipelines
+            .iter()
+            .flat_map(|p| p.stages.iter().map(|(id, _)| (*id).to_string()))
+            .collect()
+    };
+    stages.sort();
+    stages.dedup();
+    super::queue_property_filter::ValueScope {
+        stages,
+        pipelines: QUEUE_PIPELINES.iter().map(|p| p.id.to_string()).collect(),
+    }
+}
+
 pub(super) async fn get_call_queue(
     session: Session,
     State(state): State<Arc<AppState>>,
@@ -1878,43 +1898,6 @@ pub(super) async fn get_call_queue(
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     let now = ctx.queue.now();
-    if !params.property_groups.is_empty() || params.custom_sort.is_some() {
-        let entry = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.catalog.get(&client)).await
-        {
-            Ok(Ok((entry, _))) => entry,
-            Ok(Err(e)) => return hubspot_error_response(&e),
-            Err(_) => return timeout_response(),
-        };
-        for group in &params.property_groups {
-            let mut fs = Vec::new();
-            for c in group {
-                match super::queue_property_filter::resolve(
-                    c,
-                    entry.property("deals", &c.property),
-                    now,
-                ) {
-                    Ok(f) => fs.push(f),
-                    Err(message) => return condition_error(message),
-                }
-            }
-            params.property_filter_groups.push(fs);
-        }
-        params.property_filters = params
-            .property_filter_groups
-            .first()
-            .cloned()
-            .unwrap_or_default();
-        if let Some((property, _)) = &params.custom_sort {
-            if !entry
-                .property("deals", property)
-                .is_some_and(super::queue_property_filter::sortable)
-            {
-                return condition_error(
-                    "この項目では並べ替えできません。取引の項目から選び直してください。",
-                );
-            }
-        }
-    }
     if params.all_deals {
         let defs = match tokio::time::timeout(
             CRM_REQUEST_DEADLINE,
@@ -1938,6 +1921,45 @@ pub(super) async fn get_call_queue(
         params.all_stages.dedup();
         if params.stages.iter().any(|s| !params.all_stages.contains(s)) {
             return bad_param("stage");
+        }
+    }
+    if !params.property_groups.is_empty() || params.custom_sort.is_some() {
+        let entry = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.catalog.get(&client)).await
+        {
+            Ok(Ok((entry, _))) => entry,
+            Ok(Err(e)) => return hubspot_error_response(&e),
+            Err(_) => return timeout_response(),
+        };
+        let value_scope = condition_value_scope(&params);
+        for group in &params.property_groups {
+            let mut fs = Vec::new();
+            for c in group {
+                match super::queue_property_filter::resolve(
+                    c,
+                    entry.property("deals", &c.property),
+                    now,
+                    &value_scope,
+                ) {
+                    Ok(f) => fs.push(f),
+                    Err(message) => return condition_error(message),
+                }
+            }
+            params.property_filter_groups.push(fs);
+        }
+        params.property_filters = params
+            .property_filter_groups
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        if let Some((property, _)) = &params.custom_sort {
+            if !entry
+                .property("deals", property)
+                .is_some_and(super::queue_property_filter::sortable)
+            {
+                return condition_error(
+                    "この項目では並べ替えできません。取引の項目から選び直してください。",
+                );
+            }
         }
     }
     // 5) cursor (署名・条件・有効期限。HubSpot は呼ばない)

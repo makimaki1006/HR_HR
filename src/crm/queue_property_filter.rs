@@ -59,6 +59,17 @@ pub fn parse_groups(raw: &str) -> Result<Vec<Vec<PropertyCondition>>, &'static s
     Ok(gs)
 }
 
+/// 選択肢がプロパティ定義の外にある項目の「選べる値」。
+/// `dealstage` はパイプラインごとに違うので、いま選んでいるパイプラインのステージ ID だけを受け付ける。
+/// `pipeline` は架電キューで選べるパイプラインの ID だけ。担当者を選ぶ型 (`owner_ref`) は数字の ID。
+#[derive(Debug, Clone, Default)]
+pub struct ValueScope {
+    /// 選んだパイプラインのステージ ID
+    pub stages: Vec<String>,
+    /// 許可されたパイプラインの ID
+    pub pipelines: Vec<String>,
+}
+
 pub fn sortable(p: &CrmCatalogProperty) -> bool {
     matches!(
         p.property_type.as_str(),
@@ -71,6 +82,7 @@ pub fn resolve(
     c: &PropertyCondition,
     def: Option<&CrmCatalogProperty>,
     now: DateTime<Utc>,
+    scope: &ValueScope,
 ) -> Result<Value, &'static str> {
     shape(std::slice::from_ref(c))?;
     let p = def.ok_or("選んだ項目は取引の一覧にありません。項目を選び直してください。")?;
@@ -154,11 +166,13 @@ pub fn resolve(
         return Ok(json!({"propertyName":p.name,"operator":op}));
     }
     if p.property_type == "enumeration" {
-        if values.is_empty()
-            || values
-                .iter()
-                .any(|v| !p.options.iter().any(|o| &o.value == v))
-        {
+        let known = |v: &String| match p.name.as_str() {
+            "dealstage" => scope.stages.contains(v),
+            "pipeline" => scope.pipelines.contains(v),
+            _ if p.owner_ref => v.len() <= 20 && v.chars().all(|ch| ch.is_ascii_digit()),
+            _ => p.options.iter().any(|o| &o.value == v),
+        };
+        if values.is_empty() || values.iter().any(|v| !known(v)) {
             return Err("一覧にある選択肢を 1 つ以上選んでください。");
         }
         return Ok(json!({"propertyName":p.name,"operator":op,"values":values}));
@@ -223,7 +237,7 @@ pub fn validate(
     c: &PropertyCondition,
     def: Option<&CrmCatalogProperty>,
 ) -> Result<Value, &'static str> {
-    resolve(c, def, Utc::now())
+    resolve(c, def, Utc::now(), &ValueScope::default())
 }
 
 fn bounded(gs: Vec<Value>) -> Result<Vec<Value>, &'static str> {
@@ -417,6 +431,76 @@ mod v2_tests {
             property: "sample_value".into(),
             operator: op.into(),
             values: vs.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+    fn resolve(
+        c: &PropertyCondition,
+        def: Option<&CrmCatalogProperty>,
+        now: DateTime<Utc>,
+    ) -> Result<Value, &'static str> {
+        super::resolve(c, def, now, &ValueScope::default())
+    }
+    fn stage_def(name: &str, owner_ref: bool) -> CrmCatalogProperty {
+        let mut p = prop("enumeration");
+        p.name = name.into();
+        p.owner_ref = owner_ref;
+        // 全パイプライン分が混ざった選択肢が入っていても、値の範囲には使わない
+        p.options[0].value = "mixed-all-pipelines".into();
+        p
+    }
+    fn scope() -> ValueScope {
+        ValueScope {
+            stages: vec!["s1".into(), "s2".into()],
+            pipelines: vec!["p1".into()],
+        }
+    }
+    fn named(name: &str, op: &str, vs: &[&str]) -> PropertyCondition {
+        PropertyCondition {
+            property: name.into(),
+            operator: op.into(),
+            values: vs.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+    fn scoped(
+        name: &str,
+        op: &str,
+        vs: &[&str],
+        def: &CrmCatalogProperty,
+    ) -> Result<Value, &'static str> {
+        super::resolve(&named(name, op, vs), Some(def), now(), &scope())
+    }
+    #[test]
+    fn 取引ステージは選んだパイプラインのステージだけ受け付ける() {
+        let d = stage_def("dealstage", false);
+        assert_eq!(
+            scoped("dealstage", "IN", &["s1", "s2"], &d).unwrap(),
+            json!({"propertyName":"dealstage","operator":"IN","values":["s1","s2"]})
+        );
+        assert_eq!(
+            scoped("dealstage", "NOT_IN", &["s2"], &d).unwrap()["operator"],
+            "NOT_IN"
+        );
+        assert_eq!(
+            scoped("dealstage", "NOT_HAS_PROPERTY", &[], &d).unwrap()["operator"],
+            "NOT_HAS_PROPERTY"
+        );
+        // 範囲外 (別パイプラインのステージ・定義の選択肢だけにある値) は拒否
+        for bad in [&["s3"][..], &["mixed-all-pipelines"], &["s1", "s3"]] {
+            assert!(scoped("dealstage", "IN", bad, &d).is_err());
+        }
+    }
+    #[test]
+    fn パイプラインと担当者の値の範囲() {
+        let pl = stage_def("pipeline", false);
+        assert!(scoped("pipeline", "IN", &["p1"], &pl).is_ok());
+        assert!(scoped("pipeline", "IN", &["p9"], &pl).is_err());
+        let ow = stage_def("hubspot_owner_id", true);
+        assert_eq!(
+            scoped("hubspot_owner_id", "IN", &["123456"], &ow).unwrap()["values"],
+            json!(["123456"])
+        );
+        for bad in ["abc", "12 3", "1.5"] {
+            assert!(scoped("hubspot_owner_id", "IN", &[bad], &ow).is_err());
         }
     }
     fn now() -> DateTime<Utc> {

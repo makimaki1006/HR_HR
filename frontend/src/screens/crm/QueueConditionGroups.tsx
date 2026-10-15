@@ -6,9 +6,11 @@ import { conditionLabel, MAX_CONDITION_GROUPS, parsePropertySort, sortable } fro
 import type { PropertyCondition } from './queuePropertyFilter';
 import type { QueueFilters, QueueSort } from './queueModel';
 import { remainingConditions } from './queueConditionBudget';
+import { NO_VALUE_CHOICES, valueLabel } from './queueValueChoices';
+import type { ValueChoiceSource } from './queueValueChoices';
 
-export function QueueGroupEditor({ catalog, groups, filters, onChange, onReload, focusAdd = false, onFocusAddDone }: {
-  catalog: CatalogState; groups: PropertyCondition[][]; filters: QueueFilters; onChange: (gs: PropertyCondition[][]) => void; onReload: () => void;
+export function QueueGroupEditor({ catalog, groups, filters, choices = NO_VALUE_CHOICES, onChange, onReload, focusAdd = false, onFocusAddDone }: {
+  catalog: CatalogState; groups: PropertyCondition[][]; filters: QueueFilters; choices?: ValueChoiceSource; onChange: (gs: PropertyCondition[][]) => void; onReload: () => void;
   /** バーの「条件を追加」から来た: 最後のまとまりの項目検索欄を開いてフォーカスする */
   focusAdd?: boolean; onFocusAddDone?: () => void;
 }) {
@@ -32,11 +34,11 @@ export function QueueGroupEditor({ catalog, groups, filters, onChange, onReload,
       {i > 0 && <p className="cq-or-label">または</p>}
       <section className="cq-condition-group" aria-label={`まとまり ${String(i + 1)}`}><div className="cq-group-heading"><strong>まとまり {i + 1}</strong>
         {groups[i] && <button type="button" className="cq-btn cq-btn-quiet" onClick={() => { onChange(groups.filter((_, n) => n !== i)); setEditing(null); setDraft(false); }}>このまとまりを外す</button>}</div>
-        <ul className="cq-chips">{cs.map((c, j) => { const label = conditionLabel(c, catalog.phase === 'ready' ? catalog.index.deals.get(c.property)?.prop : undefined);
+        <ul className="cq-chips">{cs.map((c, j) => { const prop = catalog.phase === 'ready' ? catalog.index.deals.get(c.property)?.prop : undefined; const label = conditionLabel(c, prop, v => (prop ? valueLabel(prop, v, choices) : undefined));
           return <li key={j} className="cq-chip"><span>{label}</span><button type="button" aria-label={`まとまり ${String(i + 1)} の「${label}」を外す`}
             onClick={() => { onChange(groups.map((g, n) => n === i ? g.filter((_, k) => k !== j) : g).filter(g => g.length > 0)); setEditing(null); setDraft(false); }}>×</button></li>; })}</ul>
         <div className="cq-group-actions"><button type="button" className="cq-btn" disabled={remaining === 0} onClick={() => { setEditing(i); }}>＋ 条件を追加</button><small>条件はあと {remaining} 個です</small></div>
-        {editing === i && remaining > 0 && <QueuePropertyFilter key={i} catalog={catalog} count={cs.length} remaining={remaining} onReload={onReload} onAdd={c => {
+        {editing === i && remaining > 0 && <QueuePropertyFilter key={i} catalog={catalog} count={cs.length} choices={choices} remaining={remaining} onReload={onReload} onAdd={c => {
           const next = groups.map(g => [...g]); if (next[i]) next[i].push(c); else next.push([c]);
           onChange(next); setEditing(null); setDraft(false);
         }} />}
