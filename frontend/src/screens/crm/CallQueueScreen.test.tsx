@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { toLive } from './barMenuTestUtil';
+import { openQueueToolbar, toLive } from './barMenuTestUtil';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../../api/client';
@@ -131,6 +131,7 @@ describe('CallQueueScreen', () => {
   it('restores every condition from the URL and sends exactly those to the fetcher', () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue&q=架空&stage=1095387445&due=today&sort=next_call_desc&next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30" />);
+    openQueueToolbar();
     expect(calls[0]?.filters).toEqual(parseFilters('?q=架空&stage=1095387445&due=today&sort=next_call_desc&next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30'));
     expect((screen.getByLabelText<HTMLSelectElement>('並び替え')).value).toBe('next_call_desc');
     expect((screen.getAllByRole('textbox', { name: 'から', hidden: true })[0] as HTMLInputElement).value).toBe('2026/10/01');
@@ -145,6 +146,7 @@ describe('CallQueueScreen', () => {
   it('changing the sort, due toggle, stage and dates aborts the old request and refetches with the new condition', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={okPipelinesFetch} initialSearch="?view=queue" />);
+    openQueueToolbar();
     await waitFor(() => { expect(screen.getByRole('button', { name: 'パイプライン' }).textContent).toContain('bpo_リクロジ'); });
     fireEvent.change(screen.getByLabelText('並び替え'), { target: { value: 'last_call_asc' } });
     expect(calls).toHaveLength(2);
@@ -314,6 +316,7 @@ describe('calling cockpit layout', () => {
   it('the 「…」 menu at the end of the filter bar: ARIA menu button, two items, Esc / outside click close it, arrow keys move, 架空サンプルを表示 switches mode', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="" />);
+    openQueueToolbar();
     await ready(calls);
     const bar = screen.getByRole('form', { name: '絞り込みと並び替え' });
     const btn = within(bar).getByRole('button', { name: 'その他の操作' });
@@ -359,6 +362,7 @@ describe('calling cockpit layout', () => {
   it('詳細条件のパネルは、外側のクリックと Esc で閉じる。パネルの中・日付選択の中のクリックでは閉じない', () => {
     const { fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    openQueueToolbar();
     const panel = document.getElementById('cq-advanced');
     const toggle = screen.getByRole('button', { name: /^詳細条件/ });
     fireEvent.click(toggle);
@@ -385,6 +389,7 @@ describe('calling cockpit layout', () => {
   it('バーの「条件を追加」はパネルを開いて項目の検索欄へフォーカスする。「詳細条件」は開くだけで、検索欄は出さない', async () => {
     const { fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    openQueueToolbar();
     fireEvent.click(screen.getByRole('button', { name: /^詳細条件/ }));
     expect(screen.queryByRole('combobox', { name: '項目を検索' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /^詳細条件/ }));
@@ -395,6 +400,7 @@ describe('calling cockpit layout', () => {
   it('詳細条件 opens and closes the stage / date panel; the button counts the detailed conditions in use', () => {
     const { fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?stage=1095387445&stage=1095387443&next_from=2026-10-01" />);
+    openQueueToolbar();
     const toggle = screen.getByRole('button', { name: /^詳細条件/ });
     const panel = document.getElementById('cq-advanced');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -412,6 +418,7 @@ describe('calling cockpit layout', () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={okPipelinesFetch}
       initialSearch="?q=架空&stage=1095387442&stage=1095387445&due=today&next_from=2026-10-01&last_to=2026-09-30&sort=next_call_desc" />);
+    openQueueToolbar();
     const chips = () => within(screen.getByRole('list', { name: '適用中の条件' })).getAllByRole('listitem').map(li => li.querySelector('span')?.textContent);
     // ステージ名を読むまでは件数、読めたら名前
     expect(chips()).toContain('ステージ: 2 件を選択');
@@ -486,6 +493,7 @@ describe('calling cockpit layout', () => {
     const { calls, fetcher } = deferredFetcher();
     const detail = detailStub();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
+    openQueueToolbar();
     await ready(calls, [makeItem('1'), makeItem('2')]);
     const iframe = screen.getByTitle('Zoom Phone');
     fireEvent.click(screen.getByText('架空会社1'));
@@ -727,6 +735,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
   it('lists the allowed pipelines with HubSpot names (table names until loaded); switching resets the stages and refetches with pipeline=…', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={okPipelinesFetch} initialSearch="?stage=1095387445&due=today" />);
+    openQueueToolbar();
     const select = screen.getByRole('button',{name:'パイプライン'});
     expect(select.textContent).toContain('bpo_リクロジ');
     fireEvent.click(select);
@@ -755,6 +764,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
     const { calls, fetcher } = deferredFetcher();
     const pipelinesFetcher = () => Promise.resolve({ ok: true as const, data: pipelinesResponse([{ id: '1500000001', label: '新しいステージ' }]) });
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={pipelinesFetcher} initialSearch="" />);
+    openQueueToolbar();
     await waitFor(() => { expect(screen.getByRole('button', { name: 'パイプライン' }).textContent).toContain('bpo_リクロジ'); });
     openDetails();
     fireEvent.click(screen.getByRole('button', { name: 'ステージ（16件選択）' }));
@@ -801,6 +811,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
   it('the stage checklist closes on Esc and on outside click without applying', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="" />);
+    openQueueToolbar();
     await waitFor(() => { expect(screen.getByRole('button', { name: 'パイプライン' }).textContent).toContain('bpo_リクロジ'); });
     openDetails();
     const before = calls.length;
@@ -819,6 +830,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
 
   it('fixture mode has a second fictional pipeline: always-shown and due stages appear, excluded and future ones do not', async () => {
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} initialSearch="?mode=fixture" />);
+    openQueueToolbar();
     await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
     fireEvent.click(screen.getByRole('button',{name:'パイプライン'}));
     const menu=screen.getByRole('region',{name:'パイプラインの選択'});
@@ -850,6 +862,7 @@ it('上の要約にまとまりの全条件と「または」を並べ、外す�
   const groups=[[{property:'amount',operator:'GTE',values:['8000']},{property:'bpo_20',operator:'NOT_HAS_PROPERTY',values:[]}],[{property:'amount',operator:'LTE',values:['2000']}]];
   const {calls,fetcher}=deferredFetcher();
   render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch={'?condition_groups='+encodeURIComponent(JSON.stringify(groups))} />);
+    openQueueToolbar();
   await ready(calls);
   const summary=await screen.findByRole('list',{name:'適用中の条件'});
   await waitFor(()=>{expect(within(summary).getAllByRole('listitem').map(li=>li.textContent)).toEqual(['金額 以上 8,000×','最終架電日 空×','または','金額 以下 2,000×']);});
@@ -864,6 +877,7 @@ it('上の要約にまとまりの全条件と「または」を並べ、外す�
   it('「条件をクリア」は条件が何もないときは出さず、条件があるときだけ出る', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    openQueueToolbar();
     await ready(calls, [makeItem('1')]);
     expect(screen.queryByRole('button', { name: '条件をクリア' })).toBeNull();
     fireEvent.change(screen.getByLabelText('キーワード(会社名・案件名)'), { target: { value: '架空' } });

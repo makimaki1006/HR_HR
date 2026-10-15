@@ -1,3 +1,4 @@
+import { openQueueToolbar } from './helpers/crm_toolbar';
 import { expect, Page } from '@playwright/test';
 import { test } from '@playwright/test';
 import { login } from './helpers/login';
@@ -147,6 +148,7 @@ test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
     await page.getByRole('button', { name: '「活動ログ」の移動' }).click();
     await page.getByRole('menu', { name: '「活動ログ」の移動' }).getByRole('menuitem', { name: '右へ移動' }).click();
     await expect(page.getByRole('tablist', { name: '右の列のパネル' }).getByRole('tab', { name: '活動ログ' })).toHaveAttribute('aria-selected', 'true');
+    await openQueueToolbar(page);
     await page.getByRole('button', { name: 'その他の操作' }).click();
     await page.getByRole('menuitem', { name: '元の配置に戻す' }).click();
     await expect(page.getByRole('tablist', { name: '中央の列のパネル' }).getByRole('tab', { name: '活動ログ' })).toBeVisible();

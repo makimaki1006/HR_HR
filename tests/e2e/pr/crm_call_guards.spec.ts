@@ -1,3 +1,4 @@
+import { openQueueToolbar } from './helpers/crm_toolbar';
 import { expect, Page, Route, test } from '@playwright/test';
 import { login } from './helpers/login';
 import { startWithResultPanelInFront } from './helpers/crm_layout';
@@ -137,6 +138,7 @@ test.describe('CRM 架電画面 (実データの表示、API は架空の応答)
     await expect(recordBtn(page)).toHaveAttribute('aria-disabled', 'false');
 
     // 条件を変えて一覧を読み直している間は保存できない
+    await openQueueToolbar(page);
     await page.getByRole('checkbox', { name: '次回日が来たものだけ' }).check();
     await expect(page.getByText('読み込み中…', { exact: true })).toBeVisible();
     await expect.poll(() => m.held.length).toBe(1);

@@ -1,3 +1,4 @@
+import { openQueueToolbar } from './helpers/crm_toolbar';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
@@ -56,6 +57,7 @@ test('記録済みの印は短く、詳しい説明は title に。選んでい�
 test('詳細条件は外側のクリックと Esc で閉じ、パネルの中では閉じない。「条件を追加」は検索欄へフォーカスする', async ({ page }) => {
   await open(page, 1512, 742);
   const panel = page.getByRole('dialog', { name: '詳細条件', exact: true });
+  await openQueueToolbar(page);
   await page.getByRole('button', { name: /^詳細条件/ }).click();
   await expect(panel).toBeVisible();
   await expect(page.getByLabel('項目を検索', { exact: true })).toHaveCount(0);
@@ -71,10 +73,11 @@ test('詳細条件は外側のクリックと Esc で閉じ、パネルの中で
   await expect(panel).toBeVisible();
 
   // 外側のクリックで閉じる
-  await page.locator('.cq-list-head').click({ position: { x: 5, y: 5 } });
+  await page.locator('.cq-list-scroll').click({ position: { x: 5, y: 120 } });
   await expect(panel).toBeHidden();
 
   // 「条件を追加」: 開いて検索欄にフォーカス。条件は追加時に URL へ入るので、閉じても失われない
+  await openQueueToolbar(page);
   await page.getByRole('button', { name: '条件を追加', exact: true }).click();
   await expect(panel).toBeVisible();
   await expect(page.getByLabel('項目を検索', { exact: true })).toBeFocused();

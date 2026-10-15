@@ -1,3 +1,4 @@
+import { openQueueToolbar } from './helpers/crm_toolbar';
 import { expect, test } from '@playwright/test';
 import { login } from './helpers/login';
 
@@ -9,7 +10,7 @@ for (const size of [{ width: 760, height: 700 }, { width: 390, height: 800 }]) {
   test(`filter bar at ${size.width}px: no top bar, 「…」 menu in view, no horizontal scroll, owner list closes`, async ({ page }) => {
     await page.setViewportSize(size);
     await login(page);
-    await page.goto('/app/crm?mode=fixture&pipeline=fx-sample');
+    await page.goto('/app/crm?mode=fixture&pipeline=fx-sample');await openQueueToolbar(page);
     await expect(page.getByRole('status', { name: 'データの種類' })).toContainText('架空サンプル');
 
     await expect(page.getByRole('heading', { name: '架電', level: 1 })).toHaveCount(0);

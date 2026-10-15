@@ -1,3 +1,4 @@
+import { openQueueToolbar } from './helpers/crm_toolbar';
 import { expect, Page, test } from '@playwright/test';
 import { login } from './helpers/login';
 import { DOCK_STORAGE_KEY } from './helpers/crm_layout';
@@ -106,6 +107,7 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     expect(Math.abs((await colWidth(page, 0)) - leftDragged)).toBeLessThanOrEqual(2);
 
     // 元の配置に戻す
+    await openQueueToolbar(page);
     await page.getByRole('button', { name: 'その他の操作' }).click();
     await page.getByRole('menuitem', { name: '元の配置に戻す' }).click();
     await expect(tablist(page, '左').getByRole('tab')).toHaveText(['取引一覧', 'プロパティ']);
@@ -143,6 +145,7 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     await expect(tablist(page, '中央').getByRole('tab')).toHaveText(['活動ログ', '架電結果の入力', '求人検索・リンク先']);
     await expect(tablist(page, '中央').getByRole('tab', { name: '求人検索・リンク先' })).toHaveAttribute('aria-selected', 'true');
     // 元の配置に戻す
+    await openQueueToolbar(page);
     await page.getByRole('button', { name: 'その他の操作' }).click();
     await page.getByRole('menuitem', { name: '元の配置に戻す' }).click();
     await expect(tablist(page, '右')).toHaveCount(0);

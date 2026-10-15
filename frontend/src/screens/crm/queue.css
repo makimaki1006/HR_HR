@@ -373,6 +373,8 @@
   .cq-linkframe { flex: none; height: 75vh; }
 }
 @media (max-width: 560px) {
+  /* 成績の比較文も項目内で折り返し、細い画面からはみ出さない */
+  .cq-app .tm-item { flex-wrap: wrap; }
   .cq-app .cq-search { max-width: none; flex-basis: 100%; }
   .cq-owner { flex: 1 1 120px; }
   .cq-app .cq-sort { flex: 1 1 160px; }
@@ -478,3 +480,13 @@
 .cq-searchmode-label { color: var(--cq-sub); margin-right: 2px; }
 .cq-searchmode button { border: 1px solid var(--cq-line, #c8d0d8); background: transparent; border-radius: 10px; padding: 1px 10px; font-size: 12px; cursor: pointer; }
 .cq-searchmode button.is-active { border-color: var(--cq-accent); background: var(--cq-accent-weak); color: #0a5a61; font-weight: 600; }
+
+/* 条件の要約は 24px。操作欄を開いても一覧の位置を変えない */
+.cq-toolbar { position: relative; flex: none; z-index: 25; background: var(--cq-surface); }
+.cq-toolbar-summary { box-sizing: border-box; width: 100%; height: 24px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--cq-line); background: var(--cq-surface); text-align: left; font-size: 12px; cursor: pointer; }
+.cq-toolbar-summary > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cq-toolbar-action { flex: none; margin-left: auto; color: var(--cq-accent); font-size: 11px; }
+.cq-toolbar-summary:hover, .cq-toolbar-summary[aria-pressed="true"] { background: var(--cq-accent-weak); }
+.cq-toolbar-summary:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: -2px; }
+.cq-toolbar-controls { position: absolute; top: 100%; left: 0; right: 0; box-shadow: 0 6px 12px #1f2a3526; }
+.cq-toolbar-controls[hidden] { display: none; }

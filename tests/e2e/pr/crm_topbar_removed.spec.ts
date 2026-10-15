@@ -1,3 +1,4 @@
+import { openQueueToolbar } from './helpers/crm_toolbar';
 import { expect, test } from '@playwright/test';
 import { login } from './helpers/login';
 
@@ -10,7 +11,7 @@ test.describe('CRM 架電画面: 上のバーを無くした', () => {
 
   test('架空サンプルの帯と「…」メニュー: 帯の文言・実データに戻す・メニューの 2 項目', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/app/crm?mode=fixture&pipeline=fx-sample');
+    await page.goto('/app/crm?mode=fixture&pipeline=fx-sample');await openQueueToolbar(page);
     const banner = page.getByRole('status', { name: 'データの種類' });
     await expect(banner).toContainText('架空サンプルを表示中です。表示内容はすべて架空で、HubSpot には接続しません。');
     await expect(page.getByRole('heading', { name: '架電', level: 1 })).toHaveCount(0);

@@ -1,3 +1,4 @@
+import { QueueToolbar } from './QueueToolbar';
 import { QueuePipelinePicker } from './QueuePipelinePicker';
 import { selectedPipelineIds, withPipelines, withTarget, sortsFor } from './queueModel';
 import { SavedViews } from './SavedViews';
@@ -26,7 +27,7 @@ import {
   queueCountText, screenSearch, withPipeline,
 } from './queueModel';
 import type { QueueFilters, QueueMode, QueueSort } from './queueModel';
-import { DEFAULT_PIPELINE_ID, findPipeline, pipelinesFor, stageName } from './queuePipelines';
+import { DEFAULT_PIPELINE_ID, findPipeline, pipelineName, pipelinesFor, stageName } from './queuePipelines';
 import type { QueuePipelineDef } from './queuePipelines';
 import { StageFilter } from './StageFilter';
 import { useQueuePipelines } from './useQueuePipelines';
@@ -840,6 +841,18 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     const d = defs.state.defs;
     return (p, v) => optionLabel(d[p], v);
   }, [defs.state]);
+  const closeToolbar = useCallback(() => { setPanelOpen(false); setSortOpen(false); }, []);
+  const summaryOwner = filters.owner || effectiveOwner;
+  const toolbarSummary = [
+    selectedPipelineIds(filters).map(id => { const p = pipelines.pipelines.find(p => p.id === id) ?? findPipeline(id); return p ? pipelineName(p) : 'パイプラインを確認'; }).join('、'),
+    filters.target === 'all' ? 'すべての取引' : '架電対象だけ',
+    summaryOwner === 'all' ? '全員分' : summaryOwner ? ownerScopeLabel(summaryOwner, ownerNames) : '担当を確認中',
+    filters.sort === 'default' ? '標準' : sortsFor(filters).find(s => s.value === filters.sort)?.label ?? `${catalog.state.phase === 'ready' ? catalog.state.index.deals.get(parsePropertySort(filters.sort)?.property ?? '')?.prop.label ?? '選んだ項目' : '選んだ項目'} ${parsePropertySort(filters.sort)?.direction === 'desc' ? '降順' : '昇順'}`,
+    filters.q.trim() ? `検索「${filters.q.trim()}」` : '',
+    filters.due === 'today' ? '次回日が来たものだけ' : '',
+    detailCount > 0 ? `詳細条件 ${String(detailCount)}` : '',
+    viewName !== null ? `ビュー: ${viewName}` : '',
+  ].filter(Boolean).join(' · ');
   const anyFocusable = state.items.some(i => i.deal_id === selectedId);
 
   // 詳細を読み込む間は、一覧の行がすでに持っている値で見出しを出す (詳細が届いたら入れ替える)
@@ -947,6 +960,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         title={inCall ? undefined : '実際の HubSpot のデータに戻します'}>実データに戻す</button>
     </div>}
 
+    <QueueToolbar summary={toolbarSummary} keepOpen={panelOpen || sortOpen} onClose={closeToolbar}>
     <form ref={filterBarRef} className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
       <div className="cq-bar">
         <QueuePipelinePicker pipelines={pipelines.pipelines} selected={selectedPipelineIds(filters)} onApply={ids=>{setFilters(prev=>withPipelines(prev,ids));}} />
@@ -991,6 +1005,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         <SavedViews query={currentQuery} search={search} fixture={mode === 'fixture'} onNavigate={navigateView} onActiveName={setViewName} />
       </div>
     </form>
+    </QueueToolbar>
     <TodayMetrics fixture={mode === 'fixture'} settings={{ catalog: catalog.state, onReloadCatalog: catalog.reload, onOpenChange: setMetricsSettingsOpen,
       choices: { pipelines: pipelines.pipelines, selectedPipelineIds: pipelines.pipelines.map(p => p.id), allDeals: false, owners: owners.state } }} />
     {sortOpen && <QueueSortDialog onClose={() => { setSortOpen(false); }}><PropertySortPicker key={filters.sort} catalog={catalog.state} sort={filters.sort} onChange={sort => { update({ sort }); setSortOpen(false); }} /></QueueSortDialog>}

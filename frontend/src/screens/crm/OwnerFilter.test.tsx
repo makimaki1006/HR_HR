@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { openQueueToolbar } from './barMenuTestUtil';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError, ApiNetworkError } from '../../api/client';
@@ -31,6 +32,7 @@ function ownersStub(result: ApiResult<CrmOwnersResponse>) {
 async function renderAdmin(ownersFetcher: OwnersFetch, search = '?view=queue') {
   const q = deferredFetcher();
   render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={q.fetcher} ownersFetcher={ownersFetcher} initialSearch={search} />);
+  openQueueToolbar();
   const first = q.calls[0];
   await act(async () => {
     first?.resolve({ ok: true, data: makeResponse(first.filters, [makeItem('1', { owner_id: '102' })]) });
@@ -185,6 +187,7 @@ describe('owner picker (everyone)', () => {
     const fetcher = ownersStub(okOwners());
     const q = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={q.fetcher} ownersFetcher={fetcher} initialSearch="?view=queue" />);
+    openQueueToolbar();
     const first = q.calls[0];
     const resp = makeResponse(DEFAULT_FILTERS, [makeItem('1')]);
     await act(async () => {
@@ -212,6 +215,7 @@ describe('owner picker (everyone)', () => {
   it('asks to pick an owner (not a dead end) when the person has no matching HubSpot owner, then loads after choosing', async () => {
     const q = deferredFetcher();
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={q.fetcher} ownersFetcher={ownersStub(okOwners())} initialSearch="?view=queue" />);
+    openQueueToolbar();
     await act(async () => {
       q.calls[0]?.resolve({ ok: false, error: new ApiHttpError(409, { error_kind: 'owner_not_resolved' }) });
       await Promise.resolve();
