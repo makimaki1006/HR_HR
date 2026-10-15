@@ -1,7 +1,14 @@
 import { fireEvent, screen } from '@testing-library/react';
 
+/** 条件を変更する操作欄を固定して開く */
+export function openQueueToolbar() {
+  const toggle = screen.getByRole('button', { name: /^条件を変更:/ });
+  if (toggle.getAttribute('aria-pressed') !== 'true') fireEvent.click(toggle);
+}
+
 /** 絞り込みバー右端の「…」メニューを開く */
 export function openBarMenu(): HTMLElement {
+  openQueueToolbar();
   fireEvent.click(screen.getByRole('button', { name: 'その他の操作' }));
   return screen.getByRole('menu', { name: 'その他の操作' });
 }

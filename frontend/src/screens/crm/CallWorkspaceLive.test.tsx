@@ -5,7 +5,7 @@ import { ApiHttpError } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
-import { toFixture, toLive } from './barMenuTestUtil';
+import { openQueueToolbar, toFixture, toLive } from './barMenuTestUtil';
 import { CallQueueScreen, ZOOM_DRAWER_KEY, bindsToDial } from './CallQueueScreen';
 import { ZOOM_LOGIN_DONE, ZOOM_LOGIN_REQUIRED, ZOOM_NO_RESPONSE } from './DealDetail';
 import type { DialedFor } from './CallQueueScreen';
@@ -449,7 +449,7 @@ describe('bindsToDial', () => {
 
 describe('Zoom Phone と画面の切り替え', () => {
   const fixtureItem = () => screen.getByRole('menuitem', { name: '架空サンプルを表示' });
-  const openMenu = () => { fireEvent.click(screen.getByRole('button', { name: 'その他の操作' })); };
+  const openMenu = () => { openQueueToolbar(); fireEvent.click(screen.getByRole('button', { name: 'その他の操作' })); };
 
   it('the switch to sample data is disabled during a call (it would close the phone frame and end the call); after it, a fresh frame starts from loading', async () => {
     const { calls, fetcher } = detailFetcher();

@@ -1,3 +1,4 @@
+import { openQueueToolbar } from './pr/helpers/crm_toolbar';
 import {expect,test} from '@playwright/test';
 import type {Page} from '@playwright/test';
 import path from 'node:path';
@@ -5,6 +6,7 @@ const entry='/static/app/__views_preview';
 const screenshot=async(page:Page,name:string)=>{if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`views-${name}.png`),fullPage:true});};
 /** ビューの機能は「詳細条件」で開く右のパネルの中の「ビュー」のまとまりにある */
 const openPanel=async(page:Page)=>{
+  await openQueueToolbar(page);
   const panel=page.getByRole('dialog',{name:'詳細条件'});
   if(!(await panel.isVisible()))await page.getByRole('button',{name:/^詳細条件/u}).click();
   await expect(panel).toBeVisible();
