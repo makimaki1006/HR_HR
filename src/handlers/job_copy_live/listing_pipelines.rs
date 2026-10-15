@@ -23,7 +23,7 @@ fn fallback_label(id: &str) -> Option<&'static str> {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct StageDef {
     pub(super) label: String,
-    /// 完了（受注・失注など）のステージ。進行中の案件を先に並べるのに使う。
+    /// 完了（受注・失注など）のステージ。契約中の案件を先に並べるのに使う。
     pub(super) closed: bool,
 }
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -66,7 +66,7 @@ pub(super) fn parse_defs(data: &Value) -> Defs {
 }
 
 /// 定義は一度読んで使い回す。読めなかったときは空（名前は呼び名とステージ未取得で出す）。
-async fn load_defs(service: &JobReadService) -> Arc<Defs> {
+pub(super) async fn load_defs(service: &JobReadService) -> Arc<Defs> {
     let mut slot = service.listing_index.pipeline_defs.lock().await;
     if let Some(cached) = slot.as_ref() {
         if cached.at.elapsed() < DEFS_TTL {
@@ -98,8 +98,10 @@ pub(super) struct DealRow {
     pub(super) pipeline_id: String,
     pub(super) pipeline_label: String,
     pub(super) stage_label: Option<String>,
-    /// 完了していない（進行中の）ステージか。ステージが分からないときは進行中として扱う。
+    /// 完了していない（契約中の）ステージか。ステージが分からないときは契約中として扱う。
     pub(super) active: bool,
+    /// その顧客の「今の取引」。契約中の取引のうち作成日が最新のもの。契約中が無ければ最新の取引。顧客ごとに 1 件だけ true。
+    pub(super) current: bool,
     pub(super) created_at: Option<String>,
     pub(super) contract_start: Option<String>,
     pub(super) contract_end: Option<String>,
@@ -111,7 +113,7 @@ pub(super) struct DealRow {
     pub(super) recent_cost: Option<i64>,
 }
 
-/// 進行中を先に、同じなら作成日の新しい順。
+/// 契約中を先に、同じなら作成日の新しい順。
 pub(super) fn sort_deals(deals: &mut [DealRow]) {
     deals.sort_by(|a, b| {
         b.active
@@ -154,6 +156,23 @@ fn date_part(value: Option<&str>) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// ステージ名と「契約中か」。契約中の定義はここだけ: 完了（受注・失注など）のステージでなければ契約中。
+/// ステージが分からないときは契約中として扱う。ホームの顧客表と案件一覧が同じ定義を使う。
+pub(super) fn stage_state(
+    defs: &Defs,
+    pipeline: Option<&str>,
+    stage: Option<&str>,
+) -> (Option<String>, bool) {
+    let found = pipeline
+        .and_then(|p| defs.pipelines.get(p))
+        .zip(stage)
+        .and_then(|((_, stages), id)| stages.get(id));
+    (
+        found.map(|s| s.label.clone()),
+        found.is_none_or(|s| !s.closed),
+    )
+}
+
 pub(super) fn build_rows(
     records: &[Record],
     defs: &Defs,
@@ -165,9 +184,8 @@ pub(super) fn build_rows(
         .filter_map(|record| {
             let pipeline = record.value("pipeline")?;
             let known = defs.pipelines.get(pipeline);
-            let stage = record
-                .value("dealstage")
-                .and_then(|id| known.and_then(|(_, stages)| stages.get(id)));
+            let (stage_label, active) =
+                stage_state(defs, Some(pipeline), record.value("dealstage"));
             let (total, live, apps, cost) = counts(listings, &record.id);
             Some(DealRow {
                 id: record.id.clone(),
@@ -177,8 +195,9 @@ pub(super) fn build_rows(
                     .map(|(label, _)| label.clone())
                     .or_else(|| fallback_label(pipeline).map(str::to_owned))
                     .unwrap_or_else(|| pipeline.to_owned()),
-                stage_label: stage.map(|s| s.label.clone()),
-                active: stage.is_none_or(|s| !s.closed),
+                stage_label,
+                active,
+                current: false,
                 created_at: date_part(record.value("createdate")),
                 contract_start: date_part(record.value("contract_start_date")),
                 contract_end: date_part(record.value("contract_expiration_date")),
@@ -190,6 +209,10 @@ pub(super) fn build_rows(
         })
         .collect();
     sort_deals(&mut rows);
+    // 並びは「契約中を先に、作成日の新しい順」なので、先頭が今の取引。
+    if let Some(first) = rows.first_mut() {
+        first.current = true;
+    }
     rows
 }
 

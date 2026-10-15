@@ -103,6 +103,16 @@ pub(super) struct CompanyMap {
     at: Option<StdInstant>,
     pub(super) deal_company: BTreeMap<String, String>,
     pub(super) names: BTreeMap<String, Option<String>>,
+    /// 取引 ID → 名前・ステージ・作成日（納品管理の取引だけ）。顧客表の「契約中」と最新の案件に使う。
+    pub(super) deal_info: BTreeMap<String, DealInfo>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(super) struct DealInfo {
+    pub(super) name: Option<String>,
+    pub(super) stage_label: Option<String>,
+    /// 完了していないステージか（`pipelines::stage_state` の定義）。
+    pub(super) active: bool,
+    pub(super) created_at: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -128,8 +138,15 @@ pub(super) struct Card {
 pub(super) struct Customer {
     pub(super) company_id: String,
     pub(super) name: Option<String>,
+    /// 納品管理の案件の数（求人が結び付いたもの）。
     pub(super) deals: usize,
+    /// そのうち契約中（完了のステージでない）の数。
+    pub(super) active_deals: usize,
+    /// 作成日がいちばん新しい案件。
+    pub(super) latest_deal: Option<DealInfo>,
     pub(super) live_listings: usize,
+    /// 掲載中・掲載終了などを合わせた、結び付いた求人の数。
+    pub(super) total_listings: usize,
     pub(super) recent_apps: i64,
     pub(super) prev_apps: i64,
     pub(super) recent_cost: i64,
@@ -250,6 +267,7 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
     struct Agg {
         deals: BTreeSet<String>,
         live: usize,
+        total: usize,
         recent: i64,
         prev: i64,
         cost: i64,
@@ -273,6 +291,7 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
                     .filter(|deal| map.deal_company.get(*deal) == Some(company))
                     .cloned(),
             );
+            agg.total += 1;
             if is_live(row) {
                 agg.live += 1;
                 if let Some(perf) = &row.perf {
@@ -285,20 +304,51 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
     }
     let mut customers: Vec<Customer> = by_company
         .into_iter()
-        .map(|(id, agg)| Customer {
-            name: map.names.get(&id).cloned().flatten(),
-            company_id: id,
-            deals: agg.deals.len(),
-            live_listings: agg.live,
-            recent_apps: agg.recent,
-            prev_apps: agg.prev,
-            recent_cost: agg.cost,
-            cost_per_app: (agg.recent > 0).then(|| agg.cost / agg.recent),
+        .map(|(id, agg)| {
+            let infos: Vec<(&String, Option<&DealInfo>)> = agg
+                .deals
+                .iter()
+                .map(|deal| (deal, map.deal_info.get(deal)))
+                .collect();
+            let active_deals = infos
+                .iter()
+                .filter(|(_, info)| info.is_none_or(|i| i.active))
+                .count();
+            // 今の取引: 契約中のうち作成日が最新。契約中が無ければ最新の取引（案件一覧の current と同じ定義）。
+            let latest_deal = infos
+                .iter()
+                .filter_map(|(deal, info)| info.map(|i| (*deal, i)))
+                .max_by(|a, b| {
+                    a.1.active
+                        .cmp(&b.1.active)
+                        .then_with(|| a.1.created_at.cmp(&b.1.created_at))
+                        .then_with(|| b.0.cmp(a.0))
+                })
+                .map(|(_, info)| info.clone());
+            Customer {
+                name: map.names.get(&id).cloned().flatten(),
+                company_id: id,
+                deals: agg.deals.len(),
+                active_deals,
+                latest_deal,
+                live_listings: agg.live,
+                total_listings: agg.total,
+                recent_apps: agg.recent,
+                prev_apps: agg.prev,
+                recent_cost: agg.cost,
+                cost_per_app: (agg.recent > 0).then(|| agg.cost / agg.recent),
+            }
         })
         .collect();
+    // 契約中の案件がある顧客を先に、同じなら最新の案件の作成日が新しい順。
     customers.sort_by(|a, b| {
-        b.recent_apps
-            .cmp(&a.recent_apps)
+        (b.active_deals > 0)
+            .cmp(&(a.active_deals > 0))
+            .then_with(|| {
+                let created =
+                    |c: &Customer| c.latest_deal.as_ref().and_then(|d| d.created_at.clone());
+                created(b).cmp(&created(a))
+            })
             .then_with(|| a.name.cmp(&b.name))
             .then_with(|| a.company_id.cmp(&b.company_id))
     });
@@ -317,6 +367,27 @@ async fn load_companies(service: &JobReadService, index: &Index) -> Result<Compa
             return Ok(map.clone());
         }
     }
+    let defs = super::pipelines::load_defs(service).await;
+    let deal_info: BTreeMap<String, DealInfo> = index
+        .deals
+        .iter()
+        .map(|deal| {
+            let (stage_label, active) = super::pipelines::stage_state(
+                &defs,
+                deal.pipeline.as_deref(),
+                deal.stage.as_deref(),
+            );
+            (
+                deal.id.clone(),
+                DealInfo {
+                    name: deal.name.clone(),
+                    stage_label,
+                    active,
+                    created_at: deal.created_at.clone(),
+                },
+            )
+        })
+        .collect();
     let deal_ids: Vec<String> = index.deals.iter().map(|d| d.id.clone()).collect();
     let related = service
         .association_map("deals", &deal_ids, "companies")
@@ -349,6 +420,7 @@ async fn load_companies(service: &JobReadService, index: &Index) -> Result<Compa
         at: Some(StdInstant::now()),
         deal_company,
         names,
+        deal_info,
     };
     *slot = Some(map.clone());
     Ok(map)

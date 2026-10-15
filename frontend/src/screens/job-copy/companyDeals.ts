@@ -5,6 +5,8 @@ import type { ApiResult } from '../../api/client';
 export interface CompanyDeal {
   id: string; name: string | null;
   pipeline_id: string; pipeline_label: string; stage_label: string | null; active: boolean;
+  /** その顧客の「今の取引」（契約中で最新。契約中が無ければ最新の取引）。顧客ごとに 1 件。 */
+  current: boolean;
   created_at: string | null; contract_start: string | null; contract_end: string | null;
   /** 結び付いた求人。索引の準備前は null。 */
   listings_total: number | null; listings_live: number | null;

@@ -91,7 +91,7 @@ const PROPERTIES: &[&str] = &[
     INDEED_WEEKLY_PERF,
     AIRWORK_WEEKLY_PERF,
 ];
-#[derive(Default, Deserialize)]
+#[derive(Default, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ListingsQuery {
     prefecture: Option<String>,
@@ -396,7 +396,7 @@ async fn build_index(
         .collect();
     let mut names = BTreeMap::new();
     for chunk in deal_ids.chunks(100) {
-        let data = service.request_with_client(&background, "/crm/v3/objects/deals/batch/read", &[], Some(json!({"properties":["dealname","pipeline"],"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>()}))).await?;
+        let data = service.request_with_client(&background, "/crm/v3/objects/deals/batch/read", &[], Some(json!({"properties":["dealname","pipeline","dealstage","createdate"],"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>()}))).await?;
         let page: Page =
             serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
         if data
@@ -414,7 +414,14 @@ async fn build_index(
             if pipelines::is_delivery(record.value("pipeline")) {
                 names.insert(
                     record.id.clone(),
-                    record.value("dealname").map(str::to_owned),
+                    (
+                        record.value("dealname").map(str::to_owned),
+                        record.value("pipeline").map(str::to_owned),
+                        record.value("dealstage").map(str::to_owned),
+                        record
+                            .value("createdate")
+                            .map(|v| v.chars().take(10).collect()),
+                    ),
                 );
             }
         }
@@ -434,10 +441,16 @@ async fn build_index(
     }
     let deals = deal_counts
         .into_iter()
-        .map(|(id, count)| Deal {
-            name: names.remove(&id).flatten(),
-            id,
-            count,
+        .map(|(id, count)| {
+            let (name, pipeline, stage, created_at) = names.remove(&id).unwrap_or_default();
+            Deal {
+                name,
+                pipeline,
+                stage,
+                created_at,
+                id,
+                count,
+            }
         })
         .collect();
     records.shrink_to_fit();
@@ -558,6 +571,21 @@ fn matches_except_state(row: &Listing, query: &ListingsQuery) -> bool {
                 Some(v) == row.category.as_ref()
             }
         })
+}
+/// 公開状況ごとの件数（公開状況以外の絞り込みは反映）。画面の「掲載中／掲載終了／すべて」に使う。
+fn publication_counts(records: &[Listing], query: &ListingsQuery) -> Value {
+    let mut without_publication = query.clone();
+    without_publication.publication = None;
+    let mut counts = [0usize; 4];
+    for row in records.iter().filter(|r| matches(r, &without_publication)) {
+        match row.publication_status.as_deref() {
+            Some("掲載中") => counts[0] += 1,
+            Some("掲載終了") => counts[1] += 1,
+            Some("掲載前") => counts[2] += 1,
+            _ => counts[3] += 1,
+        }
+    }
+    json!({"live":counts[0], "ended":counts[1], "before":counts[2], "unknown":counts[3]})
 }
 fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListing>) {
     let mut rows: Vec<_> = index
@@ -758,6 +786,7 @@ pub(super) async fn read(
             _ => counts.2 += 1,
         }
     }
+    let publication_counts = publication_counts(&index.records, &query);
     let next_offset = query
         .offset
         .checked_add(rows.len())
@@ -768,6 +797,7 @@ pub(super) async fn read(
             "publication_statuses": index.records.iter().filter_map(|r| r.publication_status.clone()).collect::<BTreeSet<_>>(),
             "status":"ready", "listings":rows, "total":total, "index_built_at":index.built_at,
             "offset":query.offset, "next_offset":next_offset, "titles":index.titles,
+            "publication_counts": publication_counts,
             "indeed_title_counts":{"set":counts.0,"none":counts.1,"unset":counts.2},
             "refreshing":refreshing, "refresh_failed":refresh_failed, "deals":deal_candidates(&index, query.deal_search.as_deref().unwrap_or("")), "no_deal_count":index.records.iter().filter(|r| r.deal_ids.is_empty()).count()
         })),
@@ -1315,6 +1345,56 @@ pub(super) fn tests_listing(record: &Record) -> (Option<String>, &'static str) {
     let row = listing(record).unwrap();
     (row.indeed_title, row.indeed_title_state)
 }
+#[cfg(test)]
+mod publication_count_tests {
+    use super::*;
+    fn row(id: &str, media: &'static str, status: Option<&str>) -> Listing {
+        Listing {
+            id: id.into(),
+            media,
+            media_job_id: id.into(),
+            account_id: None,
+            title: None,
+            prefecture: None,
+            municipality: None,
+            category: None,
+            indeed_title: None,
+            indeed_title_state: "unset",
+            publication_status: status.map(str::to_owned),
+            draft_status: None,
+            last_csv_detected_at: None,
+            deal_ids: vec![],
+            summary: Summary::default(),
+            indexed_application_count: None,
+            perf: None,
+        }
+    }
+    #[test]
+    fn counts_ignore_the_publication_filter_but_keep_the_others() {
+        let rows = vec![
+            row("1", "hrh", Some("掲載中")),
+            row("2", "hrh", Some("掲載中")),
+            row("3", "hrh", Some("掲載終了")),
+            row("4", "airwork", Some("掲載終了")),
+            row("5", "hrh", Some("掲載前")),
+            row("6", "hrh", None),
+        ];
+        let all = ListingsQuery::default();
+        assert_eq!(
+            publication_counts(&rows, &all),
+            json!({"live":2,"ended":2,"before":1,"unknown":1})
+        );
+        let mut q = ListingsQuery::default();
+        q.publication = Some("掲載中".into());
+        q.media = Some("hrh".into());
+        // 公開状況の指定は件数に影響せず、媒体の指定は反映される。
+        assert_eq!(
+            publication_counts(&rows, &q),
+            json!({"live":2,"ended":1,"before":1,"unknown":1})
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

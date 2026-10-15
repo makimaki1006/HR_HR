@@ -15,7 +15,7 @@ for (const width of [1440, 1920]) test(`公開状況・空白だけの本文比�
     if (url.pathname.endsWith('/listings')) {
       const status = url.searchParams.get('publication');
       const listings = rows.filter(row => !status || row.publication_status === (status === 'unknown' ? '不明' : status));
-      return route.fulfill({ json: { status: 'ready', listings, total: listings.length, offset: 0, next_offset: null, titles: [], publication_statuses: ['掲載中', '掲載終了', '掲載前', '不明'], index_built_at: '2026-10-12T00:00:00Z', refreshing: false, refresh_failed: false } });
+      return route.fulfill({ json: { status: 'ready', listings, total: listings.length, offset: 0, next_offset: null, titles: [], publication_statuses: ['掲載中', '掲載終了', '掲載前', '不明'], publication_counts: { live: 1, ended: 1, before: 1, unknown: 1 }, index_built_at: '2026-10-12T00:00:00Z', refreshing: false, refresh_failed: false } });
     }
     if (url.pathname.endsWith('/versions')) return route.fulfill({ json: { listing: rows[0], current_fields: { 勤務地: '東京都江東区' }, versions: [
       ...(!single ? [{ written_at: '2026-10-01T00:00:00Z', body: body('土日休み。\n夏季休暇あり。'), image_urls: null }] : []),
@@ -24,24 +24,23 @@ for (const width of [1440, 1920]) test(`公開状況・空白だけの本文比�
     return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
   });
   const shot = async (name: string) => { if (width === 1440) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/${name}.png` }); } };
-  await page.goto('/app/job-copy?listing=1');
+  await page.goto('/app/job-copy?listing=1&status=all'); // 掲載状況の既定は掲載中。4 状態すべてを並べるので URL で「すべて」にする
   await findListings(page);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
-  await panel.getByText('絞り込み・並び順', { exact: true }).click();
-  const selector = panel.getByLabel('公開状況', { exact: true });
-  await expect(selector.locator('option')).toHaveText(['すべて', '不明', '掲載中', '掲載終了', '掲載前']);
+  const selector = panel.getByRole('group', { name: '掲載状況で絞り込む' });
+  await expect(selector.getByRole('button')).toHaveText(['掲載中1', '掲載終了1', '掲載前1', '状態不明1', 'すべて4']);
+  await expect(selector.getByRole('button', { name: /^すべて/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(panel.locator('.jc-publication')).toHaveText(['掲載中', '掲載終了', '掲載前', '不明']);
-  await panel.getByText('絞り込み・並び順', { exact: true }).click();
   await shot('01-list-statuses');
-  await panel.getByText('絞り込み・並び順', { exact: true }).click();
-  for (const status of ['掲載中', '掲載終了', '掲載前', 'unknown']) {
-    await selector.selectOption(status);
+  for (const [status, button] of [['掲載中', /^掲載中/], ['掲載終了', /^掲載終了/], ['掲載前', /^掲載前/], ['unknown', /^状態不明/]] as const) {
+    await selector.getByRole('button', { name: button }).click();
     await expect(panel.locator('.jc-hubspot-job')).toHaveCount(1);
     await expect(panel.locator('.jc-publication')).toHaveText(status === 'unknown' ? '不明' : status);
     if (status === '掲載前') await shot('01-filter-before-publication');
   }
-  await selector.selectOption('');
+  await selector.getByRole('button', { name: /^すべて/ }).click();
   await expect(panel.locator('.jc-hubspot-job')).toHaveCount(4);
+  expect(new URL(page.url()).searchParams.get('status')).toBe('all');
   await expect(page.locator('.jc-detail-heading')).toContainText('公開状況：掲載中');
   await expect(page.locator('.jc-detail-heading')).toContainText('本文：前の本文と同じ');
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();

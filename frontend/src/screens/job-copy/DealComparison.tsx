@@ -15,6 +15,8 @@ import { compareJobs, comparisonValue, salaryAmount } from './dealComparisonMode
 import { composeSalary } from './hrhCopy';
 import type { ComparedJob } from './dealComparisonModel';
 import { markValueChanges } from './diff';
+import { StatusFilter } from './StatusSwitch';
+import { STATUS_PUBLICATION, countsFromServer, useStatusFilter } from './statusFilter';
 const columns = [['title', '求人名'], ['media', '媒体'], ['publication', '公開状況'], ['occupation', '職種'], ['location', '勤務地'], ['salary', '給与'], ['applications', '応募数'], ['body_changed_at', '本文の最終変更日'], ['hours', '勤務時間'], ['holidays', '休日'], ['salary_kind', '給与形態'], ['salary_min', '給与の下限'], ['salary_max', '給与の上限']] as const;
 const optionalColumns = columns.slice(8);
 type ColumnKey = typeof columns[number][0];
@@ -58,7 +60,8 @@ export function DealComparison({ deal, onOpen, onClose, billingByJob, onOpenComp
   const visibleColumns = columns.filter(([key], index) => index < 8 || extraColumns.includes(key));
   const [page, setPage] = useState<HubSpotListingPage | null>(null);
   const [media, setMedia] = useState(deal.media);
-  const [publication, setPublication] = useState(deal.publication ?? '');
+  const [status, setStatusKey] = useStatusFilter();
+  const publication = STATUS_PUBLICATION[status];
   const [sort, setSort] = useState('title');
   const [descending, setDescending] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -112,7 +115,7 @@ export function DealComparison({ deal, onOpen, onClose, billingByJob, onOpenComp
     } }} job={popup.job} version={popup.job.versions.filter(item => item.kind === 'published').at(-1)} returnFocus={popup.opener} onClose={() => { setPopup(null); }} />;
   if (company) return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><header><div><h1>この事業所の求人</h1><p>{company.name}</p></div><button className="jc-button" onClick={() => { setCompany(null); }}>取引に戻る</button></header><CompanySummary company={company} billingByJob={billingByJob ?? {}} onOpenListing={openListing} />{error && <p role="alert">{error}</p>}{busy && <p role="status">選んだ求人を読み込みしています…</p>}{popupView}</main>;
   return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><header><div><h1>この取引の求人</h1><p>{deal.name}</p></div><button className="jc-button" onClick={onClose}>詳細に戻る</button></header><DealSummary deal={deal} billingByJob={billingByJob ?? {}} onOpenListing={openListing} onOpenCompany={onOpenCompany ?? setCompany} /><p>取引に関連する求人を50件ずつ表示します。都道府県・職種・案の状態は左の絞り込み条件を引き継ぎます。</p>
-    <div className="jc-deal-controls"><label>表の媒体<select value={media} onChange={event => { setMedia(event.target.value); setOffset(0); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label><label>表の公開状況<select value={publication} onChange={event => { setPublication(event.target.value); setOffset(0); }}><option value="">すべて</option><option value="unknown">未取得</option>{['公開', '公開中', '掲載中', '非公開', '公開終了', '公開開始前', '掲載終了', '募集中', '募集終了', '不明'].map(value => <option key={value}>{value}</option>)}</select></label><button className="jc-button" onClick={() => { setReload(value => value + 1); }}>表を再読み込み</button></div>
+    <div className="jc-deal-controls"><StatusFilter status={status} counts={countsFromServer(page?.publication_counts)} onChange={next => { setStatusKey(next); setOffset(0); }} /><label>表の媒体<select value={media} onChange={event => { setMedia(event.target.value); setOffset(0); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label><button className="jc-button" onClick={() => { setReload(value => value + 1); }}>表を再読み込み</button></div>
     <details className="jc-deal-column-options"><summary>表示する列を選ぶ</summary><div>{optionalColumns.map(([key, label]) => <label key={key}><input type="checkbox" checked={extraColumns.includes(key)} onChange={event => { setExtraColumns(keys => event.target.checked ? [...keys, key] : keys.filter(item => item !== key)); }} />{label}</label>)}</div></details>
     {error && <p role="alert">{error}</p>}{!page && <p role="status">この取引の求人を読み込みしています…</p>}{busy && <p role="status">選んだ求人を読み込みしています…</p>}
     {page && <><p>{page.total == null ? '準備中' : `${String(page.total)}件`} · {formatDateTimeJst(page.index_built_at, '日時不明')}時点の関連・条件・応募数。本文の最終変更日は掲載開始日とは異なります。</p>{page.refresh_failed && <p>一覧を更新できませんでした。表示時点の値を利用しています。</p>}

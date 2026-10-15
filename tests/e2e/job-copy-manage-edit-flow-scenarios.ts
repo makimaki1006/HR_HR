@@ -13,12 +13,12 @@ export async function mockFlow(page: Page, allowed = true, failedSave = false) {
   const airworkDrafts: DraftSnapshot[] = [];
   const requests: { method: string; body: any }[] = [];
   let revision = 'a'.repeat(64);
-  const listing = { id: '30', media: 'hrh', media_job_id: 'secret-job', account_id: null, title: '架空配送スタッフ', prefecture: '大分県', municipality: '大分市', category: 'ドライバー', publication_status: '非公開', last_csv_detected_at: null, application_count: null };
+  const listing = { id: '30', media: 'hrh', media_job_id: 'secret-job', account_id: null, title: '架空配送スタッフ', prefecture: '大分県', municipality: '大分市', category: 'ドライバー', publication_status: '掲載終了', last_csv_detected_at: null, application_count: null };
   const airwork = { ...listing, id: '31', media: 'airwork', title: '架空看護スタッフ', media_job_id: 'secret-aw', account_id: 'secret-account', category: '看護師', publication_status: '掲載中' };
   await page.route('**/api/job-copy/listings*', route => {
     const url = new URL(route.request().url());
     const entries = [{ ...listing, draft_status: drafts.at(-1)?.review_status }, { ...airwork, draft_status: airworkDrafts.at(-1)?.review_status ?? null }].filter(value => ['prefecture', 'media', 'draft_status'].every(key => !url.searchParams.get(key) || value[key as keyof typeof value] === url.searchParams.get(key)) && (!url.searchParams.get('title') || value.category === url.searchParams.get('title')) && (!url.searchParams.get('publication') || value.publication_status === url.searchParams.get('publication')));
-    return route.fulfill({ json: { status: 'ready', listings: entries, titles: ['ドライバー', '看護師'], publication_statuses: ['非公開', '掲載中'], total: entries.length, index_built_at: '2026-10-11T00:00:00Z', offset: 0, next_offset: null, refreshing: false, refresh_failed: false } });
+    return route.fulfill({ json: { status: 'ready', listings: entries, titles: ['ドライバー', '看護師'], publication_statuses: ['掲載終了', '掲載中'], total: entries.length, index_built_at: '2026-10-11T00:00:00Z', offset: 0, next_offset: null, refreshing: false, refresh_failed: false } });
   });
   await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({ json: { listing, current_row: row, versions: [{ written_at: '2026-10-01T00:00:00Z', body, image_urls: null }], history_counts: {}, history_may_be_incomplete: false, drafts, draft_revision: revision, can_write_drafts: allowed } }));
   await page.route('**/api/job-copy/listings/31/versions', route => route.fulfill({ json: { listing: airwork, versions: [{ written_at: '2026-10-01T00:00:00Z', body: '健康を支える看護のお仕事です。時給1,800円。9時〜18時、週休2日。', image_urls: null }], history_counts: {}, history_may_be_incomplete: false, drafts: airworkDrafts, draft_revision: revision, can_write_drafts: allowed } }));
@@ -61,7 +61,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await mockFlow(page);
       const fetched: string[] = [];
       page.on('request', request => { if (/\/listings\/\d+\/versions$/.test(request.url())) fetched.push(new URL(request.url()).pathname); });
-      await page.goto('/app/job-copy?listing=30&demo=1');
+      await page.goto('/app/job-copy?listing=30&demo=1&status=all'); // 掲載状況の既定は掲載中。掲載終了の求人も一覧に出すので「すべて」にする
       await findListings(page);
       await expectBodyContains(page, '日用品を配送します。');
       const list = page.getByRole('region', { name: 'HubSpot の求人' });
@@ -166,7 +166,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await list.getByLabel('都道府県', { exact: true }).selectOption('大分県');
       await list.getByLabel('職種の分類', { exact: true }).selectOption('ドライバー');
       await list.getByLabel('媒体', { exact: true }).selectOption('hrh');
-      await list.getByLabel('公開状況', { exact: true }).selectOption('非公開');
+      await list.getByRole('group', { name: '掲載状況で絞り込む' }).getByRole('button', { name: /^掲載終了/ }).click();
       await list.getByLabel('案の確認状態で絞り込む', { exact: true }).selectOption('pending');
       await expect(list.getByRole('button', { name: /の本文を見る/ })).toHaveCount(1);
       await shot(page, width, '01-manage');

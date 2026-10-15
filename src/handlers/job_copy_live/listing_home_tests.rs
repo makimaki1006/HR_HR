@@ -77,6 +77,24 @@ fn map() -> CompanyMap {
             .into_iter()
             .map(|(c, n)| (c.to_owned(), Some(n.to_owned())))
             .collect(),
+        deal_info: [
+            ("d1", "合成運輸 2026年案件", "契約中", true, "2026-03-01"),
+            ("d2", "合成運輸 2025年案件", "契約終了", false, "2025-01-15"),
+            ("d3", "合成介護 案件", "契約終了", false, "2024-06-01"),
+        ]
+        .into_iter()
+        .map(|(id, name, stage, active, created)| {
+            (
+                id.to_owned(),
+                DealInfo {
+                    name: Some(name.to_owned()),
+                    stage_label: Some(stage.to_owned()),
+                    active,
+                    created_at: Some(created.to_owned()),
+                },
+            )
+        })
+        .collect(),
     }
 }
 
@@ -211,7 +229,15 @@ fn customer_table_adds_up_live_listings_per_company() {
         .unwrap();
     assert_eq!(c1.name.as_deref(), Some("合成運輸"));
     assert_eq!(c1.deals, 2);
-    assert_eq!(c1.live_listings, 3);
+    // d1 は進行中、d2 は契約終了。求人は 4 件結び付いていて、掲載中は 3 件。
+    assert_eq!(
+        (c1.active_deals, c1.live_listings, c1.total_listings),
+        (1, 3, 4)
+    );
+    let latest = c1.latest_deal.as_ref().unwrap();
+    assert_eq!(latest.name.as_deref(), Some("合成運輸 2026年案件"));
+    assert_eq!(latest.stage_label.as_deref(), Some("契約中"));
+    assert_eq!(latest.created_at.as_deref(), Some("2026-03-01"));
     assert_eq!((c1.recent_apps, c1.prev_apps, c1.recent_cost), (8, 3, 5500));
     assert_eq!(c1.cost_per_app, Some(687));
     let c2 = home
@@ -223,8 +249,90 @@ fn customer_table_adds_up_live_listings_per_company() {
         (c2.deals, c2.live_listings, c2.recent_apps, c2.cost_per_app),
         (1, 1, 0, None)
     );
-    // 応募の多い順。
+    // c2 の案件は契約終了だけ（進行中 0）。
+    assert_eq!((c2.active_deals, c2.total_listings), (0, 1));
+    // 進行中の案件がある顧客が先。
     assert_eq!(home.customers[0].company_id, "c1");
+}
+
+#[test]
+fn customers_sort_active_first_then_latest_deal_created_desc() {
+    let mut m = map();
+    m.deal_company.insert("d4".into(), "c3".into());
+    m.deal_company.insert("d5".into(), "c4".into());
+    m.names.insert("c3".into(), Some("合成建設".into()));
+    m.names.insert("c4".into(), Some("合成商事".into()));
+    for (id, active, created) in [("d4", true, "2026-09-01"), ("d5", true, "2026-05-01")] {
+        m.deal_info.insert(
+            id.into(),
+            DealInfo {
+                name: Some(id.into()),
+                stage_label: None,
+                active,
+                created_at: Some(created.into()),
+            },
+        );
+    }
+    let rows = vec![
+        listing("1", &["d1"], "掲載中", "set", None),
+        listing("2", &["d3"], "掲載終了", "set", None),
+        listing("3", &["d4"], "掲載中", "set", None),
+        listing("4", &["d5"], "掲載中", "set", None),
+    ];
+    let home = compute(&rows, &m, date("2026-10-06"));
+    let order: Vec<&str> = home
+        .customers
+        .iter()
+        .map(|c| c.company_id.as_str())
+        .collect();
+    // 進行中: c3(9/1) → c1(3/1) → c4(5/1)? 作成日の新しい順なので c3, c4, c1。最後が進行中なしの c2。
+    assert_eq!(order, vec!["c3", "c4", "c1", "c2"]);
+}
+
+#[test]
+fn current_deal_prefers_active_over_a_newer_ended_one_and_falls_back_to_the_newest() {
+    let mut m = map();
+    // c1: d1 は契約中（2026-03-01）、d2 は契約終了だが新しい（2026-09-30）にする。
+    m.deal_info.get_mut("d2").unwrap().created_at = Some("2026-09-30".into());
+    let rows = vec![
+        listing("1", &["d1"], "掲載中", "set", None),
+        listing("2", &["d2"], "掲載終了", "set", None),
+        listing("3", &["d3"], "掲載終了", "set", None),
+    ];
+    let home = compute(&rows, &m, date("2026-10-06"));
+    let c1 = home
+        .customers
+        .iter()
+        .find(|c| c.company_id == "c1")
+        .unwrap();
+    assert_eq!(
+        c1.latest_deal.as_ref().unwrap().name.as_deref(),
+        Some("合成運輸 2026年案件")
+    );
+    // 同じ求人が 2 つの取引に付いていても、求人は 1 回だけ数える。
+    let rows = vec![listing("9", &["d1", "d2"], "掲載中", "set", None)];
+    let home = compute(&rows, &m, date("2026-10-06"));
+    let c1 = home
+        .customers
+        .iter()
+        .find(|c| c.company_id == "c1")
+        .unwrap();
+    assert_eq!((c1.deals, c1.live_listings, c1.total_listings), (2, 1, 1));
+    // c2 は契約中が無い → 最新の取引（d3 だけ）。
+    let rows = vec![listing("3", &["d3"], "掲載終了", "set", None)];
+    let home = compute(&rows, &m, date("2026-10-06"));
+    let c2 = home
+        .customers
+        .iter()
+        .find(|c| c.company_id == "c2")
+        .unwrap();
+    assert_eq!(
+        (
+            c2.active_deals,
+            c2.latest_deal.as_ref().unwrap().created_at.as_deref()
+        ),
+        (0, Some("2024-06-01"))
+    );
 }
 
 #[test]
