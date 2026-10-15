@@ -142,19 +142,17 @@ impl Fixture {
     }
 }
 
-#[tokio::test]
-#[ignore = "41,000-record local latency probe; run explicitly"]
-async fn index_build_latency_probe() {
-    let subscriber = tracing_subscriber::fmt()
+// Large JSON responses must not block the fake server's request receiver on the
+// client's single-thread executor. Production HubSpot runs independently.
+fn probe_tracing() {
+    let _ = tracing_subscriber::fmt()
         .with_ansi(false)
         .without_time()
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
-    let ids = production_like_ids();
-    let f = Fixture::with_ids(ids.clone(), Duration::from_millis(1200), true, true).await;
+        .try_init();
+}
+async fn serial_probe(f: &Fixture, ids: &[u128]) -> u128 {
     let started = std::time::Instant::now();
-    // Read the same pages serially through the same production-configured gateway.
-    let serial = build_index(
+    let index = build_index(
         &f.service.listing_index,
         &f.service,
         vec![],
@@ -163,19 +161,46 @@ async fn index_build_latency_probe() {
     )
     .await
     .unwrap();
-    assert_eq!(serial.records.len(), 41_000);
-    drop(serial);
-    let serial_ms = started.elapsed().as_millis();
+    let elapsed = started.elapsed().as_millis();
+    assert_eq!(
+        index
+            .records
+            .iter()
+            .map(|r| numeric_id(&r.id).unwrap())
+            .collect::<BTreeSet<_>>(),
+        ids.iter().copied().collect()
+    );
+    assert_eq!(
+        f.service.listing_index.state.read().await.read_count,
+        41_000
+    );
+    let (second, ten) = assert_windows(f);
+    eprintln!(
+        "index_serial records=41000 elapsed_ms={elapsed} max_calls_1s={second} max_calls_10s={ten}"
+    );
+    elapsed
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "41,000-record local latency probe; run explicitly"]
+async fn index_build_latency_probe() {
+    probe_tracing();
+    let ids = production_like_ids();
+    let f = Fixture::with_ids(ids.clone(), Duration::from_millis(1200), true, true).await;
+    let serial_ms = serial_probe(&f, &ids).await;
     parallel_probe(&f, &ids, serial_ms).await;
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "41,000-record serial-only latency probe; run explicitly"]
+async fn index_build_serial_latency_probe() {
+    probe_tracing();
+    let ids = production_like_ids();
+    let f = Fixture::with_ids(ids.clone(), Duration::from_millis(1200), true, true).await;
+    serial_probe(&f, &ids).await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "41,000-record parallel-only latency probe; run explicitly"]
 async fn index_build_parallel_latency_probe() {
-    let subscriber = tracing_subscriber::fmt()
-        .with_ansi(false)
-        .without_time()
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
+    probe_tracing();
     let ids = production_like_ids();
     let f = Fixture::with_ids(ids.clone(), Duration::from_millis(1200), true, true).await;
     parallel_probe(&f, &ids, 0).await;
@@ -375,6 +400,27 @@ fn assert_windows(f: &Fixture) -> (usize, usize) {
             .unwrap_or(0)
     };
     let (second, ten) = (max(Duration::from_secs(1)), max(Duration::from_secs(10)));
+    if second > 8 {
+        let (i, time) = times
+            .iter()
+            .enumerate()
+            .find(|(i, t)| {
+                times[*i..]
+                    .iter()
+                    .take_while(|next| next.duration_since(**t) < Duration::from_secs(1))
+                    .count()
+                    > 8
+            })
+            .unwrap();
+        eprintln!(
+            "receiver window offsets_us={:?}",
+            times[i..]
+                .iter()
+                .take_while(|next| next.duration_since(*time) < Duration::from_secs(1))
+                .map(|next| next.duration_since(*time).as_micros())
+                .collect::<Vec<_>>()
+        );
+    }
     assert!(second <= 8, "maximum calls in 1s: {second}");
     assert!(ten <= 80, "maximum calls in 10s: {ten}");
     (second, ten)
