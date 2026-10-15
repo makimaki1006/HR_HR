@@ -575,9 +575,27 @@ async fn build_index(
     let mut ids = BTreeSet::new();
     let mut records = Vec::new();
     let mut counted = 0;
+    let mut mapping = BTreeMap::new();
     while let Some(result) = tasks.join_next().await {
-        let (range_ids, rows) = result.map_err(|_| fail("hubspot_read_failed"))??;
+        let (range_ids, mut rows) = result.map_err(|_| fail("hubspot_read_failed"))??;
         counted += range_ids.len();
+        // Enrich one completed range while the other ranges keep reading pages.
+        // Only one enrichment runs at a time, retaining the four-batch bound.
+        let listing_ids: Vec<_> = rows.iter().map(|r| r.id.clone()).collect();
+        let stage = std::time::Instant::now();
+        mapping.extend(index_associations(&reader, &listing_ids, "deals").await?);
+        for group in rows.chunks_mut(4000) {
+            let ids: Vec<_> = group.iter().map(|r| r.id.clone()).collect();
+            let counts = index_associations(&reader, &ids, "0-421").await?;
+            for row in group {
+                row.indexed_application_count = counts.get(&row.id).map(Vec::len);
+            }
+        }
+        tracing::info!(
+            count = rows.len(),
+            elapsed_ms = stage.elapsed().as_millis() as u64,
+            "job-copy index range associations"
+        );
         for row in rows {
             if !ids.contains(&row.id) {
                 records.push(row);
@@ -598,29 +616,7 @@ async fn build_index(
         expected_total,
         count = ids.len(),
         elapsed_ms = started.elapsed().as_millis() as u64,
-        "job-copy index pages"
-    );
-    let listing_ids: Vec<_> = records.iter().map(|r| r.id.clone()).collect();
-    let stage = std::time::Instant::now();
-    let mapping = index_associations(&reader, &listing_ids, "deals").await?;
-    tracing::info!(
-        count = listing_ids.len(),
-        elapsed_ms = stage.elapsed().as_millis() as u64,
-        "job-copy index deal associations"
-    );
-    let stage = std::time::Instant::now();
-    // Retain at most four chunks of applicant associations, then discard their targets.
-    for rows in records.chunks_mut(4000) {
-        let ids: Vec<_> = rows.iter().map(|r| r.id.clone()).collect();
-        let counts = index_associations(&reader, &ids, "0-421").await?;
-        for row in rows {
-            row.indexed_application_count = counts.get(&row.id).map(Vec::len);
-        }
-    }
-    tracing::info!(
-        count = listing_ids.len(),
-        elapsed_ms = stage.elapsed().as_millis() as u64,
-        "job-copy index application associations"
+        "job-copy index pages and associations"
     );
     let stage = std::time::Instant::now();
     let deal_ids: Vec<_> = mapping
@@ -2454,7 +2450,7 @@ mod tests {
             .records
             .iter()
             .all(|row| row.publication_status.as_deref() == Some("掲載中")));
-        assert_eq!(seen.lock().unwrap().len(), 13);
+        assert_eq!(seen.lock().unwrap().len(), 27);
         assert_eq!(
             old.records.iter().find(|r| r.id == "1").unwrap().deal_ids,
             vec!["901", "902"]

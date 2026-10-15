@@ -164,6 +164,21 @@ async fn index_build_latency_probe() {
     assert_eq!(serial.records.len(), 41_000);
     drop(serial);
     let serial_ms = started.elapsed().as_millis();
+    parallel_probe(&f, &ids, serial_ms).await;
+}
+#[tokio::test]
+#[ignore = "41,000-record parallel-only latency probe; run explicitly"]
+async fn index_build_parallel_latency_probe() {
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .without_time()
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let ids = production_like_ids();
+    let f = Fixture::with_ids(ids.clone(), Duration::from_millis(1200), true, true).await;
+    parallel_probe(&f, &ids, 0).await;
+}
+async fn parallel_probe(f: &Fixture, ids: &[u128], serial_ms: u128) {
     f.call_times.lock().unwrap().clear();
     for mode in ["cold", "warm"] {
         let started = std::time::Instant::now();
@@ -185,7 +200,7 @@ async fn index_build_latency_probe() {
             ids.iter().copied().collect()
         );
         assert!(elapsed < Duration::from_secs(90), "{mode}: {elapsed:?}");
-        let (max_second, max_ten) = assert_windows(&f);
+        let (max_second, max_ten) = assert_windows(f);
         eprintln!("index_parallel mode={mode} records=41000 serial_ms={serial_ms} elapsed_ms={} max_calls_1s={max_second} max_calls_10s={max_ten}", elapsed.as_millis());
     }
 }
@@ -206,8 +221,8 @@ async fn sixth_association_call_can_fail_once_and_the_index_still_completes() {
         .all(|r| r.deal_ids.len() == 1 && r.indexed_application_count == Some(0)));
     assert_eq!(
         f.association_calls.load(Ordering::SeqCst),
-        15,
-        "7 deal chunks + 7 application chunks + 1 retry; no restart"
+        17,
+        "8 range chunks per target + 1 retry; no restart"
     );
     assert!(!state.refresh_failed);
     assert_eq!(state.consecutive_failures, 0);
@@ -253,9 +268,14 @@ async fn page_wait_is_removed_and_association_concurrency_is_bounded() {
         .unwrap();
     assert!(PAGE_PAUSE.is_zero());
     assert!(
-        started.elapsed() < Duration::from_secs(8),
-        "28 pages must not take 27 extra seconds"
+        started.elapsed() < Duration::from_secs(15),
+        "per-range batches and paced starts must not add the old 27-second page wait"
     );
+    // A small range may need only one batch. Exercise a full four-way group too.
+    let ids: Vec<_> = (1..=2800).map(|id| id.to_string()).collect();
+    index_associations(&IndexReader::new(&f.service.hs.background()), &ids, "deals")
+        .await
+        .unwrap();
     let max = f.max_active.load(Ordering::SeqCst);
     assert!(
         (2..=4).contains(&max),
