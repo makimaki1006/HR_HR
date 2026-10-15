@@ -465,3 +465,18 @@ test('ホームは初回準備の2秒後にカードと顧客表を表示する'
   expect(homeCalls).toBe(2);
   if (process.env.HOME_SPEED_SCREENSHOT) await page.screenshot({ path: process.env.HOME_SPEED_SCREENSHOT, fullPage: true });
 });
+
+test('ホームの準備中に読み終えた件数と失敗後の待ち時間を表示する', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  let failed = false;
+  await page.route('**/api/job-copy/home', route => route.fulfill({ json: {
+    status: 'preparing', progress: { read_count: 12300, estimated_total: 41000, retry_after_seconds: failed ? 60 : null },
+  } }));
+  await login(page);
+  await page.goto('/app/job-copy');
+  await expect(page.getByText('約 41,000 件中 12,300 件まで読みました', { exact: true })).toBeVisible();
+  if (process.env.PREPARING_PROGRESS_SCREENSHOT) await page.screenshot({ path: process.env.PREPARING_PROGRESS_SCREENSHOT, fullPage: true });
+  failed = true;
+  await page.getByRole('button', { name: '再読み込み', exact: true }).click();
+  await expect(page.getByText('読み込みに失敗したため、1 分後にもう一度読み込みます。', { exact: true })).toBeVisible();
+});

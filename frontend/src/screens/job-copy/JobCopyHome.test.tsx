@@ -107,7 +107,8 @@ it('初回の準備中は2秒後に取り直し、表示できたら自動取得
   vi.useFakeTimers();
   try {
     api.mockResolvedValueOnce({ ok: true, data: { status: 'preparing' } }).mockResolvedValue({ ok: true, data: response });
-    await act(async () => { renderHome(); });
+    renderHome();
+    await act(() => Promise.resolve());
     expect(screen.getByText('求人の一覧を準備しています')).toBeTruthy();
     await act(async () => { await vi.advanceTimersByTimeAsync(1_999); });
     expect(api).toHaveBeenCalledTimes(1);
@@ -120,4 +121,17 @@ it('初回の準備中は2秒後に取り直し、表示できたら自動取得
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(api).toHaveBeenCalledTimes(2);
   } finally { vi.useRealTimers(); }
+});
+
+it('準備中に読み終わった件数と見込み件数を表示する', async () => {
+  api.mockResolvedValue({ ok: true, data: { status: 'preparing', progress: { read_count: 12300, estimated_total: 41000, retry_after_seconds: null } } });
+  renderHome();
+  expect(await screen.findByText('約 41,000 件中 12,300 件まで読みました')).toBeTruthy();
+});
+
+it('読み込み失敗後は次に読み直すまでの時間を表示する', async () => {
+  api.mockResolvedValue({ ok: true, data: { status: 'preparing', progress: { read_count: 41000, estimated_total: 41000, retry_after_seconds: 60 } } });
+  renderHome();
+  expect(await screen.findByText('読み込みに失敗したため、1 分後にもう一度読み込みます。')).toBeTruthy();
+  expect(screen.getByText('約 41,000 件中 41,000 件まで読みました')).toBeTruthy();
 });

@@ -601,7 +601,10 @@ pub(in crate::handlers::job_copy_live) async fn read(
     let service = service(&access)?;
     let stage = StdInstant::now();
     // Refreshing/failed builds retain the last complete snapshot.
-    let snapshot = service.listing_index.state.read().await.snapshot.clone();
+    let cached = service.listing_index.state.read().await;
+    let snapshot = cached.snapshot.clone();
+    let progress = cached.progress();
+    drop(cached);
     tracing::info!(
         elapsed_ms = stage.elapsed().as_millis() as u64,
         "job-copy home index wait"
@@ -611,7 +614,9 @@ pub(in crate::handlers::job_copy_live) async fn read(
             let today = (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive();
             answer(service, index, today).await
         }
-        None => axum::body::Bytes::from_static(br#"{"status":"preparing"}"#),
+        None => {
+            axum::body::Bytes::from(json!({"status":"preparing", "progress":progress}).to_string())
+        }
     };
     tracing::info!(
         count = body.len(),

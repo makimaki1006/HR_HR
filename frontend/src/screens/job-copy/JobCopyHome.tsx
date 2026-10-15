@@ -1,3 +1,4 @@
+import { ListingPreparationNotice } from './ListingPreparationNotice';
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
@@ -51,7 +52,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing }: { onOpenCompany: (
     <header className="jh-head"><div><h1>ホーム</h1><p>顧客から案件、求人へ順にたどれます。最初に、確かめたほうがよい求人の数を並べています。</p></div><button type="button" className="jc-button" onClick={() => { setReload(value => value + 1); }}>再読み込み</button></header>
     {error && <p role="alert">{error}</p>}
     {!data && !error && <p role="status">ホームを読み込んでいます…</p>}
-    {data?.status === 'preparing' && <div className="jc-index-preparing" role="status"><strong>求人の一覧を準備しています</strong><p>準備が終わると自動で表示します。</p><progress aria-label="求人の一覧を準備中" /></div>}
+    {data?.status === 'preparing' && <ListingPreparationNotice progress={data.progress} />}
     {ready && <>
       <section aria-labelledby="jh-look"><h2 id="jh-look">まず見るもの</h2>
         <p className="jh-note">掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。{formatDateTimeJst(ready.index_built_at, '日時不明')}時点。効果の有無は判定していません。</p>

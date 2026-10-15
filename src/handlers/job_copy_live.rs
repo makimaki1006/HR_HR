@@ -27,6 +27,7 @@ mod drafts;
 mod hrh_copy;
 mod indeed_title;
 mod listing_cache;
+mod listing_retry;
 mod listing_status;
 mod listings;
 mod manual_edit;
@@ -267,6 +268,10 @@ impl JobReadService {
         query: &[(&str, String)],
         body: Option<Value>,
     ) -> Result<Value, ReadError> {
+        if hs.priority() == crate::hubspot::gateway::Priority::Background {
+            return listing_retry::read(hs, path, query, body.as_ref(), &listing_retry::DELAYS)
+                .await;
+        }
         // POST is used only for HubSpot's batch/read endpoints. No create/update/delete.
         for attempt in 0..2 {
             let reply = hs

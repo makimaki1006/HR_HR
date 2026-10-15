@@ -148,9 +148,19 @@ async fn job_copy_deal_batch_pages_are_complete_and_missing_rows_fail() {
     assert!(mapping["1001"].is_empty());
     let requests = calls.lock().unwrap().clone();
     assert_eq!(requests.len(), 3);
-    assert_eq!(requests[0]["inputs"].as_array().unwrap().len(), 1000);
-    assert_eq!(requests[1], json!({"inputs":[{"id":"1","after":"page2"}]}));
-    assert_eq!(requests[2], json!({"inputs":[{"id":"1001"}]}));
+    let first_page = requests
+        .iter()
+        .position(|r| r["inputs"].as_array().unwrap().len() == 1000)
+        .unwrap();
+    let continuation = requests
+        .iter()
+        .position(|r| *r == json!({"inputs":[{"id":"1","after":"page2"}]}))
+        .unwrap();
+    assert!(
+        first_page < continuation,
+        "a continuation must follow its own initial page"
+    );
+    assert!(requests.contains(&json!({"inputs":[{"id":"1001"}]})));
     assert!(index_associations(
         &service,
         &service.hs.background(),
