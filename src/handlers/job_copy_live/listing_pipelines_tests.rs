@@ -31,6 +31,7 @@ fn listing(id: &str, deals: &[&str], status: &str, apps: Option<(i64, i64)>) -> 
         last_csv_detected_at: None,
         deal_ids: deals.iter().map(|d| d.to_string()).collect(),
         summary: Summary::default(),
+        body_summary: None,
         indexed_application_count: None,
         perf: apps.map(|(a, c)| home::PerfDigest {
             latest_end: chrono::NaiveDate::from_ymd_opt(2026, 10, 4).unwrap(),

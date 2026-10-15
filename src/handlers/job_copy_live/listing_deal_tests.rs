@@ -1,4 +1,5 @@
 //! Concrete summary and batch paging tests, using local mock servers only.
+use super::deals::body_changed_at;
 use super::*;
 #[test]
 fn job_copy_deal_salary_sort_matches_display_normalization() {

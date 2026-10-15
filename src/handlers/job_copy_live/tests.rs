@@ -1492,6 +1492,10 @@ async fn job_copy_listings_auth_and_mock_contract() {
                 ]})
             } else if path == "/crm/v3/objects/0-420/batch/read" {
                 let body: Value = serde_json::from_slice(&to_bytes(req.into_body(),4096).await.unwrap()).unwrap();
+                if body["inputs"].as_array().unwrap().len() == 3 {
+                    assert_eq!(body["inputs"],json!([{"id":"10"},{"id":"11"},{"id":"12"}]));
+                    return Json(json!({"results":[record,{"id":"11","properties":{"zhizhong":"看護師"}},{"id":"12","properties":{"hrh_kyuujinhyou_honbun":"Indeed表示職種名：看護師"}}]}));
+                }
                 assert_eq!(body["inputs"],json!([{"id":"10"},{"id":"11"}]));
                 json!({"results":[record,{"id":"11","properties":{"id_airwork":"AW-11","hs_name":"合成別媒体","shigotonaiyou":"合成AirWorkの本文"}}]})
             } else if path == "/crm/v4/objects/0-420/10/associations/deals" || path == "/crm/v4/objects/0-420/11/associations/deals" {
@@ -1612,7 +1616,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
             )
             .await
             .unwrap();
-            assert_eq!(calls.lock().unwrap().len(), 4);
+            assert_eq!(calls.lock().unwrap().len(), 5);
         }
         let response = app.clone().oneshot(Request::builder().uri("/api/job-copy/listings?prefecture=%E5%A4%A7%E5%88%86%E7%9C%8C&title=%E3%83%89%E3%83%A9%E3%82%A4%E3%83%90%E3%83%BC&media=hrh").header("cookie", format!("id={}", session.id().unwrap())).body(Body::empty()).unwrap()).await.unwrap();
         if method == "password" {
@@ -1627,7 +1631,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
         );
         let data: Value =
             serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
-        assert_eq!(calls.lock().unwrap().len(), 4); // filters/pages use the index only
+        assert_eq!(calls.lock().unwrap().len(), 5); // filters/pages use the index only
         assert_eq!(data["listings"].as_array().unwrap().len(), 1);
         assert_eq!(data["listings"][0]["media_job_id"], "HR-10");
         assert_eq!(data["listings"][0]["category"], "ドライバー");
@@ -1707,7 +1711,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["drafts"][1]["review_status"], "pending");
     assert_eq!(data["draft_revision"].as_str().unwrap().len(), 64);
     assert_eq!(data["can_write_drafts"], false);
-    assert_eq!(calls.lock().unwrap().len(), 6); // index + association batches and history; the company name is a separate request now
+    assert_eq!(calls.lock().unwrap().len(), 7); // index + association batches and history; the company name is a separate request now
     for ids in ["10", "10,10", "10,11,12,13,14,15", "10,not-an-id"] {
         let response = app
             .clone()
@@ -1721,7 +1725,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(calls.lock().unwrap().len(), 6);
+        assert_eq!(calls.lock().unwrap().len(), 7);
     }
     let response = app
         .clone()
@@ -1745,7 +1749,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["jobs"][0]["listing"]["media"], "hrh");
     assert_eq!(data["jobs"][1]["listing"]["media"], "airwork");
     assert_eq!(data["jobs"][1]["body"], "合成AirWorkの本文");
-    assert_eq!(calls.lock().unwrap().len(), 7); // one read for selected jobs
+    assert_eq!(calls.lock().unwrap().len(), 8); // one read for selected jobs
     session
         .insert(SESSION_USER_KEY, "outside@example.test")
         .await
@@ -1762,6 +1766,6 @@ async fn job_copy_listings_auth_and_mock_contract() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(calls.lock().unwrap().len(), 7);
+    assert_eq!(calls.lock().unwrap().len(), 8);
     task.abort();
 }

@@ -151,3 +151,15 @@ it.each([['検品', '梱包'], ['検'.repeat(600), '梱'.repeat(600)]])('colours
   expect(marks[0]?.textContent).toBe(before);
   expect(marks[1]?.textContent).toBe(after);
 });
+
+it('keeps acquired occupation, salary, hours and holidays visible for ended listings', async () => {
+  api.mockResolvedValue({ ok: true, data: { ...page, listings: [{ ...row, publication_status: '掲載終了' }] } });
+  render(<DealComparison deal={{ id: '901', name: '合成案件', prefecture: '', title: '', media: '' }} onOpen={vi.fn()} onClose={vi.fn()} />);
+  const table = await screen.findByRole('table', { name: '取引の求人一覧表' });
+  expect(table.querySelector('tbody [data-column="occupation"]')?.textContent).toBe('配送ドライバー');
+  expect(table.querySelector('tbody [data-column="salary"]')?.textContent).toBe('月給 250,000円〜300,000円');
+  fireEvent.click(screen.getByLabelText('勤務時間'));
+  fireEvent.click(screen.getByLabelText('休日'));
+  expect(table.querySelector('tbody [data-column="hours"]')?.textContent).toBe('8:00〜17:00');
+  expect(table.querySelector('tbody [data-column="holidays"]')?.textContent).toBe('土日休み');
+});

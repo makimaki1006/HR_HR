@@ -3,9 +3,37 @@ use super::*;
 use axum::{body::Body, http::Request, routing::any};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+fn synthetic_index_body(large: bool) -> String {
+    if !large {
+        return String::new();
+    }
+    // The body reader follows canonical column order: description precedes title.
+    let prefix = "仕事内容：";
+    let fields = "\nIndeed表示職種名：看護補助\n給与形態：時給\n基本給与 最小：0\n基本給与 最大：1800\n勤務時間：9時〜17時\n自由項目1のタイトル：休日・休暇\n自由項目1の内容：日曜";
+    format!(
+        "{prefix}{}{fields}",
+        "x".repeat(13_500 - prefix.len() - fields.len())
+    )
+}
+
+#[test]
+fn synthetic_index_body_has_exact_summary_before_measuring() {
+    let body = synthetic_index_body(true);
+    assert_eq!(body.len(), 13_500);
+    let record: Record = serde_json::from_value(
+        json!({"id":"1", "properties":{"id_hrhakkaa":"synthetic", "hrh_kyuujinhyou_honbun":body}}),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(summary(&record, "hrh")).unwrap(),
+        json!({"occupation":"看護補助","location":null,"salary_kind":"時給","salary_min":"0","salary_max":"1800","hours":"9時〜17時","holidays":"日曜","body_changed_at":null})
+    );
+}
+
 struct Fixture {
     service: JobReadService,
     calls: Arc<AtomicUsize>,
+    payload_bytes: Arc<AtomicUsize>,
     server: tokio::task::JoinHandle<()>,
     association_calls: Arc<AtomicUsize>,
     fail_on: Arc<AtomicUsize>,
@@ -50,9 +78,14 @@ impl Fixture {
             fail_status.clone(),
             max_active.clone(),
         );
+        let payload_bytes = Arc::new(AtomicUsize::new(0));
+        let payload = payload_bytes.clone();
         let observed = calls.clone();
+        let bandwidth = Arc::new(tokio::sync::Mutex::new(()));
         let app = Router::new().fallback(any(move |request: Request<Body>| {
             let calls = observed.clone();
+            let bandwidth = bandwidth.clone();
+            let payload = payload.clone();
             let (ids, page_failed, page_status, pages, times) = (ids.clone(), page_failed.clone(), page_status.clone(), pages.clone(), times.clone());
             let (seen, failed, status, active, maximum) = (seen.clone(), failed.clone(), status.clone(), active.clone(), maximum.clone());
             async move {
@@ -60,6 +93,7 @@ impl Fixture {
                 let path = request.uri().path().to_owned();
                 times.lock().unwrap().push((path.ends_with("/search"), std::time::Instant::now()));
                 let light = request.uri().query().is_some_and(|q| q.contains("properties=hs_object_id"));
+                let wants_body = request.uri().query().is_some_and(|q| q.contains("hrh_kyuujinhyou_honbun"));
                 let is_page = path == "/crm/v3/objects/0-420" && !light;
                 let page_nth = if is_page { pages.fetch_add(1, Ordering::SeqCst) + 1 } else { 0 };
                 let is_association = path.contains("/associations/");
@@ -87,25 +121,46 @@ impl Fixture {
                     let end = (start + 100).min(total);
                     let results: Vec<_> = ids[start..end].iter().map(|id| {
                         if light { json!({"id":id.to_string(),"properties":{"hs_object_id":id.to_string()}}) }
-                        else { json!({"id":id.to_string(),"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":"合成求人","kyuujin_status":"公開中","hrh_kyuujinhyou_honbun":if large_body {"合".repeat(5300)} else {String::new()}}}) }
+                        else {
+                            let position = ids.binary_search(id).unwrap();
+                            let mut row = json!({"id":id.to_string(),"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":"合成求人","kyuujin_status":if position < 3000 {"公開中"} else {"公開終了"}}});
+                            if large_body { row["properties"]["indeed_weekly_perf"] = json!("x".repeat(2300)); }
+                            if wants_body { row["properties"]["hrh_kyuujinhyou_honbun"] = json!(synthetic_index_body(large_body)); }
+                            row
+                        }
                     }).collect();
                     let mut body = json!({"results":results,"total":total});
                     // next.after is the last ID + 1, even when the next ID is far away.
                     if end < total { body["paging"] = json!({"next":{"after":(ids[end-1] + 1).to_string()}}); }
+                    if large_body && latency.is_zero() && !light {
+                        let size = serde_json::to_vec(&body).unwrap().len();
+                        payload.fetch_add(size, Ordering::SeqCst);
+                        let _guard = bandwidth.lock().await;
+                        tokio::time::sleep(Duration::from_secs_f64(size as f64 / 3_000_000.0)).await;
+                    }
                     return Json(body).into_response();
                 }
                 let bytes = axum::body::to_bytes(request.into_body(),1_000_000).await.unwrap();
                 let body: Value = serde_json::from_slice(&bytes).unwrap();
                 let results: Vec<_> = body["inputs"].as_array().unwrap().iter().map(|v| {
                     let id = v["id"].as_str().unwrap();
-                    if path.contains("/associations/") {
+                    if path == "/crm/v3/objects/0-420/batch/read" {
+                        json!({"id":id,"properties":{"hrh_kyuujinhyou_honbun":synthetic_index_body(large_body)}})
+                    } else if path.contains("/associations/") {
                         let targets = if path.contains("/deals/") {vec![json!({"toObjectId":(id.parse::<u128>().unwrap()%205+1).to_string()})]} else {vec![]};
                         json!({"from":{"id":id},"to":targets})
                     } else {
                         json!({"id":id,"properties":{"dealname":"合成案件","pipeline":"21596025"}})
                     }
                 }).collect();
-                Json(json!({"results":results})).into_response()
+                let response = json!({"results":results});
+                if large_body && latency.is_zero() && path == "/crm/v3/objects/0-420/batch/read" {
+                    let size = serde_json::to_vec(&response).unwrap().len();
+                    payload.fetch_add(size, Ordering::SeqCst);
+                    let _guard = bandwidth.lock().await;
+                    tokio::time::sleep(Duration::from_secs_f64(size as f64 / 3_000_000.0)).await;
+                }
+                Json(response).into_response()
             }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -129,6 +184,7 @@ impl Fixture {
         Self {
             service,
             calls,
+            payload_bytes,
             server,
             association_calls,
             fail_on,
@@ -226,7 +282,9 @@ async fn parallel_probe(f: &Fixture, ids: &[u128], serial_ms: u128) {
                 .collect::<BTreeSet<_>>(),
             ids.iter().copied().collect()
         );
-        assert!(elapsed < Duration::from_secs(90), "{mode}: {elapsed:?}");
+        // A cold build now acquires every body; restored builds reuse ended rows.
+        let budget = if mode == "cold" { 180 } else { 90 };
+        assert!(elapsed < Duration::from_secs(budget), "{mode}: {elapsed:?}");
         let (max_second, max_ten) = assert_windows(f);
         eprintln!("index_parallel mode={mode} records=41000 serial_ms={serial_ms} elapsed_ms={} max_calls_1s={max_second} max_calls_10s={max_ten}", elapsed.as_millis());
     }
@@ -677,5 +735,71 @@ async fn next_cursor_must_exceed_last_id_but_need_not_equal_last_plus_one() {
             );
         }
         server.abort();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "41,000 synthetic records, 3 MB/s shared response bandwidth"]
+async fn index_payload_latency_probe() {
+    let f = Fixture::with_ids(production_like_ids(), Duration::ZERO, true, true).await;
+    for mode in ["cold", "restored"] {
+        if mode == "restored" {
+            let index = f
+                .service
+                .listing_index
+                .state
+                .read()
+                .await
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .clone();
+            let restored = snapshot::test_round_trip(index).await;
+            f.service.listing_index.state.write().await.snapshot = Some(Arc::new(restored));
+        }
+        f.calls.store(0, Ordering::SeqCst);
+        f.payload_bytes.store(0, Ordering::SeqCst);
+        f.page_calls.store(0, Ordering::SeqCst);
+        f.call_times.lock().unwrap().clear();
+        let started = std::time::Instant::now();
+        refresh(&f.service.listing_index, &f.service, vec![], PAGE_PAUSE)
+            .await
+            .unwrap();
+        let elapsed = started.elapsed().as_millis();
+        let state = f.service.listing_index.state.read().await;
+        let index = state.snapshot.as_ref().unwrap();
+        assert_eq!(index.records.len(), 41000);
+        assert_eq!(index.deals.len(), 205);
+        for row in &index.records {
+            assert_eq!(row.summary.occupation.as_deref(), Some("看護補助"));
+            assert_eq!(row.summary.salary_kind.as_deref(), Some("時給"));
+            assert_eq!(row.summary.salary_min.as_deref(), Some("0"));
+            assert_eq!(row.summary.salary_max.as_deref(), Some("1800"));
+            assert_eq!(row.summary.hours.as_deref(), Some("9時〜17時"));
+            assert_eq!(row.summary.holidays.as_deref(), Some("日曜"));
+        }
+        // Receiver windows are observations; dedicated gateway tests enforce limits.
+        let times = f.call_times.lock().unwrap();
+        let times: Vec<_> = times
+            .iter()
+            .filter(|(search, _)| !search)
+            .map(|(_, time)| *time)
+            .collect();
+        let max = |window| {
+            times
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    times[i..]
+                        .iter()
+                        .take_while(|next| next.duration_since(*t) < window)
+                        .count()
+                })
+                .max()
+                .unwrap_or(0)
+        };
+        let (one, ten) = (max(Duration::from_secs(1)), max(Duration::from_secs(10)));
+        eprintln!("payload_probe mode={mode} records=41000 active=3000 elapsed_ms={elapsed} bytes={} pages={} calls={} max_1s={one} max_10s={ten}",f.payload_bytes.load(Ordering::SeqCst),f.page_calls.load(Ordering::SeqCst),f.calls.load(Ordering::SeqCst));
     }
 }

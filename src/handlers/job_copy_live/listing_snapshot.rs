@@ -4,7 +4,9 @@ use crate::audit::AuditDb;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::io::{Read, Write};
 
-const VERSION: i64 = 1;
+// v2 persists acquisition provenance for reusable ended-listing body summaries.
+// v1 cannot distinguish omitted bodies from acquired empty values and is discarded.
+const VERSION: i64 = 2;
 // Base64 text stays at 1,000,000 bytes, leaving room for the pipeline envelope.
 const CHUNK_BYTES: usize = 750_000;
 const MAX_PARTS: usize = 128;
@@ -32,6 +34,7 @@ pub(super) fn title_state<'de, D: serde::Deserializer<'de>>(
 #[derive(Serialize, Deserialize)]
 struct PrivateListing {
     applications: Option<usize>,
+    body_summary: Option<Summary>,
     perf: Option<home::PerfDigest>,
 }
 #[derive(Serialize, Deserialize)]
@@ -56,6 +59,7 @@ fn encode(index: &Index) -> Result<(Vec<u8>, usize), ()> {
             .iter()
             .map(|r| PrivateListing {
                 applications: r.indexed_application_count,
+                body_summary: r.body_summary.clone(),
                 perf: r.perf.clone(),
             })
             .collect(),
@@ -99,6 +103,7 @@ fn decode(bytes: &[u8], now: chrono::DateTime<chrono::Utc>) -> Result<Index, ()>
     }
     for (row, private) in saved.index.records.iter_mut().zip(saved.listings) {
         row.indexed_application_count = private.applications;
+        row.body_summary = private.body_summary;
         row.perf = private.perf;
     }
     for (deal, private) in saved.index.deals.iter_mut().zip(saved.deals) {
@@ -197,3 +202,14 @@ pub(super) async fn persist(index: Arc<Index>, audit: Option<AuditDb>) {
 #[cfg(test)]
 #[path = "listing_snapshot_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(super) async fn test_round_trip(index: Index) -> Index {
+    let (audit, _) = crate::audit::fake_turso::start_sqlite_audit().await;
+    tokio::task::spawn_blocking(move || {
+        save(&audit, &index).unwrap();
+        load(&audit).unwrap().unwrap()
+    })
+    .await
+    .unwrap()
+}
