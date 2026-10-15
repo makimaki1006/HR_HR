@@ -18,6 +18,40 @@ fn transient(error: &HubSpotError) -> bool {
     )
 }
 
+/// One build shares its send spacing across pages, associations, names and retries.
+/// The gateway remains the authority for shared traffic/priority/429 pauses. A small
+/// 130ms spacing avoids compressed bursts at the receiver around a 1s window edge.
+#[derive(Clone)]
+pub(super) struct IndexReader {
+    client: HubSpotClient,
+    next_start: Arc<tokio::sync::Mutex<tokio::time::Instant>>,
+}
+impl IndexReader {
+    pub(super) fn new(client: &HubSpotClient) -> Self {
+        Self {
+            client: client.clone(),
+            next_start: Arc::new(tokio::sync::Mutex::new(tokio::time::Instant::now())),
+        }
+    }
+    pub(super) async fn read(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+        delays: &[Duration],
+    ) -> Result<Value, ReadError> {
+        read_with_spacing(
+            &self.client,
+            path,
+            query,
+            body,
+            delays,
+            Some(&self.next_start),
+        )
+        .await
+    }
+}
+
 pub(super) async fn read(
     client: &HubSpotClient,
     path: &str,
@@ -25,7 +59,22 @@ pub(super) async fn read(
     body: Option<&Value>,
     delays: &[Duration],
 ) -> Result<Value, ReadError> {
+    read_with_spacing(client, path, query, body, delays, None).await
+}
+async fn read_with_spacing(
+    client: &HubSpotClient,
+    path: &str,
+    query: &[(&str, String)],
+    body: Option<&Value>,
+    delays: &[Duration],
+    spacing: Option<&tokio::sync::Mutex<tokio::time::Instant>>,
+) -> Result<Value, ReadError> {
     for attempt in 0..=delays.len() {
+        if let Some(spacing) = spacing {
+            let mut next = spacing.lock().await;
+            tokio::time::sleep_until(*next).await;
+            *next = tokio::time::Instant::now() + Duration::from_millis(130);
+        }
         let (error, retry, retry_after) =
             match client.read_raw(body.is_some(), path, query, body).await {
                 Ok(reply) if (200..300).contains(&reply.status) => {

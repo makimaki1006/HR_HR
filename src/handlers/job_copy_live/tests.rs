@@ -1485,9 +1485,11 @@ async fn job_copy_listings_auth_and_mock_contract() {
             seen.lock().unwrap().push(format!("{} {}?{}", req.method(), path, query));
             let record = json!({"id":"10", "properties":{"hs_name":"合成配送求人", "id_hrhakkaa":"HR-10", "todoufuken":"大分県", "shikuchouson":"大分市", "hrh_kyuujinhyou_honbun":"Indeed表示職種名：配送ドライバー", "jobcopy_indeed_title":"ドライバー", "baitai_genjoukyou_hrhakkaa":"公開中"}});
             let data = if path == "/crm/v3/objects/0-420" {
-                if query.contains("after=12") {json!({"results":[{"id":"12","properties":{"id_hrhakkaa":"HR-12","todoufuken":"沖縄県","hrh_kyuujinhyou_honbun":"Indeed表示職種名：看護師","jobcopy_indeed_title":"看護師"}}]})}
-                else if query.contains("after=") {json!({"results":[record], "paging":{"next":{"after":"12"}}})}
-                else {json!({"results":[{"id":"11","properties":{"id_airwork":"AW-11","airwork_account_login_id":"synthetic-account","qinwude":"東京都新宿区","zhizhong":"看護師","jobcopy_indeed_title":"看護師"}}],"paging":{"next":{"after":"11"}}})}
+                // List API fixture follows ascending numeric IDs, including the light probe.
+                json!({"results":[record,
+                    {"id":"11","properties":{"id_airwork":"AW-11","airwork_account_login_id":"synthetic-account","qinwude":"東京都新宿区","zhizhong":"看護師","jobcopy_indeed_title":"看護師"}},
+                    {"id":"12","properties":{"id_hrhakkaa":"HR-12","todoufuken":"沖縄県","hrh_kyuujinhyou_honbun":"Indeed表示職種名：看護師","jobcopy_indeed_title":"看護師"}}
+                ]})
             } else if path == "/crm/v3/objects/0-420/batch/read" {
                 let body: Value = serde_json::from_slice(&to_bytes(req.into_body(),4096).await.unwrap()).unwrap();
                 assert_eq!(body["inputs"],json!([{"id":"10"},{"id":"11"}]));
@@ -1497,7 +1499,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
             } else if path == "/crm/v4/associations/0-420/0-421/batch/read" {
                 assert_eq!(req.method(), Method::POST);
                 let body: Value = serde_json::from_slice(&to_bytes(req.into_body(), 4096).await.unwrap()).unwrap();
-                assert_eq!(body, json!({"inputs":[{"id":"11"},{"id":"10"},{"id":"12"}]}));
+                assert_eq!(body, json!({"inputs":[{"id":"10"},{"id":"11"},{"id":"12"}]}));
                 json!({"results":[{"from":{"id":"10"},"to":[{"toObjectId":21},{"toObjectId":22}]},{"from":{"id":"11"},"to":[]},{"from":{"id":"12"},"to":[]}]})
             } else if path == "/crm/v3/objects/0-420/11" {
                 assert!(query.contains("kinmujikan"));
@@ -1610,7 +1612,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
             )
             .await
             .unwrap();
-            assert_eq!(calls.lock().unwrap().len(), 5);
+            assert_eq!(calls.lock().unwrap().len(), 4);
         }
         let response = app.clone().oneshot(Request::builder().uri("/api/job-copy/listings?prefecture=%E5%A4%A7%E5%88%86%E7%9C%8C&title=%E3%83%89%E3%83%A9%E3%82%A4%E3%83%90%E3%83%BC&media=hrh").header("cookie", format!("id={}", session.id().unwrap())).body(Body::empty()).unwrap()).await.unwrap();
         if method == "password" {
@@ -1625,7 +1627,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
         );
         let data: Value =
             serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
-        assert_eq!(calls.lock().unwrap().len(), 5); // filters/pages use the index only
+        assert_eq!(calls.lock().unwrap().len(), 4); // filters/pages use the index only
         assert_eq!(data["listings"].as_array().unwrap().len(), 1);
         assert_eq!(data["listings"][0]["media_job_id"], "HR-10");
         assert_eq!(data["listings"][0]["category"], "ドライバー");
@@ -1705,7 +1707,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["drafts"][1]["review_status"], "pending");
     assert_eq!(data["draft_revision"].as_str().unwrap().len(), 64);
     assert_eq!(data["can_write_drafts"], false);
-    assert_eq!(calls.lock().unwrap().len(), 7); // index + association batches and history; the company name is a separate request now
+    assert_eq!(calls.lock().unwrap().len(), 6); // index + association batches and history; the company name is a separate request now
     for ids in ["10", "10,10", "10,11,12,13,14,15", "10,not-an-id"] {
         let response = app
             .clone()
@@ -1719,7 +1721,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(calls.lock().unwrap().len(), 7);
+        assert_eq!(calls.lock().unwrap().len(), 6);
     }
     let response = app
         .clone()
@@ -1743,7 +1745,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["jobs"][0]["listing"]["media"], "hrh");
     assert_eq!(data["jobs"][1]["listing"]["media"], "airwork");
     assert_eq!(data["jobs"][1]["body"], "合成AirWorkの本文");
-    assert_eq!(calls.lock().unwrap().len(), 8); // one read for selected jobs
+    assert_eq!(calls.lock().unwrap().len(), 7); // one read for selected jobs
     session
         .insert(SESSION_USER_KEY, "outside@example.test")
         .await
@@ -1760,6 +1762,6 @@ async fn job_copy_listings_auth_and_mock_contract() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(calls.lock().unwrap().len(), 8);
+    assert_eq!(calls.lock().unwrap().len(), 7);
     task.abort();
 }
