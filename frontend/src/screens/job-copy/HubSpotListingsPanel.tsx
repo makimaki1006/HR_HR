@@ -67,8 +67,8 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
   }, [active, autoLoad, load, dealSearch, revision]);
   useEffect(() => {
-    if (!active || !autoLoad || page?.status !== 'preparing' || busy || error) return;
-    const timer = window.setTimeout(() => { void load(); }, 5_000);
+    if (!active || !autoLoad || (page?.status !== 'preparing' && !page?.refreshing) || busy || error) return;
+    const timer = window.setTimeout(() => { void load(page?.offset ?? 0); }, 5_000);
     return () => { window.clearTimeout(timer); };
   }, [active, autoLoad, page, busy, error, load]);
   const orderRef = useRef<string[]>([]);
@@ -152,7 +152,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     {busy && !page && <p role="status">求人の一覧を読み込んでいます…</p>}{error && <p role="alert">{error}</p>}
     {page?.status === 'preparing' && <ListingPreparationNotice progress={page.progress} />}
     {page?.status === 'ready' && <>
-      {page.refreshing && <p role="status">一覧を更新中です。表示している時点の一覧を利用できます。</p>}
+      {page.refreshing && <p role="status">{formatDateTimeJst(page.index_built_at, '日時不明')}時点の一覧を表示しています。最新の一覧を読み込み中です</p>}
       {page.refresh_failed && <p role="status">一覧を更新できませんでした。表示している時点の一覧を利用しています。</p>}
       <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の本文を見る`} onClick={() => { void openId(row.id, row); }}>
         <strong>{row.title ?? '求人名未取得'}</strong><span className="jc-job-company"><span className="jc-publication">{publicationLabel(row.publication_status)}</span><span>案：{row.draft_status ? draftStateLabel(row.draft_status) : '案なし・確認状態は未取得'}</span></span>

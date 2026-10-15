@@ -22,6 +22,8 @@ mod cache_tests;
 #[cfg(test)]
 #[path = "listing_deal_tests.rs"]
 mod deal_tests;
+#[path = "listing_snapshot.rs"]
+mod snapshot;
 
 /// AirWork image URLs, one per line. Written by `scripts/job_copy_airwork_image_urls.py`.
 pub(super) const AW_IMAGES: &str = "aw_kyuujinhyou_gazou";
@@ -112,10 +114,13 @@ pub(super) struct ListingsQuery {
     /// 求人名に含まれる文字で絞る（空白・記号・大小を無視）。
     q: Option<String>,
 }
-#[derive(Clone, Debug, Serialize)]
+// Labels are decoded from a closed set of literals, never borrowed from the saved JSON.
+type IndexLabel = &'static str;
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Listing {
     id: String,
-    media: &'static str,
+    #[serde(deserialize_with = "snapshot::media")]
+    media: IndexLabel,
     media_job_id: String,
     account_id: Option<String>,
     title: Option<String>,
@@ -125,7 +130,8 @@ struct Listing {
     category: Option<String>,
     indeed_title: Option<String>,
     /// "set"（職種を指定）/ "none"（市場と比べない）/ "unset"（未指定）
-    indeed_title_state: &'static str,
+    #[serde(deserialize_with = "snapshot::title_state")]
+    indeed_title_state: IndexLabel,
     publication_status: Option<String>,
     draft_status: Option<String>,
     last_csv_detected_at: Option<String>,
@@ -302,7 +308,7 @@ impl IndexState {
         self.retry_at = Some(tokio::time::Instant::now() + retry_delay(self.consecutive_failures));
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Index {
     records: Vec<Listing>,
     titles: Vec<String>,
@@ -736,7 +742,11 @@ pub(super) async fn refresh(
 }
 /// Runs once at startup and every six hours, even when no one opens the screen.
 /// The worker holds only a Weak cache so dropping the router/service cancels it.
-pub(super) fn start_worker(service: &Arc<JobReadService>, db: crate::db::local_sqlite::LocalDb) {
+pub(super) fn start_worker(
+    service: &Arc<JobReadService>,
+    db: crate::db::local_sqlite::LocalDb,
+    audit: Option<crate::audit::AuditDb>,
+) {
     let cache = &service.listing_index;
     let Ok(mut worker) = cache.worker.lock() else {
         return;
@@ -748,6 +758,9 @@ pub(super) fn start_worker(service: &Arc<JobReadService>, db: crate::db::local_s
     // Keep the HTTP client, not the cache/service; holding the service here would form a cycle.
     let hs = service.hs.background();
     *worker = Some(tokio::spawn(async move {
+        if let Some(cache) = weak.upgrade() {
+            snapshot::restore(&cache, audit.clone()).await;
+        }
         loop {
             let Some(cache) = weak.upgrade() else {
                 return;
@@ -766,6 +779,7 @@ pub(super) fn start_worker(service: &Arc<JobReadService>, db: crate::db::local_s
             if result.is_ok() {
                 let snapshot = cache.state.read().await.snapshot.clone();
                 if let Some(index) = snapshot {
+                    snapshot::persist(index.clone(), audit.clone()).await;
                     // Attach the shared cache: the worker's temporary service has its own caches.
                     let mut home_service = service.clone();
                     home_service.listing_index = cache.clone();

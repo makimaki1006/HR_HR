@@ -2073,7 +2073,11 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .map(Arc::new);
     if let (Some(service), Some(db)) = (&service, state.and_then(|state| state.indeed_db.as_ref()))
     {
-        listings::start_worker(service, db.clone());
+        listings::start_worker(
+            service,
+            db.clone(),
+            state.and_then(|state| state.audit.clone()),
+        );
     }
     let snapshot_reader = super::job_copy_drive::DriveReader::from_env()
         .ok()

@@ -21,6 +21,20 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
 }
 
 const TABLE_DDL: &[&str] = &[
+    // ADR-029: 再生成可能な一覧のキャッシュ。最後の分割行と旧世代の削除は同一文で確定する。
+    r#"CREATE TABLE IF NOT EXISTS job_copy_index_snapshots (
+        generation TEXT NOT NULL, version INTEGER NOT NULL, built_at TEXT NOT NULL,
+        part INTEGER NOT NULL, total INTEGER NOT NULL CHECK(total BETWEEN 1 AND 128),
+        payload TEXT NOT NULL, PRIMARY KEY(generation, part),
+        CHECK(part >= 0 AND part < total)
+    )"#,
+    r#"CREATE TRIGGER IF NOT EXISTS job_copy_index_snapshot_complete
+    AFTER INSERT ON job_copy_index_snapshots
+    WHEN NEW.part = NEW.total - 1 AND
+        (SELECT COUNT(*) FROM job_copy_index_snapshots WHERE generation = NEW.generation) = NEW.total
+    BEGIN
+        DELETE FROM job_copy_index_snapshots WHERE generation <> NEW.generation;
+    END"#,
     r#"CREATE TABLE IF NOT EXISTS crm_saved_views (
         id TEXT PRIMARY KEY, creator_email TEXT NOT NULL, name TEXT NOT NULL,
         scope TEXT NOT NULL CHECK(scope IN ('private','shared')), query TEXT NOT NULL,
