@@ -15,6 +15,7 @@ fn fixture(count: usize) -> Index {
             }
         })).unwrap();
         row.indexed_application_count = Some(n % 31);
+        row.body_summary = Some(row.summary.clone());
         row.perf = Some(home::PerfDigest {
             latest_end: chrono::NaiveDate::from_ymd_opt(2026, 10, 15).unwrap(),
             recent_apps: (n % 20) as i64,
@@ -47,6 +48,10 @@ fn assert_same(actual: &Index, expected: &Index) {
     for (a, b) in actual.records.iter().zip(&expected.records) {
         assert_eq!(a.indexed_application_count, b.indexed_application_count);
         assert_eq!(a.perf, b.perf);
+        assert_eq!(
+            serde_json::to_value(&a.body_summary).unwrap(),
+            serde_json::to_value(&b.body_summary).unwrap()
+        );
     }
     for (a, b) in actual.deals.iter().zip(&expected.deals) {
         assert_eq!(
@@ -64,7 +69,7 @@ async fn round_trip_and_reject_invalid_snapshots() {
         assert_same(&load(&audit).unwrap().unwrap(), &index);
         conn.lock()
             .unwrap()
-            .execute("UPDATE job_copy_index_snapshots SET version=2", [])
+            .execute("UPDATE job_copy_index_snapshots SET version=1", [])
             .unwrap();
         assert!(load(&audit).unwrap().is_none());
         save(&audit, &index).unwrap();
@@ -91,7 +96,7 @@ async fn round_trip_and_reject_invalid_snapshots() {
             data
         })
         .unwrap();
-        for (key, value_to_set) in [("version", json!(2)), ("index", json!({}))] {
+        for (key, value_to_set) in [("version", json!(1)), ("index", json!({}))] {
             let old = value[key].clone();
             value[key] = value_to_set;
             let mut gzip =

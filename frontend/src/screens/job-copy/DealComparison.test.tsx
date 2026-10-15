@@ -152,15 +152,14 @@ it.each([['検品', '梱包'], ['検'.repeat(600), '梱'.repeat(600)]])('colours
   expect(marks[1]?.textContent).toBe(after);
 });
 
-it('shows ended body-derived fields as unacquired and keeps acquired zero distinct', async () => {
-  const ended = { ...row, publication_status: '掲載終了', summary: { ...row.summary, occupation: null, salary_kind: null, salary_min: null, salary_max: null, hours: null, holidays: null, body_changed_at: null } };
-  const zero = { ...row, id: '2', title: '合成の時給求人', summary: { ...row.summary, salary_kind: '時給', salary_min: '0', salary_max: '0' } };
-  api.mockResolvedValue({ ok: true, data: { ...page, listings: [ended, zero] } });
+it('keeps acquired occupation, salary, hours and holidays visible for ended listings', async () => {
+  api.mockResolvedValue({ ok: true, data: { ...page, listings: [{ ...row, publication_status: '掲載終了' }] } });
   render(<DealComparison deal={{ id: '901', name: '合成案件', prefecture: '', title: '', media: '' }} onOpen={vi.fn()} onClose={vi.fn()} />);
   const table = await screen.findByRole('table', { name: '取引の求人一覧表' });
-  const rows = table.querySelectorAll('tbody tr');
-  expect(rows[0]?.querySelector('[data-column="occupation"]')?.textContent).toBe('未取得');
-  expect(rows[0]?.querySelector('[data-column="salary"]')?.textContent).toBe('未取得');
-  expect(rows[0]?.querySelector('[data-column="location"]')?.textContent).toBe('沖縄県那覇市');
-  expect(rows[1]?.querySelector('[data-column="salary"]')?.textContent).toBe('時給 0円');
+  expect(table.querySelector('tbody [data-column="occupation"]')?.textContent).toBe('配送ドライバー');
+  expect(table.querySelector('tbody [data-column="salary"]')?.textContent).toBe('月給 250,000円〜300,000円');
+  fireEvent.click(screen.getByLabelText('勤務時間'));
+  fireEvent.click(screen.getByLabelText('休日'));
+  expect(table.querySelector('tbody [data-column="hours"]')?.textContent).toBe('8:00〜17:00');
+  expect(table.querySelector('tbody [data-column="holidays"]')?.textContent).toBe('土日休み');
 });

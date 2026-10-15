@@ -61,6 +61,7 @@ pub(super) fn listing(
         last_csv_detected_at: None,
         deal_ids: deals.iter().map(|d| d.to_string()).collect(),
         summary: Summary::default(),
+        body_summary: None,
         indexed_application_count: None,
         perf: perf.and_then(PerfDigest::from_json),
     }

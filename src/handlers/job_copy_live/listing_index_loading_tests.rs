@@ -3,6 +3,33 @@ use super::*;
 use axum::{body::Body, http::Request, routing::any};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+fn synthetic_index_body(large: bool) -> String {
+    if !large {
+        return String::new();
+    }
+    // The body reader follows canonical column order: description precedes title.
+    let prefix = "仕事内容：";
+    let fields = "\nIndeed表示職種名：看護補助\n給与形態：時給\n基本給与 最小：0\n基本給与 最大：1800\n勤務時間：9時〜17時\n自由項目1のタイトル：休日・休暇\n自由項目1の内容：日曜";
+    format!(
+        "{prefix}{}{fields}",
+        "x".repeat(13_500 - prefix.len() - fields.len())
+    )
+}
+
+#[test]
+fn synthetic_index_body_has_exact_summary_before_measuring() {
+    let body = synthetic_index_body(true);
+    assert_eq!(body.len(), 13_500);
+    let record: Record = serde_json::from_value(
+        json!({"id":"1", "properties":{"id_hrhakkaa":"synthetic", "hrh_kyuujinhyou_honbun":body}}),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(summary(&record, "hrh")).unwrap(),
+        json!({"occupation":"看護補助","location":null,"salary_kind":"時給","salary_min":"0","salary_max":"1800","hours":"9時〜17時","holidays":"日曜","body_changed_at":null})
+    );
+}
+
 struct Fixture {
     service: JobReadService,
     calls: Arc<AtomicUsize>,
@@ -98,7 +125,7 @@ impl Fixture {
                             let position = ids.binary_search(id).unwrap();
                             let mut row = json!({"id":id.to_string(),"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":"合成求人","kyuujin_status":if position < 3000 {"公開中"} else {"公開終了"}}});
                             if large_body { row["properties"]["indeed_weekly_perf"] = json!("x".repeat(2300)); }
-                            if wants_body { row["properties"]["hrh_kyuujinhyou_honbun"] = json!(if large_body {"x".repeat(13500)} else {String::new()}); }
+                            if wants_body { row["properties"]["hrh_kyuujinhyou_honbun"] = json!(synthetic_index_body(large_body)); }
                             row
                         }
                     }).collect();
@@ -118,7 +145,7 @@ impl Fixture {
                 let results: Vec<_> = body["inputs"].as_array().unwrap().iter().map(|v| {
                     let id = v["id"].as_str().unwrap();
                     if path == "/crm/v3/objects/0-420/batch/read" {
-                        json!({"id":id,"properties":{"hrh_kyuujinhyou_honbun":if large_body {"x".repeat(13500)} else {String::new()}}})
+                        json!({"id":id,"properties":{"hrh_kyuujinhyou_honbun":synthetic_index_body(large_body)}})
                     } else if path.contains("/associations/") {
                         let targets = if path.contains("/deals/") {vec![json!({"toObjectId":(id.parse::<u128>().unwrap()%205+1).to_string()})]} else {vec![]};
                         json!({"from":{"id":id},"to":targets})
@@ -255,7 +282,9 @@ async fn parallel_probe(f: &Fixture, ids: &[u128], serial_ms: u128) {
                 .collect::<BTreeSet<_>>(),
             ids.iter().copied().collect()
         );
-        assert!(elapsed < Duration::from_secs(90), "{mode}: {elapsed:?}");
+        // A cold build now acquires every body; restored builds reuse ended rows.
+        let budget = if mode == "cold" { 180 } else { 90 };
+        assert!(elapsed < Duration::from_secs(budget), "{mode}: {elapsed:?}");
         let (max_second, max_ten) = assert_windows(f);
         eprintln!("index_parallel mode={mode} records=41000 serial_ms={serial_ms} elapsed_ms={} max_calls_1s={max_second} max_calls_10s={max_ten}", elapsed.as_millis());
     }
@@ -713,35 +742,64 @@ async fn next_cursor_must_exceed_last_id_but_need_not_equal_last_plus_one() {
 #[ignore = "41,000 synthetic records, 3 MB/s shared response bandwidth"]
 async fn index_payload_latency_probe() {
     let f = Fixture::with_ids(production_like_ids(), Duration::ZERO, true, true).await;
-    let started = std::time::Instant::now();
-    refresh(&f.service.listing_index, &f.service, vec![], PAGE_PAUSE)
-        .await
-        .unwrap();
-    let state = f.service.listing_index.state.read().await;
-    assert_eq!(state.snapshot.as_ref().unwrap().records.len(), 41000);
-    assert_eq!(state.snapshot.as_ref().unwrap().deals.len(), 205);
-    // Measure receiver arrival windows rather than gating the old implementation:
-    // large responses can bunch arrivals after gateway/connection waits even when
-    // the shared reader spaces admission. Dedicated gateway tests keep their checks.
-    let times = f.call_times.lock().unwrap();
-    let times: Vec<_> = times
-        .iter()
-        .filter(|(search, _)| !search)
-        .map(|(_, time)| *time)
-        .collect();
-    let max = |window| {
-        times
+    for mode in ["cold", "restored"] {
+        if mode == "restored" {
+            let index = f
+                .service
+                .listing_index
+                .state
+                .read()
+                .await
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .clone();
+            let restored = snapshot::test_round_trip(index).await;
+            f.service.listing_index.state.write().await.snapshot = Some(Arc::new(restored));
+        }
+        f.calls.store(0, Ordering::SeqCst);
+        f.payload_bytes.store(0, Ordering::SeqCst);
+        f.page_calls.store(0, Ordering::SeqCst);
+        f.call_times.lock().unwrap().clear();
+        let started = std::time::Instant::now();
+        refresh(&f.service.listing_index, &f.service, vec![], PAGE_PAUSE)
+            .await
+            .unwrap();
+        let elapsed = started.elapsed().as_millis();
+        let state = f.service.listing_index.state.read().await;
+        let index = state.snapshot.as_ref().unwrap();
+        assert_eq!(index.records.len(), 41000);
+        assert_eq!(index.deals.len(), 205);
+        for row in &index.records {
+            assert_eq!(row.summary.occupation.as_deref(), Some("看護補助"));
+            assert_eq!(row.summary.salary_kind.as_deref(), Some("時給"));
+            assert_eq!(row.summary.salary_min.as_deref(), Some("0"));
+            assert_eq!(row.summary.salary_max.as_deref(), Some("1800"));
+            assert_eq!(row.summary.hours.as_deref(), Some("9時〜17時"));
+            assert_eq!(row.summary.holidays.as_deref(), Some("日曜"));
+        }
+        // Receiver windows are observations; dedicated gateway tests enforce limits.
+        let times = f.call_times.lock().unwrap();
+        let times: Vec<_> = times
             .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                times[i..]
-                    .iter()
-                    .take_while(|next| next.duration_since(*t) < window)
-                    .count()
-            })
-            .max()
-            .unwrap_or(0)
-    };
-    let (one, ten) = (max(Duration::from_secs(1)), max(Duration::from_secs(10)));
-    eprintln!("payload_probe records=41000 active=3000 elapsed_ms={} bytes={} pages={} calls={} max_1s={one} max_10s={ten}", started.elapsed().as_millis(), f.payload_bytes.load(Ordering::SeqCst), f.page_calls.load(Ordering::SeqCst), f.calls.load(Ordering::SeqCst));
+            .filter(|(search, _)| !search)
+            .map(|(_, time)| *time)
+            .collect();
+        let max = |window| {
+            times
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    times[i..]
+                        .iter()
+                        .take_while(|next| next.duration_since(*t) < window)
+                        .count()
+                })
+                .max()
+                .unwrap_or(0)
+        };
+        let (one, ten) = (max(Duration::from_secs(1)), max(Duration::from_secs(10)));
+        eprintln!("payload_probe mode={mode} records=41000 active=3000 elapsed_ms={elapsed} bytes={} pages={} calls={} max_1s={one} max_10s={ten}",f.payload_bytes.load(Ordering::SeqCst),f.page_calls.load(Ordering::SeqCst),f.calls.load(Ordering::SeqCst));
+    }
 }

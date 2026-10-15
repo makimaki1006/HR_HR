@@ -1,4 +1,4 @@
-//! Light list pages, then bounded body reads for listings that have not ended.
+//! Light pages and complete summaries, including reusable ended-listing body values.
 use super::*;
 
 pub(super) fn index_properties() -> Vec<&'static str> {
@@ -17,16 +17,49 @@ pub(super) fn index_properties() -> Vec<&'static str> {
         .collect()
 }
 
+// The list API has no body-specific revision in the existing property contract.
+// hs_lastmodifieddate also changes for weekly results and cannot identify body edits.
+// Explicit assumption: a listing's body does not change after publication has ended.
+// Reuse only if BOTH generations are ended, the media binding is unchanged, and a
+// body was actually acquired. Newly ended, reopened and unacquired rows must read.
+fn reuse_ended_summary(row: &mut Listing, previous: Option<&Listing>) -> bool {
+    let Some(old) = previous.filter(|old| {
+        row.publication_status.as_deref() == Some("掲載終了")
+            && old.publication_status.as_deref() == Some("掲載終了")
+            && row.media == old.media
+            && row.media_job_id == old.media_job_id
+            && row.account_id == old.account_id
+    }) else {
+        return false;
+    };
+    let Some(body) = &old.body_summary else {
+        return false;
+    };
+    // Keep current structured properties (location and AirWork columns) from the page.
+    row.summary.salary_min = body.salary_min.clone();
+    row.summary.salary_max = body.salary_max.clone();
+    row.summary.body_changed_at = body.body_changed_at.clone();
+    if row.media == "hrh" {
+        row.summary.occupation = body.occupation.clone();
+        row.summary.salary_kind = body.salary_kind.clone();
+        row.summary.hours = body.hours.clone();
+        row.summary.holidays = body.holidays.clone();
+    }
+    row.body_summary = Some(row.summary.clone());
+    true
+}
+
 pub(super) async fn enrich_index_summaries(
     reader: &IndexReader,
     rows: &mut [Listing],
+    previous: &BTreeMap<&str, &Listing>,
 ) -> Result<(), ReadError> {
-    // Unknown status is included: only a confirmed end permits omitting the body.
-    let ids: Vec<_> = rows
-        .iter()
-        .filter(|r| r.publication_status.as_deref() != Some("掲載終了"))
-        .map(|r| r.id.clone())
-        .collect();
+    let mut ids = Vec::new();
+    for row in rows.iter_mut() {
+        if !reuse_ended_summary(row, previous.get(row.id.as_str()).copied()) {
+            ids.push(row.id.clone());
+        }
+    }
     let mut positions: BTreeMap<_, _> = rows
         .iter()
         .enumerate()
@@ -73,6 +106,7 @@ pub(super) async fn enrich_index_summaries(
                     .ok_or_else(|| fail("hubspot_partial_read"))?;
                 let row = &mut rows[position];
                 row.summary = summary(&record, row.media);
+                row.body_summary = Some(row.summary.clone());
             }
         }
     }
@@ -121,12 +155,9 @@ mod tests {
                 let input: Value = serde_json::from_slice(&bytes).unwrap();
                 assert_eq!(
                     input["inputs"],
-                    json!([{"id":"1"},{"id":"2"},{"id":"3"},{"id":"6"}])
+                    json!([{"id":"1"},{"id":"2"},{"id":"3"},{"id":"4"},{"id":"5"},{"id":"6"}])
                 );
-                let results: Vec<_> = full
-                    .into_iter()
-                    .filter(|r| !["4", "5"].contains(&r.id.as_str()))
-                    .collect();
+                let results = full;
                 Json(json!({"results":results}))
             }
         }));
@@ -135,10 +166,14 @@ mod tests {
             JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
         let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let mut rows: Vec<_> = originals.iter().map(|r| listing(r).unwrap()).collect();
-        enrich_index_summaries(&IndexReader::new(&service.hs.background()), &mut rows)
-            .await
-            .unwrap();
-        for i in [0, 1, 2, 5] {
+        enrich_index_summaries(
+            &IndexReader::new(&service.hs.background()),
+            &mut rows,
+            &BTreeMap::new(),
+        )
+        .await
+        .unwrap();
+        for i in 0..6 {
             assert_eq!(
                 serde_json::to_value(&rows[i].summary).unwrap(),
                 serde_json::to_value(summary(&expected[i], rows[i].media)).unwrap()
@@ -150,12 +185,6 @@ mod tests {
             assert_eq!(rows[i].summary.hours.as_deref(), Some("9時〜17時"));
             assert_eq!(rows[i].summary.holidays.as_deref(), Some("日曜"));
         }
-        assert_eq!(
-            serde_json::to_value(&rows[3].summary).unwrap(),
-            json!({"occupation":null,"location":"東京都新宿区","salary_kind":null,"salary_min":null,"salary_max":null,"hours":null,"holidays":null,"body_changed_at":null})
-        );
-        assert_eq!(rows[4].summary.occupation.as_deref(), Some("看護補助"));
-        assert!(rows[4].summary.salary_min.is_none());
         for row in &rows {
             assert!(matches(
                 row,
@@ -237,11 +266,15 @@ mod tests {
             let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
             let mut rows = vec![listing(&record("1", "hrh", "公開中")).unwrap()];
             assert_eq!(
-                enrich_index_summaries(&IndexReader::new(&service.hs.background()), &mut rows)
-                    .await
-                    .err()
-                    .unwrap()
-                    .1,
+                enrich_index_summaries(
+                    &IndexReader::new(&service.hs.background()),
+                    &mut rows,
+                    &BTreeMap::new()
+                )
+                .await
+                .err()
+                .unwrap()
+                .1,
                 "hubspot_partial_read"
             );
             task.abort();
@@ -262,3 +295,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "listing_index_reuse_tests.rs"]
+mod reuse_tests;

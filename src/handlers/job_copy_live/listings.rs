@@ -135,6 +135,10 @@ struct Listing {
     last_csv_detected_at: Option<String>,
     deal_ids: Vec<String>,
     summary: Summary,
+    /// Acquired body-derived values, including an acquired but empty body.
+    /// Stored in snapshot::PrivateListing; never exposed in the API.
+    #[serde(skip)]
+    body_summary: Option<Summary>,
     #[serde(skip)]
     indexed_application_count: Option<usize>,
     /// 週ごとの実績の要約（ホーム用）。週ごとの JSON そのものは索引に残さない。
@@ -205,6 +209,7 @@ fn listing(record: &Record) -> Option<Listing> {
         publication_status: publication(record, media),
         deal_ids: vec![],
         summary: summary(record, media),
+        body_summary: None,
         indexed_application_count: None,
         perf: home::PerfDigest::from_record(record, media),
         draft_status: record
@@ -549,7 +554,7 @@ async fn read_index_range(
     Ok((ids, rows))
 }
 
-/// One complete build. Only non-ended listings fetch bodies for structured summaries.
+/// Light pages plus complete summaries, reusing only previously ended body values.
 async fn build_index(
     cache: &Cache,
     service: &JobReadService,
@@ -559,6 +564,14 @@ async fn build_index(
 ) -> Result<Index, ReadError> {
     let started = std::time::Instant::now();
     let reader = IndexReader::new(&service.hs.background());
+    // Pin the last complete (possibly restored) generation throughout this build.
+    let previous = cache.state.read().await.snapshot.clone();
+    let previous_rows: BTreeMap<_, _> = previous
+        .as_ref()
+        .into_iter()
+        .flat_map(|index| index.records.iter())
+        .map(|row| (row.id.as_str(), row))
+        .collect();
     let ranges = if range_count == 1 {
         ranges_from_cuts(vec![])
     } else {
@@ -576,7 +589,7 @@ async fn build_index(
     let mut mapping = BTreeMap::new();
     while let Some(result) = tasks.join_next().await {
         let (range_ids, mut rows) = result.map_err(|_| fail("hubspot_read_failed"))??;
-        enrich_index_summaries(&reader, &mut rows).await?;
+        enrich_index_summaries(&reader, &mut rows, &previous_rows).await?;
         counted += range_ids.len();
         // Enrich one completed range while the other ranges keep reading pages.
         // Only one enrichment runs at a time, retaining the four-batch bound.
@@ -1723,6 +1736,7 @@ mod publication_count_tests {
             last_csv_detected_at: None,
             deal_ids: vec![],
             summary: Summary::default(),
+            body_summary: None,
             indexed_application_count: None,
             perf: None,
         }
