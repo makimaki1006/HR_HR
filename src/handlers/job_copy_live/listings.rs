@@ -807,7 +807,13 @@ pub(super) async fn read_application_dates(
     valid_id(&id)?;
     let service = service(&access)?;
     let applications = service.all_associations("0-420", &id, "0-421").await?;
-    let mut properties = vec!["yingmuri", "seibetsu", "nenrei", "todoufuken", "shikuchouson"];
+    let mut properties = vec![
+        "yingmuri",
+        "seibetsu",
+        "nenrei",
+        "todoufuken",
+        "shikuchouson",
+    ];
     properties.extend(super::applicant_reasons::PROPERTIES);
     let pending_labels = service.reason_option_labels();
     let rows = service.batch("0-421", &applications, &properties).await?;
@@ -845,16 +851,22 @@ pub(super) async fn read_application_dates(
     );
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
-        Json(json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"by_date":by_date,
+        Json(
+            json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"by_date":by_date,
             "applications":people,"applicant_reasons":reasons,
-            "fetched_at":chrono::Utc::now().to_rfc3339()})),
+            "fetched_at":chrono::Utc::now().to_rfc3339()}),
+        ),
     ))
 }
 const APPLICATION_ROWS_MAX: usize = 2000;
 /// The history of the status properties (公開状況), oldest first, for the listing's 出来事.
 fn status_history(data: &Value) -> Value {
     let mut out = serde_json::Map::new();
-    for key in ["kyuujin_status", "baitai_genjoukyou_hrhakkaa", "baitai_genjoukyou_airwork"] {
+    for key in [
+        "kyuujin_status",
+        "baitai_genjoukyou_hrhakkaa",
+        "baitai_genjoukyou_airwork",
+    ] {
         let mut entries: Vec<Value> = data["propertiesWithHistory"][key]
             .as_array()
             .map(|list| {
@@ -1940,9 +1952,17 @@ mod tests {
                 {"timestamp": "2026-08-03T03:00:00Z", "value": "非公開"}],
             "shigotonaiyou": [{"timestamp": "2026-06-15T00:00:00Z", "value": "本文"}]}});
         let history = status_history(&data);
-        let values: Vec<&str> = history["baitai_genjoukyou_hrhakkaa"].as_array().unwrap().iter().map(|e| e["value"].as_str().unwrap()).collect();
+        let values: Vec<&str> = history["baitai_genjoukyou_hrhakkaa"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["value"].as_str().unwrap())
+            .collect();
         assert_eq!(values, vec!["公開", "非公開", "公開"]);
-        assert_eq!(history["baitai_genjoukyou_hrhakkaa"][0]["timestamp"], "2026-06-15T00:00:00Z");
+        assert_eq!(
+            history["baitai_genjoukyou_hrhakkaa"][0]["timestamp"],
+            "2026-06-15T00:00:00Z"
+        );
         assert_eq!(history["kyuujin_status"], json!([]));
         assert!(history.get("shigotonaiyou").is_none());
     }
