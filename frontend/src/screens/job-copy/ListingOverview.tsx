@@ -1,3 +1,4 @@
+import { PhoneHearing } from './PhoneHearing';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JobCopyRecord } from './data';
 import { applicationsCutoffDate, noApplicationDatesText } from './detailBandModel';
@@ -131,14 +132,14 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
   const applicationCount = events.filter(event => event.kind === 'application').length;
   const card = useRef<HTMLElement | null>(null);
   useEffect(() => { card.current?.scrollIntoView({ block: 'nearest' }); }, [selectedId]);
-  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section><ListingReasons job={job} /></div>;
+  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section><ListingReasons job={job} /><PhoneHearing job={job} /></div>;
   return <div className="lo-main">
     <section className="lo-card" aria-labelledby="lo-chart-title">
       <div className="lo-head"><h2 id="lo-chart-title">求人のライフライン</h2><span>掲載開始から{lifeline?.endIndex !== null && lifeline?.endIndex !== undefined ? '掲載終了' : '今日'}まで、1週を1列で並べています（月曜はじまり）。横にスクロールできます。</span></div>
       {lifeline ? <LifelineChart lifeline={lifeline} job={job} selectedWeek={selectedWeek} /> : <p className="lo-note" role="status">掲載の開始日が分からないため、週ごとの推移は出せません。</p>}
       {!job.overallApplications && <p className="lo-note" role="status">{noApplicationDatesText(job)}</p>}
     </section>
-    <ListingReasons job={job} />
+    <ListingReasons job={job} /><PhoneHearing job={job} />
     <section aria-labelledby="lo-events-title">
       <div className="lo-head"><h2 id="lo-events-title">出来事（新しい順）</h2>{applicationCount > 0 && <label className="lo-toggle"><input type="checkbox" checked={showApplications} onChange={event => { setShowApplications(event.target.checked); }} />応募（{applicationCount}件）を出す</label>}</div>
       <p className="lo-note">押すと、横の時間軸のその週に印が付きます。前後4週の応募の件数の差は、出来事のほかの要因でも動くため、原因を決めるものではありません。</p>

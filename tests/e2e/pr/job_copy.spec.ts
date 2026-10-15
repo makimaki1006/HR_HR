@@ -408,3 +408,21 @@ test.describe('案件管理のタイムライン', () => {
     await expect(page.getByRole('dialog', { name: 'ほかの分析', exact: true })).toHaveCount(0);
   });
 });
+
+test('電話ヒアリングを開くとデモの聞き取りと通話記録を応募日と並べて読める', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await login(page);
+  await page.goto('/app/job-copy?demo=1&job=demo-job-001');
+  const section = page.locator('.ph-section');
+  await expect(section.locator('summary')).toHaveText('電話ヒアリング（記録あり 3件 / 応募 28件）');
+  await expect(section).not.toHaveAttribute('open');
+  await section.locator('summary').click();
+  const card = section.locator('article').first();
+  await expect(card).toContainText('応募日：2026/09/24');
+  await expect(card).toContainText('勤務条件の優先順位');
+  await expect(card).toContainText('通勤時間、休日、給与の順で希望');
+  await expect(card).toContainText('【架電】土日休みと、見学できる日程を確認したい。');
+  await expect(section.locator('article').nth(1)).toContainText('ほかの求人にも関連する応募');
+  await section.locator('summary').scrollIntoViewIfNeeded();
+  if (process.env.PHONE_HEARING_SCREENSHOT) await page.screenshot({ path: process.env.PHONE_HEARING_SCREENSHOT, fullPage: true });
+});

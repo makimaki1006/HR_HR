@@ -96,6 +96,8 @@ mod tests {
         let out_dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend/src/generated");
         let cfg = ts_rs::Config::new().with_out_dir(&out_dir);
+        crate::handlers::job_copy_live::phone_hearing::PhoneHearing::export_all(&cfg)
+            .expect("PhoneHearing");
         AppPingResponse::export_all(&cfg).expect("AppPingResponse の TS 型を書き出せない");
         crate::handlers::crm_metadata::CrmMetadataResponse::export_all(&cfg)
             .expect("CrmMetadataResponse の TS 型を書き出せない");

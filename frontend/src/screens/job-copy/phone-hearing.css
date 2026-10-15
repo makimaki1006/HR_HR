@@ -1,0 +1,8 @@
+.ph-section > summary { cursor: pointer; font-weight: 700; padding: 8px 0; }
+.ph-card { margin-top: 16px; padding: 16px; border: 1px solid var(--border, #d9dfe7); border-radius: 8px; }
+.ph-card h3, .ph-card h4 { margin: 0 0 8px; }
+.ph-card dl > div { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border, #d9dfe7); }
+.ph-card dt { font-weight: 600; }
+.ph-card dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ph-note { white-space: pre-wrap; overflow-wrap: anywhere; border-left: 3px solid #96a7c0; padding-left: 12px; margin-top: 12px; }
+@media (max-width: 600px) { .ph-card dl > div { grid-template-columns: 1fr; gap: 4px; } }
