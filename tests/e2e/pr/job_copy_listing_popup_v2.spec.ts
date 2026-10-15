@@ -83,7 +83,7 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: `${rows[0]!.title}の本文を見る` }).click();
   await openOtherAnalysis(page, '本文・画像');
-  await page.getByRole('button', { name: /2026\/10\/01 09:00 JST にHubSpotに記録された本文/ }).click();
+  await page.getByRole('button', { name: /2026\/10\/01 09:00 にHubSpotに記録された本文/ }).click();
   await closeOtherAnalysis(page);
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   await expect(dialog.locator('.jc-listing-two-columns')).toHaveCount(0);

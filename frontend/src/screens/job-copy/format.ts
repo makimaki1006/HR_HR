@@ -26,7 +26,7 @@ function jstParts(value: string): { year: number; month: number; day: number; ho
 }
 
 /**
- * 日時を `YYYY/MM/DD HH:mm JST` にする。
+ * 日時を日本時間の `YYYY/MM/DD HH:mm` にする。
  * 日付だけ（YYYY-MM-DD）の値は時刻を足さずに `YYYY/MM/DD` にする。読めない値は `fallback`（既定は空文字）。
  */
 export function formatDateTimeJst(value: string | null | undefined, fallback = ''): string {
@@ -35,7 +35,7 @@ export function formatDateTimeJst(value: string | null | undefined, fallback = '
   if (dateOnly) return `${dateOnly[1] ?? ''}/${dateOnly[2] ?? ''}/${dateOnly[3] ?? ''}`;
   const parts = jstParts(value);
   if (!parts) return fallback;
-  return `${String(parts.year)}/${pad(parts.month)}/${pad(parts.day)} ${pad(parts.hour)}:${pad(parts.minute)} JST`;
+  return `${String(parts.year)}/${pad(parts.month)}/${pad(parts.day)} ${pad(parts.hour)}:${pad(parts.minute)}`;
 }
 
 /** 日付を JST の `YYYY/MM/DD` にする。月だけ（YYYY-MM）の値は `YYYY/MM`。読めない値は `fallback`。 */

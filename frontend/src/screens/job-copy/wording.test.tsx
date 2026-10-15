@@ -122,11 +122,11 @@ describe('job copy screen wording', () => {
     expect(row?.textContent).not.toContain('応募未取得');
   }, 30_000);
 
-  it('formats the selected version timestamp as YYYY/MM/DD HH:mm JST', () => {
+  it('formats the selected version timestamp as YYYY/MM/DD HH:mm', () => {
     render(<JobCopyScreen />);
     // demo-001 の最新版 v3 は 2026-09-25T12:30:00+09:00 に確認した本文（data.ts）。
     const meta = document.querySelector('.jc-record-meta')?.textContent ?? '';
-    expect(meta).toContain('本文を確認した日時: 2026/09/25 12:30 JST');
-    expect(meta).not.toContain('JST JST');
+    expect(meta).toContain('本文を確認した日時: 2026/09/25 12:30');
+    expect(meta).not.toContain('JST');
   });
 });

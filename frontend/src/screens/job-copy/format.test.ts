@@ -9,11 +9,11 @@ import { AssumptionsNote } from './AssumptionsNote';
 
 describe('formatDateTimeJst', () => {
   it('converts a UTC timestamp with microseconds to JST minutes', () => {
-    expect(formatDateTimeJst('2026-10-05T07:19:48.222798+00:00')).toBe('2026/10/05 16:19 JST');
+    expect(formatDateTimeJst('2026-10-05T07:19:48.222798+00:00')).toBe('2026/10/05 16:19');
   });
   it('rolls the date over at JST midnight', () => {
-    expect(formatDateTimeJst('2026-09-30T15:00:00Z')).toBe('2026/10/01 00:00 JST');
-    expect(formatDateTimeJst('2026-09-15T10:00:00+09:00')).toBe('2026/09/15 10:00 JST');
+    expect(formatDateTimeJst('2026-09-30T15:00:00Z')).toBe('2026/10/01 00:00');
+    expect(formatDateTimeJst('2026-09-15T10:00:00+09:00')).toBe('2026/09/15 10:00');
   });
   it('keeps a date-only value as a date without inventing a time', () => {
     expect(formatDateTimeJst('2026-09-01')).toBe('2026/09/01');

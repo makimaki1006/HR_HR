@@ -32,7 +32,7 @@ test('HubSpotの求人を絞って履歴を比較し、固定一覧へ戻る', a
   await panel.getByRole('button', { name: '合成配送求人の本文を見る' }).click();
   await expect(page.locator('.jc-fixed-list .jc-job')).toHaveCount(1);
   await expect(panel.locator('.jc-history-status')).toHaveCount(0);
-  await expect(page.locator('.jc-main')).toContainText('2026/10/02 09:00 JST にHubSpotに記録された本文');
+  await expect(page.locator('.jc-main')).toContainText('2026/10/02 09:00 にHubSpotに記録された本文');
   await selectJobFeature(page, 'body');
   await expect(jobFeaturePanel(page, 'body').getByText('合成の新本文', { exact: true })).toBeVisible();
   await selectJobFeature(page, 'diff');

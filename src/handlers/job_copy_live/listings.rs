@@ -221,7 +221,7 @@ fn taxonomy(db: &crate::db::local_sqlite::LocalDb) -> Result<Vec<String>, ReadEr
     })
     .map_err(|_| fail("market_data_unavailable"))
 }
-fn service(access: &Access) -> Result<&JobReadService, ReadError> {
+pub(super) fn service(access: &Access) -> Result<&JobReadService, ReadError> {
     access.service.as_deref().ok_or(ReadError(
         StatusCode::SERVICE_UNAVAILABLE,
         "hubspot_not_configured",

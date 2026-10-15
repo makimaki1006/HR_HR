@@ -32,7 +32,7 @@ describe('HubSpot listing history', () => {
     expect(record.location).toBe('大分県大分市');
     expect(record.company).toBe('');
     expect(listingRecord({ ...history, company_name: '合成運輸株式会社' }).company).toBe('合成運輸株式会社');
-    expect(record.versions[1]?.label).toBe('2026/10/02 09:00 JST にHubSpotに記録された本文');
+    expect(record.versions[1]?.label).toBe('2026/10/02 09:00 にHubSpotに記録された本文');
     expect(record.versions.map(v => [v.observedAt, v.body])).toEqual([['2026-10-01T00:00:00Z', '合成の旧本文'], ['2026-10-02T00:00:00Z', '合成の新本文']]);
     expect(record.versions[0]?.images).toBeUndefined();
     expect(record.versions[1]?.images?.map(image => image.url)).toEqual(['https://example.invalid/1.png']);

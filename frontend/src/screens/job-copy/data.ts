@@ -1,3 +1,5 @@
+import type { PhoneHearing } from '../../generated/PhoneHearing';
+import { demoPhoneHearing } from './demoPhoneHearing';
 import type { DraftSnapshot } from '../../generated/DraftSnapshot';
 import type { CopyImage } from './images';
 import type { ApplicantDimension, ApplicantDistribution } from './applicantCompositionModel';
@@ -74,6 +76,7 @@ export interface JobCopyRecord {
      */
     multiListing?: { byDate: Record<string, number>; missingDate: number };
   };
+  phoneHearing?: PhoneHearing | undefined;
   applicantReasons?: ApplicantReasonCollection | undefined;
   hrhPerformance?: HrhPerformanceCollection | undefined;
   jointDemographics?: JointDemographics | undefined;
@@ -106,6 +109,7 @@ export const jobs: JobCopyRecord[] = [
     overallApplications: { total: 28, missingDate: 10, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-02': 1, '2026-09-04': 2, '2026-09-07': 1, '2026-09-10': 2, '2026-09-13': 1, '2026-09-16': 3, '2026-09-18': 2, '2026-09-21': 2, '2026-09-24': 1, '2026-09-27': 1, '2026-09-30': 1, '2026-10-02': 1 } },
     // 応募理由（架空）。分類の選択と文の両方を含む。
     applicantReasons: demoApplicantReasons(),
+    phoneHearing: demoPhoneHearing,
     // HRハッカーの期間別実績（架空の課金例）
     hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: 'DEMO-HRH-001', captured_at: '2026-10-05T00:00:00Z', rows: [
       { period_start: '2026-09-01', period_end: '2026-09-14', impressions: 4200, clicks: 160, cost_yen: 30000, applications: 6 },

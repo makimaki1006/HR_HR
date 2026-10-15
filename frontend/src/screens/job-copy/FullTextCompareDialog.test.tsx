@@ -47,7 +47,7 @@ it('switches versions and updates the result and the change range', () => {
   expect(screen.getByRole('status').textContent).toContain('全 3 項目のうち 2 項目が違います。');
   const right = screen.getByRole('group', { name: '右（後）' });
   fireEvent.click(within(right).getByRole('button', { name: /変更後/ }));
-  expect(screen.getByRole('dialog').textContent).toContain('2026/09/01 09:00 JST〜2026/09/15 09:00 JST の間に変わった内容');
+  expect(screen.getByRole('dialog').textContent).toContain('2026/09/01 09:00〜2026/09/15 09:00 の間に変わった内容');
 });
 
 it('says 記録していません for items AirWork does not keep, without counting them as equal', () => {
