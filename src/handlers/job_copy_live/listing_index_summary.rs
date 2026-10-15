@@ -173,12 +173,31 @@ mod tests {
                 }
             ));
         }
-        let old_rows: Vec<_> = expected.iter().map(|r| listing(r).unwrap()).collect();
-        let map = super::super::home::CompanyMap::default();
+        let mut old_rows: Vec<_> = expected.iter().map(|r| listing(r).unwrap()).collect();
+        for row in old_rows.iter_mut().chain(rows.iter_mut()) {
+            row.deal_ids = vec!["901".into()];
+            row.perf = Some(super::super::home::PerfDigest {
+                latest_end: chrono::NaiveDate::from_ymd_opt(2026, 10, 11).unwrap(),
+                recent_apps: 5,
+                prev_apps: 3,
+                recent_cost: 12000,
+            });
+        }
+        let mut map = super::super::home::CompanyMap::default();
+        map.deal_company.insert("901".into(), "701".into());
+        map.names.insert("701".into(), Some("合成事業所".into()));
         let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
+        let home = super::super::home::compute(&rows, &map, today);
+        assert_eq!(super::super::home::compute(&old_rows, &map, today), home);
+        assert_eq!(home.customers.len(), 1);
+        assert_eq!(home.customers[0].total_listings, 6);
+        assert_eq!(home.customers[0].live_listings, 2);
+        assert_eq!(home.customers[0].recent_apps, 10);
+        assert_eq!(home.customers[0].prev_apps, 6);
+        assert_eq!(home.customers[0].recent_cost, 24000);
         assert_eq!(
-            super::super::home::compute(&old_rows, &map, today),
-            super::super::home::compute(&rows, &map, today)
+            home.cards.iter().find(|c| c.key == "more").unwrap().count,
+            2
         );
         for publication in [None, Some("掲載中"), Some("掲載終了"), Some("掲載前")] {
             let query = ListingsQuery {
