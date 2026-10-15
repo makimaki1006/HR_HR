@@ -26,7 +26,7 @@ describe('job copy layout', () => {
     vi.stubGlobal('fetch', fetchSpy);
     render(<JobCopyScreen />);
     // 初期表示は「週ごとの応募」と「出来事」。旧タブは主領域に出ない。
-    expect(screen.getByRole('heading', { name: '週ごとの応募' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '求人のライフライン' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '出来事（新しい順）' })).toBeTruthy();
     expect(screen.queryByRole('tablist', { name: '求人管理の機能' })).toBeNull();
     expect(screen.queryByRole('dialog', { name: 'ほかの分析' })).toBeNull();

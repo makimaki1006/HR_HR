@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JobCopyRecord } from './data';
 import { applicationsCutoffDate, noApplicationDatesText } from './detailBandModel';
-import { buildChart } from './listingChartModel';
-import { eventChecks, eventCounts, eventWindows, md, resultText } from './listingEventsModel';
+import { COLUMN_PX, buildLifeline, weekIndex } from './lifelineModel';
+import type { Lifeline, LifelineWeek } from './lifelineModel';
+import { reasonSourceLabels } from './applicantReasonsModel';
+import { ReasonCategorySummary } from './ReasonCategorySummary';
+import { maskPersonalDetails } from './personalText';
+import { selectedCategory } from './reasonCategories';
+import { eventChecks, eventCounts, md, resultText } from './listingEventsModel';
 import type { ListingEvent, MarketInput } from './listingEventsModel';
 import { chooseMarket, designatedTitle, indeedTitleState } from './marketMatch';
 import { marketRows } from './marketChartModel';
 import type { MarketRow } from './marketChartModel';
 import { useMarketFetch } from './marketSource';
-import { pct } from './listingChartModel';
 import type { BillingEntry } from './timelineModel';
 import './listing-overview.css';
 
@@ -52,77 +56,110 @@ interface Props {
   onOpenDrawer: (kind: ListingDrawerKind, event: ListingEvent | null) => void;
 }
 
-const BAR_AREA_PX = 160;
+const num = (value: number | null) => value === null ? '—' : value.toLocaleString('ja-JP');
+const yen = (value: number | null) => value === null ? '—' : `¥${Math.round(value).toLocaleString('ja-JP')}`;
 
-function Chart({ job, events, billing, selected, onSelect, asOf }: { job: JobCopyRecord; events: readonly ListingEvent[]; billing: readonly BillingEntry[]; selected: ListingEvent | null; onSelect: (id: string) => void; asOf: string }) {
-  const chart = useMemo(() => buildChart(job, events, billing, asOf), [job, events, billing, asOf]);
-  if (!chart) return <p className="lo-note" role="status">応募の日別データがないため、週ごとの応募は出せません。</p>;
-  const windows = selected ? eventWindows(selected, asOf) : null;
-  const shade = (range: { start: string; end: string } | null | undefined) => range ? { left: `${String(pct(range.start, chart.start, chart.totalDays))}%`, width: `${String(Math.max(0, pct(range.end, chart.start, chart.totalDays) - pct(range.start, chart.start, chart.totalDays)))}%` } : null;
-  const before = shade(windows?.before); const after = shade(windows?.after);
-  const rows = Math.max(1, ...chart.pins.map(pin => pin.row + 1));
-  const pinArea = 6 + rows * 34;
-  return <div className="lo-chart" style={{ ['--lo-pin-area' as string]: `${String(pinArea)}px` }}>
-    <div className="lo-y" aria-hidden="true" style={{ height: `${String(BAR_AREA_PX + pinArea)}px` }}>
-      {chart.yTicks.map(tick => <span key={tick} style={{ bottom: `${String(tick / chart.maxCount * BAR_AREA_PX)}px` }}>{tick} 件</span>)}
+/** 横の時間軸。1週 = 1列（幅は固定）。開いたときは最新の週が見える位置にする。 */
+export function LifelineChart({ lifeline, job, selectedWeek }: { lifeline: Lifeline; job: JobCopyRecord; selectedWeek: number | null }) {
+  const scroller = useRef<HTMLDivElement | null>(null);
+  const width = lifeline.weeks.length * COLUMN_PX;
+  useEffect(() => { const element = scroller.current; if (element) element.scrollLeft = element.scrollWidth; }, [lifeline.weeks.length, job.id]);
+  useEffect(() => {
+    const element = scroller.current;
+    if (element && selectedWeek !== null) element.scrollLeft = Math.max(0, selectedWeek * COLUMN_PX - element.clientWidth / 2 + COLUMN_PX / 2);
+  }, [selectedWeek]);
+  const media = lifeline.mediaLabel;
+  const noPerf = lifeline.hasPerformance ? '' : media === 'AirWork' ? '課金データなし' : 'Indeed の実績データなし';
+  const rows: { key: string; label: string; cell: (week: LifelineWeek) => string; empty: string }[] = [
+    { key: 'billing', label: '課金（週）', cell: week => yen(week.billing), empty: noPerf },
+    { key: 'impressions', label: '閲覧数（表示回数）', cell: week => num(week.impressions), empty: noPerf },
+    { key: 'clicks', label: 'クリック数', cell: week => num(week.clicks), empty: noPerf },
+    { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), empty: '' },
+    { key: 'media', label: `応募数（${media}の集計）`, cell: week => num(week.mediaApplications), empty: noPerf },
+  ];
+  const marker = (index: number | null, label: string, tone: string) => index === null ? null : <div key={label} className={`lf-marker lf-marker-${tone}`} style={{ left: `${String(index * COLUMN_PX)}px` }}><span>{label}</span></div>;
+  return <div className="lf" data-testid="lifeline">
+    <div className="lf-labels" aria-hidden="true">
+      <div className="lf-head-label">週（月曜）</div>
+      {rows.map(row => <div key={row.key} className="lf-row-label">{row.label}</div>)}
     </div>
-    <div className="lo-plot" style={{ height: `${String(BAR_AREA_PX + pinArea)}px` }} role="group" aria-label="週ごとの応募と出来事">
-      {chart.yTicks.map(tick => <div key={tick} className="lo-grid" aria-hidden="true" style={{ bottom: `${String(tick / chart.maxCount * BAR_AREA_PX)}px` }} />)}
-      {before && <div className="lo-shade lo-shade-before" aria-hidden="true" style={{ ...before, top: `${String(pinArea - 4)}px` }} />}
-      {after && <div className="lo-shade lo-shade-after" aria-hidden="true" style={{ ...after, top: `${String(pinArea - 4)}px` }} />}
-      {chart.bars.map(bar => <div key={bar.start} className="lo-bar" title={`${md(bar.start)} からの週: ${String(bar.count)} 件`} style={{ left: `${String(bar.leftPct + 0.15)}%`, width: `${String(Math.max(0.2, bar.widthPct - 0.3))}%`, height: `${String(bar.count / chart.maxCount * BAR_AREA_PX)}px` }} />)}
-      {chart.pins.map(pin => {
-        const on = pin.eventId === selected?.id;
-        const event = events.find(item => item.id === pin.eventId);
-        return <div key={pin.eventId}>
-          <div className={`lo-pin-line${on ? ' lo-on' : ''}`} aria-hidden="true" style={{ left: `${String(pin.leftPct)}%`, top: `${String(6 + pin.row * 34 + 30)}px` }} />
-          <button type="button" className={`lo-pin${on ? ' lo-on' : ''}`} aria-pressed={on} aria-label={`出来事 ${String(pin.n)}：${event ? `${md(event.date)} ${event.title}` : ''}`} style={{ left: `${String(pin.leftPct)}%`, top: `${String(6 + pin.row * 34)}px` }} onClick={() => { onSelect(pin.eventId); }}>{pin.n}</button>
-        </div>;
-      })}
-      <div className="lo-cutoff" aria-hidden="true" style={{ left: `${String(chart.cutoffPct)}%`, top: `${String(pinArea - 4)}px` }} />
-      {chart.cutoffPct < 99.5 && <span className="lo-cutoff-label" style={{ left: `${String(chart.cutoffPct)}%`, top: `${String(pinArea - 4)}px` }}>応募は{md(asOf)}まで</span>}
-    </div>
-    <div className="lo-lane-label">課金</div>
-    <div className="lo-lane" aria-label="課金">
-      {chart.months.map(month => <span key={`${month.label}${String(month.leftPct)}`} className="lo-month" style={{ left: `${String(month.leftPct)}%` }}>{month.label}</span>)}
-      {chart.bands.map(band => <div key={`${band.label}${String(band.leftPct)}`} className="lo-band" title="4週あたりの課金" style={{ left: `${String(band.leftPct)}%`, width: `calc(${String(band.widthPct)}% - 2px)` }}>{band.label}<small>／4週</small></div>)}
-      {!chart.bands.length && <span className="lo-lane-empty">課金のデータがありません</span>}
+    <div className="lf-scroll" ref={scroller} tabIndex={0} role="region" aria-label="週ごとの推移（横にスクロールできます）">
+      <div className="lf-track" style={{ width: `${String(width)}px` }}>
+        {selectedWeek !== null && <div className="lf-selected" data-testid="lifeline-selected" style={{ left: `${String(selectedWeek * COLUMN_PX)}px`, width: `${String(COLUMN_PX)}px` }} />}
+        {marker(lifeline.startIndex, '掲載開始', 'start')}{marker(lifeline.endIndex, '掲載終了', 'end')}{marker(lifeline.todayIndex, '今日', 'today')}
+        <div className="lf-row lf-head">{lifeline.weeks.map(week => <div key={week.start} className="lf-cell" title={`${week.start} の週`}>{md(week.start)}</div>)}</div>
+        {rows.map(row => <div key={row.key} className="lf-row" role="row" aria-label={row.label}>
+          {row.empty && lifeline.weeks.every(week => row.cell(week) === '—') ? <div className="lf-empty" style={{ width: `${String(width)}px` }}>{row.empty}</div> : lifeline.weeks.map(week => <div key={week.start} className={`lf-cell${row.cell(week) === '0' || row.cell(week) === '¥0' ? ' lf-zero' : ''}`}>{row.cell(week)}</div>)}
+        </div>)}
+      </div>
     </div>
   </div>;
+}
+
+const KIND_LABEL: Record<ListingEvent['kind'], string> = { start: '掲載', end: '掲載', revive: '掲載', content: '求人内容', image: '画像', billing: '課金', application: '応募' };
+
+function ApplicantReasonsOf({ job, event }: { job: JobCopyRecord; event: ListingEvent }) {
+  const collection = job.applicantReasons;
+  if (!collection?.available) return <p className="lo-summary">応募理由の記録はまだありません。</p>;
+  const items = collection.items.filter(item => item.applicant === event.applicationKey && item.text.trim());
+  const picked = (collection.selections ?? []).filter(item => item.applicant === event.applicationKey && selectedCategory(item) !== 'unset');
+  if (!items.length && !picked.length) return <p className="lo-summary">この応募の応募理由の記録はまだありません。</p>;
+  return <div className="lo-reasons-of">
+    {picked.map(item => <p key={`${item.sourceProperty}-${item.value}`} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由の分類'}：</strong>{item.label ?? item.value}</p>)}
+    {items.map(item => <p key={item.id} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由'}：</strong>{maskPersonalDetails(item.text)}</p>)}
+  </div>;
+}
+
+/** 求人の応募理由（ヒアリング内容）の内訳。記録が無い求人は、無いと言う。 */
+export function ListingReasons({ job }: { job: JobCopyRecord }) {
+  const collection = job.applicantReasons;
+  const body = job.applicationDates === 'loading' ? <p className="lo-note" role="status">応募理由を読み込み中です。</p>
+    : job.applicationDates === 'failed' ? <p className="lo-note" role="status">応募理由を取得できませんでした。時間を置いて、もう一度開いてください。</p>
+    : !collection?.available || (!collection.items.some(item => item.text.trim()) && !(collection.selections ?? []).length) ? <p className="lo-note" role="status">応募理由の記録はまだありません。</p>
+    : <ReasonCategorySummary collection={collection} />;
+  return <section className="lo-card" aria-labelledby="lo-reasons-title" data-testid="listing-reasons"><div className="lo-head"><h2 id="lo-reasons-title">応募理由（ヒアリング内容）</h2><span>応募の出来事を開くと、その人の応募理由を見られます。</span></div>{body}</section>;
 }
 
 export function ListingOverview({ job, events, billing, market, selectedId, onSelect, onCompare, onOpenDrawer }: Props) {
   const asOf = applicationsCutoffDate(job);
   const listingStart = events.find(event => event.kind === 'start')?.date ?? null;
   const selected = events.find(event => event.id === selectedId) ?? null;
-  const newestFirst = useMemo(() => [...events].reverse(), [events]);
+  const [showApplications, setShowApplications] = useState(true);
+  const newestFirst = useMemo(() => [...events].reverse().filter(event => showApplications || event.kind !== 'application'), [events, showApplications]);
+  const lifeline = useMemo(() => buildLifeline(job, events, billing), [job, events, billing]);
+  const selectedWeek = lifeline && selected ? weekIndex(lifeline, selected.date) : null;
+  const applicationCount = events.filter(event => event.kind === 'application').length;
   const card = useRef<HTMLElement | null>(null);
   useEffect(() => { card.current?.scrollIntoView({ block: 'nearest' }); }, [selectedId]);
-  if (!events.length) return <section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section>;
+  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section><ListingReasons job={job} /></div>;
   return <div className="lo-main">
     <section className="lo-card" aria-labelledby="lo-chart-title">
-      <div className="lo-head"><h2 id="lo-chart-title">週ごとの応募</h2><span>番号は下の出来事と同じ。押すとその出来事を開き、前の4週（灰色）と後の4週（水色）を塗ります。</span></div>
-      {asOf ? <Chart job={job} events={events} billing={billing} selected={selected} onSelect={onSelect} asOf={asOf} /> : <p className="lo-note" role="status">{noApplicationDatesText(job)}</p>}
+      <div className="lo-head"><h2 id="lo-chart-title">求人のライフライン</h2><span>掲載開始から{lifeline?.endIndex !== null && lifeline?.endIndex !== undefined ? '掲載終了' : '今日'}まで、1週を1列で並べています（月曜はじまり）。横にスクロールできます。</span></div>
+      {lifeline ? <LifelineChart lifeline={lifeline} job={job} selectedWeek={selectedWeek} /> : <p className="lo-note" role="status">掲載の開始日が分からないため、週ごとの推移は出せません。</p>}
+      {!job.overallApplications && <p className="lo-note" role="status">{noApplicationDatesText(job)}</p>}
     </section>
+    <ListingReasons job={job} />
     <section aria-labelledby="lo-events-title">
-      <h2 id="lo-events-title">出来事（新しい順）</h2>
-      <p className="lo-note">出来事の日の前の4週と後の4週の応募を、件数で比べています。件数の差は出来事のほかの要因でも動くため、原因を決めるものではありません。</p>
+      <div className="lo-head"><h2 id="lo-events-title">出来事（新しい順）</h2>{applicationCount > 0 && <label className="lo-toggle"><input type="checkbox" checked={showApplications} onChange={event => { setShowApplications(event.target.checked); }} />応募（{applicationCount}件）を出す</label>}</div>
+      <p className="lo-note">押すと、横の時間軸のその週に印が付きます。前後4週の応募の件数の差は、出来事のほかの要因でも動くため、原因を決めるものではありません。</p>
       <div className="lo-events">
         {newestFirst.map(event => {
           const open = event.id === selected?.id;
+          const isApplication = event.kind === 'application';
           const counts = eventCounts(job, event, asOf, listingStart);
-          const checks = eventChecks(event, events, billing, market, asOf);
+          const checks = isApplication ? [] : eventChecks(event, events, billing, market, asOf);
           const diff = counts.before !== null && counts.after !== null ? counts.after - counts.before : null;
           const partial = [counts.before !== null && counts.beforeDays < 28 ? `前は掲載後${String(counts.beforeDays)}日分` : '', counts.after !== null && counts.afterDays < 28 ? `後は${String(counts.afterDays)}日分` : ''].filter(Boolean).join('・');
-          return <article key={event.id} ref={open ? card : undefined} className={`lo-event${open ? ' lo-open' : ''}`}>
+          return <article key={event.id} ref={open ? card : undefined} className={`lo-event lo-kind-${event.kind}${open ? ' lo-open' : ''}`}>
             <button type="button" className="lo-event-head" aria-expanded={open} onClick={() => { onSelect(open ? null : event.id); }}>
-              <span className="lo-num">{event.n}</span>
+              <span className="lo-num">{isApplication ? '応' : event.n}</span>
               <span className="lo-date">{md(event.date)}</span>
-              <span className="lo-title">{event.title}</span>
-              <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>
+              <span className="lo-title"><small className="lo-kind">{KIND_LABEL[event.kind]}</small>{event.title}{isApplication && <small className="lo-attrs">{event.summary}</small>}</span>
+              {isApplication ? <span /> : <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>}
               <span className="lo-caret" aria-hidden="true">{open ? '▲' : '▼'}</span>
             </button>
-            {open && <div className="lo-event-body">
+            {open && isApplication && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicantReasonsOf job={job} event={event} /></div>}
+            {open && !isApplication && <div className="lo-event-body">
               <ul className="lo-checks" aria-label="ほかに応募を動かしそうなこと">
                 {checks.map(check => <li key={check.key}><span className={`lo-mark lo-mark-${check.mark}`}>{check.markLabel}</span><strong>{check.label}</strong><span>{check.text}</span></li>)}
               </ul>

@@ -11,7 +11,8 @@
  * - ほかの変更: 前後4週に別の出来事（本文・画像・給与の変更、掲載の開始・終了）があれば「要注意」、無ければ「小さい」。
  */
 import type { JobCopyRecord } from './data';
-import { addDays, changeKinds, countApplications, daysBetween, formatMonthJa, marketChange, publishedVersions, versionChanges } from './timelineModel';
+import { publicationLabel } from './hubspotListings';
+import { addDays, changeKinds, countApplications, daysBetween, formatMonthJa, jstDate, marketChange, publishedVersions, versionChanges } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import type { MarketRow } from './marketChartModel';
 
@@ -22,7 +23,7 @@ export const BILLING_EVENT_MIN_PCT = 20;
 /** 市場の求人数がこの割合以上動いていたら「要注意」。 */
 export const MARKET_CAUTION_PCT = 5;
 
-export type EventKind = 'start' | 'content' | 'billing' | 'end';
+export type EventKind = 'start' | 'content' | 'image' | 'billing' | 'end' | 'revive' | 'application';
 
 export interface ListingEvent {
   id: string;
@@ -39,6 +40,8 @@ export interface ListingEvent {
   /** 課金の変更のとき、4週あたりの額（前 → 後）。開始は前が null、停止は後が null。 */
   billingFrom: number | null;
   billingTo: number | null;
+  /** 応募の出来事のとき、応募理由と結ぶ印。 */
+  applicationKey?: string | null | undefined;
 }
 
 export interface EventCounts {
@@ -73,7 +76,7 @@ export function billingBands(entries: readonly BillingEntry[]): { start: string;
   return bands;
 }
 
-interface RawEvent { date: string; kind: EventKind; title: string; summary: string; versionId: string | null; previousVersionId: string | null; billingFrom: number | null; billingTo: number | null }
+interface RawEvent { date: string; kind: EventKind; title: string; summary: string; versionId: string | null; previousVersionId: string | null; billingFrom: number | null; billingTo: number | null; applicationKey?: string | null | undefined }
 
 function billingEvents(entries: readonly BillingEntry[]): RawEvent[] {
   const events: RawEvent[] = [];
@@ -104,22 +107,52 @@ function billingEvents(entries: readonly BillingEntry[]): RawEvent[] {
  * 公開開始日時・Indeed/AirWork の週ごとの実績（表示か課金のある最初の週）も見る。
  * 取り込んだ媒体CSVの最初の検出日は、保存していないので使わない。
  */
-export function earliestStart(job: Pick<JobCopyRecord, 'listingStartedOn'>, billing: readonly BillingEntry[]): { date: string; basis: string } | null {
+export function earliestStart(job: Pick<JobCopyRecord, 'listingStartedOn'>, billing: readonly BillingEntry[], statusStart: string | null = null): { date: string; basis: string } | null {
   const candidates: { date: string; basis: string }[] = [];
+  if (statusStart) candidates.push({ date: statusStart, basis: 'HubSpot の公開状況の履歴' });
   if (job.listingStartedOn && DATE.test(job.listingStartedOn)) candidates.push({ date: job.listingStartedOn, basis: 'HubSpot の公開開始日時' });
   const live = billing.filter(entry => entry.source === 'hrhacker' && DATE.test(entry.start) && ((entry.impressions ?? 0) > 0 || (entry.amountYen ?? 0) > 0)).sort((a, b) => a.start.localeCompare(b.start))[0];
   if (live) candidates.push({ date: live.start, basis: `${live.media === 'AirWork' ? 'AirWork' : 'Indeed'} の週ごとの実績の最初の週` });
   return candidates.sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
 }
 
-const KIND_ORDER: Record<EventKind, number> = { start: 0, content: 1, billing: 2, end: 3 };
+const KIND_ORDER: Record<EventKind, number> = { start: 0, application: 1, content: 2, image: 2, revive: 2, billing: 3, end: 4 };
+
+const RAW_BASE = { versionId: null, previousVersionId: null, billingFrom: null, billingTo: null } as const;
+
+/** 公開状況の履歴から、掲載の始まり・終了・復活を取り出す。履歴は HubSpot が記録しはじめた日からしか無い。 */
+export function statusTimeline(job: Pick<JobCopyRecord, 'statusHistory'>): { startOn: string | null; events: RawEvent[] } {
+  const events: RawEvent[] = [];
+  let startOn: string | null = null;
+  let previous: string | null = null;
+  for (const entry of job.statusHistory ?? []) {
+    const label = publicationLabel(entry.value);
+    const date = jstDate(entry.at);
+    if (label === '不明' || !date || label === previous) continue;
+    if (label === '掲載中' && (previous === null || previous === '掲載前') && startOn === null) startOn = date;
+    else if (label === '掲載中' && previous === '掲載終了') events.push({ ...RAW_BASE, date, kind: 'revive', title: '掲載が復活（終了から公開中に戻った）', summary: '公開状況が「掲載終了」から「掲載中」に戻りました。' });
+    else if (label === '掲載終了' && previous === '掲載中') events.push({ ...RAW_BASE, date, kind: 'end', title: '掲載を終了', summary: '公開状況が「掲載中」から「掲載終了」に変わった日です（HubSpot の状況の履歴）。' });
+    previous = label;
+  }
+  return { startOn, events };
+}
+
+/** 応募1件ずつの出来事。日付が分かる応募だけ。 */
+export function applicationEvents(job: Pick<JobCopyRecord, 'applicationRows'>): RawEvent[] {
+  return (job.applicationRows ?? []).flatMap(row => row.date ? [{ ...RAW_BASE, date: row.date, kind: 'application' as const, title: '応募', summary: applicantText(row), applicationKey: row.key }] : []);
+}
+export function applicantText(row: { gender: string | null; age: string | null; prefecture: string | null; municipality: string | null }): string {
+  const parts = [row.gender, row.age, [row.prefecture, row.municipality].filter(Boolean).join('')].filter(Boolean);
+  return parts.length ? parts.join(' ・ ') : '応募者の属性は記録されていません';
+}
 
 /** 出来事を古い順に番号を付けて返す。billing は実際の課金（仮の金額は渡さない）。 */
 export function buildListingEvents(job: JobCopyRecord, billing: readonly BillingEntry[]): ListingEvent[] {
   const raw: RawEvent[] = [];
   const changes = versionChanges(job);
   const versions = publishedVersions(job);
-  const realStart = earliestStart(job, billing);
+  const status = statusTimeline(job);
+  const realStart = earliestStart(job, billing, status.startOn);
   const firstRecorded = changes[0]?.date ?? null;
   // 本当の掲載開始が、HubSpot に本文を記録しはじめた日より前にあるとき、開始はそちらにする。
   const startsEarlier = realStart !== null && (firstRecorded === null || realStart.date < firstRecorded);
@@ -135,16 +168,18 @@ export function buildListingEvents(job: JobCopyRecord, billing: readonly Billing
     const kinds = changeKinds(change);
     if (!kinds.length) continue;
     const salaryText = change.salaryChanged && previous?.salary && change.salary ? `（${previous.salary.raw} → ${change.salary.raw}）` : '';
-    const title = kinds.length === 1 && kinds[0] === '給与' ? `給与を変更${salaryText}` : `${kinds.join('と')}を変更`;
+    const imageOnly = kinds.length === 1 && kinds[0] === '画像';
+    const title = kinds.length === 1 && kinds[0] === '給与' ? `給与を変更${salaryText}` : imageOnly ? '画像を変更' : `${kinds.join('と')}を変更`;
     const parts: string[] = [];
     if (change.salaryChanged) parts.push('給与の行を変更');
     if (change.otherBodyChanged) parts.push(`本文を変更（追加${String(change.bodyAdded)}行・削除${String(change.bodyRemoved)}行）`);
     if (kinds.includes('画像')) parts.push('画像を変更');
-    raw.push({ date: change.date, kind: 'content', title, summary: `${parts.join('。')}。`, versionId: change.versionId, previousVersionId: previous?.versionId ?? null, billingFrom: null, billingTo: null });
+    raw.push({ date: change.date, kind: imageOnly ? 'image' : 'content', title, summary: `${parts.join('。')}。`, versionId: change.versionId, previousVersionId: previous?.versionId ?? null, billingFrom: null, billingTo: null });
   }
   raw.push(...billingEvents(billing));
+  raw.push(...status.events, ...applicationEvents(job));
   const publication = job.mediaPublication;
-  if (publication && publication !== 'unavailable' && publication.status === 'private' && publication.privateRecordedOn && DATE.test(publication.privateRecordedOn)) {
+  if (!status.events.some(event => event.kind === 'end') && publication && publication !== 'unavailable' && publication.status === 'private' && publication.privateRecordedOn && DATE.test(publication.privateRecordedOn)) {
     raw.push({ date: publication.privateRecordedOn, kind: 'end', title: '掲載を終了', summary: '媒体で非公開になったことを記録した日です。実際に止まったのはこの日かそれ以前です。', versionId: versions.at(-1)?.id ?? null, previousVersionId: null, billingFrom: null, billingTo: null });
   }
   raw.sort((a, b) => a.date.localeCompare(b.date) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
@@ -223,7 +258,7 @@ export function eventChecks(event: ListingEvent, events: readonly ListingEvent[]
       checks.push({ key: 'market', label: '市場', mark: 'unknown', markLabel: '未確認', text: marketUnknownText(result) });
     }
   }
-  const others = events.filter(other => other.kind !== 'billing' && near(other));
+  const others = events.filter(other => other.kind !== 'billing' && other.kind !== 'application' && near(other));
   if (others.length) {
     const shown = others.slice(0, 2).map(other => `「${plainTitle(other)}」が${distanceText(event, other)}に`);
     checks.push({ key: 'other', label: 'ほかの変更', mark: 'caution', markLabel: '要注意', text: `${shown.join('、')}あります${others.length > 2 ? `（ほか${String(others.length - 2)}件）` : ''}。` });

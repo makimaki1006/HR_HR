@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { loadApplicationDates } from './listingApplicationDates';
+import type { LoadedApplications } from './listingApplicationDates';
 import { loadCompanies, loadVersions, prefetchNeighbors } from './listingDetailCache';
 import type { JobCopyRecord } from './data';
 import { listingRecord, mediaLabel, publicationLabel, draftStateLabel } from './hubspotListings';
@@ -9,7 +10,7 @@ import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, onApplicationDates, revision = 0, scopeDeal, autoLoad = true }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; /** 応募日ごとの件数が読めたとき（null は読めなかった）。 */ onApplicationDates?: (id: string, overall: NonNullable<JobCopyRecord['overallApplications']> | null) => void; revision?: number; /** 案件の求人だけを出す。指定すると取引の選択は出さない。 */ scopeDeal?: { id: string; name: string } | undefined; /** false の間は一覧を読まず、隠しておく（求人を探すを押すまで） */ autoLoad?: boolean }) {
+export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, onApplicationDates, revision = 0, scopeDeal, autoLoad = true }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; /** 応募日ごとの件数が読めたとき（null は読めなかった）。 */ onApplicationDates?: (id: string, loaded: LoadedApplications | null) => void; revision?: number; /** 案件の求人だけを出す。指定すると取引の選択は出さない。 */ scopeDeal?: { id: string; name: string } | undefined; /** false の間は一覧を読まず、隠しておく（求人を探すを押すまで） */ autoLoad?: boolean }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
@@ -77,7 +78,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
       loadedRecord.current = record; onOpen(record);
       // 応募日ごとの件数は別に読む（本文を待たせない）。0件の求人も、0件として届く。
       datesRequest.current?.abort(); const dates = new AbortController(); datesRequest.current = dates;
-      void loadApplicationDates(id, dates.signal).then(overall => { if (!dates.signal.aborted) onApplicationDates?.(id, overall); });
+      void loadApplicationDates(id, dates.signal).then(loaded => { if (!dates.signal.aborted) onApplicationDates?.(id, loaded); });
       // 表示が済んだあとで、前後の求人を裏で読んでおく。
       prefetchNeighbors(orderRef.current, id);
     }

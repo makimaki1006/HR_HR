@@ -11,10 +11,13 @@ const weeks = (count: number) => Array.from({ length: count }, (_, i) => {
 });
 const perf = (count: number) => ({ schema_version: 1, source: 'hrhacker', job_id: '1234567', captured_at: '2026-10-14T09:00:00+09:00', rows: weeks(count) });
 
+const history = { kyuujin_status: [], baitai_genjoukyou_hrhakkaa: [{ timestamp: '2026-06-15T00:00:00Z', value: '公開' }, { timestamp: '2026-08-03T03:00:00Z', value: '非公開' }, { timestamp: '2026-08-17T03:00:00Z', value: '公開' }], baitai_genjoukyou_airwork: [] };
+const person = (n: number, date: string) => ({ key: String(n).padStart(64, '0'), date, gender: n % 2 ? '女性' : '男性', age: '30代', prefecture: '大分県', municipality: '大分市' });
+
 async function open(page: Page, application: Record<string, unknown> | 'fail', extra: Record<string, unknown> = {}, weekCount = 17) {
   await page.route('**/api/job-copy/**', async route => {
     const url = new URL(route.request().url());
-    if (url.pathname.endsWith('/versions')) return route.fulfill({ json: { listing, ...extra, indeed_weekly_perf: perf(weekCount), versions: [
+    if (url.pathname.endsWith('/versions')) return route.fulfill({ json: { listing, status_history: history, ...extra, indeed_weekly_perf: perf(weekCount), versions: [
       { written_at: '2026-10-09T00:00:00Z', body: '仕事内容\n配送します。\n給与：時給 1,100 円', image_urls: [] },
       { written_at: '2026-10-13T00:00:00Z', body: '仕事内容\n配送します。\n給与：時給 1,200 円', image_urls: [] },
     ], history_counts: { hrh_kyuujinhyou_honbun: 2, hrh_kyuujinhyou_gazou: 0 }, history_may_be_incomplete: false } });
@@ -29,19 +32,28 @@ async function open(page: Page, application: Record<string, unknown> | 'fail', e
 test('掲載開始は課金の最初の週。応募は日別に出て、本文は「記録しはじめた」', async ({ page }) => {
   const byDate: Record<string, number> = {};
   for (let d = 0; d < 120; d += 3) byDate[day(new Date(Date.UTC(2026, 5, 15 + d)))] = 1;
-  await open(page, { total: 40, missing_date: 0, by_date: byDate });
+  const rows = Object.keys(byDate).slice(0, 12).map((date, i) => person(i, date));
+  const sources = ['oubodouki', 'ouboriyuu_baitaikisai', 'ouboriyuu_hiaringu', 'genshokumaeshokukaranotenshokuriyuu', 'ouboriyuukategori_hiaringu', 'ouboriyuukategori_baitaikisai'];
+  const source_counts = Object.fromEntries(sources.map(name => [name, name === 'ouboriyuu_hiaringu' ? { missing: 0, blank: 39, nonblank: 1 } : { missing: 0, blank: 40, nonblank: 0 }]));
+  const reasons = { available: true, source: 'hubspot', basis: 'recorded_applicant_reason', source_property: null, fetched_at: '2026-10-14T09:00:00+09:00', total_applicants: 40, total_source_values: 240, source_counts, items: [{ id: '1'.repeat(64), applicant: rows[0]?.key, text: '家から近いので応募しました', source: 'hubspot', source_property: 'ouboriyuu_hiaringu', application_date: rows[0]?.date, collected_at: null, version_id: null }], selections: [], option_labels: 'unavailable', missing: 0, blank: 239, truncated: false };
+  await open(page, { total: 40, missing_date: 0, by_date: byDate, applications: rows, applicant_reasons: reasons });
   const events = page.locator('.lo-events');
   await expect(events).toContainText('掲載を開始');
   await expect(events).toContainText('HubSpot に本文を記録しはじめた');
   await expect(page.getByText('応募を取得した日が分からない')).toHaveCount(0);
   await expect(events).not.toContainText('応募の件数が分かりません');
-  await expect(page.getByTestId('band-latest-event')).toContainText('給与を変更');
+  await expect(page.getByTestId('lifeline')).toContainText('応募数（Indeedの集計）');
+  await expect(events).toContainText('掲載が復活');
+  await events.getByRole('button', { name: /男性/ }).last().click();
+  await expect(page.getByTestId('lifeline-selected')).toBeVisible();
+  await expect(events).toContainText('家から近いので応募しました');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/events-with-applications.png`, fullPage: true });
 });
 
 test('応募が0件の求人は、分からないではなく0件で出す', async ({ page }) => {
   await open(page, { total: 0, missing_date: 0, by_date: {} });
-  await expect(page.locator('.lo-events')).toContainText('0 → 0 件');
+  await expect(page.getByTestId('listing-reasons')).toContainText('応募理由の記録はまだありません');
+  await expect(page.getByTestId('lifeline')).toContainText('¥0');
   await expect(page.getByTestId('rail-last-application')).toHaveText('まだ応募なし');
   await expect(page.getByText('応募を取得した日が分からない')).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/events-zero-applications.png`, fullPage: true });
