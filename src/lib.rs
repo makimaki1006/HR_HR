@@ -1786,10 +1786,9 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     // /api/nav も同じ定義を返す。キーワード需要 (Google Ads 資格情報がある環境のみ) と
     // 求人票作成 (Gemini キーがある環境のみ) の出し分けは NavFeatures::from_env() が行う。
     // 非表示タブは定義の hidden で隠し、hidden を外せば旧新両方のナビに戻る。
-    let nav_items = handlers::nav::nav_items(
-        handlers::nav::NAV_DEFS,
-        &handlers::nav::NavFeatures::from_env(),
-    );
+    // CRM は利用者の認可 (/api/crm/* と同じ rbac) で決まるので、/api/nav と同じ関数でフラグを作る。
+    let nav_features = handlers::nav::features_for_session(&session, &state).await;
+    let nav_items = handlers::nav::nav_items(handlers::nav::NAV_DEFS, &nav_features);
     let legacy_nav = handlers::nav::render_legacy_nav(&nav_items);
     // 2026-08-10: 「履歴」(自分の操作履歴だけが見える画面) はヘッダーから外し、
     // 管理者にだけ「管理」リンクを出す。他ユーザーを含む利用状況は /admin/usage で見る。

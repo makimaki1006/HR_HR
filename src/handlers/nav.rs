@@ -708,6 +708,20 @@ pub fn render_legacy_nav(items: &[NavItem]) -> LegacyNav {
     LegacyNav { top, explore }
 }
 
+/// この利用者に見せるナビの機能フラグ。`/api/nav` と旧シェル (`dashboard_page`) が共用する
+/// (CRM の表示規則を 2 か所に書かない。`from_env()` だけでは crm が常に false になる)。
+pub async fn features_for_session(session: &Session, state: &Arc<AppState>) -> NavFeatures {
+    NavFeatures {
+        crm: crate::crm::rbac::session_may_open_crm(
+            session,
+            state,
+            &crate::crm::rbac::CrmAccess::from_env(),
+        )
+        .await,
+        ..NavFeatures::from_env()
+    }
+}
+
 /// `GET /api/nav`。要ログイン (`protected_routes` の `auth_middleware` 配下)。
 pub async fn api_nav(State(state): State<Arc<AppState>>, session: Session) -> Json<NavResponse> {
     let user_email: String = session
@@ -717,15 +731,7 @@ pub async fn api_nav(State(state): State<Arc<AppState>>, session: Session) -> Js
         .flatten()
         .unwrap_or_else(|| "unknown".to_string());
     let admin = is_admin(&state.config, &user_email);
-    let features = NavFeatures {
-        crm: crate::crm::rbac::session_may_open_crm(
-            &session,
-            &state,
-            &crate::crm::rbac::CrmAccess::from_env(),
-        )
-        .await,
-        ..NavFeatures::from_env()
-    };
+    let features = features_for_session(&session, &state).await;
     Json(build_nav_response(user_email, admin, &features))
 }
 
@@ -1005,6 +1011,33 @@ mod tests {
             .find(|i| i["id"] == "consulting")
             .unwrap();
         assert_eq!(consulting["kind"], "page");
+    }
+
+    /// 旧シェルのナビ HTML にも、CRM を使える人にだけ CRM のリンクが出る
+    #[test]
+    fn 旧シェルのナビhtmlにcrmが認可された人だけ出る() {
+        let render = |crm: bool| {
+            let items = nav_items(
+                NAV_DEFS,
+                &NavFeatures {
+                    crm,
+                    ..features(false, false)
+                },
+            );
+            let nav = render_legacy_nav(&items);
+            format!("{}{}", nav.top, nav.explore)
+        };
+        let shown = render(crm_visible(true));
+        assert_eq!(
+            shown.contains("href=\"/app/crm\""),
+            crm_screen_registered(),
+            "認可された人の旧シェルは /app/crm の登録有無どおりに CRM を出す"
+        );
+        if crm_screen_registered() {
+            assert!(shown.contains(">CRM</a>"));
+        }
+        // パスワードログイン等 (認可されない人) には出ない
+        assert!(!render(crm_visible(false)).contains("/app/crm"));
     }
 
     #[test]
