@@ -205,7 +205,7 @@
 .jc-list-source { display: flex; flex-shrink: 0; gap: 4px; padding: 4px; background: #eaf0f4; border-radius: 7px; }
 .jc-list-source button { flex: 1; min-height: 38px; border: 0; border-radius: 5px; background: transparent; font-weight: 600; }
 .jc-list-source button[aria-pressed="true"] { background: white; color: #006879; box-shadow: 0 1px 4px #25394c1a; }
-.jc-listings-panel { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 8px; }
+.jc-listings-panel { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 4px; }
 .jc-listings-panel h2 { margin: 0; font-size: 15px; }
 .jc-listings-panel p { font-size: 12px; line-height: 1.5; }
 .jc-hubspot-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; flex-shrink: 0; }
@@ -410,7 +410,7 @@
 .jc-deal-column-options label { flex-direction:row; align-items:center; }
 .jc-deal-column-options input { width:auto; }
 .jc-filter-summary { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--jc-muted); }
-.jc-list-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.jc-list-actions { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
 .jc-management-fields { margin-bottom:16px; }
 @media (min-width:801px) { .jc-hubspot-filter-details[open] { max-height:250px; overflow-y:auto; } }
 .jc-deal-table th, .jc-deal-table td, .jc-parallel-table th, .jc-parallel-table td { border:1px solid #dbe3ec; padding:8px 5px; text-align:left; vertical-align:top; }

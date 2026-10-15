@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { formatDateTimeJst } from './format';
-import { appsChange, customerName, filterCustomers, mediaName, sortCustomers, yen } from './homeModel';
+import { appsChange, customerName, dealCountLabel, filterCustomers, listingCountLabel, mediaName, sortCustomers, yen } from './homeModel';
 import type { CardKey, CustomerSort, HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 import './home.css';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '案件管理のホームを読み込めませんでした。時間を置いて再取得してください。';
 const cardTone: Record<CardKey, string> = { more: 'plain', same: 'plain', less: 'plain', costly: 'warn', stale: 'alert', occupation: 'plain' };
-const customerColumns: [CustomerSort, string, boolean][] = [['name', '顧客', false], ['deals', '案件', true], ['live', '掲載中の求人', true], ['apps', '応募（前の 4 週 → 直近 4 週）', true], ['cost', '課金（直近 4 週）', true], ['cpa', '応募 1 件あたり', true]];
+const customerColumns: [CustomerSort, string, boolean][] = [['name', '顧客名', false], ['deals', '契約中の案件 ／ 全案件', true], ['latest', '今の取引', false], ['live', '掲載中の求人 ／ 全求人', true], ['apps', '応募（前の 4 週 → 直近 4 週）', true], ['cost', '課金（直近 4 週）', true], ['cpa', '応募 1 件あたり', true]];
 
 function CardList({ card, onOpenListing }: { card: HomeCard; onOpenListing: (id: string) => void }) {
   return <section className="jh-list" aria-label={`${card.title}の一覧`}>
@@ -27,8 +27,9 @@ export function JobCopyHome({ onOpenCompany, onOpenListing }: { onOpenCompany: (
   const [reload, setReload] = useState(0);
   const [open, setOpen] = useState<CardKey | null>(null);
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<CustomerSort>('apps');
+  const [sort, setSort] = useState<CustomerSort>('default');
   const [descending, setDescending] = useState(true);
+  const [onlyActive, setOnlyActive] = useState(true);
   useEffect(() => {
     const controller = new AbortController();
     void apiGet<HomeResponse>('/api/job-copy/home', { signal: controller.signal, timeoutMs: 120_000 }).then(result => {
@@ -42,7 +43,8 @@ export function JobCopyHome({ onOpenCompany, onOpenListing }: { onOpenCompany: (
     const timer = window.setTimeout(() => { setReload(value => value + 1); }, 5_000);
     return () => { window.clearTimeout(timer); };
   }, [data]);
-  const customers = useMemo<HomeCustomer[]>(() => data?.status === 'ready' ? sortCustomers(filterCustomers(data.home.customers, query), sort, descending) : [], [data, query, sort, descending]);
+  const customers = useMemo<HomeCustomer[]>(() => data?.status === 'ready' ? sortCustomers(filterCustomers(data.home.customers, query, onlyActive), sort, descending) : [], [data, query, onlyActive, sort, descending]);
+  const activeCount = data?.status === 'ready' ? data.home.customers.filter(customer => customer.active_deals > 0).length : 0;
   const ready = data?.status === 'ready' ? data : null;
   const card = ready?.home.cards.find(item => item.key === open);
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
@@ -62,12 +64,13 @@ export function JobCopyHome({ onOpenCompany, onOpenListing }: { onOpenCompany: (
         {card?.key === 'occupation' && <p><a className="jc-button" href="?view=occupations">職種をまとめて指定する</a></p>}
       </section>
       <section aria-labelledby="jh-customers" className="jh-customers"><div className="jh-customers-head"><h2 id="jh-customers">顧客</h2>
+        <div className="jh-chips" role="group" aria-label="顧客の絞り込み"><button type="button" className="jh-chip" aria-pressed={onlyActive} onClick={() => { setOnlyActive(true); }}>契約中の案件がある顧客<span>{activeCount}</span></button><button type="button" className="jh-chip" aria-pressed={!onlyActive} onClick={() => { setOnlyActive(false); }}>すべて<span>{ready.home.customers.length}</span></button></div>
         <label>顧客名で探す<input type="search" value={query} onChange={event => { setQuery(event.target.value); }} placeholder="顧客名の一部" /></label></div>
         {!ready.companies_ok && <p role="status">顧客の情報を読み込めなかったため、表を出せません。時間を置いて再読み込みしてください。</p>}
-        <p className="jh-note">納品管理のパイプラインの案件だけを数えています（計上・商談などのパイプラインは含めません）。掲載中の求人の合計です。応募は媒体の週ごとの実績で、直近 4 週とその前の 4 週を比べています。{ready.home.live_without_company > 0 ? `納品管理の案件に結び付いていない掲載中の求人が ${String(ready.home.live_without_company)} 件あり、この表には入っていません。` : ''}</p>
+        <p className="jh-note">納品管理のパイプラインの案件だけを数えています（計上・商談などのパイプラインは含めません）。「契約中」は、案件のステージが完了（契約終了・失注など）でないものです。求人が結び付いた案件だけを数えています。応募・課金は掲載中の求人の合計です。応募は媒体の週ごとの実績で、直近 4 週とその前の 4 週を比べています。{ready.home.live_without_company > 0 ? `納品管理の案件に結び付いていない掲載中の求人が ${String(ready.home.live_without_company)} 件あり、この表には入っていません。` : ''}</p>
         <div className="jh-scroll"><table className="jh-customer-table"><thead><tr>{customerColumns.map(([key, label, numeric]) => <th key={key} scope="col" className={numeric ? 'num' : ''} aria-sort={sort === key ? descending ? 'descending' : 'ascending' : 'none'}><button type="button" onClick={() => { if (sort === key) setDescending(!descending); else { setSort(key); setDescending(key !== 'name'); } }}>{label}{sort === key ? descending ? ' ▼' : ' ▲' : ''}</button></th>)}<th scope="col"><span className="jc-visually-hidden">開く</span></th></tr></thead><tbody>
-          {customers.map(customer => <tr key={customer.company_id}><th scope="row">{customerName(customer)}</th><td className="num">{customer.deals}件</td><td className="num">{customer.live_listings}件</td><td className="num">{appsChange(customer.prev_apps, customer.recent_apps)}</td><td className="num">{yen(customer.recent_cost)}</td><td className="num">{yen(customer.cost_per_app)}</td><td className="num"><button type="button" className="jc-button" aria-label={`${customerName(customer)}を開く`} onClick={() => { onOpenCompany({ id: customer.company_id, name: customerName(customer) }); }}>顧客を開く ›</button></td></tr>)}
-          {!customers.length && <tr><td colSpan={7}>{query ? '条件に合う顧客はありません。' : '表示できる顧客がありません。'}</td></tr>}
+          {customers.map(customer => <tr key={customer.company_id}><th scope="row">{customerName(customer)}</th><td className="num">{dealCountLabel(customer)}</td><td className="jh-latest">{customer.latest_deal ? <><span className="jh-latest-name">{customer.latest_deal.name ?? '案件名未取得'}</span><small>{customer.latest_deal.stage_label ?? 'ステージ未取得'}{!customer.latest_deal.active && <span className="jh-badge">終了</span>} ・ 作成 {customer.latest_deal.created_at ?? '—'}</small></> : '—'}</td><td className="num">{listingCountLabel(customer)}</td><td className="num">{appsChange(customer.prev_apps, customer.recent_apps)}</td><td className="num">{yen(customer.recent_cost)}</td><td className="num">{yen(customer.cost_per_app)}</td><td className="num"><button type="button" className="jc-button" aria-label={`${customerName(customer)}を開く`} onClick={() => { onOpenCompany({ id: customer.company_id, name: customerName(customer) }); }}>顧客を開く ›</button></td></tr>)}
+          {!customers.length && <tr><td colSpan={8}>{query ? '条件に合う顧客はありません。' : onlyActive ? '契約中の案件がある顧客はありません。「すべて」に切り替えると終了した案件だけの顧客も表示します。' : '表示できる顧客がありません。'}</td></tr>}
         </tbody></table></div>
       </section>
     </>}

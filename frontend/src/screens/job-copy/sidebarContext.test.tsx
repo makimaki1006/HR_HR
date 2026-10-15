@@ -9,7 +9,7 @@ vi.mock('../../api/client', async () => ({ ...(await vi.importActual<object>('..
 import { apiGet } from '../../api/client';
 
 const deal = (over: Partial<CompanyDeal>): CompanyDeal => ({
-  id: '1', name: '合成案件A', pipeline_id: '21596025', pipeline_label: 'リクロジ_納品管理', stage_label: '納品中', active: true,
+  id: '1', name: '合成案件A', pipeline_id: '21596025', pipeline_label: 'リクロジ_納品管理', stage_label: '納品中', active: true, current: false,
   created_at: '2026-09-01', contract_start: '2026-04-01', contract_end: '2027-03-31',
   listings_total: 5, listings_live: 3, recent_apps: 7, recent_cost: 20000, ...over,
 });

@@ -29,3 +29,4 @@
 .ds-table th { overflow-wrap: anywhere; word-break: normal; line-break: anywhere; font-size: 12px; line-height: 1.35; vertical-align: bottom; padding: 8px 6px; }
 .jc-deal-table.ds-table { table-layout: auto; min-width: 900px; }
 .jc-deal-table.ds-table thead th { white-space: normal; min-width: 72px; word-break: keep-all; overflow-wrap: break-word; }
+.ds-main section, .ds-main h2 { scroll-margin-top: 140px; }

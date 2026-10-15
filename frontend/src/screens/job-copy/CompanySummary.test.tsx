@@ -20,7 +20,7 @@ const perf = (id: string, weekly: number) => {
 const day = addDays(todayJst(), -3);
 function mockApi() {
   api.mockImplementation((url: string) => {
-    if (url.includes('company-deals')) return Promise.resolve({ ok: true, data: { company: { id: 'c', name: '会社' }, deals: [{ id: 'd1', name: '取引1' }, { id: 'd2', name: '取引2' }] } });
+    if (url.includes('company-deals')) return Promise.resolve({ ok: true, data: { company: { id: 'c', name: '会社' }, deals: [{ id: 'd1', name: '取引1', current: false }, { id: 'd2', name: '取引2', current: false }] } });
     if (url.includes('deal-applications')) {
       const deal = /deal=(d\d)/.exec(url)?.[1] ?? '';
       return Promise.resolve({ ok: true, data: { shared_applications: 0, company: { id: 'c', name: '会社' }, listings: (listings[deal] ?? []).map(l => ({ listing_id: l.id, by_date: { [day]: l.id === '1' ? 10 : l.id === '2' ? 90 : 4 }, fetched_at: fetchedAt, indeed_weekly_perf: l.media === 'hrh' ? perf(l.id, 7000) : null })) } });
@@ -38,9 +38,11 @@ it('事業所: 求人は 1 回だけ数える (10 + 90 + 4 = 104件)、取引ご
   await waitFor(() => { expect(band.textContent).toContain('104件'); });
   expect(band.textContent).toContain('求人 3 件 ・ 取引 2 件');
   expect(band.textContent).toContain('課金データのない求人 1件（AirWork）は含みません');
-  expect(screen.getByText('取引1')).toBeTruthy();
-  expect(screen.getByText('取引2')).toBeTruthy();
-  expect(screen.getAllByText('ほかの取引にも結び付いています').length).toBe(2);
+  // 顧客の全求人は 1 か所の表に、同じ求人は 1 回だけ出る（求人1 は取引1・取引2 の両方に付いている）。
+  expect(screen.getAllByRole('button', { name: /^求人\d$/ }).map(b => b.textContent)).toEqual(['求人1', '求人2', '求人3']);
+  expect(screen.getByText('取引：取引1、取引2')).toBeTruthy();
+  expect(screen.getByText('取引：取引1')).toBeTruthy();
+  expect(screen.getByText('取引：取引2')).toBeTruthy();
   expect(screen.getAllByText('課金データなし').length).toBeGreaterThan(0);
 });
 

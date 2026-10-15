@@ -13,9 +13,9 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 const row = (id: string, title: string, recent: number, prev: number) => ({ id, title, company: '合成運輸', media: 'hrh' as const, recent_apps: recent, prev_apps: prev, recent_cost: 12000, latest_week_end: '2026-10-04' });
 const card = (key: HomeCard['key'], title: string, listings: HomeCard['listings'], count = listings.length): HomeCard => ({ key, title, rule: `${title}の数え方`, count, listings });
 const customers: HomeCustomer[] = [
-  { company_id: '11', name: '合成運輸', deals: 3, live_listings: 4, recent_apps: 58, prev_apps: 41, recent_cost: 439000, cost_per_app: 7569 },
-  { company_id: '12', name: '合成介護', deals: 1, live_listings: 2, recent_apps: 6, prev_apps: 9, recent_cost: 60000, cost_per_app: 10000 },
-  { company_id: '13', name: '合成倉庫', deals: 2, live_listings: 1, recent_apps: 0, prev_apps: 0, recent_cost: 8000, cost_per_app: null },
+  { company_id: '11', name: '合成運輸', deals: 3, active_deals: 2, latest_deal: { name: '合成運輸 2026年案件', stage_label: '契約中', active: true, created_at: '2026-03-01' }, total_listings: 9, live_listings: 4, recent_apps: 58, prev_apps: 41, recent_cost: 439000, cost_per_app: 7569 },
+  { company_id: '12', name: '合成介護', deals: 1, active_deals: 0, latest_deal: { name: '合成介護 案件', stage_label: '契約終了', active: false, created_at: '2025-06-01' }, total_listings: 5, live_listings: 2, recent_apps: 6, prev_apps: 9, recent_cost: 60000, cost_per_app: 10000 },
+  { company_id: '13', name: '合成倉庫', deals: 2, active_deals: 1, latest_deal: { name: '合成倉庫 案件', stage_label: '契約中', active: true, created_at: '2026-09-01' }, total_listings: 1, live_listings: 1, recent_apps: 0, prev_apps: 0, recent_cost: 8000, cost_per_app: null },
 ];
 const response: HomeResponse = {
   status: 'ready', index_built_at: '2026-10-14T01:00:00Z', today: '2026-10-14', companies_ok: true,
@@ -59,7 +59,16 @@ it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客�
   renderHome();
   await screen.findByText('合成運輸');
   const names = () => screen.getAllByRole('rowheader').map(cell => cell.textContent);
+  // 既定は「契約中の案件がある顧客」だけ。合成介護（契約終了だけ）は外れる。
+  expect(names()).toEqual(['合成運輸', '合成倉庫']);
+  expect(screen.getByRole('button', { name: /契約中の案件がある顧客/ }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByText('2 ／ 全 3')).toBeTruthy();
+  expect(screen.getByText('合成運輸 2026年案件')).toBeTruthy();
+  expect(screen.getByText(/契約中 ・ 作成 2026-03-01/)).toBeTruthy();
+  expect(screen.getByText('4 ／ 全 9')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /^すべて/ }));
   expect(names()).toEqual(['合成運輸', '合成介護', '合成倉庫']);
+  expect(screen.getByText('合成介護 案件')).toBeTruthy();
   expect(screen.getByText('41 → 58 件')).toBeTruthy();
   expect(screen.getByText('¥439,000')).toBeTruthy();
   expect(screen.getByText('¥7,569')).toBeTruthy();

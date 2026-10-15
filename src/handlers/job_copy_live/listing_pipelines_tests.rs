@@ -118,3 +118,29 @@ fn listing_counts_use_live_listings_and_their_four_weeks() {
     // 週ごとの実績のある掲載中の求人が b だけ。
     assert_eq!((two.recent_apps, two.recent_cost), (Some(2), Some(8_000)));
 }
+
+#[test]
+fn current_deal_is_the_newest_active_one_or_else_the_newest_overall() {
+    // 契約中が 2 件（5/1 と 8/1）と、契約終了の新しい 1 件（10/1）。今の取引は契約中で最新の 3。
+    let mixed = vec![
+        deal("1", "21596025", "s9", "2026-10-01T00:00:00Z"),
+        deal("2", "21596025", "s1", "2026-05-01T00:00:00Z"),
+        deal("3", "21596025", "s1", "2026-08-01T00:00:00Z"),
+    ];
+    let rows = build_rows(&mixed, &defs(), None);
+    let current = |rows: &[DealRow]| {
+        rows.iter()
+            .filter(|r| r.current)
+            .map(|r| r.id.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(current(&rows), ["3"]);
+    // 契約中が無い顧客は、最新の取引（10/1 の 1）が今の取引。
+    let closed = vec![
+        deal("4", "21596025", "s9", "2026-03-01T00:00:00Z"),
+        deal("1", "21596025", "s9", "2026-10-01T00:00:00Z"),
+        deal("5", "21596025", "s9", "2025-01-01T00:00:00Z"),
+    ];
+    assert_eq!(current(&build_rows(&closed, &defs(), None)), ["1"]);
+    assert!(build_rows(&[], &defs(), None).is_empty());
+}

@@ -53,7 +53,7 @@ export function registerDealCompareTests(path: string) {
       if (url.pathname.endsWith('/versions')) { const row = jobs.find(row => row.id === url.pathname.split('/').at(-2)); return route.fulfill({ json: { listing: row, versions: [{ body: body(250000), written_at: '2026-10-10T00:00:00Z', image_urls: [] }], history_counts: {}, history_may_be_incomplete: false } }); }
       if (url.pathname.endsWith('/listings')) {
         let rows = jobs.filter(row => ['media', 'prefecture'].every(key => !url.searchParams.get(key) || row[key as 'media' | 'prefecture'] === url.searchParams.get(key)) && (!url.searchParams.get('title') || row.category === url.searchParams.get('title')) && (!url.searchParams.get('deal') || (url.searchParams.get('deal') === 'none' ? !row.deal_ids.length : row.deal_ids.includes(url.searchParams.get('deal') ?? ''))));
-        if (url.searchParams.get('publication')) rows = rows.filter(row => (row.publication_status === '01' ? '不明' : row.publication_status) === url.searchParams.get('publication'));
+        if (url.searchParams.get('publication')) rows = rows.filter(row => (row.publication_status === '01' ? '不明' : row.publication_status === '公開' ? '掲載中' : row.publication_status) === url.searchParams.get('publication'));
         if (url.searchParams.get('sort') === 'salary_min') rows.sort((a, b) => Number(a.summary.salary_min) - Number(b.summary.salary_min));
         if (url.searchParams.get('descending') === 'true') rows.reverse();
         const offset = Number(url.searchParams.get('offset') ?? 0);
@@ -62,7 +62,7 @@ export function registerDealCompareTests(path: string) {
       }
       return route.fulfill({ status: 503, json: {} });
     });
-    await page.goto(path);
+    await page.goto(path + (path.includes('?') ? '&' : '?') + 'status=all'); // 掲載状況の既定は掲載中。全件の表を確かめるので、URL で「すべて」にする
     await findListings(page);
     const panel = page.getByRole('region', { name: 'HubSpot の求人' });
     await panel.getByText('絞り込み・並び順', { exact: true }).click();
@@ -116,11 +116,13 @@ export function registerDealCompareTests(path: string) {
     await page.getByLabel('表の媒体').selectOption('hrh');
     await expect.poll(() => requests.at(-1)?.searchParams.get('media')).toBe('hrh');
     await expect(page.locator('.jc-deal-comparison')).toContainText('51件');
-    await page.getByLabel('表の公開状況').selectOption('公開');
-    await expect.poll(() => requests.at(-1)?.searchParams.get('publication')).toBe('公開');
+    const statusGroup = page.locator('.ds-root').getByRole('group', { name: '掲載状況で絞り込む' });
+    await statusGroup.getByRole('button', { name: /^すべて/ }).click();
+    await statusGroup.getByRole('button', { name: /^掲載中/ }).click();
+    await expect.poll(() => requests.at(-1)?.searchParams.get('publication')).toBe('掲載中');
     await page.getByLabel('表の媒体').selectOption('');
     await expect(table.locator('tbody tr')).toHaveCount(50);
-    await page.getByLabel('表の公開状況').selectOption('');
+    await statusGroup.getByRole('button', { name: /^すべて/ }).click();
     await expect(page.locator('.jc-deal-comparison')).toContainText('101件');
     await table.getByRole('button', { name: '給与', exact: true }).click();
     await expect.poll(() => requests.at(-1)?.searchParams.get('sort')).toBe('salary_min');

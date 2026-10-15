@@ -5,7 +5,8 @@ import { applicationsCutoffDate } from './detailBandModel';
 import { indeedWeeklyPerformance, weeklyPerfRaw } from './hubspotListings';
 import type { HubSpotListing, HubSpotListingPage } from './hubspotListings';
 import type { HrhPerformanceCollection } from './hrhPerformanceModel';
-import { perfBillingEntries } from './dealSummaryModel';
+import { perfBillingEntries, ROLLUP_RULES } from './dealSummaryModel';
+import { loadCompanyDeals } from './companyDeals';
 import type { DealGroup, DealListingInput } from './dealSummaryModel';
 import { publicationLabel } from './hubspotListings';
 import type { BillingEntry } from './timelineModel';
@@ -74,4 +75,24 @@ export function dealInputs(data: DealData, billingByJob: Readonly<Record<string,
 
 export function dealGroup(data: DealData, billingByJob: Readonly<Record<string, readonly BillingEntry[]>>): DealGroup {
   return { id: data.id, name: data.name, inputs: dealInputs(data, billingByJob), overlap: data.overlap };
+}
+
+/** 顧客（事業所）の全部の取引の求人を集める。同じ求人は取引をまたいで 1 回だけ数える（合計は呼び出し側）。 */
+export async function loadCompanyDatas(companyId: string, signal: AbortSignal): Promise<{ status: 'ready'; datas: DealData[]; notes: string[] } | { status: 'error'; message: string }> {
+  const deals = await loadCompanyDeals(companyId);
+  if (!deals.ok) return { status: 'error', message: 'この事業所の取引を読み込めませんでした。時間を置いて再取得してください。' };
+  const wanted = deals.data.deals.slice(0, ROLLUP_RULES.maxDeals);
+  const loaded: DealData[] = [];
+  let missing = 0;
+  for (const deal of wanted) {
+    const data = await loadDealData(deal.id, deal.name ?? '取引名未取得', signal);
+     
+    if (signal.aborted) return { status: 'error', message: '' };
+    if (data === null) missing += 1; else if (data.rows.length) loaded.push(data);
+  }
+  const notes: string[] = [];
+  if (deals.data.deals.length > wanted.length) notes.push(`取引が多いため、先頭の${String(wanted.length)}件までで集計しています。`);
+  if (missing > 0) notes.push(`読み込めなかった取引が ${String(missing)}件あります。その取引の求人は合計に含まれていません。`);
+  if (loaded.length === 0 && missing > 0) return { status: 'error', message: 'この事業所の求人を読み込めませんでした。時間を置いて再取得してください。' };
+  return { status: 'ready', datas: loaded, notes };
 }

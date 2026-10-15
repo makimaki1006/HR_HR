@@ -15,6 +15,13 @@ pub(super) struct Summary {
 pub(super) struct Deal {
     pub(super) id: String,
     pub(super) name: Option<String>,
+    /// 取引のステージ ID と作成日（YYYY-MM-DD）。ホームの顧客表だけが使う。画面には返さない。
+    #[serde(skip)]
+    pub(super) pipeline: Option<String>,
+    #[serde(skip)]
+    pub(super) stage: Option<String>,
+    #[serde(skip)]
+    pub(super) created_at: Option<String>,
     pub(super) count: usize,
 }
 pub(super) fn summary(record: &Record, media: &str) -> Summary {

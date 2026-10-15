@@ -1,0 +1,14 @@
+.sf-group { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--jc-border, #d4dfe7); border-radius: 8px; overflow: hidden; background: var(--jc-paper, #fff); }
+.sf-button { border: 0; border-right: 1px solid var(--jc-border, #d4dfe7); background: transparent; padding: 4px 10px; font: inherit; font-size: 13px; line-height: 1.3; cursor: pointer; color: inherit; display: inline-flex; gap: 6px; align-items: baseline; }
+.sf-button:last-child { border-right: 0; }
+.sf-button[aria-pressed='true'] { background: var(--jc-accent, #007c91); color: #fff; font-weight: 700; }
+.sf-count { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.sf-note { color: var(--jc-muted, #52697a); font-size: 12px; margin: 6px 0 10px; }
+.jc-listings-panel .sf-group { flex-shrink: 0; display: flex; }
+.jc-listings-panel .sf-button { flex: 1; justify-content: center; padding: 3px 6px; }
+.jc-listings-panel .jc-hubspot-list-heading h2 { margin: 0; }
+.jc-listings-panel .jc-hubspot-filter-details > summary { min-height: 28px; padding: 4px 8px; }
+.jc-hubspot-list-heading { flex-wrap: wrap; }
+.jc-hubspot-list-heading .jc-reload { margin-left: auto; min-height: 28px; padding: 3px 8px; }
+.jc-hubspot-list-heading > span { color: var(--jc-muted, #52697a); }
+.jc-status-counts { color: var(--jc-muted, #52697a); font-size: 12px; line-height: 1.5; margin: 0; }
