@@ -89,3 +89,13 @@ export function bandNumbers(job: JobCopyRecord, billing: readonly BillingEntry[]
   const perApplicationYen = windowBilling !== null && recent ? Math.round(windowBilling / recent) : null;
   return { ...base, recent, previous, perApplicationYen };
 }
+
+/**
+ * 応募の日別データが無いときの、画面に出す文。「分かりません」は取得に失敗したときだけ。
+ * 読み込み中・取得できなかった・この求人に応募の記録元が無い、を分ける。応募0件は「無い」ではなく0件として扱う（ここには来ない）。
+ */
+export function noApplicationDatesText(job: Pick<JobCopyRecord, 'overallApplications' | 'applicationDates'>): string {
+  if (job.applicationDates === 'loading') return '応募を読み込み中です。';
+  if (job.applicationDates === 'failed') return '応募を取得できませんでした。時間を置いて、もう一度開いてください。';
+  return 'この求人の応募はまだ記録されていません。';
+}

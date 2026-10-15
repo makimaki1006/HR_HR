@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JobCopyRecord } from './data';
-import { applicationsCutoffDate } from './detailBandModel';
+import { applicationsCutoffDate, noApplicationDatesText } from './detailBandModel';
 import { buildChart } from './listingChartModel';
 import { eventChecks, eventCounts, eventWindows, md, resultText } from './listingEventsModel';
 import type { ListingEvent, MarketInput } from './listingEventsModel';
@@ -102,7 +102,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
   return <div className="lo-main">
     <section className="lo-card" aria-labelledby="lo-chart-title">
       <div className="lo-head"><h2 id="lo-chart-title">週ごとの応募</h2><span>番号は下の出来事と同じ。押すとその出来事を開き、前の4週（灰色）と後の4週（水色）を塗ります。</span></div>
-      {asOf ? <Chart job={job} events={events} billing={billing} selected={selected} onSelect={onSelect} asOf={asOf} /> : <p className="lo-note" role="status">応募を取得した日が分からないため、週ごとの応募は出せません。</p>}
+      {asOf ? <Chart job={job} events={events} billing={billing} selected={selected} onSelect={onSelect} asOf={asOf} /> : <p className="lo-note" role="status">{noApplicationDatesText(job)}</p>}
     </section>
     <section aria-labelledby="lo-events-title">
       <h2 id="lo-events-title">出来事（新しい順）</h2>
@@ -119,7 +119,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
               <span className="lo-num">{event.n}</span>
               <span className="lo-date">{md(event.date)}</span>
               <span className="lo-title">{event.title}</span>
-              <span className="lo-result"><strong>{resultText(event, counts)}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>
+              <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>
               <span className="lo-caret" aria-hidden="true">{open ? '▲' : '▼'}</span>
             </button>
             {open && <div className="lo-event-body">

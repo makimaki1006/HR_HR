@@ -38,6 +38,10 @@ export interface JobCopyRecord {
   currentListingFields?: Record<string, string>;
   listingPublicationStatus?: string | null;
   listingApplicationCount?: number | null;
+  /** HubSpot の公開開始日時（日付だけ）。無い・読めないとき null/未設定。 */
+  listingStartedOn?: string | null;
+  /** 応募の日別データの状態。overallApplications があれば読み込み済み。loading=読み込み中、failed=取得に失敗。 */
+  applicationDates?: 'loading' | 'failed' | undefined;
   currentDraftRow?: Record<string, string> | undefined;
   draftRevision?: string | undefined;
   canWriteDrafts?: boolean | undefined;

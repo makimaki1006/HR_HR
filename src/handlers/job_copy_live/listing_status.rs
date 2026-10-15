@@ -49,7 +49,7 @@ fn jst() -> FixedOffset {
 
 /// A HubSpot date or datetime value as a calendar day. A date-only value is stored as midnight
 /// UTC and is read as that day; any other time is read as the JST day.
-fn day(raw: Option<&str>) -> Option<String> {
+pub(super) fn day(raw: Option<&str>) -> Option<String> {
     let raw = raw?.trim();
     if raw.is_empty() {
         return None;

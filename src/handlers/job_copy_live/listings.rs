@@ -87,6 +87,7 @@ const PROPERTIES: &[&str] = &[
     "baitai_genjoukyou_hrhakkaa",
     "baitai_genjoukyou_airwork",
     "saishuu_csv_kenshutsu_bi",
+    "koukai_kaishi_nichiji",
     INDEED_TITLE_PROPERTY,
     INDEED_WEEKLY_PERF,
     AIRWORK_WEEKLY_PERF,
@@ -793,6 +794,31 @@ pub(super) async fn read_applications(
         Json(json!({"listing_id":id,"application_count":application_count})),
     ))
 }
+/// The applications of one listing by application day (JST), for the listing detail. Separate from
+/// `read_versions` because it reads every application record. `total` 0 is a real answer (no
+/// applicants), not an unknown.
+pub(super) async fn read_application_dates(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    AxumPath(id): AxumPath<String>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    valid_id(&id)?;
+    let service = service(&access)?;
+    let applications = service.all_associations("0-420", &id, "0-421").await?;
+    let rows = service.batch("0-421", &applications, &["yingmuri"]).await?;
+    let days: Vec<Option<String>> = rows
+        .iter()
+        .map(|r| r.value("yingmuri").and_then(super::deal_summary::jst_day))
+        .collect();
+    let (by_date, missing) = super::deal_summary::count_by_date(&days);
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"by_date":by_date,
+            "fetched_at":chrono::Utc::now().to_rfc3339()})),
+    ))
+}
 #[cfg(test)]
 fn association_count(data: &Value, id: &str) -> Option<usize> {
     if data
@@ -1223,7 +1249,7 @@ pub(super) async fn read_versions(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf,"airwork_weekly_perf":airwork_perf}),
+            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf,"airwork_weekly_perf":airwork_perf,"listing_started_on":super::listing_status::day(record.value("koukai_kaishi_nichiji"))}),
         ),
     ))
 }

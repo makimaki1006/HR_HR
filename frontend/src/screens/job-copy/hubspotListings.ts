@@ -47,6 +47,8 @@ export interface HubSpotVersions {
   indeed_weekly_perf?: unknown;
   /** AirWork 求人の週ごとの実績（HubSpot の airwork_weekly_perf）。無い・読めないときは null。 */
   airwork_weekly_perf?: unknown;
+  /** HubSpot の公開開始日時（koukai_kaishi_nichiji）の日付。無いとき null。 */
+  listing_started_on?: string | null;
   listing: HubSpotListing;
   versions: { written_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null }[];
   history_counts: Record<string, number>; history_may_be_incomplete: boolean;
@@ -73,6 +75,7 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
     currentDraftRow: data.current_row ?? undefined, draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
     ...(data.current_fields ? { currentListingFields: data.current_fields } : {}),
+    listingStartedOn: data.listing_started_on ?? null, applicationDates: 'loading',
     listingPublicationStatus: row.publication_status, listingApplicationCount: row.application_count ?? (listedRow?.id === row.id ? listedRow.application_count : null),
     title: row.title ?? '求人名未取得', company: data.company_name ?? '', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),

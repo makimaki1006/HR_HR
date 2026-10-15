@@ -31,7 +31,7 @@ pub(super) struct DealSummaryQuery {
 
 /// The calendar day (JST) of an application date: a plain `YYYY-MM-DD`, or a timestamp
 /// (RFC 3339) converted to Japan time. None when unreadable.
-fn jst_day(value: &str) -> Option<String> {
+pub(super) fn jst_day(value: &str) -> Option<String> {
     let value = value.trim();
     if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
         return Some(date.format("%Y-%m-%d").to_string());
@@ -43,7 +43,7 @@ fn jst_day(value: &str) -> Option<String> {
 }
 
 /// Counts of dated applications by day, and the number without a usable date.
-fn count_by_date(days: &[Option<String>]) -> (BTreeMap<String, usize>, usize) {
+pub(super) fn count_by_date(days: &[Option<String>]) -> (BTreeMap<String, usize>, usize) {
     let mut by_date = BTreeMap::new();
     let mut missing = 0;
     for day in days {

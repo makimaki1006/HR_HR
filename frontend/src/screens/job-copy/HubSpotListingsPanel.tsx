@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
+import { loadApplicationDates } from './listingApplicationDates';
 import { loadCompanies, loadVersions, prefetchNeighbors } from './listingDetailCache';
 import type { JobCopyRecord } from './data';
 import { listingRecord, mediaLabel, publicationLabel, draftStateLabel } from './hubspotListings';
@@ -8,7 +9,7 @@ import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, revision = 0, scopeDeal, autoLoad = true }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; revision?: number; /** 案件の求人だけを出す。指定すると取引の選択は出さない。 */ scopeDeal?: { id: string; name: string } | undefined; /** false の間は一覧を読まず、隠しておく（求人を探すを押すまで） */ autoLoad?: boolean }) {
+export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, onApplicationDates, revision = 0, scopeDeal, autoLoad = true }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; /** 応募日ごとの件数が読めたとき（null は読めなかった）。 */ onApplicationDates?: (id: string, overall: NonNullable<JobCopyRecord['overallApplications']> | null) => void; revision?: number; /** 案件の求人だけを出す。指定すると取引の選択は出さない。 */ scopeDeal?: { id: string; name: string } | undefined; /** false の間は一覧を読まず、隠しておく（求人を探すを押すまで） */ autoLoad?: boolean }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
@@ -31,7 +32,8 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   const listRequest = useRef<AbortController | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
   const countRequest = useRef<{ key: string; controller: AbortController } | null>(null);
-  useEffect(() => () => { countRequest.current?.controller.abort(); }, []);
+  const datesRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => { countRequest.current?.controller.abort(); datesRequest.current?.abort(); }, []);
   const message = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '求人を読み込めませんでした。時間を置いて再取得してください。';
   const load = useCallback(async (offset = 0) => {
     listRequest.current?.abort(); const controller = new AbortController(); listRequest.current = controller;
@@ -73,11 +75,14 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     if (result.ok) {
       const record = listingRecord(result.data, listedRow ?? pageRef.current?.listings.find(row => row.id === id));
       loadedRecord.current = record; onOpen(record);
+      // 応募日ごとの件数は別に読む（本文を待たせない）。0件の求人も、0件として届く。
+      datesRequest.current?.abort(); const dates = new AbortController(); datesRequest.current = dates;
+      void loadApplicationDates(id, dates.signal).then(overall => { if (!dates.signal.aborted) onApplicationDates?.(id, overall); });
       // 表示が済んだあとで、前後の求人を裏で読んでおく。
       prefetchNeighbors(orderRef.current, id);
     }
     else { const text = message(result.error); setError(text); onFailure?.(text); }
-  }, [onOpen, onLoading, onFailure]);
+  }, [onOpen, onLoading, onFailure, onApplicationDates]);
   useEffect(() => {
     const record = loadedRecord.current;
     if (!active || page?.status !== 'ready' || !record?.hubspotId || record.hubspotId !== opened.current || record.listingApplicationCount != null) return;

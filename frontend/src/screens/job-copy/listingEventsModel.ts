@@ -99,6 +99,19 @@ function billingEvents(entries: readonly BillingEntry[]): RawEvent[] {
   return events;
 }
 
+/**
+ * 掲載を始めた日のうち、いちばん早いもの。HubSpot の本文の履歴は連携を始めた日からしか無いので、
+ * 公開開始日時・Indeed/AirWork の週ごとの実績（表示か課金のある最初の週）も見る。
+ * 取り込んだ媒体CSVの最初の検出日は、保存していないので使わない。
+ */
+export function earliestStart(job: Pick<JobCopyRecord, 'listingStartedOn'>, billing: readonly BillingEntry[]): { date: string; basis: string } | null {
+  const candidates: { date: string; basis: string }[] = [];
+  if (job.listingStartedOn && DATE.test(job.listingStartedOn)) candidates.push({ date: job.listingStartedOn, basis: 'HubSpot の公開開始日時' });
+  const live = billing.filter(entry => entry.source === 'hrhacker' && DATE.test(entry.start) && ((entry.impressions ?? 0) > 0 || (entry.amountYen ?? 0) > 0)).sort((a, b) => a.start.localeCompare(b.start))[0];
+  if (live) candidates.push({ date: live.start, basis: `${live.media === 'AirWork' ? 'AirWork' : 'Indeed'} の週ごとの実績の最初の週` });
+  return candidates.sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+}
+
 const KIND_ORDER: Record<EventKind, number> = { start: 0, content: 1, billing: 2, end: 3 };
 
 /** 出来事を古い順に番号を付けて返す。billing は実際の課金（仮の金額は渡さない）。 */
@@ -106,10 +119,17 @@ export function buildListingEvents(job: JobCopyRecord, billing: readonly Billing
   const raw: RawEvent[] = [];
   const changes = versionChanges(job);
   const versions = publishedVersions(job);
+  const realStart = earliestStart(job, billing);
+  const firstRecorded = changes[0]?.date ?? null;
+  // 本当の掲載開始が、HubSpot に本文を記録しはじめた日より前にあるとき、開始はそちらにする。
+  const startsEarlier = realStart !== null && (firstRecorded === null || realStart.date < firstRecorded);
+  if (startsEarlier) raw.push({ date: realStart.date, kind: 'start', title: '掲載を開始', summary: `${realStart.basis}から分かる、掲載を始めた日です。`, versionId: null, previousVersionId: null, billingFrom: null, billingTo: null });
   for (const change of changes) {
     const previous = changes[change.index - 1];
     if (change.index === 0) {
-      raw.push({ date: change.date, kind: 'start', title: '掲載を開始', summary: '最初の本文と画像を記録しました。', versionId: change.versionId, previousVersionId: null, billingFrom: null, billingTo: null });
+      raw.push(startsEarlier
+        ? { date: change.date, kind: 'content', title: 'HubSpot に本文を記録しはじめた', summary: '最初の本文と画像を記録しました。HubSpot の履歴は連携を始めた日からしか残っていないため、掲載を始めた日ではありません。', versionId: change.versionId, previousVersionId: null, billingFrom: null, billingTo: null }
+        : { date: change.date, kind: 'start', title: '掲載を開始', summary: '最初の本文と画像を記録しました。', versionId: change.versionId, previousVersionId: null, billingFrom: null, billingTo: null });
       continue;
     }
     const kinds = changeKinds(change);
@@ -128,7 +148,10 @@ export function buildListingEvents(job: JobCopyRecord, billing: readonly Billing
     raw.push({ date: publication.privateRecordedOn, kind: 'end', title: '掲載を終了', summary: '媒体で非公開になったことを記録した日です。実際に止まったのはこの日かそれ以前です。', versionId: versions.at(-1)?.id ?? null, previousVersionId: null, billingFrom: null, billingTo: null });
   }
   raw.sort((a, b) => a.date.localeCompare(b.date) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
-  return raw.map((event, index) => ({ ...event, id: `ev-${String(index + 1)}`, n: index + 1 }));
+  // 掲載開始より前の課金は、そのままでは矛盾して見えるので、前の記録であることを書く。
+  const startDate = raw.find(event => event.kind === 'start')?.date ?? null;
+  const marked = raw.map(event => event.kind === 'billing' && startDate !== null && event.date < startDate ? { ...event, summary: `掲載を開始した日より前の課金の記録です。求人票は変えていません。` } : event);
+  return marked.map((event, index) => ({ ...event, id: `ev-${String(index + 1)}`, n: index + 1 }));
 }
 
 /** 出来事の日の前後4週の応募。asOf は応募を取得した日（null なら数えない）。listingStart は掲載を始めた日。 */
@@ -215,8 +238,8 @@ export function eventWindows(event: Pick<ListingEvent, 'date' | 'kind'>, asOf: s
 }
 
 /** 一覧の結果欄の文字。判定語は付けない。 */
-export function resultText(event: Pick<ListingEvent, 'kind'>, counts: EventCounts): string {
-  if (counts.after === null) return '応募の件数が分かりません';
+export function resultText(event: Pick<ListingEvent, 'kind'>, counts: EventCounts, unavailable = '応募の件数が分かりません'): string {
+  if (counts.after === null) return unavailable;
   if (event.kind === 'start' || counts.before === null) return `最初の4週 ${String(counts.after)} 件`;
   return `${String(counts.before)} → ${String(counts.after)} 件`;
 }
