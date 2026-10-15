@@ -51,6 +51,8 @@ export interface UseCrmWriteOptions {
   api: WriteApi;
   /** 保存が済んだ (HubSpot に反映された) とき。詳細を読み直す */
   onSaved: (dealId: string) => void;
+  /** 保存が成功した (緑 = saved、黄 = queued) とき。保存した内容で、一覧の条件から外れたかを判定する */
+  onWritten?: ((req: SaveRequest, kind: 'saved' | 'queued') => void) | undefined;
   pollIntervalMs?: number | undefined;
   newId?: (() => string) | undefined;
 }
@@ -77,7 +79,7 @@ export function partialRequest(req: SaveRequest, partial: PatchPartial): SaveReq
   };
 }
 
-export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERVAL_MS, newId }: UseCrmWriteOptions) {
+export function useCrmWrite({ dealId, api, onSaved, onWritten, pollIntervalMs = POLL_INTERVAL_MS, newId }: UseCrmWriteOptions) {
   const [schemaState, setSchemaState] = useState<{ dealId: string | null; s: SchemaState }>({ dealId: null, s: { phase: 'idle' } });
   const [statuses, setStatuses] = useState<Readonly<Record<string, FieldStatus>>>({});
   const [overlay, setOverlay] = useState<Readonly<Record<string, ValueOverlay>>>({});
@@ -91,8 +93,9 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
   const alive = useRef(true);
   const isAlive = () => alive.current;
   const onSavedRef = useRef(onSaved);
+  const onWrittenRef = useRef(onWritten);
   const apiRef = useRef(api);
-  useEffect(() => { onSavedRef.current = onSaved; apiRef.current = api; });
+  useEffect(() => { onSavedRef.current = onSaved; onWrittenRef.current = onWritten; apiRef.current = api; });
   useEffect(() => {
     alive.current = true;
     const t = timers.current;
@@ -223,12 +226,14 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
         setOverlays(req, { values: out.response.values, objects_values: out.response.objects_values }, false);
         setStatus(keys, { phase: 'saved' });
         onSavedRef.current(req.dealId);
+        onWrittenRef.current?.(req, 'saved');
         return { kind: 'saved' };
       case 'queued':
         opIds.current.delete(sig);
         setOverlays(req, null, true);
         setStatus(keys, { phase: 'queued', slow: false });
         poll(out.response.operation_id, req);
+        onWrittenRef.current?.(req, 'queued');
         return { kind: 'queued' };
       case 'conflict':
         opIds.current.delete(sig);

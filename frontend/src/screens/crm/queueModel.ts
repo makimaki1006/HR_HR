@@ -172,8 +172,10 @@ const COUNT_FORMAT = new Intl.NumberFormat('ja-JP');
 export function formatCount(n: number): string { return COUNT_FORMAT.format(n); }
 
 /** 一覧の見出しの件数。全体の件数が分かるときは「全 N 件中 M 件を表示」、分からなければ「M 件を表示」 */
-export function queueCountText(total: number | null, shown: number): string {
-  return total === null ? `${formatCount(shown)} 件を表示` : `全 ${formatCount(total)} 件中 ${formatCount(shown)} 件を表示`;
+export function queueCountText(total: number | null, shown: number, dropped = 0): string {
+  const base = total === null ? `${formatCount(shown)} 件を表示` : `全 ${formatCount(total)} 件中 ${formatCount(shown)} 件を表示`;
+  // 保存した内容で条件から外れ、一覧から外した件数
+  return dropped > 0 ? `${base}(保存して外れた ${formatCount(dropped)} 件)` : base;
 }
 
 /** 全体の件数の説明 (見出しの補足と title) */
