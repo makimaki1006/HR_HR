@@ -468,7 +468,9 @@ async fn read_index_range(
     let started = std::time::Instant::now();
     let mut ids = BTreeSet::new();
     let mut rows = Vec::new();
-    let mut after = range.lower.checked_sub(1);
+    // Verified against the real HubSpot 0-420 list API on 2026-10-15:
+    // after=X includes X (IDs >= X), so [lower, upper) starts at after=lower.
+    let mut after = range.lower;
     let properties = PROPERTIES
         .iter()
         .copied()
@@ -477,9 +479,7 @@ async fn read_index_range(
         .join(",");
     loop {
         let mut query = vec![("limit", "100".into()), ("properties", properties.clone())];
-        if let Some(cursor) = after {
-            query.push(("after", cursor.to_string()));
-        }
+        query.push(("after", after.to_string()));
         // Retry only this failed page once; completed pages/ranges are never restarted.
         let data = reader
             .read(
@@ -496,10 +496,10 @@ async fn read_index_range(
         }
         let mut crossed = false;
         let before = ids.len();
-        let mut last = after;
+        let mut last = None;
         for record in page.results {
             let id = numeric_id(&record.id)?;
-            if last.is_some_and(|last| id < last) {
+            if id < after || last.is_some_and(|last| id < last) {
                 return Err(fail("listing_paging_invalid"));
             }
             last = Some(id);
@@ -534,10 +534,13 @@ async fn read_index_range(
             break;
         };
         let next = numeric_id(&next.after)?;
-        if after.is_some_and(|old| next <= old) || last != Some(next) {
+        // Verified against the real HubSpot 0-420 list API on 2026-10-15:
+        // next.after is the last ID + 1, not the last ID. Only require forward
+        // progress beyond the last record; a numeric cursor can fall in an ID gap.
+        if next <= after || last.is_none_or(|last| next <= last) {
             return Err(fail("listing_paging_invalid"));
         }
-        after = Some(next);
+        after = next;
         if !pause.is_zero() {
             tokio::time::sleep(pause).await;
         }
@@ -2408,7 +2411,7 @@ mod tests {
                 calls.lock().unwrap().push(query.into());
                 if fail_next.load(Ordering::Relaxed) { return (StatusCode::FORBIDDEN, Json(json!({}))).into_response(); }
                 let start = query.split('&').find_map(|p| p.strip_prefix("after="))
-                    .map(|s| s.parse::<usize>().unwrap() + 1).unwrap_or(1);
+                    .map(|s| s.parse::<usize>().unwrap().max(1)).unwrap_or(1);
                 let end = (start + 99).min(203);
                 let results: Vec<Value> = (start..=end).map(|id| {
                     let (pref, title, airwork) = if id <= 150 {("沖縄県", "看護師", false)} else if id <= 180 {("沖縄県", "看護師", true)} else if id <= 200 {("大分県", "ドライバー", false)} else {("沖縄県", "清掃スタッフ", false)};
@@ -2418,7 +2421,8 @@ mod tests {
                     json!({"id":id.to_string(),"properties":properties})
                 }).collect();
                 let mut data = json!({"results":results});
-                if end < 203 {data["paging"] = json!({"next":{"after":end.to_string()}});}
+                // Real 0-420 behavior verified 2026-10-15: inclusive after, last ID + 1.
+                if end < 203 {data["paging"] = json!({"next":{"after":(end + 1).to_string()}});}
                 Json(data).into_response()
             }
         }));

@@ -82,14 +82,16 @@ impl Fixture {
                 }
                 if path == "/crm/v3/objects/0-420" {
                     let after = request.uri().query().unwrap_or("").split('&').find_map(|p|p.strip_prefix("after=")).and_then(|s|s.parse::<u128>().ok());
-                    let start = after.map(|a| ids.partition_point(|&id| id <= a)).unwrap_or(0);
+                    // Real 0-420 behavior verified 2026-10-15: after includes its ID.
+                    let start = after.map(|a| ids.partition_point(|&id| id < a)).unwrap_or(0);
                     let end = (start + 100).min(total);
                     let results: Vec<_> = ids[start..end].iter().map(|id| {
                         if light { json!({"id":id.to_string(),"properties":{"hs_object_id":id.to_string()}}) }
                         else { json!({"id":id.to_string(),"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":"合成求人","kyuujin_status":"公開中","hrh_kyuujinhyou_honbun":if large_body {"合".repeat(5300)} else {String::new()}}}) }
                     }).collect();
                     let mut body = json!({"results":results,"total":total});
-                    if end < total { body["paging"] = json!({"next":{"after":ids[end-1].to_string()}}); }
+                    // next.after is the last ID + 1, even when the next ID is far away.
+                    if end < total { body["paging"] = json!({"next":{"after":(ids[end-1] + 1).to_string()}}); }
                     return Json(body).into_response();
                 }
                 let bytes = axum::body::to_bytes(request.into_body(),1_000_000).await.unwrap();
@@ -522,4 +524,112 @@ async fn previous_index_quantiles_keep_new_low_and_high_ids_and_sparse_gaps() {
             .into_iter()
             .collect()
     );
+}
+
+#[tokio::test]
+async fn inclusive_fixture_and_serial_paging_preserve_sparse_ids() {
+    let ids: Vec<u128> = (0..203).map(|i| 557_000_000_000 + i * 17).collect();
+    let f = Fixture::with_ids(ids.clone(), Duration::ZERO, false, false).await;
+    let client = f.service.hs.background();
+    let first = client
+        .read_raw(
+            false,
+            "/crm/v3/objects/0-420",
+            &[
+                ("after", ids[0].to_string()),
+                ("limit", "100".into()),
+                ("properties", "hs_object_id".into()),
+            ],
+            None,
+        )
+        .await
+        .unwrap()
+        .body
+        .unwrap();
+    assert_eq!(first["results"][0]["id"], ids[0].to_string());
+    assert_eq!(first["paging"]["next"]["after"], (ids[99] + 1).to_string());
+    assert_ne!(ids[99] + 1, ids[100]);
+    let index = build_index(
+        &f.service.listing_index,
+        &f.service,
+        vec![],
+        Duration::ZERO,
+        1,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        index
+            .records
+            .iter()
+            .map(|r| numeric_id(&r.id).unwrap())
+            .collect::<BTreeSet<_>>(),
+        ids.into_iter().collect()
+    );
+    assert_eq!(f.page_calls.load(Ordering::SeqCst), 3);
+    assert_eq!(f.service.listing_index.state.read().await.read_count, 203);
+}
+
+#[tokio::test]
+async fn next_cursor_must_exceed_last_id_but_need_not_equal_last_plus_one() {
+    // Synthetic gap cursors also guard against accidentally requiring exact +1.
+    for (next, second_next, valid) in [
+        (10, 21, false),
+        (9, 21, false),
+        (0, 21, false),
+        (15, 21, true),
+        (15, 15, false),
+        (15, 19, false),
+    ] {
+        let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = observed.clone();
+        let app = Router::new().fallback(any(move |request: Request<Body>| {
+            let seen = seen.clone();
+            async move {
+                let after = request.uri().query().unwrap().split('&')
+                    .find_map(|p| p.strip_prefix("after=")).unwrap().parse::<u128>().unwrap();
+                seen.lock().unwrap().push(after);
+                let record = |id: u128| json!({"id": id.to_string(), "properties":{"id_hrhakkaa":"synthetic"}});
+                Json(if after == 10 {
+                    json!({"results":[record(10)], "paging":{"next":{"after":next.to_string()}}})
+                } else if after == 15 {
+                    json!({"results":[record(20)], "paging":{"next":{"after":second_next.to_string()}}})
+                } else {
+                    assert_eq!(after, 21);
+                    json!({"results":[record(30)]})
+                })
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let service =
+            JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let result = read_index_range(
+            &service.listing_index,
+            &IndexReader::new(&service.hs.background()),
+            IdRange {
+                lower: 10,
+                upper: None,
+            },
+            0,
+            Duration::ZERO,
+        )
+        .await;
+        if valid {
+            assert_eq!(
+                result.unwrap().0,
+                [10, 20, 30].map(|id| id.to_string()).into_iter().collect()
+            );
+            assert_eq!(*observed.lock().unwrap(), vec![10, 15, 21]);
+        } else {
+            assert_eq!(result.err().unwrap().1, "listing_paging_invalid");
+            assert_eq!(
+                *observed.lock().unwrap(),
+                if next == 15 { vec![10, 15] } else { vec![10] }
+            );
+        }
+        server.abort();
+    }
 }
