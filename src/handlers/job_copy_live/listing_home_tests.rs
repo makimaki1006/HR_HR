@@ -121,17 +121,17 @@ fn cards_count_with_concrete_rules() {
         [(0, 5), (0, 5), (0, 0), (0, 0)],
         [(0, 1), (0, 1), (0, 1), (0, 1)],
     ); // 10 vs 4
-    let same = weeks(
-        [(0, 2), (0, 1), (0, 1), (0, 1)],
+    let flat = weeks(
         [(0, 1), (0, 1), (0, 1), (0, 1)],
-    ); // 5 vs 4: 差 1
+        [(0, 1), (0, 1), (0, 1), (0, 1)],
+    ); // 4 vs 4: 同数
     let less = weeks(
         [(0, 0), (0, 0), (0, 1), (0, 0)],
         [(0, 1), (0, 1), (0, 1), (0, 0)],
     ); // 1 vs 3: 差 -2
     let rows = vec![
         listing("1", &["d1"], "掲載中", "set", Some(&more)),
-        listing("2", &["d1"], "掲載中", "unset", Some(&same)),
+        listing("2", &["d1"], "掲載中", "unset", Some(&flat)),
         listing("3", &["d3"], "掲載中", "none", Some(&less)),
         listing("4", &["d3"], "掲載終了", "unset", Some(&more)), // 掲載終了は数えない
         listing("5", &[], "掲載中", "unset", None),              // 実績なし: 増減に入らない
@@ -148,8 +148,8 @@ fn cards_count_with_concrete_rules() {
         (Some(10), Some(4))
     );
     assert_eq!(by("more").listings[0].company.as_deref(), Some("合成運輸"));
-    assert_eq!(by("same").count, 1);
-    assert_eq!(by("same").listings[0].id, "2");
+    assert_eq!(by("flat").count, 1);
+    assert_eq!(by("flat").listings[0].id, "2");
     assert_eq!(by("less").count, 1);
     assert_eq!(by("less").listings[0].id, "3");
     // 職種が未指定の掲載中: 2 と 5（4 は掲載終了、1 と 3 は指定済み）
@@ -345,4 +345,114 @@ fn only_a_single_company_deal_is_linked_and_lists_are_capped() {
     let more = home.cards.iter().find(|c| c.key == "more").unwrap();
     assert_eq!(more.count, 130);
     assert_eq!(more.listings.len(), LIST_CAP);
+}
+
+#[test]
+fn trend_examples_belong_to_exactly_one_card() {
+    for (prev, recent, expected) in [
+        (0, 0, "zero_stay"),
+        (1, 0, "to_zero"),
+        (5, 0, "to_zero"),
+        (2, 1, "less"),
+        (3, 2, "less"),
+        (5, 4, "less"),
+        (10, 8, "less"),
+        (10, 9, "flat"),
+        (0, 1, "more"),
+        (4, 5, "more"),
+        (10, 11, "flat"),
+        (10, 12, "more"),
+        (5, 5, "flat"),
+        (101, 100, "flat"),
+    ] {
+        let value = weeks(
+            [(0, recent), (0, 0), (0, 0), (0, 0)],
+            [(0, prev), (0, 0), (0, 0), (0, 0)],
+        );
+        let rows = [listing("example", &[], "掲載中", "set", Some(&value))];
+        let home = compute(&rows, &map(), date("2026-10-06"));
+        for card in home.cards.iter().take(5) {
+            assert_eq!(
+                card.count,
+                usize::from(card.key == expected),
+                "{prev} → {recent}: {}",
+                card.key
+            );
+            assert_eq!(
+                card.listings
+                    .iter()
+                    .map(|r| r.id.as_str())
+                    .collect::<Vec<_>>(),
+                if card.key == expected {
+                    vec!["example"]
+                } else {
+                    vec![]
+                }
+            );
+        }
+        for status in ["掲載終了", "下書き"] {
+            let rows = [listing("excluded", &[], status, "set", Some(&value))];
+            assert!(compute(&rows, &map(), date("2026-10-06"))
+                .cards
+                .iter()
+                .take(5)
+                .all(|c| c.count == 0));
+        }
+    }
+    let rows = [listing("no-performance", &[], "掲載中", "set", None)];
+    assert!(compute(&rows, &map(), date("2026-10-06"))
+        .cards
+        .iter()
+        .take(5)
+        .all(|c| c.count == 0));
+}
+
+#[test]
+fn zero_stay_is_first_and_sorted_by_recent_cost_before_capping() {
+    let rows: Vec<_> = (0..130)
+        .map(|i| {
+            let value = weeks([(i * 1000, 0), (0, 0), (0, 0), (0, 0)], [(999999, 0); 4]);
+            listing(&i.to_string(), &[], "掲載中", "set", Some(&value))
+        })
+        .collect();
+    let home = compute(&rows, &map(), date("2026-10-06"));
+    assert_eq!(
+        home.cards.iter().map(|c| c.key).collect::<Vec<_>>(),
+        vec![
+            "zero_stay",
+            "to_zero",
+            "less",
+            "more",
+            "flat",
+            "costly",
+            "stale",
+            "occupation"
+        ]
+    );
+    let card = &home.cards[0];
+    assert_eq!(card.count, 130);
+    assert_eq!(card.listings.len(), LIST_CAP);
+    for (row, i) in card.listings.iter().zip((30..130).rev()) {
+        assert_eq!(row.id, i.to_string());
+        assert_eq!(row.recent_cost, Some(i * 1000));
+        assert_eq!((row.prev_apps, row.recent_apps), (Some(0), Some(0)));
+    }
+}
+
+#[test]
+fn trend_percentage_multiplication_handles_large_integer_counts() {
+    let perf = PerfDigest {
+        latest_end: date("2026-10-04"),
+        recent_apps: i64::MAX - 1,
+        recent_cost: 0,
+        prev_apps: i64::MAX,
+    };
+    assert_eq!(trend_key(&perf), "flat");
+    assert_eq!(
+        trend_key(&PerfDigest {
+            recent_apps: 1,
+            ..perf
+        }),
+        "less"
+    );
 }

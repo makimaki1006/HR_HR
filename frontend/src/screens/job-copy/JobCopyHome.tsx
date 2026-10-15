@@ -8,7 +8,7 @@ import type { CardKey, CustomerSort, HomeCard, HomeCustomer, HomeResponse } from
 import './home.css';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '案件管理のホームを読み込めませんでした。時間を置いて再取得してください。';
-const cardTone: Record<CardKey, string> = { more: 'plain', same: 'plain', less: 'plain', costly: 'warn', stale: 'alert', occupation: 'plain' };
+const cardTone: Record<CardKey, string> = { zero_stay: 'alert', to_zero: 'alert', less: 'plain', more: 'plain', flat: 'plain', costly: 'warn', stale: 'alert', occupation: 'plain' };
 const customerColumns: [CustomerSort, string, boolean][] = [['name', '顧客名', false], ['deals', '契約中の案件 ／ 全案件', true], ['latest', '今の取引', false], ['live', '掲載中の求人 ／ 全求人', true], ['apps', '応募（前の 4 週 → 直近 4 週）', true], ['cost', '課金（直近 4 週）', true], ['cpa', '応募 1 件あたり', true]];
 
 function CardList({ card, onOpenListing }: { card: HomeCard; onOpenListing: (id: string) => void }) {
@@ -55,7 +55,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing }: { onOpenCompany: (
     {data?.status === 'preparing' && <ListingPreparationNotice progress={data.progress} />}
     {ready && <>
       <section aria-labelledby="jh-look"><h2 id="jh-look">まず見るもの</h2>
-        <p className="jh-note">掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。{formatDateTimeJst(ready.index_built_at, '日時不明')}時点。効果の有無は判定していません。</p>
+        <p className="jh-note">掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。{formatDateTimeJst(ready.index_built_at, '日時不明')}時点。効果の有無は判定していません。</p>
         <div className="jh-cards">{ready.home.cards.map(item => <button type="button" key={item.key} className={`jh-card jh-${cardTone[item.key]}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>
           <strong className="jh-count">{item.count}<small>件</small></strong>
           <span className="jh-card-title">{item.title}</span>

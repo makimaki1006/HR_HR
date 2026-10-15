@@ -169,6 +169,15 @@ impl Fixture {
         .map(IntoResponse::into_response)
     }
 }
+fn occupation_card(data: &Value) -> &Value {
+    data["home"]["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|card| card["key"] == "occupation")
+        .unwrap()
+}
+
 async fn json_body(response: axum::response::Response) -> Value {
     assert_eq!(
         response.headers()[header::CACHE_CONTROL],
@@ -204,12 +213,9 @@ async fn home_speed_probe() {
             body.len()
         );
         let data: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(data["home"]["cards"][5]["count"], 10_000);
+        assert_eq!(occupation_card(&data)["count"], 10_000);
         assert_eq!(
-            data["home"]["cards"][5]["listings"]
-                .as_array()
-                .unwrap()
-                .len(),
+            occupation_card(&data)["listings"].as_array().unwrap().len(),
             LIST_CAP
         );
         assert_eq!(data["home"]["customers"].as_array().unwrap().len(), 205);
@@ -318,7 +324,7 @@ async fn response_invalidates_for_jst_date_local_edits_index_and_company_rebuild
         .unwrap();
     let changed = answer(&f.service, edited, today).await;
     let data: Value = serde_json::from_slice(&changed).unwrap();
-    assert_eq!(data["home"]["cards"][5]["count"], 9999);
+    assert_eq!(occupation_card(&data)["count"], 9999);
     let calls = f.calls.load(Ordering::SeqCst);
     assert_eq!(calls, 7, "local edit reuses company map");
     let mut rebuilt = (*f.index).clone();
@@ -341,7 +347,7 @@ async fn failed_initial_read_keeps_cards_empty_table_and_retries_are_bounded() {
     let data = json_body(f.api(true).await.unwrap()).await;
     assert_eq!(data["status"], "ready");
     assert_eq!(data["companies_ok"], false);
-    assert_eq!(data["home"]["cards"][5]["count"], 10_000);
+    assert_eq!(occupation_card(&data)["count"], 10_000);
     assert_eq!(data["home"]["customers"], json!([]));
     let before = f.calls.load(Ordering::SeqCst);
     assert_eq!(json_body(f.api(true).await.unwrap()).await, data);
@@ -386,4 +392,91 @@ async fn cold_requests_share_prefetch_even_if_a_waiter_is_cancelled() {
     let before = f.calls.load(Ordering::SeqCst);
     answer(&f.service, f.index.clone(), today).await;
     assert_eq!(f.calls.load(Ordering::SeqCst), before);
+}
+
+#[tokio::test]
+async fn cached_and_background_answers_keep_all_five_trend_buckets() {
+    let mut f = Fixture::new().await;
+    let examples = [
+        (0, 0, "zero_stay"),
+        (1, 0, "to_zero"),
+        (5, 0, "to_zero"),
+        (2, 1, "less"),
+        (3, 2, "less"),
+        (5, 4, "less"),
+        (10, 8, "less"),
+        (10, 9, "flat"),
+        (0, 1, "more"),
+        (4, 5, "more"),
+        (10, 11, "flat"),
+        (10, 12, "more"),
+        (5, 5, "flat"),
+    ];
+    let today = tests::date("2026-10-15");
+    let index = Arc::make_mut(&mut f.index);
+    for (row, &(prev, recent, _)) in index.records.iter_mut().zip(&examples) {
+        row.perf = Some(PerfDigest {
+            latest_end: today,
+            prev_apps: prev,
+            recent_apps: recent,
+            recent_cost: 1000,
+        });
+    }
+    let verify = |body: &[u8]| {
+        let data: Value = serde_json::from_slice(body).unwrap();
+        assert_eq!(data["rules"]["trend_min_diff"], 2);
+        assert_eq!(data["rules"]["trend_min_percent"], 20);
+        let cards = data["home"]["cards"].as_array().unwrap();
+        assert_eq!(
+            cards
+                .iter()
+                .map(|c| c["key"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "zero_stay",
+                "to_zero",
+                "less",
+                "more",
+                "flat",
+                "costly",
+                "stale",
+                "occupation"
+            ]
+        );
+        for (row, &(prev, recent, expected)) in f.index.records.iter().zip(&examples) {
+            let picked: Vec<_> = cards
+                .iter()
+                .take(5)
+                .filter(|c| {
+                    c["listings"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|r| r["id"] == row.id)
+                })
+                .collect();
+            assert_eq!(picked.len(), 1, "{prev} → {recent}");
+            assert_eq!(picked[0]["key"], expected);
+        }
+    };
+    let first = answer(&f.service, f.index.clone(), today).await;
+    verify(&first);
+    let calls = f.calls.load(Ordering::SeqCst);
+    let warm = answer(&f.service, f.index.clone(), today).await;
+    assert_eq!(warm.as_ptr(), first.as_ptr(), "reuse the encoded response");
+    assert_eq!(f.calls.load(Ordering::SeqCst), calls);
+    verify(&warm);
+    f.expire().await;
+    f.blocked.store(true, Ordering::SeqCst);
+    let during_refresh = tokio::time::timeout(
+        Duration::from_millis(500),
+        answer(&f.service, f.index.clone(), today),
+    )
+    .await
+    .expect("return cached cards while HubSpot is blocked");
+    verify(&during_refresh);
+    f.blocked.store(false, Ordering::SeqCst);
+    f.gate.add_permits(10);
+    f.settled().await;
+    verify(&answer(&f.service, f.index.clone(), today).await);
 }
