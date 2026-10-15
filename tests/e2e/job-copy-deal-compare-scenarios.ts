@@ -116,7 +116,7 @@ export function registerDealCompareTests(path: string) {
     await page.getByLabel('表の媒体').selectOption('hrh');
     await expect.poll(() => requests.at(-1)?.searchParams.get('media')).toBe('hrh');
     await expect(page.locator('.jc-deal-comparison')).toContainText('51件');
-    const statusGroup = page.locator('.jc-deal-controls').getByRole('group', { name: '掲載状況で絞り込む' });
+    const statusGroup = page.locator('.ds-root').getByRole('group', { name: '掲載状況で絞り込む' });
     await statusGroup.getByRole('button', { name: /^すべて/ }).click();
     await statusGroup.getByRole('button', { name: /^掲載中/ }).click();
     await expect.poll(() => requests.at(-1)?.searchParams.get('publication')).toBe('掲載中');

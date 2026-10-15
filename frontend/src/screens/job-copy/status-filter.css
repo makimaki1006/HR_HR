@@ -11,3 +11,4 @@
 .jc-hubspot-list-heading { flex-wrap: wrap; }
 .jc-hubspot-list-heading .jc-reload { margin-left: auto; min-height: 28px; padding: 3px 8px; }
 .jc-hubspot-list-heading > span { color: var(--jc-muted, #52697a); }
+.jc-status-counts { color: var(--jc-muted, #52697a); font-size: 12px; line-height: 1.5; margin: 0; }

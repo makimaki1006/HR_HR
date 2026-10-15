@@ -8,7 +8,8 @@ import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 import { StatusFilter } from './StatusSwitch';
-import { STATUS_PUBLICATION, countsFromServer, useStatusFilter } from './statusFilter';
+import { STATUS_LABEL, STATUS_PUBLICATION, countsFromServer, useStatusFilter } from './statusFilter';
+import { useCompanyScope } from './companyScope';
 
 export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, revision = 0, scopeDeal, autoLoad = true }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; revision?: number; /** 案件の求人だけを出す。指定すると取引の選択は出さない。 */ scopeDeal?: { id: string; name: string } | undefined; /** false の間は一覧を読まず、隠しておく（求人を探すを押すまで） */ autoLoad?: boolean }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -17,7 +18,10 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   const [media, setMedia] = useState('');
   const [dealPick, setDeal] = useState('');
   const [dealPickName, setDealName] = useState('');
-  const deal = scopeDeal?.id ?? dealPick;
+  const companyScope = useCompanyScope();
+  // 今の取引を開いているときは、本文と同じく顧客の全部の取引の求人にそろえる。
+  const wide = scopeDeal && companyScope?.dealId === scopeDeal.id && companyScope.dealIds.length > 0 ? companyScope : null;
+  const deal = wide ? wide.dealIds.join(',') : scopeDeal?.id ?? dealPick;
   const dealName = scopeDeal ? scopeDeal.name || '案件' : dealPickName;
   const [dealSearch, setDealSearch] = useState('');
   const [status, setStatusKey] = useStatusFilter();
@@ -120,8 +124,10 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   useEffect(() => { if (active && page?.status === 'ready' && rows.length) void loadCompanies(rows.map(item => item.id)); }, [active, page?.status, rows]);
   useEffect(() => { if (active) onVisibleRows?.(rows); }, [active, rows, onVisibleRows]);
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active || !autoLoad}>
-    <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">{scopeDeal ? 'この案件の求人' : 'HubSpot の求人'}</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span><button type="button" className="jc-button jc-reload" disabled={busy} onClick={() => { void load(); }}>求人を読み込む</button></div>
-    <StatusFilter status={status} counts={countsFromServer(page?.publication_counts)} onChange={next => { setStatusKey(next); }} />
+    <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">{wide ? 'この顧客の求人' : scopeDeal ? 'この案件の求人' : 'HubSpot の求人'}</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span><button type="button" className="jc-button jc-reload" disabled={busy} onClick={() => { void load(); }}>求人を読み込む</button></div>
+    {scopeDeal
+      ? <p className="jc-status-counts" aria-label="掲載状況の件数">{(() => { const c = countsFromServer(page?.publication_counts); return c ? `表示中：${STATUS_LABEL[status]} ／ 掲載中 ${String(c.live)} ・ 掲載終了 ${String(c.ended)} ・ すべて ${String(c.all)}（絞り込みは本文の表で切り替え）` : `表示中：${STATUS_LABEL[status]}`; })()}</p>
+      : <StatusFilter status={status} counts={countsFromServer(page?.publication_counts)} onChange={next => { setStatusKey(next); }} />}
     <details className="jc-hubspot-filter-details" open={filtersOpen} onToggle={event => { setFiltersOpen(event.currentTarget.open); }}><summary>絞り込み・並び順</summary><div className="jc-hubspot-filters">
       {!scopeDeal && <>
       <label>取引名を検索<input value={dealSearch} onChange={event => { setDealSearch(event.target.value); }} placeholder="取引名の一部" /></label>

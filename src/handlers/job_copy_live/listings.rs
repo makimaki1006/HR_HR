@@ -543,7 +543,8 @@ fn matches_except_state(row: &Listing, query: &ListingsQuery) -> bool {
         if v == "none" {
             row.deal_ids.is_empty()
         } else {
-            row.deal_ids.contains(v)
+            // 取引 ID はカンマ区切りで複数指定できる（顧客の全部の取引の求人を 1 度に出すため）。
+            v.split(',').any(|id| row.deal_ids.iter().any(|d| d == id))
         }
     }) && query.publication.as_ref().is_none_or(|v| {
         if v == "unknown" {
@@ -765,11 +766,13 @@ pub(super) async fn read(
     {
         return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
     }
-    if query
-        .deal
-        .as_ref()
-        .is_some_and(|id| id != "none" && !index.deals.iter().any(|d| &d.id == id))
-    {
+    if query.deal.as_ref().is_some_and(|id| {
+        id != "none"
+            && (id.split(',').count() > 20
+                || id
+                    .split(',')
+                    .any(|one| !index.deals.iter().any(|d| d.id == one)))
+    }) {
         return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
     }
     let (total, rows) = selected_page(&index, &query);
@@ -1368,6 +1371,33 @@ mod publication_count_tests {
             indexed_application_count: None,
             perf: None,
         }
+    }
+    #[test]
+    fn several_deals_can_be_given_and_a_listing_in_two_deals_counts_once() {
+        let mut rows = vec![
+            row("1", "hrh", Some("掲載中")),
+            row("2", "hrh", Some("掲載中")),
+            row("3", "hrh", Some("掲載終了")),
+            row("4", "hrh", Some("掲載中")),
+        ];
+        rows[0].deal_ids = vec!["101".into()];
+        rows[1].deal_ids = vec!["101".into(), "102".into()];
+        rows[2].deal_ids = vec!["102".into()];
+        rows[3].deal_ids = vec!["999".into()];
+        let mut q = ListingsQuery::default();
+        q.deal = Some("101,102".into());
+        let ids: Vec<&str> = rows
+            .iter()
+            .filter(|r| matches(r, &q))
+            .map(|r| r.id.as_str())
+            .collect();
+        assert_eq!(ids, ["1", "2", "3"]);
+        assert_eq!(
+            publication_counts(&rows, &q),
+            json!({"live":2,"ended":1,"before":0,"unknown":0})
+        );
+        q.deal = Some("102".into());
+        assert_eq!(rows.iter().filter(|r| matches(r, &q)).count(), 2);
     }
     #[test]
     fn counts_ignore_the_publication_filter_but_keep_the_others() {

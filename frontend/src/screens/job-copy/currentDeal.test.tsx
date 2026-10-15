@@ -2,6 +2,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DealSummary } from './DealSummary';
+import { HubSpotListingsPanel } from './HubSpotListingsPanel';
 import { clearCompanyDealsCache } from './companyDeals';
 import type { HubSpotListing } from './hubspotListings';
 
@@ -54,4 +55,18 @@ it('契約中の取引が無い顧客は、最新の取引（current）の画面
   mock(false); // d2 が current（契約中が無いので最新の取引）
   render(<DealSummary deal={{ id: 'd2', name: '過去の取引', prefecture: '', title: '', media: '' }} billingByJob={{}} onOpenListing={vi.fn()} />);
   await waitFor(() => { expect(titles()).toEqual(['求人1', '求人2', '求人3']); });
+});
+
+it('今の取引では左の一覧も顧客の全部の取引の求人にそろい、掲載状況のボタンは本文の表だけに出る。課金が無い列には理由が出る', async () => {
+  mock(true);
+  const urls: string[] = [];
+  const base = api.getMockImplementation();
+  api.mockImplementation((url: string, ...rest: unknown[]) => { if (url.startsWith('/api/job-copy/listings?')) urls.push(url); return (base as (u: string, ...r: unknown[]) => Promise<unknown>)(url, ...rest); });
+  render(<><DealSummary deal={{ id: 'd1', name: '今の取引', prefecture: '', title: '', media: '' }} billingByJob={{}} onOpenListing={vi.fn()} /><HubSpotListingsPanel onOpen={vi.fn()} scopeDeal={{ id: 'd1', name: '今の取引' }} /></>);
+  await waitFor(() => { expect(screen.getByRole('heading', { name: 'この顧客の求人' })).toBeTruthy(); });
+  await waitFor(() => { expect(urls.some(url => new URLSearchParams(url.split('?')[1]).get('deal') === 'd1,d2')).toBe(true); });
+  // 掲載状況の切り替えは本文の表の 1 つだけ（左は件数の文だけ）。
+  expect(screen.getAllByRole('group', { name: '掲載状況で絞り込む' })).toHaveLength(1);
+  // 課金の記録が無い求人の「—」には理由を添える。
+  expect(screen.getAllByText('直近4週の課金の記録なし').length).toBeGreaterThan(0);
 });

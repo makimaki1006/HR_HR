@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { EChart } from '../../components/EChart';
 import { mediaLabel, publicationLabel } from './hubspotListings';
@@ -8,6 +8,7 @@ import { dealGroup, loadCompanyDatas, loadDealData } from './dealSummaryLoad';
 import { loadCompanyDeals } from './companyDeals';
 import type { CompanyDeal } from './companyDeals';
 import { StatusFilter } from './StatusSwitch';
+import { setCompanyScope } from './companyScope';
 import { countStatuses, matchesStatus, useStatusFilter } from './statusFilter';
 import type { DealData } from './dealSummaryLoad';
 import { formatDay, formatYen, jstDate, todayJst } from './timelineModel';
@@ -24,10 +25,12 @@ const EVENT_LIMIT = 10;const yen = (value: number | null) => value === null ? '�
 const count = (value: number | null) => value === null ? '—' : `${String(value)}件`;
 const indeedCell = (row: HubSpotListing): string => row.indeed_title_state === 'set' && row.indeed_title?.trim() ? row.indeed_title.trim() : row.indeed_title_state === 'none' ? '市場と比べない' : '未指定';
 
-export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany }: { deal: DealSelection; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void }) {
+export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany, onWide }: { deal: DealSelection; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void; /** 顧客の全求人を出しているか（今の取引のとき true）を知らせる */ onWide?: (wide: boolean) => void }) {
   const [source, setSource] = useState<Source>({ status: 'loading' });
   const [wide, setWide] = useState(false);
   const [info, setInfo] = useState<CompanyDeal | null>(null);
+  const onWideRef = useRef(onWide);
+  useEffect(() => { onWideRef.current = onWide; });
   useEffect(() => {
     const controller = new AbortController();
     void loadDealData(deal.id, deal.name, controller.signal).then(async data => {
@@ -49,8 +52,10 @@ export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany }
       if (controller.signal.aborted || all.status !== 'ready') return;
       setSource(all);
       setWide(true);
+      onWideRef.current?.(true);
+      setCompanyScope({ dealId: deal.id, dealIds: all.datas.map(item => item.id) });
     });
-    return () => { controller.abort(); };
+    return () => { controller.abort(); setCompanyScope(null); onWideRef.current?.(false); };
   }, [deal.id, deal.name]);
   return <SummaryView scope="deal" wide={wide} dealInfo={info} source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} {...(onOpenCompany ? { onOpenCompany } : {})} />;
 }
@@ -135,8 +140,8 @@ export function SummaryView({ scope, wide = false, dealInfo = null, source, bill
       <td>{status}{row.last_csv_detected_at ? <small>最後に確認 {formatDay(jstDate(row.last_csv_detected_at) ?? '—')}</small> : <small>開始日・終了日は未取得</small>}</td>
       <td>{count(n?.recent ?? null)}（{count(n?.previous ?? null)}）</td>
       <td>{share === null ? '—' : <><span className="ds-bar" aria-hidden="true"><i style={{ width: `${String(share)}%`, background: colorOf(row.id) }} /></span> {String(share)}%</>}</td>
-      <td>{input?.billingUnavailable ? <small>課金データなし</small> : yen(n?.billing ?? null)}</td>
-      <td>{input?.billingUnavailable ? '—' : yen(n?.perApplication ?? null)}</td>
+      <td>{input?.billingUnavailable ? <small>課金データなし</small> : n?.billing == null ? <>—<small>直近4週の課金の記録なし</small></> : yen(n.billing)}</td>
+      <td>{input?.billingUnavailable ? <>—<small>課金データなし</small></> : n?.perApplication == null ? <>—<small>{n?.billing == null ? '課金の記録なし' : '応募なし'}</small></> : yen(n.perApplication)}</td>
       {showIndeed && <td>{indeedCell(row)}</td>}
     </tr>;
   };
