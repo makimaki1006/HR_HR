@@ -51,6 +51,12 @@ describe('電話ヒアリング', () => {
     rerender(<PhoneHearingContent data={{ ...demoPhoneHearing, truncated: true }} />);
     expect(screen.getByText('一部だけ表示しています')).toBeDefined();
   });
+  it('応募一覧が無くても、電話の応答にある性別・年齢・地域を表示する', () => {
+    const card = demoPhoneHearing.items[0];
+    if (!card) throw new Error('fixture');
+    const { container } = render(<PhoneHearingContent data={{ ...demoPhoneHearing, items: [{ ...card, gender: '女性', age: '38', prefecture: '大分県', municipality: '大分市' }] }} />);
+    expect(container.querySelector('h3')?.textContent).toBe('応募者：女性・38・大分県大分市');
+  });
   it('取得失敗を記録なしと区別する', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 502 })));
     const job = jobs[0];

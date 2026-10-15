@@ -1,10 +1,12 @@
-import { PhoneHearing } from './PhoneHearing';
+import { PhoneHearingContent, usePhoneHearing } from './PhoneHearing';
+import type { PhoneHearing as Hearing } from '../../generated/PhoneHearing';
+import { formatDateJst } from './format';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JobCopyRecord } from './data';
 import { applicationsCutoffDate, noApplicationDatesText } from './detailBandModel';
 import { COLUMN_PX, buildLifeline, weekIndex } from './lifelineModel';
 import type { Lifeline, LifelineWeek } from './lifelineModel';
-import { reasonSourceLabels } from './applicantReasonsModel';
+import { HEARING_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
 import { ReasonCategorySummary } from './ReasonCategorySummary';
 import { maskPersonalDetails } from './personalText';
 import { selectedCategory } from './reasonCategories';
@@ -99,15 +101,27 @@ export function LifelineChart({ lifeline, job, selectedWeek }: { lifeline: Lifel
 
 const KIND_LABEL: Record<ListingEvent['kind'], string> = { start: '掲載', end: '掲載', revive: '掲載', content: '求人内容', image: '画像', billing: '課金', application: '応募' };
 
-function ApplicantReasonsOf({ job, event }: { job: JobCopyRecord; event: ListingEvent }) {
+function ApplicationDetails({ job, event, hearing, loading }: { job: JobCopyRecord; event: ListingEvent; hearing: Hearing | null; loading: boolean }) {
   const collection = job.applicantReasons;
-  if (!collection?.available) return <p className="lo-summary">応募理由の記録はまだありません。</p>;
-  const items = collection.items.filter(item => item.applicant === event.applicationKey && item.text.trim());
-  const picked = (collection.selections ?? []).filter(item => item.applicant === event.applicationKey && selectedCategory(item) !== 'unset');
-  if (!items.length && !picked.length) return <p className="lo-summary">この応募の応募理由の記録はまだありません。</p>;
+  const items = (collection?.items ?? []).filter(item => item.applicant === event.applicationKey && item.text.trim());
+  const picked = (collection?.selections ?? []).filter(item => item.applicant === event.applicationKey && selectedCategory(item) !== 'unset');
+  const card = hearing?.items.find(card => card.applicant === event.applicationKey);
+  const reasons = items.filter(item => !HEARING_TEXT_SOURCES.includes(item.sourceProperty));
+  const reasonFields = new Set<string>(reasons.map(item => item.sourceProperty === 'oubodouki' ? '応募動機' : item.sourceProperty === 'genshokumaeshokukaranotenshokuriyuu' ? '転職理由' : ''));
+  const fields = card?.fields.filter(field => !reasonFields.has(field.label)) ?? [];
+  const recorded = items.length > 0 || picked.length > 0 || Boolean(card);
   return <div className="lo-reasons-of">
-    {picked.map(item => <p key={`${item.sourceProperty}-${item.value}`} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由の分類'}：</strong>{item.label ?? item.value}</p>)}
-    {items.map(item => <p key={item.id} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由'}：</strong>{maskPersonalDetails(item.text)}</p>)}
+    <p className="lo-summary">応募日：{formatDateJst(event.date, '不明')} / 応募媒体：{card?.media ?? job.applicationRows?.find(row => row.key === event.applicationKey)?.media ?? '記録なし'}</p>
+    {job.applicationDates === 'failed' ? <p role="status">応募の記録を取得できませんでした。時間を置いて、もう一度開いてください。</p> : loading || job.applicationDates === 'loading' ? <p role="status">電話で聞いた内容を読み込み中です。</p> : !hearing && job.hubspotId ? <p role="status">電話で聞いた内容を取得できませんでした。時間を置いて、もう一度開いてください。</p> : !recorded && job.applicantReasons?.truncated ? <p>一部だけ表示しているため、この応募の記録を確認できません。</p> : !recorded && <p>この応募には、応募理由や電話で聞いた内容の記録がありません</p>}
+    <div className="lo-reasons-of">
+    {picked.map(item => <p key={`${item.sourceProperty}-${item.value}`} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由の分類'}：</strong>{item.label ?? '分類の名前を確認できません'}</p>)}
+    {reasons.map(item => <p key={item.id} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由'}：</strong>{maskPersonalDetails(item.text)}</p>)}
+    </div>
+    {card && <>
+      <h3>電話ヒアリング</h3><dl className="lo-application-fields">{fields.map(field => <div key={field.label}><dt>{field.label}</dt><dd>{maskPersonalDetails(field.text)}</dd></div>)}</dl>
+      {card.notes.length > 0 && <section aria-label="メモ"><h3>メモ</h3>{card.notes.map((note, index) => <p key={index}>{maskPersonalDetails(note.text)}</p>)}</section>}
+      <button type="button" className="jc-button" onClick={() => { const target = document.getElementById(`hearing-${card.applicant}`); const section = target?.closest('details'); if (section) section.open = true; target?.scrollIntoView({ block: 'center' }); target?.focus(); }}>電話ヒアリングのこの応募へ</button>
+    </>}
   </div>;
 }
 
@@ -122,6 +136,7 @@ export function ListingReasons({ job }: { job: JobCopyRecord }) {
 }
 
 export function ListingOverview({ job, events, billing, market, selectedId, onSelect, onCompare, onOpenDrawer }: Props) {
+  const hearing = usePhoneHearing(job);
   const asOf = applicationsCutoffDate(job);
   const listingStart = events.find(event => event.kind === 'start')?.date ?? null;
   const selected = events.find(event => event.id === selectedId) ?? null;
@@ -132,14 +147,21 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
   const applicationCount = events.filter(event => event.kind === 'application').length;
   const card = useRef<HTMLElement | null>(null);
   useEffect(() => { card.current?.scrollIntoView({ block: 'nearest' }); }, [selectedId]);
-  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section><ListingReasons job={job} /><PhoneHearing job={job} /></div>;
+  const phonePanel = <PhoneHearingContent applicationRows={job.applicationRows ?? []} {...hearing} onApplication={key => {
+    const event = events.find(event => event.applicationKey === key);
+    if (!event) return;
+    setShowApplications(true);
+    onSelect(event.id);
+    requestAnimationFrame(() => { document.getElementById(`application-${key}`)?.scrollIntoView({ block: 'center' }); });
+  }} />;
+  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section><ListingReasons job={job} />{phonePanel}</div>;
   return <div className="lo-main">
     <section className="lo-card" aria-labelledby="lo-chart-title">
       <div className="lo-head"><h2 id="lo-chart-title">求人のライフライン</h2><span>掲載開始から{lifeline?.endIndex !== null && lifeline?.endIndex !== undefined ? '掲載終了' : '今日'}まで、1週を1列で並べています（月曜はじまり）。横にスクロールできます。</span></div>
       {lifeline ? <LifelineChart lifeline={lifeline} job={job} selectedWeek={selectedWeek} /> : <p className="lo-note" role="status">掲載の開始日が分からないため、週ごとの推移は出せません。</p>}
       {!job.overallApplications && <p className="lo-note" role="status">{noApplicationDatesText(job)}</p>}
     </section>
-    <ListingReasons job={job} /><PhoneHearing job={job} />
+    <ListingReasons job={job} />{phonePanel}
     <section aria-labelledby="lo-events-title">
       <div className="lo-head"><h2 id="lo-events-title">出来事（新しい順）</h2>{applicationCount > 0 && <label className="lo-toggle"><input type="checkbox" checked={showApplications} onChange={event => { setShowApplications(event.target.checked); }} />応募（{applicationCount}件）を出す</label>}</div>
       <p className="lo-note">押すと、横の時間軸のその週に印が付きます。前後4週の応募の件数の差は、出来事のほかの要因でも動くため、原因を決めるものではありません。</p>
@@ -151,7 +173,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
           const checks = isApplication ? [] : eventChecks(event, events, billing, market, asOf);
           const diff = counts.before !== null && counts.after !== null ? counts.after - counts.before : null;
           const partial = [counts.before !== null && counts.beforeDays < 28 ? `前は掲載後${String(counts.beforeDays)}日分` : '', counts.after !== null && counts.afterDays < 28 ? `後は${String(counts.afterDays)}日分` : ''].filter(Boolean).join('・');
-          return <article key={event.id} ref={open ? card : undefined} className={`lo-event lo-kind-${event.kind}${open ? ' lo-open' : ''}`}>
+          return <article id={isApplication ? `application-${event.applicationKey ?? event.id}` : undefined} key={event.id} ref={open ? card : undefined} className={`lo-event lo-kind-${event.kind}${open ? ' lo-open' : ''}`}>
             <button type="button" className="lo-event-head" aria-expanded={open} onClick={() => { onSelect(open ? null : event.id); }}>
               <span className="lo-num">{isApplication ? '応' : event.n}</span>
               <span className="lo-date">{md(event.date)}</span>
@@ -159,7 +181,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
               {isApplication ? <span /> : <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>}
               <span className="lo-caret" aria-hidden="true">{open ? '▲' : '▼'}</span>
             </button>
-            {open && isApplication && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicantReasonsOf job={job} event={event} /></div>}
+            {open && isApplication && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicationDetails job={job} event={event} hearing={hearing.data} loading={hearing.loading} /></div>}
             {open && !isApplication && <div className="lo-event-body">
               <ul className="lo-checks" aria-label="ほかに応募を動かしそうなこと">
                 {checks.map(check => <li key={check.key}><span className={`lo-mark lo-mark-${check.mark}`}>{check.markLabel}</span><strong>{check.label}</strong><span>{check.text}</span></li>)}

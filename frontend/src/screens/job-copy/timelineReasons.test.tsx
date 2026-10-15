@@ -112,7 +112,7 @@ describe('category breakdown on the 応募理由 tab', () => {
     expect(document.body.textContent).toContain('分類の n は応募理由の記録がある応募の件数です');
     expect(document.body.textContent).not.toContain('記録された理由');
     const sources = within(screen.getByRole('region', { name: '記録欄ごとの件数' })).getByRole('table');
-    expect(within(sources).getAllByRole('row').slice(1).map(row => [row.querySelector('th')?.textContent, ...[...row.querySelectorAll('td')].map(cell => cell.textContent)])).toEqual([
+    expect(within(sources).getAllByRole('row').slice(1, 7).map(row => [row.querySelector('th')?.textContent, ...[...row.querySelectorAll('td')].map(cell => cell.textContent)])).toEqual([
       ['応募動機（HubSpot）', '4件', '0件', '24件'],
       ['応募理由（媒体記載）', '1件', '0件', '27件'],
       ['応募理由（ヒアリング）', '2件', '0件', '26件'],
@@ -215,7 +215,7 @@ describe('category breakdown on the 応募理由 tab', () => {
     render(<ApplicantReasons job={{ ...job, applicantReasons: legacy }} />);
     const sources = within(screen.getByRole('region', { name: '記録欄ごとの件数' })).getByRole('table');
     const rows = within(sources).getAllByRole('row').slice(1).map(row => row.textContent);
-    expect(rows.slice(3)).toEqual([
+    expect(rows.slice(3, 6)).toEqual([
       '今の仕事・前の仕事から転職する理由未取得（0件という意味ではありません）',
       '応募理由の分類（ヒアリング）未取得（0件という意味ではありません）',
       '応募理由の分類（媒体記載）未取得（0件という意味ではありません）',

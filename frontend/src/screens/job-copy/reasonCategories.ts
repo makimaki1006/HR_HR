@@ -14,7 +14,7 @@
  * claudedocs/JOB_COPY_REASONS_2026-10-08.md.
  */
 import type { ApplicantReason, ApplicantReasonCollection, ReasonSelection } from './applicantReasonsModel';
-import { APPLICATION_TEXT_SOURCES, TRANSFER_TEXT_SOURCE } from './applicantReasonsModel';
+import { APPLICATION_TEXT_SOURCES, HEARING_CLASSIFICATION_SOURCES, TRANSFER_TEXT_SOURCE } from './applicantReasonsModel';
 
 export const REASON_CATEGORIES = ['給与', '勤務地', '職種興味', '会社規模', 'その他'] as const;
 export type ReasonCategory = (typeof REASON_CATEGORIES)[number];
@@ -172,7 +172,7 @@ function classify(collection: ApplicantReasonCollection | undefined, sources: re
 
 /** Application reasons: chosen categories first, then keywords in 応募動機・応募理由. null when not read. */
 export function classifyApplicationReasons(collection: ApplicantReasonCollection | undefined): Classification | null {
-  return classify(collection, APPLICATION_TEXT_SOURCES, true);
+  return classify(collection, [...APPLICATION_TEXT_SOURCES, ...HEARING_CLASSIFICATION_SOURCES], true);
 }
 /** 転職理由 texts, by keywords only. null when not read (also in a stored file without that source). */
 export function classifyTransferReasons(collection: ApplicantReasonCollection | undefined): Classification | null {

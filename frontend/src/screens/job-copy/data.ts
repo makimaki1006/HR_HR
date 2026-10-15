@@ -36,7 +36,7 @@ export interface CopyVersion {
 }
 
 /** 応募1件ぶんの、日付と分かる属性（HubSpot の応募記録）。key は応募理由と結ぶ印。 */
-export interface ApplicationRow { key: string; date: string | null; gender: string | null; age: string | null; prefecture: string | null; municipality: string | null }
+export interface ApplicationRow { media?: string | null; key: string; date: string | null; gender: string | null; age: string | null; prefecture: string | null; municipality: string | null }
 /** 公開状況の履歴の1件（古い順）。 */
 export interface StatusEntry { at: string; value: string }
 
@@ -110,6 +110,12 @@ export const jobs: JobCopyRecord[] = [
     // 応募理由（架空）。分類の選択と文の両方を含む。
     applicantReasons: demoApplicantReasons(),
     phoneHearing: demoPhoneHearing,
+    applicationRows: [
+      { key: '8'.repeat(64), date: '2026-09-24', gender: '女性', age: '38', prefecture: '大分県', municipality: '大分市', media: '求人検索サイト' },
+      { key: '2'.repeat(64), date: '2026-09-04', gender: '男性', age: '42', prefecture: '大分県', municipality: '別府市', media: null },
+      { key: '1'.repeat(64), date: '2026-09-02', gender: null, age: null, prefecture: null, municipality: null, media: null },
+      { key: '4'.repeat(64), date: '2026-09-16', gender: null, age: null, prefecture: null, municipality: null, media: '求人検索サイト' },
+    ],
     // HRハッカーの期間別実績（架空の課金例）
     hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: 'DEMO-HRH-001', captured_at: '2026-10-05T00:00:00Z', rows: [
       { period_start: '2026-09-01', period_end: '2026-09-14', impressions: 4200, clicks: 160, cost_yen: 30000, applications: 6 },

@@ -16,6 +16,11 @@ const texts: DemoText[] = [
   [7, 'ouboriyuu_hiaringu', '2026-09-21', '時給が良いので'],
   [8, 'genshokumaeshokukaranotenshokuriyuu', '2026-09-24', '通勤に片道1時間かかるため'],
   [9, 'oubodouki', null, '大手で安定しているから'],
+  [8, 'kinmujoukennoyuusenjuni', '2026-09-24', '通勤時間、休日、給与の順で希望'],
+  [8, 'nyuushakiboujiki', '2026-09-24', '翌月から'],
+  [8, 'call_notes', '2026-09-24', '【架電】土日休みと、見学できる日程を確認したい。'],
+  [1, 'shuugyoujoukyou', '2026-09-02', '在職中'],
+  [1, 'oubonoheiganjoukyou', '2026-09-02', 'ほかに1件検討中'],
 ];
 const choices: DemoChoice[] = [
   [1, 'ouboriyuukategori_hiaringu', '2026-09-02', '給与'],

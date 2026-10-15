@@ -117,3 +117,8 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .lo-reasons-of { display: grid; gap: 4px; }
 .lo-kind-application.lo-open .lo-num { background: #475b6b; color: #fff; border-color: #475b6b; }
 .lf-marker span { top: auto; bottom: 2px; }
+
+.lo-application-fields > div { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--jc-border); }
+.lo-application-fields dt { font-weight: 600; }
+.lo-application-fields dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .lo-application-fields > div { grid-template-columns: 1fr; gap: 4px; } }

@@ -42,6 +42,18 @@ pub struct PhoneHearing {
 pub struct PhoneHearingCard {
     pub applicant: String,
     pub application_date: Option<String>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub gender: Option<String>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub age: Option<String>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub prefecture: Option<String>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub municipality: Option<String>,
     pub media: Option<String>,
     pub multi_listing: bool,
     pub fields: Vec<PhoneHearingField>,
@@ -134,7 +146,7 @@ fn extract(
         truncated: total > MAX_ITEMS,
     };
     let notes: BTreeMap<_, _> = notes.iter().map(|note| (note.id.as_str(), note)).collect();
-    for row in rows.iter().take(MAX_ITEMS) {
+    for row in rows {
         let mut fields = vec![];
         for (properties, label) in FIELDS {
             let mut values = vec![];
@@ -181,6 +193,13 @@ fn extract(
         }
         result.items.push(PhoneHearingCard {
             applicant: applicant_key(listing, &row.id),
+            gender: attribute(row, "seibetsu"),
+            age: row
+                .value("nenrei")
+                .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit()))
+                .map(str::to_owned),
+            prefecture: attribute(row, "todoufuken"),
+            municipality: attribute(row, "shikuchouson"),
             application_date: row.value("yingmuri").and_then(super::deal_summary::jst_day),
             media: media_property
                 .and_then(|p| display(row, p, labels))
@@ -196,6 +215,9 @@ fn extract(
             .then(a.applicant.cmp(&b.applicant))
     });
     Ok(result)
+}
+fn attribute(row: &Record, property: &str) -> Option<String> {
+    row.value(property).map(mask_personal_details)
 }
 fn timestamp(raw: &str) -> Option<String> {
     chrono::DateTime::parse_from_rfc3339(raw)
@@ -261,13 +283,26 @@ impl JobReadService {
         Ok(output)
     }
     async fn phone_hearing(&self, listing: &str) -> Result<PhoneHearing, ReadError> {
+        serde_json::from_value(self.applicant_bundle(listing).await?["phone_hearing"].clone())
+            .map_err(|_| fail("hubspot_invalid_response"))
+    }
+    async fn applicant_bundle(&self, listing: &str) -> Result<Value, ReadError> {
         let ids = self.all_associations("0-420", listing, "0-421").await?;
         if ids.is_empty() {
-            return Ok(PhoneHearing {
+            let hearing = PhoneHearing {
                 total_applicants: 0,
                 items: vec![],
                 truncated: false,
-            });
+            };
+            return Ok(bundle(
+                listing,
+                &[],
+                &OptionLabels::new(),
+                &hearing,
+                &BTreeSet::new(),
+                0,
+                None,
+            ));
         }
         // Resolve media by its definition label, rather than guessing its internal name.
         let definitions = self.request("/crm/v3/properties/0-421", &[], None).await?;
@@ -302,24 +337,19 @@ impl JobReadService {
         }
         let mut properties: Vec<&str> =
             FIELDS.iter().flat_map(|(p, _)| p.iter().copied()).collect();
-        properties.push("yingmuri");
+        properties.extend([
+            "yingmuri",
+            "seibetsu",
+            "nenrei",
+            "todoufuken",
+            "shikuchouson",
+        ]);
+        properties.extend(applicant_reasons::PROPERTIES);
         if let Some(media) = media {
             properties.push(media);
         }
-        // Only the latest 500 are read. Date-only batches let us choose them without reading
-        // unlimited free text; the association count remains the denominator.
-        let selected: Vec<_> = if ids.len() > MAX_ITEMS {
-            let mut dated = self.batch("0-421", &ids, &["yingmuri"]).await?;
-            dated.sort_by(|a, b| {
-                b.value("yingmuri")
-                    .and_then(super::deal_summary::jst_day)
-                    .cmp(&a.value("yingmuri").and_then(super::deal_summary::jst_day))
-                    .then(a.id.cmp(&b.id))
-            });
-            dated.into_iter().take(MAX_ITEMS).map(|r| r.id).collect()
-        } else {
-            ids.clone()
-        };
+        // All records contribute to the denominator; only bounded, masked texts leave the server.
+        let selected = ids.clone();
         let rows = self.batch("0-421", &selected, &properties).await?;
         let note_links = self.hearing_links(&selected, "notes").await?;
         let note_ids: Vec<_> = note_links
@@ -338,7 +368,7 @@ impl JobReadService {
             .filter(|(_, ids)| ids.len() > 1)
             .map(|(id, _)| id)
             .collect();
-        extract(
+        let hearing = extract(
             listing,
             &rows,
             &notes,
@@ -347,9 +377,154 @@ impl JobReadService {
             &labels,
             media,
             ids.len(),
-        )
+        )?;
+        Ok(bundle(
+            listing,
+            &rows,
+            &labels,
+            &hearing,
+            &multi,
+            ids.len(),
+            media,
+        ))
     }
 }
+// Shared response: the exact same batched records supply events, reasons and hearings.
+fn bundle(
+    listing: &str,
+    rows: &[Record],
+    labels: &OptionLabels,
+    hearing: &PhoneHearing,
+    multi: &BTreeSet<String>,
+    total: usize,
+    media: Option<&str>,
+) -> Value {
+    let fetched = chrono::Utc::now().to_rfc3339();
+    let mut reasons = applicant_reasons::extract_with_labels(
+        listing,
+        rows,
+        fetched.clone(),
+        Some(labels),
+        applicant_reasons::OptionLabelsStatus::Unavailable,
+    );
+    reasons.multi_listing_applicants =
+        Some(multi.iter().map(|id| applicant_key(listing, id)).collect());
+    let cards: BTreeMap<_, _> = hearing
+        .items
+        .iter()
+        .map(|card| (card.applicant.as_str(), card))
+        .collect();
+    // These additional sources use the same missing/blank/nonblank rules as reason fields.
+    for (properties, label) in FIELDS
+        .iter()
+        .filter(|(p, _)| !applicant_reasons::TEXT_PROPERTIES.contains(&p[0]))
+    {
+        let property = properties[0];
+        let mut counts = applicant_reasons::SourceCounts::default();
+        for row in rows {
+            let card = cards.get(applicant_key(listing, &row.id).as_str());
+            let text = card
+                .and_then(|c| c.fields.iter().find(|f| f.label == *label))
+                .map(|f| f.text.clone());
+            if let Some(text) = text {
+                counts.nonblank += 1;
+                add_reason(&mut reasons, listing, row, property, text);
+            } else if properties
+                .iter()
+                .any(|p| row.properties.get(*p).is_some_and(Option::is_some))
+            {
+                counts.blank += 1;
+            } else {
+                counts.missing += 1;
+            }
+        }
+        reasons.total_source_values += total;
+        reasons.missing += counts.missing;
+        reasons.blank += counts.blank;
+        reasons.source_counts.insert(property.into(), counts);
+    }
+    let mut counts = applicant_reasons::SourceCounts::default();
+    for row in rows {
+        let notes = cards
+            .get(applicant_key(listing, &row.id).as_str())
+            .map(|c| &c.notes);
+        let text = notes
+            .into_iter()
+            .flatten()
+            .filter(|n| n.text.contains("【架電】"))
+            .map(|n| n.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if text.is_empty() {
+            counts.missing += 1;
+        } else {
+            counts.nonblank += 1;
+            add_reason(
+                &mut reasons,
+                listing,
+                row,
+                "call_notes",
+                text.chars().take(MAX_TEXT_CHARS).collect(),
+            );
+        }
+    }
+    reasons.total_source_values += total;
+    reasons.missing += counts.missing;
+    reasons.source_counts.insert("call_notes".into(), counts);
+    reasons.truncated |= hearing.truncated;
+    let days: Vec<_> = rows
+        .iter()
+        .map(|r| r.value("yingmuri").and_then(super::deal_summary::jst_day))
+        .collect();
+    let (by_date, missing) = super::deal_summary::count_by_date(&days);
+    let people: Vec<_> = rows.iter().zip(days).map(|(row, day)| json!({
+        "key":applicant_key(listing, &row.id), "date":day,
+        "gender":attribute(row,"seibetsu"), "age":row.value("nenrei").filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit())),
+        "prefecture":attribute(row,"todoufuken"), "municipality":attribute(row,"shikuchouson"),
+        "media":media.and_then(|p| display(row,p,labels)).map(|s| mask_personal_details(&s))
+    })).collect();
+    let mut hearing = serde_json::to_value(hearing).expect("serializable hearing");
+    hearing["items"]
+        .as_array_mut()
+        .expect("hearing items")
+        .truncate(MAX_ITEMS);
+    json!({"listing_id":listing,"total":total,"missing_date":missing,"by_date":by_date,
+        "applications":people,"applicant_reasons":reasons,"phone_hearing":hearing,"fetched_at":fetched})
+}
+fn add_reason(
+    reasons: &mut applicant_reasons::Reasons,
+    listing: &str,
+    row: &Record,
+    property: &str,
+    text: String,
+) {
+    if reasons.items.len() >= MAX_ITEMS {
+        reasons.truncated = true;
+        return;
+    }
+    reasons.items.push(applicant_reasons::Reason {
+        id: applicant_key(listing, &format!("{}:{property}", row.id)),
+        applicant: Some(applicant_key(listing, &row.id)),
+        text,
+        source: "hubspot".into(),
+        source_property: property.into(),
+        application_date: row.value("yingmuri").and_then(super::deal_summary::jst_day),
+        collected_at: None,
+        version_id: None,
+    });
+}
+pub(super) async fn read_applicants(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    AxumPath(id): AxumPath<String>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    valid_id(&id)?;
+    let result = listings::service(&access)?.applicant_bundle(&id).await?;
+    Ok(([(header::CACHE_CONTROL, "private, no-store")], Json(result)))
+}
+
 pub(super) async fn read(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
@@ -367,6 +542,119 @@ mod tests {
     use super::*;
     fn record(id: &str, values: Value) -> Record {
         serde_json::from_value(json!({"id": id, "properties": values})).unwrap()
+    }
+    #[test]
+    fn bounded_output_keeps_all_applications_in_source_counts() {
+        let rows: Vec<_> = (1..=501)
+            .map(|i| {
+                record(
+                    &i.to_string(),
+                    json!({"yingmuri":"2026-10-01", "kinmujoukennoyuusenjuni":"休日"}),
+                )
+            })
+            .collect();
+        let labels = OptionLabels::new();
+        let multi = BTreeSet::new();
+        let hearing = extract(
+            "30",
+            &rows,
+            &[],
+            &BTreeMap::new(),
+            &multi,
+            &labels,
+            None,
+            rows.len(),
+        )
+        .unwrap();
+        let data = bundle("30", &rows, &labels, &hearing, &multi, rows.len(), None);
+        assert_eq!(data["applications"].as_array().unwrap().len(), 501);
+        assert_eq!(
+            data["phone_hearing"]["items"].as_array().unwrap().len(),
+            500
+        );
+        assert_eq!(
+            data["applicant_reasons"]["source_counts"]["kinmujoukennoyuusenjuni"],
+            json!({"nonblank":501,"blank":0,"missing":0})
+        );
+        assert_eq!(
+            data["applicant_reasons"]["items"].as_array().unwrap().len(),
+            500
+        );
+        assert_eq!(data["applicant_reasons"]["truncated"], true);
+    }
+    #[test]
+    fn three_fictional_applications_share_keys_attributes_reasons_hearings_and_notes() {
+        let rows = vec![
+            record(
+                "101",
+                json!({"yingmuri":"2026-10-01", "seibetsu":"女性", "nenrei":"38", "todoufuken":"大分県", "shikuchouson":"大分市", "oubodouki":"研修を希望", "kinmujoukennoyuusenjuni":"通勤と休日", "media":"求人検索サイト"}),
+            ),
+            record(
+                "102",
+                json!({"yingmuri":"2026-10-02", "seibetsu":"男性", "nenrei":"42", "ichijitaiou_shokan_memo":"  ", "bikou_hiaringu":"求人未特定: 自動取込"}),
+            ),
+            record("103", json!({"yingmuri":"2026-10-03"})),
+        ];
+        let notes = vec![record(
+            "201",
+            json!({"hs_note_body":"<p>【架電】給与を確認</p>"}),
+        )];
+        let links = BTreeMap::from([("103".into(), vec!["201".into()])]);
+        let labels = OptionLabels::new();
+        let multi = BTreeSet::new();
+        let hearing = extract(
+            "30",
+            &rows,
+            &notes,
+            &links,
+            &multi,
+            &labels,
+            Some("media"),
+            3,
+        )
+        .unwrap();
+        let data = bundle("30", &rows, &labels, &hearing, &multi, 3, Some("media"));
+        let legacy = applicant_reasons::extract("30", &rows, "2026-10-03T00:00:00Z".into());
+        assert_eq!(data["total"], 3);
+        assert_eq!(data["by_date"]["2026-10-01"], 1);
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(data["applications"][i]["key"], applicant_key("30", &row.id));
+        }
+        let first = applicant_key("30", "101");
+        let last = applicant_key("30", "103");
+        assert_eq!(legacy.items[0].applicant.as_deref(), Some(first.as_str()));
+        let cards = data["phone_hearing"]["items"].as_array().unwrap();
+        let card = cards.iter().find(|c| c["applicant"] == first).unwrap();
+        assert_eq!(card["gender"], "女性");
+        assert_eq!(card["age"], "38");
+        assert_eq!(card["municipality"], "大分市");
+        assert_eq!(data["applications"][0]["gender"], card["gender"]);
+        assert_eq!(data["applications"][0]["media"], card["media"]);
+        assert_eq!(cards.len(), 2);
+        assert_eq!(
+            cards.iter().find(|c| c["applicant"] == last).unwrap()["notes"][0]["text"],
+            "【架電】給与を確認"
+        );
+        let reasons = &data["applicant_reasons"];
+        assert!(reasons["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["applicant"] == first && r["text"] == "通勤と休日"));
+        assert!(reasons["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["applicant"] == last && r["text"] == "【架電】給与を確認"));
+        assert_eq!(
+            reasons["source_counts"]["call_notes"],
+            json!({"nonblank":1,"blank":0,"missing":2})
+        );
+        assert_eq!(
+            reasons["source_counts"]["ichijitaiou_shokan_memo"],
+            json!({"nonblank":0,"blank":1,"missing":2})
+        );
+        assert_eq!(reasons["source_counts"]["bikou_hiaringu"]["nonblank"], 0);
     }
     #[test]
     fn filters_automatic_content_labels_choices_and_omits_empty_fields() {

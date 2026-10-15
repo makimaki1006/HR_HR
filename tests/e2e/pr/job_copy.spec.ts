@@ -419,7 +419,7 @@ test('電話ヒアリングを開くとデモの聞き取りと通話記録を�
   await section.locator('summary').click();
   const card = section.locator('article').first();
   await expect(card).toContainText('応募日：2026/09/24');
-  await expect(section.locator('.ph-card h3')).toHaveCount(0);
+  await expect(card.locator('h3')).toHaveText('応募者：38・女性・大分県大分市');
   await expect(card.locator('.ph-note > p').first()).toHaveText('2026/09/24 13:30');
   await expect(section).not.toContainText('JST');
   await expect(card).toContainText('勤務条件の優先順位');
@@ -479,4 +479,28 @@ test('ホームの準備中に読み終えた件数と失敗後の待ち時間�
   failed = true;
   await page.getByRole('button', { name: '再読み込み', exact: true }).click();
   await expect(page.getByText('読み込みに失敗したため、1 分後にもう一度読み込みます。', { exact: true })).toBeVisible();
+});
+
+
+test('出来事の応募に属性と応募理由と電話ヒアリングが同じ枠にそろい、カードと往復できる', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await login(page);
+  await page.goto('/app/job-copy?demo=1&job=demo-job-001');
+  const event = page.locator(`[id="application-${'8'.repeat(64)}"]`);
+  await event.locator('.lo-event-head').click();
+  await expect(event).toContainText('女性 ・ 38 ・ 大分県大分市');
+  await expect(event).toContainText('通勤に片道1時間かかるため');
+  await expect(event).toContainText('勤務条件の優先順位');
+  await expect(event).toContainText('通勤時間、休日、給与の順で希望');
+  await expect(event).toContainText('【架電】土日休みと、見学できる日程を確認したい。');
+  await event.scrollIntoViewIfNeeded();
+  if (process.env.APPLICANT_EVENT_SCREENSHOT) await page.screenshot({ path: process.env.APPLICANT_EVENT_SCREENSHOT });
+  await event.getByRole('button', { name: '電話ヒアリングのこの応募へ' }).click();
+  const card = page.locator(`[id="hearing-${'8'.repeat(64)}"]`);
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('応募者：38・女性・大分県大分市');
+  if (process.env.APPLICANT_CARD_SCREENSHOT) await page.screenshot({ path: process.env.APPLICANT_CARD_SCREENSHOT });
+  await event.locator('.lo-event-head').click();
+  await card.getByRole('button', { name: 'タイムラインのこの応募へ' }).click();
+  await expect(event.locator('.lo-event-head')).toHaveAttribute('aria-expanded', 'true');
 });
