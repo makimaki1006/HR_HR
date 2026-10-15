@@ -163,8 +163,10 @@ describe('架電結果の入力欄: 保存', () => {
     expect(b.stage).toEqual({ pipeline_id: '753186575', stage_id: '1095387444' });
     expect(b.set).toEqual({ risuto_kadennbi: TODAY, bpo_13: '2026-10-16', bpo_14: '9:15' });
     expect(b.base).toEqual({ risuto_kadennbi: '2026-09-28', bpo_13: '2026-10-01', bpo_14: '10:00' });
-    // 前の行に保存済みの印。次の行の入力欄に、前の行を保存したことを緑で出す
-    expect(within(within(list()).getByText('架空食品株式会社').closest('li') as HTMLElement).getByText('記録済み(HubSpot に保存済み)')).toBeTruthy();
+    // 受付ブロックは架電対象のステージではないので、保存した行は一覧から外れる (外れた件数を件数の行に出す)
+    expect(within(list()).queryByText('架空食品株式会社')).toBeNull();
+    expect(screen.getByTestId('queue-count').textContent).toContain('(保存して外れた 1 件)');
+    // 次の行の入力欄に、前の行を保存したことを緑で出す
     await waitFor(() => { expect(within(form()).getByTestId('result-notice').textContent).toBe('前の架電先: 架空食品株式会社 を HubSpot に保存しました。'); });
     expect(within(form()).getByTestId('result-notice').classList.contains('is-saved')).toBe(true);
   });

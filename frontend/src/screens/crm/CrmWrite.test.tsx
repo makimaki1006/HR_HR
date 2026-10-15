@@ -17,7 +17,9 @@ import { fixtureDetail } from './workspaceFixture';
 import { kindOf } from './writeModel';
 import type { EditSchema, EditableProp, OperationStatus } from './writeTypes';
 
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+/** 保存に成功したときに useCrmWrite が知らせる内容 (一覧から外す判定に使う) */
+const written = vi.fn();
+afterEach(() => { cleanup(); vi.useRealTimers(); written.mockClear(); });
 
 const DEAL = 'f-5';
 const index = catalogIndex(FIXTURE_CATALOG);
@@ -66,7 +68,7 @@ const savedOut = (values: Record<string, string | null>): PatchOutcome => ({ kin
 let ids = 0;
 function Harness({ api, onSaved, pollMs = 5_000 }: { api: WriteApi; onSaved: (id: string) => void; pollMs?: number }) {
   const data = useMemo(() => fixtureDetail(DEAL, SELECTION), []);
-  const write = useCrmWrite({ dealId: DEAL, api, onSaved, pollIntervalMs: pollMs, newId: () => `op-${String(++ids)}` });
+  const write = useCrmWrite({ dealId: DEAL, api, onSaved, onWritten: written, pollIntervalMs: pollMs, newId: () => `op-${String(++ids)}` });
   const b = useWriteBindings({
     write, dealId: DEAL, data, index, ownerNames: new Map(),
     loadValues: (_id, defs) => Promise.resolve(Object.fromEntries(defs.map(d => [d.name, d.name === BIKOU ? 'メモ原文' : null]))),
@@ -682,5 +684,42 @@ describe('契約の読み取り', () => {
     // 担当者を選ぶ型 (選択肢は担当者の一覧から。選択肢が無くても入力欄になる)
     expect(kindOf('enumeration', 'select', 0, true)).toBe('owner');
     expect(kindOf('string', 'text', 0, true)).toBe('text');
+  });
+});
+
+describe('保存に成功した操作は、すべて onWritten で知らせる (一覧から外す判定の入口)', () => {
+  it('プロパティ欄の項目の編集 (緑): 書いた項目と値を渡す', async () => {
+    const patch: Patch = vi.fn(() => Promise.resolve(savedOut({ bpo_10: OPT.value })));
+    await setup(schemaOf(), patch);
+    fireEvent.click(editBtn(index.deals.get('bpo_10')?.prop.label ?? ''));
+    fireEvent.change(screen.getByRole('combobox', { name: index.deals.get('bpo_10')?.prop.label ?? '' }), { target: { value: OPT.value } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => { expect(written).toHaveBeenCalledTimes(1); });
+    const [req, kind] = written.mock.calls[0] as [{ dealId: string; changes: { name: string; value: string | null }[]; stage?: unknown }, string];
+    expect(kind).toBe('saved');
+    expect(req.dealId).toBe(DEAL);
+    expect(req.changes.map(c => [c.name, c.value])).toEqual([['bpo_10', OPT.value]]);
+    expect(req.stage).toBeUndefined();
+  });
+
+  it('ステージを移す画面での移動: 移し先のステージを渡す', async () => {
+    const patch: Patch = vi.fn(() => Promise.resolve(savedOut({})));
+    await setup(schemaOf(), patch);
+    fireEvent.change(screen.getByRole('combobox', { name: 'ステージを変更' }), { target: { value: 'st-plain' } });
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '移す' }));
+    await waitFor(() => { expect(written).toHaveBeenCalledTimes(1); });
+    const [req, kind] = written.mock.calls[0] as [{ stage: { pipeline_id: string; stage_id: string } }, string];
+    expect(kind).toBe('saved');
+    expect(req.stage).toMatchObject({ pipeline_id: '753186575', stage_id: 'st-plain' });
+  });
+
+  it('保存できなかった (422) ときは知らせない', async () => {
+    const bad: Patch = vi.fn(() => Promise.resolve({ kind: 'invalid', body: { errors: { syokusyu_risuto: 'だめ' }, missing_required: [] } } as unknown as PatchOutcome));
+    await setup(schemaOf(), bad);
+    fireEvent.click(editBtn('募集職種（リストデータ）'));
+    fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: '新' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => { expect(bad).toHaveBeenCalled(); });
+    expect(written).not.toHaveBeenCalled();
   });
 });

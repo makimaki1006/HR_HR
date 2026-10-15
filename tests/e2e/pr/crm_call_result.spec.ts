@@ -94,7 +94,7 @@ test.describe('CRM 架電画面: 架電結果を実在の取引プロパティ�
     expect(await form(page).innerText()).not.toMatch(/bpo_|risuto_|nitteigiri/);
 
     // ステージ「受付ブロック」+ 次回架電日・時間 + メモの追記。入力途中はタブに残る (送る前の下書き)
-    const nextDate = jstDate(1);
+    const nextDate = jstDate(0); // 今日のうちに再架電: 次回日が来たものとして一覧に残る (未来にすると一覧から外れる。下の「一覧から外れる」の spec)
     await stageBtn(page, '受付ブロック').click();
     await expect(stageBtn(page, '受付ブロック')).toHaveAttribute('aria-pressed', 'true');
     await field(page, '次回架電日').fill(nextDate.replaceAll('-', '/'));
@@ -174,7 +174,7 @@ test.describe('CRM 架電画面: 架電結果を実在の取引プロパティ�
 
   test('新規営業の組 (BPO 以外のパイプライン): 再架電日・再架電時間・激アツメモ。TEL_アポ日確定ではアポ取得者に本人が入る', async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 742 });
-    await openScreen(page, `${SCREEN_URL}&pipeline=fx-sample`);
+    await openScreen(page, `${SCREEN_URL}&pipeline=fx-sample&scope=all`); // すべての取引: アポ日確定へ移しても一覧に残る
     await list(page).getByText('架空倉庫サービス').click();
     await expect(memo(page, '激アツメモ（決済・利用サービス・決算・職種など）に追記')).toBeVisible();
     await expect(form(page)).toHaveAttribute('data-team', 'sales');
@@ -264,5 +264,40 @@ test.describe('CRM 架電画面: 架電結果を実在の取引プロパティ�
     await expect(page.getByText('12 / 12件 · 記録 0件')).toBeVisible();
     expect(scripts.some((p) => /\/CrmScreen-[^/]+\.js$/.test(p))).toBe(true);
     expect(scripts.filter((p) => /\/CallQueueScreen-[^/]+\.js$/.test(p))).toEqual([]);
+  });
+
+  test('一覧から外れる: 「架電日が今日より前」の一覧で記録すると、その行が消えて次の行が選ばれ、外れた件数が出る。条件に関係しない記録では消えない', async ({ page }) => {
+    const crmRequests = watchCrmRequests(page);
+    await page.setViewportSize({ width: 1512, height: 742 });
+    const conditions = encodeURIComponent(JSON.stringify([{ property: 'risuto_kadennbi', operator: 'BEFORE_TODAY', values: [] }]));
+    await openScreen(page, `${SCREEN_URL}&conditions=${conditions}`);
+    const names = () => rows(page).locator('.cq-row-company').allTextContents();
+    const before = await names();
+    expect(before.length).toBeGreaterThan(3);
+    const [first, second] = before;
+    await rowButton(page, 0).click();
+    await expect(memo(page)).toBeVisible();
+    // 架電日は今日が入っている (今日より前ではなくなる) ので、記録すると条件から外れる
+    await expect(field(page, '架電日')).toHaveValue(jstDate(0).replaceAll('-', '/'));
+    await recordBtn(page).click();
+    await expect(rows(page).locator('.cq-row-company', { hasText: first ?? '' })).toHaveCount(0);
+    expect(await names()).toEqual(before.slice(1));
+    // 選択は次の行へ移り、件数の行に外れた件数が出る
+    await expect(rowButton(page, 0)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('h2')).toHaveText(second ?? '');
+    await expect(page.getByTestId('queue-count')).toContainText(`全 ${String(before.length)} 件中 ${String(before.length - 1)} 件を表示(保存して外れた 1 件)`);
+    // 外れた行は次の読み直しでも戻らない (画面の中で覚えている)。HubSpot (架空) には何も送らない
+    expect(crmRequests.map((r) => `${r.method()} ${r.url()}`)).toEqual([]);
+
+    // 条件に関係しない絞り込み (金額) では、記録しても行は残る
+    const amount = encodeURIComponent(JSON.stringify([{ property: 'amount', operator: 'GTE', values: ['0'] }]));
+    await openScreen(page, `${SCREEN_URL}&conditions=${amount}`);
+    const all = await names();
+    await rowButton(page, 0).click();
+    await expect(memo(page)).toBeVisible();
+    await recordBtn(page).click();
+    await expect(form(page).getByTestId('result-notice')).toContainText('を HubSpot に保存しました');
+    expect(await names()).toEqual(all);
+    await expect(page.getByTestId('queue-count')).not.toContainText('外れた');
   });
 });

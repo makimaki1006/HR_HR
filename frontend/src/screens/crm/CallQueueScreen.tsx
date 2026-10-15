@@ -7,6 +7,7 @@ import { useDismiss } from './useDismiss';
 import { QueueSortDialog } from './QueueSortDialog';
 import { QueueGroupEditor, PropertySortPicker } from './QueueConditionGroups';
 import { groupsOf, groupPatch } from './queueModel';
+import { leavesQueue } from './queueDrop';
 import { conditionLabel, parsePropertySort, PROPERTY_SORT_NOTE } from './queuePropertyFilter';
 import { EMAIL_SAVED } from './emailApi';
 import type { SavedEmailNotice } from './emailApi';
@@ -39,7 +40,7 @@ import { liveWriteApi } from './crmWrite';
 import type { WriteApi } from './crmWrite';
 import { useCrmWrite } from './useCrmWrite';
 import { useWriteBindings } from './writeBindings';
-import type { FieldDef } from './writeModel';
+import type { FieldDef, SaveRequest } from './writeModel';
 import type { CallBarInfo, StopLabel } from './DealDetail';
 import { ZoomPhonePanel } from './ZoomPhonePanel';
 import { fixtureDetailFetch, liveDetailFetch, useDealDetail, useDetailPrefetch } from './useDealDetail';
@@ -226,11 +227,11 @@ export const UNSAVED_RECORDED_TITLE = 'HubSpot には保存しました。この
 
 
 /** 行は props が同じなら描き直さない (架電結果を 1 文字打つたび・矢印キーで 1 行動くたびに全行を描き直さない) */
-const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, stopLabel, onSelect, onHoverStart, onHoverEnd, catalogIndex }: {
+const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, recorded, leaving, unsaved, stopLabel, onSelect, onHoverStart, onHoverEnd, catalogIndex }: {
   /** ポインタ・フォーカスを置いた (先読みの合図) / 離れた */
   onHoverStart?: ((id: string) => void) | undefined; onHoverEnd?: (() => void) | undefined;
   catalogIndex: Record<CatalogObject, Map<string, CatalogEntry>> | null;
-  item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; recorded: boolean; unsaved: boolean;
+  item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; recorded: boolean; leaving: boolean; unsaved: boolean;
   stopLabel: StopLabel; onSelect: (id: string) => void;
 }) {
   const phone = formatPhoneForDisplay(item.phone);
@@ -251,6 +252,7 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
         {recorded && (unsaved
           ? <span className="cq-recorded is-unsaved" title={UNSAVED_RECORDED_TITLE}><span aria-hidden="true">⚠記録済</span><span className="cq-sr-only">記録済み(HubSpot に保存済み。印は画面を閉じると消えます)</span></span>
           : <span className="cq-recorded" title={RECORDED_TITLE}><span aria-hidden="true">✓記録済</span><span className="cq-sr-only">記録済み(HubSpot に保存済み)</span></span>)}
+        {leaving && <span className="cq-leaving" data-testid="queue-row-leaving" title="保存した内容で、いまの条件から外れました。別の行を選ぶと一覧から消えます">条件から外れました</span>}
         {item.stop.prohibited_reason && <span className="cq-stop-badge" title={item.stop.prohibited_reason}>架電禁止</span>}
         {item.stop.block_reason && <span className="cq-stop-badge" title={item.stop.block_reason}>ブロック</span>}
         {flag && <span className="cq-flag" title={`不通時チェック: ${flag}`} aria-label={`不通時チェック: ${flag}`}>不通チェック</span>}
@@ -276,6 +278,7 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
   </li>;
 });
 
+const EMPTY_IDS: ReadonlySet<string> = new Set();
 const REOPEN_PANEL_KEY = 'hrhr.crm.reopenAdvancedPanel';
 
 export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, pipelinesFetcher, catalogFetcher, writeApi, writePollMs, zoomOptions, initialSearch, now }: {
@@ -334,10 +337,19 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const [nowFn] = useState(() => now ?? Date.now);
   const [today, setToday] = useState(() => todayJst(nowFn()));
   // 「次回日が来たものだけ」は今日で決まるので、日付が変わったら一覧も取り直す
-  const { state, loadMore, reload } = useCallQueue(filters, mode, fetcher, filters.due === 'today' || groupsOf(filters).some(g => g.some(c => ['TODAY', 'BEFORE_TODAY', 'LAST_N_DAYS', 'NEXT_N_DAYS'].includes(c.operator))) ? today : '');
+  const { state: rawState, loadMore, reload } = useCallQueue(filters, mode, fetcher, filters.due === 'today' || groupsOf(filters).some(g => g.some(c => ['TODAY', 'BEFORE_TODAY', 'LAST_N_DAYS', 'NEXT_N_DAYS'].includes(c.operator))) ? today : '');
   // 選んだ案件。モードを切り替えたら選び直す (実データの ID と架空の ID を取り違えない)
   const [selection, setSelection] = useState<{ id: string; mode: QueueMode } | null>(null);
   const selectedId = selection !== null && selection.mode === mode ? selection.id : null;
+  // 保存して条件から外れた案件。条件・モードを変えたら空に戻す (別の条件では合うかもしれない)。
+  // 選んでいる行は、別の行を選ぶまで残す (編集の途中で消えない)。記録して次へは次の行を選ぶので、すぐ消える
+  const droppedScope = `${filtersKey(filters)}|${mode}`;
+  const [droppedRaw, setDroppedRaw] = useState<{ scope: string; ids: ReadonlySet<string> }>({ scope: '', ids: new Set() });
+  const dropped = droppedRaw.scope === droppedScope ? droppedRaw.ids : EMPTY_IDS;
+  const state = useMemo(() => (dropped.size === 0 ? rawState : { ...rawState, items: rawState.items.filter(i => !dropped.has(i.deal_id) || i.deal_id === selectedId) }),
+    [rawState, dropped, selectedId]);
+  const droppedCount = [...dropped].filter(id => id !== selectedId).length;
+  const leavingId = selectedId !== null && dropped.has(selectedId) ? selectedId : null;
   // 詳細を読む案件。クリックはすぐ、矢印キーは少し待ってから (selection と違う間は古い詳細を出さない)
   const [detailSel, setDetailSel] = useState<{ id: string; mode: QueueMode } | null>(null);
   const detailId = detailSel !== null && detailSel.mode === mode ? detailSel.id : null;
@@ -745,9 +757,32 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     ...baseWriteApi,
     patchDeal: (id, body) => { dropDealEverywhere(id); return baseWriteApi.patchDeal(id, body); },
   }), [baseWriteApi]);
+  // 保存に成功した操作 (記録して次へ・項目の編集・ステージの移動のすべて) の内容を、いまの一覧の条件と比べる。
+  // 外れたと言い切れるときだけ一覧から外し、判定できないときは残す。外れた案件が条件に戻る編集は、戻す
+  const catalogIndexForDrop = catalog.state.phase === 'ready' ? catalog.state.index : null;
+  const itemsRef = useRef(rawState.items);
+  useEffect(() => { itemsRef.current = rawState.items; });
+  function onWrittenDeal(req: SaveRequest) {
+    const item = itemsRef.current.find(i => i.deal_id === req.dealId);
+    if (!item) return;
+    const props: Record<string, string | null> = {};
+    for (const ch of req.changes) if (ch.object === 'deal') props[ch.name] = ch.value;
+    const left = leavesQueue({ props, stage: req.stage ? { pipeline_id: req.stage.pipeline_id, stage_id: req.stage.stage_id } : undefined }, {
+      filters, mode, today, meOwnerId, currentStageId: item.stage_id,
+      kindOf: name => catalogIndexForDrop?.deals.get(name)?.prop.property_type ?? null,
+    });
+    setDroppedRaw(prev => {
+      const base = prev.scope === droppedScope ? prev.ids : EMPTY_IDS;
+      if (left === base.has(req.dealId)) return prev.scope === droppedScope ? prev : { scope: droppedScope, ids: base };
+      const ids = new Set(base);
+      if (left) ids.add(req.dealId); else ids.delete(req.dealId);
+      return { scope: droppedScope, ids };
+    });
+  }
   const crmWrite = useCrmWrite({
     dealId: detailId, api: effectiveWriteApi, pollIntervalMs: writePollMs,
     onSaved: id => { if (id === detailId) detail.refresh(); },
+    onWritten: onWrittenDeal,
   });
   const loadWriteValues = useCallback(async (id: string, defs: readonly FieldDef[]) => {
     const names = (o: FieldDef['object']) => defs.filter(d => d.object === o).map(d => d.name);
@@ -815,7 +850,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-busy={state.phase === 'loading'}>
           <div className="cq-list-head">
             {state.phase === 'ready' && <p className="cq-count" role="status" data-testid="queue-count"
-              title={total !== null ? [(filters.target==='all'?'条件に合うすべての取引の件数です。':QUEUE_TOTAL_NOTE), `(${filters.target==='all'?'条件に合う取引の総数':QUEUE_TOTAL_NOTE_SHORT})`].join(' ') : undefined}>{queueCountText(total, state.items.length)}
+              title={total !== null ? [(filters.target==='all'?'条件に合うすべての取引の件数です。':QUEUE_TOTAL_NOTE), `(${filters.target==='all'?'条件に合う取引の総数':QUEUE_TOTAL_NOTE_SHORT})`].join(' ') : undefined}>{queueCountText(total, state.items.length, droppedCount)}
               {total !== null && <span className="cq-info" data-glyph="ⓘ" aria-hidden="true" />}</p>}
             {state.phase === 'ready' && notes.length > 0 && <details className="cq-notes-mini" role="status" data-testid="queue-notes"><summary title="一部の情報が欠けています" aria-label={`一部の情報が欠けています(${String(notes.length)} 項目)`}><span aria-hidden="true">⚠{notes.length}</span></summary>
               <div className="cq-notes-pop"><strong>一部の情報が欠けています</strong><small>（{notes.length} 項目）</small><ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div></details>}
@@ -844,7 +879,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
               {state.items.length > 0 && <ul className="cq-list" aria-label="架電キュー" ref={listRef} onKeyDown={onListKey}>
                 {state.items.map((item, i) => <QueueRow key={item.deal_id} item={item}
                   selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
-                  recorded={isRecorded(item.deal_id)} unsaved={persistFailed} stopLabel={stopLabel}
+                  recorded={isRecorded(item.deal_id)} leaving={item.deal_id === leavingId} unsaved={persistFailed} stopLabel={stopLabel}
                   onSelect={selectByClick} onHoverStart={hoverStart} onHoverEnd={hoverEnd} catalogIndex={catalog.state.phase === 'ready' ? catalog.state.index : null} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
               {/* 続きの自動読み込みの目印 (下端の手前に入ったら読む) */}
               {state.nextCursor && <div ref={sentinelRef} className="cq-load-sentinel" aria-hidden="true" data-testid="queue-load-sentinel" />}

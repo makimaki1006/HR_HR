@@ -144,6 +144,8 @@ describe('queue page size and count text', () => {
     expect(queueCountText(22864, 50)).toBe('全 22,864 件中 50 件を表示');
     expect(queueCountText(1_234_567, 1050)).toBe('全 1,234,567 件中 1,050 件を表示');
     expect(queueCountText(null, 50)).toBe('50 件を表示');
+    expect(queueCountText(120, 48, 3)).toBe('全 120 件中 48 件を表示(保存して外れた 3 件)');
+    expect(queueCountText(120, 48, 0)).toBe('全 120 件中 48 件を表示');
   });
 });
 

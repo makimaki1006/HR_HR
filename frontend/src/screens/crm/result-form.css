@@ -81,3 +81,4 @@
 }
 .rf-label-row { display: flex; align-items: baseline; gap: 8px; }
 .rf-prev { color: var(--cq-sub); font-size: 11px; }
+.cq-leaving { flex: none; padding: 0 6px; border-radius: 3px; background: #fff4d6; color: #7a5200; font-size: 11px; white-space: nowrap; }
