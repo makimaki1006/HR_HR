@@ -106,7 +106,7 @@ export const ReasonCategorySummary = memo(function ReasonCategorySummary({ colle
     {multiListing > 0 && <p className="ar-note">複数の求人に関連する応募 {multiListing}件 は、ほかの求人と重ねて数えないよう、下の分類の数に入れていません（記録欄ごとの件数には入っています）。</p>}
     <section className="ar-category-group" aria-label="応募理由の分類">
     <h3>応募理由の分類</h3>
-    <p>HubSpotで分類が選ばれた応募は「選択済み」、分類が選ばれていない応募は応募動機・応募理由の文から言葉で分類した「キーワードで推定」として、分けて数えます。1件の応募が複数の分類に入ることがあります。</p>
+    <p>HubSpotで分類が選ばれた応募は「選択済み」、分類が選ばれていない応募は応募動機・応募理由と、電話で聞いた勤務条件の優先順位・併願状況・所感メモ・備考・架電メモの文から言葉で分類した「キーワードで推定」として、分けて数えます。1件の応募が複数の分類に入ることがあります。</p>
     {collection.selections === null && <p className="jc-notice">この保存データには「応募理由の分類」の記録欄が含まれていません（未取得）。選択済みの件数は0件ではなく不明です。</p>}
     {reasons && <CategoryTable label="応募理由の分類の件数" classification={reasons} withSelected={collection.selections !== null} selectionsUnread={collection.selections === null} unread={unreadTexts(collection, APPLICATION_TEXT_SOURCES)} />}
     {reasons && reasons.unnamedApplications > 0 && <p className="jc-notice">{unnamedSelectionNote(collection.optionLabels, reasons.unnamedApplications)}</p>}

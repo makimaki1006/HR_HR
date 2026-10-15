@@ -40,7 +40,7 @@ export function parseApplicantReasons(value: unknown, totalApplicants: number, p
   // A stored file written before 2026-10-08 has the three old sources, no applicant keys and no
   // selections; the other sources are then 未取得 (absent), never 0.
   const legacy = Object.keys(sourceRaw).length === LEGACY_SOURCES.length;
-  const sourceKeys = legacy ? LEGACY_SOURCES : Object.keys(reasonSourceLabels);
+  const sourceKeys = legacy ? LEGACY_SOURCES : Object.keys(sourceRaw).length === 6 ? [...LEGACY_SOURCES, 'genshokumaeshokukaranotenshokuriyuu', ...CATEGORY_SOURCES] : Object.keys(reasonSourceLabels);
   const textSources = legacy ? LEGACY_SOURCES : TEXT_SOURCES;
   if (legacy !== (raw.selections === undefined)) return invalid();
   // Not in a stored file written before 2026-10-08 (no selections there); optional otherwise.

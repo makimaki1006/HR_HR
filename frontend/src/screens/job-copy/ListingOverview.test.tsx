@@ -24,11 +24,11 @@ describe('求人の画面（案3-2）', () => {
     expect(within(band).getByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeTruthy();
   });
 
-  it('出来事は新しい順に5件、番号は古い順。件数は前の4週 → 後の4週で、判定語を出さない', () => {
+  it('出来事は応募も含めて新しい順に9件、番号は古い順。件数は前の4週 → 後の4週で、判定語を出さない', () => {
     render(<JobCopyScreen />);
     const list = query('.lo-events');
     const heads = list.querySelectorAll('.lo-event-head');
-    expect([...heads].map(head => head.querySelector('.lo-num')?.textContent)).toEqual(['5', '4', '3', '2', '1']);
+    expect([...heads].map(head => head.querySelector('.lo-num')?.textContent)).toEqual(['9', '応', '応', '6', '5', '応', '応', '2', '1']);
     expect(heads[0]?.querySelector('.lo-result strong')?.textContent).toBe('15 → 3 件');
     expect(heads[0]?.querySelector('.lo-result small')?.textContent).toBe('差 −12 件（前は掲載後24日分・後は11日分）');
     expect(list.textContent).not.toMatch(/増えた|減った|効果|効いた/u);
@@ -53,7 +53,7 @@ describe('求人の画面（案3-2）', () => {
     fireEvent.click(query('.lo-event-head'));
     const mark = screen.getByTestId('lifeline-selected');
     expect(mark.style.width).toBe('56px');
-    expect(query('.lo-event.lo-open .lo-num').textContent).toBe('5');
+    expect(query('.lo-event.lo-open .lo-num').textContent).toBe('9');
   });
 
   it('応募者・応募理由の前後は横から出て、閉じられる。「ほかの分析」に旧機能が13個残る', () => {

@@ -2,4 +2,4 @@
 import type { PhoneHearingField } from "./PhoneHearingField";
 import type { PhoneHearingNote } from "./PhoneHearingNote";
 
-export type PhoneHearingCard = { applicant: string, application_date: string | null, media: string | null, multi_listing: boolean, fields: Array<PhoneHearingField>, notes: Array<PhoneHearingNote>, };
+export type PhoneHearingCard = { applicant: string, application_date: string | null, gender?: string | null, age?: string | null, prefecture?: string | null, municipality?: string | null, media: string | null, multi_listing: boolean, fields: Array<PhoneHearingField>, notes: Array<PhoneHearingNote>, };

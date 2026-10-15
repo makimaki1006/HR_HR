@@ -21,7 +21,7 @@ async function open(page: Page, application: Record<string, unknown> | 'fail', e
       { written_at: '2026-10-09T00:00:00Z', body: '仕事内容\n配送します。\n給与：時給 1,100 円', image_urls: [] },
       { written_at: '2026-10-13T00:00:00Z', body: '仕事内容\n配送します。\n給与：時給 1,200 円', image_urls: [] },
     ], history_counts: { hrh_kyuujinhyou_honbun: 2, hrh_kyuujinhyou_gazou: 0 }, history_may_be_incomplete: false } });
-    if (url.pathname.endsWith('/application-dates')) return application === 'fail' ? route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } }) : route.fulfill({ json: { listing_id: '10', fetched_at: '2026-10-14T09:00:00+09:00', ...application } });
+    if (url.pathname.endsWith('/applicants')) return application === 'fail' ? route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } }) : route.fulfill({ json: { listing_id: '10', fetched_at: '2026-10-14T09:00:00+09:00', ...application } });
     if (url.pathname.endsWith('/listings')) return route.fulfill({ json: { listings: [listing], titles: ['ドライバー'], status: 'ready', total: 1, index_built_at: '2026-10-14T00:00:00Z', offset: 0, next_offset: null, refreshing: false, refresh_failed: false } });
     if (url.pathname.endsWith('/market')) return route.fulfill({ json: { titles: [], prefectures: [], series: null } });
     return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
