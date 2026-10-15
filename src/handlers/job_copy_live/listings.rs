@@ -228,16 +228,26 @@ pub(super) fn service(access: &Access) -> Result<&JobReadService, ReadError> {
     ))
 }
 const INDEX_TTL: Duration = Duration::from_secs(6 * 60 * 60);
-const INDEX_RETRY: Duration = Duration::from_secs(10 * 60);
-const PAGE_PAUSE: Duration = Duration::from_secs(1);
+// The Background gateway already enforces the shared windows; do not throttle twice.
+const PAGE_PAUSE: Duration = Duration::ZERO;
+// Initial display estimate from the October 2026 production count; never used for indexing.
+const INITIAL_ESTIMATED_TOTAL: usize = 41_000;
+fn retry_delay(failures: usize) -> Duration {
+    Duration::from_secs(match failures {
+        0 | 1 => 60,
+        2 => 120,
+        3 => 300,
+        _ => 600,
+    })
+}
 const PAGE_SIZE: usize = 50;
 
 #[derive(Default)]
 pub(super) struct IndexCache {
     state: tokio::sync::RwLock<IndexState>,
     worker: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-    /// ホームの事業所の対応（取引→事業所）。索引ごとに一度だけ読む。
-    home_companies: tokio::sync::Mutex<Option<home::CompanyMap>>,
+    /// Home company refresh and encoded response caches (process-local only).
+    home: home::Cache,
     /// 取引のパイプライン・ステージの名前（6 時間使い回す）。
     pipeline_defs: tokio::sync::Mutex<Option<pipelines::CachedDefs>>,
 }
@@ -257,6 +267,38 @@ struct IndexState {
     refreshing: bool,
     refresh_failed: bool,
     draft_updates: BTreeMap<String, String>,
+    read_count: usize,
+    estimated_total: Option<usize>,
+    consecutive_failures: usize,
+    retry_at: Option<tokio::time::Instant>,
+}
+#[derive(Serialize)]
+struct PreparationProgress {
+    read_count: usize,
+    estimated_total: usize,
+    retry_after_seconds: Option<u64>,
+}
+impl IndexState {
+    fn progress(&self) -> PreparationProgress {
+        PreparationProgress {
+            read_count: self.read_count,
+            estimated_total: self
+                .estimated_total
+                .unwrap_or(INITIAL_ESTIMATED_TOTAL)
+                .max(self.read_count),
+            retry_after_seconds: self.retry_at.map(|at| {
+                at.saturating_duration_since(tokio::time::Instant::now())
+                    .as_secs()
+                    .max(1)
+            }),
+        }
+    }
+    fn failed(&mut self) {
+        self.refreshing = false;
+        self.refresh_failed = true;
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        self.retry_at = Some(tokio::time::Instant::now() + retry_delay(self.consecutive_failures));
+    }
 }
 #[derive(Clone)]
 struct Index {
@@ -322,10 +364,12 @@ pub(super) async fn update_draft_state(
 
 /// One complete build. Page bodies/history are discarded after their summaries are read.
 async fn build_index(
+    cache: &Cache,
     service: &JobReadService,
     titles: Vec<String>,
     pause: Duration,
 ) -> Result<Index, ReadError> {
+    let started = std::time::Instant::now();
     let background = service.hs.background();
     let mut records = Vec::new();
     let mut ids = BTreeSet::new();
@@ -366,6 +410,13 @@ async fn build_index(
                 }
             }
         }
+        {
+            let mut state = cache.state.write().await;
+            state.read_count = ids.len();
+            if let Some(total) = data["total"].as_u64().and_then(|n| usize::try_from(n).ok()) {
+                state.estimated_total = Some(total);
+            }
+        }
         after = page.paging.and_then(|p| p.next).map(|n| n.after);
         match &after {
             None => break,
@@ -374,20 +425,40 @@ async fn build_index(
                 if !cursors.insert(cursor.clone()) {
                     return Err(fail("listing_paging_invalid"));
                 }
-                tokio::time::sleep(pause).await;
+                if !pause.is_zero() {
+                    tokio::time::sleep(pause).await;
+                }
             }
         }
     }
+    tracing::info!(
+        count = ids.len(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "job-copy index pages"
+    );
     let listing_ids: Vec<_> = records.iter().map(|r| r.id.clone()).collect();
+    let stage = std::time::Instant::now();
     let mapping = index_associations(service, &background, &listing_ids, "deals").await?;
-    // Count one chunk at a time; do not retain every applicant association in the build.
-    for rows in records.chunks_mut(1000) {
+    tracing::info!(
+        count = listing_ids.len(),
+        elapsed_ms = stage.elapsed().as_millis() as u64,
+        "job-copy index deal associations"
+    );
+    let stage = std::time::Instant::now();
+    // Retain at most four chunks of applicant associations, then discard their targets.
+    for rows in records.chunks_mut(4000) {
         let ids: Vec<_> = rows.iter().map(|r| r.id.clone()).collect();
         let counts = index_associations(service, &background, &ids, "0-421").await?;
         for row in rows {
             row.indexed_application_count = counts.get(&row.id).map(Vec::len);
         }
     }
+    tracing::info!(
+        count = listing_ids.len(),
+        elapsed_ms = stage.elapsed().as_millis() as u64,
+        "job-copy index application associations"
+    );
+    let stage = std::time::Instant::now();
     let deal_ids: Vec<_> = mapping
         .values()
         .flatten()
@@ -427,6 +498,11 @@ async fn build_index(
             }
         }
     }
+    tracing::info!(
+        count = deal_ids.len(),
+        elapsed_ms = stage.elapsed().as_millis() as u64,
+        "job-copy index deal names"
+    );
     let mut deal_counts = BTreeMap::<String, usize>::new();
     for row in &mut records {
         row.deal_ids = mapping
@@ -468,8 +544,15 @@ pub(super) async fn refresh(
     titles: Vec<String>,
     pause: Duration,
 ) -> Result<(), ReadError> {
-    cache.state.write().await.refreshing = true;
-    let result = build_index(service, titles, pause).await;
+    let started = std::time::Instant::now();
+    {
+        let mut state = cache.state.write().await;
+        state.refreshing = true;
+        state.refresh_failed = false;
+        state.retry_at = None;
+        state.read_count = 0;
+    }
+    let result = build_index(cache, service, titles, pause).await;
     let mut state = cache.state.write().await;
     state.refreshing = false;
     state.refresh_failed = result.is_err();
@@ -481,10 +564,21 @@ pub(super) async fn refresh(
                 }
             }
             state.draft_updates.clear();
-            state.snapshot = Some(Arc::new(index));
+            let index = Arc::new(index);
+            tracing::info!(
+                count = index.records.len(),
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "job-copy index build"
+            );
+            state.snapshot = Some(index);
+            state.consecutive_failures = 0;
+            state.estimated_total = Some(state.read_count);
             Ok(())
         }
-        Err(error) => Err(error), // Atomic replacement: an incomplete build never removes the old index.
+        Err(error) => {
+            state.failed();
+            Err(error) // An incomplete build never removes the previous snapshot.
+        }
     }
 }
 /// Runs once at startup and every six hours, even when no one opens the screen.
@@ -509,17 +603,32 @@ pub(super) fn start_worker(service: &Arc<JobReadService>, db: crate::db::local_s
             let result = match taxonomy(&db) {
                 Ok(titles) => refresh(&cache, &service, titles, PAGE_PAUSE).await,
                 Err(error) => {
-                    cache.state.write().await.refresh_failed = true;
+                    cache.state.write().await.failed();
                     Err(error)
                 }
             };
             if let Err(error) = &result {
                 tracing::warn!(code = error.code(), "job-copy listing index refresh failed");
             }
+            if result.is_ok() {
+                let snapshot = cache.state.read().await.snapshot.clone();
+                if let Some(index) = snapshot {
+                    // Attach the shared cache: the worker's temporary service has its own caches.
+                    let mut home_service = service.clone();
+                    home_service.listing_index = cache.clone();
+                    home::prefetch(&home_service, &index).await;
+                }
+            }
             let delay = if result.is_ok() {
                 INDEX_TTL
             } else {
-                INDEX_RETRY
+                cache
+                    .state
+                    .read()
+                    .await
+                    .retry_at
+                    .map(|at| at.saturating_duration_since(tokio::time::Instant::now()))
+                    .unwrap_or_else(|| retry_delay(1))
             };
             drop(cache);
             tokio::time::sleep(delay).await;
@@ -712,6 +821,7 @@ pub(super) async fn read(
     let snapshot = cached.snapshot.clone();
     let refreshing = cached.refreshing;
     let refresh_failed = cached.refresh_failed;
+    let progress = cached.progress();
     drop(cached);
     let Some(index) = snapshot else {
         return Ok((
@@ -719,7 +829,7 @@ pub(super) async fn read(
             Json(json!({
                 "status":"preparing", "listings":[], "total":null, "index_built_at":null,
                 "offset":query.offset, "next_offset":null, "titles":[], "refreshing":refreshing,
-                "refresh_failed":refresh_failed, "deals":[]
+                "refresh_failed":refresh_failed, "deals":[], "progress":progress
             })),
         ));
     };
@@ -2401,3 +2511,7 @@ mod tests {
         task.abort();
     }
 }
+
+#[cfg(test)]
+#[path = "listing_index_loading_tests.rs"]
+mod index_loading_tests;

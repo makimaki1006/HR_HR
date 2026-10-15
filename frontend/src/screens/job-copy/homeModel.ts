@@ -1,3 +1,4 @@
+import type { IndexProgress } from './ListingPreparationNotice';
 export type CardKey = 'zero_stay' | 'to_zero' | 'less' | 'more' | 'flat' | 'costly' | 'stale' | 'occupation';
 export interface HomeRowData { id: string; title: string | null; company: string | null; media: 'hrh' | 'airwork'; recent_apps: number | null; prev_apps: number | null; recent_cost: number | null; latest_week_end: string | null }
 export interface HomeCard { key: CardKey; title: string; rule: string; count: number; listings: HomeRowData[] }
@@ -5,7 +6,7 @@ export interface LatestDeal { name: string | null; stage_label: string | null; a
 export interface HomeCustomer { company_id: string; name: string | null; deals: number; active_deals: number; latest_deal: LatestDeal | null; live_listings: number; total_listings: number; recent_apps: number; prev_apps: number; recent_cost: number; cost_per_app: number | null }
 export interface HomeData { cards: HomeCard[]; customers: HomeCustomer[]; live_without_company: number; median_cost_per_app: number | null }
 export type HomeResponse =
-  | { status: 'preparing' }
+  | { status: 'preparing'; progress?: IndexProgress }
   | { status: 'ready'; index_built_at: string; today: string; companies_ok: boolean; rules: { trend_min_diff: number; trend_min_percent: number; cost_floor_yen: number; cost_per_app_times: number; stale_days: number; list_cap: number; delivery_pipelines?: { id: string; label: string }[] }; home: HomeData };
 
 /** 'default' はサーバが返した順（契約中の案件がある顧客を先に、最新の案件の作成日が新しい順）。 */

@@ -150,7 +150,34 @@ fn no_association_ids(error: &Value) -> Option<Vec<String>> {
     (!ids.is_empty()).then_some(ids)
 }
 // Strict batch paging: missing/error rows never turn into a false "no deal" or zero count.
+/// Four batch reads at most; continuations stay within their original chunk.
 pub(super) async fn index_associations(
+    service: &JobReadService,
+    client: &crate::hubspot::HubSpotClient,
+    ids: &[String],
+    to: &str,
+) -> Result<BTreeMap<String, Vec<String>>, ReadError> {
+    let mut result = BTreeMap::new();
+    for group in ids.chunks(4_000) {
+        let mut tasks = tokio::task::JoinSet::new();
+        for chunk in group.chunks(1_000) {
+            let (service, client, ids, to) = (
+                service.clone(),
+                client.clone(),
+                chunk.to_vec(),
+                to.to_owned(),
+            );
+            tasks
+                .spawn(async move { index_associations_chunk(&service, &client, &ids, &to).await });
+        }
+        while let Some(result_chunk) = tasks.join_next().await {
+            result.extend(result_chunk.map_err(|_| fail("hubspot_read_failed"))??);
+        }
+    }
+    Ok(result)
+}
+
+async fn index_associations_chunk(
     service: &JobReadService,
     client: &crate::hubspot::HubSpotClient,
     ids: &[String],

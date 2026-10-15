@@ -1,6 +1,6 @@
 use super::*;
 
-fn date(s: &str) -> NaiveDate {
+pub(super) fn date(s: &str) -> NaiveDate {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
 }
 fn perf(rows: &[(&str, &str, i64, i64)]) -> Value {
@@ -38,7 +38,7 @@ fn weeks(recent: [(i64, i64); 4], prev: [(i64, i64); 4]) -> Value {
         .collect();
     json!({"rows": rows.iter().map(|(s, e, c, a)| json!({"period_start":s,"period_end":e,"cost_yen":c,"applications":a})).collect::<Vec<_>>()})
 }
-fn listing(
+pub(super) fn listing(
     id: &str,
     deals: &[&str],
     status: &str,

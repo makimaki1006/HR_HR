@@ -1,3 +1,4 @@
+import { ListingPreparationNotice } from './ListingPreparationNotice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { loadApplicationDates } from './listingApplicationDates';
@@ -149,7 +150,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     {conditions !== 'すべての求人' && <p className="jc-filter-summary" title={conditions} aria-label="選択中の条件">{conditions}</p>}
     {deal && !scopeDeal && onShowDeal && <div className="jc-list-actions"><button type="button" className="jc-button" onClick={() => { onShowDeal({ id: deal, name: dealName, prefecture, title, media, ...(draftStatus ? { draftStatus } : {}) }); }}>この取引の求人</button></div>}
     {busy && !page && <p role="status">求人の一覧を読み込んでいます…</p>}{error && <p role="alert">{error}</p>}
-    {page?.status === 'preparing' && <div className="jc-index-preparing" role="status"><strong>求人の一覧を準備しています</strong><p>最初の一覧表示には数分以上かかる場合があります。準備が終わると自動で一覧を表示します。</p>{page.refresh_failed && <p>一覧の準備状況を確認できませんでした。時間を置いて自動で確認します。</p>}<progress aria-label="求人の一覧を準備中" /></div>}
+    {page?.status === 'preparing' && <ListingPreparationNotice progress={page.progress} />}
     {page?.status === 'ready' && <>
       {page.refreshing && <p role="status">一覧を更新中です。表示している時点の一覧を利用できます。</p>}
       {page.refresh_failed && <p role="status">一覧を更新できませんでした。表示している時点の一覧を利用しています。</p>}
