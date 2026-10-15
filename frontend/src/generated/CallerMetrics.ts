@@ -11,11 +11,11 @@ outbound: number,
 /**
  * 着信数 (架電数には含めない)
  */
-inbound: number, over_30s: number, over_90s: number, over_360s: number, 
+inbound: number, over_30s: number, over_60s: number, over_90s: number, over_360s: number, 
 /**
  * 件数 ÷ 架電数 (架電数 0 は null)
  */
-rate_30s: number | null, rate_90s: number | null, rate_360s: number | null, 
+rate_30s: number | null, rate_60s: number | null, rate_90s: number | null, rate_360s: number | null, 
 /**
  * 通話時間が 0 より長い架電の件数
  */

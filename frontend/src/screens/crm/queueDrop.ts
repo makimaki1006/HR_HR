@@ -97,7 +97,7 @@ function evalCondition(c: PropertyCondition, known: Known, today: string, kindOf
       }
       return null;
     }
-    case 'TODAY': case 'BEFORE_TODAY': case 'LAST_N_DAYS': case 'NEXT_N_DAYS': {
+    case 'TODAY': case 'BEFORE_TODAY': case 'THIS_MONTH': case 'LAST_N_DAYS': case 'NEXT_N_DAYS': {
       if (!present) return false;
       // 日時の項目は UTC / JST の日付境界がずれるので判定しない
       if (kind !== 'date') return null;
@@ -105,6 +105,7 @@ function evalCondition(c: PropertyCondition, known: Known, today: string, kindOf
       if (a === null) return null;
       if (c.operator === 'TODAY') return a === today;
       if (c.operator === 'BEFORE_TODAY') return a < today;
+      if (c.operator === 'THIS_MONTH') return a.slice(0, 7) === today.slice(0, 7);
       const n = Number(first);
       if (!Number.isInteger(n) || n < 1) return null;
       return c.operator === 'LAST_N_DAYS' ? a >= shiftDate(today, -n + 1) && a <= today : a >= today && a <= shiftDate(today, n - 1);

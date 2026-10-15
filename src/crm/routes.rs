@@ -204,6 +204,10 @@ pub(super) struct CrmCtx {
     pub(super) write_rate: super::write::WriteRateLimiter,
     /// 今日の架電成績 (プロセス内の今日の Call と集計。ADR-027)
     pub(super) caller_metrics: Arc<super::caller_metrics::CallerMetricsState>,
+    /// 帯の項目の個人設定 (監査 Turso の `crm_metric_prefs`、60 秒キャッシュ。ADR-028)
+    pub(super) metric_prefs: super::metric_prefs::PrefsStore,
+    /// 自分の項目の数字 (同じ定義は人をまたいで 2 分共有)
+    pub(super) custom_metrics: Arc<super::custom_metrics::CustomMetricsCache>,
 }
 
 /// レコード読み取りの同時実行数。HubSpot への流量は関所 (`hubspot::gateway`) が絞るので、ここは
@@ -297,6 +301,8 @@ fn router_full(
         write,
         write_rate,
         caller_metrics,
+        metric_prefs: super::metric_prefs::PrefsStore::default(),
+        custom_metrics: Arc::new(super::custom_metrics::CustomMetricsCache::default()),
     });
     Router::new()
         .route(
@@ -356,6 +362,16 @@ fn router_full(
         .route(
             "/api/crm/metrics/today/all",
             get(super::caller_metrics::get_today_all),
+        )
+        .route(
+            "/api/crm/metrics/prefs",
+            get(super::metric_prefs::get_prefs)
+                .put(super::metric_prefs::put_prefs)
+                .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
+        )
+        .route(
+            "/api/crm/metrics/custom",
+            get(super::custom_metrics::get_custom),
         )
         .route(
             "/api/crm/metrics/month",

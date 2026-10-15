@@ -10,15 +10,18 @@ import { QueuePropertyPicker } from './QueuePropertyPicker';
 import { choicesFor, NO_VALUE_CHOICES, usableAsCondition } from './queueValueChoices';
 import type { ValueChoiceSource } from './queueValueChoices';
 
-export function QueuePropertyFilter({ catalog, count, remaining = MAX_PROPERTY_CONDITIONS - count, choices = NO_VALUE_CHOICES, onAdd, onReload }: {
+export function QueuePropertyFilter({ catalog, count, remaining = MAX_PROPERTY_CONDITIONS - count, choices = NO_VALUE_CHOICES, onAdd, onReload,
+  hint = 'このまとまりのすべての条件に合う架電先を表示します。最大 6 条件。', limitNote = 'このまとまりは 6 条件までです。条件を外すと追加できます。' }: {
   catalog: CatalogState; count: number; choices?: ValueChoiceSource; remaining?: number; onAdd: (c: PropertyCondition) => void; onReload: () => void;
+  /** 欄の下の説明 (成績の帯の自分の項目では文を変える) */
+  hint?: string; limitNote?: string;
 }) {
   const [property, setProperty] = useState<CrmCatalogProperty | null>(null);
   const [operator, setOperator] = useState('');
   const [values, setValues] = useState<string[]>([]);
   const props = catalog.phase === 'ready' ? [...catalog.index.deals.values()].map(e => e.prop).filter(p => operatorsFor(p).length > 0 && usableAsCondition(p)) : [];
   const pick = (p: CrmCatalogProperty | null) => { setProperty(p); setOperator(p ? operatorsFor(p)[0]?.value ?? '' : ''); setValues(p?.property_type === 'bool' ? ['true'] : []); };
-  const empty = ['HAS_PROPERTY', 'NOT_HAS_PROPERTY', 'TODAY', 'BEFORE_TODAY', 'IS_TRUE', 'IS_FALSE'].includes(operator);
+  const empty = ['HAS_PROPERTY', 'NOT_HAS_PROPERTY', 'TODAY', 'BEFORE_TODAY', 'THIS_MONTH', 'IS_TRUE', 'IS_FALSE'].includes(operator);
   const relative = ['LAST_N_DAYS', 'NEXT_N_DAYS'].includes(operator);
   const range = operator === 'BETWEEN';
   const value = values[0] ?? '';
@@ -32,7 +35,7 @@ export function QueuePropertyFilter({ catalog, count, remaining = MAX_PROPERTY_C
   return <fieldset className="cq-property-filter"><legend>条件を追加</legend>
     {catalog.phase === 'loading' && <p role="status">項目の一覧を読み込み中…</p>}
     {catalog.phase === 'error' && <p role="alert">{catalog.message} <button type="button" onClick={onReload}>項目を読み直す</button></p>}
-    {remaining <= 0 ? <p>このまとまりは 6 条件までです。条件を外すと追加できます。</p> : catalog.phase === 'ready' && <>
+    {remaining <= 0 ? <p>{limitNote}</p> : catalog.phase === 'ready' && <>
       <QueuePropertyPicker properties={props} value={property} onChange={pick} />
       {property && <><label>条件<select aria-label="条件" value={operator} onChange={e => { setOperator(e.target.value); setValues(property.property_type === 'bool' ? ['true'] : []); }}>
         {operatorsFor(property).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
@@ -48,7 +51,7 @@ export function QueuePropertyFilter({ catalog, count, remaining = MAX_PROPERTY_C
           onChange={e => { setAt(0, e.target.value); }} /></label>)}
       {!empty && range && property.property_type === 'number' && <label>上限<input aria-label="上限" type="number" step="any" value={values[1] ?? ''} onChange={e => { setAt(1, e.target.value); }} /></label>}
       <button type="button" className="cq-btn" disabled={!valid || remaining <= 0} onClick={() => { onAdd({ property: property.name, operator, values: empty ? [] : values }); pick(null); }}>この条件を追加</button></>}
-      <small>このまとまりのすべての条件に合う架電先を表示します。最大 6 条件。</small>
+      <small>{hint}</small>
     </>}
   </fieldset>;
 }

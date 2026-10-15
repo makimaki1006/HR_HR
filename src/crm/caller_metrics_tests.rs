@@ -250,6 +250,12 @@ fn 同じチームの架電した人が集団で_順位は集団の中() {
             total_duration: Some(1),
             over_90s: Some(2),
             appointments: Some(1),
+            // 30 / 60 / 360 秒・着信は全員 0 なので同率 1 位。通話のない人は 1 件平均を比べない
+            over_30s: Some(1),
+            over_60s: Some(1),
+            over_360s: Some(1),
+            inbound: Some(1),
+            avg_duration: None,
         }
     );
     assert_eq!(avg.unwrap().outbound, 40.0);

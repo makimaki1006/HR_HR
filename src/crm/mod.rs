@@ -5,6 +5,8 @@
 //! - `call_queue`: `GET /api/crm/call-queue` (架電キュー。HubSpot の Deal 検索 + 関連の一括読み取り)
 //! - `queue_pipelines`: 架電キューで選べるパイプラインとステージごとの決まり (表 1 箇所。React 側へ JSON で書き出す)
 //! - `caller_metrics`: `GET /api/crm/metrics/today` (本人の今日の架電成績と比較) と `.../all` (管理者だけ。全員の表)。ADR-027
+//! - `metric_prefs`: `GET/PUT /api/crm/metrics/prefs` (成績の帯に出す項目の個人設定。監査 Turso の `crm_metric_prefs`。ADR-028)
+//! - `custom_metrics`: `GET /api/crm/metrics/custom` (帯の自分の項目の数字。条件に合う取引の件数・合計・平均と比較。ADR-028)
 //! - `owners`: `GET /api/crm/owners` (CRM の利用者全員。所有者を名前で選ぶための一覧。HubSpot Owners API、10 分キャッシュ)
 //! - `property_catalog`: `GET /api/crm/property-catalog` (「プロパティ」パネルで選べる案件・担当者・会社の項目をグループごとに。定義だけ、6 時間キャッシュ)
 //! - `workspace`: `GET /api/crm/workspace/deals/{id}` (架電ワークスペースの詳細。案件・担当者・会社・活動履歴)
@@ -25,8 +27,10 @@ pub mod call_queue;
 pub mod caller_metrics;
 pub mod caller_metrics_month;
 pub mod clock;
+pub mod custom_metrics;
 pub mod email;
 pub mod label_ja;
+pub mod metric_prefs;
 pub mod op_status;
 pub mod owners;
 pub mod pending;
@@ -49,6 +53,8 @@ pub use routes::router;
 mod call_queue_tests;
 #[cfg(test)]
 mod caller_metrics_tests;
+#[cfg(test)]
+mod custom_metrics_tests;
 #[cfg(test)]
 mod real_hubspot_smoke;
 #[cfg(test)]

@@ -64,7 +64,7 @@ describe('今月の表示用の計算', () => {
   it('順位なしの人は「順位なし」', () => {
     const me = FIXTURE_MONTH.me;
     if (me === null) throw new Error('fixture');
-    const items = monthStripItems({ ...FIXTURE_MONTH, me: { ...me, rank: { outbound: null, total_duration: null, appointments: null } } });
+    const items = monthStripItems({ ...FIXTURE_MONTH, me: { ...me, rank: { outbound: null, total_duration: null, appointments: null, avg_duration: null } } });
     expect(items?.[0]?.compare).toBe('チーム平均 760.4・順位なし');
   });
 

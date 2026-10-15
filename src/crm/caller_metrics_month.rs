@@ -108,6 +108,8 @@ pub struct MonthRanks {
     pub outbound: Option<u32>,
     pub total_duration: Option<u32>,
     pub appointments: Option<u32>,
+    /// 1 件平均の通話時間 (長い順。帯の項目を自分で選んだときに出す)。通話のない人は比べない
+    pub avg_duration: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -263,6 +265,10 @@ pub fn build_month(
             outbound: r(|m| i64::from(m.outbound)),
             total_duration: r(|m| m.total_duration_ms),
             appointments: r(|m| i64::from(m.appointments)),
+            avg_duration: me.avg_duration_ms.map(|mine| {
+                let vals: Vec<i64> = pop.iter().filter_map(|m| m.avg_duration_ms).collect();
+                rank_of(&vals, mine)
+            }),
         }
     } else {
         MonthRanks::default()

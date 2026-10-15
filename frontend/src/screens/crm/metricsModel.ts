@@ -51,8 +51,24 @@ export function asOfLabel(iso: string): string {
   return `${h ?? ''}時${m ?? ''}分時点`;
 }
 
+/** 帯にもともとある項目 (Rust の metric_prefs::BUILTIN_KEYS と同じ) */
+export type BuiltinKey = 'outbound' | 'inbound' | 'over_30s' | 'over_60s' | 'over_90s' | 'over_360s' | 'duration' | 'avg_duration' | 'appointments';
+export const BUILTIN_KEYS: readonly BuiltinKey[] = ['outbound', 'inbound', 'over_30s', 'over_60s', 'over_90s', 'over_360s', 'duration', 'avg_duration', 'appointments'];
+export const BUILTIN_LABELS: Record<BuiltinKey, string> = {
+  outbound: '架電数', inbound: '着信', over_30s: '30秒以上', over_60s: '60秒以上', over_90s: '90秒以上', over_360s: '360秒以上',
+  duration: '通話時間', avg_duration: '1件平均', appointments: 'アポ',
+};
+/** 設定の無い人の帯 (Rust の DEFAULT_ITEMS と同じ) */
+export const DEFAULT_ITEMS: readonly string[] = ['outbound', 'over_90s', 'duration', 'appointments'];
+/** 今月の帯で出せる項目 (今月は秒数の基準と着信を数えていない) */
+export const MONTH_KEYS: readonly BuiltinKey[] = ['outbound', 'duration', 'avg_duration', 'appointments'];
+export function isBuiltinKey(k: string): k is BuiltinKey {
+  return (BUILTIN_KEYS as readonly string[]).includes(k);
+}
+
 export interface StripItem {
-  key: 'outbound' | 'over_90s' | 'duration' | 'appointments';
+  /** もともとの項目のキーか、自分の項目の id */
+  key: string;
   label: string;
   /** 自分の値。割合・1 件あたりは「・」でつなぐ */
   value: string;
@@ -62,47 +78,76 @@ export interface StripItem {
   compareShort: string;
   /** 括弧の外の補足 (着信) */
   extra: string | null;
+  /** 数字の代わりに出す理由 (自分の項目の「件数が多すぎます」など)。あれば value・compare は出さない */
+  note?: string | null;
+  /** 少し前の値を出している (読み直せなかった) */
+  stale?: boolean;
 }
 
-/** 帯に出す 4 項目。各項目は「自分の値（チーム平均 ○○・○位/○人）」にそろえる */
-export function stripItems(res: TodayMetricsResponse): StripItem[] | null {
+function durText(v: number | null | undefined): string {
+  return v === null || v === undefined ? '-' : formatDuration(Math.round(v));
+}
+
+/** 比べる文 (「チーム平均 47.5・3位/8人」と短い「平均47.5・3位/8」) */
+export function compareTexts(avgLabel: string, avg: string, rank: number | null, size: number): { compare: string; compareShort: string } {
+  return {
+    compare: `${avgLabel} ${avg}・${rank === null ? '順位なし' : `${String(rank)}位/${String(size)}人`}`,
+    compareShort: `平均${avg}・${rank === null ? '順位なし' : `${String(rank)}位/${String(size)}`}`,
+  };
+}
+
+/** 帯に出す項目。並びは `order` (設定) のとおり。各項目は「自分の値（チーム平均 ○○・○位/○人）」にそろえる。
+ *  自分の項目 (`c-…`) はここでは作らない (呼び出し側が差し込む) */
+export function stripItems(res: TodayMetricsResponse, order: readonly string[] = DEFAULT_ITEMS): StripItem[] | null {
   if (res.me === null) return null;
   const m = res.me.metrics;
   const a = res.team_avg;
   const r = res.me.rank;
   const avgLabel = res.population === 'team' ? 'チーム平均' : '全体平均';
-  const cmp = (avg: string, rank: number | null) =>
-    `${avgLabel} ${avg}・${rank === null ? '順位なし' : `${String(rank)}位/${String(res.population_size)}人`}`;
-  const short = (avg: string, rank: number | null) =>
-    `平均${avg}・${rank === null ? '順位なし' : `${String(rank)}位/${String(res.population_size)}`}`;
-  const items: StripItem[] = [
-    { key: 'outbound', label: '架電数', value: String(m.outbound), compare: cmp(formatAvg(a?.outbound), r.outbound), compareShort: short(formatAvg(a?.outbound), r.outbound), extra: m.inbound > 0 ? `着信 ${String(m.inbound)}` : null },
-    { key: 'over_90s', label: '90秒以上', value: m.rate_90s === null ? String(m.over_90s) : `${String(m.over_90s)}・${formatRate(m.rate_90s)}`, compare: cmp(formatAvg(a?.over_90s), r.over_90s), compareShort: short(formatAvg(a?.over_90s), r.over_90s), extra: null },
-    { key: 'duration', label: '通話時間', value: m.avg_duration_ms === null ? formatDuration(m.total_duration_ms) : `${formatDuration(m.total_duration_ms)}・1件 ${formatDuration(m.avg_duration_ms)}`, compare: cmp(a ? formatDuration(Math.round(a.total_duration_ms)) : '-', r.total_duration), compareShort: short(a ? formatDuration(Math.round(a.total_duration_ms)) : '-', r.total_duration), extra: null },
-  ];
-  // アポを数えないチームの人には、アポ欄をまるごと出さない (0 や — も出さない)
-  if (res.appointments_tracked) {
-    items.push({ key: 'appointments', label: 'アポ', value: String(m.appointments), compare: cmp(formatAvg(a?.appointments), r.appointments), compareShort: short(formatAvg(a?.appointments), r.appointments), extra: null });
-  }
-  return items;
+  const item = (key: BuiltinKey, value: string, avg: string, rank: number | null, extra: string | null = null): StripItem =>
+    ({ key, label: BUILTIN_LABELS[key], value, ...compareTexts(avgLabel, avg, rank, res.population_size), extra });
+  const shown = new Set(order);
+  const over = (key: 'over_30s' | 'over_60s' | 'over_90s' | 'over_360s', rate: number | null) =>
+    item(key, rate === null ? String(m[key]) : `${String(m[key])}・${formatRate(rate)}`, formatAvg(a?.[key]), r[key]);
+  const build = (key: BuiltinKey): StripItem | null => {
+    switch (key) {
+      // 着信を別の項目で出すときは、架電数に添えない
+      case 'outbound': return item(key, String(m.outbound), formatAvg(a?.outbound), r.outbound, m.inbound > 0 && !shown.has('inbound') ? `着信 ${String(m.inbound)}` : null);
+      case 'inbound': return item(key, String(m.inbound), formatAvg(a?.inbound), r.inbound);
+      case 'over_30s': return over(key, m.rate_30s);
+      case 'over_60s': return over(key, m.rate_60s);
+      case 'over_90s': return over(key, m.rate_90s);
+      case 'over_360s': return over(key, m.rate_360s);
+      // 1 件平均を別の項目で出すときは、通話時間に添えない
+      case 'duration': return item(key, m.avg_duration_ms === null || shown.has('avg_duration') ? formatDuration(m.total_duration_ms) : `${formatDuration(m.total_duration_ms)}・1件 ${formatDuration(m.avg_duration_ms)}`, a ? formatDuration(Math.round(a.total_duration_ms)) : '-', r.total_duration);
+      case 'avg_duration': return item(key, formatDuration(m.avg_duration_ms), durText(a?.avg_duration_ms), r.avg_duration);
+      // アポを数えないチームの人には、アポ欄をまるごと出さない (0 や — も出さない)
+      case 'appointments': return res.appointments_tracked ? item(key, String(m.appointments), formatAvg(a?.appointments), r.appointments) : null;
+    }
+  };
+  return order.filter(isBuiltinKey).map(build).filter((x): x is StripItem => x !== null);
 }
 
-/** 「今月」の帯の 3 項目。新規営業の人向け。各項目は「自分の値（チーム平均 ○○・○位/○人）」にそろえる */
-export function monthStripItems(res: MonthMetricsResponse): StripItem[] | null {
+/** 「今月」の帯の項目。新規営業の人向け。今月で数えていない項目 (秒数・着信) は出さない */
+export function monthStripItems(res: MonthMetricsResponse, order: readonly string[] = DEFAULT_ITEMS): StripItem[] | null {
   if (res.me === null) return null;
   const m = res.me.metrics;
   const a = res.team_avg;
   const r = res.me.rank;
-  const rankText = (rank: number | null) => (rank === null ? '順位なし' : `${String(rank)}位/${String(res.population_size)}人`);
-  const rankShort = (rank: number | null) => (rank === null ? '順位なし' : `${String(rank)}位/${String(res.population_size)}`);
-  const cmp = (avg: string, rank: number | null) => `チーム平均 ${avg}・${rankText(rank)}`;
-  const short = (avg: string, rank: number | null) => `平均${avg}・${rankShort(rank)}`;
+  const shown = new Set(order);
+  const item = (key: BuiltinKey, value: string, avg: string, rank: number | null, extra: string | null = null): StripItem =>
+    ({ key, label: BUILTIN_LABELS[key], value, ...compareTexts('チーム平均', avg, rank, res.population_size), extra });
   const avgDur = a ? formatDuration(Math.round(a.total_duration_ms)) : '-';
-  return [
-    { key: 'outbound', label: '架電数', value: String(m.outbound), compare: cmp(formatAvg(a?.outbound), r.outbound), compareShort: short(formatAvg(a?.outbound), r.outbound), extra: `今日 ${String(m.today_outbound)}` },
-    { key: 'duration', label: '通話時間', value: m.avg_duration_ms === null ? formatDuration(m.total_duration_ms) : `${formatDuration(m.total_duration_ms)}・1件 ${formatDuration(m.avg_duration_ms)}`, compare: cmp(avgDur, r.total_duration), compareShort: short(avgDur, r.total_duration), extra: null },
-    { key: 'appointments', label: 'アポ', value: String(m.appointments), compare: cmp(formatAvg(a?.appointments), r.appointments), compareShort: short(formatAvg(a?.appointments), r.appointments), extra: null },
-  ];
+  const build = (key: BuiltinKey): StripItem | null => {
+    switch (key) {
+      case 'outbound': return item(key, String(m.outbound), formatAvg(a?.outbound), r.outbound, `今日 ${String(m.today_outbound)}`);
+      case 'duration': return item(key, m.avg_duration_ms === null || shown.has('avg_duration') ? formatDuration(m.total_duration_ms) : `${formatDuration(m.total_duration_ms)}・1件 ${formatDuration(m.avg_duration_ms)}`, avgDur, r.total_duration);
+      case 'avg_duration': return item(key, formatDuration(m.avg_duration_ms), durText(a?.avg_duration_ms), r.avg_duration);
+      case 'appointments': return item(key, String(m.appointments), formatAvg(a?.appointments), r.appointments);
+      default: return null;
+    }
+  };
+  return order.filter(isBuiltinKey).map(build).filter((x): x is StripItem => x !== null);
 }
 
 /** 「2026-10」→「10月」。読めなければ「今月」 */
@@ -196,14 +241,14 @@ export function sortMonthRows(rows: readonly MonthRow[], key: MonthSortKey, dir:
 // --- 架空サンプル --------------------------------------------------------
 
 const BASE: CallerMetrics = {
-  outbound: 0, inbound: 0, over_30s: 0, over_90s: 0, over_360s: 0, rate_30s: null, rate_90s: null, rate_360s: null,
+  outbound: 0, inbound: 0, over_30s: 0, over_60s: 0, over_90s: 0, over_360s: 0, rate_30s: null, rate_60s: null, rate_90s: null, rate_360s: null,
   talked: 0, total_duration_ms: 0, avg_duration_ms: null, appointments: 0, first_call_at: null, last_call_at: null,
 };
 
 function metrics(outbound: number, o30: number, o90: number, o360: number, talked: number, totalSec: number, apo: number, inbound: number, first: string, last: string): CallerMetrics {
   return {
-    ...BASE, outbound, inbound, over_30s: o30, over_90s: o90, over_360s: o360, talked,
-    rate_30s: o30 / outbound, rate_90s: o90 / outbound, rate_360s: o360 / outbound,
+    ...BASE, outbound, inbound, over_30s: o30, over_60s: Math.round((o30 + o90) / 2), over_90s: o90, over_360s: o360, talked,
+    rate_30s: o30 / outbound, rate_60s: Math.round((o30 + o90) / 2) / outbound, rate_90s: o90 / outbound, rate_360s: o360 / outbound,
     total_duration_ms: totalSec * 1000, avg_duration_ms: Math.round((totalSec * 1000) / talked), appointments: apo,
     first_call_at: first, last_call_at: last,
   };
@@ -219,11 +264,11 @@ export const FIXTURE_TODAY: TodayMetricsResponse = {
   me: {
     owner_id: '9001',
     metrics: metrics(52, 21, 11, 2, 24, 3312, 2, 3, '2026-10-13T00:03:00Z', '2026-10-13T05:01:00Z'),
-    rank: { outbound: 3, total_duration: 2, over_90s: 2, appointments: 1 },
+    rank: { outbound: 3, total_duration: 2, over_90s: 2, appointments: 1, over_30s: 2, over_60s: 2, over_360s: 3, inbound: 2, avg_duration: 4 },
   },
   team_avg: {
-    outbound: 47.5, over_30s: 17.2, over_90s: 8.4, over_360s: 1.1, rate_30s: 0.36, rate_90s: 0.18, rate_360s: 0.02,
-    total_duration_ms: 2_640_000, avg_duration_ms: 118_000, appointments: 1.1,
+    outbound: 47.5, over_30s: 17.2, over_60s: 12.6, over_90s: 8.4, over_360s: 1.1, rate_30s: 0.36, rate_60s: 0.27, rate_90s: 0.18, rate_360s: 0.02,
+    total_duration_ms: 2_640_000, avg_duration_ms: 118_000, appointments: 1.1, inbound: 1.8,
   },
   population_size: 8,
   population: 'team',
@@ -264,7 +309,7 @@ export const FIXTURE_MONTH: MonthMetricsResponse = {
   me: {
     owner_id: '9001',
     metrics: { outbound: 812, today_outbound: 52, talked: 301, total_duration_ms: 36_900_000, avg_duration_ms: 122_591, appointments: 9 },
-    rank: { outbound: 3, total_duration: 2, appointments: 1 },
+    rank: { outbound: 3, total_duration: 2, appointments: 1, avg_duration: 2 },
   },
   team_avg: { outbound: 760.4, total_duration_ms: 34_200_000, avg_duration_ms: 118_000, appointments: 6.2 },
   population_size: 14,

@@ -4,7 +4,7 @@
 //! - 集計の単位は HubSpot の担当者 (owner)。期間は今日 (JST 0 時 〜 いま)。Zoom の純正連携が作った Call
 //!   (`hs_call_source = INTEGRATIONS_PLATFORM`) だけを数える。
 //! - 架電数 = `hs_call_direction = OUTBOUND` の件数。着信 (INBOUND) は `inbound` に別に数え、架電数に混ぜない。
-//! - 通話 30 / 90 / 360 秒以上 = 通話時間 (`hs_call_duration`、ミリ秒) がちょうどその秒数以上の架電の件数。
+//! - 通話 30 / 60 / 90 / 360 秒以上 = 通話時間 (`hs_call_duration`、ミリ秒) がちょうどその秒数以上の架電の件数。
 //!   割合 = その件数 ÷ 架電数 (件数から毎回計算。架電数 0 は null)。「接続率」「接触率」とは呼ばない。
 //! - 通話時間の合計 = 架電の通話時間の合計。平均 = 合計 ÷ 通話時間が 0 より長い架電の件数 (無ければ null)。
 //! - アポ数 = 「アポ日確定」ステージに今日入った取引の数。取引の担当者に付ける (営業KPI と同じ定義)。
@@ -81,6 +81,7 @@ pub fn appointments_tracked(viewer_teams: &[String]) -> bool {
 
 /// 通話時間のしきい値 (ミリ秒)
 pub const T30: i64 = 30_000;
+pub const T60: i64 = 60_000;
 pub const T90: i64 = 90_000;
 pub const T360: i64 = 360_000;
 
@@ -96,10 +97,12 @@ pub struct CallerMetrics {
     /// 着信数 (架電数には含めない)
     pub inbound: u32,
     pub over_30s: u32,
+    pub over_60s: u32,
     pub over_90s: u32,
     pub over_360s: u32,
     /// 件数 ÷ 架電数 (架電数 0 は null)
     pub rate_30s: Option<f64>,
+    pub rate_60s: Option<f64>,
     pub rate_90s: Option<f64>,
     pub rate_360s: Option<f64>,
     /// 通話時間が 0 より長い架電の件数
@@ -121,16 +124,20 @@ pub struct CallerMetrics {
 pub struct TeamAverage {
     pub outbound: f64,
     pub over_30s: f64,
+    pub over_60s: f64,
     pub over_90s: f64,
     pub over_360s: f64,
     /// 件数の合計から計算 (架電数の合計 0 は null)
     pub rate_30s: Option<f64>,
+    pub rate_60s: Option<f64>,
     pub rate_90s: Option<f64>,
     pub rate_360s: Option<f64>,
     pub total_duration_ms: f64,
     /// 通話時間の合計 ÷ 通話ありの件数の合計
     pub avg_duration_ms: Option<f64>,
     pub appointments: f64,
+    /// 着信の 1 人あたり (帯の項目を自分で選んだときに出す)
+    pub inbound: f64,
 }
 
 /// 順位 (1 が最良。集団に入っていなければ null)
@@ -140,6 +147,13 @@ pub struct Ranks {
     pub total_duration: Option<u32>,
     pub over_90s: Option<u32>,
     pub appointments: Option<u32>,
+    /// 以下は帯の項目を自分で選んだときに出す (30 / 60 / 360 秒以上・着信・1 件平均)
+    pub over_30s: Option<u32>,
+    pub over_60s: Option<u32>,
+    pub over_360s: Option<u32>,
+    pub inbound: Option<u32>,
+    /// 1 件平均の通話時間 (長い順)。通話のない人は比べない
+    pub avg_duration: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -256,6 +270,9 @@ pub fn aggregate<'a>(
                 if c.duration_ms >= T30 {
                     a.m.over_30s += 1;
                 }
+                if c.duration_ms >= T60 {
+                    a.m.over_60s += 1;
+                }
                 if c.duration_ms >= T90 {
                     a.m.over_90s += 1;
                 }
@@ -278,6 +295,7 @@ pub fn aggregate<'a>(
         .map(|(owner, mut a)| {
             let m = &mut a.m;
             m.rate_30s = rate(m.over_30s, m.outbound);
+            m.rate_60s = rate(m.over_60s, m.outbound);
             m.rate_90s = rate(m.over_90s, m.outbound);
             m.rate_360s = rate(m.over_360s, m.outbound);
             m.avg_duration_ms = (m.talked > 0).then(|| m.total_duration_ms / i64::from(m.talked));
@@ -303,6 +321,7 @@ pub fn average(pop: &[&CallerMetrics]) -> Option<TeamAverage> {
     let sum = |f: fn(&CallerMetrics) -> u32| pop.iter().map(|m| f64::from(f(m))).sum::<f64>();
     let out = sum(|m| m.outbound);
     let o30 = sum(|m| m.over_30s);
+    let o60 = sum(|m| m.over_60s);
     let o90 = sum(|m| m.over_90s);
     let o360 = sum(|m| m.over_360s);
     let talked = sum(|m| m.talked);
@@ -311,14 +330,17 @@ pub fn average(pop: &[&CallerMetrics]) -> Option<TeamAverage> {
     Some(TeamAverage {
         outbound: out / n,
         over_30s: o30 / n,
+        over_60s: o60 / n,
         over_90s: o90 / n,
         over_360s: o360 / n,
         rate_30s: r(o30),
+        rate_60s: r(o60),
         rate_90s: r(o90),
         rate_360s: r(o360),
         total_duration_ms: dur / n,
         avg_duration_ms: (talked > 0.0).then(|| dur / talked),
         appointments: sum(|m| m.appointments) / n,
+        inbound: sum(|m| m.inbound) / n,
     })
 }
 
@@ -337,6 +359,14 @@ fn ranks(pop: &[&CallerMetrics], me: &CallerMetrics) -> Ranks {
         total_duration: Some(r(|m| m.total_duration_ms)),
         over_90s: Some(r(|m| i64::from(m.over_90s))),
         appointments: Some(r(|m| i64::from(m.appointments))),
+        over_30s: Some(r(|m| i64::from(m.over_30s))),
+        over_60s: Some(r(|m| i64::from(m.over_60s))),
+        over_360s: Some(r(|m| i64::from(m.over_360s))),
+        inbound: Some(r(|m| i64::from(m.inbound))),
+        avg_duration: me.avg_duration_ms.map(|mine| {
+            let vals: Vec<i64> = pop.iter().filter_map(|m| m.avg_duration_ms).collect();
+            rank_of(&vals, mine)
+        }),
     }
 }
 
@@ -713,6 +743,11 @@ impl CallerMetricsState {
 
     fn current(&self) -> Option<Arc<Snapshot>> {
         self.snapshot.read().ok().and_then(|g| g.clone())
+    }
+
+    /// いまある今日の集計 (読み直さない)。自分の項目の比べる相手を決めるのに使う
+    pub(super) fn current_snapshot(&self) -> Option<Arc<Snapshot>> {
+        self.current()
     }
 
     fn fresh(&self, now: DateTime<Utc>, day: NaiveDate) -> Option<Arc<Snapshot>> {

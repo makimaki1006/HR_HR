@@ -45,6 +45,8 @@ it('範囲・相対日付・否定・真偽を具体値で評価する',()=>{
   expect(matchesCondition(c('LAST_N_DAYS',['3']),'2026-02-02','2026-02-04')).toBe(true);
   expect(matchesCondition(c('LAST_N_DAYS',['3']),'2026-02-01','2026-02-04')).toBe(false);
   expect(matchesCondition(c('NEXT_N_DAYS',['3']),'2026-02-06','2026-02-04')).toBe(true);
+  expect(matchesCondition(c('THIS_MONTH',[]),'2026-02-28','2026-02-04')).toBe(true);
+  expect(matchesCondition(c('THIS_MONTH',[]),'2026-03-01','2026-02-04')).toBe(false);
   expect(matchesCondition(c('NEQ',['sample']),'other','2026-02-04')).toBe(true);
   expect(matchesCondition(c('NOT_CONTAINS_TOKEN',['sample']),'sample value','2026-02-04')).toBe(false);
   expect(matchesCondition(c('NOT_CONTAINS_TOKEN',['sample']),null,'2026-02-04')).toBe(false);

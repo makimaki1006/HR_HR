@@ -27,6 +27,10 @@ const TABLE_DDL: &[&str] = &[
         position REAL NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     )"#,
     "CREATE INDEX IF NOT EXISTS crm_saved_views_visibility ON crm_saved_views(scope, creator_email)",
+    // ADR-028: 架電画面の成績の帯に出す項目の個人設定 (1 人 1 行、JSON 文字列)。HubSpot の業務データは持たない。
+    r#"CREATE TABLE IF NOT EXISTS crm_metric_prefs (
+        email TEXT PRIMARY KEY, prefs TEXT NOT NULL, updated_at TEXT NOT NULL
+    )"#,
     r#"CREATE TABLE IF NOT EXISTS crm_role_property_layouts (
         role TEXT NOT NULL, object_type TEXT NOT NULL, properties TEXT NOT NULL,
         updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(role, object_type)

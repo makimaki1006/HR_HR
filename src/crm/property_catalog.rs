@@ -146,6 +146,12 @@ impl CatalogEntry {
         }
     }
 
+    /// テスト用: 一覧から作る
+    #[cfg(test)]
+    pub(crate) fn for_test(response: CrmPropertyCatalogResponse) -> Self {
+        Self::new(response)
+    }
+
     /// `object` (`deals` / `contacts` / `companies`) の項目の定義
     pub fn property(&self, object: &str, name: &str) -> Option<&CrmCatalogProperty> {
         self.defs.get(object).and_then(|m| m.get(name))

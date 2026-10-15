@@ -56,7 +56,9 @@ function failure(error: unknown): string {
  * 今日の成績を取り、2 分ごとに読み直す。タブが隠れている間は読み直さず、見えたときに
  * 前回から 2 分以上たっていればすぐ読み直す。読み直しに失敗しても前回の数字は残す。
  */
-export function useMetrics<T>(fetcher: MetricsFetch<T>, intervalMs: number = METRICS_REFRESH_MS, warmingMs: number = METRICS_WARMING_MS) {
+export function useMetrics<T>(fetcher: MetricsFetch<T>, intervalMs: number = METRICS_REFRESH_MS, warmingMs: number = METRICS_WARMING_MS,
+  /** true を返す応答は数字を出したまま、少し後 (warmingMs) に取り直す (自分の項目の背景の読み直し) */
+  pending?: (data: T) => boolean) {
   const [state, setState] = useState<MetricsState<T>>({ phase: 'loading' });
   const [nonce, setNonce] = useState(0);
   const lastRef = useRef(0);
@@ -85,7 +87,10 @@ export function useMetrics<T>(fetcher: MetricsFetch<T>, intervalMs: number = MET
           // 今日の最初の読み込みが背景で進んでいる。エラーにせず、短い間隔で取り直す
           delay = warmingMs;
           setState({ phase: 'warming' });
-        } else if (r.ok) setState({ phase: 'ready', data: r.data, refreshFailed: false });
+        } else if (r.ok) {
+          if (pending?.(r.data) === true) delay = warmingMs;
+          setState({ phase: 'ready', data: r.data, refreshFailed: false });
+        }
         else if (!(r.error instanceof ApiAbortedError)) {
           const message = failure(r.error);
           setState(prev => (prev.phase === 'ready' ? { ...prev, refreshFailed: true } : { phase: 'error', message }));
@@ -105,7 +110,7 @@ export function useMetrics<T>(fetcher: MetricsFetch<T>, intervalMs: number = MET
       ctl?.abort();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [fetcher, intervalMs, warmingMs, nonce]);
+  }, [fetcher, intervalMs, warmingMs, nonce, pending]);
 
   const reload = useCallback(() => { setState({ phase: 'loading' }); setNonce(n => n + 1); }, []);
   return { state, reload };
