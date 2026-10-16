@@ -1,18 +1,31 @@
-.ab-comparison { padding: 20px; min-width: 0; }
-.ab-controls { display: grid; gap: 14px; margin: 20px 0; }
-.ab-controls label, .ab-variant label { display: grid; gap: 6px; }
-.ab-controls input:not([type=checkbox]), .ab-controls textarea, .ab-comparison select { width: 100%; min-width: 0; padding: 10px; border: 1px solid #b4c5cf; border-radius: 6px; background: white; color: #203743; }
-.ab-controls label:has(input[type=checkbox]) { display: flex; align-items: center; }
-.ab-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.ab-variant { min-width: 0; padding: 16px; border: 1px solid #b4c5cf; border-radius: 8px; overflow-wrap: anywhere; }
-.ab-variant h3 { margin-top: 0; }
-.ab-variant details, .ab-comparison > section { margin: 18px 0; }
-.ab-comparison summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
-.ab-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.ab-values dd { margin: 4px 0; font-weight: 600; }
-.ab-table-scroll { overflow-x: auto; }
-.ab-table-scroll table { width: 100%; min-width: 570px; border-collapse: collapse; }
-.ab-table-scroll td, .ab-table-scroll th { padding: 10px; text-align: left; border-bottom: 1px solid #d7e0e6; white-space: nowrap; }
+.ab-comparison { padding: 20px; min-width: 0; color: #203743; }
+.ab-picker { padding: 18px; border: 1px solid #d4dfe6; border-radius: 10px; background: #f6f9fb; margin: 20px 0; }
+.ab-tabs { display: flex; gap: 8px; border-bottom: 1px solid #c6d4df; }
+.ab-tabs button { padding: 12px 20px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: #425a6b; cursor: pointer; }
+.ab-tabs button[aria-selected=true] { color: #1559a6; border-bottom-color: #1559a6; font-weight: 700; }
+.ab-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.ab-comparison label { display: grid; gap: 6px; }
+.ab-controls label { flex: 1 1 140px; }
+.ab-comparison input, .ab-comparison select { width: 100%; min-width: 0; padding: 10px; border: 1px solid #b4c5cf; border-radius: 6px; background: white; color: #203743; }
+.ab-candidates { list-style: none; padding: 0; max-height: 340px; overflow: auto; }
+.ab-candidates li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #d7e0e6; }
+.ab-candidates small, .ab-comparison th small, .ab-comparison td small { display: block; margin-top: 6px; font-weight: 400; color: #4c6373; }
+.ab-pages { display: flex; gap: 16px; align-items: center; justify-content: flex-end; }
+.ab-period { margin: 24px 0; }
+.ab-period label { max-width: 340px; }
+.ab-table-scroll { max-width: 100%; overflow: auto; margin-bottom: 20px; }
+.ab-table-scroll table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+.ab-table-scroll th, .ab-table-scroll td { min-width: 250px; width: 250px; padding: 14px; text-align: left; vertical-align: top; border-right: 1px solid #d7e0e6; border-bottom: 1px solid #d7e0e6; overflow-wrap: anywhere; }
+.ab-table-scroll th:first-child { width: 150px; min-width: 150px; position: sticky; left: 0; background: #f2f6f9; z-index: 1; }
+.ab-table-scroll thead th { background: #edf3f8; }
+.ab-table-scroll thead button { display: block; margin-top: 10px; font-weight: 400; }
+.ab-different { background: #fff7e6; }
+.ab-difference-mark { display: block; width: fit-content; border: 1px solid #b77819; border-radius: 4px; color: #7a4c08; font-size: 12px; padding: 2px 6px; margin-bottom: 8px; }
+.ab-body { white-space: pre-wrap; max-height: 480px; overflow-y: auto; }
+.ab-content-table .jc-image-gallery { min-width: 0; }
+.ab-comparison summary { cursor: pointer; padding: 14px 0; font-weight: 600; }
+.ab-reasons { display: flex; gap: 16px; overflow-x: auto; }
+.ab-reasons > section { min-width: 250px; flex: 1; }
 .ab-comparison :focus-visible { outline: 3px solid #1668c7; outline-offset: 3px; }
-@media (max-width: 800px) { .ab-pair { grid-template-columns: minmax(0, 1fr); } .ab-comparison { padding: 12px; } }
-@media print { .ab-pair { grid-template-columns: minmax(0, 1fr); } .ab-table-scroll { overflow: visible; } .ab-table-scroll table { min-width: 0; } }
+@media (max-width: 800px) { .ab-comparison { padding: 12px; } .ab-picker { padding: 12px; } .ab-candidates li { align-items: start; flex-direction: column; } }
+@media print { .ab-table-scroll { overflow: visible; } .ab-table-scroll table { table-layout: auto; } .ab-table-scroll th, .ab-table-scroll td { min-width: 0; width: auto; } .ab-body { max-height: none; overflow: visible; } }

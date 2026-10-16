@@ -41,6 +41,10 @@ const COMPANY_TTL: Duration = Duration::from_secs(30 * 60);
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) struct PerfDigest {
     pub(super) latest_end: NaiveDate,
+    /// 求人比較の共通期間（今日まで28日）。期間に抜け・未取得があれば None。
+    /// 古い保存済み索引は未取得扱い。新しい永続化先は増やさない。
+    #[serde(default)]
+    pub(super) comparison_window: Option<(NaiveDate, i64)>,
     /// 最新の週を含む 4 週（週の開始日が最新の開始日の 21 日前まで）の応募と課金。
     pub(super) recent_apps: i64,
     pub(super) recent_cost: i64,
@@ -58,6 +62,12 @@ fn whole(value: &Value) -> i64 {
 }
 impl PerfDigest {
     pub(super) fn from_json(perf: &Value) -> Option<Self> {
+        let today = chrono::Utc::now()
+            .with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap())
+            .date_naive();
+        Self::from_json_on(perf, today)
+    }
+    fn from_json_on(perf: &Value, today: NaiveDate) -> Option<Self> {
         let rows: Vec<(NaiveDate, NaiveDate, i64, i64)> = perf["rows"]
             .as_array()?
             .iter()
@@ -73,6 +83,7 @@ impl PerfDigest {
         let (latest_start, latest_end, _, _) = rows.iter().max_by_key(|row| row.0).copied()?;
         let mut digest = Self {
             latest_end,
+            comparison_window: comparison_window(perf, today),
             recent_apps: 0,
             recent_cost: 0,
             prev_apps: 0,
@@ -94,8 +105,44 @@ impl PerfDigest {
         } else {
             listings::airwork_weekly_perf(record)
         }?;
-        Self::from_json(&perf)
+        let mut digest = Self::from_json(&perf)?;
+        let id = record.value(if media == "hrh" {
+            "id_hrhakkaa"
+        } else {
+            "id_airwork"
+        });
+        if perf["job_id"].as_str() != id {
+            digest.comparison_window = None;
+        }
+        Some(digest)
     }
+}
+
+/// 端にかかる週は丸ごと含める。抜けや null を 0 に置き換えない。
+fn comparison_window(perf: &Value, today: NaiveDate) -> Option<(NaiveDate, i64)> {
+    let start = today - chrono::Duration::days(27);
+    let mut rows: Vec<_> = perf["rows"]
+        .as_array()?
+        .iter()
+        .filter_map(|r| {
+            let a = day(&r["period_start"])?;
+            let b = day(&r["period_end"])?;
+            (a <= today && b >= start).then_some((a, b, r["applications"].as_i64()))
+        })
+        .collect();
+    rows.sort_by_key(|r| r.0);
+    let mut cursor = start;
+    let mut sum = 0_i64;
+    let mut previous_end = None;
+    for (a, b, apps) in rows {
+        if a > cursor || b < a || previous_end.is_some_and(|end| a <= end) {
+            return None;
+        }
+        sum = sum.checked_add(apps.filter(|v| *v >= 0)?)?;
+        previous_end = Some(b);
+        cursor = b.succ_opt()?;
+    }
+    (cursor > today).then_some((today, sum))
 }
 
 /// 取引→事業所の対応と事業所名。索引の作成時刻ごとに作り直す。

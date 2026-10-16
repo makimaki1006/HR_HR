@@ -443,6 +443,7 @@ async fn cached_and_background_answers_keep_all_five_trend_buckets() {
     let index = Arc::make_mut(&mut f.index);
     for (row, &(prev, recent, _)) in index.records.iter_mut().zip(&examples) {
         row.perf = Some(PerfDigest {
+            comparison_window: None,
             latest_end: today,
             prev_apps: prev,
             recent_apps: recent,

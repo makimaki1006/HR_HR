@@ -12,7 +12,7 @@ export const jobFeatures: Record<JobFeature, { group: string; label: string }> =
   'market-table': { group: '市場分析', label: '市場データ' },
   factors: { group: '市場分析', label: '要因・仮説' },
   diff: { group: '比較・報告', label: '変更差分' },
-  ab: { group: '比較・報告', label: '2求人のA/B比較' },
+  ab: { group: '比較・報告', label: '求人比較' },
   report: { group: '比較・報告', label: '顧客報告・検証' },
   receive: { group: 'データ取込', label: '外部文面を確認' },
 };

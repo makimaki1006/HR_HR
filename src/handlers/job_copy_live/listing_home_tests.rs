@@ -446,6 +446,7 @@ fn zero_stay_is_first_and_sorted_by_recent_cost_before_capping() {
 #[test]
 fn trend_percentage_multiplication_handles_large_integer_counts() {
     let perf = PerfDigest {
+        comparison_window: None,
         latest_end: date("2026-10-04"),
         recent_apps: i64::MAX - 1,
         recent_cost: 0,
@@ -454,6 +455,7 @@ fn trend_percentage_multiplication_handles_large_integer_counts() {
     assert_eq!(trend_key(&perf), "flat");
     assert_eq!(
         trend_key(&PerfDigest {
+            comparison_window: None,
             recent_apps: 1,
             ..perf
         }),
@@ -510,4 +512,44 @@ fn owner_scope_includes_any_matching_deal_and_only_its_customer_links() {
     assert_eq!(selected.len(), 2);
     let (selected, _) = scoped(&rows, &map, &snapshot, "consultant", None);
     assert_eq!(selected.len(), 3);
+}
+
+#[test]
+fn comparison_window_uses_common_calendar_and_requires_coverage() {
+    let today = date("2026-10-16");
+    let full = perf(&[
+        ("2026-09-14", "2026-09-20", 100, 1),
+        ("2026-09-21", "2026-09-27", 200, 2),
+        ("2026-09-28", "2026-10-04", 300, 3),
+        ("2026-10-05", "2026-10-11", 400, 4),
+        ("2026-10-12", "2026-10-18", 500, 5),
+    ]);
+    assert_eq!(
+        PerfDigest::from_json_on(&full, today)
+            .unwrap()
+            .comparison_window,
+        Some((today, 15))
+    );
+    let mut missing = full.clone();
+    missing["rows"].as_array_mut().unwrap().remove(2);
+    assert_eq!(
+        PerfDigest::from_json_on(&missing, today)
+            .unwrap()
+            .comparison_window,
+        None
+    );
+    let mut null = full.clone();
+    null["rows"][0]["applications"] = Value::Null;
+    assert_eq!(
+        PerfDigest::from_json_on(&null, today)
+            .unwrap()
+            .comparison_window,
+        None
+    );
+    assert_eq!(
+        PerfDigest::from_json_on(&full, date("2026-11-16"))
+            .unwrap()
+            .comparison_window,
+        None
+    );
 }

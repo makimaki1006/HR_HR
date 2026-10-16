@@ -37,6 +37,7 @@ fn listing(id: &str, deals: &[&str], status: &str, apps: Option<(i64, i64)>) -> 
         body_summary: None,
         indexed_application_count: None,
         perf: apps.map(|(a, c)| home::PerfDigest {
+            comparison_window: None,
             latest_end: chrono::NaiveDate::from_ymd_opt(2026, 10, 4).unwrap(),
             recent_apps: a,
             recent_cost: c,

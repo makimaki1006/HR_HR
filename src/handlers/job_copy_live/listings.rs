@@ -227,6 +227,14 @@ const PROPERTIES: &[&str] = &[
 #[serde(deny_unknown_fields)]
 pub(super) struct ListingsQuery {
     prefecture: Option<String>,
+    /// 求人比較: 媒体の顧客番号と本文の職種。Indeed 職種とは独立。
+    account_id: Option<String>,
+    exclude_account_id: Option<String>,
+    occupation: Option<String>,
+    exclude_listing: Option<String>,
+    /// この求人と案件が重なる求人を先頭にする（顧客内比較）。
+    comparison_origin: Option<String>,
+    page_size: Option<usize>,
     title: Option<String>,
     media: Option<String>,
     #[serde(default)]
@@ -958,31 +966,48 @@ fn matches(row: &Listing, query: &ListingsQuery) -> bool {
     matches_except_state(row, query) && indeed_state_matches(row, query.indeed_state.as_deref())
 }
 fn matches_except_state(row: &Listing, query: &ListingsQuery) -> bool {
-    query.q.as_ref().is_none_or(|q| {
-        let needle = normalize(q);
-        needle.is_empty() || normalize(row.title.as_deref().unwrap_or("")).contains(&needle)
-    }) && query.deal.as_ref().is_none_or(|v| {
-        if v == "none" {
-            row.deal_ids.is_empty()
-        } else {
-            // 取引 ID はカンマ区切りで複数指定できる（顧客の全部の取引の求人を 1 度に出すため）。
-            v.split(',').any(|id| row.deal_ids.iter().any(|d| d == id))
-        }
-    }) && query.publication.as_ref().is_none_or(|v| {
-        if v == "unknown" {
-            row.publication_status
-                .as_deref()
-                .is_none_or(|status| status == "不明")
-        } else {
-            Some(v) == row.publication_status.as_ref()
-        }
-    }) && query.draft_status.as_ref().is_none_or(|v| {
-        if v == "none" {
-            row.draft_status.is_none()
-        } else {
-            Some(v) == row.draft_status.as_ref()
-        }
-    }) && query.media.as_ref().is_none_or(|v| v == row.media)
+    query
+        .account_id
+        .as_ref()
+        .is_none_or(|v| row.account_id.as_ref() == Some(v))
+        && query
+            .exclude_account_id
+            .as_ref()
+            .is_none_or(|v| row.account_id.as_ref().is_some_and(|id| id != v))
+        && query
+            .occupation
+            .as_ref()
+            .is_none_or(|v| row.summary.occupation.as_ref() == Some(v))
+        && query.exclude_listing.as_ref().is_none_or(|v| &row.id != v)
+        && query.q.as_ref().is_none_or(|q| {
+            let needle = normalize(q);
+            needle.is_empty() || normalize(row.title.as_deref().unwrap_or("")).contains(&needle)
+        })
+        && query.deal.as_ref().is_none_or(|v| {
+            if v == "none" {
+                row.deal_ids.is_empty()
+            } else {
+                // 取引 ID はカンマ区切りで複数指定できる（顧客の全部の取引の求人を 1 度に出すため）。
+                v.split(',').any(|id| row.deal_ids.iter().any(|d| d == id))
+            }
+        })
+        && query.publication.as_ref().is_none_or(|v| {
+            if v == "unknown" {
+                row.publication_status
+                    .as_deref()
+                    .is_none_or(|status| status == "不明")
+            } else {
+                Some(v) == row.publication_status.as_ref()
+            }
+        })
+        && query.draft_status.as_ref().is_none_or(|v| {
+            if v == "none" {
+                row.draft_status.is_none()
+            } else {
+                Some(v) == row.draft_status.as_ref()
+            }
+        })
+        && query.media.as_ref().is_none_or(|v| v == row.media)
         && query
             .prefecture
             .as_ref()
@@ -1016,6 +1041,13 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
         .iter()
         .filter(|row| matches(row, query))
         .collect();
+    let today = chrono::Utc::now()
+        .with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap())
+        .date_naive();
+    let origin = query
+        .comparison_origin
+        .as_ref()
+        .and_then(|id| index.records.iter().find(|r| &r.id == id));
     rows.sort_by(|a, b| {
         let id_order = || a.id.len().cmp(&b.id.len()).then_with(|| a.id.cmp(&b.id));
         fn summary_value<'a>(r: &'a Listing, sort: Option<&str>) -> Option<&'a str> {
@@ -1032,7 +1064,28 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
                 _ => None,
             }
         }
-        let field_order = if query.sort.as_deref() == Some("applications") {
+        let field_order = if query.sort.as_deref() == Some("recent_applications") {
+            let apps = |r: &Listing| {
+                r.perf
+                    .as_ref()
+                    .and_then(|p| p.comparison_window)
+                    .filter(|(end, _)| *end == today)
+                    .map(|(_, apps)| apps)
+            };
+            // 未取得は末尾。同数は番号順。
+            return apps(b).cmp(&apps(a)).then_with(id_order);
+        } else if query.sort.as_deref() == Some("same_account") {
+            let rank = |r: &Listing| {
+                if origin.is_some_and(|o| o.deal_ids.iter().any(|id| r.deal_ids.contains(id))) {
+                    0
+                } else if r.publication_status.as_deref() == Some("掲載中") {
+                    1
+                } else {
+                    2
+                }
+            };
+            return rank(a).cmp(&rank(b)).then_with(id_order);
+        } else if query.sort.as_deref() == Some("applications") {
             Some(
                 a.indexed_application_count
                     .cmp(&b.indexed_application_count),
@@ -1113,7 +1166,7 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
     let page = rows
         .into_iter()
         .skip(query.offset)
-        .take(PAGE_SIZE)
+        .take(query.page_size.unwrap_or(PAGE_SIZE))
         .map(|row| PageListing {
             listing: row.clone(),
             application_count: row.indexed_application_count,
@@ -1166,9 +1219,29 @@ pub(super) async fn read(
         ));
     };
     if query
-        .draft_status
-        .as_deref()
-        .is_some_and(|v| !["pending", "adopted", "rejected", "none"].contains(&v))
+        .page_size
+        .is_some_and(|size| !(1..=50).contains(&size))
+        || [
+            &query.account_id,
+            &query.exclude_account_id,
+            &query.occupation,
+        ]
+        .iter()
+        .any(|v| {
+            v.as_ref()
+                .is_some_and(|v| v.is_empty() || v.chars().count() > 200)
+        })
+        || [&query.exclude_listing, &query.comparison_origin]
+            .iter()
+            .any(|v| {
+                v.as_ref().is_some_and(|v| {
+                    v.is_empty() || v.len() > 20 || !v.bytes().all(|c| c.is_ascii_digit())
+                })
+            })
+        || query
+            .draft_status
+            .as_deref()
+            .is_some_and(|v| !["pending", "adopted", "rejected", "none"].contains(&v))
         || query.publication.as_ref().is_some_and(|v| v.len() > 100)
         || query.q.as_ref().is_some_and(|v| v.chars().count() > 100)
         || query
@@ -1200,6 +1273,8 @@ pub(super) async fn read(
                 "hours",
                 "holidays",
                 "applications",
+                "recent_applications",
+                "same_account",
                 "body_changed_at",
                 "publication",
                 "bulk",
@@ -1925,6 +2000,83 @@ mod publication_count_tests {
             indexed_application_count: None,
             perf: None,
         }
+    }
+    #[test]
+    fn comparison_filters_order_before_twenty_item_pagination() {
+        let mut origin = row("1", "hrh", Some("掲載中"));
+        origin.account_id = Some("fictional-account".into());
+        origin.deal_ids = vec!["501".into()];
+        let today = chrono::Utc::now()
+            .with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap())
+            .date_naive();
+        let records: Vec<_> = std::iter::once(origin.clone())
+            .chain((2..=25).map(|id| {
+                let mut r = row(
+                    &id.to_string(),
+                    "hrh",
+                    Some(if id == 25 {
+                        "掲載終了"
+                    } else {
+                        "掲載中"
+                    }),
+                );
+                r.account_id = Some("fictional-account".into());
+                r.summary.occupation = Some("配送".into());
+                r.category = Some("事務".into()); // Indeed 職種によらず本文の職種で絞る。
+                r.prefecture = Some("大分県".into());
+                r.indexed_application_count = Some(1000 - id as usize);
+                r.perf = Some(home::PerfDigest {
+                    latest_end: today,
+                    comparison_window: Some((today, id)),
+                    recent_apps: id,
+                    recent_cost: 0,
+                    prev_apps: 0,
+                });
+                if id == 25 {
+                    r.deal_ids = origin.deal_ids.clone();
+                }
+                r
+            }))
+            .collect();
+        let index = Index {
+            records,
+            titles: vec![],
+            deals: vec![],
+            built_at: String::new(),
+        };
+        let mut query: ListingsQuery = serde_json::from_value(json!({"account_id":"fictional-account", "occupation":"配送", "exclude_listing":"1", "comparison_origin":"1", "sort":"same_account", "page_size":20})).unwrap();
+        let (total, first) = selected_page(&index, &query);
+        assert_eq!(total, 24);
+        assert_eq!(first.len(), 20);
+        assert_eq!(first[0].listing.id, "25");
+        assert_eq!(first[1].listing.id, "2");
+        query.offset = 20;
+        assert_eq!(
+            selected_page(&index, &query)
+                .1
+                .iter()
+                .map(|r| r.listing.id.as_str())
+                .collect::<Vec<_>>(),
+            ["21", "22", "23", "24"]
+        );
+        query.offset = 0;
+        query.sort = Some("recent_applications".into());
+        assert_eq!(
+            selected_page(&index, &query)
+                .1
+                .iter()
+                .take(3)
+                .map(|r| r.listing.id.as_str())
+                .collect::<Vec<_>>(),
+            ["25", "24", "23"]
+        ); // 累計順とは逆。
+        query.account_id = None;
+        query.exclude_account_id = Some("fictional-account".into());
+        assert_eq!(selected_page(&index, &query).0, 0);
+        assert!(
+            serde_json::from_value::<ListingsQuery>(json!({"unknown_comparison_filter":true}))
+                .is_err()
+        );
     }
     #[test]
     fn several_deals_can_be_given_and_a_listing_in_two_deals_counts_once() {
