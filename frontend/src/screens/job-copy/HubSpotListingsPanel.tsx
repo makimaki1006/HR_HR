@@ -1,3 +1,5 @@
+import { ownerParams } from './OwnerTodo';
+import { useJobCopySearch } from './navigation';
 import { ListingPreparationNotice } from './ListingPreparationNotice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
@@ -15,6 +17,7 @@ import { STATUS_LABEL, STATUS_PUBLICATION, countsFromServer, useStatusFilter } f
 import { useCompanyScope } from './companyScope';
 
 export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, resolvedListingId, onShowDeal, onApplicationsLoaded, onApplicationDates, revision = 0, scopeDeal, autoLoad = true }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; resolvedListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; /** 応募日ごとの件数が読めたとき（null は読めなかった）。 */ onApplicationDates?: (id: string, loaded: LoadedApplications | null) => void; revision?: number; /** 案件の求人だけを出す。指定すると取引の選択は出さない。 */ scopeDeal?: { id: string; name: string } | undefined; /** false の間は一覧を読まず、隠しておく（求人を探すを押すまで） */ autoLoad?: boolean }) {
+  const ownerQuery = ownerParams(useJobCopySearch()) || 'owner=me';
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
@@ -47,7 +50,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   const load = useCallback(async (offset = 0) => {
     listRequest.current?.abort(); const controller = new AbortController(); listRequest.current = controller;
     setBusy(true); setError('');
-    const query = new URLSearchParams({ offset: String(offset), sort: sort === 'applications' ? 'title' : sort });
+    const query = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(ownerQuery)), offset: String(offset), sort: sort === 'applications' ? 'title' : sort });
     if (prefecture) query.set('prefecture', prefecture);
     if (title) query.set('title', title);
     if (media) query.set('media', media);
@@ -59,7 +62,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     if (controller.signal.aborted) return;
     if (result.ok) { pageRef.current = result.data; setPage(result.data); if (result.data.titles.length) setTitles(result.data.titles); } else setError(message(result.error));
     setBusy(false);
-  }, [prefecture, title, media, sort, deal, dealSearch, publication, draftStatus]);
+  }, [prefecture, title, media, sort, deal, dealSearch, publication, draftStatus, ownerQuery]);
   useEffect(() => {
     if (!active) { listRequest.current?.abort(); detailRequest.current?.abort(); countRequest.current?.controller.abort(); return; }
     if (!autoLoad) { listRequest.current?.abort(); return; }

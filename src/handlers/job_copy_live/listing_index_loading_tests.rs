@@ -403,6 +403,7 @@ async fn preparing_progress_is_returned_by_home_and_listings() {
         State(app.clone()),
         Extension(access.clone()),
         session.clone(),
+        Query(Default::default()),
     )
     .await
     .unwrap()

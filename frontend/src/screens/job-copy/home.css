@@ -54,3 +54,18 @@
 .jh-latest-name { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .jh-latest small { display: block; color: var(--jc-muted, #52697a); font-size: 12px; }
 .jh-badge.jh-now { background: var(--jc-accent, #007c91); color: #fff; }
+.jh-owner { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; padding: 16px; border: 1px solid #d4dfe7; border-radius: 10px; background: #fff; }
+.jh-owner label { display: grid; gap: 6px; font-size: 13px; }
+.jh-owner select { min-width: 180px; padding: 8px; border: 1px solid #d4dfe7; border-radius: 6px; background: #fff; color: inherit; font: inherit; }
+.jh-owner p { flex-basis: 100%; margin: 0; font-size: 13px; }
+.jh-todo { padding: 22px; border: 1px solid #d4dfe7; border-radius: 12px; background: #fff; }
+.jh-todo h3 { font-size: 18px; margin: 18px 0 10px; }
+.jh-todo h4 { font-size: 15px; margin: 0 0 8px; }
+.jh-todo h3 span, .jh-todo h4 span { display: inline-block; margin-left: 8px; padding: 3px 10px; border-radius: 20px; background: #eaf5f7; }
+.jh-todo-group { margin-top: 10px; padding: 14px; border: 1px solid #e6edf2; border-radius: 8px; }
+.jh-todo-overdue { border-color: #fdba74; background: #fff7ed; }
+.jh-todo-overdue h4, .jh-todo-overdue time { color: #9a3412; font-weight: 700; }
+.jh-todo summary { cursor: pointer; font-size: 15px; font-weight: 700; }
+.jh-todo-table { min-width: 740px; }
+.jh-todo-table time { white-space: nowrap; }
+@media (max-width: 560px) { .jh-todo { padding: 12px; } .jh-owner label, .jh-owner select { width: 100%; } }

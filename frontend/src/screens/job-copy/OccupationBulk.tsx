@@ -1,3 +1,5 @@
+import { ownerParams } from './OwnerTodo';
+import { useJobCopySearch } from './navigation';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { apiGet, apiPut, AuthRequiredError } from '../../api/client';
 import type { HubSpotListing, HubSpotListingPage } from './hubspotListings';
@@ -20,6 +22,7 @@ const percent = (done: number, total: number) => total > 0 ? Math.min(100, Math.
 
 /** 求人ごとに、市場と比べる Indeed の職種を指定する一括画面。自動では決めない。 */
 export function OccupationBulk() {
+  const ownerQuery = ownerParams(useJobCopySearch()) || 'owner=me';
   const [tab, setTab] = useState<Tab>('unset');
   const [text, setText] = useState('');
   const [q, setQ] = useState('');
@@ -36,17 +39,17 @@ export function OccupationBulk() {
 
   useEffect(() => { const timer = window.setTimeout(() => { setQ(text.trim()); setOffset(0); }, 250); return () => { window.clearTimeout(timer); }; }, [text]);
 
-  const key = `${tab}|${q}|${String(offset)}|${String(reload)}`;
+  const key = `${ownerQuery}|${tab}|${q}|${String(offset)}|${String(reload)}`;
   const busy = loadedKey !== key;
   const load = useCallback(async () => {
     request.current?.abort(); const controller = new AbortController(); request.current = controller;
-    const query: Record<string, string> = { sort: 'bulk', offset: String(offset) };
+    const query: Record<string, string> = { ...Object.fromEntries(new URLSearchParams(ownerQuery)), sort: 'bulk', offset: String(offset) };
     if (tabState(tab)) query.indeed_state = tabState(tab);
     if (q) query.q = q;
     const [result, liveResult] = await Promise.all([
       apiGet<HubSpotListingPage>(listingUrl(query), { signal: controller.signal, timeoutMs: 120_000 }),
       // 進み具合: 掲載中の求人だけの件数。行は要らないので、空の続きの位置を読む。
-      apiGet<HubSpotListingPage>(listingUrl({ sort: 'bulk', publication: '掲載中', offset: '100000' }), { signal: controller.signal, timeoutMs: 120_000 }),
+      apiGet<HubSpotListingPage>(listingUrl({ ...Object.fromEntries(new URLSearchParams(ownerQuery)), sort: 'bulk', publication: '掲載中', offset: '100000' }), { signal: controller.signal, timeoutMs: 120_000 }),
     ]);
     if (controller.signal.aborted) return;
     setLoadedKey(key);
@@ -56,7 +59,7 @@ export function OccupationBulk() {
     setLive(liveResult.ok ? liveResult.data.indeed_title_counts ?? null : null);
     const ids = result.data.listings.map(row => row.id);
     if (ids.length) void loadCompanies(ids).then(() => { if (!controller.signal.aborted) setCompanyTick(n => n + 1); });
-  }, [tab, q, offset, key]);
+  }, [tab, q, offset, key, ownerQuery]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 条件が変わるたびに一覧を取り直す（取得後に状態を入れる）
   useEffect(() => { void load(); return () => { request.current?.abort(); }; }, [load]);
   useEffect(() => {

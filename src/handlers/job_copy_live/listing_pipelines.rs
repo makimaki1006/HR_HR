@@ -219,6 +219,8 @@ pub(super) fn build_rows(
 #[derive(Deserialize)]
 pub(in crate::handlers::job_copy_live) struct CompanyDealsQuery {
     company: String,
+    owner: Option<String>,
+    owner_field: Option<String>,
 }
 
 /// 顧客（事業所）の案件。納品管理のパイプラインの取引だけを、結び付いた求人の数と一緒に返す。
@@ -228,13 +230,13 @@ pub(in crate::handlers::job_copy_live) async fn company_deals(
     session: Session,
     Query(query): Query<CompanyDealsQuery>,
 ) -> Result<impl IntoResponse, ReadError> {
-    authorized_user(&state, &access, &session).await?;
+    let email = authorized_user(&state, &access, &session).await?;
     let service = service(&access)?;
     valid_id(&query.company)?;
     let ids = service
         .all_associations("companies", &query.company, "deals")
         .await?;
-    let records = service
+    let mut records = service
         .batch(
             "deals",
             &ids,
@@ -248,6 +250,19 @@ pub(in crate::handlers::job_copy_live) async fn company_deals(
             ],
         )
         .await?;
+    let owner_query = owner_todo::OwnerQuery {
+        owner: query.owner.clone(),
+        owner_field: query.owner_field.clone(),
+    };
+    owner_query.validate()?;
+    if owner_query.owner.is_some() || owner_query.owner_field.is_some() {
+        let view = owner_todo::view(service).await;
+        let Some(snapshot) = view.snapshot else {
+            return Err(ReadError(StatusCode::SERVICE_UNAVAILABLE, "hubspot_busy"));
+        };
+        let (owner, _) = snapshot.selection(&owner_query, &email);
+        records.retain(|r| snapshot.matches(&r.id, owner_query.field(), owner.as_deref()));
+    }
     let defs = load_defs(service).await;
     let snapshot = service.listing_index.state.read().await.snapshot.clone();
     let deals = build_rows(

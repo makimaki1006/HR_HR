@@ -36,7 +36,7 @@ describe('OccupationBulk', () => {
     expect(screen.getByRole('tab', { name: 'すべて（10）' })).toBeTruthy();
     expect(screen.getByText('5 / 10 件')).toBeTruthy();
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('5');
-    expect(listCalls()[0]).toBe('/api/job-copy/listings?sort=bulk&offset=0&indeed_state=unset');
+    expect(listCalls()[0]).toBe('/api/job-copy/listings?owner=me&sort=bulk&offset=0&indeed_state=unset');
     const input = await screen.findByLabelText('配送A と比べる Indeed の職種');
     expect((input as HTMLInputElement).value).toBe('');
     expect(screen.getByText('20 件')).toBeTruthy();
@@ -96,11 +96,11 @@ describe('OccupationBulk', () => {
     render(<OccupationBulk />);
     await screen.findByRole('tab', { name: '未指定（6）' });
     fireEvent.click(screen.getByRole('tab', { name: '指定済み（4）' }));
-    await waitFor(() => { expect(listCalls().at(-1)).toBe('/api/job-copy/listings?sort=bulk&offset=0&indeed_state=assigned'); });
+    await waitFor(() => { expect(listCalls().at(-1)).toBe('/api/job-copy/listings?owner=me&sort=bulk&offset=0&indeed_state=assigned'); });
     expect(await screen.findByText('指定済み', { selector: '.mo-chip' })).toBeTruthy();
     expect(screen.getAllByRole('button', { name: '指定済み' }).every(b => (b as HTMLButtonElement).disabled)).toBe(true);
     fireEvent.click(screen.getByRole('tab', { name: 'すべて（10）' }));
     fireEvent.change(screen.getByPlaceholderText('求人名で探す'), { target: { value: '看護' } });
-    await waitFor(() => { expect(listCalls().at(-1)).toBe('/api/job-copy/listings?sort=bulk&offset=0&q=%E7%9C%8B%E8%AD%B7'); });
+    await waitFor(() => { expect(listCalls().at(-1)).toBe('/api/job-copy/listings?owner=me&sort=bulk&offset=0&q=%E7%9C%8B%E8%AD%B7'); });
   });
 });

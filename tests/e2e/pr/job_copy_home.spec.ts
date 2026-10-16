@@ -74,3 +74,61 @@ test('ホームの9枚のカードと、変更求人の一覧・求人と案件�
   await page.goForward();
   await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();
 });
+
+test('担当者の切替でホームの件数とやることを絞り、会社・案件へ履歴を残して移動する', async ({ page }) => {
+  const { demoOwnerTodo } = await import('../../../frontend/src/screens/job-copy/demoOwnerTodo');
+  await page.setViewportSize({ width: 1600, height: 1900 });
+  await page.route(/\/api\/job-copy\/home(?:\?|$)/, route => {
+    const query = new URL(route.request().url()).searchParams;
+    const owner = query.get('owner') === 'all' ? 'all' : query.get('owner') === '22' ? '22' : '11';
+    const field = query.get('owner_field') ?? 'consultant';
+    const empty = owner === '22';
+    return route.fulfill({ json: { ...demoHome, work: { ...demoOwnerTodo, owner, owner_field: field,
+      actions: empty ? { overdue: [], today: [], week: [], later: [] } : demoOwnerTodo.actions, expirations: empty ? [] : demoOwnerTodo.expirations },
+      home: { ...demoHome.home, cards: demoHome.home.cards.map(card => empty ? { ...card, count: 0, listings: [] } : card), customers: empty ? [] : demoHome.home.customers } } });
+  });
+  await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: { status: 'ready', refresh_failed: false, report: { count: 0, listings: [] } } }));
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', capture_bundle: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', jobs: [] }, results: [] } }));
+  await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: { status: 'ready', total: 0, listings: [], deals: [], titles: [], index_built_at: '2026-10-16T00:00:00Z' } }));
+  await page.route('**/api/job-copy/company-deals?*', route => route.fulfill({ json: { company: { id: '901', name: '合成事業所' }, deals: [], index_ready: true } }));
+  await login(page);
+  await page.goto('/app/job-copy');
+  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('11');
+  await expect(page).toHaveURL(/owner=11/);
+  await expect(page.getByLabel('担当の項目')).toHaveValue('consultant');
+  await expect(page.getByRole('heading', { name: 'CSアクション 5件' })).toBeVisible();
+  const overdue = page.getByRole('region', { name: '期限切れのCSアクション' });
+  await expect(overdue).toHaveClass(/jh-todo-overdue/);
+  await expect(overdue.locator('tbody tr')).toHaveCount(2);
+  await expect(overdue.locator('tbody tr').first()).toContainText('合成事業所合成案件101対応中電話する2026-10-15合成担当A');
+  await expect(page.locator('details.jh-todo-group')).not.toHaveAttribute('open');
+  await expect(page.getByRole('region', { name: '契約満了が近い' })).toContainText('2026-11-15');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('22');
+  await expect(page.getByRole('heading', { name: 'CSアクション 0件' })).toBeVisible();
+  await expect(page.locator('.jh-card').first().locator('.jh-count')).toHaveText('0件');
+  await expect(page.locator('.jh-customer-table tbody')).toContainText('契約中の案件がある顧客はありません');
+  await page.getByRole('button', { name: '自分に戻す' }).click();
+  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('11');
+  await expect(page.getByRole('heading', { name: 'CSアクション 5件' })).toBeVisible();
+  await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('22');
+  await expect(page.getByRole('heading', { name: 'CSアクション 0件' })).toBeVisible();
+  await page.getByLabel('担当の項目').selectOption('hubspot_owner_id');
+  await expect(page).toHaveURL(/owner_field=hubspot_owner_id/);
+  await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('all');
+  await expect(page.getByRole('heading', { name: 'CSアクション 5件' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('all');
+  if (process.env.OWNER_TODO_SCREENSHOT) {
+    await page.mouse.move(1550, 100);
+    await page.locator('.jc-main').screenshot({ path: process.env.OWNER_TODO_SCREENSHOT });
+  }
+  await overdue.getByRole('button', { name: '合成案件101' }).click();
+  await expect(page).toHaveURL(/deal=101/);
+  expect(new URL(page.url()).searchParams.get('owner')).toBe('all');
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'CSアクション 5件' })).toBeVisible();
+  await overdue.getByRole('button', { name: '合成事業所' }).first().click();
+  await expect(page).toHaveURL(/company=901/);
+  expect(new URL(page.url()).searchParams.get('owner_field')).toBe('hubspot_owner_id');
+  await page.goBack();
+  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('all');
+});

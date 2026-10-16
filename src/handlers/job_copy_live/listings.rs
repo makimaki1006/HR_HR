@@ -11,6 +11,101 @@ pub(super) use deals::{read_body_dates, read_comparison};
 #[path = "listing_pipelines.rs"]
 mod pipelines;
 pub(super) use pipelines::company_deals;
+pub(super) fn delivery_pipelines() -> [(&'static str, &'static str); 2] {
+    pipelines::DELIVERY_PIPELINES
+}
+pub(super) async fn todo_stages(service: &JobReadService) -> BTreeMap<String, String> {
+    pipelines::load_defs(service)
+        .await
+        .pipelines
+        .values()
+        .flat_map(|(_, stages)| {
+            stages
+                .iter()
+                .map(|(id, stage)| (id.clone(), stage.label.clone()))
+        })
+        .collect()
+}
+/// 新しい索引にある担当情報と先着した owners で、カードだけを先に表示できる。
+pub(super) async fn ownership_from_index(
+    service: &JobReadService,
+    owners: Vec<owner_todo::Owner>,
+) -> Option<Arc<owner_todo::Snapshot>> {
+    let index = service.listing_index.state.read().await.snapshot.clone()?;
+    if index.deals.iter().any(|d| !d.assignment.acquired) {
+        return None;
+    }
+    let deals = index
+        .deals
+        .iter()
+        .map(|d| {
+            let record = Record {
+                id: d.id.clone(),
+                properties: [
+                    ("pipeline".into(), d.pipeline.clone()),
+                    ("dealstage".into(), d.stage.clone()),
+                    ("dealname".into(), d.name.clone()),
+                ]
+                .into_iter()
+                .collect(),
+            };
+            (
+                d.id.clone(),
+                owner_todo::WorkDeal {
+                    record,
+                    assignment: d.assignment.clone(),
+                },
+            )
+        })
+        .collect();
+    Some(Arc::new(owner_todo::Snapshot::for_index(deals, owners)))
+}
+/// 既存ホームの会社取得を共有し、求人のない案件だけ追加で読む。
+pub(super) async fn todo_companies(
+    service: &JobReadService,
+    ids: &[String],
+) -> Result<BTreeMap<String, (String, Option<String>)>, ReadError> {
+    let index = service.listing_index.state.read().await.snapshot.clone();
+    let map = if let Some(index) = index {
+        home::load_companies(service, &index).await?
+    } else {
+        Arc::default()
+    };
+    let missing: Vec<_> = ids
+        .iter()
+        .filter(|id| !map.deal_info.contains_key(*id))
+        .cloned()
+        .collect();
+    let related = service
+        .association_map("deals", &missing, "companies")
+        .await?;
+    let wanted: Vec<_> = related
+        .values()
+        .flatten()
+        .filter(|id| !map.names.contains_key(*id))
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut names = map.names.clone();
+    names.extend(
+        service
+            .batch("companies", &wanted, &["name"])
+            .await?
+            .into_iter()
+            .map(|r| (r.id.clone(), r.value("name").map(str::to_owned))),
+    );
+    let mut result: BTreeMap<_, _> = map
+        .deal_company
+        .iter()
+        .map(|(d, c)| (d.clone(), (c.clone(), names.get(c).cloned().flatten())))
+        .collect();
+    result.extend(related.into_iter().filter_map(|(d, cs)| {
+        cs.first()
+            .map(|c| (d, (c.clone(), names.get(c).cloned().flatten())))
+    }));
+    Ok(result)
+}
 pub(super) fn is_delivery(pipeline: Option<&str>) -> bool {
     pipelines::is_delivery(pipeline)
 }
@@ -114,6 +209,8 @@ pub(super) struct ListingsQuery {
     indeed_state: Option<String>,
     /// 求人名に含まれる文字で絞る（空白・記号・大小を無視）。
     q: Option<String>,
+    owner: Option<String>,
+    owner_field: Option<String>,
 }
 // Labels are decoded from a closed set of literals, never borrowed from the saved JSON.
 type IndexLabel = &'static str;
@@ -654,6 +751,7 @@ async fn build_index(
                     record
                         .value("createdate")
                         .map(|v| v.chars().take(10).collect()),
+                    owner_todo::Assignment::from_record(&record),
                 ),
             );
         }
@@ -679,12 +777,14 @@ async fn build_index(
     let deals = deal_counts
         .into_iter()
         .map(|(id, count)| {
-            let (name, pipeline, stage, created_at) = names.remove(&id).unwrap_or_default();
+            let (name, pipeline, stage, created_at, assignment) =
+                names.remove(&id).unwrap_or_default();
             Deal {
                 name,
                 pipeline,
                 stage,
                 created_at,
+                assignment,
                 id,
                 count,
             }
@@ -982,13 +1082,33 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
         .collect();
     (total, page)
 }
+fn scoped_index(
+    index: &Arc<Index>,
+    snapshot: &owner_todo::Snapshot,
+    field: &str,
+    owner: Option<&str>,
+) -> Arc<Index> {
+    if owner.is_none() {
+        return index.clone();
+    }
+    let mut scoped = (**index).clone();
+    scoped
+        .deals
+        .retain(|d| snapshot.matches(&d.id, field, owner));
+    scoped.records.retain_mut(|row| {
+        row.deal_ids.retain(|id| snapshot.matches(id, field, owner));
+        !row.deal_ids.is_empty()
+    });
+    Arc::new(scoped)
+}
+
 pub(super) async fn read(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
     session: Session,
     Query(query): Query<ListingsQuery>,
 ) -> Result<impl IntoResponse, ReadError> {
-    authorized_user(&state, &access, &session).await?;
+    let email = authorized_user(&state, &access, &session).await?;
     let service = service(&access)?;
     let cached = service.listing_index.state.read().await;
     let snapshot = cached.snapshot.clone();
@@ -1059,6 +1179,26 @@ pub(super) async fn read(
     }) {
         return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
     }
+    let owner_query = owner_todo::OwnerQuery {
+        owner: query.owner.clone(),
+        owner_field: query.owner_field.clone(),
+    };
+    owner_query.validate()?;
+    let index = if owner_query.owner.is_some() || owner_query.owner_field.is_some() {
+        let view = owner_todo::view(service).await;
+        let Some(snapshot) = view.snapshot else {
+            return Ok((
+                [(header::CACHE_CONTROL, "private, no-store")],
+                Json(
+                    json!({"status":"preparing", "listings":[], "total":null, "offset":query.offset, "next_offset":null, "titles":[], "deals":[], "refresh_failed":view.failed}),
+                ),
+            ));
+        };
+        let (owner, _) = snapshot.selection(&owner_query, &email);
+        scoped_index(&index, &snapshot, owner_query.field(), owner.as_deref())
+    } else {
+        index
+    };
     let (total, rows) = selected_page(&index, &query);
     // 職種の指定状態の件数（状態以外の絞り込みは反映）。画面のタブと進み具合に使う。
     let mut counts = (0usize, 0usize, 0usize);

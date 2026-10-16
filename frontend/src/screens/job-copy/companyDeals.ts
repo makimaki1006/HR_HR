@@ -1,3 +1,4 @@
+import { ownerParams } from './OwnerTodo';
 import { apiGet } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 
@@ -28,13 +29,15 @@ const cache = new Map<string, { at: number; value: Promise<ApiResult<CompanyDeal
 const TTL_MS = 30_000;
 /** 同じ顧客の案件を、左の一覧と顧客の画面で二重に読まない（30 秒だけ使い回す。失敗は覚えない）。 */
 export function loadCompanyDeals(companyId: string, options: { fresh?: boolean } = {}): Promise<ApiResult<CompanyDeals>> {
-  const hit = cache.get(companyId);
+  const ownerQuery = ownerParams(window.location.search) || 'owner=me';
+  const cacheKey = `${companyId}|${ownerQuery}`;
+  const hit = cache.get(cacheKey);
   if (!options.fresh && hit && Date.now() - hit.at < TTL_MS) return hit.value;
-  const value = apiGet<CompanyDeals>(`/api/job-copy/company-deals?company=${encodeURIComponent(companyId)}`, { timeoutMs: 120_000 }).then(result => {
-    if (!result.ok && cache.get(companyId)?.value === value) cache.delete(companyId);
+  const value = apiGet<CompanyDeals>(`/api/job-copy/company-deals?company=${encodeURIComponent(companyId)}${ownerQuery ? `&${ownerQuery}` : ''}`, { timeoutMs: 120_000 }).then(result => {
+    if (!result.ok && cache.get(cacheKey)?.value === value) cache.delete(cacheKey);
     return result;
   });
-  cache.set(companyId, { at: Date.now(), value });
+  cache.set(cacheKey, { at: Date.now(), value });
   return value;
 }
 export function clearCompanyDealsCache() { cache.clear(); }
