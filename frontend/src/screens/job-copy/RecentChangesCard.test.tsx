@@ -52,3 +52,15 @@ it('0件は集計中や取得失敗と区別する', () => {
   render(<RecentChangesList data={{ ...ready, report: { count: 0, deals: [] } }} error="" onOpenDeal={vi.fn()} />);
   expect(screen.getByText('該当する案件はありません。')).toBeTruthy();
 });
+it('ホームの読み込みが終わるまで追加の取得を始めない', async () => {
+  api.mockResolvedValue({ ok: true, data: ready });
+  function Harness({ enabled }: { enabled: boolean }) { const recent = useRecentChanges(0, enabled); return <RecentChangesButton data={recent.data} open={false} onClick={vi.fn()} />; }
+  const view = render(<Harness enabled={false} />);
+  await act(() => Promise.resolve());
+  expect(api).not.toHaveBeenCalled();
+  expect(screen.getByText('集計中')).toBeTruthy();
+  view.rerender(<Harness enabled />);
+  await act(() => Promise.resolve());
+  expect(api).toHaveBeenCalledTimes(1);
+  expect(screen.getByText('2')).toBeTruthy();
+});

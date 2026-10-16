@@ -29,7 +29,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal }: { onOp
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const [open, setOpen] = useState<CardKey | 'recent_changes' | null>(null);
-  const recent = useRecentChanges(reload);
+  const recent = useRecentChanges(reload, data?.status === 'ready');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<CustomerSort>('default');
   const [descending, setDescending] = useState(true);

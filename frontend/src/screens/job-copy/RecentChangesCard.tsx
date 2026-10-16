@@ -6,10 +6,11 @@ export interface ChangedDeal { id: string; name: string | null; company: string 
 export type RecentChangesResponse = { status: 'preparing' | 'failed' } | { status: 'ready'; report: { count: number; deals: ChangedDeal[] }; refresh_failed: boolean };
 export const recentChangesRule = '今日を含む直近7日（日本時間）に、本文・給与・求人名の変更を確認した求人がある案件。掲載終了の求人も含みます。初回の記録は数えません。納品管理の案件だけを数えます。';
 
-export function useRecentChanges(reload: number) {
+export function useRecentChanges(reload: number, enabled = true) {
   const [data, setData] = useState<RecentChangesResponse>({ status: 'preparing' });
   const [error, setError] = useState('');
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
@@ -25,7 +26,7 @@ export function useRecentChanges(reload: number) {
     };
     void load();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [reload]);
+  }, [reload, enabled]);
   return { data, error };
 }
 export function RecentChangesButton({ data, open, onClick }: { data: RecentChangesResponse; open: boolean; onClick: () => void }) {
