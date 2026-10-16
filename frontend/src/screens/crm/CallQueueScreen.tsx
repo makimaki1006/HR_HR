@@ -249,7 +249,8 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
       onPointerEnter={() => { onHoverStart?.(item.deal_id); }} onPointerLeave={onHoverEnd}
       onFocus={() => { onHoverStart?.(item.deal_id); }} onBlur={onHoverEnd}>
       <span className="cq-row-l1">
-        <strong className="cq-row-company">{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
+        {/* 会社が紐づいていない取引は、真ん中の欄と同じく案件名を出す */}
+        <strong className="cq-row-company">{item.company?.name ?? item.deal_name ?? <span className="crm-muted">(名称なし)</span>}</strong>
         {recorded && (unsaved
           ? <span className="cq-recorded is-unsaved" title={UNSAVED_RECORDED_TITLE}><span aria-hidden="true">⚠記録済</span><span className="cq-sr-only">記録済み(HubSpot に保存済み。印は画面を閉じると消えます)</span></span>
           : <span className="cq-recorded" title={RECORDED_TITLE}><span aria-hidden="true">✓記録済</span><span className="cq-sr-only">記録済み(HubSpot に保存済み)</span></span>)}

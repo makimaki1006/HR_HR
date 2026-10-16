@@ -37,7 +37,7 @@ describe('CallQueueScreen', () => {
     await ready(calls, [
       makeItem('1', { phone: '+81312345678' }),
       makeItem('2', { phone: '03-1111-2222', phone_source: 'deal', next_call_date: '2026-10-05', next_call_time: '10:30', stop: { prohibited_reason: null, block_reason: null, unreachable_check: '通話中' } }),
-      makeItem('3', { phone: null, phone_source: null, contact: null, company: null, owner_id: null }),
+      makeItem('3', { deal_name: '案件だけの工場', phone: null, phone_source: null, contact: null, company: null, owner_id: null }),
     ]);
     // 表示はハイフン区切り。元の値は title に残す
     const row1 = screen.getByText('03-1234-5678');
@@ -48,6 +48,8 @@ describe('CallQueueScreen', () => {
     expect(screen.getByTitle('不通時チェック: 通話中').textContent).toBe('不通チェック');
     expect(screen.getByText('番号を確認できません')).toBeTruthy();
     expect(screen.getByText('担当者情報を取得できませんでした')).toBeTruthy();
+    // 会社が紐づいていない取引は案件名を出す
+    expect(screen.getByText('案件だけの工場').className).toBe('cq-row-company');
     expect(screen.getByTestId('queue-count').textContent).toBe('全 3 件中 3 件を表示');
   });
 
