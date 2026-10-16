@@ -10,7 +10,7 @@ import { buildDistribution } from './applicantCompositionModel';
 import { comparisonAttributes, comparisonPeriod, commonRecentPeriod, fourWeekLabel, contentDifferences, jstToday, localCandidates, periodPerformance, variantDistribution } from './abComparisonModel';
 import type { ComparisonPeriod } from './abComparisonModel';
 import { APPLICATION_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
-import { formatDateJst, formatPeriodJst, formatYen, orderCategories } from './format';
+import { formatDateJst, formatYen, orderCategories } from './format';
 import { ImageGallery } from './ImageGallery';
 import './ab-comparison.css';
 
@@ -146,8 +146,7 @@ export function AbComparison({ job, records, source = 'fixed' }: { job: JobCopyR
     <p>本文・画像は最後に取得した内容です。比べる期間の当時の内容とは限りません。</p><p>選択中：{selected.length}件 / 4件。良し悪しは自動で判定しません。</p>
     <div className="ab-table-scroll" tabIndex={0} role="region" aria-label="成果の横並び比較"><table><thead>{headers(true)}</thead><tbody>
       <tr><th scope="row">顧客・勤務地・媒体</th>{entries.map(entry => <td key={entry.id}>{entry.job ? [entry.job.company || '顧客名未取得', entry.job.location, entry.job.media].filter(Boolean).join(' · ') : '未取得'}</td>)}</tr>
-      <tr><th scope="row">比べる期間</th>{entries.map((entry, i) => { const period = periods[i]; return <td key={entry.id}>{period ? formatPeriodJst(period.start, period.end) : entry.job ? mode === 'recent' ? '共通の4週分の実績がありません' : '掲載開始日が分かりません' : '未取得'}</td>; })}</tr>
-      <tr><th scope="row">含めた週</th>{metrics.map((metric, i) => <td key={entries[i]?.id}>{metric?.covered ? fourWeekLabel(periods[i] ?? null) : '未取得（4週分の実績が不足）'}</td>)}</tr>
+      <tr><th scope="row">比べる期間</th>{entries.map((entry, i) => { const period = periods[i]; return <td key={entry.id}>{period ? <>{fourWeekLabel(period)}{!metrics[i]?.covered && <small>未取得（4週分の実績が不足）</small>}</> : entry.job ? mode === 'recent' ? '共通の4週分の実績がありません' : '掲載開始日が分かりません' : '未取得'}</td>; })}</tr>
       {(['応募数', '表示数', 'クリック数', 'クリック率', '費用', '応募単価'] as const).map(label => <tr key={label}><th scope="row">{label}</th>{metrics.map((m, i) => <td key={entries[i]?.id}>{label === '費用' || label === '応募単価' ? formatYen(label === '費用' ? m?.total.cost_yen : m?.ratios.cpa, '未取得') : number(label === '応募数' ? m?.total.applications : label === '表示数' ? m?.total.impressions : label === 'クリック数' ? m?.total.clicks : m?.ratios.ctr, label === 'クリック率' ? '%' : label === '応募数' ? '件' : '回')}</td>)}</tr>)}
     </tbody></table></div>
     <p>色が付いたところが今の求人と違う項目です。</p><h3>違う項目（{content.filter(row => row.different).length}項目）</h3>{contentTable(true)}<details><summary>同じ項目・未取得（{content.filter(row => !row.different).length}項目）</summary>{contentTable(false)}</details>

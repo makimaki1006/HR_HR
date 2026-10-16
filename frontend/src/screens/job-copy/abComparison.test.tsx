@@ -84,6 +84,14 @@ describe('求人比較', () => {
     expect(rows.find(r => r.key === 'body')).toMatchObject({ different: true, differences: [false, true], values: ['本文a', '本文b'] });
     expect(rows.find(r => r.key === 'images')).toMatchObject({ different: true, differences: [false, true] });
   });
+  it('combines summary and body salary into one row, retaining body-only salary', () => {
+    const a = { ...job('a'), listingSummary: { occupation: null, location: null, hours: null, holidays: null, body_changed_at: null, salary_kind: '月給', salary_min: '250000', salary_max: '300000' }, versions: [{ ...version(job('a')), bodySections: [{ heading: '給与', text: '月給 250,000円〜300,000円' }] }] };
+    const b = { ...job('b'), versions: [{ ...version(job('b')), bodySections: [{ heading: '給与', text: '月給 270,000円〜300,000円' }] }] };
+    const rows = contentDifferences([a, b]);
+    expect(rows.filter(row => row.label === '給与')).toHaveLength(1);
+    expect(rows.find(row => row.key === 'salary')).toMatchObject({ values: ['月給 250,000円〜300,000円', '月給 270,000円〜300,000円'], differences: [false, true] });
+    expect(rows.some(row => row.key === 'body-給与' || row.key === 'body')).toBe(false);
+  });
   it('renders three columns, automatically fills metrics, removes opponents and caps selection at four', () => {
     const a = job('a'); const records = [a, ...['b', 'c', 'd', 'e', 'f'].map(id => job(id))];
     render(<AbComparison job={a} records={records} />);
@@ -94,6 +102,8 @@ describe('求人比較', () => {
     expect(screen.queryByText('今の求人と違う', { exact: true })).toBeNull();
     expect(document.querySelectorAll('.ab-different')).toHaveLength(4);
     const table = within(screen.getByRole('region', { name: '成果の横並び比較' }));
+    expect(table.queryByRole('rowheader', { name: '含めた週' })).toBeNull();
+    expect(within(parent(table.getByRole('rowheader', { name: '比べる期間' }))).getAllByRole('cell').map(el => el.textContent)).toEqual(Array<string>(3).fill('2026/08/31〜09/27 の4週'));
     expect(table.getAllByRole('columnheader').map(el => el.textContent)).toEqual(['項目', '今の求人募集a', '募集b募集bを外す', '募集c募集cを外す']);
     expect(within(parent(table.getByRole('rowheader', { name: '応募数' }))).getAllByRole('cell').map(el => el.textContent)).toEqual(['20件', '20件', '20件']);
     fireEvent.click(screen.getByRole('button', { name: '募集dを比較に追加' })); fireEvent.click(screen.getByRole('button', { name: '募集eを比較に追加' }));

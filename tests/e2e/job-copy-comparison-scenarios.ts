@@ -107,8 +107,10 @@ export function registerComparisonTests(authenticate: (page: Page) => Promise<vo
     await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '応募単価', exact: true }) }).getByRole('cell')).toHaveText(['1,000円', '1,000円', '1,000円']);
     await expect(comparison.locator('.ab-difference-mark')).toHaveCount(0);
     await expect(comparison.getByText('色が付いたところが今の求人と違う項目です。', { exact: true })).toHaveCount(1);
-    await expect(comparison.locator('.ab-different')).toHaveCount(10);
-    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '含めた週', exact: true }) }).getByRole('cell')).toHaveText(['2026/08/31〜09/27 の4週', '2026/09/07〜10/04 の4週', '2026/09/07〜10/04 の4週']);
+    await expect(comparison.locator('.ab-different')).toHaveCount(8);
+    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '比べる期間', exact: true }) }).getByRole('cell')).toHaveText(['2026/08/31〜09/27 の4週', '2026/09/07〜10/04 の4週', '2026/09/07〜10/04 の4週']);
+    await expect(table.getByRole('rowheader', { name: '含めた週', exact: true })).toHaveCount(0);
+    await expect(comparison.getByRole('rowheader', { name: '給与', exact: true })).toHaveCount(1);
     const composition = comparison.getByText('応募者構成（性別・年代・地域）', { exact: true }).locator('..');
     await expect(composition).not.toHaveAttribute('open');
     await comparison.getByText('比較する相手を探す', { exact: true }).click();
@@ -122,7 +124,7 @@ export function registerComparisonTests(authenticate: (page: Page) => Promise<vo
     await expect.poll(() => same.locator('img').evaluateAll(images => images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth === 480))).toBe(true);
     await page.getByRole('dialog', { name: 'ほかの分析', exact: true }).screenshot({ path: info.outputPath('three-columns-content.png') });
     await comparison.getByLabel('比べる期間').selectOption('recent');
-    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '比べる期間', exact: true }) }).getByRole('cell')).toHaveText(['2026/09/14〜2026/10/11', '2026/09/14〜2026/10/11', '2026/09/14〜2026/10/11']);
+    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '比べる期間', exact: true }) }).getByRole('cell')).toHaveText(['2026/09/14〜10/11 の4週', '2026/09/14〜10/11 の4週', '2026/09/14〜10/11 の4週']);
     await comparison.getByText('応募者構成（性別・年代・地域）', { exact: true }).click();
     await composition.getByText('性別を比較', { exact: true }).click();
     await expect(composition.getByRole('table').first().getByRole('columnheader')).toHaveCount(4);

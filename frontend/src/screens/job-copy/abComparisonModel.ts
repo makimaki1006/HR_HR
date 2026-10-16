@@ -65,7 +65,7 @@ export function comparisonAttributes(job: JobCopyRecord) {
   const kind = job.listingSummary?.salary_kind ?? fields.get('給与形態') ?? '';
   const min = job.listingSummary?.salary_min ?? fields.get('基本給与 最小') ?? '';
   const max = job.listingSummary?.salary_max ?? fields.get('基本給与 最大') ?? '';
-  const salary = fields.get('給与') ?? (kind || min || max ? composeSalary(kind, min, max) : '');
+  const salary = fields.get('給与') ?? (kind || min || max ? composeSalary(kind, min, max) : version?.bodySections?.filter(section => section.heading === '給与').map(section => section.text).join('\n') ?? '');
   return {
     occupation: job.listingSummary?.occupation ?? fields.get('Indeed表示職種名') ?? fields.get('職種') ?? '',
     prefecture: job.listingPrefecture ?? (/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/.exec(job.location)?.[0] ?? ''),
@@ -81,7 +81,7 @@ export function contentDifferences(jobs: JobCopyRecord[]) {
     { key: 'title', label: '求人名', values: jobs.map(job => job.title.trim() ? job.title : null) },
     { key: 'salary', label: '給与', values: attrs.map(a => a.salary.trim() ? a.salary : null) },
     { key: 'images', label: '画像', values: attrs.map(a => a.images ? JSON.stringify(a.images.map(i => i.contentHash ?? i.url)) : null) },
-    ...sections.map(heading => ({ key: `body-${heading}`, label: heading, values: attrs.map(a => a.version?.bodySections?.filter(s => s.heading === heading).map(s => s.text).join('\n') ?? null) })),
+    ...sections.filter(heading => heading !== '給与').map(heading => ({ key: `body-${heading}`, label: heading, values: attrs.map(a => a.version?.bodySections?.filter(s => s.heading === heading).map(s => s.text).join('\n') ?? null) })),
     ...(!sections.length || attrs.some(a => a.version?.body && !a.version.bodySections?.length) ? [{ key: 'body', label: '本文', values: attrs.map(a => a.version?.body ?? null) }] : []),
   ];
   return rows.map(row => ({ ...row, differences: row.values.map((v, i) => i > 0 && v !== null && row.values[0] != null && v !== row.values[0]), different: row.values.some((v, i) => i > 0 && v !== null && row.values[0] != null && v !== row.values[0]) }));
