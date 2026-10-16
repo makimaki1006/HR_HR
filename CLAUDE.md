@@ -526,8 +526,10 @@ turso db shell salesnow "SELECT COUNT(*) FROM v2_salesnow_companies"
 | `docs/design_ssdse_a_*.md` | SSDSE-A 統計テーブル設計 (backend/frontend/expansion) |
 | `docs/design_agoop_*.md` | Agoop 人流データ設計 (backend/frontend/jinryu) |
 | `docs/requirements_*.md` | 要件定義 |
-| [`docs/sales_call_analysis/2026-10-13_apo_talk_hypotheses_v0.md`](docs/sales_call_analysis/2026-10-13_apo_talk_hypotheses_v0.md) | テレアポ通話の分析: アポが取れるトークの仮説 v0 (抽出の定義は同じフォルダの `specs/`) |
-| `docs/sales_call_analysis/knowledge_*.md` | トークの実例集 (冒頭・今かける理由・切り返し・「何の件?」)。前後の流れごとのまとまりで、取れた例と同じ形で取れなかった例を並べる。全件は `knowledge_flow_cases/` |
+| [`docs/sales_call_analysis/README.md`](docs/sales_call_analysis/README.md) | 営業通話分析v1: 監査済み実例・行動仮説・通話分類モデルの入口 |
+| [`docs/sales_call_analysis/talk-knowledge-v1.md`](docs/sales_call_analysis/talk-knowledge-v1.md) | 営業トークナレッジv1: 最終監査済み8例 |
+| [`docs/sales_call_analysis/action-hypotheses-v1.md`](docs/sales_call_analysis/action-hypotheses-v1.md) | 行動仮説検証v1: 同じ観測時点で比較、介入試験は設計のみ |
+| [`docs/sales_call_analysis/call-classification-v1.md`](docs/sales_call_analysis/call-classification-v1.md) | 通話分類モデルv1: 時系列・番号分離・確認コスト |
 
 ### 運用・移行
 | ファイル | 内容 |
