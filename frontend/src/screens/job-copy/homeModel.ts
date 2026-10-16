@@ -1,6 +1,6 @@
 import type { Work } from './OwnerTodo';
 import type { IndexProgress } from './ListingPreparationNotice';
-export type CardKey = 'zero_stay' | 'to_zero' | 'less' | 'more' | 'flat' | 'costly' | 'stale' | 'occupation';
+export type CardKey = 'zero_stay' | 'to_zero' | 'less' | 'more' | 'flat' | 'costly' | 'stale';
 export interface HomeRowData { id: string; title: string | null; company: string | null; media: 'hrh' | 'airwork'; recent_apps: number | null; prev_apps: number | null; recent_cost: number | null; latest_week_end: string | null }
 export interface HomeCard { key: CardKey; title: string; rule: string; count: number; listings: HomeRowData[] }
 export interface LatestDeal { name: string | null; stage_label: string | null; active: boolean; created_at: string | null }
