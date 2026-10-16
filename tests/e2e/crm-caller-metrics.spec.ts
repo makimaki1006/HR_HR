@@ -13,7 +13,7 @@ test('appointer strip shows own values with average and rank; collapses; no live
   await expect(page.getByTestId('metric-over_90s')).toContainText('2位/8人');
   await expect(page.getByTestId('metric-duration')).toContainText('55:12・1件 2:18');
   await expect(page.getByTestId('metric-appointments')).toContainText('1位/8人');
-  const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(32); // 1 行のまま (数字を大きくした分 +8px まで)
+  const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(48); // 28px の数字と比較を横に並べ、1 行 48px 以下
   await shot(page,'metrics-strip.png');
   await page.getByRole('button',{name:'閉じる'}).click();
   await expect(page.getByTestId('metric-outbound')).toHaveCount(0);
@@ -34,7 +34,7 @@ test('1024px: the strip wraps without overflowing or hiding the toggle',async({p
   await page.setViewportSize({width:1024,height:800});
   await page.goto('/static/app/__metrics_crm?mode=fixture&owner=unassigned');
   const strip=page.getByTestId('today-metrics');await expect(strip).toBeVisible();
-  const box=await strip.boundingBox();expect(box!.width).toBe(1024);expect(box!.height).toBeLessThanOrEqual(64);
+  const box=await strip.boundingBox();expect(box!.width).toBe(1024);expect(box!.height).toBeLessThanOrEqual(96); // 1024px は折り返して 96px 以下
   for(const li of await strip.locator('.tm-item').all()){const b=await li.boundingBox();expect(b!.x+b!.width).toBeLessThanOrEqual(1024);}
   const t=await strip.getByRole('button',{name:'閉じる'}).boundingBox();expect(t!.x+t!.width).toBeLessThanOrEqual(1024);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
@@ -45,7 +45,10 @@ for(const w of [1366,1280]){
     await page.setViewportSize({width:w,height:768});
     await page.goto('/static/app/__metrics_crm?mode=fixture&owner=unassigned');
     const strip=page.getByTestId('today-metrics');await expect(strip).toBeVisible();
-    const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(32);
+    const box=await strip.boundingBox();expect(box!.height).toBeLessThanOrEqual(48);
+    expect(await strip.locator('.tm-item').evaluateAll(items=>new Set(items.map(el=>Math.round(el.getBoundingClientRect().top))).size)).toBe(1);
+    await expect(strip.locator('.tm-value').first()).toHaveCSS('font-size','28px');
+    await expect(strip.locator('.tm-inbound')).toBeVisible();
     const cmp=strip.locator('.tm-cmp').first();
     expect(await cmp.evaluate(e=>getComputedStyle(e,'::after').content)).toBe('"（平均47.5・3位/8）"');
     await expect(cmp).toHaveText('（チーム平均 47.5・3位/8人）');

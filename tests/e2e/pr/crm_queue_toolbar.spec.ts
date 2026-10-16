@@ -108,14 +108,14 @@ test('タッチ操作で固定して開き、もう一度押すと閉じる', as
 
 for (const width of [1366, 1920]) {
   for (const period of ['today', 'month']) {
-    test(`${width}: ${period}の主数字28px、成績は96pxの1段に収まる`, async ({ page }) => {
+    test(`${width}: ${period}の主数字28px、成績は48px以下の1段に収まる`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1080 });
       await page.goto(`/app/crm?mode=fixture${period === 'month' ? '&metrics=sales' : ''}`);
       const strip = page.getByTestId(`${period}-metrics`);
       await expect(strip.locator('.tm-value').first()).toHaveText(period === 'month' ? '812' : '52');
       await expect(strip.locator('.tm-value').first()).toHaveCSS('font-size', '28px');
       await expect(strip.locator('.tm-label').first()).toHaveCSS('font-size', '14px');
-      await expect(strip.locator('.tm-head')).toHaveCSS('height', '96px');
+      expect((await strip.boundingBox())!.height).toBeLessThanOrEqual(48);
       expect(await strip.locator('.tm-item').evaluateAll(items => new Set(items.map(el => Math.round(el.getBoundingClientRect().top))).size)).toBe(1);
       expect(await strip.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
       const last = (await strip.locator('.tm-item').last().boundingBox())!;

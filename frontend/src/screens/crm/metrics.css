@@ -1,5 +1,5 @@
 .tm { position: relative; flex-shrink: 0; padding: 0 128px 0 16px; line-height: 1.2; border-bottom: 1px solid #dbe3ee; background: #f8fafc; font-size: .78rem; color: #334155; }
-.tm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; min-height: 96px; }
+.tm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; min-height: 40px; }
 .tm-asof { color: #64748b; }
 .tm-warn { color: #92400e; }
 .tm-toggle { line-height: 24px; border: 0; background: transparent; color: #0e7490; cursor: pointer; font: inherit; padding: 0 2px; }
@@ -9,12 +9,12 @@
 .tm-item-note { font-size: .72rem; color: #92400e; }
 .tm-stale { color: #92400e; }
 .tm-items { display: flex; flex-wrap: wrap; gap: 6px 20px; list-style: none; margin: 0; padding: 0; }
-.tm-item { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 2px; white-space: nowrap; }
+.tm-item { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 4px; white-space: nowrap; }
 .tm-label { font-size: 14px; color: #475569; font-weight: 600; }
-.tm-value { font-size: 28px; font-weight: 800; color: #0f172a; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.tm-sub, .tm-cmp { color: #667382; font-variant-numeric: tabular-nums; }
+.tm-value { font-size: 28px; font-weight: 800; color: #0f172a; line-height: 1.08; font-variant-numeric: tabular-nums; }
+.tm-sub, .tm-cmp, .tm-value-detail { color: #667382; font-variant-numeric: tabular-nums; }
 .tm-foot, .tm-note { margin: 0 0 2px; color: #64748b; font-size: .72rem; }
-.tm-cmp { font-size: 12px; }
+.tm-cmp, .tm-value-detail { font-size: 12px; }
 /* 狭い幅: 比較を短くして 1 行に収める。短い文は data-short から出し、全文は li の title に残す */
 @media (max-width: 1440px) {
   .tm { padding-left: 12px; }
@@ -26,7 +26,7 @@
 }
 @media (max-width: 1320px) {
   .tm-asof { display: none; }
-  .tm-sub { display: none; }
+  .tm-sub:not(.tm-inbound) { display: none; }
 }
 @media (max-width: 1100px) {
   .tm-items { flex-wrap: wrap; }
@@ -72,5 +72,5 @@
 .tm-settings input[type=checkbox], .tm-settings input[type=radio] { width: auto; min-width: 0; flex: 0 0 auto; margin: 0; }
 .tm-set-kinds label { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 6px; }
 
-/* 閉じた帯はコンパクトなまま。通常は96pxの1段に項目を並べる */
+/* 閉じた帯はコンパクトなまま。通常は40pxの1段に項目を並べる */
 .tm:has(.tm-actions button[aria-expanded="false"]:last-child) .tm-head { min-height: 28px; }
