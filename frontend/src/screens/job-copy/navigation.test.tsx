@@ -8,7 +8,7 @@ import { navigateJobCopy } from './navigation';
 
 vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }));
 const api = vi.hoisted(() => vi.fn());
-vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', refresh_failed: false, report: { count: 0, deals: [] } } }) : api(path, options) as Promise<unknown> }));
+vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', refresh_failed: false, report: { count: 0, listings: [] } } }) : api(path, options) as Promise<unknown> }));
 beforeEach(() => {
   window.history.replaceState(null, '', '/app/job-copy?demo=1');
   localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true');

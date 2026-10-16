@@ -8,7 +8,7 @@ import { buildCrumbs } from './trail';
 import type { HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 
 const api = vi.hoisted(() => vi.fn());
-vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', report: { count: 0, deals: [] }, refresh_failed: false } }) : api(path, options) as Promise<unknown> }));
+vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refresh_failed: false } }) : api(path, options) as Promise<unknown> }));
 beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 

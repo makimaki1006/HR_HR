@@ -440,7 +440,7 @@ test('ホームは初回準備の2秒後にカードと顧客表を表示する'
   await page.route('**/api/job-copy/recent-changes', route => {
     changesCalls += 1;
     return route.fulfill({ json: changesReady
-      ? { status: 'ready', refresh_failed: false, report: { count: 0, deals: [] } }
+      ? { status: 'ready', refresh_failed: false, report: { count: 0, listings: [] } }
       : { status: 'preparing' } });
   });
   await page.route('**/api/job-copy/home', route => {
@@ -468,11 +468,11 @@ test('ホームは初回準備の2秒後にカードと顧客表を表示する'
   expect(homeCalls).toBe(2);
   await page.getByRole('button', { name: /直近7日に変更/ }).click();
   const changes = page.getByRole('region', { name: '直近7日に変更の一覧' });
-  await expect(changes.getByRole('status')).toHaveText('変更のあった案件を集計しています…');
+  await expect(changes.getByRole('status')).toHaveText('変更のあった求人を集計しています…');
   changesReady = true;
   await expect(cardCounts).toHaveText(['2件', '1件', '3件', '8件', '12件', '2件', '1件', '4件', '0件'], { timeout: 4_000 });
   await expect(changes.getByRole('heading')).toHaveText('直近7日に変更（0件）');
-  await expect(changes).toContainText('該当する案件はありません。');
+  await expect(changes).toContainText('該当する求人はありません。');
   expect(changesCalls).toBeGreaterThanOrEqual(2);
   expect(homeCalls).toBe(2);
   if (process.env.HOME_SPEED_SCREENSHOT) await page.screenshot({ path: process.env.HOME_SPEED_SCREENSHOT, fullPage: true });
