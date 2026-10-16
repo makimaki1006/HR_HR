@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openOtherAnalysis, closeOtherAnalysis, selectJobFeature } from './job-copy-navigation';
 
 test('求人選択・内容ポップアップ・分析を戻る／進むで復元し、再読込と二重pushをしない', async ({ page }) => {
   await page.addInitScript(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
@@ -38,6 +39,28 @@ test('求人選択・内容ポップアップ・分析を戻る／進むで復�
   await expect(page).toHaveURL(body);
   await expect(page.getByRole('tab', { name: '求人内容', exact: true })).toHaveAttribute('aria-selected', 'true');
   expect(await page.evaluate(() => (window as unknown as { historyTestMarker: string }).historyTestMarker)).toBe('保持');
+});
+
+test('再読み込みで復元した分析を操作でき、閉じるとURLから消えて再び開かない', async ({ page }) => {
+  await page.goto('/app/job-copy?demo=1&analysis=1&feature=body');
+  const dialog = page.getByRole('dialog', { name: 'ほかの分析', exact: true });
+  await expect(dialog.getByRole('tab', { name: '求人内容', exact: true })).toHaveAttribute('aria-selected', 'true');
+  const length = await page.evaluate(() => history.length);
+  await openOtherAnalysis(page, '変更差分');
+  await expect(dialog.getByRole('tab', { name: '変更差分', exact: true })).toHaveAttribute('aria-selected', 'true');
+  expect(await page.evaluate(() => history.length)).toBe(length + 1);
+  await page.reload();
+  // 読込が始まった直後に呼んでも、背後ではなく復元済みドロワーのタブを使う。
+  await selectJobFeature(page, 'diff');
+  await expect(dialog.getByRole('tab', { name: '変更差分', exact: true })).toHaveAttribute('aria-selected', 'true');
+  expect(await page.evaluate(() => history.length)).toBe(length + 1);
+  await closeOtherAnalysis(page);
+  expect(new URL(page.url()).searchParams.has('analysis')).toBe(false);
+  expect(new URL(page.url()).searchParams.has('drawer')).toBe(false);
+  expect(new URL(page.url()).searchParams.has('drawerEvent')).toBe(false);
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'ほかの分析', exact: true })).toBeVisible();
+  await expect(dialog).toHaveCount(0);
 });
 
 test('ホーム→会社→案件→求人と案件内ポップアップを履歴で往復する', async ({ page }) => {
