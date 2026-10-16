@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>案件管理 整理案</title>
+<style>
+:root{--bg:#f2f5f7;--card:#fff;--line:#d9e1e6;--ink:#1f2d3a;--sub:#5d6b78;--teal:#0e7c86;--teal-bg:#e6f4f5;--warn:#e8a33d;--warn-bg:#fff6ea;--red:#b03a2e;--red-bg:#fdecea;--green:#2e7d4f;--green-bg:#e8f5ec}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif}
+a{color:var(--ink)}
+.note{background:#fffbe6;border-bottom:1px solid #f0e2a8;padding:6px 16px;font-size:12px;color:#6b5b1e}
+/* 上の段 */
+.bar{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:16px;padding:8px 16px;flex-wrap:wrap}
+.brand{font-weight:700}
+.tabs{display:flex;gap:4px}
+.tab{border:0;background:none;padding:6px 12px;border-radius:6px;font:inherit;cursor:pointer;color:var(--sub)}
+.tab.on{background:var(--teal-bg);color:var(--teal);font-weight:700}
+.tab .n{display:inline-block;margin-left:4px;background:var(--red);color:#fff;border-radius:10px;padding:0 7px;font-size:12px}
+.spacer{flex:1}
+.who{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--sub)}
+select,input{font:inherit;border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:#fff}
+.reload{font-size:12px;color:var(--sub);display:flex;gap:6px;align-items:center}
+.btn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
+.btn.primary{background:var(--teal);color:#fff;border-color:var(--teal)}
+.tools{position:relative}
+.menu{display:none;position:absolute;right:0;top:34px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.08);min-width:230px;padding:6px}
+.menu.open{display:block}
+.menu div{padding:8px 10px;border-radius:6px;cursor:pointer}
+.menu div:hover{background:var(--bg)}
+.menu small{display:block;color:var(--sub)}
+main{max-width:1280px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:17px;margin:24px 0 8px}
+.lead{color:var(--sub);font-size:13px;margin:0 0 12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.c{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;cursor:pointer}
+.c:hover{border-color:var(--teal)}
+.c.warn{background:var(--warn-bg);border-color:#f2c98a}
+.c.red{background:var(--red-bg);border-color:#f0b7b0}
+.c.on{outline:3px solid var(--teal);outline-offset:-1px}
+.c b{font-size:30px}.c b small{font-size:13px;font-weight:400;margin-left:2px}
+.c .t{font-weight:700}.c .d{font-size:12px;color:var(--sub)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-top:12px}
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;color:var(--sub);text-align:left;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid #edf1f4;vertical-align:top}
+tr.row{cursor:pointer}tr.row:hover td{background:#f7fafb}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.late{color:var(--red);font-weight:700}
+.chip{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;background:#eef2f5;color:var(--sub);margin-right:4px}
+.chip.r{background:var(--red-bg);color:var(--red)}.chip.w{background:var(--warn-bg);color:#9a5b00}.chip.g{background:var(--green-bg);color:var(--green)}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;background:#fff;padding:4px 10px;font:inherit;cursor:pointer}
+.seg button.on{background:var(--teal-bg);color:var(--teal);font-weight:700}
+.crumb{font-size:12px;color:var(--sub);margin-bottom:6px}
+.crumb a{color:var(--sub)}
+/* 案件の画面 */
+.head{display:flex;flex-wrap:wrap;gap:16px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+.head .k{font-size:12px;color:var(--sub)}
+.head .v{font-weight:700}
+.grid3{display:grid;grid-template-columns:1.1fr 1.3fr 1fr;gap:12px;margin-top:12px}
+.box{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+.box h3{margin:0 0 8px;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.kv{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 16px}
+.kv div span{display:block;font-size:12px;color:var(--sub)}
+.kv div strong{font-size:16px}
+.big{font-size:22px;font-weight:700}
+.subtabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-top:16px}
+.subtabs button{border:0;background:none;padding:8px 14px;font:inherit;cursor:pointer;color:var(--sub);border-bottom:3px solid transparent}
+.subtabs button.on{color:var(--teal);border-bottom-color:var(--teal);font-weight:700}
+.tl li{margin-bottom:6px}
+.spark{display:flex;gap:3px;align-items:flex-end;height:60px}
+.spark i{display:block;width:16px;background:#9fd0d5;border-radius:2px 2px 0 0}
+.hide{display:none}
+.toast{position:fixed;right:16px;bottom:16px;background:var(--green-bg);color:var(--green);border:1px solid #b9e0c6;padding:8px 14px;border-radius:8px;display:none}
+@media (max-width:900px){.grid3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="note">整理案の見本です。本番ではありません。数字と名前はすべて架空です。クリックで画面を切り替えられます。</div>
+
+<div class="bar">
+  <span class="brand">案件管理</span>
+  <nav class="tabs" id="tabs">
+    <button class="tab on" data-v="home">ホーム</button>
+    <button class="tab" data-v="todo">やること<span class="n">23</span></button>
+    <button class="tab" data-v="deals">案件</button>
+    <button class="tab" data-v="customers">顧客</button>
+    <button class="tab" data-v="listings">求人</button>
+  </nav>
+  <span class="spacer"></span>
+  <span class="who">担当
+    <select><option>コンサル担当</option><option>取引の担当者</option></select>
+    <select><option>自分（見本 太郎）</option><option>全員</option><option>見本 花子</option></select>
+  </span>
+  <span class="reload">14:05 時点 <button class="btn" onclick="toast('読み直しました')">⟳ 読み直す</button></span>
+  <span class="tools"><button class="btn" onclick="document.getElementById('menu').classList.toggle('open')">ツール ▾</button>
+    <div class="menu" id="menu">
+      <div>データ取込<small>HubSpot 読み取り・媒体の取込・課金 CSV</small></div>
+      <div>外部文面の照合<small>媒体の画面の文面と比べる</small></div>
+      <div>職種をまとめて指定<small>市場と比べる職種が未指定の求人</small></div>
+      <div>表示するデータ<small>実データ ／ 固定一覧 ／ 操作デモ</small></div>
+    </div></span>
+</div>
+
+<main>
+<!-- ホーム -->
+<section id="v-home">
+  <h1>おはようございます</h1>
+  <p class="lead">見本 太郎さんの担当（コンサル担当）だけを出しています。</p>
+  <h2>やること</h2>
+  <div class="cards">
+    <div class="c red" onclick="go('todo')"><b>6<small>件</small></b><div class="t">期限切れ</div><div class="d">CSアクション予定日が今日より前</div></div>
+    <div class="c warn" onclick="go('todo')"><b>4<small>件</small></b><div class="t">今日</div><div class="d">今日のCSアクション</div></div>
+    <div class="c" onclick="go('todo')"><b>9<small>件</small></b><div class="t">7日以内</div><div class="d">明日から7日後まで</div></div>
+    <div class="c warn" onclick="go('todo')"><b>4<small>件</small></b><div class="t">契約満了が近い</div><div class="d">今日から30日以内</div></div>
+  </div>
+  <h2>求人で気になるもの</h2>
+  <div class="cards">
+    <div class="c warn" onclick="go('listings')"><b>3<small>件</small></b><div class="t">応募がゼロのまま</div><div class="d">直近4週も前の4週も0件</div></div>
+    <div class="c" onclick="go('listings')"><b>2<small>件</small></b><div class="t">応募が減った</div><div class="d">前の4週より2件以上・2割以上</div></div>
+    <div class="c warn" onclick="go('listings')"><b>1<small>件</small></b><div class="t">課金が高いまま応募が少ない</div><div class="d">直近4週の課金が1万円以上</div></div>
+    <div class="c" onclick="go('listings')"><b>5<small>件</small></b><div class="t">直近7日に変更</div><div class="d">本文・給与・求人名</div></div>
+  </div>
+  <h2>担当の案件</h2>
+  <div class="cards">
+    <div class="c" onclick="go('deals')"><b>18<small>件</small></b><div class="t">稼働中の案件</div><div class="d">リクロジ 16 ・ 請負 2</div></div>
+    <div class="c warn" onclick="go('deals')"><b>3<small>件</small></b><div class="t">接触が30日以上空いている</div><div class="d">最後の接触から</div></div>
+    <div class="c" onclick="go('deals')"><b>¥6,840,000</b><div class="t">今月〜再来月に満了する金額</div><div class="d">7件</div></div>
+  </div>
+</section>
+
+<!-- やること -->
+<section id="v-todo" class="hide">
+  <h1>やること</h1>
+  <p class="lead">CSアクション予定日と契約満了日から作っています。終わった案件（解約済・継続済・納品完了）は出しません。</p>
+  <div class="filters"><span class="seg"><button class="on">期限切れ 6</button><button>今日 4</button><button>7日以内 9</button><button>満了が近い 4</button><button>それ以降 12</button></span></div>
+  <div class="panel"><table>
+    <tr><th>期日</th><th>内容</th><th>案件</th><th>顧客</th><th>ステージ</th><th></th></tr>
+    <tr class="row" onclick="go('deal')"><td class="late">2026/10/09</td><td>定例MTG①</td><td><a>見本商事 介護 3月契約</a></td><td>見本商事</td><td>定期1</td><td><button class="btn" onclick="event.stopPropagation();toast('次の予定を入れる画面を開きます')">終わった → 次の予定</button></td></tr>
+    <tr class="row" onclick="go('deal')"><td class="late">2026/10/12</td><td>進捗確認</td><td><a>サンプル物流 倉庫</a></td><td>サンプル物流</td><td>求人出稿完了</td><td><button class="btn" onclick="event.stopPropagation();toast('次の予定を入れる画面を開きます')">終わった → 次の予定</button></td></tr>
+    <tr class="row" onclick="go('deal')"><td class="late">2026/10/14</td><td>MTG日程打診</td><td><a>架空クリニック 看護</a></td><td>架空医療法人</td><td>運用MTG実施前</td><td><button class="btn" onclick="event.stopPropagation();toast('次の予定を入れる画面を開きます')">終わった → 次の予定</button></td></tr>
+    <tr class="row" onclick="go('deal')"><td class="late">2026/10/15</td><td>初稿提出</td><td><a>例示建設 施工管理</a></td><td>例示建設</td><td>構成案fix</td><td><button class="btn" onclick="event.stopPropagation();toast('次の予定を入れる画面を開きます')">終わった → 次の予定</button></td></tr>
+  </table></div>
+</section>
+
+<!-- 案件の一覧 -->
+<section id="v-deals" class="hide">
+  <h1>案件</h1>
+  <p class="lead">納品管理の案件です。行を押すと案件の画面を開きます。</p>
+  <div class="filters">
+    <span class="seg"><button class="on">稼働中</button><button>すべて</button></span>
+    <select><option>リクロジ・請負の両方</option><option>リクロジ_納品管理</option><option>請負契約_納品管理</option></select>
+    <select><option>満了まで：すべて</option><option>60日以内</option><option>30日以内</option></select>
+    <select><option>並び：満了が近い順</option><option>最後の接触が古い順</option><option>応募が少ない順</option><option>金額が大きい順</option></select>
+    <input placeholder="案件名・顧客名で探す">
+  </div>
+  <div class="panel"><table>
+    <tr><th>案件</th><th>ステージ</th><th>満了まで</th><th>最後の接触</th><th class="num">応募</th><th class="num">面接</th><th class="num">採用</th><th class="num">金額</th><th>次にやること</th></tr>
+    <tr class="row" onclick="go('deal')"><td><a>見本商事 介護 3月契約</a><br><span class="chip w">満了まで60日以内</span></td><td>定期1</td><td>28日</td><td>41日前 <span class="chip r">空いている</span></td><td class="num">25</td><td class="num">10</td><td class="num">2</td><td class="num">¥360,000</td><td class="late">10/09 定例MTG①</td></tr>
+    <tr class="row" onclick="go('deal')"><td><a>サンプル物流 倉庫</a></td><td>求人出稿完了</td><td>142日</td><td>6日前</td><td class="num">8</td><td class="num">3</td><td class="num">0</td><td class="num">¥240,000</td><td class="late">10/12 進捗確認</td></tr>
+    <tr class="row" onclick="go('deal')"><td><a>架空クリニック 看護</a></td><td>運用MTG実施前</td><td>333日</td><td>—</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">¥480,000</td><td class="late">10/14 MTG日程打診</td></tr>
+    <tr class="row" onclick="go('deal')"><td><a>例示建設 施工管理</a></td><td>構成案fix</td><td>201日</td><td>2日前</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">¥600,000</td><td class="late">10/15 初稿提出</td></tr>
+  </table></div>
+</section>
+
+<!-- 顧客 -->
+<section id="v-customers" class="hide">
+  <h1>顧客</h1>
+  <div class="filters"><span class="seg"><button class="on">契約中の案件がある顧客</button><button>すべて</button></span><input placeholder="顧客名で探す"></div>
+  <div class="panel"><table>
+    <tr><th>顧客</th><th class="num">契約中の案件</th><th class="num">掲載中の求人</th><th>応募（前の4週→直近4週）</th><th class="num">課金（直近4週）</th></tr>
+    <tr class="row"><td><a>見本商事</a></td><td class="num">1 / 3</td><td class="num">6 / 29</td><td>16 → 14 件</td><td class="num">¥54,000</td></tr>
+    <tr class="row"><td><a>サンプル物流</a></td><td class="num">1 / 1</td><td class="num">2 / 4</td><td>3 → 8 件</td><td class="num">¥12,800</td></tr>
+  </table></div>
+</section>
+
+<!-- 求人 -->
+<section id="v-listings" class="hide">
+  <h1>求人</h1>
+  <div class="filters"><span class="seg"><button class="on">掲載中</button><button>過去</button></span><select><option>まず見るもの：すべて</option><option>応募がゼロのまま</option><option>直近7日に変更</option></select><input placeholder="求人名で探す"></div>
+  <div class="panel"><table>
+    <tr><th>求人</th><th>媒体</th><th>掲載期間</th><th class="num">直近4週の応募</th><th class="num">課金（4週）</th><th>最後の変更</th></tr>
+    <tr class="row" onclick="go('listing')"><td><a>介護職員（日勤のみ）</a><br><span class="chip">見本商事 介護 3月契約</span></td><td>HRハッカー</td><td>2026/09/01 〜 今日</td><td class="num">7件</td><td class="num">¥18,000</td><td>給与を変更 2026/10/15</td></tr>
+    <tr class="row" onclick="go('listing')"><td><a>倉庫内作業（週3〜）</a><br><span class="chip">サンプル物流 倉庫</span></td><td>AirWork</td><td>2026/08/20 〜 今日</td><td class="num">0件</td><td class="num">—</td><td>本文を変更 2026/10/10</td></tr>
+  </table></div>
+</section>
+
+<!-- 案件の画面 -->
+<section id="v-deal" class="hide">
+  <div class="crumb"><a href="#" onclick="go('deals');return false">案件</a> › 見本商事 介護 3月契約</div>
+  <div class="head">
+    <div><div class="k">案件</div><div class="v" style="font-size:18px">見本商事 介護 3月契約</div></div>
+    <div><div class="k">ステージ</div><select><option>定期1</option><option>定期2</option><option>継続MTG</option><option>継続済</option><option>解約済(成果不足)</option></select></div>
+    <div><div class="k">コンサル担当</div><div class="v">見本 太郎</div></div>
+    <div><div class="k">満了</div><div class="v">2026/11/13 <span class="chip w">あと28日</span></div></div>
+    <div><div class="k">最後の接触</div><div class="v">41日前 <span class="chip r">空いている</span></div></div>
+    <span class="spacer"></span><a href="#">HubSpot で見る</a>
+  </div>
+  <div class="grid3">
+    <div class="box"><h3>次にやること <button class="btn primary" onclick="toast('保存しました（見本）')">終わった → 次の予定</button></h3>
+      <div class="big late">2026/10/09</div><div>定例MTG①</div>
+      <div style="margin-top:8px;font-size:12px;color:var(--sub)">次の予定：<input type="date" value="2026-10-23"> <select><option>進捗確認</option><option>定例MTG②</option><option>求人クローズ</option></select></div>
+    </div>
+    <div class="box"><h3>契約 <button class="btn">編集</button></h3>
+      <div class="kv"><div><span>契約プラン</span><strong>スタンダード</strong></div><div><span>契約種別</span><strong>CS-継続契約</strong></div><div><span>開始〜満了</span><strong>2026/05/14〜11/13</strong></div><div><span>金額</span><strong>¥360,000</strong></div></div>
+    </div>
+    <div class="box"><h3>成果 <button class="btn">編集</button></h3>
+      <div class="kv"><div><span>応募</span><strong>25件</strong></div><div><span>面接</span><strong>10件</strong></div><div><span>内定</span><strong>3件</strong></div><div><span>採用</span><strong>2件</strong></div></div>
+    </div>
+  </div>
+  <div class="subtabs" id="dealtabs"><button class="on">求人（掲載中 3 ／ 過去 23）</button><button>週ごとの応募</button><button>接触の記録</button><button>出来事</button></div>
+  <div class="panel">
+    <table><tr><th>求人</th><th>媒体</th><th class="num">直近4週の応募</th><th>最後の変更</th></tr>
+      <tr class="row" onclick="go('listing')"><td><a>介護職員（日勤のみ）</a></td><td>HRハッカー</td><td class="num">7件</td><td>給与を変更 2026/10/15</td></tr>
+      <tr class="row" onclick="go('listing')"><td><a>介護職員（夜勤あり）</a></td><td>HRハッカー</td><td class="num">4件</td><td>本文を変更 2026/10/02</td></tr>
+      <tr class="row" onclick="go('listing')"><td><a>看護師（パート）</a></td><td>AirWork</td><td class="num">3件</td><td>—</td></tr>
+    </table>
+    <p style="font-size:12px;color:var(--sub);margin:10px 0 0">「接触の記録」には、コンサルKPI の「案件の詳細」にある MTG・電話・担当交代の時系列を移します。</p>
+  </div>
+</section>
+
+<!-- 求人の画面 -->
+<section id="v-listing" class="hide">
+  <div class="crumb"><a href="#" onclick="go('listings');return false">求人</a> › <a href="#" onclick="go('deal');return false">見本商事 介護 3月契約</a> › 介護職員（日勤のみ）</div>
+  <div class="head"><div><div class="k">求人</div><div class="v" style="font-size:18px">介護職員（日勤のみ）</div></div><div><div class="k">媒体</div><div class="v">HRハッカー</div></div><div><div class="k">状態</div><div class="v"><span class="chip g">掲載中</span></div></div><div><div class="k">直近4週の応募</div><div class="v">7件（前の4週 9件）</div></div></div>
+  <div class="subtabs" id="ltabs"><button class="on">概要</button><button>本文・画像</button><button>応募</button><button>応募者</button><button>課金</button><button>市場</button><button>変更差分</button><button>比べる</button><button>報告</button></div>
+  <div class="panel">
+    <div style="font-size:12px;color:var(--sub);margin-bottom:6px">ライフライン（週ごとの応募と変更の印）</div>
+    <div class="spark"><i style="height:20px"></i><i style="height:35px"></i><i style="height:28px"></i><i style="height:50px"></i><i style="height:42px"></i><i style="height:30px"></i><i style="height:22px"></i><i style="height:38px"></i></div>
+    <div style="font-size:12px;margin-top:4px"><span class="chip w">給与変更 10/15</span><span class="chip w">本文変更 10/02</span></div>
+    <ul class="tl" style="margin-top:12px">
+      <li>2026/10/15　給与を変更（月給 22万円 → 23万円）</li>
+      <li>2026/10/02　本文を変更（追加 4 行・削除 2 行）</li>
+      <li>2026/09/01　掲載を開始</li>
+    </ul>
+    <p style="font-size:12px;color:var(--sub);margin:6px 0 0">今の「ほかの分析」（13 機能）を、上のタブ 9 つにまとめて出します。下へスクロールして横から開く必要がなくなります。</p>
+  </div>
+</section>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const views=['home','todo','deals','customers','listings','deal','listing'];
+function go(v){views.forEach(x=>document.getElementById('v-'+x).classList.toggle('hide',x!==v));
+  const top=v==='deal'?'deals':v==='listing'?'listings':v;
+  document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('on',t.dataset.v===top));window.scrollTo(0,0)}
+document.querySelectorAll('#tabs .tab').forEach(t=>t.onclick=()=>go(t.dataset.v));
+document.querySelectorAll('.subtabs').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>{g.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on')}));
+document.querySelectorAll('.seg').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>{g.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on')}));
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',1800)}
+document.addEventListener('click',e=>{if(!e.target.closest('.tools'))document.getElementById('menu').classList.remove('open')});
+</script>
+</body>
+</html>
