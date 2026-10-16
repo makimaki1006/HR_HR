@@ -2173,6 +2173,10 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route("/api/job-copy/listing-status", get(listing_status::read))
         .route("/api/job-copy/deal-applications", get(deal_summary::read))
         .route("/api/job-copy/company-deals", get(listings::company_deals))
+        .route(
+            "/api/job-copy/deals/{id}/refresh",
+            get(listings::refresh_deal),
+        )
         .merge(drafts::router(state, access.clone()))
         .layer(Extension(access))
 }

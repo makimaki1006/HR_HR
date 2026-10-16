@@ -13,3 +13,17 @@ export const contractCatalog = { objects: [{ object_type: 'deals', groups: [{ na
 export function contractDetail(values = contractValues, pipeline = '21596025') {
   return { deal: { id: '901', pipeline_id: pipeline, stage_label: '合成・契約中', deep_link: '#synthetic-deal' }, selected: { deal: values, contact: {}, company: {} }, partial: [], fetched_at: '2026-10-16T00:00:00Z' };
 }
+
+export const stageSchema: EditSchema = {
+  ...contractSchema,
+  stages: [
+    { id: 'stage-demo', label: '合成・契約中', required: [], shown: [] },
+    { id: '66848546', label: '継続済', required: ['oubo', 'mensetu'], shown: ['oubo', 'mensetu'] },
+    { id: 'delivery-done', label: '納品完了', required: [], shown: [] },
+    { id: 'cancelled', label: '解約済（合成）', required: [], shown: [] },
+  ],
+  pipelines: [{ id: '21596025', label: '合成・納品管理', stages: [
+    { id: 'stage-demo', label: '合成・契約中' }, { id: '66848546', label: '継続済' },
+    { id: 'delivery-done', label: '納品完了' }, { id: 'cancelled', label: '解約済（合成）' },
+  ] }],
+};

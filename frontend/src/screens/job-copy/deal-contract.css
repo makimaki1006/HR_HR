@@ -19,3 +19,7 @@
 .dc-original { color: #647381; font-size: 12px; }
 .dc-written { animation: dc-written 3s ease-out forwards; }
 @keyframes dc-written { from { background-color: #dff3e6; } to { background-color: transparent; } }
+
+.dc-stage { margin: 16px 0; }
+.dc-stage select { padding: 8px 12px; border: 1px solid #aab8c4; border-radius: 4px; font: inherit; background: #fff; }
+.dc-root .wr-dialog input, .dc-root .wr-dialog select, .dc-root .wr-dialog textarea { padding: 8px; border: 1px solid #aab8c4; border-radius: 4px; font: inherit; }

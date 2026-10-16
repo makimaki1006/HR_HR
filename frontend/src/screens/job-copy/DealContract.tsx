@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet } from '../../api/client';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import type { CrmPropertyCatalogResponse } from '../../generated/CrmPropertyCatalogResponse';
 import type { CrmCatalogProperty } from '../../generated/CrmCatalogProperty';
 import { useCrmWrite, WRITES_OFF_NOTE } from '../crm/useCrmWrite';
 import type { FieldStatus } from '../crm/useCrmWrite';
-import { fieldKey } from '../crm/writeModel';
+import { DealStageMove } from './DealStageMove';
+import { fieldKey, stageKey } from '../crm/writeModel';
 import type { PropValues } from '../crm/writeTypes';
 import { contractWriteApi } from './dealContractApi';
 import { CONTRACT_FIELDS, DISPLAY_FIELDS, DELIVERY_PIPELINES, contractRequest, displayValue, inputValue } from './dealContractModel';
@@ -27,12 +28,22 @@ function SaveStatus({ statuses }: { statuses: FieldStatus[] }) {
 export function DealContract({ dealId, onSaved, onQueued }: { dealId: string; onSaved: () => void; onQueued?: (() => void) | undefined }) {
   const [data, setData] = useState<{ props: CrmCatalogProperty[]; detail: WorkspaceResponse } | null>(null);
   const [error, setError] = useState('');
+  const [refreshError, setRefreshError] = useState('');
   const [revision, setRevision] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [base, setBase] = useState<PropValues>({});
   const [savedFields, setSavedFields] = useState<string[]>([]);
-  const refresh = useCallback(() => { onSaved(); setRevision(value => value + 1); }, [onSaved]);
+  const stageSaving = useRef(false);
+  const refresh = useCallback(() => {
+    void (async () => {
+      if (stageSaving.current) {
+        const result = await apiGet(`/api/job-copy/deals/${encodeURIComponent(dealId)}/refresh`, { timeoutMs: 35_000 });
+        setRefreshError(result.ok ? '' : '保存済みですが、案件とホームの表示を更新できませんでした。時間を置いてもう一度お試しください。');
+      }
+      onSaved(); setRevision(value => value + 1);
+    })();
+  }, [onSaved, dealId]);
   const write = useCrmWrite({ dealId, api: contractWriteApi, onSaved: refresh, onWritten: (_req, kind) => { if (kind === 'queued') onQueued?.(); } });
   useEffect(() => {
     const ctl = new AbortController();
@@ -40,8 +51,8 @@ export function DealContract({ dealId, onSaved, onQueued }: { dealId: string; on
       const catalog = await apiGet<CrmPropertyCatalogResponse>('/api/crm/property-catalog', { signal: ctl.signal, timeoutMs: 35_000 });
       if (!catalog.ok || !Array.isArray(catalog.data.objects)) { if (!ctl.signal.aborted) setError('契約・成果の項目を取得できませんでした。再読み込みしてください。'); return; }
       const all = catalog.data.objects.find(object => object.object_type === 'deals')?.groups.flatMap(group => group.properties) ?? [];
-      const props = DISPLAY_FIELDS.flatMap(name => all.filter(prop => prop.name === name));
-      const query = new URLSearchParams({ deal_props: props.map(prop => prop.name).join(','), fresh: '1' });
+      const props = all;
+      const query = new URLSearchParams({ deal_props: DISPLAY_FIELDS.filter(name => props.some(prop => prop.name === name)).join(','), fresh: '1' });
       const detail = await apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(dealId)}?${query}`, { signal: ctl.signal, timeoutMs: 35_000 });
       if (ctl.signal.aborted) return;
       if (detail.ok && !detail.data.partial.some(part => part.part === 'selected_properties')) { setData({ props, detail: detail.data }); setError(''); }
@@ -60,26 +71,31 @@ export function DealContract({ dealId, onSaved, onQueued }: { dealId: string; on
     if (overlay && (overlay.pending || !overlay.fetchedAt || !data || data.detail.fetched_at <= overlay.fetchedAt)) values[prop.name] = overlay.value;
   }
   const startEdit = () => {
+    stageSaving.current = false;
     setSavedFields([]);
     setBase(values);
     setDraft(Object.fromEntries(writable.map(prop => [prop.name, inputValue(prop, values[prop.name])])));
     setEditing(true);
   };
   const request = { ...contractRequest(dealId, writable, base, draft), fetchedAt: data?.detail.fetched_at };
-  const statuses = savedFields.flatMap(name => { const status = write.statuses[fieldKey(dealId, 'deal', name)]; return status ? [status] : []; });
+  const statuses = savedFields.flatMap(name => { const status = write.statuses[name === 'dealstage' ? stageKey(dealId) : fieldKey(dealId, 'deal', name)]; return status ? [status] : []; });
   return <section className="dc-root" aria-label="契約・成果">
     <header><h2>契約・成果</h2>{data && <a href={data.detail.deal.deep_link} target="_blank" rel="noreferrer">HubSpotで取引を見る</a>}{canEdit && !editing && <button className="jc-button" disabled={locked} onClick={startEdit}>編集</button>}</header>
     {!data && !error && <p role="status">契約・成果を読み込んでいます…</p>}
     {error && <p role="alert">{error} <button className="jc-button" onClick={() => { setRevision(value => value + 1); }}>再読み込み</button></p>}
+    {refreshError && <p role="alert">{refreshError}</p>}
     {data && <>
       {!write.conflict && <SaveStatus statuses={statuses} />}
-      {write.conflict && <div role="alert" className="dc-conflict"><h3>ほかの更新があります。現在の値を確認してください。</h3><p>今回の変更は保存されていません。</p><ul>{write.conflict.req.changes.map(change => {
+      {write.conflict && <div role="alert" className="dc-conflict"><h3>ほかの更新があります。現在の値を確認してください。</h3><p>今回の変更は保存されていません。</p><ul>{write.conflict.req.stage && 'dealstage' in write.conflict.current && <li>ステージ：現在の値「{schema?.stages.find(s => s.id === write.conflict?.current.dealstage)?.label ?? '取得できませんでした'}」／移動先「{write.conflict.req.stage.label}」</li>}{write.conflict.req.changes.map(change => {
         const prop = data.props.find(item => item.name === change.name);
         return prop && <li key={change.name}>{prop.label}：現在の値「{displayValue(prop, write.conflict?.current[change.name])}」／入力した値「{displayValue(prop, change.value)}」</li>;
       })}</ul><button className="jc-button" onClick={() => { write.resolveConflict('theirs'); setEditing(false); }}>現在の値を使う</button><button className="jc-button" onClick={() => { write.resolveConflict('mine'); setEditing(false); }}>確認して入力した値で保存</button></div>}
-      <p>ステージ：{data.detail.deal.stage_label ?? '未取得'}（表示のみ）</p>
+      {targeted && write.writesEnabled === true && schema && schema.stages.length > 0
+        ? <DealStageMove dealId={dealId} write={write} detail={data.detail} props={data.props} request={editing ? request : { dealId, changes: [], fetchedAt: data.detail.fetched_at }} locked={locked}
+            onStart={names => { stageSaving.current = true; setSavedFields([...names, 'dealstage']); }} onDone={() => { setEditing(false); }} />
+        : <p>ステージ：{data.detail.deal.stage_label ?? '未取得'}（表示のみ）</p>}
       {write.writesEnabled === false ? <p>{WRITES_OFF_NOTE}</p> : write.schema.phase === 'error' ? <p>編集できるか確認できないため、表示のみです。</p> : !targeted ? <p>この取引は契約・成果の編集対象外です。</p> : schema && writable.length < CONTRACT_FIELDS.length ? <p>HubSpotで編集が許可された項目だけ変更できます。</p> : null}
-      {data.props.length < DISPLAY_FIELDS.length && <p>一部の項目を取得できないため、確認できた項目だけ表示しています。</p>}
+      {DISPLAY_FIELDS.some(name => !data.props.some(prop => prop.name === name)) && <p>一部の項目を取得できないため、確認できた項目だけ表示しています。</p>}
       <div className="dc-fields">{DISPLAY_FIELDS.map(name => {
         const prop = data.props.find(item => item.name === name);
         if (!prop) return null;
