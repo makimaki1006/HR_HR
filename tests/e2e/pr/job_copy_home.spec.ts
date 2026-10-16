@@ -15,6 +15,7 @@ test('ホームの9枚のカードと、変更案件の一覧・案件への移�
   await page.goto('/app/job-copy');
   const cards = page.locator('.jh-card');
   await expect(cards).toHaveCount(9);
+  await expect(page.getByRole('button', { name: /直近7日に変更/ }).locator('.jh-count')).toHaveText('2件');
   for (const [index, card] of demoHome.home.cards.entries()) {
     await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${card.count}件`);
     await expect(cards.nth(index).locator('.jh-card-title')).toHaveText(card.title);
