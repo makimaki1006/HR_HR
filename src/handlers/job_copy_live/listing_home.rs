@@ -744,7 +744,14 @@ pub(in crate::handlers::job_copy_live) async fn read(
                 );
                 data["home"] =
                     serde_json::to_value(compute(&records, &map, today)).expect("home values");
-                data["work"] = work_snapshot.report(&query, &email, today, work.failed);
+                let meetings = super::deal_board::MeetingData::cached().await;
+                data["work"] = work_snapshot.report_with_metrics(
+                    &query,
+                    &email,
+                    today,
+                    work.failed,
+                    &meetings,
+                );
                 data["work"]["refreshing"] = json!(work.refreshing);
                 if work.partial {
                     data["work"]["todos_status"] =

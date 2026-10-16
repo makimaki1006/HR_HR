@@ -21,9 +21,9 @@ export function validTodoDate(value: string): boolean {
 export function todoRequest(dealId: string, base: PropValues, due: string, content: string): SaveRequest {
   return { dealId, changes: FIELDS.map(name => ({ object: 'deal' as const, name, base: base[name] ?? null, value: name === 'actionyotei' ? due : content })) };
 }
-export interface TodoReason { kind: 'expiration' | 'contact' | 'stalled' | 'first_contract'; text: string }
+export interface TodoReason { kind: 'expiration' | 'contact' | 'stalled' | 'first_contract' | 'nps' | 'target' | 'cpa' | 'mtg'; text: string; strong?: boolean }
 export function ReasonChips({ reasons }: { reasons: TodoReason[] }) {
-  return <span className="nt-reasons">{reasons.map(reason => <span className="nt-reason" key={reason.kind}>{reason.text}</span>)}</span>;
+  return <span className="nt-reasons">{reasons.map(reason => <span className={`nt-reason${reason.strong ? ' nt-strong' : ''}`} key={reason.kind}>{reason.text}</span>)}</span>;
 }
 export function NextTodoButton({ dealId, hasPlan = false, onSaved }: { dealId: string; hasPlan?: boolean; onSaved?: (() => void) | undefined }) {
   const [open, setOpen] = useState(false);

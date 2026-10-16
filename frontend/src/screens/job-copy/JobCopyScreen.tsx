@@ -1,3 +1,4 @@
+import { DealBoard } from './DealBoard';
 import { detailQueryKeys, navigateJobCopy, updateJobCopyQuery, useJobCopySearch } from './navigation';
 import type { ListingNavigation } from './ListingPopup';
 import { listingRecord, publicationLabel } from './hubspotListings';
@@ -604,5 +605,6 @@ function JobCopyMain() {
 
 /** `?view=occupations` は職種の一括指定画面。それ以外は従来の案件管理。 */
 export function JobCopyScreen() {
-  return new URLSearchParams(useJobCopySearch()).get('view') === 'occupations' ? <OccupationBulk /> : <JobCopyMain />;
+  const view = new URLSearchParams(useJobCopySearch()).get('view');
+  return view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : <JobCopyMain />;
 }

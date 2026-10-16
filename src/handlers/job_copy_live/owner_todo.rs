@@ -4,6 +4,23 @@ use chrono::{NaiveDate, Utc};
 use std::time::Instant;
 
 pub(super) const DEAL_PROPERTIES: &[&str] = &[
+    "amount",
+    "oubo",
+    "mensetu",
+    "syoudaku",
+    "saiyomokuhyou",
+    "contract_period",
+    "nps",
+    "nps2",
+    "nps3",
+    "nps4",
+    "nps5",
+    "nps6",
+    "nps7",
+    "nps8",
+    "nps9",
+    "nps10",
+    "nps11",
     "dealname",
     "pipeline",
     "dealstage",
@@ -60,8 +77,8 @@ impl OwnerQuery {
 }
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct Owner {
-    id: String,
-    name: String,
+    pub(super) id: String,
+    pub(super) name: String,
     #[serde(skip)]
     email: String,
     archived: bool,
@@ -108,12 +125,13 @@ pub(super) struct WorkDeal {
 }
 #[derive(Clone, Default)]
 pub(super) struct Snapshot {
+    pub(super) complete: bool,
     pub(super) deals: BTreeMap<String, WorkDeal>,
     pub(super) owners: Vec<Owner>,
     labels: BTreeMap<String, String>,
     pub(super) companies: BTreeMap<String, (String, Option<String>)>,
-    stages: BTreeMap<String, String>,
-    facts: BTreeMap<String, super::todo_signals::Facts>,
+    pub(super) stages: BTreeMap<String, String>,
+    pub(super) facts: BTreeMap<String, super::todo_signals::Facts>,
 }
 #[derive(Default)]
 pub(super) struct Cache {
@@ -410,12 +428,8 @@ async fn fetch(service: &JobReadService) -> Result<Snapshot, ReadError> {
     };
     drop(label_cache);
     let defs = listings::todo_stages(service).await;
-    // 応募集計の完了後に初めて要対応になる案件も、会社名を先に補う。
-    let ids: Vec<_> = deals
-        .iter()
-        .filter(|(_, d)| !ENDED_STAGES.contains(&d.record.value("dealstage").unwrap_or("")))
-        .map(|(id, _)| id.clone())
-        .collect();
+    // 一覧で終了した案件も開けるよう、求人や要対応がない案件の会社名も補う。
+    let ids: Vec<_> = deals.keys().cloned().collect();
     let companies = listings::todo_companies(service, &ids).await?;
     tracing::info!(
         count = deals.len(),
@@ -424,6 +438,7 @@ async fn fetch(service: &JobReadService) -> Result<Snapshot, ReadError> {
         "job-copy owner/todo full delivery read"
     );
     Ok(Snapshot {
+        complete: true,
         deals,
         owners,
         labels,
@@ -475,6 +490,7 @@ impl Snapshot {
                 .is_some_and(|d| d.assignment.assigned(field) == Some(id))
         })
     }
+    #[cfg(test)]
     pub(super) fn report(
         &self,
         query: &OwnerQuery,
@@ -482,6 +498,23 @@ impl Snapshot {
         today: NaiveDate,
         failed: bool,
     ) -> Value {
+        self.report_with_metrics(
+            query,
+            email,
+            today,
+            failed,
+            &super::deal_board::MeetingData::default(),
+        )
+    }
+    pub(super) fn report_with_metrics(
+        &self,
+        query: &OwnerQuery,
+        email: &str,
+        today: NaiveDate,
+        failed: bool,
+        meetings: &super::deal_board::MeetingData,
+    ) -> Value {
+        let metrics = super::deal_board::Metrics::new(self, meetings, today);
         let (owner, notice) = self.selection(query, email);
         let field = query.field();
         let assigned: BTreeSet<_> = self
@@ -506,7 +539,7 @@ impl Snapshot {
                 continue;
             }
             let a = &deal.assignment;
-            let reasons = super::todo_signals::reasons(deal, self.facts.get(id), today);
+            let reasons = metrics.reasons(self, id, today);
             let row = |due: NaiveDate, content: Option<&str>| {
                 let company = self.companies.get(id);
                 let consultant = self
@@ -571,7 +604,7 @@ impl Snapshot {
                 })
                 .then_with(|| a["id"].as_str().cmp(&b["id"].as_str()))
         });
-        json!({"status":"ready","owner":owner.as_deref().unwrap_or("all"),"owner_field":field,"notice":notice,"owners":options,"actions":actions,"expirations":expirations,"signals":signals,"refresh_failed":failed})
+        json!({"status":"ready","owner":owner.as_deref().unwrap_or("all"),"owner_field":field,"notice":notice,"owners":options,"actions":actions,"expirations":expirations,"signals":signals,"sheet_as_of":meetings.as_of,"refresh_failed":failed})
     }
 }
 pub(super) fn today(now: chrono::DateTime<Utc>) -> NaiveDate {
@@ -623,11 +656,10 @@ pub(super) async fn read_deal(
     valid_id(&id)?;
     let view = work_view(listings::service(&access)?).await;
     let body = if let Some(snapshot) = view.snapshot.filter(|_| !view.partial) {
-        let reasons = snapshot
-            .deals
-            .get(&id)
-            .map(|d| super::todo_signals::reasons(d, snapshot.facts.get(&id), today(Utc::now())))
-            .unwrap_or_default();
+        let meetings = super::deal_board::MeetingData::cached().await;
+        let day = today(Utc::now());
+        let reasons =
+            super::deal_board::Metrics::new(&snapshot, &meetings, day).reasons(&snapshot, &id, day);
         json!({"status":"ready","reasons":reasons,"refresh_failed":view.failed,"refreshing":view.refreshing})
     } else {
         json!({"status":if view.failed {"failed"} else {"preparing"}})

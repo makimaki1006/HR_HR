@@ -2241,7 +2241,7 @@ const CPA_BAND_MIN_N: usize = 30;
 /// 開始前でも進捗は 1/契約期間になり、契約期間が2か月以上なら同じく前半に入る
 /// （1か月契約だけはモックが終盤、こちらが前半で食い違う）。
 /// fixture（オプション込みで数えた）で開始前・稼働中・採用数ありの取引は 5件で、契約期間は 3〜12か月（2026-09-18 時点）。
-fn cpa_band_of(d: &Deal, today: NaiveDate) -> Option<usize> {
+pub(crate) fn cpa_band_of(d: &Deal, today: NaiveDate) -> Option<usize> {
     let p = progress(d, today)?;
     CPA_BANDS
         .iter()
@@ -2255,7 +2255,7 @@ fn cpa_band_of(d: &Deal, today: NaiveDate) -> Option<usize> {
 /// 採れる人数が出そろった決着済みの単価と、まだ採用が伸びていない稼働中の単価を
 /// 同じ帯で比べると、稼働中が必ず高く見える（未確定の点で悪化を判定しない、の規律）。
 /// 件数が `CPA_BAND_MIN_N` に満たない帯は中央値を出さない（名札も立たない）。
-fn cpa_band_medians(deals: &[Deal], today: NaiveDate) -> [(Option<f64>, usize); 3] {
+pub(crate) fn cpa_band_medians(deals: &[Deal], today: NaiveDate) -> [(Option<f64>, usize); 3] {
     let mut vals: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     for d in deals.iter().filter(|d| d.is_active) {
         if let (Some(b), Some(v)) = (cpa_band_of(d, today), cpa(d)) {
@@ -2319,7 +2319,7 @@ pub(super) fn month_index(start: &str, month: &str) -> Option<i64> {
 ///    区切りは `month_boundary` の1か所で持つ（`std_expiration` も同じ区切りを使う）。
 ///
 /// 開始日が読めない、または開始が `today` より後なら `None`。
-pub(super) fn contract_month(start: &str, today: NaiveDate) -> Option<i64> {
+pub(crate) fn contract_month(start: &str, today: NaiveDate) -> Option<i64> {
     use chrono::Datelike;
     let st = date10(start)?;
     if st > today {
@@ -3277,7 +3277,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
 
         // ---- 名札。🔴 これの本数で並べる。スコアにしない ----
         let mut flags: Vec<&str> = Vec::new();
-        if matches!(np, Some((_, v)) if *v <= super::NPS_LOW) {
+        if super::low_nps(np.map(|(_, v)| *v)) {
             flags.push("NPSが4以下");
         }
         if matches!(days_left, Some(x) if (0..=60).contains(&x)) {
@@ -3299,7 +3299,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         } else if matches!(days_since, Some(x) if x > 30) {
             flags.push("接触が30日以上空いている");
         }
-        if matches!(vs_band, Some(x) if x >= 1.5) {
+        if super::high_cpa(mycpa, bmed) {
             flags.push("採用単価が同じ進捗帯の1.5倍以上");
         }
         if retired {
@@ -3313,9 +3313,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         } else if gap.band.is_alert() {
             flags.push(gap.band.label());
         }
-        if matches!(d.saiyomokuhyou, Some(t) if t > 0.0)
-            && matches!(d.rate_tassei(), Some(r) if r < 0.5)
-        {
+        if super::below_half_target(d) {
             flags.push("採用目標の半分に届いていない");
         }
         for f in &flags {

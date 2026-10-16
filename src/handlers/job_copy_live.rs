@@ -24,6 +24,7 @@ use std::{
 use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
+mod deal_board;
 mod deal_summary;
 mod drafts;
 mod hrh_copy;
@@ -2171,6 +2172,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             "/api/job-copy/listings/{id}/indeed-title",
             axum::routing::put(indeed_title::put),
         )
+        .route("/api/job-copy/deals", get(deal_board::read))
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
         .route("/api/job-copy/snapshot-image", get(snapshot_image))

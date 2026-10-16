@@ -1,0 +1,24 @@
+.db-board{min-width:0;width:100%;box-sizing:border-box}
+.db-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0}
+.db-controls label{display:flex;gap:6px;align-items:center;font-size:12px}
+.db-controls select{max-width:220px;padding:6px;border:1px solid #cbd5e1;border-radius:6px;background:white}
+.db-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px}
+.db-table th,.db-table td{padding:10px 6px;text-align:left;vertical-align:top;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere}
+.db-table th:first-child{width:20%}
+.db-table th:nth-child(2){width:20%}
+.db-table th:nth-child(3){width:8%}
+.db-table th:nth-child(4){width:10%}
+.db-table th:nth-child(5),.db-table th:nth-child(6){width:10%}
+.db-table th:nth-child(7){width:10%}
+.db-table th:last-child{width:12%}
+.db-table thead{background:#f1f5f9}
+.db-table thead button{font:inherit;text-align:left;color:#334155;background:none;border:0;cursor:pointer}
+.db-table small{display:block;color:#64748b;font-size:11px;margin-top:4px}
+.db-table .nt-reasons{display:flex;flex-wrap:wrap;gap:4px}
+.db-table .nt-reason{font-size:10px;white-space:normal}
+.db-expand{display:block;margin-top:6px;border:0;background:none;color:#0369a1;cursor:pointer;font-size:11px}
+.db-detail{background:#f8fafc}
+.db-detail dl{display:flex;gap:20px;flex-wrap:wrap;margin:4px}
+.db-detail dt{font-size:11px;color:#64748b}
+.db-detail dd{margin:3px 0}
+.db-pages{display:flex;justify-content:center;gap:16px;align-items:center;margin:20px 0}

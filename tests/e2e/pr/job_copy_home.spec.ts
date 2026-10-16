@@ -146,12 +146,12 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   await expect(page.getByRole('combobox', { name: '担当の項目' })).toHaveValue('consultant');
   await expect(page).toHaveURL(/owner=11/);
   const cards = page.locator('.jh-todo-cards .jh-card');
-  await expect(cards).toHaveCount(7);
-  for (const [index, count] of [1, 1, 1, 1, 198, 95, 112].entries()) await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${count}件`);
+  await expect(cards).toHaveCount(11);
+  for (const [index, count] of [1, 1, 1, 1, 0, 0, 0, 0, 198, 95, 112].entries()) await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${count}件`);
   await expect(page.locator('.jh-todo-table')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'まず見るもの' })).toBeInViewport();
   const boxes = await cards.evaluateAll(elements => elements.map(el => ({ top: el.getBoundingClientRect().top, height: el.getBoundingClientRect().height })));
-  expect(new Set(boxes.map(box => Math.round(box.top))).size).toBe(2);
+  expect(new Set(boxes.map(box => Math.round(box.top))).size).toBe(3);
   const filterLayout = await page.locator('.jh-owner').evaluate(el => {
     const controls = [...el.querySelectorAll('label')];
     return controls.map(label => ({ direction: getComputedStyle(label).flexDirection, top: label.getBoundingClientRect().top, height: label.getBoundingClientRect().height }));
@@ -160,7 +160,7 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   expect(new Set(filterLayout.map(label => Math.round(label.top))).size).toBe(1);
   const dir = process.env.OWNER_TODO_SCREENSHOT_DIR;
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/default.png` });
-  await cards.nth(4).click();
+  await page.getByRole('button', { name: /期限切れ/ }).click();
   const list = page.getByRole('region', { name: '期限切れの一覧' });
   await expect(list.locator('tbody tr')).toHaveCount(20);
   await expect(list).toContainText('1〜20件 ／ 全198件');

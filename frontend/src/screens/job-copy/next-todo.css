@@ -14,3 +14,5 @@
 .nt-deal h3 { margin: 16px 0 8px; font-size: 15px; }
 .nt-contract-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
 @media(max-width: 1000px) { .nt-contract-grid { grid-template-columns: 1fr; } }
+
+.nt-reason.nt-strong { color: #991b1b; background: #fee2e2; border-color: #fca5a5; }

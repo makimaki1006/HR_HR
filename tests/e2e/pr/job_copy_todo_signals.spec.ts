@@ -39,7 +39,7 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   await page.route('**/api/job-copy/company-deals?*', route => route.fulfill({ json: { company: { id: '901', name: '合成事業所' }, deals: [], index_ready: true } }));
   const dir = process.env.TODO_SIGNALS_SCREENSHOT_DIR;
   await login(page); await page.goto('/app/job-copy');
-  await expect(page.locator('.jh-todo-cards .jh-card')).toHaveCount(7);
+  await expect(page.locator('.jh-todo-cards .jh-card')).toHaveCount(11);
   for (const card of ['契約満了が近い', '接触が空いている', '応募が止まっている', '初回で成果が出ていない']) {
     const button = page.getByRole('button', { name: new RegExp(card) });
     await expect(button.locator('.jh-count')).toHaveText('1件');
