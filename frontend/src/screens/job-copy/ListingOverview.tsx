@@ -4,7 +4,7 @@ import { formatDateJst } from './format';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JobCopyRecord } from './data';
 import { applicationsCutoffDate, noApplicationDatesText } from './detailBandModel';
-import { COLUMN_PX, buildLifeline, weekIndex } from './lifelineModel';
+import { COLUMN_PX, buildLifeline, changeMarkerLabel, weekIndex } from './lifelineModel';
 import type { Lifeline, LifelineWeek } from './lifelineModel';
 import { HEARING_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
 import { ReasonCategorySummary } from './ReasonCategorySummary';
@@ -63,7 +63,7 @@ const num = (value: number | null) => value === null ? '—' : value.toLocaleStr
 const yen = (value: number | null) => value === null ? '—' : `¥${Math.round(value).toLocaleString('ja-JP')}`;
 
 /** 横の時間軸。1週 = 1列（幅は固定）。開いたときは最新の週が見える位置にする。 */
-export function LifelineChart({ lifeline, job, selectedWeek }: { lifeline: Lifeline; job: JobCopyRecord; selectedWeek: number | null }) {
+export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifeline: Lifeline; job: JobCopyRecord; selectedWeek: number | null; onSelect: (id: string) => void }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const width = lifeline.weeks.length * COLUMN_PX;
   useEffect(() => { const element = scroller.current; if (element) element.scrollLeft = element.scrollWidth; }, [lifeline.weeks.length, job.id]);
@@ -84,6 +84,7 @@ export function LifelineChart({ lifeline, job, selectedWeek }: { lifeline: Lifel
   return <div className="lf" data-testid="lifeline">
     <div className="lf-labels" aria-hidden="true">
       <div className="lf-head-label">週（月曜）</div>
+      <div className="lf-change-label">求人の変更</div>
       {rows.map(row => <div key={row.key} className="lf-row-label">{row.label}</div>)}
     </div>
     <div className="lf-scroll" ref={scroller} tabIndex={0} role="region" aria-label="週ごとの推移（横にスクロールできます）">
@@ -91,6 +92,12 @@ export function LifelineChart({ lifeline, job, selectedWeek }: { lifeline: Lifel
         {selectedWeek !== null && <div className="lf-selected" data-testid="lifeline-selected" style={{ left: `${String(selectedWeek * COLUMN_PX)}px`, width: `${String(COLUMN_PX)}px` }} />}
         {marker(lifeline.startIndex, '掲載開始', 'start')}{marker(lifeline.endIndex, '掲載終了', 'end')}{marker(lifeline.todayIndex, '今日', 'today')}
         <div className="lf-row lf-head">{lifeline.weeks.map(week => <div key={week.start} className="lf-cell" title={`${week.start} の週`}>{md(week.start)}</div>)}</div>
+        <div className="lf-row lf-changes">{lifeline.weeks.map(week => {
+          const latest = week.changes.at(-1);
+          const details = week.changes.map(event => `${event.date} ${event.title}：${event.summary}`).join('\n');
+          const label = `${details}${week.changes.length > 1 ? '\n最新の出来事を開きます' : ''}`;
+          return <div key={week.start} className="lf-cell">{latest && <button type="button" className="lf-change" title={label} aria-label={label} onClick={() => { onSelect(latest.id); }}>{changeMarkerLabel(week.changes).split('・').map((part, index, parts) => <span key={part}>{part}{index < parts.length - 1 ? '・' : ''}</span>)}</button>}</div>;
+        })}</div>
         {rows.map(row => <div key={row.key} className="lf-row" role="row" aria-label={row.label}>
           {row.empty && lifeline.weeks.every(week => row.cell(week) === '—') ? <div className="lf-empty" style={{ width: `${String(width)}px` }}>{row.empty}</div> : lifeline.weeks.map(week => <div key={week.start} className={`lf-cell${row.cell(week) === '0' || row.cell(week) === '¥0' ? ' lf-zero' : ''}`}>{row.cell(week)}</div>)}
         </div>)}
@@ -158,7 +165,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
   return <div className="lo-main">
     <section className="lo-card" aria-labelledby="lo-chart-title">
       <div className="lo-head"><h2 id="lo-chart-title">求人のライフライン</h2><span>掲載開始から{lifeline?.endIndex !== null && lifeline?.endIndex !== undefined ? '掲載終了' : '今日'}まで、1週を1列で並べています（月曜はじまり）。横にスクロールできます。</span></div>
-      {lifeline ? <LifelineChart lifeline={lifeline} job={job} selectedWeek={selectedWeek} /> : <p className="lo-note" role="status">掲載の開始日が分からないため、週ごとの推移は出せません。</p>}
+      {lifeline ? <LifelineChart lifeline={lifeline} job={job} selectedWeek={selectedWeek} onSelect={onSelect} /> : <p className="lo-note" role="status">掲載の開始日が分からないため、週ごとの推移は出せません。</p>}
       {!job.overallApplications && <p className="lo-note" role="status">{noApplicationDatesText(job)}</p>}
     </section>
     <ListingReasons job={job} />{phonePanel}

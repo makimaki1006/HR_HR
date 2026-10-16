@@ -14,6 +14,8 @@ export const COLUMN_PX = 56;
 export interface LifelineWeek {
   /** 月曜の日付。 */
   start: string;
+  /** この週の本文・給与・画像の変更（連携開始は除く）。 */
+  changes: ListingEvent[];
   billing: number | null;
   impressions: number | null;
   clicks: number | null;
@@ -61,6 +63,7 @@ export function buildLifeline(job: JobCopyRecord, events: readonly ListingEvent[
     const row = perf.find(item => item.period_start <= monday && monday <= item.period_end);
     weeks.push({
       start: monday,
+      changes: events.filter(event => (event.kind === 'content' || event.kind === 'image') && event.previousVersionId !== null && event.date >= monday && event.date <= sunday),
       billing: billingInWindow(billing, monday, sunday),
       impressions: row ? row.impressions : null,
       clicks: row ? row.clicks : null,
@@ -73,4 +76,14 @@ export function buildLifeline(job: JobCopyRecord, events: readonly ListingEvent[
   lifeline.endIndex = lastState?.kind === 'end' ? weekIndex(lifeline, lastState.date) : null;
   lifeline.todayIndex = lastState?.kind === 'end' ? null : weekIndex(lifeline, today);
   return lifeline;
+}
+
+/** 金額などの詳細を省き、印に収まる変更名にする。 */
+export function changeMarkerLabel(events: readonly ListingEvent[]): string {
+  if (events.length > 1) return `変更×${String(events.length)}`;
+  const event = events[0];
+  if (!event) return '';
+  const title = event.title.replace(/（.*$/u, '');
+  const kinds = ['本文', '給与', '画像'].filter(kind => title.includes(kind));
+  return `${kinds.length ? kinds.join('・') : event.kind === 'image' ? '画像' : '本文'}変更`;
 }

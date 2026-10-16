@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CopyVersion, JobCopyRecord } from './data';
-import { ListingOverview, ListingReasons } from './ListingOverview';
-import { buildLifeline, COLUMN_PX, weekIndex } from './lifelineModel';
+import { LifelineChart, ListingOverview, ListingReasons } from './ListingOverview';
+import { buildLifeline, changeMarkerLabel, COLUMN_PX, weekIndex } from './lifelineModel';
 import { applicationEvents, applicantText, buildListingEvents, statusTimeline } from './listingEventsModel';
 import type { BillingEntry } from './timelineModel';
 
@@ -115,5 +115,59 @@ describe('画面', () => {
     const aw = { ...job, media: 'AirWork', hrhPerformance: undefined };
     view(aw);
     expect(screen.getAllByText('課金データなし').length).toBeGreaterThan(0);
+  });
+});
+
+function required<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error('検証対象がありません');
+  return value;
+}
+
+describe('ライフラインの変更印', () => {
+  const changedJob: JobCopyRecord = {
+    ...job,
+    versions: [
+      version('initial', '2026-06-15', '時給 1,100 円', 'one'),
+      // 日曜の23:59 JSTと、月曜の00:00 JST（UTCではどちらも日曜）。
+      { ...version('salary', '2026-06-21', '時給 1,200 円', 'one'), publishedFrom: '2026-06-21T14:59:00Z' },
+      { ...version('image', '2026-06-22', '時給 1,200 円', 'two'), publishedFrom: '2026-06-21T15:00:00Z' },
+      { ...version('body', '2026-06-23', '時給 1,300 円', 'two'), body: '仕事内容\n地域へ配送します。\n給与：時給 1,300 円\n休日：土日祝' },
+    ],
+  };
+  const changes = buildListingEvents(changedJob, billing);
+  const model = required(buildLifeline(changedJob, changes, billing, new Date('2026-07-13T00:00:00Z')));
+  it('JSTの日曜は前の週、月曜00:00は次の週。同じ週の本文・給与と画像を2件にまとめる', () => {
+    expect(model.weeks.slice(0, 3).map(week => [week.start, week.changes.map(event => [event.date, event.versionId])])).toEqual([
+      ['2026-06-15', [['2026-06-21', 'salary']]],
+      ['2026-06-22', [['2026-06-22', 'image'], ['2026-06-23', 'body']]],
+      ['2026-06-29', []],
+    ]);
+    expect(changeMarkerLabel(required(model.weeks[0]).changes)).toBe('給与変更');
+    expect(changeMarkerLabel(required(model.weeks[1]).changes)).toBe('変更×2');
+    expect(changeMarkerLabel([required(required(model.weeks[1]).changes[0])])).toBe('画像変更');
+    expect(changeMarkerLabel([required(required(model.weeks[1]).changes[1])])).toBe('本文・給与変更');
+    expect(changeMarkerLabel([{ ...required(required(model.weeks[1]).changes[1]), title: '本文を変更' }])).toBe('本文変更');
+  });
+  it('連携開始の本文記録、課金、応募は変更印から除く', () => {
+    const events = buildListingEvents(job, billing);
+    const record = events.find(event => event.title === 'HubSpot に本文を記録しはじめた');
+    expect(record?.date).toBe('2026-07-02');
+    const result = required(buildLifeline(job, events, billing, new Date('2026-07-13T00:00:00Z')));
+    expect(result.weeks.flatMap(week => week.changes.map(event => [event.date, event.kind]))).toEqual([['2026-07-08', 'image']]);
+  });
+  it('単独の印はその出来事、まとめた印は最新の出来事のIDをonSelectに渡す。全件の日付と内容がある', () => {
+    const onSelect = vi.fn();
+    render(<LifelineChart lifeline={model} job={changedJob} selectedWeek={null} onSelect={onSelect} />);
+    const single = screen.getByRole('button', { name: /2026-06-21 給与を変更/u });
+    expect(single.textContent).toBe('給与変更');
+    expect(single.getAttribute('type')).toBe('button');
+    fireEvent.click(single);
+    expect(onSelect).toHaveBeenLastCalledWith(required(changes.find(event => event.versionId === 'salary')).id);
+    const group = screen.getByRole('button', { name: /2026-06-22 画像を変更/u });
+    expect(group.textContent).toBe('変更×2');
+    expect(group.title).toContain('2026-06-23 給与と本文を変更');
+    expect(group.getAttribute('aria-label')).toContain('本文を変更（追加');
+    fireEvent.click(group);
+    expect(onSelect).toHaveBeenLastCalledWith(required(changes.find(event => event.versionId === 'body')).id);
   });
 });
