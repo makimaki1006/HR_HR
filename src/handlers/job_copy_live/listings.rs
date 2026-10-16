@@ -11,6 +11,9 @@ pub(super) use deals::{read_body_dates, read_comparison};
 #[path = "listing_pipelines.rs"]
 mod pipelines;
 pub(super) use pipelines::company_deals;
+pub(super) fn is_delivery(pipeline: Option<&str>) -> bool {
+    pipelines::is_delivery(pipeline)
+}
 #[path = "listing_home.rs"]
 mod home;
 pub(super) use home::read as read_home;

@@ -8,7 +8,7 @@ import { buildCrumbs } from './trail';
 import type { HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 
 const api = vi.hoisted(() => vi.fn());
-vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: api }));
+vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', report: { count: 0, deals: [] }, refresh_failed: false } }) : api(path, options) as Promise<unknown> }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const row = (id: string, title: string, recent: number, prev: number) => ({ id, title, company: '合成運輸', media: 'hrh' as const, recent_apps: recent, prev_apps: prev, recent_cost: 12000, latest_week_end: '2026-10-04' });
@@ -28,7 +28,7 @@ const response: HomeResponse = {
 };
 const at = <T,>(items: T[], index: number): T => { const item = items[index]; if (item === undefined) throw new Error('missing'); return item; };
 const open = vi.fn(); const openListing = vi.fn();
-const renderHome = () => render(<JobCopyHome onOpenCompany={open} onOpenListing={openListing} />);
+const renderHome = () => render(<JobCopyHome onOpenCompany={open} onOpenListing={openListing} onOpenDeal={vi.fn()} />);
 
 it('カードに件数と数え方を出し、押すとその求人の一覧が開く', async () => {
   api.mockResolvedValue({ ok: true, data: response });
@@ -109,7 +109,7 @@ it('新しい8枚の見出し・件数・説明と、ゼロのままの求人の
   renderHome();
   await screen.findByRole('button', { name: /応募がゼロのままの求人/ });
   const cards = screen.getAllByRole('button').filter(button => button.classList.contains('jh-card'));
-  expect(cards).toHaveLength(8);
+  expect(cards).toHaveLength(9);
   for (const [index, item] of demoHome.home.cards.entries()) {
     const button = at(cards, index);
     expect(within(button).getByText(item.title)).toBeTruthy();
