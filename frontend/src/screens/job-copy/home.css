@@ -54,3 +54,14 @@
 .jh-latest-name { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .jh-latest small { display: block; color: var(--jc-muted, #52697a); font-size: 12px; }
 .jh-badge.jh-now { background: var(--jc-accent, #007c91); color: #fff; }
+.jh-live-listings { background: var(--jc-paper, #fff); border: 1px solid #8aafbb; border-top: 4px solid var(--jc-accent, #007c91); border-radius: 10px; padding: 20px; }
+.jh-live-listings h2 { margin-bottom: 16px; font-size: 24px; }
+.jh-live-listings h2 span { color: var(--jc-accent, #007c91); }
+.jh-past-listings { border: 1px solid var(--jc-border, #d4dfe7); border-radius: 8px; padding: 14px; }
+.jh-past-listings summary { cursor: pointer; font-weight: 600; }
+.jh-listing-table { min-width: 850px; }
+.jh-listing-table tbody tr { cursor: pointer; }
+.jh-listing-table tbody tr:hover { background: var(--jc-soft, #eaf5f7); }
+.jh-listing-table small { display: block; font-weight: 400; font-size: 11px; color: var(--jc-muted, #52697a); margin-top: 5px; }
+.jh-listing-deals .jh-link { font-weight: 400; }
+.jh-pages { display: flex; align-items: center; justify-content: end; flex-wrap: wrap; gap: 12px; margin-top: 12px; font-size: 12px; }
