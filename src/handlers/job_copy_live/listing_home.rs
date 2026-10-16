@@ -41,6 +41,10 @@ const COMPANY_TTL: Duration = Duration::from_secs(30 * 60);
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) struct PerfDigest {
     pub(super) latest_end: NaiveDate,
+    /// 求人比較の最新の連続4週。旧キャッシュの5週集計は再利用しない。
+    /// 古い保存済み索引は未取得扱い。新しい永続化先は増やさない。
+    #[serde(default)]
+    pub(super) comparison_recent: Option<ComparisonRecent>,
     /// 最新の週を含む 4 週（週の開始日が最新の開始日の 21 日前まで）の応募と課金。
     pub(super) recent_apps: i64,
     pub(super) recent_cost: i64,
@@ -58,6 +62,12 @@ fn whole(value: &Value) -> i64 {
 }
 impl PerfDigest {
     pub(super) fn from_json(perf: &Value) -> Option<Self> {
+        let today = chrono::Utc::now()
+            .with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap())
+            .date_naive();
+        Self::from_json_on(perf, today)
+    }
+    fn from_json_on(perf: &Value, today: NaiveDate) -> Option<Self> {
         let rows: Vec<(NaiveDate, NaiveDate, i64, i64)> = perf["rows"]
             .as_array()?
             .iter()
@@ -73,6 +83,7 @@ impl PerfDigest {
         let (latest_start, latest_end, _, _) = rows.iter().max_by_key(|row| row.0).copied()?;
         let mut digest = Self {
             latest_end,
+            comparison_recent: comparison_recent(perf, today),
             recent_apps: 0,
             recent_cost: 0,
             prev_apps: 0,
@@ -94,8 +105,76 @@ impl PerfDigest {
         } else {
             listings::airwork_weekly_perf(record)
         }?;
-        Self::from_json(&perf)
+        let mut digest = Self::from_json(&perf)?;
+        let id = record.value(if media == "hrh" {
+            "id_hrhakkaa"
+        } else {
+            "id_airwork"
+        });
+        if perf["job_id"].as_str() != id {
+            digest.comparison_recent = None;
+        }
+        Some(digest)
     }
+}
+
+/// 全件索引が既に読んだ週別実績から作る。課金や応募の未取得を0にしない。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(super) struct ComparisonRecent {
+    pub(super) period_start: NaiveDate,
+    pub(super) period_end: NaiveDate,
+    pub(super) applications: Option<i64>,
+    pub(super) cost_yen: Option<f64>,
+}
+fn comparison_recent(perf: &Value, today: NaiveDate) -> Option<ComparisonRecent> {
+    let mut rows: Vec<_> = perf["rows"]
+        .as_array()?
+        .iter()
+        .filter_map(|r| {
+            let a = day(&r["period_start"])?;
+            let b = day(&r["period_end"])?;
+            (a + chrono::Duration::days(6) == b && b <= today).then_some((a, b, r))
+        })
+        .collect();
+    rows.sort_by_key(|r| r.0);
+    for (_, end, _) in rows.iter().rev() {
+        let start = *end - chrono::Duration::days(27);
+        let selected: Vec<_> = rows
+            .iter()
+            .filter(|(a, b, _)| *a >= start && b <= end)
+            .collect();
+        if selected.len() != 4
+            || !selected
+                .iter()
+                .enumerate()
+                .all(|(i, (a, _, _))| *a == start + chrono::Duration::days(i as i64 * 7))
+        {
+            continue;
+        }
+        let applications = selected
+            .iter()
+            .try_fold(0_i64, |sum, (_, _, r)| {
+                sum.checked_add(r["applications"].as_i64().filter(|v| *v >= 0)?)
+            })
+            .filter(|v| *v <= 9_007_199_254_740_991);
+        let cost_yen = selected
+            .iter()
+            .try_fold(0.0_f64, |sum, (_, _, r)| {
+                Some(
+                    sum + r["cost_yen"]
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v >= 0.0)?,
+                )
+            })
+            .filter(|v| v.is_finite() && *v <= 9_007_199_254_740_991.0);
+        return Some(ComparisonRecent {
+            period_start: start,
+            period_end: *end,
+            applications,
+            cost_yen,
+        });
+    }
+    None
 }
 
 /// 取引→事業所の対応と事業所名。索引の作成時刻ごとに作り直す。
@@ -203,6 +282,97 @@ fn trend_key(perf: &PerfDigest) -> &'static str {
     }
 }
 
+/// ホームと変更求人で共用する判定。応募の分類は1つ、課金・鮮度の印は重複する。
+fn classify(row: &Listing, median_cpa: Option<i64>, today: NaiveDate) -> Vec<&'static str> {
+    if row.publication_status.is_none() {
+        return vec!["unknown"];
+    }
+    if !is_live(row) {
+        return vec!["out_of_scope"];
+    }
+    let Some(p) = &row.perf else {
+        return vec!["unknown"];
+    };
+    let mut keys = vec![trend_key(p)];
+    if p.recent_cost >= COST_FLOOR_YEN
+        && match cost_per_app(p) {
+            None => true,
+            Some(value) => median_cpa.is_some_and(|m| value >= m * COST_PER_APP_TIMES),
+        }
+    {
+        keys.push("costly");
+    }
+    if (today - p.latest_end).num_days() > STALE_DAYS {
+        keys.push("stale");
+    }
+    keys
+}
+fn median_cost_per_app<'a>(records: impl Iterator<Item = &'a Listing>) -> Option<i64> {
+    median(
+        records
+            .filter(|row| is_live(row))
+            .filter_map(|row| row.perf.as_ref())
+            .filter(|perf| perf.recent_cost > 0)
+            .filter_map(cost_per_app)
+            .collect(),
+    )
+}
+fn card_definitions() -> Vec<(&'static str, &'static str, String)> {
+    vec![
+        ("zero_stay", "応募がゼロのままの求人", "掲載中で、前の4週も直近4週も応募が0件の求人。直近4週の課金が多い順に表示します。".to_owned()),
+        ("to_zero", "応募がゼロになった求人", "掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。".to_owned()),
+        ("less", "直近4週の応募が、前の4週より少ない求人", format!("掲載中で、直近4週の応募が1件以上あり、前の4週より{TREND_MIN_DIFF}件以上、または{TREND_MIN_PERCENT}%以上少ない求人。")),
+        ("more", "直近4週の応募が、前の4週より多い求人", format!("掲載中で、直近4週の応募が前の4週より{TREND_MIN_DIFF}件以上、または{TREND_MIN_PERCENT}%以上多い求人。前の4週が0件で応募があった求人も含みます。")),
+        ("flat", "応募はあるが、前の4週とほぼ同じ求人", format!("掲載中で、直近4週に応募があり、前の4週と同じ件数、または差が{TREND_MIN_DIFF}件未満かつ{TREND_MIN_PERCENT}%未満の求人。")),
+        ("costly", "課金が高いまま応募が少ない求人", format!("掲載中で、直近4週の課金が{}以上あり、応募が0件、または応募1件あたりの課金が応募のある求人の中央値の{COST_PER_APP_TIMES}倍以上の求人。", yen_label(COST_FLOOR_YEN))),
+        ("stale", "データが止まっている求人", format!("掲載中で、週ごとの実績の最新の週が{STALE_DAYS}日より前に終わっている求人。この間の応募・課金は少なく見えます。")),
+    ]
+}
+
+/// 要求時に完成済み索引だけを参照する。取得やキャッシュへの書き込みはしない。
+pub(super) fn enrich_recent_changes(
+    data: &mut Value,
+    records: Option<&[&Listing]>,
+    today: NaiveDate,
+) {
+    let Some(rows) = data["report"]["listings"].as_array_mut() else {
+        return;
+    };
+    let Some(records) = records else {
+        data["report"]["breakdown"] = json!({"status":"preparing"});
+        return;
+    };
+    let median = median_cost_per_app(records.iter().copied());
+    let by_id: BTreeMap<_, _> = records.iter().map(|r| (r.id.as_str(), r)).collect();
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for row in rows {
+        let keys = row["id"]
+            .as_str()
+            .and_then(|id| by_id.get(id))
+            .map(|r| classify(r, median, today))
+            .unwrap_or_else(|| vec!["unknown"]);
+        for key in &keys {
+            *counts.entry(key).or_default() += 1;
+        }
+        row["classifications"] = json!(keys);
+    }
+    let mut definitions = card_definitions();
+    definitions.extend([
+        (
+            "out_of_scope",
+            "対象外（掲載終了など）",
+            "掲載終了など、ホームのカードの対象に含まれない求人。".to_owned(),
+        ),
+        (
+            "unknown",
+            "判定できない",
+            "応募・課金や掲載状態の情報がまだなく、分類を判定できない求人。".to_owned(),
+        ),
+    ]);
+    data["report"]["breakdown"] = json!({"status":"ready", "cards": definitions.into_iter().map(|(key, title, rule)|
+        json!({"key":key,"title":title,"rule":rule,"count":counts.get(key).copied().unwrap_or(0)})).collect::<Vec<_>>()});
+}
+
 pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -> Home {
     let company_of = |row: &Listing| -> Option<String> {
         row.deal_ids
@@ -211,13 +381,7 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
             .and_then(|id| map.names.get(id).cloned().flatten())
     };
     let live: Vec<&Listing> = records.iter().filter(|row| is_live(row)).collect();
-    let median_cpa = median(
-        live.iter()
-            .filter_map(|row| row.perf.as_ref())
-            .filter(|perf| perf.recent_cost > 0)
-            .filter_map(cost_per_app)
-            .collect(),
-    );
+    let median_cpa = median_cost_per_app(records.iter());
     let row_of = |row: &Listing| HomeRow {
         id: row.id.clone(),
         title: row.title.clone(),
@@ -243,44 +407,32 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
         let mut picked: Vec<_> = live
             .iter()
             .copied()
-            .filter(|row| row.perf.as_ref().is_some_and(|p| trend_key(p) == key))
+            .filter(|row| classify(row, median_cpa, today).contains(&key))
             .collect();
         if key == "zero_stay" {
             picked.sort_by_key(|row| std::cmp::Reverse(row.perf.as_ref().map(|p| p.recent_cost)));
         }
         picked
     };
-    let costly: Vec<&Listing> = live
-        .iter()
-        .copied()
-        .filter(|row| {
-            row.perf.as_ref().is_some_and(|p| {
-                p.recent_cost >= COST_FLOOR_YEN
-                    && match cost_per_app(p) {
-                        None => true,
-                        Some(value) => median_cpa.is_some_and(|m| value >= m * COST_PER_APP_TIMES),
-                    }
-            })
+    let marked = |key| {
+        live.iter()
+            .copied()
+            .filter(|row| classify(row, median_cpa, today).contains(&key))
+            .collect()
+    };
+    let costly: Vec<&Listing> = marked("costly");
+    let stale: Vec<&Listing> = marked("stale");
+    let cards = card_definitions()
+        .into_iter()
+        .map(|(key, title, rule)| {
+            let picked = match key {
+                "costly" => costly.clone(),
+                "stale" => stale.clone(),
+                _ => pick(key),
+            };
+            card(key, title, rule, picked)
         })
         .collect();
-    let stale: Vec<&Listing> = live
-        .iter()
-        .copied()
-        .filter(|row| {
-            row.perf
-                .as_ref()
-                .is_some_and(|p| (today - p.latest_end).num_days() > STALE_DAYS)
-        })
-        .collect();
-    let cards = vec![
-        card("zero_stay", "応募がゼロのままの求人", "掲載中で、前の4週も直近4週も応募が0件の求人。直近4週の課金が多い順に表示します。".to_owned(), pick("zero_stay")),
-        card("to_zero", "応募がゼロになった求人", "掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。".to_owned(), pick("to_zero")),
-        card("less", "直近4週の応募が、前の4週より少ない求人", format!("掲載中で、直近4週の応募が1件以上あり、前の4週より{TREND_MIN_DIFF}件以上、または{TREND_MIN_PERCENT}%以上少ない求人。"), pick("less")),
-        card("more", "直近4週の応募が、前の4週より多い求人", format!("掲載中で、直近4週の応募が前の4週より{TREND_MIN_DIFF}件以上、または{TREND_MIN_PERCENT}%以上多い求人。前の4週が0件で応募があった求人も含みます。"), pick("more")),
-        card("flat", "応募はあるが、前の4週とほぼ同じ求人", format!("掲載中で、直近4週に応募があり、前の4週と同じ件数、または差が{TREND_MIN_DIFF}件未満かつ{TREND_MIN_PERCENT}%未満の求人。"), pick("flat")),
-        card("costly", "課金が高いまま応募が少ない求人", format!("掲載中で、直近4週の課金が{}以上あり、応募が0件、または応募1件あたりの課金が応募のある求人の中央値の{COST_PER_APP_TIMES}倍以上の求人。", yen_label(COST_FLOOR_YEN)), costly),
-        card("stale", "データが止まっている求人", format!("掲載中で、週ごとの実績の最新の週が{STALE_DAYS}日より前に終わっている求人。この間の応募・課金は少なく見えます。"), stale),
-    ];
 
     #[derive(Default)]
     struct Agg {

@@ -9,6 +9,7 @@ import { hrhCopySections, composeHrhBody } from './hrhCopy';
 import type { JobCopyRecord } from './data';
 import type { IndeedTitleState } from './marketMatch';
 export interface HubSpotListing {
+  recent_performance?: { period_start: string; period_end: string; applications: number | null; cost_yen: number | null } | null;
   id: string; media: 'hrh' | 'airwork'; media_job_id: string; account_id: string | null;
   title: string | null; prefecture: string | null; municipality: string | null; category: string | null;
   /** 人が指定した「比べる Indeed 職種」。state: set / none（市場と比べない）/ unset。古い応答には無い。 */
@@ -81,12 +82,13 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
   const row = data.listing;
   const copy = (body: string) => row.media === 'hrh' ? { comparisonBody: body, body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: '仕事内容', text: body }] : [] };
   return {
+    listingSummary: row.summary ?? listedRow?.summary, listingPrefecture: row.prefecture ?? listedRow?.prefecture ?? null, listingDealIds: listedRow?.deal_ids ?? row.deal_ids,
     currentImagesRegistered: data.current_images_registered ?? undefined,
     ...(indeedWeeklyPerformance(weeklyPerfRaw(data, row.media), row.media, row.media_job_id) ? { hrhPerformance: indeedWeeklyPerformance(weeklyPerfRaw(data, row.media), row.media, row.media_job_id) } : {}),
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
     currentDraftRow: data.current_row ?? undefined, draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
     ...(data.current_fields ? { currentListingFields: data.current_fields } : {}),
-    listingStartedOn: data.listing_started_on ?? null, applicationDates: 'loading', statusHistory: statusEntries(data, row.media),
+    listingStartedOn: data.listing_started_on ?? row.listing_started_on ?? null, applicationDates: 'loading', statusHistory: statusEntries(data, row.media),
     listingPublicationStatus: row.publication_status, listingApplicationCount: row.application_count ?? (listedRow?.id === row.id ? listedRow.application_count : null),
     title: row.title ?? '求人名未取得', company: data.company_name ?? '', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),

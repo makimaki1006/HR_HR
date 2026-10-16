@@ -503,3 +503,14 @@
   .cq-toolbar-controls { left: 8px; right: 8px; max-height: calc(100dvh - 160px); overflow-y: auto; }
   .cq-app .cq-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
 }
+
+/* 架電中に読み上げる相手を番号の直前に置く */
+.wd-dial-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.wd-dial-contact { display: flex; flex: 1; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.wd-dialbox:has(.wd-dial-contact) .wd-phone-primary { padding-block: 0; }
+.wd-dial-contact-name { font-size: 20px; line-height: 20px; font-weight: 700; overflow-wrap: anywhere; }
+.cq-app .cq-fields-scope { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+.cq-app .cq-fields .cq-stage-toggle { width: 100%; height: 36px; font-size: 14px; }
+@media (max-width: 850px) {
+  .cq-app .cq-fields-scope { grid-template-columns: minmax(0, 1fr); }
+}
