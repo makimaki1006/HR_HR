@@ -3954,3 +3954,73 @@ async fn 担当者を選ぶ項目は数字のidだけ受け付ける() {
     })));
     assert_eq!(e.admin_get(&q("abc")).await.0, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 納品管理は架電の候補と件数検索に入らない() {
+    let mut f = FakeHs::new();
+    for (pid, sid) in [("21596025", "52016153"), ("743961896", "1082007419")] {
+        f.extra_pipelines
+            .push(json!({"id": pid, "label": "納品管理", "displayOrder": 9,
+            "stages": [{"id": sid, "label": "納品管理ステージ", "displayOrder": 0}]}));
+    }
+    f.count_total = Some(7);
+    with_relations(&mut f, &["1"]);
+    let e = env(f.page(Page::new(vec![Deal::new("1", UNPROCESSED)]).total(3))).await;
+    let (s, _, v) = get_raw(&e.app, "/api/crm/call-queue/pipelines", Some(&e.admin)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let pids: Vec<_> = v["pipelines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        pids,
+        [
+            "753186575",
+            "default",
+            "62583420",
+            "21724969",
+            "681393283",
+            "913508269"
+        ]
+    );
+    let scope = super::metric_prefs::value_scope();
+    assert_eq!(scope.pipelines, pids);
+    assert!(!scope
+        .stages
+        .iter()
+        .any(|s| s == "52016153" || s == "1082007419"));
+    let (s, v) = e.admin_get("").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["total"], 17); // 先頭3件 + 残り2段階 × 7件
+    let counts: Vec<Value> =
+        e.hs.lock()
+            .unwrap()
+            .log
+            .iter()
+            .filter(|(c, _)| c.ends_with("#count"))
+            .map(|(_, b)| serde_json::from_str(b).unwrap())
+            .collect();
+    assert_eq!(counts.len(), 2);
+    for c in counts {
+        for g in groups(&c) {
+            // 架電対象はステージ ID (HubSpot 全体で一意) で絞る。
+            let values = stage_values(&g);
+            assert!(!values.is_empty());
+            assert!(values
+                .iter()
+                .all(|s| super::queue_pipelines::default_pipeline().is_eligible(s)));
+            assert!(!stage_values(&g)
+                .iter()
+                .any(|s| s == "52016153" || s == "1082007419"));
+        }
+    }
+    for pid in ["21596025", "743961896"] {
+        let (s, v) = e.admin_get(&format!("?pipeline={pid}")).await;
+        assert_eq!(
+            (s, kind(&v)),
+            (StatusCode::BAD_REQUEST, Some("invalid_param"))
+        );
+    }
+}

@@ -43,7 +43,7 @@ use ts_rs::TS;
 use super::op_status::{self, OpState, OpStatusCache};
 use super::pending::{self, Payload, StageMove, Step};
 use super::property_catalog::{valid_property_name, CatalogEntry, CrmCatalogProperty};
-use super::queue_pipelines::{find_pipeline, QUEUE_PIPELINES};
+use super::queue_pipelines::{find_write_pipeline, is_write_only_pipeline, write_pipelines};
 use super::rbac;
 use super::record_lock::{self, RecordLocks};
 use super::routes::{
@@ -692,8 +692,14 @@ pub(super) async fn get_edit_schema(
             shown: rules.shown(&s.id),
         })
         .collect();
-    let pipelines = QUEUE_PIPELINES
-        .iter()
+    let pipelines = write_pipelines()
+        .filter(|p| {
+            if pipeline_id.as_deref().is_some_and(is_write_only_pipeline) {
+                Some(p.id) == pipeline_id.as_deref()
+            } else {
+                !is_write_only_pipeline(p.id)
+            }
+        })
         .filter_map(|qp| defs.iter().find(|p| p.id == qp.id))
         .map(|p| CrmEditPipeline {
             id: p.id.clone(),
@@ -743,6 +749,7 @@ pub enum Stop {
         changed: Vec<String>,
     },
     Missing(Vec<String>),
+    InvalidStage,
     Transient(HubSpotError),
     Permanent(HubSpotError),
 }
@@ -793,6 +800,16 @@ pub async fn prepare(client: &HubSpotClient, step: &Step) -> Result<Prepared, St
         .map(|k| (k.clone(), rec.properties.get(k).cloned().flatten()))
         .collect();
     let cur_of = |k: &str| cur.get(k).cloned().flatten();
+    // 再送時も現在地を読み直す。納品管理をまたぐ移動は許さない。
+    if let Some(s) = &step.stage {
+        let from = cur_of("pipeline");
+        if (is_write_only_pipeline(&s.pipeline_id)
+            || from.as_deref().is_some_and(is_write_only_pipeline))
+            && from.as_deref() != Some(s.pipeline_id.as_str())
+        {
+            return Err(Stop::InvalidStage);
+        }
+    }
     // 競合: 現在値が base とも書く値とも違う
     let mut changed = Vec::new();
     for (k, v) in &step.set {
@@ -1148,7 +1165,7 @@ async fn build_steps(
     // ステージ
     let mut stage_move = None;
     if let Some(s) = &req.stage {
-        match find_pipeline(&s.pipeline_id) {
+        match find_write_pipeline(&s.pipeline_id) {
             Some(p) if p.rule(&s.stage_id).is_some() => {
                 stage_move = Some(StageMove {
                     pipeline_id: s.pipeline_id.clone(),
@@ -1806,9 +1823,10 @@ async fn verify_after_send(client: &HubSpotClient, steps: &mut [Step], run: &mut
         }
         match prepare(client, s).await {
             Ok(p) if p.already => found.push((i, p)),
-            Ok(_) | Err(Stop::Conflict { .. }) | Err(Stop::Missing(_)) => {
-                return Verified::NotApplied
-            }
+            Ok(_)
+            | Err(Stop::Conflict { .. })
+            | Err(Stop::Missing(_))
+            | Err(Stop::InvalidStage) => return Verified::NotApplied,
             Err(Stop::Transient(_)) | Err(Stop::Permanent(_)) => return Verified::Unknown,
         }
     }
@@ -1836,13 +1854,13 @@ async fn stop_response(
 ) -> Response {
     let (status, body, outcome, cur) = stop_body(&stop);
     match stop {
-        // 読み取りに失敗した・必須項目が足りない: 何も送っていない「断り」。監査には書かず、種類別に数えるだけ
+        // 読み取りに失敗した・必須不足・移動不可: 何も送っていない「断り」。監査には書かず、種類別に数えるだけ
         Stop::Transient(e) | Stop::Permanent(e) => {
             count_rejection(&format!("read_failed:{}", e.error_kind()));
             hubspot_error_response(&e)
         }
-        Stop::Missing(_) => {
-            count_rejection("missing_required");
+        Stop::Missing(_) | Stop::InvalidStage => {
+            count_rejection(&outcome);
             (status, Json(body)).into_response()
         }
         // 競合 (409): 誰がどの値を上書きしようとして止められたかは残す
@@ -1958,6 +1976,16 @@ fn stop_body(
             "conflict".into(),
             Some(current.clone()),
         ),
+        Stop::InvalidStage => {
+            let (s, v) = invalid(
+                BTreeMap::from([(
+                    "stage".into(),
+                    "納品管理のステージ移動は同じパイプライン内だけ許可されています".into(),
+                )]),
+                vec![],
+            );
+            (s, v, "invalid_stage".into(), None)
+        }
         Stop::Missing(m) => {
             let errors = m
                 .iter()
