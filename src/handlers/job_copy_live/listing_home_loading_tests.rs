@@ -560,3 +560,105 @@ async fn stage_refresh_reads_authorized_source_and_updates_index_home_and_cards(
     assert_home_cards(&after);
     assert_eq!(after["home"]["cards"], before["home"]["cards"]);
 }
+
+#[tokio::test]
+async fn recent_enrichment_uses_only_ready_cache_and_never_reads_hubspot() {
+    let fixture = Fixture::new().await;
+    let today = tests::date("2026-10-16");
+    let mut data =
+        json!({"status":"ready","report":{"count":2,"listings":[{"id":"1"},{"id":"missing"}]}});
+    super::super::enrich_recent_changes(&fixture.service, &mut data, today, None).await;
+    assert_eq!(data["report"]["breakdown"]["status"], "ready");
+    let unknown = data["report"]["breakdown"]["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["key"] == "unknown")
+        .unwrap();
+    assert_eq!(unknown["count"], 2);
+    fixture.service.listing_index.state.write().await.snapshot = None;
+    // 新しい要求を模擬し、完成済み一覧だけを残す。
+    let mut data = json!({"status":"ready","report":{"count":1,"listings":[{"id":"1"}]}});
+    super::super::enrich_recent_changes(&fixture.service, &mut data, today, None).await;
+    assert_eq!(data["report"]["breakdown"]["status"], "preparing");
+    assert_eq!(data["report"]["listings"], json!([{"id":"1"}]));
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+    assert!(!fixture.service.listing_index.state.read().await.refreshing);
+}
+
+#[tokio::test]
+async fn recent_costly_uses_home_owner_scope_median_including_unchanged_jobs() {
+    let fixture = Fixture::new().await;
+    let today = tests::date("2026-10-16");
+    let mut snapshot = owner_todo::Snapshot::default();
+    for (id, owner) in [("d1", "11"), ("d2", "22")] {
+        let record = Record {
+            id: id.into(),
+            properties: [("consultant".into(), Some(owner.into()))]
+                .into_iter()
+                .collect(),
+        };
+        snapshot.deals.insert(
+            id.into(),
+            owner_todo::WorkDeal {
+                assignment: owner_todo::Assignment::from_record(&record),
+                record,
+            },
+        );
+    }
+    let records: Vec<_> = [
+        ("changed", "d1", 10_000),
+        ("unchanged1", "d1", 100),
+        ("unchanged2", "d2", 100),
+    ]
+    .into_iter()
+    .map(|(id, deal, cost)| {
+        let mut row = tests::listing(id, &[deal], "掲載中", "unset", None);
+        row.perf = Some(PerfDigest {
+            latest_end: today,
+            prev_apps: 1,
+            recent_apps: 1,
+            recent_cost: cost,
+        });
+        row
+    })
+    .collect();
+    let mut index = (*fixture.index).clone();
+    index.records = records;
+    fixture.service.listing_index.state.write().await.snapshot = Some(Arc::new(index.clone()));
+    let query = owner_todo::OwnerQuery {
+        owner: Some("11".into()),
+        ..Default::default()
+    };
+    let mut data = json!({"report":{"count":1,"listings":[{"id":"changed"}]}});
+    super::super::enrich_recent_changes(
+        &fixture.service,
+        &mut data,
+        today,
+        Some((&snapshot, &query, "reader@example.test")),
+    )
+    .await;
+    assert_eq!(
+        data["report"]["listings"][0]["classifications"],
+        json!(["flat"])
+    );
+    let (scoped_records, map) = scoped(
+        &index.records,
+        &CompanyMap::default(),
+        &snapshot,
+        query.field(),
+        Some("11"),
+    );
+    let home = compute(&scoped_records, &map, today);
+    assert_eq!(home.median_cost_per_app, Some(5_050));
+    assert_eq!(
+        home.cards.iter().find(|c| c.key == "costly").unwrap().count,
+        0
+    );
+    super::super::enrich_recent_changes(&fixture.service, &mut data, today, None).await;
+    assert_eq!(
+        data["report"]["listings"][0]["classifications"],
+        json!(["flat", "costly"])
+    );
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+}
