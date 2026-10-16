@@ -84,3 +84,10 @@ it('全件を取得中はやることを0件と表示しない', () => {
   expect(screen.queryByText('0件')).toBeNull();
   expect(screen.queryByRole('heading', { name: /CSアクション/ })).toBeNull();
 });
+
+it('要対応が1件以上なら期限切れと同じ警告色、0件なら通常色', () => {
+  const work = { ...demoOwnerTodo, signals: (demoOwnerTodo.signals ?? []).map(row => ({ ...row, reasons: (row.reasons ?? []).filter(r => r.kind === 'contact') })) };
+  render(<OwnerTodo work={work} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
+  expect(screen.getByRole('button', { name: /接触が空いている/ }).classList.contains('jh-alert')).toBe(true);
+  for (const name of ['契約満了が近い', '応募が止まっている', '初回で成果が出ていない']) expect(screen.getByRole('button', { name: new RegExp(name) }).classList.contains('jh-alert')).toBe(false);
+});

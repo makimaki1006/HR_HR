@@ -27,6 +27,7 @@ pub(super) const ENDED_STAGES: [&str; 6] = [
     "1082007429",
 ];
 const TTL: Duration = Duration::from_secs(5 * 60);
+const FACTS_TTL: Duration = Duration::from_secs(60 * 60);
 const OWNER_TTL: Duration = Duration::from_secs(10 * 60);
 const RETRY: Duration = Duration::from_secs(30);
 
@@ -126,6 +127,9 @@ struct CacheState {
     snapshot: Option<(Instant, Arc<Snapshot>)>,
     refreshing: bool,
     failed_at: Option<Instant>,
+    facts_snapshot: Option<(Instant, BTreeMap<String, super::todo_signals::Facts>)>,
+    facts_refreshing: bool,
+    facts_failed_at: Option<Instant>,
 }
 impl CacheState {
     fn sync_revision(&mut self, revision: u64) {
@@ -144,6 +148,13 @@ pub(super) struct View {
 }
 /// 初回も待たない。取得中は UI が集計中と表示し、次回の要求で結果を読む。
 pub(super) async fn view(service: &JobReadService) -> View {
+    view_inner(service, false).await
+}
+/// 重い応募の更新は、ホーム／次にやることを開く要求だけが開始する。
+pub(super) async fn work_view(service: &JobReadService) -> View {
+    view_inner(service, true).await
+}
+async fn view_inner(service: &JobReadService, include_facts: bool) -> View {
     let mut state = service.owner_todo.state.lock().await;
     let revision = service.hs.deal_write_revision();
     state.sync_revision(revision);
@@ -164,7 +175,10 @@ pub(super) async fn view(service: &JobReadService) -> View {
                 return;
             }
             match result {
-                Ok(snapshot) => {
+                Ok(mut snapshot) => {
+                    if let Some((_, facts)) = &state.facts_snapshot {
+                        snapshot.facts = facts.clone();
+                    }
                     state.snapshot = Some((Instant::now(), Arc::new(snapshot)));
                     state.failed_at = None;
                 }
@@ -176,15 +190,20 @@ pub(super) async fn view(service: &JobReadService) -> View {
             state.refreshing = false;
         });
     }
-    let refreshing = state.refreshing;
-    let failed = state.failed_at.is_some();
+    // 期限切れの確認は画面からの要求時だけ。取引の更新や保存で60分の期限を変えない。
+    if include_facts {
+        refresh_facts_on_request(service, &mut state);
+    }
+    let refreshing = state.refreshing || (include_facts && state.facts_refreshing);
+    let failed = state.failed_at.is_some() || (include_facts && state.facts_failed_at.is_some());
+    let partial = include_facts && state.facts_snapshot.is_none();
     let snapshot = state.snapshot.as_ref().map(|(_, s)| s.clone());
     drop(state);
     if snapshot.is_some() {
         return View {
             snapshot,
             failed,
-            partial: false,
+            partial,
             refreshing,
         };
     }
@@ -208,6 +227,45 @@ pub(super) async fn view(service: &JobReadService) -> View {
         refreshing,
     }
 }
+/// 求人・応募は別の単一実行枠で更新する。取引の5分更新を待たせない。
+fn refresh_facts_on_request(service: &JobReadService, state: &mut CacheState) {
+    if state.refreshing
+        || state.facts_refreshing
+        || state
+            .facts_snapshot
+            .as_ref()
+            .is_some_and(|(at, _)| at.elapsed() < FACTS_TTL)
+        || state.facts_failed_at.is_some_and(|at| at.elapsed() < RETRY)
+    {
+        return;
+    }
+    let Some((_, snapshot)) = &state.snapshot else {
+        return;
+    };
+    let deals = snapshot.deals.clone();
+    state.facts_refreshing = true;
+    let mut service = service.clone();
+    service.hs = service.hs.background();
+    tokio::spawn(async move {
+        let result = super::todo_signals::fetch(&service, &deals).await;
+        let mut state = service.owner_todo.state.lock().await;
+        match result {
+            Ok(facts) => {
+                if let Some((_, snapshot)) = state.snapshot.as_mut() {
+                    Arc::make_mut(snapshot).facts = facts.clone();
+                }
+                state.facts_snapshot = Some((Instant::now(), facts));
+                state.facts_failed_at = None;
+            }
+            Err(_) => {
+                state.facts_failed_at = Some(Instant::now());
+                tracing::warn!("job-copy todo applications refresh failed");
+            }
+        }
+        state.facts_refreshing = false;
+    });
+}
+
 fn parse_owners(data: &Value, archived: bool) -> Result<Vec<Owner>, ReadError> {
     data["results"]
         .as_array()
@@ -352,21 +410,10 @@ async fn fetch(service: &JobReadService) -> Result<Snapshot, ReadError> {
     };
     drop(label_cache);
     let defs = listings::todo_stages(service).await;
-    let facts = super::todo_signals::fetch(service, &deals).await?;
-    let current_day = today(Utc::now());
+    // 応募集計の完了後に初めて要対応になる案件も、会社名を先に補う。
     let ids: Vec<_> = deals
         .iter()
-        .filter(|(id, d)| {
-            !ENDED_STAGES.contains(&d.record.value("dealstage").unwrap_or(""))
-                && (d.assignment.actionyotei.as_deref().and_then(date).is_some()
-                    || !super::todo_signals::reasons(d, facts.get(*id), current_day).is_empty()
-                    || !super::todo_signals::reasons(
-                        d,
-                        facts.get(*id),
-                        current_day + chrono::Duration::days(1),
-                    )
-                    .is_empty())
-        })
+        .filter(|(_, d)| !ENDED_STAGES.contains(&d.record.value("dealstage").unwrap_or("")))
         .map(|(id, _)| id.clone())
         .collect();
     let companies = listings::todo_companies(service, &ids).await?;
@@ -382,7 +429,7 @@ async fn fetch(service: &JobReadService) -> Result<Snapshot, ReadError> {
         labels,
         companies,
         stages: defs,
-        facts,
+        facts: BTreeMap::new(),
     })
 }
 impl Snapshot {
@@ -557,8 +604,9 @@ fn bucket(today: NaiveDate, due: NaiveDate) -> &'static str {
 
 #[cfg(test)]
 pub(super) async fn seed_empty(service: &JobReadService) {
-    service.owner_todo.state.lock().await.snapshot =
-        Some((Instant::now(), Arc::new(Snapshot::default())));
+    let mut state = service.owner_todo.state.lock().await;
+    state.snapshot = Some((Instant::now(), Arc::new(Snapshot::default())));
+    state.facts_snapshot = Some((Instant::now(), BTreeMap::new()));
 }
 #[cfg(test)]
 #[path = "owner_todo_tests.rs"]
@@ -573,7 +621,7 @@ pub(super) async fn read_deal(
 ) -> Result<impl IntoResponse, ReadError> {
     authorized_user(&state, &access, &session).await?;
     valid_id(&id)?;
-    let view = view(listings::service(&access)?).await;
+    let view = work_view(listings::service(&access)?).await;
     let body = if let Some(snapshot) = view.snapshot.filter(|_| !view.partial) {
         let reasons = snapshot
             .deals

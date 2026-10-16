@@ -1,25 +1,30 @@
 import { expect, test } from '@playwright/test';
 import { demoHome } from '../../../frontend/src/screens/job-copy/demoHome';
 import { demoOwnerTodo } from '../../../frontend/src/screens/job-copy/demoOwnerTodo';
-import { contractCatalog, contractDetail, contractSchema, contractValues } from '../../../frontend/src/screens/job-copy/dealContract.testFixtures';
+import { contractCatalog, contractDetail, stageSchema, contractValues } from '../../../frontend/src/screens/job-copy/dealContract.testFixtures';
 import { login } from './helpers/login';
 
 test.use({ locale: 'ja-JP' });
 test('要対応の理由をまとめ、予定をvalueで保存し、ホームと案件に反映する', async ({ page }) => {
   await page.setViewportSize({ width: 1580, height: 1300 });
-  let due = '2026-10-15'; let content = 'old';
-  const patches: { base: unknown; set: unknown; operation_id: string }[] = [];
+  let due = '2026-10-15'; let content = 'old'; let stageId = 'stage-demo';
+  const patches: { base: unknown; set: unknown; operation_id: string; stage?: { pipeline_id: string; stage_id: string } }[] = [];
   const options = [{ label: '応募状況を確認する', value: 'review_value' }, { label: '電話する', value: 'old' }];
   const reasons = demoOwnerTodo.signals![0]!.reasons!;
-  await page.route('**/api/crm/edit-schema?*', route => route.fulfill({ json: { ...contractSchema, editable: [...contractSchema.editable,
+  await page.route('**/api/crm/edit-schema?*', route => route.fulfill({ json: { ...stageSchema, deal_id: '106', editable: [...stageSchema.editable,
     { object: 'deal', name: 'actionyotei', label: '予定日', type: 'date', field_type: 'date', options: [] },
     { object: 'deal', name: 'actionnaiyou', label: '内容', type: 'enumeration', field_type: 'select', options },
   ] } }));
   await page.route('**/api/crm/property-catalog', route => route.fulfill({ json: contractCatalog }));
-  await page.route('**/api/crm/workspace/deals/*', route => route.fulfill({ json: contractDetail({ ...contractValues, contract_start_date: '2026-08-17', contract_expiration_date: '2026-11-15', ...({ actionyotei: due, actionnaiyou: content }) }) }));
+  await page.route('**/api/crm/workspace/deals/*', route => {
+    const detail = contractDetail({ ...contractValues, contract_start_date: '2026-08-17', contract_expiration_date: '2026-11-15', ...({ actionyotei: due, actionnaiyou: content }) });
+    return route.fulfill({ json: { ...detail, deal: { ...detail.deal, id: '106', stage_id: stageId, stage_label: stageSchema.stages.find(s => s.id === stageId)?.label } } });
+  });
   await page.route('**/api/crm/deals/106', async route => {
     expect(route.request().method()).toBe('PATCH');
-    const body = route.request().postDataJSON(); patches.push(body); due = body.set.actionyotei; content = body.set.actionnaiyou;
+    const body = route.request().postDataJSON(); patches.push(body);
+    if (body.stage) stageId = body.stage.stage_id;
+    else { due = body.set.actionyotei; content = body.set.actionnaiyou; }
     await route.fulfill({ json: { status: 'saved', operation_id: body.operation_id, values: body.set, objects_values: {} } });
   });
   await page.route('**/api/job-copy/deals/106/refresh', route => route.fulfill({ json: { status: 'refreshed' } }));
@@ -35,7 +40,11 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   const dir = process.env.TODO_SIGNALS_SCREENSHOT_DIR;
   await login(page); await page.goto('/app/job-copy');
   await expect(page.locator('.jh-todo-cards .jh-card')).toHaveCount(7);
-  for (const card of ['契約満了が近い', '接触が空いている', '応募が止まっている', '初回で成果が出ていない']) await expect(page.getByRole('button', { name: new RegExp(card) }).locator('.jh-count')).toHaveText('1件');
+  for (const card of ['契約満了が近い', '接触が空いている', '応募が止まっている', '初回で成果が出ていない']) {
+    const button = page.getByRole('button', { name: new RegExp(card) });
+    await expect(button.locator('.jh-count')).toHaveText('1件');
+    await expect(button).toHaveClass(/jh-alert/);
+  }
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/home.png` });
   await page.getByRole('button', { name: /接触が空いている/ }).click();
   const list = page.getByRole('region', { name: '接触が空いているの一覧' });
@@ -61,5 +70,20 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   await expect(next).toContainText('2026/10/23 ・ 応募状況を確認する');
   await expect(next.locator('.nt-reason')).toHaveText(reasons.map(r => r.text));
   await expect(page.getByRole('region', { name: '契約・成果', exact: true }).getByText('¥240,000', { exact: true })).toBeVisible();
+  const stage = page.getByRole('combobox', { name: 'ステージを変更' });
+  await expect(stage).toBeEnabled();
+  await expect(stage).toHaveValue('stage-demo');
+  await expect(stage.locator('option')).toHaveText(stageSchema.stages.map(s => s.label));
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/deal.png` });
+  await stage.selectOption('delivery-done');
+  const move = page.getByRole('dialog');
+  await expect(move).toContainText('納品完了');
+  await move.getByRole('button', { name: 'やめる' }).click();
+  expect(patches).toHaveLength(1);
+  await stage.selectOption('delivery-done');
+  await page.getByRole('dialog').getByRole('button', { name: '移す', exact: true }).click();
+  await expect(page.getByRole('region', { name: '契約・成果', exact: true }).getByText('保存済み', { exact: true })).toBeVisible();
+  await expect(stage).toHaveValue('delivery-done');
+  expect(patches).toHaveLength(2);
+  expect(patches[1]).toMatchObject({ base: {}, set: {}, stage: { pipeline_id: '21596025', stage_id: 'delivery-done' } });
 });

@@ -39,7 +39,7 @@ const planCards = [
   ['week', '7日以内', '明日から7日後までの予定', 'plain'],
 ] as const;
 const PAGE_SIZE = 20;
-export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved }: { onSaved?: (() => void) | undefined; work: WorkReady; onOpenCompany: (company: { id: string; name: string }) => void; onOpenDeal: (deal: ChangedDeal) => void }) {
+export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved, onShowList }: { onShowList?: (() => void) | undefined; onSaved?: (() => void) | undefined; work: WorkReady; onOpenCompany: (company: { id: string; name: string }) => void; onOpenDeal: (deal: ChangedDeal) => void }) {
   const query = new URLSearchParams(useJobCopySearch());
   if (work.todos_status) return <section className="jh-todo" aria-labelledby="jh-todo-title"><h2 id="jh-todo-title">やること</h2><p role={work.todos_status === 'failed' ? 'alert' : 'status'}>{work.todos_status === 'failed' ? 'やることを読み込めませんでした。再読み込みしてください。' : 'やることを集計しています…'}</p></section>;
   const open = query.get('card');
@@ -50,11 +50,11 @@ export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved }: { onSave
   const page = Math.min(pages, /^[1-9]\d{0,5}$/.test(requested) ? Number(requested) : 1);
   const start = (page - 1) * PAGE_SIZE;
   const items = selected?.items.slice(start, start + PAGE_SIZE) ?? [];
-  const toggle = (key: string) => { updateJobCopyQuery({ card: open === `todo_${key}` ? null : `todo_${key}`, todo_page: null }, 'push'); };
+  const toggle = (key: string) => { if (open !== `todo_${key}`) onShowList?.(); updateJobCopyQuery({ card: open === `todo_${key}` ? null : `todo_${key}`, todo_page: null }, 'push'); };
   const changePage = (next: number) => { updateJobCopyQuery({ todo_page: next === 1 ? null : String(next) }, 'push'); };
   return <section className="jh-todo" aria-labelledby="jh-todo-title"><h2 id="jh-todo-title">やること</h2><p className="jh-note">要対応は記録から自動で表示し、条件が解消すると消えます。日付は日本時間、終了した案件は除いています。</p>
     {work.refresh_failed && <p role="status">最新の情報を読み込めなかったため、前回取得した情報を表示しています。</p>}
-    {([['要対応', groups.slice(0, 4)], ['予定', groups.slice(4, 7)]] as const).map(([title, cards]) => <div key={title}><h3>{title}</h3><div className="jh-cards jh-todo-cards">{cards.map(group => <button type="button" key={group.key} className={`jh-card jh-${group.tone}`} aria-pressed={open === `todo_${group.key}`} onClick={() => { toggle(group.key); }}><strong className="jh-count">{group.items.length}<small>件</small></strong><span className="jh-card-title">{group.label}</span><small className="jh-rule">{group.rule}</small></button>)}</div></div>)}
+    {([['要対応', groups.slice(0, 4)], ['予定', groups.slice(4, 7)]] as const).map(([title, cards]) => <div key={title}><h3>{title}</h3><div className="jh-cards jh-todo-cards">{cards.map(group => <button type="button" key={group.key} className={`jh-card jh-${title === '要対応' && group.items.length > 0 ? 'alert' : group.tone}`} aria-pressed={open === `todo_${group.key}`} onClick={() => { toggle(group.key); }}><strong className="jh-count">{group.items.length}<small>件</small></strong><span className="jh-card-title">{group.label}</span><small className="jh-rule">{group.rule}</small></button>)}</div></div>)}
     <button type="button" className="jh-link jh-todo-later" aria-pressed={open === 'todo_later'} onClick={() => { toggle('later'); }}>それ以降の予定（{work.actions.later.length}件）</button>
     {selected && <section className={`jh-list ${selected.key === 'overdue' ? 'jh-todo-overdue' : ''}`} aria-label={`${selected.label}の一覧`}>
       <h3>{selected.label}（{selected.items.length}件）</h3>

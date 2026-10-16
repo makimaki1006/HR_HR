@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { defaultTodoDate, NextTodoDialog, todoRequest, validTodoDate } from './NextTodo';
+import { defaultTodoDate, DealNextTodo, NextTodoDialog, todoRequest, validTodoDate } from './NextTodo';
 import { buildPatchBody } from '../crm/writeModel';
 import { contractDetail, contractSchema } from './dealContract.testFixtures';
 
@@ -23,6 +23,7 @@ function api(mode: 'saved' | 'queued' | 'conflict' | 'error') {
     let status = 200; let body: unknown = {};
     if (url.includes('edit-schema')) body = { ...contractSchema, editable: [{ object: 'deal', name: 'actionyotei', label: '予定日', type: 'date', field_type: 'date', options: [] }, { object: 'deal', name: 'actionnaiyou', label: '内容', type: 'enumeration', field_type: 'select', options: [{ label: '電話する', value: 'call_value' }] }] };
     else if (url.includes('workspace')) body = { ...contractDetail(), selected: { deal: { actionyotei: '2026-10-01', actionnaiyou: 'old' } } };
+    else if (url.endsWith('/todo')) body = { status: 'ready', reasons: [] };
     else if (init?.method === 'PATCH') {
       const patch = JSON.parse(typeof init.body === 'string' ? init.body : '') as Record<string, unknown>; bodies.push(patch);
       if (mode === 'saved') body = { status: 'saved', operation_id: patch.operation_id, values: patch.set, objects_values: {} };
@@ -70,4 +71,18 @@ it('競合の現在値を表示し、確認して保存するとその現在値�
 it('権限のエラーを赤で表示し、キャッシュ更新を通知しない', async () => {
   api('error'); const saved = vi.fn(); render(<NextTodoDialog dealId="901" onClose={vi.fn()} onSaved={saved} />);
   await save(); expect((await screen.findByRole('alert')).className).toBe('nt-red'); expect(saved).not.toHaveBeenCalled();
+});
+
+it('案件の要対応も取得が終われば定期通信を止める', async () => {
+  vi.useFakeTimers();
+  try {
+    const mock = api('saved');
+    render(<DealNextTodo dealId="901" onSaved={vi.fn()} />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const reads = () => mock.fetcher.mock.calls.filter(([url]) => url.endsWith('/todo')).length;
+    expect(reads()).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
+    expect(reads()).toBe(1);
+    cleanup();
+  } finally { vi.useRealTimers(); }
 });

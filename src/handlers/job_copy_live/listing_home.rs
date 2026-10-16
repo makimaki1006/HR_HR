@@ -735,7 +735,7 @@ pub(in crate::handlers::job_copy_live) async fn read(
     let body = match snapshot {
         Some(index) => {
             let today = (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive();
-            let work = owner_todo::view(service).await;
+            let work = owner_todo::work_view(service).await;
             let base = answer(service, index.clone(), today).await;
             let mut data: Value = serde_json::from_slice(&base).expect("home JSON");
             if let Some(work_snapshot) = work.snapshot {

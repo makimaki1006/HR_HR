@@ -95,7 +95,7 @@ export function DealNextTodo({ dealId, onSaved }: { dealId: string; onSaved: () 
     const poll = async () => {
       const r = await apiGet<{ status: string; reasons?: TodoReason[]; refresh_failed?: boolean; refreshing?: boolean }>(`/api/job-copy/deals/${encodeURIComponent(dealId)}/todo`, { signal: ctl.signal });
       if (ctl.signal.aborted) return;
-      if (r.ok) { setState(r.data.refresh_failed ? 'stale' : r.data.status); setReasons(r.data.reasons ?? []); timer = setTimeout(() => { void poll(); }, r.data.status === 'preparing' || r.data.refreshing ? 2000 : 300_000); } else setState('failed');
+      if (r.ok) { setState(r.data.refresh_failed ? 'stale' : r.data.status); setReasons(r.data.reasons ?? []); if (r.data.status === 'preparing' || r.data.refreshing) timer = setTimeout(() => { void poll(); }, 2000); } else setState('failed');
     };
     void poll();
     return () => { ctl.abort(); clearTimeout(timer); };

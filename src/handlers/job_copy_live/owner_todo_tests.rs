@@ -572,3 +572,249 @@ async fn saving_next_plan_updates_the_existing_snapshot_without_rereading_applic
     assert_eq!(report["actions"]["week"][1]["content"], "電話する");
     assert_eq!(report["signals"][0]["actionyotei"], "2026-10-23");
 }
+
+#[tokio::test]
+async fn deals_five_minutes_and_applications_sixty_minutes_refresh_only_on_demand() {
+    use axum::{body::Body, http::Request, routing::any};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let searches = Arc::new(AtomicUsize::new(0));
+    let applications = Arc::new(AtomicUsize::new(0));
+    let fail_apps = Arc::new(AtomicBool::new(false));
+    let app_gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let latest = Arc::new(std::sync::Mutex::new(
+        record("1", "open", "11", "22", "2026-10-16", "2026-10-20").record,
+    ));
+    latest
+        .lock()
+        .unwrap()
+        .properties
+        .insert("contract_start_date".into(), Some("2026-08-17".into()));
+    let (s, a, f, g, r) = (
+        searches.clone(),
+        applications.clone(),
+        fail_apps.clone(),
+        app_gate.clone(),
+        latest.clone(),
+    );
+    let app = Router::new().fallback(any(move |req: Request<Body>| {
+        let (s, a, f, g, r) = (s.clone(), a.clone(), f.clone(), g.clone(), r.clone());
+        async move {
+            let path = req.uri().path();
+            let data = match path {
+                "/crm/v3/objects/deals/search" => {
+                    s.fetch_add(1, Ordering::SeqCst);
+                    json!({"results":[r.lock().unwrap().clone()]})
+                }
+                "/crm/v4/associations/deals/0-420/batch/read" => {
+                    a.fetch_add(1, Ordering::SeqCst);
+                    g.acquire().await.unwrap().forget();
+                    if f.load(Ordering::SeqCst) {
+                        return (StatusCode::FORBIDDEN, Json(json!({}))).into_response();
+                    }
+                    json!({"results":[{"from":{"id":"1"},"to":[{"toObjectId":10}]}]})
+                }
+                "/crm/v3/objects/0-420/batch/read" => {
+                    json!({"results":[{"id":"10","properties":{"kyuujin_status":"公開中"}}]})
+                }
+                "/crm/v4/associations/0-420/0-421/batch/read" => {
+                    json!({"results":[{"from":{"id":"10"},"to":[{"toObjectId":100}]}]})
+                }
+                "/crm/v3/objects/0-421/batch/read" => {
+                    json!({"results":[{"id":"100","properties":{"yingmuri":"2026-10-15"}}]})
+                }
+                "/crm/v4/associations/deals/companies/batch/read" => {
+                    json!({"results":[{"from":{"id":"1"},"to":[{"toObjectId":901}]}]})
+                }
+                "/crm/v3/objects/companies/batch/read" => {
+                    json!({"results":[{"id":"901","properties":{"name":"合成事業所"}}]})
+                }
+                "/crm/v3/properties/deals/actionnaiyou" => json!({"options":[]}),
+                _ => json!({"results":[]}),
+            };
+            Json(data).into_response()
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let service = JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    async fn settle_deals(service: &JobReadService) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while service.owner_todo.state.lock().await.refreshing {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    async fn settle_apps(service: &JobReadService) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while service.owner_todo.state.lock().await.facts_refreshing {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    assert!(work_view(&service).await.snapshot.is_none());
+    settle_deals(&service).await;
+    assert_eq!(searches.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        applications.load(Ordering::SeqCst),
+        0,
+        "取引取得の完了だけでは応募を読み始めない"
+    );
+    view(&service).await;
+    assert!(
+        !service.owner_todo.state.lock().await.facts_refreshing,
+        "担当者の絞り込みだけでは応募を取得しない"
+    );
+    assert!(work_view(&service).await.partial);
+    app_gate.add_permits(1);
+    settle_apps(&service).await;
+    assert!(!work_view(&service).await.partial);
+    assert_eq!(applications.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        work_view(&service).await.snapshot.unwrap().facts["1"].days,
+        [day("2026-10-15")]
+    );
+    let app_at = service
+        .owner_todo
+        .state
+        .lock()
+        .await
+        .facts_snapshot
+        .as_ref()
+        .unwrap()
+        .0;
+
+    latest
+        .lock()
+        .unwrap()
+        .properties
+        .insert("actionyotei".into(), Some("2026-10-23".into()));
+    service
+        .owner_todo
+        .state
+        .lock()
+        .await
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .0 = Instant::now() - TTL;
+    work_view(&service).await;
+    settle_deals(&service).await;
+    let v = work_view(&service).await;
+    assert_eq!(
+        v.snapshot.unwrap().deals["1"]
+            .assignment
+            .actionyotei
+            .as_deref(),
+        Some("2026-10-23")
+    );
+    assert_eq!(searches.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        applications.load(Ordering::SeqCst),
+        1,
+        "5分の更新で応募を読まない"
+    );
+    assert_eq!(
+        service
+            .owner_todo
+            .state
+            .lock()
+            .await
+            .facts_snapshot
+            .as_ref()
+            .unwrap()
+            .0,
+        app_at
+    );
+    let fresh = latest.lock().unwrap().clone();
+    apply_fresh_deal(&service, fresh).await;
+    assert_eq!(
+        applications.load(Ordering::SeqCst),
+        1,
+        "予定保存で応募を読まない"
+    );
+
+    service
+        .owner_todo
+        .state
+        .lock()
+        .await
+        .facts_snapshot
+        .as_mut()
+        .unwrap()
+        .0 = Instant::now() - Duration::from_secs(3599);
+    work_view(&service).await;
+    assert!(
+        !service.owner_todo.state.lock().await.facts_refreshing,
+        "59分59秒では応募を読み直さない"
+    );
+    assert_eq!(applications.load(Ordering::SeqCst), 1);
+    service
+        .owner_todo
+        .state
+        .lock()
+        .await
+        .facts_snapshot
+        .as_mut()
+        .unwrap()
+        .0 = Instant::now() - Duration::from_secs(3600);
+    view(&service).await;
+    assert!(
+        !service.owner_todo.state.lock().await.facts_refreshing,
+        "期限切れでも他画面の担当者参照は応募を再取得しない"
+    );
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(
+        applications.load(Ordering::SeqCst),
+        1,
+        "期限切れでも要求なしなら通信しない"
+    );
+    for _ in 0..10 {
+        assert!(work_view(&service).await.snapshot.is_some());
+    }
+    // 応募の更新が止まっていても取引の更新は先に完了できる。
+    service
+        .owner_todo
+        .state
+        .lock()
+        .await
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .0 = Instant::now() - TTL;
+    work_view(&service).await;
+    settle_deals(&service).await;
+    assert_eq!(searches.load(Ordering::SeqCst), 3);
+    fail_apps.store(true, Ordering::SeqCst);
+    app_gate.add_permits(1);
+    settle_apps(&service).await;
+    let v = work_view(&service).await;
+    assert!(v.failed);
+    assert!(!v.partial, "取得失敗でも前回の応募集計を保持する");
+    assert_eq!(v.snapshot.unwrap().facts["1"].days.len(), 1);
+    assert_eq!(
+        applications.load(Ordering::SeqCst),
+        2,
+        "同時要求と失敗時の連続再試行を抑える"
+    );
+    assert_eq!(
+        service
+            .owner_todo
+            .state
+            .lock()
+            .await
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .1
+            .deals["1"]
+            .assignment
+            .actionyotei
+            .as_deref(),
+        Some("2026-10-23")
+    );
+    server.abort();
+}
