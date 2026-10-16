@@ -27,7 +27,7 @@ export function OwnerFilter({ work }: { work: WorkReady }) {
     {work.notice && <p role="status">{work.notice}</p>}
   </section>;
 }
-const signalCards = [
+export const signalCards = [
   ['expiration', '契約満了が近い', '今日から60日後まで'],
   ['contact', '接触が空いている', '最後の接触から30日以上'],
   ['stalled', '応募が止まっている', '掲載中の求人があり、直近14日の応募が0件'],

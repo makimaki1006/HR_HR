@@ -21,3 +21,10 @@ export function sortDeals(rows: DealRow[], sort: DealSort, descending: boolean):
     return (sort === 'priority' ? -delta || (b.amount ?? -1) - (a.amount ?? -1) : descending ? -delta : delta) || a.id.localeCompare(b.id);
   });
 }
+
+/** 印の件数は、印による絞り込みの前の案件を1件ずつ数える。 */
+export function countDealReasons(rows: readonly DealRow[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const row of rows) for (const kind of new Set(row.reasons.map(reason => reason.kind))) counts[kind] = (counts[kind] ?? 0) + 1;
+  return counts;
+}
