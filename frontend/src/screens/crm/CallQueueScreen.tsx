@@ -962,18 +962,27 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
     <QueueToolbar summary={toolbarSummary} keepOpen={panelOpen || sortOpen} onClose={closeToolbar}>
     <form ref={filterBarRef} className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
-      <div className="cq-bar">
-        <QueuePipelinePicker pipelines={pipelines.pipelines} selected={selectedPipelineIds(filters)} onApply={ids=>{setFilters(prev=>withPipelines(prev,ids));}} />
-        <label className={`cq-target-label${filters.target === 'all' ? ' is-set' : ''}`}>対象<select aria-label="対象" value={filters.target ?? 'calling'} onChange={e=>{setFilters(prev=>withTarget(prev,e.target.value==='all'?'all':undefined));}}><option value="calling">架電対象だけ</option><option value="all">すべての取引</option></select></label>
+      <div className="cq-bar cq-fields">
+        <div className="cq-field"><span className="cq-field-label">パイプライン</span>
+        <QueuePipelinePicker pipelines={pipelines.pipelines} selected={selectedPipelineIds(filters)} onApply={ids=>{setFilters(prev=>withPipelines(prev,ids));}} /></div>
+        <label className={`cq-field cq-target-label${filters.target === 'all' ? ' is-set' : ''}`}>対象<select aria-label="対象" value={filters.target ?? 'calling'} onChange={e=>{setFilters(prev=>withTarget(prev,e.target.value==='all'?'all':undefined));}}><option value="calling">架電対象だけ</option><option value="all">すべての取引</option></select></label>
+        <div className="cq-field"><span className="cq-field-label">担当</span>
+        <OwnerFilter owner={filters.owner} effective={effectiveOwner} needsPick={needsOwnerPick}
+          onChange={owner => { update({ owner }); }} owners={owners.state} onReload={owners.reload} /></div>
+      </div>
+      <div className="cq-bar cq-fields cq-fields-search">
+        <label className="cq-field cq-search-field">会社名・案件名で検索
         <input className={`cq-search${qDraft !== '' ? ' is-set' : ''}`} type="search" aria-label="キーワード(会社名・案件名)" value={qDraft} maxLength={100}
           placeholder="会社名・案件名で検索" onChange={e => { setQDraft(e.target.value); }} />
-        <OwnerFilter owner={filters.owner} effective={effectiveOwner} needsPick={needsOwnerPick}
-          onChange={owner => { update({ owner }); }} owners={owners.state} onReload={owners.reload} />
+        </label>
+        <label className="cq-field">並び
         <select className={`cq-sort${filters.sort !== 'default' ? ' is-set' : ''}`} aria-label="並び替え" value={filters.sort} onChange={e => { if (e.target.value === 'other') { setSortOpen(true); setPanelOpen(false); } else update({ sort: e.target.value as QueueSort }); }}>
           {sortsFor(filters).map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          {parsePropertySort(filters.sort) !== null && <option value={filters.sort}>{catalog.state.phase === 'ready' ? catalog.state.index.deals.get(parsePropertySort(filters.sort)?.property ?? '')?.prop.label ?? '選んだ項目' : '選んだ項目'} {parsePropertySort(filters.sort)?.direction === 'desc' ? '降順' : '昇順'}</option>}<option value="other">ほかの項目で並べ替え…</option></select>
+          {parsePropertySort(filters.sort) !== null && <option value={filters.sort}>{catalog.state.phase === 'ready' ? catalog.state.index.deals.get(parsePropertySort(filters.sort)?.property ?? '')?.prop.label ?? '選んだ項目' : '選んだ項目'} {parsePropertySort(filters.sort)?.direction === 'desc' ? '降順' : '昇順'}</option>}<option value="other">ほかの項目で並べ替え…</option></select></label>
         {filters.target !== 'all' && <label className="cq-toggle"><input type="checkbox" checked={filters.due === 'today'}
           onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>}
+      </div>
+      <div className="cq-bar cq-panel-actions">
         {viewName !== null && <span className="cq-view-name" data-testid="current-view-name" title={`開いている保存済みのビュー: ${viewName}`}>ビュー: {viewName}</span>}
         <button type="button" className={`cq-btn cq-btn-main cq-more-toggle${detailCount > 0 ? ' is-set' : ''}`} aria-expanded={panelOpen} aria-controls="cq-advanced"
           onClick={() => { setPanelOpen(o => !o); }}>詳細条件{detailCount > 0 && <span className="cq-badge">{detailCount}</span>}</button>

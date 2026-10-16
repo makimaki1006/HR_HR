@@ -140,6 +140,8 @@ test.describe('CRM 架電画面 (実データの表示、API は架空の応答)
     // 条件を変えて一覧を読み直している間は保存できない
     await openQueueToolbar(page);
     await page.getByRole('checkbox', { name: '次回日が来たものだけ' }).check();
+    // 条件パネルを閉じ、一覧の再試行と結果入力に戻る
+    await page.getByRole('button', { name: /^条件を変更:/ }).click();
     await expect(page.getByText('読み込み中…', { exact: true })).toBeVisible();
     await expect.poll(() => m.held.length).toBe(1);
     await expect(recordBtn(page)).toHaveAttribute('aria-disabled', 'true');

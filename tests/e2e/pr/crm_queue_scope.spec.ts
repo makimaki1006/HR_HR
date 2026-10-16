@@ -22,9 +22,11 @@ test('架空の2パイプラインの全取引を条件で探し、停止の印�
   await stages.getByRole('button',{name:'キャンセル'}).click();await page.getByRole('button',{name:'条件のパネルを閉じる'}).click();
   const list=page.getByRole('list',{name:'架電キュー'});const stopped=list.getByRole('button').filter({hasText:'架空クリーニング'});
   await expect(stopped.getByText('架電禁止',{exact:true})).toBeVisible();await expect(stopped.getByText('ブロック',{exact:true})).toBeVisible();await snap(page,'all');
+  await page.getByRole('button',{name:/^条件を変更:/}).click();
   await stopped.click();await expect(page.getByRole('article',{name:'架電先の詳細'})).toContainText('架空の確認待ち');
   await expect(page.getByRole('article',{name:'架電先の詳細'}).getByRole('button',{name:/に発信/}).first()).toBeDisabled();await expect(page.getByRole('link',{name:/端末の電話で発信/})).toHaveCount(0);
   const original=new URL(page.url()).searchParams;expect(original.get('scope')).toBe('all');expect(original.get('pipelines')?.split(',')).toHaveLength(2);expect(original.has('pipeline')).toBe(false);
+  await openQueueToolbar(page);
   await page.getByRole('button',{name:/^詳細条件/}).click();const views=page.getByTestId('saved-views');
   await views.getByRole('button',{name:'＋ ビューを保存'}).click();await page.getByLabel('ビューの名前').fill('架空の全取引確認');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(views.getByRole('button',{name:'架空の全取引確認',exact:true})).toHaveAttribute('aria-pressed','true');
   const id=new URL(page.url()).searchParams.get('view');expect(id).not.toBeNull();await views.getByRole('button',{name:/^すべて/}).click();await expect(page.getByLabel('対象',{exact:true})).toHaveValue('calling');

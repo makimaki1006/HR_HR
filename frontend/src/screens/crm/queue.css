@@ -427,13 +427,13 @@
 .cq-scope-note.cq-info { margin: 0; }
 
 /* ---- 絞り込みバーの部品: ボタン・選択・入力欄をはっきり区別する (見た目だけ。文言・動作は変えない) ----
- * 枠は白地で 3:1 以上 (#7d8b99 = 3.5:1)。高さは 34px にそろえる。
+ * 枠は白地で 3:1 以上 (#7d8b99 = 3.5:1)。高さは 36px にそろえる。
  * ボタン: 主 (.cq-btn-main = 詳細条件・条件を追加。アクセント色の枠と文字) / 控えめ (条件をクリア・…。灰色の枠)。どれも枠・背景・押した見た目がある。
  * 選択・入力欄: 白地に同じ濃さの枠。ボタンは薄い灰色の地で見分ける。
  * 既定から変わっているもの (.is-set) はアクセント色の枠と薄い色の地で示す。 */
-.cq-app .cq-bar { --cq-ctl-line: #7d8b99; --cq-ctl-h: 34px; gap: 8px; }
+.cq-app .cq-bar { --cq-ctl-line: #7d8b99; --cq-ctl-h: 36px; gap: 8px; }
 .cq-app .cq-bar :is(.cq-btn, .cq-toggle, .cq-search, .cq-sort, .cq-target-label select, .cq-owner > select) {
-  box-sizing: border-box; height: var(--cq-ctl-h); margin: 0; font: inherit; font-size: 13px; line-height: 1.2;
+  box-sizing: border-box; height: var(--cq-ctl-h); margin: 0; font: inherit; font-size: 14px; line-height: 1.2;
 }
 .cq-app .cq-bar :is(.cq-search, .cq-sort, .cq-target-label select, .cq-owner > select) {
   padding: 0 10px; border: 1px solid var(--cq-ctl-line); border-radius: 4px; background-color: #fff; color: var(--cq-text);
@@ -488,5 +488,18 @@
 .cq-toolbar-action { flex: none; margin-left: auto; color: var(--cq-accent); font-size: 11px; }
 .cq-toolbar-summary:hover, .cq-toolbar-summary[aria-pressed="true"] { background: var(--cq-accent-weak); }
 .cq-toolbar-summary:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: -2px; }
-.cq-toolbar-controls { position: absolute; top: 100%; left: 0; right: 0; box-shadow: 0 6px 12px #1f2a3526; }
+.cq-toolbar-controls { position: absolute; top: 100%; left: 16px; right: 16px; border: 1px solid var(--cq-line-strong); border-radius: 0 0 8px 8px; background: var(--cq-surface); box-shadow: 0 12px 28px #1f2a3533; }
 .cq-toolbar-controls[hidden] { display: none; }
+
+/* 重ねて開く条件パネル。幅を3分割し、操作は独立した段に置く */
+.cq-toolbar-controls .cq-filters { padding: 16px; gap: 14px; border: 0; border-radius: inherit; }
+.cq-app .cq-fields { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr) minmax(240px, 1fr); align-items: end; gap: 16px; }
+.cq-app .cq-fields .cq-field { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; margin: 0; color: var(--cq-sub); font-size: 14px; }
+.cq-app .cq-fields :is(.cq-pipeline-picker, .cq-owner) { width: 100%; }
+.cq-app .cq-fields :is(.cq-pipeline, .cq-search, .cq-sort, .cq-owner) { flex: none; width: 100%; max-width: none; min-width: 0; }
+.cq-app .cq-fields .cq-toggle { height: 36px; margin: 0; justify-self: start; font-size: 14px; }
+.cq-panel-actions { padding-top: 12px; border-top: 1px solid var(--cq-line); }
+@media (max-width: 850px) {
+  .cq-toolbar-controls { left: 8px; right: 8px; max-height: calc(100dvh - 160px); overflow-y: auto; }
+  .cq-app .cq-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+}

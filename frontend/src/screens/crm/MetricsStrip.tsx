@@ -4,7 +4,7 @@ import type { StripItem } from './metricsModel';
 import './metrics.css';
 
 /** 1 行に収まっている帯の高さの上限 (これより高ければ折り返している) */
-const ONE_LINE_PX = 36;
+const ONE_LINE_PX = 96;
 
 type Fit = 'full' | 'short' | 'wrap';
 
