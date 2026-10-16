@@ -434,7 +434,7 @@ test('電話ヒアリングを開くとデモの聞き取りと通話記録を�
 test('ホームは初回準備の2秒後にカードと顧客表を表示する', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   let homeCalls = 0;
-  const counts = { zero_stay: 2, to_zero: 1, less: 3, more: 8, flat: 12, costly: 2, stale: 1, occupation: 4 };
+  const counts = { zero_stay: 2, to_zero: 1, less: 3, more: 8, flat: 12, costly: 2, stale: 1 };
   let changesReady = false;
   let changesCalls = 0;
   await page.route('**/api/job-copy/recent-changes', route => {
@@ -461,7 +461,7 @@ test('ホームは初回準備の2秒後にカードと顧客表を表示する'
   await page.goto('/app/job-copy');
   await expect(page.getByText('求人の一覧を準備しています', { exact: true })).toBeVisible();
   const cardCounts = page.locator('.jh-card .jh-count');
-  await expect(cardCounts).toHaveText(['2件', '1件', '3件', '8件', '12件', '2件', '1件', '4件', '集計中'], { timeout: 4_000 });
+  await expect(cardCounts).toHaveText(['2件', '1件', '3件', '8件', '12件', '2件', '1件', '集計中'], { timeout: 4_000 });
   await expect(page.locator('.jh-customer-table tbody tr')).toHaveCount(2);
   await expect(page.locator('.jh-customer-table')).toContainText('18 → 24 件');
   await expect(page.locator('.jh-customer-table')).toContainText('¥2,500');
@@ -470,7 +470,7 @@ test('ホームは初回準備の2秒後にカードと顧客表を表示する'
   const changes = page.getByRole('region', { name: '直近7日に変更の一覧' });
   await expect(changes.getByRole('status')).toHaveText('変更のあった求人を集計しています…');
   changesReady = true;
-  await expect(cardCounts).toHaveText(['2件', '1件', '3件', '8件', '12件', '2件', '1件', '4件', '0件'], { timeout: 4_000 });
+  await expect(cardCounts).toHaveText(['2件', '1件', '3件', '8件', '12件', '2件', '1件', '0件'], { timeout: 4_000 });
   await expect(changes.getByRole('heading')).toHaveText('直近7日に変更（0件）');
   await expect(changes).toContainText('該当する求人はありません。');
   expect(changesCalls).toBeGreaterThanOrEqual(2);

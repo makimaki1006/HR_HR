@@ -196,13 +196,10 @@ impl Fixture {
         }
     }
 }
-fn occupation_card(data: &Value) -> &Value {
-    data["home"]["cards"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|card| card["key"] == "occupation")
-        .unwrap()
+fn assert_home_cards(data: &Value) {
+    let cards = data["home"]["cards"].as_array().unwrap();
+    assert_eq!(cards.len(), 7);
+    assert!(cards.iter().all(|card| card["key"] != "occupation"));
 }
 
 async fn json_body(response: axum::response::Response) -> Value {
@@ -240,11 +237,14 @@ async fn home_speed_probe() {
             body.len()
         );
         let data: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(occupation_card(&data)["count"], 10_000);
-        assert_eq!(
-            occupation_card(&data)["listings"].as_array().unwrap().len(),
-            LIST_CAP
-        );
+        assert_home_cards(&data);
+        let total: u64 = data["home"]["customers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|customer| customer["live_listings"].as_u64().unwrap())
+            .sum();
+        assert_eq!(total, 10_000);
         assert_eq!(data["home"]["customers"].as_array().unwrap().len(), 205);
         if phase == "warm" {
             assert_eq!(f.calls.load(Ordering::SeqCst), before);
@@ -351,7 +351,16 @@ async fn response_invalidates_for_jst_date_local_edits_index_and_company_rebuild
         .unwrap();
     let changed = answer(&f.service, edited, today).await;
     let data: Value = serde_json::from_slice(&changed).unwrap();
-    assert_eq!(occupation_card(&data)["count"], 9999);
+    assert_home_cards(&data);
+    assert_eq!(
+        data["home"],
+        serde_json::from_slice::<Value>(&first).unwrap()["home"]
+    );
+    assert_ne!(
+        first.as_ptr(),
+        changed.as_ptr(),
+        "local edits rebuild the response"
+    );
     let calls = f.calls.load(Ordering::SeqCst);
     assert_eq!(calls, 7, "local edit reuses company map");
     let mut rebuilt = (*f.index).clone();
@@ -374,7 +383,8 @@ async fn failed_initial_read_keeps_cards_empty_table_and_retries_are_bounded() {
     let data = json_body(f.api(true).await.unwrap()).await;
     assert_eq!(data["status"], "ready");
     assert_eq!(data["companies_ok"], false);
-    assert_eq!(occupation_card(&data)["count"], 10_000);
+    assert_home_cards(&data);
+    assert_eq!(data["home"]["live_without_company"], 10_000);
     assert_eq!(data["home"]["customers"], json!([]));
     let before = f.calls.load(Ordering::SeqCst);
     assert_eq!(json_body(f.api(true).await.unwrap()).await, data);
@@ -467,8 +477,7 @@ async fn cached_and_background_answers_keep_all_five_trend_buckets() {
                 "more",
                 "flat",
                 "costly",
-                "stale",
-                "occupation"
+                "stale"
             ]
         );
         for (row, &(prev, recent, expected)) in f.index.records.iter().zip(&examples) {
@@ -549,8 +558,6 @@ async fn stage_refresh_reads_authorized_source_and_updates_index_home_and_cards(
     );
     assert_eq!(after["home"]["customers"][0]["active_deals"], 0);
     // 「まず見るもの」の件数も同じ更新済みのホーム応答から取得する。
-    assert_eq!(
-        occupation_card(&after)["count"],
-        occupation_card(&before)["count"]
-    );
+    assert_home_cards(&after);
+    assert_eq!(after["home"]["cards"], before["home"]["cards"]);
 }

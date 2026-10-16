@@ -351,11 +351,6 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
                 .is_some_and(|p| (today - p.latest_end).num_days() > STALE_DAYS)
         })
         .collect();
-    let unset: Vec<&Listing> = live
-        .iter()
-        .copied()
-        .filter(|row| row.indeed_title_state == "unset")
-        .collect();
     let cards = vec![
         card("zero_stay", "応募がゼロのままの求人", "掲載中で、前の4週も直近4週も応募が0件の求人。直近4週の課金が多い順に表示します。".to_owned(), pick("zero_stay")),
         card("to_zero", "応募がゼロになった求人", "掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。".to_owned(), pick("to_zero")),
@@ -364,7 +359,6 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
         card("flat", "応募はあるが、前の4週とほぼ同じ求人", format!("掲載中で、直近4週に応募があり、前の4週と同じ件数、または差が{TREND_MIN_DIFF}件未満かつ{TREND_MIN_PERCENT}%未満の求人。"), pick("flat")),
         card("costly", "課金が高いまま応募が少ない求人", format!("掲載中で、直近4週の課金が{}以上あり、応募が0件、または応募1件あたりの課金が応募のある求人の中央値の{COST_PER_APP_TIMES}倍以上の求人。", yen_label(COST_FLOOR_YEN)), costly),
         card("stale", "データが止まっている求人", format!("掲載中で、週ごとの実績の最新の週が{STALE_DAYS}日より前に終わっている求人。この間の応募・課金は少なく見えます。"), stale),
-        card("occupation", "市場の職種が未指定の求人", "掲載中で、市場と比べる職種をまだ指定していない求人。".to_owned(), unset),
     ];
 
     #[derive(Default)]

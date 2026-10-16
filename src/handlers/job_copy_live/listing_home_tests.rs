@@ -156,8 +156,8 @@ fn cards_count_with_concrete_rules() {
     assert_eq!(by("flat").listings[0].id, "2");
     assert_eq!(by("less").count, 1);
     assert_eq!(by("less").listings[0].id, "3");
-    // 職種が未指定の掲載中: 2 と 5（4 は掲載終了、1 と 3 は指定済み）
-    assert_eq!(by("occupation").count, 2);
+    assert_eq!(home.cards.len(), 7);
+    assert!(home.cards.iter().all(|c| c.key != "occupation"));
     assert_eq!(home.live_without_company, 1);
 }
 
@@ -429,8 +429,7 @@ fn zero_stay_is_first_and_sorted_by_recent_cost_before_capping() {
             "more",
             "flat",
             "costly",
-            "stale",
-            "occupation"
+            "stale"
         ]
     );
     let card = &home.cards[0];
@@ -496,14 +495,7 @@ fn owner_scope_includes_any_matching_deal_and_only_its_customer_links() {
     );
     assert_eq!(selected[0].deal_ids, ["d1"]);
     let home = compute(&selected, &map, date("2026-10-16"));
-    assert_eq!(
-        home.cards
-            .iter()
-            .find(|c| c.key == "occupation")
-            .unwrap()
-            .count,
-        1
-    );
+    assert!(home.cards.iter().all(|c| c.count == 0));
     assert_eq!(home.customers.len(), 1);
     assert_eq!(home.customers[0].company_id, "c1");
     assert_eq!(home.customers[0].deals, 1);
