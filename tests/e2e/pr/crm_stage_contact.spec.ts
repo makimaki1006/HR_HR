@@ -1,15 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
-import type { Page } from '@playwright/test';
-
-async function login(page: Page) {
-  await page.goto('/login');
-  await page.locator('#email').fill('e2e@f-a-c.co.jp');
-  await page.locator('#password').fill('testpass');
-  await Promise.all([page.waitForURL(url => url.pathname === '/'), page.locator("form[action='/login'] button[type=submit]").click()]);
-}
+import { login } from './helpers/login';
 
 const shots = process.env.CRM_SCREENSHOT_DIR;
+test.use({ viewport: { width: 1280, height: 800 } });
+
 test.beforeEach(async ({ page }) => {
   await login(page);
   await page.route('https://applications.zoom.us/**', route => route.abort());
