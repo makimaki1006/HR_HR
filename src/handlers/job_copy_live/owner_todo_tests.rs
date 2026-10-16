@@ -402,3 +402,103 @@ async fn background_refresh_is_single_flight_keeps_stale_and_owners_are_cached_t
     );
     server.abort();
 }
+
+#[tokio::test]
+async fn saved_expiration_and_stage_replace_cached_values_and_reject_inflight_reads() {
+    use axum::routing::any;
+    let latest = Arc::new(std::sync::Mutex::new(record(
+        "1",
+        "open",
+        "11",
+        "22",
+        "2026-10-16",
+        "2026-10-20",
+    )));
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let started = Arc::new(tokio::sync::Notify::new());
+    let (remote, wait, entered) = (latest.clone(), gate.clone(), started.clone());
+    let app = Router::new().fallback(any(move |req: axum::extract::Request| {
+        let (remote, wait, entered) = (remote.clone(), wait.clone(), entered.clone());
+        async move {
+            if req.method() == axum::http::Method::PATCH {
+                return Json(json!(remote.lock().unwrap().record));
+            }
+            let path = req.uri().path();
+            let data = if path.ends_with("/search") {
+                let record = remote.lock().unwrap().record.clone();
+                entered.notify_one();
+                wait.acquire().await.unwrap().forget();
+                json!({"results":[record]})
+            } else if path.contains("/owners") {
+                json!({"results":[]})
+            } else if path.contains("/properties/") {
+                json!({"options":[]})
+            } else if path.contains("/pipelines/") {
+                json!({"results":[]})
+            } else if path.contains("/associations/") {
+                json!({"results":[{"from":{"id":"1"},"to":[]}]})
+            } else {
+                json!({"results":[]})
+            };
+            Json(data)
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let service = JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    async fn finish(service: &JobReadService) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while service.owner_todo.state.lock().await.refreshing {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    let query = OwnerQuery {
+        owner: Some("all".into()),
+        ..Default::default()
+    };
+    let report = |s: &Snapshot| s.report(&query, "", day("2026-10-16"), false);
+    view(&service).await;
+    started.notified().await;
+    // 保存前に始まった Search が後から完了しても採用しない。
+    *latest.lock().unwrap() = record("1", "open", "11", "22", "2026-10-16", "2026-11-15");
+    service
+        .hs
+        .background()
+        .patch_object("deals", "1", &BTreeMap::new())
+        .await
+        .unwrap();
+    gate.add_permits(1);
+    finish(&service).await;
+    assert!(service.owner_todo.state.lock().await.snapshot.is_none());
+    view(&service).await;
+    started.notified().await;
+    gate.add_permits(1);
+    finish(&service).await;
+    let current = view(&service).await.snapshot.unwrap();
+    assert_eq!(report(&current)["expirations"][0]["due"], "2026-11-15");
+    assert_eq!(
+        report(&current)["actions"]["today"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    *latest.lock().unwrap() = record("1", "90598807", "11", "22", "2026-10-16", "2026-11-15");
+    service
+        .hs
+        .background()
+        .patch_object("deals", "1", &BTreeMap::new())
+        .await
+        .unwrap();
+    assert!(view(&service).await.snapshot.is_none());
+    started.notified().await;
+    gate.add_permits(1);
+    finish(&service).await;
+    let current = view(&service).await.snapshot.unwrap();
+    assert_eq!(report(&current)["expirations"], json!([]));
+    assert_eq!(report(&current)["actions"]["today"], json!([]));
+    server.abort();
+}

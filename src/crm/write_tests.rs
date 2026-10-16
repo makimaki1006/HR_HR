@@ -257,6 +257,14 @@ async fn hs_pipelines() -> Response {
         json!({"results": [{"id": PIPELINE, "label": "テスト用", "displayOrder": 0, "stages": [
             {"id": UNPROCESSED, "label": "未済", "displayOrder": 0},
             {"id": FUZUU, "label": "不通", "displayOrder": 1}
+        ]},
+        {"id": "21596025", "label": "リクロジ_納品管理", "displayOrder": 1, "stages": [
+            {"id": "52016153", "label": "運用MTG実施前", "displayOrder": 0},
+            {"id": "66848546", "label": "継続済", "displayOrder": 1}
+        ]},
+        {"id": "743961896", "label": "請負契約_納品管理", "displayOrder": 2, "stages": [
+            {"id": "1082007419", "label": "キックオフMTG実施前", "displayOrder": 0},
+            {"id": "1082007429", "label": "納品完了（全記事）", "displayOrder": 1}
         ]}]}),
     )
     .into_response()
@@ -2239,4 +2247,234 @@ async fn 関所が混んでいると新しい保存は台帳も_hubspot_も触�
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["status"], "saved");
+}
+
+fn delivery_fake(pid: &str, sid: &str) -> Fake {
+    let mut f = base_fake();
+    let props = f.objects.get_mut(&("deals".into(), DEAL.into())).unwrap();
+    props.insert("pipeline".into(), pid.into());
+    props.insert("dealstage".into(), sid.into());
+    f
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 納品管理の継続済は_oubo_不足なら422_既存値が揃えば200() {
+    let mut f = delivery_fake("21596025", "52016153");
+    let props = f.objects.get_mut(&("deals".into(), DEAL.into())).unwrap();
+    // 継続済の必須10項目のうち oubo だけ空。表示順も固定値で検証する。
+    assert_eq!(
+        super::stage_rules::rules().required("66848546"),
+        vec![
+            "oubo",
+            "mensetu",
+            "naite",
+            "syoudaku",
+            "npsmanryou",
+            "unit_price",
+            "tsukitanka",
+            "contract_period",
+            "shoukaidashin",
+            "jiyuukinyuuran",
+        ]
+    );
+    for name in [
+        "mensetu",
+        "naite",
+        "syoudaku",
+        "npsmanryou",
+        "unit_price",
+        "tsukitanka",
+        "contract_period",
+        "shoukaidashin",
+        "jiyuukinyuuran",
+    ] {
+        props.insert(name.into(), "1".into());
+    }
+    let e = env_with(f, open(), true).await;
+    let (status, v) = e
+        .patch(
+            json!({"operation_id": "op-delivery-miss", "base": {}, "set": {},
+        "stage": {"pipeline_id": "21596025", "stage_id": "66848546"}}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(v["missing_required"], json!(["oubo"]));
+    assert_eq!(e.calls("PATCH"), 0);
+    assert_eq!(e.ledger_count(), 0);
+    e.hs.lock()
+        .unwrap()
+        .objects
+        .get_mut(&("deals".into(), DEAL.into()))
+        .unwrap()
+        .insert("oubo".into(), "0".into()); // 数値0は必須を満たす
+    let (status, v) = e
+        .patch(
+            json!({"operation_id": "op-delivery-save", "base": {}, "set": {},
+        "stage": {"pipeline_id": "21596025", "stage_id": "66848546"}}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["status"], "saved");
+    assert_eq!(v["values"]["dealstage"], "66848546");
+    assert_eq!(
+        e.hs.lock().unwrap().patches(),
+        vec![json!({"properties": {
+            "dealstage": "66848546", "pipeline": "21596025"
+        }})]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 請負契約の納品管理は必須なしで同じパイプライン内を移動できる() {
+    let e = env_with(delivery_fake("743961896", "1082007419"), open(), true).await;
+    let (status, v) = e
+        .patch(
+            json!({"operation_id": "op-delivery-free", "base": {}, "set": {},
+        "stage": {"pipeline_id": "743961896", "stage_id": "1082007429"}}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["status"], "saved");
+    assert_eq!(v["values"]["dealstage"], "1082007429");
+    assert_eq!(
+        e.hs.lock().unwrap().patches(),
+        vec![json!({"properties": {
+            "dealstage": "1082007429", "pipeline": "743961896"
+        }})]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 納品管理をまたぐ移動は両方向422_架電同士の移動は維持() {
+    for (from, current, to, target) in [
+        ("21596025", "52016153", PIPELINE, UNPROCESSED),
+        (PIPELINE, UNPROCESSED, "21596025", "52016153"),
+        ("743961896", "1082007419", PIPELINE, UNPROCESSED),
+        (PIPELINE, UNPROCESSED, "743961896", "1082007419"),
+        ("21596025", "52016153", "743961896", "1082007419"),
+        ("743961896", "1082007419", "21596025", "52016153"),
+    ] {
+        let e = env_with(delivery_fake(from, current), open(), true).await;
+        let (status, v) = e
+            .patch(
+                json!({"operation_id": "op-delivery-cross", "base": {}, "set": {},
+            "stage": {"pipeline_id": to, "stage_id": target}}),
+            )
+            .await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{from} -> {to}: {v}"
+        );
+        assert!(v["errors"]["stage"].is_string(), "{v}");
+        assert_eq!(e.calls("PATCH"), 0);
+        assert_eq!(e.ledger_count(), 0);
+    }
+    let e = env().await;
+    let (status, v) = e
+        .patch(
+            json!({"operation_id": "op-queue-cross-ok", "base": {}, "set": {},
+        "stage": {"pipeline_id": "default", "stage_id": "appointmentscheduled"}}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["values"]["pipeline"], "default");
+    assert_eq!(v["values"]["dealstage"], "appointmentscheduled");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 納品管理の_edit_schema_は現在のパイプラインだけを返す() {
+    for (pid, sid, expected) in [
+        (
+            "21596025",
+            "52016153",
+            json!([
+                {"id": "52016153", "label": "運用MTG実施前"},
+                {"id": "66848546", "label": "継続済"}
+            ]),
+        ),
+        (
+            "743961896",
+            "1082007419",
+            json!([
+                {"id": "1082007419", "label": "キックオフMTG実施前"},
+                {"id": "1082007429", "label": "納品完了（全記事）"}
+            ]),
+        ),
+    ] {
+        let e = env_with(delivery_fake(pid, sid), open(), true).await;
+        let (status, v) = call(
+            &e.app,
+            Method::GET,
+            &format!("/api/crm/edit-schema?deal_id={DEAL}"),
+            Some(&e.op),
+            None,
+            false,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        assert_eq!(v["pipeline_id"], pid);
+        assert_eq!(v["stage_id"], sid);
+        assert_eq!(v["pipelines"].as_array().unwrap().len(), 1);
+        assert_eq!(v["pipelines"][0]["id"], pid);
+        assert_eq!(v["pipelines"][0]["stages"], expected);
+        let stages = v["stages"].as_array().unwrap();
+        assert_eq!(stages.len(), 2);
+        assert_eq!(stages[0]["id"], expected[0]["id"]);
+        assert_eq!(stages[1]["label"], expected[1]["label"]);
+        if pid == "21596025" {
+            assert_eq!(
+                stages[1]["required"],
+                json!([
+                    "oubo",
+                    "mensetu",
+                    "naite",
+                    "syoudaku",
+                    "npsmanryou",
+                    "unit_price",
+                    "tsukitanka",
+                    "contract_period",
+                    "shoukaidashin",
+                    "jiyuukinyuuran"
+                ])
+            );
+        } else {
+            assert_eq!(stages[1]["required"], json!([]));
+            assert_eq!(stages[1]["shown"], json!([]));
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 納品管理の再送は現在地を再確認し別パイプラインなら書かない() {
+    let mut f = delivery_fake("743961896", "1082007419");
+    f.patch_fail = vec![503];
+    let e = env_with(f, open(), true).await;
+    let (s, v) = e
+        .patch(
+            json!({"operation_id": "op-delivery-retry", "base": {}, "set": {},
+        "stage": {"pipeline_id": "743961896", "stage_id": "1082007429"}}),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    {
+        let mut hs = e.hs.lock().unwrap();
+        let props = hs.objects.get_mut(&("deals".into(), DEAL.into())).unwrap();
+        props.insert("pipeline".into(), PIPELINE.into());
+        props.insert("dealstage".into(), UNPROCESSED.into());
+    }
+    e.make_due("op-delivery-retry");
+    write::run_due(&e.audit, &e.client, &e.write).await;
+    assert_eq!(
+        e.ledger("op-delivery-retry"),
+        ("failed".into(), 2, "invalid_stage".into())
+    );
+    assert_eq!(e.calls("PATCH"), 1, "最初の失敗以降は送らない");
+    assert_eq!(
+        e.hs.lock()
+            .unwrap()
+            .value("deals", DEAL, "pipeline")
+            .as_deref(),
+        Some(PIPELINE)
+    );
 }

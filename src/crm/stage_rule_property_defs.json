@@ -1,5 +1,5 @@
 {
- "_note": "2026-10-14 に HubSpot の取引プロパティ定義 (読み取りのみ) から、stage_rules.json に出てくる項目だけを写した。選択肢は有無のみ。ステージの必須項目が画面で入力できるかの検査用",
+ "_note": "2026-10-14 に HubSpot の取引プロパティ定義 (読み取りのみ) から、stage_rules.json に出てくる項目だけを写した。選択肢は有無のみ。ステージの必須項目が画面で入力できるかの検査用。2026-10-16 に納品管理の項目定義を追加",
  "deals": [
   {
    "name": "ahkessaifuro",
@@ -2008,6 +2008,742 @@
    "label": "ホームページ",
    "type": "string",
    "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "actionnaiyou",
+   "label": "CSアクション内容",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "actionyotei",
+   "label": "CSアクション予定日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "ashigirijouken",
+   "label": "足切り条件",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "basyo",
+   "label": "募集エリア（都道府県＋市区町村）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "bikou",
+   "label": "備考",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "c___competitor______________",
+   "label": "Cヨミ Competitor 競合について把握できている",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "checklist_first_draft",
+   "label": "求人初稿作成時確認項目",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "confirmation_item_of_first_mtg",
+   "label": "運用MTG実施時確認事項",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "cs____",
+   "label": "CS提案金額",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "cskaiyakugogooi",
+   "label": "CS解約後後追い",
+   "type": "bool",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "customer_classification",
+   "label": "顧客分類",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "customer_sheet_url",
+   "label": "応募者管理シートURL",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "darenidonnaikenwoiwaretanoka",
+   "label": "誰にどんな意見を言われたのか",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "ikou",
+   "label": "継続意向（直近の）",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "jiyuukinyuuran",
+   "label": "紹介打診に関しての自由記入欄",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kaisu",
+   "label": "面接回数",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kaiyaku",
+   "label": "解約理由",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "kaiyakuriyuu",
+   "label": "失注理由詳細",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kanri_mail_address",
+   "label": "管理用メールアドレス（rpo.medica+／複数可・;区切り）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "keikenumukakunin",
+   "label": "経験有無確認",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "keisaishokushuooitarui",
+   "label": "掲載職種（大分類）①",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "keisaishokushuooitaruini",
+   "label": "掲載職種（大分類）②",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "kenen",
+   "label": "CS失注懸念メモ",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "kessaisya",
+   "label": "決裁者キーマンの商談同席",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "kika",
+   "label": "CS提案期間",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "manryou",
+   "label": "（新）満了時確認項目",
+   "type": "enumeration",
+   "fieldType": "checkbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "mensetsujijisanbutsu",
+   "label": "面接時持参物",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "mensetu",
+   "label": "面接数",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "naite",
+   "label": "内定数",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "note____",
+   "label": "note導入あり",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "npsmanryou",
+   "label": "満了時NPS",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "oubo",
+   "label": "応募数",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "oubohoukokusaki",
+   "label": "応募報告先",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "progress",
+   "label": "進捗内容",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "rirekishoshokumukeirekishokakunoudoraibu",
+   "label": "履歴書・職務経歴書格納ドライブ",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "rirekisyo",
+   "label": "書類選考の有無（履歴書内容に基づく）",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "saisyuu",
+   "label": "最終面接実施者（現場拠点長、人事、部長、役員、社長など）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "saiyomokuhyou",
+   "label": "採用目標数",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "seiyakuriyuu",
+   "label": "成約理由（お客様の本音）",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "shikakuhoyuukakunin",
+   "label": "資格保有確認",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "shiteitenpureto",
+   "label": "指定テンプレート",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "shitsuchuuriyuu",
+   "label": "失注理由",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "shodoutaiou",
+   "label": "初動対応",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "shoukaidashin",
+   "label": "紹介打診",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "shukkoukanryoubi",
+   "label": "出稿完了日",
+   "type": "date",
+   "fieldType": "date",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "syokusyuu",
+   "label": "掲載職種（全部書いて）",
+   "type": "string",
+   "fieldType": "text",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "syoudaku",
+   "label": "採用数",
+   "type": "number",
+   "fieldType": "number",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "syoukai",
+   "label": "顧客紹介実績あり（深耕も含む）",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "taiouhouhou",
+   "label": "対応方法",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "taiouhouhousonotashousai",
+   "label": "対応方法（その他詳細）",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "teian",
+   "label": "CS提案内容メモ",
+   "type": "string",
+   "fieldType": "textarea",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": []
+  },
+  {
+   "name": "tekiseikensa",
+   "label": "適性検査の有無",
+   "type": "enumeration",
+   "fieldType": "booleancheckbox",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
+  },
+  {
+   "name": "tsukitanka",
+   "label": "月単価",
+   "type": "number",
+   "fieldType": "number",
    "calculated": false,
    "externalOptions": false,
    "modificationMetadata": {

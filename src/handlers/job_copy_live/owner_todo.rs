@@ -118,9 +118,19 @@ pub(super) struct Cache {
 }
 #[derive(Default)]
 struct CacheState {
+    revision: u64,
     snapshot: Option<(Instant, Arc<Snapshot>)>,
     refreshing: bool,
     failed_at: Option<Instant>,
+}
+impl CacheState {
+    fn sync_revision(&mut self, revision: u64) {
+        if self.revision != revision {
+            self.revision = revision;
+            self.snapshot = None;
+            self.failed_at = None;
+        }
+    }
 }
 pub(super) struct View {
     pub(super) snapshot: Option<Arc<Snapshot>>,
@@ -130,6 +140,8 @@ pub(super) struct View {
 /// 初回も待たない。取得中は UI が集計中と表示し、次回の要求で結果を読む。
 pub(super) async fn view(service: &JobReadService) -> View {
     let mut state = service.owner_todo.state.lock().await;
+    let revision = service.hs.deal_write_revision();
+    state.sync_revision(revision);
     let fresh = state
         .snapshot
         .as_ref()
@@ -141,6 +153,11 @@ pub(super) async fn view(service: &JobReadService) -> View {
         tokio::spawn(async move {
             let result = fetch(&service).await;
             let mut state = service.owner_todo.state.lock().await;
+            // 保存前に始めた読み取りは、保存後のキャッシュへ戻さない。
+            if service.hs.deal_write_revision() != revision {
+                state.refreshing = false;
+                return;
+            }
             match result {
                 Ok(snapshot) => {
                     state.snapshot = Some((Instant::now(), Arc::new(snapshot)));

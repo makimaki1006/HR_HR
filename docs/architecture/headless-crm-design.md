@@ -311,6 +311,10 @@ FAILED / Dead Letter
 
 Durable Retry の保存技術は ADR-018 (2026-10-09) で **既存の監査 Turso の表 `crm_pending_operations`** と決めた。
 
+書き込みのステージ移動は架電の6本 + 納品管理2本を対象とする (2026-10-16 ユーザー決定、案件管理 `/app/job-copy` から利用)。
+納品管理は同じパイプライン内だけ移動でき、架電一覧・指標の候補や件数には含めない。
+納品管理の必須ルールも HubSpot 画面の内部 API を読み取り、既存と同じ手順で写した。
+
 ### 実装状況 (2026-10-09、`src/crm/write.rs` / `pending.rs`)
 
 - 実装済み: `PATCH /api/crm/deals/{id}` (既定 OFF。`CRM_WRITES_ENABLED` / `CRM_WRITE_DEAL_ALLOWLIST`)、

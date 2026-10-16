@@ -211,6 +211,83 @@ pub const QUEUE_PIPELINES: &[QueuePipeline] = &[
     },
 ];
 
+/// 案件管理から同じパイプライン内のステージ移動だけを許す (2026-10-16 ユーザー決定)。
+/// 架電の候補・件数・指標には使わない。StageRule はすべて Exclude。
+pub const WRITE_ONLY_PIPELINES: &[QueuePipeline] = &[
+    QueuePipeline {
+        id: "21596025",
+        fallback_name: "リクロジ_納品管理",
+        stages: &[
+            ("52016153", Exclude),   // 運用MTG実施前
+            ("52016154", Exclude),   // 運用MTG実施済
+            ("52016155", Exclude),   // 求人出稿完了
+            ("1281184160", Exclude), // 継続_定期実施前（早巻き）
+            ("1049738304", Exclude), // オプション（求人追加・一次対応）
+            ("121846962", Exclude),  // 基本料プラン
+            ("52016156", Exclude),   // 定期1
+            ("121846961", Exclude),  // 定期2
+            ("164378752", Exclude),  // 定期3
+            ("164378755", Exclude),  // 定期4
+            ("164378758", Exclude),  // 定期5
+            ("1177549843", Exclude), // 定期6
+            ("1177549844", Exclude), // 定期7
+            ("1177549845", Exclude), // 定期8
+            ("1177549846", Exclude), // 定期9
+            ("1177549847", Exclude), // 定期10
+            ("1177549848", Exclude), // 定期11
+            ("164378760", Exclude),  // 継続MTG前_壁打ち済
+            ("52016157", Exclude),   // 継続MTG
+            ("1216616080", Exclude), // Tヨミ：10％未満（継続に対して否定的意見、解約意向がある提案（10％未満））
+            ("1216616081", Exclude), // Dヨミ：20％（継続意思不明だが提案中）
+            ("1216616082", Exclude), // Cヨミ：50％（担当者の継続意思あり）
+            ("1216616083", Exclude), // Bヨミ：80％（決裁者の継続意思あり）
+            ("1281526627", Exclude), // 満了済オプション（一次対応・追加）
+            ("1016664339", Exclude), // 解約済架電禁止先
+            ("90598807", Exclude),   // 解約済（充足）
+            ("52016159", Exclude),   // 解約済(成果不足)
+            ("52016158", Exclude),   // 解約済(会社方針・その他)
+            ("66848546", Exclude),   // 継続済
+            ("1278456227", Exclude), // マーケ関連
+        ],
+    },
+    QueuePipeline {
+        id: "743961896",
+        fallback_name: "請負契約_納品管理",
+        stages: &[
+            ("1082007419", Exclude), // キックオフMTG実施前
+            ("1082007420", Exclude), // キックオフMTG実施済
+            ("1082007421", Exclude), // 構成案提出済
+            ("1082007422", Exclude), // 構成案fix
+            ("1082007423", Exclude), // 初稿提出済
+            ("1082007424", Exclude), // 1記事納品完了
+            ("1082007425", Exclude), // 2記事納品完了
+            ("1082007426", Exclude), // 3記事納品完了
+            ("1082007427", Exclude), // 4記事納品完了
+            ("1082007428", Exclude), // 5記事納品完了
+            ("1332934971", Exclude), // 6記事納品完了
+            ("1332934972", Exclude), // 7記事納品完了
+            ("1332934973", Exclude), // 8記事納品完了
+            ("1332934974", Exclude), // 9記事納品完了
+            ("1332934975", Exclude), // 10記事納品完了
+            ("1332934976", Exclude), // 11記事納品完了
+            ("1082007429", Exclude), // 納品完了（全記事）
+        ],
+    },
+];
+
+/// 書き込みと必須ルールの照合に使う全パイプライン。
+pub fn write_pipelines() -> impl Iterator<Item = &'static QueuePipeline> {
+    QUEUE_PIPELINES.iter().chain(WRITE_ONLY_PIPELINES.iter())
+}
+
+pub fn find_write_pipeline(id: &str) -> Option<&'static QueuePipeline> {
+    write_pipelines().find(|p| p.id == id)
+}
+
+pub fn is_write_only_pipeline(id: &str) -> bool {
+    WRITE_ONLY_PIPELINES.iter().any(|p| p.id == id)
+}
+
 /// 選べるパイプラインを ID で引く。表に無ければ `None` (400 `invalid_param`)
 pub fn find_pipeline(id: &str) -> Option<&'static QueuePipeline> {
     QUEUE_PIPELINES.iter().find(|p| p.id == id)
@@ -270,6 +347,35 @@ mod tests {
             .stages
             .iter()
             .all(|(_, r)| *r != All));
+    }
+
+    #[test]
+    fn 書き込み専用の表は架電に混ぜず全ステージを照合できる() {
+        assert_eq!(WRITE_ONLY_PIPELINES.len(), 2);
+        assert_eq!(WRITE_ONLY_PIPELINES[0].stages.len(), 30);
+        assert_eq!(WRITE_ONLY_PIPELINES[1].stages.len(), 17);
+        assert_eq!(write_pipelines().count(), 8);
+        let mut pids = HashSet::new();
+        let mut sids = HashSet::new();
+        for p in write_pipelines() {
+            assert!(pids.insert(p.id));
+            for (sid, _) in p.stages {
+                assert!(sids.insert(*sid), "{sid}");
+            }
+        }
+        for p in WRITE_ONLY_PIPELINES {
+            assert!(find_pipeline(p.id).is_none());
+            assert!(p.eligible_stages().is_empty());
+            assert_eq!(find_write_pipeline(p.id).unwrap().id, p.id);
+        }
+        let p = find_write_pipeline("21596025").unwrap();
+        assert_eq!(p.stages.first().unwrap().0, "52016153");
+        assert_eq!(p.stages.last().unwrap().0, "1278456227");
+        assert!(p.rule("66848546").is_some());
+        assert!(p.rule("1082007429").is_none());
+        let p = find_write_pipeline("743961896").unwrap();
+        assert_eq!(p.stages.first().unwrap().0, "1082007419");
+        assert_eq!(p.stages.last().unwrap().0, "1082007429");
     }
 
     /// 表を React 側 (`frontend/src/generated/call_queue_pipelines.json`) と共有する。

@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { EChart } from '../../components/EChart';
 import { mediaLabel, publicationLabel } from './hubspotListings';
 import type { DealSelection, HubSpotListing } from './hubspotListings';
 import { companyRollup, dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, ROLLUP_RULES, shareOfDeal, shortYen, weeklySeries } from './dealSummaryModel';
 import { dealGroup, loadCompanyDatas, loadDealData } from './dealSummaryLoad';
-import { loadCompanyDeals } from './companyDeals';
+import { DealContract } from './DealContract';
+import { clearCompanyDealsCache, loadCompanyDeals } from './companyDeals';
 import type { CompanyDeal } from './companyDeals';
 import { StatusFilter } from './StatusSwitch';
 import { setCompanyScope } from './companyScope';
@@ -25,8 +26,10 @@ const EVENT_LIMIT = 10;const yen = (value: number | null) => value === null ? '�
 const count = (value: number | null) => value === null ? '—' : `${String(value)}件`;
 const indeedCell = (row: HubSpotListing): string => row.indeed_title_state === 'set' && row.indeed_title?.trim() ? row.indeed_title.trim() : row.indeed_title_state === 'none' ? '市場と比べない' : '未指定';
 
-export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany, onWide }: { deal: DealSelection; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void; /** 顧客の全求人を出しているか（今の取引のとき true）を知らせる */ onWide?: (wide: boolean) => void }) {
+export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany, onWide, onContractSaved }: { onContractSaved?: (() => void) | undefined; deal: DealSelection; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void; /** 顧客の全求人を出しているか（今の取引のとき true）を知らせる */ onWide?: (wide: boolean) => void }) {
   const [source, setSource] = useState<Source>({ status: 'loading' });
+  const [revision, setRevision] = useState(0);
+  const saved = useCallback(() => { clearCompanyDealsCache(); onContractSaved?.(); setRevision(value => value + 1); }, [onContractSaved]);
   const [wide, setWide] = useState(false);
   const [info, setInfo] = useState<CompanyDeal | null>(null);
   const onWideRef = useRef(onWide);
@@ -56,8 +59,8 @@ export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany, 
       setCompanyScope({ dealId: deal.id, dealIds: all.datas.map(item => item.id) });
     });
     return () => { controller.abort(); setCompanyScope(null); onWideRef.current?.(false); };
-  }, [deal.id, deal.name]);
-  return <SummaryView scope="deal" wide={wide} dealInfo={info} source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} {...(onOpenCompany ? { onOpenCompany } : {})} />;
+  }, [deal.id, deal.name, revision]);
+  return <><DealContract key={deal.id} dealId={deal.id} onSaved={saved} onQueued={saved} /><SummaryView scope="deal" wide={wide} dealInfo={info} source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} {...(onOpenCompany ? { onOpenCompany } : {})} /></>;
 }
 
 export function SummaryView({ scope, wide = false, dealInfo = null, source, billingByJob, onOpenListing, onOpenCompany }: { scope: 'deal' | 'company'; /** 今の取引の画面で、顧客の全求人を出しているとき */ wide?: boolean; /** 取引の画面で、この取引の契約状態（契約中かどうか）。分からなければ null */ dealInfo?: CompanyDeal | null; source: Source; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void }) {
