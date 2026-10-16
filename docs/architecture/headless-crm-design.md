@@ -513,6 +513,8 @@ BPO の例:
 - unrestricted pipeline change
 - 他部署 record への不要アクセス
 
+2026-10-16 ユーザー決定: プロパティの書き込みは役割で絞らない (金額・担当者を含む)。今の HubSpot の運用でも絞っていないため。上の禁止例のうち Deal amount update は採らない。書ける項目は ADR-018 の is_writable (HubSpot が API で書かせる項目) で決まる。
+
 HubSpot Service credential を Browser に渡さない。
 
 ## 14. Backup / Recovery
