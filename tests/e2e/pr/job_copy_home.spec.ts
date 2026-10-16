@@ -224,6 +224,8 @@ test('変更求人の内訳を数え、説明・チップ・絞り込み・集�
   await expect(list.locator('tbody tr')).toHaveCount(1);
   await list.getByRole('button', { name: 'すべて 4件' }).click();
   await expect(list.locator('tbody tr')).toHaveCount(4);
+});
+
 test('職種の一括指定は URL から引き続き開ける', async ({ page }) => {
   await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: {
     status: 'ready', listings: [], total: 0, index_built_at: '2026-10-16T00:00:00Z',
