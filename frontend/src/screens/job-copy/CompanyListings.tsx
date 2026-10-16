@@ -4,7 +4,7 @@ import type { CompanyDeal } from './companyDeals';
 import { dealName } from './companyDeals';
 import type { Billing, SummarySource } from './DealSummary';
 import { loadCompanyDatas } from './dealSummaryLoad';
-import { companyListingsModel } from './companyListingsModel';
+import { companyListingPeriod, companyListingsModel } from './companyListingsModel';
 import { mediaLabel, publicationLabel } from './hubspotListings';
 import type { HubSpotListing, HubSpotListingPage } from './hubspotListings';
 import { formatDateTimeJst } from './format';
@@ -57,19 +57,18 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
       <th scope="col">求人名</th><th scope="col">媒体</th><th scope="col">掲載期間</th><th scope="col" className="num">直近4週の応募</th><th scope="col" className="num">今の課金（4週）</th><th scope="col">最後の変更</th>
     </tr></thead><tbody>{items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(item => <tr key={item.row.id} onClick={event => { if (!(event.target as HTMLElement).closest('button, a')) onOpenListing(item.row); }}>
       <th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenListing(item.row); }}>{item.row.title ?? '求人名未取得'}</button><div className="jh-listing-deals">{item.deals.map(deal => <small key={deal.id}><button type="button" className="jh-link" onClick={() => { onOpenDeal({ id: deal.id, name: dealName(deal) }); }}>{dealName(deal)}</button> · {deal.stage_label ?? 'ステージ不明'}</small>)}</div></th>
-      <td>{mediaLabel(item.row.media)}</td><td>{item.live ? '開始日不明 〜 今日' : '開始日・終了日不明'}{!item.live && publicationLabel(item.row.publication_status) !== '掲載終了' && <small>掲載状況：{publicationLabel(item.row.publication_status)}</small>}</td>
+      <td>{mediaLabel(item.row.media)}</td><td>{companyListingPeriod(item.row)}{!item.live && publicationLabel(item.row.publication_status) !== '掲載終了' && <small>掲載状況：{publicationLabel(item.row.publication_status)}</small>}</td>
       <td className="num">{item.numbers?.recent == null ? '—' : `${String(item.numbers.recent)}件`}</td><td className="num">{yen(item.numbers?.billing ?? null)}</td>
       <td>{item.changedAt ? <>本文を変更<small>{formatDateTimeJst(item.changedAt, '日時不明')}</small></> : '変更日不明'}</td>
     </tr>)}</tbody></table></div> : <p>{label}の求人はありません。</p>}
     {items.length > PAGE_SIZE && <nav className="jh-pages" aria-label={`${label}のページ`}><button type="button" className="jc-button" disabled={page === 0} onClick={() => { setPage(page - 1); }}>前の20件</button><span>{String(page * PAGE_SIZE + 1)}〜{String(Math.min((page + 1) * PAGE_SIZE, items.length))} / {String(items.length)}件</span><button type="button" className="jc-button" disabled={(page + 1) * PAGE_SIZE >= items.length} onClick={() => { setPage(page + 1); }}>次の20件</button></nav>}
   </>;
   return <>
-    <p className="jh-note">納品管理の案件に結び付いた求人です。同じ求人は1回だけ表示し、本文の変更が新しい順に並べています。掲載期間は未取得です。</p>
     {source.status === 'loading' && <p role="status">応募・課金を読み込んでいます…</p>}
     {source.status === 'error' && <p role="alert">応募・課金を読み込めませんでした。求人は表示しています。</p>}
     {source.status === 'ready' && source.notes?.map(note => <p key={note} className="jh-note">応募・課金：{note}</p>)}
     {source.status === 'ready' && source.datas.some(data => data.capped || data.rows.length > 30) && <p className="jh-note">応募・課金は各案件で取得できた求人の分だけ表示しています。</p>}
-    <p className="jh-note">応募・課金は {formatDay(model.asOf)} までの4週間。未取得の値は「—」です。最後の変更は本文の記録のみです。</p>
+    <p className="jh-note">納品管理の求人を本文の変更が新しい順に表示。案件名から求人を比較できます。<br />応募・課金は {formatDay(model.asOf)} までの4週間（未取得は「—」）。最後の変更は本文のみ。</p>
     <section className="jh-live-listings" aria-labelledby="jh-live"><h2 id="jh-live">掲載中 <span>{String(model.live.length)}件</span></h2>{table(model.live, livePage, setLivePage, '掲載中')}</section>
     <details className="jh-past-listings"><summary>過去（掲載終了） {String(model.past.length)}件</summary><p className="jh-note">掲載前・掲載状況不明の求人もこちらに表示しています。</p>{table(model.past, pastPage, setPastPage, '過去')}</details>
   </>;

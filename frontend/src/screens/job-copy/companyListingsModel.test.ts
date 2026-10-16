@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { companyListingsModel } from './companyListingsModel';
+import { companyListingPeriod, companyListingsModel } from './companyListingsModel';
 import type { HubSpotListing } from './hubspotListings';
 import type { CompanyDeal } from './companyDeals';
 import type { DealData } from './dealSummaryLoad';
@@ -24,4 +24,14 @@ it('直近4週の応募7件と課金28000円を案件間で重複加算せず、
   expect(model.live[0]?.changedAt).toBe('2026-10-11T00:00:00Z');
   expect(model.past[0]?.numbers?.recent).toBeNull();
   expect(model.live).toHaveLength(1);
+});
+
+it('索引の開始日と終了予定日を表示し、掲載中は予定日に関係なく今日までにする', () => {
+  const live = { ...row('1', '公開中', null), listing_started_on: '2026-09-02', listing_planned_end_on: '2027-10-31' };
+  expect(companyListingPeriod(live)).toBe('2026/09/02 〜 今日');
+  expect(companyListingPeriod({ ...live, publication_status: '掲載終了', listing_planned_end_on: '2026-09-30' })).toBe('2026/09/02 〜 2026/09/30（終了予定）');
+  expect(companyListingPeriod({ ...live, publication_status: '掲載終了', listing_ended_on: '2026-10-15' })).toBe('2026/09/02 〜 2026/10/15');
+  expect(companyListingPeriod({ ...live, listing_ended_on: '2026-10-15' })).toBe('2026/09/02 〜 今日');
+  expect(companyListingPeriod({ ...live, listing_started_on: null })).toBe('開始日不明 〜 今日');
+  expect(companyListingPeriod(row('2', '掲載終了', null))).toBe('開始日不明 〜 終了日不明');
 });

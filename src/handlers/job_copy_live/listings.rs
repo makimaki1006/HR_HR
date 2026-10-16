@@ -92,6 +92,8 @@ const PROPERTIES: &[&str] = &[
     "baitai_genjoukyou_airwork",
     "saishuu_csv_kenshutsu_bi",
     "koukai_kaishi_nichiji",
+    "koukai_shuuryou_nichiji",
+    "keisaishuuryounichi",
     INDEED_TITLE_PROPERTY,
     INDEED_WEEKLY_PERF,
     AIRWORK_WEEKLY_PERF,
@@ -136,6 +138,10 @@ struct Listing {
     publication_status: Option<String>,
     draft_status: Option<String>,
     last_csv_detected_at: Option<String>,
+    listing_started_on: Option<String>,
+    listing_ended_on: Option<String>,
+    /// 終了予定日。実際の掲載終了日とは区別する。
+    listing_planned_end_on: Option<String>,
     deal_ids: Vec<String>,
     summary: Summary,
     /// Acquired body-derived values, including an acquired but empty body.
@@ -220,6 +226,9 @@ fn listing(record: &Record) -> Option<Listing> {
             .filter(|v| ["pending", "adopted", "rejected"].contains(v))
             .map(str::to_owned),
         last_csv_detected_at: record.value("saishuu_csv_kenshutsu_bi").map(str::to_owned),
+        listing_started_on: super::listing_status::day(record.value("koukai_kaishi_nichiji")),
+        listing_ended_on: super::listing_status::day(record.value("keisaishuuryounichi")),
+        listing_planned_end_on: super::listing_status::day(record.value("koukai_shuuryou_nichiji")),
     })
 }
 fn taxonomy(db: &crate::db::local_sqlite::LocalDb) -> Result<Vec<String>, ReadError> {
@@ -1737,6 +1746,9 @@ mod publication_count_tests {
             publication_status: status.map(str::to_owned),
             draft_status: None,
             last_csv_detected_at: None,
+            listing_started_on: None,
+            listing_ended_on: None,
+            listing_planned_end_on: None,
             deal_ids: vec![],
             summary: Summary::default(),
             body_summary: None,
@@ -2432,6 +2444,9 @@ mod tests {
                     assert!(!query.contains("shigotonaiyou"));
                     assert!(!query.contains("hrh_kyuujinhyou_honbun"));
                     assert!(query.contains("kyuujin_status"));
+                    assert!(query.contains("koukai_kaishi_nichiji"));
+                    assert!(query.contains("koukai_shuuryou_nichiji"));
+                    assert!(query.contains("keisaishuuryounichi"));
                 }
                 // Like HubSpot: history reads above 50 objects are rejected with 400.
                 if query.contains("propertiesWithHistory") && query.contains("limit=100") { return (StatusCode::BAD_REQUEST, Json(json!({"message":"You can only request at most 50 objects in one request for properties with history."}))).into_response(); }
@@ -2442,7 +2457,7 @@ mod tests {
                 let end = (start + 99).min(203);
                 let results: Vec<Value> = (start..=end).map(|id| {
                     let (pref, title, airwork) = if id <= 150 {("沖縄県", "看護師", false)} else if id <= 180 {("沖縄県", "看護師", true)} else if id <= 200 {("大分県", "ドライバー", false)} else {("沖縄県", "清掃スタッフ", false)};
-                    let mut properties = json!({"hs_name":format!("合成求人{id:03}"),"todoufuken":pref,"shikuchouson":"合成市","hrh_kyuujinhyou_honbun":format!("仕事内容：索引に残さない合成の長い本文\nIndeed表示職種名：{title}"),"zhizhong":title,"jobcopy_indeed_title":if title == "清掃スタッフ" { "" } else { title },"qinwude":format!("{pref}合成市"),"kyuujin_status":"公開中"});
+                    let mut properties = json!({"hs_name":format!("合成求人{id:03}"),"todoufuken":pref,"shikuchouson":"合成市","hrh_kyuujinhyou_honbun":format!("仕事内容：索引に残さない合成の長い本文\nIndeed表示職種名：{title}"),"zhizhong":title,"jobcopy_indeed_title":if title == "清掃スタッフ" { "" } else { title },"qinwude":format!("{pref}合成市"),"kyuujin_status":"公開中","koukai_kaishi_nichiji":"2026-09-01T15:30:00Z","koukai_shuuryou_nichiji":"2026-10-31T00:00:00Z","keisaishuuryounichi":"2026-10-15"});
                     if airwork { properties["id_airwork"] = json!(format!("AW-{id}")); properties["airwork_account_login_id"] = json!("synthetic-account"); }
                     else { properties["id_hrhakkaa"] = json!(format!("HR-{id}")); }
                     json!({"id":id.to_string(),"properties":properties})
@@ -2477,6 +2492,14 @@ mod tests {
         .await;
         let old = cache.state.read().await.snapshot.clone().unwrap();
         assert_eq!(old.records.len(), 203);
+        assert!(old
+            .records
+            .iter()
+            .all(
+                |row| row.listing_started_on.as_deref() == Some("2026-09-02")
+                    && row.listing_planned_end_on.as_deref() == Some("2026-10-31")
+                    && row.listing_ended_on.as_deref() == Some("2026-10-15")
+            ));
         assert!(old
             .records
             .iter()
@@ -2711,3 +2734,31 @@ mod index_loading_tests;
 #[path = "listing_index_summary.rs"]
 mod index_summary;
 use index_summary::{enrich_index_summaries, index_properties};
+
+#[cfg(test)]
+mod publication_period_tests {
+    use super::*;
+    #[test]
+    fn publication_days_are_exposed_for_both_media_without_history_reads() {
+        for media_id in ["id_hrhakkaa", "id_airwork"] {
+            for (start, end, expected_start, expected_end) in [
+                (
+                    "2026-09-01T15:30:00Z",
+                    "2026-10-31T00:00:00Z",
+                    Some("2026-09-02"),
+                    Some("2026-10-31"),
+                ),
+                ("", "bad-date", None, None),
+            ] {
+                let record: Record = serde_json::from_value(json!({"id":"42","properties":{
+                    media_id:"42", "koukai_kaishi_nichiji":start, "koukai_shuuryou_nichiji":end, "keisaishuuryounichi":end
+                }}))
+                .unwrap();
+                let row = serde_json::to_value(listing(&record).unwrap()).unwrap();
+                assert_eq!(row["listing_started_on"], json!(expected_start));
+                assert_eq!(row["listing_planned_end_on"], json!(expected_end));
+                assert_eq!(row["listing_ended_on"], json!(expected_end));
+            }
+        }
+    }
+}

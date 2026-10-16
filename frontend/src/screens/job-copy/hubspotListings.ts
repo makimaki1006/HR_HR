@@ -14,6 +14,7 @@ export interface HubSpotListing {
   /** 人が指定した「比べる Indeed 職種」。state: set / none（市場と比べない）/ unset。古い応答には無い。 */
   indeed_title?: string | null; indeed_title_state?: IndeedTitleState;
   draft_status?: DraftSnapshot['review_status'] | null;
+  listing_started_on?: string | null; listing_ended_on?: string | null; listing_planned_end_on?: string | null;
   deal_ids?: string[]; summary?: ListingSummary;
   publication_status: string | null; last_csv_detected_at: string | null; application_count: number | null;
 }
@@ -49,7 +50,7 @@ export interface HubSpotVersions {
   /** AirWork 求人の週ごとの実績（HubSpot の airwork_weekly_perf）。無い・読めないときは null。 */
   airwork_weekly_perf?: unknown;
   /** HubSpot の公開開始日時（koukai_kaishi_nichiji）の日付。無いとき null。 */
-  listing_started_on?: string | null;
+  listing_started_on?: string | null; listing_ended_on?: string | null;
   /** 公開状況の履歴（欄ごと、古い順）。 */
   status_history?: Record<string, { timestamp: string; value: string }[]>;
   listing: HubSpotListing;

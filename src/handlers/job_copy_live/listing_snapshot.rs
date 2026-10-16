@@ -4,9 +4,9 @@ use crate::audit::AuditDb;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::io::{Read, Write};
 
-// v2 persists acquisition provenance for reusable ended-listing body summaries.
-// v1 cannot distinguish omitted bodies from acquired empty values and is discarded.
-const VERSION: i64 = 2;
+// v3: 各求人に掲載開始日・掲載終了日・終了予定日を保持する。
+// 古い形式には日付がないため復元しない。
+const VERSION: i64 = 3;
 // Base64 text stays at 1,000,000 bytes, leaving room for the pipeline envelope.
 const CHUNK_BYTES: usize = 750_000;
 const MAX_PARTS: usize = 128;

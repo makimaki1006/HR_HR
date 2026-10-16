@@ -45,7 +45,7 @@ export function CompanyView({ company, billingByJob, onName, onOpenDeal, onOpenL
     setBusy(false);
   };
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
-    <header className="jh-head"><div><h1>{company.name || (deals?.company.name ?? '顧客')}</h1><p>掲載中の求人を上にまとめています。案件名から、その案件の求人を比べられます。</p></div></header>
+    <header className="jh-head"><div><h1>{company.name || (deals?.company.name ?? '顧客')}</h1></div></header>
     {error && <p role="alert">{error}</p>}{busy && <p role="status">選んだ求人を読み込んでいます…</p>}
     {!deals && !error && <p role="status">求人を読み込んでいます…</p>}
     {deals && <CompanyListings companyId={company.id} deals={deals.deals} billingByJob={billingByJob} onOpenDeal={onOpenDeal} onOpenListing={row => { void open(row); }} />}

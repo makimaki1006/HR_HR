@@ -9,6 +9,7 @@ fn fixture(count: usize) -> Index {
             "title":format!("合成求人{}・配送と倉庫作業", n), "prefecture":"東京都", "municipality":"新宿区",
             "category":"配送", "indeed_title":"配送", "indeed_title_state":"set",
             "publication_status":"公開中", "draft_status":"adopted", "last_csv_detected_at":"2026-10-15",
+            "listing_started_on":"2026-09-01", "listing_ended_on":"2026-10-15", "listing_planned_end_on":"2026-10-31",
             "deal_ids":[(n%500+800000).to_string()], "summary":{
                 "occupation":"配送", "location":"東京都新宿区", "salary_kind":"月給",
                 "salary_min":(200000+n%10000).to_string(), "salary_max":"350000", "hours":"9:00〜18:00", "holidays":"週休2日", "body_changed_at":"2026-10-15T01:00:00Z"
@@ -69,7 +70,7 @@ async fn round_trip_and_reject_invalid_snapshots() {
         assert_same(&load(&audit).unwrap().unwrap(), &index);
         conn.lock()
             .unwrap()
-            .execute("UPDATE job_copy_index_snapshots SET version=1", [])
+            .execute("UPDATE job_copy_index_snapshots SET version=2", [])
             .unwrap();
         assert!(load(&audit).unwrap().is_none());
         save(&audit, &index).unwrap();
@@ -96,7 +97,11 @@ async fn round_trip_and_reject_invalid_snapshots() {
             data
         })
         .unwrap();
-        for (key, value_to_set) in [("version", json!(1)), ("index", json!({}))] {
+        for (key, value_to_set) in [
+            ("version", json!(1)),
+            ("version", json!(2)),
+            ("index", json!({})),
+        ] {
             let old = value[key].clone();
             value[key] = value_to_set;
             let mut gzip =

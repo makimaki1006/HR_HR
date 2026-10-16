@@ -3,7 +3,7 @@ import { login } from './helpers/login';
 
 test('顧客の掲載中・過去の全求人、案件リンクと求人の往復を確認する', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  const rows = Array.from({ length: 26 }, (_, i) => ({ id: String(i + 1), title: `合成求人${String(i + 1).padStart(2, '0')}`, media: i % 2 ? 'airwork' : 'hrh', media_job_id: String(i + 1), account_id: null, prefecture: null, municipality: null, category: null, publication_status: i < 3 ? '掲載中' : '掲載終了', application_count: null, last_csv_detected_at: null, deal_ids: i === 0 ? ['10', '20'] : ['10'], summary: { body_changed_at: i === 1 ? '2026-10-15T00:00:00Z' : '2026-10-10T00:00:00Z' } }));
+  const rows = Array.from({ length: 26 }, (_, i) => ({ id: String(i + 1), title: `合成求人${String(i + 1).padStart(2, '0')}`, media: i % 2 ? 'airwork' : 'hrh', media_job_id: String(i + 1), account_id: null, prefecture: null, municipality: null, category: null, publication_status: i < 3 ? '掲載中' : '掲載終了', listing_started_on: i === 2 ? null : i < 3 ? '2026-09-01' : '2026-04-01', listing_planned_end_on: '2027-08-31', listing_ended_on: i < 3 ? null : '2026-09-30', application_count: null, last_csv_detected_at: null, deal_ids: i === 0 ? ['10', '20'] : ['10'], summary: { body_changed_at: i === 1 ? '2026-10-15T00:00:00Z' : '2026-10-10T00:00:00Z' } }));
   let versions = 0;
   let companyReads = 0;
   const indexOffsets: number[] = [];
@@ -31,7 +31,8 @@ test('顧客の掲載中・過去の全求人、案件リンクと求人の往�
   await expect(live.locator('tbody tr').first()).toContainText('合成求人02');
   await expect(live.locator('tbody tr').nth(1)).toContainText('合成求人01合成案件A · 契約中合成案件B · 契約終了');
   await expect(live.locator('tbody tr').first()).toContainText('7件');
-  await expect(live.locator('tbody tr').first()).toContainText('開始日不明 〜 今日');
+  await expect(live.locator('tbody tr').first()).toContainText('2026/09/01 〜 今日');
+  await expect(live.locator('tbody tr').last()).toContainText('開始日不明 〜 今日');
   await expect(live.locator('tbody tr').first()).toContainText('本文を変更2026/10/15 09:00');
   await expect(main.locator('summary')).toHaveText('過去（掲載終了） 23件');
   const past = page.getByRole('table', { name: '過去の求人', exact: true });
@@ -42,6 +43,7 @@ test('顧客の掲載中・過去の全求人、案件リンクと求人の往�
   await main.screenshot({ path: 'artifacts/company-live-past-collapsed.png' });
   await main.locator('summary').click();
   await expect(past.locator('tbody tr')).toHaveCount(20);
+  await expect(past.locator('tbody tr').first()).toContainText('2026/04/01 〜 2026/09/30');
   await page.getByRole('navigation', { name: '過去のページ' }).getByRole('button', { name: '次の20件' }).click();
   await expect(past.locator('tbody tr')).toHaveCount(3);
   await expect(past.locator('tbody tr').first()).toContainText('合成求人24');
