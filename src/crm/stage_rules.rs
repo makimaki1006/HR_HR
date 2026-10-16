@@ -224,13 +224,12 @@ pub fn compare(rules: &StageRules, defs: &[CrmPipeline]) -> Vec<StageRuleMismatc
             }
         }
     }
-    // キューの表に無い新しいステージ (ルールが付いたかもしれないので見てもらう)
-    let known: HashSet<&str> = super::queue_pipelines::QUEUE_PIPELINES
-        .iter()
+    // 書き込みの表に無い新しいステージ (ルールが付いたかもしれないので見てもらう)
+    let known: HashSet<&str> = super::queue_pipelines::write_pipelines()
         .flat_map(|p| p.stages.iter().map(|(id, _)| *id))
         .collect();
     for p in defs {
-        if super::queue_pipelines::find_pipeline(&p.id).is_none() {
+        if super::queue_pipelines::find_write_pipeline(&p.id).is_none() {
             continue;
         }
         for s in &p.stages {
@@ -240,7 +239,7 @@ pub fn compare(rules: &StageRules, defs: &[CrmPipeline]) -> Vec<StageRuleMismatc
                     stage_id: s.id.clone(),
                     pipeline_id: Some(p.id.clone()),
                     detail: format!(
-                        "HubSpot のステージ「{}」が queue_pipelines の表に無い (ルールがあるか確認)",
+                        "HubSpot のステージ「{}」が書き込みのパイプライン表に無い (ルールがあるか確認)",
                         s.label
                     ),
                 });
@@ -329,7 +328,7 @@ mod tests {
     #[test]
     fn 設定は読めて_不通は_bpo_10_を必須にする() {
         let r = rules();
-        assert_eq!(r.len(), 34);
+        assert_eq!(r.len(), 59);
         assert_eq!(r.required("1095387443"), vec!["bpo_10"]);
         assert_eq!(r.shown("1095387443"), vec!["bpo_10", "bpo_31"]);
         // アポ日確定: 表示 25 項目のうち必須 22 項目 (bpo_28 / charge_impression / risuto_tanntouyakusyoku は任意)
@@ -340,16 +339,83 @@ mod tests {
         assert!(!req.contains(&"bpo_28".to_string()));
         assert!(r.required("999999").is_empty());
         assert!(r.source.contains("ConditionalPropertiesV2Rpc"));
-        assert_eq!(r.read_at, "2026-10-09");
+        assert_eq!(r.read_at, "2026-10-09 (架電); 2026-10-16 (納品管理追加)");
     }
 
     #[test]
-    fn 設定の全ステージはキューの表にある() {
+    fn 設定の全ステージは書き込みの表にある() {
         for rule in rules().all() {
             let pid = rule.pipeline_id.as_deref().expect("pipeline_id");
-            let p = super::super::queue_pipelines::find_pipeline(pid).expect("pipeline");
+            let p = super::super::queue_pipelines::find_write_pipeline(pid).expect("pipeline");
             assert!(p.rule(&rule.stage_id).is_some(), "{}", rule.stage_id);
         }
+    }
+
+    #[test]
+    fn 納品管理の新ステージもドリフト検査する() {
+        let empty =
+            StageRules::parse(r#"{"source":"test","read_at":"2026-10-16","rules":[]}"#).unwrap();
+        for (pid, known, label) in [
+            ("21596025", "52016153", "運用MTG実施前"),
+            ("743961896", "1082007419", "キックオフMTG実施前"),
+        ] {
+            assert!(compare(&empty, &defs(&[(known, label)], pid)).is_empty());
+            let m = compare(
+                &empty,
+                &defs(&[(known, label), ("9999999999", "新ステージ")], pid),
+            );
+            assert_eq!(m.len(), 1);
+            assert_eq!(m[0].kind, "hubspot_stage_not_in_queue_table");
+            assert_eq!(m[0].stage_id, "9999999999");
+            assert_eq!(m[0].pipeline_id.as_deref(), Some(pid));
+        }
+        assert_eq!(
+            rules()
+                .all()
+                .filter(|r| r.pipeline_id.as_deref() == Some("21596025"))
+                .count(),
+            25
+        );
+        assert_eq!(
+            rules()
+                .all()
+                .filter(|r| r.pipeline_id.as_deref() == Some("743961896"))
+                .count(),
+            0
+        );
+        for sid in [
+            "52016153",
+            "1281184160",
+            "1049738304",
+            "1281526627",
+            "1278456227",
+        ] {
+            assert!(rules().all().all(|r| r.stage_id != sid));
+        }
+        assert_eq!(
+            rules().shown("1177549843"),
+            vec![
+                "oubo",
+                "mensetu",
+                "naite",
+                "syoudaku",
+                "actionnaiyou",
+                "actionyotei",
+                "kessaisya",
+                "syokusyuu",
+                "basyo",
+                "note____",
+                "ikou",
+                "syoukai",
+                "shoukaidashin",
+                "jiyuukinyuuran",
+                "customer_sheet_url"
+            ]
+        );
+        assert_eq!(
+            rules().required("1177549843"),
+            vec!["shoukaidashin", "jiyuukinyuuran", "customer_sheet_url"]
+        );
     }
 
     fn defs(stages: &[(&str, &str)], pid: &str) -> Vec<CrmPipeline> {

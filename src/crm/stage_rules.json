@@ -1,8 +1,8 @@
 {
  "source": "HubSpot UI internal read ConditionalPropertiesV2Rpc/getRules (objectTypeId 0-3), portal 23708633 (read-only)",
- "read_at": "2026-10-09",
- "note": "ステージに移すとき表示される項目 (conditional stage properties)。required=true は必須。HubSpot は API の書き込みでは必須を強制しないため、HR_HR が移動前に確認する。label は src/crm/queue_pipelines.rs のコメント由来 (確認用)。HubSpot 側でルールを変えたらここを更新する。pipeline_id が null のステージは queue_pipelines の表に無い",
- "pipeline_rules": "6 パイプラインとも 0 件 (スキップ/後戻り/編集者制限なし)",
+ "read_at": "2026-10-09 (架電); 2026-10-16 (納品管理追加)",
+ "note": "ステージに移すとき表示される項目 (conditional stage properties)。required=true は必須。HubSpot は API の書き込みでは必須を強制しないため、HR_HR が移動前に確認する。label は src/crm/queue_pipelines.rs のコメント由来 (確認用)。HubSpot 側でルールを変えたらここを更新する。pipeline_id が null のステージは queue_pipelines の表に無い。2026-10-16 に納品管理2本を同じ読み取り手順で確認し、21596025 の25ステージのルールを追加。743961896 はルール0件。",
+ "pipeline_rules": "架電6 パイプラインとも 0 件 (スキップ/後戻り/編集者制限なし)",
  "rules": [
   {
    "stage_id": "1095457875",
@@ -2150,6 +2150,1601 @@
     },
     {
      "name": "bpo_47",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1177549845",
+   "pipeline_id": "21596025",
+   "label": "定期8",
+   "props": [
+    {
+     "name": "oubo",
+     "required": false
+    },
+    {
+     "name": "mensetu",
+     "required": false
+    },
+    {
+     "name": "naite",
+     "required": false
+    },
+    {
+     "name": "syoudaku",
+     "required": false
+    },
+    {
+     "name": "actionnaiyou",
+     "required": false
+    },
+    {
+     "name": "actionyotei",
+     "required": false
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "syokusyuu",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": false
+    },
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1177549844",
+   "pipeline_id": "21596025",
+   "label": "定期7",
+   "props": [
+    {
+     "name": "oubo",
+     "required": false
+    },
+    {
+     "name": "mensetu",
+     "required": false
+    },
+    {
+     "name": "naite",
+     "required": false
+    },
+    {
+     "name": "syoudaku",
+     "required": false
+    },
+    {
+     "name": "actionnaiyou",
+     "required": false
+    },
+    {
+     "name": "actionyotei",
+     "required": false
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "syokusyuu",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": false
+    },
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1177549843",
+   "pipeline_id": "21596025",
+   "label": "定期6",
+   "props": [
+    {
+     "name": "oubo",
+     "required": false
+    },
+    {
+     "name": "mensetu",
+     "required": false
+    },
+    {
+     "name": "naite",
+     "required": false
+    },
+    {
+     "name": "syoudaku",
+     "required": false
+    },
+    {
+     "name": "actionnaiyou",
+     "required": false
+    },
+    {
+     "name": "actionyotei",
+     "required": false
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "syokusyuu",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": false
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "ikou",
+     "required": false
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "164378752",
+   "pipeline_id": "21596025",
+   "label": "定期3",
+   "props": [
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "kanri_mail_address",
+     "required": true
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "syoudaku",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": false
+    },
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitarui",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitaruini",
+     "required": true
+    },
+    {
+     "name": "syokusyuu",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1016664339",
+   "pipeline_id": "21596025",
+   "label": "解約済架電禁止先",
+   "props": [
+    {
+     "name": "forbidden_destination_of_call",
+     "required": true
+    },
+    {
+     "name": "progress",
+     "required": true
+    },
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "syoudaku",
+     "required": true
+    },
+    {
+     "name": "shitsuchuuriyuu",
+     "required": true
+    },
+    {
+     "name": "kaiyakuriyuu",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "164378758",
+   "pipeline_id": "21596025",
+   "label": "定期5",
+   "props": [
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "syoudaku",
+     "required": true
+    },
+    {
+     "name": "kanri_mail_address",
+     "required": true
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": true
+    },
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitarui",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitaruini",
+     "required": true
+    },
+    {
+     "name": "syokusyuu",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52016156",
+   "pipeline_id": "21596025",
+   "label": "定期1",
+   "props": [
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "syoudaku",
+     "required": true
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "kanri_mail_address",
+     "required": true
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitarui",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitaruini",
+     "required": true
+    },
+    {
+     "name": "syokusyuu",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "sihonkin",
+     "required": false
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": true
+    },
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "saiyomokuhyou",
+     "required": true
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52016157",
+   "pipeline_id": "21596025",
+   "label": "継続MTG",
+   "props": [
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "kessaisya",
+     "required": true
+    },
+    {
+     "name": "npsmanryou",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52016154",
+   "pipeline_id": "21596025",
+   "label": "運用MTG実施済",
+   "props": [
+    {
+     "name": "seiyakuriyuu",
+     "required": true
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "customer_classification",
+     "required": true
+    },
+    {
+     "name": "progress",
+     "required": false
+    },
+    {
+     "name": "confirmation_item_of_first_mtg",
+     "required": true
+    },
+    {
+     "name": "itijitaiou",
+     "required": true
+    },
+    {
+     "name": "kanri_mail_address",
+     "required": true
+    },
+    {
+     "name": "keisaisu",
+     "required": true
+    },
+    {
+     "name": "syokusyusu",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitarui",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitaruini",
+     "required": true
+    },
+    {
+     "name": "syokusyuu",
+     "required": true
+    },
+    {
+     "name": "rirekisyo",
+     "required": true
+    },
+    {
+     "name": "tekiseikensa",
+     "required": true
+    },
+    {
+     "name": "kaisu",
+     "required": true
+    },
+    {
+     "name": "saisyuu",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": true
+    },
+    {
+     "name": "saiyomokuhyou",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52016155",
+   "pipeline_id": "21596025",
+   "label": "求人出稿完了",
+   "props": [
+    {
+     "name": "checklist_first_draft",
+     "required": false
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "seiyakuriyuu",
+     "required": true
+    },
+    {
+     "name": "rirekisyo",
+     "required": true
+    },
+    {
+     "name": "tekiseikensa",
+     "required": true
+    },
+    {
+     "name": "kaisu",
+     "required": true
+    },
+    {
+     "name": "saisyuu",
+     "required": true
+    },
+    {
+     "name": "kanri_mail_address",
+     "required": true
+    },
+    {
+     "name": "keisaisu",
+     "required": true
+    },
+    {
+     "name": "syokusyusu",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitarui",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitaruini",
+     "required": true
+    },
+    {
+     "name": "syokusyuu",
+     "required": true
+    },
+    {
+     "name": "saiyomokuhyou",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    },
+    {
+     "name": "shukkoukanryoubi",
+     "required": true
+    },
+    {
+     "name": "shodoutaiou",
+     "required": true
+    },
+    {
+     "name": "taiouhouhou",
+     "required": true
+    },
+    {
+     "name": "taiouhouhousonotashousai",
+     "required": false
+    },
+    {
+     "name": "oubohoukokusaki",
+     "required": true
+    },
+    {
+     "name": "mensetsujijisanbutsu",
+     "required": true
+    },
+    {
+     "name": "shikakuhoyuukakunin",
+     "required": true
+    },
+    {
+     "name": "keikenumukakunin",
+     "required": true
+    },
+    {
+     "name": "ashigirijouken",
+     "required": true
+    },
+    {
+     "name": "shiteitenpureto",
+     "required": true
+    },
+    {
+     "name": "rirekishoshokumukeirekishokakunoudoraibu",
+     "required": false
+    },
+    {
+     "name": "bikou",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52016158",
+   "pipeline_id": "21596025",
+   "label": "解約済(会社方針・その他)",
+   "props": [
+    {
+     "name": "kaiyaku",
+     "required": true
+    },
+    {
+     "name": "shitsuchuuriyuu",
+     "required": true
+    },
+    {
+     "name": "kaiyakuriyuu",
+     "required": true
+    },
+    {
+     "name": "manryou",
+     "required": true
+    },
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "syoudaku",
+     "required": true
+    },
+    {
+     "name": "npsmanryou",
+     "required": true
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "cskaiyakugogooi",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "164378755",
+   "pipeline_id": "21596025",
+   "label": "定期4",
+   "props": [
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "syoudaku",
+     "required": true
+    },
+    {
+     "name": "kanri_mail_address",
+     "required": true
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": true
+    },
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitarui",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitaruini",
+     "required": true
+    },
+    {
+     "name": "syokusyuu",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52016159",
+   "pipeline_id": "21596025",
+   "label": "解約済(成果不足)",
+   "props": [
+    {
+     "name": "kaiyaku",
+     "required": true
+    },
+    {
+     "name": "shitsuchuuriyuu",
+     "required": true
+    },
+    {
+     "name": "kaiyakuriyuu",
+     "required": true
+    },
+    {
+     "name": "manryou",
+     "required": true
+    },
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "syoudaku",
+     "required": true
+    },
+    {
+     "name": "npsmanryou",
+     "required": true
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "cskaiyakugogooi",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "121846961",
+   "pipeline_id": "21596025",
+   "label": "定期2",
+   "props": [
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "syoudaku",
+     "required": true
+    },
+    {
+     "name": "kanri_mail_address",
+     "required": true
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": true
+    },
+    {
+     "name": "ikou",
+     "required": false
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitarui",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitaruini",
+     "required": true
+    },
+    {
+     "name": "syokusyuu",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "121846962",
+   "pipeline_id": "21596025",
+   "label": "基本料プラン",
+   "props": [
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "kanri_mail_address",
+     "required": true
+    },
+    {
+     "name": "syokusyusu",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitarui",
+     "required": true
+    },
+    {
+     "name": "keisaishokushuooitaruini",
+     "required": true
+    },
+    {
+     "name": "syokusyuu",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "164378760",
+   "pipeline_id": "21596025",
+   "label": "継続MTG前_壁打ち済",
+   "props": [
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "oubo",
+     "required": false
+    },
+    {
+     "name": "mensetu",
+     "required": false
+    },
+    {
+     "name": "naite",
+     "required": false
+    },
+    {
+     "name": "syoudaku",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1177549848",
+   "pipeline_id": "21596025",
+   "label": "定期11",
+   "props": [
+    {
+     "name": "oubo",
+     "required": false
+    },
+    {
+     "name": "mensetu",
+     "required": false
+    },
+    {
+     "name": "naite",
+     "required": false
+    },
+    {
+     "name": "syoudaku",
+     "required": false
+    },
+    {
+     "name": "actionnaiyou",
+     "required": false
+    },
+    {
+     "name": "actionyotei",
+     "required": false
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "syokusyuu",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": false
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1177549847",
+   "pipeline_id": "21596025",
+   "label": "定期10",
+   "props": [
+    {
+     "name": "oubo",
+     "required": false
+    },
+    {
+     "name": "mensetu",
+     "required": false
+    },
+    {
+     "name": "naite",
+     "required": false
+    },
+    {
+     "name": "syoudaku",
+     "required": false
+    },
+    {
+     "name": "actionnaiyou",
+     "required": false
+    },
+    {
+     "name": "actionyotei",
+     "required": false
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "syokusyuu",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": false
+    },
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1177549846",
+   "pipeline_id": "21596025",
+   "label": "定期9",
+   "props": [
+    {
+     "name": "oubo",
+     "required": false
+    },
+    {
+     "name": "mensetu",
+     "required": false
+    },
+    {
+     "name": "naite",
+     "required": false
+    },
+    {
+     "name": "syoudaku",
+     "required": false
+    },
+    {
+     "name": "actionnaiyou",
+     "required": false
+    },
+    {
+     "name": "actionyotei",
+     "required": false
+    },
+    {
+     "name": "kessaisya",
+     "required": false
+    },
+    {
+     "name": "syokusyuu",
+     "required": false
+    },
+    {
+     "name": "basyo",
+     "required": false
+    },
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "note____",
+     "required": false
+    },
+    {
+     "name": "syoukai",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "66848546",
+   "pipeline_id": "21596025",
+   "label": "継続済",
+   "props": [
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "syoudaku",
+     "required": true
+    },
+    {
+     "name": "npsmanryou",
+     "required": true
+    },
+    {
+     "name": "unit_price",
+     "required": true
+    },
+    {
+     "name": "tsukitanka",
+     "required": true
+    },
+    {
+     "name": "contract_period",
+     "required": true
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1216616083",
+   "pipeline_id": "21596025",
+   "label": "Bヨミ：80％（決裁者の継続意思あり）",
+   "props": [
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "goui",
+     "required": true
+    },
+    {
+     "name": "c___competitor______________",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "kika",
+     "required": true
+    },
+    {
+     "name": "cs____",
+     "required": true
+    },
+    {
+     "name": "teian",
+     "required": true
+    },
+    {
+     "name": "kenen",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1216616082",
+   "pipeline_id": "21596025",
+   "label": "Cヨミ：50％（担当者の継続意思あり）",
+   "props": [
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": true
+    },
+    {
+     "name": "c___competitor______________",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "cs____",
+     "required": true
+    },
+    {
+     "name": "kika",
+     "required": true
+    },
+    {
+     "name": "teian",
+     "required": true
+    },
+    {
+     "name": "kenen",
+     "required": true
+    },
+    {
+     "name": "ikou",
+     "required": false
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1216616081",
+   "pipeline_id": "21596025",
+   "label": "Dヨミ：20％（継続意思不明だが提案中）",
+   "props": [
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "c___competitor______________",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "cs____",
+     "required": true
+    },
+    {
+     "name": "kika",
+     "required": true
+    },
+    {
+     "name": "teian",
+     "required": true
+    },
+    {
+     "name": "kenen",
+     "required": true
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1216616080",
+   "pipeline_id": "21596025",
+   "label": "Tヨミ：10％未満（継続に対して否定的意見、解約意向がある提案（10％未満））",
+   "props": [
+    {
+     "name": "ikou",
+     "required": true
+    },
+    {
+     "name": "cs____",
+     "required": true
+    },
+    {
+     "name": "actionnaiyou",
+     "required": true
+    },
+    {
+     "name": "actionyotei",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "kika",
+     "required": true
+    },
+    {
+     "name": "teian",
+     "required": true
+    },
+    {
+     "name": "kenen",
+     "required": true
+    },
+    {
+     "name": "darenidonnaikenwoiwaretanoka",
+     "required": true
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "90598807",
+   "pipeline_id": "21596025",
+   "label": "解約済（充足）",
+   "props": [
+    {
+     "name": "kaiyaku",
+     "required": true
+    },
+    {
+     "name": "shitsuchuuriyuu",
+     "required": true
+    },
+    {
+     "name": "kaiyakuriyuu",
+     "required": true
+    },
+    {
+     "name": "manryou",
+     "required": true
+    },
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "oubo",
+     "required": true
+    },
+    {
+     "name": "mensetu",
+     "required": true
+    },
+    {
+     "name": "naite",
+     "required": true
+    },
+    {
+     "name": "syoudaku",
+     "required": true
+    },
+    {
+     "name": "npsmanryou",
+     "required": true
+    },
+    {
+     "name": "shoukaidashin",
+     "required": true
+    },
+    {
+     "name": "jiyuukinyuuran",
+     "required": true
+    },
+    {
+     "name": "cskaiyakugogooi",
      "required": true
     }
    ]
