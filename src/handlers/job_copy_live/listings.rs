@@ -16,7 +16,7 @@ pub(super) fn is_delivery(pipeline: Option<&str>) -> bool {
 }
 #[path = "listing_home.rs"]
 mod home;
-pub(super) use home::read as read_home;
+pub(super) use home::{read as read_home, refresh_deal};
 #[cfg(test)]
 #[path = "listing_cache_tests.rs"]
 mod cache_tests;

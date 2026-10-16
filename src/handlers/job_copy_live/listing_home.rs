@@ -394,6 +394,7 @@ pub(super) struct CompanyState {
 }
 #[derive(Default)]
 pub(super) struct Cache {
+    revision: std::sync::atomic::AtomicU64,
     companies: tokio::sync::Mutex<CompanyState>,
     changed: tokio::sync::Notify,
     response: tokio::sync::Mutex<Option<CachedHome>>,
@@ -428,11 +429,15 @@ async fn companies_or_refresh(
         let mut service = service.clone();
         service.hs = service.hs.background();
         let index = index.clone();
+        let revision = cache.revision.load(std::sync::atomic::Ordering::SeqCst);
         tokio::spawn(async move {
             let result = fetch_companies(&service, &index).await;
             let cache = &service.listing_index.home;
             let mut state = cache.companies.lock().await;
+            // 保存後に対象取引を再読込したら、移動前の先読み結果を採用しない。
+            let current = revision == cache.revision.load(std::sync::atomic::Ordering::SeqCst);
             match result {
+                Ok(_) if !current => {}
                 Ok(map) => {
                     state.map = Some(Arc::new(map));
                     state.failed_at = None;
@@ -614,6 +619,60 @@ async fn answer(
         });
     }
     body
+}
+
+/// CRM 保存後、正本から対象取引だけを再読込する。ブラウザーから保存値は受け取らない。
+/// HubSpot・永続ストアへの書込は行わない。
+pub(in crate::handlers::job_copy_live) async fn refresh_deal(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    AxumPath(id): AxumPath<String>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    let service = service(&access)?;
+    valid_id(&id)?;
+    let record = service
+        .hs
+        .get_object_fresh("deals", &id, &["pipeline", "dealstage"])
+        .await
+        .map_err(client_error)?;
+    let pipeline = record.properties.get("pipeline").cloned().flatten();
+    if !super::pipelines::is_delivery(pipeline.as_deref()) {
+        return Err(ReadError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_pipeline",
+        ));
+    }
+    let stage = record.properties.get("dealstage").cloned().flatten();
+    let defs = super::pipelines::load_defs(service).await;
+    let (stage_label, active) =
+        super::pipelines::stage_state(&defs, pipeline.as_deref(), stage.as_deref());
+    let mut state = service.listing_index.state.write().await;
+    if let Some(index) = state.snapshot.as_mut() {
+        if let Some(deal) = Arc::make_mut(index).deals.iter_mut().find(|d| d.id == id) {
+            deal.pipeline = pipeline;
+            deal.stage = stage;
+        }
+    }
+    // index → companies の順で更新し、移動前の先読み結果による巻き戻しを防ぐ。
+    let mut companies = service.listing_index.home.companies.lock().await;
+    service
+        .listing_index
+        .home
+        .revision
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    if let Some(map) = companies.map.as_mut() {
+        if let Some(info) = Arc::make_mut(map).deal_info.get_mut(&id) {
+            info.stage_label = stage_label;
+            info.active = active;
+        }
+    }
+    *service.listing_index.home.response.lock().await = None;
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({"status":"refreshed"})),
+    ))
 }
 
 pub(in crate::handlers::job_copy_live) async fn read(
