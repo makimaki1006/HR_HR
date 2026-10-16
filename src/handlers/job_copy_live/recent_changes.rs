@@ -413,9 +413,18 @@ pub(super) async fn read(
                 });
                 data["report"]["count"] = json!(rows.len());
             }
+            listings::enrich_recent_changes(
+                service,
+                &mut data,
+                today,
+                Some((&snapshot, &query, &email)),
+            )
+            .await;
         } else {
             data = json!({"status":if view.failed {"failed"} else {"preparing"}});
         }
+    } else {
+        listings::enrich_recent_changes(service, &mut data, today, None).await;
     }
     Ok(([(header::CACHE_CONTROL, "private, no-store")], Json(data)))
 }

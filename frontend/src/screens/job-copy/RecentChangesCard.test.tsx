@@ -68,3 +68,48 @@ it('ホームの読み込みが終わるまで追加の取得を始めない', a
   expect(api).toHaveBeenCalledTimes(1);
   expect(screen.getByText('3')).toBeTruthy();
 });
+
+it('内訳の件数・重なるチップ・説明と、再選択・すべてでの絞り込み解除を表示する', () => {
+  const data: RecentChangesResponse = { ...ready, report: { ...ready.report,
+    listings: ready.report.listings.map((row, i) => ({ ...row, classifications: i === 0 ? ['out_of_scope'] : i === 1 ? ['less', 'costly'] : ['more'] })),
+    breakdown: { status: 'ready', cards: [
+      { key: 'less', title: '応募が少ない求人', rule: '合成の減少の説明。', count: 1 },
+      { key: 'costly', title: '課金の説明', rule: '合成の課金の説明。', count: 1 },
+      { key: 'more', title: '応募が多い求人', rule: '合成の増加の説明。', count: 1 },
+      { key: 'flat', title: 'ほぼ同じ', rule: '合成の横ばいの説明。', count: 0 },
+      { key: 'out_of_scope', title: '対象外', rule: '掲載終了など。', count: 1 },
+    ] },
+  } };
+  render(<RecentChangesList data={data} error="" onOpenListing={vi.fn()} onOpenDeal={vi.fn()} />);
+  const less = screen.getByRole('button', { name: '応募が減った 1件' });
+  expect(screen.getByRole('button', { name: 'ほぼ同じ 0件' }).className).toBe('jh-change-zero');
+  fireEvent.mouseEnter(less);
+  expect(screen.getByText('合成の減少の説明。').textContent).toBe('合成の減少の説明。');
+  fireEvent.click(less);
+  expect(screen.getAllByRole('row').slice(1).map(row => row.textContent)).toEqual(['合成事業所合成案件B合成配送求人HRハッカー掲載中応募が減った課金が高いまま応募が少ない本文2026/10/12 12:00']);
+  fireEvent.click(less);
+  expect(screen.getAllByRole('row')).toHaveLength(4);
+  fireEvent.click(screen.getByRole('button', { name: '課金が高いまま応募が少ない 1件' }));
+  expect(screen.getAllByRole('row')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button', { name: 'すべて 3件' }));
+  expect(screen.getAllByRole('row')).toHaveLength(4);
+  fireEvent.click(screen.getByRole('button', { name: 'ほぼ同じ 0件' }));
+  expect(screen.getByText('この分類の求人はありません。')).toBeTruthy();
+});
+
+it('内訳だけが集計中でも一覧を保ち、完成まで取り直す', async () => {
+  vi.useFakeTimers();
+  const preparing = { ...ready, report: { ...ready.report, breakdown: { status: 'preparing' } } };
+  const complete = { ...ready, report: { ...ready.report, breakdown: { status: 'ready', cards: [] } } };
+  api.mockResolvedValueOnce({ ok: true, data: preparing }).mockResolvedValue({ ok: true, data: complete });
+  function Harness() { const recent = useRecentChanges(0); return <RecentChangesList data={recent.data} error="" onOpenListing={vi.fn()} onOpenDeal={vi.fn()} />; }
+  render(<Harness />);
+  await act(() => Promise.resolve());
+  expect(screen.getByText('内訳は集計中です。')).toBeTruthy();
+  expect(screen.getAllByRole('row')).toHaveLength(4);
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(screen.queryByText('内訳は集計中です。')).toBeNull();
+  expect(screen.getByRole('button', { name: 'すべて 3件' })).toBeTruthy();
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+  expect(api).toHaveBeenCalledTimes(2);
+});

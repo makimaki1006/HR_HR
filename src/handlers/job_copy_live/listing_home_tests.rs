@@ -511,3 +511,143 @@ fn owner_scope_includes_any_matching_deal_and_only_its_customer_links() {
     let (selected, _) = scoped(&rows, &map, &snapshot, "consultant", None);
     assert_eq!(selected.len(), 3);
 }
+
+#[test]
+fn recent_breakdown_counts_jobs_and_matches_home_rules_and_membership() {
+    let today = date("2026-10-16");
+    let mut records = Vec::new();
+    for (id, prev, recent, cost, end) in [
+        ("zero", 0, 0, 10_000, "2026-10-01"),
+        ("to_zero", 1, 0, 0, "2026-10-02"),
+        ("less", 10, 8, 800, "2026-10-15"),
+        ("more", 0, 1, 100, "2026-10-15"),
+        ("flat", 10, 9, 900, "2026-10-15"),
+        ("costly", 1, 1, 10_000, "2026-10-15"),
+        // 変更されていない求人もホームの中央値の母集団に含める。
+        ("unchanged", 1, 1, 100, "2026-10-15"),
+    ] {
+        let mut row = listing(id, &["d1", "d2"], "掲載中", "unset", None);
+        row.perf = Some(PerfDigest {
+            latest_end: date(end),
+            recent_apps: recent,
+            prev_apps: prev,
+            recent_cost: cost,
+        });
+        records.push(row);
+    }
+    records.push(listing("ended", &["d1"], "掲載終了", "unset", None));
+    records.push(listing("no_perf", &["d1"], "掲載中", "unset", None));
+    let mut unknown_status = listing("no_status", &[], "掲載中", "unset", None);
+    unknown_status.publication_status = None;
+    records.push(unknown_status);
+    let mut data = json!({"status":"ready", "report":{"count":10,"listings":[
+        {"id":"zero"},{"id":"to_zero"},{"id":"less"},{"id":"more"},{"id":"flat"},{"id":"costly"},
+        {"id":"ended"},{"id":"no_perf"},{"id":"no_status"},{"id":"not_indexed"}
+    ]}});
+    let refs: Vec<_> = records.iter().collect();
+    enrich_recent_changes(&mut data, Some(&refs), today);
+    let cards = data["report"]["breakdown"]["cards"].as_array().unwrap();
+    let counts: BTreeMap<_, _> = cards
+        .iter()
+        .map(|c| (c["key"].as_str().unwrap(), c["count"].as_u64().unwrap()))
+        .collect();
+    assert_eq!(
+        counts,
+        BTreeMap::from([
+            ("zero_stay", 1),
+            ("to_zero", 1),
+            ("less", 1),
+            ("more", 1),
+            ("flat", 2),
+            ("costly", 2),
+            ("stale", 1),
+            ("out_of_scope", 1),
+            ("unknown", 3)
+        ])
+    );
+    assert_eq!(data["report"]["count"], 10);
+    assert_eq!(
+        data["report"]["listings"][0]["classifications"],
+        json!(["zero_stay", "costly", "stale"])
+    );
+    assert_eq!(
+        data["report"]["listings"][1]["classifications"],
+        json!(["to_zero"])
+    );
+    let home = compute(&records, &CompanyMap::default(), today);
+    assert_eq!(home.median_cost_per_app, Some(100));
+    for card in cards {
+        let key = card["key"].as_str().unwrap();
+        if let Some(home_card) = home.cards.iter().find(|c| c.key == key) {
+            assert_eq!(card["rule"], home_card.rule);
+            for row in data["report"]["listings"].as_array().unwrap() {
+                let classified = row["classifications"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|k| k == key);
+                assert_eq!(
+                    classified,
+                    home_card
+                        .listings
+                        .iter()
+                        .any(|r| r.id == row["id"].as_str().unwrap()),
+                    "{key}: {}",
+                    row["id"]
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn recent_breakdown_preparing_keeps_list_and_missing_performance_is_unknown() {
+    let today = date("2026-10-16");
+    let mut data = json!({"status":"ready", "report":{"count":1,"listings":[{"id":"old_cache"}]}});
+    enrich_recent_changes(&mut data, None, today);
+    assert_eq!(data["report"]["breakdown"], json!({"status":"preparing"}));
+    assert_eq!(data["report"]["listings"], json!([{"id":"old_cache"}]));
+    let row = listing("old_cache", &[], "掲載中", "unset", None);
+    enrich_recent_changes(&mut data, Some(&[&row]), today);
+    let cards = data["report"]["breakdown"]["cards"].as_array().unwrap();
+    assert_eq!(
+        data["report"]["listings"][0]["classifications"],
+        json!(["unknown"])
+    );
+    for card in cards {
+        assert_eq!(card["count"], if card["key"] == "unknown" { 1 } else { 0 });
+    }
+}
+
+#[test]
+fn recent_breakdown_is_not_limited_by_home_card_list_cap() {
+    let records: Vec<_> = (0..105)
+        .map(|i| {
+            let mut row = listing(&i.to_string(), &["d1"], "掲載中", "unset", None);
+            row.perf = Some(PerfDigest {
+                latest_end: date("2026-10-15"),
+                recent_apps: 0,
+                prev_apps: 0,
+                recent_cost: 0,
+            });
+            row
+        })
+        .collect();
+    let mut data = json!({"report":{"listings":records.iter().map(|r| json!({"id":r.id})).collect::<Vec<_>>()}});
+    enrich_recent_changes(
+        &mut data,
+        Some(&records.iter().collect::<Vec<_>>()),
+        date("2026-10-16"),
+    );
+    assert_eq!(data["report"]["breakdown"]["cards"][0]["count"], 105);
+    assert_eq!(
+        data["report"]["listings"][104]["classifications"],
+        json!(["zero_stay"])
+    );
+    assert_eq!(
+        compute(&records, &CompanyMap::default(), date("2026-10-16")).cards[0]
+            .listings
+            .len(),
+        100
+    );
+}

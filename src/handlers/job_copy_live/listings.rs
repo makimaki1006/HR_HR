@@ -2965,3 +2965,31 @@ pub(super) async fn seed_recent_change_index(service: &JobReadService, records: 
         built_at: "2026-10-16T00:00:00Z".into(),
     }));
 }
+
+/// 内訳のために索引を読み直さない。担当者の範囲もホームとそろえる。
+pub(super) async fn enrich_recent_changes(
+    service: &JobReadService,
+    data: &mut Value,
+    today: chrono::NaiveDate,
+    selection: Option<(&owner_todo::Snapshot, &owner_todo::OwnerQuery, &str)>,
+) {
+    let index = service.listing_index.state.read().await.snapshot.clone();
+    let records = index.as_ref().map(|index| {
+        let owner =
+            selection.and_then(|(snapshot, query, email)| snapshot.selection(query, email).0);
+        index
+            .records
+            .iter()
+            .filter(|row| {
+                selection.is_none_or(|(snapshot, query, _)| {
+                    owner.is_none()
+                        || row
+                            .deal_ids
+                            .iter()
+                            .any(|id| snapshot.matches(id, query.field(), owner.as_deref()))
+                })
+            })
+            .collect::<Vec<_>>()
+    });
+    home::enrich_recent_changes(data, records.as_deref(), today);
+}
