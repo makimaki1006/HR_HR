@@ -29,7 +29,7 @@ function mockApi(status = 200, error = '', pipeline = '21596025', enabled = true
       if (status === 202) return Promise.resolve(response({ status: 'queued', operation_id: body.operation_id }, 202));
       if (status === 409) return Promise.resolve(response({ status: 'conflict', object: 'deal', current: { amount: '300000' }, changed_by_hubspot: ['amount'] }, 409));
       if (status === 422) return Promise.resolve(response({ status: 'invalid', errors: { amount: '金額は500000以下で入力してください。' }, missing_required: [] }, 422));
-      return Promise.resolve(response({ error }, status));
+      return Promise.resolve(response(error === 'hubspot_busy' ? { error_kind: error } : { error }, status));
     }
     return Promise.resolve(response({ deals: [] }));
   });

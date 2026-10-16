@@ -9,7 +9,8 @@ export const contractWriteApi: WriteApi = {
   patchDeal: async (id, body) => {
     const result = await apiPatch<PatchResponse>(`/api/crm/deals/${encodeURIComponent(id)}`, body, { timeoutMs: 35_000 });
     if (!result.ok && result.error instanceof ApiHttpError && result.error.status === 503) {
-      const error = (result.error.body as { error?: string } | undefined)?.error;
+      const body = result.error.body as { error?: string; error_kind?: string } | undefined;
+      const error = body?.error ?? body?.error_kind;
       if (error === 'hubspot_busy' || error === 'record_busy') return { kind: 'queue_full' };
     }
     const outcome = classifyPatch(result);
