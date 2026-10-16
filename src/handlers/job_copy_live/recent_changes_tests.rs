@@ -296,6 +296,7 @@ async fn cold_and_stale_reads_never_wait_and_share_one_background_refresh() {
     assert_eq!(calls.load(Ordering::SeqCst), 6);
     assert_eq!(answer(&service, today).await, ready);
     assert_eq!(calls.load(Ordering::SeqCst), 6);
+    assert_eq!(TTL, Duration::from_secs(10_800));
     service
         .recent_changes
         .state
@@ -304,7 +305,22 @@ async fn cold_and_stale_reads_never_wait_and_share_one_background_refresh() {
         .snapshot
         .as_mut()
         .unwrap()
-        .1 = Instant::now() - TTL;
+        .1 = Instant::now() - Duration::from_secs(10_799);
+    assert_eq!(answer(&service, today).await, ready);
+    assert_eq!(calls.load(Ordering::SeqCst), 6);
+    service
+        .recent_changes
+        .state
+        .lock()
+        .await
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .1 = Instant::now() - Duration::from_secs(10_800);
+    // 期限が切れても、要求が来るまでは更新を始めない。
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(calls.load(Ordering::SeqCst), 6);
+    assert!(!service.recent_changes.state.lock().await.refreshing);
     fails.store(true, Ordering::SeqCst);
     for _ in 0..20 {
         assert_eq!(

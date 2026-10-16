@@ -11,7 +11,7 @@ const PROPERTIES: &[&str] = &[
 ];
 // 本番読み取りで100件は400、50件は200を確認。履歴付きの要求は50件に抑える。
 const HISTORY_BATCH: usize = 50;
-const TTL: Duration = Duration::from_secs(30 * 60);
+const TTL: Duration = Duration::from_secs(3 * 60 * 60);
 const RETRY: Duration = Duration::from_secs(60);
 #[derive(Default)]
 pub(super) struct Cache {
