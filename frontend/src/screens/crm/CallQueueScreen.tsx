@@ -963,9 +963,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
     <QueueToolbar summary={toolbarSummary} keepOpen={panelOpen || sortOpen} onClose={closeToolbar}>
     <form ref={filterBarRef} className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
-      <div className="cq-bar cq-fields">
+      <div className="cq-bar cq-fields cq-fields-scope">
         <div className="cq-field"><span className="cq-field-label">パイプライン</span>
         <QueuePipelinePicker pipelines={pipelines.pipelines} selected={selectedPipelineIds(filters)} onApply={ids=>{setFilters(prev=>withPipelines(prev,ids));}} /></div>
+        {pipeline && <div className="cq-field"><span className="cq-field-label">ステージ</span>
+          <StageFilter key={`${mode}|${selectedPipelineIds(filters).join(',')}|${filters.target ?? ''}`} pipeline={pipeline} selected={filters.stages} pipelines={pipelines.pipelines.filter(p=>selectedPipelineIds(filters).includes(p.id))} all={filters.target==='all'}
+            labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} /></div>}
         <label className={`cq-field cq-target-label${filters.target === 'all' ? ' is-set' : ''}`}>対象<select aria-label="対象" value={filters.target ?? 'calling'} onChange={e=>{setFilters(prev=>withTarget(prev,e.target.value==='all'?'all':undefined));}}><option value="calling">架電対象だけ</option><option value="all">すべての取引</option></select></label>
         <div className="cq-field"><span className="cq-field-label">担当</span>
         <OwnerFilter owner={filters.owner} effective={effectiveOwner} needsPick={needsOwnerPick}
@@ -1002,8 +1005,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         <div className="cq-drawer-heading"><h2>詳細条件</h2><button type="button" className="cq-btn" onClick={() => { setPanelOpen(false); }}>条件のパネルを閉じる</button></div>
         {panelOpen && <QueueGroupEditor catalog={catalog.state} groups={groupsOf(filters)} filters={{...filters, owner: filters.owner || (effectiveOwner ?? (mode === 'live' ? 'me' : ''))}} choices={{ pipelines: pipelines.pipelines, selectedPipelineIds: selectedPipelineIds(filters), allDeals: filters.target === 'all', owners: owners.state }} onReload={catalog.reload} focusAdd={addFocus} onFocusAddDone={addFocusDone}
           onChange={gs => { update(groupPatch(gs)); }} />}
-        {pipeline && <StageFilter key={`${mode}|${selectedPipelineIds(filters).join(',')}|${filters.target ?? ''}`} pipeline={pipeline} selected={filters.stages} pipelines={pipelines.pipelines.filter(p=>selectedPipelineIds(filters).includes(p.id))} all={filters.target==='all'}
-          labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} />}
+
         <div className="cq-ranges">
           <fieldset className="cq-range"><legend>次回架電日</legend>
             <label>から<DatePicker value={filters.nextFrom} onChange={v => { update({ nextFrom: v }); }} /></label>

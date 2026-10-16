@@ -221,6 +221,9 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
   const blocked = (Boolean(d.stop.prohibited_reason) || Boolean(d.stop.block_reason));
   const blockReason = d.stop.prohibited_reason ? '架電禁止のため発信できません' : d.stop.block_reason ? 'ブロックのため発信できません' : null;
   const company = data.companies.find(c => c.is_primary) ?? null;
+  // Rust の dial は第一候補の phone / mobile のみを使う。主が未取得でも別人で補わない。
+  const contact = data.contacts.find(c => c.is_primary) ?? null;
+  const contactName = contact?.name?.trim();
   const notes = partialNotes(data.partial);
   const stopReasons = [d.stop.prohibited_reason && `架電禁止理由: ${d.stop.prohibited_reason}`, d.stop.block_reason && `ブロック理由: ${stopLabel('bpo_4', d.stop.block_reason)}`,
     d.stop.unreachable_check && `不通時チェック: ${stopLabel('bpo_10', d.stop.unreachable_check)}`].filter((x): x is string => typeof x === 'string');
@@ -232,14 +235,13 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
 
   if (density?.compact === true) {
     // 1 行: 会社 · 担当者 · 架ける番号 · 発信 · 通話の様子 (列が低いとき。「詳しく表示」で戻す)
-    const contact = data.contacts.find(c => c.is_primary) ?? data.contacts[0] ?? null;
     const status = callBar ? callBarLabel(callBar) : null;
     return <article className="wd wd-compact" aria-label="架電先の詳細" data-testid="overview-compact">
       <div className="wd-top wd-top-compact">
         <div className="wd-line wd-line-1" data-testid="head-line-1">
           <h2 className="wd-line-company" title={company?.name ?? d.name ?? undefined}>{company?.name ?? d.name ?? '(名称なし)'}</h2>
-          <span className="wd-line-sep" aria-hidden="true">·</span>
-          <span className="wd-line-contact" title={contact?.name ?? undefined}>{contact?.name ?? <span className="crm-muted">担当者なし</span>}</span>
+          {contactName && <><span className="wd-line-sep" aria-hidden="true">·</span>
+            <strong className="wd-line-contact" title={contactName}>{contactName}</strong></>}
           <span className="wd-line-end">
             <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
             <DensityToggle density={density} />
@@ -284,7 +286,12 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
       <LastActivity data={data} onOpenActivity={onOpenActivity} />
 
       <section className="wd-dialbox" aria-label="架ける番号">
-        <h3 className="wd-dial-title">架ける番号</h3>
+        <div className="wd-dial-heading"><h3 className="wd-dial-title">架ける番号</h3>
+        {contact && contactName && <div className="wd-dial-contact">
+          <a className="wd-dial-contact-name" href={contact.deep_link} target="_blank" rel="noreferrer">{contactName}</a>
+          {contact.job_title?.trim() && <span>{contact.job_title}</span>}
+          {contact.labels.filter(label => label.trim()).map((label, index) => <span className="cq-stage" key={`${String(index)}-${label}`}>{label}</span>)}
+        </div>}</div>
         {data.dial ? <PhoneRow blocked={blocked} blockReason={blockReason} label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary />
           : <p className="crm-muted">番号を確認できません。担当者・会社の情報を HubSpot で確認してください。</p>}
         {otherPhones.length > 0 && <details className="wd-other"><summary>ほかの番号({otherPhones.length})</summary>
