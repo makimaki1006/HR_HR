@@ -453,6 +453,7 @@ async fn cached_and_background_answers_keep_all_five_trend_buckets() {
     let index = Arc::make_mut(&mut f.index);
     for (row, &(prev, recent, _)) in index.records.iter_mut().zip(&examples) {
         row.perf = Some(PerfDigest {
+            comparison_recent: None,
             latest_end: today,
             prev_apps: prev,
             recent_apps: recent,
@@ -619,6 +620,7 @@ async fn recent_costly_uses_home_owner_scope_median_including_unchanged_jobs() {
             prev_apps: 1,
             recent_apps: 1,
             recent_cost: cost,
+            comparison_recent: None,
         });
         row
     })

@@ -206,6 +206,7 @@ mod tests {
         for row in old_rows.iter_mut().chain(rows.iter_mut()) {
             row.deal_ids = vec!["901".into()];
             row.perf = Some(super::super::home::PerfDigest {
+                comparison_recent: None,
                 latest_end: chrono::NaiveDate::from_ymd_opt(2026, 10, 11).unwrap(),
                 recent_apps: 5,
                 prev_apps: 3,

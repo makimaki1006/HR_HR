@@ -445,6 +445,7 @@ fn zero_stay_is_first_and_sorted_by_recent_cost_before_capping() {
 #[test]
 fn trend_percentage_multiplication_handles_large_integer_counts() {
     let perf = PerfDigest {
+        comparison_recent: None,
         latest_end: date("2026-10-04"),
         recent_apps: i64::MAX - 1,
         recent_cost: 0,
@@ -453,6 +454,7 @@ fn trend_percentage_multiplication_handles_large_integer_counts() {
     assert_eq!(trend_key(&perf), "flat");
     assert_eq!(
         trend_key(&PerfDigest {
+            comparison_recent: None,
             recent_apps: 1,
             ..perf
         }),
@@ -505,6 +507,74 @@ fn owner_scope_includes_any_matching_deal_and_only_its_customer_links() {
 }
 
 #[test]
+fn comparison_recent_uses_exactly_four_completed_week_rows_and_nullable_metrics() {
+    let today = date("2026-10-16");
+    let full = perf(&[
+        ("2026-09-14", "2026-09-20", 100, 1),
+        ("2026-09-21", "2026-09-27", 200, 2),
+        ("2026-09-28", "2026-10-04", 300, 3),
+        ("2026-10-05", "2026-10-11", 400, 4),
+        ("2026-10-12", "2026-10-18", 500, 5),
+    ]);
+    let expected = ComparisonRecent {
+        period_start: date("2026-09-14"),
+        period_end: date("2026-10-11"),
+        applications: Some(10),
+        cost_yen: Some(1000.0),
+    };
+    assert_eq!(
+        PerfDigest::from_json_on(&full, today)
+            .unwrap()
+            .comparison_recent,
+        Some(expected.clone())
+    );
+    let mut missing = full.clone();
+    missing["rows"].as_array_mut().unwrap().remove(2);
+    assert_eq!(
+        PerfDigest::from_json_on(&missing, today)
+            .unwrap()
+            .comparison_recent,
+        None
+    );
+    let mut null = full.clone();
+    null["rows"][0]["applications"] = Value::Null;
+    assert_eq!(
+        PerfDigest::from_json_on(&null, today)
+            .unwrap()
+            .comparison_recent,
+        Some(ComparisonRecent {
+            applications: None,
+            ..expected
+        })
+    );
+    null["rows"][0]["cost_yen"] = Value::Null;
+    assert_eq!(
+        PerfDigest::from_json_on(&null, today)
+            .unwrap()
+            .comparison_recent,
+        Some(ComparisonRecent {
+            applications: None,
+            cost_yen: None,
+            ..expected
+        })
+    );
+    assert_eq!(
+        PerfDigest::from_json_on(&full, date("2026-11-16"))
+            .unwrap()
+            .comparison_recent,
+        Some(ComparisonRecent {
+            period_start: date("2026-09-21"),
+            period_end: date("2026-10-18"),
+            applications: Some(14),
+            cost_yen: Some(1400.0)
+        })
+    );
+    // 旧5週集計は、新しい4週集計と解釈しない。保存形式の後方互換。
+    let old: PerfDigest = serde_json::from_value(json!({"latest_end":"2026-10-11", "comparison_window":["2026-10-16",15], "recent_apps":10, "recent_cost":1000, "prev_apps":0})).unwrap();
+    assert_eq!(old.comparison_recent, None);
+}
+
+#[test]
 fn recent_breakdown_counts_jobs_and_matches_home_rules_and_membership() {
     let today = date("2026-10-16");
     let mut records = Vec::new();
@@ -524,6 +594,7 @@ fn recent_breakdown_counts_jobs_and_matches_home_rules_and_membership() {
             recent_apps: recent,
             prev_apps: prev,
             recent_cost: cost,
+            comparison_recent: None,
         });
         records.push(row);
     }
@@ -621,6 +692,7 @@ fn recent_breakdown_is_not_limited_by_home_card_list_cap() {
                 recent_apps: 0,
                 prev_apps: 0,
                 recent_cost: 0,
+                comparison_recent: None,
             });
             row
         })

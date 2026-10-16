@@ -27,10 +27,10 @@ describe('媒体名と求人名で示す', () => {
     expect(container.textContent).toContain('HRハッカー');
     expect(container.textContent).toContain('合成の配送求人');
   });
-  it('A/Bの本文と選択候補に内部番号を含めない', () => {
+  it('求人比較の本文と選択候補に内部番号を含めない', () => {
     const { container } = render(<AbComparison job={job} records={[job, { ...job, id: 'other', title: '合成の夜間配送求人', mediaJobId: 'HR-2' }]} />);
     expect(container.textContent).not.toMatch(forbidden);
-    expect(screen.getByRole('option', { name: /合成の夜間配送求人/ }).textContent).toContain('HRハッカー');
+    expect(screen.getByRole('button', { name: '合成の夜間配送求人を比較に追加' }).closest('li')?.textContent).toContain('HRハッカー');
   });
   it('課金CSVの照合用の値やエラーにも内部番号を露出しない', async () => {
     const { container } = render(<BillingImportPanel records={[job]} applied={[]} onApply={() => undefined} onClear={() => undefined} />);

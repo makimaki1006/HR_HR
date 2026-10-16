@@ -41,6 +41,10 @@ const COMPANY_TTL: Duration = Duration::from_secs(30 * 60);
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) struct PerfDigest {
     pub(super) latest_end: NaiveDate,
+    /// 求人比較の最新の連続4週。旧キャッシュの5週集計は再利用しない。
+    /// 古い保存済み索引は未取得扱い。新しい永続化先は増やさない。
+    #[serde(default)]
+    pub(super) comparison_recent: Option<ComparisonRecent>,
     /// 最新の週を含む 4 週（週の開始日が最新の開始日の 21 日前まで）の応募と課金。
     pub(super) recent_apps: i64,
     pub(super) recent_cost: i64,
@@ -58,6 +62,12 @@ fn whole(value: &Value) -> i64 {
 }
 impl PerfDigest {
     pub(super) fn from_json(perf: &Value) -> Option<Self> {
+        let today = chrono::Utc::now()
+            .with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap())
+            .date_naive();
+        Self::from_json_on(perf, today)
+    }
+    fn from_json_on(perf: &Value, today: NaiveDate) -> Option<Self> {
         let rows: Vec<(NaiveDate, NaiveDate, i64, i64)> = perf["rows"]
             .as_array()?
             .iter()
@@ -73,6 +83,7 @@ impl PerfDigest {
         let (latest_start, latest_end, _, _) = rows.iter().max_by_key(|row| row.0).copied()?;
         let mut digest = Self {
             latest_end,
+            comparison_recent: comparison_recent(perf, today),
             recent_apps: 0,
             recent_cost: 0,
             prev_apps: 0,
@@ -94,8 +105,76 @@ impl PerfDigest {
         } else {
             listings::airwork_weekly_perf(record)
         }?;
-        Self::from_json(&perf)
+        let mut digest = Self::from_json(&perf)?;
+        let id = record.value(if media == "hrh" {
+            "id_hrhakkaa"
+        } else {
+            "id_airwork"
+        });
+        if perf["job_id"].as_str() != id {
+            digest.comparison_recent = None;
+        }
+        Some(digest)
     }
+}
+
+/// 全件索引が既に読んだ週別実績から作る。課金や応募の未取得を0にしない。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(super) struct ComparisonRecent {
+    pub(super) period_start: NaiveDate,
+    pub(super) period_end: NaiveDate,
+    pub(super) applications: Option<i64>,
+    pub(super) cost_yen: Option<f64>,
+}
+fn comparison_recent(perf: &Value, today: NaiveDate) -> Option<ComparisonRecent> {
+    let mut rows: Vec<_> = perf["rows"]
+        .as_array()?
+        .iter()
+        .filter_map(|r| {
+            let a = day(&r["period_start"])?;
+            let b = day(&r["period_end"])?;
+            (a + chrono::Duration::days(6) == b && b <= today).then_some((a, b, r))
+        })
+        .collect();
+    rows.sort_by_key(|r| r.0);
+    for (_, end, _) in rows.iter().rev() {
+        let start = *end - chrono::Duration::days(27);
+        let selected: Vec<_> = rows
+            .iter()
+            .filter(|(a, b, _)| *a >= start && b <= end)
+            .collect();
+        if selected.len() != 4
+            || !selected
+                .iter()
+                .enumerate()
+                .all(|(i, (a, _, _))| *a == start + chrono::Duration::days(i as i64 * 7))
+        {
+            continue;
+        }
+        let applications = selected
+            .iter()
+            .try_fold(0_i64, |sum, (_, _, r)| {
+                sum.checked_add(r["applications"].as_i64().filter(|v| *v >= 0)?)
+            })
+            .filter(|v| *v <= 9_007_199_254_740_991);
+        let cost_yen = selected
+            .iter()
+            .try_fold(0.0_f64, |sum, (_, _, r)| {
+                Some(
+                    sum + r["cost_yen"]
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v >= 0.0)?,
+                )
+            })
+            .filter(|v| v.is_finite() && *v <= 9_007_199_254_740_991.0);
+        return Some(ComparisonRecent {
+            period_start: start,
+            period_end: *end,
+            applications,
+            cost_yen,
+        });
+    }
+    None
 }
 
 /// 取引→事業所の対応と事業所名。索引の作成時刻ごとに作り直す。

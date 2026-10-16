@@ -171,7 +171,7 @@ for (const width of [1440, 1920]) {
       await test.step(jobFeatures[feature].label, async () => {
         await selectJobFeature(page, feature);
         await expect(jobFeaturePanel(page, feature)).toBeVisible();
-        if (feature === 'ab') await page.getByRole('combobox', { name: 'Bとして比較する求人', exact: true }).selectOption({ label: '配送ドライバー・沖縄2 · HRハッカー' });
+        if (feature === 'ab') await expect(page.getByRole('region', { name: '求人比較', exact: true })).toBeVisible();
         expect(await page.locator('.jc-app').innerText()).not.toMatch(/HR-|AW-|HubSpot求人ID|求人ID|店舗ID|sample-account/);
         if (['performance', 'report', 'ab'].includes(feature) && width === 1440) {
           await page.evaluate(() => { window.scrollTo(0, 0); });

@@ -41,6 +41,9 @@ export interface ApplicationRow { media?: string | null; key: string; date: stri
 export interface StatusEntry { at: string; value: string }
 
 export interface JobCopyRecord {
+  listingSummary?: import('./hubspotListings').ListingSummary | undefined;
+  listingPrefecture?: string | null;
+  listingDealIds?: string[] | undefined;
   /** 応募1件ずつ（日付が分かるものは出来事に出す）。 */
   applicationRows?: ApplicationRow[] | undefined;
   /** HubSpot の公開状況の履歴（求人の媒体に合う欄）。 */
