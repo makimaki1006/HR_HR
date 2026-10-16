@@ -344,15 +344,27 @@ async fn settle(service: &JobReadService) {
 #[tokio::test]
 async fn history_batches_are_at_most_fifty_and_partial_results_fail() {
     use axum::routing::post;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     let sizes = Arc::new(std::sync::Mutex::new(Vec::new()));
     let partial = Arc::new(AtomicBool::new(false));
-    let (observed, missing) = (sizes.clone(), partial.clone());
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let (observed, missing, running, maximum) =
+        (sizes.clone(), partial.clone(), active.clone(), peak.clone());
     let app = Router::new().route(
         "/crm/v3/objects/0-420/batch/read",
         post(move |Json(body): Json<Value>| {
-            let (sizes, partial) = (observed.clone(), missing.clone());
+            let (sizes, partial, active, peak) = (
+                observed.clone(),
+                missing.clone(),
+                running.clone(),
+                maximum.clone(),
+            );
             async move {
+                let count = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(count, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                active.fetch_sub(1, Ordering::SeqCst);
                 let inputs = body["inputs"].as_array().unwrap();
                 sizes.lock().unwrap().push(inputs.len());
                 assert!(inputs.len() <= 50);
@@ -370,15 +382,17 @@ async fn history_batches_are_at_most_fifty_and_partial_results_fail() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let service = JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let ids: Vec<_> = (1..=121).map(|id| id.to_string()).collect();
+    let ids: Vec<_> = (1..=201).map(|id| id.to_string()).collect();
     let (start, end) = bounds(date("2026-10-16"));
     let mut stats = Stats::default();
     assert!(histories(&service, &ids, start, end, &mut stats)
         .await
         .unwrap()
         .is_empty());
-    assert_eq!(*sizes.lock().unwrap(), vec![50, 50, 21]);
-    assert_eq!(stats.history_calls, 3);
+    sizes.lock().unwrap().sort_unstable();
+    assert_eq!(*sizes.lock().unwrap(), vec![1, 50, 50, 50, 50]);
+    assert_eq!(stats.history_calls, 5);
+    assert_eq!(peak.load(Ordering::SeqCst), 4);
     partial.store(true, Ordering::SeqCst);
     assert!(histories(&service, &ids, start, end, &mut stats)
         .await

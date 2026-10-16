@@ -195,38 +195,59 @@ async fn histories(
     stats: &mut Stats,
 ) -> Result<BTreeMap<String, BTreeMap<&'static str, DateTime<Utc>>>, ReadError> {
     let mut changed = BTreeMap::new();
-    for chunk in ids.chunks(HISTORY_BATCH) {
-        let data = service
-            .request(
-                "/crm/v3/objects/0-420/batch/read",
-                &[],
-                Some(json!({
-                    "inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(),
-                    "properties":PROPERTIES,"propertiesWithHistory":PROPERTIES
-                })),
-            )
-            .await?;
-        stats.history_calls += 1;
-        let rows = data["results"]
-            .as_array()
-            .ok_or_else(|| fail("recent_changes_invalid_history"))?;
-        let received: BTreeSet<_> = rows.iter().filter_map(|row| row["id"].as_str()).collect();
-        if data["errors"].as_array().is_some_and(|e| !e.is_empty())
-            || rows.len() != chunk.len()
-            || received.len() != chunk.len()
-            || chunk.iter().any(|id| !received.contains(id.as_str()))
-        {
-            return Err(fail("recent_changes_incomplete_history"));
+    // Background の要求だけを最大4本。本文・履歴を全件分メモリに積まない。
+    for group in ids.chunks(HISTORY_BATCH * 4) {
+        let mut tasks = tokio::task::JoinSet::new();
+        for chunk in group.chunks(HISTORY_BATCH) {
+            let service = service.clone();
+            let chunk = chunk.to_vec();
+            tasks.spawn(async move { history_batch(&service, &chunk, start, cutoff).await });
         }
-        for row in rows {
-            let fields = detect(row, start, cutoff);
-            if !fields.is_empty() {
-                changed.insert(row["id"].as_str().unwrap().to_owned(), fields);
-            }
+        while let Some(result) = tasks.join_next().await {
+            let rows = result.map_err(|_| fail("recent_changes_worker_failed"))??;
+            stats.history_calls += 1;
+            changed.extend(rows);
         }
     }
     Ok(changed)
 }
+async fn history_batch(
+    service: &JobReadService,
+    chunk: &[String],
+    start: DateTime<Utc>,
+    cutoff: DateTime<Utc>,
+) -> Result<BTreeMap<String, BTreeMap<&'static str, DateTime<Utc>>>, ReadError> {
+    let mut changed = BTreeMap::new();
+    let data = service
+        .request(
+            "/crm/v3/objects/0-420/batch/read",
+            &[],
+            Some(json!({
+                "inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(),
+                "properties":PROPERTIES,"propertiesWithHistory":PROPERTIES
+            })),
+        )
+        .await?;
+    let rows = data["results"]
+        .as_array()
+        .ok_or_else(|| fail("recent_changes_invalid_history"))?;
+    let received: BTreeSet<_> = rows.iter().filter_map(|row| row["id"].as_str()).collect();
+    if data["errors"].as_array().is_some_and(|e| !e.is_empty())
+        || rows.len() != chunk.len()
+        || received.len() != chunk.len()
+        || chunk.iter().any(|id| !received.contains(id.as_str()))
+    {
+        return Err(fail("recent_changes_incomplete_history"));
+    }
+    for row in rows {
+        let fields = detect(row, start, cutoff);
+        if !fields.is_empty() {
+            changed.insert(row["id"].as_str().unwrap().to_owned(), fields);
+        }
+    }
+    Ok(changed)
+}
+
 async fn fetch(service: &JobReadService, today: NaiveDate) -> Result<Report, ReadError> {
     let (start, end) = bounds(today);
     let mut stats = Stats::default();
