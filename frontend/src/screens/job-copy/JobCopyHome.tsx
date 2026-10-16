@@ -1,5 +1,6 @@
 import { RecentChangesButton, RecentChangesList, useRecentChanges } from './RecentChangesCard';
 import type { ChangedDeal } from './RecentChangesCard';
+import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { ListingPreparationNotice } from './ListingPreparationNotice';
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
@@ -24,24 +25,26 @@ function CardList({ card, onOpenListing }: { card: HomeCard; onOpenListing: (id:
 }
 
 /** 案件管理のホーム。まず見るものの件数と、顧客ごとの表。 */
-export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal }: { onOpenCompany: (company: { id: string; name: string }) => void; onOpenListing: (id: string) => void; onOpenDeal: (deal: ChangedDeal) => void }) {
-  const [data, setData] = useState<HomeResponse | null>(null);
+export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }: { cache?: { current: HomeResponse | null }; onOpenCompany: (company: { id: string; name: string }) => void; onOpenListing: (id: string) => void; onOpenDeal: (deal: ChangedDeal) => void }) {
+  const [data, setData] = useState<HomeResponse | null>(cache?.current ?? null);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
-  const [open, setOpen] = useState<CardKey | 'recent_changes' | null>(null);
+  const open = new URLSearchParams(useJobCopySearch()).get('card');
+  const setOpen = (key: CardKey | 'recent_changes' | null) => { updateJobCopyQuery({ card: key }, 'push'); };
   const recent = useRecentChanges(reload, data?.status === 'ready');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<CustomerSort>('default');
   const [descending, setDescending] = useState(true);
   const [onlyActive, setOnlyActive] = useState(true);
   useEffect(() => {
+    if (reload === 0 && cache?.current?.status === 'ready') return;
     const controller = new AbortController();
     void apiGet<HomeResponse>('/api/job-copy/home', { signal: controller.signal, timeoutMs: 120_000 }).then(result => {
       if (controller.signal.aborted) return;
-      if (result.ok && (result.data.status === 'preparing' || Array.isArray((result.data as { home?: { cards?: unknown } }).home?.cards))) { setData(result.data); setError(''); } else setError(result.ok ? '案件管理のホームの形式を確認できませんでした。時間を置いて再取得してください。' : failure(result.error));
+      if (result.ok && (result.data.status === 'preparing' || Array.isArray((result.data as { home?: { cards?: unknown } }).home?.cards))) { if (cache) cache.current = result.data; setData(result.data); setError(''); } else setError(result.ok ? '案件管理のホームの形式を確認できませんでした。時間を置いて再取得してください。' : failure(result.error));
     });
     return () => { controller.abort(); };
-  }, [reload]);
+  }, [reload, cache]);
   useEffect(() => {
     if (data?.status !== 'preparing') return;
     const timer = window.setTimeout(() => { setReload(value => value + 1); }, 2_000);

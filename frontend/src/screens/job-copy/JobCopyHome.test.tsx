@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { JobCopyHome } from './JobCopyHome';
 import { demoHome } from './demoHome';
 import { Breadcrumbs } from './Breadcrumbs';
@@ -9,6 +9,7 @@ import type { HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', report: { count: 0, deals: [] }, refresh_failed: false } }) : api(path, options) as Promise<unknown> }));
+beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const row = (id: string, title: string, recent: number, prev: number) => ({ id, title, company: '合成運輸', media: 'hrh' as const, recent_apps: recent, prev_apps: prev, recent_cost: 12000, latest_week_end: '2026-10-04' });

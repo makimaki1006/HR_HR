@@ -52,4 +52,10 @@ test('ホームの9枚のカードと、変更案件の一覧・案件への移�
   await expect(page).toHaveURL(/deal=10/);
   await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();
   await expect(page.locator('.jc-deal-comparison > header p')).toHaveText('合成案件A');
+  await page.goBack();
+  await expect(changes).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('card')).toBe('recent_changes');
+  await expect(changes.locator('tbody tr')).toHaveCount(2);
+  await page.goForward();
+  await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();
 });
