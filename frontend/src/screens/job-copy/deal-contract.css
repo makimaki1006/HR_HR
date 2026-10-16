@@ -8,9 +8,14 @@
 .dc-field label { font-size: 12px; color: #52616e; }
 .dc-field strong { font-size: 15px; overflow-wrap: anywhere; }
 .dc-field input, .dc-field select { padding: 8px; border: 1px solid #aab8c4; border-radius: 4px; width: 100%; box-sizing: border-box; font: inherit; }
-.dc-status { display: block; padding: 5px 7px; border-radius: 4px; font-size: 12px; }
+.dc-status { display: flex; flex-direction: column; gap: 4px; margin-top: 16px; padding: 10px 12px; border-radius: 4px; font-size: 12px; }
 .dc-green { color: #146338; background: #e8f6ed; }
 .dc-yellow { color: #785200; background: #fff3cc; }
 .dc-red, .dc-conflict { color: #982b24; background: #fff0ee; }
 .dc-conflict { padding: 16px; margin-top: 16px; }
 .dc-actions { display: flex; gap: 12px; margin-top: 20px; }
+
+.dc-field { border-radius: 5px; }
+.dc-original { color: #647381; font-size: 12px; }
+.dc-written { animation: dc-written 3s ease-out forwards; }
+@keyframes dc-written { from { background-color: #dff3e6; } to { background-color: transparent; } }

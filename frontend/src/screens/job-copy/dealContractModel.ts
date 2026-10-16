@@ -16,7 +16,17 @@ export function inputValue(prop: CrmCatalogProperty, value: string | null | unde
 }
 export function displayValue(prop: CrmCatalogProperty, value: string | null | undefined): string {
   if (value == null || value === '') return '未入力';
-  return prop.options.find(option => option.value === value)?.label ?? inputValue(prop, value);
+  if (prop.property_type === 'date') return inputValue(prop, value).replaceAll('-', '/');
+  if (prop.property_type === 'number' && Number.isFinite(Number(value))) {
+    const number = Number(value);
+    if (['amount', 'discount_amount', 'sales_amount', 'split_sales_amount'].includes(prop.name)) {
+      return `${number < 0 ? '-' : ''}¥${Math.abs(number).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`;
+    }
+    const formatted = number.toLocaleString('ja-JP', { maximumFractionDigits: 20 });
+    // 既存の項目定義・読み取り API には契約期間の単位説明がないため、推測して単位を付けない。
+    return ['oubo', 'mensetu', 'naite', 'syoudaku'].includes(prop.name) ? `${formatted}件` : formatted;
+  }
+  return prop.options.find(option => option.value === value)?.label ?? value;
 }
 export function contractRequest(dealId: string, props: CrmCatalogProperty[], base: PropValues, draft: Record<string, string>): SaveRequest {
   return { dealId, changes: props.filter(prop => CONTRACT_FIELDS.some(name => name === prop.name) && prop.name in draft && draft[prop.name] !== inputValue(prop, base[prop.name])).map(prop => ({ object: 'deal', name: prop.name, base: base[prop.name] ?? null, value: draft[prop.name] === '' ? null : draft[prop.name] ?? null })) };

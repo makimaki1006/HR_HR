@@ -5,7 +5,7 @@ import { DealContract } from './DealContract';
 import { DealSummary } from './DealSummary';
 vi.mock('../../components/EChart', () => ({ EChart: () => null }));
 import { contractCatalog, contractDetail, contractSchema, contractValues, contractProps } from './dealContract.testFixtures';
-import { contractRequest, inputValue } from './dealContractModel';
+import { contractRequest, displayValue, inputValue } from './dealContractModel';
 import { buildPatchBody } from '../crm/writeModel';
 import { clearCompanyDealsCache, loadCompanyDeals } from './companyDeals';
 
@@ -55,6 +55,49 @@ describe('契約・成果の差分', () => {
   });
 });
 
+describe('契約・成果の表示形式', () => {
+  it('金額は円に四捨五入、件数は桁区切りと件、単位不明の契約期間は数値のみ、日付表示と入力を分ける', () => {
+    const display = (name: string, value: string | null) => {
+      const prop = contractProps.find(item => item.name === name);
+      if (!prop) throw new Error('合成項目がありません');
+      return displayValue(prop, value);
+    };
+    expect(display('amount', '360000')).toBe('¥360,000');
+    expect(display('discount_amount', '1234.5')).toBe('¥1,235');
+    expect(display('sales_amount', '230000.49')).toBe('¥230,000');
+    expect(display('split_sales_amount', '19166.67')).toBe('¥19,167');
+    expect(display('amount', '-1234.5')).toBe('-¥1,235');
+    for (const name of ['oubo', 'mensetu', 'naite', 'syoudaku']) expect(display(name, '1234')).toBe('1,234件');
+    expect(display('oubo', '0')).toBe('0件');
+    expect(display('contract_period', '1200')).toBe('1,200');
+    expect(display('contract_start_date', '2026-10-01T00:00:00Z')).toBe('2026/10/01');
+    expect(display('contract_expiration_date', '2027-09-30')).toBe('2027/09/30');
+    expect(display('amount', null)).toBe('未入力');
+  });
+  it('編集中は入力欄だけ、変更項目だけに元の値を表示し、保存結果は上部の1か所にまとめる', async () => {
+    mockApi();
+    const { container } = render(<DealContract dealId="901" onSaved={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '編集' }));
+    expect(container.querySelectorAll('.dc-field strong')).toHaveLength(2);
+    expect(screen.queryByText(/^元:/)).toBeNull();
+    fireEvent.change(screen.getByLabelText('金額', { exact: true }), { target: { value: '360000' } });
+    expect(screen.getByText('元: ¥240,000')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('応募数'), { target: { value: '1234' } });
+    expect(screen.getByText('元: 20件')).toBeTruthy();
+    expect(container.querySelectorAll('.dc-original')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: /^保存$/ }));
+    await screen.findByText('保存済み');
+    expect(container.querySelectorAll('.dc-status')).toHaveLength(1);
+    expect(container.querySelectorAll('.dc-field .dc-status')).toHaveLength(0);
+    expect(container.querySelectorAll('.dc-written')).toHaveLength(2);
+    expect([...container.querySelectorAll('.dc-status, .dc-fields')].map(element => element.className)).toEqual(['dc-status dc-green', 'dc-fields']);
+    fireEvent.click(screen.getByRole('button', { name: '編集' }));
+    fireEvent.change(screen.getByLabelText('金額', { exact: true }), { target: { value: '480000' } });
+    expect(screen.getByText('元: ¥360,000')).toBeTruthy();
+    expect(screen.queryByText('¥360,000')).toBeNull();
+  });
+});
+
 describe('実APIクライアントと既存の書き込みhookを使う表示', () => {
   for (const pipeline of ['21596025', '743961896']) it(`${pipeline}: 200は緑。選択は表示名からvalueへ、保存後に読み直す`, async () => {
     const { patches, fetch } = mockApi(200, '', pipeline);
@@ -63,7 +106,7 @@ describe('実APIクライアントと既存の書き込みhookを使う表示', 
     await editAmount();
     await screen.findByText('保存済み');
     expect(container.querySelector('.dc-green')?.textContent).toBe('保存済み');
-    expect(screen.getByText('360000')).toBeTruthy();
+    expect(screen.getByText('¥360,000')).toBeTruthy();
     expect(patches[0]?.body.base).toEqual({ amount: '240000' });
     expect(patches[0]?.body.set).toEqual({ amount: '360000' });
     expect(patches[0]?.body.operation_id).toMatch(/^[a-zA-Z0-9_-]{8,64}$/);
@@ -99,10 +142,10 @@ describe('実APIクライアントと既存の書き込みhookを使う表示', 
     const { patches } = mockApi(409);
     render(<DealContract dealId="901" onSaved={vi.fn()} />);
     await editAmount();
-    await screen.findByText(/現在の値「300000」／入力した値「360000」/);
+    await screen.findByText(/現在の値「¥300,000」／入力した値「¥360,000」/);
     expect(patches).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: '現在の値を使う' }));
-    expect(screen.getByText('300000')).toBeTruthy();
+    expect(screen.getByText('¥300,000')).toBeTruthy();
     expect(patches).toHaveLength(1);
   });
   it('409で入力値を選んだ場合だけ、現在値をbaseに新しい操作で再送する', async () => {
@@ -145,7 +188,7 @@ describe('実APIクライアントと既存の書き込みhookを使う表示', 
   it('本番の栓が閉じていれば値を表示し、編集を出さない', async () => {
     mockApi(200, '', '21596025', false);
     render(<DealContract dealId="901" onSaved={vi.fn()} />);
-    await screen.findByText('240000');
+    await screen.findByText('¥240,000');
     expect(screen.getByText('合成・契約中', { exact: false })).toBeTruthy();
     expect(screen.getByText('この案件はまだ編集できません（試験運用中）')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '編集' })).toBeNull();
