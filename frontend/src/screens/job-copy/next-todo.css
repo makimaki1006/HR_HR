@@ -1,0 +1,16 @@
+.nt-reasons { display: flex; flex-wrap: wrap; gap: 5px; }
+.nt-reason { display: inline-block; border: 1px solid #e9c197; border-radius: 12px; padding: 3px 8px; font-size: 12px; color: #804016; background: #fff7ed; }
+.nt-dialog { width: min(420px, calc(100vw - 32px)); border: 1px solid #d4dfe7; border-radius: 14px; padding: 24px; color: #223746; box-shadow: 0 20px 80px #102b4940; }
+.nt-dialog::backdrop { background: #102b4966; }
+.nt-dialog h2 { margin: 0 0 12px; font-size: 20px; }
+.nt-dialog label { display: grid; gap: 6px; margin: 16px 0; font-weight: 600; }
+.nt-dialog input, .nt-dialog select { padding: 10px; border: 1px solid #b6c7d3; border-radius: 6px; background: white; color: inherit; font: inherit; }
+.nt-dialog footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.nt-current { font-size: 13px; color: #52697a; }
+.nt-green, .nt-yellow, .nt-red { padding: 10px; border-radius: 6px; }
+.nt-green { background: #e4f5e8; color: #206334; }
+.nt-yellow { background: #fff4ce; color: #775a00; }
+.nt-red { background: #fff0ef; color: #a52c26; }
+.nt-deal h3 { margin: 16px 0 8px; font-size: 15px; }
+.nt-contract-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+@media(max-width: 1000px) { .nt-contract-grid { grid-template-columns: 1fr; } }

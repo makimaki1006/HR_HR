@@ -50,10 +50,16 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     return () => { controller.abort(); };
   }, [reload, cache, ownerQuery]);
   useEffect(() => {
-    if (data?.status !== 'preparing' && !(data?.status === 'ready' && (data.work?.status === 'preparing' || (data.work?.status === 'ready' && data.work.todos_status === 'preparing')))) return;
-    const timer = window.setTimeout(() => { setReload(value => value + 1); }, 2_000);
+    if (!data) return;
+    const preparing = data.status === 'preparing' || (data.work?.status === 'preparing' || (data.work?.status === 'ready' && (data.work.todos_status === 'preparing' || data.work.refreshing)));
+    const timer = window.setTimeout(() => { setReload(value => value + 1); }, preparing ? 2_000 : 300_000);
     return () => { window.clearTimeout(timer); };
   }, [data]);
+  useEffect(() => {
+    const refresh = () => { if (cache) cache.current = null; setReload(n => n + 1); };
+    window.addEventListener('job-copy-plan-saved', refresh);
+    return () => { window.removeEventListener('job-copy-plan-saved', refresh); };
+  }, [cache]);
   const customers = useMemo<HomeCustomer[]>(() => data?.status === 'ready' ? sortCustomers(filterCustomers(data.home.customers, query, onlyActive), sort, descending) : [], [data, query, onlyActive, sort, descending]);
   const activeCount = data?.status === 'ready' ? data.home.customers.filter(customer => customer.active_deals > 0).length : 0;
   const ready = data?.status === 'ready' && (!data.work || data.work.status === 'ready') ? data : null;

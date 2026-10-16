@@ -81,3 +81,6 @@
 .jh-listing-table small { display: block; font-weight: 400; font-size: 11px; color: var(--jc-muted, #52697a); margin-top: 5px; }
 .jh-listing-deals .jh-link { font-weight: 400; }
 .jh-pages { display: flex; align-items: center; justify-content: end; flex-wrap: wrap; gap: 12px; margin-top: 12px; font-size: 12px; }
+.jh-todo > div + div { margin-top: 16px; }
+.jh-todo-cards .jh-card { min-height: 112px; padding: 12px 14px; }
+.jh-todo-cards .jh-count { font-size: 28px; }

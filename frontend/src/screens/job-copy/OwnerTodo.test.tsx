@@ -23,11 +23,11 @@ it('担当の項目・ほかの人・全員・自分をreplaceで切り替え、
   expect(window.history.state).toEqual({ keep: 7 }); expect(replace).toHaveBeenCalledTimes(4); expect(push).not.toHaveBeenCalled();
   vi.restoreAllMocks();
 });
-it('4枚の件数カードだけを表示し、押すと日付をスラッシュで表示した一覧を開く', () => {
+it('7枚の件数カードだけを表示し、押すと日付をスラッシュで表示した一覧を開く', () => {
   const company = vi.fn(); const deal = vi.fn();
   const push = vi.spyOn(window.history, 'pushState');
   render(<OwnerTodo work={demoOwnerTodo} onOpenCompany={company} onOpenDeal={deal} />);
-  expect(document.querySelectorAll('.jh-todo-cards .jh-card')).toHaveLength(4);
+  expect(document.querySelectorAll('.jh-todo-cards .jh-card')).toHaveLength(7);
   expect(screen.queryByRole('table')).toBeNull();
   const overdueCard = screen.getByRole('button', { name: /期限切れ/ });
   expect(overdueCard.classList.contains('jh-alert')).toBe(true);
@@ -46,7 +46,7 @@ it('4枚の件数カードだけを表示し、押すと日付をスラッシュ
   expect(company).toHaveBeenCalledWith({ id: '901', name: '合成事業所' });
   fireEvent.click(screen.getByRole('button', { name: /契約満了が近い/ }));
   expect(screen.queryByRole('region', { name: '期限切れの一覧' })).toBeNull();
-  expect(screen.getByText('2026/11/15')).toBeTruthy();
+  expect(screen.getByText('満了まで 30 日')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /契約満了が近い/ }));
   expect(screen.queryByRole('table')).toBeNull();
 });

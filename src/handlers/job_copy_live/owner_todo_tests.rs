@@ -113,7 +113,7 @@ fn resolves_self_switches_field_and_only_assigned_owners_including_former() {
         report["actions"]["week"][0]["consultant"],
         "合成担当B（退職）"
     );
-    assert_eq!(report["expirations"], json!([]));
+    assert_eq!(report["expirations"][0]["id"], "3");
     let q = OwnerQuery {
         owner: Some("all".into()),
         ..Default::default()
@@ -124,7 +124,7 @@ fn resolves_self_switches_field_and_only_assigned_owners_including_former() {
     assert!(!s.matches("1", "hubspot_owner_id", Some("11")));
 }
 #[test]
-fn jst_midnight_and_day_seven_and_thirty_are_inclusive() {
+fn jst_midnight_and_day_seven_and_sixty_are_inclusive() {
     assert_eq!(
         today("2026-10-15T14:59:59Z".parse().unwrap()),
         day("2026-10-15")
@@ -163,7 +163,7 @@ fn jst_midnight_and_day_seven_and_thirty_are_inclusive() {
             .iter()
             .map(|v| v["due"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["2026-10-16", "2026-11-15"]
+        ["2026-10-16", "2026-11-15", "2026-11-16"]
     );
 }
 #[test]
@@ -264,7 +264,7 @@ async fn production_read_probe() {
         .collect();
     eprintln!(
         "PROBE {}",
-        json!({"today_jst":day.to_string(),"scope":"all_delivery_owners","delivery_deals":snapshot.deals.len(),"actions":counts,"expirations_30_days":report["expirations"].as_array().unwrap().len(),"cold_ms":cold_ms,"cold_calls":gateway.total_calls,"search_calls":gateway.search_calls,"calls_by_group":gateway.calls_by_group})
+        json!({"today_jst":day.to_string(),"scope":"all_delivery_owners","delivery_deals":snapshot.deals.len(),"actions":counts,"expirations_60_days":report["expirations"].as_array().unwrap().len(),"cold_ms":cold_ms,"cold_calls":gateway.total_calls,"search_calls":gateway.search_calls,"calls_by_group":gateway.calls_by_group})
     );
     service.owner_todo.state.lock().await.snapshot = Some((Instant::now(), Arc::new(snapshot)));
     let started = Instant::now();
@@ -501,4 +501,74 @@ async fn saved_expiration_and_stage_replace_cached_values_and_reject_inflight_re
     assert_eq!(report(&current)["expirations"], json!([]));
     assert_eq!(report(&current)["actions"]["today"], json!([]));
     server.abort();
+}
+
+#[test]
+fn merges_reasons_sorts_count_then_expiration_and_filters_owner() {
+    let mut s = snapshot();
+    for (id, contact) in [("1", "2026-09-16"), ("2", "2026-09-01")] {
+        s.deals
+            .get_mut(id)
+            .unwrap()
+            .record
+            .properties
+            .insert("notes_last_contacted".into(), Some(contact.into()));
+    }
+    let r = s.report(
+        &OwnerQuery {
+            owner: Some("all".into()),
+            ..Default::default()
+        },
+        "",
+        day("2026-10-16"),
+        false,
+    );
+    let rows = r["signals"].as_array().unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|v| v["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["1", "2", "3"]
+    );
+    assert_eq!(rows[0]["reasons"].as_array().unwrap().len(), 2);
+    assert_eq!(rows[1]["reasons"].as_array().unwrap().len(), 2);
+    assert_eq!(rows[2]["reasons"].as_array().unwrap().len(), 1);
+    let r = s.report(
+        &OwnerQuery {
+            owner: Some("22".into()),
+            ..Default::default()
+        },
+        "",
+        day("2026-10-16"),
+        false,
+    );
+    assert_eq!(r["signals"].as_array().unwrap().len(), 1);
+    assert_eq!(r["signals"][0]["id"], "3");
+}
+
+#[tokio::test]
+async fn saving_next_plan_updates_the_existing_snapshot_without_rereading_applications() {
+    let service = JobReadService::for_test("http://127.0.0.1:1".into());
+    let mut snapshot = snapshot();
+    snapshot
+        .companies
+        .insert("1".into(), ("901".into(), Some("合成事業所".into())));
+    service.owner_todo.state.lock().await.snapshot = Some((Instant::now(), Arc::new(snapshot)));
+    let mut fresh = record("1", "open", "11", "22", "2026-10-23", "2026-11-15").record;
+    fresh
+        .properties
+        .insert("actionnaiyou".into(), Some("call".into()));
+    apply_fresh_deal(&service, fresh).await;
+    let state = service.owner_todo.state.lock().await;
+    let report = state.snapshot.as_ref().unwrap().1.report(
+        &OwnerQuery::default(),
+        "reader@example.test",
+        day("2026-10-16"),
+        false,
+    );
+    assert_eq!(report["actions"]["overdue"], json!([]));
+    assert_eq!(report["actions"]["week"][1]["id"], "1");
+    assert_eq!(report["actions"]["week"][1]["actionyotei"], "2026-10-23");
+    assert_eq!(report["actions"]["week"][1]["content"], "電話する");
+    assert_eq!(report["signals"][0]["actionyotei"], "2026-10-23");
 }

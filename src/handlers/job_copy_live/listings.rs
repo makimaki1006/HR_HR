@@ -106,6 +106,36 @@ pub(super) async fn todo_companies(
     }));
     Ok(result)
 }
+/// 6時間の索引では掲載終了による解消が遅れるため、掲載状態の最小項目を読む。
+/// 要対応の背景集計でだけ使い、完成した結果を5分共有する。
+pub(super) async fn todo_publications(
+    service: &JobReadService,
+    ids: &[String],
+) -> Result<BTreeSet<String>, ReadError> {
+    let mut live = BTreeSet::new();
+    for r in service
+        .batch(
+            "0-420",
+            ids,
+            &[
+                "id_hrhakkaa",
+                "id_airwork",
+                "kyuujin_status",
+                "baitai_genjoukyou_hrhakkaa",
+                "baitai_genjoukyou_airwork",
+            ],
+        )
+        .await?
+    {
+        if ["hrh", "airwork"]
+            .iter()
+            .any(|media| publication(&r, media).as_deref() == Some("掲載中"))
+        {
+            live.insert(r.id);
+        }
+    }
+    Ok(live)
+}
 pub(super) fn is_delivery(pipeline: Option<&str>) -> bool {
     pipelines::is_delivery(pipeline)
 }

@@ -1,10 +1,12 @@
+import { NextTodoButton, ReasonChips } from './NextTodo';
+import type { TodoReason } from './NextTodo';
 import type { ChangedDeal } from './RecentChangesCard';
 import { formatDateJst } from './format';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 
-export interface TodoRow { id: string; name: string | null; company_id: string | null; company: string | null; stage: string | null; content: string | null; due: string; consultant: string | null }
+export interface TodoRow { id: string; name: string | null; company_id: string | null; company: string | null; stage: string | null; content: string | null; due: string; consultant: string | null; actionyotei?: string | null; actionnaiyou?: string | null; reasons?: TodoReason[] }
 export type ActionBucket = 'overdue' | 'today' | 'week' | 'later';
-export interface WorkReady { status: 'ready'; todos_status?: 'preparing' | 'failed'; owner: string; owner_field: string; notice: string | null; owners: { id: string; name: string; archived: boolean }[]; actions: Record<ActionBucket, TodoRow[]>; expirations: TodoRow[]; refresh_failed: boolean }
+export interface WorkReady { status: 'ready'; todos_status?: 'preparing' | 'failed'; refreshing?: boolean; owner: string; owner_field: string; notice: string | null; owners: { id: string; name: string; archived: boolean }[]; actions: Record<ActionBucket, TodoRow[]>; expirations: TodoRow[]; signals?: TodoRow[]; refresh_failed: boolean }
 export type Work = WorkReady | { status: 'preparing' | 'failed' };
 /** URL にある担当選択だけを API へ渡す。画面内の移動・戻るでも維持する。 */
 export function ownerParams(search: string): string {
@@ -25,18 +27,23 @@ export function OwnerFilter({ work }: { work: WorkReady }) {
     {work.notice && <p role="status">{work.notice}</p>}
   </section>;
 }
-const cards = [
-  ['overdue', '期限切れ', '今日より前のCSアクション', 'alert'],
-  ['today', '今日', '今日のCSアクション', 'plain'],
-  ['week', '7日以内', '明日から7日後までのCSアクション', 'plain'],
-  ['expiration', '契約満了が近い', '今日から30日後まで（両端を含む）', 'plain'],
+const signalCards = [
+  ['expiration', '契約満了が近い', '今日から60日後まで'],
+  ['contact', '接触が空いている', '最後の接触から30日以上'],
+  ['stalled', '応募が止まっている', '掲載中の求人があり、直近14日の応募が0件'],
+  ['first_contract', '初回で成果が出ていない', '開始30日で5件未満、または60日で10件未満'],
+] as const;
+const planCards = [
+  ['overdue', '期限切れ', '今日より前の予定', 'alert'],
+  ['today', '今日', '今日の予定', 'plain'],
+  ['week', '7日以内', '明日から7日後までの予定', 'plain'],
 ] as const;
 const PAGE_SIZE = 20;
-export function OwnerTodo({ work, onOpenCompany, onOpenDeal }: { work: WorkReady; onOpenCompany: (company: { id: string; name: string }) => void; onOpenDeal: (deal: ChangedDeal) => void }) {
+export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved }: { onSaved?: (() => void) | undefined; work: WorkReady; onOpenCompany: (company: { id: string; name: string }) => void; onOpenDeal: (deal: ChangedDeal) => void }) {
   const query = new URLSearchParams(useJobCopySearch());
   if (work.todos_status) return <section className="jh-todo" aria-labelledby="jh-todo-title"><h2 id="jh-todo-title">やること</h2><p role={work.todos_status === 'failed' ? 'alert' : 'status'}>{work.todos_status === 'failed' ? 'やることを読み込めませんでした。再読み込みしてください。' : 'やることを集計しています…'}</p></section>;
   const open = query.get('card');
-  const groups = [...cards.map(([key, label, rule, tone]) => ({ key, label, rule, tone, items: key === 'expiration' ? work.expirations : work.actions[key] })), { key: 'later', label: 'それ以降', rule: '8日後以降のCSアクション', tone: 'plain', items: work.actions.later }];
+  const groups = [...signalCards.map(([key, label, rule]) => ({ key, label, rule, tone: 'plain', items: (work.signals ?? []).filter(row => row.reasons?.some(r => r.kind === key)) })), ...planCards.map(([key, label, rule, tone]) => ({ key, label, rule, tone, items: work.actions[key] })), { key: 'later', label: 'それ以降', rule: '8日後以降の予定', tone: 'plain', items: work.actions.later }];
   const selected = groups.find(group => `todo_${group.key}` === open);
   const pages = Math.max(1, Math.ceil((selected?.items.length ?? 0) / PAGE_SIZE));
   const requested = query.get('todo_page') ?? '1';
@@ -45,13 +52,13 @@ export function OwnerTodo({ work, onOpenCompany, onOpenDeal }: { work: WorkReady
   const items = selected?.items.slice(start, start + PAGE_SIZE) ?? [];
   const toggle = (key: string) => { updateJobCopyQuery({ card: open === `todo_${key}` ? null : `todo_${key}`, todo_page: null }, 'push'); };
   const changePage = (next: number) => { updateJobCopyQuery({ todo_page: next === 1 ? null : String(next) }, 'push'); };
-  return <section className="jh-todo" aria-labelledby="jh-todo-title"><h2 id="jh-todo-title">やること</h2><p className="jh-note">CSアクションと契約満了の予定です。期日は日本時間、終了した案件は除いています。</p>
+  return <section className="jh-todo" aria-labelledby="jh-todo-title"><h2 id="jh-todo-title">やること</h2><p className="jh-note">要対応は記録から自動で表示し、条件が解消すると消えます。日付は日本時間、終了した案件は除いています。</p>
     {work.refresh_failed && <p role="status">最新の情報を読み込めなかったため、前回取得した情報を表示しています。</p>}
-    <div className="jh-cards jh-todo-cards">{groups.slice(0, 4).map(group => <button type="button" key={group.key} className={`jh-card jh-${group.tone}`} aria-pressed={open === `todo_${group.key}`} onClick={() => { toggle(group.key); }}><strong className="jh-count">{group.items.length}<small>件</small></strong><span className="jh-card-title">{group.label}</span><small className="jh-rule">{group.rule}</small></button>)}</div>
-    <button type="button" className="jh-link jh-todo-later" aria-pressed={open === 'todo_later'} onClick={() => { toggle('later'); }}>それ以降のCSアクション（{work.actions.later.length}件）</button>
+    {([['要対応', groups.slice(0, 4)], ['予定', groups.slice(4, 7)]] as const).map(([title, cards]) => <div key={title}><h3>{title}</h3><div className="jh-cards jh-todo-cards">{cards.map(group => <button type="button" key={group.key} className={`jh-card jh-${group.tone}`} aria-pressed={open === `todo_${group.key}`} onClick={() => { toggle(group.key); }}><strong className="jh-count">{group.items.length}<small>件</small></strong><span className="jh-card-title">{group.label}</span><small className="jh-rule">{group.rule}</small></button>)}</div></div>)}
+    <button type="button" className="jh-link jh-todo-later" aria-pressed={open === 'todo_later'} onClick={() => { toggle('later'); }}>それ以降の予定（{work.actions.later.length}件）</button>
     {selected && <section className={`jh-list ${selected.key === 'overdue' ? 'jh-todo-overdue' : ''}`} aria-label={`${selected.label}の一覧`}>
       <h3>{selected.label}（{selected.items.length}件）</h3>
-      {items.length ? <><p className="jh-note">{start + 1}〜{start + items.length}件 ／ 全{selected.items.length}件</p><div className="jh-scroll"><table className="jh-todo-table"><thead><tr><th scope="col">会社</th><th scope="col">案件名</th><th scope="col">ステージ</th><th scope="col">内容</th><th scope="col">期日</th><th scope="col">コンサル担当</th></tr></thead><tbody>{items.map(row => <tr key={row.id}><td>{row.company_id ? <button type="button" className="jh-link" onClick={() => { onOpenCompany({ id: row.company_id ?? '', name: row.company ?? '会社名未取得' }); }}>{row.company ?? '会社名未取得'}</button> : '—'}</td><th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenDeal(row); }}>{row.name ?? '案件名未取得'}</button></th><td>{row.stage ?? 'ステージ未取得'}</td><td>{row.content ?? '内容未登録'}</td><td><time dateTime={row.due}>{formatDateJst(row.due, '期日未取得')}</time></td><td>{row.consultant ?? '担当未登録'}</td></tr>)}</tbody></table></div></> : <p className="jh-note">該当する案件はありません。</p>}
+      {items.length ? <><p className="jh-note">{start + 1}〜{start + items.length}件 ／ 全{selected.items.length}件</p><div className="jh-scroll"><table className="jh-todo-table"><thead><tr><th scope="col">会社</th><th scope="col">案件名</th><th scope="col">ステージ</th><th scope="col">要対応の理由</th><th scope="col">次の予定</th><th scope="col">コンサル担当</th><th scope="col">予定の登録</th></tr></thead><tbody>{items.map(row => <tr key={row.id}><td>{row.company_id ? <button type="button" className="jh-link" onClick={() => { onOpenCompany({ id: row.company_id ?? '', name: row.company ?? '会社名未取得' }); }}>{row.company ?? '会社名未取得'}</button> : '—'}</td><th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenDeal(row); }}>{row.name ?? '案件名未取得'}</button></th><td>{row.stage ?? 'ステージ未取得'}</td><td><ReasonChips reasons={row.reasons ?? []} /></td><td><time>{formatDateJst(row.actionyotei ?? (selected.key === 'expiration' || signalCards.some(c => c[0] === selected.key) ? null : row.due), '予定なし')}</time><br />{row.content ?? '内容未登録'}</td><td>{row.consultant ?? '担当未登録'}</td><td><NextTodoButton dealId={row.id} hasPlan={!!row.actionyotei || planCards.some(c => c[0] === selected.key) || selected.key === 'later'} onSaved={onSaved} /></td></tr>)}</tbody></table></div></> : <p className="jh-note">該当する案件はありません。</p>}
       {pages > 1 && <nav className="jh-todo-pages" aria-label={`${selected.label}のページ`}><button type="button" className="jc-button" disabled={page === 1} onClick={() => { changePage(page - 1); }}>前の20件</button><span>{page} / {pages}ページ</span><button type="button" className="jc-button" disabled={page === pages} onClick={() => { changePage(page + 1); }}>次の20件</button></nav>}
     </section>}
   </section>;

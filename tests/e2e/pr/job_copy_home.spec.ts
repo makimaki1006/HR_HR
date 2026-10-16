@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { demoOwnerTodo, demoOwnerTodoVolume } from '../../../frontend/src/screens/job-copy/demoOwnerTodo';
 import { demoHome } from '../../../frontend/src/screens/job-copy/demoHome';
 import { login } from './helpers/login';
 import { E2E_EMAIL } from './helpers/fixture_values';
@@ -79,7 +80,6 @@ test('ホームの9枚のカードと、変更求人の一覧・求人と案件�
 });
 
 test('担当者の切替でホームのカードを絞り、案件・会社から戻って一覧を保つ', async ({ page }) => {
-  const { demoOwnerTodo } = await import('../../../frontend/src/screens/job-copy/demoOwnerTodo');
   await page.route(/\/api\/job-copy\/home(?:\?|$)/, route => {
     const query = new URL(route.request().url()).searchParams;
     const owner = query.get('owner') === 'all' ? 'all' : query.get('owner') === '22' ? '22' : '11';
@@ -103,7 +103,7 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   await overdueCard.click();
   const overdue = page.getByRole('region', { name: '期限切れの一覧' });
   await expect(overdue.locator('tbody tr')).toHaveCount(2);
-  await expect(overdue.locator('tbody tr').first()).toContainText('合成事業所合成案件101対応中電話する2026/10/15合成担当A');
+  await expect(overdue.locator('tbody tr').first()).toContainText('合成事業所合成案件101対応中2026/10/15電話する合成担当A');
   await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('22');
   await expect(overdueCard.locator('.jh-count')).toHaveText('0件');
   await expect(page.locator('.jh-customer-table tbody')).toContainText('契約中の案件がある顧客はありません');
@@ -127,7 +127,6 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
 });
 
 test('本人が解決できる既定画面と、198件の期限切れを20件ずつ開いた画面を日本語で確認する', async ({ page }) => {
-  const { demoOwnerTodoVolume } = await import('../../../frontend/src/screens/job-copy/demoOwnerTodo');
   const syntheticOwners = [{ id: '11', email: E2E_EMAIL }, { id: '22', email: 'former@example.test' }];
   const self = syntheticOwners.find(owner => owner.email === E2E_EMAIL)?.id;
   expect(self).toBe('11');
@@ -146,12 +145,12 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   await expect(page.getByRole('combobox', { name: '担当の項目' })).toHaveValue('consultant');
   await expect(page).toHaveURL(/owner=11/);
   const cards = page.locator('.jh-todo-cards .jh-card');
-  await expect(cards).toHaveCount(4);
-  for (const [index, count] of [198, 95, 112, 122].entries()) await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${count}件`);
+  await expect(cards).toHaveCount(7);
+  for (const [index, count] of [1, 1, 1, 1, 198, 95, 112].entries()) await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${count}件`);
   await expect(page.locator('.jh-todo-table')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'まず見るもの' })).toBeInViewport();
   const boxes = await cards.evaluateAll(elements => elements.map(el => ({ top: el.getBoundingClientRect().top, height: el.getBoundingClientRect().height })));
-  expect(new Set(boxes.map(box => Math.round(box.top))).size).toBe(1);
+  expect(new Set(boxes.map(box => Math.round(box.top))).size).toBe(2);
   const filterLayout = await page.locator('.jh-owner').evaluate(el => {
     const controls = [...el.querySelectorAll('label')];
     return controls.map(label => ({ direction: getComputedStyle(label).flexDirection, top: label.getBoundingClientRect().top, height: label.getBoundingClientRect().height }));
@@ -160,11 +159,11 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   expect(new Set(filterLayout.map(label => Math.round(label.top))).size).toBe(1);
   const dir = process.env.OWNER_TODO_SCREENSHOT_DIR;
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/default.png` });
-  await cards.nth(0).click();
+  await cards.nth(4).click();
   const list = page.getByRole('region', { name: '期限切れの一覧' });
   await expect(list.locator('tbody tr')).toHaveCount(20);
   await expect(list).toContainText('1〜20件 ／ 全198件');
-  await expect(list.locator('tbody tr').first()).toContainText('合成案件1000対応中応募状況を確認する2026/10/15合成担当A');
+  await expect(list.locator('tbody tr').first()).toContainText('合成案件1000対応中2026/10/15応募状況を確認する合成担当A');
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/overdue.png` });
   await list.getByRole('button', { name: '次の20件' }).click();
   await expect(list).toContainText('21〜40件 ／ 全198件');
@@ -178,8 +177,8 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   await expect(list.locator('tbody tr')).toHaveCount(20);
   await page.locator('.jh-todo-cards').getByRole('button', { name: /契約満了が近い/ }).click();
   const expiration = page.getByRole('region', { name: '契約満了が近いの一覧' });
-  await expect(expiration.locator('tbody tr')).toHaveCount(20);
+  await expect(expiration.locator('tbody tr')).toHaveCount(1);
   await expect(expiration).toContainText('2026/11/15');
-  await page.getByRole('button', { name: 'それ以降のCSアクション（154件）' }).click();
+  await page.getByRole('button', { name: 'それ以降の予定（154件）' }).click();
   await expect(page.getByRole('region', { name: 'それ以降の一覧' }).locator('tbody tr')).toHaveCount(20);
 });

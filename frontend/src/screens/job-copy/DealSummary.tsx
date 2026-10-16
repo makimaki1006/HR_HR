@@ -5,6 +5,7 @@ import { mediaLabel, publicationLabel } from './hubspotListings';
 import type { DealSelection, HubSpotListing } from './hubspotListings';
 import { companyRollup, dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, ROLLUP_RULES, shareOfDeal, shortYen, weeklySeries } from './dealSummaryModel';
 import { dealGroup, loadCompanyDatas, loadDealData } from './dealSummaryLoad';
+import { DealNextTodo } from './NextTodo';
 import { DealContract } from './DealContract';
 import { clearCompanyDealsCache, loadCompanyDeals } from './companyDeals';
 import type { CompanyDeal } from './companyDeals';
@@ -60,7 +61,7 @@ export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany, 
     });
     return () => { controller.abort(); setCompanyScope(null); onWideRef.current?.(false); };
   }, [deal.id, deal.name, revision]);
-  return <><DealContract key={deal.id} dealId={deal.id} onSaved={saved} onQueued={saved} /><SummaryView scope="deal" wide={wide} dealInfo={info} source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} {...(onOpenCompany ? { onOpenCompany } : {})} /></>;
+  return <><div className="nt-contract-grid"><DealContract key={deal.id} dealId={deal.id} onSaved={saved} onQueued={saved} /><DealNextTodo key={`todo-${deal.id}`} dealId={deal.id} onSaved={saved} /></div><SummaryView scope="deal" wide={wide} dealInfo={info} source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} {...(onOpenCompany ? { onOpenCompany } : {})} /></>;
 }
 
 export function SummaryView({ scope, wide = false, dealInfo = null, source, billingByJob, onOpenListing, onOpenCompany }: { scope: 'deal' | 'company'; /** 今の取引の画面で、顧客の全求人を出しているとき */ wide?: boolean; /** 取引の画面で、この取引の契約状態（契約中かどうか）。分からなければ null */ dealInfo?: CompanyDeal | null; source: Source; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void }) {
