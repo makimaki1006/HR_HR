@@ -7,7 +7,7 @@ import { E2E_EMAIL } from './helpers/fixture_values';
 test.use({ locale: 'ja-JP' });
 
 // 外部サービスを使わず、5分類すべてと補助カードの合成データを返す。
-test('ホームの9枚のカードと、変更求人の一覧・求人と案件への移動を確認する', async ({ page }) => {
+test('ホームの8枚のカードと、変更求人の一覧・求人と案件への移動を確認する', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1500 });
   await page.route('**/api/job-copy/recent-changes', route => route.fulfill({ json: { status: 'ready', refresh_failed: false, report: { count: 3, listings: [
     { id: '1', title: '合成終了求人', media: 'airwork', publication_status: '掲載終了', deals: [{ id: '10', name: '合成案件A', company: '合成事業所' }, { id: '20', name: '合成案件B', company: '合成事業所' }], fields: ['本文', '給与', '求人名'], last_changed_at: '2026-10-15T16:12:00Z' },
@@ -19,7 +19,8 @@ test('ホームの9枚のカードと、変更求人の一覧・求人と案件�
   await login(page);
   await page.goto('/app/job-copy');
   const cards = page.locator('.jh-card');
-  await expect(cards).toHaveCount(9);
+  await expect(cards).toHaveCount(8);
+  await expect(page.getByRole('button', { name: /市場の職種が未指定の求人/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /直近7日に変更/ }).locator('.jh-count')).toHaveText('3件');
   for (const [index, card] of demoHome.home.cards.entries()) {
     await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${card.count}件`);
@@ -223,4 +224,15 @@ test('変更求人の内訳を数え、説明・チップ・絞り込み・集�
   await expect(list.locator('tbody tr')).toHaveCount(1);
   await list.getByRole('button', { name: 'すべて 4件' }).click();
   await expect(list.locator('tbody tr')).toHaveCount(4);
+test('職種の一括指定は URL から引き続き開ける', async ({ page }) => {
+  await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: {
+    status: 'ready', listings: [], total: 0, index_built_at: '2026-10-16T00:00:00Z',
+    offset: 0, next_offset: null, titles: [], refreshing: false, refresh_failed: false,
+    indeed_title_counts: { set: 0, none: 0, unset: 0 },
+  } }));
+  await login(page);
+  await page.goto('/app/job-copy?view=occupations');
+  await expect(page.getByText('市場と比べる職種を指定する', { exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '未指定（0）' })).toBeVisible();
+  await expect(page.getByText('職種が未指定の求人はありません。', { exact: true })).toBeVisible();
 });

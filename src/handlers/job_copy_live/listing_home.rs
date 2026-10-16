@@ -247,7 +247,6 @@ fn card_definitions() -> Vec<(&'static str, &'static str, String)> {
         ("flat", "応募はあるが、前の4週とほぼ同じ求人", format!("掲載中で、直近4週に応募があり、前の4週と同じ件数、または差が{TREND_MIN_DIFF}件未満かつ{TREND_MIN_PERCENT}%未満の求人。")),
         ("costly", "課金が高いまま応募が少ない求人", format!("掲載中で、直近4週の課金が{}以上あり、応募が0件、または応募1件あたりの課金が応募のある求人の中央値の{COST_PER_APP_TIMES}倍以上の求人。", yen_label(COST_FLOOR_YEN))),
         ("stale", "データが止まっている求人", format!("掲載中で、週ごとの実績の最新の週が{STALE_DAYS}日より前に終わっている求人。この間の応募・課金は少なく見えます。")),
-        ("occupation", "市場の職種が未指定の求人", "掲載中で、市場と比べる職種をまだ指定していない求人。".to_owned()),
     ]
 }
 
@@ -279,7 +278,6 @@ pub(super) fn enrich_recent_changes(
         row["classifications"] = json!(keys);
     }
     let mut definitions = card_definitions();
-    definitions.retain(|(key, _, _)| *key != "occupation");
     definitions.extend([
         (
             "out_of_scope",
@@ -345,18 +343,12 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
     };
     let costly: Vec<&Listing> = marked("costly");
     let stale: Vec<&Listing> = marked("stale");
-    let unset: Vec<&Listing> = live
-        .iter()
-        .copied()
-        .filter(|row| row.indeed_title_state == "unset")
-        .collect();
     let cards = card_definitions()
         .into_iter()
         .map(|(key, title, rule)| {
             let picked = match key {
                 "costly" => costly.clone(),
                 "stale" => stale.clone(),
-                "occupation" => unset.clone(),
                 _ => pick(key),
             };
             card(key, title, rule, picked)
