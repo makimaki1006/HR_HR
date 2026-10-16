@@ -67,6 +67,8 @@ struct DealBoardRow {
     achievement: Option<f64>,
     cpa: Option<f64>,
     amount: Option<f64>,
+    first_contract: bool,
+    launch: super::todo_signals::Launch,
 }
 fn current(record: &Record) -> cs::Deal {
     let text = |key| record.value(key).unwrap_or("").to_owned();
@@ -185,6 +187,8 @@ impl<'a> Metrics<'a> {
                 "last_contact":work.record.value("notes_last_contacted").and_then(super::owner_todo::date).map(|d| d.to_string()),
                 "last_mtg":if supported {last.map(|d| d.to_string())} else {None},"mtg_status":mtg_status,
                 "nps":nps(&work.record),"applications":d.oubo,"interviews":d.mensetu,"hires":d.syoudaku,
+                "first_contract": super::todo_signals::is_first_contract(&work.record),
+                "launch": super::todo_signals::launch(&work.record,snapshot.facts.get(id),today),
                 "target":d.saiyomokuhyou,"achievement":d.rate_tassei(),"cpa":cs::cpa(d),"amount":d.amount})).expect("deal board row contract")
         }).collect()
     }
@@ -204,6 +208,7 @@ pub(super) async fn read(
         let metrics = Metrics::new(&snapshot, &meetings, today);
         json!({"status":"ready","rows":metrics.rows(&snapshot,&query,&email,today),"sheet_as_of":meetings.as_of,
             "refreshing":view.refreshing,"refresh_failed":view.failed,
+            "applications_status": if view.partial { if view.failed { "unavailable" } else { "preparing" } } else { "ready" },
             "work":snapshot.report_with_metrics(&query,&email,today,view.failed,&meetings)})
     } else {
         json!({"status":if view.failed {"failed"} else {"preparing"}})
