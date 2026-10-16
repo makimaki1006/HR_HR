@@ -24,7 +24,7 @@ const response: HomeResponse = {
   status: 'ready', index_built_at: '2026-10-14T01:00:00Z', today: '2026-10-14', companies_ok: true,
   rules: { trend_min_diff: 2, trend_min_percent: 20, cost_floor_yen: 10000, cost_per_app_times: 2, stale_days: 14, list_cap: 100 },
   home: {
-    cards: [card('more', '直近4週の応募が、前の4週より多い求人', [row('1', '配送ドライバー・大分1', 20, 13)]), card('flat', '応募はあるが、前の4週とほぼ同じ求人', []), card('less', '直近4週の応募が、前の4週より少ない求人', [row('2', '介護スタッフ・熊本', 4, 5)], 130), card('costly', '課金が高いまま応募が少ない求人', []), card('stale', 'データが止まっている求人', []), card('occupation', '市場の職種が未指定の求人', [row('3', '事務スタッフ・大分', 1, 1)])],
+    cards: [card('more', '直近4週の応募が、前の4週より多い求人', [row('1', '配送ドライバー・大分1', 20, 13)]), card('flat', '応募はあるが、前の4週とほぼ同じ求人', []), card('less', '直近4週の応募が、前の4週より少ない求人', [row('2', '介護スタッフ・熊本', 4, 5)], 130), card('costly', '課金が高いまま応募が少ない求人', []), card('stale', 'データが止まっている求人', [])],
     customers, live_without_company: 2, median_cost_per_app: 7000,
   },
 };
@@ -36,7 +36,7 @@ it('カードに件数と数え方を出し、押すとその求人の一覧が�
   api.mockResolvedValue({ ok: true, data: response });
   renderHome();
   const cards = await screen.findAllByRole('button', { name: /の数え方/ });
-  expect(cards).toHaveLength(6);
+  expect(cards).toHaveLength(5);
   expect(within(at(cards, 0)).getByText('1')).toBeTruthy();
   expect(within(at(cards, 2)).getByText('130')).toBeTruthy();
   expect(screen.queryByText(/効果あり|効果なし|成功|失敗/)).toBeNull();
@@ -50,11 +50,25 @@ it('カードに件数と数え方を出し、押すとその求人の一覧が�
   expect(screen.getByText('先頭の1件だけを表示しています。')).toBeTruthy();
 });
 
-it('職種が未指定のカードから、職種をまとめて指定する画面へ行ける', async () => {
-  api.mockResolvedValue({ ok: true, data: response });
-  renderHome();
-  fireEvent.click(await screen.findByRole('button', { name: /市場の職種が未指定の求人/ }));
-  expect(screen.getByRole('link', { name: '職種をまとめて指定する' }).getAttribute('href')).toBe('?card=occupation&view=occupations');
+it.each(['api', 'cache'] as const)('%s の古い職種カードと未知のキーを無視する', async source => {
+  const old = { ...response, home: { ...response.home, cards: [...response.home.cards,
+    { key: 'occupation', title: '市場の職種が未指定の求人', rule: '古いカード', count: 4, listings: [] },
+    { key: 'toString', title: '未知のカード', rule: '未知の数え方', count: 9, listings: [] },
+  ] } };
+  window.history.replaceState({}, '', '?card=occupation');
+  api.mockResolvedValue({ ok: true, data: old });
+  // 実行時に受け取る旧形式は、現在の型の外にある。
+  const cache = { current: source === 'cache' ? old as HomeResponse : null };
+  render(<JobCopyHome cache={cache} onOpenCompany={open} onOpenListing={openListing} onOpenDeal={vi.fn()} />);
+  expect(await screen.findAllByRole('button', { name: /の数え方/ })).toHaveLength(5);
+  expect(screen.queryByText('市場の職種が未指定の求人')).toBeNull();
+  expect(screen.queryByText('未知のカード')).toBeNull();
+  expect(screen.queryByRole('region', { name: /未指定/ })).toBeNull();
+  expect(screen.queryByRole('link', { name: '職種をまとめて指定する' })).toBeNull();
+  expect(screen.getByText('合成運輸')).toBeTruthy();
+  expect(api).toHaveBeenCalledTimes(source === 'cache' ? 0 : 1);
+  fireEvent.click(screen.getByRole('button', { name: /直近4週の応募が、前の4週より多い求人.*の数え方/ }));
+  expect(screen.getByRole('region', { name: '直近4週の応募が、前の4週より多い求人の一覧' })).toBeTruthy();
 });
 
 it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客を開くができる', async () => {
@@ -106,12 +120,12 @@ it('パンくずは現在地だけがリンクにならず、上の階層を押�
   expect(select).toHaveBeenCalledWith('company');
 });
 
-it('新しい8枚の見出し・件数・説明と、ゼロのままの求人の課金を出す', async () => {
+it('7枚の見出し・件数・説明と、ゼロのままの求人の課金を出す', async () => {
   api.mockResolvedValue({ ok: true, data: demoHome });
   renderHome();
   await screen.findByRole('button', { name: /応募がゼロのままの求人/ });
   const cards = screen.getAllByRole('button').filter(button => button.classList.contains('jh-card'));
-  expect(cards).toHaveLength(9);
+  expect(cards).toHaveLength(8);
   for (const [index, item] of demoHome.home.cards.entries()) {
     const button = at(cards, index);
     expect(within(button).getByText(item.title)).toBeTruthy();

@@ -20,7 +20,6 @@ export const demoHome: HomeResponse & { status: 'ready' } = {
       card('flat', '応募はあるが、前の4週とほぼ同じ求人', '掲載中で、直近4週に応募があり、前の4週と同じ件数、または差が2件未満かつ20%未満の求人。', [flat]),
       card('costly', '課金が高いまま応募が少ない求人', '掲載中で、直近4週の課金が1万円以上あり、応募が0件、または応募1件あたりの課金が応募のある求人の中央値の2倍以上の求人。', [zero, stopped]),
       card('stale', 'データが止まっている求人', '掲載中で、週ごとの実績の最新の週が14日より前に終わっている求人。この間の応募・課金は少なく見えます。', [flat]),
-      card('occupation', '市場の職種が未指定の求人', '掲載中で、市場と比べる職種をまだ指定していない求人。', [less]),
     ],
     customers: [{ company_id: 'demo-company', name: '合成事業所', deals: 1, active_deals: 1, latest_deal: { name: '合成案件', stage_label: '契約中', active: true, created_at: '2026-10-01' }, live_listings: 6, total_listings: 6, prev_apps: 16, recent_apps: 14, recent_cost: 54000, cost_per_app: 3857 }],
     live_without_company: 0, median_cost_per_app: 2000,
