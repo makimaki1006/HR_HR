@@ -1,4 +1,4 @@
-//! 更新候補だけの履歴を背景で取得。本文は集計後に捨て、案件ごとの結果だけを保持する。
+//! 更新候補だけの履歴を背景で取得。本文は集計後に捨て、求人ごとの結果だけを保持する。
 use super::*;
 use chrono::{DateTime, NaiveDate, Utc};
 use std::time::Instant;
@@ -28,14 +28,21 @@ struct ChangedDeal {
     id: String,
     name: Option<String>,
     company: Option<String>,
-    changed_listings: usize,
+}
+#[derive(Debug, Serialize)]
+struct ChangedListing {
+    id: String,
+    title: Option<String>,
+    media: Option<String>,
+    publication_status: Option<String>,
+    deals: Vec<ChangedDeal>,
     fields: BTreeSet<&'static str>,
     last_changed_at: DateTime<Utc>,
 }
 #[derive(Debug, Serialize)]
 struct Report {
     count: usize,
-    deals: Vec<ChangedDeal>,
+    listings: Vec<ChangedListing>,
 }
 fn bounds(today: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
     let midnight = today.and_hms_opt(0, 0, 0).unwrap().and_utc() - chrono::Duration::hours(9);
@@ -287,7 +294,14 @@ async fn resolve(
         .batch("deals", &deal_ids, &["dealname", "pipeline"])
         .await?;
     let mut report = aggregate(changed, &associations, &deals);
-    let ids: Vec<_> = report.deals.iter().map(|d| d.id.clone()).collect();
+    let ids: Vec<_> = report
+        .listings
+        .iter()
+        .flat_map(|r| &r.deals)
+        .map(|d| d.id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let companies = service.association_map("deals", &ids, "companies").await?;
     let ids: Vec<_> = companies
         .values()
@@ -304,7 +318,7 @@ async fn resolve(
         .into_iter()
         .map(|r| (r.id.clone(), r.value("name").map(str::to_owned)))
         .collect();
-    for deal in &mut report.deals {
+    for deal in report.listings.iter_mut().flat_map(|r| &mut r.deals) {
         deal.company = companies
             .get(&deal.id)
             .and_then(|ids| match ids.as_slice() {
@@ -312,7 +326,21 @@ async fn resolve(
                 _ => None,
             });
     }
+    let changed_ids = changed.keys().map(String::as_str).collect();
+    let details = listings::recent_change_details(service, &changed_ids).await;
+    for row in &mut report.listings {
+        if let Some(detail) = details.get(&row.id) {
+            row.title = detail.title.clone();
+            row.media = detail.media.clone();
+            row.publication_status = detail.publication_status.clone();
+        }
+    }
     Ok(report)
+}
+pub(super) struct ListingDetails {
+    pub title: Option<String>,
+    pub media: Option<String>,
+    pub publication_status: Option<String>,
 }
 fn aggregate(
     changed: &BTreeMap<String, BTreeMap<&'static str, DateTime<Utc>>>,
@@ -320,26 +348,29 @@ fn aggregate(
     deals: &[Record],
 ) -> Report {
     let mut result = Vec::new();
-    for deal in deals
-        .iter()
-        .filter(|d| listings::is_delivery(d.value("pipeline")))
-    {
-        let rows: Vec<_> = changed
+    for (id, fields) in changed {
+        let related: Vec<_> = deals
             .iter()
-            .filter(|(id, _)| {
-                associations
-                    .get(*id)
-                    .is_some_and(|ids| ids.contains(&deal.id))
+            .filter(|deal| {
+                listings::is_delivery(deal.value("pipeline"))
+                    && associations
+                        .get(id)
+                        .is_some_and(|ids| ids.contains(&deal.id))
             })
-            .map(|(_, fields)| fields)
-            .collect();
-        if let Some(last) = rows.iter().flat_map(|r| r.values()).max() {
-            result.push(ChangedDeal {
+            .map(|deal| ChangedDeal {
                 id: deal.id.clone(),
                 name: deal.value("dealname").map(str::to_owned),
                 company: None,
-                changed_listings: rows.len(),
-                fields: rows.iter().flat_map(|r| r.keys().copied()).collect(),
+            })
+            .collect();
+        if let Some(last) = fields.values().max().filter(|_| !related.is_empty()) {
+            result.push(ChangedListing {
+                id: id.clone(),
+                title: None,
+                media: None,
+                publication_status: None,
+                deals: related,
+                fields: fields.keys().copied().collect(),
                 last_changed_at: *last,
             });
         }
@@ -351,7 +382,7 @@ fn aggregate(
     });
     Report {
         count: result.len(),
-        deals: result,
+        listings: result,
     }
 }
 

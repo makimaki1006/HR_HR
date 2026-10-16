@@ -67,7 +67,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
           <span className="jh-card-title">{item.title}</span>
           <small className="jh-rule">{item.rule}</small>
         </button>)}<RecentChangesButton data={recent.data} open={open === 'recent_changes'} onClick={() => { setOpen(open === 'recent_changes' ? null : 'recent_changes'); }} /></div>
-        {open === 'recent_changes' && <RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} />}
+        {open === 'recent_changes' && <RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} onOpenListing={onOpenListing} />}
         {card && <CardList card={card} onOpenListing={onOpenListing} />}
         {card?.key === 'occupation' && <p><a className="jc-button" href="?view=occupations">職種をまとめて指定する</a></p>}
       </section>

@@ -2711,3 +2711,36 @@ mod index_loading_tests;
 #[path = "listing_index_summary.rs"]
 mod index_summary;
 use index_summary::{enrich_index_summaries, index_properties};
+
+/// 既存の索引だけを参照し、変更一覧のための外部取得は行わない。
+pub(super) async fn recent_change_details(
+    service: &JobReadService,
+    ids: &BTreeSet<&str>,
+) -> BTreeMap<String, super::recent_changes::ListingDetails> {
+    let snapshot = service.listing_index.state.read().await.snapshot.clone();
+    snapshot
+        .iter()
+        .flat_map(|index| &index.records)
+        .filter(|row| ids.contains(row.id.as_str()))
+        .map(|row| {
+            (
+                row.id.clone(),
+                super::recent_changes::ListingDetails {
+                    title: row.title.clone(),
+                    media: Some(row.media.to_owned()),
+                    publication_status: row.publication_status.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+pub(super) async fn seed_recent_change_index(service: &JobReadService, records: &[Record]) {
+    service.listing_index.state.write().await.snapshot = Some(Arc::new(Index {
+        records: records.iter().filter_map(listing).collect(),
+        titles: vec![],
+        deals: vec![],
+        built_at: "2026-10-16T00:00:00Z".into(),
+    }));
+}
