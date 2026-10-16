@@ -5,7 +5,7 @@ import { ListingPreparationNotice } from './ListingPreparationNotice';
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
-import { formatDateTimeJst } from './format';
+import { formatDateTimeJst, formatDateJst } from './format';
 import { appsChange, customerName, dealCountLabel, filterCustomers, listingCountLabel, mediaName, sortCustomers, yen } from './homeModel';
 import type { CardKey, CustomerSort, HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 import './home.css';
@@ -19,7 +19,7 @@ function CardList({ card, onOpenListing }: { card: HomeCard; onOpenListing: (id:
   return <section className="jh-list" aria-label={`${card.title}の一覧`}>
     <h3>{card.title}（{card.count}件）</h3>
     {card.count === 0 ? <p>該当する求人はありません。</p> : <div className="jh-scroll"><table><thead><tr><th scope="col">求人</th><th scope="col">顧客</th><th scope="col">媒体</th><th scope="col" className="num">応募（前 → 直近）</th><th scope="col" className="num">課金（直近 4 週）</th><th scope="col">実績の最新の週</th></tr></thead><tbody>
-      {card.listings.map(row => <tr key={row.id}><th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenListing(row.id); }}>{row.title ?? '求人名未取得'}</button></th><td>{row.company ?? '—'}</td><td>{mediaName(row.media)}</td><td className="num">{appsChange(row.prev_apps, row.recent_apps)}</td><td className="num">{yen(row.recent_cost)}</td><td>{row.latest_week_end ?? '実績なし'}</td></tr>)}
+      {card.listings.map(row => <tr key={row.id}><th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenListing(row.id); }}>{row.title ?? '求人名未取得'}</button></th><td>{row.company ?? '—'}</td><td>{mediaName(row.media)}</td><td className="num">{appsChange(row.prev_apps, row.recent_apps)}</td><td className="num">{yen(row.recent_cost)}</td><td>{formatDateJst(row.latest_week_end, '実績なし')}</td></tr>)}
     </tbody></table></div>}
     {card.count > card.listings.length && <p className="jh-note">先頭の{card.listings.length}件だけを表示しています。</p>}
   </section>;
@@ -33,7 +33,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const search = useJobCopySearch();
   const ownerQuery = ownerParams(search);
   const open = new URLSearchParams(search).get('card');
-  const setOpen = (key: CardKey | 'recent_changes' | null) => { updateJobCopyQuery({ card: key }, 'push'); };
+  const setOpen = (key: CardKey | 'recent_changes' | null) => { updateJobCopyQuery({ card: key, todo_page: null }, 'push'); };
   const recent = useRecentChanges(reload, data?.status === 'ready' && (!data.work || data.work.status === 'ready'), data?.status === 'ready' && !!data.work);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<CustomerSort>('default');
@@ -85,7 +85,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
         {!ready.companies_ok && <p role="status">顧客の情報を読み込めなかったため、表を出せません。時間を置いて再読み込みしてください。</p>}
         <p className="jh-note">納品管理のパイプラインの案件だけを数えています（計上・商談などのパイプラインは含めません）。「契約中」は、案件のステージが完了（契約終了・失注など）でないものです。求人が結び付いた案件だけを数えています。応募・課金は掲載中の求人の合計です。応募は媒体の週ごとの実績で、直近 4 週とその前の 4 週を比べています。{ready.home.live_without_company > 0 ? `納品管理の案件に結び付いていない掲載中の求人が ${String(ready.home.live_without_company)} 件あり、この表には入っていません。` : ''}</p>
         <div className="jh-scroll"><table className="jh-customer-table"><thead><tr>{customerColumns.map(([key, label, numeric]) => <th key={key} scope="col" className={numeric ? 'num' : ''} aria-sort={sort === key ? descending ? 'descending' : 'ascending' : 'none'}><button type="button" onClick={() => { if (sort === key) setDescending(!descending); else { setSort(key); setDescending(key !== 'name'); } }}>{label}{sort === key ? descending ? ' ▼' : ' ▲' : ''}</button></th>)}<th scope="col"><span className="jc-visually-hidden">開く</span></th></tr></thead><tbody>
-          {customers.map(customer => <tr key={customer.company_id}><th scope="row">{customerName(customer)}</th><td className="num">{dealCountLabel(customer)}</td><td className="jh-latest">{customer.latest_deal ? <><span className="jh-latest-name">{customer.latest_deal.name ?? '案件名未取得'}</span><small>{customer.latest_deal.stage_label ?? 'ステージ未取得'}{!customer.latest_deal.active && <span className="jh-badge">終了</span>} ・ 作成 {customer.latest_deal.created_at ?? '—'}</small></> : '—'}</td><td className="num">{listingCountLabel(customer)}</td><td className="num">{appsChange(customer.prev_apps, customer.recent_apps)}</td><td className="num">{yen(customer.recent_cost)}</td><td className="num">{yen(customer.cost_per_app)}</td><td className="num"><button type="button" className="jc-button" aria-label={`${customerName(customer)}を開く`} onClick={() => { onOpenCompany({ id: customer.company_id, name: customerName(customer) }); }}>顧客を開く ›</button></td></tr>)}
+          {customers.map(customer => <tr key={customer.company_id}><th scope="row">{customerName(customer)}</th><td className="num">{dealCountLabel(customer)}</td><td className="jh-latest">{customer.latest_deal ? <><span className="jh-latest-name">{customer.latest_deal.name ?? '案件名未取得'}</span><small>{customer.latest_deal.stage_label ?? 'ステージ未取得'}{!customer.latest_deal.active && <span className="jh-badge">終了</span>} ・ 作成 {formatDateJst(customer.latest_deal.created_at, '—')}</small></> : '—'}</td><td className="num">{listingCountLabel(customer)}</td><td className="num">{appsChange(customer.prev_apps, customer.recent_apps)}</td><td className="num">{yen(customer.recent_cost)}</td><td className="num">{yen(customer.cost_per_app)}</td><td className="num"><button type="button" className="jc-button" aria-label={`${customerName(customer)}を開く`} onClick={() => { onOpenCompany({ id: customer.company_id, name: customerName(customer) }); }}>顧客を開く ›</button></td></tr>)}
           {!customers.length && <tr><td colSpan={8}>{query ? '条件に合う顧客はありません。' : onlyActive ? '契約中の案件がある顧客はありません。「すべて」に切り替えると終了した案件だけの顧客も表示します。' : '表示できる顧客がありません。'}</td></tr>}
         </tbody></table></div>
       </section>

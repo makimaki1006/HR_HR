@@ -67,7 +67,7 @@ it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客�
   expect(screen.getByRole('button', { name: /契約中の案件がある顧客/ }).getAttribute('aria-pressed')).toBe('true');
   expect(screen.getByText('2 ／ 全 3')).toBeTruthy();
   expect(screen.getByText('合成運輸 2026年案件')).toBeTruthy();
-  expect(screen.getByText(/契約中 ・ 作成 2026-03-01/)).toBeTruthy();
+  expect(screen.getByText(/契約中 ・ 作成 2026\/03\/01/)).toBeTruthy();
   expect(screen.getByText('4 ／ 全 9')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /^すべて/ }));
   expect(names()).toEqual(['合成運輸', '合成介護', '合成倉庫']);
@@ -126,8 +126,8 @@ it('新しい8枚の見出し・件数・説明と、ゼロのままの求人の
   expect(within(list).getByRole('columnheader', { name: '課金（直近 4 週）' })).toBeTruthy();
   const rows = within(list).getAllByRole('row').slice(1);
   expect(rows.map(row => row.textContent)).toEqual([
-    '合成求人・配送合成事業所HRハッカー0 → 0 件¥24,0002026-10-11',
-    '合成求人・清掃合成事業所HRハッカー0 → 0 件¥02026-10-11',
+    '合成求人・配送合成事業所HRハッカー0 → 0 件¥24,0002026/10/11',
+    '合成求人・清掃合成事業所HRハッカー0 → 0 件¥02026/10/11',
   ]);
 });
 
@@ -176,4 +176,16 @@ it('ほかの人から自分に戻すとき、取得前の担当者でURLを上�
   await act(async () => { resolveSelf?.({ ok: true, data: { ...response, work: demoOwnerTodo } }); await Promise.resolve(); });
   await waitFor(() => { expect(new URLSearchParams(window.location.search).get('owner')).toBe('11'); });
   expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('11');
+});
+
+it('初期URLではコンサル担当と解決済み本人を選び、全員への注記は出さない', async () => {
+  api.mockResolvedValue({ ok: true, data: { ...response, work: demoOwnerTodo } });
+  renderHome();
+  await screen.findByRole('combobox', { name: '担当者' });
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当の項目' }).value).toBe('consultant');
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('11');
+  await waitFor(() => { expect(new URLSearchParams(window.location.search).get('owner')).toBe('11'); });
+  expect(new URLSearchParams(window.location.search).get('owner_field')).toBe('consultant');
+  expect(screen.queryByText(/全員を表示しています/)).toBeNull();
+  expect(screen.queryByRole('region', { name: '期限切れの一覧' })).toBeNull();
 });
