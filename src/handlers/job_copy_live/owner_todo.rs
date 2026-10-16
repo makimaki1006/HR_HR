@@ -13,9 +13,12 @@ pub(super) const DEAL_PROPERTIES: &[&str] = &[
     "actionyotei",
     "actionnaiyou",
     "contract_expiration_date",
+    "contract_start_date",
+    "contract_type",
+    "notes_last_contacted",
 ];
 /// HubSpot の closed / probability は業務上の終了と異なるため参照しない。
-const ENDED_STAGES: [&str; 6] = [
+pub(super) const ENDED_STAGES: [&str; 6] = [
     "1016664339",
     "90598807",
     "52016159",
@@ -24,6 +27,7 @@ const ENDED_STAGES: [&str; 6] = [
     "1082007429",
 ];
 const TTL: Duration = Duration::from_secs(5 * 60);
+const FACTS_TTL: Duration = Duration::from_secs(60 * 60);
 const OWNER_TTL: Duration = Duration::from_secs(10 * 60);
 const RETRY: Duration = Duration::from_secs(30);
 
@@ -102,13 +106,14 @@ pub(super) struct WorkDeal {
     pub(super) record: Record,
     pub(super) assignment: Assignment,
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct Snapshot {
     pub(super) deals: BTreeMap<String, WorkDeal>,
     pub(super) owners: Vec<Owner>,
     labels: BTreeMap<String, String>,
     pub(super) companies: BTreeMap<String, (String, Option<String>)>,
     stages: BTreeMap<String, String>,
+    facts: BTreeMap<String, super::todo_signals::Facts>,
 }
 #[derive(Default)]
 pub(super) struct Cache {
@@ -122,6 +127,9 @@ struct CacheState {
     snapshot: Option<(Instant, Arc<Snapshot>)>,
     refreshing: bool,
     failed_at: Option<Instant>,
+    facts_snapshot: Option<(Instant, BTreeMap<String, super::todo_signals::Facts>)>,
+    facts_refreshing: bool,
+    facts_failed_at: Option<Instant>,
 }
 impl CacheState {
     fn sync_revision(&mut self, revision: u64) {
@@ -136,9 +144,17 @@ pub(super) struct View {
     pub(super) snapshot: Option<Arc<Snapshot>>,
     pub(super) failed: bool,
     pub(super) partial: bool,
+    pub(super) refreshing: bool,
 }
 /// 初回も待たない。取得中は UI が集計中と表示し、次回の要求で結果を読む。
 pub(super) async fn view(service: &JobReadService) -> View {
+    view_inner(service, false).await
+}
+/// 重い応募の更新は、ホーム／次にやることを開く要求だけが開始する。
+pub(super) async fn work_view(service: &JobReadService) -> View {
+    view_inner(service, true).await
+}
+async fn view_inner(service: &JobReadService, include_facts: bool) -> View {
     let mut state = service.owner_todo.state.lock().await;
     let revision = service.hs.deal_write_revision();
     state.sync_revision(revision);
@@ -159,7 +175,10 @@ pub(super) async fn view(service: &JobReadService) -> View {
                 return;
             }
             match result {
-                Ok(snapshot) => {
+                Ok(mut snapshot) => {
+                    if let Some((_, facts)) = &state.facts_snapshot {
+                        snapshot.facts = facts.clone();
+                    }
                     state.snapshot = Some((Instant::now(), Arc::new(snapshot)));
                     state.failed_at = None;
                 }
@@ -171,14 +190,21 @@ pub(super) async fn view(service: &JobReadService) -> View {
             state.refreshing = false;
         });
     }
-    let failed = state.failed_at.is_some();
+    // 期限切れの確認は画面からの要求時だけ。取引の更新や保存で60分の期限を変えない。
+    if include_facts {
+        refresh_facts_on_request(service, &mut state);
+    }
+    let refreshing = state.refreshing || (include_facts && state.facts_refreshing);
+    let failed = state.failed_at.is_some() || (include_facts && state.facts_failed_at.is_some());
+    let partial = include_facts && state.facts_snapshot.is_none();
     let snapshot = state.snapshot.as_ref().map(|(_, s)| s.clone());
     drop(state);
     if snapshot.is_some() {
         return View {
             snapshot,
             failed,
-            partial: false,
+            partial,
+            refreshing,
         };
     }
     // owners が届いたら、従来の索引でホームのカードを先に絞る。
@@ -198,8 +224,48 @@ pub(super) async fn view(service: &JobReadService) -> View {
         snapshot,
         failed,
         partial: true,
+        refreshing,
     }
 }
+/// 求人・応募は別の単一実行枠で更新する。取引の5分更新を待たせない。
+fn refresh_facts_on_request(service: &JobReadService, state: &mut CacheState) {
+    if state.refreshing
+        || state.facts_refreshing
+        || state
+            .facts_snapshot
+            .as_ref()
+            .is_some_and(|(at, _)| at.elapsed() < FACTS_TTL)
+        || state.facts_failed_at.is_some_and(|at| at.elapsed() < RETRY)
+    {
+        return;
+    }
+    let Some((_, snapshot)) = &state.snapshot else {
+        return;
+    };
+    let deals = snapshot.deals.clone();
+    state.facts_refreshing = true;
+    let mut service = service.clone();
+    service.hs = service.hs.background();
+    tokio::spawn(async move {
+        let result = super::todo_signals::fetch(&service, &deals).await;
+        let mut state = service.owner_todo.state.lock().await;
+        match result {
+            Ok(facts) => {
+                if let Some((_, snapshot)) = state.snapshot.as_mut() {
+                    Arc::make_mut(snapshot).facts = facts.clone();
+                }
+                state.facts_snapshot = Some((Instant::now(), facts));
+                state.facts_failed_at = None;
+            }
+            Err(_) => {
+                state.facts_failed_at = Some(Instant::now());
+                tracing::warn!("job-copy todo applications refresh failed");
+            }
+        }
+        state.facts_refreshing = false;
+    });
+}
+
 fn parse_owners(data: &Value, archived: bool) -> Result<Vec<Owner>, ReadError> {
     data["results"]
         .as_array()
@@ -344,26 +410,10 @@ async fn fetch(service: &JobReadService) -> Result<Snapshot, ReadError> {
     };
     drop(label_cache);
     let defs = listings::todo_stages(service).await;
-    // 会社名が必要なのは予定一覧に出る取引だけ。担当者候補のために読んだ終了済み等の取引まで補完しない。
-    // 日付が変わる直前のキャッシュも使えるよう、満了日は翌日の30日後まで先読みする。
-    let current_day = today(Utc::now());
+    // 応募集計の完了後に初めて要対応になる案件も、会社名を先に補う。
     let ids: Vec<_> = deals
         .iter()
-        .filter(|(_, deal)| {
-            !ENDED_STAGES.contains(&deal.record.value("dealstage").unwrap_or(""))
-                && (deal
-                    .assignment
-                    .actionyotei
-                    .as_deref()
-                    .and_then(date)
-                    .is_some()
-                    || deal
-                        .assignment
-                        .contract_expiration_date
-                        .as_deref()
-                        .and_then(date)
-                        .is_some_and(|due| (0..=31).contains(&(due - current_day).num_days())))
-        })
+        .filter(|(_, d)| !ENDED_STAGES.contains(&d.record.value("dealstage").unwrap_or("")))
         .map(|(id, _)| id.clone())
         .collect();
     let companies = listings::todo_companies(service, &ids).await?;
@@ -379,6 +429,7 @@ async fn fetch(service: &JobReadService) -> Result<Snapshot, ReadError> {
         labels,
         companies,
         stages: defs,
+        facts: BTreeMap::new(),
     })
 }
 impl Snapshot {
@@ -446,21 +497,36 @@ impl Snapshot {
             ("later", vec![]),
         ]);
         let mut expirations = vec![];
+        let mut signals = vec![];
         for (id, deal) in &self.deals {
             if !self.matches(id, field, owner.as_deref())
+                || !listings::is_delivery(deal.record.value("pipeline"))
                 || ENDED_STAGES.contains(&deal.record.value("dealstage").unwrap_or(""))
             {
                 continue;
             }
             let a = &deal.assignment;
+            let reasons = super::todo_signals::reasons(deal, self.facts.get(id), today);
             let row = |due: NaiveDate, content: Option<&str>| {
                 let company = self.companies.get(id);
                 let consultant = self
                     .owners
                     .iter()
                     .find(|o| Some(o.id.as_str()) == a.consultant.as_deref());
-                json!({"id":id,"name":deal.record.value("dealname"),"company_id":company.map(|c| &c.0),"company":company.and_then(|c| c.1.as_ref()),"stage":deal.record.value("dealstage").and_then(|s| self.stages.get(s)),"content":content,"due":due.to_string(),"consultant":consultant.map(|o| format!("{}{}",o.name,if o.archived {"（退職）"} else {""}))})
+                json!({"id":id,"name":deal.record.value("dealname"),"company_id":company.map(|c| &c.0),"company":company.and_then(|c| c.1.as_ref()),"stage":deal.record.value("dealstage").and_then(|s| self.stages.get(s)),"content":content,"due":due.to_string(),"reasons":reasons,"actionyotei":a.actionyotei,"actionnaiyou":a.actionnaiyou,"consultant":consultant.map(|o| format!("{}{}",o.name,if o.archived {"（退職）"} else {""}))})
             };
+            if !reasons.is_empty() {
+                let mut signal = row(today, None);
+                signal["reasons"] = json!(reasons);
+                signal["expiration"] = json!(a
+                    .contract_expiration_date
+                    .as_deref()
+                    .and_then(date)
+                    .map(|d| d.to_string()));
+                signal["content"] =
+                    json!(a.actionnaiyou.as_deref().and_then(|v| self.labels.get(v)));
+                signals.push(signal);
+            }
             if let Some(due) = a.actionyotei.as_deref().and_then(date) {
                 let key = bucket(today, due);
                 actions.get_mut(key).unwrap().push(row(
@@ -475,7 +541,9 @@ impl Snapshot {
                 .contract_expiration_date
                 .as_deref()
                 .and_then(date)
-                .filter(|d| (0..=30).contains(&(*d - today).num_days()))
+                .filter(|d| {
+                    (0..=super::todo_signals::EXPIRATION_DAYS).contains(&(*d - today).num_days())
+                })
             {
                 expirations.push(row(due, Some("契約満了")));
             }
@@ -490,13 +558,26 @@ impl Snapshot {
         };
         actions.values_mut().for_each(sort);
         sort(&mut expirations);
-        json!({"status":"ready","owner":owner.as_deref().unwrap_or("all"),"owner_field":field,"notice":notice,"owners":options,"actions":actions,"expirations":expirations,"refresh_failed":failed})
+        signals.sort_by(|a, b| {
+            b["reasons"]
+                .as_array()
+                .map(Vec::len)
+                .cmp(&a["reasons"].as_array().map(Vec::len))
+                .then_with(|| {
+                    a["expiration"]
+                        .as_str()
+                        .unwrap_or("9999")
+                        .cmp(b["expiration"].as_str().unwrap_or("9999"))
+                })
+                .then_with(|| a["id"].as_str().cmp(&b["id"].as_str()))
+        });
+        json!({"status":"ready","owner":owner.as_deref().unwrap_or("all"),"owner_field":field,"notice":notice,"owners":options,"actions":actions,"expirations":expirations,"signals":signals,"refresh_failed":failed})
     }
 }
 pub(super) fn today(now: chrono::DateTime<Utc>) -> NaiveDate {
     (now + chrono::Duration::hours(9)).date_naive()
 }
-fn date(value: &str) -> Option<NaiveDate> {
+pub(super) fn date(value: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .ok()
         .or_else(|| {
@@ -523,9 +604,69 @@ fn bucket(today: NaiveDate, due: NaiveDate) -> &'static str {
 
 #[cfg(test)]
 pub(super) async fn seed_empty(service: &JobReadService) {
-    service.owner_todo.state.lock().await.snapshot =
-        Some((Instant::now(), Arc::new(Snapshot::default())));
+    let mut state = service.owner_todo.state.lock().await;
+    state.snapshot = Some((Instant::now(), Arc::new(Snapshot::default())));
+    state.facts_snapshot = Some((Instant::now(), BTreeMap::new()));
 }
 #[cfg(test)]
 #[path = "owner_todo_tests.rs"]
 mod tests;
+
+/// 案件の画面もホームと同じ判定・同じ背景キャッシュを使う。
+pub(super) async fn read_deal(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    valid_id(&id)?;
+    let view = work_view(listings::service(&access)?).await;
+    let body = if let Some(snapshot) = view.snapshot.filter(|_| !view.partial) {
+        let reasons = snapshot
+            .deals
+            .get(&id)
+            .map(|d| super::todo_signals::reasons(d, snapshot.facts.get(&id), today(Utc::now())))
+            .unwrap_or_default();
+        json!({"status":"ready","reasons":reasons,"refresh_failed":view.failed,"refreshing":view.refreshing})
+    } else {
+        json!({"status":if view.failed {"failed"} else {"preparing"}})
+    };
+    Ok(([(header::CACHE_CONTROL, "private, no-store")], Json(body)))
+}
+
+/// 保存済み取引だけを最新化し、応募の背景集計を毎回やり直さない。
+pub(super) async fn apply_fresh_deal(service: &JobReadService, record: Record) {
+    let revision = service.hs.deal_write_revision();
+    let needs_company = service
+        .owner_todo
+        .state
+        .lock()
+        .await
+        .snapshot
+        .as_ref()
+        .is_some_and(|(_, s)| !s.companies.contains_key(&record.id));
+    let companies = if needs_company {
+        listings::todo_companies(service, std::slice::from_ref(&record.id))
+            .await
+            .unwrap_or_default()
+    } else {
+        BTreeMap::new()
+    };
+    let mut state = service.owner_todo.state.lock().await;
+    if revision != service.hs.deal_write_revision() {
+        return;
+    }
+    state.revision = revision;
+    if let Some((_, snapshot)) = state.snapshot.as_mut() {
+        let snapshot = Arc::make_mut(snapshot);
+        snapshot.companies.extend(companies);
+        snapshot.deals.insert(
+            record.id.clone(),
+            WorkDeal {
+                assignment: Assignment::from_record(&record),
+                record,
+            },
+        );
+    }
+}

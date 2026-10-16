@@ -50,10 +50,17 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     return () => { controller.abort(); };
   }, [reload, cache, ownerQuery]);
   useEffect(() => {
-    if (data?.status !== 'preparing' && !(data?.status === 'ready' && (data.work?.status === 'preparing' || (data.work?.status === 'ready' && data.work.todos_status === 'preparing')))) return;
+    if (!data) return;
+    const preparing = data.status === 'preparing' || (data.work?.status === 'preparing' || (data.work?.status === 'ready' && (data.work.todos_status === 'preparing' || data.work.refreshing)));
+    if (!preparing) return;
     const timer = window.setTimeout(() => { setReload(value => value + 1); }, 2_000);
     return () => { window.clearTimeout(timer); };
   }, [data]);
+  useEffect(() => {
+    const refresh = () => { if (cache) cache.current = null; setReload(n => n + 1); };
+    window.addEventListener('job-copy-plan-saved', refresh);
+    return () => { window.removeEventListener('job-copy-plan-saved', refresh); };
+  }, [cache]);
   const customers = useMemo<HomeCustomer[]>(() => data?.status === 'ready' ? sortCustomers(filterCustomers(data.home.customers, query, onlyActive), sort, descending) : [], [data, query, onlyActive, sort, descending]);
   const activeCount = data?.status === 'ready' ? data.home.customers.filter(customer => customer.active_deals > 0).length : 0;
   const ready = data?.status === 'ready' && (!data.work || data.work.status === 'ready') ? data : null;
@@ -67,7 +74,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     {data?.status === 'ready' && data.work?.status === 'preparing' && <p role="status">担当者とやることを集計しています…</p>}
     {data?.status === 'ready' && data.work?.status === 'failed' && <p role="alert">担当者とやることの情報を読み込めませんでした。再読み込みしてください。</p>}
     {ready && <>
-      {work && <><OwnerFilter work={work} /><OwnerTodo work={work} onOpenCompany={onOpenCompany} onOpenDeal={onOpenDeal} /></>}
+      {work && <><OwnerFilter work={work} /><OwnerTodo work={work} onOpenCompany={onOpenCompany} onOpenDeal={onOpenDeal} onShowList={() => { setReload(value => value + 1); }} /></>}
       <section aria-labelledby="jh-look"><h2 id="jh-look">まず見るもの</h2>
         <p className="jh-note">応募・課金のカードは掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。{formatDateTimeJst(ready.index_built_at, '日時不明')}時点。効果の有無は判定していません。</p>
         <div className="jh-cards">{ready.home.cards.map(item => <button type="button" key={item.key} className={`jh-card jh-${cardTone[item.key]}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>

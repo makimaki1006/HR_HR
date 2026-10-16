@@ -143,10 +143,10 @@ it('初回の準備中は2秒後に取り直し、表示できたら自動取得
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(api).toHaveBeenCalledTimes(2);
     expect(screen.getByText('まず見るもの')).toBeTruthy();
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
     expect(api).toHaveBeenCalledTimes(2);
     cleanup();
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
     expect(api).toHaveBeenCalledTimes(2);
   } finally { vi.useRealTimers(); }
 });
@@ -188,4 +188,17 @@ it('初期URLではコンサル担当と解決済み本人を選び、全員へ�
   expect(new URLSearchParams(window.location.search).get('owner_field')).toBe('consultant');
   expect(screen.queryByText(/全員を表示しています/)).toBeNull();
   expect(screen.queryByRole('region', { name: '期限切れの一覧' })).toBeNull();
+});
+
+it('やることの一覧を開くと取得を確認し、閉じるだけでは再取得しない', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?owner=11');
+  api.mockResolvedValue({ ok: true, data: { ...response, work: demoOwnerTodo } });
+  renderHome();
+  const card = await screen.findByRole('button', { name: /接触が空いている/ });
+  expect(api).toHaveBeenCalledTimes(1);
+  fireEvent.click(card);
+  await waitFor(() => { expect(api).toHaveBeenCalledTimes(2); });
+  fireEvent.click(card);
+  await act(() => Promise.resolve());
+  expect(api).toHaveBeenCalledTimes(2);
 });

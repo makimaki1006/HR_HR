@@ -36,6 +36,7 @@ mod manual_edit;
 mod owner_todo;
 pub mod phone_hearing;
 mod rikurozi;
+mod todo_signals;
 
 #[derive(Debug)]
 pub struct ReadError(pub(super) StatusCode, pub(super) &'static str);
@@ -2128,6 +2129,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             get(phone_hearing::read),
         )
         .route("/api/job-copy/home", get(listings::read_home))
+        .route("/api/job-copy/deals/{id}/todo", get(owner_todo::read_deal))
         .route("/api/job-copy/recent-changes", get(recent_changes::read))
         .route(
             "/api/job-copy/listing-body-dates",

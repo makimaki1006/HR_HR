@@ -659,7 +659,7 @@ pub(in crate::handlers::job_copy_live) async fn refresh_deal(
     valid_id(&id)?;
     let record = service
         .hs
-        .get_object_fresh("deals", &id, &["pipeline", "dealstage"])
+        .get_object_fresh("deals", &id, owner_todo::DEAL_PROPERTIES)
         .await
         .map_err(client_error)?;
     let pipeline = record.properties.get("pipeline").cloned().flatten();
@@ -669,6 +669,14 @@ pub(in crate::handlers::job_copy_live) async fn refresh_deal(
             "invalid_pipeline",
         ));
     }
+    owner_todo::apply_fresh_deal(
+        service,
+        Record {
+            id: id.clone(),
+            properties: record.properties.clone(),
+        },
+    )
+    .await;
     let stage = record.properties.get("dealstage").cloned().flatten();
     let defs = super::pipelines::load_defs(service).await;
     let (stage_label, active) =
@@ -678,6 +686,10 @@ pub(in crate::handlers::job_copy_live) async fn refresh_deal(
         if let Some(deal) = Arc::make_mut(index).deals.iter_mut().find(|d| d.id == id) {
             deal.pipeline = pipeline;
             deal.stage = stage;
+            deal.assignment = owner_todo::Assignment::from_record(&Record {
+                id: id.clone(),
+                properties: record.properties.clone(),
+            });
         }
     }
     // index → companies の順で更新し、移動前の先読み結果による巻き戻しを防ぐ。
@@ -723,7 +735,7 @@ pub(in crate::handlers::job_copy_live) async fn read(
     let body = match snapshot {
         Some(index) => {
             let today = (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive();
-            let work = owner_todo::view(service).await;
+            let work = owner_todo::work_view(service).await;
             let base = answer(service, index.clone(), today).await;
             let mut data: Value = serde_json::from_slice(&base).expect("home JSON");
             if let Some(work_snapshot) = work.snapshot {
@@ -739,6 +751,7 @@ pub(in crate::handlers::job_copy_live) async fn read(
                 data["home"] =
                     serde_json::to_value(compute(&records, &map, today)).expect("home values");
                 data["work"] = work_snapshot.report(&query, &email, today, work.failed);
+                data["work"]["refreshing"] = json!(work.refreshing);
                 if work.partial {
                     data["work"]["todos_status"] =
                         json!(if work.failed { "failed" } else { "preparing" });
