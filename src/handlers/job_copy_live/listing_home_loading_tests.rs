@@ -39,7 +39,14 @@ impl Fixture {
                 }
                 let path = req.uri().path().to_owned();
                 if path.contains("/pipelines/") {
-                    return Json(json!({"results":[]})).into_response();
+                    return Json(json!({"results":[{"id":"21596025","label":"合成・納品管理","stages":[
+                        {"id":"stage-demo","label":"合成・契約中","metadata":{"isClosed":"false"}},
+                        {"id":"66848546","label":"継続済","metadata":{"isClosed":"true"}}
+                    ]}]})).into_response();
+                }
+                if path == "/crm/v3/objects/deals/1" {
+                    assert_eq!(req.method(), axum::http::Method::GET);
+                    return Json(json!({"id":"1","properties":{"pipeline":"21596025","dealstage":"66848546"}})).into_response();
                 }
                 let bytes = axum::body::to_bytes(req.into_body(), 1_000_000)
                     .await
@@ -139,6 +146,13 @@ impl Fixture {
         .expect("background read completes");
     }
     async fn api(&self, signed_in: bool) -> Result<axum::response::Response, ReadError> {
+        self.invoke(signed_in, false).await
+    }
+    async fn invoke(
+        &self,
+        signed_in: bool,
+        refresh: bool,
+    ) -> Result<axum::response::Response, ReadError> {
         let session = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
         if signed_in {
             session
@@ -162,17 +176,24 @@ impl Fixture {
             drive_listings: BTreeSet::new(),
             drive_config_error: None,
         };
-        read(
-            State(crate::handlers::job_copy_live::integration_tests::moc_state()),
-            Extension(access),
-            session,
-            Query(owner_todo::OwnerQuery {
-                owner: Some("all".into()),
-                ..Default::default()
-            }),
-        )
-        .await
-        .map(IntoResponse::into_response)
+        let state = State(crate::handlers::job_copy_live::integration_tests::moc_state());
+        if refresh {
+            refresh_deal(state, Extension(access), session, AxumPath("1".into()))
+                .await
+                .map(IntoResponse::into_response)
+        } else {
+            read(
+                state,
+                Extension(access),
+                session,
+                Query(owner_todo::OwnerQuery {
+                    owner: Some("all".into()),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .map(IntoResponse::into_response)
+        }
     }
 }
 fn occupation_card(data: &Value) -> &Value {
@@ -485,4 +506,50 @@ async fn cached_and_background_answers_keep_all_five_trend_buckets() {
     f.gate.add_permits(10);
     f.settled().await;
     verify(&answer(&f.service, f.index.clone(), today).await);
+}
+
+#[tokio::test]
+async fn stage_refresh_reads_authorized_source_and_updates_index_home_and_cards() {
+    let mut fixture = Fixture::new().await;
+    let index = Arc::make_mut(&mut fixture.index);
+    index.records.truncate(1);
+    index.records[0].deal_ids = vec!["1".into()];
+    index.deals.truncate(1);
+    index.deals[0].pipeline = Some("21596025".into());
+    index.deals[0].stage = Some("stage-demo".into());
+    fixture.service.listing_index.state.write().await.snapshot = Some(fixture.index.clone());
+    let before = json_body(fixture.api(true).await.unwrap()).await;
+    assert_eq!(
+        before["home"]["customers"][0]["latest_deal"]["stage_label"],
+        "合成・契約中"
+    );
+    assert_eq!(before["home"]["customers"][0]["active_deals"], 1);
+    let calls = fixture.calls.load(Ordering::SeqCst);
+    assert!(fixture.invoke(false, true).await.is_err());
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), calls);
+    assert_eq!(
+        json_body(fixture.invoke(true, true).await.unwrap()).await["status"],
+        "refreshed"
+    );
+    let snapshot = fixture
+        .service
+        .listing_index
+        .state
+        .read()
+        .await
+        .snapshot
+        .clone()
+        .unwrap();
+    assert_eq!(snapshot.deals[0].stage.as_deref(), Some("66848546"));
+    let after = json_body(fixture.api(true).await.unwrap()).await;
+    assert_eq!(
+        after["home"]["customers"][0]["latest_deal"]["stage_label"],
+        "継続済"
+    );
+    assert_eq!(after["home"]["customers"][0]["active_deals"], 0);
+    // 「まず見るもの」の件数も同じ更新済みのホーム応答から取得する。
+    assert_eq!(
+        occupation_card(&after)["count"],
+        occupation_card(&before)["count"]
+    );
 }
