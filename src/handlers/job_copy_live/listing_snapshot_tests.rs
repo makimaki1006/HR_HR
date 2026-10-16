@@ -18,7 +18,7 @@ fn fixture(count: usize) -> Index {
         row.indexed_application_count = Some(n % 31);
         row.body_summary = Some(row.summary.clone());
         row.perf = Some(home::PerfDigest {
-            comparison_window: None,
+            comparison_recent: None,
             latest_end: chrono::NaiveDate::from_ymd_opt(2026, 10, 15).unwrap(),
             recent_apps: (n % 20) as i64,
             recent_cost: (n % 10000) as i64,

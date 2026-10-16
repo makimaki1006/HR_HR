@@ -20,7 +20,6 @@
 .ab-table-scroll thead th { background: #edf3f8; }
 .ab-table-scroll thead button { display: block; margin-top: 10px; font-weight: 400; }
 .ab-different { background: #fff7e6; }
-.ab-difference-mark { display: block; width: fit-content; border: 1px solid #b77819; border-radius: 4px; color: #7a4c08; font-size: 12px; padding: 2px 6px; margin-bottom: 8px; }
 .ab-body { white-space: pre-wrap; max-height: 480px; overflow-y: auto; }
 .ab-content-table .jc-image-gallery { min-width: 0; }
 .ab-comparison summary { cursor: pointer; padding: 14px 0; font-weight: 600; }
@@ -29,3 +28,5 @@
 .ab-comparison :focus-visible { outline: 3px solid #1668c7; outline-offset: 3px; }
 @media (max-width: 800px) { .ab-comparison { padding: 12px; } .ab-picker { padding: 12px; } .ab-candidates li { align-items: start; flex-direction: column; } }
 @media print { .ab-table-scroll { overflow: visible; } .ab-table-scroll table { table-layout: auto; } .ab-table-scroll th, .ab-table-scroll td { min-width: 0; width: auto; } .ab-body { max-height: none; overflow: visible; } }
+
+.ab-candidates .ab-candidate-numbers { color: #203743; font-variant-numeric: tabular-nums; }

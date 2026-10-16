@@ -1,12 +1,20 @@
-import { test, expect, type Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import { selectJobFeature } from './job-copy-navigation';
 import { demoHome } from '../../frontend/src/screens/job-copy/demoHome';
 import type { HubSpotListing } from '../../frontend/src/screens/job-copy/hubspotListings';
 
+function shotPath(info: TestInfo, name: string) {
+  const dir = process.env.JOB_COMPARISON_SHOTS_DIR;
+  if (!dir || !['other-customers.png', 'three-columns.png'].includes(name)) return info.outputPath(name);
+  mkdirSync(dir, { recursive: true });
+  return resolve(dir, name);
+}
 const captured = '2026-10-16T03:00:00Z';
 const image = 'https://example.invalid/job-comparison/fictional.svg';
 const shift = (date: string, days: number) => new Date(Date.parse(date) + days * 86_400_000).toISOString().slice(0, 10);
-const listing = (id: number, same = true): HubSpotListing => ({ id: String(id), media: 'hrh', media_job_id: String(12345000 + id), account_id: same ? 'fictional-account-a' : 'fictional-account-b', title: `架空の配送募集${String(id)}`, prefecture: '大分県', municipality: '大分市', category: null, indeed_title_state: 'unset', publication_status: id === 2 ? '掲載終了' : '掲載中', last_csv_detected_at: captured, application_count: 90 - id, listing_started_on: id === 1 ? '2026-09-01' : '2026-09-08', deal_ids: id <= 2 ? ['901'] : ['902'], summary: { occupation: '配送ドライバー', location: '大分県大分市', salary_kind: '月給', salary_min: id === 1 ? '250000' : '270000', salary_max: '300000', hours: '8:00〜17:00', holidays: '土日', body_changed_at: captured } });
+const listing = (id: number, same = true): HubSpotListing => ({ id: String(id), media: 'hrh', media_job_id: String(12345000 + id), account_id: same ? 'fictional-account-a' : 'fictional-account-b', title: `架空の配送募集${String(id)}`, prefecture: '大分県', municipality: '大分市', category: null, indeed_title_state: 'unset', publication_status: id === 2 ? '掲載終了' : '掲載中', last_csv_detected_at: captured, application_count: 90 - id, recent_performance: { period_start: '2026-09-14', period_end: '2026-10-11', applications: id * 4, cost_yen: id * 4000 }, listing_started_on: id === 1 ? '2026-09-01' : '2026-09-08', deal_ids: id <= 2 ? ['901'] : ['902'], summary: { occupation: '配送ドライバー', location: '大分県大分市', salary_kind: '月給', salary_min: id === 1 ? '250000' : '270000', salary_max: '300000', hours: '8:00〜17:00', holidays: '土日', body_changed_at: captured } });
 const rows = [listing(1), listing(2), listing(3), ...Array.from({ length: 22 }, (_, i) => listing(i + 4)), listing(30, false), listing(31, false)];
 function versions(row: HubSpotListing) {
   const id = Number(row.id);
@@ -60,12 +68,13 @@ export function registerComparisonTests(authenticate: (page: Page) => Promise<vo
     expect(requests.filter(u => u.searchParams.has('account_id')).at(-1)?.searchParams.has('owner')).toBe(false);
     expect(details).not.toContain('2');
     await expect(comparison.locator('.ab-candidates > li')).toHaveCount(20);
+    await expect(comparison.locator('.ab-candidates > li').first()).toContainText('直近4週の応募：8件 · 応募単価：1,000円');
     await page.getByRole('dialog', { name: 'ほかの分析', exact: true }).screenshot({ path: info.outputPath('same-customer.png') });
     await comparison.getByRole('button', { name: '次の20件' }).click();
     await expect(comparison.locator('.ab-candidates > li')).toHaveCount(4);
     expect(requests.at(-1)?.searchParams.get('offset')).toBe('20');
     await comparison.getByRole('button', { name: '架空の配送募集22を比較に追加' }).click();
-    await expect(comparison.getByRole('region', { name: '成果の横並び比較' })).toContainText('110件');
+    await expect(comparison.getByRole('region', { name: '成果の横並び比較' })).toContainText('88件');
     expect(details).toContain('22');
   });
   test('other customers start with body occupation and prefecture, and filters can be cleared', async ({ page }, info) => {
@@ -73,12 +82,13 @@ export function registerComparisonTests(authenticate: (page: Page) => Promise<vo
     const { comparison, requests } = await setup(page, authenticate);
     await comparison.getByRole('tab', { name: 'ほかの顧客', exact: true }).click();
     await expect(comparison.locator('.ab-candidates strong')).toHaveText(['架空の配送募集31', '架空の配送募集30']);
+    await expect(comparison.locator('.ab-candidate-numbers')).toHaveText(['直近4週の応募：124件 · 応募単価：1,000円', '直近4週の応募：120件 · 応募単価：1,000円']);
     const query = requests.at(-1)?.searchParams;
     expect(query?.get('occupation')).toBe('配送ドライバー'); expect(query?.has('title')).toBe(false);
     expect(query?.get('prefecture')).toBe('大分県'); expect(query?.get('exclude_account_id')).toBe('fictional-account-a');
     expect(query?.get('sort')).toBe('recent_applications');
     await expect(comparison.getByLabel('本文の職種')).toHaveValue('配送ドライバー');
-    await page.getByRole('dialog', { name: 'ほかの分析', exact: true }).screenshot({ path: info.outputPath('other-customers.png') });
+    await page.getByRole('dialog', { name: 'ほかの分析', exact: true }).screenshot({ path: shotPath(info, 'other-customers.png') });
     await comparison.getByRole('button', { name: '絞り込みを外す' }).click();
     await expect.poll(() => requests.at(-1)?.searchParams.has('occupation')).toBe(false);
     expect(requests.at(-1)?.searchParams.has('prefecture')).toBe(false);
@@ -92,16 +102,19 @@ export function registerComparisonTests(authenticate: (page: Page) => Promise<vo
     await comparison.getByRole('button', { name: '架空の配送募集3を比較に追加' }).click();
     const table = comparison.getByRole('region', { name: '成果の横並び比較' });
     await expect(table.getByRole('columnheader')).toHaveCount(4);
-    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '応募数', exact: true }) }).getByRole('cell')).toHaveText(['5件', '10件', '15件']);
-    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '表示数', exact: true }) }).getByRole('cell')).toHaveText(['5,000回', '5,000回', '5,000回']);
+    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '応募数', exact: true }) }).getByRole('cell')).toHaveText(['4件', '8件', '12件']);
+    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '表示数', exact: true }) }).getByRole('cell')).toHaveText(['4,000回', '4,000回', '4,000回']);
     await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '応募単価', exact: true }) }).getByRole('cell')).toHaveText(['1,000円', '1,000円', '1,000円']);
-    await expect(comparison.locator('.ab-difference-mark').first()).toHaveText('今の求人と違う');
+    await expect(comparison.locator('.ab-difference-mark')).toHaveCount(0);
+    await expect(comparison.getByText('色が付いたところが今の求人と違う項目です。', { exact: true })).toHaveCount(1);
+    await expect(comparison.locator('.ab-different')).toHaveCount(10);
+    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '含めた週', exact: true }) }).getByRole('cell')).toHaveText(['2026/08/31〜09/27 の4週', '2026/09/07〜10/04 の4週', '2026/09/07〜10/04 の4週']);
     const composition = comparison.getByText('応募者構成（性別・年代・地域）', { exact: true }).locator('..');
     await expect(composition).not.toHaveAttribute('open');
     await comparison.getByText('比較する相手を探す', { exact: true }).click();
     await page.setViewportSize({ width: 1440, height: 1700 });
-    await page.getByRole('dialog', { name: 'ほかの分析', exact: true }).screenshot({ path: info.outputPath('three-columns.png') });
-    await info.attach('求人比較・3列', { path: info.outputPath('three-columns.png'), contentType: 'image/png' });
+    await page.getByRole('dialog', { name: 'ほかの分析', exact: true }).screenshot({ path: shotPath(info, 'three-columns.png') });
+    await info.attach('求人比較・3列', { path: shotPath(info, 'three-columns.png'), contentType: 'image/png' });
     await comparison.getByText(/^同じ項目・未取得/).click();
     const same = comparison.getByRole('region', { name: '同じ項目・未取得の横並び比較', exact: true });
     await same.scrollIntoViewIfNeeded();
@@ -109,7 +122,7 @@ export function registerComparisonTests(authenticate: (page: Page) => Promise<vo
     await expect.poll(() => same.locator('img').evaluateAll(images => images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth === 480))).toBe(true);
     await page.getByRole('dialog', { name: 'ほかの分析', exact: true }).screenshot({ path: info.outputPath('three-columns-content.png') });
     await comparison.getByLabel('比べる期間').selectOption('recent');
-    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '比べる期間', exact: true }) }).getByRole('cell')).toHaveText(['2026/09/19〜2026/10/16', '2026/09/19〜2026/10/16', '2026/09/19〜2026/10/16']);
+    await expect(table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '比べる期間', exact: true }) }).getByRole('cell')).toHaveText(['2026/09/14〜2026/10/11', '2026/09/14〜2026/10/11', '2026/09/14〜2026/10/11']);
     await comparison.getByText('応募者構成（性別・年代・地域）', { exact: true }).click();
     await composition.getByText('性別を比較', { exact: true }).click();
     await expect(composition.getByRole('table').first().getByRole('columnheader')).toHaveCount(4);

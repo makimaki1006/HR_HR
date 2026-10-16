@@ -22,25 +22,41 @@ export type ComparisonPeriod = 'start' | 'recent';
 export interface Period { start: string; end: string }
 export const jstToday = () => new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
 export function shiftDay(day: string, days: number) { return new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10); }
-export function comparisonPeriod(job: JobCopyRecord, mode: ComparisonPeriod, today: string): Period | null {
-  if (mode === 'recent') return { start: shiftDay(today, -27), end: today };
+/** 7日間の週の行だけを使う。月次・任意期間の実績を週とみなさない。 */
+const weeklyRows = (job: JobCopyRecord) => (job.hrhPerformance?.rows ?? []).filter(row => shiftDay(row.period_start, 6) === row.period_end);
+export function commonRecentPeriod(jobs: readonly JobCopyRecord[], today: string): Period | null {
+  const first = jobs[0];
+  if (!first) return null;
+  const ends = weeklyRows(first).filter(row => row.period_end <= today).sort((a, b) => b.period_end.localeCompare(a.period_end));
+  for (const row of ends) {
+    const period = { start: shiftDay(row.period_end, -27), end: row.period_end };
+    if (jobs.every(job => periodPerformance(job, period).covered)) return period;
+  }
+  return null;
+}
+export function comparisonPeriod(job: JobCopyRecord, mode: ComparisonPeriod, today: string, jobs: readonly JobCopyRecord[] = [job]): Period | null {
+  if (mode === 'recent') return commonRecentPeriod(jobs, today);
   // 本文の確認日を掲載開始日の代わりには使わない。
   const start = job.listingStartedOn ?? (job.dataSource !== 'hubspot' ? publishedVariants(job).find(v => v.publishedFrom)?.publishedFrom?.slice(0, 10) : null);
   if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !Number.isFinite(Date.parse(start)) || shiftDay(start, 0) !== start) return null;
-  return { start, end: shiftDay(start, 27) };
+  // 保存済みの週の区切りを使う。開始週の行が欠けても次の週へずらさない。
+  const anchor = weeklyRows(job)[0]?.period_start;
+  const days = anchor ? (Date.parse(start) - Date.parse(anchor)) / 86_400_000 : (new Date(`${start}T00:00:00Z`).getUTCDay() + 6) % 7;
+  const weekStart = shiftDay(start, -((days % 7 + 7) % 7));
+  return { start: weekStart, end: shiftDay(weekStart, 27) };
 }
 export function periodPerformance(job: JobCopyRecord, period: Period | null) {
-  const rows = period ? (job.hrhPerformance?.rows ?? []).filter(row => row.period_start <= period.end && row.period_end >= period.start).sort((a, b) => a.period_start.localeCompare(b.period_start)) : [];
-  let cursor = period?.start ?? '';
-  let covered = Boolean(period && rows.length);
-  for (const [index, row] of rows.entries()) {
-    if (row.period_start > cursor || row.period_end < row.period_start || (index > 0 && row.period_start < cursor)) covered = false;
-    cursor = shiftDay(row.period_end, 1);
-  }
-  covered = covered && cursor > (period?.end ?? '');
+  const rows = period ? weeklyRows(job).filter(row => row.period_start >= period.start && row.period_end <= period.end).sort((a, b) => a.period_start.localeCompare(b.period_start)) : [];
+  const covered = Boolean(period && rows.length === 4 && shiftDay(period.start, 27) === period.end && rows.every((row, i) => row.period_start === shiftDay(period.start, i * 7)));
   const sum = (key: 'impressions' | 'clicks' | 'cost_yen' | 'applications') => covered && rows.every(row => row[key] !== null) ? rows.reduce((sum, row) => sum + (row[key] ?? 0), 0) : null;
   const total: HrhPerformanceRow = { period_start: period?.start ?? '', period_end: period?.end ?? '', impressions: sum('impressions'), clicks: sum('clicks'), cost_yen: sum('cost_yen'), applications: sum('applications') };
-  return { total, ratios: performanceRatios(total), covered, weeks: rows.map(row => ({ start: row.period_start, end: row.period_end })), boundaryWeeks: rows.filter(row => period && (row.period_start < period.start || row.period_end > period.end)).map(row => ({ start: row.period_start, end: row.period_end })) };
+  return { total, ratios: performanceRatios(total), covered };
+}
+export function fourWeekLabel(period: Period | null): string {
+  if (!period) return '未取得';
+  const start = period.start.replaceAll('-', '/');
+  const end = (period.start.slice(0, 4) === period.end.slice(0, 4) ? period.end.slice(5) : period.end).replaceAll('-', '/');
+  return `${start}〜${end} の4週`;
 }
 
 export function comparisonAttributes(job: JobCopyRecord) {

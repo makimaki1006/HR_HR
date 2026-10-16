@@ -9,6 +9,7 @@ import { hrhCopySections, composeHrhBody } from './hrhCopy';
 import type { JobCopyRecord } from './data';
 import type { IndeedTitleState } from './marketMatch';
 export interface HubSpotListing {
+  recent_performance?: { period_start: string; period_end: string; applications: number | null; cost_yen: number | null } | null;
   id: string; media: 'hrh' | 'airwork'; media_job_id: string; account_id: string | null;
   title: string | null; prefecture: string | null; municipality: string | null; category: string | null;
   /** 人が指定した「比べる Indeed 職種」。state: set / none（市場と比べない）/ unset。古い応答には無い。 */

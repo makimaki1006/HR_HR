@@ -7,7 +7,7 @@ import { loadCompany, loadVersions } from './listingDetailCache';
 import { loadApplicationDates } from './listingApplicationDates';
 import { PREFECTURE_NAMES } from './applicantArea';
 import { buildDistribution } from './applicantCompositionModel';
-import { comparisonAttributes, comparisonPeriod, contentDifferences, jstToday, localCandidates, periodPerformance, variantDistribution } from './abComparisonModel';
+import { comparisonAttributes, comparisonPeriod, commonRecentPeriod, fourWeekLabel, contentDifferences, jstToday, localCandidates, periodPerformance, variantDistribution } from './abComparisonModel';
 import type { ComparisonPeriod } from './abComparisonModel';
 import { APPLICATION_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
 import { formatDateJst, formatPeriodJst, formatYen, orderCategories } from './format';
@@ -48,6 +48,14 @@ function Reasons({ job }: { job: JobCopyRecord }) {
   return <><p>{job.title}</p>{!reasons?.available ? <p>応募理由は未取得です。</p> : <><p>表示対象：{texts.length}記述。応募人数・回答率とは異なります。{reasons.truncated ? '取得上限による一部表示です。' : ''}</p>{texts.map(item => <details key={item.id}><summary>原文を開く · {reasonSourceLabels[item.sourceProperty] ?? '記録欄'} · {formatDateJst(item.applicationDate, '応募日不明')}</summary><blockquote>{item.text}</blockquote></details>)}</>}</>;
 }
 
+function CandidateNumbers({ entry, today }: { entry: Selection; today: string }) {
+  const live = entry.row?.recent_performance;
+  const local = entry.job ? periodPerformance(entry.job, comparisonPeriod(entry.job, 'recent', today)).total : null;
+  const apps = live?.applications ?? local?.applications;
+  const cost = live?.cost_yen ?? local?.cost_yen;
+  const cpa = apps != null && apps > 0 && cost != null ? cost / apps : null;
+  return <small className="ab-candidate-numbers">直近4週の応募：{number(apps, '件')} · 応募単価：{formatYen(cpa, '未取得')}</small>;
+}
 function ComparisonImages({ entry }: { entry: Selection | undefined }) {
   return entry?.job ? <ImageGallery title={`${entry.title}の画像`} images={comparisonAttributes(entry.job).images} /> : <>未取得</>;
 }
@@ -112,12 +120,14 @@ export function AbComparison({ job, records, source = 'fixed' }: { job: JobCopyR
   const candidates: Selection[] = live ? (page?.listings ?? []).map(row => ({ id: row.id, title: row.title ?? '求人名未取得', row })) : local.slice(offset, offset + 20).map(other => ({ id: other.id, title: other.title, job: other }));
   const entries: Selection[] = [{ id: job.id, title: job.title, job }, ...selected];
   const jobs = entries.flatMap(item => item.job ? [item.job] : []);
-  const metrics = entries.map(entry => entry.job ? periodPerformance(entry.job, comparisonPeriod(entry.job, mode, today)) : null);
+  const commonPeriod = jobs.length === entries.length ? commonRecentPeriod(jobs, today) : null;
+  const periods = entries.map(entry => entry.job ? mode === 'recent' ? commonPeriod : comparisonPeriod(entry.job, mode, today) : null);
+  const metrics = entries.map((entry, i) => entry.job ? periodPerformance(entry.job, periods[i] ?? null) : null);
   const content = contentDifferences(entries.map(entry => entry.job ?? { id: entry.id, title: '', versions: [], company: '', media: '', mediaJobId: '', location: '' }));
   const next = live ? page?.next_offset ?? null : offset + 20 < local.length ? offset + 20 : null;
   const changeFilter = (key: keyof typeof filters, value: string) => { setFilters(values => ({ ...values, [key]: value })); setOffset(0); };
   const headers = (actions: boolean) => <tr><th scope="col">項目</th>{entries.map((entry, i) => <th scope="col" key={entry.id}>{i === 0 && <small>今の求人</small>}{entry.title}{actions && i > 0 && <button className="jc-button" onClick={() => { remove(entry.id); }}>{entry.title}を外す</button>}{actions && entry.loading && <p role="status">本文・画像・応募・課金を読み込んでいます…</p>}{actions && entry.error && <p role="alert">{entry.error}<button onClick={() => { void load(entry); }}>再取得</button></p>}{actions && entry.applicantsFailed && <p role="alert">応募者構成・理由を読み込めませんでした。<button onClick={() => { void load(entry); }}>再取得</button></p>}</th>)}</tr>;
-  const contentTable = (different: boolean) => <div className="ab-table-scroll" tabIndex={0} role="region" aria-label={different ? '違う項目の横並び比較' : '同じ項目・未取得の横並び比較'}><table className="ab-content-table"><thead>{headers(false)}</thead><tbody>{content.filter(row => row.different === different).map(row => <tr key={row.key}><th scope="row">{row.label}</th>{row.values.map((value, i) => <td key={entries[i]?.id} className={row.differences[i] ? 'ab-different' : ''}>{row.differences[i] && <span className="ab-difference-mark">今の求人と違う</span>}{row.key === 'images' ? <ComparisonImages entry={entries[i]} /> : <div className={row.key.startsWith('body') ? 'ab-body' : ''}>{value === '' ? '記載なし' : value ?? '未取得'}</div>}</td>)}</tr>)}</tbody></table></div>;
+  const contentTable = (different: boolean) => <div className="ab-table-scroll" tabIndex={0} role="region" aria-label={different ? '違う項目の横並び比較' : '同じ項目・未取得の横並び比較'}><table className="ab-content-table"><thead>{headers(false)}</thead><tbody>{content.filter(row => row.different === different).map(row => <tr key={row.key}><th scope="row">{row.label}</th>{row.values.map((value, i) => <td key={entries[i]?.id} className={row.differences[i] ? 'ab-different' : ''}>{row.key === 'images' ? <ComparisonImages entry={entries[i]} /> : <div className={row.key.startsWith('body') ? 'ab-body' : ''}>{value === '' ? '記載なし' : value ?? '未取得'}</div>}</td>)}</tr>)}</tbody></table></div>;
   return <section className="ab-comparison" aria-label="求人比較"><h2>求人比較</h2><p>同じ顧客の求人で内容と成果を比べたり、ほかの顧客で応募が多い求人を参考にできます。相手は4件まで選べます。</p>
     <details className="ab-picker jc-no-print" open><summary>比較する相手を探す</summary><div className="ab-tabs" role="tablist" aria-label="相手の探し方">{(['same', 'other'] as const).map(value => <button key={value} id={`${id}-${value}`} role="tab" aria-controls={`${id}-candidates`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onKeyDown={event => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); const next = event.key === 'Home' ? 'same' : event.key === 'End' ? 'other' : value === 'same' ? 'other' : 'same'; setTab(next); setOffset(0); document.getElementById(`${id}-${next}`)?.focus(); } }} onClick={() => { setTab(value); setOffset(0); }}>{value === 'same' ? '同じ顧客' : 'ほかの顧客'}</button>)}</div>
       <div id={`${id}-candidates`} role="tabpanel" aria-labelledby={`${id}-${tab}`}>
@@ -125,22 +135,22 @@ export function AbComparison({ job, records, source = 'fixed' }: { job: JobCopyR
         {tab === 'other' && <div className="ab-controls"><label>本文の職種<input value={filters.occupation} maxLength={200} onChange={e => { changeFilter('occupation', e.target.value); }} /></label><label>都道府県<select value={filters.prefecture} onChange={e => { changeFilter('prefecture', e.target.value); }}><option value="">全国</option>{PREFECTURE_NAMES.map(prefecture => <option key={prefecture}>{prefecture}</option>)}</select></label><label>媒体<select value={filters.media} onChange={e => { changeFilter('media', e.target.value); }}><option value="">すべて</option><option>HRハッカー</option><option>AirWork</option></select></label><label>求人名の検索<input type="search" maxLength={100} value={filters.q} onChange={e => { changeFilter('q', e.target.value); }} /></label><button className="jc-button" onClick={() => { setFilters({ occupation: '', prefecture: '', media: '', q: '' }); setOffset(0); }}>絞り込みを外す</button></div>}
         {live && !job.accountId ? <p>顧客が分からないため、比較する相手を探せません。</p> : <>{listError ? <p role="alert">{listError}<button onClick={() => { setReload(v => v + 1); }}>再取得</button></p> : live && !page ? <p role="status">比較する求人を読み込んでいます…</p> : page?.status === 'preparing' ? <p role="status">求人一覧を準備しています。<button onClick={() => { setReload(v => v + 1); }}>もう一度確認</button></p> : <>
           {page?.refresh_failed && <p>一覧を更新できなかったため、前回取得した候補を表示しています。</p>}
-          <ul className="ab-candidates">{candidates.map(entry => <li key={entry.id}><div><strong>{entry.title}</strong><small>{entry.row ? [entry.row.summary?.occupation, entry.row.prefecture, mediaLabel(entry.row.media), publicationLabel(entry.row.publication_status)].filter(Boolean).join(' · ') : [entry.job?.company, entry.job?.location, entry.job?.media].filter(Boolean).join(' · ')}</small></div><button className="jc-button" disabled={selected.length >= 4 || selected.some(item => item.id === entry.id)} onClick={() => { add(entry); }}>{selected.some(item => item.id === entry.id) ? '選択済み' : `${entry.title}を比較に追加`}</button></li>)}</ul>
+          <ul className="ab-candidates">{candidates.map(entry => <li key={entry.id}><div><strong>{entry.title}</strong><small>{entry.row ? [entry.row.summary?.occupation, entry.row.prefecture, mediaLabel(entry.row.media), publicationLabel(entry.row.publication_status)].filter(Boolean).join(' · ') : [entry.job?.company, entry.job?.location, entry.job?.media].filter(Boolean).join(' · ')}</small><CandidateNumbers entry={entry} today={today} /></div><button className="jc-button" disabled={selected.length >= 4 || selected.some(item => item.id === entry.id)} onClick={() => { add(entry); }}>{selected.some(item => item.id === entry.id) ? '選択済み' : `${entry.title}を比較に追加`}</button></li>)}</ul>
           {!candidates.length && <p>条件に合う求人はありません。</p>}
           <nav className="ab-pages" aria-label="比較候補のページ"><button className="jc-button" disabled={offset === 0} onClick={() => { setOffset(v => Math.max(0, v - 20)); }}>前の20件</button><span>{candidates.length ? `${String(offset + 1)}〜${String(offset + candidates.length)}件` : '0件'}</span><button className="jc-button" disabled={next === null} onClick={() => { if (next !== null) setOffset(next); }}>次の20件</button></nav>
         </>}</>}
       </div>
     </details>
-    <div className="ab-period"><label>比べる期間<select value={mode} onChange={e => { setMode(e.target.value === 'recent' ? 'recent' : 'start'); }}><option value="start">それぞれの掲載開始から4週</option><option value="recent">同じ期間（直近4週）</option></select></label><p>応募数は媒体の実績です。期間を覆う週の値をそのまま足し、日割りはしません。未取得の値は0にしません。</p></div>
+    <div className="ab-period"><label>比べる期間<select value={mode} onChange={e => { setMode(e.target.value === 'recent' ? 'recent' : 'start'); }}><option value="start">それぞれの掲載開始から4週</option><option value="recent">同じ期間（直近4週）</option></select></label><p>応募数は媒体の実績です。掲載開始日を含む週から連続する4週、または全員に共通する最新の4週を使います。日割りはしません。未取得の値は0にしません。</p></div>
     {jobs.slice(1).some(other => other.accountId !== job.accountId || other.company !== job.company || other.location !== job.location || other.media !== job.media || other.listingStartedOn !== job.listingStartedOn) && <p className="jc-notice">顧客・勤務地・媒体・掲載時期に違いがあります。条件も確認してください。</p>}
     <p>本文・画像は最後に取得した内容です。比べる期間の当時の内容とは限りません。</p><p>選択中：{selected.length}件 / 4件。良し悪しは自動で判定しません。</p>
     <div className="ab-table-scroll" tabIndex={0} role="region" aria-label="成果の横並び比較"><table><thead>{headers(true)}</thead><tbody>
       <tr><th scope="row">顧客・勤務地・媒体</th>{entries.map(entry => <td key={entry.id}>{entry.job ? [entry.job.company || '顧客名未取得', entry.job.location, entry.job.media].filter(Boolean).join(' · ') : '未取得'}</td>)}</tr>
-      <tr><th scope="row">比べる期間</th>{entries.map(entry => { const period = entry.job ? comparisonPeriod(entry.job, mode, today) : null; return <td key={entry.id}>{period ? formatPeriodJst(period.start, period.end) : entry.job ? '掲載開始日が分かりません' : '未取得'}</td>; })}</tr>
-      <tr><th scope="row">含めた週</th>{metrics.map((metric, i) => <td key={entries[i]?.id}>{metric?.weeks.length ? <>{metric.weeks.map(week => <div key={week.start}>{formatPeriodJst(week.start, week.end)}</div>)}{metric.boundaryWeeks.length > 0 && <small>期間の端にかかる週も丸ごと含みます。</small>}{!metric.covered && <small>期間内の実績が不足しています。</small>}</> : '未取得'}</td>)}</tr>
+      <tr><th scope="row">比べる期間</th>{entries.map((entry, i) => { const period = periods[i]; return <td key={entry.id}>{period ? formatPeriodJst(period.start, period.end) : entry.job ? mode === 'recent' ? '共通の4週分の実績がありません' : '掲載開始日が分かりません' : '未取得'}</td>; })}</tr>
+      <tr><th scope="row">含めた週</th>{metrics.map((metric, i) => <td key={entries[i]?.id}>{metric?.covered ? fourWeekLabel(periods[i] ?? null) : '未取得（4週分の実績が不足）'}</td>)}</tr>
       {(['応募数', '表示数', 'クリック数', 'クリック率', '費用', '応募単価'] as const).map(label => <tr key={label}><th scope="row">{label}</th>{metrics.map((m, i) => <td key={entries[i]?.id}>{label === '費用' || label === '応募単価' ? formatYen(label === '費用' ? m?.total.cost_yen : m?.ratios.cpa, '未取得') : number(label === '応募数' ? m?.total.applications : label === '表示数' ? m?.total.impressions : label === 'クリック数' ? m?.total.clicks : m?.ratios.ctr, label === 'クリック率' ? '%' : label === '応募数' ? '件' : '回')}</td>)}</tr>)}
     </tbody></table></div>
-    <h3>違う項目（{content.filter(row => row.different).length}項目）</h3>{contentTable(true)}<details><summary>同じ項目・未取得（{content.filter(row => !row.different).length}項目）</summary>{contentTable(false)}</details>
+    <p>色が付いたところが今の求人と違う項目です。</p><h3>違う項目（{content.filter(row => row.different).length}項目）</h3>{contentTable(true)}<details><summary>同じ項目・未取得（{content.filter(row => !row.different).length}項目）</summary>{contentTable(false)}</details>
     {selected.length > 0 && <><Composition jobs={jobs} /><details className="jc-no-print"><summary>応募理由（内部閲覧）</summary><p>取得済みの応募全体の理由です。上の期間に限定していません。</p><div className="ab-reasons">{jobs.map(item => <section key={item.id}><Reasons job={item} /></section>)}</div></details></>}
   </section>;
 }

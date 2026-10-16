@@ -470,6 +470,9 @@ struct PageListing {
     #[serde(flatten)]
     listing: Listing,
     application_count: Option<usize>,
+    /// 候補一覧の直近4週。追加のHubSpot取得はしない。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recent_performance: Option<home::ComparisonRecent>,
 }
 
 /// 職種の指定を書けたら、全件索引の行にも反映する（再構築を待たない）。
@@ -1068,9 +1071,9 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
             let apps = |r: &Listing| {
                 r.perf
                     .as_ref()
-                    .and_then(|p| p.comparison_window)
-                    .filter(|(end, _)| *end == today)
-                    .map(|(_, apps)| apps)
+                    .and_then(|p| p.comparison_recent.as_ref())
+                    .filter(|p| p.period_end <= today)
+                    .and_then(|p| p.applications)
             };
             // 未取得は末尾。同数は番号順。
             return apps(b).cmp(&apps(a)).then_with(id_order);
@@ -1170,6 +1173,11 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
         .map(|row| PageListing {
             listing: row.clone(),
             application_count: row.indexed_application_count,
+            recent_performance: row
+                .perf
+                .as_ref()
+                .and_then(|p| p.comparison_recent.clone())
+                .filter(|p| p.period_end <= today),
         })
         .collect();
     (total, page)
@@ -1881,7 +1889,7 @@ pub(super) async fn read_versions(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf,"airwork_weekly_perf":airwork_perf,"listing_started_on":super::listing_status::day(record.value("koukai_kaishi_nichiji")),"status_history":status_history(data)}),
+            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count, recent_performance: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf,"airwork_weekly_perf":airwork_perf,"listing_started_on":super::listing_status::day(record.value("koukai_kaishi_nichiji")),"status_history":status_history(data)}),
         ),
     ))
 }
@@ -2027,7 +2035,12 @@ mod publication_count_tests {
                 r.indexed_application_count = Some(1000 - id as usize);
                 r.perf = Some(home::PerfDigest {
                     latest_end: today,
-                    comparison_window: Some((today, id)),
+                    comparison_recent: Some(home::ComparisonRecent {
+                        period_start: today - chrono::Duration::days(27),
+                        period_end: today,
+                        applications: Some(id),
+                        cost_yen: Some(id as f64 * 1000.0),
+                    }),
                     recent_apps: id,
                     recent_cost: 0,
                     prev_apps: 0,
@@ -2050,6 +2063,13 @@ mod publication_count_tests {
         assert_eq!(first.len(), 20);
         assert_eq!(first[0].listing.id, "25");
         assert_eq!(first[1].listing.id, "2");
+        let response = serde_json::to_value(&first).unwrap();
+        assert_eq!(response[0]["recent_performance"]["applications"], 25);
+        assert_eq!(response[0]["recent_performance"]["cost_yen"], 25000.0);
+        assert_eq!(
+            response[0]["recent_performance"]["period_end"],
+            today.to_string()
+        );
         query.offset = 20;
         assert_eq!(
             selected_page(&index, &query)

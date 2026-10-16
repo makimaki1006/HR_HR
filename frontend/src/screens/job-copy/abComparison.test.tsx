@@ -2,14 +2,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { AbComparison } from './AbComparison';
-import { comparisonPeriod, contentDifferences, localCandidates, periodPerformance, publishedVariants, variantCount } from './abComparisonModel';
+import { comparisonPeriod, commonRecentPeriod, fourWeekLabel, shiftDay, contentDifferences, localCandidates, periodPerformance, publishedVariants, variantCount } from './abComparisonModel';
 import type { JobCopyRecord } from './data';
 
-const row = { period_start: '2026-09-01', period_end: '2026-09-28', impressions: 1000, clicks: 50, cost_yen: 10000, applications: 5 };
+const row = { period_start: '2026-08-31', period_end: '2026-09-06', impressions: 1000, clicks: 50, cost_yen: 10000, applications: 5 };
+const weekly = (start = '2026-08-31', count = 4) => Array.from({ length: count }, (_, i) => ({ ...row, period_start: shiftDay(start, i * 7), period_end: shiftDay(start, i * 7 + 6) }));
 const job = (id: string, accountId = 'fictional-account'): JobCopyRecord => ({ id, accountId, mediaJobId: '12345678', company: '架空物流', title: `募集${id}`, location: '大分県大分市', media: 'HRハッカー', listingStartedOn: '2026-09-01',
   versions: [{ id: `${id}-v1`, label: '掲載した本文', observedAt: '2026-09-01T00:00:00Z', kind: 'published', certainty: 'estimated', source: '合成媒体CSV', body: `本文${id}`, note: '合成例', applications: { confirmed: 1, estimated: 2, unknown: 8 }, images: [] }],
   overallApplications: { total: 20, missingDate: 0, fetchedAt: '2026-10-05T00:00:00Z', distributions: { gender: { total: 20, categories: [{ category: '男性', count: 20, percentage: 100 }] } } },
-  hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: '12345678', captured_at: '2026-10-05T00:00:00Z', rows: [row] },
+  hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: '12345678', captured_at: '2026-10-05T00:00:00Z', rows: weekly() },
 });
 const performance = (value: JobCopyRecord) => { if (!value.hrhPerformance) throw new Error('Missing test performance'); return value.hrhPerformance; };
 const version = (value: JobCopyRecord) => { const first = value.versions[0]; if (!first) throw new Error('Missing test body'); return first; };
@@ -22,21 +23,37 @@ describe('求人比較', () => {
     expect(variantCount(a, a.versions[0], 'version')).toBe(3);
     expect(publishedVariants({ ...a, versions: a.versions.map(v => ({ ...v, kind: 'ai_draft' })) })).toEqual([]);
   });
-  it('aligns inclusive 28-day windows; never substitutes an observation date for a missing start', () => {
-    expect(comparisonPeriod(job('a'), 'start', '2026-10-16')).toEqual({ start: '2026-09-01', end: '2026-09-28' });
-    expect(comparisonPeriod({ ...job('b'), listingStartedOn: '2026-09-08' }, 'start', '2026-10-16')).toEqual({ start: '2026-09-08', end: '2026-10-05' });
+  it('uses exactly four rows from the week containing the listing start, never five or a replacement start', () => {
+    expect(comparisonPeriod(job('a'), 'start', '2026-10-16')).toEqual({ start: '2026-08-31', end: '2026-09-27' });
+    expect(comparisonPeriod({ ...job('b'), listingStartedOn: '2026-09-08' }, 'start', '2026-10-16')).toEqual({ start: '2026-09-07', end: '2026-10-04' });
     expect(comparisonPeriod({ ...job('a'), listingStartedOn: null }, 'start', '2026-10-16')).toBeNull();
     expect(comparisonPeriod({ ...job('a'), listingStartedOn: '2026-02-30' }, 'start', '2026-10-16')).toBeNull();
-    expect(comparisonPeriod(job('a'), 'recent', '2026-10-16')).toEqual({ start: '2026-09-19', end: '2026-10-16' });
+    expect(fourWeekLabel({ start: '2026-08-31', end: '2026-09-27' })).toBe('2026/08/31〜09/27 の4週');
+    expect(fourWeekLabel({ start: '2026-12-14', end: '2027-01-10' })).toBe('2026/12/14〜2027/01/10 の4週');
+    const full = { ...job('a'), hrhPerformance: { ...performance(job('a')), rows: weekly('2026-08-31', 8) } };
+    const period = comparisonPeriod(full, 'start', '2026-10-16');
+    expect(periodPerformance(full, period)).toMatchObject({ covered: true, total: { impressions: 4000, clicks: 200, applications: 20, cost_yen: 40000 }, ratios: { ctr: 5, cpa: 2000 } });
   });
-  it('includes boundary weeks without prorating and returns null for gaps or missing metric values', () => {
-    const a = job('a'); const period = { start: '2026-09-03', end: '2026-09-30' };
-    const full = { ...a, hrhPerformance: { ...performance(a), rows: [{ ...row, period_end: '2026-09-07' }, { ...row, period_start: '2026-09-08', period_end: '2026-09-30', cost_yen: 20000, applications: 10 }] } };
-    expect(periodPerformance(full, period)).toMatchObject({ covered: true, total: { impressions: 2000, clicks: 100, applications: 15, cost_yen: 30000 }, ratios: { ctr: 5, cpa: 2000 }, boundaryWeeks: [{ start: '2026-09-01', end: '2026-09-07' }] });
-    const gap = { ...full, hrhPerformance: { ...full.hrhPerformance, rows: full.hrhPerformance.rows.map((r, i) => i ? { ...r, period_start: '2026-09-09' } : r) } };
-    expect(periodPerformance(gap, period)).toMatchObject({ covered: false, total: { impressions: null, applications: null, cost_yen: null } });
+  it('finds the latest four completed weeks shared by every selected job, including gaps and no common period', () => {
+    const a = { ...job('a'), hrhPerformance: { ...performance(job('a')), rows: weekly('2026-08-31', 8) } };
+    const b = { ...job('b'), hrhPerformance: { ...performance(a), rows: weekly('2026-09-07', 5) } };
+    expect(commonRecentPeriod([a, b], '2026-10-16')).toEqual({ start: '2026-09-14', end: '2026-10-11' });
+    const gap = { ...b, hrhPerformance: { ...performance(b), rows: performance(b).rows.filter(r => r.period_start !== '2026-10-05') } };
+    expect(commonRecentPeriod([a, gap], '2026-10-16')).toEqual({ start: '2026-09-07', end: '2026-10-04' });
+    expect(comparisonPeriod(a, 'recent', '2026-10-16', [a, b])).toEqual(comparisonPeriod(b, 'recent', '2026-10-16', [a, b]));
+    expect(commonRecentPeriod([a, { ...b, hrhPerformance: undefined }], '2026-10-16')).toBeNull();
+    expect(commonRecentPeriod([], '2026-10-16')).toBeNull();
+  });
+  it('returns null for a missing start or interior week, monthly data, or a missing metric, without prorating', () => {
+    const a = job('a'); const period = { start: '2026-08-31', end: '2026-09-27' };
+    for (const missing of [0, 2]) {
+      const gap = { ...a, hrhPerformance: { ...performance(a), rows: weekly().filter((_, i) => i !== missing) } };
+      expect(comparisonPeriod(gap, 'start', '2026-10-16')).toEqual(period);
+      expect(periodPerformance(gap, period)).toMatchObject({ covered: false, total: { impressions: null, applications: null, cost_yen: null } });
+    }
+    expect(periodPerformance({ ...a, hrhPerformance: { ...performance(a), rows: [{ ...row, period_end: '2026-09-27' }] } }, period).covered).toBe(false);
     expect(periodPerformance({ ...a, hrhPerformance: undefined }, period).total.applications).toBeNull();
-    expect(periodPerformance({ ...full, hrhPerformance: { ...full.hrhPerformance, rows: full.hrhPerformance.rows.map(r => ({ ...r, cost_yen: null, applications: 0 })) } }, period)).toMatchObject({ total: { cost_yen: null, applications: 0 }, ratios: { cpa: null } });
+    expect(periodPerformance({ ...a, hrhPerformance: { ...performance(a), rows: weekly().map(r => ({ ...r, cost_yen: null, applications: 0 })) } }, period)).toMatchObject({ total: { cost_yen: null, applications: 0 }, ratios: { cpa: null } });
   });
   it('orders all local candidates before pagination; uses account rather than employer name', () => {
     const a = { ...job('a'), listingDealIds: ['deal-1'] };
@@ -46,9 +63,19 @@ describe('求人比較', () => {
     const outsider = job('x', 'another-fictional-account');
     const filters = { occupation: '', prefecture: '', media: '', q: '' };
     expect(localCandidates(a, [past, live, a, outsider, pastSame], 'same', filters, '2026-09-28').map(j => j.id)).toEqual(['z', 'y', 'b']);
-    const popular = { ...job('popular', 'other'), hrhPerformance: { ...performance(outsider), rows: [{ ...row, applications: 15 }] } };
+    const popular = { ...job('popular', 'other'), hrhPerformance: { ...performance(outsider), rows: weekly().map(r => ({ ...r, applications: 15 })) } };
     expect(localCandidates(a, [a, outsider, popular, past], 'other', filters, '2026-09-28').map(j => j.id)).toEqual(['popular', 'x']);
     expect(localCandidates(a, [outsider], 'other', { ...filters, prefecture: '東京都' }, '2026-09-28')).toEqual([]);
+  });
+  it('shows candidate applications and CPA, distinguishing zero, missing cost and missing weeks', () => {
+    const a = job('a');
+    const noCost = { ...job('b'), hrhPerformance: { ...performance(a), rows: weekly().map(r => ({ ...r, cost_yen: null })) } };
+    const zero = { ...job('c'), hrhPerformance: { ...performance(a), rows: weekly().map(r => ({ ...r, applications: 0 })) } };
+    const missing = { ...job('d'), hrhPerformance: undefined };
+    render(<AbComparison job={a} records={[a, noCost, zero, missing]} />);
+    expect(screen.getByRole('button', { name: '募集bを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：20件 · 応募単価：未取得');
+    expect(screen.getByRole('button', { name: '募集cを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：0件 · 応募単価：未取得');
+    expect(screen.getByRole('button', { name: '募集dを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：未取得 · 応募単価：未取得');
   });
   it('marks only acquired fields that differ from the current job, including images', () => {
     const a = job('a'); const b = { ...job('b'), title: a.title, versions: [{ ...version(job('b')), images: [{ id: 'image-1', url: 'https://example.invalid/fictional.png', caption: '架空画像' }] }] };
@@ -62,9 +89,13 @@ describe('求人比較', () => {
     render(<AbComparison job={a} records={records} />);
     fireEvent.click(screen.getByRole('button', { name: '募集bを比較に追加' }));
     fireEvent.click(screen.getByRole('button', { name: '募集cを比較に追加' }));
+    expect(screen.getByRole('button', { name: '募集dを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：20件 · 応募単価：2,000円');
+    expect(screen.getAllByText('色が付いたところが今の求人と違う項目です。')).toHaveLength(1);
+    expect(screen.queryByText('今の求人と違う', { exact: true })).toBeNull();
+    expect(document.querySelectorAll('.ab-different')).toHaveLength(4);
     const table = within(screen.getByRole('region', { name: '成果の横並び比較' }));
     expect(table.getAllByRole('columnheader').map(el => el.textContent)).toEqual(['項目', '今の求人募集a', '募集b募集bを外す', '募集c募集cを外す']);
-    expect(within(parent(table.getByRole('rowheader', { name: '応募数' }))).getAllByRole('cell').map(el => el.textContent)).toEqual(['5件', '5件', '5件']);
+    expect(within(parent(table.getByRole('rowheader', { name: '応募数' }))).getAllByRole('cell').map(el => el.textContent)).toEqual(['20件', '20件', '20件']);
     fireEvent.click(screen.getByRole('button', { name: '募集dを比較に追加' })); fireEvent.click(screen.getByRole('button', { name: '募集eを比較に追加' }));
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '募集fを比較に追加' }).disabled).toBe(true);
     fireEvent.click(table.getByRole('button', { name: '募集bを外す' }));
@@ -75,14 +106,14 @@ describe('求人比較', () => {
   });
   it('shows missing start explicitly and changes every column to the same recent period', () => {
     const a = { ...job('a'), listingStartedOn: null };
-    render(<AbComparison job={a} records={[a, job('b')]} />);
+    render(<AbComparison job={a} records={[a, { ...job('b'), hrhPerformance: undefined }]} />);
     expect(screen.getByText('掲載開始日が分かりません')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '募集bを比較に追加' }));
     fireEvent.change(screen.getByLabelText('比べる期間'), { target: { value: 'recent' } });
     expect(screen.queryByText('掲載開始日が分かりません')).toBeNull();
     const table = within(screen.getByRole('region', { name: '成果の横並び比較' }));
     const values = within(parent(table.getByRole('rowheader', { name: '比べる期間' }))).getAllByRole('cell').map(el => el.textContent);
-    expect(values[0]).toBe(values[1]);
+    expect(values).toEqual(['共通の4週分の実績がありません', '共通の4週分の実績がありません']);
     expect(within(parent(table.getByRole('rowheader', { name: '費用' }))).getAllByRole('cell').map(el => el.textContent)).toEqual(['未取得', '未取得']);
   });
   it('keeps application reasons available in collapsed columns and excludes reasons for leaving a job', () => {
