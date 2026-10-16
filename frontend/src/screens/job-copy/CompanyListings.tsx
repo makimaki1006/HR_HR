@@ -10,10 +10,12 @@ import type { HubSpotListing, HubSpotListingPage } from './hubspotListings';
 import { formatDateTimeJst } from './format';
 import { formatDay } from './timelineModel';
 import { yen } from './homeModel';
+import { ownerParams } from './OwnerTodo';
+import { useJobCopySearch } from './navigation';
 
 const PAGE_SIZE = 20;
 /** 全求人の一覧は索引だけを読む。応募・課金は従来の読み取りを共用し、追加取得しない。 */
-async function loadRows(deals: readonly CompanyDeal[], signal: AbortSignal): Promise<HubSpotListing[]> {
+async function loadRows(deals: readonly CompanyDeal[], ownerQuery: string, signal: AbortSignal): Promise<HubSpotListing[]> {
   // 求人がない案件は索引の候補に存在しない。API の案件指定は20件まで。
   const wanted = deals.filter(deal => deal.listings_total !== 0);
   const rows: HubSpotListing[] = [];
@@ -21,7 +23,8 @@ async function loadRows(deals: readonly CompanyDeal[], signal: AbortSignal): Pro
     const ids = wanted.slice(i, i + 20).map(deal => deal.id).join(',');
     let offset: number | null = 0;
     while (offset !== null) {
-      const params: URLSearchParams = new URLSearchParams({ deal: ids, offset: String(offset), sort: 'title', descending: 'false' });
+      const params = new URLSearchParams(ownerQuery);
+      params.set('deal', ids); params.set('offset', String(offset)); params.set('sort', 'title'); params.set('descending', 'false');
       const result = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${params.toString()}`, { signal, timeoutMs: 120_000 });
       if (!result.ok || result.data.status !== 'ready') throw new Error('unavailable');
       rows.push(...result.data.listings);
@@ -38,19 +41,21 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
   onOpenDeal: (deal: { id: string; name: string }) => void;
   onOpenListing: (row: HubSpotListing) => void;
 }) {
+  const ownerQuery = ownerParams(useJobCopySearch()) || 'owner=me';
   const [rows, setRows] = useState<HubSpotListing[] | null>(null);
   const [error, setError] = useState(false);
+  const [loadedQuery, setLoadedQuery] = useState('');
   const [source, setSource] = useState<SummarySource>({ status: 'loading' });
   const [livePage, setLivePage] = useState(0);
   const [pastPage, setPastPage] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    void loadRows(deals, controller.signal).then(rows => { if (!controller.signal.aborted) setRows(rows); }).catch(() => { if (!controller.signal.aborted) setError(true); });
+    void loadRows(deals, ownerQuery, controller.signal).then(rows => { if (!controller.signal.aborted) { setRows(rows); setLoadedQuery(ownerQuery); setError(false); setLivePage(0); setPastPage(0); } }).catch(() => { if (!controller.signal.aborted) { setError(true); setLoadedQuery(ownerQuery); } });
     void loadCompanyDatas(companyId, controller.signal, deals).then(source => { if (!controller.signal.aborted) setSource(source); });
     return () => { controller.abort(); };
-  }, [companyId, deals]);
-  if (error) return <p role="alert">求人を読み込めませんでした。時間を置いて画面を開き直してください。</p>;
-  if (!rows) return <p role="status">求人を読み込んでいます…</p>;
+  }, [companyId, deals, ownerQuery]);
+  if (error && loadedQuery === ownerQuery) return <p role="alert">求人を読み込めませんでした。時間を置いて画面を開き直してください。</p>;
+  if (!rows || loadedQuery !== ownerQuery) return <p role="status">求人を読み込んでいます…</p>;
   const model = companyListingsModel(rows, source.status === 'ready' ? source.datas : [], deals, billingByJob);
   const table = (items: typeof model.live, page: number, setPage: (page: number) => void, label: string) => <>
     {items.length ? <div className="jh-scroll"><table className="jh-listing-table" aria-label={`${label}の求人`}><thead><tr>

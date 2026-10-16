@@ -9,9 +9,13 @@ test('顧客の掲載中・過去の全求人、案件リンクと求人の往�
   const indexOffsets: number[] = [];
   await page.route('**/api/job-copy/**', async route => {
     const url = new URL(route.request().url());
-    if (url.pathname.endsWith('/company-deals')) { companyReads++; return route.fulfill({ json: { company: { id: '100', name: '合成事業所' }, deals: ['10', '20'].map((id, i) => ({ id, name: `合成案件${i ? 'B' : 'A'}`, stage_label: i ? '契約終了' : '契約中', current: false })) } }); }
+    if (url.pathname.endsWith('/company-deals')) { expect(url.searchParams.get('owner')).toBe('11'); expect(url.searchParams.get('owner_field')).toBe('consultant'); companyReads++; return route.fulfill({ json: { company: { id: '100', name: '合成事業所' }, deals: ['10', '20'].map((id, i) => ({ id, name: `合成案件${i ? 'B' : 'A'}`, stage_label: i ? '契約終了' : '契約中', current: false })) } }); }
     if (url.pathname.endsWith('/listings')) {
       const all = url.searchParams.get('deal') === '10,20';
+      if (all) {
+        expect(url.searchParams.get('owner')).toBe('11');
+        expect(url.searchParams.get('owner_field')).toBe('consultant');
+      }
       const offset = Number(url.searchParams.get('offset') ?? 0);
       if (all) indexOffsets.push(offset);
       const selected = url.searchParams.get('deal') === '20' ? rows.slice(0, 1) : rows;
@@ -23,7 +27,7 @@ test('顧客の掲載中・過去の全求人、案件リンクと求人の往�
     return route.fulfill({ status: 503, json: {} });
   });
   await login(page);
-  await page.goto('/app/job-copy?company=100');
+  await page.goto('/app/job-copy?owner_field=consultant&owner=11&company=100');
   const main = page.locator('#job-details');
   const live = page.getByRole('table', { name: '掲載中の求人', exact: true });
   await expect(page.getByRole('heading', { name: '掲載中 3件' })).toBeVisible();

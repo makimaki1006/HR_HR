@@ -39,6 +39,8 @@ struct PrivateListing {
 }
 #[derive(Serialize, Deserialize)]
 struct PrivateDeal {
+    #[serde(default)]
+    assignment: owner_todo::Assignment,
     pipeline: Option<String>,
     stage: Option<String>,
     created_at: Option<String>,
@@ -67,6 +69,7 @@ fn encode(index: &Index) -> Result<(Vec<u8>, usize), ()> {
             .deals
             .iter()
             .map(|d| PrivateDeal {
+                assignment: d.assignment.clone(),
                 pipeline: d.pipeline.clone(),
                 stage: d.stage.clone(),
                 created_at: d.created_at.clone(),
@@ -107,6 +110,7 @@ fn decode(bytes: &[u8], now: chrono::DateTime<chrono::Utc>) -> Result<Index, ()>
         row.perf = private.perf;
     }
     for (deal, private) in saved.index.deals.iter_mut().zip(saved.deals) {
+        deal.assignment = private.assignment;
         deal.pipeline = private.pipeline;
         deal.stage = private.stage;
         deal.created_at = private.created_at;

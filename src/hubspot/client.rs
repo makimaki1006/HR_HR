@@ -15,7 +15,10 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex, OnceLock,
+};
 use std::time::{Duration, Instant};
 
 use reqwest::header::{HeaderMap, AUTHORIZATION, RETRY_AFTER};
@@ -27,6 +30,9 @@ use super::types::{
     AssociationLabelDef, AssociationRef, EngagementType, HubSpotError, HubSpotRecord,
     RateLimitSnapshot, RecordType, TokenInfo,
 };
+
+// 本番の全クライアントで共有。画面を離れた後の再送完了も、読み取りキャッシュへ伝える。
+static DEAL_WRITE_REVISION: OnceLock<Arc<AtomicU64>> = OnceLock::new();
 
 pub const DEFAULT_BASE_URL: &str = "https://api.hubapi.com";
 
@@ -178,6 +184,7 @@ struct Inner {
     base_url: String,
     opts: ClientOptions,
     gateway: Arc<Gateway>,
+    deal_write_revision: Arc<AtomicU64>,
     rate_limit: Mutex<Option<RateLimitSnapshot>>,
     /// `access_token_info` の結果 (成功のみ。`TOKEN_INFO_TTL` の間使い回す。ロックは呼び出しの間持つ=同時に 1 本)
     token_info_cache: tokio::sync::Mutex<Option<(Instant, TokenInfo)>>,
@@ -369,7 +376,13 @@ impl HubSpotClient {
     /// Search の間隔は関所の設定 (`HUBSPOT_APP_SEARCH_PER_SEC`) で決まり、`opts.search_min_interval` は使わない。
     pub fn for_production(access_token: String, opts: ClientOptions) -> Result<Self, HubSpotError> {
         let gateway = Gateway::shared_for_token(&access_token);
-        Self::with_gateway(access_token, &base_url_from_env(), opts, gateway)
+        Self::with_revision(
+            access_token,
+            &base_url_from_env(),
+            opts,
+            gateway,
+            DEAL_WRITE_REVISION.get_or_init(Arc::default).clone(),
+        )
     }
 
     /// 関所を指定して作る (テストで共有の関所を再現する)
@@ -378,6 +391,16 @@ impl HubSpotClient {
         base_url: &str,
         opts: ClientOptions,
         gateway: Arc<Gateway>,
+    ) -> Result<Self, HubSpotError> {
+        Self::with_revision(access_token, base_url, opts, gateway, Arc::default())
+    }
+
+    fn with_revision(
+        access_token: String,
+        base_url: &str,
+        opts: ClientOptions,
+        gateway: Arc<Gateway>,
+        deal_write_revision: Arc<AtomicU64>,
     ) -> Result<Self, HubSpotError> {
         let token = access_token.trim().to_string();
         if token.is_empty() {
@@ -397,6 +420,7 @@ impl HubSpotClient {
                 base_url: base_url.trim_end_matches('/').to_string(),
                 opts,
                 gateway,
+                deal_write_revision,
                 rate_limit: Mutex::new(None),
                 token_info_cache: tokio::sync::Mutex::new(None),
                 flights: Flights::default(),
@@ -404,6 +428,11 @@ impl HubSpotClient {
             }),
             priority: Priority::Interactive,
         })
+    }
+
+    /// 案件の保存試行の世代。成功・通信不明の後に進め、古い集計を失効させる。
+    pub(crate) fn deal_write_revision(&self) -> u64 {
+        self.inner.deal_write_revision.load(Ordering::Acquire)
     }
 
     /// 同じクライアントの背景用の複製 (関所の列で画面の操作より後ろに並び、待てる時間が長い)
@@ -717,9 +746,20 @@ impl HubSpotClient {
             Priority::Interactive => Priority::Continuation,
             other => other,
         };
-        let reply = self
+        let result = self
             .raw_once_with(priority, &Method::PATCH, &path, &[], Some(&body))
-            .await?;
+            .await;
+        // 通信不明も保存された可能性がある。再送 worker を含め、古い読み取りを残さない。
+        if object == "deals"
+            && result
+                .as_ref()
+                .map_or(true, |reply| (200..=299).contains(&reply.status))
+        {
+            self.inner
+                .deal_write_revision
+                .fetch_add(1, Ordering::AcqRel);
+        }
+        let reply = result?;
         match reply.status {
             200..=299 => {
                 let v = reply

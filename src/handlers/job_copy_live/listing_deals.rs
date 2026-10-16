@@ -11,7 +11,7 @@ pub(super) struct Summary {
     pub(super) holidays: Option<String>,
     pub(super) body_changed_at: Option<String>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct Deal {
     pub(super) id: String,
     pub(super) name: Option<String>,
@@ -22,6 +22,8 @@ pub(super) struct Deal {
     pub(super) stage: Option<String>,
     #[serde(skip)]
     pub(super) created_at: Option<String>,
+    #[serde(skip)]
+    pub(super) assignment: owner_todo::Assignment,
     pub(super) count: usize,
 }
 pub(super) fn summary(record: &Record, media: &str) -> Summary {
@@ -273,7 +275,7 @@ pub(super) async fn index_deal_records(
             let (reader, ids) = (reader.clone(), chunk.to_vec());
             tasks.spawn(async move {
                 let body = json!({
-                    "properties": ["dealname", "pipeline", "dealstage", "createdate"],
+                    "properties": owner_todo::DEAL_PROPERTIES,
                     "inputs": ids.iter().map(|id| json!({"id": id})).collect::<Vec<_>>()
                 });
                 let data = reader

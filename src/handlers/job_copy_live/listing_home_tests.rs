@@ -460,3 +460,54 @@ fn trend_percentage_multiplication_handles_large_integer_counts() {
         "less"
     );
 }
+
+#[test]
+fn owner_scope_includes_any_matching_deal_and_only_its_customer_links() {
+    let mut snapshot = owner_todo::Snapshot::default();
+    for (id, owner) in [("d1", "11"), ("d2", "11"), ("d3", "22")] {
+        let record = Record {
+            id: id.into(),
+            properties: [
+                ("consultant".into(), Some(owner.into())),
+                ("hubspot_owner_id".into(), Some("22".into())),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        snapshot.deals.insert(
+            id.into(),
+            owner_todo::WorkDeal {
+                assignment: owner_todo::Assignment::from_record(&record),
+                record,
+            },
+        );
+    }
+    let rows = vec![
+        listing("1", &["d1", "d3"], "掲載中", "unset", None),
+        listing("2", &["d3"], "掲載中", "unset", None),
+        listing("3", &[], "掲載中", "unset", None),
+    ];
+    let (selected, map) = scoped(&rows, &map(), &snapshot, "consultant", Some("11"));
+    assert_eq!(
+        selected.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+        ["1"]
+    );
+    assert_eq!(selected[0].deal_ids, ["d1"]);
+    let home = compute(&selected, &map, date("2026-10-16"));
+    assert_eq!(
+        home.cards
+            .iter()
+            .find(|c| c.key == "occupation")
+            .unwrap()
+            .count,
+        1
+    );
+    assert_eq!(home.customers.len(), 1);
+    assert_eq!(home.customers[0].company_id, "c1");
+    assert_eq!(home.customers[0].deals, 1);
+    assert_eq!(home.live_without_company, 0);
+    let (selected, _) = scoped(&rows, &map, &snapshot, "hubspot_owner_id", Some("22"));
+    assert_eq!(selected.len(), 2);
+    let (selected, _) = scoped(&rows, &map, &snapshot, "consultant", None);
+    assert_eq!(selected.len(), 3);
+}

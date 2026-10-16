@@ -33,6 +33,7 @@ mod listing_retry;
 mod listing_status;
 mod listings;
 mod manual_edit;
+mod owner_todo;
 pub mod phone_hearing;
 mod rikurozi;
 
@@ -199,6 +200,7 @@ enum PendingLabels {
 #[derive(Clone)]
 pub struct JobReadService {
     recent_changes: Arc<recent_changes::Cache>,
+    owner_todo: Arc<owner_todo::Cache>,
     /// Every HubSpot read goes through this client (the process-wide gateway: rate limit,
     /// priority, bounded waiting, global 429 pause, coalescing of identical reads).
     hs: crate::hubspot::HubSpotClient,
@@ -247,6 +249,7 @@ impl JobReadService {
         Self {
             hs,
             recent_changes: Arc::default(),
+            owner_todo: Arc::default(),
             labels: Arc::default(),
             publication: Arc::default(),
             listing_index: Arc::default(),

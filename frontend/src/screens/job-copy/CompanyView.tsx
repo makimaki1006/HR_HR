@@ -10,6 +10,8 @@ import { HUBSPOT_BUSY_MESSAGE, isHubSpotBusy } from './SnapshotErrorNotice';
 import { loadCompanyDeals } from './companyDeals';
 import type { CompanyDeals } from './companyDeals';
 import './home.css';
+import { ownerParams } from './OwnerTodo';
+import { useJobCopySearch } from './navigation';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '読み込めませんでした。時間を置いて再取得してください。';
 
@@ -22,8 +24,11 @@ export function CompanyView({ company, billingByJob, onName, onOpenDeal, onOpenL
   onOpenDeal: (deal: { id: string; name: string }) => void;
   onOpenListing: (job: JobCopyRecord) => void;
 }) {
+  const ownerQuery = ownerParams(useJobCopySearch()) || 'owner=me';
   const [deals, setDeals] = useState<CompanyDeals | null>(null);
   const [error, setError] = useState('');
+  const [loadedScope, setLoadedScope] = useState('');
+  const scope = `${company.id}|${ownerQuery}`;
   const [busy, setBusy] = useState(false);
   const action = useRef<AbortController | null>(null);
   const report = useRef(onName);
@@ -32,10 +37,11 @@ export function CompanyView({ company, billingByJob, onName, onOpenDeal, onOpenL
     const controller = new AbortController();
     void loadCompanyDeals(company.id).then(result => {
       if (controller.signal.aborted) return;
+      setLoadedScope(scope);
       if (result.ok) { setDeals(result.data); setError(''); if (result.data.company.name) report.current(result.data.company.name); } else setError(failure(result.error));
     });
     return () => { controller.abort(); };
-  }, [company.id]);
+  }, [company.id, scope]);
   useEffect(() => () => { action.current?.abort(); }, []);
   const open = async (row: HubSpotListing) => {
     action.current?.abort(); const controller = new AbortController(); action.current = controller; setBusy(true); setError('');
@@ -44,10 +50,11 @@ export function CompanyView({ company, billingByJob, onName, onOpenDeal, onOpenL
     if (result.ok) onOpenListing(listingRecord(result.data, row)); else setError(failure(result.error));
     setBusy(false);
   };
+  const visibleDeals = loadedScope === scope ? deals : null;
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
-    <header className="jh-head"><div><h1>{company.name || (deals?.company.name ?? '顧客')}</h1></div></header>
-    {error && <p role="alert">{error}</p>}{busy && <p role="status">選んだ求人を読み込んでいます…</p>}
-    {!deals && !error && <p role="status">求人を読み込んでいます…</p>}
-    {deals && <CompanyListings companyId={company.id} deals={deals.deals} billingByJob={billingByJob} onOpenDeal={onOpenDeal} onOpenListing={row => { void open(row); }} />}
+    <header className="jh-head"><div><h1>{company.name || (visibleDeals?.company.name ?? '顧客')}</h1></div></header>
+    {error && loadedScope === scope && <p role="alert">{error}</p>}{busy && <p role="status">選んだ求人を読み込んでいます…</p>}
+    {!visibleDeals && (!error || loadedScope !== scope) && <p role="status">求人を読み込んでいます…</p>}
+    {visibleDeals && <CompanyListings companyId={company.id} deals={visibleDeals.deals} billingByJob={billingByJob} onOpenDeal={onOpenDeal} onOpenListing={row => { void open(row); }} />}
   </main>;
 }

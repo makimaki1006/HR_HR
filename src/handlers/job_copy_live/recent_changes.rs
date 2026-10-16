@@ -390,14 +390,34 @@ pub(super) async fn read(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
     session: Session,
+    Query(query): Query<owner_todo::OwnerQuery>,
 ) -> Result<impl IntoResponse, ReadError> {
-    authorized_user(&state, &access, &session).await?;
+    let email = authorized_user(&state, &access, &session).await?;
+    query.validate()?;
     let service = listings::service(&access)?;
     let today = (Utc::now() + chrono::Duration::hours(9)).date_naive();
-    Ok((
-        [(header::CACHE_CONTROL, "private, no-store")],
-        Json(answer(service, today).await),
-    ))
+    let mut data = answer(service, today).await;
+    if query.owner.is_some() || query.owner_field.is_some() {
+        let view = owner_todo::view(service).await;
+        if let Some(snapshot) = view.snapshot {
+            let (owner, _) = snapshot.selection(&query, &email);
+            if let Some(rows) = data["report"]["listings"].as_array_mut() {
+                rows.retain(|r| {
+                    r["deals"].as_array().is_some_and(|ds| {
+                        ds.iter().any(|d| {
+                            d["id"].as_str().is_some_and(|id| {
+                                snapshot.matches(id, query.field(), owner.as_deref())
+                            })
+                        })
+                    })
+                });
+                data["report"]["count"] = json!(rows.len());
+            }
+        } else {
+            data = json!({"status":if view.failed {"failed"} else {"preparing"}});
+        }
+    }
+    Ok(([(header::CACHE_CONTROL, "private, no-store")], Json(data)))
 }
 
 async fn answer(service: &JobReadService, today: NaiveDate) -> Value {

@@ -36,6 +36,14 @@ fn fixture(count: usize) -> Index {
                 pipeline: Some("delivery".into()),
                 stage: Some("active".into()),
                 created_at: Some("2026-10-01".into()),
+                assignment: owner_todo::Assignment {
+                    acquired: true,
+                    consultant: Some("11".into()),
+                    hubspot_owner_id: Some("22".into()),
+                    actionyotei: Some("2026-10-16".into()),
+                    actionnaiyou: Some("call".into()),
+                    contract_expiration_date: Some("2026-11-15".into()),
+                },
                 count: count / 500,
             })
             .collect(),
@@ -55,6 +63,7 @@ fn assert_same(actual: &Index, expected: &Index) {
         );
     }
     for (a, b) in actual.deals.iter().zip(&expected.deals) {
+        assert_eq!(a.assignment, b.assignment);
         assert_eq!(
             (&a.pipeline, &a.stage, &a.created_at),
             (&b.pipeline, &b.stage, &b.created_at)

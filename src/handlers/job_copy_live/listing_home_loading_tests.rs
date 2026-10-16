@@ -86,6 +86,7 @@ impl Fixture {
                     pipeline: None,
                     stage: None,
                     created_at: None,
+                    assignment: Default::default(),
                     count: 1,
                 })
                 .collect(),
@@ -93,6 +94,7 @@ impl Fixture {
             built_at: "synthetic-build".into(),
         });
         service.listing_index.state.write().await.snapshot = Some(index.clone());
+        owner_todo::seed_empty(&service).await;
         Self {
             service,
             index,
@@ -180,9 +182,17 @@ impl Fixture {
                 .await
                 .map(IntoResponse::into_response)
         } else {
-            read(state, Extension(access), session)
-                .await
-                .map(IntoResponse::into_response)
+            read(
+                state,
+                Extension(access),
+                session,
+                Query(owner_todo::OwnerQuery {
+                    owner: Some("all".into()),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .map(IntoResponse::into_response)
         }
     }
 }

@@ -1,3 +1,5 @@
+import { ownerParams } from './OwnerTodo';
+import { useJobCopySearch } from './navigation';
 import { useEffect, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { formatDateTimeJst } from './format';
@@ -7,7 +9,9 @@ export interface ChangedListing { id: string; title: string | null; media: strin
 export type RecentChangesResponse = { status: 'preparing' | 'failed' } | { status: 'ready'; report: { count: number; listings: ChangedListing[] }; refresh_failed: boolean };
 export const recentChangesRule = '今日を含む直近7日（日本時間）に、本文・給与・求人名の変更を確認した求人。掲載終了の求人も含みます。初回の記録は数えません。納品管理の案件に結び付く求人だけを数えます。';
 
-export function useRecentChanges(reload: number, enabled = true) {
+export function useRecentChanges(reload: number, enabled = true, defaultToSelf = false) {
+  const ownerQuery = ownerParams(useJobCopySearch()) || (defaultToSelf ? 'owner=me' : '');
+  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
   const [data, setData] = useState<RecentChangesResponse>({ status: 'preparing' });
   const [error, setError] = useState('');
   useEffect(() => {
@@ -15,20 +19,20 @@ export function useRecentChanges(reload: number, enabled = true) {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
-      const result = await apiGet<RecentChangesResponse>('/api/job-copy/recent-changes', { signal: controller.signal });
+      const result = await apiGet<RecentChangesResponse>(`/api/job-copy/recent-changes${ownerQuery ? `?${ownerQuery}` : ''}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (result.ok && ['ready', 'preparing', 'failed'].includes(result.data.status)) {
-        setData(result.data); setError('');
+        setData(result.data); setLoadedQuery(ownerQuery); setError('');
         if (result.data.status === 'preparing') timer = setTimeout(() => { void load(); }, 2_000);
       } else {
-        setData({ status: 'failed' });
+        setData({ status: 'failed' }); setLoadedQuery(ownerQuery);
         setError(!result.ok && result.error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : '変更のあった求人を読み込めませんでした。時間を置いて再読み込みしてください。');
       }
     };
     void load();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [reload, enabled]);
-  return { data, error };
+  }, [reload, enabled, ownerQuery]);
+  return { data: loadedQuery === ownerQuery ? data : { status: 'preparing' as const }, error };
 }
 export function RecentChangesButton({ data, open, onClick }: { data: RecentChangesResponse; open: boolean; onClick: () => void }) {
   return <button type="button" className="jh-card jh-plain" aria-pressed={open} onClick={onClick}>

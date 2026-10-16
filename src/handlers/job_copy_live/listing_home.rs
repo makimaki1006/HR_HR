@@ -385,6 +385,31 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
     }
 }
 
+/// 求人は複数の取引のどれかが一致すれば含める。顧客集計には一致した結び付けだけを残す。
+fn scoped(
+    records: &[Listing],
+    map: &CompanyMap,
+    snapshot: &owner_todo::Snapshot,
+    field: &str,
+    owner: Option<&str>,
+) -> (Vec<Listing>, CompanyMap) {
+    let mut map = map.clone();
+    map.deal_company
+        .retain(|deal, _| snapshot.matches(deal, field, owner));
+    map.deal_info
+        .retain(|deal, _| snapshot.matches(deal, field, owner));
+    let records = records
+        .iter()
+        .filter_map(|row| {
+            let mut row = row.clone();
+            row.deal_ids
+                .retain(|deal| snapshot.matches(deal, field, owner));
+            (owner.is_none() || !row.deal_ids.is_empty()).then_some(row)
+        })
+        .collect();
+    (records, map)
+}
+
 /// Short locks only: HubSpot I/O never holds the company-state lock.
 #[derive(Default)]
 pub(super) struct CompanyState {
@@ -459,7 +484,7 @@ pub(super) async fn prefetch(service: &JobReadService, index: &Arc<Index>) {
     companies_or_refresh(service, index).await;
 }
 
-async fn load_companies(
+pub(super) async fn load_companies(
     service: &JobReadService,
     index: &Arc<Index>,
 ) -> Result<Arc<CompanyMap>, ReadError> {
@@ -679,9 +704,11 @@ pub(in crate::handlers::job_copy_live) async fn read(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
     session: Session,
+    Query(query): Query<owner_todo::OwnerQuery>,
 ) -> Result<impl IntoResponse, ReadError> {
     let started = StdInstant::now();
-    authorized_user(&state, &access, &session).await?;
+    let email = authorized_user(&state, &access, &session).await?;
+    query.validate()?;
     let service = service(&access)?;
     let stage = StdInstant::now();
     // Refreshing/failed builds retain the last complete snapshot.
@@ -696,7 +723,30 @@ pub(in crate::handlers::job_copy_live) async fn read(
     let body = match snapshot {
         Some(index) => {
             let today = (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive();
-            answer(service, index, today).await
+            let work = owner_todo::view(service).await;
+            let base = answer(service, index.clone(), today).await;
+            let mut data: Value = serde_json::from_slice(&base).expect("home JSON");
+            if let Some(work_snapshot) = work.snapshot {
+                let (owner, _) = work_snapshot.selection(&query, &email);
+                let map = load_companies(service, &index).await.unwrap_or_default();
+                let (records, map) = scoped(
+                    &index.records,
+                    &map,
+                    &work_snapshot,
+                    query.field(),
+                    owner.as_deref(),
+                );
+                data["home"] =
+                    serde_json::to_value(compute(&records, &map, today)).expect("home values");
+                data["work"] = work_snapshot.report(&query, &email, today, work.failed);
+                if work.partial {
+                    data["work"]["todos_status"] =
+                        json!(if work.failed { "failed" } else { "preparing" });
+                }
+            } else {
+                data["work"] = json!({"status":if work.failed {"failed"} else {"preparing"}});
+            }
+            axum::body::Bytes::from(serde_json::to_vec(&data).expect("home JSON"))
         }
         None => {
             axum::body::Bytes::from(json!({"status":"preparing", "progress":progress}).to_string())

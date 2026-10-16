@@ -2,13 +2,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { JobCopyHome } from './JobCopyHome';
+import { demoOwnerTodo } from './demoOwnerTodo';
 import { demoHome } from './demoHome';
 import { Breadcrumbs } from './Breadcrumbs';
 import { buildCrumbs } from './trail';
 import type { HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 
 const api = vi.hoisted(() => vi.fn());
-vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refresh_failed: false } }) : api(path, options) as Promise<unknown> }));
+vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path.startsWith('/api/job-copy/recent-changes') ? Promise.resolve({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refresh_failed: false } }) : api(path, options) as Promise<unknown> }));
 beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
@@ -53,7 +54,7 @@ it('職種が未指定のカードから、職種をまとめて指定する画�
   api.mockResolvedValue({ ok: true, data: response });
   renderHome();
   fireEvent.click(await screen.findByRole('button', { name: /市場の職種が未指定の求人/ }));
-  expect(screen.getByRole('link', { name: '職種をまとめて指定する' }).getAttribute('href')).toBe('?view=occupations');
+  expect(screen.getByRole('link', { name: '職種をまとめて指定する' }).getAttribute('href')).toBe('?card=occupation&view=occupations');
 });
 
 it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客を開くができる', async () => {
@@ -66,7 +67,7 @@ it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客�
   expect(screen.getByRole('button', { name: /契約中の案件がある顧客/ }).getAttribute('aria-pressed')).toBe('true');
   expect(screen.getByText('2 ／ 全 3')).toBeTruthy();
   expect(screen.getByText('合成運輸 2026年案件')).toBeTruthy();
-  expect(screen.getByText(/契約中 ・ 作成 2026-03-01/)).toBeTruthy();
+  expect(screen.getByText(/契約中 ・ 作成 2026\/03\/01/)).toBeTruthy();
   expect(screen.getByText('4 ／ 全 9')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /^すべて/ }));
   expect(names()).toEqual(['合成運輸', '合成介護', '合成倉庫']);
@@ -125,8 +126,8 @@ it('新しい8枚の見出し・件数・説明と、ゼロのままの求人の
   expect(within(list).getByRole('columnheader', { name: '課金（直近 4 週）' })).toBeTruthy();
   const rows = within(list).getAllByRole('row').slice(1);
   expect(rows.map(row => row.textContent)).toEqual([
-    '合成求人・配送合成事業所HRハッカー0 → 0 件¥24,0002026-10-11',
-    '合成求人・清掃合成事業所HRハッカー0 → 0 件¥02026-10-11',
+    '合成求人・配送合成事業所HRハッカー0 → 0 件¥24,0002026/10/11',
+    '合成求人・清掃合成事業所HRハッカー0 → 0 件¥02026/10/11',
   ]);
 });
 
@@ -161,4 +162,30 @@ it('読み込み失敗後は次に読み直すまでの時間を表示する', a
   renderHome();
   expect(await screen.findByText('読み込みに失敗したため、1 分後にもう一度読み込みます。')).toBeTruthy();
   expect(screen.getByText('約 41,000 件中 41,000 件まで読みました')).toBeTruthy();
+});
+
+it('ほかの人から自分に戻すとき、取得前の担当者でURLを上書きしない', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?owner=22');
+  let resolveSelf: ((value: unknown) => void) | undefined;
+  api.mockImplementation((path: string) => path.includes('owner=me') ? new Promise(resolve => { resolveSelf = resolve; }) : Promise.resolve({ ok: true, data: { ...response, work: { ...demoOwnerTodo, owner: path.includes('owner=11') ? '11' : '22' } } }));
+  renderHome();
+  await screen.findByRole('combobox', { name: '担当者' });
+  fireEvent.click(screen.getByRole('button', { name: '自分に戻す' }));
+  await waitFor(() => { expect(resolveSelf).toBeDefined(); });
+  expect(new URLSearchParams(window.location.search).get('owner')).toBe('me');
+  await act(async () => { resolveSelf?.({ ok: true, data: { ...response, work: demoOwnerTodo } }); await Promise.resolve(); });
+  await waitFor(() => { expect(new URLSearchParams(window.location.search).get('owner')).toBe('11'); });
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('11');
+});
+
+it('初期URLではコンサル担当と解決済み本人を選び、全員への注記は出さない', async () => {
+  api.mockResolvedValue({ ok: true, data: { ...response, work: demoOwnerTodo } });
+  renderHome();
+  await screen.findByRole('combobox', { name: '担当者' });
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当の項目' }).value).toBe('consultant');
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('11');
+  await waitFor(() => { expect(new URLSearchParams(window.location.search).get('owner')).toBe('11'); });
+  expect(new URLSearchParams(window.location.search).get('owner_field')).toBe('consultant');
+  expect(screen.queryByText(/全員を表示しています/)).toBeNull();
+  expect(screen.queryByRole('region', { name: '期限切れの一覧' })).toBeNull();
 });
