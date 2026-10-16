@@ -117,3 +117,40 @@ test('ホーム→会社→案件→求人と案件内ポップアップを履�
   await expect(page).toHaveURL(deal);
   await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();
 });
+
+test('変更案件カードの開閉をpushし、戻る・進む・再読み込みで一覧を復元する', async ({ page }) => {
+  const { demoHome } = await import('../../frontend/src/screens/job-copy/demoHome');
+  await page.route('**/api/job-copy/home', route => route.fulfill({ json: demoHome }));
+  await page.route('**/api/job-copy/recent-changes', route => route.fulfill({ json: {
+    status: 'ready', refresh_failed: false, report: { count: 1, deals: [
+      { id: '20', name: '合成の変更確認案件', company: '合成事業所', changed_listings: 3, fields: ['本文', '給与'], last_changed_at: '2026-10-15T16:12:00Z' },
+    ] },
+  } }));
+  await page.goto('/app/job-copy?keep=1');
+  const home = page.url();
+  const button = page.getByRole('button', { name: /直近7日に変更/ });
+  const list = page.getByRole('region', { name: '直近7日に変更の一覧' });
+  await expect(button.locator('.jh-count')).toHaveText('1件');
+  const length = await page.evaluate(() => history.length);
+  await button.click();
+  const opened = page.url();
+  expect(new URL(opened).searchParams.get('card')).toBe('recent_changes');
+  expect(new URL(opened).searchParams.get('keep')).toBe('1');
+  expect(await page.evaluate(() => history.length)).toBe(length + 1);
+  await expect(list.locator('tbody tr')).toHaveText(['合成事業所合成の変更確認案件3件本文・給与2026/10/16 01:12']);
+  await button.click();
+  await expect(page).toHaveURL(home);
+  await expect(list).toHaveCount(0);
+  expect(await page.evaluate(() => history.length)).toBe(length + 2);
+  await page.goBack();
+  await expect(page).toHaveURL(opened);
+  await expect(list.getByRole('heading')).toHaveText('直近7日に変更（1件）');
+  await page.goForward();
+  await expect(page).toHaveURL(home);
+  await expect(list).toHaveCount(0);
+  await page.goBack();
+  await page.reload();
+  await expect(page).toHaveURL(opened);
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await expect(list.locator('tbody tr')).toHaveText(['合成事業所合成の変更確認案件3件本文・給与2026/10/16 01:12']);
+});

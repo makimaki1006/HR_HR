@@ -1,3 +1,5 @@
+import { RecentChangesButton, RecentChangesList, useRecentChanges } from './RecentChangesCard';
+import type { ChangedDeal } from './RecentChangesCard';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { ListingPreparationNotice } from './ListingPreparationNotice';
 import { useEffect, useMemo, useState } from 'react';
@@ -23,12 +25,13 @@ function CardList({ card, onOpenListing }: { card: HomeCard; onOpenListing: (id:
 }
 
 /** 案件管理のホーム。まず見るものの件数と、顧客ごとの表。 */
-export function JobCopyHome({ onOpenCompany, onOpenListing, cache }: { cache?: { current: HomeResponse | null }; onOpenCompany: (company: { id: string; name: string }) => void; onOpenListing: (id: string) => void }) {
+export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }: { cache?: { current: HomeResponse | null }; onOpenCompany: (company: { id: string; name: string }) => void; onOpenListing: (id: string) => void; onOpenDeal: (deal: ChangedDeal) => void }) {
   const [data, setData] = useState<HomeResponse | null>(cache?.current ?? null);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const open = new URLSearchParams(useJobCopySearch()).get('card');
-  const setOpen = (key: CardKey | null) => { updateJobCopyQuery({ card: key }); };
+  const setOpen = (key: CardKey | 'recent_changes' | null) => { updateJobCopyQuery({ card: key }, 'push'); };
+  const recent = useRecentChanges(reload, data?.status === 'ready');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<CustomerSort>('default');
   const [descending, setDescending] = useState(true);
@@ -58,12 +61,13 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, cache }: { cache?: {
     {data?.status === 'preparing' && <ListingPreparationNotice progress={data.progress} />}
     {ready && <>
       <section aria-labelledby="jh-look"><h2 id="jh-look">まず見るもの</h2>
-        <p className="jh-note">掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。{formatDateTimeJst(ready.index_built_at, '日時不明')}時点。効果の有無は判定していません。</p>
+        <p className="jh-note">応募・課金のカードは掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。{formatDateTimeJst(ready.index_built_at, '日時不明')}時点。効果の有無は判定していません。</p>
         <div className="jh-cards">{ready.home.cards.map(item => <button type="button" key={item.key} className={`jh-card jh-${cardTone[item.key]}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>
           <strong className="jh-count">{item.count}<small>件</small></strong>
           <span className="jh-card-title">{item.title}</span>
           <small className="jh-rule">{item.rule}</small>
-        </button>)}</div>
+        </button>)}<RecentChangesButton data={recent.data} open={open === 'recent_changes'} onClick={() => { setOpen(open === 'recent_changes' ? null : 'recent_changes'); }} /></div>
+        {open === 'recent_changes' && <RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} />}
         {card && <CardList card={card} onOpenListing={onOpenListing} />}
         {card?.key === 'occupation' && <p><a className="jc-button" href="?view=occupations">職種をまとめて指定する</a></p>}
       </section>

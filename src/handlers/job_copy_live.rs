@@ -1,4 +1,6 @@
 //! Read-only job management. Existing HubSpot associations remain the source of truth.
+#[path = "job_copy_live/recent_changes.rs"]
+mod recent_changes;
 use crate::{
     auth::{LOGIN_METHOD_GOOGLE_OIDC, SESSION_LOGIN_METHOD_KEY, SESSION_USER_KEY},
     geo::applicant_area,
@@ -196,6 +198,7 @@ enum PendingLabels {
 
 #[derive(Clone)]
 pub struct JobReadService {
+    recent_changes: Arc<recent_changes::Cache>,
     /// Every HubSpot read goes through this client (the process-wide gateway: rate limit,
     /// priority, bounded waiting, global 429 pause, coalescing of identical reads).
     hs: crate::hubspot::HubSpotClient,
@@ -243,6 +246,7 @@ impl JobReadService {
     fn from_client(hs: crate::hubspot::HubSpotClient) -> Self {
         Self {
             hs,
+            recent_changes: Arc::default(),
             labels: Arc::default(),
             publication: Arc::default(),
             listing_index: Arc::default(),
@@ -2121,6 +2125,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             get(phone_hearing::read),
         )
         .route("/api/job-copy/home", get(listings::read_home))
+        .route("/api/job-copy/recent-changes", get(recent_changes::read))
         .route(
             "/api/job-copy/listing-body-dates",
             get(listings::read_body_dates),

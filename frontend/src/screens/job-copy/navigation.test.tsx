@@ -8,7 +8,7 @@ import { navigateJobCopy } from './navigation';
 
 vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }));
 const api = vi.hoisted(() => vi.fn());
-vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: api }));
+vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', refresh_failed: false, report: { count: 0, deals: [] } } }) : api(path, options) as Promise<unknown> }));
 beforeEach(() => {
   window.history.replaceState(null, '', '/app/job-copy?demo=1');
   localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true');
@@ -83,7 +83,7 @@ it('分析の開閉と機能タブを各1回積み、戻ると前のタブと閉
 it('ホームのカード一覧を履歴から復元し、既存クエリを保つ', async () => {
   window.history.replaceState(null, '', '/app/job-copy?data=actual');
   const start = window.location.href;
-  render(<JobCopyHome onOpenCompany={vi.fn()} onOpenListing={vi.fn()} />);
+  render(<JobCopyHome onOpenCompany={vi.fn()} onOpenListing={vi.fn()} onOpenDeal={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button', { name: /応募がゼロのままの求人/ }));
   const opened = window.location.href;
   expect(new URL(opened).searchParams.get('data')).toBe('actual');
@@ -92,5 +92,32 @@ it('ホームのカード一覧を履歴から復元し、既存クエリを保�
   expect(screen.queryByRole('region', { name: '応募がゼロのままの求人の一覧' })).toBeNull();
   pop(opened);
   expect(screen.getByRole('region', { name: '応募がゼロのままの求人の一覧' })).toBeTruthy();
+  expect(api).toHaveBeenCalledTimes(1);
+});
+it('変更案件カードの開く・閉じるをpushし、履歴で一覧と既存クエリを復元する', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?data=actual&keep=1');
+  const push = vi.spyOn(window.history, 'pushState');
+  render(<JobCopyHome onOpenCompany={vi.fn()} onOpenListing={vi.fn()} onOpenDeal={vi.fn()} />);
+  const button = await screen.findByRole('button', { name: /直近7日に変更/ });
+  expect(push).not.toHaveBeenCalled();
+  fireEvent.click(button);
+  const opened = window.location.href;
+  expect(new URL(opened).searchParams.get('card')).toBe('recent_changes');
+  expect(new URL(opened).searchParams.get('data')).toBe('actual');
+  expect(new URL(opened).searchParams.get('keep')).toBe('1');
+  await screen.findByRole('heading', { name: '直近7日に変更（0件）' });
+  expect(push).toHaveBeenCalledTimes(1);
+  fireEvent.click(button);
+  const closed = window.location.href;
+  expect(new URL(closed).searchParams.has('card')).toBe(false);
+  expect(screen.queryByRole('region', { name: '直近7日に変更の一覧' })).toBeNull();
+  expect(push).toHaveBeenCalledTimes(2);
+  pop(opened);
+  expect(screen.getByRole('heading', { name: '直近7日に変更（0件）' })).toBeTruthy();
+  expect(button.getAttribute('aria-pressed')).toBe('true');
+  pop(closed);
+  expect(screen.queryByRole('region', { name: '直近7日に変更の一覧' })).toBeNull();
+  expect(button.getAttribute('aria-pressed')).toBe('false');
+  expect(push).toHaveBeenCalledTimes(2);
   expect(api).toHaveBeenCalledTimes(1);
 });
