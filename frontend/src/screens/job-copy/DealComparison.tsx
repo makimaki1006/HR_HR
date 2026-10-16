@@ -1,3 +1,4 @@
+import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { DealSummary } from './DealSummary';
 import { CompanySummary } from './CompanySummary';
 import { fetchBodyDates } from './bodyDatesShared';
@@ -54,7 +55,13 @@ export function ParallelJobs({ jobs }: { jobs: ComparedJob[] }) {
 }
 export function DealComparison({ deal, onOpen, onClose, billingByJob, onOpenCompany }: { deal: DealSelection; onOpen: (job: JobCopyRecord) => void; onClose: () => void; billingByJob?: Readonly<Record<string, readonly BillingEntry[]>>; onOpenCompany?: (company: { id: string; name: string }) => void }) {
   const [company, setCompany] = useState<{ id: string; name: string } | null>(null);
-  const [popup, setPopup] = useState<{ job: JobCopyRecord; opener: HTMLElement } | null>(null);
+  const popupId = new URLSearchParams(useJobCopySearch()).get('popupListing');
+  const [popups, setPopups] = useState<Record<string, { job: JobCopyRecord; opener: HTMLElement }>>({});
+  const popup = popupId ? popups[popupId] : undefined;
+  const setPopup = (value: { job: JobCopyRecord; opener: HTMLElement } | null) => {
+    if (value?.job.hubspotId) { const id = value.job.hubspotId; setPopups(items => ({ ...items, [id]: value })); updateJobCopyQuery({ popupListing: id }); }
+    else updateJobCopyQuery({ popupListing: null });
+  };
   const [extraColumns, setExtraColumns] = useState<ColumnKey[]>([]);
   const visibleColumns = columns.filter(([key], index) => index < 8 || extraColumns.includes(key));
   const [page, setPage] = useState<HubSpotListingPage | null>(null);
@@ -90,6 +97,14 @@ export function DealComparison({ deal, onOpen, onClose, billingByJob, onOpenComp
     return () => { controller.abort(); };
   }, [deal, media, publication, sort, descending, offset, reload]);
   useEffect(() => () => { action.current?.abort(); }, []);
+  useEffect(() => {
+    if (!popupId || popups[popupId] || !/^\d{1,20}$/.test(popupId)) return;
+    const controller = new AbortController();
+    void loadVersions(popupId, { signal: controller.signal }).then(result => {
+      if (!controller.signal.aborted && result.ok) setPopups(items => ({ ...items, [popupId]: { job: listingRecord(result.data), opener: document.body } }));
+    });
+    return () => { controller.abort(); };
+  }, [popupId, popups]);
   const open = async (row: HubSpotListing, opener?: HTMLElement) => {
     action.current?.abort(); const controller = new AbortController(); action.current = controller; setBusy(true); setError('');
     const result = await loadVersions(row.id, { signal: controller.signal });

@@ -14,7 +14,7 @@ import { StatusFilter } from './StatusSwitch';
 import { STATUS_LABEL, STATUS_PUBLICATION, countsFromServer, useStatusFilter } from './statusFilter';
 import { useCompanyScope } from './companyScope';
 
-export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, onApplicationDates, revision = 0, scopeDeal, autoLoad = true }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; /** 応募日ごとの件数が読めたとき（null は読めなかった）。 */ onApplicationDates?: (id: string, loaded: LoadedApplications | null) => void; revision?: number; /** 案件の求人だけを出す。指定すると取引の選択は出さない。 */ scopeDeal?: { id: string; name: string } | undefined; /** false の間は一覧を読まず、隠しておく（求人を探すを押すまで） */ autoLoad?: boolean }) {
+export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onLoading, onFailure, initialListingId, resolvedListingId, onShowDeal, onApplicationsLoaded, onApplicationDates, revision = 0, scopeDeal, autoLoad = true }: { onOpen: (job: JobCopyRecord) => void; onVisibleRows?: (rows: HubSpotListing[]) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; resolvedListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; /** 応募日ごとの件数が読めたとき（null は読めなかった）。 */ onApplicationDates?: (id: string, loaded: LoadedApplications | null) => void; revision?: number; /** 案件の求人だけを出す。指定すると取引の選択は出さない。 */ scopeDeal?: { id: string; name: string } | undefined; /** false の間は一覧を読まず、隠しておく（求人を探すを押すまで） */ autoLoad?: boolean }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
@@ -122,8 +122,13 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     if (!initialListingId) { restored.current = ''; return; }
     if (!/^\d{1,20}$/.test(initialListingId) || restored.current === initialListingId) return;
     restored.current = initialListingId;
-    if (opened.current !== initialListingId) void openId(initialListingId);
-  }, [active, initialListingId, openId]);
+    if (resolvedListingId !== initialListingId && opened.current !== initialListingId) void openId(initialListingId);
+  }, [active, initialListingId, resolvedListingId, openId]);
+  useEffect(() => {
+    const cancel = () => { detailRequest.current?.abort(); if (!loadedRecord.current) { opened.current = ''; restored.current = ''; } };
+    window.addEventListener('popstate', cancel);
+    return () => { window.removeEventListener('popstate', cancel); };
+  }, []);
   const conditions = [deal ? dealName : '', prefecture, title === 'unknown' ? '職種不明' : title, media === 'hrh' ? 'HRハッカー' : media === 'airwork' ? 'AirWork' : '', draftStatus ? draftStatus === 'none' ? '案なし・確認状態は未取得' : ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' } as Record<string, string>)[draftStatus] ?? '不明' : ''].filter(Boolean).join(' ／ ') || 'すべての求人';
   const rows = useMemo(() => sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [], [page, sort]);
   useEffect(() => { orderRef.current = rows.map(item => item.id); }, [rows]);
