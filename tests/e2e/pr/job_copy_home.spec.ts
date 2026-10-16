@@ -184,6 +184,48 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   await expect(page.getByRole('region', { name: 'それ以降の一覧' }).locator('tbody tr')).toHaveCount(20);
 });
 
+test('変更求人の内訳を数え、説明・チップ・絞り込み・集計中の一覧を確認する', async ({ page }) => {
+  let complete = false;
+  const keys = ['less', 'to_zero', 'zero_stay', 'flat', 'more', 'costly', 'stale', 'out_of_scope', 'unknown'];
+  const classifications = [['less', 'costly', 'stale'], ['more'], ['out_of_scope'], ['unknown']];
+  const cards = keys.map(key => ({ key, title: key, rule: demoHome.home.cards.find(c => c.key === key)?.rule ?? '合成求人の説明。', count: classifications.filter(cs => cs.includes(key)).length }));
+  await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: { status: 'ready', refresh_failed: false, report: {
+    count: 4,
+    listings: classifications.map((cs, i) => ({ id: String(i + 1), title: `合成変更求人${i + 1}`, media: 'hrh', publication_status: i === 2 ? '掲載終了' : '掲載中', deals: [{ id: '10', name: '合成案件', company: '合成事業所' }], fields: ['本文'], last_changed_at: '2026-10-16T00:00:00Z', ...(complete ? { classifications: cs } : {}) })),
+    breakdown: complete ? { status: 'ready', cards } : { status: 'preparing' },
+  } } }));
+  await page.route('**/api/job-copy/home*', route => route.fulfill({ json: demoHome }));
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', capture_bundle: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', jobs: [] }, results: [] } }));
+  await login(page);
+  await page.goto('/app/job-copy');
+  await page.getByRole('button', { name: /直近7日に変更/ }).click();
+  const list = page.getByRole('region', { name: '直近7日に変更の一覧' });
+  await expect(list.getByText('内訳は集計中です。')).toBeVisible();
+  await expect(list.locator('tbody tr')).toHaveCount(4);
+  complete = true;
+  const less = list.getByRole('button', { name: '応募が減った 1件', exact: true });
+  await expect(less).toBeVisible();
+  for (const [label, count] of [['ゼロになった', 0], ['ゼロのまま', 0], ['ほぼ同じ', 0], ['応募が増えた', 1], ['課金が高いまま応募が少ない', 1], ['データが止まっている', 1], ['対象外（掲載終了など）', 1], ['判定できない', 1]] as const) {
+    await expect(list.getByRole('button', { name: `${label} ${count}件`, exact: true })).toBeVisible();
+  }
+  await expect(list.getByRole('button', { name: 'ほぼ同じ 0件' })).toHaveCSS('opacity', '0.5');
+  await less.hover();
+  await expect(list.locator('#recent-change-rule')).toHaveText(cards.find(c => c.key === 'less')!.rule);
+  await less.click();
+  await expect(less).toHaveAttribute('aria-pressed', 'true');
+  await expect(list.locator('tbody tr')).toHaveCount(1);
+  await expect(list.locator('tbody tr').first().locator('.jh-change-chip')).toHaveText(['応募が減った', '課金が高いまま応募が少ない', 'データが止まっている']);
+  await page.mouse.move(0, 0);
+  await expect(list.locator('#recent-change-rule')).toHaveText(cards.find(c => c.key === 'less')!.rule);
+  await less.click();
+  await expect(list.locator('tbody tr')).toHaveCount(4);
+  await list.getByRole('button', { name: '判定できない 1件' }).click();
+  await expect(list.getByRole('button', { name: '合成変更求人4', exact: true })).toBeVisible();
+  await expect(list.locator('tbody tr')).toHaveCount(1);
+  await list.getByRole('button', { name: 'すべて 4件' }).click();
+  await expect(list.locator('tbody tr')).toHaveCount(4);
+});
+
 test('職種の一括指定は URL から引き続き開ける', async ({ page }) => {
   await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: {
     status: 'ready', listings: [], total: 0, index_built_at: '2026-10-16T00:00:00Z',

@@ -18,7 +18,8 @@ export function QueueToolbar({ summary, keepOpen, onClose, children }: {
     timer.current = setTimeout(() => {
       timer.current = null;
       // select の選択中も、入力欄と同じくフォーカスが残る
-      if (!root.current?.querySelector('.cq-toolbar-controls')?.contains(document.activeElement)) setHoverOpen(false);
+      if (!root.current?.querySelector('.cq-toolbar-controls')?.contains(document.activeElement)
+        && !root.current?.querySelector('.cq-stage-panel')) setHoverOpen(false);
     }, 300);
   }
   function close() {
