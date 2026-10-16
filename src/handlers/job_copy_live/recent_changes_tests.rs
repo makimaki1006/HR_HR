@@ -142,7 +142,7 @@ fn salary_uses_summary_fields_for_both_media() {
     );
 }
 #[test]
-fn ended_listings_count_and_deals_are_deduplicated_and_filtered() {
+fn listings_count_once_with_multiple_deals_and_sort_newest_first() {
     let (start, end) = bounds(date("2026-10-16"));
     let mut ended = history(
         "hs_name",
@@ -155,6 +155,11 @@ fn ended_listings_count_and_deals_are_deduplicated_and_filtered() {
     let changed = BTreeMap::from([
         ("1".into(), detect(&ended, start, end)),
         ("2".into(), BTreeMap::from([("給与", start)])),
+        (
+            "3".into(),
+            BTreeMap::from([("本文", start + chrono::Duration::days(2))]),
+        ),
+        ("4".into(), BTreeMap::from([("本文", start)])),
     ]);
     let associations = BTreeMap::from([
         (
@@ -162,6 +167,8 @@ fn ended_listings_count_and_deals_are_deduplicated_and_filtered() {
             vec!["10".into(), "10".into(), "20".into(), "30".into()],
         ),
         ("2".into(), vec!["10".into()]),
+        ("3".into(), vec!["20".into()]),
+        ("4".into(), vec!["30".into()]),
     ]);
     let deals: Vec<Record> = serde_json::from_value(json!([
         {"id":"10","properties":{"dealname":"合成案件A","pipeline":"21596025"}},
@@ -170,11 +177,25 @@ fn ended_listings_count_and_deals_are_deduplicated_and_filtered() {
     ]))
     .unwrap();
     let report = aggregate(&changed, &associations, &deals);
-    assert_eq!(report.count, 2);
-    assert_eq!(report.deals[0].id, "10");
-    assert_eq!(report.deals[0].changed_listings, 2);
-    assert_eq!(report.deals[0].fields, BTreeSet::from(["給与", "求人名"]));
-    assert_eq!(report.deals[1].changed_listings, 1);
+    assert_eq!(report.count, 3);
+    assert_eq!(
+        report
+            .listings
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["3", "1", "2"]
+    );
+    assert_eq!(
+        report.listings[1]
+            .deals
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["10", "20"]
+    );
+    assert_eq!(report.listings[1].fields, BTreeSet::from(["求人名"]));
+    assert_eq!(report.listings[2].fields, BTreeSet::from(["給与"]));
 }
 
 /// 本番読み取り専用の計測。出力は件数と呼び出し回数のみ。
@@ -205,7 +226,7 @@ async fn production_read_probe() {
     let changed = changed.unwrap();
     let report = resolve(&service, &changed).await.unwrap();
     let usage = service.hs.gateway().snapshot();
-    eprintln!("recent_changes_probe day={today} candidates={} search_calls={} history_calls={} changed_listings={} delivery_deals={} network_calls={} network_search_calls={} rate_limited={}",stats.candidates,stats.search_calls,stats.history_calls,changed.len(),report.count,usage.total_calls,usage.search_calls,usage.rate_limited);
+    eprintln!("recent_changes_probe day={today} candidates={} search_calls={} history_calls={} changed_listings={} delivery_listings={} network_calls={} network_search_calls={} rate_limited={}",stats.candidates,stats.search_calls,stats.history_calls,changed.len(),report.count,usage.total_calls,usage.search_calls,usage.rate_limited);
 }
 
 #[tokio::test]
@@ -277,6 +298,10 @@ async fn cold_and_stale_reads_never_wait_and_share_one_background_refresh() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let service = JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let records = serde_json::from_value::<Vec<Record>>(json!([
+        {"id":"1","properties":{"hs_name":"合成終了求人","id_airwork":"synthetic","kyuujin_status":"公開終了"}}
+    ])).unwrap();
+    listings::seed_recent_change_index(&service, &records).await;
     for _ in 0..20 {
         assert_eq!(
             tokio::time::timeout(Duration::from_millis(100), answer(&service, today))
@@ -290,9 +315,17 @@ async fn cold_and_stale_reads_never_wait_and_share_one_background_refresh() {
     let ready = answer(&service, today).await;
     assert_eq!(ready["status"], "ready");
     assert_eq!(ready["report"]["count"], 1);
-    assert_eq!(ready["report"]["deals"][0]["company"], "合成会社");
-    assert_eq!(ready["report"]["deals"][0]["changed_listings"], 1);
-    assert_eq!(ready["report"]["deals"][0]["fields"], json!(["求人名"]));
+    assert_eq!(
+        ready["report"]["listings"][0]["deals"][0]["company"],
+        "合成会社"
+    );
+    assert_eq!(ready["report"]["listings"][0]["title"], "合成終了求人");
+    assert_eq!(ready["report"]["listings"][0]["media"], "airwork");
+    assert_eq!(
+        ready["report"]["listings"][0]["publication_status"],
+        "掲載終了"
+    );
+    assert_eq!(ready["report"]["listings"][0]["fields"], json!(["求人名"]));
     assert_eq!(calls.load(Ordering::SeqCst), 6);
     assert_eq!(answer(&service, today).await, ready);
     assert_eq!(calls.load(Ordering::SeqCst), 6);
