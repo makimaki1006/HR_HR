@@ -199,6 +199,17 @@ pub const OPTION_KINDS: &[&str] = &[
     "追加",
 ];
 
+/// CS_取引の種別と同じく、取引名の接頭辞を使う。本文中の語句では判定しない。
+/// HubSpotのcontract_type（新規・再契約）とは別の値。
+pub(crate) fn contract_kind_from_name(name: &str) -> &str {
+    let prefix = name.split(['_', '＿']).next().unwrap_or("").trim();
+    if prefix == "AirWork広告費用" {
+        "AirWork"
+    } else {
+        prefix
+    }
+}
+
 /// オプション契約だけが置かれるステージ。**種別と OR で判定する。**
 ///
 /// - `1049738304` オプション（求人追加・一次対応）    173件中95件
@@ -246,7 +257,7 @@ pub fn outcome_of(stage: &str) -> Outcome {
 // ---------------------------------------------------------------- 取引
 
 /// `CS_取引` 1行ぶん。**列は名前で引く**（位置で決め打ちしない）。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Deal {
     pub id: String,
     /// 取引名。**画面はこれを出す。** 取引IDは現場に意味が無い。
@@ -1294,6 +1305,26 @@ pub fn last_mtg_by_deal(
     mtg: &SheetData,
     mail: &SheetData,
 ) -> HashMap<String, (Option<NaiveDate>, Option<NaiveDate>)> {
+    let mut by = last_recorded_mtg_by_deal(mtg);
+    for row in &mail.rows {
+        let deal = mail.get(row, "deal_id");
+        if deal.is_empty() || mail.get(row, "kind") != "実施" {
+            continue;
+        }
+        if let Some(d) = date10(mail.get(row, "date")) {
+            let e = by.entry(deal.to_string()).or_default();
+            if e.1.is_none_or(|x| d > x) {
+                e.1 = Some(d);
+            }
+        }
+    }
+    by
+}
+
+/// 録画に記録された開催日だけ。案件管理とKPIで同じ日付の取り方を使う。
+pub(crate) fn last_recorded_mtg_by_deal(
+    mtg: &SheetData,
+) -> HashMap<String, (Option<NaiveDate>, Option<NaiveDate>)> {
     let mut by: HashMap<String, (Option<NaiveDate>, Option<NaiveDate>)> = HashMap::new();
     for row in &mtg.rows {
         let deal = mtg.get(row, "deal_id");
@@ -1304,18 +1335,6 @@ pub fn last_mtg_by_deal(
             let e = by.entry(deal.to_string()).or_default();
             if e.0.is_none_or(|x| d > x) {
                 e.0 = Some(d);
-            }
-        }
-    }
-    for row in &mail.rows {
-        let deal = mail.get(row, "deal_id");
-        if deal.is_empty() || mail.get(row, "kind") != "実施" {
-            continue;
-        }
-        if let Some(d) = date10(mail.get(row, "date")) {
-            let e = by.entry(deal.to_string()).or_default();
-            if e.1.is_none_or(|x| d > x) {
-                e.1 = Some(d);
             }
         }
     }
@@ -1368,15 +1387,7 @@ pub fn mtg_gap_of(
 
     // 4. 経過日数で帯
     let days = (today - day).num_days();
-    let mut band = if days >= MTG_GAP_CRITICAL_DAYS {
-        MtgBand::Critical
-    } else if days >= MTG_GAP_RED_DAYS {
-        MtgBand::Red
-    } else if days >= MTG_GAP_YELLOW_DAYS {
-        MtgBand::Yellow
-    } else {
-        MtgBand::Recent
-    };
+    let mut band = mtg_band_for_days(days);
 
     // 5. 満了90日前の途絶は強制的に重大
     let mut forced = false;
@@ -1397,6 +1408,29 @@ pub fn mtg_gap_of(
         days: Some(days),
         forced_by_expiry: forced,
     }
+}
+
+/// 日数だけによる MTG 途絶の段階（満了前の引き上げは呼び出し側で行う）。
+pub(crate) fn mtg_band_for_days(days: i64) -> MtgBand {
+    if days >= MTG_GAP_CRITICAL_DAYS {
+        MtgBand::Critical
+    } else if days >= MTG_GAP_RED_DAYS {
+        MtgBand::Red
+    } else if days >= MTG_GAP_YELLOW_DAYS {
+        MtgBand::Yellow
+    } else {
+        MtgBand::Recent
+    }
+}
+
+pub(crate) fn low_nps(value: Option<f64>) -> bool {
+    value.is_some_and(|v| v <= NPS_LOW)
+}
+pub(crate) fn below_half_target(d: &Deal) -> bool {
+    d.rate_tassei().is_some_and(|r| r < 0.5)
+}
+pub(crate) fn high_cpa(value: Option<f64>, median: Option<f64>) -> bool {
+    matches!((value, median), (Some(a), Some(b)) if b > 0.0 && a / b >= 1.5)
 }
 
 /// 契約開始から今日（または満了）までの「経過月」を並べる。

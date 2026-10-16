@@ -69,7 +69,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const cards = ready?.home.cards.filter(item => Object.hasOwn(cardTone, item.key)) ?? [];
   const card = cards.find(item => item.key === open);
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
-    <header className="jh-head"><div><h1>ホーム</h1><p>顧客から案件、求人へ順にたどれます。予定のある案件と、確かめたほうがよい求人を確認できます。</p></div><button type="button" className="jc-button" onClick={() => { setReload(value => value + 1); }}>再読み込み</button></header>
+    <header className="jh-head"><div><h1>ホーム</h1><button type="button" className="jc-button" onClick={() => { updateJobCopyQuery({ view: 'deals', card: null }); }}>案件の一覧</button><p>顧客から案件、求人へ順にたどれます。予定のある案件と、確かめたほうがよい求人を確認できます。</p></div><button type="button" className="jc-button" onClick={() => { setReload(value => value + 1); }}>再読み込み</button></header>
     {error && <p role="alert">{error}</p>}
     {!data && !error && <p role="status">ホームを読み込んでいます…</p>}
     {data?.status === 'preparing' && <ListingPreparationNotice progress={data.progress} />}
