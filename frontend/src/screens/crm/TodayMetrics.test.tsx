@@ -18,7 +18,7 @@ describe('今日の成績の帯', () => {
     expect(screen.getByText('今日の成績').getAttribute('title')).toBe('同じチーム（架空BPOチーム）で今日架電した 8 人と比べています。最初の架電 9:03・最後の架電 14:01。');
   });
 
-  it('狭い幅で隠れる「着信 N」も、重ねたときの title に入っている', async () => {
+  it('「着信 N」は、重ねたときの title にも入っている', async () => {
     render(<TodayMetrics fixture />);
     expect((await screen.findByTestId('metric-outbound')).getAttribute('title')).toBe('架電数 52（チーム平均 47.5・3位/8人）・着信 3');
   });

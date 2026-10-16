@@ -24,6 +24,27 @@ for (const size of [{ width: 1366, height: 768 }, { width: 1920, height: 1080 }]
     await page.clock.runFor(299); await expect(controls).toBeHidden();
     await page.clock.runFor(1); await expect(controls).toBeVisible();
     expect((await list.boundingBox())?.y).toBe(before?.y);
+    const panel = (await controls.boundingBox())!;
+    expect(panel.x).toBe(16);
+    expect(panel.width).toBe(size.width - 32);
+    expect(panel.height).toBeGreaterThanOrEqual(220);
+    const search = page.getByLabel('キーワード(会社名・案件名)');
+    const sort = page.getByLabel('並び替え', { exact: true });
+    const owner = page.getByLabel('所有者', { exact: true });
+    for (const field of [search, sort, owner, page.getByLabel('対象', { exact: true }), page.getByRole('button', { name: 'パイプライン', exact: true })]) {
+      expect((await field.boundingBox())!.height).toBe(36);
+      await expect(field).toHaveCSS('font-size', '14px');
+    }
+    expect((await search.boundingBox())!.width).toBeGreaterThan(450);
+    expect((await search.boundingBox())!.y).toBeGreaterThan((await owner.boundingBox())!.y + 36);
+    // 選択中の標準の文言に、矢印と左右の余白を加えても収まる
+    expect(await sort.evaluate(el => {
+      const select = el as HTMLSelectElement;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d')!;
+      ctx.font = getComputedStyle(el).font;
+      return el.clientWidth - ctx.measureText(select.selectedOptions[0].text).width;
+    })).toBeGreaterThan(40);
     if (dir) await page.screenshot({ path: `${dir}/${size.width}-open.png` });
     await page.mouse.move(size.width - 10, size.height - 10);
     await page.clock.runFor(299); await expect(controls).toBeVisible();
@@ -54,8 +75,10 @@ for (const size of [{ width: 1366, height: 768 }, { width: 1920, height: 1080 }]
     await expect(controls).toBeVisible();
     // 入力した検索語を既存の条件更新で確定し、要約とURLで確認
     await page.getByRole('button', { name: '条件のパネルを閉じる' }).click();
+    await page.clock.resume();
     await page.getByLabel('キーワード(会社名・案件名)').fill('架空');
-    await page.clock.runFor(600);
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('架空');
+    await expect(page.getByTestId('queue-count')).toHaveText('全 7 件中 7 件を表示');
     await page.keyboard.press('Escape');
     await expect(controls).toBeHidden();
     await expect(page.locator('.cq-toolbar-summary')).toHaveAttribute('aria-label', `条件を変更: ${baseSummary} · 検索「架空」`);
@@ -82,3 +105,24 @@ test('タッチ操作で固定して開き、もう一度押すと閉じる', as
     await toggle.tap(); await expect(page.locator('#cq-toolbar-controls')).toBeHidden();
   } finally { await context.close(); }
 });
+
+for (const width of [1366, 1920]) {
+  for (const period of ['today', 'month']) {
+    test(`${width}: ${period}の主数字28px、成績は48px以下の1段に収まる`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1080 });
+      await page.goto(`/app/crm?mode=fixture${period === 'month' ? '&metrics=sales' : ''}`);
+      const strip = page.getByTestId(`${period}-metrics`);
+      await expect(strip.locator('.tm-value').first()).toHaveText(period === 'month' ? '812' : '52');
+      await expect(strip.locator('.tm-value').first()).toHaveCSS('font-size', '28px');
+      await expect(strip.locator('.tm-label').first()).toHaveCSS('font-size', '14px');
+      expect((await strip.boundingBox())!.height).toBeLessThanOrEqual(48);
+      expect(await strip.locator('.tm-item').evaluateAll(items => new Set(items.map(el => Math.round(el.getBoundingClientRect().top))).size)).toBe(1);
+      expect(await strip.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      const last = (await strip.locator('.tm-item').last().boundingBox())!;
+      const actions = (await strip.locator('.tm-actions').boundingBox())!;
+      expect(last.x + last.width).toBeLessThan(actions.x);
+      await strip.getByRole('button', { name: '閉じる', exact: true }).click();
+      await expect(strip.locator('.tm-head')).toHaveCSS('height', '28px');
+    });
+  }
+}

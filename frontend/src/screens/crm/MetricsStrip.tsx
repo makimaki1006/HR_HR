@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import type { StripItem } from './metricsModel';
 import './metrics.css';
 
-/** 1 行に収まっている帯の高さの上限 (これより高ければ折り返している) */
-const ONE_LINE_PX = 36;
+/** 1 行の帯は下線 1px を含めて 48px 以下。本文がこれより高ければ折り返している */
+const ONE_LINE_PX = 47;
 
 type Fit = 'full' | 'short' | 'wrap';
 
@@ -70,6 +70,7 @@ export function MetricsStrip({ label, testId, title, detail, asOf, asOfTitle, it
 
 function StripCell({ it }: { it: StripItem }) {
   const stale = it.stale === true ? '（少し前の値）' : '';
+  const [value, ...supplement] = it.value.split('・');
   if (it.note) {
     return <li className="tm-item" data-testid={`metric-${it.key}`} title={`${it.label} ${it.note}`}>
       <span className="tm-label">{it.label}</span>
@@ -78,9 +79,10 @@ function StripCell({ it }: { it: StripItem }) {
   }
   return <li className="tm-item" data-testid={`metric-${it.key}`} title={`${it.label} ${it.value}（${it.compare}）${it.extra !== null ? `・${it.extra}` : ''}${stale}`}>
     <span className="tm-label">{it.label}</span>
-    <span className="tm-value">{it.value}</span>
+    <span className="tm-value">{value}</span>
+    {supplement.length > 0 && <span className="tm-value-detail">・{supplement.join('・')}</span>}
     <span className="tm-cmp" data-short={`（${it.compareShort}）`}>（{it.compare}）</span>
-    {it.extra !== null && <span className="tm-sub" data-testid={it.key === 'outbound' && it.extra.startsWith('今日') ? 'metric-today' : undefined}>{it.extra}</span>}
+    {it.extra !== null && <span className={`tm-sub${it.extra.startsWith('着信') ? ' tm-inbound' : ''}`} data-testid={it.key === 'outbound' && it.extra.startsWith('今日') ? 'metric-today' : undefined}>{it.extra}</span>}
     {stale && <span className="tm-sub tm-stale">少し前の値</span>}
   </li>;
 }
