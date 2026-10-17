@@ -139,7 +139,7 @@ fn 満了月ごとの継続率がスキルの確定値と一致する() {
         assert_eq!(r["keep"], keep, "{m} の継続済");
         assert_eq!(r["cancel"], cancel, "{m} の解約");
         assert_eq!(r["fill"], fill, "{m} の充足");
-        assert_eq!(r["denom"], denom, "{m} の母数");
+        assert_eq!(r["denom"], denom, "{m} の対象");
         let got = r["rate"].as_f64().expect("率が null");
         assert!(
             (got - pct).abs() < 0.05,
@@ -162,7 +162,10 @@ fn オプションを外すと結果待ちがほぼ消える() {
         .iter()
         .map(|m| month(&v, m)["pending"].as_i64().unwrap_or(0))
         .sum();
-    assert_eq!(pending, 3, "3ヶ月の結果待ち。オプションを外した後の実測値");
+    assert_eq!(
+        pending, 3,
+        "3ヶ月のまだ結果が出ていない。オプションを外した後の実測値"
+    );
     let excluded = super::population_of(&sheets().deal).deals_option;
     assert!(
         excluded > 200,
@@ -198,8 +201,8 @@ fn 継続回数ごとの解約率が資料の値と一致する() {
     ] {
         let r = renewal(&v, no);
         assert_eq!(r["n"], n, "継続{no} の件数");
-        assert_eq!(r["pending"], pending, "継続{no} の結果待ち");
-        assert_eq!(r["denom"], denom, "継続{no} の決着済み（解約率の分母）");
+        assert_eq!(r["pending"], pending, "継続{no} のまだ結果が出ていない");
+        assert_eq!(r["denom"], denom, "継続{no} の結果が出た（解約率の分母）");
         let got_cf = r["cancel"].as_i64().unwrap() + r["fill"].as_i64().unwrap();
         assert_eq!(got_cf, cancel_plus_fill, "継続{no} の解約＋充足");
         let got = r["cancel_rate"].as_f64().expect("率が null");
@@ -240,14 +243,14 @@ fn 右側打ち切りを外すと代表値が動く() {
     let n_cut = renewal(&cut, 0)["n_stats"].as_i64().unwrap();
     assert!(
         n_cut < n_all,
-        "打ち切りを外したのに母数が減っていない（{n_all} → {n_cut}）"
+        "打ち切りを外したのに対象が減っていない（{n_all} → {n_cut}）"
     );
 
     let m_all = renewal(&all, 0)["oubo"]["median"].as_f64().unwrap();
     let m_cut = renewal(&cut, 0)["oubo"]["median"].as_f64().unwrap();
     assert!(
         m_cut > m_all,
-        "打ち切りを外すと中央値は上がるはず（{m_all} → {m_cut}）"
+        "打ち切りを外すと真ん中の値は上がるはず（{m_all} → {m_cut}）"
     );
 
     // 打ち切り件数そのもの。511件（モックの meta）から、オプション契約を
@@ -267,7 +270,7 @@ fn 分母0の率はnullになる() {
         if r["n"] == 0 {
             assert!(
                 r["fill_rate"].is_null(),
-                "母数0なのに率が {} で返っている",
+                "対象0なのに率が {} で返っている",
                 r["fill_rate"]
             );
             checked = true;
@@ -279,7 +282,7 @@ fn 分母0の率はnullになる() {
     // 満了月の側も同じ約束。母数0の月があれば null。
     for r in v["monthly_retention"]["rows"].as_array().unwrap() {
         if r["denom"] == 0 {
-            assert!(r["rate"].is_null(), "母数0の月に率が入っている: {r}");
+            assert!(r["rate"].is_null(), "対象0の月に率が入っている: {r}");
         }
     }
 }
@@ -438,7 +441,7 @@ fn 目標が無い取引は母数に入れない() {
         assert_eq!(
             sum,
             g["pop"].as_i64().unwrap(),
-            "帯の合計が母数と合わない: {g}"
+            "帯の合計が対象と合わない: {g}"
         );
         assert_eq!(
             g["no_result"].as_i64().unwrap(),
@@ -473,7 +476,7 @@ fn 応募効率は向きだけ合って値は再現しない() {
 
     assert_eq!(
         keizoku["n"], 742,
-        "継続済だけ。結果待ちが混ざると 1282 になる"
+        "継続済だけ。まだ結果が出ていないが混ざると 1282 になる"
     );
     assert_eq!(kaiyaku["n"], 529);
     assert_eq!(juusoku["n"], 142);
@@ -810,7 +813,7 @@ fn npsは母数つきで独立して出る() {
     let have = n["n_have_nps"].as_i64().expect("n_have_nps");
     let act = n["n_act"].as_i64().expect("n_act");
     assert!(have > 0 && have < act, "NPSが入っているのは {have} / {act}");
-    assert!(n["coverage"].as_f64().is_some(), "母数の率が null");
+    assert!(n["coverage"].as_f64().is_some(), "対象の率が null");
     assert!(
         n["note"]
             .as_str()
@@ -906,7 +909,7 @@ fn 顧客の形が母数つきで出る() {
     let hq = build_headquarters(&sheets(), fixture_day());
     assert_eq!(
         sh["n_houjin"], hq["meta"]["n_houjin"],
-        "本部アプローチの全 N 法人と合わない"
+        "本部への提案材料の全 N 法人と合わない"
     );
     let disp = sh["n_display"].as_i64().unwrap();
     assert!(disp > 0 && disp < 1649, "表示対象が {disp} 件");
@@ -935,9 +938,9 @@ fn フェーズは契約長に対する割合で決まる() {
             .and_then(|r| r["n"].as_i64())
             .unwrap_or_else(|| panic!("{label} が無い"))
     };
-    assert_eq!(n("序盤"), 263);
-    assert_eq!(n("中盤"), 172);
-    assert_eq!(n("終盤"), 153);
+    assert_eq!(n("始めのほう"), 263);
+    assert_eq!(n("半ば"), 172);
+    assert_eq!(n("終わりのほう"), 153);
     assert_eq!(n("満了超過"), 15);
     // 🔴 契約期間が空のものは「出せない」。満了超過に混ぜない
     assert_eq!(n("出せない"), 1);
@@ -947,7 +950,7 @@ fn フェーズは契約長に対する割合で決まる() {
         .iter()
         .map(|r| r["n"].as_i64().unwrap_or(0))
         .sum();
-    assert_eq!(total, 604, "内訳の合計が母数と合わない");
+    assert_eq!(total, 604, "内訳の合計が対象と合わない");
     assert!(ph["rule"].as_str().unwrap().contains("契約長に対する割合"));
 }
 
@@ -958,12 +961,16 @@ fn 立ち上がりは契約後のmtgだけで測る() {
     let f = &v["first_mtg"];
     assert_eq!(f["n"], 1083);
     assert_eq!(f["pre_contract"], 15, "契約前のMTGは別に数える");
-    assert_eq!(f["stats"]["median"].as_f64().unwrap(), 14.0, "中央値14日");
+    assert_eq!(
+        f["stats"]["median"].as_f64().unwrap(),
+        14.0,
+        "真ん中の値14日"
+    );
 
     // 帯ごとの解約率。決着0件なら null
     for b in f["buckets"].as_array().unwrap() {
         if b["n"] == 0 {
-            assert!(b["cancel_rate"].is_null(), "母数0なのに率が出ている: {b}");
+            assert!(b["cancel_rate"].is_null(), "対象0なのに率が出ている: {b}");
         }
     }
     // 🔴 単調ではないことを注記に残しているか
@@ -1137,7 +1144,7 @@ fn mtgの埋まり具合は抽出の進み具合として出す() {
         .iter()
         .map(|r| r["n"].as_i64().unwrap_or(0))
         .sum();
-    assert_eq!(sum, 3124, "リスク判定の内訳が母数と合わない");
+    assert_eq!(sum, 3124, "リスク判定の内訳が対象と合わない");
     // 未判定を黙って落としていない
     assert!(v["risk_dist"]
         .as_array()
@@ -1160,7 +1167,7 @@ fn データ品質は欠測を件数で出す() {
         .iter()
         .map(|r| r["n"].as_i64().unwrap_or(0))
         .sum();
-    assert_eq!(sum, 3432, "法人番号の出どころの内訳が母数と合わない");
+    assert_eq!(sum, 3432, "法人番号の出どころの内訳が対象と合わない");
     let note = v["houjin_source"]["note"].as_str().unwrap();
     assert!(note.contains("1社1つ"), "法人番号の規律が載っていない");
     assert!(
@@ -1177,7 +1184,12 @@ fn データ品質は欠測を件数で出す() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|m| m["label"].as_str().unwrap().contains("右側打ち切り"))
+        .find(|m| {
+            m["label"]
+                .as_str()
+                .unwrap()
+                .contains("結果がまだ出ていない最近の契約")
+        })
         .unwrap();
     assert_eq!(censored["n"], 419);
 
@@ -1460,7 +1472,7 @@ fn 契約開始がまだ先の案件は開始前として分ける() {
                 .collect();
             assert!(
                 !flags.iter().any(|f| f.contains("接触")),
-                "開始前なのに接触の名札が立っている: {flags:?}"
+                "開始前なのに接触の注意が立っている: {flags:?}"
             );
         }
     }
@@ -1493,10 +1505,10 @@ fn 母数が小さい担当者に印が付く() {
     }
     assert!(
         small > 0,
-        "母数が小さい担当者が1人もいない。判定が効いていない"
+        "対象が小さい担当者が1人もいない。判定が効いていない"
     );
     // 🔴 表から消していないこと（サーバは全員返す）
-    assert!(rows.len() > small, "母数が小さい人しかいない");
+    assert!(rows.len() > small, "対象が小さい人しかいない");
 
     // 外す理由が payload に載っていること
     let rule = v["small_n_rule"].as_str().expect("small_n_rule");
@@ -1792,7 +1804,7 @@ fn 全画面で母集団の件数が一致する() {
         ("いま見るべき顧客", f(build_focus(&sh, day))),
         ("立ち上がり", f(build_rampup(&sh, day))),
         ("電話", f(build_phone(&sh, day))),
-        ("本部アプローチ", f(build_headquarters(&sh, day))),
+        ("本部への提案材料", f(build_headquarters(&sh, day))),
         ("MTG の品質", f(build_mtg_quality(&sh, day))),
         ("データ品質", f(build_data_quality(&sh, day))),
         ("担当者の一覧", f(build_consultants(&sh, day))),
@@ -2052,7 +2064,7 @@ fn mtg途絶の線引きがgasと同じ() {
     assert_eq!(
         super::mtg_gap_of(&grown, &last, today).band,
         super::MtgBand::Critical,
-        "契約開始30日目からは帯を付ける"
+        "契約開始30日目からは区分を付ける"
     );
 
     // 満了90日前の強制引き上げ。30日途絶（本来は注意）が重大になる
@@ -2062,7 +2074,7 @@ fn mtg途絶の線引きがgasと同じ() {
     );
     let ending = mk("2024-01-01", "2026-11-01"); // 満了まで44日
     let g = super::mtg_gap_of(&ending, &last, today);
-    assert_eq!(g.band, super::MtgBand::Critical, "満了90日前の途絶");
+    assert_eq!(g.band, super::MtgBand::Critical, "満了90日前の空いている");
     assert!(g.forced_by_expiry, "強制引き上げの印が立っていない");
     // 29日なら引き上げない（境目）
     last.insert(
@@ -2132,7 +2144,7 @@ fn mtgの記録なしは赤にせず両方のソースで数える() {
             .unwrap()["alert"]
             .as_bool()
             .unwrap();
-        assert!(!alert, "{k} に名札を立てている");
+        assert!(!alert, "{k} に注意を立てている");
     }
     let names: Vec<&str> = v["meta"]["flag_counts"]
         .as_array()
@@ -2146,7 +2158,7 @@ fn mtgの記録なしは赤にせず両方のソースで数える() {
         !names
             .iter()
             .any(|x| x.contains(no_rec) || (x.contains("記録が無い") && x.contains("MTG"))),
-        "「{no_rec}」が名札になっている: {names:?}"
+        "「{no_rec}」が注意になっている: {names:?}"
     );
 
     // 🔴 メール由来を足した効果。録画だけだと記録なしが 191件になる
@@ -2174,7 +2186,7 @@ fn mtgの記録なしは赤にせず両方のソースで数える() {
     let c = &g["coverage"];
     assert_eq!(
         g["n_judged"], 416,
-        "帯を付けた母数（立ち上がり期を除く稼働中）"
+        "区分を付けた対象（立ち上がり期を除く稼働中）"
     );
     assert_eq!(c["recording"], 225);
     assert_eq!(c["mail"], 358);
@@ -2249,16 +2261,16 @@ fn mtg途絶の名札が今日動く先に並ぶ() {
             )
         })
         .collect();
-    assert_eq!(counts.get("MTGが90日以上途絶"), Some(&56));
-    assert_eq!(counts.get("MTGが60〜89日途絶"), Some(&7));
-    assert_eq!(counts.get("MTGが30〜59日途絶"), Some(&22));
-    assert_eq!(counts.get("満了90日前でMTGが30日以上途絶"), Some(&46));
+    assert_eq!(counts.get("MTGが90日以上空いている"), Some(&56));
+    assert_eq!(counts.get("MTGが60〜89日空いている"), Some(&7));
+    assert_eq!(counts.get("MTGが30〜59日空いている"), Some(&22));
+    assert_eq!(counts.get("満了90日前でMTGが30日以上空いている"), Some(&46));
     // 重大の帯 = 経過日数で重大 + 満了前で引き上げたもの
     assert_eq!(56 + 46, 102, "重大の内訳が帯の件数と合わない");
 
     // 今日動く先の行にも帯が乗っている（別の計算を持っていない）
     for r in v["rows"].as_array().unwrap() {
-        assert!(r["mtg_band"].is_string(), "今日動く先に帯が無い: {r}");
+        assert!(r["mtg_band"].is_string(), "今日動く先に区分が無い: {r}");
     }
     assert!(
         v["meta"]["mtg_gap"]["bands"].as_array().unwrap().len() == 6,
@@ -2293,7 +2305,7 @@ fn 今週始まった契約が直近7日で切れている() {
         // 始まったばかりなので、帯は立ち上がり期のはず
         assert_eq!(
             r["mtg_band"], "onboarding",
-            "今週始まったのに帯が付いている: {r}"
+            "今週始まったのに区分が付いている: {r}"
         );
         assert_eq!(r["not_started"], false);
     }
@@ -2331,7 +2343,7 @@ fn 注力の内訳が法人の画面に出る() {
     );
     assert_eq!(
         f["n_houjin"], hq["meta"]["n_houjin"],
-        "本部アプローチと母数が違う"
+        "本部への提案材料と対象が違う"
     );
     assert_eq!(f["n_houjin_option_only"], 3);
     assert_eq!(f["n_display"], 517, "稼働中の取引を持つ法人");
@@ -2339,11 +2351,11 @@ fn 注力の内訳が法人の画面に出る() {
     //    画面はこれを書く（書かないと「オプション契約しか持たない法人は数えていません」が
     //    図にも掛かって読める）
     assert_eq!(f["n_display_option_only"], 1);
-    assert_eq!(f["n_focus"], 116, "注力（モックと同じ）");
+    assert_eq!(f["n_focus"], 116, "重点顧客（モックと同じ）");
     assert_eq!(f["monthly_over_300k"], 58);
     assert_eq!(f["enterprise"], 41);
     assert_eq!(f["multi_site"], 46);
-    assert_eq!(f["n_focus_all"], 223, "全法人まで広げたときの注力");
+    assert_eq!(f["n_focus_all"], 223, "全法人まで広げたときの重点顧客");
 
     let sum = f["monthly_over_300k"].as_i64().unwrap()
         + f["enterprise"].as_i64().unwrap()
@@ -2357,15 +2369,15 @@ fn 注力の内訳が法人の画面に出る() {
         "重なることを画面に書いていない"
     );
     // 🔴 注力（法人・大きさ）と MTG途絶の帯（取引・状態）を混ぜない注意書き
-    assert!(f["not_layer"].as_str().unwrap().contains("帯"));
+    assert!(f["not_layer"].as_str().unwrap().contains("区分"));
 
     // 一覧の行に、注力かどうかと**なぜ注力なのか**が入っている
     let rows = idx["index"].as_array().unwrap();
     let focused: Vec<&Value> = rows.iter().filter(|r| r["focus"] == true).collect();
-    assert_eq!(focused.len(), 116, "一覧の注力の数が内訳と合わない");
+    assert_eq!(focused.len(), 116, "一覧の重点顧客の数が内訳と合わない");
     for r in &focused {
         let why = r["focus_why"].as_array().unwrap();
-        assert!(!why.is_empty(), "注力なのに理由が空: {r}");
+        assert!(!why.is_empty(), "重点顧客なのに理由が空: {r}");
         for w in why {
             assert!(
                 ["月額30万以上", "従業員1,000名以上", "拠点3つ以上"].contains(&w.as_str().unwrap()),
@@ -2376,18 +2388,18 @@ fn 注力の内訳が法人の画面に出る() {
     for r in rows.iter().filter(|r| r["focus"] == false) {
         assert!(
             r["focus_why"].as_array().unwrap().is_empty(),
-            "注力でないのに理由がある: {r}"
+            "重点顧客でないのに理由がある: {r}"
         );
     }
 
     // 1社を開いても、その法人が注力かどうかと内訳が出る（一覧に戻らないと分からない、を作らない）
     let h = idx["default_houjin"].as_str().expect("既定の法人");
     let one = build_customer(&sh, Some(h), day);
-    assert!(!one["focus"].is_null(), "明細に注力の内訳が無い");
+    assert!(!one["focus"].is_null(), "明細に重点顧客の内訳が無い");
     assert_eq!(one["focus"]["n_focus"], 116);
     assert!(
         one["customer"]["focus"].is_boolean(),
-        "この法人が注力かが無い"
+        "この法人が重点顧客かが無い"
     );
     assert!(one["customer"]["focus_why"].is_array());
 
@@ -2395,22 +2407,25 @@ fn 注力の内訳が法人の画面に出る() {
     let html = include_str!("../../../templates/tabs/cs_dashboard.html");
     assert!(
         html.contains("function focusSection("),
-        "注力の節がテンプレートに無い"
+        "重点顧客の節がテンプレートに無い"
     );
     assert!(
         html.contains("focusSection(D)"),
-        "注力の節が法人の画面で呼ばれていない"
+        "重点顧客の節が法人の画面で呼ばれていない"
     );
-    assert!(html.contains("hj-focus-only"), "注力だけに絞る操作が無い");
+    assert!(
+        html.contains("hj-focus-only"),
+        "重点顧客だけに絞る操作が無い"
+    );
     assert!(
         html.contains("svgDots({ total: f.n_display"),
-        "注力の散らばりの図が無い"
+        "重点顧客の散らばりの図が無い"
     );
     // 🔴 絞り込みが「選択肢」にも効いていること（図だけ絞ると全件から選んでしまう）
     assert!(
         html.contains("focusOnly\n      ? customerIndex.filter((r) => r.focus")
             || html.contains("focusOnly"),
-        "注力の絞り込みが選択肢に効いていない"
+        "重点顧客の絞り込みが選択肢に効いていない"
     );
 }
 
@@ -2425,18 +2440,18 @@ fn 注力と帯は別のものとして出る() {
 
     // 注力は法人の画面にあり、案件の行には帯がある
     let idx = build_customer(&sh, None, day);
-    assert!(!idx["focus"].is_null(), "注力は法人の画面にある");
+    assert!(!idx["focus"].is_null(), "重点顧客は法人の画面にある");
     assert!(
         idx["meta"]["mtg_gap"].is_null() && idx["mtg_gap"].is_null(),
-        "法人の画面に帯を持ち込んでいる"
+        "法人の画面に区分を持ち込んでいる"
     );
 
     let b = build_deal_board(&sh, day);
-    assert!(!b["meta"]["mtg_gap"].is_null(), "案件の画面に帯がある");
+    assert!(!b["meta"]["mtg_gap"].is_null(), "案件の画面に区分がある");
     // 案件の行には注力の印もあるが、それは法人から降りてきた属性で、帯とは別の列
     let r = b["rows"].as_array().unwrap().first().unwrap();
-    assert!(r["focus"].is_boolean(), "案件の行に注力の印が無い");
-    assert!(r["mtg_band"].is_string(), "案件の行に帯が無い");
+    assert!(r["focus"].is_boolean(), "案件の行に重点顧客の印が無い");
+    assert!(r["mtg_band"].is_string(), "案件の行に区分が無い");
 
     // Layer1/2/3 という言葉を画面に持ち込んでいないこと
     // （表示用語は日本語にそろえる。GAS の内部の呼び名を現場に見せない）
@@ -2502,7 +2517,7 @@ fn 立ち上がりの帯の解約率は決着済みで割る() {
         let x = b(label);
         assert_eq!(x["n"], n, "{label} の件数");
         assert_eq!(x["cancel"], c, "{label} の解約＋充足");
-        assert_eq!(x["denom"], dn, "{label} の決着済み");
+        assert_eq!(x["denom"], dn, "{label} の結果が出た");
         let got = x["cancel_rate"].as_f64().unwrap();
         assert!(
             (got - pct).abs() < 0.05,
@@ -2650,7 +2665,7 @@ fn 採用単価の進捗帯は稼働中だけで作る() {
         } else {
             None
         };
-        assert_eq!(b["median"].as_f64(), want, "帯{i} の中央値");
+        assert_eq!(b["median"].as_f64(), want, "帯{i} の真ん中の値");
     }
     // 名札は、その帯の中央値の 1.5 倍以上のときだけ
     for r in v["rows"].as_array().unwrap() {
@@ -2658,7 +2673,7 @@ fn 採用単価の進捗帯は稼働中だけで作る() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|f| f == "採用単価が同じ進捗帯の1.5倍以上");
+            .any(|f| f == "採用単価が同じ進捗の区分の1.5倍以上");
         let want = matches!(r["cpa_vs_band"].as_f64(), Some(x) if x >= 1.5);
         assert_eq!(has, want, "{r}");
         if r["cpa_vs_band"].is_number() {
@@ -2701,10 +2716,10 @@ fn 顧客詳細の進捗帯は稼働中にだけ付く() {
         let v = build_customer(&sh, Some(h), day);
         for x in v["cpa3"].as_array().unwrap() {
             if x["active"] == false {
-                assert!(x["band"].is_null(), "決着済みに帯が付いている: {x}");
+                assert!(x["band"].is_null(), "結果が出たに区分が付いている: {x}");
                 assert!(
                     x["band_median"].is_null(),
-                    "決着済みに中央値が付いている: {x}"
+                    "結果が出たに真ん中の値が付いている: {x}"
                 );
                 settled += 1;
             }
@@ -2807,7 +2822,7 @@ fn 担当の交代でメールアドレスを名前として出さない() {
 fn 今日動く先の並びは名札の本数が先() {
     let v = build_today_board(&sheets(), fixture_day());
     let rule = v["meta"]["filter_rule"].as_str().unwrap();
-    assert!(rule.contains("名札の本数が多い順"), "{rule}");
+    assert!(rule.contains("注意の数が多い順"), "{rule}");
     let rows = v["rows"].as_array().unwrap();
     for w in rows.windows(2) {
         let (a, b) = (&w[0], &w[1]);
@@ -2815,7 +2830,7 @@ fn 今日動く先の並びは名札の本数が先() {
             a["n_flags"].as_u64().unwrap(),
             b["n_flags"].as_u64().unwrap(),
         );
-        assert!(na >= nb, "名札の本数の順になっていない");
+        assert!(na >= nb, "注意の数の順になっていない");
         if na == nb {
             assert!(a["amount"].as_f64().unwrap_or(-1.0) >= b["amount"].as_f64().unwrap_or(-1.0));
         }
@@ -2833,7 +2848,7 @@ fn 今日動く先は名札2本以上の全候補も返す() {
     let cand = v["candidates"].as_array().expect("candidates が無い");
     let rows = v["rows"].as_array().unwrap();
     assert_eq!(v["meta"]["keep"], 24, "meta.keep");
-    assert_eq!(cand.len(), 243, "名札2本以上の候補の件数");
+    assert_eq!(cand.len(), 243, "注意2つ以上の候補の件数");
     assert_eq!(v["meta"]["n_hit"], 243, "n_hit は候補の件数");
     assert_eq!(rows.len(), 24, "rows は今までどおり keep 件");
     assert_eq!(
@@ -2844,7 +2859,7 @@ fn 今日動く先は名札2本以上の全候補も返す() {
     for r in cand {
         assert!(
             r["n_flags"].as_u64().unwrap_or(0) >= 2,
-            "名札が2本未満の行が候補に入っている: {r}"
+            "注意が2本未満の行が候補に入っている: {r}"
         );
     }
     let owners = |rs: &[Value]| -> std::collections::BTreeSet<String> {
@@ -2982,21 +2997,21 @@ fn 今日の接触の記録が無いの札は名札と同じ集合を開始済�
     assert_eq!(
         nc["n"].as_u64().unwrap(),
         flag_n,
-        "札の件数が案件一覧の名札の件数と違う"
+        "札の件数が案件一覧の注意の件数と違う"
     );
     assert_eq!(
         flag_n, 61,
-        "fixture の開始済み・接触ゼロの稼働中（routes.rs の名札の注記と同じ 61 件）"
+        "fixture の開始済み・接触ゼロの稼働中（routes.rs の注意の注記と同じ 61 件）"
     );
     let started = rows.iter().filter(|r| r["not_started"] != true).count() as u64;
     assert_eq!(
         nc["base"].as_u64().unwrap(),
         started,
-        "母数が開始済みの稼働中でない"
+        "対象が開始済みの稼働中でない"
     );
     assert!(
         started < rows.len() as u64,
-        "前提: fixture に開始前の稼働中が無い（母数を分けた意味が確かめられない）"
+        "前提: fixture に開始前の稼働中が無い（対象を分けた意味が確かめられない）"
     );
     // 担当ごと: 稼働中の全件から数えた実数。合計は全社と一致し、候補の中で数えた数とはずれる担当がいる
     let by = nc["by_consultant"]
@@ -3007,7 +3022,7 @@ fn 今日の接触の記録が無いの札は名札と同じ集合を開始済�
     assert_eq!(sum, flag_n, "担当ごとの合計が全社と合わない");
     assert_eq!(
         sum_base, started,
-        "担当ごとの母数の合計が全社の母数と合わない"
+        "担当ごとの対象の合計が全社の対象と合わない"
     );
     let mut in_cand: BTreeMap<&str, u64> = BTreeMap::new();
     for r in v["candidates"]
@@ -3585,7 +3600,10 @@ fn フェーズとリスク判定は意味の順で返る() {
         .iter()
         .map(|x| x["label"].as_str().unwrap())
         .collect();
-    assert_eq!(labels, ["序盤", "中盤", "終盤", "満了超過", "出せない"]);
+    assert_eq!(
+        labels,
+        ["始めのほう", "半ば", "終わりのほう", "満了超過", "出せない"]
+    );
     let q = build_mtg_quality(&sh, fixture_day());
     let labels: Vec<&str> = q["risk_dist"]
         .as_array()
@@ -3664,7 +3682,7 @@ fn mtg途絶の帯の説明に仕組みの名前を出さない() {
         g["rule"]
             .as_str()
             .unwrap()
-            .contains("Slack に届く MTG 途絶の警告"),
+            .contains("Slack に届く MTGが空いている期間の警告"),
         "何と同じ線引きかを、現場の言葉で書いていない"
     );
 }
@@ -4325,7 +4343,7 @@ fn 交代の前後の接触が別の数え方と一致する() {
     let mean = c["mean_change"].as_f64().unwrap();
     assert!((mean - 1.6139506008744027).abs() < 1e-9, "平均 {mean}");
     let med = c["median_change"].as_f64().unwrap();
-    assert!((med - 0.8823529411764706).abs() < 1e-9, "中央値 {med}");
+    assert!((med - 0.8823529411764706).abs() < 1e-9, "真ん中の値 {med}");
     assert_eq!(c["meta"]["n_unavailable_rows"], 1);
 
     // 比べられた交代の (交代日, 前の最初の日, 前の最後の日, 前の日数, 前の接触, 後の最初の日, 後の最後の日,
@@ -5216,7 +5234,7 @@ fn 交代の前後の接触は証拠ではないと書く() {
         "一つ前の交代日",
         "次の交代日の前日",
         "後の担当はまだ担当中（締め日までの通期）",
-        "平均と中央値",
+        "平均と真ん中の値",
         "最頻値は出していません",
         "30日あたり",
         "60秒超の通話",
@@ -5929,7 +5947,7 @@ fn 今日動く先の絞った条件に画面名を書かない() {
     let v = build_today_board(&sheets(), fixture_day());
     let rule = v["meta"]["filter_rule"].as_str().unwrap();
     assert!(
-        !rule.contains("案件の立ち位置") && !rule.contains("「案件」の中の"),
+        !rule.contains("案件の契約のどのあたりか") && !rule.contains("「案件」の中の"),
         "画面名が残っている: {rule}"
     );
     // 決まりの中身（何件から何件・線引きは取り決め）は残す
@@ -5956,7 +5974,7 @@ fn team_status_matches_today_and_board() {
     // 全体: 名札2本以上 ＝ 今日動く先の候補の数（n_hit）、持ち件数の合計＋担当なし ＝ 稼働中
     assert_eq!(
         st["meta"]["n_flags2"], today["meta"]["n_hit"],
-        "名札2本以上の合計が今日動く先の候補と違う"
+        "注意2つ以上の合計が今日動く先の候補と違う"
     );
     let sum = |k: &str| rows.iter().map(|r| r[k].as_u64().unwrap()).sum::<u64>();
     assert_eq!(
@@ -5990,12 +6008,12 @@ fn team_status_matches_today_and_board() {
         assert_eq!(
             r["n_flags2"].as_u64().unwrap(),
             cands.iter().filter(|b| &b["consultant"] == c).count() as u64,
-            "{c}: 名札2本以上（今日動く先の候補）"
+            "{c}: 注意2つ以上（今日動く先の候補）"
         );
         assert_eq!(
             r["mtg_critical"].as_u64().unwrap(),
             mine.iter().filter(|b| b["mtg_band"] == "critical").count() as u64,
-            "{c}: MTG 途絶（重大）"
+            "{c}: MTGが空いている期間（重大）"
         );
         for (k, lk) in [
             ("no_contact", "no_contact"),
@@ -6005,7 +6023,7 @@ fn team_status_matches_today_and_board() {
             assert_eq!(
                 r[k].as_u64().unwrap(),
                 mine.iter().filter(|b| has(b, &labels[lk])).count() as u64,
-                "{c}: {k}（案件そのものの名札 {}）",
+                "{c}: {k}（案件そのものの注意 {}）",
                 labels[lk]
             );
         }
@@ -6033,13 +6051,13 @@ fn team_status_matches_today_and_board() {
     for lk in ["no_contact", "expiring60", "nps_low"] {
         assert!(
             board_rows.iter().any(|b| has(b, &labels[lk])),
-            "名札 {} が案件そのものに1件も無い",
+            "注意 {} が案件そのものに1件も無い",
             labels[lk]
         );
     }
     assert!(
         diff_def > 0,
-        "担当者の一覧の no_contact と名札の数が全員同じ（定義の違いを確かめる前提が崩れた）"
+        "担当者の一覧の no_contact と注意の数が全員同じ（定義の違いを確かめる前提が崩れた）"
     );
     // 束ねた中身は元の集計と同じ（作り直していない）
     assert_eq!(team["consultants"], cons);
@@ -6128,7 +6146,7 @@ fn results_nps_low_is_the_same_set_as_the_deal_flag() {
     assert_eq!(
         tbl,
         ids(&tagged),
-        "定期NPS 4以下の表と名札「{flag}」の集合が違う"
+        "定期NPS 4以下の表と注意「{flag}」の集合が違う"
     );
 }
 
@@ -6201,7 +6219,7 @@ fn act_views_are_defined_by_the_deal_flags() {
             .iter()
             .find(|v| v["key"] == k)
             .and_then(|v| v["n"].as_u64())
-            .unwrap_or_else(|| panic!("見方 {k} が meta に無い")) as usize
+            .unwrap_or_else(|| panic!("よく使う絞り込み {k} が meta に無い")) as usize
     };
     assert_eq!(
         (
@@ -6249,14 +6267,14 @@ fn act_view_diff_counts_on_fixture() {
                 o["added"].as_i64()
             ),
             (Some(n), Some(old), Some(kept), Some(dropped), Some(added)),
-            "見方 {k}"
+            "よく使う絞り込み {k}"
         );
         // 恒等式: 前 ＝ 残った ＋ 外れた、新 ＝ 残った ＋ 入った
         assert_eq!(old, kept + dropped);
         assert_eq!(n, kept + added);
         // 外れた行は全件ある（黙って消さない）。どれも今の印を持たず、理由が書いてある
         let dr = o["dropped_rows"].as_array().unwrap();
-        assert_eq!(dr.len() as i64, dropped, "見方 {k} の外れた行");
+        assert_eq!(dr.len() as i64, dropped, "よく使う絞り込み {k} の外れた行");
         for d in dr {
             let id = d["deal_id"].as_str().unwrap();
             let r = rows
@@ -6265,7 +6283,7 @@ fn act_view_diff_counts_on_fixture() {
                 .unwrap_or_else(|| panic!("{id}"));
             assert!(
                 !has_str(&r["views"], k),
-                "外れたはずの {id} が見方 {k} に入っている"
+                "外れたはずの {id} がよく使う絞り込み {k} に入っている"
             );
             assert!(
                 !d["reason"].as_str().unwrap_or("").is_empty(),
@@ -6307,12 +6325,15 @@ fn mtg_no_record_reads_as_missing_record_not_as_not_held() {
         .unwrap()
         .iter()
         .find(|v| v["key"] == "no_mtg")
-        .expect("見方 no_mtg");
+        .expect("よく使う絞り込み no_mtg");
     let label = v["label"].as_str().unwrap();
     let rule = v["rule"].as_str().unwrap();
     assert_eq!(label, "初回契約で MTG の記録が見つからない");
     for c in ["記録が欠けている", "台帳", "録画なし", "紐づいていない"] {
-        assert!(rule.contains(c), "見方の定義に「{c}」が無い: {rule}");
+        assert!(
+            rule.contains(c),
+            "よく使う絞り込みの定義に「{c}」が無い: {rule}"
+        );
     }
     // 前の定義の名前（外れた件数の文に出る）も同じ言い方
     let d = b["meta"]["act_view_diff"]
@@ -6341,7 +6362,7 @@ fn mtg_no_record_reads_as_missing_record_not_as_not_held() {
     assert_eq!(band, "MTGの記録が見つからない");
     assert!(
         rule.contains(band),
-        "見方の定義が帯の名前と食い違う: {rule}"
+        "よく使う絞り込みの定義が帯の名前と食い違う: {rule}"
     );
     // 今日の畳みに出る注記
     let t = build_today_board(&sh, fixture_day());
@@ -6381,8 +6402,8 @@ fn mtg_no_record_reads_as_missing_record_not_as_not_held() {
     let rn = r["no_mtg"]["note"].as_str().unwrap().to_string();
     // どれにも「MTG の記録が無い」「MTGの記録が無い」「記録が1件も無い」を残さない
     for (what, s) in [
-        ("見方の名前", label),
-        ("見方の定義", rule),
+        ("よく使う絞り込みの名前", label),
+        ("よく使う絞り込みの定義", rule),
         ("前の定義の名前", old_where),
         ("今日の注記", note),
         ("帯の名前", bl.as_str()),
@@ -6776,7 +6797,7 @@ fn amount_is_contract_total_not_monthly() {
     ] {
         assert!(
             (r - want).abs() / want < 0.15,
-            "{name} の中央値の比が {r:.2}（契約総額なら {want} 前後。月額なら 1 前後）"
+            "{name} の真ん中の値の比が {r:.2}（契約総額なら {want} 前後。月額なら 1 前後）"
         );
     }
     let text = super::money::AMOUNT_BASIS;
@@ -6823,7 +6844,7 @@ fn old_screen_names_not_in_server_text() {
     // 顧客の「日々変わる状態」の文が今のメニュー名を指しているか（名前だけ消して行き先を失っていない）
     let cust = &all.iter().find(|(k, _)| *k == "customer").unwrap().1;
     let nl = cust["focus"]["not_layer"].as_str().unwrap_or("");
-    assert!(nl.contains("「今日」の MTG途絶の帯"), "{nl}");
+    assert!(nl.contains("「今日」の MTGが空いている期間の区分"), "{nl}");
     for (k, v) in &all {
         let s = v.to_string();
         // 🔴 2026-09-30 検証: 3語だけ見ていて、旧画面の「担当者ごとの接触」「担当者の一覧」（09 の 4章の 6 と 9。
@@ -6831,7 +6852,7 @@ fn old_screen_names_not_in_server_text() {
         for bad in [
             "今日動く先",
             "案件そのもの",
-            "案件の立ち位置",
+            "案件の契約のどのあたりか",
             "担当者ごとの接触",
             "担当者の一覧",
         ] {

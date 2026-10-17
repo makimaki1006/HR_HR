@@ -91,10 +91,10 @@ const TEAM_ROWS = [
 ctx.__TEAM = TEAM_ROWS;
 
 // 2026-09-28（S-10）: KPI は「いちばん低い」人の名指しをやめて「40% 未満の人数」にした。母数が小さい人を外す性質（V2）は同じ
-check("V2: 接触率 40% 未満の人数から母数が小さい人を外す", () => {
+check("V2: 接触率 40% 未満の人数から対象が小さい人を外す", () => {
   const p = run("pickLowContact(__TEAM)");
   ok(p.n === 1 && p.deals === 28,
-    "40% 未満が " + p.n + " 名・持ち案件 " + p.deals + " 件（期待 1 名・28 件）。母数が小さい h6e0d…（0/11か月）を数えていないか");
+    "40% 未満が " + p.n + " 名・持ち案件 " + p.deals + " 件（期待 1 名・28 件）。対象が小さい h6e0d…（0/11か月）を数えていないか");
   ok(p.skipped === 5, "外した人数が " + p.skipped + "（期待 5）");
 });
 
@@ -119,7 +119,7 @@ const plainOf = (h) => String(h).replace(/<svg[\s\S]*?<\/svg>/g, " ").replace(/<
 
 /* 2026-09-29 組み替え（09 の 6）: 札は 4 枚（担当者・名札2本以上・今週満了・退職者のまま）で、どれも件数（名指ししない）。
    前の札「接触率 40% 未満の担当者」は、2 つの定義を並べた説明（表の直下）で人数として言う。母数が小さい人を外す性質（V2）は同じ */
-check("V2/S-10: 40% 未満の人数から母数が小さい人を外して書き、札に担当者の名前を一人も出さない（名指しの順位表にしない）", () => {
+check("V2/S-10: 40% 未満の人数から対象が小さい人を外して書き、札に担当者の名前を一人も出さない（名指しの順位表にしない）", () => {
   ctx.__D = {
     rows: TEAM_ROWS, meta: { n_consultant: 27, n_active: 604, unknown_owner: 0, retired_deals: 0,
       retired_people: 0, owner_ties: 38, not_counted: "※ 担当者の評価ではありません" },
@@ -129,17 +129,17 @@ check("V2/S-10: 40% 未満の人数から母数が小さい人を外して書き
   const kpi = h.slice(h.indexOf('<div class="kpis">'), h.indexOf("<h2", h.indexOf('<div class="kpis">')));
   for (const r of TEAM_ROWS) ok(!kpi.includes(r.consultant), "KPI に担当者の名前が出ている: " + r.consultant);
   const lbls = [...kpi.matchAll(/<span class="lbl">([^<]*)<\/span>/g)].map((m) => m[1]);
-  ok(JSON.stringify(lbls) === JSON.stringify(["担当者", "名札が 2 本以上の案件", "今週満了", "退職者のまま"]), "札が 09 の 6 の 4 枚でない: " + lbls.join(" / "));
+  ok(JSON.stringify(lbls) === JSON.stringify(["担当者", "注意が 2 つ以上の案件", "今週満了", "退職者のまま"]), "札が 09 の 6 の 4 枚でない: " + lbls.join(" / "));
   const def = plainOf(h.slice(h.indexOf("人ごとの接触は、定義が2つあります")));
   ok(def.includes("いま 40% 未満の担当者は 1 名です（持ち案件 28 件）"), "40% 未満の人数（1 名・持ち案件 28 件）が書かれていない");
-  ok(def.includes("母数が小さい 5 名は数えていません"), "外した人数が書かれていない");
+  ok(def.includes("対象が小さい 5 名は数えていません"), "外した人数が書かれていない");
   /* 40% 未満の人（母数が足りる h9821…）の表の値は、色だけでなく ▼ でも分かる。母数が小さい人（h6e0d… 0.0%）には「母数が小さい」の印 */
   const tb = h.slice(h.indexOf('<table id="team-tbl"'));
   const rowOf = (name) => tb.slice(tb.indexOf(">" + name + "<"), tb.indexOf("</tr>", tb.indexOf(">" + name + "<")));
   ok(rowOf("h96f5a5adf9aa").includes("&#9660; 26.4%"), "40% 未満の値に ▼ が無い（色だけで伝えている）");
-  ok(rowOf("h6cbf3e7797ba").includes(">母数が小さい</span>"), "母数が小さい人に印が無い");
+  ok(rowOf("h6cbf3e7797ba").includes(">対象が小さい</span>"), "対象が小さい人に印が無い");
   /* 注力案件は札にせず、表の列（件数）で出す */
-  ok(/<td class="n">16<\/td>/.test(rowOf("h2ce37435eb16")), "注力案件の件数（16 件）が表に無い");
+  ok(/<td class="n">16<\/td>/.test(rowOf("h2ce37435eb16")), "重点顧客の案件の件数（16 件）が表に無い");
   // 0 名なら持ち案件を書かない
   ctx.__D0 = Object.assign({}, ctx.__D, { rows: TEAM_ROWS.filter((r) => r.small_n || r.contact_rate >= 40) });
   const d0 = plainOf(run("renderTeam(teamOf(__D0))"));
@@ -175,7 +175,7 @@ check("V3: データ品質の図に内部名が出ない", () => {
 });
 
 /* ================================================================ V9 */
-check("V9: 目標の帯は 赤=まずい / 緑=良い を守る", () => {
+check("V9: 目標の区分は 赤=まずい / 緑=良い を守る", () => {
   // outcome.json の goal_act.bands の並び（2026-09-23 実測）。以前は並び順で SERIES を回し、
   // 50〜100% が赤、1〜50% が緑になっていた。
   // 🔴 期待値を変えた（2026-09-23 検証 V9）: 以前は「0% は赤」を固定していたが、母集団は
@@ -212,26 +212,26 @@ ctx.__OUT = {
   contact_source: {},
 };
 
-check("V9: 目標の帯を renderOutcome が実際に中空・判定の色なしで描く", () => {
+check("V9: 目標の区分を renderOutcome が実際に中空・判定の色なしで描く", () => {
   const h = run("renderOutcome(__OUT)");
   const g = h.split("<figcaption>達成率 ＝ 承諾数 ÷ 採用目標数")[1].split("</figure>")[0];
   const rects = [...g.matchAll(/<rect [^>]*>/g)].map((m) => m[0]);
   ok(rects.length >= 6, "帯の数が足りない: " + rects.length);
-  ok(!g.includes("var(--hi)") && !g.includes("var(--ki)"), "目標の帯に赤・山吹を使っている");
+  ok(!g.includes("var(--hi)") && !g.includes("var(--ki)"), "目標の区分に赤・山吹を使っている");
   const dashed = rects.filter((r) => r.includes("stroke-dasharray")).length;
   // 帯 3 つ ＋ 凡例の粒 3 つ
-  ok(dashed === 6, "未確定の帯（0% / 1〜50% / 50〜100%）が中空・破線になっていない: " + dashed);
+  ok(dashed === 6, "未確定の区分（0% / 1〜50% / 50〜100%）が中空・破線になっていない: " + dashed);
   ok(g.includes("途中の値"), "稼働中なので途中の値だという断り書きが無い");
   ok(g.includes("承諾数が空の 6 件"), "目標はあるが承諾数が空の件数を書いていない（NEW）");
 });
 
-check("V9: 応募効率の箱ひげで群の並び順に色を回さない（解約=赤・充足=緑にしない）", () => {
+check("V9: 応募効率の値の広がりで群の並び順に色を回さない（解約=赤・充足=緑にしない）", () => {
   const h = run("renderOutcome(__OUT)");
   const g = h.split("<figcaption>応募数 ÷ 掲載数")[1].split("</figure>")[0];
-  ok(!g.includes("var(--hi)") && !g.includes("var(--midori)"), "箱ひげに赤または緑が入っている");
+  ok(!g.includes("var(--hi)") && !g.includes("var(--midori)"), "値の広がりに赤または緑が入っている");
 });
 
-check("V9: 継続回数ごとの箱ひげで行ごとに色を回さない（継続1だけ赤にしない）", () => {
+check("V9: 継続回数ごとの値の広がりで行ごとに色を回さない（継続1だけ赤にしない）", () => {
   const box = { n: 40, min: 0, q1: 1, median: 2, q3: 3, max: 9, mean: 2.5 };
   const row = (no) => ({ renewal_no: no, n: 100, n_active: 1, cancel_rate: 30, cancel_rate_excl_fill: 20,
     oubo: box, mensetu: box, syoudaku: box, oubo_per_posting: box, amount: box });
@@ -239,7 +239,7 @@ check("V9: 継続回数ごとの箱ひげで行ごとに色を回さない（継
     monthly_retention: { rows: [] }, by_renewal: [row(0), row(1), row(2)], missingness: [], population: {} };
   const h = run("renderRenewal(__RN)");
   const boxes = h.split("の散らばり（継続回数ごと）").slice(1).join("");
-  ok(!boxes.includes("stroke:var(--hi)"), "箱ひげのどれかが赤で描かれている");
+  ok(!boxes.includes("stroke:var(--hi)"), "値の広がりのどれかが赤で描かれている");
 });
 
 /* ================================================================ V10 */
@@ -312,7 +312,7 @@ check("V15: 継続回数の表で n<30 の行に印を付ける", () => {
       cancel_rate: 0, cancel_rate_excl_fill: 0,
       oubo: box, mensetu: box, syoudaku: box, oubo_per_posting: box, amount: box }] };
   const h = run("renderRenewal(__RN2)");
-  ok(/継続9 <span class="tag few">n&lt;30<\/span>/.test(h), "n=6 の行に印が無い");
+  ok(/継続9 <span class="tag few">30件未満<\/span>/.test(h), "6件 の行に印が無い");
 });
 
 /* ================================================================ V16 */
@@ -336,8 +336,8 @@ check("V15/V17: 満了月ごとの内訳は枠に入れ、「折れ線と同じ�
      黙って消していないこと（図の下の文と点の説明に移した）を見る。どちらの月も n<30 で点が無いので、文に全部書く */
   ok(!h.includes("満了月ごとの内訳") && !h.includes("上の折れ線と同じ"), "満了月ごとの内訳の表・「折れ線と同じ」が残っている");
   const t = plainOf(h);
-  ok(t.includes("結果待ちは分母に入れていません（全部で 12 件）"), "結果待ちの合計（3+9）が無い");
-  ok(t.includes("2026-01 62.5%（n=8。継続 5・解約 2・充足 1・結果待ち 3）") && t.includes("2026-02 80.0%（n=5。継続 4・解約 1・充足 0・結果待ち 9）"),
+  ok(t.includes("まだ結果が出ていない契約は分母に入れていません（全部で 12 件）"), "まだ結果が出ていないの合計（3+9）が無い");
+  ok(t.includes("2026-01 62.5%（8件。継続 5・解約 2・充足 1・まだ結果が出ていない 3）") && t.includes("2026-02 80.0%（5件。継続 4・解約 1・充足 0・まだ結果が出ていない 9）"),
     "点を打たない月の率と件数が書かれていない");
 });
 
@@ -356,9 +356,9 @@ check("V20: 図の読み上げ名を既定値（横棒 など）のままにし�
   ok(h.includes('aria-label="接触率"'), "図の見出しが読み上げ名になっていない");
 });
 
-check("V20: 注力でない点に 1.20:1 の --rule を使わない", () => {
+check("V20: 重点顧客でない点に 1.20:1 の --rule を使わない", () => {
   const svg = run("svgDots({ total: 3, groups: [{ v: 1, color: C.ai, label: \"x\" }] })");
-  ok(!svg.includes("fill:var(--rule)\""), "注力でない点が --rule（1.20:1）のまま");
+  ok(!svg.includes("fill:var(--rule)\""), "重点顧客でない点が --rule（1.20:1）のまま");
 });
 
 check("V20: 図の見出しに $& などがあっても読み上げ名が壊れない", () => {
@@ -379,13 +379,13 @@ ctx.__HQ = {
     { site: "拠点2", cpa: 120000, cancel_rate: 0, deals: 1, syoudaku: 1, active: 0, cancel: 0, fill: 0, keep: 1, denom: 1, amount: 1 }] }],
 };
 
-check("V20: 本部アプローチの拠点の解約率に母数（決着済みの件数）を添える", () => {
+check("V20: 本部への提案材料の拠点の解約率に対象（結果が出た件数）を添える", () => {
   const h = run("renderHq(__HQ)");
   /* 母数は解約率の分母（決着済み denom=4）。取引数 deals=5 を書くと検算できない（fix/cs-rust N4） */
-  ok(h.includes("解約・充足 50.0%（決着済み 4件中）"), "解約率に母数が無い");
+  ok(h.includes("解約・充足 50.0%（結果が出た 4件中）"), "解約率に対象が無い");
 });
 
-check("V21: 本部アプローチは頭の枠を def にし、サーバの not_counted を出す", () => {
+check("V21: 本部への提案材料は頭の枠を def にし、サーバの not_counted を出す", () => {
   const h = run("renderHq(__HQ)");
   const head = h.split('<div class="note ')[1] || "";
   ok(head.startsWith("def"), "頭の枠が def でない: " + head.slice(0, 20));
@@ -468,7 +468,7 @@ check("V10: 積み上げ縦棒の整数の軸で目盛りが重複しない（0,
   ok(new Set(tk).size === tk.length, "目盛りが重複: " + tk.join(","));
 });
 
-check("立ち上がり: 帯ごとの解約率で特定の帯（61日超）を赤にしない", () => {
+check("立ち上がり: 区分ごとの解約率で特定の区分（61日超）を赤にしない", () => {
   /* 入力はどちらも全画面共通の線（CANCEL_HI＝40%）の上。この図は線でも色を分けない（5f11d15 の決め事。
      2026-09-24 に一度値で緋にしたのを戻した）。線で緋にしないことは下の「解約率の色の線」でも見る */
   ctx.__RU = { meta: {}, phase: { rows: [], rule: "" },
@@ -477,24 +477,24 @@ check("立ち上がり: 帯ごとの解約率で特定の帯（61日超）を赤
       { label: "61日超", n: 45, denom: 40, cancel_rate: 45 }] },
     no_mtg: { n: 0, first_active: 0, rate: null, note: "", rows: [] } };
   const h = run("renderRampup(__RU)");
-  const g = h.split("<figcaption>帯ごとの、その後の解約率")[1].split("</figure>")[0];
-  ok(!g.includes("var(--hi)"), "帯ごとの解約率の図（棒か凡例）に赤を使っている");
+  const g = h.split("<figcaption>区分ごとの、その後の解約率")[1].split("</figure>")[0];
+  ok(!g.includes("var(--hi)"), "区分ごとの解約率の図（棒か凡例）に赤を使っている");
 });
 
-check("案件一覧: 採用単価はどの帯の中央と比べたかを帯の名前で出し、何ヶ月目の立ち位置と分ける", () => {
+check("案件一覧: 採用単価はどの区分の中央と比べたかを帯の名前で出し、何ヶ月目の契約のどのあたりかと分ける", () => {
   ctx.__BR = { amount: 5000000, cpa: 900000, cpa_band_median: 500000, cpa_vs_band: 1.8,
-    cpa_band: "契約の前半（0〜50%）", band: "序盤", months: 2, period: 12 };
+    cpa_band: "契約の前半（0〜50%）", band: "始めのほう", months: 2, period: 12 };
   const c = run("cpaCell(__BR)");
-  ok(c.includes("契約の前半（0〜50%）"), "採用単価の欄に比べた帯の名前が無い: " + c);
+  ok(c.includes("契約の前半（0〜50%）"), "採用単価の欄に比べた区分の名前が無い: " + c);
   const p = run("pos(__BR)");
-  ok(p.includes("立ち位置 序盤"), "何ヶ月目の横の帯が採用単価の帯と区別されていない: " + p);
+  ok(p.includes("契約の始めのほう"), "何ヶ月目の横の区分が採用単価の区分と区別されていない: " + p);
   // cpa_band_rule（routes.rs deal_rows の meta）を画面に出す
   ctx.__TD2 = { rows: [], expiring_this_week: [], started_this_week: [],
     meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "", mtg_gap: {},
             cpa_band_rule: "採用単価は、稼働中の契約どうしを契約の進み具合で比べています" } };
   const t = run("renderToday(__TD2)");
   ok(t.includes("採用単価は、稼働中の契約どうしを契約の進み具合で比べています"), "cpa_band_rule を画面に出していない");
-  ok(t.includes("0.34 / 0.67"), "立ち位置の区切りとは別だと書いていない");
+  ok(t.includes("0.34 / 0.67"), "契約のどのあたりかの区切りとは別だと書いていない");
 });
 
 check("いま見るべき顧客: 拠点キーが空で判定から外した件数（skipped_no_site）を出す", () => {
@@ -522,8 +522,8 @@ check("本部・悪化の図: site_name が無い拠点を照合用のキーで�
   hq.rows[0].rows[1].site_name = "拠点2の名前";
   ctx.__HQ2 = hq;
   const h = run("renderHq(__HQ2)");
-  ok(!h.includes("kyotenkey_aaa"), "本部アプローチに照合用のキーが出ている");
-  ok(h.includes("拠点名が無い"), "本部アプローチに「拠点名が無い」が出ていない");
+  ok(!h.includes("kyotenkey_aaa"), "本部への提案材料に照合用のキーが出ている");
+  ok(h.includes("拠点名が無い"), "本部への提案材料に「拠点名が無い」が出ていない");
   const fo = JSON.parse(JSON.stringify(ctx.__FO));
   fo.cpa = { worse: 1, judged: 1, skipped_censored: 0, rows: [
     { site: "kyotenkey_bbb", site_name: null, prev: 100, last: 200, ratio: 2 }], note: "" };
@@ -533,7 +533,7 @@ check("本部・悪化の図: site_name が無い拠点を照合用のキーで�
   ok(f.includes("拠点名が無い"), "採用単価の悪化の図に「拠点名が無い」が出ていない");
 });
 
-check("本部アプローチ: cancel_rule / cpa_rule を上位10法人の図ごとに繰り返さない", () => {
+check("本部への提案材料: cancel_rule / cpa_rule を上位10法人の図ごとに繰り返さない", () => {
   const hq = JSON.parse(JSON.stringify(ctx.__HQ));
   hq.meta.cancel_rule = "解約率のきまりXYZ";
   hq.meta.cpa_rule = "採用単価のきまりXYZ";
@@ -656,7 +656,7 @@ check("図の部品(1b): 図の枠が実際にはみ出しているときだけ 
 check("図の部品(2): 左のラベルが欄より長いとき、省略記号で切り、全文を title に残す", () => {
   // houjin の採用単価（shortName(…, 20)）、拠点の開き、dq の欠測の件数で頭が切れていた
   const long = "ケアサポートかがやき居宅介護支援事業所ステップアップ継続①";
-  ctx.__LL = [long, "右側打ち切り（結果が確定していない直近の契約）"];
+  ctx.__LL = [long, "結果がまだ出ていない最近の契約"];
   const hs = {
     bar: run('svgBarH({ w: 700, rows: [{ label: __LL[0], v: 1 }, { label: __LL[1], v: 2 }] })'),
     box: run('svgBoxH({ w: 680, rows: [{ label: __LL[0], med: 2, q1: 1, q3: 3, min: 0, max: 4, n: 40 }] })'),
@@ -710,7 +710,7 @@ check("図の部品(2): 左のラベルが欄より長いとき、省略記号�
 
 /** 継続回数 × 成果の、月次の継続率の節から後ろ */
 const retPart = (h) => h.slice(h.indexOf("月次の継続率（満了月ベース"));
-check("図の部品(3): 月次継続率の右端でラベルが重ならず、n=0 の月に点も線も作らない", () => {
+check("図の部品(3): 月次継続率の右端でラベルが重ならず、0件 の月に点も線も作らない", () => {
   // fixture の monthly_retention（2026-09-23 実測）の末尾: 26-10 n=8 / 26-11 n=0 / 26-12 n=0 /
   // 27-01 n=1 / 27-02 以降 n=0（末尾は図から外す）。前は「26-11」「27-01」と「n=0」「n=1」が重なり、
   // n=0 の月の 0 の高さに灰色の短い線が出ていた
@@ -729,16 +729,16 @@ check("図の部品(3): 月次継続率の右端でラベルが重ならず、n=
   const svg = firstSvg(retPart(run("renderRenewal(__RN)")));
   const ov = overlaps(svg);
   ok(!ov.length, "月次継続率の文字が重なる: " + ov.slice(0, 4).join(" / "));
-  ok(!/値が無い（0 ではない）/.test(svg), "n=0 の月に 0 の高さの灰色の線を描いている（凡例に無い印）");
-  ok(svg.includes(">27-01<") && svg.includes(">n=1<"), "最後の月（27-01 n=1）のラベルが無い");
+  ok(!/値が無い（0 ではない）/.test(svg), "0件 の月に 0 の高さの灰色の線を描いている（凡例に無い印）");
+  ok(svg.includes(">27-01<") && svg.includes(">1件<"), "最後の月（27-01 1件）のラベルが無い");
   // 🔴 率に母数（2026-09-23 検証）。xPick・間引きで横軸の2段目（n=）を出さない月でも、点の title で母数が読める
   const tt = [...svg.matchAll(/<circle [^>]*><title>([^<]*)<\/title>/g)].map((m) => m[1]);
-  ok(tt.length > 0 && tt.every((t) => /（n=\d+）/.test(t)),
-    "点の title に母数（n=）が無い月がある: " + tt.filter((t) => !/（n=\d+）/.test(t)).slice(0, 3).join(" / "));
+  ok(tt.length > 0 && tt.every((t) => /（\d+件）/.test(t)),
+    "点の title に対象（n=）が無い月がある: " + tt.filter((t) => !/（\d+件）/.test(t)).slice(0, 3).join(" / "));
   const hidden = tt.filter((t) => !svg.includes(">" + t.split("（")[0] + "<"));
   ok(hidden.length > 0, "この入力では横軸のラベルを出さない月があるはず（見張りの前提が崩れている）");
   // 値が無い月（n=0）で線が切れることを、凡例で説明している（fig の data-gap）
-  ok(/<svg [^>]*data-gap="1"/.test(svg), "n=0 の月で線が切れるのに、図に「切れ目あり」の印（data-gap）が無い");
+  ok(/<svg [^>]*data-gap="1"/.test(svg), "0件 の月で線が切れるのに、図に「切れ目あり」の印（data-gap）が無い");
   // 🔴 n<30 の月は値があっても点を打たないので、決まり文句（その月の値が無い）ではなく
   //    この図の理由で説明する（ループ4 renewal の見張りで文の中身を見る）
   const rnTxt = run("renderRenewal(__RN)");
@@ -775,7 +775,7 @@ check("図の部品(4): 系列を縦に並べる図で、NPS の「定期N」・
   //     （帯を 48px に戻すと 12px になり、1 点ぶんの差が 1.2px で見分けられない）
   const nps = [...h.matchAll(/<circle cx="[\d.]+" cy="([\d.]+)" r="5"[^>]*><title>[^:]*: 定期\d+ の回答 (\d+)<\/title>/g)].map((m) => [+m[2], +m[1]]);
   const y10 = (nps.find((q) => q[0] === 10) || [0, NaN])[1], y0 = (nps.find((q) => q[0] === 0) || [0, NaN])[1];
-  ok(y0 - y10 >= 24, "(c) NPS の 0 と 10 の点の高さの差が " + (y0 - y10) + "px（24px 未満。帯が低すぎて点の差が読めない）");
+  ok(y0 - y10 >= 24, "(c) NPS の 0 と 10 の点の高さの差が " + (y0 - y10) + "px（24px 未満。区分が低すぎて点の差が読めない）");
   tks.filter((b) => b.y1 < axY[2] + 0.5).forEach((b) => {
     const y = b.y0 + 9 - 4;   // 目盛りの文字は点の高さ +4 に置く
     ok(cy.some((c) => Math.abs(c - y) < 0.6), "(b) 右の目盛り「" + b.s + "」が、どの点の高さにも合っていない（y=" + y.toFixed(1) + "）");
@@ -799,8 +799,8 @@ check("図の部品(5): 軸の題名と最上段の目盛りが重ならず、�
   ok(!overlaps(ltv).length, "LTV の横軸: " + overlaps(ltv).slice(0, 3).join(" / "));
   // 箱ひげの「最大 609」と右端の「n=1083」の間を空ける（rampup の初回MTGまで, fixture 実測）
   const bx = run('svgBoxH({ w: 680, rows: [{ label: "初回MTGまで", med: 14, q1: 4, q3: 43, min: 0, max: 609, mean: 40, n: 1083 }] })');
-  const b = textBoxes(bx), mx = b.find((q) => q.s.startsWith("最大")), nn = b.find((q) => q.s.startsWith("n="));
-  ok(mx && nn && nn.x0 - mx.x1 >= 20, "「最大 609」と「n=1083」の間が " + (mx && nn ? (nn.x0 - mx.x1).toFixed(1) : "?") + "px（20px 未満）");
+  const b = textBoxes(bx), mx = b.find((q) => q.s.startsWith("最大")), nn = b.find((q) => q.s === "1083件");
+  ok(mx && nn && nn.x0 - mx.x1 >= 20, "「最大 609」と「1083件」の間が " + (mx && nn ? (nn.x0 - mx.x1).toFixed(1) : "?") + "px（20px 未満）");
   /* 🔴 2026-09-23 検証: 散布図・ヒストグラムの題名の余白は見張りの外だった。
      また折れ線の余白だけを戻すと題名が y=2 に来て SVG の上端の外で切れるが、重なりしか見ていなかった。
      題名のある 4 つの図すべてで、重ならないことと SVG の中にあることを見る */
@@ -821,7 +821,7 @@ check("図の部品(5): 軸の題名と最上段の目盛りが重ならず、�
   ok(topTick(s9) >= 9, "散布図: 最大 9 に対して目盛りが " + topTick(s9) + " で止まる");
 });
 
-check("図の部品(6): 接触率の図の目盛りが最大値を覆い、率と母数が棒の近くにある", () => {
+check("図の部品(6): 接触率の図の目盛りが最大値を覆い、率と対象が棒の近くにある", () => {
   // fixture の接触率（母数が足りる担当者）の最大は 96.92%。前は目盛りが 75% で止まっていた
   const h = run(`svgBarH({ w: 720, fmt: F.pp, rh: 24, rows: [
     { label: "h96f5a5adf9aa", v: 26.4, txt: "26.4%", note: "33/125 か月　案件28" },
@@ -830,7 +830,7 @@ check("図の部品(6): 接触率の図の目盛りが最大値を覆い、率�
   const tks = textBoxes(h).filter((b) => /^\d+%$/.test(b.s)).map((b) => parseFloat(b.s));
   ok(Math.max(...tks) >= 96.92, "目盛りの最大が " + Math.max(...tks) + "%（96.9% の棒が目盛りの先へ伸びる）");
   const b = textBoxes(h), v = b.find((q) => q.s === "96.9%"), n = b.find((q) => q.s.startsWith("63/65"));
-  ok(n.x0 - v.x1 <= 60, "いちばん長い棒の率から母数まで " + (n.x0 - v.x1).toFixed(0) + "px 離れている（前は約200px）");
+  ok(n.x0 - v.x1 <= 60, "いちばん長い棒の率から対象まで " + (n.x0 - v.x1).toFixed(0) + "px 離れている（前は約200px）");
   /* 🔴 2026-09-23 検証: 上の 60px は、注記の置き方を全部戻しても通っていた（入力の注記がほぼ同じ長さで、
      右端ぞろえでも左ぞろえでも位置が変わらなかった）。長さの違う注記を混ぜ、
      注記が値ラベルの欄のすぐ右に**左ぞろえで1列に**並ぶこと・どの行も率から 40px 以内に始まることを見る */
@@ -874,10 +874,10 @@ check("図の部品(8): 見張りの外だった是正（横軸の間引き・�
   // (a) 系列を縦に並べる図の横軸: 29 か月を 940px に並べると 3 か月おき＋最後。27 と 28 がくっつく形
   ctx.__M29 = Array.from({ length: 29 }, (_, i) => (i + 1) + "ヶ月");
   const ln = run('svgStackLanes({ w: 940, months: __M29, lanes: [{ label: "応募", type: "line", color: "blue", pts: __M29.map((_, i) => ({ v: i })) }] })');
-  ok(!overlaps(ln).length, "(a) 帯を縦に積む図の横軸の最後の2つが重なる: " + overlaps(ln).join(" / "));
+  ok(!overlaps(ln).length, "(a) 区分を縦に積む図の横軸の最後の2つが重なる: " + overlaps(ln).join(" / "));
   // (b) 折れ線の横軸の2段目（n=）。1段目は短く収まるが2段目だけがぶつかる形（20 点を 660px に）
   ctx.__X20 = Array.from({ length: 20 }, (_, i) => String(i + 1));
-  const sub = run('svgLine({ x: __X20, xSub: __X20.map(() => "n=1000"), series: [{ pts: __X20.map((_, i) => ({ v: i })) }] })');
+  const sub = run('svgLine({ x: __X20, xSub: __X20.map(() => "1000件"), series: [{ pts: __X20.map((_, i) => ({ v: i })) }] })');
   ok(!overlaps(sub).length, "(b) 折れ線の横軸の2段目（n=）が重なる: " + overlaps(sub).join(" / "));
   // (c) 左右に伸びる横棒（diverging）も、最大値を覆うところまで目盛りを足す
   const dv = run('svgBarH({ diverging: true, fmt: F.d1, rows: [{ label: "a", v: -0.3 }, { label: "b", v: 0.9 }] })');
@@ -890,7 +890,7 @@ check("図の部品(8): 見張りの外だった是正（横軸の間引き・�
   ok((tl.match(/<line class="gridline"/g) || []).length > textBoxes(tl).filter((q) => /^\d{4}-\d\d$/.test(q.s)).length,
     "(d) この入力では右端の月の線だけを描く形のはず（見張りの前提が崩れている）");
   // (e) 充足率の面・ファネルの左のラベルも、欄より長ければ省略記号で切る
-  ctx.__LB = "右側打ち切り（結果が確定していない直近の契約）の件数";
+  ctx.__LB = "結果がまだ出ていない最近の契約の件数";
   const mx = run('svgMatrix({ padL: 150, cw: 120, cols: ["a"], rows: [{ label: __LB, cells: [{ v: .5 }] }] })');
   const fn = run('svgFunnel({ steps: [{ label: "応募（媒体と紹介の合計）", v: 10 }, { label: "面接", v: 4 }] })');
   for (const [k, v] of Object.entries({ 充足率: mx, ファネル: fn })) {
@@ -902,7 +902,7 @@ check("図の部品(8): 見張りの外だった是正（横軸の間引き・�
   const br = run('svgStackLanes({ w: 940, months: ["1","2","3"], lanes: [{ label: "接触", type: "bars", color: "gray", fillLabel: "接触", outLabel: "MTG", pts: [{ fill: 1 }, { fill: 2 }, { out: 3, fill: 1 }] }] })');
   const bx = Math.max(...[...br.matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="([\d.]+)"/g)].map((m) => +m[1] + +m[2]));
   const bt = textBoxes(br).find((q) => q.s === "3" && q.y1 < 40);   // 月の軸の「3」ではなく帯の上端の目盛り
-  ok(bt && bt.x0 - bx >= 4, "(f) 棒の帯の目盛り「3」が右端の棒から " + (bt ? (bt.x0 - bx).toFixed(1) : "?") + "px（4px 未満）");
+  ok(bt && bt.x0 - bx >= 4, "(f) 棒の区分の目盛り「3」が右端の棒から " + (bt ? (bt.x0 - bx).toFixed(1) : "?") + "px（4px 未満）");
 });
 
 check("図の部品(9): 横にスクロールしても左のラベルが残り、「値が無い」の見せ方を凡例で説明する", () => {
@@ -949,7 +949,7 @@ check("図の部品(9): 横にスクロールしても左のラベルが残り�
   ok(fc.includes("灰色の短い線＝その月の記録が無い"), "積み上げ縦棒の灰色の印（値が無い月）を凡例で説明していない");
   const fs2 = run('fig("帯", "", svgStackLanes({ w: 940, months: ["1","2","3"], lanes: [{ label: "接触", type: "bars", color: "gray", fillLabel: "接触", outLabel: "MTG", pts: [{ fill: 1 }, { v: 0, fill: 0 }, { fill: 2 }] }, { label: "応募", type: "line", color: "blue", pts: [{ v: 1 }, { v: null }, { v: 3 }] }] }))');
   ok(fs2.includes("灰色の短い線＝その月の記録が無い") && fs2.includes("線が途切れているところは"),
-    "帯を縦に積む図の「値が無い」の印（棒の帯の灰色の線・線の帯の切れ目）を凡例で説明していない");
+    "区分を縦に積む図の「値が無い」の印（棒の区分の灰色の線・線の区分の切れ目）を凡例で説明していない");
 });
 
 /* ================================================================ 第2弾: 文言と凡例（2026-09-23 デプロイ後の実機確認） */
@@ -1017,7 +1017,7 @@ check("byowner: 担当を選ぶ前は絞り込みの欄と「N 件中 N 件を�
   }
 });
 
-check("board: 並びの決まり（order_rule）を1回だけ出す（名札の図の凡例に重ねない）", () => {
+check("board: 並びの決まり（order_rule）を1回だけ出す（注意の図の凡例に重ねない）", () => {
   run('cur = { menu: "deal", view: "board" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "" };');
   const h = run("renderBoard(__BD)");
   run('cur = { menu: "deal", view: "today" };');
@@ -1030,7 +1030,7 @@ check("board: 並びの決まり（order_rule）を1回だけ出す（名札の�
 ctx.__C3 = { meta: { found: true }, cpa3: [
   { deal_id: "a", name: "確定の契約", total: 900000, monthly: 600000, band: null, band_median: null,
     syoudaku: 2, censored: false, active: false },
-  { deal_id: "b", name: "稼働中の契約", total: 720000, monthly: 480000, band: "終盤（75〜100%）",
+  { deal_id: "b", name: "稼働中の契約", total: 720000, monthly: 480000, band: "終わりのほう（75〜100%）",
     band_median: 900000, syoudaku: 10, censored: false, active: true },
   { deal_id: "c", name: "打ち切り", total: null, monthly: null, band: "契約の前半（0〜50%）",
     band_median: 750000, syoudaku: null, censored: true, active: true }] };
@@ -1077,12 +1077,12 @@ check("houjin 採用単価: 破線は未確定だけに使い、月割りは墨�
   ok(Math.abs(+ms[0][1] - want) < 0.6, "確定の契約の月割りの線 x " + ms[0][1] + " が 600000 の位置 " + want.toFixed(1) + " と合わない");
 });
 
-check("houjin 採用単価: 進捗帯の中央値は中空・破線の丸で、位置が軸の尺度に合う（軸の外は見える文字でも書く）", () => {
+check("houjin 採用単価: 進捗の区分の真ん中の値は中空・破線の丸で、位置が軸の尺度に合う（軸の外は見える文字でも書く）", () => {
   const g = cpa3Fig();
   const marks = [...g.matchAll(/<circle cx="([0-9.]+)" cy="([0-9.]+)" r="4.5" data-mark="band" style="([^"]+)"([^>]*)>/g)];
-  ok(marks.length === 1, "中央値の印が 1 つでない: " + marks.length + "（総額が出ていて帯の中央値がある棒は 1 本）");
+  ok(marks.length === 1, "真ん中の値の印が 1 つでない: " + marks.length + "（総額が出ていて帯の真ん中の値がある棒は 1 本）");
   ok(/fill:var\(--panel\)/.test(marks[0][3]) && /stroke-dasharray/.test(marks[0][4]),
-    "稼働中どうしの中央値（未確定）を中まで塗った丸で描いている: " + marks[0][0]);
+    "稼働中どうしの真ん中の値（未確定）を中まで塗った丸で描いている: " + marks[0][0]);
   // 中央値 900000 は「確定の契約」の総額と同じ。印の x はその棒の右端と一致するはず（数値で確かめる）
   const r0 = g.match(/<rect x="([0-9.]+)" y="([0-9.]+)" width="([0-9.]+)" height="([0-9.]+)" rx="2" style="fill:var\(--ai\)"/);
   const right = +r0[1] + +r0[3];
@@ -1091,25 +1091,25 @@ check("houjin 採用単価: 進捗帯の中央値は中空・破線の丸で、�
   const r1 = g.match(/<rect x="[0-9.]+" y="([0-9.]+)" width="[0-9.]+" height="([0-9.]+)" rx="2" style="fill:var\(--panel\)[^"]*"[^>]*data-open="1"/);
   ok(r1 && Math.abs(+marks[0][2] - (+r1[1] + +r1[2] / 2)) < 0.6, "印の y " + marks[0][2] + " が稼働中の棒の中心と合わない");
   const leg = g.split('<div class="figlegend">')[1];
-  const t = leg.indexOf("</svg>同じ進捗帯の中央値");
+  const t = leg.indexOf("</svg>同じ進捗の区分の真ん中の値");
   const sw = t >= 0 ? leg.slice(leg.lastIndexOf("<svg", t), t) : "";
-  ok(/<circle [^>]*fill:var\(--panel\)[^>]*stroke-dasharray/.test(sw), "中央値の凡例が中空・破線の丸でない: " + sw);
+  ok(/<circle [^>]*fill:var\(--panel\)[^>]*stroke-dasharray/.test(sw), "真ん中の値の凡例が中空・破線の丸でない: " + sw);
   ok(!g.includes("軸の外"), "軸の中に収まっているのに「軸の外」と書いている");
   // 中央値が軸の最大（900000）を超えるとき: 右端に三角を置き、行の注記（見える文字）にも書く
   const c = JSON.parse(JSON.stringify(ctx.__C3));
   c.cpa3[1].band_median = 2000000;
   ctx.__C3o = c;
   const go = run('custBlocks(__C3o, new Set(["cpa3"]))').split("<figcaption>同じ契約でも")[1].split("</figure>")[0];
-  ok(!/data-mark="band"/.test(go), "軸の外の中央値を、軸の中と同じ丸で描いている");
+  ok(!/data-mark="band"/.test(go), "軸の外の真ん中の値を、軸の中と同じ丸で描いている");
   const tri = go.match(/<path d="M([0-9.]+) [0-9.]+L([0-9.]+) [0-9.]+L[^"]+" data-mark="band-out" style="fill:var\(--panel\)[^"]*"[^>]*stroke-dasharray/);
-  ok(tri, "軸の外の中央値の印（中空・破線の三角）が無い");
+  ok(tri, "軸の外の真ん中の値の印（中空・破線の三角）が無い");
   // 軸の端は、最大値 900000 を覆うまで1段足した最後の目盛り（svgBarH の coverTicks）。三角の先はその目盛りの線の上。
   // 900000 の棒の右端より右にあること（軸の中に描いていないこと）も見る
   const e = go.match(/<rect x="([0-9.]+)" y="[0-9.]+" width="([0-9.]+)" height="[0-9.]+" rx="2" style="fill:var\(--ai\)"/);
   const gxe = Math.max(...[...go.matchAll(/<line class="gridline" x1="([0-9.]+)"/g)].map((m) => +m[1]));
   ok(Math.abs(+tri[2] - gxe) < 0.6, "三角の先 " + tri[2] + " が軸の右端（最後の目盛り " + gxe.toFixed(1) + "）にない");
   ok(+tri[2] >= +e[1] + +e[2] - 0.6, "三角の先 " + tri[2] + " が最大の棒の右端 " + (+e[1] + +e[2]).toFixed(1) + " より左にある");
-  ok(/<text class="ax"[^>]*>[^<]*中央値 200万（軸の外）/.test(go), "「軸の外」が見える文字（行の注記）に無い（title だけだとスマホで見えない）");
+  ok(/<text class="ax"[^>]*>[^<]*真ん中の値 200万（軸の外）/.test(go), "「軸の外」が見える文字（行の注記）に無い（title だけだとスマホで見えない）");
 });
 
 check("定義と検証: 文の表は折り返す（「なぜ」が右端で切れない）", () => {
@@ -1149,18 +1149,18 @@ check("凡例: 100%帯の凡例の粒は帯と同じ塗り・濃さ（いま見�
   }
 });
 
-check("凡例: 目標の帯の「承諾数が空」は斜線（値が無い）、「未記入」は薄い塗りで見分け、未確定の帯より強く描かない", () => {
+check("凡例: 目標の区分の「承諾数が空」は斜線（値が無い）、「未記入」は薄い塗りで見分け、未確定の区分より強く描かない", () => {
   const h = run("renderOutcome(__OUT)");
   const g = h.split("<figcaption>達成率 ＝ 承諾数 ÷ 採用目標数")[1].split("</figure>")[0];
   const fig = g.split('<div class="figlegend">')[0], leg = g.split('<div class="figlegend">')[1];
   // 承諾数が空の帯は斜線の模様（同じ図の中に模様の定義がある）
   const hb = fig.match(/<rect [^>]*style="fill:url\(#([a-z-]+)\);stroke:var\(--ghost\)"[^>]*data-fill="hatch"><title>承諾数が空/);
-  ok(hb, "承諾数が空の帯が斜線になっていない");
+  ok(hb, "承諾数が空の区分が斜線になっていない");
   ok(new RegExp('<pattern id="' + hb[1] + '"').test(fig), "斜線の模様の定義が図の中に無い");
   // 中まで塗った区間は 100%以上（確定の達成）と、薄い塗りの未記入だけ。値が無い帯を濃く塗らない
   const rs = stackRects(fig);
   ok(rs.map((r) => r.label).join("|") === "100%以上|未記入（目標が無い）",
-    "中まで塗った帯が 100%以上 と 未記入 だけでない: " + rs.map((r) => r.label + "=" + r.op).join(", "));
+    "中まで塗った区分が 100%以上 と 未記入 だけでない: " + rs.map((r) => r.label + "=" + r.op).join(", "));
   const rb = rs.find((r) => r.label.startsWith("未記入"));
   ok(rb.op === ".3", "未記入が薄い塗り（.3）でない: " + rb.op);
   // 凡例: 承諾数が空は斜線の粒、未記入は帯と同じ濃さ
@@ -1175,10 +1175,10 @@ check("凡例: 目標の帯の「承諾数が空」は斜線（値が無い）�
   ctx.__OUTh = big;
   const g2 = run("renderOutcome(__OUTh)").split("<figcaption>達成率 ＝ 承諾数 ÷ 採用目標数")[1].split("</figure>")[0];
   const tx = g2.match(/data-fill="hatch"><title>[^<]*<\/title><\/rect><text [^>]*style="fill:([^;]+);/);
-  ok(tx && tx[1] === "var(--ink-2)", "斜線の帯の上の文字が白（var(--panel)）のまま: " + (tx && tx[1]));
+  ok(tx && tx[1] === "var(--ink-2)", "斜線の区分の上の文字が白（var(--panel)）のまま: " + (tx && tx[1]));
 });
 
-check("凡例: MTGのリスク（判定不可 / 未判定）と立ち上がり（終盤 / 出せない）の粒が見分けられる", () => {
+check("凡例: MTGのリスク（判定不可 / 未判定）と立ち上がり（終わりのほう / 出せない）の粒が見分けられる", () => {
   // mtg-quality.json の risk_dist（2026-09-23 実測）
   ctx.__MQ = { meta: { n_mtg: 3124, today: "2026-09-18", not_counted: "" }, linked: { rate: 90, n: 1 },
     filled: [{ field: "やること", n: 10, rate: 10 }], filled_note: "", hosts: [], monthly: [],
@@ -1189,12 +1189,12 @@ check("凡例: MTGのリスク（判定不可 / 未判定）と立ち上がり�
   ok(x && y && (x.fill !== y.fill || x.op !== y.op), "判定不可と未判定の凡例が同じ " + JSON.stringify(x));
   // rampup.json の phase.rows（2026-09-23 実測）
   const r = JSON.parse(JSON.stringify(ctx.__RU));
-  r.phase = { rule: "契約長に対する割合", rows: [{ label: "序盤", n: 263 }, { label: "中盤", n: 172 },
-    { label: "終盤", n: 153 }, { label: "満了超過", n: 15 }, { label: "出せない", n: 1 }] };
+  r.phase = { rule: "契約長に対する割合", rows: [{ label: "始めのほう", n: 263 }, { label: "半ば", n: 172 },
+    { label: "終わりのほう", n: 153 }, { label: "満了超過", n: 15 }, { label: "出せない", n: 1 }] };
   ctx.__RU2 = r;
   const rh = run("renderRampup(__RU2)");
-  const e = legendSwatch(rh, "終盤"), f = legendSwatch(rh, "出せない");
-  ok(e && f && (e.fill !== f.fill || e.op !== f.op), "終盤と出せないの凡例が同じ " + JSON.stringify(e));
+  const e = legendSwatch(rh, "終わりのほう"), f = legendSwatch(rh, "出せない");
+  ok(e && f && (e.fill !== f.fill || e.op !== f.op), "終わりのほうと出せないの凡例が同じ " + JSON.stringify(e));
 });
 
 /* 成果とリスクで最優先が1件ある形（散布図と表が出る）。order_note は routes.rs risk() の文 */
@@ -1204,15 +1204,15 @@ ctx.__OUT2.risk.ax3 = { "赤": 1, "白": 0, "未測定": 0, rule: "" };
 ctx.__OUT2.risk.ax4 = { "赤": 1, "白": 0, "未測定": 0, rule: "" };
 ctx.__OUT2.risk.order_note = "この並びは機械が付けた順（金額順）";
 
-check("凡例: 散布図の点と箱ひげの「四分位」は図と同じ濃さ", () => {
+check("凡例: 散布図の点と値の広がりの「多くが収まる範囲」は図と同じ濃さ", () => {
   const sc = run('svgScatter({ pts: [{ x: 1, y: 1, color: C.hi }, { x: 2, y: 2, color: C.hi }], w: 300 })');
   const pop = (sc.match(/<circle [^>]*style="fill:var\(--hi\)" opacity="([.0-9]+)"/) || [])[1];
   ok(pop && legendSwatch(run('lg("dot", C.hi, "x", PT_OP)'), "x").op === pop, "散布図の点の濃さ " + pop + " と PT_OP が違う");
   const bx = run('svgBoxH({ rows: [{ label: "a", med: 2, q1: 1, q3: 3, min: 0, max: 4, n: 40, color: C.ai }] })');
   const bop = (bx.match(/<rect [^>]*style="fill:var\(--ai\)" opacity="([.0-9]+)"/) || [])[1];
-  ok(bop && legendSwatch(run('lg("quart", C.ai, "四分位")'), "四分位").op === bop, "箱ひげの箱の濃さ " + bop + " と「四分位」の粒が違う");
+  ok(bop && legendSwatch(run('lg("quart", C.ai, "多くが収まる範囲")'), "多くが収まる範囲").op === bop, "値の広がりの箱の濃さ " + bop + " と「多くが収まる範囲」の粒が違う");
   // 画面の凡例がその粒を使っていること
-  ok(!/lg\("box", C\.ai, "四分位"\)/.test(html), "「四分位」を不透明の四角（box）で出している呼び出しが残っている");
+  ok(!/lg\("box", C\.ai, "多くが収まる範囲"\)/.test(html), "「多くが収まる範囲」を不透明の四角（box）で出している呼び出しが残っている");
   const g = run("renderOutcome(__OUT2)").split("<figcaption>2軸とも赤の")[1].split("</figure>")[0];
   const s = legendSwatch(g, "契約後に一度も接触していない");
   const p = (g.match(/<circle [^>]*style="fill:var\(--hi\)" opacity="([.0-9]+)"/) || [])[1];
@@ -1232,11 +1232,11 @@ check("読み方の枠: 成果とリスクの並びの注記・立ち上がり�
      散布図の側に戻して 1 回に見せかけない（散布図には並びが無い） */
   const h = run("renderOutcome(__OUT2, 'rs-outcome')");
   ok((h.match(/この並びは機械が付けた順/g) || []).length === 0,
-    "order_note が " + (h.match(/この並びは機械が付けた順/g) || []).length + " 回出ている（表は見方に移した）");
+    "order_note が " + (h.match(/この並びは機械が付けた順/g) || []).length + " 回出ている（表はよく使う絞り込みに移した）");
   const r = JSON.parse(JSON.stringify(ctx.__RU));
   // rampup.json の phase.rule（2026-09-23 実測）
-  r.phase = { rule: "契約長に対する割合。< 0.34 序盤 / < 0.67 中盤 / <= 1.05 終盤 / 超 満了超過。同じ3ヶ月目でも、3ヶ月契約なら満了・12ヶ月契約なら序盤",
-    rows: [{ label: "序盤", n: 1 }] };
+  r.phase = { rule: "契約長に対する割合。< 0.34 始めのほう / < 0.67 半ば / <= 1.05 終わりのほう / 超 満了超過。同じ3ヶ月目でも、3ヶ月契約なら満了・12ヶ月契約なら始めのほう",
+    rows: [{ label: "始めのほう", n: 1 }] };
   ctx.__RU3 = r;
   const t = textOf(run("renderRampup(__RU3)"));
   const n = (t.match(/同じ「?3ヶ月目」?でも/g) || []).length;
@@ -1267,7 +1267,7 @@ check("KPI: 最終満了を折り返さない・電話の61件の色をそろえ
   /* 札は押せる button（段2 S-2 の残り）。見るのは色（is-bad）で、前と同じ */
   const card = ph.match(/<(?:div|button type="button") class="kpi( is-[a-z]+)?"[^>]*><span class="lbl">電話が1本も無い/);
   ok(card && card[1] === " is-bad", "電話が1本も無いの KPI が赤でない: " + (card && card[1]));
-  ok(/style="fill:var\(--hi\)"[^>]*><title>電話が1本も無い/.test(ph), "内訳の帯の「電話が1本も無い」が赤でない（KPI と色がそろわない）");
+  ok(/style="fill:var\(--hi\)"[^>]*><title>電話が1本も無い/.test(ph), "内訳の区分の「電話が1本も無い」が赤でない（KPI と色がそろわない）");
   const tm = run("renderTeam(teamOf(__D))");
   const k = tm.split('<span class="lbl">退職者のまま</span>')[1].split("</div>")[0];
   ok(!k.includes("割れ") && !k.includes("38"), "退職者のままの補足に担当の割れ（38件）が混ざっている: " + k);
@@ -1305,7 +1305,7 @@ check("いま見るべき顧客: LTV の注記で「拠点が2つ以上ある法
   ok(t.includes("決裁は事業所単位なので"), "注記の後半まで消している");
 });
 
-check("いま見るべき顧客: 「法人 N」は本部アプローチ・法人番号で見ると同じ母数（houjin_population, F4）", () => {
+check("いま見るべき顧客: 「法人 N」は本部への提案材料・法人番号で見ると同じ対象（houjin_population, F4）", () => {
   const fo = JSON.parse(JSON.stringify(ctx.__FO));
   // focus.json の shape（2026-09-23 実測。n_all は CS_顧客 の行数、n_houjin は houjin_population の main）
   fo.shape = { ltv: { n: 517, median: 1, q1: 1, q3: 2, min: 0, max: 3, mean: 1 }, n_all: 1649,
@@ -1325,7 +1325,7 @@ check("V12 の残り: 表の枠の端に、横の続きがある側だけ影を�
   // 🔴 左端の帯（::before）は出さない。S-12 で1列目を貼り付けてから、貼り付いた＝隠れていない列の上に「下に列が隠れている」印が
   //    乗っていた（2026-09-28 検証: scrollLeft=300 で td の左端の画素 (221,221,221)、同じ列の th は地のまま）。
   //    左に隠れている列は貼り付けた列の右端の影（more-l の box-shadow）で示す
-  ok(!/\.scroll-wrap(\.more-l)?::before/.test(html), "枠の左端の帯（::before）が残っている（貼り付けた1列目の上に被る）");
+  ok(!/\.scroll-wrap(\.more-l)?::before/.test(html), "枠の左端の区分（::before）が残っている（貼り付けた1列目の上に被る）");
   ok(/\.scroll-wrap\.more-l th:first-child, \.scroll-wrap\.more-l td:first-child\{\s*box-shadow:4px 0 8px -4px var\(--edge-shade\)/.test(html),
     "左に続きがあるとき、貼り付けた1列目の右端に影が無い");
   const cls = new Set();
@@ -1341,7 +1341,7 @@ check("V12 の残り: 表の枠の端に、横の続きがある側だけ影を�
   ok(/markScrollAll\(\);[^\n]*\n\}/.test(html.split("function wire(v)")[1] || ""), "描いた後（wire）に影を付けていない");
 });
 
-check("byowner: 担当を選ぶ前の持ち件数は、見えない絞り込み（名札・満了・案件名）で減らさない", () => {
+check("byowner: 担当を選ぶ前の持ち件数は、見えない絞り込み（注意・満了・案件名）で減らさない", () => {
   // 案件そのものの画面で名札・案件名を絞ってから byowner に来た形。選択欄は隠れている
   run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "", flag: "NPSが4以下", expiry: "", q: "案件1" };');
   try {
@@ -1423,19 +1423,19 @@ function resultsWithHq() {
 /** 本文の rs-hq の節（見出しから次の節の前まで） */
 function rsHqPart(h) {
   const i = h.indexOf('id="rs-hq"');
-  ok(i >= 0, "成果と継続に本部アプローチの節（rs-hq）が無い");
+  ok(i >= 0, "成果と継続に本部への提案材料の節（rs-hq）が無い");
   const j = h.indexOf('id="rs-act"', i);
   return h.slice(i, j > i ? j : h.length);
 }
 
-check("V12 の残り: 本部アプローチ（成果と継続の rs-hq）を描いた後に影を付ける。束の中から描き、別に取りに行かない", () => {
+check("V12 の残り: 本部への提案材料（成果と継続の rs-hq）を描いた後に影を付ける。束の中から描き、別に取りに行かない", () => {
   ok(!/function (hqSection|wireHq)\b/.test(js), "消した後読みの部品（hqSection / wireHq）が残っている");
-  ok(!js.includes('"/api/consulting/headquarters"'), "画面が本部アプローチを別に取りに行く道が残っている");
+  ok(!js.includes('"/api/consulting/headquarters"'), "画面が本部への提案材料を別に取りに行く道が残っている");
   const v = run('JSON.stringify(viewOf("monthly", "results"))');
   ok(v && JSON.parse(v).path === "/api/consulting/results" && !JSON.parse(v).more, "成果と継続が束（/api/consulting/results）1 本で取っていない: " + v);
   ctx.__RSX = resultsWithHq();
   const part = rsHqPart(run("renderResults(__RSX)"));
-  ok(part.includes("解約・充足 50.0%（決着済み 4件中）"), "rs-hq の節に束の headquarters（renderHq の中身）が描かれていない");
+  ok(part.includes("解約・充足 50.0%（結果が出た 4件中）"), "rs-hq の節に束の headquarters（renderHq の中身）が描かれていない");
   /* 描いた後の wire が影を付ける（前は wireHq が差し込んだ後に付けていた） */
   const saved = run('JSON.stringify(cur)');
   const w = fakeWrap();
@@ -1559,8 +1559,8 @@ check("ずらし: lineShift は r が違えば別の位置を返し、枠の外�
 
 check("compact: 400px の枠（334px）では、横棒の注記を棒の下に回して枠の幅に収める（値と注記が横スクロールの奥に行かない）", () => {
   const code = 'svgBarH({ w: 680, fmt: F.pct, rows: [' +
-    '{ label: "ケアサポートかがやき", v: 58.1, txt: "58.1%", note: "解約・充足 100%（決着済み 12件中）　3人" },' +
-    '{ label: "拠点B", v: 12, txt: "12.0%", note: "解約・充足 12.0%（決着済み 25件中）　8人" }] })';
+    '{ label: "ケアサポートかがやき", v: 58.1, txt: "58.1%", note: "解約・充足 100%（結果が出た 12件中）　3人" },' +
+    '{ label: "拠点B", v: 12, txt: "12.0%", note: "解約・充足 12.0%（結果が出た 25件中）　8人" }] })';
   const wide = run("FIGFIT.seq = 0; FIGFIT.avail = null; " + code);
   ok(/viewBox="0 0 680 /.test(wide) && !/data-under/.test(wide), "枠が分からないとき（1回目）は描いた幅のまま・注記は右");
   const narrow = run("FIGFIT.seq = 0; FIGFIT.avail = { 0: 334 }; try { " + code + " } finally { FIGFIT.avail = null; }");
@@ -1667,10 +1667,10 @@ check("図の部品: 折れ線の 0 の点（○）が横軸の月の字に重�
   // 点の下端（半径 4.2）と月の字の上端（ベースラインから約 9px 上）の間を 3px 以上あける
   ok(+lab[1] - 9 - (d.cy + 4.2) >= 3, "0 の点と月の字の間が詰まっている: 点 " + d.cy + " / 字 " + lab[1]);
 });
-check("図の部品: 接触の帯が全部の月で記録なしのとき、目盛り「1」を出さない", () => {
+check("図の部品: 接触の区分が全部の月で記録なしのとき、目盛り「1」を出さない", () => {
   const lanes = (pts) => run(`svgStackLanes({ months: ["25-01","25-02"], lanes: [{ type: "bars", label: "接触", color: "blue", fillLabel: "60秒超", outLabel: "全体", pts: ${JSON.stringify(pts)} }] })`);
   const none = lanes([{ fill: 0, out: 0 }, { fill: 0, out: 0 }]);
-  ok(!/<text class="ax" x="[\d.]+" y="[\d.]+">1<\/text>/.test(none), "棒が 1 本も無い帯に目盛り「1」が出る");
+  ok(!/<text class="ax" x="[\d.]+" y="[\d.]+">1<\/text>/.test(none), "棒が 1 本も無い区分に目盛り「1」が出る");
   const some = lanes([{ fill: 1, out: 2 }, { fill: 0, out: 0 }]);
   ok(/<text class="ax" x="[\d.]+" y="[\d.]+">2<\/text>/.test(some), "棒がある帯の目盛り（2）が消えた");
 });
@@ -1727,9 +1727,9 @@ check("ずらし: 0 で重なった線が2本だけでも、軸の端でずら�
   ok(f.includes("線が少し傾いて見える"), "重なった月の点だけずらすので線が傾くことの断りが無い");
 });
 
-check("compact: 空白の無い長い注記も、400px の枠（334px）の中で折り返す（deal/houjin の進捗帯の中央値）", () => {
+check("compact: 空白の無い長い注記も、400px の枠（334px）の中で折り返す（deal/houjin の進捗の区分の真ん中の値）", () => {
   // 🔴 検証の指摘: wrapText は空白と「/」でしか切らず、1語が幅を超えると SVG の右端で切れていた
-  const note = "進捗帯「後半にさしかかり（50〜75%）」の中央値 12.3万円（軸の外）　3人";
+  const note = "進捗の区分「後半にさしかかり（50〜75%）」の真ん中の値 12.3万円（軸の外）　3人";
   const svg = drawAt('svgBarH({ w: 680, fmt: F.man, rows: [{ label: "（伏字）2745", v: 50, txt: "50.0万", note: ' + JSON.stringify(note) + ' }] })', 334);
   ok(figW(svg) === 334, "334px の枠で描いていない: " + figW(svg));
   const under = [...svg.matchAll(/<text class="ax" data-under="1" x="([\d.]+)"[^>]*>([^<]*)</g)];
@@ -1783,14 +1783,14 @@ check("枠に合わせる: 400px の枠（334px）では、狭めても読める
   ok(figW(bar) === 600 && !/data-under/.test(bar), "棒の欄が残る 600px の枠で、枠の幅（注記は右）で描いていない: " + figW(bar));
 });
 
-check("横スクロールの図: 折れ線・帯を縦に積む図・積み上げ縦棒は、最初にデータがある位置（data-x0）を出し、狭い枠の折れ線は目盛りを左に貼る", () => {
+check("横スクロールの図: 折れ線・区分を縦に積む図・積み上げ縦棒は、最初にデータがある位置（data-x0）を出し、狭い枠の折れ線は目盛りを左に貼る", () => {
   const x0 = (svg) => { const m = String(svg).match(/<svg [^>]*data-x0="(\d+)"/); return m ? +m[1] : null; };
   const late = JSON.stringify(monthsN(24).map((_, i) => (i >= 20 ? { v: 1 } : null)));
   const mx = JSON.stringify(monthsN(24));
   const line = drawAt('svgLine({ x: ' + mx + ', series: [{ pts: ' + late + ' }] })', null);
   ok(x0(line) > 400, "折れ線の data-x0 が無い・データの位置と違う: " + x0(line));
   const lanes = drawAt('svgStackLanes({ months: ' + mx + ', lanes: [{ type: "line", label: "応募", color: "blue", pts: ' + late + ' }] })', null);
-  ok(x0(lanes) > 400, "帯を縦に積む図の data-x0 が無い: " + x0(lanes));
+  ok(x0(lanes) > 400, "区分を縦に積む図の data-x0 が無い: " + x0(lanes));
   const col = drawAt('svgColStack({ x: ' + mx + ', series: [{ label: "s", color: "blue", vals: ' + late + ' }] })', null);
   ok(x0(col) > 400, "積み上げ縦棒の data-x0 が無い: " + x0(col));
   ok(/data-x0="123"/.test(run('svgHead(500, 100, "a", { x0: 123 })')), "svgHead が data-x0 を出さない");
@@ -1830,7 +1830,7 @@ check("常に明るい表示: 案件を見分ける牡丹・空（--botan/--sora
   });
 });
 
-check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅の変化は paintFigs で描き、幅の描き直しは開いた details を渡す", () => {
+check("描き直し: 表示・絞り込み・本部への提案材料・窓の幅の変化は paintFigs で描き、幅の描き直しは開いた details を渡す", () => {
   const saved = { pf: run("paintFigs"), rd: run("redrawMain"), wire: run("wire"), rh: HQ_ORIG, cur: run("JSON.stringify(cur)"),
     st: ctx.setTimeout, fetch: ctx.fetch };
   const calls = [];
@@ -1862,7 +1862,7 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     ctx.__PF = (el, make, keep) => { calls.push({ el, keep, html: make() }); };
     run('paintFigs = __PF; renderHq = __rs.rh; cur = { menu: "monthly", view: "results" }; redrawMain(__RSX, [0])');
     ok(calls.length === 1 && calls[0].el === main && JSON.stringify(calls[0].keep) === "[0]", "成果と継続の描き直しが本文の paintFigs 1 回でない");
-    ok(rsHqPart(calls[0].html).includes("解約・充足 50.0%（決着済み 4件中）"), "本部アプローチを本文の paintFigs の中で描いていない");
+    ok(rsHqPart(calls[0].html).includes("解約・充足 50.0%（結果が出た 4件中）"), "本部への提案材料を本文の paintFigs の中で描いていない");
     run("paintFigs = __PF0; renderHq = () => ''");
     // 窓の幅が変わった（resize → refitSoon → redrawMain(lastPayload, openDetails(main))）
     const rd = [];
@@ -1895,7 +1895,7 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
   });
 });
 
-check("本部アプローチ（rs-hq）: 幅の描き直しで、節の中の開いた details を本文の details として数え、描き直した後に開き直す", () => {
+check("本部への提案材料（rs-hq）: 幅の描き直しで、節の中の開いた details を本文の details として数え、描き直した後に開き直す", () => {
   // 🔴 検証の指摘（2026-09-24）: openDetails(main) が後読みの枠（#hq-box）の中の details も数え、本文の描き直しの時点では枠が空なので
   //    番号がずれ、枠の中身は畳まれていた。2026-09-30 に後読みの枠を消し、本部アプローチは成果と継続の本文（rs-hq）に描く。
   //    同じ性質（本部アプローチの中の開いた details が、幅の描き直しの後も開いたまま）を、今の形で確かめる
@@ -1941,7 +1941,7 @@ check("本部アプローチ（rs-hq）: 幅の描き直しで、節の中の開
 /* 本文に出る JS の文だけを見る（コメントは経緯として古い番号・語を残してよい） */
 const jsNoComment = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-check("解約率の色の線: 全画面で1つ（40%）。継続回数×成果・立ち上がり・本部アプローチで同じ値が同じ色", () => {
+check("解約率の色の線: 全画面で1つ（40%）。継続回数×成果・立ち上がり・本部への提案材料で同じ値が同じ色", () => {
   /* 線引きは藤巻さんの確認待ち。根拠が見つからなかったので renewal が使ってきた 40% に揃えた。
      線を動かすときは、この見張りの数字も一緒に直す（黙って動かさない） */
   ok(run("CANCEL_HI") === 40, "解約率の線が 40% でない: " + run("CANCEL_HI"));
@@ -1962,10 +1962,10 @@ check("解約率の色の線: 全画面で1つ（40%）。継続回数×成果�
   ru.first_mtg.buckets = [{ label: "14日以内", n: 60, denom: 50, cancel_rate: 49.7 },
                           { label: "61日超", n: 45, denom: 40, cancel_rate: 20 }];
   ctx.__RUc = ru;
-  const g = run("renderRampup(__RUc)").split("<figcaption>帯ごとの、その後の解約率")[1].split("</figure>")[0];
+  const g = run("renderRampup(__RUc)").split("<figcaption>区分ごとの、その後の解約率")[1].split("</figure>")[0];
   const gBars = g.split('<div class="figlegend">')[0];
   ok(/fill:var\(--ai\)/.test(gBars), "立ち上がりの棒が取れない（見張りが空振りする）");
-  ok(!gBars.includes("var(--hi)"), "立ち上がりで 49.7% の帯だけ緋にしている（帯を判定の色で強調しない）");
+  ok(!gBars.includes("var(--hi)"), "立ち上がりで 49.7% の区分だけ緋にしている（区分を判定の色で強調しない）");
   ok(!g.includes("var(--hi)"), "立ち上がりの凡例に、図で使っていない緋の粒を出している");
   ok(g.includes("「解約率 40%以上を緋」の線で色を分けていません"), "立ち上がりで線を使っていないことを書いていない");
   // 本部アプローチ: 注記の色も同じ線。
@@ -1975,8 +1975,8 @@ check("解約率の色の線: 全画面で1つ（40%）。継続回数×成果�
     hq2.rows[0].rows[0].cancel_rate = 45;
     ctx.__HQc = hq2;
     const hq = run("renderHq(__HQc)");
-    ok(hq.includes("解約率が 40% 以上の拠点は注記を緋で出しています"), "本部アプローチの説明の線が 40% でない");
-    ok(/fill:var\(--hi\)"?[^>]*>解約・充足 45\.0%/.test(hq), "本部アプローチで 45% の拠点の注記が緋でない");
+    ok(hq.includes("解約率が 40% 以上の拠点は注記を緋で出しています"), "本部への提案材料の説明の線が 40% でない");
+    ok(/fill:var\(--hi\)"?[^>]*>解約・充足 45\.0%/.test(hq), "本部への提案材料で 45% の拠点の注記が緋でない");
   });
 });
 
@@ -2024,7 +2024,7 @@ check("goLink: 本文の「別の画面へ」は、行き先がすべて MENUS �
 // 🔴 図「MTG が途絶えている先」は 2026-09-29 の組み替え（段A、handover 09 の 3章 1）で今日から外した（案件一覧の帯の絞り込みと同じ中身）。
 //    図にだけ書いていたこと（線引き・帯を付けていない件数・母数）は畳み「MTG 途絶の数え方と母数」（todayMtgNote）に移したので、
 //    同じ性質（中の仕組みの名前を出さない・出す帯は件数のあるものだけ）をそこで見る。凡例の色（紫にしない）は図と一緒に無くなった
-check("today: MTG 途絶の数え方に中の仕組みの名前（GAS・no_mtg_alerter）を出さない。件数 0 の帯は書かない", () => {
+check("today: MTGが空いている期間の数え方に中の仕組みの名前（GAS・no_mtg_alerter）を出さない。件数 0 の区分は書かない", () => {
   ctx.__TDg = { rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "",
     mtg_gap: { rule: "", no_record_note: "", source_note: "", coverage: {},
       bands: [{ band: "critical", label: "重大 90日以上", n: 3, alert: true },
@@ -2032,11 +2032,11 @@ check("today: MTG 途絶の数え方に中の仕組みの名前（GAS・no_mtg_a
               { band: "red", label: "警告 60〜89日", n: 0, alert: true }] } } };
   const h = run("renderToday(__TDg)");
   ok(!/GAS|no_mtg_alerter/.test(h), "today に内部の仕組みの名前が出ている");
-  ok(h.includes("毎朝 Slack に届く MTG 途絶の警告と同じ"), "線引きが何と同じかを現場の言葉で書いていない");
-  ok(!h.includes("<figcaption>最終MTGからの経過日数で分けた帯"), "外した図（MTG 途絶の帯）が残っている");
+  ok(h.includes("毎朝 Slack に届く MTGが空いている期間の警告と同じ"), "線引きが何と同じかを現場の言葉で書いていない");
+  ok(!h.includes("<figcaption>最終MTGからの経過日数で分けた帯"), "外した図（MTGが空いている期間の区分）が残っている");
   const g = h.slice(h.indexOf('id="td-mtg-note"'), h.indexOf("</details>", h.indexOf('id="td-mtg-note"')));
-  ok(g.includes("重大 90日以上 3件") && g.includes("注意 30〜59日 5件"), "件数のある帯が数え方の畳みに無い: " + g);
-  ok(!g.includes("60〜89日"), "件数 0 の帯を書いている");
+  ok(g.includes("重大 90日以上 3件") && g.includes("注意 30〜59日 5件"), "件数のある区分が数え方の畳みに無い: " + g);
+  ok(!g.includes("60〜89日"), "件数 0 の区分を書いている");
   ok(!run('mtgCell({ mtg_band: "yellow", mtg_days: 40 })').includes("murasaki"), "表の「最後のMTG」で注意を紫にしている");
 });
 
@@ -2115,7 +2115,7 @@ check("組み替えた画面の問いが、並べた節の問いと同じ文に�
 check("凡例: MTG の品質・データ品質で、図に出ていない色を凡例に出さない", () => {
   const q = run("renderMtgQ(__MQ)");   // filled は rate 10% の1項目だけ
   const qf = q.split("<figcaption>抽出の進み具合")[1].split("</figure>")[0];
-  ok(qf.includes("15%未満") && !qf.includes("50%以上") && !qf.includes("15〜50%"), "抽出の進み具合の凡例に使っていない帯がある");
+  ok(qf.includes("15%未満") && !qf.includes("50%以上") && !qf.includes("15〜50%"), "抽出の進み具合の凡例に使っていない区分がある");
   const dq = JSON.parse(JSON.stringify(ctx.__DQ));
   dq.missing = [{ label: "応募数", n: 5, rate: 3, note: "" }];
   ctx.__DQm = dq;
@@ -2158,7 +2158,7 @@ check("表: 長い文字の列だけ折り返し（1440px で右端が切れな�
   const saved = run("JSON.stringify(boardFilter)");
   try {
     run('boardFilter = Object.assign({}, boardFilter, { view: "top" });');
-    ok(run("boardViewNote(__WLV)").includes('<th class="wl">取引</th>'), "見方で外れた案件の表で取引名が折り返さない");
+    ok(run("boardViewNote(__WLV)").includes('<th class="wl">取引</th>'), "よく使う絞り込みで外れた案件の表で取引名が折り返さない");
   } finally { run("boardFilter = " + saved + ";"); }
 });
 
@@ -2181,10 +2181,10 @@ check("採用単価の図: 採れた人数を値の横に括弧で付ける（�
   ok(!/[万円]2人/.test(g) && !/>　2人/.test(g), "採れた人数が値にくっついている / 注記の頭に残っている");
 });
 
-check("team: 稼働中の件数を KPI と末尾で繰り返さず、40% 未満の人数に「母数が小さい人を除く」と書く", () => {
+check("team: 稼働中の件数を KPI と末尾で繰り返さず、40% 未満の人数に「対象が小さい人を除く」と書く", () => {
   const h = run("renderTeam(teamOf(__D))");
   ok(!h.includes("稼働中 604 件（オプション契約を除く）"), "稼働中の件数を画面の中で繰り返している（頭の1行に任せる）");
-  ok(textOf(h).includes("母数が小さい 5 名は数えていません"), "40% 未満の人数が、表の母数が小さい人（0.0%）と食い違って見える");
+  ok(textOf(h).includes("対象が小さい 5 名は数えていません"), "40% 未満の人数が、表の対象が小さい人（0.0%）と食い違って見える");
   ok(h.split('<div class="note def">').pop().includes("担当者 27 名"), "末尾の枠にこの画面の数（担当者の人数）が無い");
   ok(h.includes("この担当の案件だけを「担当者ごとの案件」で見る"), "名前の title が行き先の画面名と合っていない");
 });
@@ -2219,8 +2219,8 @@ check("互換: 正規表現の後読みを使わない（Safari 16.4 より前�
 
 /* ================================================================ 図の部品（ループ4 の実機確認, 2026-09-24） */
 check("ループ4: ラベルを省略するとき、見分けの語（日数・拠点名の固有部分）を残す", () => {
-  const w = 90;
-  ctx.__DS = ["MTGが90日以上途絶", "MTGが60〜89日途絶", "MTGが30〜59日途絶"];
+  const w = 115;
+  ctx.__DS = ["MTGが90日以上空いている", "MTGが60〜89日空いている", "MTGが30〜59日空いている"];
   const cut = run("__DS.map((s) => fitLab(s, " + w + "))");
   ok(cut.every((s, i) => s.includes(["90日", "60〜89日", "30〜59日"][i])), "日数が消えた: " + cut.join(" / "));
   ok(new Set(cut).size === 3, "省略した結果が同じになった: " + cut.join(" / "));
@@ -2233,15 +2233,15 @@ check("ループ4: ラベルを省略するとき、見分けの語（日数・�
   ok(new Set(sn).size === 4, "省略した結果が同じになった: " + sn.join(" / "));
 });
 
-check("ループ4: 狭い枠（319px）の帯のラベルは、省略せずに2行に折り返す（today の「MTGが90日以上途絶」）", () => {
-  const code = "svgBarH({ w: 680, rows: [" + ["MTGが90日以上途絶", "MTGが60〜89日途絶", "直近30日にMTGあり", "立ち上がり期（契約開始30日以内）"]
+check("ループ4: 狭い枠（319px）の区分のラベルは、省略せずに2行に折り返す（today の「MTGが90日以上空いている」）", () => {
+  const code = "svgBarH({ w: 680, rows: [" + ["MTGが90日以上空いている", "MTGが60〜89日空いている", "直近30日にMTGあり", "立ち上がり期（契約開始30日以内）"]
     .map((l, i) => '{ label: "' + l + '", v: ' + (10 + i) + ', txt: "' + (10 + i) + '件", note: "手を打つ" }').join(",") + "] })";
   const svg = drawAt(code, 319);
   ok(figW(svg) === 319 && /data-under/.test(svg), "319px の枠で注記を下に回して描いていない");
   const parts = [...svg.matchAll(/<text class="axl"[^>]*data-wrap="2"[^>]*><tspan[^>]*>([^<]*)<\/tspan><tspan[^>]*>([^<]*)<\/tspan>/g)];
   const labs = parts.map((m) => m[1] + m[2]);
   ok(labs.length >= 3, "長いラベルが2行に折り返されていない: " + labs.join(" / "));
-  ok(labs.includes("MTGが90日以上途絶") && labs.includes("MTGが60〜89日途絶"), "折り返したラベルで字が落ちた: " + labs.join(" / "));
+  ok(labs.includes("MTGが90日以上空いている") && labs.includes("MTGが60〜89日空いている"), "折り返したラベルで字が落ちた: " + labs.join(" / "));
   // 2行目の頭に閉じ括弧を置かない・数字の途中で切らない・行は欄に収まる
   const tw = run("textW");
   ok(parts.every((m) => !/^[）」、。]/.test(m[2]) && !(/[0-9〜]$/.test(m[1]) && /^[0-9〜日%]/.test(m[2]))), "折り返しの位置が数字・括弧の途中: " +
@@ -2249,7 +2249,7 @@ check("ループ4: 狭い枠（319px）の帯のラベルは、省略せずに2�
   ok(!/…/.test(labs.slice(0, 3).join("")), "2行に入るラベルを省略した: " + labs.join(" / "));
   ok(parts.every((m) => tw(m[1]) <= 319 * .36), "折り返した行がラベルの欄に入っていない");
   // 1行に入るラベルは折り返さない
-  ok(!/data-wrap/.test(drawAt('svgBarH({ w: 680, rows: [{ label: "初回", v: 1, note: "n=3" }] })', 319)), "収まるラベルまで折り返している");
+  ok(!/data-wrap/.test(drawAt('svgBarH({ w: 680, rows: [{ label: "初回", v: 1, note: "3件" }] })', 319)), "収まるラベルまで折り返している");
 });
 
 check("ループ4: 前回の値が 0 付近で枠を描かなかった行も、houjin の採用単価では月割りの縦の線（墨）になる", () => {
@@ -2263,29 +2263,29 @@ check("ループ4: 前回の値が 0 付近で枠を描かなかった行も、h
   ok(m && r && Math.abs(+m[1] - (+r[1] + +r[2] * 20000 / 9000000)) < 0.6, "月割りの線が本当の位置に無い: " + (m && m[1]));
 });
 
-check("ループ4: 注記の折り返しは、数字・単位・括弧の途中で切らない（「50〜7 / 5%」「6.7 / 倍」「（決着済み / 1件中）」）", () => {
+check("ループ4: 注記の折り返しは、数字・単位・括弧の途中で切らない（「50〜7 / 5%」「6.7 / 倍」「（結果が出た / 1件中）」）", () => {
   const W = (s, w) => run("wrapText(" + JSON.stringify(s) + ", " + w + ")");
-  const s1 = "進捗帯「後半にさしかかり（50〜75%）」の中央値 60万", s2 = "解約・充足 100%（決着済み 1件中）　2人";
+  const s1 = "進捗の区分「後半にさしかかり（50〜75%）」の真ん中の値 60万", s2 = "解約・充足 100%（結果が出た 1件中）　2人";
   const a = W(s1, 150), b = W(s2, 120), c = W("拠点3 / 取引6 / 開き 6.7倍", 60);
   ok(a.some((l) => l.includes("50〜75%")), "「50〜75%」が割れた: " + a.join(" | "));
-  ok(b.some((l) => l.includes("（決着済み 1件中）")), "括弧の中で折れた: " + b.join(" | "));
+  ok(b.some((l) => l.includes("（結果が出た 1件中）")), "括弧の中で折れた: " + b.join(" | "));
   ok(c.some((l) => l.includes("6.7倍")), "「6.7倍」が割れた: " + c.join(" | "));
   // 切れ目が数字の途中・括弧の中にちょうど来る幅でも割らない
   const d = run('wrapText("ああああ12.5倍いいい", textW("ああああ12."))');
   ok(d.some((l) => l.includes("12.5倍")), "幅の境目が数字の途中に来ると「12.5倍」が割れる: " + d.join(" | "));
-  const e = run('wrapText("解約・充足 100%（決着済み 1件中）　2人", textW("解約・充足 100%（決着済み ") + 4)');
-  ok(e.some((l) => l.includes("（決着済み 1件中）")), "括弧の途中まで行に入る幅だと括弧の中で折れる: " + e.join(" | "));
+  const e = run('wrapText("解約・充足 100%（結果が出た 1件中）　2人", textW("解約・充足 100%（結果が出た ") + 4)');
+  ok(e.some((l) => l.includes("（結果が出た 1件中）")), "括弧の途中まで行に入る幅だと括弧の中で折れる: " + e.join(" | "));
   ok(a.join("").replace(/\s/g, "") === s1.replace(/\s/g, "") && b.join("").replace(/\s/g, "") === s2.replace(/\s/g, ""),
     "折り返しで字を落とした: " + a.join(" | ") + " / " + b.join(" | "));
 });
 
-check("ループ4: 箱ひげは 319px の枠に収め、軸の外の最大値は軸の右端の途切れの印と「最大 N（軸の外）」で示す。◇ を凡例で説明する", () => {
+check("ループ4: 値の広がりは 319px の枠に収め、軸の外の最大値は軸の右端の途切れの印と「最大 N（軸の外）」で示す。◇ を凡例で説明する", () => {
   const rows = '[{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, mean: 12.9, n: 742 },' +
     '{ label: "解約した", med: 5.1, q1: 2, q3: 8.2, min: 0, max: 74, mean: 8.3, n: 529 },' +
     '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 121, mean: 16.4, n: 142 }]';
   const svg = drawAt("svgBoxH({ w: 680, xFmt: F.d1, rows: " + rows + " })", 319);
   ok(figW(svg) === 319, "319px の枠に収まっていない（横スクロールで箱と n= が奥に隠れる）: " + figW(svg));
-  ok(["n=742", "n=529", "n=142"].every((t) => svg.includes(">" + t + "<")), "n= が欠けた");
+  ok(["742件", "529件", "142件"].every((t) => svg.includes(">" + t + "<")), "n= が欠けた");
   const boxes = textBoxes(svg);
   ok(boxes.every((b) => b.x1 <= 319 + 1 && b.x0 >= -0.5), "枠の外に出る文字: " + boxes.filter((b) => b.x1 > 320 || b.x0 < -0.5).map((b) => b.s).join(" / "));
   ok(!overlaps(svg).length, "文字が重なる: " + overlaps(svg).join(" / "));
@@ -2297,7 +2297,7 @@ check("ループ4: 箱ひげは 319px の枠に収め、軸の外の最大値は
   ok(mx.length === 3 && mx.every((b) => b.s.includes("軸の外")), "「最大 N（軸の外）」になっていない: " + mx.map((b) => b.s).join(" / "));
   // 凡例: ◇（平均）と、軸の外の印の意味
   const f = run('fig("応募数 ÷ 掲載数", "", svgBoxH({ w: 680, xFmt: F.d1, rows: ' + rows + " }))");
-  ok(f.includes("平均（") && f.includes("最大値が軸の右の外"), "箱ひげの凡例に ◇（平均）か軸の外の印の説明が無い");
+  ok(f.includes("平均（") && f.includes("最大値が軸の右の外"), "値の広がりの凡例に ◇（平均）か軸の外の印の説明が無い");
   // ひげの外でも軸の中に収まる最大値は、本当の位置に小さな丸を置く（軸の外とは書かない）
   const inAx = run('svgBoxH({ w: 680, rows: [{ label: "a", med: 5, q1: 4, q3: 6, min: 3, max: 20, n: 40 }, { label: "b", med: 20, q1: 10, q3: 30, min: 0, max: 60, n: 40 }] })');
   ok(/data-boxmax="1"/.test(inAx) && !/軸の外/.test(inAx.replace(/<title>[^<]*<\/title>/g, "")), "軸の中の最大値を「軸の外」と書いた・印が無い");
@@ -2324,7 +2324,7 @@ check("ループ4: 時間軸の図（契約の連なり・LTV・月次の継続�
   ok(b.scrollLeft === 900 - 334, "data-xr の位置を右端に見せていない: " + b.scrollLeft);
 });
 
-check("ループ4: 月が少ない帯を縦に積む図（甲賀＝1か月）は枠の幅で描き、「記録がありません」が左・右にはみ出さない", () => {
+check("ループ4: 月が少ない区分を縦に積む図（甲賀＝1か月）は枠の幅で描き、「記録がありません」が左・右にはみ出さない", () => {
   const svg = drawAt('svgStackLanes({ w: 940, months: ["25-09"], lanes: [' +
     '{ type: "line", label: "応募", color: "blue", pts: [{ v: 19 }] },' +
     '{ type: "dots", label: "定期NPS", empty: true, pts: [] },' +
@@ -2340,8 +2340,8 @@ check("ループ4: 月が少ない帯を縦に積む図（甲賀＝1か月）は
   ok(vals.length && vals.every((b) => b.x1 <= 319 + 1), "右端の目盛りの値が枠の外: " + vals.map((b) => b.s + "@" + b.x0.toFixed(0)).join(" "));
 });
 
-check("ループ4: 注力の点の図は枠の幅に合わせて並べる（1440px で左半分で終わらない・400px で右が奥に隠れない）", () => {
-  const code = 'svgDots({ total: 517, per: 37, groups: [{ v: 116, color: "blue", label: "注力" }] })';
+check("ループ4: 重点顧客の点の図は枠の幅に合わせて並べる（1440px で左半分で終わらない・400px で右が奥に隠れない）", () => {
+  const code = 'svgDots({ total: 517, per: 37, groups: [{ v: 116, color: "blue", label: "重点顧客" }] })';
   const wide = figW(drawAt(code, 1116)), narrow = figW(drawAt(code, 319));
   ok(wide > 1116 * .9 && wide <= 1116, "1116px の枠で点の図が広がらない: " + wide);
   ok(narrow <= 319, "319px の枠から点の図がはみ出す: " + narrow);
@@ -2365,15 +2365,15 @@ check("ループ4 検証: labWrap は括弧の中・語の途中・助詞の手�
   // 385px の実測で切れていた位置（outcome の箱ひげ・today の帯・名札の図）。枠 319px の帯のラベル欄はおよそ 115px
   ok(W("充足（採れて終わった）", 114.8) === "充足 / （採れて終わった）", "括弧の中で切った: " + W("充足（採れて終わった）", 114.8));
   ok(W("充足（採れて終わった）", 100) === "充足（採れて / 終わった）", "括弧の外で切れないとき、括弧の中でも語の境目を選んでいない: " + W("充足（採れて終わった）", 100));
-  ok(W("採用単価が同じ進捗帯の1.5倍以上", 114.8) === "採用単価が同じ / 進捗帯の1.5倍以上", "語の途中で切った: " + W("採用単価が同じ進捗帯の1.5倍以上", 114.8));
+  ok(W("採用単価が同じ進捗の区分の1.5倍以上", 114.8) === "採用単価が同じ進捗の / 区分の1.5倍以上", "語の途中で切った: " + W("採用単価が同じ進捗の区分の1.5倍以上", 114.8));
   ok(W("立ち上がり期（契約開始30日以内）", 114.8) === "立ち上がり期（契約 / 開始30日以内）", "漢字の熟語の途中で切った: " + W("立ち上がり期（契約開始30日以内）", 114.8));
-  ok(W("満了90日前でMTGが30日以上途絶", 114.8) === "満了90日前で / MTGが30日以上途絶", "行の頭に助詞を置いた: " + W("満了90日前でMTGが30日以上途絶", 114.8));
+  ok(W("満了90日前でMTGが30日以上空いている", 114.8) === "満了90日前でMTGが / 30日以上空いている", "行の頭に助詞を置いた: " + W("満了90日前でMTGが30日以上空いている", 114.8));
   // 助詞の後ろ（「が」）を優先する。英字・「以上」は割らない
-  ok(W("MTGが90日以上途絶", 100) === "MTGが / 90日以上途絶", "助詞の後ろで切っていない: " + W("MTGが90日以上途絶", 100));
+  ok(W("MTGが90日以上空いている", 130) === "MTGが / 90日以上空いている", "助詞の後ろで切っていない: " + W("MTGが90日以上空いている", 130));
   // カタカナの語の途中（「アン / ケート」）より、語の境目（「アンケート / 未回答率」）を選ぶ
   ok(W("NPSアンケート未回答率", 90) === "NPSアンケート / 未回答率", "カタカナの語の途中で切った: " + W("NPSアンケート未回答率", 90));
   // 英字の語・「以上」は割らない（wordGlue）
-  ok(W("満了90日以上途絶", 65) === "満了90日 / 以上途絶", "「以 / 上」で割った: " + W("満了90日以上途絶", 65));
+  ok(W("満了90日以上空いている", 110).includes("90日以上"), "「以 / 上」で割った: " + W("満了90日以上空いている", 110));
   ok(!/[A-Za-z] \/ [A-Za-z]/.test(String(W("HubSpot登録", 50))), "英字の語の途中で切った: " + W("HubSpot登録", 50));
 });
 
@@ -2396,7 +2396,7 @@ check("ループ4 検証: 1か月の図の「記録がありません」は語�
   ok(bgs.length === em.length, "「記録がありません」の地の四角が行の数と合わない: " + bgs.length);
 });
 
-check("ループ4 検証: 箱ひげを狭い枠（319px）で描くとき、ラベル欄に入らないラベルは省略せずに2行に折り返す（outcome の「充足」）", () => {
+check("ループ4 検証: 値の広がりを狭い枠（319px）で描くとき、ラベル欄に入らないラベルは省略せずに2行に折り返す（outcome の「充足」）", () => {
   const svg = drawAt('svgBoxH({ w: 680, xFmt: F.d1, rows: [' +
     '{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, n: 742 },' +
     '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 121, n: 142 }] })', 319);
@@ -2445,18 +2445,18 @@ check("ループ4 検証: 最初の月からデータがある折れ線（renewa
     JSON.stringify(monthsN(6).map(() => ({ v: .5 }))) + ' }], yFmt: F.pct, yLab: "継続率" })', 1116)), "枠に収まる折れ線まで目盛りを貼り付けた");
 });
 
-check("ループ4 検証: 箱ひげの凡例（◇ 平均・軸の外の印）は「四分位 / 中央値」のすぐ後ろに並べ、説明の段落の後ろに回さない", () => {
+check("ループ4 検証: 値の広がりの凡例（◇ 平均・軸の外の印）は「多くが収まる範囲 / 真ん中の値」のすぐ後ろに並べ、説明の段落の後ろに回さない", () => {
   ctx.__BX = 'svgBoxH({ w: 680, xFmt: F.d1, rows: [{ label: "a", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, mean: 12.9, n: 742 }] })';
-  const f = run('fig("応募数 ÷ 掲載数", "", eval(__BX), lg("quart", C.ai, "四分位") + lg("line", C.ai, "中央値") +' +
+  const f = run('fig("応募数 ÷ 掲載数", "", eval(__BX), lg("quart", C.ai, "多くが収まる範囲") + lg("line", C.ai, "真ん中の値") +' +
     ' \'<i class="full">段落その1</i><i class="full">段落その2</i>\')');
   const at = (t) => f.indexOf(t);
-  ok(at("中央値") >= 0 && at("平均（") > at("中央値") && at("最大値が軸の右の外") > at("中央値"), "箱ひげの凡例が出ていない");
+  ok(at("真ん中の値") >= 0 && at("平均（") > at("真ん中の値") && at("最大値が軸の右の外") > at("真ん中の値"), "値の広がりの凡例が出ていない");
   ok(at("平均（") < at("段落その1") && at("最大値が軸の右の外") < at("段落その1"), "◇ 平均・軸の外の印の説明が、段落の後ろに離れている");
   // 段落の無い凡例・凡例の無い図では、これまでどおり最後に付く
-  ok(run('fig("x", "", eval(__BX))').includes("平均（"), "凡例の無い図で箱ひげの凡例が出ない");
+  ok(run('fig("x", "", eval(__BX))').includes("平均（"), "凡例の無い図で値の広がりの凡例が出ない");
 });
 
-check("ループ4 検証: 箱ひげの軸の端を目盛りに合わせても、広い枠では軸を伸ばしすぎない（rampup の初回MTGまで: 0〜150 にしない）", () => {
+check("ループ4 検証: 値の広がりの軸の端を目盛りに合わせても、広い枠では軸を伸ばしすぎない（rampup の初回MTGまで: 0〜150 にしない）", () => {
   // ひげの先 = 47 + 1.5 × 37 = 102.5。刻み 50 のまま1段足すと 0〜150 になり、箱とひげが左 2/3 に縮む
   const code = 'svgBoxH({ w: 680, rows: [{ label: "初回MTGまで", med: 20, q1: 10, q3: 47, min: 0, max: 300, mean: 40, n: 500 }] })';
   const axis = (svg) => [...svg.matchAll(/<line class="gridline" x1="[\d.]+"[^>]*\/><text class="ax"[^>]*>([^<]*)</g)].map((m) => +m[1].replace(/,/g, ""));
@@ -2520,7 +2520,7 @@ check("ループ4 phone: 多対多の注記は1回だけ。沈黙している取
     "沈黙している取引の表で、取引・ステージが折り返す列になっていない（1440px で右端が切れる）");
 });
 
-check("ループ4 houjin: 本部アプローチは見出しと本文を重ねず、10法人の図ごとの注記と基準日を繰り返さない", () => {
+check("ループ4 houjin: 本部への提案材料は見出しと本文を重ねず、10法人の図ごとの注記と基準日を繰り返さない", () => {
   const hq = JSON.parse(JSON.stringify(ctx.__HQ));
   hq.rows = [0, 1, 2].map((i) => Object.assign({}, ctx.__HQ.rows[0], { houjin: "法人" + i }));
   ctx.__HQ4 = hq;
@@ -2532,12 +2532,12 @@ check("ループ4 houjin: 本部アプローチは見出しと本文を重ねず
   // 頭の枠は畳み（M-5 の foldNote: summary が見出し、中の箱は見出しを持たない）。summary の文と本文（<p>）の 1 文目が同じでないこと
   const head = (h.match(/<details class="fold notefold"><summary>([^<　]*)[\s\S]*?<div class="note [^"]*"><p>([^<。]*)/) || []);
   ok(head[1] && head[2] && !head[2].startsWith(head[1]), "枠の見出しと本文の1文目が同じ: " + head[1]);
-  ok(!h.includes("集計の基準日"), "本部アプローチの末尾にも基準日の枠がある（法人番号で見るの末尾と2つ続く）");
-  ok(!h.includes('<span class="no">問い</span>'), "本部アプローチが自分の問いの見出しを出している（法人番号で見るの見出しの下が空に見える）");
+  ok(!h.includes("集計の基準日"), "本部への提案材料の末尾にも基準日の枠がある（法人番号で見るの末尾と2つ続く）");
+  ok(!h.includes('<h2 class="sec mincho">'), "本部への提案材料が自分の問いの見出しを出している（法人番号で見るの見出しの下が空に見える）");
   ok(h.includes("採用単価（万円）"), "事業所どうしを比べる図で採用単価の単位（万円）が分からない");
 });
 
-check("ループ4 focus: どちらも無い（灰の帯）の KPI を山吹にしない・採用単価の単位・KPI 見出しの折り返し", () => {
+check("ループ4 focus: どちらも無い（灰の区分）の KPI を山吹にしない・採用単価の単位・KPI 見出しの折り返し", () => {
   const fo = JSON.parse(JSON.stringify(ctx.__FO));
   fo.mtg_layers.neither = 115;
   fo.cpa = { worse: 1, judged: 1, skipped_censored: 0, note: "",
@@ -2629,13 +2629,13 @@ check("ループ4 handover: 「次の担当」の側も、担当者一覧に無�
   ok(textOf(h.slice(0, h.lastIndexOf("<table"))).includes("「氏名不明」は HubSpot の担当者一覧に無い担当"), "次の担当だけが氏名不明のとき、表の上に意味が書いていない");
 });
 
-check("ループ4 renewal: 月次継続率で n<30 の月（右端 27-01 n=1 の 0%）に点を打たず、打たない理由を書く", () => {
+check("ループ4 renewal: 月次継続率で n<30 の月（右端 27-01 1件 の 0%）に点を打たず、打たない理由を書く", () => {
   const h = run("renderRenewal(__RN)");
   const svg = firstSvg(retPart(h));
   const tt = [...svg.matchAll(/<circle [^>]*><title>([^<]*)<\/title>/g)].map((m) => m[1]);
   ok(tt.length > 0 && tt.some((t) => t.startsWith("26-09")), "見張りの前提: 点の title が「月…」で始まっていない: " + tt.slice(-2).join(" / "));
-  ok(!tt.some((t) => t.startsWith("27-01") || t.startsWith("26-10")), "n<30 の月（26-10 n=8 / 27-01 n=1）に点を打っている: " + tt.slice(-3).join(" / "));
-  ok(svg.includes(">27-01<") && svg.includes(">n=1<"), "n<30 の月を横軸から消している（月と件数は残す）");
+  ok(!tt.some((t) => t.startsWith("27-01") || t.startsWith("26-10")), "n<30 の月（26-10 8件 / 27-01 1件）に点を打っている: " + tt.slice(-3).join(" / "));
+  ok(svg.includes(">27-01<") && svg.includes(">1件<"), "n<30 の月を横軸から消している（月と件数は残す）");
   ok(textOf(h).includes("30 件に届かない 2 か月は点を打っていません"), "n<30 で点を打たなかった月のことが書かれていない");
 });
 
@@ -2655,7 +2655,7 @@ check("ループ4 renewal: n<30 で点を打たない月があるとき、線の
 /* 🔴 段B（2026-09-29）: 最優先の表は案件一覧の見方に移し、成果とリスクの表を描く分岐（outcomeTopTable）は外した。
    この表だけにあった「放置の軸」「接触の記録（すべて契約前）」の列は見方には無い（段B で失ったもの）。
    前の見張り（行ごとに「すべて契約前」と書く）は届く画面が無くなったので、表が戻っていないことと、行き先を見張る */
-check("ループ4 outcome: 最優先の表は成果と継続に出さず、見方へ案内する（接触の記録の列は段B で外れた）", () => {
+check("ループ4 outcome: 最優先の表は成果と継続に出さず、よく使う絞り込みへ案内する（接触の記録の列は段B で外れた）", () => {
   const O = JSON.parse(JSON.stringify(ctx.__OUT));
   // routes.rs build_outcome の top の形。n_contact は契約前も含めた件数
   O.risk.top = [
@@ -2665,7 +2665,7 @@ check("ループ4 outcome: 最優先の表は成果と継続に出さず、見�
   const h = run("renderOutcome(__OUT4)");
   ok(!h.includes("<tbody>") && !textOf(h).includes("すべて契約前"), "最優先の表が成果と継続に戻っている");
   ok(h.includes('href="' + run('esc(hashFor("board", { view: "top" }))') + '"') && textOf(h).includes("この 2 件（2軸とも赤）の表は"),
-    "最優先の件数と見方への行き先が無い");
+    "最優先の件数とよく使う絞り込みへの行き先が無い");
 });
 
 check("ループ4 outcome: 契約開始日が空の行（no_start）では「すべて契約前」と言い切らず、散布図の色も分ける", () => {
@@ -2715,20 +2715,20 @@ check("ループ4統合: 横棒（svgBarH）は xLab を軸の題名として描
 });
 
 check("ループ4統合: 注記の折り返しで、とうに閉じた括弧の手前まで遡って切らない（1行目が極端に短くならない）", () => {
-  const lines = JSON.parse(run('JSON.stringify(wrapText("採用単価（万円）は同じ進捗帯の中央値と比べて1.5倍以上のときに赤で出しています", 300))'));
+  const lines = JSON.parse(run('JSON.stringify(wrapText("採用単価（万円）は同じ進捗の区分の真ん中の値と比べて1.5倍以上のときに赤で出しています", 300))'));
   ok(lines[0] !== "採用単価" && lines[0].length > 8, "1行目が極端に短い: " + JSON.stringify(lines));
-  ok(lines.join("") === "採用単価（万円）は同じ進捗帯の中央値と比べて1.5倍以上のときに赤で出しています", "字が落ちている: " + JSON.stringify(lines));
-  const br = JSON.parse(run('JSON.stringify(wrapText("解約・充足 100%（決着済み 12件中）", 120))'));
-  ok(br.some(l => l.startsWith("（決着済み")), "まだ閉じていない括弧の手前では切る動きが壊れた: " + JSON.stringify(br));
+  ok(lines.join("") === "採用単価（万円）は同じ進捗の区分の真ん中の値と比べて1.5倍以上のときに赤で出しています", "字が落ちている: " + JSON.stringify(lines));
+  const br = JSON.parse(run('JSON.stringify(wrapText("解約・充足 100%（結果が出た 12件中）", 120))'));
+  ok(br.some(l => l.startsWith("（結果が出た")), "まだ閉じていない括弧の手前では切る動きが壊れた: " + JSON.stringify(br));
 });
 
 /* ================================================================ ループ5（本番 1586140 の実測の残り, 2026-09-24） */
-check("ループ5: 帯を縦に積む図（series の案件ごとの図）も、開いた直後を新しい側に合わせる（data-xr）。左のラベルは貼り付けたまま", () => {
+check("ループ5: 区分を縦に積む図（series の案件ごとの図）も、開いた直後を新しい側に合わせる（data-xr）。左のラベルは貼り付けたまま", () => {
   const xr = (svg) => { const m = String(svg).match(/<svg [^>]*data-xr="(\d+)"/); return m ? +m[1] : null; };
   const mx = JSON.stringify(monthsN(24));
   const all = JSON.stringify(monthsN(24).map((_, i) => ({ v: i })));
   const svg = drawAt('svgStackLanes({ w: 940, months: ' + mx + ', lanes: [{ type: "line", label: "応募", color: "blue", pts: ' + all + ' }] })', 319);
-  ok(xr(svg) >= 930, "帯を縦に積む図の data-xr が最新の月（右端）でない（開いた直後が古い側になる）: " + xr(svg));
+  ok(xr(svg) >= 930, "区分を縦に積む図の data-xr が最新の月（右端）でない（開いた直後が古い側になる）: " + xr(svg));
   ok(/class="sticklab"/.test(svg), "左のラベルを貼り付けていない");
   // 最後の数か月に値が無い図は、値がある最後の月を右端に見せる（右の空の月だけが見えない）
   const early = JSON.stringify(monthsN(24).map((_, i) => (i <= 12 ? { v: i } : null)));
@@ -2756,7 +2756,7 @@ check("ループ5: ファネル（houjin の応募 → 面接 → 採用）は 3
   ok(/<svg [^>]*data-fk="\d+"/.test(drawAt(code, null)), "枠の幅を測る印（data-fk）が無い（paintFigs が描き直さない）");
 });
 
-check("ループ5: 箱ひげは広い枠（1440px, 1116px）ではラベルを省略しない（outcome の「充足（採れて終わった）」）", () => {
+check("ループ5: 値の広がりは広い枠（1440px, 1116px）ではラベルを省略しない（outcome の「充足（採れて終わった）」）", () => {
   const rows = '[{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, n: 742 },' +
     '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 121, n: 142 }]';
   const wide = drawAt("svgBoxH({ w: 680, xFmt: F.d1, rows: " + rows + " })", 1116);
@@ -2771,7 +2771,7 @@ check("ループ5: 箱ひげは広い枠（1440px, 1116px）ではラベルを�
 });
 
 check("ループ5: 図の見出しの補足（.hint）で、数字と単位（「6.7倍」「12 件」）を折れない塊にする", () => {
-  const f = run('fig("x", "拠点3 / 取引6 / 開き 6.7倍。母数 12 件、<b data-n=\\"9件\\">2 法人</b>（&plusmn;1日で83.3%）契約 2025-12-18〜2026-06-17", "")');
+  const f = run('fig("x", "拠点3 / 取引6 / 開き 6.7倍。対象 12 件、<b data-n=\\"9件\\">2 法人</b>（&plusmn;1日で83.3%）契約 2025-12-18〜2026-06-17", "")');
   const hint = (f.match(/<span class="hint">([\s\S]*?)<\/span><\/figcaption>/) || [0, ""])[1];
   const nw = [...hint.matchAll(/<span class="nw">([^<]*)<\/span>/g)].map((m) => m[1]);
   ["6.7倍", "12 件", "2 法人", "1日", "83.3%"].forEach((t) =>
@@ -3143,34 +3143,34 @@ check("交代の前後: 同じ交代の行は1本にし、短い・途中・数�
   ok(!/<text[^>]*>[^<]*2026-05-02〜/.test(svg), "担当期間（開始〜終了）を注記に残している");
 });
 
-check("交代の前後: 担当者のまとめは母数を添え、少ない人は印を付けて図に出さない。氏名不明は番号で分ける", () => {
+check("交代の前後: 担当者のまとめは対象を添え、少ない人は印を付けて図に出さない。氏名不明は番号で分ける", () => {
   const p = hocPart(run("renderHandover(__HOC)"));
-  const i = p.indexOf("引き継いだ側（次の担当）（変化の中央値）");
+  const i = p.indexOf("引き継いだ側（次の担当）（変化の真ん中の値）");
   ok(i >= 0, "引き継いだ側のまとめが無い");
-  ok(p.indexOf("引き継がれた側（前の担当）（変化の中央値）") > i, "引き継がれた側のまとめが無い");
+  ok(p.indexOf("引き継がれた側（前の担当）（変化の真ん中の値）") > i, "引き継がれた側のまとめが無い");
   const part = p.slice(i, p.indexOf("引き継がれた側（前の担当）"));
   const svg = firstSvg(part);
-  ok(svg.includes("担当P") && !svg.includes("担当Q") && !svg.includes("氏名不明"), "母数が 5 件未満の人を図に出している、または足りる人を出していない");
+  ok(svg.includes("担当P") && !svg.includes("担当Q") && !svg.includes("氏名不明"), "対象が 5 件未満の人を図に出している、または足りる人を出していない");
   const tb = part.slice(part.indexOf("<tbody>"));
   const rowOf = (name) => tb.slice(tb.indexOf(name), tb.indexOf("</tr>", tb.indexOf(name)));
-  ok(/>少<\/span>/.test(rowOf("担当Q")), "母数が小さい人に「少」の印が無い");
-  ok(!/>少<\/span>/.test(rowOf("担当P")), "母数が足りる人に「少」の印が付いている");
-  ok(/6 <span class="muted small">\/ 7件<\/span>/.test(rowOf("担当P")), "比べられた件数に母数（交代の件数）を添えていない");
-  ok(rowOf("担当P").includes("−0.80"), "変化の中央値に符号が無い");
+  ok(/>少<\/span>/.test(rowOf("担当Q")), "対象が小さい人に「少」の印が無い");
+  ok(!/>少<\/span>/.test(rowOf("担当P")), "対象が足りる人に「少」の印が付いている");
+  ok(/6 <span class="muted small">\/ 7件<\/span>/.test(rowOf("担当P")), "比べられた件数に対象（交代の件数）を添えていない");
+  ok(rowOf("担当P").includes("−0.80"), "変化の真ん中の値に符号が無い");
   ok(/氏名不明 1<\/span>/.test(tb) && /氏名不明 2<\/span>/.test(tb), "氏名の分からない担当が2人いるのに番号で分けていない");
   ok(!part.includes("HubSpotの担当者一覧に無い）"), "長い「氏名が分からない担当（…）」をそのまま出している");
   ok(!/@/.test(p), "メールアドレスが出ている");
 });
 
 /* 検証の指摘（2026-09-24）: 見出しの数字「比べられた交代」から母数（交代 N 件のうち）を消しても落ちなかった */
-check("交代の前後: 見出しの数字「比べられた交代」に母数（交代 N 件のうち）と外した件数を添える", () => {
+check("交代の前後: 見出しの数字「比べられた交代」に対象（交代 N 件のうち）と外した件数を添える", () => {
   const p = hocPart(run("renderHandover(__HOC)"));
   const k = p.slice(p.indexOf('<div class="kpis">'), p.indexOf("交代ごとの変化"));
   const box = k.slice(k.indexOf("比べられた交代"), k.indexOf("減った / 増えた"));
   ok(box.length > 0, "「比べられた交代」の枠が無い");
-  ok(textOf(box).includes("交代 4 件のうち"), "比べられた交代に母数（交代 4 件のうち）が無い: " + textOf(box));
+  ok(textOf(box).includes("交代 4 件のうち"), "比べられた交代に対象（交代 4 件のうち）が無い: " + textOf(box));
   ok(textOf(box).includes("比べるには短い 1 件") && textOf(box).includes("途中 1 件"), "外した件数（短い・途中）が無い");
-  ok(textOf(k).includes("比べられた 2 件のうち"), "減った / 増えた に母数が無い");
+  ok(textOf(k).includes("比べられた 2 件のうち"), "減った / 増えた に対象が無い");
 });
 
 /* 2026-09-24 藤巻さんの判断: 窓は前後60日ではなく、それぞれの担当期間の全体（通期）。まとめは平均と中央値（最頻値は出さない） */
@@ -3184,18 +3184,18 @@ check("交代の前後: 窓は「それぞれの担当期間の全体（通期�
   ok(!/undefined|NaN/.test(p), "undefined か NaN が出ている");
 });
 
-check("交代の前後: 変化の平均と中央値を両方出し、最頻値は出さない理由を書く", () => {
+check("交代の前後: 変化の平均と真ん中の値を両方出し、最頻値は出さない理由を書く", () => {
   const p = hocPart(run("renderHandover(__HOC)"));
   const k = p.slice(p.indexOf('<div class="kpis">'), p.indexOf("交代ごとの変化"));
-  const box = textOf(k.slice(k.indexOf("変化の平均 / 中央値")));
-  ok(box.includes("−0.25 / −0.30"), "見出しの数字に平均と中央値の両方が無い: " + box);
+  const box = textOf(k.slice(k.indexOf("変化の平均 / 真ん中の値")));
+  ok(box.includes("−0.25 / −0.30"), "見出しの数字に平均と真ん中の値の両方が無い: " + box);
   ok(box.includes("最頻値は出していません"), "最頻値を出さないことを書いていない");
-  const part = p.slice(p.indexOf("引き継いだ側（次の担当）（変化の中央値）"), p.indexOf("引き継がれた側（前の担当）"));
+  const part = p.slice(p.indexOf("引き継いだ側（次の担当）（変化の真ん中の値）"), p.indexOf("引き継がれた側（前の担当）"));
   const head = part.slice(part.indexOf("<thead"), part.indexOf("</thead>"));
-  ok(head.includes(">変化の平均（30日あたり）<") && head.includes(">変化の中央値（30日あたり）<"), "担当者の表に平均と中央値の列が無い");
+  ok(head.includes(">変化の平均（30日あたり）<") && head.includes(">変化の真ん中の値（30日あたり）<"), "担当者の表に平均と真ん中の値の列が無い");
   const tb = part.slice(part.indexOf("<tbody>"));
   const row = tb.slice(tb.indexOf("担当P"), tb.indexOf("</tr>", tb.indexOf("担当P")));
-  ok(/−0\.65<\/td><td class="n">−0\.80/.test(row), "担当者の行に平均（−0.65）と中央値（−0.80）が並んでいない: " + row);
+  ok(/−0\.65<\/td><td class="n">−0\.80/.test(row), "担当者の行に平均（−0.65）と真ん中の値（−0.80）が並んでいない: " + row);
 });
 
 check("交代の前後: 後の担当がまだ担当中の交代は、締め日までの通期で比べたと書く。交代どうしの間が短い理由も出す", () => {
@@ -3223,7 +3223,7 @@ check("交代の前後: 氏名不明の番号はサーバの番号をそのま�
   ctx.__HOU = H;
   const h = run("renderHandover(__HOU)");
   /* 引き継がれた側に氏名不明が1人だけでも、全体で2人いれば番号を出す（側ごとに数えない） */
-  const from = h.slice(h.indexOf("引き継がれた側（前の担当）（変化の中央値）"), h.indexOf("前後の比べ方"));
+  const from = h.slice(h.indexOf("引き継がれた側（前の担当）（変化の真ん中の値）"), h.indexOf("前後の比べ方"));
   ok(/氏名不明 2<\/span>/.test(from), "引き継がれた側の氏名不明に、サーバの番号（2）を出していない");
   const tbl = hoTable(h);
   ok(tbl.length > 0, "交代の記録の表（#ho-tbl）が無い");
@@ -3463,7 +3463,7 @@ check("案件の詳細: 名前はエスケープし、値の無い項目は — 
   const h = run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }");
   ok(h.indexOf("<b>太字</b>") < 0 && h.indexOf("&lt;b&gt;太字&lt;/b&gt;") >= 0, "案件名をエスケープしていない");
   ok(!/undefined|NaN|>null</.test(h), "undefined / NaN / null が出ている");
-  ok(h.indexOf("稼働中の案件にだけ付けています") >= 0, "名札が無い理由を書いていない");
+  ok(h.indexOf("稼働中の案件にだけ付けています") >= 0, "注意が無い理由を書いていない");
   ok(h.indexOf("拠点名なし") >= 0 && h.indexOf("前後の契約はたどれません") >= 0, "拠点が無いときの断りが無い");
   ok(!/>[^<]*80000000001[^<]*</.test(h), "取引ID が画面の文字に出ている");
   ok(h.indexOf("初回") >= 0, "継続回数 0 を「初回」と出していない");
@@ -3471,7 +3471,7 @@ check("案件の詳細: 名前はエスケープし、値の無い項目は — 
 
 check("案件の詳細: 表の案件名（案件そのもの・継続を追いかける・法人番号で見る）は案件の詳細へのリンク", () => {
   const b = run('BOARD_COLS.find((c) => c.k === "name").fmt({ deal_id: "80000000001", name: "A&B" })');
-  ok(b.indexOf('<a class="deallink" href="#deal/detail?id=80000000001">A&amp;B</a>') === 0, "案件の立ち位置の案件名がリンクでない: " + b);
+  ok(b.indexOf('<a class="deallink" href="#deal/detail?id=80000000001">A&amp;B</a>') === 0, "案件の契約のどのあたりかの案件名がリンクでない: " + b);
   ctx.__CD = { meta: { found: true, houjin: "H1" }, customer: null, deals: [{ deal_id: "80000000003", name: "系列の契約",
     stage: "定期1", site: "S", kind: "サブスク", start: "2026-01-01", expiration: "2026-06-30", renewal_no: 0, amount: null,
     oubo: null, mensetu: null, syoudaku: null, is_active: true, right_censored: false }], mtgs: [] };
@@ -3553,12 +3553,12 @@ check("案件の詳細: 電話の AI 要約には「誤りを含むことがあ�
 });
 
 /* ================================================================ 段1（2026-09-28、08_UIUX改善案の S-3） */
-check("S-3: 今日動く先の3表は8列（案件・名札・担当・満了まで・最後の接触・最後のMTG・定期NPS・金額）で、名札が2列目", () => {
+check("S-3: 今日動く先の3表は8列（案件・注意・担当・満了まで・最後の接触・最後のMTG・定期NPS・金額）で、注意が2列目", () => {
   const cols = run("TODAY_COLS.map((c) => c.t)");
-  ok(JSON.stringify(cols) === JSON.stringify(["案件", "名札", "担当", "満了まで", "最後の接触", "最後のMTG", "定期NPS", "金額"]),
+  ok(JSON.stringify(cols) === JSON.stringify(["案件", "注意", "担当", "満了まで", "最後の接触", "最後のMTG", "定期NPS", "金額"]),
     "今日動く先の列が違う: " + cols.join(" / "));
   // 案件そのものは 15 列のまま。名札（並びの根拠）だけ案件名の隣へ
-  ok(run("BOARD_COLS[1].k") === "n_flags", "案件そのものの名札の列が2列目でない");
+  ok(run("BOARD_COLS[1].k") === "n_flags", "案件そのものの注意の列が2列目でない");
   ok(run("BOARD_COLS.length") === 15, "案件そのものの列数が 15 でない（列を落としていないか）");
   const row = { deal_id: "a", name: "案件A", consultant: "担当A", flags: ["x", "y"], n_flags: 2, amount: 100000, days_left: 12, nps: 3 };
   ctx.__TD3 = { rows: [row], expiring_this_week: [row], started_this_week: [row],
@@ -3571,7 +3571,7 @@ check("S-3: 今日動く先の3表は8列（案件・名札・担当・満了ま
     const ths = (t.split("</thead>")[0].match(/<th[\s>]/g) || []).length;
     ok(ths === 8, id + " の列数が " + ths + "（8 でない）");
     // 名札は折り返す列。段2 A で wl（22em）から今日動く先だけの wf（25.5em・短い名札）に変えた。折り返す性質は同じ
-    ok(/<th class="wf sortable"[^>]*><button[^>]*data-k="n_flags"/.test(t), id + " の名札の列が折り返す列（wf）でない");
+    ok(/<th class="wf sortable"[^>]*><button[^>]*data-k="n_flags"/.test(t), id + " の注意の列が折り返す列（wf）でない");
     const tds = t.split("<tbody>")[1].split("</tr>")[0];
     ok(/<td class="wl"><a class="deallink"/.test(tds), id + " の案件名の列が折り返す列（wl）でない: " + tds.slice(0, 120));
   }
@@ -3584,11 +3584,11 @@ check("S-3: 今日動く先の3表は8列（案件・名札・担当・満了ま
   const b = run('boardTable([__TD3.rows[0]], { key: "n_flags", asc: false }, "board-tbl")');
   const bh = b.split("</thead>")[0];
   ok((bh.match(/<th[\s>]/g) || []).length === 15, "案件そのものの表が 15 列でない");
-  ok(bh.indexOf('data-k="n_flags"') < bh.indexOf('data-k="consultant"'), "案件そのものの表で名札が担当より後ろにある");
+  ok(bh.indexOf('data-k="n_flags"') < bh.indexOf('data-k="consultant"'), "案件そのものの表で注意が担当より後ろにある");
   // 名札だけは折り返す列（wl）。2026-09-28 検証（fixture 1440px）: 2 列目に移した名札を折り返さないままにしたら列の幅が
   // 799px になり、枠（1,149px）に最初から見える列が 8 列 → 3 列に減った。案件名ほかの 14 列は折り返さない（横スクロールのまま）
-  ok(/<th class="wl sortable"[^>]*><button[^>]*data-k="n_flags"/.test(bh), "案件そのものの名札の列が折り返す列（wl）でない（名札が 799px の 1 行になる）");
-  ok((bh.match(/class="wl sortable"/g) || []).length === 1, "案件そのものの表で名札以外の列まで折り返す列にしている");
+  ok(/<th class="wl sortable"[^>]*><button[^>]*data-k="n_flags"/.test(bh), "案件そのものの注意の列が折り返す列（wl）でない（注意が 799px の 1 行になる）");
+  ok((bh.match(/class="wl sortable"/g) || []).length === 1, "案件そのものの表で注意以外の列まで折り返す列にしている");
   ok(!/<td class="wl"><a class="deallink"/.test(b), "案件そのものの案件名の列まで折り返す列にしている（15 列は枠の横スクロールのまま）");
 });
 
@@ -3610,14 +3610,14 @@ function todayFixture() {
     meta: { n_hit: 4, n_shown: 2, keep: 2, n_active: 604, n_not_started: 5, filter_rule: "絞った条件の文", order_rule: "並びの文",
       new_deal_rule: "新規の文", not_counted: "※ 予測ではありません", today: "2026-09-18",
       mtg_gap: { rule: "", no_record_note: "", source_note: "", coverage: {}, forced_by_expiry: 1, n_judged: 0,
-        bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 9, alert: true },
+        bands: [{ band: "critical", label: "MTGが90日以上空いている", n: 9, alert: true },
                 { band: "recent", label: "直近30日にMTGあり", n: 40, alert: false },
                 { band: "onboarding", label: "立ち上がり期", n: 7, alert: false }] } },
   };
 }
 
 // 2026-09-29 組み替え 段A（handover 09 の 3章 1）: 図 2 つ（名札の内訳・MTG 途絶の帯）を外し、数え方は畳みに、その下に自分の接触
-check("S-1: 今日は 問い → 担当の欄 → KPI → 表 今日動く先 → 表 今週満了 → 今週始まった（畳み） → MTG 途絶の数え方（畳み） → 自分の接触 → 読むときの注意 の順", () => {
+check("S-1: 今日は 問い → 担当の欄 → KPI → 表 今日動く先 → 表 今週満了 → 今週始まった（畳み） → MTGが空いている期間の数え方（畳み） → 自分の接触 → 読むときの注意 の順", () => {
   run("todayConsultant = '';");   // todayStartedOpen は触らない（既定で閉じていることを見る）
   ctx.__TD5 = todayFixture();
   const h = run("renderToday(__TD5)");
@@ -3625,7 +3625,7 @@ check("S-1: 今日は 問い → 担当の欄 → KPI → 表 今日動く先 �
   const order = ["今日・今週、どこに連絡するか", 'id="td-consultant"', '<div class="kpis">', 'id="td-today-h"', 'id="today-tbl"',
     'id="td-soon-h"', 'id="soon-tbl"', '<details class="fold" id="td-started"', 'id="new-tbl"', 'id="td-mtg-note"',
     "担当を選ぶと、その人の持ち案件1件あたりの接触", "読むときの注意"];
-  ok(!h.includes("何で上がってきたか") && !h.includes("MTG が途絶えている先"), "外した図が残っている");
+  ok(!h.includes("何で上がってきたか") && !h.includes("MTG が空いている先"), "外した図が残っている");
   const pos = order.map(at);
   for (let i = 1; i < pos.length; i++) ok(pos[i] > pos[i - 1], "順が違う: 「" + order[i] + "」が「" + order[i - 1] + "」より前にある");
   // 決まりごとの箱は表の見出しの直下の畳みの中（表より前に開いた箱で出さない）。母数は畳みの 1 行目（summary）に残す
@@ -3638,9 +3638,9 @@ check("S-1: 今日は 問い → 担当の欄 → KPI → 表 今日動く先 �
   // 40px の間に 2 回言い、その分 表の見出し行が下がって 1 画面目に完全な行が 0 行だった）
   const caprow = h.slice(h.indexOf('<div class="caprow">'), at('id="today-tbl"'));
   ok(caprow.startsWith('<div class="caprow"><details class="fold" id="td-rule"><summary>'), "決まりごとの畳みが枠の案内と同じ行（caprow）の先頭に無い");
-  ok(/<\/details><div class="scroll-cap"><b>2<\/b> 行を出しています（全 4 件のうち）/.test(caprow), "枠の案内（母数）が畳みの直後・同じ行に無い");
-  ok((caprow.match(/全 4 件のうち|4 件から 2 件/g) || []).length === 1, "母数（4 件 → 2 件）が表の上に 2 回出ている");
-  ok(/<summary>名札の本数順（同じ本数なら金額順）　<span class="when-closed">決まりごとを開く<\/span>/.test(ruleBox), "畳みの 1 行目（summary）が並びの決まりでない: " + ruleBox.slice(0, 160));
+  ok(/<\/details><div class="scroll-cap"><b>2<\/b> 行を出しています（全 4 件のうち）/.test(caprow), "枠の案内（対象）が畳みの直後・同じ行に無い");
+  ok((caprow.match(/全 4 件のうち|4 件から 2 件/g) || []).length === 1, "対象（4 件 → 2 件）が表の上に 2 回出ている");
+  ok(/<summary>注意の数の順（同じ数なら金額順）　<span class="when-closed">決まりごとを開く<\/span>/.test(ruleBox), "畳みの 1 行目（summary）が並びの決まりでない: " + ruleBox.slice(0, 160));
   ok(h.indexOf('<div class="note def"><span class="hd">絞った条件') > rule, "絞った条件の箱が畳みの外（表より前）に出ている");
   // 今週始まった契約は畳み（summary に件数）。既定は閉じている
   ok(!/<details class="fold" id="td-started" open/.test(h), "今週始まった契約の畳みが既定で開いている");
@@ -3652,19 +3652,19 @@ check("S-1: 今日は 問い → 担当の欄 → KPI → 表 今日動く先 �
   const cards = kp.split(/<(?:button|div)[^>]*class="kpi[" ]/).slice(1);
   ok(cards.length === 5, "KPI が 5 枚でない: " + cards.length);
   ok(!/^[^>]*is-bad/.test(cards[0]) && cards[0].includes("今日出す先"), "今日出す先が赤（is-bad）");
-  ok(/^[^>]*is-bad/.test(cards[1]) && cards[1].includes("MTGが90日以上途絶"), "MTG 途絶が赤（is-bad）でない");
+  ok(/^[^>]*is-bad/.test(cards[1]) && cards[1].includes("MTGが90日以上空いている"), "MTGが空いている期間が赤（is-bad）でない");
   // 帯を付けていない帯の件数も、図を外した後の畳みに残す（黙って落とさない）。手を打つ帯と区別して書く
   const g = h.slice(h.indexOf('id="td-mtg-note"'), h.indexOf("</details>", h.indexOf('id="td-mtg-note"')));
-  ok(g.includes("MTGが90日以上途絶") && !/MTGが90日以上途絶 \d+件（帯を付けていない）/.test(g), "手を打つ帯が数え方の畳みに無い（または帯を付けていない扱い）");
-  ok(g.includes("直近30日にMTGあり 40件（帯を付けていない）") && g.includes("立ち上がり期 7件（帯を付けていない）"), "帯を付けていない帯の件数が畳みに無い: " + g);
+  ok(g.includes("MTGが90日以上空いている") && !/MTGが90日以上空いている \d+件（区分を付けていない）/.test(g), "手を打つ区分が数え方の畳みに無い（または区分を付けていない扱い）");
+  ok(g.includes("直近30日にMTGあり 40件（区分を付けていない）") && g.includes("立ち上がり期 7件（区分を付けていない）"), "区分を付けていない帯の件数が畳みに無い: " + g);
 });
 
-check("S-2: 数字の札は押せる（button.kpi）。今日出す先・今週満了・今週始まったは同じ画面の表へ、MTG 途絶は案件そのものを帯で絞って開く", () => {
+check("S-2: 数字の札は押せる（button.kpi）。今日出す先・今週満了・今週始まったは同じ画面の表へ、MTGが空いている期間は案件そのものを帯で絞って開く", () => {
   run("todayConsultant = '';");
   ctx.__TD5 = todayFixture();
   const h = run("renderToday(__TD5)");
   ok(/<button type="button" class="kpi" data-jump="td-today-h"><span class="lbl">今日出す先/.test(h), "今日出す先の札が表へ飛ぶ button でない");
-  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上途絶/.test(h), "MTG 途絶の札が帯で絞る button でない");
+  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上空いている/.test(h), "MTGが空いている期間の札が帯で絞る button でない");
   ok(/<button type="button" class="kpi is-warn" data-jump="td-soon-h"><span class="lbl">今週満了する/.test(h), "今週満了の札が表へ飛ぶ button でない");
   ok(/<button type="button" class="kpi" data-jump="td-started"><span class="lbl">今週始まった契約/.test(h), "今週始まった契約の札が畳みを開く button でない");
   ok(/<div class="kpi"><span class="lbl">稼働中の全件[\s\S]*?<a class="golink"/.test(h), "稼働中の全件はリンクを添えた div のまま（button の中に a を入れない）");
@@ -3674,23 +3674,23 @@ check("S-2: 数字の札は押せる（button.kpi）。今日出す先・今週�
   ok(h.includes('<h2 class="sec part" id="td-today-h" tabindex="-1">') && h.includes('<h2 class="sec part" id="td-soon-h" tabindex="-1">'),
     "飛ぶ先の見出しに id / tabindex が無い");
   // 行き先の無い札（act 無し）は div のまま。見出しに id を渡さないときは前と同じ形
-  ok(run('kpi("LTV 中央値", "1", "", "")') === '<div class="kpi"><span class="lbl">LTV 中央値</span><span class="big">1</span></div>', "act 無しの kpi が div でない");
-  ok(run('sec("問い", "x")') === '<h2 class="sec mincho"><span class="no">問い</span>x</h2>', "id 無しの sec の形が変わった");
+  ok(run('kpi("LTV 真ん中の値", "1", "", "")') === '<div class="kpi"><span class="lbl">LTV 真ん中の値</span><span class="big">1</span></div>', "act 無しの kpi が div でない");
+  ok(run('sec("問い", "x")') === '<h2 class="sec mincho">x</h2>', "id 無しの sec の形が変わった");
   // 案件そのものの絞り込みに MTG 途絶の帯が加わり、行の mtg_band で落とす。内部の鍵は画面の言葉に出さない
   run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "critical" };');
   const kept = run("boardApply(__TD5.candidates).map((r) => r.deal_id).join(',')");
   ok(kept === "c1,c3", "帯で絞れていない: " + kept);
   ok(run("boardFilterOn()") === true, "帯だけの絞り込みが「絞り込みなし」になる");
   const words = run("boardFilterWords(__TD5)");
-  ok(words === "MTG途絶 MTGが90日以上途絶", "絞り込みの言葉に帯の名前が無い: " + words);
-  ok(run("boardFilterWords({})") === "MTG途絶 の帯", "帯の名前が引けないときに内部の鍵（critical）を出している: " + run("boardFilterWords({})"));
+  ok(words === "MTGが空いている期間 MTGが90日以上空いている", "絞り込みの言葉に帯の名前が無い: " + words);
+  ok(run("boardFilterWords({})") === "MTGが空いている期間 の区分", "帯の名前が引けないときに内部の鍵（critical）を出している: " + run("boardFilterWords({})"));
   const bar = run("boardFilterBar(__TD5)");
-  ok(/<select id="bf-band"><option value="">すべて<\/option><option value="critical" selected>MTGが90日以上途絶（9）<\/option>/.test(bar),
-    "MTG 途絶の選択欄が無い、または帯の名前と件数でない");
+  ok(/<select id="bf-band"><option value="">すべて<\/option><option value="critical" selected>MTGが90日以上空いている（9）<\/option>/.test(bar),
+    "MTGが空いている期間の選択欄が無い、または帯の名前と件数でない");
   run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
 });
 
-check("D-1a: 担当を選ぶと、その人の候補（名札2本以上）を全件出し、今週満了・今週始まった・KPI も追従する。未選択は今までどおり上位 keep 件", () => {
+check("D-1a: 担当を選ぶと、その人の候補（注意2つ以上）を全件出し、今週満了・今週始まった・KPI も追従する。未選択は今までどおり上位 keep 件", () => {
   ctx.__TD5 = todayFixture();
   run("todayConsultant = '';");
   const all = run("renderToday(__TD5)");
@@ -3706,14 +3706,14 @@ check("D-1a: 担当を選ぶと、その人の候補（名札2本以上）を全
   ok(mine.includes('<option value="担当C" selected>'), "選んだ担当が欄で選ばれていない");
   const kp = mine.slice(mine.indexOf('<div class="kpis">'), mine.indexOf('id="td-today-h"'));
   const big = [...kp.matchAll(/<span class="big">(\d+)<span class="u">件<\/span><\/span>/g)].map((m) => m[1]);
-  ok(big.join(",") === "2,1,1,0,604", "担当で絞ったときの KPI の数字（今日出す先・MTG途絶・今週満了・今週始まった・全件）が違う: " + big.join(","));
+  ok(big.join(",") === "2,1,1,0,604", "担当で絞ったときの KPI の数字（今日出す先・MTGが空いている期間・今週満了・今週始まった・全件）が違う: " + big.join(","));
   ok(textOf(kp).includes("全社では 9 件") && textOf(kp).includes("全社は 4 件から 2 件"), "全社の数を添えていない");
   ok(mine.includes("満了1") && !mine.includes("新規1"), "今週満了・今週始まった契約が担当で絞られていない");
   // 覚えている担当が今日の候補に無い: 欄に残し、0 件の理由を書く
   run("todayConsultant = '担当Z';");
   const none = run("renderToday(__TD5)");
   ok(none.includes('<option value="担当Z" selected>'), "覚えている担当が候補に無いときに欄から消えている");
-  ok(none.includes("この担当には名札が2本以上ついた案件がありません") && none.includes("今日の案件（0 件）"), "0 件の理由が無い");
+  ok(none.includes("この担当には注意が2つ以上ついた案件がありません") && none.includes("今日の案件（0 件）"), "0 件の理由が無い");
   // 古い応答（candidates が無い）でも rows から絞れる
   const old = todayFixture(); delete old.candidates; ctx.__TD6 = old;
   run("todayConsultant = '担当A';");
@@ -3776,12 +3776,12 @@ check("D-1a の検証: 担当の選択欄の顔ぶれは選んだ担当で変わ
   ok(opts(b) === ",担当A,担当B,担当C,担当D,担当E", "consultants の顔ぶれになっていない: " + opts(b));
   run("todayConsultant = '担当E';");
   const e = run("renderToday(__TD7)");
-  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には名札が2本以上ついた案件がありません") && e.includes("今日の案件（0 件）"),
+  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には注意が2つ以上ついた案件がありません") && e.includes("今日の案件（0 件）"),
     "候補 0 件の担当を選んだときに、選ばれた状態と 0 件の理由が無い");
   run("todayConsultant = '';");
 });
 
-check("D-1a の検証: 担当を選んだときの KPI「MTGが90日以上途絶」はサーバの担当ごとの実数（critical_by_consultant）で、押すとその担当のその帯へ。絞った条件にはこの表が何かを 1 文", () => {
+check("D-1a の検証: 担当を選んだときの KPI「MTGが90日以上空いている」はサーバの担当ごとの実数（critical_by_consultant）で、押すとその担当のその区分へ。絞った条件にはこの表が何かを 1 文", () => {
   const F = todayFixture();
   // 担当C の候補の中の critical は 1 件（候補3）だが、帯の実数は 3 件（名札が MTG途絶の 1 本だけの行は候補に入らない）
   F.meta.mtg_gap.critical_by_consultant = { "担当A": 1, "担当C": 3 };
@@ -3789,24 +3789,24 @@ check("D-1a の検証: 担当を選んだときの KPI「MTGが90日以上途絶
   run("todayConsultant = '担当C';");
   const h = run("renderToday(__TD8)");
   const kp = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="td-today-h"'));
-  ok(/<button type="button" class="kpi is-bad" data-band="critical" data-consultant="担当C"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">3<span class="u">件/.test(kp),
-    "担当を選んだときの MTG 途絶が担当ごとの実数（3）で、担当を添えた button になっていない: " + kp.slice(kp.indexOf("MTGが90日以上途絶") - 110, kp.indexOf("MTGが90日以上途絶") + 120));
+  ok(/<button type="button" class="kpi is-bad" data-band="critical" data-consultant="担当C"><span class="lbl">MTGが90日以上空いている<\/span><span class="big">3<span class="u">件/.test(kp),
+    "担当を選んだときの MTGが空いている期間が担当ごとの実数（3）で、担当を添えた button になっていない: " + kp.slice(kp.indexOf("MTGが90日以上空いている") - 110, kp.indexOf("MTGが90日以上空いている") + 120));
   ok(textOf(kp).includes("この担当の稼働中の案件で。全社では 9 件") && textOf(kp).includes("この担当の一覧を見る"), "母集団（稼働中の案件）と行き先（この担当の一覧）が書いていない");
   // 担当を選んでいるときの「絞った条件」: サーバの文（全社の説明）の前に、この表が全件・切っていないことを 1 文
   const rb = h.slice(h.indexOf('id="td-rule"'), h.indexOf("</details>", h.indexOf('id="td-rule"')));
-  ok(rb.includes("<b>担当C を選んでいるので、この担当の名札2本以上の候補を全件（2 件）出しています。2 件には切っていません。</b>全社の決まり: 絞った条件の文"),
+  ok(rb.includes("<b>担当C を選んでいるので、この担当の注意2つ以上の候補を全件（2 件）出しています。2 件には切っていません。</b>全社の決まり: 絞った条件の文"),
     "担当を選んだときの絞った条件が全社の説明のまま: " + rb.slice(rb.indexOf("絞った条件"), rb.indexOf("絞った条件") + 160));
-  ok(/<summary>担当C の候補（名札2本以上、2 件に切らず全件）。名札の本数順　<span class="when-closed">/.test(rb), "担当を選んだときの summary が違う: " + rb.slice(0, 160));
+  ok(/<summary>担当C の候補（注意2つ以上、2 件に切らず全件）。注意の数の順　<span class="when-closed">/.test(rb), "担当を選んだときの summary が違う: " + rb.slice(0, 160));
   // 全員のときは今までどおり帯の件数（9）・全社の一覧（担当を添えない）
   run("todayConsultant = '';");
   const all = run("renderToday(__TD8)");
-  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">9<span class="u">件/.test(all) && textOf(all).includes("全社の一覧を見る"),
-    "全員のときの MTG 途絶が帯の件数（9）でない、または担当を添えている");
+  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上空いている<\/span><span class="big">9<span class="u">件/.test(all) && textOf(all).includes("全社の一覧を見る"),
+    "全員のときの MTGが空いている期間が帯の件数（9）でない、または担当を添えている");
   // 古い応答（critical_by_consultant が無い）は候補の中で数え、そう断る。行き先は全社（担当を添えない）
   ctx.__TD9 = todayFixture();
   run("todayConsultant = '担当C';");
   const old = run("renderToday(__TD9)");
-  ok(/data-band="critical"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">1<span class="u">件/.test(old) && textOf(old).includes("この担当の候補（名札2本以上）の中で。全社では 9 件"),
+  ok(/data-band="critical"><span class="lbl">MTGが90日以上空いている<\/span><span class="big">1<span class="u">件/.test(old) && textOf(old).includes("この担当の候補（注意2つ以上）の中で。全社では 9 件"),
     "古い応答で候補の中の件数（1）と、その断りが無い");
   run("todayConsultant = '';");
 });
@@ -3855,7 +3855,7 @@ check("S-4: 集計の4表（NPS低・沈黙・MTG未実施・最優先）の案�
      案件の詳細へのリンク（段B 案件一覧の見張り）。ここでは節が見方へ案内していることを見る */
   const hr = run("renderRampup(__S4RU)");
   ok(!hr.includes("MTG未実施の案件") && hr.includes('href="' + run('esc(hashFor("board", { view: "no_mtg" }))') + '"'),
-    "立ち上がり（MTG未実施）の表が残っているか、見方への行き先が無い");
+    "立ち上がり（MTG未実施）の表が残っているか、よく使う絞り込みへの行き先が無い");
   const out = JSON.parse(JSON.stringify(ctx.__OUT));
   out.risk.top = [{ deal_id: "80000000014", name: "最優先の案件", stage: "定期1", amount: 100000, days_to_expiry: 10,
     ax3w: "放置", never_after_start: false, n_contact: 0 }];
@@ -3863,7 +3863,7 @@ check("S-4: 集計の4表（NPS低・沈黙・MTG未実施・最優先）の案�
   const ho = run("renderOutcome(__S4OUT)");
   // 散布図の点の title には案件名が出る（図の側）。表の行（案件の詳細へのリンク）が無いことを見る
   ok(!ho.includes(link("80000000014", "最優先の案件")) && !ho.includes("<tbody>") && ho.includes('href="' + run('esc(hashFor("board", { view: "top" }))') + '"'),
-    "成果とリスク（最優先）の表が残っているか、見方への行き先が無い");
+    "成果とリスク（最優先）の表が残っているか、よく使う絞り込みへの行き先が無い");
   /* 取引名が空の行は、前は取引ID（内部ID）をそのまま画面に出していた。dealLink は「取引名なし」と書く */
   fo.nps_low.rows[0].name = null;
   ctx.__S4FO2 = fo;
@@ -3927,18 +3927,18 @@ check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で�
   ok(!run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }").includes("HubSpot で開く"), "portal_id が無いのに「HubSpot で開く」を出している");
 });
 
-check("S-6: 画面名は1つ。表の見出しに「案件の立ち位置」を出さず、今日動く先の「絞った条件」は全件への行き先を名前で添える", () => {
+check("S-6: 画面名は1つ。表の見出しに「案件の契約のどのあたりか」を出さず、今日動く先の「絞った条件」は全件への行き先を名前で添える", () => {
   /* 直す前: 左「案件そのもの」／表の見出し「案件の立ち位置」／サーバの文「「案件」の中の「案件の立ち位置」」の3つ */
   run('cur = { menu: "deal", view: "board" }');
   const b = run("renderBoard(__BD)");
-  ok(!textOf(b).includes("案件の立ち位置"), "案件そのものの表の見出しが「案件の立ち位置」のまま");
+  ok(!textOf(b).includes("案件の契約のどのあたりか"), "案件そのものの表の見出しが「案件の契約のどのあたりか」のまま");
   ok(/<h2 class="sec part"><span class="no">表<\/span>稼働中の案件/.test(b), "表の見出しが無い（消しただけになっている）");
   /* 画面に出る文字列（コメントを除いた JS のリテラル）に、この名前を残さない */
-  ok(!/["'][^"'\n]*案件の立ち位置/.test(jsNoComment), "JS の文字列（画面に出るもの）に「案件の立ち位置」が残っている");
-  const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "名札が 2 本以上ついた 243 件から", order_rule: "", mtg_gap: {} } })');
+  ok(!/["'][^"'\n]*案件の契約のどのあたりか/.test(jsNoComment), "JS の文字列（画面に出るもの）に「案件の契約のどのあたりか」が残っている");
+  const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "注意が 2 つ以上ついた 243 件から", order_rule: "", mtg_gap: {} } })');
   const box = td.slice(td.indexOf("絞った条件"), td.indexOf("</p>", td.indexOf("絞った条件")));
   ok(box.includes('<a class="golink" href="#deal/board">案件一覧</a>'), "絞った条件に全件への行き先（名前のリンク）が無い: " + box);
-  ok(box.includes("名札が 2 本以上ついた 243 件から"), "サーバの文（filter_rule）を落としている");
+  ok(box.includes("注意が 2 つ以上ついた 243 件から"), "サーバの文（filter_rule）を落としている");
   ok(box.includes("243 件から。全件は "), "サーバの文と行き先の間に句点が無い");
   /* サーバの文が空・無いとき、句点から始めない（前は「。全件は …」。2026-09-28 検証の指摘） */
   const t0 = run("todayFilterRule({ filter_rule: \"\" })"), t1 = run("todayFilterRule({})");
@@ -4000,7 +4000,7 @@ check("S-11: 「読み直す」は操作列の右端の文字リンクで、代�
   /* 帯が赤（meta はあるが source_as_of も generated_at も無い＝CS_メタ が読めない）→ 目立たせる。
      前は「応答が無い」と一緒に false にしていて、赤い帯のときだけ目立たなかった（2026-09-28 検証の指摘） */
   ok(run('ctlbar(viewOf("deal", "today"), { meta: { today: "2026-09-28", n_active: 604 } })').includes('<span class="reload urge">'),
-    "帯が赤（いつのものか分からない）なのに読み直すを目立たせていない");
+    "区分が赤（いつのものか分からない）なのに読み直すを目立たせていない");
   /* API を持たない「定義と検証」には読み直すを置かない（読み直すものが無い） */
   // 2026-09-29 組み替え 段A で API の無い画面（定義と検証）は節になった。API の無い画面の形（path: null）で同じ性質を見る
   ok(!run('ctlbar({ key: "zz-noapi", path: null }, {})').includes("cs-reload"), "API の無い画面に読み直すが出ている");
@@ -4053,7 +4053,7 @@ function media600(css) {
   return { inside, outside: keep.join("") };
 }
 
-check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤も1行に短縮、文言は自動更新（タスクスケジューラ）に合わせる", () => {
+check("S-9: 鮮度の区分。緑（今日／昨日）は1行、黄・赤も1行に短縮、文言は自動更新（タスクスケジューラ）に合わせる", () => {
   const box = ctx.document.getElementById("cs-fresh");
   run('setFresh({ today: "2026-09-29", generated_at: "2026-09-28 21:41:00", source_as_of: "2026-09-28 21:30:00", source_age_days: 1, update_schedule: "毎日 21:30" })');
   let h = box.innerHTML;
@@ -4065,7 +4065,7 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤も1行に
   ok(/シートを作り直したのは 2026-09-28 21:41:00。計算の基準日は 2026-09-29/.test(h), "内訳の3つの時刻が出ていない: " + h);
   ok(/自動更新: 毎日 21:30（タスクスケジューラ）。/.test(h), "meta の更新の予定が出ていない");
   ok(!/手で回して|自動ではありません/.test(h), "文言が古い運用（手で回す）のまま");
-  ok(/更新が止まると、この帯が赤くなります/.test(h), "止まったときの見え方（赤くなる）を書いていない");
+  ok(/更新が止まると、この案内が赤くなります/.test(h), "止まったときの見え方（赤くなる）を書いていない");
   // 予定が無いとき: 時刻を推測で埋めない（「21:30」と直書きしていたら落ちる）
   run('setFresh({ today: "2026-09-29", generated_at: "2026-09-29 06:10:00", source_as_of: "2026-09-29 06:00:00", source_age_days: 0, update_schedule: null })');
   h = box.innerHTML;
@@ -4074,7 +4074,7 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤も1行に
   //    （S-9「無ければ文言を出さない」。2026-09-28 検証で直書きが残っていた）
   ok(!/21:30|自動更新:|自動で回して|タスクスケジューラ/.test(h),
     "予定（meta.update_schedule）が無いのに、時刻か「自動で回している」旨を HTML の直書きで出している: " + h);
-  ok(/更新が止まると、この帯が赤くなります（元データが4日以上前）。/.test(h), "予定が無くても、止まったときの見え方（赤くなる）は書く");
+  ok(/更新が止まると、この案内が赤くなります（元データが4日以上前）。/.test(h), "予定が無くても、止まったときの見え方（赤くなる）は書く");
   // 赤も何日前かと取得日時を1行で見せ、秒を含む時刻は内訳に残す。
   run('setFresh({ today: "2026-09-28", generated_at: "2026-09-24 06:10:00", source_as_of: "2026-09-24 06:00:00", source_age_days: 4, update_schedule: "毎日 21:30" })');
   h = box.innerHTML;
@@ -4082,13 +4082,13 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤も1行に
   ok(h.startsWith('<b>4日前のデータです（2026-09-24 06:00）。</b><details class="fold inl"><summary>ほかの時刻</summary>'), "赤の先頭行が短くなっていない: " + h);
   ok(h.includes("元データを落としたのは 2026-09-24 06:00:00。"), "全文の時刻が内訳に無い");
   // すでに赤いときは「止まると赤くなります」（仮定形）ではなく、いま赤い理由を言う（2026-09-28 検証で仮定形のままだった）
-  ok(/自動更新: 毎日 21:30（タスクスケジューラ）。元データが4日以上前なので、この帯を赤くしています（予定「毎日 21:30」の更新が入っていません）。/.test(h),
+  ok(/自動更新: 毎日 21:30（タスクスケジューラ）。元データが4日以上前なので、この案内を赤くしています（予定「毎日 21:30」の更新が入っていません）。/.test(h),
     "赤のときに、更新の予定と、いま赤い理由（4日以上前・予定の更新が入っていない）を出していない: " + h);
   ok(!/更新が止まると/.test(h), "すでに赤いのに「更新が止まると赤くなります」と仮定形で書いている");
   // 赤で予定も無いとき: 自動とは言わず、止まっている可能性だけ書く
   run('setFresh({ today: "2026-09-28", source_as_of: "2026-09-24 06:00:00", source_age_days: 4 })');
   h = box.innerHTML;
-  ok(!/自動|タスクスケジューラ/.test(h) && /元データが4日以上前なので、この帯を赤くしています（更新が止まっている可能性があります）。/.test(h),
+  ok(!/自動|タスクスケジューラ/.test(h) && /元データが4日以上前なので、この案内を赤くしています（更新が止まっている可能性があります）。/.test(h),
     "赤で予定が無いときの文が違う: " + h);
   // 黄（2日前）も1行で、分類は維持する
   run('setFresh({ today: "2026-09-28", source_as_of: "2026-09-26 06:00:00", source_age_days: 2 })');
@@ -4110,7 +4110,7 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤も1行に
     "緑の「▸ ほかの時刻」の押せる範囲が広がっていない（inline-block＋余白＋負の margin）");
   // 600px 以下では「（HubSpot から落とした時刻）」を1行目から外す（帯を1行に。内訳の1文目に同じことが書いてある）
   const sp = media600(css).inside.join("\n");
-  ok(/\.fresh\.ok \.src\{ display:none; \}/.test(sp), "600px 以下で緑の帯の「（HubSpot から落とした時刻）」を外していない（帯が2行になる）");
+  ok(/\.fresh\.ok \.src\{ display:none; \}/.test(sp), "600px 以下で緑の区分の「（HubSpot から落とした時刻）」を外していない（区分が2行になる）");
   ok(!/\.src\{ display:none/.test(media600(css).outside), "PC でも「（HubSpot から落とした時刻）」を消している");
 });
 
@@ -4312,18 +4312,18 @@ check("S-12: 表の枠は、実際にはみ出しているときだけ Tab で�
   ok(attrs["aria-label"] === "表（スクロールできる表の枠）", "見出しが無いときの読み上げ名: " + attrs["aria-label"]);
   // 見出しは「表」の札（span）と題が並ぶ。子ごとに区切って空白でつなぐ（textContent だと「表案件の立ち位置」と続く。2026-09-28 実測）
   ctx.__W5 = { querySelector: () => inner, classList: { toggle() {} },
-    previousElementSibling: { tagName: "H2", textContent: "表案件の立ち位置",
-      childNodes: [{ textContent: "表" }, { textContent: "\n  " }, { textContent: "案件の立ち位置" }] } };
+    previousElementSibling: { tagName: "H2", textContent: "表案件の契約のどのあたりか",
+      childNodes: [{ textContent: "表" }, { textContent: "\n  " }, { textContent: "案件の契約のどのあたりか" }] } };
   run("markScroll(__W5)");
-  ok(attrs["aria-label"] === "表 案件の立ち位置（スクロールできる表の枠）", "札と題が続けて読まれる: " + attrs["aria-label"]);
+  ok(attrs["aria-label"] === "表 案件の契約のどのあたりか（スクロールできる表の枠）", "札と題が続けて読まれる: " + attrs["aria-label"]);
   // 🔴 図の見出しの下に表が続く場所（担当の交代の担当者のまとめ: h2「図 …」→ figure → scroll-cap → 枠）は
   //    「図 …（スクロールできる表の枠）」と読み上げていた（2026-09-28 検証）。札が「図」なら「<題> の表」にする
-  const figHead = { tagName: "H2", childNodes: [{ textContent: "図" }, { textContent: "引き継いだ側（次の担当）（変化の中央値）" }] };
+  const figHead = { tagName: "H2", childNodes: [{ textContent: "図" }, { textContent: "引き継いだ側（次の担当）（変化の真ん中の値）" }] };
   const figure = { tagName: "FIGURE", previousElementSibling: figHead };
   ctx.__W6 = { querySelector: () => inner, classList: { toggle() {} },
     previousElementSibling: { tagName: "DIV", previousElementSibling: figure } };
   run("markScroll(__W6)");
-  ok(attrs["aria-label"] === "引き継いだ側（次の担当）（変化の中央値） の表（スクロールできる表の枠）",
+  ok(attrs["aria-label"] === "引き継いだ側（次の担当）（変化の真ん中の値） の表（スクロールできる表の枠）",
     "図の見出しの下の表が「図 …」と読み上げられる: " + attrs["aria-label"]);
   // 🔴 畳み（details）の中の表（継続回数×成果の満了月ごとの内訳: h2「表 …」→ details > summary + 枠）は同じ階層に見出しが無く
   //    「表」になっていた。見つからなければ親の階層で探し直す（#cs-main まで）
@@ -4364,9 +4364,9 @@ check("M-6/M-7: 本文へ飛ぶ・読み上げの領域（#cs-status）・main �
 /* ================================================================ 段2 枠と見出し（M-1 / M-5 / M-12 / 段1レビュー B・C・F、2026-09-28） */
 // 診断（fixture 1440×900）: 題字 75px・鮮度 65px・色と印の意味 40px・上のメニュー 45px・母集団 40px・操作列 40px で本題が y≈357。
 // 400px では S-12 で枠の高さ制限を外した結果、案件そのものの全高が 37,579px・担当の交代 58,806px。側柱 125px が常に画面を占める。
-check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ、黄・赤の帯は題字の下の行に戻す。母集団の 1 行は操作列の中", () => {
+check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ、黄・赤の区分は題字の下の行に戻す。母集団の 1 行は操作列の中", () => {
   const head = html.slice(html.indexOf('<header class="masthead">'), html.indexOf("</header>"));
-  ok(head.includes('<div id="cs-fresh" class="fresh"></div>'), "鮮度の帯（#cs-fresh）が題字の行（header.masthead）の中に無い");
+  ok(head.includes('<div id="cs-fresh" class="fresh"></div>'), "鮮度の区分（#cs-fresh）が題字の行（header.masthead）の中に無い");
   // M-1 の (3): 「色と印の意味」は全画面の畳みをやめ、定義と検証への 1 語のリンク（2026-09-29 検証: 畳みのまま残っていて案と違った）
   ok(head.includes('<a class="golink" id="cs-legend" href="#monthly/trust?at=trust-defs" title="記録と数字の信頼度の「色と印の意味」の表へ">色と印の意味 →</a>'), "「色と印の意味」が題字の行の中の定義と検証へのリンクでない");
   ok(!/<details[^>]*id="cs-legend"/.test(html) && !head.includes('<div class="legend">'), "「色と印の意味」の畳み（凡例の中身）がヘッダに残っている");
@@ -4379,9 +4379,9 @@ check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ�
     "題字の行の並びが 題字 → 鮮度 → 色と印の意味 → 利用者 でない");
   const css = html.slice(0, html.indexOf("</style>"));
   ok(/\.masthead h1\{ font-size:18px;/.test(css), "題字が 18px でない（27px の行が 75px を取っていた）");
-  ok(/\.masthead \.fresh\.ok\{ flex:0 1 auto;/.test(css), "緑の帯が題字の行の中の 1 語（flex の項目）でない");
+  ok(/\.masthead \.fresh\.ok\{ flex:0 1 auto;/.test(css), "緑の区分が題字の行の中の 1 語（flex の項目）でない");
   // 🔴 黄・赤は消さない: 全幅の行にして題字の下へ（規律「いつのデータか」）
-  ok(/\.masthead \.fresh\.warn, \.masthead \.fresh\.bad\{ flex:1 1 100%; order:5; \}/.test(css), "黄・赤の帯が題字の下の全幅の行に戻らない");
+  ok(/\.masthead \.fresh\.warn, \.masthead \.fresh\.bad\{ flex:1 1 100%; order:5; \}/.test(css), "黄・赤の区分が題字の下の全幅の行に戻らない");
   ok(/\.masthead > a\.golink\{ flex:0 0 auto;/.test(css) && !/\.masthead > details\.fold/.test(css),
     "「色と印の意味」のリンクが題字の行の 1 語（折り返さない flex の項目）でない、または使わなくなった畳みの CSS が残っている");
   ok(/\.tabs\{ display:flex; gap:0; flex-wrap:wrap; margin:0 0 var\(--space-3\);/.test(css), "上のメニューの下の余白が 26px のまま");
@@ -4400,7 +4400,7 @@ check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ�
 });
 
 check("M-5: 問い・案件は 19px ゴシック（画面の題）、図・表・顧客は 15px 太字（部品の題）。sec() の第 1 引数で分ける", () => {
-  ok(run('sec("問い", "x")') === '<h2 class="sec mincho"><span class="no">問い</span>x</h2>', "問いの形が変わった（見張り S-2 と同じ形）");
+  ok(run('sec("問い", "x")') === '<h2 class="sec mincho">x</h2>', "問いの形が変わった（見張り S-2 と同じ形）");
   ok(run('sec("案件", "x")').startsWith('<h2 class="sec mincho">'), "案件の詳細の題（案件 …）が画面の題（mincho）でない");
   for (const no of ["図", "表", "顧客"])
     ok(run("sec(" + JSON.stringify(no) + ", \"x\", \"i1\")") === '<h2 class="sec part" id="i1" tabindex="-1"><span class="no">' + no + "</span>x</h2>",
@@ -4445,7 +4445,7 @@ check("M-5: 決まりごと・読み方の箱を畳む（foldNote）。畳まな
   const hv = run("renderHandover(__HOC)");
   ok(hv.includes('<details class="fold notefold"><summary>この一覧の決まりごと　') && hv.indexOf('<summary>この一覧の決まりごと') > hv.indexOf('id="ho-tbl"'),
     "担当の交代の決まりごとが畳みでない、または表より前");
-  ok(run("renderHq(__HQ)").startsWith('<details class="fold notefold"><summary>比べる単位は事業所　'), "本部アプローチの頭の箱が畳みでない");
+  ok(run("renderHq(__HQ)").startsWith('<details class="fold notefold"><summary>比べる単位は事業所　'), "本部への提案材料の頭の箱が畳みでない");
   run('cur = { menu: "deal", view: "board" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
   const b = run("renderBoard(__BD)");
   run('cur = { menu: "deal", view: "today" };');
@@ -4660,10 +4660,10 @@ check("M-12: 帯（svgStack）の中の文字は、空（--sora）の上でも 4
 });
 
 /* ================================================================ 段2 表と図（2026-09-28）: A / M-8 / M-11 / S-2 の残り */
-check("段2 A: 今日動く先の名札は短い書き方（正式名は title と決まりごとの畳み）を詰めた枡（tag c）で 25.5em の列（wf）に並べる。案件一覧も同じ短い名札で2つまで", () => {
+check("段2 A: 今日動く先の注意は短い書き方（正式名は title と決まりごとの畳み）を詰めた枡（tag c）で 25.5em の列（wf）に並べる。案件一覧も同じ短い注意で2つまで", () => {
   const row = TD_ROW({ deal_id: "a1", name: "案件A", n_flags: 5, flags: ["NPSが4以下", "接触が30日以上空いている",
-    "採用単価が同じ進捗帯の1.5倍以上", "MTGが90日以上途絶", "採用目標の半分に届いていない"] });
-  const odd = TD_ROW({ deal_id: "a2", name: "案件B", n_flags: 1, flags: ["見たことのない名札"] });
+    "採用単価が同じ進捗の区分の1.5倍以上", "MTGが90日以上空いている", "採用目標の半分に届いていない"] });
+  const odd = TD_ROW({ deal_id: "a2", name: "案件B", n_flags: 1, flags: ["見たことのない注意"] });
   ctx.__A1 = { rows: [row, odd], expiring_this_week: [], started_this_week: [],
     meta: { n_hit: 2, n_shown: 2, n_active: 604, filter_rule: "", order_rule: "", new_deal_rule: "", mtg_gap: {} } };
   run("todayConsultant = '';");
@@ -4671,49 +4671,49 @@ check("段2 A: 今日動く先の名札は短い書き方（正式名は title �
   const t = h.slice(h.indexOf('<table id="today-tbl"'), h.indexOf("</table>", h.indexOf('<table id="today-tbl"')));
   // 短い名札。正式な名札と分類の言葉を title に持つ abbr。色は図の分類（flagGroup）と同じ（MTG 途絶は緋）
   ok(/<td class="wf"><abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="NPSが4以下（関係が危ない）">NPS4以下<\/abbr>/.test(t),
-    "NPSが4以下 が短い名札（abbr.tag.c、title に正式名と分類）になっていない: " + t.slice(t.indexOf('<td class="wf">'), t.indexOf('<td class="wf">') + 200));
-  ok(/<abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="MTGが90日以上途絶（関係が危ない）">MTG90日以上途絶<\/abbr>/.test(t),
-    "MTGが90日以上途絶 の枡が図の分類（緋・関係が危ない）と食い違う（前は紫だった）");
+    "NPSが4以下 が短い注意（abbr.tag.c、title に正式名と分類）になっていない: " + t.slice(t.indexOf('<td class="wf">'), t.indexOf('<td class="wf">') + 200));
+  ok(/<abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="MTGが90日以上空いている（関係が危ない）">MTG90日以上空いている<\/abbr>/.test(t),
+    "MTGが90日以上空いている の枡が図の分類（緋・関係が危ない）と食い違う（前は紫だった）");
   ok(/<span class="tag c more" title="[^"]*">他3<\/span>/.test(t), "残り3つの数が出ていない");
-  for (const f of row.flags) ok(t.includes(f), "全文の名札が title に無い: " + f);
+  for (const f of row.flags) ok(t.includes(f), "全文の注意が title に無い: " + f);
   for (const [full, short] of Object.entries(run("FLAG_SHORT"))) {
-    ok(run("tagsShort(" + JSON.stringify([full]) + ")").includes(">" + short + "</abbr>"), "短い名札が違う: " + full);
+    ok(run("tagsShort(" + JSON.stringify([full]) + ")").includes(">" + short + "</abbr>"), "短い注意が違う: " + full);
   }
   // 表に無い名札は略さず・落とさず、そのまま（span）。分類の言葉は title に
-  ok(/<span class="tag c" style="[^"]*" title="成果が出ていない">見たことのない名札<\/span>/.test(t), "知らない名札を略している・落としている");
+  ok(/<span class="tag c" style="[^"]*" title="成果が出ていない">見たことのない注意<\/span>/.test(t), "知らない注意を略している・落としている");
   ok(!t.includes('class="tag"'), "今日動く先に詰めていない枡（.tag）が残っている");
   // 決まりごとの畳みに略し方の一覧（短い ＝ 正式）。表に出ている名札だけ
   const rule = h.slice(h.indexOf('id="td-rule"'), h.indexOf("</details>", h.indexOf('id="td-rule"')));
-  ok(rule.includes("名札の略し方") && rule.includes("NPS4以下 ＝ NPSが4以下") && rule.includes("MTG90日以上途絶 ＝ MTGが90日以上途絶"),
-    "決まりごとの畳みに名札の略し方が無い");
-  ok(!rule.includes("満了60日以内 ＝"), "表に出ていない名札まで略し方に並べている");
+  ok(rule.includes("注意の略し方") && rule.includes("NPS4以下 ＝ NPSが4以下") && rule.includes("MTG90日以上空いている ＝ MTGが90日以上空いている"),
+    "決まりごとの畳みに注意の略し方が無い");
+  ok(!rule.includes("満了60日以内 ＝"), "表に出ていない注意まで略し方に並べている");
   ok(rule.includes("色が見分けられなくても読めます"), "色だけで伝えていないことが書かれていない");
   const b = run('boardTable(__A1.rows, { key: "n_flags", asc: false }, "board-tbl")');
   ok(b.includes('title="NPSが4以下（関係が危ない）">NPS4以下</abbr>') &&
-     b.includes('title="MTGが90日以上途絶（関係が危ない）">MTG90日以上途絶</abbr>') && b.includes('>他3</span>'),
-    "案件一覧でも重い名札2つと残りの数を出していない");
-  ok(run('tags(["満了90日前でMTGが30日以上途絶"])').includes('border-color:var(--hi)'), "満了前の MTG 途絶が赤でない");
+     b.includes('title="MTGが90日以上空いている（関係が危ない）">MTG90日以上空いている</abbr>') && b.includes('>他3</span>'),
+    "案件一覧でも重い注意2つと残りの数を出していない");
+  ok(run('tags(["満了90日前でMTGが30日以上空いている"])').includes('border-color:var(--hi)'), "満了前の MTGが空いている期間が赤でない");
   // 名札の文の正本はサーバ。Rust が出せる名札は全部 FLAG_SHORT にある（新しい名札が正式名のまま長く出るのを見張る）
   const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8");
   const md = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/mod.rs"), "utf-8");
   const labels = [...rs.matchAll(/flags\.push\("([^"]+)"\)/g)].map((m) => m[1])
     .concat([...md.matchAll(/MtgBand::(?:Critical|Red|Yellow) => "([^"]+)"/g)].map((m) => m[1]));
-  ok(labels.length >= 10, "Rust から名札の文が拾えない（形が変わった？）: " + labels.length);
+  ok(labels.length >= 10, "Rust から注意の文が拾えない（形が変わった？）: " + labels.length);
   const missing = labels.filter((l) => !run("FLAG_SHORT[" + JSON.stringify(l) + "]"));
-  ok(!missing.length, "サーバの名札に短い書き方が無い: " + missing.join(" / "));
+  ok(!missing.length, "サーバの注意に短い書き方が無い: " + missing.join(" / "));
   // 短い書き方は条件の範囲（数と「以上・以下・以内」）を落とさない（2026-09-29 検証: 「満了前MTG30日途絶」で 90日前・以上が落ちていた）
   const short = run("FLAG_SHORT");
   for (const f of Object.keys(short)) {
     const nums = f.match(/[0-9.]+/g) || [];
-    ok(JSON.stringify(short[f].match(/[0-9.]+/g) || []) === JSON.stringify(nums), "短い名札で数が落ちている・変わっている: " + f + " → " + short[f]);
-    for (const w of ["以上", "以下", "以内"]) if (f.includes(w)) ok(short[f].includes(w), "短い名札で「" + w + "」が落ちている: " + f + " → " + short[f]);
+    ok(JSON.stringify(short[f].match(/[0-9.]+/g) || []) === JSON.stringify(nums), "短い注意で数が落ちている・変わっている: " + f + " → " + short[f]);
+    for (const w of ["以上", "以下", "以内"]) if (f.includes(w)) ok(short[f].includes(w), "短い注意で「" + w + "」が落ちている: " + f + " → " + short[f]);
   }
   // 決まりごとの文は、分類の言葉がどこにあるか（下の図）を言う。表の枡に分類の言葉があるとは言わない
   ok(!rule.includes("言葉でも書いているので") && rule.includes("分類の言葉は下の図の棒の右に書いています"), "決まりごとが表の枡に分類の言葉があるように読める");
   // CSS: 列（wf）と枡（tag c）の定義がある。文字は 11px を下回らない
   const css = html.split("<style>")[1].split("</style>")[0];
-  ok(/td\.wf\{[^}]*white-space:normal;[^}]*max-width:25\.5em/.test(css), "td.wf の定義が無い（25.5em で折り返す。短い名札の範囲を落とさずに 1 行 54px に収める幅）");
-  ok(/@media \(max-width:600px\)\{[^@]*td\.wf\{ max-width:26em; \}/.test(css), "600px 以下で名札の列を 26em に広げていない（枡の余白が広く 3 段に折れる）");
+  ok(/td\.wf\{[^}]*white-space:normal;[^}]*max-width:25\.5em/.test(css), "td.wf の定義が無い（25.5em で折り返す。短い注意の範囲を落とさずに 1 行 54px に収める幅）");
+  ok(/@media \(max-width:600px\)\{[^@]*td\.wf\{ max-width:26em; \}/.test(css), "600px 以下で注意の列を 26em に広げていない（枡の余白が広く 3 段に折れる）");
   ok(/\.tag\.c\{[^}]*padding:0 5px/.test(css) && /abbr\.tag\{[^}]*text-decoration:none/.test(css), ".tag.c / abbr.tag の定義が無い");
 });
 
@@ -4734,14 +4734,14 @@ check("段2 M-8: 案件そのものは既定で上位 100 行＋「残りも出�
   ok(/<div class="ctlbar board-more"><button type="button" class="act" id="board-more" data-all="1">残りの 30 行も出す<\/button>/.test(h),
     "表の下に「残りの 30 行も出す」が無い");
   // 名札の本数順（既定）で切るので、名札 0 本の行（案件0, 5, 10, …）は 100 行の外。上位は 4 本の行
-  ok(tblOf(h).indexOf(">案件4</a>") >= 0 && tblOf(h).indexOf(">案件0</a>") < 0, "並べてから切っていない（名札 0 本の行が上位 100 行に入っている）");
+  ok(tblOf(h).indexOf(">案件4</a>") >= 0 && tblOf(h).indexOf(">案件0</a>") < 0, "並べてから切っていない（注意 0 本の行が上位 100 行に入っている）");
   // 絞り込みで描き直す部分（件数の行 → 表 → 決まりごと → 図）は #board-body の中。絞り込みの欄はその外
   const at = h.indexOf('<div id="board-body">');
   ok(at >= 0, "#board-body が無い");
   ok(h.indexOf('id="board-filter"') < at, "絞り込みの欄が #board-body の中にある（描き直しで検索欄が消える）");
   const body = h.slice(at);
   ok(body.indexOf('id="board-count"') < body.indexOf('<table id="board-tbl"') && body.indexOf("</table>") < body.indexOf("この並びについて") &&
-     body.indexOf("この並びについて") < body.indexOf("名札の分布"), "#board-body の中の順（件数 → 表 → 決まりごと → 図）が違う");
+     body.indexOf("この並びについて") < body.indexOf("注意の分布"), "#board-body の中の順（件数 → 表 → 決まりごと → 図）が違う");
   // 同じ応答・同じ条件では組み直さない（paintFigs の 2 回描き）
   const h2 = run("renderBoard(__M8)");
   ok(run("BOARD_TBL_BUILDS") === n0 + 1, "同じ応答・同じ条件で表を組み直している: " + (run("BOARD_TBL_BUILDS") - n0) + " 回");
@@ -4779,8 +4779,8 @@ check("段2 M-11: 図の値を読み上げ用の一覧（ul.sr）と「数字で
   // 横棒: 1 本 1 行（吹き出しと同じ書き方。値の無い行は吹き出しが無いので出ない）
   // 右の注記（note。接触率の母数「33/125 か月」）は吹き出しにも一覧にも入る（率に母数を添える）
   const bar = run('fig("横棒の図", "", svgBarH({ rows: [{ label: "甲", v: 3, n: 10, note: "33/125 か月" }, { label: "乙", v: 1, tip: "補足" }, { label: "丙", v: null }], w: 600, fmt: F.int }), lg("box", C.ai, "件数"))');
-  ok(srOf(bar) === "<li>甲: 3 (n=10) / 33/125 か月</li><li>乙: 1 ／ 補足</li>", "横棒の読み上げ用の一覧が違う: " + srOf(bar));
-  ok(bar.includes('<details class="fold figsay"><summary>数字で読む（2 件）</summary><ul><li>甲: 3 (n=10) / 33/125 か月</li><li>乙: 1 ／ 補足</li></ul></details>'),
+  ok(srOf(bar) === "<li>甲: 3 (10件) / 33/125 か月</li><li>乙: 1 ／ 補足</li>", "横棒の読み上げ用の一覧が違う: " + srOf(bar));
+  ok(bar.includes('<details class="fold figsay"><summary>数字で読む（2 件）</summary><ul><li>甲: 3 (10件) / 33/125 か月</li><li>乙: 1 ／ 補足</li></ul></details>'),
     "「数字で読む」の畳みが無い、または一覧が読み上げ用と違う");
   const fb = bar.indexOf('class="figbody"');
   ok(bar.indexOf('<ul class="sr">') > bar.indexOf("</div>", fb) && bar.indexOf("figsay") < bar.indexOf('class="figlegend"'), "一覧の位置が図の直後・凡例の前でない");
@@ -4798,11 +4798,11 @@ check("段2 M-11: 図の値を読み上げ用の一覧（ul.sr）と「数字で
   // 帯: 区分ごとに件数と %。箱ひげ: 1 行に中央値・四分位・最小最大・n
   const st = run('fig("帯", "", svgStack({ parts: [{ label: "あ", v: 3, color: C.ai }, { label: "い", v: 1, color: C.ki }], w: 400 }), "")');
   ok(srOf(st) === "<li>あ: 3 (75.0%)</li><li>い: 1 (25.0%)</li>", "帯の一覧が違う: " + srOf(st));
-  const bx = run('fig("箱", "", svgBoxH({ rows: [{ label: "経過日数", med: 10, q1: 5, q3: 20, min: 0, max: 30, n: 40, color: C.ai }], w: 500, xFmt: F.int }), lg("quart", C.ai, "四分位") + lg("line", C.ai, "中央値"))');
-  ok(srOf(bx) === "<li>経過日数: 中央値 10 / 四分位 5–20 / 最小 0 最大 30 / n=40</li>", "箱ひげの一覧が違う: " + srOf(bx));
+  const bx = run('fig("箱", "", svgBoxH({ rows: [{ label: "経過日数", med: 10, q1: 5, q3: 20, min: 0, max: 30, n: 40, color: C.ai }], w: 500, xFmt: F.int }), lg("quart", C.ai, "多くが収まる範囲") + lg("line", C.ai, "真ん中の値"))');
+  ok(srOf(bx) === "<li>経過日数: 真ん中の値 10 / 多くが収まる範囲 5–20 / 最小 0 最大 30 / 40件</li>", "値の広がりの一覧が違う: " + srOf(bx));
   // 同じ文が続く点（svgDots の群）は ×N にまとめる
-  const dots = run('fig("点", "", svgDots({ total: 5, groups: [{ label: "注力", v: 3, color: C.ai }, { label: "それ以外", v: 2, color: C.ghost }] }), lg("dot", C.ai, "注力") + lg("dot", C.ghost, "それ以外"))');
-  ok(srOf(dots) === "<li>注力（×3）</li><li>それ以外（×2）</li>", "点の図で同じ文の点を ×N にまとめていない、または名前を重ねている: " + srOf(dots));
+  const dots = run('fig("点", "", svgDots({ total: 5, groups: [{ label: "重点顧客", v: 3, color: C.ai }, { label: "それ以外", v: 2, color: C.ghost }] }), lg("dot", C.ai, "重点顧客") + lg("dot", C.ghost, "それ以外"))');
+  ok(srOf(dots) === "<li>重点顧客（×3）</li><li>それ以外（×2）</li>", "点の図で同じ文の点を ×N にまとめていない、または名前を重ねている: " + srOf(dots));
   // 値の無い図（empty）には付けない
   ok(!run('fig("空", "", "<div class=\\"empty\\">x</div>", "")').includes("figsay"), "値の無い図に一覧を付けている");
   // 重なった線をずらした断りは「マウスを重ねる」を前提にしない（タッチでは吹き出しが出ない）
@@ -4812,14 +4812,14 @@ check("段2 M-11: 図の値を読み上げ用の一覧（ul.sr）と「数字で
   // ずらした断り（描き方の話）は吹き出しに残し、数字の一覧には入れない（2026-09-29 検証）
   ok(sh.includes("ずらして表示</title>") && !srOf(sh).includes("ずらして表示"), "ずらした断りが数字の一覧に入っている: " + srOf(sh));
   // 帯を縦に積む図: 名前は凡例でなく左のラベルにある。各行の頭に帯の名前（2026-09-29 検証: 「25-09: 19 || 25-09: 3」と名前が無かった）
-  const lanes = run('fig("帯を縦に", "", svgStackLanes({ w: 600, months: ["25-08", "25-09"], lanes: [' +
+  const lanes = run('fig("区分を縦に", "", svgStackLanes({ w: 600, months: ["25-08", "25-09"], lanes: [' +
     '{ label: "応募", color: C.ai, type: "line", pts: [{ v: 19 }, { v: 3 }], empty: false, noneLabel: "記録がありません", fillLabel: "応募" },' +
     '{ label: "面接", color: C.ki, type: "line", pts: [{ v: 2 }, { v: null }], empty: false, noneLabel: "記録がありません", fillLabel: "面接" },' +
     '{ label: "接触", color: C.ink2, type: "bars", pts: [{ v: null }, { v: null }], empty: true, noneLabel: "接触の記録がありません", fillLabel: "接触" }] }), "")');
   const lanesSay = srOf(lanes);
-  ok(lanesSay.length > 0, "前提が崩れている（帯を縦に積む図に一覧が無い）");
+  ok(lanesSay.length > 0, "前提が崩れている（区分を縦に積む図に一覧が無い）");
   const lanesRows = [...lanesSay.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
-  lanesRows.forEach((r) => ok(/^(応募|面接|接触)/.test(r), "帯を縦に積む図の一覧に帯の名前が無い行がある: " + r + " / 全体 " + lanesSay));
+  lanesRows.forEach((r) => ok(/^(応募|面接|接触)/.test(r), "区分を縦に積む図の一覧に帯の名前が無い行がある: " + r + " / 全体 " + lanesSay));
   ok(lanesRows.some((r) => r.indexOf("応募") === 0) && lanesRows.some((r) => r.indexOf("面接") === 0), "応募・面接の行が揃っていない: " + lanesSay);
   // 時間軸の図: 行の名前と、何の日付か（開始・満了）
   const tl = run('fig("連なり", "", svgTimeline({ w: 600, lanes: [{ label: "契約A", color: C.ai, marks: [{ d: "2024-06-10", t: "開始" }, { d: "2025-06-09", t: "満了" }] }, { label: "契約B", color: C.ai, marks: [{ d: "2025-06-10", t: "開始" }] }] }), "")');
@@ -4827,7 +4827,7 @@ check("段2 M-11: 図の値を読み上げ用の一覧（ul.sr）と「数字で
   ok(/marks: \[\{ d: d\.start, t: "開始" \}, \{ d: d\.expiration, t: "満了" \}\]/.test(html), "契約の連なりの印に開始・満了の言葉が無い");
   // 前の値（中空の棒）は直前の棒の行に括弧で添える（独立した「前回: 11」の行にしない）
   const v0 = run('fig("前回つき", "", svgBarH({ rows: [{ label: "初回", v: 58, v0: 47, n: 1650 }, { label: "継続1", v: 45, v0: 34 }], w: 600, fmt: F.int }), "")');
-  ok(srOf(v0) === "<li>初回: 58 (n=1650)（前回: 47）</li><li>継続1: 45（前回: 34）</li>", "前の値が直前の棒の行に添えられていない: " + srOf(v0));
+  ok(srOf(v0) === "<li>初回: 58 (1650件)（前回: 47）</li><li>継続1: 45（前回: 34）</li>", "前の値が直前の棒の行に添えられていない: " + srOf(v0));
   // CSS
   const css = html.split("<style>")[1].split("</style>")[0];
   ok(/details\.fold\.figsay\{/.test(css) && /\.figsay ul\{/.test(css), "figsay の CSS が無い");
@@ -4841,7 +4841,7 @@ check("段2 S-2 の残り: 担当者の一覧・いま見るべき顧客・電�
   const tj = jumps(tm);
   /* 退職者のまま: 0 件のときは飛ばない（飛んだ先の表に印が無い。2026-09-29 検証）。1 件以上のときだけ表へ */
   ok(run("__D.meta.retired_deals") === 0, "前提が崩れている（fixture の退職者のままが 0 件でない）");
-  ok(JSON.stringify(tj) === JSON.stringify([["担当者", "tm-tbl-h"], ["名札が 2 本以上の案件", "tm-tbl-h"]]),
+  ok(JSON.stringify(tj) === JSON.stringify([["担当者", "tm-tbl-h"], ["注意が 2 つ以上の案件", "tm-tbl-h"]]),
     "チームと担当の札の行き先が違う（退職者のまま 0 件で飛んでいないか）: " + JSON.stringify(tj));
   ok(/<div class="kpi"><span class="lbl">退職者のまま<\/span>/.test(tm), "退職者のまま 0 件の札が div でない");
   ok(/<div class="kpi"><span class="lbl">今週満了<\/span>/.test(tm), "行き先の無い札（今週満了）を button にしている");
@@ -4852,7 +4852,7 @@ check("段2 S-2 の残り: 担当者の一覧・いま見るべき顧客・電�
   const fo = run("renderFocus(__FO)");
   const fj = jumps(fo);
   ok(JSON.stringify(fj) === JSON.stringify([["定期NPS が 4 以下", "fc-nps-tbl-h"], ["採用単価が悪化した拠点", "fc-cpa-h"],
-    ["MTG の記録がどちらにも見つからない", "fc-mtg-h"], ["LTV 中央値", "fc-shape-h"]]), "いま見るべき顧客の札の行き先が違う: " + JSON.stringify(fj));
+    ["MTG の記録がどちらにも見つからない", "fc-mtg-h"], ["LTV 真ん中の値", "fc-shape-h"]]), "いま見るべき顧客の札の行き先が違う: " + JSON.stringify(fj));
   fj.forEach(([, id]) => ok(hasId(fo, id), "いま見るべき顧客: 飛ぶ先 " + id + " が本文に無い"));
   ok(/<div class="kpi"><span class="lbl">NPS が入っている/.test(fo), "行き先の無い札（NPS が入っている）を button にしている");
   const ph = run("renderPhone(__PH)");
@@ -4899,7 +4899,7 @@ check("09 の 6 チームと担当: 画面の並び（担当者の一覧・担�
   ok(sum.includes('<span class="keep">担当者の評価ではありません</span>'), "「評価ではありません」が畳みの中に隠れている: " + sum);
 });
 
-check("09 の 6 チームと担当: 担当者 × 状態の表は名前順が既定・母数（持ち件数）つき・人ごとの接触の2定義を名前で分けて並べる・人ごとの金額は出さない", () => {
+check("09 の 6 チームと担当: 担当者 × 状態の表は名前順が既定・対象（持ち件数）つき・人ごとの接触の2定義を名前で分けて並べる・人ごとの金額は出さない", () => {
   /* 開いた直後の並び（teamSort の初期値）と、入り直したときの既定（URL_STATE の reset）が、どちらも名前の昇順 */
   ok(run("JSON.stringify(teamSort)") === '{"key":"consultant","asc":true}', "開いた直後の並びが名前順でない: " + run("JSON.stringify(teamSort)"));
   run("URL_STATE.team.sort.reset()");
@@ -4934,10 +4934,10 @@ check("09 の 6 チームと担当: 表の数は押すとその担当とその�
   /* 属性の中なので & は &amp;（esc） */
   const href = (v, p) => run("esc(hashFor(" + JSON.stringify(v) + ", " + JSON.stringify(p) + "))");
   ok(h.includes('href="' + href("byowner", { c: who }) + '"'), "担当者名が担当者ごとの案件（その担当）へのリンクでない");
-  ok(row.includes('<a class="drill" href="' + href("today", { c: who }) + '"') && row.includes(">3</a>"), "名札2本以上が今日動く先（その担当）へのリンクでない: " + row);
-  ok(row.includes('href="' + href("byowner", { band: "critical", c: who }) + '"'), "MTG 途絶がその担当・重大の帯へのリンクでない");
-  ok(row.includes('href="' + href("byowner", { c: who, flag: "接触の記録が無い" }) + '"'), "接触の記録が無いが名札で絞ったリンクでない");
-  ok(row.includes('href="' + href("byowner", { c: who, flag: "NPSが4以下" }) + '"'), "NPS 4以下が名札で絞ったリンクでない");
+  ok(row.includes('<a class="drill" href="' + href("today", { c: who }) + '"') && row.includes(">3</a>"), "注意2つ以上が今日動く先（その担当）へのリンクでない: " + row);
+  ok(row.includes('href="' + href("byowner", { band: "critical", c: who }) + '"'), "MTGが空いている期間がその担当・重大の区分へのリンクでない");
+  ok(row.includes('href="' + href("byowner", { c: who, flag: "接触の記録が無い" }) + '"'), "接触の記録が無いが注意で絞ったリンクでない");
+  ok(row.includes('href="' + href("byowner", { c: who, flag: "NPSが4以下" }) + '"'), "NPS 4以下が注意で絞ったリンクでない");
   ok(!row.includes(href("byowner", { c: who, flag: "満了まで60日以内" })), "0 件（満了まで60日以内）をリンクにしている");
 });
 
@@ -4955,7 +4955,7 @@ check("09 の 6 チームと担当: 接触の推移は全体の線に選んだ�
   run('contactUnit = "month"; teamPick = "";');
 });
 
-check("09 の 3章 7 成果と継続: 答え（解約率）→ 月次の継続率 → 目標と応募効率 → 立ち上がり → 2軸のリスク → 顧客の図 → 本部アプローチ → 手を打つ先の順。目次も同じ順で、基準日の枠は1つ", () => {
+check("09 の 3章 7 成果と継続: 答え（解約率）→ 月次の継続率 → 目標と応募効率 → 立ち上がり → 2軸のリスク → 顧客の図 → 本部への提案材料 → 対応が要る案件の順。目次も同じ順で、基準日の枠は1つ", () => {
   /* 2026-09-29 磨き込み: 前は立ち上がりが2軸のリスク（と顧客の図）の後にあった。09 の 3章 7 は「目標に対する進捗と応募効率 →
      立ち上がり → 2軸のリスクと最優先の広がり → NPS・採用単価・LTV → 本部」 */
   ctx.__RS = { meta: { today: "2026-09-18", exclude_right_censored: false }, population: { deals_option: 99 },
@@ -4987,7 +4987,7 @@ check("09 の 3章 7 成果と継続: 答え（解約率）→ 月次の継続�
   ok(!/>集計<\/|集計 → 継続回数|集計 → 成果とリスク|集計 → 立ち上がり/.test(h), "無くなった画面へのリンク・名前が残っている");
 });
 
-check("段B 成果と継続: 手を打つ先の表3つは消し、案件一覧の見方（名札に寄せた4つ）へのリンクにする。節からも見方へ行ける", () => {
+check("段B 成果と継続: 対応が要る案件の表3つは消し、案件一覧のよく使う絞り込み（注意に寄せた4つ）へのリンクにする。節からもよく使う絞り込みへ行ける", () => {
   /* 2026-09-29 段B（09 の 10 章②）: 表は定義を名札に寄せて案件一覧の見方に移した。成果と継続に表を残すと、定義の違う2つの一覧が並ぶ。
      見方の名前はサーバ（routes.rs build_results の meta.act_views）から来る */
   ctx.__RS.meta.nps_flag = "NPSが4以下";
@@ -4996,35 +4996,35 @@ check("段B 成果と継続: 手を打つ先の表3つは消し、案件一覧�
     { key: "no_mtg", label: "初回MTG無しX", old: "前の出どころC" }, { key: "mtg_risk", label: "MTGリスク高X", old: null }];
   const h = run("renderResults(__RS)");
   const act = h.slice(h.indexOf('id="rs-act"'), h.indexOf("集計の基準日", h.indexOf('id="rs-act"')));
-  ok(!/<table/.test(act) && !/<details class="fold"><summary>(最優先|電話で沈黙|契約開始から MTG)/.test(act), "手を打つ先の表が畳んで残っている");
+  ok(!/<table/.test(act) && !/<details class="fold"><summary>(最優先|電話で沈黙|契約開始から MTG)/.test(act), "対応が要る案件の表が畳んで残っている");
   for (const lede of ['<div class="lede">金額が大きい順。', '<div class="lede">稼働中の初回契約 '])
-    ok(!h.includes(lede), "手を打つ先の表が成果と継続のどこかに残っている: " + lede);
+    ok(!h.includes(lede), "対応が要る案件の表が成果と継続のどこかに残っている: " + lede);
   ok(!h.includes('data-jump="rs-act"') || (h.match(/data-jump="rs-act"/g) || []).length === 1, "節から消えた畳みへの行き先が残っている");
   for (const [k, label] of [["top", "最優先X"], ["silent", "接触90日超X"], ["no_mtg", "初回MTG無しX"], ["mtg_risk", "MTGリスク高X"]]) {
     const href = run("esc(hashFor('board', { view: " + JSON.stringify(k) + " }))");
-    ok(act.includes('href="' + href + '">見方「' + label + "」で絞った案件一覧</a>"), "見方 " + k + " へのリンクが無い");
+    ok(act.includes('href="' + href + '">よく使う絞り込み「' + label + "」で絞った案件一覧</a>"), "よく使う絞り込み " + k + " へのリンクが無い");
   }
   ok(textOf(act).includes("前は 前の出どころA"), "前の定義の出どころを書いていない");
   /* 2026-09-29 段B 統合後の撮影: 見方へのリンクは文が長く、golink の nowrap のままだと 400px で横スクロールが出た（右端 454px）。
      1 本で 1 行を占めるリンクは折り返す印（golink wrap）を付け、その印の CSS が nowrap を打ち消していること */
-  const actLinks = act.match(/<a class="[^"]*" href="[^"]*view=[^"]*">見方「/g) || [];
-  ok(actLinks.length === 4 && actLinks.every((a) => a.startsWith('<a class="golink wrap"')), "見方へのリンクが折り返せない（400px で横にはみ出す）");
+  const actLinks = act.match(/<a class="[^"]*" href="[^"]*view=[^"]*">よく使う絞り込み「/g) || [];
+  ok(actLinks.length === 4 && actLinks.every((a) => a.startsWith('<a class="golink wrap"')), "よく使う絞り込みへのリンクが折り返せない（400px で横にはみ出す）");
   ok(/a\.golink\.wrap\{[^}]*white-space:normal/.test(html), "golink wrap の CSS が無い（nowrap のまま）");
   ok(textOf(act).includes("前の条件から外れた案件も、件数と一覧で確かめられます"), "外れた案件の行き先を言っていない（黙って消す）");
   /* 節（成果とリスク・立ち上がり）の表があった場所から、見方へ行ける */
   const body = h.slice(0, h.indexOf('id="rs-act"'));
   ok(body.includes('href="' + run("esc(hashFor('board', { view: 'top' }))") + '"') &&
-     body.includes('href="' + run("esc(hashFor('board', { view: 'no_mtg' }))") + '"'), "節から見方へのリンクが無い");
+     body.includes('href="' + run("esc(hashFor('board', { view: 'no_mtg' }))") + '"'), "節からよく使う絞り込みへのリンクが無い");
 });
 
-check("段B 案件一覧: 見方のボタン（押している見方は aria-pressed）、定義と母数、外れた件数と外れた案件の表（案件の詳細へ）", () => {
+check("段B 案件一覧: よく使う絞り込みのボタン（押しているよく使う絞り込みは aria-pressed）、定義と対象、外れた件数と外れた案件の表（案件の詳細へ）", () => {
   const V = [{ key: "top", label: "最優先X", rule: "定義T", n: 1 }, { key: "silent", label: "接触90日超X", rule: "定義S", n: 2 },
              { key: "no_mtg", label: "初回MTG無しX", rule: "定義N", n: 0 }, { key: "mtg_risk", label: "MTGリスク高X", rule: "定義R", n: 0 }];
   const diff = [
     { key: "top", n: 1, old: { where: "前の出どころA", n: 1, kept: 1, dropped: 0, added: 0, dropped_rows: [] } },
     { key: "silent", n: 2, old: { where: "前の出どころB", n: 3, kept: 1, dropped: 2, added: 1,
       dropped_rows: [{ deal_id: "d8", name: "外れた案件8", consultant: "田中", reason: "最後の接触から 20日（90日以内）" },
-                     { deal_id: "d9", name: "外れた案件9", consultant: "佐藤", reason: "契約開始前（接触の名札を立てない）" }] } },
+                     { deal_id: "d9", name: "外れた案件9", consultant: "佐藤", reason: "契約開始前（接触の注意を立てない）" }] } },
     { key: "no_mtg", n: 0, old: { where: "前の出どころC", n: 0, kept: 0, dropped: 0, added: 0, dropped_rows: [] } },
     { key: "mtg_risk", n: 0, old: null }];
   ctx.__BV = { meta: Object.assign({}, ctx.__BD.meta, { act_views: V, act_view_diff: diff }),
@@ -5037,44 +5037,44 @@ check("段B 案件一覧: 見方のボタン（押している見方は aria-pre
   try {
     const h0 = run("renderBoard(__BV)");
     const bar = h0.slice(h0.indexOf('id="board-views"'), h0.indexOf("</div>", h0.indexOf('id="board-views"')));
-    ok(bar.length > 0, "見方のボタンの列が無い");
+    ok(bar.length > 0, "よく使う絞り込みのボタンの列が無い");
     const btns = [...bar.matchAll(/data-view="([^"]+)" aria-pressed="(true|false)">([^<]*)<\/button>/g)];
-    ok(JSON.stringify(btns.map((b) => b[1])) === JSON.stringify(["top", "silent", "no_mtg", "mtg_risk"]), "見方のボタンが4つでない: " + btns.map((b) => b[1]));
+    ok(JSON.stringify(btns.map((b) => b[1])) === JSON.stringify(["top", "silent", "no_mtg", "mtg_risk"]), "よく使う絞り込みのボタンが4つでない: " + btns.map((b) => b[1]));
     ok(btns[1][3] === "接触90日超X（2 件）", "ボタンに件数が無い: " + btns[1][3]);
-    ok(btns.every((b) => b[2] === "false"), "何も押していないのに押された見方がある");
-    ok(!h0.includes("定義を名札に揃えたため"), "見方を押していないのに外れた件数の文が出ている");
+    ok(btns.every((b) => b[2] === "false"), "何も押していないのに押されたよく使う絞り込みがある");
+    ok(!h0.includes("定義を注意に揃えたため"), "よく使う絞り込みを押していないのに外れた件数の文が出ている");
 
     run('boardFilter.view = "silent";');
-    ok(run("boardApply(__BV.rows).map((r) => r.deal_id).join()") === "d1,d2", "見方で行が絞られない");
-    ok(run("boardFilterOn()") === true && run("boardFilterWords(__BV)").includes("見方 接触90日超X"), "件数の行に見方が出ない（鍵を出している）");
+    ok(run("boardApply(__BV.rows).map((r) => r.deal_id).join()") === "d1,d2", "よく使う絞り込みで行が絞られない");
+    ok(run("boardFilterOn()") === true && run("boardFilterWords(__BV)").includes("よく使う絞り込み 接触90日超X"), "件数の行によく使う絞り込みが出ない（鍵を出している）");
     const h = run("renderBoard(__BV)");
-    ok(/data-view="silent" aria-pressed="true"/.test(h), "押している見方が aria-pressed になっていない（色だけで伝えている）");
+    ok(/data-view="silent" aria-pressed="true"/.test(h), "押しているよく使う絞り込みが aria-pressed になっていない（色だけで伝えている）");
     const tx = textOf(h);
-    ok(tx.includes("定義S") && tx.includes("稼働中 3 件のうち 2 件です"), "定義の1行と母数が出ない");
-    ok(tx.includes("定義を名札に揃えたため、以前の前の出どころB 3 件のうち 2 件は外れました。"), "外れた件数の文が無い: " + tx.slice(0, 400));
+    ok(tx.includes("定義S") && tx.includes("稼働中 3 件のうち 2 件です"), "定義の1行と対象が出ない");
+    ok(tx.includes("定義を注意に揃えたため、以前の前の出どころB 3 件のうち 2 件は外れました。"), "外れた件数の文が無い: " + tx.slice(0, 400));
     ok(tx.includes("新しく入った案件が 1 件あります"), "新しく入った件数を書いていない");
     const fold = h.slice(h.indexOf('id="board-view-dropped"'));
     ok(fold.includes("外れた 2 件を確かめる"), "外れた案件の畳みが無い");
     ok(fold.includes('href="#deal/detail?id=d8"') && fold.includes('href="#deal/detail?id=d9"'), "外れた案件が案件の詳細へのリンクでない");
-    ok(fold.includes("契約開始前（接触の名札を立てない）"), "外れた理由が無い");
+    ok(fold.includes("契約開始前（接触の注意を立てない）"), "外れた理由が無い");
     /* URL に載る（?view=）。hashFor の形 */
-    ok(run("JSON.stringify(stateParams('board'))") === JSON.stringify({ view: "silent" }), "見方が URL に載らない: " + run("JSON.stringify(stateParams('board'))"));
+    ok(run("JSON.stringify(stateParams('board'))") === JSON.stringify({ view: "silent" }), "よく使う絞り込みが URL に載らない: " + run("JSON.stringify(stateParams('board'))"));
     ok(run("hashFor('board', { view: 'silent' })") === "#deal/board?view=silent", "hashFor の形が違う");
 
     /* 前に一覧が無い見方: 外れた件数は出さず、前は一覧が無かったと書く */
     run('boardFilter.view = "mtg_risk";');
     const hr = textOf(run("renderBoard(__BV)"));
-    ok(hr.includes("前は一覧が無かった見方です") && !hr.includes("は外れました"), "前に一覧が無い見方で外れた件数を作っている");
+    ok(hr.includes("前は一覧が無かったよく使う絞り込みです") && !hr.includes("は外れました"), "前に一覧が無いよく使う絞り込みで外れた件数を作っている");
     /* 🔴 MTG でリスク高が 0 件のとき、判定のある案件の数を母数として添える（「稼働中 3 件のうち 0 件」だけだと、判定が無いのか
        「高」が無いのかが分からない。2026-09-29 横断レビュー）。判定のある行（mtg_risk）は 3 件中 2 件 */
     ctx.__BV.rows[0].mtg_risk = "中"; ctx.__BV.rows[2].mtg_risk = "低";
     const hm = textOf(run("renderBoard(__BV)"));
     delete ctx.__BV.rows[0].mtg_risk; delete ctx.__BV.rows[2].mtg_risk;
     ok(hm.includes("稼働中 3 件のうち、リスク判定のある案件は 2 件、そのうちいちばん新しい判定が「高」の案件は 0 件です"),
-      "MTG でリスク高で、判定のある案件の数（母数）が出ない: " + hm.slice(0, 400));
+      "MTG でリスク高で、判定のある案件の数（対象）が出ない: " + hm.slice(0, 400));
     /* 他の見方は判定の数を添えない（判定と関係の無い見方に母数を混ぜない） */
     run('boardFilter.view = "silent";');
-    ok(!textOf(run("renderBoard(__BV)")).includes("リスク判定のある案件は"), "MTG と関係の無い見方にリスク判定の数を添えている");
+    ok(!textOf(run("renderBoard(__BV)")).includes("リスク判定のある案件は"), "MTG と関係の無いよく使う絞り込みにリスク判定の数を添えている");
     /* 外れた件数 0 のときは 0 件と書き、空の畳みを出さない */
     run('boardFilter.view = "top";');
     const ht = run("renderBoard(__BV)");
@@ -5082,22 +5082,22 @@ check("段B 案件一覧: 見方のボタン（押している見方は aria-pre
     /* 知らない見方（貼られた URL）は黙って 0 件にしない */
     run('boardFilter.view = "zzz";');
     const hz = textOf(run("renderBoard(__BV)"));
-    ok(hz.includes("この見方は見つかりません") && run("boardFilterWords(__BV)").includes("見方 （見つからない印）"), "知らない見方を黙って 0 件にしている");
+    ok(hz.includes("このよく使う絞り込みは見つかりません") && run("boardFilterWords(__BV)").includes("よく使う絞り込み （見つからない印）"), "知らないよく使う絞り込みを黙って 0 件にしている");
   } finally {
     run(reset + ' cur = { menu: "deal", view: "today" };');
   }
 });
 
-check("段B 検証の指摘: 担当者ごとの案件でも見方の定義と外れた件数を出し、外れた案件はその担当者の分に絞る", () => {
+check("段B 検証の指摘: 担当者ごとの案件でもよく使う絞り込みの定義と外れた件数を出し、外れた案件はその担当者の分に絞る", () => {
   /* 2026-09-29 検証: byowner は ?view= で絞れるのに、件数の行に「見方 X」と出るだけで外れた案件を知る手段が無かった */
   const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "" }; boardShowAll = false;';
   try {
     run('cur = { menu: "consultant", view: "byowner" }; ' + reset + ' boardFilter.consultant = "田中"; boardFilter.view = "silent";');
     const h = run("renderBoard(__BV)");
     const tx = textOf(h);
-    ok(!h.includes('id="board-views"'), "担当者ごとの案件に見方のボタンを置いている");
-    ok(tx.includes("定義S") && tx.includes("稼働中（全担当） 3 件のうち 2 件です"), "担当者ごとの案件で定義の1行と母数（全担当）が出ない");
-    ok(tx.includes("定義を名札に揃えたため、以前の前の出どころB 3 件のうち 2 件は外れました。"), "担当者ごとの案件で外れた件数の文が無い");
+    ok(!h.includes('id="board-views"'), "担当者ごとの案件によく使う絞り込みのボタンを置いている");
+    ok(tx.includes("定義S") && tx.includes("稼働中（全担当） 3 件のうち 2 件です"), "担当者ごとの案件で定義の1行と対象（全担当）が出ない");
+    ok(tx.includes("定義を注意に揃えたため、以前の前の出どころB 3 件のうち 2 件は外れました。"), "担当者ごとの案件で外れた件数の文が無い");
     const fold = h.slice(h.indexOf('id="board-view-dropped"'));
     ok(fold.includes("外れた 2 件（全担当）のうち、この担当者の 1 件を確かめる"), "外れた案件をその担当者の分に絞っていない");
     ok(fold.includes('href="#deal/detail?id=d8"') && !fold.includes("d9"), "その担当者の外れた案件だけを出していない");
@@ -5111,36 +5111,36 @@ check("段B 検証の指摘: 担当者ごとの案件でも見方の定義と外
   }
 });
 
-check("段B 検証の指摘: 立ち上がりの節は、見方と件数が違う主な理由（立ち上がり期は入らない）を書く", () => {
+check("段B 検証の指摘: 立ち上がりの節は、よく使う絞り込みと件数が違う主な理由（立ち上がり期は入らない）を書く", () => {
   /* 2026-09-29 検証: 「メール由来の実施日も見るので」だけで、fixture で外れた 93 件のうち 38 件の理由（立ち上がり期）を書いていなかった */
   const t = textOf(run("renderRampup(__RU, 'rs-rampup')"));
-  ok(t.includes("見方には立ち上がり期（契約開始30日以内）の案件が入りません"), "立ち上がり期が見方に入らないことを書いていない: " + t.slice(-300));
+  ok(t.includes("よく使う絞り込みには立ち上がり期（契約開始30日以内）の案件が入りません"), "立ち上がり期がよく使う絞り込みに入らないことを書いていない: " + t.slice(-300));
   ok(t.includes("外れた案件を確かめる") && t.includes("メール由来の実施日"), "外れた案件の行き先か、メール由来の理由が無い");
   ok(t.indexOf("立ち上がり期（契約開始30日以内）の案件が入りません") < t.indexOf("メール由来の実施日"), "主な理由（立ち上がり期）を先に書いていない");
 });
 
-check("段B 検証の指摘: 電話の「沈黙している取引」は、案件一覧の見方と定義が違うことと行き先を書く", () => {
+check("段B 検証の指摘: 電話の「沈黙している取引」は、案件一覧のよく使う絞り込みと定義が違うことと行き先を書く", () => {
   /* 2026-09-29 検証: fixture で電話の表 107 件・見方 78 件。定義の違う2つの一覧が説明なしに並んでいた */
   const h = run("renderPhone(__PH)");
   const i = h.indexOf("沈黙している取引（");
   const tail = h.slice(i);
-  ok(i >= 0 && tail.includes("案件一覧の見方とは定義が違います"), "電話の沈黙の表に見方との違いの枠が無い");
-  ok(tail.includes('href="' + run('esc(hashFor("board", { view: "silent" }))') + '"'), "見方（接触90日超）への行き先が無い");
+  ok(i >= 0 && tail.includes("案件一覧のよく使う絞り込みとは定義が違います"), "電話の沈黙の表によく使う絞り込みとの違いの枠が無い");
+  ok(tail.includes('href="' + run('esc(hashFor("board", { view: "silent" }))') + '"'), "よく使う絞り込み（接触90日超）への行き先が無い");
   ok(textOf(tail).includes("同じ案件の集まりではないので、件数は合いません"), "件数が合わないことを書いていない");
 });
 
-check("09 の 7 成果と継続: 定期NPS 4以下は名札と同じ集合なので「別の数え方・段B で揃える」に入れず、名札で絞った案件一覧へ", () => {
+check("09 の 7 成果と継続: 定期NPS 4以下は注意と同じ集合なので「別の数え方・段B で揃える」に入れず、注意で絞った案件一覧へ", () => {
   /* 2026-09-29 検証: NPS 4以下の表を段B の仮置きに入れて「名札とは別の数え方」と書いていた（focus.nps_low 41 件と名札 41 件は deal_id 41/41 一致。
      同じ集合であることは tests.rs results_nps_low_is_the_same_set_as_the_deal_flag が見張る） */
   ctx.__RS.meta.nps_flag = "NPSが4以下";
   const h = run("renderResults(__RS)");
   const act = h.slice(h.indexOf('id="rs-act"'));
   ok(!act.includes('<div class="lede">NPS の低い順、同じなら金額の大きい順。') && !/<summary>定期NPS/.test(act),
-    "定期NPS 4以下の表を段B の仮置き（名札とは別の数え方）に入れている");
+    "定期NPS 4以下の表を段B の仮置き（注意とは別の数え方）に入れている");
   ok(!h.includes('<div class="lede">NPS の低い順、同じなら金額の大きい順。'), "定期NPS 4以下の表が成果と継続の中に残っている");
   const href = run('esc(hashFor("board", { flag: "NPSが4以下" }))');
-  ok(act.includes('href="' + href + '"') && textOf(act).includes("名札「NPSが4以下」と同じ集合"),
-    "定期NPS 4以下が名札で絞った案件一覧へのリンクになっていない（黙って消した）");
+  ok(act.includes('href="' + href + '"') && textOf(act).includes("注意「NPSが4以下」と同じ集合"),
+    "定期NPS 4以下が注意で絞った案件一覧へのリンクになっていない（黙って消した）");
   ok(act.includes('href="#research/focus"'), "いま見るべき顧客の表への行き先が無い");
   ok(textOf(act).includes("定期NPS が 4 以下の顧客（" + run("__FO.nps_low.n") + " 件）"), "件数を書いていない");
 });
@@ -5153,26 +5153,26 @@ check("09 の 7 成果と継続: 満了月ごとの約60行の表の代わりの
   const n = run("__RN.monthly_retention.rows.filter((r, i, a) => a.slice(i).some((x) => x.denom)).length");
   ok(sum.length && sum[1] === "数字で読む（満了月ごと " + n + " か月）", "「数字で読む」の見出しが満了月ごとの数でない: " + sum[1]);
   const li = sum.length ? [...sum[2].matchAll(/<li>([^<]*)<\/li>/g)].map((x) => x[1]) : [];
-  ok(li.length === n && li.every((x) => /^\d{4}-\d{2}（n=\d+）: /.test(x)), "満了月ごとに 1 行になっていない: " + li.length + " / " + li.slice(0, 2).join(" | "));
-  ok(li.some((x) => x.startsWith("2027-01（n=1）: 0.0% / ") && x.includes("点は打っていません")), "点を打たない月（n<30）が一覧に無い");
-  ok(li.some((x) => x.startsWith("2026-11（n=0）: 率なし")), "決着 0 件の月が一覧に無い");
+  ok(li.length === n && li.every((x) => /^\d{4}-\d{2}（\d+件）: /.test(x)), "満了月ごとに 1 行になっていない: " + li.length + " / " + li.slice(0, 2).join(" | "));
+  ok(li.some((x) => x.startsWith("2027-01（1件）: 0.0% / ") && x.includes("点は打っていません")), "点を打たない月（n<30）が一覧に無い");
+  ok(li.some((x) => x.startsWith("2026-11（0件）: 率なし")), "決着 0 件の月が一覧に無い");
   /* 読み上げ（ul.sr）も同じ 1 行ずつで、図の 1 本の線を 1 項目にまとめた一覧は残さない */
   const sr = (fg.match(/<ul class="sr">([\s\S]*?)<\/ul>/) || [])[1] || "";
   ok((sr.match(/<li>/g) || []).length === n, "読み上げの一覧が満了月ごとでない");
   ok((fg.match(/class="fold figsay"/g) || []).length === 1 && (fg.match(/<ul class="sr">/g) || []).length === 1, "「数字で読む」が二重に出ている");
 });
 
-check("09 の 7 成果と継続: 札（月次の継続率は結果がそろった月で分母つき・採用目標に届いた件数は母数つき）。money の無い応答では金額の札を出さない", () => {
+check("09 の 7 成果と継続: 札（月次の継続率は結果がそろった月で分母つき・採用目標に届いた件数は対象つき）。money の無い応答では金額の札を出さない", () => {
   const h = run("renderResults(__RS)");
   const k = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="rs-renewal"'));
   ok(h.indexOf('<nav class="toc"') < h.indexOf('<div class="kpis">') && h.indexOf('<div class="kpis">') < h.indexOf('id="rs-renewal"'),
     "札が目次と解約率のあいだに無い");
   /* __RN（上の図の部品の見張り）では 2026-09 が結果がそろって n=60 の最新の月（2026-10 は n=8・2027-01 は n=1） */
-  ok(textOf(k).includes("月次の継続率（2026-09 に満了）") && textOf(k).includes("n=60（継続 30・解約 20・充足 10）"),
+  ok(textOf(k).includes("月次の継続率（2026-09 に満了）") && textOf(k).includes("60件（継続 30・解約 20・充足 10）"),
     "月次の継続率の札が結果のそろった最新の月・分母つきでない: " + textOf(k));
   ok(textOf(k).includes("採用目標に届いた稼働中の契約") && /目標・承諾数あり 345 件（途中）/.test(textOf(k)),
-    "採用目標の札に母数が無い: " + textOf(k));
-  ok(!/(^|[^0-9.])0\.0%/.test(textOf(k)), "採用目標の札に中央値 0.0% を出している（達成できていないと読める）");
+    "採用目標の札に対象が無い: " + textOf(k));
+  ok(!/(^|[^0-9.])0\.0%/.test(textOf(k)), "採用目標の札に真ん中の値 0.0% を出している（達成できていないと読める）");
   /* 段B で金額の札を足した（下の見張り）。money の無い応答（古いキャッシュ）では、数えていない金額を出さない */
   ok(!/金額/.test(textOf(k)), "money が無いのに金額の札が出ている");
 });
@@ -5229,7 +5229,7 @@ check("段B 満了と継続: メニューは /api/consulting/renewal-pipe を読
   ok(run("typeof renewalPipeInterim") === "undefined", "仮のつなぎが残っている");
 });
 
-check("段B 満了と継続: 満了月ごとの件数・金額（空の件数つき）と、母数の内訳（どこにも入らない契約が無い）を畳まずに出す", () => {
+check("段B 満了と継続: 満了月ごとの件数・金額（空の件数つき）と、対象の内訳（どこにも入らない契約が無い）を畳まずに出す", () => {
   const h = run("renderRenewalPipe(__RP)");
   const tx = textOf(h);
   const k = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('<div class="note'));
@@ -5238,16 +5238,16 @@ check("段B 満了と継続: 満了月ごとの件数・金額（空の件数つ
     "札が今月・来月・再来月・先月以前でない: " + lbls.join(" / "));
   ok(textOf(k).includes("5,375万（金額が空 0 件）。うち満了日を過ぎてまだ稼働中 1 件"), "今月の札に金額・空の件数・過ぎた件数が無い: " + textOf(k));
   /* 母数の箱は note（畳まない）。4 つの行き先の件数を全部書く */
-  const i = h.indexOf("何を数えているか（母数）");
-  ok(i >= 0 && !/<details[^>]*>(?:(?!<\/details>)[\s\S])*$/.test(h.slice(0, i)), "母数の箱が無い、または畳まれている");
+  const i = h.indexOf("何を数えているか（対象）");
+  ok(i >= 0 && !/<details[^>]*>(?:(?!<\/details>)[\s\S])*$/.test(h.slice(0, i)), "対象の箱が無い、または畳まれている");
   const bt = textOf(h.slice(i, h.indexOf("</div>", i)));
   for (const s of ["稼働中 604 件", "今月〜再来月に満了 285 件", "先月以前に満了日を過ぎてまだ稼働中 10 件", "再来月より先に満了 309 件", "満了日が入っていない 0 件",
     "契約期間全体の額です（月額ではありません", "確度は掛けていません"])
-    ok(bt.includes(s), "母数の箱に「" + s + "」が無い: " + bt);
+    ok(bt.includes(s), "対象の箱に「" + s + "」が無い: " + bt);
   ok((tx.match(/予測ではありません/g) || []).length === 1, "予測ではない、を書いていない、または 2 回書いている（頭と末尾）");
 });
 
-check("案件一覧の絞り込み: 部品の名前（名札・MTG途絶）を折らず、縮めるのは select。長い文のチェックボックスには掛けない", () => {
+check("案件一覧の絞り込み: 部品の名前（注意・MTGが空いている期間）を折らず、縮めるのは select。長い文のチェックボックスには掛けない", () => {
   /* 🔴 2026-09-29 横断レビュー（400px の案件一覧）: 「名札」「MTG途絶」の字が縦に折れていた（Playwright 実測: 名前の文字の行 2・枠 46px）。
      操作列の label.act 全部に掛けると、成果と継続の「右側打ち切り」のチェックボックスの文が折れず 400px で 438px にはみ出したので、
      #board-filter に限る。見た目そのものは Playwright で見る（ここは規則が消えたこと・広がったことを捕まえる） */
@@ -5285,11 +5285,11 @@ check("段B 満了と継続: ステージは件数だけ（確度を掛けない
   ok(textOf(h).includes("担当ごとの合計は出していません"), "担当ごとの金額を出していないと書いていない");
 });
 
-check("段B 満了と継続: 一覧は満了日・満了まで（過ぎたものは文字で）・案件（詳細へ）・担当・ステージ・金額・名札。先月以前の分は畳んで残す", () => {
+check("段B 満了と継続: 一覧は満了日・満了まで（過ぎたものは文字で）・案件（詳細へ）・担当・ステージ・金額・注意。先月以前の分は畳んで残す", () => {
   const h = run("renderRenewalPipe(__RP)");
   const list = h.slice(h.indexOf('<table id="rp-tbl-0"'), h.indexOf("</table>", h.indexOf('<table id="rp-tbl-0"')));
   const th = [...list.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map((m) => m[1]);
-  ok(JSON.stringify(th) === JSON.stringify(["満了日", "満了まで", "案件", "担当", "ステージ", "金額", "名札"]), "一覧の列が違う: " + th.join(","));
+  ok(JSON.stringify(th) === JSON.stringify(["満了日", "満了まで", "案件", "担当", "ステージ", "金額", "注意"]), "一覧の列が違う: " + th.join(","));
   ok(list.includes("満了を8日過ぎている"), "満了を過ぎた行を文字で言っていない（色だけ）");
   ok(list.includes('href="#deal/detail?id=1"'), "案件名が案件の詳細へのリンクでない");
   const l1 = h.slice(h.indexOf('<table id="rp-tbl-1"'), h.indexOf("</table>", h.indexOf('<table id="rp-tbl-1"')));
@@ -5339,7 +5339,7 @@ check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満
     "金額で見た継続率（2026-09 に満了）", "採用目標に届いた稼働中の契約"]), "札の顔ぶれ・並びが違う: " + lbls.join(" / "));
   const tk = textOf(k);
   ok(tk.includes("67,761万") && tk.includes("稼働中 604 件の合計・金額が空の 2 件は足していません") && tk.includes("月額ではありません"),
-    "稼働中の金額に母数・空の件数・月額でないことが無い: " + tk);
+    "稼働中の金額に対象・空の件数・月額でないことが無い: " + tk);
   ok(tk.includes("25,859万") && tk.includes("285 件（2026-09〜2026-11 に満了）") && tk.includes("確度は掛けていません"), "満了する金額の札: " + tk);
   ok(k.includes('href="#research/renewalpipe"'), "満了する金額から満了と継続へ行けない");
   /* 🔴 2026-09-29 検証: 先月以前に満了日を過ぎてまだ稼働中の契約（fixture 10 件）を外していることが札に無かった */
@@ -5380,9 +5380,9 @@ check("MTG の記録が無い案件を「していない」と読ませない（
 /* 2026-09-29 画面の組み替え（11画面・3区切り）の後も、画面の文に前の名前「今日動く先」「案件そのもの」「案件の立ち位置」が残っていた
    （チームと担当の札・表の案内・数の行き先の title、今日の表の見出し、案件の詳細の担当のリンク）。左のメニューに無い名前を案内しない。
    関数名・内部キー・コメントは変えない（画面に出る JS の文字列だけを見る。サーバの文は tests.rs old_screen_names_not_in_server_text） */
-check("前の画面名（今日動く先・案件そのもの・案件の立ち位置）を画面の文に出さない。今のメニュー名（今日・案件一覧）で書く", () => {
+check("前の画面名（今日動く先・案件そのもの・案件の契約のどのあたりか）を画面の文に出さない。今のメニュー名（今日・案件一覧）で書く", () => {
   const lits = jsNoComment.match(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g) || [];
-  ["今日動く先", "案件そのもの", "案件の立ち位置"].forEach((w) => {
+  ["今日動く先", "案件そのもの", "案件の契約のどのあたりか"].forEach((w) => {
     const hit = lits.filter((x) => x.includes(w));
     ok(hit.length === 0, "画面に出る文字列に「" + w + "」が残っている: " + hit.slice(0, 3).join(" ／ "));
   });
@@ -5422,7 +5422,7 @@ check("前の画面名（担当者ごとの接触・担当者の一覧）を、�
 });
 
 /* ================================================================ 磨き込み「中身の抜け」（2026-09-29、09 の 3章 1・2 と 10 章②） */
-check("09 の 3章 1: 今日の札「接触の記録が無い」は件数に母数（開始済みの稼働中）と率を添え、赤にせず、名札で絞った案件一覧へ。古い応答では出さない", () => {
+check("09 の 3章 1: 今日の札「接触の記録が無い」は件数に対象（開始済みの稼働中）と率を添え、赤にせず、注意で絞った案件一覧へ。古い応答では出さない", () => {
   const F = todayFixture();
   F.meta.no_contact = { label: "接触の記録が無い", n: 61, base: 590, by_consultant: { "担当C": { n: 4, base: 30 } } };
   ctx.__TNC = F;
@@ -5430,14 +5430,14 @@ check("09 の 3章 1: 今日の札「接触の記録が無い」は件数に母�
   const h = run("renderToday(__TNC)");
   const kp = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="td-today-h"'));
   const i = kp.indexOf('data-flag="接触の記録が無い"');
-  ok(i >= 0, "札が無いか、名札で絞る行き先が無い");
+  ok(i >= 0, "札が無いか、注意で絞る行き先が無い");
   const btn = kp.slice(kp.lastIndexOf("<button", i), kp.indexOf("</button>", i));
   ok(/class="kpi"/.test(btn), "札を赤（is-bad）などで塗っている（接触の記録が無いのは未測定。色で良し悪しを言わない）: " + btn.slice(0, 80));
   const tb = textOf(btn);
   ok(/61\s*件/.test(tb) && tb.includes("開始済みの稼働中 590 件のうち（10.3%）") && tb.includes("開始前の契約は数えていません") && tb.includes("案件一覧で見る"),
-    "件数・母数・率・開始前を数えていないこと・行き先が無い: " + tb);
+    "件数・対象・率・開始前を数えていないこと・行き先が無い: " + tb);
   // 札の並び: 今日動く先 → 今週満了 → MTG途絶 → 接触の記録が無い（09 の 3章 1 の 2）。今日のコードは MTG 途絶の直後に置く
-  ok(kp.indexOf("MTGが90日以上途絶") < i, "MTG 途絶より前に置いている");
+  ok(kp.indexOf("MTGが90日以上空いている") < i, "MTGが空いている期間より前に置いている");
   // 担当を選ぶと、その担当の実数と母数、全社の数を添える
   run("todayConsultant = '担当C';");
   const hc = run("renderToday(__TNC)");
@@ -5445,18 +5445,18 @@ check("09 の 3章 1: 今日の札「接触の記録が無い」は件数に母�
   const ic = kc.indexOf('data-flag="接触の記録が無い" data-consultant="担当C"');
   ok(ic >= 0, "担当を選んだときに担当を添えた行き先になっていない");
   const tc = textOf(kc.slice(ic, kc.indexOf("</button>", ic)));
-  ok(/4\s*件/.test(tc) && tc.includes("この担当の開始済みの稼働中 30 件のうち（13.3%）") && tc.includes("全社では 61 / 590 件"), "担当の実数・母数・全社の数が無い: " + tc);
+  ok(/4\s*件/.test(tc) && tc.includes("この担当の開始済みの稼働中 30 件のうち（13.3%）") && tc.includes("全社では 61 / 590 件"), "担当の実数・対象・全社の数が無い: " + tc);
   // 担当の分が無い（稼働中が 0 件の担当）は 0 / 0 で、率を作らない
   run("todayConsultant = '担当Z';");
   const tz = textOf(run("renderToday(__TNC)"));
-  ok(tz.includes("この担当の開始済みの稼働中 0 件のうち。") && !/0 件のうち（/.test(tz), "母数 0 で率を作っている");
+  ok(tz.includes("この担当の開始済みの稼働中 0 件のうち。") && !/0 件のうち（/.test(tz), "対象 0 で率を作っている");
   // 古い応答（no_contact が無い）では出さない（数えていないものを 0 と書かない）
   run("todayConsultant = '';");
   ctx.__TNC0 = todayFixture();
   ok(!run("renderToday(__TNC0)").includes("data-flag="), "古い応答で接触の札を出している");
 });
 
-check("09 の 3章 2: 案件一覧の契約総額の帯。金額が空はどの帯にも入れず件数を別に出し、欄の名前は契約総額（月額ではない）", () => {
+check("09 の 3章 2: 案件一覧の契約総額の区分。金額が空はどの区分にも入れず件数を別に出し、欄の名前は契約総額（月額ではない）", () => {
   const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" }; boardShowAll = false;';
   ctx.__BA = { meta: ctx.__BD.meta, rows: [
     { deal_id: "a1", name: "小", consultant: "田中", flags: [], amount: 300000 },
@@ -5469,11 +5469,11 @@ check("09 の 3章 2: 案件一覧の契約総額の帯。金額が空はどの�
     run('cur = { menu: "deal", view: "board" }; ' + reset);
     const bar = run("boardFilterBar(__BA)");
     const sel = bar.slice(bar.indexOf('id="bf-amount"'), bar.indexOf("</select>", bar.indexOf('id="bf-amount"')));
-    ok(sel.length > 0 && /title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・名札など）を掛けた中の件数です">契約総額 <select id="bf-amount"/.test(bar),
-      "欄の名前が契約総額でない、月額でないこと・件数の母数が無い");
+    ok(sel.length > 0 && /title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・注意など）を掛けた中の件数です">契約総額 <select id="bf-amount"/.test(bar),
+      "欄の名前が契約総額でない、月額でないこと・件数の対象が無い");
     const opts = [...sel.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => m[1] + "=" + m[2]);
     ok(JSON.stringify(opts) === JSON.stringify(["=すべて（6）", "lt50=50万円未満（2）", "50-100=50万〜100万円未満（1）", "100-200=100万〜200万円未満（0）",
-      "ge200=200万円以上（1）", "none=金額が空（2）"]), "帯と件数が違う（空を 0 円の帯に混ぜている？）: " + opts.join(" / "));
+      "ge200=200万円以上（1）", "none=金額が空（2）"]), "帯と件数が違う（空を 0 円の区分に混ぜている？）: " + opts.join(" / "));
     const ids = (k) => run('boardFilter.amount = "' + k + '"; boardApply(__BA.rows).map((r) => r.deal_id).join()');
     ok(ids("lt50") === "a1,a6", "50万円未満: " + ids("lt50"));
     ok(ids("50-100") === "a2" && ids("ge200") === "a3" && ids("none") === "a4,a5", "帯の境目か空の扱いが違う");
@@ -5496,7 +5496,7 @@ check("09 の 3章 2: 案件一覧の契約総額の帯。金額が空はどの�
     ok(run("boardFilterWords(__BA)") === "担当 佐藤 / 契約総額 50万円未満（金額が空の 2 件は入りません）", "担当の中の空の件数でない: " + run("boardFilterWords(__BA)"));
     // 契約総額で絞っていても、件数は契約総額を外して数える（選んだ帯以外の件数も見える）
     const b3 = run("boardFilterBar(__BA)");
-    ok(b3.includes(">すべて（4）<") && b3.includes(">200万円以上（1）<"), "契約総額で絞った後に、ほかの帯の件数が 0 になっている");
+    ok(b3.includes(">すべて（4）<") && b3.includes(">200万円以上（1）<"), "契約総額で絞った後に、ほかの区分の件数が 0 になっている");
     // 🔴 2026-10-01 再検証: 上は欄を描き直す（boardFilterBar を直接呼ぶ）形だけを見ていた。画面で担当・名札などを変えると
     //    boardRepaint が #board-body だけ描き直し、欄は作り直されないので、括弧の件数が選ぶ前のまま残っていた。
     //    担当を変えて boardRepaint を通したあとの #bf-amount の選択肢が、その担当の中の件数になっていることを見る
@@ -5527,11 +5527,11 @@ check("今日の札「接触の記録が無い」の分母（開始済み）と�
   try {
     run('cur = { menu: "deal", view: "board" }; ' + reset + ' boardFilter.flag = "接触の記録が無い";');
     const tx = textOf(run("renderBoard(__BS)"));
-    ok(/3 件中 1 件\s*を表示/.test(tx) && tx.includes("この名札は開始前の契約には立てていません（3 件のうち開始前 1 件・開始済み 2 件）"),
-      "開始前には名札を立てていないこと（2 つの分母の違い）が件数の行に無い: " + tx.slice(0, 300));
+    ok(/3 件中 1 件\s*を表示/.test(tx) && tx.includes("この注意は開始前の契約には立てていません（3 件のうち開始前 1 件・開始済み 2 件）"),
+      "開始前には注意を立てていないこと（2 つの分母の違い）が件数の行に無い: " + tx.slice(0, 300));
     // 開始前にも立つ名札・古い応答（started_only_flags が無い）・絞っていないときは出さない
     run('boardFilter.flag = "札X";');
-    ok(!textOf(run("renderBoard(__BS)")).includes("開始前の契約には立てていません"), "開始前にも立つ名札で開始前の文を出している");
+    ok(!textOf(run("renderBoard(__BS)")).includes("開始前の契約には立てていません"), "開始前にも立つ注意で開始前の文を出している");
     ctx.__BS0 = { meta: ctx.__BD.meta, rows: ctx.__BS.rows };
     run('boardFilter.flag = "接触の記録が無い";');
     ok(!textOf(run("renderBoard(__BS0)")).includes("開始前の契約には立てていません"), "古い応答で開始前の文を出している");
@@ -5540,34 +5540,34 @@ check("今日の札「接触の記録が無い」の分母（開始済み）と�
   }
 });
 
-check("10 章②: 担当者ごとの案件で担当を選ぶ前でも、?view= の見方は案件一覧と同じ定義の1行と外れた件数を出し、持ち件数に掛けていないことを書く", () => {
+check("10 章②: 担当者ごとの案件で担当を選ぶ前でも、?view= のよく使う絞り込みは案件一覧と同じ定義の1行と外れた件数を出し、持ち件数に掛けていないことを書く", () => {
   const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" }; boardShowAll = false;';
   try {
     run('cur = { menu: "consultant", view: "byowner" }; ' + reset + ' boardFilter.view = "silent";');
     const h = run("renderBoard(__BV)");
     const tx = textOf(h);
-    ok(tx.includes("定義S") && tx.includes("稼働中 3 件のうち 2 件です"), "担当を選ぶ前に見方の定義と母数が出ない（黙って絞る）");
-    ok(tx.includes("定義を名札に揃えたため、以前の前の出どころB 3 件のうち 2 件は外れました。"), "担当を選ぶ前に外れた件数の文が無い");
-    ok(h.includes('id="byowner-pending"') && tx.includes("絞り込み（見方 接触90日超X）は、下の持ち件数には掛けていません。") &&
+    ok(tx.includes("定義S") && tx.includes("稼働中 3 件のうち 2 件です"), "担当を選ぶ前によく使う絞り込みの定義と対象が出ない（黙って絞る）");
+    ok(tx.includes("定義を注意に揃えたため、以前の前の出どころB 3 件のうち 2 件は外れました。"), "担当を選ぶ前に外れた件数の文が無い");
+    ok(h.includes('id="byowner-pending"') && tx.includes("絞り込み（よく使う絞り込み 接触90日超X）は、下の持ち件数には掛けていません。") &&
        tx.includes("担当を選ぶと、その担当の案件にこの絞り込みを掛けて出します。"), "持ち件数に掛けていないこと・選ぶと掛かることが無い");
     ok(h.split('id="bf-clear"').length - 1 === 1, "絞り込みを外すボタンが 1 つでない");
     // 🔴 2026-09-30 検証: 選ぶ前の同じ画面に「下の件数はそれより少なくなります」（見方の箱）と「下の持ち件数には掛けていません」、
     //    冒頭の「絞り込みは、担当を選んだ後に出ます」が並んで食い違って読めた。下の件数の話は byowner-pending の1か所だけにし、
     //    冒頭は「欄」が後で出ると書いて、持ってきた絞り込みは下を指す
-    ok(!tx.includes("下の件数はそれより少なくなります"), "選ぶ前の見方の箱が、掛けていない持ち件数が減ると書いている");
-    ok(tx.includes("名札・満了まで・契約総額・案件名で絞る欄は、担当を選んだ後に出ます（いま持ってきている絞り込みは、下に書いています）。") &&
+    ok(!tx.includes("下の件数はそれより少なくなります"), "選ぶ前のよく使う絞り込みの箱が、掛けていない持ち件数が減ると書いている");
+    ok(tx.includes("注意・満了まで・契約総額・案件名で絞る欄は、担当を選んだ後に出ます（いま持ってきている絞り込みは、下に書いています）。") &&
        !tx.includes("での絞り込みは、担当を選んだ後に出ます"), "冒頭が、持ってきた絞り込みがまだ無いように読める");
     // 担当を選んだ後は、見方の箱が下の件数（その担当の案件）との関係を書く（こちらは下の表に掛かっている）
     run('boardFilter.consultant = "田中";');
-    ok(textOf(run("renderBoard(__BV)")).includes("下の件数はそれより少なくなります"), "担当を選んだ後の見方の箱から、下の件数との関係が消えた");
+    ok(textOf(run("renderBoard(__BV)")).includes("下の件数はそれより少なくなります"), "担当を選んだ後のよく使う絞り込みの箱から、下の件数との関係が消えた");
     run('boardFilter.consultant = "";');
     // 持ち件数は見えない条件で減らさない（田中 2・佐藤 1 のまま）
     const tbl = h.slice(h.indexOf('id="owner-tbl"'));
-    ok(/田中<\/a><\/td><td[^>]*>2</.test(tbl) && /佐藤<\/a><\/td><td[^>]*>1</.test(tbl), "持ち件数を見方で減らしている: " + textOf(tbl).slice(0, 120));
+    ok(/田中<\/a><\/td><td[^>]*>2</.test(tbl) && /佐藤<\/a><\/td><td[^>]*>1</.test(tbl), "持ち件数をよく使う絞り込みで減らしている: " + textOf(tbl).slice(0, 120));
     // 何も絞っていなければ、どちらも出さない
     run(reset);
     const h0 = run("renderBoard(__BV)");
-    ok(!h0.includes('id="byowner-pending"') && !textOf(h0).includes("の定義"), "絞っていないのに持ち越しの文か見方の定義が出る");
+    ok(!h0.includes('id="byowner-pending"') && !textOf(h0).includes("の定義"), "絞っていないのに持ち越しの文かよく使う絞り込みの定義が出る");
     ok(textOf(h0).includes("案件名で絞る欄は、担当を選んだ後に出ます。") && !textOf(h0).includes("いま持ってきている"), "絞っていないのに持ってきた絞り込みがあると書いている");
   } finally {
     run(reset + ' cur = { menu: "deal", view: "today" };');
@@ -5585,7 +5585,7 @@ check("磨き込み(1): 400px の今日の 1 画面目に表の見出しと 1 �
   ok(/overflow-x:auto/.test(kpis) && /no-repeat local/.test(kpis), "600px 以下で札を横に流していない、または続きの影が無い: " + kpis);
   const basis = +((inside.match(/\.kpis > \.kpi\{ flex:0 0 (\d+)%/) || [])[1] || 0);
   ok(basis > 0 && basis < 50, "600px 以下の札の幅が半分以上（3 枚目の端が見えず、続きがあると分からない）: " + basis);
-  ok(!/\.kpi[^{]*\{[^}]*display:none/.test(inside) && !/\.kpi \.fine\{[^}]*(display:none|-webkit-line-clamp)/.test(inside), "600px 以下で札の中身（母数の文など）を隠している");
+  ok(!/\.kpi[^{]*\{[^}]*display:none/.test(inside) && !/\.kpi \.fine\{[^}]*(display:none|-webkit-line-clamp)/.test(inside), "600px 以下で札の中身（対象の文など）を隠している");
   ok(!/\.kpis\{ display:flex/.test(outside), "PC でも札を横に流している（PC は格子のまま）");
   // 担当の欄: 欄と案内の文を 1 行に（前は 2 段で 74px）。案内の文は消さない
   ok(/#today-filter\{ flex-wrap:nowrap;/.test(inside) && /#today-filter > \.muted\.small\{[^}]*min-width:0;/.test(inside), "600px 以下で担当の欄と案内の文が 1 行でない");
@@ -5648,15 +5648,15 @@ check("磨き込み(1) の続き: 1 行のメニューで、行の外にある�
 });
 
 // 🔴 400px の案件一覧で見方のボタン 4 つが 1 つずつの行に落ちて 196px（fixture 実測。直した後 119px）
-check("磨き込み(2): 400px の案件一覧の見方のボタンは 2 列（4 つとも見えたまま。畳まない・隠さない）", () => {
+check("磨き込み(2): 400px の案件一覧のよく使う絞り込みのボタンは 2 列（4 つとも見えたまま。畳まない・隠さない）", () => {
   const css = html.slice(0, html.indexOf("</style>"));
   const inside = media600(css).inside.join("\n"), outside = media600(css).outside;
-  ok(/#board-views\{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\);/.test(inside), "600px 以下で見方のボタンが 2 列でない");
-  ok(/#board-views > button\.act\{ white-space:normal;/.test(inside), "600px 以下で見方のボタンの中で名前を折り返していない（2 列に入らない）");
-  ok(!/#board-views[^{]*\{[^}]*(display:none|overflow:hidden)/.test(inside), "600px 以下で見方のボタンを隠している");
-  ok(!/#board-views/.test(outside), "見方の 2 列が PC にも効いている（PC は 1 行）");
+  ok(/#board-views\{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\);/.test(inside), "600px 以下でよく使う絞り込みのボタンが 2 列でない");
+  ok(/#board-views > button\.act\{ white-space:normal;/.test(inside), "600px 以下でよく使う絞り込みのボタンの中で名前を折り返していない（2 列に入らない）");
+  ok(!/#board-views[^{]*\{[^}]*(display:none|overflow:hidden)/.test(inside), "600px 以下でよく使う絞り込みのボタンを隠している");
+  ok(!/#board-views/.test(outside), "よく使う絞り込みの 2 列が PC にも効いている（PC は 1 行）");
   const bar = run('boardViewBar({ meta: { act_views: [{ key: "a", label: "甲", n: 1 }, { key: "b", label: "乙", n: 2 }, { key: "c", label: "丙", n: 3 }, { key: "d", label: "丁", n: 4 }] } })');
-  ok((bar.match(/<button /g) || []).length === 4, "見方のボタンが 4 つ出ていない: " + bar);
+  ok((bar.match(/<button /g) || []).length === 4, "よく使う絞り込みのボタンが 4 つ出ていない: " + bar);
 });
 
 // 🔴 並べ替えられる見出し（sortTh）は向きの印と読み上げの文が並べ替えのたびに変わる。id の無い表でそれを印に含めていたので、
@@ -5721,7 +5721,7 @@ check("磨き込み(3) の続き: 見出しが同じ id の無い表は、押し
 
 // 🔴 2026-09-30 検証（Playwright 400px、#deal/board）: 並べ替え・絞り込み・「残りも出す」の後、図「名札の分布」の題が h2＋figcaption の 2 段に戻った。
 //    boardRepaint が #board-body だけを finishView を通さずに描いていた。画面に流す paintFigs はどれも finishView を通す
-check("M-5 (a) の続き: 部分の描き直し（案件一覧の本体・本部アプローチ・自分の接触）も finishView を通す", () => {
+check("M-5 (a) の続き: 部分の描き直し（案件一覧の本体・本部への提案材料・自分の接触）も finishView を通す", () => {
   const src = html.slice(html.indexOf("<script>"));
   const calls = src.match(/paintFigs\([^,]+, \(\) => [^;]*/g) || [];
   /* 🔴 2026-10-01 統合: 前は「7 か所以上」。pol/content が本部アプローチの後読み（wireHq の 2 か所）を消したので 5 か所になった。
@@ -5733,9 +5733,9 @@ check("M-5 (a) の続き: 部分の描き直し（案件一覧の本体・本部
   // 案件一覧の本体（boardBody）は図の見出し「名札の分布」を持つ。finishView を通すと図の中の題になる
   run("boardCache = __BD");
   const raw = run("boardBody(__BD, __BD.rows, false)");
-  ok(/<span class="no">図<\/span>名札の分布/.test(raw), "前提: boardBody に図の見出しが無い（見張りの前提が変わった）");
+  ok(/<span class="no">図<\/span>注意の分布/.test(raw), "前提: boardBody に図の見出しが無い（見張りの前提が変わった）");
   const fv = run("finishView(boardBody(__BD, __BD.rows, false))");
-  ok(!/<span class="no">図<\/span>/.test(fv) && fv.includes('<span class="figttl" role="heading" aria-level="2">名札の分布</span>'), "finishView を通しても名札の分布の題が図の中に入らない");
+  ok(!/<span class="no">図<\/span>/.test(fv) && fv.includes('<span class="figttl" role="heading" aria-level="2">注意の分布</span>'), "finishView を通しても注意の分布の題が図の中に入らない");
 });
 
 /* ---------------- M-5 の残り（08）: 図の題を 1 つに・図の注記の上限・foot を画面末尾の 1 箱に ---------------- */
@@ -5779,7 +5779,7 @@ check("M-5 (a): 図の見出し（h2「図 …」）の直後に図が 1 つだ�
   ok(/figure\.fig:focus-visible\{ outline:2px solid var\(--ai\);/.test(css), "KPI の札から図へ飛んだとき、止まったことが見えない");
 });
 
-check("M-5 (b): 図の注記は凡例＋1 行まで。取り決め・描き方は「この図の決まり」に畳み、2.4 の畳まないもの（母数・未確定・評価でない・n<30 の理由・分母 0）は見せたまま", () => {
+check("M-5 (b): 図の注記は凡例＋1 行まで。取り決め・描き方は「この図の決まり」に畳み、2.4 の畳まないもの（対象・未確定・評価でない・n<30 の理由・分母 0）は見せたまま", () => {
   // focus の採用単価の図（fixture の注記 3 段）: 色の線引きは畳み、未確定・上位 20（全 111）は見せる
   // 🔴 2026-09-30 検証: 色の意味（「1.5倍以上は赤」）は読み違いを防ぐ注意なので畳まない。畳む取り決めの例は描き方（ずらした px）にする
   ctx.__FL = run('lg("box", C.ai, "今回（万円）")') + '<i class="full">重なる点は上下に 4px ずらしています。</i>' +
@@ -5790,7 +5790,7 @@ check("M-5 (b): 図の注記は凡例＋1 行まで。取り決め・描き方�
   const shown = f.slice(at, f.indexOf("</div>", at));
   const rule = f.slice(f.indexOf('<details class="fold figrule">'));
   ok(shown.includes("今回（万円）"), "凡例（色の粒）を畳んでいる");
-  ok(shown.includes("未確定（稼働中）") && shown.includes("全 111 拠点"), "未確定・母数の注記を畳んでいる（08 の 2.4 の畳まないもの）: " + shown);
+  ok(shown.includes("未確定（稼働中）") && shown.includes("全 111 拠点"), "未確定・対象の注記を畳んでいる（08 の 2.4 の畳まないもの）: " + shown);
   ok(!shown.includes("4px ずらし"), "取り決め（描き方）が見えたまま（凡例＋1 行を超えている）");
   ok(shown.includes("1.5倍以上のものは赤"), "色の意味（1.5倍以上は赤）を畳んでいる（画面だけでは赤の意味が分からない）: " + shown);
   ok(/<summary>この図の決まり（1 件）<\/summary>/.test(rule) && rule.includes("4px ずらし"), "畳んだ注記が「この図の決まり」に無い（黙って消している）: " + rule.slice(0, 200));
@@ -5811,27 +5811,27 @@ check("M-5 (b): 図の注記は凡例＋1 行まで。取り決め・描き方�
   // 🔴 2026-09-30 検証（fixture 400px）: 段落に語が 1 つ当たると段落まるごと残り、47 図で畳まれたのは 4 段だけだった。
   //    月次の継続率は図本体 221px に注記 665px。文ごとに見分け、2.4 の事実の文だけ見せる。理由の説明（…だからです）は畳む
   ctx.__FS1 = '<i class="full">充足（採れて終わった契約）も分母に入れます。採用できて終わったのも「継続しなかった」という結果だからです。' +
-    'オプション契約 227 件は母数から外しています（月ごとの偏りが大きく、含めると月次比較が歪むため）。</i>';
+    'オプション契約 227 件は対象から外しています（月ごとの偏りが大きく、含めると月次比較が歪むため）。</i>';
   const s1 = run("figRules(__FS1)");
-  ok(s1.shown.includes("分母に入れます。") && s1.shown.includes("母数から外しています") && !s1.shown.includes("だからです"),
-    "同じ段落の中の理由の説明（…だからです）まで見せている、または母数の文を畳んでいる: " + s1.shown);
+  ok(s1.shown.includes("分母に入れます。") && s1.shown.includes("対象から外しています") && !s1.shown.includes("だからです"),
+    "同じ段落の中の理由の説明（…だからです）まで見せている、または対象の文を畳んでいる: " + s1.shown);
   ok(s1.n === 1 && s1.folded.length === 1 && s1.folded[0] === '<i class="full">採用できて終わったのも「継続しなかった」という結果だからです。</i>',
     "理由の文が「この図の決まり」に無い（黙って消している）: " + JSON.stringify(s1.folded));
   // 括弧の中の句点では切らず、括弧の中の語（結果待ち）では残さない（点を打たなかった月の列挙は畳む。n<30 で打たないことは見せる）
-  ctx.__FS2 = '<i class="full">決着した件数が 30 件に届かない 12 か月は点を打っていません。その月の率と件数: 2023-02 20.0%（n=5。継続 1・解約 4・充足 0）、' +
-    '2026-10 100.0%（n=8。継続 8・解約 0・充足 0・結果待ち 105）。</i>';
+  ctx.__FS2 = '<i class="full">決着した件数が 30 件に届かない 12 か月は点を打っていません。その月の率と件数: 2023-02 20.0%（5件。継続 1・解約 4・充足 0）、' +
+    '2026-10 100.0%（8件。継続 8・解約 0・充足 0・まだ結果が出ていない 105）。</i>';
   const s2 = run("figRules(__FS2)");
   ok(s2.shown === '<i class="full">決着した件数が 30 件に届かない 12 か月は点を打っていません。</i>', "n<30 で点を打たない文だけを見せていない: " + s2.shown);
-  ok(s2.folded.length === 1 && s2.folded[0].includes("（n=5。継続 1・解約 4・充足 0）、2026-10") && s2.n === 1, "括弧の中の句点で文を切った、または列挙を畳んでいない: " + JSON.stringify(s2.folded));
+  ok(s2.folded.length === 1 && s2.folded[0].includes("（5件。継続 1・解約 4・充足 0）、2026-10") && s2.n === 1, "括弧の中の句点で文を切った、または列挙を畳んでいない: " + JSON.stringify(s2.folded));
   // 文まるごとの太字（<b>…。</b>）も 1 文として切る（次の理由の文とつながって見えたままにしない）
-  ctx.__FS6 = '<i class="full">中空の月は結果待ちが残る月です。<b>確定値と同じには読まないでください。</b>点の下の n は決着した件数です。</i>';
+  ctx.__FS6 = '<i class="full">中空の月はまだ結果が出ていないが残る月です。<b>確定値と同じには読まないでください。</b>点の下の n は決着した件数です。</i>';
   const s6 = run("figRules(__FS6)");
-  ok(s6.shown === '<i class="full">中空の月は結果待ちが残る月です。点の下の n は決着した件数です。</i>' &&
+  ok(s6.shown === '<i class="full">中空の月はまだ結果が出ていないが残る月です。点の下の n は決着した件数です。</i>' &&
      s6.folded[0] === '<i class="full"><b>確定値と同じには読まないでください。</b></i>', "太字の文で切れていない（タグの釣り合いが崩れた）: " + JSON.stringify(s6));
   // 在りかを指すだけの文は、語（結果待ち）が当たっても畳む
-  ctx.__FS7 = '<i class="full">結果待ちは分母に入れていません。点のある月の結果待ちの件数は、図の下の「数字で読む」にあります。</i>';
+  ctx.__FS7 = '<i class="full">まだ結果が出ていない契約は分母に入れていません。点のある月のまだ結果が出ていないの件数は、図の下の「数字で読む」にあります。</i>';
   const s7 = run("figRules(__FS7)");
-  ok(s7.shown === '<i class="full">結果待ちは分母に入れていません。</i>' && s7.n === 1, "在りかを指すだけの文まで見せている: " + s7.shown);
+  ok(s7.shown === '<i class="full">まだ結果が出ていない契約は分母に入れていません。</i>' && s7.n === 1, "在りかを指すだけの文まで見せている: " + s7.shown);
   // 読み違いを防ぐ注意（Zoom の名前の並びがほかの画面と違う）は見せる
   ctx.__FS3 = '<i class="full">上位25名だけ出しています（全 30 名）。</i><i class="full">名前は Zoom に登録された名前のままです。' +
     '人によって「名＋姓」の順で登録されているため、ほかの画面の担当名（姓 名）と並びが違うことがあります。</i>';
@@ -5897,10 +5897,10 @@ check("共通部品: 問いの補足は見出しの直後に残し、他の見�
   ok(h.includes('id="heading" tabindex="-1"') && h.includes('接触を見る</h2><p class="sec-hint muted small">（90日以上・担当の交代）</p>'), "補足か見出しの行き先が変わった");
   ok(run('sec("表", "案件（30日以内）")').includes("案件（30日以内）</h2>"), "問い以外の補足を移している");
 });
-check("共通部品: 読み方は1文目を表示し、母数・除外・少数・未確定・評価の断りは畳まない", () => {
+check("共通部品: 読み方は1文目を表示し、対象・除外・少数・未確定・評価の断りは畳まない", () => {
   const h = run('note("info", "読み方", "90日以内の動きを見ます。比べ方を説明します。")');
   ok(h.includes('<span class="keep">90日以内の動きを見ます。</span>') && h.includes('<p>比べ方を説明します。</p>'), "1文目と残りの分け方が違う");
-  const notes = ["母数は40件です", "3件を外しています", "除外は2件です", "n&lt;30なので比べません", "未確定です", "担当者の評価ではありません", "分母は0です"];
+  const notes = ["対象は40件です", "3件を外しています", "除外は2件です", "30件未満なので比べません", "未確定です", "担当者の評価ではありません", "分母は0です"];
   for (const body of notes) {
     const full = "読み方です。" + body + "。";
     const h = run('note("info", "読み方", ' + JSON.stringify(full) + ')');
@@ -5919,32 +5919,60 @@ check("共通部品: 読み方は1文目を表示し、母数・除外・少数�
   ok(markup.includes('<span class="keep"><b>一文です。</b></span>') && markup.includes('<p><b>二文です。</b>三文です。</p>'), "文をまたぐタグを閉じ直していない");
 });
 check("共通部品: カードの説明全文をHTMLなしのtitleに残す", () => {
-  const h = run('kpi("件数", "40", "<b>母数40件</b><br>n&lt;30・&quot;確認&quot;")');
-  ok(h.includes('title="母数40件 n&lt;30・&quot;確認&quot;"'), "titleがHTMLを含むか、数字や記号が変わった: " + h);
-  ok(h.includes('<b>母数40件</b><br>n&lt;30'), "説明本文が消えている");
+  const h = run('kpi("件数", "40", "<b>対象40件</b><br>30件未満・&quot;確認&quot;")');
+  ok(h.includes('title="対象40件 30件未満・&quot;確認&quot;"'), "titleがHTMLを含むか、数字や記号が変わった: " + h);
+  ok(h.includes('<b>対象40件</b><br>30件未満'), "説明本文が消えている");
 });
-check("共通部品: 名札は赤・山吹・その他の順に2つまで、残りと全文も残す", () => {
-  const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "MTGが90日以上途絶", "NPSが4以下"];
+check("共通部品: 注意は赤・山吹・その他の順に2つまで、残りと全文も残す", () => {
+  const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "MTGが90日以上空いている", "NPSが4以下"];
   const h = run('tags(' + JSON.stringify(flags) + ')');
-  ok(h === run('tagsShort(' + JSON.stringify(flags) + ')'), "名札の表示が共通でない");
+  ok(h === run('tagsShort(' + JSON.stringify(flags) + ')'), "注意の表示が共通でない");
   ok((h.match(/<abbr /g) || []).length === 2 && h.includes('>他2</span>'), "2つと残りの数でない");
-  ok(h.indexOf('>MTG90日以上途絶</abbr>') < h.indexOf('>NPS4以下</abbr>'), "同じ重さの順が変わった");
+  ok(h.indexOf('>MTG90日以上空いている</abbr>') < h.indexOf('>NPS4以下</abbr>'), "同じ重さの順が変わった");
   const more = h.match(/class="tag c more" title="([^"]*)"/)[1];
   for (const f of flags) ok(more.includes(f), "全文が無い: " + f);
   const pair = run('tags(["採用目標の半分に届いていない", "接触が30日以上空いている"])');
   ok(pair.indexOf('>接触30日以上空き</abbr>') < pair.indexOf('>採用目標の半分未満</abbr>') && !pair.includes('>他'), "山吹が先でないか2つでも残りの印が出る");
 });
 
-check("短い文言: 金額のカードを短くしても母数・除外件数・途中の値は開いた本文に残る", () => {
+check("短い文言: 金額のカードを短くしても対象・除外件数・途中の値は開いた本文に残る", () => {
   const h = run("resultsKpis(__RSM)");
   const visible = textOf(h.replace(/<details\b[\s\S]*?<\/details>/g, ""));
-  ok(visible.includes("目標・承諾数あり 345 件（途中）"), "採用目標の母数か途中の断りが隠れている");
-  ok(visible.includes("結果がそろった最新の満了月") && visible.includes("n=60（継続 30・解約 20・充足 10）"), "継続率の母数・内訳が隠れている");
+  ok(visible.includes("目標・承諾数あり 345 件（途中）"), "採用目標の対象か途中の断りが隠れている");
+  ok(visible.includes("結果がそろった最新の満了月") && visible.includes("60件（継続 30・解約 20・充足 10）"), "継続率の対象・内訳が隠れている");
   ok(visible.includes("金額が空の 2 件は足していません") && visible.includes("先月以前に満了日を過ぎてまだ稼働中の 10 件（127万）は入れていません"), "金額から外した件数・金額が隠れている");
   ok(visible.includes("金額が空の 1 件は入れていません") && visible.includes("月額ではありません"), "金額の継続率の除外件数か金額の単位が隠れている");
   const focus = run("renderFocus(__FO)");
   const focusVisible = textOf(focus.replace(/<details\b[\s\S]*?<\/details>/g, ""));
   ok(focusVisible.includes("判定を見送った拠点"), "採用単価の判定対象から外した件数が隠れている");
+});
+
+check("文言: 古い注意の絞り込み値でも新しい注意に一致する", () => {
+  const cases = [
+    ["採用単価が同じ進捗帯の1.5倍以上", "採用単価が同じ進捗の区分の1.5倍以上"],
+    ["満了90日前でMTGが30日以上途絶", "満了90日前でMTGが30日以上空いている"],
+    ["MTGが90日以上途絶", "MTGが90日以上空いている"],
+    ["MTGが60〜89日途絶", "MTGが60〜89日空いている"],
+    ["MTGが30〜59日途絶", "MTGが30〜59日空いている"],
+  ];
+  const saved = run("JSON.stringify(boardFilter)");
+  try {
+    for (const [old, current] of cases) {
+      run("BOARD_URL_STATE.flag.set(" + JSON.stringify(old) + ")");
+      ok(run("boardFilter.flag") === current, "古い値を読み替えていない: " + old);
+      ok(run("BOARD_URL_STATE.flag.get()") === current, "新しい値で保存されない: " + old);
+      ok(run("boardHit({ flag: boardFilter.flag })({ flags: [" + JSON.stringify(current) + "] })"), "新しい注意に一致しない: " + old);
+    }
+    run('BOARD_URL_STATE.flag.set("NPSが4以下")');
+    ok(run("boardFilter.flag") === "NPSが4以下", "変わらない注意も変更した");
+  } finally { run("boardFilter = " + saved); }
+});
+
+check("文言: 見出しの問いを出さず、図の対象件数と範囲を保つ", () => {
+  ok(run('sec("問い", "いま確かめること")') === '<h2 class="sec mincho">いま確かめること</h2>', "問いが残っている");
+  const chart = run('svgBoxH({ rows: [{ label: "架空の区分", med: 10, q1: 5, q3: 15, min: 1, max: 20, n: 107 }] })');
+  ok(chart.includes("107件") && chart.includes("真ん中の値 10") && chart.includes("多くが収まる範囲 5–15"), "値か対象件数が消えている");
+  ok(!/n=|中央値|四分位|箱ひげ/.test(chart), "図に旧い文言が残っている");
 });
 
 Promise.all(pendingChecks).then(() => {
