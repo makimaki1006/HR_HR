@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アポ取りトークの基本</title>
+<style>
+:root{
+  --bg:#f7f7f5;--card:#ffffff;--ink:#1d1d1f;--sub:#5b5b60;--line:#e2e2de;
+  --good:#1f7a4d;--good-bg:#e8f5ee;--bad:#b3261e;--bad-bg:#fdecea;--warn:#8a5a00;--warn-bg:#fff4dc;
+  --accent:#2b5bb5;--accent-bg:#e9effb;--node:#ffffff;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16171a;--card:#202226;--ink:#ececec;--sub:#a5a7ad;--line:#34363c;
+    --good:#6fd39d;--good-bg:#173226;--bad:#ff8a80;--bad-bg:#3a1c1a;--warn:#f2c46b;--warn-bg:#3a2e12;
+    --accent:#8fb2ff;--accent-bg:#1d2a45;--node:#26282d;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16171a;--card:#202226;--ink:#ececec;--sub:#a5a7ad;--line:#34363c;
+  --good:#6fd39d;--good-bg:#173226;--bad:#ff8a80;--bad-bg:#3a1c1a;--warn:#f2c46b;--warn-bg:#3a2e12;
+  --accent:#8fb2ff;--accent-bg:#1d2a45;--node:#26282d;
+}
+*{box-sizing:border-box}
+html,body{overflow-x:hidden}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;line-height:1.75;font-size:16px}
+main{max-width:920px;overflow-wrap:anywhere;margin:0 auto;padding:32px 16px 80px}
+h1{font-size:28px;margin:0 0 6px;line-height:1.35}
+h2{font-size:22px;margin:48px 0 14px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+h3{font-size:18px;margin:26px 0 10px}
+p{margin:8px 0}
+.lead{color:var(--sub);margin:0 0 20px}
+nav{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin:20px 0}
+nav ol{margin:0;padding-left:22px}
+nav a{color:var(--accent);text-decoration:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));gap:12px;margin:16px 0}
+.rule{background:var(--card);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:10px;padding:12px 14px}
+.rule .no{font-size:13px;color:var(--accent);font-weight:700}
+.rule .t{font-size:18px;font-weight:700;margin:2px 0 4px;line-height:1.4}
+.rule .d{font-size:14px;color:var(--sub)}
+/* flow */
+.flow{display:flex;flex-direction:column;align-items:center;gap:0;margin:18px 0}
+.node{background:var(--node);border:2px solid var(--line);border-radius:12px;padding:10px 14px;max-width:560px;width:100%;text-align:center}
+.node small{display:block;color:var(--sub);font-size:13px}
+.node.go{border-color:var(--good)}
+.node.stop{border-color:var(--bad)}
+.node.key{border-color:var(--accent);background:var(--accent-bg)}
+.arrow{width:2px;height:22px;background:var(--sub);position:relative;margin:2px 0 6px}
+.arrow:after{content:"";position:absolute;left:-5px;bottom:-6px;border:6px solid transparent;border-top-color:var(--sub)}
+.branch{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%;max-width:900px}
+.branch .col{display:flex;flex-direction:column;align-items:center}
+.branch .lab{font-size:13px;font-weight:700;margin-bottom:6px;padding:2px 10px;border-radius:999px}
+.lab.g{background:var(--good-bg);color:var(--good)}
+.lab.w{background:var(--warn-bg);color:var(--warn)}
+.lab.b{background:var(--bad-bg);color:var(--bad)}
+@media (max-width:640px){.branch{grid-template-columns:1fr}}
+/* good/bad */
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:10px 0}
+@media (max-width:640px){.pair{grid-template-columns:1fr}}
+.ex{border-radius:10px;padding:12px 14px;font-size:15px}
+.ex.good{background:var(--good-bg);border:1px solid var(--good)}
+.ex.bad{background:var(--bad-bg);border:1px solid var(--bad)}
+.ex .h{font-weight:700;margin-bottom:6px}
+.ex.good .h{color:var(--good)}
+.ex.bad .h{color:var(--bad)}
+.ex p{margin:4px 0}
+.why{font-size:14px;color:var(--sub);margin-top:6px}
+.num{display:inline-block;font-size:13px;font-weight:700;padding:1px 8px;border-radius:6px;background:var(--accent-bg);color:var(--accent);margin-left:4px}
+/* script */
+.script{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 16px 12px;margin:12px 0}
+.line{display:grid;grid-template-columns:52px 1fr;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.line:last-child{border-bottom:none}
+.who{font-size:13px;font-weight:700;color:var(--sub);padding-top:2px}
+.who.me{color:var(--accent)}
+.note{font-size:13px;color:var(--sub)}
+.tip{background:var(--warn-bg);border-radius:10px;padding:10px 14px;margin:10px 0;font-size:15px}
+table{border-collapse:collapse;width:100%;font-size:15px;background:var(--card);border-radius:10px;overflow:hidden}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--accent-bg)}
+.tbl{overflow-x:auto}
+footer{margin-top:48px;font-size:13px;color:var(--sub)}
+</style>
+</head>
+<body>
+<main>
+
+<h1>アポ取りトークの基本</h1>
+<p class="lead">電話で面談の日程(アポ)を取るときの、うまくいく話し方とうまくいかない話し方をまとめたものです。2026年6〜10月の通話 約9,700件を比べて出しました。</p>
+
+<nav>
+<ol>
+<li><a href="#rules">まず覚える4つ</a></li>
+<li><a href="#flow">電話の流れ(フローチャート)</a></li>
+<li><a href="#detail">4つの中身(良い例・悪い例)</a></li>
+<li><a href="#script">場面ごとのトークスクリプト</a></li>
+<li><a href="#ng">やってはいけないこと</a></li>
+<li><a href="#basis">この資料の根拠と限界</a></li>
+</ol>
+</nav>
+
+<h2 id="rules">1. まず覚える4つ</h2>
+<div class="rules">
+  <div class="rule"><div class="no">基本 1</div><div class="t">需要を聞かない</div><div class="d">「今は募集していないですか?」と聞かない。「していない」と言われたら、その後はほぼ取れない。</div></div>
+  <div class="rule"><div class="no">基本 2</div><div class="t">早く日程を出す</div><div class="d">名乗ってから2〜3回のやり取りで「来週の水曜は」と日付を出す。時刻までは決めなくてよい。</div></div>
+  <div class="rule"><div class="no">基本 3</div><div class="t">「忙しい」で引かない</div><div class="d">「その日は無理」と言われたら、別の週・日をもう一度出す。</div></div>
+  <div class="rule"><div class="no">基本 4</div><div class="t">名前で呼ぶ</div><div class="d">受付では「採用のご担当者様」より「〇〇様」。担当者の名前は必ず記録する。</div></div>
+</div>
+<p>この4つは、会社の規模・業界・電話に出た人の役職・何回目の電話か・時間帯・担当者のどれで分けても、同じ向きに効いていました。相手を選ばない「基本の型」です。</p>
+
+<h2 id="flow">2. 電話の流れ</h2>
+<div class="flow">
+  <div class="node">受付が出る<small>「〇〇様いらっしゃいますか」と名前で呼ぶ(基本4)</small></div>
+  <div class="arrow"></div>
+  <div class="node">担当者が出る<small>名乗る。以前に話したことがあれば「前回〇月に〇〇の件でお話しした」と添える</small></div>
+  <div class="arrow"></div>
+  <div class="node key"><b>すぐに日程を出す(基本2)</b><small>「改めてサービスの中身をお伝えしたく、来週の水曜か木曜あたりはいかがですか」</small></div>
+  <div class="arrow"></div>
+  <div class="branch">
+    <div class="col">
+      <div class="lab g">日程の話に乗ってきた</div>
+      <div class="node go">「午後なら」「水曜なら」<small>時刻は先方に選んでもらい、決める</small></div>
+    </div>
+    <div class="col">
+      <div class="lab w">「その日は無理」「忙しい」</div>
+      <div class="node key">別の週・日を出し直す(基本3)<small>「では再来週の火曜あたりは?」<br>理由が変わって断られたら、そこで引く</small></div>
+    </div>
+    <div class="col">
+      <div class="lab b">「今は募集していない」</div>
+      <div class="node stop">ここからはほぼ取れない<small>状況を1つだけ聞いて、丁寧に終える。<br>そもそも言わせない(基本1)</small></div>
+    </div>
+  </div>
+  <div class="arrow"></div>
+  <div class="node go">日程が決まる<small>日付・時刻を復唱し、オンラインの案内(メールアドレス等)へ</small></div>
+</div>
+
+<h2 id="detail">3. 4つの中身</h2>
+
+<h3>基本1 需要を聞かない <span class="num">聞くと −6pt</span></h3>
+<div class="pair">
+  <div class="ex good"><div class="h">良い例</div>
+    <p>「前回お話しした採用の件で、改めてサービスの中身をお伝えしたく、来週の水曜あたりお時間いただけませんか」</p>
+    <p class="note">需要の有無には触れず、日程の話から入る。</p>
+  </div>
+  <div class="ex bad"><div class="h">悪い例</div>
+    <p>「今って募集はされていないですか?」</p>
+    <p>「もう充足されている感じですかね?」</p>
+    <p class="note">先方が「していない」と答えた時点で、その後のアポ率は約1%に落ちる。</p>
+  </div>
+</div>
+<p class="why">なぜ: 「募集していないですか」は、先方に答えやすい「いいえ」を渡します。一度「必要ない」と口にすると、後から言い直しにくくなります。求人を出したまま採用が止まっている会社は多く、需要は面談の中で一緒に整理すれば十分です。2回目以降の電話で聞くと、さらに下がります(1回目 −5pt、2回目 −9pt、3回目以上 −11pt)。</p>
+
+<h3>基本2 早く日程を出す <span class="num">+4pt</span></h3>
+<div class="pair">
+  <div class="ex good"><div class="h">良い例</div>
+    <p>(名乗りのあと、2〜3回のやり取りで)</p>
+    <p>「来週の水曜か木曜あたりはいかがですか」</p>
+    <p class="note">日付(週・曜日)まで出せば十分。時刻は先方に選んでもらう。</p>
+  </div>
+  <div class="ex bad"><div class="h">悪い例</div>
+    <p>サービスの説明を長く続けて、日程の話がなかなか出ない。</p>
+    <p>「一度お話しする機会をいただけませんか」(日付がない)</p>
+  </div>
+</div>
+<p class="why">なぜ: 「来週の水曜は」と聞くと、先方の問いが「会うかどうか」から「いつ会うか」に変わり、先方は手帳を見て答える側に回ります。なお、「明日の10時・11時」のように時刻まで指定しても先方の乗り方は変わらず、アポは少し下がりました(日付だけと比べて −3pt)。</p>
+
+<h3>基本3 「忙しい」で引かない <span class="num">出し直すと +16pt</span></h3>
+<div class="pair">
+  <div class="ex good"><div class="h">良い例</div>
+    <p>先方「来週はちょっと忙しくて」</p>
+    <p>営業「そうですよね。では再来週の火曜か水曜あたりはいかがですか」</p>
+  </div>
+  <div class="ex bad"><div class="h">悪い例</div>
+    <p>先方「来週はちょっと忙しくて」</p>
+    <p>営業「わかりました。ではまた改めてご連絡します」</p>
+    <p class="note">ここで引くと、この通話からのアポはほぼ出ない。</p>
+  </div>
+</div>
+<p class="why">なぜ: 「その日は予定がある」は、会う前提で日程を答えている返事です。断りではなく、乗ってきた合図と読めます。日程を理由にした角の立たない断りも混ざりますが、別の日を出すと見分けられます。本当に都合だけの人は乗ってきます。理由を変えて断る人(「出張で」→「人が休んでいて」など)は本当の断りなので、そこで丁寧に引きます。</p>
+
+<h3>基本4 受付では名前で呼ぶ <span class="num">担当者につながる率 +13pt</span></h3>
+<div class="pair">
+  <div class="ex good"><div class="h">良い例</div>
+    <p>「お世話になっております。リクロジの〇〇です。〇〇様いらっしゃいますか」</p>
+  </div>
+  <div class="ex bad"><div class="h">悪い例</div>
+    <p>「採用のご担当者様はいらっしゃいますか」</p>
+    <p class="note">受付で止まりやすい。</p>
+  </div>
+</div>
+<p class="why">そのために: 担当者と話せたら、名前を HubSpot に必ず残します。以前に話したことがある相手なら、最初の一言で前回の件を出すと担当者につながりやすくなります(+11pt)。受付に「どういったご用件ですか」と聞かれたときは、「前回の続き」と答えても「採用の件」と答えても差はありませんでした。</p>
+
+<h2 id="script">4. 場面ごとのトークスクリプト</h2>
+<p class="note">〇〇は相手の名前・会社名・職種に置き換えます。言い回しは自分の言葉にしてかまいません。順番と「言わないこと」を守ってください。</p>
+
+<h3>A. 受付から担当者へ</h3>
+<div class="script">
+  <div class="line"><div class="who">先方</div><div>はい、〇〇株式会社でございます。</div></div>
+  <div class="line"><div class="who me">営業</div><div>お世話になっております。リクロジの〇〇です。〇〇様いらっしゃいますか。</div></div>
+  <div class="line"><div class="who">先方</div><div>どういったご用件でしょうか。</div></div>
+  <div class="line"><div class="who me">営業</div><div>以前〇〇様と〇〇職の採用の件でお話ししておりまして、その続きでご連絡いたしました。</div></div>
+</div>
+<div class="tip">名前が分からないときだけ「採用のご担当者様」と聞きます。つながったら、名前を必ず聞いて記録します。</div>
+
+<h3>B. 担当者が出たら、すぐ日程へ</h3>
+<div class="script">
+  <div class="line"><div class="who me">営業</div><div>〇〇様、お忙しいところ失礼します。リクロジの〇〇です。前回〇月に〇〇職の採用の件でお話しさせていただきました。</div></div>
+  <div class="line"><div class="who">先方</div><div>ああ、はい。</div></div>
+  <div class="line"><div class="who me">営業</div><div>改めて、弊社の採用サービスの中身を30分ほどでお伝えできればと思いまして。<b>来週の水曜か木曜あたり、ご都合いかがですか。</b></div></div>
+  <div class="line"><div class="who">先方</div><div>木曜なら午後が空いてるかな。</div></div>
+  <div class="line"><div class="who me">営業</div><div>ありがとうございます。午後ですと、何時頃がよろしいですか。</div></div>
+</div>
+<div class="tip">ここで「今は募集されていますか」を挟まない。需要の話は面談の中でします。</div>
+
+<h3>C. 「その日は無理」「忙しい」と言われたら</h3>
+<div class="script">
+  <div class="line"><div class="who">先方</div><div>来週はちょっとバタバタしてて。</div></div>
+  <div class="line"><div class="who me">営業</div><div>そうですよね、失礼しました。<b>では再来週の火曜か水曜あたりはいかがですか。</b></div></div>
+  <div class="line"><div class="who">先方</div><div>再来週なら、水曜の午前かな。</div></div>
+  <div class="line"><div class="who me">営業</div><div>ありがとうございます。では水曜の10時か11時ですと、どちらがよろしいですか。</div></div>
+</div>
+<div class="tip">2回目も断られて、理由が変わった(「忙しい」→「今は考えていない」など)ときは、本当の断りです。「承知しました。またタイミングを見てご連絡します」と丁寧に終えます。</div>
+
+<h3>D. 「何の件ですか」「覚えていない」と言われたら</h3>
+<div class="script">
+  <div class="line"><div class="who">先方</div><div>えーと、何の件でしたっけ。</div></div>
+  <div class="line"><div class="who me">営業</div><div>失礼しました。〇〇職の採用のご支援の件です。求人媒体の選び方から運用までをまとめてお手伝いしているサービスで、中身を一度30分ほどでお伝えできればと。<b>来週のどこかでお時間いただけますか。</b></div></div>
+</div>
+<div class="tip">説明は短く1〜2文で、すぐ日程に戻します。説明を長く続けると、営業電話として断る流れに入りやすくなります。</div>
+
+<h3>E. 「今は募集していない」と言われてしまったら</h3>
+<div class="script">
+  <div class="line"><div class="who">先方</div><div>今は募集してないんですよ。</div></div>
+  <div class="line"><div class="who me">営業</div><div>そうなんですね。ちなみに、次に採用を考えられるのはどのあたりになりそうですか。</div></div>
+  <div class="line"><div class="who">先方</div><div>うーん、来年かな。</div></div>
+  <div class="line"><div class="who me">営業</div><div>承知しました。お忙しいところありがとうございました。またその頃に改めてご連絡させてください。</div></div>
+</div>
+<div class="tip">ここから取れるのは約1%です。何を返してもほとんど変わりませんでした。長く粘るより、次に電話する時期と担当者の名前を聞いて記録し、短く終えます。大事なのは、この返事を引き出さないこと(基本1)です。</div>
+
+<h2 id="ng">5. やってはいけないこと</h2>
+<div class="tbl">
+<table>
+<tr><th>やってしまいがちなこと</th><th>どうなるか</th><th>代わりにすること</th></tr>
+<tr><td>日程の前に「今は募集していないですか」「充足していますか」と聞く</td><td>アポ率 −6pt。「していない」と言われたら約1%</td><td>需要には触れず、日付を出す</td></tr>
+<tr><td>「忙しい」と言われて、すぐ「また改めます」と引く</td><td>出し直した場合より −16pt</td><td>別の週・日をもう1回出す</td></tr>
+<tr><td>サービスの説明を長く続けて、日程を出さない</td><td>日程を出すのが遅いほど下がる</td><td>説明は1〜2文で、2〜3回のやり取りで日付を出す</td></tr>
+<tr><td>「お話しする機会をいただけませんか」と日付なしで頼む</td><td>「会うかどうか」の判断を先方に預けてしまう</td><td>「来週の水曜か木曜は」と日付で聞く</td></tr>
+<tr><td>受付で「採用のご担当者様」と呼ぶ(名前が分かっているのに)</td><td>担当者につながる率 −13pt</td><td>名前で呼ぶ。名前は必ず記録する</td></tr>
+<tr><td>需要を否定された後に、何度も「本当にないですか」と聞き直す</td><td>アポ率 0.6%(否定された後の返し方で最も低い)</td><td>次の時期だけ聞いて、短く終える</td></tr>
+</table>
+</div>
+
+<h2 id="basis">6. この資料の根拠と限界</h2>
+<div class="card">
+<p><b>データ:</b> 2026年6〜10月の架電の文字起こし 9,681件(アポ 621件)と、受付止まりを含む全架電 15,467本。</p>
+<p><b>比べ方:</b> 同じ担当者・同じ段階の通話どうしで、その話し方をした通話としなかった通話のアポ率を比べました。6〜8月と9〜10月の両方で同じ向きに出たものだけを載せています。「+16pt」などはアポ率の差(ポイント)です。</p>
+<p><b>限界:</b> 記録を比べた結果で、話し方を変えれば必ずそうなるという証明ではありません。たとえば、断られそうな相手だと感じて営業が需要を聞いた、という可能性は残ります。確かめるには、一部の担当者で話し方を決めて試す必要があります。</p>
+<p><b>この資料に入れていないもの:</b> どの会社にかけるか(リストの組み方)は別の資料です。「なぜ効くか」の説明は仮説で、測ったものではありません。</p>
+<p><b>詳しい数字:</b> <code>docs/sales_call_analysis/utterance-impact-v1.md</code>、実例は <code>utterance-impact-examples-v1.md</code>。</p>
+</div>
+
+<footer>2026-10-17 作成 / 営業通話分析 v1 より</footer>
+</main>
+</body>
+</html>
