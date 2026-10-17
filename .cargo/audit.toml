@@ -31,4 +31,11 @@ ignore = [
     "RUSTSEC-2026-0195",
     # rand 0.8.5: unsound 警告 (上流依存が 0.8 系を掴んでいるため単独では上げられない)
     "RUSTSEC-2026-0097",
+    # zip 2.4.2 (calamine 0.26.1 / rust_xlsxwriter 0.80 経由): ZipArchive::extract / ZipStreamReader::extract で
+    # 展開先の外へのシンボリックリンク・SUID/SGID 保持・リンク越しの権限変更 (2026-10-17 評価)。
+    # HR_HR は extract を呼ばない (calamine は by_name で読むだけ、rust_xlsxwriter は書くだけ。src に extract の呼び出し無し)。
+    # 解消条件: calamine / rust_xlsxwriter が zip >= 9 を引くようになったら削除する。
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]
