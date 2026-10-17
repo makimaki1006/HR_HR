@@ -16,3 +16,13 @@ it('印ごとの件数は同じ案件の同じ印を重ねず、印のない案�
   expect(countDealReasons([first, second, { ...first, id: '200', reasons: [...first.reasons, ...first.reasons] }])).toEqual({ nps: 2, mtg: 2 });
   expect(countDealReasons([])).toEqual({});
 });
+
+it('初回は目安より少ない案件を先にし、日数の長い順に並べる', async () => {
+  const { firstRows } = await import('./dealBoard.testFixtures');
+  const { sortLaunch, launchLabel } = await import('./dealBoardModel');
+  expect(sortLaunch(firstRows.filter(r => r.first_contract)).map(r => r.id)).toEqual(['103', '100', '101', '104', '102']);
+  expect(firstRows.map(r => launchLabel(r, false))).toEqual(['目安より少ない（あと1件）', '目安どおり', '立ち上がり中', '目安より少ない（あと10件）', '未取得', '目安より少ない（あと10件）']);
+  const missing = firstRows[4];
+  if (!missing) throw new Error('未取得の案件がありません');
+  expect(launchLabel(missing, true)).toBe('集計中');
+});

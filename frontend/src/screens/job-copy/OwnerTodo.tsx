@@ -55,7 +55,7 @@ export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved, onShowList
   const page = Math.min(pages, /^[1-9]\d{0,5}$/.test(requested) ? Number(requested) : 1);
   const start = (page - 1) * PAGE_SIZE;
   const items = selected?.items.slice(start, start + PAGE_SIZE) ?? [];
-  const toggle = (key: string) => { if (open !== `todo_${key}`) onShowList?.(); updateJobCopyQuery({ card: open === `todo_${key}` ? null : `todo_${key}`, todo_page: null, deals_page: null }, 'push'); };
+  const toggle = (key: string) => { if (key === 'first_contract') { updateJobCopyQuery({ view: 'deals', deals_first: 'yes', deals_launch: 'below', deals_reason: null, deals_sort: null, deals_page: null, card: null }, 'push'); return; } if (open !== `todo_${key}`) onShowList?.(); updateJobCopyQuery({ card: open === `todo_${key}` ? null : `todo_${key}`, todo_page: null, deals_page: null }, 'push'); };
   const changePage = (next: number) => { updateJobCopyQuery({ todo_page: next === 1 ? null : String(next) }, 'push'); };
   return <section className="jh-todo" aria-labelledby="jh-todo-title"><h2 id="jh-todo-title">やること</h2><ReportFreshness builtAt={work.facts_built_at} stale={work.facts_stale} refreshing={work.refreshing} /><p className="jh-note">要対応は記録から自動で表示し、条件が解消すると消えます。日付は日本時間、終了した案件は除いています。</p>
     {work.refresh_failed && <p role="status">最新の情報を読み込めなかったため、前回取得した情報を表示しています。</p>}

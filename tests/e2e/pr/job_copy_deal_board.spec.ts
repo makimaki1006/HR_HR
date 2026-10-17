@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { boardFixture, boardRows } from '../../../frontend/src/screens/job-copy/dealBoard.testFixtures';
+import { boardFixture, boardRows, firstRows } from '../../../frontend/src/screens/job-copy/dealBoard.testFixtures';
 import { demoHome } from '../../../frontend/src/screens/job-copy/demoHome';
 import { demoOwnerTodo } from '../../../frontend/src/screens/job-copy/demoOwnerTodo';
 import { login } from './helpers/login';
@@ -107,6 +107,61 @@ test('シート未取得でも案件とHubSpotの値を表示する', async ({ p
   await expect(page.locator('.db-table')).toContainText('未取得');
   await expect(page.locator('.db-table')).toContainText('¥100,000');
   await expect(page.locator('.db-table .nt-reason')).toHaveText('定期NPSが4以下');
+});
+
+
+test('初回案件の立ち上がり・要約・URL・ホームのカード', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, rows: firstRows } }));
+  await page.route('**/api/job-copy/home*', route => route.fulfill({ json: { ...demoHome, work: { ...demoOwnerTodo, signals: firstRows.filter(row => row.first_contract && row.launch.status === 'below').map(row => ({ ...demoOwnerTodo.signals?.[0], id: row.id, name: row.name, reasons: row.reasons })) } } }));
+  await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: { status: 'ready', refresh_failed: false, report: { count: 0, listings: [] } } }));
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capture_bundle: { schemaVersion: 1, jobs: [] }, results: [] } }));
+  await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: { status: 'ready', total: 0, listings: [], deals: [], titles: [] } }));
+  await login(page); await page.goto('/app/job-copy?view=deals&owner=11');
+  await page.getByLabel('初回案件だけ', { exact: true }).check();
+  await expect(page).toHaveURL(/deals_first=yes/);
+  await expect(page.getByText('5件・1 / 1ページ', { exact: true })).toBeVisible();
+  const table = page.locator('.db-table');
+  await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援04');
+  await expect(table).not.toContainText('架空の採用支援06');
+  await expect(table.getByRole('columnheader', { name: '金額', exact: true })).toHaveCount(0);
+  await expect(table.locator('tbody > tr').nth(1)).toContainText('9件目安より少ない（あと1件）');
+  await expect(table.locator('tbody > tr').nth(1)).toContainText('開始から8日目');
+  await expect(table.getByRole('img').nth(1)).toHaveAttribute('aria-label', '1週目 0件、2週目 2件、3週目 1件、4週目 0件、5週目 1件、6週目 0件、7週目 0件、8週目 5件');
+  const summary = page.getByRole('group', { name: '初回案件の応募で絞る' });
+  await expect(summary.getByRole('button')).toHaveText(['初回案件 5件：', '立ち上がり中 1', '目安どおり 1', '目安より少ない 2', '未取得 1']);
+  expect(await page.locator('.db-board').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false);
+  const dir = process.env.BOARD_SCREENSHOT_DIR;
+  if (dir) await page.screenshot({ path: `${dir}/first-contracts-1440.png`, fullPage: true });
+  await summary.getByRole('button', { name: '目安より少ない 2', exact: true }).click();
+  await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();
+  await page.getByRole('group', { name: '要対応の印で絞る' }).getByRole('button', { name: '定期NPSが低い 1', exact: true }).click();
+  await expect(page.getByText('1件・1 / 1ページ', { exact: true })).toBeVisible();
+  await page.getByRole('combobox', { name: 'パイプライン', exact: true }).selectOption('743961896');
+  await expect(table).toContainText('条件に合う案件はありません');
+  await page.goto('/app/job-copy?owner=11');
+  const homeCard = page.getByRole('button', { name: /初回で成果が出ていない/ });
+  await expect(homeCard.locator('.jh-count')).toHaveText('2件');
+  await homeCard.click();
+  await expect(page).toHaveURL(/view=deals/);
+  await expect(page.getByLabel('初回案件だけ', { exact: true })).toBeChecked();
+  await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();
+  if (dir) await page.screenshot({ path: `${dir}/first-from-home-1440.png`, fullPage: true });
+  await page.getByRole('group', { name: '初回案件の応募で絞る' }).getByRole('button', { name: '未取得 1', exact: true }).click();
+  await expect(table.locator('tbody > tr')).toContainText('未取得');
+  await expect(table.locator('tbody > tr')).not.toContainText('0件');
+});
+
+
+test('応募を集計中のときは0件として表示しない', async ({ page }) => {
+  await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, applications_status: 'preparing', rows: firstRows.filter(row => row.launch.status === 'unavailable') } }));
+  await login(page); await page.goto('/app/job-copy?view=deals&owner=11&deals_first=yes');
+  const row = page.locator('.db-table tbody > tr');
+  await expect(row).toContainText('集計中');
+  await expect(row).not.toContainText('0件');
+  await expect(row.getByRole('img')).toHaveCount(0);
 });
 
 test('求人と応募の前回集計をやることと案件一覧に残して日時を表示する', async ({ page }) => {

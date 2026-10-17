@@ -13,8 +13,93 @@ const FIRST_CONTRACT_VALUE: &str = "新規契約";
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub(super) struct Facts {
     pub(super) live: usize,
+    pub(super) unknown_dates: usize,
     // 応募 ID は取引ごとに重複排除してから日付だけを保持する。
     pub(super) days: Vec<NaiveDate>,
+}
+
+/// #244 と案件一覧で共用する初回契約の判定。
+pub(super) fn is_first_contract(record: &Record) -> bool {
+    record.value("contract_type") == Some(FIRST_CONTRACT_VALUE)
+}
+
+#[derive(Serialize, Deserialize, ts_rs::TS)]
+pub(super) struct Launch {
+    start: Option<String>,
+    #[ts(type = "number | null")]
+    elapsed: Option<i64>,
+    #[ts(type = "'warming' | 'on_track' | 'below' | 'unavailable'")]
+    status: String,
+    #[ts(type = "number | null")]
+    total: Option<usize>,
+    #[ts(type = "number | null")]
+    remaining: Option<usize>,
+    first: Option<String>,
+    #[ts(type = "number | null")]
+    first_day: Option<i64>,
+    #[ts(type = "number[] | null")]
+    weeks: Option<Vec<usize>>,
+    #[ts(type = "number | null")]
+    live: Option<usize>,
+}
+
+pub(super) fn launch(record: &Record, facts: Option<&Facts>, today: NaiveDate) -> Launch {
+    let start = record.value("contract_start_date").and_then(date);
+    let elapsed = start.map(|d| (today - d).num_days());
+    let mut result = Launch {
+        start: start.map(|d| d.to_string()),
+        elapsed,
+        status: "unavailable".into(),
+        total: None,
+        remaining: None,
+        first: None,
+        first_day: None,
+        weeks: None,
+        live: facts.map(|f| f.live),
+    };
+    if let (Some(start), Some(age), Some(facts)) = (start, elapsed, facts) {
+        if facts.unknown_dates > 0 {
+            return result;
+        }
+        let days: Vec<_> = facts
+            .days
+            .iter()
+            .filter(|d| **d >= start && **d <= today)
+            .collect();
+        let total = days.len();
+        let target = FIRST_CONTRACT_TARGETS
+            .iter()
+            .rev()
+            .find(|(min, _)| age >= *min)
+            .map(|(_, n)| *n);
+        result.status = match target {
+            None => "warming",
+            Some(n) if total >= n => "on_track",
+            Some(_) => "below",
+        }
+        .into();
+        result.total = Some(total);
+        result.remaining = target.map(|n| n.saturating_sub(total));
+        let first = days.iter().min().copied();
+        result.first = first.map(|d| d.to_string());
+        result.first_day = first.map(|d| (*d - start).num_days() + 1);
+        let mut weeks = vec![
+            0;
+            if age < 0 {
+                0
+            } else {
+                ((age / 7 + 1) as usize).min(8)
+            }
+        ];
+        for day in days {
+            let week = (*day - start).num_days() as usize / 7;
+            if let Some(n) = weeks.get_mut(week) {
+                *n += 1;
+            }
+        }
+        result.weeks = Some(weeks);
+    }
+    result
 }
 
 pub(super) fn reasons(deal: &WorkDeal, facts: Option<&Facts>, today: NaiveDate) -> Vec<Value> {
@@ -57,7 +142,7 @@ pub(super) fn reasons(deal: &WorkDeal, facts: Option<&Facts>, today: NaiveDate) 
             .iter()
             .filter(|d| (0..APPLICATION_DAYS).contains(&(today - **d).num_days()))
             .count();
-        if days >= APPLICATION_DAYS && facts.live > 0 && recent == 0 {
+        if days >= APPLICATION_DAYS && facts.live > 0 && facts.unknown_dates == 0 && recent == 0 {
             add(
                 "stalled",
                 format!(
@@ -66,16 +151,9 @@ pub(super) fn reasons(deal: &WorkDeal, facts: Option<&Facts>, today: NaiveDate) 
                 ),
             );
         }
-        let total = facts
-            .days
-            .iter()
-            .filter(|d| (0..=days).contains(&(today - **d).num_days()))
-            .count();
-        if deal.record.value("contract_type") == Some(FIRST_CONTRACT_VALUE)
-            && FIRST_CONTRACT_TARGETS
-                .iter()
-                .any(|(age, target)| days >= *age && total < *target)
-        {
+        let launch = launch(&deal.record, Some(facts), today);
+        if is_first_contract(&deal.record) && launch.status == "below" {
+            let total = launch.total.unwrap_or(0);
             add(
                 "first_contract",
                 format!("初回契約・開始から {days} 日で応募 {total} 件"),
@@ -154,6 +232,10 @@ fn assemble(
                 .flat_map(|id| applications.get(id).into_iter().flatten())
                 .collect();
             let facts = Facts {
+                unknown_dates: apps
+                    .iter()
+                    .filter(|id| dates.get(**id).copied().flatten().is_none())
+                    .count(),
                 live: listings.iter().filter(|id| live.contains(*id)).count(),
                 days: apps
                     .into_iter()
@@ -206,6 +288,100 @@ mod tests {
             .collect()
     }
     #[test]
+    fn launch_boundaries_unknown_dates_and_shared_contract_filter() {
+        let today = day("2026-10-16");
+        for (age, count, status, remaining) in [
+            (29, 4, "warming", None),
+            (30, 4, "below", Some(1)),
+            (30, 5, "on_track", Some(0)),
+            (59, 4, "below", Some(1)),
+            (59, 5, "on_track", Some(0)),
+            (60, 9, "below", Some(1)),
+            (60, 10, "on_track", Some(0)),
+        ] {
+            let d = deal(age, None, 90);
+            let mut facts = Facts {
+                live: 2,
+                unknown_dates: 0,
+                days: vec![today; count],
+            };
+            facts.days.push(today - chrono::Duration::days(age + 1));
+            facts.days.push(today + chrono::Duration::days(1));
+            let result = launch(&d.record, Some(&facts), today);
+            assert_eq!(
+                (result.status.as_str(), result.total, result.remaining),
+                (status, Some(count), remaining)
+            );
+            assert!(is_first_contract(&d.record));
+            facts.unknown_dates = 1;
+            let result = launch(&d.record, Some(&facts), today);
+            assert_eq!(
+                (result.status.as_str(), result.total, result.weeks),
+                ("unavailable", None, None)
+            );
+            assert!(!kinds(&d, &facts).contains(&"first_contract".into()));
+            assert_eq!(launch(&d.record, None, today).total, None);
+        }
+        let mut d = deal(60, None, 90);
+        for value in ["FS - 再契約", "", "求人追加"] {
+            d.record
+                .properties
+                .insert("contract_type".into(), Some(value.into()));
+            assert!(!is_first_contract(&d.record));
+        }
+        d.record.properties.remove("contract_start_date");
+        assert_eq!(
+            launch(&d.record, Some(&Facts::default()), today).status,
+            "unavailable"
+        );
+    }
+
+    #[test]
+    fn launch_jst_first_day_and_eight_seven_day_weeks() {
+        let today = day("2026-10-16");
+        let d = deal(14, None, 90);
+        let start = today - chrono::Duration::days(14);
+        let parse = |value| {
+            super::super::deal_summary::jst_day(value)
+                .and_then(|s| date(&s))
+                .unwrap()
+        };
+        let facts = Facts {
+            live: 3,
+            unknown_dates: 0,
+            days: vec![
+                parse("2026-10-01T14:59:59Z"),
+                parse("2026-10-01T15:00:00Z"),
+                start + chrono::Duration::days(6),
+                start + chrono::Duration::days(7),
+                start + chrono::Duration::days(13),
+                start + chrono::Duration::days(14),
+            ],
+        };
+        let result = launch(&d.record, Some(&facts), today);
+        assert_eq!(result.total, Some(5));
+        assert_eq!(result.first, Some(start.to_string()));
+        assert_eq!(result.first_day, Some(1));
+        assert_eq!(result.weeks, Some(vec![2, 2, 1]));
+        assert_eq!(
+            launch(&deal(6, None, 90).record, Some(&Facts::default()), today).weeks,
+            Some(vec![0])
+        );
+        let d = deal(60, None, 90);
+        let start = today - chrono::Duration::days(60);
+        let facts = Facts {
+            days: vec![
+                start + chrono::Duration::days(55),
+                start + chrono::Duration::days(56),
+            ],
+            ..Facts::default()
+        };
+        let result = launch(&d.record, Some(&facts), today);
+        assert_eq!(result.total, Some(2));
+        assert_eq!(result.weeks, Some(vec![0, 0, 0, 0, 0, 0, 0, 1]));
+    }
+
+    #[test]
     fn one_application_linked_to_two_listings_counts_once_and_unknown_date_is_not_zero_day() {
         let relations = BTreeMap::from([("1".into(), vec!["10".into(), "20".into()])]);
         let applications = BTreeMap::from([
@@ -224,6 +400,7 @@ mod tests {
             &BTreeSet::from(["10".into()]),
         );
         assert_eq!(facts["1"].live, 1);
+        assert_eq!(facts["1"].unknown_dates, 1);
         assert_eq!(facts["1"].days, [day("2026-10-16"), day("2026-10-01")]);
     }
     #[test]
@@ -260,6 +437,7 @@ mod tests {
     fn stalled_fourteen_calendar_days_and_start_boundary() {
         let today = day("2026-10-16");
         let mut f = Facts {
+            unknown_dates: 0,
             live: 2,
             days: vec![],
         };
@@ -293,6 +471,7 @@ mod tests {
         ] {
             let d = deal(age, Some("2026-10-16"), 61);
             let f = Facts {
+                unknown_dates: 0,
                 live: 1,
                 days: vec![day("2026-10-16"); total],
             };
@@ -304,6 +483,7 @@ mod tests {
         }
         let mut d = deal(60, None, 0);
         let mut f = Facts {
+            unknown_dates: 0,
             live: 1,
             days: vec![],
         };
