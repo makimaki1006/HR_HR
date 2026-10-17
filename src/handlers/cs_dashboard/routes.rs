@@ -2502,6 +2502,12 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
                 json!({
                     "houjin": c.houjin, "name": c.name, "ltv": c.ltv,
                     "deals": c.deal_count, "sites": c.kyoten_unique,
+                    "kigyouzentaininzuu": c.kigyouzentaininzuu,
+                    "monthly_amount_max": c.monthly_amount_max,
+                    "oubo_total": c.oubo_total,
+                    "mensetu_total": c.mensetu_total,
+                    "syoudaku_total": c.syoudaku_total,
+                    "max_renewal_no": c.max_renewal_no,
                     "active": c.active_deal_count, "last_expiration": c.last_expiration,
                     // 注力かどうかと、**なぜ注力なのか**。理由を出さないと絞り込めない
                     "focus": f.any, "focus_why": f.reasons(),
