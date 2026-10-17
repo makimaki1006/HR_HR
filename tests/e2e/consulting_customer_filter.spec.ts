@@ -60,7 +60,9 @@ test('顧客を手元で絞り込み、URLで復元し、結果から法人を�
   await expect(table.locator('tbody tr')).toHaveCount(1);
   await expect(table).toContainText('架空法人あお');
   await expect(results).toContainText('従業員数が入っていない 1 社は外れています');
-  await expect(page.locator('#cs-houjin option')).toHaveCount(2);
+  // 条件に合う1社 + いま開いている法人（条件に合わなくても残す）+ 見出し
+  await expect(page.locator('#cs-houjin option')).toHaveCount(3);
+  await expect(page.locator('#cs-houjin')).toHaveValue('sample-b');
   await expect(page).toHaveURL(/employees=1000.*sites=3/);
   expect(requests).toBe(initialRequests);
   await shot('02-employees-and-sites');

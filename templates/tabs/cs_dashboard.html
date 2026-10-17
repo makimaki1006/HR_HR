@@ -4487,11 +4487,16 @@ function updateCustomerFilterResults() {
 function fillCustomerSelect() {
   const sel = document.getElementById("cs-houjin");
   if (!sel || !customerIndex) return;
+  /* 🔴 いま開いている法人は、条件に合わなくても選択肢に残す（選んだものが消えると戻れない）。
+     🔴 件数で切らない（400件で切っていて選べない法人があった。U8） */
   const list = filterCustomers(customerIndex).rows;
+  const cur = customerHoujin && !list.some((r) => r.houjin === customerHoujin)
+    ? customerIndex.find((r) => r.houjin === customerHoujin) : null;
+  if (cur) list.unshift(cur);
   sel.innerHTML = '<option value="">法人を選ぶ…</option>' + list.map((r) =>
     '<option value="' + esc(r.houjin) + '">' + esc(r.name || r.houjin) +
     '（取引' + num(r.deals) + ' / 拠点' + num(r.sites) + '）' + (r.focus ? '［重点顧客］' : '') + '</option>').join("");
-  sel.value = list.some((r) => r.houjin === customerHoujin) ? customerHoujin : "";
+  sel.value = customerHoujin || "";
 }
 
 /* 注力の内訳（注力だけに絞る操作は focusToggle。画面の頭に置く）。
