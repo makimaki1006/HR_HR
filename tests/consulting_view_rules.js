@@ -1289,7 +1289,7 @@ check("KPI: 最終満了を折り返さない・電話の61件の色をそろえ
 check("担当の交代: 交代のうち稼働中の件数を、全体の「稼働中 N 件」と同じ言葉で書かない", () => {
   const h = run("renderHandover(__HO)");
   ok(!/（稼働中 1 件）/.test(h) && !/うち稼働中の案件 1 件/.test(h), "交代のうち稼働中の件数を「稼働中 N 件」とだけ書いている");
-  ok((textOf(h).match(/案件がいまも稼働中のもの 1 件/g) || []).length === 2, "KPI と末尾で何の件数かを書いていない");
+  ok((textOf(h).match(/案件が稼働中 1 件/g) || []).length === 2, "KPI と末尾で何の件数かを書いていない");
 });
 
 check("いま見るべき顧客: LTV の注記で「拠点が2つ以上ある法人」を続けて2回書かない", () => {
@@ -2208,7 +2208,7 @@ check("言い回し: 「結べた」「結べていない」を画面の文に�
   const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8")
     .replace(/^\s*\/\/.*$/gm, "");
   ok(!/結べ/.test(rs), "サーバ（routes.rs）の文に「結べ」が残っている");
-  ok(run("renderMtgQ(__MQ)").includes("取引に紐づいた"), "MTG の品質の KPI が「取引に紐づいた」でない");
+  ok(run("renderMtgQ(__MQ)").includes("案件に結びついた"), "MTG の品質の KPI が「案件に結びついた」でない");
 });
 
 check("互換: 正規表現の後読みを使わない（Safari 16.4 より前は <script> 全体が構文エラーで動かない）", () => {
@@ -4919,7 +4919,7 @@ check("09 の 6 チームと担当: 担当者 × 状態の表は名前順が既�
     "nps_low", "contact_rate", "per_deal", "focus"]), "列が違う（2 つの接触の列は並べる）: " + cols.map((c) => c[0]).join(","));
   ok(cols.find((c) => c[0] === "contact_rate")[1] === "接触した月の割合" && cols.find((c) => c[0] === "per_deal")[1] === "1件あたりの接触回数",
     "人ごとの接触の2定義が名前で分かれていない: " + JSON.stringify(cols.slice(-2)));
-  ok(textOf(h).includes("「1件あたりの接触回数」は確定した最新の月（2026-07）の値です"), "1件あたりがどの月の値かを書いていない（確定した最新の月 2026-07）");
+  ok(textOf(h).includes("接触回数は確定した最新月（2026-07）の値です"), "1件あたりがどの月の値かを書いていない（確定した最新の月 2026-07）");
   ok(!/ATV|atv_max/.test(h), "人ごとの金額（ATV 最大）が出ている（判断④ 金額は会社全体だけ）");
   ok(textOf(h).includes("人ごとの接触は、定義が2つあります（名前で区別しています）"), "2つの定義の違いを表の直下で言っていない");
 });
@@ -5010,7 +5010,7 @@ check("段B 成果と継続: 手を打つ先の表3つは消し、案件一覧�
   const actLinks = act.match(/<a class="[^"]*" href="[^"]*view=[^"]*">見方「/g) || [];
   ok(actLinks.length === 4 && actLinks.every((a) => a.startsWith('<a class="golink wrap"')), "見方へのリンクが折り返せない（400px で横にはみ出す）");
   ok(/a\.golink\.wrap\{[^}]*white-space:normal/.test(html), "golink wrap の CSS が無い（nowrap のまま）");
-  ok(textOf(act).includes("前の定義から外れた案件は、見方を押すと件数と一覧で出ます"), "外れた案件の行き先を言っていない（黙って消す）");
+  ok(textOf(act).includes("前の条件から外れた案件も、件数と一覧で確かめられます"), "外れた案件の行き先を言っていない（黙って消す）");
   /* 節（成果とリスク・立ち上がり）の表があった場所から、見方へ行ける */
   const body = h.slice(0, h.indexOf('id="rs-act"'));
   ok(body.includes('href="' + run("esc(hashFor('board', { view: 'top' }))") + '"') &&
@@ -5170,7 +5170,7 @@ check("09 の 7 成果と継続: 札（月次の継続率は結果がそろっ�
   /* __RN（上の図の部品の見張り）では 2026-09 が結果がそろって n=60 の最新の月（2026-10 は n=8・2027-01 は n=1） */
   ok(textOf(k).includes("月次の継続率（2026-09 に満了）") && textOf(k).includes("n=60（継続 30・解約 20・充足 10）"),
     "月次の継続率の札が結果のそろった最新の月・分母つきでない: " + textOf(k));
-  ok(textOf(k).includes("採用目標に届いた稼働中の契約") && /目標と承諾数が入っている 345 件のうち/.test(textOf(k)),
+  ok(textOf(k).includes("採用目標に届いた稼働中の契約") && /目標・承諾数あり 345 件（途中）/.test(textOf(k)),
     "採用目標の札に母数が無い: " + textOf(k));
   ok(!/(^|[^0-9.])0\.0%/.test(textOf(k)), "採用目標の札に中央値 0.0% を出している（達成できていないと読める）");
   /* 段B で金額の札を足した（下の見張り）。money の無い応答（古いキャッシュ）では、数えていない金額を出さない */
@@ -5933,6 +5933,18 @@ check("共通部品: 名札は赤・山吹・その他の順に2つまで、残�
   for (const f of flags) ok(more.includes(f), "全文が無い: " + f);
   const pair = run('tags(["採用目標の半分に届いていない", "接触が30日以上空いている"])');
   ok(pair.indexOf('>接触30日以上空き</abbr>') < pair.indexOf('>採用目標の半分未満</abbr>') && !pair.includes('>他'), "山吹が先でないか2つでも残りの印が出る");
+});
+
+check("短い文言: 金額のカードを短くしても母数・除外件数・途中の値は開いた本文に残る", () => {
+  const h = run("resultsKpis(__RSM)");
+  const visible = textOf(h.replace(/<details\b[\s\S]*?<\/details>/g, ""));
+  ok(visible.includes("目標・承諾数あり 345 件（途中）"), "採用目標の母数か途中の断りが隠れている");
+  ok(visible.includes("結果がそろった最新の満了月") && visible.includes("n=60（継続 30・解約 20・充足 10）"), "継続率の母数・内訳が隠れている");
+  ok(visible.includes("金額が空の 2 件は足していません") && visible.includes("先月以前に満了日を過ぎてまだ稼働中の 10 件（127万）は入れていません"), "金額から外した件数・金額が隠れている");
+  ok(visible.includes("金額が空の 1 件は入れていません") && visible.includes("月額ではありません"), "金額の継続率の除外件数か金額の単位が隠れている");
+  const focus = run("renderFocus(__FO)");
+  const focusVisible = textOf(focus.replace(/<details\b[\s\S]*?<\/details>/g, ""));
+  ok(focusVisible.includes("判定を見送った拠点"), "採用単価の判定対象から外した件数が隠れている");
 });
 
 Promise.all(pendingChecks).then(() => {

@@ -51,6 +51,8 @@ test('案件名から詳細へ移動でき、名札と鮮度に条件と全文�
   await page.goto('/consulting#deal/board');
   const table = page.locator('#board-tbl');
   await expect(table).toContainText(row.name);
+  await expect(page.locator('#cs-main h2').first()).toHaveText('問い案件はいまどの状態か');
+  await expect(page.locator('#cs-main h2').first().locator('xpath=following-sibling::*[1]')).not.toHaveClass(/sec-hint/);
   const tags = table.locator('tbody tr').first().locator('.tag');
   await expect(tags).toHaveCount(3);
   await expect(tags.nth(0)).toHaveText('MTG90日以上途絶');
