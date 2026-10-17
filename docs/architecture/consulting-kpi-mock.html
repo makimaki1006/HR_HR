@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>コンサルKPI 見本</title>
+<style>
+:root{
+  --bg:#f6f7f8; --panel:#ffffff; --line:#e3e6e8; --line-soft:#eef0f2;
+  --text:#2b3136; --sub:#5f676e; --faint:#8a9298;
+  --main:#1f6f78; --main-soft:#d7ecee; --main-faint:#eef6f7;
+  --warn:#d9822b; --warn-soft:#f6dcc0; --alert:#c43d3d; --alert-soft:#f3d3d3;
+  --slate:#9aa7b0;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif;font-size:14.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.wrap{max-width:1240px;margin:0 auto;padding:0 32px}
+
+/* 上段 */
+header{background:var(--panel);border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;gap:20px;height:64px}
+.top h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.02em}
+.asof{font-size:13px;color:var(--faint)}
+.top .spacer{flex:1}
+.select{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:14px;background:#fff;cursor:pointer}
+.select .lbl{color:var(--sub)}
+.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 14px;font-size:14px;color:var(--text);cursor:pointer;font-family:inherit}
+.btn:hover{background:var(--main-faint)}
+nav.tabs{display:flex;gap:4px}
+nav.tabs button{border:0;background:none;font:inherit;font-size:15px;padding:12px 18px 13px;color:var(--sub);cursor:pointer;border-bottom:3px solid transparent}
+nav.tabs button.on{color:var(--main);border-bottom-color:var(--main);font-weight:700}
+nav.tabs button:hover{color:var(--text)}
+
+main.wrap{padding:32px 32px 64px}
+.k-val .jc::after,.month .v .jc::after{font-size:13px;margin-left:3px;vertical-align:4px}
+section.tab{display:none}
+section.tab.on{display:block}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 22px 16px}
+.kpi .k-lbl{font-size:14px;color:var(--sub)}
+.kpi .k-val{font-size:34px;font-weight:700;line-height:1.25;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .k-val small{font-size:16px;font-weight:600;margin-left:3px;color:var(--sub)}
+.kpi .k-note{font-size:13px;color:var(--faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.down{color:var(--warn);font-weight:600}
+.up{color:var(--main);font-weight:600}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px 24px}
+.card + .card{margin-top:20px}
+.card-h{display:flex;align-items:baseline;gap:16px;margin-bottom:14px}
+.card-h h2{font-size:17px;margin:0}
+.card-h .hint{font-size:13px;color:var(--faint)}
+.card-h .spacer{flex:1}
+
+/* 凡例 */
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--sub);align-items:center}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend .band{width:4px;height:14px;border-radius:2px}
+
+/* 担当者の表 */
+table{border-collapse:collapse;width:100%}
+.ptable th{font-size:13px;color:var(--sub);font-weight:600;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
+.ptable th.num,.ptable td.num{text-align:right}
+.ptable th .arr{color:var(--main);margin-left:3px}
+.ptable td{padding:0 12px;height:46px;border-bottom:1px solid var(--line-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ptable tbody tr{cursor:pointer;position:relative}
+.ptable tbody tr:hover td{background:var(--main-faint)}
+.ptable td.name{font-weight:600;position:relative;padding-left:20px}
+.ptable td.name::before{content:"";position:absolute;left:4px;top:9px;bottom:9px;width:4px;border-radius:2px;background:transparent}
+.ptable tr.flag-red td.name::before{background:var(--alert)}
+.ptable tr.flag-org td.name::before{background:var(--warn)}
+.stack{display:flex;align-items:center;gap:10px}
+.stack .bar{display:flex;height:12px;border-radius:3px;overflow:hidden;background:var(--line-soft);width:200px}
+.stack .bar span{display:block;height:100%}
+.stack .cnt{width:74px;font-size:14px}
+.stack .cnt b{font-size:15px}
+.stack .cnt em{font-style:normal;color:var(--faint);font-size:12.5px;margin-left:4px}
+.meter{display:flex;align-items:center;gap:10px}
+.meter .bar{width:120px;height:8px;border-radius:4px;background:var(--line-soft);overflow:hidden}
+.meter .bar span{display:block;height:100%;background:var(--main)}
+.meter.low .bar span{background:var(--alert)}
+.meter .pct{width:42px;text-align:right;font-weight:600}
+.meter.low .pct{color:var(--alert)}
+.muted{color:var(--faint)}
+.late{color:var(--warn);font-weight:600}
+
+/* 案件管理リンク */
+.jc{text-decoration:none;border-bottom:1px dotted var(--main);color:var(--main);font-weight:600}
+.jc::after{content:"↗";font-size:.78em;margin-left:2px;opacity:.7}
+.jc:hover{background:var(--main-faint)}
+.jc.plain{color:inherit;border-bottom-color:var(--slate)}
+
+details.defs{margin-top:16px;font-size:13.5px;color:var(--sub)}
+details.defs summary{cursor:pointer;color:var(--main);list-style:none;display:inline-block}
+details.defs summary::before{content:"▸ ";}
+details.defs[open] summary::before{content:"▾ ";}
+details.defs dl{display:grid;grid-template-columns:200px 1fr;gap:6px 20px;margin:12px 0 0;padding:14px 18px;background:var(--bg);border-radius:8px}
+details.defs dt{font-weight:600;color:var(--text)}
+details.defs dd{margin:0}
+
+/* 担当者タブ */
+.p-head{display:flex;align-items:flex-end;gap:20px;margin-bottom:20px}
+.p-head h2{font-size:26px;margin:0}
+.p-head .meta{color:var(--sub);font-size:14px;padding-bottom:4px}
+.p-head .spacer{flex:1}
+.cmp{font-size:13px;color:var(--faint);margin-top:2px;white-space:nowrap}
+.cmp .d{margin-left:6px}
+.marks{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.mark{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;text-decoration:none;background:#fff}
+.mark:hover{border-color:var(--main);background:var(--main-faint)}
+.mark i{width:10px;height:36px;border-radius:3px;flex:none}
+.mark .m-t{font-size:13.5px;color:var(--sub);line-height:1.35}
+.mark .m-n{font-size:24px;font-weight:700;line-height:1.2}
+.mark .m-go{margin-left:auto;font-size:12.5px;color:var(--main);white-space:nowrap}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.mini h3{font-size:15px;margin:0 0 2px}
+.mini .sub{font-size:13px;color:var(--faint);margin-bottom:8px}
+svg text{font-family:inherit}
+.dtable th{font-size:13px;color:var(--sub);font-weight:600;text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.dtable td{padding:0 12px;height:44px;border-bottom:1px solid var(--line-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dtable .num{text-align:right}
+.tag{display:inline-flex;align-items:center;gap:6px;font-size:13.5px}
+.tag i{width:9px;height:9px;border-radius:2px}
+.more{display:inline-block;margin-top:14px;font-weight:600;color:var(--main);text-decoration:none}
+.more:hover{text-decoration:underline}
+
+/* 満了 */
+.months{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+.month{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
+.month .mo{font-size:15px;font-weight:700}
+.month .mo span{font-weight:400;color:var(--faint);font-size:13px;margin-left:8px}
+.month .row{display:flex;gap:28px;margin-top:10px}
+.month .v{font-size:30px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}
+.month .v small{font-size:15px;color:var(--sub);font-weight:600;margin-left:2px}
+.month .l{font-size:13px;color:var(--sub)}
+.month .undec{margin-top:12px;padding-top:12px;border-top:1px solid var(--line-soft);font-size:14px;display:flex;justify-content:space-between}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <h1>コンサルKPI</h1>
+      <span class="asof">10/16 時点</span>
+      <span class="spacer"></span>
+      <span class="select"><span class="lbl">チーム:</span> すべて ▾</span>
+      <button class="btn" type="button">↻ 再読み込み</button>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="team" class="on">チーム</button>
+      <button data-tab="person">担当者</button>
+      <button data-tab="renewal">満了と継続</button>
+      <button data-tab="monthly">月の振り返り</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- 1. チーム -->
+<section class="tab on" id="tab-team">
+  <div class="kpis">
+    <div class="kpi"><div class="k-lbl">稼働中の案件</div><div class="k-val"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">601</a><small>件</small></div><div class="k-note">コンサル 26 人の担当分</div></div>
+    <div class="kpi"><div class="k-lbl">要対応のある案件</div><div class="k-val"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く" id="kpi-need">340</a><small>件</small></div><div class="k-note">全体の 57%</div></div>
+    <div class="kpi"><div class="k-lbl">今月〜再来月の満了</div><div class="k-val"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">320</a><small>件</small> <span style="font-size:22px">2.8</span><small>億円</small></div><div class="k-note">うち継続の見込みが未定 141 件</div></div>
+    <div class="kpi"><div class="k-lbl">先月の継続率</div><div class="k-val">55.7<small>%</small></div><div class="k-note"><span class="down">▼ 5.5 ポイント</span> 前の月より</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-h">
+      <h2>担当者</h2>
+      <span class="hint">行を押すとその人の詳しい画面を開きます</span>
+      <span class="spacer"></span>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="legend" style="margin:-4px 0 10px">
+      <span><i class="band" style="background:var(--alert)"></i>接触した月の割合が 40% 未満</span>
+      <span><i class="band" style="background:var(--warn)"></i>持ち案件の 7 割以上に要対応</span>
+    </div>
+    <table class="ptable" id="ptable">
+      <thead><tr>
+        <th data-k="name">担当者</th>
+        <th data-k="cases" class="num">持ち案件</th>
+        <th data-k="needRatio">要対応</th>
+        <th data-k="contact">接触した月の割合</th>
+        <th data-k="expire" class="num">今月の満了</th>
+        <th data-k="late" class="num">初回の遅れ</th>
+        <th data-k="lastEditDays">最後に求人を直した日</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <details class="defs">
+      <summary>定義を見る</summary>
+      <dl>
+        <dt>要対応</dt><dd>下の 4 つの印のどれかが付いている案件の数。1 件に印が複数あれば、いちばん重いものだけで数えます。</dd>
+        <dt>接触していない</dt><dd>最後の MTG・電話から 30 日を過ぎた案件。</dd>
+        <dt>満了前で継続が未定</dt><dd>満了まで 60 日以内で、継続するかが決まっていない案件。</dd>
+        <dt>求人を直していない</dt><dd>求人の本文・給与・画像を 60 日変えていない案件。</dd>
+        <dt>応募がない</dt><dd>直近 30 日、応募が 1 件もない案件。</dd>
+        <dt>接触した月の割合</dt><dd>持ち案件のうち、今月 MTG か電話を 1 回以上した案件の割合。</dd>
+        <dt>初回の遅れ</dt><dd>契約から 14 日以内に初回の打ち合わせが無い案件の数。</dd>
+        <dt>最後に求人を直した日</dt><dd>持ち案件のどれかの求人を最後に変えた日。</dd>
+        <dt>対象</dt><dd>ハローワークではなく、当社が掲載する求人の契約だけを数えています。</dd>
+      </dl>
+    </details>
+  </div>
+</section>
+
+<!-- 2. 担当者 -->
+<section class="tab" id="tab-person">
+  <div class="p-head">
+    <div>
+      <h2 id="p-name">担当A</h2>
+      <div class="meta" id="p-meta"></div>
+    </div>
+    <span class="spacer"></span>
+    <span class="select"><span class="lbl">担当者:</span> <span id="p-sel">担当A</span> ▾</span>
+  </div>
+  <div class="kpis" id="p-kpis"></div>
+
+  <div class="card">
+    <div class="card-h"><h2>この人の要対応</h2><span class="hint">押すと案件管理で、この人・この印の案件の一覧を開きます</span></div>
+    <div class="marks" id="p-marks"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><h2>直近 12 週の動き</h2></div>
+    <div class="grid3" id="p-charts"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><h2>手当てが要る案件</h2><span class="hint">重い印の順に 8 件</span></div>
+    <table class="dtable" id="p-deals">
+      <thead><tr><th>案件</th><th>印</th><th class="num">満了まで</th><th>最後の接触</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <a class="more" href="#" title="案件管理の該当の一覧を開く" id="p-more">案件管理ですべて見る →</a>
+  </div>
+</section>
+
+<!-- 3. 満了と継続 -->
+<section class="tab" id="tab-renewal">
+  <div class="months">
+    <div class="month">
+      <div class="mo">今月<span>10 月</span></div>
+      <div class="row"><div><div class="v"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">98</a><small>件</small></div><div class="l">満了</div></div><div><div class="v">8,640<small>万円</small></div><div class="l">金額</div></div></div>
+      <div class="undec"><span>継続の見込みが未定</span><a class="jc" href="#" title="案件管理の該当の一覧を開く" style="color:var(--alert);border-bottom-color:var(--alert)">31 件</a></div>
+    </div>
+    <div class="month">
+      <div class="mo">来月<span>11 月</span></div>
+      <div class="row"><div><div class="v"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">112</a><small>件</small></div><div class="l">満了</div></div><div><div class="v">9,820<small>万円</small></div><div class="l">金額</div></div></div>
+      <div class="undec"><span>継続の見込みが未定</span><a class="jc" href="#" title="案件管理の該当の一覧を開く" style="color:var(--warn);border-bottom-color:var(--warn)">52 件</a></div>
+    </div>
+    <div class="month">
+      <div class="mo">再来月<span>12 月</span></div>
+      <div class="row"><div><div class="v"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">110</a><small>件</small></div><div class="l">満了</div></div><div><div class="v">9,540<small>万円</small></div><div class="l">金額</div></div></div>
+      <div class="undec"><span>継続の見込みが未定</span><a class="jc" href="#" title="案件管理の該当の一覧を開く">58 件</a></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><h2>満了が近い案件</h2><span class="hint">今日から 30 日以内・継続の見込みが未定のもの</span><span class="spacer"></span><a class="more" style="margin:0" href="#" title="案件管理の該当の一覧を開く">案件管理ですべて見る →</a></div>
+    <table class="dtable" id="r-soon">
+      <thead><tr><th>満了日</th><th>案件</th><th>担当</th><th class="num">金額</th><th>最後の接触</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><h2>満了を過ぎて動いている契約</h2><span class="hint">更新の手続きが済んでいない可能性があります</span></div>
+    <table class="dtable" id="r-over">
+      <thead><tr><th>満了日</th><th>案件</th><th>担当</th><th class="num">過ぎた日数</th><th>最後の接触</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 4. 月の振り返り -->
+<section class="tab" id="tab-monthly">
+  <div class="card">
+    <div class="card-h"><h2>月ごとの継続率</h2><span class="hint">その月に満了した契約のうち、継続した割合</span><span class="spacer"></span><div class="legend" id="m-legend"></div></div>
+    <div id="m-line"></div>
+  </div>
+  <div class="two" style="margin-top:20px">
+    <div class="card" style="margin:0">
+      <div class="card-h"><h2>継続の回数ごとの解約率</h2><span class="hint">初めての満了がいちばん解約されやすい</span></div>
+      <div id="m-bars"></div>
+    </div>
+    <div class="card" style="margin:0">
+      <div class="card-h"><h2>採用目標に届いた契約</h2><span class="hint">その月に満了した契約のうち、目標人数を採用できた割合</span></div>
+      <div style="display:flex;align-items:baseline;gap:14px;margin:4px 0 8px"><span style="font-size:34px;font-weight:700">38<small style="font-size:16px;color:var(--sub)">%</small></span><span class="cmp">9 月 · <span class="up">▲ 3 ポイント</span> 前の月より</span></div>
+      <div id="m-goal"></div>
+    </div>
+  </div>
+  <details class="defs card" style="margin-top:20px">
+    <summary>記録と数字の信頼度</summary>
+    <dl>
+      <dt>接触の記録</dt><dd>MTG・電話は案件管理に記録されたものだけを数えます。記録のし忘れがあると少なく出ます。</dd>
+      <dt>継続率</dt><dd>満了から 30 日以内に次の契約が入ったら継続。直近の月は手続き中の契約があり、あとで上がることがあります。</dd>
+      <dt>金額</dt><dd>契約の金額（税抜）。途中で金額を変えた契約は最新の金額です。</dd>
+      <dt>採用目標</dt><dd>目標人数が入っていない契約（全体の約 2 割）は数えていません。</dd>
+      <dt>求人の範囲</dt><dd>当社が掲載する求人だけを数えています。全部の求人市場ではありません。</dd>
+    </dl>
+  </details>
+</section>
+
+</main>
+
+<script>
+(function(){
+const C = {main:'#1f6f78', mainSoft:'#d7ecee', warn:'#d9822b', warnSoft:'#f2c596', alert:'#c43d3d', slate:'#9aa7b0', line:'#e3e6e8', sub:'#5f676e', faint:'#8a9298'};
+const KINDS = [
+  {k:'nocontact', t:'接触していない', c:C.alert, w:4},
+  {k:'undecided', t:'満了前で継続が未定', c:C.warn, w:3},
+  {k:'noedit', t:'求人を直していない', c:C.warnSoft, w:2},
+  {k:'noapply', t:'応募がない', c:C.slate, w:1},
+];
+
+// 架空のデータ
+const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+const cases =  [31,28,19,26,22,35,17,24,21,29,18,25,23,20,27,16,30,22,19,24,26,21,18,23,20,17];
+const ratio =  [.48,.62,.81,.45,.55,.74,.39,.58,.66,.42,.35,.71,.52,.60,.47,.88,.50,.63,.44,.57,.69,.41,.78,.53,.46,.64];
+const contact= [72,54,33,78,61,48,82,58,37,75,85,46,66,52,70,29,68,55,80,63,44,77,38,59,73,51];
+const expire = [5,5,3,4,4,6,2,4,3,5,3,4,4,3,5,2,5,4,3,4,4,3,3,4,3,3];
+const late   = [0,1,3,0,1,2,0,1,2,0,0,2,1,1,0,4,0,1,0,1,2,0,3,1,0,1];
+const lastEd = [3,6,41,2,9,15,4,12,28,1,5,19,7,10,3,52,2,11,6,8,23,4,34,9,5,14];
+let mix = function(i){ // 印の比率（人ごとに少し変える）
+  const nc = contact[i] < 40 ? .42 : contact[i] < 55 ? .26 : .12;
+  const ne = lastEd[i] > 25 ? .34 : .18;
+  const un = .28; return [nc, un, ne, Math.max(.08, 1-nc-un-ne)];
+};
+const people = letters.map((L,i)=>{
+  const need = Math.round(cases[i]*ratio[i]);
+  return {i, name:'担当'+L, cases:cases[i], need, contact:contact[i], expire:expire[i], late:late[i], lastEditDays:lastEd[i]};
+});
+// 合計を 340 にそろえる
+let diff = 340 - people.reduce((s,p)=>s+p.need,0);
+people[5].need += diff;
+people.forEach(p=>{
+  const m = mix(p.i); let parts = m.map(x=>Math.floor(x*p.need)); let r = p.need - parts.reduce((a,b)=>a+b,0);
+  for(let j=0;r>0;j=(j+1)%4){parts[j]++;r--;}
+  p.parts = parts; p.needRatio = p.need/p.cases;
+  p.flag = p.contact < 40 ? 'red' : p.needRatio >= .7 ? 'org' : '';
+});
+
+const today = new Date(2026,9,16);
+const md = d => (d.getMonth()+1)+'/'+d.getDate();
+const daysAgo = n => { const d=new Date(today); d.setDate(d.getDate()-n); return d; };
+
+// 凡例
+document.getElementById('legend').innerHTML = KINDS.map(k=>`<span><i style="background:${k.c}"></i>${k.t}</span>`).join('');
+
+// 担当者の表
+let sortKey='needRatio', sortDir=-1;
+function renderTable(){
+  const rows = people.slice().sort((a,b)=>{
+    const x=a[sortKey], y=b[sortKey];
+    if(sortKey==='name') return sortDir*(x<y?-1:x>y?1:0);
+    return sortDir*(x-y);
+  });
+  document.querySelectorAll('#ptable th').forEach(th=>{
+    th.innerHTML = th.textContent.replace(/[▾▴]/g,'') + (th.dataset.k===sortKey?`<span class="arr">${sortDir<0?'▾':'▴'}</span>`:'');
+  });
+  document.querySelector('#ptable tbody').innerHTML = rows.map(p=>{
+    const w = 200 * p.need / 30; // 30 件で満幅
+    const segs = p.parts.map((n,j)=>n?`<span style="width:${(n/p.need*Math.min(w,200)).toFixed(1)}px;background:${KINDS[j].c}" title="${KINDS[j].t} ${n} 件"></span>`:'').join('');
+    return `<tr class="${p.flag?'flag-'+p.flag:''}" data-i="${p.i}">
+      <td class="name">${p.name}</td>
+      <td class="num">${p.cases}</td>
+      <td><div class="stack"><div class="cnt"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く" onclick="event.stopPropagation()"><b>${p.need}</b></a><em>${Math.round(p.needRatio*100)}%</em></div><div class="bar">${segs}</div></div></td>
+      <td><div class="meter ${p.contact<40?'low':''}"><div class="bar"><span style="width:${p.contact}%"></span></div><span class="pct">${p.contact}%</span></div></td>
+      <td class="num">${p.expire}</td>
+      <td class="num">${p.late? `<span class="${p.late>=3?'late':''}">${p.late}</span>` : '<span class="muted">0</span>'}</td>
+      <td>${md(daysAgo(p.lastEditDays))} <span class="muted">（${p.lastEditDays} 日前）</span></td>
+    </tr>`;
+  }).join('');
+  document.querySelectorAll('#ptable tbody tr').forEach(tr=>tr.addEventListener('click',()=>{showPerson(+tr.dataset.i);go('person');}));
+}
+document.querySelectorAll('#ptable th').forEach(th=>th.addEventListener('click',()=>{
+  if(sortKey===th.dataset.k) sortDir*=-1; else {sortKey=th.dataset.k; sortDir= th.dataset.k==='name'?1:-1;}
+  renderTable();
+}));
+renderTable();
+
+// 乱数（人ごとに同じ値）
+function rng(seed){ let s=seed*9301+49297; return ()=>{ s=(s*9301+49297)%233280; return s/233280; }; }
+
+// チーム平均
+const avg = f => people.reduce((s,p)=>s+f(p),0)/people.length;
+const team = {need: avg(p=>p.needRatio*100), contact: avg(p=>p.contact), late: avg(p=>p.late), edits: 0};
+
+const COMPANIES = ['合成運輸','架空製作所','仮名物流','見本食品','試作建設','模型電機','例示介護','想定化学','仮置商事','架空精工','合成フーズ','見本ホーム','試算サービス','仮説工業','模擬クリニック','例題ストア'];
+const JOBS = ['製造スタッフ','ドライバー','介護職','事務','倉庫作業','施工管理','販売スタッフ','調理補助'];
+
+function barChart(vals, color, h=110, w=340, unit=''){
+  const max = Math.max(...vals, 1); const bw = (w-20)/vals.length;
+  let s = `<svg width="100%" viewBox="0 0 ${w} ${h+22}" role="img">`;
+  s += `<line x1="0" y1="${h}" x2="${w}" y2="${h}" stroke="${C.line}"/>`;
+  vals.forEach((v,i)=>{ const bh = (v/max)*(h-18); const x = 10+i*bw+bw*.18;
+    s += `<rect x="${x.toFixed(1)}" y="${(h-bh).toFixed(1)}" width="${(bw*.64).toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${i===vals.length-1?color:color+'99'}"><title>${v}${unit}</title></rect>`; });
+  const last = vals[vals.length-1];
+  s += `<text x="${10+(vals.length-1)*bw+bw/2}" y="${h-(last/max)*(h-18)-5}" text-anchor="middle" font-size="12" font-weight="700" fill="${C.sub}">${last}</text>`;
+  s += `<text x="10" y="${h+16}" font-size="11.5" fill="${C.faint}">12 週前</text><text x="${w-10}" y="${h+16}" text-anchor="end" font-size="11.5" fill="${C.faint}">今週</text>`;
+  return s+'</svg>';
+}
+function lineChart(vals, color, h=110, w=340){
+  const max = Math.max(...vals)*1.15, min=0; const step=(w-20)/(vals.length-1);
+  const pts = vals.map((v,i)=>[10+i*step, h-((v-min)/(max-min))*(h-10)]);
+  let s = `<svg width="100%" viewBox="0 0 ${w} ${h+22}" role="img"><line x1="0" y1="${h}" x2="${w}" y2="${h}" stroke="${C.line}"/>`;
+  s += `<polyline points="${pts.map(p=>p.map(n=>n.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round"/>`;
+  const L = pts[pts.length-1];
+  s += `<circle cx="${L[0]}" cy="${L[1]}" r="3.5" fill="${color}"/><text x="${L[0]-6}" y="${L[1]-8}" text-anchor="end" font-size="12" font-weight="700" fill="${C.sub}">${vals[vals.length-1]}</text>`;
+  s += `<text x="10" y="${h+16}" font-size="11.5" fill="${C.faint}">12 週前</text><text x="${w-10}" y="${h+16}" text-anchor="end" font-size="11.5" fill="${C.faint}">今週</text>`;
+  return s+'</svg>';
+}
+
+function delta(v, base, betterHigh, unit, digits=0){
+  const d = v-base; const good = betterHigh ? d>=0 : d<=0;
+  const txt = (d>=0?'▲ ':'▼ ')+Math.abs(d).toFixed(digits)+unit;
+  return `<span class="d ${good?'up':'down'}">${txt}</span>`;
+}
+
+function showPerson(i){
+  const p = people[i]; const r = rng(i+7);
+  const edits = Math.max(0, Math.round((p.lastEditDays>25?1:6) + r()*6));
+  const teamEdits = 7;
+  document.getElementById('p-name').textContent = p.name;
+  document.getElementById('p-sel').textContent = p.name;
+  document.getElementById('p-meta').innerHTML = `持ち案件 <a class="jc plain" href="#" title="案件管理の該当の一覧を開く">${p.cases} 件</a> · 今月の満了 ${p.expire} 件`;
+  document.getElementById('p-kpis').innerHTML = [
+    ['要対応', `${p.need}<small>件 · 持ち案件の ${Math.round(p.needRatio*100)}%</small>`, `チーム平均 ${Math.round(team.need)}%`, delta(p.needRatio*100, team.need, false, ' pt')],
+    ['接触した月の割合', `${p.contact}<small>%</small>`, `チーム平均 ${Math.round(team.contact)}%`, delta(p.contact, team.contact, true, ' pt')],
+    ['初回の遅れ', `${p.late}<small>件</small>`, `チーム平均 ${team.late.toFixed(1)} 件`, delta(p.late, team.late, false, ' 件', 1)],
+    ['今月直した求人', `${edits}<small>件</small>`, `チーム平均 ${teamEdits} 件`, delta(edits, teamEdits, true, ' 件')],
+  ].map(([l,v,n,d])=>`<div class="kpi"><div class="k-lbl">${l}</div><div class="k-val">${v}</div><div class="cmp">${n}${d}</div></div>`).join('');
+  document.getElementById('p-marks').innerHTML = KINDS.map((k,j)=>`<a class="mark" href="#" title="案件管理の該当の一覧を開く"><i style="background:${k.c}"></i><div><div class="m-t">${k.t}</div><div class="m-n">${p.parts[j]}<small style="font-size:14px;color:var(--sub);font-weight:600"> 件</small></div></div><span class="m-go">一覧 ↗</span></a>`).join('');
+
+  const base = p.contact/10;
+  const mtg = Array.from({length:12},(_,w)=>Math.max(0,Math.round(base*0.9 + r()*4 - (p.contact<40 && w>7 ? 3:0))));
+  const ed = Array.from({length:12},(_,w)=>Math.max(0,Math.round((p.lastEditDays>25 && w>6?0.3:2.5) + r()*3)));
+  let a = 14 + r()*10; const ap = Array.from({length:12},()=>{ a = Math.max(2, a + (r()-0.55)*5); return Math.round(a); });
+  document.getElementById('p-charts').innerHTML =
+    `<div class="mini"><h3>接触（MTG・電話）</h3><div class="sub">週ごとの回数</div>${barChart(mtg, C.main,110,340,' 回')}</div>`+
+    `<div class="mini"><h3>求人を直した数</h3><div class="sub">週ごとの件数</div>${barChart(ed, C.main,110,340,' 件')}</div>`+
+    `<div class="mini"><h3>応募数</h3><div class="sub">持ち案件の合計・週ごと</div>${lineChart(ap, C.main)}</div>`;
+
+  // 案件の短い一覧
+  const deals = [];
+  for(let j=0;j<8;j++){
+    let kind = 0, acc=0, cnt=0; // 重い印から順に並べる
+    for(let q=0;q<4;q++){ if(j < acc + p.parts[q]) {kind=q;break;} acc+=p.parts[q]; kind=3; }
+    const co = COMPANIES[(i*3+j*5)%COMPANIES.length], job = JOBS[(i+j*3)%JOBS.length];
+    const left = kind===1 ? 8+Math.round(r()*45) : 20+Math.round(r()*150);
+    const lc = kind===0 ? 31+Math.round(r()*40) : 3+Math.round(r()*20);
+    deals.push({name:`${co} ${job}`, kind, left, lc});
+  }
+  document.querySelector('#p-deals tbody').innerHTML = deals.map(d=>{
+    const k = KINDS[d.kind];
+    return `<tr><td><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">${d.name}</a></td>
+      <td><span class="tag"><i style="background:${k.c}"></i>${k.t}</span></td>
+      <td class="num">${d.left} 日</td>
+      <td>${md(daysAgo(d.lc))} <span class="${d.lc>30?'late':'muted'}">（${d.lc} 日前）</span></td></tr>`;
+  }).join('');
+}
+showPerson(people.slice().sort((a,b)=>b.needRatio-a.needRatio)[0].i);
+
+// 満了と継続
+(function(){
+  const r = rng(99); const rows=[];
+  for(let j=0;j<10;j++){
+    const d=new Date(today); d.setDate(d.getDate()+2+j*3);
+    const p = people[(j*7+3)%26]; const lc = j%3===0 ? 34+Math.round(r()*20) : 4+Math.round(r()*18);
+    rows.push(`<tr><td>${md(d)}<span class="muted">（あと ${2+j*3} 日）</span></td><td><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">${COMPANIES[(j*5+2)%16]} ${JOBS[j%8]}</a></td><td>${p.name}</td><td class="num">${(60+Math.round(r()*140))*1}万円</td><td>${md(daysAgo(lc))} <span class="${lc>30?'late':'muted'}">（${lc} 日前）</span></td></tr>`);
+  }
+  document.querySelector('#r-soon tbody').innerHTML = rows.join('');
+  const over = [[2,'仮名物流 倉庫作業','担当L',38,'9/8'],[14,'見本食品 調理補助','担当C',21,'9/28'],[9,'架空精工 施工管理','担当P',12,'9/20'],[5,'例示介護 介護職','担当W',4,'10/9']];
+  document.querySelector('#r-over tbody').innerHTML = over.map(o=>`<tr><td>${md(daysAgo(o[3]))}</td><td><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">${o[1]}</a></td><td>${o[2]}</td><td class="num">${o[3]} 日</td><td>${o[4]}</td></tr>`).join('');
+})();
+
+// 月の振り返り
+(function(){
+  const months = ['10月','11月','12月','1月','2月','3月','4月','5月','6月','7月','8月','9月'];
+  const cnt = [63.1,61.8,60.4,64.2,62.0,59.5,60.8,62.6,61.0,63.4,61.2,55.7];
+  const amt = [68.4,66.0,65.1,69.3,67.8,63.2,64.0,66.9,65.5,67.1,64.8,58.9];
+  const w=1160,h=240,pl=44,pr=60,pt=16,pb=30; const lo=50,hi=72;
+  const x = i=>pl+i*(w-pl-pr)/11, y=v=>pt+(hi-v)/(hi-lo)*(h-pt-pb);
+  let s=`<svg width="100%" viewBox="0 0 ${w} ${h}" role="img">`;
+  [50,55,60,65,70].forEach(g=>{ s+=`<line x1="${pl}" x2="${w-pr}" y1="${y(g)}" y2="${y(g)}" stroke="${C.line}" stroke-width="1"/><text x="${pl-8}" y="${y(g)+4}" text-anchor="end" font-size="12" fill="${C.faint}">${g}%</text>`; });
+  months.forEach((m,i)=>{ s+=`<text x="${x(i)}" y="${h-8}" text-anchor="middle" font-size="12" fill="${C.faint}">${m}</text>`; });
+  const line=(vals,col,dash)=>`<polyline points="${vals.map((v,i)=>x(i).toFixed(1)+','+y(v).toFixed(1)).join(' ')}" fill="none" stroke="${col}" stroke-width="2.4" ${dash?'stroke-dasharray="6 4"':''} stroke-linejoin="round"/>`+vals.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="${i===11?4:2.5}" fill="${col}"><title>${months[i]} ${v}%</title></circle>`).join('');
+  s+=line(amt,'#7fa9ae',true)+line(cnt,C.main,false);
+  s+=`<text x="${x(11)+10}" y="${y(cnt[11])+5}" font-size="13" font-weight="700" fill="${C.main}">${cnt[11]}%</text>`;
+  s+=`<text x="${x(11)+10}" y="${y(amt[11])+5}" font-size="13" font-weight="700" fill="#5f8a8f">${amt[11]}%</text>`;
+  document.getElementById('m-line').innerHTML = s+'</svg>';
+  document.getElementById('m-legend').innerHTML = `<span><i style="background:${C.main}"></i>件数で見た継続率</span><span><i style="background:#7fa9ae"></i>金額で見た継続率（点線）</span>`;
+
+  const churn=[['初回の満了',58],['継続 1 回目',45],['継続 2 回目',34],['継続 3 回目',27],['継続 4 回以上',21]];
+  let b=`<svg width="100%" viewBox="0 0 560 230" role="img">`;
+  churn.forEach(([l,v],i)=>{ const yy=12+i*43, bw=v/60*360;
+    b+=`<text x="0" y="${yy+19}" font-size="13.5" fill="${C.sub}">${l}</text><rect x="120" y="${yy+4}" width="360" height="22" rx="3" fill="#f0f2f3"/><rect x="120" y="${yy+4}" width="${bw}" height="22" rx="3" fill="${i===0?C.warn:C.main}"/><text x="${128+bw}" y="${yy+20}" font-size="14" font-weight="700" fill="${C.sub}">${v}%</text>`; });
+  document.getElementById('m-bars').innerHTML = b+'</svg>';
+
+  const goal=[31,34,33,36,35,32,34,37,36,33,35,38];
+  const gm = ['10月','11月','12月','1月','2月','3月','4月','5月','6月','7月','8月','9月'];
+  let g=`<svg width="100%" viewBox="0 0 560 170" role="img"><line x1="0" x2="560" y1="140" y2="140" stroke="${C.line}"/>`;
+  goal.forEach((v,i)=>{ const bh=v/45*120, xx=8+i*46;
+    g+=`<rect x="${xx}" y="${140-bh}" width="28" height="${bh}" rx="2" fill="${i===11?C.main:C.main+'66'}"><title>${gm[i]} ${v}%</title></rect>`;
+    if(i%2===1||i===11) g+=`<text x="${xx+14}" y="160" text-anchor="middle" font-size="11.5" fill="${C.faint}">${gm[i]}</text>`; });
+  g+=`<text x="${8+11*46+14}" y="${140-38/45*120-6}" text-anchor="middle" font-size="12" font-weight="700" fill="${C.sub}">38%</text>`;
+  document.getElementById('m-goal').innerHTML = g+'</svg>';
+})();
+
+// タブ
+function go(t){
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on', b.dataset.tab===t));
+  document.querySelectorAll('section.tab').forEach(s=>s.classList.toggle('on', s.id==='tab-'+t));
+  if(location.hash!=='#'+t) history.replaceState(null,'','#'+t);
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('#tabs button').forEach(b=>b.addEventListener('click',()=>go(b.dataset.tab)));
+document.querySelectorAll('a[href="#"]').forEach(a=>a.addEventListener('click',e=>e.preventDefault()));
+document.addEventListener('click',e=>{ if(e.target.closest('a[href="#"]')) e.preventDefault(); });
+const h = location.hash.slice(1); if(['team','person','renewal','monthly'].includes(h)) go(h);
+})();
+</script>
+</body>
+</html>
