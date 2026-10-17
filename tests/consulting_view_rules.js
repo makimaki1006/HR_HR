@@ -1446,14 +1446,15 @@ check("V12 の残り: 本部アプローチ（成果と継続の rs-hq）を描�
   ok(w.cls.has("more-r"), "成果と継続を描いた後に影を付けていない（rs-hq の表の枠）");
 });
 
-check("V12 の残り: 暗い表示でも枠の端の影が地と見分けられる（明るい表示と同じくらいの差）", () => {
+check("V12 の残り: 常に明るい表示で枠の端の影が地と見分けられる", () => {
   const css = html.split("<style>")[1].split("</style>")[0];
   // 右端の影（::after）と、左に続きがあるときの貼り付けた1列目の影（box-shadow）。左端の帯（::before）は S-12 で外した
   ok(/linear-gradient\(to left, var\(--edge-shade\)/.test(css) && /td:first-child\{\s*box-shadow:[^;]*var\(--edge-shade\)/.test(css),
     "影の色がテーマの値（--edge-shade）でなく固定の色");
-  // 3 か所（明るい :root / prefers-color-scheme:dark / data-theme="dark"）の --panel と --edge-shade を読む
-  const [light, rest] = [css.split("@media (prefers-color-scheme:dark)")[0], css.split("@media (prefers-color-scheme:dark)")[1]];
-  const blocks = [light, rest.split(':root[data-theme="dark"]')[0], rest.split(':root[data-theme="dark"]')[1].split("}")[0]];
+  // 常に使う明るい配色の --panel と --edge-shade を読む
+  const blocks = [css.split(":root{")[1].split("}")[0]];
+  ok(!/@media\s*\(prefers-color-scheme\s*:\s*dark|:root\[data-theme="dark"\]/.test(css), "暗い配色への上書きが残っている");
+  ok(/color-scheme:light/.test(blocks[0]), "入力欄を明るい表示に固定していない");
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const lum = (c) => {
     const f = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
@@ -1807,10 +1808,11 @@ check("100%帯: 細い区間も 2px 以上で描く（最優先の 26 件が線�
   ok(m && +m[1] >= 2, "細い区間の幅 " + (m && m[1]) + " が 2px 未満");
 });
 
-check("暗い表示: 案件を見分ける牡丹・空（--botan/--sora）を暗い地の上で見える色に置き換える（3 か所）", () => {
+check("常に明るい表示: 案件を見分ける牡丹・空（--botan/--sora）は地と 3:1 以上", () => {
   const css = html.split("<style>")[1].split("</style>")[0];
-  const [light, rest] = [css.split("@media (prefers-color-scheme:dark)")[0], css.split("@media (prefers-color-scheme:dark)")[1]];
-  const blocks = [light, rest.split(':root[data-theme="dark"]')[0], rest.split(':root[data-theme="dark"]')[1].split("}")[0]];
+  const blocks = [css.split(":root{")[1].split("}")[0]];
+  ok(!/@media\s*\(prefers-color-scheme\s*:\s*dark|:root\[data-theme="dark"\]/.test(css), "暗い配色への上書きが残っている");
+  ok(/color-scheme:light/.test(blocks[0]), "入力欄を明るい表示に固定していない");
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const lum = (c) => {
     const f = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
@@ -4122,7 +4124,7 @@ check("S-12: 表の1列目を左に貼り付け、行の地の色（縞・ホバ
   const css = html.slice(0, html.indexOf("</style>"));
   ok(/th:first-child, td:first-child\{ position:sticky; left:0; z-index:1; background:var\(--panel\); \}/.test(css),
     "1列目を左に貼り付ける CSS が無い（横に送ると案件名が消える）");
-  ok(/th:first-child\{ z-index:3; background:var\(--panel-3\); \}/.test(css), "左上の角（見出し行の1列目）が上の見出し（z-index:2）の下に潜る");
+  ok(/th:first-child\{ z-index:3; background:var\(--panel-2\); \}/.test(css), "左上の角が他の見出しより手前にない、または見出しの薄い地を持たない");
   ok(/tbody tr:nth-child\(even\) td:first-child\{ background:var\(--panel-2\); \}/.test(css), "縞の行で貼り付けた列の地が行と違う（下の列が透ける）");
   ok(/tbody tr:hover td:first-child\{ background:var\(--ai-soft\); \}/.test(css), "ホバーした行で貼り付けた列だけ色が変わらない");
   ok(/\.scroll-wrap\.more-l th:first-child, \.scroll-wrap\.more-l td:first-child\{\s*box-shadow:/.test(css),
@@ -4386,7 +4388,7 @@ check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ�
     "「色と印の意味」のリンクが題字の行の 1 語（折り返さない flex の項目）でない、または使わなくなった畳みの CSS が残っている");
   ok(/\.tabs\{ display:flex; gap:0; flex-wrap:wrap; margin:0 0 var\(--space-3\);/.test(css), "上のメニューの下の余白が 26px のまま");
   ok(/\.rule-thin\{[^}]*margin:0 0 var\(--space-2\);/.test(css), "二重罫の下の余白が 18px のまま");
-  ok(/\.layout\{ display:grid; grid-template-columns:160px minmax\(0,1fr\);/.test(css), "側柱が 160px でない（M-12）");
+  ok(/\.layout\{ display:grid; grid-template-columns:148px minmax\(0,1fr\);/.test(css), "側柱が 148px でない（M-12）");
   // 母集団の 1 行（popline）は操作列の先頭。畳み方（1 行目は summary）は V1 のまま
   const bar = run('ctlbar(viewOf("deal", "today"), { meta: { source_as_of: "2026-09-27 21:30", source_age_days: 1 }, population: { active: 604, active_all: 703, active_option: 99, deals: 3432, deals_all: 3656, deals_option: 224 } })');
   ok(bar.startsWith('<div class="ctlbar"><details class="popnote fold"><summary>稼働中 <b>604</b>'), "母集団の 1 行が操作列（.ctlbar）の先頭に無い: " + bar.slice(0, 120));
@@ -4399,18 +4401,19 @@ check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ�
   ok(!/\.masthead h1 span/.test(css), "無くなった h1 の中の span の CSS が残っている");
 });
 
-check("M-5: 問い・案件は 24px 明朝（画面の題）、図・表・顧客は 15px ゴシック（部品の題）。sec() の第 1 引数で分ける", () => {
+check("M-5: 問い・案件は 19px ゴシック（画面の題）、図・表・顧客は 15px 太字（部品の題）。sec() の第 1 引数で分ける", () => {
   ok(run('sec("問い", "x")') === '<h2 class="sec mincho"><span class="no">問い</span>x</h2>', "問いの形が変わった（見張り S-2 と同じ形）");
   ok(run('sec("案件", "x")').startsWith('<h2 class="sec mincho">'), "案件の詳細の題（案件 …）が画面の題（mincho）でない");
   for (const no of ["図", "表", "顧客"])
     ok(run("sec(" + JSON.stringify(no) + ", \"x\", \"i1\")") === '<h2 class="sec part" id="i1" tabindex="-1"><span class="no">' + no + "</span>x</h2>",
       no + " の見出しが部品の題（class part）でない、または id / tabindex が付かない: " + run("sec(" + JSON.stringify(no) + ", \"x\", \"i1\")"));
   const css = html.slice(0, html.indexOf("</style>"));
-  ok(/h2\.sec\.mincho\{ font-size:24px;/.test(css), "問いが 24px でない");
+  ok(/h2\.sec\.mincho\{ font-size:19px;/.test(css), "問いが 19px でない");
   ok(/h2\.sec\.part\{ font-size:15px; font-weight:700;/.test(css) && /h2\.sec\.part::after\{ display:none; \}/.test(css),
     "図・表の見出しが 15px ゴシック太字（罫線なし）でない");
-  // 400px では問いを 20px に（24px だと本文幅 368px で 2 行に折れた。2026-09-28 検証）
-  ok(/h2\.sec\.mincho\{ font-size:20px; \}/.test(media600(css).inside.join("\n")), "600px 以下で問いが 20px でない");
+  ok(/h2\.sec\.mincho\{[^}]*font-family:inherit/.test(css), "問いが本文と同じゴシックでない");
+  // 狭い画面でも問いを 19px に保つ
+  ok(/h2\.sec\.mincho\{ font-size:19px; \}/.test(media600(css).inside.join("\n")), "600px 以下で問いが 19px でない");
 });
 
 check("M-5: 決まりごと・読み方の箱を畳む（foldNote）。畳まない 1 文（評価ではありません）は summary に残し、本文で繰り返さない。外した件数を含む箱は畳まない", () => {
@@ -4631,14 +4634,15 @@ check("M-12: 強制カラーで「いま見ている項目」と「まずい KPI
 });
 
 // 🔴 2026-09-29 検証: M-12 の「帯の中の白文字（11.5px）が空色 --sora の上で 3.57:1」が手付かずだった。
-// 空の上の文字だけ --sora-text にする。3 つの色のブロック（明るい・暗い（OS）・暗い（指定））で、塗りの .85 を掛けた空の上で 4.5:1 以上
+// 常に使う明るい配色で、塗りの .85 を掛けた空の上の文字は 4.5:1 以上
 check("M-12: 帯（svgStack）の中の文字は、空（--sora）の上でも 4.5:1 以上（空の上だけ --sora-text）", () => {
   const svg = run('svgStack({ w: 660, parts: [{ label: "空", v: 50, color: C.sora }, { label: "藍", v: 50, color: C.ai }] })');
   const texts = [...svg.matchAll(/<text [^>]*style="fill:([^;]+);font-size:11\.5px/g)].map((x) => x[1]);
   ok(texts.length === 2 && texts[0] === "var(--sora-text)" && texts[1] === "var(--panel)", "空の上の文字が --sora-text でない（藍の上は白のまま）: " + texts);
   const css = html.split("<style>")[1].split("</style>")[0];
-  const [light, rest] = [css.split("@media (prefers-color-scheme:dark)")[0], css.split("@media (prefers-color-scheme:dark)")[1]];
-  const blocks = [light, rest.split(':root[data-theme="dark"]')[0], rest.split(':root[data-theme="dark"]')[1].split("}")[0]];
+  const blocks = [css.split(":root{")[1].split("}")[0]];
+  ok(!/@media\s*\(prefers-color-scheme\s*:\s*dark|:root\[data-theme="dark"\]/.test(css), "暗い配色への上書きが残っている");
+  ok(/color-scheme:light/.test(blocks[0]), "入力欄を明るい表示に固定していない");
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const lum = (c) => {
     const f = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });

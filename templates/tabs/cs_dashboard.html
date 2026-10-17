@@ -6,6 +6,7 @@
 <title>コンサルダッシュボード</title>
 <style>
 :root{
+    color-scheme:light;
     --paper:#f4f6f8; --panel:#ffffff; --panel-2:#fafbfc; --panel-3:#edf0f3;
     --ink:#191a1c; --ink-2:#5b6168;
     /* 🔴 2026-09-22 実測: #8d939a は paper の上で 2.86:1 しかなく、4.5:1 に届いていなかった
@@ -30,7 +31,7 @@
        赤＝まずい・緑＝良い・山吹＝注意の色は使わない。牡丹（赤紫）と空（明るい青）を足す。
        白地で 牡丹 6.2:1 / 空 3.6:1（図形の境界に要る 3:1 以上）
        🔴 M-12（08）: 帯の中の白文字（svgStack、11.5px 太字）は空の上で 3.57:1（塗りの .85 を掛けると 2.89:1）で 4.5:1 に届かない。
-       空の上の文字だけ --sora-text にする（明るい表示は墨で 6.02:1、暗い表示は地の色で 6.62:1。どちらも塗り .85 込みの計算値）。
+       空の上の文字だけ --sora-text にする（墨で 6.02:1。塗り .85 込みの計算値）。
        空そのものは変えない（藍 --ai と見分けるための明るい青。#1f7fb8 に落としても白文字は 4.39:1 で届かない）。
        2026-09-29 時点で空を svgStack に渡している画面は無い（CASE_COLORS は線と積み上げ縦棒だけで、文字を載せない） */
     --botan:#9b3f82;   --sora:#2d8fc9; --sora-text:var(--ink);
@@ -41,7 +42,7 @@
        それでも ink(17.41:1) よりはっきり弱いので、「データより一段落とす」役割は保つ。 */
     --ghost:#616e7d;
     --shadow-card:0 1px 2px rgba(25,26,28,.05), 0 6px 18px -12px rgba(25,26,28,.22);
-    --edge-shade:rgba(0,0,0,.2);   /* 表の枠の端の影（.scroll-wrap）。暗い表示では明るい側に振る */
+    --edge-shade:rgba(0,0,0,.2);   /* 表の枠の端の影（.scroll-wrap）。明るい地との差を保つ */
     /* 間隔。数列の5段と、用途で名付けた1つ。
        space-gap は「カードや図の間」。実測で最多(9箇所)だったので段ではなく用途名にした。
        数列に見せかけて実は7段、という状態が一番読めないため。 */
@@ -66,54 +67,17 @@
        120px  … .wrap の下。ページ末尾の余白で一点物。
        ---------------------------------------------------------------- */
   }
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]){
-      --paper:#15171b; --panel:#1d2026; --panel-2:#1a1d22; --panel-3:#242830;
-      --ink:#e9e6e0; --ink-2:#a3a9b1; --ink-3:#898f96;   /* 3.88:1 → 4.53:1 */
-      --rule:#31353c; --rule-2:#24272d; --rule-strong:#697180;  /* 3.01:1 */
-      --ai:#7fadf0;      --ai-soft:#17243a;
-      --hi:#f18c7f;      --hi-soft:#311d1a;
-      --ki:#e0b063;      --ki-soft:#2c2214;
-      --midori:#5fc79c;  --midori-soft:#112c24;
-      --murasaki:#a294d8;
-      --botan:#e59ad2;   --sora:#5ccbe8; --sora-text:var(--panel);   /* 空の上の文字（svgStack）。6.62:1 */
-      --grid:#2d3138; --ghost:#888f99;   /* 2.69:1 → 4.53:1 */
-      --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
-      --edge-shade:rgba(255,255,255,.14);   /* 表の枠の端の影。下の .scroll-wrap を参照 */
-    }
-  }
-  :root[data-theme="dark"]{
-    --paper:#15171b; --panel:#1d2026; --panel-2:#1a1d22; --panel-3:#242830;
-    --ink:#e9e6e0; --ink-2:#a3a9b1; --ink-3:#898f96;
-    --rule:#31353c; --rule-2:#24272d; --rule-strong:#697180;
-    --ai:#7fadf0;      --ai-soft:#17243a;
-    --hi:#f18c7f;      --hi-soft:#311d1a;
-    --ki:#e0b063;      --ki-soft:#2c2214;
-    --midori:#5fc79c;  --midori-soft:#112c24;
-    --murasaki:#a294d8;
-    --botan:#e59ad2;   --sora:#5ccbe8; --sora-text:var(--panel);
-    --grid:#2d3138; --ghost:#888f99;
-    --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
-    --edge-shade:rgba(255,255,255,.14);
-  }
-
+  /* OS や指定テーマによらず明るい表示。入力欄も同じ配色にそろえる。 */
   *{ box-sizing:border-box; }
   html{ background:var(--paper); }
   body{
     background:var(--paper); color:var(--ink); margin:0;
     font-family:"BIZ UDPGothic","Yu Gothic UI","Yu Gothic","Hiragino Sans","Meiryo",sans-serif;
-    /* 🔴 本文 14px の判断（2026-09-22）
-       UI/UX の規約は「本文は最低 16px」だが、原文は "Minimum 16px body text
-       **on mobile**" で、**スマートフォンを前提にした規約**。
-       この画面は毎朝PCで見るもので、③は14列の表を横に並べる。
-       16px にすると1画面に収まる列が減り、横スクロールが増えて読みにくくなる。
-       行間を 1.85 と広めに取って可読性を補っている。
-       代わりに「いちばん小さい文字」の下限は 11px に上げた（軸ラベル・タグ）。
-       スマートフォンで常用することになったら、ここは見直すこと。 */
-    font-size:14px; line-height:1.85; letter-spacing:.008em;
+    /* PC の表を読みやすい本文 14px・行間 1.6。注記も 12px 以上に保つ。 */
+    font-size:14px; line-height:1.6; letter-spacing:.008em;
     -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
   }
-  /* 見出しだけ明朝にして、図と本文の境目を目で分かるようにする */
+  /* 題字は明朝。本文の見出しは h2.sec.mincho でゴシックにそろえる */
   .mincho{ font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif; }
   .wrap{ max-width:1560px; margin:0 auto; padding:0 26px 120px; }
 
@@ -162,7 +126,7 @@
   .pick input:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
   .pick span{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .count-line b{ color:var(--ink); }
-  .stamp{ font-size:11.5px; color:var(--ink-2); text-align:right; line-height:1.7;
+  .stamp{ font-size:12px; color:var(--ink-2); text-align:right; line-height:1.7;
           font-variant-numeric:tabular-nums; }
   .stamp b{ color:var(--ink); font-weight:600; }
   .rule-thin{ height:3px; border-top:1px solid var(--ink); border-bottom:1px solid var(--rule);
@@ -170,7 +134,7 @@
 
   /* ---------------- 凡例 ---------------- */
   .legend{ display:flex; gap:18px; flex-wrap:wrap; align-items:center;
-           font-size:11.5px; color:var(--ink-2); margin:0 0 var(--space-1); padding:0 0 var(--space-gap); }
+           font-size:12px; color:var(--ink-2); margin:0 0 var(--space-1); padding:0 0 var(--space-gap); }
   .legend i{ font-style:normal; display:inline-flex; align-items:center; gap:6px; }
   .legend b{ width:10px; height:10px; border-radius:2px; display:inline-block; flex:none; }
   /* 色の粒を持たない注記は1行まるごと使う（.figlegend i.full と同じ）。
@@ -194,8 +158,8 @@
   /* ---------------- 上のメニュー1つ ＋ 左のサイドバー ----------------
      上で「案件 / コンサルタント / 集計」を選び、左で中の項目を選ぶ。
      一度に見せる選択肢を減らして、どこを見ているかを分かりやすくする。 */
-  /* 側柱 212px → 160px（M-12）。項目はいちばん長い「担当者ごとの案件」（8 字、約 127px）で、160px に入る。本文が 52px 広がる */
-  .layout{ display:grid; grid-template-columns:160px minmax(0,1fr); gap:26px;
+  /* 側柱は 148px。長い項目名は折り返し、本文の幅を確保する */
+  .layout{ display:grid; grid-template-columns:148px minmax(0,1fr); gap:20px;
            align-items:start; }
   /* 🔴 **position:fixed を使わない。** fixed だと本文に重なって先頭の節が隠れる。
      sticky なら grid の列の中に居座るので、本文の幅を食うだけで重ならない。
@@ -205,12 +169,12 @@
   .side{ position:sticky; top:var(--space-3); align-self:start;
          max-height:calc(100vh - 2 * var(--space-3)); overflow-y:auto;
          border-right:1px solid var(--rule); padding-right:var(--space-3); }
-  .side h2{ font-size:11px; letter-spacing:.14em; color:var(--ink-3);
+  .side h2{ font-size:12px; letter-spacing:.14em; color:var(--ink-3);
             margin:0 0 var(--space-2); font-weight:700; border:none; padding:0; }
   .side ul{ list-style:none; margin:0; padding:0; }
   .side li{ margin:0 0 2px; }
   .side button{ all:unset; box-sizing:border-box; display:block; width:100%;
-    min-height:34px; line-height:1.45; padding:8px var(--space-3);
+    min-height:34px; line-height:1.45; padding:7px var(--space-2);
     border-radius:var(--radius-md); cursor:pointer;
     font-family:inherit; font-size:12.5px; color:var(--ink-2);
     border-left:3px solid transparent; }
@@ -269,9 +233,9 @@
               font-family:"BIZ UDPGothic","Yu Gothic UI",sans-serif; flex:none; }
   h2.sec::after{ content:""; flex:1; height:1px; background:var(--rule); }
   /* 見出しの階層（M-5、2026-09-28 診断）: 問いと個々の図・表が同じ 19px 明朝で、主題と部品が同格に見えていた。
-     問い（画面の題。1 画面に 1 つ）は 24px 明朝、図・表（部品の題）は 15px ゴシック太字＋藍の縦棒（h3.sub と同じ書式）。
+     問い（画面の題。1 画面に 1 つ）は 19px ゴシック、図・表（部品の題）は 15px ゴシック太字＋藍の縦棒（h3.sub と同じ書式）。
      sec() の第 1 引数で分ける。タグは h2 のまま（見出しの並びを見る見張り・枠の読み上げ名 scrollName は H2/H3 を見る） */
-  h2.sec.mincho{ font-size:24px; line-height:1.3; }
+  h2.sec.mincho{ font-size:19px; line-height:1.5; font-family:inherit; letter-spacing:.02em; }
   h2.sec.part{ font-size:15px; font-weight:700; letter-spacing:.03em; line-height:1.4; margin:24px 0 var(--space-2); }
   h2.sec.part::before{ content:""; width:4px; height:15px; background:var(--ai); border-radius:1px; flex:none; align-self:center; }
   h2.sec.part::after{ display:none; }   /* 罫線は問いだけ。部品の題には引かない */
@@ -290,7 +254,7 @@
          border-radius:0 var(--radius-lg) var(--radius-lg) 0; background:var(--panel);
          padding:var(--space-3) var(--space-4); margin:var(--space-gap) 0; font-size:13px; }
   .note .hd{ display:block; font-weight:700; margin-bottom:3px; letter-spacing:.02em; }
-  .note .hd::before{ font-size:11px; margin-right:7px; vertical-align:1px;
+  .note .hd::before{ font-size:12px; margin-right:7px; vertical-align:1px;
                      letter-spacing:.1em; font-weight:700; }
   .note.bad{ border-left-color:var(--hi); background:var(--hi-soft);
              border-color:color-mix(in srgb, var(--hi) 28%, transparent); }
@@ -307,7 +271,8 @@
   .kpis{ display:grid; gap:var(--space-3); margin:var(--space-4) 0 var(--space-1);
          grid-template-columns:repeat(auto-fit,minmax(178px,1fr)); }
   .kpi{ background:var(--panel); border:1px solid var(--rule); border-radius:var(--radius-lg);
-        border-top:3px solid var(--rule); padding:var(--space-3) var(--space-4);
+        border-top:3px solid var(--rule); padding:var(--space-2) var(--space-3);
+        display:flex; flex-direction:column;
         box-shadow:var(--shadow-card); }
   /* 🔴 2026-09-23 統合後の実測（400px）: team の KPI「接触率がいちばん低い」の担当名（英数字の続き
      h96f5a5adf9aa、29px）が箱（中身 144px）に収まらず 263px まで伸び、ページ本体が 486px に広がっていた
@@ -319,15 +284,15 @@
   .kpi .lbl, .kpi .big, .kpi .fine, .kpi .act{ display:block; }
   /* 🔴 2026-09-24 実機（400px）: 「MTG の記録がどちらも無い」の最後の「い」だけが次の行に落ちていた。
      折り返すときは行の長さをそろえる（対応していないブラウザでは今までどおり折り返すだけ） */
-  .kpi .lbl{ color:var(--ink-2); font-size:11.5px; line-height:1.55; letter-spacing:.02em;
-             min-height:2ex; text-wrap:balance; }
+  .kpi .lbl{ color:var(--ink-2); font-size:12px; line-height:1.55; letter-spacing:.02em;
+             min-height:3.1em; text-wrap:balance; }
   .kpi .big{ font-size:29px; font-weight:700; line-height:1.24; letter-spacing:-.018em;
              font-variant-numeric:tabular-nums; margin-top:2px; }
   .kpi .big .u{ display:inline; }
   .kpi .big .u{ font-size:14px; font-weight:600; color:var(--ink-2); margin-left:2px;
                 letter-spacing:0; }
-  .kpi .fine{ color:var(--ink-2); font-size:11.5px; line-height:1.6; margin-top:3px;
-              min-height:1.6em; }
+  .kpi .fine{ color:var(--ink-2); font-size:12px; line-height:1.6; margin-top:3px;
+              min-height:1.6em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .kpi .big.sm{ font-size:19px; letter-spacing:0; }
   /* 日付の KPI。29px のままだと 178px の枠で「2027-02-」「28」と折り返す（2026-09-23 実機） */
   .kpi.is-date .big{ font-size:21px; letter-spacing:0; white-space:nowrap; }
@@ -347,7 +312,7 @@
   button.kpi{ transition:transform .12s ease, border-color .12s ease; }
   button.kpi[aria-pressed="true"]{ border-color:var(--ai); background:var(--ai-soft);
                                    box-shadow:inset 0 0 0 1px var(--ai); }
-  button.kpi .act{ display:block; font-size:11px; color:var(--ai); margin-top:5px;
+  button.kpi .act{ display:block; font-size:12px; color:var(--ai); margin-top:auto; padding-top:4px;
                    letter-spacing:.02em; }
 
   /* ---------------- 図 ---------------- */
@@ -356,7 +321,7 @@
               padding:var(--space-3) var(--space-4); box-shadow:var(--shadow-card); }
   figure.fig > figcaption{ font-size:12.5px; font-weight:700; letter-spacing:.03em;
               margin:0 0 2px; display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; }
-  figure.fig > figcaption .hint{ font-weight:400; color:var(--ink-2); font-size:11.5px;
+  figure.fig > figcaption .hint{ font-weight:400; color:var(--ink-2); font-size:12px;
               letter-spacing:0; }
   /* 図の題（figTitles が h2「図 …」を図の中へ入れたもの。M-5 の (a)）。部品の題（h2.sec.part）と同じ 15px ゴシック太字＋藍の縦棒。
      その下の 1 行が、前の figcaption の文（何を描いたか）と hint */
@@ -367,7 +332,7 @@
   figure.fig:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
   /* 図の注記のうち、取り決め・描き方の段落（figRules が畳んだもの）。省略した名前の全文（figfull）と同じ見え方 */
   details.fold.figrule{ margin:var(--space-1) 0 0; }
-  details.fold.figrule > summary{ font-weight:400; font-size:11.5px; }
+  details.fold.figrule > summary{ font-weight:400; font-size:12px; }
   details.fold.figrule > .figlegend{ border-top:none; margin-top:var(--space-1); padding-top:0; }
   /* 数字と単位（「6.7倍」「12 件」）を行の途中で割らない（fig() の keepNum が包む） */
   figure.fig > figcaption .hint .nw{ white-space:nowrap; }
@@ -391,7 +356,7 @@
      枠の幅（100cqw）と --minw の差で高さを 0 か 1 行にする（差が正なら 999 倍して上限で止まる）。
      cqw を読めないブラウザでは高さの指定ごと無効になり、案内は常に出る（出ないよりよい） */
   figure.fig{ container-type:inline-size; }
-  .figscroll{ font-size:11px; line-height:20px; color:var(--ink-2); overflow:hidden;
+  .figscroll{ font-size:12px; line-height:20px; color:var(--ink-2); overflow:hidden;
               height:clamp(0px, calc((var(--minw, 0px) - 100cqw) * 999), 20px); }
   /* 🔴 2026-09-23 レビュー F1: 描いた後は、枠が実際にはみ出しているか（scrollWidth > clientWidth）で
      決め直す（markFig が fig-measured / fig-over を付け外しする）。tabindex・読み上げ名と同じ条件にそろえる。
@@ -403,13 +368,13 @@
   /* 切った左のラベルの全文（fig の <details class="fold figfull">）。ふだんは1行に畳む。
      枠付きの details（既定）にすると図の下に大きな箱が出て本文より目立つので、fold（枠なし）に乗せる */
   details.fold.figfull{ margin:var(--space-1) 0 0; }
-  details.fold.figfull > summary{ font-weight:400; font-size:11.5px; }
-  .figfull ul{ margin:var(--space-1) 0 0; padding-left:1.4em; line-height:1.7; font-size:11.5px; color:var(--ink-2); }
+  details.fold.figfull > summary{ font-weight:400; font-size:12px; }
+  .figfull ul{ margin:var(--space-1) 0 0; padding-left:1.4em; line-height:1.7; font-size:12px; color:var(--ink-2); }
   /* 図の数値の一覧（fig の figSay。段2 M-11）。読み上げ用は ul.sr（面積を取らない）、目で見る用は畳み「数字で読む」。
      省略した名前の全文（figfull）と同じ見え方。長い一覧（横棒 30 本・月 24 か月）は 22em の段に流す */
   details.fold.figsay{ margin:var(--space-1) 0 0; }
-  details.fold.figsay > summary{ font-weight:400; font-size:11.5px; }
-  .figsay ul{ margin:var(--space-1) 0 0; padding-left:1.4em; line-height:1.7; font-size:11.5px; color:var(--ink-2);
+  details.fold.figsay > summary{ font-weight:400; font-size:12px; }
+  .figsay ul{ margin:var(--space-1) 0 0; padding-left:1.4em; line-height:1.7; font-size:12px; color:var(--ink-2);
               columns:auto 22em; column-gap:var(--space-gap); }
   .figsay li{ break-inside:avoid; overflow-wrap:anywhere; }
   /* 帯を縦に積む図・時間軸の図の左のラベルを、横にスクロールしても左に残す（stickyLabels）。
@@ -421,19 +386,17 @@
   figure.fig .stickwrap > svg.sticklab{ position:sticky; left:0; z-index:1; width:var(--lw); pointer-events:none; }
   .sticklab text{ paint-order:stroke; stroke:var(--panel); stroke-width:4px; stroke-linejoin:round; }
   figure.fig .stickwrap > svg.stickmain{ width:100%; margin-left:calc(-1 * var(--lw)); }
-  .figlegend{ display:flex; gap:var(--space-gap); flex-wrap:wrap; font-size:11px; color:var(--ink-2);
+  .figlegend{ display:flex; gap:var(--space-gap); flex-wrap:wrap; font-size:12px; color:var(--ink-2);
               margin-top:7px; padding-top:7px; border-top:1px solid var(--rule-2); }
   .figlegend i{ font-style:normal; display:inline-flex; align-items:center; gap:5px; }
   /* 色の粒を持たない「注記」は、列に混ぜると途中で折れて読めない。1行まるごと使わせる */
   .figlegend i.full{ flex:1 0 100%; display:block; line-height:1.7; }
   .figlegend svg{ display:inline-block; vertical-align:-2px; }
   /* 図の中の文字。SVG は fill でしか色が付かないので style で var() を渡す */
-  /* 🔴 2026-09-22: 10px だった。軸のラベルは読ませる情報（月・件数・母数）なので、
-     いちばん小さい文字の下限を 11px に上げた。本文14px・表12.5px は据え置き
-     （理由は body の注記に書いた）。 */
-  .ax{ font-size:11px; fill:var(--ink-3); font-variant-numeric:tabular-nums; }
-  .axl{ font-size:11px; fill:var(--ink-2); }
-  .vl{ font-size:11px; fill:var(--ink); font-variant-numeric:tabular-nums;
+  /* 軸のラベルも読ませる情報（月・件数・母数）なので、注記と同じ下限 12px を保つ。 */
+  .ax{ font-size:12px; fill:var(--ink-3); font-variant-numeric:tabular-nums; }
+  .axl{ font-size:12px; fill:var(--ink-2); }
+  .vl{ font-size:12px; fill:var(--ink); font-variant-numeric:tabular-nums;
        font-weight:600; }
   .gridline{ stroke:var(--grid); stroke-width:1; }
   .axisline{ stroke:var(--rule); stroke-width:1; }
@@ -443,13 +406,13 @@
            border:1px solid var(--rule); border-radius:var(--radius-lg); background:var(--panel);
            box-shadow:var(--shadow-card); }
   table{ border-collapse:separate; border-spacing:0; width:max-content; max-width:none;
-         font-size:12.5px; }
+         font-size:13px; }
   /* 枠より表が狭いときは枠いっぱいに伸ばす（右に地が余ると別の箱に見える）。
      枠より広いときは max-content のまま横スクロールさせる */
   .scroll>table{ width:100%; min-width:max-content; }
-  th,td{ padding:var(--space-2) var(--space-3); text-align:left; white-space:nowrap;
+  th,td{ height:38px; padding:7px var(--space-3); text-align:left; white-space:nowrap;
          border-bottom:1px solid var(--rule-2); }
-  th{ background:var(--panel-3); font-weight:700; font-size:11.5px; color:var(--ink-2);
+  th{ background:var(--panel-2); font-weight:700; font-size:13px; color:var(--ink-2);
       position:sticky; top:0; z-index:2; letter-spacing:.03em;
       border-bottom:1px solid var(--rule); }
   /* 🔴 2026-09-22 実測: 並び替えを th の onclick でやっていたので、キーボードでは
@@ -458,7 +421,7 @@
      button は見た目を持たず th いっぱいに広がるので、押せる範囲は変わらない。 */
   th.sortable{ padding:0; }
   th button.sort{ all:unset; display:block; width:100%; box-sizing:border-box;
-      padding:var(--space-2) var(--space-3); cursor:pointer; text-align:left;
+      min-height:38px; padding:7px var(--space-3); cursor:pointer; text-align:left;
       font:inherit; color:inherit; letter-spacing:inherit; white-space:nowrap; }
   th.n button.sort{ text-align:right; }
   th button.sort:hover{ color:var(--ai); }
@@ -478,7 +441,7 @@
      行の地の色（縞・ホバー）を貼り付けた列にも持たせる。透明のままだと下を流れる列が透けて読めない。
      th は上（top:0、z-index:2）にも貼り付いているので、左上の角はその上（z-index:3）に置く */
   th:first-child, td:first-child{ position:sticky; left:0; z-index:1; background:var(--panel); }
-  th:first-child{ z-index:3; background:var(--panel-3); }
+  th:first-child{ z-index:3; background:var(--panel-2); }
   tbody tr:nth-child(even) td:first-child{ background:var(--panel-2); }
   tbody tr:hover td:first-child{ background:var(--ai-soft); }
   /* 横に送っている間（more-l）は貼り付けた列の右端に影を落とし、その下に列が隠れていることを示す */
@@ -498,7 +461,7 @@
      24em では 24 行中 11 行を 3 段に折り、1 行 54px → 73px に戻った。25.5em で先頭行 73px・残り 54px（直す前と同じ）、
      表の幅は 1,149px のまま枠に収まる。26em では 1,153px になり枠から 4px はみ出す（いずれも fixture 1440px 実測） */
   td.wf{ white-space:normal; min-width:14em; max-width:25.5em; line-height:1.5; overflow-wrap:anywhere; }
-  .tag.c{ padding:0 5px; margin-right:2px; line-height:1.4; }
+  .tag.c{ padding:0 5px; margin-right:2px; line-height:18px; }
   /* 短い名札は <abbr>（正式な名札を title に）。UA の点線の下線は枡の枠と重なるので消す */
   abbr.tag{ text-decoration:none; }
   /* 契約の系列の表（custBlocks の deals）は11列あり、1440px の本文 1,117px にちょうど収まるだけで余白が無かった。
@@ -507,7 +470,7 @@
   table.ser td.wl{ max-width:15em; }
   table.ser td.ws{ max-width:8em; }
   tr.clickable{ cursor:pointer; }
-  caption{ caption-side:bottom; text-align:left; padding:var(--space-2) var(--space-3); font-size:11.5px;
+  caption{ caption-side:bottom; text-align:left; padding:var(--space-2) var(--space-3); font-size:12px;
            color:var(--ink-2); }
 
   /* ---------------- 小物 ---------------- */
@@ -521,18 +484,18 @@
   .ctl input[type=search]{ min-width:230px; }
   .ctl input:focus-visible, .ctl select:focus-visible{ outline:2px solid var(--ai);
     outline-offset:1px; }
-  .tag{ display:inline-block; font-size:11px; padding:1px var(--space-2); border-radius:var(--radius-pill);
+  .tag{ display:inline-block; font-size:12px; line-height:18px; padding:0 6px; border-radius:var(--radius-pill);
         border:1px solid var(--rule); margin-right:var(--space-1); white-space:nowrap;
-        color:var(--ink-2); letter-spacing:.02em; }
-  .tag.m{ color:var(--midori); border-color:var(--midori); }
-  .tag.s{ color:var(--ki); border-color:var(--ki); }
-  .tag.e{ background:var(--ai-soft); color:var(--ai); border-color:var(--ai); }
+        color:var(--ink-2); background:var(--panel-3); letter-spacing:.02em; }
+  .tag.m{ color:var(--midori); background:var(--midori-soft); }
+  .tag.s{ color:var(--ki); background:var(--ki-soft); }
+  .tag.e{ background:var(--ai-soft); color:var(--ai); }
   .tag.d{ color:var(--ghost); border-style:dashed; }
   .muted{ color:var(--ink-2); } .small{ font-size:12px; }
   /* 原文の引用。読ませるが、こちらの主張ではないので一段落とす */
   .quote{ color:var(--ink-2); font-size:12px; line-height:1.7; }
   /* 表の行から③顧客詳細へ。セル全体を押せるようにすると誤爆するのでボタンで */
-  .lnk{ font:inherit; font-size:11.5px; color:var(--ai); background:var(--ai-soft);
+  .lnk{ font:inherit; font-size:12px; color:var(--ai); background:var(--ai-soft);
         border:1px solid var(--ai); border-radius:var(--radius-pill);
         padding:1px var(--space-2); cursor:pointer; white-space:nowrap; }
   .lnk:hover{ background:var(--ai); color:var(--panel); }
@@ -566,7 +529,7 @@
   .dn{ color:var(--midori); font-weight:700; }  /* 改善 */
   /* 🔴 inline のままだと枠が 10.5px の em ボックスに張り付き、日本語グリフが
      はみ出して取り消し線のように見える。inline-block + 行高で箱を作る */
-  .dummy{ display:inline-block; color:var(--ghost); font-size:11px;
+  .dummy{ display:inline-block; color:var(--ghost); font-size:12px;
           border:1px dashed var(--ghost); border-radius:3px;
           padding:0 5px; line-height:1.6; vertical-align:baseline;
           white-space:nowrap; }
@@ -696,7 +659,8 @@ a.skip:focus{ top:var(--space-2); outline:none; }
    開けば全文が読める。 */
 details.fold{ margin:0 0 var(--space-2); border:none; border-radius:0; padding:0; background:none; }
 details.fold[open]{ padding-bottom:0; }
-details.fold > summary{ padding:3px 0; font-size:12px; font-weight:600; color:var(--ai); }
+details.fold > summary{ padding:2px 0; min-height:24px; font-size:12px; font-weight:400; color:var(--ai);
+  text-decoration:underline; text-underline-offset:3px; }
 details.fold > summary b{ color:var(--ink); }
 /* summary の文を開閉で切り替える（「表を開く」→「表を閉じる」）。2026-09-28 検証: 開いた後も「表を開く」のままで、
    状態は▸の向きだけで伝わっていた。JS で書き換えず、[open] で見せる方を替える（描き直しても崩れない） */
@@ -746,7 +710,7 @@ details.fold.notefold > .note{ margin:var(--space-2) 0 0; }
    「案件そのもの」は表の幅 2,944px ÷ 枠 1,119px で横にも続く。なのに
    **残りがあることを示すものが何も無く**、右端の列が切れて見えていた。
    枠の上に「全 N 行 × M 列・枠の中でスクロール」を必ず出す。 */
-.scroll-cap{ font-size:11.5px; color:var(--ink-2); margin:var(--space-3) 0 calc(-1 * var(--space-2));
+.scroll-cap{ font-size:12px; color:var(--ink-2); margin:var(--space-3) 0 calc(-1 * var(--space-2));
              font-variant-numeric:tabular-nums; }
 .scroll-cap b{ color:var(--ink); }
 /* 枠の案内（scroll-cap）と決まりごとの畳みを 1 行に並べる（今日動く先。scroll() の side）。
@@ -769,10 +733,7 @@ details.fold.notefold > .note{ margin:var(--space-2) 0 0; }
    右端の列が切れて見えるだけで続きがあると分からなかった。
    横にまだ続きがある側にだけ影を出す（more-r / more-l は markScroll が付け外しする）。
    影は枠（.scroll）の外側の包み（.scroll-wrap）に描く。.scroll の中に描くと表と一緒に流れる。
-   🔴 影の色を rgba(0,0,0,.2) の固定にしていて、暗い表示の枠の地 #1d2026 の上では
-      20% の黒を重ねても約 rgb(23,26,30) で、地との差がほとんど無かった（2026-09-23 検証、
-      prefers-color-scheme: dark の Playwright）。色は --edge-shade にして、暗い表示では
-      14% の白（重ねると約 rgb(61,63,68)）にする
+   影の色は --edge-shade を使う。常に明るい表示で、白地と見分けられる 20% の黒を重ねる。
    🔴 左端の帯（::before）は S-12 で1列目を貼り付けたときに外した。貼り付いた列は隠れていないのに、
       その上に「下に列が隠れている」印が乗り、しかも見出しのセル（z-index:3）にだけ乗らなかった
       （2026-09-28 検証: 1440px・400px とも scrollLeft=300 で td の左端の画素 (221,221,221)、同じ列の th は地のまま）。
@@ -789,7 +750,7 @@ details.fold.notefold > .note{ margin:var(--space-2) 0 0; }
 .scroll > table.prose{ min-width:0; }
 table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
 /* 母数が小さい行の印（V15）。値は消さずに一段落とす */
-.tag.few{ color:var(--ki); border-color:var(--ki); }
+.tag.few{ color:var(--ki); background:var(--ki-soft); }
 
 /* 狭い画面（V1 / V17）。
    🔴 2026-09-23 実測: 400px幅で本題の見出しが y=837、「法人番号で見る」は
@@ -800,8 +761,8 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   .masthead{ gap:var(--space-1) var(--space-3); }
   .masthead h1{ font-size:16px; }
   /* 問い（24px）は 400px の本文幅（368px）で 2 行に折れる（2026-09-28 検証: 「今日・今週、どこに連絡す／るか」）。20px にする */
-  h2.sec.mincho{ font-size:20px; }
-  h2.sec.mincho.mid{ font-size:17px; }
+  h2.sec.mincho{ font-size:19px; }
+  h2.sec.mincho.mid{ font-size:18px; }
   .tabs button{ padding:8px 12px 7px; }
   /* 🔴 横スクロールに逃がすと3〜4個目が画面の外に出て、あることに気づけない。折り返す
      （2026-09-29: ul は下で display:contents にするのでこの指定は効いていない。メニューの行は .side が横に送り、端の影で続きを示す） */
@@ -827,7 +788,7 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   .sidegrp{ display:flex; flex-wrap:nowrap; flex:none; align-items:center; column-gap:var(--space-1); }
   /* 行の外にある区切りの名前（sideHints）。行の端に貼り付け（sticky）、下の項目の上に地の色で重ねる。2 つなら 2 行（行の高さ 44px の中） */
   .side > .sidemore{ position:sticky; z-index:1; flex:none; align-self:stretch; align-items:center;
-                     padding:0 var(--space-2); font-size:11px; line-height:1.3; font-weight:700; letter-spacing:.04em;
+                     padding:0 var(--space-2); font-size:12px; line-height:1.3; font-weight:700; letter-spacing:.04em;
                      color:var(--ink); background:var(--paper); white-space:pre; cursor:pointer; }
   .side > .sidemore.l{ left:0; border-right:1px solid var(--rule-strong); }
   .side > .sidemore.r{ right:0; margin-left:auto; border-left:1px solid var(--rule-strong); }
@@ -835,7 +796,7 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   .side > .sidemore:not([hidden]){ display:flex; }
   .sidegrp + .sidegrp{ border-left:1px solid var(--rule-strong); padding-left:var(--space-2); margin-left:var(--space-1); }
   .sidegrp ul{ display:contents; }
-  .sidegrp h2{ min-width:0; font-size:11px; letter-spacing:.06em; margin:0 var(--space-1) 0 0; }
+  .sidegrp h2{ min-width:0; font-size:12px; letter-spacing:.06em; margin:0 var(--space-1) 0 0; }
   /* タップの的（S-12）。サイドの項目は 30px、操作列は 28px で、指では隣を押しやすかった。
      40px は Android の 48dp と WCAG 2.2 AA（24px）の間。PC（>600px）は今までどおり */
   .side button{ padding:6px var(--space-2); min-height:40px; }
@@ -857,7 +818,7 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   #today-filter{ flex-wrap:nowrap; align-items:center; gap:var(--space-2); }
   #today-filter > label.act{ flex:none; white-space:nowrap; }
   #today-filter > label.act > select{ width:8em; }
-  #today-filter > .muted.small{ flex:1 1 auto; min-width:0; font-size:11.5px; line-height:1.5; }
+  #today-filter > .muted.small{ flex:1 1 auto; min-width:0; font-size:12px; line-height:1.5; }
   /* 案件一覧の見方のボタン（boardViewBar）を 2 列に並べる。🔴 2026-09-29 磨き込み（fixture 400px）: 4 つが 1 つずつの行に落ちて
      196px（名前が長く、2 つが 1 行に入らない。最優先 284px・初回契約 243px）。ボタンの中で名前を折り返して 2 列にする。
      4 つとも見えたまま（畳まない・横に流さない。どの見方があるかを一目で比べて選ぶ部品なので）。「見方」の字は 1 行目に */
@@ -923,7 +884,7 @@ a.deallink:hover{ background:var(--ai-soft); }
 a.deallink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 /* 表の案件名の横の小さな「HS」（HubSpot へ・新しいタブ）。案件名のリンクと見分けがつくように、下線ではなく小さな枡にする（S-5）。
    .lg は案件の詳細の「HubSpot で開く」 */
-a.hslink, span.hslink{ display:inline-block; font-size:11px; line-height:1; padding:3px 6px; margin-left:2px; vertical-align:middle;
+a.hslink, span.hslink{ display:inline-block; font-size:12px; line-height:1; padding:3px 6px; margin-left:2px; vertical-align:middle;
   border:1px solid var(--rule); border-radius:var(--radius-pill); color:var(--ink-2); text-decoration:none; white-space:nowrap; }
 /* span.hslink は凡例（定義と検証の「色と印の意味」）の見本。押せないので hover / focus の見た目は付けない */
 a.hslink:hover{ border-color:var(--ai); color:var(--ai); background:var(--ai-soft); }
@@ -935,7 +896,7 @@ a.hslink.lg{ font-size:12.5px; padding:5px 12px; margin-left:0; color:var(--ai);
         background:var(--panel); border:1px solid var(--rule); border-radius:var(--radius-lg);
         padding:var(--space-3) var(--space-4); }
 .dd-kv div{ min-width:0; overflow-wrap:anywhere; }
-.dd-kv span.k{ display:block; font-size:11.5px; color:var(--ink-2); }
+.dd-kv span.k{ display:block; font-size:12px; color:var(--ink-2); }
 .dd-kv .nw{ white-space:nowrap; }   /* 「（3か月）」を「（3か / 月）」と割らない */
 /* 案件の詳細のパンくず「法人 ＞ 拠点 ＞ この案件」（M-3）。長い法人名は折り返す */
 .crumbs{ margin:var(--space-1) 0 var(--space-2); font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
@@ -954,7 +915,7 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
 .tl .when{ font-variant-numeric:tabular-nums; font-size:12.5px; color:var(--ink-2); line-height:1.5; }
 .tl .when b{ color:var(--ink); font-weight:600; display:block; }
 .tl .what{ min-width:0; overflow-wrap:anywhere; font-size:13px; line-height:1.7; }
-.tl .mark{ display:inline-block; font-size:11px; font-weight:700; padding:0 var(--space-2);
+.tl .mark{ display:inline-block; font-size:12px; font-weight:700; padding:0 var(--space-2);
            border:1px solid var(--ink-3); border-radius:3px; margin-right:var(--space-2); letter-spacing:.04em; }
 .tl li.est .mark{ border-style:dashed; font-weight:400; }
 .tl dl{ display:grid; grid-template-columns:max-content 1fr; gap:2px var(--space-3); margin:var(--space-1) 0 0; }
