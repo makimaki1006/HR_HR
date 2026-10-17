@@ -16,7 +16,7 @@ const catalog = { phase: 'ready' as const, catalog: FIXTURE_CATALOG, index: cata
 const choices: ValueChoiceSource = { pipelines: FIXTURE_METRIC_PIPELINES, selectedPipelineIds: ['default'], allDeals: false, owners: { phase: 'idle' } };
 const c = (property: string, values: string[], operator = 'IN'): PropertyCondition => ({ property, operator, values });
 function panel(groups: PropertyCondition[][]) {
-  const onSave = vi.fn(async (_p: MetricPrefs) => ({ ok: true as const }));
+  const onSave = vi.fn<(p: MetricPrefs) => Promise<{ ok: true }>>(() => Promise.resolve({ ok: true }));
   render(<MetricsSettings prefs={{ items: ['c-a'], custom: [{ id: 'c-a', name: '接触数', kind: 'count', condition_groups: groups, owner_property: 'hubspot_owner_id' }] }} available note={null} monthView={false} catalog={catalog} choices={choices} onReloadCatalog={() => undefined} onClose={() => undefined} onSave={onSave} />);
   fireEvent.click(screen.getByRole('button', { name: '直す' }));
   return onSave;
@@ -66,7 +66,7 @@ it('先にステージがあっても食い違うパイプラインを追加で�
   expect(screen.getByText('選んだパイプラインに含まれる取引ステージを選んでください。')).toBeTruthy();
 });
 
-it('またはのまとまりを追加し各配列を保存する', async () => {
+it('またはのまとまりを追加し各配列を保存する', () => {
   const save = panel([[c('amount', ['10'], 'GTE')]]);
   fireEvent.click(screen.getByRole('button', { name: '＋ 「または」の条件を追加' }));
   pick('取引ステージ');
