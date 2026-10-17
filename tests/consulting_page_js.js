@@ -274,7 +274,7 @@ check("U3", "素早く切り替えると、前の画面の遅い応答で上書�
   slows.forEach((slow) => slow.resolve(jsonRes({ meta: {}, rows: [] })));
   await tick(); await tick(); await tick();
   const main = t.reg["cs-main"].innerHTML;
-  if (main.indexOf("この担当者は、どの案件を持っているか") < 0 ||
+  if (main.indexOf("この担当はどの案件を持つか") < 0 ||
       main.indexOf("どこに手が回っていないか") >= 0)
     throw new Error("URL は担当者ごとの案件なのに、中身がチームと担当で上書きされた");
 });
@@ -293,7 +293,7 @@ check("U3", "前の画面の遅い要求が失敗しても、いまの画面を�
   slows.forEach((slow) => slow.resolve({ ok: false, status: 502, redirected: false, url: "http://test.local/api",
     headers: { get: () => "text/html" }, json: async () => { throw new SyntaxError("x"); } }));
   await tick(); await tick(); await tick();
-  if (t.reg["cs-main"].innerHTML.indexOf("この担当者は、どの案件を持っているか") < 0)
+  if (t.reg["cs-main"].innerHTML.indexOf("この担当はどの案件を持つか") < 0)
     throw new Error("古い要求の失敗で、いまの画面（担当者ごとの案件）が消された");
   if (t.reg["cs-error"].innerHTML.indexOf("HTTP 502") >= 0)
     throw new Error("古い要求の失敗がエラーとして出ている");
