@@ -66,3 +66,42 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(page.locator('details')).toHaveAttribute('open', '');
   });
 }
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`コンサルKPI: ${scheme} の本文の枠はキーボード操作時だけ出る`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    // 実際の画面JSで初回表示・マウス移動・本文へのスキップを確かめる。
+    const today = {
+      meta: { today: '2026-09-18', n_active: 0, n_hit: 0, n_shown: 0, n_not_started: 0 },
+      rows: [], candidates: [], consultants: [], expiring_this_week: [], started_this_week: [],
+    };
+    await page.route('http://localhost/consulting', route => route.fulfill({
+      contentType: 'text/html', body: template.replace('{{ user }}', '架空の利用者'),
+    }));
+    await page.route('**/api/consulting/**', route => route.fulfill({ json: today }));
+    const main = page.locator('#cs-main');
+    const ready = async () => {
+      await expect(main).toHaveAttribute('aria-busy', 'false');
+      await expect(main.locator('.kpi .big').first()).toHaveText('0件');
+    };
+    // 同じ文書のハッシュだけ変えると画面内移動になる。初回は新しい page、再確認は reload を使う。
+    await page.goto('http://localhost/consulting#deal/today');
+    await ready();
+    await expect(main).not.toBeFocused();
+    await expect(main).toHaveCSS('outline-style', 'none');
+
+    await page.getByRole('button', { name: '今日', exact: true }).click();
+    await ready();
+    await expect(main).toBeFocused();
+    await expect(main).toHaveCSS('outline-style', 'none');
+
+    await page.reload();
+    await ready();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#cs-skip')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(main).toBeFocused();
+    await expect(main).toHaveCSS('outline-style', 'solid');
+    await expect(main).toHaveCSS('outline-width', '2px');
+  });
+}
