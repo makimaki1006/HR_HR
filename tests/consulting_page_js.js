@@ -544,7 +544,7 @@ check("U10", "401・JSON 以外の応答・本部アプローチの取得でも�
 });
 
 /* ================================================================ U11 */
-const KPI_LAST_EXP = /<span class="lbl">最終満了<\/span><span class="big">([^<]*)<\/span>(<span class="fine">([^<]*)<\/span>)?/;
+const KPI_LAST_EXP = /<span class="lbl">最終満了<\/span><span class="big">([^<]*)<\/span>(<span class="fine"(?: title="[^"]*")?>([^<]*)<\/span>)?/;
 check("U11", "法人の KPI「最終満了」がチェックに追従し、LTV の食い違いに理由が付く", async () => {
   const t = boot();
   const D = customerPayload([
@@ -2020,17 +2020,17 @@ check("M-6", "移動: 左のメニューは作り直さず印だけ付け替え�
   const main = t.reg["cs-main"]; const attrs = {}; main.setAttribute = (k, v) => { attrs[k] = v; };
   const mk = (ds) => { const b = new t.El(""); b.dataset = ds; b.attrs = {};
     b.setAttribute = (k, v) => { b.attrs[k] = v; }; b.removeAttribute = (k) => { delete b.attrs[k]; }; return b; };
-  /* 左のメニューは 1 列・3 区切り・11 画面（2026-09-29 組み替え 段A）。区切りをまたぐ移動でも作り直さない */
+  /* 左のメニューは 1 列・3 区切り・9 項目（2026-09-29 組み替え 段A）。区切りをまたぐ移動でも作り直さない */
   const side = t.reg["cs-side"];
-  const keys = t.R("MENUS.map((m) => m.views.map((v) => v.key)).flat()");
-  if (keys.length !== 11) throw new Error("左のメニューの画面が 11 でない: " + keys.length);
+  const keys = t.R("MENUS.map((m) => m.views.filter((v) => !v.hidden).map((v) => v.key)).flat()");
+  if (keys.length !== 9) throw new Error("左のメニューの項目が 9 でない: " + keys.length);
   const sideBtns = keys.map((v) => mk({ v }));
   side.querySelectorAll = () => sideBtns;
   side.innerHTML = "SIDE";
   const iOf = (k) => keys.indexOf(k);
   t.R('go("deal", "byowner")');
   if (side.innerHTML !== "SIDE") throw new Error("移動のたびに左のメニューを作り直している（押したボタンが消えてフォーカスが body に落ちる）");
-  if (sideBtns[iOf("byowner")].attrs["aria-current"] !== "page" || "aria-current" in sideBtns[iOf("today")].attrs)
+  if (sideBtns.some((b) => "aria-current" in b.attrs))
     throw new Error("いま見ている画面の印（aria-current）が付け替わらない");
   if (t.doc.title !== "担当者ごとの案件 — コンサルダッシュボード") throw new Error("タブの名前に画面名が入らない: " + t.doc.title);
   if (attrs["aria-busy"] !== "true") throw new Error("読み込み中に main の aria-busy が true でない");
@@ -2053,7 +2053,7 @@ check("M-6", "移動: 左のメニューは作り直さず印だけ付け替え�
   /* 区切りをまたぐ移動（毎日 → 調べる）でも作り直さず、印だけ移る */
   t.R('go("research", "phone")');
   if (side.innerHTML !== "SIDE") throw new Error("区切りをまたぐ移動で左のメニューを作り直している");
-  if (sideBtns[iOf("phone")].attrs["aria-current"] !== "page" || "aria-current" in sideBtns[iOf("byowner")].attrs)
+  if (sideBtns[iOf("phone")].attrs["aria-current"] !== "page" || sideBtns.filter((b) => b.dataset.v !== "phone").some((b) => "aria-current" in b.attrs))
     throw new Error("区切りをまたいだとき、いま見ている印が付け替わらない");
   /* 待つ間に人が別の場所へフォーカスを動かしていたら、本文へは移さない（U9 と同じ決まり） */
   t.R('go("deal", "board")');

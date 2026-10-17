@@ -1289,7 +1289,7 @@ check("KPI: 最終満了を折り返さない・電話の61件の色をそろえ
 check("担当の交代: 交代のうち稼働中の件数を、全体の「稼働中 N 件」と同じ言葉で書かない", () => {
   const h = run("renderHandover(__HO)");
   ok(!/（稼働中 1 件）/.test(h) && !/うち稼働中の案件 1 件/.test(h), "交代のうち稼働中の件数を「稼働中 N 件」とだけ書いている");
-  ok((h.match(/案件がいまも稼働中のもの 1 件/g) || []).length === 2, "KPI と末尾で何の件数かを書いていない");
+  ok((textOf(h).match(/案件がいまも稼働中のもの 1 件/g) || []).length === 2, "KPI と末尾で何の件数かを書いていない");
 });
 
 check("いま見るべき顧客: LTV の注記で「拠点が2つ以上ある法人」を続けて2回書かない", () => {
@@ -3945,7 +3945,7 @@ check("S-6: 画面名は1つ。表の見出しに「案件の立ち位置」を�
   ok(t0.startsWith("全件は ") && t1.startsWith("全件は "), "サーバの文が無いとき「。」から始まる: " + t0 + " / " + t1);
 });
 
-check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出さない（1 列・3 区切り・11 画面）", () => {
+check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出さない（1 列・3 区切り・9 項目）", () => {
   // 2026-09-29 組み替え 段A: 上のメニューは無くし、左に 1 列で 3 区切り（見出し）と 11 画面を並べる（handover 09 の 3章・10章）
   ok(!html.includes('id="cs-menu"'), "上のメニュー（#cs-menu）が残っている");
   run('cur = { menu: "research", view: "phone" }; document.getElementById("cs-side").innerHTML = ""; drawSide();');
@@ -3954,7 +3954,7 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   ok(JSON.stringify(heads) === JSON.stringify(["毎日", "調べる", "月1・確かめる"]), "区切りの見出しが 毎日 / 調べる / 月1・確かめる でない: " + heads);
   ok(!side.includes('class="no"') && !/[①-⑩]/.test(side), "区切りに丸数字が残っている: " + side);
   const nBtn = (side.match(/<button /g) || []).length;
-  ok(nBtn === 11, "左の画面が 11 でない: " + nBtn);
+  ok(nBtn === 9, "左の項目が 9 でない: " + nBtn);
   ok(side.includes(">電話</button>") && side.includes(">記録と数字の信頼度</button>"), "左の項目名が出ていない: " + side);
   // 600px 以下は ul の箱を外して、区切りの見出しと項目を同じ流れに並べる（display:contents。見出しを別の行にすると 5 行 229px）。
   // 一覧であることは role="list" で読み上げに残す。
@@ -4053,7 +4053,7 @@ function media600(css) {
   return { inside, outside: keep.join("") };
 }
 
-check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤は2行のまま、文言は自動更新（タスクスケジューラ）に合わせる", () => {
+check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤も1行に短縮、文言は自動更新（タスクスケジューラ）に合わせる", () => {
   const box = ctx.document.getElementById("cs-fresh");
   run('setFresh({ today: "2026-09-29", generated_at: "2026-09-28 21:41:00", source_as_of: "2026-09-28 21:30:00", source_age_days: 1, update_schedule: "毎日 21:30" })');
   let h = box.innerHTML;
@@ -4075,14 +4075,12 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤は2行の
   ok(!/21:30|自動更新:|自動で回して|タスクスケジューラ/.test(h),
     "予定（meta.update_schedule）が無いのに、時刻か「自動で回している」旨を HTML の直書きで出している: " + h);
   ok(/更新が止まると、この帯が赤くなります（元データが4日以上前）。/.test(h), "予定が無くても、止まったときの見え方（赤くなる）は書く");
-  // 赤（4日前）: 今までどおり2行。1行目は全文の時刻、抜けている日数を太字で
+  // 赤も何日前かと取得日時を1行で見せ、秒を含む時刻は内訳に残す。
   run('setFresh({ today: "2026-09-28", generated_at: "2026-09-24 06:10:00", source_as_of: "2026-09-24 06:00:00", source_age_days: 4, update_schedule: "毎日 21:30" })');
   h = box.innerHTML;
   ok(box.className === "fresh bad", "4日前が赤でない: " + box.className);
-  ok(/^このデータは <b>4日前　2026-09-24 06:00:00<\/b> 時点のものです（HubSpot から落とした時刻）。<b>4日分の動きが入っていません。<\/b><details class="fold"><summary>ほかの時刻（シートの作成・計算の基準日）<\/summary>/.test(h),
-    "赤の2行の形が変わっている（1行目は全文の時刻、次に畳み）: " + h.slice(0, 220));
-  ok(!/fold inl/.test(h), "赤のときに内訳を行の続きに畳んでいる（2行のままにする）");
-  ok(!/元データを落としたのは/.test(h), "赤のとき、1行目に出ている全文の時刻を内訳でも繰り返している");
+  ok(h.startsWith('<b>4日前のデータです（2026-09-24 06:00）。</b><details class="fold inl"><summary>ほかの時刻</summary>'), "赤の先頭行が短くなっていない: " + h);
+  ok(h.includes("元データを落としたのは 2026-09-24 06:00:00。"), "全文の時刻が内訳に無い");
   // すでに赤いときは「止まると赤くなります」（仮定形）ではなく、いま赤い理由を言う（2026-09-28 検証で仮定形のままだった）
   ok(/自動更新: 毎日 21:30（タスクスケジューラ）。元データが4日以上前なので、この帯を赤くしています（予定「毎日 21:30」の更新が入っていません）。/.test(h),
     "赤のときに、更新の予定と、いま赤い理由（4日以上前・予定の更新が入っていない）を出していない: " + h);
@@ -4092,10 +4090,10 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤は2行の
   h = box.innerHTML;
   ok(!/自動|タスクスケジューラ/.test(h) && /元データが4日以上前なので、この帯を赤くしています（更新が止まっている可能性があります）。/.test(h),
     "赤で予定が無いときの文が違う: " + h);
-  // 黄（2日前）も2行のまま
+  // 黄（2日前）も1行で、分類は維持する
   run('setFresh({ today: "2026-09-28", source_as_of: "2026-09-26 06:00:00", source_age_days: 2 })');
-  ok(box.className === "fresh warn" && !/fold inl/.test(box.innerHTML) &&
-     /^このデータは <b>2日前　2026-09-26 06:00:00<\/b> 時点のものです/.test(box.innerHTML),
+  ok(box.className === "fresh warn" && /fold inl/.test(box.innerHTML) &&
+     /^<b>2日前のデータです（2026-09-26 06:00）。<\/b>/.test(box.innerHTML),
     "2日前（黄）の形が違う: " + box.className + " " + box.innerHTML.slice(0, 120));
   // 分からないとき（CS_メタ が読めない）は今までどおり「分かりません」
   run('setFresh({ today: "2026-09-28" })');
@@ -4662,7 +4660,7 @@ check("M-12: 帯（svgStack）の中の文字は、空（--sora）の上でも 4
 });
 
 /* ================================================================ 段2 表と図（2026-09-28）: A / M-8 / M-11 / S-2 の残り */
-check("段2 A: 今日動く先の名札は短い書き方（正式名は title と決まりごとの畳み）を詰めた枡（tag c）で 25.5em の列（wf）に並べる。案件そのものは正式な名札のまま", () => {
+check("段2 A: 今日動く先の名札は短い書き方（正式名は title と決まりごとの畳み）を詰めた枡（tag c）で 25.5em の列（wf）に並べる。案件一覧も同じ短い名札で2つまで", () => {
   const row = TD_ROW({ deal_id: "a1", name: "案件A", n_flags: 5, flags: ["NPSが4以下", "接触が30日以上空いている",
     "採用単価が同じ進捗帯の1.5倍以上", "MTGが90日以上途絶", "採用目標の半分に届いていない"] });
   const odd = TD_ROW({ deal_id: "a2", name: "案件B", n_flags: 1, flags: ["見たことのない名札"] });
@@ -4676,9 +4674,11 @@ check("段2 A: 今日動く先の名札は短い書き方（正式名は title �
     "NPSが4以下 が短い名札（abbr.tag.c、title に正式名と分類）になっていない: " + t.slice(t.indexOf('<td class="wf">'), t.indexOf('<td class="wf">') + 200));
   ok(/<abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="MTGが90日以上途絶（関係が危ない）">MTG90日以上途絶<\/abbr>/.test(t),
     "MTGが90日以上途絶 の枡が図の分類（緋・関係が危ない）と食い違う（前は紫だった）");
-  ok(/title="接触が30日以上空いている（時間が迫っている）">接触30日以上空き<\/abbr>/.test(t) &&
-     /title="採用目標の半分に届いていない（成果が出ていない）">採用目標の半分未満<\/abbr>/.test(t) &&
-     /title="採用単価が同じ進捗帯の1.5倍以上（成果が出ていない）">採用単価1.5倍以上<\/abbr>/.test(t), "短い名札の書き方が違う");
+  ok(/<span class="tag c more" title="[^"]*">他3<\/span>/.test(t), "残り3つの数が出ていない");
+  for (const f of row.flags) ok(t.includes(f), "全文の名札が title に無い: " + f);
+  for (const [full, short] of Object.entries(run("FLAG_SHORT"))) {
+    ok(run("tagsShort(" + JSON.stringify([full]) + ")").includes(">" + short + "</abbr>"), "短い名札が違う: " + full);
+  }
   // 表に無い名札は略さず・落とさず、そのまま（span）。分類の言葉は title に
   ok(/<span class="tag c" style="[^"]*" title="成果が出ていない">見たことのない名札<\/span>/.test(t), "知らない名札を略している・落としている");
   ok(!t.includes('class="tag"'), "今日動く先に詰めていない枡（.tag）が残っている");
@@ -4688,14 +4688,11 @@ check("段2 A: 今日動く先の名札は短い書き方（正式名は title �
     "決まりごとの畳みに名札の略し方が無い");
   ok(!rule.includes("満了60日以内 ＝"), "表に出ていない名札まで略し方に並べている");
   ok(rule.includes("色が見分けられなくても読めます"), "色だけで伝えていないことが書かれていない");
-  // 案件そのもの（BOARD_COLS）は正式な名札のまま。枡の色は今日動く先と同じ決め方（flagGroup）
   const b = run('boardTable(__A1.rows, { key: "n_flags", asc: false }, "board-tbl")');
-  ok(b.includes('<td class="wl"><span class="tag" style="border-color:var(--hi);color:var(--hi)" title="関係が危ない">NPSが4以下</span>'),
-    "案件そのものの名札が正式名のままでない、または枡の色が図の分類と違う");
-  ok(b.includes('style="border-color:var(--hi);color:var(--hi)" title="関係が危ない">MTGが90日以上途絶</span>'),
-    "案件そのものの MTG 途絶の枡が図の分類（緋）でない");
-  ok(run('tags(["満了90日前でMTGが30日以上途絶"])').includes('border-color:var(--hi)'), "満了90日前でMTGが30日以上途絶 の枡が図の分類（緋。MTG を先に見る）と食い違う");
-  ok(!b.includes("tag c") && !b.includes("<abbr"), "案件そのものまで短い名札にしている（15 列の表は横スクロールなので要らない）");
+  ok(b.includes('title="NPSが4以下（関係が危ない）">NPS4以下</abbr>') &&
+     b.includes('title="MTGが90日以上途絶（関係が危ない）">MTG90日以上途絶</abbr>') && b.includes('>他3</span>'),
+    "案件一覧でも重い名札2つと残りの数を出していない");
+  ok(run('tags(["満了90日前でMTGが30日以上途絶"])').includes('border-color:var(--hi)'), "満了前の MTG 途絶が赤でない");
   // 名札の文の正本はサーバ。Rust が出せる名札は全部 FLAG_SHORT にある（新しい名札が正式名のまま長く出るのを見張る）
   const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8");
   const md = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/mod.rs"), "utf-8");
@@ -4895,7 +4892,7 @@ check("09 の 6 チームと担当: 画面の並び（担当者の一覧・担�
   const js = [...toc.matchAll(/data-jump="([^"]+)"/g)].map((x) => x[1]);
   ok(JSON.stringify(js) === JSON.stringify(["tm-tbl-h", "tm-ct-h", "tm-ho-h"]), "目次の行き先が違う: " + js.join(","));
   js.forEach((id) => ok(h.includes(' id="' + id + '" tabindex="-1"'), "目次の行き先 " + id + " が本文に無い"));
-  ok(toc.includes('href="#deal/byowner"') && toc.includes('href="#research/phone"'), "目次に担当者ごとの案件・電話へのリンクが無い");
+  ok(!toc.includes("href=") && !toc.includes("別の画面:"), "目次に別の画面へのリンクが残っている");
   ok(h.indexOf('<nav class="toc"') < h.indexOf('<div class="kpis">'), "目次が冒頭に無い");
   /* 仕事量の一覧で、評価ではない: 閉じた畳みでも見える summary に出る */
   const sum = h.slice(h.indexOf("<summary>何のための画面か"), h.indexOf("</summary>", h.indexOf("<summary>何のための画面か")));
@@ -5631,7 +5628,7 @@ check("磨き込み(1) の続き: 1 行のメニューで、行の外にある�
   // 1 画面目（今日）: 毎日は見えている。調べるの見出しは右端（390px）、月1 は行の外
   ctx.__SH = mkBox([grp(16, 380, 16, "毎日", "side-deal"), grp(385, 700, 390, "調べる", "side-research"), grp(705, 1086, 710, "月1・確かめる", "side-monthly")]);
   run("sideHints(__SH)");
-  ok(!r.hidden && r.textContent === "調べる\n月1・確かめる ▸" && r.attrs["data-to"] === "side-research", "右の外にある区切りの名前を出していない: " + JSON.stringify(r));
+  ok(!r.hidden && r.textContent === "調べる ▸" && r.attrs["data-to"] === "side-research", "右の外にある区切りの名前を出していない: " + JSON.stringify(r));
   ok(l.hidden, "左に外れた区切りが無いのに左の端に名前を出している");
   // 右へ送った後（記録と数字の信頼度）: 毎日は左の外、月1 は見えている
   ctx.__SH2 = mkBox([grp(-700, -220, -700, "毎日", "side-deal"), grp(-215, 150, -210, "調べる", "side-research"), grp(155, 380, 160, "月1・確かめる", "side-monthly")]);
@@ -5883,6 +5880,59 @@ check("M-5 (c): foot（基準日・件数・読むときの注意）は画面の
   ctx.__P1 = one;   /* 同じ文字列で比べる（描くたびに図の番号 data-fk が進む） */
   ok(run("oneFoot(__P1)") === one, "foot が 1 つで末尾にある画面の中身を変えている");
   ok(run('oneFoot("<p>a</p>")') === "<p>a</p>", "foot の無い画面を変えている");
+});
+
+check("共通部品: 目次は3節から、別画面のリンクは表示しない", () => {
+  for (const fn of ["pageToc", "toc"]) {
+    for (const n of [0, 1, 2, 3]) {
+      const items = Array.from({ length: n }, (_, i) => ["section-" + i, "節" + i]);
+      const h = run(fn + "(" + JSON.stringify(items) + ', "<a href=other>別画面</a>")');
+      ok(n < 3 ? h === "" : (h.match(/data-jump=/g) || []).length === 3, fn + "の節数判定が違う");
+      ok(!h.includes("別画面") && !h.includes("別の画面:"), "別画面へのリンクが残っている");
+    }
+  }
+});
+check("共通部品: 問いの補足は見出しの直後に残し、他の見出しはそのまま", () => {
+  const h = run('sec("問い", "接触を見る（90日以上・担当の交代）", "heading")');
+  ok(h.includes('id="heading" tabindex="-1"') && h.includes('接触を見る</h2><p class="sec-hint muted small">（90日以上・担当の交代）</p>'), "補足か見出しの行き先が変わった");
+  ok(run('sec("表", "案件（30日以内）")').includes("案件（30日以内）</h2>"), "問い以外の補足を移している");
+});
+check("共通部品: 読み方は1文目を表示し、母数・除外・少数・未確定・評価の断りは畳まない", () => {
+  const h = run('note("info", "読み方", "90日以内の動きを見ます。比べ方を説明します。")');
+  ok(h.includes('<span class="keep">90日以内の動きを見ます。</span>') && h.includes('<p>比べ方を説明します。</p>'), "1文目と残りの分け方が違う");
+  const notes = ["母数は40件です", "3件を外しています", "除外は2件です", "n&lt;30なので比べません", "未確定です", "担当者の評価ではありません", "分母は0です"];
+  for (const body of notes) {
+    const full = "読み方です。" + body + "。";
+    const h = run('note("info", "読み方", ' + JSON.stringify(full) + ')');
+    ok(!h.includes("<details") && h.includes(full), "注意書きを畳んでいる: " + body);
+  }
+  for (const [head, body] of [
+    ["この4つを選んだ理由", "比べ方です。判定を見送った拠点が3つあります。"],
+    ["応募の変更履歴が無い契約（2件）", "記録が無いだけです。次の契約です。"],
+    ["直近の MTG から抽出した項目", "次にやることです。顧客の懸念です。"],
+    ["中身が空なのはまだ抽出していないためです", "記録が無いのとは違います。全件には届いていません。"],
+  ]) ok(!run('note("info", ' + JSON.stringify(head) + ', ' + JSON.stringify(body) + ')').includes("<details"), "件数や実際の業務内容を畳んでいる: " + head);
+  for (const kind of ["warn", "bad"]) ok(!run('note(' + JSON.stringify(kind) + ', "注意", "注意です。必ず見てください。")').includes("<details"), "警告を畳んでいる");
+  ok(!run('note("info", "読み方", "一文だけです。")').includes("<details"), "一文を畳んでいる");
+  ok(!run('note("info", "読み方", "<b>一文だけです。</b><br>")').includes("<details"), "タグだけの残りを二文目として畳んでいる");
+  const markup = run('note("info", "読み方", "<b>一文です。二文です。</b>三文です。")');
+  ok(markup.includes('<span class="keep"><b>一文です。</b></span>') && markup.includes('<p><b>二文です。</b>三文です。</p>'), "文をまたぐタグを閉じ直していない");
+});
+check("共通部品: カードの説明全文をHTMLなしのtitleに残す", () => {
+  const h = run('kpi("件数", "40", "<b>母数40件</b><br>n&lt;30・&quot;確認&quot;")');
+  ok(h.includes('title="母数40件 n&lt;30・&quot;確認&quot;"'), "titleがHTMLを含むか、数字や記号が変わった: " + h);
+  ok(h.includes('<b>母数40件</b><br>n&lt;30'), "説明本文が消えている");
+});
+check("共通部品: 名札は赤・山吹・その他の順に2つまで、残りと全文も残す", () => {
+  const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "MTGが90日以上途絶", "NPSが4以下"];
+  const h = run('tags(' + JSON.stringify(flags) + ')');
+  ok(h === run('tagsShort(' + JSON.stringify(flags) + ')'), "名札の表示が共通でない");
+  ok((h.match(/<abbr /g) || []).length === 2 && h.includes('>他2</span>'), "2つと残りの数でない");
+  ok(h.indexOf('>MTG90日以上途絶</abbr>') < h.indexOf('>NPS4以下</abbr>'), "同じ重さの順が変わった");
+  const more = h.match(/class="tag c more" title="([^"]*)"/)[1];
+  for (const f of flags) ok(more.includes(f), "全文が無い: " + f);
+  const pair = run('tags(["採用目標の半分に届いていない", "接触が30日以上空いている"])');
+  ok(pair.indexOf('>接触30日以上空き</abbr>') < pair.indexOf('>採用目標の半分未満</abbr>') && !pair.includes('>他'), "山吹が先でないか2つでも残りの印が出る");
 });
 
 Promise.all(pendingChecks).then(() => {

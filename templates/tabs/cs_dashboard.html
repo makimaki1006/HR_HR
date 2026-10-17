@@ -3017,9 +3017,15 @@ const nz = (v, d) => v == null ? DASH : num(v, d || 0);
    行き先の無い札（LTV 中央値・文字起こしがある、など）は act を渡さず div のまま。
    🔴 button の中に a（goLink）を入れない（押せるものの入れ子）。リンクを添える札は div で出す */
 function kpi(label, big, fine, kind, act) {
+  const fineText = String(fine || "").replace(/<br\s*\/?>/gi, " ").replace(/<[^>]*>/g, "").replace(/&(?:amp|lt|gt|quot|apos|nbsp|#39|#\d+|#x[\da-f]+);/gi, (entity) => {
+    const named = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&nbsp;": " " };
+    if (entity[1] !== "#") return named[entity.toLowerCase()];
+    const code = entity[2].toLowerCase() === "x" ? parseInt(entity.slice(3), 16) : parseInt(entity.slice(2), 10);
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : "�";
+  }).replace(/\s+/g, " ").trim();
   const inner = '<span class="lbl">' + esc(label) + "</span>" +
     '<span class="big">' + big + "</span>" +
-    (fine ? '<span class="fine">' + fine + "</span>" : "");
+    (fine ? '<span class="fine" title="' + esc(fineText) + '">' + fine + "</span>" : "");
   const cls = "kpi" + (kind ? " is-" + kind : "");
   if (!act) return '<div class="' + cls + '">' + inner + "</div>";
   /* consultant: 帯で絞るときに担当も添える（今日動く先で担当を選んでいるとき。数字と行き先の母集団を揃える） */
@@ -3039,10 +3045,30 @@ function kpi(label, big, fine, kind, act) {
      (c) foot() は画面末尾の 1 箱（finishView → oneFoot） */
 function sec(no, title, id) {
   const part = no !== "問い" && no !== "案件";
+  const hints = no === "問い" ? String(title).match(/（[^（）]*）/g) : null;
+  const heading = hints ? String(title).replace(/（[^（）]*）/g, "").trim() : title;
   return '<h2 class="sec ' + (part ? "part" : "mincho") + '"' + (id ? ' id="' + esc(id) + '" tabindex="-1"' : "") +
-    '><span class="no">' + esc(no) + "</span>" + esc(title) + "</h2>";
+    '><span class="no">' + esc(no) + "</span>" + esc(heading) + "</h2>" +
+    (hints ? '<p class="sec-hint muted small">' + esc(hints.join(" ")) + "</p>" : "");
 }
 function note(kind, head, body) {
+  /* 08 の 2.4: 母数・除外・少数・未確定・評価の断りは開いたままにする。 */
+  const plain = (String(head) + " " + String(body)).replace(/<[^>]*>/g, "").replace(/&lt;/g, "<");
+  const keep = /母数|分母|外し|外す|外れ|除外|数えてい|数えな|対象外|n\s*[<＜]\s*30|30\s*件未満|少な|未確定|評価ではありません|判定を見送|まだ抽出|全件には届|変更履歴が無い|点が1つしか|直近の|この顧客を|この画面は/;
+  if (kind === "info" && !keep.test(plain)) {
+    const [lead, rest] = firstSentence(body);
+    if (rest.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim()) {
+      /* 文をまたぐ強調やリンクは両側で閉じ直し、HTML の入れ子を保つ。 */
+      const stack = [];
+      for (const tag of lead.matchAll(/<(\/?)([a-z][\w-]*)\b[^>]*>/gi)) {
+        if (tag[1]) stack.pop();
+        else if (!/^(?:br|hr|img|input|wbr)$/i.test(tag[2]) && !tag[0].endsWith("/>")) stack.push(tag);
+      }
+      const close = stack.slice().reverse().map((tag) => "</" + tag[2] + ">").join("");
+      const open = stack.map((tag) => tag[0]).join("");
+      return foldNote(kind, head, open + rest, lead + "。" + close);
+    }
+  }
   return '<div class="note ' + kind + '"><span class="hd">' + esc(head) + "</span><p>" +
     body + "</p></div>";
 }
@@ -3465,11 +3491,12 @@ const TEAM_COLS = [
 ];
 
 /** 目次（09 の 6・7「冒頭にページ内リンク」）。押すと同じ画面の見出しへ移る（kpiJump。URL のハッシュは変えない）。
-    more: 別の画面へのリンク（goLink）を後ろに並べる */
+    別の画面への移動はサイドバーから。3 節以上の画面だけ目次を出す。more は旧呼び出しとの互換用 */
 function pageToc(items, more) {
+  if (items.length < 3) return "";
   return '<nav class="toc" aria-label="この画面の目次"><span class="muted small">この画面の中:</span>' +
     items.map((x) => '<button type="button" data-jump="' + esc(x[0]) + '">' + esc(x[1]) + "</button>").join("") +
-    (more ? '<span class="muted small">別の画面:</span>' + more : "") + "</nav>";
+    "</nav>";
 }
 /** 本文の中から同じ画面の節へ（目次と同じ。goLink は別の画面へ行くので、同じ画面の中にはこちらを使う） */
 function jumpLink(id, text) {
@@ -6016,12 +6043,7 @@ function renderDq(D) {
    分類の言葉（word）は title に添える（色だけで伝えない） */
 const tagColor = (f) => flagGroup(f).color === C.hi ? "hi" : flagGroup(f).color === C.ki ? "ki" : "murasaki";
 function tags(fs) {
-  if (!fs || !fs.length) return '<span class="n0">—</span>';
-  return fs.map((f) => {
-    const col = tagColor(f);
-    return '<span class="tag" style="border-color:var(--' + col +
-      ');color:var(--' + col + ')" title="' + esc(flagGroup(f).word) + '">' + esc(f) + "</span>";
-  }).join(" ");
+  return tagsShort(fs);
 }
 /* 今日動く先の名札の短い書き方（段2 A）。名札の文の正本はサーバ（routes.rs build_deal_rows の flags.push と mod.rs MtgBand::label）で、
    ここは表示を詰めるだけ。表に無い名札はそのまま出す（黙って落とさない・略さない）。正式な名札は <abbr> の title と、
@@ -6045,13 +6067,16 @@ const FLAG_SHORT = {
 };
 function tagsShort(fs) {
   if (!fs || !fs.length) return '<span class="n0">—</span>';
-  return fs.map((f) => {
+  const order = { hi: 0, ki: 1, murasaki: 2 };
+  const sorted = fs.slice().sort((a, b) => order[tagColor(a)] - order[tagColor(b)]);
+  return sorted.slice(0, 2).map((f) => {
     const col = tagColor(f), s = FLAG_SHORT[f];
     const style = ' style="border-color:var(--' + col + ');color:var(--' + col + ')"';
     return s
       ? '<abbr class="tag c"' + style + ' title="' + esc(f) + "（" + esc(flagGroup(f).word) + '）">' + esc(s) + "</abbr>"
       : '<span class="tag c"' + style + ' title="' + esc(flagGroup(f).word) + '">' + esc(f) + "</span>";
-  }).join(" ");
+  }).join(" ") + (sorted.length > 2
+    ? ' <span class="tag c more" title="' + esc(sorted.join(" ／ ")) + '">他' + (sorted.length - 2) + "</span>" : "");
 }
 /** 今日動く先の決まりごとに置く「名札の略し方」。3 表に出ている名札のうち短くしたものだけを並べる（無ければ空） */
 function todayFlagLegend(rowsList) {
@@ -8104,8 +8129,6 @@ function setFresh(meta) {
   if (!src && !gen) {
     box.className = "fresh bad";
     box.innerHTML = "<b>このデータがいつのものか分かりません。</b>" +
-      "作成日時を記録したシート（CS_メタ）が読めていません。" +
-      "画面の数字が今日のものだと思わないでください。" +
       (base ? '　<span class="muted">計算の基準日 ' + esc(base) + "</span>" : "");
     return;
   }
@@ -8122,7 +8145,7 @@ function setFresh(meta) {
   box.className = "fresh " + cls;
 
   const when = src || gen;
-  const oneLine = cls === "ok";   /* 緑は1行。内訳（details）を行の続きに置く */
+  const oneLine = cls === "ok";   /* 緑の時刻の書き方は維持する */
   let h;
   if (oneLine) {
     /* 「（HubSpot から落とした時刻）」は span.src に入れ、600px 以下では出さない（畳んだ内訳の1文目が同じことを言う。
@@ -8130,20 +8153,14 @@ function setFresh(meta) {
     h = "<b>" + word + "　" + esc(shortWhen(when)) + "</b> 時点のデータ" +
       '<span class="src">' + (src ? "（HubSpot から落とした時刻）" : "（シートを作った時刻）") + "</span>";
   } else {
-    h = "このデータは <b>" + (word ? word + "　" : "") + esc(when) + "</b> 時点のものです" +
-      (src ? "（HubSpot から落とした時刻）。" : "（シートを作った時刻）。");
-    if (age != null && age >= 4) {
-      h += "<b>" + age + "日分の動きが入っていません。</b>";
-    }
+    const stamp = String(when).replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}$/, "$1");
+    h = "<b>" + (word ? word + "の" : "取得日が分からない") + "データです（" + esc(stamp) + "）。</b>";
   }
-  /* 🔴 1行目（何日前・いつ時点・何日分が抜けているか）は畳まない。毎朝まず読むもの。
-     残りの時刻の内訳だけ畳む（V1: 全画面の頭で2行を使い、本題を下へ押していた）。
-     緑のときは畳みを行の続き（inl）に置いて、帯を1行にする */
-  h += '<details class="fold' + (oneLine ? " inl" : "") + '"><summary>ほかの時刻' +
-    (oneLine ? "" : "（シートの作成・計算の基準日）") + "</summary>" +
+  /* 何日前のデータかと取得日時は常に見せる。時刻の内訳は行の続きに畳む。 */
+  h += '<details class="fold inl"><summary>ほかの時刻</summary>' +
     '<span class="muted">';
   /* 1行目を短くしたときだけ、元の全文をここに残す（黙って削らない） */
-  if (oneLine && when) h += (src ? "元データを落としたのは " : "シートを作ったのは ") + esc(when) + "。";
+  if (when) h += (src ? "元データを落としたのは " : "シートを作ったのは ") + esc(when) + "。";
   if (gen && src && gen.slice(0, 10) !== src.slice(0, 10)) {
     /* 🔴 3つの時刻は別物。混ぜないで並べる */
     h += "シートを作り直したのは " + esc(gen) + "（元データはそれより前のもの）。";
@@ -8180,6 +8197,7 @@ function partSec(html, name, id) {
 /** 画面の頭の目次。押すと同じ画面の節へ（jumpTo）。🔴 <a href="#節"> にしない（ハッシュは画面の場所に使っている。
     押すと URL が画面でないハッシュに変わり、再読込で既定の画面へ落ちる）。wire → wireToc が結ぶ */
 function toc(items) {
+  if (items.length < 3) return "";
   return '<nav class="toc" aria-label="この画面の中の節">この画面の中: ' +
     items.map((x) => '<button type="button" class="act link" data-jump="' + esc(x[0]) + '">' + esc(x[1]) + "</button>").join("") +
     "</nav>";
@@ -8358,11 +8376,11 @@ const MENUS = [
       { key: "board",    label: "案件一覧",         path: "/api/consulting/deals",
         render: (D) => renderBoard(D) },
       /* 10章⑤: 削除せず残す。置き場所は案件一覧の次 */
-      { key: "byowner",  label: "担当者ごとの案件", path: "/api/consulting/deals",
+      { key: "byowner",  label: "担当者ごとの案件", hidden: true, path: "/api/consulting/deals",
         render: (D) => renderBoard(D) },
       /* 2026-09-26 藤巻さんの要望で足した。取引1件の MTG・電話（要約つき）・交代を時系列で。
          取引はハッシュの後ろ（#deal/detail?id=…）で指定する。表の案件名から来る */
-      { key: "detail",   label: "案件の詳細",       path: "/api/consulting/deal-detail",
+      { key: "detail",   label: "案件の詳細",       hidden: true, path: "/api/consulting/deal-detail",
         render: (D) => renderDetail(D) },
     ] },
   { key: "research", label: "調べる",
@@ -8515,12 +8533,12 @@ function markCurrent(b, on, cls) {
 function drawSide() {
   const box = document.getElementById("cs-side");
   const btns = box.querySelectorAll ? Array.from(box.querySelectorAll("button")) : [];
-  const total = MENUS.reduce((a, m) => a + m.views.length, 0);
+  const total = MENUS.reduce((a, m) => a + m.views.filter((v) => !v.hidden).length, 0);
   /* すでに並んでいれば印だけ付け替える（M-6） */
   if (btns.length === total) { btns.forEach((b) => markCurrent(b, b.dataset.v === cur.view, "")); sideShowCurrent(box); return; }
   box.innerHTML = MENUS.map((m) =>
     '<div class="sidegrp"><h2 id="side-' + m.key + '">' + esc(m.label) + '</h2><ul role="list" aria-labelledby="side-' + m.key + '">' +
-    m.views.map((v) =>
+    m.views.filter((v) => !v.hidden).map((v) =>
       "<li><button type=\"button\" data-v=\"" + v.key + "\"" +
       (v.key === cur.view ? ' aria-current="page"' : "") + ">" +
       /* 🔴 名前の後ろの番号（「今日動く先 1」）は出さない。件数に見え、400px では次の項目とくっついていた
@@ -8583,9 +8601,12 @@ function sideHints(box) {
   const put = (el, hs, arrow) => {
     el.hidden = !hs.length;
     if (!hs.length) return;
-    const t = hs.map((h) => h.textContent).join(String.fromCharCode(10));   /* 区切りごとに 1 行（white-space:pre） */
+    const next = arrow === "l" ? hs[hs.length - 1] : hs[0];
+    const t = next.textContent;
+    /* 隣の区切りだけを短く案内する。長い補足は項目に重ねない。 */
+    if (t.length > 12) { el.hidden = true; return; }
     el.textContent = arrow === "l" ? "◂ " + t : t + " ▸";
-    el.setAttribute("data-to", (arrow === "l" ? hs[hs.length - 1] : hs[0]).id);
+    el.setAttribute("data-to", next.id);
   };
   put(l, left, "l"); put(r, right, "r");
 }
