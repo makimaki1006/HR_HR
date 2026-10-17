@@ -2488,8 +2488,14 @@ async fn execute(
 
 /// 表 (`queue_pipelines.rs`) と HubSpot のパイプライン定義を合わせる。`defs` が無ければ名前は null
 fn pipeline_options(defs: Option<&[CrmPipeline]>) -> Vec<CallQueuePipelineOption> {
-    QUEUE_PIPELINES
-        .iter()
+    pipeline_options_for(defs, QUEUE_PIPELINES.iter())
+}
+
+fn pipeline_options_for<'a>(
+    defs: Option<&[CrmPipeline]>,
+    pipelines: impl Iterator<Item = &'a QueuePipeline>,
+) -> Vec<CallQueuePipelineOption> {
+    pipelines
         .map(|p| {
             let hub = defs.and_then(|d| d.iter().find(|x| x.id == p.id));
             let label_of = |id: &str| {
@@ -2537,7 +2543,8 @@ pub(super) async fn get_call_queue_pipelines(
     {
         return denied.into_response();
     }
-    if raw.as_deref().is_some_and(|q| !q.is_empty()) {
+    let metrics = raw.as_deref() == Some("scope=metrics");
+    if !metrics && raw.as_deref().is_some_and(|q| !q.is_empty()) {
         return bad_param("unknown");
     }
     let defs = match state.crm_hubspot() {
@@ -2565,7 +2572,14 @@ pub(super) async fn get_call_queue_pipelines(
     };
     Json(CallQueuePipelinesResponse {
         default_pipeline: default_pipeline().id.to_string(),
-        pipelines: pipeline_options(defs.as_deref().map(Vec::as_slice)),
+        pipelines: if metrics {
+            pipeline_options_for(
+                defs.as_deref().map(Vec::as_slice),
+                super::queue_pipelines::write_pipelines(),
+            )
+        } else {
+            pipeline_options(defs.as_deref().map(Vec::as_slice))
+        },
         labels_available: defs.is_some(),
     })
     .into_response()

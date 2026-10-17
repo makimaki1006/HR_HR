@@ -16,6 +16,12 @@ import type { MetricsFetch } from './useTodayMetrics';
 export const MAX_CUSTOM = 6;
 /** 「誰の」に Search の条件を 1 つ使うので、自分で足せる条件は 5 つ (Rust の MAX_CUSTOM_CONDITIONS) */
 export const MAX_CUSTOM_CONDITIONS = 5;
+export const MAX_METRIC_GROUPS = 3;
+export const MAX_METRIC_SEARCH_CONDITIONS = 18;
+export function metricRemaining(groups: readonly (readonly unknown[])[], index: number): number {
+  const total = groups.reduce((sum, g) => sum + g.length + 1, 0);
+  return Math.max(0, Math.min(MAX_CUSTOM_CONDITIONS - (groups[index]?.length ?? 0), MAX_METRIC_SEARCH_CONDITIONS - total - (groups[index] ? 0 : 1)));
+}
 export const MAX_NAME_CHARS = 12;
 export const DEFAULT_OWNER_PROPERTY = 'hubspot_owner_id';
 export const KIND_LABELS: Record<MetricKind, string> = { count: '件数', sum: '合計', avg: '平均' };
@@ -100,8 +106,8 @@ export function memoryPrefsApi(initial: MetricPrefsResponse): PrefsApi {
 
 /** 架空サンプルの自分の項目 (URL に `metrics=custom` を付けたとき) */
 export const FIXTURE_CUSTOM: CustomMetricDef[] = [
-  { id: 'c-absent', name: '不在', kind: 'count', conditions: [{ property: 'bpo_20', operator: 'TODAY', values: [] }, { property: 'dealstage', operator: 'IN', values: ['1095387445'] }], owner_property: 'hubspot_owner_id' },
-  { id: 'c-amount', name: '今月の金額', kind: 'sum', property: 'amount', conditions: [{ property: 'bpo_20', operator: 'THIS_MONTH', values: [] }], owner_property: 'hubspot_owner_id' },
+  { id: 'c-absent', name: '不在', kind: 'count', condition_groups: [[{ property: 'bpo_20', operator: 'TODAY', values: [] }, { property: 'dealstage', operator: 'IN', values: ['1095387445'] }]], owner_property: 'hubspot_owner_id' },
+  { id: 'c-amount', name: '今月の金額', kind: 'sum', property: 'amount', condition_groups: [[{ property: 'bpo_20', operator: 'THIS_MONTH', values: [] }]], owner_property: 'hubspot_owner_id' },
 ];
 
 let fixtureApi: PrefsApi | null = null;
@@ -168,7 +174,7 @@ function seed(s: string): number {
 /** 架空サンプルの数字 (定義から決まる架空の値。HubSpot は読まない) */
 export function fixtureCustomResponse(prefs: MetricPrefs): CustomMetricsResponse {
   const items = prefs.custom.filter(c => prefs.items.includes(c.id)).map((c): CustomMetricValue => {
-    const h = seed(JSON.stringify([c.kind, c.property ?? '', c.conditions, c.owner_property]));
+    const h = seed(JSON.stringify([c.kind, c.property ?? '', c.condition_groups, c.owner_property]));
     const count = 3 + (h % 37);
     const value = c.kind === 'count' ? count : c.kind === 'sum' ? count * 25_000 + (h % 9) * 10_000 : 18_000 + (h % 50) * 1_000;
     const team = Math.round(value * (0.7 + (h % 5) / 10) * 10) / 10;

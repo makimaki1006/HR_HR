@@ -8,18 +8,21 @@ import { isValidDate } from './queueModel';
 import './queue-property-filter.css';
 import { QueuePropertyPicker } from './QueuePropertyPicker';
 import { choicesFor, NO_VALUE_CHOICES, usableAsCondition } from './queueValueChoices';
+import { pipelineName, stageName } from './queuePipelines';
 import type { ValueChoiceSource } from './queueValueChoices';
 
-export function QueuePropertyFilter({ catalog, count, remaining = MAX_PROPERTY_CONDITIONS - count, choices = NO_VALUE_CHOICES, onAdd, onReload,
+export function QueuePropertyFilter({ catalog, count, remaining = MAX_PROPERTY_CONDITIONS - count, choices = NO_VALUE_CHOICES, onAdd, onReload, metric = false, accepts = () => true,
   hint = 'このまとまりのすべての条件に合う架電先を表示します。最大 6 条件。', limitNote = 'このまとまりは 6 条件までです。条件を外すと追加できます。' }: {
   catalog: CatalogState; count: number; choices?: ValueChoiceSource; remaining?: number; onAdd: (c: PropertyCondition) => void; onReload: () => void;
   /** 欄の下の説明 (成績の帯の自分の項目では文を変える) */
-  hint?: string; limitNote?: string;
+  hint?: string; limitNote?: string; metric?: boolean; accepts?: (c: PropertyCondition) => boolean;
 }) {
   const [property, setProperty] = useState<CrmCatalogProperty | null>(null);
   const [operator, setOperator] = useState('');
   const [values, setValues] = useState<string[]>([]);
-  const props = catalog.phase === 'ready' ? [...catalog.index.deals.values()].map(e => e.prop).filter(p => operatorsFor(p).length > 0 && usableAsCondition(p)) : [];
+  const allProps = catalog.phase === 'ready' ? [...catalog.index.deals.values()].map(e => e.prop).filter(p => operatorsFor(p).length > 0 && (usableAsCondition(p) || metric && p.name === 'pipeline')) : [];
+  const special = metric ? ['pipeline', 'dealstage'].flatMap(n => { const p = allProps.find(p => p.name === n); return p ? [p] : []; }) : [];
+  const props = metric ? allProps.filter(p => !['pipeline', 'dealstage'].includes(p.name)) : allProps;
   const pick = (p: CrmCatalogProperty | null) => { setProperty(p); setOperator(p ? operatorsFor(p)[0]?.value ?? '' : ''); setValues(p?.property_type === 'bool' ? ['true'] : []); };
   const empty = ['HAS_PROPERTY', 'NOT_HAS_PROPERTY', 'TODAY', 'BEFORE_TODAY', 'THIS_MONTH', 'IS_TRUE', 'IS_FALSE'].includes(operator);
   const relative = ['LAST_N_DAYS', 'NEXT_N_DAYS'].includes(operator);
@@ -30,17 +33,18 @@ export function QueuePropertyFilter({ catalog, count, remaining = MAX_PROPERTY_C
     : ['date', 'datetime'].includes(property.property_type) ? isValidDate(value) && (!range || isValidDate(values[1] ?? '') && value <= (values[1] ?? ''))
     : property.property_type === 'number' ? value.trim() !== '' && Number.isFinite(Number(value)) && (!range || (values[1] ?? '').trim() !== '' && Number.isFinite(Number(values[1])) && Number(value) <= Number(values[1]))
     : value.trim() !== '' && Array.from(value).length <= 200));
-  const valueChoices = property ? choicesFor(property, choices) : { status: 'ready' as const, choices: [] };
+  const compatible = property !== null && accepts({ property: property.name, operator, values: empty ? [] : values });
+  const valueChoices = property?.name === 'pipeline' && metric ? { status: 'ready' as const, choices: choices.pipelines.map(p => ({ value: p.id, label: pipelineName(p) })) } : property ? choicesFor(property, choices) : { status: 'ready' as const, choices: [] };
   const setAt = (i: number, v: string) => { setValues(prev => { const next = [...prev]; next[i] = v; return next; }); };
   return <fieldset className="cq-property-filter"><legend>条件を追加</legend>
     {catalog.phase === 'loading' && <p role="status">項目の一覧を読み込み中…</p>}
     {catalog.phase === 'error' && <p role="alert">{catalog.message} <button type="button" onClick={onReload}>項目を読み直す</button></p>}
     {remaining <= 0 ? <p>{limitNote}</p> : catalog.phase === 'ready' && <>
-      <QueuePropertyPicker properties={props} value={property} onChange={pick} />
+      <QueuePropertyPicker properties={props} specialProperties={special} value={property} onChange={pick} />
       {property && <><label>条件<select aria-label="条件" value={operator} onChange={e => { setOperator(e.target.value); setValues(property.property_type === 'bool' ? ['true'] : []); }}>
         {operatorsFor(property).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
       {!empty && (relative ? <label>日数<input aria-label="日数" type="number" min="1" max="3650" step="1" value={value} onChange={e => { setValues([e.target.value]); }} /><small>今日を含む日数</small></label> : property.property_type === 'enumeration' ? <fieldset className="cq-property-options"><legend>値(複数選択)</legend>
-        {valueChoices.choices.map(o => <label key={o.value}><input type="checkbox" checked={values.includes(o.value)}
+        {metric && property.name === 'dealstage' ? choices.pipelines.filter(p => choices.selectedPipelineIds.includes(p.id)).map(p => <div key={p.id} className="cq-stage-pipeline"><h3>{pipelineName(p)}</h3><ul className="cq-stage-list">{p.stages.map(s => <li key={s.id}><label><input type="checkbox" checked={values.includes(s.id)} onChange={e => { setValues(prev => e.target.checked ? [...prev, s.id] : prev.filter(v => v !== s.id)); }} /><span>{stageName(s)}</span></label></li>)}</ul></div>) : valueChoices.choices.map(o => <label key={o.value}><input type="checkbox" checked={values.includes(o.value)}
           onChange={e => { setValues(prev => e.target.checked ? [...prev, o.value] : prev.filter(v => v !== o.value)); }} />{o.label}</label>)}
         {valueChoices.status === 'loading' && <p role="status">選べる値を読み込み中…</p>}
         {valueChoices.status === 'error' && <p role="alert">担当者の一覧を読み込めませんでした。</p>}
@@ -50,7 +54,8 @@ export function QueuePropertyFilter({ catalog, count, remaining = MAX_PROPERTY_C
         : <label>{range ? '下限' : '値'}<input aria-label={range ? '下限' : '値'} type={property.property_type === 'number' ? 'number' : 'text'} value={value} maxLength={200} step="any"
           onChange={e => { setAt(0, e.target.value); }} /></label>)}
       {!empty && range && property.property_type === 'number' && <label>上限<input aria-label="上限" type="number" step="any" value={values[1] ?? ''} onChange={e => { setAt(1, e.target.value); }} /></label>}
-      <button type="button" className="cq-btn" disabled={!valid || remaining <= 0} onClick={() => { onAdd({ property: property.name, operator, values: empty ? [] : values }); pick(null); }}>この条件を追加</button></>}
+      <button type="button" className="cq-btn" disabled={!valid || !compatible || remaining <= 0} onClick={() => { onAdd({ property: property.name, operator, values: empty ? [] : values }); pick(null); }}>この条件を追加</button></>}
+      {property && valid && !compatible && <p role="status">選んだパイプラインに含まれる取引ステージを選んでください。</p>}
       <small>{hint}</small>
     </>}
   </fieldset>;

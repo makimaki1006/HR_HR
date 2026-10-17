@@ -53,6 +53,8 @@ pub const MAX_CUSTOM: usize = 6;
 /// 自分の項目の条件の数。HubSpot の Search は 1 つのまとまりに 6 条件までで、
 /// 「誰の」(担当者 IN 比べる相手) に 1 つ使うので、自分で足せるのは 5 つ
 pub const MAX_CUSTOM_CONDITIONS: usize = 5;
+pub const MAX_CONDITION_GROUPS: usize = 3;
+pub const MAX_SEARCH_CONDITIONS: usize = 18;
 /// 帯に出す名前の長さ
 pub const MAX_NAME_CHARS: usize = 12;
 /// 保存する JSON の大きさ (1 人 1 行)
@@ -75,8 +77,7 @@ pub enum MetricKind {
 }
 
 /// 自分の項目 1 つの定義
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct CustomMetricDef {
     /// 画面が作る識別子 (`c-` + 英小文字・数字)。帯の並び (`items`) で使う
     pub id: String,
@@ -87,12 +88,56 @@ pub struct CustomMetricDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub property: Option<String>,
-    /// 取引の項目の条件 (すべてに合うもの)。詳細条件と同じ形
-    #[serde(default)]
-    pub conditions: Vec<PropertyCondition>,
+    /// まとまりの中は AND、まとまり同士は OR。空配列は条件なし
+    pub condition_groups: Vec<Vec<PropertyCondition>>,
     /// 「誰の」取引か (担当者を選ぶ型の項目)。既定は取引の担当者
     #[serde(default = "default_owner_property")]
     pub owner_property: String,
+}
+
+// 旧 conditions を読み続け、応答・保存は condition_groups だけに揃える。
+impl<'de> Deserialize<'de> for CustomMetricDef {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+            d: D,
+        ) -> Result<Option<T>, D::Error> {
+            T::deserialize(d).map(Some)
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            id: String,
+            name: String,
+            kind: MetricKind,
+            #[serde(default)]
+            property: Option<String>,
+            #[serde(default, deserialize_with = "present")]
+            conditions: Option<Vec<PropertyCondition>>,
+            #[serde(default, deserialize_with = "present")]
+            condition_groups: Option<Vec<Vec<PropertyCondition>>>,
+            #[serde(default = "default_owner_property")]
+            owner_property: String,
+        }
+        let w = Wire::deserialize(deserializer)?;
+        let condition_groups = match (w.conditions, w.condition_groups) {
+            (Some(_), Some(_)) => {
+                return Err(serde::de::Error::custom(
+                    "条件の新旧形式は同時に指定できません。",
+                ))
+            }
+            (Some(cs), None) if !cs.is_empty() => vec![cs],
+            (_, Some(gs)) => gs,
+            _ => vec![],
+        };
+        Ok(Self {
+            id: w.id,
+            name: w.name,
+            kind: w.kind,
+            property: w.property,
+            condition_groups,
+            owner_property: w.owner_property,
+        })
+    }
 }
 
 fn default_owner_property() -> String {
@@ -171,13 +216,7 @@ pub fn validate_shape(p: &MetricPrefs) -> Result<(), Invalid> {
         {
             return Err(Invalid::new("名前は 1〜12 文字で付けてください。"));
         }
-        if c.conditions.len() > MAX_CUSTOM_CONDITIONS {
-            return Err(Invalid::new("条件は 1 つの項目に 5 個までです。"));
-        }
-        // 1 つずつの条件の形 (長さ・選択肢の数) は詳細条件と同じ検証に任せる
-        let raw = serde_json::to_string(&c.conditions)
-            .map_err(|_| Invalid::new("条件の指定が正しくありません。"))?;
-        queue_property_filter::parse(&raw).map_err(Invalid::new)?;
+        validate_groups(&c.condition_groups)?;
         match c.kind {
             MetricKind::Count => {
                 if c.property.is_some() {
@@ -207,18 +246,62 @@ pub fn validate_shape(p: &MetricPrefs) -> Result<(), Invalid> {
     Ok(())
 }
 
-/// 詳細条件で選べる値の範囲 (取引ステージは架電キューの全パイプラインのもの)
-pub fn value_scope() -> ValueScope {
-    let mut stages: Vec<String> = super::queue_pipelines::QUEUE_PIPELINES
+/// 「誰の」の IN を各まとまりに加えた Search の上限。
+fn validate_groups(groups: &[Vec<PropertyCondition>]) -> Result<(), Invalid> {
+    if groups.len() > MAX_CONDITION_GROUPS {
+        return Err(Invalid::new("条件のまとまりは 3 つまでです。"));
+    }
+    if groups.iter().any(|g| g.len() > MAX_CUSTOM_CONDITIONS) {
+        return Err(Invalid::new("条件は 1 つのまとまりに 5 個までです。"));
+    }
+    if groups.iter().map(|g| g.len() + 1).sum::<usize>() > MAX_SEARCH_CONDITIONS {
+        return Err(Invalid::new("「誰の」を含めた条件は合計 18 個までです。"));
+    }
+    let raw = serde_json::to_string(groups)
+        .map_err(|_| Invalid::new("条件の指定が正しくありません。"))?;
+    queue_property_filter::parse_groups(&raw).map_err(Invalid::new)?;
+    Ok(())
+}
+
+/// 同じまとまりのパイプライン条件 (IN/NOT_IN/空判定) で候補を絞る。
+fn group_scope(group: &[PropertyCondition], scope: &ValueScope) -> ValueScope {
+    let pipelines: Vec<String> = scope
+        .pipelines
         .iter()
+        .filter(|id| {
+            group
+                .iter()
+                .filter(|c| c.property == "pipeline")
+                .all(|c| match c.operator.as_str() {
+                    "IN" => c.values.contains(id),
+                    "NOT_IN" => !c.values.contains(id),
+                    "NOT_HAS_PROPERTY" => false,
+                    _ => true,
+                })
+        })
+        .cloned()
+        .collect();
+    let stages = super::queue_pipelines::write_pipelines()
+        .filter(|p| pipelines.iter().any(|id| id == p.id))
+        .flat_map(|p| p.stages.iter().map(|(id, _)| (*id).to_string()))
+        .filter(|id| scope.stages.contains(id))
+        .collect();
+    ValueScope {
+        pipelines: scope.pipelines.clone(),
+        stages,
+    }
+}
+
+/// 自分の項目で選べる範囲 (架電 6 + 納品管理 2 パイプライン)
+pub fn value_scope() -> ValueScope {
+    let mut stages: Vec<String> = super::queue_pipelines::write_pipelines()
         .flat_map(|p| p.stages.iter().map(|(id, _)| (*id).to_string()))
         .collect();
     stages.sort();
     stages.dedup();
     ValueScope {
         stages,
-        pipelines: super::queue_pipelines::QUEUE_PIPELINES
-            .iter()
+        pipelines: super::queue_pipelines::write_pipelines()
             .map(|p| p.id.to_string())
             .collect(),
     }
@@ -227,7 +310,7 @@ pub fn value_scope() -> ValueScope {
 /// 項目 1 つを、HubSpot の Search の条件に直したもの (相対日付は `now` で解決済み)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedMetric {
-    pub filters: Vec<Value>,
+    pub filter_groups: Vec<Vec<Value>>,
     pub kind: MetricKind,
     pub property: Option<String>,
     pub owner_property: String,
@@ -252,19 +335,36 @@ pub fn resolve_metric(
             return Err(Invalid::new("合計・平均には数値の項目を選んでください。"));
         }
     }
-    let mut filters = Vec::with_capacity(c.conditions.len());
-    for cond in &c.conditions {
-        let f = queue_property_filter::resolve(
-            cond,
-            catalog.property("deals", &cond.property),
-            now,
-            scope,
-        )
-        .map_err(Invalid::new)?;
-        filters.push(f);
-    }
+    validate_groups(&c.condition_groups)?;
+    let groups = if c.condition_groups.is_empty() {
+        vec![vec![]]
+    } else {
+        c.condition_groups.clone()
+    };
+    let filter_groups = groups
+        .iter()
+        .map(|group| {
+            let group_scope = group_scope(group, scope);
+            group
+                .iter()
+                .map(|cond| {
+                    queue_property_filter::resolve(
+                        cond,
+                        catalog.property("deals", &cond.property),
+                        now,
+                        if cond.property == "dealstage" {
+                            &group_scope
+                        } else {
+                            scope
+                        },
+                    )
+                    .map_err(Invalid::new)
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(ResolvedMetric {
-        filters,
+        filter_groups,
         kind: c.kind,
         property: c.property.clone(),
         owner_property: owner.name.clone(),

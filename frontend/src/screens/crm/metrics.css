@@ -74,3 +74,11 @@
 
 /* 閉じた帯はコンパクトなまま。通常は40pxの1段に項目を並べる */
 .tm:has(.tm-actions button[aria-expanded="false"]:last-child) .tm-head { min-height: 28px; }
+
+.tm-settings .cq-group-editor { min-width: 0; }
+.tm-settings .cq-condition-group { min-width: 0; }
+.tm-settings .cq-property-options { max-height: 240px; overflow-y: auto; }
+.tm-settings .cq-property-options .cq-stage-pipeline h3 { font-size: .78rem; padding: 4px 0; }
+.cq-special-properties { border-bottom: 1px solid #cbd5e1; margin-bottom: 4px; padding-bottom: 4px; }
+.cq-special-properties > span { display: block; padding: 4px 8px; color: #64748b; font-size: .7rem; }
+.cq-special-properties ul { list-style: none; margin: 0; padding: 0; }

@@ -78,6 +78,7 @@ fn catalog() -> CatalogEntry {
                     prop("hubspot_owner_id", "enumeration", true),
                     prop("bpo_26", "enumeration", true),
                     prop("dealstage", "enumeration", false),
+                    prop("pipeline", "enumeration", false),
                 ],
             }],
         }],
@@ -101,7 +102,7 @@ fn def(id: &str, kind: MetricKind, property: Option<&str>) -> CustomMetricDef {
         name: "架空の項目".into(),
         kind,
         property: property.map(str::to_string),
-        conditions: vec![],
+        condition_groups: vec![],
         owner_property: DEFAULT_OWNER_PROPERTY.into(),
     }
 }
@@ -140,12 +141,12 @@ fn 自分の項目は6個まで_条件は5個まで() {
         "自分の項目は 6 個までです。"
     );
     let mut d = def("c-a", MetricKind::Count, None);
-    d.conditions = vec![cond("amount", "GTE", &["1"]); 5];
+    d.condition_groups = vec![vec![cond("amount", "GTE", &["1"]); 5]];
     assert!(validate_shape(&prefs_with(vec![d.clone()])).is_ok());
-    d.conditions.push(cond("amount", "GTE", &["1"]));
+    d.condition_groups[0].push(cond("amount", "GTE", &["1"]));
     assert_eq!(
         validate_shape(&prefs_with(vec![d])).unwrap_err().0,
-        "条件は 1 つの項目に 5 個までです。"
+        "条件は 1 つのまとまりに 5 個までです。"
     );
 }
 
@@ -165,7 +166,7 @@ fn 名前_識別子_数え方_並びの不正を拒む() {
     assert!(bad(&|d| d.property = Some("amount".into())));
     assert!(bad(&|d| d.kind = MetricKind::Sum));
     assert!(bad(
-        &|d| d.conditions = vec![cond("amount", "GTE", &[&"9".repeat(201)])]
+        &|d| d.condition_groups = vec![vec![cond("amount", "GTE", &[&"9".repeat(201)])]]
     ));
     // 同じ識別子が 2 つ
     let p = prefs_with(vec![
@@ -222,10 +223,10 @@ fn 誰のは担当者型だけ_合計と平均は数値の項目だけ() {
     assert!(ok(def("c-a", MetricKind::Avg, Some("no_such"))).is_err());
     // 条件は詳細条件と同じ検証 (選択肢・型)
     let mut d = def("c-a", MetricKind::Count, None);
-    d.conditions = vec![cond("amount", "CONTAINS_TOKEN", &["x"])];
+    d.condition_groups = vec![vec![cond("amount", "CONTAINS_TOKEN", &["x"])]];
     assert!(ok(d).is_err());
     let mut d = def("c-a", MetricKind::Count, None);
-    d.conditions = vec![cond("no_such", "EQ", &["x"])];
+    d.condition_groups = vec![vec![cond("no_such", "EQ", &["x"])]];
     assert!(ok(d).is_err());
 }
 
@@ -233,7 +234,7 @@ fn 誰のは担当者型だけ_合計と平均は数値の項目だけ() {
 fn 相対日付は同じ仕組みで解決し_今月も使える() {
     let c = catalog();
     let mut d = def("c-a", MetricKind::Count, None);
-    d.conditions = vec![cond("closedate", "THIS_MONTH", &[])];
+    d.condition_groups = vec![vec![cond("closedate", "THIS_MONTH", &[])]];
     let r = resolve_metric(&d, &c, now0(), &value_scope()).unwrap();
     // 2026-10-01 〜 2026-10-31 (日付型は UTC 0 時の暦日)
     let lo = Utc
@@ -245,19 +246,19 @@ fn 相対日付は同じ仕組みで解決し_今月も使える() {
         .unwrap()
         .timestamp_millis();
     assert_eq!(
-        r.filters,
+        r.filter_groups[0],
         vec![
             json!({"propertyName":"closedate","operator":"BETWEEN","value":lo.to_string(),"highValue":hi.to_string()})
         ]
     );
-    d.conditions = vec![cond("closedate", "TODAY", &[])];
+    d.condition_groups = vec![vec![cond("closedate", "TODAY", &[])]];
     let today = resolve_metric(&d, &c, now0(), &value_scope()).unwrap();
     let tomorrow = resolve_metric(&d, &c, now0() + Duration::days(1), &value_scope()).unwrap();
-    assert_ne!(today.filters, tomorrow.filters);
+    assert_ne!(today.filter_groups, tomorrow.filter_groups);
     // ステージは架電キューのパイプラインのステージだけ
-    d.conditions = vec![cond("dealstage", "IN", &["1095457875"])];
+    d.condition_groups = vec![vec![cond("dealstage", "IN", &["1095457875"])]];
     assert!(resolve_metric(&d, &c, now0(), &value_scope()).is_ok());
-    d.conditions = vec![cond("dealstage", "IN", &["unknown-stage"])];
+    d.condition_groups = vec![vec![cond("dealstage", "IN", &["unknown-stage"])]];
     assert!(resolve_metric(&d, &c, now0(), &value_scope()).is_err());
 }
 
@@ -396,7 +397,7 @@ fn 比べる相手は同じチームの人_チームが無ければ今日架電�
 
 fn resolved(kind: MetricKind, filters: Vec<Value>) -> ResolvedMetric {
     ResolvedMetric {
-        filters,
+        filter_groups: vec![filters],
         kind,
         property: (kind != MetricKind::Count).then(|| "amount".to_string()),
         owner_property: "hubspot_owner_id".into(),
@@ -433,7 +434,7 @@ fn キャッシュの鍵は定義が違えば混ざらない() {
     // 相対日付は解決した値が鍵に入る (日が変われば別の鍵)
     let c = catalog();
     let mut d = def("c-a", MetricKind::Count, None);
-    d.conditions = vec![cond("closedate", "TODAY", &[])];
+    d.condition_groups = vec![vec![cond("closedate", "TODAY", &[])]];
     let a = resolve_metric(&d, &c, now0(), &value_scope()).unwrap();
     let b = resolve_metric(&d, &c, now0() + Duration::days(1), &value_scope()).unwrap();
     assert_ne!(cache_key(&a, &pop), cache_key(&b, &pop));
@@ -502,6 +503,7 @@ struct FakeHs {
     deals: Vec<(String, Option<String>, Option<f64>)>,
     /// total だけ大きく返す
     total_override: Option<u64>,
+    duplicate_rows: bool,
     fail: bool,
     searches: Vec<Value>,
     owners_by_email: HashMap<String, (String, Vec<String>)>,
@@ -533,11 +535,10 @@ async fn hs_search(
     if s.fail {
         return (StatusCode::TOO_MANY_REQUESTS, "busy").into_response();
     }
-    let filters = body["filterGroups"][0]["filters"]
-        .as_array()
-        .unwrap()
-        .clone();
-    assert!(filters.len() <= 6, "1 つのまとまりは 6 条件まで");
+    let groups = body["filterGroups"].as_array().unwrap();
+    assert!(groups
+        .iter()
+        .all(|g| g["filters"].as_array().unwrap().len() <= 6));
     let rows: Vec<Value> = s
         .deals
         .iter()
@@ -552,12 +553,23 @@ async fn hs_search(
             }
             json!({"id": i.to_string(), "properties": p})
         })
-        .filter(|r| filters.iter().all(|f| passes(f, &r["properties"])))
+        .filter(|r| {
+            groups.iter().any(|g| {
+                g["filters"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|f| passes(f, &r["properties"]))
+            })
+        })
         .collect();
     let after: usize = body["after"].as_str().map_or(0, |a| a.parse().unwrap());
     let limit = body["limit"].as_u64().unwrap() as usize;
     let total = s.total_override.unwrap_or(rows.len() as u64);
-    let page: Vec<Value> = rows.iter().skip(after).take(limit).cloned().collect();
+    let mut page: Vec<Value> = rows.iter().skip(after).take(limit).cloned().collect();
+    if s.duplicate_rows {
+        page.extend(page.clone());
+    }
     let mut v = json!({"results": page, "total": total});
     if after + limit < rows.len() {
         v["paging"] = json!({"next": {"after": (after + limit).to_string()}});
@@ -901,6 +913,8 @@ async fn 不正な設定は400で_csrfの無い保存は403() {
         json!({"items": ["nope"]}),
         json!({"items": [], "unknown": 1}),
         json!({"items": ["c-a"], "custom": [{"id":"c-a","name":"金額","kind":"sum","conditions":[]}]}),
+        json!({"items":["c-a"],"custom":[{"id":"c-a","name":"架空","kind":"count","condition_groups":[vec![cond("amount","GTE", &["1"]); 6]]}]}),
+        json!({"items":["c-a"],"custom":[{"id":"c-a","name":"架空","kind":"count","conditions":[],"condition_groups":[]}]}),
         // 誰の が担当者型でない
         json!({"items": ["c-a"], "custom": [{"id":"c-a","name":"件数","kind":"count","owner_property":"dealname"}]}),
         // 合計の項目が数値でない
@@ -1139,4 +1153,125 @@ async fn 担当者と結び付けられない人には理由を返す() {
         .unwrap()
         .contains("担当者と結び付けられない"));
     assert!(st.lock().unwrap().searches.is_empty());
+}
+
+#[test]
+fn 旧条件を読み新形式だけを書き両形式の同時指定を拒む() {
+    let old = json!({"id":"c-a", "name":"架空", "kind":"count", "conditions":[{"property":"amount","operator":"GTE","values":["10"]}]});
+    let d: CustomMetricDef = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(
+        d.condition_groups,
+        vec![vec![cond("amount", "GTE", &["10"])]]
+    );
+    let written = serde_json::to_value(&d).unwrap();
+    assert!(written.get("conditions").is_none());
+    assert_eq!(
+        written["condition_groups"],
+        json!([[{"property":"amount","operator":"GTE","values":["10"]}]])
+    );
+    assert_eq!(
+        serde_json::from_value::<CustomMetricDef>(written).unwrap(),
+        d
+    );
+    let mut both = old;
+    both["condition_groups"] = json!([]);
+    assert!(serde_json::from_value::<CustomMetricDef>(both).is_err());
+    assert!(serde_json::from_value::<CustomMetricDef>(
+        json!({"id":"c-a","name":"架空","kind":"count","conditions":[],"condition_groups":[]})
+    )
+    .is_err());
+}
+
+#[test]
+fn 三まとまり五条件は担当者込み十八で可_六条件や四まとまりは不可() {
+    let mut d = def("c-a", MetricKind::Count, None);
+    d.condition_groups = vec![vec![cond("amount", "GTE", &["1"]); 5]; 3];
+    assert!(validate_shape(&prefs_with(vec![d.clone()])).is_ok());
+    let r = resolve_metric(&d, &catalog(), now0(), &value_scope()).unwrap();
+    assert_eq!(
+        r.filter_groups.iter().map(|g| g.len() + 1).sum::<usize>(),
+        18
+    );
+    d.condition_groups[2].push(cond("amount", "GTE", &["2"]));
+    assert_eq!(
+        validate_shape(&prefs_with(vec![d.clone()])).unwrap_err().0,
+        "条件は 1 つのまとまりに 5 個までです。"
+    );
+    d.condition_groups = vec![vec![cond("amount", "GTE", &["1"])]; 4];
+    assert_eq!(
+        validate_shape(&prefs_with(vec![d.clone()])).unwrap_err().0,
+        "条件のまとまりは 3 つまでです。"
+    );
+    d.condition_groups = vec![vec![]];
+    assert!(validate_shape(&prefs_with(vec![d])).is_err());
+}
+
+#[test]
+fn ステージは同じまとまりのパイプライン内だけ_納品管理も選べる() {
+    let mut d = def("c-a", MetricKind::Count, None);
+    let resolve = |d: &CustomMetricDef| resolve_metric(d, &catalog(), now0(), &value_scope());
+    d.condition_groups = vec![vec![
+        cond("pipeline", "IN", &["753186575"]),
+        cond("dealstage", "IN", &["1095387445"]),
+    ]];
+    assert!(resolve(&d).is_ok());
+    d.condition_groups[0][0].values = vec!["default".into()];
+    assert!(resolve(&d).is_err());
+    d.condition_groups[0][0] = cond("pipeline", "NOT_IN", &["753186575"]);
+    assert!(resolve(&d).is_err());
+    // OR の別のまとまりにあるパイプラインは影響しない
+    d.condition_groups = vec![
+        vec![cond("pipeline", "IN", &["default"])],
+        vec![cond("dealstage", "IN", &["1095387445"])],
+    ];
+    assert!(resolve(&d).is_ok());
+    for p in super::queue_pipelines::write_pipelines() {
+        d.condition_groups = vec![vec![
+            cond("pipeline", "IN", &[p.id]),
+            cond("dealstage", "IN", &[p.stages[0].0]),
+        ]];
+        assert!(resolve(&d).is_ok(), "{}", p.id);
+    }
+    assert_eq!(value_scope().pipelines.len(), 8);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn またはの各まとまりに担当者を入れ一回の検索で和集合を数える() {
+    let mut f = FakeHs::default();
+    f.deals = [
+        ("1".into(), Some("8".into()), Some(10.0)),
+        ("1".into(), Some("8".into()), Some(30.0)),
+        ("2".into(), None, Some(40.0)),
+        ("9".into(), Some("8".into()), Some(50.0)),
+    ]
+    .into();
+    f.duplicate_rows = true;
+    let (client, state) = start_hs(f).await;
+    let a = json!({"propertyName":"amount","operator":"GTE","value":"20"});
+    let b = json!({"propertyName":"bpo_26","operator":"IN","values":["8"]});
+    let mut r = resolved(MetricKind::Sum, vec![a.clone()]);
+    let single_key = cache_key(&r, &["1".into(), "2".into()]);
+    r.filter_groups.push(vec![b.clone()]);
+    assert_ne!(single_key, cache_key(&r, &["1".into(), "2".into()]));
+    let Fetched::Rows(aggs) = fetch(&client, &r, &["1".into(), "2".into()]).await.unwrap() else {
+        panic!("too many")
+    };
+    // 30 は両方に一致し、偽応答も重複するが一度しか数えない。
+    assert_eq!(
+        aggs["1"],
+        OwnerAgg {
+            count: 2,
+            sum: 40.0,
+            with_value: 2
+        }
+    );
+    assert_eq!(aggs["2"].sum, 40.0);
+    assert!(!aggs.contains_key("9"));
+    let state = state.lock().unwrap();
+    assert_eq!(state.searches.len(), 1);
+    let owner = json!({"propertyName":"hubspot_owner_id","operator":"IN","values":["1","2"]});
+    assert_eq!(
+        state.searches[0]["filterGroups"],
+        json!([{"filters":[a, owner]},{"filters":[b, owner]}])
+    );
 }

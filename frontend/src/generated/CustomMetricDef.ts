@@ -19,9 +19,9 @@ name: string, kind: MetricKind,
  */
 property?: string, 
 /**
- * 取引の項目の条件 (すべてに合うもの)。詳細条件と同じ形
+ * まとまりの中は AND、まとまり同士は OR。空配列は条件なし
  */
-conditions: Array<PropertyCondition>, 
+condition_groups: Array<Array<PropertyCondition>>, 
 /**
  * 「誰の」取引か (担当者を選ぶ型の項目)。既定は取引の担当者
  */
