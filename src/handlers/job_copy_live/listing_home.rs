@@ -905,6 +905,8 @@ pub(in crate::handlers::job_copy_live) async fn read(
                     &meetings,
                 );
                 data["work"]["refreshing"] = json!(work.refreshing);
+                data["work"]["facts_built_at"] = json!(work.facts_built_at);
+                data["work"]["facts_stale"] = json!(work.facts_stale);
                 if work.partial {
                     data["work"]["todos_status"] =
                         json!(if work.failed { "failed" } else { "preparing" });

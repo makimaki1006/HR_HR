@@ -2,7 +2,7 @@ import type { WorkReady } from './OwnerTodo';
 export type { DealBoardRow as DealRow } from '../../generated/DealBoardRow';
 import type { DealBoardRow as DealRow } from '../../generated/DealBoardRow';
 export type DealBoardResponse = { status: 'preparing' | 'failed' } | {
-  status: 'ready'; rows: DealRow[]; work: WorkReady; sheet_as_of: string | null; refreshing: boolean; refresh_failed: boolean;
+  status: 'ready'; rows: DealRow[]; work: WorkReady; sheet_as_of: string | null; refreshing: boolean; facts_built_at?: string | null; facts_stale?: boolean; refresh_failed: boolean;
 };
 export const dealSorts = [
   ['priority', '印の多い順 → 金額の多い順'], ['name', '案件名'], ['company', '顧客名'], ['reasons', '要対応の印'],

@@ -1,3 +1,4 @@
+import { ReportFreshness } from './ReportFreshness';
 import { RecentChangesButton, RecentChangesList, useRecentChanges } from './RecentChangesCard';
 import type { ChangedDeal } from './RecentChangesCard';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
@@ -84,6 +85,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
           <span className="jh-card-title">{item.title}</span>
           <small className="jh-rule">{item.rule}</small>
         </button>)}<RecentChangesButton data={recent.data} open={open === 'recent_changes'} onClick={() => { setOpen(open === 'recent_changes' ? null : 'recent_changes'); }} /></div>
+        {open !== 'recent_changes' && recent.data.status === 'ready' && <ReportFreshness builtAt={recent.data.built_at} stale={recent.data.stale} refreshing={recent.data.refreshing} />}
         {open === 'recent_changes' && <RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} onOpenListing={onOpenListing} />}
         {card && <CardList card={card} onOpenListing={onOpenListing} />}
       </section>

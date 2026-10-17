@@ -146,8 +146,29 @@ struct CacheState {
     refreshing: bool,
     failed_at: Option<Instant>,
     facts_snapshot: Option<(Instant, BTreeMap<String, super::todo_signals::Facts>)>,
+    facts_built_at: Option<chrono::DateTime<Utc>>,
     facts_refreshing: bool,
     facts_failed_at: Option<Instant>,
+}
+pub(super) async fn restore_facts(service: &JobReadService) {
+    if let Some(saved) = report_snapshot::restore::<BTreeMap<String, super::todo_signals::Facts>>(
+        service.audit.clone(),
+        report_snapshot::Kind::Facts,
+    )
+    .await
+    {
+        let mut state = service.owner_todo.state.lock().await;
+        if state.facts_snapshot.is_none() {
+            if let Some((_, snapshot)) = state.snapshot.as_mut() {
+                Arc::make_mut(snapshot).facts = saved.data.clone();
+            }
+            state.facts_snapshot = Some((
+                report_snapshot::instant(saved.built_at, FACTS_TTL),
+                saved.data,
+            ));
+            state.facts_built_at = Some(saved.built_at);
+        }
+    }
 }
 impl CacheState {
     fn sync_revision(&mut self, revision: u64) {
@@ -163,6 +184,8 @@ pub(super) struct View {
     pub(super) failed: bool,
     pub(super) partial: bool,
     pub(super) refreshing: bool,
+    pub(super) facts_built_at: Option<chrono::DateTime<Utc>>,
+    pub(super) facts_stale: bool,
 }
 /// 初回も待たない。取得中は UI が集計中と表示し、次回の要求で結果を読む。
 pub(super) async fn view(service: &JobReadService) -> View {
@@ -173,6 +196,7 @@ pub(super) async fn work_view(service: &JobReadService) -> View {
     view_inner(service, true).await
 }
 async fn view_inner(service: &JobReadService, include_facts: bool) -> View {
+    report_snapshot::ensure_restored(service).await;
     let mut state = service.owner_todo.state.lock().await;
     let revision = service.hs.deal_write_revision();
     state.sync_revision(revision);
@@ -216,6 +240,11 @@ async fn view_inner(service: &JobReadService, include_facts: bool) -> View {
     let failed = state.failed_at.is_some() || (include_facts && state.facts_failed_at.is_some());
     let partial = include_facts && state.facts_snapshot.is_none();
     let snapshot = state.snapshot.as_ref().map(|(_, s)| s.clone());
+    let facts_built_at = state.facts_built_at;
+    let facts_stale = state
+        .facts_snapshot
+        .as_ref()
+        .is_some_and(|(at, _)| at.elapsed() >= FACTS_TTL);
     drop(state);
     if snapshot.is_some() {
         return View {
@@ -223,6 +252,8 @@ async fn view_inner(service: &JobReadService, include_facts: bool) -> View {
             failed,
             partial,
             refreshing,
+            facts_built_at,
+            facts_stale,
         };
     }
     // owners が届いたら、従来の索引でホームのカードを先に絞る。
@@ -243,6 +274,8 @@ async fn view_inner(service: &JobReadService, include_facts: bool) -> View {
         failed,
         partial: true,
         refreshing,
+        facts_built_at,
+        facts_stale,
     }
 }
 /// 求人・応募は別の単一実行枠で更新する。取引の5分更新を待たせない。
@@ -267,20 +300,37 @@ fn refresh_facts_on_request(service: &JobReadService, state: &mut CacheState) {
     tokio::spawn(async move {
         let result = super::todo_signals::fetch(&service, &deals).await;
         let mut state = service.owner_todo.state.lock().await;
-        match result {
+        let saved = match result {
             Ok(facts) => {
                 if let Some((_, snapshot)) = state.snapshot.as_mut() {
                     Arc::make_mut(snapshot).facts = facts.clone();
                 }
                 state.facts_snapshot = Some((Instant::now(), facts));
                 state.facts_failed_at = None;
+                let built_at = Utc::now();
+                state.facts_built_at = Some(built_at);
+                Some((
+                    Arc::new(state.facts_snapshot.as_ref().unwrap().1.clone()),
+                    built_at,
+                ))
             }
             Err(_) => {
                 state.facts_failed_at = Some(Instant::now());
                 tracing::warn!("job-copy todo applications refresh failed");
+                None
             }
+        };
+        drop(state);
+        if let Some((facts, built_at)) = saved {
+            report_snapshot::persist(
+                service.audit.clone(),
+                report_snapshot::Kind::Facts,
+                facts,
+                built_at,
+            )
+            .await;
         }
-        state.facts_refreshing = false;
+        service.owner_todo.state.lock().await.facts_refreshing = false;
     });
 }
 

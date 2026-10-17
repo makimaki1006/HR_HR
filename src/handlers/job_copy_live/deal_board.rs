@@ -204,6 +204,7 @@ pub(super) async fn read(
         let metrics = Metrics::new(&snapshot, &meetings, today);
         json!({"status":"ready","rows":metrics.rows(&snapshot,&query,&email,today),"sheet_as_of":meetings.as_of,
             "refreshing":view.refreshing,"refresh_failed":view.failed,
+            "facts_built_at":view.facts_built_at,"facts_stale":view.facts_stale,
             "work":snapshot.report_with_metrics(&query,&email,today,view.failed,&meetings)})
     } else {
         json!({"status":if view.failed {"failed"} else {"preparing"}})
