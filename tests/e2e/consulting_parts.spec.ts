@@ -56,6 +56,10 @@ test('案件名から詳細へ移動でき、名札と鮮度に条件と全文�
   await expect(tags.nth(0)).toHaveText('MTG90日以上途絶');
   await expect(tags.nth(1)).toHaveText('満了60日以内');
   await expect(tags.nth(2)).toHaveText('他1');
+  await expect(tags.nth(2)).toHaveCSS('font-size', '12px');
+  await expect(tags.nth(2)).toHaveCSS('line-height', '18px');
+  await expect(tags.nth(2)).toHaveCSS('color', 'rgb(91, 97, 104)');
+  await expect(tags.nth(2)).toHaveCSS('background-color', 'rgb(250, 251, 252)');
   for (const flag of row.flags) await expect(tags.nth(2)).toHaveAttribute('title', new RegExp(flag));
   await expect(page.locator('#cs-fresh > b')).toHaveText('10日前のデータです（2026-09-21 21:33）。');
   await expect(page.locator('#cs-fresh details')).not.toHaveAttribute('open');
@@ -77,6 +81,8 @@ test('見出しの補足とカード全文を残し、注意書きは畳まな�
     note('info', '注意', '集計の説明です。母数40件から3件を外しています。担当者の評価ではありません。');`);
   await expect(page.locator('#sample-heading')).toHaveText('問い接触を見る');
   await expect(page.locator('#sample-heading + .sec-hint')).toHaveText('（90日以上）');
+  await expect(page.locator('.sec-hint')).toHaveCSS('font-size', '13px');
+  await expect(page.locator('.sec-hint')).toHaveCSS('color', 'rgb(91, 97, 104)');
   await expect(page.locator('.kpi .fine')).toHaveAttribute('title', '母数40件 n<30');
   const fold = page.locator('#cs-main details');
   await expect(fold).toHaveCount(1);

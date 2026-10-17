@@ -349,8 +349,8 @@ fn 案件の立ち位置は絞り込みの件数を出す() {
 // ================================================================ 見た目の決まりごと
 
 /// 画面の `<style>` から `--<名前>: #rrggbb` を拾う。
-/// `which` は 0=明るい地、1=暗い地（media query）。
-fn tokens(html: &str, which: usize) -> std::collections::HashMap<String, String> {
+/// OS によらず明るい配色を使う。暗い配色の再追加も検出する。
+fn tokens(html: &str) -> std::collections::HashMap<String, String> {
     let css = html
         .split_once("<style>")
         .and_then(|(_, r)| r.split_once("</style>"))
@@ -381,12 +381,16 @@ fn tokens(html: &str, which: usize) -> std::collections::HashMap<String, String>
             break;
         }
     }
-    let block = blocks.get(which).unwrap_or_else(|| {
-        panic!(
-            "{which} 番目の :root ブロックが無い（{} 個しか無い）",
-            blocks.len()
-        )
-    });
+    assert_eq!(
+        blocks.len(),
+        1,
+        "常に明るい表示なので配色は1組だけにする（暗い配色を追加していないか確認）"
+    );
+    assert!(
+        css.contains("color-scheme:light;"),
+        "入力欄もOSによらず明るい表示にそろえる"
+    );
+    let block = blocks[0];
     let mut out = std::collections::HashMap::new();
     let mut it = block.split("--");
     it.next();
@@ -438,19 +442,18 @@ fn 文字のコントラストが足りている() {
         "ink", "ink-2", "ink-3", "ghost", "ai", "hi", "ki", "midori", "murasaki",
     ];
     let bg = ["paper", "panel", "panel-2", "panel-3"];
-    for (which, theme) in [(0usize, "明るい地"), (1usize, "暗い地")] {
-        let t = tokens(&html, which);
-        for f in text {
-            let fg = t.get(f).unwrap_or_else(|| panic!("{theme}: --{f} が無い"));
-            for b in bg {
-                let Some(back) = t.get(b) else { continue };
-                let r = contrast(fg, back);
-                assert!(
+    let theme = "常に明るい地";
+    let t = tokens(&html);
+    for f in text {
+        let fg = t.get(f).unwrap_or_else(|| panic!("{theme}: --{f} が無い"));
+        for b in bg {
+            let Some(back) = t.get(b) else { continue };
+            let r = contrast(fg, back);
+            assert!(
                     r >= 4.5,
                     "{theme}: --{f}({fg}) を --{b}({back}) の上に置くと {r:.2}:1。\
                      文字は 4.5:1 が要る。薄くするなら、その色を文字に使っていないことを先に確かめること"
                 );
-            }
         }
     }
 }
@@ -462,19 +465,18 @@ fn 文字のコントラストが足りている() {
 #[test]
 fn 操作できる部品の枠が見える() {
     let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
-    for (which, theme) in [(0usize, "明るい地"), (1usize, "暗い地")] {
-        let t = tokens(&html, which);
-        let strong = t
-            .get("rule-strong")
-            .unwrap_or_else(|| panic!("{theme}: --rule-strong が無い"));
-        for b in ["paper", "panel", "panel-2"] {
-            let Some(back) = t.get(b) else { continue };
-            let r = contrast(strong, back);
-            assert!(
-                r >= 3.0,
-                "{theme}: --rule-strong を --{b} の上に置くと {r:.2}:1（3:1 が要る）"
-            );
-        }
+    let theme = "常に明るい地";
+    let t = tokens(&html);
+    let strong = t
+        .get("rule-strong")
+        .unwrap_or_else(|| panic!("{theme}: --rule-strong が無い"));
+    for b in ["paper", "panel", "panel-2"] {
+        let Some(back) = t.get(b) else { continue };
+        let r = contrast(strong, back);
+        assert!(
+            r >= 3.0,
+            "{theme}: --rule-strong を --{b} の上に置くと {r:.2}:1（3:1 が要る）"
+        );
     }
     assert!(
         html.contains("border:1px solid var(--rule-strong)"),
