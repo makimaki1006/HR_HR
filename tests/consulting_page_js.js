@@ -2870,6 +2870,7 @@ check("M-3", "案件の詳細: 開いた案件を端末に5件まで覚え（重
 check("組替", "顧客: URL に拠点があって来たら（詳細のパンくずの拠点・貼られた URL）、描いた後に「事業所」の節へ移る。拠点が無い・描き直しでは移らない", async () => {
   /* 前は表の拠点名を押したときだけ移り、パンくずから来ると頭に着いた（32 拠点の法人で #cust-site y=1064 ＞ 900） */
   const t = boot();
+  t.R("customerIndex = []");
   const head = new t.El("cust-site"); t.reg["cust-site"] = head;
   navHash(t, "#research/customer?houjin=H1&site=OLD");
   const req = t.fetched[t.fetched.length - 1];
@@ -2883,7 +2884,7 @@ check("組替", "顧客: URL に拠点があって来たら（詳細のパンく
   t.R("wire(viewOf('research', 'customer'))");
   if (head.focused) throw new Error("描き直しのたびに事業所の節へ引き戻している");
   /* 拠点の無い URL（法人だけ）では移らない */
-  const t2 = boot();
+  const t2 = boot(); t2.R("customerIndex = []");
   const h2 = new t2.El("cust-site"); t2.reg["cust-site"] = h2;
   navHash(t2, "#research/customer?houjin=H1");
   t2.fetched[t2.fetched.length - 1].resolve(jsonRes(twoSites()));
@@ -2988,6 +2989,45 @@ check("M-3", "案件の詳細: 直近3か月の窓の始まり（monthsBefore）
     if (got !== want) throw new Error("monthsBefore(" + d + ", " + n + ") = " + got + "（" + want + " のはず）");
   }
 });
+check("顧客条件", "数値はかつ・重点顧客もかつ、未入力を数え、万円を円に換算し、URLで復元する", async () => {
+  const t = boot();
+  t.R(`customerIndex = [
+    { houjin: 'sample-a', name: '架空法人あお', kigyouzentaininzuu: 1200, sites: 3, monthly_amount_max: 300000, ltv: 5000000, syoudaku_total: 5, active: 1, focus: true },
+    { houjin: 'sample-b', name: '架空法人みどり', kigyouzentaininzuu: 1500, sites: 2, monthly_amount_max: 299999, ltv: 9000000, syoudaku_total: 8, active: 0, focus: true },
+    { houjin: 'sample-c', name: '架空法人しろ', kigyouzentaininzuu: null, sites: 4, monthly_amount_max: null, ltv: 1000000, syoudaku_total: null, active: 1, focus: false }
+  ]; customerFilter.employees = '1000'; customerFilter.sites = '3';`);
+  const ids = () => t.R("filterCustomers(customerIndex).rows.map(r => r.houjin).join(',')");
+  if (ids() !== 'sample-a') throw new Error('従業員数とかつ拠点数の結果が違う');
+  if (!t.R('customerFilterResults()').includes('従業員数が入っていない 1 社は外れています')) throw new Error('未入力の除外社数が違う');
+  if (!t.R('customerFilterResults()').includes('条件に合う 1 社（全 3 社のうち）')) throw new Error('結果の社数が違う');
+  t.R("customerFilter.employees = ''; customerFilter.sites = ''; customerFilter.monthly = '30';");
+  if (ids() !== 'sample-a') throw new Error('30万円の境界が違う');
+  t.R("customerFilter.monthly = ''; customerFilter.acceptances = '5'; customerActiveOnly = true;");
+  if (ids() !== 'sample-a') throw new Error('承諾かつ稼働中の結果が違う');
+  t.R("customerActiveOnly = false; customerFilter.acceptances = ''; focusOnly = true; customerFilter.sites = '4';");
+  if (ids() !== '') throw new Error('重点顧客の条件がかつでない');
+  t.R("applyState('customer', new URLSearchParams('employees=1000&sites=3&monthly=30&active=1&focus=1'), true)");
+  if (t.R("JSON.stringify(stateParams('customer'))") !== '{"focus":"1","active":"1","employees":"1000","monthly":"30","sites":"3"}') throw new Error('URLの条件を復元できない');
+  t.R("applyState('customer', new URLSearchParams('employees=-1&monthly=abc'), true)");
+  if (t.R("filterCustomers(customerIndex).numeric")) throw new Error('不正な下限が使われる');
+  if (t.R('customerFilterResults()').includes('customer-filter-table')) throw new Error('条件なしでも表が出る');
+});
+check("顧客条件", "一覧はLTVの大きい順に50社まで、残りの社数と未入力を表示する", async () => {
+  const t = boot();
+  t.R(`customerIndex = Array.from({length: 55}, (_, i) => ({
+    houjin: 'sample-' + i, name: '架空法人' + i, ltv: i * 10000, oubo_total: i,
+    kigyouzentaininzuu: 0, monthly_amount_max: 0, sites: 0, max_renewal_no: 0,
+    mensetu_total: 0, syoudaku_total: 0, active: 1
+  })); customerFilter.applications = '0';`);
+  const h = t.R('customerFilterResults()');
+  if ((h.match(/data-customer=/g) || []).length !== 50 || !h.includes('ほか 5 社')) throw new Error('50社と残りの社数が違う');
+  if (!(h.indexOf('>架空法人54</a>') < h.indexOf('>架空法人53</a>'))) throw new Error('LTVの降順でない');
+  t.R("CUSTOMER_FILTERS.forEach(f => { customerFilter[f.key] = '0'; });");
+  if (t.R('filterCustomers(customerIndex).rows.length') !== 55) throw new Error('入力済みの0が未入力扱いされる');
+  t.R("customerIndex[0].mensetu_total = null;");
+  if (t.R('filterCustomers(customerIndex).rows.length') !== 54 || !t.R('customerFilterResults()').includes('面接が入っていない 1 社は外れています')) throw new Error('面接の未入力を外していない');
+});
+
 (async () => {
   if (mainJs == null) {
     console.error("FAIL 動きの見張り: 画面の <script> が取り出せない");

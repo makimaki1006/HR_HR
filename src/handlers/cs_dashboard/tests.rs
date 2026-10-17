@@ -7034,3 +7034,48 @@ fn 開始前に立てない名札は開始前の行に無く今日の札の分�
         "札の件数と行き先の件数が違う"
     );
 }
+
+#[test]
+fn customer_index_filter_values_and_missing_values() {
+    let mut sh = sheets();
+    let fields = [
+        ("kigyouzentaininzuu", 970.0),
+        ("monthly_amount_max", 3_300_000.0),
+        ("oubo_total", 856.0),
+        ("mensetu_total", 292.0),
+        ("syoudaku_total", 57.0),
+        ("max_renewal_no", 3.0),
+    ];
+    let houjin = sh.customer.get(&sh.customer.rows[0], "houjin");
+    let index = build_customer(&sh, None, fixture_day());
+    let row = index["index"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["houjin"] == houjin)
+        .unwrap();
+    for (key, expected) in fields {
+        assert_eq!(row[key], expected, "{key}");
+    }
+    let mut rows = sh.customer.rows.clone();
+    for (i, (key, _)) in fields.iter().enumerate() {
+        let col = sh.customer.header.iter().position(|h| h == key).unwrap();
+        rows[0][col] = Arc::from(if i % 2 == 0 { "" } else { "読めない値" });
+    }
+    let houjin = houjin.to_string();
+    sh.customer = Arc::new(SheetData {
+        header: sh.customer.header.clone(),
+        rows,
+        fetched_at: Instant::now(),
+    });
+    let index = build_customer(&sh, None, fixture_day());
+    let row = index["index"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["houjin"] == houjin)
+        .unwrap();
+    for (key, _) in fields {
+        assert_eq!(row[key], Value::Null, "{key}");
+    }
+}

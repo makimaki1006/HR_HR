@@ -869,6 +869,11 @@ pub fn fill_forward(points: &[(String, f64)], until: &str) -> Vec<MonthValue> {
 /// ここで法人を持つのは、取引をまたいで履歴を追うため。
 #[derive(Debug, Clone)]
 pub struct Customer {
+    pub kigyouzentaininzuu: Option<f64>,
+    pub monthly_amount_max: Option<f64>,
+    pub oubo_total: Option<f64>,
+    pub mensetu_total: Option<f64>,
+    pub syoudaku_total: Option<f64>,
     pub houjin: String,
     pub name: String,
     pub deal_count: Option<f64>,
@@ -887,6 +892,11 @@ pub fn customers_of(sheet: &SheetData) -> Vec<Customer> {
         .map(|row| {
             let g = |name: &str| sheet.get(row, name);
             Customer {
+                kigyouzentaininzuu: opt_num(g("kigyouzentaininzuu")),
+                monthly_amount_max: opt_num(g("monthly_amount_max")),
+                oubo_total: opt_num(g("oubo_total")),
+                mensetu_total: opt_num(g("mensetu_total")),
+                syoudaku_total: opt_num(g("syoudaku_total")),
                 houjin: g("houjin").to_string(),
                 name: g("代表社名").to_string(),
                 deal_count: opt_num(g("deal_count")),
