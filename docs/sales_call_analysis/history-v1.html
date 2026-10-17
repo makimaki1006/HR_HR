@@ -118,172 +118,198 @@ footer{margin-top:48px;font-size:13px;color:var(--sub)}
 .legend span:before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
 .legend .lk:before{background:var(--accent)} .legend .lf:before{background:var(--good)} .legend .lx:before{background:var(--bad)} .legend .lr:before{background:var(--warn)}
 @media print{body{background:#fff}.phase,.cover{break-inside:avoid}nav{display:none}}
+</style>
+<style>
+a{color:var(--accent)}
+.steps .phase .ph-t{font-size:17px}
+.mean{background:var(--accent-bg);border-radius:8px;padding:8px 12px;margin:10px 0 2px;font-size:15px}
+.mean b{color:var(--accent)}
+.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px;margin:14px 0}
+.how .card{margin:0}
+.how .card .t{font-weight:700;margin-bottom:4px}
+.how .card .w{font-size:14px;color:var(--sub)}
 </style></head>
 <body><main>
 <h1>営業通話分析の経緯</h1>
-<p class="lead">2026-10-09 の最初の依頼から 2026-10-17 の新人向け資料まで。何をどの順で調べ、何が分かり、何が覆り、その後に何が分かったか。</p>
+<p class="lead">新規営業のアポ取りの電話を対象に、どのデータで、どう確かめて、何が分かったかをまとめました。以前に聞いた話から変わったことと、まだ分かっていないことも載せています。トークの具体的なやり方は<a href="talk-guide-v1.html">アポ取りトークの基本</a>を見てください。</p>
+
 <div class="cover">
 <b>要旨</b>
-<p>上手い2人の音声を教師にした分類から始まり、件数を 9,681通話・全架電 15,467本まで広げながら、仮説を立てては崩すことを繰り返した。最終的に残ったのは、どんな相手にも向きが変わらないトークの基軸4つ(需要を聞かない・早く日付を出す・「忙しい」で引かない・受付は名前で呼ぶ)と、リストでは規模が効くという結果。途中で 21 件の主張が覆るか縮んだ。すべて記録の比較で、話し方を変えて試す検証はまだしていない。</p>
+<p>過去の電話の記録を、同じ担当者・同じ月の中で比べて、前半(6〜8月)と後半(9〜10月)の両方で同じ向きに出たことだけを残しました。どんな会社・どの担当者でも向きが変わらなかったのは、次の4つです。</p>
+<p><b>需要を聞かない／早く日付を出す／「忙しい」で引かない／受付では担当者を名前で呼ぶ。</b></p>
+<p>反対に、「具体的な日時で打診する」「欠員や職種を先に聞く」「いつ頃なら空いているか先方に選んでもらう」などは、確かめると効いていないか、逆効果でした。</p>
 <div class="kpis">
-<div class="kpi"><div class="v">9日間</div><div class="l">10-09 〜 10-17</div></div>
-<div class="kpi"><div class="v">20段階</div><div class="l">調査の区切り</div></div>
-<div class="kpi"><div class="v">9,681通話</div><div class="l">担当者と話せた通話(アポ 621件)</div></div>
-<div class="kpi"><div class="v">21件</div><div class="l">覆った・縮んだ主張</div></div>
+<div class="kpi"><div class="v">2026年6〜10月</div><div class="l">対象の期間</div></div>
+<div class="kpi"><div class="v">15,467本</div><div class="l">新規営業の架電(全部)</div></div>
+<div class="kpi"><div class="v">9,681件</div><div class="l">先方と話せた電話(文字起こしあり)</div></div>
+<div class="kpi"><div class="v">621件</div><div class="l">そのうちアポになった電話</div></div>
 </div>
-<p class="note">10-09〜10-12 の作業はコミットしておらず、会話の記録から組み立て直した。<br>人名は社内の担当者の姓だけにした。顧客の名前は載せない。<br>数字は各時点の資料のもの。後で直した数字は「覆されたこと」に並べた。</p>
 </div>
+
 <nav><ol>
-<li><a href="#q">問いの移り変わり</a></li><li><a href="#tl">年表</a></li><li><a href="#phases">段階ごとの経緯</a></li>
-<li><a href="#rev">覆されたこと・縮んだことの一覧</a></li><li><a href="#now">今の時点で残っている結論</a></li>
-<li><a href="#rules">作業中に決めたルール</a></li><li><a href="#open">まだ確かめていないこと</a></li></ol></nav>
-<h2 id="q">1. 問いの移り変わり</h2><div class="tbl"><table class=""><thead><tr><th>時期</th><th>問い</th><th>主な材料</th></tr></thead><tbody><tr><td>10-09〜10-12</td><td>アポが上手い2人(佐藤・斎藤)の音声から、アポの取り方を教師あり学習で取り出せるか</td><td>アポ直前の通話 298件と、取れなかった通話 596件</td></tr><tr><td>10-13〜10-14</td><td>取れた通話と取れなかった通話は、どの発言で分かれるか。教師の2人と他の営業は何が違うか</td><td>527件 → 18人の段階比較</td></tr><tr><td>10-14〜10-16</td><td>切り返し・冒頭・今かける理由のフレーズ集と、前後の流れごとの実例集</td><td>1,368件 → 9,681件(アポ 621件)</td></tr><tr><td>10-16</td><td>外部レビューを受けて、監査済みの知識・行動仮説・通話分類に分け直す</td><td>同上</td></tr><tr><td>10-16</td><td>どんな発言が出ればアポ率が動くか。その発言は何ターン遡れば決まるか</td><td>9,681件</td></tr><tr><td>10-16</td><td>リストの属性(規模・業界・地域・時間帯・役職)はどれだけ効くか</td><td>全架電 15,467本</td></tr><tr><td>10-16〜10-17</td><td>どんな相手にも通じる基軸は何か。新人に渡せる形にする</td><td>9,681件 + 全架電</td></tr></tbody></table></div>
-<h2 id="tl">2. 年表</h2><p class="note">赤い点は、それまでの主張が覆った・縮んだ段階。クリックで詳細へ。</p><ol class="tl"><li class=""><a href="#p0"><span class="d">10-09〜10-12</span><span class="n">0. 依頼とデータの用意</span></a></li><li class="rev"><a href="#p1"><span class="d">10-13</span><span class="n">1. 仮説 v0</span><span class="tag">覆った点あり</span></a></li><li class="rev"><a href="#p2"><span class="d">10-13</span><span class="n">2. 527件の全件判定と、現場から出た要素</span><span class="tag">覆った点あり</span></a></li><li class="rev"><a href="#p3"><span class="d">10-14</span><span class="n">3. 他の営業8人との比較</span><span class="tag">覆った点あり</span></a></li><li class="rev"><a href="#p4"><span class="d">10-14</span><span class="n">4. v0.2 二つの道と「結果の兆候」ルール</span><span class="tag">覆った点あり</span></a></li><li class=""><a href="#p5"><span class="d">10-14</span><span class="n">5. 8月を伏せた検証</span></a></li><li class=""><a href="#p6"><span class="d">10-14</span><span class="n">6. 18人の段階比較と需要の断り</span></a></li><li class="rev"><a href="#p7"><span class="d">10-14〜10-15</span><span class="n">7. フレーズ集と件数の拡大</span><span class="tag">覆った点あり</span></a></li><li class="rev"><a href="#p8"><span class="d">10-15</span><span class="n">8. 親しさ・声・切り返し</span><span class="tag">覆った点あり</span></a></li><li class="rev"><a href="#p9"><span class="d">10-15</span><span class="n">9. 切り返しの事前登録検証と、打診回数の目安</span><span class="tag">覆った点あり</span></a></li><li class=""><a href="#p10"><span class="d">10-15〜10-16</span><span class="n">10. 前後の流れごとの実例集</span></a></li><li class="rev"><a href="#p11"><span class="d">10-16</span><span class="n">11. 全体の逆証明と月ごとの分類テスト</span><span class="tag">覆った点あり</span></a></li><li class="rev"><a href="#p12"><span class="d">10-16</span><span class="n">12. 外部レビューと v1 への再編</span><span class="tag">覆った点あり</span></a></li><li class=""><a href="#p13"><span class="d">10-16</span><span class="n">13. 発言の影響と遡る範囲</span></a></li><li class="rev"><a href="#p14"><span class="d">10-16</span><span class="n">14. 切り取りを厳しくし、区間と型の中身を確かめた</span><span class="tag">覆った点あり</span></a></li><li class="rev"><a href="#p15"><span class="d">10-16</span><span class="n">15. リストの属性</span><span class="tag">覆った点あり</span></a></li><li class="rev"><a href="#p16"><span class="d">10-16〜10-17</span><span class="n">16. 多重クロス集計と層別</span><span class="tag">覆った点あり</span></a></li><li class=""><a href="#p17"><span class="d">10-17</span><span class="n">17. どんな相手でも通じる基軸</span></a></li><li class="rev"><a href="#p18"><span class="d">10-17</span><span class="n">18. 否定の後・受付・打診の形</span><span class="tag">覆った点あり</span></a></li><li class="rev"><a href="#p19"><span class="d">10-17</span><span class="n">19. 新人向け資料とフレーズ集</span><span class="tag">覆った点あり</span></a></li></ol>
-<h2 id="phases">3. 段階ごとの経緯</h2>
-<div class="legend"><span class="lk">きっかけ</span><span class="lf">分かったこと</span><span class="lx">覆された・直したこと</span><span class="lr">決めたルール</span></div>
-<section class="phase" id="p0"><div class="ph-h"><span class="no">0</span><div><div class="ph-t">依頼とデータの用意</div><div class="ph-m">10-09〜10-12</div></div></div><div class="blk k"><div class="bl">きっかけ</div>
-<p>最初の依頼(10-09)の要旨: 「Zoom Phone の音声から、新規営業のアポ音声を分析したい。10月の佐藤さんと斎藤さんがアポが上手いので、教師あり学習の教師にする。アポ確定に移った日の少し前の、同じ番号への70秒以上の通話を拾って、まず何件か教えて」。その後、「9月まで広げる」「まず取れた・取れないで教師あり学習をして分類問題を解き、その後ナレッジ化する」「6月まで広げて300件あればいい」と続いた。</p>
+<li><a href="#s1">今の結論</a></li>
+<li><a href="#s2">対象にした電話</a></li>
+<li><a href="#s3">確かめ方</a></li>
+<li><a href="#s4">調べた順番と分かったこと</a></li>
+<li><a href="#s5">以前の説明から変わったこと</a></li>
+<li><a href="#s6">現場で知っておいてほしいこと</a></li>
+<li><a href="#s7">まだ分かっていないこと</a></li>
+</ol></nav>
+
+<h2 id="s1">1. 今の結論</h2>
+<p>会社の規模・業界・窓口の役職・何回目の電話か・時間帯・担当者のどれで分けても、向きが変わらなかったものです。数字は、同じ担当者の電話どうしで比べたアポ率の差です。</p>
+<div class="rules">
+<div class="rule"><div class="no">1</div><div class="t">打診の前に需要を聞かない</div><div class="d">「今、募集されていませんか」と聞くと <span class="dn">−6pt</span>。13人全員で同じ向き。否定されると、その後どう返してもアポ率は 1.1%。</div></div>
+<div class="rule"><div class="no">2</div><div class="t">早く日付を出す</div><div class="d">名乗ってから2〜3回のやり取りで週・曜日を出すと <span class="up">+3.6pt</span>。18人中16人で同じ向き。頼み方は「お打ち合わせのお時間を」。</div></div>
+<div class="rule"><div class="no">3</div><div class="t">「忙しい」で引かない</div><div class="d">こちらから別の日を出し直すと、引き下がった場合より <span class="up">+16pt</span>。引き下がった84件のアポは0件。</div></div>
+<div class="rule"><div class="no">4</div><div class="t">受付では担当者を名前で呼ぶ</div><div class="d">担当者につながる率が <span class="up">+13pt</span>。前回の件を添えると <span class="up">+11pt</span>。</div></div>
 </div>
-<div class="blk d"><div class="bl">やったこと</div>
-<ul><li>Zoom Phone の通話履歴と HubSpot のステージ入りの時刻を照らし合わせた。条件は、ステージ入りの前3営業日以内・同じ番号・最後につながった通話。</li><li>6〜10月で取れた通話 298件を集めた。取れなかった通話は 5,102件から担当者×月で層を分け、596件を抜いた。</li><li>文字起こしは Zoom の API から取った。外部の生成AIへの送信は止められた。</li><li>文字の並びで8群に分けた。</li></ul>
+<p class="note">どれも過去の記録の比較で、話し方を決めて試したものではありません(<a href="#s7">7章</a>)。</p>
+
+<h2 id="s2">2. 対象にした電話</h2>
+<div class="tbl"><table>
+<tr><th>項目</th><th>内容</th></tr>
+<tr><td>何の電話か</td><td>新規営業が Zoom Phone でかけた、採用サービスのアポ取りの電話</td></tr>
+<tr><td>期間</td><td>2026年6月〜10月</td></tr>
+<tr><td>件数</td><td>架電 15,467本。そのうち先方と話せて文字起こしがある 9,681件(アポ 621件)。担当者は18人</td></tr>
+<tr><td>アポの数え方</td><td>HubSpot で「アポ日確定」に移った案件に、その直前につながった本人の電話。社外のアポインターが取ったアポは入れていない</td></tr>
+<tr><td>入れていないもの</td><td>不在・留守電の電話。アポの後の商談・受注</td></tr>
+<tr><td>会社の情報</td><td>規模・業界・地域は、会社のデータと照合できた電話(84%)で見た</td></tr>
+</table></div>
+<p class="note">この範囲の外(ほかの商品・ほかのチームの電話)では確かめていません。</p>
+
+<h2 id="s3">3. 確かめ方</h2>
+<p>記録の比較は、見かけの差が出やすいです。たとえば、上手い人がよく使う言葉は、言葉のおかげでなくても高く見えます。次のやり方で、見かけの差を落としました。</p>
+<div class="how">
+<div class="card"><div class="t">同じ担当者・同じ月の中で比べる</div><div class="w">人の上手さや、月ごとのリストの違いで差が出ないようにするため。</div></div>
+<div class="card"><div class="t">前半と後半の両方で確かめる</div><div class="w">6〜8月と9〜10月に分けて、両方で同じ向きに出たものだけを残しました。</div></div>
+<div class="card"><div class="t">アポが決まった後の会話は数えない</div><div class="w">日時が決まると「何名で」「メールで送ります」などが出ます。これはアポの結果で、理由ではありません。日時が決まる前の発言だけで比べました。</div></div>
+<div class="card"><div class="t">予想を先に書いてから確かめる</div><div class="w">分析に使っていない月(8月など)で、結果を見る前に予想を書き、当たるかを確かめました。</div></div>
+<div class="card"><div class="t">誤差の幅を付ける</div><div class="w">同じ会社への電話をまとめて選び直し(200回)、差がどのくらいぶれるかを出しました。幅が0をまたぐものは結論にしていません。</div></div>
+<div class="card"><div class="t">相手の種類ごとに分ける</div><div class="w">会社の規模・業界・役職・何回目か・時間帯・担当者で分けて、それぞれの中でも同じ向きかを見ました。</div></div>
+<div class="card"><div class="t">実際の電話を読む</div><div class="w">機械で分けた発言の種類ごとに30件ずつ読み、中身が名前どおりかを確かめました。資料に載せる例も読んで差し替えました。</div></div>
 </div>
-<div class="blk f"><div class="bl">分かったこと</div>
-<p>群は「担当者×通話の種類」(不在・アポ後のフォロー・保留音など)で分かれ、アポの特徴は出なかった。</p>
+
+<h2 id="s4">4. 調べた順番と分かったこと</h2>
+<div class="steps">
+
+<div class="phase"><div class="ph-h"><div class="no">1</div><div><div class="ph-t">アポの多い人の電話を読む</div><div class="ph-m">取れた電話 297件・取れなかった電話 248件ほか</div></div></div>
+<div class="blk f"><div class="bl">分かったこと</div><ul>
+<li>先方の第一声で、その後の取れやすさが大きく違う(了承 96%、日程の話 65%、質問 41%、需要の断り 12%)。</li>
+<li>上手い人にもやり方が2つある。先回りして日時を繰り返す型と、日付を問いかけて先方の都合を言ってもらう型。</li>
+</ul></div>
+<div class="mean"><b>現場への意味:</b> 正解のトークは1本ではない。まず早く日付を出し、その先は複数のやり方がある。</div>
 </div>
-<div class="blk d"><div class="bl">直したこと</div>
-<ul><li>合意なしに判定項目を足したところ、「基準は個別具体を要件定義してから」と指摘を受けた。</li><li>不在の通話はアポの音声として扱わないことにした。</li></ul>
-</div></section><section class="phase" id="p1"><div class="ph-h"><span class="no">1</span><div><div class="ph-t">仮説 v0</div><div class="ph-m">10-13 <span class="sha">208f73fa</span></div></div></div><div class="blk d"><div class="bl">やったこと</div>
-<ul><li>文字起こしのある 1,231件を読んで分類した(取れた 297・取れなかった 248 ほか)。</li><li>断られ方を型に分けた。日時の了承の前と後を分けて比べた。</li></ul>
+
+<div class="phase"><div class="ph-h"><div class="no">2</div><div><div class="ph-t">ほかの担当者と比べる</div><div class="ph-m">8人の 253件 → 18人の全件</div></div></div>
+<div class="blk f"><div class="bl">分かったこと</div><ul>
+<li>先方が「この週なら」などの手がかりを出せば、どの担当者も8割前後はアポにつなげている。</li>
+<li>差が出ていたのは、手がかりを引き出せるかと、手がかりが無いときも日時を出し続けるか。手がかりが無いと、多くの人が打診をやめていた。</li>
+<li>手がかりを引き出す力は、人ごとのアポ率とよく揃っていた(相関 0.58)。</li>
+</ul></div>
+<div class="blk x"><div class="bl">取り消したこと</div><ul><li>「需要の断りへの返し方で、上手い人とほかの人が分かれる」は、断られた電話どうしで比べると差がなかった。</li></ul></div>
+<div class="mean"><b>現場への意味:</b> 上手い人との差は、決めの一言よりも「日時を出す回数と早さ」にある。</div>
 </div>
-<div class="blk f"><div class="bl">分かったこと</div>
-<ul><li>先方の第一声で取れた割合が分かれる: 了承 96%、日程の話 65%、質問 41%、需要の断り 12%。</li><li>仮説 R1〜R7 を立てた(職種名を出さない、今かける理由、日程の断りに別の日時、など)。</li></ul>
+
+<div class="phase"><div class="ph-h"><div class="no">3</div><div><div class="ph-t">使っていない月で予想を確かめる</div><div class="ph-m">8月の 219件、切り返しの 900件</div></div></div>
+<div class="blk f"><div class="bl">分かったこと</div><ul>
+<li>打診の2〜4回目でも、先方の前向きな返事は 15〜20% 出ている。それなのに7割の電話は4回目の前に打診をやめていた。</li>
+</ul></div>
+<div class="blk x"><div class="bl">取り消したこと</div><ul>
+<li>「具体的な日時(日付＋時刻)で出すほうが決まる」は逆だった(12.4% 対 日付だけ 15.2%)。</li>
+<li>「点数の高い型の人ほどアポが多い」は成り立たなかった。打診まで行けるかの段階を見ていなかったため。</li>
+</ul></div>
+<div class="mean"><b>現場への意味:</b> 1回断られても、日を変えて出し直す余地がある。時刻まで決めて出す必要はない。</div>
 </div>
-<div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li>「アポの電話 827件」は、案件1件あたり14日以内の電話を複数数えたもので、電話の件数でもアポ率でもなかった(「矛盾している」との指摘から判明)。抜き出した中の割合はアポ率ではないと明記した。</li><li>取れた側の需要の断りは、多くが日時の了承の後に出ていた。了承の前だけで比べ直した。</li></ul>
-</div></section><section class="phase" id="p2"><div class="ph-h"><span class="no">2</span><div><div class="ph-t">527件の全件判定と、現場から出た要素</div><div class="ph-m">10-13 <span class="sha">9b62e8f2</span> <span class="sha">030f4557</span></div></div></div><div class="blk f"><div class="bl">分かったこと</div>
-<p>R1〜R7 で、担当者を入れ替えても AUC 0.88〜0.92 が出た。</p>
+
+<div class="phase"><div class="ph-h"><div class="no">4</div><div><div class="ph-t">件数を広げ、発言ごとにアポ率との関係を見る</div><div class="ph-m">9,681件の発言を種類に分け、同じ担当者・同じ場面どうしで比較</div></div></div>
+<div class="blk f"><div class="bl">分かったこと</div><ul>
+<li>「その日は予定がある」と言われて別の日を出し直すと、引き下がった場合より +16pt。</li>
+<li>打診の前に「募集していないですか」と聞くと −6pt。</li>
+<li>先方の返事は、直前の1〜2回のやり取りでほぼ決まる。</li>
+</ul></div>
+<div class="mean"><b>現場への意味:</b> 断りの直後の一言が大事。前半の雑談を長くしても、後の返事はあまり変わらない。</div>
 </div>
-<div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li>R3・R5 は「打診し直したか」を含み、結果と重なるので高く出ていた。重ならない R1・R2 だけでは AUC 0.6 強。</li><li>R6(同じ断りが3回続いたら時期を聞く)は、その通話では取れない(22件中1件)。「次回への布石」として別枠にした。</li><li>現場の意見で R8〜R10(テンション・リアクション・噛み合い)を足した。リアクションは文字からは差が出なかった。</li></ul>
-</div></section><section class="phase" id="p3"><div class="ph-h"><span class="no">3</span><div><div class="ph-t">他の営業8人との比較</div><div class="ph-m">10-14 <span class="sha">c4871e50</span></div></div></div><div class="blk d"><div class="bl">やったこと</div>
-<p>8人の 253件を判定した。アポは本人の電話から数えた(外部アポインターの分を除くため)。</p>
+
+<div class="phase"><div class="ph-h"><div class="no">5</div><div><div class="ph-t">アポが決まった後の会話を厳しく除く</div><div class="ph-m">Zoom・メールアドレス・日時の復唱などが出た時点で電話を切って比較</div></div></div>
+<div class="blk x"><div class="bl">取り消したこと</div><ul>
+<li>「欠員か増員か」「職種」「決める人」「人手不足の話」「使っている媒体」を聞くと +5〜6pt、は消えた。アポが決まった後の聞き取りだった。</li>
+<li>「お久しぶりです／覚えていますか」は、言っても言わなくてもアポ率は同じ(5.6% と 5.8%)。</li>
+</ul></div>
+<div class="mean"><b>現場への意味:</b> ヒアリングはアポが決まってから。打診の前に聞く理由はない。</div>
 </div>
-<div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li><b>R5(需要の断りへの返し)の差を取り消した。</b> 教師 28% 対 8人 8% は比率の偏りで、断られた通話の中で比べると 4% 対 6% と差がなかった。</li><li><b>R2(今かける理由)の差は、佐藤一人によるものだった。</b></li><li>R1・R10 は、教師と他の8人を分けなかった。</li></ul>
+
+<div class="phase"><div class="ph-h"><div class="no">6</div><div><div class="ph-t">かける相手(リスト)の違いを見る</div><div class="ph-m">全架電 15,467本、会社のデータと照合</div></div></div>
+<div class="blk f"><div class="bl">分かったこと</div><ul>
+<li>会社が大きいほどアポ率が高い(300人以上は 1〜99人の 1.67倍)。受付で止まりやすいが、つながった後が高い。</li>
+<li>同じ会社への2回目の電話は 1.46倍(頼まれたかけ直しを含む)。</li>
+<li>業界は、運輸・物流以外は時期で入れ替わった。自動車は小さい会社(整備工場)が高く、大きい会社(部品メーカー)は低い。</li>
+<li>時間帯は、9時台が高く見えたが、かけ直しが集まっていただけだった。</li>
+</ul></div>
+<div class="mean"><b>現場への意味:</b> リストは会社側で組む。個人のアポ率は、かけたリストの違いで変わる(<a href="#s6">6章</a>)。</div>
 </div>
-<div class="blk f"><div class="bl">残った差</div>
-<p>同じ「日程の話」から始まっても、8人は教師の約半分しか取れていない(27% 対 15%)。</p>
-</div></section><section class="phase" id="p4"><div class="ph-h"><span class="no">4</span><div><div class="ph-t">v0.2 二つの道と「結果の兆候」ルール</div><div class="ph-m">10-14 <span class="sha">ce4dffe0</span> <span class="sha">1e87494f</span></div></div></div><div class="blk k"><div class="bl">きっかけ</div>
-<p>「日付と時刻を組にして出す」(H3)は、先方の手がかりを回収しているだけで「順番が前後していないか」と指摘を受けた。「取った後に必ずするヒアリングが理由かどうかは別問題」とも。</p>
+
+<div class="phase"><div class="ph-h"><div class="no">7</div><div><div class="ph-t">どんな相手でも通じるかを確かめる</div><div class="ph-m">規模・業界・役職・回数・時間帯・期間・担当者ごとに分けて比較</div></div></div>
+<div class="blk f"><div class="bl">分かったこと</div><ul>
+<li>需要を聞かない・早く日付を出す・「忙しい」で引かないの3つは、どれで分けても向きが変わらなかった。</li>
+<li>受付では、担当者の名前で呼ぶと担当者につながる率が +13pt。受付に用件を聞かれたときの答え方では差がない。</li>
+</ul></div>
+<div class="blk x"><div class="bl">取り消したこと</div><ul>
+<li>「需要を否定された直後に日程を出せば取り返せる(+23pt)」は誤りだった。数えた中に「その日は埋まっている」などの予定の話が混ざっていた。本当に需要を否定された 1,650件では、どう返してもアポ率は 1.1%。</li>
+<li>「中途採用の件で」と切り出す効果は、相手によって向きが変わったので外した。</li>
+</ul></div>
+<div class="mean"><b>現場への意味:</b> 否定されてから挽回するより、否定を引き出さないほうが大事。</div>
 </div>
-<div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li>H3 を取り下げた。H2・H6 も通話を分ける力がなかった。</li><li>「先方の状態×打ち手」の枠組みは後知恵になるため不合格にした。</li></ul>
+
+<div class="phase"><div class="ph-h"><div class="no">8</div><div><div class="ph-t">言い回しを場面ごとに比べる</div><div class="ph-m">冒頭・最初の打診・「忙しい」の後・断りの後に分けて集計</div></div></div>
+<div class="blk f"><div class="bl">分かったこと</div><ul>
+<li>打診で「お打ち合わせ」と言うと +8.6pt、「採用サービスの中身をお伝えしたく」は −7pt(打診の約半分がこの言い方)。</li>
+<li>「忙しい」の後は、具体的な日を出すと +9.8pt、「いつ頃なら」と聞くと −8.9pt。</li>
+<li>先方が時刻の話を始める(+27〜37pt)、「ちょっと待ってください」(+14pt)は脈ありのサイン。</li>
+</ul></div>
+<div class="mean"><b>現場への意味:</b> 日付はこちらから出す。先方に選んでもらうのは、日付を出した後の時刻だけ。</div>
 </div>
-<div class="blk r"><div class="bl">決めたルール</div>
-<p>原因は、先方が最初に手がかりを出した時点(分かれ目)より前だけで測る。確定・復唱・メール確認は結果の兆候として扱い、理由にしない。</p>
+
 </div>
-<div class="blk f"><div class="bl">分かったこと</div>
-<ul><li>手がかりがあれば、8人も 78〜88% 回収できる。差は、手がかりを引き出す力(斎藤 71% 対 8人 45%)と、手がかりがなくても日時を出し続けるか(8人は 78% がやめる)にあった。</li><li>佐藤型(先回りして繰り返す)と斎藤型(日付だけを問いかけ、先方の都合を先方の口から言わせる)に分かれた。</li></ul>
-</div></section><section class="phase" id="p5"><div class="ph-h"><span class="no">5</span><div><div class="ph-t">8月を伏せた検証</div><div class="ph-m">10-14 <span class="sha">80bfc557</span> <span class="sha">465ee68b</span></div></div></div><div class="blk d"><div class="bl">やったこと</div>
-<p>担当者を伏せた8月の 219件で、予測 P1〜P10 を事前に固定してから確かめた。</p>
-</div>
-<div class="blk f"><div class="bl">結果</div>
-<ul><li>P1〜P6・P8・P9 は成立した。</li><li><b>P7(佐藤型を2回以上)は保留。</b> 手がかりのない通話では、何回出しても0件だった。</li><li><b>P10(斎藤型の点数で人を並べる)は不成立。</b> 佐藤は点数が最下位で、アポ率は最上位だった。「山口は打診の回数が少ないからダメ、という話だったのでは」という指摘から、点数が「打診まで行くか」の段階を無視していると分かった。</li></ul>
-</div></section><section class="phase" id="p6"><div class="ph-h"><span class="no">6</span><div><div class="ph-t">18人の段階比較と需要の断り</div><div class="ph-m">10-14 <span class="sha">d4fbbb38</span> <span class="sha">53ce9bcb</span></div></div></div><div class="blk f"><div class="bl">分かったこと</div>
-<ul><li>手がかりを引き出す力が、人ごとのアポ率と相関した(0.58)。</li><li>現場の知見として、次の3点を記録した。</li><ul><li>求人を出したまま「充足」と言う会社が多い(潜在需要がある)。</li><li>アポの段階で需要を突くと断られる。</li><li>主流は「ぬるっと日程を切る」やり方。</li></ul><li>需要の断りから取れた11件の骨格: 受け止める → 欠けているところを探す → 会う理由を作り直す → 日程を出し直す。</li></ul>
-</div>
-<div class="blk o"><div class="bl">残した課題</div>
-<p>本当に需要がないのか、断り文句なのかを見分ける方法。</p>
-</div></section><section class="phase" id="p7"><div class="ph-h"><span class="no">7</span><div><div class="ph-t">フレーズ集と件数の拡大</div><div class="ph-m">10-14〜10-15 <span class="sha">34d264af</span></div></div></div><div class="blk k"><div class="bl">きっかけ</div>
-<p>「具体的にすると NG を食らい、抽象的すぎると怪しまれる。そのちょうど良いフレーズ集を」「数を担保しないと結果がぶれる」。</p>
-</div>
-<div class="blk d"><div class="bl">やったこと</div>
-<p>対象を 15,468本 → 担当者と話せた 9,681件(アポ 621件)まで広げた。</p>
-</div>
-<div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li>少ないデータで勧めた「件名を出すなら『中途の採用』まで」は、大きいデータで覆った。</li><li>「覚えていらっしゃいますか」は「差がない」としていたが、件数を増やすと差が出た。この点は段階13でさらに変わった。</li></ul>
-</div></section><section class="phase" id="p8"><div class="ph-h"><span class="no">8</span><div><div class="ph-t">親しさ・声・切り返し</div><div class="ph-m">10-15 <span class="sha">27557530</span></div></div></div><div class="blk f"><div class="bl">分かったこと</div>
-<ul><li>文字から見た親しさ(既存感)は、人ごとのアポ率と順位相関 0.68。</li><li>声は人ごとの癖として出ていて、通話1本ごとには変わらない。</li><li>上位と下位の差の約2/3は、第一声の後に開いていた。</li></ul>
-</div>
-<div class="blk x"><div class="bl">後で取り消したこと</div>
-<p>「日程の話の後は、具体的な日時のほうが決まる」(段階9で逆向きと分かった)。</p>
-</div></section><section class="phase" id="p9"><div class="ph-h"><span class="no">9</span><div><div class="ph-t">切り返しの事前登録検証と、打診回数の目安</div><div class="ph-m">10-15 <span class="sha">e489e2a8</span> <span class="sha">8a61a88c</span></div></div></div><div class="blk f"><div class="bl">結果(900件、予測は事前に固定)</div>
-<ul><li><b>C1「具体的な日時は日付だけより決まる」は逆向きだった</b>(12.4% 対 15.2%)。</li><li>C2・C4〜C6 も不成立で、「具体的な日時」「何の件?への答え方」を一般的な助言から外した。</li></ul>
-</div>
-<div class="blk x"><div class="bl">指摘を受けて変えたこと</div>
-<ul><li>「需要の断りの後に採用状況を聞いて取れないのは、熱さがないと判断して打診をやめた可能性もある」→ 意図的な選り分けの可能性として追記した(<span class="sha">b73cf327</span>)。</li><li>「日程を切ることでしかアポにならないのだから当たり前」→ 結果ではなく、先方の次の返事で比べる方式に変えた(<span class="sha">09de7178</span>)。</li><li>「最低何回は打診する、という基準が欲しい」→ 回数ごとの前向きな返事の割合を測った。</li><ul><li>2〜4回目の前向きな返事は 15〜20%。</li><li>70% の通話は4回目に届く前に打診をやめている。</li><li>事前登録した検証で成立した(<span class="sha">8a61a88c</span>)。</li><li>ただし、4回目まで続いた通話は、営業が続けると判断した通話に偏る。</li></ul></ul>
-</div></section><section class="phase" id="p10"><div class="ph-h"><span class="no">10</span><div><div class="ph-t">前後の流れごとの実例集</div><div class="ph-m">10-15〜10-16 <span class="sha">45359864</span> <span class="sha">bf16ecfe</span></div></div></div><div class="blk k"><div class="bl">きっかけ</div>
-<p>「良い例だけでなく悪い例も、前後の因果関係を含めたパッケージで。そうでないと局所的に真似して失敗する」。</p>
-</div>
-<div class="blk d"><div class="bl">やったこと</div>
-<p>「何の件?」621件と、冒頭・今かける理由・切り返しの 2,004件を、前後の流れごとの実例集にした。</p>
-</div></section><section class="phase" id="p11"><div class="ph-h"><span class="no">11</span><div><div class="ph-t">全体の逆証明と月ごとの分類テスト</div><div class="ph-m">10-16 <span class="sha">d30d6cb9</span></div></div></div><div class="blk x"><div class="bl">覆されたこと(取り下げ)</div>
-<ul><li>斎藤型の手順4「ダメな日を言わせる」: 次の返事はむしろ低かった。</li><li>「今日・明日の打診」: 教師では逆向きだった。</li><li>「思い出せない」と言われたら説明せずに日時へ進む: 7件しかなかった。</li></ul>
-</div>
-<div class="blk d"><div class="bl">直したこと</div>
-<p>名前の置き換え漏れを直し、載せた例を監査した(479件中20件を差し替え)。</p>
-</div>
-<div class="blk f"><div class="bl">分類テストの結果</div>
-<ul><li>全文で AUC 0.97〜0.99。ただし効いていたのは、メール・リンクなど結果の兆候だった。</li><li>結果より前の営業の発言だけでは 0.68〜0.72。</li></ul>
-</div></section><section class="phase" id="p12"><div class="ph-h"><span class="no">12</span><div><div class="ph-t">外部レビューと v1 への再編</div><div class="ph-m">10-16 <span class="sha">615128fd</span> <span class="sha">f88c4f38</span></div></div></div><div class="blk x"><div class="bl">レビューの指摘(要修正 12件)</div>
-<ul><li>「打診前」の切り位置から未来の情報が漏れていた。677件で「打診前」が全文と同じだった。</li><li>有意差がないものを「差が小さい」と書いていた。</li><li>匿名化に漏れがあった。</li><li>比較する群が重なっていた。</li><li>時期で分けた検証をしていなかった。</li></ul>
-</div>
-<div class="blk d"><div class="bl">再編したこと</div>
-<ul><li>監査済みの知識(8例)・行動仮説・通話分類の3つに分けた。</li><li>担当者と月をそろえると、比べられる区画はほとんど残らなかった。そのため、効果の主張は保留にした。</li><li>段階11で「頑健」としていた「日程の断りに日時へ戻す 対 採用状況を聞く」は、192件 対 6件で判定できなくなった。</li><li>分類モデルは、過去の月で学習して後の月で試すやり方で、打診の前の発言だけでは AUC 0.60〜0.68 に下がった。</li><li>「予測の性能と、営業の改善に役立つ知識は別物」という整理をした。</li></ul>
-</div></section><section class="phase" id="p13"><div class="ph-h"><span class="no">13</span><div><div class="ph-t">発言の影響と遡る範囲</div><div class="ph-m">10-16 <span class="sha">f798eb71</span></div></div></div><div class="blk k"><div class="bl">きっかけ</div>
-<p>「どんな発言が出ればアポにインパクトするのか。その発言はトークをどこまで遡れば再現できるのか」。リストの属性は使わず、トークだけで見る。</p>
-</div>
-<div class="blk d"><div class="bl">やったこと</div>
-<ul><li>9,681件の発言を、意味の近いもので型に分けた(営業 80型・先方 60型、日本語の文の埋め込みとクラスタリング)。</li><li>同じ担当者・同じ段階・通話の中の同じ位置どうしで、アポ率の差を比べた。6〜8月と9〜10月で同じ向きのものだけを残した。</li></ul>
-</div>
-<div class="blk f"><div class="bl">分かったこと(初版)</div>
-<ul><li>上げる側: 先方が時間帯の話をする <span class="pt">+25pt</span>。先方が「その日は予定がある」と答える <span class="pt">+19pt</span>。営業が午前・午後の時刻を挙げる <span class="pt">+18pt</span>。</li><li>分かれ目1: 「予定がある」と言われて別の日を出し直すと、引き下がった場合より <span class="pt">+20pt</span>。</li><li>分かれ目2: 打診の前に「募集していないですか」と聞くと −6〜<span class="pt">−8pt</span>。</li><li>遡る範囲: 先方の返事は営業の直前の1〜2ターンでほぼ決まる。打診まで行くかは3ターン前まで見れば足りる。</li></ul>
-</div></section><section class="phase" id="p14"><div class="ph-h"><span class="no">14</span><div><div class="ph-t">切り取りを厳しくし、区間と型の中身を確かめた</div><div class="ph-m">10-16 <span class="sha">864df570</span></div></div></div><div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li><b>上げる発言のうち5つが消えた。</b></li><ul><li>対象: 欠員か増員かを聞く(<span class="pt">+6pt</span>)、職種を聞く(<span class="pt">+6pt</span>)、人手不足の話(<span class="pt">+5pt</span>)、決める人を聞く(<span class="pt">+5pt</span>)、媒体を使っている(<span class="pt">+5pt</span>)。</li><li>結果の切り取り(アポが決まった時点で通話を切る位置)に、Zoom・リンク・メールアドレス・アンケートと、「先方が日付と時刻をそろえて言った発言」を足した。</li><li>するとアポ後まで見ていた通話が 95件から17件に減り、5つの差はほぼ0になった。アポが決まった後の聞き取りだったと分かった。</li></ul><li><b>「引き下がる」の型に、時期をずらして打診し直す発言が混ざっていた。</b> それを除くと、出し直しの差は <span class="pt">+21pt</span>(引き下がった側は84件でアポ0件)。</li><li><b>「お久しぶり/覚えていますか」が打診を増やすような書き方を直した。</b></li><ul><li>通話単位では、言った通話と言わなかった通話のアポ率は 5.6% 対 5.8%。</li><li>過去に通話がある場合も 10.4% 対 10.4% で、差はない。</li><li>「日時を出す直前の定位置」にすぎない、と書き換えた。</li></ul></ul>
-</div>
-<div class="blk d"><div class="bl">確かめたこと</div>
-<ul><li>2つの分かれ目に、電話番号ごとに選び直した区間を付けた。出し直し <span class="pt">+16pt</span> [+12, +21]、需要の質問 <span class="pt">−6pt</span> [−7, −5]。</li><li>主な24型を各30件読み、結論を支える型の 80〜97% が型の名前どおりだと確かめた。</li><li>先方の心理から見た解釈(仮説)を4つ書いた。</li><li>実例を匿名化して16件載せた。</li><li>リストの属性は、トークと混ざらないよう別の資料に分けた。</li></ul>
-</div></section><section class="phase" id="p15"><div class="ph-h"><span class="no">15</span><div><div class="ph-t">リストの属性</div><div class="ph-m">10-16 <span class="sha">864df570</span> <span class="sha">e6347997</span></div></div></div><div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li>初版では、話せた通話だけ・照合率 56% で調べ、「会社の属性ではほとんど見分けられない」と書いた。</li><li>「従業員数とか色々インパクトすると思うけどね」と指摘を受け、全架電 15,467本(照合 84%)で、担当者と月をそろえて測り直した。</li><li>結果、<b>従業員数ははっきり効いていた</b>(10〜99人 3.6% に対し、300〜999人 1.55倍、1000人以上 1.78倍)。「見分けられない」は誤りだった。</li><li>1本ごとの予測(AUC 0.5前後)と、リストの組み方で全体のアポ率が動くことは別の話で、それを混同していた。</li></ul>
-</div>
-<div class="blk f"><div class="bl">分かったこと</div>
-<ul><li>大きい会社ほど受付で止まりやすいが、つながった後のアポ率がそれ以上に高い。</li><li>都道府県はほぼ効かない。</li><li>人事・採用の窓口につながる通話は低い。</li><li>同じ番号への2回目以降は高い(ただし、頼まれたかけ直しが混ざる)。</li></ul>
-</div></section><section class="phase" id="p16"><div class="ph-h"><span class="no">16</span><div><div class="ph-t">多重クロス集計と層別</div><div class="ph-m">10-16〜10-17 <span class="sha">05a35549</span> <span class="sha">fb28de75</span> <span class="sha">74b3f2e4</span></div></div></div><div class="blk k"><div class="bl">きっかけ</div>
-<p>「多重クロス集計分析を先に挟んで」。続いて「意味が同じものが多分ある(運輸物流は規模が小さいところが多い、など)」「全部入れると潰し合う。業界と従業員数は切り分けて考えないと中途半端な結果になる」。</p>
-</div>
-<div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li>「9時台は高い」は言い過ぎだった。9時台はかけ直しが集まっていて、それをそろえると 1.16倍 [0.89–1.48] に縮み、6〜8月だけでは逆向きになった。</li><li>「業界が少し効く」は、運輸・物流以外は前後半で入れ替わった。</li><li>「運輸・物流は小さい会社が多い」はデータでは逆だった。運輸・物流はやや大きい会社寄りで、小さい会社に偏っているのは工事・土木。</li><li>全項目を1つのモデルに入れた倍率では、自動車・輸送は 1.52倍。</li><ul><li>業界と規模を切り分けると、小さい会社(整備工場)は前後半とも他業界の1.5倍以上だった。</li><li>300人以上(部品メーカー)は前後半とも約3分の1だった。</li><li>1.52倍は、この2つを混ぜた中途半端な値だった。指摘のとおりで、問題は打ち消し合いではなく、業界ごとの違いが平均されて見えなくなることだった。</li></ul></ul>
-</div>
-<div class="blk f"><div class="bl">分かったこと</div>
-<p>規模の効果は、ほかの属性を同時にそろえても変わらなかった(300人以上 1.67倍、前後半とも同じ)。</p>
-</div></section><section class="phase" id="p17"><div class="ph-h"><span class="no">17</span><div><div class="ph-t">どんな相手でも通じる基軸</div><div class="ph-m">10-17 <span class="sha">d2bbe42f</span></div></div></div><div class="blk k"><div class="bl">きっかけ</div>
-<p>「トーク側を掘りたい。成約率はリストコントロールでなんとかする。どんな相手でも通じる基軸になる方針を」。</p>
-</div>
-<div class="blk f"><div class="bl">分かったこと</div>
-<ul><li>規模・業界・役職・何回目の電話か・時間帯・期間・担当者のどれで分けても、次の3つは向きが変わらなかった。</li><ul><li>需要を聞かない: <span class="pt">−6pt</span> を避ける。13人全員で同じ向き。</li><li>「忙しい」で引かない: <span class="pt">+16pt</span>。</li><li>早く日程を出す: <span class="pt">+4pt</span>。18人中16人で同じ向き。</li></ul><li>「中途採用の件で」と切り出す効果は、相手によって向きが変わったので、基軸から外した。</li><li>打診に時刻まで入れても上がらなかった(日付だけより <span class="pt">−2.7pt</span>)。段階9の C1 の結果と一致する。</li></ul>
-</div></section><section class="phase" id="p18"><div class="ph-h"><span class="no">18</span><div><div class="ph-t">否定の後・受付・打診の形</div><div class="ph-m">10-17 <span class="sha">f5bfb72b</span></div></div></div><div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li><b>「需要を否定された直後に日程を打診すると <span class="pt">+23pt</span>」は誤りだった。</b></li><ul><li>先方の発言の型に、「大丈夫ですよ」(時間は空いている)や「その日は埋まっている」(予定の話)が混ざっていた。</li><li>発言の文字で需要の否定を確かめた 1,650件では、どう返してもアポ率は全体で 1.1%(18件)。</li><li>結論は「否定の後の切り返しでは取り返せない。否定を引き出さないことが大事」に変わった。</li></ul></ul>
-</div>
-<div class="blk f"><div class="bl">分かったこと</div>
-<ul><li>受付では、担当者の名前で呼ぶと担当者につながる率が <span class="pt">+13pt</span>、前回の件を出すと <span class="pt">+11pt</span>。アポ率までの差ははっきりしない。</li><li>受付に用件を聞かれたときの答え方(前回の続き/採用の件)では差がない。</li><li>打診に時刻まで入れても、先方の乗り方は変わらない。</li><li>先方に「ご都合のよい日は」と選んでもらう聞き方は大きく出たが、24件しかない。</li></ul>
-</div></section><section class="phase" id="p19"><div class="ph-h"><span class="no">19</span><div><div class="ph-t">新人向け資料とフレーズ集</div><div class="ph-m">10-17 <span class="sha">9d61c11e</span> <span class="sha">c3ac83c9</span></div></div></div><div class="blk k"><div class="bl">きっかけ</div>
-<p>「営業の初心者向けに、うまくいく方法と悪い方法を、フローチャートやトークスクリプトで。HTML がいい」。続いて「キーワード的なフレーズがたくさんあるはず。確度が低くてもいい」。</p>
-</div>
-<div class="blk d"><div class="bl">やったこと</div>
-<ul><li>基本の4つ・フローチャート・良い例と悪い例・場面ごとのスクリプトを HTML にまとめた。</li><li>発言を単語の並びに分けて、場面ごとにアポ率との関係を調べた。</li></ul>
-</div>
-<div class="blk x"><div class="bl">覆されたこと</div>
-<ul><li><b>新人向け資料のスクリプトに、低い言い方を入れていた。</b></li><ul><li>打診を「採用サービスの中身をお伝えしたく」としていたが、この言い方はアポ率 <span class="pt">−7pt</span>(打診の約半分の 2,471件がこの言い方)。</li><li>「お打ち合わせ」は <span class="pt">+8.6pt</span> だったので、スクリプトを直した。</li></ul><li>通話全体で言い回しを数えると、日程が決まった後の言葉(「何名で」「40分ぐらい」)と、電話を切る挨拶が上位を占めた。そこで、場面(冒頭・打診・断りの直後)に分けて数え直した。</li><li><b>「先方に選んでもらう」は、場面によっては逆効果だった。</b> 「忙しい」の後に「いつ頃なら」と聞くと、具体的な日を出すより <span class="pt">−16pt</span>。段階4の斎藤型「先方の都合を先方の口から言わせる」も、段階11で一部を取り下げている。選んでもらうのは、日付をこちらが出した上での時刻に限る、とした。</li></ul>
-</div></section>
-<h2 id="rev">4. 覆されたこと・縮んだことの一覧</h2><div class="tbl"><table class="rev-t"><thead><tr><th>時期</th><th>当初の主張</th><th>何で分かったか</th><th>今の扱い</th></tr></thead><tbody><tr><td>10-13</td><td>アポの電話 827件</td><td>案件ごとに14日以内の電話を複数数えていた</td><td>件数を数え直し、抜き出した中の割合はアポ率ではないと明記</td></tr><tr><td>10-13</td><td>取れた側は需要の断りをうまく返す</td><td>断りの多くは日時の了承の後だった</td><td>了承前だけで比べる</td></tr><tr><td>10-13</td><td>R1〜R7 で AUC 0.88〜0.92</td><td>R3・R5 が結果と重なっていた</td><td>重ならない項目では 0.6 強</td></tr><tr><td>10-14</td><td>R5 で教師と他の営業が分かれる</td><td>比率の偏り。断られた通話の中では差なし</td><td>取り消し</td></tr><tr><td>10-14</td><td>R2(今かける理由)が効く</td><td>佐藤一人の差だった</td><td>人の癖として扱う</td></tr><tr><td>10-14</td><td>日付と時刻を組にして出す(H3)</td><td>先方の手がかりを回収しているだけ</td><td>取り下げ。結果の兆候ルールを作った</td></tr><tr><td>10-14</td><td>斎藤型の点数で人を並べられる</td><td>8月を伏せた検証で不成立(相関 −0.05)</td><td>不成立</td></tr><tr><td>10-14</td><td>件名を出すなら「中途の採用」まで</td><td>件数を増やすと覆った</td><td>撤回</td></tr><tr><td>10-15</td><td>具体的な日時のほうが決まる</td><td>事前登録した検証で逆向き</td><td>取り下げ。10-17 の確認とも一致</td></tr><tr><td>10-16</td><td>斎藤型「ダメな日を言わせる」・今日明日の打診</td><td>逆証明で次の返事がむしろ低い</td><td>取り下げ</td></tr><tr><td>10-16</td><td>日程の断りに日時へ戻すのが頑健</td><td>外部レビューの後、比べられる件数が 192 対 6</td><td>判定できない</td></tr><tr><td>10-16</td><td>分類 AUC 0.97〜0.99</td><td>結果の兆候が効いていた。時期で分けると打診前は 0.60〜0.68</td><td>予測と改善の知識は別物</td></tr><tr><td>10-16</td><td>欠員・職種・決める人を聞く、などで +5〜<span class="pt">+6pt</span></td><td>切り取りを厳しくすると消えた</td><td>アポ後の聞き取りだった</td></tr><tr><td>10-16</td><td>「お久しぶり/覚えていますか」が効く</td><td>通話単位では 5.6% 対 5.8%</td><td>定位置にすぎない</td></tr><tr><td>10-16</td><td>会社の属性ではほとんど見分けられない</td><td>全架電で測り直すと、規模は 1.5〜1.8倍</td><td>誤り。予測の良さと全体への効き方を混同していた</td></tr><tr><td>10-16</td><td>9時台は高い</td><td>かけ直しの偏りをそろえると縮み、前半は逆向き</td><td>確かとは言えない</td></tr><tr><td>10-16</td><td>業界は少し効く</td><td>前後半で入れ替わる</td><td>安定しているのは運輸・物流だけ</td></tr><tr><td>10-17</td><td>自動車・輸送は 1.52倍</td><td>規模で分けると、小さい会社は高く、大きい会社は低い</td><td>業界は規模との組で見る</td></tr><tr><td>10-17</td><td>需要を否定された直後に打診すると <span class="pt">+23pt</span></td><td>型に予定の話が混ざっていた。文字で確かめると 1.1%</td><td>取り返せない。否定を引き出さない</td></tr><tr><td>10-17</td><td>打診は「採用サービスの中身をお伝えしたく」(新人向け資料)</td><td>言い回しの集計で <span class="pt">−7pt</span></td><td>「お打ち合わせ」に修正</td></tr><tr><td>10-17</td><td>先方に「いつ頃なら」と選んでもらう</td><td>「忙しい」の後では <span class="pt">−16pt</span></td><td>日付はこちらが出す</td></tr></tbody></table></div>
-<h2 id="now">5. 今の時点で残っている結論</h2><p><b>トーク(どんな相手にも通じる基軸)</b></p>
-<ul><li>打診の前に需要を聞かない。</li><li>名乗ってから2〜3回のやり取りで、日付(週・曜日)を出す。打診は「お打ち合わせ」で頼む。</li><li>「忙しい」と言われたら、こちらから別の日を出し直す。</li><li>受付では担当者の名前で呼ぶ(そのために名前を記録する)。</li></ul>
-<p><b>リスト(経営の戦略)</b></p>
-<ul><li>規模が大きいほどアポ率が高い。</li><li>業界は規模との組で見る(自動車は規模で逆向き)。</li><li>都道府県・時間帯は決め手にならない。</li></ul>
-<p><b>予測と知識</b></p>
-<ul><li>通話全体の分類はよく当たるが、効いているのは結果の兆候。</li><li>結果より前の発言だけでは AUC 0.6台で、知識としては比べた差を使う。</li></ul>
-<h2 id="rules">6. 作業中に決めたルール(ユーザーの指示)</h2><div class="tbl"><table class=""><thead><tr><th>ルール</th><th>決めた時期</th></tr></thead><tbody><tr><td>判定の基準は、実装の前に定義を合意する</td><td>10-09</td></tr><tr><td>不在の通話はアポの音声として扱わない</td><td>10-09</td></tr><tr><td>「前回〇〇の件で」は既存感で、初めての相手でも基本形。文面だけで再接触と判定しない</td><td>10-13</td></tr><tr><td>トーク(メンバーの戦術)と、熱いアポのリスト作り(経営の戦略)を分ける</td><td>10-13</td></tr><tr><td>結果の兆候(確定・復唱・メール確認)を理由にしない。原因は分かれ目より前で測る</td><td>10-14</td></tr><tr><td>段階の順番で見る。まず早く日程を切る。その先は正解が複数ある</td><td>10-14</td></tr><tr><td>担当者を伏せ、別の期間で、予測を固定してから確かめる</td><td>10-14</td></tr><tr><td>件数を増やす(少ないと結果がぶれる)</td><td>10-14</td></tr><tr><td>アポは本人の電話から数える(外部アポインターの分を混ぜない)</td><td>10-14</td></tr><tr><td>脈の見立てより、打診の回数の基準で決める</td><td>10-15</td></tr><tr><td>打診の効果はアポではなく、先方の次の返事で測る</td><td>10-15</td></tr><tr><td>実例はパッケージで: 前後の流れ、良い例と同じ型の悪い例、要約と原文の両方</td><td>10-15</td></tr><tr><td>テーブルデータ(会社の属性)は使わず、トークだけでどこまでできるかを見る。リストは別の資料にする</td><td>10-16</td></tr></tbody></table></div>
-<h2 id="open">7. まだ確かめていないこと</h2><div class="tbl"><table class=""><thead><tr><th>項目</th><th>状況</th></tr></thead><tbody><tr><td>効果の証明</td><td>すべて記録の比較。基軸の4つと「お打ち合わせ」の言い方は、一部の担当者で話し方を決めて試さないと因果は分からない</td></tr><tr><td>打診の回数の基準</td><td>4回までは前向きな返事が続く(10-15 の事前登録検証)。新人向け資料は「最低1回」としており、回数の基準は決めていない</td></tr><tr><td>遡る範囲</td><td>結果の切り取りを厳しくした後、測り直していない</td></tr><tr><td>需要の否定が本物か断り文句か</td><td>見分ける方法は候補だけ</td></tr><tr><td>アポの後</td><td>商談化・受注の率は見ていない(リストの熱さの側)</td></tr><tr><td>受付で名前を呼ぶ効果</td><td>名前が分かる相手は、もともと関係がある相手。その差を除き切れていない</td></tr></tbody></table></div>
-<h2>関連資料</h2><ul><li><a href="talk-guide-v1.html">アポ取りトークの基本 v1(新人向け)</a></li></ul>
-<footer>2026-10-17 作成 / 営業通話分析</footer>
+
+<h2 id="s5">5. 以前の説明から変わったこと</h2>
+<p>これまでの社内の説明や、分析の途中で出した話のうち、確かめて変わったものです。</p>
+<div class="tbl"><table class="rev-t">
+<tr><th>以前の説明</th><th>確かめた結果</th><th>今のやり方</th></tr>
+<tr><td>具体的な日時(日付＋時刻)で打診するほうが決まる</td><td>日付だけより低い(−2.7pt)</td><td>週・曜日を出し、時刻は先方に選んでもらう</td></tr>
+<tr><td>需要を否定されても、すぐ日程を出せば取り返せる</td><td>否定の後はどう返しても 1.1%</td><td>そもそも需要を聞かない</td></tr>
+<tr><td>欠員か増員か・職種・決める人を先に聞くと上がる</td><td>アポが決まった後の聞き取りだった</td><td>打診の前には聞かない</td></tr>
+<tr><td>「お久しぶり」「覚えていますか」が効く</td><td>言っても言わなくても同じ</td><td>言ってもよいが、効果は期待しない</td></tr>
+<tr><td>「いつ頃ならご都合よいですか」と先方に選んでもらう</td><td>「忙しい」の後では、具体的な日を出すより −16pt</td><td>日付はこちらから出す</td></tr>
+<tr><td>先方に「ダメな日」を言ってもらう</td><td>次の返事がむしろ低い</td><td>使わない</td></tr>
+<tr><td>打診は「採用サービスの中身をお伝えしたく」</td><td>−7pt</td><td>「お打ち合わせのお時間を」</td></tr>
+<tr><td>9時台にかけると取れる</td><td>かけ直しが集まっていただけ</td><td>時間帯は決め手にしない</td></tr>
+</table></div>
+
+<h2 id="s6">6. 現場で知っておいてほしいこと</h2>
+<div class="card"><b>個人のアポ率は、かけたリストで変わる</b><p>会社の規模だけで 1.5〜1.8倍の差があります。人どうしのアポ率を比べるときは、同じようなリストにかけた電話どうしで比べてください。</p></div>
+<div class="card"><b>受付で聞いた担当者の名前は記録する</b><p>次の電話で名前で呼べると、担当者につながる率が上がります(+13pt)。</p></div>
+<div class="card"><b>かけ直しは大事にする</b><p>同じ会社への2回目の電話はアポ率が高めです(1.46倍)。頼まれたかけ直しは必ずかけてください。</p></div>
+<div class="card"><b>先方の反応の見方</b>
+<div class="tbl"><table>
+<tr><th>先方の反応</th><th>アポ率との関係</th></tr>
+<tr><td>時刻の話を始める(「10時なら」など)</td><td><span class="up">+27〜37pt</span></td></tr>
+<tr><td>具体的な日を断る(「その日は無理」)</td><td><span class="up">+15〜20pt</span> 断られても脈あり。別の日を出す</td></tr>
+<tr><td>「ちょっと待ってください」</td><td><span class="up">+14pt</span> 予定を見ている</td></tr>
+<tr><td>「こちらから連絡します」</td><td><span class="dn">−6pt</span></td></tr>
+</table></div></div>
+<div class="card"><b>数字は平均の差</b><p>1本ごとに必ずそうなるわけではありません。同じやり方を続けたときに、全体で差が出るという意味です。</p></div>
+
+<h2 id="s7">7. まだ分かっていないこと</h2>
+<div class="tbl"><table>
+<tr><th>項目</th><th>今の状況</th></tr>
+<tr><td>本当に効くか</td><td>すべて過去の記録の比較です。話し方を決めて試さないと、言い方のおかげかどうかは確定しません。</td></tr>
+<tr><td>何回まで打診するか</td><td>4回目までは前向きな返事が続いています。何回を目安にするかは決めていません。</td></tr>
+<tr><td>需要の否定が本物か断り文句か</td><td>見分け方は分かっていません。</td></tr>
+<tr><td>受付で名前を呼ぶ効果</td><td>名前が分かる相手は、もともと関係がある相手です。その分を除き切れていません。</td></tr>
+<tr><td>アポのその後</td><td>商談・受注まで進んだかは見ていません。</td></tr>
+<tr><td>対象の外</td><td>6〜10月の新規営業の電話だけです。ほかの商品・チームでは確かめていません。</td></tr>
+</table></div>
+
+<footer>2026-10-17 作成 / 営業通話分析 ・ 関連: <a href="talk-guide-v1.html">アポ取りトークの基本</a></footer>
 </main></body></html>
