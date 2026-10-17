@@ -238,3 +238,26 @@ test('職種の一括指定は URL から引き続き開ける', async ({ page }
   await expect(page.getByRole('tab', { name: '未指定（0）' })).toBeVisible();
   await expect(page.getByText('職種が未指定の求人はありません。', { exact: true })).toBeVisible();
 });
+
+test('保存した前の集計と日時をすぐ表示し、新しい集計の完成後に入れ替える', async ({ page }) => {
+  let complete = false;
+  await page.route('**/api/job-copy/home*', route => route.fulfill({ json: demoHome }));
+  await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: {
+    status: 'ready', refresh_failed: false, built_at: complete ? '2026-10-16T03:00:00Z' : '2026-10-15T15:10:00Z', stale: !complete, refreshing: !complete,
+    report: { count: complete ? 0 : 1, listings: complete ? [] : [{ id: '123', title: '合成の前回求人', media: 'hrh', publication_status: '掲載中', deals: [{ id: '456', name: '合成案件', company: '合成事業所' }], fields: ['本文'], last_changed_at: '2026-10-15T03:00:00Z' }], breakdown: { status: 'ready', cards: [] } },
+  } }));
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', capture_bundle: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', jobs: [] }, results: [] } }));
+  await login(page);
+  await page.goto('/app/job-copy');
+  const card = page.getByRole('button', { name: /直近7日に変更/ });
+  await expect(card.locator('.jh-count')).toHaveText('1件');
+  await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
+  await card.click();
+  const list = page.getByRole('region', { name: '直近7日に変更の一覧' });
+  await expect(list.getByRole('button', { name: '合成の前回求人' })).toBeVisible();
+  await expect(list).toContainText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。');
+  complete = true;
+  await expect(card.locator('.jh-count')).toHaveText('0件');
+  await expect(list).toContainText('該当する求人はありません。');
+  await expect(page.getByText(/時点の集計です。新しい集計を作っています/)).toHaveCount(0);
+});

@@ -818,3 +818,112 @@ async fn deals_five_minutes_and_applications_sixty_minutes_refresh_only_on_deman
     );
     server.abort();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restored_facts_keep_their_age_and_remain_visible_during_refresh() {
+    use axum::routing::any;
+    let (audit, _) = crate::audit::fake_turso::start_sqlite_audit().await;
+    let built = Utc::now() - chrono::Duration::hours(2);
+    let facts = BTreeMap::from([(
+        "1".into(),
+        super::super::todo_signals::Facts {
+            live: 2,
+            unknown_dates: 0,
+            days: vec![today(built)],
+        },
+    )]);
+    report_snapshot::persist(
+        Some(audit.clone()),
+        report_snapshot::Kind::Facts,
+        Arc::new(facts.clone()),
+        built,
+    )
+    .await;
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let blocked = gate.clone();
+    let app = Router::new().fallback(any(move || {
+        let blocked = blocked.clone();
+        async move {
+            blocked.acquire().await.unwrap().forget();
+            Json(json!({"results":[{"from":{"id":"1"},"to":[]}]}))
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut service =
+        JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
+    service.audit = Some(audit.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let snapshot = Snapshot {
+        complete: true,
+        deals: BTreeMap::from([(
+            "1".into(),
+            WorkDeal {
+                record: Record {
+                    id: "1".into(),
+                    properties: BTreeMap::from([(
+                        "contract_start_date".into(),
+                        Some("2026-01-01".into()),
+                    )]),
+                },
+                assignment: Assignment::default(),
+            },
+        )]),
+        ..Snapshot::default()
+    };
+    service.owner_todo.state.lock().await.snapshot = Some((Instant::now(), Arc::new(snapshot)));
+    let view = work_view(&service).await;
+    assert!(!view.partial);
+    assert!(view.refreshing);
+    assert!(view.facts_stale);
+    assert_eq!(view.facts_built_at, Some(built));
+    assert_eq!(view.snapshot.unwrap().facts, facts);
+    gate.add_permits(20);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while service.owner_todo.state.lock().await.facts_refreshing {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let fresh = work_view(&service).await;
+    assert!(!fresh.facts_stale);
+    let expected = fresh.snapshot.unwrap().facts.clone();
+    assert_eq!(expected["1"].live, 0);
+    assert!(expected["1"].days.is_empty());
+    let mut restarted = JobReadService::for_test("http://127.0.0.1:1".into());
+    restarted.audit = Some(audit);
+    report_snapshot::ensure_restored(&restarted).await;
+    assert_eq!(
+        restarted
+            .owner_todo
+            .state
+            .lock()
+            .await
+            .facts_snapshot
+            .as_ref()
+            .unwrap()
+            .1,
+        expected
+    );
+    server.abort();
+}
+
+#[test]
+fn measure_synthetic_facts_500_deals_30000_applications() {
+    let day = today(Utc::now());
+    let facts: BTreeMap<_, _> = (0..500)
+        .map(|i| {
+            (
+                (i + 800000).to_string(),
+                super::super::todo_signals::Facts {
+                    live: 82,
+                    unknown_dates: 0,
+                    days: (0..60).map(|j| day - chrono::Duration::days(j)).collect(),
+                },
+            )
+        })
+        .collect();
+    let (json, gzip, parts, base64) = report_snapshot::sizes(&facts);
+    eprintln!("synthetic_todo deals=500 applications=30000 json={json} gzip={gzip} parts={parts} base64={base64}");
+    assert_eq!(parts, 1);
+}

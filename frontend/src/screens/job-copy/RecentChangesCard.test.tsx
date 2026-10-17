@@ -113,3 +113,19 @@ it('内訳だけが集計中でも一覧を保ち、完成まで取り直す', a
   await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
   expect(api).toHaveBeenCalledTimes(2);
 });
+
+it('古い結果を表示したまま更新を待ち、完成した結果に入れ替える', async () => {
+  vi.useFakeTimers();
+  const stale = { ...ready, built_at: '2026-10-15T15:10:00Z', stale: true, refreshing: true };
+  api.mockResolvedValueOnce({ ok: true, data: stale }).mockResolvedValue({ ok: true, data: { ...ready, report: { count: 0, listings: [] }, refreshing: false, stale: false } });
+  function Harness() { const recent = useRecentChanges(0); return <RecentChangesList data={recent.data} error="" onOpenListing={vi.fn()} onOpenDeal={vi.fn()} />; }
+  render(<Harness />);
+  await act(() => Promise.resolve());
+  expect(screen.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeTruthy();
+  expect(screen.getByText('合成終了求人')).toBeTruthy();
+  await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+  expect(screen.getByText('該当する求人はありません。')).toBeTruthy();
+  expect(screen.queryByText(/時点の集計です/)).toBeNull();
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  expect(api).toHaveBeenCalledTimes(2);
+});

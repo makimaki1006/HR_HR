@@ -10,7 +10,7 @@ const APPLICATION_DAYS: i64 = 14;
 const FIRST_CONTRACT_TARGETS: [(i64, usize); 2] = [(30, 5), (60, 10)];
 const FIRST_CONTRACT_VALUE: &str = "新規契約";
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub(super) struct Facts {
     pub(super) live: usize,
     pub(super) unknown_dates: usize,

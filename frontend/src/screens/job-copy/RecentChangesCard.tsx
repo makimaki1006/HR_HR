@@ -1,3 +1,4 @@
+import { ReportFreshness } from './ReportFreshness';
 import { ownerParams } from './OwnerTodo';
 import { useJobCopySearch } from './navigation';
 import { useEffect, useState } from 'react';
@@ -8,7 +9,7 @@ export interface ChangedDeal { id: string; name: string | null; company: string 
 export interface ChangedListing { id: string; title: string | null; media: string | null; publication_status: string | null; deals: ChangedDeal[]; fields: string[]; last_changed_at: string; classifications?: string[] }
 export interface ChangeCategory { key: string; title: string; rule: string; count: number }
 export type ChangeBreakdown = { status: 'preparing' } | { status: 'ready'; cards: ChangeCategory[] };
-export type RecentChangesResponse = { status: 'preparing' | 'failed' } | { status: 'ready'; report: { count: number; listings: ChangedListing[]; breakdown?: ChangeBreakdown }; refresh_failed: boolean };
+export type RecentChangesResponse = { status: 'preparing' | 'failed' } | { status: 'ready'; report: { count: number; listings: ChangedListing[]; breakdown?: ChangeBreakdown }; refresh_failed: boolean; built_at?: string | null; stale?: boolean; refreshing?: boolean };
 export const recentChangesRule = '今日を含む直近7日（日本時間）に、本文・給与・求人名の変更を確認した求人。掲載終了の求人も含みます。初回の記録は数えません。納品管理の案件に結び付く求人だけを数えます。';
 
 export function useRecentChanges(reload: number, enabled = true, defaultToSelf = false) {
@@ -25,7 +26,7 @@ export function useRecentChanges(reload: number, enabled = true, defaultToSelf =
       if (controller.signal.aborted) return;
       if (result.ok && ['ready', 'preparing', 'failed'].includes(result.data.status)) {
         setData(result.data); setLoadedQuery(ownerQuery); setError('');
-        if (result.data.status === 'preparing' || (result.data.status === 'ready' && result.data.report.breakdown?.status === 'preparing')) timer = setTimeout(() => { void load(); }, 2_000);
+        if (result.data.status === 'preparing' || (result.data.status === 'ready' && (result.data.refreshing || result.data.report.breakdown?.status === 'preparing'))) timer = setTimeout(() => { void load(); }, 2_000);
       } else {
         setData({ status: 'failed' }); setLoadedQuery(ownerQuery);
         setError(!result.ok && result.error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : '変更のあった求人を読み込めませんでした。時間を置いて再読み込みしてください。');
@@ -53,6 +54,7 @@ export function RecentChangesList({ data, error, onOpenDeal, onOpenListing }: { 
     {data.status === 'preparing' && <p role="status">変更のあった求人を集計しています…</p>}
     {data.status === 'failed' && <p role="alert">{error || '変更のあった求人を読み込めませんでした。時間を置いて再読み込みしてください。'}</p>}
     {data.status === 'ready' && <>
+      <ReportFreshness builtAt={data.built_at} stale={data.stale} refreshing={data.refreshing} />
       {data.refresh_failed && <p role="status">最新の情報を読み込めなかったため、前回取得した件数を表示しています。時間を置いて再読み込みしてください。</p>}
       {breakdown?.status === 'ready' ? <>
         <div className="jh-change-breakdown" aria-label="変更求人の内訳">

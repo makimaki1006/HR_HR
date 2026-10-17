@@ -20,29 +20,75 @@ pub(super) struct Cache {
 #[derive(Default)]
 struct CacheState {
     snapshot: Option<(NaiveDate, Instant, Arc<Report>)>,
+    built_at: Option<DateTime<Utc>>,
     refreshing: bool,
     failed_at: Option<Instant>,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ChangedDeal {
     id: String,
     name: Option<String>,
     company: Option<String>,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ChangedListing {
     id: String,
     title: Option<String>,
     media: Option<String>,
     publication_status: Option<String>,
     deals: Vec<ChangedDeal>,
+    #[serde(deserialize_with = "saved_fields")]
     fields: BTreeSet<&'static str>,
     last_changed_at: DateTime<Utc>,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Report {
     count: usize,
     listings: Vec<ChangedListing>,
+}
+fn saved_fields<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<BTreeSet<&'static str>, D::Error> {
+    Vec::<String>::deserialize(d)?
+        .iter()
+        .map(|v| match v.as_str() {
+            "本文" => Ok("本文"),
+            "給与" => Ok("給与"),
+            "求人名" => Ok("求人名"),
+            _ => Err(serde::de::Error::custom("invalid changed field")),
+        })
+        .collect()
+}
+#[derive(Serialize, Deserialize)]
+struct SavedReport {
+    day: NaiveDate,
+    report: Report,
+}
+pub(super) async fn restore(service: &JobReadService) {
+    if let Some(saved) = report_snapshot::restore::<SavedReport>(
+        service.audit.clone(),
+        report_snapshot::Kind::Recent,
+    )
+    .await
+    {
+        if saved.data.report.count != saved.data.report.listings.len()
+            || saved.data.day > owner_todo::today(saved.built_at)
+        {
+            return;
+        }
+        let mut cache = service.recent_changes.state.lock().await;
+        if cache.snapshot.is_none() {
+            cache.snapshot = Some((
+                saved.data.day,
+                report_snapshot::instant(saved.built_at, TTL),
+                Arc::new(saved.data.report),
+            ));
+            cache.built_at = Some(saved.built_at);
+        }
+    }
+}
+pub(super) async fn start_refresh(service: &JobReadService) {
+    let _ = answer(service, owner_todo::today(Utc::now())).await;
 }
 fn bounds(today: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
     let midnight = today.and_hms_opt(0, 0, 0).unwrap().and_utc() - chrono::Duration::hours(9);
@@ -430,6 +476,7 @@ pub(super) async fn read(
 }
 
 async fn answer(service: &JobReadService, today: NaiveDate) -> Value {
+    report_snapshot::ensure_restored(service).await;
     let mut cache = service.recent_changes.state.lock().await;
     let fresh = cache
         .snapshot
@@ -442,26 +489,40 @@ async fn answer(service: &JobReadService, today: NaiveDate) -> Value {
         tokio::spawn(async move {
             let result = fetch(&service, today).await;
             let mut cache = service.recent_changes.state.lock().await;
-            match result {
+            let saved = match result {
                 Ok(report) => {
-                    cache.snapshot = Some((today, Instant::now(), Arc::new(report)));
+                    let built_at = Utc::now();
+                    let report = Arc::new(report);
+                    cache.snapshot = Some((today, Instant::now(), report.clone()));
+                    cache.built_at = Some(built_at);
                     cache.failed_at = None;
+                    Some((report, built_at))
                 }
                 Err(_) => {
                     cache.failed_at = Some(Instant::now());
                     tracing::warn!("job-copy recent changes refresh failed");
+                    None
                 }
+            };
+            drop(cache);
+            if let Some((report, built_at)) = saved {
+                report_snapshot::persist(
+                    service.audit.clone(),
+                    report_snapshot::Kind::Recent,
+                    Arc::new(SavedReport {
+                        day: today,
+                        report: (*report).clone(),
+                    }),
+                    built_at,
+                )
+                .await;
             }
-            cache.refreshing = false;
+            service.recent_changes.state.lock().await.refreshing = false;
         });
     }
-    // 日付が変わったら前日の集計を今日の件数として返さない。
-    if let Some((day, _, report)) = &cache.snapshot {
-        if *day == today {
-            json!({"status":"ready", "report":report, "refresh_failed":cache.failed_at.is_some()})
-        } else {
-            json!({"status":if cache.failed_at.is_some() {"failed"} else {"preparing"}})
-        }
+    if let Some((_, _, report)) = &cache.snapshot {
+        json!({"status":"ready", "report":report, "refresh_failed":cache.failed_at.is_some(),
+            "built_at":cache.built_at, "stale":!fresh, "refreshing":cache.refreshing})
     } else {
         json!({"status":if cache.failed_at.is_some() {"failed"} else {"preparing"}})
     }

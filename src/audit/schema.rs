@@ -35,6 +35,33 @@ const TABLE_DDL: &[&str] = &[
     BEGIN
         DELETE FROM job_copy_index_snapshots WHERE generation <> NEW.generation;
     END"#,
+    // ADR-030: disposable reports; preserve the previous generation until the final part.
+    r#"CREATE TABLE IF NOT EXISTS job_copy_recent_snapshots (
+        generation TEXT NOT NULL, version INTEGER NOT NULL, built_at TEXT NOT NULL,
+        part INTEGER NOT NULL, total INTEGER NOT NULL CHECK(total BETWEEN 1 AND 128),
+        payload TEXT NOT NULL, PRIMARY KEY(generation, part),
+        CHECK(part >= 0 AND part < total)
+    )"#,
+    r#"CREATE TRIGGER IF NOT EXISTS job_copy_recent_snapshots_complete
+    AFTER INSERT ON job_copy_recent_snapshots
+    WHEN NEW.part = NEW.total - 1 AND
+        (SELECT COUNT(*) FROM job_copy_recent_snapshots WHERE generation = NEW.generation) = NEW.total
+    BEGIN
+        DELETE FROM job_copy_recent_snapshots WHERE generation <> NEW.generation;
+    END"#,
+    r#"CREATE TABLE IF NOT EXISTS job_copy_todo_fact_snapshots (
+        generation TEXT NOT NULL, version INTEGER NOT NULL, built_at TEXT NOT NULL,
+        part INTEGER NOT NULL, total INTEGER NOT NULL CHECK(total BETWEEN 1 AND 128),
+        payload TEXT NOT NULL, PRIMARY KEY(generation, part),
+        CHECK(part >= 0 AND part < total)
+    )"#,
+    r#"CREATE TRIGGER IF NOT EXISTS job_copy_todo_fact_snapshots_complete
+    AFTER INSERT ON job_copy_todo_fact_snapshots
+    WHEN NEW.part = NEW.total - 1 AND
+        (SELECT COUNT(*) FROM job_copy_todo_fact_snapshots WHERE generation = NEW.generation) = NEW.total
+    BEGIN
+        DELETE FROM job_copy_todo_fact_snapshots WHERE generation <> NEW.generation;
+    END"#,
     r#"CREATE TABLE IF NOT EXISTS crm_saved_views (
         id TEXT PRIMARY KEY, creator_email TEXT NOT NULL, name TEXT NOT NULL,
         scope TEXT NOT NULL CHECK(scope IN ('private','shared')), query TEXT NOT NULL,

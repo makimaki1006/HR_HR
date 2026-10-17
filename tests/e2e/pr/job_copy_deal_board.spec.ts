@@ -163,3 +163,19 @@ test('応募を集計中のときは0件として表示しない', async ({ page
   await expect(row).not.toContainText('0件');
   await expect(row.getByRole('img')).toHaveCount(0);
 });
+
+test('求人と応募の前回集計をやることと案件一覧に残して日時を表示する', async ({ page }) => {
+  const saved = { facts_built_at: '2026-10-15T15:10:00Z', facts_stale: true, refreshing: true };
+  await page.route('**/api/job-copy/home*', route => route.fulfill({ json: { ...demoHome, work: { ...demoOwnerTodo, ...saved } } }));
+  await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, ...saved } }));
+  await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: { status: 'ready', refresh_failed: false, report: { count: 0, listings: [] } } }));
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capture_bundle: { schemaVersion: 1, jobs: [] }, results: [] } }));
+  await login(page);
+  await page.goto('/app/job-copy?owner=11&owner_field=consultant');
+  await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
+  await expect(page.locator('.jh-todo-cards .jh-card').first().locator('.jh-count')).toHaveText('1件');
+  await page.getByRole('button', { name: '案件の一覧', exact: true }).click();
+  await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
+  await expect(page.locator('.db-table tbody > tr')).toHaveCount(20);
+  await expect(page.locator('.db-table tbody > tr').first()).toContainText('架空の採用支援01');
+});

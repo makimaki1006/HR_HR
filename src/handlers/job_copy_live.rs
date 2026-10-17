@@ -1,6 +1,8 @@
 //! Read-only job management. Existing HubSpot associations remain the source of truth.
 #[path = "job_copy_live/recent_changes.rs"]
 mod recent_changes;
+#[path = "job_copy_live/report_snapshot.rs"]
+mod report_snapshot;
 use crate::{
     auth::{LOGIN_METHOD_GOOGLE_OIDC, SESSION_LOGIN_METHOD_KEY, SESSION_USER_KEY},
     geo::applicant_area,
@@ -201,6 +203,8 @@ enum PendingLabels {
 
 #[derive(Clone)]
 pub struct JobReadService {
+    audit: Option<crate::audit::AuditDb>,
+    reports_restored: Arc<tokio::sync::OnceCell<()>>,
     recent_changes: Arc<recent_changes::Cache>,
     owner_todo: Arc<owner_todo::Cache>,
     /// Every HubSpot read goes through this client (the process-wide gateway: rate limit,
@@ -250,6 +254,8 @@ impl JobReadService {
     fn from_client(hs: crate::hubspot::HubSpotClient) -> Self {
         Self {
             hs,
+            audit: None,
+            reports_restored: Arc::default(),
             recent_changes: Arc::default(),
             owner_todo: Arc::default(),
             labels: Arc::default(),
@@ -2079,7 +2085,17 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
     let service = std::env::var("HUBSPOT_ACCESS_TOKEN")
         .ok()
         .and_then(|t| JobReadService::new(t).ok())
-        .map(Arc::new);
+        .map(|mut service| {
+            service.audit = state.and_then(|state| state.audit.clone());
+            Arc::new(service)
+        });
+    if let Some(service) = &service {
+        let service = service.clone();
+        tokio::spawn(async move {
+            report_snapshot::ensure_restored(&service).await;
+            recent_changes::start_refresh(&service).await;
+        });
+    }
     if let (Some(service), Some(db)) = (&service, state.and_then(|state| state.indeed_db.as_ref()))
     {
         listings::start_worker(

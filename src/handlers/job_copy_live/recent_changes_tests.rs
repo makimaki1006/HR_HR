@@ -356,12 +356,13 @@ async fn cold_and_stale_reads_never_wait_and_share_one_background_refresh() {
     assert!(!service.recent_changes.state.lock().await.refreshing);
     fails.store(true, Ordering::SeqCst);
     for _ in 0..20 {
-        assert_eq!(
-            tokio::time::timeout(Duration::from_millis(100), answer(&service, today))
-                .await
-                .unwrap(),
-            ready
-        );
+        let stale = tokio::time::timeout(Duration::from_millis(100), answer(&service, today))
+            .await
+            .unwrap();
+        assert_eq!(stale["report"], ready["report"]);
+        assert_eq!(stale["status"], "ready");
+        assert_eq!(stale["stale"], true);
+        assert_eq!(stale["refreshing"], true);
     }
     gate.add_permits(1);
     settle(&service).await;
@@ -371,7 +372,7 @@ async fn cold_and_stale_reads_never_wait_and_share_one_background_refresh() {
     assert_eq!(calls.load(Ordering::SeqCst), 7);
     assert_eq!(
         answer(&service, today + chrono::Duration::days(1)).await["status"],
-        "failed"
+        "ready"
     );
     assert_eq!(calls.load(Ordering::SeqCst), 7);
     assert_eq!(
@@ -447,4 +448,102 @@ async fn history_batches_are_at_most_fifty_and_partial_results_fail() {
         .await
         .is_err());
     server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restored_previous_day_is_visible_until_refresh_succeeds_then_survives_restart() {
+    use axum::routing::any;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (audit, _) = crate::audit::fake_turso::start_sqlite_audit().await;
+    let now = Utc::now();
+    let today = owner_todo::today(now);
+    let old_day = today - chrono::Duration::days(1);
+    let old_report: Report = serde_json::from_value(json!({"count":1,"listings":[{
+        "id":"123","title":"合成求人","media":"hrh","publication_status":"掲載中",
+        "deals":[{"id":"456","name":"合成案件","company":"合成事業所"}],
+        "fields":["本文","給与","求人名"],"last_changed_at":now.to_rfc3339()
+    }]}))
+    .unwrap();
+    let expected = serde_json::to_value(&old_report).unwrap();
+    report_snapshot::persist(
+        Some(audit.clone()),
+        report_snapshot::Kind::Recent,
+        Arc::new(SavedReport {
+            day: old_day,
+            report: old_report,
+        }),
+        now,
+    )
+    .await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let (count, blocked) = (calls.clone(), gate.clone());
+    let app = Router::new().fallback(any(move || {
+        let (count, blocked) = (count.clone(), blocked.clone());
+        async move {
+            count.fetch_add(1, Ordering::SeqCst);
+            blocked.acquire().await.unwrap().forget();
+            Json(json!({"total":0,"results":[]}))
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut service = JobReadService::for_test(base.clone());
+    service.audit = Some(audit.clone());
+    let stale = answer(&service, today).await;
+    assert_eq!(stale["report"], expected);
+    assert_eq!(stale["status"], "ready");
+    assert_eq!(
+        stale["stale"], true,
+        "日付の違う結果は3時間以内でも更新する"
+    );
+    assert_eq!(stale["refreshing"], true);
+    for _ in 0..5 {
+        assert_eq!(answer(&service, today).await["report"], expected);
+    }
+    gate.add_permits(20);
+    settle(&service).await;
+    let fresh = answer(&service, today).await;
+    assert_eq!(fresh["report"]["count"], 0);
+    assert_eq!(fresh["stale"], false);
+    let before_restart = calls.load(Ordering::SeqCst);
+    let mut restarted = JobReadService::for_test(base);
+    restarted.audit = Some(audit);
+    assert_eq!(answer(&restarted, today).await, fresh);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        before_restart,
+        "復元した日時から期限を判定する"
+    );
+    server.abort();
+}
+
+#[test]
+fn measure_synthetic_recent_report_41000() {
+    let now = Utc::now();
+    let report = SavedReport {
+        day: owner_todo::today(now),
+        report: Report {
+            count: 41_000,
+            listings: (0..41_000)
+                .map(|i| ChangedListing {
+                    id: (i + 100000).to_string(),
+                    title: Some(format!("合成求人{i}・配送と倉庫作業")),
+                    media: Some(if i % 2 == 0 { "hrh" } else { "airwork" }.into()),
+                    publication_status: Some("掲載中".into()),
+                    deals: vec![ChangedDeal {
+                        id: (i % 500 + 800000).to_string(),
+                        name: Some(format!("合成案件{}", i % 500)),
+                        company: Some(format!("合成事業所{}", i % 500)),
+                    }],
+                    fields: BTreeSet::from(["本文", "給与", "求人名"]),
+                    last_changed_at: now - chrono::Duration::seconds(i),
+                })
+                .collect(),
+        },
+    };
+    let (json, gzip, parts, base64) = report_snapshot::sizes(&report);
+    eprintln!("synthetic_recent count=41000 json={json} gzip={gzip} parts={parts} base64={base64}");
+    assert!(gzip < 750_000);
 }
