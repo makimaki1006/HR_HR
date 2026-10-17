@@ -212,7 +212,7 @@ pub const QUEUE_PIPELINES: &[QueuePipeline] = &[
 ];
 
 /// 案件管理から同じパイプライン内のステージ移動だけを許す (2026-10-16 ユーザー決定)。
-/// 架電の候補・件数・指標には使わない。StageRule はすべて Exclude。
+/// 架電の候補・件数には使わない。自分の項目では条件に選べる。StageRule はすべて Exclude。
 pub const WRITE_ONLY_PIPELINES: &[QueuePipeline] = &[
     QueuePipeline {
         id: "21596025",
@@ -381,6 +381,20 @@ mod tests {
     /// 表を React 側 (`frontend/src/generated/call_queue_pipelines.json`) と共有する。
     /// 形: `{"default": "...", "pipelines": [{"id", "fallback_name", "stages": [{"id", "rule"}]}]}`。
     /// 内容が同じなら書き換えない (ts-rs の再生成と同じ扱い。CI は差分ゼロを確かめる)。
+    #[test]
+    fn export_metric_pipelines_json() {
+        let value = serde_json::json!(write_pipelines().map(|p| serde_json::json!({
+            "id": p.id, "fallback_name": p.fallback_name,
+            "stages": p.stages.iter().map(|(id, _)| serde_json::json!({"id": id, "rule": "exclude"})).collect::<Vec<_>>()
+        })).collect::<Vec<_>>());
+        let text = serde_json::to_string_pretty(&value).unwrap() + "\n";
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("frontend/src/generated/metric_pipelines.json");
+        if std::fs::read_to_string(&path).unwrap_or_default() != text {
+            std::fs::write(path, text).unwrap();
+        }
+    }
+
     #[test]
     fn export_call_queue_pipelines_json() {
         let value = serde_json::json!({

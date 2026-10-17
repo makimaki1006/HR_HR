@@ -22,8 +22,8 @@ const ok = <T,>(data: T) => () => Promise.resolve({ ok: true as const, data });
 const WITH_CUSTOM: MetricPrefs = {
   items: ['outbound', 'c-absent', 'duration', 'c-amount'],
   custom: [
-    { id: 'c-absent', name: '不在', kind: 'count', conditions: [{ property: 'bpo_20', operator: 'TODAY', values: [] }], owner_property: 'hubspot_owner_id' },
-    { id: 'c-amount', name: '今月の金額', kind: 'sum', property: 'amount', conditions: [], owner_property: 'hubspot_owner_id' },
+    { id: 'c-absent', name: '不在', kind: 'count', condition_groups: [[{ property: 'bpo_20', operator: 'TODAY', values: [] }]], owner_property: 'hubspot_owner_id' },
+    { id: 'c-amount', name: '今月の金額', kind: 'sum', property: 'amount', condition_groups: [], owner_property: 'hubspot_owner_id' },
   ],
 };
 
@@ -92,7 +92,7 @@ describe('帯の項目の設定パネル', () => {
     if (!saved) throw new Error('not saved');
     expect(saved.items.at(-1)).toMatch(/^c-[a-z0-9]+$/);
     expect(saved.custom).toEqual([{ id: saved.items.at(-1), name: '今月の金額', kind: 'sum', property: 'amount', owner_property: 'hubspot_owner_id',
-      conditions: [{ property: 'bpo_20', operator: 'THIS_MONTH', values: [] }] }]);
+      condition_groups: [[{ property: 'bpo_20', operator: 'THIS_MONTH', values: [] }]] }]);
   });
 
   it('自分の項目を直す・消す。数え方を件数に戻すと数値の項目は外れる', async () => {
@@ -104,16 +104,16 @@ describe('帯の項目の設定パネル', () => {
     fireEvent.click(screen.getByRole('button', { name: '不在を消す' }));
     expect(shownList()).toEqual(['架電数', '通話時間', '今月の件数']);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存' })); await Promise.resolve(); });
-    expect(onSave).toHaveBeenCalledWith({ items: ['outbound', 'duration', 'c-amount'], custom: [{ id: 'c-amount', name: '今月の件数', kind: 'count', conditions: [], owner_property: 'hubspot_owner_id' }] });
+    expect(onSave).toHaveBeenCalledWith({ items: ['outbound', 'duration', 'c-amount'], custom: [{ id: 'c-amount', name: '今月の件数', kind: 'count', condition_groups: [], owner_property: 'hubspot_owner_id' }] });
   });
 
   it('自分の項目は 6 個まで。条件は 5 個まで', () => {
-    const six: MetricPrefs = { items: [], custom: Array.from({ length: 6 }, (_, i) => ({ id: `c-${String(i)}`, name: `架空${String(i)}`, kind: 'count' as const, conditions: [], owner_property: 'hubspot_owner_id' })) };
+    const six: MetricPrefs = { items: [], custom: Array.from({ length: 6 }, (_, i) => ({ id: `c-${String(i)}`, name: `架空${String(i)}`, kind: 'count' as const, condition_groups: [], owner_property: 'hubspot_owner_id' })) };
     settingsPanel(undefined, six);
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '＋ 自分の項目を足す' }).disabled).toBe(true);
     expect(screen.getByText(/あと 0 個/)).toBeTruthy();
     cleanup();
-    const five: MetricPrefs = { items: ['c-a'], custom: [{ id: 'c-a', name: '架空', kind: 'count', conditions: Array.from({ length: 5 }, () => ({ property: 'amount', operator: 'GTE', values: ['1'] })), owner_property: 'hubspot_owner_id' }] };
+    const five: MetricPrefs = { items: ['c-a'], custom: [{ id: 'c-a', name: '架空', kind: 'count', condition_groups: [Array.from({ length: 5 }, () => ({ property: 'amount', operator: 'GTE', values: ['1'] }))], owner_property: 'hubspot_owner_id' }] };
     settingsPanel(undefined, five);
     fireEvent.click(screen.getByRole('button', { name: '直す' }));
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '＋ 条件を追加' }).disabled).toBe(true);

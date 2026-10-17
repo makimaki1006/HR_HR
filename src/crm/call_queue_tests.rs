@@ -3986,11 +3986,25 @@ async fn 納品管理は架電の候補と件数検索に入らない() {
         ]
     );
     let scope = super::metric_prefs::value_scope();
-    assert_eq!(scope.pipelines, pids);
-    assert!(!scope
-        .stages
-        .iter()
-        .any(|s| s == "52016153" || s == "1082007419"));
+    // 自分の項目だけは納品管理も選べる (2026-10-17 ユーザー決定)。
+    assert_eq!(
+        scope.pipelines,
+        [pids.clone(), vec!["21596025", "743961896"]].concat()
+    );
+    assert!(scope.stages.contains(&"52016153".to_string()));
+    assert!(scope.stages.contains(&"1082007419".to_string()));
+    let (status, _, metric_options) = get_raw(
+        &e.app,
+        "/api/crm/call-queue/pipelines?scope=metrics",
+        Some(&e.admin),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(metric_options["pipelines"].as_array().unwrap().len(), 8);
+    assert_eq!(
+        metric_options["pipelines"][6]["stages"][0]["label"],
+        "納品管理ステージ"
+    );
     let (s, v) = e.admin_get("").await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["total"], 17); // 先頭3件 + 残り2段階 × 7件

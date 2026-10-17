@@ -233,7 +233,7 @@ pub fn population(
 /// キャッシュの鍵。解決後の条件 (相対日付は日付の数値になっている)・数え方・項目・「誰の」・比べる相手の集合
 pub fn cache_key(r: &ResolvedMetric, population: &[String]) -> String {
     json!({
-        "f": r.filters,
+        "groups": r.filter_groups,
         "k": r.kind,
         "p": r.property,
         "o": r.owner_property,
@@ -243,14 +243,23 @@ pub fn cache_key(r: &ResolvedMetric, population: &[String]) -> String {
 }
 
 fn search_body(r: &ResolvedMetric, owners: &[String], after: Option<&str>) -> Value {
-    let mut filters = r.filters.clone();
-    filters.push(json!({"propertyName": r.owner_property, "operator": "IN", "values": owners}));
+    let groups: Vec<Value> = r
+        .filter_groups
+        .iter()
+        .map(|g| {
+            let mut filters = g.clone();
+            filters.push(
+                json!({"propertyName": r.owner_property, "operator": "IN", "values": owners}),
+            );
+            json!({"filters": filters})
+        })
+        .collect();
     let mut props = vec![r.owner_property.clone()];
     if let Some(p) = &r.property {
         props.push(p.clone());
     }
     let mut body = json!({
-        "filterGroups": [{"filters": filters}],
+        "filterGroups": groups,
         "properties": props,
         "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
         "limit": PAGE,
@@ -277,6 +286,7 @@ pub async fn fetch(
 ) -> Result<Fetched, HubSpotError> {
     let mut rows: Vec<Value> = Vec::new();
     let mut total: u64 = 0;
+    let mut seen = HashSet::new();
     for chunk in population.chunks(OWNER_CHUNK) {
         let mut after: Option<String> = None;
         let mut first = true;
@@ -296,7 +306,15 @@ pub async fn fetch(
                 .get("results")
                 .and_then(Value::as_array)
                 .ok_or_else(|| HubSpotError::Decode("deals without results".into()))?;
-            rows.extend(page.iter().cloned());
+            for row in page {
+                let id = row
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| HubSpotError::Decode("deal without id".into()))?;
+                if seen.insert(id.to_string()) {
+                    rows.push(row.clone());
+                }
+            }
             if rows.len() as u64 > MAX_ROWS {
                 return Ok(Fetched::TooMany);
             }

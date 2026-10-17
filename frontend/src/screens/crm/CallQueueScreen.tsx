@@ -592,6 +592,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 「条件をクリア」はパイプラインを残す (選んだパイプラインの中で条件だけ戻す)
   const hasConditions = useMemo(() => filtersKey(filters) !== filtersKey({ ...DEFAULT_FILTERS, pipeline: filters.pipeline }), [filters]);
   const pipelines = useQueuePipelines(mode, pipelinesFetcher);
+  const metricPipelines = useQueuePipelines(mode, undefined, true, metricsSettingsOpen);
   const pipeline = pipelines.pipelines.find(p => p.id === filters.pipeline) ?? findPipeline(filters.pipeline);
   // 所有者の既定 (条件の owner が '' のとき、サーバが実際に使った所有者 = 管理者は all、それ以外は me)。
   // 条件を変えて読み直している間は応答が空になるので、同じモードで分かった値を覚えておく (選択欄がちらつかないように)
@@ -1019,7 +1020,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     </form>
     </QueueToolbar>
     <TodayMetrics fixture={mode === 'fixture'} settings={{ catalog: catalog.state, onReloadCatalog: catalog.reload, onOpenChange: setMetricsSettingsOpen,
-      choices: { pipelines: pipelines.pipelines, selectedPipelineIds: pipelines.pipelines.map(p => p.id), allDeals: false, owners: owners.state } }} />
+      choices: { pipelines: metricPipelines.pipelines, selectedPipelineIds: metricPipelines.pipelines.map(p => p.id), allDeals: false, owners: owners.state } }} />
     {sortOpen && <QueueSortDialog onClose={() => { setSortOpen(false); }}><PropertySortPicker key={filters.sort} catalog={catalog.state} sort={filters.sort} onChange={sort => { update({ sort }); setSortOpen(false); }} /></QueueSortDialog>}
     {layoutNote && <p className="cq-layout-note" role="status" data-testid="layout-note">{LAYOUT_UPDATED_NOTE}
       <button type="button" onClick={() => { setLayoutNote(false); }}>閉じる</button></p>}
