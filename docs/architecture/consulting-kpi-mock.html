@@ -108,13 +108,13 @@ details.defs dd{margin:0}
 .p-head .spacer{flex:1}
 .cmp{font-size:13px;color:var(--faint);margin-top:2px;white-space:nowrap}
 .cmp .d{margin-left:6px}
-.marks{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.marks{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
 .mark{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;text-decoration:none;background:#fff}
 .mark:hover{border-color:var(--main);background:var(--main-faint)}
 .mark i{width:10px;height:36px;border-radius:3px;flex:none}
 .mark .m-t{font-size:13.5px;color:var(--sub);line-height:1.35}
 .mark .m-n{font-size:24px;font-weight:700;line-height:1.2}
-.mark .m-go{margin-left:auto;font-size:12.5px;color:var(--main);white-space:nowrap}
+.mark{position:relative}.mark .m-t{white-space:nowrap;font-size:13px}.mark .m-go{position:absolute;right:12px;bottom:10px;font-size:12.5px;color:var(--main);white-space:nowrap}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
 .mini h3{font-size:15px;margin:0 0 2px}
 .mini .sub{font-size:13px;color:var(--faint);margin-bottom:8px}
@@ -145,7 +145,7 @@ svg text{font-family:inherit}
   <div class="wrap">
     <div class="top">
       <h1>コンサルKPI</h1>
-      <span class="asof">10/16 時点</span>
+      <span class="asof">10/16 時点 · 使っているのは、HubSpot にほぼ全件入っている項目と、システムが作る記録だけ</span>
       <span class="spacer"></span>
       <span class="select"><span class="lbl">チーム:</span> すべて ▾</span>
       <button class="btn" type="button">↻ 再読み込み</button>
@@ -166,7 +166,7 @@ svg text{font-family:inherit}
   <div class="kpis">
     <div class="kpi"><div class="k-lbl">稼働中の案件</div><div class="k-val"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">601</a><small>件</small></div><div class="k-note">コンサル 26 人の担当分</div></div>
     <div class="kpi"><div class="k-lbl">要対応のある案件</div><div class="k-val"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く" id="kpi-need">340</a><small>件</small></div><div class="k-note">全体の 57%</div></div>
-    <div class="kpi"><div class="k-lbl">今月〜再来月の満了</div><div class="k-val"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">320</a><small>件</small> <span style="font-size:22px">2.8</span><small>億円</small></div><div class="k-note">うち継続の見込みが未定 141 件</div></div>
+    <div class="kpi"><div class="k-lbl">今月〜再来月の満了</div><div class="k-val"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">320</a><small>件</small> <span style="font-size:22px">2.8</span><small>億円</small></div><div class="k-note">うち最後の接触から 30 日以上 63 件</div></div>
     <div class="kpi"><div class="k-lbl">先月の継続率</div><div class="k-val">55.7<small>%</small></div><div class="k-note"><span class="down">▼ 5.5 ポイント</span> 前の月より</div></div>
   </div>
 
@@ -178,7 +178,7 @@ svg text{font-family:inherit}
       <div class="legend" id="legend"></div>
     </div>
     <div class="legend" style="margin:-4px 0 10px">
-      <span><i class="band" style="background:var(--alert)"></i>接触した月の割合が 40% 未満</span>
+      <span><i class="band" style="background:var(--alert)"></i>30 日以内に接触した割合が 40% 未満</span>
       <span><i class="band" style="background:var(--warn)"></i>持ち案件の 7 割以上に要対応</span>
     </div>
     <table class="ptable" id="ptable">
@@ -186,9 +186,9 @@ svg text{font-family:inherit}
         <th data-k="name">担当者</th>
         <th data-k="cases" class="num">持ち案件</th>
         <th data-k="needRatio">要対応</th>
-        <th data-k="contact">接触した月の割合</th>
+        <th data-k="contact">30 日以内に接触した割合</th>
         <th data-k="expire" class="num">今月の満了</th>
-        <th data-k="late" class="num">初回の遅れ</th>
+        <th data-k="apps" class="num">直近 30 日の応募</th>
         <th data-k="lastEditDays">最後に求人を直した日</th>
       </tr></thead>
       <tbody></tbody>
@@ -196,15 +196,18 @@ svg text{font-family:inherit}
     <details class="defs">
       <summary>定義を見る</summary>
       <dl>
-        <dt>要対応</dt><dd>下の 4 つの印のどれかが付いている案件の数。1 件に印が複数あれば、いちばん重いものだけで数えます。</dd>
-        <dt>接触していない</dt><dd>最後の MTG・電話から 30 日を過ぎた案件。</dd>
-        <dt>満了前で継続が未定</dt><dd>満了まで 60 日以内で、継続するかが決まっていない案件。</dd>
-        <dt>求人を直していない</dt><dd>求人の本文・給与・画像を 60 日変えていない案件。</dd>
-        <dt>応募がない</dt><dd>直近 30 日、応募が 1 件もない案件。</dd>
-        <dt>接触した月の割合</dt><dd>持ち案件のうち、今月 MTG か電話を 1 回以上した案件の割合。</dd>
-        <dt>初回の遅れ</dt><dd>契約から 14 日以内に初回の打ち合わせが無い案件の数。</dd>
-        <dt>最後に求人を直した日</dt><dd>持ち案件のどれかの求人を最後に変えた日。</dd>
-        <dt>対象</dt><dd>ハローワークではなく、当社が掲載する求人の契約だけを数えています。</dd>
+        <dt>要対応</dt><dd>下の 5 つの印のどれかが付いている案件の数。1 件に印が複数あれば、上にあるもの（重いもの）だけで数えます。</dd>
+        <dt>MTG が途絶えている</dt><dd>最後の MTG から 90 日以上（MTG の記録シートから）。30 日・60 日の段階は案件管理で見られます。</dd>
+        <dt>接触が空いている</dt><dd>HubSpot の「最後の接触日」から 30 日以上。</dd>
+        <dt>初回で応募が目安に届かない</dt><dd>契約種別が「FS-新規契約」で、開始 30 日で応募 5 件・60 日で 10 件に届いていない（応募の記録で数える）。</dd>
+        <dt>応募が止まっている</dt><dd>掲載中の求人があり、直近 14 日の応募が 0 件（応募の記録で数える）。</dd>
+        <dt>契約満了が近い</dt><dd>契約満了日まで 60 日以内。</dd>
+        <dt>30 日以内に接触した割合</dt><dd>持ち案件のうち、「最後の接触日」が 30 日以内の割合。</dd>
+        <dt>直近 30 日の応募</dt><dd>持ち案件の求人に付いた応募の数（応募の記録から）。</dd>
+        <dt>最後に求人を直した日</dt><dd>持ち案件のどれかの求人を最後に変えた日（求人の変更の記録から）。</dd>
+        <dt>使っているデータ</dt><dd>HubSpot の取引にほぼ全件入っている項目（ステージ・担当・契約の日付と種別・金額・最後の接触日・接触回数）と、システムが作る応募・求人の変更の記録、MTG・電話・継続回数のシート。</dd>
+        <dt>使っていない項目</dt><dd>採用目標数・NPS・継続意向・取引に手で入れる応募〜採用の数は、入っている案件が少ない（3〜6 割）ため使っていません。</dd>
+        <dt>対象</dt><dd>当社が掲載する求人の契約だけを数えています。</dd>
       </dl>
     </details>
   </div>
@@ -248,22 +251,22 @@ svg text{font-family:inherit}
     <div class="month">
       <div class="mo">今月<span>10 月</span></div>
       <div class="row"><div><div class="v"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">98</a><small>件</small></div><div class="l">満了</div></div><div><div class="v">8,640<small>万円</small></div><div class="l">金額</div></div></div>
-      <div class="undec"><span>継続の見込みが未定</span><a class="jc" href="#" title="案件管理の該当の一覧を開く" style="color:var(--alert);border-bottom-color:var(--alert)">31 件</a></div>
+      <div class="undec"><span>最後の接触から 30 日以上</span><a class="jc" href="#" title="案件管理の該当の一覧を開く" style="color:var(--warn);border-bottom-color:var(--warn)">18 件</a></div>
     </div>
     <div class="month">
       <div class="mo">来月<span>11 月</span></div>
       <div class="row"><div><div class="v"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">112</a><small>件</small></div><div class="l">満了</div></div><div><div class="v">9,820<small>万円</small></div><div class="l">金額</div></div></div>
-      <div class="undec"><span>継続の見込みが未定</span><a class="jc" href="#" title="案件管理の該当の一覧を開く" style="color:var(--warn);border-bottom-color:var(--warn)">52 件</a></div>
+      <div class="undec"><span>最後の接触から 30 日以上</span><a class="jc" href="#" title="案件管理の該当の一覧を開く" style="color:var(--warn);border-bottom-color:var(--warn)">24 件</a></div>
     </div>
     <div class="month">
       <div class="mo">再来月<span>12 月</span></div>
       <div class="row"><div><div class="v"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く">110</a><small>件</small></div><div class="l">満了</div></div><div><div class="v">9,540<small>万円</small></div><div class="l">金額</div></div></div>
-      <div class="undec"><span>継続の見込みが未定</span><a class="jc" href="#" title="案件管理の該当の一覧を開く">58 件</a></div>
+      <div class="undec"><span>最後の接触から 30 日以上</span><a class="jc" href="#" title="案件管理の該当の一覧を開く">21 件</a></div>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-h"><h2>満了が近い案件</h2><span class="hint">今日から 30 日以内・継続の見込みが未定のもの</span><span class="spacer"></span><a class="more" style="margin:0" href="#" title="案件管理の該当の一覧を開く">案件管理ですべて見る →</a></div>
+    <div class="card-h"><h2>満了が近い案件</h2><span class="hint">今日から 30 日以内に満了するもの。満了日の順</span><span class="spacer"></span><a class="more" style="margin:0" href="#" title="案件管理の該当の一覧を開く">案件管理ですべて見る →</a></div>
     <table class="dtable" id="r-soon">
       <thead><tr><th>満了日</th><th>案件</th><th>担当</th><th class="num">金額</th><th>最後の接触</th></tr></thead>
       <tbody></tbody>
@@ -291,19 +294,19 @@ svg text{font-family:inherit}
       <div id="m-bars"></div>
     </div>
     <div class="card" style="margin:0">
-      <div class="card-h"><h2>採用目標に届いた契約</h2><span class="hint">その月に満了した契約のうち、目標人数を採用できた割合</span></div>
-      <div style="display:flex;align-items:baseline;gap:14px;margin:4px 0 8px"><span style="font-size:34px;font-weight:700">38<small style="font-size:16px;color:var(--sub)">%</small></span><span class="cmp">9 月 · <span class="up">▲ 3 ポイント</span> 前の月より</span></div>
+      <div class="card-h"><h2>月ごとの応募数</h2><span class="hint">稼働中の案件の求人に付いた応募（応募の記録から）</span></div>
+      <div style="display:flex;align-items:baseline;gap:14px;margin:4px 0 8px"><span style="font-size:34px;font-weight:700">1,284<small style="font-size:16px;color:var(--sub)"> 件</small></span><span class="cmp">9 月 · <span class="down">▼ 6%</span> 前の月より</span></div>
       <div id="m-goal"></div>
     </div>
   </div>
   <details class="defs card" style="margin-top:20px">
     <summary>記録と数字の信頼度</summary>
     <dl>
-      <dt>接触の記録</dt><dd>MTG・電話は案件管理に記録されたものだけを数えます。記録のし忘れがあると少なく出ます。</dd>
-      <dt>継続率</dt><dd>満了から 30 日以内に次の契約が入ったら継続。直近の月は手続き中の契約があり、あとで上がることがあります。</dd>
-      <dt>金額</dt><dd>契約の金額（税抜）。途中で金額を変えた契約は最新の金額です。</dd>
-      <dt>採用目標</dt><dd>目標人数が入っていない契約（全体の約 2 割）は数えていません。</dd>
-      <dt>求人の範囲</dt><dd>当社が掲載する求人だけを数えています。全部の求人市場ではありません。</dd>
+      <dt>使っているもの</dt><dd>HubSpot の取引にほぼ全件入っている項目と、システムが作る応募・求人の変更の記録だけ。</dd>
+      <dt>最後の接触日</dt><dd>9 割ほどの案件に入っています。入っていない案件は「接触が空いている」に数えません。</dd>
+      <dt>MTG・電話</dt><dd>記録シートから。稼働中の案件の約 8 割で見つかります。見つからない案件は MTG の印を付けません。</dd>
+      <dt>継続率</dt><dd>契約の日付と種別、継続回数のシートから。直近の月は手続き中の契約があり、あとで上がることがあります。</dd>
+      <dt>使っていない項目</dt><dd>採用目標数（約 4 割）・NPS（約 3 割）・継続意向（約 3 割）・取引に手で入れる応募〜採用の数（約 6 割）。入っている案件が少なく、数字が偏るためです。</dd>
     </dl>
   </details>
 </section>
@@ -314,10 +317,11 @@ svg text{font-family:inherit}
 (function(){
 const C = {main:'#1f6f78', mainSoft:'#d7ecee', warn:'#d9822b', warnSoft:'#f2c596', alert:'#c43d3d', slate:'#9aa7b0', line:'#e3e6e8', sub:'#5f676e', faint:'#8a9298'};
 const KINDS = [
-  {k:'nocontact', t:'接触していない', c:C.alert, w:4},
-  {k:'undecided', t:'満了前で継続が未定', c:C.warn, w:3},
-  {k:'noedit', t:'求人を直していない', c:C.warnSoft, w:2},
-  {k:'noapply', t:'応募がない', c:C.slate, w:1},
+  {k:'nomtg', t:'MTG が途絶えている', c:C.alert},
+  {k:'gap', t:'接触が空いている', c:C.warn},
+  {k:'first', t:'初回で応募が目安に届かない', c:C.warnSoft},
+  {k:'stop', t:'応募が止まっている', c:C.slate},
+  {k:'expire', t:'契約満了が近い', c:'#8fc3c8'},
 ];
 
 // 架空のデータ
@@ -327,22 +331,25 @@ const ratio =  [.48,.62,.81,.45,.55,.74,.39,.58,.66,.42,.35,.71,.52,.60,.47,.88,
 const contact= [72,54,33,78,61,48,82,58,37,75,85,46,66,52,70,29,68,55,80,63,44,77,38,59,73,51];
 const expire = [5,5,3,4,4,6,2,4,3,5,3,4,4,3,5,2,5,4,3,4,4,3,3,4,3,3];
 const late   = [0,1,3,0,1,2,0,1,2,0,0,2,1,1,0,4,0,1,0,1,2,0,3,1,0,1];
+const apps30 = [41,22,9,38,27,30,26,24,12,44,21,15,33,25,40,4,47,23,29,31,18,35,8,28,26,19];
 const lastEd = [3,6,41,2,9,15,4,12,28,1,5,19,7,10,3,52,2,11,6,8,23,4,34,9,5,14];
 let mix = function(i){ // 印の比率（人ごとに少し変える）
-  const nc = contact[i] < 40 ? .42 : contact[i] < 55 ? .26 : .12;
-  const ne = lastEd[i] > 25 ? .34 : .18;
-  const un = .28; return [nc, un, ne, Math.max(.08, 1-nc-un-ne)];
+  const mt = contact[i] < 40 ? .22 : contact[i] < 55 ? .1 : .04;
+  const gp = contact[i] < 40 ? .3 : contact[i] < 55 ? .22 : .12;
+  const fs = late[i] >= 3 ? .24 : late[i] ? .12 : .04;
+  const st = lastEd[i] > 25 ? .22 : .14;
+  return [mt, gp, fs, st, Math.max(.1, 1-mt-gp-fs-st)];
 };
 const people = letters.map((L,i)=>{
   const need = Math.round(cases[i]*ratio[i]);
-  return {i, name:'担当'+L, cases:cases[i], need, contact:contact[i], expire:expire[i], late:late[i], lastEditDays:lastEd[i]};
+  return {i, name:'担当'+L, cases:cases[i], need, contact:contact[i], expire:expire[i], late:late[i], apps:apps30[i], lastEditDays:lastEd[i]};
 });
 // 合計を 340 にそろえる
 let diff = 340 - people.reduce((s,p)=>s+p.need,0);
 people[5].need += diff;
 people.forEach(p=>{
   const m = mix(p.i); let parts = m.map(x=>Math.floor(x*p.need)); let r = p.need - parts.reduce((a,b)=>a+b,0);
-  for(let j=0;r>0;j=(j+1)%4){parts[j]++;r--;}
+  for(let j=4;r>0;j=(j+4)%5){parts[j]++;r--;}
   p.parts = parts; p.needRatio = p.need/p.cases;
   p.flag = p.contact < 40 ? 'red' : p.needRatio >= .7 ? 'org' : '';
 });
@@ -374,7 +381,7 @@ function renderTable(){
       <td><div class="stack"><div class="cnt"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く" onclick="event.stopPropagation()"><b>${p.need}</b></a><em>${Math.round(p.needRatio*100)}%</em></div><div class="bar">${segs}</div></div></td>
       <td><div class="meter ${p.contact<40?'low':''}"><div class="bar"><span style="width:${p.contact}%"></span></div><span class="pct">${p.contact}%</span></div></td>
       <td class="num">${p.expire}</td>
-      <td class="num">${p.late? `<span class="${p.late>=3?'late':''}">${p.late}</span>` : '<span class="muted">0</span>'}</td>
+      <td class="num"><a class="jc plain" href="#" title="案件管理の該当の一覧を開く" onclick="event.stopPropagation()">${p.apps}</a></td>
       <td>${md(daysAgo(p.lastEditDays))} <span class="muted">（${p.lastEditDays} 日前）</span></td>
     </tr>`;
   }).join('');
@@ -433,7 +440,7 @@ function showPerson(i){
   document.getElementById('p-meta').innerHTML = `持ち案件 <a class="jc plain" href="#" title="案件管理の該当の一覧を開く">${p.cases} 件</a> · 今月の満了 ${p.expire} 件`;
   document.getElementById('p-kpis').innerHTML = [
     ['要対応', `${p.need}<small>件 · 持ち案件の ${Math.round(p.needRatio*100)}%</small>`, `チーム平均 ${Math.round(team.need)}%`, delta(p.needRatio*100, team.need, false, ' pt')],
-    ['接触した月の割合', `${p.contact}<small>%</small>`, `チーム平均 ${Math.round(team.contact)}%`, delta(p.contact, team.contact, true, ' pt')],
+    ['30 日以内に接触した割合', `${p.contact}<small>%</small>`, `チーム平均 ${Math.round(team.contact)}%`, delta(p.contact, team.contact, true, ' pt')],
     ['初回の遅れ', `${p.late}<small>件</small>`, `チーム平均 ${team.late.toFixed(1)} 件`, delta(p.late, team.late, false, ' 件', 1)],
     ['今月直した求人', `${edits}<small>件</small>`, `チーム平均 ${teamEdits} 件`, delta(edits, teamEdits, true, ' 件')],
   ].map(([l,v,n,d])=>`<div class="kpi"><div class="k-lbl">${l}</div><div class="k-val">${v}</div><div class="cmp">${n}${d}</div></div>`).join('');
@@ -452,10 +459,10 @@ function showPerson(i){
   const deals = [];
   for(let j=0;j<8;j++){
     let kind = 0, acc=0, cnt=0; // 重い印から順に並べる
-    for(let q=0;q<4;q++){ if(j < acc + p.parts[q]) {kind=q;break;} acc+=p.parts[q]; kind=3; }
+    kind=4; for(let q=0;q<5;q++){ if(j < acc + p.parts[q]) {kind=q;break;} acc+=p.parts[q]; }
     const co = COMPANIES[(i*3+j*5)%COMPANIES.length], job = JOBS[(i+j*3)%JOBS.length];
-    const left = kind===1 ? 8+Math.round(r()*45) : 20+Math.round(r()*150);
-    const lc = kind===0 ? 31+Math.round(r()*40) : 3+Math.round(r()*20);
+    const left = kind===4 ? 8+Math.round(r()*50) : 70+Math.round(r()*120);
+    const lc = kind<=1 ? 31+Math.round(r()*40) : 3+Math.round(r()*20);
     deals.push({name:`${co} ${job}`, kind, left, lc});
   }
   document.querySelector('#p-deals tbody').innerHTML = deals.map(d=>{
@@ -504,13 +511,13 @@ showPerson(people.slice().sort((a,b)=>b.needRatio-a.needRatio)[0].i);
     b+=`<text x="0" y="${yy+19}" font-size="13.5" fill="${C.sub}">${l}</text><rect x="120" y="${yy+4}" width="360" height="22" rx="3" fill="#f0f2f3"/><rect x="120" y="${yy+4}" width="${bw}" height="22" rx="3" fill="${i===0?C.warn:C.main}"/><text x="${128+bw}" y="${yy+20}" font-size="14" font-weight="700" fill="${C.sub}">${v}%</text>`; });
   document.getElementById('m-bars').innerHTML = b+'</svg>';
 
-  const goal=[31,34,33,36,35,32,34,37,36,33,35,38];
+  const goal=[1180,1090,980,1350,1410,1260,1220,1300,1270,1390,1366,1284];
   const gm = ['10月','11月','12月','1月','2月','3月','4月','5月','6月','7月','8月','9月'];
   let g=`<svg width="100%" viewBox="0 0 560 170" role="img"><line x1="0" x2="560" y1="140" y2="140" stroke="${C.line}"/>`;
-  goal.forEach((v,i)=>{ const bh=v/45*120, xx=8+i*46;
-    g+=`<rect x="${xx}" y="${140-bh}" width="28" height="${bh}" rx="2" fill="${i===11?C.main:C.main+'66'}"><title>${gm[i]} ${v}%</title></rect>`;
+  goal.forEach((v,i)=>{ const bh=v/1500*120, xx=8+i*46;
+    g+=`<rect x="${xx}" y="${140-bh}" width="28" height="${bh}" rx="2" fill="${i===11?C.main:C.main+'66'}"><title>${gm[i]} ${v} 件</title></rect>`;
     if(i%2===1||i===11) g+=`<text x="${xx+14}" y="160" text-anchor="middle" font-size="11.5" fill="${C.faint}">${gm[i]}</text>`; });
-  g+=`<text x="${8+11*46+14}" y="${140-38/45*120-6}" text-anchor="middle" font-size="12" font-weight="700" fill="${C.sub}">38%</text>`;
+  g+=`<text x="${8+11*46+14}" y="${140-1284/1500*120-6}" text-anchor="middle" font-size="12" font-weight="700" fill="${C.sub}">1,284</text>`;
   document.getElementById('m-goal').innerHTML = g+'</svg>';
 })();
 
