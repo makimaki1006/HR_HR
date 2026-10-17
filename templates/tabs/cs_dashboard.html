@@ -6913,7 +6913,7 @@ function renderToday(D0) {
         crit ? "bad" : "", { band: "critical", consultant: c && CB ? c : "", text: c && CB ? "この担当の一覧を見る" : "全社の一覧を見る" }) +
     todayNoContactKpi(D0, c) +
     kpi("今週満了する", num(soon.length) + '<span class="u">件</span>',
-        "印の本数を問わず全件" +
+        "注意の数を問わず全件" +
         (c ? "（全社では " + num((D0.expiring_this_week || []).length) + " 件）" : ""),
         soon.length ? "warn" : "", { jump: "td-soon-h", text: "表へ" }) +
     kpi("今週始まった契約", num(started.length) + '<span class="u">件</span>',
@@ -7167,7 +7167,7 @@ function renderBoard(D) {
   }
   let h = sec("問い", "案件はいまどの状態か") +
     '<div class="lede">稼働中 ' + num(D.rows.length) +
-    " 件。印の本数が多い順に並べています。</div>";
+    " 件。注意の数が多い順に並べています。</div>";
 
   h += boardFilterBar(D);
   /* 🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 表が図「名札の分布」の下（y=1,391）で、行を特定する画面なのに
