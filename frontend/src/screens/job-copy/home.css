@@ -90,3 +90,10 @@
 .jh-change-breakdown button[aria-pressed="true"] { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
 .jh-change-breakdown .jh-change-zero { opacity: .5; }
 .jh-change-chip { display: inline-block; padding: 2px 6px; margin: 2px; border-radius: 4px; background: #eff6ff; color: #1e40af; font-size: 12px; white-space: nowrap; }
+
+/* 長い顧客名を折り返し、横に広い表の見出しもスクロール枠に収める。 */
+.jh-scroll { position: relative; }
+.jh-home tbody th { overflow-wrap: anywhere; }
+/* 顧客の案件を左に並べたときも、長い名前を枠内に収めて最後までたどれるようにする。 */
+.jc-side-context { min-height: 0; overflow-y: auto; }
+.jc-side-context li button { overflow-wrap: anywhere; }

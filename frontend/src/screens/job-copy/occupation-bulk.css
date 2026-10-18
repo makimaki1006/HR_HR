@@ -33,3 +33,7 @@
 .ob-paging { display:flex; align-items:center; gap:8px; justify-content:flex-end; font-size:13px; color:#475569; }
 .ob-paging span { margin-right:auto; }
 .ob-note { margin:0; font-size:13px; color:#475569; }
+
+/* 長い職種名・連続した英数字を表の中で折り返す。非表示の見出しもスクロール枠に収める。 */
+.ob-table-wrap { position: relative; min-width: 0; }
+.ob-table td { overflow-wrap: anywhere; }

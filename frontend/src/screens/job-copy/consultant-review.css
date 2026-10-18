@@ -14,3 +14,7 @@
 @media print { .jc-skip-link, .jc-cycle textarea { display: none; } .jc-print-text { display: block; } .ac-bars, .ac-track, .ac-bars span { print-color-adjust: exact; } .jc-report-summary strong { font-size: 15px; } }
 @media (max-width: 700px) { .jc-report-summary, .jc-cycle-controls { grid-template-columns: minmax(0, 1fr); } .jc-report-heading { flex-direction: column; } }
 @media print { .jc-list, .jc-media-import, .jc-no-print, .jc-detail-heading, .jc-demo { display: none !important; } .jc-workspace { display: block !important; } .jc-detail { padding: 0 !important; } .jc-consultant { color: black; } .jc-report-summary section, .jc-cycle, figure { break-inside: avoid; } textarea { height: auto; } }
+
+/* 長い法人名・求人名があっても、印刷ボタンの文字幅を保つ。 */
+.jc-report-heading > div { min-width: 0; }
+.jc-report-heading > .jc-button { flex-shrink: 0; }

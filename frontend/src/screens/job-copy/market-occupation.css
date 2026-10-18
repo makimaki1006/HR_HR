@@ -25,3 +25,6 @@
 .mo-note { font-size:12px; color:#52697a; line-height:1.8; margin:0; }
 .mo-error { color:#a12a2a; margin:0; }
 .mo-drawer footer { display:flex; justify-content:flex-end; gap:10px; padding:12px 20px; border-top:1px solid #d4dfe7; }
+
+/* 長い職種名を横に切らず、選択肢の行の中で折り返す。 */
+.mo-option { overflow-wrap: anywhere; }

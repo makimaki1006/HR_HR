@@ -458,3 +458,16 @@
 .jc-feature-primary { top: var(--jc-band-h, 0); }
 @media (max-width: 1100px) { .jc-detail-cols { grid-template-columns: minmax(0, 1fr); } .jc-rail { position: static; } }
 @media (max-width: 800px) { .jc-band { position: static; } .jc-feature-primary { top: 0; } .jc-band-numbers { gap: 14px; } }
+
+/* 長い事業所名・比較に選んだ求人名も、操作ボタンの枠内で読めるようにする。 */
+.ds-company-link .jc-button, .jc-deal-selection .jc-button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.jc-deal-selection .jc-button { max-width: calc(100% - 8px); }
+
+.jc-detail-heading > div { min-width: 0; }
+.jc-detail-heading p { overflow-wrap: anywhere; }
+.jc-parallel-table th { white-space: normal; overflow-wrap: anywhere; }
