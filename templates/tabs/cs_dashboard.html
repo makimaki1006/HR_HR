@@ -930,6 +930,7 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
      約 200px を取り、本文が細い列で折り返されていた。読む順（見出し→本文）はそのまま */
   .tl dl{ grid-template-columns:1fr; }
 }
+.customer-min { width: 100px; }
 </style>
 </head>
 <body>
@@ -4421,13 +4422,81 @@ function custIndex(D, question, lede) {
     🔴 前（2026-09-29 の組み替えの直後）は注力の内訳（focusSection）の中にあり、法人の節の末尾へ一緒に移って、
        効く先の選択欄（y=180）から約 8,600px 下にあった（1440px 実測 y=8782。文言は「上の…」のまま）。
        組み替えの前も「法人番号で見る」の先頭近くにあった */
+const CUSTOMER_FILTERS = [
+  { key: "employees", field: "kigyouzentaininzuu", label: "従業員数", unit: "人", scale: 1 },
+  { key: "monthly", field: "monthly_amount_max", label: "月額", unit: "万円", scale: 10000 },
+  { key: "sites", field: "sites", label: "拠点数", unit: "拠点", scale: 1 },
+  { key: "ltv", field: "ltv", label: "これまでの売上（LTV）", unit: "万円", scale: 10000 },
+  { key: "renewals", field: "max_renewal_no", label: "継続の回数", unit: "回", scale: 1 },
+  { key: "applications", field: "oubo_total", label: "応募", unit: "件", scale: 1 },
+  { key: "interviews", field: "mensetu_total", label: "面接", unit: "件", scale: 1 },
+  { key: "acceptances", field: "syoudaku_total", label: "承諾", unit: "件", scale: 1 },
+];
+const customerFilter = {};
+let customerActiveOnly = false;
+function customerLowerBound(value) {
+  if (value == null || String(value).trim() === "") return "";
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? String(n) : "";
+}
+function filterCustomers(rows) {
+  const used = CUSTOMER_FILTERS.filter((f) => customerLowerBound(customerFilter[f.key]) !== "");
+  const conditions = used.map((f) => ({ ...f, min: Number(customerFilter[f.key]) * f.scale }));
+  if (customerActiveOnly) conditions.push({ field: "active", label: "稼働中の件数", min: 1 });
+  const known = (v) => typeof v === "number" && Number.isFinite(v);
+  return {
+    rows: rows.filter((r) => (!focusOnly || r.focus) && conditions.every((f) => known(r[f.field]) && r[f.field] >= f.min))
+      .sort((a, b) => (b.ltv ?? -Infinity) - (a.ltv ?? -Infinity)),
+    missing: conditions.map((f) => ({ label: f.label, n: rows.filter((r) => !known(r[f.field])).length })),
+    numeric: used.length > 0,
+  };
+}
+function customerFilterResults() {
+  const all = customerIndex || [], result = filterCustomers(all);
+  let h = '<p role="status">条件に合う ' + num(result.rows.length) + ' 社（全 ' + num(all.length) + ' 社のうち）</p>';
+  h += result.missing.filter((m) => m.n).map((m) => '<p class="muted small">' + esc(m.label) + 'が入っていない ' + num(m.n) + ' 社は外れています</p>').join("");
+  if (result.numeric) {
+    const count = (v) => v == null ? "—" : num(v);
+    h += scroll(table([{ t: "法人" }, ...["従業員数", "月額", "拠点", "LTV", "継続回数", "応募", "面接", "承諾", "稼働中"].map((t) => ({ t, n: 1 }))],
+      result.rows.slice(0, 50).map((r) => [
+        '<a data-customer="' + esc(r.houjin) + '" href="' + esc(hashFor("customer", { ...stateParams("customer"), houjin: r.houjin, site: "" })) + '">' + esc(r.name || r.houjin) + '</a>',
+        count(r.kigyouzentaininzuu), r.monthly_amount_max == null ? "—" : yen(r.monthly_amount_max), count(r.sites), r.ltv == null ? "—" : yen(r.ltv),
+        count(r.max_renewal_no), count(r.oubo_total), count(r.mensetu_total), count(r.syoudaku_total), count(r.active),
+      ]), "", "customer-filter-table"), 340, result.rows.length);
+    if (result.rows.length > 50) h += '<p class="muted small">ほか ' + num(result.rows.length - 50) + ' 社</p>';
+  }
+  return h;
+}
 function focusToggle(D) {
   const f = D.focus;
-  if (!f) return "";
-  return '<div class="ctlbar"><label class="act">' +
-    '<input type="checkbox" id="hj-focus-only"' + (focusOnly ? " checked" : "") + ">" +
-    "上の「法人を選ぶ」を重点顧客だけにする（" + num(f.n_focus) + " / " +
-    num(f.n_display) + " 社）</label></div>";
+  let h = '<div class="ctlbar">';
+  if (f) h += '<label class="act"><input type="checkbox" id="hj-focus-only"' + (focusOnly ? " checked" : "") + '>' +
+    '上の「法人を選ぶ」を重点顧客だけにする（' + num(f.n_focus) + ' / ' + num(f.n_display) + ' 社）</label>';
+  h += '</div><p class="muted small">すべての条件に当てはまる顧客を探します。空欄の条件は使いません。月額は取引の中で一番大きい額、継続の回数は一番多い回数です。</p><div class="ctlbar">';
+  h += CUSTOMER_FILTERS.map((f) => '<label>' + esc(f.label) + ' <input class="act customer-min" type="number" min="0" step="any" id="customer-min-' + f.key + '" data-filter="' + f.key + '" value="' + esc(customerFilter[f.key] || "") + '" aria-label="' + esc(f.label) + 'の下限"> ' + f.unit + '以上</label>').join("");
+  h += '<label class="act"><input type="checkbox" id="customer-active-only"' + (customerActiveOnly ? " checked" : "") + '>稼働中だけ</label></div>';
+  return h + '<div id="customer-filter-results">' + customerFilterResults() + '</div>';
+}
+function updateCustomerFilterResults() {
+  const target = document.getElementById("customer-filter-results");
+  if (target) target.innerHTML = customerFilterResults();
+  fillCustomerSelect();
+  syncUrl();
+  markScrollAll();
+}
+function fillCustomerSelect() {
+  const sel = document.getElementById("cs-houjin");
+  if (!sel || !customerIndex) return;
+  /* 🔴 いま開いている法人は、条件に合わなくても選択肢に残す（選んだものが消えると戻れない）。
+     🔴 件数で切らない（400件で切っていて選べない法人があった。U8） */
+  const list = filterCustomers(customerIndex).rows;
+  const cur = customerHoujin && !list.some((r) => r.houjin === customerHoujin)
+    ? customerIndex.find((r) => r.houjin === customerHoujin) : null;
+  if (cur) list.unshift(cur);
+  sel.innerHTML = '<option value="">法人を選ぶ…</option>' + list.map((r) =>
+    '<option value="' + esc(r.houjin) + '">' + esc(r.name || r.houjin) +
+    '（取引' + num(r.deals) + ' / 拠点' + num(r.sites) + '）' + (r.focus ? '［重点顧客］' : '') + '</option>').join("");
+  sel.value = customerHoujin || "";
 }
 
 /* 注力の内訳（注力だけに絞る操作は focusToggle。画面の頭に置く）。
@@ -5341,11 +5410,12 @@ const CUST_Q = "この法人は拠点ごとにどう違うか。その事業所�
     他のチームへ: 画面の鍵は "customer"（#research/customer?houjin=&site=&focus=1）。前の鍵 series / houjin は LEGACY でここへ送る */
 function renderCustomer(D) {
   if (D.index) {
-    return custIndex(D, CUST_Q,
+    customerIndex = D.index;
+    return focusToggle(D) + custIndex(D, CUST_Q,
       "<b>上で法人（拠点を比べる）、下で事業所（拠点を1つ）を見ます。</b>決裁は事業所単位です。");
   }
   let h = sec("問い", CUST_Q);
-  if (!D.meta.found) return h + custBlocks(D, new Set()) + foot(D.meta);
+  if (!D.meta.found) return h + focusToggle(D) + custBlocks(D, new Set()) + foot(D.meta);
   const all = D.deals || [];
   const sites = custSites(D);
   const now = custSiteNow(sites);
@@ -8688,7 +8758,13 @@ const URL_STATE = {
   /* 顧客: 拠点（site）は選んだときだけ載せる（既定の拠点は載せない。custSiteNow）。法人を選び直すと拠点は既定に戻る（wire の cs-houjin） */
   customer: { houjin: HOUJIN_URL_STATE,
               site: { kind: "filter", get: () => custSite, set: (v) => { custSite = v; custLand = !!v; }, reset: () => { custSite = ""; custLand = false; } },
-              focus: flagState(() => focusOnly, (b) => { focusOnly = b; }) },
+              focus: flagState(() => focusOnly, (b) => { focusOnly = b; }),
+              active: flagState(() => customerActiveOnly, (b) => { customerActiveOnly = b; }),
+              ...Object.fromEntries(CUSTOMER_FILTERS.map((f) => [f.key, {
+                kind: "filter", get: () => customerFilter[f.key] || "",
+                set: (v) => { customerFilter[f.key] = customerLowerBound(v); },
+                reset: () => { customerFilter[f.key] = ""; },
+              }])) },
   detail: { id: { kind: "filter", get: () => detailId, set: (v) => { detailId = v; }, reset: () => { detailId = ""; } },
             q:  { kind: "filter", get: () => detailQ,  set: (v) => { detailQ = v; },  reset: () => { detailQ = ""; } },
             /* 時系列を直近3か月より前も出す（M-3）。別の案件へ移ると既定（直近3か月）へ */
@@ -9192,7 +9268,7 @@ async function load(refresh, opts) {
     loadCtl = ctl;
     /* 60 秒で打ち切る（M-7）。前は打ち切りが無く、応答が来ないと「読み込み中」のまま何もできなかった */
     const killer = ctl && typeof setTimeout === "function" ? setTimeout(() => ctl.abort(), LOAD_TIMEOUT_MS) : 0;
-    let res, more = null;
+    let res, more = null, customerIndexRes = null;
     try {
       /* 主と more を並べて取りに行く。🔴 「読み直す」（refresh=1）は主の 1 本だけに付け、more は主が返ってから取る。
          サーバの読み直しは共有キャッシュを全部捨てるので（routes.rs）、more にも付けると同じ読み直しを 2〜3 回重ねて待ちが延び、
@@ -9207,12 +9283,21 @@ async function load(refresh, opts) {
         res = all[0];
         more = all.slice(1);
       }
+      /* 法人指定の共有URL・再読込でも一覧を一度そろえる。条件入力では取得しない。 */
+      if (v.key === "customer" && customerHoujin && (!customerIndex || refresh))
+        customerIndexRes = await fetch("/api/consulting/customer?", opt);
     } catch (e) {
       /* 打ち切り（60 秒か、新しい要求が出た）。新しい要求が出たときは下の loadSeq の確かめで抜ける */
       if (e && e.name === "AbortError") throw new Error("60 秒待っても応答がありませんでした。サーバが混んでいるか、HubSpot のシートの読み直しに時間がかかっています。");
       throw e;
     } finally { if (killer) clearTimeout(killer); if (loadCtl === ctl) loadCtl = null; }
     let body = await readJson(res);
+    if (customerIndexRes) {
+      const indexBody = await readJson(customerIndexRes);
+      if (!customerIndexRes.ok || indexBody.error || !Array.isArray(indexBody.index)) throw new Error("顧客の一覧を読み込めませんでした。もう一度読み込んでください。");
+      if (my !== loadSeq) return;
+      customerIndex = indexBody.index;
+    }
     if (my !== loadSeq) return;   /* 後から別の画面を頼んでいる。古い応答は描かない */
     /* サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す */
     if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
@@ -9331,26 +9416,7 @@ function wire(v) {
     rl.disabled = true;
     rl.textContent = "取り直し中…";
   };
-  const sel = document.getElementById("cs-houjin");
-  if (sel && customerIndex) {
-    /* 🔴 注力だけにしているときは、選択肢もそれに合わせる。
-       図だけ絞って選択肢が全件のままだと、絞ったつもりで全件から選んでしまう。
-       いま開いている法人は、注力でなくても選択肢に残す（選んだものが消えると戻れない）。
-       🔴 絞るのは注力の切り替え（hj-focus-only）がある顧客の画面だけ。前は「法人番号で見る」の絞り込みが
-          切り替えの無い「継続を追いかける」まで持ち越され、解除できなかった（2026-09-23 実機: 401 → 117, U4）。
-          2026-09-29 に2画面を顧客の1画面にしたので、切り替えと選択欄はいつも同じ画面にある */
-    const list = focusOnly && v.key === "customer"
-      ? customerIndex.filter((r) => r.focus || r.houjin === customerHoujin)
-      : customerIndex;
-    /* 🔴 件数で切らない。400件で切っていて、全517法人のうち117法人が選べなかった（U8）。
-       選択欄は長くても文字を打てば飛べるので、全件を入れる */
-    sel.innerHTML = '<option value="">法人を選ぶ…</option>' + list.map((r) =>
-      '<option value="' + esc(r.houjin) + '">' + esc(r.name || r.houjin) +
-      "（取引" + num(r.deals) + " / 拠点" + num(r.sites) + "）" +
-      (r.focus ? "［重点顧客］" : "") + "</option>").join("");
-    /* 差し込み直しでも選んだ法人が残るようにする */
-    if (customerHoujin) sel.value = customerHoujin;
-  }
+  if (v.key === "customer") fillCustomerSelect();
   const cz = document.getElementById("cs-censor");
   if (cz) cz.onchange = () => { renewalExcludeCensored = cz.checked; load(false); };
   const hj = document.getElementById("cs-houjin");
@@ -9380,7 +9446,13 @@ function wireCustomer() {
   /* URL に拠点があって来た（custLand）。取り直して描いた最初の1回だけ節へ移す（チェック等の描き直しでは移さない） */
   if (custLand) { custLand = false; if (custSite) kpiJump("cust-site"); }
   const fo = document.getElementById("hj-focus-only");
-  if (fo) fo.onchange = () => { focusOnly = fo.checked; redraw(); };
+  if (fo) fo.onchange = () => { focusOnly = fo.checked; updateCustomerFilterResults(); };
+  CUSTOMER_FILTERS.forEach((f) => {
+    const input = document.getElementById("customer-min-" + f.key);
+    if (input) input.oninput = () => { customerFilter[f.key] = customerLowerBound(input.value); updateCustomerFilterResults(); };
+  });
+  const activeOnly = document.getElementById("customer-active-only");
+  if (activeOnly) activeOnly.onchange = () => { customerActiveOnly = activeOnly.checked; updateCustomerFilterResults(); };
   document.querySelectorAll("#hj-pick input[type=checkbox]").forEach((cb) => {
     cb.onchange = () => { houjinPick[cb.dataset.d] = cb.checked; redraw(); };
   });
