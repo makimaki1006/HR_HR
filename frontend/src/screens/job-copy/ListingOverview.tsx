@@ -80,7 +80,14 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
     { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), empty: '' },
     { key: 'media', label: `応募数（${media}の集計）`, cell: week => num(week.mediaApplications), empty: noPerf },
   ];
-  const marker = (index: number | null, label: string, tone: string) => index === null ? null : <div key={label} className={`lf-marker lf-marker-${tone}`} style={{ left: `${String(index * COLUMN_PX)}px` }}><span>{label}</span></div>;
+  // 同じ週に印が重なる（掲載を始めた週がまだ今週など）ときは、名前を縦にずらして重ねない
+  const placed: number[] = [];
+  const marker = (index: number | null, label: string, tone: string) => {
+    if (index === null) return null;
+    const stack = placed.filter(at => at === index).length;
+    placed.push(index);
+    return <div key={label} className={`lf-marker lf-marker-${tone}`} style={{ left: `${String(index * COLUMN_PX)}px` }}><span style={stack ? { marginBottom: `${String(stack * 16)}px` } : undefined}>{label}</span></div>;
+  };
   return <div className="lf" data-testid="lifeline">
     <div className="lf-labels" aria-hidden="true">
       <div className="lf-head-label">週（月曜）</div>
@@ -99,7 +106,7 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
           return <div key={week.start} className="lf-cell">{latest && <button type="button" className="lf-change" title={label} aria-label={label} onClick={() => { onSelect(latest.id); }}>{changeMarkerLabel(week.changes).split('・').map((part, index, parts) => <span key={part}>{part}{index < parts.length - 1 ? '・' : ''}</span>)}</button>}</div>;
         })}</div>
         {rows.map(row => <div key={row.key} className="lf-row" role="row" aria-label={row.label}>
-          {row.empty && lifeline.weeks.every(week => row.cell(week) === '—') ? <div className="lf-empty" style={{ width: `${String(width)}px` }}>{row.empty}</div> : lifeline.weeks.map(week => <div key={week.start} className={`lf-cell${row.cell(week) === '0' || row.cell(week) === '¥0' ? ' lf-zero' : ''}`}>{row.cell(week)}</div>)}
+          {row.empty && lifeline.weeks.every(week => row.cell(week) === '—') ? <div className="lf-empty">{row.empty}</div> : lifeline.weeks.map(week => <div key={week.start} className={`lf-cell${row.cell(week) === '0' || row.cell(week) === '¥0' ? ' lf-zero' : ''}`}>{row.cell(week)}</div>)}
         </div>)}
       </div>
     </div>

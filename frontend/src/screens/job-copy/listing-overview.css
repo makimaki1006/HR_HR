@@ -97,13 +97,14 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .lf-labels { display: grid; grid-auto-rows: 40px; grid-template-rows: 34px 68px; border-right: 1px solid var(--jc-border); background: var(--jc-paper); z-index: 3; }
 .lf-head-label, .lf-row-label { display: flex; align-items: center; font-size: 12px; color: var(--jc-muted); line-height: 1.3; padding-right: 8px; }
 .lf-scroll { overflow-x: auto; position: relative; }
-.lf-track { position: relative; }
+.lf-track { position: relative; min-width: 100%; }
 .lf-row { display: flex; height: 40px; border-bottom: 1px solid #eef2f5; }
 .lf-head { height: 34px; border-bottom: 1px solid #8ea3b3; }
 .lf-cell { flex: 0 0 56px; width: 56px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 12px; font-variant-numeric: tabular-nums; border-right: 1px solid #f1f4f6; }
 .lf-head .lf-cell { color: var(--jc-muted); font-size: 11px; }
 .lf-zero { color: #8a99a6; }
-.lf-empty { display: flex; align-items: center; padding-left: 12px; font-size: 12px; color: var(--jc-muted); box-sizing: border-box; }
+/* 週が少ない（掲載を始めたばかり）ときも 1 行に収め、下の行に重ねない。文は 1 列目（掲載開始・今日の印の名前が乗る）の右から始める */
+.lf-empty { display: flex; align-items: center; flex: 1 0 auto; padding-left: 64px; font-size: 12px; color: var(--jc-muted); box-sizing: border-box; white-space: nowrap; }
 .lf-selected { position: absolute; top: 0; bottom: 0; background: rgb(14 116 144 / 14%); border: 2px solid var(--jc-accent); box-sizing: border-box; z-index: 1; pointer-events: none; }
 .lf-marker { position: absolute; top: 0; bottom: 0; border-left: 2px dashed #b45309; z-index: 2; pointer-events: none; }
 .lf-marker span { position: absolute; top: 0; left: 3px; font-size: 10px; background: #fff7ed; color: #9a3412; padding: 0 3px; white-space: nowrap; }
