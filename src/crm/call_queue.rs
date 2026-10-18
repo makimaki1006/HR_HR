@@ -1436,7 +1436,7 @@ fn condition_hash(
 }
 
 impl CallQueueState {
-    fn sign_cursor(&self, hash: &str, phase: u32, after: Option<u64>) -> String {
+    pub(super) fn sign_cursor(&self, hash: &str, phase: u32, after: Option<u64>) -> String {
         let payload = CursorPayload {
             h: hash.to_string(),
             p: phase,
@@ -1449,7 +1449,7 @@ impl CallQueueState {
     }
 
     /// 署名・条件・有効期限を確かめる。通らなければ `None` (400 `cursor_mismatch`)。
-    fn verify_cursor(&self, cursor: &str, hash: &str) -> Option<(u32, Option<u64>)> {
+    pub(super) fn verify_cursor(&self, cursor: &str, hash: &str) -> Option<(u32, Option<u64>)> {
         let (body, sig) = cursor.split_once('.')?;
         let sig = URL_SAFE_NO_PAD.decode(sig).ok()?;
         let want = hmac_sha256(&self.key, body.as_bytes());

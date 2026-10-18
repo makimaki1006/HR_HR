@@ -121,6 +121,8 @@ mod tests {
             .expect("CrmOwnersResponse の TS 型を書き出せない");
         crate::crm::workspace::WorkspaceResponse::export_all(&cfg)
             .expect("WorkspaceResponse の TS 型を書き出せない");
+        crate::crm::applicants::ApplicantQueue::export_all(&cfg).unwrap();
+        crate::crm::applicants::ApplicantDetail::export_all(&cfg).unwrap();
         crate::crm::property_catalog::CrmPropertyCatalogResponse::export_all(&cfg)
             .expect("CrmPropertyCatalogResponse の TS 型を書き出せない");
         crate::crm::write::CrmEditSchemaResponse::export_all(&cfg)
