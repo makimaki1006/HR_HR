@@ -163,20 +163,24 @@ pub(super) fn reasons(deal: &WorkDeal, facts: Option<&Facts>, today: NaiveDate) 
     reasons
 }
 
+pub(super) fn eligible(deal: &WorkDeal) -> bool {
+    !ENDED_STAGES.contains(&deal.record.value("dealstage").unwrap_or(""))
+        && deal
+            .record
+            .value("contract_start_date")
+            .and_then(date)
+            .is_some()
+}
+
 pub(super) async fn fetch(
     service: &JobReadService,
     deals: &BTreeMap<String, WorkDeal>,
 ) -> Result<BTreeMap<String, Facts>, ReadError> {
+    let started = std::time::Instant::now();
     // 契約開始のない案件は応募条件を満たさない。翌日の境界分も用意する。
     let ids: Vec<_> = deals
         .iter()
-        .filter(|(_, d)| {
-            !ENDED_STAGES.contains(&d.record.value("dealstage").unwrap_or(""))
-                && d.record
-                    .value("contract_start_date")
-                    .and_then(date)
-                    .is_some()
-        })
+        .filter(|(_, d)| eligible(d))
         .map(|(id, _)| id.clone())
         .collect();
     if ids.is_empty() {
@@ -190,7 +194,22 @@ pub(super) async fn fetch(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    tracing::info!(
+        stage = "deal_listings",
+        count = ids.len(),
+        related = listing_ids.len(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "job-copy todo facts stage"
+    );
+    let phase = std::time::Instant::now();
     let live = listings::todo_publications(service, &listing_ids).await?;
+    tracing::info!(
+        stage = "publications",
+        count = listing_ids.len(),
+        elapsed_ms = phase.elapsed().as_millis() as u64,
+        "job-copy todo facts stage"
+    );
+    let phase = std::time::Instant::now();
     let applications = service
         .association_map("0-420", &listing_ids, "0-421")
         .await?;
@@ -201,6 +220,14 @@ pub(super) async fn fetch(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    tracing::info!(
+        stage = "listing_applications",
+        count = listing_ids.len(),
+        related = ids.len(),
+        elapsed_ms = phase.elapsed().as_millis() as u64,
+        "job-copy todo facts stage"
+    );
+    let phase = std::time::Instant::now();
     let dates: BTreeMap<_, _> = service
         .batch("0-421", &ids, &["yingmuri"])
         .await?
@@ -215,6 +242,12 @@ pub(super) async fn fetch(
             )
         })
         .collect();
+    tracing::info!(
+        stage = "application_dates",
+        count = ids.len(),
+        elapsed_ms = phase.elapsed().as_millis() as u64,
+        "job-copy todo facts stage"
+    );
     Ok(assemble(relations, &applications, &dates, &live))
 }
 

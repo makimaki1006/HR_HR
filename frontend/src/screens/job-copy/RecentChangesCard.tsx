@@ -1,7 +1,8 @@
 import { ReportFreshness } from './ReportFreshness';
 import { ownerParams } from './OwnerTodo';
 import { useJobCopySearch } from './navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useReportPolling } from './useReportPolling';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { formatDateTimeJst } from './format';
 
@@ -17,24 +18,18 @@ export function useRecentChanges(reload: number, enabled = true, defaultToSelf =
   const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
   const [data, setData] = useState<RecentChangesResponse>({ status: 'preparing' });
   const [error, setError] = useState('');
-  useEffect(() => {
-    if (!enabled) return;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = async () => {
-      const result = await apiGet<RecentChangesResponse>(`/api/job-copy/recent-changes${ownerQuery ? `?${ownerQuery}` : ''}`, { signal: controller.signal });
-      if (controller.signal.aborted) return;
-      if (result.ok && ['ready', 'preparing', 'failed'].includes(result.data.status)) {
-        setData(result.data); setLoadedQuery(ownerQuery); setError('');
-        if (result.data.status === 'preparing' || (result.data.status === 'ready' && (result.data.refreshing || result.data.report.breakdown?.status === 'preparing'))) timer = setTimeout(() => { void load(); }, 2_000);
-      } else {
-        setData({ status: 'failed' }); setLoadedQuery(ownerQuery);
-        setError(!result.ok && result.error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : '変更のあった求人を読み込めませんでした。時間を置いて再読み込みしてください。');
-      }
-    };
-    void load();
-    return () => { controller.abort(); clearTimeout(timer); };
-  }, [reload, enabled, ownerQuery]);
+  useReportPolling(useCallback(async signal => {
+    const result = await apiGet<RecentChangesResponse>(`/api/job-copy/recent-changes${ownerQuery ? `?${ownerQuery}` : ''}`, { signal });
+    if (signal.aborted) return false;
+    if (result.ok && ['ready', 'preparing', 'failed'].includes(result.data.status)) {
+      setData(result.data); setLoadedQuery(ownerQuery); setError('');
+      return result.data.status === 'preparing' || (result.data.status === 'ready' && (!!result.data.refreshing || result.data.report.breakdown?.status === 'preparing'));
+    }
+    setData({ status: 'failed' }); setLoadedQuery(ownerQuery);
+    setError(!result.ok && result.error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : '変更のあった求人を読み込めませんでした。時間を置いて再読み込みしてください。');
+    return false;
+    // Explicit reloads belong to this report, independently of home polling.
+  }, [ownerQuery]), enabled, reload);
   return { data: loadedQuery === ownerQuery ? data : { status: 'preparing' as const }, error };
 }
 export function RecentChangesButton({ data, open, onClick }: { data: RecentChangesResponse; open: boolean; onClick: () => void }) {
