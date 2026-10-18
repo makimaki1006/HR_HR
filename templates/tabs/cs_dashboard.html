@@ -441,7 +441,10 @@
   #team-tbl th:nth-child(9),#team-tbl th:nth-child(10){width:145px}
   #team-tbl th:last-child{width:85px}
   #team-tbl th button.sort{white-space:normal;padding:7px 8px}
-  #team-tbl td{padding-left:8px;padding-right:8px}
+  #team-tbl td{padding-left:8px;padding-right:8px;white-space:normal;overflow-wrap:anywhere}
+  /* 長い案件名の固定列が右の列を覆わないよう、幅を制限する */
+  #board-tbl td:first-child{white-space:normal;max-width:22em;overflow-wrap:anywhere}
+  #team-tbl td:first-child a.drill{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .team-delta{font-size:12px;font-weight:600;margin-left:5px;white-space:nowrap}
   .team-delta.worse{color:var(--hi)}
   .team-delta.better{color:var(--midori)}
@@ -1120,7 +1123,16 @@ function labText(x, y, s, maxW, attrs, full, lines) {
       `<tspan x="${x}">${esc(lines[0])}</tspan><tspan x="${x}" dy="13">${esc(lines[1])}</tspan>` +
       (cut2 ? `<title>${esc(src2)}</title>` : "") + `</text>`;
   }
-  const shown = fitLab(s, maxW);
+  // 実際の12pxのフォントで測る。サーバなど描画環境が無い場合は従来の見積もりを使う。
+  const ctx = document.createElement("canvas").getContext?.("2d");
+  let budget = maxW, shown = fitLab(s, budget);
+  if (ctx && maxW > 0) {
+    ctx.font = "12px " + getComputedStyle(document.body).fontFamily;
+    // 省略後の文字列も測る（英数字と日本語では見積もりとの差が異なる）。
+    while (budget > 1 && ctx.measureText(shown).width + shown.length * .12 > maxW) {
+      budget--; shown = fitLab(s, budget);
+    }
+  }
   const src = String(full != null && full !== "" ? full : (s == null ? "" : s));
   /* 「株式会社」を落としただけ（省略記号が無い）は切ったと数えない。全文の一覧が法人の数だけ並ぶため */
   const cut = shown !== src && shown.includes("…");
@@ -1760,7 +1772,12 @@ function svgLine(o) {
      （「継続率」と「100%」）が重なっていた（2026-09-23 実機）。題名がある図だけ上を空ける */
   /* 🔴 横軸の月は軸から 19px 下（前は 15px）。0 の点（半径 4.2）の下端と月の字の上端、縦軸の「0」と
      最初の月の字がほぼ接していた（2026-09-24 実機: 採用の線の○が「25-07」に重なる）。下の余白も同じだけ足す */
-  const pad = Object.assign({ l: 58, r: Math.max(o.xSub ? 40 : 24, Math.ceil(xLabW)),
+  // 桁区切りの大きな値でも目盛りの先頭を切らない。
+  const axisValues = o.series.flatMap(s => s.pts.filter(p => p && p.v != null).map(p => p.v));
+  const axisMax = Math.max(0, ...axisValues, o.yMax || 0);
+  const axisTicks = coverTicks(ticks(0, axisMax, o.yTicks || 4, minStepOf(o.yFmt || F.int)), axisMax);
+  const axisWidth = Math.max(58, ...axisTicks.map(v => Math.ceil(textW((o.yFmt || F.int)(v)) + 10)));
+  const pad = Object.assign({ l: axisWidth, r: Math.max(o.xSub ? 40 : 24, Math.ceil(xLabW)),
                               t: o.yLab ? 28 : 16, b: o.xSub ? 48 : 38 }, o.pad || {});
   /* 枠に合わせる（paintFigs）。広い枠では広げる。狭い枠では、点の間が 24px（点の上に値を書く図は
      64px）以上とれるときだけ狭める。🔴 2026-09-24 実機（400px）: 2〜3か月しか無い推移の図まで
@@ -2306,7 +2323,9 @@ function svgStackLanes(o) {
      NPS の帯は点の上に値・下に「定期N」を書くので、その2行が帯の中に収まる高さにする */
   const slot = figSlot();
   let w = widen(o.w || 1000, slot), padL = Math.max(112, labW(o.lanes || [], 240));
-  const padR = 68, padT = 10, padB = 28, gap = 8;
+  // 右の最小・最大の目盛りも、桁数に合わせて欄を広げる。
+  const laneValues = (o.lanes || []).flatMap(L => (L.pts || []).filter(Boolean).flatMap(p => [p.v, p.fill, p.out].filter(v => v != null)));
+  const padR = Math.max(68, ...laneValues.map(v => Math.ceil(textW(F.int(v)) + 16))), padT = 10, padB = 28, gap = 8;
   /* 🔴 2026-09-24 実機（ループ4, 400px, series の甲賀＝1か月の契約）: 月が少ない図も 940px で描いて
      真ん中の月に位置を合わせていたので、帯の「この顧客では記録がありません」が左のラベルの下（左）へ
      はみ出し、右端の目盛りの値は枠の外だった。月が少ない図（月の間が 48px 以上とれる）は、ラベル欄を詰めて
@@ -3476,7 +3495,7 @@ function teamRateName(s) {
 }
 /* 列。数を押すと、その担当とその印で絞った一覧が開く（hashFor。URL の形は hashFor の注記のとおり） */
 const TEAM_COLS = [
-  /* 名前は折り返さない（2026-09-29 実測 1440px: 折り返す列（w:"s"）にすると伏字の名前が 2 行になり、1 行 64px だった） */
+  /* 名前は1行で省略し、全文は担当者の枡のtitleに残す。隣の件数への重なりを防ぐ */
   { k: "consultant", t: "担当者", fmt: (r) =>
       '<a class="drill" href="' + esc(hashFor("byowner", { c: r.consultant })) +
       '" title="この担当の案件だけを「担当者ごとの案件」で見る">' + (esc(r.consultant) || DASH) + "</a>" +
@@ -3593,7 +3612,7 @@ function renderTeam(D) {
   t += "</tr></thead><tbody>";
   for (const r of rows) {
     t += "<tr>";
-    for (const c of TEAM_COLS) t += "<td" + (colClass(c) ? ' class="' + colClass(c) + '"' : "") + ">" + c.fmt(r, L) + teamDelta((r.delta || {})[c.k]) + "</td>";
+    for (const c of TEAM_COLS) t += "<td" + (c.k === "consultant" ? ' title="' + esc(r.consultant) + '"' : "") + (colClass(c) ? ' class="' + colClass(c) + '"' : "") + ">" + c.fmt(r, L) + teamDelta((r.delta || {})[c.k]) + "</td>";
     t += "</tr>";
   }
   // 全体は担当不明の分も含める。割合・平均はここで足し合わせない。
