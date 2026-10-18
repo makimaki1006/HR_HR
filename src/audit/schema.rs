@@ -21,6 +21,12 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
 }
 
 const TABLE_DDL: &[&str] = &[
+    // コンサルKPI: 顧客情報を持たない、データの日ごとの担当者別件数。
+    r#"CREATE TABLE IF NOT EXISTS consulting_team_counts (
+        data_day TEXT NOT NULL, consultant TEXT NOT NULL, metric TEXT NOT NULL,
+        count INTEGER NOT NULL CHECK(count >= 0),
+        PRIMARY KEY(data_day, consultant, metric)
+    )"#,
     // ADR-029: 再生成可能な一覧のキャッシュ。最後の分割行と旧世代の削除は同一文で確定する。
     r#"CREATE TABLE IF NOT EXISTS job_copy_index_snapshots (
         generation TEXT NOT NULL, version INTEGER NOT NULL, built_at TEXT NOT NULL,

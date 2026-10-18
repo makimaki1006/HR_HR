@@ -4877,8 +4877,8 @@ check("09 の 6 チームと担当: 画面の並び（担当者の一覧・担�
      成果と継続は「月1・確かめる」の先頭。担当者ごとの案件は「毎日」の案件一覧の次、いま見るべき顧客・電話は「調べる」に残す（10 章⑤） */
   const views = (k) => (M.find((x) => x[0] === k) || [k, []])[1];
   const all = M.flatMap((x) => x[1]);
-  ok(JSON.stringify(views("research").find((v) => v[0] === "team")) === JSON.stringify(["team", "チームと担当", "/api/consulting/team"]),
-    "調べるの中に「チームと担当」（/api/consulting/team）が無い: " + JSON.stringify(views("research")));
+  ok(JSON.stringify(views("deal")[0]) === JSON.stringify(["team", "チームと担当", "/api/consulting/team"]),
+    "毎日の先頭に「チームと担当」（/api/consulting/team）が無い: " + JSON.stringify(views("research")));
   ok(JSON.stringify(views("deal").find((v) => v[0] === "byowner")) === JSON.stringify(["byowner", "担当者ごとの案件", "/api/consulting/deals"]),
     "毎日の中に「担当者ごとの案件」が無い");
   const st = views("monthly");
@@ -4916,7 +4916,7 @@ check("09 の 6 チームと担当: 担当者 × 状態の表は名前順が既�
   const head = h.slice(h.indexOf('<table id="team-tbl"'), h.indexOf("</thead>", h.indexOf('<table id="team-tbl"')));
   const cols = [...head.matchAll(/<button type="button" class="sort" data-k="([^"]+)">([^<]*)/g)].map((x) => [x[1], x[2]]);
   ok(JSON.stringify(cols.map((c) => c[0])) === JSON.stringify(["consultant", "n_active", "n_flags2", "mtg_critical", "no_contact", "expiring60",
-    "nps_low", "contact_rate", "per_deal", "focus"]), "列が違う（2 つの接触の列は並べる）: " + cols.map((c) => c[0]).join(","));
+    "nps_low", "expiring_week", "contact_rate", "per_deal", "focus"]), "列が違う（2 つの接触の列は並べる）: " + cols.map((c) => c[0]).join(","));
   ok(cols.find((c) => c[0] === "contact_rate")[1] === "接触した月の割合" && cols.find((c) => c[0] === "per_deal")[1] === "1件あたりの接触回数",
     "人ごとの接触の2定義が名前で分かれていない: " + JSON.stringify(cols.slice(-2)));
   ok(textOf(h).includes("接触回数は確定した最新月（2026-07）の値です"), "1件あたりがどの月の値かを書いていない（確定した最新の月 2026-07）");

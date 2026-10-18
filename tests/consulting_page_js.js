@@ -343,8 +343,8 @@ check("U8", "法人の選択肢を件数で切らない（517法人すべて選�
 
 /* ================================================================ U5 */
 check("U5", "画面の中の移動が履歴に積まれ、戻るで前の画面に戻る", async () => {
-  const t = boot();
-  // 開いた直後（ハッシュ無し）の位置合わせは積まない。積むと戻るを2回押さないとページから出られない
+  const t = boot("#deal/today");
+  // 開いた直後の位置合わせは積まない。積むと戻るを2回押さないとページから出られない
   if (t.hist.push !== 0 || t.hist.replace !== 1)
     throw new Error("開いた直後の位置合わせで履歴を積んでいる（push " + t.hist.push +
       " / replace " + t.hist.replace + "）");
@@ -1227,7 +1227,7 @@ check("C1", "担当者ごとの接触: 開くと contact-trend を1回だけ取�
   // 週ごとのボタンを押す
   const wk = new t.El("ct-unit-week"); wk.dataset.u = "week";
   t.qsa["#ct-unit button[data-u]"] = [wk];
-  t.R("wire(viewOf('research', 'team'))");
+  t.R("wire(viewOf('deal', 'team'))");
   const n = t.fetched.length;
   if (typeof wk.onclick !== "function") throw new Error("週ごとのボタンに onclick が付いていない");
   wk.onclick();
@@ -1709,8 +1709,8 @@ check("S-7", "区切りだけを指すと、その区切りで最後に開いた
   const t = boot();
   t.R('go("research", "phone")');
   if (t.R("cur.view") !== "phone") throw new Error("前提: 電話を開けていない");
-  t.R('go("deal", null)');   // 区切り「毎日」（初めてなので先頭＝今日）
-  if (t.R("cur.view") !== "today") throw new Error("毎日を初めて指したのに先頭（今日）でない: " + t.R("cur.view"));
+  t.R('go("deal", null)');   // 区切り「毎日」（初めてなので先頭＝チームと担当）
+  if (t.R("cur.view") !== "team") throw new Error("毎日を初めて指したのに先頭（チームと担当）でない: " + t.R("cur.view"));
   t.R('go("research", null)');  // 区切り「調べる」 → 最後に見ていた「電話」へ
   if (t.R("cur.view") !== "phone") throw new Error("調べるを指し直したのに最後に見た「電話」へ戻らない: " + t.R("cur.view"));
   if (t.loc.hash !== "#research/phone") throw new Error("URL が最後に見た項目になっていない: " + t.loc.hash);
@@ -1719,7 +1719,7 @@ check("S-7", "区切りだけを指すと、その区切りで最後に開いた
   if (t.R("cur.view") !== "team") throw new Error("項目を名指ししたのに別の項目が開く");
   t.R('go("deal", null)');
   t.R('go("research", null)');
-  if (t.R("cur.view") !== "team") throw new Error("最後に見た項目が更新されていない: " + t.R("cur.view"));
+  if (t.R("cur.view") !== "phone") throw new Error("別区切りの画面を開いた後に調べるの記憶が変わった: " + t.R("cur.view"));
 });
 
 check("S-11", "「読み直す」を押すと押せなくなり（取り直し中…）、refresh=1 で1回だけ取り直す", async () => {
@@ -1811,7 +1811,7 @@ check("M-2", "hashFor: 画面と状態からハッシュを作る。既定・空
   /* 消えた画面の鍵（前の版の本文・他のチームのコード）は移り先の画面になる（2026-09-29 組み替え 段A） */
   if (t.R('hashFor("houjin", { houjin: "H1" })') !== "#research/customer?houjin=H1")
     throw new Error("消えた画面の鍵（houjin）が移り先（顧客）にならない: " + t.R('hashFor("houjin", { houjin: "H1" })'));
-  if (t.R('hashFor("nowhere")') !== "#deal/today") throw new Error("無い画面の名前で既定（毎日 → 今日）に落ちない");
+  if (t.R('hashFor("nowhere")') !== "#deal/team") throw new Error("無い画面の名前で既定（毎日 → チームと担当）に落ちない");
   /* 前の画面の鍵（2026-09-29 に顧客の1画面へまとめた series / houjin）は、状態を持ったまま顧客の画面のハッシュになる（LEGACY） */
   for (const old of ["houjin", "series"])
     if (t.R('hashFor(' + JSON.stringify(old) + ', { houjin: "H1", focus: true })') !== "#research/customer?focus=1&houjin=H1")
@@ -2046,7 +2046,7 @@ check("M-6", "移動: 左のメニューは作り直さず印だけ付け替え�
   if (t.doc.activeElement !== main) throw new Error("移動の後にフォーカスが本文（#cs-main）へ移らない");
   /* 🔴 開いた直後（最初の読み込み）は本文へ移さない。移すと読み上げが鮮度の帯（赤の「N日分の動きが入っていません」）を
      飛ばして本文から始まる（2026-09-28 Playwright 1440px で実測: 開いた直後の Tab が本文の中から始まっていた） */
-  const t0 = boot();
+  const t0 = boot("#deal/today");
   t0.fetched[t0.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({})])));
   await tick(); await tick();
   if (t0.doc.activeElement !== t0.doc.body) throw new Error("開いた直後の読み込みで本文へフォーカスを移している（鮮度の区分が読み上げから飛ぶ）");
@@ -2380,7 +2380,7 @@ check("S-2", "今日動く先以外の画面でも、KPI の札を押すと同�
   t.qsa["#cs-main button.kpi[data-jump]"] = [b1, b2];
   const h = new t.El("tm-tbl-h"); t.reg["tm-tbl-h"] = h;
   const d = new t.El("x-fold"); d.open = false; t.reg["x-fold"] = d;   // 畳み（details）の行き先
-  t.R("wire(viewOf('research', 'team'))");
+  t.R("wire(viewOf('deal', 'team'))");
   if (typeof b1.onclick !== "function") throw new Error("担当者の一覧の札に操作が付いていない");
   b1.onclick();
   if (!h.focused) throw new Error("押しても行き先にフォーカスが移らない");
@@ -2477,7 +2477,7 @@ check("N8", "旧ハッシュ 17 本（と区切りだけの #consultant・#study
   /* 貼られた旧ハッシュで、いま同じ画面を開いていても書き直して帯を出す（同じ場所として無視しない） */
   const t4 = boot("#research/team", { Date: D });
   navHash(t4, "#consultant/contact");
-  if (t4.loc.hash.indexOf("#research/team") !== 0 || t4.reg["cs-moved"].innerHTML.indexOf("担当者ごとの接触") < 0)
+  if (t4.loc.hash.indexOf("#deal/team") !== 0 || t4.reg["cs-moved"].innerHTML.indexOf("担当者ごとの接触") < 0)
     throw new Error("同じ画面へ送る旧ハッシュを無視している: " + t4.loc.hash);
 });
 
@@ -2645,7 +2645,7 @@ check("more", "1 画面が複数の API を読む（MENUS の more）: どれか
 
 check("N5", "今日: 担当を選んだときだけ、その人の持ち案件1件あたりの接触を contact-trend から出す（他の人・全体と並べない）。描き直しでは取り直さず、読み直すで取り直す", async () => {
   /* 担当を選んでいない: 取りに行かない。選べば出ることを 1 行で言う */
-  const t0 = boot();
+  const t0 = boot("#deal/today");
   t0.fetched[t0.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({})])));
   await tick(); await tick();
   if (t0.fetched.some((q) => q.url.indexOf("/api/consulting/contact-trend") === 0)) throw new Error("担当を選んでいないのに接触を取りに行っている");

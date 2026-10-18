@@ -247,7 +247,28 @@ simple_handler!(handover, build_handover);
 simple_handler!(contact_trend, build_contact_trend);
 simple_handler!(deal_board, build_deal_board);
 simple_handler!(today_board, build_today_board);
-simple_handler!(team, build_team);
+async fn team(
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
+    Query(q): Query<FocusQuery>,
+) -> Result<Response, CqError> {
+    let state = cq_state()?;
+    if q.refresh.as_deref() == Some("1") {
+        for name in super::SHEETS {
+            state.store.invalidate(Some(name)).await;
+        }
+    }
+    let sheets = load(&state.client, &state.store)
+        .await
+        .map_err(|e| CqError::from_anyhow("consulting", e))?;
+    let (value, sheets) = tokio::task::spawn_blocking(move || {
+        let today = today_jst();
+        (freshen(build_team(&sheets, today), &sheets, today), sheets)
+    })
+    .await
+    .map_err(|e| CqError::from_anyhow("consulting", e.into()))?;
+    let value = super::team_history::enrich_response(value, sheets, app.audit.clone()).await;
+    Ok(Json(value).into_response())
+}
 simple_handler!(renewal_pipe, build_renewal_pipe);
 
 /// 「成果と継続」。継続回数 × 成果の右側打ち切りの切り替え（`exclude_right_censored`）を受け取るので
@@ -3843,7 +3864,7 @@ pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
                 // 担当が取れない行の数（人の行には入れていない）
                 "unknown": { "n_active": unknown.n, "n_flags2": unknown.flags2,
                              "mtg_critical": unknown.critical, "no_contact": unknown.no_contact,
-                             "expiring60": unknown.expiring60, "nps_low": unknown.nps_low },
+                             "expiring60": unknown.expiring60, "expiring_week": unknown.expiring_week, "nps_low": unknown.nps_low },
                 // 画面が案件そのものを絞るときの名札の文字（画面に直書きしない）
                 "flag_labels": { "no_contact": TEAM_FLAG_NO_CONTACT, "expiring60": TEAM_FLAG_EXPIRY60,
                                  "nps_low": TEAM_FLAG_NPS_LOW },

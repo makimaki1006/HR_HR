@@ -435,6 +435,16 @@
   /* チームと担当の担当者 × 状態（09 の 6）。PC では枡の上下を詰めて、1画面目に入る人数を増やす。
      2026-09-29 実測（1440×900, fixture 27 名）: 1 行 41px・表の 1 行目 y≈694 で、900px までに 4 行だった。
      スマホ（600px 以下）は押しやすさ（40px 前後）を優先して詰めない */
+  #team-tbl{table-layout:fixed;width:100%;min-width:1150px}
+  #team-tbl th:first-child{width:108px}
+  #team-tbl th:nth-child(2){width:80px}
+  #team-tbl th:nth-child(9),#team-tbl th:nth-child(10){width:145px}
+  #team-tbl th:last-child{width:85px}
+  #team-tbl th button.sort{white-space:normal;padding:7px 8px}
+  #team-tbl td{padding-left:8px;padding-right:8px}
+  .team-delta{font-size:12px;font-weight:600;margin-left:5px;white-space:nowrap}
+  .team-delta.worse{color:var(--hi)}
+  .team-delta.better{color:var(--midori)}
   @media (min-width:601px){ #team-tbl td{ padding-top:var(--space-1); padding-bottom:var(--space-1); } }
   /* 1列目（案件名・担当者名など、行を特定する列）を横に送っても左に残す（S-12）。
      2026-09-28 診断（400px）: 表を横に送ると案件名が消え、どの行の数字か分からなくなっていた。
@@ -3451,6 +3461,11 @@ function teamDrill(n, href, what) {
   if (!n) return num(n);
   return '<a class="drill" href="' + esc(href) + '" title="' + esc(what) + '">' + num(n) + "</a>";
 }
+function teamDelta(value) {
+  if (value == null || value === 0) return "";
+  return '<span class="team-delta ' + (value > 0 ? "worse" : "better") + '">' +
+    (value > 0 ? "+" : "−") + num(Math.abs(value)) + "</span>";
+}
 /** チームと担当の中で、サーバの決まりごとの文（担当者の一覧・担当者ごとの接触の時の文）に残る「接触率」を、
     表の列と同じ名前「接触した月の割合」に読み替える（09 の 10 章③「名前で区別して並べる」を画面の中で揃える）。
     🔴 2026-09-29 検証: 「何のための画面か」の本文が「接触率 ＝ 接触があった月 ÷（案件 × 経過月）」のままで、
@@ -3477,6 +3492,7 @@ const TEAM_COLS = [
       teamDrill(r.expiring60, hashFor("byowner", { c: r.consultant, flag: L.expiring60 }), "この担当の「" + L.expiring60 + "」の案件を開く") },
   { k: "nps_low", t: "NPS 4以下", n: 1, fmt: (r, L) =>
       teamDrill(r.nps_low, hashFor("byowner", { c: r.consultant, flag: L.nps_low }), "この担当の「" + L.nps_low + "」の案件を開く") },
+  { k: "expiring_week", t: "今週満了", n: 1, fmt: (r) => num(r.expiring_week) },
   /* 人ごとの接触 定義1。前の担当者の一覧の「接触率」。40% / 70% の線は取り決め（色だけにしない: 40% 未満は ▼ と文字も添える） */
   { k: "contact_rate", t: "接触した月の割合", n: 1, fmt: (r) => (r.contact_rate == null
       ? DASH
@@ -3540,6 +3556,11 @@ function renderTeam(D) {
      （routes.rs build_consultants）で、閉じた畳みでも見える summary（keep）に出す。本文（残りの文と接触の定義）だけ畳む（M-5） */
   const ncTeam = firstSentence(esc(D.meta.not_counted).replace("※ ", ""));
   h += foldNote("info", "何のための画面か", [ncTeam[1], esc(teamRateName(C.contact_rule))].filter(Boolean).join("<br>"), ncTeam[0]);
+  if (D.comparison && D.comparison.data_day) {
+    const day = D.comparison.data_day.split("-");
+    h += '<p class="muted small">' + Number(day[1]) + "/" + Number(day[2]) + ' のデータとの差</p>';
+  }
+  const deltas = (D.comparison || {}).totals || {};
   h += pageToc([["tm-tbl-h", "担当者 × 状態"], ["tm-ct-h", "接触の推移"], ["tm-ho-h", "担当の交代"]],
     goLink("deal", "byowner") + goLink("research", "phone"));
 
@@ -3551,9 +3572,9 @@ function renderTeam(D) {
           ? "担当不明の稼働中 " + num(D.meta.unknown_owner) + " 件は表から除外"
           : "稼働中の案件を持つ人",
         "", { jump: "tm-tbl-h", text: "表へ" }) +
-    kpi("注意が " + num(SM.min_flags) + " つ以上の案件", num(SM.n_flags2) + '<span class="u">件</span>',
+    kpi("注意が " + num(SM.min_flags) + " つ以上の案件", num(SM.n_flags2) + '<span class="u">件</span>' + teamDelta(deltas.n_flags2),
         "稼働中 " + num(SM.n_active) + " 件のうち", "", { jump: "tm-tbl-h", text: "表へ（注意2つ以上の列）" }) +
-    kpi("今週満了", num(SM.expiring_week) + '<span class="u">件</span>',
+    kpi("今週満了", num(SM.expiring_week) + '<span class="u">件</span>' + teamDelta(deltas.expiring_week),
         "満了まで " + num(SM.week_days) + " 日以内") +
     kpi("退職者のまま", num(D.meta.retired_deals) + '<span class="u">件</span>',
         "稼働中の案件（退職者 " + num(D.meta.retired_people) + " 名）",
@@ -3572,10 +3593,18 @@ function renderTeam(D) {
   t += "</tr></thead><tbody>";
   for (const r of rows) {
     t += "<tr>";
-    for (const c of TEAM_COLS) t += "<td" + (colClass(c) ? ' class="' + colClass(c) + '"' : "") + ">" + c.fmt(r, L) + "</td>";
+    for (const c of TEAM_COLS) t += "<td" + (colClass(c) ? ' class="' + colClass(c) + '"' : "") + ">" + c.fmt(r, L) + teamDelta((r.delta || {})[c.k]) + "</td>";
     t += "</tr>";
   }
-  t += "</tbody></table>";
+  // 全体は担当不明の分も含める。割合・平均はここで足し合わせない。
+  const total = { n_active: SM.n_active };
+  ["n_flags2", "mtg_critical", "no_contact", "expiring60", "nps_low", "expiring_week"].forEach((key) => {
+    total[key] = rows.reduce((sum, row) => sum + (row[key] || 0), (SM.unknown || {})[key] || 0);
+  });
+  t += '</tbody><tfoot><tr><th scope="row">全体</th>';
+  for (const c of TEAM_COLS.slice(1)) t += '<td class="n">' +
+    (total[c.k] == null ? DASH : num(total[c.k]) + teamDelta(deltas[c.k])) + '</td>';
+  t += "</tr></tfoot></table>";
   h += scroll(t, 680);
   const un = SM.unknown || {};
   if (un.n_active) {
@@ -8445,7 +8474,9 @@ function renderRenewalPipe(D) {
 const MENUS = [
   { key: "deal", label: "毎日",
     views: [
-      /* 既定。毎朝いちばん見るもの */
+      /* 管理職が最初に見る画面 */
+      { key: "team",     label: "チームと担当",     path: "/api/consulting/team",
+        render: (D) => renderTeam(D) },
       { key: "today",    label: "今日",             path: "/api/consulting/today",
         render: (D) => renderToday(D) },
       { key: "board",    label: "案件一覧",         path: "/api/consulting/deals",
@@ -8469,11 +8500,7 @@ const MENUS = [
       /* 新しい画面（09 の 5）。今月・来月・再来月に満了する件数・金額・ステージと一覧（段B。money.rs build_renewal_pipe） */
       { key: "renewalpipe", label: "満了と継続",    path: "/api/consulting/renewal-pipe",
         render: (D) => renderRenewalPipe(D) },
-      /* 前の「担当者の一覧」「担当者ごとの接触」「担当の交代」を 1 つに（09 の 6）。
-         /api/consulting/team は担当者の一覧・接触の推移・交代・名札の件数を束ねて返す（1 本で取る。more は使わない） */
-      { key: "team",     label: "チームと担当",     path: "/api/consulting/team",
-        render: (D) => renderTeam(D) },
-      /* 10章⑤: 削除せず残す。置き場所はチームと担当の次 */
+      /* 10章⑤: 電話も残す */
       { key: "phone",    label: "電話",             path: "/api/consulting/phone",
         render: (D) => renderPhone(D) },
     ] },
@@ -8490,8 +8517,8 @@ const MENUS = [
     ] },
 ];
 
-/* いま見ているところ。既定は「毎日 → 今日」。毎朝いちばん見るもの */
-let cur = { menu: "deal", view: "today" };
+/* いま見ているところ。既定は「毎日 → チームと担当」。毎朝いちばん見るもの */
+let cur = { menu: "deal", view: "team" };
 const loaded = {};
 /* いま出している項目のデータ。チェックや絞り込みで描き直すときに使う */
 let lastPayload = null;
@@ -8944,6 +8971,9 @@ function fromHash() {
   const p = (qi >= 0 ? raw.slice(0, qi) : raw).split("/");
   let params;
   try { params = new URLSearchParams(qi >= 0 ? raw.slice(qi + 1) : ""); } catch (_) { params = new URLSearchParams(); }
+  // 以前のチームのURLも、条件と節を引き継いで開く。
+  if (p[0] === "research" && p[1] === "team")
+    return { menu: "deal", view: "team", id: "", params: params, known: true, moved: null };
   const m = menuOf(p[0]);
   const lg = !(m && viewOf(m.key, p[1])) ? LEGACY[p[1] ? p[0] + "/" + p[1] : p[0]] : null;
   if (lg) {
@@ -9021,9 +9051,9 @@ if (typeof ResizeObserver === "function") {
   if (mainEl) new ResizeObserver(() => holdAt()).observe(mainEl);
 }
 
-/** URL が空・画面でないときの行き先。毎朝いちばん見る「毎日 → 今日」（見張り app_routes_no_conflict.rs） */
+/** URL が空・画面でないときの行き先。最初に見る「毎日 → チームと担当」（見張り app_routes_no_conflict.rs） */
 function defaultPlace() {
-  return { menu: "deal", view: "today" };
+  return { menu: "deal", view: "team" };
 }
 
 /* ================================================================ 取得 */
