@@ -517,7 +517,7 @@ fn monthly_retention(deals: &[Deal]) -> Value {
         "rows": rows,
         "no_expiry": no_expiry,
         // 外したオプションの件数は `population`（全画面共通）に入っている
-        "denominator_label": "満了月が該当月で決着済み（継続＋解約＋充足）。オプション契約は除く",
+        "denominator_label": "満了月が該当月で結果が出た（継続＋解約＋充足）。オプション契約は除く",
     })
 }
 
@@ -609,7 +609,7 @@ fn missingness(deals: &[Deal]) -> Vec<Value> {
         ("継続済", Outcome::Keep),
         ("解約", Outcome::Cancel),
         ("充足", Outcome::Fill),
-        ("結果待ち", Outcome::Pending),
+        ("まだ結果が出ていない", Outcome::Pending),
     ];
 
     let mut out = Vec::new();
@@ -1166,7 +1166,7 @@ pub fn build_focus(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_deals": deals.len(),
             "n_active": act.len(),
             "all_cached": sheets.all_cached,
-            "not_counted": "※ 売上でも担当者の評価でもありません。手を打つ先を絞るための画面です。良し悪しの判断は人がします",
+            "not_counted": "※ 売上でも担当者の評価でもありません。対応が要る案件を絞るための画面です。良し悪しの判断は人がします",
         },
         "shape": shape(&cust, &super::houjin_population(&sheets.deal)),
         "nps_low": nps_low(&act, &nps, &contacts, today),
@@ -1187,7 +1187,7 @@ fn phase_of(act: &[&Deal], today: NaiveDate) -> Value {
     // 🔴 並びは**時間の順**で返す。BTreeMap の文字コード順だと
     //    「中盤 → 出せない → 序盤 → 満了超過 → 終盤」になり、帯の図の並びと
     //    色の対応に意味が無くなっていた（画面は受け取った順に描く）。
-    const ORDER: [&str; 5] = ["序盤", "中盤", "終盤", "満了超過", "出せない"];
+    const ORDER: [&str; 5] = ["始めのほう", "半ば", "終わりのほう", "満了超過", "出せない"];
     let mut c: HashMap<&str, usize> = ORDER.iter().map(|l| (*l, 0)).collect();
     for d in act {
         let start = date10(&d.contract_start_date);
@@ -1196,11 +1196,11 @@ fn phase_of(act: &[&Deal], today: NaiveDate) -> Value {
                 let elapsed = (today - st).num_days() as f64 / 30.4;
                 let pct = elapsed / p;
                 if pct < 0.34 {
-                    "序盤"
+                    "始めのほう"
                 } else if pct < 0.67 {
-                    "中盤"
+                    "半ば"
                 } else if pct <= 1.05 {
-                    "終盤"
+                    "終わりのほう"
                 } else {
                     "満了超過"
                 }
@@ -1213,7 +1213,7 @@ fn phase_of(act: &[&Deal], today: NaiveDate) -> Value {
     json!({
         "total": act.len(),
         "rows": ORDER.iter().map(|k| json!({"label": k, "n": c[k]})).collect::<Vec<_>>(),
-        "rule": "契約長に対する割合。< 0.34 序盤 / < 0.67 中盤 / <= 1.05 終盤 / 超 満了超過。同じ3ヶ月目でも、3ヶ月契約なら満了・12ヶ月契約なら序盤",
+        "rule": "契約長に対する割合。< 0.34 始めのほう / < 0.67 半ば / <= 1.05 終わりのほう / 超 満了超過。同じ3ヶ月目でも、3ヶ月契約なら満了・12ヶ月契約なら始めのほう",
     })
 }
 
@@ -1279,7 +1279,7 @@ fn first_mtg(deals: &[Deal], mtg_first: &HashMap<String, NaiveDate>) -> Value {
             // 決着0件なら空。0% にしない
             "cancel_rate": rate(*c as f64, *dn as f64),
         })).collect::<Vec<_>>(),
-        "note": "MTG だけで、電話は入れていません。解約率は決着済み（継続＋解約＋充足）を分母にしています。単調ではないので「早ければ良い」とも「遅ければ悪い」とも言えません（相関であって因果ではない）",
+        "note": "MTG だけで、電話は入れていません。解約率は結果が出た（継続＋解約＋充足）を分母にしています。単調ではないので「早ければ良い」とも「遅ければ悪い」とも言えません（相関であって因果ではない）",
     })
 }
 
@@ -1663,8 +1663,8 @@ pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
             "all_cached": sheets.all_cached,
             "not_counted": "※ 親法人の合計ではありません。事業所ごとに出しています。決裁は事業所単位なので、まとめると行き先が消えます",
             // 画面の注記に使う。拠点の行の数字どうしで検算できるように、定義を1か所で持つ
-            "cpa_rule": "採用単価は決着済みの取引のうち、金額と採用数が両方入っているものだけで出しています。稼働中は採用がまだ伸びきっておらず高く出るので外しています（外した件数は拠点ごとに出しています）",
-            "cancel_rule": "解約率 ＝（解約＋充足）÷ 決着済み（継続＋解約＋充足）。稼働中は分母に入れていません",
+            "cpa_rule": "採用単価は結果が出た取引のうち、金額と採用数が両方入っているものだけで出しています。稼働中は採用がまだ伸びきっておらず高く出るので外しています（外した件数は拠点ごとに出しています）",
+            "cancel_rule": "解約率 ＝（解約＋充足）÷ 結果が出た（継続＋解約＋充足）。稼働中は分母に入れていません",
         },
         "multi_site": multi,
         "truncated": truncated,
@@ -1815,7 +1815,7 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
         ("継続済", Outcome::Keep),
         ("解約", Outcome::Cancel),
         ("充足", Outcome::Fill),
-        ("結果待ち", Outcome::Pending),
+        ("まだ結果が出ていない", Outcome::Pending),
     ];
     let fields: &[(&str, &dyn Fn(&Deal) -> Option<f64>)] = &[
         ("oubo", &|d: &Deal| d.oubo),
@@ -1864,12 +1864,12 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
             "note": "うまくいかなかった契約ほど数字が記録されていない可能性があります。「継続するほど成果が良い」という見え方を押し上げる方向に効きます",
         },
         "missing": [
-            {"label": "右側打ち切り（結果が確定していない直近の契約）", "n": censored,
+            {"label": "結果がまだ出ていない最近の契約", "n": censored,
              "rate": rate(censored as f64, deals.len() as f64),
              "note": "外すと応募数の代表値が動きます。画面で切り替えられます"},
             {"label": "満了日が空", "n": no_expiry,
              "rate": rate(no_expiry as f64, deals.len() as f64),
-             "note": "継続率の母数に入りません"},
+             "note": "継続率の対象に入りません"},
             {"label": "契約期間が空", "n": no_period,
              "rate": rate(no_period as f64, deals.len() as f64),
              "note": "フェーズを出せません。0 として満了超過に落としていません"},
@@ -2154,7 +2154,7 @@ fn contact_cmp_json(
     通話の記録が始まる前の日と、データを取った日から先の日は窓に入れていません。\
     比べた日数（前 N日 / 後 M日）を添えています。どちらかが{MIN_WINDOW_DAYS}日未満の交代は「比べるには短い」として、まとめから外して別に数えています。\
     後の担当がまだ担当中で、後がまだ{MIN_WINDOW_DAYS}日に届かない交代は途中（未確定）として、同じくまとめから外しています。\
-    まとめの数字は変化の平均と中央値です。最頻値は出していません（{PER_DAYS}日あたりの回数は日数で割った値で、同じ値がほとんど重ならないため）"
+    まとめの数字は変化の平均と真ん中の値です。最頻値は出していません（{PER_DAYS}日あたりの回数は日数で割った値で、同じ値がほとんど重ならないため）"
     ));
     v["dedupe_rule"] = json!(
         "交代の記録は、同じ交代を拠点の取引ごとに1行ずつ書いています（前の契約・いまの契約・これからの継続の契約に同じ日の行があります）。\
@@ -2230,7 +2230,7 @@ fn progress(d: &Deal, today: NaiveDate) -> Option<f64> {
 const CPA_BANDS: [(&str, f64, f64); 3] = [
     ("契約の前半（0〜50%）", 0.0, 0.5),
     ("後半にさしかかり（50〜75%）", 0.5, 0.75),
-    ("終盤（75〜100%）", 0.75, 1.01),
+    ("終わりのほう（75〜100%）", 0.75, 1.01),
 ];
 
 /// 採用単価の中央値を帯に載せてよい最小の件数（n<30 は比べる相手にしない）。
@@ -2456,10 +2456,10 @@ fn focus_shape(
         // 全法人での件数も出す（表示対象だけを見ていると思われないように）
         "n_focus_all": n_focus_all,
         "rule": "月額30万以上 ／ 従業員1,000名以上 ／ 拠点3つ以上 のいずれかに当たる法人です。\
-    条件は重なるので、内訳を足しても注力の社数にはなりません。\
+    条件は重なるので、内訳を足しても重点顧客の社数にはなりません。\
     この線引きはシートに入っている値をそのまま読んでいて、画面で決めていません",
         "not_layer": "これは法人の大きさの話で、法人ごとに決まります。日々は変わりません。\
-    日々変わる状態は「今日」の MTG途絶の帯のほうです。混ぜて読まないでください",
+    日々変わる状態は「今日」の MTGが空いている期間の区分のほうです。混ぜて読まないでください",
     })
 }
 
@@ -2852,7 +2852,7 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
             super::MIN_CONTACT_MONTHS),
         // 🔴 定義は `FocusFlags`（mod.rs）の実測どおり。以前ここだけ訂正前の
         //    「月額30万超 / 拠点が複数」が残っていた。画面の文字列に Markdown の ** を入れない
-        "focus_rule": "注力は、月額30万以上 ／ 従業員1,000名以上 ／ 拠点3つ以上 のいずれかに当たる法人です。\
+        "focus_rule": "重点顧客は、月額30万以上 ／ 従業員1,000名以上 ／ 拠点3つ以上 のいずれかに当たる法人です。\
     シートに入っている値をそのまま読んでいて、ここで作り直していません",
         "owner_rule": "担当は consultant が正本です（hubspot_owner_id ではありません）。\
     取引ごとに、担当履歴のいちばん新しい行を採っています。\
@@ -2893,15 +2893,15 @@ pub(super) const ACT_VIEWS: [ActView; 4] = [
     ActView {
         key: "top",
         label: "最優先（満了が近く、接触も空いている）",
-        rule: "名札「満了まで60日以内」と、接触の名札（「接触の記録が無い」か「接触が30日以上空いている」）の\
+        rule: "注意「満了まで60日以内」と、接触の注意（「接触の記録が無い」か「接触が30日以上空いている」）の\
 両方がつき、金額が50万円以上の案件",
         old: Some("成果とリスクの「最優先（2軸とも赤）」"),
     },
     ActView {
         key: "silent",
         label: "接触が90日を超えて無い",
-        rule: "名札「接触の記録が無い」、または名札「接触が30日以上空いている」のうち最後の接触から90日を超える案件。\
-接触は MTG または60秒超の通話です（電話だけでは数えません）。契約開始前の案件は名札と同じく入れていません",
+        rule: "注意「接触の記録が無い」、または注意「接触が30日以上空いている」のうち最後の接触から90日を超える案件。\
+接触は MTG または60秒超の通話です（電話だけでは数えません）。契約開始前の案件は注意と同じく入れていません",
         old: Some("電話の「沈黙している取引」（60秒超の通話だけで数え、マーケ関連を外していた）"),
     },
     ActView {
@@ -2910,8 +2910,8 @@ pub(super) const ACT_VIEWS: [ActView; 4] = [
         //    「していない」ではなく「記録が欠けている」と読む。名前・定義文とも「見つからない」にそろえる。
         //    初回契約に限った判断なので、定義文にもそう書く（継続契約まで広げて言い切らない）
         label: "初回契約で MTG の記録が見つからない",
-        rule: "初回契約で、MTG途絶の帯が「MTGの記録が見つからない」の案件（録画とメール由来の実施日のどちらにも見つからない）。\
-立ち上がり期（契約開始30日以内）と開始前は帯を付けないので入りません。\
+        rule: "初回契約で、MTGが空いている期間の区分が「MTGの記録が見つからない」の案件（録画とメール由来の実施日のどちらにも見つからない）。\
+立ち上がり期（契約開始30日以内）と開始前は区分を付けないので入りません。\
 初回契約で MTG をしないことは実務上ないので、MTG はしていて記録が欠けていると読みます（初回契約に限った読み方です）。\
 欠ける理由の候補は、MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない・メールに残っていない、です",
         // 🔴 前の表の名前は、画面に出ていたとおりに残す（書き換えると、覚えている人が照合できず、履歴として事実でなくなる）。
@@ -3041,13 +3041,13 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
         match key {
             "top" => {
                 if !has_flag(r, TEAM_FLAG_EXPIRY60) {
-                    why.push("名札「満了まで60日以内」が無い".into());
+                    why.push("注意「満了まで60日以内」が無い".into());
                 }
                 if r["not_started"] == true {
-                    why.push("契約開始前（接触の名札を立てない）".into());
+                    why.push("契約開始前（接触の注意を立てない）".into());
                 } else if !has_flag(r, TEAM_FLAG_NO_CONTACT) && !has_flag(r, FLAG_CONTACT_GAP30) {
                     why.push(format!(
-                        "接触の名札が無い（{}。契約前の接触も数えるため）",
+                        "接触の注意が無い（{}。契約前の接触も数えるため）",
                         contact_words()
                     ));
                 }
@@ -3057,7 +3057,7 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
             }
             "silent" => {
                 if r["not_started"] == true {
-                    why.push("契約開始前（接触の名札を立てない）".into());
+                    why.push("契約開始前（接触の注意を立てない）".into());
                 } else {
                     why.push(format!("{}（90日以内）", contact_words()));
                 }
@@ -3070,9 +3070,11 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
                 if r["mtg_band"] != "no_record" {
                     let src = r["mtg_source_label"].as_str().unwrap_or("");
                     why.push(if r["mtg_last"].is_null() {
-                        format!("MTG途絶の帯が「{band}」")
+                        format!("MTGが空いている期間の区分が「{band}」")
                     } else {
-                        format!("MTG途絶の帯が「{band}」（最終 MTG の出どころ: {src}）")
+                        format!(
+                            "MTGが空いている期間の区分が「{band}」（最終 MTG の出どころ: {src}）"
+                        )
                     });
                 }
             }
@@ -3300,7 +3302,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             flags.push("接触が30日以上空いている");
         }
         if super::high_cpa(mycpa, bmed) {
-            flags.push("採用単価が同じ進捗帯の1.5倍以上");
+            flags.push("採用単価が同じ進捗の区分の1.5倍以上");
         }
         if retired {
             flags.push("担当が退職者のまま");
@@ -3309,7 +3311,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         //    接触の名札（MTG＋60秒超の通話）とは別に立つので、同じ案件に2本つくことがある。
         //    向いている先が違う（あちらは電話も含む「連絡そのもの」、こちらは MTG だけ）。
         if gap.forced_by_expiry {
-            flags.push("満了90日前でMTGが30日以上途絶");
+            flags.push("満了90日前でMTGが30日以上空いている");
         } else if gap.band.is_alert() {
             flags.push(gap.band.label());
         }
@@ -3355,7 +3357,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             "period": d.contract_period,
             "days_left": days_left,
             "progress": progress(d, today),
-            "band": band.map(|b| ["序盤", "中盤", "終盤"][b]),
+            "band": band.map(|b| ["始めのほう", "半ば", "終わりのほう"][b]),
             "nps": np.map(|(_, v)| *v),
             "nps_month": np.map(|(m, _)| m.clone()),
             "days_since_contact": days_since,
@@ -3455,9 +3457,9 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             //    現場が知っているのは、毎朝 Slack に届く MTG 途絶の警告のほう
             "rule": format!(
                 "最終MTGからの経過日数で分けています。注意 {}〜{}日 ／ 警告 {}〜{}日 ／ 重大 {}日以上。\
-    契約開始から{}日以内は立ち上がり期として帯を付けていません。\
-    満了まで{}日以内で{}日以上途絶しているものは、経過日数に関わらず重大にしています。\
-    線引きは、毎朝 Slack に届く MTG 途絶の警告と同じです",
+    契約開始から{}日以内は立ち上がり期として区分を付けていません。\
+    満了まで{}日以内で{}日以上空いているものは、経過日数に関わらず重大にしています。\
+    線引きは、毎朝 Slack に届く MTGが空いている期間の警告と同じです",
                 super::MTG_GAP_YELLOW_DAYS, super::MTG_GAP_RED_DAYS - 1,
                 super::MTG_GAP_RED_DAYS, super::MTG_GAP_CRITICAL_DAYS - 1,
                 super::MTG_GAP_CRITICAL_DAYS, super::MTG_ONBOARDING_GRACE_DAYS,
@@ -3469,7 +3471,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     初回契約では MTG をしないことは実務上ないので、MTG はしていて、記録が欠けていると読みます\
     （欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない）。\
     初回契約でない案件は、MTG をしていない場合と記録が欠けている場合のどちらもありえ、このデータでは分けられません。\
-    どちらか決められないので、名札は立てていません。\
+    どちらか決められないので、注意は立てていません。\
     録画（事実）とメール由来の実施日（推定・±1日で83.3%）の両方を見たうえで、\
     それでも見つからなかったものだけがここに入ります",
             "source_note": "行ごとに、その日付をどちらから取ったかを出しています。\
@@ -3481,12 +3483,12 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         })).collect::<Vec<_>>(),
         "cpa_band_rule": format!(
             "採用単価は、稼働中の契約どうしを契約の進み具合（前半 0〜50% ／ 50〜75% ／ 75〜100%）で\
-    そろえて比べています。決着済みの契約とは比べていません（採用数が出そろっていて、必ず安く見えるため）。\
-    件数が {CPA_BAND_MIN_N} 件に満たない帯は中央値を出さず、名札も立てていません"),
-        "order_rule": "既定の並びは「名札の本数が多い順、同じなら金額の大きい順」です。\
+    そろえて比べています。結果が出た契約とは比べていません（採用数が出そろっていて、必ず安く見えるため）。\
+    件数が {CPA_BAND_MIN_N} 件に満たない区分は真ん中の値を出さず、注意も立てていません"),
+        "order_rule": "既定の並びは「注意の数が多い順、同じなら金額の大きい順」です。\
     スコアや確率は出していません。契約開始時点で解約する契約としない契約を見分ける力は 0.583\
-    （0.5 で当て推量と同じ）で、順位付けの根拠になりません。何で上に来たかは、その行の名札を見れば分かります",
-        "not_counted": "※ 予測ではありません。既にあるデータに名札を付けて並べただけです。\
+    （0.5 で当て推量と同じ）で、順位付けの根拠になりません。何で上に来たかは、その行の注意を見れば分かります",
+        "not_counted": "※ 予測ではありません。既にあるデータに注意を付けて並べただけです。\
     手を打つかどうかは中身を読んで決めてください",
         // 見方の印（段B）。定義の1行と件数。画面は並びをこの順に出す
         "act_views": ACT_VIEWS.iter().map(|v| json!({
@@ -3683,8 +3685,8 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         //    メニューに無い名前を案内していた（左は「案件そのもの」。2026-09-28 UI/UX 改善 S-6）。
         //    全件への行き先は画面側が MENUS の名前で添える（cs_dashboard.html todayFilterRule）。
         m.insert("filter_rule".into(), json!(format!(
-            "名札が {MIN_FLAGS} 本以上ついた {n_hit} 件から、名札の本数が多い順（同じ本数なら金額の大きい順）に {KEEP} 件を出しています。\
-毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} 本という線引きは取り決めです"
+            "注意が {MIN_FLAGS} つ以上ついた {n_hit} 件から、注意の数が多い順（同じ数なら金額の大きい順）に {KEEP} 件を出しています。\
+毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} つという線引きは取り決めです"
         )));
         m.insert("n_hit".into(), json!(n_hit));
         m.insert("n_shown".into(), json!(top.len()));
@@ -3713,8 +3715,8 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
             "new_deal_rule".into(),
             json!(format!(
                 "契約開始日が{}日以内のものを「今週始まった契約」として出しています。\
-名札の本数に関わらず落としていません。始まったことに気づけないと、\
-立ち上がり期（開始から{}日以内は MTG途絶の帯を付けない）が\
+注意の数に関わらず落としていません。始まったことに気づけないと、\
+立ち上がり期（開始から{}日以内は MTGが空いている期間の区分を付けない）が\
 ただの取りこぼしになるためです。開始がまだ先の契約は別に数えています",
                 super::NEW_DEAL_LOOKBACK_DAYS,
                 super::MTG_ONBOARDING_GRACE_DAYS

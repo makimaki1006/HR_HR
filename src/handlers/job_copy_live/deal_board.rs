@@ -333,11 +333,11 @@ mod tests {
         let s = snapshot(120, "5", "21596025");
         for (days, label, strong) in [
             (29, None, false),
-            (30, Some("MTGが30〜59日途絶"), false),
-            (59, Some("MTGが30〜59日途絶"), false),
-            (60, Some("MTGが60〜89日途絶"), false),
-            (89, Some("MTGが60〜89日途絶"), false),
-            (90, Some("MTGが90日以上途絶"), true),
+            (30, Some("MTGが30〜59日空いている"), false),
+            (59, Some("MTGが30〜59日空いている"), false),
+            (60, Some("MTGが60〜89日空いている"), false),
+            (89, Some("MTGが60〜89日空いている"), false),
+            (90, Some("MTGが90日以上空いている"), true),
         ] {
             let r = reasons(&s, &meetings(days));
             let mtg = r.iter().find(|r| r["kind"] == "mtg");

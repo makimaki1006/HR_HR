@@ -373,7 +373,7 @@ pub fn build_money(sheets: &Sheets, today: NaiveDate) -> Value {
         "overdue_before": before.json(),
         "retention": {
             "rows": rows,
-            "rule": "金額で見た継続率 ＝ 継続済の金額 ÷（継続済 ＋ 解約 ＋ 充足の金額）。取引は件数の継続率と同じ（満了月が該当月で決着済み、オプション契約は除く）。金額が空の取引は分子にも分母にも入れていません",
+            "rule": "金額で見た継続率 ＝ 継続済の金額 ÷（継続済 ＋ 解約 ＋ 充足の金額）。取引は件数の継続率と同じ（満了月が該当月で結果が出た、オプション契約は除く）。金額が空の取引は分子にも分母にも入れていません",
         },
         "amount_basis": AMOUNT_BASIS,
     })

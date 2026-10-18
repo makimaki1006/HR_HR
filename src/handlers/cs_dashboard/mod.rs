@@ -1229,9 +1229,9 @@ pub enum MtgBand {
 impl MtgBand {
     pub fn label(self) -> &'static str {
         match self {
-            MtgBand::Critical => "MTGが90日以上途絶",
-            MtgBand::Red => "MTGが60〜89日途絶",
-            MtgBand::Yellow => "MTGが30〜59日途絶",
+            MtgBand::Critical => "MTGが90日以上空いている",
+            MtgBand::Red => "MTGが60〜89日空いている",
+            MtgBand::Yellow => "MTGが30〜59日空いている",
             MtgBand::Recent => "直近30日にMTGあり",
             // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。
             //    記録が欠けている（台帳の遅れ・録画なし・紐付け漏れ）と読めるよう「見つからない」にする
