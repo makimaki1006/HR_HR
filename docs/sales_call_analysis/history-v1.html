@@ -1,322 +1,161 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>営業通話分析の経緯</title><style>
-:root{
-  --bg:#f7f7f5;--card:#ffffff;--ink:#1d1d1f;--sub:#5b5b60;--line:#e2e2de;
-  --good:#1f7a4d;--good-bg:#e8f5ee;--bad:#b3261e;--bad-bg:#fdecea;--warn:#8a5a00;--warn-bg:#fff4dc;
-  --accent:#2b5bb5;--accent-bg:#e9effb;--node:#ffffff;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#16171a;--card:#202226;--ink:#ececec;--sub:#a5a7ad;--line:#34363c;
-    --good:#6fd39d;--good-bg:#173226;--bad:#ff8a80;--bad-bg:#3a1c1a;--warn:#f2c46b;--warn-bg:#3a2e12;
-    --accent:#8fb2ff;--accent-bg:#1d2a45;--node:#26282d;
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#16171a;--card:#202226;--ink:#ececec;--sub:#a5a7ad;--line:#34363c;
-  --good:#6fd39d;--good-bg:#173226;--bad:#ff8a80;--bad-bg:#3a1c1a;--warn:#f2c46b;--warn-bg:#3a2e12;
-  --accent:#8fb2ff;--accent-bg:#1d2a45;--node:#26282d;
-}
-*{box-sizing:border-box}
-html,body{overflow-x:hidden}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;line-height:1.75;font-size:16px}
-main{max-width:920px;overflow-wrap:anywhere;margin:0 auto;padding:32px 16px 80px}
-h1{font-size:28px;margin:0 0 6px;line-height:1.35}
-h2{font-size:22px;margin:48px 0 14px;padding-bottom:6px;border-bottom:2px solid var(--line)}
-h3{font-size:18px;margin:26px 0 10px}
-p{margin:8px 0}
-.lead{color:var(--sub);margin:0 0 20px}
-nav{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin:20px 0}
-nav ol{margin:0;padding-left:22px}
-nav a{color:var(--accent);text-decoration:none}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0}
-.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));gap:12px;margin:16px 0}
-.rule{background:var(--card);border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:10px;padding:12px 14px}
-.rule .no{font-size:13px;color:var(--accent);font-weight:700}
-.rule .t{font-size:18px;font-weight:700;margin:2px 0 4px;line-height:1.4}
-.rule .d{font-size:14px;color:var(--sub)}
-/* flow */
-.flow{display:flex;flex-direction:column;align-items:center;gap:0;margin:18px 0}
-.node{background:var(--node);border:2px solid var(--line);border-radius:12px;padding:10px 14px;max-width:560px;width:100%;text-align:center}
-.node small{display:block;color:var(--sub);font-size:13px}
-.node.go{border-color:var(--good)}
-.node.stop{border-color:var(--bad)}
-.node.key{border-color:var(--accent);background:var(--accent-bg)}
-.arrow{width:2px;height:22px;background:var(--sub);position:relative;margin:2px 0 6px}
-.arrow:after{content:"";position:absolute;left:-5px;bottom:-6px;border:6px solid transparent;border-top-color:var(--sub)}
-.branch{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%;max-width:900px}
-.branch .col{display:flex;flex-direction:column;align-items:center}
-.branch .lab{font-size:13px;font-weight:700;margin-bottom:6px;padding:2px 10px;border-radius:999px}
-.lab.g{background:var(--good-bg);color:var(--good)}
-.lab.w{background:var(--warn-bg);color:var(--warn)}
-.lab.b{background:var(--bad-bg);color:var(--bad)}
-@media (max-width:640px){.branch{grid-template-columns:1fr}}
-/* good/bad */
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:10px 0}
-@media (max-width:640px){.pair{grid-template-columns:1fr}}
-.ex{border-radius:10px;padding:12px 14px;font-size:15px}
-.ex.good{background:var(--good-bg);border:1px solid var(--good)}
-.ex.bad{background:var(--bad-bg);border:1px solid var(--bad)}
-.ex .h{font-weight:700;margin-bottom:6px}
-.ex.good .h{color:var(--good)}
-.ex.bad .h{color:var(--bad)}
-.ex p{margin:4px 0}
-.why{font-size:14px;color:var(--sub);margin-top:6px}
-.num{display:inline-block;font-size:13px;font-weight:700;padding:1px 8px;border-radius:6px;background:var(--accent-bg);color:var(--accent);margin-left:4px}
-/* script */
-.script{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 16px 12px;margin:12px 0}
-.line{display:grid;grid-template-columns:52px 1fr;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line)}
-.line:last-child{border-bottom:none}
-.who{font-size:13px;font-weight:700;color:var(--sub);padding-top:2px}
-.who.me{color:var(--accent)}
-.note{font-size:13px;color:var(--sub)}
-.tip{background:var(--warn-bg);border-radius:10px;padding:10px 14px;margin:10px 0;font-size:15px}
-table{border-collapse:collapse;width:100%;font-size:15px;background:var(--card);border-radius:10px;overflow:hidden}
-th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
-th{background:var(--accent-bg)}
+:root{color-scheme:light;--ink:#1c1c1a;--sub:#66625b;--rule:#d9d4ca;--acc:#a8432a;--paper:#fbfaf7}
+*{box-sizing:border-box}html,body{overflow-x:hidden}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;font-size:15.5px;line-height:1.85}
+main{max-width:860px;margin:0 auto;padding:48px 20px 96px;overflow-wrap:anywhere}
+h1,h2,h3,.sn,.big{font-family:"Hiragino Mincho ProN","Noto Serif JP","Yu Mincho",serif}
+.eyebrow{font-size:12.5px;letter-spacing:.12em;color:var(--sub);margin:0}
+h1{font-size:34px;line-height:1.35;margin:6px 0 10px;font-weight:600}
+.lead{color:var(--sub);margin:0 0 28px;max-width:46em}
+hr{border:0;border-top:1px solid var(--ink);margin:0}
+h2{font-size:23px;font-weight:600;margin:64px 0 6px;padding-top:14px;border-top:1px solid var(--ink)}
+h2 small{display:block;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-size:12.5px;letter-spacing:.1em;color:var(--sub);font-weight:400}
+h3{font-size:18px;margin:0 0 2px;font-weight:600}
+p{margin:8px 0}a{color:var(--acc)}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,45%),1fr));border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:22px 0}
+.sum div{padding:14px 14px 12px 0}
+.big{font-size:34px;line-height:1.1}.sum .l{font-size:12.5px;color:var(--sub)}
+.big.a{color:var(--acc)}
+.fig{margin:22px 0 8px;overflow-x:auto}.fig svg{width:100%;min-width:540px;height:auto;display:block}
+.cap{font-size:12.5px;color:var(--sub);margin:4px 0 0}
+.cap b{color:var(--ink)}
+svg text{font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+.lb{font-size:13px;fill:#1c1c1a}.vl{font-size:13px;fill:#1c1c1a;font-weight:600}.vw{font-size:13px;fill:#fff;font-weight:600}.ax{font-size:11.5px;fill:#66625b}.ac{font-size:12px;fill:#a8432a;font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:12px 0}
+th{text-align:left;font-weight:600;border-bottom:1.5px solid var(--ink);padding:8px 10px 6px 0;vertical-align:bottom}
+td{border-bottom:1px solid var(--rule);padding:9px 10px 9px 0;vertical-align:top}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+td.hi{color:var(--acc);font-weight:600}
 .tbl{overflow-x:auto}
-.ph td:first-child{white-space:normal}
-.tag{display:inline-block;font-size:12px;font-weight:700;padding:0 7px;border-radius:6px;white-space:nowrap}
-.tag.m{background:var(--good-bg);color:var(--good)}
-.tag.l{background:var(--warn-bg);color:var(--warn)}
-.up{color:var(--good);font-weight:700;white-space:nowrap}
-.dn{color:var(--bad);font-weight:700;white-space:nowrap}
-footer{margin-top:48px;font-size:13px;color:var(--sub)}
-
-.cover{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 22px 16px;margin:8px 0 22px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(170px,100%),1fr));gap:10px;margin:14px 0 4px}
-.kpi{background:var(--bg);border-radius:10px;padding:10px 12px}
-.kpi .v{font-size:24px;font-weight:700;line-height:1.2}
-.kpi .l{font-size:13px;color:var(--sub)}
-.tl{list-style:none;padding:0;margin:12px 0;border-left:3px solid var(--line)}
-.tl li{position:relative;padding:4px 0 4px 18px}
-.tl li:before{content:"";position:absolute;left:-8px;top:12px;width:13px;height:13px;border-radius:50%;background:var(--accent)}
-.tl li.rev:before{background:var(--bad)}
-.tl a{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;color:var(--ink);text-decoration:none}
-.tl .d{font-size:13px;color:var(--sub);min-width:96px}
-.tl .tag{font-size:12px;font-weight:700;color:var(--bad);background:var(--bad-bg);border-radius:6px;padding:0 6px}
-.phase{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
-.ph-h{display:flex;gap:12px;align-items:flex-start;margin-bottom:8px}
-.ph-h .no{flex:none;width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}
-.ph-t{font-size:18px;font-weight:700;line-height:1.4}
-.ph-m{font-size:13px;color:var(--sub)}
-.sha{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:0 5px}
-.blk{border-left:4px solid var(--line);padding:4px 0 4px 12px;margin:10px 0}
-.blk .bl{font-size:13px;font-weight:700;margin-bottom:2px}
-.blk.k{border-color:var(--accent)} .blk.k .bl{color:var(--accent)}
-.blk.f{border-color:var(--good)} .blk.f .bl{color:var(--good)}
-.blk.x{border-color:var(--bad);background:var(--bad-bg);border-radius:0 8px 8px 0} .blk.x .bl{color:var(--bad)}
-.blk.d .bl,.blk.o .bl{color:var(--sub)}
-.blk.r{border-color:var(--warn)} .blk.r .bl{color:var(--warn)}
-.blk ul{margin:4px 0;padding-left:20px}
-.pt{font-weight:700;white-space:nowrap}
-.rev-t td:first-child{white-space:nowrap;color:var(--sub)}
-.rev-t td:nth-child(2){color:var(--bad)}
-.rev-t td:nth-child(4){font-weight:600}
-.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--sub);margin:6px 0}
-.legend span:before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
-.legend .lk:before{background:var(--accent)} .legend .lf:before{background:var(--good)} .legend .lx:before{background:var(--bad)} .legend .lr:before{background:var(--warn)}
-@media print{body{background:#fff}.phase,.cover{break-inside:avoid}nav{display:none}}
-</style>
-<style>
-a{color:var(--accent)}
-.steps .phase .ph-t{font-size:17px}
-.mean{background:var(--accent-bg);border-radius:8px;padding:8px 12px;margin:10px 0 2px;font-size:15px}
-.mean b{color:var(--accent)}
-.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px;margin:14px 0}
-.how .card{margin:0}
-.how .card .t{font-weight:700;margin-bottom:4px}
-.how .card .w{font-size:14px;color:var(--sub)}
+.note{font-size:13px;color:var(--sub)}
+.aside{border-left:3px solid var(--acc);padding:2px 0 2px 14px;margin:16px 0;font-size:14px}
+.aside ul{margin:4px 0;padding-left:18px}
+.rules{counter-reset:r;list-style:none;padding:0;margin:18px 0}
+.rules li{display:grid;grid-template-columns:44px 1fr;gap:6px;padding:12px 0;border-bottom:1px solid var(--rule)}
+.rules li:before{counter-increment:r;content:counter(r);font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;font-size:28px;line-height:1;color:var(--acc)}
+.rules b{font-size:16.5px}.rules span{display:block;color:var(--sub);font-size:14px}
+.mflow{display:grid;grid-template-columns:repeat(3,1fr);row-gap:14px;gap:0;margin:22px 0 6px}
+.ms{position:relative;padding:10px 14px 10px 10px;border-top:3px solid #3b3a37;margin-right:12px}
+.ms:after{content:"";position:absolute;right:-12px;top:-9px;border:7.5px solid transparent;border-left:9px solid #3b3a37}
+.ms.last{border-top-color:var(--acc)}.ms.last:after{display:none}
+.mh{font-weight:700;font-size:15px}.ms.last .mh{color:var(--acc)}
+.md{font-size:12.5px;color:var(--sub);line-height:1.6}
+@media (max-width:720px){.mflow{grid-template-columns:1fr}.ms:after{display:none}}
+.step{display:grid;grid-template-columns:64px 1fr;gap:4px;padding:22px 0;border-bottom:1px solid var(--rule)}
+.sn{font-size:30px;line-height:1;color:var(--sub)}
+.meta{font-size:12.5px;color:var(--sub);margin:0 0 6px}
+.k{font-size:12.5px;font-weight:700;letter-spacing:.06em;margin:10px 0 0}.k.x{color:var(--acc)}
+.step ul{margin:2px 0;padding-left:18px}.xl li{color:#5a3328}
+.mean{margin-top:12px;font-weight:600}.mean span{display:inline-block;font-size:11.5px;font-weight:700;border:1px solid var(--ink);padding:0 6px;margin-right:8px;letter-spacing:.06em}
+@media (max-width:560px){.step{grid-template-columns:1fr}h1{font-size:27px}.big{font-size:28px}}
+.toc{columns:2;column-gap:28px;font-size:14px;margin:18px 0;padding:0;list-style:none;counter-reset:t}
+.toc li{break-inside:avoid;padding:3px 0;border-bottom:1px dotted var(--rule)}.toc li:before{counter-increment:t;content:counter(t) ". ";color:var(--sub)}
+.toc a{color:var(--ink);text-decoration:none}
+@media (max-width:560px){.toc{columns:1}}
+footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-size:12.5px;color:var(--sub)}
+@media print{body{background:#fff}.step,.fig{break-inside:avoid}}
 </style></head>
 <body><main>
-<h1>営業通話分析の経緯</h1>
-<p class="lead">新規営業のアポ取りの電話について、どのデータで、どう確かめて、何が分かったかをまとめました。以前に聞いた話から変わったことと、まだ分かっていないことも載せています。トークの具体的なやり方は<a href="talk-guide-v1.html">アポ取りトークの基本</a>を見てください。</p>
-
-<div class="cover">
-<b>この資料の数字はすべて「アポ率」です</b>
-<p>アポ率 ＝ アポ数 ÷ 総架電数。対象の社員15人の、2026年6月1日〜10月9日の全体は <b>1.09%</b>(総架電 56,009本でアポ 612件)でした。</p>
-<p>話し方の違いは、「その話し方をしている電話がどれくらいあるか」と、「全員がそうしたら全体のアポ率がどこまで変わるか」の2つで書いています。</p>
-<div class="kpis">
-<div class="kpi"><div class="v">1.09%</div><div class="l">全体のアポ率</div></div>
-<div class="kpi"><div class="v">56,009本</div><div class="l">総架電(社員15人)</div></div>
-<div class="kpi"><div class="v">612件</div><div class="l">アポ</div></div>
-<div class="kpi"><div class="v">8,408件</div><div class="l">話し方を読んだ電話(70秒以上話せたもの)</div></div>
+<p class="eyebrow">営業通話分析 ｜ 2026年10月</p>
+<h1>アポ率を上げる話し方は、何で分かったか</h1>
+<p class="lead">新規営業のアポ取りの電話を対象に、どのデータで、どう確かめて、何が分かったかをまとめました。以前の説明から変わったことと、まだ分かっていないことも載せています。具体的なトークは<a href="talk-guide-v1.html">アポ取りトークの基本</a>を見てください。</p>
+<hr>
+<div class="sum">
+<div><div class="big a">1.09%</div><div class="l">全体のアポ率(アポ数 ÷ 総架電数)</div></div>
+<div><div class="big">56,009本</div><div class="l">総架電(社員15人・6/1〜10/9)</div></div>
+<div><div class="big">612件</div><div class="l">アポ</div></div>
+<div><div class="big">4つ</div><div class="l">どんな相手にも通じた話し方</div></div>
 </div>
-</div>
+<p>この資料の数字は、すべて現場で使っている「アポ率 ＝ アポ数 ÷ 総架電数」です。話し方の違いは、<b>その話し方ができていない電話がどれくらいあるか</b>と、<b>全員がそうしたら全体のアポ率がどこまで変わるか</b>で書いています。</p>
+<ol class="toc">
+<li><a href="#s1">今の結論</a></li><li><a href="#s2">対象にした電話</a></li><li><a href="#s3">確かめ方</a></li><li><a href="#s4">調べた順番と分かったこと</a></li><li><a href="#s5">以前の説明から変わったこと</a></li><li><a href="#s6">現場で知っておいてほしいこと</a></li><li><a href="#s7">まだ分かっていないこと</a></li>
+</ol>
 
-<nav><ol>
-<li><a href="#s1">今の結論</a></li>
-<li><a href="#s2">対象にした電話</a></li>
-<li><a href="#s3">確かめ方</a></li>
-<li><a href="#s4">調べた順番と分かったこと</a></li>
-<li><a href="#s5">以前の説明から変わったこと</a></li>
-<li><a href="#s6">現場で知っておいてほしいこと</a></li>
-<li><a href="#s7">まだ分かっていないこと</a></li>
-</ol></nav>
-
-<h2 id="s1">1. 今の結論</h2>
+<h2 id="s1"><small>01</small>今の結論</h2>
 <p>会社の規模・業界・窓口の役職・何回目の電話か・時間帯・担当者のどれで分けても、向きが変わらなかった4つです。</p>
-<div class="tbl"><table>
-<tr><th>やること</th><th>今、できていない電話</th><th>全員がそうしたときの全体のアポ率</th></tr>
-<tr><td><b>1. 日程を切る前に需要を聞かない</b></td><td>話せた電話の 10% で、日程を切る前に需要を聞いている</td><td>1.09% → <b>1.19%</b></td></tr>
-<tr><td><b>2. 早く日付を出す</b><br><span class="note">名乗ってから2〜3回のやり取りで週・曜日を出す</span></td><td>話せた電話の 8割 は、早く日付を出せていない</td><td>1.09% → 最大 <b>1.55%</b><br><span class="note">上限の見込み。下の注意を参照</span></td></tr>
-<tr><td><b>3. 「忙しい」で引かない</b><br><span class="note">こちらから別の日を出し直す</span></td><td>「忙しい」と言われた電話の 11% で、そのまま引き下がっている</td><td>1.09% → <b>1.13%</b></td></tr>
-<tr><td><b>4. 受付では担当者を名前で呼ぶ</b></td><td colspan="2">担当者につながりやすくなる。アポ率への影響はまだ数字で出せていない</td></tr>
-</table></div>
-<div class="tip"><b>読み方の注意</b>
-<ul style="margin:4px 0;padding-left:20px">
-<li>「全員がそうしたとき」は、同じ担当者の電話どうしで比べた差が、できていない電話の全部に当てはまった場合の見込みです。過去の記録の比較で、話し方を決めて試したものではありません。実際に試すと小さくなる可能性があります。特に2は、できている電話が2割しかなく、見込みが大きく出やすいです。</li>
-<li>4つは同じ電話の中で重なるので、見込みを足し合わせることはできません。</li>
+<ol class="rules">
+<li><div><b>日程を切る前に需要を聞かない</b><span>「今は募集していないですか」と聞かない。話せた電話の10%で聞いていて、聞いた電話はほとんどアポにならない。</span></div></li>
+<li><div><b>早く日付を出す</b><span>名乗ってから2〜3回のやり取りで週・曜日を出す。今は話せた電話の8割が出せていない。頼み方は「お打ち合わせのお時間を」。</span></div></li>
+<li><div><b>「忙しい」で引かない</b><span>こちらから別の日を出し直す。「忙しい」と言われた電話の11%は、そのまま引き下がっている。</span></div></li>
+<li><div><b>受付では担当者を名前で呼ぶ</b><span>担当者につながりやすくなる。アポ率への影響はまだ数字で出せていない。</span></div></li>
+</ol>
+<div class="fig"><svg viewBox="0 0 640 236" role="img" aria-label="できている電話とできていない電話の割合"><text x="240" y="28" text-anchor="end" class="lb">需要を聞かない</text><rect x="250" y="10" width="333.0" height="26" fill="#d8d2c6"/><rect x="583.0" y="10" width="37.0" height="26" fill="#a8432a"/><text x="577.0" y="28" text-anchor="end" class="vl">聞いている 10%</text><text x="240" y="68" text-anchor="end" class="lb">早く日付を出す</text><rect x="250" y="50" width="70.3" height="26" fill="#d8d2c6"/><rect x="320.3" y="50" width="299.7" height="26" fill="#a8432a"/><text x="470.1" y="68" text-anchor="middle" class="vw">出せていない 81%</text><text x="240" y="108" text-anchor="end" class="lb">「忙しい」で引かない</text><rect x="250" y="90" width="329.3" height="26" fill="#d8d2c6"/><rect x="579.3" y="90" width="40.7" height="26" fill="#a8432a"/><text x="573.3" y="108" text-anchor="end" class="vl">引き下がっている 11%</text><text x="240" y="148" text-anchor="end" class="lb">「採用サービスの中身」と言わない</text><rect x="250" y="130" width="214.6" height="26" fill="#d8d2c6"/><rect x="464.6" y="130" width="155.4" height="26" fill="#a8432a"/><text x="542.3" y="148" text-anchor="middle" class="vw">言っている 42%</text><text x="240" y="188" text-anchor="end" class="lb">「忙しい」の後に具体的な日を出す</text><rect x="250" y="170" width="122.1" height="26" fill="#d8d2c6"/><rect x="372.1" y="170" width="247.9" height="26" fill="#a8432a"/><text x="496.1" y="188" text-anchor="middle" class="vw">出せていない 67%</text><rect x="250" y="214" width="12" height="12" fill="#d8d2c6"/><text x="268" y="224" class="ax">できている</text><rect x="360" y="214" width="12" height="12" fill="#a8432a"/><text x="378" y="224" class="ax">できていない</text></svg><p class="cap"><b>図1</b> 話し方ができている電話・できていない電話の割合。分母は、その場面になった話せた電話。</p></div>
+<div class="fig"><svg viewBox="0 0 640 260" role="img" aria-label="全員がそうしたときの全体のアポ率"><line x1="250.0" x2="250.0" y1="20" y2="240" stroke="#d9d4ca"/><text x="250.0" y="14" text-anchor="middle" class="ax">1.0%</text><line x1="340.0" x2="340.0" y1="20" y2="240" stroke="#d9d4ca"/><text x="340.0" y="14" text-anchor="middle" class="ax">1.2%</text><line x1="430.0" x2="430.0" y1="20" y2="240" stroke="#d9d4ca"/><text x="430.0" y="14" text-anchor="middle" class="ax">1.4%</text><line x1="520.0" x2="520.0" y1="20" y2="240" stroke="#d9d4ca"/><text x="520.0" y="14" text-anchor="middle" class="ax">1.6%</text><line x1="610.0" x2="610.0" y1="20" y2="240" stroke="#d9d4ca"/><text x="610.0" y="14" text-anchor="middle" class="ax">1.8%</text><line x1="290.5" x2="290.5" y1="20" y2="240" stroke="#1c1c1a" stroke-width="1.5"/><text x="294.5" y="254" class="lb">今 1.09%</text><text x="240" y="35" text-anchor="end" class="lb">需要を聞かない</text><line x1="290.5" x2="335.5" y1="30" y2="30" stroke="#d8d2c6" stroke-width="6"/><line x1="331.0" x2="340.0" y1="30" y2="30" stroke="#a8432a" stroke-width="2"/><line x1="331.0" x2="331.0" y1="24" y2="36" stroke="#a8432a" stroke-width="2"/><line x1="340.0" x2="340.0" y1="24" y2="36" stroke="#a8432a" stroke-width="2"/><circle cx="335.5" cy="30" r="6" fill="#a8432a"/><text x="348.0" y="35" class="vl">1.19%</text><text x="240" y="79" text-anchor="end" class="lb">「忙しい」で引かない</text><line x1="290.5" x2="308.5" y1="74" y2="74" stroke="#d8d2c6" stroke-width="6"/><line x1="304.0" x2="313.0" y1="74" y2="74" stroke="#a8432a" stroke-width="2"/><line x1="304.0" x2="304.0" y1="68" y2="80" stroke="#a8432a" stroke-width="2"/><line x1="313.0" x2="313.0" y1="68" y2="80" stroke="#a8432a" stroke-width="2"/><circle cx="308.5" cy="74" r="6" fill="#a8432a"/><text x="321.0" y="79" class="vl">1.13%</text><text x="240" y="123" text-anchor="end" class="lb">早く日付を出す</text><line x1="290.5" x2="497.5" y1="118" y2="118" stroke="#d8d2c6" stroke-width="6"/><line x1="421.0" x2="583.0" y1="118" y2="118" stroke="#a8432a" stroke-width="2"/><line x1="421.0" x2="421.0" y1="112" y2="124" stroke="#a8432a" stroke-width="2"/><line x1="583.0" x2="583.0" y1="112" y2="124" stroke="#a8432a" stroke-width="2"/><circle cx="497.5" cy="118" r="6" fill="#a8432a"/><text x="591.0" y="123" class="vl">1.55%　上限の見込み</text><text x="240" y="167" text-anchor="end" class="lb">「採用サービスの中身」を言い換える</text><line x1="290.5" x2="403.0" y1="162" y2="162" stroke="#d8d2c6" stroke-width="6"/><line x1="371.5" x2="439.0" y1="162" y2="162" stroke="#a8432a" stroke-width="2"/><line x1="371.5" x2="371.5" y1="156" y2="168" stroke="#a8432a" stroke-width="2"/><line x1="439.0" x2="439.0" y1="156" y2="168" stroke="#a8432a" stroke-width="2"/><circle cx="403.0" cy="162" r="6" fill="#a8432a"/><text x="447.0" y="167" class="vl">1.34%</text><text x="240" y="211" text-anchor="end" class="lb">「忙しい」の後に具体的な日を出す</text><line x1="290.5" x2="470.5" y1="206" y2="206" stroke="#d8d2c6" stroke-width="6"/><line x1="425.5" x2="515.5" y1="206" y2="206" stroke="#a8432a" stroke-width="2"/><line x1="425.5" x2="425.5" y1="200" y2="212" stroke="#a8432a" stroke-width="2"/><line x1="515.5" x2="515.5" y1="200" y2="212" stroke="#a8432a" stroke-width="2"/><circle cx="470.5" cy="206" r="6" fill="#a8432a"/><text x="523.5" y="211" class="vl">1.49%</text></svg><p class="cap"><b>図2</b> 全員がそうしたときの全体のアポ率の見込み。点が見込み、線はぶれの幅。</p></div>
+<div class="aside"><b>図2の読み方</b><ul>
+<li>同じ担当者の電話どうしで比べた差が、できていない電話の全部に当てはまった場合の見込みです。過去の記録の比較で、話し方を決めて試したものではありません。試すと小さくなる可能性があります。</li>
+<li>「早く日付を出す」は、できている電話が2割しかなく、見込みが大きく出やすいので上限として見てください。</li>
+<li>5つは同じ電話の中で重なるので、足し合わせることはできません。</li>
 </ul></div>
 
-<h2 id="s2">2. 対象にした電話</h2>
+<h2 id="s2"><small>02</small>対象にした電話</h2>
+<div class="fig"><svg viewBox="0 0 640 150" role="img" aria-label="総架電からアポまでの内訳"><text x="160" y="33" text-anchor="end" class="lb">総架電</text><rect x="170" y="14" width="320.0" height="28" fill="#3b3a37"/><text x="498.0" y="33" class="vl">56,009本</text><text x="160" y="77" text-anchor="end" class="lb">70秒以上話せた電話</text><rect x="170" y="58" width="77.4" height="28" fill="#8a857c"/><text x="255.4" y="77" class="vl">13,555本(24%)</text><text x="160" y="121" text-anchor="end" class="lb">アポ</text><rect x="170" y="102" width="3.5" height="28" fill="#a8432a"/><text x="181.5" y="121" class="vl">612件(1.09%)</text></svg><p class="cap"><b>図3</b> 総架電からアポまで。話し方は、70秒以上話せた電話のうち文字起こしがある 8,408件で読んだ。</p></div>
+<div class="fig"><svg viewBox="0 0 640 260" role="img" aria-label="月ごとのアポ率"><line x1="60" x2="560" y1="200.0" y2="200.0" stroke="#d9d4ca"/><text x="52" y="204.0" text-anchor="end" class="ax">0.0%</text><line x1="60" x2="560" y1="157.5" y2="157.5" stroke="#d9d4ca"/><text x="52" y="161.5" text-anchor="end" class="ax">0.5%</text><line x1="60" x2="560" y1="115.0" y2="115.0" stroke="#d9d4ca"/><text x="52" y="119.0" text-anchor="end" class="ax">1.0%</text><line x1="60" x2="560" y1="72.5" y2="72.5" stroke="#d9d4ca"/><text x="52" y="76.5" text-anchor="end" class="ax">1.5%</text><line x1="60" x2="560" y1="30.0" y2="30.0" stroke="#d9d4ca"/><text x="52" y="34.0" text-anchor="end" class="ax">2.0%</text><rect x="60.0" y="85.2" width="64" height="114.8" fill="#3b3a37"/><text x="92.0" y="79.2" text-anchor="middle" class="vl">1.35%</text><text x="92.0" y="218" text-anchor="middle" class="lb">6月</text><text x="92.0" y="236" text-anchor="middle" class="ax">2人</text><rect x="166.5" y="52.1" width="64" height="147.9" fill="#3b3a37"/><text x="198.5" y="46.1" text-anchor="middle" class="vl">1.74%</text><text x="198.5" y="218" text-anchor="middle" class="lb">7月</text><text x="198.5" y="236" text-anchor="middle" class="ax">2人</text><rect x="273.0" y="99.7" width="64" height="100.3" fill="#3b3a37"/><text x="305.0" y="93.7" text-anchor="middle" class="vl">1.18%</text><text x="305.0" y="218" text-anchor="middle" class="lb">8月</text><text x="305.0" y="236" text-anchor="middle" class="ax">8人</text><rect x="379.5" y="129.4" width="64" height="70.6" fill="#3b3a37"/><text x="411.5" y="123.4" text-anchor="middle" class="vl">0.83%</text><text x="411.5" y="218" text-anchor="middle" class="lb">9月</text><text x="411.5" y="236" text-anchor="middle" class="ax">12人</text><rect x="486.0" y="98.9" width="64" height="101.1" fill="#3b3a37"/><text x="518.0" y="92.9" text-anchor="middle" class="vl">1.19%</text><text x="518.0" y="218" text-anchor="middle" class="lb">10月(9日まで)</text><text x="518.0" y="236" text-anchor="middle" class="ax">14人</text><line x1="60" x2="560" y1="107.3" y2="107.3" stroke="#a8432a" stroke-dasharray="5 4" stroke-width="1.5"/><text x="566" y="105.3" class="ac">期間全体</text><text x="566" y="120.3" class="ac">1.09%</text></svg><p class="cap"><b>図4</b> 月ごとのアポ率(アポ数 ÷ 総架電数)。下の人数は、その月に対象にした社員の数。8月以降に人が増えている。</p></div>
 <div class="tbl"><table>
 <tr><th>項目</th><th>内容</th></tr>
 <tr><td>何の電話か</td><td>新規営業が Zoom Phone でかけた、採用サービスのアポ取りの電話</td></tr>
 <tr><td>期間</td><td>2026年6月1日〜10月9日</td></tr>
-<tr><td>件数</td><td>社員15人の総架電 56,009本、アポ 612件(アポ率 1.09%)。話し方は、そのうち先方と70秒以上話せて文字起こしがある 8,408件で見た</td></tr>
 <tr><td>アポの数え方</td><td>HubSpot で「アポ日確定」に移った案件に、その直前につながった本人の電話</td></tr>
 <tr><td>アポ率に入れていないもの</td><td>社外のアポインターの電話(総架電を本人ごとに数えられないため)。話し方の比較の一部には入っている</td></tr>
 <tr><td>見ていないもの</td><td>アポの後の商談・受注</td></tr>
-<tr><td>会社の情報</td><td>規模・業界・地域は、会社のデータと照合できた電話(84%)で見た</td></tr>
+<tr><td>会社の情報</td><td>規模・業界・地域は、70秒以上話せた電話のうち会社のデータと照合できたもの(84%)で見た</td></tr>
 </table></div>
 <p class="note">この範囲の外(ほかの商品・ほかのチームの電話)では確かめていません。</p>
 
-<h2 id="s3">3. 確かめ方</h2>
-<p>記録の比較は、見かけの差が出やすいです。たとえば、上手い人がよく使う言葉は、言葉のおかげでなくてもアポ率が高く見えます。次のやり方で、見かけの差を落としました。</p>
-<div class="how">
-<div class="card"><div class="t">同じ担当者・同じ月の中で比べる</div><div class="w">人の上手さや、月ごとのリストの違いでアポ率に差が出ないようにするため。</div></div>
-<div class="card"><div class="t">前半と後半の両方で確かめる</div><div class="w">6〜8月と9〜10月に分けて、両方で同じ向きに出たものだけを残しました。</div></div>
-<div class="card"><div class="t">アポが決まった後の会話は数えない</div><div class="w">日時が決まると「何名で」「メールで送ります」などが出ます。これはアポの結果で、理由ではありません。日時が決まる前の発言だけで比べました。</div></div>
-<div class="card"><div class="t">予想を先に書いてから確かめる</div><div class="w">分析に使っていない月(8月など)で、結果を見る前に予想を書き、当たるかを確かめました。</div></div>
-<div class="card"><div class="t">ぶれの幅を付ける</div><div class="w">同じ会社への電話をまとめて選び直し(200回)、アポ率の差がどのくらいぶれるかを出しました。差が無いこともありうるものは、結論にしていません。</div></div>
-<div class="card"><div class="t">相手の種類ごとに分ける</div><div class="w">会社の規模・業界・役職・何回目か・時間帯・担当者で分けて、それぞれの中でも同じ向きかを見ました。</div></div>
-<div class="card"><div class="t">実際の電話を読む</div><div class="w">機械で分けた発言の種類ごとに30件ずつ読み、中身が名前どおりかを確かめました。資料に載せる例も読んで差し替えました。</div></div>
-</div>
-
-<h2 id="s4">4. 調べた順番と分かったこと</h2>
-<div class="steps">
-
-<div class="phase"><div class="ph-h"><div class="no">1</div><div><div class="ph-t">アポの多い人の電話を読む</div><div class="ph-m">取れた電話 297件・取れなかった電話 248件ほか</div></div></div>
-<div class="blk f"><div class="bl">分かったこと</div><ul>
-<li>先方の第一声(了承・日程の話・質問・需要の断り)で、その後の取れやすさが大きく違う。</li>
-<li>上手い人にもやり方が2つある。先回りして日時を繰り返す型と、日付を問いかけて先方の都合を言ってもらう型。</li>
-</ul></div>
-<div class="mean"><b>現場への意味:</b> 正解のトークは1本ではない。まず早く日付を出し、その先は複数のやり方がある。</div>
-</div>
-
-<div class="phase"><div class="ph-h"><div class="no">2</div><div><div class="ph-t">ほかの担当者と比べる</div><div class="ph-m">8人の 253件 → 18人の全件</div></div></div>
-<div class="blk f"><div class="bl">分かったこと</div><ul>
-<li>先方が「この週なら」などの手がかりを出せば、どの担当者もほとんどアポにつなげている。</li>
-<li>差が出ていたのは、手がかりを引き出せるかと、手がかりが無いときも日時を出し続けるか。手がかりが無いと、多くの人が日程切りをやめていた。</li>
-<li>手がかりを引き出せる人ほど、アポ率が高かった。</li>
-</ul></div>
-<div class="blk x"><div class="bl">取り消したこと</div><ul><li>「需要の断りへの返し方で、上手い人とほかの人が分かれる」は、断られた電話どうしで比べるとアポ率に差がなかった。</li></ul></div>
-<div class="mean"><b>現場への意味:</b> 上手い人との差は、決めの一言よりも「日時を出す回数と早さ」にある。</div>
-</div>
-
-<div class="phase"><div class="ph-h"><div class="no">3</div><div><div class="ph-t">使っていない月で予想を確かめる</div><div class="ph-m">8月の 219件、切り返しの 900件</div></div></div>
-<div class="blk f"><div class="bl">分かったこと</div><ul>
-<li>日程切りが2回目・3回目・4回目になっても、先方の前向きな返事は減らずに出ていた。それなのに7割の電話は、4回目の前に日程切りをやめていた。</li>
-</ul></div>
-<div class="blk x"><div class="bl">取り消したこと</div><ul>
-<li>「具体的な日時(日付＋時刻)で出すほうが決まる」は逆だった。日付だけのほうが先方の返事がよかった。</li>
-<li>「点数の高い型の人ほどアポが多い」は成り立たなかった。日程切りまで行けるかの段階を見ていなかったため。</li>
-</ul></div>
-<div class="mean"><b>現場への意味:</b> 1回断られても、日を変えて出し直す余地がある。時刻まで決めて出す必要はない。</div>
-</div>
-
-<div class="phase"><div class="ph-h"><div class="no">4</div><div><div class="ph-t">件数を広げ、発言ごとにアポ率を比べる</div><div class="ph-m">9,681件の発言を種類に分け、同じ担当者・同じ場面どうしで比較</div></div></div>
-<div class="blk f"><div class="bl">分かったこと</div><ul>
-<li>「忙しい」「その日は予定がある」と言われた電話の 11% は、そのまま引き下がっていた。別の日を出し直したほうがアポになりやすい。</li>
-<li>話せた電話の 10% で、日程を切る前に「募集していないですか」と聞いていた。聞いた電話はほとんどアポにならない。</li>
-<li>先方の返事は、直前の1〜2回のやり取りでほぼ決まる。</li>
-</ul></div>
-<div class="mean"><b>現場への意味:</b> 断りの直後の一言が大事。前半の雑談を長くしても、後の返事はあまり変わらない。</div>
-</div>
-
-<div class="phase"><div class="ph-h"><div class="no">5</div><div><div class="ph-t">アポが決まった後の会話を厳しく除く</div><div class="ph-m">Zoom・メールアドレス・日時の復唱などが出た時点で電話を切って比較</div></div></div>
-<div class="blk x"><div class="bl">取り消したこと</div><ul>
-<li>「欠員か増員か」「職種」「決める人」「人手不足の話」「使っている媒体」を聞くとアポ率が上がる、は消えた。アポが決まった後の聞き取りだった。</li>
-<li>「お久しぶりです／覚えていますか」は、言っても言わなくてもアポ率は変わらない。</li>
-</ul></div>
-<div class="mean"><b>現場への意味:</b> ヒアリングはアポが決まってから。日程を切る前に聞く理由はない。</div>
-</div>
-
-<div class="phase"><div class="ph-h"><div class="no">6</div><div><div class="ph-t">かける相手(リスト)の違いを見る</div><div class="ph-m">全架電 15,467本、会社のデータと照合</div></div></div>
-<div class="blk f"><div class="bl">分かったこと</div><ul>
-<li>会社が大きいほどアポになりやすい。大きい会社は受付で止まりやすいが、つながった後が高い。</li>
-<li>同じ会社への2回目の電話は、1回目よりアポになりやすい(頼まれたかけ直しを含む)。</li>
-<li>業界は、運輸・物流以外は時期で入れ替わった。自動車は、小さい会社(整備工場)が高く、大きい会社(部品メーカー)が低いと逆向き。</li>
-<li>ここは話せた電話で比べた結果で、総架電のアポ率での数字はまだ出していない。</li>
-<li>時間帯は、9時台が高く見えたが、かけ直しが集まっていただけだった。</li>
-</ul></div>
-<div class="mean"><b>現場への意味:</b> リストは会社側で組む。個人のアポ率は、かけたリストの違いで変わる(<a href="#s6">6章</a>)。</div>
-</div>
-
-<div class="phase"><div class="ph-h"><div class="no">7</div><div><div class="ph-t">どんな相手でも通じるかを確かめる</div><div class="ph-m">規模・業界・役職・回数・時間帯・期間・担当者ごとに分けて比較</div></div></div>
-<div class="blk f"><div class="bl">分かったこと</div><ul>
-<li>需要を聞かない・早く日付を出す・「忙しい」で引かないの3つは、どれで分けてもアポ率の差の向きが変わらなかった。</li>
-<li>受付では、担当者の名前で呼ぶと担当者につながりやすい。受付に用件を聞かれたときの答え方では差がない。</li>
-</ul></div>
-<div class="blk x"><div class="bl">取り消したこと</div><ul>
-<li>「需要を否定された直後に日程を出せば取り返せる」は誤りだった。数えた中に「その日は埋まっている」などの予定の話が混ざっていた。本当に需要を否定された 1,650件では、どう返してもアポは 18件しかなかった。</li>
-<li>「中途採用の件で」と切り出す効果は、相手によって向きが変わったので外した。</li>
-</ul></div>
-<div class="mean"><b>現場への意味:</b> 否定されてから挽回するより、否定を引き出さないほうが大事。</div>
-</div>
-
-<div class="phase"><div class="ph-h"><div class="no">8</div><div><div class="ph-t">言い回しを場面ごとに比べる</div><div class="ph-m">冒頭・最初の日程切り・「忙しい」の後・断りの後に分けて集計</div></div></div>
-<div class="blk f"><div class="bl">分かったこと</div><ul>
-<li>日程切りの 4割 が「採用サービスの中身をお伝えしたく」と言っていた。この言い方はアポになりにくい。全員が言い換えれば、全体のアポ率は 1.09% → 1.34% の見込み。</li>
-<li>「お打ち合わせ」と言った電話はアポになりやすい。ただし使っている電話は日程切りの 4% と少なく、全体への影響は見積もれない。</li>
-<li>「忙しい」の後に具体的な日を出せていない電話が 67%。出せば 1.09% → 1.49% の見込み。「いつ頃なら」と聞いた電話は 39件あり、アポは0件。</li>
-<li>日程切りの 8割 に時刻が入っていた。時刻を入れないほうがアポになりやすい。</li>
-</ul></div>
-<div class="mean"><b>現場への意味:</b> 日付はこちらから出す。先方に選んでもらうのは、日付を出した後の時刻だけ。</div>
-</div>
-
-</div>
-
-<h2 id="s5">5. 以前の説明から変わったこと</h2>
-<p>これまでの社内の説明や、分析の途中で出した話のうち、確かめて変わったものです。</p>
-<div class="tbl"><table class="rev-t">
-<tr><th>以前の説明</th><th>確かめた結果</th><th>今のやり方</th></tr>
-<tr><td>具体的な日時(日付＋時刻)で日程を切るほうが決まる</td><td>時刻を入れないほうがアポになりやすい</td><td>週・曜日を出し、時刻は先方に選んでもらう</td></tr>
-<tr><td>需要を否定されても、すぐ日程を出せば取り返せる</td><td>否定の後は、どう返してもほとんどアポにならない</td><td>そもそも需要を聞かない</td></tr>
-<tr><td>欠員か増員か・職種・決める人を先に聞くと上がる</td><td>アポが決まった後の聞き取りだった</td><td>日程を切る前には聞かない</td></tr>
-<tr><td>「お久しぶり」「覚えていますか」が効く</td><td>言っても言わなくてもアポ率は同じ</td><td>言ってもよいが、効果は期待しない</td></tr>
-<tr><td>「いつ頃ならご都合よいですか」と先方に選んでもらう</td><td>「忙しい」の後で聞いた 39件はアポ0件</td><td>日付はこちらから出す</td></tr>
-<tr><td>先方に「ダメな日」を言ってもらう</td><td>次の返事がむしろ悪い</td><td>使わない</td></tr>
-<tr><td>日程を切るときは「採用サービスの中身をお伝えしたく」</td><td>アポになりにくい。日程切りの4割がこの言い方</td><td>「お打ち合わせのお時間を」</td></tr>
-<tr><td>9時台にかけると取れる</td><td>かけ直しが集まっていただけ</td><td>時間帯は決め手にしない</td></tr>
+<h2 id="s3"><small>03</small>確かめ方</h2>
+<p>記録の比較は、見かけの差が出やすいです。たとえば、上手い人がよく使う言葉は、言葉のおかげでなくても効いて見えます。次の順にふるいにかけて、残ったものだけを結論にしました。</p>
+<div class="mflow"><div class="ms"><div class="mh">8,408件</div><div class="md">70秒以上話せた電話の文字起こし</div></div><div class="ms"><div class="mh">結果を外す</div><div class="md">日時が決まった後の会話は数えない</div></div><div class="ms"><div class="mh">同じ人・同じ月</div><div class="md">担当者と月をそろえて比べる</div></div><div class="ms"><div class="mh">前半・後半</div><div class="md">6〜8月と9〜10月の両方で同じ向き</div></div><div class="ms"><div class="mh">相手を分ける</div><div class="md">規模・業界・役職などで分けても同じ向き</div></div><div class="ms last"><div class="mh">4つ</div><div class="md">どんな相手にも通じる話し方</div></div></div>
+<p class="cap"><b>図5</b> 結論に残すまでのふるい。</p>
+<div class="tbl"><table>
+<tr><th>ふるい</th><th>なぜ必要か</th></tr>
+<tr><td>日時が決まった後の会話は数えない</td><td>日時が決まると「何名で」「メールで送ります」などが出る。これはアポの結果で、理由ではない</td></tr>
+<tr><td>同じ担当者・同じ月の中で比べる</td><td>人の上手さや、月ごとのリストの違いで差が出ないようにする</td></tr>
+<tr><td>6〜8月と9〜10月の両方で確かめる</td><td>片方の時期だけで出る差は偶然の可能性がある</td></tr>
+<tr><td>予想を先に書いてから、使っていない月で確かめる</td><td>結果を見てから理由を付ける後知恵を防ぐ</td></tr>
+<tr><td>ぶれの幅を付ける</td><td>同じ会社への電話をまとめて選び直し(200回)、差が無いこともありうるものは結論にしない</td></tr>
+<tr><td>相手の種類ごとに分ける</td><td>規模・業界・役職・何回目か・時間帯・担当者で分けても同じ向きかを見る</td></tr>
+<tr><td>実際の電話を読む</td><td>機械で分けた発言の種類ごとに30件ずつ読み、中身が名前どおりかを確かめる</td></tr>
 </table></div>
 
-<h2 id="s6">6. 現場で知っておいてほしいこと</h2>
-<div class="card"><b>個人のアポ率は、かけたリストで変わる</b><p>会社の規模で、アポになりやすさが大きく違います。人どうしのアポ率を比べるときは、同じようなリストにかけた電話どうしで比べてください。</p></div>
-<div class="card"><b>受付で聞いた担当者の名前は記録する</b><p>次の電話で名前で呼べると、担当者につながりやすくなります。</p></div>
-<div class="card"><b>かけ直しは大事にする</b><p>同じ会社への2回目の電話は、1回目よりアポになりやすいです。頼まれたかけ直しは必ずかけてください。</p></div>
-<div class="card"><b>先方の反応の見方</b>
+<h2 id="s4"><small>04</small>調べた順番と分かったこと</h2>
+<section class="step"><div class="sn">01</div><div class="sb"><h3>アポの多い人の電話を読む</h3><p class="meta">取れた電話 297件・取れなかった電話 248件ほか</p><p class="k">分かったこと</p><ul><li>先方の第一声(了承・日程の話・質問・需要の断り)で、その後の取れやすさが大きく違う。</li><li>上手い人にもやり方が2つある。先回りして日時を繰り返す型と、日付を問いかけて先方の都合を言ってもらう型。</li></ul><p class="mean"><span>現場への意味</span>正解のトークは1本ではない。まず早く日付を出し、その先は複数のやり方がある。</p></div></section><section class="step"><div class="sn">02</div><div class="sb"><h3>ほかの担当者と比べる</h3><p class="meta">8人の 253件 → 全員の電話</p><p class="k">分かったこと</p><ul><li>先方が「この週なら」などの手がかりを出せば、どの担当者もほとんどアポにつなげている。</li><li>差が出ていたのは、手がかりを引き出せるかと、手がかりが無いときも日時を出し続けるか。手がかりが無いと、多くの人が日程切りをやめていた。</li></ul><p class="k x">取り消したこと</p><ul class="xl"><li>「需要の断りへの返し方で、上手い人とほかの人が分かれる」は、断られた電話どうしで比べると差がなかった。</li></ul><p class="mean"><span>現場への意味</span>上手い人との差は、決めの一言よりも「日時を出す回数と早さ」にある。</p></div></section><section class="step"><div class="sn">03</div><div class="sb"><h3>使っていない月で予想を確かめる</h3><p class="meta">8月の 219件、切り返しの 900件</p><p class="k">分かったこと</p><ul><li>日程切りが2回目・3回目・4回目になっても、先方の前向きな返事は減らずに出ていた。それなのに7割の電話は、4回目の前に日程切りをやめていた。</li></ul><p class="k x">取り消したこと</p><ul class="xl"><li>「具体的な日時(日付＋時刻)で出すほうが決まる」は逆だった。日付だけのほうが先方の返事がよかった。</li><li>「点数の高い型の人ほどアポが多い」は成り立たなかった。日程切りまで行けるかの段階を見ていなかったため。</li></ul><p class="mean"><span>現場への意味</span>1回断られても、日を変えて出し直す余地がある。時刻まで決めて出す必要はない。</p></div></section><section class="step"><div class="sn">04</div><div class="sb"><h3>件数を広げ、発言ごとに比べる</h3><p class="meta">話せた電話の発言を種類に分け、同じ担当者・同じ場面どうしで比較</p><p class="k">分かったこと</p><ul><li>「忙しい」「その日は予定がある」と言われた電話の 11% は、そのまま引き下がっていた。別の日を出し直したほうがアポになりやすい。</li><li>話せた電話の 10% で、日程を切る前に「募集していないですか」と聞いていた。聞いた電話はほとんどアポにならない。</li><li>先方の返事は、直前の1〜2回のやり取りでほぼ決まる。</li></ul><p class="mean"><span>現場への意味</span>断りの直後の一言が大事。前半の雑談を長くしても、後の返事はあまり変わらない。</p></div></section><section class="step"><div class="sn">05</div><div class="sb"><h3>アポが決まった後の会話を厳しく除く</h3><p class="meta">Zoom・メールアドレス・日時の復唱などが出た時点で電話を切って比較</p><p class="k x">取り消したこと</p><ul class="xl"><li>「欠員か増員か」「職種」「決める人」「人手不足の話」「使っている媒体」を聞くとアポになりやすい、は消えた。アポが決まった後の聞き取りだった。</li><li>「お久しぶりです／覚えていますか」は、言っても言わなくてもアポ率は変わらない。</li></ul><p class="mean"><span>現場への意味</span>ヒアリングはアポが決まってから。日程を切る前に聞く理由はない。</p></div></section><section class="step"><div class="sn">06</div><div class="sb"><h3>かける相手(リスト)の違いを見る</h3><p class="meta">70秒以上話せた電話を会社のデータと照合</p><p class="k">分かったこと</p><ul><li>会社が大きいほどアポになりやすい。大きい会社は受付で止まりやすいが、つながった後が高い。</li><li>同じ会社への2回目の電話は、1回目よりアポになりやすい(頼まれたかけ直しを含む)。</li><li>業界は、運輸・物流以外は時期で入れ替わった。自動車は、小さい会社(整備工場)が高く、大きい会社(部品メーカー)が低いと逆向き。</li><li>時間帯は、9時台が高く見えたが、かけ直しが集まっていただけだった。</li></ul><p class="mean"><span>現場への意味</span>リストは会社側で組む。個人のアポ率は、かけたリストの違いで変わる。</p></div></section><section class="step"><div class="sn">07</div><div class="sb"><h3>どんな相手でも通じるかを確かめる</h3><p class="meta">規模・業界・役職・回数・時間帯・期間・担当者ごとに分けて比較</p><p class="k">分かったこと</p><ul><li>需要を聞かない・早く日付を出す・「忙しい」で引かないの3つは、どれで分けても向きが変わらなかった。</li><li>受付では、担当者の名前で呼ぶと担当者につながりやすい。受付に用件を聞かれたときの答え方では差がない。</li></ul><p class="k x">取り消したこと</p><ul class="xl"><li>「需要を否定された直後に日程を出せば取り返せる」は誤りだった。数えた中に「その日は埋まっている」などの予定の話が混ざっていた。本当に需要を否定された 1,650件では、どう返してもアポは 18件しかなかった。</li><li>「中途採用の件で」と切り出す効果は、相手によって向きが変わったので外した。</li></ul><p class="mean"><span>現場への意味</span>否定されてから挽回するより、否定を引き出さないほうが大事。</p></div></section><section class="step"><div class="sn">08</div><div class="sb"><h3>言い回しを場面ごとに比べる</h3><p class="meta">冒頭・最初の日程切り・「忙しい」の後・断りの後に分けて集計</p><p class="k">分かったこと</p><ul><li>日程切りの 4割 が「採用サービスの中身をお伝えしたく」と言っていた。この言い方はアポになりにくい。</li><li>「お打ち合わせ」と言った電話はアポになりやすい。ただし使っている電話は日程切りの 4% と少なく、全体への影響は見積もれない。</li><li>「忙しい」の後に具体的な日を出せていない電話が 67%。「いつ頃なら」と聞いた電話は 39件あり、アポは0件。</li><li>日程切りの 8割 に時刻が入っていた。時刻を入れないほうがアポになりやすい。</li></ul><p class="mean"><span>現場への意味</span>日付はこちらから出す。先方に選んでもらうのは、日付を出した後の時刻だけ。</p></div></section>
+
+<h2 id="s5"><small>05</small>以前の説明から変わったこと</h2>
+<p>これまでの社内の説明や、分析の途中で出した話のうち、確かめて変わったものです。</p>
+<div class="tbl"><table>
+<tr><th>以前の説明</th><th>確かめた結果</th><th>今のやり方</th></tr>
+<tr><td>具体的な日時(日付＋時刻)で日程を切るほうが決まる</td><td>時刻を入れないほうがアポになりやすい</td><td class="hi">週・曜日を出し、時刻は先方に選んでもらう</td></tr><tr><td>需要を否定されても、すぐ日程を出せば取り返せる</td><td>否定の後は、どう返してもほとんどアポにならない</td><td class="hi">そもそも需要を聞かない</td></tr><tr><td>欠員か増員か・職種・決める人を先に聞くと上がる</td><td>アポが決まった後の聞き取りだった</td><td class="hi">日程を切る前には聞かない</td></tr><tr><td>「お久しぶり」「覚えていますか」が効く</td><td>言っても言わなくてもアポ率は同じ</td><td class="hi">言ってもよいが、効果は期待しない</td></tr><tr><td>「いつ頃ならご都合よいですか」と先方に選んでもらう</td><td>「忙しい」の後で聞いた 39件はアポ0件</td><td class="hi">日付はこちらから出す</td></tr><tr><td>先方に「ダメな日」を言ってもらう</td><td>次の返事がむしろ悪い</td><td class="hi">使わない</td></tr><tr><td>日程を切るときは「採用サービスの中身をお伝えしたく」</td><td>アポになりにくい。日程切りの4割がこの言い方</td><td class="hi">「お打ち合わせのお時間を」</td></tr><tr><td>9時台にかけると取れる</td><td>かけ直しが集まっていただけ</td><td class="hi">時間帯は決め手にしない</td></tr>
+</table></div>
+
+<h2 id="s6"><small>06</small>現場で知っておいてほしいこと</h2>
+<div class="tbl"><table>
+<tr><th>こと</th><th>中身</th></tr>
+<tr><td>個人のアポ率は、かけたリストで変わる</td><td>会社の規模でアポになりやすさが大きく違う。人どうしを比べるときは、同じようなリストにかけた電話どうしで比べる</td></tr>
+<tr><td>受付で聞いた担当者の名前は記録する</td><td>次の電話で名前で呼べると、担当者につながりやすくなる</td></tr>
+<tr><td>かけ直しは大事にする</td><td>同じ会社への2回目の電話は、1回目よりアポになりやすい。頼まれたかけ直しは必ずかける</td></tr>
+<tr><td>アポ率は平均</td><td>1本ごとに必ずそうなるわけではない。同じやり方を続けたときに、全体のアポ率に差が出るという意味</td></tr>
+</table></div>
+<h3 style="margin-top:22px">先方の反応の見方</h3>
 <div class="tbl"><table>
 <tr><th>先方の反応</th><th>見方</th></tr>
 <tr><td>時刻の話を始める(「10時なら」など)</td><td>脈あり。そのまま日時を決める</td></tr>
 <tr><td>具体的な日を断る(「その日は無理」)</td><td>断られても脈あり。別の日を出す</td></tr>
 <tr><td>「ちょっと待ってください」</td><td>予定を見ている。脈あり</td></tr>
 <tr><td>「こちらから連絡します」</td><td>脈なし寄り</td></tr>
-</table></div></div>
-<div class="card"><b>アポ率は平均</b><p>1本ごとに必ずそうなるわけではありません。同じやり方を続けたときに、全体のアポ率に差が出るという意味です。</p></div>
-
-<h2 id="s7">7. まだ分かっていないこと</h2>
-<div class="tbl"><table>
-<tr><th>項目</th><th>今の状況</th></tr>
-<tr><td>本当に効くか</td><td>すべて過去の記録の比較です。話し方を決めて試さないと、言い方のおかげかどうか、全体のアポ率が実際どこまで上がるかは確定しません。</td></tr>
-<tr><td>何回まで日程を切るか</td><td>4回目までは前向きな返事が続いています。何回を目安にするかは決めていません。</td></tr>
-<tr><td>需要の否定が本物か断り文句か</td><td>見分け方は分かっていません。</td></tr>
-<tr><td>受付で名前を呼ぶ効果</td><td>アポ率への影響は数字で出せていません。名前が分かる相手は、もともと関係がある相手で、その分を除き切れていません。</td></tr>
-<tr><td>アポのその後</td><td>商談・受注まで進んだかは見ていません。</td></tr>
-<tr><td>対象の外</td><td>6〜10月の新規営業の電話だけです。ほかの商品・チームでは確かめていません。会社の規模・業界・かけ直しの違いは、総架電のアポ率ではまだ出していません。</td></tr>
 </table></div>
 
-<footer>2026-10-19 更新 / 営業通話分析 ・ 関連: <a href="talk-guide-v1.html">アポ取りトークの基本</a></footer>
+<h2 id="s7"><small>07</small>まだ分かっていないこと</h2>
+<div class="tbl"><table>
+<tr><th>項目</th><th>今の状況</th></tr>
+<tr><td>本当に効くか</td><td>すべて過去の記録の比較。話し方を決めて試さないと、言い方のおかげかどうか、全体のアポ率が実際どこまで上がるかは確定しない</td></tr>
+<tr><td>何回まで日程を切るか</td><td>4回目までは前向きな返事が続いている。何回を目安にするかは決めていない</td></tr>
+<tr><td>需要の否定が本物か断り文句か</td><td>見分け方は分かっていない</td></tr>
+<tr><td>受付で名前を呼ぶ効果</td><td>アポ率への影響は数字で出せていない。名前が分かる相手は、もともと関係がある相手で、その分を除き切れていない</td></tr>
+<tr><td>会社の規模・業界・かけ直しの違い</td><td>話せた電話で比べた向きだけ。総架電のアポ率での数字はまだ出していない</td></tr>
+<tr><td>アポのその後</td><td>商談・受注まで進んだかは見ていない</td></tr>
+<tr><td>対象の外</td><td>6〜10月の新規営業の電話だけ。ほかの商品・チームでは確かめていない</td></tr>
+</table></div>
+
+<footer>2026-10-19 更新 ｜ 営業通話分析 ｜ 関連: <a href="talk-guide-v1.html">アポ取りトークの基本</a></footer>
 </main></body></html>
