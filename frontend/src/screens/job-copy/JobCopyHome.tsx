@@ -3,7 +3,8 @@ import { RecentChangesButton, RecentChangesList, useRecentChanges } from './Rece
 import type { ChangedDeal } from './RecentChangesCard';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { ListingPreparationNotice } from './ListingPreparationNotice';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useReportPolling } from './useReportPolling';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { formatDateTimeJst, formatDateJst } from './format';
@@ -26,6 +27,10 @@ function CardList({ card, onOpenListing }: { card: HomeCard; onOpenListing: (id:
   </section>;
 }
 
+function saveHomeCache(cacheRef: { current: HomeResponse | null } | undefined, data: HomeResponse | null) {
+  if (cacheRef) cacheRef.current = data;
+}
+
 /** 案件管理のホーム。まず見るものの件数と、顧客ごとの表。 */
 export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }: { cache?: { current: HomeResponse | null }; onOpenCompany: (company: { id: string; name: string }) => void; onOpenListing: (id: string) => void; onOpenDeal: (deal: ChangedDeal) => void }) {
   const [data, setData] = useState<HomeResponse | null>(cache?.current ?? null);
@@ -33,38 +38,41 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const [reload, setReload] = useState(0);
   const search = useJobCopySearch();
   const ownerQuery = ownerParams(search);
+  const [resolvedSelf, setResolvedSelf] = useState<{ from: string; to: string } | null>(null);
+  const requestOwnerQuery = resolvedSelf?.to === ownerQuery ? resolvedSelf.from : ownerQuery;
   const open = new URLSearchParams(search).get('card');
   const setOpen = (key: CardKey | 'recent_changes' | null) => { updateJobCopyQuery({ card: key, todo_page: null }, 'push'); };
-  const recent = useRecentChanges(reload, data?.status === 'ready' && (!data.work || data.work.status === 'ready'), data?.status === 'ready' && !!data.work);
+  const recent = useRecentChanges(0, data?.status === 'ready', data?.status === 'ready' && !!data.work);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<CustomerSort>('default');
   const [descending, setDescending] = useState(true);
   const [onlyActive, setOnlyActive] = useState(true);
+  useReportPolling(useCallback(async signal => {
+    if (reload === 0 && cache?.current?.status === 'ready' && !cache.current.work && !requestOwnerQuery) return false;
+    const result = await apiGet<HomeResponse>(`/api/job-copy/home${requestOwnerQuery ? `?${requestOwnerQuery}` : ''}`, { signal, timeoutMs: 120_000 });
+    if (signal.aborted) return false;
+    if (!result.ok || !(result.data.status === 'preparing' || Array.isArray((result.data as { home?: { cards?: unknown } }).home?.cards))) {
+      setError(result.ok ? '案件管理のホームの形式を確認できませんでした。時間を置いて再取得してください。' : failure(result.error));
+      return false;
+    }
+    saveHomeCache(cache, result.data);
+    setData(result.data); setError('');
+    const work = result.data.status === 'ready' ? result.data.work : undefined;
+    if (work?.status === 'ready' && !work.notice && [null, 'me'].includes(new URLSearchParams(requestOwnerQuery).get('owner'))) {
+      const to = new URLSearchParams({ owner_field: work.owner_field, owner: work.owner }).toString();
+      setResolvedSelf({ from: requestOwnerQuery, to });
+      updateJobCopyQuery({ owner: work.owner, owner_field: work.owner_field }, 'replace');
+    }
+    return result.data.status === 'preparing' || work?.status === 'preparing' || (work?.status === 'ready' && (work.todos_status === 'preparing' || (work.todos_status !== 'failed' && !!work.refreshing)));
+  }, [reload, cache, requestOwnerQuery]));
   useEffect(() => {
-    if (reload === 0 && cache?.current?.status === 'ready' && !cache.current.work && !ownerQuery) return;
-    const controller = new AbortController();
-    void apiGet<HomeResponse>(`/api/job-copy/home${ownerQuery ? `?${ownerQuery}` : ''}`, { signal: controller.signal, timeoutMs: 120_000 }).then(result => {
-      if (controller.signal.aborted) return;
-      if (result.ok && (result.data.status === 'preparing' || Array.isArray((result.data as { home?: { cards?: unknown } }).home?.cards))) { if (cache) cache.current = result.data; setData(result.data); setError('');
-        if (result.data.status === 'ready' && result.data.work?.status === 'ready' && !result.data.work.notice && [null, 'me'].includes(new URLSearchParams(ownerQuery).get('owner'))) updateJobCopyQuery({ owner: result.data.work.owner, owner_field: result.data.work.owner_field }, 'replace'); } else setError(result.ok ? '案件管理のホームの形式を確認できませんでした。時間を置いて再取得してください。' : failure(result.error));
-    });
-    return () => { controller.abort(); };
-  }, [reload, cache, ownerQuery]);
-  useEffect(() => {
-    if (!data) return;
-    const preparing = data.status === 'preparing' || (data.work?.status === 'preparing' || (data.work?.status === 'ready' && (data.work.todos_status === 'preparing' || data.work.refreshing)));
-    if (!preparing) return;
-    const timer = window.setTimeout(() => { setReload(value => value + 1); }, 2_000);
-    return () => { window.clearTimeout(timer); };
-  }, [data]);
-  useEffect(() => {
-    const refresh = () => { if (cache) cache.current = null; setReload(n => n + 1); };
+    const refresh = () => { saveHomeCache(cache, null); setReload(n => n + 1); };
     window.addEventListener('job-copy-plan-saved', refresh);
     return () => { window.removeEventListener('job-copy-plan-saved', refresh); };
   }, [cache]);
   const customers = useMemo<HomeCustomer[]>(() => data?.status === 'ready' ? sortCustomers(filterCustomers(data.home.customers, query, onlyActive), sort, descending) : [], [data, query, onlyActive, sort, descending]);
   const activeCount = data?.status === 'ready' ? data.home.customers.filter(customer => customer.active_deals > 0).length : 0;
-  const ready = data?.status === 'ready' && (!data.work || data.work.status === 'ready') ? data : null;
+  const ready = data?.status === 'ready' ? data : null;
   const work = ready?.work?.status === 'ready' ? ready.work : null;
   // 古いキャッシュや応答に残るカード、今の画面が知らないカードは表示しない。
   const cards = ready?.home.cards.filter(item => Object.hasOwn(cardTone, item.key)) ?? [];
@@ -74,7 +82,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     {error && <p role="alert">{error}</p>}
     {!data && !error && <p role="status">ホームを読み込んでいます…</p>}
     {data?.status === 'preparing' && <ListingPreparationNotice progress={data.progress} />}
-    {data?.status === 'ready' && data.work?.status === 'preparing' && <p role="status">担当者とやることを集計しています…</p>}
+    {data?.status === 'ready' && data.work?.status === 'preparing' && <section className="jh-todo"><h2>やること</h2><p role="status">担当者とやることを集計しています…</p></section>}
     {data?.status === 'ready' && data.work?.status === 'failed' && <p role="alert">担当者とやることの情報を読み込めませんでした。再読み込みしてください。</p>}
     {ready && <>
       {work && <><OwnerFilter work={work} /><OwnerTodo work={work} onOpenCompany={onOpenCompany} onOpenDeal={onOpenDeal} onShowList={() => { setReload(value => value + 1); }} /></>}

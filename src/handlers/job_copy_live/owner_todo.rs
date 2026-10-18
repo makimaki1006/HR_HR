@@ -2,6 +2,8 @@
 use super::*;
 use chrono::{NaiveDate, Utc};
 use std::time::Instant;
+#[path = "todo_refresh.rs"]
+mod facts_refresh;
 
 pub(super) const DEAL_PROPERTIES: &[&str] = &[
     "amount",
@@ -148,28 +150,13 @@ struct CacheState {
     facts_snapshot: Option<(Instant, BTreeMap<String, super::todo_signals::Facts>)>,
     facts_built_at: Option<chrono::DateTime<Utc>>,
     facts_refreshing: bool,
+    facts_pending: Option<facts_refresh::Progress>,
     facts_failed_at: Option<Instant>,
 }
 pub(super) async fn restore_facts(service: &JobReadService) {
-    if let Some(saved) = report_snapshot::restore::<BTreeMap<String, super::todo_signals::Facts>>(
-        service.audit.clone(),
-        report_snapshot::Kind::Facts,
-    )
-    .await
-    {
-        let mut state = service.owner_todo.state.lock().await;
-        if state.facts_snapshot.is_none() {
-            if let Some((_, snapshot)) = state.snapshot.as_mut() {
-                Arc::make_mut(snapshot).facts = saved.data.clone();
-            }
-            state.facts_snapshot = Some((
-                report_snapshot::instant(saved.built_at, FACTS_TTL),
-                saved.data,
-            ));
-            state.facts_built_at = Some(saved.built_at);
-        }
-    }
+    facts_refresh::restore(service).await;
 }
+
 impl CacheState {
     fn sync_revision(&mut self, revision: u64) {
         if self.revision != revision {
@@ -209,7 +196,12 @@ async fn view_inner(service: &JobReadService, include_facts: bool) -> View {
         let mut service = service.clone();
         service.hs = service.hs.background();
         tokio::spawn(async move {
-            let result = fetch(&service).await;
+            let result = tokio::time::timeout(Duration::from_secs(120), fetch(&service))
+                .await
+                .unwrap_or(Err(ReadError(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "todo_owner_timeout",
+                )));
             let mut state = service.owner_todo.state.lock().await;
             // 保存前に始めた読み取りは、保存後のキャッシュへ戻さない。
             if service.hs.deal_write_revision() != revision {
@@ -293,44 +285,17 @@ fn refresh_facts_on_request(service: &JobReadService, state: &mut CacheState) {
     let Some((_, snapshot)) = &state.snapshot else {
         return;
     };
-    let deals = snapshot.deals.clone();
+    let deals = snapshot
+        .deals
+        .iter()
+        .filter(|(_, deal)| super::todo_signals::eligible(deal))
+        .map(|(id, deal)| (id.clone(), deal.clone()))
+        .collect();
     state.facts_refreshing = true;
     let mut service = service.clone();
     service.hs = service.hs.background();
     tokio::spawn(async move {
-        let result = super::todo_signals::fetch(&service, &deals).await;
-        let mut state = service.owner_todo.state.lock().await;
-        let saved = match result {
-            Ok(facts) => {
-                if let Some((_, snapshot)) = state.snapshot.as_mut() {
-                    Arc::make_mut(snapshot).facts = facts.clone();
-                }
-                state.facts_snapshot = Some((Instant::now(), facts));
-                state.facts_failed_at = None;
-                let built_at = Utc::now();
-                state.facts_built_at = Some(built_at);
-                Some((
-                    Arc::new(state.facts_snapshot.as_ref().unwrap().1.clone()),
-                    built_at,
-                ))
-            }
-            Err(_) => {
-                state.facts_failed_at = Some(Instant::now());
-                tracing::warn!("job-copy todo applications refresh failed");
-                None
-            }
-        };
-        drop(state);
-        if let Some((facts, built_at)) = saved {
-            report_snapshot::persist(
-                service.audit.clone(),
-                report_snapshot::Kind::Facts,
-                facts,
-                built_at,
-            )
-            .await;
-        }
-        service.owner_todo.state.lock().await.facts_refreshing = false;
+        facts_refresh::run(&service, &deals).await;
     });
 }
 

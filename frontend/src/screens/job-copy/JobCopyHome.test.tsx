@@ -9,9 +9,10 @@ import { buildCrumbs } from './trail';
 import type { HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 
 const api = vi.hoisted(() => vi.fn());
-vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path.startsWith('/api/job-copy/recent-changes') ? Promise.resolve({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refresh_failed: false } }) : api(path, options) as Promise<unknown> }));
-beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); });
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+const recentApi = vi.hoisted(() => vi.fn());
+vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path.startsWith('/api/job-copy/recent-changes') ? recentApi(path, options) as Promise<unknown> : api(path, options) as Promise<unknown> }));
+beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); recentApi.mockResolvedValue({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refresh_failed: false } }); });
+afterEach(() => { cleanup(); vi.resetAllMocks(); vi.restoreAllMocks(); });
 
 const row = (id: string, title: string, recent: number, prev: number) => ({ id, title, company: '合成運輸', media: 'hrh' as const, recent_apps: recent, prev_apps: prev, recent_cost: 12000, latest_week_end: '2026-10-04' });
 const card = (key: HomeCard['key'], title: string, listings: HomeCard['listings'], count = listings.length): HomeCard => ({ key, title, rule: `${title}の数え方`, count, listings });
@@ -215,4 +216,70 @@ it('やることの一覧を開くと取得を確認し、閉じるだけでは�
   fireEvent.click(card);
   await act(() => Promise.resolve());
   expect(api).toHaveBeenCalledTimes(2);
+});
+
+it('集計が続く60秒間は6回、その次の60秒間は2回読み、ホームの更新で直近7日の変更を取り直さない', async () => {
+  vi.useFakeTimers();
+  try {
+    window.history.replaceState(null, '', '?owner_field=consultant&owner=11');
+    api.mockResolvedValue({ ok: true, data: { ...response, work: { ...demoOwnerTodo, todos_status: 'preparing', refreshing: true } } });
+    renderHome();
+    await act(() => Promise.resolve());
+    expect(screen.getByText('やることを集計しています…')).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: '担当者で絞る' })).queryByRole('status')).toBeNull();
+    expect(screen.getByText('まず見るもの')).toBeTruthy();
+    expect(screen.getByText('合成運輸')).toBeTruthy();
+    for (const [seconds, calls] of [[2, 2], [4, 3], [8, 4], [16, 5], [30, 6]] as const) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(seconds * 1_000); });
+      expect(api).toHaveBeenCalledTimes(calls);
+      expect(recentApi).toHaveBeenCalledTimes(1);
+    }
+    for (let i = 0; i < 2; i++) await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(api).toHaveBeenCalledTimes(8);
+    fireEvent.click(screen.getByRole('button', { name: /^再読み込み$/ }));
+    await act(() => Promise.resolve());
+    expect(api).toHaveBeenCalledTimes(9);
+    expect(recentApi).toHaveBeenCalledTimes(1);
+  } finally { vi.useRealTimers(); }
+});
+
+it('owner=meを担当者に置き換えてもホームは1回だけ読み、別の担当者を選ぶと読み直す', async () => {
+  window.history.replaceState(null, '', '?owner=me');
+  api.mockResolvedValue({ ok: true, data: { ...response, work: demoOwnerTodo } });
+  renderHome();
+  await waitFor(() => { expect(new URLSearchParams(window.location.search).get('owner')).toBe('11'); });
+  expect(api).toHaveBeenCalledTimes(1);
+  expect(recentApi).toHaveBeenCalledTimes(1);
+  fireEvent.change(screen.getByRole('combobox', { name: '担当者' }), { target: { value: '22' } });
+  await waitFor(() => { expect(api).toHaveBeenCalledTimes(2); });
+  expect(api.mock.calls[1]?.[0]).toContain('owner=22');
+});
+
+it('タブが隠れている間はホームと直近7日の変更を取り直さず、戻ると続ける', async () => {
+  vi.useFakeTimers();
+  let hidden = false;
+  vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+  try {
+    window.history.replaceState(null, '', '?owner=11');
+    api.mockResolvedValue({ ok: true, data: { ...response, work: { ...demoOwnerTodo, todos_status: 'preparing' } } });
+    recentApi.mockResolvedValue({ ok: true, data: { status: 'preparing' } });
+    renderHome();
+    await act(() => Promise.resolve());
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(recentApi).toHaveBeenCalledTimes(1);
+    hidden = true; document.dispatchEvent(new Event('visibilitychange'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(api).toHaveBeenCalledTimes(1); expect(recentApi).toHaveBeenCalledTimes(1);
+    hidden = false; document.dispatchEvent(new Event('visibilitychange'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(api).toHaveBeenCalledTimes(2); expect(recentApi).toHaveBeenCalledTimes(2);
+  } finally { vi.useRealTimers(); }
+});
+
+it('担当者を集計している間もカードと顧客の表を表示する', async () => {
+  api.mockResolvedValue({ ok: true, data: { ...response, work: { status: 'preparing' } } });
+  renderHome();
+  expect(await screen.findByText('担当者とやることを集計しています…')).toBeTruthy();
+  expect(screen.getByText('まず見るもの')).toBeTruthy();
+  expect(screen.getByText('合成運輸')).toBeTruthy();
 });

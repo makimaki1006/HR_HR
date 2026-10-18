@@ -24,7 +24,6 @@ export function OwnerFilter({ work }: { work: WorkReady }) {
       <optgroup label="退職者">{work.owners.filter(o => o.archived).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</optgroup>
     </select></label>
     <button type="button" className="jc-button" onClick={() => { updateJobCopyQuery({ owner: 'me', todo_page: null, deals_page: null }, 'replace'); }}>自分に戻す</button>
-    {work.todos_status === 'preparing' && <p role="status">担当者の候補を更新しています…</p>}
     {work.notice && <p role="status">{work.notice}</p>}
   </section>;
 }
