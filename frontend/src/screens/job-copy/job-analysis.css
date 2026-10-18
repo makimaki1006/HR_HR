@@ -18,3 +18,7 @@
 @media (max-width: 900px) { .jc-market-charts { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) { .jc-analysis { padding: 12px; } .jc-analysis-controls label { width: 100%; } }
 @media print { .jc-reverse-search, .jc-internal-market { display: none !important; } .jc-analysis-table { overflow: visible; } .jc-analysis-table table { min-width: 0; } .jc-analysis-table th, .jc-analysis-table td { white-space: normal; } .jc-analysis-scroll-hint { display: none; } }
+
+/* 横から開く詳細でも、長い求人名を案内文の枠内で折り返す。 */
+.jc-analysis > p { overflow-wrap: anywhere; }
+.jc-analysis-controls p { max-width: 100%; overflow-wrap: anywhere; }

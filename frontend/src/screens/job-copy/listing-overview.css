@@ -132,3 +132,13 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .lf-change:focus-visible { outline: 2px solid var(--jc-accent); outline-offset: 1px; }
 
 .lf-change span { display: inline-block; white-space: nowrap; }
+
+/* 実績なしの案内は列数より広くても、横スクロール枠の中に収める。 */
+.lf-row:has(> .lf-empty) { min-width: max-content; }
+/* 桁の多い金額・件数も、隣の週の値に重ねない。 */
+.lf-cell { overflow-wrap: anywhere; }
+
+/* 最大3つの印の名前を数値より下に積み、最後の行の応募数と重ねない。 */
+.lf-track { padding-bottom: 52px; }
+/* 印の縦線にも数値の先頭を重ねない。変更ボタンの列幅は保つ。 */
+.lf-row[role="row"] > .lf-cell { padding-inline: 3px; }

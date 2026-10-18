@@ -157,3 +157,6 @@
 .jt-timeline .jt-period > span { visibility: hidden; }
 .jt-period-label { position: absolute; transform: translateX(calc(var(--jt-pin, 0) * -1%)); max-width: 22%; padding: 0 3px; background: #fff; color: #12424c; font-size: 10px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; z-index: 2; }
 .jt-salary-label { max-width: 22%; }
+
+/* 日付による横位置の補正後も、同じ段の次の名前との間を空ける。 */
+.jt-period-label, .jt-salary-label { max-width: 18%; box-sizing: border-box; }
