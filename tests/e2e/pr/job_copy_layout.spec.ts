@@ -312,7 +312,14 @@ for (const width of [1280, 1440]) test(`数値のある1週の求人で印と応
   await login(page);
   await page.goto('/app/job-copy?listing=1');
   await expect(page.locator('.lf-marker')).toHaveCount(2);
-  await expect(page.locator('.lf-row[aria-label="応募数（Indeedの集計）"]')).toHaveText('987,654,321');
+  for (const [label, displayed, exact] of [
+    ['応募数（Indeedの集計）', '9.9億', '987,654,321'],
+    ['課金（週）', '¥9.9億', '¥987,654,321'],
+  ]) {
+    const cell = page.locator(`.lf-row[aria-label="${label}"] .lf-cell`);
+    await expect(cell).toHaveText(displayed);
+    await expect(cell).toHaveAttribute('title', exact);
+  }
   await page.locator('.lo-event-head').first().click();
   await expect(page.locator('[data-testid="lifeline-selected"]')).toHaveCount(1);
   await audit(page, `${width}-one-week-numeric-markers`);

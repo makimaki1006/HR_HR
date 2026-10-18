@@ -78,9 +78,9 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .jc-band-spacer { flex: 1 1 8px; }
 .lo-draft-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; }
 
-/* 帯は1440幅で1行に収める（ボタンは折り返さず右端、名前と最新の出来事は縮む） */
+/* 通常は帯を1行に収め、大きな金額や一覧の固定で幅が足りないときは次の行へ送る。 */
 @media (min-width: 801px) {
-  .jc-detail .jc-band { flex-wrap: nowrap; gap: 12px; }
+  .jc-detail .jc-band { flex-wrap: wrap; gap: 12px; }
   .jc-detail .jc-band-name { flex: 1 1 90px; min-width: 90px; }
   .jc-detail .jc-band-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .jc-detail .jc-band-numbers { flex-wrap: nowrap; gap: 12px; flex: 0 0 auto; }

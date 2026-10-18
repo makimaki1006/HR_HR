@@ -93,7 +93,7 @@
 .jt-periods table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 12px; background: #fff; }
 .jt-periods th, .jt-periods td { border-bottom: 1px solid #e3eaef; padding: 7px 8px; text-align: right; white-space: nowrap; }
 .jt-periods thead th { background: #f3f6f8; font-size: 11px; color: #3b4f5d; }
-.jt-periods tbody th, .jt-periods thead th:first-child { text-align: left; white-space: normal; }
+.jt-periods tbody th, .jt-periods thead th:first-child { text-align: left; white-space: normal; min-width: 8rem; }
 .jt-periods tbody th .jc-text-button { padding: 0; font-weight: 600; }
 .jt-periods tbody th small { display: block; color: #5c7080; font-weight: 400; font-size: 10px; }
 .jt-gap-row { color: #5c7080; background: #fafbfc; }
