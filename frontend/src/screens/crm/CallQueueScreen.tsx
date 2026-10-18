@@ -1,3 +1,5 @@
+import { CrmModeSwitch } from './CrmModeSwitch';
+import './applicants.css';
 import { QueueToolbar } from './QueueToolbar';
 import { QueuePipelinePicker } from './QueuePipelinePicker';
 import { selectedPipelineIds, withPipelines, withTarget, sortsFor } from './queueModel';
@@ -952,7 +954,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     </div>,
   };
 
-  return <OwnerChoicesProvider value={ownerChoices}><div className="crm-app cq-app">
+  return <OwnerChoicesProvider value={ownerChoices}><div className="crm-app cq-app"><CrmModeSwitch />
     {writeBindings.conflict !== null && <ConflictDialog view={writeBindings.conflict} />}
     {/* 画面全体の読み上げ欄 (記録した・記録できない理由)。常に置いておき、中身だけ変える */}
     <p className="cq-sr-only" role="status" data-testid="screen-announcement">{announcement.text}{announcement.n % 2 === 1 ? '\u00a0' : ''}</p>

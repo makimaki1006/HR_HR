@@ -1,0 +1,35 @@
+.crm-mode-switch { display: inline-flex; gap: 4px; align-items: center; padding: 4px; }
+.crm-mode-switch a { padding: 5px 14px; border-radius: 4px; text-decoration: none; color: #33475b; }
+.crm-mode-switch a[aria-current="page"] { background: #dceaf4; color: #16496b; font-weight: 700; }
+.applicants-app { height: 100dvh; display: flex; flex-direction: column; background: #f5f7fa; color: #33475b; }
+.applicants-head { display: flex; gap: 18px; align-items: center; padding: 8px 20px; background: white; border-bottom: 1px solid #dfe3eb; }
+.applicants-head > span { margin-left: auto; font-size: 12px; }
+.applicants-toolbar { display: flex; align-items: center; gap: 18px; padding: 10px 20px; border-bottom: 1px solid #dfe3eb; }
+.applicants-toolbar h1 { font-size: 16px; margin: 0; }
+.applicants-toolbar select { margin-left: 8px; max-width: 200px; }
+.applicants-columns { display: grid; grid-template-columns: 270px minmax(360px, 1fr) minmax(320px, .85fr); flex: 1; min-height: 0; }
+.applicants-list, .applicants-detail, .applicants-right { overflow: auto; min-width: 0; padding: 12px; }
+.applicants-list { padding: 0; border-right: 1px solid #dfe3eb; background: white; }
+.applicant-row { display: flex; flex-direction: column; width: 100%; text-align: left; gap: 5px; padding: 14px 18px; background: white; border: 0; border-bottom: 1px solid #dfe3eb; cursor: pointer; }
+.applicant-row strong { color: #126782; font-size: 16px; }
+.applicant-row small { color: #5a6e82; }
+.applicant-row[aria-current="true"] { background: #e5f3fa; box-shadow: inset 3px 0 #147ca0; }
+.applicants-detail .crm-card { margin-bottom: 12px; padding: 16px; }
+.applicants-detail h2 { font-size: 26px; margin: 0 0 10px; }
+.applicants-detail h3 { font-size: 15px; margin: 0 0 12px; }
+.applicants-detail dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+.applicants-detail summary { cursor: pointer; font-weight: 700; padding-bottom: 8px; }
+.applicants-right { border-left: 1px solid #dfe3eb; display: flex; flex-direction: column; background: white; }
+.applicants-right [role="tablist"] { display: flex; gap: 8px; margin-bottom: 12px; }
+.applicants-right [role="tab"] { border: 0; background: transparent; padding: 10px; cursor: pointer; }
+.applicants-right [aria-selected="true"] { border-bottom: 3px solid #147ca0; }
+.applicants-right [role="tabpanel"] { flex: 1; min-height: 0; }
+.applicants-right .cq-linkview { height: 100%; }
+.applicants-right iframe { width: 100%; height: 600px; border: 0; }
+@media (max-width: 1000px) { .applicants-columns { grid-template-columns: 230px minmax(320px, 1fr); overflow: auto; } .applicants-right { grid-column: 1 / -1; min-height: 450px; } }
+.applicants-app { --cq-line: #dfe4ea; --cq-surface: #fff; --cq-text: #1f2a35; --cq-sub: #5b6b7a; --cq-line-strong: #c3ccd5; --cq-accent: #0d7680; --cq-radius: 6px; }
+.applicants-app .cq-stage-filter { position: relative; }
+.applicants-app .cq-stage-panel { z-index: 10; }
+.applicants-app .applicant-identity h2 { font-size: 26px; margin: 0 0 10px; }
+.applicants-app .applicant-identity .crm-property-list { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.applicants-app .applicant-identity .crm-property-list > div { margin: 0; }

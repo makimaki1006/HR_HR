@@ -22,6 +22,7 @@
 //! JSON の 401 で返すため。認可は各ハンドラの先頭)。認証不要の `/api/v1/*` には置かない。
 //! HubSpot への通信は `crate::hubspot::HubSpotClient` (`AppState.hubspot`) に一本化している。
 
+pub mod applicants;
 pub mod assoc_labels;
 pub mod call_queue;
 pub mod caller_metrics;

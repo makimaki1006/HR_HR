@@ -180,6 +180,7 @@ pub fn engagement_properties(et: EngagementType) -> &'static [&'static str] {
 /// ルートが共有するもの (許可メールと定義のキャッシュ)。
 pub(super) struct CrmCtx {
     pub(super) access: CrmAccess,
+    pub(super) applicants: super::applicants::ApplicantsState,
     metadata_cache: MetadataCache,
     /// 「プロパティ」パネルで選べる項目の一覧 (数時間キャッシュ。workspace の選んだ項目の許可リストにも使う)
     pub(super) catalog: super::property_catalog::PropertyCatalogCache,
@@ -289,6 +290,7 @@ fn router_full(
     let write_rate = super::write::WriteRateLimiter::new(write.rate_per_min);
     let ctx = Arc::new(CrmCtx {
         access,
+        applicants: super::applicants::ApplicantsState::default(),
         metadata_cache: MetadataCache::with_refresh_floor(METADATA_REFRESH_FLOOR),
         catalog: super::property_catalog::PropertyCatalogCache::default(),
         layouts: super::property_layouts::LayoutCache::default(),
@@ -305,6 +307,8 @@ fn router_full(
         custom_metrics: Arc::new(super::custom_metrics::CustomMetricsCache::default()),
     });
     Router::new()
+        .route("/api/crm/applicants/queue", get(super::applicants::queue))
+        .route("/api/crm/applicants/{id}", get(super::applicants::detail))
         .route(
             "/api/crm/views",
             get(super::saved_views::list)

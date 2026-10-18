@@ -2,6 +2,7 @@ import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import { crmView } from '../screens/crm/crmView';
 import type { CrmView } from '../screens/crm/crmView';
+import { applicantMode } from '../screens/crm/CrmModeSwitch';
 import { ScreenLoadBoundary } from '../screens/crm/ScreenLoadBoundary';
 
 // 表示する画面だけを読み込む (既定の架電画面を開いたときに、見本・MOC の画面とその CSS を読まない)
@@ -12,8 +13,10 @@ const SCREENS: Record<CrmView, React.LazyExoticComponent<React.ComponentType>> =
   single: lazy(() => import('../screens/crm/CallWorkspace').then(m => ({ default: () => <m.CallWorkspace /> }))),
 };
 
+const Applicants = lazy(() => import('../screens/crm/ApplicantsScreen').then(m => ({ default: m.ApplicantsScreen })));
+
 const rootElement = document.getElementById('app-root');
-const Screen = SCREENS[crmView(window.location.search)];
+const Screen = applicantMode(window.location.search) ? Applicants : SCREENS[crmView(window.location.search)];
 if (rootElement) createRoot(rootElement).render(<StrictMode>
   {/* 画面ファイルを読み込めなかったら、白い画面ではなく再読み込みの案内を出す */}
   <ScreenLoadBoundary>

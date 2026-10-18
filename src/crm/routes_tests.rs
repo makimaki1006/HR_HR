@@ -1866,3 +1866,6 @@ async fn 専用鍵だけでもcrmを使え未設定なら従来のクライア�
         .all(|r| r.2 == "Bearer legacy-only-key-456"));
     assert!(test_state(None, None).crm_hubspot().is_none());
 }
+
+#[path = "applicants_tests.rs"]
+mod applicants_tests;

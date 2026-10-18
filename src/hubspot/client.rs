@@ -219,7 +219,8 @@ enum Attempt {
 }
 
 fn is_known_object(object: &str) -> bool {
-    RecordType::ALL.iter().any(|t| t.api_name() == object)
+    matches!(object, "0-421" | "0-420")
+        || RecordType::ALL.iter().any(|t| t.api_name() == object)
         || EngagementType::ALL.iter().any(|t| t.api_name() == object)
 }
 
