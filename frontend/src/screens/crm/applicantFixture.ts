@@ -18,8 +18,8 @@ export function applicantDetailFixture(id: string): ApplicantDetail {
     jobs: [{ label: row.job, url: 'https://app.hubspot.com/contacts/0/record/0-420/80001/' }],
     sections: [
       { title: '応募者の情報', fields: [{ label: 'カナ', value: id === '90002' ? 'カクウ アオイ' : 'カクウ ハルカ' }, { label: '年齢', value: '28' }, { label: '性別', value: '回答しない' }, { label: 'メール', value: 'applicant@example.invalid' }] },
-      { title: '応募先', fields: [{ label: '職種', value: '検品' }, { label: '勤務地', value: '架空市サンプル町' }, { label: '勤務時間', value: '9:00〜17:00' }] },
       { title: 'この求人の対応ルール', fields: [{ label: '初動対応', value: '応募のお礼を伝え、希望の勤務時間を確認してください。' }, { label: '資格保有確認', value: '必須資格はありません。' }] },
+      { title: '応募先', fields: [{ label: '職種', value: '検品' }, { label: '勤務地', value: '架空市サンプル町' }, { label: '勤務時間', value: '9:00〜17:00' }] },
       { title: '応募の内容', fields: [{ label: '面接可能日時', value: '平日午後' }, { label: '質問への回答', value: '研修の内容について知りたいです。' }] },
       { title: 'ヒアリングと結果', fields: [{ label: '保有資格', value: '資格なし' }, { label: '応募動機', value: '通勤しやすい職場を希望' }, { label: '一次対応実施内容', value: '勤務時間の確認待ち' }] },
     ],

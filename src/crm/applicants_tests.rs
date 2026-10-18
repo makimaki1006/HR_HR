@@ -50,7 +50,9 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
             let sort = &body["sorts"][0]["propertyName"];
             if f.large_queue {
                 let kind = body["sorts"][0]["propertyName"].as_str().unwrap();
-                let offset = body["after"].as_u64().unwrap() as usize;
+                let offset = body
+                    .get("after")
+                    .map_or(0, |a| a.as_str().unwrap().parse::<usize>().unwrap());
                 let total = if body["limit"] == 1 {
                     62
                 } else if kind == "yakusokukadennichiji" {
@@ -150,6 +152,7 @@ async fn applicants_queue_search_phases_cursor_total_cache_and_fresh() {
             .filter(|(p, _)| p.ends_with("search"))
             .collect();
         assert_eq!(searches.len(), 2);
+        assert!(searches.iter().all(|(_, b)| b.get("after").is_none()));
         let body = &searches[1].1;
         assert_eq!(
             body["sorts"],
@@ -214,12 +217,31 @@ async fn applicants_detail_labels_empty_fields_sheet_notes_cache_and_fresh() {
     assert_eq!(status, StatusCode::OK, "{a}");
     assert_eq!(a["phone"], "00000000000");
     assert_eq!(
+        a["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["title"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "応募者の情報",
+            "この求人の対応ルール",
+            "応募先",
+            "応募の内容",
+            "ヒアリングと結果"
+        ]
+    );
+    assert_eq!(
+        a["sections"][2]["fields"],
+        json!([{ "label": "応募先求人タイトル", "value": "架空の検品求人" }])
+    );
+    assert_eq!(
         a["sheet_url"],
         "https://docs.google.com/spreadsheets/d/fake-job/edit"
     );
     assert_eq!(a["sheet_embed"], true);
     assert_eq!(
-        a["sections"][2]["fields"],
+        a["sections"][1]["fields"],
         json!([{"label":"初動対応","value":"希望時間を確認"}])
     );
     assert_eq!(
@@ -314,5 +336,33 @@ async fn applicants_merge_keeps_order_across_pages_without_duplicates() {
         .flat_map(|i| [(1000 + i).to_string(), (2000 + i).to_string()])
         .collect();
     assert_eq!(ids, expected);
+    let g = f.lock().unwrap();
+    let searches: Vec<_> = g
+        .requests
+        .iter()
+        .filter(|(p, _)| p.ends_with("/search"))
+        .map(|(_, b)| b)
+        .collect();
+    assert_eq!(
+        searches
+            .iter()
+            .map(|b| (
+                b["sorts"][0]["propertyName"].as_str().unwrap(),
+                b.get("after").cloned()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("hs_createdate", None),
+            ("yakusokukadennichiji", None),
+            ("yingmuri", None),
+            ("hs_createdate", None),
+            ("hs_createdate", Some(json!("15"))),
+            ("yingmuri", Some(json!("15"))),
+            ("hs_createdate", Some(json!("15"))),
+            ("hs_createdate", Some(json!("30"))),
+            ("yingmuri", Some(json!("30"))),
+            ("hs_createdate", Some(json!("30"))),
+        ]
+    );
     assert_eq!(page["next_cursor"], Value::Null);
 }

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApplicantSheet, ApplicantsScreen } from './ApplicantsScreen';
 import { applicantDetailFixture } from './applicantFixture';
@@ -22,6 +22,13 @@ describe('応募の読み取りモード', () => {
     fireEvent.click(screen.getByRole('button', { name: /架空 はるか/ }));
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('架空 はるか');
     expect(await screen.findByText('資格なし')).toBeTruthy();
+    const pane = screen.getByRole('main', { name: '応募の詳細' });
+    expect(within(pane).getAllByRole('heading').map(h => h.textContent)).toEqual(['架空 はるか', 'この求人の対応ルール', '応募先', 'メモ']);
+    const jobCard = within(pane).getByRole('heading', { name: /^応募先$/ }).closest('section');
+    expect(jobCard?.textContent).toContain('サンプル物流株式会社');
+    expect(jobCard?.textContent).toContain('検品スタッフ（架空求人）');
+    expect(jobCard?.querySelector('a')?.href).toBe('https://app.hubspot.com/contacts/0/record/0-420/80001/');
+    expect(screen.queryByTestId('link-hint')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /架空 はるか/ }));
     expect(screen.getByText('資格なし')).toBeTruthy();
     expect(screen.getByText('応募のお礼を伝え、希望の勤務時間を確認してください。')).toBeTruthy();

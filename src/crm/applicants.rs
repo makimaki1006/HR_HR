@@ -339,7 +339,11 @@ fn search_body(base: &[Value], pos: &Position, kind: &str, properties: &[String]
         "dated" => ("yingmuri", "DESCENDING", pos.dated),
         _ => ("hs_createdate", "DESCENDING", pos.undated),
     };
-    json!({"filterGroups":groups,"sorts":[{"propertyName":sort,"direction":direction}],"properties":properties,"limit":if kind=="total" {1} else {PAGE},"after":after})
+    let mut body = json!({"filterGroups":groups,"sorts":[{"propertyName":sort,"direction":direction}],"properties":properties,"limit":if kind=="total" {1} else {PAGE}});
+    if after > 0 {
+        body["after"] = json!(after.to_string());
+    }
+    body
 }
 fn applicant_error(e: &HubSpotError) -> Response {
     if matches!(e, HubSpotError::Auth { status: 403 }) {
@@ -554,8 +558,8 @@ fn sheet_embeddable(url: Option<&str>) -> bool {
 fn sections(p: &Value, defs: &Value) -> Vec<ApplicantSection> {
     let mut groups: Vec<ApplicantSection> = [
         "応募者の情報",
-        "応募先",
         "この求人の対応ルール",
+        "応募先",
         "応募の内容",
         "ヒアリングと結果",
     ]
@@ -573,11 +577,11 @@ fn sections(p: &Value, defs: &Value) -> Vec<ApplicantSection> {
             continue;
         }
         let idx = if RULES.contains(&name.as_str()) {
-            2
+            1
         } else if HEARING.contains(&name.as_str()) {
             4
         } else if name.starts_with("oubosaki_") {
-            1
+            2
         } else if name.starts_with("hr_")
             || [
                 "mensetsukanounichiji",
@@ -769,10 +773,51 @@ async fn all_associations(
 mod tests {
     use super::*;
     #[test]
+    fn search_body_omits_initial_after_and_sends_string_offsets() {
+        let mut pos = Position {
+            now: 1792281600000,
+            phase: 0,
+            due: 0,
+            dated: 0,
+            undated: 0,
+        };
+        let filters = base_filters(&["1343099551".into()], &None);
+        let properties = vec!["ouboshashimei".to_owned()];
+        let mut expected = json!({
+            "filterGroups": [{"filters": [
+                {"propertyName":"hs_pipeline_stage","operator":"IN","values":["1343099551"]},
+                {"propertyName":"ichijitaiounoumu","operator":"EQ","value":"必要"},
+                {"propertyName":"yakusokukadennichiji","operator":"LTE","value":"1792281600000"}
+            ]}],
+            "sorts": [{"propertyName":"yakusokukadennichiji","direction":"ASCENDING"}],
+            "properties": ["ouboshashimei"], "limit":30
+        });
+        assert_eq!(search_body(&filters, &pos, "due", &properties), expected);
+        pos.due = 30;
+        expected["after"] = json!("30");
+        assert_eq!(search_body(&filters, &pos, "due", &properties), expected);
+        for kind in ["dated", "undated", "total"] {
+            assert!(search_body(&filters, &pos, kind, &properties)
+                .get("after")
+                .is_none());
+        }
+        pos.dated = 15;
+        pos.undated = 45;
+        assert_eq!(
+            search_body(&filters, &pos, "dated", &properties)["after"],
+            "15"
+        );
+        assert_eq!(
+            search_body(&filters, &pos, "undated", &properties)["after"],
+            "45"
+        );
+    }
+
+    #[test]
     fn empty_rules_and_sheet_selection_do_not_invent_values() {
         let definitions = json!({"properties":[{"name":"anmokuchi_shodoutaiou","label":"初動対応","type":"string"}]});
         assert!(
-            sections(&json!({"anmokuchi_shodoutaiou":" "}), &definitions)[2]
+            sections(&json!({"anmokuchi_shodoutaiou":" "}), &definitions)[1]
                 .fields
                 .is_empty()
         );

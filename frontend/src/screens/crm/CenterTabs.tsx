@@ -182,7 +182,7 @@ function FrameHint() {
  * 枠の中の移動は上の画面の履歴 (joint session history) に積まれるので、枠の中で 1 回以上移動したときだけ
  * 「戻る」で window.history.back() を呼ぶ (数が 0 のときは押せない = CRM 画面自体は戻らない)
  */
-export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void) | undefined }) {
+export function LinkView({ tab, onClose, showFrameHint = true }: { tab: LinkTab; onClose?: (() => void) | undefined; showFrameHint?: boolean }) {
   const [reloads, setReloads] = useState(0);
   const [navs, setNavs] = useState(0);
   const loaded = useRef(false);
@@ -216,7 +216,7 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
       {onClose && <button type="button" onClick={onClose}>このタブを閉じる</button>}
     </div>
     {hubspotNote && <small className="cq-linkbar-note" data-testid="hubspot-note">{HUBSPOT_NOTE}</small>}
-    {tab.embed !== null && <FrameHint />}
+    {tab.embed !== null && showFrameHint && <FrameHint />}
     {tab.embed !== null
       ? <iframe key={reloads} className="cq-linkframe" src={tab.embed} title={`${tab.label}(${tab.host})`}
         sandbox={LINK_FRAME_SANDBOX} referrerPolicy="no-referrer" data-testid="link-frame" onLoad={onLoad} />

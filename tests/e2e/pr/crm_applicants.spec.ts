@@ -20,14 +20,23 @@ test('応募: 一覧から詳細、対応ルール、報告シート、取引モ
   async function shot(name: string) {
     if (output) { fs.mkdirSync(output, { recursive: true }); await page.screenshot({ path: path.join(output, name) }); }
   }
+  await expect(detail.getByRole('heading')).toHaveText(['架空 はるか', 'この求人の対応ルール', '応募先', 'メモ']);
   await shot('01-list-detail.png');
   await detail.getByText('ヒアリングと結果', { exact: true }).scrollIntoViewIfNeeded();
+  await expect(detail.getByText('資格なし', { exact: true })).toBeVisible();
+  await detail.evaluate(pane => {
+    const rules = pane.querySelector('h3');
+    if (rules) pane.scrollTop += rules.getBoundingClientRect().top - pane.getBoundingClientRect().top - 12;
+  });
+  await expect(detail.getByRole('heading', { name: 'この求人の対応ルール' })).toBeInViewport();
   await expect(detail.getByText('資格なし', { exact: true })).toBeVisible();
   await shot('02-rules-hearing.png');
   await page.getByRole('tab', { name: 'Zoom', exact: true }).click();
   await expect(page.getByText('架空サンプルでは発信できません')).toBeVisible();
   await page.getByRole('tab', { name: '報告シート', exact: true }).click();
   await expect(page.locator('iframe[title^="報告シート"]')).toHaveAttribute('src', 'https://docs.google.com/spreadsheets/d/fictional-applicants-sheet/edit');
+  await expect(page.getByTestId('link-hint')).toHaveCount(0);
+  await detail.evaluate(pane => { pane.scrollTop = 0; });
   await shot('03-report-sheet.png');
   await page.getByRole('button', { name: /架空 あおい/ }).click();
   await expect(page.getByText('この応募には報告シートの URL がありません')).toBeVisible();

@@ -42,7 +42,7 @@ export function ApplicantSheet({ detail }: { detail: ApplicantDetail | null }) {
   if (!tab || !safeHttpUrl(url)) return <p>報告シートの URL を確認してください。</p>;
   // サーバの判定に加えてブラウザでも埋め込み先を制限する。
   tab.embed = detail.sheet_embed && url.startsWith('https://docs.google.com/spreadsheets/') ? url : null;
-  return <LinkView key={url} tab={tab} />;
+  return <LinkView key={url} tab={tab} showFrameHint={false} />;
 }
 export function ApplicantsScreen({ fixture = new URLSearchParams(window.location.search).get('mode') === 'fixture' }: { fixture?: boolean }) {
   const detailRef = useRef<HTMLElement>(null);
@@ -119,10 +119,10 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
           {detailError && <p role="alert">{detailError}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
           {!detail && !detailError && <p role="status">詳細を読み込み中…</p>}
           {detail?.sections.map((section, i) => i === 0 ? null : i < 3 ? <section className="crm-card" key={section.title}><h3>{section.title}</h3>
-            {i === 1 && <p><strong>{detail.row.deal}</strong><br />{detail.row.job}</p>}
+            {i === 2 && <p><strong>{detail.row.deal}</strong><br />{detail.row.job}</p>}
             <Fields section={section} />
-            {i === 1 && detail.jobs.map(job => <p key={job.url}>{job.label} <a href={job.url} target="_blank" rel="noreferrer">HubSpotで開く</a></p>)}
-            {i === 2 && section.fields.length === 0 && <p>この求人の対応ルールは登録されていません</p>}
+            {i === 2 && detail.jobs.map(job => <p key={job.url}>{job.label} <a href={job.url} target="_blank" rel="noreferrer">HubSpotで開く</a></p>)}
+            {i === 1 && section.fields.length === 0 && <p>この求人の対応ルールは登録されていません</p>}
           </section> : <details className="crm-card" key={section.title} open={i === 4}><summary>{section.title}</summary><Fields section={section} /></details>)}
           {detail && <section className="crm-card"><h3>メモ</h3>{detail.notes.length === 0 && <p>メモはありません。</p>}{detail.notes.map((n, i) => <article key={i}><time>{date(n.date)}</time><div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} /></article>)}</section>}
         </>}
