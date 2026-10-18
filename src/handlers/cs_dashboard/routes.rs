@@ -667,8 +667,6 @@ pub fn build_renewal(sheets: &Sheets, exclude_right_censored: bool) -> Value {
             "right_censored_n": right_censored_n,
             "exclude_right_censored": exclude_right_censored,
             "all_cached": sheets.all_cached,
-            // 何を数えていないかを画面に書くための一文。既存 p11 の書きぶりを借りる。
-            "not_counted": "※ この画面は取引（契約）を数えています。顧客数でも商談数でもありません",
         },
         "monthly_retention": monthly_retention(&deals),
         "by_renewal": by_renewal(&deals, exclude_right_censored),
@@ -923,7 +921,6 @@ pub fn build_outcome(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_deals": deals.len(),
             "n_active": act.len(),
             "all_cached": sheets.all_cached,
-            "not_counted": "※ 成約率・継続率・MTG件数・メール件数ではありません。接触＝MTG または60秒超の通話で、メールは数えていません。接触は検知にだけ使い、処方には使いません",
         },
         "contact_source": {
             "calls_over_threshold": n_call,
@@ -1187,7 +1184,6 @@ pub fn build_focus(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_deals": deals.len(),
             "n_active": act.len(),
             "all_cached": sheets.all_cached,
-            "not_counted": "※ 売上でも担当者の評価でもありません。対応が要る案件を絞るための画面です。良し悪しの判断は人がします",
         },
         "shape": shape(&cust, &super::houjin_population(&sheets.deal)),
         "nps_low": nps_low(&act, &nps, &contacts, today),
@@ -1383,7 +1379,6 @@ pub fn build_rampup(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_deals": deals.len(),
             "n_active": act.len(),
             "all_cached": sheets.all_cached,
-            "not_counted": "※ 成約率・売上・担当者の評価ではありません。契約が始まってから最初の MTG までに何日かかったかだけを見ています",
         },
         "phase": phase_of(&act, today),
         "first_mtg": first_mtg(&deals, &mf),
@@ -1503,7 +1498,6 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_active": act.len(),
             "all_cached": sheets.all_cached,
             "threshold_sec": super::CONTACT_SEC,
-            "not_counted": "※ 接触 ＝ 60秒超の通話。メールは数えていません。接触は検知にだけ使い、処方には使いません",
         },
         "reach": {
             "rows": n_rows,
@@ -1682,7 +1676,6 @@ pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_houjin": hp.main.len(),
             "n_houjin_option_only": hp.option_only,
             "all_cached": sheets.all_cached,
-            "not_counted": "※ 親法人の合計ではありません。事業所ごとに出しています。決裁は事業所単位なので、まとめると行き先が消えます",
             // 画面の注記に使う。拠点の行の数字どうしで検算できるように、定義を1か所で持つ
             "cpa_rule": "採用単価は結果が出た取引のうち、金額と採用数が両方入っているものだけで出しています。稼働中は採用がまだ伸びきっておらず高く出るので外しています（外した件数は拠点ごとに出しています）",
             "cancel_rule": "解約率 ＝（解約＋充足）÷ 結果が出た（継続＋解約＋充足）。稼働中は分母に入れていません",
@@ -1795,7 +1788,6 @@ pub fn build_mtg_quality(sheets: &Sheets, today: NaiveDate) -> Value {
             // 数えなかったオプション契約の MTG の行数
             "option_rows_excluded": mtg.rows.len() - total,
             "all_cached": sheets.all_cached,
-            "not_counted": "※ MTG の良し悪しを採点していません。何が記録されているかだけを出しています",
         },
         "linked": {
             "n": linked,
@@ -2078,7 +2070,6 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_unknown_deal": unknown_deal,
             // 氏名の分からない担当の人数（2人以上なら画面は「氏名不明 N」と番号で分ける）
             "n_unresolved_people": unresolved_no.len(),
-            "not_counted": "※ 交代が良かったか悪かったかは判定していません。記録を並べているだけです。オプション契約の交代は、ほかの画面と同じく外しています",
         },
         "rows": rows,
         "reflected_dist": reflected.iter()
@@ -2694,7 +2685,6 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "houjin": h,
             "found": c.is_some(),
             "all_cached": sheets.all_cached,
-            "not_counted": "※ 採用単価は拠点ごとに分けています。1本にまとめると拠点間のばらつきが時間の悪化に見えます",
         },
         "customer": c.map(|c| {
             let f = fflags.get(&c.houjin).copied().unwrap_or_default();
@@ -2865,10 +2855,6 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
             // 同じ日に複数行あって、どちらを採るかで担当が変わる取引
             "owner_ties": ties,
             "all_cached": sheets.all_cached,
-            // 🔴 最初の文はチームと担当の頭で畳まずに出る（画面の foldNote の keep）。09 の 6「仕事量の一覧で、担当者の評価ではありません」。
-            //    「順位を付けていますが」は外した（2026-09-29 組み替えで表は名前順が既定になり、順位を付けていない）
-            "not_counted": "※ 仕事量の一覧で、担当者の評価ではありません。手が足りていない場所を見つけるための画面です。\
-    良し悪しの判断は人がします",
         },
         "contact_rule": "接触 ＝ MTG または60秒超の通話（メールは数えない）。\
     接触率 ＝ 接触があった月 ÷（案件 × 経過月）。件数ではなく率で見るのは、\
@@ -3513,11 +3499,6 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             "採用単価は、稼働中の契約どうしを契約の進み具合（前半 0〜50% ／ 50〜75% ／ 75〜100%）で\
     そろえて比べています。結果が出た契約とは比べていません（採用数が出そろっていて、必ず安く見えるため）。\
     件数が {CPA_BAND_MIN_N} 件に満たない区分は真ん中の値を出さず、注意も立てていません"),
-        "order_rule": "既定の並びは「注意の数が多い順、同じなら金額の大きい順」です。\
-    スコアや確率は出していません。契約開始時点で解約する契約としない契約を見分ける力は 0.583\
-    （0.5 で当て推量と同じ）で、順位付けの根拠になりません。何で上に来たかは、その行の注意を見れば分かります",
-        "not_counted": "※ 予測ではありません。既にあるデータに注意を付けて並べただけです。\
-    手を打つかどうかは中身を読んで決めてください",
         // 見方の印（段B）。定義の1行と件数。画面は並びをこの順に出す
         "act_views": ACT_VIEWS.iter().map(|v| json!({
             "key": v.key, "label": v.label, "rule": v.rule,

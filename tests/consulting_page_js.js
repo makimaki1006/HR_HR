@@ -274,7 +274,7 @@ check("U3", "素早く切り替えると、前の画面の遅い応答で上書�
   slows.forEach((slow) => slow.resolve(jsonRes({ meta: {}, rows: [] })));
   await tick(); await tick(); await tick();
   const main = t.reg["cs-main"].innerHTML;
-  if (main.indexOf("この担当はどの案件を持つか") < 0 ||
+  if (main.indexOf("担当者を選んでください") < 0 ||
       main.indexOf("どこに手が回っていないか") >= 0)
     throw new Error("URL は担当者ごとの案件なのに、中身がチームと担当で上書きされた");
 });
@@ -293,7 +293,7 @@ check("U3", "前の画面の遅い要求が失敗しても、いまの画面を�
   slows.forEach((slow) => slow.resolve({ ok: false, status: 502, redirected: false, url: "http://test.local/api",
     headers: { get: () => "text/html" }, json: async () => { throw new SyntaxError("x"); } }));
   await tick(); await tick(); await tick();
-  if (t.reg["cs-main"].innerHTML.indexOf("この担当はどの案件を持つか") < 0)
+  if (t.reg["cs-main"].innerHTML.indexOf("担当者を選んでください") < 0)
     throw new Error("古い要求の失敗で、いまの画面（担当者ごとの案件）が消された");
   if (t.reg["cs-error"].innerHTML.indexOf("HTTP 502") >= 0)
     throw new Error("古い要求の失敗がエラーとして出ている");
@@ -1171,7 +1171,7 @@ check("L4", "houjin: 「拠点をまたいで1本の線にしない」と基準�
   t.R('customerHoujin = "H1"; houjinFor = ""; houjinPick = null;');
   const h = t.R("renderCustomer(__D)");
   const n = count(h, /時間の悪化/g);
-  if (n !== 1) throw new Error("「1本にまとめると…時間の悪化に見える」が " + n + " 回出ている（頭の枠の1回にする）");
+  if (n !== 0) throw new Error("削除した説明が残っている");
   if (h.indexOf("1本の線にまとめない理由") >= 0) throw new Error("「1本の線にまとめない理由」の枠が残っている");
   const b = count(h, /基準日 2026-09-24/g);
   if (b !== 1) throw new Error("基準日が " + b + " 回出ている");
@@ -1278,12 +1278,12 @@ check("H1", "担当の交代: 開くと handover を取り、交代の前後の�
   req.resolve(jsonRes(teamPayload({ handover: handoverPayload() })));
   await tick(); await tick();
   const h = t.reg["cs-main"].innerHTML;
-  for (const w of ["交代の前後で、接触は増えたか減ったか", "証拠ではありません", "引き継いだ側（次の担当）", "引き継がれた側（前の担当）",
+  for (const w of ["交代前後の接触", "引き継いだ側（次の担当）", "引き継がれた側（前の担当）",
     "接触の前後（30日あたり）", "記録の遅れ", "それぞれの担当期間の全体（通期）", "変化の平均 / 真ん中の値", "担当中"])
     if (h.indexOf(w) < 0) throw new Error("「" + w + "」が描かれていない");
   if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
   /* 担当者ごとの接触は同じ画面の節（接触の推移）。そこへ移るボタン（URL のハッシュは変えない） */
-  if (h.indexOf('<button type="button" class="tojump" data-jump="tm-ct-h">接触の推移</button>') < 0 || h.indexOf('id="tm-ct-h"') < 0)
+  if (h.indexOf('id="tm-ct-h"') < 0)
     throw new Error("担当者ごとの接触（同じ画面の接触の推移）への行き先が無い");
   /* 交代の表の案件名は案件の詳細へ（09 の 3「担当の交代の表の案件名もリンクにする」） */
   if (h.indexOf('<a class="deallink" href="#deal/detail?id=40000000001">案件X</a>') < 0)
@@ -1979,7 +1979,7 @@ check("M-2", "戻る（履歴の札あり）は取り直さず、離れる前の
   (t.listeners.popstate || []).forEach((f) => f({ type: "popstate", state: kToday }));
   (t.listeners.hashchange || []).forEach((f) => f({ type: "hashchange" }));
   if (t.fetched.length !== n0 + 1) throw new Error("戻るで今日動く先を取り直している（位置と時間を失う）");
-  if (t.R("cur.view") !== "today" || t.reg["cs-main"].innerHTML.indexOf("今日・今週、どこに連絡するか") < 0) throw new Error("戻っても今日動く先が描かれていない");
+  if (t.R("cur.view") !== "today" || t.reg["cs-main"].innerHTML.indexOf('id="td-today-h"') < 0) throw new Error("戻っても今日動く先が描かれていない");
   if (!scrolled.some((p) => p[1] === 1500)) throw new Error("離れる前の位置（scrollY 1500）に戻していない: " + JSON.stringify(scrolled));
   if (!row.focused) throw new Error("戻ったとき、押していた案件名（同じ行）にフォーカスが戻らない");
   /* 前の読み込み（F5 の前）の札は使わない: s が違えばリンクと同じ扱い（取りに行く） */

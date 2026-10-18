@@ -1105,10 +1105,7 @@ fn 本部は事業所ごとに並べる() {
             }
         }
     }
-    assert!(v["meta"]["not_counted"]
-        .as_str()
-        .unwrap()
-        .contains("事業所ごと"));
+    assert!(v["meta"].get("not_counted").is_none());
 }
 
 // ================================================================ タブ5 MTGの品質
@@ -3644,13 +3641,7 @@ fn 画面に出す文に英語の用語を残さない() {
     let s = sheets();
     let t = fixture_day();
     let phone = build_phone(&s, t);
-    let today = build_today_board(&s, t);
-    let board = build_deal_board(&s, t);
-    for (name, v) in [
-        ("電話 reach.note", &phone["reach"]["note"]),
-        ("今日動く先 order_rule", &today["meta"]["order_rule"]),
-        ("案件そのもの order_rule", &board["meta"]["order_rule"]),
-    ] {
+    for (name, v) in [("電話 reach.note", &phone["reach"]["note"])] {
         let text = v
             .as_str()
             .unwrap_or_else(|| panic!("{name} が文字列でない: {v}"));
@@ -4093,17 +4084,30 @@ fn 通話の記録が始まる前の期間に印が付く() {
         .all(|p| p["calls_missing"] == false));
 }
 
-/// 🔴 画面の頭に出す断り。接触は検知専用で、多いほど良い・担当者の評価、ではない。
 #[test]
-fn 担当者ごとの接触は検知専用で評価ではないと書く() {
-    let v = build_contact_trend(&sheets(), fixture_day());
-    let t = v["meta"]["not_counted"].as_str().expect("not_counted");
-    for w in [
-        "接触は検知専用",
-        "多いほど良いという評価ではありません",
-        "担当者の評価ではありません",
+fn 全画面のメタに断り書きを返さない() {
+    let s = sheets();
+    let t = fixture_day();
+    for v in [
+        build_contact_trend(&s, t),
+        build_phone(&s, t),
+        build_today_board(&s, t),
+        build_deal_board(&s, t),
+        build_headquarters(&s, t),
+        build_outcome(&s, t),
+        build_focus(&s, t),
+        build_rampup(&s, t),
+        build_mtg_quality(&s, t),
+        build_handover(&s, t),
+        build_customer(&s, None, t),
+        build_consultants(&s, t),
+        build_team(&s, t),
+        super::money::build_renewal_pipe(&s, t),
     ] {
-        assert!(t.contains(w), "断りに「{w}」が無い: {t}");
+        assert!(!v.to_string().contains("\"not_counted\""));
+        assert!(v["meta"].get("not_counted").is_none());
+        assert!(v["meta"].get("order_rule").is_none());
+        assert_eq!(v["meta"]["today"], "2026-09-18");
     }
 }
 

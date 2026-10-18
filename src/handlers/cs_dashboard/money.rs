@@ -282,7 +282,6 @@ pub fn build_renewal_pipe(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_active": act.len(),
             "window": window,
             "amount_basis": AMOUNT_BASIS,
-            "not_counted": "※ 予測ではありません。満了日と今のステージをそのまま数えています。ステージの確度を掛けた見込みの金額は出していません",
         },
         "months": months,
         "stages": stages.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>(),

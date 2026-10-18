@@ -17,6 +17,9 @@ const scenarios = [
 async function check(page: Page, label: string) {
   await expect(page.locator('#cs-main')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('#cs-error')).toBeHidden();
+  await expect(page.locator('#cs-main')).not.toContainText(/評価ではありません|読むときの注意|並べ方の決まり/);
+  const headings = await page.locator('#cs-main h2').allTextContents();
+  expect(headings.filter(title => /か[？?]?$/.test(title.trim()))).toEqual([]);
   await page.evaluate(() => { document.querySelectorAll('details').forEach(d => d.open = true); window.scrollTo(0, 0); });
   await page.waitForTimeout(250); // 図の幅の再計測と描き直しを待つ
   // 重なりの検査は画面に映っている範囲だけなので、上から下まで 1 画面ずつずらして調べ、結果を足し合わせる
