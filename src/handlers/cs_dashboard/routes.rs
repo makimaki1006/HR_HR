@@ -1911,6 +1911,7 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
             {"name": super::SHEET_HANDOVER, "rows": sheets.handover.rows.len()},
             {"name": super::SHEET_OWNER_HIST, "rows": sheets.owner_hist.rows.len()},
             {"name": super::SHEET_META, "rows": sheets.meta.rows.len()},
+            {"name": super::SHEET_PENDING_RECORDINGS, "rows": sheets.pending_recordings.as_ref().filter(|s| s.header == PENDING_RECORDING_HEADER).map(|s| s.rows.len())},
         ],
     })
 }
@@ -3774,6 +3775,36 @@ const TEAM_FLAG_NO_CONTACT: &str = "接触の記録が無い";
 const TEAM_FLAG_EXPIRY60: &str = "満了まで60日以内";
 const TEAM_FLAG_NPS_LOW: &str = "NPSが4以下";
 
+pub(super) const PENDING_RECORDING_HEADER: &[&str] = &[
+    "録画UUID",
+    "録画",
+    "開催日",
+    "件名",
+    "ホスト氏名",
+    "候補の取引",
+    "理由",
+];
+
+fn pending_recordings(sheet: Option<&super::SheetData>) -> Value {
+    let Some(sheet) = sheet.filter(|s| s.header == PENDING_RECORDING_HEADER) else {
+        return Value::Null;
+    };
+    let mut rows: Vec<Value> = sheet
+        .rows
+        .iter()
+        .filter(|r| !sheet.get(r, "録画UUID").trim().is_empty())
+        .map(|r| {
+            json!({
+                "recording": sheet.get(r, "録画"), "date": sheet.get(r, "開催日"),
+                "subject": sheet.get(r, "件名"), "host": sheet.get(r, "ホスト氏名"),
+                "candidates": sheet.get(r, "候補の取引"), "reason": sheet.get(r, "理由"),
+            })
+        })
+        .collect();
+    rows.sort_by(|a, b| b["date"].as_str().cmp(&a["date"].as_str()));
+    json!({ "rows": rows })
+}
+
 /// 「チームと担当」（09 の 6）。担当者の一覧・担当者ごとの接触・担当の交代を1画面にまとめる。
 ///
 /// 🔴 中身は今までの集計をそのまま束ねる（`consultants` / `contact` / `handover`）。定義を作り直さない。
@@ -3790,6 +3821,7 @@ pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
     struct S {
         n: usize,
         flags2: usize,
+        unattended: usize,
         critical: usize,
         no_contact: usize,
         expiring60: usize,
@@ -3824,6 +3856,9 @@ pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
         };
         e.n += 1;
         e.flags2 += usize::from(flags2);
+        e.unattended += usize::from(
+            r["mtg_band"] == "critical" || has(TEAM_FLAG_NO_CONTACT) || has(TEAM_FLAG_EXPIRY60),
+        );
         e.critical += usize::from(r["mtg_band"] == "critical");
         e.no_contact += usize::from(has(TEAM_FLAG_NO_CONTACT));
         e.expiring60 += usize::from(has(TEAM_FLAG_EXPIRY60));
@@ -3838,6 +3873,7 @@ pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
                 "consultant": name,
                 "n_active": s.n,
                 "n_flags2": s.flags2,
+                "unattended": s.unattended,
                 "mtg_critical": s.critical,
                 "no_contact": s.no_contact,
                 "expiring60": s.expiring60,
@@ -3862,7 +3898,7 @@ pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
                 "week_days": TEAM_EXPIRY_WEEK_DAYS,
                 "mtg_critical_days": super::MTG_GAP_CRITICAL_DAYS,
                 // 担当が取れない行の数（人の行には入れていない）
-                "unknown": { "n_active": unknown.n, "n_flags2": unknown.flags2,
+                "unknown": { "n_active": unknown.n, "n_flags2": unknown.flags2, "unattended": unknown.unattended,
                              "mtg_critical": unknown.critical, "no_contact": unknown.no_contact,
                              "expiring60": unknown.expiring60, "expiring_week": unknown.expiring_week, "nps_low": unknown.nps_low },
                 // 画面が案件そのものを絞るときの名札の文字（画面に直書きしない）
@@ -3870,6 +3906,7 @@ pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
                                  "nps_low": TEAM_FLAG_NPS_LOW },
             },
         },
+        "pending_recordings": pending_recordings(sheets.pending_recordings.as_deref()),
         "contact": build_contact_trend(sheets, today),
         "handover": build_handover(sheets, today),
     })

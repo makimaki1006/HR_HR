@@ -435,10 +435,10 @@
   /* チームと担当の担当者 × 状態（09 の 6）。PC では枡の上下を詰めて、1画面目に入る人数を増やす。
      2026-09-29 実測（1440×900, fixture 27 名）: 1 行 41px・表の 1 行目 y≈694 で、900px までに 4 行だった。
      スマホ（600px 以下）は押しやすさ（40px 前後）を優先して詰めない */
-  #team-tbl{table-layout:fixed;width:100%;min-width:1150px}
+  #team-tbl{table-layout:fixed;width:100%;min-width:1280px}
   #team-tbl th:first-child{width:108px}
   #team-tbl th:nth-child(2){width:80px}
-  #team-tbl th:nth-child(9),#team-tbl th:nth-child(10){width:145px}
+  #team-tbl th:nth-child(10),#team-tbl th:nth-child(11){width:145px}
   #team-tbl th:last-child{width:85px}
   #team-tbl th button.sort{white-space:normal;padding:7px 8px}
   #team-tbl td{padding-left:8px;padding-right:8px;white-space:normal;overflow-wrap:anywhere}
@@ -3420,7 +3420,7 @@ function droppedNote(rows, nOf, labelOf) {
    前の「担当者の一覧」「担当者ごとの接触」「担当の交代」を1画面にまとめた。応答は /api/consulting/team が
    3つの集計（consultants / contact / handover）と担当者 × 状態（status）を束ねて返す（routes.rs build_team）。
    🔴 仕事量の一覧で、担当者の評価ではない。問いの直下に**畳まずに**書く（09 の 6。役割起点の案から採った）。
-   🔴 表は**名前順が既定**。前は接触率の低い順が既定で、順位表に見えた。並べ替えは見出しを押したときだけ。
+   🔴 表は手が回っていない案件の多い順が既定。同数は名前順。見出しで並べ替えられる。
    🔴 人ごとの接触の定義は2つある（接触した月の割合 / 1件あたりの接触回数）。1つにまとめず、**名前で区別して並べる**
       （09 の判断③。回答待ちの間は推奨どおり並べる）。
    🔴 人ごとの金額（前の表の ATV 最大）は出さない（2026-09-29 藤巻さんの判断④「金額は会社全体だけ」）。
@@ -3429,7 +3429,7 @@ function droppedNote(rows, nOf, labelOf) {
    🔴 表の数は押すと、その担当とその印で「担当者ごとの案件」「今日動く先」を開く。数えているのは同じ行
       （build_team は deal_rows から数える。見張り tests.rs team_status_matches_today_and_board）。
    ================================================================ */
-let teamSort = { key: "consultant", asc: true };
+let teamSort = { key: "unattended", asc: false };
 /* 接触の推移に重ねる担当（URL の c）。空なら全体の線だけ */
 let teamPick = "";
 
@@ -3501,6 +3501,7 @@ const TEAM_COLS = [
       '" title="この担当の案件だけを「担当者ごとの案件」で見る">' + (esc(r.consultant) || DASH) + "</a>" +
       (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "") },
   { k: "n_active", t: "持ち件数", n: 1, fmt: (r) => num(r.n_active) },
+  { k: "unattended", t: "手が回っていない案件", n: 1, fmt: (r) => num(r.unattended) },
   { k: "n_flags2", t: "注意2つ以上", n: 1, fmt: (r, L) =>
       teamDrill(r.n_flags2, hashFor("today", { c: r.consultant }), "この担当で「今日」を開く（注意2つ以上の全件）") },
   { k: "mtg_critical", t: "MTG 90日以上空いている", n: 1, fmt: (r) =>
@@ -3547,6 +3548,18 @@ function wireJumps() {
   });
 }
 
+function pendingRecordingSection(pending) {
+  if (!pending || !pending.rows || !pending.rows.length) return "";
+  const rows = pending.rows.slice().sort((a, b) => b.date.localeCompare(a.date));
+  const cells = rows.map((r) => [esc(r.date), esc(r.subject) +
+    (/^https?:\/\//i.test(r.recording || "") ? ' <a href="' + esc(r.recording) + '" target="_blank" rel="noopener noreferrer">録画</a>' : ""),
+    esc(r.host), esc(r.candidates), esc(r.reason)]);
+  return '<p>録画のうち案件に結び付いていないもの ' + num(rows.length) + ' 件</p>' +
+    foldNote("info", "結び付いていない録画を見る", scroll(table([
+      { t: "開催日" }, { t: "件名" }, { t: "ホスト" }, { t: "候補の取引" }, { t: "理由" },
+    ], cells), 340));
+}
+
 function renderTeam(D) {
   const C = D.consultants || { rows: [], meta: {} };
   const S = D.status || { rows: [], meta: {} };
@@ -3561,7 +3574,7 @@ function renderTeam(D) {
     if (x == null) return 1;
     if (y == null) return -1;
     const c = typeof x === "string" ? x.localeCompare(y, "ja") : x - y;
-    return asc ? c : -c;
+    return (asc ? c : -c) || a.consultant.localeCompare(b.consultant, "ja");
   });
   const U = (D.contact || {}).month || { periods: [] };
   const lf = teamLastFixed(U.periods);
@@ -3601,9 +3614,11 @@ function renderTeam(D) {
         D.meta.retired_deals ? "warn" : "", D.meta.retired_deals ? { jump: "tm-tbl-h", text: "表へ（担当者の列に印）" } : null) +
     "</div>";
 
+  h += pendingRecordingSection(D.pending_recordings);
+
   /* ---- 担当者 × 状態 ---- */
   h += sec("表", "担当者 × 状態（" + num(rows.length) + " 名）", "tm-tbl-h");
-  h += '<div class="lede">1行1担当者、名前の順。持ち件数が各数の対象です。' +
+  h += '<div class="lede">1行1担当者。最初は手が回っていない案件の多い順、同じ数は名前順です。持ち件数が各数の対象です。' +
     (lfLabel ? "接触回数は確定した最新月（" + esc(lfLabel) + "）の値です。" : "") + "</div>";
   let t = '<table id="team-tbl"><thead><tr>';
   for (const c of TEAM_COLS) {
@@ -3617,7 +3632,7 @@ function renderTeam(D) {
   }
   // 全体は担当不明の分も含める。割合・平均はここで足し合わせない。
   const total = { n_active: SM.n_active };
-  ["n_flags2", "mtg_critical", "no_contact", "expiring60", "nps_low", "expiring_week"].forEach((key) => {
+  ["unattended", "n_flags2", "mtg_critical", "no_contact", "expiring60", "nps_low", "expiring_week"].forEach((key) => {
     total[key] = rows.reduce((sum, row) => sum + (row[key] || 0), (SM.unknown || {})[key] || 0);
   });
   t += '</tbody><tfoot><tr><th scope="row">全体</th>';
@@ -3647,7 +3662,8 @@ function renderTeam(D) {
      題は「担当者 × 状態の決まりごと」。同じ画面の担当の交代にも「この一覧の決まりごと」があるので、どの表の決まりか分かる名前にする */
   h += foldNote("def", "担当者 × 状態の決まりごと",
     "見出しを押すと並び替わります。数を押すと、その担当と印で絞った一覧が開きます。" +
-    "注意2つ以上は「今日」、ほかは「担当者ごとの案件」を開きます。<br>" +
+    "手が回っていない案件は、MTGが90日以上空いている・接触の記録が無い・満了まで60日以内のどれかに当たる案件です。同じ案件は1件と数え、この列は数だけを表示します。<br>" +
+    "注意2つ以上は「今日」、ほかのリンクは「担当者ごとの案件」を開きます。<br>" +
     esc(dispText(C.owner_rule || "")) + "<br>" + esc(C.focus_rule || "") +
     /* 担当の割れ（mod.rs consultant_ties）。ここでは件数だけ書く。どちらを採ったかは owner_rule（routes.rs）が書いている（F2） */
     (D.meta.owner_ties ? "<br>同じ日に担当の記録が複数あって担当が割れている稼働中の案件が " +
@@ -4480,7 +4496,29 @@ const CUSTOMER_FILTERS = [
   { key: "interviews", field: "mensetu_total", label: "面接", unit: "件", scale: 1 },
   { key: "acceptances", field: "syoudaku_total", label: "承諾", unit: "件", scale: 1 },
 ];
+const CUSTOMER_PRESETS = [
+  { label: "本社に提案できそう", values: { acceptances: "5" }, active: true },
+  { label: "大きいのに拠点が少ない", values: { employees: "1000", sites_max: "2" } },
+  { label: "お金を多くかけている", values: { monthly: "30" }, active: true },
+  { label: "重点顧客", values: {}, focus: true },
+];
+const CUSTOMER_FILTER_KEYS = [...CUSTOMER_FILTERS.map((f) => f.key), "sites_max"];
 const customerFilter = {};
+function applyCustomerPreset(index) {
+  const preset = CUSTOMER_PRESETS[index];
+  CUSTOMER_FILTER_KEYS.forEach((key) => { customerFilter[key] = preset.values[key] || ""; });
+  customerActiveOnly = !!preset.active;
+  focusOnly = !!preset.focus;
+}
+function customerPresetMatches(preset) {
+  return customerActiveOnly === !!preset.active && focusOnly === !!preset.focus &&
+    CUSTOMER_FILTER_KEYS.every((key) => customerLowerBound(customerFilter[key]) === (preset.values[key] || ""));
+}
+function updateCustomerPresetButtons() {
+  document.querySelectorAll("[data-customer-preset]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(customerPresetMatches(CUSTOMER_PRESETS[Number(button.dataset.customerPreset)])));
+  });
+}
 let customerActiveOnly = false;
 function customerLowerBound(value) {
   if (value == null || String(value).trim() === "") return "";
@@ -4490,13 +4528,15 @@ function customerLowerBound(value) {
 function filterCustomers(rows) {
   const used = CUSTOMER_FILTERS.filter((f) => customerLowerBound(customerFilter[f.key]) !== "");
   const conditions = used.map((f) => ({ ...f, min: Number(customerFilter[f.key]) * f.scale }));
+  const max = customerLowerBound(customerFilter.sites_max);
+  if (max !== "") conditions.push({ field: "sites", label: "拠点数", max: Number(max) });
   if (customerActiveOnly) conditions.push({ field: "active", label: "稼働中の件数", min: 1 });
   const known = (v) => typeof v === "number" && Number.isFinite(v);
   return {
-    rows: rows.filter((r) => (!focusOnly || r.focus) && conditions.every((f) => known(r[f.field]) && r[f.field] >= f.min))
+    rows: rows.filter((r) => (!focusOnly || r.focus) && conditions.every((f) => known(r[f.field]) && (f.max != null ? r[f.field] <= f.max : r[f.field] >= f.min)))
       .sort((a, b) => (b.ltv ?? -Infinity) - (a.ltv ?? -Infinity)),
-    missing: conditions.map((f) => ({ label: f.label, n: rows.filter((r) => !known(r[f.field])).length })),
-    numeric: used.length > 0,
+    missing: conditions.filter((f, i) => conditions.findIndex((c) => c.field === f.field) === i).map((f) => ({ label: f.label, n: rows.filter((r) => !known(r[f.field])).length })),
+    numeric: used.length > 0 || max !== "",
   };
 }
 function customerFilterResults() {
@@ -4517,15 +4557,18 @@ function customerFilterResults() {
 }
 function focusToggle(D) {
   const f = D.focus;
-  let h = '<div class="ctlbar">';
+  let h = '<div class="ctlbar">' + CUSTOMER_PRESETS.map((preset, i) =>
+    '<button type="button" class="act" data-customer-preset="' + i + '" aria-pressed="' + customerPresetMatches(preset) + '">' + esc(preset.label) + '</button>').join("") + '</div><div class="ctlbar">';
   if (f) h += '<label class="act"><input type="checkbox" id="hj-focus-only"' + (focusOnly ? " checked" : "") + '>' +
     '上の「法人を選ぶ」を重点顧客だけにする（' + num(f.n_focus) + ' / ' + num(f.n_display) + ' 社）</label>';
   h += '</div><p class="muted small">すべての条件に当てはまる顧客を探します。空欄の条件は使いません。月額は取引の中で一番大きい額、継続の回数は一番多い回数です。</p><div class="ctlbar">';
   h += CUSTOMER_FILTERS.map((f) => '<label>' + esc(f.label) + ' <input class="act customer-min" type="number" min="0" step="any" id="customer-min-' + f.key + '" data-filter="' + f.key + '" value="' + esc(customerFilter[f.key] || "") + '" aria-label="' + esc(f.label) + 'の下限"> ' + f.unit + '以上</label>').join("");
+  h += '<label>拠点数 <input class="act customer-min" type="number" min="0" step="any" id="customer-max-sites" value="' + esc(customerFilter.sites_max || "") + '" aria-label="拠点数の上限"> 拠点以下</label>';
   h += '<label class="act"><input type="checkbox" id="customer-active-only"' + (customerActiveOnly ? " checked" : "") + '>稼働中だけ</label></div>';
   return h + '<div id="customer-filter-results">' + customerFilterResults() + '</div>';
 }
 function updateCustomerFilterResults() {
+  updateCustomerPresetButtons();
   const target = document.getElementById("customer-filter-results");
   if (target) target.innerHTML = customerFilterResults();
   fillCustomerSelect();
@@ -8806,18 +8849,18 @@ const URL_STATE = {
               site: { kind: "filter", get: () => custSite, set: (v) => { custSite = v; custLand = !!v; }, reset: () => { custSite = ""; custLand = false; } },
               focus: flagState(() => focusOnly, (b) => { focusOnly = b; }),
               active: flagState(() => customerActiveOnly, (b) => { customerActiveOnly = b; }),
-              ...Object.fromEntries(CUSTOMER_FILTERS.map((f) => [f.key, {
-                kind: "filter", get: () => customerFilter[f.key] || "",
-                set: (v) => { customerFilter[f.key] = customerLowerBound(v); },
-                reset: () => { customerFilter[f.key] = ""; },
+              ...Object.fromEntries(CUSTOMER_FILTER_KEYS.map((key) => [key, {
+                kind: "filter", get: () => customerFilter[key] || "",
+                set: (v) => { customerFilter[key] = customerLowerBound(v); },
+                reset: () => { customerFilter[key] = ""; },
               }])) },
   detail: { id: { kind: "filter", get: () => detailId, set: (v) => { detailId = v; }, reset: () => { detailId = ""; } },
             q:  { kind: "filter", get: () => detailQ,  set: (v) => { detailQ = v; },  reset: () => { detailQ = ""; } },
             /* 時系列を直近3か月より前も出す（M-3）。別の案件へ移ると既定（直近3か月）へ */
             older: { kind: "filter", get: () => (detailOlder ? "1" : ""), set: (v) => { detailOlder = v === "1"; },
                      reset: () => { detailOlder = false; } } },
-  /* チームと担当（09 の 6）: 並び（既定は名前順）・接触の推移に重ねる担当（c）・期間の単位（unit） */
-  team: { sort: sortState(() => teamSort, (s) => { teamSort = s; }, TEAM_COLS, { key: "consultant", asc: true }),
+  /* チームと担当（09 の 6）: 並び（既定は手が回っていない案件の多い順）・接触の推移に重ねる担当（c）・期間の単位（unit） */
+  team: { sort: sortState(() => teamSort, (s) => { teamSort = s; }, TEAM_COLS, { key: "unattended", asc: false }),
           c: { kind: "filter", get: () => teamPick, set: (v) => { teamPick = v; }, reset: () => { teamPick = ""; } },
           unit: { kind: "ctx", get: () => (contactUnit === "month" ? "" : contactUnit),
                   set: (v) => { contactUnit = CONTACT_UNITS.some((u) => u.k === v) ? v : "month"; },
@@ -9499,6 +9542,15 @@ function wireCustomer() {
   CUSTOMER_FILTERS.forEach((f) => {
     const input = document.getElementById("customer-min-" + f.key);
     if (input) input.oninput = () => { customerFilter[f.key] = customerLowerBound(input.value); updateCustomerFilterResults(); };
+  });
+  const maxSites = document.getElementById("customer-max-sites");
+  if (maxSites) maxSites.oninput = () => { customerFilter.sites_max = customerLowerBound(maxSites.value); updateCustomerFilterResults(); };
+  document.querySelectorAll("[data-customer-preset]").forEach((button) => {
+    button.onclick = () => {
+      applyCustomerPreset(Number(button.dataset.customerPreset));
+      redraw();
+      syncUrl();
+    };
   });
   const activeOnly = document.getElementById("customer-active-only");
   if (activeOnly) activeOnly.onchange = () => { customerActiveOnly = activeOnly.checked; updateCustomerFilterResults(); };

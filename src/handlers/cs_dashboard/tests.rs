@@ -72,6 +72,7 @@ fn load_tsv(name: &str) -> Arc<SheetData> {
 
 fn sheets() -> Sheets {
     Sheets {
+        pending_recordings: None,
         deal: load_tsv("CS_取引"),
         call: load_tsv("CS_通話明細"),
         mtg: load_tsv("CS_MTG"),
@@ -1206,7 +1207,11 @@ fn データ品質は欠測を件数で出す() {
         "データ品質のシート一覧が先読みと違う"
     );
     for sh in sheets_listed {
-        assert!(sh["rows"].as_i64().unwrap() > 0, "空のシートがある: {sh}");
+        if sh["name"] == super::SHEET_PENDING_RECORDINGS {
+            assert!(sh["rows"].is_null());
+        } else {
+            assert!(sh["rows"].as_i64().unwrap() > 0, "空のシートがある: {sh}");
+        }
     }
 }
 
@@ -3856,6 +3861,7 @@ fn 担当替わりの案件は両方に数え接触はその日の担当に数�
 fn trend_tiny(meta_asof: &str) -> Sheets {
     let empty = |h: &[&str]| tiny(h, &[]);
     Sheets {
+        pending_recordings: None,
         deal: tiny(
             &[
                 "deal_id",
@@ -4107,6 +4113,7 @@ fn 担当者ごとの接触は検知専用で評価ではないと書く() {
 fn trend_sites() -> Sheets {
     let empty = |h: &[&str]| tiny(h, &[]);
     Sheets {
+        pending_recordings: None,
         deal: tiny(
             &[
                 "deal_id",
@@ -4471,6 +4478,7 @@ fn handover_tiny() -> Sheets {
         "deal_id",
     ];
     Sheets {
+        pending_recordings: None,
         deal: tiny(
             &dh,
             &[
@@ -5603,6 +5611,7 @@ fn 案件の詳細は取引が無いときは探す欄を返し_オプション�
 fn 案件の詳細の付け直しの印と要約の結合を小さなシートで確かめる() {
     let empty = |h: &[&str]| tiny(h, &[]);
     let sh = Sheets {
+        pending_recordings: None,
         deal: tiny(
             &[
                 "deal_id",
@@ -6465,6 +6474,7 @@ fn deal_rows_memo_matches_uncached_and_follows_refetch() {
     assert_eq!(m2, m0);
     // 同じシートで all_cached だけ違う: 行は同じ、all_cached は今回の値
     let flip = Sheets {
+        pending_recordings: None,
         all_cached: !sh.all_cached,
         deal: sh.deal.clone(),
         call: sh.call.clone(),
@@ -6542,6 +6552,7 @@ fn act_view_diff_memo_reuses_only_for_the_same_sheets_and_day() {
     assert_eq!(calls.get(), 2);
     // 通話明細だけ取り直した（中身が同じでも別の Arc）: 数え直す
     let sh2 = Sheets {
+        pending_recordings: None,
         deal: sh.deal.clone(),
         call: Arc::new(SheetData {
             header: sh.call.header.clone(),
@@ -7094,4 +7105,142 @@ fn team_without_audit_keeps_counts_and_omits_comparison() {
         team["status"]["meta"]["n_flags2"],
         build_today_board(&sh, fixture_day())["meta"]["n_hit"]
     );
+}
+
+#[test]
+fn pending_recordings_requires_exact_header_and_sorts_newest_first() {
+    let mut sh = trend_tiny("2026-09-18 09:00:00");
+    assert!(build_team(&sh, fixture_day())["pending_recordings"].is_null());
+    sh.pending_recordings = Some(tiny(&["deal_id", "name"], &[&["sample-a", "架空案件"]]));
+    assert!(build_team(&sh, fixture_day())["pending_recordings"].is_null());
+    sh.pending_recordings = Some(tiny(super::routes::PENDING_RECORDING_HEADER, &[]));
+    assert_eq!(
+        build_team(&sh, fixture_day())["pending_recordings"]["rows"],
+        serde_json::json!([])
+    );
+    sh.pending_recordings = Some(tiny(
+        super::routes::PENDING_RECORDING_HEADER,
+        &[
+            &[
+                "sample-a",
+                "https://example.invalid/recording-a",
+                "2026-09-16",
+                "架空の相談あお",
+                "架空担当あお",
+                "架空案件あお",
+                "候補が複数",
+            ],
+            &[
+                "sample-b",
+                "",
+                "2026-09-18",
+                "架空の相談みどり",
+                "架空担当みどり",
+                "",
+                "候補が無い",
+            ],
+        ],
+    ));
+    let v = build_team(&sh, fixture_day());
+    let rows = v["pending_recordings"]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0],
+        serde_json::json!({"recording":"", "date":"2026-09-18", "subject":"架空の相談みどり", "host":"架空担当みどり", "candidates":"", "reason":"候補が無い"})
+    );
+    assert_eq!(rows[1]["recording"], "https://example.invalid/recording-a");
+}
+
+#[test]
+fn team_unattended_counts_overlapping_flags_once_per_deal() {
+    let mut sh = trend_tiny("2026-09-18 09:00:00");
+    sh.deal = tiny(
+        &[
+            "deal_id",
+            "dealstage",
+            "contract_kind",
+            "contract_start_date",
+            "contract_expiration_date",
+            "is_active",
+        ],
+        &[
+            &[
+                "sample-a",
+                "x",
+                "(新規)",
+                "2026-01-01",
+                "2026-10-01",
+                "TRUE",
+            ],
+            &[
+                "sample-b",
+                "x",
+                "(新規)",
+                "2026-01-01",
+                "2026-12-31",
+                "TRUE",
+            ],
+            &[
+                "sample-c",
+                "x",
+                "(新規)",
+                "2026-09-17",
+                "2027-03-31",
+                "TRUE",
+            ],
+            &[
+                "sample-d",
+                "x",
+                "(新規)",
+                "2026-10-01",
+                "2027-03-31",
+                "TRUE",
+            ],
+            &[
+                "sample-e",
+                "x",
+                "(新規)",
+                "2026-01-01",
+                "2026-10-01",
+                "FALSE",
+            ],
+        ],
+    );
+    sh.owner_hist = tiny(
+        &["date", "owner", "retired", "deal_id"],
+        &[
+            &["2026-01-01", "架空担当あお", "FALSE", "sample-a"],
+            &["2026-01-01", "架空担当あお", "FALSE", "sample-b"],
+            &["2026-01-01", "架空担当みどり", "FALSE", "sample-c"],
+            &["2026-01-01", "架空担当みどり", "FALSE", "sample-d"],
+            &["2026-01-01", "架空担当あお", "FALSE", "sample-e"],
+        ],
+    );
+    // メール由来のMTGは途絶の判定に使い、接触の記録には含めない（既存の定義）。
+    sh.mail_mtg = tiny(
+        &["deal_id", "date", "kind"],
+        &[
+            &["sample-a", "2026-05-01", "実施"],
+            &["sample-b", "2026-05-01", "実施"],
+        ],
+    );
+    let v = build_team(&sh, fixture_day());
+    let rows = v["status"]["rows"].as_array().unwrap();
+    let blue = rows
+        .iter()
+        .find(|r| r["consultant"] == "架空担当あお")
+        .unwrap();
+    assert_eq!(blue["n_active"], 2);
+    assert_eq!(blue["unattended"], 2);
+    assert_eq!(blue["mtg_critical"], 2);
+    assert_eq!(blue["no_contact"], 2);
+    assert_eq!(blue["expiring60"], 1);
+    let green = rows
+        .iter()
+        .find(|r| r["consultant"] == "架空担当みどり")
+        .unwrap();
+    assert_eq!(green["n_active"], 2);
+    assert_eq!(green["unattended"], 1);
+    assert_eq!(green["mtg_critical"], 0);
+    assert_eq!(green["no_contact"], 1);
 }

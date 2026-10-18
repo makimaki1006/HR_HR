@@ -104,7 +104,7 @@ check("V2: 接触率 40% 未満の人数から対象が小さい人を外す", (
 function teamOf(C, o) {
   return Object.assign({
     meta: C.meta, consultants: C,
-    status: { rows: (C.rows || []).map((r) => ({ consultant: r.consultant, n_active: r.n_active || 0, n_flags2: 0, mtg_critical: 0,
+    status: { rows: (C.rows || []).map((r) => ({ consultant: r.consultant, n_active: r.n_active || 0, n_flags2: 0, unattended: 0, mtg_critical: 0,
       no_contact: 0, expiring60: 0, expiring_week: 0, nps_low: 0, retired: !!r.retired })),
       meta: { n_active: C.meta.n_active, n_flags2: 0, expiring_week: 0, min_flags: 2, week_days: 7, unknown: {},
               flag_labels: { no_contact: "接触の記録が無い", expiring60: "満了まで60日以内", nps_low: "NPSが4以下" } } },
@@ -4899,14 +4899,14 @@ check("09 の 6 チームと担当: 画面の並び（担当者の一覧・担�
   ok(sum.includes('<span class="keep">担当者の評価ではありません</span>'), "「評価ではありません」が畳みの中に隠れている: " + sum);
 });
 
-check("09 の 6 チームと担当: 担当者 × 状態の表は名前順が既定・対象（持ち件数）つき・人ごとの接触の2定義を名前で分けて並べる・人ごとの金額は出さない", () => {
-  /* 開いた直後の並び（teamSort の初期値）と、入り直したときの既定（URL_STATE の reset）が、どちらも名前の昇順 */
-  ok(run("JSON.stringify(teamSort)") === '{"key":"consultant","asc":true}', "開いた直後の並びが名前順でない: " + run("JSON.stringify(teamSort)"));
+check("09 の 6 チームと担当: 担当者 × 状態の表は手が回っていない案件の多い順が既定・対象（持ち件数）つき・人ごとの接触の2定義を名前で分けて並べる・人ごとの金額は出さない", () => {
+  /* 開いた直後とURLの既定は手が回っていない案件の多い順 */
+  ok(run("JSON.stringify(teamSort)") === '{"key":"unattended","asc":false}', "開いた直後の並びが手が回っていない案件の多い順でない: " + run("JSON.stringify(teamSort)"));
   run("URL_STATE.team.sort.reset()");
-  ok(run("JSON.stringify(teamSort)") === '{"key":"consultant","asc":true}', "入り直したときの既定の並びが名前順でない");
+  ok(run("JSON.stringify(teamSort)") === '{"key":"unattended","asc":false}', "入り直したときの既定の並びが手が回っていない案件の多い順でない");
   run('contactUnit = "month"; teamPick = "";');
   const D = teamOf(ctx.__D, { contact: ctx.__CT });
-  /* 並びの既定: 接触率の低い順（前）ではなく、名前の順 */
+  /* このfixtureは全員0件なので名前順になる */
   ctx.__TMS = D;
   const h = run("renderTeam(__TMS)");
   const names = [...h.slice(h.indexOf('<table id="team-tbl"'), h.indexOf("</table>", h.indexOf('<table id="team-tbl"')))
@@ -4915,7 +4915,7 @@ check("09 の 6 チームと担当: 担当者 × 状態の表は名前順が既�
   ok(JSON.stringify(names) === JSON.stringify(names.slice().sort((a, b) => a.localeCompare(b, "ja"))), "既定の並びが名前順でない: " + names.join(","));
   const head = h.slice(h.indexOf('<table id="team-tbl"'), h.indexOf("</thead>", h.indexOf('<table id="team-tbl"')));
   const cols = [...head.matchAll(/<button type="button" class="sort" data-k="([^"]+)">([^<]*)/g)].map((x) => [x[1], x[2]]);
-  ok(JSON.stringify(cols.map((c) => c[0])) === JSON.stringify(["consultant", "n_active", "n_flags2", "mtg_critical", "no_contact", "expiring60",
+  ok(JSON.stringify(cols.map((c) => c[0])) === JSON.stringify(["consultant", "n_active", "unattended", "n_flags2", "mtg_critical", "no_contact", "expiring60",
     "nps_low", "expiring_week", "contact_rate", "per_deal", "focus"]), "列が違う（2 つの接触の列は並べる）: " + cols.map((c) => c[0]).join(","));
   ok(cols.find((c) => c[0] === "contact_rate")[1] === "接触した月の割合" && cols.find((c) => c[0] === "per_deal")[1] === "1件あたりの接触回数",
     "人ごとの接触の2定義が名前で分かれていない: " + JSON.stringify(cols.slice(-2)));
