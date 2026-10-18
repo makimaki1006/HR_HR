@@ -6,3 +6,6 @@
 .ph-card dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ph-note { white-space: pre-wrap; overflow-wrap: anywhere; border-left: 3px solid #96a7c0; padding-left: 12px; margin-top: 12px; }
 @media (max-width: 600px) { .ph-card dl > div { grid-template-columns: 1fr; gap: 4px; } }
+
+/* 長い応募者の地域名を、日付などの次の行に重ねない。 */
+.ph-card h3 { overflow-wrap: anywhere; }

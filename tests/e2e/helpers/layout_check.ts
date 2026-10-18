@@ -21,6 +21,8 @@ export async function findLayoutProblems(page: Page, rootSelector = 'body'): Pro
   return page.evaluate((sel) => {
     const root = document.querySelector(sel) ?? document.body;
     const visible = (el: Element) => {
+      // 閉じた details の中身や、祖先ごと透明な文字は画面に見えていない。
+      if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
       const s = getComputedStyle(el);
       if (s.visibility === 'hidden' || s.display === 'none' || Number(s.opacity) === 0) return false;
       const r = el.getBoundingClientRect();
@@ -28,7 +30,7 @@ export async function findLayoutProblems(page: Page, rootSelector = 'body'): Pro
     };
     // 祖先のうち、はみ出しを隠す箱（overflow が visible 以外）の重なり部分。読み上げ専用の隠し文字は null
     const clipOf = (el: Element) => {
-      let c = { l: -1e9, t: -1e9, r: 1e9, b: 1e9 };
+      let c = { l: 0, t: 0, r: innerWidth, b: innerHeight };
       for (let p: Element | null = el; p && p !== document.documentElement; p = p.parentElement) {
         const s = getComputedStyle(p);
         if ((s.clip && s.clip !== 'auto') || (s.clipPath && s.clipPath !== 'none')) return null;
@@ -53,7 +55,18 @@ export async function findLayoutProblems(page: Page, rootSelector = 'body'): Pro
       range.selectNodeContents(n);
       for (const q of Array.from(range.getClientRects())) {
         const box = { el, l: Math.max(q.left, c.l), t: Math.max(q.top, c.t), r: Math.min(q.right, c.r), b: Math.min(q.bottom, c.b), text: text.slice(0, 30) };
-        if (box.r - box.l >= 2 && box.b - box.t >= 2) boxes.push(box);
+        if (box.r - box.l >= 2 && box.b - box.t >= 2) {
+          // 固定の帯・メニューなどの下に隠れた文字は重なりに数えない。
+          const x = (box.l + box.r) / 2, y = (box.t + box.b) / 2;
+          const front = document.elementFromPoint(x, y);
+          let covered = false;
+          for (let p = front; p && !p.contains(el) && !el.contains(p); p = p.parentElement) {
+            const style = getComputedStyle(p), background = style.backgroundColor;
+            if (['sticky', 'fixed'].includes(style.position) && background !== 'transparent' && !background.endsWith(', 0)')) { covered = true; break; }
+          }
+          if (covered) continue;
+          boxes.push(box);
+        }
       }
     }
     const at = (x: number, y: number) => ({ x: Math.round(x + scrollX), y: Math.round(y + scrollY) });
