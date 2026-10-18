@@ -4562,8 +4562,9 @@ function focusToggle(D) {
   if (f) h += '<label class="act"><input type="checkbox" id="hj-focus-only"' + (focusOnly ? " checked" : "") + '>' +
     '上の「法人を選ぶ」を重点顧客だけにする（' + num(f.n_focus) + ' / ' + num(f.n_display) + ' 社）</label>';
   h += '</div><p class="muted small">すべての条件に当てはまる顧客を探します。空欄の条件は使いません。月額は取引の中で一番大きい額、継続の回数は一番多い回数です。</p><div class="ctlbar">';
-  h += CUSTOMER_FILTERS.map((f) => '<label>' + esc(f.label) + ' <input class="act customer-min" type="number" min="0" step="any" id="customer-min-' + f.key + '" data-filter="' + f.key + '" value="' + esc(customerFilter[f.key] || "") + '" aria-label="' + esc(f.label) + 'の下限"> ' + f.unit + '以上</label>').join("");
-  h += '<label>拠点数 <input class="act customer-min" type="number" min="0" step="any" id="customer-max-sites" value="' + esc(customerFilter.sites_max || "") + '" aria-label="拠点数の上限"> 拠点以下</label>';
+  /* 拠点数は「以上」のすぐ後ろに「以下」を並べる（離れると同じ項目の上限だと読めない） */
+  h += CUSTOMER_FILTERS.map((f) => '<label>' + esc(f.label) + ' <input class="act customer-min" type="number" min="0" step="any" id="customer-min-' + f.key + '" data-filter="' + f.key + '" value="' + esc(customerFilter[f.key] || "") + '" aria-label="' + esc(f.label) + 'の下限"> ' + f.unit + '以上</label>' +
+    (f.key === "sites" ? '<label><input class="act customer-min" type="number" min="0" step="any" id="customer-max-sites" value="' + esc(customerFilter.sites_max || "") + '" aria-label="拠点数の上限"> 拠点以下</label>' : "")).join("");
   h += '<label class="act"><input type="checkbox" id="customer-active-only"' + (customerActiveOnly ? " checked" : "") + '>稼働中だけ</label></div>';
   return h + '<div id="customer-filter-results">' + customerFilterResults() + '</div>';
 }
