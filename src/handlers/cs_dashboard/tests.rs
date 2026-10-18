@@ -7079,3 +7079,19 @@ fn customer_index_filter_values_and_missing_values() {
         assert_eq!(row[key], Value::Null, "{key}");
     }
 }
+
+#[test]
+fn team_without_audit_keeps_counts_and_omits_comparison() {
+    let sh = sheets();
+    let mut team = build_team(&sh, fixture_day());
+    let before = team.clone();
+    super::team_history::enrich(&mut team, &sh, None);
+    assert_eq!(team, before);
+    assert!(team["comparison"].is_null());
+    assert_eq!(team["status"]["meta"]["n_active"], 604);
+    assert_eq!(team["status"]["meta"]["n_flags2"], 243);
+    assert_eq!(
+        team["status"]["meta"]["n_flags2"],
+        build_today_board(&sh, fixture_day())["meta"]["n_hit"]
+    );
+}
