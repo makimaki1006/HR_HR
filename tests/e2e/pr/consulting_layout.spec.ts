@@ -19,7 +19,18 @@ async function check(page: Page, label: string) {
   await expect(page.locator('#cs-error')).toBeHidden();
   await page.evaluate(() => { document.querySelectorAll('details').forEach(d => d.open = true); window.scrollTo(0, 0); });
   await page.waitForTimeout(250); // 図の幅の再計測と描き直しを待つ
-  const report = await findLayoutProblems(page, '.wrap');
+  // 重なりの検査は画面に映っている範囲だけなので、上から下まで 1 画面ずつずらして調べ、結果を足し合わせる
+  const height = await page.evaluate(() => document.documentElement.scrollHeight);
+  const step = await page.evaluate(() => innerHeight);
+  const report: Awaited<ReturnType<typeof findLayoutProblems>> = { overlaps: [], spills: [], svgClipped: [], pageOverflow: false };
+  const seen = new Set<string>();
+  for (let y = 0; y < height; y += step) {
+    await page.evaluate(top => { window.scrollTo(0, top); }, y);
+    const part = await findLayoutProblems(page, '.wrap');
+    for (const key of ['overlaps', 'spills', 'svgClipped'] as const) for (const item of part[key]) if (!seen.has(key + item.text)) { seen.add(key + item.text); report[key].push(item); }
+    report.pageOverflow ||= part.pageOverflow;
+  }
+  await page.evaluate(() => { window.scrollTo(0, 0); });
   await test.info().attach(label, { body: JSON.stringify(report, null, 2), contentType: 'application/json' });
   if (process.env.CS_LAYOUT_SHOTS && (!process.env.CS_LAYOUT_SHOT_MATCH || new RegExp(process.env.CS_LAYOUT_SHOT_MATCH).test(label))) {
     mkdirSync(process.env.CS_LAYOUT_SHOTS, { recursive: true });

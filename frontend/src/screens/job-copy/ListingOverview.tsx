@@ -61,6 +61,15 @@ interface Props {
 
 const num = (value: number | null) => value === null ? '—' : value.toLocaleString('ja-JP');
 const yen = (value: number | null) => value === null ? '—' : `¥${Math.round(value).toLocaleString('ja-JP')}`;
+/** ライフラインの1列（56px）に収まる短い数。10万以上は「万」「億」で縮める（正確な値は title に出す）。 */
+export const shortNumber = (value: number | null, prefix = '') => {
+  if (value === null) return '—';
+  const abs = Math.abs(value), sign = value < 0 ? '-' : '';
+  const unit = (n: number, u: string) => `${sign}${prefix}${(n >= 100 ? Math.round(n) : Math.round(n * 10) / 10).toLocaleString('ja-JP')}${u}`;
+  if (abs >= 1e8) return unit(abs / 1e8, '億');
+  if (abs >= 1e5) return unit(abs / 1e4, '万');
+  return `${sign}${prefix}${Math.round(abs).toLocaleString('ja-JP')}`;
+};
 
 /** 横の時間軸。1週 = 1列（幅は固定）。開いたときは最新の週が見える位置にする。 */
 export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifeline: Lifeline; job: JobCopyRecord; selectedWeek: number | null; onSelect: (id: string) => void }) {
@@ -73,12 +82,12 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
   }, [selectedWeek]);
   const media = lifeline.mediaLabel;
   const noPerf = lifeline.hasPerformance ? '' : media === 'AirWork' ? '課金データなし' : 'Indeed の実績データなし';
-  const rows: { key: string; label: string; cell: (week: LifelineWeek) => string; empty: string }[] = [
-    { key: 'billing', label: '課金（週）', cell: week => yen(week.billing), empty: noPerf },
-    { key: 'impressions', label: '閲覧数（表示回数）', cell: week => num(week.impressions), empty: noPerf },
-    { key: 'clicks', label: 'クリック数', cell: week => num(week.clicks), empty: noPerf },
-    { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), empty: '' },
-    { key: 'media', label: `応募数（${media}の集計）`, cell: week => num(week.mediaApplications), empty: noPerf },
+  const rows: { key: string; label: string; cell: (week: LifelineWeek) => string; short: (week: LifelineWeek) => string; empty: string }[] = [
+    { key: 'billing', label: '課金（週）', cell: week => yen(week.billing), short: week => shortNumber(week.billing, '¥'), empty: noPerf },
+    { key: 'impressions', label: '閲覧数（表示回数）', cell: week => num(week.impressions), short: week => shortNumber(week.impressions), empty: noPerf },
+    { key: 'clicks', label: 'クリック数', cell: week => num(week.clicks), short: week => shortNumber(week.clicks), empty: noPerf },
+    { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), short: week => shortNumber(week.hubspotApplications), empty: '' },
+    { key: 'media', label: `応募数（${media}の集計）`, cell: week => num(week.mediaApplications), short: week => shortNumber(week.mediaApplications), empty: noPerf },
   ];
   // 同じ週に印が重なる（掲載を始めた週がまだ今週など）ときは、名前を縦にずらして重ねない
   const placed: number[] = [];
@@ -106,7 +115,7 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
           return <div key={week.start} className="lf-cell">{latest && <button type="button" className="lf-change" title={label} aria-label={label} onClick={() => { onSelect(latest.id); }}>{changeMarkerLabel(week.changes).split('・').map((part, index, parts) => <span key={part}>{part}{index < parts.length - 1 ? '・' : ''}</span>)}</button>}</div>;
         })}</div>
         {rows.map(row => <div key={row.key} className="lf-row" role="row" aria-label={row.label}>
-          {row.empty && lifeline.weeks.every(week => row.cell(week) === '—') ? <div className="lf-empty">{row.empty}</div> : lifeline.weeks.map(week => <div key={week.start} className={`lf-cell${row.cell(week) === '0' || row.cell(week) === '¥0' ? ' lf-zero' : ''}`}>{row.cell(week)}</div>)}
+          {row.empty && lifeline.weeks.every(week => row.cell(week) === '—') ? <div className="lf-empty">{row.empty}</div> : lifeline.weeks.map(week => <div key={week.start} className={`lf-cell${row.cell(week) === '0' || row.cell(week) === '¥0' ? ' lf-zero' : ''}`} title={row.short(week) === row.cell(week) ? undefined : row.cell(week)}>{row.short(week)}</div>)}
         </div>)}
       </div>
     </div>

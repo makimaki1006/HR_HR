@@ -9,7 +9,7 @@ name: E2E (PR)
 
 on:
   pull_request:
-    branches: [main, fix/lifeline-first-week]
+    branches: [main]
 
 jobs:
   e2e-pr:

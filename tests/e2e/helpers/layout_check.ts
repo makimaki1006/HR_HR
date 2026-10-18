@@ -82,7 +82,7 @@ export async function findLayoutProblems(page: Page, rootSelector = 'body'): Pro
     }
     const spills: LayoutProblem[] = [];
     for (const el of Array.from(root.querySelectorAll('*'))) {
-      if (!visible(el) || el.closest('svg') || el.children.length > 3) continue;
+      if (!visible(el) || el.closest('svg,select,textarea,input') || el.children.length > 3) continue; // 選択欄・入力欄は中身を自分で切って見せる
       const s = getComputedStyle(el);
       if (s.overflowX !== 'visible' || s.display === 'inline' || !(el.textContent ?? '').trim()) continue;
       if (el.scrollWidth > el.clientWidth + 2 && el.clientWidth > 0) {
