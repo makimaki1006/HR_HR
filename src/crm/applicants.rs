@@ -190,6 +190,7 @@ pub(super) struct ApplicantsState {
     related_definitions: TtlCache<(), Value>,
     related_definition_lock: tokio::sync::Mutex<()>,
     queues: TtlCache<String, ApplicantQueue>,
+    related_ids: TtlCache<String, Vec<String>>,
     details: TtlCache<String, ApplicantDetail>,
 }
 impl Default for ApplicantsState {
@@ -200,6 +201,7 @@ impl Default for ApplicantsState {
             related_definitions: TtlCache::new(DEFINITIONS_TTL, 1),
             related_definition_lock: tokio::sync::Mutex::new(()),
             queues: TtlCache::new(QUEUE_TTL, 500),
+            related_ids: TtlCache::new(Duration::from_secs(1800), 500),
             details: TtlCache::new(DETAIL_TTL, 500),
         }
     }
@@ -358,8 +360,10 @@ struct Position {
     due: u64,
     dated: u64,
     undated: u64,
-    #[serde(default)]
+    #[serde(skip)]
     related: Vec<String>,
+    #[serde(default)]
+    related_key: Option<String>,
 }
 fn base_filters(stages: &[String], media: &Option<String>) -> Vec<Value> {
     let mut f = vec![
@@ -405,6 +409,9 @@ fn search_body(base: &[Value], pos: &Position, kind: &str, properties: &[String]
 }
 fn related_search_limit(target: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({"error_kind":"related_search_limit","message":if target == "deal" {"取引が多すぎます。もう少し詳しく入力してください。"} else {"求人が多すぎます。もう少し詳しく入力してください。"}}))).into_response()
+}
+fn related_listing_limit() -> Response {
+    (StatusCode::BAD_REQUEST, Json(json!({"error_kind":"related_search_limit","message":"取引に付いた求人が多すぎます。もう少し詳しく入力してください。"}))).into_response()
 }
 fn applicant_error(e: &HubSpotError) -> Response {
     if matches!(e, HubSpotError::Auth { status: 403 }) {
@@ -476,6 +483,7 @@ pub(super) async fn queue(
         dated: 0,
         undated: 0,
         related: vec![],
+        related_key: None,
     };
     if let Some(cursor) = &q.cursor {
         let parsed = cursor.split_once('~').and_then(|(payload, sig)| {
@@ -485,7 +493,13 @@ pub(super) async fn queue(
         });
         match parsed {
             Some(p) if p.phase <= 1 && p.due < 10000 && p.dated < 10000 && p.undated < 10000 => {
-                pos = p
+                pos = p;
+                if let Some(key) = &pos.related_key {
+                    let Some(ids) = ctx.applicants.related_ids.get(key) else {
+                        return (StatusCode::BAD_REQUEST, Json(json!({"message":"検索の有効期限が切れました。もう一度検索してください。"}))).into_response();
+                    };
+                    pos.related = ids;
+                }
             }
             _ => return error_json(StatusCode::BAD_REQUEST, "cursor_mismatch"),
         }
@@ -552,18 +566,32 @@ pub(super) async fn queue(
                 if total > 50 || !found["paging"]["next"].is_null() {
                     return Err(related_search_limit(target));
                 }
-                pos.related = values(&found["results"])
-                    .map(|r| {
-                        if target == "deal" {
-                            text(&r["properties"], "dealname")
-                        } else {
-                            text(r, "id")
-                        }
-                    })
+                let ids: Vec<String> = values(&found["results"])
+                    .map(|r| text(r, "id"))
                     .filter(|s| !s.is_empty())
                     .collect();
+                pos.related = if target == "deal" {
+                    client
+                        .batch_associations("deals", "0-420", &ids)
+                        .await
+                        .map_err(|e| applicant_error(&e))?
+                        .into_values()
+                        .flatten()
+                        .map(|r| r.id)
+                        .collect()
+                } else {
+                    ids
+                };
                 pos.related.sort();
                 pos.related.dedup();
+                if pos.related.len() > 500 {
+                    return Err(related_listing_limit());
+                }
+                let key = uuid::Uuid::new_v4().to_string();
+                ctx.applicants
+                    .related_ids
+                    .insert(key.clone(), pos.related.clone());
+                pos.related_key = Some(key);
             }
             if pos.related.is_empty() {
                 return Ok(ApplicantQueue {
@@ -574,23 +602,45 @@ pub(super) async fn queue(
                     media_options: options(&defs),
                 });
             }
-            // 最大50値を1つのINへ。OR分岐を増やさず、最大2群・12条件に収める。
-            filters.push(json!({"propertyName":if target == "deal" {"oubosaki_torihiki_name"} else {"associations.listing"},"operator":"IN","values":pos.related}));
         }
         let body = |pos: &Position, kind| {
             let mut b = search_body(&filters, pos, kind, &properties);
+            if !pos.related.is_empty() {
+                let groups: Vec<Value> = values(&b["filterGroups"]).flat_map(|group| {
+                    pos.related.chunks(100).map(move |ids| {
+                        let mut group = group.clone();
+                        group["filters"].as_array_mut().unwrap().push(json!({"propertyName":"associations.listing","operator":"IN","values":ids}));
+                        group
+                    })
+                }).collect();
+                b["filterGroups"] = json!(groups);
+            }
             if !query.is_empty() && target == "applicant" {
                 b["query"] = json!(query);
             }
             b
         };
-        // HubSpot Search の本文上限。長い取引名の集合は切り捨てず、絞り込みを依頼する。
-        if ["all", "due", "dated", "undated", "total"]
-            .iter()
-            .any(|kind| body(&pos, kind).to_string().chars().count() > 3000)
-            || serde_json::to_vec(&pos).unwrap().len() > 5000
+        // IN 値は100件、OR群は5群・合計18条件・本文3000文字まで。切り捨てない。
+        if (if all {
+            vec!["all"]
+        } else {
+            vec!["due", "dated", "undated", "total"]
+        })
+        .iter()
+        .any(|kind| {
+            let b = body(&pos, kind);
+            let groups: Vec<_> = values(&b["filterGroups"]).collect();
+            b.to_string().chars().count() > 3000
+                || groups.len() > 5
+                || groups.iter().any(|g| values(&g["filters"]).count() > 6)
+                || groups
+                    .iter()
+                    .map(|g| values(&g["filters"]).count())
+                    .sum::<usize>()
+                    > 18
+        }) || serde_json::to_vec(&pos).unwrap().len() > 5000
         {
-            return Err(related_search_limit(target));
+            return Err(related_listing_limit());
         }
         if all {
             let page = client
@@ -875,16 +925,27 @@ pub(super) async fn detail(
         }
         let names: Vec<&str> = props.iter().map(String::as_str).collect();
         // 本体、求人票、メモは独立。関連 ID → batch read の依存だけを保つ。
-        let (rows, (jobs, deal_sheet), notes) = tokio::try_join!(
+        let (rows, (jobs, deal_sheet, related_defs), notes) = tokio::try_join!(
             client.batch_read(OBJECT, std::slice::from_ref(&id), &names),
             async {
                 let ids = all_associations(&client, &id, "0-420").await?;
                 // 求人票本体と取引関連は同じ ID から独立して読める。
-                let (jobs, deal_sheet) = tokio::join!(
-                    client.batch_read("0-420", &ids, related::LISTING_PROPERTIES,),
+                let (jobs_and_defs, deal_sheet) = tokio::join!(
+                    async {
+                        let jobs = client
+                            .batch_read("0-420", &ids, related::LISTING_PROPERTIES)
+                            .await?;
+                        let defs = if jobs.is_empty() {
+                            Ok(Value::Null)
+                        } else {
+                            related::definitions(&ctx, &client).await
+                        };
+                        Ok::<_, HubSpotError>((jobs, defs))
+                    },
                     report_sheet::read(&client, &ids),
                 );
-                Ok::<_, HubSpotError>((jobs?, deal_sheet))
+                let (jobs, related_defs) = jobs_and_defs?;
+                Ok::<_, HubSpotError>((jobs, deal_sheet, related_defs))
             },
             async {
                 let ids = all_associations(&client, &id, "notes").await?;
@@ -899,7 +960,7 @@ pub(super) async fn detail(
         let p = &v["properties"];
         let sheet_url = deal_sheet.sheet.clone().or_else(|| sheet_url(p, &jobs));
         let (listings, deals, related_notice) =
-            related::cards(&ctx, &client, &jobs, &deal_sheet, p).await;
+            related::cards(&ctx, &client, &jobs, &deal_sheet, p, related_defs).await;
         let mut notes: Vec<_> = notes
             .into_iter()
             .map(|n| ApplicantNote {
@@ -1119,6 +1180,7 @@ mod tests {
             dated: 0,
             undated: 0,
             related: vec![],
+            related_key: None,
         };
         let filters = base_filters(&["1343099551".into()], &None);
         let properties = vec!["ouboshashimei".to_owned()];

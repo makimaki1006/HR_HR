@@ -58,7 +58,7 @@ const LAYOUT_KEY = 'hrhr.crm.applicantsDock.v1';
 const DEFAULT_APPLICANT_LAYOUT: DockLayout = { ...DEFAULT_LAYOUT, columns: [DEFAULT_LAYOUT.columns[0], { panels: ['overview', 'result', 'activity'], active: 'result' }, DEFAULT_LAYOUT.columns[2]] };
 const LABELS = { ...TAB_LABELS, queue: '応募一覧', overview: '応募の概要', result: '対応の入力', activity: 'メモ', links: '求人票・報告シート' };
 function loadApplicantLayout(): DockLayout {
-  try { const raw = localStorage.getItem(LAYOUT_KEY); return raw === null ? DEFAULT_APPLICANT_LAYOUT : parseLayout(raw, DEFAULT_APPLICANT_LAYOUT); } catch { return DEFAULT_APPLICANT_LAYOUT; }
+  try { const raw = localStorage.getItem(LAYOUT_KEY); const saved = raw === null ? DEFAULT_APPLICANT_LAYOUT : parseLayout(raw, DEFAULT_APPLICANT_LAYOUT); return new URLSearchParams(window.location.search).get('applicant') ? saved : dockReducer(saved, { type: 'activate', panel: 'queue' }); } catch { return DEFAULT_APPLICANT_LAYOUT; }
 }
 function ApplicantRules({ section }: { section: ApplicantSection | undefined }) {
   const [expanded, setExpanded] = useState(false);
@@ -153,8 +153,8 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
     void work.then(data => { if (!abort.signal.aborted) { setDetail(data); setDetailError(''); } }).catch((e: unknown) => { if (!abort.signal.aborted) setDetailError(e instanceof Error ? e.message : '詳細を読み込めません'); });
     return () => { abort.abort(); };
   }, [fixture, selectedId, refresh]);
-  function applySearch(value: string) { const next = value.trim(); if (next === query) return; setQuery(next); setCursor(null); setQueue(null); setLoading(true); }
-  function filter(nextStages: string[], nextMedia: string) { setStages(nextStages); setMedia(nextMedia); setCursor(null); setQueue(null); setLoading(true); setSelected(null); setSelectedId(null); setDetail(null); }
+  function applySearch(value: string) { const next = value.trim(); if (next === query) return; dispatch({ type: 'activate', panel: 'queue' }); setQuery(next); setCursor(null); setQueue(null); setLoading(true); }
+  function filter(nextStages: string[], nextMedia: string) { dispatch({ type: 'activate', panel: 'queue' }); setStages(nextStages); setMedia(nextMedia); setCursor(null); setQueue(null); setLoading(true); setSelected(null); setSelectedId(null); setDetail(null); }
   function select(item: ApplicantRow) { if (selectedId === item.id) return; setSelected(item); setSelectedId(item.id); setDetail(null); setDetailError(''); setDialNotice(''); }
   const headline = detail?.row ?? selected;
   const headlineName = (headline?.name ?? '').trim();
@@ -221,9 +221,9 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
     overview: <main className="applicants-detail" aria-label="応募の詳細">
       {!selectedId ? <p className="dock-placeholder">一覧から応募を選択してください。</p> : <>
         <article className="wd wd-compact"><div className="wd-top wd-top-compact">
-          <div className="wd-line wd-line-1"><h2 className="wd-line-company">{headlineName || '氏名未登録'}</h2>{detail && <span className="wd-line-end"><a href={detail.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a></span>}</div>
+          <div className="wd-line wd-line-1"><h2 className="wd-line-company">{headline ? headlineName || '氏名未登録' : '読み込み中…'}</h2>{detail && <span className="wd-line-end"><a href={detail.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a></span>}</div>
           <p className="applicant-job"><button type="button" disabled={!detail} onClick={() => { showRelated('deals'); }}>{headline?.deal.length ? headline.deal : '取引を確認'}</button> · <button type="button" disabled={!detail} onClick={() => { showRelated('listings'); }}>{headline?.job.length ? headline.job : '求人票を確認'}</button></p>
-          <div className="wd-line wd-line-2"><PhoneRow label="応募者" raw={detail?.phone ?? headline?.phone ?? ''} zoom={dialZoom} compact blocked={!!detail?.stop_reason || busy || !detail} blockReason={detail?.stop_reason ?? (busy ? '通話中です' : null)} /></div>
+          <div className="wd-line wd-line-2"><PhoneRow label="応募者" raw={detail?.phone ?? headline?.phone ?? ''} zoom={dialZoom} compact blocked={!!detail?.stop_reason || busy || !detail} blockReason={!detail ? (detailError ? '詳細を確認できません' : '読み込み中…') : detail.stop_reason ?? (busy ? '通話中です' : null)} /></div>
           <p className="applicant-meta">{headline?.stage} · {headline?.media} · 応募日 {date(headline?.date ?? '')}</p>
           {detail?.stop_reason && <p role="alert">架電禁止・ブロック: {detail.stop_reason}</p>}{dialNotice && <p role="status">{dialNotice}</p>}
         </div></article>
@@ -252,7 +252,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   return <div className="crm-app cq-app applicants-app">
     <header className="applicants-head"><a href="/">HR_HR</a><strong>CRM</strong><CrmModeSwitch applicants /><span>{fixture ? '架空サンプル' : 'HubSpot の応募'}</span>{!fixture && <button onClick={() => { setDrawerOpen(v => !v); }}>Zoom</button>}<button onClick={() => { setCursor(null); setDetail(null); setRefresh(v => v + 1); }}>最新にする</button></header>
     <div className="cq-filter-summary applicants-filter-summary"><span>{scope ? 'すべての応募' : '一次対応が必要な未完了'} · ステージ: {stages.length ? `${String(stages.length)}件選択` : 'すべて'} · 応募媒体: {media || 'すべて'}</span><button type="button" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(v => !v); }}>条件を変更</button></div>
-    <form className="applicants-search" role="search" onSubmit={e => { e.preventDefault(); applySearch(search); }}><label>検索対象<select value={target} onChange={e => { setTarget(e.target.value); setCursor(null); setQueue(null); setLoading(true); }}><option value="applicant">応募者</option><option value="deal">取引</option><option value="listing">求人</option></select></label><label>応募を検索<input type="search" value={search} onChange={e => { setSearch(e.target.value); }} placeholder={target === 'deal' ? '取引名' : target === 'listing' ? '求人名' : '応募者名'} /></label></form>
+    <form className="applicants-search" role="search" onSubmit={e => { e.preventDefault(); applySearch(search); }}><label>検索対象<select value={target} onChange={e => { dispatch({ type: 'activate', panel: 'queue' }); setTarget(e.target.value); setCursor(null); setQueue(null); setLoading(true); }}><option value="applicant">応募者</option><option value="deal">取引</option><option value="listing">求人</option></select></label><label>応募を検索<input type="search" value={search} onChange={e => { setSearch(e.target.value); }} placeholder={target === 'deal' ? '取引名' : target === 'listing' ? '求人名' : '応募者名'} /></label></form>
     {filtersOpen && <div className="applicants-toolbar">
       <label className={`cq-field cq-target-label${scope ? ' is-set' : ''}`}>範囲<select aria-label="範囲" value={scope ? 'all' : 'open'} onChange={e => { setScope(e.target.value === 'all'); filter([], media); }}><option value="open">一次対応が必要な未完了</option><option value="all">すべての応募</option></select></label>
       {queue && firstPipeline && <StageFilter all pipeline={{ ...firstPipeline, fallbackName: '', unknownStages: [], stages: firstPipeline.stages.map(s => ({ ...s, rule: 'all' })) }}

@@ -20,7 +20,10 @@ pub(super) const LISTING_PROPERTIES: &[&str] = &[
     "kinmujikan",
     "guyongxingtai",
 ];
-async fn definitions(ctx: &CrmCtx, client: &HubSpotClient) -> Result<Value, HubSpotError> {
+pub(super) async fn definitions(
+    ctx: &CrmCtx,
+    client: &HubSpotClient,
+) -> Result<Value, HubSpotError> {
     let state = &ctx.applicants;
     if let Some(v) = state.related_definitions.get(&()) {
         return Ok(v);
@@ -142,6 +145,7 @@ pub(super) async fn cards(
     jobs: &[HubSpotRecord],
     related: &report_sheet::RelatedDeals,
     applicant: &Value,
+    definitions: Result<Value, HubSpotError>,
 ) -> (
     Vec<ApplicantRelatedCard>,
     Vec<ApplicantRelatedCard>,
@@ -153,7 +157,12 @@ pub(super) async fn cards(
     if jobs.is_empty() && related.deals.is_empty() {
         return (vec![], vec![], notice);
     }
-    let defs = match definitions(ctx, client).await {
+    // 求人票本体が欠け、取引だけ取得できた場合も従来どおり定義を読む。
+    let definitions = match definitions {
+        Ok(Value::Null) => self::definitions(ctx, client).await,
+        other => other,
+    };
+    let defs = match definitions {
         Ok(v) => v,
         Err(_) => {
             notice = Some(

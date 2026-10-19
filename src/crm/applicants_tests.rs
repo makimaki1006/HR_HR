@@ -7,6 +7,7 @@ struct Fake {
     forbidden: bool,
     related_search: Vec<Value>,
     related_total: Option<u64>,
+    deal_listings: Option<Vec<String>>,
     sheet: Option<String>,
     deals: Vec<Value>,
     deal_forbidden: Option<String>,
@@ -113,6 +114,9 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
                             let mut a = applicant(&(3000 + i).to_string(), "2026-10-01");
                             a["properties"]["yakusokukadennichiji"] =
                                 json!(format!("2026-10-01T00:{i:02}:00Z"));
+                            if i == 1 {
+                                a["properties"]["oubosaki_torihiki_name"] = json!("架空の別名");
+                            }
                             rows.push(a);
                             continue;
                         }
@@ -127,6 +131,9 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
                             a["properties"]["yingmuri"] = json!(day.to_string());
                         } else {
                             a["properties"]["hs_createdate"] = json!(day.to_string());
+                        }
+                        if i == 1 {
+                            a["properties"]["oubosaki_torihiki_name"] = json!("架空の別名");
                         }
                         rows.push(a);
                     }
@@ -168,6 +175,13 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
                 f.listing_ids.clone()
             };
             json!({"results":ids.iter().map(|id| json!({"toObjectId":id})).collect::<Vec<_>>()})
+        }
+        "/crm/v4/associations/deals/0-420/batch/read" => {
+            let ids = f
+                .deal_listings
+                .clone()
+                .unwrap_or_else(|| vec!["800".into()]);
+            json!({"results":[{"from":{"id":"800"},"to":ids.iter().map(|id| json!({"toObjectId":id})).collect::<Vec<_>>()}]})
         }
         "/crm/v4/associations/0-420/deals/batch/read" => f.listing_deals.clone().unwrap_or_else(
             || json!({"results":[{"from":{"id":"200"},"to":[{"toObjectId":400}]}]}),
@@ -548,92 +562,94 @@ async fn applicants_merge_keeps_order_across_pages_without_duplicates() {
 }
 
 // r1 の直列スケジュールと同じ API を同じ偽サーバへ送る（計測の比較用だけ）。
-async fn sequential_detail(client: &HubSpotClient) {
-    let defs = client
-        .read_raw(false, "/crm/v3/properties/0-421", &[], None)
-        .await
-        .unwrap()
-        .body
-        .unwrap();
-    client
-        .read_raw(false, "/crm/v3/pipelines/0-421", &[], None)
-        .await
-        .unwrap();
-    let names: Vec<&str> = defs["results"]
+async fn previous_detail(client: &HubSpotClient) {
+    let (defs, _) = tokio::try_join!(
+        client.read_raw(false, "/crm/v3/properties/0-421", &[], None),
+        client.read_raw(false, "/crm/v3/pipelines/0-421", &[], None),
+    )
+    .unwrap();
+    let defs = defs.body.unwrap();
+    let names: Vec<_> = defs["results"]
         .as_array()
         .unwrap()
         .iter()
         .map(|p| p["name"].as_str().unwrap())
         .collect();
-    client
-        .batch_read("0-421", &["100".into()], &names)
-        .await
-        .unwrap();
-    client
-        .read_raw(
-            false,
-            "/crm/v4/objects/0-421/100/associations/0-420",
-            &[("limit", "500".into())],
-            None,
-        )
-        .await
-        .unwrap();
-    client
-        .read_raw(
-            false,
-            "/crm/v4/objects/0-421/100/associations/notes",
-            &[("limit", "500".into())],
-            None,
-        )
-        .await
-        .unwrap();
-    client
-        .batch_read("0-420", &["200".into()], &["hs_name", "customer_sheet_url"])
-        .await
-        .unwrap();
-    client
-        .batch_associations("0-420", "deals", &["200".into()])
-        .await
-        .unwrap();
-    client
-        .batch_read(
-            "deals",
-            &["400".into()],
-            &[
-                "customer_sheet_url",
-                "dealstage",
-                "dealname",
-                "contract_start_date",
-                "createdate",
-            ],
-        )
-        .await
-        .unwrap();
-    client
-        .batch_read(
-            "notes",
-            &(300..307).map(|id| id.to_string()).collect::<Vec<_>>(),
-            &["hs_timestamp", "hs_note_body"],
-        )
-        .await
-        .unwrap();
+    let (_, _, _) = tokio::join!(
+        async {
+            client
+                .batch_read("0-421", &["100".into()], &names)
+                .await
+                .unwrap()
+        },
+        async {
+            client
+                .read_raw(
+                    false,
+                    "/crm/v4/objects/0-421/100/associations/0-420",
+                    &[("limit", "500".into())],
+                    None,
+                )
+                .await
+                .unwrap();
+            tokio::join!(
+                async {
+                    client
+                        .batch_read("0-420", &["200".into()], &["hs_name"])
+                        .await
+                        .unwrap()
+                },
+                async {
+                    client
+                        .batch_associations("0-420", "deals", &["200".into()])
+                        .await
+                        .unwrap();
+                    client
+                        .batch_read("deals", &["400".into()], &["dealname"])
+                        .await
+                        .unwrap();
+                }
+            );
+        },
+        async {
+            client
+                .read_raw(
+                    false,
+                    "/crm/v4/objects/0-421/100/associations/notes",
+                    &[("limit", "500".into())],
+                    None,
+                )
+                .await
+                .unwrap();
+            client
+                .batch_read("notes", &["300".into()], &["hs_note_body"])
+                .await
+                .unwrap();
+        }
+    );
+    tokio::try_join!(
+        client.read_raw(false, "/crm/v3/properties/0-420", &[], None),
+        client.read_raw(false, "/crm/v3/properties/deals", &[], None),
+        client.read_raw(false, "/crm/v3/pipelines/deals", &[], None),
+    )
+    .unwrap();
 }
 #[tokio::test]
 async fn applicant_detail_parallel_latency_and_same_call_budget() {
     let (app, cookie, fake, client) = app_with_client().await;
     fake.lock().unwrap().delay_ms = 100;
     let before = std::time::Instant::now();
-    sequential_detail(&client).await;
+    previous_detail(&client).await;
     let before_ms = before.elapsed().as_millis();
     let old_paths = {
         let mut f = fake.lock().unwrap();
-        assert_eq!(f.max_inflight, 1);
+        assert_eq!(f.max_inflight, 3);
         let paths = f
             .requests
             .iter()
             .map(|(p, _)| p.clone())
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(f.requests.len(), 9);
+        assert_eq!(f.requests.len(), 12);
         f.requests.clear();
         f.max_inflight = 0;
         paths
@@ -654,15 +670,8 @@ async fn applicant_detail_parallel_latency_and_same_call_budget() {
                 .map(|(p, _)| p.clone())
                 .collect::<std::collections::BTreeSet<_>>(),
             old_paths
-                .into_iter()
-                .chain([
-                    "/crm/v3/properties/0-420".to_owned(),
-                    "/crm/v3/properties/deals".to_owned(),
-                    "/crm/v3/pipelines/deals".to_owned()
-                ])
-                .collect()
         );
-        assert_eq!(f.max_inflight, 3, "本体と二つの関連を同時に取得する");
+        assert!(f.max_inflight >= 4, "関連定義もレコード取得と並列にする");
     }
     fake.lock().unwrap().requests.clear();
     let warm = std::time::Instant::now();
@@ -674,7 +683,7 @@ async fn applicant_detail_parallel_latency_and_same_call_budget() {
     );
     let warm_ms = warm.elapsed().as_millis();
     assert_eq!(fake.lock().unwrap().requests.len(), 7);
-    println!("APPLICANT_DETAIL_LATENCY delay_ms=100 before_cold_ms={before_ms} after_cold_ms={after_ms} after_warm_ms={warm_ms} calls=9/12/7 sequential_stages=9 parallel_stages=5 warm_parallel_stages=3");
+    println!("APPLICANT_DETAIL_LATENCY delay_ms=100 before_cold_ms={before_ms} after_cold_ms={after_ms} after_warm_ms={warm_ms} calls=12/12/7 before_cold_stages=5 after_cold_stages=4 warm_stages=3");
 }
 
 fn sheet_deal(id: &str, stage: &str, name: &str, start: &str, created: &str, url: &str) -> Value {
@@ -939,12 +948,7 @@ async fn applicants_detail_outside_queue_is_read_only() {
 #[tokio::test]
 async fn applicants_related_search_body_cursor_cache_and_limits() {
     for (target, object, property, expected) in [
-        (
-            "deal",
-            "deals",
-            "oubosaki_torihiki_name",
-            json!(["架空物流"]),
-        ),
+        ("deal", "deals", "associations.listing", json!(["800"])),
         ("listing", "0-420", "associations.listing", json!(["800"])),
     ] {
         let (app, cookie, fake) = app().await;
@@ -964,6 +968,27 @@ async fn applicants_related_search_body_cursor_cache_and_limits() {
             .filter(|(p, _)| p == &related_path)
             .collect();
         assert_eq!(related.len(), 1);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(p, _)| p == "/crm/v4/associations/deals/0-420/batch/read")
+                .count(),
+            usize::from(target == "deal")
+        );
+        assert!(first["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["deal"] == ""));
+        assert!(first["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["deal"] == "架空の別名"));
+        assert!(
+            cursor.len() < 1024,
+            "求人票の集合は署名された参照キーで保持する"
+        );
         assert_eq!(related[0].1["query"], "sample");
         assert_eq!(related[0].1["limit"], 50);
         for (_, body) in requests
@@ -1009,6 +1034,15 @@ async fn applicants_related_search_body_cursor_cache_and_limits() {
                 .filter(|(p, _)| p == &related_path)
                 .count(),
             1
+        );
+        assert_eq!(
+            fake.lock()
+                .unwrap()
+                .requests
+                .iter()
+                .filter(|(p, _)| p == "/crm/v4/associations/deals/0-420/batch/read")
+                .count(),
+            usize::from(target == "deal")
         );
         for change in [
             url.replace("sample", "different"),
@@ -1146,7 +1180,7 @@ async fn applicants_related_cards_reuse_batches_and_select_exact_sheet_deal() {
 }
 
 #[tokio::test]
-async fn applicants_related_fifty_values_and_oversize_names() {
+async fn applicants_related_fifty_values_and_long_deal_names() {
     let (app, cookie, fake) = app().await;
     fake.lock().unwrap().related_search = (800..850)
         .map(|id| json!({"id":id.to_string(),"properties":{}}))
@@ -1183,12 +1217,11 @@ async fn applicants_related_fifty_values_and_oversize_names() {
     }
     let (status, _, body) =
         get_json(&app, "/api/crm/applicants/queue?qt=deal&q=sample", &cookie).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body["error_kind"], "related_search_limit");
+    assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
         fake.lock().unwrap().requests.len(),
-        1,
-        "長すぎる本文を送らない"
+        6,
+        "取引名を検索条件に使わず関連を一回取得する"
     );
     assert_eq!(
         get_json(&app, "/api/crm/applicants/queue?qt=company", &cookie)
@@ -1196,4 +1229,68 @@ async fn applicants_related_fifty_values_and_oversize_names() {
             .0,
         StatusCode::BAD_REQUEST
     );
+}
+
+#[tokio::test]
+async fn applicants_listing_chunks_and_limits() {
+    for (count, scope, media, expected_status) in [
+        (101, "&scope=all", "&media=web", StatusCode::OK),
+        (500, "&scope=all", "", StatusCode::BAD_REQUEST), // 本文3000文字を超える
+        (501, "&scope=all", "", StatusCode::BAD_REQUEST),
+        (101, "", "&media=web", StatusCode::BAD_REQUEST), // 日付のOR分岐との積が18条件を超える
+    ] {
+        let (app, cookie, fake) = app().await;
+        {
+            let mut f = fake.lock().unwrap();
+            f.related_search = vec![json!({"id":"800","properties":{"dealname":"架空物流"}})];
+            f.deal_listings = Some((1..=count).map(|id| id.to_string()).collect());
+        }
+        let (status, _, body) = get_json(
+            &app,
+            &format!("/api/crm/applicants/queue?qt=deal&q=sample{scope}{media}"),
+            &cookie,
+        )
+        .await;
+        assert_eq!(status, expected_status, "{count}: {body}");
+        if status == StatusCode::OK {
+            let f = fake.lock().unwrap();
+            let searches: Vec<_> = f
+                .requests
+                .iter()
+                .filter(|(p, _)| p == "/crm/v3/objects/0-421/search")
+                .collect();
+            assert_eq!(searches.len(), 1);
+            let groups = searches[0].1["filterGroups"].as_array().unwrap();
+            assert_eq!(groups.len(), 2);
+            let mut sizes: Vec<_> = groups
+                .iter()
+                .map(|g| {
+                    let filters = g["filters"].as_array().unwrap();
+                    assert!(filters
+                        .iter()
+                        .any(|f| f["propertyName"] == "oubobaitaimei" && f["value"] == "web"));
+                    filters
+                        .iter()
+                        .find(|f| f["propertyName"] == "associations.listing")
+                        .unwrap()["values"]
+                        .as_array()
+                        .unwrap()
+                        .len()
+                })
+                .collect();
+            sizes.sort();
+            assert_eq!(sizes, vec![1, 100]);
+        } else {
+            assert_eq!(
+                body["message"],
+                "取引に付いた求人が多すぎます。もう少し詳しく入力してください。"
+            );
+            assert!(!fake
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|(p, _)| p == "/crm/v3/objects/0-421/search"));
+        }
+    }
 }
