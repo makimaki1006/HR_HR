@@ -608,5 +608,5 @@ function JobCopyMain() {
 /** `?view=occupations` は職種の一括指定画面。それ以外は従来の案件管理。 */
 export function JobCopyScreen() {
   const view = new URLSearchParams(useJobCopySearch()).get('view');
-  return <ConsultantMenu>{view === 'risk' ? <ConsultantRisk /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : <JobCopyMain />}</ConsultantMenu>;
+  return <ConsultantMenu>{view === 'risk' || view === 'good' ? <ConsultantRisk key={view} good={view === 'good'} /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : <JobCopyMain />}</ConsultantMenu>;
 }

@@ -23,3 +23,7 @@
 .cr-detail > .cr-flags, .cr-detail section, .cr-detail footer { margin-top: 20px; }.cr-detail article { padding: 12px 0; border-bottom: 1px solid #d4dfe7; white-space: pre-wrap; overflow-wrap: anywhere; }.cr-detail h4 { margin: 0; }.cr-detail footer { display: flex; gap: 24px; align-items: center; }
 @media (max-width: 760px) { .cr-main, .cm-menu { position: sticky; top: 0; z-index: 20; padding: 12px; }.cr-main table { min-width: 850px; }.cm-menu nav a { margin-left: 0; } }
 .cr-detail { margin: auto; }
+.cr-flags .cr-good { background: #e9f7ef; border-color: #8bc6a6; color: #175b37; }
+.pm-memo label { display: block; }
+.pm-memo textarea { display: block; width: 100%; min-height: 90px; box-sizing: border-box; margin: 8px 0; padding: 10px; border: 1px solid #beced8; border-radius: 6px; }
+.pm-current { overflow-wrap: anywhere; }
