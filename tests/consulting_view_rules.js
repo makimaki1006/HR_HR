@@ -3339,12 +3339,12 @@ check("案件の詳細: 推定（メール由来）の行は必ず推定の印�
     if (isMail) ok(it.replace(/<[^>]*>/g, "").indexOf("メールの文面から起こした") < 0, "メール由来の行ごとに定型の断りを繰り返している");
     else ok(it.indexOf("推定") < 0, "事実の行に「推定」が混ざっている: " + it.slice(0, 80));
   }
-  // 凡例は形と文で（色だけにしない）
-  ok(/<div class="legend"><i>&#9679; 事実[^<]*<\/i><i>&#9671; 推定/.test(h), "凡例に事実（●）と推定（◇）の文が無い");
-  // 確かさと断りは凡例に1回だけ（見える文字として。行の title は数えない）
+  // 凡例は1行。作り方の説明を2行目以降へ出さない。
+  ok(h.includes('<div class="legend"><i>● 事実　◇ メール由来の MTG（推定）　↪ 付け直し　⚠ 契約期間の外</i></div>'),
+    "時系列の短い凡例が無い");
   const vis = h.replace(/<[^>]*>/g, "");
-  ok((vis.match(/メールの文面から起こした実施日です（推定\(±1日 83\.3%\)）。録画のような中身はありません/g) || []).length === 1,
-    "凡例に確かさと断りが1回だけ出ていない");
+  ok(!vis.includes("メールの文面から起こした") && !vis.includes("録画のような中身はありません"),
+    "凡例に作り方の長い説明が残っている");
 });
 
 check("案件の詳細: 付け直しの印は4通りを言い分け、そのままの行には何も付けない", () => {
@@ -3365,7 +3365,7 @@ check("案件の詳細: 抽出前の MTG は「未抽出」と出し、空の項
   const items = ddItems(run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }"));
   const m = items.find((x) => x.indexOf('<span class="mark">MTG</span>') >= 0);
   ok(m, "録画の MTG の行が無い");
-  ok(m.indexOf("未抽出") >= 0 && m.indexOf("記録が無いのではありません") >= 0, "未抽出と書いていない");
+  ok(m.includes("未抽出") && !m.includes("記録が無いのではありません"), "未抽出の表示に不要な断りがある");
   ok(m.indexOf("<dl>") < 0, "未抽出なのに項目の表（— の並び）を出している");
 });
 

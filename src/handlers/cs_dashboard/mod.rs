@@ -637,6 +637,11 @@ impl Sheets {
     }
 }
 
+/// period 列のない旧シートは従来どおり期間内。列がある場合は明示された期間内だけ。
+pub(crate) fn zoom_in_contract(zoom: &SheetData, row: &[Arc<str>]) -> bool {
+    !zoom.header.iter().any(|h| h == "period") || zoom.get(row, "period").trim() == "契約期間内"
+}
+
 pub(crate) fn factual_mtg<'a>(
     mtg: &'a SheetData,
     zoom: &SheetData,
@@ -666,7 +671,7 @@ pub(crate) fn factual_mtg<'a>(
         .collect();
     for r in &zoom.rows {
         let id = zoom.get(r, "deal_id").trim();
-        if id.is_empty() || zoom.get(r, "kind").trim() != "実施" {
+        if id.is_empty() || zoom.get(r, "kind").trim() != "実施" || !zoom_in_contract(zoom, r) {
             continue;
         }
         let Some(day) = date10(zoom.get(r, "date")) else {

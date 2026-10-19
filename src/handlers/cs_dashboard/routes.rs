@@ -3200,7 +3200,10 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
 
     let recorded_last = super::last_recorded_mtg_by_deal(&sheets.mtg);
     // Zoomの開催日を独立して持ち、録画の無い最終日を録画と呼ばない。
-    let zoom_last = super::last_mtg_by_deal(&super::empty_history_sheet(), &sheets.zoom_mtg);
+    let zoom_last = super::last_mtg_by_deal(
+        &super::factual_mtg(&super::empty_history_sheet(), &sheets.zoom_mtg),
+        &super::empty_history_sheet(),
+    );
 
     // 表示用のフェーズ（序盤／中盤／終盤）。`phase_of` と同じ区切り
     let band_of = |d: &Deal| -> Option<usize> {
@@ -3270,7 +3273,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         // MTG途絶の帯。閾値は GAS `no_mtg_alerter.gs` と同じ
         let gap = super::mtg_gap_of(d, &last_mtg, today);
         let source_label = if gap.last.is_some()
-            && gap.last == zoom_last.get(&d.id).and_then(|(_, day)| *day)
+            && gap.last == zoom_last.get(&d.id).and_then(|(day, _)| *day)
             && gap.last != recorded_last.get(&d.id).and_then(|(day, _)| *day)
         {
             "Zoom 開催記録（事実）"

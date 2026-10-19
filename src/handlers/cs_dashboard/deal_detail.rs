@@ -391,10 +391,20 @@ pub fn build_deal_detail(
         let Some(day) = date10(zoom.get(r, "date")) else {
             continue;
         };
-        let Some(attach) = pick(zoom.get(r, "deal_id").trim(), day) else {
-            continue;
+        let in_contract = super::zoom_in_contract(zoom, r);
+        let attach = if in_contract {
+            let Some(attach) = pick(zoom.get(r, "deal_id").trim(), day) else {
+                continue;
+            };
+            attach
+        } else {
+            // 期間外はシートが選んだ最寄りの契約に残し、別契約へ付け直さない。
+            if zoom.get(r, "deal_id").trim() != id {
+                continue;
+            }
+            json!({"state": "outside", "in_span": false, "moved_from": null, "moved_to": null})
         };
-        if !zoom_days.insert(day) || rec_days.contains(&day) {
+        if in_contract && (!zoom_days.insert(day) || rec_days.contains(&day)) {
             continue;
         }
         n_zoom += 1;
@@ -404,6 +414,7 @@ pub fn build_deal_detail(
             "kind": "zoom_mtg", "date": day.to_string(), "time": time,
             "end_time": hhmm(zoom.get(r, "end_jst")), "end_date": date10(zoom.get(r, "end_jst")).map(|d| d.to_string()),
             "fact": true, "source_label": "Zoom の開催記録・事実", "attach": attach,
+            "period": if in_contract { Value::Null } else { text(zoom.get(r, "period")) },
         })));
     }
 

@@ -1,4 +1,6 @@
-deal_id	date	kind	source	certainty	zoom_meeting_id	start_jst	end_jst	uuid
-a	2026-03-10	実施	zoom	事実	90000000001	2026-03-10 09:00:00	2026-03-10 10:00:00	fictional-zoom-1
-b	2026-03-11	実施	zoom	事実	90000000002	2026-03-11 10:00:00	2026-03-11 11:00:00	fictional-zoom-2
-a	2026-03-11	実施	zoom	事実	90000000002	2026-03-11 10:00:00	2026-03-11 11:00:00	fictional-zoom-2
+deal_id	date	kind	source	certainty	zoom_meeting_id	start_jst	end_jst	uuid	period
+a	2026-03-10	実施	zoom	事実	90000000001	2026-03-10 09:00:00	2026-03-10 10:00:00	fictional-zoom-1	契約期間内
+b	2026-03-11	実施	zoom	事実	90000000002	2026-03-11 10:00:00	2026-03-11 11:00:00	fictional-zoom-2	契約期間内
+a	2026-03-11	実施	zoom	事実	90000000002	2026-03-11 10:00:00	2026-03-11 11:00:00	fictional-zoom-2	契約期間内
+a	2025-12-20	実施	zoom	事実	90000000003	2025-12-20 09:00:00	2025-12-20 10:00:00	fictional-before	契約前
+a	2026-03-29	実施	zoom	事実	90000000004	2026-03-29 09:00:00	2026-03-29 10:00:00	fictional-between	契約の間

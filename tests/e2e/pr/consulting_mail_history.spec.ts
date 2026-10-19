@@ -20,6 +20,8 @@ test('案件の詳細にメールの全種類とZoom開催記録を表示する'
   });
   await page.goto(`${PR_BASE_URL}/consulting#deal/detail?id=a`);
   const timeline = page.locator('#dd-tl');
+  await expect(timeline).toBeVisible();
+  await page.locator('#dd-older').click();
   await expect(timeline.locator('li.k-email')).toHaveCount(5);
   await expect(timeline.locator('li.k-email .tag')).toHaveText(['応募の報告', 'MTG取り下げ', 'MTG候補', 'MTG予定', 'MTG実施']);
   await expect(timeline.locator('li.k-email').last()).toContainText('2026-03-11');
@@ -29,8 +31,14 @@ test('案件の詳細にメールの全種類とZoom開催記録を表示する'
   await expect(timeline.locator('li.k-email').last()).toContainText('Zoom で開催 10:00');
   await expect(timeline.locator('li.k-email').last()).toContainText('架空の継続契約');
   await expect(timeline).toContainText('（Zoom の開催記録・事実）　10:00〜11:00');
-  await expect(timeline.locator('li.k-mtg:not(.est)')).toHaveCount(2);
+  await expect(timeline.locator('li.k-mtg:not(.est)')).toHaveCount(4);
   await expect(timeline.locator('li.est')).toHaveCount(1);
+  await expect(timeline).toContainText('契約期間の外（契約前）');
+  await expect(timeline).toContainText('契約期間の外（契約の間）');
+  await expect(page.locator('.dd-kv > div').nth(0)).toContainText('2026-03-11（20日前）');
+  await expect(page.locator('.dd-kv > div').nth(1)).toContainText('2026-03-12（19日前）');
+  await expect(page.locator('#cs-main')).not.toContainText('記録が無いのではありません');
+  await expect(page.locator('#cs-main .legend').last().locator('.full')).toHaveCount(0);
   await expect(page.locator('#dd-count')).toContainText('メール 5 件');
   for (const kind of ['MTG実施', 'MTG予定', 'MTG候補', 'MTG取り下げ', '応募の報告']) {
     await expect(page.locator('#dd-count')).toContainText(`${kind} 1 件`);
@@ -38,7 +46,7 @@ test('案件の詳細にメールの全種類とZoom開催記録を表示する'
   await expect(page.locator('#cs-main')).not.toContainText('は並べていません');
   await page.locator('#dd-k-email').uncheck();
   await expect(timeline.locator('li.k-email')).toHaveCount(0);
-  await expect(timeline.locator('li.k-mtg:not(.est)')).toHaveCount(2);
+  await expect(timeline.locator('li.k-mtg:not(.est)')).toHaveCount(4);
   await page.locator('#dd-k-email').check();
   await page.locator('#dd-k-mtg').uncheck();
   await expect(timeline.locator('li.k-mtg')).toHaveCount(0);
@@ -48,7 +56,7 @@ test('案件の詳細にメールの全種類とZoom開催記録を表示する'
   if (shots) {
     mkdirSync(shots, { recursive: true });
     await page.screenshot({ path: join(shots, '1440-900-overview.png') });
-    await timeline.scrollIntoViewIfNeeded();
+    await page.locator('#dd-tl-h').evaluate(el => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 24));
     await page.screenshot({ path: join(shots, '1440-900-mail-history.png') });
     await page.screenshot({ path: join(shots, 'mail-history-full.png'), fullPage: true });
   }
@@ -78,8 +86,10 @@ for (const view of ['risk', 'good']) test(`案件管理の${view === 'risk' ? '�
   await expect(email.first()).toContainText('応募の報告');
   await expect(email.last()).toContainText('Zoom で開催 10:00');
   const zoom = dialog.locator('article').filter({ hasText: 'Zoom の開催記録・事実' });
-  await expect(zoom).toHaveCount(1);
-  await expect(zoom).toContainText('10:00〜11:00');
+  await expect(zoom).toHaveCount(3);
+  await expect(zoom.filter({ hasText: '10:00〜11:00' })).toHaveCount(1);
+  await expect(zoom.filter({ hasText: '契約期間の外（契約前）' })).toHaveCount(1);
+  await expect(zoom.filter({ hasText: '契約期間の外（契約の間）' })).toHaveCount(1);
   expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   if (process.env.CS_MAIL_HISTORY_SHOTS) {
     mkdirSync(process.env.CS_MAIL_HISTORY_SHOTS, { recursive: true });

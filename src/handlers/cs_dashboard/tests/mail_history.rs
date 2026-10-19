@@ -106,7 +106,19 @@ fn mail_history_order_labels_attach_and_zoom_priority() {
     assert!(email[3]["zoom_held_time"].is_null()); // 会議番号だけでは開催扱いにしない
     assert_eq!(v["counts"]["email"], 5);
     assert_eq!(v["counts"]["email_kinds"].as_array().unwrap().len(), 5);
-    let zoom = events_of(&v, "zoom_mtg");
+    let all_zoom = events_of(&v, "zoom_mtg");
+    assert_eq!(all_zoom.len(), 3);
+    assert_eq!(all_zoom[0]["date"], "2026-03-29");
+    assert_eq!(all_zoom[0]["period"], "契約の間");
+    assert_eq!(all_zoom[0]["attach"]["in_span"], false);
+    assert_eq!(all_zoom[2]["date"], "2025-12-20");
+    assert_eq!(all_zoom[2]["period"], "契約前");
+    assert_eq!(all_zoom[2]["attach"]["state"], "outside");
+    assert_eq!(v["counts"]["zoom_outside"], 2);
+    let zoom: Vec<_> = all_zoom
+        .into_iter()
+        .filter(|e| e["period"].is_null())
+        .collect();
     assert_eq!(zoom.len(), 1); // 録画の日と同じ行・別契約に付いた重複を除く
     assert_eq!(zoom[0]["date"], "2026-03-11");
     assert_eq!(zoom[0]["time"], "10:00");
@@ -214,6 +226,16 @@ fn zoom_changes_flags_using_the_production_aggregation() {
         &[&[&target, "2026-09-17", "実施"]],
     );
     let after = super::super::routes::deal_rows_uncached(&sh, fixture_day()).0;
+    for period in ["契約前", "契約の間"] {
+        sh.zoom_mtg = tiny(
+            &["deal_id", "date", "kind", "period"],
+            &[&[&target, "2026-09-17", "実施", period]],
+        );
+        assert_eq!(
+            super::super::routes::deal_rows_uncached(&sh, fixture_day()).0,
+            before
+        );
+    }
     let tally = |rows: &[Value]| {
         let mut counts = std::collections::BTreeMap::<String, usize>::new();
         for r in rows {
@@ -267,4 +289,35 @@ fn application_report_alone_leaves_contact_missing() {
         .iter()
         .any(|f| f == "接触の記録が無い"));
     assert_eq!(events_of(&detail(&sh), "email").len(), 5);
+}
+
+#[test]
+fn outside_zoom_preserves_all_flags_and_legacy_sheet_counts_every_row() {
+    let mut sh = fixture();
+    sh.mail_mtg = empty_history_sheet();
+    let today = chrono::NaiveDate::from_ymd_opt(2026, 3, 31).unwrap();
+    let before = super::super::routes::deal_rows_uncached(&sh, today).0;
+    let mut zoom = (*sh.zoom_mtg).clone();
+    zoom.rows
+        .retain(|r| super::super::zoom_in_contract(&sh.zoom_mtg, r));
+    sh.zoom_mtg = Arc::new(zoom);
+    assert_eq!(
+        before,
+        super::super::routes::deal_rows_uncached(&sh, today).0
+    );
+    // 日付だけでは期間内に見える行も period を優先して除外する。
+    let mut sh = fixture();
+    sh.mail_mtg = empty_history_sheet();
+    let mut legacy = (*sh.zoom_mtg).clone();
+    let column = legacy.header.iter().position(|h| h == "period").unwrap();
+    legacy.header.remove(column);
+    for row in &mut legacy.rows {
+        row.remove(column);
+    }
+    sh.zoom_mtg = Arc::new(legacy);
+    let rows = super::super::routes::deal_rows_uncached(&sh, today).0;
+    let row = rows.iter().find(|r| r["deal_id"] == "a").unwrap();
+    assert_eq!(row["mtg_last"], "2026-03-29");
+    assert_eq!(row["mtg_days"], 2);
+    assert_eq!(row["days_since_contact"], 2);
 }

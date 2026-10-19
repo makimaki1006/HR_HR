@@ -7589,6 +7589,7 @@ function durText(sec) {
 /* 付け直しの説明（どこから来たか・どこの期間の出来事か）。e は行そのもの（接触に数えない行は文を変える） */
 const MOVED_FROM_WORD = { later: "継続の取引", earlier: "前の契約の取引", option: "同じ拠点のオプション契約", unknown: "同じ拠点の別の取引" };
 function attachNote(a, e) {
+  if (e && e.kind === "zoom_mtg" && e.period) return '<span class="via">契約期間の外（' + esc(e.period) + '）</span>';
   if (!a || a.state === "own") return "";
   /* 🔴 60秒以下の電話とメール由来の MTG は、どの取引でも接触に数えない。「〜の記録として数えています」とは書かない */
   const why = !e ? "" : e.kind === "call" && !e.contact ? "60秒以下なので" :
@@ -7620,16 +7621,7 @@ function attachNote(a, e) {
 const mailMtgNote = (c) => "メール由来の MTG は、メールの文面から起こした実施日です（" + (c || "推定") + "）。録画のような中身はありません";
 /** 時系列の凡例（M-3 (4)）。事実と推定の形の見本に加えて、出している行にある定型の断りを1回だけ書く */
 function detailLegend(shown) {
-  const certs = [...new Set(shown.filter((e) => e.kind === "mail_mtg").map((e) => e.certainty || "推定"))];
-  const st = (e) => (e.attach && e.attach.state) || "own";
-  const moved = shown.some((e) => st(e) === "moved_in");
-  const outs = shown.some((e) => st(e) !== "own" && st(e) !== "moved_in");
-  return '<div class="legend"><i>&#9679; 事実（録画・Zoom 開催記録・メール・通話記録・交代の記録）</i>' +
-    "<i>&#9671; 推定（メール由来の MTG。印の枠は破線）</i>" +
-    (certs.length ? '<i class="full">&#9671; ' + esc(mailMtgNote(certs.join("／"))) + "。</i>" : "") +
-    (moved ? '<i class="full">&#8618; 付け直し: 同じ拠点の別の取引に付いていた記録のうち、その日がこの契約の期間の中にあるものを並べています（行に元の取引を書いています）。</i>' : "") +
-    (outs ? '<i class="full">&#9888; この取引に付いているが、契約期間の外の日の記録です。消さずに印を付けています（接触に数えるかは行ごとに書いています）。</i>' : "") +
-    "</div>";
+  return '<div class="legend"><i>● 事実　◇ メール由来の MTG（推定）　↪ 付け直し　⚠ 契約期間の外</i></div>';
 }
 
 /* 1件ぶんの中身 */
@@ -7657,7 +7649,7 @@ function detailItem(e) {
     } else {
       /* 🔴 空なのは「まだ抽出していない」。記録が無いのとは違う */
       what += '<span class="via"><span class="tag d">未抽出</span>やること・懸念などはまだ抽出していません' +
-        "（記録が無いのではありません）</span>";
+        "</span>";
     }
   } else if (e.kind === "zoom_mtg") {
     what = '<span class="mark">MTG</span><span class="muted small">（Zoom の開催記録・事実）</span>' +
