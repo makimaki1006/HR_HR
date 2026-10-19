@@ -424,7 +424,15 @@ pub fn build_deal_detail(
     let mut email_kinds: std::collections::BTreeMap<&str, usize> =
         std::collections::BTreeMap::new();
     let (mut n_email_moved_in, mut n_email_outside) = (0usize, 0usize);
-    for (i, r) in history.rows.iter().enumerate() {
+    // 直接付いた行、本体契約、オプション契約の順で採用する。
+    let mut email_order: Vec<usize> = (0..history.rows.len()).collect();
+    email_order.sort_by_key(|&i| {
+        let did = history.get(&history.rows[i], "deal_id").trim();
+        (did != id, is_opt(did), i)
+    });
+    let mut seen_email = HashSet::new();
+    for i in email_order {
+        let r = &history.rows[i];
         let g = |c| history.get(r, c);
         let Some(day) = date10(g("送信日時（JST）")) else {
             continue;
@@ -432,6 +440,20 @@ pub fn build_deal_detail(
         let Some(attach) = pick(g("deal_id").trim(), day) else {
             continue;
         };
+        let mail_id = g("mail_id").trim();
+        let key = if mail_id.is_empty() {
+            (
+                "legacy",
+                g("送信日時（JST）").trim(),
+                g("向き").trim(),
+                g("件名").trim(),
+            )
+        } else {
+            ("id", mail_id, "", "")
+        };
+        if !seen_email.insert(key) {
+            continue;
+        }
         n_email += 1;
         *email_kinds.entry(g("種類").trim()).or_default() += 1;
         count_attach(&attach, &mut n_email_moved_in, &mut n_email_outside);

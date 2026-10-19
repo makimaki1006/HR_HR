@@ -809,7 +809,7 @@ async fn 最初の読み込みが失敗したらエラー() {
 // ハンドラ
 // ---------------------------------------------------------------------------
 
-fn test_state(hubspot: Option<Arc<HubSpotClient>>) -> Arc<AppState> {
+pub(super) fn test_state(hubspot: Option<Arc<HubSpotClient>>) -> Arc<AppState> {
     Arc::new(AppState {
         config: AppConfig {
             port: 0,
@@ -850,7 +850,7 @@ fn test_state(hubspot: Option<Arc<HubSpotClient>>) -> Arc<AppState> {
     })
 }
 
-async fn inject_session(session: Session, Json(v): Json<Value>) -> StatusCode {
+pub(super) async fn inject_session(session: Session, Json(v): Json<Value>) -> StatusCode {
     session
         .insert(crate::auth::SESSION_USER_KEY, v["email"].as_str().unwrap())
         .await
@@ -862,7 +862,7 @@ async fn inject_session(session: Session, Json(v): Json<Value>) -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
-async fn login(app: &Router, email: &str) -> String {
+pub(super) async fn login(app: &Router, email: &str) -> String {
     let resp = app
         .clone()
         .oneshot(

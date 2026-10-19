@@ -1379,8 +1379,8 @@ check("D2", "案件の詳細: 事実と推定を印（点の形・枠）と文�
   const items = h.split("<li ").slice(1);
   const mail = items.filter((x) => x.indexOf("MTG（推定）") >= 0);
   if (mail.length !== 1 || !/^class="[^"]*\best\b/.test(mail[0])) throw new Error("メール由来の行に推定の印（est）が無い");
-  /* M-3 (4)（2026-09-29）: 確かさは凡例に1回（見える文字）と、行の札の title。行ごとに定型の断りを繰り返さない */
-  if (h.replace(/<[^>]*>/g, "").indexOf("メールの文面から起こした実施日です（推定(±1日 83.3%)）") < 0) throw new Error("凡例に確かさが書かれていない");
+  // 凡例は短い文で事実と推定を分け、確かさの詳細は行の札の title に残す。
+  if (h.replace(/<[^>]*>/g, "").indexOf("● 事実　◇ メール由来の MTG（推定）") < 0) throw new Error("凡例で事実と推定が分かれていない");
   if (!/<span class="mark" title="[^"]*推定\(±1日 83\.3%\)[^"]*">MTG（推定）/.test(mail[0])) throw new Error("メール由来の行の札に確かさ（title）が無い");
   if (mail[0].indexOf("同じ日に録画の MTG があります") < 0) throw new Error("同じ日の録画のことを書いていない");
   const facts = items.filter((x) => x.indexOf("MTG（推定）") < 0);

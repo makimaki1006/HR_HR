@@ -400,6 +400,8 @@ async fn main() {
     rust_dashboard::crm::stage_rules::spawn_drift_check(state.clone());
     // 今日の架電成績の最初の読み込みを要求を待たずに始める
     rust_dashboard::crm::caller_metrics::spawn_warmup(state.clone());
+    // トークの振り返り (CALL_REVIEW_ENABLED=1 のときだけ。ADR-033)
+    rust_dashboard::crm::talk_review::spawn_worker(state.clone());
 
     let app = build_app(state);
 
