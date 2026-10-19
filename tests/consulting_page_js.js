@@ -274,7 +274,7 @@ check("U3", "素早く切り替えると、前の画面の遅い応答で上書�
   slows.forEach((slow) => slow.resolve(jsonRes({ meta: {}, rows: [] })));
   await tick(); await tick(); await tick();
   const main = t.reg["cs-main"].innerHTML;
-  if (main.indexOf("この担当はどの案件を持つか") < 0 ||
+  if (main.indexOf("担当者を選んでください") < 0 ||
       main.indexOf("どこに手が回っていないか") >= 0)
     throw new Error("URL は担当者ごとの案件なのに、中身がチームと担当で上書きされた");
 });
@@ -293,7 +293,7 @@ check("U3", "前の画面の遅い要求が失敗しても、いまの画面を�
   slows.forEach((slow) => slow.resolve({ ok: false, status: 502, redirected: false, url: "http://test.local/api",
     headers: { get: () => "text/html" }, json: async () => { throw new SyntaxError("x"); } }));
   await tick(); await tick(); await tick();
-  if (t.reg["cs-main"].innerHTML.indexOf("この担当はどの案件を持つか") < 0)
+  if (t.reg["cs-main"].innerHTML.indexOf("担当者を選んでください") < 0)
     throw new Error("古い要求の失敗で、いまの画面（担当者ごとの案件）が消された");
   if (t.reg["cs-error"].innerHTML.indexOf("HTTP 502") >= 0)
     throw new Error("古い要求の失敗がエラーとして出ている");
@@ -1171,7 +1171,7 @@ check("L4", "houjin: 「拠点をまたいで1本の線にしない」と基準�
   t.R('customerHoujin = "H1"; houjinFor = ""; houjinPick = null;');
   const h = t.R("renderCustomer(__D)");
   const n = count(h, /時間の悪化/g);
-  if (n !== 1) throw new Error("「1本にまとめると…時間の悪化に見える」が " + n + " 回出ている（頭の枠の1回にする）");
+  if (n !== 0) throw new Error("削除した説明が残っている");
   if (h.indexOf("1本の線にまとめない理由") >= 0) throw new Error("「1本の線にまとめない理由」の枠が残っている");
   const b = count(h, /基準日 2026-09-24/g);
   if (b !== 1) throw new Error("基準日が " + b + " 回出ている");
@@ -1278,12 +1278,12 @@ check("H1", "担当の交代: 開くと handover を取り、交代の前後の�
   req.resolve(jsonRes(teamPayload({ handover: handoverPayload() })));
   await tick(); await tick();
   const h = t.reg["cs-main"].innerHTML;
-  for (const w of ["交代の前後で、接触は増えたか減ったか", "証拠ではありません", "引き継いだ側（次の担当）", "引き継がれた側（前の担当）",
+  for (const w of ["交代前後の接触", "引き継いだ側（次の担当）", "引き継がれた側（前の担当）",
     "接触の前後（30日あたり）", "記録の遅れ", "それぞれの担当期間の全体（通期）", "変化の平均 / 真ん中の値", "担当中"])
     if (h.indexOf(w) < 0) throw new Error("「" + w + "」が描かれていない");
   if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
   /* 担当者ごとの接触は同じ画面の節（接触の推移）。そこへ移るボタン（URL のハッシュは変えない） */
-  if (h.indexOf('<button type="button" class="tojump" data-jump="tm-ct-h">接触の推移</button>') < 0 || h.indexOf('id="tm-ct-h"') < 0)
+  if (h.indexOf('id="tm-ct-h"') < 0)
     throw new Error("担当者ごとの接触（同じ画面の接触の推移）への行き先が無い");
   /* 交代の表の案件名は案件の詳細へ（09 の 3「担当の交代の表の案件名もリンクにする」） */
   if (h.indexOf('<a class="deallink" href="#deal/detail?id=40000000001">案件X</a>') < 0)
@@ -1979,7 +1979,7 @@ check("M-2", "戻る（履歴の札あり）は取り直さず、離れる前の
   (t.listeners.popstate || []).forEach((f) => f({ type: "popstate", state: kToday }));
   (t.listeners.hashchange || []).forEach((f) => f({ type: "hashchange" }));
   if (t.fetched.length !== n0 + 1) throw new Error("戻るで今日動く先を取り直している（位置と時間を失う）");
-  if (t.R("cur.view") !== "today" || t.reg["cs-main"].innerHTML.indexOf("今日・今週、どこに連絡するか") < 0) throw new Error("戻っても今日動く先が描かれていない");
+  if (t.R("cur.view") !== "today" || t.reg["cs-main"].innerHTML.indexOf('id="td-today-h"') < 0) throw new Error("戻っても今日動く先が描かれていない");
   if (!scrolled.some((p) => p[1] === 1500)) throw new Error("離れる前の位置（scrollY 1500）に戻していない: " + JSON.stringify(scrolled));
   if (!row.focused) throw new Error("戻ったとき、押していた案件名（同じ行）にフォーカスが戻らない");
   /* 前の読み込み（F5 の前）の札は使わない: s が違えばリンクと同じ扱い（取りに行く） */
@@ -3026,6 +3026,54 @@ check("顧客条件", "一覧はLTVの大きい順に50社まで、残りの社�
   if (t.R('filterCustomers(customerIndex).rows.length') !== 55) throw new Error('入力済みの0が未入力扱いされる');
   t.R("customerIndex[0].mensetu_total = null;");
   if (t.R('filterCustomers(customerIndex).rows.length') !== 54 || !t.R('customerFilterResults()').includes('面接が入っていない 1 社は外れています')) throw new Error('面接の未入力を外していない');
+});
+
+check("攻めの条件", "4つの条件を入れ替え、上限・押された見た目・URLの往復を確かめる", async () => {
+  const t = boot();
+  t.R(`customerIndex = [
+    { houjin: 'sample-a', name: '架空あお', kigyouzentaininzuu: 1000, sites: 2, monthly_amount_max: 300000, syoudaku_total: 5, active: 1, focus: true, ltv: 3 },
+    { houjin: 'sample-b', name: '架空みどり', kigyouzentaininzuu: 999, sites: 3, monthly_amount_max: 299999, syoudaku_total: 4, active: 1, focus: false, ltv: 2 },
+    { houjin: 'sample-c', name: '架空しろ', kigyouzentaininzuu: 2000, sites: null, monthly_amount_max: 400000, syoudaku_total: 6, active: 0, focus: true, ltv: 1 }
+  ];`);
+  for (const [i, want] of [[0, 'sample-a'], [1, 'sample-a'], [2, 'sample-a'], [3, 'sample-a,sample-c']]) {
+    t.R("customerFilter.ltv = '999'; applyCustomerPreset(" + i + ")");
+    if (t.R("filterCustomers(customerIndex).rows.map(r => r.houjin).join(',')") !== want) throw new Error('条件' + i + 'の結果が違う');
+    if (t.R('JSON.stringify(CUSTOMER_PRESETS.map(customerPresetMatches))') !== JSON.stringify([0,1,2,3].map(n => n === i))) throw new Error('完全一致の判定が違う');
+    const h = t.R('focusToggle({focus:{n_focus:2,n_display:3}})');
+    if (!h.includes('data-customer-preset="' + i + '" aria-pressed="true"')) throw new Error('押された見た目が無い');
+    const params = t.R("new URLSearchParams(stateParams('customer')).toString()");
+    t.R("applyState('customer', new URLSearchParams(), true)");
+    t.R("applyState('customer', new URLSearchParams(" + JSON.stringify(params) + "), true)");
+    if (!t.R('customerPresetMatches(CUSTOMER_PRESETS[' + i + '])')) throw new Error('URLの往復で条件が変わる');
+  }
+  t.R("applyCustomerPreset(1); customerFilter.employees = ''; customerFilter.sites = '2'");
+  if (!t.R('customerFilterResults()').includes('拠点数が入っていない 1 社は外れています')) throw new Error('上限の未入力除外数が違う');
+  if ((t.R('customerFilterResults()').match(/拠点数が入っていない/g) || []).length !== 1) throw new Error('上下限で未入力を重複表示');
+  t.R("customerFilter.sites_max = '1'");
+  if (t.R('filterCustomers(customerIndex).rows.length') !== 0 || t.R('CUSTOMER_PRESETS.some(customerPresetMatches)')) throw new Error('手動編集が反映されない');
+});
+check("録画の待ち", "未作成・別タブ・0件は隠し、2件は日付順で安全に表示する", async () => {
+  const t = boot();
+  for (const data of [null, {}, {rows:[]}]) {
+    if (t.R('pendingRecordingSection(' + JSON.stringify(data) + ')') !== '') throw new Error('空の一覧が場所を取る');
+  }
+  const data = {rows:[
+    {date:'2026-10-16', subject:'架空相談あお', host:'架空担当あお', candidates:'架空案件あお', reason:'候補が複数', recording:'https://example.invalid/recording-a'},
+    {date:'2026-10-18', subject:'架空相談みどり<script>', host:'架空担当みどり', candidates:'', reason:'候補が無い', recording:'javascript:alert(1)'},
+  ]};
+  const h = t.R('pendingRecordingSection(' + JSON.stringify(data) + ')');
+  if (!h.includes('録画のうち案件に結び付いていないもの 2 件') || h.indexOf('2026-10-18') > h.indexOf('2026-10-16')) throw new Error('件数か順番が違う');
+  if (!h.includes('href="https://example.invalid/recording-a"') || h.includes('javascript:') || h.includes('<script>') || /<details[^>]* open/.test(h)) throw new Error('リンク・文字・畳みが違う');
+});
+check("チームの並び", "多い順・同数は名前順、旧URLの名前順も使える", async () => {
+  const t = boot();
+  t.R(`__team = { meta:{not_counted:'担当者の評価ではありません。', n_consultant:3}, status:{rows:[
+    {consultant:'架空う', unattended:2}, {consultant:'架空あ', unattended:1}, {consultant:'架空い', unattended:2}
+  ],meta:{}}, contact:{month:{periods:[],rows:[]}}, handover:{meta:{},rows:[]} };`);
+  const names = () => [...t.R('renderTeam(__team)').matchAll(/title="この担当の案件だけを「担当者ごとの案件」で見る">([^<]*)/g)].map(m => m[1]).join(',');
+  if (names() !== '架空い,架空う,架空あ') throw new Error('既定の並びが違う');
+  t.R("applyState('team', new URLSearchParams('sort=consultant'), true)");
+  if (names() !== '架空あ,架空い,架空う') throw new Error('旧URLの名前順が使えない');
 });
 
 (async () => {

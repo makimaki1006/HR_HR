@@ -556,8 +556,6 @@ pub fn build_contact_trend(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_no_history": no_history,
             // 同じ拠点で契約期間の重なる本体案件が2件以上あり、付け先を決められず数えなかった接触
             "n_ambiguous": n_ambiguous,
-            "not_counted": "※ 接触は検知専用です。多いほど良いという評価ではありません（担当者の評価ではありません）。\
-    もめている案件ほど電話が増えることもあり、接触の多い少ないが良い悪いのどちらに向くかは、このデータでは決まっていません",
         },
         "contact_rule": "接触 ＝ MTG または60秒超の通話（メールは数えない）。通話の日付は日本時間。\
     数えるのは契約期間の中の接触だけです",

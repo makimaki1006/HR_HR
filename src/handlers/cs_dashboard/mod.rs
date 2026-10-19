@@ -84,6 +84,8 @@ pub const SHEET_HANDOVER: &str = "CS_担当交代";
 /// 担当の履歴。🔴 **担当者の正本は `consultant`**（`hubspot_owner_id` ではない）。
 /// このシートの `owner` 欄が consultant で、取引ごとの最新行がいまの担当。
 pub const SHEET_OWNER_HIST: &str = "CS_担当履歴";
+/// 自動では案件に結び付かなかった録画。未作成の環境では表示しない。
+pub const SHEET_PENDING_RECORDINGS: &str = "CS_MTG結び付け待ち";
 /// このデータをいつ作ったか。
 /// 🔴 **計算の基準日（今日）とは別物。** シートは手で作り直しているので、
 ///    基準日だけ今日になっていて中身は何日も前、ということが起きる。
@@ -560,6 +562,7 @@ pub fn population_of(sheet: &SheetData) -> Population {
 // ---------------------------------------------------------------- 読み込み
 
 pub struct Sheets {
+    pub pending_recordings: Option<Arc<SheetData>>,
     pub deal: Arc<SheetData>,
     pub call: Arc<SheetData>,
     pub mtg: Arc<SheetData>,
@@ -586,7 +589,15 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
             data
         }};
     }
+    let pending_recordings = match store.get(client, SHEET_PENDING_RECORDINGS).await {
+        Ok((data, hit)) => {
+            cached &= hit;
+            Some(data)
+        }
+        Err(_) => None,
+    };
     Ok(Sheets {
+        pending_recordings,
         deal: fetch!(SHEET_DEAL),
         call: fetch!(SHEET_CALL),
         mtg: fetch!(SHEET_MTG),
@@ -971,6 +982,7 @@ pub const SHEETS: &[&str] = &[
     SHEET_HANDOVER,
     SHEET_OWNER_HIST,
     SHEET_META,
+    SHEET_PENDING_RECORDINGS,
 ];
 
 /// 起動時にシートを常駐キャッシュへ載せておく。

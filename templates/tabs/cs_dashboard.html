@@ -435,10 +435,10 @@
   /* チームと担当の担当者 × 状態（09 の 6）。PC では枡の上下を詰めて、1画面目に入る人数を増やす。
      2026-09-29 実測（1440×900, fixture 27 名）: 1 行 41px・表の 1 行目 y≈694 で、900px までに 4 行だった。
      スマホ（600px 以下）は押しやすさ（40px 前後）を優先して詰めない */
-  #team-tbl{table-layout:fixed;width:100%;min-width:1150px}
+  #team-tbl{table-layout:fixed;width:100%;min-width:1280px}
   #team-tbl th:first-child{width:108px}
   #team-tbl th:nth-child(2){width:80px}
-  #team-tbl th:nth-child(9),#team-tbl th:nth-child(10){width:145px}
+  #team-tbl th:nth-child(10),#team-tbl th:nth-child(11){width:145px}
   #team-tbl th:last-child{width:85px}
   #team-tbl th button.sort{white-space:normal;padding:7px 8px}
   #team-tbl td{padding-left:8px;padding-right:8px;white-space:normal;overflow-wrap:anywhere}
@@ -1529,21 +1529,9 @@ function fig(caption, hint, body, legend) {
     (R.folded.length ? `<details class="fold figrule"><summary>この図の決まり（${R.n} 件）</summary>` +
                        `<div class="figlegend">${R.folded.join("")}</div></details>` : "") + `</figure>`;
 }
-/** 図の注記（凡例の中の 1 行まるごとの段落 i.full）を、見せるものと「この図の決まり」に畳むものに分ける（M-5 の (b)）。
-    🔴 2026-09-28 診断（08 の M-5）: 図 1 つに凡例＋注記 2〜3 段で、MTG 途絶の図は図本体 270px に対して注記 260px だった。
-    上限は「凡例＋1 行」。ただし 08 の 2.4 の「畳まないもの」（母数・外した件数、「評価ではありません」、n<30 で載せない理由、
-    未確定、分母 0、いつ時点か）は畳まない。色の粒（凡例の項目）も畳まない。
-    🔴 2026-09-30 検証: 前は段落ごとに見分けていて、段落に FIG_KEEP の語が 1 つでも当たると段落まるごと残した（語も「のうち」「外れ」
-       「時点」など広かった）。fixture 400px の 47 図で畳まれたのは 4 段だけで、月次の継続率は図本体 221px に対して注記 665px
-       （点を打たなかった 12 か月の率と件数の列挙、「…だからです」の理由まで見えたまま）、目標に対する進捗は本体 48px に対して 325px のままだった。
-    いまは文（句点「。」。括弧とタグの中の句点では切らない）ごとに見分ける。FIG_KEEP に当たる文だけ見せ、ほかの文は畳む。
-    FIG_KEEP は括弧の外の文字で見る（括弧の中は補足・列挙。「（n=5。継続 1・…・結果待ち 105）」のような月ごとの列挙が、
-    括弧の中の「結果待ち」で残っていた）。
-    どの文も当たらない図は、最初の段落を見せる（凡例＋1 行）。点を打たない理由の段落（data-gapwhy）・data-keep の段落はまるごと見せる。
-    読み違いを防ぐ注意（色の意味「1.5倍以上は赤」、Zoom の名前の並び）も見せる（色だけで伝えない・別人と取り違えない）。
-    中身の空の段落（c.note が空の <i class="full"></i>）は数えない（中身の無い「この図の決まり（1 件）」が出ていた） */
+
 const FIG_KEEP = new RegExp([
-  /* 評価ではありません */ "評価ではありません", "良し悪し", "＝良い、ではありません", "行動量です", "とは読めません", "とは言えません", "ではなく",
+
   /* 母数・外した件数 */ "対象", "分母", "対象は", "n は", "全 [0-9,]+", "全件", "だけ出しています", "だけです", "外して", "除いて", "除き",
   "入っていません", "入れていません", "含めていません", "混ぜていません", "落としていません", "載せていません", "まとめていません",
   /* n<30 */ "件に届かない", "件未満", "点を打っていません",
@@ -3076,17 +3064,14 @@ function kpi(label, big, fine, kind, act) {
      (b) 図の注記は「凡例＋1 行」まで。残りは「この図の決まり」に畳む（fig() → figRules。畳まないものは FIG_KEEP、08 の 2.4）
      (c) foot() は画面末尾の 1 箱（finishView → oneFoot） */
 function sec(no, title, id) {
-  const part = no !== "問い" && no !== "案件";
-  const hints = no === "問い" ? String(title).match(/（[^（）]*）/g) : null;
-  const heading = hints ? String(title).replace(/（[^（）]*）/g, "").trim() : title;
+  const part = no !== "節" && no !== "案件";
   return '<h2 class="sec ' + (part ? "part" : "mincho") + '"' + (id ? ' id="' + esc(id) + '" tabindex="-1"' : "") +
-    '>' + (no === "問い" ? "" : '<span class="no">' + esc(no) + "</span>") + esc(heading) + "</h2>" +
-    (hints ? '<p class="sec-hint muted small">' + esc(hints.join(" ")) + "</p>" : "");
+    '>' + (no === "節" ? "" : '<span class="no">' + esc(no) + "</span>") + esc(title) + "</h2>";
 }
 function note(kind, head, body) {
   /* 08 の 2.4: 母数・除外・少数・未確定・評価の断りは開いたままにする。 */
   const plain = (String(head) + " " + String(body)).replace(/<[^>]*>/g, "").replace(/&lt;/g, "<");
-  const keep = /対象|分母|外し|外す|外れ|除外|数えてい|数えな|対象外|n\s*[<＜]\s*30|30\s*件未満|少な|未確定|評価ではありません|判定を見送|まだ抽出|全件には届|変更履歴が無い|点が1つしか|直近の|この顧客を|この画面は/;
+  const keep = /対象|分母|外し|外す|外れ|除外|数えてい|数えな|対象外|n\s*[<＜]\s*30|30\s*件未満|少な|未確定|判定を見送|まだ抽出|全件には届|変更履歴が無い|点が1つしか|直近の|この顧客を|この画面は/;
   if (kind === "info" && !keep.test(plain)) {
     const [lead, rest] = firstSentence(body);
     if (rest.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim()) {
@@ -3104,12 +3089,7 @@ function note(kind, head, body) {
   return '<div class="note ' + kind + '"><span class="hd">' + esc(head) + "</span><p>" +
     body + "</p></div>";
 }
-/* 決まりごと・読み方の箱を畳む（M-5、2026-09-28 診断: 17 画面中 12 で問いの直下が決まりごとの箱で、1 箱 100〜140px。
-   担当者の一覧では読み方の箱 110px のぶん、名前を押せる表の 1 行目が 1 画面目の外だった）。
-   summary に見出しと、畳んではいけない 1 文（keep。「担当者の評価ではありません」など）を残す。中の箱は見出し（.hd）を持たない
-   （summary が見出し。同じ文を 2 回出さない）。extra は箱の後ろに続ける HTML（採用単価の比べ方の箱など）。
-   🔴 畳むのは取り決め・比べ方・線引きの数字だけ。母数・外した件数・n<30 の理由・未確定・分母 0 を書いた箱は畳まない
-   （08 の 2.4。電話・MTG の品質・いま見るべき顧客の頭の箱は外した件数を含むので note() のまま） */
+
 function foldNote(kind, head, body, keep, id, extra) {
   const what = kind === "info" ? "読み方" : "決まりごと";
   return '<details class="fold notefold"' + (id ? ' id="' + esc(id) + '"' : "") + "><summary>" + esc(head) +
@@ -3117,11 +3097,7 @@ function foldNote(kind, head, body, keep, id, extra) {
     '　<span class="when-closed">' + what + 'を開く</span><span class="when-open">' + what + "を閉じる</span></summary>" +
     '<div class="note ' + kind + ' nohd"><p>' + body + "</p></div>" + (extra || "") + "</details>";
 }
-/** 文を最初の句点で 2 つに分ける（foldNote の keep と本文）。句点が無ければ全文が keep。
-    upTo: この語を含む文までを keep にする（語が無ければ最初の句点で切る）。
-    🔴 2026-09-29 検証: 担当者ごとの接触の not_counted は「接触は検知専用です。多いほど良いという評価ではありません
-    （担当者の評価ではありません）。…」で、最初の句点で切ると評価の文が閉じた畳みの中に入り、1440px の 1 画面目に
-    「評価ではありません」が無かった（08 の 2.4「畳まないもの」） */
+
 function firstSentence(t, upTo) {
   const s = String(t == null ? "" : t);
   const at = upTo ? s.indexOf(upTo) : -1;
@@ -3414,13 +3390,11 @@ function droppedNote(rows, nOf, labelOf) {
     "）。少ない件数の率は、たまたまでも大きく振れるためです。</i>";
 }
 
-
 /* ================================================================ チームと担当（09 の 6、2026-09-29 組み替え）
 
    前の「担当者の一覧」「担当者ごとの接触」「担当の交代」を1画面にまとめた。応答は /api/consulting/team が
    3つの集計（consultants / contact / handover）と担当者 × 状態（status）を束ねて返す（routes.rs build_team）。
-   🔴 仕事量の一覧で、担当者の評価ではない。問いの直下に**畳まずに**書く（09 の 6。役割起点の案から採った）。
-   🔴 表は**名前順が既定**。前は接触率の低い順が既定で、順位表に見えた。並べ替えは見出しを押したときだけ。
+   🔴 表は手が回っていない案件の多い順が既定。同数は名前順。見出しで並べ替えられる。
    🔴 人ごとの接触の定義は2つある（接触した月の割合 / 1件あたりの接触回数）。1つにまとめず、**名前で区別して並べる**
       （09 の判断③。回答待ちの間は推奨どおり並べる）。
    🔴 人ごとの金額（前の表の ATV 最大）は出さない（2026-09-29 藤巻さんの判断④「金額は会社全体だけ」）。
@@ -3429,7 +3403,7 @@ function droppedNote(rows, nOf, labelOf) {
    🔴 表の数は押すと、その担当とその印で「担当者ごとの案件」「今日動く先」を開く。数えているのは同じ行
       （build_team は deal_rows から数える。見張り tests.rs team_status_matches_today_and_board）。
    ================================================================ */
-let teamSort = { key: "consultant", asc: true };
+let teamSort = { key: "unattended", asc: false };
 /* 接触の推移に重ねる担当（URL の c）。空なら全体の線だけ */
 let teamPick = "";
 
@@ -3501,6 +3475,7 @@ const TEAM_COLS = [
       '" title="この担当の案件だけを「担当者ごとの案件」で見る">' + (esc(r.consultant) || DASH) + "</a>" +
       (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "") },
   { k: "n_active", t: "持ち件数", n: 1, fmt: (r) => num(r.n_active) },
+  { k: "unattended", t: "手が回っていない案件", n: 1, fmt: (r) => num(r.unattended) },
   { k: "n_flags2", t: "注意2つ以上", n: 1, fmt: (r, L) =>
       teamDrill(r.n_flags2, hashFor("today", { c: r.consultant }), "この担当で「今日」を開く（注意2つ以上の全件）") },
   { k: "mtg_critical", t: "MTG 90日以上空いている", n: 1, fmt: (r) =>
@@ -3547,6 +3522,18 @@ function wireJumps() {
   });
 }
 
+function pendingRecordingSection(pending) {
+  if (!pending || !pending.rows || !pending.rows.length) return "";
+  const rows = pending.rows.slice().sort((a, b) => b.date.localeCompare(a.date));
+  const cells = rows.map((r) => [esc(r.date), esc(r.subject) +
+    (/^https?:\/\//i.test(r.recording || "") ? ' <a href="' + esc(r.recording) + '" target="_blank" rel="noopener noreferrer">録画</a>' : ""),
+    esc(r.host), esc(r.candidates), esc(r.reason)]);
+  return '<p>録画のうち案件に結び付いていないもの ' + num(rows.length) + ' 件</p>' +
+    foldNote("info", "結び付いていない録画を見る", scroll(table([
+      { t: "開催日" }, { t: "件名" }, { t: "ホスト" }, { t: "候補の取引" }, { t: "理由" },
+    ], cells), 340));
+}
+
 function renderTeam(D) {
   const C = D.consultants || { rows: [], meta: {} };
   const S = D.status || { rows: [], meta: {} };
@@ -3561,7 +3548,7 @@ function renderTeam(D) {
     if (x == null) return 1;
     if (y == null) return -1;
     const c = typeof x === "string" ? x.localeCompare(y, "ja") : x - y;
-    return asc ? c : -c;
+    return (asc ? c : -c) || a.consultant.localeCompare(b.consultant, "ja");
   });
   const U = (D.contact || {}).month || { periods: [] };
   const lf = teamLastFixed(U.periods);
@@ -3570,11 +3557,8 @@ function renderTeam(D) {
   /* 🔴 09 の 6 の「答える問い」は節の問い（接触の推移・担当の交代）をつないだ文で、画面の問いにそのまま書くと、
         下の節でもう一度同じ文を読ませる（段A の統合 2026-09-29 で、見張り「組み替えた画面の問いが、並べた節の問いと
         同じ文になっていない」が落ちた）。画面の問いは 1 つ目だけにし、残りは何がこの画面にあるかで言う */
-  let h = sec("問い", "どこに手が回っていないか");
-  /* 🔴 畳まない 1 行（09 の 6「仕事量の一覧で、担当者の評価ではありません」）。文の正本はサーバの not_counted の最初の文
-     （routes.rs build_consultants）で、閉じた畳みでも見える summary（keep）に出す。本文（残りの文と接触の定義）だけ畳む（M-5） */
-  const ncTeam = firstSentence(esc(D.meta.not_counted).replace("※ ", ""));
-  h += foldNote("info", "何のための画面か", [ncTeam[1], esc(teamRateName(C.contact_rule))].filter(Boolean).join("<br>"), ncTeam[0]);
+  let h = "";
+
   if (D.comparison && D.comparison.data_day) {
     const day = D.comparison.data_day.split("-");
     h += '<p class="muted small">' + Number(day[1]) + "/" + Number(day[2]) + ' のデータとの差</p>';
@@ -3601,10 +3585,12 @@ function renderTeam(D) {
         D.meta.retired_deals ? "warn" : "", D.meta.retired_deals ? { jump: "tm-tbl-h", text: "表へ（担当者の列に印）" } : null) +
     "</div>";
 
+  h += pendingRecordingSection(D.pending_recordings);
+
   /* ---- 担当者 × 状態 ---- */
   h += sec("表", "担当者 × 状態（" + num(rows.length) + " 名）", "tm-tbl-h");
-  h += '<div class="lede">1行1担当者、名前の順。持ち件数が各数の対象です。' +
-    (lfLabel ? "接触回数は確定した最新月（" + esc(lfLabel) + "）の値です。" : "") + "</div>";
+  h += '<p class="muted small">持ち件数 ＝ 稼働中の案件数。' +
+    (lfLabel ? "接触回数は確定した最新月（" + esc(lfLabel) + "）の値です。" : "") + "</p>";
   let t = '<table id="team-tbl"><thead><tr>';
   for (const c of TEAM_COLS) {
     t += sortTh(c, k, asc);
@@ -3617,7 +3603,7 @@ function renderTeam(D) {
   }
   // 全体は担当不明の分も含める。割合・平均はここで足し合わせない。
   const total = { n_active: SM.n_active };
-  ["n_flags2", "mtg_critical", "no_contact", "expiring60", "nps_low", "expiring_week"].forEach((key) => {
+  ["unattended", "n_flags2", "mtg_critical", "no_contact", "expiring60", "nps_low", "expiring_week"].forEach((key) => {
     total[key] = rows.reduce((sum, row) => sum + (row[key] || 0), (SM.unknown || {})[key] || 0);
   });
   t += '</tbody><tfoot><tr><th scope="row">全体</th>';
@@ -3632,31 +3618,13 @@ function renderTeam(D) {
   }
   /* 🔴 人ごとの接触の 2 つの定義（09 の判断③）。1つにまとめず、名前で区別して並べる。違いを表の直下で必ず言う */
   const low = pickLowContact(rows);
-  h += note("def", "人ごとの接触は、定義が2つあります（名前で区別しています）",
-    "<b>接触した月の割合</b>＝ 接触があった月 ÷（持ち案件 × 経過月）。契約が始まってからの通算です。" +
-    "40% 未満は ▼ を付けて緋、70% 未満は山吹にしています（線は取り決めで、事実ではありません）。" +
-    "いま 40% 未満の担当者は " + num(low.n) + " 名です" + (low.n ? "（持ち案件 " + num(low.deals) + " 件）" : "") +
-    (low.skipped ? "。対象が小さい " + num(low.skipped) + " 名は数えていません" : "") + "。<br>" +
-    "<b>1件あたりの接触回数</b>＝ その月の接触の回数 ÷ その月に持っていた案件の数" +
-    (lfLabel ? "（ここでは確定した最新の月 " + esc(lfLabel) + "）" : "") + "。月ごとの動きは下の「接触の推移」にあります。" +
-    "<br>どちらも接触 ＝ MTG または60秒超の通話で、メールは数えていません。持ち案件の数え方が違うので、2つの値は揃いません" +
-    "（割合は稼働中の案件の通算、回数はその月に持っていた案件）。");
+  h += '<p class="muted small">いま 40% 未満の担当者は ' + num(low.n) + ' 名です' + (low.n ? '（持ち案件 ' + num(low.deals) + ' 件）' : '') + '。対象が小さい ' + num(low.skipped) + ' 名は数えていません。</p>';
+  if (C.meta && C.meta.owner_ties) h += '<p class="muted small">担当が割れている稼働中の案件が ' + num(C.meta.owner_ties) + ' 件。</p>';
+  h += '<p class="muted small">接触した月の割合 ＝ 接触があった月 ÷（持ち案件 × 経過月）。1件あたりの接触回数 ＝ その月の接触回数 ÷ その月の持ち案件数。接触 ＝ MTG または60秒超の通話。</p>';
 
   /* 表の決まりごとは表のすぐ下（2つの定義の説明の次）に置く。
      🔴 2026-09-29 検証（1440px）: 前は担当の交代の後ろ（全高 8,076px の末尾 y≈7,822）にあり、表（y≈656）から離れていた。
      題は「担当者 × 状態の決まりごと」。同じ画面の担当の交代にも「この一覧の決まりごと」があるので、どの表の決まりか分かる名前にする */
-  h += foldNote("def", "担当者 × 状態の決まりごと",
-    "見出しを押すと並び替わります。数を押すと、その担当と印で絞った一覧が開きます。" +
-    "注意2つ以上は「今日」、ほかは「担当者ごとの案件」を開きます。<br>" +
-    esc(dispText(C.owner_rule || "")) + "<br>" + esc(C.focus_rule || "") +
-    /* 担当の割れ（mod.rs consultant_ties）。ここでは件数だけ書く。どちらを採ったかは owner_rule（routes.rs）が書いている（F2） */
-    (D.meta.owner_ties ? "<br>同じ日に担当の記録が複数あって担当が割れている稼働中の案件が " +
-      num(D.meta.owner_ties) + " 件あります（どちらを採ったかは上のとおり）。" : "") +
-    (D.meta.unknown_owner ? "<br>担当が取れない取引が " + num(D.meta.unknown_owner) +
-      " 件あります。<b>「その他」に混ぜていません</b>（件数だけ出しています）。" : "") +
-    "<br>「注意2つ以上」「接触の記録が無い」「満了まで60日以内」「NPS 4以下」「MTG 90日以上空いている」は、" +
-    "案件一覧・今日と同じ行（注意）から数えています。" +
-    "<b>「接触の記録が無い」は開始前の案件を数えていません</b>（開始前は注意を立てないため）。");
 
   /* ---- 接触の推移 ---- */
   h += teamContact(D);
@@ -3664,7 +3632,7 @@ function renderTeam(D) {
   /* ---- 担当の交代 ---- */
   h += renderHandover(D.handover || { rows: [], meta: {} }, "tm-ho-h");
 
-  return h + foot(D.meta, true, "担当者 " + num(D.meta.n_consultant) + " 名");
+  return h + foot(D.meta, "担当者 " + num(D.meta.n_consultant) + " 名");
 }
 
 /* 見出しを押したら並び替える。同じ列を押したら向きが反転する。名前は昇順、数は多い順から */
@@ -3690,7 +3658,6 @@ let teamCache = null;
 
    2026-09-24 藤巻さん「各担当者の平均接触数を週か月で比較したい」。
    担当者ごとに**持ち案件1件あたりの接触回数**を期間ごとに並べる（routes の contact_trend.rs）。
-   🔴 接触は検知専用。多いほど良いという評価ではない（担当者の評価ではない）。節の頭で必ず言う。
    🔴 図は全体の線 1 本に、選んだ担当の線を 1 本だけ重ねる（09 の 6。前は 1 人 1 枚の小さな図を 27 枚並べていた）。
       縦軸の上端は全員（と全体）の確定した値でそろえる（誰を選んでも目盛りが変わらない＝選び替えて高さで比べられる）。
    🔴 持ち案件が少ない期間（small_n。3件未満）は**点を打たない**。表には残して印を付ける。
@@ -3747,13 +3714,10 @@ function teamContact(D) {
   const what = unit === "month" ? "月" : "週";
   const pick = rows.find((r) => r.consultant === teamPick) || null;
 
-  let h = sec("問い", "1件あたりの接触はどう動くか", "tm-ct-h") +
+  let h = sec("節", "接触の推移", "tm-ct-h") +
     '<div class="lede">1件あたりの接触 ＝ その' + what + "の接触の回数 ÷ その" + what +
     "に持っていた案件の数。</div>";
-  /* 「接触は検知専用です」から「評価ではありません」の文までは畳まず summary に（規律「評価と誤読させない」。2026-09-29 検証） */
-  const ncCt = firstSentence(esc(CM.not_counted || "").replace("※ ", ""), "評価ではありません");
-  h += foldNote("info", "この図の読み方",
-    "持ち案件が多い人ほど回数が増えるため、1件あたりで比べます。図は全体の線で、担当を選ぶとその人の線を重ねます。全員の値は下の表に出ます。<br>" + ncCt[1], ncCt[0]);
+
 
   /* 操作: 月ごと / 週ごと（押している方は aria-pressed と太字・枠。色だけにしない）と、重ねる担当 */
   h += '<div class="ctlbar"><span class="act" id="ct-unit" role="group" aria-label="期間の単位">期間:' +
@@ -3837,31 +3801,16 @@ function teamContact(D) {
     " 件未満で、図には点を打っていません。（途中）の列は未確定です。</p>";
 
   /* ---- 決まりごと ---- */
-  const sharedN = idx.reduce((a, i) => a + ((U.shared || [])[i] || 0), 0);
   const movedN = idx.reduce((a, i) => a + ((U.moved || [])[i] || 0), 0);
-  h += note("def", "接触の推移の決まりごと",
-    esc(CT.denom_rule || "") +
-    "<br>" + esc(CT.contact_rule || "") +
-    "<br>" + esc(teamRateName(CT.attach_rule)) +
-    (movedN ? "（この表の" + what + "で、付け直して数えた接触はのべ " + num(movedN) + " 回）" : "") +
-    (CM.n_ambiguous ? "（付け先を決められず数えなかった接触 " + num(CM.n_ambiguous) + " 回）" : "") +
-    "<br>" + esc(dispText(CT.owner_rule || "")) +
-    (sharedN ? "（この表の" + what + "で、途中で担当が替わり両方に数えた案件はのべ " + num(sharedN) + " 件。" +
-      "担当者の持ち案件を足すと、全体の持ち案件よりその分多くなります）" : "") +
-    "<br>" + esc(CT.undetermined_rule || "") +
-    (CM.n_no_history ? "担当履歴が1行も無い案件は " + num(CM.n_no_history) + " 件です。" : "") +
-    (CM.n_no_span ? "<br>契約の開始日か満了日が読めない案件 " + num(CM.n_no_span) + " 件は、どの" + what + "にも数えていません。" : "") +
-    "<br>" + esc(CT.provisional_rule || "") +
-    "<br>実際の引き継ぎ日と記録のずれは、この画面の下の " + jumpLink("tm-ho-h", "担当の交代") + " で見られます。");
+  if (movedN) h += '<p class="muted small">付け直して数えた接触はのべ ' + num(movedN) + ' 回。</p>';
+  if (CM.n_no_span) h += '<p class="muted small">契約の開始日か満了日が読めない案件 ' + num(CM.n_no_span) + ' 件。</p>';
   return h;
 }
 
 /* ================================================================ 2 いま見るべき顧客 */
 function renderFocus(D) {
   const n = D.nps_low, c = D.cpa, m = D.mtg_layers, sh = D.shape;
-  let h = sec("問い", "いま、どの顧客に手を打つべきか");
-  h += '<div class="lede">予測ではなく、記録を数えた合図です。' +
-    goLink("research", "customer") + " で中身を確かめて対応を決めます。</div>";
+  let h = "";
 
   /* 札は同じ画面の行き先へ押せる button（段2 S-2 の残り）。NPS 4 以下 → その表、採用単価の悪化 → その図、
      MTG の記録 → 事実と推定の帯、LTV 中央値 → LTV の散らばりの図。「NPS が入っている」（記入率）はそれを示す節が無いので div のまま */
@@ -3890,9 +3839,6 @@ function renderFocus(D) {
       ? "<br>拠点が入っていない取引 " + num(c.skipped_no_site) +
         " 件は、どの拠点の点か分からないので判定から外しています（別々の拠点を混ぜないため）。"
       : ""));
-  h += foldNote("info", "4つの合図を見る理由",
-    "採用単価は<b>1人採るのにかかった金額</b>です。ほかの合図では、成果とは別に体制の崩れを確かめます。" +
-    "稼働中の契約は金額が先に入り、採用は途中です。最新の比較に入れると、不当に悪化と出るため外しています。");
 
   /* 図と表は部品にした（2026-09-29 組み替え。成果と継続（09 の 7）が図を、手を打つ先の表が NPS 4 以下の表を同じ部品で出す）。
      この画面の出力は前と同じ */
@@ -3907,7 +3853,7 @@ function renderFocus(D) {
 function focusNpsFig(n) {
   let h = "";
   /* ---- 図 定期NPSの分布 ---- */
-  h += sec("図", "定期NPS の散らばり（4以下がどれだけあるか）");
+  h += sec("図", "定期NPS の分布");
   const dist = (n.dist || []).map((d) => ({
     label: "NPS " + d.v, v: d.n, txt: num(d.n) + "件",
     color: d.v <= n.threshold ? C.hi : (d.v >= 9 ? C.midori : C.ai),
@@ -4028,42 +3974,17 @@ function focusShapeFig(sh) {
   return h;
 }
 
-/* 画面の末尾。said=true は「数えていないもの」を画面の頭で既に書いた画面。
-   🔴 2026-09-23 目視: 成果とリスク・立ち上がり等で、頭の枠と末尾の枠に
-   **同じ文が2回**出ていた。データ品質では not_counted が無く、見出しだけで
-   本文が空の枠になっていた（V21）。書くものが無い見出しは出さない。 */
-/** 頭の「決まりごと」の枠に出す、サーバの not_counted（※ は落とす）。
-    🔴 foot(meta, true) の画面で頭の枠が直書きの文だけだと、サーバの not_counted を
-    変えても画面のどこにも出なくなる（V21 検証: 本部アプローチ・MTGの品質・電話）。
-    文の正本はサーバに置き、頭の枠はそれを出して、画面だけの補足を後ろに足す */
-const notCounted = (meta) => {
-  const t = esc((meta && meta.not_counted) || "").replace(/^※\s*/, "").replace(/。$/, "");
-  return t ? t + "。<br>" : "";
-};
-/* counts: 件数の書き方を画面の側で決めるとき（HTML）。省くと meta.n_deals / n_active から作る。
-   🔴 見出しは中身に合わせる（V21 の残り、2026-09-23 実機）:
-     - not_counted の中身は「予測ではありません」「交代の良し悪しは判定していません」のような
-       読むときの断り書きで、「数えていないもの」の一覧ではなかった（today・board・byowner・handover）
-     - 件数が無いのに「集計の基準日と件数」と出ていた（houjin） */
-function foot(meta, said, counts) {
-  const nc = said ? "" : (meta.not_counted || "");
+function foot(meta, counts) {
   const cnt = counts != null ? counts
-    : (meta.n_deals ? "取引 " + num(meta.n_deals) + " 件" : "") +
-      (meta.n_active ? "（稼働中 " + num(meta.n_active) + " 件）" : "");
+    : (meta.n_deals != null ? "取引 " + num(meta.n_deals) + " 件" : "") +
+      (meta.n_active != null ? "（稼働中 " + num(meta.n_active) + " 件）" : "");
   /* data-foot: 画面の末尾の 1 箱にまとめる印（oneFoot。M-5 の (c)） */
   return '<div class="note def" data-foot="1"><span class="hd">' +
-    (nc ? "読むときの注意" : cnt ? "集計の基準日と件数" : "集計の基準日") + "</span><p>" +
-    esc(nc) +
-    (meta.today ? (nc ? "<br>" : "") + "基準日 " + esc(meta.today) : "") +
+    (cnt ? "集計の基準日と件数" : "集計の基準日") + "</span><p>" +
+    (meta.today ? "基準日 " + esc(meta.today) : "") +
     (cnt ? "　" + cnt : "") + "</p></div>";
 }
 
-/* ---------------------------------------------------------------- 描いた画面の仕上げ（M-5 の残り、2026-09-29 磨き込み）
-   画面の描画（v.render）の後、本文に流す前に 1 回だけ通す（paintFigs に渡す 3 か所）。描画関数の中身は変えない
-   （3 チームが同じ描画関数を触るので、呼び出し 41 か所を書き換えない。描画関数を直接呼ぶ見張りは今までの形のまま通る）。
-   (a) figTitles: 図の見出し（h2「図 …」）と figcaption の 2 段の題を、図の中の 1 つの題にする
-   (c) oneFoot: foot() の箱（基準日・件数・読むときの注意）を画面の末尾の 1 箱にまとめる
-   (b) 図の注記の上限は fig() の中（figRules）でやる */
 function finishView(html) {
   return oneFoot(figTitles(html));
 }
@@ -4093,10 +4014,7 @@ function figTitles(html) {
   }
   return out + s.slice(last);
 }
-/** (c) foot() の箱（data-foot）を全部抜き出し、画面の末尾に 1 箱で置く。
-    🔴 2026-09-29 実測（fixture 1440px）: 記録と数字の信頼度は 3 つの節がそれぞれ foot を出し、「集計の基準日と件数」「読むときの注意」
-       「集計の基準日」が画面の途中に 3 箱あった。箱が 2 つ以上なら、どの節の文かを節の名前（partSec の左の小さな字）で添える。
-       同じ文は 1 回だけ書く。文は削らない（08 の 2.4: 基準日・件数・読むときの注意は畳まない。箱は開いたまま） */
+
 function oneFoot(html) {
   const s = String(html == null ? "" : html);
   const FOOT = /<div class="note def" data-foot="1"><span class="hd">([^<]*)<\/span><p>([\s\S]*?)<\/p><\/div>/g;
@@ -4116,9 +4034,9 @@ function oneFoot(html) {
   const uniq = [];
   parts.forEach((p) => { if (!uniq.some((u) => u.body === p.body)) uniq.push(p); });
   const hds = Array.from(new Set(uniq.map((p) => p.hd)));
-  /* 見出しは中身どおりに（読むときの注意の文が無いのに「読むときの注意」と書かない） */
+
   const base = hds.indexOf("集計の基準日と件数") >= 0 ? "集計の基準日と件数" : "集計の基準日";
-  const hd = hds.length === 1 ? hds[0] : hds.indexOf("読むときの注意") >= 0 ? "読むときの注意と" + base : base;
+  const hd = base;
   /* 基準日が全部同じなら頭に 1 回だけ書く。🔴 2026-09-30 検証（fixture 1440px、monthly/trust）: 前は
      「データ品質: 基準日 2026-09-18　取引 3,432 件…／MTG の品質: 基準日 2026-09-18」と同じ日を 2 回書いていた。
      基準日しか無かった節（MTG の品質）は、その行ごと消える（言うことが基準日だけで、頭に書いたので） */
@@ -4155,8 +4073,7 @@ function renderResults(D) {
   const c = F0.cpa || {};
   /* 🔴 09 の 7 の「答える問い」は節の問い（継続回数 × 成果・成果とリスク・本部アプローチ）をつないだ文で、そのまま書くと
         下の節で同じ文をもう一度読ませる（段A の統合 2026-09-29、見張りが落ちた）。画面の問いは全体を 1 つで言う */
-  let h = sec("問い", "成果と継続はどう動いているか") +
-    '<div class="lede">月に1回、継続・成果・立ち上がりと、本部へ伝える材料を確かめます。</div>';
+  let h = '<div class="lede">月に1回、継続・成果・立ち上がりと、本部へ伝える材料を確かめます。</div>';
   /* 並びは 09 の 3章 7 のとおり（2026-09-29 磨き込み）: 継続回数ごとの解約率・月次の継続率 → 目標に対する進捗と応募効率 →
      立ち上がり → 2軸のリスクと最優先の広がり → NPS・採用単価・LTV → 本部アプローチ。
      🔴 前は「成果とリスク」を1節で描いていたので、立ち上がりが2軸リスクの後（顧客の図のさらに後）にあった。
@@ -4170,7 +4087,7 @@ function renderResults(D) {
   h += renderRampup(part(D.rampup), "rs-rampup");
   h += renderOutcome(part(D.outcome), "rs-risk", "risk");
   /* いま見るべき顧客の図（09 の 7「NPS・採用単価の悪化・LTV の散らばり」）。画面そのもの（札・表）は残っている（10 章⑤） */
-  h += sec("問い", "顧客はいまどうなっているか", "rs-focus") +
+  h += sec("節", "顧客の状態", "rs-focus") +
     '<div class="lede">' + goLink("research", "focus") + " と同じ図です。" +
     "採用単価の悪化は<b>確定した契約どうし</b>で比べています（判定を見送った拠点 " + num(c.skipped_censored) + "" +
     (c.skipped_no_site ? "・拠点が入っていない取引 " + num(c.skipped_no_site) + " 件は判定から外しています" : "") + "）。</div>";
@@ -4179,9 +4096,9 @@ function renderResults(D) {
   if (F0.mtg_layers) h += focusMtgFig(F0.mtg_layers);
   if (F0.shape) h += focusShapeFig(F0.shape);
   /* 本部アプローチ（前は法人番号で見るの2つ目の問い。09 の 4 章「本部アプローチ → 7 成果と継続」） */
-  if (D.headquarters) h += sec("問い", "本部に何を持っていくか", "rs-hq") + renderHq(D.headquarters);
+  if (D.headquarters) h += sec("節", "本部向け", "rs-hq") + renderHq(D.headquarters);
   h += resultsActTables(D);
-  return h + foot(D.meta || {}, true);
+  return h + foot(D.meta || {});
 }
 
 /** 成果と継続の札（09 の 7）。
@@ -4287,7 +4204,7 @@ function renderRenewal(D, id) {
   const label = (r) => (r.renewal_no === 0 ? "初回" : "継続" + r.renewal_no);
   // 解約率の母数は決着済み（継続＋解約＋充足）。n<30 の足切りも母数で見る（全件の n ではない）
   const big = br.filter((r) => r.denom >= MIN_N);
-  let h = sec("問い", "継続を重ねると、成果は落ちるのか", id);
+  let h = sec("節", "継続回数と成果", id);
 
   /* 2026-09-29 組み替え（09 の 7「答えを先に」）: 継続回数ごとの解約率を先頭に（前は月次の継続率・満了月の表の下、
      1440px で y=1,103）。月次の継続率はその次 */
@@ -4426,9 +4343,8 @@ function renderRenewal(D, id) {
   /* 🔴 「結果ごとの記入率」の図と「まずい」の枠は、データ品質の画面と**まったく同じ**だった（V16）。
      同じ数字を2か所で出さない（立ち上がりの「継続率はこの画面にありません」と同じ扱い）。
      ここには読み方への影響だけを残し、図はデータ品質に1つだけ置く。 */
-  h += note("warn", "上の図は「継続するほど成果が良い」側に強く出ます",
-    "うまくいかなかった契約ほど応募数・採用数が記録されていません。" +
-    "結果ごとの記入率は " + goLink("study", "dq") + " にあります。");
+
+  h += goLink("study", "dq");
   return id ? h : h + foot(D.meta);
 }
 
@@ -4446,7 +4362,7 @@ let customerIndex = null;
 let customerHoujin = "";
 let customerReason = "";
 /* 法人を選んでいないときの入口。①の「継続を追いかける」「法人番号で見る」で共通 */
-function custIndex(D, question, lede) {
+function custIndex(D, lede) {
   customerIndex = D.index;
   /* 🔴 開いた瞬間に空の画面を出さない。既定の法人を1社開く */
   if (D.default_houjin && !customerHoujin) {
@@ -4456,8 +4372,7 @@ function custIndex(D, question, lede) {
     setTimeout(() => load(false), 0);
     return '<div class="loading">既定の顧客を開いています…</div>';
   }
-  return sec("問い", question) +
-    '<div class="lede">' + lede + " LTV の大きい順に " + num(D.index.length) +
+  return '<div class="lede">' + lede + " LTV の大きい順に " + num(D.index.length) +
     " 法人。上の選択から選ぶと明細が出ます。</div>" +
     scroll(table([{ t: "法人" }, { t: "取引", n: 1 }, { t: "拠点", n: 1 },
                   { t: "稼働中", n: 1 }, { t: "LTV", n: 1 }, { t: "最終満了" }],
@@ -4480,7 +4395,29 @@ const CUSTOMER_FILTERS = [
   { key: "interviews", field: "mensetu_total", label: "面接", unit: "件", scale: 1 },
   { key: "acceptances", field: "syoudaku_total", label: "承諾", unit: "件", scale: 1 },
 ];
+const CUSTOMER_PRESETS = [
+  { label: "本社に提案できそう", values: { acceptances: "5" }, active: true },
+  { label: "大きいのに拠点が少ない", values: { employees: "1000", sites_max: "2" } },
+  { label: "お金を多くかけている", values: { monthly: "30" }, active: true },
+  { label: "重点顧客", values: {}, focus: true },
+];
+const CUSTOMER_FILTER_KEYS = [...CUSTOMER_FILTERS.map((f) => f.key), "sites_max"];
 const customerFilter = {};
+function applyCustomerPreset(index) {
+  const preset = CUSTOMER_PRESETS[index];
+  CUSTOMER_FILTER_KEYS.forEach((key) => { customerFilter[key] = preset.values[key] || ""; });
+  customerActiveOnly = !!preset.active;
+  focusOnly = !!preset.focus;
+}
+function customerPresetMatches(preset) {
+  return customerActiveOnly === !!preset.active && focusOnly === !!preset.focus &&
+    CUSTOMER_FILTER_KEYS.every((key) => customerLowerBound(customerFilter[key]) === (preset.values[key] || ""));
+}
+function updateCustomerPresetButtons() {
+  document.querySelectorAll("[data-customer-preset]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(customerPresetMatches(CUSTOMER_PRESETS[Number(button.dataset.customerPreset)])));
+  });
+}
 let customerActiveOnly = false;
 function customerLowerBound(value) {
   if (value == null || String(value).trim() === "") return "";
@@ -4490,13 +4427,15 @@ function customerLowerBound(value) {
 function filterCustomers(rows) {
   const used = CUSTOMER_FILTERS.filter((f) => customerLowerBound(customerFilter[f.key]) !== "");
   const conditions = used.map((f) => ({ ...f, min: Number(customerFilter[f.key]) * f.scale }));
+  const max = customerLowerBound(customerFilter.sites_max);
+  if (max !== "") conditions.push({ field: "sites", label: "拠点数", max: Number(max) });
   if (customerActiveOnly) conditions.push({ field: "active", label: "稼働中の件数", min: 1 });
   const known = (v) => typeof v === "number" && Number.isFinite(v);
   return {
-    rows: rows.filter((r) => (!focusOnly || r.focus) && conditions.every((f) => known(r[f.field]) && r[f.field] >= f.min))
+    rows: rows.filter((r) => (!focusOnly || r.focus) && conditions.every((f) => known(r[f.field]) && (f.max != null ? r[f.field] <= f.max : r[f.field] >= f.min)))
       .sort((a, b) => (b.ltv ?? -Infinity) - (a.ltv ?? -Infinity)),
-    missing: conditions.map((f) => ({ label: f.label, n: rows.filter((r) => !known(r[f.field])).length })),
-    numeric: used.length > 0,
+    missing: conditions.filter((f, i) => conditions.findIndex((c) => c.field === f.field) === i).map((f) => ({ label: f.label, n: rows.filter((r) => !known(r[f.field])).length })),
+    numeric: used.length > 0 || max !== "",
   };
 }
 function customerFilterResults() {
@@ -4517,15 +4456,19 @@ function customerFilterResults() {
 }
 function focusToggle(D) {
   const f = D.focus;
-  let h = '<div class="ctlbar">';
+  let h = '<div class="ctlbar">' + CUSTOMER_PRESETS.map((preset, i) =>
+    '<button type="button" class="act" data-customer-preset="' + i + '" aria-pressed="' + customerPresetMatches(preset) + '">' + esc(preset.label) + '</button>').join("") + '</div><div class="ctlbar">';
   if (f) h += '<label class="act"><input type="checkbox" id="hj-focus-only"' + (focusOnly ? " checked" : "") + '>' +
     '上の「法人を選ぶ」を重点顧客だけにする（' + num(f.n_focus) + ' / ' + num(f.n_display) + ' 社）</label>';
   h += '</div><p class="muted small">すべての条件に当てはまる顧客を探します。空欄の条件は使いません。月額は取引の中で一番大きい額、継続の回数は一番多い回数です。</p><div class="ctlbar">';
-  h += CUSTOMER_FILTERS.map((f) => '<label>' + esc(f.label) + ' <input class="act customer-min" type="number" min="0" step="any" id="customer-min-' + f.key + '" data-filter="' + f.key + '" value="' + esc(customerFilter[f.key] || "") + '" aria-label="' + esc(f.label) + 'の下限"> ' + f.unit + '以上</label>').join("");
+  /* 拠点数は「以上」のすぐ後ろに「以下」を並べる（離れると同じ項目の上限だと読めない） */
+  h += CUSTOMER_FILTERS.map((f) => '<label>' + esc(f.label) + ' <input class="act customer-min" type="number" min="0" step="any" id="customer-min-' + f.key + '" data-filter="' + f.key + '" value="' + esc(customerFilter[f.key] || "") + '" aria-label="' + esc(f.label) + 'の下限"> ' + f.unit + '以上</label>' +
+    (f.key === "sites" ? '<label><input class="act customer-min" type="number" min="0" step="any" id="customer-max-sites" value="' + esc(customerFilter.sites_max || "") + '" aria-label="拠点数の上限"> 拠点以下</label>' : "")).join("");
   h += '<label class="act"><input type="checkbox" id="customer-active-only"' + (customerActiveOnly ? " checked" : "") + '>稼働中だけ</label></div>';
   return h + '<div id="customer-filter-results">' + customerFilterResults() + '</div>';
 }
 function updateCustomerFilterResults() {
+  updateCustomerPresetButtons();
   const target = document.getElementById("customer-filter-results");
   if (target) target.innerHTML = customerFilterResults();
   fillCustomerSelect();
@@ -4868,12 +4811,7 @@ function custBlocks(D, want) {
   /* ---- 応募・面接・採用の推移 ---- */
   if (want.has("monthly")) {
   h += sec("図", "応募・面接・採用の推移");
-  h += foldNote("info", "現在値ではなく、プロパティの変更履歴を使っています",   /* M-5: 読み方の箱（4 行）を畳む */
-    "HubSpot のプロパティは上書きで履歴が残らないため、現在値を時系列に並べると" +
-    "<b>決着後に入力された値が契約中に伸びたように見えます</b>" +
-    "（実測で応募数の変更の 30.4%・採用数の 35.2% が決着日より後）。<br>" +
-    "値が変わらなかった月は<b>前の値を持ち越し</b>、中空・破線で描いています。" +
-    "実線・塗りつぶしはその月に書き換えがあった印です。");
+
   /* 🔴 変更履歴が無い契約ごとに「変更履歴がありません」の空の枠を出していて、
      空の枠が大量に続いていた（V11 目視）。まとめて1つの枠にし、どの契約かは名前で残す */
   const noHist = [];
@@ -5031,8 +4969,7 @@ function custBlocks(D, want) {
 
   if (want.has("mtgs")) {
   h += sec("表", "MTG の履歴（" + num(D.mtgs.length) + " 件）");
-  h += note("info", "中身が空なのは「まだ抽出していない」です",
-    "記録が無いのとは違います。抽出は日次の枠で止まっており、全件には届いていません。");
+
   h += scroll(table([{ t: "開催日" }, { t: "リスク" }, { t: "やること", w: "l" },
                      { t: "顧客の懸念", w: "l" }, { t: "抽出" }],
     D.mtgs.map((m) => [esc(m.date), esc(m.risk) || DASH, esc(m.todo) || DASH,
@@ -5111,8 +5048,7 @@ function custSiteNow(sites) {
     リンクは hashFor で作る（貼る・別タブで開くと、その拠点の画面が開く） */
 function custSiteTable(D, sites, now) {
   let h = sec("表", "拠点を比べる（" + num(sites.length) + " 拠点）", "cust-sites");
-  h += '<div class="lede">契約の多い順です。拠点名を押すと、下の「事業所」の節がその拠点に切り替わります。' +
-    "金額と採用は値が入っている契約だけを足しています（入っていない契約を 0 として足していません。n は採用が入っている契約の数）。</div>";
+  h += '<p class="muted small">金額・採用 ＝ 値が入っている契約の合計。n ＝ 採用が入っている契約の数。</p>';
   h += scroll(table([{ t: "拠点", w: "l" }, { t: "契約", n: 1 }, { t: "稼働中", n: 1 }, { t: "継続（最大）" },
                      { t: "金額の合計", n: 1 }, { t: "採用の合計", n: 1 }, { t: "最初の開始" }, { t: "最後の満了" }],
     sites.map((s) => [
@@ -5256,7 +5192,6 @@ function siteSeries(sites, valsOf, order, nameOf) {
   return out;
 }
 
-
 /** 法人の層（拠点をまたいだ図）。前の「法人番号で見る」の図を、この節の中だけで描く。
     🔴 案件のチェック（houjinPick）が効くのはこの節の図だけ。上の拠点の表・KPI・事業所の節は法人の全契約で出す
        （前はチェックが画面の全部に効いていた。拠点を1つずつ見る形にしたので、チェックは線を選ぶためだけに残す）。 */
@@ -5265,10 +5200,7 @@ function custHoujinLayer(D) {
   const ids = houjinIds(D);
   const F2 = custFilter(D, ids);
   let h = sec("法人", "拠点をまたいだ図（この法人の全拠点）", "cust-houjin");
-  /* 🔴 「拠点をまたいで1本の線にしない」はこの枠の1回にし、文の正本はサーバの not_counted（末尾は foot(…, true)） */
-  h += foldNote("info", "ここから下は拠点をまたいで並べています",
-    "ふだんの判断は事業所単位なので、1つの事業所の流れは上の「事業所」の節で見てください。<br>" +
-    notCounted(D.meta).replace(/<br>$/, ""));
+
 
   /* ---- 案件のチェック ---- */
   h += sec("表", "図に入れる案件を選ぶ");
@@ -5453,16 +5385,15 @@ function custHoujinLayer(D) {
   return h;
 }
 
-const CUST_Q = "この法人は拠点ごとにどう違うか。その事業所は契約を重ねてこられたか";
 /** 顧客（法人と事業所）。法人を選ぶ（上の選択欄）→ 拠点を比べる表 → 拠点を1つ選ぶ（事業所の節）→ 拠点をまたいだ図。
     他のチームへ: 画面の鍵は "customer"（#research/customer?houjin=&site=&focus=1）。前の鍵 series / houjin は LEGACY でここへ送る */
 function renderCustomer(D) {
   if (D.index) {
     customerIndex = D.index;
-    return focusToggle(D) + custIndex(D, CUST_Q,
+    return focusToggle(D) + custIndex(D,
       "<b>上で法人（拠点を比べる）、下で事業所（拠点を1つ）を見ます。</b>決裁は事業所単位です。");
   }
-  let h = sec("問い", CUST_Q);
+  let h = "";
   if (!D.meta.found) return h + focusToggle(D) + custBlocks(D, new Set()) + foot(D.meta);
   const all = D.deals || [];
   const sites = custSites(D);
@@ -5482,7 +5413,7 @@ function renderCustomer(D) {
   h += custSiteTable(D, sites, now);
   h += custSiteLayer(D, sites, now, now === custSite);
   h += custHoujinLayer(D);
-  return h + foot(D.meta, true, houjinCounts(all, ids));
+  return h + foot(D.meta, houjinCounts(all, ids));
 }
 /** 顧客の画面の末尾の件数。🔴 応答の meta には全体の件数が無く、末尾の枠が
     「集計の基準日と件数」なのに件数が出ていなかった（2026-09-23 実機）。この法人の件数を書く */
@@ -5583,16 +5514,13 @@ function siteLabels(rows) {
 }
 
 function renderHq(D) {
-  /* 見出し（問い）は呼ぶ側（成果と継続の rs-hq の節）に置く。
-     🔴 枠の見出しを「親法人の合計ではありません」にしていて、本文の頭（サーバの not_counted）と
-     同じ文が続けて2回出ていた（2026-09-24 実機）。見出しは本文と別のことを言う */
+
   let h =
     /* 取り決めを書いた枠なので def（V21 検証: info の「読み方」のまま残っていた）。M-5: 畳む（見出しが取り決めの 1 文） */
-    foldNote("def", "比べる単位は事業所",
-      notCounted(D.meta) + "本部に持っていくのは「事業所どうしの差」そのものです。");
+    "";
 
   /* ---- 法人ごとの開き ---- */
-  h += sec("図", "拠点どうしで採用単価がどれだけ開いているか");
+  h += sec("図", "拠点間の採用単価の差");
   const top = D.rows.filter((r) => r.spread != null).slice(0, 25);
   h += fig("いちばん高い拠点 ÷ いちばん安い拠点",
     "拠点が2つ以上ある " + num(D.multi_site) + " 法人（全 " + num(D.meta.n_houjin) + " 法人" +
@@ -5617,8 +5545,7 @@ function renderHq(D) {
   /* 🔴 「解約率が 40% 以上の拠点は注記を緋で…率だけで判断しないでください」も10法人の図の下に
      毎回出ていた（2026-09-24 実機）。どの図でも同じ文なので、ここで1回だけ出す */
   h += '<div class="lede">開きが大きい順。棒は採用単価、注記は解約率です。拠点ごとの取引数が少ないので、率だけで判断しないでください。</div>';
-  h += foldNote("info", "事業所の比べ方",
-    "解約率が " + CANCEL_HI + "% 以上の拠点は注記を緋で出しています。");
+
   if (D.meta.cancel_rule || D.meta.cpa_rule) h += '<p class="muted small">' +
     [D.meta.cancel_rule, D.meta.cpa_rule].filter(Boolean).map(esc).join("。") + "。</p>";
   for (const r of D.rows.slice(0, 10)) {
@@ -5679,20 +5606,13 @@ const monthPt = (month, v, open) =>
 
 /* ================================================================ 5 MTG の品質 */
 function renderMtgQ(D) {
-  let h = sec("問い", "MTG に何が記録されているか") +
-    /* 見出しを「MTG の良し悪しを採点していません」にしていて、本文の頭（サーバの not_counted）と
-       同じ文が続けて2回出ていた（2026-09-23, V21 の残り） */
-    note("def", "読むときの注意",
-      notCounted(D.meta) + "<b>埋まっていないのは「記録していない」ではなく" +
-      "「まだ抽出を通していない」</b>です。" +
-      (D.meta.option_rows_excluded
-        ? "オプション契約の MTG " + num(D.meta.option_rows_excluded) + " 回は数えていません。" : ""));
+  let h = "";
 
   h += '<div class="kpis">' +
     kpi("MTG", num(D.meta.n_mtg) + '<span class="u">回</span>', "") +
     kpi("案件に結びついた", pct1(D.linked.rate), num(D.linked.n) + " 回", "good") + "</div>";
 
-  h += sec("図", "分析項目がどれだけ埋まっているか");
+  h += sec("図", "分析項目の記入率");
   h += fig("抽出の進み具合", "埋まっていないのは「記録していない」ではありません",
     svgBarH({ w: 680, fmt: F.int, rh: 24,
       rows: D.filled.map((f) => ({
@@ -5716,7 +5636,7 @@ function renderMtgQ(D) {
     svgStack({ w: 680, parts: rp }), stackLegend(rp) +
     '<i class="full">未判定は「リスクが無い」ではなく「まだ抽出していない」です。</i>');
 
-  h += sec("図", "誰がどれだけ MTG をしているか");
+  h += sec("図", "担当者ごとの MTG 件数");
   /* 🔴 V14: ホスト名は Zoom の登録名そのまま（空白なし）で、人によって「名＋姓」の順で
      登録されている（元データ nouhin_relink.jsonl の先頭 3MB の実測: 33名のうち少なくとも「桜小林」「詩央里田野」
      「愛理沙安友」「萌衣藤中」）。ほかの画面の担当名（HubSpot の「姓 名」）とは一致しない。
@@ -5744,19 +5664,13 @@ function renderMtgQ(D) {
     lg("line", C.ai, "MTG") + (hasOpenM ? lg("ring", C.ai, "途中の月（まだ締まっていない）") : "") +
     (hasOpenM ? '<i class="full">' + esc(openM) + " は元データを落とした時点までの途中の値です。" +
       "<b>ほかの月と同じには比べられません</b>（必ず低く出ます）。</i>" : ""));
-  return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
+  return h + foot(D.meta);
 }
 
 /* ================================================================ 6 電話 */
 function renderPhone(D) {
   const r = D.reach;
-  let h = sec("問い", "顧客と電話で話せているか") +
-    note("def", "接触 ＝ " + num(D.meta.threshold_sec) + " 秒より長い通話",
-      notCounted(D.meta) +
-      "半ばに接触が増えるのは「火消し」で、結果が原因より後に来ています。" +
-      (r.option_rows_excluded
-        ? "オプション契約の通話 " + num(r.option_rows_excluded) + " 行は数えていません。" : "") +
-      "通話の日付・月は日本時間で数えています。");
+  let h = '<p class="muted small">接触 ＝ ' + num(D.meta.threshold_sec) + ' 秒より長い通話。</p>';
 
   /* 札は同じ画面の行き先へ押せる button（段2 S-2 の残り）。電話・接触が無い → 内訳の帯、最後に話してから → 経過日数の図、
      文字起こし → 状況の枠（#ph-trans） */
@@ -5774,7 +5688,7 @@ function renderPhone(D) {
     kpi("文字起こしがある", pct1(D.transcript.rate, 2),
         num(D.transcript.n) + " / " + num(D.transcript.rows) + " 行", "warn", { jump: "ph-trans", text: "状況を見る" }) + "</div>";
 
-  h += sec("図", "電話は届いているか", "ph-reach-h");
+  h += sec("図", "電話の到達", "ph-reach-h");
   const rp = [
     { label: "接触がある（60秒超）", v: D.meta.n_active - r.no_contact, color: C.midori },
     { label: "電話はあるが接触なし", v: r.no_contact - r.no_call, color: C.ki },
@@ -5784,7 +5698,7 @@ function renderPhone(D) {
     svgStack({ w: 680, parts: rp }), stackLegend(rp) +
     '<i class="full">' + esc(r.note) + "</i>");
 
-  h += sec("図", "最後に話してから何日たったか", "ph-days-h");
+  h += sec("図", "最後に話してからの日数", "ph-days-h");
   h += fig("経過日数の散らばり", "接触が1本も無い取引はここに入っていません（日数が出せないため）",
     D.days_since && D.days_since.n >= MIN_N
       ? svgBoxH({ w: 680, xFmt: F.int, rows: [{
@@ -5817,21 +5731,15 @@ function renderPhone(D) {
      KPI「文字起こしがある」の行き先なので、枠に id と tabindex=-1 を付けて止まれるようにする（段2 S-2） */
   h += '<div class="kpi-target" id="ph-trans" tabindex="-1">' + note("warn", "文字起こしの状況", esc(D.transcript.note)) + "</div>";
 
-  h += sec("表", "沈黙している取引（" + num(D.silent.n) + " 件）") + phoneSilentVsView() + phoneSilentTable(D, "上の件数");
-  return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
+  h += sec("表", "沈黙している取引（" + num(D.silent.n) + " 件）") + phoneSilentTable(D, "上の件数");
+  return h + foot(D.meta);
 }
 /** 表「沈黙している取引」と、案件一覧の見方（接触が90日を超えて無い）の定義の違い。
     🔴 段B（09 の 10 章②）で手を打つ先は名札に定義を寄せた見方に移したが、電話の画面は残す（10 章⑤）。
        定義の違う2つの一覧が説明なしに並ぶと同じものに見えるので、ここで違いと行き先を言う（2026-09-29 検証。
        fixture でこの表 107 件・見方 78 件、前の表から外れたのは 39 件 = tests.rs act_view_diff_counts_on_fixture）。
        見方の名前と件数はサーバの文（案件一覧の応答）なので、ここには書かない */
-function phoneSilentVsView() {
-  return note("def", "案件一覧のよく使う絞り込みとは定義が違います",
-    "この表は電話の数え方のままです（接触 ＝ 60秒超の通話だけ。MTG は数えません）。" +
-    '対応が要る案件としては、注意に定義を揃えた <a class="golink" href="' + esc(hashFor("board", { view: "silent" })) + '">案件一覧のよく使う絞り込み</a>' +
-    " を使います。よく使う絞り込みは接触に MTG も数え、契約開始前の案件を入れず、マーケ関連を外していません。" +
-    "<b>同じ案件の集まりではないので、件数は合いません。</b>この表にあってよく使う絞り込みに入らない案件は、よく使う絞り込みの側で件数と理由つきで確かめられます。");
-}
+
 /** 表「沈黙している取引」の中身（見出しの下から）。電話の画面の末尾だけで使う。
     counted: マーケ関連を外した注記の「（… には入っています）」の言い方（電話の画面では「上の件数」＝ KPI） */
 function phoneSilentTable(D, counted) {
@@ -5857,17 +5765,11 @@ function phoneSilentTable(D, counted) {
        rampupNoMtgTable が残っていたが、呼び出しは成果と継続の1か所（id つき）だけで届かなかったので外した */
 function renderRampup(D, id) {
   const ph = D.phase, f = D.first_mtg, nm = D.no_mtg;
-  let h = sec("問い", "最初の契約を乗り切れているか", id) +
-    /* M-5: 取り決めだけの箱なので畳む。「担当者の評価ではありません」は畳まず summary に（keep。2026-09-29 検証:
-       keep が無く、1440px の 1 画面目に評価の文が無かった） */
-    foldNote("def", "この画面で数えていないもの",
-      "<b>契約が始まってから最初の MTG までに何日かかったか</b>だけを見ています。<br>" +
-      "ここの「初回MTG」は<b>MTG だけ</b>で、電話は入っていません" +
-      /* 前の「成果とリスク」は成果と継続の中の節になった（09 の 7）。同じ画面の節へ移る */
-      "（MTGと電話を束ねた最終接触は、この画面の " + jumpLink("rs-risk", "どこが危ないか（リスクの2軸）") + " にあります）。",
-      "成約率・売上・担当者の評価ではありません。良し悪しの判断は人がします");
+  let h = sec("節", "初回契約", id) +
 
-  h += sec("図", "契約はいまどの段階か");
+    "";
+
+  h += sec("図", "契約の段階");
   /* 🔴 SERIES を並び順で回していたので「序盤」が緑（＝良い）、別の日には赤にもなり得た（V9）。
      フェーズは良し悪しではないので、赤と緑は使わない。名前で色を決める */
   const PHASE_COLOR = { "始めのほう": C.ai, "半ば": C.murasaki, "終わりのほう": C.ink2,
@@ -5968,12 +5870,9 @@ function renderOutcome(D, id, part) {
   /* M-5: 取り決めだけの箱なので畳む。「接触は検知にだけ…処方には使いません」は畳まず summary に（keep）。
      担当者ごとの接触が「接触は検知専用です」を summary に残すのと揃える（2026-09-29 検証: 丸ごと畳まれていた）。
      節を分けたとき（part）は、接触を使うリスクの節の頭にだけ置く（同じ畳みを 2 回出さない） */
-  const defs = foldNote("def", "この画面で数えていないもの",
-    "成約率・継続率・MTG件数・メール件数ではありません。<b>接触 ＝ MTG または60秒超の通話</b>で、" +
-    "メールは数えていません。半ばに接触が増えるのは「火消し」で、結果が原因より後に来ています。",
-    "接触は検知にだけ使っています。処方には使いません");
-  if (part === "risk") return outcomeRisk(R, cs, sec("問い", "どこが危ないか", id) + defs);
-  let h = sec("問い", part === "goal" ? "目標に向けて成果は出ているか" : "成果は出ているか、どこが危ないか", id) +
+  const defs = '<p class="muted small">接触 ＝ MTG または60秒超の通話。</p>';
+  if (part === "risk") return outcomeRisk(R, cs, sec("節", "リスク", id) + defs);
+  let h = sec("節", part === "goal" ? "成果" : "成果とリスク", id) +
     (part === "goal" ? "" : defs);
 
   h += sec("図", "目標に対する進捗");
@@ -6025,26 +5924,14 @@ function renderOutcome(D, id, part) {
       : ""));
   /* 🔴 以前は結果待ちを「継続した」に混ぜていて差がほとんど無く見えた。
      決着の3群で比べ直すと向き（解約 ＜ 継続）は出る（fix/cs-rust N19）。ただし群の代表値を比べただけ */
-  h += note("bad", "資料の「8.1 ≪ 14.5」は、そのままの値では再現しません",
-    "向き（解約 ＜ 継続）は合っています。ただし群の代表値を比べただけで、平均は外れ値に引かれます。" +
-    "<b>単独で解約を見分けられる指標かは、ここからは言えません</b>。");
+
   return part === "goal" ? h : outcomeRisk(R, cs, h);
 }
 
 /** 成果とリスクのうち、リスクの2軸と最優先の広がり（h の後ろに足して返す）。成果と継続では立ち上がりの後に置く（09 の 3章 7） */
 function outcomeRisk(R, cs, h) {
   h += sec("図", "リスクは2軸だけで見る");
-  h += note("info", "4軸のうち2軸を意図的に外しています。手抜きではありません",
-    "<b>関係性の軸（NPS）</b>：稼働中の半分にしか値が無く、<b>構造的に発火しません</b>。" +
-    "常に非赤の軸を並べると「問題ない」と読まれますが、実際は<b>測れていないだけ</b>です" +
-    "（NPS は " + goLink("study", "focus") + " で独立した指標として出しています）。<br>" +
-    /* 🔴 「churn予測」「StratifiedKFold」「AUC」と英語の用語のまま出していた（2026-09-23 実機）。
-       意味は変えずに言い換える: StratifiedKFold ＝ 顧客で分けずに取引を無作為に分けた検証、
-       AUC ＝ 解約する契約としない契約を見分ける力（0.5 で当て推量と同じ、1.0 で完全） */
-    "<b>予測の軸（解約の予測モデル）</b>：本番の検証が、取引を顧客で分けずに無作為に" +
-    "「作る側」と「確かめる側」に分けています。同じ顧客が継続契約で複数の取引を持つので、" +
-    "確かめる側に作る側と同じ顧客が混ざり、<b>当たり具合が実際より良く出ます</b>。" +
-    "説明できない順位を現場に出せません。");
+
   const rparts = R.bands.map((b) => ({
     label: b.label, v: b.n,
     color: b.label.startsWith("2") ? C.hi : b.label.startsWith("1") ? C.ki : C.midori }));
@@ -6093,8 +5980,7 @@ function outcomeRisk(R, cs, h) {
 
 /* ================================================================ 9 データ品質 */
 function renderDq(D) {
-  let h = sec("問い", "数字をどこまで信じてよいか") +
-    '<div class="lede">取引 ' + num(D.meta.n_deals) + " 件（稼働中 " +
+  let h = '<div class="lede">取引 ' + num(D.meta.n_deals) + " 件（稼働中 " +
     num(D.meta.n_active) + " 件）。</div>";
 
   /* ---- 法人番号の出どころ ---- */
@@ -6105,7 +5991,7 @@ function renderDq(D) {
     label: dispName(r.label), v: r.n,
     color: r.label === "deal" ? C.ai : r.label === "company" ? C.murasaki : C.ghost,
     faint: r.label.indexOf("無") >= 0 || r.label === "none" }));
-  h += fig("どこから取れたか", "",
+  h += fig("出どころ", "",
     svgStack({ w: 680, parts: hp }), stackLegend(hp) +
     '<i class="full">' + esc(D.houjin_source.note) + "</i>");
 
@@ -6128,12 +6014,9 @@ function renderDq(D) {
   /* 🔴 図の下の注記（サーバの outcome_bias.note）と、すぐ下の「まずい」の箱が同じ話を2回言っていた
      （2026-09-24 実機）。箱の1回にし、文の正本はサーバの note にする。
      箱の見出しは本文と同じ文にしない（本文の末尾が「押し上げる方向に効きます」） */
-  h += note("bad", "この偏りは結論を甘く見せます",
-    D.outcome_bias.note ? esc(String(D.outcome_bias.note).replace(/。$/, "")) + "。"
-      : "うまくいかなかった契約ほど数字が残っていないので、「継続するほど成果が良い」という見え方が強く出ます。");
 
   /* ---- 欠測 ---- */
-  h += sec("図", "何がどれだけ欠けているか");
+  h += sec("図", "項目ごとの未入力件数");
   h += fig("数字が欠けている件数", "0 で埋めていません",
     svgBarH({ w: 700, fmt: F.int, rh: 26,
       rows: D.missing.map((m) => ({
@@ -6152,7 +6035,6 @@ function renderDq(D) {
     D.sheets.map((x) => [esc(x.name), num(x.rows)])));
   return h + foot(D.meta);
 }
-
 
 /* ================================================================ 案件の立ち位置 / 今日動く先 */
 
@@ -6206,19 +6088,7 @@ function tagsShort(fs) {
     ? ' <span class="tag c more" title="' + esc(sorted.join(" ／ ")) + '">他' + (sorted.length - 2) + "</span>" : "");
 }
 /** 今日動く先の決まりごとに置く「名札の略し方」。3 表に出ている名札のうち短くしたものだけを並べる（無ければ空） */
-function todayFlagLegend(rowsList) {
-  const seen = new Set();
-  rowsList.forEach((rs) => (rs || []).forEach((r) => (r.flags || []).forEach((f) => { if (FLAG_SHORT[f]) seen.add(f); })));
-  if (!seen.size) return "";
-  return note("def", "注意の略し方",
-    "表では注意を短く書いています（正式な注意は枡に重ねても出ます）。<b>短い注意 ＝ 正式な注意</b>: " +
-    Array.from(seen).map((f) => esc(FLAG_SHORT[f]) + " ＝ " + esc(f)).join(" ／ ") + "。" +
-    /* 🔴 前は「言葉でも書いているので、色が見分けられなくても読めます」と書いていたが、分類の言葉を書いているのは下の図で、
-       表の枡では title（マウスを重ねたとき）にしか無く、タッチでは出ない（2026-09-29 検証）。どこに何を書いているかをそのまま言う */
-    "枡の色は下の図「何で上がってきたか」の分類（関係が危ない・時間が迫っている・成果が出ていない）と同じです。" +
-    "分類の言葉は下の図の棒の右に書いています。表の枡に書いているのは注意の言葉だけなので、" +
-    "色が見分けられなくても読めますが、分類は図で確かめてください。");
-}
+
 /* 履歴から取った値。🔴 その月に書き換えが無ければ「持越」と出す */
 function numCarry(v, carry) {
   if (v == null) return DASH;
@@ -6301,12 +6171,6 @@ function cpaCell(r) {
 }
 
 /* 採用単価の比べ方。サーバの cpa_band_rule に、「何ヶ月目」の立ち位置とは区切りが違うことを添える */
-function cpaBandNote(meta) {
-  if (!meta || !meta.cpa_band_rule) return "";
-  return note("def", "採用単価の比べ方", esc(meta.cpa_band_rule) + "。<br>" +
-    "<b>「何ヶ月目」の横の契約のどのあたりか（始めのほう／半ば／終わりのほう。契約長の 0.34 / 0.67 で区切る）とは別の区切りです。</b>" +
-    "採用単価の欄には、比べた区分の名前をそのまま出しています。");
-}
 
 const BOARD_COLS = [
   /* 案件名から「案件の詳細」へ（戻るでこの表へ戻る）。取引名が空なら dealLink が「取引名なし」と書く（取引IDを出さない） */
@@ -6688,7 +6552,7 @@ function boardBody(D, shown, on) {
     : '<div class="empty">この条件に当てはまる案件はありません。' +
       "「絞り込みを外す」で戻せます。</div>";
   /* M-5: 並びと採用単価の比べ方は取り決めなので 1 つの畳みに */
-  h += foldNote("def", "この並びについて", esc(D.meta.order_rule), "", "", cpaBandNote(D.meta));
+
   h += sec("図", "注意の分布");
   h += flagFig(D, on ? shown : null);
   return h;
@@ -6777,21 +6641,9 @@ function boardViewNote(D, who, pending) {
      判定のある案件が無いのか、あっても「高」が無いのかが分からない（2026-09-29 横断レビュー）。判定のある案件の数を母数として添える。
      数えるのは同じ応答の行（mtg_risk はサーバが見方の印を決めたのと同じ値。routes.rs deal_rows） */
   const judged = k === "mtg_risk" ? (D.rows || []).filter((r) => r.mtg_risk).length : null;
-  let body = esc(v.rule) + "。<br>稼働中" + (who ? "（全担当）" : "") + " " + num(D.rows.length) + " 件のうち" +
-    (judged != null ? "、リスク判定のある案件は " + num(judged) + " 件、そのうちいちばん新しい判定が「高」の案件は " + num(v.n) + " 件です"
-      : " " + num(v.n) + " 件です") +
-    /* pending: 担当者ごとの案件で担当を選ぶ前（下は持ち件数の表で、見方を掛けていない）。🔴 2026-09-30 検証: ここで
-       「下の件数はそれより少なくなります」と書くと、すぐ下の「下の持ち件数には掛けていません」（byowner-pending）と矛盾して読めた。
-       選ぶ前は下の件数の話をこの箱ではせず、byowner-pending の1か所に任せる */
-    (pending ? "。" : "（担当・注意などの絞り込みを一緒に掛けると、下の件数はそれより少なくなります）。");
-  if (o) {
-    body += "<br><b>定義を注意に揃えたため、以前の" + esc(o.where) + " " + num(o.n) + " 件のうち " + num(o.dropped) +
-      " 件は外れました。</b>" +
-      (o.added ? "前の定義には無く、新しく入った案件が " + num(o.added) + " 件あります。" : "新しく入った案件はありません。");
-  } else if (d) {
-    body += "<br>前は一覧が無かったよく使う絞り込みです（前の定義から外れた案件はありません）。";
-  }
-  let h = note("def", "よく使う絞り込み「" + v.label + "」の定義", body);
+  let h = '<p class="muted small">' + esc(v.rule) + '。稼働中' + (who ? '（全担当）' : '') + ' ' + num(D.rows.length) + ' 件のうち ' + num(v.n) + ' 件です。</p>';
+  if (judged != null) h += '<p class="muted small">リスク判定のある案件は ' + num(judged) + ' 件。</p>';
+  if (o) h += '<p class="muted small">以前の' + esc(o.where) + ' ' + num(o.n) + ' 件のうち ' + num(o.dropped) + ' 件は外れました。新しく入った案件 ' + num(o.added || 0) + ' 件。</p>';
   if (o && o.dropped && who) {
     const mine = (o.dropped_rows || []).filter((r) => r.consultant === who);
     if (!mine.length) return h + '<p class="muted small" id="board-view-dropped-none">外れた ' + num(o.dropped) +
@@ -7002,8 +6854,7 @@ function renderToday(D0) {
   const started = D.started_this_week || [];
   const G = D.meta.mtg_gap || {};
   const bandN = (k) => ((G.bands || []).find((b) => b.band === k) || {}).n || 0;
-  let h = sec("問い", "今日・今週、どこに連絡するか") +
-    '<div class="lede">今日・今週の連絡先を、上から順に確かめます。' +
+  let h = '<div class="lede">今日・今週の連絡先を、上から順に確かめます。' +
     /* 案件名は通常の <a href> なので、別タブに開ける。戻ると先頭へ戻される（M-2 まで）ので、その回避策を1文（S-13）。
        Ctrl+クリックはタッチ端末には当てはまらない案内で、400px では1画面目の2行を使っていた（2026-09-28 実測）。
        ≤600px では出さない（.pconly）。スマホは長押しで開けるので、失うものは無い */
@@ -7053,25 +6904,8 @@ function renderToday(D0) {
      「243 件から 24 件」を 40px の間に 2 回言い、表の見出し行が 772 で 1 画面目に完全な行が 0 行だった。
      畳みと案内は scroll() の side で同じ 1 行（.caprow）に並べる。
      担当を選んでいるときは、絞った条件（サーバの filter_rule は全社の説明）の前に、この表が何かを 1 文書く */
-  const rule = '<details class="fold" id="td-rule"><summary>' +
-    (c ? esc(c) + " の候補（注意2つ以上、" + num(D.meta.n_shown) + " 件に切らず全件）。注意の数の順"
-       : "注意の数の順（同じ数なら金額順）") +
-    '　<span class="when-closed">決まりごとを開く</span><span class="when-open">決まりごとを閉じる</span></summary>' +
-    note("def", "絞った条件",
-      (c ? "<b>" + esc(c) + " を選んでいるので、この担当の注意2つ以上の候補を全件（" + num(D.rows.length) + " 件）出しています。" +
-           num(D.meta.n_shown) + " 件には切っていません。</b>全社の決まり: " : "") +
-      /* サーバの文に画面名は無い。全件への行き先（案件そのもの）は todayFilterRule が goLink で添える（S-6） */
-      todayFilterRule(D.meta)) +
-    note("def", "この並びについて", esc(D.meta.order_rule)) +
-    cpaBandNote(D.meta) +
-    /* 名札の略し方（段2 A）。短くした名札の正式な文は、枡の title（ホバー）だけでなくここにも書く（黙って隠さない） */
-    todayFlagLegend([D.rows, soon, started]) + "</details>";
-  if (c && !D.rows.length)
-    h += '<div class="empty">この担当には注意が2つ以上ついた案件がありません。「全員」に戻すと全社の ' +
-      num(D.meta.n_shown) + " 件が出ます。</div>";
-  /* サーバが n_hit 件から keep 件に絞っている（routes.rs KEEP）。絞る前の件数を渡す（V12）。
-     担当で絞ったときは切っていないので渡さない。並びは表ごとに持つ todaySort（U6）。
-     8 列の TODAY_COLS。高さの制限は外す（24 行を一望する。08 の S-3）。決まりごとの畳みは案内と同じ行に（side） */
+  const rule = "";
+  if (c && !D.rows.length) h += '<div class="empty">この担当には注意が2つ以上ついた案件がありません。</div>';
   h += scroll(boardTable(D.rows, todaySort["today-tbl"], "today-tbl", TODAY_COLS), "none", c ? null : D.meta.n_hit, rule);
 
   /* ---------------- 今週満了（行動。名札に関わらず出す。開いたまま） ---------------- */
@@ -7132,26 +6966,8 @@ function todayNoContactKpi(D0, c) {
 /** 今日の畳み「MTG 途絶の数え方と母数」。前は図「MTG が途絶えている先（全社）」の注記に書いていた（2026-09-29 に図を外した）。
     帯の件数そのものは案件一覧の帯の絞り込みで見る（行き先を添える） */
 function todayMtgNote(D) {
-  const G = D.meta.mtg_gap || {};
-  const bands = (G.bands || []).filter((b) => b.n > 0);
-  const bandN = (k) => ((G.bands || []).find((b) => b.band === k) || {}).n || 0;
-  const cov = G.coverage || {};
-  const body =
-    (bands.length
-      ? "区分ごとの件数（全社）: " + bands.map((b) => esc(b.label) + " " + num(b.n) + "件" + (b.alert ? "" : "（区分を付けていない）")).join(" ／ ") + "。"
-      : "") +
-    "区分ごとの案件は " + goLink("deal", "board") + " の「MTGが空いている期間」で絞って見られます。" +
-    (G.rule ? "<br>" + esc(G.rule) : "") +
-    (G.no_record_note ? "<br>" + esc(G.no_record_note) : "") +
-    (G.n_judged
-      ? "<br>区分を付けた対象は <b>" + num(G.n_judged) + " 件</b>（稼働中 " + num(D.meta.n_active) +
-        " 件から立ち上がり期 " + num(bandN("onboarding")) + " 件を外したもの）。そのうち最終MTG日が分かったのは <b>" +
-        num(cov.either) + " 件（" + pct1(cov.either_rate) + "）</b>。内訳は 録画 " + num(cov.recording) + " 件（" +
-        pct1(cov.recording_rate) + "） ／ メール由来 " + num(cov.mail) + " 件（" + pct1(cov.mail_rate) + "）。" +
-        esc(G.source_note || "")
-      : "");
-  /* 線引きは毎朝 Slack に届く警告と同じ、の 1 文は畳まない（何の帯かが分からなくなる） */
-  return foldNote("def", "MTGが空いている期間の数え方と対象", body, "線引きは、毎朝 Slack に届く MTGが空いている期間の警告と同じ", "td-mtg-note");
+  const bands = ((D.meta.mtg_gap || {}).bands || []).filter((b) => b.n > 0);
+  return bands.length ? '<p class="muted small">区分ごとの件数（全社）: ' + bands.map((b) => esc(b.label) + ' ' + num(b.n) + '件' + (b.alert ? '' : '（区分を付けていない）')).join(' ／ ') + '。</p>' : '';
 }
 
 /* 今日の「自分の接触」（N5）。contact-trend の応答は画面をまたいで 10 分だけ覚える（担当の切り替え・並び替えの描き直しで取り直さない）。
@@ -7188,7 +7004,6 @@ function renderMyContact(CT, name) {
   const periods = U.periods || [];
   const idx = periods.map((p, i) => i).filter((i) => !periods[i].calls_missing).slice(-6);
   const row = (U.rows || []).find((r) => r.consultant === name);
-  const ncCt = firstSentence(esc((CT && CT.meta && CT.meta.not_counted) || "").replace("※ ", ""), "評価ではありません");
   const more = "全員の推移と決まりごとは " + goLink("research", "team") + " にあります。";
   if (!row || !idx.some((i) => row.cells[i] && row.cells[i].deals > 0))
     return '<div class="empty">' + esc(name) + " には、直近 " + num(idx.length) + " か月に持ち案件がありません（接触を数える月の中で）。" + more + "</div>";
@@ -7206,8 +7021,7 @@ function renderMyContact(CT, name) {
     : '<div class="empty">どの月も持ち案件が ' + num(minDeals) + " 件未満なので、点を打っていません（値は下の表）。</div>";
   const tbl = table([{ t: "月", w: "s" }].concat(idx.map((i) => ({ t: periods[i].label + (periods[i].provisional ? "（途中）" : ""), n: 1 }))),
     [["1件あたり（接触/持ち案件）"].concat(idx.map((i) => contactCell(row.cells[i])))], "", "td-contact-tbl");
-  return '<p class="muted small"><b>' + ncCt[0] + "</b></p>" +
-    fig("月ごと", "本人の分だけ。他の人とは並べていません", svg,
+  return fig("月ごと", "", svg,
       lg("line", C.ai, "確定した月") + lg("ring", C.ai, "未確定（いまの月。途中なので低く出ます）") +
       (pts.some((p) => p == null) ? '<i class="full">線が切れている月は、持ち案件が 0 件か ' + num(minDeals) + " 件未満です（値は下の表）。</i>" : "") +
       '<i class="full">値は下の表にあります（マウスなら点に重ねても出ます）。</i>') +
@@ -7224,11 +7038,7 @@ function renderBoard(D) {
   /* 同じ表を①と②の両方で使う。問いだけ変える */
   const byOwner = cur.view === "byowner";
   if (byOwner) {
-    let h = sec("問い", "この担当はどの案件を持つか") +
-      /* 🔴 前はここに「下の『担当』で選ぶか、持ち件数の表で名前を押すと…」と書いていて、
-         すぐ下の枠（担当者を選んでください）の1文目と同じ話が2回続いていた（2026-09-24 実機）。
-         選び方は枠の側に1回だけ書き、ここは画面が何を並べるかと、ほかの入口だけにする */
-      '<div class="lede">担当者ごとの稼働中の案件です。' +
+    let h = '<div class="lede">担当者ごとの稼働中の案件です。' +
       goLink("consultant", "team") + " からも担当を選べます。</div>";
     h += boardFilterBar(D, !boardFilter.consultant);
     if (!boardFilter.consultant) {
@@ -7276,15 +7086,14 @@ function renderBoard(D) {
           ? '<a href="#" class="drill" data-c="' + esc(k) + '" title="この担当の案件だけを見る">' + esc(k) + "</a>"
           : DASH,
           num(per[k].n), num(per[k].flagged), num(per[k].focus)]), "", "owner-tbl"), 640);
-      return h + foot(D.meta, false, "担当者 " + num(ks.length) + " 名・稼働中 " + num(D.rows.length) + " 件");
+      return h + foot(D.meta, "担当者 " + num(ks.length) + " 名・稼働中 " + num(D.rows.length) + " 件");
     }
     /* 件数の行 → 表 → 決まりごと → 図 は boardBody（S-8 の順。絞り込みで描き直す部分。段2 M-8） */
     h += '<div id="board-body">' + boardBody(D, shown, on) + "</div>";
     /* 稼働中の件数は頭の1行と「N 件中 M 件を表示」にあるので、末尾では繰り返さない */
-    return h + foot(D.meta, false, "");
+    return h + foot(D.meta, "");
   }
-  let h = sec("問い", "案件はいまどの状態か") +
-    '<div class="lede">稼働中 ' + num(D.rows.length) +
+  let h = '<div class="lede">稼働中 ' + num(D.rows.length) +
     " 件。注意の数が多い順に並べています。</div>";
 
   h += boardFilterBar(D);
@@ -7292,9 +7101,7 @@ function renderBoard(D) {
      1 画面目に表が無かった。絞り込み → 件数行 → 表 → 図 の順にする（boardBody）。決まりごと（並び・採用単価の比べ方）は表の直下に。
      絞り込み・並び替えは boardRepaint が #board-body だけ描き直す（段2 M-8） */
   h += '<div id="board-body">' + boardBody(D, shown, on) + "</div>";
-  h += foldNote("info", "案件一覧の読み方",
-    "列の見出しで並び替え、担当・印・MTGが空いている期間・満了までの期間・契約総額・案件名で絞れます。" +
-    "「よく使う絞り込み」を押すと、対象の条件と件数が出ます。");
+
   return h + foot(D.meta);
 }
 
@@ -7527,13 +7334,11 @@ function renderHandoverContact(D) {
   if (!X) return "";
   const M = X.meta || {};
   const minN = M.min_person_n || 5;
-  let h = sec("問い", "交代の前後で、接触は増えたか減ったか") +
+  let h = sec("節", "交代前後の接触") +
     '<div class="lede">それぞれの担当期間の全体（通期）の接触を、' + num(M.per_days) + " 日あたりに直して比べます。</div>";
-  h += foldNote("info", "担当期間の比べ方",
-    "前は同じ拠点の一つ前の交代から交代日の前日まで、後は交代日から次の交代の前日まで" +
-    "（次の交代が無く、後の担当がまだ担当中なら " + esc(M.last_day || "") + " まで）。同じ拠点・同じ交代日の行は1件の交代と数えます。");
+
   /* 🔴 図より前に断る（交代が接触を増減させた証拠ではない・向きは決まらない） */
-  h += note("warn", "交代の効果ではありません", esc(X.not_causal));
+
   const sw = X.short_why || {};
   h += '<div class="kpis">' +
     kpi("比べられた交代", num(X.n_ok) + '<span class="u">件</span>',
@@ -7592,18 +7397,12 @@ function renderHandoverContact(D) {
   h += hoPeople("引き継いだ側（次の担当）", X.by_to || [], minN, many);
   h += hoPeople("引き継がれた側（前の担当）", X.by_from || [], minN, many);
 
-  h += note("def", "前後の比べ方",
-    esc(X.rule || "") + "<br>" + esc(X.dedupe_rule || "") + "<br>" + esc(X.dir_rule || "") +
-    (M.n_unavailable_rows ? "<br>取引・契約期間・交代日のどれかが読めず数えていない行が " + num(M.n_unavailable_rows) + " 行あります（表には残しています）。" : "") +
-    (M.n_ambiguous ? "<br>同じ拠点に動いている本体案件が2件以上あり、付け先を決められず数えなかった接触が " + num(M.n_ambiguous) + " 回あります。" : "") +
-    /* 前の「担当者ごとの接触」はチームと担当の中の節になった（09 の 6）。同じ画面の節へ移る */
-    "<br>担当者ごとの持ち案件1件あたりの接触は、この画面の " + jumpLink("tm-ct-h", "接触の推移") + " で見られます。");
   return h;
 }
 /** id: チームと担当の中の節として描くとき、見出しに付ける id（目次の行き先）。付けたときは末尾の基準日の枠を出さない
     （チームと担当の末尾で 1 回出す） */
 function renderHandover(D, id) {
-  let h = sec("問い", "担当はいつ、どう替わったか", id) +
+  let h = sec("節", "担当の交代", id) +
     '<div class="lede">1行1回の交代。<b>新しい順</b>に並べています。</div>';
 
   h += '<div class="kpis">' +
@@ -7628,11 +7427,9 @@ function renderHandover(D, id) {
   /* 決まりごと（採り方・記録の遅れの数え方）は表の直下。🔴 2026-09-28 検証（fixture 1440×900）: 問いと KPI の間に
      置いていて 142px（435-577）を取り、表の見出し行が y=813 と 1 画面目の下端近くだった（08 の S-8 の順は
      問い1 → KPI → 表）。表の読み方なので、表を読んでから目に入る位置に置く */
-  h += foldNote("def", "この一覧の決まりごと",   /* M-5: 取り決め（採り方・遅れの数え方）だけの箱なので畳む */
-    esc(D.source_rule) + "<br>" + esc(D.gap_rule));
 
   const rd = D.reflected_dist || [];
-  h += sec("図", "HubSpot の担当者欄に反映されたか");
+  h += sec("図", "HubSpot の担当者欄への反映");
   h += fig("反映のされ方ごとの件数", "欄が直された経緯の内訳",
     rd.length
       ? svgBarH({ w: 680, fmt: F.int, rh: 24,
@@ -7649,8 +7446,8 @@ function renderHandover(D, id) {
   /* 末尾も同じ。meta.n_active は「交代のうち案件が稼働中のもの」で、全体の稼働中ではない。
      チームと担当の中（id あり）では、この節の件数を1行で書き、基準日の枠は画面の末尾の 1 回にする */
   if (id) return h + '<p class="muted small">記録された交代 ' + num(D.meta.n) + " 件（うち案件が稼働中 " +
-    num(D.meta.n_active) + " 件）。" + esc(D.meta.not_counted || "").replace(/^※\s*/, "") + "</p>";
-  return h + foot(D.meta, false, "記録された交代 " + num(D.meta.n) + " 件（うち案件が稼働中 " +
+    num(D.meta.n_active) + " 件）。" + "</p>";
+  return h + foot(D.meta, "記録された交代 " + num(D.meta.n) + " 件（うち案件が稼働中 " +
     num(D.meta.n_active) + " 件）");
 }
 /* 表「交代の記録」。renderHandover が KPI の直後に置く（S-8） */
@@ -7888,7 +7685,7 @@ function detailItem(e) {
         "<dt>次にやること</dt><dd>" + (s.next_action ? esc(s.next_action) : DASH) + "</dd>" +
         "<dt>顧客の懸念</dt><dd>" + (s.concern ? esc(s.concern) : DASH) + "</dd></dl>" +
         '<span class="via">要約: ' + esc(s.model || "") + (s.generated_at ? "（" + esc(s.generated_at) + " 作成）" : "") +
-        "。話された内容の要約で、評価ではありません</span>";
+        "。通話の要約</span>";
     } else {
       what += '<span class="via"><span class="tag d">要約なし</span></span>';
     }
@@ -7921,7 +7718,7 @@ function backToToday() {
 /* 探す欄（取引を指定していないとき） */
 function renderDetailSearch(D) {
   const S = D.search || { q: "", rows: [], n_match: 0 };
-  let h = sec("問い", "どの案件の中身を見るか");
+  let h = "";
   h += '<div class="lede">案件名・拠点名の一部で探せます。各表の案件名からも開けます。</div>' ;
   /* M-3 (5): サイドバーから直接来たときの戻り口。最近開いた案件（この端末）と今日動く先へ */
   const rc = loadRecentDeals();
@@ -7948,8 +7745,7 @@ function renderDetailSearch(D) {
 function renderDetail(D) {
   if (!D.meta.deal_id) return renderDetailSearch(D);
   if (!D.meta.found) {
-    return sec("問い", "この案件の中身") +
-      note("warn", "この案件は出せません", esc(D.meta.reason || "見つかりません。")) +
+    return note("warn", "この案件は出せません", esc(D.meta.reason || "見つかりません。")) +
       renderDetailSearch(D);
   }
   const d = D.deal, c = D.counts, ch = D.chain;
@@ -8024,9 +7820,6 @@ function renderDetail(D) {
       nh.map((x) => esc(x.kind) + " " + num(x.n) + " 件").join("・") + "）は並べていません。</div>";
   }
 
-  const R = D.rules || {};
-  h += note("def", "並べ方の決まり", [R.fact, R.link, R.attach, R.contact, R.summary, R.extracted, R.handler, R.handover]
-    .filter(Boolean).map(esc).join("<br>"));
   /* ---- 契約の連なり（M-3 (3)）: 前後の契約を1行、表は畳む ----
      🔴 09 の 3章の順（時系列の後）。前は時系列より上にあり、時系列を1画面目から押し出していた（2026-09-29 検証） */
   const rows = (ch && ch.rows) || [];
@@ -8052,7 +7845,7 @@ function renderDetail(D) {
 
   /* 戻り道（09 の 3 の 5）。担当を選んでいれば今日動く先はその担当で開く（c は持ち越す状態。hashFor に載せない） */
   h += '<div class="lede">' + backToToday() + "</div>";
-  return h + foot(D.meta, true, "");
+  return h + foot(D.meta, "");
 }
 
 /** パンくず「法人 ＞ 拠点 ＞ この案件」（09 の 3、08 の M-3 (2)）。法人・拠点は顧客の画面（#research/customer?houjin=&site=）へ。
@@ -8125,7 +7918,7 @@ function detailNext(D) {
     h += note("info", "直近の電話の AI 要約（誤りを含むことがあります。" + sm.date + " の電話）",
       "<b>次にやること</b>: " + (sm.summary.next_action ? esc(sm.summary.next_action) : DASH) + "<br>" +
       "<b>顧客の懸念</b>: " + (sm.summary.concern ? esc(sm.summary.concern) : DASH) +
-      '<br><span class="muted small">話された内容の要約で、評価ではありません。全文は下の時系列にあります。</span>');
+      '<br><span class="muted small">通話の要約。全文は下の時系列にあります。</span>');
   } else if (sm) {
     h += note("info", "直近の MTG から抽出した項目（" + sm.date + " の録画 MTG）",
       "<b>やること</b>: " + (sm.todo ? esc(sm.todo) : DASH) + "<br>" +
@@ -8168,8 +7961,7 @@ function wireDetail() {
 /* 🔴 ここに新しい主張を書かない。画面の他の場所に既に出ている決まりごとを、
    1か所で読めるようにまとめただけ。数字は出さない（数字は各画面が母数つきで出す）。 */
 function renderDefs() {
-  let h = sec("問い", "数字はどう作っているか") +
-    '<div class="lede">色と印の意味、数字の数え方を確かめます。</div>';
+  let h = '<div class="lede">色と印の意味、数字の数え方を確かめます。</div>';
 
   h += sec("表", "色と印の意味");
   /* 定義の表も枠に入れる。400px幅でページが 1,368px に広がっていた（V17 実測） */
@@ -8220,9 +8012,7 @@ function renderDefs() {
      ["<b>元データの取得時刻</b>",
       "HubSpot / Zoom から落とした時刻。<b>画面の上に出ている「N日前」はこれで数えています</b>"]],
     "prose"));
-  h += note("info", "なぜ3つ要るのか",
-    "古い元データのままシートを作り直すと、<b>生成時刻だけが新しくなって中身は古いまま</b>に" +
-    "なります。生成時刻を「データの新しさ」として出すと嘘になるので、分けています。");
+
   return h;
 }
 
@@ -8344,8 +8134,7 @@ const missingPart = (name) => '<div class="err">' + esc(name) + " のデータ�
 function renderTrust(D) {
   const Q = moreOf(D, "mtgq");
   /* 問いは節（データ品質の問い「数字をどこまで信じてよいか」）と同じ文にしない（続けて 2 回読ませない） */
-  let h = sec("問い", "記録の欠けや偏りはあるか") +
-    '<div class="lede">数字の欠けと偏り、MTG の記録、色と印の意味を確かめます。</div>' +
+  let h = '<div class="lede">数字の欠けと偏り、MTG の記録、色と印の意味を確かめます。</div>' +
     toc([["trust-dq", "データの欠けと偏り"], ["trust-mtgq", "MTG の記録"], ["trust-defs", "色と印・定義"]]);
   h += partSec(renderDq(D), "データ品質", "trust-dq");
   h += Q ? partSec(renderMtgQ(Q), "MTG の品質", "trust-mtgq") : partSec(missingPart("MTG の品質"), "MTG の品質", "trust-mtgq");
@@ -8392,8 +8181,7 @@ function renderRenewalPipe(D) {
   const word = (i) => (PIPE_WORDS[i] || "") + " " + (win[i] || "");
   /* 今月のうちに満了日を過ぎて、まだ稼働中（今月の件数に入っている。黙って混ぜず内訳で言う） */
   const pastThis = rows.filter((r) => r.days_left != null && r.days_left < 0).length;
-  let h = sec("問い", "今月〜再来月の満了はどれか") +
-    '<div class="lede"><b>今月・来月・再来月</b>の満了を、件数・金額と満了の近い順の一覧で確かめます。' + notCounted(M).replace(/<br>$/, "") + "</div>" +
+  let h = '<div class="lede"><b>今月・来月・再来月</b>の満了を、件数・金額と満了の近い順の一覧で確かめます。' + "</div>" +
     pageToc(months.map((m, i) => ["rp-m" + i, word(i) + " に満了"])
       .concat(ov.sum.n ? [["rp-over", "満了日を過ぎてまだ稼働中"]] : []).concat([["rp-stage", "ステージ別の件数"]]),
       goLink("deal", "board") + goLink("monthly", "results"));
@@ -8454,8 +8242,8 @@ function renderRenewalPipe(D) {
     '<p class="muted small">並びは HubSpot のステージの並び（工程の順）です。件数の多い順ではありません。' +
     "件数だけを数えています。ステージ名に入っている「50％」などは HubSpot のステージの名前の一部で、" +
     "件数にも金額にも掛けていません。</p>";
-  /* 読むときの注意（not_counted）は画面の頭で書いた（said=true。同じ文を 2 回出さない） */
-  return h + foot(M, true, "稼働中 " + num(M.n_active) + " 件");
+
+  return h + foot(M, "稼働中 " + num(M.n_active) + " 件");
 }
 
 /* ================================================================ 画面の並び
@@ -8806,18 +8594,18 @@ const URL_STATE = {
               site: { kind: "filter", get: () => custSite, set: (v) => { custSite = v; custLand = !!v; }, reset: () => { custSite = ""; custLand = false; } },
               focus: flagState(() => focusOnly, (b) => { focusOnly = b; }),
               active: flagState(() => customerActiveOnly, (b) => { customerActiveOnly = b; }),
-              ...Object.fromEntries(CUSTOMER_FILTERS.map((f) => [f.key, {
-                kind: "filter", get: () => customerFilter[f.key] || "",
-                set: (v) => { customerFilter[f.key] = customerLowerBound(v); },
-                reset: () => { customerFilter[f.key] = ""; },
+              ...Object.fromEntries(CUSTOMER_FILTER_KEYS.map((key) => [key, {
+                kind: "filter", get: () => customerFilter[key] || "",
+                set: (v) => { customerFilter[key] = customerLowerBound(v); },
+                reset: () => { customerFilter[key] = ""; },
               }])) },
   detail: { id: { kind: "filter", get: () => detailId, set: (v) => { detailId = v; }, reset: () => { detailId = ""; } },
             q:  { kind: "filter", get: () => detailQ,  set: (v) => { detailQ = v; },  reset: () => { detailQ = ""; } },
             /* 時系列を直近3か月より前も出す（M-3）。別の案件へ移ると既定（直近3か月）へ */
             older: { kind: "filter", get: () => (detailOlder ? "1" : ""), set: (v) => { detailOlder = v === "1"; },
                      reset: () => { detailOlder = false; } } },
-  /* チームと担当（09 の 6）: 並び（既定は名前順）・接触の推移に重ねる担当（c）・期間の単位（unit） */
-  team: { sort: sortState(() => teamSort, (s) => { teamSort = s; }, TEAM_COLS, { key: "consultant", asc: true }),
+  /* チームと担当（09 の 6）: 並び（既定は手が回っていない案件の多い順）・接触の推移に重ねる担当（c）・期間の単位（unit） */
+  team: { sort: sortState(() => teamSort, (s) => { teamSort = s; }, TEAM_COLS, { key: "unattended", asc: false }),
           c: { kind: "filter", get: () => teamPick, set: (v) => { teamPick = v; }, reset: () => { teamPick = ""; } },
           unit: { kind: "ctx", get: () => (contactUnit === "month" ? "" : contactUnit),
                   set: (v) => { contactUnit = CONTACT_UNITS.some((u) => u.k === v) ? v : "month"; },
@@ -9500,6 +9288,15 @@ function wireCustomer() {
     const input = document.getElementById("customer-min-" + f.key);
     if (input) input.oninput = () => { customerFilter[f.key] = customerLowerBound(input.value); updateCustomerFilterResults(); };
   });
+  const maxSites = document.getElementById("customer-max-sites");
+  if (maxSites) maxSites.oninput = () => { customerFilter.sites_max = customerLowerBound(maxSites.value); updateCustomerFilterResults(); };
+  document.querySelectorAll("[data-customer-preset]").forEach((button) => {
+    button.onclick = () => {
+      applyCustomerPreset(Number(button.dataset.customerPreset));
+      redraw();
+      syncUrl();
+    };
+  });
   const activeOnly = document.getElementById("customer-active-only");
   if (activeOnly) activeOnly.onchange = () => { customerActiveOnly = activeOnly.checked; updateCustomerFilterResults(); };
   document.querySelectorAll("#hj-pick input[type=checkbox]").forEach((cb) => {
@@ -9514,7 +9311,6 @@ function wireCustomer() {
   const n = document.getElementById("hj-none");
   if (n) n.onclick = () => setAll(false);
 }
-
 
 /* 戻る・進むでも同じところへ。
    🔴 pushState で積んだ履歴を戻るときは popstate が来る（hashchange はブラウザによって
