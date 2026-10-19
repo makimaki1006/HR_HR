@@ -56,7 +56,7 @@ export function ApplicantEditor({ detail, fixture, onNext, contactTarget, hearin
           if (result.kind === 'saved' || result.kind === 'queued') { onNext(detail.row.id); return true; }
           return false;
         }} />
-      : <p>{APPLICANT_WRITES_OFF}</p>)}
+      : <p>{!detail.write_pipeline ? 'この応募のパイプラインは読み取り専用です。' : APPLICANT_WRITES_OFF}</p>)}
     {write.conflict && <div role="alert" className="wr-error"><p>HubSpot 側で先に変更されています。保存せず、最新の内容を確認してください。</p>
       <dl>{Object.entries(write.conflict.current).map(([name, value]) => <div key={name}><dt>{detail?.editable.find(f => f.name === name)?.label ?? (name === 'hs_pipeline_stage' ? 'ステージ' : 'パイプライン')}</dt><dd>{name === 'hs_pipeline_stage' ? detail?.write_pipeline?.stages.find(s => s.id === value)?.label ?? '変更済み' : name === 'hs_pipeline' ? '変更済み' : detail?.editable.find(f => f.name === name)?.options.find(o => o.value === value)?.label ?? value ?? '未入力'}</dd></div>)}</dl>
       <button onClick={() => { write.resolveConflict('theirs'); window.location.reload(); }}>最新の内容を読み直す</button></div>}

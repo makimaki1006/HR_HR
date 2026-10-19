@@ -57,3 +57,7 @@
 .applicants-detail .wd-phone-compact .cq-phone,
 .applicants-detail .wd-phone-compact .wd-dial { flex: none; white-space: nowrap; }
 .applicants-detail .wd-dial-reason { white-space: normal; overflow-wrap: anywhere; }
+
+.applicants-search { padding: 4px 12px; border-bottom: 1px solid #dfe3eb; }
+.applicants-app .applicants-search label { white-space: nowrap; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.applicants-app .applicants-search input { flex: 0 1 360px; min-width: 0; width: min(360px, 65vw); padding: 5px 8px; border: 1px solid #cbd6e2; border-radius: 4px; }

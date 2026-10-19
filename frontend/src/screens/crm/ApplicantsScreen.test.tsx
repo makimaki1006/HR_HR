@@ -5,7 +5,7 @@ import { ApplicantSheet, ApplicantsScreen } from './ApplicantsScreen';
 import { applicantQueueFixture, applicantDetailFixture } from './applicantFixture';
 import { ZOOM_EMBED_ORIGIN } from './smartEmbed';
 import { applicantMode, modeUrl } from './CrmModeSwitch';
-afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
 describe('応募の読み取りモード', () => {
   it('既存のビューと架空サンプルの条件を保って切り替える', () => {
     const url = modeUrl('?mode=fixture&view=mine&stage=abc', true);
@@ -14,6 +14,8 @@ describe('応募の読み取りモード', () => {
     expect(new URLSearchParams(modeUrl(url, false)).get('view')).toBe('mine');
     expect(applicantMode(modeUrl(url, false))).toBe(false);
     expect(applicantMode('?mode=applicants')).toBe(true);
+    expect(applicantMode('?applicant=90003')).toBe(true);
+    expect(applicantMode(modeUrl('?applicant=90003', false))).toBe(false);
     expect(applicantMode(modeUrl('?mode=applicants', false))).toBe(false);
   });
   it('架空の一覧から詳細・対応ルール・結果・シートを読む。書き込みも実通信もしない', async () => {
@@ -62,6 +64,63 @@ describe('応募の読み取りモード', () => {
     const row = await screen.findByRole('button', { name: /架空 はるか/ });
     expect(within(row).getByText(shown)).toBeTruthy();
     if (raw !== shown && raw) expect(within(row).queryByText(raw)).toBeNull();
+  });
+  it('範囲・検索・媒体を組み合わせ、URLに条件を残す', async () => {
+    render(<ApplicantsScreen fixture />);
+    await screen.findByText('2件');
+    fireEvent.click(screen.getByRole('button', { name: '条件を変更' }));
+    fireEvent.change(screen.getByLabelText('範囲'), { target: { value: 'all' } });
+    await screen.findByText('3件');
+    expect(new URLSearchParams(window.location.search).get('scope')).toBe('all');
+    fireEvent.click(screen.getByRole('button', { name: 'ステージ（6件選択）' }));
+    expect(screen.getByRole('heading', { name: '採用管理（架空）' })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: '採用済み' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    fireEvent.change(screen.getByLabelText('応募を検索'), { target: { value: 'サンプル商店' } });
+    expect(screen.getByText('3件')).toBeTruthy();
+    await screen.findByText('1件');
+    expect(screen.getByRole('button', { name: /架空 そら/ })).toBeTruthy();
+    expect(new URLSearchParams(window.location.search).get('q')).toBe('サンプル商店');
+    fireEvent.change(screen.getByLabelText('応募媒体'), { target: { value: '架空採用ページ' } });
+    await screen.findByText('条件に一致する応募はありません。');
+  });
+  it('Enterで検索し、一覧外の応募番号から直接詳細を読む', async () => {
+    window.history.replaceState(null, '', '/?mode=fixture&crmMode=applicants&applicant=90003');
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    render(<ApplicantsScreen fixture />);
+    await screen.findByText('2件');
+    expect(await screen.findByRole('heading', { level: 2 })).toHaveProperty('textContent', '架空 そら');
+    expect(screen.queryByRole('button', { name: /架空 そら/ })).toBeNull();
+    expect(screen.getByText('この応募のパイプラインは読み取り専用です。')).toBeTruthy();
+    expect(screen.queryByLabelText('ステージ')).toBeNull();
+    fireEvent.change(screen.getByLabelText('応募を検索'), { target: { value: 'あおい' } });
+    fireEvent.submit(screen.getByRole('search'));
+    await screen.findByText('1件');
+    expect(new URLSearchParams(window.location.search).get('q')).toBe('あおい');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('実APIへ範囲・検索・媒体・ステージを渡し、入力途中は送らない', async () => {
+    window.history.replaceState(null, '', '/?mode=applicants&scope=all&media=web&stages=other-done&applicant=90003');
+    const fetcher = vi.fn((url: string) => Promise.resolve({ ok: true, json: () => Promise.resolve(url.includes('/queue') ? applicantQueueFixture : applicantDetailFixture('90003')) }));
+    vi.stubGlobal('fetch', fetcher);
+    render(<ApplicantsScreen fixture={false} />);
+    await screen.findByText('2件');
+    await screen.findByRole('heading', { level: 2 });
+    const queueCalls = () => fetcher.mock.calls.filter(([url]) => url.includes('/queue'));
+    expect(queueCalls()).toHaveLength(1);
+    const first = new URL(queueCalls()[0]?.[0] ?? '', 'http://localhost');
+    expect(Object.fromEntries(first.searchParams)).toEqual({ scope: 'all', stages: 'other-done', media: 'web' });
+    expect(fetcher.mock.calls.some(([url]) => url === '/api/crm/applicants/90003')).toBe(true);
+    fireEvent.change(screen.getByLabelText('応募を検索'), { target: { value: '架' } });
+    fireEvent.change(screen.getByLabelText('応募を検索'), { target: { value: '架空' } });
+    expect(queueCalls()).toHaveLength(1);
+    await waitFor(() => { expect(queueCalls()).toHaveLength(2); });
+    const next = new URL(queueCalls()[1]?.[0] ?? '', 'http://localhost');
+    expect(Object.fromEntries(next.searchParams)).toEqual({ scope: 'all', q: '架空', stages: 'other-done', media: 'web' });
+    fireEvent.change(screen.getByLabelText('応募を検索'), { target: { value: '会社' } });
+    fireEvent.submit(screen.getByRole('search'));
+    await waitFor(() => { expect(queueCalls()).toHaveLength(3); });
+    expect(new URL(queueCalls()[2]?.[0] ?? '', 'http://localhost').searchParams.get('q')).toBe('会社');
   });
   it('既存のステージ選択と媒体で絞る', async () => {
     render(<ApplicantsScreen fixture />);

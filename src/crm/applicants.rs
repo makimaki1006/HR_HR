@@ -287,11 +287,11 @@ fn row(v: &Value, defs: &Value) -> ApplicantRow {
         media: display(defs, "oubobaitaimei", &get("oubobaitaimei")),
     }
 }
-fn pipelines(defs: &Value) -> Vec<ApplicantPipeline> {
+fn pipelines(defs: &Value, all: bool) -> Vec<ApplicantPipeline> {
     values(&defs["pipelines"])
         .filter_map(|p| {
             let stages: Vec<_> = values(&p["stages"])
-                .filter(|s| OPEN_STAGES.contains(&text(s, "id").as_str()))
+                .filter(|s| all || OPEN_STAGES.contains(&text(s, "id").as_str()))
                 .map(|s| ApplicantStage {
                     id: text(s, "id"),
                     label: text(s, "label"),
@@ -318,6 +318,8 @@ fn options(defs: &Value) -> Vec<ApplicantStage> {
 }
 #[derive(Default, Deserialize)]
 pub(super) struct QueueQuery {
+    scope: Option<String>,
+    q: Option<String>,
     stages: Option<String>,
     media: Option<String>,
     cursor: Option<String>,
@@ -350,7 +352,7 @@ fn search_body(base: &[Value], pos: &Position, kind: &str, properties: &[String]
     let mut groups = Vec::new();
     let mut branches: Vec<Vec<Value>> = if kind == "due" {
         vec![vec![due("LTE")]]
-    } else if kind == "total" {
+    } else if kind == "total" || kind == "all" {
         vec![vec![]]
     } else {
         vec![
@@ -404,21 +406,31 @@ pub(super) async fn queue(
         Ok(p) => p,
         Err(e) => return e.into_response(),
     };
+    let all = q.scope.as_deref() == Some("all");
+    let query = q.q.as_deref().unwrap_or("").trim();
     let mut stages: Vec<String> = q
         .stages
         .as_deref()
         .map(|s| s.split(',').map(str::to_owned).collect())
-        .unwrap_or_else(|| OPEN_STAGES.iter().map(|s| s.to_string()).collect());
+        .unwrap_or_else(|| {
+            if all {
+                vec![]
+            } else {
+                OPEN_STAGES.iter().map(|s| s.to_string()).collect()
+            }
+        });
     stages.sort();
     stages.dedup();
     if q.cursor.as_ref().is_some_and(|c| c.len() > 4096)
-        || stages.is_empty()
-        || stages.iter().any(|s| !OPEN_STAGES.contains(&s.as_str()))
+        || q.scope.as_deref().is_some_and(|s| s != "all")
+        || query.len() > 300
+        || (!all
+            && (stages.is_empty() || stages.iter().any(|s| !OPEN_STAGES.contains(&s.as_str()))))
         || q.media.as_ref().is_some_and(|m| m.len() > 300)
     {
         return error_json(StatusCode::BAD_REQUEST, "invalid_filter");
     }
-    let binding = json!(["applicants", principal.email, stages, q.media]).to_string();
+    let binding = json!(["applicants", principal.email, all, query, stages, q.media]).to_string();
     let mut pos = Position {
         now: chrono::Utc::now().timestamp_millis(),
         phase: 0,
@@ -456,9 +468,13 @@ pub(super) async fn queue(
     let work = async {
         let _slot = tokio::time::timeout(Duration::from_secs(5), ctx.queue_slots.acquire())
             .await
-            .map_err(|_| HubSpotError::Busy)?
-            .map_err(|_| HubSpotError::Busy)?;
-        let defs = ctx.applicants.definitions(&client).await?;
+            .map_err(|_| applicant_error(&HubSpotError::Busy))?
+            .map_err(|_| applicant_error(&HubSpotError::Busy))?;
+        let defs = ctx
+            .applicants
+            .definitions(&client)
+            .await
+            .map_err(|e| applicant_error(&e))?;
         let mut properties: Vec<String> = QUEUE_PROPERTIES.iter().map(|s| s.to_string()).collect();
         properties.extend(
             values(&defs["properties"])
@@ -469,19 +485,71 @@ pub(super) async fn queue(
                 })
                 .map(|p| text(p, "name")),
         );
-        let filters = base_filters(&stages, &q.media);
+        let available = pipelines(&defs, all);
+        if all
+            && stages.iter().any(|id| {
+                !available
+                    .iter()
+                    .any(|p| p.stages.iter().any(|s| &s.id == id))
+            })
+        {
+            return Err(error_json(StatusCode::BAD_REQUEST, "invalid_filter"));
+        }
+        let mut filters = base_filters(&stages, &q.media);
+        if all {
+            filters.retain(|f| {
+                f["propertyName"] != "ichijitaiounoumu"
+                    && (!stages.is_empty() || f["propertyName"] != "hs_pipeline_stage")
+            });
+        }
+        let body = |pos: &Position, kind| {
+            let mut b = search_body(&filters, pos, kind, &properties);
+            if !query.is_empty() {
+                b["query"] = json!(query);
+            }
+            b
+        };
+        if all {
+            let page = client
+                .search(OBJECT, body(&pos, "all"))
+                .await
+                .map_err(|e| applicant_error(&e))?;
+            let next_cursor = page["paging"]["next"]["after"]
+                .as_str()
+                .and_then(|s| s.parse().ok())
+                .or_else(|| page["paging"]["next"]["after"].as_u64())
+                .map(|after| {
+                    pos.undated = after;
+                    let p = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&pos).unwrap());
+                    format!(
+                        "{p}~{}",
+                        ctx.queue.sign_cursor(&format!("{binding}:{p}"), 0, None)
+                    )
+                });
+            return Ok(ApplicantQueue {
+                items: values(&page["results"]).map(|r| row(r, &defs)).collect(),
+                total: page["total"].as_u64().ok_or_else(|| {
+                    applicant_error(&HubSpotError::Decode("applicant total".into()))
+                })? as u32,
+                next_cursor,
+                pipelines: available,
+                media_options: options(&defs),
+            });
+        }
         let total = client
-            .search(OBJECT, search_body(&filters, &pos, "total", &properties))
-            .await?["total"]
+            .search(OBJECT, body(&pos, "total"))
+            .await
+            .map_err(|e| applicant_error(&e))?["total"]
             .as_u64()
-            .ok_or_else(|| HubSpotError::Decode("applicant total".into()))?
+            .ok_or_else(|| applicant_error(&HubSpotError::Decode("applicant total".into())))?
             as u32;
         let mut items = Vec::new();
         let mut more = false;
         if pos.phase == 0 {
             let page = client
-                .search(OBJECT, search_body(&filters, &pos, "due", &properties))
-                .await?;
+                .search(OBJECT, body(&pos, "due"))
+                .await
+                .map_err(|e| applicant_error(&e))?;
             items.extend(values(&page["results"]).map(|r| row(r, &defs)));
             if let Some(after) = page["paging"]["next"]["after"]
                 .as_str()
@@ -498,11 +566,13 @@ pub(super) async fn queue(
             // 約束済みを読み終えたら、同じ要求で後半を読み 30 件まで埋める。
             // 応募日の無い行は作成日で並べる。二つの Search をマージしてページ境界でも順を保つ。
             let dated = client
-                .search(OBJECT, search_body(&filters, &pos, "dated", &properties))
-                .await?;
+                .search(OBJECT, body(&pos, "dated"))
+                .await
+                .map_err(|e| applicant_error(&e))?;
             let undated = client
-                .search(OBJECT, search_body(&filters, &pos, "undated", &properties))
-                .await?;
+                .search(OBJECT, body(&pos, "undated"))
+                .await
+                .map_err(|e| applicant_error(&e))?;
             let a: Vec<_> = values(&dated["results"]).collect();
             let b: Vec<_> = values(&undated["results"]).collect();
             let (mut i, mut j) = (0, 0);
@@ -537,11 +607,11 @@ pub(super) async fn queue(
         } else {
             None
         };
-        Ok::<_, HubSpotError>(ApplicantQueue {
+        Ok::<_, Response>(ApplicantQueue {
             items,
             total,
             next_cursor,
-            pipelines: pipelines(&defs),
+            pipelines: available,
             media_options: options(&defs),
         })
     };
@@ -550,7 +620,7 @@ pub(super) async fn queue(
             ctx.applicants.queues.insert(key, body.clone());
             Json(body).into_response()
         }
-        Ok(Err(e)) => applicant_error(&e),
+        Ok(Err(e)) => e,
         Err(_) => super::routes::timeout_response(),
     }
 }
@@ -786,17 +856,19 @@ pub(super) async fn detail(
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
             editable,
-            write_pipeline: editing::write_pipeline(&defs).map(|p| ApplicantPipeline {
-                id: text(p, "id"),
-                label: text(p, "label"),
-                stages: values(&p["stages"])
-                    .map(|s| ApplicantStage {
-                        id: text(s, "id"),
-                        label: text(s, "label"),
-                    })
-                    .collect(),
-            }),
-            writes_enabled: ctx.write.enabled,
+            write_pipeline: editing::write_pipeline(&defs)
+                .filter(|_| text(p, "hs_pipeline") == PIPELINE)
+                .map(|p| ApplicantPipeline {
+                    id: text(p, "id"),
+                    label: text(p, "label"),
+                    stages: values(&p["stages"])
+                        .map(|s| ApplicantStage {
+                            id: text(s, "id"),
+                            label: text(s, "label"),
+                        })
+                        .collect(),
+                }),
+            writes_enabled: ctx.write.enabled && text(p, "hs_pipeline") == PIPELINE,
             row: row(&v, &defs),
             sections: sections(p, &defs),
             phone: text(p, "denwabangou"),

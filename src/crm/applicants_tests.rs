@@ -11,6 +11,7 @@ struct Fake {
     listing_ids: Vec<String>,
     listing_deals: Option<Value>,
     large_queue: bool,
+    outside_detail: bool,
     due_count: usize,
     delay_ms: u64,
     inflight: usize,
@@ -64,7 +65,7 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
     let result = match path.as_str() {
         "/crm/v3/properties/0-421" => props(),
         "/crm/v3/pipelines/0-421" => {
-            json!({"results":[{"id":"t_3c8f8179ebedb62c890f1cf2c73ff9c8","label":"一次対応_BPO","stages":[{"id":"1343099551","label":"応募受付"},{"id":"1431574804","label":"朝連絡"}]}]})
+            json!({"results":[{"id":"t_3c8f8179ebedb62c890f1cf2c73ff9c8","label":"一次対応_BPO","stages":[{"id":"1343099551","label":"応募受付"},{"id":"1431574804","label":"朝連絡"},{"id":"bpo-done","label":"一次対応実施済"}]},{"id":"other","label":"採用管理","stages":[{"id":"other-done","label":"採用済み"}]}]})
         }
         "/crm/v3/objects/0-421/search" => {
             let sort = &body["sorts"][0]["propertyName"];
@@ -122,7 +123,16 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
             }
         }
         "/crm/v3/objects/0-421/batch/read" => {
-            let mut a = applicant("100", "2026-10-15");
+            let id = if f.outside_detail { "999" } else { "100" };
+            let mut a = applicant(id, "2026-10-15");
+            a["properties"]["hs_pipeline"] = json!(if f.outside_detail {
+                "other"
+            } else {
+                crate::crm::applicants::PIPELINE
+            });
+            if f.outside_detail {
+                a["properties"]["hs_pipeline_stage"] = json!("other-done");
+            }
             a["properties"]["customer_sheet_url_synced"] = json!(f.sheet);
             json!({"results":[a]})
         }
@@ -147,6 +157,8 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
         "/crm/v3/objects/notes/batch/read" => {
             json!({"results":(1..=7).map(|i|json!({"id":(299+i).to_string(),"properties":{"hs_timestamp":format!("2026-10-{:02}T00:00:00Z", i+9),"hs_note_body":format!("架空のメモ {i}")}})).collect::<Vec<_>>()})
         }
+        "/crm/v4/objects/0-421/999/associations/0-420"
+        | "/crm/v4/objects/0-421/999/associations/notes" => json!({"results":[]}),
         _ => panic!("想定外: {path}"),
     };
     Json(result).into_response()
@@ -794,4 +806,92 @@ async fn applicant_report_sheet_deal_403_keeps_detail_and_fallback() {
         );
         assert_eq!(b["sheet_embed"], true);
     }
+}
+
+#[tokio::test]
+async fn applicants_all_single_search_filters_query_cache_and_cursor_binding() {
+    let (app, c, f) = app().await;
+    f.lock().unwrap().large_queue = true;
+    let url = "/api/crm/applicants/queue?scope=all&q=sample";
+    let (status, _, first) = get_json(&app, url, &c).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    assert_eq!(first["total"], 31);
+    assert_eq!(first["items"].as_array().unwrap().len(), 30);
+    assert_eq!(first["pipelines"].as_array().unwrap().len(), 2);
+    {
+        let g = f.lock().unwrap();
+        let searches: Vec<_> = g
+            .requests
+            .iter()
+            .filter(|(p, _)| p.ends_with("search"))
+            .collect();
+        assert_eq!(searches.len(), 1);
+        assert_eq!(searches[0].1["filterGroups"], json!([{"filters":[]}]));
+        assert_eq!(searches[0].1["query"], "sample");
+        assert_eq!(
+            searches[0].1["sorts"],
+            json!([{"propertyName":"hs_createdate","direction":"DESCENDING"}])
+        );
+    }
+    let n = f.lock().unwrap().requests.len();
+    assert_eq!(get_json(&app, url, &c).await.2, first);
+    assert_eq!(f.lock().unwrap().requests.len(), n);
+    let cursor = first["next_cursor"].as_str().unwrap();
+    for changed in ["q=sample", "scope=all&q=different", "scope=all"] {
+        assert_eq!(
+            get_json(
+                &app,
+                &format!("/api/crm/applicants/queue?{changed}&cursor={cursor}"),
+                &c
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let (status, _, second) = get_json(&app, &format!("{url}&cursor={cursor}"), &c).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(second["items"].as_array().unwrap().len(), 1);
+    assert_eq!(second["next_cursor"], Value::Null);
+    for changed in ["scope=all&q=different", "q=sample"] {
+        let n = f.lock().unwrap().requests.len();
+        assert_eq!(
+            get_json(&app, &format!("/api/crm/applicants/queue?{changed}"), &c)
+                .await
+                .0,
+            StatusCode::OK
+        );
+        assert!(f.lock().unwrap().requests.len() > n);
+    }
+    let (status, _, _) = get_json(
+        &app,
+        "/api/crm/applicants/queue?scope=all&q=sample&stages=other-done&media=web",
+        &c,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let g = f.lock().unwrap();
+    let b = &g.requests.last().unwrap().1;
+    assert_eq!(
+        b["filterGroups"],
+        json!([{"filters":[{"propertyName":"hs_pipeline_stage","operator":"IN","values":["other-done"]},{"propertyName":"oubobaitaimei","operator":"EQ","value":"web"}]}])
+    );
+    assert_eq!(b["query"], "sample");
+}
+#[tokio::test]
+async fn applicants_detail_outside_queue_is_read_only() {
+    let (app, c, f) = app().await;
+    f.lock().unwrap().outside_detail = true;
+    let (status, _, detail) = get_json(&app, "/api/crm/applicants/999", &c).await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(detail["row"]["id"], "999");
+    assert_eq!(detail["row"]["stage"], "採用済み");
+    assert_eq!(detail["writes_enabled"], false);
+    assert_eq!(detail["write_pipeline"], Value::Null);
+    assert!(!f
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .any(|(p, _)| p.ends_with("search")));
 }

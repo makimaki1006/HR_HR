@@ -111,3 +111,44 @@ test('応募: 長いステージ名もチェックボックスの右に一行で
     expect(Math.abs(row.inputCenter-row.textCenter)).toBeLessThan(3);
   }
 });
+
+
+test('応募: 全範囲・検索・一覧外への直接リンク', async ({ page }) => {
+  await page.setViewportSize({ width:1512, height:742 });
+  await login(page);
+  const requests: string[] = [];
+  await page.route('**/api/crm/**', async route => { requests.push(route.request().url()); await route.abort(); });
+  await page.route('https://docs.google.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:sheetHtml }));
+  await page.route('https://www.example.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:postingHtml }));
+  const output = process.env.CRM_APPLICANTS_ALL_ARTIFACTS;
+  async function shot(name: string) {
+    if (output) { fs.mkdirSync(output, { recursive:true }); await page.screenshot({ path:path.join(output, `${name}.png`) }); }
+  }
+  await page.goto('/app/crm?mode=fixture&crmMode=applicants');
+  await expect(page.getByText('2件', { exact:true })).toBeVisible();
+  await page.getByRole('button', { name:'条件を変更' }).click();
+  await page.getByLabel('範囲', { exact:true }).selectOption('all');
+  await expect(page.getByText('3件', { exact:true })).toBeVisible();
+  await expect(page).toHaveURL(/scope=all/);
+  await expect(page.getByRole('list', { name:'応募キュー' }).getByRole('button').first()).toContainText('架空 そら');
+  await page.getByRole('button', { name:'ステージ（6件選択）' }).click();
+  await expect(page.getByRole('heading', { name:'採用管理（架空）' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name:'採用済み' })).toBeVisible();
+  await page.getByRole('button', { name:'キャンセル' }).click();
+  await shot('01-all');
+  await page.getByLabel('応募を検索').fill('サンプル商店');
+  await expect(page.getByText('1件', { exact:true })).toBeVisible();
+  await expect(page.getByRole('list', { name:'応募キュー' }).getByRole('button')).toContainText('架空 そら');
+  await shot('02-search');
+  await page.reload();
+  await expect(page.getByText('1件', { exact:true })).toBeVisible();
+  await expect(page.getByLabel('応募を検索')).toHaveValue('サンプル商店');
+  await page.goto('/app/crm?mode=fixture&applicant=90003');
+  await expect(page.getByRole('main', { name:'応募の詳細' }).getByRole('heading', { level:2 })).toHaveText('架空 そら');
+  await expect(page.getByText('2件', { exact:true })).toBeVisible();
+  await expect(page.getByRole('list', { name:'応募キュー' })).not.toContainText('架空 そら');
+  await expect(page.getByText('この応募のパイプラインは読み取り専用です。')).toBeVisible();
+  await expect(page.getByRole('button', { name:'記録して次へ', exact:true })).toHaveCount(0);
+  await shot('03-direct-applicant');
+  expect(requests).toEqual([]);
+});
