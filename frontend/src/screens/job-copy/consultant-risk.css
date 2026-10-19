@@ -8,7 +8,7 @@
 .cr-main > header, .cr-detail > header { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
 .cr-main section { margin-top: 24px; }
 .cr-main h1 { font-size: 24px; }.cr-main h2 { font-size: 18px; margin-bottom: 12px; }
-.cr-main h2 small { font-size: 13px; font-weight: normal; margin-left: 8px; }
+.cr-main h1 small, .cr-main h2 small { font-size: 13px; font-weight: normal; margin-left: 8px; }
 .cr-scroll { overflow-x: auto; background: white; border: 1px solid #d4dfe7; border-radius: 8px; }
 .cr-main table { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .cr-main th, .cr-main td { text-align: left; padding: 12px; border-bottom: 1px solid #e1e8ed; vertical-align: top; overflow-wrap: anywhere; }

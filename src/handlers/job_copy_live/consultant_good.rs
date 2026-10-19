@@ -62,7 +62,10 @@ fn signals(
         }
     }
     if let Some(text) = positive {
-        add("positive", text.chars().take(30).collect());
+        add(
+            "positive",
+            format!("MTG：{}", text.chars().take(30).collect::<String>()),
+        );
     }
     flags
 }
@@ -192,7 +195,7 @@ mod tests {
             vec![
                 "応募 3 → 7",
                 "採用単価 5.0万円（区分の中央値 10.0万円）",
-                &text.chars().take(30).collect::<String>()
+                &format!("MTG：{}", text.chars().take(30).collect::<String>())
             ]
         );
         for (prev, recent, yes) in [

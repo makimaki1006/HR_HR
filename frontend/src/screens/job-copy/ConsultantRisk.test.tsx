@@ -77,7 +77,10 @@ it('いい案件の一覧は全ての印と危ない名札の有無を表示し�
   window.history.replaceState(null, '', '/app/job-copy?view=good&owner=11'); const calls = mock();
   render(<ConsultantMenu><ConsultantRisk good /></ConsultantMenu>);
   const list = await screen.findByRole('region', { name: 'いい案件の一覧' });
-  expect(within(list).getByRole('heading', { level: 2 }).textContent).toBe('いい案件の一覧 3件');
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('いい案件 3件');
+  expect(within(list).queryByRole('heading', { level: 2 })).toBeNull();
+  expect(within(list).getByRole('columnheader', { name: '理由' })).toBeTruthy();
+  expect(within(list).getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する')).toBeTruthy();
   const row = within(list).getByRole('row', { name: new RegExp(riskRow.name) });
   expect(within(row).getAllByRole('listitem').map(el => [el.textContent, el.className])).toEqual(goodFixture.rows[0]?.good_flags?.map(f => [f.label, 'cr-good']));
   expect(within(row).getByText('危ない名札もあり（2件）')).toBeTruthy();
@@ -88,9 +91,11 @@ it('いい案件の一覧は全ての印と危ない名札の有無を表示し�
   expect(await within(dialog).findByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeTruthy();
   expect(within(dialog).getByRole('button', { name: '終わった → 次の予定' })).toBeTruthy();
   expect(within(dialog).getByRole('heading', { name: 'CS提案内容メモ' })).toBeTruthy();
+  expect(within(dialog).getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する')).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }));
   fireEvent.change(screen.getByRole('combobox', { name: '担当者' }), { target: { value: '22' } });
   await within(list).findByText('該当する案件はありません。');
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('いい案件 0件');
   expect(calls.some(url => url.includes('consultant-good?') && url.includes('owner=22'))).toBe(true);
   expect(new URLSearchParams(window.location.search).get('view')).toBe('good');
 });

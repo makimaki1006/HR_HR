@@ -17,7 +17,10 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   });
   await page.goto('/app/job-copy?view=good&owner=11&owner_field=consultant');
   const list = page.getByRole('region', { name: 'いい案件の一覧' });
-  await expect(list.getByRole('heading', { level: 2 })).toHaveText('いい案件の一覧 3件');
+  await expect(page.getByRole('heading', { level: 1, name: /^いい案件/ })).toHaveText('いい案件 3件');
+  await expect(list.getByRole('heading', { level: 2 })).toHaveCount(0);
+  await expect(list.getByRole('columnheader', { name: '理由', exact: true })).toBeVisible();
+  await expect(list.getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する', { exact: true })).toBeVisible();
   const row = list.getByRole('row').filter({ has: page.getByRole('button', { name: goodRow.name }) });
   await expect(row.getByRole('listitem')).toHaveText((goodRow.good_flags ?? []).map(f => f.label));
   await expect(row.getByText('危ない名札もあり（2件）')).toBeVisible();
@@ -29,6 +32,7 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   await row.getByRole('button').click();
   const detail = page.getByRole('dialog');
   await expect(detail.getByRole('button', { name: '終わった → 次の予定' })).toBeVisible();
+  await expect(detail.getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する', { exact: true })).toBeVisible();
   await expect(detail.getByText('10/16 求人の見直しを提案', { exact: true })).toBeVisible();
   const draft = detail.getByLabel('追記するメモ');
   await draft.fill('募集職種を増やす提案をした。\n来週の打ち合わせで内容を決める。');
@@ -43,6 +47,7 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   await detail.getByRole('button', { name: '閉じる', exact: true }).click();
   await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('22');
   await expect(list.getByText('該当する案件はありません。')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^いい案件/ })).toHaveText('いい案件 0件');
   await page.reload(); await expect(list.getByText('該当する案件はありません。')).toBeVisible();
   await expect(page).toHaveURL(/view=good/); await expect(page).toHaveURL(/owner=22/);
   await page.getByRole('button', { name: '案件一覧', exact: true }).click(); await expect(page).toHaveURL(/view=deals/);

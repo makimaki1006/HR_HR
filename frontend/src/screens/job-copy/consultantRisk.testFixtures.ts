@@ -8,6 +8,6 @@ export const detailFixture = { meta: { found: true }, deal: { name: riskRow.name
 export const goodRow: RiskRow = { ...riskRow, risk_flags: [], good_flags: [
   { key: 'applications', label: '応募 3 → 7', new: false, since: null },
   { key: 'cpa', label: '採用単価 5.0万円（区分の中央値 10.0万円）', new: false, since: null },
-  { key: 'positive', label: '採用を継続し、次の募集職種を増やす方向で相談する', new: false, since: null },
+  { key: 'positive', label: 'MTG：採用を継続し、次の募集職種を増やす方向で相談する', new: false, since: null },
 ] };
 export const goodFixture: RiskResponse = { ...riskFixture, comparison: 'unavailable', previous_day: null, rows: [goodRow, { ...ongoingRiskRow, risk_flags: [], good_flags: (goodRow.good_flags ?? []).slice(0, 2) }, { ...newRiskRow, flags: [], risk_flags: [], good_flags: (goodRow.good_flags ?? []).slice(0, 1) }] };
