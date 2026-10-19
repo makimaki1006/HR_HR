@@ -21,7 +21,7 @@ describe('応募の読み取りモード', () => {
     expect(await screen.findByText('2件')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /架空 はるか/ }));
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('架空 はるか');
-    expect(await screen.findByText('資格なし')).toBeTruthy();
+    expect(await screen.findByText('資格なし', { selector: 'dd' })).toBeTruthy();
     const pane = screen.getByRole('main', { name: '応募の詳細' });
     expect(within(pane).getAllByRole('heading').map(h => h.textContent)).toEqual(['架空 はるか', 'この求人の対応ルール', '応募先', 'メモ']);
     const jobCard = within(pane).getByRole('heading', { name: /^応募先$/ }).closest('section');
@@ -30,7 +30,7 @@ describe('応募の読み取りモード', () => {
     expect(jobCard?.querySelector('a')?.href).toBe('https://app.hubspot.com/contacts/0/record/0-420/80001/');
     expect(screen.queryByTestId('link-hint')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /架空 はるか/ }));
-    expect(screen.getByText('資格なし')).toBeTruthy();
+    expect(screen.getByText('資格なし', { selector: 'dd' })).toBeTruthy();
     expect(screen.getByText('応募のお礼を伝え、希望の勤務時間を確認してください。')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Zoom で発信' }).hasAttribute('disabled')).toBe(true);
     expect(document.querySelector('iframe[title^="報告シート"]')?.getAttribute('src')).toContain('/fictional-applicants-sheet/');
@@ -46,7 +46,7 @@ describe('応募の読み取りモード', () => {
   });
   it('既存のステージ選択と媒体で絞る', async () => {
     render(<ApplicantsScreen fixture />);
-    fireEvent.click(await screen.findByRole('button', { name: 'ステージ（2件選択）' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'ステージ（5件選択）' }));
     expect(screen.getByRole('heading', { name: '一次対応_BPO' })).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: '朝連絡' }));
     fireEvent.click(screen.getByRole('button', { name: '適用' }));

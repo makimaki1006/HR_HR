@@ -1,4 +1,6 @@
-//! 応募 (0-421) の読み取り専用モード。正本・履歴は HubSpot。書き込み API は置かない。
+//! 応募 (0-421) の読み取り・保存。正本と業務履歴は HubSpot。
+#[path = "applicant_write.rs"]
+mod editing;
 use super::{
     queue_cache::TtlCache,
     rbac,
@@ -15,6 +17,8 @@ use axum::{
     Extension, Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+pub use editing::ApplicantEditField;
+pub(super) use editing::{build_write_step, WRITE_SCOPE_MESSAGE};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
@@ -22,6 +26,7 @@ use tower_sessions::Session;
 use ts_rs::TS;
 
 const OBJECT: &str = "0-421";
+pub const PIPELINE: &str = "t_3c8f8179ebedb62c890f1cf2c73ff9c8";
 pub const OPEN_STAGES: [&str; 8] = [
     "1343099551",
     "1431582290",
@@ -137,6 +142,14 @@ pub struct ApplicantNote {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ApplicantDetail {
+    #[serde(default)]
+    pub values: std::collections::BTreeMap<String, Option<String>>,
+    #[serde(default)]
+    pub editable: Vec<ApplicantEditField>,
+    #[serde(default)]
+    pub write_pipeline: Option<ApplicantPipeline>,
+    #[serde(default)]
+    pub writes_enabled: bool,
     pub row: ApplicantRow,
     pub sections: Vec<ApplicantSection>,
     pub phone: String,
@@ -177,6 +190,10 @@ async fn raw(client: &HubSpotClient, path: &str) -> Result<Value, HubSpotError> 
     }
 }
 impl ApplicantsState {
+    pub(super) fn invalidate(&self, _id: &str) {
+        self.details.clear();
+        self.queues.clear();
+    }
     async fn definitions(&self, client: &HubSpotClient) -> Result<Value, HubSpotError> {
         if let Some(v) = self.definitions.get(&()) {
             return Ok(v);
@@ -185,10 +202,18 @@ impl ApplicantsState {
         if let Some(v) = self.definitions.get(&()) {
             return Ok(v);
         }
-        let props = raw(client, "/crm/v3/properties/0-421").await?;
-        let pipelines = raw(client, "/crm/v3/pipelines/0-421").await?;
+        let (mut props, pipelines) = tokio::try_join!(
+            raw(client, "/crm/v3/properties/0-421"),
+            raw(client, "/crm/v3/pipelines/0-421")
+        )?;
         if !props["results"].is_array() || !pipelines["results"].is_array() {
             return Err(HubSpotError::Decode("applicant definitions".into()));
+        }
+        for def in props["results"].as_array_mut().unwrap() {
+            let name = text(def, "name");
+            if let Some(label) = super::label_ja::property_label(OBJECT, &name, def) {
+                def["label"] = json!(label);
+            }
         }
         let value = json!({"properties":props["results"], "pipelines":pipelines["results"]});
         self.definitions.insert((), value.clone());
@@ -412,14 +437,15 @@ pub(super) async fn queue(
     } else {
         json!([binding, pos]).to_string()
     };
+    let Some(client) = state.crm_hubspot() else {
+        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
+    };
+    let key = format!("{}:{key}", client.applicant_write_revision());
     if q.fresh != Some(1) {
         if let Some(body) = ctx.applicants.queues.get(&key) {
             return Json(body).into_response();
         }
     }
-    let Some(client) = state.crm_hubspot() else {
-        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
-    };
     let work = async {
         let _slot = tokio::time::timeout(Duration::from_secs(5), ctx.queue_slots.acquire())
             .await
@@ -573,7 +599,21 @@ fn sections(p: &Value, defs: &Value) -> Vec<ApplicantSection> {
         let name = text(def, "name");
         let value = text(p, &name);
         let label = text(def, "label");
-        if value.is_empty() || label.is_empty() || name == "customer_sheet_url_synced" {
+        // 見出しに出す値は項目カードへ重ねて出さない（内部名で判定する）。
+        if value.is_empty()
+            || label.is_empty()
+            || [
+                "customer_sheet_url_synced",
+                "ouboshashimei",
+                "denwabangou",
+                "hs_pipeline",
+                "hs_pipeline_stage",
+                "oubobaitaimei",
+                "yingmuri",
+                "hs_createdate",
+            ]
+            .contains(&name.as_str())
+        {
             continue;
         }
         let idx = if RULES.contains(&name.as_str()) {
@@ -610,7 +650,11 @@ fn sections(p: &Value, defs: &Value) -> Vec<ApplicantSection> {
             continue;
         };
         groups[idx].fields.push(ApplicantField {
-            label,
+            label: match name.as_str() {
+                "shuugyoujoukyou" => "以前の就業状況".into(),
+                "nyuushakiboujiki" => "以前の入社希望時期".into(),
+                _ => label,
+            },
             value: display(defs, &name, &value),
         });
     }
@@ -629,14 +673,15 @@ pub(super) async fn detail(
     if !super::routes::is_valid_id(&id) {
         return error_json(StatusCode::BAD_REQUEST, "invalid_id");
     }
-    if q.fresh != Some(1) {
-        if let Some(v) = ctx.applicants.details.get(&id) {
-            return Json(v).into_response();
-        }
-    }
     let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
+    let cache_key = format!("{}:{id}", client.applicant_write_revision());
+    if q.fresh != Some(1) {
+        if let Some(v) = ctx.applicants.details.get(&cache_key) {
+            return Json(v).into_response();
+        }
+    }
     let work = async {
         let _slot = tokio::time::timeout(Duration::from_secs(5), ctx.read_slots.acquire())
             .await
@@ -648,18 +693,23 @@ pub(super) async fn detail(
             .filter(|s| !s.is_empty())
             .collect();
         let names: Vec<&str> = props.iter().map(String::as_str).collect();
-        let rows = client
-            .batch_read(OBJECT, std::slice::from_ref(&id), &names)
-            .await?;
+        // 本体、求人票、メモは独立。関連 ID → batch read の依存だけを保つ。
+        let (rows, jobs, notes) = tokio::try_join!(
+            client.batch_read(OBJECT, std::slice::from_ref(&id), &names),
+            async {
+                let ids = all_associations(&client, &id, "0-420").await?;
+                client
+                    .batch_read("0-420", &ids, &["hs_name", "customer_sheet_url"])
+                    .await
+            },
+            async {
+                let ids = all_associations(&client, &id, "notes").await?;
+                client
+                    .batch_read("notes", &ids, &["hs_timestamp", "hs_note_body"])
+                    .await
+            }
+        )?;
         let record = rows.first().ok_or(HubSpotError::NotFound)?;
-        let jobs_ids = all_associations(&client, &id, "0-420").await?;
-        let notes_ids = all_associations(&client, &id, "notes").await?;
-        let jobs = client
-            .batch_read("0-420", &jobs_ids, &["hs_name", "customer_sheet_url"])
-            .await?;
-        let notes = client
-            .batch_read("notes", &notes_ids, &["hs_timestamp", "hs_note_body"])
-            .await?;
         let v = serde_json::to_value(record)
             .map_err(|_| HubSpotError::Decode("applicant record".into()))?;
         let p = &v["properties"];
@@ -683,7 +733,29 @@ pub(super) async fn detail(
                 let value = text(p, &name);
                 (!value.is_empty() && value != "false").then(|| display(&defs, &name, &value))
             });
+        let editable = editing::editable(&defs);
         Ok::<_, HubSpotError>(ApplicantDetail {
+            values: record
+                .properties
+                .iter()
+                .filter(|(name, _)| {
+                    editable.iter().any(|f| &f.name == *name)
+                        || ["hs_pipeline", "hs_pipeline_stage"].contains(&name.as_str())
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            editable,
+            write_pipeline: editing::write_pipeline(&defs).map(|p| ApplicantPipeline {
+                id: text(p, "id"),
+                label: text(p, "label"),
+                stages: values(&p["stages"])
+                    .map(|s| ApplicantStage {
+                        id: text(s, "id"),
+                        label: text(s, "label"),
+                    })
+                    .collect(),
+            }),
+            writes_enabled: ctx.write.enabled,
             row: row(&v, &defs),
             sections: sections(p, &defs),
             phone: text(p, "denwabangou"),
@@ -709,7 +781,7 @@ pub(super) async fn detail(
     };
     match tokio::time::timeout(Duration::from_secs(20), work).await {
         Ok(Ok(v)) => {
-            ctx.applicants.details.insert(id, v.clone());
+            ctx.applicants.details.insert(cache_key, v.clone());
             Json(v).into_response()
         }
         Ok(Err(e)) => applicant_error(&e),

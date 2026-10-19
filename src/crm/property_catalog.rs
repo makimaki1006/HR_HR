@@ -480,7 +480,13 @@ const NEVER_WRITABLE: &[&str] = &[
 
 /// 書き込める項目か。読み取り専用 (`modificationMetadata.readOnlyValue`)・計算・`hs_*` と `hubspot_*` のシステム項目・
 /// ラベルに「※編集不可」を含む項目・選択肢が外部にある項目 (担当者を選ぶ型を除く)・書き込めない型は false
-fn is_writable(p: &Value, name: &str, label: &str, ptype: &str, field_type: &str) -> bool {
+pub(super) fn is_writable(
+    p: &Value,
+    name: &str,
+    label: &str,
+    ptype: &str,
+    field_type: &str,
+) -> bool {
     let read_only = p
         .pointer("/modificationMetadata/readOnlyValue")
         .and_then(Value::as_bool)
