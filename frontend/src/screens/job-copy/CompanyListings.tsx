@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { apiGet } from '../../api/client';
 import type { CompanyDeal } from './companyDeals';
 import { dealName } from './companyDeals';
@@ -41,6 +41,7 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
   onOpenDeal: (deal: { id: string; name: string }) => void;
   onOpenListing: (row: HubSpotListing) => void;
 }) {
+  const liveId = useId();
   const ownerQuery = ownerParams(useJobCopySearch()) || 'owner=me';
   const [rows, setRows] = useState<HubSpotListing[] | null>(null);
   const [error, setError] = useState(false);
@@ -74,7 +75,7 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
     {source.status === 'ready' && source.notes?.map(note => <p key={note} className="jh-note">応募・課金：{note}</p>)}
     {source.status === 'ready' && source.datas.some(data => data.capped || data.rows.length > 30) && <p className="jh-note">応募・課金は各案件で取得できた求人の分だけ表示しています。</p>}
     <p className="jh-note">納品管理の求人を本文の変更が新しい順に表示。案件名から求人を比較できます。<br />応募・課金は {formatDay(model.asOf)} までの4週間（未取得は「—」）。最後の変更は本文のみ。</p>
-    <section className="jh-live-listings" aria-labelledby="jh-live"><h2 id="jh-live">掲載中 <span>{String(model.live.length)}件</span></h2>{table(model.live, livePage, setLivePage, '掲載中')}</section>
+    <section className="jh-live-listings" aria-labelledby={liveId}><h2 id={liveId}>掲載中 <span>{String(model.live.length)}件</span></h2>{table(model.live, livePage, setLivePage, '掲載中')}</section>
     <details className="jh-past-listings"><summary>過去（掲載終了） {String(model.past.length)}件</summary><p className="jh-note">掲載前・掲載状況不明の求人もこちらに表示しています。</p>{table(model.past, pastPage, setPastPage, '過去')}</details>
   </>;
 }

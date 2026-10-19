@@ -29,7 +29,7 @@ export function ConsultantMenu({ children }: { children: ReactNode }) {
     void load(); return () => { controller.abort(); clearTimeout(timer); };
   }, [ownerQuery, reload, demo]);
   return <><div className="jc-app cm-menu"><nav aria-label="案件管理のメニュー">
-    {([[null, 'ホーム'], ['risk', '危ない案件'], ['good', 'いい案件'], ['deals', '案件一覧']] as const).map(([view, label]) => <button type="button" key={label} aria-current={selected === view ? 'page' : undefined} onClick={() => { updateJobCopyQuery({ view, company: null, deal: null, listing: null, job: null, risk_deal: null }); }}>{label}</button>)}
+    {([[null, 'ホーム'], ['risk', '危ない案件'], ['good', 'いい案件'], ['houjin', '法人'], ['deals', '案件一覧']] as const).map(([view, label]) => <button type="button" key={label} aria-current={selected === view ? 'page' : undefined} onClick={() => { updateJobCopyQuery({ view, company: null, deal: null, listing: null, job: null, risk_deal: null }); }}>{label}</button>)}
     <a href="/consulting#deal/team">担当者ごとの集計（コンサルKPI）</a>
   </nav>{scope ? <OwnerFilter work={scope} /> : <p role={error ? 'alert' : 'status'}>{error ? '担当者を読み込めませんでした。' : '担当者を確認しています…'}{error && <button onClick={() => { setReload(n => n + 1); }}>再読み込み</button>}</p>}</div><OwnerFilterPlacement value={true}>{children}</OwnerFilterPlacement></>;
 }

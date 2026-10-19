@@ -28,6 +28,7 @@ mod applicant_extensions;
 pub mod applicant_reasons;
 mod consultant_flags;
 mod consultant_good;
+mod consultant_houjin;
 mod consultant_risk;
 mod deal_board;
 mod deal_summary;
@@ -2197,6 +2198,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             "/api/job-copy/consultant-scope",
             get(consultant_risk::scope),
         )
+        .route("/api/job-copy/houjin", get(consultant_houjin::read))
         .route("/api/job-copy/deals", get(deal_board::read))
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
