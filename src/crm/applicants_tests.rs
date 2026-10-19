@@ -104,7 +104,7 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
             json!({"results":(300..307).map(|i|json!({"toObjectId":i})).collect::<Vec<_>>()})
         }
         "/crm/v3/objects/0-420/batch/read" => {
-            json!({"results":[{"id":"200","properties":{"hs_name":"架空求人票","customer_sheet_url":"https://docs.google.com/spreadsheets/d/fake-job/edit"}}]})
+            json!({"results":[{"id":"200","properties":{"hs_name":"架空求人票","customer_sheet_url":"https://docs.google.com/spreadsheets/d/fake-job/edit","url_hrhakkaa":"https://example.invalid/hrh/job/1","url_airwork":null}}]})
         }
         "/crm/v3/objects/notes/batch/read" => {
             json!({"results":(1..=7).map(|i|json!({"id":(299+i).to_string(),"properties":{"hs_timestamp":format!("2026-10-{:02}T00:00:00Z", i+9),"hs_note_body":format!("架空のメモ {i}")}})).collect::<Vec<_>>()})
@@ -253,6 +253,10 @@ async fn applicants_detail_labels_empty_fields_sheet_notes_cache_and_fresh() {
         .as_str()
         .unwrap()
         .ends_with("/record/0-420/200/"));
+    assert_eq!(
+        a["job_pages"],
+        json!([{"label":"HRハッカー","url":"https://example.invalid/hrh/job/1"}])
+    );
     assert_eq!(a["notes"][0]["date"], "2026-10-16T00:00:00Z");
     assert_eq!(a["notes"].as_array().unwrap().len(), 5);
     assert_eq!(a["notes"][4]["date"], "2026-10-12T00:00:00Z");

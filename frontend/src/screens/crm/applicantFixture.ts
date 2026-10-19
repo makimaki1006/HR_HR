@@ -16,6 +16,7 @@ export function applicantDetailFixture(id: string): ApplicantDetail {
   return {
     row, phone: '000-0000-0000', stop_reason: null, deep_link: `https://app.hubspot.com/contacts/0/record/0-421/${row.id}/`,
     jobs: [{ label: row.job, url: 'https://app.hubspot.com/contacts/0/record/0-420/80001/' }],
+    job_pages: id === '90002' ? [] : [{ label: 'HRハッカー', url: 'https://jobs.example.invalid/fictional-job-80001' }],
     sections: [
       { title: '応募者の情報', fields: [{ label: 'カナ', value: id === '90002' ? 'カクウ アオイ' : 'カクウ ハルカ' }, { label: '年齢', value: '28' }, { label: '性別', value: '回答しない' }, { label: 'メール', value: 'applicant@example.invalid' }] },
       { title: 'この求人の対応ルール', fields: [{ label: '初動対応', value: '応募のお礼を伝え、希望の勤務時間を確認してください。' }, { label: '資格保有確認', value: '必須資格はありません。' }] },
