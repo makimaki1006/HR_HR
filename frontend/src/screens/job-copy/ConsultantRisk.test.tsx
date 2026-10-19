@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, expect, it, vi } from 'vitest';
 import { ConsultantRisk, jobsHref, riskGroups } from './ConsultantRisk';
 import { ConsultantMenu } from './ConsultantMenu';
+import { OwnerFilter } from './OwnerTodo';
 import { detailFixture, goodFixture, riskFixture, riskRow, scopeFixture } from './consultantRisk.testFixtures';
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 function mock(single = true, first = false) {
@@ -98,4 +99,31 @@ it('いい案件の一覧は全ての印と危ない名札の有無を表示し�
   expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('いい案件 0件');
   expect(calls.some(url => url.includes('consultant-good?') && url.includes('owner=22'))).toBe(true);
   expect(new URLSearchParams(window.location.search).get('view')).toBe('good');
+});
+
+it.each(['', '?view=deals'])('既存画面の担当情報を共通欄へ移し、別の担当APIを要求しない（%s）', async query => {
+  window.history.replaceState(null, '', `/app/job-copy${query}`);
+  const calls = mock();
+  const { container } = render(<ConsultantMenu><OwnerFilter work={scopeFixture} /><p>既存の画面</p></ConsultantMenu>);
+  const owner = await screen.findByRole('combobox', { name: '担当者' });
+  expect(owner.closest('.cm-menu')).toBeTruthy();
+  expect(container.querySelectorAll('.jc-app')).toHaveLength(1);
+  expect(screen.getAllByRole('combobox', { name: '担当者' })).toHaveLength(1);
+  fireEvent.change(owner, { target: { value: '22' } });
+  expect(new URLSearchParams(window.location.search).get('owner')).toBe('22');
+  expect(calls).toEqual([]);
+});
+it('求人の作業中は担当選択を開いたときだけ読み込み、求人のURLを保持する', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?listing=501&owner=22');
+  const calls = mock();
+  render(<ConsultantMenu><p>求人の本文</p></ConsultantMenu>);
+  expect(calls).toEqual([]);
+  const trigger = screen.getByRole('button', { name: '担当者で絞る' });
+  const popover = document.getElementById(trigger.getAttribute('popovertarget') ?? '');
+  if (!popover) throw new Error('担当選択の開閉欄がありません');
+  fireEvent(popover, Object.assign(new Event('toggle'), { newState: 'open' }));
+  const owner = await screen.findByRole('combobox', { name: '担当者' });
+  expect((owner as HTMLSelectElement).value).toBe('22');
+  expect(calls).toEqual(['/api/job-copy/consultant-scope?owner=22']);
+  expect(new URLSearchParams(window.location.search).get('listing')).toBe('501');
 });
