@@ -61,3 +61,18 @@
 .applicants-search { padding: 4px 12px; border-bottom: 1px solid #dfe3eb; }
 .applicants-app .applicants-search label { white-space: nowrap; display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .applicants-app .applicants-search input { flex: 0 1 360px; min-width: 0; width: min(360px, 65vw); padding: 5px 8px; border: 1px solid #cbd6e2; border-radius: 4px; }
+
+.applicants-search { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.applicants-search select { padding: 5px 8px; border: 1px solid #cbd6e2; border-radius: 4px; }
+.applicant-job button { color: #17658c; font: inherit; background: transparent; border: 0; padding: 0; text-align: left; text-decoration: underline; overflow-wrap: anywhere; }
+.applicant-related:focus { outline: 2px solid #2684ae; outline-offset: -2px; }
+.applicant-related h4 { margin: 6px 0 8px; font-size: 13px; overflow-wrap: anywhere; }
+.applicant-current { display: inline-block; margin-left: 6px; padding: 2px 4px; background: #eaf5ee; color: #256440; font-size: 11px; }
+.applicant-related-record { font-size: 12px; }
+.applicant-related-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.applicant-related details { margin-top: 10px; }
+.applicant-related summary { cursor: pointer; font-size: 12px; }
+.applicant-related details article { border-top: 1px solid #dfe3eb; padding-top: 6px; margin-top: 8px; }
+.applicant-related .crm-property-list { display: flex; flex-direction: column; gap: 6px; }
+.applicant-related .crm-property-list > div { margin: 0; }
+.applicant-related .crm-property-list dt { margin-bottom: 0; }

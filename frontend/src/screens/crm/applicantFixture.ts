@@ -32,6 +32,12 @@ export function applicantDetailFixture(id: string): ApplicantDetail {
       ...[['kanrengyoumukeiken','関連業務経験'],['genshokumaeshokukaranotenshokuriyuu','転職理由'],['oubodouki','応募動機'],['kinmujoukennoyuusenjuni','勤務条件の優先順位'],['oubonoheiganjoukyou','併願状況'],['kyuujinkensakujouken','求人検索条件'],['shigotosagashinohanikoutsuushudan','仕事探しの範囲'],['mensetsukanounichiji','面接可能日時'],['renrakukanouyoubijikantai','連絡可能曜日・時間帯'],['tokukijikou','特記事項'],['ichijitaiou_azukatta_shitsumon','預かった質問'],['ichijitaiou_jitai_riyuu','辞退理由'],['ichijitaiou_shokan_memo','所感メモ']].map(([name,label]) => ({name:name ?? '',label:label ?? '',property_type:'string',field_type:'textarea',options:[],section:'ヒアリング'})),
       ...[['meeruadoresu','メールアドレス'],['denwabangou','電話番号']].map(([name,label]) => ({name:name ?? '',label:label ?? '',property_type:'string',field_type:'text',options:[],section:'連絡先'})),
     ],
+    listings: [{ id: '80001', title: row.job, deep_link: 'https://app.hubspot.com/contacts/0/record/0-420/80001/', jobcopy_url: 'https://www.example.com/app/job-copy/fictional-posting', current: false, fields: [
+      { label: '求人状態', value: '公開中' }, { label: '媒体', value: '架空求人サイト' }, { label: '勤務地', value: '架空市サンプル町' }, { label: '給与形態', value: '時給' }, { label: '職種', value: '検品スタッフ' }, { label: '公開日', value: '2026/10/01' }, { label: '終了日', value: '2026/11/30' },
+    ] }],
+    deals: [{ id: '70001', title: row.deal, deep_link: 'https://app.hubspot.com/contacts/0/record/0-3/70001/', jobcopy_url: null, current: true, fields: [{ label: '取引ステージ', value: '契約中' }, { label: '取引担当者', value: '架空 担当' }, { label: '契約開始日', value: '2026/10/01' }] },
+      { id: '70002', title: 'サンプル物流の以前の契約', deep_link: 'https://app.hubspot.com/contacts/0/record/0-3/70002/', jobcopy_url: null, current: false, fields: [{ label: '取引ステージ', value: '解約済み' }] }],
+    related_notice: null,
     row, phone: row.phone, stop_reason: null, deep_link: `https://app.hubspot.com/contacts/0/record/0-421/${row.id}/`,
     jobs: [{ label: row.job, url: 'https://app.hubspot.com/contacts/0/record/0-420/80001/' }],
     sections: [

@@ -2,6 +2,7 @@ import { formatPhoneForDisplay } from './phone';
 import { useEffect, useEffectEvent, useReducer, useRef, useState } from 'react';
 import type { ApplicantQueue } from '../../generated/ApplicantQueue';
 import type { ApplicantDetail } from '../../generated/ApplicantDetail';
+import type { ApplicantRelatedCard } from '../../generated/ApplicantRelatedCard';
 import type { ApplicantRow } from '../../generated/ApplicantRow';
 import type { ReactNode } from 'react';
 import { Dock } from './Dock';
@@ -67,9 +68,30 @@ function ApplicantRules({ section }: { section: ApplicantSection | undefined }) 
     {long && <button type="button" aria-expanded={expanded} onClick={() => { setExpanded(v => !v); }}>{expanded ? '畳む' : '全部表示'}</button>}
   </section>;
 }
+function RelatedCard({ card }: { card: ApplicantRelatedCard }) {
+  return <article className="applicant-related-record">
+    <h4>{card.title || '名称未登録'}{card.current && <span className="applicant-current">今の契約</span>}</h4>
+    <Fields section={{ title: card.title, fields: card.fields.slice(0, 4) }} />
+    {card.fields.length > 4 && <details><summary>ほかの項目 {card.fields.length - 4} 件</summary><Fields section={{ title: card.title, fields: card.fields.slice(4) }} /></details>}
+    <div className="applicant-related-links"><a href={card.deep_link} target="_blank" rel="noopener noreferrer">HubSpotで開く</a>
+      {card.jobcopy_url && safeHttpUrl(card.jobcopy_url) && <a href={card.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a>}</div>
+  </article>;
+}
 export function ApplicantsScreen({ fixture = new URLSearchParams(window.location.search).get('mode') === 'fixture' }: { fixture?: boolean }) {
   const [layout, dispatch] = useReducer(dockReducer, undefined, loadApplicantLayout);
   useEffect(() => { try { localStorage.setItem(LAYOUT_KEY, serializeLayout(layout)); } catch { /* 保存できない場合も操作は可能 */ } }, [layout]);
+  const relatedRefs = useRef<Record<string, HTMLElement | null>>({});
+  const [relatedFocus, setRelatedFocus] = useState<{ kind: 'listings' | 'deals' } | null>(null);
+  useEffect(() => {
+    if (!relatedFocus) return;
+    const el = relatedRefs.current[relatedFocus.kind];
+    if (typeof el?.scrollIntoView === 'function') el.scrollIntoView({ block: 'start' });
+    el?.focus({ preventScroll: true });
+  }, [relatedFocus]);
+  function showRelated(kind: 'listings' | 'deals') {
+    dispatch({ type: 'activate', panel: 'properties' });
+    setRelatedFocus({ kind });
+  }
   const selectedRef = useRef<string | null>(null);
   const [contactTarget, setContactTarget] = useState<HTMLDivElement | null>(null);
   const [hearingTarget, setHearingTarget] = useState<HTMLDivElement | null>(null);
@@ -77,6 +99,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   const detailRefreshSeen = useRef(0);
   const [queue, setQueue] = useState<ApplicantQueue | null>(null);
   const [scope, setScope] = useState(() => new URLSearchParams(window.location.search).get('scope') === 'all');
+  const [target, setTarget] = useState(() => { const qt = new URLSearchParams(window.location.search).get('qt'); return qt === 'deal' || qt === 'listing' ? qt : 'applicant'; });
   const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
   const [search, setSearch] = useState(query);
   const [stages, setStages] = useState<string[]>(() => new URLSearchParams(window.location.search).get('stages')?.split(',').filter(Boolean) ?? []);
@@ -86,11 +109,11 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   useEffect(() => { const timer = window.setTimeout(() => { commitSearch(search); }, 300); return () => { window.clearTimeout(timer); }; }, [search]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    for (const [key, value] of Object.entries({ scope: scope ? 'all' : '', q: query, stages: stages.join(','), media, applicant: selectedId ?? '' })) {
+    for (const [key, value] of Object.entries({ scope: scope ? 'all' : '', q: query, qt: target === 'applicant' ? '' : target, stages: stages.join(','), media, applicant: selectedId ?? '' })) {
       if (value) params.set(key, value); else params.delete(key);
     }
     window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
-  }, [scope, query, stages, media, selectedId]);
+  }, [scope, query, target, stages, media, selectedId]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<ApplicantRow | null>(null);
   const [detail, setDetail] = useState<ApplicantDetail | null>(null);
@@ -109,17 +132,18 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
     const params = new URLSearchParams();
     if (scope) params.set('scope', 'all');
     if (query) params.set('q', query);
+    if (target !== 'applicant') params.set('qt', target);
     if (stages.length) params.set('stages', stages.join(','));
     if (media) params.set('media', media);
     if (cursor) params.set('cursor', cursor);
     if (refresh !== queueRefreshSeen.current) params.set('fresh', '1');
     queueRefreshSeen.current = refresh;
     const source = scope ? applicantAllQueueFixture : applicantQueueFixture;
-    const fixtureItems = source.items.filter(i => (!stages.length || stages.includes(i.stage_id)) && (!media || i.media === media) && (!query || `${i.name} ${i.deal} ${i.job}`.includes(query)));
+    const fixtureItems = source.items.filter(i => (!stages.length || stages.includes(i.stage_id)) && (!media || i.media === media) && (!query || (target === 'deal' ? i.deal : target === 'listing' ? i.job : i.name).includes(query)));
     const work = fixture ? Promise.resolve({ ...source, items: fixtureItems, total: fixtureItems.length }) : read<ApplicantQueue>(`/api/crm/applicants/queue?${params.toString()}`, abort.signal);
     void work.then(data => { if (abort.signal.aborted) return; setQueue(old => cursor && old ? { ...data, items: [...old.items, ...data.items] } : data); setError(''); setLoading(false); }).catch((e: unknown) => { if (!abort.signal.aborted) { setError(e instanceof Error ? e.message : '応募を読み込めません'); setLoading(false); } });
     return () => { abort.abort(); };
-  }, [fixture, scope, query, stages, media, cursor, refresh]);
+  }, [fixture, scope, query, target, stages, media, cursor, refresh]);
   useEffect(() => {
     if (!selectedId) return;
     const abort = new AbortController();
@@ -169,7 +193,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
             {item.appointment && <span className="cq-row-extra">約束架電日時 {date(item.appointment)}</span>}
           </button>
         </li>)}</ul>
-        {queue?.items.length === 0 && <p>条件に一致する応募はありません。</p>}
+        {queue?.items.length === 0 && <><p>条件に一致する応募はありません。</p>{query && !scope && <button onClick={() => { setScope(true); filter([], media); }}>すべての応募で探す</button>}</>}
         {queue?.next_cursor && <button onClick={() => { setCursor(queue.next_cursor); }}>続きを読み込む</button>}
       </div>
     </section>,
@@ -179,14 +203,26 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
         {i === 2 && <p><strong>{detail.row.deal}</strong><br />{detail.row.job}</p>}
         <Fields section={{ ...section, fields: section.fields.filter(f => !detail.writes_enabled || !detail.editable.some(e => e.label === f.label && (i === 0 ? e.section === '連絡先' : i === 4 && e.section === 'ヒアリング'))) }} />
         {i === 0 && <div ref={setContactTarget} />}{i === 4 && <div ref={setHearingTarget} />}
-        {i === 2 && detail.jobs.map(job => <p key={job.url}>{job.label} <a href={job.url} target="_blank" rel="noreferrer">HubSpotで開く</a></p>)}
       </section>)}
+      {detail && <>
+        {detail.related_notice && <p role="status">{detail.related_notice}</p>}
+        {(['listings', 'deals'] as const).map(kind => {
+          const cards = detail[kind];
+          return <section className="crm-card applicant-related" key={kind} aria-label={kind === 'listings' ? '関連の求人票' : '関連の取引'} tabIndex={-1} ref={el => { relatedRefs.current[kind] = el; }}>
+            <h3>{kind === 'listings' ? '求人票' : '取引'}</h3>
+            {cards.length === 0 ? <p>関連する{kind === 'listings' ? '求人票' : '取引'}はありません。</p> : <>
+              {cards[0] && <RelatedCard card={cards[0]} />}
+              {cards.length > 1 && <details key={detail.row.id}><summary>ほかの{kind === 'listings' ? '求人票' : '取引'} {cards.length - 1} 件</summary>{cards.slice(1).map(card => <RelatedCard key={card.id} card={card} />)}</details>}
+            </>}
+          </section>;
+        })}
+      </>}
     </aside>,
     overview: <main className="applicants-detail" aria-label="応募の詳細">
       {!selectedId ? <p className="dock-placeholder">一覧から応募を選択してください。</p> : <>
         <article className="wd wd-compact"><div className="wd-top wd-top-compact">
           <div className="wd-line wd-line-1"><h2 className="wd-line-company">{headlineName || '氏名未登録'}</h2>{detail && <span className="wd-line-end"><a href={detail.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a></span>}</div>
-          <p className="applicant-job">{headline?.deal} · {headline?.job}</p>
+          <p className="applicant-job"><button type="button" disabled={!detail} onClick={() => { showRelated('deals'); }}>{headline?.deal.length ? headline.deal : '取引を確認'}</button> · <button type="button" disabled={!detail} onClick={() => { showRelated('listings'); }}>{headline?.job.length ? headline.job : '求人票を確認'}</button></p>
           <div className="wd-line wd-line-2"><PhoneRow label="応募者" raw={detail?.phone ?? headline?.phone ?? ''} zoom={dialZoom} compact blocked={!!detail?.stop_reason || busy || !detail} blockReason={detail?.stop_reason ?? (busy ? '通話中です' : null)} /></div>
           <p className="applicant-meta">{headline?.stage} · {headline?.media} · 応募日 {date(headline?.date ?? '')}</p>
           {detail?.stop_reason && <p role="alert">架電禁止・ブロック: {detail.stop_reason}</p>}{dialNotice && <p role="status">{dialNotice}</p>}
@@ -216,7 +252,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   return <div className="crm-app cq-app applicants-app">
     <header className="applicants-head"><a href="/">HR_HR</a><strong>CRM</strong><CrmModeSwitch applicants /><span>{fixture ? '架空サンプル' : 'HubSpot の応募'}</span>{!fixture && <button onClick={() => { setDrawerOpen(v => !v); }}>Zoom</button>}<button onClick={() => { setCursor(null); setDetail(null); setRefresh(v => v + 1); }}>最新にする</button></header>
     <div className="cq-filter-summary applicants-filter-summary"><span>{scope ? 'すべての応募' : '一次対応が必要な未完了'} · ステージ: {stages.length ? `${String(stages.length)}件選択` : 'すべて'} · 応募媒体: {media || 'すべて'}</span><button type="button" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(v => !v); }}>条件を変更</button></div>
-    <form className="applicants-search" role="search" onSubmit={e => { e.preventDefault(); applySearch(search); }}><label>応募を検索<input type="search" value={search} onChange={e => { setSearch(e.target.value); }} placeholder="応募者名・会社名など" /></label></form>
+    <form className="applicants-search" role="search" onSubmit={e => { e.preventDefault(); applySearch(search); }}><label>検索対象<select value={target} onChange={e => { setTarget(e.target.value); setCursor(null); setQueue(null); setLoading(true); }}><option value="applicant">応募者</option><option value="deal">取引</option><option value="listing">求人</option></select></label><label>応募を検索<input type="search" value={search} onChange={e => { setSearch(e.target.value); }} placeholder={target === 'deal' ? '取引名' : target === 'listing' ? '求人名' : '応募者名'} /></label></form>
     {filtersOpen && <div className="applicants-toolbar">
       <label className={`cq-field cq-target-label${scope ? ' is-set' : ''}`}>範囲<select aria-label="範囲" value={scope ? 'all' : 'open'} onChange={e => { setScope(e.target.value === 'all'); filter([], media); }}><option value="open">一次対応が必要な未完了</option><option value="all">すべての応募</option></select></label>
       {queue && firstPipeline && <StageFilter all pipeline={{ ...firstPipeline, fallbackName: '', unknownStages: [], stages: firstPipeline.stages.map(s => ({ ...s, rule: 'all' })) }}

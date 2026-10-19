@@ -1,6 +1,8 @@
 //! 応募 (0-421) の読み取り・保存。正本と業務履歴は HubSpot。
 #[path = "applicant_write.rs"]
 mod editing;
+#[path = "applicant_related.rs"]
+mod related;
 #[path = "applicant_sheet.rs"]
 mod report_sheet;
 use super::{
@@ -145,6 +147,15 @@ pub struct ApplicantNote {
     pub html: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ApplicantRelatedCard {
+    pub id: String,
+    pub title: String,
+    pub deep_link: String,
+    pub jobcopy_url: Option<String>,
+    pub current: bool,
+    pub fields: Vec<ApplicantField>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ApplicantDetail {
     #[serde(default)]
     pub values: std::collections::BTreeMap<String, Option<String>>,
@@ -154,6 +165,12 @@ pub struct ApplicantDetail {
     pub write_pipeline: Option<ApplicantPipeline>,
     #[serde(default)]
     pub writes_enabled: bool,
+    #[serde(default)]
+    pub listings: Vec<ApplicantRelatedCard>,
+    #[serde(default)]
+    pub deals: Vec<ApplicantRelatedCard>,
+    #[serde(default)]
+    pub related_notice: Option<String>,
     pub row: ApplicantRow,
     pub sections: Vec<ApplicantSection>,
     pub phone: String,
@@ -170,6 +187,8 @@ pub struct ApplicantDetail {
 pub(super) struct ApplicantsState {
     definitions: TtlCache<(), Value>,
     definition_lock: tokio::sync::Mutex<()>,
+    related_definitions: TtlCache<(), Value>,
+    related_definition_lock: tokio::sync::Mutex<()>,
     queues: TtlCache<String, ApplicantQueue>,
     details: TtlCache<String, ApplicantDetail>,
 }
@@ -178,6 +197,8 @@ impl Default for ApplicantsState {
         Self {
             definitions: TtlCache::new(DEFINITIONS_TTL, 1),
             definition_lock: tokio::sync::Mutex::new(()),
+            related_definitions: TtlCache::new(DEFINITIONS_TTL, 1),
+            related_definition_lock: tokio::sync::Mutex::new(()),
             queues: TtlCache::new(QUEUE_TTL, 500),
             details: TtlCache::new(DETAIL_TTL, 500),
         }
@@ -320,6 +341,7 @@ fn options(defs: &Value) -> Vec<ApplicantStage> {
 pub(super) struct QueueQuery {
     scope: Option<String>,
     q: Option<String>,
+    qt: Option<String>,
     stages: Option<String>,
     media: Option<String>,
     cursor: Option<String>,
@@ -336,6 +358,8 @@ struct Position {
     due: u64,
     dated: u64,
     undated: u64,
+    #[serde(default)]
+    related: Vec<String>,
 }
 fn base_filters(stages: &[String], media: &Option<String>) -> Vec<Value> {
     let mut f = vec![
@@ -379,6 +403,9 @@ fn search_body(base: &[Value], pos: &Position, kind: &str, properties: &[String]
     }
     body
 }
+fn related_search_limit(target: &str) -> Response {
+    (StatusCode::BAD_REQUEST, Json(json!({"error_kind":"related_search_limit","message":if target == "deal" {"取引が多すぎます。もう少し詳しく入力してください。"} else {"求人が多すぎます。もう少し詳しく入力してください。"}}))).into_response()
+}
 fn applicant_error(e: &HubSpotError) -> Response {
     if matches!(e, HubSpotError::Auth { status: 403 }) {
         return (
@@ -408,6 +435,7 @@ pub(super) async fn queue(
     };
     let all = q.scope.as_deref() == Some("all");
     let query = q.q.as_deref().unwrap_or("").trim();
+    let target = q.qt.as_deref().unwrap_or("applicant");
     let mut stages: Vec<String> = q
         .stages
         .as_deref()
@@ -421,8 +449,9 @@ pub(super) async fn queue(
         });
     stages.sort();
     stages.dedup();
-    if q.cursor.as_ref().is_some_and(|c| c.len() > 4096)
+    if q.cursor.as_ref().is_some_and(|c| c.len() > 8192)
         || q.scope.as_deref().is_some_and(|s| s != "all")
+        || !["applicant", "deal", "listing"].contains(&target)
         || query.len() > 300
         || (!all
             && (stages.is_empty() || stages.iter().any(|s| !OPEN_STAGES.contains(&s.as_str()))))
@@ -430,13 +459,23 @@ pub(super) async fn queue(
     {
         return error_json(StatusCode::BAD_REQUEST, "invalid_filter");
     }
-    let binding = json!(["applicants", principal.email, all, query, stages, q.media]).to_string();
+    let binding = json!([
+        "applicants",
+        principal.email,
+        all,
+        target,
+        query,
+        stages,
+        q.media
+    ])
+    .to_string();
     let mut pos = Position {
         now: chrono::Utc::now().timestamp_millis(),
         phase: 0,
         due: 0,
         dated: 0,
         undated: 0,
+        related: vec![],
     };
     if let Some(cursor) = &q.cursor {
         let parsed = cursor.split_once('~').and_then(|(payload, sig)| {
@@ -502,13 +541,57 @@ pub(super) async fn queue(
                     && (!stages.is_empty() || f["propertyName"] != "hs_pipeline_stage")
             });
         }
+        if !query.is_empty() && target != "applicant" {
+            if q.cursor.is_none() {
+                let object = if target == "deal" { "deals" } else { "0-420" };
+                let found = client.search(object, json!({"query":query,"limit":50,"properties":[if target == "deal" {"dealname"} else {"hs_name"}]}))
+                    .await.map_err(|e| applicant_error(&e))?;
+                let total = found["total"].as_u64().ok_or_else(|| {
+                    applicant_error(&HubSpotError::Decode("related search total".into()))
+                })?;
+                if total > 50 || !found["paging"]["next"].is_null() {
+                    return Err(related_search_limit(target));
+                }
+                pos.related = values(&found["results"])
+                    .map(|r| {
+                        if target == "deal" {
+                            text(&r["properties"], "dealname")
+                        } else {
+                            text(r, "id")
+                        }
+                    })
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                pos.related.sort();
+                pos.related.dedup();
+            }
+            if pos.related.is_empty() {
+                return Ok(ApplicantQueue {
+                    items: vec![],
+                    total: 0,
+                    next_cursor: None,
+                    pipelines: available,
+                    media_options: options(&defs),
+                });
+            }
+            // 最大50値を1つのINへ。OR分岐を増やさず、最大2群・12条件に収める。
+            filters.push(json!({"propertyName":if target == "deal" {"oubosaki_torihiki_name"} else {"associations.listing"},"operator":"IN","values":pos.related}));
+        }
         let body = |pos: &Position, kind| {
             let mut b = search_body(&filters, pos, kind, &properties);
-            if !query.is_empty() {
+            if !query.is_empty() && target == "applicant" {
                 b["query"] = json!(query);
             }
             b
         };
+        // HubSpot Search の本文上限。長い取引名の集合は切り捨てず、絞り込みを依頼する。
+        if ["all", "due", "dated", "undated", "total"]
+            .iter()
+            .any(|kind| body(&pos, kind).to_string().chars().count() > 3000)
+            || serde_json::to_vec(&pos).unwrap().len() > 5000
+        {
+            return Err(related_search_limit(target));
+        }
         if all {
             let page = client
                 .search(OBJECT, body(&pos, "all"))
@@ -798,17 +881,7 @@ pub(super) async fn detail(
                 let ids = all_associations(&client, &id, "0-420").await?;
                 // 求人票本体と取引関連は同じ ID から独立して読める。
                 let (jobs, deal_sheet) = tokio::join!(
-                    client.batch_read(
-                        "0-420",
-                        &ids,
-                        &[
-                            "hs_name",
-                            "customer_sheet_url",
-                            "url_hrhakkaa",
-                            "url_airwork",
-                            "jobcopy_app_url",
-                        ],
-                    ),
+                    client.batch_read("0-420", &ids, related::LISTING_PROPERTIES,),
                     report_sheet::read(&client, &ids),
                 );
                 Ok::<_, HubSpotError>((jobs?, deal_sheet))
@@ -824,7 +897,9 @@ pub(super) async fn detail(
         let v = serde_json::to_value(record)
             .map_err(|_| HubSpotError::Decode("applicant record".into()))?;
         let p = &v["properties"];
-        let sheet_url = deal_sheet.or_else(|| sheet_url(p, &jobs));
+        let sheet_url = deal_sheet.sheet.clone().or_else(|| sheet_url(p, &jobs));
+        let (listings, deals, related_notice) =
+            related::cards(&ctx, &client, &jobs, &deal_sheet, p).await;
         let mut notes: Vec<_> = notes
             .into_iter()
             .map(|n| ApplicantNote {
@@ -869,6 +944,9 @@ pub(super) async fn detail(
                         .collect(),
                 }),
             writes_enabled: ctx.write.enabled && text(p, "hs_pipeline") == PIPELINE,
+            listings,
+            deals,
+            related_notice,
             row: row(&v, &defs),
             sections: sections(p, &defs),
             phone: text(p, "denwabangou"),
@@ -896,7 +974,9 @@ pub(super) async fn detail(
     };
     match tokio::time::timeout(Duration::from_secs(20), work).await {
         Ok(Ok(v)) => {
-            ctx.applicants.details.insert(cache_key, v.clone());
+            if v.related_notice.is_none() {
+                ctx.applicants.details.insert(cache_key, v.clone());
+            }
             Json(v).into_response()
         }
         Ok(Err(e)) => applicant_error(&e),
@@ -1038,6 +1118,7 @@ mod tests {
             due: 0,
             dated: 0,
             undated: 0,
+            related: vec![],
         };
         let filters = base_filters(&["1343099551".into()], &None);
         let properties = vec!["ouboshashimei".to_owned()];

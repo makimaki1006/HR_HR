@@ -30,12 +30,16 @@ const LIVE_STAGES: &[&str] = &[
     "1216616082",
     "1216616083",
 ];
-const PROPERTIES: &[&str] = &[
+pub(super) const PROPERTIES: &[&str] = &[
     "customer_sheet_url",
     "dealstage",
     "dealname",
     "contract_start_date",
     "createdate",
+    "hubspot_owner_id",
+    "pipeline",
+    "oubohoukokusaki",
+    "ashigirijouken",
 ];
 fn property<'a>(r: &'a HubSpotRecord, name: &str) -> &'a str {
     r.properties
@@ -75,7 +79,7 @@ fn key(r: &HubSpotRecord) -> (u8, String, &str) {
         property(r, "createdate"),
     )
 }
-fn owner_sheet<'a>(ids: &[String], deals: &'a [HubSpotRecord]) -> Option<&'a str> {
+fn owner_deal<'a>(ids: &[String], deals: &'a [HubSpotRecord]) -> Option<&'a HubSpotRecord> {
     let mut best: Option<&HubSpotRecord> = None;
     for id in ids {
         if let Some(r) = deals
@@ -89,9 +93,16 @@ fn owner_sheet<'a>(ids: &[String], deals: &'a [HubSpotRecord]) -> Option<&'a str
             }
         }
     }
-    best.map(|r| property(r, "customer_sheet_url").trim())
+    best
 }
-pub(super) async fn read(client: &HubSpotClient, listing_ids: &[String]) -> Option<String> {
+#[derive(Default)]
+pub(super) struct RelatedDeals {
+    pub sheet: Option<String>,
+    pub deals: Vec<HubSpotRecord>,
+    pub current: Option<String>,
+    pub unavailable: bool,
+}
+pub(super) async fn read(client: &HubSpotClient, listing_ids: &[String]) -> RelatedDeals {
     // 0-3 の API 別名 deals を使用（既存クライアントの許可リストに合わせる）。
     let result = async {
         let associations = client
@@ -106,7 +117,22 @@ pub(super) async fn read(client: &HubSpotClient, listing_ids: &[String]) -> Opti
             }
         }
         let deals = client.batch_read("deals", &ids, PROPERTIES).await?;
-        Ok::<_, HubSpotError>(owner_sheet(&ids, &deals).map(str::to_owned))
+        let current_deal = owner_deal(&ids, &deals);
+        let sheet = current_deal.map(|d| property(d, "customer_sheet_url").trim().to_owned());
+        let current = current_deal.map(|d| d.id.clone());
+        let mut ordered = Vec::new();
+        for id in &ids {
+            if let Some(d) = deals.iter().find(|d| &d.id == id) {
+                ordered.push(d.clone());
+            }
+        }
+        ordered.sort_by_key(|d| Some(&d.id) != current.as_ref());
+        Ok::<_, HubSpotError>(RelatedDeals {
+            sheet,
+            deals: ordered,
+            current,
+            unavailable: false,
+        })
     }
     .await;
     match result {
@@ -114,7 +140,10 @@ pub(super) async fn read(client: &HubSpotClient, listing_ids: &[String]) -> Opti
         Err(_) => {
             // URL・取引情報・上流エラー本文はログへ出さない。
             tracing::warn!("applicant report sheet deal read failed; using fallback");
-            None
+            RelatedDeals {
+                unavailable: true,
+                ..Default::default()
+            }
         }
     }
 }
