@@ -108,10 +108,12 @@ mod tests {
         let (audit, conn, queries) = start_sqlite_audit_with_queries().await;
         tokio::task::spawn_blocking(move || {
             let mut c = Cache::default();
-            let a = ("101".into(), "NPSが4以下".into());
-            let b = ("101".into(), "接触の記録が無い".into());
+            let a = ("101".into(), "満了まで60日以内".into());
+            let b = ("101".into(), "NPSが4以下".into());
+            let ongoing = ("103".into(), "満了まで60日以内".into());
+            let fresh = ("104".into(), "NPSが4以下".into());
             let first = c
-                .load(audit.turso(), "2026-10-16", std::slice::from_ref(&a))
+                .load(audit.turso(), "2026-10-16", &[a.clone(), ongoing.clone()])
                 .unwrap();
             assert!(first.previous_day.is_none());
             c.load(audit.turso(), "2026-10-16", &[a.clone(), b.clone()])
@@ -119,7 +121,7 @@ mod tests {
             c = Cache::default();
             c.load(audit.turso(), "2026-10-16", &[]).unwrap();
             let next = c
-                .load(audit.turso(), "2026-10-19", &[a.clone(), b.clone()])
+                .load(audit.turso(), "2026-10-19", &[a.clone(), b.clone(), ongoing.clone(), fresh.clone()])
                 .unwrap();
             let flags = next.flags("101", &[json!(a.1), json!(b.1)], Some("2026-10-19"));
             assert_eq!(next.previous_day.as_deref(), Some("2026-10-16"));
@@ -127,10 +129,26 @@ mod tests {
             assert_eq!(flags[0]["new"], false);
             assert_eq!(flags[1]["since"], "2026-10-19");
             assert_eq!(flags[1]["new"], true);
+            assert_eq!(flags, vec![
+                json!({"key":"満了まで60日以内","label":"満了まで60日以内","new":false,"since":"2026-10-16"}),
+                json!({"key":"NPSが4以下","label":"NPSが4以下","new":true,"since":"2026-10-19"}),
+            ]);
+            // The API carries every flag on one row per deal. Consumers classify the
+            // entire row as new if any flag is new, never splitting mixed rows.
+            let rows = [
+                ("101", flags),
+                ("103", next.flags("103", &[json!(ongoing.1)], Some("2026-10-19"))),
+                ("104", next.flags("104", &[json!(fresh.1)], Some("2026-10-19"))),
+            ];
+            let (new_rows, ongoing_rows): (Vec<_>, Vec<_>) = rows.iter()
+                .partition(|(_, flags)| flags.iter().any(|f| f["new"] == true));
+            assert_eq!(new_rows.iter().map(|r| r.0).collect::<Vec<_>>(), vec!["101", "104"]);
+            assert_eq!(ongoing_rows.iter().map(|r| r.0).collect::<Vec<_>>(), vec!["103"]);
+            assert_eq!(new_rows[0].1.len(), 2);
             c.load(audit.turso(), "2026-10-20", &[]).unwrap();
             let after_empty = c.load(audit.turso(), "2026-10-21", &[a]).unwrap();
             assert_eq!(
-                after_empty.flags("101", &[json!("NPSが4以下")], Some("2026-10-21"))[0]["since"],
+                after_empty.flags("101", &[json!("満了まで60日以内")], Some("2026-10-21"))[0]["since"],
                 "2026-10-21"
             );
             assert_eq!(
@@ -142,7 +160,7 @@ mod tests {
                         |r| r.get::<_, i64>(0)
                     )
                     .unwrap(),
-                2
+                3
             );
             assert_eq!(
                 queries

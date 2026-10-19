@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn consultant_flags_match_kpi_on_same_fictional_deal() {
         let empty = sheet(&[], &[]);
-        let sheets = cs::Sheets {
+        let mut sheets = cs::Sheets {
             pending_recordings: None,
             deal: sheet(
                 &[
@@ -184,5 +184,19 @@ mod tests {
             json!(["満了まで60日以内", "接触の記録が無い", "担当が退職者のまま"])
         );
         assert_eq!(risk[0]["days_left"], 13);
+        // A 120-second call on Oct 18 must agree with the detail fixture:
+        // one day since contact on Oct 19, with no missing-contact flag.
+        sheets.call = sheet(
+            &["deal_id", "ts", "duration_sec"],
+            &[&["101", "2026-10-18T03:00:00Z", "120"]],
+        );
+        let contacted = rows(&sheets, day, &snapshot);
+        assert_eq!(contacted.len(), 1);
+        assert_eq!(contacted[0]["deal_id"], "101");
+        assert_eq!(contacted[0]["days_since_contact"], 1);
+        assert_eq!(
+            contacted[0]["flags"],
+            json!(["満了まで60日以内", "担当が退職者のまま"])
+        );
     }
 }
