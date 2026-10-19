@@ -6,6 +6,10 @@ struct Fake {
     requests: Vec<(String, Value)>,
     forbidden: bool,
     sheet: Option<String>,
+    deals: Vec<Value>,
+    deal_forbidden: Option<String>,
+    listing_ids: Vec<String>,
+    listing_deals: Option<Value>,
     large_queue: bool,
     due_count: usize,
     delay_ms: u64,
@@ -52,6 +56,9 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
     );
     f.requests.push((path.clone(), body.clone()));
     if f.forbidden {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if f.deal_forbidden.as_deref() == Some(&path) {
         return StatusCode::FORBIDDEN.into_response();
     }
     let result = match path.as_str() {
@@ -119,7 +126,18 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
             a["properties"]["customer_sheet_url_synced"] = json!(f.sheet);
             json!({"results":[a]})
         }
-        "/crm/v4/objects/0-421/100/associations/0-420" => json!({"results":[{"toObjectId":200}]}),
+        "/crm/v4/objects/0-421/100/associations/0-420" => {
+            let ids = if f.listing_ids.is_empty() {
+                vec!["200".to_string()]
+            } else {
+                f.listing_ids.clone()
+            };
+            json!({"results":ids.iter().map(|id| json!({"toObjectId":id})).collect::<Vec<_>>()})
+        }
+        "/crm/v4/associations/0-420/deals/batch/read" => f.listing_deals.clone().unwrap_or_else(
+            || json!({"results":[{"from":{"id":"200"},"to":[{"toObjectId":400}]}]}),
+        ),
+        "/crm/v3/objects/deals/batch/read" => json!({"results":f.deals}),
         "/crm/v4/objects/0-421/100/associations/notes" => {
             json!({"results":(300..307).map(|i|json!({"toObjectId":i})).collect::<Vec<_>>()})
         }
@@ -382,14 +400,14 @@ async fn applicants_detail_labels_empty_fields_sheet_notes_cache_and_fresh() {
     assert_eq!(a["notes"].as_array().unwrap().len(), 5);
     assert_eq!(a["notes"][4]["date"], "2026-10-12T00:00:00Z");
     let n = f.lock().unwrap().requests.len();
-    assert_eq!(n, 7); // 定義2、本体1、関連2、求人票1、メモ1
+    assert_eq!(n, 9); // 定義2、本体1、応募関連2、求人票1、メモ1、取引関連1、取引1
     assert_eq!(get_json(&app, "/api/crm/applicants/100", &c).await.2, a);
     assert_eq!(f.lock().unwrap().requests.len(), n);
     f.lock().unwrap().sheet = Some("https://example.invalid/sheet".into());
     let (_, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &c).await;
     assert_eq!(b["sheet_url"], "https://example.invalid/sheet");
     assert_eq!(b["sheet_embed"], false);
-    assert_eq!(f.lock().unwrap().requests.len(), n + 5);
+    assert_eq!(f.lock().unwrap().requests.len(), n + 7);
     f.lock().unwrap().sheet = Some("https://docs.google.com/spreadsheets/d/fake-app/edit".into());
     let (_, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &c).await;
     assert_eq!(
@@ -537,6 +555,24 @@ async fn sequential_detail(client: &HubSpotClient) {
         .await
         .unwrap();
     client
+        .batch_associations("0-420", "deals", &["200".into()])
+        .await
+        .unwrap();
+    client
+        .batch_read(
+            "deals",
+            &["400".into()],
+            &[
+                "customer_sheet_url",
+                "dealstage",
+                "dealname",
+                "contract_start_date",
+                "createdate",
+            ],
+        )
+        .await
+        .unwrap();
+    client
         .batch_read(
             "notes",
             &(300..307).map(|id| id.to_string()).collect::<Vec<_>>(),
@@ -560,7 +596,7 @@ async fn applicant_detail_parallel_latency_and_same_call_budget() {
             .iter()
             .map(|(p, _)| p.clone())
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(f.requests.len(), 7);
+        assert_eq!(f.requests.len(), 9);
         f.requests.clear();
         f.max_inflight = 0;
         paths
@@ -574,7 +610,7 @@ async fn applicant_detail_parallel_latency_and_same_call_budget() {
     assert_eq!(body["notes"][0]["date"], "2026-10-16T00:00:00Z");
     {
         let f = fake.lock().unwrap();
-        assert_eq!(f.requests.len(), 7);
+        assert_eq!(f.requests.len(), 9);
         assert_eq!(
             f.requests
                 .iter()
@@ -593,6 +629,169 @@ async fn applicant_detail_parallel_latency_and_same_call_budget() {
         StatusCode::OK
     );
     let warm_ms = warm.elapsed().as_millis();
-    assert_eq!(fake.lock().unwrap().requests.len(), 5);
-    println!("APPLICANT_DETAIL_LATENCY delay_ms=100 before_cold_ms={before_ms} after_cold_ms={after_ms} after_warm_ms={warm_ms} calls=7/7/5 sequential_stages=7 parallel_stages=3 warm_parallel_stages=2");
+    assert_eq!(fake.lock().unwrap().requests.len(), 7);
+    println!("APPLICANT_DETAIL_LATENCY delay_ms=100 before_cold_ms={before_ms} after_cold_ms={after_ms} after_warm_ms={warm_ms} calls=9/9/7 sequential_stages=9 parallel_stages=4 warm_parallel_stages=3");
+}
+
+fn sheet_deal(id: &str, stage: &str, name: &str, start: &str, created: &str, url: &str) -> Value {
+    json!({"id":id,"properties":{"dealstage":stage,"dealname":name,"contract_start_date":start,"createdate":created,"customer_sheet_url":url}})
+}
+#[tokio::test]
+async fn applicant_report_sheet_owner_priority_dates_and_fallback() {
+    let (app, cookie, fake) = app().await;
+    // batch応答は関連順の逆。2求人の取引をまとめ、重複は1度だけ読む。
+    {
+        let mut f = fake.lock().unwrap();
+        f.sheet = Some("https://example.invalid/synced".into());
+        f.listing_ids = vec!["200".into(), "201".into()];
+        f.listing_deals = Some(json!({"results":[
+            {"from":{"id":"200"},"to":[{"toObjectId":400},{"toObjectId":401}]},
+            {"from":{"id":"201"},"to":[{"toObjectId":402},{"toObjectId":403},{"toObjectId":400}]}
+        ]}));
+    }
+    let base = vec![
+        sheet_deal(
+            "403",
+            "52016158",
+            "架空の終了契約",
+            "2029-01-01",
+            "2029-01-01",
+            "https://example.invalid/ended",
+        ),
+        sheet_deal(
+            "402",
+            "1049738304",
+            "架空オプション",
+            "2028-01-01",
+            "2028-01-01",
+            "https://example.invalid/option",
+        ),
+        sheet_deal(
+            "401",
+            "52016153",
+            "架空主契約",
+            "2026-02-01T12:00:00Z",
+            "2026-02-02",
+            "https://example.invalid/new-main",
+        ),
+        sheet_deal(
+            "400",
+            "52016153",
+            "架空主契約",
+            "2026-01-01",
+            "2027-01-01",
+            "https://example.invalid/old-main",
+        ),
+    ];
+    let mut scenarios = vec![(base.clone(), "https://example.invalid/new-main")];
+    let mut same_start = base.clone();
+    same_start[3]["properties"]["contract_start_date"] = json!("2026-02-01T23:00:00Z");
+    scenarios.push((same_start, "https://example.invalid/old-main"));
+    let mut tie = base.clone();
+    tie[3]["properties"]["contract_start_date"] = json!("2026-02-01");
+    tie[3]["properties"]["createdate"] = json!("2026-02-02");
+    scenarios.push((tie, "https://example.invalid/old-main"));
+    scenarios.push((base[..2].to_vec(), "https://example.invalid/option"));
+    scenarios.push((base[..1].to_vec(), "https://example.invalid/ended"));
+    // 未知・継続済・満了済・マーケ関連は生きた契約にしない。
+    for stage in ["unknown-stage", "66848546", "1281526627", "1278456227"] {
+        let mut rows = base.clone();
+        rows[2]["properties"]["dealstage"] = json!(stage);
+        rows[3]["properties"]["dealstage"] = json!(stage);
+        scenarios.push((rows, "https://example.invalid/option"));
+    }
+    // 名前の先頭で判定するオプション。NFKC・先頭空白も外部バッチと揃える。
+    for prefix in [
+        "求人追加",
+        " ＡｉｒＷｏｒｋ広告運用",
+        "一次対応",
+        "エントリーフォーム",
+    ] {
+        let mut rows = base.clone();
+        rows[2]["properties"]["dealname"] = json!(format!("{prefix} 架空契約"));
+        scenarios.push((rows, "https://example.invalid/old-main"));
+    }
+    let mut no_url = base.clone();
+    no_url[2]["properties"]["customer_sheet_url"] = Value::Null;
+    scenarios.push((no_url, "https://example.invalid/old-main"));
+    let mut missing_start = base.clone();
+    missing_start[2]["properties"]["contract_start_date"] = Value::Null;
+    scenarios.push((missing_start, "https://example.invalid/old-main"));
+    let mut missing_dates = base.clone();
+    for r in &mut missing_dates[2..] {
+        r["properties"]["contract_start_date"] = Value::Null;
+        r["properties"]["createdate"] = Value::Null;
+    }
+    scenarios.push((missing_dates, "https://example.invalid/old-main"));
+    scenarios.push((vec![], "https://example.invalid/synced"));
+    for (deals, expected) in scenarios {
+        fake.lock().unwrap().deals = deals;
+        let (status, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &cookie).await;
+        assert_eq!(status, StatusCode::OK, "{b}");
+        assert_eq!(b["sheet_url"], expected);
+        assert_eq!(b["sheet_embed"], false);
+    }
+    {
+        let f = fake.lock().unwrap();
+        let reads: Vec<_> = f
+            .requests
+            .iter()
+            .filter(|(p, _)| p == "/crm/v3/objects/deals/batch/read")
+            .collect();
+        for (_, body) in reads {
+            assert_eq!(
+                body["inputs"],
+                json!([{"id":"400"},{"id":"401"},{"id":"402"},{"id":"403"}])
+            );
+            assert_eq!(
+                body["properties"],
+                json!([
+                    "customer_sheet_url",
+                    "dealstage",
+                    "dealname",
+                    "contract_start_date",
+                    "createdate"
+                ])
+            );
+        }
+    }
+    fake.lock().unwrap().sheet = None;
+    let (status, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        b["sheet_url"],
+        "https://docs.google.com/spreadsheets/d/fake-job/edit"
+    );
+    assert_eq!(b["sheet_embed"], true);
+}
+#[tokio::test]
+async fn applicant_report_sheet_deal_403_keeps_detail_and_fallback() {
+    for path in [
+        "/crm/v4/associations/0-420/deals/batch/read",
+        "/crm/v3/objects/deals/batch/read",
+    ] {
+        let (app, cookie, fake) = app().await;
+        {
+            let mut f = fake.lock().unwrap();
+            f.deal_forbidden = Some(path.into());
+            f.sheet = Some("https://example.invalid/synced".into());
+        }
+        let (status, _, b) = get_json(&app, "/api/crm/applicants/100", &cookie).await;
+        assert_eq!(status, StatusCode::OK, "{b}");
+        assert_eq!(b["phone"], "00000000000");
+        assert_eq!(b["notes"].as_array().unwrap().len(), 5);
+        assert_eq!(b["sheet_url"], "https://example.invalid/synced");
+        assert_eq!(
+            fake.lock().unwrap().requests.len(),
+            if path.contains("associations") { 8 } else { 9 }
+        );
+        fake.lock().unwrap().sheet = None;
+        let (status, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &cookie).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            b["sheet_url"],
+            "https://docs.google.com/spreadsheets/d/fake-job/edit"
+        );
+        assert_eq!(b["sheet_embed"], true);
+    }
 }

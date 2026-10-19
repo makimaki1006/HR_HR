@@ -1,6 +1,8 @@
 //! 応募 (0-421) の読み取り・保存。正本と業務履歴は HubSpot。
 #[path = "applicant_write.rs"]
 mod editing;
+#[path = "applicant_sheet.rs"]
+mod report_sheet;
 use super::{
     queue_cache::TtlCache,
     rbac,
@@ -720,12 +722,13 @@ pub(super) async fn detail(
         }
         let names: Vec<&str> = props.iter().map(String::as_str).collect();
         // 本体、求人票、メモは独立。関連 ID → batch read の依存だけを保つ。
-        let (rows, jobs, notes) = tokio::try_join!(
+        let (rows, (jobs, deal_sheet), notes) = tokio::try_join!(
             client.batch_read(OBJECT, std::slice::from_ref(&id), &names),
             async {
                 let ids = all_associations(&client, &id, "0-420").await?;
-                client
-                    .batch_read(
+                // 求人票本体と取引関連は同じ ID から独立して読める。
+                let (jobs, deal_sheet) = tokio::join!(
+                    client.batch_read(
                         "0-420",
                         &ids,
                         &[
@@ -735,8 +738,10 @@ pub(super) async fn detail(
                             "url_airwork",
                             "jobcopy_app_url",
                         ],
-                    )
-                    .await
+                    ),
+                    report_sheet::read(&client, &ids),
+                );
+                Ok::<_, HubSpotError>((jobs?, deal_sheet))
             },
             async {
                 let ids = all_associations(&client, &id, "notes").await?;
@@ -749,7 +754,7 @@ pub(super) async fn detail(
         let v = serde_json::to_value(record)
             .map_err(|_| HubSpotError::Decode("applicant record".into()))?;
         let p = &v["properties"];
-        let sheet_url = sheet_url(p, &jobs);
+        let sheet_url = deal_sheet.or_else(|| sheet_url(p, &jobs));
         let mut notes: Vec<_> = notes
             .into_iter()
             .map(|n| ApplicantNote {
