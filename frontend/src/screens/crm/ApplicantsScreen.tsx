@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApplicantQueue } from '../../generated/ApplicantQueue';
 import type { ApplicantDetail } from '../../generated/ApplicantDetail';
 import type { ApplicantRow } from '../../generated/ApplicantRow';
@@ -34,6 +34,42 @@ function Fields({ section }: { section: ApplicantSection }) {
     {safeHttpUrl(f.value) ? <PropLink url={f.value} /> : f.value.length > 200 ? <details><summary>内容を表示</summary><p>{f.value}</p></details> : f.value}
   </dd></div>)}</dl>;
 }
+interface TabItem { id: string; label: string }
+/** 矢印キーで移れるタブの見出し。中身の切り替えは呼び出し側の hidden で行う */
+function TabBar({ name, prefix, items, active, onChange }: { name: string; prefix: string; items: TabItem[]; active: string; onChange: (id: string) => void }) {
+  return <div role="tablist" aria-label={name} className="applicant-tabs">{items.map((t, i) => <button key={t.id} id={`${prefix}-tab-${t.id}`} aria-controls={`${prefix}-panel-${t.id}`} role="tab" aria-selected={active === t.id} tabIndex={active === t.id ? 0 : -1} onKeyDown={e => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const j = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : items.length - 1)) % items.length;
+    const next = items[j];
+    if (!next) return;
+    onChange(next.id); document.getElementById(`${prefix}-tab-${next.id}`)?.focus();
+  }} onClick={() => { onChange(t.id); }}>{t.label}</button>)}</div>;
+}
+function TabPanel({ prefix, id, active, children }: { prefix: string; id: string; active: string; children: ReactNode }) {
+  return <div role="tabpanel" id={`${prefix}-panel-${id}`} aria-labelledby={`${prefix}-tab-${id}`} hidden={active !== id} className="applicant-panel">{active === id ? children : null}</div>;
+}
+/** 真ん中のタブ。対応ルールを先頭に置く (架電の前に読む) */
+const CENTER_TABS: { id: string; label: string; section: number | null }[] = [
+  { id: 'rules', label: '対応ルール', section: 1 },
+  { id: 'person', label: '応募者', section: 0 },
+  { id: 'job', label: '応募先', section: 2 },
+  { id: 'entry', label: '応募の内容', section: 3 },
+  { id: 'hearing', label: 'ヒアリングと結果', section: 4 },
+  { id: 'notes', label: 'メモ', section: null },
+];
+export function ApplicantJobPage({ detail }: { detail: ApplicantDetail | null }) {
+  const [pick, setPick] = useState(0);
+  if (!detail) return <p>応募を選択してください。</p>;
+  const pages = detail.job_pages;
+  if (pages.length === 0) return <p>この応募の求人票のリンクがありません</p>;
+  const page = pages[Math.min(pick, pages.length - 1)];
+  const tab = page ? makeLinkTab('applicant-job-page', page.url, `求人票（${page.label}）`) : null;
+  return <div className="applicant-jobpage">
+    {pages.length > 1 && <div className="applicant-jobpage-pick">{pages.map((p, i) => <button key={p.url} type="button" aria-pressed={i === pick} onClick={() => { setPick(i); }}>{p.label}</button>)}</div>}
+    {tab ? <LinkView key={tab.url} tab={tab} showFrameHint={false} /> : <p>求人票の URL を確認してください。</p>}
+  </div>;
+}
 export function ApplicantSheet({ detail }: { detail: ApplicantDetail | null }) {
   const url = detail?.sheet_url;
   if (!detail) return <p>応募を選択してください。</p>;
@@ -58,7 +94,8 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   const [detailError, setDetailError] = useState('');
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
-  const [right, setRight] = useState<'sheet' | 'zoom'>('sheet');
+  const [right, setRight] = useState('sheet');
+  const [center, setCenter] = useState('rules');
   const [dialNotice, setDialNotice] = useState('');
   const { zoom, iframeRef } = useZoomPhone(!fixture);
   useEffect(() => {
@@ -114,27 +151,35 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
             {detail && <><a href={detail.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a><p>{detail.phone || '電話番号未登録'}</p>
               <button disabled={!canDial} onClick={() => { if (!canDial) return; setRight('zoom'); const result = zoom.dial(detail.phone); setDialNotice(result === 'sent' ? '発信を依頼しました' : 'Zoom の読み込みとログインを確認してください'); }}>Zoom で発信</button>
               {detail.stop_reason && <p role="alert">架電禁止・ブロック: {detail.stop_reason}</p>}{dialNotice && <p role="status">{dialNotice}</p>}
-              {detail.sections[0] && <Fields section={detail.sections[0]} />}</>}
+</>}
           </section>
           {detailError && <p role="alert">{detailError}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
           {!detail && !detailError && <p role="status">詳細を読み込み中…</p>}
-          {detail?.sections.map((section, i) => i === 0 ? null : i < 3 ? <section className="crm-card" key={section.title}><h3>{section.title}</h3>
-            {i === 2 && <p><strong>{detail.row.deal}</strong><br />{detail.row.job}</p>}
-            <Fields section={section} />
-            {i === 2 && detail.jobs.map(job => <p key={job.url}>{job.label} <a href={job.url} target="_blank" rel="noreferrer">HubSpotで開く</a></p>)}
-            {i === 1 && section.fields.length === 0 && <p>この求人の対応ルールは登録されていません</p>}
-          </section> : <details className="crm-card" key={section.title} open={i === 4}><summary>{section.title}</summary><Fields section={section} /></details>)}
-          {detail && <section className="crm-card"><h3>メモ</h3>{detail.notes.length === 0 && <p>メモはありません。</p>}{detail.notes.map((n, i) => <article key={i}><time>{date(n.date)}</time><div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} /></article>)}</section>}
+          {detail && <>
+            <TabBar name="応募の詳細の切り替え" prefix="applicant-center" active={center} onChange={setCenter} items={CENTER_TABS.map(t => {
+              const n = t.section === null ? detail.notes.length : detail.sections[t.section]?.fields.length ?? 0;
+              return { id: t.id, label: n > 0 ? `${t.label} ${String(n)}` : t.label };
+            })} />
+            {CENTER_TABS.map(t => {
+              const section = t.section === null ? null : detail.sections[t.section];
+              return <TabPanel key={t.id} prefix="applicant-center" id={t.id} active={center}>
+                <section className="crm-card"><h3>{section?.title ?? 'メモ'}</h3>
+                  {t.id === 'job' && <p><strong>{detail.row.deal}</strong><br />{detail.row.job}</p>}
+                  {section && section.fields.length > 0 && <Fields section={section} />}
+                  {t.id === 'job' && detail.jobs.map(job => <p key={job.url}>{job.label} <a href={job.url} target="_blank" rel="noreferrer">HubSpotで開く</a></p>)}
+                  {t.id === 'rules' && section?.fields.length === 0 && <p>この求人の対応ルールは登録されていません</p>}
+                  {section?.fields.length === 0 && t.id !== 'rules' && t.id !== 'job' && <p>登録されている項目はありません。</p>}
+                  {t.id === 'notes' && <>{detail.notes.length === 0 && <p>メモはありません。</p>}{detail.notes.map((n, i) => <article key={i}><time>{date(n.date)}</time><div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} /></article>)}</>}
+                </section>
+              </TabPanel>;
+            })}
+          </>}
         </>}
       </main>
       <aside className="applicants-right" aria-label="報告シートと電話">
-        <div role="tablist" aria-label="応募の補助画面">{(['sheet', 'zoom'] as const).map(t => <button key={t} id={`applicant-tab-${t}`} aria-controls={`applicant-panel-${t}`} role="tab" aria-selected={right === t} tabIndex={right === t ? 0 : -1} onKeyDown={e => {
-          if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-            e.preventDefault(); const next = e.key === 'Home' ? 'sheet' : e.key === 'End' ? 'zoom' : right === 'sheet' ? 'zoom' : 'sheet';
-            setRight(next); document.getElementById(`applicant-tab-${next}`)?.focus();
-          }
-        }} onClick={() => { setRight(t); }}>{t === 'sheet' ? '報告シート' : 'Zoom'}</button>)}</div>
+        <TabBar name="応募の補助画面" prefix="applicant" active={right} onChange={setRight} items={[{ id: 'sheet', label: '報告シート' }, { id: 'job', label: '求人票' }, { id: 'zoom', label: 'Zoom' }]} />
         <div role="tabpanel" id="applicant-panel-sheet" aria-labelledby="applicant-tab-sheet" hidden={right !== 'sheet'}><ApplicantSheet detail={detail} /></div>
+        <div role="tabpanel" id="applicant-panel-job" aria-labelledby="applicant-tab-job" hidden={right !== 'job'}><ApplicantJobPage key={detail?.row.id ?? ''} detail={detail} /></div>
         <div role="tabpanel" id="applicant-panel-zoom" aria-labelledby="applicant-tab-zoom" hidden={right !== 'zoom'}>
           {fixture ? <p>架空サンプルでは発信できません</p> : <><p>{zoom.embed === 'timeout' ? 'Zoom Phone を読み込めません。再読み込みしてください。' : 'Zoom にログインしてから発信してください。'}</p><iframe ref={iframeRef} title="Zoom Phone" src={ZOOM_EMBED_SRC} allow="microphone; clipboard-read; clipboard-write" onLoad={zoom.onLoad} /></>}
         </div>

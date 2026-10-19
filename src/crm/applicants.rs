@@ -143,6 +143,8 @@ pub struct ApplicantDetail {
     pub stop_reason: Option<String>,
     pub deep_link: String,
     pub jobs: Vec<ApplicantLink>,
+    /// 求人票そのもの (媒体の掲載ページ)。関連の求人票の URL_HRハッカー / URL_AirWORK
+    pub job_pages: Vec<ApplicantLink>,
     pub notes: Vec<ApplicantNote>,
     pub sheet_url: Option<String>,
     pub sheet_embed: bool,
@@ -552,6 +554,43 @@ fn sheet_url(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<String
             .map(|s| s.trim().to_string())
     }
 }
+const JOB_PAGE_PROPS: [(&str, &str); 2] =
+    [("url_hrhakkaa", "HRハッカー"), ("url_airwork", "AirWork")];
+fn job_pages(jobs: &[crate::hubspot::HubSpotRecord]) -> Vec<ApplicantLink> {
+    let mut out: Vec<ApplicantLink> = Vec::new();
+    for j in jobs {
+        let name = j
+            .properties
+            .get("hs_name")
+            .and_then(|v| v.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        for (prop, media) in JOB_PAGE_PROPS {
+            let Some(url) = j
+                .properties
+                .get(prop)
+                .and_then(|v| v.as_deref())
+                .map(str::trim)
+            else {
+                continue;
+            };
+            if !(url.starts_with("https://") || url.starts_with("http://"))
+                || out.iter().any(|l| l.url == url)
+            {
+                continue;
+            }
+            let label = match (name, jobs.len() > 1) {
+                (Some(n), true) => format!("{media}・{n}"),
+                _ => media.to_string(),
+            };
+            out.push(ApplicantLink {
+                label,
+                url: url.to_string(),
+            });
+        }
+    }
+    out
+}
 fn sheet_embeddable(url: Option<&str>) -> bool {
     url.is_some_and(|s| s.starts_with("https://docs.google.com/spreadsheets/"))
 }
@@ -655,7 +694,16 @@ pub(super) async fn detail(
         let jobs_ids = all_associations(&client, &id, "0-420").await?;
         let notes_ids = all_associations(&client, &id, "notes").await?;
         let jobs = client
-            .batch_read("0-420", &jobs_ids, &["hs_name", "customer_sheet_url"])
+            .batch_read(
+                "0-420",
+                &jobs_ids,
+                &[
+                    "hs_name",
+                    "customer_sheet_url",
+                    "url_hrhakkaa",
+                    "url_airwork",
+                ],
+            )
             .await?;
         let notes = client
             .batch_read("notes", &notes_ids, &["hs_timestamp", "hs_note_body"])
@@ -702,6 +750,7 @@ pub(super) async fn detail(
                     url: link("0-420", &j.id),
                 })
                 .collect(),
+            job_pages: job_pages(&jobs),
             notes,
             sheet_embed: sheet_embeddable(sheet_url.as_deref()),
             sheet_url,
@@ -822,6 +871,7 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(sheet_url(&json!({}), &[]), None);
+        assert!(job_pages(&[]).is_empty());
         assert!(!sheet_embeddable(Some(
             "https://docs.google.com.example.invalid/spreadsheets/a"
         )));
@@ -831,6 +881,44 @@ mod tests {
         assert!(sheet_embeddable(Some(
             "https://docs.google.com/spreadsheets/d/fake/edit"
         )));
+    }
+    #[test]
+    fn job_pages_keep_http_links_and_name_them_by_media() {
+        let rec = |id: &str, name: &str, hrh: Option<&str>, aw: Option<&str>| {
+            crate::hubspot::HubSpotRecord {
+                id: id.into(),
+                properties: [
+                    ("hs_name".to_string(), Some(name.to_string())),
+                    ("url_hrhakkaa".to_string(), hrh.map(str::to_string)),
+                    ("url_airwork".to_string(), aw.map(str::to_string)),
+                ]
+                .into_iter()
+                .collect(),
+                created_at: None,
+                updated_at: None,
+                archived: false,
+            }
+        };
+        let one = job_pages(&[rec(
+            "1",
+            "検品",
+            Some(" https://example.invalid/a "),
+            Some("javascript:alert(1)"),
+        )]);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].label, "HRハッカー");
+        assert_eq!(one[0].url, "https://example.invalid/a");
+        let two = job_pages(&[
+            rec(
+                "1",
+                "検品",
+                Some("https://example.invalid/a"),
+                Some("https://example.invalid/b"),
+            ),
+            rec("2", "組立", Some("https://example.invalid/a"), None),
+        ]);
+        let labels: Vec<_> = two.iter().map(|l| l.label.as_str()).collect();
+        assert_eq!(labels, ["HRハッカー・検品", "AirWork・検品"]);
     }
     #[test]
     fn applicant_caches_expire_and_have_the_requested_production_ttls() {

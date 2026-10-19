@@ -33,3 +33,15 @@
 .applicants-app .applicant-identity h2 { font-size: 26px; margin: 0 0 10px; }
 .applicants-app .applicant-identity .crm-property-list { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .applicants-app .applicant-identity .crm-property-list > div { margin: 0; }
+.applicants-detail .applicant-tabs { position: sticky; top: -12px; z-index: 2; display: flex; flex-wrap: wrap; gap: 2px; margin: 0 -12px 12px; padding: 0 12px; background: #f5f7fa; border-bottom: 1px solid #dfe3eb; }
+.applicant-tabs [role="tab"] { border: 0; border-bottom: 3px solid transparent; background: transparent; padding: 10px 12px 8px; cursor: pointer; color: #33475b; font-size: 14px; }
+.applicant-tabs [role="tab"][aria-selected="true"] { border-bottom-color: #147ca0; color: #16496b; font-weight: 700; }
+.applicant-tabs [role="tab"]:hover { background: #eaf0f6; }
+.applicants-right .applicant-tabs { border-bottom: 1px solid #dfe3eb; }
+.applicant-jobpage { height: 100%; display: flex; flex-direction: column; gap: 8px; }
+.applicant-jobpage-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.applicant-jobpage-pick button { border: 1px solid #c3ccd5; background: white; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+.applicant-jobpage-pick button[aria-pressed="true"] { background: #dceaf4; border-color: #147ca0; font-weight: 700; }
+.applicants-right [role="tabpanel"]:not([hidden]) { display: flex; flex-direction: column; }
+.applicants-right .applicant-jobpage, .applicants-right .cq-linkview { flex: 1 1 auto; min-height: 480px; height: auto; }
+.applicants-detail .applicant-tabs [role="tab"] { padding: 9px 10px 7px; font-size: 13.5px; }

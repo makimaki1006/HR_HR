@@ -4,4 +4,8 @@ import type { ApplicantNote } from "./ApplicantNote";
 import type { ApplicantRow } from "./ApplicantRow";
 import type { ApplicantSection } from "./ApplicantSection";
 
-export type ApplicantDetail = { row: ApplicantRow, sections: Array<ApplicantSection>, phone: string, stop_reason: string | null, deep_link: string, jobs: Array<ApplicantLink>, notes: Array<ApplicantNote>, sheet_url: string | null, sheet_embed: boolean, };
+export type ApplicantDetail = { row: ApplicantRow, sections: Array<ApplicantSection>, phone: string, stop_reason: string | null, deep_link: string, jobs: Array<ApplicantLink>, 
+/**
+ * 求人票そのもの (媒体の掲載ページ)。関連の求人票の URL_HRハッカー / URL_AirWORK
+ */
+job_pages: Array<ApplicantLink>, notes: Array<ApplicantNote>, sheet_url: string | null, sheet_embed: boolean, };
