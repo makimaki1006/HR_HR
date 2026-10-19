@@ -175,3 +175,12 @@
   min-width: 55px;
   padding: 8px 6px;
 }
+
+.hj-main .hj-mtg-table th:first-child,
+.hj-main .hj-mtg-table td:first-child,
+.hj-main .hj-mtg-table th:nth-child(7),
+.hj-main .hj-mtg-table td:nth-child(7) {
+  white-space: nowrap;
+  min-width: 10ch;
+  overflow-wrap: normal;
+}

@@ -85,7 +85,15 @@ export function HoujinView() {
     loaded?.scope === scope && loaded.value.status === "ready"
       ? loaded.value
       : null;
-  const data = ready?.customer;
+  const rows = filterCustomers(ready?.index ?? [], query);
+  const matchesSelection = rows.some((r) => r.houjin === ready?.selected_houjin);
+  const firstMatch = rows[0]?.houjin;
+  useEffect(() => {
+    if (ready && !matchesSelection && firstMatch) {
+      updateJobCopyQuery({ houjin: firstMatch, houjin_site: null, risk_deal: null }, "replace");
+    }
+  }, [ready, matchesSelection, firstMatch]);
+  const data = matchesSelection ? ready?.customer : null;
   const deals = data?.deals ?? [];
   const [selection, setSelection] = useState<{
     houjin: string;
@@ -107,10 +115,9 @@ export function HoujinView() {
     [...sites].sort((a, b) => b.lastStart.localeCompare(a.lastStart))[0];
   const siteDeals = site?.rows ?? [];
   const siteIds = new Set(siteDeals.map((d) => d.deal_id));
-  const rows = filterCustomers(ready?.index ?? [], query);
   const selected =
     deals.find((d) => d.deal_id === query.get("risk_deal")) ??
-    (extraDeal?.scope === scope && extraDeal.id === query.get("risk_deal")
+    (matchesSelection && extraDeal?.scope === scope && extraDeal.id === query.get("risk_deal")
       ? { deal_id: extraDeal.id, name: extraDeal.name }
       : null);
   const choose = (houjin: string) => {
@@ -215,21 +222,13 @@ export function HoujinView() {
                 <label>
                   法人を選ぶ
                   <select
-                    value={ready.selected_houjin ?? ""}
+                    value={matchesSelection ? ready.selected_houjin ?? "" : ""}
                     onChange={(e) => {
                       choose(e.target.value);
                     }}
                   >
                     <option value="">法人を選ぶ</option>
-                    {(rows.some((r) => r.houjin === ready.selected_houjin)
-                      ? rows
-                      : [
-                          ...ready.index.filter(
-                            (r) => r.houjin === ready.selected_houjin,
-                          ),
-                          ...rows,
-                        ]
-                    ).map((r) => (
+                    {rows.map((r) => (
                       <option key={r.houjin} value={r.houjin}>
                         {r.name}（取引{r.deals ?? "—"} / 拠点{r.sites ?? "—"}）
                       </option>
@@ -427,6 +426,7 @@ export function HoujinView() {
                 </div>
               </details>
             </section>
+            {!rows.length && <p role="status">条件に合う法人がありません</p>}
             {data?.customer && (
               <>
                 <section aria-label="法人の数字">
@@ -654,7 +654,7 @@ export function HoujinView() {
                       />
                       <h3>MTGの履歴</h3>
                       <div className="hj-scroll">
-                        <table aria-label="MTGの履歴">
+                        <table aria-label="MTGの履歴" className="hj-mtg-table">
                           <thead>
                             <tr>
                               {[
@@ -859,7 +859,7 @@ export function HoujinView() {
                 </p>
               </>
             )}
-            {!data && <p>担当する法人はありません。</p>}
+            {rows.length > 0 && !data && <p role="status">法人を読み込んでいます…</p>}
             <p className="jh-note">
               会社との結び付き：{ready.linkage.total}法人中{" "}
               {ready.linkage.unmatched}法人が未確認

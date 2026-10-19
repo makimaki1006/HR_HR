@@ -31,7 +31,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   );
   await page.route("**/api/job-copy/houjin?*", (r) =>
     r.fulfill({
-      json: owner(r.request().url()) ? memberHoujinFixture : houjinFixture,
+      json: owner(r.request().url()) ? memberHoujinFixture : new URL(r.request().url()).searchParams.get("houjin") === "sample-b" ? { ...memberHoujinFixture, index: houjinFixture.index } : houjinFixture,
     }),
   );
   await page.route("**/api/job-copy/deals?*", (r) =>
@@ -175,6 +175,12 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
     .evaluate((el) =>
       window.scrollTo(0, el.getBoundingClientRect().top + scrollY - 125),
     );
+  const mtg = page.getByRole("table", { name: "MTGの履歴" });
+  for (const column of [1, 7]) {
+    const date = mtg.locator(`tbody tr:first-child td:nth-child(${column})`);
+    await expect(date).toHaveCSS("white-space", "nowrap");
+    expect(await date.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  }
   await page.screenshot({ path: `${shots}/02-houjin-trends-mtg.png` });
   await expect(page.getByRole("table", { name: "MTGの履歴" })).toContainText(
     "募集職種の追加",
@@ -211,7 +217,17 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(
     page.getByRole("columnheader", { name: "採用単価 ▲", exact: true }),
   ).toHaveAttribute("aria-sort", "ascending");
+  await expect(page.getByText("HubSpotの今の値と、シートにある最後のMTGを確認できます。")).toHaveCount(0);
+  const frame = page.locator(".db-scroll-frame");
+  await expect(frame).toHaveClass(/db-more-right/);
+  await expect(frame).toHaveCSS("position", "relative");
+  expect(await frame.evaluate(el => getComputedStyle(el, "::after").backgroundImage)).toContain("linear-gradient");
   await page.screenshot({ path: `${shots}/03-deals-cpa.png` });
+  const scroll = page.getByRole("region", { name: "案件一覧（横スクロール）" });
+  await scroll.evaluate(el => { el.scrollLeft = el.scrollWidth; });
+  await expect(frame).not.toHaveClass(/db-more-right/);
+  await scroll.evaluate(el => { el.scrollLeft = 0; });
+  await expect(frame).toHaveClass(/db-more-right/);
   await table
     .getByRole("button", { name: "架空の採用支援01", exact: true })
     .click();
@@ -229,9 +245,9 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
     ).toHaveValue("22");
     await expect(page).toHaveURL(/owner=22/);
     if (label === "法人") {
-      await expect(
-        page.getByRole("region", { name: "法人の数字" }),
-      ).toContainText("架空の法人わかば");
+      await expect(page.getByText("条件に合う法人がありません")).toBeVisible();
+      await expect(page.getByRole("region", { name: "法人の数字" })).toHaveCount(0);
+      await expect(page.getByRole("table", { name: "MTGの履歴" })).toHaveCount(0);
     } else
       await expect(
         page.getByText("該当する案件はありません。").first(),
@@ -242,6 +258,14 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(
     page.getByRole("combobox", { name: "担当者", exact: true }),
   ).toHaveValue("22");
+  await expect(page.getByText("条件に合う法人がありません")).toBeVisible();
+  await page.getByRole("button", { name: "条件を戻す", exact: true }).click();
+  await expect(page.getByRole("region", { name: "法人の数字" })).toContainText("架空の法人わかば");
+  await page.goto("/app/job-copy?view=houjin&owner=11&owner_field=consultant&houjin=sample-a&houjin_site=east");
+  await page.getByRole("textbox", { name: "法人の検索" }).fill("わかば");
+  await expect(page.getByRole("region", { name: "法人の数字" })).toContainText("架空の法人わかば");
+  await expect(page).toHaveURL(/houjin=sample-b/);
+  expect(new URL(page.url()).searchParams.has("houjin_site")).toBe(false);
   await page.goto("/app/job-copy?view=houjin&owner=11&owner_field=consultant");
   const listing = page
     .getByRole("table", { name: "掲載中の求人" })

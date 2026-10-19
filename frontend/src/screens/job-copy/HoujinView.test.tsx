@@ -53,8 +53,8 @@ function mock() {
       const data = u.pathname.endsWith("/company-deals")
         ? { company: { id: "501", name: "架空の会社・別表記" }, deals: [] }
         : u.pathname.endsWith("/houjin")
-          ? u.searchParams.get("owner") === "22"
-            ? memberHoujinFixture
+          ? u.searchParams.get("owner") === "22" || u.searchParams.get("houjin") === "sample-b"
+            ? { ...memberHoujinFixture, index: u.searchParams.get("owner") === "22" ? memberHoujinFixture.index : houjinIndex }
             : houjinFixture
           : u.pathname.endsWith("/deals")
             ? boardFixture
@@ -210,4 +210,40 @@ it("案件一覧の新しい列を両方向に並べ替える", async () => {
       "102",
     ]);
   }
+});
+
+it("条件が0社なら法人の内容を隠し、解除すると復元する", async () => {
+  window.history.replaceState(null, "", "/app/job-copy?view=houjin&owner=11");
+  mock();
+  render(<HoujinView />);
+  await screen.findByRole("region", { name: "法人の数字" });
+  fireEvent.change(screen.getByRole("textbox", { name: "法人の検索" }), { target: { value: "該当なし" } });
+  expect(screen.getByText("条件に合う法人がありません")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "法人の数字" })).toBeNull();
+  expect(screen.queryByRole("table", { name: "MTGの履歴" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "取引と求人" })).toBeNull();
+  expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "法人を選ぶ" }).value).toBe("");
+  fireEvent.click(screen.getByRole("button", { name: "条件を戻す" }));
+  expect(await screen.findByRole("region", { name: "法人の数字" })).toBeTruthy();
+});
+it("選択中の法人が条件から外れると先頭へ切り替え、拠点と詳細を解除する", async () => {
+  window.history.replaceState(null, "", "/app/job-copy?view=houjin&owner=11&houjin_site=east&risk_deal=101");
+  mock();
+  render(<HoujinView />);
+  await screen.findByRole("region", { name: "法人の数字" });
+  fireEvent.change(screen.getByRole("textbox", { name: "法人の検索" }), { target: { value: "わかば" } });
+  await waitFor(() => {
+    expect(screen.getByRole("region", { name: "法人の数字" }).textContent).toContain("架空の法人わかば");
+  });
+  expect(location.search).toContain("houjin=sample-b");
+  expect(location.search).not.toContain("houjin_site");
+  expect(location.search).not.toContain("risk_deal");
+  expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "法人を選ぶ" }).options.length).toBe(2);
+});
+it("担当変更後も絞り込みを保ち、0社なら法人を出さない", async () => {
+  window.history.replaceState(null, "", "/app/job-copy?view=houjin&owner=22&houjin_employees=1000");
+  mock();
+  render(<HoujinView />);
+  await screen.findByText("条件に合う法人がありません");
+  expect(screen.queryByRole("region", { name: "法人の数字" })).toBeNull();
 });
