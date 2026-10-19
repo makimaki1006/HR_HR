@@ -3169,7 +3169,7 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
 ///    案件一覧の応答（組み立て＋JSON 化、突き合わせは覚えた後）約 1.6〜1.9 秒のうちほとんどがここだった。
 ///    覚えた後は同じ条件で 約 0.17〜0.34 秒（5回）。シートを取り直した直後の1回目は、先読み・定期更新の後に
 ///    サーバが先に数えておく（`warm_deal_rows`）。画面の「読み直す」の1回だけは今もその場で数える
-pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
+pub(crate) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
     static MEMO: DiffMemo<(Vec<Value>, Value)> = std::sync::Mutex::new(None);
     let (rows, mut meta) =
         act_view_diff_memo_in(&MEMO, sheets, today, || deal_rows_uncached(sheets, today));

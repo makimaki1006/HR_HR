@@ -5,6 +5,7 @@ clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pin
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HubSpotListingsPanel } from './HubSpotListingsPanel';
+import { scopeFixture } from './consultantRisk.testFixtures';
 import { JobCopyScreen } from './JobCopyScreen';
 import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import type { JobCopyRecord } from './data';
@@ -22,7 +23,7 @@ const history: HubSpotVersions = {
 };
 const page = { listings: [row, ...Array.from({ length: 49 }, (_, index) => ({ ...row, id: String(index + 11), title: `合成求人${String(index + 11)}`, media_job_id: `AW-${String(index + 11)}` }))], titles: ['ドライバー', '看護師'], status: 'ready', total: 51, index_built_at: '2026-10-10T00:00:00Z', offset: 0, next_offset: 50, refreshing: false, refresh_failed: false };
 function mock() {
-  api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.includes('/versions') ? history : path.includes('offset=50') ? { ...page, listings: [{ ...row, id: '60', title: '合成の次ページ求人', media_job_id: 'AW-60' }], offset: 50, next_offset: null } : page }));
+  api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.includes('/consultant-scope?') ? scopeFixture : path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.includes('/versions') ? history : path.includes('offset=50') ? { ...page, listings: [{ ...row, id: '60', title: '合成の次ページ求人', media_job_id: 'AW-60' }], offset: 50, next_offset: null } : page }));
 }
 describe('HubSpot listing history', () => {
   it('preserves body, ordered URLs and unknown dates and counts in the existing record shape', () => {
@@ -128,7 +129,7 @@ describe('HubSpot listing history', () => {
     const fixed = { schemaVersion: 1, capturedAt, capture_bundle: { schemaVersion: 1, capturedAt,
       jobs: [{ id: 'synthetic-fixed', hubspotListingId: '30', title: '合成の固定求人', company: '合成会社', media: 'HRハッカー', mediaJobId: 'HR-30', location: '大分県', body: '合成の固定本文', images: [] }] },
       results: [{ listing_id: '30', summary: { total: 2, missing_date: 0, by_date: { '2026-10-05': 2 }, dimensions: {} }, dated_comparison: null }] };
-    api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.endsWith('/moc') ? fixed : path.endsWith('/listing-status') ? { listings: {} } : path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.includes('/versions') ? history : page }));
+    api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.includes('/consultant-scope?') ? scopeFixture : path.endsWith('/moc') ? fixed : path.endsWith('/listing-status') ? { listings: {} } : path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.includes('/versions') ? history : page }));
     const { container } = render(<JobCopyScreen />);
     await waitFor(() => { expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成の固定求人'); });
     fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
@@ -172,7 +173,7 @@ describe('opening a listing quickly', () => {
     if (path.endsWith('/company')) return company ?? Promise.resolve({ ok: true, data: { listing_id: row.id, company_name: '合成運輸株式会社' } });
     const id = /listings\/(\d+)\/versions/.exec(path)?.[1];
     if (id) return Promise.resolve({ ok: true, data: { ...history, listing: id === row.id ? row : { ...row, id, title: `合成求人${id}` } } });
-    return Promise.resolve({ ok: true, data: path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.endsWith('/moc') ? { error: 'x' } : page });
+    return Promise.resolve({ ok: true, data: path.includes('/consultant-scope?') ? scopeFixture : path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.endsWith('/moc') ? { error: 'x' } : page });
   };
   it('draws the body before the customer name and fills the name in when it arrives', async () => {
     window.history.replaceState(null, '', '/app/job-copy?demo=1');

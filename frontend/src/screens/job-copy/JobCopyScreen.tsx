@@ -1,3 +1,5 @@
+import { ConsultantMenu, ConsultantMenuHeader } from './ConsultantMenu';
+import { ConsultantRisk } from './ConsultantRisk';
 import { DealBoard } from './DealBoard';
 import { detailQueryKeys, navigateJobCopy, updateJobCopyQuery, useJobCopySearch } from './navigation';
 import type { ListingNavigation } from './ListingPopup';
@@ -564,7 +566,7 @@ function JobCopyMain() {
   const sideMode = sidebarMode(sideLevel, Boolean(sideDealId));
   const scopeDeal = sideMode === 'listings' && !finding && sideDealId ? { id: sideDealId, name: [comparisonDeal?.name, trailNames.deal, dealSel?.name].find(Boolean) ?? '' } : undefined;
   const shownTrail: Trail = comparisonDeal ? { ...(trail.company ? { company: trail.company } : {}), deal: comparisonDeal.id } : listingDetail === 'idle' ? trail.company ? { company: trail.company } : {} : trail;
-  return <MarketCacheContext.Provider value={marketCache}><div className="jc-app"><div className="jc-topline"><header className="jc-page-heading"><h1>案件管理</h1><InfoTip className="jc-mode jc-infotip-left" label="試作画面"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip></header>
+  return <MarketCacheContext.Provider value={marketCache}><div className="jc-page"><div className="jc-topline"><header className="jc-page-heading"><h1>案件管理</h1><InfoTip className="jc-mode jc-infotip-left" label="試作画面"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip></header><ConsultantMenuHeader />
     <div className="jc-demo" title={bannerText}><strong>{bannerLabel}</strong><span>{bannerText}</span></div>
     {snapshotAt && <InfoTip className="jc-snapshot-tip" label="取り込んだ内容"><section className="jc-snapshot-summary" aria-label="取り込んだ内容の内訳"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>取り込んだ本文</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募（HubSpot記録分・求人ごとの件数の合計（重複あり））</span><span>どの本文への応募か分からない応募 <strong>{records.reduce((sum, job) => sum + (unmatchedApplicationCount(job) ?? 0), 0)}</strong>件（求人ごとの件数の合計（重複あり））</span><span>期間比較表の本文の行に入らない応募 <strong>{records.reduce((sum, job) => sum + (applicationsOutsideTimeline(job) ?? 0), 0)}</strong>件（求人ごとの件数の合計（重複あり））</span></section><p className="jc-snapshot-note">1件の応募が複数の求人に関連することがあるため、求人ごとの件数を足した値は応募の実数より多いことがあります。「期間比較表の本文の行に入らない応募」は、応募日が無い応募、最初の確認より前・文面を確認した日の間・最後の確認より後の日付の応募、複数の求人に関連する応募です。</p></InfoTip>}
     <button type="button" className="jc-button jc-import-toggle" aria-expanded={importOpen} aria-controls="job-copy-data-import" onClick={toggleImport}>データ取込</button></div>
@@ -606,5 +608,6 @@ function JobCopyMain() {
 /** `?view=occupations` は職種の一括指定画面。それ以外は従来の案件管理。 */
 export function JobCopyScreen() {
   const view = new URLSearchParams(useJobCopySearch()).get('view');
-  return view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : <JobCopyMain />;
+  const [menuVisit, setMenuVisit] = useState(0);
+  return <ConsultantMenu onNavigate={() => { setMenuVisit(n => n + 1); }} inlineHeader={!['risk', 'deals', 'occupations'].includes(view ?? '')}>{view === 'risk' ? <ConsultantRisk /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : <JobCopyMain key={menuVisit} />}</ConsultantMenu>;
 }

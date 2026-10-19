@@ -1,0 +1,37 @@
+.cm-menu { position: sticky; top: 0; z-index: 20; padding: 6px 16px; border-bottom: 1px solid #d4dfe7; }
+.cm-menu nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 0; }
+.cm-menu nav button { border: 1px solid #beced8; border-radius: 6px; background: white; padding: 4px 12px; }
+.cm-menu nav button[aria-current=page] { background: #007c91; color: white; border-color: #007c91; }
+.cm-menu nav a { margin-left: auto; color: #006a7d; }
+.cm-menu .jh-owner { margin: 0; }
+.cr-main { padding: 24px; max-width: 1600px; margin: auto; }
+.cr-main > header, .cr-detail > header { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
+.cr-main section { margin-top: 24px; }
+.cr-main h1 { font-size: 24px; }.cr-main h2 { font-size: 18px; margin-bottom: 0; }
+.cr-main h2 small { font-size: 13px; font-weight: normal; margin-left: 8px; }
+.cr-scroll { overflow-x: auto; background: white; border: 1px solid #d4dfe7; border-radius: 8px; }
+.cr-main table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.cr-main th, .cr-main td { text-align: left; padding: 12px; border-bottom: 1px solid #e1e8ed; vertical-align: top; overflow-wrap: anywhere; }
+.cr-main thead { background: #edf3f6; }.cr-main th:first-child { width: 23%; }.cr-main th:nth-child(3) { width: 31%; }
+.cr-main tbody tr { cursor: pointer; }.cr-main tbody tr:hover { background: #f6fafb; }
+.cr-main td small, .cr-main th small { display: block; font-weight: normal; color: #52697a; }
+.cr-flags { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 0; list-style: none; }
+.cr-flags li { border: 1px solid #d4dfe7; border-radius: 5px; padding: 4px 8px; background: #f4f7f9; font-size: 12px; }
+.cr-flags li strong { font-weight: 500; }.cr-flags small { display: block; }.cr-flags .cr-new { background: #fff0e5; border-color: #d99045; color: #783700; }.cr-flags span { margin-left: 8px; font-size: 11px; }
+.cr-detail { width: min(860px, 95vw); max-height: 88dvh; padding: 24px; border: 1px solid #beced8; border-radius: 12px; overflow-y: auto; }
+.cr-detail::backdrop { background: #122b3d80; }.cr-detail h2 { font-size: 20px; }.cr-detail h3 { font-size: 16px; }
+.cr-detail > .cr-flags, .cr-detail section, .cr-detail footer { margin-top: 20px; }.cr-detail article { padding: 12px 0; border-bottom: 1px solid #d4dfe7; white-space: pre-wrap; overflow-wrap: anywhere; }.cr-detail h4 { margin: 0; }.cr-detail footer { display: flex; gap: 24px; align-items: center; }
+@media (max-width: 760px) { .cr-main, .cm-menu { position: sticky; top: 0; z-index: 20; padding: 12px; }.cr-main table { min-width: 850px; }.cm-menu nav a { margin-left: 0; } }
+.cr-detail { margin: auto; }
+
+.cm-owner:empty { display: none; }
+.cm-menu > .jh-owner, .cm-owner:not(:empty) { margin-top: 6px; }
+.cm-owner-popover { position: fixed; inset: auto 16px auto auto; margin: 0; width: min(700px, 90vw); padding: 12px; background: white; border: 1px solid #d4dfe7; border-radius: 6px; box-shadow: 0 4px 12px #122b3d20; }
+
+.jc-topline > .cm-menu { flex: 0 1 auto; padding: 0; border: 0; position: static; z-index: auto; }
+.jc-topline > .cm-menu nav { gap: 8px; }
+.jc-topline > .cm-menu nav a { margin-left: auto; }
+
+/* 担当の2項目を同じ行に保ち、求人作業中の見出し行の高さは増やさない。 */
+.jc-topline > .cm-menu:has(.cm-owner:not(:empty)) { flex: 1 1 660px; }
+.jc-topline:has(> .cm-menu) > .jc-demo { flex-basis: 0; }

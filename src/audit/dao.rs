@@ -522,6 +522,13 @@ pub fn purge_old_activity(audit: &AuditDb) -> Result<(), String> {
         "DELETE FROM login_sessions WHERE started_at < ?1",
         &[&cutoff],
     )?;
+    let flags_cutoff = (chrono::Utc::now() - chrono::Duration::days(400))
+        .format("%Y-%m-%d")
+        .to_string();
+    audit.turso().execute(
+        "DELETE FROM consulting_deal_flags WHERE data_day < ?1",
+        &[&flags_cutoff],
+    )?;
     crate::crm::email::tracking::purge_old_tracking(audit.turso(), cutoff_at.timestamp_millis())?;
     tracing::info!(cutoff = %cutoff, "purged activity/sessions/email tracking older than 1 year");
     Ok(())

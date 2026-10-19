@@ -505,6 +505,20 @@ impl Snapshot {
                 .is_some_and(|d| d.assignment.assigned(field) == Some(id))
         })
     }
+    pub(super) fn scope(&self, query: &OwnerQuery, email: &str) -> Value {
+        let (owner, notice) = self.selection(query, email);
+        let field = query.field();
+        let assigned: BTreeSet<_> = self
+            .deals
+            .values()
+            .filter_map(|d| d.assignment.assigned(field))
+            .collect();
+        let options: Vec<_> = self.owners.iter().filter(|o| assigned.contains(o.id.as_str())).map(|o| json!({"id":o.id,"name":format!("{}{}",o.name,if o.archived {"（退職）"} else {""}),"archived":o.archived})).collect();
+        json!({"status":"ready", "owner":owner.as_deref().unwrap_or("all"), "owner_field":field, "notice":notice, "owners":options})
+    }
+    pub(super) fn action_label(&self, value: Option<&str>) -> Option<&str> {
+        value.and_then(|v| self.labels.get(v)).map(String::as_str)
+    }
     #[cfg(test)]
     pub(super) fn report(
         &self,
@@ -530,14 +544,9 @@ impl Snapshot {
         meetings: &super::deal_board::MeetingData,
     ) -> Value {
         let metrics = super::deal_board::Metrics::new(self, meetings, today);
-        let (owner, notice) = self.selection(query, email);
+        let scope = self.scope(query, email);
+        let (owner, _) = self.selection(query, email);
         let field = query.field();
-        let assigned: BTreeSet<_> = self
-            .deals
-            .values()
-            .filter_map(|d| d.assignment.assigned(field))
-            .collect();
-        let options: Vec<_> = self.owners.iter().filter(|o| assigned.contains(o.id.as_str())).map(|o| json!({"id":o.id,"name":format!("{}{}",o.name,if o.archived {"（退職）"} else {""}),"archived":o.archived})).collect();
         let mut actions = BTreeMap::<&str, Vec<Value>>::from([
             ("overdue", vec![]),
             ("today", vec![]),
@@ -619,7 +628,7 @@ impl Snapshot {
                 })
                 .then_with(|| a["id"].as_str().cmp(&b["id"].as_str()))
         });
-        json!({"status":"ready","owner":owner.as_deref().unwrap_or("all"),"owner_field":field,"notice":notice,"owners":options,"actions":actions,"expirations":expirations,"signals":signals,"sheet_as_of":meetings.as_of,"refresh_failed":failed})
+        json!({"status":"ready","owner":owner.as_deref().unwrap_or("all"),"owner_field":field,"notice":scope["notice"],"owners":scope["owners"],"actions":actions,"expirations":expirations,"signals":signals,"sheet_as_of":meetings.as_of,"refresh_failed":failed})
     }
 }
 pub(super) fn today(now: chrono::DateTime<Utc>) -> NaiveDate {

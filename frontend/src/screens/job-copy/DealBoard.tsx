@@ -64,7 +64,7 @@ export function DealBoard() {
   const page = Math.min(pages, /^[1-9]\d{0,5}$/.test(requested) ? Number(requested) : 1);
   const change = (values: Record<string, string | null>) => { updateJobCopyQuery({ ...values, deals_page: null }, 'replace'); };
   const changeSort = (key: DealSort) => { change({ deals_sort: key, deals_direction: sort === key && descending ? 'asc' : 'desc' }); };
-  return <div className="jc-app"><main className="jc-detail jh-home db-board" id="job-details">
+  return <div className="jc-page"><main className="jc-detail jh-home db-board" id="job-details">
     <Breadcrumbs crumbs={[{ level: 'home', label: '案件管理', current: false }, { level: 'deal', label: '案件の一覧', current: true }]} onSelect={() => { updateJobCopyQuery({ view: null }); }} />
     <header className="jh-head"><div><h1>案件の一覧</h1><p>{firstOnly ? '初回案件の応募の立ち上がりを確認できます。' : 'HubSpotの今の値と、シートにある最後のMTGを確認できます。'}</p></div><button className="jc-button" onClick={() => { setReload(n => n + 1); }}>再読み込み</button></header>
     {error && <p role="alert">{error}</p>}
