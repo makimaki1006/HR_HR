@@ -22,6 +22,7 @@ describe('job copy shared application shell', () => {
     vi.stubGlobal('fetch', vi.fn((input: string) => {
       calls.push(input);
       if (input === '/api/nav') return Promise.resolve(response(nav));
+      if (input.startsWith('/api/job-copy/consultant-scope?')) return Promise.resolve(response({ status: 'ready', owner: 'all', owner_field: 'consultant', notice: null, owners: [] }));
       if (input === '/api/job-copy/moc') return Promise.resolve(response({ code: 'login_required' }, 401));
       throw new Error('Unexpected endpoint in isolated shell test');
     }));
@@ -34,7 +35,7 @@ describe('job copy shared application shell', () => {
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('ログインが必要です'); });
     expect(screen.getByRole('link', { name: '再ログインする' }).getAttribute('href')).toBe('/login');
     expect(container.querySelectorAll('.jc-job')).toHaveLength(0);
-    expect(calls.every(path => path === '/api/nav' || path === '/api/job-copy/moc')).toBe(true);
+    expect(calls.every(path => path === '/api/nav' || path === '/api/job-copy/moc' || path.startsWith('/api/job-copy/consultant-scope?'))).toBe(true);
   });
 
   it('keeps explicit demo mode inside the shared shell without fetching private snapshots or global geography filters', async () => {

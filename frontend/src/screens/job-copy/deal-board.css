@@ -49,3 +49,15 @@
 .db-week-bars b{display:block;background:#13889b;border-radius:2px 2px 0 0;min-width:3px}
 .db-launch-below{color:#a33a17;font-weight:600}
 .db-launch-on_track{color:#12684c}
+
+.db-board-scroll {position:relative;overflow-x:auto;max-width:100%;}
+.db-board-scroll>.db-table {min-width:1350px;}
+.db-board .db-board-scroll>.db-table {table-layout:auto;min-width:1500px;}
+.db-board .db-board-scroll>.db-table>thead>tr>th {width:auto;min-width:82px;}
+.db-board .db-board-scroll>.db-table>thead>tr>th:first-child {min-width:190px;}
+.db-board .db-board-scroll>.db-table>thead>tr>th:nth-child(2) {min-width:150px;}
+.db-board .db-board-scroll>.db-table>thead>tr>th.db-toggle-column {min-width:26px;}
+.db-board-scroll {scroll-margin-top:125px;}
+
+.db-scroll-frame {position:relative;min-width:0;}
+.db-more-right::after {content:"";position:absolute;top:0;right:0;bottom:0;width:24px;background:linear-gradient(to right,transparent,rgba(38,60,75,.3));pointer-events:none;}

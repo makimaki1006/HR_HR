@@ -21,6 +21,11 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
 }
 
 const TABLE_DDL: &[&str] = &[
+    // ADR-032: empty deal/key is the daily completion marker, including zero flags.
+    r#"CREATE TABLE IF NOT EXISTS consulting_deal_flags (
+        data_day TEXT NOT NULL, deal_id TEXT NOT NULL, flag_key TEXT NOT NULL,
+        since_day TEXT NOT NULL, PRIMARY KEY(data_day, deal_id, flag_key)
+    )"#,
     // コンサルKPI: 顧客情報を持たない、データの日ごとの担当者別件数。
     r#"CREATE TABLE IF NOT EXISTS consulting_team_counts (
         data_day TEXT NOT NULL, consultant TEXT NOT NULL, metric TEXT NOT NULL,

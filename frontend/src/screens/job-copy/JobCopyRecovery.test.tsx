@@ -4,6 +4,9 @@ pinSidebarBeforeEach(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned'
 clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pinned'); });
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactNode } from 'react';
+// Recovery tests isolate the snapshot transport; menu requests are covered separately.
+vi.mock('./ConsultantMenu', () => ({ ConsultantMenuHeader: () => null, ConsultantMenu: ({ children }: { children: ReactNode }) => children }));
 import { JobCopyScreen } from './JobCopyScreen';
 
 const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });

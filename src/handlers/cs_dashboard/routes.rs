@@ -366,7 +366,7 @@ async fn deal_detail(
 ///
 /// 🔴 **母集団（`population`）もここで足す。** 画面ごとに数えると、タブによって
 /// 母集団が違う画面に戻ってしまう（実測で②593件・③703件と食い違っていた）。
-pub(super) fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value {
+pub(crate) fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value {
     // 🔴 母集団は**ここで1回だけ**作って全部の画面に載せる。
     //    画面ごとに数えると、タブによって数が違う画面に戻る。
     if let Some(o) = v.as_object_mut() {
@@ -3169,7 +3169,7 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
 ///    案件一覧の応答（組み立て＋JSON 化、突き合わせは覚えた後）約 1.6〜1.9 秒のうちほとんどがここだった。
 ///    覚えた後は同じ条件で 約 0.17〜0.34 秒（5回）。シートを取り直した直後の1回目は、先読み・定期更新の後に
 ///    サーバが先に数えておく（`warm_deal_rows`）。画面の「読み直す」の1回だけは今もその場で数える
-pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
+pub(crate) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
     static MEMO: DiffMemo<(Vec<Value>, Value)> = std::sync::Mutex::new(None);
     let (rows, mut meta) =
         act_view_diff_memo_in(&MEMO, sheets, today, || deal_rows_uncached(sheets, today));

@@ -7,6 +7,7 @@ struct Fake {
     forbidden: bool,
     sheet: Option<String>,
     large_queue: bool,
+    due_count: usize,
     delay_ms: u64,
     inflight: usize,
     max_inflight: usize,
@@ -66,15 +67,22 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
                     .get("after")
                     .map_or(0, |a| a.as_str().unwrap().parse::<usize>().unwrap());
                 let total = if body["limit"] == 1 {
-                    62
+                    62 + f.due_count
                 } else if kind == "yakusokukadennichiji" {
-                    0
+                    f.due_count
                 } else {
                     31
                 };
                 let mut rows = Vec::new();
                 if body["limit"] != 1 && total > 0 {
-                    for i in offset..(offset + 30).min(31) {
+                    for i in offset..(offset + 30).min(total) {
+                        if kind == "yakusokukadennichiji" {
+                            let mut a = applicant(&(3000 + i).to_string(), "2026-10-01");
+                            a["properties"]["yakusokukadennichiji"] =
+                                json!(format!("2026-10-01T00:{i:02}:00Z"));
+                            rows.push(a);
+                            continue;
+                        }
                         let dated = kind == "yingmuri";
                         let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 31).unwrap()
                             - chrono::Duration::days((i * 2 + usize::from(!dated)) as i64);
@@ -168,7 +176,7 @@ async fn applicants_queue_search_phases_cursor_total_cache_and_fresh() {
             .iter()
             .filter(|(p, _)| p.ends_with("search"))
             .collect();
-        assert_eq!(searches.len(), 2);
+        assert_eq!(searches.len(), 4);
         assert!(searches.iter().all(|(_, b)| b.get("after").is_none()));
         let body = &searches[1].1;
         assert_eq!(
@@ -197,14 +205,12 @@ async fn applicants_queue_search_phases_cursor_total_cache_and_fresh() {
         get_json(&app, &format!("{url}&fresh=1"), &c).await.0,
         StatusCode::OK
     );
-    assert_eq!(f.lock().unwrap().requests.len(), n + 2);
-    let cursor = a["next_cursor"].as_str().unwrap();
-    let (status, _, b) = get_json(&app, &format!("{url}&cursor={cursor}"), &c).await;
-    assert_eq!(status, StatusCode::OK, "{b}");
-    assert_eq!(b["items"][0]["id"], "101");
-    assert_eq!(b["items"][1]["id"], "102");
-    assert_eq!(b["next_cursor"], Value::Null);
-    assert_eq!(b["items"][1]["date"], "2026-10-16T01:00:00Z");
+    assert_eq!(f.lock().unwrap().requests.len(), n + 4);
+    assert_eq!(a["items"].as_array().unwrap().len(), 3);
+    assert_eq!(a["items"][1]["id"], "101");
+    assert_eq!(a["items"][2]["id"], "102");
+    assert_eq!(a["next_cursor"], Value::Null);
+    assert_eq!(a["items"][2]["date"], "2026-10-16T01:00:00Z");
     {
         let g = f.lock().unwrap();
         let dated = &g.requests[g.requests.len() - 2].1;
@@ -216,17 +222,71 @@ async fn applicants_queue_search_phases_cursor_total_cache_and_fresh() {
             "NOT_HAS_PROPERTY"
         );
     }
-    assert_eq!(
-        get_json(
-            &app,
-            &format!("/api/crm/applicants/queue?cursor={cursor}"),
-            &c
-        )
-        .await
-        .0,
-        StatusCode::BAD_REQUEST
-    );
 }
+#[tokio::test]
+async fn applicants_due_pages_fill_and_resume_without_duplicates() {
+    for due_count in [3, 30, 31] {
+        let (app, c, f) = app().await;
+        {
+            let mut fake = f.lock().unwrap();
+            fake.large_queue = true;
+            fake.due_count = due_count;
+        }
+        let url = "/api/crm/applicants/queue?media=web";
+        let (status, _, first) = get_json(&app, url, &c).await;
+        assert_eq!(status, StatusCode::OK, "{first}");
+        assert_eq!(first["total"], 62 + due_count);
+        assert_eq!(first["items"].as_array().unwrap().len(), 30);
+        let n = f.lock().unwrap().requests.len();
+        assert_eq!(n, if due_count < 30 { 6 } else { 4 });
+        assert_eq!(get_json(&app, url, &c).await.2, first);
+        assert_eq!(f.lock().unwrap().requests.len(), n);
+        let cursor = first["next_cursor"].as_str().unwrap().to_owned();
+        assert_eq!(
+            get_json(
+                &app,
+                &format!("/api/crm/applicants/queue?cursor={cursor}"),
+                &c
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+        let mut page = first;
+        let mut ids = Vec::new();
+        for page_index in 0..4 {
+            assert_eq!(page["total"], 62 + due_count);
+            if page_index == 1 {
+                let expected = match due_count {
+                    3 => "2013",
+                    30 => "1000",
+                    _ => "3030",
+                };
+                assert_eq!(page["items"][0]["id"], expected);
+            }
+            ids.extend(
+                page["items"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|r| r["id"].as_str().unwrap().to_owned()),
+            );
+            let Some(cursor) = page["next_cursor"].as_str() else {
+                break;
+            };
+            let (status, _, next) = get_json(&app, &format!("{url}&cursor={cursor}"), &c).await;
+            assert_eq!(status, StatusCode::OK, "{next}");
+            page = next;
+        }
+        assert_eq!(page["next_cursor"], Value::Null);
+        let expected: Vec<_> = (0..due_count)
+            .map(|i| (3000 + i).to_string())
+            .chain((0..31).flat_map(|i| [(1000 + i).to_string(), (2000 + i).to_string()]))
+            .collect();
+        assert_eq!(ids, expected, "due_count={due_count}");
+    }
+}
+
 #[tokio::test]
 async fn applicants_detail_labels_empty_fields_sheet_notes_cache_and_fresh() {
     let (app, c, f) = app().await;

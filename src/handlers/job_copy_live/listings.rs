@@ -141,6 +141,7 @@ pub(super) fn is_delivery(pipeline: Option<&str>) -> bool {
 }
 #[path = "listing_home.rs"]
 mod home;
+pub(super) use home::application_trend;
 pub(super) use home::{read as read_home, refresh_deal};
 #[cfg(test)]
 #[path = "listing_cache_tests.rs"]
@@ -3164,4 +3165,34 @@ pub(super) async fn enrich_recent_changes(
             .collect::<Vec<_>>()
     });
     home::enrich_recent_changes(data, records.as_deref(), today);
+}
+
+/// ホームで数えた同じ4週を、結び付く案件ごとに合算する。
+pub(super) async fn consultant_applications(
+    service: &JobReadService,
+) -> Option<(BTreeMap<String, (i64, i64)>, bool, bool)> {
+    let cache = service.listing_index.state.read().await;
+    let index = cache.snapshot.as_ref()?;
+    Some((
+        application_totals(&index.records),
+        cache.refreshing,
+        cache.refresh_failed,
+    ))
+}
+
+fn application_totals(records: &[Listing]) -> BTreeMap<String, (i64, i64)> {
+    let mut totals = BTreeMap::<String, (i64, i64)>::new();
+    for listing in records {
+        let Some(perf) = &listing.perf else { continue };
+        let mut seen = BTreeSet::new();
+        for id in &listing.deal_ids {
+            if !seen.insert(id) {
+                continue;
+            }
+            let total = totals.entry(id.clone()).or_default();
+            total.0 += perf.prev_apps;
+            total.1 += perf.recent_apps;
+        }
+    }
+    totals
 }
