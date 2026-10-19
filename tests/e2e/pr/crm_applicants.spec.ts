@@ -1,3 +1,4 @@
+import { applicantQueueFixture, applicantDetailFixture } from '../../../frontend/src/screens/crm/applicantFixture';
 import { expect, test } from '@playwright/test';
 import { login } from './helpers/login';
 import * as fs from 'node:fs';
@@ -209,4 +210,73 @@ test('応募: 検索対象と関連カードへの移動', async ({ page }) => {
   await expect(page.getByLabel('検索対象')).toHaveValue('deal');
   await expect(page.getByText('1件', { exact:true })).toBeVisible();
   expect(requests).toEqual([]);
+});
+
+
+test('応募: 詳細の読み込み中は氏名未登録・架電禁止を表示しない', async ({ page }) => {
+  await page.setViewportSize({ width:1512, height:742 });
+  await login(page);
+  await page.route('https://www.example.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:postingHtml }));
+  await page.route('https://docs.google.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:sheetHtml }));
+  let release: () => void = () => {};
+  let gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/crm/**', async route => {
+    if (route.request().url().includes('/applicants/queue')) {
+      await route.fulfill({ json: applicantQueueFixture });
+    } else if (/\/applicants\/9000[13]/.test(route.request().url())) {
+      await gate;
+      const id = route.request().url().includes('90003') ? '90003' : '90001';
+      await route.fulfill({ json: applicantDetailFixture(id, '') });
+    } else await route.abort();
+  });
+  await page.route('https://applications.zoom.us/**', route => route.abort());
+  await page.goto('/app/crm?mode=applicants&applicant=90003');
+  const overview = page.getByRole('main', { name:'応募の詳細' });
+  await expect(overview.getByRole('heading', { level:2 })).toHaveText('読み込み中…');
+  await expect(overview.getByTestId('dial-disabled-reason')).toHaveText('読み込み中…');
+  await expect(overview.getByRole('button', { name:/に発信/ })).toBeDisabled();
+  await expect(overview).not.toContainText('氏名未登録');
+  await expect(overview).not.toContainText('架電禁止またはブロック');
+  const output = process.env.CRM_APPLICANTS_FIXES_ARTIFACTS;
+  if (output) { fs.mkdirSync(output, { recursive:true }); await page.screenshot({ path:path.join(output, '01-loading.png') }); }
+  release();
+  await expect(overview.getByRole('heading', { level:2 })).toHaveText('架空 そら');
+  gate = new Promise<void>(resolve => { release = resolve; });
+  await page.getByRole('list', { name:'応募キュー' }).getByRole('button', { name:/架空 はるか/ }).click();
+  await expect(overview.getByRole('heading', { level:2 })).toHaveText('架空 はるか');
+  await expect(overview.getByTestId('dial-disabled-reason')).toHaveText('読み込み中…');
+  await expect(overview).not.toContainText('架電禁止またはブロック');
+  release();
+  await expect(overview.getByText('応募のお礼を伝え、希望の勤務時間を確認してください。')).toBeVisible();
+});
+
+test('応募: プロパティから検索・絞り込みで一覧へ戻り、未選択の再表示も一覧になる', async ({ page }) => {
+  await page.setViewportSize({ width:1512, height:742 });
+  await login(page);
+  await page.route('https://www.example.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:postingHtml }));
+  await page.route('https://docs.google.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:sheetHtml }));
+  await page.goto('/app/crm?mode=fixture&crmMode=applicants');
+  await page.getByRole('tab', { name:'プロパティ', exact:true }).click();
+  await page.reload();
+  const queueTab = page.getByRole('tab', { name:'応募一覧', exact:true });
+  await expect(queueTab).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name:/架空 はるか/ }).click();
+  await page.getByRole('tab', { name:'プロパティ', exact:true }).click();
+  await page.getByLabel('応募を検索').fill('あおい');
+  await expect(queueTab).toHaveAttribute('aria-selected', 'true');
+  const queue = page.getByRole('list', { name:'応募キュー' });
+  await expect(queue.getByRole('button')).toContainText('架空 あおい');
+  const output = process.env.CRM_APPLICANTS_FIXES_ARTIFACTS;
+  if (output) { fs.mkdirSync(output, { recursive:true }); await page.screenshot({ path:path.join(output, '02-search-from-properties.png') }); }
+  await page.getByRole('button', { name:'条件を変更' }).click();
+  for (const [label, value] of [['検索対象','deal'], ['範囲','all'], ['応募媒体','架空求人サイト']]) {
+    await page.getByRole('tab', { name:'プロパティ', exact:true }).click();
+    await page.getByRole('combobox', { name:label, exact:true }).selectOption(value);
+    await expect(queueTab).toHaveAttribute('aria-selected', 'true');
+  }
+  await page.getByRole('tab', { name:'プロパティ', exact:true }).click();
+  await page.getByRole('button', { name:'ステージ（6件選択）' }).click();
+  await page.getByRole('checkbox', { name:'朝連絡', exact:true }).uncheck();
+  await page.getByRole('button', { name:'適用', exact:true }).click();
+  await expect(queueTab).toHaveAttribute('aria-selected', 'true');
 });

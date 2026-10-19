@@ -16,11 +16,11 @@ export const applicantAllQueueFixture: ApplicantQueue = {
   ...applicantQueueFixture, items: [outside, ...items], total: 3,
   pipelines: [...applicantQueueFixture.pipelines, { id: 'fixture-other', label: '採用管理（架空）', stages: [{ id: outside.stage_id, label: outside.stage }] }],
 };
-export function applicantDetailFixture(id: string): ApplicantDetail {
+export function applicantDetailFixture(id: string, search = window.location.search): ApplicantDetail {
   const row = applicantAllQueueFixture.items.find(i => i.id === id) ?? first;
   return {
     values: { hs_pipeline: id === outside.id ? 'fixture-other' : 'fixture', hs_pipeline_stage: row.stage_id, renrakukakuninmokuteki: '10/18 午後の連絡を希望', meeruadoresu: 'applicant@example.invalid', denwabangou: row.phone, hoyuushikaku_hiaringu: 'none', shuugyoujoukyou: '旧項目: 在職中', nyuushakiboujiki: '旧項目: 相談' },
-    writes_enabled: id !== outside.id && new URLSearchParams(window.location.search).get('writes') !== 'off',
+    writes_enabled: id !== outside.id && new URLSearchParams(search).get('writes') !== 'off',
     write_pipeline: id === outside.id ? null : { id: 'fixture', label: '一次対応_BPO', stages: [...(applicantQueueFixture.pipelines[0]?.stages.filter(s => !s.id.startsWith('fixture-filter-')) ?? []), ...['昼連絡','夕連絡','約束あり連絡','選考書類待ち','足切り猶予期間','一次対応実施済'].map((label, i) => ({id:`fixture-stage-${String(i)}`,label}))] },
     editable: [
       ...[['taioushubetsu','対応種別'],['ichijitaioujisshinaiyou','一次対応実施内容'],['ouboshahenobaitaimerusoufu','応募者への媒体メール送付'],['senkoushoruikaishuu','選考書類回収'],['ouboshajouhoukanrishito','応募者情報管理シート'],['bpotaishougairiyuu','BPO対象外理由']].map(([name, label]) => ({name:name ?? '',label:label ?? '',property_type:'enumeration',field_type:'select',options:[{value:'done',label:'確認済み',hidden:false},{value:'waiting',label:'確認待ち',hidden:false}],section:'結果'})),

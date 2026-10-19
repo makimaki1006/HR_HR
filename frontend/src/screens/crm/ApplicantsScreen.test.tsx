@@ -260,3 +260,56 @@ it('応募の概要から求人票・取引カードを開き、今の契約と�
   expect(within(deal).getByText('解約済み')).toBeTruthy();
   expect(fetcher).not.toHaveBeenCalled();
 });
+
+it.each([false, true])('詳細の応答待ちは読み込み中と表示し、禁止理由は届いたときだけ表示する（一覧選択=%s）', async fromQueue => {
+  if (!fromQueue) window.history.replaceState(null, '', '/?applicant=90003');
+  let finish: ((value: unknown) => void) | undefined;
+  vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/queue')
+    ? Promise.resolve({ ok: true, json: () => Promise.resolve(applicantQueueFixture) })
+    : new Promise(resolve => { finish = resolve; })));
+  render(<ApplicantsScreen fixture={false} />);
+  await screen.findByText('2件');
+  if (fromQueue) fireEvent.click(screen.getByRole('button', { name: /架空 はるか/ }));
+  const overview = screen.getByRole('main', { name: '応募の詳細' });
+  expect(within(overview).getByRole('heading', { level: 2 }).textContent).toBe(fromQueue ? '架空 はるか' : '読み込み中…');
+  expect(within(overview).queryByText('氏名未登録')).toBeNull();
+  expect(within(overview).queryByText('架電禁止またはブロックのため発信できません')).toBeNull();
+  expect(within(overview).getByText('読み込み中…', { selector: '.wd-dial-reason' })).toBeTruthy();
+  expect(within(overview).getByRole('button', { name: /に発信/ })).toHaveProperty('disabled', true);
+  const detail = { ...applicantDetailFixture(fromQueue ? '90001' : '90003'), stop_reason: '架空の連絡停止理由' };
+  finish?.({ ok: true, json: () => Promise.resolve(detail) });
+  await screen.findByText('架電禁止・ブロック: 架空の連絡停止理由');
+  expect(within(overview).getByRole('button', { name: /に発信/ })).toHaveProperty('disabled', true);
+});
+
+it.each(['検索', '検索対象', '範囲', '媒体', 'ステージ'])('プロパティ表示中の%s変更で応募一覧へ戻す', async change => {
+  render(<ApplicantsScreen fixture />);
+  fireEvent.click(await screen.findByRole('button', { name: /架空 はるか/ }));
+  await screen.findByText('応募のお礼を伝え、希望の勤務時間を確認してください。');
+  fireEvent.click(screen.getByRole('tab', { name: 'プロパティ' }));
+  fireEvent.click(screen.getByRole('button', { name: '条件を変更' }));
+  if (change === '検索') {
+    fireEvent.change(screen.getByLabelText('応募を検索'), { target: { value: 'あおい' } });
+    fireEvent.submit(screen.getByRole('search'));
+  } else if (change === '検索対象') fireEvent.change(screen.getByLabelText('検索対象'), { target: { value: 'deal' } });
+  else if (change === '範囲') fireEvent.change(screen.getByLabelText('範囲'), { target: { value: 'all' } });
+  else if (change === '媒体') fireEvent.change(screen.getByLabelText('応募媒体'), { target: { value: '架空求人サイト' } });
+  else {
+    fireEvent.click(screen.getByRole('button', { name: 'ステージ（5件選択）' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '朝連絡' }));
+    fireEvent.click(screen.getByRole('button', { name: '適用' }));
+  }
+  expect(screen.getByRole('tab', { name: '応募一覧' }).getAttribute('aria-selected')).toBe('true');
+  const queue = await screen.findByRole('list', { name: '応募キュー' });
+  await waitFor(() => { expect(within(queue).getAllByRole('button').length).toBeGreaterThan(0); });
+});
+
+it('未選択で再表示すると保存されたプロパティ表示を応募一覧へ戻す', async () => {
+  const view = render(<ApplicantsScreen fixture />);
+  await screen.findByText('2件');
+  fireEvent.click(screen.getByRole('tab', { name: 'プロパティ' }));
+  view.unmount();
+  render(<ApplicantsScreen fixture />);
+  expect(screen.getByRole('tab', { name: '応募一覧' }).getAttribute('aria-selected')).toBe('true');
+  expect(await screen.findByRole('button', { name: /架空 はるか/ })).toBeTruthy();
+});
