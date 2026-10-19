@@ -7498,6 +7498,8 @@ const DETAIL_KINDS = [
 let detailKinds = { mtg: true, email: true, call: true, handover: true };
 /* 電話は 60秒超だけ（接触と数えるもの）か、全部か。既定は 60秒超だけ（短い呼び出しで埋まらないように） */
 let detailAllCalls = false;
+let detailMailType = "";
+let detailApplications = false;
 /* 時系列を直近3か月より前も出すか（M-3 (4)、08 の M-3）。既定は直近3か月。案件を移ると既定へ（URL の older。filter） */
 let detailOlder = false;
 const DETAIL_RECENT_MONTHS = 3;
@@ -7705,6 +7707,10 @@ function detailItem(e) {
 function detailShown(e) {
   const k = (e.kind === "mail_mtg" || e.kind === "zoom_mtg") ? "mtg" : e.kind;
   if (!detailKinds[k]) return false;
+  if (e.kind === "email") {
+    if (!detailApplications && e.mail_type === "応募の報告") return false;
+    if (detailMailType && e.mail_type !== detailMailType) return false;
+  }
   if (e.kind === "call" && !detailAllCalls && !e.contact) return false;
   return true;
 }
@@ -7780,6 +7786,10 @@ function renderDetail(D) {
   h += '<div class="ctlbar" id="dd-ctl"><span class="act" role="group" aria-label="出す種類">出す種類:' +
     DETAIL_KINDS.map((k) => '<label class="act"><input type="checkbox" id="dd-k-' + k.k + '" data-dk="' + k.k + '"' +
       (detailKinds[k.k] ? " checked" : "") + ">" + esc(k.t) + "</label>").join("") + "</span>" +
+    '<span class="act" role="group" aria-label="メール">メール:' +
+    '<label class="act">種類<select id="dd-mail-type"><option value="">すべて</option>' +
+    (c.email_kinds || []).map(x => '<option value="' + esc(x.kind) + '"' + (detailMailType === x.kind ? ' selected' : '') + '>' + esc(x.kind || '種類なし') + '</option>').join('') + '</select></label>' +
+    '<label class="act"><input type="checkbox" id="dd-mail-applications"' + (detailApplications ? ' checked' : '') + '>応募の報告も出す</label></span>' +
     '<span class="act" role="group" aria-label="電話">電話:' +
     '<button type="button" class="act" id="dd-c-contact" aria-pressed="' + (!detailAllCalls) + '">60秒超だけ</button>' +
     '<button type="button" class="act" id="dd-c-all" aria-pressed="' + detailAllCalls + '">全部</button></span></div>';
@@ -7941,6 +7951,10 @@ function wireDetail() {
     const cb = document.getElementById("dd-k-" + k.k);
     if (cb) cb.onchange = () => { detailKinds[k.k] = cb.checked; redrawMain(lastPayload); };
   });
+  const mailType = document.getElementById("dd-mail-type");
+  if (mailType) mailType.onchange = () => { detailMailType = mailType.value; redrawMain(lastPayload); };
+  const applications = document.getElementById("dd-mail-applications");
+  if (applications) applications.onchange = () => { detailApplications = applications.checked; redrawMain(lastPayload); };
   const ca = document.getElementById("dd-c-all");
   if (ca) ca.onclick = () => { detailAllCalls = true; redrawMain(lastPayload); };
   const cc = document.getElementById("dd-c-contact");

@@ -321,3 +321,47 @@ fn outside_zoom_preserves_all_flags_and_legacy_sheet_counts_every_row() {
     assert_eq!(row["mtg_days"], 2);
     assert_eq!(row["days_since_contact"], 2);
 }
+
+#[test]
+fn email_dedupe_prefers_direct_then_main_with_or_without_mail_id() {
+    for with_id in [false, true] {
+        let mut sh = fixture();
+        sh.deal = tab("deal_id\tdealname\tcontract_start_date\tcontract_expiration_date\tkyoten_key\tis_active\tcontract_kind\n\
+a\t架空の前契約\t2026-01-01\t2026-06-30\tfictional-site\tTRUE\t\n\
+b\t架空の継続契約\t2026-07-01\t2026-12-31\tfictional-site\tTRUE\t\n\
+c\t架空の求人追加\t2026-01-01\t2026-06-30\tfictional-site\tTRUE\t求人追加\n");
+        let header = "deal_id\t送信日時（JST）\t向き\t件名\t種類\tzoom_meeting_id\tzoom_held";
+        let mut tsv = format!("{header}{}\n", if with_id { "\tmail_id" } else { "" });
+        for did in ["c", "b", "a"] {
+            tsv += &format!(
+                "{did}\t2026-03-11 08:00:00\t送った\t架空の報告\tMTG実施\t\t{}\n",
+                if with_id { "\tfictional-mail" } else { "" }
+            );
+        }
+        sh.mail_history = tab(&tsv);
+        let v = detail(&sh);
+        assert_eq!(v["counts"]["email"], 1);
+        assert_eq!(v["counts"]["email_moved_in"], 0);
+        assert_eq!(events_of(&v, "email")[0]["attach"]["state"], "own");
+        // 直接の行が無ければ、先に並ぶオプションより本体契約を採る。
+        let without_direct = tsv
+            .lines()
+            .filter(|line| !line.starts_with("a\t"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sh.mail_history = tab(&without_direct);
+        let v = detail(&sh);
+        assert_eq!(v["counts"]["email"], 1);
+        assert_eq!(v["counts"]["email_moved_in"], 1);
+        assert_eq!(
+            events_of(&v, "email")[0]["attach"]["moved_from"]["deal_id"],
+            "b"
+        );
+        if with_id {
+            // 同じ日時・件名でもIDが異なるメールは別の2件。
+            tsv += "a\t2026-03-11 08:00:00\t送った\t架空の報告\tMTG実施\t\t\tfictional-other\n";
+            sh.mail_history = tab(&tsv);
+            assert_eq!(detail(&sh)["counts"]["email"], 2);
+        }
+    }
+}

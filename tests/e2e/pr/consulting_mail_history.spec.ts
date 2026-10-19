@@ -22,6 +22,21 @@ test('案件の詳細にメールの全種類とZoom開催記録を表示する'
   const timeline = page.locator('#dd-tl');
   await expect(timeline).toBeVisible();
   await page.locator('#dd-older').click();
+  await expect(timeline.locator('li.k-email')).toHaveCount(4);
+  await expect(timeline).not.toContainText('架空の応募報告');
+  await expect(page.locator('#dd-count')).toContainText('メール 5 件');
+  await expect(page.locator('#dd-count')).toContainText('応募の報告 1 件');
+  await expect(page.locator('#dd-count b')).toHaveText('11 件中 10 件');
+  await expect(timeline.locator('li.k-email').filter({ hasText: '架空の日程連絡' })).toHaveCount(1);
+  await expect(timeline.locator('li.k-email').filter({ hasText: '架空の候補連絡' })).toHaveCount(1);
+  await expect(timeline.locator('li.k-email').filter({ hasText: '架空の日程連絡' })).not.toContainText('架空の継続契約');
+  await page.locator('#dd-mail-type').selectOption('MTG予定');
+  await expect(timeline.locator('li.k-email')).toHaveCount(1);
+  await expect(timeline.locator('li.k-email')).toContainText('架空の日程連絡');
+  await page.locator('#dd-k-call').uncheck();
+  await expect(page.locator('#dd-mail-type')).toHaveValue('MTG予定');
+  await page.locator('#dd-mail-type').selectOption('');
+  await page.locator('#dd-mail-applications').check();
   await expect(timeline.locator('li.k-email')).toHaveCount(5);
   await expect(timeline.locator('li.k-email .tag')).toHaveText(['応募の報告', 'MTG取り下げ', 'MTG候補', 'MTG予定', 'MTG実施']);
   await expect(timeline.locator('li.k-email').last()).toContainText('2026-03-11');
@@ -57,7 +72,9 @@ test('案件の詳細にメールの全種類とZoom開催記録を表示する'
     mkdirSync(shots, { recursive: true });
     await page.screenshot({ path: join(shots, '1440-900-overview.png') });
     await page.locator('#dd-tl-h').evaluate(el => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 24));
-    await page.screenshot({ path: join(shots, '1440-900-mail-history.png') });
+    await page.locator('#dd-mail-applications').uncheck();
+    await expect(timeline.locator('li.k-email')).toHaveCount(4);
+    await page.screenshot({ path: join(shots, '1440-900-dedupe.png') });
     await page.screenshot({ path: join(shots, 'mail-history-full.png'), fullPage: true });
   }
   const height = await page.evaluate(() => document.documentElement.scrollHeight);
