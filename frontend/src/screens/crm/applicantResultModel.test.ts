@@ -5,7 +5,7 @@ import { applicantChanges, datetimeInput } from './applicantResultModel';
 describe('応募の保存本文', () => {
   it('JST の MM/DD を付けて改行で追記し、変えた項目とステージだけ送る', () => {
     const detail = applicantDetailFixture('90001');
-    const changes = applicantChanges(detail, { renrakukakuninmokuteki: ' 条件を確認\n午後を希望 ', denwabangou: '000-0000-0000', taioushubetsu: 'done' }, 'fixture-stage-5', '2026-10-19');
+    const changes = applicantChanges(detail, { renrakukakuninmokuteki: ' 条件を確認\n午後を希望 ', denwabangou: detail.row.phone, taioushubetsu: 'done' }, 'fixture-stage-5', '2026-10-19');
     expect(changes).toEqual([
       { object: 'deal', name: 'taioushubetsu', base: null, value: 'done' },
       { object: 'deal', name: 'renrakukakuninmokuteki', base: '10/18 午後の連絡を希望', value: '10/18 午後の連絡を希望\n10/19 条件を確認\n午後を希望' },

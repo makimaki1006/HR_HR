@@ -16,7 +16,9 @@ for (const size of [{ width:1512, height:742 }, { width:1280, height:800 }]) {
     await page.route('https://www.example.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:postingHtml }));
     await page.goto('/app/crm?mode=fixture&crmMode=applicants');
     await expect(page.getByText('2件', { exact:true })).toBeVisible();
-    await page.getByRole('button', { name:/架空 はるか/ }).click();
+    const firstRow = page.getByRole('button', { name:/架空 はるか/ });
+    await expect(firstRow.locator('.cq-phone')).toHaveText('050-0000-0000');
+    await firstRow.click();
     const detail = page.getByRole('main', { name:'応募の詳細' });
     const editor = page.getByRole('region', { name:'応募の記録' });
     await expect(detail.getByRole('heading', { level:2 })).toHaveText('架空 はるか');
