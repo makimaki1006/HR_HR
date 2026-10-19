@@ -1,3 +1,4 @@
+import { formatPhoneForDisplay } from './phone';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import type { ApplicantQueue } from '../../generated/ApplicantQueue';
 import type { ApplicantDetail } from '../../generated/ApplicantDetail';
@@ -145,7 +146,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
         <ul className="cq-list" aria-label="応募キュー">{queue?.items.map(item => <li className={`cq-row${selected?.id === item.id ? ' is-selected' : ''}`} key={item.id}>
           <button className="cq-row-button" aria-current={selected?.id === item.id ? 'true' : undefined} onClick={() => { select(item); }}>
             <span className="cq-row-l1"><strong className="cq-row-company">{item.name || '氏名未登録'}</strong><span className="cq-stage">{item.stage}</span></span>
-            <span className="cq-row-l2"><span className="cq-phone">{item.phone || '電話番号未登録'}</span></span>
+            <span className="cq-row-l2"><span className="cq-phone">{(formatPhoneForDisplay(item.phone) ?? item.phone) || '電話番号未登録'}</span></span>
             <span className="cq-row-extra">{item.deal} · {item.job}</span>
             <span className="cq-row-l3"><span>応募日 {date(item.date)}</span><span>{item.media}</span></span>
             {item.appointment && <span className="cq-row-extra">約束架電日時 {date(item.appointment)}</span>}

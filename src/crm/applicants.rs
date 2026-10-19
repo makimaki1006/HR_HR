@@ -492,8 +492,8 @@ pub(super) async fn queue(
             }
             more = pos.phase == 0 || total > page["total"].as_u64().unwrap_or(0) as u32;
         }
-        if items.is_empty() && pos.phase == 1 && total > 0 {
-            // 約束済みが 0 件なら同じ要求で後半へ進む（空の一覧を先に見せない）。
+        if items.len() < PAGE && pos.phase == 1 && total > 0 {
+            // 約束済みを読み終えたら、同じ要求で後半を読み 30 件まで埋める。
             // 応募日の無い行は作成日で並べる。二つの Search をマージしてページ境界でも順を保つ。
             let dated = client
                 .search(OBJECT, search_body(&filters, &pos, "dated", &properties))

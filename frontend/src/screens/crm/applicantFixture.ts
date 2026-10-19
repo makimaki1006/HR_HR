@@ -1,7 +1,7 @@
 import type { ApplicantRow } from '../../generated/ApplicantRow';
 import type { ApplicantQueue } from '../../generated/ApplicantQueue';
 import type { ApplicantDetail } from '../../generated/ApplicantDetail';
-const first: ApplicantRow = { id: '90001', name: '架空 はるか', phone: '000-0000-0000', deal: 'サンプル物流株式会社', job: '検品スタッフ（架空求人）', date: '2026-10-18', stage: '朝連絡', stage_id: '1431574804', appointment: '2026-10-18T09:00:00+09:00', media: '架空求人サイト' };
+const first: ApplicantRow = { id: '90001', name: '架空 はるか', phone: '+815000000000', deal: 'サンプル物流株式会社', job: '検品スタッフ（架空求人）', date: '2026-10-18', stage: '朝連絡', stage_id: '1431574804', appointment: '2026-10-18T09:00:00+09:00', media: '架空求人サイト' };
 const items: ApplicantRow[] = [
   first,
   { id: '90002', name: '架空 あおい', phone: '000-0000-0000', deal: 'サンプル工房株式会社', job: '組立スタッフ（架空求人）', date: '2026-10-17', stage: '応募受付', stage_id: '1343099551', appointment: '', media: '架空採用ページ' },
@@ -14,7 +14,7 @@ export const applicantQueueFixture: ApplicantQueue = {
 export function applicantDetailFixture(id: string): ApplicantDetail {
   const row = items.find(i => i.id === id) ?? first;
   return {
-    values: { hs_pipeline: 'fixture', hs_pipeline_stage: row.stage_id, renrakukakuninmokuteki: '10/18 午後の連絡を希望', meeruadoresu: 'applicant@example.invalid', denwabangou: '000-0000-0000', hoyuushikaku_hiaringu: 'none', shuugyoujoukyou: '旧項目: 在職中', nyuushakiboujiki: '旧項目: 相談' },
+    values: { hs_pipeline: 'fixture', hs_pipeline_stage: row.stage_id, renrakukakuninmokuteki: '10/18 午後の連絡を希望', meeruadoresu: 'applicant@example.invalid', denwabangou: row.phone, hoyuushikaku_hiaringu: 'none', shuugyoujoukyou: '旧項目: 在職中', nyuushakiboujiki: '旧項目: 相談' },
     writes_enabled: new URLSearchParams(window.location.search).get('writes') !== 'off',
     write_pipeline: { id: 'fixture', label: '一次対応_BPO', stages: [...(applicantQueueFixture.pipelines[0]?.stages.filter(s => !s.id.startsWith('fixture-filter-')) ?? []), ...['昼連絡','夕連絡','約束あり連絡','選考書類待ち','足切り猶予期間','一次対応実施済'].map((label, i) => ({id:`fixture-stage-${String(i)}`,label}))] },
     editable: [
@@ -27,7 +27,7 @@ export function applicantDetailFixture(id: string): ApplicantDetail {
       ...[['kanrengyoumukeiken','関連業務経験'],['genshokumaeshokukaranotenshokuriyuu','転職理由'],['oubodouki','応募動機'],['kinmujoukennoyuusenjuni','勤務条件の優先順位'],['oubonoheiganjoukyou','併願状況'],['kyuujinkensakujouken','求人検索条件'],['shigotosagashinohanikoutsuushudan','仕事探しの範囲'],['mensetsukanounichiji','面接可能日時'],['renrakukanouyoubijikantai','連絡可能曜日・時間帯'],['tokukijikou','特記事項'],['ichijitaiou_azukatta_shitsumon','預かった質問'],['ichijitaiou_jitai_riyuu','辞退理由'],['ichijitaiou_shokan_memo','所感メモ']].map(([name,label]) => ({name:name ?? '',label:label ?? '',property_type:'string',field_type:'textarea',options:[],section:'ヒアリング'})),
       ...[['meeruadoresu','メールアドレス'],['denwabangou','電話番号']].map(([name,label]) => ({name:name ?? '',label:label ?? '',property_type:'string',field_type:'text',options:[],section:'連絡先'})),
     ],
-    row, phone: '000-0000-0000', stop_reason: null, deep_link: `https://app.hubspot.com/contacts/0/record/0-421/${row.id}/`,
+    row, phone: row.phone, stop_reason: null, deep_link: `https://app.hubspot.com/contacts/0/record/0-421/${row.id}/`,
     jobs: [{ label: row.job, url: 'https://app.hubspot.com/contacts/0/record/0-420/80001/' }],
     sections: [
       { title: '応募者の情報', fields: [{ label: 'カナ', value: id === '90002' ? 'カクウ アオイ' : 'カクウ ハルカ' }, { label: '年齢', value: '28' }, { label: '性別', value: '回答しない' }, { label: 'メール', value: 'applicant@example.invalid' }] },

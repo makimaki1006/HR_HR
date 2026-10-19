@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApplicantSheet, ApplicantsScreen } from './ApplicantsScreen';
-import { applicantDetailFixture } from './applicantFixture';
+import { applicantQueueFixture, applicantDetailFixture } from './applicantFixture';
 import { ZOOM_EMBED_ORIGIN } from './smartEmbed';
 import { applicantMode, modeUrl } from './CrmModeSwitch';
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
@@ -48,6 +48,20 @@ describe('応募の読み取りモード', () => {
     fireEvent.click(screen.getByRole('tab', { name: '報告シート' }));
     expect(screen.getByText('この応募には報告シートの URL がありません')).toBeTruthy();
     expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['+815000000000', '050-0000-0000'],
+    ['番号確認中（架空）', '番号確認中（架空）'],
+    ['', '電話番号未登録'],
+  ])('一覧の電話 %s を %s と表示する', async (raw, shown) => {
+    const readOnly = { ...applicantDetailFixture('90001'), writes_enabled: false };
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(new Response(JSON.stringify(
+      url.includes('/queue') ? { ...applicantQueueFixture, items: [{ ...applicantQueueFixture.items[0], phone: raw }] } : readOnly,
+    ), { status: 200, headers: { 'Content-Type': 'application/json' } }))));
+    render(<ApplicantsScreen />);
+    const row = await screen.findByRole('button', { name: /架空 はるか/ });
+    expect(within(row).getByText(shown)).toBeTruthy();
+    if (raw !== shown && raw) expect(within(row).queryByText(raw)).toBeNull();
   });
   it('既存のステージ選択と媒体で絞る', async () => {
     render(<ApplicantsScreen fixture />);
