@@ -1,4 +1,6 @@
-//! 応募 (0-421) の読み取り専用モード。正本・履歴は HubSpot。書き込み API は置かない。
+//! 応募 (0-421) の読み取り・保存。正本と業務履歴は HubSpot。
+#[path = "applicant_write.rs"]
+mod editing;
 use super::{
     queue_cache::TtlCache,
     rbac,
@@ -15,6 +17,8 @@ use axum::{
     Extension, Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+pub use editing::ApplicantEditField;
+pub(super) use editing::{build_write_step, WRITE_SCOPE_MESSAGE};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
@@ -22,6 +26,7 @@ use tower_sessions::Session;
 use ts_rs::TS;
 
 const OBJECT: &str = "0-421";
+pub const PIPELINE: &str = "t_3c8f8179ebedb62c890f1cf2c73ff9c8";
 pub const OPEN_STAGES: [&str; 8] = [
     "1343099551",
     "1431582290",
@@ -74,6 +79,7 @@ const RULES: &[&str] = &[
     "anmokuchi_oubohoukokusaki",
 ];
 const QUEUE_PROPERTIES: &[&str] = &[
+    "denwabangou",
     "ouboshashimei",
     "ouboshashimei_kana",
     "oubosaki_torihiki_name",
@@ -103,6 +109,7 @@ pub struct ApplicantLink {
 pub struct ApplicantRow {
     pub id: String,
     pub name: String,
+    pub phone: String,
     pub deal: String,
     pub job: String,
     pub date: String,
@@ -137,6 +144,14 @@ pub struct ApplicantNote {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ApplicantDetail {
+    #[serde(default)]
+    pub values: std::collections::BTreeMap<String, Option<String>>,
+    #[serde(default)]
+    pub editable: Vec<ApplicantEditField>,
+    #[serde(default)]
+    pub write_pipeline: Option<ApplicantPipeline>,
+    #[serde(default)]
+    pub writes_enabled: bool,
     pub row: ApplicantRow,
     pub sections: Vec<ApplicantSection>,
     pub phone: String,
@@ -144,6 +159,8 @@ pub struct ApplicantDetail {
     pub deep_link: String,
     pub jobs: Vec<ApplicantLink>,
     pub notes: Vec<ApplicantNote>,
+    pub posting_url: Option<String>,
+    pub jobcopy_url: Option<String>,
     pub sheet_url: Option<String>,
     pub sheet_embed: bool,
 }
@@ -177,6 +194,10 @@ async fn raw(client: &HubSpotClient, path: &str) -> Result<Value, HubSpotError> 
     }
 }
 impl ApplicantsState {
+    pub(super) fn invalidate(&self, _id: &str) {
+        self.details.clear();
+        self.queues.clear();
+    }
     async fn definitions(&self, client: &HubSpotClient) -> Result<Value, HubSpotError> {
         if let Some(v) = self.definitions.get(&()) {
             return Ok(v);
@@ -185,10 +206,18 @@ impl ApplicantsState {
         if let Some(v) = self.definitions.get(&()) {
             return Ok(v);
         }
-        let props = raw(client, "/crm/v3/properties/0-421").await?;
-        let pipelines = raw(client, "/crm/v3/pipelines/0-421").await?;
+        let (mut props, pipelines) = tokio::try_join!(
+            raw(client, "/crm/v3/properties/0-421"),
+            raw(client, "/crm/v3/pipelines/0-421")
+        )?;
         if !props["results"].is_array() || !pipelines["results"].is_array() {
             return Err(HubSpotError::Decode("applicant definitions".into()));
+        }
+        for def in props["results"].as_array_mut().unwrap() {
+            let name = text(def, "name");
+            if let Some(label) = super::label_ja::property_label(OBJECT, &name, def) {
+                def["label"] = json!(label);
+            }
         }
         let value = json!({"properties":props["results"], "pipelines":pipelines["results"]});
         self.definitions.insert((), value.clone());
@@ -238,6 +267,7 @@ fn row(v: &Value, defs: &Value) -> ApplicantRow {
     ApplicantRow {
         id: text(v, "id"),
         name: fallback("ouboshashimei", "ouboshashimei_kana"),
+        phone: get("denwabangou"),
         deal: get("oubosaki_torihiki_name"),
         job: values(&defs["properties"])
             .filter(|d| {
@@ -412,14 +442,15 @@ pub(super) async fn queue(
     } else {
         json!([binding, pos]).to_string()
     };
+    let Some(client) = state.crm_hubspot() else {
+        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
+    };
+    let key = format!("{}:{key}", client.applicant_write_revision());
     if q.fresh != Some(1) {
         if let Some(body) = ctx.applicants.queues.get(&key) {
             return Json(body).into_response();
         }
     }
-    let Some(client) = state.crm_hubspot() else {
-        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
-    };
     let work = async {
         let _slot = tokio::time::timeout(Duration::from_secs(5), ctx.queue_slots.acquire())
             .await
@@ -461,8 +492,8 @@ pub(super) async fn queue(
             }
             more = pos.phase == 0 || total > page["total"].as_u64().unwrap_or(0) as u32;
         }
-        if items.is_empty() && pos.phase == 1 && total > 0 {
-            // 約束済みが 0 件なら同じ要求で後半へ進む（空の一覧を先に見せない）。
+        if items.len() < PAGE && pos.phase == 1 && total > 0 {
+            // 約束済みを読み終えたら、同じ要求で後半を読み 30 件まで埋める。
             // 応募日の無い行は作成日で並べる。二つの Search をマージしてページ境界でも順を保つ。
             let dated = client
                 .search(OBJECT, search_body(&filters, &pos, "dated", &properties))
@@ -552,6 +583,24 @@ fn sheet_url(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<String
             .map(|s| s.trim().to_string())
     }
 }
+fn http_url(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let url = reqwest::Url::parse(raw).ok()?;
+    (matches!(url.scheme(), "http" | "https") && url.host_str().is_some()).then(|| raw.to_owned())
+}
+fn job_url(jobs: &[crate::hubspot::HubSpotRecord], name: &str) -> Option<String> {
+    jobs.iter().find_map(|j| {
+        j.properties
+            .get(name)
+            .and_then(|v| v.as_deref())
+            .and_then(http_url)
+    })
+}
+fn posting_url(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<String> {
+    http_url(&text(p, "oubosaki_kyuujin_url"))
+        .or_else(|| job_url(jobs, "url_hrhakkaa"))
+        .or_else(|| job_url(jobs, "url_airwork"))
+}
 fn sheet_embeddable(url: Option<&str>) -> bool {
     url.is_some_and(|s| s.starts_with("https://docs.google.com/spreadsheets/"))
 }
@@ -573,7 +622,21 @@ fn sections(p: &Value, defs: &Value) -> Vec<ApplicantSection> {
         let name = text(def, "name");
         let value = text(p, &name);
         let label = text(def, "label");
-        if value.is_empty() || label.is_empty() || name == "customer_sheet_url_synced" {
+        // 見出しに出す値は項目カードへ重ねて出さない（内部名で判定する）。
+        if value.is_empty()
+            || label.is_empty()
+            || [
+                "customer_sheet_url_synced",
+                "ouboshashimei",
+                "denwabangou",
+                "hs_pipeline",
+                "hs_pipeline_stage",
+                "oubobaitaimei",
+                "yingmuri",
+                "hs_createdate",
+            ]
+            .contains(&name.as_str())
+        {
             continue;
         }
         let idx = if RULES.contains(&name.as_str()) {
@@ -610,7 +673,11 @@ fn sections(p: &Value, defs: &Value) -> Vec<ApplicantSection> {
             continue;
         };
         groups[idx].fields.push(ApplicantField {
-            label,
+            label: match name.as_str() {
+                "shuugyoujoukyou" => "以前の就業状況".into(),
+                "nyuushakiboujiki" => "以前の入社希望時期".into(),
+                _ => label,
+            },
             value: display(defs, &name, &value),
         });
     }
@@ -629,37 +696,56 @@ pub(super) async fn detail(
     if !super::routes::is_valid_id(&id) {
         return error_json(StatusCode::BAD_REQUEST, "invalid_id");
     }
-    if q.fresh != Some(1) {
-        if let Some(v) = ctx.applicants.details.get(&id) {
-            return Json(v).into_response();
-        }
-    }
     let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
+    let cache_key = format!("{}:{id}", client.applicant_write_revision());
+    if q.fresh != Some(1) {
+        if let Some(v) = ctx.applicants.details.get(&cache_key) {
+            return Json(v).into_response();
+        }
+    }
     let work = async {
         let _slot = tokio::time::timeout(Duration::from_secs(5), ctx.read_slots.acquire())
             .await
             .map_err(|_| HubSpotError::Busy)?
             .map_err(|_| HubSpotError::Busy)?;
         let defs = ctx.applicants.definitions(&client).await?;
-        let props: Vec<String> = values(&defs["properties"])
+        let mut props: Vec<String> = values(&defs["properties"])
             .map(|d| text(d, "name"))
             .filter(|s| !s.is_empty())
             .collect();
+        if !props.iter().any(|p| p == "oubosaki_kyuujin_url") {
+            props.push("oubosaki_kyuujin_url".into());
+        }
         let names: Vec<&str> = props.iter().map(String::as_str).collect();
-        let rows = client
-            .batch_read(OBJECT, std::slice::from_ref(&id), &names)
-            .await?;
+        // 本体、求人票、メモは独立。関連 ID → batch read の依存だけを保つ。
+        let (rows, jobs, notes) = tokio::try_join!(
+            client.batch_read(OBJECT, std::slice::from_ref(&id), &names),
+            async {
+                let ids = all_associations(&client, &id, "0-420").await?;
+                client
+                    .batch_read(
+                        "0-420",
+                        &ids,
+                        &[
+                            "hs_name",
+                            "customer_sheet_url",
+                            "url_hrhakkaa",
+                            "url_airwork",
+                            "jobcopy_app_url",
+                        ],
+                    )
+                    .await
+            },
+            async {
+                let ids = all_associations(&client, &id, "notes").await?;
+                client
+                    .batch_read("notes", &ids, &["hs_timestamp", "hs_note_body"])
+                    .await
+            }
+        )?;
         let record = rows.first().ok_or(HubSpotError::NotFound)?;
-        let jobs_ids = all_associations(&client, &id, "0-420").await?;
-        let notes_ids = all_associations(&client, &id, "notes").await?;
-        let jobs = client
-            .batch_read("0-420", &jobs_ids, &["hs_name", "customer_sheet_url"])
-            .await?;
-        let notes = client
-            .batch_read("notes", &notes_ids, &["hs_timestamp", "hs_note_body"])
-            .await?;
         let v = serde_json::to_value(record)
             .map_err(|_| HubSpotError::Decode("applicant record".into()))?;
         let p = &v["properties"];
@@ -683,7 +769,29 @@ pub(super) async fn detail(
                 let value = text(p, &name);
                 (!value.is_empty() && value != "false").then(|| display(&defs, &name, &value))
             });
+        let editable = editing::editable(&defs);
         Ok::<_, HubSpotError>(ApplicantDetail {
+            values: record
+                .properties
+                .iter()
+                .filter(|(name, _)| {
+                    editable.iter().any(|f| &f.name == *name)
+                        || ["hs_pipeline", "hs_pipeline_stage"].contains(&name.as_str())
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            editable,
+            write_pipeline: editing::write_pipeline(&defs).map(|p| ApplicantPipeline {
+                id: text(p, "id"),
+                label: text(p, "label"),
+                stages: values(&p["stages"])
+                    .map(|s| ApplicantStage {
+                        id: text(s, "id"),
+                        label: text(s, "label"),
+                    })
+                    .collect(),
+            }),
+            writes_enabled: ctx.write.enabled,
             row: row(&v, &defs),
             sections: sections(p, &defs),
             phone: text(p, "denwabangou"),
@@ -702,6 +810,8 @@ pub(super) async fn detail(
                     url: link("0-420", &j.id),
                 })
                 .collect(),
+            posting_url: posting_url(p, &jobs),
+            jobcopy_url: job_url(&jobs, "jobcopy_app_url"),
             notes,
             sheet_embed: sheet_embeddable(sheet_url.as_deref()),
             sheet_url,
@@ -709,7 +819,7 @@ pub(super) async fn detail(
     };
     match tokio::time::timeout(Duration::from_secs(20), work).await {
         Ok(Ok(v)) => {
-            ctx.applicants.details.insert(id, v.clone());
+            ctx.applicants.details.insert(cache_key, v.clone());
             Json(v).into_response()
         }
         Ok(Err(e)) => applicant_error(&e),
@@ -772,6 +882,77 @@ async fn all_associations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn posting_and_jobcopy_urls_only_use_http_and_respect_priority() {
+        let jobs = vec![crate::hubspot::HubSpotRecord {
+            id: "80001".into(),
+            created_at: None,
+            updated_at: None,
+            archived: false,
+            properties: [
+                (
+                    "url_hrhakkaa".into(),
+                    Some("https://www.example.com/hrhacker".into()),
+                ),
+                (
+                    "url_airwork".into(),
+                    Some("https://www.example.com/airwork".into()),
+                ),
+                (
+                    "jobcopy_app_url".into(),
+                    Some("https://www.example.com/app/job-copy/fictional".into()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        }];
+        assert_eq!(
+            posting_url(
+                &json!({"oubosaki_kyuujin_url":" https://www.example.com/applicant "}),
+                &jobs
+            )
+            .as_deref(),
+            Some("https://www.example.com/applicant")
+        );
+        assert_eq!(
+            posting_url(
+                &json!({"oubosaki_kyuujin_url":"javascript:alert(1)"}),
+                &jobs
+            )
+            .as_deref(),
+            Some("https://www.example.com/hrhacker")
+        );
+        let mut fallback = jobs.clone();
+        fallback[0]
+            .properties
+            .insert("url_hrhakkaa".into(), Some("data:text/html,no".into()));
+        assert_eq!(
+            posting_url(&json!({}), &fallback).as_deref(),
+            Some("https://www.example.com/airwork")
+        );
+        assert_eq!(posting_url(&json!({}), &[]), None);
+        assert_eq!(
+            posting_url(&json!({"oubosaki_kyuujin_url":"ftp://example.com/a"}), &[]),
+            None
+        );
+        assert_eq!(
+            posting_url(
+                &json!({"oubosaki_kyuujin_url":"http://www.example.com/a"}),
+                &[]
+            )
+            .as_deref(),
+            Some("http://www.example.com/a")
+        );
+        assert_eq!(
+            job_url(&jobs, "jobcopy_app_url").as_deref(),
+            Some("https://www.example.com/app/job-copy/fictional")
+        );
+        fallback[0]
+            .properties
+            .insert("jobcopy_app_url".into(), Some("javascript:alert(1)".into()));
+        assert_eq!(job_url(&fallback, "jobcopy_app_url"), None);
+        assert_eq!(job_url(&[], "jobcopy_app_url"), None);
+    }
     #[test]
     fn search_body_omits_initial_after_and_sends_string_offsets() {
         let mut pos = Position {

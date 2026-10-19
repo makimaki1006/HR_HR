@@ -503,6 +503,7 @@ fn object_label(api: &str) -> &'static str {
     match api {
         "contacts" => "contact",
         "companies" => "company",
+        "0-421" => "applicant",
         _ => "deal",
     }
 }
@@ -789,6 +790,9 @@ pub async fn prepare(client: &HubSpotClient, step: &Step) -> Result<Prepared, St
         props.insert("pipeline".into());
         props.extend(required.iter().cloned());
     }
+    if step.object == "0-421" {
+        props.insert("hs_pipeline".into());
+    }
     let names: Vec<&str> = props.iter().map(String::as_str).collect();
     // 競合確認の読み取りは相乗り・キャッシュをしない (直前の書き込み前の値と比べると、更新を取りこぼす)
     let rec = client
@@ -800,6 +804,15 @@ pub async fn prepare(client: &HubSpotClient, step: &Step) -> Result<Prepared, St
         .map(|k| (k.clone(), rec.properties.get(k).cloned().flatten()))
         .collect();
     let cur_of = |k: &str| cur.get(k).cloned().flatten();
+    if step.object == "0-421"
+        && cur_of("hs_pipeline") != step.base.get("hs_pipeline").cloned().flatten()
+    {
+        return Err(Stop::Conflict {
+            object: "applicant".into(),
+            current: cur.clone(),
+            changed: vec!["hs_pipeline".into()],
+        });
+    }
     // 再送時も現在地を読み直す。納品管理をまたぐ移動は許さない。
     if let Some(s) = &step.stage {
         let from = cur_of("pipeline");
@@ -937,7 +950,7 @@ pub async fn send(
         }
     }
     step.done = true;
-    if label == "deal" {
+    if label == "deal" || step.object == "0-421" {
         run.values.extend(slot);
     } else {
         run.other.insert(label, slot);
@@ -985,6 +998,11 @@ pub async fn audit_write(
         "changes": redacted,
     })
     .to_string();
+    let target_type = if changes.iter().any(|c| c.object == "applicant") {
+        "hubspot_applicant"
+    } else {
+        "hubspot_deal"
+    };
     let (a, acc, sid, did) = (
         audit.clone(),
         account_id.to_string(),
@@ -992,7 +1010,7 @@ pub async fn audit_write(
         deal_id.to_string(),
     );
     let res = tokio::task::spawn_blocking(move || {
-        crate::audit::dao::insert_activity(&a, &acc, &sid, "crm_write", "hubspot_deal", &did, &meta)
+        crate::audit::dao::insert_activity(&a, &acc, &sid, "crm_write", target_type, &did, &meta)
     })
     .await;
     match res {
@@ -1045,9 +1063,13 @@ fn intended_changes(steps: &[Step], cur: Option<&BTreeMap<String, Option<String>
     v
 }
 
-fn invalidate_caches(ctx: &CrmCtx, deal_id: &str) {
-    ctx.workspace_cache.invalidate_deal(deal_id);
-    ctx.queue.invalidate_pages();
+fn invalidate_caches(ctx: &CrmCtx, deal_id: &str, applicant: bool) {
+    if applicant {
+        ctx.applicants.invalidate(deal_id);
+    } else {
+        ctx.workspace_cache.invalidate_deal(deal_id);
+        ctx.queue.invalidate_pages();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1264,6 +1286,27 @@ pub(super) async fn patch_deal(
     Path(deal_id): Path<String>,
     body: Bytes,
 ) -> Response {
+    patch_record(session, state, ctx, deal_id, body, false).await
+}
+
+pub(super) async fn patch_applicant(
+    session: Session,
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<Arc<CrmCtx>>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Response {
+    patch_record(session, state, ctx, id, body, true).await
+}
+
+async fn patch_record(
+    session: Session,
+    state: Arc<AppState>,
+    ctx: Arc<CrmCtx>,
+    deal_id: String,
+    body: Bytes,
+    applicant: bool,
+) -> Response {
     let principal =
         match rbac::authorize(&session, &state, &ctx.access, Some(RecordType::Deal)).await {
             Ok(p) => p,
@@ -1273,7 +1316,7 @@ pub(super) async fn patch_deal(
         return err(StatusCode::BAD_REQUEST, "invalid_id");
     }
     // 栓: 閉じていれば HubSpot も台帳も触らない
-    if !ctx.write.allows(&deal_id) {
+    if (applicant && !ctx.write.enabled) || (!applicant && !ctx.write.allows(&deal_id)) {
         return err(StatusCode::FORBIDDEN, "writes_disabled");
     }
     let Some(client) = state.crm_hubspot() else {
@@ -1324,7 +1367,9 @@ pub(super) async fn patch_deal(
             if row.operator_email != operator && !is_admin {
                 return err(StatusCode::FORBIDDEN, "forbidden");
             }
-            if row.deal_id != deal_id {
+            if row.deal_id != deal_id
+                || row.payload.steps.iter().any(|s| s.object == "0-421") != applicant
+            {
                 return one_error("operation_id", "別の案件で使われた operation_id です");
             }
             if row.status == "failed" {
@@ -1375,6 +1420,7 @@ pub(super) async fn patch_deal(
                 &session_id,
                 reuse_failed,
                 &gate,
+                applicant,
             )
             .await
         }
@@ -1420,29 +1466,44 @@ async fn run_patch(
     session_id: &str,
     reuse_failed: bool,
     gate: &CommitGate,
+    applicant: bool,
 ) -> Response {
     // 同じ案件への書き込みは 1 つずつ (読む → 比べる → 書く の間に他の要求が割り込めない)
     let Ok(mut held) = ctx
         .write
         .locks
-        .acquire([record_lock::key("deals", deal_id)], ctx.write.lock_wait)
+        .acquire(
+            [record_lock::key(
+                if applicant { "0-421" } else { "deals" },
+                deal_id,
+            )],
+            ctx.write.lock_wait,
+        )
         .await
     else {
         return record_busy();
     };
-    let (catalog, _) = match ctx.catalog.get(client).await {
-        Ok(c) => c,
-        Err(e) => {
-            count_rejection(&format!("catalog:{}", e.error_kind()));
-            return hubspot_error_response(&e);
+    let mut steps = if applicant {
+        match super::applicants::build_write_step(&ctx.applicants, client, deal_id, req).await {
+            Ok(step) => vec![step],
+            Err(response) => return response,
         }
-    };
-    let mut steps = match build_steps(client, &ctx.queue.owner_list, &catalog, deal_id, req).await {
-        Ok(s) => s,
-        Err((status, v)) => {
-            count_rejection(v["error_kind"].as_str().unwrap_or("validation"));
-            return (status, Json(v)).into_response();
-        }
+    } else {
+        let (catalog, _) = match ctx.catalog.get(client).await {
+            Ok(c) => c,
+            Err(e) => {
+                count_rejection(&format!("catalog:{}", e.error_kind()));
+                return hubspot_error_response(&e);
+            }
+        };
+        let steps = match build_steps(client, &ctx.queue.owner_list, &catalog, deal_id, req).await {
+            Ok(s) => s,
+            Err((status, v)) => {
+                count_rejection(v["error_kind"].as_str().unwrap_or("validation"));
+                return (status, Json(v)).into_response();
+            }
+        };
+        steps
     };
     // HubSpot の呼び出し枠 (読み取り + PATCH をオブジェクトごとに) が今の混み具合で足りるか、読む前に確かめる。
     // 足りないのに読むと、読み取りだけ HubSpot に飛んで PATCH が断られる (負荷試験: PATCH 1 回に読み取り 4.6 回)
@@ -1556,6 +1617,12 @@ async fn run_patch(
             })
             .await
             {
+                if row.operator_email != operator
+                    || row.deal_id != deal_id
+                    || row.payload.steps.iter().any(|s| s.object == "0-421") != applicant
+                {
+                    return err(StatusCode::FORBIDDEN, "forbidden");
+                }
                 return replay_response(&row);
             }
             tracing::warn!("crm write: ledger insert failed: {e}");
@@ -1610,7 +1677,7 @@ async fn run_patch(
                             &run.changes,
                         )
                         .await;
-                        invalidate_caches(ctx, deal_id);
+                        invalidate_caches(ctx, deal_id, applicant);
                     }
                     let body =
                         json!({"error": "queue_full", "error_kind": "queue_full"}).to_string();
@@ -1696,7 +1763,7 @@ async fn run_patch(
                 &run.changes,
             )
             .await;
-            invalidate_caches(ctx, deal_id);
+            invalidate_caches(ctx, deal_id, applicant);
             (StatusCode::OK, Json(body)).into_response()
         }
         Err(Stop::Transient(e)) => {
@@ -1713,7 +1780,7 @@ async fn run_patch(
                     &run.changes,
                 )
                 .await;
-                invalidate_caches(ctx, deal_id);
+                invalidate_caches(ctx, deal_id, applicant);
             }
             let next = pending::iso(Utc::now() + pending::backoff_after(1));
             let code = e.error_kind().to_string();
@@ -1777,7 +1844,7 @@ async fn run_patch(
                     &run.changes,
                 )
                 .await;
-                invalidate_caches(ctx, deal_id);
+                invalidate_caches(ctx, deal_id, applicant);
             }
             // 先の段が書けていたら、書けた分を本文に付ける (画面が「何も保存されていない」と誤らない)
             let partial =
@@ -1918,6 +1985,11 @@ async fn stop_response_recorded(
         _ => (status, body, outcome.clone()),
     };
     let mut body = body;
+    if payload.steps.iter().any(|s| s.object == "0-421")
+        && matches!(stop, Stop::Permanent(HubSpotError::Auth { status: 403 }))
+    {
+        body = json!({"error":"applicants_write_scope", "error_kind":"applicants_write_scope", "message":super::applicants::WRITE_SCOPE_MESSAGE});
+    }
     if let (Some(p), Some(obj)) = (&partial, body.as_object_mut()) {
         obj.insert("partial".into(), json!(p));
     }
@@ -2242,7 +2314,8 @@ pub async fn process_op(
         return super::email::process_pending(audit, client, write, row).await;
     }
     // 栓: 受付のあとで書き込みを閉じたら、積んである操作も送らない (管理者の再試行も同じ。開け直してから再試行する)
-    if !write.allows(&row.deal_id) {
+    let applicant = row.payload.steps.iter().any(|s| s.object == "0-421");
+    if (applicant && !write.enabled) || (!applicant && !write.allows(&row.deal_id)) {
         let body = json!({"error": "writes_disabled"}).to_string();
         let (a, op, pl) = (audit.clone(), row.operation_id.clone(), row.payload.clone());
         let r = pending::blocking(&a, move |t| {
@@ -2280,7 +2353,11 @@ pub async fn process_op(
     let _held = match write
         .locks
         .acquire(
-            std::iter::once(record_lock::key("deals", &row.deal_id)).chain(
+            std::iter::once(record_lock::key(
+                if applicant { "0-421" } else { "deals" },
+                &row.deal_id,
+            ))
+            .chain(
                 row.payload
                     .steps
                     .iter()

@@ -308,7 +308,12 @@ fn router_full(
     });
     Router::new()
         .route("/api/crm/applicants/queue", get(super::applicants::queue))
-        .route("/api/crm/applicants/{id}", get(super::applicants::detail))
+        .route(
+            "/api/crm/applicants/{id}",
+            get(super::applicants::detail)
+                .patch(super::write::patch_applicant)
+                .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
+        )
         .route(
             "/api/crm/views",
             get(super::saved_views::list)

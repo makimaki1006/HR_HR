@@ -10,7 +10,7 @@ export type PatchOutcome =
   | { kind: 'invalid'; body: PatchInvalid }
   | { kind: 'writes_disabled' }
   /** `partial` = 複数オブジェクトの保存が途中で止まったとき、すでに HubSpot に書けた分 */
-  | { kind: 'forbidden'; partial?: PatchPartial | undefined }
+  | { kind: 'forbidden'; message?: string; partial?: PatchPartial | undefined }
   /** 受け付けられず何も保存されていない (混雑・台帳に記録できない)。同じ操作を新しい operation_id で再試行してよい */
   | { kind: 'queue_full' }
   /** 1 人あたりの保存の速さの上限 (429 rate_limited)。何も保存されていない。待てば再試行できる */
@@ -49,7 +49,7 @@ export function classifyPatch(res: ApiResult<PatchResponse>): PatchOutcome {
     const b = obj(e.body);
     if (e.status === 409 && b?.status === 'conflict') return { kind: 'conflict', body: b as unknown as PatchConflict };
     if (e.status === 422 && b?.status === 'invalid') return { kind: 'invalid', body: b as unknown as PatchInvalid };
-    if (e.status === 403) return b?.error === 'writes_disabled' ? { kind: 'writes_disabled' } : { kind: 'forbidden', partial: partialOf(b) };
+    if (e.status === 403) return b?.error === 'writes_disabled' ? { kind: 'writes_disabled' } : { kind: 'forbidden', partial: partialOf(b), ...(b?.error_kind === 'applicants_write_scope' ? { message: 'HubSpot の鍵に応募を書き込む権限がありません。何も保存されていません。' } : {}) };
     if (e.status === 429 && b?.error === 'rate_limited') return { kind: 'rate_limited' };
     if (e.status === 410 && b?.error === 'discarded') return { kind: 'discarded' };
     // queue_unavailable = 台帳 (監査 DB) に記録できず、書かずに断った。queue_full と同じく何も保存されていない。

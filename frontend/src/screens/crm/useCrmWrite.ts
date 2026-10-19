@@ -259,8 +259,8 @@ export function useCrmWrite({ dealId, api, onSaved, onWritten, pollIntervalMs = 
         return { kind: 'error', message: WRITES_OFF_NOTE };
       case 'forbidden':
         opIds.current.delete(sig);
-        setStatus(keys, { phase: 'error', message: savedKeys.length > 0 ? '一部は保存しました。残りはこの操作をする権限がありません。' : 'この操作をする権限がありません。', req: null });
-        return { kind: 'error', message: 'この操作をする権限がありません。' };
+        setStatus(keys, { phase: 'error', message: out.message ?? (savedKeys.length > 0 ? '一部は保存しました。残りはこの操作をする権限がありません。' : 'この操作をする権限がありません。'), req: null });
+        return { kind: 'error', message: out.message ?? 'この操作をする権限がありません。' };
       case 'queue_full': {
         // 受け付けなかったので何も保存されていない。再試行は新しい操作 (operation_id) にする。
         // 同じ鍵を残すと、混雑が解けても保存済みの失敗の結果が返り続ける
