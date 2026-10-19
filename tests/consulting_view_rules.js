@@ -3340,7 +3340,7 @@ check("案件の詳細: 推定（メール由来）の行は必ず推定の印�
     else ok(it.indexOf("推定") < 0, "事実の行に「推定」が混ざっている: " + it.slice(0, 80));
   }
   // 凡例は1行。作り方の説明を2行目以降へ出さない。
-  ok(h.includes('<div class="legend"><i>● 事実　◇ メール由来の MTG（推定）　↪ 付け直し　⚠ 契約期間の外</i></div>'),
+  ok(h.includes('<div class="legend"><i>● 事実　◇ メール由来の MTG（推定）　↪ 付け直し　契約期間の外</i></div>'),
     "時系列の短い凡例が無い");
   const vis = h.replace(/<[^>]*>/g, "");
   ok(!vis.includes("メールの文面から起こした") && !vis.includes("録画のような中身はありません"),
