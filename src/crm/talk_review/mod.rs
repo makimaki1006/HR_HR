@@ -1,0 +1,28 @@
+//! トークの振り返り (ADR-033、設計書 §22)。アポ取りの電話を録音の文字起こしから `checks.json` の項目で判定し、
+//! 人ごとの「できていない割合」と印を管理者に見せる。
+//!
+//! - `checks`: 判定項目の定義 (`checks.json`、版 = 内容のハッシュ)
+//! - `transcript`: 録音 URL の取り出しと話者分け
+//! - `zoom`: Zoom Phone の録音・文字起こし (Server-to-Server OAuth)
+//! - `judge`: MiniMax による項目ごとの判定 (差し替え可能な `Judge`)
+//! - `store`: 監査 Turso の表 `call_talk_reviews`
+//! - `counts`: 総架電数・アポ数 (日ごとにキャッシュ)
+//! - `summary`: 集計と印 (純粋な計算)
+//! - `worker`: 背景で対象の Call を見つけて判定する (`CALL_REVIEW_ENABLED=1` のときだけ)
+//! - `routes`: `/api/crm/talk-review/*` (管理者だけ)
+//!
+//! **単一インスタンス前提** (他の worker と同じ)。
+
+pub mod checks;
+pub mod config;
+pub mod counts;
+pub mod judge;
+pub mod routes;
+pub mod store;
+pub mod summary;
+pub mod transcript;
+pub mod types;
+pub mod worker;
+pub mod zoom;
+
+pub use worker::spawn_worker;

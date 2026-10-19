@@ -44,6 +44,7 @@ pub mod record_gate;
 pub mod record_lock;
 pub mod routes;
 pub mod stage_rules;
+pub mod talk_review;
 pub mod workspace;
 pub mod workspace_cache;
 pub mod write;

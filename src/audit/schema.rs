@@ -21,6 +21,15 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
 }
 
 const TABLE_DDL: &[&str] = &[
+    // ADR-033: トークの振り返り。1 行 = 1 Call の判定結果。文字起こしの全文は持たない (画面で Zoom から取り直す)。
+    // status: pending_transcript (文字起こし待ち) / judged / unavailable (録音・文字起こしが取れない) / failed
+    r#"CREATE TABLE IF NOT EXISTS call_talk_reviews (
+        hubspot_call_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, call_at TEXT NOT NULL,
+        duration_sec INTEGER NOT NULL, zoom_call_log_id TEXT, status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0, next_retry_at TEXT, checks_version TEXT, model TEXT,
+        outcome TEXT, reached_person INTEGER, reception INTEGER, first_date_turn INTEGER,
+        items TEXT, summary TEXT, note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )"#,
     // ADR-032: empty deal/key is the daily completion marker, including zero flags.
     r#"CREATE TABLE IF NOT EXISTS consulting_deal_flags (
         data_day TEXT NOT NULL, deal_id TEXT NOT NULL, flag_key TEXT NOT NULL,
@@ -170,6 +179,8 @@ const TABLE_DDL: &[&str] = &[
 ];
 
 const INDEX_DDL: &[&str] = &[
+    "CREATE INDEX IF NOT EXISTS idx_call_talk_reviews_call_at ON call_talk_reviews(call_at)",
+    "CREATE INDEX IF NOT EXISTS idx_call_talk_reviews_retry ON call_talk_reviews(status, next_retry_at)",
     "CREATE INDEX IF NOT EXISTS idx_job_copy_draft_retry ON job_copy_draft_operations(status, next_retry_at)",
     "CREATE INDEX IF NOT EXISTS idx_accounts_email ON accounts(email)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_account_started ON login_sessions(account_id, started_at DESC)",

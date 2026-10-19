@@ -313,3 +313,58 @@ code.w8-code {
   padding: 0;
   white-space: nowrap;
 }
+
+/* トークの振り返り (view=talk) */
+.talk-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 4px 0 12px; }
+.talk-period { display: inline-flex; gap: 0; border: 1px solid #334155; border-radius: 4px; overflow: hidden; }
+.talk-period button { border: 0; background: transparent; color: #94a3b8; padding: 4px 12px; cursor: pointer; font: inherit; }
+.talk-period button[aria-pressed='true'] { background: #1e3a5f; color: #fff; font-weight: 700; }
+.talk-bar input[type='date'], .talk-bar select { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 4px; padding: 3px 6px; font: inherit; }
+.talk-small { font-size: 11px; color: #94a3b8; font-weight: 400; display: block; white-space: nowrap; }
+.talk-table th { vertical-align: bottom; }
+.talk-table th .talk-base { font-size: 11px; color: #64748b; font-weight: 400; display: block; }
+.talk-table td.talk-flag, .talk-calls td.talk-flag { background: rgba(185, 28, 28, 0.35); color: #fecaca; font-weight: 700; box-shadow: inset 0 0 0 1px #b91c1c; }
+.talk-table td.talk-flag .talk-small { color: #fca5a5; }
+.talk-table tr.talk-total td { border-top: 2px solid #475569; font-weight: 700; background: rgba(30, 41, 59, 0.6); }
+.talk-namebtn { border: 0; background: transparent; color: #60a5fa; cursor: pointer; font: inherit; padding: 0; text-align: left; }
+.talk-namebtn:hover { color: #93c5fd; text-decoration: underline; }
+.talk-back { border: 0; background: transparent; color: #60a5fa; cursor: pointer; font: inherit; padding: 0; margin-bottom: 8px; }
+.talk-mark-done { color: #4ade80; }
+.talk-mark-not_done { color: #f87171; font-weight: 700; }
+.talk-mark-na { color: #64748b; }
+.talk-rules { color: #94a3b8; font-size: 13px; margin-top: 12px; }
+.talk-rules p { margin: 2px 0; }
+.talk-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 1000px) { .talk-detail-grid { grid-template-columns: 1fr; } }
+.talk-turn { display: flex; gap: 8px; padding: 4px 8px; border-left: 3px solid transparent; margin-bottom: 2px; border-radius: 2px; }
+.talk-turn .talk-who { flex: none; width: 36px; font-size: 12px; font-weight: 700; }
+.talk-turn.rep { background: rgba(37, 99, 235, 0.12); border-left-color: #3b82f6; }
+.talk-turn.rep .talk-who { color: #93c5fd; }
+.talk-turn.customer { background: rgba(148, 163, 184, 0.08); border-left-color: #64748b; }
+.talk-turn.customer .talk-who { color: #cbd5e1; }
+.talk-turn.talk-evidence { background: rgba(185, 28, 28, 0.35); border-left-color: #f87171; }
+.talk-evidence-tag { font-size: 11px; color: #fca5a5; display: block; }
+.talk-item { padding: 10px 12px; border-radius: 4px; background: rgba(30, 41, 59, 0.5); margin-bottom: 8px; }
+.talk-item.not_done { border-left: 3px solid #f87171; }
+.talk-item .talk-quote { color: #cbd5e1; font-style: italic; }
+.talk-item .talk-advice { color: #fde68a; }
+
+.talk-table th.talk-itemhead, .talk-calls th.talk-itemhead { min-width: 108px; max-width: 128px; font-size: 12px; line-height: 1.3; white-space: normal; }
+.talk-calls th.talk-itemhead { min-width: 84px; max-width: 100px; font-size: 11px; }
+.talk-group { text-align: center; font-size: 12px; color: #93c5fd; border-bottom: 2px solid #1e3a5f; border-left: 1px solid #334155; }
+.talk-group-blank { border: 0; }
+.talk-table .w8-table-wrap, .w8-table-wrap { overflow-x: auto; }
+.talk-table thead tr:nth-child(2) th:first-child, .talk-table td:first-child { position: sticky; left: 0; z-index: 1; background: #17233a; min-width: 110px; }
+.talk-table tr.talk-total td:first-child { background: #1d2a42; }
+.talk-itemhead .w8-sort { white-space: normal; text-align: right; line-height: 1.3; }
+.talk-table th.talk-itemhead { min-width: 96px; max-width: 112px; }
+.talk-table td:nth-child(2) { white-space: nowrap; }
+.talk-table th:nth-child(-n+6) { white-space: nowrap; }
+.talk-table th.talk-itemhead { min-width: 82px; max-width: 96px; font-size: 11px; }
+.talk-table th.talk-itemhead .w8-sort { font-size: 11px; }
+.talk-table td, .talk-table th { padding-left: 6px; padding-right: 6px; }
+.talk-calls td { vertical-align: top; }
+.talk-calls td:nth-child(3) { white-space: nowrap; }
+.talk-calls td:last-child { min-width: 240px; }
+.talk-calls th.talk-itemhead { min-width: 76px; max-width: 90px; }
+.talk-calls td:last-child { min-width: 150px; }

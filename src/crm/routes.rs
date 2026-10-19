@@ -373,6 +373,18 @@ fn router_full(
             get(super::caller_metrics::get_today_all),
         )
         .route(
+            "/api/crm/talk-review/summary",
+            get(super::talk_review::routes::get_summary),
+        )
+        .route(
+            "/api/crm/talk-review/calls",
+            get(super::talk_review::routes::get_calls),
+        )
+        .route(
+            "/api/crm/talk-review/calls/{id}",
+            get(super::talk_review::routes::get_call_detail),
+        )
+        .route(
             "/api/crm/metrics/prefs",
             get(super::metric_prefs::get_prefs)
                 .put(super::metric_prefs::put_prefs)
