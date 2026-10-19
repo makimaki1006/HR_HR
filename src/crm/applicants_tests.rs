@@ -5,8 +5,15 @@ use axum::body::to_bytes;
 struct Fake {
     requests: Vec<(String, Value)>,
     forbidden: bool,
+    related_search: Vec<Value>,
+    related_total: Option<u64>,
     sheet: Option<String>,
+    deals: Vec<Value>,
+    deal_forbidden: Option<String>,
+    listing_ids: Vec<String>,
+    listing_deals: Option<Value>,
     large_queue: bool,
+    outside_detail: bool,
     due_count: usize,
     delay_ms: u64,
     inflight: usize,
@@ -54,10 +61,36 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
     if f.forbidden {
         return StatusCode::FORBIDDEN.into_response();
     }
+    if f.deal_forbidden.as_deref() == Some(&path) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     let result = match path.as_str() {
         "/crm/v3/properties/0-421" => props(),
+        "/crm/v3/objects/deals/search" | "/crm/v3/objects/0-420/search" => {
+            json!({"total": f.related_total.unwrap_or(f.related_search.len() as u64), "results": f.related_search})
+        }
+        "/crm/v3/properties/0-420" => json!({"results":[
+            {"name":"hs_name","label":"求人名","type":"string"},
+            {"name":"kyuujin_status","label":"求人状態","type":"enumeration","options":[{"value":"open","label":"公開中"}]},
+            {"name":"qinwude","label":"勤務地","type":"string"},
+            {"name":"koukai_kaishi_nichiji","label":"公開日","type":"datetime"}
+        ]}),
+        "/crm/v3/properties/deals" => json!({"results":[
+            {"name":"dealname","label":"取引名","type":"string"},
+            {"name":"dealstage","label":"取引ステージ","type":"enumeration"},
+            {"name":"hubspot_owner_id","label":"取引担当者","type":"enumeration"},
+            {"name":"contract_start_date","label":"契約開始日","type":"date"},
+            {"name":"oubohoukokusaki","label":"応募報告先","type":"string"},
+            {"name":"ashigirijouken","label":"足切り条件","type":"string"}
+        ]}),
+        "/crm/v3/pipelines/deals" => {
+            json!({"results":[{"id":"fixture","label":"架空パイプライン","stages":[{"id":"52016153","label":"契約中"},{"id":"ended","label":"解約済み"}]}]})
+        }
+        "/crm/v3/owners" => {
+            json!({"results":[{"id":"600","firstName":"担当","lastName":"架空","email":"owner@example.invalid"}]})
+        }
         "/crm/v3/pipelines/0-421" => {
-            json!({"results":[{"id":"t_3c8f8179ebedb62c890f1cf2c73ff9c8","label":"一次対応_BPO","stages":[{"id":"1343099551","label":"応募受付"},{"id":"1431574804","label":"朝連絡"}]}]})
+            json!({"results":[{"id":"t_3c8f8179ebedb62c890f1cf2c73ff9c8","label":"一次対応_BPO","stages":[{"id":"1343099551","label":"応募受付"},{"id":"1431574804","label":"朝連絡"},{"id":"bpo-done","label":"一次対応実施済"}]},{"id":"other","label":"採用管理","stages":[{"id":"other-done","label":"採用済み"}]}]})
         }
         "/crm/v3/objects/0-421/search" => {
             let sort = &body["sorts"][0]["propertyName"];
@@ -115,20 +148,42 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
             }
         }
         "/crm/v3/objects/0-421/batch/read" => {
-            let mut a = applicant("100", "2026-10-15");
+            let id = if f.outside_detail { "999" } else { "100" };
+            let mut a = applicant(id, "2026-10-15");
+            a["properties"]["hs_pipeline"] = json!(if f.outside_detail {
+                "other"
+            } else {
+                crate::crm::applicants::PIPELINE
+            });
+            if f.outside_detail {
+                a["properties"]["hs_pipeline_stage"] = json!("other-done");
+            }
             a["properties"]["customer_sheet_url_synced"] = json!(f.sheet);
             json!({"results":[a]})
         }
-        "/crm/v4/objects/0-421/100/associations/0-420" => json!({"results":[{"toObjectId":200}]}),
+        "/crm/v4/objects/0-421/100/associations/0-420" => {
+            let ids = if f.listing_ids.is_empty() {
+                vec!["200".to_string()]
+            } else {
+                f.listing_ids.clone()
+            };
+            json!({"results":ids.iter().map(|id| json!({"toObjectId":id})).collect::<Vec<_>>()})
+        }
+        "/crm/v4/associations/0-420/deals/batch/read" => f.listing_deals.clone().unwrap_or_else(
+            || json!({"results":[{"from":{"id":"200"},"to":[{"toObjectId":400}]}]}),
+        ),
+        "/crm/v3/objects/deals/batch/read" => json!({"results":f.deals}),
         "/crm/v4/objects/0-421/100/associations/notes" => {
             json!({"results":(300..307).map(|i|json!({"toObjectId":i})).collect::<Vec<_>>()})
         }
         "/crm/v3/objects/0-420/batch/read" => {
-            json!({"results":[{"id":"200","properties":{"hs_name":"架空求人票","url_hrhakkaa":"https://www.example.com/fictional-posting","url_airwork":"https://www.example.com/fictional-airwork","jobcopy_app_url":"https://www.example.com/app/job-copy/fictional","customer_sheet_url":"https://docs.google.com/spreadsheets/d/fake-job/edit"}}]})
+            json!({"results":[{"id":"200","properties":{"hs_name":"架空求人票","kyuujin_status":"open","qinwude":"架空市サンプル町","koukai_kaishi_nichiji":"2026-10-01T00:00:00Z","url_hrhakkaa":"https://www.example.com/fictional-posting","url_airwork":"https://www.example.com/fictional-airwork","jobcopy_app_url":"https://www.example.com/app/job-copy/fictional","customer_sheet_url":"https://docs.google.com/spreadsheets/d/fake-job/edit"}}]})
         }
         "/crm/v3/objects/notes/batch/read" => {
             json!({"results":(1..=7).map(|i|json!({"id":(299+i).to_string(),"properties":{"hs_timestamp":format!("2026-10-{:02}T00:00:00Z", i+9),"hs_note_body":format!("架空のメモ {i}")}})).collect::<Vec<_>>()})
         }
+        "/crm/v4/objects/0-421/999/associations/0-420"
+        | "/crm/v4/objects/0-421/999/associations/notes" => json!({"results":[]}),
         _ => panic!("想定外: {path}"),
     };
     Json(result).into_response()
@@ -382,14 +437,14 @@ async fn applicants_detail_labels_empty_fields_sheet_notes_cache_and_fresh() {
     assert_eq!(a["notes"].as_array().unwrap().len(), 5);
     assert_eq!(a["notes"][4]["date"], "2026-10-12T00:00:00Z");
     let n = f.lock().unwrap().requests.len();
-    assert_eq!(n, 7); // 定義2、本体1、関連2、求人票1、メモ1
+    assert_eq!(n, 12); // 関連定義3 + 定義2、本体1、応募関連2、求人票1、メモ1、取引関連1、取引1
     assert_eq!(get_json(&app, "/api/crm/applicants/100", &c).await.2, a);
     assert_eq!(f.lock().unwrap().requests.len(), n);
     f.lock().unwrap().sheet = Some("https://example.invalid/sheet".into());
     let (_, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &c).await;
     assert_eq!(b["sheet_url"], "https://example.invalid/sheet");
     assert_eq!(b["sheet_embed"], false);
-    assert_eq!(f.lock().unwrap().requests.len(), n + 5);
+    assert_eq!(f.lock().unwrap().requests.len(), n + 7);
     f.lock().unwrap().sheet = Some("https://docs.google.com/spreadsheets/d/fake-app/edit".into());
     let (_, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &c).await;
     assert_eq!(
@@ -537,6 +592,24 @@ async fn sequential_detail(client: &HubSpotClient) {
         .await
         .unwrap();
     client
+        .batch_associations("0-420", "deals", &["200".into()])
+        .await
+        .unwrap();
+    client
+        .batch_read(
+            "deals",
+            &["400".into()],
+            &[
+                "customer_sheet_url",
+                "dealstage",
+                "dealname",
+                "contract_start_date",
+                "createdate",
+            ],
+        )
+        .await
+        .unwrap();
+    client
         .batch_read(
             "notes",
             &(300..307).map(|id| id.to_string()).collect::<Vec<_>>(),
@@ -560,7 +633,7 @@ async fn applicant_detail_parallel_latency_and_same_call_budget() {
             .iter()
             .map(|(p, _)| p.clone())
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(f.requests.len(), 7);
+        assert_eq!(f.requests.len(), 9);
         f.requests.clear();
         f.max_inflight = 0;
         paths
@@ -574,13 +647,20 @@ async fn applicant_detail_parallel_latency_and_same_call_budget() {
     assert_eq!(body["notes"][0]["date"], "2026-10-16T00:00:00Z");
     {
         let f = fake.lock().unwrap();
-        assert_eq!(f.requests.len(), 7);
+        assert_eq!(f.requests.len(), 12);
         assert_eq!(
             f.requests
                 .iter()
                 .map(|(p, _)| p.clone())
                 .collect::<std::collections::BTreeSet<_>>(),
             old_paths
+                .into_iter()
+                .chain([
+                    "/crm/v3/properties/0-420".to_owned(),
+                    "/crm/v3/properties/deals".to_owned(),
+                    "/crm/v3/pipelines/deals".to_owned()
+                ])
+                .collect()
         );
         assert_eq!(f.max_inflight, 3, "本体と二つの関連を同時に取得する");
     }
@@ -593,6 +673,527 @@ async fn applicant_detail_parallel_latency_and_same_call_budget() {
         StatusCode::OK
     );
     let warm_ms = warm.elapsed().as_millis();
-    assert_eq!(fake.lock().unwrap().requests.len(), 5);
-    println!("APPLICANT_DETAIL_LATENCY delay_ms=100 before_cold_ms={before_ms} after_cold_ms={after_ms} after_warm_ms={warm_ms} calls=7/7/5 sequential_stages=7 parallel_stages=3 warm_parallel_stages=2");
+    assert_eq!(fake.lock().unwrap().requests.len(), 7);
+    println!("APPLICANT_DETAIL_LATENCY delay_ms=100 before_cold_ms={before_ms} after_cold_ms={after_ms} after_warm_ms={warm_ms} calls=9/12/7 sequential_stages=9 parallel_stages=5 warm_parallel_stages=3");
+}
+
+fn sheet_deal(id: &str, stage: &str, name: &str, start: &str, created: &str, url: &str) -> Value {
+    json!({"id":id,"properties":{"dealstage":stage,"dealname":name,"contract_start_date":start,"createdate":created,"customer_sheet_url":url}})
+}
+#[tokio::test]
+async fn applicant_report_sheet_owner_priority_dates_and_fallback() {
+    let (app, cookie, fake) = app().await;
+    // batch応答は関連順の逆。2求人の取引をまとめ、重複は1度だけ読む。
+    {
+        let mut f = fake.lock().unwrap();
+        f.sheet = Some("https://example.invalid/synced".into());
+        f.listing_ids = vec!["200".into(), "201".into()];
+        f.listing_deals = Some(json!({"results":[
+            {"from":{"id":"200"},"to":[{"toObjectId":400},{"toObjectId":401}]},
+            {"from":{"id":"201"},"to":[{"toObjectId":402},{"toObjectId":403},{"toObjectId":400}]}
+        ]}));
+    }
+    let base = vec![
+        sheet_deal(
+            "403",
+            "52016158",
+            "架空の終了契約",
+            "2029-01-01",
+            "2029-01-01",
+            "https://example.invalid/ended",
+        ),
+        sheet_deal(
+            "402",
+            "1049738304",
+            "架空オプション",
+            "2028-01-01",
+            "2028-01-01",
+            "https://example.invalid/option",
+        ),
+        sheet_deal(
+            "401",
+            "52016153",
+            "架空主契約",
+            "2026-02-01T12:00:00Z",
+            "2026-02-02",
+            "https://example.invalid/new-main",
+        ),
+        sheet_deal(
+            "400",
+            "52016153",
+            "架空主契約",
+            "2026-01-01",
+            "2027-01-01",
+            "https://example.invalid/old-main",
+        ),
+    ];
+    let mut scenarios = vec![(base.clone(), "https://example.invalid/new-main")];
+    let mut same_start = base.clone();
+    same_start[3]["properties"]["contract_start_date"] = json!("2026-02-01T23:00:00Z");
+    scenarios.push((same_start, "https://example.invalid/old-main"));
+    let mut tie = base.clone();
+    tie[3]["properties"]["contract_start_date"] = json!("2026-02-01");
+    tie[3]["properties"]["createdate"] = json!("2026-02-02");
+    scenarios.push((tie, "https://example.invalid/old-main"));
+    scenarios.push((base[..2].to_vec(), "https://example.invalid/option"));
+    scenarios.push((base[..1].to_vec(), "https://example.invalid/ended"));
+    // 未知・継続済・満了済・マーケ関連は生きた契約にしない。
+    for stage in ["unknown-stage", "66848546", "1281526627", "1278456227"] {
+        let mut rows = base.clone();
+        rows[2]["properties"]["dealstage"] = json!(stage);
+        rows[3]["properties"]["dealstage"] = json!(stage);
+        scenarios.push((rows, "https://example.invalid/option"));
+    }
+    // 名前の先頭で判定するオプション。NFKC・先頭空白も外部バッチと揃える。
+    for prefix in [
+        "求人追加",
+        " ＡｉｒＷｏｒｋ広告運用",
+        "一次対応",
+        "エントリーフォーム",
+    ] {
+        let mut rows = base.clone();
+        rows[2]["properties"]["dealname"] = json!(format!("{prefix} 架空契約"));
+        scenarios.push((rows, "https://example.invalid/old-main"));
+    }
+    let mut no_url = base.clone();
+    no_url[2]["properties"]["customer_sheet_url"] = Value::Null;
+    scenarios.push((no_url, "https://example.invalid/old-main"));
+    let mut missing_start = base.clone();
+    missing_start[2]["properties"]["contract_start_date"] = Value::Null;
+    scenarios.push((missing_start, "https://example.invalid/old-main"));
+    let mut missing_dates = base.clone();
+    for r in &mut missing_dates[2..] {
+        r["properties"]["contract_start_date"] = Value::Null;
+        r["properties"]["createdate"] = Value::Null;
+    }
+    scenarios.push((missing_dates, "https://example.invalid/old-main"));
+    scenarios.push((vec![], "https://example.invalid/synced"));
+    for (deals, expected) in scenarios {
+        fake.lock().unwrap().deals = deals;
+        let (status, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &cookie).await;
+        assert_eq!(status, StatusCode::OK, "{b}");
+        assert_eq!(b["sheet_url"], expected);
+        assert_eq!(b["sheet_embed"], false);
+    }
+    {
+        let f = fake.lock().unwrap();
+        let reads: Vec<_> = f
+            .requests
+            .iter()
+            .filter(|(p, _)| p == "/crm/v3/objects/deals/batch/read")
+            .collect();
+        for (_, body) in reads {
+            assert_eq!(
+                body["inputs"],
+                json!([{"id":"400"},{"id":"401"},{"id":"402"},{"id":"403"}])
+            );
+            assert_eq!(
+                body["properties"],
+                json!([
+                    "customer_sheet_url",
+                    "dealstage",
+                    "dealname",
+                    "contract_start_date",
+                    "createdate",
+                    "hubspot_owner_id",
+                    "pipeline",
+                    "oubohoukokusaki",
+                    "ashigirijouken"
+                ])
+            );
+        }
+    }
+    fake.lock().unwrap().sheet = None;
+    let (status, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        b["sheet_url"],
+        "https://docs.google.com/spreadsheets/d/fake-job/edit"
+    );
+    assert_eq!(b["sheet_embed"], true);
+}
+#[tokio::test]
+async fn applicant_report_sheet_deal_403_keeps_detail_and_fallback() {
+    for path in [
+        "/crm/v4/associations/0-420/deals/batch/read",
+        "/crm/v3/objects/deals/batch/read",
+    ] {
+        let (app, cookie, fake) = app().await;
+        {
+            let mut f = fake.lock().unwrap();
+            f.deal_forbidden = Some(path.into());
+            f.sheet = Some("https://example.invalid/synced".into());
+        }
+        let (status, _, b) = get_json(&app, "/api/crm/applicants/100", &cookie).await;
+        assert_eq!(status, StatusCode::OK, "{b}");
+        assert_eq!(b["phone"], "00000000000");
+        assert_eq!(b["notes"].as_array().unwrap().len(), 5);
+        assert_eq!(b["sheet_url"], "https://example.invalid/synced");
+        assert_eq!(
+            fake.lock().unwrap().requests.len(),
+            if path.contains("associations") {
+                11
+            } else {
+                12
+            }
+        );
+        fake.lock().unwrap().sheet = None;
+        let (status, _, b) = get_json(&app, "/api/crm/applicants/100?fresh=1", &cookie).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            b["sheet_url"],
+            "https://docs.google.com/spreadsheets/d/fake-job/edit"
+        );
+        assert_eq!(b["sheet_embed"], true);
+    }
+}
+
+#[tokio::test]
+async fn applicants_all_single_search_filters_query_cache_and_cursor_binding() {
+    let (app, c, f) = app().await;
+    f.lock().unwrap().large_queue = true;
+    let url = "/api/crm/applicants/queue?scope=all&q=sample";
+    let (status, _, first) = get_json(&app, url, &c).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    assert_eq!(first["total"], 31);
+    assert_eq!(first["items"].as_array().unwrap().len(), 30);
+    assert_eq!(first["pipelines"].as_array().unwrap().len(), 2);
+    {
+        let g = f.lock().unwrap();
+        let searches: Vec<_> = g
+            .requests
+            .iter()
+            .filter(|(p, _)| p.ends_with("search"))
+            .collect();
+        assert_eq!(searches.len(), 1);
+        assert_eq!(searches[0].1["filterGroups"], json!([{"filters":[]}]));
+        assert_eq!(searches[0].1["query"], "sample");
+        assert_eq!(
+            searches[0].1["sorts"],
+            json!([{"propertyName":"hs_createdate","direction":"DESCENDING"}])
+        );
+    }
+    let n = f.lock().unwrap().requests.len();
+    assert_eq!(get_json(&app, url, &c).await.2, first);
+    assert_eq!(f.lock().unwrap().requests.len(), n);
+    let cursor = first["next_cursor"].as_str().unwrap();
+    for changed in ["q=sample", "scope=all&q=different", "scope=all"] {
+        assert_eq!(
+            get_json(
+                &app,
+                &format!("/api/crm/applicants/queue?{changed}&cursor={cursor}"),
+                &c
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let (status, _, second) = get_json(&app, &format!("{url}&cursor={cursor}"), &c).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(second["items"].as_array().unwrap().len(), 1);
+    assert_eq!(second["next_cursor"], Value::Null);
+    for changed in ["scope=all&q=different", "q=sample"] {
+        let n = f.lock().unwrap().requests.len();
+        assert_eq!(
+            get_json(&app, &format!("/api/crm/applicants/queue?{changed}"), &c)
+                .await
+                .0,
+            StatusCode::OK
+        );
+        assert!(f.lock().unwrap().requests.len() > n);
+    }
+    let (status, _, _) = get_json(
+        &app,
+        "/api/crm/applicants/queue?scope=all&q=sample&stages=other-done&media=web",
+        &c,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let g = f.lock().unwrap();
+    let b = &g.requests.last().unwrap().1;
+    assert_eq!(
+        b["filterGroups"],
+        json!([{"filters":[{"propertyName":"hs_pipeline_stage","operator":"IN","values":["other-done"]},{"propertyName":"oubobaitaimei","operator":"EQ","value":"web"}]}])
+    );
+    assert_eq!(b["query"], "sample");
+}
+#[tokio::test]
+async fn applicants_detail_outside_queue_is_read_only() {
+    let (app, c, f) = app().await;
+    f.lock().unwrap().outside_detail = true;
+    let (status, _, detail) = get_json(&app, "/api/crm/applicants/999", &c).await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(detail["row"]["id"], "999");
+    assert_eq!(detail["row"]["stage"], "採用済み");
+    assert_eq!(detail["writes_enabled"], false);
+    assert_eq!(detail["write_pipeline"], Value::Null);
+    assert!(!f
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .any(|(p, _)| p.ends_with("search")));
+}
+
+#[tokio::test]
+async fn applicants_related_search_body_cursor_cache_and_limits() {
+    for (target, object, property, expected) in [
+        (
+            "deal",
+            "deals",
+            "oubosaki_torihiki_name",
+            json!(["架空物流"]),
+        ),
+        ("listing", "0-420", "associations.listing", json!(["800"])),
+    ] {
+        let (app, cookie, fake) = app().await;
+        {
+            let mut f = fake.lock().unwrap();
+            f.related_search = vec![json!({"id":"800","properties":{"dealname":"架空物流"}})];
+            f.large_queue = true;
+        }
+        let url = format!("/api/crm/applicants/queue?qt={target}&q=sample&media=web");
+        let (status, _, first) = get_json(&app, &url, &cookie).await;
+        assert_eq!(status, StatusCode::OK, "{first}");
+        let cursor = first["next_cursor"].as_str().unwrap();
+        let requests = fake.lock().unwrap().requests.clone();
+        let related_path = format!("/crm/v3/objects/{object}/search");
+        let related: Vec<_> = requests
+            .iter()
+            .filter(|(p, _)| p == &related_path)
+            .collect();
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].1["query"], "sample");
+        assert_eq!(related[0].1["limit"], 50);
+        for (_, body) in requests
+            .iter()
+            .filter(|(p, _)| p == "/crm/v3/objects/0-421/search")
+        {
+            assert!(body.get("query").is_none());
+            let groups = body["filterGroups"].as_array().unwrap();
+            assert!(groups.len() <= 5);
+            assert!(
+                groups
+                    .iter()
+                    .map(|g| g["filters"].as_array().unwrap().len())
+                    .sum::<usize>()
+                    <= 18
+            );
+            for group in groups {
+                let filters = group["filters"].as_array().unwrap();
+                assert!(filters.len() <= 6);
+                assert!(filters
+                    .contains(&json!({"propertyName":property,"operator":"IN","values":expected})));
+                assert!(filters.contains(
+                    &json!({"propertyName":"oubobaitaimei","operator":"EQ","value":"web"})
+                ));
+                assert!(filters
+                    .iter()
+                    .any(|f| f["propertyName"] == "ichijitaiounoumu"));
+            }
+        }
+        assert_eq!(get_json(&app, &url, &cookie).await.2, first);
+        assert_eq!(fake.lock().unwrap().requests.len(), requests.len());
+        assert_eq!(
+            get_json(&app, &format!("{url}&cursor={cursor}"), &cookie)
+                .await
+                .0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            fake.lock()
+                .unwrap()
+                .requests
+                .iter()
+                .filter(|(p, _)| p == &related_path)
+                .count(),
+            1
+        );
+        for change in [
+            url.replace("sample", "different"),
+            url.replace(target, "applicant"),
+        ] {
+            let n = fake.lock().unwrap().requests.len();
+            assert_eq!(
+                get_json(&app, &format!("{change}&cursor={cursor}"), &cookie)
+                    .await
+                    .0,
+                StatusCode::BAD_REQUEST
+            );
+            assert_eq!(fake.lock().unwrap().requests.len(), n);
+            assert_eq!(get_json(&app, &change, &cookie).await.0, StatusCode::OK);
+            assert!(
+                fake.lock().unwrap().requests.len() > n,
+                "対象と語がキャッシュを分離する"
+            );
+        }
+        fake.lock().unwrap().related_total = Some(51);
+        let (_, _, limit) = get_json(&app, &format!("{url}&fresh=1"), &cookie).await;
+        assert_eq!(
+            limit["message"],
+            if target == "deal" {
+                "取引が多すぎます。もう少し詳しく入力してください。"
+            } else {
+                "求人が多すぎます。もう少し詳しく入力してください。"
+            }
+        );
+        fake.lock().unwrap().related_total = None;
+        fake.lock().unwrap().related_search.clear();
+        let n = fake.lock().unwrap().requests.len();
+        let (status, _, empty) = get_json(&app, &format!("{url}&fresh=1"), &cookie).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(empty["total"], 0);
+        assert_eq!(empty["items"], json!([]));
+        assert_eq!(
+            fake.lock().unwrap().requests.len(),
+            n + 1,
+            "関連0件なら応募を検索しない"
+        );
+    }
+}
+
+#[tokio::test]
+async fn applicants_related_cards_reuse_batches_and_select_exact_sheet_deal() {
+    let (app, cookie, fake) = app().await;
+    let mut current = sheet_deal(
+        "401",
+        "52016153",
+        "架空の今の契約",
+        "2026-10-01",
+        "2026-01-01",
+        "https://example.invalid/shared",
+    );
+    current["properties"]["hubspot_owner_id"] = json!("600");
+    current["properties"]["oubohoukokusaki"] = json!("架空報告窓口");
+    current["properties"]["ashigirijouken"] = json!("資格を確認");
+    {
+        let mut f = fake.lock().unwrap();
+        f.deals = vec![
+            sheet_deal(
+                "400",
+                "ended",
+                "架空の以前の契約",
+                "2025-01-01",
+                "2025-01-01",
+                "https://example.invalid/shared",
+            ),
+            current,
+        ];
+        f.listing_deals = Some(
+            json!({"results":[{"from":{"id":"200"},"to":[{"toObjectId":400},{"toObjectId":401}]}]}),
+        );
+    }
+    let (status, _, body) = get_json(&app, "/api/crm/applicants/100", &cookie).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["related_notice"], Value::Null);
+    assert_eq!(body["deals"][0]["id"], "401");
+    assert_eq!(body["deals"][0]["current"], true);
+    assert_eq!(body["deals"][1]["id"], "400");
+    assert_eq!(body["deals"][1]["current"], false);
+    let deal_fields = body["deals"][0]["fields"].as_array().unwrap();
+    for (label, value) in [
+        ("取引ステージ", "契約中"),
+        ("取引担当者", "担当 架空"),
+        ("契約開始日", "2026/10/01"),
+        ("応募報告先", "架空報告窓口"),
+        ("足切り条件", "資格を確認"),
+    ] {
+        assert!(
+            deal_fields.contains(&json!({"label":label,"value":value})),
+            "{deal_fields:?}"
+        );
+    }
+    assert_eq!(body["listings"][0]["title"], "架空求人票");
+    assert_eq!(
+        body["listings"][0]["fields"],
+        json!([
+            {"label":"求人状態","value":"公開中"},{"label":"公開日","value":"2026/10/01"},{"label":"勤務地","value":"架空市サンプル町"}
+        ])
+    );
+    assert!(body["deals"][0]["deep_link"]
+        .as_str()
+        .unwrap()
+        .ends_with("/0-3/401/"));
+    assert!(body["listings"][0]["deep_link"]
+        .as_str()
+        .unwrap()
+        .ends_with("/0-420/200/"));
+    let n = fake.lock().unwrap().requests.len();
+    assert_eq!(
+        get_json(&app, "/api/crm/applicants/100", &cookie).await.2,
+        body
+    );
+    assert_eq!(fake.lock().unwrap().requests.len(), n);
+    let (status, _, fresh) = get_json(&app, "/api/crm/applicants/100?fresh=1", &cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(fresh, body);
+    let requests = &fake.lock().unwrap().requests;
+    assert_eq!(
+        requests.len(),
+        n + 7,
+        "定義・担当者はキャッシュ、レコード取得は従来7回"
+    );
+    for object in ["deals", "0-420"] {
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(p, _)| p == &format!("/crm/v3/objects/{object}/batch/read"))
+                .count(),
+            2
+        );
+    }
+}
+
+#[tokio::test]
+async fn applicants_related_fifty_values_and_oversize_names() {
+    let (app, cookie, fake) = app().await;
+    fake.lock().unwrap().related_search = (800..850)
+        .map(|id| json!({"id":id.to_string(),"properties":{}}))
+        .collect();
+    let (status, _, body) = get_json(
+        &app,
+        "/api/crm/applicants/queue?qt=listing&q=sample&media=web",
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for (_, body) in fake
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .filter(|(p, _)| p == "/crm/v3/objects/0-421/search")
+    {
+        assert!(body.to_string().chars().count() <= 3000);
+        for g in body["filterGroups"].as_array().unwrap() {
+            let filter = g["filters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|f| f["propertyName"] == "associations.listing")
+                .unwrap();
+            assert_eq!(filter["values"].as_array().unwrap().len(), 50);
+        }
+    }
+    {
+        let mut f = fake.lock().unwrap();
+        f.related_search = (0..50).map(|id| json!({"id":id.to_string(),"properties":{"dealname":format!("架空{id}{}", "長い取引名".repeat(50))}})).collect();
+        f.requests.clear();
+    }
+    let (status, _, body) =
+        get_json(&app, "/api/crm/applicants/queue?qt=deal&q=sample", &cookie).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error_kind"], "related_search_limit");
+    assert_eq!(
+        fake.lock().unwrap().requests.len(),
+        1,
+        "長すぎる本文を送らない"
+    );
+    assert_eq!(
+        get_json(&app, "/api/crm/applicants/queue?qt=company", &cookie)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
 }

@@ -111,3 +111,102 @@ test('応募: 長いステージ名もチェックボックスの右に一行で
     expect(Math.abs(row.inputCenter-row.textCenter)).toBeLessThan(3);
   }
 });
+
+
+test('応募: 全範囲・検索・一覧外への直接リンク', async ({ page }) => {
+  await page.setViewportSize({ width:1512, height:742 });
+  await login(page);
+  const requests: string[] = [];
+  await page.route('**/api/crm/**', async route => { requests.push(route.request().url()); await route.abort(); });
+  await page.route('https://docs.google.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:sheetHtml }));
+  await page.route('https://www.example.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:postingHtml }));
+  const output = process.env.CRM_APPLICANTS_ALL_ARTIFACTS;
+  async function shot(name: string) {
+    if (output) { fs.mkdirSync(output, { recursive:true }); await page.screenshot({ path:path.join(output, `${name}.png`) }); }
+  }
+  await page.goto('/app/crm?mode=fixture&crmMode=applicants');
+  await expect(page.getByText('2件', { exact:true })).toBeVisible();
+  await page.getByRole('button', { name:'条件を変更' }).click();
+  await page.getByLabel('範囲', { exact:true }).selectOption('all');
+  await expect(page.getByText('3件', { exact:true })).toBeVisible();
+  await expect(page).toHaveURL(/scope=all/);
+  await expect(page.getByRole('list', { name:'応募キュー' }).getByRole('button').first()).toContainText('架空 そら');
+  await page.getByRole('button', { name:'ステージ（6件選択）' }).click();
+  await expect(page.getByRole('heading', { name:'採用管理（架空）' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name:'採用済み' })).toBeVisible();
+  await page.getByRole('button', { name:'キャンセル' }).click();
+  await shot('01-all');
+  await page.getByLabel('検索対象').selectOption('deal');
+  await page.getByLabel('応募を検索').fill('サンプル商店');
+  await expect(page.getByText('1件', { exact:true })).toBeVisible();
+  await expect(page.getByRole('list', { name:'応募キュー' }).getByRole('button')).toContainText('架空 そら');
+  await shot('02-search');
+  await page.reload();
+  await expect(page.getByText('1件', { exact:true })).toBeVisible();
+  await expect(page.getByLabel('応募を検索')).toHaveValue('サンプル商店');
+  await page.goto('/app/crm?mode=fixture&applicant=90003');
+  await expect(page.getByRole('main', { name:'応募の詳細' }).getByRole('heading', { level:2 })).toHaveText('架空 そら');
+  await expect(page.getByText('2件', { exact:true })).toBeVisible();
+  await expect(page.getByRole('list', { name:'応募キュー' })).not.toContainText('架空 そら');
+  await expect(page.getByText('この応募のパイプラインは読み取り専用です。')).toBeVisible();
+  await expect(page.getByRole('button', { name:'記録して次へ', exact:true })).toHaveCount(0);
+  await shot('03-direct-applicant');
+  expect(requests).toEqual([]);
+});
+
+test('応募: 検索対象と関連カードへの移動', async ({ page }) => {
+  await page.setViewportSize({ width:1512, height:742 });
+  await login(page);
+  const requests: string[] = [];
+  await page.route('**/api/crm/**', async route => { requests.push(route.request().url()); await route.abort(); });
+  await page.route('https://www.example.com/**', route => route.fulfill({ contentType:'text/html; charset=utf-8', body:postingHtml }));
+  await page.goto('/app/crm?mode=fixture&crmMode=applicants');
+  const output = process.env.CRM_APPLICANTS_RELATED_ARTIFACTS;
+  async function shot(name: string) {
+    if (output) { fs.mkdirSync(output, { recursive:true }); await page.screenshot({ path:path.join(output, `${name}.png`) }); }
+  }
+  await page.getByLabel('検索対象').selectOption('deal');
+  await page.getByLabel('応募を検索').fill('サンプル物流');
+  await expect(page.getByText('1件', { exact:true })).toBeVisible();
+  await expect(page).toHaveURL(/qt=deal/);
+  await expect(page.getByRole('list', { name:'応募キュー' }).getByRole('button')).toContainText('架空 はるか');
+  await shot('01-deal-search');
+  await page.getByLabel('検索対象').selectOption('listing');
+  await page.getByLabel('応募を検索').fill('検品');
+  await expect(page.getByText('1件', { exact:true })).toBeVisible();
+  await expect(page).toHaveURL(/qt=listing/);
+  await shot('02-listing-search');
+  await page.getByRole('list', { name:'応募キュー' }).getByRole('button').click();
+  const overview = page.getByRole('main', { name:'応募の詳細' });
+  await overview.getByRole('button', { name:'検品スタッフ（架空求人）' }).click();
+  await expect(page.getByRole('tab', { name:'プロパティ', exact:true })).toHaveAttribute('aria-selected','true');
+  const listing = page.getByRole('region', { name:'関連の求人票' });
+  await expect(listing).toBeFocused();
+  await expect(listing.getByText('公開中', { exact:true })).toBeVisible();
+  await expect(listing.getByText('架空市サンプル町', { exact:true })).toBeVisible();
+  await expect(listing.getByRole('link', { name:'案件管理で見る' })).toHaveAttribute('href','https://www.example.com/app/job-copy/fictional-posting');
+  await shot('03-related-cards');
+  await listing.getByText('ほかの項目 3 件', { exact:true }).click();
+  await expect(listing.getByText('2026/11/30', { exact:true })).toBeVisible();
+  await overview.getByRole('button', { name:'サンプル物流株式会社' }).click();
+  const deal = page.getByRole('region', { name:'関連の取引' });
+  await expect(deal).toBeFocused();
+  await expect(deal.getByText('今の契約', { exact:true })).toBeVisible();
+  await expect(deal.getByText('架空 担当', { exact:true })).toBeVisible();
+  await expect(deal.getByText('解約済み', { exact:true })).toBeHidden();
+  await deal.getByText('ほかの取引 1 件', { exact:true }).click();
+  await expect(deal.getByText('解約済み', { exact:true })).toBeVisible();
+  await expect(deal.getByRole('link', { name:'HubSpotで開く' }).first()).toHaveAttribute('href','https://app.hubspot.com/contacts/0/record/0-3/70001/');
+  await shot('04-other-deal');
+  await page.getByRole('tab', { name:'応募一覧', exact:true }).click();
+  await page.getByLabel('検索対象').selectOption('deal');
+  await page.getByLabel('応募を検索').fill('サンプル商店');
+  await expect(page.getByText('0件', { exact:true })).toBeVisible();
+  await page.getByRole('button', { name:'すべての応募で探す' }).click();
+  await expect(page.getByText('1件', { exact:true })).toBeVisible();
+  await expect(page.getByRole('list', { name:'応募キュー' }).getByRole('button')).toContainText('架空 そら');
+  await page.reload();
+  await expect(page.getByLabel('検索対象')).toHaveValue('deal');
+  await expect(page.getByText('1件', { exact:true })).toBeVisible();
+  expect(requests).toEqual([]);
+});
