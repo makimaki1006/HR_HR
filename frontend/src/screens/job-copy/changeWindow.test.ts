@@ -4,24 +4,25 @@ import { addDays, changeWindow, unpublishedRanges, weekStraddlesChange } from '.
 describe('change windows on JST calendar days', () => {
   // Wednesday 9/16; every day before has 1 application, every day after has 2.
   const daily = Object.fromEntries(Array.from({ length: 56 }, (_, i) => [addDays('2026-08-19', i), i < 28 ? 1 : 2]));
-  it('counts concrete 14-day totals across a Wednesday, including the change day after', () => {
+  it('counts concrete default 7-day totals across a Wednesday, including the change day after', () => {
     const result = changeWindow(daily, '2026-09-16', null, null, '2026-10-19');
-    expect(result?.before).toMatchObject({ start: '2026-09-02', end: '2026-09-16', days: 14, count: 14 });
-    expect(result?.after).toMatchObject({ start: '2026-09-16', end: '2026-09-30', days: 14, count: 28 });
+    expect(result?.requestedDays).toBe(7);
+    expect(result?.before).toMatchObject({ start: '2026-09-09', end: '2026-09-16', days: 7, count: 7 });
+    expect(result?.after).toMatchObject({ start: '2026-09-16', end: '2026-09-23', days: 7, count: 14 });
     expect(changeWindow({ '2026-09-16': 5 }, '2026-09-16', null, null, '2026-10-19')?.after.count).toBe(5);
     expect(changeWindow({ '2026-09-16': 5 }, '2026-09-16', null, null, '2026-10-19')?.before.count).toBe(0);
   });
   it('stops before the next change and starts at the previous change', () => {
-    const result = changeWindow(daily, '2026-09-16', '2026-09-10', '2026-09-25', '2026-10-19');
+    const result = changeWindow(daily, '2026-09-16', '2026-09-10', '2026-09-22', '2026-10-19');
     expect(result?.before).toMatchObject({ start: '2026-09-10', days: 6, count: 6, perDay: 1 });
-    expect(result?.after).toMatchObject({ end: '2026-09-25', days: 9, count: 18, perDay: 2 });
+    expect(result?.after).toMatchObject({ end: '2026-09-22', days: 6, count: 12, perDay: 2 });
   });
   it('includes asOf and excludes future days', () => {
     expect(changeWindow(daily, '2026-09-16', null, null, '2026-09-20')?.after).toMatchObject({ days: 5, count: 10, end: '2026-09-21' });
     expect(changeWindow(daily, '2026-09-16', null, null, '2026-09-16')?.after.days).toBe(1);
     expect(changeWindow(daily, '2026-09-16', null, null, '2026-09-15')).toBeNull();
   });
-  it.each([7, 28] as const)('switches to %i days', n => {
+  it.each([14, 28] as const)('switches to %i days', n => {
     const result = changeWindow(daily, '2026-09-16', null, null, '2026-10-19', n);
     expect(result?.before.count).toBe(n);
     expect(result?.after.count).toBe(2 * n);

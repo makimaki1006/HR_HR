@@ -439,7 +439,7 @@ export function changeWindow(
   prevChangeDate: string | null,
   nextChangeDate: string | null,
   asOf: string,
-  n: ChangeWindowDays = 14,
+  n: ChangeWindowDays = 7,
   unpublished: readonly CountRange[] = [],
 ): ChangeWindow | null {
   if (!byDate || changeDate > asOf) return null;

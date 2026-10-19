@@ -287,7 +287,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const reasonPeriods = useMemo(() => reasonClasses ? reasonsByPeriod(reasonClasses.applications, rows.filter(row => !row.afterCounts).map(row => ({ key: row.key, start: row.start, end: row.end ?? addDays(asOf, 1) }))) : null, [reasonClasses, rows, asOf]);
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [selected, setSelected] = useState<string | null>(null);
-  const [windowDays, setWindowDays] = useState<ChangeWindowDays>(14);
+  const [windowDays, setWindowDays] = useState<ChangeWindowDays>(7);
   const selectedChange = changes.find(change => change.versionId === selected) ?? null;
   const actualChanges = useMemo(() => changes.filter(change => boundaryStatus(change) === 'changed'), [changes]);
   const changeIndex = actualChanges.findIndex(change => change.versionId === selected);

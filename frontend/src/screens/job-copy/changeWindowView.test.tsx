@@ -22,24 +22,25 @@ function choose(index = 1) {
   const lane = screen.getByRole('group', { name: '本文' });
   fireEvent.click(required(within(lane).getAllByRole('button')[index]));
 }
-it('shows actual days, rates, exact dates and updates chart bands and 7/28 day controls', () => {
+it('shows actual days, rates, exact dates and updates chart bands and 14/28 day controls', () => {
   render(<JobTimeline job={job} marketMode="demo" showDummyBilling={false} />);
   choose();
   const panel = screen.getByRole('region', { name: '変えた前後の応募' });
+  expect(within(panel).getByRole('button', { name: '7日' }).getAttribute('aria-pressed')).toBe('true');
+  expect(panel.textContent).toContain('前 7日 0件');
+  expect(panel.textContent).toContain('後 7日 7件');
+  expect(panel.textContent).not.toContain('1日あたり');
+  expect(panel.textContent).toContain('変えた日をまたぐ週');
+  const option = required(charts.latest).option as { series: { markArea: { data: { xAxis: number }[][] } }[] };
+  expect(required(option.series[0]).markArea.data.map(pair => pair.map(point => point.xAxis))).toEqual([
+    [Date.parse('2026-09-09T00:00:00Z'), Date.parse('2026-09-16T00:00:00Z')],
+    [Date.parse('2026-09-16T00:00:00Z'), Date.parse('2026-09-23T00:00:00Z')],
+  ]);
+  fireEvent.click(within(panel).getByRole('button', { name: '14日' }));
   expect(panel.textContent).toContain('前 14日 5件');
   expect(panel.textContent).toContain('後 9日分（14日に届かず） 9件');
   expect(panel.textContent).toContain('1日あたり 0.4件');
   expect(panel.textContent).toContain('1日あたり 1.0件');
-  expect(panel.textContent).toContain('変えた日をまたぐ週');
-  const option = required(charts.latest).option as { series: { markArea: { data: { xAxis: number }[][] } }[] };
-  expect(required(option.series[0]).markArea.data.map(pair => pair.map(point => point.xAxis))).toEqual([
-    [Date.parse('2026-09-02T00:00:00Z'), Date.parse('2026-09-16T00:00:00Z')],
-    [Date.parse('2026-09-16T00:00:00Z'), Date.parse('2026-09-25T00:00:00Z')],
-  ]);
-  fireEvent.click(within(panel).getByRole('button', { name: '7日' }));
-  expect(panel.textContent).toContain('前 7日 0件');
-  expect(panel.textContent).toContain('後 7日 7件');
-  expect(panel.textContent).not.toContain('1日あたり');
   fireEvent.click(within(panel).getByRole('button', { name: '28日' }));
   expect(panel.textContent).toContain('前 28日 5件');
   choose(0);
@@ -69,7 +70,7 @@ it('keeps image-only changes and skips an unchanged acquisition when finding nei
   render(<JobTimeline job={{ ...job, versions: [first, imageChange, unchanged, nextChange] }} marketMode="demo" />);
   const imageLane = screen.getByRole('group', { name: '画像' });
   fireEvent.click(required(within(imageLane).getAllByRole('button')[1]));
-  expect(screen.getByRole('region', { name: '変えた前後の応募' }).textContent).toContain('後 9日分（14日に届かず） 9件');
+  expect(screen.getByRole('region', { name: '変えた前後の応募' }).textContent).toContain('後 7日 7件');
   fireEvent.click(required(within(imageLane).getAllByRole('button')[2]));
   expect(screen.queryByRole('region', { name: '変えた前後の応募' })).toBeNull();
 });
@@ -78,6 +79,9 @@ it('shows known unpublished days and shortens the before side at the previous ac
   render(<JobTimeline job={{ ...job, versions }} marketMode="demo" />);
   choose(2);
   const panel = screen.getByRole('region', { name: '変えた前後の応募' });
+  expect(panel.textContent).toContain('前 7日 2件');
+  expect(panel.textContent).toContain('後 7日 100件');
+  fireEvent.click(within(panel).getByRole('button', { name: '14日' }));
   expect(panel.textContent).toContain('前 9日分（14日に届かず） 9件');
   expect(panel.textContent).toContain('後 11日分（14日に届かず） 100件');
   expect(panel.textContent).toContain('掲載していない日 3日');
