@@ -142,6 +142,8 @@ mod tests {
         let empty = sheet(&[], &[]);
         let mut sheets = cs::Sheets {
             pending_recordings: None,
+            mail_history: crate::handlers::cs_dashboard::empty_history_sheet(),
+            zoom_mtg: crate::handlers::cs_dashboard::empty_history_sheet(),
             deal: sheet(
                 &[
                     "deal_id",

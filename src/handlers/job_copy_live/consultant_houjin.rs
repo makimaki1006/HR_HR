@@ -124,6 +124,8 @@ mod tests {
         let empty = sheet(&[], &[]);
         cs::Sheets {
             pending_recordings: None,
+            mail_history: cs::empty_history_sheet(),
+            zoom_mtg: cs::empty_history_sheet(),
             all_cached: true,
             deal: sheet(
                 &[

@@ -1,0 +1,277 @@
+{
+  "meta": {
+    "today": "2026-03-31",
+    "all_cached": false,
+    "found": true,
+    "deal_id": "a",
+    "reason": null,
+    "summary_sheet": "missing",
+    "summary_rows": 0,
+    "contact_sec": 60.0
+  },
+  "deal": {
+    "deal_id": "a",
+    "name": "架空の前契約",
+    "site": null,
+    "stage": "",
+    "kind": "",
+    "start": "2026-01-01",
+    "expiration": "2026-06-30",
+    "period": null,
+    "consultant": null,
+    "consultant_retired": false,
+    "amount": null,
+    "renewal_no": null,
+    "is_active": true,
+    "right_censored": false,
+    "flags": [],
+    "houjin": null,
+    "houjin_name": null,
+    "site_key": "fictional-site"
+  },
+  "chain": {
+    "has_site": true,
+    "position": 0,
+    "prev": null,
+    "next": "b",
+    "rows": [
+      {
+        "deal_id": "a",
+        "name": "架空の前契約",
+        "stage": "",
+        "start": "2026-01-01",
+        "expiration": "2026-06-30",
+        "renewal_no": null,
+        "amount": null,
+        "is_active": true,
+        "current": true
+      },
+      {
+        "deal_id": "b",
+        "name": "架空の継続契約",
+        "stage": "",
+        "start": "2026-07-01",
+        "expiration": "2026-12-31",
+        "renewal_no": null,
+        "amount": null,
+        "is_active": true,
+        "current": false
+      }
+    ]
+  },
+  "counts": {
+    "mtg": 1,
+    "mtg_extracted": 0,
+    "mtg_link_not_high": 0,
+    "mtg_moved_in": 0,
+    "mtg_outside": 0,
+    "zoom_mtg": 1,
+    "zoom_moved_in": 0,
+    "zoom_outside": 0,
+    "email": 5,
+    "email_kinds": [
+      {
+        "kind": "MTG予定",
+        "n": 1
+      },
+      {
+        "kind": "MTG候補",
+        "n": 1
+      },
+      {
+        "kind": "MTG取り下げ",
+        "n": 1
+      },
+      {
+        "kind": "MTG実施",
+        "n": 1
+      },
+      {
+        "kind": "応募の報告",
+        "n": 1
+      }
+    ],
+    "email_moved_in": 1,
+    "email_outside": 0,
+    "mail_mtg": 1,
+    "mail_moved_in": 0,
+    "mail_outside": 0,
+    "mail_not_held": [],
+    "call": 1,
+    "call_contact": 1,
+    "call_transcript": 0,
+    "call_summarized": 0,
+    "handover": 0,
+    "call_moved_in": 0,
+    "call_outside": 0
+  },
+  "events": [
+    {
+      "kind": "email",
+      "date": "2026-03-30",
+      "time": "18:30",
+      "fact": true,
+      "source_label": "メール",
+      "direction": "送った",
+      "mail_type": "応募の報告",
+      "subject": "架空の応募報告",
+      "zoom_held_time": null,
+      "attach": {
+        "state": "own",
+        "in_span": true,
+        "moved_from": null,
+        "moved_to": null
+      }
+    },
+    {
+      "kind": "email",
+      "date": "2026-03-12",
+      "time": "17:00",
+      "fact": true,
+      "source_label": "メール",
+      "direction": "受けた",
+      "mail_type": "MTG取り下げ",
+      "subject": "架空の取り下げ連絡",
+      "zoom_held_time": null,
+      "attach": {
+        "state": "own",
+        "in_span": true,
+        "moved_from": null,
+        "moved_to": null
+      }
+    },
+    {
+      "kind": "email",
+      "date": "2026-03-12",
+      "time": "16:00",
+      "fact": true,
+      "source_label": "メール",
+      "direction": "送った",
+      "mail_type": "MTG候補",
+      "subject": "架空の候補連絡",
+      "zoom_held_time": null,
+      "attach": {
+        "state": "own",
+        "in_span": true,
+        "moved_from": null,
+        "moved_to": null
+      }
+    },
+    {
+      "kind": "mail_mtg",
+      "date": "2026-03-12",
+      "time": null,
+      "fact": false,
+      "source_label": "メール由来（推定）",
+      "certainty": "推定",
+      "same_day_recording": false,
+      "attach": {
+        "state": "own",
+        "in_span": true,
+        "moved_from": null,
+        "moved_to": null
+      }
+    },
+    {
+      "kind": "email",
+      "date": "2026-03-11",
+      "time": "15:00",
+      "fact": true,
+      "source_label": "メール",
+      "direction": "受けた",
+      "mail_type": "MTG予定",
+      "subject": "架空の日程連絡",
+      "zoom_held_time": null,
+      "attach": {
+        "state": "own",
+        "in_span": true,
+        "moved_from": null,
+        "moved_to": null
+      }
+    },
+    {
+      "kind": "zoom_mtg",
+      "date": "2026-03-11",
+      "time": "10:00",
+      "end_time": "11:00",
+      "end_date": "2026-03-11",
+      "fact": true,
+      "source_label": "Zoom の開催記録・事実",
+      "attach": {
+        "state": "own",
+        "in_span": true,
+        "moved_from": null,
+        "moved_to": null
+      }
+    },
+    {
+      "kind": "email",
+      "date": "2026-03-11",
+      "time": "08:00",
+      "fact": true,
+      "source_label": "メール",
+      "direction": "送った",
+      "mail_type": "MTG実施",
+      "subject": "架空の打ち合わせ報告",
+      "zoom_held_time": "10:00",
+      "attach": {
+        "state": "moved_in",
+        "in_span": true,
+        "moved_from": {
+          "deal_id": "b",
+          "name": "架空の継続契約",
+          "relation": "later"
+        },
+        "moved_to": null
+      }
+    },
+    {
+      "kind": "mtg",
+      "date": "2026-03-10",
+      "time": "09:00",
+      "fact": true,
+      "source_label": "Zoom 録画（事実）",
+      "subject": null,
+      "host": null,
+      "minutes": null,
+      "mtg_type": null,
+      "extracted": false,
+      "todo": null,
+      "concern": null,
+      "positive": null,
+      "risk": null,
+      "risk_reason": null,
+      "next": null,
+      "link_certainty": "高",
+      "link_reason": null,
+      "attach": {
+        "state": "own",
+        "in_span": true,
+        "moved_from": null,
+        "moved_to": null
+      }
+    },
+    {
+      "kind": "call",
+      "date": "2026-03-01",
+      "time": "10:00",
+      "fact": true,
+      "source_label": "通話記録（事実）",
+      "call_id": "fictional-call",
+      "duration_sec": 120.0,
+      "contact": true,
+      "direction": null,
+      "handler": null,
+      "handler_label": null,
+      "owner": null,
+      "has_transcript": false,
+      "summary": null,
+      "attach": {
+        "state": "own",
+        "in_span": true,
+        "moved_from": null,
+        "moved_to": null
+      }
+    }
+  ]
+}

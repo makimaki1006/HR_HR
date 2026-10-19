@@ -169,6 +169,8 @@ mod tests {
         let empty = sheet(&[], &[]);
         cs::Sheets {
             pending_recordings: None,
+            mail_history: crate::handlers::cs_dashboard::empty_history_sheet(),
+            zoom_mtg: crate::handlers::cs_dashboard::empty_history_sheet(),
             deal: empty.clone(),
             owner_hist: empty.clone(),
             call: empty.clone(),

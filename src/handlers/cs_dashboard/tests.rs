@@ -73,6 +73,8 @@ fn load_tsv(name: &str) -> Arc<SheetData> {
 fn sheets() -> Sheets {
     Sheets {
         pending_recordings: None,
+        mail_history: crate::handlers::cs_dashboard::empty_history_sheet(),
+        zoom_mtg: crate::handlers::cs_dashboard::empty_history_sheet(),
         deal: load_tsv("CS_取引"),
         call: load_tsv("CS_通話明細"),
         mtg: load_tsv("CS_MTG"),
@@ -1206,6 +1208,8 @@ fn データ品質は欠測を件数で出す() {
     for sh in sheets_listed {
         if sh["name"] == super::SHEET_PENDING_RECORDINGS {
             assert!(sh["rows"].is_null());
+        } else if sh["name"] == super::SHEET_MAIL_HISTORY || sh["name"] == super::SHEET_ZOOM_MTG {
+            assert_eq!(sh["rows"], 0);
         } else {
             assert!(sh["rows"].as_i64().unwrap() > 0, "空のシートがある: {sh}");
         }
@@ -3853,6 +3857,8 @@ fn trend_tiny(meta_asof: &str) -> Sheets {
     let empty = |h: &[&str]| tiny(h, &[]);
     Sheets {
         pending_recordings: None,
+        mail_history: crate::handlers::cs_dashboard::empty_history_sheet(),
+        zoom_mtg: crate::handlers::cs_dashboard::empty_history_sheet(),
         deal: tiny(
             &[
                 "deal_id",
@@ -4118,6 +4124,8 @@ fn trend_sites() -> Sheets {
     let empty = |h: &[&str]| tiny(h, &[]);
     Sheets {
         pending_recordings: None,
+        mail_history: crate::handlers::cs_dashboard::empty_history_sheet(),
+        zoom_mtg: crate::handlers::cs_dashboard::empty_history_sheet(),
         deal: tiny(
             &[
                 "deal_id",
@@ -4483,6 +4491,8 @@ fn handover_tiny() -> Sheets {
     ];
     Sheets {
         pending_recordings: None,
+        mail_history: crate::handlers::cs_dashboard::empty_history_sheet(),
+        zoom_mtg: crate::handlers::cs_dashboard::empty_history_sheet(),
         deal: tiny(
             &dh,
             &[
@@ -5616,6 +5626,8 @@ fn 案件の詳細の付け直しの印と要約の結合を小さなシート�
     let empty = |h: &[&str]| tiny(h, &[]);
     let sh = Sheets {
         pending_recordings: None,
+        mail_history: crate::handlers::cs_dashboard::empty_history_sheet(),
+        zoom_mtg: crate::handlers::cs_dashboard::empty_history_sheet(),
         deal: tiny(
             &[
                 "deal_id",
@@ -6479,6 +6491,8 @@ fn deal_rows_memo_matches_uncached_and_follows_refetch() {
     // 同じシートで all_cached だけ違う: 行は同じ、all_cached は今回の値
     let flip = Sheets {
         pending_recordings: None,
+        mail_history: crate::handlers::cs_dashboard::empty_history_sheet(),
+        zoom_mtg: crate::handlers::cs_dashboard::empty_history_sheet(),
         all_cached: !sh.all_cached,
         deal: sh.deal.clone(),
         call: sh.call.clone(),
@@ -6557,6 +6571,8 @@ fn act_view_diff_memo_reuses_only_for_the_same_sheets_and_day() {
     // 通話明細だけ取り直した（中身が同じでも別の Arc）: 数え直す
     let sh2 = Sheets {
         pending_recordings: None,
+        mail_history: crate::handlers::cs_dashboard::empty_history_sheet(),
+        zoom_mtg: crate::handlers::cs_dashboard::empty_history_sheet(),
         deal: sh.deal.clone(),
         call: Arc::new(SheetData {
             header: sh.call.header.clone(),
@@ -7248,3 +7264,6 @@ fn team_unattended_counts_overlapping_flags_once_per_deal() {
     assert_eq!(green["mtg_critical"], 0);
     assert_eq!(green["no_contact"], 1);
 }
+
+#[path = "tests/mail_history.rs"]
+mod mail_history;

@@ -80,6 +80,10 @@ pub const SHEET_CUSTOMER: &str = "CS_顧客";
 /// Zoom 録画（事実）と同じ確かさで並べない。画面では
 /// 「実施した事実（推定）」と「中身が読める（事実）」を分けて出す。
 pub const SHEET_MAIL_MTG: &str = "CS_MTG実施日_メール由来";
+/// 件名・送受信日時の履歴。接触の集計には使わない。
+pub const SHEET_MAIL_HISTORY: &str = "CS_メール履歴";
+/// 録画のないMTGも含む、Zoomの開催記録（事実）。
+pub const SHEET_ZOOM_MTG: &str = "CS_MTG実施日_Zoom由来";
 pub const SHEET_HANDOVER: &str = "CS_担当交代";
 /// 担当の履歴。🔴 **担当者の正本は `consultant`**（`hubspot_owner_id` ではない）。
 /// このシートの `owner` 欄が consultant で、取引ごとの最新行がいまの担当。
@@ -569,12 +573,125 @@ pub struct Sheets {
     pub history: Arc<SheetData>,
     pub customer: Arc<SheetData>,
     pub mail_mtg: Arc<SheetData>,
+    pub mail_history: Arc<SheetData>,
+    pub zoom_mtg: Arc<SheetData>,
     pub handover: Arc<SheetData>,
     pub owner_hist: Arc<SheetData>,
     /// 生成時刻。シートが無い環境もあるので、読めなくても画面は出す。
     pub meta: Arc<SheetData>,
     /// 全部キャッシュから返せたか（画面に鮮度を出すため）
     pub all_cached: bool,
+}
+
+/// 未作成タブは空として扱い、失敗を10分覚えて全画面からの再試行を抑える。
+async fn optional_sheet(
+    client: &SheetsClient,
+    store: &SheetStore,
+    name: &'static str,
+    cached: &mut bool,
+) -> Arc<SheetData> {
+    static MISSES: std::sync::Mutex<Vec<(&'static str, std::time::Instant)>> =
+        std::sync::Mutex::new(Vec::new());
+    if let Some(data) = store.fresh(name).await {
+        return data;
+    }
+    let missed = MISSES.lock().ok().is_some_and(|g| {
+        g.iter()
+            .any(|(n, t)| *n == name && t.elapsed() < CALL_SUMMARY_RETRY)
+    });
+    if !missed {
+        *cached = false;
+        if let Ok(data) = store.refresh(client, name).await {
+            if let Ok(mut g) = MISSES.lock() {
+                g.retain(|(n, _)| *n != name);
+            }
+            return data;
+        }
+        if let Ok(mut g) = MISSES.lock() {
+            g.retain(|(n, _)| *n != name);
+            g.push((name, std::time::Instant::now()));
+        }
+        tracing::warn!("コンサルの追加シートを読めません: {name}");
+    }
+    empty_history_sheet()
+}
+
+pub(crate) fn empty_history_sheet() -> Arc<SheetData> {
+    static EMPTY: std::sync::OnceLock<Arc<SheetData>> = std::sync::OnceLock::new();
+    EMPTY
+        .get_or_init(|| {
+            Arc::new(SheetData {
+                header: Vec::new(),
+                rows: Vec::new(),
+                fetched_at: std::time::Instant::now(),
+            })
+        })
+        .clone()
+}
+
+impl Sheets {
+    /// 録画を優先し、同じ取引・同じ日のZoom開催記録を1回だけ加える。
+    /// メール履歴・メール推定はここには渡さない。
+    pub fn factual_mtg(&self) -> std::borrow::Cow<'_, SheetData> {
+        factual_mtg(&self.mtg, &self.zoom_mtg)
+    }
+}
+
+pub(crate) fn factual_mtg<'a>(
+    mtg: &'a SheetData,
+    zoom: &SheetData,
+) -> std::borrow::Cow<'a, SheetData> {
+    if zoom.rows.is_empty() {
+        return std::borrow::Cow::Borrowed(mtg);
+    }
+    let mut header = mtg.header.clone();
+    for c in ["deal_id", "開催日"] {
+        if !header.iter().any(|h| h == c) {
+            header.push(c.into());
+        }
+    }
+    let mut rows = mtg.rows.clone();
+    for row in &mut rows {
+        row.resize(header.len(), Arc::from(""));
+    }
+    let mut days: std::collections::HashSet<(String, NaiveDate)> = mtg
+        .rows
+        .iter()
+        .filter_map(|r| {
+            Some((
+                mtg.get(r, "deal_id").to_string(),
+                date10(mtg.get(r, "開催日"))?,
+            ))
+        })
+        .collect();
+    for r in &zoom.rows {
+        let id = zoom.get(r, "deal_id").trim();
+        if id.is_empty() || zoom.get(r, "kind").trim() != "実施" {
+            continue;
+        }
+        let Some(day) = date10(zoom.get(r, "date")) else {
+            continue;
+        };
+        if days.insert((id.into(), day)) {
+            rows.push(
+                header
+                    .iter()
+                    .map(|c| {
+                        Arc::from(match c.as_str() {
+                            "deal_id" => id,
+                            "開催日" => zoom.get(r, "date"),
+                            _ => "",
+                        })
+                    })
+                    .collect(),
+            );
+        }
+    }
+    std::borrow::Cow::Owned(SheetData {
+        header,
+        rows,
+        fetched_at: mtg.fetched_at,
+    })
 }
 
 pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
@@ -604,6 +721,8 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
         history: fetch!(SHEET_HISTORY),
         customer: fetch!(SHEET_CUSTOMER),
         mail_mtg: fetch!(SHEET_MAIL_MTG),
+        mail_history: optional_sheet(client, store, SHEET_MAIL_HISTORY, &mut cached).await,
+        zoom_mtg: optional_sheet(client, store, SHEET_ZOOM_MTG, &mut cached).await,
         handover: fetch!(SHEET_HANDOVER),
         owner_hist: fetch!(SHEET_OWNER_HIST),
         // 🔴 これだけは**読めなくても落とさない**。鮮度が出ないだけで、
@@ -983,6 +1102,8 @@ pub const SHEETS: &[&str] = &[
     SHEET_OWNER_HIST,
     SHEET_META,
     SHEET_PENDING_RECORDINGS,
+    SHEET_MAIL_HISTORY,
+    SHEET_ZOOM_MTG,
 ];
 
 /// 起動時にシートを常駐キャッシュへ載せておく。
