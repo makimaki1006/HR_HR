@@ -46,7 +46,7 @@ describe('応募の読み取りモード', () => {
   });
   it('既存のステージ選択と媒体で絞る', async () => {
     render(<ApplicantsScreen fixture />);
-    fireEvent.click(await screen.findByRole('button', { name: 'ステージ（2件選択）' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'ステージ（5件選択）' }));
     expect(screen.getByRole('heading', { name: '一次対応_BPO' })).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: '朝連絡' }));
     fireEvent.click(screen.getByRole('button', { name: '適用' }));

@@ -5,7 +5,7 @@ import { fieldDefFrom, initialDraft } from './writeModel';
 import type { FieldChange } from './writeModel';
 export const APPLICANT_DRAFT_KEY = 'hrhr.crm.applicantResult.v1';
 export const APPLICANT_MEMO = 'renrakukakuninmokuteki';
-export const APPLICANT_WRITES_OFF = '応募の書き込みは OFF のため、読み取りのみです。';
+export const APPLICANT_WRITES_OFF = 'いまは HubSpot に保存できない設定です。見るだけになります。';
 export function applicantField(f: ApplicantEditField) { return fieldDefFrom('deal', { ...f, type: f.property_type }); }
 export function applicantChanges(detail: ApplicantDetail, draft: Record<string, string>, stage: string, today = todayJst()): FieldChange[] {
   const changes: FieldChange[] = [];

@@ -113,6 +113,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
         {queue?.items.length === 0 && <p>条件に一致する応募はありません。</p>}
         {queue?.next_cursor && <button onClick={() => { setCursor(queue.next_cursor); }}>続きを読み込む</button>}
       </aside>
+      <div className="applicants-center">
       <main ref={detailRef} className="applicants-detail" aria-label="応募の詳細">
         {!selected ? <p>一覧から応募を選択してください。</p> : <>
           <section className="crm-card applicant-identity"><h2>{headlineName || '氏名未登録'}</h2><p>{headline?.stage} · {headline?.media} · 応募日 {date(headline?.date ?? '')}</p>
@@ -132,6 +133,15 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
           {detail && <section className="crm-card"><h3>メモ</h3>{detail.notes.length === 0 && <p>メモはありません。</p>}{detail.notes.map((n, i) => <article key={i}><time>{date(n.date)}</time><div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} /></article>)}</section>}
         </>}
       </main>
+        <ApplicantEditor detail={detail} fixture={fixture} contactTarget={contactTarget} hearingTarget={hearingTarget} onNext={id => {
+          if (selectedRef.current !== id) return;
+          const index = queue?.items.findIndex(item => item.id === id) ?? -1;
+          const next = queue?.items[index + 1];
+          if (next) select(next);
+          else { setDetail(null); setSelected(null); setCursor(null); setRefresh(v => v + 1); }
+        }} />
+
+      </div>
       <aside className="applicants-right" aria-label="報告シートと電話">
         <div role="tablist" aria-label="応募の補助画面">{(['sheet', 'zoom'] as const).map(t => <button key={t} id={`applicant-tab-${t}`} aria-controls={`applicant-panel-${t}`} role="tab" aria-selected={right === t} tabIndex={right === t ? 0 : -1} onKeyDown={e => {
           if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
@@ -143,13 +153,6 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
         <div role="tabpanel" id="applicant-panel-zoom" aria-labelledby="applicant-tab-zoom" hidden={right !== 'zoom'}>
           {fixture ? <p>架空サンプルでは発信できません</p> : <><p>{zoom.embed === 'timeout' ? 'Zoom Phone を読み込めません。再読み込みしてください。' : 'Zoom にログインしてから発信してください。'}</p><iframe ref={iframeRef} title="Zoom Phone" src={ZOOM_EMBED_SRC} allow="microphone; clipboard-read; clipboard-write" onLoad={zoom.onLoad} /></>}
         </div>
-        <ApplicantEditor detail={detail} fixture={fixture} contactTarget={contactTarget} hearingTarget={hearingTarget} onNext={id => {
-          if (selectedRef.current !== id) return;
-          const index = queue?.items.findIndex(item => item.id === id) ?? -1;
-          const next = queue?.items[index + 1];
-          if (next) select(next);
-          else { setDetail(null); setSelected(null); setCursor(null); setRefresh(v => v + 1); }
-        }} />
 
       </aside>
     </div>

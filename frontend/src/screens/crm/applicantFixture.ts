@@ -8,7 +8,7 @@ const items: ApplicantRow[] = [
 ];
 export const applicantQueueFixture: ApplicantQueue = {
   items, total: 2, next_cursor: null,
-  pipelines: [{ id: 'fixture', label: '一次対応_BPO', stages: [{ id: '1431574804', label: '朝連絡' }, { id: '1343099551', label: '応募受付' }] }],
+  pipelines: [{ id: 'fixture', label: '一次対応_BPO', stages: [{ id: '1431574804', label: '朝連絡' }, { id: '1343099551', label: '応募受付' }, { id: 'fixture-filter-grace', label: '足切り猶予期間' }, { id: 'fixture-filter-docs', label: '選考書類待ち' }, { id: 'fixture-filter-call', label: '約束あり連絡' }] }],
   media_options: [{ id: '架空求人サイト', label: '架空求人サイト' }, { id: '架空採用ページ', label: '架空採用ページ' }],
 };
 export function applicantDetailFixture(id: string): ApplicantDetail {
@@ -16,7 +16,7 @@ export function applicantDetailFixture(id: string): ApplicantDetail {
   return {
     values: { hs_pipeline: 'fixture', hs_pipeline_stage: row.stage_id, renrakukakuninmokuteki: '10/18 午後の連絡を希望', meeruadoresu: 'applicant@example.invalid', denwabangou: '000-0000-0000', hoyuushikaku_hiaringu: 'none', shuugyoujoukyou: '旧項目: 在職中', nyuushakiboujiki: '旧項目: 相談' },
     writes_enabled: new URLSearchParams(window.location.search).get('writes') !== 'off',
-    write_pipeline: { id: 'fixture', label: '一次対応_BPO', stages: [...(applicantQueueFixture.pipelines[0]?.stages ?? []), ...['昼連絡','夕連絡','約束あり連絡','選考書類待ち','足切り猶予期間','一次対応実施済'].map((label, i) => ({id:`fixture-stage-${String(i)}`,label}))] },
+    write_pipeline: { id: 'fixture', label: '一次対応_BPO', stages: [...(applicantQueueFixture.pipelines[0]?.stages.filter(s => !s.id.startsWith('fixture-filter-')) ?? []), ...['昼連絡','夕連絡','約束あり連絡','選考書類待ち','足切り猶予期間','一次対応実施済'].map((label, i) => ({id:`fixture-stage-${String(i)}`,label}))] },
     editable: [
       ...[['taioushubetsu','対応種別'],['ichijitaioujisshinaiyou','一次対応実施内容'],['ouboshahenobaitaimerusoufu','応募者への媒体メール送付'],['senkoushoruikaishuu','選考書類回収'],['ouboshajouhoukanrishito','応募者情報管理シート'],['bpotaishougairiyuu','BPO対象外理由']].map(([name, label]) => ({name:name ?? '',label:label ?? '',property_type:'enumeration',field_type:'select',options:[{value:'done',label:'確認済み',hidden:false},{value:'waiting',label:'確認待ち',hidden:false}],section:'結果'})),
       {name:'renrakukakuninmokuteki',label:'連絡・確認目的詳細',property_type:'string',field_type:'textarea',options:[],section:'結果'},

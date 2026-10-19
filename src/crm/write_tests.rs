@@ -317,7 +317,7 @@ async fn start_hs_gw(
             .route("/crm/v3/properties/{o}", get(hs_props))
             .route("/crm/v3/properties/{o}/groups", get(hs_groups))
             .route("/crm/v3/pipelines/deals", get(hs_pipelines))
-            .route("/crm/v3/pipelines/0-421", get(|| async { Json(json!({"results":[{"id":"app-pipeline","label":"一次対応_BPO","stages":[{"id":"1343099551","label":"応募受付"},{"id":"1431574804","label":"朝連絡"}]}]})) }))
+            .route("/crm/v3/pipelines/0-421", get(|| async { Json(json!({"results":[{"id":"t_3c8f8179ebedb62c890f1cf2c73ff9c8","label":"改名後の一次対応","stages":[{"id":"1343099551","label":"応募受付"},{"id":"1431574804","label":"朝連絡"}]}]})) }))
             .route("/crm/v3/objects/0-421/batch/read", post(|State(st): State<Shared<Fake>>| async move {
                 let mut s = st.lock().unwrap(); s.log.push(("POST /crm/v3/objects/0-421/batch/read".into(), String::new())); Json(json!({"results":[record("0-421",DEAL,&s,&[]).unwrap()]}))
             }))

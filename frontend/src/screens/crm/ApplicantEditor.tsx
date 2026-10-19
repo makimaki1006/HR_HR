@@ -89,10 +89,12 @@ function ApplicantForm({ detail, user, fixture, save, contactTarget, hearingTarg
     finally { busy.current = false; setSaving(false); }
   }
   return <form ref={formRef} onSubmit={e => { e.preventDefault(); void submit(); }} onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && e.target instanceof HTMLInputElement && !e.nativeEvent.isComposing) { e.preventDefault(); return; } if (e.key === 'Enter' && e.ctrlKey && !e.nativeEvent.isComposing) { e.preventDefault(); void submit(); } }}>
-    <fieldset disabled={saving}>
+    <fieldset disabled={saving} className="applicant-result-header">
       <legend>結果を記録</legend>
       <div className="applicant-quick-stages">{detail.write_pipeline?.stages.filter(s => quickLabels.includes(s.label)).map(s => <button type="button" key={s.id} aria-pressed={draft.stageId === s.id} onClick={() => { change({ ...draft, stageId: s.id }); }}>{s.label}</button>)}</div>
       <label>ステージ<select aria-label="ステージ" value={draft.stageId || detail.row.stage_id} onChange={e => { change({ ...draft, stageId: e.target.value }); }}>{detail.write_pipeline?.stages.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
+    </fieldset>
+    <fieldset disabled={saving} className="applicant-result-fields">
       {['結果', 'ヒアリング', '連絡先'].map(section => {
         const target = section === 'ヒアリング' ? hearingTarget : section === '連絡先' ? contactTarget : null;
         const fields = <details key={section} open={section === '結果'}><summary>{section === '結果' ? '対応結果' : `${section}の編集`}</summary>

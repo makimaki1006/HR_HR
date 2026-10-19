@@ -51,7 +51,7 @@ describe('応募の記録', () => {
   });
   it('OFF は読み取り表示で保存ボタンを出さない', () => {
     const fetcher=mockFetch(200,{});render(<ApplicantEditor detail={{...applicantDetailFixture('90001'),writes_enabled:false}} fixture onNext={vi.fn()}/>);
-    expect(screen.getByText('応募の書き込みは OFF のため、読み取りのみです。')).toBeTruthy();
+    expect(screen.getByText('いまは HubSpot に保存できない設定です。見るだけになります。')).toBeTruthy();
     expect(screen.queryByRole('button',{name:'記録して次へ'})).toBeNull();expect(fetcher).not.toHaveBeenCalled();
   });
   it('日時入力の通常の Enter では記録しない', async () => {

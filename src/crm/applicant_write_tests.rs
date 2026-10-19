@@ -5,7 +5,10 @@ fn fake_applicant() -> Fake {
     f.objects.insert(
         ("0-421".into(), DEAL.into()),
         BTreeMap::from([
-            ("hs_pipeline".into(), "app-pipeline".into()),
+            (
+                "hs_pipeline".into(),
+                "t_3c8f8179ebedb62c890f1cf2c73ff9c8".into(),
+            ),
             ("hs_pipeline_stage".into(), "1343099551".into()),
             ("renrakukakuninmokuteki".into(), "10/18 旧メモ".into()),
         ]),
@@ -13,7 +16,7 @@ fn fake_applicant() -> Fake {
     f
 }
 fn body(op: &str) -> Value {
-    json!({"operation_id":op,"base":{"hs_pipeline":"app-pipeline","hs_pipeline_stage":"1343099551","renrakukakuninmokuteki":"10/18 旧メモ"},"set":{"renrakukakuninmokuteki":"10/18 旧メモ\n10/19 希望を確認"},"stage":{"pipeline_id":"app-pipeline","stage_id":"1431574804"}})
+    json!({"operation_id":op,"base":{"hs_pipeline":"t_3c8f8179ebedb62c890f1cf2c73ff9c8","hs_pipeline_stage":"1343099551","renrakukakuninmokuteki":"10/18 旧メモ"},"set":{"renrakukakuninmokuteki":"10/18 旧メモ\n10/19 希望を確認"},"stage":{"pipeline_id":"t_3c8f8179ebedb62c890f1cf2c73ff9c8","stage_id":"1431574804"}})
 }
 async fn patch(e: &Env, body: Value) -> (StatusCode, Value) {
     call(
@@ -34,6 +37,7 @@ async fn applicant_patch_atomic_body_replay_audit_and_cache_invalidation() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(before["values"]["hs_pipeline_stage"], "1343099551");
     assert_eq!(before["writes_enabled"], true);
+    assert_eq!(before["write_pipeline"]["label"], "改名後の一次対応");
     assert!(!before["editable"]
         .as_array()
         .unwrap()

@@ -95,7 +95,7 @@ pub(super) fn editable(defs: &Value) -> Vec<ApplicantEditField> {
         .collect()
 }
 pub(super) fn write_pipeline(defs: &Value) -> Option<&Value> {
-    values(&defs["pipelines"]).find(|p| p["label"] == "一次対応_BPO")
+    values(&defs["pipelines"]).find(|p| p["id"] == PIPELINE)
 }
 pub(in crate::crm) async fn build_write_step(
     state: &ApplicantsState,

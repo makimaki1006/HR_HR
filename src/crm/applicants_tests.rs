@@ -7,6 +7,9 @@ struct Fake {
     forbidden: bool,
     sheet: Option<String>,
     large_queue: bool,
+    delay_ms: u64,
+    inflight: usize,
+    max_inflight: usize,
 }
 fn props() -> Value {
     json!({"results":[
@@ -14,7 +17,8 @@ fn props() -> Value {
         {"name":"ouboshashimei_kana","label":"カナ","type":"string"},
         {"name":"denwabangou","label":"電話番号","type":"string"},
         {"name":"yingmuri","label":"応募日","type":"date"},
-        {"name":"hs_pipeline_stage","label":"ステージ","type":"enumeration"},
+        {"name":"email","label":"Email","type":"string","hubspotDefined":true},
+        {"name":"hs_pipeline_stage","label":"Pipeline Stage","type":"enumeration","hubspotDefined":true},
         {"name":"oubosaki_kyuujin_title","label":"応募先求人タイトル","type":"string"},
         {"name":"oubobaitaimei","label":"応募媒体","type":"enumeration","options":[{"value":"web","label":"架空求人サイト"}]},
         {"name":"customer_sheet_url_synced","label":"報告シート","type":"string"},
@@ -24,9 +28,17 @@ fn props() -> Value {
     ]})
 }
 fn applicant(id: &str, date: &str) -> Value {
-    json!({"id":id,"properties":{"ouboshashimei":"架空 はるか","ouboshashimei_kana":"カクウ ハルカ","denwabangou":"00000000000","yingmuri":date,"hs_createdate":"2026-10-16T01:00:00Z","hs_pipeline_stage":"1343099551","oubobaitaimei":"web","oubosaki_kyuujin_title":"架空の検品求人","hoyuushikaku_hiaringu":"none","anmokuchi_shodoutaiou":"希望時間を確認","anmokuchi_ashigirijouken":"  "}})
+    json!({"id":id,"properties":{"ouboshashimei":"架空 はるか","ouboshashimei_kana":"カクウ ハルカ","denwabangou":"00000000000","email":"applicant@example.invalid","yingmuri":date,"hs_createdate":"2026-10-16T01:00:00Z","hs_pipeline_stage":"1343099551","oubobaitaimei":"web","oubosaki_kyuujin_title":"架空の検品求人","hoyuushikaku_hiaringu":"none","anmokuchi_shodoutaiou":"希望時間を確認","anmokuchi_ashigirijouken":"  "}})
 }
 async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
+    let delay = {
+        let mut f = st.lock().unwrap();
+        f.inflight += 1;
+        f.max_inflight = f.max_inflight.max(f.inflight);
+        f.delay_ms
+    };
+    tokio::time::sleep(Duration::from_millis(delay)).await;
+    st.lock().unwrap().inflight -= 1;
     let path = req.uri().path().to_string();
     let method = req.method().clone();
     let body = to_bytes(req.into_body(), 1024 * 1024).await.unwrap();
@@ -44,7 +56,7 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
     let result = match path.as_str() {
         "/crm/v3/properties/0-421" => props(),
         "/crm/v3/pipelines/0-421" => {
-            json!({"results":[{"id":"pipeline-from-hubspot","label":"一次対応_BPO","stages":[{"id":"1343099551","label":"応募受付"},{"id":"1431574804","label":"朝連絡"}]}]})
+            json!({"results":[{"id":"t_3c8f8179ebedb62c890f1cf2c73ff9c8","label":"一次対応_BPO","stages":[{"id":"1343099551","label":"応募受付"},{"id":"1431574804","label":"朝連絡"}]}]})
         }
         "/crm/v3/objects/0-421/search" => {
             let sort = &body["sorts"][0]["propertyName"];
@@ -114,6 +126,10 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
     Json(result).into_response()
 }
 async fn app() -> (Router, String, Shared<Fake>) {
+    let (app, cookie, fake, _) = app_with_client().await;
+    (app, cookie, fake)
+}
+async fn app_with_client() -> (Router, String, Shared<Fake>, Arc<HubSpotClient>) {
     let f = Arc::new(Mutex::new(Fake::default()));
     let base = spawn(Router::new().fallback(fake).with_state(f.clone())).await;
     let client = HubSpotClient::new(
@@ -128,9 +144,10 @@ async fn app() -> (Router, String, Shared<Fake>) {
         },
     )
     .unwrap();
-    let app = crm_app(test_state(None, Some(Arc::new(client))));
+    let client = Arc::new(client);
+    let app = crm_app(test_state(None, Some(client.clone())));
     let cookie = login_as(&app, "google_oidc", None).await;
-    (app, cookie, f)
+    (app, cookie, f, client)
 }
 #[tokio::test]
 async fn applicants_queue_search_phases_cursor_total_cache_and_fresh() {
@@ -216,6 +233,24 @@ async fn applicants_detail_labels_empty_fields_sheet_notes_cache_and_fresh() {
     let (status, _, a) = get_json(&app, "/api/crm/applicants/100", &c).await;
     assert_eq!(status, StatusCode::OK, "{a}");
     assert_eq!(a["phone"], "00000000000");
+    assert_eq!(
+        a["sections"][0]["fields"],
+        json!([{"label":"カナ", "value":"カクウ ハルカ"}, {"label":"メールアドレス", "value":"applicant@example.invalid"}])
+    );
+    let all_fields = a["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|section| section["fields"].as_array().unwrap());
+    assert!(!all_fields.clone().any(|f| [
+        "Pipeline Stage",
+        "ステージ",
+        "電話番号",
+        "応募媒体",
+        "応募日"
+    ]
+    .contains(&f["label"].as_str().unwrap())));
+
     assert_eq!(
         a["sections"]
             .as_array()
@@ -365,4 +400,109 @@ async fn applicants_merge_keeps_order_across_pages_without_duplicates() {
         ]
     );
     assert_eq!(page["next_cursor"], Value::Null);
+}
+
+// r1 の直列スケジュールと同じ API を同じ偽サーバへ送る（計測の比較用だけ）。
+async fn sequential_detail(client: &HubSpotClient) {
+    let defs = client
+        .read_raw(false, "/crm/v3/properties/0-421", &[], None)
+        .await
+        .unwrap()
+        .body
+        .unwrap();
+    client
+        .read_raw(false, "/crm/v3/pipelines/0-421", &[], None)
+        .await
+        .unwrap();
+    let names: Vec<&str> = defs["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    client
+        .batch_read("0-421", &["100".into()], &names)
+        .await
+        .unwrap();
+    client
+        .read_raw(
+            false,
+            "/crm/v4/objects/0-421/100/associations/0-420",
+            &[("limit", "500".into())],
+            None,
+        )
+        .await
+        .unwrap();
+    client
+        .read_raw(
+            false,
+            "/crm/v4/objects/0-421/100/associations/notes",
+            &[("limit", "500".into())],
+            None,
+        )
+        .await
+        .unwrap();
+    client
+        .batch_read("0-420", &["200".into()], &["hs_name", "customer_sheet_url"])
+        .await
+        .unwrap();
+    client
+        .batch_read(
+            "notes",
+            &(300..307).map(|id| id.to_string()).collect::<Vec<_>>(),
+            &["hs_timestamp", "hs_note_body"],
+        )
+        .await
+        .unwrap();
+}
+#[tokio::test]
+async fn applicant_detail_parallel_latency_and_same_call_budget() {
+    let (app, cookie, fake, client) = app_with_client().await;
+    fake.lock().unwrap().delay_ms = 100;
+    let before = std::time::Instant::now();
+    sequential_detail(&client).await;
+    let before_ms = before.elapsed().as_millis();
+    let old_paths = {
+        let mut f = fake.lock().unwrap();
+        assert_eq!(f.max_inflight, 1);
+        let paths = f
+            .requests
+            .iter()
+            .map(|(p, _)| p.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(f.requests.len(), 7);
+        f.requests.clear();
+        f.max_inflight = 0;
+        paths
+    };
+    let after = std::time::Instant::now();
+    let (status, _, body) = get_json(&app, "/api/crm/applicants/100", &cookie).await;
+    let after_ms = after.elapsed().as_millis();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["phone"], "00000000000");
+    assert_eq!(body["jobs"][0]["label"], "架空求人票");
+    assert_eq!(body["notes"][0]["date"], "2026-10-16T00:00:00Z");
+    {
+        let f = fake.lock().unwrap();
+        assert_eq!(f.requests.len(), 7);
+        assert_eq!(
+            f.requests
+                .iter()
+                .map(|(p, _)| p.clone())
+                .collect::<std::collections::BTreeSet<_>>(),
+            old_paths
+        );
+        assert_eq!(f.max_inflight, 3, "本体と二つの関連を同時に取得する");
+    }
+    fake.lock().unwrap().requests.clear();
+    let warm = std::time::Instant::now();
+    assert_eq!(
+        get_json(&app, "/api/crm/applicants/100?fresh=1", &cookie)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let warm_ms = warm.elapsed().as_millis();
+    assert_eq!(fake.lock().unwrap().requests.len(), 5);
+    println!("APPLICANT_DETAIL_LATENCY delay_ms=100 before_cold_ms={before_ms} after_cold_ms={after_ms} after_warm_ms={warm_ms} calls=7/7/5 sequential_stages=7 parallel_stages=3 warm_parallel_stages=2");
 }

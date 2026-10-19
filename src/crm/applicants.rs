@@ -26,6 +26,7 @@ use tower_sessions::Session;
 use ts_rs::TS;
 
 const OBJECT: &str = "0-421";
+pub const PIPELINE: &str = "t_3c8f8179ebedb62c890f1cf2c73ff9c8";
 pub const OPEN_STAGES: [&str; 8] = [
     "1343099551",
     "1431582290",
@@ -201,10 +202,18 @@ impl ApplicantsState {
         if let Some(v) = self.definitions.get(&()) {
             return Ok(v);
         }
-        let props = raw(client, "/crm/v3/properties/0-421").await?;
-        let pipelines = raw(client, "/crm/v3/pipelines/0-421").await?;
+        let (mut props, pipelines) = tokio::try_join!(
+            raw(client, "/crm/v3/properties/0-421"),
+            raw(client, "/crm/v3/pipelines/0-421")
+        )?;
         if !props["results"].is_array() || !pipelines["results"].is_array() {
             return Err(HubSpotError::Decode("applicant definitions".into()));
+        }
+        for def in props["results"].as_array_mut().unwrap() {
+            let name = text(def, "name");
+            if let Some(label) = super::label_ja::property_label(OBJECT, &name, def) {
+                def["label"] = json!(label);
+            }
         }
         let value = json!({"properties":props["results"], "pipelines":pipelines["results"]});
         self.definitions.insert((), value.clone());
@@ -437,9 +446,6 @@ pub(super) async fn queue(
             return Json(body).into_response();
         }
     }
-    let Some(client) = state.crm_hubspot() else {
-        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
-    };
     let work = async {
         let _slot = tokio::time::timeout(Duration::from_secs(5), ctx.queue_slots.acquire())
             .await
@@ -593,7 +599,21 @@ fn sections(p: &Value, defs: &Value) -> Vec<ApplicantSection> {
         let name = text(def, "name");
         let value = text(p, &name);
         let label = text(def, "label");
-        if value.is_empty() || label.is_empty() || name == "customer_sheet_url_synced" {
+        // 見出しに出す値は項目カードへ重ねて出さない（内部名で判定する）。
+        if value.is_empty()
+            || label.is_empty()
+            || [
+                "customer_sheet_url_synced",
+                "ouboshashimei",
+                "denwabangou",
+                "hs_pipeline",
+                "hs_pipeline_stage",
+                "oubobaitaimei",
+                "yingmuri",
+                "hs_createdate",
+            ]
+            .contains(&name.as_str())
+        {
             continue;
         }
         let idx = if RULES.contains(&name.as_str()) {
@@ -662,9 +682,6 @@ pub(super) async fn detail(
             return Json(v).into_response();
         }
     }
-    let Some(client) = state.crm_hubspot() else {
-        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
-    };
     let work = async {
         let _slot = tokio::time::timeout(Duration::from_secs(5), ctx.read_slots.acquire())
             .await
@@ -676,18 +693,23 @@ pub(super) async fn detail(
             .filter(|s| !s.is_empty())
             .collect();
         let names: Vec<&str> = props.iter().map(String::as_str).collect();
-        let rows = client
-            .batch_read(OBJECT, std::slice::from_ref(&id), &names)
-            .await?;
+        // 本体、求人票、メモは独立。関連 ID → batch read の依存だけを保つ。
+        let (rows, jobs, notes) = tokio::try_join!(
+            client.batch_read(OBJECT, std::slice::from_ref(&id), &names),
+            async {
+                let ids = all_associations(&client, &id, "0-420").await?;
+                client
+                    .batch_read("0-420", &ids, &["hs_name", "customer_sheet_url"])
+                    .await
+            },
+            async {
+                let ids = all_associations(&client, &id, "notes").await?;
+                client
+                    .batch_read("notes", &ids, &["hs_timestamp", "hs_note_body"])
+                    .await
+            }
+        )?;
         let record = rows.first().ok_or(HubSpotError::NotFound)?;
-        let jobs_ids = all_associations(&client, &id, "0-420").await?;
-        let notes_ids = all_associations(&client, &id, "notes").await?;
-        let jobs = client
-            .batch_read("0-420", &jobs_ids, &["hs_name", "customer_sheet_url"])
-            .await?;
-        let notes = client
-            .batch_read("notes", &notes_ids, &["hs_timestamp", "hs_note_body"])
-            .await?;
         let v = serde_json::to_value(record)
             .map_err(|_| HubSpotError::Decode("applicant record".into()))?;
         let p = &v["properties"];
