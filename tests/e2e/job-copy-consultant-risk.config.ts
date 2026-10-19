@@ -6,7 +6,7 @@ import pr from './pr/playwright.pr.config';
 export default defineConfig({
   ...pr,
   testDir: path.resolve(__dirname, 'pr'),
-  testMatch: 'job_copy_consultant_risk.spec.ts',
+  testMatch: ['job_copy_consultant_risk.spec.ts', 'job_copy_consultant_good.spec.ts'],
   globalSetup: path.resolve(__dirname, 'pr/global-setup.ts'),
   outputDir: path.resolve(__dirname, '../../test-results/consultant-risk'),
   retries: 0,

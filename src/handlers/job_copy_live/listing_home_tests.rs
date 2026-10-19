@@ -715,3 +715,37 @@ fn recent_breakdown_is_not_limited_by_home_card_list_cap() {
         100
     );
 }
+
+#[test]
+fn consultant_applications_share_home_more_and_week_boundaries() {
+    for (prev, recent, expected) in [
+        (0, 0, false),
+        (0, 1, true),
+        (3, 7, true),
+        (7, 7, false),
+        (100, 101, false),
+    ] {
+        let performance = weeks(
+            [(0, recent), (0, 0), (0, 0), (0, 0)],
+            [(0, prev), (0, 0), (0, 0), (0, 0)],
+        );
+        let row = listing("501", &["d1", "d1"], "掲載中", "none", Some(&performance));
+        let home = compute(std::slice::from_ref(&row), &map(), date("2026-10-19"));
+        let more = home.cards.iter().find(|c| c.key == "more").unwrap();
+        let totals = super::application_totals(&[row]);
+        assert_eq!(totals["d1"], (prev, recent));
+        assert_eq!(more.count, usize::from(expected));
+        assert_eq!(
+            application_trend(totals["d1"].0, totals["d1"].1) == "more",
+            expected
+        );
+    }
+    let a = weeks([(0, 2); 4], [(0, 1); 4]);
+    let b = weeks([(0, 3); 4], [(0, 2); 4]);
+    let totals = super::application_totals(&[
+        listing("501", &["d1"], "掲載中", "none", Some(&a)),
+        listing("502", &["d1", "d2"], "掲載終了", "none", Some(&b)),
+    ]);
+    assert_eq!(totals["d1"], (12, 20));
+    assert_eq!(totals["d2"], (8, 12));
+}

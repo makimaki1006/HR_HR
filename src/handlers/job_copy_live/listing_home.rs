@@ -264,7 +264,14 @@ fn cost_per_app(perf: &PerfDigest) -> Option<i64> {
 
 /// 応募の増減の 5 分類は排他的。割合の掛け算は i128 に広げて桁あふれも防ぐ。
 fn trend_key(perf: &PerfDigest) -> &'static str {
-    let (prev, recent) = (perf.prev_apps, perf.recent_apps);
+    application_trend(perf.prev_apps, perf.recent_apps)
+}
+
+/// ホームと案件の合算で共用する応募増減の定義。
+pub(in crate::handlers::job_copy_live) fn application_trend(
+    prev: i64,
+    recent: i64,
+) -> &'static str {
     let changed = |diff: i64| {
         diff >= TREND_MIN_DIFF
             || i128::from(diff) * 100 >= i128::from(TREND_MIN_PERCENT) * i128::from(prev)

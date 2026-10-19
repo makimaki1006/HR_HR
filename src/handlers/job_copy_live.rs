@@ -27,6 +27,7 @@ use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
 mod consultant_flags;
+mod consultant_good;
 mod consultant_risk;
 mod deal_board;
 mod deal_summary;
@@ -2191,6 +2192,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             axum::routing::put(indeed_title::put),
         )
         .route("/api/job-copy/consultant-risk", get(consultant_risk::read))
+        .route("/api/job-copy/consultant-good", get(consultant_good::read))
         .route(
             "/api/job-copy/consultant-scope",
             get(consultant_risk::scope),

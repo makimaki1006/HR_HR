@@ -4,13 +4,13 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ConsultantRisk, jobsHref, riskGroups } from './ConsultantRisk';
 import { ConsultantMenu } from './ConsultantMenu';
 import { OwnerFilter } from './OwnerTodo';
-import { detailFixture, riskFixture, riskRow, scopeFixture } from './consultantRisk.testFixtures';
+import { detailFixture, goodFixture, riskFixture, riskRow, scopeFixture } from './consultantRisk.testFixtures';
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 function mock(single = true, first = false) {
   const calls: string[] = [];
   vi.stubGlobal('fetch', vi.fn((input: string) => {
     calls.push(input); const path = new URL(input, window.location.origin);
-    const data = path.pathname.endsWith('consultant-scope') ? { ...scopeFixture, owner: path.searchParams.get('owner') ?? '11', owner_field: path.searchParams.get('owner_field') ?? 'consultant' } : path.pathname.endsWith('consultant-risk') ? { ...riskFixture, comparison: first ? 'first' : 'ready', rows: path.searchParams.get('owner') === '22' ? [] : riskFixture.rows } : path.pathname.includes('deal-detail') ? detailFixture : path.pathname.endsWith('/listings') ? { status: 'ready', total: single ? 1 : 2, next_offset: null, listings: [{ id: '501' }] } : { hubspot_portal_id: '123' };
+    const data = path.pathname.endsWith('/edit-schema') ? { writes_enabled: false, editable: [] } : path.pathname.endsWith('consultant-scope') ? { ...scopeFixture, owner: path.searchParams.get('owner') ?? '11', owner_field: path.searchParams.get('owner_field') ?? 'consultant' } : path.pathname.endsWith('consultant-good') ? { ...goodFixture, rows: path.searchParams.get('owner') === '22' ? [] : goodFixture.rows } : path.pathname.endsWith('consultant-risk') ? { ...riskFixture, comparison: first ? 'first' : 'ready', rows: path.searchParams.get('owner') === '22' ? [] : riskFixture.rows } : path.pathname.includes('deal-detail') ? detailFixture : path.pathname.endsWith('/listings') ? { status: 'ready', total: single ? 1 : 2, next_offset: null, listings: [{ id: '501' }] } : { hubspot_portal_id: '123', selected: { deal: {} }, partial: [] };
     return Promise.resolve(new Response(JSON.stringify(data), { headers: { 'content-type': 'application/json' } }));
   })); return calls;
 }
@@ -72,6 +72,33 @@ it('保存初日は翌日の比較案内を表示する', async () => {
   render(<ConsultantRisk />);
   expect(await screen.findByText('前回と比べられるのは明日のデータから')).toBeTruthy();
   expect(screen.queryByRole('region', { name: '今日わかった' })).toBeNull();
+});
+
+it('いい案件の一覧は全ての印と危ない名札の有無を表示し、同じ詳細を開く', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?view=good&owner=11'); const calls = mock();
+  render(<ConsultantMenu><ConsultantRisk good /></ConsultantMenu>);
+  const list = await screen.findByRole('region', { name: 'いい案件の一覧' });
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('いい案件 3件');
+  expect(within(list).queryByRole('heading', { level: 2 })).toBeNull();
+  expect(within(list).getByRole('columnheader', { name: '理由' })).toBeTruthy();
+  expect(within(list).getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する')).toBeTruthy();
+  const row = within(list).getByRole('row', { name: new RegExp(riskRow.name) });
+  expect(within(row).getAllByRole('listitem').map(el => [el.textContent, el.className])).toEqual(goodFixture.rows[0]?.good_flags?.map(f => [f.label, 'cr-good']));
+  expect(within(row).getByText('危ない名札もあり（2件）')).toBeTruthy();
+  expect(screen.queryByText('今日わかった')).toBeNull();
+  expect(screen.queryByText('前回との比較を取得できないため、一覧で表示しています。')).toBeNull();
+  fireEvent.click(within(row).getByRole('button'));
+  const dialog = await screen.findByRole('dialog');
+  expect(await within(dialog).findByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeTruthy();
+  expect(within(dialog).getByRole('button', { name: '終わった → 次の予定' })).toBeTruthy();
+  expect(within(dialog).getByRole('heading', { name: 'CS提案内容メモ' })).toBeTruthy();
+  expect(within(dialog).getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する')).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }));
+  fireEvent.change(screen.getByRole('combobox', { name: '担当者' }), { target: { value: '22' } });
+  await within(list).findByText('該当する案件はありません。');
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('いい案件 0件');
+  expect(calls.some(url => url.includes('consultant-good?') && url.includes('owner=22'))).toBe(true);
+  expect(new URLSearchParams(window.location.search).get('view')).toBe('good');
 });
 
 it.each(['', '?view=deals'])('既存画面の担当情報を共通欄へ移し、別の担当APIを要求しない（%s）', async query => {

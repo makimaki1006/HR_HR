@@ -20,7 +20,11 @@ pub(super) async fn scope(
         .unwrap_or_else(|| json!({"status":if view.failed {"failed"} else {"preparing"}}));
     Ok(([(header::CACHE_CONTROL, "private, no-store")], Json(body)))
 }
-fn rows(sheets: &cs::Sheets, today: chrono::NaiveDate, snapshot: &Snapshot) -> Vec<Value> {
+pub(super) fn rows(
+    sheets: &cs::Sheets,
+    today: chrono::NaiveDate,
+    snapshot: &Snapshot,
+) -> Vec<Value> {
     let (rows, _) = cs::routes::deal_rows(sheets, today);
     rows.into_iter()
         .filter(|r| {

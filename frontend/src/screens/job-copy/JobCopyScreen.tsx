@@ -609,5 +609,5 @@ function JobCopyMain() {
 export function JobCopyScreen() {
   const view = new URLSearchParams(useJobCopySearch()).get('view');
   const [menuVisit, setMenuVisit] = useState(0);
-  return <ConsultantMenu onNavigate={() => { setMenuVisit(n => n + 1); }} inlineHeader={!['risk', 'deals', 'occupations'].includes(view ?? '')}>{view === 'risk' ? <ConsultantRisk /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : <JobCopyMain key={menuVisit} />}</ConsultantMenu>;
+  return <ConsultantMenu onNavigate={() => { setMenuVisit(n => n + 1); }} inlineHeader={!['risk', 'good', 'deals', 'occupations'].includes(view ?? '')}>{view === 'risk' || view === 'good' ? <ConsultantRisk key={view} good={view === 'good'} /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : <JobCopyMain key={menuVisit} />}</ConsultantMenu>;
 }
