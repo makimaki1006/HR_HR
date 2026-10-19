@@ -190,7 +190,7 @@ export function HoujinView() {
     </div>
   );
   return (
-    <div className="jc-app">
+    <div className="jc-page">
       <main className="jh-home hj-main" id="job-details">
         <header className="jh-head">
           <h1>法人</h1>

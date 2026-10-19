@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { login } from './helpers/login';
 import { detailFixture, goodFixture, goodRow, scopeFixture } from '../../../frontend/src/screens/job-copy/consultantRisk.testFixtures';
 
 test('いい案件の印・共通の詳細・メモ追記・担当とURLの保持', async ({ page }) => {
@@ -15,6 +16,7 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
     const body = route.request().postDataJSON() as typeof patches[number]; patches.push(body); memo = body.set.teian;
     return route.fulfill({ json: { status: 'saved', operation_id: body.operation_id, values: body.set, objects_values: {} } });
   });
+  await login(page);
   await page.goto('/app/job-copy?view=good&owner=11&owner_field=consultant');
   const list = page.getByRole('region', { name: 'いい案件の一覧' });
   await expect(page.getByRole('heading', { level: 1, name: /^いい案件/ })).toHaveText('いい案件 3件');

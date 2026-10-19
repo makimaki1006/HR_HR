@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { ReportFreshness } from './ReportFreshness';
 import { NextTodoButton, ReasonChips } from './NextTodo';
 import type { TodoReason } from './NextTodo';
@@ -16,11 +17,12 @@ export function ownerParams(search: string): string {
   for (const key of ['owner_field', 'owner']) { const value = source.get(key); if (value) result.set(key, value); }
   return result.toString();
 }
-export const OwnerFilterPlacement = createContext(false);
+/** undefined は元の位置、null は非表示、要素があれば共通メニューへ移す。 */
+export const OwnerFilterPlacement = createContext<HTMLElement | null | undefined>(undefined);
 export function OwnerFilter({ work }: { work: Pick<WorkReady, 'owner' | 'owner_field' | 'notice' | 'owners'> }) {
   const placed = useContext(OwnerFilterPlacement);
-  if (placed) return null;
-  return <section className="jh-owner" aria-label="担当者で絞る"><strong>担当者で絞る</strong>
+  if (placed === null) return null;
+  const filter = <section className="jh-owner" aria-label="担当者で絞る"><strong>担当者で絞る</strong>
     <label>担当の項目<select value={work.owner_field} onChange={event => { updateJobCopyQuery({ owner_field: event.target.value, todo_page: null, deals_page: null }, 'replace'); }}><option value="consultant">コンサル担当</option><option value="hubspot_owner_id">取引の担当者</option></select></label>
     <label>担当者<select value={work.owner} onChange={event => { updateJobCopyQuery({ owner: event.target.value, todo_page: null, deals_page: null }, 'replace'); }}><option value="all">全員</option>
       {!work.owners.some(o => o.id === work.owner) && work.owner !== 'all' && <option value={work.owner}>選択中の担当者（該当案件なし）</option>}
@@ -30,6 +32,7 @@ export function OwnerFilter({ work }: { work: Pick<WorkReady, 'owner' | 'owner_f
     <button type="button" className="jc-button" onClick={() => { updateJobCopyQuery({ owner: 'me', todo_page: null, deals_page: null }, 'replace'); }}>自分に戻す</button>
     {work.notice && <p role="status">{work.notice}</p>}
   </section>;
+  return placed === undefined ? filter : createPortal(filter, placed);
 }
 export const signalCards = [
   ['expiration', '契約満了が近い', '今日から60日後まで'],

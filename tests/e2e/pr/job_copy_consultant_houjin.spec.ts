@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { fixtureJobs } from "../job-copy-listings-fixture.mjs";
+import { login } from "./helpers/login";
+import { fixtureJobs, fixtureHistory } from "../job-copy-listings-fixture.mjs";
 import { mkdir } from "node:fs/promises";
 import {
   houjinFixture,
@@ -15,11 +16,10 @@ import {
   goodFixture,
   detailFixture,
 } from "../../../frontend/src/screens/job-copy/consultantRisk.testFixtures";
-const shots =
-  "/private/tmp/claude-502/-Users-s-fujimaki-orca-workspaces-HR-HR-bobtail/1773f6d5-f012-4b2c-8775-528856f4641e/scratchpad/kpi-ui/shots-consultant-3";
 test("法人の値と図・採用単価の並び・4メニューの担当引き継ぎ", async ({
   page,
-}) => {
+}, testInfo) => {
+  const shots = process.env.CONSULTANT_SCREENSHOT_DIR ?? testInfo.outputPath("houjin");
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.stack ?? e.message));
   const owner = (url: string) =>
@@ -38,6 +38,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
     r.fulfill({
       json: {
         ...boardFixture,
+        work: { ...boardFixture.work, owner: owner(r.request().url()) ? "22" : "11" },
         rows: owner(r.request().url()) ? boardRows.slice(1, 2) : boardRows,
       },
     }),
@@ -115,6 +116,9 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
       },
     }),
   );
+  await page.route("**/api/job-copy/listings/2/versions", (r) =>
+    r.fulfill({ json: fixtureHistory("2") }),
+  );
   await page.route("**/api/job-copy/deal-applications?*", (r) =>
     r.fulfill({
       json: {
@@ -132,6 +136,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await page.route("**/api/job-copy/body-dates?*", (r) =>
     r.fulfill({ json: { dates: { "2": "2026-10-01" } } }),
   );
+  await login(page);
   await page.goto("/app/job-copy?view=houjin&owner=11&owner_field=consultant");
   const charts = page.locator('[data-chart-ready="true"]');
   await expect(page.getByRole("region", { name: "法人の数字" })).toContainText(
@@ -237,6 +242,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
     .getByRole("combobox", { name: "担当者", exact: true })
     .selectOption("22");
   await expect(table.locator("tbody>tr")).toHaveCount(1);
+  await expect(page.getByRole("combobox", { name: "担当者", exact: true })).toHaveValue("22");
   await expect(table).toContainText("架空の採用支援02");
   for (const label of ["危ない案件", "いい案件", "法人"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
@@ -274,5 +280,6 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(page).toHaveURL(/listing=2/);
   await expect(page).toHaveURL(/deal=101/);
   expect(new URL(page.url()).searchParams.get("listing")).toBe("2");
+  await expect(page.getByRole("heading", { name: "配送ドライバー・沖縄2", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

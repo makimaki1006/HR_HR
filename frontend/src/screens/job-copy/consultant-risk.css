@@ -1,6 +1,6 @@
-.cm-menu { position: sticky; top: 0; z-index: 20; padding: 12px 24px; border-bottom: 1px solid #d4dfe7; }
-.cm-menu nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.cm-menu nav button { border: 1px solid #beced8; border-radius: 6px; background: white; padding: 7px 18px; }
+.cm-menu { position: sticky; top: 0; z-index: 20; padding: 6px 16px; border-bottom: 1px solid #d4dfe7; }
+.cm-menu nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 0; }
+.cm-menu nav button { border: 1px solid #beced8; border-radius: 6px; background: white; padding: 4px 12px; }
 .cm-menu nav button[aria-current=page] { background: #007c91; color: white; border-color: #007c91; }
 .cm-menu nav a { margin-left: auto; color: #006a7d; }
 .cm-menu .jh-owner { margin: 0; }
@@ -27,3 +27,15 @@
 .pm-memo label { display: block; }
 .pm-memo textarea { display: block; width: 100%; min-height: 90px; box-sizing: border-box; margin: 8px 0; padding: 10px; border: 1px solid #beced8; border-radius: 6px; }
 .pm-current { overflow-wrap: anywhere; }
+
+.cm-owner:empty { display: none; }
+.cm-menu > .jh-owner, .cm-owner:not(:empty) { margin-top: 6px; }
+.cm-owner-popover { position: fixed; inset: auto 16px auto auto; margin: 0; width: min(700px, 90vw); padding: 12px; background: white; border: 1px solid #d4dfe7; border-radius: 6px; box-shadow: 0 4px 12px #122b3d20; }
+
+.jc-topline > .cm-menu { flex: 0 1 auto; padding: 0; border: 0; position: static; z-index: auto; }
+.jc-topline > .cm-menu nav { gap: 8px; }
+.jc-topline > .cm-menu nav a { margin-left: auto; }
+
+/* 担当の2項目を同じ行に保ち、求人作業中の見出し行の高さは増やさない。 */
+.jc-topline > .cm-menu:has(.cm-owner:not(:empty)) { flex: 1 1 660px; }
+.jc-topline:has(> .cm-menu) > .jc-demo { flex-basis: 0; }

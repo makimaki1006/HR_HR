@@ -50,7 +50,7 @@
 .db-launch-below{color:#a33a17;font-weight:600}
 .db-launch-on_track{color:#12684c}
 
-.db-board-scroll {overflow-x:auto;max-width:100%;}
+.db-board-scroll {position:relative;overflow-x:auto;max-width:100%;}
 .db-board-scroll>.db-table {min-width:1350px;}
 .db-board .db-board-scroll>.db-table {table-layout:auto;min-width:1500px;}
 .db-board .db-board-scroll>.db-table>thead>tr>th {width:auto;min-width:82px;}
