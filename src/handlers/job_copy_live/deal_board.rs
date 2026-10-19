@@ -61,6 +61,9 @@ struct DealBoardRow {
     mtg_status: String,
     nps: Option<f64>,
     applications: Option<f64>,
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    recent_applications: Option<i64>,
     interviews: Option<f64>,
     hires: Option<f64>,
     target: Option<f64>,
@@ -202,11 +205,19 @@ pub(super) async fn read(
     let email = authorized_user(&state, &access, &session).await?;
     query.validate()?;
     let view = owner_todo::work_view(listings::service(&access)?).await;
+    let apps = listings::consultant_applications(listings::service(&access)?).await;
     let body = if let Some(snapshot) = view.snapshot.filter(|s| s.complete) {
         let today = owner_todo::today(chrono::Utc::now());
         let meetings = MeetingData::cached().await;
         let metrics = Metrics::new(&snapshot, &meetings, today);
-        json!({"status":"ready","rows":metrics.rows(&snapshot,&query,&email,today),"sheet_as_of":meetings.as_of,
+        let mut rows = metrics.rows(&snapshot, &query, &email, today);
+        for row in &mut rows {
+            row.recent_applications = apps
+                .as_ref()
+                .and_then(|(counts, _, _)| counts.get(&row.id))
+                .map(|(_, recent)| *recent);
+        }
+        json!({"status":"ready","rows":rows,"sheet_as_of":meetings.as_of,
             "refreshing":view.refreshing,"refresh_failed":view.failed,
             "facts_built_at":view.facts_built_at,"facts_stale":view.facts_stale,
             "applications_status": if view.partial { if view.failed { "unavailable" } else { "preparing" } } else { "ready" },

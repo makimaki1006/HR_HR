@@ -16,7 +16,8 @@ import { useJobCopySearch } from './navigation';
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '読み込めませんでした。時間を置いて再取得してください。';
 
 /** 顧客（事業所）の画面。掲載中と過去の求人。 */
-export function CompanyView({ company, billingByJob, onName, onOpenDeal, onOpenListing }: {
+export function CompanyView({ company, billingByJob, onName, onOpenDeal, onOpenListing, embedded = false }: {
+  embedded?: boolean;
   company: { id: string; name: string };
   billingByJob: Billing;
   /** 名前が分かったら知らせる（URL から直接開いたとき、パンくずの名前になる）。 */
@@ -51,10 +52,11 @@ export function CompanyView({ company, billingByJob, onName, onOpenDeal, onOpenL
     setBusy(false);
   };
   const visibleDeals = loadedScope === scope ? deals : null;
-  return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
-    <header className="jh-head"><div><h1>{company.name || (visibleDeals?.company.name ?? '顧客')}</h1></div></header>
+  const Container = embedded ? 'div' : 'main';
+  return <Container className="jc-detail jh-home" id={embedded ? undefined : "job-details"} tabIndex={-1}>
+    <header className="jh-head"><div>{embedded ? <h3>{company.name || (visibleDeals?.company.name ?? '顧客')}</h3> : <h1>{company.name || (visibleDeals?.company.name ?? '顧客')}</h1>}</div></header>
     {error && loadedScope === scope && <p role="alert">{error}</p>}{busy && <p role="status">選んだ求人を読み込んでいます…</p>}
     {!visibleDeals && (!error || loadedScope !== scope) && <p role="status">求人を読み込んでいます…</p>}
     {visibleDeals && <CompanyListings companyId={company.id} deals={visibleDeals.deals} billingByJob={billingByJob} onOpenDeal={onOpenDeal} onOpenListing={row => { void open(row); }} />}
-  </main>;
+  </Container>;
 }

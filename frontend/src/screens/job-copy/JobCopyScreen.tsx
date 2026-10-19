@@ -1,3 +1,4 @@
+import { HoujinView } from './HoujinView';
 import { ConsultantMenu, ConsultantMenuHeader } from './ConsultantMenu';
 import { ConsultantRisk } from './ConsultantRisk';
 import { DealBoard } from './DealBoard';
@@ -609,5 +610,5 @@ function JobCopyMain() {
 export function JobCopyScreen() {
   const view = new URLSearchParams(useJobCopySearch()).get('view');
   const [menuVisit, setMenuVisit] = useState(0);
-  return <ConsultantMenu onNavigate={() => { setMenuVisit(n => n + 1); }} inlineHeader={!['risk', 'good', 'deals', 'occupations'].includes(view ?? '')}>{view === 'risk' || view === 'good' ? <ConsultantRisk key={view} good={view === 'good'} /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : <JobCopyMain key={menuVisit} />}</ConsultantMenu>;
+  return <ConsultantMenu onNavigate={() => { setMenuVisit(n => n + 1); }} inlineHeader={!['risk', 'good', 'houjin', 'deals', 'occupations'].includes(view ?? '')}>{view === 'risk' || view === 'good' ? <ConsultantRisk key={view} good={view === 'good'} /> : view === 'houjin' ? <HoujinView /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : <JobCopyMain key={menuVisit} />}</ConsultantMenu>;
 }

@@ -88,7 +88,10 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   expect(overflow).toBe(false);
 
   await page.getByRole('button', { name: '架空の採用支援01', exact: true }).click();
-  await expect(page).toHaveURL(/deal=100/);
+  await expect(page).toHaveURL(/risk_deal=100/);
+  const detail = page.getByRole('dialog');
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole('link', { name: '取引の画面を開く' })).toHaveAttribute('href', /[?&]deal=100(?:&|$)/);
   await page.goBack();
   await expect(page.getByRole('heading', { name: '案件の一覧' })).toBeVisible();
   await page.goBack();

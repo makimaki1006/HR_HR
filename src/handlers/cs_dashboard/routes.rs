@@ -366,7 +366,7 @@ async fn deal_detail(
 ///
 /// 🔴 **母集団（`population`）もここで足す。** 画面ごとに数えると、タブによって
 /// 母集団が違う画面に戻ってしまう（実測で②593件・③703件と食い違っていた）。
-pub(super) fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value {
+pub(crate) fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value {
     // 🔴 母集団は**ここで1回だけ**作って全部の画面に載せる。
     //    画面ごとに数えると、タブによって数が違う画面に戻る。
     if let Some(o) = v.as_object_mut() {
