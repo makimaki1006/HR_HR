@@ -11,6 +11,7 @@ import { makeLinkTab, safeHttpUrl } from './centerLinks';
 import { sanitizeHtml } from './activityHtml';
 import { useZoomPhone } from './useZoomPhone';
 import { ZOOM_EMBED_SRC, toE164Jp } from './smartEmbed';
+import { ApplicantEditor } from './ApplicantEditor';
 import './crm.css';
 import './queue.css';
 import './applicants.css';
@@ -30,7 +31,7 @@ function date(raw: string): string {
   return Number.isNaN(value.getTime()) ? raw : new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'short', ...(raw.length > 10 ? { timeStyle: 'short' as const } : {}) }).format(value);
 }
 function Fields({ section }: { section: ApplicantSection }) {
-  return <dl className="crm-property-list">{section.fields.map((f, i) => <div key={`${f.label}-${String(i)}`}><dt>{f.label}</dt><dd>
+  return <dl className="crm-property-list">{section.fields.map((f, i) => <div key={`${f.label}-${String(i)}`} className={f.label.startsWith('以前の') ? 'applicant-legacy' : undefined}><dt>{f.label}</dt><dd>
     {safeHttpUrl(f.value) ? <PropLink url={f.value} /> : f.value.length > 200 ? <details><summary>内容を表示</summary><p>{f.value}</p></details> : f.value}
   </dd></div>)}</dl>;
 }
@@ -46,6 +47,9 @@ export function ApplicantSheet({ detail }: { detail: ApplicantDetail | null }) {
 }
 export function ApplicantsScreen({ fixture = new URLSearchParams(window.location.search).get('mode') === 'fixture' }: { fixture?: boolean }) {
   const detailRef = useRef<HTMLElement>(null);
+  const selectedRef = useRef<string | null>(null);
+  const [contactTarget, setContactTarget] = useState<HTMLDivElement | null>(null);
+  const [hearingTarget, setHearingTarget] = useState<HTMLDivElement | null>(null);
   const queueRefreshSeen = useRef(0);
   const detailRefreshSeen = useRef(0);
   const [queue, setQueue] = useState<ApplicantQueue | null>(null);
@@ -61,6 +65,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   const [right, setRight] = useState<'sheet' | 'zoom'>('sheet');
   const [dialNotice, setDialNotice] = useState('');
   const { zoom, iframeRef } = useZoomPhone(!fixture);
+  useEffect(() => { selectedRef.current = selected?.id ?? null; }, [selected]);
   useEffect(() => {
     const abort = new AbortController();
     const params = new URLSearchParams();
@@ -114,7 +119,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
             {detail && <><a href={detail.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a><p>{detail.phone || '電話番号未登録'}</p>
               <button disabled={!canDial} onClick={() => { if (!canDial) return; setRight('zoom'); const result = zoom.dial(detail.phone); setDialNotice(result === 'sent' ? '発信を依頼しました' : 'Zoom の読み込みとログインを確認してください'); }}>Zoom で発信</button>
               {detail.stop_reason && <p role="alert">架電禁止・ブロック: {detail.stop_reason}</p>}{dialNotice && <p role="status">{dialNotice}</p>}
-              {detail.sections[0] && <Fields section={detail.sections[0]} />}</>}
+              {detail.sections[0] && <Fields section={{ ...detail.sections[0], fields: detail.sections[0].fields.filter(f => !detail.writes_enabled || !detail.editable.some(e => e.section === '連絡先' && e.label === f.label)) }} />}<div ref={setContactTarget} /></>}
           </section>
           {detailError && <p role="alert">{detailError}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
           {!detail && !detailError && <p role="status">詳細を読み込み中…</p>}
@@ -123,7 +128,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
             <Fields section={section} />
             {i === 2 && detail.jobs.map(job => <p key={job.url}>{job.label} <a href={job.url} target="_blank" rel="noreferrer">HubSpotで開く</a></p>)}
             {i === 1 && section.fields.length === 0 && <p>この求人の対応ルールは登録されていません</p>}
-          </section> : <details className="crm-card" key={section.title} open={i === 4}><summary>{section.title}</summary><Fields section={section} /></details>)}
+          </section> : <details className="crm-card" key={section.title} open={i === 4}><summary>{section.title}</summary><Fields section={section} />{i === 4 && <div ref={setHearingTarget} />}</details>)}
           {detail && <section className="crm-card"><h3>メモ</h3>{detail.notes.length === 0 && <p>メモはありません。</p>}{detail.notes.map((n, i) => <article key={i}><time>{date(n.date)}</time><div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} /></article>)}</section>}
         </>}
       </main>
@@ -138,6 +143,14 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
         <div role="tabpanel" id="applicant-panel-zoom" aria-labelledby="applicant-tab-zoom" hidden={right !== 'zoom'}>
           {fixture ? <p>架空サンプルでは発信できません</p> : <><p>{zoom.embed === 'timeout' ? 'Zoom Phone を読み込めません。再読み込みしてください。' : 'Zoom にログインしてから発信してください。'}</p><iframe ref={iframeRef} title="Zoom Phone" src={ZOOM_EMBED_SRC} allow="microphone; clipboard-read; clipboard-write" onLoad={zoom.onLoad} /></>}
         </div>
+        <ApplicantEditor detail={detail} fixture={fixture} contactTarget={contactTarget} hearingTarget={hearingTarget} onNext={id => {
+          if (selectedRef.current !== id) return;
+          const index = queue?.items.findIndex(item => item.id === id) ?? -1;
+          const next = queue?.items[index + 1];
+          if (next) select(next);
+          else { setDetail(null); setSelected(null); setCursor(null); setRefresh(v => v + 1); }
+        }} />
+
       </aside>
     </div>
   </div>;

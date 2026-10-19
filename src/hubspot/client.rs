@@ -185,6 +185,7 @@ struct Inner {
     opts: ClientOptions,
     gateway: Arc<Gateway>,
     deal_write_revision: Arc<AtomicU64>,
+    applicant_write_revision: AtomicU64,
     rate_limit: Mutex<Option<RateLimitSnapshot>>,
     /// `access_token_info` の結果 (成功のみ。`TOKEN_INFO_TTL` の間使い回す。ロックは呼び出しの間持つ=同時に 1 本)
     token_info_cache: tokio::sync::Mutex<Option<(Instant, TokenInfo)>>,
@@ -422,6 +423,7 @@ impl HubSpotClient {
                 opts,
                 gateway,
                 deal_write_revision,
+                applicant_write_revision: AtomicU64::new(0),
                 rate_limit: Mutex::new(None),
                 token_info_cache: tokio::sync::Mutex::new(None),
                 flights: Flights::default(),
@@ -432,6 +434,10 @@ impl HubSpotClient {
     }
 
     /// 案件の保存試行の世代。成功・通信不明の後に進め、古い集計を失効させる。
+    pub(crate) fn applicant_write_revision(&self) -> u64 {
+        self.inner.applicant_write_revision.load(Ordering::Acquire)
+    }
+
     pub(crate) fn deal_write_revision(&self) -> u64 {
         self.inner.deal_write_revision.load(Ordering::Acquire)
     }
@@ -722,7 +728,7 @@ impl HubSpotClient {
         id: &str,
         properties: &BTreeMap<String, Option<String>>,
     ) -> Result<HubSpotRecord, HubSpotError> {
-        if !RecordType::ALL.iter().any(|t| t.api_name() == object) {
+        if object != "0-421" && !RecordType::ALL.iter().any(|t| t.api_name() == object) {
             return Err(HubSpotError::Decode("invalid object".into()));
         }
         self.patch_object_inner(object, id, properties).await
@@ -758,6 +764,11 @@ impl HubSpotClient {
         {
             self.inner
                 .deal_write_revision
+                .fetch_add(1, Ordering::AcqRel);
+        }
+        if object == "0-421" {
+            self.inner
+                .applicant_write_revision
                 .fetch_add(1, Ordering::AcqRel);
         }
         let reply = result?;

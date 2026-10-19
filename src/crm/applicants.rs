@@ -1,4 +1,6 @@
-//! 応募 (0-421) の読み取り専用モード。正本・履歴は HubSpot。書き込み API は置かない。
+//! 応募 (0-421) の読み取り・保存。正本と業務履歴は HubSpot。
+#[path = "applicant_write.rs"]
+mod editing;
 use super::{
     queue_cache::TtlCache,
     rbac,
@@ -15,6 +17,8 @@ use axum::{
     Extension, Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+pub use editing::ApplicantEditField;
+pub(super) use editing::{build_write_step, WRITE_SCOPE_MESSAGE};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
@@ -137,6 +141,14 @@ pub struct ApplicantNote {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ApplicantDetail {
+    #[serde(default)]
+    pub values: std::collections::BTreeMap<String, Option<String>>,
+    #[serde(default)]
+    pub editable: Vec<ApplicantEditField>,
+    #[serde(default)]
+    pub write_pipeline: Option<ApplicantPipeline>,
+    #[serde(default)]
+    pub writes_enabled: bool,
     pub row: ApplicantRow,
     pub sections: Vec<ApplicantSection>,
     pub phone: String,
@@ -177,6 +189,10 @@ async fn raw(client: &HubSpotClient, path: &str) -> Result<Value, HubSpotError> 
     }
 }
 impl ApplicantsState {
+    pub(super) fn invalidate(&self, _id: &str) {
+        self.details.clear();
+        self.queues.clear();
+    }
     async fn definitions(&self, client: &HubSpotClient) -> Result<Value, HubSpotError> {
         if let Some(v) = self.definitions.get(&()) {
             return Ok(v);
@@ -412,6 +428,10 @@ pub(super) async fn queue(
     } else {
         json!([binding, pos]).to_string()
     };
+    let Some(client) = state.crm_hubspot() else {
+        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
+    };
+    let key = format!("{}:{key}", client.applicant_write_revision());
     if q.fresh != Some(1) {
         if let Some(body) = ctx.applicants.queues.get(&key) {
             return Json(body).into_response();
@@ -610,7 +630,11 @@ fn sections(p: &Value, defs: &Value) -> Vec<ApplicantSection> {
             continue;
         };
         groups[idx].fields.push(ApplicantField {
-            label,
+            label: match name.as_str() {
+                "shuugyoujoukyou" => "以前の就業状況".into(),
+                "nyuushakiboujiki" => "以前の入社希望時期".into(),
+                _ => label,
+            },
             value: display(defs, &name, &value),
         });
     }
@@ -629,8 +653,12 @@ pub(super) async fn detail(
     if !super::routes::is_valid_id(&id) {
         return error_json(StatusCode::BAD_REQUEST, "invalid_id");
     }
+    let Some(client) = state.crm_hubspot() else {
+        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
+    };
+    let cache_key = format!("{}:{id}", client.applicant_write_revision());
     if q.fresh != Some(1) {
-        if let Some(v) = ctx.applicants.details.get(&id) {
+        if let Some(v) = ctx.applicants.details.get(&cache_key) {
             return Json(v).into_response();
         }
     }
@@ -683,7 +711,29 @@ pub(super) async fn detail(
                 let value = text(p, &name);
                 (!value.is_empty() && value != "false").then(|| display(&defs, &name, &value))
             });
+        let editable = editing::editable(&defs);
         Ok::<_, HubSpotError>(ApplicantDetail {
+            values: record
+                .properties
+                .iter()
+                .filter(|(name, _)| {
+                    editable.iter().any(|f| &f.name == *name)
+                        || ["hs_pipeline", "hs_pipeline_stage"].contains(&name.as_str())
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            editable,
+            write_pipeline: editing::write_pipeline(&defs).map(|p| ApplicantPipeline {
+                id: text(p, "id"),
+                label: text(p, "label"),
+                stages: values(&p["stages"])
+                    .map(|s| ApplicantStage {
+                        id: text(s, "id"),
+                        label: text(s, "label"),
+                    })
+                    .collect(),
+            }),
+            writes_enabled: ctx.write.enabled,
             row: row(&v, &defs),
             sections: sections(p, &defs),
             phone: text(p, "denwabangou"),
@@ -709,7 +759,7 @@ pub(super) async fn detail(
     };
     match tokio::time::timeout(Duration::from_secs(20), work).await {
         Ok(Ok(v)) => {
-            ctx.applicants.details.insert(id, v.clone());
+            ctx.applicants.details.insert(cache_key, v.clone());
             Json(v).into_response()
         }
         Ok(Err(e)) => applicant_error(&e),

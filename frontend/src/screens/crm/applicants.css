@@ -33,3 +33,31 @@
 .applicants-app .applicant-identity h2 { font-size: 26px; margin: 0 0 10px; }
 .applicants-app .applicant-identity .crm-property-list { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .applicants-app .applicant-identity .crm-property-list > div { margin: 0; }
+.applicants-right { overflow-y: auto; }
+.applicant-editor { margin: 8px; flex: 0 0 auto; }
+.applicant-editor fieldset { border: 0; padding: 0; min-width: 0; }
+.applicant-editor legend { font-weight: 700; margin-bottom: 8px; }
+.applicant-editor label, .applicant-edit-field { display: grid; gap: 4px; margin: 8px 0; }
+.applicant-editor input:not([type=checkbox]), .applicant-editor textarea, .applicant-editor select { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; }
+.applicant-quick-stages { display: flex; flex-wrap: wrap; gap: 4px; }
+.applicant-quick-stages button { padding: 4px 6px; }
+.applicant-quick-stages button[aria-pressed=true] { background: #dbeafe; border-color: #2563eb; }
+.applicant-existing-memo { white-space: pre-wrap; font-size: 12px; background: #f1f5f9; padding: 6px; margin: 0; }
+.applicant-editor details { margin-top: 10px; }
+.applicant-editor button[type=submit] { background: #2563eb; color: white; margin: 12px 8px 0 0; padding: 8px 16px; border-radius: 5px; }
+
+.applicants-right [role="tabpanel"] { overflow: hidden; }
+.applicants-right iframe { height: 100%; min-height: 180px; }
+.applicant-editor { max-height: 58%; overflow-y: auto; border-top: 1px solid #dfe3eb; padding: 12px 0; }
+.applicants-detail .applicant-edit-field { display: grid; gap: 4px; margin: 10px 0; }
+.applicants-detail fieldset { border: 0; min-width: 0; }
+.applicants-detail .applicant-edit-field input:not([type=checkbox]), .applicants-detail .applicant-edit-field select, .applicants-detail .applicant-edit-field textarea { width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 4px; }
+
+.applicants-detail .applicant-legacy { font-size: 11px; color: #5b6b7a; }
+
+.applicant-editor { overflow: hidden; display: flex; flex-direction: column; }
+.applicant-editor:empty { display: none; }
+.applicant-editor-editing { flex: 0 1 58%; min-height: 260px; }
+.applicant-editor form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.applicant-editor form > fieldset { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.applicant-save-actions { flex-shrink: 0; background: white; border-top: 1px solid #dfe3eb; }
