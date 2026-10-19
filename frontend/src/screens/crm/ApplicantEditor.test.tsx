@@ -40,14 +40,14 @@ describe('応募の記録', () => {
     const detail=applicantDetailFixture('90001');
     sessionStorage.setItem(APPLICANT_DRAFT_KEY,JSON.stringify({user:'fixture@example.invalid',drafts:{'fixture:90001':{stageId:'fixture-stage-0',values:{renrakukakuninmokuteki:'復元する入力'}}},recorded:{}}));
     const view=render(<ApplicantEditor detail={detail} fixture onNext={vi.fn()}/>);
-    await waitFor(() => {expect((screen.getByLabelText('連絡・確認目的詳細') as HTMLTextAreaElement).value).toBe('復元する入力');});
-    expect((screen.getByLabelText('ステージ') as HTMLSelectElement).value).toBe('fixture-stage-0');
+    await waitFor(() => {expect(screen.getByLabelText<HTMLTextAreaElement>('連絡・確認目的詳細').value).toBe('復元する入力');});
+    expect(screen.getByLabelText<HTMLSelectElement>('ステージ').value).toBe('fixture-stage-0');
     view.rerender(<ApplicantEditor detail={applicantDetailFixture('90002')} fixture onNext={vi.fn()}/>);
-    expect((screen.getByLabelText('連絡・確認目的詳細') as HTMLTextAreaElement).value).toBe('');
+    expect(screen.getByLabelText<HTMLTextAreaElement>('連絡・確認目的詳細').value).toBe('');
     view.unmount();
     sessionStorage.setItem(APPLICANT_DRAFT_KEY,JSON.stringify({user:'other@example.invalid',drafts:{'fixture:90001':{stageId:'',values:{renrakukakuninmokuteki:'別の人の入力'}}},recorded:{}}));
     render(<ApplicantEditor detail={detail} fixture onNext={vi.fn()}/>);
-    await waitFor(() => {expect((screen.getByLabelText('連絡・確認目的詳細') as HTMLTextAreaElement).value).toBe('');});
+    await waitFor(() => {expect(screen.getByLabelText<HTMLTextAreaElement>('連絡・確認目的詳細').value).toBe('');});
   });
   it('OFF は読み取り表示で保存ボタンを出さない', () => {
     const fetcher=mockFetch(200,{});render(<ApplicantEditor detail={{...applicantDetailFixture('90001'),writes_enabled:false}} fixture onNext={vi.fn()}/>);
