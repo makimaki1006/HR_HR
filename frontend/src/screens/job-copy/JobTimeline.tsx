@@ -12,10 +12,10 @@ import { plainWording } from './format';
 import { InfoTip } from './InfoTip';
 import { publicationLane, publicationNotes } from './mediaPublication';
 import {
-  addDays, applicationBuckets, bodyMark, asOfDate, billingConflict, billingEntries, boundaryStatus, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
+  addDays, applicationBuckets, changeWindow, unpublishedRanges, weekStraddlesChange, bodyMark, asOfDate, billingConflict, billingEntries, boundaryStatus, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
   formatMonthJa, marketDataUntil, marketLane, MIN_RATE_DAYS, periodRows, positionOf, timelineRange, timelineLabelRows, uncertainSpans, versionChanges, applicationsOutsidePeriods,
 } from './timelineModel';
-import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange, VersionChange } from './timelineModel';
+import type { BillingEntry, ChangeWindowDays, Granularity, MarketChangeResult, PeriodRow, TimelineRange, VersionChange } from './timelineModel';
 import { IMAGE_CHANGE_MARK } from './images';
 import { DEMO_BILLING_LABEL, DEMO_BILLING_NOTE, DUMMY_BILLING_ENABLED, DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
 import { REASON_CATEGORIES, MIN_SHARE_N, basisText, classifyApplicationReasons, reasonsByPeriod, shareText, topReasonsWithTies } from './reasonCategories';
@@ -278,9 +278,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const periods = useMemo(() => buildPeriods(job, asOf), [job, asOf]);
   const spans = useMemo(() => uncertainSpans(job, asOf, periods), [job, asOf, periods]);
   const changes = useMemo(() => versionChanges(job), [job]);
-  const range = useMemo(() => timelineRange(job, asOf, billing), [job, asOf, billing]);
-  const labelRows = range ? timelineLabelRows(changes.map(change => change.date), range) : [];
-  const rowCount = Math.max(1, ...labelRows.map(row => row + 1));
+  const baseRange = useMemo(() => timelineRange(job, asOf, billing), [job, asOf, billing]);
   const retryButton = useRef<HTMLButtonElement>(null);
   const titleSelect = useRef<HTMLSelectElement>(null);
   const market = useTimelineMarket(job, marketMode, { retryButton, titleSelect });
@@ -289,6 +287,21 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const reasonPeriods = useMemo(() => reasonClasses ? reasonsByPeriod(reasonClasses.applications, rows.filter(row => !row.afterCounts).map(row => ({ key: row.key, start: row.start, end: row.end ?? addDays(asOf, 1) }))) : null, [reasonClasses, rows, asOf]);
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [selected, setSelected] = useState<string | null>(null);
+  const [windowDays, setWindowDays] = useState<ChangeWindowDays>(14);
+  const selectedChange = changes.find(change => change.versionId === selected) ?? null;
+  const actualChanges = useMemo(() => changes.filter(change => boundaryStatus(change) === 'changed'), [changes]);
+  const changeIndex = actualChanges.findIndex(change => change.versionId === selected);
+  const comparison = useMemo(() => changeIndex < 0 || !selectedChange ? null : changeWindow(
+    job.overallApplications?.byDate, selectedChange.date,
+    actualChanges[changeIndex - 1]?.date ?? null, actualChanges[changeIndex + 1]?.date ?? null,
+    asOf, windowDays, unpublishedRanges(periods, asOf),
+  ), [job, selectedChange, actualChanges, changeIndex, asOf, windowDays, periods]);
+  const range = useMemo(() => baseRange && comparison ? {
+    start: comparison.before.start < baseRange.start ? comparison.before.start : baseRange.start,
+    end: addDays(comparison.after.end, -1) > baseRange.end ? addDays(comparison.after.end, -1) : baseRange.end,
+  } : baseRange, [baseRange, comparison]);
+  const labelRows = range ? timelineLabelRows(changes.map(change => change.date), range) : [];
+  const rowCount = Math.max(1, ...labelRows.map(row => row + 1));
   const reasonIdPrefix = useId();
   // After a mark or period is chosen, bring the 選んだ本文 panel into view (it can sit below the fold).
   const selectionPanel = useRef<HTMLDivElement>(null);
@@ -314,9 +327,13 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       xAxis: { type: 'time', min: dayMs(range.start), max: dayMs(addDays(range.end, 1)), show: false },
       yAxis: { type: 'value', min: 0, minInterval: 1, show: false },
       series: [{ type: 'bar', name: '応募', barMaxWidth: 26, barMinWidth: 2, itemStyle: { color: '#a36816' }, label: { show: granularity !== 'day', position: 'top', fontSize: 10, color: '#5b3a0c' },
+        markArea: { silent: true, label: { show: false }, data: comparison ? [
+          [{ name: '前', xAxis: dayMs(comparison.before.start), itemStyle: { color: 'rgba(65, 120, 180, 0.14)' } }, { xAxis: dayMs(comparison.before.end) }],
+          [{ name: '後', xAxis: dayMs(comparison.after.start), itemStyle: { color: 'rgba(45, 150, 105, 0.14)' } }, { xAxis: dayMs(comparison.after.end) }],
+        ] : [] },
         data: buckets.map(bucket => ({ value: [(dayMs(bucket.start) + dayMs(bucket.end)) / 2, bucket.count], start: bucket.start, end: bucket.end })) }],
     };
-  }, [range, buckets, granularity]);
+  }, [range, buckets, granularity, comparison]);
 
   const marketOption = useMemo<EChartsCoreOption | null>(() => {
     if (!range || !lane || !lane.points.some(point => point.jobs !== null || point.viewers !== null) && !lane.noDataFrom) return null;
@@ -343,7 +360,6 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
     return <section className="jt-timeline" aria-label="タイムライン"><h2>タイムライン</h2><p className="jc-notice">掲載期間・応募日・課金のどれも取得できていないため、時間軸を作れません。</p></section>;
   }
   const ticks = axisMonths(range);
-  const selectedChange = changes.find(change => change.versionId === selected) ?? null;
   const previous = selectedChange ? changes[selectedChange.index - 1] : undefined;
   const salaryValues = changes.map(change => change.salary).filter(info => info && info.kind !== '不明' && info.min !== null);
   const salaryKind = salaryValues.at(-1)?.kind;
@@ -449,9 +465,10 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <Lane title="課金" source={billingSource}>
         {billing.length ? billing.map(entry => {
           const dummy = isDummyBilling(entry);
+          const straddles = entry.source === 'hrhacker' && selectedChange && boundaryStatus(selectedChange) === 'changed' && weekStraddlesChange(entry.start, entry.end, selectedChange.date);
           return <div key={`${entry.source}-${String(entry.sourceRow ?? '')}-${entry.start}-${entry.end}`} className={`jt-billing jt-billing-${entry.source}`} style={span(range, entry.start, addDays(entry.end, 1))}
             title={`${dummy ? `${DUMMY_BILLING_LABEL} ` : entry.fictional ? `${DEMO_BILLING_LABEL} ` : ''}${formatDay(entry.start)}〜${formatDay(entry.end)}: ${entry.amountYen === null ? '金額の記載なし' : `${entry.amountYen.toLocaleString('ja-JP')}円`}${entry.taxIncluded === true ? '（税込）' : entry.taxIncluded === false ? '（税抜）' : ''}${entry.plan && !dummy ? ` · ${entry.plan}` : ''}`}>
-            <span>{dummy ? 'ダミー ' : entry.fictional ? '架空 ' : ''}{entry.amountYen === null ? '金額なし' : formatYen(entry.amountYen)}</span></div>;
+            <span>{dummy ? 'ダミー ' : entry.fictional ? '架空 ' : ''}{entry.amountYen === null ? '金額なし' : formatYen(entry.amountYen)}{straddles ? ' · 変えた日をまたぐ週' : ''}</span></div>;
         })
           : <p className="jt-empty jt-unconnected">課金データなし（0円という意味ではありません）</p>}
       </Lane>
@@ -516,6 +533,20 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
 
     {selectedChange && <div className="jt-selection" ref={selectionPanel} role="region" aria-label="選んだ本文">
       <strong>{selectedChange.label}</strong><span>{selectionDateText(selectedChange, periods[selectedChange.index]?.basis === 'captured')} · 給与 {salaryLabel(selectedChange.salary)}</span>
+      {comparison && <section className="jt-change-window" aria-label="変えた前後の応募">
+        <div className="jt-window-heading"><h3>変えた前後の応募</h3><div role="group" aria-label="前後の日数">{([7, 14, 28] as const).map(days => <button type="button" key={days} aria-pressed={windowDays === days} onClick={() => { setWindowDays(days); }}>{days}日</button>)}</div></div>
+        <p className="jt-window-definition">{captured ? '変えた日は文面・画像の変化を確認した日。' : ''}前は変えた日の前日まで、後は変えた日を含む暦日（日本時間）の応募件数。</p>
+        <div className="jt-window-values">{([['前', comparison.before], ['後', comparison.after]] as const).map(([label, side], index) => <Fragment key={label}>
+          {index === 1 && <span aria-hidden="true">→</span>}
+          <div className={`jt-window-side jt-window-${index === 0 ? 'before' : 'after'}`}>
+            <strong>{label} {side.days === windowDays ? `${String(side.days)}日` : `${String(side.days)}日分（${String(windowDays)}日に届かず）`} {side.count}件</strong>
+            <span>{side.days ? `${formatDay(side.start)}〜${formatDay(addDays(side.end, -1))}` : '対象の日なし'}</span>
+            {comparison.before.days !== comparison.after.days && <span>1日あたり {side.perDay === null ? '—' : `${side.perDay.toFixed(1)}件`}</span>}
+            {side.unpublishedDays > 0 && <span>掲載していない日 {side.unpublishedDays}日</span>}
+          </div>
+        </Fragment>)}</div>
+        {(job.hrhPerformance?.rows ?? []).filter(row => weekStraddlesChange(row.period_start, row.period_end, selectedChange.date)).map(row => <p key={row.period_start}>{formatDay(row.period_start)}〜{formatDay(row.period_end)}：変えた日をまたぐ週</p>)}
+      </section>}
       {onOpenVersion && <button type="button" className="jc-button" onClick={() => { onOpenVersion(selectedChange.versionId); }}>本文・画像を開く</button>}
       {onCompareVersions && previous && <button type="button" className="jc-button" onClick={() => { onCompareVersions(previous.versionId, selectedChange.versionId); }}>前回の本文との違いを見る</button>}
       {previous && selectedChange.bodyStatus === 'unchanged' && selectedChange.imageChange === 'same' && <span>前回から本文・画像の変更はありません</span>}

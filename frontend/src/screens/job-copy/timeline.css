@@ -160,3 +160,14 @@
 
 /* 日付による横位置の補正後も、同じ段の次の名前との間を空ける。 */
 .jt-period-label, .jt-salary-label { max-width: 18%; box-sizing: border-box; }
+
+.jt-change-window { flex-basis: 100%; min-width: 0; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; }
+.jt-window-heading, .jt-window-values { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.jt-window-heading h3 { margin: 0; font-size: 14px; }
+.jt-window-heading button { padding: 4px 10px; border: 1px solid #cbd5e1; background: white; cursor: pointer; }
+.jt-window-heading button[aria-pressed="true"] { background: #e2e8f0; font-weight: 700; }
+.jt-window-definition { margin: 8px 0; font-size: 12px; color: #475569; }
+.jt-window-side { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 4px; }
+.jt-window-before { background: rgba(65, 120, 180, 0.14); }
+.jt-window-after { background: rgba(45, 150, 105, 0.14); }
+.jt-window-side span { font-size: 12px; }
