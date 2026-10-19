@@ -913,7 +913,7 @@ pub fn build_outcome(sheets: &Sheets, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let all: Vec<&Deal> = deals.iter().collect();
-    let (contacts, n_call, n_mtg) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let (contacts, n_call, n_mtg) = contacts_by_deal(&sheets.call, &sheets.factual_mtg());
 
     json!({
         "meta": {
@@ -1175,7 +1175,7 @@ pub fn build_focus(sheets: &Sheets, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let cust = customers_of(&sheets.customer);
-    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.factual_mtg());
     let nps = latest_nps(&sheets.history);
 
     json!({
@@ -1904,6 +1904,8 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
             {"name": super::SHEET_OWNER_HIST, "rows": sheets.owner_hist.rows.len()},
             {"name": super::SHEET_META, "rows": sheets.meta.rows.len()},
             {"name": super::SHEET_PENDING_RECORDINGS, "rows": sheets.pending_recordings.as_ref().filter(|s| s.header == PENDING_RECORDING_HEADER).map(|s| s.rows.len())},
+            {"name": super::SHEET_MAIL_HISTORY, "rows": sheets.mail_history.rows.len()},
+            {"name": super::SHEET_ZOOM_MTG, "rows": sheets.zoom_mtg.rows.len()},
         ],
     })
 }
@@ -2649,7 +2651,7 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
         })
         .collect();
 
-    let (cmap, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let (cmap, _, _) = contacts_by_deal(&sheets.call, &sheets.factual_mtg());
     let contacts: Vec<Value> = ds
         .iter()
         .map(|d| {
@@ -2751,7 +2753,7 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let who = consultant_of(&sheets.owner_hist);
     let focus = focus_of(&sheets.customer);
-    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.factual_mtg());
     let nps = latest_nps(&sheets.history);
 
     struct Agg {
@@ -3021,7 +3023,7 @@ pub(super) fn latest_mtg_risk_by_deal(mtg: &SheetData) -> HashMap<String, (Naive
 pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -> Value {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
-    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.factual_mtg());
     let ids = |v: &Value| -> Vec<String> {
         v.as_array()
             .map(|a| {
@@ -3187,14 +3189,21 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let who = consultant_of(&sheets.owner_hist);
     let focus = focus_of(&sheets.customer);
-    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.factual_mtg());
     let nps = latest_nps(&sheets.history);
     let series = super::series_of(&sheets.history);
     let until = today.format("%Y-%m").to_string();
     // 🔴 MTG は**録画（事実）とメール由来（推定）の両方**を見る。
     //    録画だけだと記録が無いものが191件出るが、その多くは「していない」ではなく
     //    「取引に結べていない」。それをそのまま赤にしない（2026-09-23）。
-    let last_mtg = super::last_mtg_by_deal(&sheets.mtg, &sheets.mail_mtg);
+    let last_mtg = super::last_mtg_by_deal(&sheets.factual_mtg(), &sheets.mail_mtg);
+
+    let recorded_last = super::last_recorded_mtg_by_deal(&sheets.mtg);
+    // Zoomの開催日を独立して持ち、録画の無い最終日を録画と呼ばない。
+    let zoom_last = super::last_mtg_by_deal(
+        &super::factual_mtg(&super::empty_history_sheet(), &sheets.zoom_mtg),
+        &super::empty_history_sheet(),
+    );
 
     // 表示用のフェーズ（序盤／中盤／終盤）。`phase_of` と同じ区切り
     let band_of = |d: &Deal| -> Option<usize> {
@@ -3263,6 +3272,14 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         let np = nps.get(&d.id);
         // MTG途絶の帯。閾値は GAS `no_mtg_alerter.gs` と同じ
         let gap = super::mtg_gap_of(d, &last_mtg, today);
+        let source_label = if gap.last.is_some()
+            && gap.last == zoom_last.get(&d.id).and_then(|(day, _)| *day)
+            && gap.last != recorded_last.get(&d.id).and_then(|(day, _)| *day)
+        {
+            "Zoom 開催記録（事実）"
+        } else {
+            gap.source.label()
+        };
         *band_count.entry(gap.band.label()).or_insert(0) += 1;
         if gap.band != super::MtgBand::Onboarding {
             let (r, m) = last_mtg.get(&d.id).copied().unwrap_or((None, None));
@@ -3277,7 +3294,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             }
         }
         if gap.source != super::MtgSource::None {
-            *src_count.entry(gap.source.label()).or_insert(0) += 1;
+            *src_count.entry(source_label).or_insert(0) += 1;
         }
         if gap.forced_by_expiry {
             forced_n += 1;
@@ -3392,7 +3409,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             "mtg_days": gap.days,
             "mtg_last": gap.last.map(|x| x.to_string()),
             "mtg_source": gap.source,
-            "mtg_source_label": gap.source.label(),
+            "mtg_source_label": source_label,
             "mtg_forced_by_expiry": gap.forced_by_expiry,
             "saiyomokuhyou": d.saiyomokuhyou,
             "rate_tassei": d.rate_tassei(),
@@ -3526,7 +3543,7 @@ pub fn build_deal_board(sheets: &Sheets, today: NaiveDate) -> Value {
 /// 🔴 シートは `SheetStore` がキャッシュした `Arc` をそのまま渡してくるので、取り直すまでは同じ `Arc` になる。
 ///    `Weak` で持つのは、覚えている間にシートの割り当てが解放されて同じ番地が別のシートに使われ、
 ///    違うデータを同じ鍵と見なすのを防ぐため（`Weak` は中身を持ち続けない。取り直した後の古い中身は解放される）。
-pub(super) type DiffKey = (NaiveDate, [std::sync::Weak<SheetData>; 9]);
+pub(super) type DiffKey = (NaiveDate, [std::sync::Weak<SheetData>; 11]);
 
 fn diff_key(sheets: &Sheets, today: NaiveDate) -> DiffKey {
     let w = std::sync::Arc::downgrade;
@@ -3542,6 +3559,8 @@ fn diff_key(sheets: &Sheets, today: NaiveDate) -> DiffKey {
             w(&sheets.handover),
             w(&sheets.owner_hist),
             w(&sheets.meta),
+            w(&sheets.zoom_mtg),
+            w(&sheets.mail_history),
         ],
     )
 }

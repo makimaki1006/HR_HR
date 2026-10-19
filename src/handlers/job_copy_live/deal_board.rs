@@ -23,8 +23,14 @@ impl MeetingData {
         // 既存の定期先読みを借りる。画面要求からSheets APIを呼ばない。
         let mtg = state.store.fresh(cs::SHEET_MTG).await;
         let meta = state.store.fresh(cs::SHEET_META).await;
+        let zoom = state.store.fresh(cs::SHEET_ZOOM_MTG).await;
         Self {
-            last: mtg.as_ref().map(|m| cs::last_recorded_mtg_by_deal(m)),
+            last: mtg.as_ref().map(|m| {
+                cs::last_recorded_mtg_by_deal(&cs::factual_mtg(
+                    m,
+                    zoom.as_deref().unwrap_or(&cs::empty_history_sheet()),
+                ))
+            }),
             as_of: meta.as_ref().and_then(|m| cs::data_as_of(m)),
         }
     }

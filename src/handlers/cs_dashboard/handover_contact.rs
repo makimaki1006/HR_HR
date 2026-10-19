@@ -236,7 +236,7 @@ impl<'a> Ctx<'a> {
     /// `deals` はオプション除外（`deals_of`）、`all` はオプション込み（`deals_all_of`）。
     pub fn new(sheets: &Sheets, today: NaiveDate, deals: &'a [Deal], all: &[Deal]) -> Self {
         let (spans, _) = main_spans(deals);
-        let (raw, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+        let (raw, _, _) = contacts_by_deal(&sheets.call, &sheets.factual_mtg());
         let (contacts, n_ambiguous) = attach_contacts(&raw, all, &spans);
         let site: HashMap<&'a str, &'a str> = deals
             .iter()

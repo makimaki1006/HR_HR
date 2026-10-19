@@ -163,13 +163,15 @@ pub const KNOWN_SHEETS: &[&str] = &[
     // 2026-09-26 追加: 電話の要約（Zoom Phone の文字起こし → MiniMax-M3）。
     //   案件の詳細（/api/consulting/deal-detail）だけが読む。本番に無くても画面は開く
     "CS_通話要約",
+    "CS_メール履歴",
+    "CS_MTG実施日_Zoom由来",
 ];
 
 /// 1シートぶんの内容。ヘッダと行を分けて持つ。
 ///
 /// `Vec<HashMap<String,String>>` だと 200,679行 × 8列で HashMap を20万個作ることになり
 /// メモリも構築時間も無駄なので、**ヘッダは1本・行は Vec<Arc<str>>** で持つ。
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SheetData {
     pub header: Vec<String>,
     pub rows: Vec<Vec<Arc<str>>>,
@@ -612,7 +614,7 @@ mod tests {
         // 2026-09-26: 97 → 98。電話の要約（CS_通話要約。案件の詳細が読む）を足した。
         assert_eq!(
             KNOWN_SHEETS.len(),
-            98,
+            100,
             "KNOWN_SHEETS の枚数が変わっている。増やしたのが意図的なら、
              タブが実際に読んでいるかを確認したうえでこの数を更新すること"
         );

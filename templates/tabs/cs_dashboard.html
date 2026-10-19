@@ -6704,7 +6704,7 @@ function mtgCell(r) {
   const col = r.mtg_band === "critical" ? "hi"
             : r.mtg_band === "red" || r.mtg_band === "yellow" ? "ki" : "midori";
   const tagB = r.mtg_band === "yellow" ? "span" : "b";
-  const src = r.mtg_source === "recording" ? "録画"
+  const src = (r.mtg_source_label || "").startsWith("Zoom") ? "Zoom 開催記録" : r.mtg_source === "recording" ? "録画"
             : r.mtg_source === "mail" ? "メール（推定）"
             : r.mtg_source === "both" ? "録画" : "";
   return "<" + tagB + ' style="color:var(--' + col + ')">' + num(r.mtg_days) + "日前</" + tagB + ">" +
@@ -7493,9 +7493,9 @@ let detailId = "";            /* 見ている取引。空なら探す欄を出�
 let detailQ = "";             /* 探す欄の言葉 */
 /* 種類の絞り込み。既定は全部 */
 const DETAIL_KINDS = [
-  { k: "mtg", t: "MTG" }, { k: "call", t: "電話" }, { k: "handover", t: "交代" },
+  { k: "mtg", t: "MTG" }, { k: "email", t: "メール" }, { k: "call", t: "電話" }, { k: "handover", t: "交代" },
 ];
-let detailKinds = { mtg: true, call: true, handover: true };
+let detailKinds = { mtg: true, email: true, call: true, handover: true };
 /* 電話は 60秒超だけ（接触と数えるもの）か、全部か。既定は 60秒超だけ（短い呼び出しで埋まらないように） */
 let detailAllCalls = false;
 /* 時系列を直近3か月より前も出すか（M-3 (4)、08 の M-3）。既定は直近3か月。案件を移ると既定へ（URL の older。filter） */
@@ -7589,10 +7589,11 @@ function durText(sec) {
 /* 付け直しの説明（どこから来たか・どこの期間の出来事か）。e は行そのもの（接触に数えない行は文を変える） */
 const MOVED_FROM_WORD = { later: "継続の取引", earlier: "前の契約の取引", option: "同じ拠点のオプション契約", unknown: "同じ拠点の別の取引" };
 function attachNote(a, e) {
+  if (e && e.kind === "zoom_mtg" && e.period) return '<span class="via">契約期間の外（' + esc(e.period) + '）</span>';
   if (!a || a.state === "own") return "";
   /* 🔴 60秒以下の電話とメール由来の MTG は、どの取引でも接触に数えない。「〜の記録として数えています」とは書かない */
   const why = !e ? "" : e.kind === "call" && !e.contact ? "60秒以下なので" :
-    e.kind === "mail_mtg" ? "メール由来の MTG なので" : "";
+    e.kind === "mail_mtg" ? "メール由来の MTG なので" : e.kind === "email" ? "メールなので" : "";
   if (a.state === "moved_in") {
     const f = a.moved_from || {};
     const word = MOVED_FROM_WORD[f.relation] || MOVED_FROM_WORD.unknown;
@@ -7620,23 +7621,14 @@ function attachNote(a, e) {
 const mailMtgNote = (c) => "メール由来の MTG は、メールの文面から起こした実施日です（" + (c || "推定") + "）。録画のような中身はありません";
 /** 時系列の凡例（M-3 (4)）。事実と推定の形の見本に加えて、出している行にある定型の断りを1回だけ書く */
 function detailLegend(shown) {
-  const certs = [...new Set(shown.filter((e) => e.kind === "mail_mtg").map((e) => e.certainty || "推定"))];
-  const st = (e) => (e.attach && e.attach.state) || "own";
-  const moved = shown.some((e) => st(e) === "moved_in");
-  const outs = shown.some((e) => st(e) !== "own" && st(e) !== "moved_in");
-  return '<div class="legend"><i>&#9679; 事実（録画・通話記録・交代の記録）</i>' +
-    "<i>&#9671; 推定（メール由来の MTG。印の枠は破線）</i>" +
-    (certs.length ? '<i class="full">&#9671; ' + esc(mailMtgNote(certs.join("／"))) + "。</i>" : "") +
-    (moved ? '<i class="full">&#8618; 付け直し: 同じ拠点の別の取引に付いていた記録のうち、その日がこの契約の期間の中にあるものを並べています（行に元の取引を書いています）。</i>' : "") +
-    (outs ? '<i class="full">&#9888; この取引に付いているが、契約期間の外の日の記録です。消さずに印を付けています（接触に数えるかは行ごとに書いています）。</i>' : "") +
-    "</div>";
+  return '<div class="legend"><i>● 事実　◇ メール由来の MTG（推定）　↪ 付け直し　⚠ 契約期間の外</i></div>';
 }
 
 /* 1件ぶんの中身 */
 function detailItem(e) {
   const when = "<b>" + esc(e.date) + "</b>" + (e.time ? esc(e.time) : "");
   let what = "";
-  let cls = "k-" + (e.kind === "mail_mtg" ? "mtg" : e.kind);
+  let cls = "k-" + ((e.kind === "mail_mtg" || e.kind === "zoom_mtg") ? "mtg" : e.kind);
   if (e.kind === "mtg") {
     what = '<span class="mark">MTG</span><span class="muted small">' + esc(e.source_label) + "</span>" +
       (e.minutes != null ? "　" + num(e.minutes) + "分" : "") +
@@ -7657,8 +7649,16 @@ function detailItem(e) {
     } else {
       /* 🔴 空なのは「まだ抽出していない」。記録が無いのとは違う */
       what += '<span class="via"><span class="tag d">未抽出</span>やること・懸念などはまだ抽出していません' +
-        "（記録が無いのではありません）</span>";
+        "</span>";
     }
+  } else if (e.kind === "zoom_mtg") {
+    what = '<span class="mark">MTG</span><span class="muted small">（Zoom の開催記録・事実）</span>' +
+      (e.time ? '　' + esc(e.time) : '') + (e.end_time ? '〜' + (e.end_date && e.end_date !== e.date ? esc(e.end_date) + ' ' : '') + esc(e.end_time) : '');
+  } else if (e.kind === "email") {
+    what = '<span class="mark">メール</span><span class="muted small">' + esc(e.direction || '') + '</span>' +
+      (e.mail_type ? '　<span class="tag">' + esc(e.mail_type) + '</span>' : '') +
+      '<div>' + esc(e.subject || '件名なし') + '</div>' +
+      (e.zoom_held_time ? '<span class="via">Zoom で開催 ' + esc(e.zoom_held_time) + '</span>' : '');
   } else if (e.kind === "mail_mtg") {
     cls += " est";
     /* M-3 (4): 定型の断り（メールの文面から起こした実施日・確かさ・録画のような中身は無い）は凡例に1回（detailLegend）。
@@ -7703,7 +7703,7 @@ function detailItem(e) {
 
 /* 絞り込みに当たるか */
 function detailShown(e) {
-  const k = e.kind === "mail_mtg" ? "mtg" : e.kind;
+  const k = (e.kind === "mail_mtg" || e.kind === "zoom_mtg") ? "mtg" : e.kind;
   if (!detailKinds[k]) return false;
   if (e.kind === "call" && !detailAllCalls && !e.contact) return false;
   return true;
@@ -7789,10 +7789,11 @@ function renderDetail(D) {
   h += '<div class="count-line' + (filtered ? " on" : "") + '" id="dd-count"><b>' + num(all.length) + " 件中 " +
     num(shown.length) + " 件</b>を表示" + (filtered ? "（" + (why || "絞り込み中") + "）" : "（全部出しています）") +
     '<span class="muted">　MTG 録画 ' + num(c.mtg) + " 件（抽出済み " + num(c.mtg_extracted) +
-    (c.mtg_link_not_high ? "・結び付けの確度が中 " + num(c.mtg_link_not_high) : "") + "）／ MTG 推定 " +
+    (c.mtg_link_not_high ? "・結び付けの確度が中 " + num(c.mtg_link_not_high) : "") + "）／ Zoom 開催記録 " + num(c.zoom_mtg || 0) + " 件／ MTG 推定 " +
     num(c.mail_mtg) + " 件（うち契約期間の外 " + num(c.mail_outside || 0) + "）／ 電話 " + num(c.call) +
     " 件（60秒超 " + num(c.call_contact) + "・要約あり " +
-    num(c.call_summarized) + "）／ 交代 " + num(c.handover) + " 件</span></div>";
+    num(c.call_summarized) + "）／ メール " + num(c.email || 0) + " 件" +
+    ((c.email_kinds || []).length ? "（" + c.email_kinds.map(x => esc(x.kind || "種類なし") + " " + num(x.n) + " 件").join("・") + "）" : "") + "／ 交代 " + num(c.handover) + " 件</span></div>";
   h += detailLegend(shown);
   h += shown.length ? '<ol class="tl" id="dd-tl">' + shown.map(detailItem).join("") + "</ol>"
     : '<div class="empty">' + (nOlder
@@ -7808,16 +7809,11 @@ function renderDetail(D) {
   }
   /* 付け直して来たもの・契約期間の外のもの（種類ごと）。元は継続の取引とは限らない（オプション契約・前の契約もある） */
   const mv = [["電話", c.call_moved_in, c.call_outside], ["録画 MTG", c.mtg_moved_in, c.mtg_outside],
-    ["MTG 推定", c.mail_moved_in, c.mail_outside]].filter((x) => x[1] || x[2]);
+    ["MTG 推定", c.mail_moved_in, c.mail_outside], ["メール", c.email_moved_in, c.email_outside], ["Zoom 開催記録", c.zoom_moved_in, c.zoom_outside]].filter((x) => x[1] || x[2]);
   if (mv.length) {
     h += '<div class="lede">' + mv.map((x) => esc(x[0]) + "は " + num(x[1] || 0) + " 件が同じ拠点の別の取引から付け直したもの、" +
       num(x[2] || 0) + " 件がこの取引に付いているが契約期間の外のもの").join("。") +
       "です（行ごとに印を付けています）。</div>";
-  }
-  const nh = (c.mail_not_held || []).filter((x) => x.n > 0);
-  if (nh.length) {
-    h += '<div class="lede">メール由来のうち、実施ではないもの（' +
-      nh.map((x) => esc(x.kind) + " " + num(x.n) + " 件").join("・") + "）は並べていません。</div>";
   }
 
   /* ---- 契約の連なり（M-3 (3)）: 前後の契約を1行、表は畳む ----
@@ -7873,8 +7869,8 @@ function detailNext(D) {
   const d = D.deal, ev = D.events || [], today = D.meta.today;
   const own = (e) => !e.attach || e.attach.state === "own" || e.attach.state === "moved_in";
   const ago = (dt) => { const n = dayDiff(dt, today); return n == null ? "" : n <= 0 ? "（今日）" : "（" + num(n) + "日前）"; };
-  const ct = ev.find((e) => own(e) && (e.kind === "mtg" || (e.kind === "call" && e.contact)));
-  const mt = ev.find((e) => own(e) && (e.kind === "mtg" || e.kind === "mail_mtg"));
+  const ct = ev.find((e) => own(e) && ((e.kind === "mtg" || e.kind === "zoom_mtg") || (e.kind === "call" && e.contact)));
+  const mt = ev.find((e) => own(e) && (e.kind === "mtg" || e.kind === "zoom_mtg" || e.kind === "mail_mtg"));
   const sm = ev.find((e) => own(e) && ((e.kind === "call" && e.summary && (e.summary.next_action || e.summary.concern)) ||
     (e.kind === "mtg" && e.extracted && (e.todo || e.concern))));
   const kv = (k, v) => '<div><span class="k">' + esc(k) + "</span>" + v + "</div>";
@@ -7898,13 +7894,13 @@ function detailNext(D) {
   let h = '<div class="lede" id="dd-attr">' + attr.join(sepA) + "</div>" +
     '<div class="dd-kv">' +
     kv("最後の接触（MTG・60秒超の電話）", ct
-      ? "<b>" + esc(ct.date) + "</b>" + ago(ct.date) + " " + (ct.kind === "mtg" ? "MTG（録画）" : "電話 " + durText(ct.duration_sec))
+      ? "<b>" + esc(ct.date) + "</b>" + ago(ct.date) + " " + (ct.kind === "mtg" ? "MTG（録画）" : ct.kind === "zoom_mtg" ? "MTG（Zoom 開催記録）" : "電話 " + durText(ct.duration_sec))
       /* 🔴 2026-09-30 検証: 「記録がありません」は、帯・見方の「記録が見つからない」と言い方が違い、MTG・接触が無いと読めた。
          初回契約で MTG をしないことは実務上ない（2026-09-29 藤巻さん）。継続の期間はしていないこともあるので、
          「していない」とも「していた」とも言い切らず、欠ける理由の候補を添える */
       : '<span class="muted small">この契約の期間に接触の記録が見つかりません（接触していないとは限りません）</span>') +
     kv("最後の MTG", mt
-      ? "<b>" + esc(mt.date) + "</b>" + ago(mt.date) + " " + (mt.kind === "mtg" ? "録画（事実）" : "メール由来（推定）")
+      ? "<b>" + esc(mt.date) + "</b>" + ago(mt.date) + " " + (mt.kind === "mtg" ? "録画（事実）" : mt.kind === "zoom_mtg" ? "Zoom 開催記録（事実）" : "メール由来（推定）")
       : '<span class="muted small">この契約の期間に MTG の記録が見つかりません（MTG をしていないとは限りません。' +
         "欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない）</span>") +
     kv("満了まで", left == null ? DASH : left >= 0 ? num(left) + "日" + exp : "満了日を過ぎています" + exp) +

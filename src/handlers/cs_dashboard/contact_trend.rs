@@ -529,7 +529,7 @@ fn unit_json(
 /// ②コンサルタント →「担当者ごとの接触」。月と週の両方を1回で返す（画面の切り替えで取り直さない）。
 pub fn build_contact_trend(sheets: &Sheets, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
-    let (raw, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let (raw, _, _) = contacts_by_deal(&sheets.call, &sheets.factual_mtg());
     let all = deals_all_of(&sheets.deal);
     let tl = owner_timeline(&sheets.owner_hist);
     let cutoff = cutoff_of(sheets, today);

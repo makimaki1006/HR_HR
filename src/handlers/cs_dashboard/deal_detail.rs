@@ -373,6 +373,78 @@ pub fn build_deal_detail(
         ));
     }
 
+    // ---- Zoomの開催記録。録画がある日は録画を優先する ----
+    let zoom = &sheets.zoom_mtg;
+    let mut zoom_days = HashSet::new();
+    let mut n_zoom = 0usize;
+    let (mut n_zoom_moved_in, mut n_zoom_outside) = (0usize, 0usize);
+    let mut zoom_order: Vec<usize> = (0..zoom.rows.len()).collect();
+    zoom_order.sort_by_key(|&i| {
+        let did = zoom.get(&zoom.rows[i], "deal_id").trim();
+        (did != id, is_opt(did), i)
+    });
+    for i in zoom_order {
+        let r = &zoom.rows[i];
+        if zoom.get(r, "kind").trim() != "実施" {
+            continue;
+        }
+        let Some(day) = date10(zoom.get(r, "date")) else {
+            continue;
+        };
+        let in_contract = super::zoom_in_contract(zoom, r);
+        let attach = if in_contract {
+            let Some(attach) = pick(zoom.get(r, "deal_id").trim(), day) else {
+                continue;
+            };
+            attach
+        } else {
+            // 期間外はシートが選んだ最寄りの契約に残し、別契約へ付け直さない。
+            if zoom.get(r, "deal_id").trim() != id {
+                continue;
+            }
+            json!({"state": "outside", "in_span": false, "moved_from": null, "moved_to": null})
+        };
+        if in_contract && (!zoom_days.insert(day) || rec_days.contains(&day)) {
+            continue;
+        }
+        n_zoom += 1;
+        count_attach(&attach, &mut n_zoom_moved_in, &mut n_zoom_outside);
+        let time = hhmm(zoom.get(r, "start_jst"));
+        events.push((day, time.clone().unwrap_or_default(), kind_rank("mtg"), format!("z{i:06}"), json!({
+            "kind": "zoom_mtg", "date": day.to_string(), "time": time,
+            "end_time": hhmm(zoom.get(r, "end_jst")), "end_date": date10(zoom.get(r, "end_jst")).map(|d| d.to_string()),
+            "fact": true, "source_label": "Zoom の開催記録・事実", "attach": attach,
+            "period": if in_contract { Value::Null } else { text(zoom.get(r, "period")) },
+        })));
+    }
+
+    // ---- メール履歴。件名と送受信の記録だけ。接触には数えない ----
+    let history = &sheets.mail_history;
+    let mut n_email = 0usize;
+    let mut email_kinds: std::collections::BTreeMap<&str, usize> =
+        std::collections::BTreeMap::new();
+    let (mut n_email_moved_in, mut n_email_outside) = (0usize, 0usize);
+    for (i, r) in history.rows.iter().enumerate() {
+        let g = |c| history.get(r, c);
+        let Some(day) = date10(g("送信日時（JST）")) else {
+            continue;
+        };
+        let Some(attach) = pick(g("deal_id").trim(), day) else {
+            continue;
+        };
+        n_email += 1;
+        *email_kinds.entry(g("種類").trim()).or_default() += 1;
+        count_attach(&attach, &mut n_email_moved_in, &mut n_email_outside);
+        let time = hhmm(g("送信日時（JST）"));
+        events.push((day, g("送信日時（JST）").get(11..).unwrap_or_default().to_string(), kind_rank("email"), format!("a{i:06}"), json!({
+            "kind": "email", "date": day.to_string(), "time": time, "fact": true,
+            "source_label": "メール", "direction": text(g("向き")), "mail_type": text(g("種類")),
+            "subject": text(g("件名")),
+            "zoom_held_time": if g("zoom_meeting_id").trim().is_empty() { None } else { hhmm(g("zoom_held")) },
+            "attach": attach,
+        })));
+    }
+
     // ---- MTG（メール由来・推定）----
     // 🔴 電話・録画と同じ決まりで付け直す（2026-09-26 検証の指摘: 付け直さずに並べると、
     //    前の契約の MTG がこの契約の出来事に見え、前の契約の詳細には出なかった）。
@@ -408,6 +480,9 @@ pub fn build_deal_detail(
         let Some(attach) = pick(mail.get(r, "deal_id").trim(), day) else {
             continue;
         };
+        if zoom_days.contains(&day) {
+            continue;
+        }
         if !mail_days.insert(day) {
             continue; // 同じ日のメール由来の MTG を2回出さない
         }
@@ -619,6 +694,9 @@ pub fn build_deal_detail(
             // 取引への結び付けの確度が「高」ではない録画 MTG
             "mtg_link_not_high": n_mtg_link_not_high,
             "mtg_moved_in": n_mtg_moved_in, "mtg_outside": n_mtg_outside,
+            "zoom_mtg": n_zoom, "zoom_moved_in": n_zoom_moved_in, "zoom_outside": n_zoom_outside,
+            "email": n_email, "email_kinds": email_kinds.iter().map(|(k,n)| json!({"kind": k, "n": n})).collect::<Vec<_>>(),
+            "email_moved_in": n_email_moved_in, "email_outside": n_email_outside,
             "mail_mtg": n_mail,
             "mail_moved_in": n_mail_moved_in, "mail_outside": n_mail_outside,
             // メール由来のうち、実施ではないので並べていないもの（予定・候補・取り下げ）
