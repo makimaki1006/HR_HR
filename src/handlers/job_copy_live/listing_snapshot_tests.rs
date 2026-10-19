@@ -209,9 +209,13 @@ async fn worker_serves_restored_index_then_replaces_and_saves_it() {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let a = audit.clone();
-            if tokio::task::spawn_blocking(move || load(&a).unwrap().unwrap().records.is_empty())
-                .await
-                .unwrap()
+            // The worker may be mid-save: the last INSERT's trigger can drop the generation
+            // this read picked, so a failed read here means "not yet", not a broken snapshot.
+            if tokio::task::spawn_blocking(
+                move || matches!(load(&a), Ok(Some(index)) if index.records.is_empty()),
+            )
+            .await
+            .unwrap()
             {
                 break;
             }
