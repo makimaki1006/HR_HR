@@ -1,10 +1,10 @@
 import type { ApplicantRow } from '../../generated/ApplicantRow';
 import type { ApplicantQueue } from '../../generated/ApplicantQueue';
 import type { ApplicantDetail } from '../../generated/ApplicantDetail';
-const first: ApplicantRow = { id: '90001', name: '架空 はるか', deal: 'サンプル物流株式会社', job: '検品スタッフ（架空求人）', date: '2026-10-18', stage: '朝連絡', stage_id: '1431574804', appointment: '2026-10-18T09:00:00+09:00', media: '架空求人サイト' };
+const first: ApplicantRow = { id: '90001', name: '架空 はるか', phone: '000-0000-0000', deal: 'サンプル物流株式会社', job: '検品スタッフ（架空求人）', date: '2026-10-18', stage: '朝連絡', stage_id: '1431574804', appointment: '2026-10-18T09:00:00+09:00', media: '架空求人サイト' };
 const items: ApplicantRow[] = [
   first,
-  { id: '90002', name: '架空 あおい', deal: 'サンプル工房株式会社', job: '組立スタッフ（架空求人）', date: '2026-10-17', stage: '応募受付', stage_id: '1343099551', appointment: '', media: '架空採用ページ' },
+  { id: '90002', name: '架空 あおい', phone: '000-0000-0000', deal: 'サンプル工房株式会社', job: '組立スタッフ（架空求人）', date: '2026-10-17', stage: '応募受付', stage_id: '1343099551', appointment: '', media: '架空採用ページ' },
 ];
 export const applicantQueueFixture: ApplicantQueue = {
   items, total: 2, next_cursor: null,
@@ -37,6 +37,8 @@ export function applicantDetailFixture(id: string): ApplicantDetail {
       { title: 'ヒアリングと結果', fields: [{ label: '保有資格', value: '資格なし' }, { label: '以前の就業状況', value: '在職中' }, { label: '以前の入社希望時期', value: '相談' }, { label: '応募動機', value: '通勤しやすい職場を希望' }, { label: '一次対応実施内容', value: '勤務時間の確認待ち' }] },
     ],
     notes: [{ date: '2026-10-18T00:00:00Z', html: '<p>午後の連絡を希望しています。</p>' }],
+    posting_url: Number(id) % 2 === 0 ? null : 'https://www.example.com/jobs/fictional-inspection',
+    jobcopy_url: 'https://www.example.com/app/job-copy/fictional-posting',
     sheet_url: id === '90002' ? null : 'https://docs.google.com/spreadsheets/d/fictional-applicants-sheet/edit',
     sheet_embed: id !== '90002',
   };

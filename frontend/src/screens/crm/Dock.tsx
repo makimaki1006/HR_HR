@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent, KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  COLUMN_INDEXES, COLUMN_LABELS, KEY_RESIZE_STEP, PANEL_IDS, PANEL_LABELS, PINNED_PANEL, TAB_LABELS, columnOf, isEmptyColumn, leftPercent, tabPanels,
+  COLUMN_INDEXES, COLUMN_LABELS, KEY_RESIZE_STEP, PANEL_IDS, PINNED_PANEL, TAB_LABELS, columnOf, isEmptyColumn, leftPercent, tabPanels,
 } from './dockModel';
 import type { ColumnIndex, DockAction, DockLayout, PanelId } from './dockModel';
 import './dock.css';
@@ -21,6 +21,8 @@ import './dock.css';
  * - `maximized` のパネルの列を、置き場全体に重ねて広げる (CSS だけで重ねる。箱は動かさないので枠の中のページは読み直さない)。
  *   ほかの列は残したまま操作できなくする (inert)
  */
+
+const LabelsContext = createContext(TAB_LABELS);
 
 const DRAG_TYPE = 'application/x-hrhr-crm-panel';
 /** 列の最小幅 (px)。比の最小 (dockModel.MIN_WIDTH_RATIO) と大きい方が効く */
@@ -87,7 +89,7 @@ function MoveMenu({ panel, layout, dispatch }: { panel: PanelId; layout: DockLay
     e.preventDefault();
     all[to]?.focus();
   }
-  const label = PANEL_LABELS[panel];
+  const label = useContext(LabelsContext)[panel];
   return <span className="dock-move" ref={wrapRef}>
     <button type="button" id={menuButtonId(panel)} className="dock-move-btn" aria-haspopup="menu" aria-expanded={open}
       aria-label={`「${label}」の移動`} title={`「${label}」を別の列へ移す`}
@@ -106,6 +108,7 @@ function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging, max
   /** 'max' = この列を広げている、'under' = ほかの列を広げている (この列は操作させない) */
   max: 'max' | 'under' | null;
 }) {
+  const labels = useContext(LabelsContext);
   const col = layout.columns[index];
   const tabs = tabPanels(col);
   const pinned = col.panels.includes(PINNED_PANEL);
@@ -172,14 +175,14 @@ function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging, max
           const selected = p === col.active;
           return <span key={p} className={`dock-tab${selected ? ' is-active' : ''}${dragging === p ? ' is-dragging' : ''}`} role="presentation" data-dock-tab={p} {...dragProps(p)}>
             <button type="button" role="tab" id={dockTabId(p)} aria-selected={selected} aria-controls={dockPanelId(p)} tabIndex={selected ? 0 : -1}
-              title="クリックで表示。ドラッグで別の列へ移せます" onClick={() => { dispatch({ type: 'activate', panel: p }); }}>{TAB_LABELS[p]}</button>
+              title="クリックで表示。ドラッグで別の列へ移せます" onClick={() => { dispatch({ type: 'activate', panel: p }); }}>{labels[p]}</button>
           </span>;
         })}
       </div>}
       {/* 前に出ているタブの「移動」(キーボードではタブから Tab で届く。ほかのタブは矢印キーで前に出してから) */}
       {!side && col.active !== null && <MoveMenu key={col.active} panel={col.active} layout={layout} dispatch={dispatch} />}
-      {pinned && <span className="dock-pinned-chip" data-dock-tab={PINNED_PANEL} {...dragProps(PINNED_PANEL)} title="「案件の概要」はこの列の上端に固定で出ます。ドラッグで別の列へ移せます">
-        <span>{PANEL_LABELS[PINNED_PANEL]}</span><MoveMenu panel={PINNED_PANEL} layout={layout} dispatch={dispatch} />
+      {pinned && <span className="dock-pinned-chip" data-dock-tab={PINNED_PANEL} {...dragProps(PINNED_PANEL)} title={`「${labels[PINNED_PANEL]}」はこの列の上端に固定で出ます。ドラッグで別の列へ移せます`}>
+        <span>{labels[PINNED_PANEL]}</span><MoveMenu panel={PINNED_PANEL} layout={layout} dispatch={dispatch} />
       </span>}
     </div>}
     {solo && col.active !== null && <div className="dock-solo-menu" data-testid="dock-solo-menu"><MoveMenu key={col.active} panel={col.active} layout={layout} dispatch={dispatch} /></div>}
@@ -197,7 +200,7 @@ function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging, max
             const selected = p === col.active;
             return <span key={p} className={`dock-tab dock-side-tab${selected ? ' is-active' : ''}${dragging === p ? ' is-dragging' : ''}`} role="presentation" data-dock-tab={p} {...dragProps(p)}>
               <button type="button" role="tab" id={dockTabId(p)} aria-selected={selected} aria-controls={dockPanelId(p)} tabIndex={selected ? 0 : -1}
-                title="クリックで表示。ドラッグで別の列へ移せます" onClick={() => { dispatch({ type: 'activate', panel: p }); }}>{TAB_LABELS[p]}</button>
+                title="クリックで表示。ドラッグで別の列へ移せます" onClick={() => { dispatch({ type: 'activate', panel: p }); }}>{labels[p]}</button>
             </span>;
           })}
         </div>
@@ -252,12 +255,13 @@ function Divider({ left, right, layout, dispatch, containerRef }: {
     onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end} onKeyDown={onKeyDown} />;
 }
 
-export function Dock({ layout, dispatch, panels, maximized = null }: {
+export function Dock({ layout, dispatch, panels, maximized = null, labels = TAB_LABELS }: {
   layout: DockLayout; dispatch: (a: DockAction) => void;
   /** パネルの中身 (常に描く。見えていないパネルも外さない) */
   panels: Record<PanelId, ReactNode>;
   /** 置き場全体に広げて出すパネル (その列を重ねる)。無ければ null */
   maximized?: PanelId | null;
+  labels?: Record<PanelId, string>;
 }) {
   // パネルごとの箱 (画面を開いている間ずっと同じ箱を使う)
   const [hosts] = useState<Record<PanelId, HTMLElement>>(() => {
@@ -299,9 +303,9 @@ export function Dock({ layout, dispatch, panels, maximized = null }: {
     if (!empty) prevVisible = i;
   }
   const style: CSSProperties = { gridTemplateColumns: template.join(' ') };
-  return <>
+  return <LabelsContext value={labels}>
     <div className={`dock${maxCol !== null ? ' has-max' : ''}`} ref={containerRef} style={style} data-testid="dock">{items}</div>
     {/* 中身は列の後に描く (列の枠に箱を差し込んでから、中身の effect が動く) */}
     {PANEL_IDS.map(p => createPortal(panels[p], hosts[p], p))}
-  </>;
+  </LabelsContext>;
 }

@@ -79,6 +79,7 @@ const RULES: &[&str] = &[
     "anmokuchi_oubohoukokusaki",
 ];
 const QUEUE_PROPERTIES: &[&str] = &[
+    "denwabangou",
     "ouboshashimei",
     "ouboshashimei_kana",
     "oubosaki_torihiki_name",
@@ -108,6 +109,7 @@ pub struct ApplicantLink {
 pub struct ApplicantRow {
     pub id: String,
     pub name: String,
+    pub phone: String,
     pub deal: String,
     pub job: String,
     pub date: String,
@@ -157,6 +159,8 @@ pub struct ApplicantDetail {
     pub deep_link: String,
     pub jobs: Vec<ApplicantLink>,
     pub notes: Vec<ApplicantNote>,
+    pub posting_url: Option<String>,
+    pub jobcopy_url: Option<String>,
     pub sheet_url: Option<String>,
     pub sheet_embed: bool,
 }
@@ -263,6 +267,7 @@ fn row(v: &Value, defs: &Value) -> ApplicantRow {
     ApplicantRow {
         id: text(v, "id"),
         name: fallback("ouboshashimei", "ouboshashimei_kana"),
+        phone: get("denwabangou"),
         deal: get("oubosaki_torihiki_name"),
         job: values(&defs["properties"])
             .filter(|d| {
@@ -578,6 +583,24 @@ fn sheet_url(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<String
             .map(|s| s.trim().to_string())
     }
 }
+fn http_url(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let url = reqwest::Url::parse(raw).ok()?;
+    (matches!(url.scheme(), "http" | "https") && url.host_str().is_some()).then(|| raw.to_owned())
+}
+fn job_url(jobs: &[crate::hubspot::HubSpotRecord], name: &str) -> Option<String> {
+    jobs.iter().find_map(|j| {
+        j.properties
+            .get(name)
+            .and_then(|v| v.as_deref())
+            .and_then(http_url)
+    })
+}
+fn posting_url(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<String> {
+    http_url(&text(p, "oubosaki_kyuujin_url"))
+        .or_else(|| job_url(jobs, "url_hrhakkaa"))
+        .or_else(|| job_url(jobs, "url_airwork"))
+}
 fn sheet_embeddable(url: Option<&str>) -> bool {
     url.is_some_and(|s| s.starts_with("https://docs.google.com/spreadsheets/"))
 }
@@ -688,10 +711,13 @@ pub(super) async fn detail(
             .map_err(|_| HubSpotError::Busy)?
             .map_err(|_| HubSpotError::Busy)?;
         let defs = ctx.applicants.definitions(&client).await?;
-        let props: Vec<String> = values(&defs["properties"])
+        let mut props: Vec<String> = values(&defs["properties"])
             .map(|d| text(d, "name"))
             .filter(|s| !s.is_empty())
             .collect();
+        if !props.iter().any(|p| p == "oubosaki_kyuujin_url") {
+            props.push("oubosaki_kyuujin_url".into());
+        }
         let names: Vec<&str> = props.iter().map(String::as_str).collect();
         // 本体、求人票、メモは独立。関連 ID → batch read の依存だけを保つ。
         let (rows, jobs, notes) = tokio::try_join!(
@@ -699,7 +725,17 @@ pub(super) async fn detail(
             async {
                 let ids = all_associations(&client, &id, "0-420").await?;
                 client
-                    .batch_read("0-420", &ids, &["hs_name", "customer_sheet_url"])
+                    .batch_read(
+                        "0-420",
+                        &ids,
+                        &[
+                            "hs_name",
+                            "customer_sheet_url",
+                            "url_hrhakkaa",
+                            "url_airwork",
+                            "jobcopy_app_url",
+                        ],
+                    )
                     .await
             },
             async {
@@ -774,6 +810,8 @@ pub(super) async fn detail(
                     url: link("0-420", &j.id),
                 })
                 .collect(),
+            posting_url: posting_url(p, &jobs),
+            jobcopy_url: job_url(&jobs, "jobcopy_app_url"),
             notes,
             sheet_embed: sheet_embeddable(sheet_url.as_deref()),
             sheet_url,
@@ -844,6 +882,77 @@ async fn all_associations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn posting_and_jobcopy_urls_only_use_http_and_respect_priority() {
+        let jobs = vec![crate::hubspot::HubSpotRecord {
+            id: "80001".into(),
+            created_at: None,
+            updated_at: None,
+            archived: false,
+            properties: [
+                (
+                    "url_hrhakkaa".into(),
+                    Some("https://www.example.com/hrhacker".into()),
+                ),
+                (
+                    "url_airwork".into(),
+                    Some("https://www.example.com/airwork".into()),
+                ),
+                (
+                    "jobcopy_app_url".into(),
+                    Some("https://www.example.com/app/job-copy/fictional".into()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        }];
+        assert_eq!(
+            posting_url(
+                &json!({"oubosaki_kyuujin_url":" https://www.example.com/applicant "}),
+                &jobs
+            )
+            .as_deref(),
+            Some("https://www.example.com/applicant")
+        );
+        assert_eq!(
+            posting_url(
+                &json!({"oubosaki_kyuujin_url":"javascript:alert(1)"}),
+                &jobs
+            )
+            .as_deref(),
+            Some("https://www.example.com/hrhacker")
+        );
+        let mut fallback = jobs.clone();
+        fallback[0]
+            .properties
+            .insert("url_hrhakkaa".into(), Some("data:text/html,no".into()));
+        assert_eq!(
+            posting_url(&json!({}), &fallback).as_deref(),
+            Some("https://www.example.com/airwork")
+        );
+        assert_eq!(posting_url(&json!({}), &[]), None);
+        assert_eq!(
+            posting_url(&json!({"oubosaki_kyuujin_url":"ftp://example.com/a"}), &[]),
+            None
+        );
+        assert_eq!(
+            posting_url(
+                &json!({"oubosaki_kyuujin_url":"http://www.example.com/a"}),
+                &[]
+            )
+            .as_deref(),
+            Some("http://www.example.com/a")
+        );
+        assert_eq!(
+            job_url(&jobs, "jobcopy_app_url").as_deref(),
+            Some("https://www.example.com/app/job-copy/fictional")
+        );
+        fallback[0]
+            .properties
+            .insert("jobcopy_app_url".into(), Some("javascript:alert(1)".into()));
+        assert_eq!(job_url(&fallback, "jobcopy_app_url"), None);
+        assert_eq!(job_url(&[], "jobcopy_app_url"), None);
+    }
     #[test]
     fn search_body_omits_initial_after_and_sends_string_offsets() {
         let mut pos = Position {

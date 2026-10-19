@@ -116,7 +116,7 @@ async fn fake(State(st): State<Shared<Fake>>, req: Request<Body>) -> Response {
             json!({"results":(300..307).map(|i|json!({"toObjectId":i})).collect::<Vec<_>>()})
         }
         "/crm/v3/objects/0-420/batch/read" => {
-            json!({"results":[{"id":"200","properties":{"hs_name":"架空求人票","customer_sheet_url":"https://docs.google.com/spreadsheets/d/fake-job/edit"}}]})
+            json!({"results":[{"id":"200","properties":{"hs_name":"架空求人票","url_hrhakkaa":"https://www.example.com/fictional-posting","url_airwork":"https://www.example.com/fictional-airwork","jobcopy_app_url":"https://www.example.com/app/job-copy/fictional","customer_sheet_url":"https://docs.google.com/spreadsheets/d/fake-job/edit"}}]})
         }
         "/crm/v3/objects/notes/batch/read" => {
             json!({"results":(1..=7).map(|i|json!({"id":(299+i).to_string(),"properties":{"hs_timestamp":format!("2026-10-{:02}T00:00:00Z", i+9),"hs_note_body":format!("架空のメモ {i}")}})).collect::<Vec<_>>()})
@@ -233,6 +233,36 @@ async fn applicants_detail_labels_empty_fields_sheet_notes_cache_and_fresh() {
     let (status, _, a) = get_json(&app, "/api/crm/applicants/100", &c).await;
     assert_eq!(status, StatusCode::OK, "{a}");
     assert_eq!(a["phone"], "00000000000");
+    assert_eq!(a["row"]["phone"], "00000000000");
+    assert_eq!(
+        a["posting_url"],
+        "https://www.example.com/fictional-posting"
+    );
+    assert_eq!(
+        a["jobcopy_url"],
+        "https://www.example.com/app/job-copy/fictional"
+    );
+    {
+        let requests = &f.lock().unwrap().requests;
+        let applicant = requests
+            .iter()
+            .find(|(p, _)| p == "/crm/v3/objects/0-421/batch/read")
+            .unwrap();
+        assert!(applicant.1["properties"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("oubosaki_kyuujin_url")));
+        let job = requests
+            .iter()
+            .find(|(p, _)| p == "/crm/v3/objects/0-420/batch/read")
+            .unwrap();
+        for name in ["url_hrhakkaa", "url_airwork", "jobcopy_app_url"] {
+            assert!(job.1["properties"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(name)));
+        }
+    }
     assert_eq!(
         a["sections"][0]["fields"],
         json!([{"label":"カナ", "value":"カクウ ハルカ"}, {"label":"メールアドレス", "value":"applicant@example.invalid"}])

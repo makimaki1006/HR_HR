@@ -1,16 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import type { ApplicantQueue } from '../../generated/ApplicantQueue';
 import type { ApplicantDetail } from '../../generated/ApplicantDetail';
 import type { ApplicantRow } from '../../generated/ApplicantRow';
+import type { ReactNode } from 'react';
+import { Dock } from './Dock';
+import { DEFAULT_LAYOUT, TAB_LABELS, dockReducer, parseLayout, serializeLayout } from './dockModel';
+import type { DockLayout, PanelId } from './dockModel';
+import { PhoneRow, ZOOM_LOGIN_DONE, ZOOM_LOGIN_REQUIRED, ZOOM_NO_RESPONSE } from './DealDetail';
+import { ZoomPhonePanel } from './ZoomPhonePanel';
 import type { ApplicantSection } from '../../generated/ApplicantSection';
 import { CrmModeSwitch } from './CrmModeSwitch';
 import { applicantQueueFixture, applicantDetailFixture } from './applicantFixture';
 import { StageFilter } from './StageFilter';
-import { LinkView, PropLink } from './CenterTabs';
+import { CenterTabBar, CenterPanel, LinkView, PropLink, useCenterTabs } from './CenterTabs';
 import { makeLinkTab, safeHttpUrl } from './centerLinks';
 import { sanitizeHtml } from './activityHtml';
 import { useZoomPhone } from './useZoomPhone';
-import { ZOOM_EMBED_SRC, toE164Jp } from './smartEmbed';
+import type { FixedLink } from './centerLinks';
+import { toE164Jp } from './smartEmbed';
 import { ApplicantEditor } from './ApplicantEditor';
 import './crm.css';
 import './queue.css';
@@ -30,9 +37,9 @@ function date(raw: string): string {
   const value = new Date(/^\d{11,}$/.test(raw) ? Number(raw) : raw);
   return Number.isNaN(value.getTime()) ? raw : new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'short', ...(raw.length > 10 ? { timeStyle: 'short' as const } : {}) }).format(value);
 }
-function Fields({ section }: { section: ApplicantSection }) {
+function Fields({ section, collapse = true }: { section: ApplicantSection; collapse?: boolean }) {
   return <dl className="crm-property-list">{section.fields.map((f, i) => <div key={`${f.label}-${String(i)}`} className={f.label.startsWith('以前の') ? 'applicant-legacy' : undefined}><dt>{f.label}</dt><dd>
-    {safeHttpUrl(f.value) ? <PropLink url={f.value} /> : f.value.length > 200 ? <details><summary>内容を表示</summary><p>{f.value}</p></details> : f.value}
+    {safeHttpUrl(f.value) ? <PropLink url={f.value} /> : collapse && f.value.length > 200 ? <details><summary>内容を表示</summary><p>{f.value}</p></details> : f.value}
   </dd></div>)}</dl>;
 }
 export function ApplicantSheet({ detail }: { detail: ApplicantDetail | null }) {
@@ -45,8 +52,23 @@ export function ApplicantSheet({ detail }: { detail: ApplicantDetail | null }) {
   tab.embed = detail.sheet_embed && url.startsWith('https://docs.google.com/spreadsheets/') ? url : null;
   return <LinkView key={url} tab={tab} showFrameHint={false} />;
 }
+const LAYOUT_KEY = 'hrhr.crm.applicantsDock.v1';
+const DEFAULT_APPLICANT_LAYOUT: DockLayout = { ...DEFAULT_LAYOUT, columns: [DEFAULT_LAYOUT.columns[0], { panels: ['overview', 'result', 'activity'], active: 'result' }, DEFAULT_LAYOUT.columns[2]] };
+const LABELS = { ...TAB_LABELS, queue: '応募一覧', overview: '応募の概要', result: '対応の入力', activity: 'メモ', links: '求人票・報告シート' };
+function loadApplicantLayout(): DockLayout {
+  try { const raw = localStorage.getItem(LAYOUT_KEY); return raw === null ? DEFAULT_APPLICANT_LAYOUT : parseLayout(raw, DEFAULT_APPLICANT_LAYOUT); } catch { return DEFAULT_APPLICANT_LAYOUT; }
+}
+function ApplicantRules({ section }: { section: ApplicantSection | undefined }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = (section?.fields.reduce((n, f) => n + f.label.length + f.value.length, 0) ?? 0) > 100 || (section?.fields.length ?? 0) > 2;
+  return <section className="applicant-rules" aria-label="この求人の対応ルール"><h3>この求人の対応ルール</h3>
+    <div className={!expanded && long ? 'applicant-rules-clamped' : undefined}>{section?.fields.length ? <Fields section={section} collapse={false} /> : <p>この求人の対応ルールは登録されていません</p>}</div>
+    {long && <button type="button" aria-expanded={expanded} onClick={() => { setExpanded(v => !v); }}>{expanded ? '畳む' : '全部表示'}</button>}
+  </section>;
+}
 export function ApplicantsScreen({ fixture = new URLSearchParams(window.location.search).get('mode') === 'fixture' }: { fixture?: boolean }) {
-  const detailRef = useRef<HTMLElement>(null);
+  const [layout, dispatch] = useReducer(dockReducer, undefined, loadApplicantLayout);
+  useEffect(() => { try { localStorage.setItem(LAYOUT_KEY, serializeLayout(layout)); } catch { /* 保存できない場合も操作は可能 */ } }, [layout]);
   const selectedRef = useRef<string | null>(null);
   const [contactTarget, setContactTarget] = useState<HTMLDivElement | null>(null);
   const [hearingTarget, setHearingTarget] = useState<HTMLDivElement | null>(null);
@@ -62,7 +84,9 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   const [detailError, setDetailError] = useState('');
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
-  const [right, setRight] = useState<'sheet' | 'zoom'>('sheet');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [loginPrompt, setLoginPrompt] = useState<{ restore: boolean } | null>(null);
   const [dialNotice, setDialNotice] = useState('');
   const { zoom, iframeRef } = useZoomPhone(!fixture);
   useEffect(() => { selectedRef.current = selected?.id ?? null; }, [selected]);
@@ -89,72 +113,99 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
     return () => { abort.abort(); };
   }, [fixture, selected, refresh]);
   function filter(nextStages: string[], nextMedia: string) { setStages(nextStages); setMedia(nextMedia); setCursor(null); setQueue(null); setLoading(true); setSelected(null); setDetail(null); }
-  function select(item: ApplicantRow) { if (detailRef.current) detailRef.current.scrollTop = 0; if (selected?.id === item.id) return; setSelected(item); setDetail(null); setDetailError(''); setDialNotice(''); }
+  function select(item: ApplicantRow) { if (selected?.id === item.id) return; setSelected(item); setDetail(null); setDetailError(''); setDialNotice(''); }
   const headline = detail?.row ?? selected;
   const headlineName = (headline?.name ?? '').trim();
   const firstPipeline = queue?.pipelines[0];
-  const canDial = detail && !fixture && !detail.stop_reason && toE164Jp(detail.phone) !== null && zoom.embed === 'loaded' && zoom.call.phase !== 'connected' && zoom.call.phase !== 'ringing';
-  return <div className="crm-app applicants-app">
-    <header className="applicants-head"><a href="/">HR_HR</a><strong>CRM</strong><CrmModeSwitch applicants /><span>{fixture ? '架空サンプル' : 'HubSpot の応募'}</span><button onClick={() => { setCursor(null); setDetail(null); setRefresh(v => v + 1); }}>最新にする</button></header>
-    <div className="applicants-toolbar">
-      <h1>一次対応が必要な応募</h1><span>{queue ? `${String(queue.total)}件` : '読み込み中…'}</span>
+  const busy = zoom.call.phase === 'connected' || zoom.call.phase === 'ringing' || zoom.pending !== null;
+  const dialZoom = { ...zoom, dial: (raw: string | null | undefined) => {
+    if (!zoom.heard && zoom.embed !== 'timeout' && zoom.embed !== 'disabled' && toE164Jp(raw) !== null && !busy) { setLoginPrompt({ restore: !drawerOpen }); setDrawerOpen(true); setDialNotice(ZOOM_LOGIN_REQUIRED); return 'login_required' as const; }
+    return zoom.dial(raw);
+  } };
+  const [wasStalled, setWasStalled] = useState(zoom.stalled);
+  if (wasStalled !== zoom.stalled) {
+    setWasStalled(zoom.stalled);
+    if (zoom.stalled) { setDrawerOpen(true); setDialNotice(ZOOM_NO_RESPONSE); }
+  }
+  if (loginPrompt && zoom.heard) {
+    if (loginPrompt.restore) setDrawerOpen(false);
+    setLoginPrompt(null);
+    setDialNotice(ZOOM_LOGIN_DONE);
+  }
+  const fixed: FixedLink[] = [
+    { id: 'applicant-posting', label: '求人票', url: detail?.posting_url ?? null, missing: 'この応募には求人票の URL がありません。' },
+    { id: 'applicant-sheet', label: '報告シート', url: detail?.sheet_url ?? null, missing: 'この応募には報告シートの URL がありません' },
+  ];
+  const tabs = useCenterTabs(selected?.id ?? null, fixed, 'applicant-posting');
+  const panels: Record<PanelId, ReactNode> = {
+    queue: <section className="cq-col cq-list" aria-label="応募一覧">
+      <div className="cq-list-head"><h1>一次対応が必要な応募</h1><span>{queue ? `${String(queue.total)}件` : '読み込み中…'}</span></div>
+      <div className="cq-list-scroll">
+        {loading && <p role="status">応募を読み込み中…</p>}
+        <ul className="cq-list" aria-label="応募キュー">{queue?.items.map(item => <li className={`cq-row${selected?.id === item.id ? ' is-selected' : ''}`} key={item.id}>
+          <button className="cq-row-button" aria-current={selected?.id === item.id ? 'true' : undefined} onClick={() => { select(item); }}>
+            <span className="cq-row-l1"><strong className="cq-row-company">{item.name || '氏名未登録'}</strong><span className="cq-stage">{item.stage}</span></span>
+            <span className="cq-row-l2"><span className="cq-phone">{item.phone || '電話番号未登録'}</span></span>
+            <span className="cq-row-extra">{item.deal} · {item.job}</span>
+            <span className="cq-row-l3"><span>応募日 {date(item.date)}</span><span>{item.media}</span></span>
+            {item.appointment && <span className="cq-row-extra">約束架電日時 {date(item.appointment)}</span>}
+          </button>
+        </li>)}</ul>
+        {queue?.items.length === 0 && <p>条件に一致する応募はありません。</p>}
+        {queue?.next_cursor && <button onClick={() => { setCursor(queue.next_cursor); }}>続きを読み込む</button>}
+      </div>
+    </section>,
+    properties: <aside className="dock-scroll applicants-properties" aria-label="応募のプロパティ">
+      {!detail && <p>応募を選択し、詳細の読み込みをお待ちください。</p>}
+      {detail?.sections.map((section, i) => i === 1 ? null : <section className="crm-card" key={section.title}><h3>{section.title}</h3>
+        {i === 2 && <p><strong>{detail.row.deal}</strong><br />{detail.row.job}</p>}
+        <Fields section={{ ...section, fields: section.fields.filter(f => !detail.writes_enabled || !detail.editable.some(e => e.label === f.label && (i === 0 ? e.section === '連絡先' : i === 4 && e.section === 'ヒアリング'))) }} />
+        {i === 0 && <div ref={setContactTarget} />}{i === 4 && <div ref={setHearingTarget} />}
+        {i === 2 && detail.jobs.map(job => <p key={job.url}>{job.label} <a href={job.url} target="_blank" rel="noreferrer">HubSpotで開く</a></p>)}
+      </section>)}
+    </aside>,
+    overview: <main className="applicants-detail" aria-label="応募の詳細">
+      {!selected ? <p className="dock-placeholder">一覧から応募を選択してください。</p> : <>
+        <article className="wd wd-compact"><div className="wd-top wd-top-compact">
+          <div className="wd-line wd-line-1"><h2 className="wd-line-company">{headlineName || '氏名未登録'}</h2>{detail && <span className="wd-line-end"><a href={detail.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a></span>}</div>
+          <p className="applicant-job">{headline?.deal} · {headline?.job}</p>
+          <div className="wd-line wd-line-2"><PhoneRow label="応募者" raw={detail?.phone ?? headline?.phone ?? ''} zoom={dialZoom} compact blocked={!!detail?.stop_reason || busy || !detail} blockReason={detail?.stop_reason ?? (busy ? '通話中です' : null)} /></div>
+          <p className="applicant-meta">{headline?.stage} · {headline?.media} · 応募日 {date(headline?.date ?? '')}</p>
+          {detail?.stop_reason && <p role="alert">架電禁止・ブロック: {detail.stop_reason}</p>}{dialNotice && <p role="status">{dialNotice}</p>}
+        </div></article>
+        {detailError && <p role="alert">{detailError}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
+        {!detail && !detailError && <p role="status">詳細を読み込み中…</p>}
+        {detail && <ApplicantRules key={detail.row.id} section={detail.sections[1]} />}
+      </>}
+    </main>,
+    result: <ApplicantEditor detail={detail} fixture={fixture} contactTarget={contactTarget} hearingTarget={hearingTarget} onNext={id => {
+      if (selectedRef.current !== id) return;
+      const index = queue?.items.findIndex(item => item.id === id) ?? -1;
+      const next = queue?.items[index + 1];
+      if (next) select(next);
+      else { setDetail(null); setSelected(null); setCursor(null); setRefresh(v => v + 1); }
+    }} />,
+    activity: <section className="dock-scroll applicant-notes" aria-label="応募のメモ">
+      {!detail ? <p>応募を選択してください。</p> : <>{detail.notes.length === 0 && <p>メモはありません。</p>}{detail.notes.slice(0, 5).map((n, i) => <article key={i}><time>{date(n.date)}</time><div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} /></article>)}</>}
+    </section>,
+    links: <aside className="cq-linkpanel applicants-right" aria-label="求人票と報告シート">
+      <div className="cq-linkpanel-head"><CenterTabBar tabs={tabs} /></div>
+      <div className="cq-cpanels">{tabs.fixed.map(item => <CenterPanel key={item.def.id} id={item.def.id} active={tabs.active === item.def.id}>
+        {!selected ? <p className="dock-placeholder">応募を選択してください。</p> : !detail ? <p role="status">詳細を読み込み中…</p> : item.def.id === 'applicant-sheet' ? (item.opened && <ApplicantSheet detail={detail} />) : item.tab === null ? <div className="dock-scroll"><p>{item.def.missing}</p>{detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) && <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a>}</div> : item.opened && <LinkView key={item.tab.url} tab={item.tab} actions={detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) ? <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a> : null} />}
+      </CenterPanel>)}</div>
+    </aside>,
+  };
+  return <div className="crm-app cq-app applicants-app">
+    <header className="applicants-head"><a href="/">HR_HR</a><strong>CRM</strong><CrmModeSwitch applicants /><span>{fixture ? '架空サンプル' : 'HubSpot の応募'}</span>{!fixture && <button onClick={() => { setDrawerOpen(v => !v); }}>Zoom</button>}<button onClick={() => { setCursor(null); setDetail(null); setRefresh(v => v + 1); }}>最新にする</button></header>
+    <div className="cq-filter-summary applicants-filter-summary"><span>ステージ: {stages.length ? `${String(stages.length)}件選択` : 'すべて'} · 応募媒体: {media || 'すべて'}</span><button type="button" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(v => !v); }}>条件を変更</button></div>
+    {filtersOpen && <div className="applicants-toolbar">
       {queue && firstPipeline && <StageFilter all pipeline={{ ...firstPipeline, fallbackName: '', unknownStages: [], stages: firstPipeline.stages.map(s => ({ ...s, rule: 'all' })) }}
         pipelines={queue.pipelines.map(p => ({ ...p, fallbackName: '', unknownStages: [], stages: p.stages.map(s => ({ ...s, rule: 'all' })) }))}
         selected={stages} onApply={s => { filter(s, media); }} />}
       <label>応募媒体<select value={media} onChange={e => { filter(stages, e.target.value); }}><option value="">すべて</option>{queue?.media_options.map(o => <option value={o.id} key={o.id}>{o.label}</option>)}</select></label>
-    </div>
+    </div>}
     {error && <p role="alert">{error}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
-    <div className="applicants-columns">
-      <aside className="applicants-list" aria-label="応募一覧">
-        {loading && <p role="status">応募を読み込み中…</p>}
-        {queue?.items.map(item => <button className="applicant-row" key={item.id} aria-current={selected?.id === item.id ? 'true' : undefined} onClick={() => { select(item); }}>
-          <strong>{item.name || '氏名未登録'}</strong><span>{item.deal}</span><span>{item.job}</span><small>応募日 {date(item.date)} · {item.stage}</small><small>約束架電日時 {date(item.appointment)}</small><small>{item.media}</small>
-        </button>)}
-        {queue?.items.length === 0 && <p>条件に一致する応募はありません。</p>}
-        {queue?.next_cursor && <button onClick={() => { setCursor(queue.next_cursor); }}>続きを読み込む</button>}
-      </aside>
-      <div className="applicants-center">
-      <main ref={detailRef} className="applicants-detail" aria-label="応募の詳細">
-        {!selected ? <p>一覧から応募を選択してください。</p> : <>
-          <section className="crm-card applicant-identity"><h2>{headlineName || '氏名未登録'}</h2><p>{headline?.stage} · {headline?.media} · 応募日 {date(headline?.date ?? '')}</p>
-            {detail && <><a href={detail.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a><p>{detail.phone || '電話番号未登録'}</p>
-              <button disabled={!canDial} onClick={() => { if (!canDial) return; setRight('zoom'); const result = zoom.dial(detail.phone); setDialNotice(result === 'sent' ? '発信を依頼しました' : 'Zoom の読み込みとログインを確認してください'); }}>Zoom で発信</button>
-              {detail.stop_reason && <p role="alert">架電禁止・ブロック: {detail.stop_reason}</p>}{dialNotice && <p role="status">{dialNotice}</p>}
-              {detail.sections[0] && <Fields section={{ ...detail.sections[0], fields: detail.sections[0].fields.filter(f => !detail.writes_enabled || !detail.editable.some(e => e.section === '連絡先' && e.label === f.label)) }} />}<div ref={setContactTarget} /></>}
-          </section>
-          {detailError && <p role="alert">{detailError}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
-          {!detail && !detailError && <p role="status">詳細を読み込み中…</p>}
-          {detail?.sections.map((section, i) => i === 0 ? null : i < 3 ? <section className="crm-card" key={section.title}><h3>{section.title}</h3>
-            {i === 2 && <p><strong>{detail.row.deal}</strong><br />{detail.row.job}</p>}
-            <Fields section={section} />
-            {i === 2 && detail.jobs.map(job => <p key={job.url}>{job.label} <a href={job.url} target="_blank" rel="noreferrer">HubSpotで開く</a></p>)}
-            {i === 1 && section.fields.length === 0 && <p>この求人の対応ルールは登録されていません</p>}
-          </section> : <details className="crm-card" key={section.title} open={i === 4}><summary>{section.title}</summary><Fields section={section} />{i === 4 && <div ref={setHearingTarget} />}</details>)}
-          {detail && <section className="crm-card"><h3>メモ</h3>{detail.notes.length === 0 && <p>メモはありません。</p>}{detail.notes.map((n, i) => <article key={i}><time>{date(n.date)}</time><div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} /></article>)}</section>}
-        </>}
-      </main>
-        <ApplicantEditor detail={detail} fixture={fixture} contactTarget={contactTarget} hearingTarget={hearingTarget} onNext={id => {
-          if (selectedRef.current !== id) return;
-          const index = queue?.items.findIndex(item => item.id === id) ?? -1;
-          const next = queue?.items[index + 1];
-          if (next) select(next);
-          else { setDetail(null); setSelected(null); setCursor(null); setRefresh(v => v + 1); }
-        }} />
-
-      </div>
-      <aside className="applicants-right" aria-label="報告シートと電話">
-        <div role="tablist" aria-label="応募の補助画面">{(['sheet', 'zoom'] as const).map(t => <button key={t} id={`applicant-tab-${t}`} aria-controls={`applicant-panel-${t}`} role="tab" aria-selected={right === t} tabIndex={right === t ? 0 : -1} onKeyDown={e => {
-          if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-            e.preventDefault(); const next = e.key === 'Home' ? 'sheet' : e.key === 'End' ? 'zoom' : right === 'sheet' ? 'zoom' : 'sheet';
-            setRight(next); document.getElementById(`applicant-tab-${next}`)?.focus();
-          }
-        }} onClick={() => { setRight(t); }}>{t === 'sheet' ? '報告シート' : 'Zoom'}</button>)}</div>
-        <div role="tabpanel" id="applicant-panel-sheet" aria-labelledby="applicant-tab-sheet" hidden={right !== 'sheet'}><ApplicantSheet detail={detail} /></div>
-        <div role="tabpanel" id="applicant-panel-zoom" aria-labelledby="applicant-tab-zoom" hidden={right !== 'zoom'}>
-          {fixture ? <p>架空サンプルでは発信できません</p> : <><p>{zoom.embed === 'timeout' ? 'Zoom Phone を読み込めません。再読み込みしてください。' : 'Zoom にログインしてから発信してください。'}</p><iframe ref={iframeRef} title="Zoom Phone" src={ZOOM_EMBED_SRC} allow="microphone; clipboard-read; clipboard-write" onLoad={zoom.onLoad} /></>}
-        </div>
-
-      </aside>
-    </div>
+    <Dock layout={layout} dispatch={dispatch} panels={panels} labels={LABELS} />
+    {!fixture && <div className={`cq-zoom-drawer${drawerOpen ? ' is-open' : ''}`} inert={!drawerOpen} aria-hidden={!drawerOpen} onKeyDown={e => { if (e.key === 'Escape') setDrawerOpen(false); }}><ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} onClose={() => { setDrawerOpen(false); }} /></div>}
   </div>;
 }
