@@ -417,6 +417,61 @@ export function bodyMark(change: Pick<VersionChange, 'index' | 'bodyStatus' | 'b
 }
 
 export type Granularity = 'day' | 'week' | 'month';
+export type ChangeWindowDays = 7 | 14 | 28;
+export interface ChangeWindowSide extends CountRange {
+  days: number;
+  count: number;
+  perDay: number | null;
+  unpublishedDays: number;
+}
+export interface ChangeWindow {
+  requestedDays: ChangeWindowDays;
+  before: ChangeWindowSide;
+  after: ChangeWindowSide;
+}
+
+/** Calendar windows [start, end), independent of week/month buckets or version attribution.
+ * Only known publication gaps count as unpublished; unobserved days remain unknown.
+ */
+export function changeWindow(
+  byDate: Record<string, number> | undefined,
+  changeDate: string,
+  prevChangeDate: string | null,
+  nextChangeDate: string | null,
+  asOf: string,
+  n: ChangeWindowDays = 7,
+  unpublished: readonly CountRange[] = [],
+): ChangeWindow | null {
+  if (!byDate || changeDate > asOf) return null;
+  const beforeStart = [addDays(changeDate, -n), prevChangeDate ?? ''].sort().at(-1) ?? changeDate;
+  const afterEnd = [addDays(changeDate, n), addDays(asOf, 1), nextChangeDate ?? '9999-12-31'].sort()[0] ?? changeDate;
+  const side = (start: string, end: string): ChangeWindowSide => {
+    const days = Math.max(0, daysBetween(start, end));
+    const count = countApplications(byDate, start, end);
+    let unpublishedDays = 0;
+    for (let day = start; day < end; day = addDays(day, 1)) {
+      if (unpublished.some(gap => gap.start <= day && day < gap.end)) unpublishedDays += 1;
+    }
+    return { start, end, days, count, perDay: days ? count / days : null, unpublishedDays };
+  };
+  return { requestedDays: n, before: side(beforeStart, changeDate), after: side(changeDate, afterEnd) };
+}
+
+/** A weekly total contains days on both sides of the change. End is inclusive. */
+export function weekStraddlesChange(start: string, end: string, changeDate: string): boolean {
+  return start < changeDate && changeDate <= end;
+}
+
+/** Published end dates are exclusive; acquisition gaps do not prove non-publication. */
+export function unpublishedRanges(periods: readonly TimelinePeriod[], asOf: string): CountRange[] {
+  return periods.flatMap((period, index) => {
+    const next = periods[index + 1];
+    if (period.basis !== 'published' || period.end === null || (next && next.basis !== 'published')) return [];
+    const end = next?.start ?? addDays(asOf, 1);
+    return period.end < end ? [{ start: period.end, end }] : [];
+  });
+}
+
 export interface ApplicationBucket { start: string; end: string; count: number }
 /** Buckets with at least one dated application. end is exclusive. Monday-start weeks. */
 export function applicationBuckets(byDate: Record<string, number> | undefined, granularity: Granularity): ApplicationBucket[] {
