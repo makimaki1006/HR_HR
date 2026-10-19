@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { login } from './helpers/login';
+import { demoHome } from '../../../frontend/src/screens/job-copy/demoHome';
+import { demoOwnerTodo } from '../../../frontend/src/screens/job-copy/demoOwnerTodo';
 import { detailFixture, riskFixture, riskRow, scopeFixture } from '../../../frontend/src/screens/job-copy/consultantRisk.testFixtures';
 
 test('危ない案件・詳細・次の予定・担当切替・URLの往復', async ({ page }) => {
@@ -11,6 +14,7 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: { status: 'ready', total: 1, next_offset: null, listings: [{ id: '501' }] } }));
   await page.route('**/api/crm/workspace/deals/101?*', route => route.fulfill({ json: { hubspot_portal_id: '123', selected: { deal: { actionyotei: '2026-10-21', actionnaiyou: 'call' } }, partial: [] } }));
   await page.route('**/api/crm/deals/101/edit-schema', route => route.fulfill({ json: { writes_enabled: true, editable: [{ object: 'deal', name: 'actionyotei', type: 'date' }, { object: 'deal', name: 'actionnaiyou', type: 'enumeration', options: [{ value: 'call', label: '電話' }] }] } }));
+  await login(page);
   await page.goto('/app/job-copy?view=risk&owner=11&owner_field=consultant');
   const fresh = page.getByRole('region', { name: '今日わかった' });
   const ongoing = page.getByRole('region', { name: '前から出ていて直っていない' });
@@ -50,4 +54,40 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await expect(page).toHaveURL(/owner=22/); await expect(page).toHaveURL(/view=deals/);
   await page.goBack(); await expect(fresh).toContainText('架空の採用支援B');
   await expect(page.getByRole('combobox', { name: '担当の項目' })).toHaveValue('consultant');
+});
+
+// 共通メニューのホームは、固定一覧・求人の選択状態も解除する。
+test('固定一覧・求人詳細からホームへ戻り、担当を保つ', async ({ page }) => {
+  await page.route('**/api/job-copy/home*', route => route.fulfill({ json: { ...demoHome, work: { ...demoOwnerTodo, owner: '22' } } }));
+  await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: { status: 'ready', report: { count: 0, listings: [] } } }));
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-19T00:00:00Z', capture_bundle: { schemaVersion: 1, jobs: [] }, results: [] } }));
+  await page.route('**/api/job-copy/listings/501/versions', route => route.fulfill({ status: 503, json: {} }));
+  await login(page);
+  for (const query of ['source=fixed&data=actual', 'listing=501']) {
+    await page.goto(`/app/job-copy?${query}&owner=22&owner_field=consultant`);
+    await page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: 'ホーム', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'ホーム', exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('22');
+    expect(new URL(page.url()).searchParams.has('listing')).toBe(false);
+    expect(new URL(page.url()).searchParams.has('source')).toBe(false);
+    expect(new URL(page.url()).searchParams.has('data')).toBe(false);
+  }
+});
+
+
+test('求人作業中の担当選択を開いて切り替え、Escで閉じる', async ({ page }) => {
+  await page.route('**/api/job-copy/consultant-scope?*', route => route.fulfill({ json: { ...scopeFixture, owner: new URL(route.request().url()).searchParams.get('owner') ?? '11' } }));
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-19T00:00:00Z', capture_bundle: { schemaVersion: 1, jobs: [] }, results: [] } }));
+  await login(page);
+  await page.goto('/app/job-copy?source=fixed&data=actual&owner=11&owner_field=consultant');
+  const owner = page.getByRole('combobox', { name: '担当者', exact: true });
+  await expect(owner).toHaveCount(0);
+  await page.getByRole('button', { name: '担当者で絞る', exact: true }).click();
+  await expect(owner).toHaveValue('11');
+  await owner.selectOption('22');
+  await expect(owner).toHaveValue('22');
+  await expect(page).toHaveURL(/owner=22/);
+  await expect(page).toHaveURL(/source=fixed/);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('region', { name: '担当者の選択' })).toBeHidden();
 });

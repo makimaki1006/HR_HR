@@ -78,7 +78,7 @@ export function OccupationBulk() {
   const total = page?.status === 'ready' ? page.total : 0;
   const rows = page?.listings ?? [];
 
-  return <div className="jc-app ob-screen">
+  return <div className="ob-screen">
     <nav className="ob-crumb" aria-label="現在地"><a href="/app/job-copy">案件管理</a><span aria-hidden="true">›</span><span aria-current="page"><strong>市場と比べる職種を指定する</strong></span></nav>
     <section className="ob-intro" aria-label="説明と進み具合">
       <p>求人ごとに、Indeed のどの職種と比べるかを指定します。自動では決めません。指定した求人から、市場の数字（競合の求人数・平均時給・求人を見た人）がつながります。応募の多い求人から並べています。</p>
