@@ -74,6 +74,30 @@ mod tests {
     }
 
     #[test]
+    fn 応募の標準項目も日本語で表示しカスタム名は変えない() {
+        for (name, label) in [
+            ("hs_pipeline_stage", "ステージ"),
+            ("hs_pipeline", "パイプライン"),
+            ("hs_createdate", "作成日"),
+            ("hs_lastmodifieddate", "最終更新日時"),
+            ("hs_name", "応募名"),
+        ] {
+            assert_eq!(
+                property_label("0-421", name, &json!({"hubspotDefined":true})),
+                Some(label)
+            );
+        }
+        assert_eq!(
+            property_label(
+                "0-421",
+                "hs_pipeline_stage",
+                &json!({"hubspotDefined":false})
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn 会社の項目_表に無い名前_hubspot_defined_false_は訳さない() {
         assert_eq!(property_label("deals", "bpo_hsurl", &json!({})), None);
         assert_eq!(

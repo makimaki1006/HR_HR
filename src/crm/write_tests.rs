@@ -209,6 +209,13 @@ async fn hs_props(State(st): State<Shared<Fake>>, Path(o): Path<String>) -> Resp
     }
     let ro = json!({"readOnlyValue": true, "readOnlyDefinition": true, "archivable": false});
     let results = match o.as_str() {
+        "0-421" => json!([
+            {"name":"renrakukakuninmokuteki","label":"連絡・確認目的詳細","type":"string","fieldType":"textarea"},
+            {"name":"taioushubetsu","label":"対応種別","type":"enumeration","fieldType":"select","options":[{"value":"done","label":"確認済み"}]},
+            {"name":"ichijitaiou_shuugyou_joukyou","label":"就業状況","type":"enumeration","fieldType":"select","options":[{"value":"working","label":"在職中"}]},
+            {"name":"shuugyoujoukyou","label":"以前の就業状況","type":"string","fieldType":"text"},
+            {"name":"meeruadoresu","label":"メールアドレス","type":"string","fieldType":"text","modificationMetadata":{"readOnlyValue":true}}
+        ]),
         "deals" => json!([
             {"name": "bpo_10", "label": "不通時チェック", "type": "enumeration", "fieldType": "select", "groupName": "g",
              "options": [{"label": "受付拒否", "value": "reception_refused"}, {"label": "その他", "value": "other"}]},
@@ -310,6 +317,14 @@ async fn start_hs_gw(
             .route("/crm/v3/properties/{o}", get(hs_props))
             .route("/crm/v3/properties/{o}/groups", get(hs_groups))
             .route("/crm/v3/pipelines/deals", get(hs_pipelines))
+            .route("/crm/v3/pipelines/0-421", get(|| async { Json(json!({"results":[{"id":"t_3c8f8179ebedb62c890f1cf2c73ff9c8","label":"改名後の一次対応","stages":[{"id":"1343099551","label":"応募受付"},{"id":"1431574804","label":"朝連絡"}]}]})) }))
+            .route("/crm/v3/objects/0-421/batch/read", post(|State(st): State<Shared<Fake>>| async move {
+                let mut s = st.lock().unwrap(); s.log.push(("POST /crm/v3/objects/0-421/batch/read".into(), String::new())); Json(json!({"results":[record("0-421",DEAL,&s,&[]).unwrap()]}))
+            }))
+            .route("/crm/v3/objects/0-421/search", post(|State(st): State<Shared<Fake>>| async move {
+                    st.lock().unwrap().log.push(("POST /crm/v3/objects/0-421/search".into(), String::new()));
+                    Json(json!({"total":0,"results":[]}))
+                }))
             .route(
                 "/crm/v4/objects/{from}/{id}/associations/{to}",
                 get(hs_assoc),
@@ -2478,3 +2493,6 @@ async fn 納品管理の再送は現在地を再確認し別パイプライン�
         Some(PIPELINE)
     );
 }
+
+#[path = "applicant_write_tests.rs"]
+mod applicant_writes;

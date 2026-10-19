@@ -573,5 +573,25 @@
    "targetaccountsinformation": "ターゲットアカウント情報",
    "companylcs": "会社のライフサイクルステージのプロパティ"
   }
+ },
+ "0-421": {
+  "properties": {
+   "email": "メールアドレス",
+   "hs_name": "応募名",
+   "hs_pipeline": "パイプライン",
+   "hs_pipeline_stage": "ステージ",
+   "hs_createdate": "作成日",
+   "hs_lastmodifieddate": "最終更新日時",
+   "hs_object_id": "レコードID",
+   "hs_created_by_user_id": "作成者のユーザーID",
+   "hs_updated_by_user_id": "更新者のユーザーID",
+   "hubspot_owner_id": "担当者",
+   "hubspot_team_id": "チーム",
+   "hs_all_owner_ids": "すべての担当者ID",
+   "hs_all_team_ids": "すべてのチームID"
+  },
+  "groups": {
+   "appointments_information": "応募の情報"
+  }
  }
 }

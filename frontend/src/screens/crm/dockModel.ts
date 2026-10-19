@@ -164,24 +164,24 @@ const isPanelId = (v: unknown): v is PanelId => typeof v === 'string' && (PANEL_
  * 残した配置を読む。形が違う・知らないパネル・同じパネルが 2 回・幅が不正なら既定の配置。
  * 後から増えたパネル (残した配置に無いもの) は、既定の配置の列の末尾に足す
  */
-export function parseLayout(raw: string | null): DockLayout {
-  if (raw === null) return DEFAULT_LAYOUT;
+export function parseLayout(raw: string | null, fallback: DockLayout = DEFAULT_LAYOUT): DockLayout {
+  if (raw === null) return fallback;
   let v: unknown;
-  try { v = JSON.parse(raw); } catch { return DEFAULT_LAYOUT; }
-  if (typeof v !== 'object' || v === null) return DEFAULT_LAYOUT;
+  try { v = JSON.parse(raw); } catch { return fallback; }
+  if (typeof v !== 'object' || v === null) return fallback;
   const o = v as { v?: unknown; columns?: unknown; widths?: unknown };
-  if (o.v !== VERSION || !Array.isArray(o.columns) || o.columns.length !== 3 || !Array.isArray(o.widths) || o.widths.length !== 3) return DEFAULT_LAYOUT;
+  if (o.v !== VERSION || !Array.isArray(o.columns) || o.columns.length !== 3 || !Array.isArray(o.widths) || o.widths.length !== 3) return fallback;
   const widths = o.widths.map(w => (typeof w === 'number' && Number.isFinite(w) && w > 0 && w < 100 ? w : NaN));
-  if (widths.some(Number.isNaN)) return DEFAULT_LAYOUT;
+  if (widths.some(Number.isNaN)) return fallback;
   const seen = new Set<PanelId>();
   const columns: DockColumn[] = [];
   for (const c of o.columns as unknown[]) {
-    if (typeof c !== 'object' || c === null) return DEFAULT_LAYOUT;
+    if (typeof c !== 'object' || c === null) return fallback;
     const { panels, active } = c as { panels?: unknown; active?: unknown };
-    if (!Array.isArray(panels)) return DEFAULT_LAYOUT;
+    if (!Array.isArray(panels)) return fallback;
     const list: PanelId[] = [];
     for (const p of panels) {
-      if (!isPanelId(p) || seen.has(p)) return DEFAULT_LAYOUT;
+      if (!isPanelId(p) || seen.has(p)) return fallback;
       seen.add(p);
       list.push(p);
     }
@@ -190,7 +190,7 @@ export function parseLayout(raw: string | null): DockLayout {
   let layout: DockLayout = { columns: columns as DockLayout['columns'], widths: widths as DockLayout['widths'] };
   for (const p of PANEL_IDS) {
     if (seen.has(p)) continue;
-    const i = columnOf(DEFAULT_LAYOUT, p);
+    const i = columnOf(fallback, p);
     const col = layout.columns[i];
     layout = withColumn(layout, i, fixActive({ panels: [...col.panels, p], active: col.active }));
   }
