@@ -57,22 +57,22 @@ export interface CenterTabs {
 }
 
 type HookState = CenterTabsState & { opened: string[] };
-const freshState = (): HookState => ({ ...initialCenterTabs, opened: [SEARCH_TAB] });
+const freshState = (initial = SEARCH_TAB): HookState => ({ ...initialCenterTabs, active: initial, opened: [initial] });
 const withOpened = (opened: string[], id: string) => (opened.includes(id) ? opened : [...opened, id]);
 
 /**
  * パネルの中のタブの状態。`resetKey` (選んだ案件) が変わったら、開いたリンクを閉じて求人検索に戻す。
  * `fixed` は案件ごとの固定のタブ (求人検索・ホームページ・求人票 …)
  */
-export function useCenterTabs(resetKey: string | null, fixed: readonly FixedLink[]): CenterTabs {
+export function useCenterTabs(resetKey: string | null, fixed: readonly FixedLink[], initial = SEARCH_TAB): CenterTabs {
   const { installed } = useFrameExtension();
-  const [state, setState] = useState<HookState>(freshState);
+  const [state, setState] = useState<HookState>(() => freshState(initial));
   const [seenKey, setSeenKey] = useState(resetKey);
   if (seenKey !== resetKey) {
     setSeenKey(resetKey);
-    setState(freshState());
+    setState(freshState(initial));
   }
-  const active = fixed.length === 0 || state.links.some(l => l.id === state.active) || fixed.some(f => f.id === state.active) ? state.active : SEARCH_TAB;
+  const active = fixed.length === 0 || state.links.some(l => l.id === state.active) || fixed.some(f => f.id === state.active) ? state.active : initial;
   const open = useCallback<OpenLink>((url, label) => {
     setState(s => {
       const next = openLink(s, url, label, fixed, installed);
@@ -80,8 +80,8 @@ export function useCenterTabs(resetKey: string | null, fixed: readonly FixedLink
     });
   }, [fixed, installed]);
   const close = useCallback((id: string) => {
-    setState(s => ({ ...s, ...closeLink(s, id, SEARCH_TAB) }));
-  }, []);
+    setState(s => ({ ...s, ...closeLink(s, id, initial) }));
+  }, [initial]);
   const activate = useCallback((id: string) => {
     setState(s => ({ ...s, active: id, opened: withOpened(s.opened, id) }));
   }, []);
@@ -182,7 +182,7 @@ function FrameHint() {
  * 枠の中の移動は上の画面の履歴 (joint session history) に積まれるので、枠の中で 1 回以上移動したときだけ
  * 「戻る」で window.history.back() を呼ぶ (数が 0 のときは押せない = CRM 画面自体は戻らない)
  */
-export function LinkView({ tab, onClose, showFrameHint = true }: { tab: LinkTab; onClose?: (() => void) | undefined; showFrameHint?: boolean }) {
+export function LinkView({ tab, onClose, showFrameHint = true, actions }: { actions?: ReactNode; tab: LinkTab; onClose?: (() => void) | undefined; showFrameHint?: boolean }) {
   const [reloads, setReloads] = useState(0);
   const [navs, setNavs] = useState(0);
   const loaded = useRef(false);
@@ -213,6 +213,7 @@ export function LinkView({ tab, onClose, showFrameHint = true }: { tab: LinkTab;
         {...(tab.embed !== null ? { title: '表示されない場合は新しいタブで開いてください' } : {})}>新しいタブで開く</a>
       {tab.embed !== null && <button type="button" disabled={navs === 0} onClick={back}>戻る</button>}
       {tab.embed !== null && <button type="button" onClick={reload}>再読み込み</button>}
+      {actions}
       {onClose && <button type="button" onClick={onClose}>このタブを閉じる</button>}
     </div>
     {hubspotNote && <small className="cq-linkbar-note" data-testid="hubspot-note">{HUBSPOT_NOTE}</small>}

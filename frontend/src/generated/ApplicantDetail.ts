@@ -6,4 +6,4 @@ import type { ApplicantPipeline } from "./ApplicantPipeline";
 import type { ApplicantRow } from "./ApplicantRow";
 import type { ApplicantSection } from "./ApplicantSection";
 
-export type ApplicantDetail = { values: { [key in string]: string | null }, editable: Array<ApplicantEditField>, write_pipeline: ApplicantPipeline | null, writes_enabled: boolean, row: ApplicantRow, sections: Array<ApplicantSection>, phone: string, stop_reason: string | null, deep_link: string, jobs: Array<ApplicantLink>, notes: Array<ApplicantNote>, sheet_url: string | null, sheet_embed: boolean, };
+export type ApplicantDetail = { values: { [key in string]: string | null }, editable: Array<ApplicantEditField>, write_pipeline: ApplicantPipeline | null, writes_enabled: boolean, row: ApplicantRow, sections: Array<ApplicantSection>, phone: string, stop_reason: string | null, deep_link: string, jobs: Array<ApplicantLink>, notes: Array<ApplicantNote>, posting_url: string | null, jobcopy_url: string | null, sheet_url: string | null, sheet_embed: boolean, };
