@@ -291,3 +291,20 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 | `CRM_EMAIL_TOKEN_KEY` | 未設定 | Gmail 許可情報を暗号化する鍵 (送信PRで検証)。未設定なら計測表の初期化・計測・表示も無効 |
 
 計測だけの独立したDB・鍵・公開URL用の環境変数は増やさない。送信時の `base_url` は信頼できるアプリ設定から渡し、受信要求の Host ヘッダーから作らない。
+
+### トークの振り返り (既定 OFF、ADR-033)
+
+| 変数 | 既定 | 用途 |
+|------|------|------|
+| `CALL_REVIEW_ENABLED` | 未設定 | `1` のときだけ worker が判定する。未設定なら worker は動かず、summary は空の 200 (`enabled: false`)、calls と詳細は 503 `not_configured`。既存の監査 DB (`AUDIT_TURSO_URL` / `AUDIT_TURSO_TOKEN`) が必要 |
+| `CALL_REVIEW_MODEL` | `MiniMax-M3` | 判定に使う MiniMax のモデル名 |
+| `CALL_REVIEW_INTERVAL_SECS` | `600` | 対象の Call を読みに行く間隔 (秒)。30 以上。30 未満は既定の 600 |
+| `CALL_REVIEW_BACKFILL_DAYS` | `14` | 初回に過去何日まで遡るか。1〜62。範囲外は既定の 14 |
+| `CALL_REVIEW_TEAMS` | 未設定 | 対象の HubSpot チーム名 (カンマ区切り、前後の空白は除く)。未設定なら `BPO_リクロジ` と `新規営業` |
+| `ZOOM_ACCOUNT_ID` | 未設定 | Zoom Server-to-Server OAuth のアカウント ID。Zoom Phone の録音・文字起こしの読み取りに使う |
+| `ZOOM_CLIENT_ID` | 未設定 | 同 OAuth のクライアント ID |
+| `ZOOM_CLIENT_SECRET` | 未設定 | 同 OAuth のクライアント secret。サーバだけが使い、ブラウザ・ログには出さない |
+| `MINIMAX_API_KEY` | (なし) | 判定に使う MiniMax の鍵 (月額の枠)。未設定なら worker は起動せず警告を出すだけ |
+| `MINIMAX_BASE_URL` | `https://api.minimax.io/v1` | MiniMax の API の場所 (OpenAI 互換) |
+
+Zoom のアプリには Zoom Phone の録音・文字起こしを読むスコープを付ける。値は Render の環境変数に設定する (リポジトリには書かない)。

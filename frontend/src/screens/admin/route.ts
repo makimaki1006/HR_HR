@@ -7,6 +7,7 @@
 //   /app/admin?view=login-failures -> login failures    (old: /admin/login-failures)
 //   /app/admin?view=hubspot        -> HubSpot usage     (new 2026-10-08, no old page)
 //   /app/admin?view=callers        -> today's callers   (new 2026-10-13; add &mode=fixture for fake data)
+//   /app/admin?view=talk&from=&to=&team=&owner=&call= -> トークの振り返り (ADR-033; add &mode=fixture for fake data)
 
 export type AdminRoute =
   | { view: 'usage'; days: number }
@@ -14,7 +15,8 @@ export type AdminRoute =
   | { view: 'user'; id: string }
   | { view: 'login-failures' }
   | { view: 'hubspot' }
-  | { view: 'callers' };
+  | { view: 'callers' }
+  | { view: 'talk'; from: string; to: string; team: string; owner: string; call: string };
 
 /** Same default as the Rust handler (`q.days.unwrap_or(30)`). */
 export const DEFAULT_USAGE_DAYS = 30;
@@ -34,6 +36,15 @@ export function parseAdminRoute(search: string): AdminRoute {
       return { view: 'hubspot' };
     case 'callers':
       return { view: 'callers' };
+    case 'talk':
+      return {
+        view: 'talk',
+        from: q.get('from') ?? '',
+        to: q.get('to') ?? '',
+        team: q.get('team') ?? '',
+        owner: q.get('owner') ?? '',
+        call: q.get('call') ?? '',
+      };
     default: {
       // Rust clamps to 1..=365 server-side; the response's `days` is what the UI shows.
       const days = Number.parseInt(q.get('days') ?? '', 10);
@@ -47,6 +58,13 @@ export function adminHref(route: AdminRoute): string {
   q.set('view', route.view);
   if (route.view === 'user') q.set('id', route.id);
   if (route.view === 'usage') q.set('days', String(route.days));
+  if (route.view === 'talk') {
+    for (const k of ['from', 'to', 'team', 'owner', 'call'] as const) {
+      if (route[k] !== '') q.set(k, route[k]);
+    }
+    // 架空サンプルの表示は、画面を移っても保つ
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'fixture') q.set('mode', 'fixture');
+  }
   return `?${q.toString()}`;
 }
 
@@ -65,5 +83,7 @@ export function adminApiPath(route: AdminRoute): string {
       return '/api/admin/hubspot-usage';
     case 'callers':
       return '/api/crm/metrics/today/all';
+    case 'talk':
+      return '/api/crm/talk-review/summary';
   }
 }
