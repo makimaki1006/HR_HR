@@ -16,6 +16,10 @@ pub struct TalkReviewConfig {
     pub minimax_base_url: String,
     pub backfill_days: i64,
     pub interval: Duration,
+    /// 1 人 1 日あたりに判定する電話の最大本数 (新しい電話から)
+    pub per_person_day: u32,
+    /// 同時に判定する本数
+    pub concurrency: usize,
     /// 判定の対象にする HubSpot のチーム。
     /// 既定は BPO (`APPOINTMENT_TEAMS` = BPO_リクロジ) と新規営業 (`SALES_TEAM`、`caller_metrics_month` が
     /// 「今月」を出すチームと同じ名前。設計書 §19)。
@@ -63,6 +67,14 @@ impl TalkReviewConfig {
                     .filter(|n| *n >= 30)
                     .unwrap_or(600),
             ),
+            per_person_day: text("CALL_REVIEW_PER_PERSON_DAY")
+                .and_then(|s| s.parse::<u32>().ok())
+                .filter(|n| (1..=1000).contains(n))
+                .unwrap_or(10),
+            concurrency: text("CALL_REVIEW_CONCURRENCY")
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|n| (1..=8).contains(n))
+                .unwrap_or(4),
             teams,
         }
     }
@@ -85,6 +97,7 @@ mod tests {
         assert_eq!(c.minimax_base_url, "https://api.minimax.io/v1");
         assert_eq!(c.backfill_days, 14);
         assert_eq!(c.interval, Duration::from_secs(600));
+        assert_eq!((c.per_person_day, c.concurrency), (10, 4));
         assert_eq!(
             c.teams,
             vec!["BPO_リクロジ".to_string(), "新規営業".to_string()]
@@ -100,6 +113,8 @@ mod tests {
                 "CALL_REVIEW_BACKFILL_DAYS" => Some("999"),
                 "CALL_REVIEW_INTERVAL_SECS" => Some("5"),
                 "CALL_REVIEW_TEAMS" => Some(" A , B ,"),
+                "CALL_REVIEW_PER_PERSON_DAY" => Some(" 0 "),
+                "CALL_REVIEW_CONCURRENCY" => Some("99"),
                 "MINIMAX_BASE_URL" => Some("http://x/v1/"),
                 _ => None,
             }
@@ -111,5 +126,16 @@ mod tests {
         assert_eq!(c.interval, Duration::from_secs(600));
         assert_eq!(c.teams, vec!["A", "B"]);
         assert_eq!(c.minimax_base_url, "http://x/v1");
+        // 範囲外は既定
+        assert_eq!((c.per_person_day, c.concurrency), (10, 4));
+        let c = TalkReviewConfig::from_lookup(|k| {
+            match k {
+                "CALL_REVIEW_PER_PERSON_DAY" => Some(" 3 "),
+                "CALL_REVIEW_CONCURRENCY" => Some("8"),
+                _ => None,
+            }
+            .map(String::from)
+        });
+        assert_eq!((c.per_person_day, c.concurrency), (3, 8));
     }
 }

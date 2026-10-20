@@ -24,6 +24,14 @@ enabled: boolean,
  */
 teams: Array<string>, checks: Array<TalkCheckDef>, rules: TalkAlertRules, people: Array<TalkPersonRow>, 
 /**
+ * 1 人 1 日あたりに判定する最大本数 (`CALL_REVIEW_PER_PERSON_DAY`)
+ */
+per_person_day: number, 
+/**
+ * 総架電・アポをまだ数えている日 (YYYY-MM-DD、古い順)。その日の数は表に入っていない
+ */
+counting_days: Array<string>, 
+/**
  * チーム全体 (絞り込み後の people 全員の合計)
  */
 total: TalkPersonRow, };

@@ -18,7 +18,7 @@ use tower_sessions::Session;
 use super::checks::{defs, loaded};
 use super::config::TalkReviewConfig;
 use super::counts::{CountsCache, TeamOwners};
-use super::store::{self, ReviewRow, ST_FAILED, ST_JUDGED, ST_PENDING, ST_UNAVAILABLE};
+use super::store::{self, ReviewRow, ST_FAILED, ST_JUDGED, ST_PENDING, ST_QUEUED, ST_UNAVAILABLE};
 use super::summary::{build, Member, ALERT_RULES};
 use super::types::*;
 use super::worker::team_members;
@@ -136,7 +136,7 @@ type TranscriptCache = Mutex<HashMap<String, (Instant, Result<Vec<TalkTurn>, Zoo
 
 #[derive(Default)]
 pub struct TalkState {
-    counts: CountsCache,
+    pub(super) counts: CountsCache,
     rows: RowsCache,
     transcripts: TranscriptCache,
     zoom: OnceLock<Option<Arc<ZoomClient>>>,
@@ -283,6 +283,7 @@ pub(in crate::crm) async fn get_summary(
         appointments: 0,
         appointment_rate_pct: None,
         appointment_rate_flagged: false,
+        eligible: 0,
         reviewed: 0,
         waiting: 0,
         unavailable: 0,
@@ -297,20 +298,24 @@ pub(in crate::crm) async fn get_summary(
             })
             .collect(),
     };
-    let base =
-        |enabled: bool, people: Vec<TalkPersonRow>, total: TalkPersonRow| TalkSummaryResponse {
-            from: from.to_string(),
-            to: to.to_string(),
-            as_of: now_text(now),
-            enabled,
-            teams: cfg.teams.clone(),
-            checks: defs(),
-            rules: ALERT_RULES,
-            people,
-            total,
-        };
+    let base = |enabled: bool,
+                people: Vec<TalkPersonRow>,
+                total: TalkPersonRow,
+                counting: &[NaiveDate]| TalkSummaryResponse {
+        from: from.to_string(),
+        to: to.to_string(),
+        as_of: now_text(now),
+        enabled,
+        teams: cfg.teams.clone(),
+        checks: defs(),
+        rules: ALERT_RULES,
+        people,
+        per_person_day: cfg.per_person_day,
+        counting_days: counting.iter().map(NaiveDate::to_string).collect(),
+        total,
+    };
     if !cfg.enabled || state.audit.is_none() {
-        return Json(base(false, vec![], empty_total("チーム全体"))).into_response();
+        return Json(base(false, vec![], empty_total("チーム全体"), &[])).into_response();
     }
     let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
@@ -337,17 +342,18 @@ pub(in crate::crm) async fn get_summary(
         Ok(r) => r,
         Err(r) => return r,
     };
-    // 総架電数とアポ数。読み込みは要求から切り離して走らせ、締め切りを過ぎたら「集計中」で返す (読めた日は残る)
-    let task = {
+    // 総架電数とアポ数は、worker が前もって数えた日だけで答える (HubSpot は待たない)。
+    // 数え終わっていない日があれば、背景で読み始め (他が読んでいる最中なら任せる)、その日を応答に添える
+    let snap = st.counts.snapshot(from, to);
+    if !snap.counting.is_empty() {
         let (st, client, team) = (st.clone(), client.clone(), team.clone());
-        tokio::spawn(async move { st.counts.get(&client, &team, from, to, now).await })
-    };
-    let (dials, deals) = match tokio::time::timeout(CRM_REQUEST_DEADLINE, task).await {
-        Err(_) => return error_json(StatusCode::SERVICE_UNAVAILABLE, "counting"),
-        Ok(Err(_)) => return error_json(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
-        Ok(Ok(Err(e))) => return hubspot_error_response(&e),
-        Ok(Ok(Ok(v))) => v,
-    };
+        tokio::spawn(async move {
+            if let Err(e) = st.counts.fill(&client, &team, from, to, now, false).await {
+                tracing::warn!(error = %e.error_kind(), "talk review: counting failed");
+            }
+        });
+    }
+    let (dials, deals) = (snap.dials, snap.deals);
     let members: Vec<Member> = all_members
         .into_iter()
         .filter(|m| {
@@ -363,7 +369,7 @@ pub(in crate::crm) async fn get_summary(
         })
         .collect();
     let (people, total) = build(&members, &dials, &deals, &rows, &ids, &ALERT_RULES);
-    Json(base(true, people, total)).into_response()
+    Json(base(true, people, total, &snap.counting)).into_response()
 }
 
 pub(in crate::crm) async fn get_calls(
@@ -424,7 +430,12 @@ pub(in crate::crm) async fn get_calls(
         from: from.to_string(),
         to: to.to_string(),
         checks: defs(),
-        calls: rows.iter().map(|r| call_row(r, &ids)).collect(),
+        // 枠待ちで判定しない電話は一覧に出さない
+        calls: rows
+            .iter()
+            .filter(|r| r.status != ST_QUEUED)
+            .map(|r| call_row(r, &ids))
+            .collect(),
     })
     .into_response()
 }

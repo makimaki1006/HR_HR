@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAdminRoute, adminHref } from './route';
 import { TalkCallsTable, TalkDetailView, TalkPanel, TalkSummaryTable, type TalkRoute } from './TalkPanel';
-import { activePeriod, fixtureCalls, fixtureDetail, fixtureSummary, periodRange, ruleSentences } from './talkModel';
+import { activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary, periodRange, ruleSentences } from './talkModel';
 
 afterEach(cleanup);
 
@@ -55,6 +55,23 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(text).toContain('半分未満');
     expect(text).not.toContain('pt');
     expect(ruleSentences(summary.rules)[0]).toContain('60% 以上');
+  });
+
+  it('判定した本数と対象の本数を並べ、割合は判定した電話の中の割合だと書く', () => {
+    render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    // 二郎: 判定 70、待ち 6、取れない 4、枠を超えて判定していない 35 → 対象 115
+    const cell = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'))[5]?.textContent ?? '';
+    expect(cell).toContain('70');
+    expect(cell).toContain('対象 115 本');
+    const note = screen.getByTestId('talk-sampling').textContent;
+    expect(note).toContain('判定した電話の中での割合');
+    expect(note).toContain('1 人 1 日あたり新しい電話から 10 本まで');
+  });
+
+  it('数えている途中の日を日付でまとめて伝える', () => {
+    expect(describeDays(['2026-10-08', '2026-10-06', '2026-10-07', '2026-10-10'])).toBe('10/06〜10/08、10/10');
+    expect(describeDays(['2026-10-06'])).toBe('10/06');
+    expect(describeDays([])).toBe('');
   });
 
   it('アポ率の見出しで並べ替える', () => {

@@ -118,8 +118,10 @@ fn plan_dials(
     now: DateTime<Utc>,
 ) -> Vec<(NaiveDate, Vec<String>)> {
     let (today, _, _) = jst_day(now);
+    // 新しい日から読む (画面は、読み終えた日だけで先に答える)
     days(from, to)
         .into_iter()
+        .rev()
         .filter_map(|d| match m.get(&d) {
             Some(e) if !stale(e.at, d, today, now) => {
                 let add: Vec<String> = owners
@@ -152,19 +154,54 @@ fn plan_apo(
         .collect()
 }
 
+/// キャッシュにある分だけの集計 (HubSpot は呼ばない)。`counting` は、まだ数え終わっていない日
+#[derive(Debug, Default)]
+pub struct Snapshot {
+    pub dials: DayMap,
+    pub deals: Vec<Vec<String>>,
+    pub counting: Vec<NaiveDate>,
+}
+
 impl CountsCache {
-    /// 期間の人ごとの総架電数と、アポ (取引ごとに付いた担当者の一覧)。持っていない日・人だけ HubSpot から読む。
-    /// 途中で失敗しても、読めた日は残して次に続きから読む。
-    pub async fn get(
+    /// 期間の人ごとの総架電数と、アポ (取引ごとに付いた担当者の一覧)。持っている日だけで答え、
+    /// 総架電かアポのどちらかを持っていない日は `counting` に入れる (その日の数は含めない)。
+    /// 今日と昨日の古い数字は、読み直しが済むまでそのまま使う。
+    pub fn snapshot(&self, from: NaiveDate, to: NaiveDate) -> Snapshot {
+        let g = self.inner.lock().unwrap();
+        let mut out = Snapshot::default();
+        for d in days(from, to) {
+            let (Some(dd), Some(ad)) = (g.dials.get(&d), g.apo.get(&d)) else {
+                out.counting.push(d);
+                continue;
+            };
+            for (o, n) in &dd.counts {
+                *out.dials.entry(o.clone()).or_default() += n;
+            }
+            out.deals.extend(ad.deals.iter().cloned());
+        }
+        out
+    }
+
+    /// 持っていない日・古い日を HubSpot から読んで残す (新しい日から)。途中で失敗しても、読めた日は残る。
+    /// 同時に読むのは 1 本。`wait` が false で他が読んでいる最中なら、何もしない。
+    pub async fn fill(
         &self,
         client: &HubSpotClient,
         team: &TeamOwners,
         from: NaiveDate,
         to: NaiveDate,
         now: DateTime<Utc>,
-    ) -> Result<(DayMap, Vec<Vec<String>>), HubSpotError> {
+        wait: bool,
+    ) -> Result<(), HubSpotError> {
         let owners = team.all();
-        let _fill = self.fill.lock().await;
+        let _fill = if wait {
+            self.fill.lock().await
+        } else {
+            match self.fill.try_lock() {
+                Ok(g) => g,
+                Err(_) => return Ok(()),
+            }
+        };
         let (dial_plan, need_apo) = {
             let g = self.inner.lock().unwrap();
             (
@@ -174,82 +211,69 @@ impl CountsCache {
         };
         let bg = client.background();
         let mut searches = 0u32;
-        if !owners.is_empty() {
-            for (day, who) in dial_plan {
-                let a = jst_midnight_ms(day);
-                let mut rows = Vec::new();
-                for chunk in who.chunks(OWNER_CHUNK) {
-                    rows.extend(
-                        crate::crm::caller_metrics::fetch_calls(
-                            &bg,
-                            "hs_timestamp",
-                            a,
-                            a + 86_400_000,
-                            None,
-                            Some(chunk),
-                            &mut searches,
-                            MAX_SEARCHES,
-                        )
-                        .await?,
-                    );
-                }
-                let m: DayMap = aggregate(rows.iter(), &HashMap::new())
-                    .into_iter()
-                    .map(|(o, m)| (o, m.outbound))
-                    .filter(|(_, n)| *n > 0)
-                    .collect();
-                let mut g = self.inner.lock().unwrap();
-                match g.dials.get_mut(&day) {
-                    // 足りない人の分だけ足す (読み直しのときは全員分なので置き換え)
-                    Some(e)
-                        if who.len() < owners.len() && !stale(e.at, day, jst_day(now).0, now) =>
-                    {
-                        e.covered.extend(who);
-                        e.counts.extend(m);
-                    }
-                    _ => {
-                        g.dials.insert(
-                            day,
-                            DialsDay {
-                                at: now,
-                                covered: who.into_iter().collect(),
-                                counts: m,
-                            },
-                        );
-                    }
-                }
+        if owners.is_empty() {
+            return Ok(());
+        }
+        // アポは数回の Search で範囲ごと読めるので先に済ませる (総架電の日がそろえば、その日は答えに入る)
+        if let (Some(first), Some(last)) = (need_apo.first(), need_apo.last()) {
+            let by_day = fetch_appointments(&bg, team, *first, *last, &mut searches).await?;
+            let covered: BTreeSet<String> = owners.iter().cloned().collect();
+            let mut g = self.inner.lock().unwrap();
+            for d in &need_apo {
+                g.apo.insert(
+                    *d,
+                    ApoDay {
+                        at: now,
+                        covered: covered.clone(),
+                        deals: by_day.get(d).cloned().unwrap_or_default(),
+                    },
+                );
             }
-            if let (Some(first), Some(last)) = (need_apo.first(), need_apo.last()) {
-                let by_day = fetch_appointments(&bg, team, *first, *last, &mut searches).await?;
-                let covered: BTreeSet<String> = owners.iter().cloned().collect();
-                let mut g = self.inner.lock().unwrap();
-                for d in &need_apo {
-                    g.apo.insert(
-                        *d,
-                        ApoDay {
+        }
+        for (day, who) in dial_plan {
+            let a = jst_midnight_ms(day);
+            let mut rows = Vec::new();
+            for chunk in who.chunks(OWNER_CHUNK) {
+                rows.extend(
+                    crate::crm::caller_metrics::fetch_calls(
+                        &bg,
+                        "hs_timestamp",
+                        a,
+                        a + 86_400_000,
+                        None,
+                        Some(chunk),
+                        &mut searches,
+                        MAX_SEARCHES,
+                    )
+                    .await?,
+                );
+            }
+            let m: DayMap = aggregate(rows.iter(), &HashMap::new())
+                .into_iter()
+                .map(|(o, m)| (o, m.outbound))
+                .filter(|(_, n)| *n > 0)
+                .collect();
+            let mut g = self.inner.lock().unwrap();
+            match g.dials.get_mut(&day) {
+                // 足りない人の分だけ足す (読み直しのときは全員分なので置き換え)
+                Some(e) if who.len() < owners.len() && !stale(e.at, day, jst_day(now).0, now) => {
+                    e.covered.extend(who);
+                    e.counts.extend(m);
+                }
+                _ => {
+                    g.dials.insert(
+                        day,
+                        DialsDay {
                             at: now,
-                            covered: covered.clone(),
-                            deals: by_day.get(d).cloned().unwrap_or_default(),
+                            covered: who.into_iter().collect(),
+                            counts: m,
                         },
                     );
                 }
             }
         }
         tracing::info!(searches, "talk review counts filled");
-        let g = self.inner.lock().unwrap();
-        let mut dials: DayMap = HashMap::new();
-        let mut deals: Vec<Vec<String>> = Vec::new();
-        for d in days(from, to) {
-            if let Some(e) = g.dials.get(&d) {
-                for (o, n) in &e.counts {
-                    *dials.entry(o.clone()).or_default() += n;
-                }
-            }
-            if let Some(e) = g.apo.get(&d) {
-                deals.extend(e.deals.iter().cloned());
-            }
-        }
-        Ok((dials, deals))
+        Ok(())
     }
 }
 
@@ -401,5 +425,54 @@ mod tests {
             sales: vec!["1".into(), "3".into()],
         };
         assert_eq!(t.all(), vec!["1", "2", "3"]);
+    }
+
+    #[test]
+    fn snapshot_answers_with_counted_days_and_lists_the_rest() {
+        let d = |n: u32| NaiveDate::from_ymd_opt(2026, 10, n).unwrap();
+        let at = DateTime::parse_from_rfc3339("2026-10-09T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let c = CountsCache::default();
+        {
+            let mut g = c.inner.lock().unwrap();
+            let dial = |o: &str, n: u32| DialsDay {
+                at,
+                covered: BTreeSet::new(),
+                counts: [(o.to_string(), n)].into(),
+            };
+            let apo = |deals: Vec<Vec<String>>| ApoDay {
+                at,
+                covered: BTreeSet::new(),
+                deals,
+            };
+            // 10/07 と 10/08 は数え終わり、10/06 は総架電だけ、10/09 は何もない
+            g.dials.insert(d(7), dial("1", 100));
+            g.dials.insert(d(8), dial("1", 50));
+            g.dials.insert(d(6), dial("1", 999));
+            g.apo.insert(d(7), apo(vec![vec!["1".into()]]));
+            g.apo.insert(d(8), apo(vec![]));
+        }
+        let s = c.snapshot(d(6), d(9));
+        assert_eq!(s.dials.get("1"), Some(&150), "数え中の日の 999 は含めない");
+        assert_eq!(s.deals, vec![vec!["1".to_string()]]);
+        assert_eq!(s.counting, vec![d(6), d(9)]);
+        // 1 日だけの要求は、他の日の数え中に影響されない
+        let one = c.snapshot(d(7), d(7));
+        assert!(one.counting.is_empty());
+        assert_eq!(one.dials.get("1"), Some(&100));
+    }
+
+    #[test]
+    fn dial_plan_reads_newest_day_first() {
+        let d = |n: u32| NaiveDate::from_ymd_opt(2026, 10, n).unwrap();
+        let now = DateTime::parse_from_rfc3339("2026-10-09T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let plan = plan_dials(&BTreeMap::new(), &["1".to_string()], d(6), d(9), now);
+        assert_eq!(
+            plan.iter().map(|(day, _)| *day).collect::<Vec<_>>(),
+            vec![d(9), d(8), d(7), d(6)]
+        );
     }
 }

@@ -47,6 +47,8 @@ pub struct TalkPersonRow {
     pub appointment_rate_pct: Option<f64>,
     /// アポ率の印 (総架電が下限以上で、チーム全体のアポ率の一定割合未満)
     pub appointment_rate_flagged: bool,
+    /// 判定の対象になった電話の本数 (70 秒以上。枠を超えて判定しないものも含む)
+    pub eligible: u32,
     /// 判定できた電話の本数
     pub reviewed: u32,
     /// 判定待ち (文字起こし待ち・未判定) の本数
@@ -85,6 +87,10 @@ pub struct TalkSummaryResponse {
     pub checks: Vec<TalkCheckDef>,
     pub rules: TalkAlertRules,
     pub people: Vec<TalkPersonRow>,
+    /// 1 人 1 日あたりに判定する最大本数 (`CALL_REVIEW_PER_PERSON_DAY`)
+    pub per_person_day: u32,
+    /// 総架電・アポをまだ数えている日 (YYYY-MM-DD、古い順)。その日の数は表に入っていない
+    pub counting_days: Vec<String>,
     /// チーム全体 (絞り込み後の people 全員の合計)
     pub total: TalkPersonRow,
 }

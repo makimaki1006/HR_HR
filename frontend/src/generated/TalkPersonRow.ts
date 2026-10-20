@@ -22,6 +22,10 @@ appointment_rate_pct: number | null,
  */
 appointment_rate_flagged: boolean, 
 /**
+ * 判定の対象になった電話の本数 (70 秒以上。枠を超えて判定しないものも含む)
+ */
+eligible: number, 
+/**
  * 判定できた電話の本数
  */
 reviewed: number, 

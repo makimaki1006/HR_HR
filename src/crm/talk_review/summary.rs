@@ -104,6 +104,7 @@ pub fn build(
             appointments: a,
             appointment_rate_pct: pct(a, d),
             appointment_rate_flagged: false,
+            eligible: mine.len() as u32,
             reviewed,
             waiting,
             unavailable,
@@ -132,6 +133,7 @@ pub fn build(
         appointments: apo_sum,
         appointment_rate_pct: pct(apo_sum, dials_sum),
         appointment_rate_flagged: false,
+        eligible: all.len() as u32,
         reviewed,
         waiting,
         unavailable,
@@ -344,6 +346,7 @@ mod tests {
             row("3", "A", "unavailable", None),
             row("4", "A", "failed", None),
             row("5", "Z", "judged", None),
+            row("6", "A", "queued", None),
         ];
         let (people, total) = build(
             &[m("A", "あ"), m("B", "い")],
@@ -355,11 +358,14 @@ mod tests {
         );
         assert_eq!(people.len(), 1, "B は何も無いので出ない");
         let a = &people[0];
+        // 枠待ちの 1 本は「待ち」に数えず、対象の本数にだけ入る
         assert_eq!((a.reviewed, a.waiting, a.unavailable), (1, 1, 2));
+        assert_eq!(a.eligible, 5);
         assert_eq!(
             (total.reviewed, total.waiting, total.unavailable),
             (1, 1, 2)
         );
+        assert_eq!(total.eligible, 5);
         assert_eq!(a.appointment_rate_pct, None);
     }
 }
