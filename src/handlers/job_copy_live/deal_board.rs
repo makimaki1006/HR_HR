@@ -173,19 +173,6 @@ impl<'a> Metrics<'a> {
         }
         reasons
     }
-    /// 一覧から外した紹介料の取引の数（納品管理の取引。担当者の絞り込みに従う）
-    fn excluded_referral(&self, snapshot: &Snapshot, query: &OwnerQuery, email: &str) -> usize {
-        let (owner, _) = snapshot.selection(query, email);
-        snapshot
-            .deals
-            .iter()
-            .filter(|(id, work)| {
-                snapshot.matches(id, query.field(), owner.as_deref())
-                    && listings::is_delivery(work.record.value("pipeline"))
-                    && self.deals[*id].is_referral()
-            })
-            .count()
-    }
     fn rows(
         &self,
         snapshot: &Snapshot,
@@ -236,8 +223,7 @@ pub(super) async fn read(
                 .and_then(|(counts, _, _)| counts.get(&row.id))
                 .map(|(_, recent)| *recent);
         }
-        let excluded_referral = metrics.excluded_referral(&snapshot, &query, &email);
-        json!({"status":"ready","rows":rows,"excluded_referral":excluded_referral,"sheet_as_of":meetings.as_of,
+        json!({"status":"ready","rows":rows,"sheet_as_of":meetings.as_of,
             "refreshing":view.refreshing,"refresh_failed":view.failed,
             "facts_built_at":view.facts_built_at,"facts_stale":view.facts_stale,
             "applications_status": if view.partial { if view.failed { "unavailable" } else { "preparing" } } else { "ready" },
@@ -406,7 +392,7 @@ mod tests {
         }
     }
     #[test]
-    fn referral_deals_are_left_out_of_rows_and_counted() {
+    fn referral_deals_are_left_out_of_rows() {
         let mut s = snapshot(120, "5", "21596025");
         let base = s.deals["1"].clone();
         // 2: マーケ関連ステージ、3: 別のステージで名前に紹介料を含む
@@ -436,7 +422,6 @@ mod tests {
             .map(|r| r.id)
             .collect();
         assert_eq!(ids, vec!["1".to_string()]);
-        assert_eq!(metrics.excluded_referral(&s, &q, ""), 2);
     }
     #[test]
     fn cpa_peer_median_uses_full_population_and_threshold_inclusive() {

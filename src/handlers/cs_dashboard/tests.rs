@@ -1832,13 +1832,13 @@ fn 全画面で母集団の件数が一致する() {
             p["active"], want,
             "{name} の母集団（稼働中・オプション除く）"
         );
-        assert_eq!(p["active_all"], 703, "{name} の稼働中（オプション込み）");
+        assert_eq!(p["active_all"], 693, "{name} の稼働中（オプション込み）");
         assert_eq!(p["active_option"], 99, "{name} の外したオプション");
         assert_eq!(
             p["deals"], 3422,
             "{name} の全取引（オプション・紹介料を除く）"
         );
-        assert_eq!(p["deals_all"], 3659, "{name} の全取引（オプション込み）");
+        assert_eq!(p["deals_all"], 3649, "{name} の全取引（オプション込み）");
         // 🔴 自動更新の予定（S-9）も freshen が全画面の meta に載せる。無いときも null のキーとして載せる
         //    （画面は「キーが無い」と「null」を区別しない＝配線が外れても黙って時刻なしに退化する。
         //    2026-09-28 検証: この6行の insert を消しても lib・app_routes・view_rules のどれも落ちなかった）。
@@ -1905,27 +1905,22 @@ fn 除いたオプションの件数と金額が画面に出る() {
     let sh = sheets();
     let pop = super::population_of(&sh.deal);
 
-    assert_eq!(pop.active_all, 703);
+    assert_eq!(pop.active_all, 693);
     assert_eq!(pop.active_option, 99);
-    // 2026-10-20: 紹介料の取引（fixture ではマーケ関連ステージの稼働中 10 件）も母集団から外した
-    assert_eq!(pop.active_referral, 10);
-    assert_eq!(pop.deals_referral, 10);
+    // 2026-10-20: 紹介料の取引（fixture ではマーケ関連ステージの稼働中 10 件）は
+    //   もともと載せない。元の数にも注記にも入れない（703 -> 693）
     assert_eq!(pop.active, 594);
     assert_eq!(
-        pop.active_all - pop.active_option - pop.active_referral,
+        pop.active_all - pop.active_option,
         pop.active,
         "引き算が合わない"
     );
     assert_eq!(
-        pop.deals_all - pop.deals_option - pop.deals_referral,
+        pop.deals_all - pop.deals_option,
         pop.deals,
         "引き算が合わない"
     );
-    assert!(
-        pop.note.contains("紹介料の取引10件"),
-        "紹介料の取引の件数が注記に無い: {}",
-        pop.note
-    );
+    assert!(!pop.note.contains("紹介料"), "{}", pop.note);
 
     // 外した契約の金額。**0 や null にしない**（売上が無かったことになる）
     let amt = pop
@@ -1937,7 +1932,7 @@ fn 除いたオプションの件数と金額が画面に出る() {
     );
 
     // 画面に出す一文に、元の件数・外した件数・残りの件数が全部入っている
-    for w in ["703", "99", "594", "AirWork広告運用"] {
+    for w in ["693", "99", "594", "AirWork広告運用"] {
         assert!(
             pop.note.contains(w),
             "母集団の注記に「{w}」が入っていない: {}",
@@ -7363,24 +7358,14 @@ fn 紹介料の取引はステージでも名前でも母集団から外れる()
 }
 
 #[test]
-fn 外した紹介料の件数が注記に出る() {
+fn 紹介料の取引は数にも注記にも出さない() {
     let pop = super::population_of(&referral_sheet());
-    assert_eq!(pop.active_all, 4);
+    // 紹介料の 2 件は元の数にも入れない。普通の 1 件とオプション 1 件だけ
+    assert_eq!(pop.active_all, 2);
     assert_eq!(pop.active_option, 1);
-    assert_eq!(pop.active_referral, 2);
     assert_eq!(pop.active, 1);
-    assert_eq!(pop.deals_referral, 2);
+    assert_eq!(pop.deals_all, 2);
     assert_eq!(pop.deals, 1);
-    assert!(
-        pop.note.contains("紹介料の取引2件を除いた1件"),
-        "{}",
-        pop.note
-    );
-    // 紹介料が無ければ従来の注記のまま（紹介料の語を出さない）
-    let mut none = referral_sheet();
-    none.rows.truncate(1);
-    let pop = super::population_of(&none);
-    assert_eq!(pop.deals_referral, 0);
     assert!(!pop.note.contains("紹介料"), "{}", pop.note);
 }
 

@@ -556,53 +556,36 @@ pub struct Population {
     pub active: usize,
     /// 外した稼働中オプションの金額合計。入っていなければ `None`
     pub option_amount: Option<f64>,
-    /// 紹介料の取引（オプション契約と重なるものは除く）
-    pub deals_referral: usize,
-    /// そのうち稼働中
-    pub active_referral: usize,
     /// 画面に出す一文
     pub note: String,
 }
 
 pub fn population_of(sheet: &SheetData) -> Population {
-    let all = deals_all_of(sheet);
+    // 紹介料の取引は「もともと載せなくてよい」もの。数にも注記にも出さない
+    // （オプション契約と重なるものはオプションとして数える）
+    let all: Vec<Deal> = deals_all_of(sheet)
+        .into_iter()
+        .filter(|d| d.is_option() || !d.is_referral())
+        .collect();
     let deals_all = all.len();
     let deals_option = all.iter().filter(|d| d.is_option()).count();
-    // オプションと紹介料の両方に当たるものはオプションに数える（二重に引かない）
-    let deals_referral = all
-        .iter()
-        .filter(|d| !d.is_option() && d.is_referral())
-        .count();
     let active: Vec<&Deal> = all.iter().filter(|d| d.is_active).collect();
     let active_all = active.len();
     let opt_active: Vec<&&Deal> = active.iter().filter(|d| d.is_option()).collect();
     let active_option = opt_active.len();
-    let active_referral = active
-        .iter()
-        .filter(|d| !d.is_option() && d.is_referral())
-        .count();
     let amt: f64 = opt_active.iter().filter_map(|d| d.amount).sum();
-    let shown = active_all - active_option - active_referral;
-    let mut note = format!(
-        "稼働中{active_all}件からオプション契約{active_option}件を除いた{}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。外した契約が無くなったわけではありません",
-        active_all - active_option
-    );
-    if deals_referral > 0 {
-        note = format!(
-            "稼働中{active_all}件からオプション契約{active_option}件と紹介料の取引{active_referral}件を除いた{shown}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。紹介料の取引はコンサルの契約ではないため外しています（全体では紹介料の取引{deals_referral}件）。外した契約が無くなったわけではありません"
-        );
-    }
     Population {
         deals_all,
         deals_option,
-        deals: deals_all - deals_option - deals_referral,
+        deals: deals_all - deals_option,
         active_all,
         active_option,
-        active: shown,
+        active: active_all - active_option,
         option_amount: if amt > 0.0 { Some(amt) } else { None },
-        deals_referral,
-        active_referral,
-        note,
+        note: format!(
+            "稼働中{active_all}件からオプション契約{active_option}件を除いた{}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。外した契約が無くなったわけではありません",
+            active_all - active_option
+        ),
     }
 }
 

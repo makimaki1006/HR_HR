@@ -90,7 +90,6 @@ export function DealBoard() {
     {data?.status === 'failed' && <p role="alert">案件を読み込めませんでした。再読み込みしてください。</p>}
     {ready && <>
       <ReportFreshness builtAt={ready.facts_built_at} stale={ready.facts_stale} refreshing={ready.refreshing} />
-      {!!ready.excluded_referral && <p className="jh-note">紹介料の取引 {ready.excluded_referral}件を外しています。コンサルの契約ではないためです。</p>}
       <div className="db-filters"><OwnerFilter work={ready.work} /><label>パイプライン<select value={pipeline} onChange={event => { change({ deals_pipeline: event.target.value }); }}><option value="all">すべて</option><option value="21596025">リクロジ_納品管理</option><option value="743961896">請負契約_納品管理</option></select></label>
         <label>初回案件だけ<input type="checkbox" checked={firstOnly} onChange={event => { change({ deals_first: event.target.checked ? 'yes' : null, deals_launch: null, deals_sort: null, deals_direction: null }); }} /></label>
         <label>終わった案件も出す<input type="checkbox" checked={ended} onChange={event => { change({ deals_ended: event.target.checked ? 'yes' : null }); }} /></label>
