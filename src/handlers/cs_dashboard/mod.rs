@@ -230,15 +230,23 @@ pub const OPTION_STAGES: &[&str] = &["1049738304", "1281526627"];
 
 /// 「マーケ関連」ステージ。コンサルの納品ではない取引（紹介料・マーケ施策の計上）が置かれる。
 ///
-/// 実測（fixture）で稼働中 10件、全部が初回（継続回数0）・種別 `(新規)`・
-/// 契約種別「その他」。「紹介料＿…」の取引もこのステージに置かれている
-/// （Hubspot リポジトリの `consulting_pipeline_coverage.csv` で `紹介料＿…` → `1278456227` を確認）。接触も MTG も起きないのが普通なので、
-/// 「接触が1本も無い」「MTG が結べていない初回契約」の**名指しの表**を埋めてしまう。
+/// 実測（fixture）で稼働中 10件、全部が初回（継続回数0）・種別 `(新規)`・契約種別「その他」。
+/// 接触も MTG も起きないのが普通。
 ///
-/// 🔴 **母集団からは外していない**（オプションと違い、外すかどうかはまだ決めていない）。
-/// 外しているのは、上の2つの表の行と、その表の分母だけ。外した件数は表と一緒に返す。
-/// 判定は取引名ではなくステージの値で行う（名前で外すと本体契約を巻き込む）。
+/// 🔴 2026-10-20 ユーザー決定「紹介料の取引は外す」。紹介料の取引はコンサルの契約ではないので、
+/// 画面の母集団から外す（`Deal::is_referral`）。ステージだけでは漏れる
+/// （「9月分紹介料＿…」が別のステージ＝求人出稿完了に置かれていることがある）ので、
+/// 取引名に「紹介料」を含むものも外す。判定はこの 2 つの OR を `is_referral` の 1 か所だけで行う。
 pub const MARKETING_STAGES: &[&str] = &["1278456227"];
+
+/// 紹介料の取引を表す取引名の語。
+pub const REFERRAL_NAME_WORD: &str = "紹介料";
+
+/// 紹介料の取引か。**判定はここ 1 か所だけ。** ステージがマーケ関連、または取引名に「紹介料」を含む。
+/// シートの取引（`Deal::is_referral`）も、HubSpot から直接読む案件管理側の取引もこれを使う。
+pub fn is_referral_deal(name: &str, stage: &str) -> bool {
+    MARKETING_STAGES.contains(&stage) || name.contains(REFERRAL_NAME_WORD)
+}
 
 /// 決着の3状態。ここに入らないものは「結果待ち」で、分母に入れない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -432,6 +440,19 @@ impl Deal {
             || OPTION_STAGES.contains(&self.stage.as_str())
     }
 
+    /// 紹介料の取引か。**画面の母集団から外すもの。** 判定はここだけ。
+    ///
+    /// ステージがマーケ関連、または取引名に「紹介料」を含む。
+    /// （オプション契約は取引名で判定しないが、紹介料は名前でしか拾えないものがあるため名前も見る）
+    pub fn is_referral(&self) -> bool {
+        is_referral_deal(&self.name, &self.stage)
+    }
+
+    /// 画面の母集団から外す取引か（オプション契約、または紹介料の取引）。
+    pub fn is_excluded(&self) -> bool {
+        self.is_option() || self.is_referral()
+    }
+
     /// 満了月 `yyyy-MM`。満了日が無ければ `None`。
     pub fn manryou_month(&self) -> Option<&str> {
         // 🔴 バイト位置で切らない。7バイト目が文字の途中だと panic して全タブが落ちる
@@ -459,7 +480,7 @@ impl Deal {
     }
 }
 
-/// 画面が見る取引。**オプション契約は入っていない。**
+/// 画面が見る取引。**オプション契約と紹介料の取引は入っていない。**
 ///
 /// 🔴 ここで外すのは、外し忘れる画面を作らないため。実データで
 /// 稼働中703件のうち99件がオプション（求人追加・AirWork広告運用ほか）で、
@@ -468,7 +489,7 @@ impl Deal {
 pub fn deals_of(sheet: &SheetData) -> Vec<Deal> {
     deals_all_of(sheet)
         .into_iter()
-        .filter(|d| !d.is_option())
+        .filter(|d| !d.is_excluded())
         .collect()
 }
 
@@ -494,7 +515,7 @@ pub fn deals_all_of(sheet: &SheetData) -> Vec<Deal> {
 pub struct HoujinPopulation {
     /// オプション以外の取引を1件以上持つ法人（法人番号が空の取引は数えない）
     pub main: HashSet<String>,
-    /// 取引はあるが、全部オプション契約の法人の数
+    /// 取引はあるが、全部オプション契約か紹介料の取引の法人の数
     pub option_only: usize,
 }
 
@@ -505,7 +526,7 @@ pub fn houjin_population(sheet: &SheetData) -> HoujinPopulation {
         if d.houjin_resolved.is_empty() {
             continue;
         }
-        if !d.is_option() {
+        if !d.is_excluded() {
             main.insert(d.houjin_resolved.clone());
         }
         any.insert(d.houjin_resolved);
@@ -535,6 +556,10 @@ pub struct Population {
     pub active: usize,
     /// 外した稼働中オプションの金額合計。入っていなければ `None`
     pub option_amount: Option<f64>,
+    /// 紹介料の取引（オプション契約と重なるものは除く）
+    pub deals_referral: usize,
+    /// そのうち稼働中
+    pub active_referral: usize,
     /// 画面に出す一文
     pub note: String,
 }
@@ -543,23 +568,41 @@ pub fn population_of(sheet: &SheetData) -> Population {
     let all = deals_all_of(sheet);
     let deals_all = all.len();
     let deals_option = all.iter().filter(|d| d.is_option()).count();
+    // オプションと紹介料の両方に当たるものはオプションに数える（二重に引かない）
+    let deals_referral = all
+        .iter()
+        .filter(|d| !d.is_option() && d.is_referral())
+        .count();
     let active: Vec<&Deal> = all.iter().filter(|d| d.is_active).collect();
     let active_all = active.len();
     let opt_active: Vec<&&Deal> = active.iter().filter(|d| d.is_option()).collect();
     let active_option = opt_active.len();
+    let active_referral = active
+        .iter()
+        .filter(|d| !d.is_option() && d.is_referral())
+        .count();
     let amt: f64 = opt_active.iter().filter_map(|d| d.amount).sum();
+    let shown = active_all - active_option - active_referral;
+    let mut note = format!(
+        "稼働中{active_all}件からオプション契約{active_option}件を除いた{}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。外した契約が無くなったわけではありません",
+        active_all - active_option
+    );
+    if deals_referral > 0 {
+        note = format!(
+            "稼働中{active_all}件からオプション契約{active_option}件と紹介料の取引{active_referral}件を除いた{shown}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。紹介料の取引はコンサルの契約ではないため外しています（全体では紹介料の取引{deals_referral}件）。外した契約が無くなったわけではありません"
+        );
+    }
     Population {
         deals_all,
         deals_option,
-        deals: deals_all - deals_option,
+        deals: deals_all - deals_option - deals_referral,
         active_all,
         active_option,
-        active: active_all - active_option,
+        active: shown,
         option_amount: if amt > 0.0 { Some(amt) } else { None },
-        note: format!(
-            "稼働中{active_all}件からオプション契約{active_option}件を除いた{}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。外した契約が無くなったわけではありません",
-            active_all - active_option
-        ),
+        deals_referral,
+        active_referral,
+        note,
     }
 }
 

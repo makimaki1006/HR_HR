@@ -5745,8 +5745,7 @@ function renderPhone(D) {
 function phoneSilentTable(D, counted) {
   let h = '<div class="lede">' + esc(D.silent.rule) +
     "。日数が出せないもの（接触が一度も無い）を先頭に出しています。" +
-    (D.silent.excluded_marketing ? "「マーケ関連」の " + num(D.silent.excluded_marketing) +
-      " 件は電話をしないのが普通なので、この表からだけ外しています（" + counted + "には入っています）。" : "") + "</div>";
+    "</div>";
   /* 🔴 2026-09-24 実機（1440px）: 取引・ステージが折り返さず、接触から右の列が切れていた。長い文字の列を折る */
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },
                      { t: "通話", n: 1 }, { t: "接触", n: 1 }, { t: "最後の接触" }, { t: "経過", n: 1 }],
@@ -9184,15 +9183,20 @@ function popline(D) {
   if (!p) return "";
   /* 🔴 1行目（稼働中 N 件・オプション除く）は常に見せ、外した内訳は畳む（V1）。
      3行のボックスが全画面の頭に出て、本題を下へ押していた。黙って消してはいない */
+  const ref = p.active_referral || 0;
   return '<details class="popnote fold"><summary>稼働中 <b>' + num(p.active) +
-    "</b> 件（オプション契約 " + num(p.active_option) + " 件を除く）</summary>" +
+    "</b> 件（オプション契約 " + num(p.active_option) + " 件" +
+    (ref ? "と紹介料の取引 " + num(ref) + " 件" : "") + "を除く）</summary>" +
     '<span class="muted">稼働中 ' + num(p.active_all) + " 件から、オプション契約 " +
     num(p.active_option) + " 件を除いた数です" +
     (p.option_amount ? "（外した契約の金額は " + man(p.option_amount) +
       "。契約が無くなったわけではありません）" : "") +
     "。オプション＝求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加。" +
     "全取引 " + num(p.deals_all) + " 件のうち " + num(p.deals_option) +
-    " 件がオプションで、この画面は残り " + num(p.deals) + " 件を見ています。</span></details>";
+    " 件がオプションで、" +
+    (p.deals_referral ? "紹介料の取引が " + num(p.deals_referral) +
+      " 件（コンサルの契約ではないため外しています）あり、" : "") +
+    "この画面は残り " + num(p.deals) + " 件を見ています。</span></details>";
 }
 
 /* 項目ごとの操作列。「継続回数 × 成果」は右側打ち切りの切り替え、

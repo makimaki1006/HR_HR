@@ -127,7 +127,7 @@ impl<'a> Metrics<'a> {
             .collect();
         let population: Vec<_> = deals
             .values()
-            .filter(|d| d.is_active && !d.is_option())
+            .filter(|d| d.is_active && !d.is_excluded())
             .cloned()
             .collect();
         Self {
@@ -173,6 +173,19 @@ impl<'a> Metrics<'a> {
         }
         reasons
     }
+    /// 一覧から外した紹介料の取引の数（納品管理の取引。担当者の絞り込みに従う）
+    fn excluded_referral(&self, snapshot: &Snapshot, query: &OwnerQuery, email: &str) -> usize {
+        let (owner, _) = snapshot.selection(query, email);
+        snapshot
+            .deals
+            .iter()
+            .filter(|(id, work)| {
+                snapshot.matches(id, query.field(), owner.as_deref())
+                    && listings::is_delivery(work.record.value("pipeline"))
+                    && self.deals[*id].is_referral()
+            })
+            .count()
+    }
     fn rows(
         &self,
         snapshot: &Snapshot,
@@ -181,7 +194,7 @@ impl<'a> Metrics<'a> {
         today: NaiveDate,
     ) -> Vec<DealBoardRow> {
         let (owner, _) = snapshot.selection(query, email);
-        snapshot.deals.iter().filter(|(id, work)| snapshot.matches(id, query.field(), owner.as_deref()) && listings::is_delivery(work.record.value("pipeline"))).map(|(id, work)| {
+        snapshot.deals.iter().filter(|(id, work)| snapshot.matches(id, query.field(), owner.as_deref()) && listings::is_delivery(work.record.value("pipeline")) && !self.deals[*id].is_referral()).map(|(id, work)| {
             let d = &self.deals[id];
             let company = snapshot.companies.get(id);
             let consultant = snapshot.owners.iter().find(|o| Some(o.id.as_str()) == work.assignment.consultant.as_deref());
@@ -223,7 +236,8 @@ pub(super) async fn read(
                 .and_then(|(counts, _, _)| counts.get(&row.id))
                 .map(|(_, recent)| *recent);
         }
-        json!({"status":"ready","rows":rows,"sheet_as_of":meetings.as_of,
+        let excluded_referral = metrics.excluded_referral(&snapshot, &query, &email);
+        json!({"status":"ready","rows":rows,"excluded_referral":excluded_referral,"sheet_as_of":meetings.as_of,
             "refreshing":view.refreshing,"refresh_failed":view.failed,
             "facts_built_at":view.facts_built_at,"facts_stale":view.facts_stale,
             "applications_status": if view.partial { if view.failed { "unavailable" } else { "preparing" } } else { "ready" },
@@ -390,6 +404,39 @@ mod tests {
             assert_eq!(row["nps"], 4.0);
             assert_eq!(row["days_left"], 16);
         }
+    }
+    #[test]
+    fn referral_deals_are_left_out_of_rows_and_counted() {
+        let mut s = snapshot(120, "5", "21596025");
+        let base = s.deals["1"].clone();
+        // 2: マーケ関連ステージ、3: 別のステージで名前に紹介料を含む
+        for (id, name, stage) in [
+            ("2", "架空広告_施策", "1278456227"),
+            ("3", "9月分紹介料＿架空花子", "open"),
+        ] {
+            let mut d = base.clone();
+            d.record.id = id.into();
+            d.record
+                .properties
+                .insert("dealname".into(), Some(name.into()));
+            d.record
+                .properties
+                .insert("dealstage".into(), Some(stage.into()));
+            s.deals.insert(id.into(), d);
+        }
+        let m = MeetingData::default();
+        let metrics = Metrics::new(&s, &m, day());
+        let q = OwnerQuery {
+            owner: Some("all".into()),
+            ..Default::default()
+        };
+        let ids: Vec<String> = metrics
+            .rows(&s, &q, "", day())
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        assert_eq!(ids, vec!["1".to_string()]);
+        assert_eq!(metrics.excluded_referral(&s, &q, ""), 2);
     }
     #[test]
     fn cpa_peer_median_uses_full_population_and_threshold_inclusive() {

@@ -559,6 +559,11 @@ impl Snapshot {
             if !self.matches(id, field, owner.as_deref())
                 || !listings::is_delivery(deal.record.value("pipeline"))
                 || ENDED_STAGES.contains(&deal.record.value("dealstage").unwrap_or(""))
+                // 紹介料の取引はコンサルの契約ではないので、やること・期限・兆候に出さない
+                || crate::handlers::cs_dashboard::is_referral_deal(
+                    deal.record.value("dealname").unwrap_or(""),
+                    deal.record.value("dealstage").unwrap_or(""),
+                )
             {
                 continue;
             }
