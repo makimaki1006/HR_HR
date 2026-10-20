@@ -75,6 +75,7 @@ pub fn unique_deals(deals: &[Vec<String>], owners: &BTreeSet<&str>) -> u32 {
 pub fn build(
     members: &[Member],
     dials: Option<&HashMap<String, u32>>,
+    outbound: Option<&HashMap<String, u32>>,
     apo_deals: &[Vec<String>],
     rows: &[ReviewRow],
     check_ids: &[String],
@@ -92,6 +93,7 @@ pub fn build(
         let mine: Vec<&ReviewRow> = rows.iter().filter(|r| r.owner_id == m.owner_id).collect();
         // シートが読めたなら、行の無い人は 0 本
         let d = dials.map(|m2| m2.get(&m.owner_id).copied().unwrap_or(0));
+        let ob = outbound.map(|m2| m2.get(&m.owner_id).copied().unwrap_or(0));
         let a = appointments.get(m.owner_id.as_str()).copied().unwrap_or(0);
         if d.unwrap_or(0) == 0 && a == 0 && mine.is_empty() {
             continue;
@@ -101,6 +103,7 @@ pub fn build(
             owner_id: Some(m.owner_id.clone()),
             name: m.name.clone(),
             team: m.team.clone(),
+            outbound: ob,
             dials: d,
             appointments: a,
             appointment_rate_pct: d.and_then(|d| pct(a, d)),
@@ -125,11 +128,14 @@ pub fn build(
     let (reviewed, waiting, unavailable) = counts(&all);
     let dials_sum: Option<u32> = dials.map(|_| people.iter().map(|p| p.dials.unwrap_or(0)).sum());
     // チーム全体は取引を一意にして数える (BPO と担当の新規営業の両方に付いた取引を 2 回数えない)
+    let outbound_sum: Option<u32> =
+        outbound.map(|_| people.iter().map(|p| p.outbound.unwrap_or(0)).sum());
     let apo_sum = unique_deals(apo_deals, &ids);
     let total = TalkPersonRow {
         owner_id: None,
         name: "チーム全体".to_string(),
         team: None,
+        outbound: outbound_sum,
         dials: dials_sum,
         appointments: apo_sum,
         appointment_rate_pct: dials_sum.and_then(|d| pct(apo_sum, d)),
@@ -228,6 +234,7 @@ mod tests {
         let (people, total) = build(
             &members,
             Some(&dials),
+            None,
             &[],
             &rows,
             &["early_date".to_string()],
@@ -262,6 +269,7 @@ mod tests {
         let (people, _) = build(
             &[m("A", "あ"), m("B", "い")],
             Some(&HashMap::new()),
+            None,
             &[],
             &rows,
             &["early_date".to_string()],
@@ -285,6 +293,7 @@ mod tests {
         let (p2, _) = build(
             &[m("A", "あ"), m("B", "い")],
             Some(&HashMap::new()),
+            None,
             &[],
             &rows2,
             &["early_date".to_string()],
@@ -301,7 +310,7 @@ mod tests {
             [("A".into(), 200), ("B".into(), 200), ("C".into(), 50)].into();
         let mut apo: Vec<Vec<String>> = vec![vec!["A".into()]; 2];
         apo.extend(vec![vec!["B".to_string()]; 10]);
-        let (people, total) = build(&members, Some(&dials), &apo, &[], &[], &ALERT_RULES);
+        let (people, total) = build(&members, Some(&dials), None, &apo, &[], &[], &ALERT_RULES);
         assert_eq!(total.dials, Some(450));
         assert_eq!(total.appointments, 12);
         let by = |n: &str| people.iter().find(|p| p.name == n).unwrap();
@@ -324,6 +333,7 @@ mod tests {
         let (people, total) = build(
             &[m("B1", "あ"), m("S1", "い")],
             Some(&dials),
+            None,
             &deals,
             &[],
             &[],
@@ -339,6 +349,7 @@ mod tests {
         let (_, t2) = build(
             &[m("S1", "い")],
             Some(&dials),
+            None,
             &deals,
             &[],
             &[],
@@ -350,7 +361,7 @@ mod tests {
     #[test]
     fn without_the_sheet_there_are_no_dials_and_no_rate() {
         let deals: Vec<Vec<String>> = vec![vec!["A".into()]];
-        let (people, total) = build(&[m("A", "あ")], None, &deals, &[], &[], &ALERT_RULES);
+        let (people, total) = build(&[m("A", "あ")], None, None, &deals, &[], &[], &ALERT_RULES);
         assert_eq!(people.len(), 1, "アポのある人は架電数が無くても出る");
         assert_eq!(people[0].dials, None);
         assert_eq!(people[0].appointments, 1);
@@ -372,6 +383,7 @@ mod tests {
         let (people, total) = build(
             &[m("A", "あ"), m("B", "い")],
             Some(&HashMap::new()),
+            None,
             &[],
             &rows,
             &[],
@@ -388,5 +400,34 @@ mod tests {
         );
         assert_eq!(total.eligible, 5);
         assert_eq!(a.appointment_rate_pct, None);
+    }
+
+    #[test]
+    fn outbound_is_counted_per_person_and_summed_like_dials() {
+        let members = vec![m("A", "あ"), m("B", "い")];
+        let dials: HashMap<String, u32> = [("A".into(), 40), ("B".into(), 10)].into();
+        let out: HashMap<String, u32> = [("A".into(), 90)].into();
+        let (people, total) = build(
+            &members,
+            Some(&dials),
+            Some(&out),
+            &[],
+            &[],
+            &[],
+            &ALERT_RULES,
+        );
+        let of = |id: &str| {
+            people
+                .iter()
+                .find(|p| p.owner_id.as_deref() == Some(id))
+                .unwrap()
+                .outbound
+        };
+        assert_eq!(of("A"), Some(90));
+        assert_eq!(of("B"), Some(0));
+        assert_eq!(total.outbound, Some(90));
+        let (people, total) = build(&members, Some(&dials), None, &[], &[], &[], &ALERT_RULES);
+        assert!(people.iter().all(|p| p.outbound.is_none()));
+        assert_eq!(total.outbound, None);
     }
 }

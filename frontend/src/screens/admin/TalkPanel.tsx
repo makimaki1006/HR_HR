@@ -128,6 +128,7 @@ function PersonRowView({ p, checks, total, totalRow, rules, onOpen }: { p: TalkP
         )}
       </td>
       <td className="w8-muted">{p.team ?? '-'}</td>
+      <td className="w8-right">{p.outbound ?? '—'}</td>
       <td className="w8-right">{p.dials ?? '—'}</td>
       <td className="w8-right">{p.appointments}</td>
       <Cell j={apj} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}</Cell>
@@ -192,12 +193,13 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
         <table className="w8-table w8-table-dense talk-table" data-testid="talk-table">
           <thead>
             <tr>
-              <th colSpan={6} className="talk-group-blank" />
+              <th colSpan={7} className="talk-group-blank" />
               {stageGroups(data.checks).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
             </tr>
             <tr>
               <th>名前</th>
               <th>チーム</th>
+              {sortHead('発信数', { kind: 'outbound' })}
               {sortHead('架電数', { kind: 'dials' })}
               {sortHead('アポ数', { kind: 'appointments' })}
               {sortHead('アポ率', { kind: 'rate' })}
@@ -216,14 +218,14 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
           </thead>
           <tbody>
             {people.map(p => <PersonRowView key={p.owner_id ?? p.name} p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} onOpen={onOpen} />)}
-            {people.length === 0 && <tr><td colSpan={6 + data.checks.length} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
+            {people.length === 0 && <tr><td colSpan={7 + data.checks.length} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
             <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} />
           </tbody>
         </table>
       </div>
       <p className="talk-rules" data-testid="talk-rules">
         <span style={{ display: 'block' }}>各項目の割合は、その項目に当てはまる電話のうち、できた電話の割合です。</span>
-        <span style={{ display: 'block' }} data-testid="talk-dials-rule">架電数は営業KPI と同じ、Zoom でつながった通話の数です。アポ率 ＝ アポ数 ÷ 架電数です。</span>
+        <span style={{ display: 'block' }} data-testid="talk-dials-rule">発信数は Zoom の発信すべて（相手が出る前に切ったもの・つながらなかったものを含む）、架電数はそのうちつながった通話の数で、営業KPI と同じです。アポ率 ＝ アポ数 ÷ 架電数です。</span>
         <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる 70 秒以上の電話の本数です。</span>
       </p>
     </>

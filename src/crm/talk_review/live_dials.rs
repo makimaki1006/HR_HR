@@ -25,7 +25,10 @@ const USERS_TTL: Duration = Duration::from_secs(3600);
 /// 今日の人ごとの架電数と、数え終えた時刻 (JST `yyyy-MM-dd HH:mm`)
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveToday {
+    /// 架電数 (つながった通話)
     pub by_owner: HashMap<String, u32>,
+    /// 発信数 (切れた・つながらなかったものを含む発信すべて)
+    pub calls_by_owner: HashMap<String, u32>,
     pub fetched_at: String,
 }
 
@@ -55,19 +58,26 @@ pub fn owner_by_email(owners: &[CrmOwner]) -> HashMap<String, String> {
     m
 }
 
-/// 通話ログのページから、JST の `day` の人ごとの架電数。
-/// 発信だけ・`id`/`call_id` で重複除外・JST の日に入るものだけ・`user_id` 必須・`Auto Recorded` だけ数える。
-/// Zoom ユーザーが有効でない/担当者に結び付かない人は数えない。
-pub fn count_connected(
+/// 人ごとの発信数と架電数
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Counts {
+    pub calls: HashMap<String, u32>,
+    pub connected: HashMap<String, u32>,
+}
+
+/// 通話ログのページから、JST の `day` の人ごとの発信数と架電数。
+/// 発信だけ・`id`/`call_id` で重複除外・JST の日に入るものだけ・`user_id` 必須。発信数はそのすべて、
+/// 架電数は `Auto Recorded` だけ。Zoom ユーザーが有効でない/担当者に結び付かない人は数えない。
+pub fn count_calls(
     pages: &[Value],
     day: NaiveDate,
     user_email: &HashMap<String, String>,
     email_owner: &HashMap<String, String>,
-) -> HashMap<String, u32> {
+) -> Counts {
     let start = day.and_hms_opt(0, 0, 0).expect("midnight").and_utc() - ChronoDuration::hours(9);
     let end = start + ChronoDuration::days(1);
     let mut seen = std::collections::HashSet::new();
-    let mut per_user: HashMap<String, u32> = HashMap::new();
+    let mut per_user: HashMap<String, (u32, u32)> = HashMap::new();
     for page in pages {
         let Some(logs) = page.get("call_logs").and_then(Value::as_array) else {
             continue;
@@ -96,15 +106,18 @@ pub fn count_connected(
             let Some(uid) = text("user_id") else {
                 continue;
             };
+            let e = per_user.entry(uid.to_string()).or_insert((0, 0));
+            e.0 += 1;
             if text("result") == Some("Auto Recorded") {
-                *per_user.entry(uid.to_string()).or_insert(0) += 1;
+                e.1 += 1;
             }
         }
     }
-    let mut out: HashMap<String, u32> = HashMap::new();
-    for (uid, n) in per_user {
+    let mut out = Counts::default();
+    for (uid, (c, k)) in per_user {
         if let Some(owner) = user_email.get(&uid).and_then(|e| email_owner.get(e)) {
-            *out.entry(owner.clone()).or_insert(0) += n;
+            *out.calls.entry(owner.clone()).or_insert(0) += c;
+            *out.connected.entry(owner.clone()).or_insert(0) += k;
         }
     }
     out
@@ -148,19 +161,20 @@ async fn refresh(zoom: Arc<ZoomClient>, owner_map: HashMap<String, String>, day:
         };
         let (from, to) = utc_range(day);
         let pages = zoom.call_log_pages(&from, &to).await?;
-        Ok::<_, super::zoom::ZoomError>(count_connected(&pages, day, &users, &owner_map))
+        Ok::<_, super::zoom::ZoomError>(count_calls(&pages, day, &users, &owner_map))
     }
     .await;
     let mut g = state().lock().unwrap();
     g.in_flight = false;
     match result {
-        Ok(by_owner) => {
+        Ok(counts) => {
             g.retry_after = None;
             g.entry = Some((
                 day,
                 Instant::now(),
                 Arc::new(LiveToday {
-                    by_owner,
+                    by_owner: counts.connected,
+                    calls_by_owner: counts.calls,
                     fetched_at: jst_text(Utc::now()),
                 }),
             ));
@@ -294,10 +308,31 @@ mod tests {
                 log("11", "outbound", "2026-10-20T02:00:00Z", "u9", "Auto Recorded"),
             ]}),
         ];
-        let r = count_connected(&pages, day(), &users, &owners);
+        let r = count_calls(&pages, day(), &users, &owners).connected;
         assert_eq!(r.get("11"), Some(&2)); // id 1 と 8
         assert_eq!(r.get("22"), Some(&2)); // id 4 と 7
         assert_eq!(r.len(), 2);
+    }
+
+    #[test]
+    fn calls_include_cancelled_and_failed_but_connected_does_not() {
+        let (users, owners) = maps();
+        let pages = vec![json!({"call_logs": [
+            log("1", "outbound", "2026-10-20T00:30:00Z", "u1", "Auto Recorded"),
+            log("1", "outbound", "2026-10-20T00:30:00Z", "u1", "Auto Recorded"),
+            log("2", "outbound", "2026-10-20T00:31:00Z", "u1", "Call Cancel"),
+            log("3", "outbound", "2026-10-20T00:32:00Z", "u1", "Call failed"),
+            log("4", "inbound", "2026-10-20T00:33:00Z", "u1", "Auto Recorded"),
+            log("5", "outbound", "2026-10-19T14:59:59Z", "u1", "Call Cancel"),
+            log("6", "outbound", "2026-10-20T01:00:00Z", "u2", "Call Cancel"),
+            log("7", "outbound", "2026-10-20T01:00:00Z", "u3", "Call Cancel"),
+        ]})];
+        let r = count_calls(&pages, day(), &users, &owners);
+        assert_eq!(r.calls.get("11"), Some(&3)); // 1 + 2 + 3 (重複・着信・前日は除く)
+        assert_eq!(r.connected.get("11"), Some(&1));
+        assert_eq!(r.calls.get("22"), Some(&1));
+        assert_eq!(r.connected.get("22"), Some(&0));
+        assert_eq!(r.calls.len(), 2); // 担当者に結び付かない u3 は数えない
     }
 
     #[test]
