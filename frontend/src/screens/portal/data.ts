@@ -3,6 +3,7 @@
 // どの操作も記録（activity）に残す。
 import { useSyncExternalStore } from 'react';
 import { CURRENT_ACCOUNT_ID, NOW, STAFF_NAME, accounts, activity as initialActivity, customers as initialCustomers, initialRows, sheets as initialSheets } from './fixtures';
+import { kindOf, labelOf } from './columns';
 import type { ActivityEntry, ApplicantRow, CellSaveResult, ColumnConfig, Customer, FunnelStage, PortalAccount, SheetConfig, Viewer } from './types';
 
 export interface DataState {
@@ -99,7 +100,34 @@ export function stageOf(sheet: SheetConfig, statusValue: string): FunnelStage | 
 // ---- 書き込み ----
 
 let seq = 100;
-const nowIso = (): string => new Date().toISOString();
+/** 試作の時計。サンプルの「今」（NOW）から、開いてからの経過分だけ進める。 */
+const LOADED_AT = Date.now();
+const nowIso = (): string => new Date(Date.parse(NOW) + (Date.now() - LOADED_AT)).toISOString();
+
+/** 項目の表示名（記録の文に使う）。 */
+function colName(sheet: SheetConfig | undefined, column: string): string {
+  const c = sheet?.columns.find((x) => x.header === column);
+  return c ? labelOf(c) : column;
+}
+
+/** 「シートで先に変更されていた」を再現する値。必ず next と違う、その列に入りうる値にする。 */
+function conflictValue(col: ColumnConfig | undefined, current: string, next: string): string {
+  const opts = (col?.options ?? []).filter((o) => o !== '' && o !== next && o !== current);
+  if (opts.length > 0) return opts[0] ?? '';
+  const k = col ? kindOf(col) : 'text';
+  if (k === 'date' || k === 'datetime') {
+    const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(.*)$/.exec(next !== '' ? next : current);
+    if (m) {
+      const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1));
+      const pad = (n: number): string => String(n).padStart(2, '0');
+      const v = `${String(dt.getUTCFullYear())}/${pad(dt.getUTCMonth() + 1)}/${pad(dt.getUTCDate())}${m[4] ?? ''}`;
+      if (v !== next) return v;
+    }
+    return '2026/10/27' + (k === 'datetime' ? ' 10:00' : '');
+  }
+  const appended = (current !== '' ? current + ' ' : '') + '弊社で追記。';
+  return appended === next ? appended + '（再）' : appended;
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function rowName(sheet: SheetConfig | undefined, row: ApplicantRow | undefined): string {
@@ -159,22 +187,22 @@ export const actions = {
     }
     if (mode === 'conflict') {
       // シートで社内の人が先に書き換えた、を再現する。
-      const latest = column === sheet.statusColumn ? (sheet.columns.find((c) => c.header === column)?.options?.[2] ?? '面接調整中') : (row.values[column] ?? '') + '（弊社で追記）';
+      const latest = conflictValue(sheet.columns.find((c) => c.header === column), row.values[column] ?? '', next);
       const at = nowIso();
       set({ nextSave: 'ok', rows: replaceRow(sheetId, { ...row, changedSinceLastView: 'updated', values: { ...row.values, [column]: latest } }), readAt: { ...state.readAt, [sheetId]: at } });
-      log({ kind: 'sheet_change', detail: `${rowName(sheet, row)}さんの「${column}」がシートで変更`, actorName: STAFF_NAME, source: 'sheet', accountEmail: '', sheetId, rowNumber, column, before: row.values[column] ?? '', after: latest });
-      log({ kind: 'save_conflict', detail: `${rowName(sheet, row)}さんの「${column}」は、シートで先に変更されていたため保存しなかった`, sheetId, rowNumber, column, before: base, after: next });
+      log({ kind: 'sheet_change', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」がシートで変更`, actorName: STAFF_NAME, source: 'sheet', accountEmail: '', sheetId, rowNumber, column, before: row.values[column] ?? '', after: latest });
+      log({ kind: 'save_conflict', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」は、シートで先に変更されていたため保存しなかった`, sheetId, rowNumber, column, before: base, after: next });
       return { kind: 'conflict', latest, by: STAFF_NAME, at };
     }
     const current = row.values[column] ?? '';
     if (current !== base) {
       const last = cellHistory(state, sheetId, rowNumber, column)[0];
-      log({ kind: 'save_conflict', detail: `${rowName(sheet, row)}さんの「${column}」は、シートで先に変更されていたため保存しなかった`, sheetId, rowNumber, column, before: base, after: next });
+      log({ kind: 'save_conflict', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」は、シートで先に変更されていたため保存しなかった`, sheetId, rowNumber, column, before: base, after: next });
       return { kind: 'conflict', latest: current, by: last?.actorName ?? 'シート', at: last?.at ?? (state.readAt[sheetId] ?? NOW) };
     }
     const saved: ApplicantRow = { ...row, changedSinceLastView: null, values: { ...row.values, [column]: next } };
     set({ rows: replaceRow(sheetId, saved), readAt: { ...state.readAt, [sheetId]: nowIso() } });
-    log({ kind: 'save', detail: `${rowName(sheet, row)}さんの「${column}」を「${next || '（空）'}」に変更`, sheetId, rowNumber, column, before: current, after: next });
+    log({ kind: 'save', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」を「${next || '（空）'}」に変更`, sheetId, rowNumber, column, before: current, after: next });
     return { kind: 'saved', value: next };
   },
 
@@ -196,7 +224,7 @@ export const actions = {
     const sheet = state.sheets.find((x) => x.id === sheetId);
     const old = sheet?.columns.find((c) => c.header === column)?.options ?? [];
     set({ sheets: state.sheets.map((x) => (x.id === sheetId ? { ...x, columns: x.columns.map((c) => (c.header === column ? { ...c, options, kind: 'choice' as const } : c)) } : x)) });
-    log({ kind: 'column_change', detail: `「${column}」の選択肢を変更`, sheetId, column, before: old.filter(Boolean).join('、'), after: options.filter(Boolean).join('、') });
+    log({ kind: 'column_change', detail: `「${colName(sheet, column)}」の選択肢を変更`, sheetId, column, before: old.filter(Boolean).join('、'), after: options.filter(Boolean).join('、') });
   },
 
   /** 選考状況の選択肢ごとの段階（数字の集計用）を変える。 */
@@ -236,7 +264,7 @@ export const actions = {
     const values = { ...row.values };
     if (status) values[status] = nextStatus;
     set({ rows: replaceRow(sheetId, { ...row, changedSinceLastView: 'updated', values }), readAt: { ...state.readAt, [sheetId]: nowIso() } });
-    if (status) log({ kind: 'sheet_change', detail: `${rowName(sheet, row)}さんの「${status}」がシートで変更`, actorName: STAFF_NAME, source: 'sheet', accountEmail: '', sheetId, rowNumber: row.rowNumber, column: status, before: row.values[status] ?? '', after: nextStatus });
+    if (status) log({ kind: 'sheet_change', detail: `${rowName(sheet, row)}さんの「${colName(sheet, status)}」がシートで変更`, actorName: STAFF_NAME, source: 'sheet', accountEmail: '', sheetId, rowNumber: row.rowNumber, column: status, before: row.values[status] ?? '', after: nextStatus });
   },
   simulateNewApplicant(sheetId: string): void {
     const sheet = state.sheets.find((x) => x.id === sheetId);

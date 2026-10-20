@@ -1,70 +1,79 @@
-// 画面の外枠。顧客の画面（ログイン後）・ログイン前の画面・社内の管理画面の 3 種類。
+// 画面の外枠。ログイン前の画面と社内の管理画面。ログイン後の顧客の画面は shell.tsx の AppShell。
 import type { ReactNode } from 'react';
+import { IconSheet } from './icons';
 import { cx } from './kit';
 
-/** ログイン前（ログイン・招待・確認コード）。中央に 1 枚のカード。 */
-export function AuthLayout({ children, hideFooter = false }: { children: ReactNode; hideFooter?: boolean }) {
+/** ログイン前（ログイン・招待・確認コード）。中央に細いカード。 */
+export function AuthLayout({ children, hideFooter = false, company }: { children: ReactNode; hideFooter?: boolean; /** 招待のリンクから会社が分かる画面だけ渡す。ログイン前は渡さない。 */ company?: string }) {
   return (
-    <div className="flex min-h-dvh flex-col items-center bg-pt-bg px-4 py-10 sm:py-16">
-      <p className="mb-6 text-sm font-medium tracking-wide text-pt-muted">応募者の管理</p>
-      <div className="w-full max-w-md rounded-lg border border-pt-line bg-pt-surface p-6 sm:p-8">{children}</div>
-      {!hideFooter && <p className="mt-6 text-center text-xs text-pt-faint">ログインやパスワードでお困りのときは、弊社の担当者にご連絡ください。</p>}
+    <div className="flex min-h-dvh flex-col items-center bg-pt-bg px-4 py-10 sm:py-20">
+      <div className="mb-6 flex flex-col items-center gap-1">
+        <span className="flex size-8 items-center justify-center rounded-md bg-pt-ink text-pt-surface"><IconSheet size={16} /></span>
+        <p className="text-[13px] font-semibold text-pt-ink">応募者の管理</p>
+        {company && <p className="text-xs text-pt-faint">{company}</p>}
+      </div>
+      <div className="w-full max-w-[380px] rounded-lg border border-pt-line bg-pt-surface p-6 shadow-pt-card sm:p-7">{children}</div>
+      {!hideFooter && <p className="mt-5 text-center text-xs text-pt-faint">お困りのときは、弊社の担当者にご連絡ください。</p>}
     </div>
   );
 }
 
-/** ログイン後の顧客の画面。上に顧客名と自分のメニュー。 */
-export function CustomerLayout({ customerName, accountLabel, current, onNavigate, children, wide = true }: {
-  customerName: string;
-  accountLabel: string;
-  current: 'list' | 'account';
-  onNavigate: (to: 'list' | 'account' | 'logout') => void;
+/** 社内の管理画面。上に明るい細い帯（顧客の画面と同じ面）、その下に見出しと本文。 */
+export type AdminSection = 'customers' | 'accounts' | 'activity';
+
+const ADMIN_NAV: { key: AdminSection; label: string }[] = [
+  { key: 'customers', label: '顧客とシート' },
+  { key: 'accounts', label: 'アカウント' },
+  { key: 'activity', label: '操作の記録' },
+];
+
+export function AdminLayout({ title, badge, current, onNavigate, actions, back, children }: {
+  title: ReactNode;
+  /** 見出しのすぐ右に置く状態。 */
+  badge?: ReactNode;
+  current: AdminSection;
+  onNavigate: (to: AdminSection) => void;
+  /** 見出しの右に並べるボタン。 */
+  actions?: ReactNode;
+  /** 見出しの上の「戻る」。 */
+  back?: { label: string; onClick: () => void };
   children: ReactNode;
-  wide?: boolean;
 }) {
   return (
     <div className="min-h-dvh bg-pt-bg">
-      <header className="sticky top-0 z-20 border-b border-pt-line bg-pt-surface">
-        <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-3 px-4">
-          <button type="button" onClick={() => { onNavigate('list'); }} className="min-w-0 text-left">
-            <span className="block truncate text-base font-semibold text-pt-ink">{customerName}</span>
-            <span className="hidden text-xs text-pt-muted sm:block">応募者の管理</span>
+      <header className="border-b border-pt-line bg-pt-surface">
+        <div className="mx-auto flex h-11 max-w-[1280px] items-center gap-5 px-4">
+          <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-pt-ink">
+            <span className="flex size-6 items-center justify-center rounded bg-pt-ink text-pt-surface"><IconSheet size={13} /></span>
+            応募者画面の管理
+            <span className="rounded bg-pt-sunken px-1.5 py-0.5 text-[11px] font-medium text-pt-muted">社内</span>
+          </span>
+          <nav className="flex h-full items-stretch gap-0.5">
+            {ADMIN_NAV.map((n) => (
+              <button
+                key={n.key}
+                type="button"
+                onClick={() => { onNavigate(n.key); }}
+                aria-current={n.key === current ? 'page' : undefined}
+                className={cx('relative px-3 text-[13px] whitespace-nowrap', n.key === current ? 'font-medium text-pt-ink after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-pt-ink' : 'text-pt-muted hover:text-pt-ink')}
+              >
+                {n.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
+      <main className="mx-auto max-w-[1280px] px-4 py-5">
+        {back && (
+          <button type="button" onClick={back.onClick} className="mb-2 inline-flex items-center gap-1 text-xs text-pt-muted hover:text-pt-ink">
+            <span aria-hidden="true">←</span>{back.label}
           </button>
-          <nav className="ml-auto flex shrink-0 items-center gap-1">
-            <button type="button" onClick={() => { onNavigate('list'); }} className={cx('h-11 whitespace-nowrap rounded-md px-3 text-sm', current === 'list' ? 'bg-pt-primary-soft font-medium text-pt-primary' : 'text-pt-muted hover:bg-pt-bg')}>応募者</button>
-            <button type="button" onClick={() => { onNavigate('account'); }} className={cx('h-11 whitespace-nowrap rounded-md px-3 text-sm', current === 'account' ? 'bg-pt-primary-soft font-medium text-pt-primary' : 'text-pt-muted hover:bg-pt-bg')}>
-              <span className="hidden sm:inline">{accountLabel}</span>
-              <span className="sm:hidden">設定</span>
-            </button>
-            <button type="button" onClick={() => { onNavigate('logout'); }} className="hidden h-11 whitespace-nowrap rounded-md px-3 text-sm text-pt-muted hover:bg-pt-bg sm:block">ログアウト</button>
-          </nav>
+        )}
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <h1 className="text-[17px] font-semibold">{title}</h1>
+          {badge}
+          {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
-      </header>
-      <main className={cx('mx-auto px-4 py-5', wide ? 'max-w-[1400px]' : 'max-w-2xl')}>{children}</main>
-    </div>
-  );
-}
-
-/** 社内の管理画面（試作）。実装では社内の管理画面 /app/admin の中に入る。 */
-export function AdminLayout({ title, current, onNavigate, children }: {
-  title: string;
-  current: 'customers' | 'accounts';
-  onNavigate: (to: 'customers' | 'accounts') => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="min-h-dvh bg-pt-bg">
-      <header className="border-b border-pt-line bg-[#1f2a37] text-white">
-        <div className="mx-auto flex h-12 max-w-[1400px] items-center gap-4 px-4">
-          <span className="text-sm font-semibold">社内 ／ 顧客向け応募者画面の管理</span>
-          <nav className="flex gap-1">
-            <button type="button" onClick={() => { onNavigate('customers'); }} className={cx('rounded px-3 py-1.5 text-sm', current === 'customers' ? 'bg-white/15' : 'text-white/70 hover:bg-white/10')}>顧客とシート</button>
-            <button type="button" onClick={() => { onNavigate('accounts'); }} className={cx('rounded px-3 py-1.5 text-sm', current === 'accounts' ? 'bg-white/15' : 'text-white/70 hover:bg-white/10')}>アカウントと記録</button>
-          </nav>
-        </div>
-      </header>
-      <main className="mx-auto max-w-[1400px] px-4 py-5">
-        <h1 className="mb-4 text-xl font-semibold">{title}</h1>
         {children}
       </main>
     </div>

@@ -45,7 +45,7 @@ const col = (header: string, opts: Partial<ColumnConfig> = {}): ColumnConfig => 
   ...opts,
 });
 
-export const SELECTION_OPTIONS = ['未対応', '書類選考中', '面接調整中', '面接予定', '内定', '採用', '不採用', '辞退'];
+export const SELECTION_OPTIONS = ['未対応', '書類選考中', '面接調整中', '面接予定', '面接済み', '内定', '採用', '不採用', '辞退'];
 export const INTERVIEW_RESULT_OPTIONS = ['', '合格', '不合格', '保留', '欠席'];
 
 /** 選考状況の選択肢 → 段階（数字の集計用）。 */
@@ -54,6 +54,7 @@ export const DEFAULT_STAGE_MAP: Record<string, FunnelStage> = {
   書類選考中: 'screening',
   面接調整中: 'screening',
   面接予定: 'interview_set',
+  面接済み: 'interviewed',
   内定: 'offer',
   採用: 'hired',
   不採用: 'rejected',
@@ -80,7 +81,7 @@ export const sheets: SheetConfig[] = [
   {
     id: 's1',
     customerId: 'c1',
-    tabName: '応募者一覧',
+    tabName: '2026年度 応募',
     headerRow: 1,
     connection: 'ok',
     titleColumn: '氏名',
@@ -109,7 +110,7 @@ export const sheets: SheetConfig[] = [
   {
     id: 's2',
     customerId: 'c1',
-    tabName: '2025年度',
+    tabName: '2025年度 応募',
     headerRow: 1,
     connection: 'ok',
     titleColumn: '氏名',
@@ -174,31 +175,48 @@ const CONTACT = [
 const pad = (n: number) => String(n).padStart(2, '0');
 const at = (list: string[], i: number): string => list[i % list.length] ?? '';
 
+/** 職種ごとの選考の結果の並び（古い応募ほど先まで進む）。職種で採用までの進み方が違うようにする。 */
+const OUTCOMES: Record<string, string[]> = {
+  '介護職（正社員）': ['採用', '面接済み', '不採用', '採用', '辞退', '内定', '面接済み', '不採用', '採用', '辞退'],
+  '介護職（パート）': ['採用', '採用', '面接済み', '辞退', '内定', '採用', '不採用', '面接済み', '採用', '辞退'],
+  看護師: ['辞退', '不採用', '面接済み', '辞退', '内定', '不採用', '辞退', '採用', '辞退', '不採用'],
+  送迎ドライバー: ['不採用', '採用', '辞退', '面接済み', '不採用', '採用', '書類選考中', '不採用', '辞退', '採用'],
+  調理補助: ['辞退', '辞退', '不採用', '書類選考中', '面接済み', '辞退', '不採用', '採用', '辞退', '不採用'],
+};
+/** 応募から日が浅い人の選考状況。 */
+const RECENT = ['未対応', '未対応', '書類選考中', '面接調整中', '面接予定', '書類選考中', '面接予定', '辞退'];
+
 function makeRows(count: number): ApplicantRow[] {
   const rows: ApplicantRow[] = [];
+  const seenJob = new Map<string, number>();
   for (let i = 0; i < count; i += 1) {
-    const day = 20 - Math.floor(i / 2);
-    const month = day > 0 ? 10 : 9;
-    const d = day > 0 ? day : 30 + day;
-    const status = at(SELECTION_OPTIONS, i * 3);
-    const hasInterview = status === '面接予定' || status === '内定' || status === '採用' || status === '不採用';
+    // 新しい順に、6 か月ほどに散らす（今月が一番多い）。
+    const back = i < 12 ? 0 : i < 20 ? 1 : i < 27 ? 2 : i < 34 ? 3 : i < 40 ? 4 : 5;
+    const inMonth = i < 12 ? i : i < 20 ? i - 12 : i < 27 ? i - 20 : i < 34 ? i - 27 : i < 40 ? i - 34 : i - 40;
+    const month = 10 - back;
+    const d = back === 0 ? Math.max(1, 20 - Math.floor(inMonth * 1.6)) : Math.max(1, 28 - inMonth * 4);
+    const job = at(JOBS, i * 3 + Math.floor(i / 7));
+    const n = seenJob.get(job) ?? 0;
+    seenJob.set(job, n + 1);
+    const status = back === 0 && i < 10 ? at(RECENT, i) : at(OUTCOMES[job] ?? RECENT, n + back);
+    const hasInterview = ['面接予定', '面接済み', '内定', '採用', '不採用'].includes(status);
     rows.push({
       rowNumber: i + 2,
       changedSinceLastView: i === 0 || i === 1 ? 'new' : i === 4 ? 'updated' : null,
       values: {
         応募日: `2026/${pad(month)}/${pad(d)}`,
-        応募媒体: at(MEDIA, i),
+        応募媒体: at(MEDIA, i + Math.floor(i / 5)),
         氏名: `${at(FAMILY, i)} ${at(GIVEN, i * 5)}`,
         ふりがな: `${at(KANA_F, i)} ${at(KANA_G, i * 5)}`,
         年齢: String(22 + ((i * 7) % 40)),
         電話番号: '090-0000-' + String(1000 + i).slice(-4),
         メールアドレス: i % 3 === 0 ? '' : 'sample' + String(i + 1) + '@example.com',
-        応募職種: at(JOBS, i),
-        一次対応日: `2026/${pad(month)}/${pad(Math.max(1, d))}`,
+        応募職種: job,
+        一次対応日: `2026/${pad(month)}/${pad(Math.min(28, d + 1))}`,
         一次対応の結果: at(CONTACT, i),
         選考状況: status,
-        面接日: hasInterview ? `2026/10/${pad(22 + (i % 8))} ${String(10 + (i % 7))}:00` : '',
-        面接結果: status === '内定' || status === '採用' ? '合格' : status === '不採用' ? '不合格' : '',
+        面接日: hasInterview ? `2026/${pad(back === 0 ? 10 : month)}/${pad(back === 0 ? 22 + (i % 8) : Math.min(28, d + 5))} ${String(10 + (i % 7))}:00` : '',
+        面接結果: status === '内定' || status === '採用' ? '合格' : status === '不採用' ? '不合格' : status === '面接済み' ? '保留' : '',
         貴社記入欄: i % 4 === 0 ? '施設見学も同日に案内予定。' : '',
         社内メモ: '（顧客には見せない列）',
       },
@@ -207,8 +225,24 @@ function makeRows(count: number): ApplicantRow[] {
   return rows;
 }
 
+/** 記録のサンプル（activity）と行の値を合わせる。 */
+function patch(rows: ApplicantRow[], rowNumber: number, values: Record<string, string>): ApplicantRow[] {
+  return rows.map((r) => (r.rowNumber === rowNumber ? { ...r, values: { ...r.values, ...values } } : r));
+}
+
+const E7_AFTER = '他社で内定が出ており、辞退の意向。 10/20 折り返しあり。条件次第で面接を希望。';
+
+function sampleRows(): ApplicantRow[] {
+  let rows = makeRows(46);
+  rows = patch(rows, 2, { 選考状況: '未対応', 貴社記入欄: '施設見学も同日に案内予定。' });
+  rows = patch(rows, 3, { 選考状況: '面接予定', 面接日: '2026/10/23 11:00' });
+  rows = patch(rows, 4, { 選考状況: '不採用', 面接結果: '不合格', 面接日: '2026/10/18 14:00' });
+  rows = patch(rows, 5, { 一次対応の結果: E7_AFTER });
+  return rows;
+}
+
 export const initialRows: Record<string, ApplicantRow[]> = {
-  s1: makeRows(46),
+  s1: sampleRows(),
   s2: makeRows(18).map((r) => ({ ...r, changedSinceLastView: null, values: { ...r.values, 応募日: (r.values.応募日 ?? '').replace('2026', '2025') } })),
   s3: [],
   s4: makeRows(24).map((r, i) => ({
@@ -242,15 +276,16 @@ export const devices: TrustedDevice[] = [
 ];
 
 export const activity: ActivityEntry[] = [
-  { id: 'e1', at: '2026-10-20T13:07:00+09:00', accountEmail: 'saiyou@sample-kaigo.example', customerId: 'c1', kind: 'save', detail: '山田 花子さんの「選考状況」を「面接予定」に変更' },
+  { id: 'e1', at: '2026-10-20T13:07:00+09:00', accountEmail: 'saiyou@sample-kaigo.example', customerId: 'c1', kind: 'save', detail: '山田 花子さんの「貴社メモ」を変更', actorName: '採用担当 木村', source: 'portal', sheetId: 's1', rowNumber: 2, column: '貴社記入欄', before: '', after: '施設見学も同日に案内予定。' },
   { id: 'e2', at: '2026-10-20T13:05:00+09:00', accountEmail: 'saiyou@sample-kaigo.example', customerId: 'c1', kind: 'login', detail: 'Windows の Chrome からログイン' },
   { id: 'e3', at: '2026-10-19T18:41:00+09:00', accountEmail: 'office@hikari-dental.example', customerId: 'c3', kind: 'login_failed', detail: 'パスワードの誤りが 5 回続いたため、15 分間ロック（時間がたつと自動で解除）' },
   { id: 'e4', at: '2026-10-18T15:00:00+09:00', accountEmail: 'jimu@sample-kaigo.example', customerId: 'c1', kind: 'invite', detail: '招待リンクを発行（10/25 まで有効）' },
-  { id: 'e5', at: '2026-10-17T09:22:00+09:00', accountEmail: 'shisetsu-cho@sample-kaigo.example', customerId: 'c1', kind: 'save_conflict', detail: '佐藤 翔さんの行は、シートで先に変更されていたため保存しなかった' },
-  { id: 'e7', at: '2026-10-20T11:40:00+09:00', accountEmail: '', customerId: 'c1', kind: 'sheet_change', detail: '高橋 健太さんの「弊社からの連絡結果」を追記', actorName: '弊社 山口', source: 'sheet', sheetId: 's1', rowNumber: 4, column: '一次対応の結果', before: '電話に出ず、SMS を送信。折り返し待ち。', after: '電話に出ず、SMS を送信。折り返し待ち。 10/20 折り返しあり、面接を希望。' },
-  { id: 'e8', at: '2026-10-19T16:12:00+09:00', accountEmail: 'saiyou@sample-kaigo.example', customerId: 'c1', kind: 'save', detail: '鈴木 さくらさんの「面接結果」を「不合格」に変更', actorName: '採用担当 木村', source: 'portal', sheetId: 's1', rowNumber: 5, column: '面接結果', before: '', after: '不合格' },
-  { id: 'e9', at: '2026-10-19T16:10:00+09:00', accountEmail: 'saiyou@sample-kaigo.example', customerId: 'c1', kind: 'save', detail: '鈴木 さくらさんの「選考状況」を「不採用」に変更', actorName: '採用担当 木村', source: 'portal', sheetId: 's1', rowNumber: 5, column: '選考状況', before: '面接予定', after: '不採用' },
-  { id: 'e10', at: '2026-10-18T10:02:00+09:00', accountEmail: '', customerId: 'c1', kind: 'column_change', detail: '「選考状況」の選択肢に「面接調整中」を追加', actorName: '弊社 山口', source: 'admin', sheetId: 's1', column: '選考状況', before: '未対応、書類選考中、面接予定、内定、採用、不採用、辞退', after: '未対応、書類選考中、面接調整中、面接予定、内定、採用、不採用、辞退' },
+  { id: 'e5b', at: '2026-10-17T09:15:00+09:00', accountEmail: '', customerId: 'c1', kind: 'sheet_change', detail: '佐藤 翔さんの「面接日」がシートで変更', actorName: '弊社 山口', source: 'sheet', sheetId: 's1', rowNumber: 3, column: '面接日', before: '', after: '2026/10/23 11:00' },
+  { id: 'e5', at: '2026-10-17T09:22:00+09:00', accountEmail: 'shisetsu-cho@sample-kaigo.example', customerId: 'c1', kind: 'save_conflict', detail: '佐藤 翔さんの「面接日」は、シートで先に変更されていたため保存しなかった', actorName: '施設長 森', source: 'portal', sheetId: 's1', rowNumber: 3, column: '面接日', before: '', after: '2026/10/24 14:00' },
+  { id: 'e7', at: '2026-10-20T11:40:00+09:00', accountEmail: '', customerId: 'c1', kind: 'sheet_change', detail: '高橋 健太さんの「弊社からの連絡結果」を追記', actorName: '弊社 山口', source: 'sheet', sheetId: 's1', rowNumber: 5, column: '一次対応の結果', before: '他社で内定が出ており、辞退の意向。', after: E7_AFTER },
+  { id: 'e8', at: '2026-10-19T16:12:00+09:00', accountEmail: 'saiyou@sample-kaigo.example', customerId: 'c1', kind: 'save', detail: '鈴木 さくらさんの「面接結果」を「不合格」に変更', actorName: '採用担当 木村', source: 'portal', sheetId: 's1', rowNumber: 4, column: '面接結果', before: '', after: '不合格' },
+  { id: 'e9', at: '2026-10-19T16:10:00+09:00', accountEmail: 'saiyou@sample-kaigo.example', customerId: 'c1', kind: 'save', detail: '鈴木 さくらさんの「選考状況」を「不採用」に変更', actorName: '採用担当 木村', source: 'portal', sheetId: 's1', rowNumber: 4, column: '選考状況', before: '面接予定', after: '不採用' },
+  { id: 'e10', at: '2026-10-18T10:02:00+09:00', accountEmail: '', customerId: 'c1', kind: 'column_change', detail: '「選考状況」の選択肢に「面接調整中」を追加', actorName: '弊社 山口', source: 'admin', sheetId: 's1', column: '選考状況', before: '未対応、書類選考中、面接予定、面接済み、内定、採用、不採用、辞退', after: '未対応、書類選考中、面接調整中、面接予定、面接済み、内定、採用、不採用、辞退' },
   { id: 'e6', at: '2026-10-17T09:21:00+09:00', accountEmail: 'shisetsu-cho@sample-kaigo.example', customerId: 'c1', kind: 'code_sent', detail: '新しい端末（iPad の Safari）のため確認コードを送信' },
 ];
 

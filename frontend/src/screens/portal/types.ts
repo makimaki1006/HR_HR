@@ -113,7 +113,13 @@ export type ActivityKind =
   | 'sheet_change'
   /** 項目・プルダウン・段階の設定の変更。 */
   | 'column_change'
-  | 'export';
+  | 'export'
+  /** 社内の管理画面: 顧客の追加・名前・段階・停止・再開。 */
+  | 'customer_change'
+  /** 社内の管理画面: シートの追加・外す・顧客も項目を変更の切り替え。 */
+  | 'sheet_change_admin'
+  | 'account_unlock'
+  | 'password_reset';
 
 export interface ActivityEntry {
   id: string;

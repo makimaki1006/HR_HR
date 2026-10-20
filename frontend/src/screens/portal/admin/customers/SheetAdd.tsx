@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { AdminLayout } from '../../ui/layouts';
-import { Button, Card, Field, Notice, Select, TextInput, cx } from '../../ui/kit';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { sheetsOf, useData } from '../../data';
 import { ROUTES, usePreviewNav } from '../../preview';
-import type { ColumnConfig } from '../../types';
+import { Button, Field, Select, TextInput, cx } from '../../ui/kit';
+import { IconCheck } from '../../ui/icons';
+import type { ApplicantRow, ColumnConfig } from '../../types';
 import { ShareHint } from './ShareHint';
-import { actions, useAdminState } from './state';
+import { AdminPage } from './shared';
+import { actions, enterAs, useAdminState } from './state';
 
 type Check = 'idle' | 'checking' | 'ok' | 'not_shared' | 'not_found';
 
@@ -19,24 +21,62 @@ const SAMPLE_2 = ['2026/10/19', '求人媒体B', '鈴木 次郎', 'すずき じ
 const TOP_ROWS: string[][] = [TITLE, NOTE, HEADERS, SAMPLE_1, SAMPLE_2];
 
 /** 見出しらしい行か。空のセルが多い行は見出しとして読めない。 */
-const looksLikeHeader = (cells: string[]) => cells.filter(Boolean).length >= 4;
+const looksLikeHeader = (cells: string[]): boolean => cells.filter(Boolean).length >= 4;
+
+/** 3 段の進み具合。今いる段を濃く、終わった段にチェック。 */
+function Progress({ at }: { at: 1 | 2 | 3 }) {
+  const steps = ['URL', 'タブと見出しの行', '項目とプルダウン'];
+  return (
+    <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" aria-label="進み具合">
+      {steps.map((t, i) => {
+        const n = i + 1;
+        const done = n < at;
+        const now = n === at;
+        return (
+          <li key={t} className="flex items-center gap-2">
+            {i > 0 && <span className="h-px w-5 bg-pt-line-strong" aria-hidden="true" />}
+            <span className={cx('inline-flex items-center gap-1.5', now ? 'font-semibold text-pt-ink' : done ? 'text-pt-muted' : 'text-pt-faint')}>
+              <span className={cx('pt-num inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px]', done ? 'bg-pt-ok text-white' : now ? 'bg-pt-ink text-white' : 'border border-pt-line-strong')}>
+                {done ? <IconCheck size={10} /> : String(n)}
+              </span>
+              {t}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function Step({ n, title, done, children }: { n: number; title: string; done?: boolean; children: ReactNode }) {
+  return (
+    <section className="rounded-lg border border-pt-line bg-pt-surface">
+      <h2 className="flex items-center gap-2 border-b border-pt-line px-4 py-2.5 text-[13px] font-semibold">
+        <span className={cx('pt-num inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px]', done ? 'bg-pt-ok text-white' : 'bg-pt-sunken text-pt-muted')}>{done ? <IconCheck size={12} /> : String(n)}</span>
+        {title}
+      </h2>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
 
 export function SheetAdd() {
   const { go } = usePreviewNav();
-  const s = useAdminState();
-  const customer = s.customers.find((c) => c.id === s.customerId);
+  const d = useData();
+  const admin = useAdminState();
+  const customer = d.customers.find((c) => c.id === admin.customerId);
   const [url, setUrl] = useState('');
   const [urlError, setUrlError] = useState('');
   const [check, setCheck] = useState<Check>('idle');
+  const taken = (name: string): boolean => customer !== undefined && sheetsOf(d, customer.id).some((x) => x.tabName === name);
   const [tab, setTab] = useState(FOUND_TABS[0] ?? '');
-  const [tabName, setTabName] = useState(FOUND_TABS[0] ?? '');
+  // 既定の名前は元のタブ名。すでに同じ名前があれば空にして、入力してもらう。
+  const [tabName, setTabName] = useState(taken(FOUND_TABS[0] ?? '') ? '' : (FOUND_TABS[0] ?? ''));
   const [headerRow, setHeaderRow] = useState(3);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => { window.clearTimeout(timer.current); }, []);
 
-  const nav = (to: 'customers' | 'accounts') => { go(to === 'customers' ? ROUTES.adminCustomers : ROUTES.adminAccounts); };
-
-  const run = () => {
+  const run = (): void => {
     if (!URL_PATTERN.test(url.trim())) {
       setUrlError('Google スプレッドシートの URL を貼ってください。');
       setCheck('idle');
@@ -52,69 +92,76 @@ export function SheetAdd() {
   const selectedCells = TOP_ROWS[headerRow - 1] ?? [];
   const headerOk = looksLikeHeader(selectedCells);
   const headers = selectedCells.filter(Boolean);
-  const finalTab = tabName.trim() || tab;
-  const duplicate = Object.entries(s.sheetUrls).some(([id, u]) => {
-    const sh = s.sheets.find((x) => x.id === id);
+  const finalTab = tabName.trim();
+  const sameName = finalTab !== '' && taken(finalTab);
+  const duplicate = Object.entries(admin.sheetUrls).some(([id, u]) => {
+    const sh = d.sheets.find((x) => x.id === id);
     return sh !== undefined && u === url.trim() && sh.tabName === finalTab;
   });
 
-  const next = () => {
+  const next = (): void => {
     if (!customer || !headerOk) return;
     const columns: ColumnConfig[] = headers.map((h) => ({
       header: h,
       label: '',
       visible: h !== '社内メモ',
-      writable: false,
+      writable: h === '選考状況' || h === '面接日' || h === '貴社記入欄',
       options: h === '選考状況' ? ['未対応', '書類選考中', '面接調整中', '面接予定', '内定', '不採用', '辞退'] : null,
       multiline: h === '貴社記入欄',
       inList: !['ふりがな', 'メールアドレス', '貴社記入欄', '社内メモ'].includes(h),
-      // 見出しの言葉からの仮の設定。列の設定の画面で直せる。
+      // 見出しの言葉からの仮の設定。項目の設定の画面で直せる。
       kind: h.includes('電話') ? 'phone' : h.includes('メール') ? 'email' : h.includes('日') ? 'date' : h === '選考状況' ? 'choice' : 'text',
       group: ['氏名', '応募日', '応募媒体', '応募職種', '年齢', '電話番号', 'メールアドレス'].includes(h) ? 'summary' : ['選考状況', '面接日', '貴社記入欄'].includes(h) ? 'customer' : 'other',
     }));
     const id = 's' + String(Date.now());
+    const samples: ApplicantRow[] = TOP_ROWS.slice(headerRow).filter((cells) => cells.filter(Boolean).length >= 3).map((cells, i) => ({
+      rowNumber: headerRow + 1 + i,
+      changedSinceLastView: null,
+      values: selectedCells.reduce<Record<string, string>>((acc, h, j) => (h === '' ? acc : { ...acc, [h]: cells[j] ?? '' }), {}),
+    }));
     actions.addSheet({
       id, customerId: customer.id, tabName: finalTab, headerRow, columns, connection: 'ok',
       titleColumn: headers.includes('氏名') ? '氏名' : (headers[0] ?? ''),
       statusColumn: headers.includes('選考状況') ? '選考状況' : '',
       sortColumn: headers.includes('応募日') ? '応募日' : '',
-    }, url.trim());
-    go('admin-sheet-columns');
+    }, url.trim(), `${customer.name} 応募者管理表`, samples);
+    enterAs(customer.id, id);
+    go(ROUTES.columns);
   };
 
   return (
-    <AdminLayout title="シートの追加" current="customers" onNavigate={nav}>
-      <button type="button" className="mb-3 text-sm text-pt-primary hover:underline" onClick={() => { go('admin-customer-detail'); }}>{customer?.name ?? '顧客'}の詳細に戻る</button>
-      <div className="flex max-w-4xl flex-col gap-5">
-        <Card className="p-5">
-          <h2 className="mb-3 text-base font-semibold">1. シートの URL</h2>
-          <Field label="スプレッドシートの URL" hint="ブラウザでシートを開いたときのアドレスを貼ってください。" error={urlError || undefined}>
+    <AdminPage title={`シートの追加${customer ? ' ／ ' + customer.name : ''}`} current="customers" back={{ label: customer?.name ?? '顧客', to: 'admin-customer-detail' }}>
+      <div className="flex max-w-3xl flex-col gap-4">
+        <Progress at={check === 'ok' ? 2 : 1} />
+        <Step n={1} title="シートの URL" done={check === 'ok'}>
+          <Field label="スプレッドシートの URL" error={urlError || undefined}>
             <TextInput value={url} onChange={(e) => { setUrl(e.target.value); setCheck('idle'); setUrlError(''); }} placeholder="https://docs.google.com/spreadsheets/d/..." />
           </Field>
-          <div className="mt-3"><Button variant="primary" disabled={!url.trim() || check === 'checking'} onClick={run}>{check === 'checking' ? '確認しています' : 'つながりを確認'}</Button></div>
-
-          <div className="mt-4">
-            {check === 'ok' && <Notice tone="ok" title="つながりました">シートを読み込めます。</Notice>}
-            {check === 'not_shared' && <ShareHint onRecheck={run} checking={false} />}
-            {check === 'not_found' && <Notice tone="danger" title="シートが見つかりません">URL に誤りがないか、シートが削除されていないか確かめてください。</Notice>}
+          <div className="mt-3 flex items-center gap-3">
+            <Button variant="primary" size="sm" disabled={!url.trim() || check === 'checking'} onClick={run}>{check === 'checking' ? '確認中' : 'つながりを確認'}</Button>
+            {check === 'ok' && <span className="text-[13px] text-pt-ok">つながった。シートを読み込める。</span>}
+            {check === 'not_found' && <span className="text-[13px] text-pt-danger">シートが見つからない。URL と、削除されていないかを確かめる。</span>}
           </div>
-        </Card>
+          {check === 'not_shared' && <div className="mt-3"><ShareHint onRecheck={run} checking={false} /></div>}
+        </Step>
 
         {check === 'ok' && (
-          <Card className="p-5">
-            <h2 className="mb-3 text-base font-semibold">2. タブと見出しの行</h2>
-            <div className="grid max-w-2xl grid-cols-2 gap-4">
+          <Step n={2} title="タブと見出しの行">
+            <div className="grid max-w-xl grid-cols-2 gap-4">
               <Field label="使うタブ">
-                <Select value={tab} onChange={(e) => { setTab(e.target.value); setTabName(e.target.value); }}>
+                <Select value={tab} onChange={(e) => { setTab(e.target.value); setTabName(taken(e.target.value) ? '' : e.target.value); }}>
                   {FOUND_TABS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </Select>
               </Field>
-              <Field label="顧客に見せるタブの名前"><TextInput value={tabName} onChange={(e) => { setTabName(e.target.value); }} /></Field>
+              <Field label="顧客に見せるタブの名前" error={sameName ? '同じ名前のタブがある' : undefined}>
+                <TextInput value={tabName} onChange={(e) => { setTabName(e.target.value); }} placeholder="例: 2026年度" />
+              </Field>
             </div>
-            {duplicate && <div className="mt-3 max-w-2xl"><Notice tone="warn">このシートのこのタブは、すでに登録されています。</Notice></div>}
+            {duplicate && <p className="mt-2 text-[13px] text-pt-warn">このシートのこのタブは、すでに登録されている。</p>}
 
-            <p className="mb-1 mt-5 text-sm font-medium">見出しの行を選ぶ</p>
-            <p className="mb-2 text-xs text-pt-muted">シートの先頭 5 行です。列の名前が並んでいる行を押してください。選んだ行の下 2 行は、データの見本として薄く出します。</p>
+            <p className="mt-5 mb-1.5 text-[13px] font-medium">見出しの行</p>
+            <p className="mb-2 text-xs text-pt-muted">先頭 5 行。項目名が並んでいる行を選ぶ。</p>
+            <div className="relative">
             <div className="overflow-x-auto rounded-md border border-pt-line">
               <table className="w-max min-w-full text-xs">
                 <tbody>
@@ -130,22 +177,33 @@ export function SheetAdd() {
                       >
                         <td className="sticky left-0 bg-inherit px-2 py-1.5 text-pt-muted">
                           <label className="flex items-center gap-1.5 whitespace-nowrap">
-                            <input type="radio" name="headerRow" checked={on} onChange={() => { setHeaderRow(row); }} />{row} 行目
+                            <input type="radio" name="headerRow" checked={on} onChange={() => { setHeaderRow(row); }} />
+                            <span className="pt-num">{String(row)}</span> 行目
                           </label>
                         </td>
-                        {cells.map((c, j) => <td key={String(j) + c} className="whitespace-nowrap border-l border-pt-line px-2 py-1.5">{c || '　'}</td>)}
+                        {cells.map((c, j) => <td key={String(j) + c} className="border-l border-pt-line px-2 py-1.5 whitespace-nowrap">{c || '　'}</td>)}
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-            {!headerOk && <div className="mt-3"><Notice tone="danger" title="この行は見出しではなさそうです">列の名前が並んでいる行を選び直してください。</Notice></div>}
-            {headerOk && <p className="mt-2 text-xs text-pt-muted">{headers.length} 列を読み込みます。</p>}
-            <div className="mt-4"><Button variant="primary" disabled={!headerOk || duplicate} onClick={next}>列の設定へ進む</Button></div>
-          </Card>
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-10 rounded-r-md bg-gradient-to-l from-pt-surface to-transparent" aria-hidden="true" />
+            </div>
+            <p className="mt-1 text-right text-[11px] text-pt-faint">横に動かせる</p>
+            {!headerOk
+              ? <p className="mt-2 text-[13px] text-pt-danger">この行は見出しに見えない。項目名が並んでいる行を選び直す。</p>
+              : <p className="mt-2 text-xs text-pt-muted"><span className="pt-num">{String(headers.length)}</span> 項目を読み込む。</p>}
+          </Step>
+        )}
+
+        {check === 'ok' && (
+          <div className="flex items-center gap-3">
+            <Button variant="primary" disabled={!headerOk || duplicate || finalTab === '' || sameName} onClick={next}>追加して、項目とプルダウンを設定する</Button>
+            <Button variant="ghost" onClick={() => { go('admin-customer-detail'); }}>やめる</Button>
+          </div>
         )}
       </div>
-    </AdminLayout>
+    </AdminPage>
   );
 }

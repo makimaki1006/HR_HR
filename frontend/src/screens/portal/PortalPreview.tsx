@@ -1,6 +1,5 @@
 // 試作の入口。上の細い帯で画面と試作の操作を切り替える（実装では無くなる帯）。
 import { useEffect, useMemo, useState } from 'react';
-import { PortalStoreProvider, usePortalStore } from './store';
 import { PreviewNavContext, ROUTES, type PreviewScreen } from './preview';
 import { screens as auth } from './customer/auth';
 import { screens as list } from './customer/list';
@@ -19,7 +18,6 @@ const ALL: PreviewScreen[] = [...auth, ...list, ...edit, ...metrics, ...history,
 const readHash = () => decodeURIComponent(window.location.hash.replace(/^#/, ''));
 
 function PreviewBar({ currentId, onPick }: { currentId: string; onPick: (id: string) => void }) {
-  const store = usePortalStore();
   const data = useData();
   const [open, setOpen] = useState(false);
   const groups = useMemo(() => {
@@ -53,10 +51,10 @@ function PreviewBar({ currentId, onPick }: { currentId: string; onPick: (id: str
       </div>
       {open && (
         <div className="flex flex-wrap gap-2 px-3 pb-2">
-          <button type="button" className="rounded bg-[#3a3a3a] px-2 py-1" onClick={() => { actions.simulateSheetEdit(sheetId); store.simulateSheetEdit(sheetId); }}>社内がシートで 1 行を書き換える</button>
-          <button type="button" className="rounded bg-[#3a3a3a] px-2 py-1" onClick={() => { actions.simulateNewApplicant(sheetId); store.simulateNewApplicant(sheetId); }}>シートに新しい応募者が入る</button>
+          <button type="button" className="rounded bg-[#3a3a3a] px-2 py-1" onClick={() => { actions.simulateSheetEdit(sheetId); }}>社内がシートで 1 行を書き換える</button>
+          <button type="button" className="rounded bg-[#3a3a3a] px-2 py-1" onClick={() => { actions.simulateNewApplicant(sheetId); }}>シートに新しい応募者が入る</button>
           <label className="flex items-center gap-1">次の保存:
-            <select value={data.nextSave} onChange={(e) => { const v = e.target.value as 'ok' | 'conflict' | 'failed'; actions.setNextSave(v); store.setNextSave(v); }} className="rounded bg-[#3a3a3a] px-1 py-0.5">
+            <select value={data.nextSave} onChange={(e) => { const v = e.target.value as 'ok' | 'conflict' | 'failed'; actions.setNextSave(v); }} className="rounded bg-[#3a3a3a] px-1 py-0.5">
               <option value="ok">成功する</option>
               <option value="conflict">シートで先に変更されている</option>
               <option value="failed">保存できない</option>
@@ -81,12 +79,16 @@ export function PortalPreview() {
   };
   const screen = ALL.find((s) => s.id === id) ?? ALL[0];
   const hideBar = new URLSearchParams(window.location.search).get('bar') === '0';
+  // 社内の管理画面を開いたら、見ている人を社内の人にする。
+  const isAdmin = screen?.group === '社内の管理';
+  const viewerKind = useData().viewer.kind;
+  useEffect(() => {
+    if (isAdmin && viewerKind !== 'staff') actions.setViewer({ kind: 'staff', name: STAFF_NAME });
+  }, [isAdmin, viewerKind]);
   return (
-    <PortalStoreProvider>
-      <PreviewNavContext.Provider value={{ go }}>
-        {!hideBar && <PreviewBar currentId={screen?.id ?? ''} onPick={go} />}
-        {screen ? <div key={screen.id}>{screen.render()}</div> : <p className="p-6">画面がまだありません。</p>}
-      </PreviewNavContext.Provider>
-    </PortalStoreProvider>
+    <PreviewNavContext.Provider value={{ go }}>
+      {!hideBar && <PreviewBar currentId={screen?.id ?? ''} onPick={go} />}
+      {screen ? <div key={screen.id}>{screen.render()}</div> : <p className="p-6">画面がまだありません。</p>}
+    </PreviewNavContext.Provider>
   );
 }

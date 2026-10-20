@@ -1,124 +1,134 @@
-import { useState } from 'react';
-import { AdminLayout } from '../../ui/layouts';
-import { Badge, Button, Card, Field, Select, TextInput, cx, formatShortDateTime } from '../../ui/kit';
+import { useMemo, useState } from 'react';
+import { sheetsOf, useData } from '../../data';
 import { ROUTES, usePreviewNav } from '../../preview';
+import { Badge, Button, Dialog, Field, IconButton, Segmented, TextInput, formatShortDateTime } from '../../ui/kit';
+import { IconEye, IconPlus, IconSearch } from '../../ui/icons';
 import type { CustomerStage } from '../../types';
-import { CONNECTION_LABEL, STAGE_LABEL, STAGE_TONE, actions, stageWarning, useAdminState } from './state';
+import { AdminPage, StatusDot, TD, TH, Table } from './shared';
+import { STAGE_LABEL, STAGE_TONE, actions, enterAs, isReady, stageWarning } from './state';
 
-type StageFilter = 'all' | 'disabled' | CustomerStage;
+type Filter = 'all' | CustomerStage;
 
 export function CustomerList() {
   const { go } = usePreviewNav();
-  const s = useAdminState();
+  const d = useData();
+  const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
-  const [stage, setStage] = useState<StageFilter>('all');
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
 
-  const rows = s.customers.filter((c) => {
-    const byStage = stage === 'all' || (stage === 'disabled' ? c.disabled : c.stage === stage);
-    return byStage && c.name.includes(query.trim());
-  });
+  const shown = useMemo(() => d.customers.filter((c) => (filter === 'all' || c.stage === filter) && (query.trim() === '' || c.name.includes(query.trim()))), [d.customers, filter, query]);
 
-  const open = (id: string) => {
+  const open = (id: string): void => {
     actions.selectCustomer(id);
     go('admin-customer-detail');
   };
-  const create = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    actions.addCustomer(trimmed);
-    setName('');
+  const view = (id: string): void => {
+    enterAs(id);
+    go(ROUTES.list);
+  };
+  const create = (): void => {
+    const n = name.trim();
+    if (n === '') return;
+    const id = actions.addCustomer(n);
     setAdding(false);
-    go('admin-customer-detail');
+    setName('');
+    open(id);
   };
 
   return (
-    <AdminLayout title="顧客とシート" current="customers" onNavigate={(to) => { go(to === 'customers' ? ROUTES.adminCustomers : ROUTES.adminAccounts); }}>
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div className="w-72"><Field label="顧客名で探す"><TextInput value={query} onChange={(e) => { setQuery(e.target.value); }} placeholder="顧客名" /></Field></div>
-        <div className="w-60">
-          <Field label="絞り込み">
-            <Select value={stage} onChange={(e) => { setStage(e.target.value as StageFilter); }}>
-              <option value="all">すべて</option>
-              <option value="sheet_only">{STAGE_LABEL.sheet_only}</option>
-              <option value="both">{STAGE_LABEL.both}</option>
-              <option value="portal_only">{STAGE_LABEL.portal_only}</option>
-              <option value="disabled">停止中</option>
-            </Select>
-          </Field>
-        </div>
-        <span className="pb-3 text-sm text-pt-muted">{rows.length} 社</span>
-        <div className="ml-auto"><Button variant="primary" onClick={() => { setAdding(true); }}>顧客を追加</Button></div>
+    <AdminPage
+      title="顧客とシート"
+      current="customers"
+      actions={<Button variant="primary" size="sm" onClick={() => { setAdding(true); }}><IconPlus size={14} />顧客を追加</Button>}
+    >
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Segmented<Filter>
+          size="sm"
+          value={filter}
+          onChange={setFilter}
+          options={[{ value: 'all', label: 'すべて' }, { value: 'sheet_only', label: STAGE_LABEL.sheet_only }, { value: 'both', label: STAGE_LABEL.both }, { value: 'portal_only', label: STAGE_LABEL.portal_only }]}
+        />
+        <span className="relative">
+          <IconSearch size={14} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-pt-faint" />
+          <TextInput value={query} onChange={(e) => { setQuery(e.target.value); }} placeholder="顧客名" aria-label="顧客名で探す" className="!w-56 !pl-8 sm:!h-8" />
+        </span>
+        <span className="pt-num ml-auto text-xs text-pt-muted">{String(shown.length)} 社</span>
       </div>
 
-      {adding && (
-        <Card className="mb-4 p-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="w-96"><Field label="顧客名" hint="最初は「シートだけ」の段階で登録されます。"><TextInput autoFocus value={name} onChange={(e) => { setName(e.target.value); }} onKeyDown={(e) => { if (e.key === 'Enter') create(); }} /></Field></div>
-            <Button variant="primary" disabled={!name.trim()} onClick={create}>追加する</Button>
-            <Button variant="ghost" onClick={() => { setAdding(false); setName(''); }}>やめる</Button>
-          </div>
-        </Card>
-      )}
+      <Table minWidth={980}>
+        <thead>
+          <tr>
+            <th className={TH}>顧客</th>
+            <th className={TH}>段階</th>
+            <th className={TH}>シート</th>
+            <th className={TH + ' text-right'}>アカウント</th>
+            <th className={TH}>最後に使われた</th>
+            <th className={TH + ' w-12'} />
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((c) => {
+            const sh = sheetsOf(d, c.id);
+            const ready = sh.filter(isReady).length;
+            const broken = sh.length - ready;
+            const accts = d.accounts.filter((a) => a.customerId === c.id);
+            const active = accts.filter((a) => a.status === 'active').length;
+            const warn = stageWarning(c.stage, sh);
+            return (
+              <tr key={c.id} onClick={() => { open(c.id); }} className="group cursor-pointer hover:bg-pt-primary-soft/40">
+                <td className={TD}>
+                  <span className="font-medium">{c.name}</span>
+                  {c.disabled && <span className="ml-2"><Badge tone="neutral">停止中</Badge></span>}
+                </td>
+                <td className={TD}>
+                  <Badge tone={STAGE_TONE[c.stage]}>{STAGE_LABEL[c.stage]}</Badge>
+                  {warn && <span className="ml-2 text-xs text-pt-warn">{warn}</span>}
+                </td>
+                <td className={TD}>
+                  {sh.length === 0 ? (
+                    <span className="text-pt-faint">なし</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-3">
+                      <span className="pt-num">{String(sh.length)} 枚</span>
+                      {ready > 0 && <StatusDot tone="ok"><span className="pt-num">{String(ready)}</span> つながっている</StatusDot>}
+                      {broken > 0 && <StatusDot tone="warn"><span className="pt-num">{String(broken)}</span> 要確認</StatusDot>}
+                    </span>
+                  )}
+                </td>
+                <td className={TD + ' text-right'}>
+                  <span className="pt-num">{String(accts.length)}</span>
+                  {active !== accts.length && <span className="pt-num ml-1 text-xs text-pt-faint">（利用中 {String(active)}）</span>}
+                </td>
+                <td className={TD + ' pt-num text-pt-muted'}>{c.lastUsedAt ? formatShortDateTime(c.lastUsedAt) : <span className="text-pt-faint">まだ使われていない</span>}</td>
+                <td className={TD + ' text-right whitespace-nowrap'}>
+                  <IconButton
+                    label={ready === 0 ? 'つながっているシートがないため、画面は見られない' : 'この顧客の画面を見る'}
+                    disabled={ready === 0}
+                    className={ready === 0 ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}
+                    onClick={(e) => { e.stopPropagation(); view(c.id); }}
+                  >
+                    <IconEye size={16} />
+                  </IconButton>
+                </td>
+              </tr>
+            );
+          })}
+          {shown.length === 0 && <tr><td colSpan={6} className="px-3 py-10 text-center text-pt-muted">条件に合う顧客はいません</td></tr>}
+        </tbody>
+      </Table>
 
-      <Card className="overflow-hidden">
-        <table className="w-full table-fixed text-sm">
-          <colgroup>
-            <col className="w-[26%]" /><col className="w-[22%]" /><col className="w-[20%]" /><col className="w-[14%]" /><col className="w-[18%]" />
-          </colgroup>
-          <thead className="bg-pt-bg text-left text-xs text-pt-muted">
-            <tr>
-              <th className="px-4 py-2 font-medium">顧客名</th>
-              <th className="px-4 py-2 font-medium">段階</th>
-              <th className="px-4 py-2 font-medium">シート</th>
-              <th className="px-4 py-2 font-medium">アカウント</th>
-              <th className="px-4 py-2 font-medium">最後に使われた日時</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((c) => {
-              const mine = s.sheets.filter((sh) => sh.customerId === c.id);
-              const bad = mine.filter((sh) => sh.connection !== 'ok');
-              const accts = s.accounts.filter((a) => a.customerId === c.id);
-              const usable = accts.filter((a) => a.status !== 'disabled').length;
-              const off = accts.length - usable;
-              const first = bad[0];
-              const warn = stageWarning(c.stage, mine);
-              return (
-                <tr key={c.id} onClick={() => { open(c.id); }} className={cx('cursor-pointer border-t border-pt-line hover:bg-pt-bg', c.disabled && 'text-pt-muted')}>
-                  <td className="px-4 py-3">
-                    <button type="button" onClick={(e) => { e.stopPropagation(); open(c.id); }} className="text-left font-medium text-pt-primary hover:underline">{c.name}</button>
-                    {c.disabled && <span className="ml-2"><Badge tone="danger">停止中</Badge></span>}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge tone={STAGE_TONE[c.stage]}>{STAGE_LABEL[c.stage]}</Badge>
-                    {warn && <div className="mt-1"><Badge tone="warn">{warn}</Badge></div>}
-                  </td>
-                  <td className="px-4 py-3">
-                    {mine.length === 0 ? <span className="text-pt-faint">未登録</span> : (
-                      <div>
-                        <div>{mine.length} 枚</div>
-                        <div className="mt-0.5">
-                          {first
-                            ? <Badge tone="warn">{bad.length === 1 && mine.length === 1 ? CONNECTION_LABEL[first.connection] : String(mine.length) + ' 枚中 ' + String(bad.length) + ' 枚 ' + CONNECTION_LABEL[first.connection]}</Badge>
-                            : <Badge tone="ok">つながっています</Badge>}
-                        </div>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div>使える {usable} 件</div>
-                    {off > 0 && <div className="text-xs text-pt-faint">使えない {off} 件</div>}
-                  </td>
-                  <td className="px-4 py-3 text-pt-muted">{c.lastUsedAt ? formatShortDateTime(c.lastUsedAt) : 'まだ使われていません'}</td>
-                </tr>
-              );
-            })}
-            {rows.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-pt-muted">該当する顧客がありません。</td></tr>}
-          </tbody>
-        </table>
-      </Card>
-    </AdminLayout>
+      <Dialog
+        open={adding}
+        title="顧客を追加"
+        width="sm"
+        onClose={() => { setAdding(false); }}
+        footer={<><Button variant="ghost" onClick={() => { setAdding(false); }}>やめる</Button><Button variant="primary" disabled={name.trim() === ''} onClick={create}>追加</Button></>}
+      >
+        <Field label="顧客名" hint="追加後に、シートとアカウントを登録します。">
+          <TextInput autoFocus value={name} onChange={(e) => { setName(e.target.value); }} onKeyDown={(e) => { if (e.key === 'Enter') create(); }} />
+        </Field>
+      </Dialog>
+    </AdminPage>
   );
 }

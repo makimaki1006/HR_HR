@@ -1,249 +1,331 @@
-import { useEffect, useRef, useState } from 'react';
-import { AdminLayout } from '../../ui/layouts';
-import { Badge, Button, Card, Field, Notice, TextInput, cx, formatShortDateTime } from '../../ui/kit';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { sheetsOf, useData } from '../../data';
 import { ROUTES, usePreviewNav } from '../../preview';
+import { Badge, Button, Dialog, IconButton, TextInput, cx, formatShortDateTime } from '../../ui/kit';
+import { IconEye, IconExternal, IconPlus, IconSheet } from '../../ui/icons';
 import type { CustomerStage, SheetConfig } from '../../types';
+import { AccountStatusBadge } from '../accounts/shared';
+import { entrySentence } from '../accounts/activityView';
+import { setActivityAccount, setActivityCustomer } from '../accounts/store';
+import { IconPencil } from './icons';
 import { ShareHint } from './ShareHint';
-import { CONNECTION_LABEL, CONNECTION_TONE, STAGE_LABEL, STAGE_MEANING, STAGE_TONE, actions, isReady, stageBlockReason, useAdminState } from './state';
+import { AdminPage, MoreMenu, StatusDot, Switch, TD, TH, Table } from './shared';
+import { CONNECTION_LABEL, CONNECTION_TONE, STAGE_LABEL, STAGE_MEANING, STAGE_TONE, actions, enterAs, stageBlockReason, useAdminState } from './state';
 
 const STAGES: CustomerStage[] = ['sheet_only', 'both', 'portal_only'];
-type Msg = { tone: 'ok' | 'danger'; text: string } | null;
 
-function Result({ msg }: { msg: Msg }) {
-  if (!msg) return null;
-  return <div className="mt-3"><Notice tone={msg.tone}>{msg.text}</Notice></div>;
+function SectionTitle({ children, right }: { children: string; right?: ReactNode }) {
+  return (
+    <div className="mb-2 flex items-center gap-2 border-b border-pt-line pb-1.5">
+      <h2 className="text-[13px] font-semibold">{children}</h2>
+      {right && <div className="ml-auto flex items-center gap-1">{right}</div>}
+    </div>
+  );
 }
 
 export function CustomerDetail() {
   const { go } = usePreviewNav();
-  const s = useAdminState();
-  const customer = s.customers.find((c) => c.id === s.customerId);
+  const d = useData();
+  const admin = useAdminState();
+  const customer = d.customers.find((c) => c.id === admin.customerId);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
   const [pending, setPending] = useState<CustomerStage | null>(null);
-  const [checked, setChecked] = useState(false);
-  const [confirmStop, setConfirmStop] = useState(false);
-  const [name, setName] = useState(customer?.name ?? '');
-  const [nameMsg, setNameMsg] = useState<Msg>(null);
-  const [nameSaving, setNameSaving] = useState(false);
-  const [stageMsg, setStageMsg] = useState<Msg>(null);
-  const [stopMsg, setStopMsg] = useState<Msg>(null);
-  const [removing, setRemoving] = useState<string | null>(null);
-  const [menu, setMenu] = useState<string | null>(null);
+  const [shareChecked, setShareChecked] = useState(false);
+  const [removing, setRemoving] = useState<SheetConfig | null>(null);
+  const [stopping, setStopping] = useState(false);
   const [rechecking, setRechecking] = useState<string | null>(null);
-  const [recheckMsg, setRecheckMsg] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => { window.clearTimeout(timer.current); }, []);
 
-  const nav = (to: 'customers' | 'accounts') => { go(to === 'customers' ? ROUTES.adminCustomers : ROUTES.adminAccounts); };
   if (!customer) {
-    return <AdminLayout title="顧客の詳細" current="customers" onNavigate={nav}><p>顧客が選ばれていません。</p></AdminLayout>;
+    return <AdminPage title="顧客の詳細" current="customers" back={{ label: '顧客とシート', to: ROUTES.adminCustomers }}><p className="text-[13px] text-pt-muted">顧客が選ばれていません。</p></AdminPage>;
   }
-  const mine = s.sheets.filter((sh) => sh.customerId === customer.id);
-  const accts = s.accounts.filter((a) => a.customerId === customer.id);
+  const stopped = customer.disabled;
+  const mine = sheetsOf(d, customer.id);
+  const accts = d.accounts.filter((a) => a.customerId === customer.id);
+  const recent = d.activity.filter((e) => e.customerId === customer.id).slice(0, 5);
   const block = stageBlockReason(mine);
 
-  const saveName = () => {
-    setNameSaving(true);
-    setNameMsg(null);
-    timer.current = window.setTimeout(() => {
-      setNameSaving(false);
-      if (name.includes('失敗')) {
-        setNameMsg({ tone: 'danger', text: '保存できませんでした。もう一度押してください。入力した名前はそのまま残っています。' });
-        return;
-      }
-      actions.updateCustomer(customer.id, { name: name.trim() });
-      setNameMsg({ tone: 'ok', text: '顧客名を保存しました。' });
-    }, 500);
+  const startEdit = (): void => { setNameDraft(customer.name); setEditingName(true); };
+  const commitName = (): void => {
+    const n = nameDraft.trim();
+    if (n !== '' && n !== customer.name) actions.renameCustomer(customer.id, n);
+    setEditingName(false);
   };
-
-  const choose = (st: CustomerStage) => {
-    if (st === customer.stage) { setPending(null); return; }
-    setStageMsg(null);
-    setChecked(false);
-    setPending(st);
+  const choose = (st: CustomerStage): void => {
+    if (st === customer.stage || stopped) return;
+    if (st === 'portal_only' || customer.stage === 'portal_only') {
+      setShareChecked(false);
+      setPending(st);
+    } else {
+      actions.setStage(customer.id, st);
+    }
   };
-  const needsCheck = pending !== null && (pending === 'portal_only' || customer.stage === 'portal_only');
-  const applyStage = () => {
-    if (!pending) return;
-    actions.setStage(customer.id, pending);
-    setStageMsg({ tone: 'ok', text: '段階を「' + STAGE_LABEL[pending] + '」に変更しました。' });
-    setPending(null);
-  };
-
-  const recheck = (sh: SheetConfig) => {
+  const recheck = (sh: SheetConfig): void => {
     setRechecking(sh.id);
-    setRecheckMsg((m) => ({ ...m, [sh.id]: '' }));
+    setNotes((n) => ({ ...n, [sh.id]: '' }));
     timer.current = window.setTimeout(() => {
       setRechecking(null);
-      if (sh.connection === 'not_shared') {
-        actions.updateSheet(sh.id, { connection: 'ok' });
-      } else if (sh.connection === 'not_found') {
-        setRecheckMsg((m) => ({ ...m, [sh.id]: 'シートがまだ見つかりません。URL とシートの削除の有無を確かめてください。' }));
-      } else {
-        setRecheckMsg((m) => ({ ...m, [sh.id]: '見出しが変わっています。列の設定で、増えた列と見つからない列を確かめてください。' }));
-      }
+      if (sh.connection === 'not_shared') actions.setConnection(sh, 'ok');
+      else setNotes((n) => ({ ...n, [sh.id]: sh.connection === 'not_found' ? 'シートがまだ見つからない。URL と削除の有無を確かめる。' : '見出しが変わっている。項目とプルダウンで、増えた項目と見つからない項目を確かめる。' }));
     }, 700);
   };
+  const openColumns = (sh: SheetConfig): void => {
+    enterAs(customer.id, sh.id);
+    go(ROUTES.columns);
+  };
+  const view = (sh?: SheetConfig): void => {
+    enterAs(customer.id, sh?.id);
+    go(ROUTES.list);
+  };
+
+  const title = editingName ? (
+    <span className="flex items-center gap-1.5">
+      <TextInput
+        autoFocus
+        aria-label="顧客名"
+        value={nameDraft}
+        onChange={(e) => { setNameDraft(e.target.value); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') setEditingName(false); }}
+        className="!h-8 !w-72 !text-[15px]"
+      />
+      <Button size="sm" variant="primary" disabled={nameDraft.trim() === ''} onClick={commitName}>保存</Button>
+      <Button size="sm" variant="ghost" onClick={() => { setEditingName(false); }}>やめる</Button>
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1">
+      {customer.name}
+      <IconButton label="顧客名を変更" className="!h-7 !w-7" onClick={startEdit}><IconPencil size={14} /></IconButton>
+    </span>
+  );
 
   return (
-    <AdminLayout title="顧客の詳細" current="customers" onNavigate={nav}>
-      <button type="button" className="mb-3 text-sm text-pt-primary hover:underline" onClick={() => { go(ROUTES.adminCustomers); }}>顧客の一覧に戻る</button>
+    <AdminPage
+      title={title}
+      {...(stopped ? { titleBadge: <Badge tone="neutral">停止中</Badge> } : {})}
+      current="customers"
+      back={{ label: '顧客とシート', to: ROUTES.adminCustomers }}
+      actions={
+        <>
+          <Button size="sm" disabled={mine.length === 0} onClick={() => { view(); }}><IconEye size={14} />この顧客の画面を見る</Button>
+          <MoreMenu items={[stopped ? { label: '再開する', onSelect: () => { actions.setDisabled(customer.id, false); } } : { label: 'この顧客を停止', danger: true, onSelect: () => { setStopping(true); } }]} />
+        </>
+      }
+    >
+      {stopped && (
+        <p className="-mt-2 mb-4 flex items-center gap-3 text-[13px] text-pt-muted">
+          停止中。この顧客の人はログインできない。
+          <Button size="sm" onClick={() => { actions.setDisabled(customer.id, false); }}>再開する</Button>
+        </p>
+      )}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <section>
+            <SectionTitle right={<Button size="sm" variant="primary" disabled={stopped} onClick={() => { actions.selectCustomer(customer.id); go('admin-sheet-add'); }}><IconPlus size={14} />シートを追加</Button>}>
+              {`シート（${String(mine.length)} 枚）`}
+            </SectionTitle>
+            {mine.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-pt-line-strong py-8 text-center text-[13px] text-pt-muted">シートはまだ登録されていない</p>
+            ) : (
+              <Table minWidth={820}>
+                <thead>
+                  <tr>
+                    <th className={TH}>タブ</th>
+                    <th className={TH}>つながり</th>
+                    <th className={TH + ' text-right'}>応募者</th>
+                    <th className={TH + ' text-right'}>画面に出す項目</th>
+                    <th className={TH}>顧客も項目を変更</th>
+                    <th className={TH} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {mine.map((sh) => {
+                    const shown = sh.columns.filter((c) => c.visible).length;
+                    const url = admin.sheetUrls[sh.id];
+                    return (
+                      <tr key={sh.id} className={cx('group', sh.id === d.currentSheetId && 'bg-pt-primary-soft/40')}>
+                        <td className={TD}>
+                          <span className="font-medium">{sh.tabName}</span>
+                          <span className="flex items-center gap-1 text-[11px] text-pt-faint">
+                            <IconSheet size={11} />
+                            <span className="max-w-56 truncate">{admin.sheetFiles[sh.id] ?? ''}</span>
+                            {url && (
+                              <a href={url} target="_blank" rel="noreferrer" aria-label="スプレッドシートを開く" title="スプレッドシートを開く" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-pt-primary"><IconExternal size={11} /></a>
+                            )}
+                          </span>
+                        </td>
+                        <td className={TD}>
+                          <StatusDot tone={CONNECTION_TONE[sh.connection]}>{CONNECTION_LABEL[sh.connection]}</StatusDot>
+                          {notes[sh.id] && <p className="mt-0.5 max-w-60 text-xs text-pt-muted">{notes[sh.id]}</p>}
+                        </td>
+                        <td className={TD + ' pt-num text-right'}>{String(d.rows[sh.id]?.length ?? 0)}</td>
+                        <td className={TD + ' text-right whitespace-nowrap'}><span className="pt-num">{String(shown)}</span> 項目<span className="pt-num text-pt-faint">（全 {String(sh.columns.length)}）</span></td>
+                        <td className={TD}>
+                          <span className="inline-flex items-center gap-2">
+                            <Switch on={sh.customerCanEditColumns === true} label={`${sh.tabName}の項目を顧客も変更できる`} onChange={(v) => { actions.setCustomerCanEdit(sh, v); }} />
+                            <span className="text-xs text-pt-muted">{sh.customerCanEditColumns === true ? '許可' : '社内のみ'}</span>
+                          </span>
+                        </td>
+                        <td className={TD + ' text-right whitespace-nowrap'}>
+                          <Button size="sm" variant="ghost" onClick={() => { openColumns(sh); }}>項目とプルダウン</Button>
+                          <MoreMenu
+                            items={[
+                              { label: 'この画面を開く', onSelect: () => { view(sh); } },
+                              ...(sh.connection !== 'ok' ? [{ label: rechecking === sh.id ? '確認中' : '確かめ直す', disabled: rechecking === sh.id, onSelect: () => { recheck(sh); } }] : []),
+                              { label: 'シートを外す', danger: true, onSelect: () => { setRemoving(sh); } },
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            )}
+            {mine.some((s) => s.connection === 'not_shared') && (
+              <div className="mt-3">
+                <ShareHint
+                  checking={rechecking !== null}
+                  onRecheck={() => { const t = mine.find((s) => s.connection === 'not_shared'); if (t) recheck(t); }}
+                />
+              </div>
+            )}
+          </section>
 
-      <div className="grid grid-cols-[1fr_340px] gap-5">
-        <div className="flex flex-col gap-5">
-          <Card className="p-5">
-            <div className="flex items-end gap-3">
-              <div className="w-96"><Field label="顧客名"><TextInput value={name} onChange={(e) => { setName(e.target.value); setNameMsg(null); }} /></Field></div>
-              <Button disabled={!name.trim() || name === customer.name || nameSaving} onClick={saveName}>{nameSaving ? '保存しています' : '名前を保存'}</Button>
-              {customer.disabled && <Badge tone="danger">停止中</Badge>}
-            </div>
-            <p className="mt-3 text-sm text-pt-muted">最後に使われた日時: {customer.lastUsedAt ? formatShortDateTime(customer.lastUsedAt) : 'まだ使われていません'}</p>
-            <Result msg={nameMsg} />
-          </Card>
+          <section>
+            <SectionTitle
+              right={
+                <>
+                  <Button size="sm" variant="ghost" onClick={() => { setActivityAccount(''); actions.setAccountsFilter(customer.id); go(ROUTES.adminAccounts); }}>すべて見る</Button>
+                  <Button size="sm" variant="ghost" disabled={stopped} onClick={() => { actions.setInviteCustomer(customer.id); go('admin-invite'); }}>招待</Button>
+                </>
+              }
+            >
+              {`アカウント（${String(accts.length)}）`}
+            </SectionTitle>
+            {accts.length === 0 ? (
+              <p className="text-xs text-pt-muted">アカウントはまだない。</p>
+            ) : (
+              <Table minWidth={640}>
+                <thead>
+                  <tr>
+                    <th className={TH}>アカウント</th>
+                    <th className={TH}>状態</th>
+                    <th className={TH}>最後のログイン</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accts.map((a) => (
+                    <tr key={a.id}>
+                      <td className={TD}>
+                        <span className="font-medium">{a.displayName !== '' ? a.displayName : a.email}</span>
+                        {a.displayName !== '' && <span className="ml-2 text-xs text-pt-faint">{a.email}</span>}
+                      </td>
+                      <td className={TD}><AccountStatusBadge account={a} /></td>
+                      <td className={TD + ' pt-num text-pt-muted'}>{a.lastLoginAt ? formatShortDateTime(a.lastLoginAt) : <span className="text-pt-faint">まだない</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </section>
+        </div>
 
-          <Card className="p-5">
-            <h2 className="mb-3 text-base font-semibold">段階</h2>
-            <div className="grid grid-cols-3 gap-3">
+        <aside className="flex flex-col gap-6">
+          <section>
+            <SectionTitle>使い方の段階</SectionTitle>
+            <div role="radiogroup" aria-label="使い方の段階" className="inline-flex rounded-md border border-pt-line bg-pt-sunken p-0.5">
               {STAGES.map((st) => {
                 const current = customer.stage === st;
-                const selected = pending === st;
-                const locked = st !== 'sheet_only' && block !== null && !current;
+                const locked = stopped || (st !== 'sheet_only' && block !== null && !current);
                 return (
                   <button
                     key={st}
                     type="button"
+                    role="radio"
+                    aria-checked={current}
                     disabled={locked}
                     onClick={() => { choose(st); }}
-                    aria-pressed={selected || (current && pending === null)}
-                    className={cx('flex flex-col items-start justify-start rounded-lg border-2 p-3 text-left disabled:cursor-not-allowed disabled:opacity-50', selected ? 'border-pt-primary bg-pt-surface' : current ? 'border-pt-line-strong bg-pt-primary-soft' : 'border-pt-line hover:bg-pt-bg')}
+                    className={cx('h-7 rounded px-3 text-[13px] font-medium whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-45', current ? 'bg-pt-surface text-pt-ink shadow-pt-card' : 'text-pt-muted hover:text-pt-ink')}
                   >
-                    <Badge tone={STAGE_TONE[st]}>{STAGE_LABEL[st]}</Badge>
-                    <p className="mt-2 text-xs leading-relaxed text-pt-muted">{STAGE_MEANING[st]}</p>
-                    {current && <p className="mt-2 text-xs font-medium text-pt-primary">現在の段階</p>}
-                    {selected && <p className="mt-2 text-xs font-medium text-pt-primary">この段階に変更します</p>}
+                    {STAGE_LABEL[st]}
                   </button>
                 );
               })}
             </div>
-            {block && <p className="mt-3 text-sm text-pt-warn">「シートと画面の両方」「画面だけ」は選べません。{block}</p>}
-            {pending && (
-              <div className="mt-4">
-                <Notice tone="warn" title={'段階を「' + STAGE_LABEL[pending] + '」に変更します'}>
-                  {pending === 'sheet_only' && <p>顧客は画面にログインしても応募者を見られなくなります。</p>}
-                  {pending === 'both' && customer.stage === 'sheet_only' && <p>顧客はシートに加えて、画面でも応募者を見て書けるようになります。</p>}
-                  {pending === 'both' && customer.stage === 'portal_only' && <p>顧客がシートも使えるようになります。</p>}
-                  {pending === 'portal_only' && <p>顧客はシートを使えなくなります。</p>}
-                  {needsCheck && (
-                    <label className="mt-2 flex items-center gap-2">
-                      <input type="checkbox" checked={checked} onChange={(e) => { setChecked(e.target.checked); }} className="h-4 w-4" />
-                      {pending === 'portal_only' ? 'この顧客へのシートの共有を外しました' : 'この顧客へのシートの共有を戻しました'}
-                    </label>
-                  )}
-                  <div className="mt-3 flex gap-2">
-                    <Button variant="primary" size="sm" disabled={needsCheck && !checked} onClick={applyStage}>変更する</Button>
-                    <Button variant="ghost" size="sm" onClick={() => { setPending(null); }}>やめる</Button>
-                  </div>
-                </Notice>
-              </div>
-            )}
-            <Result msg={stageMsg} />
-          </Card>
+            <p className="mt-2 text-xs text-pt-muted"><Badge tone={STAGE_TONE[customer.stage]}>{STAGE_LABEL[customer.stage]}</Badge> {STAGE_MEANING[customer.stage]}</p>
+            {block && !stopped && <p className="mt-1.5 text-xs text-pt-warn">「両方」「画面だけ」は選べない。{block}</p>}
+            <p className="mt-1.5 text-xs text-pt-faint">最後に使われた {customer.lastUsedAt ? <span className="pt-num">{formatShortDateTime(customer.lastUsedAt)}</span> : 'まだ使われていない'}</p>
+          </section>
 
-          <Card className="overflow-hidden">
-            <div className="flex items-center justify-between p-5 pb-3">
-              <h2 className="text-base font-semibold">登録したシート</h2>
-              <Button variant="primary" size="sm" onClick={() => { go('admin-sheet-add'); }}>シートの追加</Button>
-            </div>
-            <table className="w-full text-sm">
-              <thead className="bg-pt-bg text-left text-xs text-pt-muted">
-                <tr><th className="px-5 py-2 font-medium">タブ名</th><th className="px-3 py-2 font-medium">つながり</th><th className="px-3 py-2 font-medium">列の数</th><th className="px-5 py-2" /></tr>
-              </thead>
-              <tbody>
-                {mine.map((sh) => (
-                  <tr key={sh.id} className="border-t border-pt-line align-top">
-                    <td className="whitespace-nowrap px-5 py-3 font-medium">{sh.tabName}</td>
-                    <td className="px-3 py-3">
-                      <Badge tone={CONNECTION_TONE[sh.connection]}>{CONNECTION_LABEL[sh.connection]}</Badge>
-                      {sh.connection === 'ok' && !isReady(sh) && <div className="mt-1 text-xs text-pt-warn">列の設定が済んでいません</div>}
-                      {recheckMsg[sh.id] && <div className="mt-1 text-xs text-pt-danger">{recheckMsg[sh.id]}</div>}
-                      {sh.connection === 'not_shared' && <div className="mt-2 max-w-md"><ShareHint onRecheck={() => { recheck(sh); }} checking={rechecking === sh.id} /></div>}
-                    </td>
-                    <td className="px-3 py-3">{sh.columns.length > 0 ? String(sh.columns.length) + ' 列（顧客に見せるのは ' + String(sh.columns.filter((c) => c.visible).length) + ' 列）' : '未設定'}</td>
-                    <td className="px-5 py-3 text-right">
-                      {removing === sh.id ? (
-                        <div className="flex flex-col items-end gap-2">
-                          <span className="text-xs text-pt-muted">このシートを外します。シート自体は消えません。</span>
-                          <span className="flex gap-2">
-                            <Button variant="danger" size="sm" onClick={() => { actions.removeSheet(sh.id); setRemoving(null); }}>外す</Button>
-                            <Button variant="ghost" size="sm" onClick={() => { setRemoving(null); }}>やめる</Button>
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex flex-nowrap items-center justify-end gap-2">
-                          {sh.connection !== 'ok' && sh.connection !== 'not_shared' && (
-                            <Button size="sm" disabled={rechecking === sh.id} onClick={() => { recheck(sh); }}>{rechecking === sh.id ? '確認しています' : 'つながりを確かめ直す'}</Button>
-                          )}
-                          <Button size="sm" onClick={() => { actions.selectSheet(sh.id); go('admin-sheet-columns'); }}>列の設定</Button>
-                          <div className="relative">
-                            <Button size="sm" aria-expanded={menu === sh.id} onClick={() => { setMenu(menu === sh.id ? null : sh.id); }}>その他</Button>
-                            {menu === sh.id && (
-                              <div className="absolute right-0 top-9 z-10 flex w-44 flex-col rounded-md border border-pt-line bg-pt-surface py-1 text-left shadow-md">
-                                <a href="https://docs.google.com/spreadsheets/" target="_blank" rel="noreferrer" className="px-3 py-2 text-sm text-pt-primary hover:bg-pt-bg">シートを開く</a>
-                                <button type="button" className="px-3 py-2 text-left text-sm text-pt-danger hover:bg-pt-bg" onClick={() => { setMenu(null); setRemoving(sh.id); }}>このシートを外す</button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {mine.length === 0 && <tr><td colSpan={4} className="px-5 py-8 text-center text-pt-muted">まだシートが登録されていません。</td></tr>}
-              </tbody>
-            </table>
-          </Card>
-        </div>
-
-        <div className="flex flex-col gap-5">
-          <Card className="p-5">
-            <h2 className="mb-2 text-base font-semibold">アカウント</h2>
-            <p className="text-sm text-pt-muted">使える {accts.filter((a) => a.status !== 'disabled').length} 件 ／ 使えない {accts.filter((a) => a.status === 'disabled').length} 件</p>
-            <ul className="mt-3 flex flex-col divide-y divide-pt-line">
-              {accts.slice(0, 3).map((a) => (
-                <li key={a.id} className="py-2 text-sm">
-                  <div className="font-medium">{a.displayName || a.email}</div>
-                  {a.displayName && <div className="text-xs text-pt-muted">{a.email}</div>}
-                  <div className="text-xs text-pt-faint">{a.lastLoginAt ? '最後のログイン ' + formatShortDateTime(a.lastLoginAt) : 'まだログインしていません'}</div>
-                </li>
-              ))}
-              {accts.length === 0 && <li className="py-2 text-sm text-pt-muted">アカウントはまだありません。</li>}
-            </ul>
-            <div className="mt-3"><Button onClick={() => { actions.setAccountsFilter(customer.id); go(ROUTES.adminAccounts); }}>{accts.length > 3 ? 'すべて見る' : 'アカウントの画面へ'}</Button></div>
-          </Card>
-          <Card className="p-5">
-            <h2 className="mb-2 text-base font-semibold">利用の停止</h2>
-            {customer.disabled ? (
-              <>
-                <p className="mb-3 text-sm text-pt-muted">この顧客のアカウントは、いまログインできません。</p>
-                <Button onClick={() => { actions.updateCustomer(customer.id, { disabled: false }); setStopMsg({ tone: 'ok', text: '停止を解除しました。' }); }}>停止を解除する</Button>
-              </>
-            ) : confirmStop ? (
-              <Notice tone="warn" title="この顧客を停止します">
-                <p>この顧客のアカウントは、すべてログインできなくなります。</p>
-                <div className="mt-3 flex gap-2">
-                  <Button variant="danger" size="sm" onClick={() => { actions.updateCustomer(customer.id, { disabled: true }); setConfirmStop(false); setStopMsg({ tone: 'ok', text: 'この顧客を停止しました。' }); }}>停止する</Button>
-                  <Button variant="ghost" size="sm" onClick={() => { setConfirmStop(false); }}>やめる</Button>
-                </div>
-              </Notice>
+          <section>
+            <SectionTitle right={<Button size="sm" variant="ghost" onClick={() => { setActivityAccount(''); setActivityCustomer(customer.id); go('admin-activity'); }}>すべて見る</Button>}>最近の記録</SectionTitle>
+            {recent.length === 0 ? (
+              <p className="text-xs text-pt-muted">記録はまだない。</p>
             ) : (
-              <>
-                <p className="mb-3 text-sm text-pt-muted">契約の終了や、一時的に止めたいときに使います。</p>
-                <Button variant="danger" onClick={() => { setStopMsg(null); setConfirmStop(true); }}>この顧客を停止する</Button>
-              </>
+              <ul className="divide-y divide-pt-line">
+                {recent.map((e) => (
+                  <li key={e.id} className="flex gap-3 py-1.5 text-[13px]">
+                    <span className="pt-num w-24 shrink-0 text-xs leading-5 text-pt-muted">{formatShortDateTime(e.at)}</span>
+                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{entrySentence(d, e)}</span>
+                  </li>
+                ))}
+              </ul>
             )}
-            <Result msg={stopMsg} />
-          </Card>
-        </div>
+          </section>
+        </aside>
       </div>
-    </AdminLayout>
+
+      <Dialog
+        open={pending !== null}
+        width="sm"
+        title={pending ? `段階を「${STAGE_LABEL[pending]}」に変更` : ''}
+        onClose={() => { setPending(null); }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setPending(null); }}>やめる</Button>
+            <Button variant="primary" disabled={!shareChecked} onClick={() => { if (pending) actions.setStage(customer.id, pending); setPending(null); }}>変更する</Button>
+          </>
+        }
+      >
+        <p className="text-[13px]">{pending === 'portal_only' ? '顧客はシートを使えなくなる。' : '顧客がシートも使えるようになる。'}</p>
+        <label className="mt-3 flex items-center gap-2 text-[13px]">
+          <input type="checkbox" checked={shareChecked} onChange={(e) => { setShareChecked(e.target.checked); }} className="h-4 w-4" />
+          {pending === 'portal_only' ? 'この顧客へのシートの共有を外した' : 'この顧客へのシートの共有を戻した'}
+        </label>
+      </Dialog>
+
+      <Dialog
+        open={removing !== null}
+        width="sm"
+        title="シートを外す"
+        onClose={() => { setRemoving(null); }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setRemoving(null); }}>やめる</Button>
+            <Button variant="danger" onClick={() => { if (removing) actions.removeSheet(removing); setRemoving(null); }}>外す</Button>
+          </>
+        }
+      >
+        <p className="text-[13px]">「{removing?.tabName}」を画面から外す。シートの中身は消えない。顧客の画面には出なくなる。</p>
+      </Dialog>
+
+      <Dialog
+        open={stopping}
+        width="sm"
+        title="この顧客を停止"
+        onClose={() => { setStopping(false); }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setStopping(false); }}>やめる</Button>
+            <Button variant="danger" onClick={() => { actions.setDisabled(customer.id, true); setStopping(false); }}>停止する</Button>
+          </>
+        }
+      >
+        <p className="text-[13px]">この顧客のアカウントは、すぐにログインできなくなる。再開はいつでもできる。</p>
+      </Dialog>
+    </AdminPage>
   );
 }

@@ -1,330 +1,337 @@
-// 応募者の一覧。顧客のメイン画面。PC は表、スマホはカード。
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { usePortalStore } from '../../store';
-import { ROUTES, usePreviewNav } from '../../preview';
-import { CustomerLayout } from '../../ui/layouts';
-import { Button, Card, Notice, TextInput, cx, formatTime } from '../../ui/kit';
+// 応募者の一覧。顧客のメイン画面。PC はスプレッドシートのように書き換えられる表、スマホはカード。
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { actions, currentSheet, useData } from '../../data';
+import { cardLayout, labelOf, searchColumns } from '../../columns';
+import { AppShell, type SyncInfo } from '../../ui/shell';
 import { ContactBox } from '../../ui/contact';
-import { cardLayout, labelOf, searchColumns, sortByDate, type CardLayout } from '../../columns';
-import { CardBody, ChangeBadge, StatusBadge } from './ApplicantCard';
+import { IconColumns, IconDownload, IconSearch, IconUsers, IconX } from '../../ui/icons';
+import { Button, cx } from '../../ui/kit';
 import { RowEditor } from '../edit/RowEditor';
-import type { ApplicantRow, ColumnConfig, SheetConfig } from '../../types';
+import { setVisibleRows } from '../edit/visibleRows';
+import { ROUTES, usePreviewNav } from '../../preview';
+import type { SheetConfig } from '../../types';
+import { Grid } from './Grid';
+import { MobileList } from './MobileList';
+import { downloadText, matchesFilters, matchesQuery, omit, orderColumns, sortRows, statusDot, toCsv, type ColumnFilter, type SortSpec } from './model';
+import { ToastBar, useOutside } from './parts';
+import { useCellSaver } from './useCellSaver';
+import { NOW } from '../../fixtures';
 
 export type ListState = 'normal' | 'empty' | 'unavailable' | 'stale';
 
-const norm = (s: string) => s.replace(/[-\s]/g, '').toLowerCase();
-const PAGE_SIZE = 30;
-
-function Cell({ col, row, layout }: { col: ColumnConfig; row: ApplicantRow; layout: CardLayout }) {
-  const v = row.values[col.header] ?? '';
-  if (col === layout.status) return <StatusBadge value={v} />;
-  if (col === layout.title) {
-    return (
-      <span className="flex items-center gap-2">
-        <span className="font-medium text-pt-ink">{v}</span>
-        <ChangeBadge kind={row.changedSinceLastView} />
-      </span>
-    );
-  }
-  return <>{v}</>;
-}
-
-function StateBox({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <Card className="px-6 py-12 text-center">
-      <p className="text-base font-semibold text-pt-ink">{title}</p>
-      <div className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-pt-muted">{children}</div>
-    </Card>
+const DESKTOP = '(min-width: 1024px)';
+function useIsDesktop(): boolean {
+  return useSyncExternalStore(
+    (cb) => { const m = window.matchMedia(DESKTOP); m.addEventListener('change', cb); return () => { m.removeEventListener('change', cb); }; },
+    () => window.matchMedia(DESKTOP).matches,
   );
 }
 
-type Retry = 'idle' | 'loading' | 'failed';
-
-export function ApplicantList({ forceState }: { forceState?: ListState }) {
-  const store = usePortalStore();
-  const nav = usePreviewNav();
-  const sheets = store.mySheets;
-  const [sheetId, setSheetId] = useState(sheets[0]?.id ?? '');
-  const sheet: SheetConfig | undefined = sheets.find((s) => s.id === sheetId) ?? sheets[0];
-  const snap = store.snapshot(sheet?.id ?? '');
-  const [status, setStatus] = useState('すべて');
-  const [query, setQuery] = useState('');
-  const [openRow, setOpenRow] = useState<number | null>(null);
-  const [toast, setToast] = useState(false);
-  const [flash, setFlash] = useState<Set<number>>(new Set());
-  const [retry, setRetry] = useState<Retry>('idle');
-  const [retryWillSucceed, setRetryWillSucceed] = useState(true);
+export function ApplicantList({ forceState, openAtStart }: { forceState?: ListState; /** 最初から詳細を開いておく行（試作の画面用）。 */ openAtStart?: number | undefined }) {
+  const d = useData();
+  const sheet = currentSheet(d);
   const [recovered, setRecovered] = useState(false);
-  const prev = useRef<Map<string, { readAt: string; sig: Map<number, string> }>>(new Map());
-  const tableRef = useRef<HTMLDivElement>(null);
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  const [scrolled, setScrolled] = useState(false);
+  const state: ListState = forceState === 'stale' ? (recovered ? 'normal' : 'stale') : forceState ?? (sheet?.connection !== 'ok' ? 'unavailable' : 'normal');
+  const readAt = sheet ? (d.readAt[sheet.id] ?? NOW) : NOW;
+  const sync: SyncInfo | undefined = state === 'unavailable'
+    ? { state: 'unavailable' }
+    : state === 'stale'
+      ? { state: 'stale', at: new Date(new Date(readAt).getTime() - 25 * 60_000).toISOString(), onReload: () => { setRecovered(true); } }
+      : undefined;
+  return (
+    <AppShell section="applicants" title="応募者" flush sync={sync}>
+      {sheet ? <ListBody key={sheet.id} sheet={sheet} state={state} openAtStart={openAtStart} /> : <Unavailable />}
+    </AppShell>
+  );
+}
+
+function Unavailable() {
+  return (
+    <div className="mx-auto max-w-md px-4 py-14">
+      <span className="mb-4 inline-flex h-9 w-9 items-center justify-center rounded-full bg-pt-danger-soft text-pt-danger"><IconUsers size={18} /></span>
+      <h2 className="text-[15px] font-semibold">応募者の一覧を表示できません</h2>
+      <p className="mt-1 text-[13px] text-pt-muted">シートを読み込めませんでした。お手数ですが、下の窓口までご連絡ください。</p>
+      <div className="mt-5"><ContactBox mailSubject="応募者の一覧が表示できません" /></div>
+    </div>
+  );
+}
+
+function Empty() {
+  return (
+    <div className="mx-auto max-w-md px-4 py-16 text-center">
+      <span className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-pt-sunken text-pt-muted"><IconUsers size={20} /></span>
+      <h2 className="text-[15px] font-semibold">応募者はまだいません</h2>
+      <p className="mt-1 text-[13px] text-pt-muted">応募があると、ここに並びます。</p>
+    </div>
+  );
+}
+
+function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: ListState; openAtStart?: number | undefined }) {
+  const d = useData();
+  const isDesktop = useIsDesktop();
+  const saver = useCellSaver(sheet.id);
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState<string | null>(null);
+  const [filters, setFilters] = useState<Record<string, ColumnFilter>>({});
+  const [sort, setSort] = useState<SortSpec | null>(null);
+  const [shownOverride, setShownOverride] = useState<Record<string, boolean>>({});
+  const [openRow, setOpenRow] = useState<number | null>(openAtStart ?? null);
+  const [jump, setJump] = useState<{ rowNumber: number; seq: number } | null>(null);
+  const nav = usePreviewNav();
+  const canEditColumns = d.viewer.kind === 'staff' || sheet.customerCanEditColumns === true;
+
+  const sourceRows = useMemo(() => (state === 'empty' || state === 'unavailable' ? [] : d.rows[sheet.id] ?? []), [d.rows, sheet.id, state]);
+  const layout = cardLayout(sheet);
+  const titleHeader = layout.title?.header ?? '';
+  const statusCol = layout.status;
+  const searchCols = useMemo(() => searchColumns(sheet), [sheet]);
+
+  // シートで社内の人が書き換えたら、表は差し替わり、下に知らせを出す。
+  const readAt = d.readAt[sheet.id] ?? '';
+  const [seenReadAt, setSeenReadAt] = useState(readAt);
+  const [seenRows, setSeenRows] = useState(() => new Set(sourceRows.map((r) => r.rowNumber)));
+  if (readAt !== seenReadAt) {
+    setSeenReadAt(readAt);
+    setSeenRows(new Set(sourceRows.map((r) => r.rowNumber)));
+    const added = sourceRows.filter((r) => !seenRows.has(r.rowNumber));
+    const fromSheet = d.activity.some((e) => e.sheetId === sheet.id && e.source === 'sheet' && e.at > seenReadAt
+      && !(e.rowNumber !== undefined && e.column !== undefined && saver.cells[`${String(e.rowNumber)}|${e.column}`]?.kind === 'saving'));
+    const first = added[0];
+    if (first) {
+      saver.notify(`新しい応募者が ${String(added.length)} 人入りました`, {
+        label: '見る',
+        run: () => {
+          setQuery(''); setStatus(null); setFilters({}); setSort(null);
+          setJump((j) => ({ rowNumber: first.rowNumber, seq: (j?.seq ?? 0) + 1 }));
+        },
+      });
+    } else if (fromSheet) saver.notify('シートの内容が更新されました');
+  }
+
+  // Ctrl+Z で直前の保存を元に戻す（入力中は入力欄の取り消しに任せる）。
+  const undoRef = useRef(saver.undo);
+  useEffect(() => { undoRef.current = saver.undo; }, [saver.undo]);
   useEffect(() => {
-    const on = () => { setScrolled(window.scrollY > 700); };
-    window.addEventListener('scroll', on, { passive: true });
-    return () => { window.removeEventListener('scroll', on); };
+    const h = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+      const t = e.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return;
+      e.preventDefault();
+      undoRef.current();
+    };
+    window.addEventListener('keydown', h);
+    return () => { window.removeEventListener('keydown', h); };
   }, []);
 
-  // 読んだ時刻が変わっても、行が増えた・変わったときだけ色と通知を出す。タブごとに前回の内容を覚える。
-  useEffect(() => {
-    const id = sheet?.id ?? '';
-    const sig = new Map(snap.rows.map((r) => [r.rowNumber, JSON.stringify(r.values)]));
-    const before = prev.current.get(id);
-    prev.current.set(id, { readAt: snap.readAt, sig });
-    if (!before || before.readAt === snap.readAt) return undefined;
-    const changed = new Set<number>();
-    sig.forEach((v, k) => { if (before.sig.get(k) !== v) changed.add(k); });
-    if (changed.size === 0) return undefined;
-    setFlash(changed);
-    setToast(true);
-    const t = window.setTimeout(() => { setToast(false); setFlash(new Set()); }, 12000);
-    return () => { window.clearTimeout(t); };
-  }, [sheet?.id, snap.readAt, snap.rows]);
+  const shownCols = useMemo(() => {
+    const vis = orderColumns(sheet.columns.filter((c) => c.visible), titleHeader, statusCol?.header);
+    return vis.filter((c) => c.header === titleHeader || (shownOverride[c.header] ?? c.inList));
+  }, [sheet.columns, titleHeader, statusCol?.header, shownOverride]);
 
-  const hasRead = snap.rows.length > 0;
-  const state: ListState = (() => {
-    if (forceState === 'empty') return 'empty';
-    if (forceState === 'unavailable') return 'unavailable';
-    if (forceState === 'stale') return recovered ? 'normal' : 'stale';
-    if (sheet?.connection !== 'ok') return hasRead ? 'stale' : 'unavailable';
-    return 'normal';
-  })();
-  const layout = useMemo(() => cardLayout(sheet ?? { columns: [] }), [sheet]);
-  const allRows = useMemo(() => (state === 'empty' || state === 'unavailable' ? [] : sortByDate(snap.rows, layout.sort?.header)), [snap.rows, state, layout.sort?.header]);
-
-  const statusKey = layout.status?.header;
-  const statuses = useMemo(() => {
-    if (!layout.status || !statusKey) return [];
-    const base = layout.status.options?.filter((o) => o !== '') ?? [];
-    const seen = allRows.map((r) => r.values[statusKey] ?? '').filter((v) => v !== '' && !base.includes(v));
-    return [...base, ...new Set(seen)];
-  }, [layout.status, statusKey, allRows]);
-  const count = (s: string) => (s === 'すべて' ? allRows.length : allRows.filter((r) => r.values[statusKey ?? ''] === s).length);
-
-  const searchCols = useMemo(() => searchColumns(sheet ?? { columns: [] }), [sheet]);
+  const baseRows = useMemo(() => sourceRows.filter((r) => matchesQuery(r, searchCols, query) && matchesFilters(r, filters)), [sourceRows, searchCols, query, filters]);
+  const statusCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    if (statusCol) for (const r of baseRows) { const v = r.values[statusCol.header] ?? ''; m.set(v, (m.get(v) ?? 0) + 1); }
+    return m;
+  }, [baseRows, statusCol]);
   const rows = useMemo(() => {
-    const q = norm(query);
-    return allRows.filter((r) => {
-      if (statusKey && status !== 'すべて' && r.values[statusKey] !== status) return false;
-      if (q === '') return true;
-      return searchCols.some((c) => norm(r.values[c.header] ?? '').includes(q));
-    });
-  }, [allRows, status, query, statusKey, searchCols]);
-  const shownRows = rows.slice(0, limit);
+    const f = status === null || !statusCol ? baseRows : baseRows.filter((r) => (r.values[statusCol.header] ?? '') === status);
+    return sortRows(f, sort, layout.sort?.header);
+  }, [baseRows, status, statusCol, sort, layout.sort?.header]);
 
-  const cols = (sheet?.columns ?? []).filter((c) => c.visible && c.inList);
-  const selected = openRow === null ? undefined : snap.rows.find((r) => r.rowNumber === openRow);
+  // 詳細の「前へ・次へ」と位置の表示を、一覧の並び（絞り込み・並べ替えの後）に合わせる。
+  useEffect(() => { setVisibleRows(sheet.id, rows.map((r) => r.rowNumber)); }, [sheet.id, rows]);
 
-  const open = (r: ApplicantRow) => {
-    if (sheet) store.markSeen(sheet.id, r.rowNumber);
-    setOpenRow(r.rowNumber);
+  const openedRow = openRow === null ? undefined : sourceRows.find((r) => r.rowNumber === openRow);
+  const open = (rowNumber: number) => { actions.markSeen(sheet.id, rowNumber); setOpenRow(rowNumber); };
+
+  const exportCsv = () => {
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    downloadText(`${sheet.tabName}_${stamp}.csv`, toCsv(rows, shownCols));
+    actions.logExport(sheet.id, rows.length);
+    saver.notify(`${String(rows.length)} 人分を書き出しました`);
   };
 
-  const go = (to: 'list' | 'account' | 'logout') => {
-    nav.go(to === 'list' ? ROUTES.list : to === 'account' ? ROUTES.account : ROUTES.loggedOut);
-  };
+  // 表の高さを画面の下端までにする（見出しを固定し、横スクロールを表の中だけにするため）。
+  const gridWrap = useRef<HTMLDivElement>(null);
+  const [gridH, setGridH] = useState(500);
+  useEffect(() => {
+    const el = gridWrap.current;
+    if (!el) return undefined;
+    const calc = () => { setGridH(Math.max(240, Math.floor(window.innerHeight - el.getBoundingClientRect().top))); };
+    const ro = new ResizeObserver(calc);
+    ro.observe(document.documentElement);
+    window.addEventListener('resize', calc);
+    return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
+  }, [isDesktop, state]);
 
-  const doRetry = () => {
-    setRetry('loading');
-    window.setTimeout(() => {
-      if (retryWillSucceed) { setRecovered(true); setRetry('idle'); } else { setRetry('failed'); }
-    }, 1200);
-  };
+  if (state === 'unavailable') return <Unavailable />;
+  if (state === 'empty') return <Empty />;
 
-  const toTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    tableRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-    setStatus('すべて');
-    setQuery('');
-    setLimit(PAGE_SIZE);
-    setToast(false);
-  };
+  const readOnly = state === 'stale';
+  const statusOptions = statusCol ? [...(statusCol.options ?? []), ...[...statusCounts.keys()].filter((v) => !(statusCol.options ?? []).includes(v))] : [];
+  const filterChips = Object.entries(filters).map(([h, f]) => {
+    const c = sheet.columns.find((x) => x.header === h);
+    const text = f.type === 'in' ? f.values.map((v) => (v === '' ? '（空）' : v)).join('・') : `「${f.text}」を含む`;
+    return { h, text: `${c ? labelOf(c) : h}: ${text}` };
+  });
+  const sortCol = sort ? sheet.columns.find((c) => c.header === sort.column) : undefined;
+  const sortLabel = sortCol ? labelOf(sortCol) : (sort?.column ?? '');
 
-  const toSearch = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    window.setTimeout(() => { document.getElementById('applicant-search')?.focus(); }, 350);
-  };
+  const statusTabs = statusCol && (
+    <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label={labelOf(statusCol)}>
+      <StatusTab active={status === null} onClick={() => { setStatus(null); }} label="すべて" count={baseRows.length} />
+      {statusOptions.filter((o) => o !== '' || (statusCounts.get('') ?? 0) > 0).map((o) => (
+        <StatusTab key={o === '' ? '(empty)' : o} active={status === o} onClick={() => { setStatus(status === o ? null : o); }} label={o === '' ? '未入力' : o} count={statusCounts.get(o) ?? 0} dot={statusDot(sheet, o)} />
+      ))}
+    </div>
+  );
+
+  const editor = openedRow && <RowEditor sheet={sheet} row={openedRow} onClose={() => { setOpenRow(null); }} onMove={open} />;
+  const toast = <ToastBar toast={saver.toast} onUndo={() => { saver.closeToast(); saver.undo(); }} onClose={saver.closeToast} />;
+
+  if (!isDesktop) {
+    return (
+      <div>
+        <div className="border-b border-pt-line bg-pt-bg px-3 pt-2 pb-2">
+          <SearchBox value={query} onChange={setQuery} />
+          <div className="mt-2 -mx-1">{statusTabs}</div>
+        </div>
+        <div className="h-2" />
+        <MobileList sheet={sheet} rows={rows} readOnly={readOnly} saver={saver} onOpen={open} />
+        {editor}
+        {toast}
+      </div>
+    );
+  }
 
   return (
-    <CustomerLayout customerName={store.customerName} accountLabel={store.account.displayName || store.account.email} current="list" onNavigate={go}>
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-          <h1 className="text-xl font-semibold text-pt-ink">応募者の一覧</h1>
-          {state !== 'unavailable' && (
-            <p className="pb-0.5 text-xs text-pt-muted">{formatTime(snap.readAt)} 時点</p>
-          )}
-        </div>
-
-        {recovered && forceState === 'stale' && state === 'normal' && (
-          <Notice tone="ok">最新の内容を読み込みました。</Notice>
-        )}
-
-        {sheets.length > 1 && (
-          <div role="tablist" className="-mb-1 flex gap-1 overflow-x-auto border-b border-pt-line">
-            {sheets.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                role="tab"
-                aria-selected={s.id === sheet?.id}
-                onClick={() => { setSheetId(s.id); setStatus('すべて'); setQuery(''); setLimit(PAGE_SIZE); setToast(false); setFlash(new Set()); }}
-                className={cx('h-11 whitespace-nowrap border-b-2 px-4 text-sm', s.id === sheet?.id ? 'border-pt-primary font-medium text-pt-primary' : 'border-transparent text-pt-muted hover:text-pt-ink')}
-              >
-                {s.tabName}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {state === 'stale' && (
-          <div className="flex flex-col gap-1">
-            <Notice
-              tone="warn"
-              title={
-                retry === 'failed'
-                  ? `まだ読み込めません。${formatTime(snap.readAt)} 時点の内容のままです。`
-                  : `最新の内容を読み込めませんでした。${formatTime(snap.readAt)} 時点の内容を表示しています。`
-              }
-              action={
-                <Button size="sm" disabled={retry === 'loading'} onClick={doRetry}>
-                  {retry === 'loading' ? '読み込んでいます…' : 'もう一度読み込む'}
-                </Button>
-              }
-            >
-              このあと自動でもう一度試します。この間に応募者の追加や変更があっても、ここには出ません。
-            </Notice>
-            {forceState === 'stale' && (
-              <p className="flex items-center gap-2 text-xs text-pt-faint">
-                試作の操作: 次の読み込みは
-                <button type="button" onClick={() => { setRetryWillSucceed(true); }} className={cx('underline', retryWillSucceed && 'font-semibold text-pt-ink')}>成功する</button>
-                <button type="button" onClick={() => { setRetryWillSucceed(false); }} className={cx('underline', !retryWillSucceed && 'font-semibold text-pt-ink')}>失敗する</button>
-              </p>
-            )}
-          </div>
-        )}
-
-        {state === 'unavailable' && (
-          <StateBox title="いま応募者の一覧を読み込めません">
-            <p>弊社で確認しています。復旧しだい、この画面に表示されます。</p>
-            <p className="mt-2">お急ぎのときは、担当者までご連絡ください。</p>
-            <div className="mx-auto mt-5 max-w-sm text-left"><ContactBox mailSubject="応募者の一覧が読み込めません" /></div>
-          </StateBox>
-        )}
-
-        {state === 'empty' && (
-          <StateBox title="応募者はまだいません">
-            <p>応募があると、ここに表示されます。</p>
-          </StateBox>
-        )}
-
-        {(state === 'normal' || state === 'stale') && (
-          <>
-            <div className="sm:max-w-sm">
-              <TextInput id="applicant-search" type="search" value={query} placeholder="名前・電話番号で探す" aria-label="検索" onChange={(e) => { setQuery(e.target.value); setLimit(PAGE_SIZE); }} />
+    <div>
+      <div className="border-b border-pt-line bg-pt-bg px-6 pt-2.5 pb-2">
+        <div className="flex items-center gap-2">
+          <div className="w-72"><SearchBox value={query} onChange={setQuery} /></div>
+          {(filterChips.length > 0 || sort) && (
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              {filterChips.map((f) => <Chip key={f.h} onRemove={() => { setFilters((p) => omit(p, f.h)); }}>{f.text}</Chip>)}
+              {sort && <Chip onRemove={() => { setSort(null); }}>並べ替え: {sortLabel}（{sort.dir === 'asc' ? '昇順' : '降順'}）</Chip>}
             </div>
-            {statuses.length > 0 && <div className="sticky top-14 z-10 -mx-4 bg-pt-bg py-2 sm:static sm:mx-0 sm:py-0">
-              <div className="flex gap-2 overflow-x-auto px-4 sm:px-0" role="group" aria-label="選考状況で絞り込み">
-                {['すべて', ...statuses].map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    aria-pressed={status === s}
-                    onClick={() => { setStatus(s); setLimit(PAGE_SIZE); }}
-                    className={cx('inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full border px-4 text-sm', status === s ? 'border-pt-primary bg-pt-primary text-white' : 'border-pt-line-strong bg-pt-surface text-pt-ink hover:bg-pt-bg')}
-                  >
-                    {s}
-                    <span className={cx('text-xs tabular-nums', status === s ? 'text-white/80' : 'text-pt-muted')}>{count(s)}</span>
-                  </button>
-                ))}
-              </div>
-            </div>}
-
-            {rows.length === 0 ? (
-              <StateBox title="該当する応募者がいません">
-                <p>絞り込みや検索の言葉を変えてください。</p>
-                <div className="mt-3"><Button onClick={() => { setStatus('すべて'); setQuery(''); setLimit(PAGE_SIZE); }}>条件を解除</Button></div>
-              </StateBox>
-            ) : (
-              <>
-                <p className="text-xs text-pt-muted">{String(rows.length)} 件{layout.sort ? `（${labelOf(layout.sort)}の新しい順）` : ''}</p>
-
-                {/* PC: 表 */}
-                <Card className="hidden overflow-hidden sm:block">
-                  <div ref={tableRef} className="max-h-[calc(100dvh-22rem)] min-h-64 overflow-auto">
-                    <table className="w-full border-collapse text-sm">
-                      <thead>
-                        <tr>
-                          {cols.map((c) => (
-                            <th key={c.header} className="sticky top-0 z-10 whitespace-nowrap border-b border-pt-line bg-pt-bg px-3 py-2.5 text-left text-xs font-medium text-pt-muted">{labelOf(c)}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((r) => (
-                          <tr
-                            key={r.rowNumber}
-                            tabIndex={0}
-                            aria-selected={openRow === r.rowNumber}
-                            onClick={() => { open(r); }}
-                            onKeyDown={(e) => { if (e.key === 'Enter') open(r); }}
-                            className={cx(
-                              'h-12 cursor-pointer border-b border-pt-line last:border-b-0 hover:bg-pt-bg',
-                              openRow === r.rowNumber ? 'bg-pt-primary-soft' : flash.has(r.rowNumber) && 'bg-pt-warn-soft',
-                            )}
-                          >
-                            {cols.map((c) => (
-                              <td key={c.header} className="max-w-[16rem] truncate whitespace-nowrap px-3 text-pt-ink"><Cell col={c} row={r} layout={layout} /></td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
-
-                {/* スマホ: カード */}
-                <ul className="flex flex-col gap-2 sm:hidden">
-                  {shownRows.map((r) => (
-                    <li key={r.rowNumber}>
-                      <button
-                        type="button"
-                        onClick={() => { open(r); }}
-                        className={cx(
-                          'w-full rounded-lg border p-3 text-left',
-                          openRow === r.rowNumber ? 'border-pt-primary bg-pt-primary-soft' : flash.has(r.rowNumber) ? 'border-pt-line bg-pt-warn-soft' : 'border-pt-line bg-pt-surface',
-                        )}
-                      >
-                        <CardBody layout={layout} values={r.values} changed={r.changedSinceLastView} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                {rows.length > shownRows.length && (
-                  <div className="flex flex-col items-center gap-1 sm:hidden">
-                    <Button className="h-11 w-full" onClick={() => { setLimit((n) => n + PAGE_SIZE); }}>もっと見る（残り {String(rows.length - shownRows.length)} 件）</Button>
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        )}
-      </div>
-
-      {toast && (
-        <div role="status" className="fixed inset-x-4 bottom-4 z-30 mx-auto flex max-w-md items-center gap-3 rounded-lg border border-pt-primary bg-pt-surface px-4 py-3 text-sm text-pt-ink shadow-lg">
-          <span className="min-w-0 flex-1">シートの内容が更新されました。変わった行に色を付けています。</span>
-          <Button size="sm" variant="primary" onClick={toTop}>新着を見る</Button>
-          <button type="button" aria-label="閉じる" onClick={() => { setToast(false); }} className="h-8 shrink-0 px-1 text-pt-muted hover:text-pt-ink">閉じる</button>
+          )}
+          <span className="ml-auto" />
+          <ColumnPicker sheet={sheet} statusHeader={statusCol?.header} titleHeader={titleHeader} override={shownOverride} onChange={setShownOverride} />
+          <Button size="sm" onClick={exportCsv}><IconDownload size={14} />書き出し</Button>
         </div>
-      )}
-
-      {scrolled && !selected && (
-        <button type="button" onClick={toSearch} className="fixed bottom-4 right-4 z-20 h-11 rounded-full border border-pt-line-strong bg-pt-surface px-4 text-sm font-medium text-pt-ink shadow-md sm:hidden">上へ・検索</button>
-      )}
-
-      {sheet && selected && (
-        <RowEditor sheet={sheet} row={selected} onClose={() => { setOpenRow(null); }} />
-      )}
-    </CustomerLayout>
+        <div className="mt-2 -ml-1">{statusTabs}</div>
+      </div>
+      <div ref={gridWrap}>
+        <Grid
+          sheet={sheet}
+          rows={rows}
+          allRows={sourceRows}
+          cols={shownCols}
+          titleHeader={titleHeader}
+          readOnly={readOnly}
+          saver={saver}
+          sort={sort}
+          onSort={setSort}
+          filters={filters}
+          onFilter={(h, f) => { setFilters((p) => (f ? { ...p, [h]: f } : omit(p, h))); }}
+          onOpen={open}
+          openRowNumber={openRow}
+          canEditColumns={canEditColumns}
+          onColumnSettings={(h) => {
+            try { sessionStorage.setItem('pt.columns.pick', JSON.stringify({ sheetId: sheet.id, header: h })); } catch { /* 保存できなくても移動はする */ }
+            nav.go(ROUTES.columns);
+          }}
+          jump={jump}
+          height={gridH}
+        />
+      </div>
+      {editor}
+      {toast}
+    </div>
   );
 }
+
+function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="relative block">
+      <span className="sr-only">検索</span>
+      <IconSearch size={14} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-pt-faint" />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); }}
+        placeholder="氏名・ふりがな・電話番号で検索"
+        className="h-[44px] w-full rounded-md border border-pt-line-strong bg-pt-surface pr-2 pl-8 text-base text-pt-ink placeholder:text-pt-faint focus:border-pt-select focus:ring-2 focus:ring-pt-select/20 focus:outline-none lg:h-8 lg:text-[13px]"
+      />
+    </label>
+  );
+}
+
+function StatusTab({ active, onClick, label, count, dot }: { active: boolean; onClick: () => void; label: string; count: number; dot?: string }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cx('inline-flex h-[44px] min-h-[44px] shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] whitespace-nowrap lg:h-7 lg:min-h-0 lg:px-2.5', active ? 'bg-pt-surface font-medium text-pt-ink shadow-pt-card ring-1 ring-pt-line' : 'text-pt-muted hover:bg-pt-sunken hover:text-pt-ink')}
+    >
+      {dot && <span className={cx('h-1.5 w-1.5 rounded-full', dot)} />}
+      {label}
+      <span className={cx('pt-num text-[12px]', active ? 'text-pt-muted' : 'text-pt-faint')}>{count}</span>
+    </button>
+  );
+}
+
+function Chip({ children, onRemove }: { children: ReactNode; onRemove: () => void }) {
+  return (
+    <span className="inline-flex h-7 max-w-72 items-center gap-1 rounded-md border border-pt-line bg-pt-surface pr-1 pl-2 text-[12px] text-pt-ink">
+      <span className="truncate">{children}</span>
+      <button type="button" aria-label="外す" onClick={onRemove} className="rounded p-0.5 text-pt-faint hover:bg-pt-sunken hover:text-pt-ink"><IconX size={12} /></button>
+    </span>
+  );
+}
+
+function ColumnPicker({ sheet, statusHeader, titleHeader, override, onChange }: {
+  sheet: SheetConfig;
+  statusHeader: string | undefined;
+  titleHeader: string;
+  override: Record<string, boolean>;
+  onChange: (o: Record<string, boolean>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useOutside(ref, () => { setOpen(false); }, open);
+  const cols = orderColumns(sheet.columns.filter((c) => c.visible), titleHeader, statusHeader);
+  const shown = (h: string, inList: boolean) => override[h] ?? inList;
+  const hiddenCount = cols.filter((c) => c.header !== titleHeader && !shown(c.header, c.inList)).length;
+  return (
+    <div ref={ref} className="relative">
+      <Button size="sm" onClick={() => { setOpen(!open); }} aria-expanded={open}>
+        <IconColumns size={14} />列の表示{hiddenCount > 0 && <span className="pt-num text-[12px] text-pt-faint">{hiddenCount} 列を非表示</span>}
+      </Button>
+      {open && (
+        <div className="absolute top-full right-0 z-40 mt-1 w-64 rounded-lg border border-pt-line bg-pt-surface py-1 shadow-pt-pop">
+          <div className="max-h-80 overflow-y-auto">
+            {cols.map((c) => {
+              const isTitle = c.header === titleHeader;
+              return (
+                <label key={c.header} className={cx('flex h-8 items-center gap-2 px-3 text-[13px]', isTitle ? 'text-pt-faint' : 'cursor-pointer hover:bg-pt-sunken')}>
+                  <input type="checkbox" disabled={isTitle} checked={isTitle || shown(c.header, c.inList)} onChange={(e) => { onChange({ ...override, [c.header]: e.target.checked }); }} className="h-3.5 w-3.5 accent-pt-select" />
+                  <span className="truncate">{labelOf(c)}</span>
+                  {isTitle && <span className="ml-auto text-[11px]">常に表示</span>}
+                </label>
+              );
+            })}
+          </div>
+          <div className="mt-1 flex gap-1 border-t border-pt-line px-2 pt-1">
+            <button type="button" onClick={() => { onChange(Object.fromEntries(cols.map((c) => [c.header, true]))); }} className="h-7 rounded px-2 text-[12px] text-pt-primary hover:bg-pt-primary-soft">すべて表示</button>
+            <button type="button" onClick={() => { onChange({}); }} className="h-7 rounded px-2 text-[12px] text-pt-muted hover:bg-pt-sunken">最初の表示に戻す</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
