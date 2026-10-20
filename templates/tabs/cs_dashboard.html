@@ -1480,11 +1480,11 @@ function fig(caption, hint, body, legend) {
   const gapNote = /<svg [^>]*data-gap="1"/.test(body) && !/data-gapwhy="1"/.test(legend || "")
     ? '<i class="full">線が途切れているところは、その月の値が無いところです（0 ではありません）。</i>' : "";
   const noneNote = /<svg [^>]*data-none="1"/.test(body)
-    ? lg("none", C.ghost, "灰色の短い線＝その月の記録が無い（0 の棒ではありません）") : "";
+    ? lg("none", C.ghost, "灰色の短い線＝その月の記録が無い") : "";
   /* 重なる線をずらして描いた（svgLine の data-shift）。ずらしたことを黙らない */
   const shiftM = /<svg [^>]*data-shift="(1|edge)"/.exec(body);
   const shiftNote = shiftM
-    ? '<i class="full">同じ月に同じ値の線は重なって隠れるので、どの線も見えるよう上下に少し（4px ずつ）ずらして描いています。値は変えていません。' +
+    ? '<i class="full">同じ月に同じ値の線は重なって隠れるので、どの線も見えるよう上下に少しずらして描いています。値は変えていません。' +
       /* 軸の端（0・いちばん上）では片側にしかずらせない。0 の線が 0 より上に見えるので、それも断る。
          🔴 2026-09-24 検証: 上端（軸の最大）で重なった線は下へずらすのに、断りは 0 のことしか書いていなかった */
       (shiftM[1] === "edge" ? "軸の端（0 やいちばん上）で重なった線は、軸の内側へずらしているので、0 の線も軸より少し上に、いちばん上の線は少し下に見えます。" : "") +
@@ -3797,7 +3797,7 @@ function teamContact(D) {
   })));
   h += scroll(table(cols, trs, "", "ct-tbl"), 680);
   h += '<p class="muted small">ひとますは「1件あたりの接触　接触の回数/持ち案件」。<b>—</b> はその' + what +
-    "に持ち案件が無い（0 ではありません）。<b>少</b> は持ち案件が " + num(minDeals) +
+    "に持ち案件が無い。<b>少</b> は持ち案件が " + num(minDeals) +
     " 件未満で、図には点を打っていません。（途中）の列は未確定です。</p>";
 
   /* ---- 決まりごと ---- */
@@ -3983,6 +3983,45 @@ function foot(meta, counts) {
     (cnt ? "集計の基準日と件数" : "集計の基準日") + "</span><p>" +
     (meta.today ? "基準日 " + esc(meta.today) : "") +
     (cnt ? "　" + cnt : "") + "</p></div>";
+}
+
+/* ---- 注記の整理（2026-10-21）----
+   画面の本文に散らばっていた 1 行の説明（数え方・断り・条件）は、画面ごとに 1 つの「読み方」の畳みへ集める。
+   画面の頭に常に見せるのは 1 行だけ（READ_LINE。数字を読み違えないための 3 つの前提）。
+   集めるのは、本文の直下にある <p class="muted small"> と <div class="lede"> のうち、
+   リンク・入力・id を持たず、表・図・畳みの中に入っていないもの。文の中身は変えず、置き場所だけを変える。 */
+const READ_BASE = "HubSpot に記録された分だけの数です。0 件と「まだ取れていない」は別です。";
+const READ_CORR = "成果との関係は相関であって、原因とは限りません。";
+const READ_LINE = {
+  team: READ_BASE, today: READ_BASE, board: READ_BASE, byowner: READ_BASE, stagestay: READ_BASE, detail: READ_BASE,
+  customer: READ_BASE + READ_CORR, focus: READ_BASE + READ_CORR, renewalpipe: READ_BASE, phone: READ_BASE,
+  results: READ_BASE + READ_CORR, trust: READ_BASE,
+};
+function tidyNotes(v, bar, body) {
+  const s = String(body == null ? "" : body);
+  const BLOCK = /<(p|div) class="(muted small|lede)">((?:(?!<\/?(?:p|div)[\s>])[\s\S])*?)<\/\1>/g;
+  const moved = [];
+  let out = "", last = 0, m, depth = 0, scan = 0;
+  const OPEN = /<(details|figure|table)[\s>]|<\/(details|figure|table)>/g;
+  while ((m = BLOCK.exec(s))) {
+    /* 直前までに開いたままの details・figure・table があれば、その中の注記なので動かさない */
+    for (const o of s.slice(scan, m.index).matchAll(OPEN)) depth += o[1] ? 1 : -1;
+    scan = m.index + m[0].length;
+    const inner = m[3];
+    const plain = inner.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+    /* 文の中のリンクは読み方の畳みの中でも押せる。lede は画面の入口の導線を兼ねるので、リンク・入力を持つものは動かさない */
+    const stay = m[2] === "lede" ? /<(a|button|select|input|label|table|ul|ol)[\s>]|id="/ : /<(button|select|input|label|table|ul|ol)[\s>]|id="/;
+    if (depth > 0 || !plain || stay.test(inner)) continue;
+    moved.push(inner);
+    out += s.slice(last, m.index);
+    last = m.index + m[0].length;
+  }
+  out += s.slice(last);
+  const line = READ_LINE[v.key] ? '<p class="muted small" data-readline="1">' + READ_LINE[v.key] + "</p>" : "";
+  const panel = moved.length
+    ? foldNote("info", "読み方（" + moved.length + " 件）", moved.join("</p><p>"), "", "cs-readguide")
+    : "";
+  return bar + line + panel + out;
 }
 
 function finishView(html) {
@@ -4187,7 +4226,11 @@ function resultsActTables(D) {
     '<div class="lede">案件一覧の「よく使う絞り込み」で対象を絞れます。前の条件から外れた案件も、件数と一覧で確かめられます。</div>' +
     (V.length
       ? '<ul>' + V.map((v) => '<li><a class="golink wrap" href="' + esc(hashFor("board", { view: v.key })) + '">よく使う絞り込み「' +
-          esc(v.label) + "」で絞った案件一覧</a>" + (v.old ? '<span class="muted small">（前は ' + esc(v.old) + "）</span>" : "") + "</li>").join("") + "</ul>"
+          esc(v.label) + "」で絞った案件一覧</a></li>").join("") + "</ul>" +
+        /* 前の定義との対応（版の履歴）は読み方の畳みへ（2026-10-21 注記の整理） */
+        (V.some((v) => v.old)
+          ? foldNote("info", "前の定義との対応", V.filter((v) => v.old).map((v) => "「" + esc(v.label) + "」（前は " + esc(v.old) + "）").join("</p><p>"), "", "")
+          : "")
       : '<p class="muted small">よく使う絞り込みの一覧が届いていません。' + goLink("deal", "board") + " で見られます。</p>") +
     '<p class="muted small"><b>定期NPS が ' + esc(n.threshold) + " 以下の顧客（" + num(n.n) + " 件）</b>は、" +
     (flag
@@ -4315,7 +4358,7 @@ function renderRenewal(D, id) {
       rows.length ? svgBoxH({ w: 680, xFmt: fmt, rows: rows })
                   : tooFew(0, name),
       lg("quart", C.ai, "多くが収まる範囲") + lg("line", C.ai, "真ん中の値") +
-      '<i class="full">n は値が入っている契約の数で、件数そのものではありません。' +
+      '<i class="full">n は値が入っている契約の数です。' +
       (D.meta.exclude_right_censored
         ? "結果がまだ出ていない最近の契約を外しています。"
         : "結果がまだ出ていない最近の契約 " + num(D.meta.right_censored_n) +
@@ -4504,7 +4547,7 @@ function focusSection(D) {
   let h = sec("図", "重点顧客の内訳");
   /* いま開いている法人が注力かどうか。理由まで出さないと確かめようがない */
   h += note(me.focus ? "warn" : "info",
-    me.focus ? "いま見ている法人は重点顧客です" : "いま見ている法人は重点顧客ではありません",
+    me.focus ? "いま見ている法人は重点顧客です" : "いま見ている法人は重点顧客の条件に当たっていません",
     (me.focus
       ? "当てはまっている条件: <b>" + why.map(esc).join(" ／ ") + "</b>"
       : "3つの条件のどれにも当てはまっていません。") +
@@ -4890,7 +4933,7 @@ function custBlocks(D, want) {
     h += fig(shortName(mm.name || mm.deal_id, 28) + " — 系列を縦に並べる",
       ex
         ? "縦に目を落とすと、同じ月に何が起きていたかが読めます" +
-          "（読み方の例:「NPS が落ちた月に接触が切れていたか」。この契約がそうだという意味ではありません）"
+          "（読み方の例:「NPS が落ちた月に接触が切れていたか」。この契約の結論とは別の、見方の例です）"
         : "縦に目を落とすと、同じ月に何が起きていたかが読めます" +
           (hasNps ? "" : "（この契約には定期NPS の回答がありません）"),
       svgStackLanes({ w: 940, months: xCal, lanes: [
@@ -4918,7 +4961,7 @@ function custBlocks(D, want) {
   }
   if (noHist.length) {
     h += note("info", "応募・面接・採用の変更履歴が無い契約（" + num(noHist.length) + " 件）",
-      "記録が無いだけで、0 ではありません。図にしていないのは次の契約です: " +
+      "記録が無い契約です。図にしていないのは次の契約です: " +
       noHist.map((mm) => esc(shortName(mm.name || mm.deal_id, 28))).join(" ／ "));
   }
   }
@@ -5273,7 +5316,7 @@ function custHoujinLayer(D) {
             pts: ms.map((mo) => syoudakuAt(mm,
               F2.deals.find((d) => d.deal_id === mm.deal_id), mo)),
           })), yFmt: F.int, yLab: "採用数", alt: "案件ごとの採用数の推移" })
-      : '<div class="empty">線にできる月次の記録がありません（記録が無いだけで 0 ではありません）。</div>',
+      : '<div class="empty">線にできる月次の記録がありません（記録のある月が無い状態です）。</div>',
     /* 🔴 lg() のラベルは HTML としてそのまま入る（凡例に <strong> を使う呼び出しがあるため）。
        取引名は HubSpot で誰でも書ける文字列なので、ここで必ずエスケープする（V18） */
     drawn.map((mm, i) =>
@@ -5339,7 +5382,7 @@ function custHoujinLayer(D) {
      契約期間中の各契約の累計（ストック）を足したもの。「月ごとの合計」だけだと
      月々の採用数（フロー）に読める。満了で柱が下がっても採用が減ったわけではない（N8） */
   h += fig("契約中の案件の採用数（累計）の月ごとの合計",
-    "その月に契約期間中だった案件の、契約ごとの採用数の累計を拠点ごとに積んだもの。その月に新しく採れた数ではありません",
+    "その月に契約期間中だった案件の、契約ごとの採用数の累計を拠点ごとに積んだもの",
     synAxis.length >= 2
       ? svgColStack({ w: 940, h: 230, x: synAxis.map((m) => m.slice(2)), series: synBars,
           yFmt: F.int, yLab: "採用数（累計）", alt: "契約中の案件の採用数の累計を拠点ごとに積んだ推移" })
@@ -5347,9 +5390,9 @@ function custHoujinLayer(D) {
     synSer.map((S) => lg("box", S.color, esc(S.label))).join("") +
     /* 「その他の拠点」は C.ghost の塗り。引き継ぎを C.ghost の線にすると同じ色で2つの意味になる */
     lg("hollow", C.ink, "引き継ぎ（その月に書き換えが無い契約のぶん）") +
-    '<i class="full"><b>柱の高さは累計です。</b>その月に新しく採れた人数ではありません。' +
+    '<i class="full"><b>柱の高さは累計です。</b>' +
     "契約ごとの採用数の累計を、契約期間中の月に積んでいます。" +
-    "<b>柱が下がるのは契約が満了したからで、採用が減ったからではありません。</b></i>" +
+    "<b>柱が下がるのは、契約が満了したためです。</b></i>" +
     '<i class="full"><b>これは合算です。</b>拠点をまたいで足しています。' +
     "<b>線でつながず、柱を拠点ごとの色で積んでいます</b>（拠点をまたいで1本の線にすると、" +
     "拠点の違いが時間の変化に見えるため）。" +
@@ -5613,7 +5656,7 @@ function renderMtgQ(D) {
     kpi("案件に結びついた", pct1(D.linked.rate), num(D.linked.n) + " 回", "good") + "</div>";
 
   h += sec("図", "分析項目の記入率");
-  h += fig("抽出の進み具合", "埋まっていないのは「記録していない」ではありません",
+  h += fig("抽出の進み具合", "項目ごとの記入の進み具合",
     svgBarH({ w: 680, fmt: F.int, rh: 24,
       rows: D.filled.map((f) => ({
         label: f.field, v: f.n, txt: num(f.n) + "件", note: pct1(f.rate),
@@ -5642,12 +5685,12 @@ function renderMtgQ(D) {
      「愛理沙安友」「萌衣藤中」）。ほかの画面の担当名（HubSpot の「姓 名」）とは一致しない。
      空白が無いので画面の側では姓と名の境目が分からず、並べ替えは推測になる。
      正しく揃えるにはサーバ側で担当名に突き合わせる必要がある */
-  h += fig("ホスト別の件数", "これは行動量です。良し悪しではありません",
+  h += fig("ホスト別の件数", "行動量の件数です",
     svgBarH({ w: 680, fmt: F.int, rh: 22,
       rows: D.hosts.slice(0, 25).map((r) => ({
         label: shortName(r.host, 16), full: r.host, v: r.n, txt: num(r.n) + "回", color: C.ai })) }),
     '<i class="full">上位25名だけ出しています（全 ' + num(D.hosts.length) + " 名）。" +
-    "件数が多い＝良い、ではありません。担当している契約の数が違います。</i>" +
+    "担当している契約の数が違うので、件数は契約数と合わせて読みます。</i>" +
     /* V14: 並び替えは推測になるので、画面では直さずに断る（理由は上のコメント） */
     '<i class="full">名前は <b>Zoom に登録された名前のまま</b>です。人によって「名＋姓」の順で' +
     "登録されているため、ほかの画面の担当名（姓 名）と並びが違うことがあります。</i>");
@@ -5812,7 +5855,7 @@ function renderRampup(D, id) {
     // 足切りは決着済みの件数（b.denom）で見る。図の filter と同じ基準にする（rust N3 + ui V6）
     droppedNote(f.buckets, (b) => b.denom || 0, (b) => b.label) +
     '<i class="full">対象は結果が出た（継続＋解約＋充足）の件数で、解約率の分母です。まだ結果が出ていない契約は入れていません。' +
-    "<b>単調ではありません。</b>14日以内も解約しています。" +
+    "<b>日数とともに一方向には動いていません。</b>14日以内も解約しています。" +
     "「早ければ良い」とも「遅いほど悪い」とも言えません（結果が出た契約で割ると、遅い群が悪いという差は読めなくなりました）。" +
     "61日超には関係が薄い顧客が混じっている可能性があり、" +
     "<b>遅れが原因とは決められません（相関であって因果ではない）</b>。</i>");
@@ -5831,7 +5874,7 @@ function renderRampup(D, id) {
   return h + '<p class="muted small">前の表「MTG の記録がまだ無い初回契約」（当時の名前のまま）' + num(nm.n) +
     " 件（録画だけで数えた件数）は、" +
     "注意に定義を揃えて " + '<a class="golink" href="' + esc(hashFor("board", { view: "no_mtg" })) + '">案件一覧のよく使う絞り込み</a>' +
-    " に移しました。件数は同じではありません。<b>よく使う絞り込みには立ち上がり期（契約開始30日以内）の案件が入りません</b>" +
+    " に移しました。件数は定義の違いで変わります。<b>よく使う絞り込みには立ち上がり期（契約開始30日以内）の案件が入りません</b>" +
     "（MTGが空いている期間の区分をこの期間は付けないためです）。前の表に入っていた立ち上がり期の案件は、よく使う絞り込みの「外れた案件を確かめる」に" +
     "理由つきで出ています。ほかに、よく使う絞り込みはメール由来の実施日も MTG の記録として見ます。" +
     "記録が見つからないのは、MTG をしていないからではなく、記録が欠けているためと読みます" +
@@ -5974,7 +6017,7 @@ function outcomeRisk(R, cs, h) {
      この図の 2軸とも赤とは定義が違う（件数が合わない）ことを言い、外れた案件は見方の側で件数つきで出す */
   return h + '<p class="muted small">この ' + num(R.top.length) + " 件（2軸とも赤）の表は、注意に定義を揃えて " +
     '<a class="golink" href="' + esc(hashFor("board", { view: "top" })) + '">案件一覧のよく使う絞り込み</a>' +
-    " に移しました（定義が違うので件数は同じではありません）。</p>";
+    " に移しました（定義の違いで件数が変わります）。</p>";
 }
 
 /* ================================================================ 9 データ品質 */
@@ -6423,7 +6466,7 @@ function redrawMain(D, keep) {
   const v = viewOf(cur.menu, cur.view);
   const main = document.getElementById("cs-main");
   const fk = focusKey(document.activeElement);
-  paintFigs(main, () => finishView(ctlbar(v, D) + v.render(D)), keep);   /* 図の幅を枠に合わせる（2回描き） */
+  paintFigs(main, () => finishView(tidyNotes(v, ctlbar(v, D), v.render(D))), keep);   /* 図の幅を枠に合わせる（2回描き） */
   wire(v);
   refocus(fk);
   syncUrl();   /* 絞り込み・並び替え・担当・拠点の変更を URL に写す（M-2。履歴は積まない） */
@@ -6642,7 +6685,7 @@ function boardViewNote(D, who, pending) {
   const judged = k === "mtg_risk" ? (D.rows || []).filter((r) => r.mtg_risk).length : null;
   let h = '<p class="muted small">' + esc(v.rule) + '。稼働中' + (who ? '（全担当）' : '') + ' ' + num(D.rows.length) + ' 件のうち ' + num(v.n) + ' 件です。</p>';
   if (judged != null) h += '<p class="muted small">リスク判定のある案件は ' + num(judged) + ' 件。</p>';
-  if (o) h += '<p class="muted small">以前の' + esc(o.where) + ' ' + num(o.n) + ' 件のうち ' + num(o.dropped) + ' 件は外れました。新しく入った案件 ' + num(o.added || 0) + ' 件。</p>';
+  if (o) h += foldNote("info", "前の定義との差", "以前の" + esc(o.where) + " " + num(o.n) + " 件のうち " + num(o.dropped) + " 件は外れました。新しく入った案件 " + num(o.added || 0) + " 件。", "", "");
   if (o && o.dropped && who) {
     const mine = (o.dropped_rows || []).filter((r) => r.consultant === who);
     if (!mine.length) return h + '<p class="muted small" id="board-view-dropped-none">外れた ' + num(o.dropped) +
@@ -7983,7 +8026,7 @@ function renderDefs() {
       "読むのに注意が要る"],
      ['<b style="display:inline-block;width:26px;height:10px;background:var(--midori)"></b> &#9660;',
       "良い / 改善"],
-     ["表の見出しの &#9650; / &#9660;", "並び順（小さい順 / 大きい順）。良し悪しではありません"],
+     ["表の見出しの &#9650; / &#9660;", "並び順（小さい順 / 大きい順）"],
      ['<span class="n0">&#8212;</span>', "値が無い。<b>0 ではない</b>"],
      ["&#9675;", "未確定（結果がまだ出ていない最近の契約）。結果がまだ出ていない"],
      /* 案件名の横の「HS」（S-5）。題字の行の「色と印の意味 →」のリンクはこの表へ来る（M-1 の (3)） */
@@ -8248,7 +8291,7 @@ function renderRenewalPipe(D) {
     "", "rp-stage-tbl"), "none") +
     '<p class="small">計: ' + months.map((m, i) => esc(word(i)) + " <b>" + num(m.n) + "</b> 件").join("・") +
     "、3 か月で <b>" + num(wt.n) + "</b> 件（ステージ " + num(st.length) + " 種）</p>" +
-    '<p class="muted small">並びは HubSpot のステージの並び（工程の順）です。件数の多い順ではありません。' +
+    '<p class="muted small">並びは HubSpot のステージの並び（工程の順）です。' +
     "件数だけを数えています。ステージ名に入っている「50％」などは HubSpot のステージの名前の一部で、" +
     "件数にも金額にも掛けていません。</p>";
 
@@ -8979,7 +9022,7 @@ function focusMainEl() {
       何をすればよいかを書き、行き先のリンクを置く。 */
 const LOGIN_EXPIRED_HTML = '<div class="err"><b>ログインが切れています。</b>' +
   '<a href="/login">ログインし直してください</a>。' +
-  "サーバを入れ替えるたびに切れます（データが壊れたわけではありません）。" +
+  "サーバを入れ替えるたびに切れます（データは壊れていません）。" +
   "ログインした後、このページを開き直すと同じ場所が出ます。</div>";
 
 /* 応答を JSON として読む。ログイン切れはここで見分ける。
@@ -9128,7 +9171,7 @@ async function load(refresh, opts) {
   /* API を持たない項目（定義と検証）はその場で描く。
      母集団の注記だけは直前に読んだ応答から出す（画面共通の値なので同じ数字になる） */
   if (!v.path) {
-    paintFigs(main, () => finishView(ctlbar(v, lastPayload || {}) + v.render()));
+    paintFigs(main, () => finishView(tidyNotes(v, ctlbar(v, lastPayload || {}), v.render())));
     wire(v);
     settle(false);
     return;
@@ -9155,7 +9198,7 @@ async function load(refresh, opts) {
     /* HubSpot の portal_id は全 API の meta に同じ値で載る（routes.rs freshen）。最初の応答で覚える */
     if (body.meta && body.meta.hubspot_portal_id) hsPortal = String(body.meta.hubspot_portal_id);
     setFresh(body.meta || {});
-    paintFigs(main, () => finishView(ctlbar(v, body) + v.render(body)));   /* 図の幅を枠に合わせる（2回描き） */
+    paintFigs(main, () => finishView(tidyNotes(v, ctlbar(v, body), v.render(body))));   /* 図の幅を枠に合わせる（2回描き） */
     wire(v);
     loaded[cur.menu + "/" + cur.view] = true;
     settle(fromCache);
@@ -9251,7 +9294,7 @@ function popline(D) {
     '<span class="muted">稼働中 ' + num(p.active_all) + " 件から、オプション契約 " +
     num(p.active_option) + " 件を除いた数です" +
     (p.option_amount ? "（外した契約の金額は " + man(p.option_amount) +
-      "。契約が無くなったわけではありません）" : "") +
+      "。契約は残っています）" : "") +
     "。オプション＝求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加。" +
     "全取引 " + num(p.deals_all) + " 件のうち " + num(p.deals_option) +
     " 件がオプションで、この画面は残り " + num(p.deals) + " 件を見ています。</span></details>";
@@ -9283,11 +9326,9 @@ function ctlbar(v, D) {
     h += '<span class="reload' + (staleData(D) ? " urge" : "") + '">' +
       '<button type="button" class="act link" id="cs-reload"' +
       ' title="HubSpot のシートを読み直します。取り直しに 20 秒ほどかかり、その間は他の人の画面も一時的に止まります">読み直す</button>' +
-      /* 隣の文は 400px で読み直すと同じ行に収まる長さにする（前の 31 字は必ず次の行に折れ、操作列が 28px → 58px になった。
-         2026-09-28 実測。「一時的に」は title に残す） */
-      '<span class="muted small">取り直しに 20 秒ほど。他の人の画面も止まります</span></span>';
+      /* 2026-10-21 注記の整理: 隣に出していた「取り直しに 20 秒ほど…」の添え書きは消した。ボタンに重ねると読める title に残してある */
+      "</span>";
   }
-  if (D && D.meta && D.meta.all_cached) h += '<span class="muted small">キャッシュから表示</span>';
   return h + "</div>";
 }
 /** 鮮度の帯が緑（今日・昨日）でないか。線引きは setFresh と同じ（元データを落とした時刻から 2 日以上、
