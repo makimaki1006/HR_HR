@@ -211,7 +211,7 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
       <p className="talk-rules" data-testid="talk-rules">
         {ruleSentences(data.rules).map(s => <span key={s} style={{ display: 'block' }}>{s}</span>)}
         <span style={{ display: 'block' }}>各項目の割合は「できていない電話 ÷ その項目に当てはまる電話」で、小さい数字はその本数です。見出しの「全体」は資料にある全体の割合です。</span>
-        <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です（全部の電話の割合ではありません）。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる 70 秒以上の電話の本数です。</span>
+        <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる 70 秒以上の電話の本数です。</span>
       </p>
     </>
   );
