@@ -8255,6 +8255,66 @@ function renderRenewalPipe(D) {
   return h + foot(M, "稼働中 " + num(M.n_active) + " 件");
 }
 
+/* ================================================================ 滞留した案件
+   同じステージに長く止まっている案件と、満了後も稼働中の案件（サーバ: stage_stay.rs build_stage_stay）。
+   直すのは HubSpot のステージ。この画面は見せるだけで、HubSpot には書かない。 */
+let stayConsultant = "";
+function stayBar(D) {
+  const names = Array.from(new Set((D.rows || []).map((r) => r.consultant).filter(Boolean)));
+  if (stayConsultant && names.indexOf(stayConsultant) < 0) names.push(stayConsultant);
+  names.sort((a, b) => a.localeCompare(b, "ja"));
+  const opt = (v, t) => '<option value="' + esc(v) + '"' + (stayConsultant === v ? " selected" : "") + ">" + esc(t) + "</option>";
+  return '<div class="ctlbar"><label class="act">担当 <select id="stay-consultant">' + opt("", "全員") +
+    names.map((n) => opt(n, n)).join("") + "</select></label></div>";
+}
+const STAY_COLS = [
+  { t: "案件", w: "l", fmt: (r) => dealLink(r.deal_id, r.name) },
+  { t: "担当", fmt: (r) => esc(r.consultant) || DASH },
+  { t: "今のステージ", w: "s", fmt: (r) => esc(r.stage_label) || '<span class="muted small">ステージ名なし</span>' },
+  { t: "入った日", fmt: (r) => esc(r.entered) || '<span class="muted small">履歴なし</span>' },
+  { t: "滞留日数", n: 1, fmt: (r) => (r.days == null ? DASH : num(r.days) + " 日") },
+  { t: "満了日", fmt: (r) => (esc(r.expiry) || DASH) +
+      (r.days_past_expiry ? ' <span class="tag s">満了後 ' + num(r.days_past_expiry) + " 日</span>" : "") },
+  { t: "HubSpot", fmt: (r) => hsLink(r.deal_id, "HubSpot で開く &#8599;") || DASH },
+];
+const stayTable = (rows, id) => table(STAY_COLS, rows.map((r) => STAY_COLS.map((c) => c.fmt(r))), "", id);
+function renderStageStay(D) {
+  const M = D.meta || {};
+  const all = D.rows || [];
+  const rows = stayConsultant ? all.filter((r) => r.consultant === stayConsultant) : all;
+  const esc2 = rows.filter((r) => r.escalation);
+  const stay = rows.filter((r) => !r.escalation);
+  const days = M.stay_days;
+  let h = '<div class="lede">同じステージに <b>' + num(days) + ' 日を超えて</b>止まっている案件と、' +
+    "満了日を過ぎたのにまだ稼働中の案件です。ステージは HubSpot で直します。</div>" +
+    stayBar(D);
+  h += '<div class="kpis">' +
+    kpi("満了後も稼働中", num(esc2.length) + '<span class="u">件</span>', "満了日を過ぎて、まだ稼働中のステージにいる", esc2.length ? "warn" : "",
+      esc2.length ? { jump: "stay-esc", text: "一覧へ" } : null) +
+    kpi("同じステージに " + num(days) + " 日超", num(stay.length) + '<span class="u">件</span>', "満了後も稼働中の案件は、上の件数に入れています", "",
+      stay.length ? { jump: "stay-long", text: "一覧へ" } : null) +
+    "</div>";
+  h += note("info", "何を数えているか（対象）",
+    "稼働中 " + num(M.n_active) + " 件（紹介料の取引とオプション契約を除く）のうち、満了後も稼働中 " + num(M.n_escalation) +
+    " 件、同じステージに " + num(days) + " 日を超えている " + num(M.n_stay) + " 件です（両方に当たる案件は両方の件数に入ります）。" +
+    "入った日は、いまのステージに変わった最後の日（日本時間）です。継続済・解約済などの決着したステージは数えません。" +
+    (M.n_unknown_entered
+      ? "<br>ステージの変更の履歴が無く、入った日が分からない案件が " + num(M.n_unknown_entered) +
+        " 件あります。滞留には数えていません（満了後も稼働中の案件は一覧に出します）。"
+      : ""));
+  h += sec("表", "満了後も稼働中の案件（満了を過ぎた日数の多い順、" + num(esc2.length) + " 件）", "stay-esc");
+  h += esc2.length ? scroll(stayTable(esc2, "stay-esc-tbl"), 640, esc2.length)
+    : '<p class="muted">満了日を過ぎて稼働中の案件はありません。</p>';
+  h += sec("表", "同じステージに長く止まっている案件（滞留日数の長い順、" + num(stay.length) + " 件）", "stay-long");
+  h += stay.length ? scroll(stayTable(stay, "stay-long-tbl"), 640, stay.length)
+    : '<p class="muted">該当する案件はありません。</p>';
+  return h + foot(M, "稼働中 " + num(M.n_active) + " 件");
+}
+function wireStageStay() {
+  const sel = document.getElementById("stay-consultant");
+  if (sel) sel.onchange = () => { stayConsultant = sel.value; redrawMain(lastPayload); };
+}
+
 /* ================================================================ 画面の並び
 
    メニューは左に 1 列、使う間隔で 3 つに区切る（毎日 / 調べる / 月1・確かめる）。計 11 画面。
@@ -8297,6 +8357,9 @@ const MENUS = [
         render: (D) => renderToday(D) },
       { key: "board",    label: "案件一覧",         path: "/api/consulting/deals",
         render: (D) => renderBoard(D) },
+      /* 2026-10-20 足した。同じステージに 45 日を超えている案件と、満了後も稼働中の案件（stage_stay.rs） */
+      { key: "stagestay", label: "滞留した案件",    path: "/api/consulting/stage-stay",
+        render: (D) => renderStageStay(D) },
       /* 10章⑤: 削除せず残す。置き場所は案件一覧の次 */
       { key: "byowner",  label: "担当者ごとの案件", hidden: true, path: "/api/consulting/deals",
         render: (D) => renderBoard(D) },
@@ -9244,6 +9307,7 @@ function wire(v) {
   if (v.key === "team") wireTeam();
   if (v.key === "results") wireJumps();
   if (v.key === "today") wireToday();
+  if (v.key === "stagestay") wireStageStay();
   if (v.key === "board" || v.key === "byowner") wireBoard();
   if (v.key === "customer") wireCustomer();
   if (v.key === "detail") wireDetail();

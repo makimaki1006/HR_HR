@@ -54,6 +54,7 @@ pub mod deal_detail;
 pub mod handover_contact;
 pub mod money;
 pub mod routes;
+pub mod stage_stay;
 mod team_history;
 
 #[cfg(test)]
