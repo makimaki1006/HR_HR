@@ -5745,8 +5745,7 @@ function renderPhone(D) {
 function phoneSilentTable(D, counted) {
   let h = '<div class="lede">' + esc(D.silent.rule) +
     "。日数が出せないもの（接触が一度も無い）を先頭に出しています。" +
-    (D.silent.excluded_marketing ? "「マーケ関連」の " + num(D.silent.excluded_marketing) +
-      " 件は電話をしないのが普通なので、この表からだけ外しています（" + counted + "には入っています）。" : "") + "</div>";
+    "</div>";
   /* 🔴 2026-09-24 実機（1440px）: 取引・ステージが折り返さず、接触から右の列が切れていた。長い文字の列を折る */
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },
                      { t: "通話", n: 1 }, { t: "接触", n: 1 }, { t: "最後の接触" }, { t: "経過", n: 1 }],
