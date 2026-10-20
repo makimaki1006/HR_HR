@@ -126,7 +126,7 @@ function PersonRowView({ p, checks, total, onOpen }: { p: TalkPersonRow; checks:
         )}
       </td>
       <td className="w8-muted">{p.team ?? '-'}</td>
-      <td className="w8-right">{p.dials}</td>
+      <td className="w8-right">{p.dials ?? '—'}</td>
       <td className="w8-right">{p.appointments}</td>
       <Cell flagged={p.appointment_rate_flagged} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}</Cell>
       <td className="w8-right">
@@ -184,7 +184,7 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
             <tr>
               <th>名前</th>
               <th>チーム</th>
-              <th className="w8-right">総架電数</th>
+              <th className="w8-right">架電数</th>
               <th className="w8-right">アポ数</th>
               <th className="w8-right" aria-sort={ariaSort({ kind: 'rate' })}>
                 <button type="button" className="w8-sort" onClick={() => { toggle({ kind: 'rate' }); }}>アポ率{arrow({ kind: 'rate' })}</button>
@@ -211,6 +211,7 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
       <p className="talk-rules" data-testid="talk-rules">
         {ruleSentences(data.rules).map(s => <span key={s} style={{ display: 'block' }}>{s}</span>)}
         <span style={{ display: 'block' }}>各項目の割合は「できていない電話 ÷ その項目に当てはまる電話」で、小さい数字はその本数です。見出しの「全体」は資料にある全体の割合です。</span>
+        <span style={{ display: 'block' }} data-testid="talk-dials-rule">架電数は営業KPI と同じ、Zoom でつながった通話の数です。アポ率 ＝ アポ数 ÷ 架電数です。</span>
         <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる 70 秒以上の電話の本数です。</span>
       </p>
     </>
@@ -399,7 +400,17 @@ export function TalkPanel({ route, navigate, fixture }: { route: TalkRoute; navi
             </p>
             {d.counting_days.length > 0 && (
               <p className="w8-alert" role="status" data-testid="talk-counting-days">
-                {describeDays(d.counting_days)} の総架電とアポは数えている途中です。数え終わるまで、その日の分は表に入っていません（数え終わると自動で更新します）。
+                {describeDays(d.counting_days)} のアポは数えている途中です。数え終わるまで、その日のアポは表に入っていません（数え終わると自動で更新します）。
+              </p>
+            )}
+            {d.dials_error && (
+              <p className="w8-alert" role="alert" data-testid="talk-dials-error">
+                架電数を読めませんでした（営業KPI のシートを読めないため）。架電数とアポ率は出していません。しばらくしてから開き直してください。
+              </p>
+            )}
+            {d.dials_partial && !d.dials_error && (
+              <p className="w8-subtle" role="status" data-testid="talk-dials-partial">
+                {d.dials_fetched_at === null ? '最終日の架電数は途中の数です。' : `最終日の架電数は ${d.dials_fetched_at} 時点の数です。`}
               </p>
             )}
             <TalkSummaryTable data={d} onOpen={id => { navigate({ ...withPeriod, owner: id, call: '' }); }} />

@@ -13,7 +13,7 @@ item_min_applicable: number,
  */
 item_excess_pct: number, 
 /**
- * アポ率の印: 総架電がこの本数以上
+ * アポ率の印: 架電数がこの本数以上
  */
 appointment_min_dials: number, 
 /**

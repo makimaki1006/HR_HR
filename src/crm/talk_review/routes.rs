@@ -18,6 +18,7 @@ use tower_sessions::Session;
 use super::checks::{defs, loaded};
 use super::config::TalkReviewConfig;
 use super::counts::{CountsCache, TeamOwners};
+use super::dials::{self, Dials};
 use super::store::{self, ReviewRow, ST_FAILED, ST_JUDGED, ST_PENDING, ST_QUEUED, ST_UNAVAILABLE};
 use super::summary::{build, Member, ALERT_RULES};
 use super::types::*;
@@ -279,7 +280,7 @@ pub(in crate::crm) async fn get_summary(
         owner_id: None,
         name: name.to_string(),
         team: None,
-        dials: 0,
+        dials: None,
         appointments: 0,
         appointment_rate_pct: None,
         appointment_rate_flagged: false,
@@ -301,7 +302,8 @@ pub(in crate::crm) async fn get_summary(
     let base = |enabled: bool,
                 people: Vec<TalkPersonRow>,
                 total: TalkPersonRow,
-                counting: &[NaiveDate]| TalkSummaryResponse {
+                counting: &[NaiveDate],
+                dials: Option<&Dials>| TalkSummaryResponse {
         from: from.to_string(),
         to: to.to_string(),
         as_of: now_text(now),
@@ -312,10 +314,14 @@ pub(in crate::crm) async fn get_summary(
         people,
         per_person_day: cfg.per_person_day,
         counting_days: counting.iter().map(NaiveDate::to_string).collect(),
+        // 架電数を出せるのは、enabled でシートが読めたとき
+        dials_error: enabled && dials.is_none(),
+        dials_partial: dials.is_some_and(|d| d.partial),
+        dials_fetched_at: dials.and_then(|d| d.fetched_at.clone()),
         total,
     };
     if !cfg.enabled || state.audit.is_none() {
-        return Json(base(false, vec![], empty_total("チーム全体"), &[])).into_response();
+        return Json(base(false, vec![], empty_total("チーム全体"), &[], None)).into_response();
     }
     let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
@@ -342,7 +348,7 @@ pub(in crate::crm) async fn get_summary(
         Ok(r) => r,
         Err(r) => return r,
     };
-    // 総架電数とアポ数は、worker が前もって数えた日だけで答える (HubSpot は待たない)。
+    // アポ数は、worker が前もって数えた日だけで答える (HubSpot は待たない)。
     // 数え終わっていない日があれば、背景で読み始め (他が読んでいる最中なら任せる)、その日を応答に添える
     let snap = st.counts.snapshot(from, to);
     if !snap.counting.is_empty() {
@@ -353,7 +359,9 @@ pub(in crate::crm) async fn get_summary(
             }
         });
     }
-    let (dials, deals) = (snap.dials, snap.deals);
+    let deals = snap.deals;
+    // 架電数は営業KPI と同じシート。読めなければ出さない (HubSpot では数えない)
+    let dials = dials::load(from, to, today).await;
     let members: Vec<Member> = all_members
         .into_iter()
         .filter(|m| {
@@ -368,8 +376,15 @@ pub(in crate::crm) async fn get_summary(
             team: Some(m.team),
         })
         .collect();
-    let (people, total) = build(&members, &dials, &deals, &rows, &ids, &ALERT_RULES);
-    Json(base(true, people, total, &snap.counting)).into_response()
+    let (people, total) = build(
+        &members,
+        dials.as_ref().map(|d| &d.by_owner),
+        &deals,
+        &rows,
+        &ids,
+        &ALERT_RULES,
+    );
+    Json(base(true, people, total, &snap.counting, dials.as_ref())).into_response()
 }
 
 pub(in crate::crm) async fn get_calls(

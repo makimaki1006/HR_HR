@@ -100,7 +100,7 @@ export function ruleSentences(r: TalkSummaryResponse['rules']): string[] {
   const ratio = r.appointment_rate_ratio === 0.5 ? '半分' : `${String(Math.round(r.appointment_rate_ratio * 100))}%`;
   return [
     `項目の印: その項目に当てはまる電話が ${String(r.item_min_applicable)} 本以上あり、本人のできていない割合がチーム全体の割合より ${String(r.item_excess_pct)}% 以上高いとき（例: チーム全体が 40% なら ${String(40 + r.item_excess_pct)}% 以上）。`,
-    `アポ率の印: 総架電が ${String(r.appointment_min_dials)} 本以上で、アポ率がチーム全体のアポ率の${ratio}未満のとき。`,
+    `アポ率の印: 架電数が ${String(r.appointment_min_dials)} 本以上で、アポ率がチーム全体のアポ率の${ratio}未満のとき。`,
   ];
 }
 
@@ -200,7 +200,7 @@ export const FIXTURE_PEOPLE: TalkPersonRow[] = [
 
 function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow {
   const sum = (f: (p: TalkPersonRow) => number) => people.reduce((a, p) => a + f(p), 0);
-  const dials = sum(p => p.dials);
+  const dials = sum(p => p.dials ?? 0);
   const appts = sum(p => p.appointments);
   return {
     owner_id: null, name: 'チーム全体', team: null, dials, appointments: appts,
@@ -219,7 +219,7 @@ export function fixtureSummary(from: string, to: string, team: string): TalkSumm
   return {
     from, to, as_of: `${to}T14:05:00+09:00`, enabled: true,
     teams: ['架空BPOチーム', '架空営業チーム'],
-    checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, per_person_day: 10, counting_days: [], total: totalOf(people, FIXTURE_CHECKS),
+    checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, per_person_day: 10, counting_days: [], dials_error: false, dials_partial: true, dials_fetched_at: `${to} 06:30`, total: totalOf(people, FIXTURE_CHECKS),
   };
 }
 

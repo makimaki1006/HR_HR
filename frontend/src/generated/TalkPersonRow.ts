@@ -10,15 +10,15 @@ export type TalkPersonRow = {
  */
 owner_id: string | null, name: string, team: string | null, 
 /**
- * 総架電数 (発信)
+ * 架電数 (Zoom でつながった通話。営業KPI の「架電数」と同じ)。シートが読めなければ null
  */
-dials: number, appointments: number, 
+dials: number | null, appointments: number, 
 /**
- * アポ数 ÷ 総架電数 × 100 (総架電 0 は null)
+ * アポ数 ÷ 架電数 × 100 (架電数が無い・0 は null)
  */
 appointment_rate_pct: number | null, 
 /**
- * アポ率の印 (総架電が下限以上で、チーム全体のアポ率の一定割合未満)
+ * アポ率の印 (架電数が下限以上で、チーム全体のアポ率の一定割合未満)
  */
 appointment_rate_flagged: boolean, 
 /**

@@ -7,7 +7,7 @@
 //! 文字起こしがまだ無いものは間隔を空けて再試行し (上限あり)、取れないものは `unavailable` にして諦める
 //! (取れなくなった電話の分は、同じ人・同じ日の次の電話が枠に入る)。
 //! 録音 URL が Call に無いもの (Call Queue 経由の発信) は、Zoom の通話履歴から相手番号と時刻で録音を探す。
-//! 総架電・アポの日ごとの数え (`counts`) も、ここで前もって新しい日から進める。
+//! アポの日ごとの数え (`counts`) も、ここで前もって新しい日から進める。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -447,7 +447,7 @@ struct Worker<Z, J> {
     judge: Arc<J>,
     cfg: TalkReviewConfig,
     known: HashSet<String>,
-    /// 対象の担当者 (総架電・アポの数えに使う)
+    /// 対象の担当者 (アポの数えに使う)
     team: Option<TeamOwners>,
     counts_task: Option<tokio::task::JoinHandle<()>>,
     last_poll: Option<DateTime<Utc>>,
@@ -573,7 +573,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         }
     }
 
-    /// 総架電・アポの日ごとの数えを、新しい日から前もって進める (画面はこれを読む)。前の周回が続いていれば足さない
+    /// アポの日ごとの数えを、新しい日から前もって進める (画面はこれを読む)。前の周回が続いていれば足さない
     fn prefill_counts(&mut self, now: DateTime<Utc>) {
         if self.counts_task.as_ref().is_some_and(|t| !t.is_finished()) {
             return;

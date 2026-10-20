@@ -15,7 +15,7 @@ describe('トークの振り返り: 人ごとの表', () => {
   it('アポ率は小数2桁、印のセルだけ目立たせる', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
     const jiro = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
-    // 名前・チーム・総架電・アポ・アポ率・判定数・4項目
+    // 名前・チーム・架電数・アポ・アポ率・判定数・4項目
     expect(jiro[2]?.textContent).toBe('310');
     expect(jiro[4]?.textContent).toBe('0.65%');
     expect(jiro[4]?.getAttribute('data-flagged')).toBe('true');
@@ -66,6 +66,19 @@ describe('トークの振り返り: 人ごとの表', () => {
     const note = screen.getByTestId('talk-sampling').textContent;
     expect(note).toContain('判定した電話の中での割合');
     expect(note).toContain('1 人 1 日あたり新しい電話から 10 本まで');
+  });
+
+  it('架電数は営業KPI と同じ数だと書き、読めなければ「—」を出す', () => {
+    expect(screen.queryByTestId('talk-dials-rule')).toBeNull();
+    const { unmount } = render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    expect(screen.getByRole('columnheader', { name: '架電数' })).toBeTruthy();
+    expect(screen.getByTestId('talk-dials-rule').textContent).toContain('アポ率 ＝ アポ数 ÷ 架電数');
+    unmount();
+    const none = { ...summary, people: summary.people.map(p => ({ ...p, dials: null, appointment_rate_pct: null })) };
+    render(<TalkSummaryTable data={none} onOpen={() => undefined} />);
+    const cells = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
+    expect(cells[2]?.textContent).toBe('—');
+    expect(cells[4]?.textContent).toBe('-');
   });
 
   it('数えている途中の日を日付でまとめて伝える', () => {
