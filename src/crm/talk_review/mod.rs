@@ -7,6 +7,7 @@
 //! - `judge`: MiniMax による項目ごとの判定 (差し替え可能な `Judge`)
 //! - `store`: 監査 Turso の表 `call_talk_reviews`
 //! - `dials`: 架電数 (営業KPI と同じ Zoom 由来のシートの値)
+//! - `live_dials`: 今日の架電数を Zoom の通話ログから約 15 分おきに数える
 //! - `counts`: アポ数 (日ごとにキャッシュ)
 //! - `summary`: 集計と印 (純粋な計算)
 //! - `worker`: 背景で対象の Call を見つけて判定する (`CALL_REVIEW_ENABLED=1` のときだけ)
@@ -19,6 +20,7 @@ pub mod config;
 pub mod counts;
 pub mod dials;
 pub mod judge;
+pub mod live_dials;
 pub mod routes;
 pub mod store;
 pub mod summary;

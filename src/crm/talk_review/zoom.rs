@@ -51,6 +51,9 @@ pub trait TranscriptSource: Send + Sync {
 pub const REC_PREFIX: &str = "rec:";
 /// 通話履歴の一覧のページ数の上限 (1 ページ 300 件。1 日約 6,000 件)
 const MAX_HISTORY_PAGES: usize = 40;
+/// 今日の架電数を数える通話ログのページ数の上限 (営業KPI の同期と同じ)
+const MAX_LIVE_PAGES: usize = 200;
+const MAX_USER_PAGES: usize = 50;
 const HISTORY_TTL: Duration = Duration::from_secs(600);
 const HISTORY_MAX_DAYS: usize = 16;
 /// HubSpot の通話の時刻と Zoom の開始時刻を同じ電話とみなす差
@@ -274,6 +277,66 @@ impl ZoomClient {
             g.clear();
         }
         g.insert(day, (Instant::now(), out.clone()));
+        Ok(out)
+    }
+}
+
+impl ZoomClient {
+    /// 1 日分 (UTC の `from`/`to`) の通話ログ (`phone/call_logs`) のページ。上限 `MAX_LIVE_PAGES` ページ
+    pub async fn call_log_pages(&self, from: &str, to: &str) -> Result<Vec<Value>, ZoomError> {
+        let mut pages = Vec::new();
+        let mut token: Option<String> = None;
+        for _ in 0..MAX_LIVE_PAGES {
+            let mut q = vec![("from", from), ("to", to), ("page_size", "300")];
+            if let Some(t) = token.as_deref() {
+                q.push(("next_page_token", t));
+            }
+            let url = reqwest::Url::parse_with_params("https://api.zoom.us/v2/phone/call_logs", &q)
+                .map_err(|_| ZoomError::Transient("url".into()))?;
+            let v = self.get_json(url.as_str()).await?;
+            let next = v
+                .get("next_page_token")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            pages.push(v);
+            match next {
+                Some(t) => token = Some(t),
+                None => break,
+            }
+        }
+        Ok(pages)
+    }
+
+    /// 有効な Zoom ユーザーの `user_id -> メール (小文字)`
+    pub async fn active_user_emails(&self) -> Result<HashMap<String, String>, ZoomError> {
+        let mut out = HashMap::new();
+        let mut token: Option<String> = None;
+        for _ in 0..MAX_USER_PAGES {
+            let mut q = vec![("page_size", "300"), ("status", "active")];
+            if let Some(t) = token.as_deref() {
+                q.push(("next_page_token", t));
+            }
+            let url = reqwest::Url::parse_with_params("https://api.zoom.us/v2/users", &q)
+                .map_err(|_| ZoomError::Transient("url".into()))?;
+            let v = self.get_json(url.as_str()).await?;
+            if let Some(a) = v.get("users").and_then(Value::as_array) {
+                for u in a {
+                    if let Some(id) = u.get("id").and_then(Value::as_str) {
+                        let email = u.get("email").and_then(Value::as_str).unwrap_or("");
+                        out.insert(id.to_string(), email.to_lowercase());
+                    }
+                }
+            }
+            match v
+                .get("next_page_token")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                Some(t) => token = Some(t.to_string()),
+                None => break,
+            }
+        }
         Ok(out)
     }
 }
