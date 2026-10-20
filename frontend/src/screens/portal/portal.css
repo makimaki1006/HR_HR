@@ -1,0 +1,32 @@
+/*
+ * 顧客向け画面（/portal）専用のスタイル。社内画面の app.css（暗い色の旧シェル）は読み込まない。
+ * 顧客が使う画面なので、明るい落ち着いた配色にする。色は下のトークンだけを使う。
+ */
+@import "tailwindcss";
+
+@theme {
+  --color-pt-bg: #f6f5f2;
+  --color-pt-surface: #ffffff;
+  --color-pt-line: #dedad2;
+  --color-pt-line-strong: #c4bfb4;
+  --color-pt-ink: #1d1d1b;
+  --color-pt-muted: #5f5c55;
+  --color-pt-faint: #8b877e;
+  --color-pt-primary: #24476b;
+  --color-pt-primary-hover: #1b3653;
+  --color-pt-primary-soft: #e6edf4;
+  --color-pt-ok: #2f6b3c;
+  --color-pt-ok-soft: #e7f1e8;
+  --color-pt-warn: #8a5a10;
+  --color-pt-warn-soft: #f7efdc;
+  --color-pt-danger: #9b2c22;
+  --color-pt-danger-soft: #f8e6e3;
+  --color-pt-new: #2b5d8f;
+  --font-sans: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+}
+
+html, body {
+  background-color: var(--color-pt-bg);
+  color: var(--color-pt-ink);
+  font-family: var(--font-sans);
+}
