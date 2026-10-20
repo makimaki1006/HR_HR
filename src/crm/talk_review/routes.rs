@@ -180,6 +180,10 @@ impl TalkState {
         Ok(rows)
     }
 
+    pub(super) fn zoom_client(&self) -> Option<Arc<ZoomClient>> {
+        self.zoom.get_or_init(ZoomClient::from_env).clone()
+    }
+
     async fn transcript(&self, zoom_id: &str) -> Result<Vec<TalkTurn>, ZoomError> {
         if let Some((at, v)) = self.transcripts.lock().unwrap().get(zoom_id) {
             if at.elapsed() < TRANSCRIPT_TTL {
@@ -361,7 +365,23 @@ pub(in crate::crm) async fn get_summary(
     }
     let deals = snap.deals;
     // 架電数は営業KPI と同じシート。読めなければ出さない (HubSpot では数えない)
-    let dials = dials::load(from, to, today).await;
+    // 期間に今日が入っていれば、今日の分は Zoom から約 15 分おきに数えた値 (数えられなければシート)
+    let live = if from <= today && today <= to {
+        match st.zoom_client() {
+            Some(z) => {
+                super::live_dials::live_today(
+                    z,
+                    super::live_dials::owner_by_email(&list.owners),
+                    today,
+                )
+                .await
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+    let dials = dials::load_with_live(from, to, today, live.as_deref()).await;
     let members: Vec<Member> = all_members
         .into_iter()
         .filter(|m| {

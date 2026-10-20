@@ -72,12 +72,58 @@ pub fn dials_from_sheets(
     }
 }
 
+/// 今日より前の日はシート、今日は Zoom から数えた値 (`live`) を足す。
+/// `sheet_before_today` は `[from, today の前日]` のシートの値 (期間が今日だけなら空)。
+pub fn merge_live(
+    sheet_before_today: Dials,
+    live: &HashMap<String, u32>,
+    live_fetched_at: &str,
+) -> Dials {
+    let mut by_owner = sheet_before_today.by_owner;
+    for (o, n) in live {
+        *by_owner.entry(o.clone()).or_insert(0) += n;
+    }
+    Dials {
+        by_owner,
+        partial: true,
+        fetched_at: Some(live_fetched_at.to_string()),
+    }
+}
+
 /// 営業KPI と同じシート (常駐キャッシュ) から読む。読めなければ `None`
 pub async fn load(from: NaiveDate, to: NaiveDate, today: NaiveDate) -> Option<Dials> {
+    let (kaden, meta) = load_sheets().await?;
+    Some(dials_from_sheets(&kaden, &meta, from, to, today))
+}
+
+async fn load_sheets() -> Option<(std::sync::Arc<SheetData>, std::sync::Arc<SheetData>)> {
     let state = cq_state().ok()?;
     let (kaden, _) = state.store.get(&state.client, SHEET_KADEN).await.ok()?;
     let (meta, _) = state.store.get(&state.client, SHEET_META).await.ok()?;
-    Some(dials_from_sheets(&kaden, &meta, from, to, today))
+    Some((kaden, meta))
+}
+
+/// 期間に今日が含まれ、Zoom から今日を数えられたときは「シートの前日まで + Zoom の今日」。
+/// 数えられないとき (設定なし・失敗で前の値もない) は従来どおりシートだけ。
+pub async fn load_with_live(
+    from: NaiveDate,
+    to: NaiveDate,
+    today: NaiveDate,
+    live: Option<&super::live_dials::LiveToday>,
+) -> Option<Dials> {
+    let sheets = load_sheets().await;
+    let Some(live) = live.filter(|_| from <= today && today <= to) else {
+        let (kaden, meta) = sheets?;
+        return Some(dials_from_sheets(&kaden, &meta, from, to, today));
+    };
+    let prior = if from < today {
+        let (kaden, meta) = sheets?;
+        let yesterday = today.pred_opt()?;
+        dials_from_sheets(&kaden, &meta, from, yesterday, today)
+    } else {
+        Dials::default()
+    };
+    Some(merge_live(prior, &live.by_owner, &live.fetched_at))
 }
 
 #[cfg(test)]
@@ -106,6 +152,23 @@ mod tests {
         // 最終日の今日は同期の途中経過
         assert!(r.partial);
         assert_eq!(r.fetched_at.as_deref(), Some("2026-10-20 06:30"));
+    }
+
+    #[test]
+    fn live_today_is_added_to_the_sheet_days_before_it() {
+        // シートの 10/19 (11 は 120、22 は 80) に、Zoom の今日 (11 は 30、33 は 5) を足す
+        let meta = sheet_from_tsv("項目\t値\n");
+        let prior = dials_from_sheets(&sheet_from_tsv(KADEN), &meta, d(19), d(19), d(20));
+        let live = HashMap::from([("11".to_string(), 30u32), ("33".to_string(), 5u32)]);
+        let r = merge_live(prior, &live, "2026-10-20 09:55");
+        assert_eq!(r.by_owner.get("11"), Some(&150));
+        assert_eq!(r.by_owner.get("22"), Some(&80));
+        assert_eq!(r.by_owner.get("33"), Some(&5));
+        assert!(r.partial);
+        assert_eq!(r.fetched_at.as_deref(), Some("2026-10-20 09:55"));
+        // シートの今日の朝の値 (41) は使わない
+        let only_today = merge_live(Dials::default(), &live, "2026-10-20 09:55");
+        assert_eq!(only_today.by_owner.get("11"), Some(&30));
     }
 
     #[test]
