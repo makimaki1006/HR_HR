@@ -7440,8 +7440,13 @@ fn 滞留の件数_fixture() {
     assert!(days.windows(2).all(|w| w[0] >= w[1]));
     assert!(days.iter().all(|d| *d > 45));
     // 決着したステージ・紹介料は出ない
-    assert!(rows
-        .iter()
-        .all(|r| !["66848546", "52016159", "52016158", "90598807", "1016664339", "1278456227"]
-            .contains(&r["stage"].as_str().unwrap())));
+    assert!(rows.iter().all(|r| ![
+        "66848546",
+        "52016159",
+        "52016158",
+        "90598807",
+        "1016664339",
+        "1278456227"
+    ]
+    .contains(&r["stage"].as_str().unwrap())));
 }
