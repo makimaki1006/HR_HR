@@ -830,6 +830,7 @@ async fn restored_facts_keep_their_age_and_remain_visible_during_refresh() {
             live: 2,
             unknown_dates: 0,
             days: vec![today(built)],
+            listings: None,
         },
     )]);
     report_snapshot::persist(
@@ -919,6 +920,7 @@ fn measure_synthetic_facts_500_deals_30000_applications() {
                     live: 82,
                     unknown_dates: 0,
                     days: (0..60).map(|j| day - chrono::Duration::days(j)).collect(),
+                    listings: Some(1),
                 },
             )
         })

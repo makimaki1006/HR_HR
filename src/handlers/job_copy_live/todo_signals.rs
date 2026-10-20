@@ -16,6 +16,17 @@ pub(super) struct Facts {
     pub(super) unknown_dates: usize,
     // 応募 ID は取引ごとに重複排除してから日付だけを保持する。
     pub(super) days: Vec<NaiveDate>,
+    // 取引に付いた求人票の数（掲載の有無を問わない）。古い保存データでは不明。
+    #[serde(default)]
+    pub(super) listings: Option<usize>,
+}
+
+/// 求人票が付いているのに、全期間で応募が 1 件も無い取引。
+/// 応募日が分からない応募も応募として数えるため、日付の欠けで 0 件扱いにならない。
+pub(super) fn zero_applicants(facts: Option<&Facts>) -> bool {
+    facts.is_some_and(|f| {
+        f.listings.is_some_and(|n| n >= 1) && f.days.is_empty() && f.unknown_dates == 0
+    })
 }
 
 /// #244 と案件一覧で共用する初回契約の判定。
@@ -270,6 +281,7 @@ fn assemble(
                     .filter(|id| dates.get(**id).copied().flatten().is_none())
                     .count(),
                 live: listings.iter().filter(|id| live.contains(*id)).count(),
+                listings: Some(listings.len()),
                 days: apps
                     .into_iter()
                     .filter_map(|id| dates.get(id).copied().flatten())
@@ -336,6 +348,7 @@ mod tests {
             let mut facts = Facts {
                 live: 2,
                 unknown_dates: 0,
+                listings: None,
                 days: vec![today; count],
             };
             facts.days.push(today - chrono::Duration::days(age + 1));
@@ -382,6 +395,7 @@ mod tests {
         let facts = Facts {
             live: 3,
             unknown_dates: 0,
+            listings: None,
             days: vec![
                 parse("2026-10-01T14:59:59Z"),
                 parse("2026-10-01T15:00:00Z"),
@@ -471,6 +485,7 @@ mod tests {
         let today = day("2026-10-16");
         let mut f = Facts {
             unknown_dates: 0,
+            listings: None,
             live: 2,
             days: vec![],
         };
@@ -505,6 +520,7 @@ mod tests {
             let d = deal(age, Some("2026-10-16"), 61);
             let f = Facts {
                 unknown_dates: 0,
+                listings: None,
                 live: 1,
                 days: vec![day("2026-10-16"); total],
             };
@@ -517,6 +533,7 @@ mod tests {
         let mut d = deal(60, None, 0);
         let mut f = Facts {
             unknown_dates: 0,
+            listings: None,
             live: 1,
             days: vec![],
         };

@@ -6,9 +6,9 @@ export const boardRows: DealRow[] = Array.from({ length: 24 }, (_, i) => ({
   reasons: i === 0 ? [{ kind: 'nps', text: '定期NPSが4以下' }, { kind: 'mtg', text: 'MTGが90日以上途絶', strong: true }] : [],
   first_contract: false, launch: { start: null, elapsed: null, status: 'unavailable', total: null, remaining: null, first: null, first_day: null, weeks: null, live: null },
   months: 3, expiration: '2026-12-31', days_left: 76, last_contact: '2026-10-12', last_mtg: i === 23 ? null : i === 0 ? '2026-07-01' : '2026-10-01',
-  recent_applications: i+1, mtg_status: i === 23 ? 'outside' : 'ready', nps: i === 0 ? 4 : 5, applications: 20, interviews: 4, hires: 2, target: 10, achievement: 0.2, cpa: (100000 + i * 10000) / 2, amount: 100000 + i * 10000,
+  recent_applications: i+1, listing_count: i < 2 ? 3 : null, zero_applicants: i === 0, mtg_status: i === 23 ? 'outside' : 'ready', nps: i === 0 ? 4 : 5, applications: 20, interviews: 4, hires: 2, target: 10, achievement: 0.2, cpa: (100000 + i * 10000) / 2, amount: 100000 + i * 10000,
 }));
-export const boardFixture: DealBoardResponse = { status: 'ready', rows: boardRows, work: demoOwnerTodo, sheet_as_of: '2026-10-15', refreshing: false, refresh_failed: false, applications_status: 'ready' };
+export const boardFixture: DealBoardResponse = { status: 'ready', hubspot_portal_id: '1234567', rows: boardRows, work: demoOwnerTodo, sheet_as_of: '2026-10-15', refreshing: false, refresh_failed: false, applications_status: 'ready' };
 
 export const firstRows: DealRow[] = boardRows.slice(0, 6).map((row, i) => ({ ...row,
   first_contract: i !== 5,
