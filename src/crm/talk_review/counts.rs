@@ -1,7 +1,10 @@
 //! アポ数を日ごとに数えてキャッシュする (架電数は営業KPI のシートから読む。`dials.rs`)。
 //!
 //! アポの定義 (BPO と新規営業で付け方が違う。ステージは営業KPI と同じ `ST_APO` と `ST_APO_BPO`):
-//! - 新規営業: 取引の担当者 `hubspot_owner_id` に付ける (営業KPI と同じ。BPO 経由かどうかによらない)。
+//! - 新規営業 (`ST_APO`): アポを取った人 = アポ取得者 `aposyutokusya` に付ける。ただしアポ取得日
+//!   `aposyutokubi` が「ステージに入った日の月」に入っていて、アポ取得者が空でないときだけ (取得者は一度入ると
+//!   残り続けるので、BPO と同じく月で絞る)。取得者に付けるときは担当者には付けない (1 件 1 人)。
+//!   それ以外は取引の担当者 `hubspot_owner_id` に付ける (営業KPI と同じ)。
 //! - BPO: BPO 経由の取引だけ、アポ獲得者 `bpo_26` (空なら取引の担当者) に付ける。BPO 経由かは営業KPI の
 //!   `is_bpo` と同じ比較で、`bpo_appo_date` が「アポ日確定に入った日の月」に入っているもの。`bpo_26` と
 //!   `bpo_appo_date` は一度 BPO がアポを取ると取引に残り続けるので、新規営業が取り直したアポ
@@ -89,6 +92,42 @@ fn via_bpo(p: &Value, day: NaiveDate) -> bool {
         &lo,
         &hi,
     )
+}
+
+/// 新規営業ステージ (`ST_APO`) に入った取引のアポ取得者。アポ取得日が入った日の月に入り、取得者が空でないときだけ
+fn acquirer(p: &Value, day: NaiveDate) -> Option<String> {
+    let who = p
+        .get("aposyutokusya")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let (lo, hi) = month_window(day);
+    bpo_in_window(
+        &jst_text(p.get("aposyutokubi").and_then(Value::as_str)),
+        &lo,
+        &hi,
+    )
+    .then(|| who.to_string())
+}
+
+/// 取引 1 件のアポを付ける人。`ST_APO` でアポ取得者が有効ならその 1 人だけ (対象の担当者に限る。
+/// 担当者には付けない)。それ以外は従来の `credit`。
+pub fn credit_for_stage(
+    stage: &str,
+    p: &Value,
+    day: NaiveDate,
+    owner: Option<&str>,
+    bpo: &HashSet<&str>,
+    sales: &HashSet<&str>,
+) -> Vec<String> {
+    if stage == ST_APO {
+        if let Some(a) = acquirer(p, day) {
+            if bpo.contains(a.as_str()) || sales.contains(a.as_str()) {
+                return vec![a];
+            }
+        }
+    }
+    credit(appointment_owner(p), owner, via_bpo(p, day), bpo, sales)
 }
 
 /// 1 日分のアポ (取引ごとに、付いた担当者の一覧)。`covered` は読んだ時の対象の担当者
@@ -255,7 +294,7 @@ async fn fetch_appointments(
                     flt(&prop, "GTE", json!(from.to_string())),
                     flt(&prop, "LT", json!(to.to_string())),
                 ]}],
-                "properties": ["hubspot_owner_id", APPOINTER_PROPERTY, "bpo_appo_date", prop],
+                "properties": ["hubspot_owner_id", APPOINTER_PROPERTY, "bpo_appo_date", "aposyutokusya", "aposyutokubi", prop],
                 "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
                 "limit": PAGE,
             });
@@ -283,7 +322,7 @@ async fn fetch_appointments(
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|s| !s.is_empty());
-                let who = credit(appointment_owner(p), owner, via_bpo(p, day), &bpo, &sales);
+                let who = credit_for_stage(stage, p, day, owner, &bpo, &sales);
                 if !who.is_empty() {
                     out.entry(day).or_default().push(who);
                 }
@@ -366,6 +405,53 @@ mod tests {
         // 同じ月の月初と月末は入る。bpo_appo_date が無ければ BPO 0
         assert_eq!(credited("2026-12-31", Some("2026-12-01")), (1, 1));
         assert_eq!(credited("2026-10-15", None), (0, 1));
+    }
+
+    /// ST_APO の取引。担当者 S1、取得者 `who`、取得日 `date`。BPO の人 B1・営業の人 S1・S2
+    fn apo_credit(who: Option<&str>, date: Option<&str>, bpo_date: Option<&str>) -> Vec<String> {
+        let day = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+        let p = json!({"hubspot_owner_id": "S1", "aposyutokusya": who, "aposyutokubi": date,
+            "bpo_26": "B1", "bpo_appo_date": bpo_date});
+        credit_for_stage(
+            ST_APO,
+            &p,
+            day,
+            Some("S1"),
+            &set(&["B1"]),
+            &set(&["S1", "S2"]),
+        )
+    }
+
+    #[test]
+    fn new_sales_appointment_goes_to_the_acquirer_in_the_same_month() {
+        // 取得者あり・同じ月 → 取得者だけ (担当者 S1 には付けない)
+        assert_eq!(apo_credit(Some("S2"), Some("2026-10-03"), None), vec!["S2"]);
+        // 月初・月末も同じ月
+        assert_eq!(apo_credit(Some("S2"), Some("2026-10-01"), None), vec!["S2"]);
+        assert_eq!(apo_credit(Some("S2"), Some("2026-10-31"), None), vec!["S2"]);
+        // 取得日が前の月 → 担当者
+        assert_eq!(apo_credit(Some("S2"), Some("2026-09-30"), None), vec!["S1"]);
+        // 取得者が空・取得日なし → 担当者
+        assert_eq!(apo_credit(Some(""), Some("2026-10-03"), None), vec!["S1"]);
+        assert_eq!(apo_credit(None, None, None), vec!["S1"]);
+        assert_eq!(apo_credit(Some("S2"), None, None), vec!["S1"]);
+        // 取得者 = 担当者でも 1 回
+        assert_eq!(apo_credit(Some("S1"), Some("2026-10-03"), None), vec!["S1"]);
+        // 取得者が対象の担当者に含まれない → 従来どおり担当者
+        assert_eq!(apo_credit(Some("Z9"), Some("2026-10-03"), None), vec!["S1"]);
+    }
+
+    #[test]
+    fn bpo_stage_and_bpo_cases_are_unchanged_by_the_acquirer() {
+        let day = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+        let p = json!({"hubspot_owner_id": "S1", "aposyutokusya": "S2", "aposyutokubi": "2026-10-03",
+            "bpo_26": "B1", "bpo_appo_date": "2026-10-15"});
+        let (bpo, sales) = (set(&["B1"]), set(&["S1", "S2"]));
+        // BPO のステージでは取得者を見ない: 従来どおり B1 と担当者 S1
+        assert_eq!(
+            credit_for_stage(ST_APO_BPO, &p, day, Some("S1"), &bpo, &sales),
+            vec!["B1", "S1"]
+        );
     }
 
     #[test]
