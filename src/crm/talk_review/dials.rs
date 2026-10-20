@@ -15,6 +15,8 @@ use crate::handlers::sales_kpi::{kaden_last_day, kaden_of, kaden_period, SHEET_K
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Dials {
     pub by_owner: HashMap<String, u32>,
+    /// 期間の人ごとの発信数 (切れた・つながらなかったものを含む。シートの「発信」)
+    pub calls_by_owner: HashMap<String, u32>,
     /// 期間の最終日がシートの途中経過か (その日の数は同期の時点のもの)
     pub partial: bool,
     /// 同期の取得時刻 (`yyyy-MM-dd HH:mm`)。途中のときだけ。無ければ空
@@ -60,10 +62,21 @@ pub fn dials_from_sheets(
             )
         })
         .collect();
+    let calls_by_owner = period
+        .by_person
+        .iter()
+        .map(|(o, c)| {
+            (
+                o.clone(),
+                c.get("calls").copied().unwrap_or(0).max(0) as u32,
+            )
+        })
+        .collect();
     let (last_day, last_partial) = kaden_last_day(&rows, &meta, today);
     let partial = last_partial && days.contains(&last_day);
     Dials {
         by_owner,
+        calls_by_owner,
         partial,
         fetched_at: meta
             .get("架電の取得時刻")
@@ -77,14 +90,20 @@ pub fn dials_from_sheets(
 pub fn merge_live(
     sheet_before_today: Dials,
     live: &HashMap<String, u32>,
+    live_calls: &HashMap<String, u32>,
     live_fetched_at: &str,
 ) -> Dials {
     let mut by_owner = sheet_before_today.by_owner;
     for (o, n) in live {
         *by_owner.entry(o.clone()).or_insert(0) += n;
     }
+    let mut calls_by_owner = sheet_before_today.calls_by_owner;
+    for (o, n) in live_calls {
+        *calls_by_owner.entry(o.clone()).or_insert(0) += n;
+    }
     Dials {
         by_owner,
+        calls_by_owner,
         partial: true,
         fetched_at: Some(live_fetched_at.to_string()),
     }
@@ -123,7 +142,12 @@ pub async fn load_with_live(
     } else {
         Dials::default()
     };
-    Some(merge_live(prior, &live.by_owner, &live.fetched_at))
+    Some(merge_live(
+        prior,
+        &live.by_owner,
+        &live.calls_by_owner,
+        &live.fetched_at,
+    ))
 }
 
 #[cfg(test)]
@@ -149,6 +173,9 @@ mod tests {
         assert_eq!(r.by_owner.get("11"), Some(&161));
         assert_eq!(r.by_owner.get("22"), Some(&80));
         assert_eq!(r.by_owner.len(), 2);
+        // 発信数は「発信」列 (切れたものも含む)
+        assert_eq!(r.calls_by_owner.get("11"), Some(&700));
+        assert_eq!(r.calls_by_owner.get("22"), Some(&300));
         // 最終日の今日は同期の途中経過
         assert!(r.partial);
         assert_eq!(r.fetched_at.as_deref(), Some("2026-10-20 06:30"));
@@ -160,14 +187,18 @@ mod tests {
         let meta = sheet_from_tsv("項目\t値\n");
         let prior = dials_from_sheets(&sheet_from_tsv(KADEN), &meta, d(19), d(19), d(20));
         let live = HashMap::from([("11".to_string(), 30u32), ("33".to_string(), 5u32)]);
-        let r = merge_live(prior, &live, "2026-10-20 09:55");
+        let live_calls = HashMap::from([("11".to_string(), 50u32), ("33".to_string(), 9u32)]);
+        let r = merge_live(prior, &live, &live_calls, "2026-10-20 09:55");
+        assert_eq!(r.calls_by_owner.get("11"), Some(&550)); // 500 + 50
+        assert_eq!(r.calls_by_owner.get("22"), Some(&300));
+        assert_eq!(r.calls_by_owner.get("33"), Some(&9));
         assert_eq!(r.by_owner.get("11"), Some(&150));
         assert_eq!(r.by_owner.get("22"), Some(&80));
         assert_eq!(r.by_owner.get("33"), Some(&5));
         assert!(r.partial);
         assert_eq!(r.fetched_at.as_deref(), Some("2026-10-20 09:55"));
         // シートの今日の朝の値 (41) は使わない
-        let only_today = merge_live(Dials::default(), &live, "2026-10-20 09:55");
+        let only_today = merge_live(Dials::default(), &live, &live_calls, "2026-10-20 09:55");
         assert_eq!(only_today.by_owner.get("11"), Some(&30));
     }
 

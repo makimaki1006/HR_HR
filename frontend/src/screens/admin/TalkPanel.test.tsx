@@ -15,21 +15,21 @@ describe('トークの振り返り: 人ごとの表', () => {
   it('アポ率は小数2桁、印のセルだけ目立たせる', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
     const jiro = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
-    // 名前・チーム・架電数・アポ・アポ率・判定数・4項目
-    expect(jiro[2]?.textContent).toBe('310');
-    expect(jiro[4]?.textContent).toBe('0.65%');
-    expect(jiro[4]?.getAttribute('data-flagged')).toBe('true');
-    expect(jiro[5]?.textContent).toContain('70');
-    expect(jiro[5]?.textContent).toContain('待ち 6 ・ 取れない 4');
+    // 名前・チーム・発信数・架電数・アポ・アポ率・判定数・4項目
+    expect(jiro[3]?.textContent).toBe('310');
+    expect(jiro[5]?.textContent).toBe('0.65%');
+    expect(jiro[5]?.getAttribute('data-flagged')).toBe('true');
+    expect(jiro[6]?.textContent).toContain('70');
+    expect(jiro[6]?.textContent).toContain('待ち 6 ・ 取れない 4');
     // 日程を早く出す: 36/45 = 80% が印、受付は 25% で印なし
-    expect(jiro[8]?.textContent).toBe('20%できた 9/45本');
-    expect(jiro[8]?.getAttribute('data-flagged')).toBe('true');
-    expect(jiro[6]?.getAttribute('data-flagged')).toBeNull();
+    expect(jiro[9]?.textContent).toBe('20%できた 9/45本');
+    expect(jiro[9]?.getAttribute('data-flagged')).toBe('true');
+    expect(jiro[7]?.getAttribute('data-flagged')).toBeNull();
     const hanako = Array.from(rowOf('架空 花子').querySelectorAll('td'));
-    expect(hanako[4]?.textContent).toBe('2.27%');
-    expect(hanako[4]?.getAttribute('data-flagged')).toBeNull();
+    expect(hanako[5]?.textContent).toBe('2.27%');
+    expect(hanako[5]?.getAttribute('data-flagged')).toBeNull();
     // 項目の印は別の人 (断られた後 14/16)
-    expect(Array.from(rowOf('ダミー 三郎').querySelectorAll('td'))[14]?.getAttribute('data-flagged')).toBe('true');
+    expect(Array.from(rowOf('ダミー 三郎').querySelectorAll('td'))[15]?.getAttribute('data-flagged')).toBe('true');
   });
 
   it('見出しに資料の全体の割合と決まりを出し、最後の行はチーム全体', () => {
@@ -41,8 +41,8 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(screen.getByRole('columnheader', { name: /既存感/ }).textContent).toContain('この表の全体 64%');
     const rows = within(screen.getByTestId('talk-table')).getAllByRole('row');
     const last = Array.from(rows.at(-1)?.querySelectorAll('td') ?? []).map(td => td.textContent);
-    expect(last.slice(0, 5)).toEqual(['チーム全体', '-', '770', '12', '1.56%']);
-    expect(last[8]).toBe('43%できた 54/125本');
+    expect(last.slice(0, 6)).toEqual(['チーム全体', '-', '1771', '770', '12', '1.56%']);
+    expect(last[9]).toBe('43%できた 54/125本');
     // 場面ごとのまとまり
     expect(Array.from(document.querySelectorAll('th.talk-group')).map(t => `${t.textContent}:${t.getAttribute('colspan') ?? ''}`)).toEqual(['受付:1', '日付の前:5', '断られた後:3']);
   });
@@ -61,7 +61,7 @@ describe('トークの振り返り: 人ごとの表', () => {
   it('判定した本数と対象の本数を並べ、割合は判定した電話の中の割合だと書く', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
     // 二郎: 判定 70、待ち 6、取れない 4、枠を超えて判定していない 35 → 対象 115
-    const cell = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'))[5]?.textContent ?? '';
+    const cell = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'))[6]?.textContent ?? '';
     expect(cell).toContain('70');
     expect(cell).toContain('対象 115 本');
     const note = screen.getByTestId('talk-sampling').textContent;
@@ -73,13 +73,23 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(screen.queryByTestId('talk-dials-rule')).toBeNull();
     const { unmount } = render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
     expect(screen.getByRole('columnheader', { name: '架電数' })).toBeTruthy();
-    expect(screen.getByTestId('talk-dials-rule').textContent).toContain('アポ率 ＝ アポ数 ÷ 架電数');
+    expect(screen.getByRole('columnheader', { name: '発信数' })).toBeTruthy();
+    const heads = screen.getAllByRole('columnheader').map(h => h.textContent);
+    expect(heads.findIndex(t => t.startsWith('発信数'))).toBe(heads.findIndex(t => t.startsWith('架電数')) - 1);
+    expect(screen.getByTestId('talk-dials-rule').textContent).toBe('発信数は Zoom の発信すべて（相手が出る前に切ったもの・つながらなかったものを含む）、架電数はそのうちつながった通話の数で、営業KPI と同じです。アポ率 ＝ アポ数 ÷ 架電数です。');
+    // 発信数・架電数の列の値と、チーム全体の行は人の合計
+    const first = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
+    const me = summary.people.find(p => p.name === 'サンプル 二郎');
+    expect(first[2]?.textContent).toBe(String(me?.outbound));
+    expect(first[3]?.textContent).toBe(String(me?.dials));
+    expect(summary.total.outbound).toBe(summary.people.reduce((a, p) => a + (p.outbound ?? 0), 0));
+    expect(summary.total.outbound).toBeGreaterThan(summary.total.dials ?? 0);
     unmount();
     const none = { ...summary, people: summary.people.map(p => ({ ...p, dials: null, appointment_rate_pct: null })) };
     render(<TalkSummaryTable data={none} onOpen={() => undefined} />);
     const cells = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
-    expect(cells[2]?.textContent).toBe('—');
-    expect(cells[4]?.textContent).toBe('-');
+    expect(cells[3]?.textContent).toBe('—');
+    expect(cells[5]?.textContent).toBe('-');
   });
 
   it('数えている途中の日を日付でまとめて伝える', () => {
@@ -281,6 +291,10 @@ describe('トークの振り返り: 並べ替えと色の決まり (具体値)',
     const mk = (name: string, dials: number | null, appts: number, reviewed: number, r: number | null) => ({ ...summary.total, name, dials, appointments: appts, reviewed, appointment_rate_pct: r });
     const ps = [mk('A', 50, 2, 10, 4), mk('B', null, 0, 30, null), mk('C', 200, 1, 20, 0.5)];
     const names = (k: Parameters<typeof sortPeople>[1]) => sortPeople(ps, k).map(p => p.name).join('');
+    const ob = ps.map((p, i) => ({ ...p, outbound: [70, null, 300][i] ?? null }));
+    const obNames = (dir: 'asc' | 'desc') => sortPeople(ob, { key: { kind: 'outbound' }, dir }).map(p => p.name).join('');
+    expect(obNames('desc')).toBe('CAB');
+    expect(obNames('asc')).toBe('ACB');
     expect(names({ key: { kind: 'dials' }, dir: 'desc' })).toBe('CAB');
     expect(names({ key: { kind: 'dials' }, dir: 'asc' })).toBe('ACB');
     expect(names({ key: { kind: 'appointments' }, dir: 'desc' })).toBe('ACB');

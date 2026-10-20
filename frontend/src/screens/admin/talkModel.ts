@@ -112,7 +112,7 @@ export function describeDays(days: string[]): string {
 
 // ------------------------------------------------------------ 並べ替え
 
-export type TalkSortKey = { kind: 'rate' } | { kind: 'dials' } | { kind: 'appointments' } | { kind: 'reviewed' } | { kind: 'item'; id: string };
+export type TalkSortKey = { kind: 'rate' } | { kind: 'outbound' } | { kind: 'dials' } | { kind: 'appointments' } | { kind: 'reviewed' } | { kind: 'item'; id: string };
 export interface TalkSort { key: TalkSortKey; dir: 'asc' | 'desc' }
 
 /** できた割合 (%)。当てはまる電話が 0 本なら null */
@@ -124,6 +124,7 @@ export function donePct(it: Pick<TalkItemRate, 'not_done' | 'applicable'> | unde
 function sortValue(p: TalkPersonRow, key: TalkSortKey): number | null {
   switch (key.kind) {
     case 'rate': return p.appointment_rate_pct;
+    case 'outbound': return p.outbound;
     case 'dials': return p.dials;
     case 'appointments': return p.appointments;
     case 'reviewed': return p.reviewed;
@@ -235,7 +236,7 @@ function person(idx: number, id: string, name: string, team: string, dials: numb
     const hit = ap >= FIXTURE_RULES.item_min_applicable && tap > 0 && (nd / ap) * 100 >= (tnd / tap) * 100 + FIXTURE_RULES.item_excess_pct;
     return rate(c.id, nd, ap, hit);
   });
-  return { owner_id: id, name, team, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items };
+  return { owner_id: id, name, team, outbound: Math.round(dials * 2.3), dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items };
 }
 
 export const FIXTURE_PEOPLE: TalkPersonRow[] = [
@@ -248,9 +249,10 @@ export const FIXTURE_PEOPLE: TalkPersonRow[] = [
 function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow {
   const sum = (f: (p: TalkPersonRow) => number) => people.reduce((a, p) => a + f(p), 0);
   const dials = sum(p => p.dials ?? 0);
+  const outbound = sum(p => p.outbound ?? 0);
   const appts = sum(p => p.appointments);
   return {
-    owner_id: null, name: 'チーム全体', team: null, dials, appointments: appts,
+    owner_id: null, name: 'チーム全体', team: null, outbound, dials, appointments: appts,
     appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: false,
     eligible: sum(p => p.eligible), reviewed: sum(p => p.reviewed), waiting: sum(p => p.waiting), unavailable: sum(p => p.unavailable),
     items: checks.map(c => {
