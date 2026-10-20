@@ -7,7 +7,7 @@
 //!   空でなければ、`aposyutokusya` に付ける。無ければ取引の担当者に付ける。
 //! - どちらも、`bpo_26` と `aposyutokusya` は一度入ると取引に残り続けるので月で絞る。アポを取った人は
 //!   対象者の一覧に載っていなくてもその人に付ける (一覧に無ければ画面に出ないだけで、担当者には戻さない)。
-//!   担当者に付けるのは、取った人がいない (空・日付が別の月) ときで、新規営業チームの担当者だけ。
+//!   担当者に付けるのは、取った人がいない (空・日付が別の月) ときだけ。
 //!
 //! HubSpot の呼び出しは、まだ持っていない日だけ (確定した日は読み直さない。今日と昨日は 5 分で読み直す)。
 //! 持っていない日の範囲を 2 ステージ分まとめて 1 回ずつ (数百件で Search 2〜4 回)。
@@ -99,13 +99,12 @@ fn bpo_taker(p: &Value, day: NaiveDate) -> Option<String> {
 
 /// 取引 1 件のアポを付ける人 (必ず 1 人以下)。アポを取った人 (BPO は `bpo_26`、新規営業は `aposyutokusya`。
 /// どちらも入った日の月に日付があるときだけ) に付ける。対象者の一覧に載っていなくてもその人に付ける
-/// (一覧に無ければ画面に出ないだけで、担当者には戻さない)。取った人がいなければ、新規営業チームの担当者に付ける。
+/// (一覧に無ければ画面に出ないだけで、担当者には戻さない)。取った人がいなければ取引の担当者に付ける (同じく一覧に無ければ画面に出ないだけ)。
 pub fn credit_for_stage(
     stage: &str,
     p: &Value,
     day: NaiveDate,
     owner: Option<&str>,
-    sales: &HashSet<&str>,
 ) -> Vec<String> {
     let taker = if stage == ST_APO {
         acquirer(p, day)
@@ -115,10 +114,7 @@ pub fn credit_for_stage(
     if let Some(t) = taker {
         return vec![t];
     }
-    owner
-        .filter(|o| sales.contains(o))
-        .map(|o| vec![o.to_string()])
-        .unwrap_or_default()
+    owner.map(|o| vec![o.to_string()]).unwrap_or_default()
 }
 
 /// 1 日分のアポ (取引ごとに、付いた担当者の一覧)。`covered` は読んだ時の対象の担当者
@@ -266,7 +262,6 @@ async fn fetch_appointments(
     last: NaiveDate,
     searches: &mut u32,
 ) -> Result<BTreeMap<NaiveDate, Vec<Vec<String>>>, HubSpotError> {
-    let sales: HashSet<&str> = team.sales.iter().map(String::as_str).collect();
     let from = jst_midnight_ms(first);
     let to = jst_midnight_ms(last) + 86_400_000;
     let mut out: BTreeMap<NaiveDate, Vec<Vec<String>>> = BTreeMap::new();
@@ -312,7 +307,7 @@ async fn fetch_appointments(
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|s| !s.is_empty());
-                let who = credit_for_stage(stage, p, day, owner, &sales);
+                let who = credit_for_stage(stage, p, day, owner);
                 if !who.is_empty() {
                     out.entry(day).or_default().push(who);
                 }
@@ -345,13 +340,13 @@ mod tests {
     /// 新規営業のステージ (ST_APO)。担当者 S1。営業の人は S1・S2
     fn apo_credit(who: Option<&str>, date: Option<&str>) -> Vec<String> {
         let p = json!({"hubspot_owner_id": "S1", "aposyutokusya": who, "aposyutokubi": date});
-        credit_for_stage(ST_APO, &p, day(), Some("S1"), &set(&["S1", "S2"]))
+        credit_for_stage(ST_APO, &p, day(), Some("S1"))
     }
 
     /// BPO のステージ (ST_APO_BPO)。担当者 S1 (新規営業)
     fn bpo_credit(who: Option<&str>, date: Option<&str>) -> Vec<String> {
         let p = json!({"hubspot_owner_id": "S1", "bpo_26": who, "bpo_appo_date": date});
-        credit_for_stage(ST_APO_BPO, &p, day(), Some("S1"), &set(&["S1", "S2"]))
+        credit_for_stage(ST_APO_BPO, &p, day(), Some("S1"))
     }
 
     #[test]
@@ -386,9 +381,12 @@ mod tests {
         assert_eq!(bpo_credit(Some("B1"), None), vec!["S1"]);
         // 一覧に無い人でも bpo_26 に付く
         assert_eq!(bpo_credit(Some("Z9"), Some("2026-10-15")), vec!["Z9"]);
-        // 担当者が新規営業チームでなければ、取った人がいないアポはどこにも付かない
+        // 取った人がいなければ、担当者がどのチームでも担当者に付く
         let p = json!({"hubspot_owner_id": "X", "bpo_26": null, "bpo_appo_date": null});
-        assert!(credit_for_stage(ST_APO_BPO, &p, day(), Some("X"), &set(&["S1"])).is_empty());
+        assert_eq!(
+            credit_for_stage(ST_APO_BPO, &p, day(), Some("X")),
+            vec!["X".to_string()]
+        );
     }
 
     #[test]
