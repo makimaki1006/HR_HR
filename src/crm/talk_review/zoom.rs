@@ -81,7 +81,10 @@ pub fn history_entries(v: &Value) -> Vec<HistoryEntry> {
                     if text(e, "direction").is_some_and(|d| d.eq_ignore_ascii_case("inbound")) {
                         return None;
                     }
-                    let number9 = normalize_number(&text(e, "callee_number")?)?;
+                    // 一覧の相手番号は `callee_did_number` (2026-10-20 本番の応答で確認)
+                    let number9 = normalize_number(
+                        &text(e, "callee_did_number").or_else(|| text(e, "callee_number"))?,
+                    )?;
                     let start_ms = DateTime::parse_from_rfc3339(&text(e, "start_time")?)
                         .ok()?
                         .timestamp_millis();
@@ -386,7 +389,7 @@ mod tests {
     fn history_entries_skip_inbound_and_incomplete() {
         let v = json!({"call_logs": [
             {"id": "L1", "call_path_id": "P1", "direction": "outbound",
-             "callee_number": "+81312345678", "start_time": "2026-10-15T01:00:05Z"},
+             "callee_did_number": "+81312345678", "start_time": "2026-10-15T01:00:05Z"},
             {"id": "L2", "direction": "inbound", "callee_number": "+81312345678",
              "start_time": "2026-10-15T01:00:05Z"},
             {"id": "L3", "callee_number": "", "start_time": "2026-10-15T01:00:05Z"},
