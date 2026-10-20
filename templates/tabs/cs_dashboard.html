@@ -4011,7 +4011,9 @@ function tidyNotes(v, bar, body) {
     const plain = inner.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
     /* 文の中のリンクは読み方の畳みの中でも押せる。lede は画面の入口の導線を兼ねるので、リンク・入力を持つものは動かさない */
     const stay = m[2] === "lede" ? /<(a|button|select|input|label|table|ul|ol)[\s>]|id="/ : /<(button|select|input|label|table|ul|ol)[\s>]|id="/;
-    if (depth > 0 || !plain || stay.test(inner)) continue;
+    /* その場の結果から外れた・入れていない件数を言う文は、結果のそばに見せたままにする（数字の読み違えを防ぐ。一般的な数え方の説明だけを畳む） */
+    const resultFact = /[0-9０-９]/.test(plain) && /(外れ|外し|入れていません|数えていません|足していません|出していません|入っていません|読めない|除い|割れている|付け直|だけ出しています|区分ごとの件数)/.test(plain);
+    if (depth > 0 || !plain || stay.test(inner) || resultFact) continue;
     moved.push(inner);
     out += s.slice(last, m.index);
     last = m.index + m[0].length;

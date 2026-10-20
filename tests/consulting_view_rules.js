@@ -5833,6 +5833,8 @@ check("注記の整理: 本文の 1 行の注記は画面ごとに 1 つの「�
   const body = '<h2>題</h2><p class="muted small">持ち件数 ＝ 稼働中の案件数。</p>' +
     '<div class="lede">1行1回の交代。</div>' +
     '<p class="muted small">上位の説明 <a href="#x">リンク</a></p>' +
+    '<p class="muted small">拠点数が入っていない 1 社は外れています</p>' +
+    '<p class="muted small">金額が空の 2 件は足していません。</p>' +
     '<p class="muted small" id="keep-id">id を持つ注記</p>' +
     '<div class="lede"><a href="#y">入口のリンク</a></div>' +
     '<details class="fold"><summary>畳み</summary><p class="muted small">畳みの中の注記</p></details>' +
@@ -5845,6 +5847,7 @@ check("注記の整理: 本文の 1 行の注記は画面ごとに 1 つの「�
   ok(panel.includes("読み方（3 件）"), "畳みの件数が違う: " + panel.slice(0, 200));
   ok(panel.includes("持ち件数 ＝ 稼働中の案件数。") && panel.includes("1行1回の交代。") && panel.includes('<a href="#x">リンク</a>'), "動かす注記が畳みに入っていない: " + panel);
   const rest = h.slice(h.indexOf("</details>", at));
+  ok(rest.includes("拠点数が入っていない 1 社は外れています") && rest.includes("金額が空の 2 件は足していません。") && !panel.includes("外れています"), "結果から外れた件数の文を畳みに入れた: " + panel);
   ok(rest.includes("id を持つ注記") && rest.includes('<a href="#y">入口のリンク</a>') && rest.includes("畳みの中の注記") && rest.includes("図の中の注記") && rest.includes("表の中"),
     "動かしてはいけない注記まで畳みに入れた: " + rest);
   ok(!/持ち件数 ＝ 稼働中の案件数。<\/p><h2|<h2>題<\/h2><p class="muted small">持ち件数/.test(rest), "元の場所に注記が残っている");
