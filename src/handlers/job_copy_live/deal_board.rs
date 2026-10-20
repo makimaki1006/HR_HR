@@ -78,6 +78,11 @@ struct DealBoardRow {
     amount: Option<f64>,
     first_contract: bool,
     launch: super::todo_signals::Launch,
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    listing_count: Option<usize>,
+    #[serde(default)]
+    zero_applicants: bool,
 }
 fn current(record: &Record) -> cs::Deal {
     let text = |key| record.value(key).unwrap_or("").to_owned();
@@ -198,6 +203,8 @@ impl<'a> Metrics<'a> {
                 "nps":nps(&work.record),"applications":d.oubo,"interviews":d.mensetu,"hires":d.syoudaku,
                 "first_contract": super::todo_signals::is_first_contract(&work.record),
                 "launch": super::todo_signals::launch(&work.record,snapshot.facts.get(id),today),
+                "listing_count":snapshot.facts.get(id).and_then(|f| f.listings),
+                "zero_applicants":d.is_active && super::todo_signals::zero_applicants(snapshot.facts.get(id)),
                 "target":d.saiyomokuhyou,"achievement":d.rate_tassei(),"cpa":cs::cpa(d),"amount":d.amount})).expect("deal board row contract")
         }).collect()
     }
@@ -223,7 +230,7 @@ pub(super) async fn read(
                 .and_then(|(counts, _, _)| counts.get(&row.id))
                 .map(|(_, recent)| *recent);
         }
-        json!({"status":"ready","rows":rows,"sheet_as_of":meetings.as_of,
+        json!({"status":"ready","rows":rows,"hubspot_portal_id":crate::hubspot::deep_link::hubspot_portal_id(),"sheet_as_of":meetings.as_of,
             "refreshing":view.refreshing,"refresh_failed":view.failed,
             "facts_built_at":view.facts_built_at,"facts_stale":view.facts_stale,
             "applications_status": if view.partial { if view.failed { "unavailable" } else { "preparing" } } else { "ready" },
@@ -461,5 +468,110 @@ mod tests {
             .reasons(&s, "1", day())
             .iter()
             .any(|r| r["kind"] == "cpa"));
+    }
+    #[test]
+    fn zero_applicant_rows_need_listings_no_applications_at_all_and_an_active_deal() {
+        use super::super::todo_signals::Facts;
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        let mut s = snapshot(120, "5", "21596025");
+        let base = s.deals["1"].clone();
+        // (id, 終了ステージか, 事実)
+        let cases: Vec<(&str, bool, Facts)> = vec![
+            // 1: 求人票 2 件・応募 0 件 → 出る
+            (
+                "1",
+                false,
+                Facts {
+                    listings: Some(2),
+                    ..Facts::default()
+                },
+            ),
+            // 2: 応募が契約期間より前にだけある → 全期間で見るので出ない
+            (
+                "2",
+                false,
+                Facts {
+                    listings: Some(1),
+                    days: vec![d("2020-01-05")],
+                    ..Facts::default()
+                },
+            ),
+            // 3: 求人票なし → 出ない
+            (
+                "3",
+                false,
+                Facts {
+                    listings: Some(0),
+                    ..Facts::default()
+                },
+            ),
+            // 4: 応募あり → 出ない
+            (
+                "4",
+                false,
+                Facts {
+                    listings: Some(1),
+                    days: vec![d("2026-10-10")],
+                    ..Facts::default()
+                },
+            ),
+            // 5: 稼働中でない → 出ない
+            (
+                "5",
+                true,
+                Facts {
+                    listings: Some(1),
+                    ..Facts::default()
+                },
+            ),
+            // 6: 応募日が不明な応募だけ → 応募はあるので出ない
+            (
+                "6",
+                false,
+                Facts {
+                    listings: Some(1),
+                    unknown_dates: 1,
+                    ..Facts::default()
+                },
+            ),
+            // 7: 古い保存データ（求人票の数が不明）→ 出ない
+            (
+                "7",
+                false,
+                Facts {
+                    listings: None,
+                    ..Facts::default()
+                },
+            ),
+        ];
+        for (id, ended, facts) in cases {
+            let mut deal = base.clone();
+            deal.record.id = id.into();
+            if ended {
+                deal.record
+                    .properties
+                    .insert("dealstage".into(), Some("1016664339".into()));
+            }
+            s.deals.insert(id.into(), deal);
+            s.facts.insert(id.into(), facts);
+        }
+        let m = MeetingData::default();
+        let metrics = Metrics::new(&s, &m, day());
+        let q = OwnerQuery {
+            owner: Some("all".into()),
+            ..Default::default()
+        };
+        let rows = metrics.rows(&s, &q, "", day());
+        let zero: Vec<&str> = rows
+            .iter()
+            .filter(|r| r.zero_applicants)
+            .map(|r| r.id.as_str())
+            .collect();
+        assert_eq!(zero, vec!["1"]);
+        let listings: Vec<_> = rows
+            .iter()
+            .map(|r| (r.id.as_str(), r.listing_count))
+            .collect();
+        assert!(listings.contains(&("1", Some(2))) && listings.contains(&("7", None)));
     }
 }

@@ -61,3 +61,5 @@
 
 .db-scroll-frame {position:relative;min-width:0;}
 .db-more-right::after {content:"";position:absolute;top:0;right:0;bottom:0;width:24px;background:linear-gradient(to right,transparent,rgba(38,60,75,.3));pointer-events:none;}
+.db-zero-heading { font-size: 1.05rem; margin: 12px 0 4px; }
+.db-zero-heading strong { margin-left: 6px; }
