@@ -95,15 +95,6 @@ export const CALL_STATUS_TEXT: Record<string, string> = {
 export const MARK_TEXT: Record<string, string> = { done: '○', not_done: '×', na: '−' };
 export const MARK_LABEL: Record<string, string> = { done: 'できている', not_done: 'できていない', na: '該当なし' };
 
-/** 印の決まりを平易な文に */
-export function ruleSentences(r: TalkSummaryResponse['rules']): string[] {
-  const ratio = r.appointment_rate_ratio === 0.5 ? '半分' : `${String(Math.round(r.appointment_rate_ratio * 100))}%`;
-  return [
-    `項目の印: その項目に当てはまる電話が ${String(r.item_min_applicable)} 本以上あり、本人のできていない割合がチーム全体の割合より ${String(r.item_excess_pct)}% 以上高いとき（例: チーム全体が 40% なら ${String(40 + r.item_excess_pct)}% 以上）。`,
-    `アポ率の印: 架電数が ${String(r.appointment_min_dials)} 本以上で、アポ率がチーム全体のアポ率の${ratio}未満のとき。`,
-  ];
-}
-
 /** 数えている途中の日 (YYYY-MM-DD) を「10/06〜10/08、10/10」に。続く日はまとめる */
 export function describeDays(days: string[]): string {
   const dayMs = (d: string): number => Date.parse(`${d}T00:00:00Z`);
@@ -121,12 +112,68 @@ export function describeDays(days: string[]): string {
 
 // ------------------------------------------------------------ 並べ替え
 
-export type TalkSortKey = { kind: 'rate' } | { kind: 'item'; id: string };
+export type TalkSortKey = { kind: 'rate' } | { kind: 'dials' } | { kind: 'appointments' } | { kind: 'reviewed' } | { kind: 'item'; id: string };
 export interface TalkSort { key: TalkSortKey; dir: 'asc' | 'desc' }
 
+/** できた割合 (%)。当てはまる電話が 0 本なら null */
+export function donePct(it: Pick<TalkItemRate, 'not_done' | 'applicable'> | undefined): number | null {
+  if (it === undefined || it.applicable <= 0) return null;
+  return ((it.applicable - it.not_done) / it.applicable) * 100;
+}
+
 function sortValue(p: TalkPersonRow, key: TalkSortKey): number | null {
-  if (key.kind === 'rate') return p.appointment_rate_pct;
-  return p.items.find(i => i.id === key.id)?.rate_pct ?? null;
+  switch (key.kind) {
+    case 'rate': return p.appointment_rate_pct;
+    case 'dials': return p.dials;
+    case 'appointments': return p.appointments;
+    case 'reviewed': return p.reviewed;
+    case 'item': return donePct(p.items.find(i => i.id === key.id));
+  }
+}
+
+// ------------------------------------------------------------ 色の決まり (画面に出ている数字だけで決める)
+
+export type CellState = 'red' | 'none' | 'grey' | 'empty';
+export interface CellJudgement { state: CellState; reason: string }
+const EPS = 1e-9;
+const pt0 = (v: number): string => String(Math.round(v));
+
+/** 項目のセル: 赤 / 色なし / 灰色。total はこの表の全体の行の同じ項目 */
+export function judgeItem(it: TalkItemRate | undefined, total: TalkItemRate | undefined, rules: TalkSummaryResponse['rules']): CellJudgement {
+  const done = donePct(it);
+  if (it === undefined || done === null) return { state: 'empty', reason: '当てはまる電話がありません。' };
+  const doneN = it.applicable - it.not_done;
+  const head = `できた ${String(doneN)}/${String(it.applicable)}本（${pt0(done)}%）。`;
+  if (it.applicable < rules.item_min_applicable) {
+    return { state: 'grey', reason: `当てはまる電話が ${String(it.applicable)} 本で、${String(rules.item_min_applicable)} 本未満なので色を付けていません。` };
+  }
+  const base = donePct(total);
+  if (base === null) return { state: 'none', reason: `${head}この表の全体と比べられません。` };
+  const diff = base - done;
+  if (diff >= rules.item_excess_pct - EPS) {
+    return { state: 'red', reason: `${head}この表の全体 ${pt0(base)}% より ${pt0(diff)} ポイント低いので赤。` };
+  }
+  return { state: 'none', reason: `${head}この表の全体との差が ${String(rules.item_excess_pct)} ポイント未満。` };
+}
+
+/** アポ率のセル。total はこの表の全体の行 */
+export function judgeAppointment(p: TalkPersonRow, total: TalkPersonRow, rules: TalkSummaryResponse['rules']): CellJudgement {
+  const r = p.appointment_rate_pct;
+  if (p.dials === null || r === null) return { state: 'empty', reason: '架電数が分からないのでアポ率を出せません。' };
+  if (p.dials < rules.appointment_min_dials) {
+    return { state: 'grey', reason: `架電数が ${String(p.dials)} 本で、${String(rules.appointment_min_dials)} 本未満なので色を付けていません。` };
+  }
+  const base = total.appointment_rate_pct;
+  if (base === null) return { state: 'none', reason: 'この表の全体と比べられません。' };
+  const limit = base * rules.appointment_rate_ratio;
+  if (r < limit - EPS) {
+    return { state: 'red', reason: `アポ率 ${r.toFixed(2)}% が、この表の全体 ${base.toFixed(2)}% の${ratioText(rules.appointment_rate_ratio)}（${limit.toFixed(2)}%）未満なので赤。` };
+  }
+  return { state: 'none', reason: `アポ率 ${r.toFixed(2)}% は、この表の全体 ${base.toFixed(2)}% の${ratioText(rules.appointment_rate_ratio)}以上。` };
+}
+
+export function ratioText(ratio: number): string {
+  return ratio === 0.5 ? '半分' : `${String(Math.round(ratio * 100))}%`;
 }
 
 /** 値の無い行は向きによらず最後に置く */
