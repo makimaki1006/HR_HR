@@ -702,8 +702,10 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             let since =
                 store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
             let now = store::ts_text(Utc::now());
+            let n = self.cfg.per_person_day;
             if let Err(e) = store::blocking(&self.audit, move |t| {
-                store::requeue_no_recording(t, &since, &now)
+                store::requeue_no_recording(t, &since, &now)?;
+                store::demote_over_quota(t, &since, n, &now)
             })
             .await
             {

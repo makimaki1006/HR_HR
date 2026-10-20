@@ -158,6 +158,23 @@ pub fn promote(t: &TursoDb, since: &str, per_day: u32, now: &str) -> Result<(), 
     )
 }
 
+/// 枠を超えた文字起こし待ちの行を順番待ちに戻す (起動後に 1 回。枠ができる前の版が全部を待ちにしていた分)。
+/// 判定済みを先に、次に新しい電話から数えて枠に残し、残りを戻す
+pub fn demote_over_quota(t: &TursoDb, since: &str, per_day: u32, now: &str) -> Result<(), String> {
+    t.execute(
+        "UPDATE call_talk_reviews SET status = 'queued', next_retry_at = NULL, updated_at = ?3 \
+         WHERE status = 'pending_transcript' AND hubspot_call_id IN ( \
+           SELECT hubspot_call_id FROM ( \
+             SELECT hubspot_call_id, status, ROW_NUMBER() OVER ( \
+               PARTITION BY owner_id, date(call_at, '+9 hours') \
+               ORDER BY (status = 'pending_transcript'), call_at DESC) AS rn \
+             FROM call_talk_reviews \
+             WHERE call_at >= ?1 AND status IN ('pending_transcript', 'judged')) \
+           WHERE status = 'pending_transcript' AND rn > ?2)",
+        &[&since, &i64::from(per_day), &now],
+    )
+}
+
 /// 録音 URL が無いとして取れないことにした古い行 (理由 `no_recording_url`) を、順番待ちに戻す (起動後に 1 回)。
 /// 今の worker は取れないとき `no_recording_found` を書くので、同じ行を繰り返し戻すことはない。
 pub fn requeue_no_recording(t: &TursoDb, since: &str, now: &str) -> Result<(), String> {
@@ -449,6 +466,21 @@ mod tests {
             n.note = Some("no_recording_found".into());
             insert_new(t, "2026-10-15T05:00:00Z", &n)?;
             requeue_no_recording(t, "2026-10-01T00:00:00Z", "2026-10-15T06:00:00Z")?;
+            for (id, at) in [
+                ("p1", "2026-10-13T01:00:00Z"),
+                ("p2", "2026-10-13T02:00:00Z"),
+                ("p3", "2026-10-13T03:00:00Z"),
+            ] {
+                insert_new(t, "2026-10-13T05:00:00Z", &new(id, "o9", at))?;
+            }
+            demote_over_quota(t, "2026-10-01T00:00:00Z", 2, "2026-10-15T06:00:00Z")?;
+            assert_eq!(status("p3")?, ST_PENDING);
+            assert_eq!(status("p2")?, ST_PENDING);
+            assert_eq!(
+                status("p1")?,
+                ST_QUEUED,
+                "枠を超えた古い待ちは順番待ちに戻る"
+            );
             assert_eq!(status("n1")?, ST_QUEUED);
             assert_eq!(status("n2")?, ST_UNAVAILABLE);
             set_zoom_id(t, "n1", "rec:R1", "2026-10-15T06:01:00Z")?;
