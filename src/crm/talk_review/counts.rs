@@ -1,27 +1,27 @@
-//! 総架電数とアポ数を期間で数える (日ごとにキャッシュ)。
+//! アポ数を日ごとに数えてキャッシュする (架電数は営業KPI のシートから読む。`dials.rs`)。
 //!
-//! - 総架電数: 今日の架電成績 (`caller_metrics`) と同じ定義。Zoom 純正連携の Call、`OUTBOUND`。
-//!   過去の日は `caller_metrics_month` と同じく、担当者を 100 人ずつ `IN` で絞って 1 日分ずつ読む。
-//! - アポ数: BPO は `caller_metrics` の定義 (「アポ日確定」= ステージ `1095457875` に入った取引を、
-//!   アポ獲得者 `bpo_26`、空なら取引の担当者に付ける)。社内の新規営業は営業KPI (`caller_metrics_month`) と同じ
-//!   定義 (`ST_APO` と `ST_APO_BPO` に入った取引を、取引の担当者 `hubspot_owner_id` に付ける)。
+//! アポの定義 (BPO と新規営業で付け方が違う。ステージは営業KPI と同じ `ST_APO` と `ST_APO_BPO`):
+//! - 新規営業: 取引の担当者 `hubspot_owner_id` に付ける (営業KPI と同じ。BPO 経由かどうかによらない)。
+//! - BPO: BPO 経由の取引だけ、アポ獲得者 `bpo_26` (空なら取引の担当者) に付ける。BPO 経由かは営業KPI の
+//!   `is_bpo` と同じ比較で、`bpo_appo_date` が「アポ日確定に入った日の月」に入っているもの。`bpo_26` と
+//!   `bpo_appo_date` は一度 BPO がアポを取ると取引に残り続けるので、新規営業が取り直したアポ
+//!   (`ST_APO` に入る) を BPO のアポに数えないために月で絞る。
+//!   BPO のアポ取引の多くは担当者が新規営業の人なので、担当者に付けると BPO の人のアポが 0 になる。
 //!
 //! HubSpot の呼び出しは、まだ持っていない日だけ (確定した日は読み直さない。今日と昨日は 5 分で読み直す)。
-//! 見積り: Call は 1 日・100 人分の担当者あたり Search 約 5 回 (1 日の対象の架電が 1,000 件前後のとき)。
-//! アポは持っていない日の範囲を 2 ステージ分まとめて 1 回ずつ (数百件で Search 2〜4 回)。
+//! 持っていない日の範囲を 2 ステージ分まとめて 1 回ずつ (数百件で Search 2〜4 回)。
 //! 1 回の読み込みの Search は `MAX_SEARCHES` まで。全部 `Background` 優先度。
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Mutex;
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use serde_json::{json, Value};
 
-use crate::crm::caller_metrics::{
-    aggregate, appointment_owner, flt, jst_day, APPOINTER_PROPERTY, PAGE,
-};
-use crate::crm::caller_metrics_month::{jst_midnight_ms, OWNER_CHUNK};
-use crate::handlers::sales_kpi::{ST_APO, ST_APO_BPO};
+use crate::crm::caller_metrics::{appointment_owner, flt, jst_day, APPOINTER_PROPERTY, PAGE};
+use crate::crm::caller_metrics_month::jst_midnight_ms;
+use crate::handlers::sales_kpi::hubspot_source::jst_text;
+use crate::handlers::sales_kpi::{bpo_in_window, ST_APO, ST_APO_BPO};
 use crate::hubspot::{HubSpotClient, HubSpotError};
 
 pub const MAX_SEARCHES: u32 = 600;
@@ -44,16 +44,17 @@ impl TeamOwners {
     }
 }
 
-/// 取引 1 件のアポを付ける担当者 (0〜2 人)。BPO の人にはアポ獲得者 (空なら担当者)、
-/// 新規営業の人には取引の担当者。どちらにも当たらなければ付けない。
+/// 取引 1 件のアポを付ける担当者 (0〜2 人)。新規営業の人には、BPO 経由かどうかによらず取引の担当者
+/// (営業KPI と同じ)。BPO の人には、BPO 経由 (`via_bpo`) のときだけアポ獲得者 (空なら担当者)。
 pub fn credit(
     appointer_or_owner: Option<&str>,
     deal_owner: Option<&str>,
+    via_bpo: bool,
     bpo: &HashSet<&str>,
     sales: &HashSet<&str>,
 ) -> Vec<String> {
     let mut out = Vec::new();
-    if let Some(a) = appointer_or_owner.filter(|a| bpo.contains(a)) {
+    if let Some(a) = appointer_or_owner.filter(|a| via_bpo && bpo.contains(a)) {
         out.push(a.to_string());
     }
     if let Some(o) = deal_owner.filter(|o| sales.contains(o)) {
@@ -64,14 +65,30 @@ pub fn credit(
     out
 }
 
-type DayMap = HashMap<String, u32>;
+/// アポ日確定に入った日の月 `[月初, 翌月初)` (`yyyy-MM-dd`)。営業KPI の当月窓と同じ
+fn month_window(day: NaiveDate) -> (String, String) {
+    let first = day.with_day(1).unwrap_or(day);
+    let next = if first.month() == 12 {
+        NaiveDate::from_ymd_opt(first.year() + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1)
+    }
+    .unwrap_or(first);
+    (
+        first.format("%Y-%m-%d").to_string(),
+        next.format("%Y-%m-%d").to_string(),
+    )
+}
 
-/// 1 日分の総架電数。`covered` は読んだ担当者 (顔ぶれが増えたら増えた人の分だけ読む)
-#[derive(Debug, Clone)]
-struct DialsDay {
-    at: DateTime<Utc>,
-    covered: BTreeSet<String>,
-    counts: DayMap,
+/// 取引のアポが BPO 経由か。`bpo_appo_date` は一度 BPO が取ると残り続けるので、入った日の月に
+/// 入っているものだけ BPO 経由とする (営業KPI の `is_bpo` と同じ比較)。
+fn via_bpo(p: &Value, day: NaiveDate) -> bool {
+    let (lo, hi) = month_window(day);
+    bpo_in_window(
+        &jst_text(p.get("bpo_appo_date").and_then(Value::as_str)),
+        &lo,
+        &hi,
+    )
 }
 
 /// 1 日分のアポ (取引ごとに、付いた担当者の一覧)。`covered` は読んだ時の対象の担当者
@@ -84,7 +101,6 @@ struct ApoDay {
 
 #[derive(Default)]
 struct Inner {
-    dials: BTreeMap<NaiveDate, DialsDay>,
     apo: BTreeMap<NaiveDate, ApoDay>,
 }
 
@@ -109,31 +125,6 @@ fn days(from: NaiveDate, to: NaiveDate) -> Vec<NaiveDate> {
     from.iter_days().take_while(|d| *d <= to).collect()
 }
 
-/// 総架電数で読む日と、その日に読む担当者 (読み直しは全員、足りないだけなら増えた人だけ)
-fn plan_dials(
-    m: &BTreeMap<NaiveDate, DialsDay>,
-    owners: &[String],
-    from: NaiveDate,
-    to: NaiveDate,
-    now: DateTime<Utc>,
-) -> Vec<(NaiveDate, Vec<String>)> {
-    let (today, _, _) = jst_day(now);
-    days(from, to)
-        .into_iter()
-        .filter_map(|d| match m.get(&d) {
-            Some(e) if !stale(e.at, d, today, now) => {
-                let add: Vec<String> = owners
-                    .iter()
-                    .filter(|o| !e.covered.contains(*o))
-                    .cloned()
-                    .collect();
-                (!add.is_empty()).then_some((d, add))
-            }
-            _ => Some((d, owners.to_vec())),
-        })
-        .collect()
-}
-
 /// アポで読む日。取引は担当者で絞らずに読むので、顔ぶれが増えたら範囲を読み直す (Search 数回)
 fn plan_apo(
     m: &BTreeMap<NaiveDate, ApoDay>,
@@ -152,104 +143,75 @@ fn plan_apo(
         .collect()
 }
 
+/// キャッシュにある分だけのアポ (HubSpot は呼ばない)。`counting` は、まだ数え終わっていない日
+#[derive(Debug, Default)]
+pub struct Snapshot {
+    pub deals: Vec<Vec<String>>,
+    pub counting: Vec<NaiveDate>,
+}
+
 impl CountsCache {
-    /// 期間の人ごとの総架電数と、アポ (取引ごとに付いた担当者の一覧)。持っていない日・人だけ HubSpot から読む。
-    /// 途中で失敗しても、読めた日は残して次に続きから読む。
-    pub async fn get(
+    /// 期間のアポ (取引ごとに付いた担当者の一覧)。持っている日だけで答え、持っていない日は `counting` に入れる。
+    /// 今日と昨日の古い数字は、読み直しが済むまでそのまま使う。
+    pub fn snapshot(&self, from: NaiveDate, to: NaiveDate) -> Snapshot {
+        let g = self.inner.lock().unwrap();
+        let mut out = Snapshot::default();
+        for d in days(from, to) {
+            match g.apo.get(&d) {
+                Some(e) => out.deals.extend(e.deals.iter().cloned()),
+                None => out.counting.push(d),
+            }
+        }
+        out
+    }
+
+    /// 持っていない日・古い日のアポを HubSpot から読んで残す。同時に読むのは 1 本。
+    /// `wait` が false で他が読んでいる最中なら、何もしない。
+    pub async fn fill(
         &self,
         client: &HubSpotClient,
         team: &TeamOwners,
         from: NaiveDate,
         to: NaiveDate,
         now: DateTime<Utc>,
-    ) -> Result<(DayMap, Vec<Vec<String>>), HubSpotError> {
+        wait: bool,
+    ) -> Result<(), HubSpotError> {
         let owners = team.all();
-        let _fill = self.fill.lock().await;
-        let (dial_plan, need_apo) = {
-            let g = self.inner.lock().unwrap();
-            (
-                plan_dials(&g.dials, &owners, from, to, now),
-                plan_apo(&g.apo, &owners, from, to, now),
-            )
-        };
-        let bg = client.background();
-        let mut searches = 0u32;
-        if !owners.is_empty() {
-            for (day, who) in dial_plan {
-                let a = jst_midnight_ms(day);
-                let mut rows = Vec::new();
-                for chunk in who.chunks(OWNER_CHUNK) {
-                    rows.extend(
-                        crate::crm::caller_metrics::fetch_calls(
-                            &bg,
-                            "hs_timestamp",
-                            a,
-                            a + 86_400_000,
-                            None,
-                            Some(chunk),
-                            &mut searches,
-                            MAX_SEARCHES,
-                        )
-                        .await?,
-                    );
-                }
-                let m: DayMap = aggregate(rows.iter(), &HashMap::new())
-                    .into_iter()
-                    .map(|(o, m)| (o, m.outbound))
-                    .filter(|(_, n)| *n > 0)
-                    .collect();
-                let mut g = self.inner.lock().unwrap();
-                match g.dials.get_mut(&day) {
-                    // 足りない人の分だけ足す (読み直しのときは全員分なので置き換え)
-                    Some(e)
-                        if who.len() < owners.len() && !stale(e.at, day, jst_day(now).0, now) =>
-                    {
-                        e.covered.extend(who);
-                        e.counts.extend(m);
-                    }
-                    _ => {
-                        g.dials.insert(
-                            day,
-                            DialsDay {
-                                at: now,
-                                covered: who.into_iter().collect(),
-                                counts: m,
-                            },
-                        );
-                    }
-                }
+        let _fill = if wait {
+            self.fill.lock().await
+        } else {
+            match self.fill.try_lock() {
+                Ok(g) => g,
+                Err(_) => return Ok(()),
             }
-            if let (Some(first), Some(last)) = (need_apo.first(), need_apo.last()) {
-                let by_day = fetch_appointments(&bg, team, *first, *last, &mut searches).await?;
-                let covered: BTreeSet<String> = owners.iter().cloned().collect();
-                let mut g = self.inner.lock().unwrap();
-                for d in &need_apo {
-                    g.apo.insert(
-                        *d,
-                        ApoDay {
-                            at: now,
-                            covered: covered.clone(),
-                            deals: by_day.get(d).cloned().unwrap_or_default(),
-                        },
-                    );
-                }
+        };
+        let need_apo = {
+            let g = self.inner.lock().unwrap();
+            plan_apo(&g.apo, &owners, from, to, now)
+        };
+        if owners.is_empty() {
+            return Ok(());
+        }
+        let mut searches = 0u32;
+        if let (Some(first), Some(last)) = (need_apo.first(), need_apo.last()) {
+            let by_day =
+                fetch_appointments(&client.background(), team, *first, *last, &mut searches)
+                    .await?;
+            let covered: BTreeSet<String> = owners.iter().cloned().collect();
+            let mut g = self.inner.lock().unwrap();
+            for d in &need_apo {
+                g.apo.insert(
+                    *d,
+                    ApoDay {
+                        at: now,
+                        covered: covered.clone(),
+                        deals: by_day.get(d).cloned().unwrap_or_default(),
+                    },
+                );
             }
         }
         tracing::info!(searches, "talk review counts filled");
-        let g = self.inner.lock().unwrap();
-        let mut dials: DayMap = HashMap::new();
-        let mut deals: Vec<Vec<String>> = Vec::new();
-        for d in days(from, to) {
-            if let Some(e) = g.dials.get(&d) {
-                for (o, n) in &e.counts {
-                    *dials.entry(o.clone()).or_default() += n;
-                }
-            }
-            if let Some(e) = g.apo.get(&d) {
-                deals.extend(e.deals.iter().cloned());
-            }
-        }
-        Ok((dials, deals))
+        Ok(())
     }
 }
 
@@ -293,7 +255,7 @@ async fn fetch_appointments(
                     flt(&prop, "GTE", json!(from.to_string())),
                     flt(&prop, "LT", json!(to.to_string())),
                 ]}],
-                "properties": ["hubspot_owner_id", APPOINTER_PROPERTY, prop],
+                "properties": ["hubspot_owner_id", APPOINTER_PROPERTY, "bpo_appo_date", prop],
                 "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
                 "limit": PAGE,
             });
@@ -321,7 +283,7 @@ async fn fetch_appointments(
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|s| !s.is_empty());
-                let who = credit(appointment_owner(p), owner, &bpo, &sales);
+                let who = credit(appointment_owner(p), owner, via_bpo(p, day), &bpo, &sales);
                 if !who.is_empty() {
                     out.entry(day).or_default().push(who);
                 }
@@ -353,15 +315,57 @@ mod tests {
         let sales = set(&["S1"]);
         // BPO が取ったアポ: アポ獲得者 B1 に付く。取引の担当者 S1 (新規営業) にも付く
         assert_eq!(
-            credit(Some("B1"), Some("S1"), &bpo, &sales),
+            credit(Some("B1"), Some("S1"), true, &bpo, &sales),
             vec!["B1", "S1"]
         );
+        // BPO 経由でなければ BPO の人には付けず、担当者にだけ付ける
+        assert_eq!(
+            credit(Some("B1"), Some("S1"), false, &bpo, &sales),
+            vec!["S1"]
+        );
         // 担当者が BPO 以外の別の人 → 対象外
-        assert!(credit(Some("X"), Some("Y"), &bpo, &sales).is_empty());
+        assert!(credit(Some("X"), Some("Y"), true, &bpo, &sales).is_empty());
         // 担当者が新規営業でアポ獲得者が空 (担当者が代わりに入る) → 1 人に 1 回
-        assert_eq!(credit(Some("S1"), Some("S1"), &bpo, &sales), vec!["S1"]);
+        assert_eq!(
+            credit(Some("S1"), Some("S1"), true, &bpo, &sales),
+            vec!["S1"]
+        );
         // BPO 本人が取引の担当者
-        assert_eq!(credit(Some("B1"), Some("B1"), &bpo, &sales), vec!["B1"]);
+        assert_eq!(
+            credit(Some("B1"), Some("B1"), true, &bpo, &sales),
+            vec!["B1"]
+        );
+    }
+
+    /// 取引 1 件が「入った日 `day`」「bpo_appo_date `bpo_date`」のとき、BPO の人 B1・営業の人 S1 に付く数
+    fn credited(day: &str, bpo_date: Option<&str>) -> (usize, usize) {
+        let day = NaiveDate::parse_from_str(day, "%Y-%m-%d").unwrap();
+        let p = json!({"hubspot_owner_id": "S1", "bpo_26": "B1", "bpo_appo_date": bpo_date});
+        let who = credit(
+            appointment_owner(&p),
+            Some("S1"),
+            via_bpo(&p, day),
+            &set(&["B1"]),
+            &set(&["S1"]),
+        );
+        (
+            who.iter().filter(|x| *x == "B1").count(),
+            who.iter().filter(|x| *x == "S1").count(),
+        )
+    }
+
+    #[test]
+    fn bpo_credit_cases() {
+        // 2025-10-09 (JST) の ms
+        let old = Some("1760000000000");
+        assert_eq!(credited("2026-10-15", old), (0, 1));
+        // (2) 入った日と同じ日 (date 型の YYYY-MM-DD) → BPO 1、担当者 1
+        assert_eq!(credited("2026-10-15", Some("2026-10-15")), (1, 1));
+        // (3) 前月末で、入った日が当月 1 日 → BPO 0
+        assert_eq!(credited("2026-10-01", Some("2026-09-30")), (0, 1));
+        // 同じ月の月初と月末は入る。bpo_appo_date が無ければ BPO 0
+        assert_eq!(credited("2026-12-31", Some("2026-12-01")), (1, 1));
+        assert_eq!(credited("2026-10-15", None), (0, 1));
     }
 
     #[test]
@@ -401,5 +405,31 @@ mod tests {
             sales: vec!["1".into(), "3".into()],
         };
         assert_eq!(t.all(), vec!["1", "2", "3"]);
+    }
+
+    #[test]
+    fn snapshot_answers_with_counted_days_and_lists_the_rest() {
+        let d = |n: u32| NaiveDate::from_ymd_opt(2026, 10, n).unwrap();
+        let at = DateTime::parse_from_rfc3339("2026-10-09T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let c = CountsCache::default();
+        {
+            let mut g = c.inner.lock().unwrap();
+            let apo = |deals: Vec<Vec<String>>| ApoDay {
+                at,
+                covered: BTreeSet::new(),
+                deals,
+            };
+            g.apo.insert(d(7), apo(vec![vec!["1".into()]]));
+            g.apo.insert(d(8), apo(vec![]));
+        }
+        let s = c.snapshot(d(6), d(9));
+        assert_eq!(s.deals, vec![vec!["1".to_string()]]);
+        assert_eq!(s.counting, vec![d(6), d(9)]);
+        // 1 日だけの要求は、他の日の数え中に影響されない
+        let one = c.snapshot(d(7), d(7));
+        assert!(one.counting.is_empty());
+        assert_eq!(one.deals.len(), 1);
     }
 }

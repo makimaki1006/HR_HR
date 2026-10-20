@@ -835,9 +835,13 @@ pub type Counts = BTreeMap<String, i64>;
 /// 9月の商談200件中71件が2025年まで遡る日付だった。
 /// **当月と前月の窓に入っているものだけ**を BPO 経由とする（ユーザー承認済み）。
 pub fn is_bpo(deal: &Deal, prev_month_start: &str, month_end: &str) -> bool {
-    !deal.bpo_appo.is_empty()
-        && deal.bpo_appo.as_str() >= prev_month_start
-        && deal.bpo_appo.as_str() < month_end
+    bpo_in_window(&deal.bpo_appo, prev_month_start, month_end)
+}
+
+/// `bpo_appo_date` (`yyyy-MM-dd` か `yyyy-MM-dd HH:mm`) が `[lo, hi)` に入るか。空は入らない。
+/// `is_bpo` と同じ比較 (アポ数の BPO 判定からも使う)。
+pub fn bpo_in_window(bpo_appo: &str, lo: &str, hi: &str) -> bool {
+    !bpo_appo.is_empty() && bpo_appo >= lo && bpo_appo < hi
 }
 
 // ---------------------------------------------------------------- 商談属性
@@ -1121,6 +1125,28 @@ pub fn kaden_of(sheet: &SheetData) -> Vec<KadenRow> {
             }
         })
         .collect()
+}
+
+/// 架電シートの最終日と、その日がまだ途中か。
+/// 日次同期が「架電の最終日／その日は途中か」を取得条件 (`meta`) に書くので、それが同じ日について
+/// 言っているならそれを使う。無ければ「最終日＝今日なら途中」と見なす。
+pub fn kaden_last_day(
+    rows: &[KadenRow],
+    meta: &BTreeMap<String, String>,
+    today: chrono::NaiveDate,
+) -> (String, bool) {
+    let last_day = rows
+        .iter()
+        .map(|r| r.date.as_str())
+        .max()
+        .unwrap_or("")
+        .to_string();
+    let partial = match meta.get("架電の最終日") {
+        Some(d) if *d == last_day => meta.get("架電の最終日は途中").map(|v| v == "はい"),
+        _ => None,
+    }
+    .unwrap_or(!last_day.is_empty() && last_day == today.format("%Y-%m-%d").to_string());
+    (last_day, partial)
 }
 
 /// 期間を切って、チーム別・個人別に足す。

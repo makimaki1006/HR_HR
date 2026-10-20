@@ -24,6 +24,26 @@ enabled: boolean,
  */
 teams: Array<string>, checks: Array<TalkCheckDef>, rules: TalkAlertRules, people: Array<TalkPersonRow>, 
 /**
+ * 1 人 1 日あたりに判定する最大本数 (`CALL_REVIEW_PER_PERSON_DAY`)
+ */
+per_person_day: number, 
+/**
+ * アポをまだ数えている日 (YYYY-MM-DD、古い順)。その日のアポは表に入っていない
+ */
+counting_days: Array<string>, 
+/**
+ * 営業KPI のシートが読めず、架電数とアポ率を出せない
+ */
+dials_error: boolean, 
+/**
+ * 期間の最終日の架電数が、シートの途中経過 (同期の時点の数)
+ */
+dials_partial: boolean, 
+/**
+ * 途中経過の取得時刻 (`yyyy-MM-dd HH:mm`)。分からなければ null
+ */
+dials_fetched_at: string | null, 
+/**
  * チーム全体 (絞り込み後の people 全員の合計)
  */
 total: TalkPersonRow, };

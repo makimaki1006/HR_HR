@@ -1,11 +1,15 @@
 //! 背景の worker (ADR-033)。`CALL_REVIEW_ENABLED=1` のときだけ動く。
 //!
-//! 10 分おき (既定) に、対象のチームの担当者の Call (Zoom 純正連携・発信・70 秒以上・録音 URL あり) を
-//! Search (関所の `Background` 優先度) で見つけて表に行を作り、文字起こしを Zoom から取って判定する。
-//! 初回は過去 `CALL_REVIEW_BACKFILL_DAYS` 日まで遡る。同時に 2 本。判定済みの Call は二度判定しない。
-//! 文字起こしがまだ無いものは間隔を空けて再試行し (上限あり)、取れないものは `unavailable` にして諦める。
+//! 10 分おき (既定) に、対象のチームの担当者の Call (Zoom 純正連携・発信・70 秒以上) を
+//! Search (関所の `Background` 優先度) で見つけて表に行を作り (順番待ち `queued`)、1 人 1 日あたり
+//! `CALL_REVIEW_PER_PERSON_DAY` 本まで新しい電話から文字起こし待ちにして、Zoom から文字起こしを取って判定する。
+//! 初回は過去 `CALL_REVIEW_BACKFILL_DAYS` 日まで遡る。同時に `CALL_REVIEW_CONCURRENCY` 本。判定済みの Call は二度判定しない。
+//! 文字起こしがまだ無いものは間隔を空けて再試行し (上限あり)、取れないものは `unavailable` にして諦める
+//! (取れなくなった電話の分は、同じ人・同じ日の次の電話が枠に入る)。
+//! 録音 URL が Call に無いもの (Call Queue 経由の発信) は、Zoom の通話履歴から相手番号と時刻で録音を探す。
+//! アポの日ごとの数え (`counts`) も、ここで前もって新しい日から進める。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,10 +18,11 @@ use serde_json::{json, Value};
 
 use super::checks::loaded;
 use super::config::TalkReviewConfig;
+use super::counts::TeamOwners;
 use super::judge::{Judge, JudgeError, JudgeOutput, MiniMaxJudge};
-use super::store::{self, NewRow, ReviewRow, ST_FAILED, ST_PENDING, ST_UNAVAILABLE};
+use super::store::{self, NewRow, ReviewRow, ST_FAILED, ST_QUEUED, ST_UNAVAILABLE};
 use super::transcript::{extract_call_log_id, has_both_sides};
-use super::zoom::{TranscriptSource, ZoomClient, ZoomError};
+use super::zoom::{TranscriptSource, ZoomClient, ZoomError, REC_PREFIX};
 use crate::crm::caller_metrics::{flt, jst_day, CALL_SOURCE};
 use crate::crm::caller_metrics_month::{jst_midnight_ms, OWNER_CHUNK};
 use crate::crm::owners::CrmOwner;
@@ -26,8 +31,6 @@ use crate::AppState;
 
 /// 再試行の上限 (これに達したら取れない / 失敗として諦める)
 pub const MAX_ATTEMPTS: u32 = 8;
-/// 同時に判定する本数
-pub const CONCURRENCY: usize = 2;
 /// 1 回の見つけ直しの Search の上限 (暴走の安全装置)
 const MAX_SEARCHES: u32 = 300;
 /// 1 周の中で処理する行の上限
@@ -254,6 +257,41 @@ pub async fn process_one<Z: TranscriptSource, J: Judge>(
     }
 }
 
+/// 録音 ID の見つけ方の結果
+#[derive(Debug, Clone, PartialEq)]
+pub enum Resolve {
+    /// 行がすでに録音 ID を持っている
+    Have,
+    /// 通話履歴から見つかった (`zoom_call_log_id` に入れる値)
+    Found(String),
+    /// 見つからない・探せない (そのまま結果になる)
+    Done(Outcome),
+}
+
+/// 録音 URL が Call に無い行について、Zoom の通話履歴から録音を探す。`number` は HubSpot の `hs_call_to_number`
+pub async fn resolve_recording<Z: TranscriptSource>(
+    zoom: &Z,
+    row: &ReviewRow,
+    number: Option<&str>,
+) -> Resolve {
+    if row.zoom_call_log_id.is_some() {
+        return Resolve::Have;
+    }
+    let not_found = Resolve::Done(Outcome::Unavailable("no_recording_found"));
+    let (Some(number), Ok(at)) = (
+        number.filter(|n| !n.trim().is_empty()),
+        DateTime::parse_from_rfc3339(&row.call_at),
+    ) else {
+        return not_found;
+    };
+    match zoom.find_recording(number, at.timestamp_millis()).await {
+        Ok(Some(rec)) => Resolve::Found(format!("{REC_PREFIX}{rec}")),
+        Ok(None) | Err(ZoomError::NotReady | ZoomError::Gone) => not_found,
+        Err(ZoomError::Transient(_)) => Resolve::Done(Outcome::Retry("zoom_error")),
+        Err(ZoomError::NotConfigured) => Resolve::Done(Outcome::Retry("zoom_not_configured")),
+    }
+}
+
 /// 結果を表の更新に直す。(新しい状態, 試行回数, 次回時刻, メモ) の決め方
 #[derive(Debug, Clone, PartialEq)]
 pub enum Update {
@@ -409,8 +447,9 @@ struct Worker<Z, J> {
     judge: Arc<J>,
     cfg: TalkReviewConfig,
     known: HashSet<String>,
-    /// 録音 URL が無くて unavailable にした Call (URL が付いたら取り込み直す)
-    no_url: HashSet<String>,
+    /// 対象の担当者 (アポの数えに使う)
+    team: Option<TeamOwners>,
+    counts_task: Option<tokio::task::JoinHandle<()>>,
     last_poll: Option<DateTime<Utc>>,
     /// 初回の取り込みの進み具合 (次に読む日)。全部読み終えるまで `last_poll` は進めない
     backfill_next: Option<chrono::NaiveDate>,
@@ -424,14 +463,23 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         let list = crate::crm::owners::fetch_all(&bg)
             .await
             .map_err(|e| e.error_kind().to_string())?;
+        let members = team_members(&list.owners, &self.cfg.teams);
         let ids: Vec<String> = {
-            let mut v: Vec<String> = team_members(&list.owners, &self.cfg.teams)
-                .into_iter()
-                .map(|m| m.id)
-                .collect();
+            let mut v: Vec<String> = members.iter().map(|m| m.id.clone()).collect();
             v.sort();
             v
         };
+        let of = |bpo: bool| -> Vec<String> {
+            members
+                .iter()
+                .filter(|m| TalkReviewConfig::is_bpo_team(&m.team) == bpo)
+                .map(|m| m.id.clone())
+                .collect()
+        };
+        self.team = Some(TeamOwners {
+            bpo: of(true),
+            sales: of(false),
+        });
         if ids.is_empty() {
             return Ok(());
         }
@@ -479,62 +527,68 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
     }
 
     async fn ingest(&mut self, cands: Vec<Candidate>, now: DateTime<Utc>) {
-        let (mut fresh, mut revived) = (0, 0);
+        let mut fresh = 0;
         for c in cands {
             if self.known.contains(&c.id) {
-                continue;
-            }
-            let ts = store::ts_text(now);
-            // 録音 URL が無いまま unavailable にした Call に、後で URL が付いた
-            if self.no_url.contains(&c.id) {
-                let Some(z) = c.zoom_id.clone() else { continue };
-                let (id, next) = (c.id.clone(), store::ts_text(now));
-                match store::blocking(&self.audit, move |t| store::revive(t, &id, &z, &next, &ts))
-                    .await
-                {
-                    Ok(()) => {
-                        self.no_url.remove(&c.id);
-                        self.known.insert(c.id);
-                        revived += 1;
-                    }
-                    Err(e) => tracing::warn!(error = %e, "talk review: revive failed"),
-                }
                 continue;
             }
             let Some(at) = DateTime::<Utc>::from_timestamp_millis(c.ts_ms) else {
                 continue;
             };
-            let (status, note, next) = match (&c.zoom_id, now - at >= URL_GRACE) {
-                (Some(_), _) => (ST_PENDING, None, Some(store::ts_text(now))),
-                (None, true) => (ST_UNAVAILABLE, Some("no_recording_url".to_string()), None),
-                // 録音 URL は通話のあとで本文に入る。まだなら次の周回で見直す
-                (None, false) => continue,
-            };
-            let no_url_row = c.zoom_id.is_none();
+            // 録音 URL は通話のあとで本文に入る。まだなら次の周回で見直す。
+            // 猶予を過ぎても無いものは、判定のときに Zoom の通話履歴から探す
+            if c.zoom_id.is_none() && now - at < URL_GRACE {
+                continue;
+            }
+            let ts = store::ts_text(now);
             let row = NewRow {
                 hubspot_call_id: c.id.clone(),
                 owner_id: c.owner_id,
                 call_at: store::ts_text(at),
                 duration_sec: c.duration_ms / 1000,
                 zoom_call_log_id: c.zoom_id,
-                status,
-                note,
-                next_retry_at: next,
+                status: ST_QUEUED,
+                note: None,
+                next_retry_at: None,
             };
             match store::blocking(&self.audit, move |t| store::insert_new(t, &ts, &row)).await {
                 Ok(()) => {
-                    if no_url_row {
-                        self.no_url.insert(c.id.clone());
-                        self.known.insert(c.id);
-                    } else {
-                        self.known.insert(c.id);
-                    }
+                    self.known.insert(c.id);
                     fresh += 1;
                 }
                 Err(e) => tracing::warn!(error = %e, "talk review: row insert failed"),
             }
         }
-        tracing::info!(new_rows = fresh, revived, "talk review ingest done");
+        tracing::info!(new_rows = fresh, "talk review ingest done");
+    }
+
+    /// 順番待ちの行を、1 人 1 日の枠まで文字起こし待ちにする
+    async fn promote(&self) {
+        let since = store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
+        let (now, n) = (store::ts_text(Utc::now()), self.cfg.per_person_day);
+        if let Err(e) =
+            store::blocking(&self.audit, move |t| store::promote(t, &since, n, &now)).await
+        {
+            tracing::warn!(error = %e, "talk review: promote failed");
+        }
+    }
+
+    /// アポの日ごとの数えを、新しい日から前もって進める (画面はこれを読む)。前の周回が続いていれば足さない
+    fn prefill_counts(&mut self, now: DateTime<Utc>) {
+        if self.counts_task.as_ref().is_some_and(|t| !t.is_finished()) {
+            return;
+        }
+        let Some(team) = self.team.clone() else {
+            return;
+        };
+        let today = jst_day(now).0;
+        let from = today - chrono::Duration::days(self.cfg.backfill_days);
+        let (client, st) = (self.client.clone(), super::routes::shared());
+        self.counts_task = Some(tokio::spawn(async move {
+            if let Err(e) = st.counts.fill(&client, &team, from, today, now, true).await {
+                tracing::warn!(error = %e.error_kind(), "talk review: counts prefill failed");
+            }
+        }));
     }
 
     async fn process_due(&mut self) {
@@ -548,7 +602,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                     return;
                 }
             };
-            let batch: Vec<ReviewRow> = due
+            let mut batch: Vec<ReviewRow> = due
                 .into_iter()
                 .filter(|r| {
                     !self.pending.contains(&r.hubspot_call_id)
@@ -558,9 +612,37 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             if batch.is_empty() {
                 return;
             }
-            let sem = Arc::new(tokio::sync::Semaphore::new(CONCURRENCY));
+            // 録音 URL が Call に無い行は、相手番号を HubSpot から 1 回でまとめて読む (読めなければ今回は見送る)
+            let need: Vec<String> = batch
+                .iter()
+                .filter(|r| r.zoom_call_log_id.is_none())
+                .map(|r| r.hubspot_call_id.clone())
+                .collect();
+            let mut numbers: HashMap<String, String> = HashMap::new();
+            if !need.is_empty() {
+                match self
+                    .client
+                    .background()
+                    .batch_read("calls", &need, &["hs_call_to_number"])
+                    .await
+                {
+                    Ok(recs) => {
+                        for r in recs {
+                            if let Some(Some(n)) = r.properties.get("hs_call_to_number") {
+                                numbers.insert(r.id, n.clone());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e.error_kind(), "talk review: number read failed");
+                        batch.retain(|r| r.zoom_call_log_id.is_some());
+                    }
+                }
+            }
+            let sem = Arc::new(tokio::sync::Semaphore::new(self.cfg.concurrency));
             let mut set = tokio::task::JoinSet::new();
-            for row in batch {
+            for mut row in batch {
+                let number = numbers.remove(&row.hubspot_call_id);
                 let (zoom, judge, audit, model, sem, pending) = (
                     self.zoom.clone(),
                     self.judge.clone(),
@@ -572,7 +654,27 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 set.spawn(async move {
                     let Ok(_p) = sem.acquire().await else { return };
                     let now = Utc::now();
-                    let outcome = process_one(&*zoom, &*judge, &row, now).await;
+                    let outcome = match resolve_recording(&*zoom, &row, number.as_deref()).await {
+                        Resolve::Done(o) => o,
+                        found => {
+                            if let Resolve::Found(zid) = found {
+                                let (id, z, ts) = (
+                                    row.hubspot_call_id.clone(),
+                                    zid.clone(),
+                                    store::ts_text(now),
+                                );
+                                if let Err(e) = store::blocking(&audit, move |t| {
+                                    store::set_zoom_id(t, &id, &z, &ts)
+                                })
+                                .await
+                                {
+                                    tracing::warn!(error = %e, "talk review: zoom id write failed");
+                                }
+                                row.zoom_call_log_id = Some(zid);
+                            }
+                            process_one(&*zoom, &*judge, &row, now).await
+                        }
+                    };
                     let upd = decide(outcome, row.attempts, now);
                     apply(&audit, &pending, row.hubspot_call_id.clone(), upd, model).await;
                 });
@@ -595,11 +697,28 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 return;
             }
         }
+        // 起動後に 1 回: 録音 URL が無いとして取れなかった古い行を、通話履歴から探して試し直す
+        {
+            let since =
+                store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
+            let now = store::ts_text(Utc::now());
+            let n = self.cfg.per_person_day;
+            if let Err(e) = store::blocking(&self.audit, move |t| {
+                store::requeue_no_recording(t, &since, &now)?;
+                store::demote_over_quota(t, &since, n, &now)
+            })
+            .await
+            {
+                tracing::warn!(error = %e, "talk review: requeue failed");
+            }
+        }
         loop {
             let now = Utc::now();
             if let Err(e) = self.discover(now).await {
                 tracing::warn!(error = %e, "talk review discover failed");
             }
+            self.prefill_counts(now);
+            self.promote().await;
             self.pending.flush(&self.audit).await;
             self.process_due().await;
             tokio::time::sleep(self.cfg.interval).await;
@@ -633,7 +752,8 @@ pub fn spawn_worker(state: Arc<AppState>) {
         judge: Arc::new(judge),
         cfg,
         known: HashSet::new(),
-        no_url: HashSet::new(),
+        team: None,
+        counts_task: None,
         last_poll: None,
         backfill_next: None,
         backfill_anchor: None,
@@ -648,12 +768,20 @@ pub fn spawn_worker(state: Arc<AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crm::talk_review::store::ST_PENDING;
     use crate::crm::talk_review::types::TalkTurn;
 
     struct FakeZoom(Result<Vec<TalkTurn>, ZoomError>);
     impl TranscriptSource for FakeZoom {
         async fn fetch(&self, _: &str) -> Result<Vec<TalkTurn>, ZoomError> {
             self.0.clone()
+        }
+        async fn find_recording(&self, number: &str, _: i64) -> Result<Option<String>, ZoomError> {
+            match number {
+                "03-1234-5678" => Ok(Some("REC1".into())),
+                "err" => Err(ZoomError::Transient("x".into())),
+                _ => Ok(None),
+            }
         }
     }
     struct FakeJudge(Result<JudgeOutput, JudgeError>);
@@ -763,6 +891,33 @@ mod tests {
             )
             .await,
             Outcome::Unavailable("no_recording_url")
+        );
+    }
+
+    #[tokio::test]
+    async fn recording_is_looked_up_only_when_the_call_has_no_url() {
+        let z = FakeZoom(Ok(turns()));
+        let none = row(None, "2026-10-15T01:00:00Z");
+        assert_eq!(
+            resolve_recording(&z, &none, Some("03-1234-5678")).await,
+            Resolve::Found("rec:REC1".into())
+        );
+        let unavailable = Resolve::Done(Outcome::Unavailable("no_recording_found"));
+        assert_eq!(
+            resolve_recording(&z, &none, Some("090-0000-0000")).await,
+            unavailable
+        );
+        assert_eq!(resolve_recording(&z, &none, None).await, unavailable);
+        assert_eq!(resolve_recording(&z, &none, Some("  ")).await, unavailable);
+        assert_eq!(
+            resolve_recording(&z, &none, Some("err")).await,
+            Resolve::Done(Outcome::Retry("zoom_error"))
+        );
+        // URL がある行は探さない
+        let has = row(Some("z"), "2026-10-15T01:00:00Z");
+        assert_eq!(
+            resolve_recording(&z, &has, Some("03-1234-5678")).await,
+            Resolve::Have
         );
     }
 

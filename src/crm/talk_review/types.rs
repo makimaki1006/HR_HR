@@ -40,13 +40,15 @@ pub struct TalkPersonRow {
     pub owner_id: Option<String>,
     pub name: String,
     pub team: Option<String>,
-    /// 総架電数 (発信)
-    pub dials: u32,
+    /// 架電数 (Zoom でつながった通話。営業KPI の「架電数」と同じ)。シートが読めなければ null
+    pub dials: Option<u32>,
     pub appointments: u32,
-    /// アポ数 ÷ 総架電数 × 100 (総架電 0 は null)
+    /// アポ数 ÷ 架電数 × 100 (架電数が無い・0 は null)
     pub appointment_rate_pct: Option<f64>,
-    /// アポ率の印 (総架電が下限以上で、チーム全体のアポ率の一定割合未満)
+    /// アポ率の印 (架電数が下限以上で、チーム全体のアポ率の一定割合未満)
     pub appointment_rate_flagged: bool,
+    /// 判定の対象になった電話の本数 (70 秒以上。枠を超えて判定しないものも含む)
+    pub eligible: u32,
     /// 判定できた電話の本数
     pub reviewed: u32,
     /// 判定待ち (文字起こし待ち・未判定) の本数
@@ -64,7 +66,7 @@ pub struct TalkAlertRules {
     pub item_min_applicable: u32,
     /// 項目の印: 本人のできていない割合がチーム全体よりこの % 以上多い
     pub item_excess_pct: f64,
-    /// アポ率の印: 総架電がこの本数以上
+    /// アポ率の印: 架電数がこの本数以上
     pub appointment_min_dials: u32,
     /// アポ率の印: チーム全体のアポ率のこの割合未満 (0.5 = 半分)
     pub appointment_rate_ratio: f64,
@@ -85,6 +87,16 @@ pub struct TalkSummaryResponse {
     pub checks: Vec<TalkCheckDef>,
     pub rules: TalkAlertRules,
     pub people: Vec<TalkPersonRow>,
+    /// 1 人 1 日あたりに判定する最大本数 (`CALL_REVIEW_PER_PERSON_DAY`)
+    pub per_person_day: u32,
+    /// アポをまだ数えている日 (YYYY-MM-DD、古い順)。その日のアポは表に入っていない
+    pub counting_days: Vec<String>,
+    /// 営業KPI のシートが読めず、架電数とアポ率を出せない
+    pub dials_error: bool,
+    /// 期間の最終日の架電数が、シートの途中経過 (同期の時点の数)
+    pub dials_partial: bool,
+    /// 途中経過の取得時刻 (`yyyy-MM-dd HH:mm`)。分からなければ null
+    pub dials_fetched_at: Option<String>,
     /// チーム全体 (絞り込み後の people 全員の合計)
     pub total: TalkPersonRow,
 }

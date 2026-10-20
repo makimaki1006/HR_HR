@@ -32,13 +32,13 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::{
-    classify, deal_attr_order_of, deal_row, deals_of, is_bpo, kaden_by_owner_of, kaden_of,
-    kaden_period, kettei_days_of, list_stock_of, load, members_of, person_of, snapshots_of,
-    CallPeriods, Calls, CallsDaily, CallsRule, CardDeals, CardSrc, Counts, DateSpan, Deal,
-    DealAttrSheets, DealRow, Kaden, KadenAll, KadenBaseTrend, KadenComposition, KadenUnassigned,
-    Kettei, KetteiCells, KetteiRow, Kind, ListStock, Person, SalesKpiData, Sheets, StockTrend,
-    UnassignedPerson, CARD_KEYS, DEAL_ATTR_COL, DEAL_ATTR_FIXED, KADEN_CLASSES, KETTEI_COLS,
-    SHEET_META,
+    classify, deal_attr_order_of, deal_row, deals_of, is_bpo, kaden_by_owner_of, kaden_last_day,
+    kaden_of, kaden_period, kettei_days_of, list_stock_of, load, members_of, person_of,
+    snapshots_of, CallPeriods, Calls, CallsDaily, CallsRule, CardDeals, CardSrc, Counts, DateSpan,
+    Deal, DealAttrSheets, DealRow, Kaden, KadenAll, KadenBaseTrend, KadenComposition,
+    KadenUnassigned, Kettei, KetteiCells, KetteiRow, Kind, ListStock, Person, SalesKpiData, Sheets,
+    StockTrend, UnassignedPerson, CARD_KEYS, DEAL_ATTR_COL, DEAL_ATTR_FIXED, KADEN_CLASSES,
+    KETTEI_COLS, SHEET_META,
 };
 
 /// 日本時間。サーバのタイムゾーン設定に依存させない。
@@ -457,20 +457,7 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> SalesKpiData {
         }
     }
     let have_days: HashSet<&str> = kaden_rows.iter().map(|r| r.date.as_str()).collect();
-    let last_day = kaden_rows
-        .iter()
-        .map(|r| r.date.as_str())
-        .max()
-        .unwrap_or("")
-        .to_string();
-    // 最終日がまだ途中か。日次同期が「架電の最終日／その日は途中か」を取得条件に
-    // 書くので、それが同じ日について言っているならそれを使う。
-    // 無ければ「最終日＝今日なら途中」と見なす（今日はまだ終わっていない）。
-    let kaden_partial = match meta.get("架電の最終日") {
-        Some(d) if *d == last_day => meta.get("架電の最終日は途中").map(|v| v == "はい"),
-        _ => None,
-    }
-    .unwrap_or(!last_day.is_empty() && last_day == ymd(today));
+    let (last_day, kaden_partial) = kaden_last_day(&kaden_rows, &meta, today);
 
     // 商談の「今週」と同じ週頭を使う（wk = week_start(today)）。
     // 商談と架電で週がずれていると、画面の中で今週の意味が2つになる。

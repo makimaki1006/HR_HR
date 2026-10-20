@@ -10,7 +10,7 @@ import type { TalkCheckDef } from '../../generated/TalkCheckDef';
 import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
 import {
-  CALL_STATUS_TEXT, MARK_LABEL, MARK_TEXT, PERIOD_LABELS, activePeriod, fixtureCalls, fixtureDetail, fixtureSummary,
+  CALL_STATUS_TEXT, MARK_LABEL, MARK_TEXT, PERIOD_LABELS, activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary,
   fmtCallTime, fmtPct, fmtSeconds, jstToday, periodRange, ruleSentences, sortPeople,
   type TalkSort,
 } from './talkModel';
@@ -26,6 +26,14 @@ function isFixture(): boolean {
 /** 集計の数え始めで 503 counting が返ったときに取り直す間隔と回数 */
 export const TALK_COUNTING_RETRY_MS = 4000;
 export const TALK_COUNTING_MAX_TRIES = 15;
+/** 一部の日を数えている途中の応答を、取り直す間隔と回数 (数え終わると消える) */
+export const TALK_RECOUNT_MS = 15_000;
+export const TALK_RECOUNT_MAX_TRIES = 80;
+
+function countingDaysOf(data: unknown): string[] {
+  const d = (data as { counting_days?: unknown } | null)?.counting_days;
+  return Array.isArray(d) ? d.filter((x): x is string => typeof x === 'string') : [];
+}
 
 type TalkState<T> =
   | { status: 'loading' }
@@ -48,7 +56,13 @@ function useTalkGet<T>(path: string): TalkState<T> {
     const load = (n: number): void => {
       void apiGet<T>(path, { signal: ctl.signal, timeoutMs: 30_000 }).then(r => {
         if (ctl.signal.aborted) return;
-        if (r.ok) { put({ status: 'ok', data: r.data }); return; }
+        if (r.ok) {
+          put({ status: 'ok', data: r.data });
+          if (countingDaysOf(r.data).length > 0 && n < TALK_RECOUNT_MAX_TRIES) {
+            timer = setTimeout(() => { load(n + 1); }, TALK_RECOUNT_MS);
+          }
+          return;
+        }
         if (r.error instanceof AuthRequiredError) { redirectToLogin(); return; }
         if (r.error instanceof ApiAbortedError) return;
         const kind = errorKind(r.error);
@@ -112,12 +126,12 @@ function PersonRowView({ p, checks, total, onOpen }: { p: TalkPersonRow; checks:
         )}
       </td>
       <td className="w8-muted">{p.team ?? '-'}</td>
-      <td className="w8-right">{p.dials}</td>
+      <td className="w8-right">{p.dials ?? '—'}</td>
       <td className="w8-right">{p.appointments}</td>
       <Cell flagged={p.appointment_rate_flagged} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}</Cell>
       <td className="w8-right">
         {p.reviewed}
-        <span className="talk-small">待ち {p.waiting} ・ 取れない {p.unavailable}</span>
+        <span className="talk-small">対象 {p.eligible} 本 ・ 待ち {p.waiting} ・ 取れない {p.unavailable}</span>
       </td>
       {checks.map(c => {
         const it = p.items.find(i => i.id === c.id);
@@ -170,7 +184,7 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
             <tr>
               <th>名前</th>
               <th>チーム</th>
-              <th className="w8-right">総架電数</th>
+              <th className="w8-right">架電数</th>
               <th className="w8-right">アポ数</th>
               <th className="w8-right" aria-sort={ariaSort({ kind: 'rate' })}>
                 <button type="button" className="w8-sort" onClick={() => { toggle({ kind: 'rate' }); }}>アポ率{arrow({ kind: 'rate' })}</button>
@@ -197,6 +211,8 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
       <p className="talk-rules" data-testid="talk-rules">
         {ruleSentences(data.rules).map(s => <span key={s} style={{ display: 'block' }}>{s}</span>)}
         <span style={{ display: 'block' }}>各項目の割合は「できていない電話 ÷ その項目に当てはまる電話」で、小さい数字はその本数です。見出しの「全体」は資料にある全体の割合です。</span>
+        <span style={{ display: 'block' }} data-testid="talk-dials-rule">架電数は営業KPI と同じ、Zoom でつながった通話の数です。アポ率 ＝ アポ数 ÷ 架電数です。</span>
+        <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる 70 秒以上の電話の本数です。</span>
       </p>
     </>
   );
@@ -382,6 +398,21 @@ export function TalkPanel({ route, navigate, fixture }: { route: TalkRoute; navi
             <p className="w8-subtle">
               {d.from === d.to ? d.from : `${d.from} 〜 ${d.to}`}（日本時間）。名前を押すと、その人の電話の一覧が見られます。
             </p>
+            {d.counting_days.length > 0 && (
+              <p className="w8-alert" role="status" data-testid="talk-counting-days">
+                {describeDays(d.counting_days)} のアポは数えている途中です。数え終わるまで、その日のアポは表に入っていません（数え終わると自動で更新します）。
+              </p>
+            )}
+            {d.dials_error && (
+              <p className="w8-alert" role="alert" data-testid="talk-dials-error">
+                架電数を読めませんでした（営業KPI のシートを読めないため）。架電数とアポ率は出していません。しばらくしてから開き直してください。
+              </p>
+            )}
+            {d.dials_partial && !d.dials_error && (
+              <p className="w8-subtle" role="status" data-testid="talk-dials-partial">
+                {d.dials_fetched_at === null ? '最終日の架電数は途中の数です。' : `最終日の架電数は ${d.dials_fetched_at} 時点の数です。`}
+              </p>
+            )}
             <TalkSummaryTable data={d} onOpen={id => { navigate({ ...withPeriod, owner: id, call: '' }); }} />
           </>
         )}

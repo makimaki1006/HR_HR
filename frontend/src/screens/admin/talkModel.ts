@@ -100,8 +100,23 @@ export function ruleSentences(r: TalkSummaryResponse['rules']): string[] {
   const ratio = r.appointment_rate_ratio === 0.5 ? '半分' : `${String(Math.round(r.appointment_rate_ratio * 100))}%`;
   return [
     `項目の印: その項目に当てはまる電話が ${String(r.item_min_applicable)} 本以上あり、本人のできていない割合がチーム全体の割合より ${String(r.item_excess_pct)}% 以上高いとき（例: チーム全体が 40% なら ${String(40 + r.item_excess_pct)}% 以上）。`,
-    `アポ率の印: 総架電が ${String(r.appointment_min_dials)} 本以上で、アポ率がチーム全体のアポ率の${ratio}未満のとき。`,
+    `アポ率の印: 架電数が ${String(r.appointment_min_dials)} 本以上で、アポ率がチーム全体のアポ率の${ratio}未満のとき。`,
   ];
+}
+
+/** 数えている途中の日 (YYYY-MM-DD) を「10/06〜10/08、10/10」に。続く日はまとめる */
+export function describeDays(days: string[]): string {
+  const dayMs = (d: string): number => Date.parse(`${d}T00:00:00Z`);
+  const md = (d: string): string => d.slice(5).replace('-', '/');
+  const sorted = [...days].sort();
+  const groups: string[][] = [];
+  for (const d of sorted) {
+    const g = groups.at(-1);
+    const prev = g?.at(-1);
+    if (g !== undefined && prev !== undefined && dayMs(d) - dayMs(prev) === 86_400_000) g.push(d);
+    else groups.push([d]);
+  }
+  return groups.map(g => (g.length === 1 ? md(g[0] ?? '') : `${md(g[0] ?? '')}〜${md(g.at(-1) ?? '')}`)).join('、');
 }
 
 // ------------------------------------------------------------ 並べ替え
@@ -173,7 +188,7 @@ function person(idx: number, id: string, name: string, team: string, dials: numb
     const hit = ap >= FIXTURE_RULES.item_min_applicable && tap > 0 && (nd / ap) * 100 >= (tnd / tap) * 100 + FIXTURE_RULES.item_excess_pct;
     return rate(c.id, nd, ap, hit);
   });
-  return { owner_id: id, name, team, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, reviewed, waiting, unavailable, items };
+  return { owner_id: id, name, team, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items };
 }
 
 export const FIXTURE_PEOPLE: TalkPersonRow[] = [
@@ -185,12 +200,12 @@ export const FIXTURE_PEOPLE: TalkPersonRow[] = [
 
 function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow {
   const sum = (f: (p: TalkPersonRow) => number) => people.reduce((a, p) => a + f(p), 0);
-  const dials = sum(p => p.dials);
+  const dials = sum(p => p.dials ?? 0);
   const appts = sum(p => p.appointments);
   return {
     owner_id: null, name: 'チーム全体', team: null, dials, appointments: appts,
     appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: false,
-    reviewed: sum(p => p.reviewed), waiting: sum(p => p.waiting), unavailable: sum(p => p.unavailable),
+    eligible: sum(p => p.eligible), reviewed: sum(p => p.reviewed), waiting: sum(p => p.waiting), unavailable: sum(p => p.unavailable),
     items: checks.map(c => {
       const nd = sum(p => p.items.find(i => i.id === c.id)?.not_done ?? 0);
       const ap = sum(p => p.items.find(i => i.id === c.id)?.applicable ?? 0);
@@ -204,7 +219,7 @@ export function fixtureSummary(from: string, to: string, team: string): TalkSumm
   return {
     from, to, as_of: `${to}T14:05:00+09:00`, enabled: true,
     teams: ['架空BPOチーム', '架空営業チーム'],
-    checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, total: totalOf(people, FIXTURE_CHECKS),
+    checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, per_person_day: 10, counting_days: [], dials_error: false, dials_partial: true, dials_fetched_at: `${to} 06:30`, total: totalOf(people, FIXTURE_CHECKS),
   };
 }
 

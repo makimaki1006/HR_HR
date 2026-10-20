@@ -6,7 +6,8 @@
 //! - `zoom`: Zoom Phone の録音・文字起こし (Server-to-Server OAuth)
 //! - `judge`: MiniMax による項目ごとの判定 (差し替え可能な `Judge`)
 //! - `store`: 監査 Turso の表 `call_talk_reviews`
-//! - `counts`: 総架電数・アポ数 (日ごとにキャッシュ)
+//! - `dials`: 架電数 (営業KPI と同じ Zoom 由来のシートの値)
+//! - `counts`: アポ数 (日ごとにキャッシュ)
 //! - `summary`: 集計と印 (純粋な計算)
 //! - `worker`: 背景で対象の Call を見つけて判定する (`CALL_REVIEW_ENABLED=1` のときだけ)
 //! - `routes`: `/api/crm/talk-review/*` (管理者だけ)
@@ -16,6 +17,7 @@
 pub mod checks;
 pub mod config;
 pub mod counts;
+pub mod dials;
 pub mod judge;
 pub mod routes;
 pub mod store;
