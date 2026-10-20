@@ -4,7 +4,7 @@
 import { useSyncExternalStore } from 'react';
 import { CURRENT_ACCOUNT_ID, NOW, STAFF_NAME, accounts, activity as initialActivity, customers as initialCustomers, initialRows, sheets as initialSheets } from './fixtures';
 import { kindOf, labelOf } from './columns';
-import type { ActivityEntry, ApplicantRow, CellSaveResult, ColumnConfig, Customer, FunnelStage, PortalAccount, SheetConfig, Viewer } from './types';
+import type { ActivityEntry, ApplicantRow, CellSaveResult, ColumnConfig, Customer, FunnelStage, ListPrefs, PortalAccount, SheetConfig, Viewer } from './types';
 
 export interface DataState {
   viewer: Viewer;
@@ -21,6 +21,8 @@ export interface DataState {
   currentSheetId: string;
   /** 試作の操作: 次の保存の結果。 */
   nextSave: 'ok' | 'conflict' | 'failed';
+  /** 一覧の見せ方（列の表示・並べ替え・絞り込み）。キーは「人|シート」。 */
+  listPrefs: Record<string, ListPrefs>;
 }
 
 const firstSheetOf = (sheets: SheetConfig[], customerId: string): string =>
@@ -39,7 +41,26 @@ let state: DataState = {
   currentCustomerId: me?.customerId ?? 'c1',
   currentSheetId: firstSheetOf(initialSheets, me?.customerId ?? 'c1'),
   nextSave: 'ok',
+  listPrefs: {},
 };
+
+/** 一覧の見せ方を覚えるときの鍵。顧客の担当者は本人、社内の人は名前ごと。 */
+function prefsKey(sheetId: string): string {
+  const who = state.viewer.kind === 'staff' ? 'staff:' + state.viewer.name : state.viewer.accountId;
+  return who + '|' + sheetId;
+}
+
+/** 覚えている一覧の見せ方。無ければ null。 */
+export function getListPrefs(s: DataState, sheetId: string): ListPrefs | null {
+  const key = prefsKey(sheetId);
+  const mem = s.listPrefs[key];
+  if (mem) return mem;
+  try {
+    const raw = localStorage.getItem('pt.listprefs.' + key);
+    if (raw) return JSON.parse(raw) as ListPrefs;
+  } catch { /* 読めなければ既定 */ }
+  return null;
+}
 
 const listeners = new Set<() => void>();
 function set(next: Partial<DataState>): void {
@@ -175,7 +196,7 @@ export const actions = {
    * 1 マスを保存する。base は編集を始めたときの値。保存の直前にシートの今の値と比べ、
    * 違えば書かずに conflict（誰がいつ変えたか付き）を返す。
    */
-  async saveCell(sheetId: string, rowNumber: number, column: string, base: string, next: string): Promise<CellSaveResult> {
+  async saveCell(sheetId: string, rowNumber: number, column: string, base: string, next: string, opts: { replacement?: boolean } = {}): Promise<CellSaveResult> {
     await sleep(450);
     const sheet = state.sheets.find((x) => x.id === sheetId);
     const row = (state.rows[sheetId] ?? []).find((r) => r.rowNumber === rowNumber);
@@ -189,7 +210,7 @@ export const actions = {
       // シートで社内の人が先に書き換えた、を再現する。
       const latest = conflictValue(sheet.columns.find((c) => c.header === column), row.values[column] ?? '', next);
       const at = nowIso();
-      set({ nextSave: 'ok', rows: replaceRow(sheetId, { ...row, changedSinceLastView: 'updated', values: { ...row.values, [column]: latest } }), readAt: { ...state.readAt, [sheetId]: at } });
+      set({ nextSave: 'ok', rows: replaceRow(sheetId, { ...row, changedSinceLastView: 'updated', changedColumns: [...new Set([...(row.changedColumns ?? []), column])], values: { ...row.values, [column]: latest } }), readAt: { ...state.readAt, [sheetId]: at } });
       log({ kind: 'sheet_change', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」がシートで変更`, actorName: STAFF_NAME, source: 'sheet', accountEmail: '', sheetId, rowNumber, column, before: row.values[column] ?? '', after: latest });
       log({ kind: 'save_conflict', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」は、シートで先に変更されていたため保存しなかった`, sheetId, rowNumber, column, before: base, after: next });
       return { kind: 'conflict', latest, by: STAFF_NAME, at };
@@ -200,23 +221,46 @@ export const actions = {
       log({ kind: 'save_conflict', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」は、シートで先に変更されていたため保存しなかった`, sheetId, rowNumber, column, before: base, after: next });
       return { kind: 'conflict', latest: current, by: last?.actorName ?? 'シート', at: last?.at ?? (state.readAt[sheetId] ?? NOW) };
     }
-    const saved: ApplicantRow = { ...row, changedSinceLastView: null, values: { ...row.values, [column]: next } };
+    const saved: ApplicantRow = { ...row, changedSinceLastView: null, changedColumns: [], values: { ...row.values, [column]: next } };
     set({ rows: replaceRow(sheetId, saved), readAt: { ...state.readAt, [sheetId]: nowIso() } });
-    log({ kind: 'save', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」を「${next || '（空）'}」に変更`, sheetId, rowNumber, column, before: current, after: next });
+    if (opts.replacement === true) {
+      log({ kind: 'option_replace', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」を「${current || '（空）'}」から「${next || '（空）'}」に置き換え（項目の設定）`, sheetId, rowNumber, column, before: current, after: next });
+    } else {
+      log({ kind: 'save', detail: `${rowName(sheet, row)}さんの「${colName(sheet, column)}」を「${next || '（空）'}」に変更`, sheetId, rowNumber, column, before: current, after: next });
+    }
     return { kind: 'saved', value: next };
   },
 
   markSeen(sheetId: string, rowNumber: number): void {
     const row = (state.rows[sheetId] ?? []).find((r) => r.rowNumber === rowNumber);
     if (row?.changedSinceLastView == null) return;
-    set({ rows: replaceRow(sheetId, { ...row, changedSinceLastView: null }) });
+    set({ rows: replaceRow(sheetId, { ...row, changedSinceLastView: null, changedColumns: [] }) });
+  },
+
+  /** そのマスを選んだら、シートで変わった印を消す。 */
+  markCellSeen(sheetId: string, rowNumber: number, column: string): void {
+    const row = (state.rows[sheetId] ?? []).find((r) => r.rowNumber === rowNumber);
+    if (!row?.changedColumns?.includes(column)) return;
+    set({ rows: replaceRow(sheetId, { ...row, changedColumns: row.changedColumns.filter((c) => c !== column) }) });
+  },
+
+  /** 一覧の列の表示・並べ替え・絞り込みを、人とシートごとに覚える。 */
+  setListPrefs(sheetId: string, prefs: ListPrefs): void {
+    const key = prefsKey(sheetId);
+    set({ listPrefs: { ...state.listPrefs, [key]: prefs } });
+    try { localStorage.setItem('pt.listprefs.' + key, JSON.stringify(prefs)); } catch { /* 保存できなくても動く */ }
   },
 
   /** 項目（列）の設定をまとめて置き換える。detail は記録に残す説明。 */
-  updateColumns(sheetId: string, columns: ColumnConfig[], detail: string): void {
+  updateColumns(sheetId: string, columns: ColumnConfig[], detail: string, opts: { reorder?: boolean } = {}): void {
     const before = state.sheets.find((x) => x.id === sheetId);
     set({ sheets: state.sheets.map((x) => (x.id === sheetId ? { ...x, columns } : x)) });
-    log({ kind: 'column_change', detail, sheetId, before: (before?.columns ?? []).map((c) => (c.label !== '' ? c.label : c.header)).join('、'), after: columns.map((c) => (c.label !== '' ? c.label : c.header)).join('、') });
+    // 列名の並びを before / after に入れるのは並び替えのときだけ。それ以外は説明の文をそのまま記録に出す。
+    if (opts.reorder === true) {
+      log({ kind: 'column_change', detail, sheetId, before: (before?.columns ?? []).map((c) => (c.label !== '' ? c.label : c.header)).join('、'), after: columns.map((c) => (c.label !== '' ? c.label : c.header)).join('、') });
+    } else {
+      log({ kind: 'column_change', detail, sheetId });
+    }
   },
 
   /** プルダウンの選択肢を変える（シートの入力規則も書き換える想定）。 */
@@ -263,7 +307,7 @@ export const actions = {
     const nextStatus = statusOpts[3] ?? '';
     const values = { ...row.values };
     if (status) values[status] = nextStatus;
-    set({ rows: replaceRow(sheetId, { ...row, changedSinceLastView: 'updated', values }), readAt: { ...state.readAt, [sheetId]: nowIso() } });
+    set({ rows: replaceRow(sheetId, { ...row, changedSinceLastView: 'updated', changedColumns: status ? [status] : [], values }), readAt: { ...state.readAt, [sheetId]: nowIso() } });
     if (status) log({ kind: 'sheet_change', detail: `${rowName(sheet, row)}さんの「${colName(sheet, status)}」がシートで変更`, actorName: STAFF_NAME, source: 'sheet', accountEmail: '', sheetId, rowNumber: row.rowNumber, column: status, before: row.values[status] ?? '', after: nextStatus });
   },
   simulateNewApplicant(sheetId: string): void {

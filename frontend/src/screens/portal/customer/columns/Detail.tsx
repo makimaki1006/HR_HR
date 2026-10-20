@@ -75,16 +75,17 @@ export function Detail({ sheet, col, rows, canEdit, isStaff, onBack, onDirty, on
       if (JSON.stringify(Object.entries(next).sort()) !== JSON.stringify(Object.entries(cur).sort())) actions.updateSheet(sheet.id, { stageMap: next });
       if (sd.length > 0) parts.push(`数字の段階 ${sd.join('、')}`);
     }
-    if (parts.length > 0) {
-      actions.updateColumns(sheet.id, latestCols.map((c) => (c.header === col.header ? { ...c, ...patch } : c)), `「${nameOfCol({ ...col, ...patch })}」: ${parts.join('、')}`);
-    }
     const title = sheet.titleColumn ?? '氏名';
     const targets: { r: ApplicantRow; orig: string; to: string }[] = [];
     for (const [orig, c] of Object.entries(choices)) {
       if (c.mode !== 'replace') continue;
       for (const r of rows.filter((x) => (x.values[col.header] ?? '') === orig)) targets.push({ r, orig, to: c.target });
     }
-    const res = await Promise.all(targets.map((t) => actions.saveCell(sheet.id, t.r.rowNumber, col.header, t.orig, t.to)));
+    if (targets.length > 0) parts.push(`${String(targets.length)}人の値を置き換え`);
+    if (parts.length > 0) {
+      actions.updateColumns(sheet.id, latestCols.map((c) => (c.header === col.header ? { ...c, ...patch } : c)), `「${nameOfCol({ ...col, ...patch })}」: ${parts.join('、')}`);
+    }
+    const res = await Promise.all(targets.map((t) => actions.saveCell(sheet.id, t.r.rowNumber, col.header, t.orig, t.to, { replacement: true })));
     const out: Result = { replaced: 0, conflicts: [], failed: [] };
     res.forEach((x, i) => {
       const t = targets[i];

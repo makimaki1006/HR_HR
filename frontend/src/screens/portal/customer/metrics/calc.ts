@@ -199,7 +199,7 @@ export function unmappedOptions(sheet: SheetConfig, rows: ApplicantRow[]): strin
 }
 
 /** 率の分母が少なく、傾向として読めない。 */
-export const SMALL_DEN = 5;
+export const SMALL_DEN = 10;
 export const isSmall = (r: Rate): boolean => r.den > 0 && r.den < SMALL_DEN;
 
 /** 選択肢がその段階として 1 つも決まっていない段階。 */

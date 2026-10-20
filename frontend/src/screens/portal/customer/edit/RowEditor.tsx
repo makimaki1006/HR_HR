@@ -7,6 +7,7 @@ import { Badge, cx, formatShortDateTime } from '../../ui/kit';
 import { CellDisplay, CellInput } from '../../ui/cell';
 import { IconCheck, IconChevronDown, IconLock, IconMail, IconPhone, IconX } from '../../ui/icons';
 import { statusDot } from '../list/model';
+import { SmallButton } from '../list/parts';
 import { ChoicePopover } from './ChoicePopover';
 import { IconPencil } from './icons';
 import { Timeline } from './Timeline';
@@ -244,13 +245,14 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
         </p>
       );
     }
-    const linkBtn = 'inline-flex h-[44px] items-center rounded px-1 text-[12px] font-medium sm:h-7';
     if (st.kind === 'failed') {
       return (
         <div className="mt-1 flex flex-wrap items-center gap-x-3 border-l-2 border-pt-danger pl-2 text-[12px]">
           <span className="text-pt-danger">保存できませんでした</span>
-          <button type="button" className={cx(linkBtn, 'text-pt-primary hover:underline')} onClick={() => { const e = editingRef.current; const v = e?.column === column ? e.draft : st.mine; setEd(null); void run(column, valueNow(column), v); }}>もう一度保存</button>
-          <button type="button" className={cx(linkBtn, 'text-pt-muted hover:underline')} onClick={() => { setEd(null); clearCell(column); focusField(column); }}>やめる</button>
+          <div className="grid w-full grid-cols-2 gap-2 py-1 sm:flex sm:w-auto">
+            <SmallButton primary onClick={() => { const e = editingRef.current; const v = e?.column === column ? e.draft : st.mine; setEd(null); void run(column, valueNow(column), v); }}>もう一度保存</SmallButton>
+            <SmallButton onClick={() => { setEd(null); clearCell(column); focusField(column); }}>やめる</SmallButton>
+          </div>
         </div>
       );
     }
@@ -261,9 +263,9 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
           <span className="text-pt-muted">（{st.by}・<span className="pt-num">{formatShortDateTime(st.at)}</span>）</span>
           <span className="ml-2 text-pt-muted">あなたの値: {shown(st.mine)}</span>
         </p>
-        <div className="flex flex-wrap items-center gap-x-3">
-          <button type="button" className={cx(linkBtn, 'text-pt-primary hover:underline')} onClick={() => { clearCell(column); setBaseline((b) => ({ ...b, [column]: valueNow(column) })); }}>シートの値にする</button>
-          <button type="button" className={cx(linkBtn, 'text-pt-primary hover:underline')} onClick={() => { clearCell(column); void run(column, st.latest, st.mine); }}>自分の値で上書き</button>
+        <div className="grid grid-cols-2 gap-2 py-1.5 sm:flex">
+          <SmallButton onClick={() => { clearCell(column); setBaseline((b) => ({ ...b, [column]: valueNow(column) })); }}>シートの値にする</SmallButton>
+          <SmallButton primary onClick={() => { clearCell(column); void run(column, st.latest, st.mine); }}>自分の値で上書き</SmallButton>
         </div>
       </div>
     );

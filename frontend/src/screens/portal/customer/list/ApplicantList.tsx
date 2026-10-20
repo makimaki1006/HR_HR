@@ -1,6 +1,6 @@
 // 応募者の一覧。顧客のメイン画面。PC はスプレッドシートのように書き換えられる表、スマホはカード。
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { actions, currentSheet, useData } from '../../data';
+import { actions, currentSheet, getListPrefs, useData } from '../../data';
 import { cardLayout, labelOf, searchColumns } from '../../columns';
 import { AppShell, type SyncInfo } from '../../ui/shell';
 import { ContactBox } from '../../ui/contact';
@@ -9,16 +9,18 @@ import { Button, cx } from '../../ui/kit';
 import { RowEditor } from '../edit/RowEditor';
 import { setVisibleRows } from '../edit/visibleRows';
 import { ROUTES, usePreviewNav } from '../../preview';
-import type { SheetConfig } from '../../types';
+import type { ListPrefs, SheetConfig } from '../../types';
 import { Grid } from './Grid';
 import { MobileList } from './MobileList';
 import { downloadText, matchesFilters, matchesQuery, omit, orderColumns, sortRows, statusDot, toCsv, type ColumnFilter, type SortSpec } from './model';
 import { ToastBar, useOutside } from './parts';
+import { matchesQuick, quickChips, SortSelect, TabScroller, TodayBand, type Quick } from './quick';
 import { useCellSaver } from './useCellSaver';
 import { NOW } from '../../fixtures';
 
 export type ListState = 'normal' | 'empty' | 'unavailable' | 'stale';
 
+const SHEET_NOTE = 'シートの内容が更新されました';
 const DESKTOP = '(min-width: 1024px)';
 function useIsDesktop(): boolean {
   return useSyncExternalStore(
@@ -40,12 +42,41 @@ export function ApplicantList({ forceState, openAtStart }: { forceState?: ListSt
       : undefined;
   return (
     <AppShell section="applicants" title="応募者" flush sync={sync}>
-      {sheet ? <ListBody key={sheet.id} sheet={sheet} state={state} openAtStart={openAtStart} /> : <Unavailable />}
+      {sheet ? <ListBody key={sheet.id} sheet={sheet} state={state} openAtStart={openAtStart} /> : <Unavailable sheet={undefined} />}
     </AppShell>
   );
 }
 
-function Unavailable() {
+/** 社内の人に出す、読めない理由。顧客には出さない。 */
+const REASON: Record<SheetConfig['connection'], string> = {
+  ok: '',
+  not_shared: 'このシートは共有されていません。シートの共有に、読み取り用のアカウントが入っているか確かめてください。',
+  header_changed: 'シートの見出しの行が変わっています。見出しの行の番号と、列の名前が設定と合っているか確かめてください。',
+  not_found: 'シートが見つかりません。削除されたか、タブの名前が変わった可能性があります。',
+};
+
+function Unavailable({ sheet }: { sheet: SheetConfig | undefined }) {
+  const d = useData();
+  const nav = usePreviewNav();
+  if (d.viewer.kind === 'staff') {
+    const customerId = sheet?.customerId ?? d.currentCustomerId;
+    return (
+      <div className="mx-auto max-w-md px-4 py-14">
+        <span className="mb-4 inline-flex h-9 w-9 items-center justify-center rounded-full bg-pt-warn-soft text-pt-warn"><IconUsers size={18} /></span>
+        <h2 className="text-[15px] font-semibold">このシートを読み込めていません</h2>
+        <p className="mt-1 text-[13px] text-pt-muted">{sheet ? REASON[sheet.connection] : 'この顧客にはシートがまだ登録されていません。'}</p>
+        <p className="mt-2 text-[12px] text-pt-faint">顧客の担当者には、サポート窓口の案内が出ています。</p>
+        <div className="mt-5">
+          <Button
+            variant="primary"
+            onClick={() => { actions.selectCustomer(customerId); nav.go('admin-customer-detail'); }}
+          >
+            顧客の詳細で確かめる
+          </Button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="mx-auto max-w-md px-4 py-14">
       <span className="mb-4 inline-flex h-9 w-9 items-center justify-center rounded-full bg-pt-danger-soft text-pt-danger"><IconUsers size={18} /></span>
@@ -72,9 +103,19 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
   const saver = useCellSaver(sheet.id);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<string | null>(null);
-  const [filters, setFilters] = useState<Record<string, ColumnFilter>>({});
-  const [sort, setSort] = useState<SortSpec | null>(null);
-  const [shownOverride, setShownOverride] = useState<Record<string, boolean>>({});
+  // 列の表示・並べ替え・絞り込みは、人とシートごとに覚えて、次に開いたときも同じにする。
+  const [saved] = useState(() => getListPrefs(d, sheet.id));
+  const [filters, setFilters] = useState<Record<string, ColumnFilter>>(saved?.filters ?? {});
+  const [sort, setSort] = useState<SortSpec | null>(saved?.sort ?? null);
+  const [shownOverride, setShownOverride] = useState<Record<string, boolean>>(saved?.shown ?? {});
+  const [quick, setQuick] = useState<Quick | null>(null);
+  const [pendingNote, setPendingNote] = useState(false);
+  const remember = (next: Partial<ListPrefs>) => {
+    actions.setListPrefs(sheet.id, { shown: next.shown ?? shownOverride, sort: next.sort === undefined ? sort : next.sort, filters: next.filters ?? filters });
+  };
+  const changeFilters = (next: Record<string, ColumnFilter>) => { setFilters(next); remember({ filters: next }); };
+  const changeSort = (next: SortSpec | null) => { setSort(next); remember({ sort: next }); };
+  const changeShown = (next: Record<string, boolean>) => { setShownOverride(next); remember({ shown: next }); };
   const [openRow, setOpenRow] = useState<number | null>(openAtStart ?? null);
   const [jump, setJump] = useState<{ rowNumber: number; seq: number } | null>(null);
   const nav = usePreviewNav();
@@ -101,12 +142,26 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
       saver.notify(`新しい応募者が ${String(added.length)} 人入りました`, {
         label: '見る',
         run: () => {
-          setQuery(''); setStatus(null); setFilters({}); setSort(null);
+          setQuery(''); setStatus(null); setFilters({}); setSort(null); setQuick(null);
           setJump((j) => ({ rowNumber: first.rowNumber, seq: (j?.seq ?? 0) + 1 }));
         },
       });
-    } else if (fromSheet) saver.notify('シートの内容が更新されました');
+    } else if (fromSheet) {
+      // 競合・失敗の吹き出しが出ているあいだは、知らせを重ねない。吹き出しが閉じてから 1 回だけ出す。
+      if (saver.bubble !== null) setPendingNote(true);
+      else saver.notify(SHEET_NOTE);
+    }
   }
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- 吹き出しの開閉に合わせて、知らせを 1 つにする */
+  useEffect(() => {
+    if (saver.bubble !== null) {
+      if (saver.toast?.text === SHEET_NOTE) { saver.closeToast(); setPendingNote(true); }
+    } else if (pendingNote) {
+      setPendingNote(false);
+      saver.notify(SHEET_NOTE);
+    }
+  }, [saver.bubble, saver.toast, pendingNote]);
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   // Ctrl+Z で直前の保存を元に戻す（入力中は入力欄の取り消しに任せる）。
   const undoRef = useRef(saver.undo);
@@ -134,10 +189,14 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
     if (statusCol) for (const r of baseRows) { const v = r.values[statusCol.header] ?? ''; m.set(v, (m.get(v) ?? 0) + 1); }
     return m;
   }, [baseRows, statusCol]);
+  const chips = useMemo(() => quickChips(sheet, sourceRows), [sheet, sourceRows]);
   const rows = useMemo(() => {
-    const f = status === null || !statusCol ? baseRows : baseRows.filter((r) => (r.values[statusCol.header] ?? '') === status);
-    return sortRows(f, sort, layout.sort?.header);
-  }, [baseRows, status, statusCol, sort, layout.sort?.header]);
+    const byStatus = status === null || !statusCol ? baseRows : baseRows.filter((r) => (r.values[statusCol.header] ?? '') === status);
+    const f = quick === null ? byStatus : byStatus.filter((r) => matchesQuick(sheet, r, quick));
+    // 今日・明日の面接は、時刻の早い順に並べる（並べ替えを選んでいなければ）。
+    const timeOrder: SortSpec | null = sort === null && (quick === 'today' || quick === 'tomorrow') && sheet.interviewColumn ? { column: sheet.interviewColumn, dir: 'asc' } : sort;
+    return sortRows(f, timeOrder, layout.sort?.header);
+  }, [baseRows, status, statusCol, sort, quick, sheet, layout.sort?.header]);
 
   // 詳細の「前へ・次へ」と位置の表示を、一覧の並び（絞り込み・並べ替えの後）に合わせる。
   useEffect(() => { setVisibleRows(sheet.id, rows.map((r) => r.rowNumber)); }, [sheet.id, rows]);
@@ -165,7 +224,7 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
     return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
   }, [isDesktop, state]);
 
-  if (state === 'unavailable') return <Unavailable />;
+  if (state === 'unavailable') return <Unavailable sheet={sheet} />;
   if (state === 'empty') return <Empty />;
 
   const readOnly = state === 'stale';
@@ -177,14 +236,15 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
   });
   const sortCol = sort ? sheet.columns.find((c) => c.header === sort.column) : undefined;
   const sortLabel = sortCol ? labelOf(sortCol) : (sort?.column ?? '');
+  const sortChip = sort === null || sort.mode !== undefined ? null : `並べ替え: ${sortLabel}（${sort.dir === 'asc' ? '昇順' : '降順'}）`;
 
   const statusTabs = statusCol && (
-    <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label={labelOf(statusCol)}>
+    <TabScroller fade="var(--color-pt-bg)" label={labelOf(statusCol)}>
       <StatusTab active={status === null} onClick={() => { setStatus(null); }} label="すべて" count={baseRows.length} />
       {statusOptions.filter((o) => o !== '' || (statusCounts.get('') ?? 0) > 0).map((o) => (
         <StatusTab key={o === '' ? '(empty)' : o} active={status === o} onClick={() => { setStatus(status === o ? null : o); }} label={o === '' ? '未入力' : o} count={statusCounts.get(o) ?? 0} dot={statusDot(sheet, o)} />
       ))}
-    </div>
+    </TabScroller>
   );
 
   const editor = openedRow && <RowEditor sheet={sheet} row={openedRow} onClose={() => { setOpenRow(null); }} onMove={open} />;
@@ -194,7 +254,11 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
     return (
       <div>
         <div className="border-b border-pt-line bg-pt-bg px-3 pt-2 pb-2">
-          <SearchBox value={query} onChange={setQuery} />
+          <TodayBand chips={chips} active={quick} onPick={setQuick} className="mb-2 -mx-0.5 px-0.5" />
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1"><SearchBox value={query} onChange={setQuery} /></div>
+            <SortSelect sort={sort} interviewColumn={sheet.interviewColumn} onChange={changeSort} className="w-[9.5rem] shrink-0" />
+          </div>
           <div className="mt-2 -mx-1">{statusTabs}</div>
         </div>
         <div className="h-2" />
@@ -208,16 +272,18 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
   return (
     <div>
       <div className="border-b border-pt-line bg-pt-bg px-6 pt-2.5 pb-2">
+        {chips.length > 0 && <TodayBand chips={chips} active={quick} onPick={setQuick} className="mb-2" />}
         <div className="flex items-center gap-2">
           <div className="w-72"><SearchBox value={query} onChange={setQuery} /></div>
-          {(filterChips.length > 0 || sort) && (
+          <SortSelect sort={sort} interviewColumn={sheet.interviewColumn} onChange={changeSort} className="w-44 shrink-0" />
+          {(filterChips.length > 0 || sortChip) && (
             <div className="flex min-w-0 flex-wrap items-center gap-1">
-              {filterChips.map((f) => <Chip key={f.h} onRemove={() => { setFilters((p) => omit(p, f.h)); }}>{f.text}</Chip>)}
-              {sort && <Chip onRemove={() => { setSort(null); }}>並べ替え: {sortLabel}（{sort.dir === 'asc' ? '昇順' : '降順'}）</Chip>}
+              {filterChips.map((f) => <Chip key={f.h} onRemove={() => { changeFilters(omit(filters, f.h)); }}>{f.text}</Chip>)}
+              {sortChip && <Chip onRemove={() => { changeSort(null); }}>{sortChip}</Chip>}
             </div>
           )}
           <span className="ml-auto" />
-          <ColumnPicker sheet={sheet} statusHeader={statusCol?.header} titleHeader={titleHeader} override={shownOverride} onChange={setShownOverride} />
+          <ColumnPicker sheet={sheet} statusHeader={statusCol?.header} titleHeader={titleHeader} override={shownOverride} onChange={changeShown} />
           <Button size="sm" onClick={exportCsv}><IconDownload size={14} />書き出し</Button>
         </div>
         <div className="mt-2 -ml-1">{statusTabs}</div>
@@ -232,9 +298,9 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
           readOnly={readOnly}
           saver={saver}
           sort={sort}
-          onSort={setSort}
+          onSort={changeSort}
           filters={filters}
-          onFilter={(h, f) => { setFilters((p) => (f ? { ...p, [h]: f } : omit(p, h))); }}
+          onFilter={(h, f) => { changeFilters(f ? { ...filters, [h]: f } : omit(filters, h)); }}
           onOpen={open}
           openRowNumber={openRow}
           canEditColumns={canEditColumns}

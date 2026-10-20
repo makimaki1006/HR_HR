@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { cx } from '../../ui/kit';
 import { IconChevronDown } from '../../ui/icons';
 import type { FunnelStage } from '../../types';
-import { isSmall, pct, STAGE_LABEL, type BreakdownRow, type MonthBar, type Rate, type Tally } from './calc';
+import { isSmall, pct, SMALL_DEN, STAGE_LABEL, type BreakdownRow, type MonthBar, type Rate, type Tally } from './calc';
 
 const BAR = 'bg-pt-primary/70';
 
@@ -32,9 +32,9 @@ function Delta({ cur, prev, unit, inverse, kind }: { cur: number | null; prev: n
   );
 }
 
-/** 6 枚をひとつの面にまとめた横一列。 */
+/** 4 枚をひとつの面にまとめた横一列。人数を大きく出す。 */
 export function KpiStrip({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-pt-line bg-pt-line sm:grid-cols-3 lg:grid-cols-6">{children}</div>;
+  return <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-pt-line bg-pt-line sm:grid-cols-4 lg:grid-cols-4">{children}</div>;
 }
 
 export function KpiCard({ label, big, num, den, basis, unit, cur, prev, kind, inverse, small, unavailable }: {
@@ -106,6 +106,7 @@ export function Funnel({ t, missing }: { t: Tally; missing: Set<FunnelStage> }) 
           );
         })}
       </ul>
+      {t.total > 0 && t.total < SMALL_DEN && <p className="mt-2 text-xs text-pt-faint">応募が {String(SMALL_DEN)} 人より少ないため、割合は目安です。</p>}
       <p className="pt-num mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t border-pt-line pt-2.5 text-[13px] text-pt-muted">
         <span>不採用 <b className="font-semibold text-pt-ink">{t.rejected}</b> 人（{pct(t.total === 0 ? null : t.rejected / t.total)}）</span>
         <span>辞退 <b className="font-semibold text-pt-ink">{t.declined}</b> 人（{pct(t.total === 0 ? null : t.declined / t.total)}）</span>

@@ -5,7 +5,7 @@ import { Button, Notice, Segmented, Select, TextInput } from '../../ui/kit';
 import { AppShell } from '../../ui/shell';
 import { labelOf } from '../../columns';
 import {
-  STAGE_LABEL, STAGE_ORDER, breakdown, breakdownColumns, earliestDay, inRange, isSmall, kpis, missingStages, monthly, pct, rangesOf, tally, unmappedOptions,
+  STAGE_LABEL, STAGE_ORDER, breakdown, breakdownColumns, earliestDay, inRange, missingStages, monthly, rangesOf, tally, unmappedOptions,
   type Period,
 } from './calc';
 import { BreakdownTable, Chevron, Funnel, KpiCard, KpiStrip, MonthlyChart, Panel } from './parts';
@@ -52,10 +52,9 @@ export function MetricsScreen() {
   }
 
   const t = tally(rows, sheet);
-  const k = kpis(t);
   const oldest = earliestDay(allRows, sheet.sortColumn);
   const prevOk = prevRows !== null && prevRows.length > 0 && ranges.prev !== null && oldest !== null && ranges.prev.from >= oldest;
-  const pk = prevOk ? kpis(tally(prevRows, sheet)) : null;
+  const pt = prevOk ? tally(prevRows, sheet) : null;
   const missing = missingStages(sheet);
   const heldNone = missing.has('interviewed');
   const key = candidates.some((c) => c.header === pick) ? pick : (candidates[0]?.header ?? '');
@@ -84,7 +83,7 @@ export function MetricsScreen() {
             </div>
           )}
           <p className="pt-num text-xs text-pt-muted">
-            {[sheet.sortColumn ? `${sheet.sortColumn}で集計` : '', ranges.prevLabel !== '' ? (pk ? `増減は${ranges.prevLabel}との差` : '比較できる期間がありません') : ''].filter((x) => x !== '').join(' ・ ')}
+            {[sheet.sortColumn ? `${sheet.sortColumn}で集計` : '', ranges.prevLabel !== '' ? (pt ? `増減は${ranges.prevLabel}との差` : '比較できる期間がありません') : ''].filter((x) => x !== '').join(' ・ ')}
           </p>
         </div>
 
@@ -93,12 +92,10 @@ export function MetricsScreen() {
         ) : null}
 
         <KpiStrip>
-          <KpiCard label="応募数" big={String(k.count)} unit="人" cur={k.count} prev={pk ? pk.count : null} kind="count" />
-          <KpiCard label="面接移行率" big={pct(k.interview.value)} num={k.interview.num} den={k.interview.den} cur={k.interview.value} prev={pk ? pk.interview.value : null} kind="rate" small={isSmall(k.interview)} />
-          <KpiCard label="面接実施率" basis="面接設定から" big={pct(k.held.value)} num={k.held.num} den={k.held.den} cur={k.held.value} prev={pk ? pk.held.value : null} kind="rate" small={isSmall(k.held)} unavailable={heldNone} />
-          <KpiCard label="内定率" big={pct(k.offer.value)} num={k.offer.num} den={k.offer.den} cur={k.offer.value} prev={pk ? pk.offer.value : null} kind="rate" small={isSmall(k.offer)} />
-          <KpiCard label="採用率" big={pct(k.hire.value)} num={k.hire.num} den={k.hire.den} cur={k.hire.value} prev={pk ? pk.hire.value : null} kind="rate" small={isSmall(k.hire)} />
-          <KpiCard label="辞退率" big={pct(k.decline.value)} num={k.decline.num} den={k.decline.den} cur={k.decline.value} prev={pk ? pk.decline.value : null} kind="rate" inverse small={isSmall(k.decline)} />
+          <KpiCard label="応募" big={String(t.total)} unit="人" cur={t.total} prev={pt ? pt.total : null} kind="count" />
+          <KpiCard label="面接した" big={heldNone ? '—' : String(t.reached.interviewed)} unit="人" cur={t.reached.interviewed} prev={pt ? pt.reached.interviewed : null} kind="count" unavailable={heldNone} />
+          <KpiCard label="採用" big={String(t.reached.hired)} unit="人" cur={t.reached.hired} prev={pt ? pt.reached.hired : null} kind="count" />
+          <KpiCard label="辞退" big={String(t.declined)} unit="人" cur={t.declined} prev={pt ? pt.declined : null} kind="count" inverse />
         </KpiStrip>
         {heldNone && canEditColumns && (
           <p className="-mt-2 text-xs text-pt-faint">面接実施に当たる選択肢が決まっていません。<button type="button" className="text-pt-primary hover:underline" onClick={() => { nav.go(ROUTES.columns); }}>項目の設定で決める</button></p>

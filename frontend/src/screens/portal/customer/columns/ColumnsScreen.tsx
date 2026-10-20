@@ -103,7 +103,7 @@ export function ColumnsScreen() {
     if (!o) return;
     orderRef.current = null;
     setOrderDraft(null);
-    actions.updateColumns(o.sheetId, o.cols, orderDetail(o.from, o.cols));
+    actions.updateColumns(o.sheetId, o.cols, orderDetail(o.from, o.cols), { reorder: true });
   };
   const flushRef = useRef(flush);
   useEffect(() => { flushRef.current = flush; });

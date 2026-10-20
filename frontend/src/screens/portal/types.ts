@@ -50,6 +50,8 @@ export interface SheetConfig {
   statusColumn?: string;
   /** 新しい順に並べる日付の列。未設定は並べ替えない。 */
   sortColumn?: string;
+  /** 面接の日時の列（種類は日付と時刻）。「今日の面接」「面接日が近い順」に使う。未設定なら出さない。 */
+  interviewColumn?: string;
   columns: ColumnConfig[];
   /** 接続の状態。 */
   connection: 'ok' | 'not_shared' | 'not_found' | 'header_changed';
@@ -69,6 +71,8 @@ export interface ApplicantRow {
   values: Record<string, string>;
   /** 前回この人が見たあとに増えた・変わった行。 */
   changedSinceLastView: 'new' | 'updated' | null;
+  /** 前回見たあとにシートで変わった項目（見出しの名前）。表のマスの色に使う。 */
+  changedColumns?: string[];
 }
 
 export interface SheetSnapshot {
@@ -113,6 +117,8 @@ export type ActivityKind =
   | 'sheet_change'
   /** 項目・プルダウン・段階の設定の変更。 */
   | 'column_change'
+  /** 項目の設定で選択肢を改名・削除したため、応募者の値を置き換えた。 */
+  | 'option_replace'
   | 'export'
   /** 社内の管理画面: 顧客の追加・名前・段階・停止・再開。 */
   | 'customer_change'
@@ -139,6 +145,24 @@ export interface ActivityEntry {
   column?: string;
   before?: string;
   after?: string;
+}
+
+/** 一覧の絞り込み（見出しのメニュー）。 */
+export type ListFilter = { type: 'in'; values: string[] } | { type: 'has'; text: string };
+
+/** 一覧の並べ替え。mode があるものは「面接日が近い順」「更新が先」。 */
+export interface ListSort {
+  column: string;
+  dir: 'asc' | 'desc';
+  mode?: 'near' | 'changed';
+}
+
+/** 一覧の見せ方。人とシートごとに覚えて、次に開いたときも同じにする。 */
+export interface ListPrefs {
+  /** 列ごとの表示・非表示（設定にない列はシートの既定）。 */
+  shown: Record<string, boolean>;
+  sort: ListSort | null;
+  filters: Record<string, ListFilter>;
 }
 
 /** 1 マスの保存の結果。 */

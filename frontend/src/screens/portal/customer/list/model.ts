@@ -1,14 +1,11 @@
 // 一覧の並べ替え・絞り込み・書き出し。表とスマホのカードで同じ決まりを使う。
 import { kindOf, labelOf, sortByDate } from '../../columns';
 import { stageOf } from '../../data';
-import type { ApplicantRow, ColumnConfig, FunnelStage, SheetConfig } from '../../types';
+import type { ApplicantRow, ColumnConfig, FunnelStage, ListFilter, ListSort, SheetConfig } from '../../types';
+import { NOW } from '../../fixtures';
 
-export type ColumnFilter = { type: 'in'; values: string[] } | { type: 'has'; text: string };
-
-export interface SortSpec {
-  column: string;
-  dir: 'asc' | 'desc';
-}
+export type ColumnFilter = ListFilter;
+export type SortSpec = ListSort;
 
 export const norm = (s: string): string => s.replace(/[-\s]/g, '').toLowerCase();
 
@@ -28,8 +25,48 @@ export function matchesFilters(row: ApplicantRow, filters: Record<string, Column
 
 const numeric = (v: string): number | null => (/^\d+(\.\d+)?$/.test(v) ? Number(v) : null);
 
+// ---- 面接の日時 ----
+
+const jstDay = (ms: number): string => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date(ms)).replace(/-/g, '/');
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/** 「2026/10/23 11:00」を日本時間の時刻（ミリ秒）にする。読めなければ null。 */
+export function parseDateTime(v: string): number | null {
+  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/.exec(v.trim());
+  if (!m) return null;
+  const t = Date.parse(`${m[1] ?? ''}-${pad2(Number(m[2]))}-${pad2(Number(m[3]))}T${pad2(Number(m[4] ?? '0'))}:${m[5] ?? '00'}:00+09:00`);
+  return Number.isNaN(t) ? null : t;
+}
+
+/** 試作の「いま」からの日数ずれ。0 = 今日、1 = 明日。 */
+export function dayOffset(v: string): number | null {
+  const t = parseDateTime(v);
+  if (t === null) return null;
+  const a = Date.parse(jstDay(t).replace(/\//g, '-') + 'T00:00:00+09:00');
+  const b = Date.parse(jstDay(Date.parse(NOW)).replace(/\//g, '-') + 'T00:00:00+09:00');
+  return Math.round((a - b) / 86_400_000);
+}
+
 export function sortRows(rows: ApplicantRow[], sort: SortSpec | null, fallbackHeader: string | undefined): ApplicantRow[] {
   if (!sort) return sortByDate(rows, fallbackHeader);
+  if (sort.mode === 'changed') {
+    const rank = (r: ApplicantRow): number => (r.changedSinceLastView === null ? 1 : 0);
+    return sortByDate(rows, fallbackHeader).sort((a, b) => rank(a) - rank(b));
+  }
+  if (sort.mode === 'near') {
+    const now = Date.parse(NOW);
+    return [...rows].sort((a, b) => {
+      const ta = parseDateTime(a.values[sort.column] ?? '');
+      const tb = parseDateTime(b.values[sort.column] ?? '');
+      if (ta === null && tb === null) return b.rowNumber - a.rowNumber;
+      if (ta === null) return 1;
+      if (tb === null) return -1;
+      const fa = ta >= now;
+      const fb = tb >= now;
+      if (fa !== fb) return fa ? -1 : 1;
+      return fa ? ta - tb : tb - ta;
+    });
+  }
   const sign = sort.dir === 'asc' ? 1 : -1;
   return [...rows].sort((a, b) => {
     const va = a.values[sort.column] ?? '';
@@ -100,12 +137,12 @@ export function columnWidths(cols: ColumnConfig[], rows: ApplicantRow[], titleHe
   const sample = rows.slice(0, 300);
   const out: Record<string, number> = {};
   for (const c of cols) {
-    const head = textWidth(labelOf(c)) + 44 + (c.writable ? 0 : 15);
+    const head = textWidth(labelOf(c)) + 36 + (c.writable ? 0 : 15);
     if (c.multiline) { out[c.header] = 240; continue; }
     const values = [...sample.map((r) => r.values[c.header] ?? ''), ...(c.options ?? [])];
     const longest = values.reduce((m, v) => Math.max(m, textWidth(v)), 0);
     if (c.header === titleHeader) { out[c.header] = Math.round(Math.min(220, Math.max(TITLE_MIN, longest + 84))); continue; }
-    const pad = c.header === statusHeader ? 50 : 30;
+    const pad = c.header === statusHeader ? 50 : 22;
     const kind = kindOf(c);
     const floor = kind === 'datetime' ? 140 : kind === 'date' ? 92 : 56;
     out[c.header] = Math.round(Math.min(220, Math.max(floor, head, longest + pad)));

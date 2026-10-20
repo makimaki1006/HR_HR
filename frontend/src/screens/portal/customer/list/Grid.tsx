@@ -4,6 +4,7 @@
 // 文字の列はその入力欄がそのままマスの上に出て編集欄になる（Google スプレッドシートと同じ作り）。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { kindOf, labelOf } from '../../columns';
+import { actions } from '../../data';
 import { CellDisplay, CellInput } from '../../ui/cell';
 import { IconCheck, IconColumns, IconFilter, IconLock, IconSearch } from '../../ui/icons';
 import { cx } from '../../ui/kit';
@@ -90,6 +91,11 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
     if (r === undefined || c === undefined) return null;
     return boxRef.current?.querySelector<HTMLElement>(`[data-cell="${String(r)}:${String(c)}"]`) ?? null;
   };
+
+  // シートで変わったマスを選んだら、変わった印（色）を消す。
+  useEffect(() => {
+    if (sel) actions.markCellSeen(sheet.id, sel.rowNumber, sel.column);
+  }, [sel, sheet.id]);
 
   // 選んだマスを見える位置に。
   useEffect(() => {
@@ -330,13 +336,15 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
                   const isSel = rowSelected && sel.column === c.header;
                   const isEdit = editing?.rowNumber === row.rowNumber && editing.column === c.header;
                   const v = valueOf(row, c.header);
-                  const bg = rowSelected || rowOpen ? 'bg-pt-primary-soft' : isTitle || c.writable ? 'bg-pt-surface' : 'bg-pt-sunken/35';
+                  const changedCell = row.changedColumns?.includes(c.header) === true;
+                  const bg = rowSelected || rowOpen ? 'bg-pt-primary-soft' : changedCell ? 'bg-pt-changed' : isTitle || c.writable ? 'bg-pt-surface' : 'bg-pt-sunken/35';
                   const shadows = isTitle ? [line ? `inset 2px 0 0 ${line}` : '', scrolled ? SCROLLED_SHADOW : ''].filter((x) => x !== '').join(', ') : '';
                   return (
                     <td
                       key={c.header}
                       data-cell={`${String(ri)}:${String(ci)}`}
                       data-key={key}
+                      title={changedCell ? 'シートで変わりました' : undefined}
                       onMouseDown={(e) => {
                         if (isEdit) return;
                         if (editingRef.current) commit(editingRef.current.value, null);

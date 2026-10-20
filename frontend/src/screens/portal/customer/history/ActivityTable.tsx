@@ -92,6 +92,18 @@ function Change({ e, entries }: { e: ActivityEntry; entries: ActivityEntry[] }) 
   }
   if (!hasDiff) return <span className="text-[13px] text-pt-muted [overflow-wrap:anywhere]">{summaryOf(e)}</span>;
 
+  if (e.kind === 'option_replace') {
+    return (
+      <div className="min-w-0 text-[13px] leading-snug [overflow-wrap:anywhere]">
+        <p>
+          <span className="mr-1.5 text-pt-faint line-through">{before !== '' ? before : '（空）'}</span>
+          <span className="mr-1.5 text-pt-faint">→</span>
+          <span className="font-medium text-pt-ink">{after !== '' ? after : '（空）'}</span>
+        </p>
+        <p className="text-xs text-pt-faint">項目の設定による置き換え</p>
+      </div>
+    );
+  }
   if (e.kind === 'column_change' && (before.includes('、') || after.includes('、'))) {
     const b = splitList(before);
     const a = splitList(after);
@@ -162,13 +174,18 @@ export function exportCsv(d: DataState, entries: ActivityEntry[]): void {
   URL.revokeObjectURL(url);
 }
 
-export function ActivityTable({ entries, showCustomer = false, onExport, sheetId: fixedSheet }: {
+/** 「変更だけ」で残す記録。閲覧・ログイン・確認コード・招待などは「すべて」のときだけ出す。 */
+const CHANGE_KINDS: ActivityKind[] = ['save', 'sheet_change', 'save_conflict', 'column_change', 'option_replace'];
+
+export function ActivityTable({ entries, showCustomer = false, onExport, sheetId: fixedSheet, changesToggle = false }: {
   entries: ActivityEntry[];
   showCustomer?: boolean;
   /** 絞り込んだ一覧を渡す。 */
   onExport?: (filtered: ActivityEntry[]) => void;
   /** 指定すると、そのシートの記録だけにする（シートのタブと連動）。 */
   sheetId?: string | undefined;
+  /** 「変更だけ／すべて」の切り替えを出し、既定を「変更だけ」にする。記録そのものは消さない。 */
+  changesToggle?: boolean;
 }) {
   const d = useData();
   const nav = usePreviewNav();
@@ -178,11 +195,12 @@ export function ActivityTable({ entries, showCustomer = false, onExport, sheetId
   const [query, setQuery] = useState('');
   const [sheetPick, setSheetPick] = useState('');
   const [open, setOpen] = useState(false);
+  const [changesOnly, setChangesOnly] = useState(changesToggle);
 
-  const scoped = useMemo(
-    () => (fixedSheet === undefined ? entries : entries.filter((e) => e.sheetId === undefined || e.sheetId === fixedSheet)),
-    [entries, fixedSheet],
-  );
+  const scoped = useMemo(() => {
+    const bySheet = fixedSheet === undefined ? entries : entries.filter((e) => e.sheetId === undefined || e.sheetId === fixedSheet);
+    return changesToggle && changesOnly ? bySheet.filter((e) => CHANGE_KINDS.includes(e.kind)) : bySheet;
+  }, [entries, fixedSheet, changesToggle, changesOnly]);
   const people = useMemo(() => [...new Set(scoped.map(actorOf))], [scoped]);
   const kinds = useMemo(() => [...new Set(scoped.filter((e) => !isAccountEntry(e)).map((e) => e.kind))], [scoped]);
   const hasAccount = useMemo(() => scoped.some(isAccountEntry), [scoped]);
@@ -220,6 +238,14 @@ export function ActivityTable({ entries, showCustomer = false, onExport, sheetId
     <div className="flex flex-col gap-2">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="flex items-center gap-2">
+          {changesToggle && (
+            <Segmented<'changes' | 'all'>
+              size="sm"
+              value={changesOnly ? 'changes' : 'all'}
+              onChange={(v) => { setChangesOnly(v === 'changes'); setKind(''); }}
+              options={[{ value: 'changes', label: '変更だけ' }, { value: 'all', label: 'すべて' }]}
+            />
+          )}
           <Segmented<Period>
             size="sm"
             value={period}

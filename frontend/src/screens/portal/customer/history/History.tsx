@@ -8,8 +8,9 @@ export function History() {
   return (
     <AppShell section="history" title="記録">
       <div className="mx-auto flex max-w-6xl flex-col gap-2">
-        <p className="text-xs text-pt-faint">画面での変更も、シートで直接の変更も、ここに残ります。</p>
+        <p className="text-xs text-pt-faint">画面での変更も、シートで直接の変更も、ここに残ります。閲覧やログインは「すべて」で見られます。</p>
         <ActivityTable
+          changesToggle
           entries={entries}
           sheetId={currentSheet(d)?.id}
           onExport={(list) => {

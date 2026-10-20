@@ -103,7 +103,7 @@ export function SmallButton({ primary = false, onClick, children }: { primary?: 
     <button
       type="button"
       onClick={onClick}
-      className={cx('inline-flex h-9 items-center rounded-md px-2.5 text-[12px] font-medium whitespace-nowrap sm:h-7', primary ? 'bg-pt-primary text-white hover:bg-pt-primary-hover' : 'border border-pt-line-strong bg-pt-surface text-pt-ink hover:bg-pt-bg')}
+      className={cx('inline-flex h-11 items-center justify-center rounded-md px-2.5 text-[12px] font-medium whitespace-nowrap sm:h-7', primary ? 'bg-pt-primary text-white hover:bg-pt-primary-hover' : 'border border-pt-line-strong bg-pt-surface text-pt-ink hover:bg-pt-bg')}
     >
       {children}
     </button>

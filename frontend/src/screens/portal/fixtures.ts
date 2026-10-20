@@ -87,13 +87,14 @@ export const sheets: SheetConfig[] = [
     titleColumn: '氏名',
     statusColumn: '選考状況',
     sortColumn: '応募日',
+    interviewColumn: '面接日',
     stageMap: DEFAULT_STAGE_MAP,
     customerCanEditColumns: true,
     columns: [
       col('応募日', { kind: 'date', group: 'summary' }),
       col('氏名', { group: 'summary' }),
       col('応募職種', { group: 'summary' }),
-      col('応募媒体', { group: 'summary' }),
+      col('応募媒体', { inList: false, group: 'summary' }),
       col('年齢', { group: 'summary' }),
       col('電話番号', { kind: 'phone', group: 'summary' }),
       col('ふりがな', { inList: false, group: 'other' }),
@@ -142,6 +143,7 @@ export const sheets: SheetConfig[] = [
     titleColumn: '氏名',
     statusColumn: '状況',
     sortColumn: '応募日',
+    interviewColumn: '面接日',
     stageMap: DENTAL_STAGE_MAP,
     columns: [
       col('応募日', { kind: 'date', group: 'summary' }),
@@ -238,6 +240,12 @@ function sampleRows(): ApplicantRow[] {
   rows = patch(rows, 3, { 選考状況: '面接予定', 面接日: '2026/10/23 11:00' });
   rows = patch(rows, 4, { 選考状況: '不採用', 面接結果: '不合格', 面接日: '2026/10/18 14:00' });
   rows = patch(rows, 5, { 一次対応の結果: E7_AFTER });
+  // 今日と明日の面接（「今日」の帯の確認用）。
+  rows = patch(rows, 7, { 選考状況: '面接予定', 面接日: '2026/10/20 15:30' });
+  rows = patch(rows, 8, { 選考状況: '面接予定', 面接日: '2026/10/20 17:00' });
+  rows = patch(rows, 9, { 選考状況: '面接予定', 面接日: '2026/10/21 10:00' });
+  // シートで変わったマスの色を見せる行。
+  rows = rows.map((r) => (r.changedSinceLastView === 'updated' ? { ...r, changedColumns: ['選考状況'] } : r));
   return rows;
 }
 
