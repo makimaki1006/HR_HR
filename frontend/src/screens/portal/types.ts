@@ -53,7 +53,14 @@ export interface SheetConfig {
   columns: ColumnConfig[];
   /** 接続の状態。 */
   connection: 'ok' | 'not_shared' | 'not_found' | 'header_changed';
+  /** 選考状況の選択肢ごとの段階（数字の集計に使う）。キーは選択肢の文字。 */
+  stageMap?: Record<string, FunnelStage>;
+  /** 顧客が項目・プルダウンを変えてよいか（社内が決める）。 */
+  customerCanEditColumns?: boolean;
 }
+
+/** 応募から採用までの段階。数字（面接移行率・採用率など）の集計に使う。 */
+export type FunnelStage = 'applied' | 'screening' | 'interview_set' | 'interviewed' | 'offer' | 'hired' | 'rejected' | 'declined';
 
 /** シートの 1 行。値は見出し（header）をキーにした文字列。 */
 export interface ApplicantRow {
@@ -100,7 +107,13 @@ export interface TrustedDevice {
   current: boolean;
 }
 
-export type ActivityKind = 'login' | 'login_failed' | 'code_sent' | 'view' | 'save' | 'save_conflict' | 'invite' | 'disable' | 'device_removed';
+export type ActivityKind =
+  | 'login' | 'login_failed' | 'code_sent' | 'view' | 'save' | 'save_conflict' | 'invite' | 'disable' | 'device_removed'
+  /** シート側（社内の人がシートで直接）で変わった値。 */
+  | 'sheet_change'
+  /** 項目・プルダウン・段階の設定の変更。 */
+  | 'column_change'
+  | 'export';
 
 export interface ActivityEntry {
   id: string;
@@ -110,7 +123,26 @@ export interface ActivityEntry {
   kind: ActivityKind;
   /** 「田中 太郎さんの行の『面接日』を 10/24 に変更」のような説明。 */
   detail: string;
+  /** 誰が（表示名）。社内の人は「弊社 山口」の形。 */
+  actorName?: string;
+  /** どこからの操作か。画面・シートで直接・社内の管理画面。 */
+  source?: 'portal' | 'sheet' | 'admin';
+  sheetId?: string;
+  rowNumber?: number;
+  /** 変わった項目（見出しの名前）。 */
+  column?: string;
+  before?: string;
+  after?: string;
 }
+
+/** 1 マスの保存の結果。 */
+export type CellSaveResult =
+  | { kind: 'saved'; value: string }
+  | { kind: 'conflict'; latest: string; by: string; at: string }
+  | { kind: 'failed'; message: string };
+
+/** 画面を見ている人。顧客の担当者か、社内の人（顧客を切り替えて見られる）。 */
+export type Viewer = { kind: 'customer'; accountId: string } | { kind: 'staff'; name: string };
 
 /** 保存の結果。 */
 export type SaveResult =

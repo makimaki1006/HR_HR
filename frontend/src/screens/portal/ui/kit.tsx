@@ -12,12 +12,12 @@ export function Button({ variant = 'secondary', size = 'md', className, ...rest 
       type="button"
       {...rest}
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' && 'h-8 px-3 text-sm',
-        size === 'md' && 'h-10 px-4 text-sm',
-        size === 'lg' && 'h-12 px-5 text-base',
-        variant === 'primary' && 'bg-pt-primary text-white hover:bg-pt-primary-hover',
-        variant === 'secondary' && 'border border-pt-line-strong bg-pt-surface text-pt-ink hover:bg-pt-bg',
+        'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pt-select disabled:cursor-not-allowed disabled:opacity-45',
+        size === 'sm' && 'h-9 px-2.5 text-[13px] sm:h-7',
+        size === 'md' && 'h-11 px-3.5 text-[13px] sm:h-9',
+        size === 'lg' && 'h-12 px-5 text-sm',
+        variant === 'primary' && 'bg-pt-primary text-white shadow-pt-card hover:bg-pt-primary-hover',
+        variant === 'secondary' && 'border border-pt-line-strong bg-pt-surface text-pt-ink shadow-pt-card hover:bg-pt-bg',
         variant === 'ghost' && 'text-pt-primary hover:bg-pt-primary-soft',
         variant === 'danger' && 'border border-pt-danger text-pt-danger bg-pt-surface hover:bg-pt-danger-soft',
         className,
@@ -37,10 +37,10 @@ export function Field({ label, hint, error, children, htmlFor }: { label: string
   );
 }
 
-const inputBase = 'w-full rounded-md border border-pt-line-strong bg-pt-surface px-3 text-base text-pt-ink placeholder:text-pt-faint focus:border-pt-primary focus:outline-none focus:ring-2 focus:ring-pt-primary-soft disabled:bg-pt-bg disabled:text-pt-muted';
+const inputBase = 'w-full rounded-md border border-pt-line-strong bg-pt-surface px-3 text-base sm:text-[13px] text-pt-ink placeholder:text-pt-faint focus:border-pt-primary focus:outline-none focus:ring-2 focus:ring-pt-primary-soft disabled:bg-pt-bg disabled:text-pt-muted';
 
 export function TextInput({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...rest} className={cx(inputBase, 'h-11', className)} />;
+  return <input {...rest} className={cx(inputBase, 'h-11 sm:h-9', className)} />;
 }
 
 export function TextArea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -48,7 +48,7 @@ export function TextArea({ className, ...rest }: TextareaHTMLAttributes<HTMLText
 }
 
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...rest} className={cx(inputBase, 'h-11', className)}>{children}</select>;
+  return <select {...rest} className={cx(inputBase, 'h-11 sm:h-9', className)}>{children}</select>;
 }
 
 type Tone = 'info' | 'ok' | 'warn' | 'danger';
@@ -93,7 +93,7 @@ export function Badge({ tone = 'info', children }: { tone?: Tone | 'new' | 'neut
 }
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cx('rounded-lg border border-pt-line bg-pt-surface', className)}>{children}</div>;
+  return <div className={cx('rounded-lg border border-pt-line bg-pt-surface shadow-pt-card', className)}>{children}</div>;
 }
 
 /** 日時を「10/20 14:32」の形にする（日本時間）。 */
@@ -115,6 +115,50 @@ export function formatDateTimeSmart(iso: string): string {
 /** 時刻を「14:32」の形にする（日本時間）。 */
 export function formatTime(iso: string): string {
   return new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
+}
+
+/** 絵だけのボタン。label は読み上げとツールチップに使う。 */
+export function IconButton({ label, className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+  return (
+    <button type="button" aria-label={label} title={label} {...rest} className={cx('inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-pt-muted hover:bg-pt-sunken hover:text-pt-ink disabled:opacity-40 sm:h-8 sm:w-8', className)}>
+      {children}
+    </button>
+  );
+}
+
+/** 2〜5 個の切り替え（期間・表示の切り替えなど）。 */
+export function Segmented<T extends string>({ value, options, onChange, size = 'md' }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; size?: 'sm' | 'md' }) {
+  return (
+    <div className="inline-flex rounded-md border border-pt-line bg-pt-sunken p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => { onChange(o.value); }}
+          className={cx('rounded px-3 font-medium whitespace-nowrap', size === 'sm' ? 'h-9 text-xs sm:h-7' : 'h-10 text-[13px] sm:h-8', o.value === value ? 'bg-pt-surface text-pt-ink shadow-pt-card' : 'text-pt-muted hover:text-pt-ink')}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 画面の中に出す確認・入力の枠（window.confirm の代わり）。 */
+export function Dialog({ open, title, children, footer, onClose, width = 'md' }: { open: boolean; title: string; children: ReactNode; footer?: ReactNode; onClose: () => void; width?: 'sm' | 'md' | 'lg' }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30 sm:items-center sm:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={cx('flex max-h-[90dvh] w-full flex-col rounded-t-xl bg-pt-surface shadow-pt-pop sm:rounded-xl', width === 'sm' && 'sm:max-w-sm', width === 'md' && 'sm:max-w-lg', width === 'lg' && 'sm:max-w-3xl')}>
+        <div className="flex items-center gap-2 border-b border-pt-line px-5 py-3">
+          <h2 className="text-[15px] font-semibold">{title}</h2>
+          <button type="button" onClick={onClose} className="ml-auto rounded px-2 py-1 text-sm text-pt-muted hover:bg-pt-sunken">閉じる</button>
+        </div>
+        <div className="overflow-y-auto px-5 py-4">{children}</div>
+        {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-pt-line px-5 py-3">{footer}</div>}
+      </div>
+    </div>
+  );
 }
 
 export { cx };

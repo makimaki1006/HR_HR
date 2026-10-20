@@ -6,22 +6,28 @@ import { screens as auth } from './customer/auth';
 import { screens as list } from './customer/list';
 import { screens as edit } from './customer/edit';
 import { screens as account } from './customer/account';
+import { screens as metrics } from './customer/metrics';
+import { screens as history } from './customer/history';
+import { screens as columnsScreens } from './customer/columns';
+import { actions, useData } from './data';
+import { STAFF_NAME } from './fixtures';
 import { screens as adminCustomers } from './admin/customers';
 import { screens as adminAccounts } from './admin/accounts';
 
-const ALL: PreviewScreen[] = [...auth, ...list, ...edit, ...account, ...adminCustomers, ...adminAccounts];
+const ALL: PreviewScreen[] = [...auth, ...list, ...edit, ...metrics, ...history, ...columnsScreens, ...account, ...adminCustomers, ...adminAccounts];
 
 const readHash = () => decodeURIComponent(window.location.hash.replace(/^#/, ''));
 
 function PreviewBar({ currentId, onPick }: { currentId: string; onPick: (id: string) => void }) {
   const store = usePortalStore();
+  const data = useData();
   const [open, setOpen] = useState(false);
   const groups = useMemo(() => {
     const m = new Map<string, PreviewScreen[]>();
     for (const s of ALL) m.set(s.group, [...(m.get(s.group) ?? []), s]);
     return [...m.entries()];
   }, []);
-  const sheetId = store.mySheets[0]?.id ?? 's1';
+  const sheetId = data.currentSheetId;
   return (
     <div className="sticky top-0 z-50 border-b border-[#444] bg-[#2b2b2b] text-xs text-white" data-preview-bar>
       <div className="flex flex-wrap items-center gap-2 px-3 py-1.5">
@@ -33,14 +39,24 @@ function PreviewBar({ currentId, onPick }: { currentId: string; onPick: (id: str
             </optgroup>
           ))}
         </select>
+        <select
+          value={data.viewer.kind === 'staff' ? 'staff' : data.viewer.accountId}
+          onChange={(e) => { actions.setViewer(e.target.value === 'staff' ? { kind: 'staff', name: STAFF_NAME } : { kind: 'customer', accountId: e.target.value }); }}
+          className="rounded bg-[#3a3a3a] px-2 py-1 text-white"
+          aria-label="見ている人"
+        >
+          <option value="a1">顧客の担当者として（サンプル介護サービス）</option>
+          <option value="a5">顧客の担当者として（ひかり歯科）</option>
+          <option value="staff">社内の人として</option>
+        </select>
         <button type="button" onClick={() => { setOpen((v) => !v); }} className="rounded bg-[#3a3a3a] px-2 py-1">{open ? '操作を閉じる' : '試作の操作'}</button>
       </div>
       {open && (
         <div className="flex flex-wrap gap-2 px-3 pb-2">
-          <button type="button" className="rounded bg-[#3a3a3a] px-2 py-1" onClick={() => { store.simulateSheetEdit(sheetId); }}>社内がシートで 1 行を書き換える</button>
-          <button type="button" className="rounded bg-[#3a3a3a] px-2 py-1" onClick={() => { store.simulateNewApplicant(sheetId); }}>シートに新しい応募者が入る</button>
+          <button type="button" className="rounded bg-[#3a3a3a] px-2 py-1" onClick={() => { actions.simulateSheetEdit(sheetId); store.simulateSheetEdit(sheetId); }}>社内がシートで 1 行を書き換える</button>
+          <button type="button" className="rounded bg-[#3a3a3a] px-2 py-1" onClick={() => { actions.simulateNewApplicant(sheetId); store.simulateNewApplicant(sheetId); }}>シートに新しい応募者が入る</button>
           <label className="flex items-center gap-1">次の保存:
-            <select value={store.nextSave} onChange={(e) => { store.setNextSave(e.target.value as 'ok' | 'conflict' | 'failed'); }} className="rounded bg-[#3a3a3a] px-1 py-0.5">
+            <select value={data.nextSave} onChange={(e) => { const v = e.target.value as 'ok' | 'conflict' | 'failed'; actions.setNextSave(v); store.setNextSave(v); }} className="rounded bg-[#3a3a3a] px-1 py-0.5">
               <option value="ok">成功する</option>
               <option value="conflict">シートで先に変更されている</option>
               <option value="failed">保存できない</option>

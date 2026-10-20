@@ -45,6 +45,9 @@ export function StatusBadge({ status }: { status: AccountStatus }) {
 export const KIND_LABEL: Record<AdminKind, string> = {
   login: 'ログイン',
   login_failed: 'ログイン失敗',
+  sheet_change: 'シートで変更',
+  column_change: '項目の変更',
+  export: '書き出し',
   code_sent: '確認コード送信',
   view: '閲覧',
   save: '保存',
