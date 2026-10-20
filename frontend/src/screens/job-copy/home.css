@@ -10,7 +10,7 @@
 .jh-home h2 { font-size: 20px; margin: 0 0 4px; }
 .jh-note { color: var(--jc-muted, #52697a); font-size: 12px; margin: 4px 0 12px; }
 .jh-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.jh-card { display: flex; flex-direction: column; gap: 6px; text-align: left; background: var(--jc-paper, #fff); border: 1px solid var(--jc-border, #d4dfe7); border-radius: 10px; padding: 16px; min-height: 150px; cursor: pointer; font: inherit; color: inherit; }
+.jh-card { display: flex; flex-direction: column; gap: 6px; text-align: left; background: var(--jc-paper, #fff); border: 1px solid var(--jc-border, #d4dfe7); border-radius: 10px; padding: 16px; cursor: pointer; font: inherit; color: inherit; }
 .jh-card:hover { border-color: #8aafbb; }
 .jh-card[aria-pressed='true'] { border-color: var(--jc-accent, #007c91); box-shadow: inset 0 0 0 1px var(--jc-accent, #007c91); background: var(--jc-soft, #eaf5f7); }
 .jh-card.jh-warn { border-color: #e9b676; }
@@ -18,6 +18,8 @@
 .jh-count { font-size: 32px; line-height: 1.1; }
 .jh-count small { font-size: 14px; margin-left: 4px; font-weight: 400; }
 .jh-card-title { font-size: 15px; font-weight: 700; }
+.jh-more { margin: 8px 0 0; font-size: 13px; color: var(--jc-muted, #52697a); }
+.jh-more .jh-link { font-weight: 400; }
 .jh-rule { color: var(--jc-muted, #52697a); font-size: 12px; line-height: 1.5; }
 .jh-list { margin-top: 16px; background: var(--jc-paper, #fff); border: 1px solid var(--jc-border, #d4dfe7); border-radius: 8px; padding: 14px 16px; }
 .jh-list h3 { margin: 0 0 8px; font-size: 16px; }
