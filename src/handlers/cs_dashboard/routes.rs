@@ -2442,7 +2442,10 @@ fn focus_shape(
     // 🔴 図は選択肢と同じ集合で描く（モックの「517社のうち116社」とも同じ）ので、ここからは外さない。
     //    代わりに画面に「うち N 社はオプション契約だけ」と書く。書かないと、すぐ下の
     //    「オプション契約しか持たない法人は数えていません」が図にも掛かって読める（fixture 1社）
-    let n_display_option_only = disp.iter().filter(|c| !hp.main.contains(&c.houjin)).count();
+    let n_display_option_only = disp
+        .iter()
+        .filter(|c| !hp.main.contains(&c.houjin) && !hp.referral_only.contains(&c.houjin))
+        .count();
     json!({
         // `CS_顧客` の行数そのもの（データの点検で使う。画面の「全 N 法人」には使わない）
         "n_all": cust.len(),

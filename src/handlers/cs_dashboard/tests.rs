@@ -908,7 +908,7 @@ fn 顧客の形が母数つきで出る() {
         sh["n_houjin"], 1644,
         "画面の法人数が houjin_population と合わない"
     );
-    assert_eq!(sh["n_houjin_option_only"], 5);
+    assert_eq!(sh["n_houjin_option_only"], 3);
     let hq = build_headquarters(&sheets(), fixture_day());
     assert_eq!(
         sh["n_houjin"], hq["meta"]["n_houjin"],
@@ -1092,7 +1092,7 @@ fn 本部は事業所ごとに並べる() {
     // 2026-09-23: オプション契約を外したので 1649 -> 1646。
     //   3法人は**オプション契約しか無かった**法人。
     assert_eq!(v["meta"]["n_houjin"], 1644);
-    assert_eq!(v["meta"]["n_houjin_option_only"], 5);
+    assert_eq!(v["meta"]["n_houjin_option_only"], 3);
     assert_eq!(v["multi_site"], 192, "拠点が2つ以上ある法人");
 
     for row in v["rows"].as_array().unwrap() {
@@ -2358,12 +2358,12 @@ fn 注力の内訳が法人の画面に出る() {
         f["n_houjin"], hq["meta"]["n_houjin"],
         "本部への提案材料と対象が違う"
     );
-    assert_eq!(f["n_houjin_option_only"], 5);
+    assert_eq!(f["n_houjin_option_only"], 3);
     assert_eq!(f["n_display"], 517, "稼働中の取引を持つ法人");
     // 🔴 図の 517 社にはオプション契約しか持たない法人が1社入っている（h40e1de24c955）。
     //    画面はこれを書く（書かないと「オプション契約しか持たない法人は数えていません」が
     //    図にも掛かって読める）
-    assert_eq!(f["n_display_option_only"], 3);
+    assert_eq!(f["n_display_option_only"], 1);
     assert_eq!(f["n_focus"], 116, "重点顧客（モックと同じ）");
     assert_eq!(f["monthly_over_300k"], 58);
     assert_eq!(f["enterprise"], 41);
@@ -7351,10 +7351,34 @@ fn 紹介料の取引はステージでも名前でも母集団から外れる()
     // 一覧の母集団には普通の取引 1 件だけが残る
     let ids: Vec<String> = super::deals_of(&sh).into_iter().map(|d| d.id).collect();
     assert_eq!(ids, vec!["1".to_string()]);
-    // 法人: 普通の取引を持つ H1 だけが残り、H2・H3 は「外した法人」に数える
+    // 法人: 普通の取引を持つ H1 だけが残る。紹介料しか持たない H2・H3 はどの数にも入れない
     let hp = super::houjin_population(&sh);
     assert_eq!(hp.main.len(), 1);
+    assert_eq!(hp.option_only, 0);
+}
+
+#[test]
+fn 紹介料しか持たない法人はオプションしか持たない法人の数に入れない() {
+    let mut sh = referral_sheet();
+    // H4 はオプション契約だけ、H5 は紹介料とオプションの両方に当たる取引だけ（オプションとして数える）
+    let row = |id: &str, name: &str, stage: &str, kind: &str, houjin: &str| {
+        let cells = [id, name, stage, "", kind, houjin, "TRUE", "1000"];
+        cells
+            .iter()
+            .map(|c| Arc::from(*c))
+            .collect::<Vec<Arc<str>>>()
+    };
+    sh.rows
+        .push(row("5", "求人追加_架空工業", "99999999", "求人追加", "H4"));
+    sh.rows
+        .push(row("6", "求人追加_紹介料", "99999999", "求人追加", "H5"));
+    let hp = super::houjin_population(&sh);
+    assert_eq!(hp.main.len(), 1);
+    // H1 はオプションも持つが本体があるので main。オプションだけは H4・H5 の 2 法人。H2・H3（紹介料だけ）は数えない
     assert_eq!(hp.option_only, 2);
+    let mut only: Vec<&String> = hp.referral_only.iter().collect();
+    only.sort();
+    assert_eq!(only, vec!["H2", "H3"]);
 }
 
 #[test]

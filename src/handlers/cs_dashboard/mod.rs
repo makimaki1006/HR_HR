@@ -517,13 +517,21 @@ pub struct HoujinPopulation {
     pub main: HashSet<String>,
     /// 取引はあるが、全部オプション契約か紹介料の取引の法人の数
     pub option_only: usize,
+    /// 紹介料の取引しか持たない法人。どの数にも入れない（画面の数から引くときに使う）
+    pub referral_only: HashSet<String>,
 }
 
 pub fn houjin_population(sheet: &SheetData) -> HoujinPopulation {
     let mut main = HashSet::new();
     let mut any = HashSet::new();
+    let mut referral = HashSet::new();
     for d in deals_all_of(sheet) {
         if d.houjin_resolved.is_empty() {
+            continue;
+        }
+        // 紹介料の取引しか持たない法人は、どの数にも入れない（オプション契約と重なるものはオプション）
+        if d.is_referral() && !d.is_option() {
+            referral.insert(d.houjin_resolved);
             continue;
         }
         if !d.is_excluded() {
@@ -532,7 +540,12 @@ pub fn houjin_population(sheet: &SheetData) -> HoujinPopulation {
         any.insert(d.houjin_resolved);
     }
     let option_only = any.len() - main.len();
-    HoujinPopulation { main, option_only }
+    let referral_only = referral.into_iter().filter(|h| !any.contains(h)).collect();
+    HoujinPopulation {
+        main,
+        option_only,
+        referral_only,
+    }
 }
 
 /// 画面に出す母集団。**どの画面でも同じ数字を出すために1か所で作る。**
