@@ -39,12 +39,14 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   await page.route('**/api/job-copy/company-deals?*', route => route.fulfill({ json: { company: { id: '901', name: '合成事業所' }, deals: [], index_ready: true } }));
   const dir = process.env.TODO_SIGNALS_SCREENSHOT_DIR;
   await login(page); await page.goto('/app/job-copy');
-  await expect(page.locator('.jh-todo-cards .jh-card')).toHaveCount(11);
-  for (const card of ['契約満了が近い', '接触が空いている', '応募が止まっている', '初回で成果が出ていない']) {
+  await expect(page.locator('.jh-todo-cards .jh-card')).toHaveCount(7);
+  for (const card of ['契約満了が近い', '接触が空いている', '応募が止まっている']) {
     const button = page.getByRole('button', { name: new RegExp(card) });
     await expect(button.locator('.jh-count')).toHaveText('1件');
     await expect(button).toHaveClass(/jh-alert/);
   }
+  // 初回で成果が出ていないは、件数だけの1行（ほかの要対応）に畳まれている。
+  await expect(page.getByRole('button', { name: '初回で成果が出ていない 1件', exact: true })).toBeVisible();
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/home.png` });
   await page.getByRole('button', { name: /接触が空いている/ }).click();
   const list = page.getByRole('region', { name: '接触が空いているの一覧' });
