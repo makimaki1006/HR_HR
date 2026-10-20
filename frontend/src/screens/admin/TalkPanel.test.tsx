@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAdminRoute, adminHref } from './route';
 import { TalkCallsTable, TalkDetailView, TalkPanel, TalkSummaryTable, type TalkRoute } from './TalkPanel';
-import { activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary, periodRange, ruleSentences } from './talkModel';
+import { activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary, periodRange, sortPeople, judgeItem, judgeAppointment, donePct } from './talkModel';
 
 afterEach(cleanup);
 
@@ -22,7 +22,7 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(jiro[5]?.textContent).toContain('70');
     expect(jiro[5]?.textContent).toContain('待ち 6 ・ 取れない 4');
     // 日程を早く出す: 36/45 = 80% が印、受付は 25% で印なし
-    expect(jiro[8]?.textContent).toBe('80%36/45本');
+    expect(jiro[8]?.textContent).toBe('20%できた 9/45本');
     expect(jiro[8]?.getAttribute('data-flagged')).toBe('true');
     expect(jiro[6]?.getAttribute('data-flagged')).toBeNull();
     const hanako = Array.from(rowOf('架空 花子').querySelectorAll('td'));
@@ -35,26 +35,27 @@ describe('トークの振り返り: 人ごとの表', () => {
   it('見出しに資料の全体の割合と決まりを出し、最後の行はチーム全体', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
     const head = screen.getByRole('columnheader', { name: /早く日付を出す/ });
-    expect(head.textContent).toContain('全体 81%');
+    expect(head.textContent).toContain('この表の全体 43%');
+    expect(head.getAttribute('title')).toContain('資料の全体: できた 19%（話せた電話のうち）');
     expect(head.getAttribute('title')).toContain('具体的な週・曜日・日');
-    expect(screen.getByRole('columnheader', { name: /既存感/ }).textContent).toContain('全体 -');
+    expect(screen.getByRole('columnheader', { name: /既存感/ }).textContent).toContain('この表の全体 64%');
     const rows = within(screen.getByTestId('talk-table')).getAllByRole('row');
     const last = Array.from(rows.at(-1)?.querySelectorAll('td') ?? []).map(td => td.textContent);
     expect(last.slice(0, 5)).toEqual(['チーム全体', '-', '770', '12', '1.56%']);
-    expect(last[8]).toBe('57%71/125本');
+    expect(last[8]).toBe('43%できた 54/125本');
     // 場面ごとのまとまり
     expect(Array.from(document.querySelectorAll('th.talk-group')).map(t => `${t.textContent}:${t.getAttribute('colspan') ?? ''}`)).toEqual(['受付:1', '日付の前:5', '断られた後:3']);
   });
 
-  it('印の決まりを平易な文で出す (pt は使わない)', () => {
+  it('色の凡例を表の上に出し、割合はできた割合だと書く', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
-    const text = screen.getByTestId('talk-rules').textContent;
-    expect(text).toContain('5 本以上');
-    expect(text).toContain('20% 以上高い');
-    expect(text).toContain('100 本以上');
-    expect(text).toContain('半分未満');
-    expect(text).not.toContain('pt');
-    expect(ruleSentences(summary.rules)[0]).toContain('60% 以上');
+    const legend = screen.getByTestId('talk-legend').textContent;
+    expect(legend).toContain('20 ポイント以上できていない');
+    expect(legend).toContain('5 本以上の人だけ');
+    expect(legend).toContain('本数が少ないので色を付けていない');
+    expect(legend).toContain('架電数 100 本以上');
+    expect(legend).toContain('半分未満');
+    expect(screen.getByTestId('talk-rules').textContent).toContain('できた電話の割合です');
   });
 
   it('判定した本数と対象の本数を並べ、割合は判定した電話の中の割合だと書く', () => {
@@ -94,6 +95,19 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(names()).toEqual(['ダミー 三郎', '架空 花子', '架空 四郎', 'サンプル 二郎']);
     fireEvent.click(screen.getByRole('button', { name: /アポ率/ }));
     expect(names()[0]).toBe('サンプル 二郎');
+  });
+
+  it('架電数・アポ数・判定した電話数の見出しでも降順→昇順に並べ替える', () => {
+    render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    const names = () => within(screen.getByTestId('talk-table')).getAllByTestId('talk-row').map(r => r.querySelector('td')?.textContent);
+    fireEvent.click(screen.getByRole('button', { name: /^架電数/ }));
+    expect(names()[0]).toBe('サンプル 二郎'); // 310 ではなく最多の人
+    fireEvent.click(screen.getByRole('button', { name: /^架電数/ }));
+    expect(screen.getByRole('columnheader', { name: /架電数/ }).getAttribute('aria-sort')).toBe('ascending');
+    fireEvent.click(screen.getByRole('button', { name: /^アポ数/ }));
+    expect(screen.getByRole('columnheader', { name: /アポ数/ }).getAttribute('aria-sort')).toBe('descending');
+    fireEvent.click(screen.getByRole('button', { name: /^判定した電話数/ }));
+    expect(screen.getByRole('columnheader', { name: /判定した電話数/ }).getAttribute('aria-sort')).toBe('descending');
   });
 
   it('名前を押すと担当者 ID で開く', () => {
@@ -219,5 +233,69 @@ describe('トークの振り返り: 集計中と未設定', () => {
     mockFetch([{ status: 503, body: { error_kind: 'not_configured' } }]);
     render(<TalkPanel route={route({ owner: '9001' })} navigate={() => undefined} fixture={false} />);
     expect((await screen.findByTestId('talk-disabled')).textContent).toContain('まだ動いていません');
+  });
+});
+
+describe('トークの振り返り: 並べ替えと色の決まり (具体値)', () => {
+  const rules = { item_min_applicable: 5, item_excess_pct: 20, appointment_min_dials: 100, appointment_rate_ratio: 0.5 };
+  const ri = (nd: number, ap: number) => ({ id: 'x', not_done: nd, applicable: ap, rate_pct: ap === 0 ? null : (nd / ap) * 100, flagged: false });
+  const tot = ri(39, 100); // できた 61%
+
+  it('できた割合は (該当 - できていない) ÷ 該当', () => {
+    expect(donePct(ri(7, 9))).toBeCloseTo(22.22, 1);
+    expect(donePct(ri(1, 5))).toBe(80);
+    expect(donePct(ri(0, 0))).toBeNull();
+  });
+
+  it('1/1本は灰色、9本で22%は赤、5本で80%は色なし', () => {
+    expect(judgeItem(ri(0, 1), tot, rules)).toMatchObject({ state: 'grey' });
+    expect(judgeItem(ri(0, 1), tot, rules).reason).toBe('当てはまる電話が 1 本で、5 本未満なので色を付けていません。');
+    const red = judgeItem(ri(7, 9), tot, rules);
+    expect(red.state).toBe('red');
+    expect(red.reason).toBe('できた 2/9本（22%）。この表の全体 61% より 39 ポイント低いので赤。');
+    const none = judgeItem(ri(1, 5), tot, rules);
+    expect(none.state).toBe('none');
+    expect(none.reason).toBe('できた 4/5本（80%）。この表の全体との差が 20 ポイント未満。');
+  });
+
+  it('境界: 差がちょうど20は赤、19は色なし、該当ちょうど5本は判定する、4本は灰色', () => {
+    const t = ri(0, 100); // 全体 100%
+    expect(judgeItem(ri(1, 5), t, rules).state).toBe('red'); // 80% → 差 20
+    expect(judgeItem(ri(19, 100), ri(0, 100), rules).state).toBe('none'); // 81% → 差 19
+    expect(judgeItem(ri(20, 100), ri(0, 100), rules).state).toBe('red'); // 80% → 差 20
+    expect(judgeItem(ri(1, 4), t, rules).state).toBe('grey');
+    expect(judgeItem(ri(0, 0), t, rules).state).toBe('empty');
+  });
+
+  const person = (dials: number | null, rate: number | null) => ({ ...summary.total, dials, appointment_rate_pct: rate });
+  it('アポ率: 架電数不足は灰色、全体の半分未満は赤、以上は色なし', () => {
+    const total = person(1000, 2);
+    expect(judgeAppointment(person(99, 0), total, rules).state).toBe('grey');
+    expect(judgeAppointment(person(100, 0.99), total, rules).state).toBe('red');
+    expect(judgeAppointment(person(100, 1), total, rules).state).toBe('none'); // ちょうど半分は赤にしない
+    expect(judgeAppointment(person(null, null), total, rules).state).toBe('empty');
+    expect(judgeAppointment(person(310, 0.65), total, rules).reason).toBe('アポ率 0.65% が、この表の全体 2.00% の半分（1.00%）未満なので赤。');
+  });
+
+  it('並べ替え: 架電数・アポ数・判定数・アポ率は降順/昇順で、値の無い人は常に最後', () => {
+    const mk = (name: string, dials: number | null, appts: number, reviewed: number, r: number | null) => ({ ...summary.total, name, dials, appointments: appts, reviewed, appointment_rate_pct: r });
+    const ps = [mk('A', 50, 2, 10, 4), mk('B', null, 0, 30, null), mk('C', 200, 1, 20, 0.5)];
+    const names = (k: Parameters<typeof sortPeople>[1]) => sortPeople(ps, k).map(p => p.name).join('');
+    expect(names({ key: { kind: 'dials' }, dir: 'desc' })).toBe('CAB');
+    expect(names({ key: { kind: 'dials' }, dir: 'asc' })).toBe('ACB');
+    expect(names({ key: { kind: 'appointments' }, dir: 'desc' })).toBe('ACB');
+    expect(names({ key: { kind: 'appointments' }, dir: 'asc' })).toBe('BCA');
+    expect(names({ key: { kind: 'reviewed' }, dir: 'desc' })).toBe('BCA');
+    expect(names({ key: { kind: 'reviewed' }, dir: 'asc' })).toBe('ACB');
+    expect(names({ key: { kind: 'rate' }, dir: 'asc' })).toBe('CAB');
+    expect(names({ key: { kind: 'rate' }, dir: 'desc' })).toBe('ACB');
+  });
+
+  it('項目の並べ替えはできた割合。昇順はできていない人が上、該当0本は最後', () => {
+    const mk = (name: string, nd: number, ap: number) => ({ ...summary.total, name, items: [{ ...ri(nd, ap), id: 'k' }] });
+    const ps = [mk('A', 1, 10), mk('B', 9, 10), mk('C', 0, 0)];
+    const key = { kind: 'item', id: 'k' } as const;
+    expect(sortPeople(ps, { key, dir: 'asc' }).map(p => p.name).join('')).toBe('BAC');
+    expect(sortPeople(ps, { key, dir: 'desc' }).map(p => p.name).join('')).toBe('ABC');
   });
 });
