@@ -49,6 +49,7 @@ use crate::SESSION_USER_KEY;
 
 use super::contact_trend::build_contact_trend;
 use super::money::{build_money, build_renewal_pipe};
+use super::stage_stay::build_stage_stay;
 use super::{
     consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, focus_of, latest_nps,
     load, opt_num, Deal, Outcome, Sheets,
@@ -70,6 +71,7 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/handover", get(handover))
         .route("/api/consulting/contact-trend", get(contact_trend))
         .route("/api/consulting/deals", get(deal_board))
+        .route("/api/consulting/stage-stay", get(stage_stay))
         .route("/api/consulting/today", get(today_board))
         .route("/api/consulting/deal-detail", get(deal_detail))
         .route("/api/consulting/team", get(team))
@@ -246,6 +248,7 @@ simple_handler!(consultants, build_consultants);
 simple_handler!(handover, build_handover);
 simple_handler!(contact_trend, build_contact_trend);
 simple_handler!(deal_board, build_deal_board);
+simple_handler!(stage_stay, build_stage_stay);
 simple_handler!(today_board, build_today_board);
 async fn team(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,

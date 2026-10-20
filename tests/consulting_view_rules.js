@@ -3821,7 +3821,7 @@ check("S-6: 表の見出しを短くし、「絞った条件」の説明を表�
   ok(t0.startsWith("全件は ") && t1.startsWith("全件は "), "サーバの文が無いとき「。」から始まる: " + t0 + " / " + t1);
 });
 
-check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出さない（1 列・3 区切り・9 項目）", () => {
+check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出さない（1 列・3 区切り・10 項目）", () => {
   // 2026-09-29 組み替え 段A: 上のメニューは無くし、左に 1 列で 3 区切り（見出し）と 11 画面を並べる（handover 09 の 3章・10章）
   ok(!html.includes('id="cs-menu"'), "上のメニュー（#cs-menu）が残っている");
   run('cur = { menu: "research", view: "phone" }; document.getElementById("cs-side").innerHTML = ""; drawSide();');
@@ -3830,7 +3830,7 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   ok(JSON.stringify(heads) === JSON.stringify(["毎日", "調べる", "月1・確かめる"]), "区切りの見出しが 毎日 / 調べる / 月1・確かめる でない: " + heads);
   ok(!side.includes('class="no"') && !/[①-⑩]/.test(side), "区切りに丸数字が残っている: " + side);
   const nBtn = (side.match(/<button /g) || []).length;
-  ok(nBtn === 9, "左の項目が 9 でない: " + nBtn);
+  ok(nBtn === 10, "左の項目が 10 でない: " + nBtn);
   ok(side.includes(">電話</button>") && side.includes(">記録と数字の信頼度</button>"), "左の項目名が出ていない: " + side);
   // 600px 以下は ul の箱を外して、区切りの見出しと項目を同じ流れに並べる（display:contents。見出しを別の行にすると 5 行 229px）。
   // 一覧であることは role="list" で読み上げに残す。
@@ -5789,4 +5789,27 @@ check("案件の詳細: 並べ方の決まりを削除し、行の印と基準�
   ok(!/並べ方の決まり|読むときの注意|評価ではありません/.test(h), '削除した説明が残っている');
   ok(h.includes('付け直し') && h.includes('契約期間の外') && h.includes('推定'), '行の印が消えている');
   ok(h.includes('基準日 2026-09-18'), '基準日が無い');
+});
+
+/* 滞留した案件（stage_stay.rs）。入力は架空の 3 件 */
+ctx.__SS = {
+  meta: { today: "2026-10-20", stay_days: 45, n_active: 10, n_stay: 2, n_escalation: 1, n_unknown_entered: 2, n_exempt_stages: 0 },
+  rows: [
+    { deal_id: "1", name: "案件あ", consultant: "担当A", stage_label: "定期1", entered: "2026-10-15", days: 5, expiry: "2026-10-01", days_past_expiry: 19, escalation: true, stay: false },
+    { deal_id: "2", name: "案件い", consultant: "担当B", stage_label: "求人出稿完了", entered: "2026-08-01", days: 80, expiry: "2027-01-01", days_past_expiry: null, escalation: false, stay: true },
+    { deal_id: "3", name: "案件う", consultant: "担当A", stage_label: "定期2", entered: "2026-09-01", days: 49, expiry: "2027-01-01", days_past_expiry: null, escalation: false, stay: true },
+  ],
+};
+check("滞留した案件: 満了後も稼働中を先に、滞留を後に出し、入った日が分からない件数を書く。担当で絞れる", () => {
+  const M = JSON.parse(run("JSON.stringify(MENUS.map((x) => x.views.map((v) => [v.key, v.label, v.path])).flat())"));
+  const v = M.find((x) => x[0] === "stagestay");
+  ok(v && v[1] === "滞留した案件" && v[2] === "/api/consulting/stage-stay", "メニューが違う: " + JSON.stringify(v));
+  const h = run("stayConsultant = ''; renderStageStay(__SS)");
+  const tx = textOf(h);
+  ok(h.indexOf('id="stay-esc"') < h.indexOf('id="stay-long"'), "満了後の表が先でない");
+  ok(tx.includes("満了後も稼働中の案件（満了を過ぎた日数の多い順、1 件）") && tx.includes("滞留日数の長い順、2 件"), "見出しの件数が違う: " + tx);
+  ok(tx.includes("満了後 19 日") && tx.includes("80 日") && tx.includes("入った日が分からない案件が 2 件"), "満了後・滞留日数・履歴なしの件数が無い: " + tx);
+  ok(/id="stay-consultant"/.test(h), "担当の選択欄が無い");
+  const a = textOf(run("stayConsultant = '担当A'; try { renderStageStay(__SS) } finally { stayConsultant = ''; }"));
+  ok(a.includes("滞留日数の長い順、1 件") && !a.includes("案件い"), "担当で絞れていない: " + a);
 });

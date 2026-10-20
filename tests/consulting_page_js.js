@@ -2020,10 +2020,10 @@ check("M-6", "移動: 左のメニューは作り直さず印だけ付け替え�
   const main = t.reg["cs-main"]; const attrs = {}; main.setAttribute = (k, v) => { attrs[k] = v; };
   const mk = (ds) => { const b = new t.El(""); b.dataset = ds; b.attrs = {};
     b.setAttribute = (k, v) => { b.attrs[k] = v; }; b.removeAttribute = (k) => { delete b.attrs[k]; }; return b; };
-  /* 左のメニューは 1 列・3 区切り・9 項目（2026-09-29 組み替え 段A）。区切りをまたぐ移動でも作り直さない */
+  /* 左のメニューは 1 列・3 区切り・10 項目（2026-09-29 組み替え 段A）。区切りをまたぐ移動でも作り直さない */
   const side = t.reg["cs-side"];
   const keys = t.R("MENUS.map((m) => m.views.filter((v) => !v.hidden).map((v) => v.key)).flat()");
-  if (keys.length !== 9) throw new Error("左のメニューの項目が 9 でない: " + keys.length);
+  if (keys.length !== 10) throw new Error("左のメニューの項目が 10 でない: " + keys.length);
   const sideBtns = keys.map((v) => mk({ v }));
   side.querySelectorAll = () => sideBtns;
   side.innerHTML = "SIDE";

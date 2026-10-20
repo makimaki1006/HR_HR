@@ -7419,3 +7419,34 @@ fn 紹介料の取引は電話の表にも詳細の画面にも出ない() {
     let ok = build_deal_detail(&sh, None, Some("1"), None, fixture_day());
     assert_eq!(ok["meta"]["found"], true);
 }
+
+#[test]
+fn 滞留の件数_fixture() {
+    let v = super::stage_stay::build_stage_stay(&sheets(), fixture_day());
+    let m = &v["meta"];
+    assert_eq!(m["n_active"], 594);
+    assert_eq!(m["n_stay"], 188);
+    assert_eq!(m["n_escalation"], 10);
+    assert_eq!(m["n_unknown_entered"], 0);
+    let rows = v["rows"].as_array().unwrap();
+    // エスカレーションが先頭にまとまり、滞留はその後に日数の長い順
+    let n_esc = rows.iter().filter(|r| r["escalation"] == true).count();
+    assert_eq!(n_esc, 10);
+    assert!(rows[..n_esc].iter().all(|r| r["escalation"] == true));
+    let days: Vec<i64> = rows[n_esc..]
+        .iter()
+        .map(|r| r["days"].as_i64().unwrap())
+        .collect();
+    assert!(days.windows(2).all(|w| w[0] >= w[1]));
+    assert!(days.iter().all(|d| *d > 45));
+    // 決着したステージ・紹介料は出ない
+    assert!(rows.iter().all(|r| ![
+        "66848546",
+        "52016159",
+        "52016158",
+        "90598807",
+        "1016664339",
+        "1278456227"
+    ]
+    .contains(&r["stage"].as_str().unwrap())));
+}
