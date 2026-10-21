@@ -1,0 +1,2 @@
+.jc-note-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 12px 0 0; font-size: 12px; color: var(--jc-muted); }
+.jc-note-bar .jc-error { margin: 0; }
