@@ -33,12 +33,12 @@ describe('job copy layout', () => {
     // ほかの分析からタイムラインを開くと、従来のタブがそのまま使える
     const drawer = openOtherAnalysis('タイムライン');
     const primary = within(drawer).getByRole('tablist', { name: '求人管理の機能' });
-    expect(within(primary).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '求人内容', '応募分析', '市場分析', '比較・報告']);
+    expect(within(primary).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由']);
     expect(within(primary).getByRole('tab', { name: 'タイムライン' }).getAttribute('aria-selected')).toBe('true');
     expect(within(drawer).getByRole('region', { name: 'タイムライン' })).toBeTruthy();
     // 1 つしかないサブタブの段は出さない。旧来の操作バーも無い。
     expect(screen.queryByRole('tablist', { name: 'タイムラインの表示' })).toBeNull();
-    expect(screen.queryByRole('tablist', { name: '求人内容の表示' })).toBeNull();
+    expect(screen.queryByRole('tablist', { name: '本文・画像の表示' })).toBeNull();
     expect(screen.queryByRole('button', { name: '求人一覧に戻る' })).toBeNull();
     expect(screen.queryByRole('button', { name: '機能を切り替える' })).toBeNull();
     expect(document.querySelector('.jc-detail-actions')).toBeNull();

@@ -1,0 +1,44 @@
+/*
+ * 顧客向け画面（/portal）専用のスタイル。社内画面の app.css（暗い色の旧シェル）は読み込まない。
+ * 明るい無彩色を基調に、選択・リンクだけ青を使う。色は下のトークンだけを使う。
+ */
+@import "tailwindcss";
+
+@theme {
+  --color-pt-bg: #f5f5f3;
+  --color-pt-sunken: #efeeeb;
+  --color-pt-surface: #ffffff;
+  --color-pt-line: #e6e4df;
+  --color-pt-line-strong: #d2cfc8;
+  --color-pt-ink: #1b1a18;
+  --color-pt-muted: #67645e;
+  --color-pt-faint: #9a968e;
+  --color-pt-primary: #1f4f8f;
+  --color-pt-primary-hover: #183f73;
+  --color-pt-primary-soft: #e9eff8;
+  --color-pt-select: #2f6fd6;
+  --color-pt-ok: #23704a;
+  --color-pt-ok-soft: #e6f3ec;
+  --color-pt-warn: #8a5a0e;
+  --color-pt-warn-soft: #faf1dd;
+  --color-pt-danger: #a3291f;
+  --color-pt-danger-soft: #fbe9e6;
+  --color-pt-new: #2f6fd6;
+  --color-pt-changed: #fff6d6;
+  --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --shadow-pt-pop: 0 8px 28px rgb(27 26 24 / 0.14), 0 1px 3px rgb(27 26 24 / 0.08);
+  --shadow-pt-card: 0 1px 2px rgb(27 26 24 / 0.05);
+}
+
+html, body {
+  background-color: var(--color-pt-bg);
+  color: var(--color-pt-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.pt-num { font-variant-numeric: tabular-nums; }
+
+/* 表の中の数字（日付・電話番号）は、和文と字面の大きさをそろえるため少しだけ小さくする。 */
+.pt-grid .pt-num { font-size: 12.5px; letter-spacing: 0.01em; }

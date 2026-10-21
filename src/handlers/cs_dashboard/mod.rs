@@ -128,18 +128,17 @@ pub const NPS_LOW: f64 = 4.0;
 /// 並ぶと実態とずれる。**表からは外さない**（1案件でも接触ゼロなら拾いたい）。
 pub const MIN_CONTACT_MONTHS: usize = 30;
 
-/// MTG が途絶えていると見なす日数。**GAS `no_mtg_alerter.gs` の閾値をそのまま使う。**
+/// MTG が途絶えていると見なす日数。
 ///
 /// ```text
-///   注意  30〜59 日   NMA_YELLOW_MIN / NMA_YELLOW_MAX
-///   警告  60〜89 日   NMA_RED_MIN    / NMA_RED_MAX
-///   重大  90 日〜     NMA_CRITICAL_MIN
+///   注意  30〜59 日
+///   重大  60 日〜
 /// ```
-/// 🔴 **ここで引き直さない。** 毎日 05:00 に回っている GAS と画面で線引きが違うと、
-/// 同じ取引が片方でだけ警告になる。
+/// 🔴 2026-10-21 のユーザー決定で重大を 60 日にした（GAS `no_mtg_alerter.gs` の重大は 90 日で、
+/// 以前はそれに合わせていた）。案件管理とこの画面の両方を 60 日にそろえている。
+/// 警告（60〜89 日）の段は無くした。
 pub const MTG_GAP_YELLOW_DAYS: i64 = 30;
-pub const MTG_GAP_RED_DAYS: i64 = 60;
-pub const MTG_GAP_CRITICAL_DAYS: i64 = 90;
+pub const MTG_GAP_CRITICAL_DAYS: i64 = 60;
 
 /// 立ち上がり期。契約開始からこの日数以内は帯を付けない。
 ///
@@ -1400,10 +1399,8 @@ pub fn focus_of(customer: &SheetData) -> HashMap<String, bool> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MtgBand {
-    /// 90日以上
+    /// 60日以上
     Critical,
-    /// 60〜89日
-    Red,
     /// 30〜59日
     Yellow,
     /// 30日未満。直近にMTGがある
@@ -1418,8 +1415,7 @@ pub enum MtgBand {
 impl MtgBand {
     pub fn label(self) -> &'static str {
         match self {
-            MtgBand::Critical => "MTGが90日以上空いている",
-            MtgBand::Red => "MTGが60〜89日空いている",
+            MtgBand::Critical => "MTGが60日以上空いている",
             MtgBand::Yellow => "MTGが30〜59日空いている",
             MtgBand::Recent => "直近30日にMTGあり",
             // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。
@@ -1439,7 +1435,7 @@ impl MtgBand {
     /// （2026-09-23 ユーザー確定）。
     /// `Recent` / `Onboarding` も、悪いことが起きていないので立てない。
     pub fn is_alert(self) -> bool {
-        matches!(self, MtgBand::Critical | MtgBand::Red | MtgBand::Yellow)
+        matches!(self, MtgBand::Critical | MtgBand::Yellow)
     }
 }
 
@@ -1530,7 +1526,7 @@ pub(crate) fn last_recorded_mtg_by_deal(
     by
 }
 
-/// 取引1件の MTG途絶の帯。閾値は GAS `no_mtg_alerter.gs` と同じ。
+/// 取引1件の MTG途絶の帯。重大は 60 日（2026-10-21 ユーザー決定。GAS の重大 90 日とは違う）。
 ///
 /// 順番は GAS と合わせてある:
 ///   1. 立ち上がり期（契約開始30日以内）なら、そこで打ち切る
@@ -1603,8 +1599,6 @@ pub fn mtg_gap_of(
 pub(crate) fn mtg_band_for_days(days: i64) -> MtgBand {
     if days >= MTG_GAP_CRITICAL_DAYS {
         MtgBand::Critical
-    } else if days >= MTG_GAP_RED_DAYS {
-        MtgBand::Red
     } else if days >= MTG_GAP_YELLOW_DAYS {
         MtgBand::Yellow
     } else {

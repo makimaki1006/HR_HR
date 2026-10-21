@@ -269,6 +269,19 @@ HR_HR（Rust / Axum ＋ React）の中に顧客専用の入口 <code>/portal</co
 <li>段階 2 では、シートに画面に出さない応募 ID の列を足し、行の特定を確実にする。全シートを順に読む巡回（Drive で変わったシートを先に調べ、Sheets の枠の半分ほどで読む）もこの段階で作る。</li>
 </ul>
 
+<h2>13. 社内向けテスト版（/app/portal-test）</h2>
+<p>2026-10-21 追加。画面の試作を、本番の HR_HR の中で本物のテスト用シート 1 枚につないで社内で触るためのもの。顧客向けの入口（<code>/portal</code>）ではない。</p>
+<table>
+<tr><th style="width:24%">項目</th><th>内容</th></tr>
+<tr><td>開ける人</td><td>会社の Google アカウントでログインした人（会社ドメイン、無効化されていないアカウント）。架電画面（CRM）と同じ確かめ方。社内のナビには出さず、URL を知っている人だけが開く。</td></tr>
+<tr><td>本物</td><td>テスト用シート 1 枚の読み書き。見出しの対応付け（結合した見出しは左端の列）、記入例の 2 行目を除く、保存の直前の読み直しと競合のときは書かない、RAW で書く。書ける見出しは 状況・面接予定日・時間・備考・次回アクション・入社予定日 だけ、行は 3 行目から。手元の橋渡しサーバー（<code>scripts/portal_dev/sheet_bridge.py</code>）と同じ決まりを Rust（<code>src/handlers/portal_test/</code>）に移した。</td></tr>
+<tr><td>試作</td><td>上の帯、ログイン・アカウント・社内の管理の画面、ほかのシート、列の設定・記録・数字。どれもブラウザの中だけで動き、保存されない。</td></tr>
+<tr><td>読み書きできるシート</td><td>コードに固定した 1 枚（spreadsheetId <code>1m5DRb117MXqCQw4GhJC21spHE6N3lqE0dtqP7zxwLeg</code>、タブ番号 510300204）。それ以外は 403。</td></tr>
+<tr><td>鍵</td><td>既存の <code>GOOGLE_SA_KEY_B64</code>。シートにそのサービスアカウントを編集者として共有していないと、画面に「このアドレスをシートに編集者として追加してください」と追加するアドレスが出る。</td></tr>
+<tr><td>API</td><td><code>GET /api/portal-test/sheet</code>・<code>/version</code>・<code>/sa</code>、<code>POST /api/portal-test/cell</code>（CSRF と <code>X-Requested-With: fetch</code> が要る）。応答は <code>Cache-Control: no-store</code>。ログは見出しと結果（保存・競合・失敗）だけで、値・氏名・電話は出さない。</td></tr>
+<tr><td>外し方</td><td><code>src/handlers/portal_test/</code> と <code>lib.rs</code> の <code>merge(handlers::portal_test::router())</code>、<code>spa_shell.rs</code> の <code>"portal-test"</code>、<code>frontend/vite.config.ts</code> の <code>portal-test</code> の入口と <code>frontend/src/entries/portal-test.tsx</code> を消す。DB・環境変数の追加は無い。</td></tr>
+</table>
+
 </main>
 </body>
 </html>

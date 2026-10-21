@@ -2,4 +2,12 @@
 import type { DealBoardReason } from "./DealBoardReason";
 import type { Launch } from "./Launch";
 
-export type DealBoardRow = { id: string, name: string | null, company: string | null, pipeline: string, active: boolean, stage: string | null, consultant: string | null, reasons: Array<DealBoardReason>, months: number | null, expiration: string | null, days_left: number | null, last_contact: string | null, last_mtg: string | null, mtg_status: 'ready' | 'outside' | 'unavailable' | 'none', nps: number | null, applications: number | null, recent_applications: number | null, interviews: number | null, hires: number | null, target: number | null, achievement: number | null, cpa: number | null, amount: number | null, first_contract: boolean, launch: Launch, listing_count: number | null, zero_applicants: boolean, };
+export type DealBoardRow = { id: string, name: string | null, company: string | null, pipeline: string, active: boolean, stage: string | null, consultant: string | null, reasons: Array<DealBoardReason>, months: number | null, expiration: string | null, days_left: number | null, last_contact: string | null, last_mtg: string | null, mtg_status: 'ready' | 'outside' | 'unavailable' | 'none', nps: number | null, applications: number | null, recent_applications: number | null, interviews: number | null, hires: number | null, target: number | null, achievement: number | null, cpa: number | null, amount: number | null, first_contract: boolean, launch: Launch, listing_count: number | null, zero_applicants: boolean, 
+/**
+ * 契約の開始日から満了日までの応募数（応募日で数える）。求人票が無い・応募日が不明な応募がある・日付が無いときは null。
+ */
+contract_applications?: number | null, 
+/**
+ * 指定した期間（period_from〜period_to）の応募数。期間を指定しなかった・数えられないときは null。
+ */
+period_applications?: number | null, };

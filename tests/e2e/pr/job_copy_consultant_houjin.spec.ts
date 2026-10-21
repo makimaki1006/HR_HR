@@ -222,16 +222,19 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   ).toBeVisible();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("button", { name: "案件一覧", exact: true }).click();
-  await page.getByRole("button", { name: "採用単価 ▲▼", exact: true }).click();
-  await page.getByRole("button", { name: "採用単価 ▼", exact: true }).click();
+  // 既定の列は 8 つ（採用単価は「詳しい数字」の中）。並べ替えは応募（直近4週）で確かめる。
+  await page.getByRole("button", { name: "応募（直近4週） ▲▼", exact: true }).click();
+  await page.getByRole("button", { name: "応募（直近4週） ▼", exact: true }).click();
   const table = page.locator(".db-board-scroll>.db-table");
   await expect(table.locator("tbody>tr").first()).toContainText(
     "架空の採用支援01",
   );
   await expect(
-    page.getByRole("columnheader", { name: "採用単価 ▲", exact: true }),
+    page.getByRole("columnheader", { name: "応募（直近4週） ▲", exact: true }),
   ).toHaveAttribute("aria-sort", "ascending");
   await expect(page.getByText("HubSpotの今の値と、シートにある最後のMTGを確認できます。")).toHaveCount(0);
+  // 8 列は 1100px 以上あれば横に流れない。狭い画面で横に流れる合図が出ることを確かめる。
+  await page.setViewportSize({ width: 900, height: 800 });
   const frame = page.locator(".db-scroll-frame");
   await expect(frame).toHaveClass(/db-more-right/);
   await expect(frame).toHaveCSS("position", "relative");
@@ -253,7 +256,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(table.locator("tbody>tr")).toHaveCount(1);
   await expect(page.getByRole("combobox", { name: "担当者", exact: true })).toHaveValue("22");
   await expect(table).toContainText("架空の採用支援02");
-  for (const label of ["危ない案件", "いい案件", "法人"]) {
+  for (const label of ["危ない案件", "法人"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
     await expect(
       page.getByRole("combobox", { name: "担当者", exact: true }),

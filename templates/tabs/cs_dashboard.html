@@ -3478,7 +3478,7 @@ const TEAM_COLS = [
   { k: "unattended", t: "手が回っていない案件", n: 1, fmt: (r) => num(r.unattended) },
   { k: "n_flags2", t: "注意2つ以上", n: 1, fmt: (r, L) =>
       teamDrill(r.n_flags2, hashFor("today", { c: r.consultant }), "この担当で「今日」を開く（注意2つ以上の全件）") },
-  { k: "mtg_critical", t: "MTG 90日以上空いている", n: 1, fmt: (r) =>
+  { k: "mtg_critical", t: "MTG 60日以上空いている", n: 1, fmt: (r) =>
       teamDrill(r.mtg_critical, hashFor("byowner", { band: "critical", c: r.consultant }), "この担当の MTGが空いている期間（重大）の案件を開く") },
   { k: "no_contact", t: "接触の記録が無い", n: 1, fmt: (r, L) =>
       teamDrill(r.no_contact, hashFor("byowner", { c: r.consultant, flag: L.no_contact }), "この担当の「" + L.no_contact + "」の案件を開く") },
@@ -6101,8 +6101,10 @@ function tags(fs) {
 const LEGACY_FLAGS = {
   "採用単価が同じ進捗帯の1.5倍以上": "採用単価が同じ進捗の区分の1.5倍以上",
   "満了90日前でMTGが30日以上途絶": "満了90日前でMTGが30日以上空いている",
-  "MTGが90日以上途絶": "MTGが90日以上空いている",
-  "MTGが60〜89日途絶": "MTGが60〜89日空いている",
+  "MTGが90日以上途絶": "MTGが60日以上空いている",
+  "MTGが90日以上空いている": "MTGが60日以上空いている",
+  "MTGが60〜89日途絶": "MTGが60日以上空いている",
+  "MTGが60〜89日空いている": "MTGが60日以上空いている",
   "MTGが30〜59日途絶": "MTGが30〜59日空いている"
 };
 const FLAG_SHORT = {
@@ -6114,8 +6116,7 @@ const FLAG_SHORT = {
   "担当が退職者のまま": "担当が退職者",
   "満了90日前でMTGが30日以上空いている": "満了90日前MTG30日以上空いている",
   "採用目標の半分に届いていない": "採用目標の半分未満",
-  "MTGが90日以上空いている": "MTG90日以上空いている",
-  "MTGが60〜89日空いている": "MTG60〜89日空いている",
+  "MTGが60日以上空いている": "MTG60日以上空いている",
   "MTGが30〜59日空いている": "MTG30〜59日空いている",
 };
 function tagsShort(fs) {
@@ -6331,7 +6332,7 @@ function boardHit(f) {
   return (r) => {
     if (f.consultant && (r.consultant || "") !== f.consultant) return false;
     if (f.flag && !(r.flags || []).some((x) => x === f.flag)) return false;
-    /* MTG 途絶の帯（行の mtg_band）。今日動く先の KPI「MTGが90日以上途絶 N 件」から来る（S-2） */
+    /* MTG 途絶の帯（行の mtg_band）。今日動く先の KPI「MTGが60日以上空いている N 件」から来る（S-2） */
     if (f.band && (r.mtg_band || "") !== f.band) return false;
     /* 見方の印（段B、09 の 10 章②。行の views に routes.rs ACT_VIEWS の鍵が入っている） */
     if (f.view && !(r.views || []).some((x) => x === f.view)) return false;
@@ -6416,7 +6417,7 @@ function boardFilterBar(D, onlyOwner) {
     opt("", "すべて", boardFilter.flag) +
     flags.map((x) => opt(x.label, x.label + "（" + num(x.n) + "）", boardFilter.flag)).join("") +
     "</select></label>";
-  /* MTG 途絶の帯（S-2、2026-09-28）。今日動く先の KPI「MTGが90日以上途絶 N 件」の N 件は名札 2 種（fixture 56+46）に
+  /* MTG 途絶の帯（S-2、2026-09-28）。今日動く先の KPI「MTGが60日以上空いている N 件」の N 件は名札 2 種（fixture 63+46）に
      割れていて名札の欄では 1 つの条件にならないので、行の帯（mtg_band）で絞る欄を置く。選択肢はサーバの帯そのまま */
   const bands = ((D.meta.mtg_gap || {}).bands || []).filter((b) => b.n > 0 || b.band === boardFilter.band);
   h += '<label class="act">MTGが空いている期間 <select id="bf-band">' +
@@ -6730,7 +6731,7 @@ function flagGroup(label) {
    「成果が出ていない」だった（1つの画面で紫が2つの意味）。注意は警告（山吹）の一段手前なので、
    同じ山吹を薄く塗る（MTG_BAND_FAINT）。紫は名札の「成果が出ていない」だけにする */
 const MTG_BAND_COLOR = {
-  critical: C.hi, red: C.ki, yellow: C.ki,
+  critical: C.hi, yellow: C.ki,
   recent: C.midori, no_record: C.ghost, onboarding: C.ghost,
 };
 const MTG_BAND_FAINT = { yellow: true };
@@ -6744,9 +6745,9 @@ function mtgCell(r) {
   /* 🔴 2026-09-29 藤巻さんの判断: 「記録なし」は「MTG をしていない」に読める。記録が見つからない、と書く */
   if (r.mtg_days == null)
     return '<span class="muted small">記録が見つからない</span>';
-  /* 注意（30〜59日）は警告と同じ山吹で、太字にしない（帯の図の薄い山吹と同じ扱い。紫は使わない） */
+  /* 注意（30〜59日）は山吹で、太字にしない（帯の図の薄い山吹と同じ扱い。紫は使わない） */
   const col = r.mtg_band === "critical" ? "hi"
-            : r.mtg_band === "red" || r.mtg_band === "yellow" ? "ki" : "midori";
+            : r.mtg_band === "yellow" ? "ki" : "midori";
   const tagB = r.mtg_band === "yellow" ? "span" : "b";
   const src = (r.mtg_source_label || "").startsWith("Zoom") ? "Zoom 開催記録" : r.mtg_source === "recording" ? "録画"
             : r.mtg_source === "mail" ? "メール（推定）"
@@ -6920,7 +6921,7 @@ function renderToday(D0) {
         c ? "注意が2つ以上ついた候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
           : "注意が2つ以上ついた " + num(D.meta.n_hit) + " 件から",
         "", { jump: "td-today-h", text: "表へ" }) +
-    kpi("MTGが90日以上空いている", num(crit) + '<span class="u">件</span>',
+    kpi("MTGが60日以上空いている", num(crit) + '<span class="u">件</span>',
         c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（注意2つ以上）の中で。") + "全社では " + num(bandN("critical")) + " 件"
           : "うち " + num(G.forced_by_expiry) + " 件は満了90日前のMTGの間隔が空いているため引き上げたもの",
         crit ? "bad" : "", { band: "critical", consultant: c && CB ? c : "", text: c && CB ? "この担当の一覧を見る" : "全社の一覧を見る" }) +

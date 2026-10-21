@@ -28,23 +28,23 @@ test('求人選択・内容ポップアップ・分析を戻る／進むで復�
   await expect(page).toHaveURL(popup);
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.goBack();
-  await page.getByRole('region', { name: 'ほかの分析', exact: true }).getByRole('button', { name: 'タイムライン', exact: true }).click();
+  await page.getByRole('region', { name: 'ほかの分析', exact: true }).getByRole('button', { name: 'ほかの分析を開く', exact: true }).click();
   const timeline = page.url();
-  await page.getByRole('tab', { name: '求人内容', exact: true }).click();
+  await page.getByRole('tab', { name: '本文・画像', exact: true }).click();
   const body = page.url();
   await page.goBack();
   await expect(page).toHaveURL(timeline);
   await expect(page.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.goForward();
   await expect(page).toHaveURL(body);
-  await expect(page.getByRole('tab', { name: '求人内容', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: '本文・画像', exact: true })).toHaveAttribute('aria-selected', 'true');
   expect(await page.evaluate(() => (window as unknown as { historyTestMarker: string }).historyTestMarker)).toBe('保持');
 });
 
 test('再読み込みで復元した分析を操作でき、閉じるとURLから消えて再び開かない', async ({ page }) => {
   await page.goto('/app/job-copy?demo=1&analysis=1&feature=body');
   const dialog = page.getByRole('dialog', { name: 'ほかの分析', exact: true });
-  await expect(dialog.getByRole('tab', { name: '求人内容', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(dialog.getByRole('tab', { name: '本文・画像', exact: true })).toHaveAttribute('aria-selected', 'true');
   const length = await page.evaluate(() => history.length);
   await openOtherAnalysis(page, '変更差分');
   await expect(dialog.getByRole('tab', { name: '変更差分', exact: true })).toHaveAttribute('aria-selected', 'true');
@@ -100,7 +100,7 @@ test('ホーム→会社→案件→求人と案件内ポップアップを履�
   const listing = page.url();
   const reads = versionReads;
   for (const url of [deal, company, home]) { await page.goBack(); await expect(page).toHaveURL(url); }
-  await expect(page.getByRole('heading', { name: 'ホーム', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
   expect(homeReads).toBe(initialHomeReads);
   for (const url of [company, deal, listing]) { await page.goForward(); await expect(page).toHaveURL(url); }
   await expect(page.getByRole('button', { name: '求人の内容を確認する' })).toBeVisible();

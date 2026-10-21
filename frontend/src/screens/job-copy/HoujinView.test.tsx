@@ -217,12 +217,21 @@ it("案件一覧の新しい列を両方向に並べ替える", async () => {
   mock();
   render(<DealBoard />);
   await screen.findByRole("button", { name: "架空の採用支援01" });
+  // 既定の列は NPS と応募。採用・採用単価・金額・採用目標は「詳しい数字」を開くと並べ替えられる。
+  fireEvent.click(await screen.findByRole("button", { name: "架空の採用支援01の詳しい数字を開く" }));
+  for (const label of ["採用", "採用単価", "金額", "採用目標に対して"]) {
+    expect(within(screen.getByRole("table", { name: "架空の採用支援01の詳しい数字" })).getByRole("button", { name: `${label} ▲▼` })).toBeTruthy();
+  }
+  fireEvent.click(within(screen.getByRole("table", { name: "架空の採用支援01の詳しい数字" })).getByRole("button", { name: "金額 ▲▼" }));
+  await waitFor(() => { expect(new URLSearchParams(window.location.search).get("deals_sort")).toBe("amount"); });
+  for (const key of ["cpa", "hires", "amount"] as const) {
+    const rows = [{ ...required(boardRows[0]), [key]: 100 }, { ...required(boardRows[1]), [key]: 0 }, { ...required(boardRows[2]), [key]: null }];
+    expect(sortDeals(rows, key, true).map((r) => r.id)).toEqual(["100", "101", "102"]);
+    expect(sortDeals(rows, key, false).map((r) => r.id)).toEqual(["101", "100", "102"]);
+  }
   for (const [key, label] of [
-    ["cpa", "採用単価"],
     ["nps", "NPS"],
     ["recent_applications", "応募（直近4週）"],
-    ["hires", "採用"],
-    ["amount", "金額"],
   ] as const) {
     const button = screen.getByRole("button", { name: `${label} ▲▼` });
     fireEvent.click(button);
