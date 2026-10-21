@@ -188,6 +188,27 @@ describe('トークの振り返り: 画面とルート', () => {
     expect(last.owner).toBe('');
   });
 
+  it('日付を変えただけでは読み直さず、「決定」で from / to を変える', () => {
+    const navigate = vi.fn();
+    render(<TalkPanel route={route()} navigate={navigate} fixture />);
+    const apply = screen.getByRole<HTMLButtonElement>('button', { name: '決定' });
+    expect(apply.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('開始日'), { target: { value: '2026-10-01' } });
+    fireEvent.change(screen.getByLabelText('終了日'), { target: { value: '2026-10-15' } });
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.click(apply);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenLastCalledWith(route({ from: '2026-10-01', to: '2026-10-15' }));
+  });
+
+  it('開始日が終了日より後なら「決定」を押せない', () => {
+    const navigate = vi.fn();
+    render(<TalkPanel route={route()} navigate={navigate} fixture />);
+    fireEvent.change(screen.getByLabelText('開始日'), { target: { value: '2026-10-25' } });
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '決定' }).disabled).toBe(true);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('週は月曜始まり', () => {
     // 2026-10-19 は月曜
     expect(periodRange('thisWeek', '2026-10-21')).toEqual({ from: '2026-10-19', to: '2026-10-21' });
