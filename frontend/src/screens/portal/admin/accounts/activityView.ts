@@ -23,7 +23,7 @@ export function applicantOf(d: DataState, e: ActivityEntry): string {
   if (e.sheetId === undefined || e.rowNumber === undefined) return '';
   const sheet = d.sheets.find((s) => s.id === e.sheetId);
   const row = d.rows[e.sheetId]?.find((r) => r.rowNumber === e.rowNumber);
-  return row?.values[sheet?.titleColumn ?? '氏名'] ?? '';
+  return row?.values[sheet?.titleColumn ?? ''] ?? '';
 }
 
 const splitList = (s: string): string[] => s.split(/[、,]/).map((x) => x.trim()).filter((x) => x !== '');

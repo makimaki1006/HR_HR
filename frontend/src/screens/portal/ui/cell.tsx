@@ -1,13 +1,15 @@
 // 1 マスの表示と入力欄。一覧の表（その場で編集）と応募者の詳細の両方で使う。
 // シートの値は文字のまま持つ。日付は "2026/10/24"、日時は "2026/10/24 14:00"。
 import { useEffect, useRef, type KeyboardEvent } from 'react';
-import { kindOf } from '../columns';
+import { kindOf, parseLooseDay } from '../columns';
 import type { ColumnConfig } from '../types';
 import { cx } from './kit';
 
 const toIsoDate = (v: string): string => {
-  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})/.exec(v);
-  return m ? `${m[1] ?? ''}-${(m[2] ?? '').padStart(2, '0')}-${(m[3] ?? '').padStart(2, '0')}` : '';
+  // 「2023年1月20日」「2022/11/9」のように書き方が混ざっていても、読めれば日付の欄に入れる。
+  const n = parseLooseDay(v);
+  if (n === null) return '';
+  return new Date(n * 86400000).toISOString().slice(0, 10);
 };
 const toIsoTime = (v: string): string => {
   const m = /(\d{1,2}):(\d{2})$/.exec(v);

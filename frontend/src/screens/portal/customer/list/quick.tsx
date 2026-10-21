@@ -3,11 +3,16 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { stageOf } from '../../data';
 import { cx } from '../../ui/kit';
 import type { ApplicantRow, ListSort, SheetConfig } from '../../types';
+import { parseLooseDay } from '../../columns';
 import { dayOffset } from './model';
 
 export type Quick = 'today' | 'tomorrow' | 'new' | 'unhandled';
 
-const interviewDay = (sheet: SheetConfig, row: ApplicantRow): number | null => (sheet.interviewColumn ? dayOffset(row.values[sheet.interviewColumn] ?? '') : null);
+const interviewDay = (sheet: SheetConfig, row: ApplicantRow): number | null => {
+  if (!sheet.interviewColumn) return null;
+  const ref = sheet.sortColumn ? parseLooseDay(row.values[sheet.sortColumn]) : null;
+  return dayOffset(row.values[sheet.interviewColumn] ?? '', ref);
+};
 
 /** 未対応の人か（選考状況が「応募」の段階）。段階が決まっていないシートでは数えない。 */
 const isUnhandled = (sheet: SheetConfig, row: ApplicantRow): boolean => {

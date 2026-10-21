@@ -1,6 +1,7 @@
 // 顧客とシートの管理画面で、data.ts に無いものだけを持つ（選んでいる顧客・シートの URL・画面の受け渡し）。
 // 顧客・シート・アカウント・記録は data.ts を読み書きする。
 import { useSyncExternalStore } from 'react';
+import { applicantRows } from '../../columns';
 import { STAFF_NAME } from '../../fixtures';
 import { actions as data, getData, log, useData } from '../../data';
 import type { ActivityKind, ApplicantRow, CustomerStage, SheetConfig } from '../../types';
@@ -26,8 +27,8 @@ let state: State = {
   accountsFilterCustomerId: null,
   inviteCustomerId: null,
   sheetFiles: {
-    s1: 'サンプル介護 応募者管理表',
-    s2: 'サンプル介護 応募者管理表',
+    s1: 'サンプル介護サービス様_応募者管理',
+    s2: 'サンプル介護サービス様_応募者管理',
     s3: 'みどり運輸 採用管理',
     s4: 'ひかり歯科 応募管理',
   },
@@ -107,7 +108,7 @@ export const actions = {
   addSheet(sheet: SheetConfig, url: string, fileName: string, rows: ApplicantRow[]): void {
     const d = getData();
     d.sheets.push(sheet);
-    d.rows[sheet.id] = rows;
+    d.rows[sheet.id] = applicantRows(sheet, rows);
     d.readAt[sheet.id] = new Date().toISOString();
     data.updateSheet(sheet.id, {});
     adminLog(sheet.customerId, 'sheet_change_admin', `シート「${sheet.tabName}」を追加`, { sheetId: sheet.id });

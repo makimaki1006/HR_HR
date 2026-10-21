@@ -75,7 +75,7 @@ export function Detail({ sheet, col, rows, canEdit, isStaff, onBack, onDirty, on
       if (JSON.stringify(Object.entries(next).sort()) !== JSON.stringify(Object.entries(cur).sort())) actions.updateSheet(sheet.id, { stageMap: next });
       if (sd.length > 0) parts.push(`数字の段階 ${sd.join('、')}`);
     }
-    const title = sheet.titleColumn ?? '氏名';
+    const title = sheet.titleColumn ?? '';
     const targets: { r: ApplicantRow; orig: string; to: string }[] = [];
     for (const [orig, c] of Object.entries(choices)) {
       if (c.mode !== 'replace') continue;

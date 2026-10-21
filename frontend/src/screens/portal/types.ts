@@ -44,6 +44,8 @@ export interface SheetConfig {
   /** 顧客に見せるタブの名前（例: 「応募者一覧」「2025年度」）。 */
   tabName: string;
   headerRow: number;
+  /** 見出しの下にある「記入例」の行の数。応募者ではないので、一覧・数字・記録から除く。未設定は 0。 */
+  exampleRows?: number;
   /** 一覧のカードと表で名前として太く出す列（見出しの名前）。未設定は最初の見せる列。 */
   titleColumn?: string;
   /** 選考状況のバッジ・絞り込みに使う列。未設定は出さない。 */
@@ -52,6 +54,10 @@ export interface SheetConfig {
   sortColumn?: string;
   /** 面接の日時の列（種類は日付と時刻）。「今日の面接」「面接日が近い順」に使う。未設定なら出さない。 */
   interviewColumn?: string;
+  /** 面接の時刻が別の列にあるときの、その列（「11:00」のような文字）。未設定なら interviewColumn の値に含まれる時刻を読む。 */
+  interviewTimeColumn?: string;
+  /** この列に日付が入っている人を「採用」として数える（選択肢に採用に当たるものが無いシート用）。辞退・不採用の段階の人は数えない。 */
+  hiredDateColumn?: string;
   columns: ColumnConfig[];
   /** 接続の状態。 */
   connection: 'ok' | 'not_shared' | 'not_found' | 'header_changed';

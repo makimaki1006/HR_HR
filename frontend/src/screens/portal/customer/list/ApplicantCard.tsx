@@ -1,12 +1,12 @@
 // スマホの一覧のカード 1 枚の中身。顧客の一覧と、社内の「列の設定」のプレビューで同じものを使う。
 import { Badge } from '../../ui/kit';
-import { cardLayout, labelOf, type CardLayout } from '../../columns';
+import { cardLayout, extraText, labelOf, type CardLayout } from '../../columns';
 import type { ApplicantRow } from '../../types';
 
 export function statusTone(s: string): 'warn' | 'info' | 'ok' | 'neutral' {
-  if (s === '未対応') return 'warn';
-  if (s === '内定' || s === '採用') return 'ok';
-  if (s === '不採用' || s === '辞退') return 'neutral';
+  if (s === '未対応' || s === '未連絡') return 'warn';
+  if (s === '内定' || s === '採用' || s === '入社日調整中') return 'ok';
+  if (['不採用', '辞退', '書類選考落ち', '面接辞退', '内定辞退'].includes(s)) return 'neutral';
   return 'info';
 }
 
@@ -24,7 +24,7 @@ export function ChangeBadge({ kind }: { kind: ApplicantRow['changedSinceLastView
 export function CardBody({ layout, values, changed = null }: { layout: CardLayout; values: Record<string, string>; changed?: ApplicantRow['changedSinceLastView'] }) {
   const get = (h: string | undefined) => (h ? (values[h] ?? '') : '');
   const subtitle = layout.subtitle.map((c) => get(c.header)).filter((v) => v !== '').join(' / ');
-  const extraValue = get(layout.extra?.header);
+  const extraValue = extraText(layout, values);
   return (
     <>
       <span className="flex items-center gap-2">

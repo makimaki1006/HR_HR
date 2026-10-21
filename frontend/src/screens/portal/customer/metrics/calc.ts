@@ -1,6 +1,6 @@
 // 数字の画面の集計。表示中のシートの行と、選考状況 → 段階の対応から作る。
 import type { ApplicantRow, ColumnConfig, FunnelStage, SheetConfig } from '../../types';
-import { kindOf } from '../../columns';
+import { dayNum, isBlankValue, kindOf, parseLooseDay } from '../../columns';
 
 /** 試作の「今日」。 */
 export const TODAY = { y: 2026, m: 10, d: 20 };
@@ -45,7 +45,10 @@ export function tally(rows: ApplicantRow[], sheet: SheetConfig): Tally {
     const stage = sheet.stageMap?.[status];
     if (stage === 'rejected') t.rejected += 1;
     if (stage === 'declined') t.declined += 1;
-    const rank = stage ? RANK[stage] : 0;
+    let rank = stage ? RANK[stage] : 0;
+    // 入社予定日が入っている人は採用として数える（辞退・不採用の人は除く）。
+    const hireCol = sheet.hiredDateColumn;
+    if (hireCol && stage !== 'rejected' && stage !== 'declined' && !isBlankValue(r.values[hireCol]) && parseLooseDay(r.values[hireCol]) !== null) rank = RANK.hired;
     if (rank >= 1) t.reached.screening += 1;
     if (rank >= 2) t.reached.interviewSet += 1;
     if (rank >= 3) t.reached.interviewed += 1;
@@ -94,14 +97,11 @@ export type Period = 'this' | 'last' | 'last3' | 'all' | 'custom';
 /** 日付を通し番号にしたもの（両端を含む）。 */
 export interface Range { from: number; to: number }
 
-export const dayNum = (y: number, m: number, d: number): number => Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+export { dayNum };
 const todayNum = dayNum(TODAY.y, TODAY.m, TODAY.d);
 
 export function parseDay(s: string | undefined): number | null {
-  if (!s) return null;
-  const m = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/.exec(s);
-  if (!m) return null;
-  return dayNum(Number(m[1]), Number(m[2]), Number(m[3]));
+  return parseLooseDay(s);
 }
 
 export function rangesOf(period: Period, customFrom: string, customTo: string): { cur: Range | null; prev: Range | null; prevLabel: string } {
@@ -206,7 +206,7 @@ export const isSmall = (r: Rate): boolean => r.den > 0 && r.den < SMALL_DEN;
 export function missingStages(sheet: SheetConfig): Set<FunnelStage> {
   const used = new Set(Object.values(sheet.stageMap ?? {}));
   const out = new Set<FunnelStage>();
-  for (const s of ['screening', 'interview_set', 'interviewed', 'offer', 'hired'] as const) if (!used.has(s)) out.add(s);
+  for (const s of ['screening', 'interview_set', 'interviewed', 'offer', 'hired'] as const) if (!used.has(s) && !(s === 'hired' && sheet.hiredDateColumn)) out.add(s);
   return out;
 }
 

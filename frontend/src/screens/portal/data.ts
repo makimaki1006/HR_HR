@@ -3,7 +3,7 @@
 // どの操作も記録（activity）に残す。
 import { useSyncExternalStore } from 'react';
 import { CURRENT_ACCOUNT_ID, NOW, STAFF_NAME, accounts, activity as initialActivity, customers as initialCustomers, initialRows, sheets as initialSheets } from './fixtures';
-import { kindOf, labelOf } from './columns';
+import { applicantRows, kindOf, labelOf } from './columns';
 import type { ActivityEntry, ApplicantRow, CellSaveResult, ColumnConfig, Customer, FunnelStage, ListPrefs, PortalAccount, SheetConfig, Viewer } from './types';
 
 export interface DataState {
@@ -34,7 +34,8 @@ let state: DataState = {
   viewer: { kind: 'customer', accountId: CURRENT_ACCOUNT_ID },
   customers: initialCustomers,
   sheets: initialSheets,
-  rows: initialRows,
+  // 見出しの下の記入例の行は応募者ではないので、最初から入れない。
+  rows: Object.fromEntries(initialSheets.map((sh) => [sh.id, applicantRows(sh, initialRows[sh.id] ?? [])])),
   readAt: Object.fromEntries(Object.keys(initialRows).map((k) => [k, NOW])),
   activity: [...initialActivity].sort((a, b) => b.at.localeCompare(a.at)),
   accounts,
@@ -152,8 +153,8 @@ function conflictValue(col: ColumnConfig | undefined, current: string, next: str
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function rowName(sheet: SheetConfig | undefined, row: ApplicantRow | undefined): string {
-  const title = sheet?.titleColumn ?? '氏名';
-  return row?.values[title] ?? '';
+  const title = sheet?.titleColumn;
+  return title ? (row?.values[title] ?? '') : '';
 }
 
 export function log(entry: Omit<ActivityEntry, 'id' | 'at' | 'accountEmail' | 'customerId' | 'actorName' | 'source'> & Partial<Pick<ActivityEntry, 'customerId' | 'actorName' | 'source' | 'accountEmail'>>): void {
@@ -317,8 +318,9 @@ export const actions = {
     const max = list.reduce((m, r) => Math.max(m, r.rowNumber), 1);
     const values: Record<string, string> = Object.fromEntries(sheet.columns.map((c) => [c.header, '']));
     if (sheet.sortColumn) values[sheet.sortColumn] = '2026/10/20';
-    values[sheet.titleColumn ?? '氏名'] = '新井 ひなた';
-    if ('電話番号' in values) values.電話番号 = '090-0000-9999';
+    if (sheet.titleColumn) values[sheet.titleColumn] = '新井 ひなた';
+    const phoneCol = sheet.columns.find((c) => kindOf(c) === 'phone');
+    if (phoneCol) values[phoneCol.header] = '090-0000-9999';
     if (sheet.statusColumn) values[sheet.statusColumn] = sheet.columns.find((c) => c.header === sheet.statusColumn)?.options?.[0] ?? '';
     const row: ApplicantRow = { rowNumber: max + 1, changedSinceLastView: 'new', values };
     set({ rows: { ...state.rows, [sheetId]: [row, ...list] }, readAt: { ...state.readAt, [sheetId]: nowIso() } });

@@ -1,5 +1,5 @@
 // 一覧の並べ替え・絞り込み・書き出し。表とスマホのカードで同じ決まりを使う。
-import { kindOf, labelOf, sortByDate } from '../../columns';
+import { TODAY_NUM, kindOf, labelOf, parseLooseDay, parseTimeOfDay, sortByDate } from '../../columns';
 import { stageOf } from '../../data';
 import type { ApplicantRow, ColumnConfig, FunnelStage, ListFilter, ListSort, SheetConfig } from '../../types';
 import { NOW } from '../../fixtures';
@@ -27,27 +27,28 @@ const numeric = (v: string): number | null => (/^\d+(\.\d+)?$/.test(v) ? Number(
 
 // ---- 面接の日時 ----
 
-const jstDay = (ms: number): string => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date(ms)).replace(/-/g, '/');
-const pad2 = (n: number): string => String(n).padStart(2, '0');
-
-/** 「2026/10/23 11:00」を日本時間の時刻（ミリ秒）にする。読めなければ null。 */
-export function parseDateTime(v: string): number | null {
-  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/.exec(v.trim());
-  if (!m) return null;
-  const t = Date.parse(`${m[1] ?? ''}-${pad2(Number(m[2]))}-${pad2(Number(m[3]))}T${pad2(Number(m[4] ?? '0'))}:${m[5] ?? '00'}:00+09:00`);
-  return Number.isNaN(t) ? null : t;
+/** 日付の文字（と別の列の時刻）を日本時間の時刻（ミリ秒）にする。日付が読めなければ null。時刻が無ければ 0 時。ref は年のない日付に年を補う応募日の通し番号。 */
+export function parseDateTime(v: string, time?: string, ref?: number | null): number | null {
+  const day = parseLooseDay(v, ref);
+  if (day === null) return null;
+  const minutes = parseTimeOfDay(time ?? /\d{1,2}:\d{2}/.exec(v)?.[0] ?? '') ?? 0;
+  return day * 86_400_000 - 9 * 3_600_000 + minutes * 60_000;
 }
 
 /** 試作の「いま」からの日数ずれ。0 = 今日、1 = 明日。 */
-export function dayOffset(v: string): number | null {
-  const t = parseDateTime(v);
-  if (t === null) return null;
-  const a = Date.parse(jstDay(t).replace(/\//g, '-') + 'T00:00:00+09:00');
-  const b = Date.parse(jstDay(Date.parse(NOW)).replace(/\//g, '-') + 'T00:00:00+09:00');
-  return Math.round((a - b) / 86_400_000);
+export function dayOffset(v: string, ref?: number | null): number | null {
+  const day = parseLooseDay(v, ref);
+  return day === null ? null : day - TODAY_NUM;
 }
 
-export function sortRows(rows: ApplicantRow[], sort: SortSpec | null, fallbackHeader: string | undefined): ApplicantRow[] {
+/** 行の面接の日時（ミリ秒）。面接の列と、別の列の時刻、応募日からの年の補いを使う。 */
+export function interviewAt(sheet: Pick<SheetConfig, 'interviewColumn' | 'interviewTimeColumn' | 'sortColumn'>, row: ApplicantRow): number | null {
+  if (!sheet.interviewColumn) return null;
+  const ref = sheet.sortColumn ? parseLooseDay(row.values[sheet.sortColumn]) : null;
+  return parseDateTime(row.values[sheet.interviewColumn] ?? '', sheet.interviewTimeColumn ? (row.values[sheet.interviewTimeColumn] ?? '') : undefined, ref);
+}
+
+export function sortRows(rows: ApplicantRow[], sort: SortSpec | null, fallbackHeader: string | undefined, timeHeader?: string): ApplicantRow[] {
   if (!sort) return sortByDate(rows, fallbackHeader);
   if (sort.mode === 'changed') {
     const rank = (r: ApplicantRow): number => (r.changedSinceLastView === null ? 1 : 0);
@@ -56,8 +57,9 @@ export function sortRows(rows: ApplicantRow[], sort: SortSpec | null, fallbackHe
   if (sort.mode === 'near') {
     const now = Date.parse(NOW);
     return [...rows].sort((a, b) => {
-      const ta = parseDateTime(a.values[sort.column] ?? '');
-      const tb = parseDateTime(b.values[sort.column] ?? '');
+      const at = (r: ApplicantRow): number | null => parseDateTime(r.values[sort.column] ?? '', timeHeader ? (r.values[timeHeader] ?? '') : undefined, fallbackHeader ? parseLooseDay(r.values[fallbackHeader]) : null);
+      const ta = at(a);
+      const tb = at(b);
       if (ta === null && tb === null) return b.rowNumber - a.rowNumber;
       if (ta === null) return 1;
       if (tb === null) return -1;
@@ -73,6 +75,14 @@ export function sortRows(rows: ApplicantRow[], sort: SortSpec | null, fallbackHe
     const vb = b.values[sort.column] ?? '';
     if (va === '' && vb !== '') return 1;
     if (vb === '' && va !== '') return -1;
+    const ra = fallbackHeader ? parseLooseDay(a.values[fallbackHeader]) : null;
+    const rb = fallbackHeader ? parseLooseDay(b.values[fallbackHeader]) : null;
+    const da = parseLooseDay(va, ra);
+    const db = parseLooseDay(vb, rb);
+    if (da !== null && db !== null) {
+      if (da !== db) return (da - db) * sign;
+      return b.rowNumber - a.rowNumber;
+    }
     const na = numeric(va);
     const nb = numeric(vb);
     if (na !== null && nb !== null && na !== nb) return (na - nb) * sign;

@@ -1,5 +1,5 @@
 // スマホの一覧。表は使わず、カードを並べる。選考状況だけはカードの中でその場で変えられる。
-import { cardLayout, labelOf } from '../../columns';
+import { cardLayout, extraText, labelOf } from '../../columns';
 import { IconClock } from '../../ui/icons';
 import { cx } from '../../ui/kit';
 import type { ApplicantRow, SheetConfig } from '../../types';
@@ -27,7 +27,7 @@ export function MobileList({ sheet, rows, readOnly, saver, onOpen }: {
         const key = status ? cellKey(row.rowNumber, status.header) : '';
         const st = saver.cells[key];
         const statusValue = st?.kind === 'saving' ? st.value : get(status?.header);
-        const extraValue = get(extra?.header);
+        const extraValue = extraText(layout, row.values);
         const label = `${name}さんの「${status ? labelOf(status) : ''}」`;
         return (
           <li key={row.rowNumber} className="overflow-hidden rounded-lg border border-pt-line bg-pt-surface shadow-pt-card" style={changeLine(row.changedSinceLastView) ? { boxShadow: `inset 2px 0 0 ${changeLine(row.changedSinceLastView) ?? ''}` } : undefined}>

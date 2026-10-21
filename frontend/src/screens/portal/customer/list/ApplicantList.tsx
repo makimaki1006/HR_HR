@@ -195,7 +195,7 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
     const f = quick === null ? byStatus : byStatus.filter((r) => matchesQuick(sheet, r, quick));
     // 今日・明日の面接は、時刻の早い順に並べる（並べ替えを選んでいなければ）。
     const timeOrder: SortSpec | null = sort === null && (quick === 'today' || quick === 'tomorrow') && sheet.interviewColumn ? { column: sheet.interviewColumn, dir: 'asc' } : sort;
-    return sortRows(f, timeOrder, layout.sort?.header);
+    return sortRows(f, timeOrder, layout.sort?.header, sheet.interviewTimeColumn);
   }, [baseRows, status, statusCol, sort, quick, sheet, layout.sort?.header]);
 
   // 詳細の「前へ・次へ」と位置の表示を、一覧の並び（絞り込み・並べ替えの後）に合わせる。

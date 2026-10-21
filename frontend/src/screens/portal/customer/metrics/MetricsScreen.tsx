@@ -61,6 +61,7 @@ export function MetricsScreen() {
   const rowsBy = key ? breakdown(rows, sheet, key) : [];
   const unmapped = unmappedOptions(sheet, allRows);
   const statusLabel = labelOf(sheet.columns.find((c) => c.header === sheet.statusColumn) ?? { header: sheet.statusColumn, label: '', visible: true, writable: false, options: null, multiline: false, inList: true });
+  const hiredLabel = labelOf(sheet.columns.find((c) => c.header === sheet.hiredDateColumn) ?? { header: sheet.hiredDateColumn ?? '', label: '', visible: true, writable: false, options: null, multiline: false, inList: true });
   const optionsOf = (stage: (typeof STAGE_ORDER)[number]): string[] => Object.entries(sheet.stageMap ?? {}).filter(([, s]) => s === stage).map(([o]) => o);
 
   return (
@@ -127,13 +128,13 @@ export function MetricsScreen() {
             <Chevron />
           </summary>
           <div className="space-y-3 border-t border-pt-line px-4 py-3">
-            <p className="text-xs text-pt-muted">「{statusLabel}」の選択肢を、次の段階として数えています。面接以降の人数には、不採用・辞退の人は含めません。</p>
+            <p className="text-xs text-pt-muted">「{statusLabel}」の選択肢を、次の段階として数えています。面接以降の人数には、不採用・辞退の人は含めません。{sheet.hiredDateColumn ? `採用は、選択肢ではなく「${hiredLabel}」に日付が入っている人を数えています（「入社日調整中」の人も、日付が入るまでは内定です）。` : ''}</p>
             <table className="w-full text-[13px]">
               <tbody>
                 {STAGE_ORDER.map((s) => (
                   <tr key={s} className="border-b border-pt-line last:border-b-0 align-top">
                     <th scope="row" className="w-24 py-1.5 pr-3 text-left font-medium">{STAGE_LABEL[s]}</th>
-                    <td className="py-1.5 text-pt-muted">{optionsOf(s).join('、') || '—'}</td>
+                    <td className="py-1.5 text-pt-muted">{optionsOf(s).join('、') || (s === 'hired' && sheet.hiredDateColumn ? `「${hiredLabel}」に日付が入っている人（辞退・不採用の人は除く）` : '—')}</td>
                   </tr>
                 ))}
               </tbody>
