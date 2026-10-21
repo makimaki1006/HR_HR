@@ -23,11 +23,14 @@ it('担当の項目・ほかの人・全員・自分をreplaceで切り替え、
   expect(window.history.state).toEqual({ keep: 7 }); expect(replace).toHaveBeenCalledTimes(4); expect(push).not.toHaveBeenCalled();
   vi.restoreAllMocks();
 });
-it('11枚の件数カードだけを表示し、押すと日付をスラッシュで表示した一覧を開く', () => {
+it('7枚の件数カードと、ほかの要対応の件数の1行を表示し、押すと日付をスラッシュで表示した一覧を開く', () => {
   const company = vi.fn(); const deal = vi.fn();
   const push = vi.spyOn(window.history, 'pushState');
   render(<OwnerTodo work={demoOwnerTodo} onOpenCompany={company} onOpenDeal={deal} />);
-  expect(document.querySelectorAll('.jh-todo-cards .jh-card')).toHaveLength(11);
+  expect(document.querySelectorAll('.jh-todo-cards .jh-card')).toHaveLength(7);
+  expect([...document.querySelectorAll('.jh-todo-cards .jh-card .jh-card-title')].map(el => el.textContent)).toEqual(['期限切れ', '今日', '7日以内', '契約満了が近い', '接触が空いている', '応募が止まっている', 'MTGが途絶えている']);
+  expect(document.querySelector('.jh-rule')).toBeNull();
+  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの要対応：初回で成果が出ていない 1件・定期NPSが低い 0件・採用目標に届いていない 0件・採用単価が高い 0件');
   expect(screen.queryByRole('table')).toBeNull();
   const overdueCard = screen.getByRole('button', { name: /期限切れ/ });
   expect(overdueCard.classList.contains('jh-alert')).toBe(true);

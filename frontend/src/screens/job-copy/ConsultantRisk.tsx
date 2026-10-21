@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { InfoTip } from './InfoTip';
 import { apiGet } from '../../api/client';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { ProposalMemo } from './ProposalMemo';
@@ -76,9 +77,9 @@ export function ConsultantRisk({ good = false }: { good?: boolean }) {
   }, [query, reload, good]);
   const ready = data?.status === 'ready' ? data : null;
   const row = ready?.rows.find(r => r.deal_id === selected);
-  return <div className="jc-page"><main className="cr-main" id="job-details"><header><div><h1>{title}{good && ready && <small> {ready.rows.length}件</small>}</h1>{ready && <p>{formatDateJst(ready.data_day, '集計日未取得')}のデータ{ready.previous_day ? ` ／ 前回：${formatDateJst(ready.previous_day)}` : ''}</p>}</div><button className="jc-button" onClick={() => { setReload(n => n + 1); }}>再読み込み</button></header>
+  return <div className="jc-page"><main className="cr-main" id="job-details"><header><div><h1>{title}{good && ready && <small> {ready.rows.length}件</small>}</h1>{ready && <p>{formatDateJst(ready.data_day, '集計日未取得')}のデータ{ready.previous_day ? ` ／ 前回：${formatDateJst(ready.previous_day)}` : ''}</p>}{ready && !good && (ready.comparison === 'first' || ready.comparison === 'unavailable') && <InfoTip label="前回との比較"><p>{ready.comparison === 'first' ? '前回と比べられるのは明日のデータからです。' : '前回との比較を取得できないため、一覧で表示しています。'}</p></InfoTip>}</div><button className="jc-button" onClick={() => { setReload(n => n + 1); }}>再読み込み</button></header>
     {error && <p role="alert">{title}を読み込めませんでした。再読み込みしてください。</p>}{!error && (!data || data.status === 'preparing') && <p role="status">案件を集計しています…</p>}{data?.status === 'failed' && <p role="alert">案件を取得できませんでした。再読み込みしてください。</p>}
-    {ready?.refresh_failed && <p>前に取得した担当と予定を表示しています。</p>}{!good && ready?.comparison === 'first' && <p>前回と比べられるのは明日のデータから</p>}{!good && ready?.comparison === 'unavailable' && <p>前回との比較を取得できないため、一覧で表示しています。</p>}
+    {ready?.refresh_failed && <p>前に取得した担当と予定を表示しています。</p>}
     {ready && (good ? [{ title: 'いい案件の一覧', rows: ready.rows }] : riskGroups(ready)).map(group => <section key={group.title} aria-label={group.title}>{!good && <h2>{group.title} <small>{group.rows.length}件</small></h2>}<div className="cr-scroll"><table><thead><tr>{['案件・法人', '担当', good ? '理由' : '名札・いつから', '満了まで', '最後の接触', '次の予定'].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{group.rows.map(r => <tr key={r.deal_id} onClick={() => { updateJobCopyQuery({ risk_deal: r.deal_id }); }}><th scope="row"><button className="jh-link" onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>{r.name}</button><small>{r.company ?? '法人未登録'}</small></th><td>{r.consultant || '未登録'}</td><td><Flags flags={r.good_flags ?? r.risk_flags} good={good} />{good && r.flags.length > 0 && <small>危ない名札もあり（{r.flags.length}件）</small>}</td><td>{r.days_left === null ? '未登録' : r.days_left < 0 ? `満了から${String(-r.days_left)}日` : `${String(r.days_left)}日`}</td><td>{r.days_since_contact === null ? '記録なし' : `${String(r.days_since_contact)}日前`}</td><td>{formatDateJst(r.actionyotei, '予定なし')}<small>{r.actionnaiyou ?? '内容未登録'}</small></td></tr>)}{!group.rows.length && <tr><td colSpan={6}>該当する案件はありません。</td></tr>}</tbody></table></div></section>)}
     {row && <RiskDetail key={row.deal_id} row={row} onClose={() => { updateJobCopyQuery({ risk_deal: null }); }} onSaved={() => { setReload(n => n + 1); }} />}
   </main></div>;

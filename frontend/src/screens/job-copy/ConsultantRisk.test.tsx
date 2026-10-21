@@ -70,7 +70,8 @@ it.each([true, false])('新旧の名札・開始日・詳細・求人リンク�
 it('保存初日は翌日の比較案内を表示する', async () => {
   window.history.replaceState(null, '', '/app/job-copy?view=risk&owner=11'); mock(true, true);
   render(<ConsultantRisk />);
-  expect(await screen.findByText('前回と比べられるのは明日のデータから')).toBeTruthy();
+  const tip = (await screen.findByText('前回と比べられるのは明日のデータからです。')).closest('details');
+  expect(tip?.hasAttribute('open')).toBe(false); expect(tip?.querySelector('summary')?.textContent).toContain('前回との比較');
   expect(screen.queryByRole('region', { name: '今日わかった' })).toBeNull();
 });
 
