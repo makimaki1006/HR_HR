@@ -33,9 +33,9 @@ const choices: DemoChoice[] = [
 const key = (applicant: number) => String(applicant).repeat(64);
 const total = 28;
 
-export function demoApplicantReasons(): ApplicantReasonCollection {
+function build(texts: DemoText[], choices: DemoChoice[], total: number, idPrefix: string): ApplicantReasonCollection {
   const items: ApplicantReason[] = texts.map(([applicant, sourceProperty, applicationDate, text], index) => ({
-    id: `${'abcdef'[index % 6] ?? 'a'}${String(index)}`.padEnd(64, '0'), applicant: key(applicant), text, sourceProperty, applicationDate, collectedAt: null, versionId: null,
+    id: `${idPrefix}${'abcdef'[index % 6] ?? 'a'}${String(index)}`.padEnd(64, '0'), applicant: key(applicant), text, sourceProperty, applicationDate, collectedAt: null, versionId: null,
   }));
   const selections: ReasonSelection[] = choices.map(([applicant, sourceProperty, applicationDate, label]) => ({ applicant: key(applicant), sourceProperty, value: label, label, applicationDate }));
   const sourceCounts = Object.fromEntries(Object.keys(reasonSourceLabels).map(property => {
@@ -45,4 +45,22 @@ export function demoApplicantReasons(): ApplicantReasonCollection {
   const missing = Object.values(sourceCounts).reduce((sum, row) => sum + row.missing, 0);
   return { available: true, basis: 'recorded_applicant_reason', fetchedAt: '2026-10-05T00:00:00Z', totalApplicants: total, totalSourceValues: total * Object.keys(reasonSourceLabels).length,
     sourceCounts, missing, blank: 0, truncated: false, items, selections, optionLabels: 'read' };
+}
+
+export function demoApplicantReasons(): ApplicantReasonCollection {
+  return build(texts, choices, total, '');
+}
+
+/** Fictional reasons for the demo Airワーク job 施設清掃スタッフ (6 applications). */
+const airTexts: DemoText[] = [
+  [1, 'oubodouki', '2026-09-15', '自宅から近いので通いやすい'],
+  [2, 'oubodouki', '2026-09-29', '時給が高いので応募しました'],
+  [3, 'ouboriyuu_baitaikisai', '2026-10-02', '朝の短時間で働けるのが良い'],
+  [4, 'oubodouki', null, '車で通勤できるため'],
+];
+const airChoices: DemoChoice[] = [
+  [2, 'ouboriyuukategori_baitaikisai', '2026-09-29', '給与'],
+];
+export function demoAirworkReasons(): ApplicantReasonCollection {
+  return build(airTexts, airChoices, 6, 'f');
 }

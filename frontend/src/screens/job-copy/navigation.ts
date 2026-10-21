@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-export const detailQueryKeys = ['feature', 'analysis', 'popup', 'popupListing', 'dialog', 'compareLeft', 'compareRight', 'drawer', 'drawerEvent'] as const;
+export const detailQueryKeys = ['feature', 'analysis', 'popup', 'popupListing', 'dialog', 'compareLeft', 'compareRight', 'drawer', 'drawerEvent', 'reasonView'] as const;
 const changed = 'job-copy-navigation';
 const subscribe = (notify: () => void) => {
   window.addEventListener('popstate', notify);
