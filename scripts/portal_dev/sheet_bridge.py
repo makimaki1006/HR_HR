@@ -35,7 +35,7 @@ ALLOWED_ORIGIN = 'http://localhost:5179'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.metadata.readonly']
 HEADER_ROW = 1  # 1 行目が見出し
 FIRST_APPLICANT_ROW = 3  # 2 行目は記入例
-WRITABLE_HEADERS = {'状況', '面接予定日', '時間', '備考', '次回アクション', '入社予定日'}
+WRITABLE_HEADERS = {'応募者名', 'フリガナ', '状況', '面接予定日', '時間', '備考', '次回アクション', '入社予定日'}
 VERSION_TTL = 20.0
 
 KEY_PATH = os.environ.get('PORTAL_SA_KEY', '')

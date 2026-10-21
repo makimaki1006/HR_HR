@@ -19,8 +19,10 @@ pub const ALLOWED_SHEET_ID: i64 = 510300204;
 pub const HEADER_ROW: usize = 1;
 /// 応募者の最初の行 (1 始まり)。2 行目は記入例。
 pub const FIRST_APPLICANT_ROW: usize = 3;
-/// 画面から書ける見出し。
+/// 画面から書ける見出し。応募者名・フリガナは、外国籍の人などが登録の名前を変えることがあるため書ける。
 pub const WRITABLE_HEADERS: &[&str] = &[
+    "応募者名",
+    "フリガナ",
     "状況",
     "面接予定日",
     "時間",
@@ -330,6 +332,8 @@ mod tests {
     fn 書ける見出しと行() {
         assert_eq!(check_writable("状況", 3), Ok(()));
         assert_eq!(check_writable("入社予定日", 120), Ok(()));
+        assert_eq!(check_writable("応募者名", 3), Ok(()));
+        assert_eq!(check_writable("フリガナ", 40), Ok(()));
         assert_eq!(
             check_writable("氏名", 3),
             Err("この項目は画面から書けません")
