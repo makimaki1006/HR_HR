@@ -12,6 +12,8 @@ import { formatDay } from './timelineModel';
 import { yen } from './homeModel';
 import { ownerParams } from './OwnerTodo';
 import { useJobCopySearch } from './navigation';
+import { PageNav } from './SharedTable';
+import { paginate } from './sharedTableModel';
 
 const PAGE_SIZE = 20;
 /** 全求人の一覧は索引だけを読む。応募・課金は従来の読み取りを共用し、追加取得しない。 */
@@ -58,17 +60,17 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
   if (error && loadedQuery === ownerQuery) return <p role="alert">求人を読み込めませんでした。時間を置いて画面を開き直してください。</p>;
   if (!rows || loadedQuery !== ownerQuery) return <p role="status">求人を読み込んでいます…</p>;
   const model = companyListingsModel(rows, source.status === 'ready' ? source.datas : [], deals, billingByJob);
-  const table = (items: typeof model.live, page: number, setPage: (page: number) => void, label: string) => <>
+  const table = (items: typeof model.live, page: number, setPage: (page: number) => void, label: string) => { const view = paginate(items, page, PAGE_SIZE); return <>
     {items.length ? <div className="jh-scroll"><table className="jh-listing-table" aria-label={`${label}の求人`}><thead><tr>
       <th scope="col">求人名</th><th scope="col">媒体</th><th scope="col">掲載期間</th><th scope="col" className="num">直近4週の応募</th><th scope="col" className="num">今の課金（4週）</th><th scope="col">最後の変更</th>
-    </tr></thead><tbody>{items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(item => <tr key={item.row.id} onClick={event => { if (!(event.target as HTMLElement).closest('button, a')) onOpenListing(item.row); }}>
+    </tr></thead><tbody>{view.items.map(item => <tr key={item.row.id} onClick={event => { if (!(event.target as HTMLElement).closest('button, a')) onOpenListing(item.row); }}>
       <th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenListing(item.row); }}>{item.row.title ?? '求人名未取得'}</button><div className="jh-listing-deals">{item.deals.map(deal => <small key={deal.id}><button type="button" className="jh-link" onClick={() => { onOpenDeal({ id: deal.id, name: dealName(deal) }); }}>{dealName(deal)}</button> · {deal.stage_label ?? 'ステージ不明'}</small>)}</div></th>
       <td>{mediaLabel(item.row.media)}</td><td>{companyListingPeriod(item.row)}{!item.live && publicationLabel(item.row.publication_status) !== '掲載終了' && <small>掲載状況：{publicationLabel(item.row.publication_status)}</small>}</td>
       <td className="num">{item.numbers?.recent == null ? '—' : `${String(item.numbers.recent)}件`}</td><td className="num">{yen(item.numbers?.billing ?? null)}</td>
       <td>{item.changedAt ? <>本文を変更<small>{formatDateTimeJst(item.changedAt, '日時不明')}</small></> : '変更日不明'}</td>
     </tr>)}</tbody></table></div> : <p>{label}の求人はありません。</p>}
-    {items.length > PAGE_SIZE && <nav className="jh-pages" aria-label={`${label}のページ`}><button type="button" className="jc-button" disabled={page === 0} onClick={() => { setPage(page - 1); }}>前の20件</button><span>{String(page * PAGE_SIZE + 1)}〜{String(Math.min((page + 1) * PAGE_SIZE, items.length))} / {String(items.length)}件</span><button type="button" className="jc-button" disabled={(page + 1) * PAGE_SIZE >= items.length} onClick={() => { setPage(page + 1); }}>次の20件</button></nav>}
-  </>;
+    {items.length > PAGE_SIZE && <PageNav className="jh-pages" label={`${label}のページ`} size={PAGE_SIZE} hasPrev={view.pageIndex > 0} hasNext={view.pageIndex + 1 < view.pages} onPrev={() => { setPage(page - 1); }} onNext={() => { setPage(page + 1); }}>{String(view.from)}〜{String(view.to)} / {String(items.length)}件</PageNav>}
+  </>; };
   return <>
     {source.status === 'loading' && <p role="status">応募・課金を読み込んでいます…</p>}
     {source.status === 'error' && <p role="alert">応募・課金を読み込めませんでした。求人は表示しています。</p>}

@@ -1,4 +1,5 @@
 import type { WorkReady } from './OwnerTodo';
+import { sortRows } from './sharedTableModel';
 export type { DealBoardRow as DealRow } from '../../generated/DealBoardRow';
 import type { DealBoardRow as DealRow } from '../../generated/DealBoardRow';
 export type DealBoardResponse = { status: 'preparing' | 'failed' } | {
@@ -13,13 +14,8 @@ export const dealSorts = [
 export type DealSort = typeof dealSorts[number][0];
 export function sortDeals(rows: DealRow[], sort: DealSort, descending: boolean): DealRow[] {
   const val = (row: DealRow) => sort === 'priority' || sort === 'reasons' ? row.reasons.length : row[sort];
-  return [...rows].sort((a, b) => {
-    const left = val(a); const right = val(b);
-    if (left === null && right !== null) return 1;
-    if (right === null && left !== null) return -1;
-    const delta = typeof left === 'string' && typeof right === 'string' ? left.localeCompare(right, 'ja') : Number(left) - Number(right);
-    return (sort === 'priority' ? -delta || (b.amount ?? -1) - (a.amount ?? -1) : descending ? -delta : delta) || a.id.localeCompare(b.id);
-  });
+  // 既定の並びは印の多い順 → 金額の多い順。向きの指定は使わない。
+  return sortRows(rows, val, sort === 'priority' || descending, sort === 'priority' ? (a, b) => (b.amount ?? -1) - (a.amount ?? -1) : undefined, row => row.id);
 }
 
 /** 印の件数は、印による絞り込みの前の案件を1件ずつ数える。 */
