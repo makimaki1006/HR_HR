@@ -125,7 +125,29 @@ it("法人の全節と数字・案件の詳細・条件のURLを表示", async (
   expect(stats.textContent).toContain("3件");
   expect(stats.textContent).toContain("2拠点");
   expect(stats.textContent).toContain("¥900,000");
-  const sites = screen.getByRole("table", { name: "拠点の比較" });
+  expect(screen.queryByRole("table", { name: "拠点の比較" })).toBeNull();
+  expect(screen.queryByTestId("hj-monthly-101")).toBeNull();
+  expect(screen.queryByTestId("hj-funnel")).toBeNull();
+  expect(screen.queryByTestId("hj-focus")).toBeNull();
+  expect(screen.getAllByTestId(/^hj-/).map((e) => e.dataset.testid)).toEqual([
+    "hj-contracts",
+  ]);
+  expect(
+    screen.getByRole("link", { name: "他の法人と比べる（コンサルKPI）" }).getAttribute("href"),
+  ).toBe("/consulting#research/customer?houjin=sample-a");
+  const fold = screen.getByText(/^分析の図と拠点の比較/).closest("details");
+  if (!fold) throw new Error("fold missing");
+  expect(fold.open).toBe(false);
+  expect(screen.getByRole("table", { name: "契約の系列" })).toBeTruthy();
+  expect(screen.getByRole("table", { name: "取引と求人の取引" })).toBeTruthy();
+  fold.open = true;
+  fireEvent(fold, new Event("toggle"));
+  const figures = screen.getAllByTestId(/^hj-/).length - 1;
+  expect(screen.getByText(/^分析の図と拠点の比較/).textContent).toBe(
+    `分析の図と拠点の比較（図${String(figures)}点）`,
+  );
+  expect(figures).toBe(14 - 1);
+  const sites = await screen.findByRole("table", { name: "拠点の比較" });
   expect(within(sites).getByText("¥800,000")).toBeTruthy();
   expect(within(sites).getByText("6（2件）")).toBeTruthy();
   const mtg = screen.getByRole("table", { name: "MTGの履歴" });
