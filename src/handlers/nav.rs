@@ -310,7 +310,7 @@ pub const NAV_DEFS: &[NavDef] = &[
     NavDef {
         id: "job-copy",
         label: "案件管理",
-        title: Some("求人本文・画像の履歴、差分、応募構成を確認"),
+        title: Some("自分の案件のやること・危ない案件・求人"),
         kind: NavKind::App,
         target: "/app/job-copy",
         group: None,

@@ -2072,7 +2072,7 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
         "median_gap_days": median_gap,
         "n_gap": gaps.len(),
         "gap_rule": "「記録の遅れ」は、実際に替わった日（MTG のホストが替わった日）と HubSpot の担当者欄が直された日の差です。プラスなら HubSpot のほうが後。マイナスは、先に欄だけ直して実務の引き継ぎが後になったことを表します",
-        "source_rule": "交代日は MTG のホストが替わった日で取っています。HubSpot の担当者欄が直された日は交代日ではありません",
+        "source_rule": "交代日は MTG のホストが替わった日で取っています。HubSpot の担当者欄が直された日は使っていません",
         // 交代の前後の接触（2026-09-24 藤巻さんの要望。決まりごとは handover_contact.rs の頭）
         "contact_cmp": contact_cmp_json(&cx, &items, cmp_unavailable, &unresolved_no),
     })
