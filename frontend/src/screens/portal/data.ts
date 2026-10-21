@@ -36,12 +36,24 @@ export interface LiveState {
 
 /** 本物のシートにつなぐ試作のシート（顧客 c1 の s1）。 */
 export const LIVE_SHEET_ID = 's1';
-const LIVE_BRIDGE = 'http://127.0.0.1:5180';
 const LIVE_SID = '1m5DRb117MXqCQw4GhJC21spHE6N3lqE0dtqP7zxwLeg';
 const LIVE_GID = 510300204;
 const LIVE_POLL_MS = 30_000;
+
+/**
+ * 社内向けテスト版（/app/portal-test、本番の HR_HR）か。そうなら読み書きの先は同じオリジンの
+ * /api/portal-test/*、本物のシートは既定で ON（?live=0 で試作のサンプルだけ）。
+ * それ以外（手元の portal-preview.html）は手元の橋渡しサーバー（127.0.0.1:5180）で、?live=1 のときだけ。
+ */
+export const IS_SERVER_TEST = ((): boolean => {
+  try { return window.location.pathname.replace(/\/+$/, '') === '/app/portal-test'; } catch { return false; }
+})();
+const LIVE_BASE = IS_SERVER_TEST ? '/api/portal-test' : 'http://127.0.0.1:5180';
 const liveRequested = (): boolean => {
-  try { return new URLSearchParams(window.location.search).get('live') === '1'; } catch { return false; }
+  try {
+    const v = new URLSearchParams(window.location.search).get('live');
+    return IS_SERVER_TEST ? v !== '0' : v === '1';
+  } catch { return false; }
 };
 
 const firstSheetOf = (sheets: SheetConfig[], customerId: string): string =>
@@ -198,7 +210,7 @@ function replaceRow(sheetId: string, row: ApplicantRow): Record<string, Applican
   return { ...state.rows, [sheetId]: (state.rows[sheetId] ?? []).map((r) => (r.rowNumber === row.rowNumber ? row : r)) };
 }
 
-// ---- 本物のシート（テスト）: ローカルの橋渡しサーバー（scripts/portal_dev/sheet_bridge.py）を通して読み書きする ----
+// ---- 本物のシート（テスト）: /app/portal-test では HR_HR の /api/portal-test/*、手元では橋渡しサーバー（scripts/portal_dev/sheet_bridge.py）を通して読み書きする ----
 
 interface LiveSheet {
   headers: Record<string, number>;
@@ -213,14 +225,35 @@ let liveLoaded = false;
 let liveModified = '';
 let liveTimer: ReturnType<typeof setInterval> | null = null;
 
+/** 読み書きの失敗。notShared はシートがサービスアカウントに共有されていないとき（画面に追加するアドレスを出す）。 */
+class LiveError extends Error {
+  readonly notShared: boolean;
+  constructor(message: string, notShared = false) {
+    super(message);
+    this.notShared = notShared;
+  }
+}
+
 async function liveFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(LIVE_BRIDGE + path, init?.method === 'POST' ? { ...init, headers: { 'Content-Type': 'application/json' } } : init);
-  const body = (await r.json()) as T & { error?: string };
-  if (!r.ok) throw new Error(body.error ?? 'つながりません（' + String(r.status) + '）');
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (init?.method === 'POST') headers['Content-Type'] = 'application/json';
+  // 本番の HR_HR の書き込みの決まり（CSRF の確認）。同じオリジンなので Cookie も付く。
+  if (IS_SERVER_TEST) headers['X-Requested-With'] = 'fetch';
+  const r = await fetch(LIVE_BASE + path, { ...init, headers, credentials: 'same-origin' });
+  type Body = T & { error?: string; code?: string; error_kind?: string };
+  const body = await r.json().then((j: unknown) => j as Body, () => null);
+  if (r.status === 401) throw new LiveError('ログインが切れています。ページを開き直してログインしてください。');
+  if (body?.error_kind === 'google_login_required') throw new LiveError('会社の Google アカウントでログインした人だけが使えます。');
+  if (body?.error_kind === 'forbidden' || body?.error_kind === 'account_disabled') throw new LiveError('この画面を使う権限がありません。');
+  if (!r.ok || body === null) throw new LiveError(body?.error ?? 'つながりません（' + String(r.status) + '）', body?.code === 'sheet_not_shared');
   return body;
 }
 
 function liveOffline(e: unknown): void {
+  if (e instanceof LiveError && e.notShared) {
+    set({ live: { status: 'offline', message: e.message } });
+    return;
+  }
   const msg = e instanceof Error ? e.message : '';
   set({ live: { status: 'offline', message: liveLoaded ? '本物のシートにつながりません。最後に読んだ内容を出しています。' : '本物のシートにつながりません。試作のサンプルを出しています。' + (msg !== '' && !msg.startsWith('Failed') ? '（' + msg + '）' : '') } });
 }
@@ -303,6 +336,7 @@ async function liveSaveCell(sheet: SheetConfig, row: ApplicantRow, column: strin
   try {
     res = await liveFetch('/cell', { method: 'POST', body: JSON.stringify({ sid: LIVE_SID, gid: LIVE_GID, rowNumber: row.rowNumber, header: column, base, next }) });
   } catch (e) {
+    if (e instanceof LiveError && e.notShared) return { kind: 'failed', message: e.message };
     const msg = e instanceof Error && !e.message.startsWith('Failed') ? e.message : '本物のシートにつながりません。';
     return { kind: 'failed', message: 'シートに保存できませんでした。' + msg };
   }

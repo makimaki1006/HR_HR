@@ -8,7 +8,7 @@ import { screens as account } from './customer/account';
 import { screens as metrics } from './customer/metrics';
 import { screens as history } from './customer/history';
 import { screens as columnsScreens } from './customer/columns';
-import { LIVE_SHEET_ID, actions, retryLive, startLive, useData } from './data';
+import { IS_SERVER_TEST, LIVE_SHEET_ID, actions, retryLive, startLive, useData } from './data';
 import { STAFF_NAME } from './fixtures';
 import { screens as adminCustomers } from './admin/customers';
 import { screens as adminAccounts } from './admin/accounts';
@@ -72,7 +72,9 @@ function LiveBadge() {
   const d = useData();
   const url = new URL(window.location.href);
   const on = d.live.status !== 'off';
-  if (on) url.searchParams.delete('live'); else url.searchParams.set('live', '1');
+  // /app/portal-test は既定で本物のシート（?live=0 で試作だけ）、手元の試作は ?live=1 のときだけ本物。
+  if (IS_SERVER_TEST) { if (on) url.searchParams.set('live', '0'); else url.searchParams.delete('live'); }
+  else if (on) url.searchParams.delete('live'); else url.searchParams.set('live', '1');
   const sheetName = d.sheets.find((s) => s.id === LIVE_SHEET_ID)?.tabName ?? '';
   return (
     <span className="ml-auto flex items-center gap-2">
