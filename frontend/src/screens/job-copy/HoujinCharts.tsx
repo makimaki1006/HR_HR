@@ -64,6 +64,30 @@ export function Figure({
     </figure>
   );
 }
+/** 畳んだ見出しに出す図の数。下の各部品が出す Figure の数と同じ条件で数える */
+export function monthlyFigureCount(mm: Monthly): number {
+  const any = [...Object.values(mm.series), ...Object.values(mm.nps)].some(
+    (ps) => ps.length > 0,
+  );
+  return any ? 3 : 0;
+}
+export function cpaFigureCount(
+  data: CustomerData,
+  deals: CustomerDeal[],
+): number {
+  const ids = new Set(deals.map((d) => d.deal_id));
+  return (
+    1 +
+    data.cpa_by_site.filter((s) => s.points.some((p) => ids.has(p.deal_id)))
+      .length
+  );
+}
+export function acrossFigureCount(
+  data: CustomerData,
+  deals: CustomerDeal[],
+): number {
+  return 4 + cpaFigureCount(data, deals);
+}
 export function MonthlyCharts({
   mm,
   data,

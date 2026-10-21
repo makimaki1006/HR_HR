@@ -16,15 +16,23 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await page.route('**/api/crm/deals/101/edit-schema', route => route.fulfill({ json: { writes_enabled: true, editable: [{ object: 'deal', name: 'actionyotei', type: 'date' }, { object: 'deal', name: 'actionnaiyou', type: 'enumeration', options: [{ value: 'call', label: '電話' }] }] } }));
   await login(page);
   await page.goto('/app/job-copy?view=risk&owner=11&owner_field=consultant');
+  // 既定は名札2本以上（1本だけの2件は件数だけ出して外す）
+  await expect(page.getByRole('note')).toContainText('名札が2本以上の案件 1件を出しています');
+  await expect(page.getByRole('note')).toContainText('名札が1本だけの案件 2件は出していません');
+  await expect(page.getByRole('button', { name: riskRow.name })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: '架空の採用支援C' })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: '名札が1本だけの案件も出す' }).check();
+  await expect(page).toHaveURL(/risk_all=1/);
   const fresh = page.getByRole('region', { name: '今日わかった' });
   const ongoing = page.getByRole('region', { name: '前から出ていて直っていない' });
   await expect(fresh.getByRole('heading', { level: 2 })).toHaveText('今日わかった 2件');
   await expect(ongoing.getByRole('heading', { level: 2 })).toHaveText('前から出ていて直っていない 1件');
   const mixed = fresh.getByRole('row').filter({ has: page.getByRole('button', { name: riskRow.name }) });
-  await expect(mixed.getByRole('listitem')).toHaveText(['NPSが4以下今日わかった2026/10/19から', '満了まで60日以内2026/10/16から']);
+  await expect(mixed.getByRole('listitem')).toHaveText(['NPSが4以下今日わかった', '満了まで60日以内']);
   await expect(mixed.getByRole('listitem').nth(0)).toHaveClass('cr-new');
   await expect(mixed.getByRole('listitem').nth(1)).not.toHaveClass('cr-new');
   await expect(mixed.getByRole('cell').nth(3)).toHaveText('1日前');
+  await expect(mixed.getByText('2026/10/16から')).toHaveCount(1);
   await expect(page.getByRole('button', { name: riskRow.name })).toHaveCount(1);
   await expect(ongoing.getByRole('button')).toHaveText(['架空の採用支援C']);
   await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveCount(1);

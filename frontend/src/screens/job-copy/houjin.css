@@ -184,3 +184,13 @@
   min-width: 10ch;
   overflow-wrap: normal;
 }
+.hj-fold {
+  margin: 12px 0;
+  border: 1px solid var(--jc-line, #d5dbe3);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.hj-fold > summary {
+  cursor: pointer;
+  font-weight: 600;
+}

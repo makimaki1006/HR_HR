@@ -3265,7 +3265,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         // 接触率。🔴 ②コンサルタント一覧と同じ関数。計算を2つ持たない
         let (touched_m, elapsed_m) = super::contact_rate_of(d, &contacts, today);
         let np = nps.get(&d.id);
-        // MTG途絶の帯。閾値は GAS `no_mtg_alerter.gs` と同じ
+        // MTG途絶の帯。重大は 60 日（2026-10-21 ユーザー決定。GAS の 90 日とは違う）
         let gap = super::mtg_gap_of(d, &last_mtg, today);
         let source_label = if gap.last.is_some()
             && gap.last == zoom_last.get(&d.id).and_then(|(day, _)| *day)
@@ -3441,7 +3441,6 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     // 帯は決まった順に並べる（件数順にすると毎日入れ替わって読めない）
     let band_order = [
         super::MtgBand::Critical,
-        super::MtgBand::Red,
         super::MtgBand::Yellow,
         super::MtgBand::Recent,
         super::MtgBand::NoRecord,
@@ -3482,12 +3481,11 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             //    （2026-09-24 実機: today の図の注記に「GAS（no_mtg_alerter）」と出ていた）。
             //    現場が知っているのは、毎朝 Slack に届く MTG 途絶の警告のほう
             "rule": format!(
-                "最終MTGからの経過日数で分けています。注意 {}〜{}日 ／ 警告 {}〜{}日 ／ 重大 {}日以上。\
+                "最終MTGからの経過日数で分けています。注意 {}〜{}日 ／ 重大 {}日以上。\
     契約開始から{}日以内は立ち上がり期として区分を付けていません。\
     満了まで{}日以内で{}日以上空いているものは、経過日数に関わらず重大にしています。\
-    線引きは、毎朝 Slack に届く MTGが空いている期間の警告と同じです",
-                super::MTG_GAP_YELLOW_DAYS, super::MTG_GAP_RED_DAYS - 1,
-                super::MTG_GAP_RED_DAYS, super::MTG_GAP_CRITICAL_DAYS - 1,
+    重大の線引きは 60 日で、案件管理の「危ない案件」と同じです",
+                super::MTG_GAP_YELLOW_DAYS, super::MTG_GAP_CRITICAL_DAYS - 1,
                 super::MTG_GAP_CRITICAL_DAYS, super::MTG_ONBOARDING_GRACE_DAYS,
                 super::MTG_PRE_TERMINATION_DAYS, super::MTG_PRE_TERMINATION_GAP_DAYS),
             // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ない。記録が欠ける理由の候補を添える。
@@ -3640,7 +3638,7 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    // 担当を選んだときの KPI「MTGが90日以上途絶」の実数。候補（名札2本以上）の中で数えると、名札が
+    // 担当を選んだときの KPI「MTGが60日以上空いている」の実数。候補（名札2本以上）の中で数えると、名札が
     // MTG途絶の 1 本だけの行が落ちて帯の件数と合わない（fixture: 帯 critical 102 件のうち名札 1 本の
     // 行が 5 件、担当 27 名中 5 名で 1 件ずれる）。稼働中の全件から担当ごとに数える
     let mut critical_by_consultant: BTreeMap<&str, usize> = BTreeMap::new();

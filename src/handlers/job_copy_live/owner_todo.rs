@@ -568,7 +568,7 @@ impl Snapshot {
                 continue;
             }
             let a = &deal.assignment;
-            let reasons = metrics.reasons(self, id, today);
+            let reasons = metrics.todo_reasons(self, id, today);
             let row = |due: NaiveDate, content: Option<&str>| {
                 let company = self.companies.get(id);
                 let consultant = self
@@ -633,7 +633,7 @@ impl Snapshot {
                 })
                 .then_with(|| a["id"].as_str().cmp(&b["id"].as_str()))
         });
-        json!({"status":"ready","owner":owner.as_deref().unwrap_or("all"),"owner_field":field,"notice":scope["notice"],"owners":scope["owners"],"actions":actions,"expirations":expirations,"signals":signals,"sheet_as_of":meetings.as_of,"refresh_failed":failed})
+        json!({"status":"ready","owner":owner.as_deref().unwrap_or("all"),"owner_field":field,"notice":scope["notice"],"owners":scope["owners"],"actions":actions,"expirations":expirations,"signals":signals,"hubspot_portal_id":crate::hubspot::deep_link::hubspot_portal_id(),"sheet_as_of":meetings.as_of,"refresh_failed":failed})
     }
 }
 pub(super) fn today(now: chrono::DateTime<Utc>) -> NaiveDate {
@@ -687,8 +687,8 @@ pub(super) async fn read_deal(
     let body = if let Some(snapshot) = view.snapshot.filter(|_| !view.partial) {
         let meetings = super::deal_board::MeetingData::cached().await;
         let day = today(Utc::now());
-        let reasons =
-            super::deal_board::Metrics::new(&snapshot, &meetings, day).reasons(&snapshot, &id, day);
+        let reasons = super::deal_board::Metrics::new(&snapshot, &meetings, day)
+            .todo_reasons(&snapshot, &id, day);
         json!({"status":"ready","reasons":reasons,"refresh_failed":view.failed,"refreshing":view.refreshing})
     } else {
         json!({"status":if view.failed {"failed"} else {"preparing"}})

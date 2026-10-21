@@ -142,7 +142,14 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(page.getByRole("region", { name: "法人の数字" })).toContainText(
     "¥900,000",
   );
-  await expect.poll(() => charts.count()).toBeGreaterThan(10);
+  await expect(page.getByTestId("hj-contracts")).toHaveAttribute("data-chart-ready", "true");
+  expect(await charts.count()).toBe(1);
+  await expect(page.getByRole("table", { name: "拠点の比較" })).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "他の法人と比べる（コンサルKPI）" }),
+  ).toHaveAttribute("href", "/consulting#research/customer?houjin=sample-a");
+  await page.getByText(/^分析の図と拠点の比較（図13点）/).click();
+  await expect.poll(() => charts.count()).toBe(14);
   const rendered = await charts.evaluateAll((els) =>
     els.map((el) => {
       const instance = window.__echarts_getInstanceByDom?.(el as HTMLElement);
@@ -195,11 +202,13 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await page
     .getByRole("button", { name: "大きいのに拠点が少ない", exact: true })
     .click();
   await expect(page).toHaveURL(/houjin_sites_max=2/);
   await page.reload();
+  await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await expect(
     page.getByRole("button", { name: "大きいのに拠点が少ない", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");

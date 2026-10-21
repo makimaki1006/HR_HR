@@ -1,0 +1,129 @@
+// 一覧の上の「今日」の帯、並べ替えの選択、はみ出すタブの手がかり。PC とスマホで同じものを使う。
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { stageOf } from '../../data';
+import { cx } from '../../ui/kit';
+import type { ApplicantRow, ListSort, SheetConfig } from '../../types';
+import { parseLooseDay } from '../../columns';
+import { dayOffset } from './model';
+
+export type Quick = 'today' | 'tomorrow' | 'new' | 'unhandled';
+
+const interviewDay = (sheet: SheetConfig, row: ApplicantRow): number | null => {
+  if (!sheet.interviewColumn) return null;
+  const ref = sheet.sortColumn ? parseLooseDay(row.values[sheet.sortColumn]) : null;
+  return dayOffset(row.values[sheet.interviewColumn] ?? '', ref);
+};
+
+/** 未対応の人か（選考状況が「応募」の段階）。段階が決まっていないシートでは数えない。 */
+const isUnhandled = (sheet: SheetConfig, row: ApplicantRow): boolean => {
+  const col = sheet.statusColumn;
+  return col !== undefined && stageOf(sheet, row.values[col] ?? '') === 'applied';
+};
+
+export function matchesQuick(sheet: SheetConfig, row: ApplicantRow, q: Quick): boolean {
+  if (q === 'today') return interviewDay(sheet, row) === 0;
+  if (q === 'tomorrow') return interviewDay(sheet, row) === 1;
+  if (q === 'new') return row.changedSinceLastView === 'new';
+  return isUnhandled(sheet, row);
+}
+
+/** 帯に出すチップ。面接の列が決まっていないシートでは面接の 2 つを出さない。 */
+export function quickChips(sheet: SheetConfig, rows: ApplicantRow[]): { id: Quick; label: string; count: number }[] {
+  const count = (q: Quick): number => rows.filter((r) => matchesQuick(sheet, r, q)).length;
+  const out: { id: Quick; label: string; count: number }[] = [];
+  if (sheet.interviewColumn) {
+    out.push({ id: 'today', label: '今日の面接', count: count('today') });
+    out.push({ id: 'tomorrow', label: '明日', count: count('tomorrow') });
+  }
+  out.push({ id: 'new', label: '新着', count: count('new') });
+  if (sheet.stageMap && sheet.statusColumn) out.push({ id: 'unhandled', label: '未対応', count: count('unhandled') });
+  return out;
+}
+
+export function TodayBand({ chips, active, onPick, className }: {
+  chips: { id: Quick; label: string; count: number }[];
+  active: Quick | null;
+  onPick: (q: Quick | null) => void;
+  className?: string;
+}) {
+  if (chips.length === 0) return null;
+  return (
+    <div className={cx('flex items-center gap-1.5 overflow-x-auto', className)} role="group" aria-label="今日の用事">
+      {chips.map((c) => {
+        const on = active === c.id;
+        return (
+          <button
+            key={c.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => { onPick(on ? null : c.id); }}
+            className={cx(
+              'inline-flex h-[44px] min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-3 text-[13px] whitespace-nowrap lg:h-7 lg:px-2.5',
+              on ? 'border-pt-select bg-pt-primary-soft font-medium text-pt-primary' : 'border-pt-line bg-pt-surface text-pt-ink hover:bg-pt-sunken',
+              c.count === 0 && !on && 'text-pt-muted',
+            )}
+          >
+            {c.label}
+            <span className={cx('pt-num text-[13px] font-semibold', c.count === 0 && !on ? 'text-pt-faint' : 'text-pt-ink', on && 'text-pt-primary')}>{c.count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+type SortChoice = 'default' | 'near' | 'changed' | 'custom';
+
+/** 並べ替え。見出しで並べているときは「見出しの並べ替え」と出る。 */
+export function SortSelect({ sort, interviewColumn, onChange, className }: {
+  sort: ListSort | null;
+  interviewColumn: string | undefined;
+  onChange: (s: ListSort | null) => void;
+  className?: string;
+}) {
+  const value: SortChoice = sort === null ? 'default' : sort.mode === 'near' ? 'near' : sort.mode === 'changed' ? 'changed' : 'custom';
+  return (
+    <label className={cx('relative block', className)}>
+      <span className="sr-only">並べ替え</span>
+      <select
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === 'default') onChange(null);
+          if (v === 'near' && interviewColumn) onChange({ column: interviewColumn, dir: 'asc', mode: 'near' });
+          if (v === 'changed') onChange({ column: '', dir: 'desc', mode: 'changed' });
+        }}
+        className="h-[44px] w-full rounded-md border border-pt-line-strong bg-pt-surface px-2.5 text-base text-pt-ink focus:border-pt-select focus:ring-2 focus:ring-pt-select/20 focus:outline-none lg:h-8 lg:text-[13px]"
+      >
+        <option value="default">応募日が新しい順</option>
+        {interviewColumn && <option value="near">面接日が近い順</option>}
+        <option value="changed">更新が新しい順</option>
+        {value === 'custom' && <option value="custom" disabled>見出しで並べ替え中</option>}
+      </select>
+    </label>
+  );
+}
+
+/** 横に並べたタブ。右にまだ続きがあるときは、右端をぼかして「›」を出す。 */
+export function TabScroller({ children, fade, label }: { children: ReactNode; fade: string; label: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const calc = () => { setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 4); };
+    calc();
+    el.addEventListener('scroll', calc, { passive: true });
+    const ro = new ResizeObserver(calc);
+    ro.observe(el);
+    return () => { el.removeEventListener('scroll', calc); ro.disconnect(); };
+  }, []);
+  return (
+    <div className="relative min-w-0">
+      <div ref={ref} className="flex min-w-0 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label={label}>{children}</div>
+      {more && (
+        <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 flex w-9 items-center justify-end pr-1 text-[18px] text-pt-muted" style={{ background: `linear-gradient(to left, ${fade} 45%, transparent)` }}>›</span>
+      )}
+    </div>
+  );
+}
