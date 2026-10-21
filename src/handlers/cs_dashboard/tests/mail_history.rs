@@ -258,7 +258,7 @@ fn zoom_changes_flags_using_the_production_aggregation() {
     assert_eq!(
         changed,
         vec![
-            ("MTGが90日以上空いている".into(), 56, 55),
+            ("MTGが60日以上空いている".into(), 77, 76),
             ("接触が30日以上空いている".into(), 69, 68),
         ]
     );

@@ -2012,16 +2012,16 @@ check("goLink: 本文の「別の画面へ」は、行き先がすべて MENUS �
 check("today: MTGが空いている期間の数え方に中の仕組みの名前（GAS・no_mtg_alerter）を出さない。件数 0 の区分は書かない", () => {
   ctx.__TDg = { rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "",
     mtg_gap: { rule: "", no_record_note: "", source_note: "", coverage: {},
-      bands: [{ band: "critical", label: "重大 90日以上", n: 3, alert: true },
+      bands: [{ band: "critical", label: "重大 60日以上", n: 3, alert: true },
               { band: "yellow", label: "注意 30〜59日", n: 5, alert: true },
-              { band: "red", label: "警告 60〜89日", n: 0, alert: true }] } } };
+              { band: "recent", label: "直近 30日未満", n: 0, alert: false }] } } };
   const h = run("renderToday(__TDg)");
   ok(!/GAS|no_mtg_alerter/.test(h), "today に内部の仕組みの名前が出ている");
   ok(!h.includes('毎朝 Slack に届く MTGが空いている期間の警告と同じ'), '線引きの理由が残っている');
   ok(!h.includes("<figcaption>最終MTGからの経過日数で分けた帯"), "外した図（MTGが空いている期間の区分）が残っている");
   const g = h;
-  ok(g.includes("重大 90日以上 3件") && g.includes("注意 30〜59日 5件"), "件数のある区分が数え方の畳みに無い: " + g);
-  ok(!g.includes("60〜89日"), "件数 0 の区分を書いている");
+  ok(g.includes("重大 60日以上 3件") && g.includes("注意 30〜59日 5件"), "件数のある区分が数え方の畳みに無い: " + g);
+  ok(!g.includes("直近 30日未満"), "件数 0 の区分を書いている");
   ok(!run('mtgCell({ mtg_band: "yellow", mtg_days: 40 })').includes("murasaki"), "表の「最後のMTG」で注意を紫にしている");
 });
 
@@ -2166,9 +2166,9 @@ check("互換: 正規表現の後読みを使わない（Safari 16.4 より前�
 /* ================================================================ 図の部品（ループ4 の実機確認, 2026-09-24） */
 check("ループ4: ラベルを省略するとき、見分けの語（日数・拠点名の固有部分）を残す", () => {
   const w = 115;
-  ctx.__DS = ["MTGが90日以上空いている", "MTGが60〜89日空いている", "MTGが30〜59日空いている"];
+  ctx.__DS = ["MTGが60日以上空いている", "MTGが30〜59日空いている", "MTGが直近30日以内にある"];
   const cut = run("__DS.map((s) => fitLab(s, " + w + "))");
-  ok(cut.every((s, i) => s.includes(["90日", "60〜89日", "30〜59日"][i])), "日数が消えた: " + cut.join(" / "));
+  ok(cut.every((s, i) => s.includes(["60日", "30〜59日", "30日"][i])), "日数が消えた: " + cut.join(" / "));
   ok(new Set(cut).size === 3, "省略した結果が同じになった: " + cut.join(" / "));
   const tw = run("textW");
   ok(cut.every((s) => tw(s) <= w), "幅に収まっていない: " + cut.join(" / "));
@@ -2179,15 +2179,15 @@ check("ループ4: ラベルを省略するとき、見分けの語（日数・�
   ok(new Set(sn).size === 4, "省略した結果が同じになった: " + sn.join(" / "));
 });
 
-check("ループ4: 狭い枠（319px）の区分のラベルは、省略せずに2行に折り返す（today の「MTGが90日以上空いている」）", () => {
-  const code = "svgBarH({ w: 680, rows: [" + ["MTGが90日以上空いている", "MTGが60〜89日空いている", "直近30日にMTGあり", "立ち上がり期（契約開始30日以内）"]
+check("ループ4: 狭い枠（319px）の区分のラベルは、省略せずに2行に折り返す（today の「MTGが60日以上空いている」）", () => {
+  const code = "svgBarH({ w: 680, rows: [" + ["MTGが60日以上空いている", "MTGが30〜59日空いている", "直近30日にMTGあり", "立ち上がり期（契約開始30日以内）"]
     .map((l, i) => '{ label: "' + l + '", v: ' + (10 + i) + ', txt: "' + (10 + i) + '件", note: "手を打つ" }').join(",") + "] })";
   const svg = drawAt(code, 319);
   ok(figW(svg) === 319 && /data-under/.test(svg), "319px の枠で注記を下に回して描いていない");
   const parts = [...svg.matchAll(/<text class="axl"[^>]*data-wrap="2"[^>]*><tspan[^>]*>([^<]*)<\/tspan><tspan[^>]*>([^<]*)<\/tspan>/g)];
   const labs = parts.map((m) => m[1] + m[2]);
   ok(labs.length >= 3, "長いラベルが2行に折り返されていない: " + labs.join(" / "));
-  ok(labs.includes("MTGが90日以上空いている") && labs.includes("MTGが60〜89日空いている"), "折り返したラベルで字が落ちた: " + labs.join(" / "));
+  ok(labs.includes("MTGが60日以上空いている") && labs.includes("MTGが30〜59日空いている"), "折り返したラベルで字が落ちた: " + labs.join(" / "));
   // 2行目の頭に閉じ括弧を置かない・数字の途中で切らない・行は欄に収まる
   const tw = run("textW");
   ok(parts.every((m) => !/^[）」、。]/.test(m[2]) && !(/[0-9〜]$/.test(m[1]) && /^[0-9〜日%]/.test(m[2]))), "折り返しの位置が数字・括弧の途中: " +
@@ -2315,7 +2315,7 @@ check("ループ4 検証: labWrap は括弧の中・語の途中・助詞の手�
   ok(W("立ち上がり期（契約開始30日以内）", 114.8) === "立ち上がり期（契約 / 開始30日以内）", "漢字の熟語の途中で切った: " + W("立ち上がり期（契約開始30日以内）", 114.8));
   ok(W("満了90日前でMTGが30日以上空いている", 114.8) === "満了90日前でMTGが / 30日以上空いている", "行の頭に助詞を置いた: " + W("満了90日前でMTGが30日以上空いている", 114.8));
   // 助詞の後ろ（「が」）を優先する。英字・「以上」は割らない
-  ok(W("MTGが90日以上空いている", 130) === "MTGが / 90日以上空いている", "助詞の後ろで切っていない: " + W("MTGが90日以上空いている", 130));
+  ok(W("MTGが60日以上空いている", 130) === "MTGが / 60日以上空いている", "助詞の後ろで切っていない: " + W("MTGが60日以上空いている", 130));
   // カタカナの語の途中（「アン / ケート」）より、語の境目（「アンケート / 未回答率」）を選ぶ
   ok(W("NPSアンケート未回答率", 90) === "NPSアンケート / 未回答率", "カタカナの語の途中で切った: " + W("NPSアンケート未回答率", 90));
   // 英字の語・「以上」は割らない（wordGlue）
@@ -3521,7 +3521,7 @@ function todayFixture() {
     meta: { n_hit: 4, n_shown: 2, keep: 2, n_active: 604, n_not_started: 5, filter_rule: "絞った条件の文", order_rule: "並びの文",
       new_deal_rule: "新規の文", not_counted: "※ 予測ではありません", today: "2026-09-18",
       mtg_gap: { rule: "", no_record_note: "", source_note: "", coverage: {}, forced_by_expiry: 1, n_judged: 0,
-        bands: [{ band: "critical", label: "MTGが90日以上空いている", n: 9, alert: true },
+        bands: [{ band: "critical", label: "MTGが60日以上空いている", n: 9, alert: true },
                 { band: "recent", label: "直近30日にMTGあり", n: 40, alert: false },
                 { band: "onboarding", label: "立ち上がり期", n: 7, alert: false }] } },
   };
@@ -3543,7 +3543,7 @@ check("S-2: 数字の札は押せる（button.kpi）。今日出す先・今週�
   ctx.__TD5 = todayFixture();
   const h = run("renderToday(__TD5)");
   ok(/<button type="button" class="kpi" data-jump="td-today-h"><span class="lbl">今日出す先/.test(h), "今日出す先の札が表へ飛ぶ button でない");
-  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上空いている/.test(h), "MTGが空いている期間の札が帯で絞る button でない");
+  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが60日以上空いている/.test(h), "MTGが空いている期間の札が帯で絞る button でない");
   ok(/<button type="button" class="kpi is-warn" data-jump="td-soon-h"><span class="lbl">今週満了する/.test(h), "今週満了の札が表へ飛ぶ button でない");
   ok(/<button type="button" class="kpi" data-jump="td-started"><span class="lbl">今週始まった契約/.test(h), "今週始まった契約の札が畳みを開く button でない");
   ok(/<div class="kpi"><span class="lbl">稼働中の全件[\s\S]*?<a class="golink"/.test(h), "稼働中の全件はリンクを添えた div のまま（button の中に a を入れない）");
@@ -3561,10 +3561,10 @@ check("S-2: 数字の札は押せる（button.kpi）。今日出す先・今週�
   ok(kept === "c1,c3", "帯で絞れていない: " + kept);
   ok(run("boardFilterOn()") === true, "帯だけの絞り込みが「絞り込みなし」になる");
   const words = run("boardFilterWords(__TD5)");
-  ok(words === "MTGが空いている期間 MTGが90日以上空いている", "絞り込みの言葉に帯の名前が無い: " + words);
+  ok(words === "MTGが空いている期間 MTGが60日以上空いている", "絞り込みの言葉に帯の名前が無い: " + words);
   ok(run("boardFilterWords({})") === "MTGが空いている期間 の区分", "帯の名前が引けないときに内部の鍵（critical）を出している: " + run("boardFilterWords({})"));
   const bar = run("boardFilterBar(__TD5)");
-  ok(/<select id="bf-band"><option value="">すべて<\/option><option value="critical" selected>MTGが90日以上空いている（9）<\/option>/.test(bar),
+  ok(/<select id="bf-band"><option value="">すべて<\/option><option value="critical" selected>MTGが60日以上空いている（9）<\/option>/.test(bar),
     "MTGが空いている期間の選択欄が無い、または帯の名前と件数でない");
   run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
 });
@@ -3658,7 +3658,7 @@ check("D-1a の検証: 担当の選択欄の顔ぶれは選んだ担当で変わ
   run("todayConsultant = '';");
 });
 
-check("D-1a の検証: 担当を選んだときの KPI「MTGが90日以上空いている」はサーバの担当ごとの実数（critical_by_consultant）で、押すとその担当のその区分へ。絞った条件にはこの表が何かを 1 文", () => {
+check("D-1a の検証: 担当を選んだときの KPI「MTGが60日以上空いている」はサーバの担当ごとの実数（critical_by_consultant）で、押すとその担当のその区分へ。絞った条件にはこの表が何かを 1 文", () => {
   const F = todayFixture();
   // 担当C の候補の中の critical は 1 件（候補3）だが、帯の実数は 3 件（名札が MTG途絶の 1 本だけの行は候補に入らない）
   F.meta.mtg_gap.critical_by_consultant = { "担当A": 1, "担当C": 3 };
@@ -3666,8 +3666,8 @@ check("D-1a の検証: 担当を選んだときの KPI「MTGが90日以上空い
   run("todayConsultant = '担当C';");
   const h = run("renderToday(__TD8)");
   const kp = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="td-today-h"'));
-  ok(/<button type="button" class="kpi is-bad" data-band="critical" data-consultant="担当C"><span class="lbl">MTGが90日以上空いている<\/span><span class="big">3<span class="u">件/.test(kp),
-    "担当を選んだときの MTGが空いている期間が担当ごとの実数（3）で、担当を添えた button になっていない: " + kp.slice(kp.indexOf("MTGが90日以上空いている") - 110, kp.indexOf("MTGが90日以上空いている") + 120));
+  ok(/<button type="button" class="kpi is-bad" data-band="critical" data-consultant="担当C"><span class="lbl">MTGが60日以上空いている<\/span><span class="big">3<span class="u">件/.test(kp),
+    "担当を選んだときの MTGが空いている期間が担当ごとの実数（3）で、担当を添えた button になっていない: " + kp.slice(kp.indexOf("MTGが60日以上空いている") - 110, kp.indexOf("MTGが60日以上空いている") + 120));
   ok(textOf(kp).includes("この担当の稼働中の案件で。全社では 9 件") && textOf(kp).includes("この担当の一覧を見る"), "母集団（稼働中の案件）と行き先（この担当の一覧）が書いていない");
   // 担当を選んでいるときの「絞った条件」: サーバの文（全社の説明）の前に、この表が全件・切っていないことを 1 文
   const rb = h.slice(h.indexOf('id="td-rule"'), h.indexOf("</details>", h.indexOf('id="td-rule"')));
@@ -3676,13 +3676,13 @@ check("D-1a の検証: 担当を選んだときの KPI「MTGが90日以上空い
   // 全員のときは今までどおり帯の件数（9）・全社の一覧（担当を添えない）
   run("todayConsultant = '';");
   const all = run("renderToday(__TD8)");
-  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上空いている<\/span><span class="big">9<span class="u">件/.test(all) && textOf(all).includes("全社の一覧を見る"),
+  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが60日以上空いている<\/span><span class="big">9<span class="u">件/.test(all) && textOf(all).includes("全社の一覧を見る"),
     "全員のときの MTGが空いている期間が帯の件数（9）でない、または担当を添えている");
   // 古い応答（critical_by_consultant が無い）は候補の中で数え、そう断る。行き先は全社（担当を添えない）
   ctx.__TD9 = todayFixture();
   run("todayConsultant = '担当C';");
   const old = run("renderToday(__TD9)");
-  ok(/data-band="critical"><span class="lbl">MTGが90日以上空いている<\/span><span class="big">1<span class="u">件/.test(old) && textOf(old).includes("この担当の候補（注意2つ以上）の中で。全社では 9 件"),
+  ok(/data-band="critical"><span class="lbl">MTGが60日以上空いている<\/span><span class="big">1<span class="u">件/.test(old) && textOf(old).includes("この担当の候補（注意2つ以上）の中で。全社では 9 件"),
     "古い応答で候補の中の件数（1）と、その断りが無い");
   run("todayConsultant = '';");
 });
@@ -4472,7 +4472,7 @@ check("M-12: 帯（svgStack）の中の文字は、空（--sora）の上でも 4
 /* ================================================================ 段2 表と図（2026-09-28）: A / M-8 / M-11 / S-2 の残り */
 check("段2 A: 今日動く先の注意は短い書き方（正式名は title と決まりごとの畳み）を詰めた枡（tag c）で 25.5em の列（wf）に並べる。案件一覧も同じ短い注意で2つまで", () => {
   const row = TD_ROW({ deal_id: "a1", name: "案件A", n_flags: 5, flags: ["NPSが4以下", "接触が30日以上空いている",
-    "採用単価が同じ進捗の区分の1.5倍以上", "MTGが90日以上空いている", "採用目標の半分に届いていない"] });
+    "採用単価が同じ進捗の区分の1.5倍以上", "MTGが60日以上空いている", "採用目標の半分に届いていない"] });
   const odd = TD_ROW({ deal_id: "a2", name: "案件B", n_flags: 1, flags: ["見たことのない注意"] });
   ctx.__A1 = { rows: [row, odd], expiring_this_week: [], started_this_week: [],
     meta: { n_hit: 2, n_shown: 2, n_active: 604, filter_rule: "", order_rule: "", new_deal_rule: "", mtg_gap: {} } };
@@ -4482,8 +4482,8 @@ check("段2 A: 今日動く先の注意は短い書き方（正式名は title �
   // 短い名札。正式な名札と分類の言葉を title に持つ abbr。色は図の分類（flagGroup）と同じ（MTG 途絶は緋）
   ok(/<td class="wf"><abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="NPSが4以下（関係が危ない）">NPS4以下<\/abbr>/.test(t),
     "NPSが4以下 が短い注意（abbr.tag.c、title に正式名と分類）になっていない: " + t.slice(t.indexOf('<td class="wf">'), t.indexOf('<td class="wf">') + 200));
-  ok(/<abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="MTGが90日以上空いている（関係が危ない）">MTG90日以上空いている<\/abbr>/.test(t),
-    "MTGが90日以上空いている の枡が図の分類（緋・関係が危ない）と食い違う（前は紫だった）");
+  ok(/<abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="MTGが60日以上空いている（関係が危ない）">MTG60日以上空いている<\/abbr>/.test(t),
+    "MTGが60日以上空いている の枡が図の分類（緋・関係が危ない）と食い違う（前は紫だった）");
   ok(/<span class="tag c more" title="[^"]*">他3<\/span>/.test(t), "残り3つの数が出ていない");
   for (const f of row.flags) ok(t.includes(f), "全文の注意が title に無い: " + f);
   for (const [full, short] of Object.entries(run("FLAG_SHORT"))) {
@@ -4499,14 +4499,14 @@ check("段2 A: 今日動く先の注意は短い書き方（正式名は title �
   ok(!rule.includes("色が見分けられなくても読めます"), "色だけで伝えていないことが書かれていない");
   const b = run('boardTable(__A1.rows, { key: "n_flags", asc: false }, "board-tbl")');
   ok(b.includes('title="NPSが4以下（関係が危ない）">NPS4以下</abbr>') &&
-     b.includes('title="MTGが90日以上空いている（関係が危ない）">MTG90日以上空いている</abbr>') && b.includes('>他3</span>'),
+     b.includes('title="MTGが60日以上空いている（関係が危ない）">MTG60日以上空いている</abbr>') && b.includes('>他3</span>'),
     "案件一覧でも重い注意2つと残りの数を出していない");
   ok(run('tags(["満了90日前でMTGが30日以上空いている"])').includes('border-color:var(--hi)'), "満了前の MTGが空いている期間が赤でない");
   // 名札の文の正本はサーバ。Rust が出せる名札は全部 FLAG_SHORT にある（新しい名札が正式名のまま長く出るのを見張る）
   const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8");
   const md = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/mod.rs"), "utf-8");
   const labels = [...rs.matchAll(/flags\.push\("([^"]+)"\)/g)].map((m) => m[1])
-    .concat([...md.matchAll(/MtgBand::(?:Critical|Red|Yellow) => "([^"]+)"/g)].map((m) => m[1]));
+    .concat([...md.matchAll(/MtgBand::(?:Critical|Yellow) => "([^"]+)"/g)].map((m) => m[1]));
   ok(labels.length >= 10, "Rust から注意の文が拾えない（形が変わった？）: " + labels.length);
   const missing = labels.filter((l) => !run("FLAG_SHORT[" + JSON.stringify(l) + "]"));
   ok(!missing.length, "サーバの注意に短い書き方が無い: " + missing.join(" / "));
@@ -5231,7 +5231,7 @@ check("09 の 3章 1: 今日の札「接触の記録が無い」は件数に対�
   ok(/61\s*件/.test(tb) && tb.includes("開始済みの稼働中 590 件のうち（10.3%）") && tb.includes("開始前の契約は数えていません") && tb.includes("案件一覧で見る"),
     "件数・対象・率・開始前を数えていないこと・行き先が無い: " + tb);
   // 札の並び: 今日動く先 → 今週満了 → MTG途絶 → 接触の記録が無い（09 の 3章 1 の 2）。今日のコードは MTG 途絶の直後に置く
-  ok(kp.indexOf("MTGが90日以上空いている") < i, "MTGが空いている期間より前に置いている");
+  ok(kp.indexOf("MTGが60日以上空いている") < i, "MTGが空いている期間より前に置いている");
   // 担当を選ぶと、その担当の実数と母数、全社の数を添える
   run("todayConsultant = '担当C';");
   const hc = run("renderToday(__TNC)");
@@ -5716,11 +5716,11 @@ check("共通部品: カードの説明全文をHTMLなしのtitleに残す", ()
   ok(h.includes('<b>対象40件</b><br>30件未満'), "説明本文が消えている");
 });
 check("共通部品: 注意は赤・山吹・その他の順に2つまで、残りと全文も残す", () => {
-  const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "MTGが90日以上空いている", "NPSが4以下"];
+  const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "MTGが60日以上空いている", "NPSが4以下"];
   const h = run('tags(' + JSON.stringify(flags) + ')');
   ok(h === run('tagsShort(' + JSON.stringify(flags) + ')'), "注意の表示が共通でない");
   ok((h.match(/<abbr /g) || []).length === 2 && h.includes('>他2</span>'), "2つと残りの数でない");
-  ok(h.indexOf('>MTG90日以上空いている</abbr>') < h.indexOf('>NPS4以下</abbr>'), "同じ重さの順が変わった");
+  ok(h.indexOf('>MTG60日以上空いている</abbr>') < h.indexOf('>NPS4以下</abbr>'), "同じ重さの順が変わった");
   const more = h.match(/class="tag c more" title="([^"]*)"/)[1];
   for (const f of flags) ok(more.includes(f), "全文が無い: " + f);
   const pair = run('tags(["採用目標の半分に届いていない", "接触が30日以上空いている"])');
@@ -5743,8 +5743,10 @@ check("文言: 古い注意の絞り込み値でも新しい注意に一致す�
   const cases = [
     ["採用単価が同じ進捗帯の1.5倍以上", "採用単価が同じ進捗の区分の1.5倍以上"],
     ["満了90日前でMTGが30日以上途絶", "満了90日前でMTGが30日以上空いている"],
-    ["MTGが90日以上途絶", "MTGが90日以上空いている"],
-    ["MTGが60〜89日途絶", "MTGが60〜89日空いている"],
+    ["MTGが90日以上途絶", "MTGが60日以上空いている"],
+    ["MTGが90日以上空いている", "MTGが60日以上空いている"],
+    ["MTGが60〜89日途絶", "MTGが60日以上空いている"],
+    ["MTGが60〜89日空いている", "MTGが60日以上空いている"],
     ["MTGが30〜59日途絶", "MTGが30〜59日空いている"],
   ];
   const saved = run("JSON.stringify(boardFilter)");
