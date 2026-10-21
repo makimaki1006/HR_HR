@@ -1,7 +1,7 @@
 // ログイン後の画面の外枠（v2）。左のメニュー、表示中のシートの切り替え、シートとのつながりの状態。
 // 社内の人が見ているときは、顧客を切り替えられる（「顧客の画面を見る」）。
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { actions, currentCustomer, currentSheet, sheetsOf, useData, viewerName } from '../data';
+import { LIVE_SHEET_ID, actions, currentCustomer, currentSheet, retryLive, sheetsOf, useData, viewerName } from '../data';
 import { ROUTES, usePreviewNav } from '../preview';
 import { cx, formatTime } from './kit';
 import { StaffBand } from '../admin/customers/StaffBand';
@@ -32,6 +32,14 @@ function SyncStatus({ sync }: { sync?: SyncInfo | undefined }) {
     return () => { clearInterval(t); };
   }, []);
   const s: SyncInfo | undefined = sync ?? (sheet && sheet.connection !== 'ok' ? { state: 'unavailable' } : undefined);
+  if (d.live.status === 'offline' && d.currentSheetId === LIVE_SHEET_ID) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs whitespace-nowrap text-pt-danger" title={d.live.message}>
+        <span className="h-1.5 w-1.5 rounded-full bg-pt-danger" />本物のシートにつながりません
+        <button type="button" onClick={() => { retryLive(); }} className="font-medium text-pt-primary hover:underline">読み直す</button>
+      </span>
+    );
+  }
   if (s?.state === 'unavailable') {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs whitespace-nowrap text-pt-danger">

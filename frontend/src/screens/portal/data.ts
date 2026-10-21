@@ -23,7 +23,26 @@ export interface DataState {
   nextSave: 'ok' | 'conflict' | 'failed';
   /** 一覧の見せ方（列の表示・並べ替え・絞り込み）。キーは「人|シート」。 */
   listPrefs: Record<string, ListPrefs>;
+  /** 本物のシート（テスト）につないでいるか。URL に ?live=1 があるときだけ使う。 */
+  live: LiveState;
 }
+
+/** 本物のシート（テスト）とのつながり。off は試作のサンプルだけで動く。 */
+export interface LiveState {
+  status: 'off' | 'loading' | 'ok' | 'offline';
+  /** つながらないときの説明。 */
+  message?: string;
+}
+
+/** 本物のシートにつなぐ試作のシート（顧客 c1 の s1）。 */
+export const LIVE_SHEET_ID = 's1';
+const LIVE_BRIDGE = 'http://127.0.0.1:5180';
+const LIVE_SID = '1m5DRb117MXqCQw4GhJC21spHE6N3lqE0dtqP7zxwLeg';
+const LIVE_GID = 510300204;
+const LIVE_POLL_MS = 30_000;
+const liveRequested = (): boolean => {
+  try { return new URLSearchParams(window.location.search).get('live') === '1'; } catch { return false; }
+};
 
 const firstSheetOf = (sheets: SheetConfig[], customerId: string): string =>
   (sheets.find((s) => s.customerId === customerId && s.connection === 'ok') ?? sheets.find((s) => s.customerId === customerId))?.id ?? '';
@@ -33,7 +52,10 @@ const me = accounts.find((a) => a.id === CURRENT_ACCOUNT_ID);
 let state: DataState = {
   viewer: { kind: 'customer', accountId: CURRENT_ACCOUNT_ID },
   customers: initialCustomers,
-  sheets: initialSheets,
+  // 本物のシート（テスト）のときは、シートの切り替えで本物と試作が分かるように名前に添える。
+  sheets: liveRequested()
+    ? initialSheets.map((sh) => (sh.id === LIVE_SHEET_ID ? { ...sh, tabName: sh.tabName + '（本物のシート）' } : sh.customerId === 'c1' ? { ...sh, tabName: sh.tabName + '（試作）' } : sh))
+    : initialSheets,
   // 見出しの下の記入例の行は応募者ではないので、最初から入れない。
   rows: Object.fromEntries(initialSheets.map((sh) => [sh.id, applicantRows(sh, initialRows[sh.id] ?? [])])),
   readAt: Object.fromEntries(Object.keys(initialRows).map((k) => [k, NOW])),
@@ -43,6 +65,7 @@ let state: DataState = {
   currentSheetId: firstSheetOf(initialSheets, me?.customerId ?? 'c1'),
   nextSave: 'ok',
   listPrefs: {},
+  live: { status: liveRequested() ? 'loading' : 'off' },
 };
 
 /** 一覧の見せ方を覚えるときの鍵。顧客の担当者は本人、社内の人は名前ごと。 */
@@ -175,6 +198,135 @@ function replaceRow(sheetId: string, row: ApplicantRow): Record<string, Applican
   return { ...state.rows, [sheetId]: (state.rows[sheetId] ?? []).map((r) => (r.rowNumber === row.rowNumber ? row : r)) };
 }
 
+// ---- 本物のシート（テスト）: ローカルの橋渡しサーバー（scripts/portal_dev/sheet_bridge.py）を通して読み書きする ----
+
+interface LiveSheet {
+  headers: Record<string, number>;
+  rows: { rowNumber: number; values: Record<string, string> }[];
+  options: Record<string, string[]>;
+  readAt: string;
+  modifiedTime: string;
+}
+
+/** 本物のシートの行が画面に入っているか。入っていれば保存もシートへ送る。 */
+let liveLoaded = false;
+let liveModified = '';
+let liveTimer: ReturnType<typeof setInterval> | null = null;
+
+async function liveFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(LIVE_BRIDGE + path, init?.method === 'POST' ? { ...init, headers: { 'Content-Type': 'application/json' } } : init);
+  const body = (await r.json()) as T & { error?: string };
+  if (!r.ok) throw new Error(body.error ?? 'つながりません（' + String(r.status) + '）');
+  return body;
+}
+
+function liveOffline(e: unknown): void {
+  const msg = e instanceof Error ? e.message : '';
+  set({ live: { status: 'offline', message: liveLoaded ? '本物のシートにつながりません。最後に読んだ内容を出しています。' : '本物のシートにつながりません。試作のサンプルを出しています。' + (msg !== '' && !msg.startsWith('Failed') ? '（' + msg + '）' : '') } });
+}
+
+/** シートから読んだ内容を画面に入れる。2 回目からは、前回と違うマスを「シートで変更」として記録し、行に印を付ける。 */
+function applyLiveSheet(d: LiveSheet): void {
+  const sheet = state.sheets.find((x) => x.id === LIVE_SHEET_ID);
+  if (!sheet) return;
+  const headers = sheet.columns.map((c) => c.header);
+  const before = new Map((state.rows[LIVE_SHEET_ID] ?? []).map((r) => [r.rowNumber, r]));
+  const first = !liveLoaded;
+  const rows: ApplicantRow[] = d.rows.map((src) => {
+    const values: Record<string, string> = Object.fromEntries(headers.map((h) => [h, src.values[h] ?? '']));
+    const old = before.get(src.rowNumber);
+    if (first) return { rowNumber: src.rowNumber, values, changedSinceLastView: null, changedColumns: [] };
+    if (!old) {
+      const name = sheet.titleColumn ? (values[sheet.titleColumn] ?? '') : '';
+      log({ kind: 'sheet_change', detail: `${name}さんがシートに追加`, actorName: 'シート', source: 'sheet', accountEmail: '', sheetId: LIVE_SHEET_ID, rowNumber: src.rowNumber });
+      return { rowNumber: src.rowNumber, values, changedSinceLastView: 'new', changedColumns: [] };
+    }
+    const changed = headers.filter((h) => (old.values[h] ?? '') !== values[h]);
+    for (const h of changed) {
+      log({ kind: 'sheet_change', detail: `${rowName(sheet, old)}さんの「${colName(sheet, h)}」がシートで変更`, actorName: 'シート', source: 'sheet', accountEmail: '', sheetId: LIVE_SHEET_ID, rowNumber: src.rowNumber, column: h, before: old.values[h] ?? '', after: values[h] ?? '' });
+    }
+    if (changed.length === 0) return { ...old, values };
+    return { ...old, values, changedSinceLastView: old.changedSinceLastView ?? 'updated', changedColumns: [...new Set([...(old.changedColumns ?? []), ...changed])] };
+  });
+  const columns = sheet.columns.map((c) => {
+    const opts = d.options[c.header];
+    return opts && opts.length > 0 ? { ...c, options: opts, kind: 'choice' as const } : c;
+  });
+  // 試作のサンプルの記録（架空の人の変更）は、本物の行と混ざらないように初回に外す。
+  const activity = first ? state.activity.filter((e) => e.sheetId !== LIVE_SHEET_ID || e.id.startsWith('x')) : state.activity;
+  liveLoaded = true;
+  liveModified = d.modifiedTime;
+  set({
+    activity,
+    rows: { ...state.rows, [LIVE_SHEET_ID]: rows },
+    sheets: state.sheets.map((x) => (x.id === LIVE_SHEET_ID ? { ...x, columns } : x)),
+    readAt: { ...state.readAt, [LIVE_SHEET_ID]: nowIso() },
+    live: { status: 'ok' },
+  });
+}
+
+async function liveReload(): Promise<void> {
+  try {
+    const d = await liveFetch<LiveSheet>(`/sheet?sid=${LIVE_SID}&gid=${String(LIVE_GID)}`);
+    applyLiveSheet(d);
+  } catch (e) { liveOffline(e); }
+}
+
+async function livePoll(): Promise<void> {
+  try {
+    const v = await liveFetch<{ modifiedTime: string }>(`/version?sid=${LIVE_SID}`);
+    if (!liveLoaded || v.modifiedTime !== liveModified) {
+      await liveReload();
+      return;
+    }
+    set({ readAt: { ...state.readAt, [LIVE_SHEET_ID]: nowIso() }, live: { status: 'ok' } });
+  } catch (e) { liveOffline(e); }
+}
+
+/** ?live=1 のとき、本物のシートを読み、画面を開いている間は 30 秒おきに変わったかを確かめる。何度呼んでも 1 回だけ始める。 */
+export function startLive(): void {
+  if (state.live.status === 'off' || liveTimer !== null) return;
+  void liveReload();
+  liveTimer = setInterval(() => { if (document.visibilityState === 'visible') void livePoll(); }, LIVE_POLL_MS);
+}
+
+/** つながらないときに、手で読み直す。 */
+export function retryLive(): void {
+  if (state.live.status === 'off') return;
+  set({ live: { status: 'loading' } });
+  void liveReload();
+}
+
+/** 本物のシートへ 1 マスを保存する。結果の形と記録の残し方は試作の saveCell と同じ。 */
+async function liveSaveCell(sheet: SheetConfig, row: ApplicantRow, column: string, base: string, next: string, replacement: boolean): Promise<CellSaveResult> {
+  let res: { kind: 'saved'; value: string } | { kind: 'conflict'; latest: string };
+  try {
+    res = await liveFetch('/cell', { method: 'POST', body: JSON.stringify({ sid: LIVE_SID, gid: LIVE_GID, rowNumber: row.rowNumber, header: column, base, next }) });
+  } catch (e) {
+    const msg = e instanceof Error && !e.message.startsWith('Failed') ? e.message : '本物のシートにつながりません。';
+    return { kind: 'failed', message: 'シートに保存できませんでした。' + msg };
+  }
+  const at = nowIso();
+  const cur = (state.rows[sheet.id] ?? []).find((r) => r.rowNumber === row.rowNumber) ?? row;
+  if (res.kind === 'conflict') {
+    const latest = res.latest;
+    if ((cur.values[column] ?? '') !== latest) {
+      set({ rows: replaceRow(sheet.id, { ...cur, changedSinceLastView: 'updated', changedColumns: [...new Set([...(cur.changedColumns ?? []), column])], values: { ...cur.values, [column]: latest } }) });
+      log({ kind: 'sheet_change', detail: `${rowName(sheet, cur)}さんの「${colName(sheet, column)}」がシートで変更`, actorName: 'シート', source: 'sheet', accountEmail: '', sheetId: sheet.id, rowNumber: row.rowNumber, column, before: cur.values[column] ?? '', after: latest });
+    }
+    log({ kind: 'save_conflict', detail: `${rowName(sheet, cur)}さんの「${colName(sheet, column)}」は、シートで先に変更されていたため保存しなかった`, sheetId: sheet.id, rowNumber: row.rowNumber, column, before: base, after: next });
+    return { kind: 'conflict', latest, by: 'シート', at };
+  }
+  const current = cur.values[column] ?? '';
+  set({ rows: replaceRow(sheet.id, { ...cur, changedSinceLastView: null, changedColumns: [], values: { ...cur.values, [column]: res.value } }), readAt: { ...state.readAt, [sheet.id]: at } });
+  if (replacement) {
+    log({ kind: 'option_replace', detail: `${rowName(sheet, cur)}さんの「${colName(sheet, column)}」を「${current || '（空）'}」から「${next || '（空）'}」に置き換え（項目の設定）`, sheetId: sheet.id, rowNumber: row.rowNumber, column, before: current, after: next });
+  } else {
+    log({ kind: 'save', detail: `${rowName(sheet, cur)}さんの「${colName(sheet, column)}」を「${next || '（空）'}」に変更`, sheetId: sheet.id, rowNumber: row.rowNumber, column, before: current, after: next });
+  }
+  return { kind: 'saved', value: res.value };
+}
+
 export const actions = {
   setViewer(viewer: Viewer): void {
     if (viewer.kind === 'customer') {
@@ -198,6 +350,12 @@ export const actions = {
    * 違えば書かずに conflict（誰がいつ変えたか付き）を返す。
    */
   async saveCell(sheetId: string, rowNumber: number, column: string, base: string, next: string, opts: { replacement?: boolean } = {}): Promise<CellSaveResult> {
+    if (sheetId === LIVE_SHEET_ID && liveLoaded) {
+      const liveSheet = state.sheets.find((x) => x.id === sheetId);
+      const liveRow = (state.rows[sheetId] ?? []).find((r) => r.rowNumber === rowNumber);
+      if (!liveSheet || !liveRow) return { kind: 'failed', message: 'この応募者がシートに見つかりません。' };
+      return liveSaveCell(liveSheet, liveRow, column, base, next, opts.replacement === true);
+    }
     await sleep(450);
     const sheet = state.sheets.find((x) => x.id === sheetId);
     const row = (state.rows[sheetId] ?? []).find((r) => r.rowNumber === rowNumber);

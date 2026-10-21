@@ -8,7 +8,7 @@ import { screens as account } from './customer/account';
 import { screens as metrics } from './customer/metrics';
 import { screens as history } from './customer/history';
 import { screens as columnsScreens } from './customer/columns';
-import { actions, useData } from './data';
+import { LIVE_SHEET_ID, actions, retryLive, startLive, useData } from './data';
 import { STAFF_NAME } from './fixtures';
 import { screens as adminCustomers } from './admin/customers';
 import { screens as adminAccounts } from './admin/accounts';
@@ -48,6 +48,7 @@ function PreviewBar({ currentId, onPick }: { currentId: string; onPick: (id: str
           <option value="staff">社内の人として</option>
         </select>
         <button type="button" onClick={() => { setOpen((v) => !v); }} className="rounded bg-[#3a3a3a] px-2 py-1">{open ? '操作を閉じる' : '試作の操作'}</button>
+        <LiveBadge />
       </div>
       {open && (
         <div className="flex flex-wrap gap-2 px-3 pb-2">
@@ -66,7 +67,30 @@ function PreviewBar({ currentId, onPick }: { currentId: string; onPick: (id: str
   );
 }
 
+/** 本物のシート（テスト）の表示。?live=1 のときは状態、それ以外は切り替えのリンク。 */
+function LiveBadge() {
+  const d = useData();
+  const url = new URL(window.location.href);
+  const on = d.live.status !== 'off';
+  if (on) url.searchParams.delete('live'); else url.searchParams.set('live', '1');
+  const sheetName = d.sheets.find((s) => s.id === LIVE_SHEET_ID)?.tabName ?? '';
+  return (
+    <span className="ml-auto flex items-center gap-2">
+      {d.live.status === 'loading' && <span className="text-sky-300">本物のシート（テスト）を読んでいます…</span>}
+      {d.live.status === 'ok' && <span className="text-emerald-300" title={'「' + sheetName + '」だけが本物。ほかのシートは試作のサンプル'}>● 本物のシート（テスト）: 「{sheetName}」だけ本物、ほかのシートは試作</span>}
+      {d.live.status === 'offline' && (
+        <span className="text-red-300">
+          ● {d.live.message ?? '本物のシートにつながりません。'}
+          <button type="button" onClick={() => { retryLive(); }} className="ml-1 rounded bg-[#3a3a3a] px-1.5 py-0.5 text-white">読み直す</button>
+        </span>
+      )}
+      <a href={url.toString()} className="rounded bg-[#3a3a3a] px-2 py-1 text-white no-underline">{on ? '試作のサンプルに戻す' : '本物のシート（テスト）で開く'}</a>
+    </span>
+  );
+}
+
 export function PortalPreview() {
+  useEffect(() => { startLive(); }, []);
   const [id, setId] = useState(() => readHash() || ROUTES.login);
   useEffect(() => {
     const onHash = () => { setId(readHash() || ROUTES.login); };
