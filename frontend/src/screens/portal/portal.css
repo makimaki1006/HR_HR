@@ -25,6 +25,24 @@
   --color-pt-danger-soft: #fbe9e6;
   --color-pt-new: #2f6fd6;
   --color-pt-changed: #fff6d6;
+  --color-pt-stage-early: #7a8699;   /* 状況の点: 応募・選考中 */
+  --color-pt-field: #ecebe7;          /* 書ける値の箱の常時の枠（--color-pt-line より 1 段薄い） */
+  /*
+   * html の文字を 13px にしているので、rem で決まる Tailwind の大きさを px で決め直す。
+   * そのままだと text-xs が 9.75px、余白の単位が 3.25px になり、12px 未満の文字や 44px に届かないボタンが出る。
+   */
+  --spacing: 4px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
   --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
   --shadow-pt-pop: 0 8px 28px rgb(27 26 24 / 0.14), 0 1px 3px rgb(27 26 24 / 0.08);
   --shadow-pt-card: 0 1px 2px rgb(27 26 24 / 0.05);
@@ -42,3 +60,13 @@ html, body {
 
 /* 表の中の数字（日付・電話番号）は、和文と字面の大きさをそろえるため少しだけ小さくする。 */
 .pt-grid .pt-num { font-size: 12.5px; letter-spacing: 0.01em; }
+
+/* スマホでは本文を 15px にする（PC は 13px のまま）。rem の基準（html）は変えない。 */
+@media (max-width: 639px) {
+  body { font-size: 15px; }
+}
+
+/* 下からのシート（スマホ）の出方。 */
+.pt-sheet-enter { animation: pt-sheet-up 160ms ease-out; }
+@keyframes pt-sheet-up { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pt-sheet-enter { animation: none; } }

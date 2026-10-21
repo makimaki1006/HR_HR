@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import type { ActivityEntry } from '../../types';
 import { formatShortDateTime } from '../../ui/kit';
-import { sourceLabel } from '../../activityText';
 
 
 const shown = (v: string): string => (v === '' ? '（空）' : v);
@@ -26,14 +25,14 @@ export function Timeline({ entries, labelFor }: { entries: ActivityEntry[]; labe
                   <span className="pt-num">{formatShortDateTime(e.at)}</span>
                   <span className="mx-1.5 text-pt-faint">・</span>
                   <span className="text-pt-ink">{e.actorName ?? e.accountEmail}</span>
-                  <span className="mx-1.5 text-pt-faint">・</span>
-                  {sourceLabel(e)}
                   {e.kind === 'save_conflict' && <span className="ml-1.5 text-pt-warn">保存しなかった</span>}
                 </p>
                 {e.column !== undefined ? (
                   <div className="mt-0.5 break-words text-pt-ink">
                     <span className="text-pt-muted">{labelFor(e.column)}</span>
-                    {isLong(before, after) ? (
+                    {before !== '' && after.startsWith(before) && after.length > before.length ? (
+                      <p className="mt-0.5 whitespace-pre-wrap"><span className="mr-1 text-pt-faint">＋</span>{after.slice(before.length).trim()}</p>
+                    ) : isLong(before, after) ? (
                       <div className="mt-0.5 flex flex-col gap-0.5 border-l-2 border-pt-line pl-2">
                         <p className="whitespace-pre-wrap text-pt-faint line-through">{shown(before)}</p>
                         <p className="whitespace-pre-wrap">{shown(after)}</p>

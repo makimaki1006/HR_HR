@@ -46,7 +46,7 @@ export function AdminLayout({ title, badge, current, onNavigate, actions, back, 
           <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-pt-ink">
             <span className="flex size-6 items-center justify-center rounded bg-pt-ink text-pt-surface"><IconSheet size={13} /></span>
             応募者画面の管理
-            <span className="rounded bg-pt-sunken px-1.5 py-0.5 text-[11px] font-medium text-pt-muted">社内</span>
+            <span className="rounded bg-pt-sunken px-1.5 py-0.5 text-[12px] font-medium text-pt-muted">社内</span>
           </span>
           <nav className="flex h-full items-stretch gap-0.5">
             {ADMIN_NAV.map((n) => (

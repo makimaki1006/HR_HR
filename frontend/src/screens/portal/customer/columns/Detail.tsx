@@ -248,13 +248,14 @@ export function Detail({ sheet, col, rows, canEdit, isStaff, onBack, onDirty, on
               const upd = (n: Choice) => { setPending({ ...pending, choices: { ...pending.choices, [i.orig]: n } }); };
               return (
                 <div key={i.orig} className="flex flex-col gap-2 border-b border-pt-line pb-4 last:border-b-0 last:pb-0">
-                  <p className="text-[13px]"><span className="font-medium">「{i.orig}」</span>を{i.type === 'rename' ? `「${i.newName}」に変えます` : '消します'}。<span className="pt-num">{i.uses}</span>人の値をどうしますか。</p>
+                  <p className="text-[13px]"><span className="font-medium">「{i.orig}」</span>を{i.type === 'rename' ? `「${i.newName}」に変えます` : '消します'}。この値の <span className="pt-num">{i.uses}</span> 人の扱い</p>
                   <Segmented<'keep' | 'replace'>
                     value={c.mode}
                     onChange={(m) => { upd({ ...c, mode: m }); }}
                     options={[{ value: 'keep', label: 'そのまま残す' }, { value: 'replace', label: i.type === 'rename' ? '新しい名前に置き換える' : '別の選択肢に置き換える' }]}
                   />
-                  {c.mode === 'keep' && <p className="text-xs text-pt-muted">{i.uses}人の値はプルダウンに無い値として残ります</p>}
+                  {i.type === 'rename' && c.mode === 'replace' && <p className="text-xs text-pt-muted">表示が「{i.newName}」に変わり、シートの値も書き換えます。</p>}
+                  {c.mode === 'keep' && <p className="text-xs text-pt-muted">今の値は、プルダウンに無い値として残ります。</p>}
                   {c.mode === 'replace' && i.type === 'delete' && (
                     <Select value={c.target} aria-label="置き換え先" onChange={(e) => { upd({ ...c, target: e.target.value }); }}>
                       {draft.options.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}

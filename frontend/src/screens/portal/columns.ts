@@ -145,3 +145,81 @@ export function sortByDate<T extends { rowNumber: number; values: Record<string,
     return b.rowNumber - a.rowNumber;
   });
 }
+
+// ---- 日付の表示（全画面共通） ----
+// 表示だけを「10/23（金）」の形にそろえる。編集・入力欄の初期値・記録・書き出しは原文のまま。
+
+const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
+
+/** 通し番号の日付を「10/23（金）」（今年でなければ「2025/10/23（木）」）にする。 */
+export function dayLabel(n: number): string {
+  const d = new Date(n * 86400000);
+  const y = d.getUTCFullYear();
+  const md = `${String(d.getUTCMonth() + 1)}/${String(d.getUTCDate())}`;
+  const w = WEEKDAY[d.getUTCDay()] ?? '';
+  return `${y === NOW_YEAR ? md : `${String(y)}/${md}`}（${w}）`;
+}
+
+/** 0 時からの分を「11:00」にする。 */
+export function timeLabel(min: number): string {
+  return `${String(Math.floor(min / 60))}:${String(min % 60).padStart(2, '0')}`;
+}
+
+/** 表示用の日付。読めなければ null。year は今年でないときだけ出す。ref は同じ行の応募日の通し番号（年の無い値の年を当てる）。 */
+export function formatDayJa(v: string, ref?: number | null): { text: string; isToday: boolean } | null {
+  const n = parseLooseDay(v, ref);
+  if (n === null) return null;
+  return { text: dayLabel(n), isToday: n === TODAY_NUM };
+}
+
+/** 日付の部分（先頭の「2026/10/23」「10月23日」など）を除いた残り。同じマスに時刻があるときに使う。 */
+const afterDayPart = (v: string): string => v.trim().replace(/^(\d{4}\s*[年/.-]\s*)?\d{1,2}\s*[月/.-]\s*\d{1,2}\s*日?/, '');
+
+/** 日付＋時刻（時刻は別の列の値でもよい。省けば同じマスの日付の後ろから読む）。時刻が読めなければ日付だけ。 */
+export function formatDateTimeJa(day: string, time: string | undefined, ref?: number | null): { text: string; isToday: boolean } | null {
+  const d = formatDayJa(day, ref);
+  if (d === null) return null;
+  const t = parseTimeOfDay(time ?? afterDayPart(day));
+  return t === null ? d : { text: `${d.text}${timeLabel(t)}`, isToday: d.isToday };
+}
+
+/** 検索に当てる文字（原文と、表示の「10/23（金）」「2026/10/23」）。日付として読めなければ原文だけ。 */
+export function dateSearchText(v: string, ref?: number | null): string {
+  const n = parseLooseDay(v, ref);
+  if (n === null) return v;
+  const d = new Date(n * 86400000);
+  const ymd = `${String(d.getUTCFullYear())}/${String(d.getUTCMonth() + 1)}/${String(d.getUTCDate())}`;
+  return [v, dayLabel(n), ymd].join(' ');
+}
+
+export type DateStyle = 'slash' | 'kanji' | 'md';
+
+const styleOf = (v: string): DateStyle | null => {
+  const t = v.trim();
+  if (/^\d{4}\s*年/.test(t)) return 'kanji';
+  if (/^\d{4}\s*[/.-]/.test(t)) return 'slash';
+  if (/^\d{1,2}\s*月\s*\d{1,2}/.test(t)) return 'md';
+  return null;
+};
+
+/** その列の既存の値で一番多い書き方（'slash' = 2026/10/23, 'kanji' = 2026年10月23日, 'md' = 10月23日）。無い・同数なら slash → kanji → md の順。 */
+export function dominantDateStyle(rows: ApplicantRow[], header: string): DateStyle {
+  const count: Record<DateStyle, number> = { slash: 0, kanji: 0, md: 0 };
+  for (const r of rows) {
+    const s = styleOf(r.values[header] ?? '');
+    if (s) count[s] += 1;
+  }
+  const order: DateStyle[] = ['slash', 'kanji', 'md'];
+  return order.reduce((best, s) => (count[s] > count[best] ? s : best), 'slash');
+}
+
+/** 画面から書く日付（入力欄の「2026-10-23」）を、その列の書き方で作る。slash は今までどおり 0 埋め（2026/10/05）。md で今年でない日は年を付ける。 */
+export function writeDate(isoDate: string, style: DateStyle): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) return '';
+  const [, y = '', mo = '', d = ''] = m;
+  if (style === 'kanji') return `${y}年${String(Number(mo))}月${String(Number(d))}日`;
+  // 年の無い書き方は、今年でない日だけ年を付ける（読み直したときに別の年にならないように）。
+  if (style === 'md') return `${Number(y) === NOW_YEAR ? '' : `${y}年`}${String(Number(mo))}月${String(Number(d))}日`;
+  return `${y}/${mo}/${d}`;
+}

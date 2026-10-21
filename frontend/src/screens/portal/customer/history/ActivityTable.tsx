@@ -1,6 +1,7 @@
 // 操作の記録の表と絞り込み。顧客の「記録」と社内の管理画面で共用する。
 import { useMemo, useState } from 'react';
 import { NOW } from '../../fixtures';
+import { dayLabel as dayText, dayNum } from '../../columns';
 import { actions, getData, useData } from '../../data';
 import type { DataState } from '../../data';
 import { ROUTES, usePreviewNav } from '../../preview';
@@ -21,8 +22,8 @@ function dayLabel(key: string): string {
   const today = new Date(NOW);
   if (key === dayKey(NOW)) return '今日';
   if (key === dayKey(new Date(today.getTime() - 86_400_000).toISOString())) return '昨日';
-  const [, m, d] = key.split('-');
-  return `${String(Number(m))}/${String(Number(d))}`;
+  const [y, m, d] = key.split('-');
+  return dayText(dayNum(Number(y), Number(m), Number(d)));
 }
 
 const STAFF_ACTED: ActivityKind[] = ['invite', 'disable', 'device_removed', 'account_unlock', 'password_reset'];
@@ -260,7 +261,7 @@ export function ActivityTable({ entries, showCustomer = false, onExport, sheetId
             {people.map((p) => <option key={p} value={p}>{p}</option>)}
           </Select>
           <Button size="sm" className="!h-11 sm:!h-8" onClick={() => { setOpen(!open); }} aria-expanded={open}>
-            <IconFilter size={14} />絞り込み{extraCount > 0 && <span className="pt-num rounded-full bg-pt-primary px-1.5 text-[11px] text-white">{String(extraCount)}</span>}
+            <IconFilter size={14} />絞り込み{extraCount > 0 && <span className="pt-num rounded-full bg-pt-primary px-1.5 text-xs text-white">{String(extraCount)}</span>}
           </Button>
           <span className="pt-num ml-auto hidden text-xs text-pt-muted sm:inline">{String(filtered.length)} 件</span>
           {onExport && (
@@ -317,7 +318,6 @@ export function ActivityTable({ entries, showCustomer = false, onExport, sheetId
               <ul className="divide-y divide-pt-line">
                 {list.map((e) => {
                   const app = applicantOf(d, e);
-                  const src = sourceLabel(e);
                   const col = columnLabel(d.sheets, e.sheetId, e.column);
                   const hasApp = app !== '' || e.column !== undefined;
                   const sub = [manySheets ? sheetName(e.sheetId) : '', showCustomer ? customerName(e.customerId) : ''].filter((x) => x !== '').join(' ・ ');
@@ -330,7 +330,6 @@ export function ActivityTable({ entries, showCustomer = false, onExport, sheetId
                         <span className="pt-num w-11 shrink-0 text-xs text-pt-muted">{formatTime(e.at)}</span>
                         <span className="flex min-w-0 items-baseline gap-1">
                           <span className="truncate font-medium">{actorOf(e)}</span>
-                          <span className="shrink-0 text-xs text-pt-faint">・{src}</span>
                         </span>
                         <span className="ml-auto lg:hidden"><KindMark e={e} /></span>
                         {hasApp ? (

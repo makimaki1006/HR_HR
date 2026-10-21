@@ -63,7 +63,7 @@ export function Login() {
       <div className="mt-3 text-center">
         <Button variant="ghost" size="sm" className={TOUCH} onClick={() => { go('auth-forgot'); }}>パスワードを忘れたとき</Button>
       </div>
-      <details className="mt-3 text-[11px] text-pt-faint">
+      <details className="mt-3 text-[12px] text-pt-faint">
         <summary className="cursor-pointer">試作の操作</summary>
         <p className="mt-1 leading-relaxed">パスワード known: 覚えた端末で一覧へ／wrong: 誤り／locked: ロック／offline: 通信できない／それ以外: 確認コードへ</p>
       </details>

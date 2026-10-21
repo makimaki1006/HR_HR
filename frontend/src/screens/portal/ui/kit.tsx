@@ -1,5 +1,7 @@
 // 顧客向け画面の共通部品。各画面はここを使い、見た目をそろえる。
 import { NOW } from '../fixtures';
+import { useEffect } from 'react';
+import { IconPencil } from './icons';
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
@@ -78,7 +80,7 @@ export function Badge({ tone = 'info', children }: { tone?: Tone | 'new' | 'neut
   return (
     <span
       className={cx(
-        'inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium whitespace-nowrap',
+        'inline-flex items-center rounded-full px-2 py-0.5 text-[13px] font-medium whitespace-nowrap sm:text-[12px]',
         tone === 'new' && 'bg-pt-new text-white',
         tone === 'info' && 'bg-pt-primary-soft text-pt-primary',
         tone === 'ok' && 'bg-pt-ok-soft text-pt-ok',
@@ -158,6 +160,63 @@ export function Dialog({ open, title, children, footer, onClose, width = 'md' }:
         {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-pt-line px-5 py-3">{footer}</div>}
       </div>
     </div>
+  );
+}
+
+// 注意: html の文字の大きさが 13px なので、Tailwind の rem の値（h-11 など）は 13px 基準になる（h-11 = 35.75px）。
+// 決まった px が要る所（押せる所の 44px など）は h-[44px] のように px で書く。
+
+/**
+ * スマホの下からのシート。背景を押す・Esc・「閉じる」で閉じる。開いている間は後ろのスクロールを止める。
+ * sm 以上では使わない（呼び出し側で PC は吹き出しなどに分ける）。
+ */
+export function BottomSheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', k);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', k); document.body.style.overflow = prev; };
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/30" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="pt-sheet-enter fixed inset-x-0 bottom-0 flex max-h-[70dvh] flex-col rounded-t-xl bg-pt-surface pb-[env(safe-area-inset-bottom)] shadow-pt-pop"
+      >
+        <div className="flex justify-center pt-2" aria-hidden="true"><span className="h-[4px] w-[36px] rounded-full bg-pt-line-strong" /></div>
+        <div className="flex items-center gap-2 px-4 pt-1 pb-2">
+          <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">{title}</h2>
+          <button type="button" onClick={onClose} className="-mr-2 inline-flex h-[44px] shrink-0 items-center rounded-md px-3 text-[15px] text-pt-muted hover:bg-pt-sunken">閉じる</button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 書ける値の箱。押すと編集に入る。常に薄い枠を出し、押せると分かるようにする。
+ * PC は高さ 32px で鉛筆はマウスを乗せたときだけ、スマホは高さ 44px で鉛筆を常に出す。
+ */
+export function EditableBox({ onActivate, children, label, className }: { onActivate: () => void; children: ReactNode; label: string; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onActivate}
+      aria-label={`${label}を書き換える`}
+      className={cx(
+        'group flex min-h-[44px] w-full items-center gap-2 rounded-[6px] border border-pt-field bg-pt-surface px-[10px] py-[4px] text-left hover:border-pt-line-strong focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-pt-select sm:min-h-[32px]',
+        className,
+      )}
+    >
+      <span className="min-w-0 flex-1">{children}</span>
+      <IconPencil size={12} className="shrink-0 text-pt-faint sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100" />
+    </button>
   );
 }
 

@@ -5,6 +5,7 @@ import { Button, Field, Select, TextInput, cx } from '../../ui/kit';
 import { IconCheck } from '../../ui/icons';
 import type { ApplicantRow, ColumnConfig } from '../../types';
 import { ShareHint } from './ShareHint';
+import { guessInterviewColumns } from './interviewColumns';
 import { AdminPage } from './shared';
 import { actions, enterAs, useAdminState } from './state';
 
@@ -39,7 +40,7 @@ function Progress({ at }: { at: 1 | 2 | 3 }) {
           <li key={t} className="flex items-center gap-2">
             {i > 0 && <span className="h-px w-5 bg-pt-line-strong" aria-hidden="true" />}
             <span className={cx('inline-flex items-center gap-1.5', now ? 'font-semibold text-pt-ink' : done ? 'text-pt-muted' : 'text-pt-faint')}>
-              <span className={cx('pt-num inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px]', done ? 'bg-pt-ok text-white' : now ? 'bg-pt-ink text-white' : 'border border-pt-line-strong')}>
+              <span className={cx('pt-num inline-flex h-5 w-5 items-center justify-center rounded-full text-[12px]', done ? 'bg-pt-ok text-white' : now ? 'bg-pt-ink text-white' : 'border border-pt-line-strong')}>
                 {done ? <IconCheck size={10} /> : String(n)}
               </span>
               {t}
@@ -55,7 +56,7 @@ function Step({ n, title, done, children }: { n: number; title: string; done?: b
   return (
     <section className="rounded-lg border border-pt-line bg-pt-surface">
       <h2 className="flex items-center gap-2 border-b border-pt-line px-4 py-2.5 text-[13px] font-semibold">
-        <span className={cx('pt-num inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px]', done ? 'bg-pt-ok text-white' : 'bg-pt-sunken text-pt-muted')}>{done ? <IconCheck size={12} /> : String(n)}</span>
+        <span className={cx('pt-num inline-flex h-5 w-5 items-center justify-center rounded-full text-[12px]', done ? 'bg-pt-ok text-white' : 'bg-pt-sunken text-pt-muted')}>{done ? <IconCheck size={12} /> : String(n)}</span>
         {title}
       </h2>
       <div className="p-4">{children}</div>
@@ -77,6 +78,10 @@ export function SheetAdd() {
   const [tabName, setTabName] = useState(taken(FOUND_TABS[0] ?? '') ? '' : (FOUND_TABS[0] ?? ''));
   const [headerRow, setHeaderRow] = useState(1);
   const [exampleRows, setExampleRows] = useState(1);
+  // 面接の列。undefined のあいだは見出しから当てた列を使い、社内の人が選んだら選んだ列にする。
+  const [pickedDate, setPickedDate] = useState<string | undefined>(undefined);
+  const [pickedTime, setPickedTime] = useState<string | undefined>(undefined);
+  const [newId] = useState(() => 's' + String(Date.now()));
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => { window.clearTimeout(timer.current); }, []);
 
@@ -96,12 +101,26 @@ export function SheetAdd() {
   const selectedCells = TOP_ROWS[headerRow - 1] ?? [];
   const headerOk = looksLikeHeader(selectedCells);
   const headers = selectedCells.filter(Boolean);
+  const guess = guessInterviewColumns(headers);
+  const interviewDate = pickedDate ?? guess.date;
+  const interviewTime = pickedTime ?? guess.time;
   const finalTab = tabName.trim();
   const sameName = finalTab !== '' && taken(finalTab);
   const duplicate = Object.entries(admin.sheetUrls).some(([id, u]) => {
     const sh = d.sheets.find((x) => x.id === id);
     return sh !== undefined && u === url.trim() && sh.tabName === finalTab;
   });
+
+  /** 「追加して…」を押せない理由。押せるときは空。 */
+  const blockReason = duplicate
+    ? 'このシートのこのタブは、すでに登録されている。'
+    : sameName || (finalTab === '' && taken(tab))
+      ? '同じ名前のシートがある。顧客に見せるタブの名前を変える。'
+      : finalTab === ''
+        ? '顧客に見せるタブの名前を入れる。'
+        : !headerOk
+          ? '見出しの行を選ぶ。'
+          : '';
 
   const next = (): void => {
     if (!customer || !headerOk) return;
@@ -112,12 +131,12 @@ export function SheetAdd() {
       writable: WRITABLE.includes(h),
       options: h === '状況' ? ['書類選考落ち', '未連絡', '応募者連絡待ち', '面接辞退', '面接日時確定', '面接済', '内定', '不採用', '入社日調整中', '内定辞退'] : null,
       multiline: ['求職者経歴', '備考'].includes(h),
-      inList: !['フリガナ', 'メールアドレス', '職種', '求職者経歴', '備考'].includes(h),
+      inList: !['フリガナ', 'メールアドレス', '職種', '求職者経歴', '備考', '年齢', '応募発生媒体'].includes(h),
       // 見出しの言葉からの仮の設定。項目の設定の画面で直せる。
-      kind: h.includes('電話') ? 'phone' : h.includes('メール') ? 'email' : h.endsWith('日') ? 'date' : h === '状況' ? 'choice' : 'text',
+      kind: h.includes('電話') ? 'phone' : h.includes('メール') ? 'email' : h.endsWith('日') || h === interviewDate ? 'date' : h === '状況' ? 'choice' : 'text',
       group: ['応募者名', '応募発生日', '応募発生媒体', '職種', '雇用形態', '年齢', '電話番号', 'メールアドレス'].includes(h) ? 'summary' : WRITABLE.includes(h) ? 'customer' : h === '求職者経歴' ? 'staff' : 'other',
     }));
-    const id = 's' + String(Date.now());
+    const id = newId;
     // 記入例の行は応募者ではないので、読み込まない。
     const samples: ApplicantRow[] = TOP_ROWS.slice(headerRow + exampleRows).filter((cells) => cells.filter(Boolean).length >= 3).map((cells, i) => ({
       rowNumber: headerRow + exampleRows + 1 + i,
@@ -129,8 +148,8 @@ export function SheetAdd() {
       titleColumn: headers.includes('応募者名') ? '応募者名' : (headers[0] ?? ''),
       statusColumn: headers.includes('状況') ? '状況' : '',
       sortColumn: headers.includes('応募発生日') ? '応募発生日' : '',
-      ...(headers.includes('面接予定日') ? { interviewColumn: '面接予定日' } : {}),
-      ...(headers.includes('時間') ? { interviewTimeColumn: '時間' } : {}),
+      ...(interviewDate ? { interviewColumn: interviewDate } : {}),
+      ...(interviewTime ? { interviewTimeColumn: interviewTime } : {}),
     }, url.trim(), `${customer.name}様_応募者管理`, samples);
     enterAs(customer.id, id);
     go(ROUTES.columns);
@@ -187,7 +206,7 @@ export function SheetAdd() {
                           <label className="flex items-center gap-1.5 whitespace-nowrap">
                             <input type="radio" name="headerRow" checked={on} onChange={() => { setHeaderRow(row); }} />
                             <span className="pt-num">{String(row)}</span> 行目
-                            {isExample && <span className="rounded bg-pt-sunken px-1 py-px text-[10px] text-pt-muted">記入例</span>}
+                            {isExample && <span className="rounded bg-pt-sunken px-1 py-px text-[12px] text-pt-muted">記入例</span>}
                           </label>
                         </td>
                         {cells.map((c, j) => <td key={String(j) + c} className="border-l border-pt-line px-2 py-1.5 whitespace-nowrap">{c || '　'}</td>)}
@@ -199,7 +218,7 @@ export function SheetAdd() {
             </div>
             <div className="pointer-events-none absolute inset-y-0 right-0 w-10 rounded-r-md bg-gradient-to-l from-pt-surface to-transparent" aria-hidden="true" />
             </div>
-            <p className="mt-1 text-right text-[11px] text-pt-faint">横に動かせる</p>
+            <p className="mt-1 text-right text-[12px] text-pt-faint">横に動かせる</p>
             <Field label="記入例の行">
               <Select value={String(exampleRows)} onChange={(e) => { setExampleRows(Number(e.target.value)); }} className="w-56">
                 <option value="0">なし（見出しの次の行から応募者）</option>
@@ -211,13 +230,38 @@ export function SheetAdd() {
             {!headerOk
               ? <p className="mt-2 text-[13px] text-pt-danger">この行は見出しに見えない。項目名が並んでいる行を選び直す。</p>
               : <p className="mt-2 text-xs text-pt-muted"><span className="pt-num">{String(headers.length)}</span> 項目を読み込む。</p>}
+            {headerOk && (
+              <div className="mt-5">
+                <p className="mb-1 text-[13px] font-medium">面接の日と時間の列</p>
+                <p className="mb-2 text-xs text-pt-muted">
+                  {interviewDate
+                    ? `面接の日：${interviewDate}${interviewTime ? `／時間：${interviewTime}` : ''}。見出しから当てた。違えば選び直す。`
+                    : '見出しから当てられなかった。面接の日が入る列を選ぶ。'}
+                </p>
+                <div className="grid max-w-xl grid-cols-2 gap-4">
+                  <Field label="面接の日">
+                    <Select value={interviewDate} onChange={(e) => { setPickedDate(e.target.value); }}>
+                      <option value="">なし</option>
+                      {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                    </Select>
+                  </Field>
+                  <Field label="面接の時間">
+                    <Select value={interviewTime} onChange={(e) => { setPickedTime(e.target.value); }}>
+                      <option value="">なし</option>
+                      {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+            )}
           </Step>
         )}
 
         {check === 'ok' && (
           <div className="flex items-center gap-3">
-            <Button variant="primary" disabled={!headerOk || duplicate || finalTab === '' || sameName} onClick={next}>追加して、項目とプルダウンを設定する</Button>
+            <Button variant="primary" disabled={blockReason !== ''} onClick={next}>追加して、項目とプルダウンを設定する</Button>
             <Button variant="ghost" onClick={() => { go('admin-customer-detail'); }}>やめる</Button>
+            {blockReason !== '' && <p className="text-[13px] text-pt-warn">{blockReason}</p>}
           </div>
         )}
       </div>

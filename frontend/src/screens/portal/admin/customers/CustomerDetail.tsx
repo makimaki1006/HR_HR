@@ -148,7 +148,7 @@ export function CustomerDetail() {
                       <tr key={sh.id} className={cx('group', sh.id === d.currentSheetId && 'bg-pt-primary-soft/40')}>
                         <td className={TD}>
                           <span className="font-medium">{sh.tabName}</span>
-                          <span className="flex items-center gap-1 text-[11px] text-pt-faint">
+                          <span className="flex items-center gap-1 text-[12px] text-pt-faint">
                             <IconSheet size={11} />
                             <span className="max-w-56 truncate">{admin.sheetFiles[sh.id] ?? ''}</span>
                             {url && (
