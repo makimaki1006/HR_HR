@@ -7535,3 +7535,42 @@ fn act_views_stay_and_nps_match_the_original_screens() {
         .collect();
     assert_eq!(ids_of("nps_low"), nps);
 }
+
+/// 初回契約の開始月ごとの応募の推移（立ち上がりの節の図）。値は fixture（基準日 2026-09-18）で実測した。
+/// 応募数は取引の累計なので、月の応募数は累計の差。まだ終わっていない月（9 月）の点は無い。
+#[test]
+fn 開始月ごとの応募の推移は終わった月だけで具体値が合う() {
+    let v = build_rampup(&sheets(), fixture_day());
+    let l = &v["launch"];
+    assert_eq!(l["last_full"], "2026-08");
+    assert_eq!(l["n_first"], 320);
+    assert_eq!(l["n_no_series"], 5);
+    let cohorts = l["cohorts"].as_array().expect("cohorts");
+    let starts: Vec<&str> = cohorts
+        .iter()
+        .map(|c| c["start"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        starts,
+        ["2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08"]
+    );
+    // 開始月から 8 月までの月数だけ点がある（9 月の点は伸ばさない）
+    let lens: Vec<usize> = cohorts
+        .iter()
+        .map(|c| c["points"].as_array().unwrap().len())
+        .collect();
+    assert_eq!(lens, [6, 5, 4, 3, 2, 1]);
+    let pt = |start: &str, m: usize| -> Value {
+        let c = cohorts.iter().find(|c| c["start"] == start).unwrap();
+        c["points"][m - 1].clone()
+    };
+    // 2026-04 開始の 1 か月目: 40 取引で 1 取引あたり 3.05 件（合計 122 件）
+    assert_eq!(pt("2026-04", 1)["n"], 40);
+    assert!((pt("2026-04", 1)["mean"].as_f64().unwrap() - 3.05).abs() < 1e-9);
+    // 2026-03 開始の 3 か月目: 54 取引で 107 件 → 1.98148...
+    assert_eq!(pt("2026-03", 3)["n"], 54);
+    assert!((pt("2026-03", 3)["mean"].as_f64().unwrap() - 107.0 / 54.0).abs() < 1e-9);
+    // 取引数が 30 未満の月も n とともに返す（足切りは画面）。2026-04 の 5 か月目は 20 取引
+    assert_eq!(pt("2026-04", 5)["n"], 20);
+    assert_eq!(cohorts[0]["n_deals"], 57);
+}

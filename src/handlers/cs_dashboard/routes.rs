@@ -1386,6 +1386,117 @@ pub fn build_rampup(sheets: &Sheets, today: NaiveDate) -> Value {
         "phase": phase_of(&act, today),
         "first_mtg": first_mtg(&deals, &mf),
         "no_mtg": no_mtg(&act, &mf, today),
+        "launch": launch_trend(sheets, &deals, today),
+    })
+}
+
+/// 初回契約の開始月ごとの、契約開始からの月別の応募数（立ち上がりの節の図）。
+///
+/// 元は `CS_プロパティ履歴` の `oubo`（取引の応募数の**累計**。月末の値が月ごとに入る）。
+/// 月の応募数は、その月の累計から前の月の累計を引いて出す。HubSpot は呼ばない。
+/// 🔴 横軸は暦の月（開始月を 1 か月目。顧客詳細の月次推移と同じ `month_index`）。同じ開始月の取引は
+///    同じ暦の月に並ぶので、開始月ごとの線ならずれない。
+/// 🔴 まだ終わっていない月（今月以降）は出さない。0 にもしない。
+/// 🔴 取引の満了月より後は数えない。累計が持ち越されて 0 件の月に見えるのを避ける。
+/// 🔴 記録が無い取引は母数に入れない（0 件の取引にしない）。最初の記録が開始月より後なら、
+///    その記録の月の増えた分は分からないので、次の月から数える。
+const LAUNCH_COHORTS: usize = 6;
+
+fn launch_trend(sheets: &Sheets, deals: &[Deal], today: NaiveDate) -> Value {
+    let series = super::series_of(&sheets.history);
+    let this_month = today.format("%Y-%m").to_string();
+    // 一番新しい「終わった月」
+    let last_full = {
+        let (y, m) = super::ym_of(&this_month).expect("今月");
+        if m == 1 {
+            format!("{:04}-12", y - 1)
+        } else {
+            format!("{y:04}-{:02}", m - 1)
+        }
+    };
+    // 直近 LAUNCH_COHORTS か月の開始月（古い順。最後が last_full）
+    let mut starts: Vec<String> = vec![last_full.clone()];
+    while starts.len() < LAUNCH_COHORTS {
+        let (y, m) = super::ym_of(&starts[0]).expect("開始月");
+        starts.insert(
+            0,
+            if m == 1 {
+                format!("{:04}-12", y - 1)
+            } else {
+                format!("{y:04}-{:02}", m - 1)
+            },
+        );
+    }
+    let mut out = Vec::new();
+    let mut n_first_all = 0usize;
+    let mut n_no_series = 0usize;
+    let mut n_decrease = 0usize;
+    for s in &starts {
+        let members: Vec<&Deal> = deals
+            .iter()
+            .filter(|d| {
+                d.renewal_no == Some(0) && d.contract_start_date.get(..7) == Some(s.as_str())
+            })
+            .collect();
+        n_first_all += members.len();
+        // 開始月から数えて、終わった月は何か月目まで
+        let max_m = month_index(&format!("{s}-01"), &last_full).unwrap_or(0);
+        // m ごとの (取引数, 応募数の合計)
+        let mut acc: Vec<(usize, f64)> = vec![(0, 0.0); max_m.max(0) as usize];
+        for d in &members {
+            let Some(pts) = series.get(&(d.id.clone(), "oubo".to_string())) else {
+                n_no_series += 1;
+                continue;
+            };
+            if pts.is_empty() {
+                n_no_series += 1;
+                continue;
+            }
+            let until = match d.manryou_month() {
+                Some(m) if m < last_full.as_str() => m.to_string(),
+                _ => last_full.clone(),
+            };
+            let filled = super::fill_forward(pts, &until);
+            let mut prev: Option<f64> = None;
+            for mv in &filled {
+                let Some(mi) = month_index(&d.contract_start_date, &mv.month) else {
+                    continue;
+                };
+                if mi < 1 || mi > max_m {
+                    continue;
+                }
+                // 前の月の累計。1 か月目は 0 から（最初の記録が開始月のときだけ）
+                let base = if mi == 1 { Some(0.0) } else { prev };
+                prev = Some(mv.v);
+                let Some(b) = base else { continue };
+                let delta = mv.v - b;
+                if delta < 0.0 {
+                    n_decrease += 1;
+                    continue;
+                }
+                let e = &mut acc[(mi - 1) as usize];
+                e.0 += 1;
+                e.1 += delta;
+            }
+        }
+        out.push(json!({
+            "start": s,
+            "n_deals": members.len(),
+            "points": acc.iter().enumerate().map(|(i, (n, sum))| json!({
+                "m": i + 1,
+                "n": n,
+                "mean": if *n > 0 { Some(sum / *n as f64) } else { None },
+            })).collect::<Vec<_>>(),
+        }));
+    }
+    json!({
+        "cohorts": out,
+        "n_first": n_first_all,
+        "n_no_series": n_no_series,
+        "n_decrease": n_decrease,
+        "last_full": last_full,
+        "note": "初回契約（継続回数 0）の応募数を、契約を始めた月ごとに分けて、開始の月を 1 か月目として並べています。\
+    月の応募数は、取引の応募数（累計）の月ごとの増え方です。まだ終わっていない月は線を伸ばしていません。",
     })
 }
 
