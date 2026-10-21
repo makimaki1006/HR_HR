@@ -583,6 +583,51 @@ mod tests {
         assert_eq!(data["applicant_reasons"]["truncated"], true);
     }
     #[test]
+    fn work_condition_priority_is_counted_once_as_a_reason_and_still_shown_in_the_hearing() {
+        let rows = vec![
+            record(
+                "101",
+                json!({"yingmuri":"2026-10-01", "kinmujoukennoyuusenjuni":"通勤と休日", "honnin_kibou_kinyuuran":"日勤のみ", "genshokumaeshokukaranotenshokuriyuu":"人間関係"}),
+            ),
+            record("102", json!({"yingmuri":"2026-10-02"})),
+        ];
+        let labels = OptionLabels::new();
+        let multi = BTreeSet::new();
+        let hearing =
+            extract("30", &rows, &[], &BTreeMap::new(), &multi, &labels, None, 2).unwrap();
+        let data = bundle("30", &rows, &labels, &hearing, &multi, 2, None);
+        let reasons = &data["applicant_reasons"];
+        let of = |p: &str| {
+            reasons["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|i| i["source_property"] == p)
+                .map(|i| i["text"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(of("kinmujoukennoyuusenjuni"), ["通勤と休日"]);
+        assert_eq!(of("honnin_kibou_kinyuuran"), ["日勤のみ"]);
+        assert_eq!(of("genshokumaeshokukaranotenshokuriyuu"), ["人間関係"]);
+        assert_eq!(
+            reasons["source_counts"]["kinmujoukennoyuusenjuni"],
+            json!({"nonblank":1,"blank":0,"missing":1})
+        );
+        assert_eq!(
+            reasons["source_counts"]["honnin_kibou_kinyuuran"],
+            json!({"nonblank":1,"blank":0,"missing":1})
+        );
+        // total_source_values counts each source once: 8 reasons sources + 12 hearing sources + call notes.
+        assert_eq!(reasons["total_source_values"], json!(2 * 21));
+        assert_eq!(reasons["items"].as_array().unwrap().len(), 3);
+        let card = &data["phone_hearing"]["items"][0];
+        assert!(card["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["label"] == "勤務条件の優先順位" && f["text"] == "通勤と休日"));
+    }
+    #[test]
     fn three_fictional_applications_share_keys_attributes_reasons_hearings_and_notes() {
         let rows = vec![
             record(

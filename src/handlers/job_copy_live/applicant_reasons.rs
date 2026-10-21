@@ -4,13 +4,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Free-text sources: 応募動機, 応募理由_媒体記載, 応募理由_ヒアリング, 現職・前職からの転職理由.
+/// Free-text sources: 応募動機, 応募理由_媒体記載, 応募理由_ヒアリング, 現職・前職からの転職理由,
+/// 勤務条件の優先順位, 本人希望記入欄.
 /// Every text is masked (mask_personal_details) before it leaves the server.
-pub const TEXT_PROPERTIES: [&str; 4] = [
+pub const TEXT_PROPERTIES: [&str; 6] = [
     "oubodouki",
     "ouboriyuu_baitaikisai",
     "ouboriyuu_hiaringu",
     "genshokumaeshokukaranotenshokuriyuu",
+    "kinmujoukennoyuusenjuni",
+    "honnin_kibou_kinyuuran",
 ];
 /// Select sources: 応募理由カテゴリ_ヒアリング, 応募理由カテゴリ_媒体記載 (給与/勤務地/職種興味/会社規模/その他/未設定).
 pub const CATEGORY_PROPERTIES: [&str; 2] = [
@@ -18,7 +21,19 @@ pub const CATEGORY_PROPERTIES: [&str; 2] = [
     "ouboriyuukategori_baitaikisai",
 ];
 /// Every source read now, in a fixed order (one batch read asks for all of them).
-pub const PROPERTIES: [&str; 6] = [
+pub const PROPERTIES: [&str; 8] = [
+    "oubodouki",
+    "ouboriyuu_baitaikisai",
+    "ouboriyuu_hiaringu",
+    "genshokumaeshokukaranotenshokuriyuu",
+    "kinmujoukennoyuusenjuni",
+    "honnin_kibou_kinyuuran",
+    "ouboriyuukategori_hiaringu",
+    "ouboriyuukategori_baitaikisai",
+];
+/// The sources of a snapshot written from 2026-10-08 until the two sources above were added
+/// (勤務条件の優先順位 and 本人希望記入欄 are 未取得 there, never 0).
+pub const PREVIOUS_PROPERTIES: [&str; 6] = [
     "oubodouki",
     "ouboriyuu_baitaikisai",
     "ouboriyuu_hiaringu",
@@ -878,6 +893,36 @@ mod tests {
         extract("30", rows, "2026-10-05T00:00:00Z".into())
     }
     #[test]
+    fn work_condition_priority_and_own_wishes_are_application_reasons_apart_from_transfer() {
+        let a = row(
+            "50",
+            &[
+                ("kinmujoukennoyuusenjuni", Some("通勤時間、休日の順")),
+                ("honnin_kibou_kinyuuran", Some("日勤のみ希望")),
+                ("genshokumaeshokukaranotenshokuriyuu", Some("人間関係")),
+            ],
+        );
+        let b = row("51", &[("honnin_kibou_kinyuuran", Some("  "))]);
+        let reasons = extract_rows(&[a, b]);
+        let of = |p: &str| -> Vec<&str> {
+            reasons
+                .items
+                .iter()
+                .filter(|i| i.source_property == p)
+                .map(|i| i.text.as_str())
+                .collect()
+        };
+        assert_eq!(of("kinmujoukennoyuusenjuni"), ["通勤時間、休日の順"]);
+        assert_eq!(of("honnin_kibou_kinyuuran"), ["日勤のみ希望"]);
+        assert_eq!(of("genshokumaeshokukaranotenshokuriyuu"), ["人間関係"]);
+        assert_eq!(reasons.items.len(), 3);
+        let c = &reasons.source_counts["honnin_kibou_kinyuuran"];
+        assert_eq!((c.missing, c.blank, c.nonblank), (0, 1, 1));
+        let c = &reasons.source_counts["kinmujoukennoyuusenjuni"];
+        assert_eq!((c.missing, c.blank, c.nonblank), (1, 0, 1));
+        assert!(!TEXT_PROPERTIES.contains(&"kyuujinkensakujouken"));
+    }
+    #[test]
     fn source_counts_conserve_missing_blank_and_nonblank_without_person_fields() {
         let a = row(
             "50",
@@ -899,11 +944,11 @@ mod tests {
         let reasons = extract_rows(&[a.clone(), a, b]);
         assert_eq!(
             (reasons.total_applicants, reasons.total_source_values),
-            (2, 12)
+            (2, 16)
         );
         assert_eq!(
             (reasons.missing, reasons.blank, reasons.items.len()),
-            (9, 1, 2)
+            (13, 1, 2)
         );
         assert_eq!(reasons.items[0].text, "Flexible hours");
         assert_eq!(
@@ -952,7 +997,7 @@ mod tests {
             .all(|item| item.text.chars().count() == MAX_TEXT_CHARS));
         assert!(reasons.truncated);
         assert_eq!(reasons.source_counts["oubodouki"].nonblank, MAX_ITEMS + 1);
-        assert_eq!(reasons.missing, (MAX_ITEMS + 1) * 5);
+        assert_eq!(reasons.missing, (MAX_ITEMS + 1) * 7);
     }
     #[test]
     fn addresses_phone_numbers_mail_and_names_are_masked() {
@@ -1102,7 +1147,7 @@ mod tests {
             let c = &reasons.source_counts[property];
             (c.missing, c.blank, c.nonblank)
         };
-        assert_eq!(reasons.source_counts.len(), 6);
+        assert_eq!(reasons.source_counts.len(), 8);
         assert_eq!(counts("genshokumaeshokukaranotenshokuriyuu"), (0, 1, 1));
         assert_eq!(counts("ouboriyuukategori_hiaringu"), (0, 0, 2));
         assert_eq!(counts("ouboriyuukategori_baitaikisai"), (1, 1, 0));

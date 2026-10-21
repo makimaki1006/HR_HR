@@ -130,7 +130,7 @@ function ApplicationDetails({ job, event, hearing, loading }: { job: JobCopyReco
   const picked = (collection?.selections ?? []).filter(item => item.applicant === event.applicationKey && selectedCategory(item) !== 'unset');
   const card = hearing?.items.find(card => card.applicant === event.applicationKey);
   const reasons = items.filter(item => !HEARING_TEXT_SOURCES.includes(item.sourceProperty));
-  const reasonFields = new Set<string>(reasons.map(item => item.sourceProperty === 'oubodouki' ? '応募動機' : item.sourceProperty === 'genshokumaeshokukaranotenshokuriyuu' ? '転職理由' : ''));
+  const reasonFields = new Set<string>(reasons.map(item => item.sourceProperty === 'oubodouki' ? '応募動機' : item.sourceProperty === 'genshokumaeshokukaranotenshokuriyuu' ? '転職理由' : item.sourceProperty === 'kinmujoukennoyuusenjuni' ? '勤務条件の優先順位' : ''));
   const fields = card?.fields.filter(field => !reasonFields.has(field.label)) ?? [];
   const recorded = items.length > 0 || picked.length > 0 || Boolean(card);
   return <div className="lo-reasons-of">

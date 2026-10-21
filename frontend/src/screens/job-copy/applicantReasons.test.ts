@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ApplicantReasons } from './ApplicantReasons';
 import { reasonCohorts } from './applicantReasonsModel';
+import { classifyApplicationReasons, classifyTransferReasons } from './reasonCategories';
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import { parseApplicantReasons } from './applicantReasonsParser';
 import { jobs } from './data';
@@ -155,5 +156,44 @@ describe('chosen category values and the label status', () => {
     ] };
     expect(reasonCohorts(collection, 'before', 'after')?.unknown.map(item => item.text)).toEqual(['時給が高いから']);
     expect(reasonCohorts(collection, 'before', 'after', 'genshokumaeshokukaranotenshokuriyuu')?.unknown.map(item => item.text)).toEqual(['通勤に片道1時間かかるため']);
+  });
+});
+
+describe('勤務条件の優先順位 and 本人希望記入欄 as application reasons', () => {
+  /** The stored shape since the two texts were added: eight sources. */
+  function eight() {
+    const raw = current();
+    const counts = (nonblank: number) => ({ missing: 2 - nonblank, blank: 0, nonblank });
+    raw.source_counts = { ...raw.source_counts, kinmujoukennoyuusenjuni: counts(1), honnin_kibou_kinyuuran: counts(1) } as typeof raw.source_counts;
+    raw.total_source_values = 16;
+    raw.missing = 9; raw.blank = 1;
+    raw.items.push(
+      { id: 'c'.repeat(64), applicant: '1'.repeat(64), text: '通勤時間、休日の順', source: 'hubspot', source_property: 'kinmujoukennoyuusenjuni', application_date: '2026-09-01', collected_at: null, version_id: null },
+      { id: 'd'.repeat(64), applicant: '2'.repeat(64), text: '日勤のみ希望', source: 'hubspot', source_property: 'honnin_kibou_kinyuuran', application_date: null, collected_at: null, version_id: null },
+    );
+    return raw;
+  }
+  it('reads the eight-source stored shape and still reads the six-source one', () => {
+    const parsed = parseCurrent(eight());
+    expect(Object.keys(parsed?.sourceCounts ?? {})).toHaveLength(8);
+    expect(parsed?.items.map(item => item.sourceProperty)).toEqual(['oubodouki', 'genshokumaeshokukaranotenshokuriyuu', 'kinmujoukennoyuusenjuni', 'honnin_kibou_kinyuuran']);
+    expect(Object.keys(parseCurrent(current())?.sourceCounts ?? {})).toHaveLength(6);
+    // A six-source file cannot carry a text of a source it did not read.
+    const sixWithNew = current(); first(sixWithNew.items).source_property = 'honnin_kibou_kinyuuran'; expect(() => parseCurrent(sixWithNew)).toThrow();
+  });
+  it('lists both texts under 「all」, apart from the transfer reason', () => {
+    const parsed = parseCurrent(eight());
+    expect(reasonCohorts(parsed, 'before', 'after')?.unknown.map(item => item.text)).toEqual(['家から近いため', '通勤時間、休日の順', '日勤のみ希望']);
+    expect(reasonCohorts(parsed, 'before', 'after', 'honnin_kibou_kinyuuran')?.unknown.map(item => item.text)).toEqual(['日勤のみ希望']);
+  });
+  it('counts each application once: the priority sentence is not counted again as a hearing text', () => {
+    const parsed = parseCurrent(eight());
+    const result = classifyApplicationReasons(parsed);
+    // Application 1 has 応募動機 + 勤務条件の優先順位 + a chosen 給与; application 2 has 本人希望記入欄 + a chosen (unnamed) value.
+    expect(result?.unit).toBe('application');
+    expect(result?.applications.map(item => item.key.slice(0, 1))).toEqual(['1', '2']);
+    // 転職理由 stays on its own: its text never reaches the application classification.
+    expect(classifyApplicationReasons(parsed && { ...parsed, items: parsed.items.filter(item => item.sourceProperty === 'genshokumaeshokukaranotenshokuriyuu'), selections: [] })?.applications).toEqual([]);
+    expect(classifyTransferReasons(parseCurrent(current()))?.applications).toHaveLength(1);
   });
 });
