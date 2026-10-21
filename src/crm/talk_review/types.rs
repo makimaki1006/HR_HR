@@ -49,6 +49,18 @@ pub struct TalkPersonRow {
     pub appointment_rate_pct: Option<f64>,
     /// アポ率の印 (架電数が下限以上で、チーム全体のアポ率の一定割合未満)
     pub appointment_rate_flagged: bool,
+    /// 接触数 (受付を越えて担当者・決裁者と話せた発信の本数)。判定の保存が読めなければ null
+    pub contacts: Option<u32>,
+    /// 接触数 ÷ 発信数 × 100 (発信数が無い・0 は null)
+    pub contact_rate_pct: Option<f64>,
+    /// 日程切り本数 (具体的な日時を 1 回以上出した発信の本数)
+    pub date_proposal_calls: Option<u32>,
+    /// 日程切り本数 ÷ 発信数 × 100 (発信数が無い・0 は null)
+    pub date_proposal_rate_pct: Option<f64>,
+    /// 1 接触あたりの日程切り回数 (接触した電話で日時を出した回数の合計 ÷ 接触数。接触 0 は null)
+    pub proposals_per_contact: Option<f64>,
+    /// 接触の判定がまだ済んでいない、つながった発信の本数
+    pub contact_pending: u32,
     /// 判定の対象になった電話の本数 (70 秒以上。枠を超えて判定しないものも含む)
     pub eligible: u32,
     /// 判定できた電話の本数

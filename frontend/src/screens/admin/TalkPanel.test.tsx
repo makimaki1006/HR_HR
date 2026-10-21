@@ -15,21 +15,21 @@ describe('トークの振り返り: 人ごとの表', () => {
   it('アポ率は小数2桁、印のセルだけ目立たせる', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
     const jiro = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
-    // 名前・チーム・発信数・架電数・アポ・アポ率・判定数・4項目
+    // 名前・チーム・発信数・架電数・アポ・アポ率・接触数・接触率・日程切り本数・日程切り率・1接触あたり・判定数・4項目
     expect(jiro[3]?.textContent).toBe('310');
     expect(jiro[5]?.textContent).toBe('0.65%');
     expect(jiro[5]?.getAttribute('data-flagged')).toBe('true');
-    expect(jiro[6]?.textContent).toContain('70');
-    expect(jiro[6]?.textContent).toContain('待ち 6 ・ 取れない 4');
+    expect(jiro[11]?.textContent).toContain('70');
+    expect(jiro[11]?.textContent).toContain('待ち 6 ・ 取れない 4');
     // 日程を早く出す: 36/45 = 80% が印、受付は 25% で印なし
-    expect(jiro[9]?.textContent).toBe('20%できた 9/45本');
-    expect(jiro[9]?.getAttribute('data-flagged')).toBe('true');
-    expect(jiro[7]?.getAttribute('data-flagged')).toBeNull();
+    expect(jiro[14]?.textContent).toBe('20%できた 9/45本');
+    expect(jiro[14]?.getAttribute('data-flagged')).toBe('true');
+    expect(jiro[12]?.getAttribute('data-flagged')).toBeNull();
     const hanako = Array.from(rowOf('架空 花子').querySelectorAll('td'));
     expect(hanako[5]?.textContent).toBe('2.27%');
     expect(hanako[5]?.getAttribute('data-flagged')).toBeNull();
     // 項目の印は別の人 (断られた後 14/16)
-    expect(Array.from(rowOf('ダミー 三郎').querySelectorAll('td'))[15]?.getAttribute('data-flagged')).toBe('true');
+    expect(Array.from(rowOf('ダミー 三郎').querySelectorAll('td'))[20]?.getAttribute('data-flagged')).toBe('true');
   });
 
   it('見出しに資料の全体の割合と決まりを出し、最後の行はチーム全体', () => {
@@ -42,7 +42,7 @@ describe('トークの振り返り: 人ごとの表', () => {
     const rows = within(screen.getByTestId('talk-table')).getAllByRole('row');
     const last = Array.from(rows.at(-1)?.querySelectorAll('td') ?? []).map(td => td.textContent);
     expect(last.slice(0, 6)).toEqual(['チーム全体', '-', '1771', '770', '12', '1.56%']);
-    expect(last[9]).toBe('43%できた 54/125本');
+    expect(last[14]).toBe('43%できた 54/125本');
     // 場面ごとのまとまり
     expect(Array.from(document.querySelectorAll('th.talk-group')).map(t => `${t.textContent}:${t.getAttribute('colspan') ?? ''}`)).toEqual(['受付:1', '日付の前:5', '断られた後:3']);
   });
@@ -61,7 +61,7 @@ describe('トークの振り返り: 人ごとの表', () => {
   it('判定した本数と対象の本数を並べ、割合は判定した電話の中の割合だと書く', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
     // 二郎: 判定 70、待ち 6、取れない 4、枠を超えて判定していない 35 → 対象 115
-    const cell = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'))[6]?.textContent ?? '';
+    const cell = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'))[11]?.textContent ?? '';
     expect(cell).toContain('70');
     expect(cell).toContain('対象 115 本');
     const note = screen.getByTestId('talk-sampling').textContent;
@@ -90,6 +90,52 @@ describe('トークの振り返り: 人ごとの表', () => {
     const cells = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
     expect(cells[3]?.textContent).toBe('—');
     expect(cells[5]?.textContent).toBe('-');
+  });
+
+  it('接触・日程切りの5列に値を出し、判定待ちの本数を添える', () => {
+    render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    const heads = screen.getAllByRole('columnheader').map(h => h.textContent);
+    const at = heads.findIndex(t => t.startsWith('アポ率'));
+    expect(heads.slice(at + 1, at + 6)).toEqual(['接触数', '接触率', '日程切り本数', '日程切り率', '1接触あたりの日程切り回数']);
+    expect(heads[at + 6]).toMatch(/^判定した電話数/);
+    // 二郎: 発信 713 本、接触 190 (26.6%)、日程切り 90 本 (12.6%)、合計 120 回 ÷ 接触 190 = 0.6、判定待ちなし
+    const jiro = Array.from(rowOf('サンプル 二郎').querySelectorAll('td')).map(td => td.textContent);
+    expect(jiro.slice(6, 11)).toEqual(['190', '26.6%', '90', '12.6%', '0.6']);
+    // 花子: 接触の判定待ち 4 本
+    const hanako = rowOf('架空 花子').querySelector('[data-testid="talk-contacts"]');
+    expect(hanako?.textContent).toBe('150接触の判定待ち 4 本');
+    expect(rowOf('サンプル 二郎').querySelector('[data-testid="talk-contact-pending"]')).toBeNull();
+    // チーム全体: 接触 480、日程切り 205 本、発信 1771 本、全員の判定待ち 6 本
+    const last = Array.from(within(screen.getByTestId('talk-table')).getAllByRole('row').at(-1)?.querySelectorAll('td') ?? []).map(td => td.textContent);
+    expect(last.slice(6, 11)).toEqual(['480接触の判定待ち 6 本', '27.1%', '205', '11.6%', '0.6']);
+    // 説明の1行
+    const rule = screen.getByTestId('talk-contact-rule').textContent;
+    expect(rule).toContain('接触率 ＝ 接触数 ÷ 発信数');
+    expect(rule).toContain('日程切り率 ＝ 日程切り本数 ÷ 発信数');
+    expect(rule).toContain('接触した電話で日時を出した回数の合計 ÷ 接触数');
+  });
+
+  it('接触・日程切りの見出しで並べ替え、値の無い人は向きによらず最後に置く', () => {
+    const names = () => within(screen.getByTestId('talk-table')).getAllByTestId('talk-row').map(r => r.querySelector('td')?.textContent);
+    const { unmount } = render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: /^接触率/ }));
+    expect(names()).toEqual(['架空 花子', 'ダミー 三郎', 'サンプル 二郎', '架空 四郎']);
+    fireEvent.click(screen.getByRole('button', { name: /^接触率/ }));
+    expect(screen.getByRole('columnheader', { name: /接触率/ }).getAttribute('aria-sort')).toBe('ascending');
+    expect(names()).toEqual(['架空 四郎', 'サンプル 二郎', 'ダミー 三郎', '架空 花子']);
+    fireEvent.click(screen.getByRole('button', { name: /^日程切り本数/ }));
+    expect(names()).toEqual(['サンプル 二郎', '架空 花子', 'ダミー 三郎', '架空 四郎']);
+    fireEvent.click(screen.getByRole('button', { name: /^1接触あたりの日程切り回数/ }));
+    expect(names()).toEqual(['ダミー 三郎', '架空 花子', 'サンプル 二郎', '架空 四郎']);
+    unmount();
+    // 読めなかった人 (null) は降順でも昇順でも最後
+    const gap = { ...summary, people: summary.people.map(p => (p.name === '架空 花子' ? { ...p, contacts: null, contact_rate_pct: null, contact_pending: 0 } : p)) };
+    render(<TalkSummaryTable data={gap} onOpen={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: /^接触数/ }));
+    expect(names()).toEqual(['サンプル 二郎', 'ダミー 三郎', '架空 四郎', '架空 花子']);
+    fireEvent.click(screen.getByRole('button', { name: /^接触数/ }));
+    expect(names()).toEqual(['架空 四郎', 'ダミー 三郎', 'サンプル 二郎', '架空 花子']);
+    expect(Array.from(rowOf('架空 花子').querySelectorAll('td')).slice(6, 8).map(td => td.textContent)).toEqual(['—', '-']);
   });
 
   it('数えている途中の日を日付でまとめて伝える', () => {

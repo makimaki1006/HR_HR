@@ -26,6 +26,30 @@ appointment_rate_pct: number | null,
  */
 appointment_rate_flagged: boolean, 
 /**
+ * 接触数 (受付を越えて担当者・決裁者と話せた発信の本数)。判定の保存が読めなければ null
+ */
+contacts: number | null, 
+/**
+ * 接触数 ÷ 発信数 × 100 (発信数が無い・0 は null)
+ */
+contact_rate_pct: number | null, 
+/**
+ * 日程切り本数 (具体的な日時を 1 回以上出した発信の本数)
+ */
+date_proposal_calls: number | null, 
+/**
+ * 日程切り本数 ÷ 発信数 × 100 (発信数が無い・0 は null)
+ */
+date_proposal_rate_pct: number | null, 
+/**
+ * 1 接触あたりの日程切り回数 (接触した電話で日時を出した回数の合計 ÷ 接触数。接触 0 は null)
+ */
+proposals_per_contact: number | null, 
+/**
+ * 接触の判定がまだ済んでいない、つながった発信の本数
+ */
+contact_pending: number, 
+/**
  * 判定の対象になった電話の本数 (70 秒以上。枠を超えて判定しないものも含む)
  */
 eligible: number, 

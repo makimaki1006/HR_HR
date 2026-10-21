@@ -533,6 +533,10 @@ pub fn purge_old_activity(audit: &AuditDb) -> Result<(), String> {
         "DELETE FROM call_talk_reviews WHERE call_at < ?1",
         &[&cutoff],
     )?;
+    audit.turso().execute(
+        "DELETE FROM call_contact_marks WHERE call_at < ?1",
+        &[&cutoff],
+    )?;
     crate::crm::email::tracking::purge_old_tracking(audit.turso(), cutoff_at.timestamp_millis())?;
     tracing::info!(cutoff = %cutoff, "purged activity/sessions/email tracking older than 1 year");
     Ok(())
