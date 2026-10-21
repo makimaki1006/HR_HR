@@ -55,7 +55,7 @@ export function Welcome() {
           <FakeQr />
           <div className="min-w-0 text-xs text-pt-muted">
             <p>スマホのカメラで読み取ります</p>
-            <p className="pt-num mt-1 whitespace-nowrap text-[11px] text-pt-ink">{SHORT_URL}</p>
+            <p className="pt-num mt-1 whitespace-nowrap text-[12px] text-pt-ink">{SHORT_URL}</p>
             <Button size="sm" variant="ghost" className="mt-1 -ml-2.5" onClick={copy}><IconCopy size={14} />{copied ? 'コピーしました' : 'アドレスをコピー'}</Button>
           </div>
         </div>

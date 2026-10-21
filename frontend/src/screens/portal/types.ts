@@ -163,10 +163,26 @@ export interface ListSort {
   mode?: 'near' | 'changed';
 }
 
+/** 一覧の上のチップ（今日の面接・明日・新着・未対応）。customer/list/quick.tsx の Quick と同じ値。 */
+export type ListQuick = 'today' | 'tomorrow' | 'new' | 'unhandled';
+
+/** 一覧の状態のうち URL に入れるもの（戻る操作・リンクの共有で同じ一覧に戻るため）。 */
+export interface ListUrlState {
+  /** 状況タブの値（選択肢の名前）。 */
+  status?: string;
+  quick?: ListQuick;
+  q?: string;
+  /** 本人が選んだ並び（応募日・面接日が近い順・更新が先）。 */
+  sort?: 'applied' | 'near' | 'changed';
+  /** 開いている応募者の行番号。 */
+  row?: number;
+}
+
 /** 一覧の見せ方。人とシートごとに覚えて、次に開いたときも同じにする。 */
 export interface ListPrefs {
   /** 列ごとの表示・非表示（設定にない列はシートの既定）。 */
   shown: Record<string, boolean>;
+  /** 本人が選んだ並びだけを入れる（チップで自動に変えた並びは入れない）。 */
   sort: ListSort | null;
   filters: Record<string, ListFilter>;
 }

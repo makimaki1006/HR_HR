@@ -38,7 +38,7 @@ export function MetricsScreen() {
     const unreadable = sheet?.connection !== 'ok';
     return (
       <AppShell section="metrics" title="数字">
-        <div className="mx-auto max-w-5xl">
+        <div className="max-w-[1100px]">
           <Notice
             tone="warn"
             title={unreadable ? 'このシートは読み込めていません' : '選考状況の列が決まっていません'}
@@ -64,9 +64,16 @@ export function MetricsScreen() {
   const hiredLabel = labelOf(sheet.columns.find((c) => c.header === sheet.hiredDateColumn) ?? { header: sheet.hiredDateColumn ?? '', label: '', visible: true, writable: false, options: null, multiline: false, inList: true });
   const optionsOf = (stage: (typeof STAGE_ORDER)[number]): string[] => Object.entries(sheet.stageMap ?? {}).filter(([, s]) => s === stage).map(([o]) => o);
 
+  const optionNames: Partial<Record<(typeof STAGE_ORDER)[number], string>> = {};
+  for (const s of STAGE_ORDER) {
+    const names = optionsOf(s);
+    if (s === 'hired' && sheet.hiredDateColumn) names.push(`${hiredLabel}あり`);
+    if (names.length > 0) optionNames[s] = names.join('・');
+  }
+
   return (
     <AppShell section="metrics" title="数字">
-      <div className="mx-auto max-w-5xl space-y-4">
+      <div className="max-w-[1100px] space-y-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="hidden sm:block">
             <Segmented value={period} options={PERIODS} onChange={setPeriod} size="sm" />
@@ -103,7 +110,7 @@ export function MetricsScreen() {
         )}
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Panel title="選考の流れ" aside={<span className="text-xs text-pt-faint">割合は応募数に対して</span>}><Funnel t={t} missing={missing} /></Panel>
+          <Panel title="選考の流れ" aside={<span className="text-xs text-pt-faint">割合は応募数に対して</span>}><Funnel t={t} missing={missing} optionNames={optionNames} /></Panel>
           <Panel title="月ごとの応募数と採用数"><MonthlyChart bars={monthly(allRows, sheet)} range={ranges.cur} /></Panel>
         </div>
 

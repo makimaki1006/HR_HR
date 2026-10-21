@@ -117,7 +117,7 @@ export function Code() {
         <Field label="6 桁のコード">
           <CodeBoxes value={code} invalid={problem === 'wrong'} onChange={change} />
         </Field>
-        <CheckRow checked={remember} onChange={setRemember} label="この端末を覚える（90 日）" note="共用のパソコンでは使わないでください。" />
+        <CheckRow checked={remember} onChange={setRemember} label="この端末を覚える" note="90 日。自分だけが使う端末のとき" />
         <Button type="submit" variant="primary" className={BTN_LG} disabled={code.length !== 6 || sending}>{sending ? '確認しています…' : '確認する'}</Button>
       </form>
       <div className="mt-4 text-center text-sm">
@@ -141,7 +141,7 @@ export function Code() {
           <p className="mt-1">コードの有効時間は 10 分です。迷惑メールのフォルダもご確認ください。</p>
         </Fold>
       </div>
-      <details className="mt-2 text-[11px] text-pt-faint">
+      <details className="mt-2 text-[12px] text-pt-faint">
         <summary className="cursor-pointer">試作の操作</summary>
         <p className="mt-1">000000: 違う／111111: 期限切れ／999999: 通信できない／それ以外: 一覧へ</p>
       </details>

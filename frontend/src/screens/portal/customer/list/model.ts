@@ -1,18 +1,30 @@
 // 一覧の並べ替え・絞り込み・書き出し。表とスマホのカードで同じ決まりを使う。
-import { TODAY_NUM, kindOf, labelOf, parseLooseDay, parseTimeOfDay, sortByDate } from '../../columns';
-import { stageOf } from '../../data';
+import { TODAY_NUM, dateSearchText, dayNum, formatDateTimeJa, formatDayJa, kindOf, labelOf, parseLooseDay, parseTimeOfDay, sortByDate } from '../../columns';
+import { getData, stageOf } from '../../data';
 import type { ApplicantRow, ColumnConfig, FunnelStage, ListFilter, ListSort, SheetConfig } from '../../types';
 import { NOW } from '../../fixtures';
 
 export type ColumnFilter = ListFilter;
 export type SortSpec = ListSort;
 
-export const norm = (s: string): string => s.replace(/[-\s]/g, '').toLowerCase();
+/** 検索のための寄せ: 半角カナ・全角英数を寄せ（NFKC）、カタカナをひらがなにし、空白とハイフンを除いて小文字にする。 */
+export const norm = (s: string): string =>
+  s
+    .normalize('NFKC')
+    .replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
+    .replace(/[-\s\u2212\u2010-\u2015]/g, '')
+    .toLowerCase();
 
-export function matchesQuery(row: ApplicantRow, cols: ColumnConfig[], q: string): boolean {
+/** 検索。日付の列は、原文でも「10/23」「2026/10/23」でも当たる。refHeader は応募日の列（年の無い値の年を当てる）。 */
+export function matchesQuery(row: ApplicantRow, cols: ColumnConfig[], q: string, refHeader?: string): boolean {
   const n = norm(q);
   if (n === '') return true;
-  return cols.some((c) => norm(row.values[c.header] ?? '').includes(n));
+  const ref = refHeader ? parseLooseDay(row.values[refHeader]) : null;
+  return cols.some((c) => {
+    const v = row.values[c.header] ?? '';
+    const k = kindOf(c);
+    return norm(k === 'date' || k === 'datetime' ? dateSearchText(v, ref) : v).includes(n);
+  });
 }
 
 export function matchesFilters(row: ApplicantRow, filters: Record<string, ColumnFilter>): boolean {
@@ -21,6 +33,42 @@ export function matchesFilters(row: ApplicantRow, filters: Record<string, Column
     if (f.type === 'in') return f.values.includes(v);
     return norm(v).includes(norm(f.text));
   });
+}
+
+// ---- シートの基準の年 ----
+
+const baseCache = new WeakMap<ApplicantRow[], number | null>();
+const THIS_YEAR = new Date(TODAY_NUM * 86400000).getUTCFullYear();
+
+/**
+ * シートの基準の年の 1 月 1 日の通し番号。年付きの日付の値（「2025/10/19」「2025年10月19日」）で一番多い年。
+ * 今年なら null（年の無い値は今まで通り今年として読む）。過去の年度のシートで「10月19日」を今年と取り違えないために使う。
+ */
+export function sheetBaseRef(sheet: Pick<SheetConfig, 'id' | 'columns'>): number | null {
+  const rows = getData().rows[sheet.id];
+  if (!rows) return null;
+  const hit = baseCache.get(rows);
+  if (hit !== undefined) return hit;
+  const count = new Map<number, number>();
+  const dateCols = sheet.columns.filter((c) => { const k = kindOf(c); return k === 'date' || k === 'datetime'; });
+  for (const r of rows) {
+    for (const c of dateCols) {
+      const m = /^(\d{4})\s*[年/.-]/.exec((r.values[c.header] ?? '').trim());
+      if (m) { const y = Number(m[1]); count.set(y, (count.get(y) ?? 0) + 1); }
+    }
+  }
+  let best: number | null = null;
+  let bestN = 0;
+  for (const [y, n] of count) if (n > bestN) { best = y; bestN = n; }
+  const out = best === null || best === THIS_YEAR ? null : dayNum(best, 1, 1);
+  baseCache.set(rows, out);
+  return out;
+}
+
+/** 行の応募日の通し番号（年の無い値の年を当てる基準）。応募日の列が無い・読めなければ null。 */
+export function rowRefDay(sheet: Pick<SheetConfig, 'id' | 'columns' | 'sortColumn'>, row: ApplicantRow): number | null {
+  if (!sheet.sortColumn) return null;
+  return parseLooseDay(row.values[sheet.sortColumn], sheetBaseRef(sheet)) ?? sheetBaseRef(sheet);
 }
 
 const numeric = (v: string): number | null => (/^\d+(\.\d+)?$/.test(v) ? Number(v) : null);
@@ -42,9 +90,9 @@ export function dayOffset(v: string, ref?: number | null): number | null {
 }
 
 /** 行の面接の日時（ミリ秒）。面接の列と、別の列の時刻、応募日からの年の補いを使う。 */
-export function interviewAt(sheet: Pick<SheetConfig, 'interviewColumn' | 'interviewTimeColumn' | 'sortColumn'>, row: ApplicantRow): number | null {
+export function interviewAt(sheet: Pick<SheetConfig, 'id' | 'columns' | 'interviewColumn' | 'interviewTimeColumn' | 'sortColumn'>, row: ApplicantRow): number | null {
   if (!sheet.interviewColumn) return null;
-  const ref = sheet.sortColumn ? parseLooseDay(row.values[sheet.sortColumn]) : null;
+  const ref = rowRefDay(sheet, row);
   return parseDateTime(row.values[sheet.interviewColumn] ?? '', sheet.interviewTimeColumn ? (row.values[sheet.interviewTimeColumn] ?? '') : undefined, ref);
 }
 
@@ -91,18 +139,18 @@ export function sortRows(rows: ApplicantRow[], sort: SortSpec | null, fallbackHe
   });
 }
 
-/** 段階 → 点の色。段階ごとに 1 色（終わった 2 つだけ同じ系統の灰色）。 */
+/** 段階 → 点の色。色は段階のまとまり（応募・選考中／面接／内定・採用／終了）だけを示す。見分けは札の文字で行う。 */
 export function stageDot(stage: FunnelStage | undefined): string {
   switch (stage) {
-    case 'applied': return 'bg-pt-warn';
-    case 'screening': return 'bg-pt-primary';
-    case 'interview_set': return 'bg-pt-select';
-    case 'interviewed': return 'bg-pt-select/45';
-    case 'offer': return 'bg-pt-ok/45';
+    case 'applied':
+    case 'screening': return 'bg-pt-stage-early';
+    case 'interview_set':
+    case 'interviewed': return 'bg-pt-select';
+    case 'offer':
     case 'hired': return 'bg-pt-ok';
-    case 'rejected': return 'bg-pt-faint';
-    case 'declined': return 'bg-pt-line-strong';
-    default: return 'bg-pt-line';
+    case 'rejected':
+    case 'declined': return 'bg-pt-faint';
+    default: return 'bg-pt-line-strong';
   }
 }
 
@@ -143,17 +191,26 @@ export const TITLE_MIN = 168;
  * 列ごとの幅（px）。見出しと中身の長いほうに合わせて詰める。
  * 書けない列が場所を取りすぎず、書ける列が 1 画面に収まるようにする。
  */
-export function columnWidths(cols: ColumnConfig[], rows: ApplicantRow[], titleHeader: string, statusHeader: string | undefined): Record<string, number> {
+export function columnWidths(cols: ColumnConfig[], rows: ApplicantRow[], titleHeader: string, statusHeader: string | undefined, refFor?: (r: ApplicantRow) => number | null): Record<string, number> {
   const sample = rows.slice(0, 300);
   const out: Record<string, number> = {};
   for (const c of cols) {
     const head = textWidth(labelOf(c)) + 36 + (c.writable ? 0 : 15);
     if (c.multiline) { out[c.header] = 240; continue; }
-    const values = [...sample.map((r) => r.values[c.header] ?? ''), ...(c.options ?? [])];
+    const kind = kindOf(c);
+    const isDate = kind === 'date' || kind === 'datetime';
+    // 日付は画面に出す文字（「10/23（金）」「2025/10/19（日）」）で測る。
+    const shownText = (r: ApplicantRow): string => {
+      const v = r.values[c.header] ?? '';
+      if (!isDate || v === '') return v;
+      const ref = refFor ? refFor(r) : null;
+      const f = kind === 'date' ? formatDayJa(v, ref) : formatDateTimeJa(v, undefined, ref);
+      return f ? f.text : v;
+    };
+    const values = [...sample.map(shownText), ...(c.options ?? [])];
     const longest = values.reduce((m, v) => Math.max(m, textWidth(v)), 0);
     if (c.header === titleHeader) { out[c.header] = Math.round(Math.min(220, Math.max(TITLE_MIN, longest + 84))); continue; }
-    const pad = c.header === statusHeader ? 50 : 22;
-    const kind = kindOf(c);
+    const pad = c.header === statusHeader ? 54 : isDate ? 34 : 26;
     const floor = kind === 'datetime' ? 140 : kind === 'date' ? 92 : 56;
     out[c.header] = Math.round(Math.min(220, Math.max(floor, head, longest + pad)));
   }

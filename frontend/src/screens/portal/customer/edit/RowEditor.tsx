@@ -1,17 +1,18 @@
 // 応募者 1 人の詳細。項目を「項目名｜値」で並べ、書ける項目は値を押すとその場で直せる。担当: detail チーム。
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { actions, cellHistory, getData, log, useData } from '../../data';
-import { cardLayout, groupOf, kindOf, labelOf } from '../../columns';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { actions, cellHistory, getData, log, stageOf, useData, viewerName } from '../../data';
+import { TODAY_NUM, cardLayout, dominantDateStyle, formatDateTimeJa, formatDayJa, groupOf, kindOf, labelOf, parseLooseDay, parseTimeOfDay, type DateStyle } from '../../columns';
 import type { ApplicantRow, ColumnConfig, SheetConfig } from '../../types';
-import { Badge, cx, formatShortDateTime } from '../../ui/kit';
+import { Badge, BottomSheet, EditableBox, cx, formatShortDateTime } from '../../ui/kit';
 import { CellDisplay, CellInput } from '../../ui/cell';
-import { IconCheck, IconChevronDown, IconLock, IconMail, IconPhone, IconX } from '../../ui/icons';
-import { statusDot } from '../list/model';
+import { IconCalendar, IconCheck, IconChevronDown, IconLock, IconMail, IconPhone, IconX } from '../../ui/icons';
+import { interviewAt, rowRefDay, statusDot } from '../list/model';
+import { StatusSheetList } from '../list/StatusSheet';
 import { SmallButton } from '../list/parts';
 import { ChoicePopover } from './ChoicePopover';
-import { IconPencil } from './icons';
 import { Timeline } from './Timeline';
 import { useVisibleRows } from './visibleRows';
+import { NOW } from '../../fixtures';
 
 export interface RowEditorProps {
   sheet: SheetConfig;
@@ -33,7 +34,57 @@ interface Editing {
   draft: string;
 }
 
-const shown = (v: string): string => (v === '' ? '（空）' : v);
+const shown = (v: string): string => (v === '' ? '未入力' : v);
+
+/** 画面の幅がスマホか（640px 未満）。 */
+function useIsMobile(): boolean {
+  const q = '(max-width: 639px)';
+  const [m, setM] = useState(() => window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const h = () => { setM(mq.matches); };
+    mq.addEventListener('change', h);
+    return () => { mq.removeEventListener('change', h); };
+  }, []);
+  return m;
+}
+
+/** 日番号と分から、予定を 1 件持つ .ics の文字（日本時間 → UTC）。 */
+function icsText(title: string, dayN: number, minutes: number): string {
+  const stamp = (ms: number): string => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const start = dayN * 86400000 + minutes * 60000 - 9 * 3600000;
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//applicant-portal//JA', 'BEGIN:VEVENT', `UID:${String(start)}-${encodeURIComponent(title)}@portal`, `DTSTAMP:${stamp(Date.now())}`, `DTSTART:${stamp(start)}`, `DTEND:${stamp(start + 3600000)}`, `SUMMARY:${title}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+}
+
+function downloadIcs(title: string, dayN: number, minutes: number): void {
+  const url = URL.createObjectURL(new Blob([icsText(title, dayN, minutes)], { type: 'text/calendar;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'interview.ics';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => { URL.revokeObjectURL(url); }, 1000);
+}
+
+/** 長い文を、スマホでは 3 行で切って「続きを読む」で開く。 */
+function ClampText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 60 || text.split('\n').length > 3;
+  return (
+    <div>
+      <p className={cx('whitespace-pre-wrap break-words leading-relaxed', long && !open && 'line-clamp-3 sm:line-clamp-none')}>{text}</p>
+      {long && !open && <button type="button" onClick={() => { setOpen(true); }} className="inline-flex h-[44px] items-center text-[13px] text-pt-primary hover:underline sm:hidden">続きを読む</button>}
+    </div>
+  );
+}
+
+/** data-field を持つ要素（ボタン本体、または箱の外側）の押せるところに焦点を当てる。 */
+function focusEl(el: HTMLElement | null | undefined): void {
+  if (!el) return;
+  if (el.tagName === 'BUTTON') el.focus();
+  else el.querySelector<HTMLElement>('button')?.focus();
+}
 
 function isTyping(t: EventTarget | null): boolean {
   return t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT');
@@ -49,12 +100,12 @@ function NavButton({ label, disabled, onClick, children }: { label: string; disa
   );
 }
 
-function StatusPill({ value, dot }: { value: string; dot: string }) {
-  if (value === '') return <span className="text-[13px] text-pt-faint">状況を選ぶ</span>;
+function StatusPill({ value, dot, pressable }: { value: string; dot: string; pressable?: boolean }) {
   return (
-    <span className="inline-flex h-[22px] max-w-full items-center gap-1.5 rounded-full border border-pt-line bg-pt-surface pr-2 pl-1.5 text-[12px] text-pt-ink">
-      <span className={cx('h-1.5 w-1.5 shrink-0 rounded-full', dot)} />
-      <span className="truncate">{value}</span>
+    <span className="inline-flex h-[28px] max-w-full items-center gap-1.5 rounded-full border border-pt-line bg-pt-surface pr-2 pl-2.5 text-[13px] text-pt-ink sm:h-[24px] sm:text-[12px]">
+      {value !== '' && <span className={cx('h-2 w-2 shrink-0 rounded-full', dot)} />}
+      <span className={cx('truncate', value === '' && 'text-pt-faint')}>{value === '' ? '状況を選ぶ' : value}</span>
+      {pressable && <span className="shrink-0 text-pt-faint"><IconChevronDown size={13} /></span>}
     </span>
   );
 }
@@ -78,6 +129,10 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
   const [cells, setCells] = useState<Record<string, CellState>>({});
   const [choiceOpen, setChoiceOpen] = useState<string | null>(null);
   const [showOther, setShowOther] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [memo, setMemo] = useState('');
+  const [memoFocus, setMemoFocus] = useState(false);
+  const isMobile = useIsMobile();
   const [scrolled, setScrolled] = useState(false);
   const viewed = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -94,7 +149,7 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
   }, [sheet.id, rowNumber, name]);
 
   useEffect(() => {
-    if (window.matchMedia('(min-width: 640px)').matches) panelRef.current?.querySelector<HTMLElement>('[data-field]')?.focus();
+    if (window.matchMedia('(min-width: 640px)').matches) focusEl(panelRef.current?.querySelector<HTMLElement>('[data-field]'));
   }, []);
 
   // 前後の移動は、一覧で見えている並びがあればそれに、なければシートの行の順に従う。
@@ -111,10 +166,10 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
   const valueNow = (column: string): string => getData().rows[sheet.id]?.find((r) => r.rowNumber === rowNumber)?.values[column] ?? '';
   const clearCell = (column: string) => { setCells((c) => Object.fromEntries(Object.entries(c).filter(([k]) => k !== column))); };
   const focusField = (column: string) => {
-    setTimeout(() => { panelRef.current?.querySelector<HTMLElement>(`[data-field="${CSS.escape(column)}"]`)?.focus(); }, 0);
+    setTimeout(() => { focusEl(panelRef.current?.querySelector<HTMLElement>(`[data-field="${CSS.escape(column)}"]`)); }, 0);
   };
 
-  const run = async (column: string, base: string, value: string, withUndo = false) => {
+  const run = async (column: string, base: string, value: string, withUndo = false): Promise<boolean> => {
     setCells((c) => ({ ...c, [column]: { kind: 'saving' } }));
     const res = await actions.saveCell(sheet.id, rowNumber, column, base, value);
     const done = (v: string) => {
@@ -122,15 +177,16 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
       setCells((c) => ({ ...c, [column]: withUndo ? { kind: 'saved', undo: { prev: base, cur: v } } : { kind: 'saved' } }));
       setTimeout(() => { setCells((c) => (c[column]?.kind === 'saved' ? Object.fromEntries(Object.entries(c).filter(([k]) => k !== column)) : c)); }, withUndo ? 5000 : 3000);
     };
-    if (res.kind === 'saved') done(res.value);
-    else if (res.kind === 'conflict') {
-      if (res.latest === value) done(value);
-      else setCells((c) => ({ ...c, [column]: { kind: 'conflict', latest: res.latest, by: res.by, at: res.at, mine: value } }));
-    } else {
-      setCells((c) => ({ ...c, [column]: { kind: 'failed', mine: value } }));
-      const col = sheet.columns.find((x) => x.header === column);
-      if (col && !hasOptions(col)) setEd({ column, base, draft: value });
+    if (res.kind === 'saved') { done(res.value); return true; }
+    if (res.kind === 'conflict') {
+      if (res.latest === value) { done(value); return true; }
+      setCells((c) => ({ ...c, [column]: { kind: 'conflict', latest: res.latest, by: res.by, at: res.at, mine: value } }));
+      return false;
     }
+    setCells((c) => ({ ...c, [column]: { kind: 'failed', mine: value } }));
+    const col = sheet.columns.find((x) => x.header === column);
+    if (col && !hasOptions(col)) setEd({ column, base, draft: value });
+    return false;
   };
 
   const commitEditing = () => {
@@ -149,6 +205,7 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
     setEd({ column, base: v, draft: v });
   };
 
+  const closeSheet = useCallback(() => { setChoiceOpen(null); }, []);
   const requestClose = () => { commitEditing(); onClose(); };
   const go = (n: number | undefined) => { if (n === undefined) return; commitEditing(); onNavigate(n); };
 
@@ -172,15 +229,36 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
   const statusValue = statusHeader ? (values[statusHeader] ?? '') : '';
   const titleCol = layout.title;
   const isContactOnly = (c: ColumnConfig) => (c === phoneCol || c === mailCol) && !c.writable;
+  const refDay = rowRefDay(sheet, live);
+  const dateStyles = useMemo(() => {
+    const m: Record<string, DateStyle> = {};
+    for (const c of sheet.columns) {
+      const k = kindOf(c);
+      if (k === 'date' || k === 'datetime') m[c.header] = dominantDateStyle(rows, c.header);
+    }
+    return m;
+  }, [sheet.columns, rows]);
+  const interviewCol = sheet.interviewColumn ? sheet.columns.find((c) => c.header === sheet.interviewColumn) : undefined;
+  const interviewRaw = interviewCol ? (values[interviewCol.header] ?? '') : '';
+  const interviewTimeRaw = sheet.interviewTimeColumn ? (values[sheet.interviewTimeColumn] ?? '') : undefined;
+  const interviewF = interviewRaw !== '' ? formatDateTimeJa(interviewRaw, interviewTimeRaw, refDay) : null;
+  const interviewDay = interviewRaw !== '' ? parseLooseDay(interviewRaw, refDay) : null;
+  const interviewMin = interviewRaw !== '' ? parseTimeOfDay(interviewTimeRaw ?? interviewRaw.replace(/^(\d{4}\s*[年/.-]\s*)?\d{1,2}\s*[月/.-]\s*\d{1,2}\s*日?/, '')) : null;
+  const interviewPast = interviewDay !== null && interviewDay < TODAY_NUM;
+  const interviewMs = interviewAt(sheet, live);
+  const stageNow = statusHeader ? stageOf(sheet, statusValue) : undefined;
+  /** カレンダーに足せるのは、これからの面接で、辞退・不採用になっていないときだけ。 */
+  const canAddCalendar = interviewMs !== null && interviewMs > Date.parse(NOW) && stageNow !== 'rejected' && stageNow !== 'declined';
+  const noteCol = sheet.columns.find((c) => c.writable && c.header.includes('備考'));
   const metaCols = visible.filter((c) => groupOf(c) === 'summary' && c !== titleCol && c !== phoneCol && c !== mailCol && c !== statusCol);
   const meta = metaCols.map((c) => {
     const v = values[c.header] ?? '';
     if (v === '') return '';
     const k = kindOf(c);
     if (k === 'date' || k === 'datetime') {
-      const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})/.exec(v);
-      const t = m ? `${m[2] ?? ''}/${m[3] ?? ''}` : v;
-      return c.header === sheet.sortColumn ? `${t} 応募` : t;
+      const f = formatDayJa(v, refDay);
+      const t = f ? f.text : v;
+      return c.header === sheet.sortColumn ? `${t}応募` : t;
     }
     if (c.header.includes('年齢') && /^\d+$/.test(v)) return `${v}歳`;
     return v;
@@ -234,10 +312,10 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
     const st = cells[c.header];
     const column = c.header;
     if (!st) return null;
-    if (st.kind === 'saving') return <p className="text-xs text-pt-muted">保存中…</p>;
+    if (st.kind === 'saving') return <p className="text-[13px] text-pt-muted">保存中…</p>;
     if (st.kind === 'saved') {
       return (
-        <p className="flex items-center gap-2 text-xs text-pt-ok">
+        <p className="flex items-center gap-2 text-[13px] text-pt-ok">
           <span className="inline-flex items-center gap-1"><IconCheck size={12} />保存しました</span>
           {st.undo && (
             <button type="button" onClick={() => { const u = st.undo; if (u) { clearCell(column); void run(column, u.cur, u.prev); } }} className="inline-flex h-[44px] items-center text-pt-primary hover:underline sm:h-6">元に戻す</button>
@@ -247,7 +325,7 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
     }
     if (st.kind === 'failed') {
       return (
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 border-l-2 border-pt-danger pl-2 text-[12px]">
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 border-l-2 border-pt-danger pl-2 text-[13px] sm:text-[12px]">
           <span className="text-pt-danger">保存できませんでした</span>
           <div className="grid w-full grid-cols-2 gap-2 py-1 sm:flex sm:w-auto">
             <SmallButton primary onClick={() => { const e = editingRef.current; const v = e?.column === column ? e.draft : st.mine; setEd(null); void run(column, valueNow(column), v); }}>もう一度保存</SmallButton>
@@ -257,15 +335,15 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
       );
     }
     return (
-      <div className="mt-1 border-l-2 border-pt-warn pl-2 text-[12px]">
+      <div className="mt-1 border-l-2 border-pt-warn pl-2 text-[13px] sm:text-[12px]">
         <p className="break-words text-pt-ink">
           <span className="text-pt-warn">シートの値: </span>{shown(st.latest)}
           <span className="text-pt-muted">（{st.by}・<span className="pt-num">{formatShortDateTime(st.at)}</span>）</span>
-          <span className="ml-2 text-pt-muted">あなたの値: {shown(st.mine)}</span>
+          <span className="block text-pt-muted sm:ml-2 sm:inline"><span className="whitespace-nowrap">あなたの値:</span> {shown(st.mine)}</span>
         </p>
         <div className="grid grid-cols-2 gap-2 py-1.5 sm:flex">
           <SmallButton onClick={() => { clearCell(column); setBaseline((b) => ({ ...b, [column]: valueNow(column) })); }}>シートの値にする</SmallButton>
-          <SmallButton primary onClick={() => { clearCell(column); void run(column, st.latest, st.mine); }}>自分の値で上書き</SmallButton>
+          <SmallButton onClick={() => { clearCell(column); void run(column, st.latest, st.mine); }}>自分の値で上書き</SmallButton>
         </div>
       </div>
     );
@@ -274,7 +352,7 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
   const updatedMark = (c: ColumnConfig): ReactNode => {
     const st = cells[c.header];
     const updated = (baseline[c.header] ?? '') !== (values[c.header] ?? '') && st?.kind !== 'saving' && st?.kind !== 'conflict';
-    return updated ? <span className="mt-1.5 shrink-0 rounded bg-pt-changed px-1 text-[11px] leading-4 whitespace-nowrap text-pt-ink sm:mt-2">更新</span> : null;
+    return updated ? <span className="mt-1.5 shrink-0 rounded bg-pt-changed px-1 text-[12px] leading-4 whitespace-nowrap text-pt-ink sm:mt-2">更新</span> : null;
   };
 
   const renderRow = (c: ColumnConfig) => {
@@ -283,6 +361,8 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
     const isEditing = editing?.column === c.header;
     const multi = c.multiline;
     let body: ReactNode;
+    const saving = st?.kind === 'saving';
+    const savedTone = st?.kind === 'saved' ? 'bg-pt-ok-soft' : undefined;
     if (c.writable && isEditing && !hasOptions(c)) {
       const onWrapKey = (e: KeyboardEvent) => {
         if (e.key === 'Escape') e.stopPropagation();
@@ -293,52 +373,48 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
           <CellInput
             column={c}
             value={editing.draft}
+            dateStyle={dateStyles[c.header] ?? 'slash'}
+            refDay={refDay}
             onChange={(v) => { setEd({ ...editing, draft: v }); }}
             onCommit={() => { move(c.header, 1); }}
             onCancel={() => { setEd(null); focusField(c.header); }}
           />
-          {multi && <p className="mt-1 text-[11px] text-pt-faint">Ctrl+Enter で保存・Esc で取り消し</p>}
+          {multi && <p className="mt-1 hidden text-[12px] text-pt-faint sm:block">Ctrl+Enter で保存・Esc で取り消し</p>}
         </div>
       );
     } else if (c.writable && hasOptions(c)) {
       body = (
-        <div className="relative">
-          <button
-            type="button"
-            data-field={c.header}
-            disabled={st?.kind === 'saving'}
-            onClick={() => { commitEditing(); setChoiceOpen(choiceOpen === c.header ? null : c.header); }}
-            className="-ml-2 flex min-h-[44px] w-[calc(100%+0.5rem)] items-center gap-2 rounded px-2 text-left text-[13px] hover:bg-pt-sunken focus-visible:outline-2 focus-visible:outline-pt-select sm:min-h-8"
+        <div className="relative" data-field={c.header}>
+          <EditableBox
+            label={labelOf(c)}
+            className={cx(savedTone)}
+            onActivate={() => { if (saving) return; commitEditing(); setChoiceOpen(choiceOpen === c.header ? null : c.header); }}
           >
-            <span className="min-w-0 flex-1">{value === '' ? <span className="text-pt-faint">空</span> : <CellDisplay column={c} value={value} />}</span>
-            <span className="hidden text-pt-faint opacity-0 group-hover:opacity-100 sm:inline"><IconChevronDown size={13} /></span>
-          </button>
-          {choiceOpen === c.header && <ChoicePopover options={c.options ?? []} value={value} onSelect={(v) => { choose(c, v); }} onClose={() => { setChoiceOpen(null); focusField(c.header); }} />}
+            <CellDisplay column={c} value={value} refDay={refDay} empty="input" className="text-[15px] sm:text-[13px]" />
+          </EditableBox>
+          {choiceOpen === c.header && !isMobile && <ChoicePopover options={c.options ?? []} value={value} onSelect={(v) => { choose(c, v); }} onClose={() => { setChoiceOpen(null); focusField(c.header); }} />}
         </div>
       );
     } else if (c.writable) {
       body = (
-        <button
-          type="button"
-          data-field={c.header}
-          disabled={st?.kind === 'saving'}
-          onClick={() => { startEdit(c.header); }}
-          className={cx('-ml-2 flex min-h-[44px] w-[calc(100%+0.5rem)] items-start gap-2 rounded px-2 py-2.5 text-left text-[13px] hover:bg-pt-sunken focus-visible:outline-2 focus-visible:outline-pt-select sm:min-h-8 sm:py-1.5', !multi && 'items-center', st?.kind === 'saved' && 'bg-pt-ok-soft')}
-        >
-          <span className={cx('min-w-0 flex-1', multi && 'whitespace-pre-wrap break-words leading-relaxed')}>{value === '' ? <span className="text-pt-faint">空</span> : <CellDisplay column={c} value={value} />}</span>
-          <span className="hidden shrink-0 text-pt-faint opacity-0 group-hover:opacity-100 sm:inline"><IconPencil size={13} /></span>
-        </button>
+        <div data-field={c.header}>
+          <EditableBox label={labelOf(c)} className={cx(multi && 'items-start py-2', savedTone)} onActivate={() => { if (!saving) startEdit(c.header); }}>
+            <span className={cx('block text-[15px] sm:text-[13px]', multi && 'whitespace-pre-wrap break-words leading-relaxed')}>
+              <CellDisplay column={c} value={value} refDay={refDay} empty="input" />
+            </span>
+          </EditableBox>
+        </div>
       );
     } else {
       body = (
-        <div className={cx('flex min-h-[44px] items-center text-[13px] text-pt-muted sm:min-h-8', multi && 'items-start py-2.5 whitespace-pre-wrap break-words leading-relaxed sm:py-1.5')}>
-          <CellDisplay column={c} value={value} />
+        <div className={cx('flex min-h-[44px] items-center text-[15px] text-pt-muted sm:min-h-8 sm:text-[13px]', multi && 'items-start py-2.5 sm:py-1.5')}>
+          {multi && value !== '' ? <ClampText text={value} /> : <CellDisplay column={c} value={value} refDay={refDay} />}
         </div>
       );
     }
     return (
       <div key={c.header} className="group grid grid-cols-1 sm:grid-cols-[8rem_1fr] sm:gap-x-3">
-        <div className="flex min-h-6 items-center gap-1 pt-1 text-[12px] text-pt-muted sm:min-h-8 sm:pt-0 sm:text-[13px]">
+        <div className="flex min-h-6 items-center gap-1 pt-1 text-[13px] text-pt-muted sm:min-h-8 sm:pt-0">
           <span className="min-w-0 break-words">{labelOf(c)}</span>
           {!c.writable && <span className="shrink-0 text-pt-faint" title="読むだけの項目です"><IconLock size={11} /></span>}
         </div>
@@ -354,75 +430,158 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
   };
 
   const history = cellHistory(data, sheet.id, rowNumber).filter((e) => e.kind !== 'view');
-  const contactBtn = 'inline-flex h-[44px] flex-1 items-center justify-center gap-1.5 rounded-md border border-pt-line-strong bg-pt-surface px-3.5 text-[13px] font-medium text-pt-ink shadow-pt-card hover:bg-pt-bg sm:h-9 sm:flex-none whitespace-nowrap';
+  const contactBtn = 'inline-flex h-[44px] min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-pt-line-strong bg-pt-surface px-3.5 text-[15px] font-medium text-pt-ink shadow-pt-card hover:bg-pt-bg sm:h-9 sm:flex-none sm:text-[13px] whitespace-nowrap';
   const statusWritable = statusCol !== undefined && statusCol.writable && hasOptions(statusCol);
   const dotClass = statusDot(sheet, statusValue);
+  const sheetCol = choiceOpen !== null ? sheet.columns.find((c) => c.header === choiceOpen) : undefined;
+  const sheetIsStatus = sheetCol !== undefined && sheetCol === statusCol;
+
+  const memoText = memo.trim();
+  const memoStamp = `${(() => { const d = new Date(TODAY_NUM * 86400000); return `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`; })()} 追記（${(viewerName().split('@')[0] ?? '').split(/\s+/).pop() ?? ''}）：`;
+  const submitMemo = () => {
+    if (!noteCol || memoText === '') return;
+    const base = valueNow(noteCol.header);
+    const next = `${base}${base === '' ? '' : '\n'}${memoStamp}${memoText}`;
+    clearCell(noteCol.header);
+    setMemo('');
+    setMemoFocus(false);
+    void run(noteCol.header, base, next);
+  };
+
+  const summaryParts = metaCols.length > 0 ? meta.join('・') : '';
 
   return (
     <div className="fixed inset-0 z-[50] flex justify-end" role="dialog" aria-modal="true" aria-label="応募者の詳細">
       <button type="button" aria-label="閉じる" tabIndex={-1} onClick={requestClose} className="hidden flex-1 cursor-default bg-black/10 sm:block" />
       <div ref={panelRef} className="flex h-full w-full flex-col bg-pt-surface sm:w-[560px] sm:border-l sm:border-pt-line sm:shadow-pt-pop">
         <div className="flex items-center gap-0.5 border-b border-pt-line px-2 py-1">
-          <NavButton label="前の応募者（K）" disabled={prev === undefined} onClick={() => { go(prev); }}><span className="rotate-180"><IconChevronDown size={16} /></span></NavButton>
-          <NavButton label="次の応募者（J）" disabled={next === undefined} onClick={() => { go(next); }}><IconChevronDown size={16} /></NavButton>
-          <span className="pt-num ml-1 shrink-0 text-xs text-pt-faint" title="J で次、K で前の応募者">{index >= 0 ? `${String(index + 1)} / ${String(sequence.length)}` : ''}</span>
-          <span className={cx('ml-2 min-w-0 flex-1 truncate text-[13px] font-medium text-pt-ink', scrolled ? 'opacity-100' : 'opacity-0')} aria-hidden={!scrolled}>{name}</span>
+          <span className="hidden sm:inline-flex"><NavButton label="前の応募者（K）" disabled={prev === undefined} onClick={() => { go(prev); }}><span className="rotate-180"><IconChevronDown size={16} /></span></NavButton></span>
+          <span className="hidden sm:inline-flex"><NavButton label="次の応募者（J）" disabled={next === undefined} onClick={() => { go(next); }}><IconChevronDown size={16} /></NavButton></span>
+          <span className="pt-num ml-1 hidden shrink-0 text-[12px] text-pt-faint sm:inline" title="J で次、K で前の応募者">{index >= 0 ? `${String(index + 1)} / ${String(sequence.length)}` : ''}</span>
+          <span className={cx('ml-2 min-w-0 flex-1 truncate text-[15px] font-medium text-pt-ink sm:text-[13px]', scrolled ? 'opacity-100' : 'opacity-0')} aria-hidden={!scrolled}>{name}</span>
           <NavButton label="閉じる（Esc）" onClick={requestClose}><IconX size={16} /></NavButton>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto" onScroll={(e) => { setScrolled(e.currentTarget.scrollTop > 48); }}>
-          <div className="border-b border-pt-line px-5 pt-4 pb-4">
+          <div className="border-b border-pt-line px-4 pt-4 pb-4 sm:px-5">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-[17px] leading-tight font-semibold text-pt-ink">{name}</h2>
+              <h2 className="text-[16px] leading-tight font-semibold text-pt-ink sm:text-[17px]">{name}</h2>
               {live.changedSinceLastView === 'new' && <Badge tone="new">新着</Badge>}
             </div>
             {statusCol && (
               <div className="mt-2">
                 <div className="relative inline-flex max-w-full items-center gap-2">
                   {statusWritable ? (
-                    <button type="button" data-field={statusCol.header} title="選考状況を変える" onClick={() => { commitEditing(); setChoiceOpen(choiceOpen === statusCol.header ? null : statusCol.header); }} className="inline-flex min-h-[44px] items-center rounded-full focus-visible:outline-2 focus-visible:outline-pt-select sm:min-h-0">
-                      <StatusPill value={statusValue} dot={dotClass} />
+                    <button type="button" data-field={statusCol.header} title="選考状況を変える" aria-label={`選考状況を変える（いまは${statusValue === '' ? '未入力' : statusValue}）`} onClick={() => { commitEditing(); setChoiceOpen(choiceOpen === statusCol.header ? null : statusCol.header); }} className="inline-flex min-h-[44px] items-center rounded-full focus-visible:outline-2 focus-visible:outline-pt-select sm:min-h-0">
+                      <StatusPill value={statusValue} dot={dotClass} pressable />
                     </button>
                   ) : (
                     <StatusPill value={statusValue} dot={dotClass} />
                   )}
                   {updatedMark(statusCol)}
-                  {choiceOpen === statusCol.header && <ChoicePopover options={statusCol.options ?? []} value={statusValue} dotFor={(o) => statusDot(sheet, o)} onSelect={(v) => { choose(statusCol, v); }} onClose={() => { setChoiceOpen(null); focusField(statusCol.header); }} />}
+                  {choiceOpen === statusCol.header && !isMobile && <ChoicePopover options={statusCol.options ?? []} value={statusValue} dotFor={(o) => statusDot(sheet, o)} onSelect={(v) => { choose(statusCol, v); }} onClose={() => { setChoiceOpen(null); focusField(statusCol.header); }} />}
                 </div>
                 {statusLine(statusCol)}
               </div>
             )}
-            {meta.length > 0 && <p className="mt-2 text-[13px] text-pt-muted">{meta.join('・')}</p>}
+            {interviewF && (
+              <p className={cx('mt-2 flex flex-wrap items-center gap-x-3 text-[15px] sm:text-[13px]', interviewPast ? 'text-pt-muted' : 'text-pt-ink')}>
+                <span><span className="text-pt-muted">面接 </span><span className={cx('pt-num', interviewF.isToday && 'font-semibold')}>{interviewF.text}</span></span>
+                {canAddCalendar && interviewDay !== null && interviewMin !== null && (
+                  <button type="button" onClick={() => { downloadIcs(`面接 ${name}さん`, interviewDay, interviewMin); }} className="inline-flex h-[44px] items-center gap-1 text-[13px] text-pt-primary hover:underline sm:h-6 sm:text-[12px]">
+                    <IconCalendar size={13} />カレンダーに追加
+                  </button>
+                )}
+              </p>
+            )}
             {(phone !== '' || mail !== '') && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {phone !== '' && <a href={`tel:${phone.replace(/[^\d+]/g, '')}`} className={cx(contactBtn, 'basis-full sm:basis-auto')}><IconPhone size={15} />電話する<span className="pt-num font-normal text-pt-muted">{phone}</span></a>}
+              <div className="mt-3 flex gap-2">
+                {phone !== '' && <a href={`tel:${phone.replace(/[^\d+]/g, '')}`} className={contactBtn}><IconPhone size={15} />電話する<span className="pt-num hidden font-normal text-pt-muted sm:inline">{phone}</span></a>}
                 {mail !== '' && <a href={`mailto:${mail}`} className={contactBtn}><IconMail size={15} />メールする</a>}
               </div>
             )}
           </div>
 
-          <div className="flex flex-col gap-4 px-5 py-4">
-            {sections.map((s) => (
-              <section key={s.title}>
-                <h3 className="mb-1 text-[12px] font-semibold tracking-wide text-pt-faint">{s.title}</h3>
-                <div className="flex flex-col">{s.cols.map(renderRow)}</div>
-              </section>
-            ))}
+          <div className="flex flex-col gap-5 px-4 py-4 sm:gap-4 sm:px-5">
+            {sections.map((s) => {
+              const collapsible = s.title === '応募の内容';
+              const closed = collapsible && !summaryOpen;
+              return (
+                <section key={s.title}>
+                  {collapsible ? (
+                    <>
+                      <button type="button" onClick={() => { setSummaryOpen((v) => !v); }} aria-expanded={summaryOpen} className="flex min-h-[44px] w-full items-center gap-1 text-left sm:hidden">
+                        <span className={cx('shrink-0 text-pt-faint', closed && '-rotate-90')}><IconChevronDown size={14} /></span>
+                        <span className="shrink-0 text-[13px] font-semibold tracking-wide text-pt-faint">{s.title}</span>
+                        {closed && summaryParts !== '' && <span className="ml-2 min-w-0 flex-1 truncate text-[13px] text-pt-muted">{summaryParts}</span>}
+                      </button>
+                      <h3 className="mb-1 hidden text-[12px] font-semibold tracking-wide text-pt-faint sm:block">{s.title}</h3>
+                    </>
+                  ) : (
+                    <h3 className="mb-1 text-[13px] font-semibold tracking-wide text-pt-faint sm:text-[12px]">{s.title}</h3>
+                  )}
+                  <div className={cx('flex-col sm:gap-1.5', closed ? 'hidden sm:flex' : 'flex')}>{s.cols.map(renderRow)}</div>
+                </section>
+              );
+            })}
             {other.length > 0 && (
               <section>
-                <button type="button" onClick={() => { setShowOther((v) => !v); }} className="inline-flex h-[44px] items-center gap-1 text-[12px] font-semibold tracking-wide text-pt-faint hover:text-pt-muted sm:h-8">
+                <button type="button" onClick={() => { setShowOther((v) => !v); }} className="inline-flex h-[44px] items-center gap-1 text-[13px] font-semibold tracking-wide text-pt-faint hover:text-pt-muted sm:h-8 sm:text-[12px]">
                   <span className={cx(showOther && 'rotate-0', !showOther && '-rotate-90')}><IconChevronDown size={14} /></span>そのほか
                 </button>
-                {showOther && <div className="flex flex-col">{other.map(renderRow)}</div>}
+                {showOther && <div className="flex flex-col sm:gap-1.5">{other.map(renderRow)}</div>}
               </section>
             )}
             <section>
-              <h3 className="mb-2 text-[12px] font-semibold tracking-wide text-pt-faint">この応募者の記録</h3>
+              <h3 className="mb-2 text-[13px] font-semibold tracking-wide text-pt-faint sm:text-[12px]">この応募者の記録</h3>
+              {noteCol && (
+                <div className="mb-4">
+                  <textarea
+                    value={memo}
+                    onChange={(e) => { setMemo(e.target.value); }}
+                    onFocus={() => { setMemoFocus(true); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitMemo(); } }}
+                    rows={memoFocus || memo !== '' ? 3 : 1}
+                    placeholder="メモを追記"
+                    aria-label="メモを追記"
+                    className="w-full resize-none rounded-[6px] border border-pt-field bg-pt-surface px-[10px] py-[9px] text-base leading-relaxed outline-none placeholder:text-pt-faint hover:border-pt-line-strong focus:border-pt-select focus:ring-2 focus:ring-pt-select/20 sm:py-[6px] sm:text-[13px]"
+                  />
+                  <div className="mt-1 flex items-start gap-3">
+                    <p className="min-w-0 flex-1 text-[13px] leading-snug text-pt-faint sm:text-[12px]">シートの備考の末尾に「{memoStamp}…」の形で足します</p>
+                    <button type="button" onClick={submitMemo} disabled={memoText === '' || cells[noteCol.header]?.kind === 'saving'} className="inline-flex h-[44px] shrink-0 items-center rounded-md bg-pt-primary px-3.5 text-[15px] font-medium text-white shadow-pt-card hover:bg-pt-primary-hover disabled:cursor-not-allowed disabled:opacity-45 sm:h-9 sm:text-[13px]">追記する</button>
+                  </div>
+                  {statusLine(noteCol)}
+                </div>
+              )}
               <Timeline entries={history} labelFor={(h) => { const c = sheet.columns.find((x) => x.header === h); return c ? labelOf(c) : h; }} />
             </section>
           </div>
         </div>
+
+        <div className="flex h-[56px] shrink-0 items-center border-t border-pt-line bg-pt-surface px-2 pb-[env(safe-area-inset-bottom)] sm:hidden">
+          <button type="button" disabled={prev === undefined} onClick={() => { go(prev); }} aria-label="前の応募者" className="inline-flex h-[44px] min-w-[88px] items-center justify-center gap-1 rounded-md text-[15px] text-pt-ink hover:bg-pt-sunken disabled:opacity-40"><span className="rotate-90"><IconChevronDown size={16} /></span>前</button>
+          <span className="pt-num min-w-0 flex-1 text-center text-[15px] text-pt-muted">{index >= 0 ? `${String(index + 1)} / ${String(sequence.length)}` : ''}</span>
+          <button type="button" disabled={next === undefined} onClick={() => { go(next); }} aria-label="次の応募者" className="inline-flex h-[44px] min-w-[88px] items-center justify-center gap-1 rounded-md text-[15px] text-pt-ink hover:bg-pt-sunken disabled:opacity-40">次<span className="-rotate-90"><IconChevronDown size={16} /></span></button>
+        </div>
       </div>
+      <BottomSheet
+        open={isMobile && sheetCol !== undefined}
+        title={sheetCol ? (sheetIsStatus ? `${name}さんの状況` : labelOf(sheetCol)) : ''}
+        onClose={closeSheet}
+      >
+        {sheetCol && sheetIsStatus && (
+          <StatusSheetList sheet={sheet} options={sheetCol.options ?? []} value={values[sheetCol.header] ?? ''} onSelect={(v) => { choose(sheetCol, v); }} />
+        )}
+        {sheetCol && !sheetIsStatus && (
+          <ChoicePopover
+            variant="sheet"
+            options={sheetCol.options ?? []}
+            value={values[sheetCol.header] ?? ''}
+            onSelect={(v) => { choose(sheetCol, v); }}
+            onClose={closeSheet}
+          />
+        )}
+      </BottomSheet>
     </div>
   );
 }
