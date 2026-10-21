@@ -2482,10 +2482,10 @@ async fn owners_はページを跨いで退職者も集め_有効な人が先_�
     assert_eq!(
         names(&v),
         vec![
-            ("10".into(), "アキ サンプル".into(), false),
-            ("20".into(), "イチロ ダミー".into(), false),
-            ("30".into(), "ハナ テスト".into(), false),
-            ("99".into(), "カツ 退職".into(), true),
+            ("10".into(), "サンプル アキ".into(), false),
+            ("20".into(), "ダミー イチロ".into(), false),
+            ("30".into(), "テスト ハナ".into(), false),
+            ("99".into(), "退職 カツ".into(), true),
         ]
     );
     assert_eq!(v["owners"][0]["email"], json!("aki@example.test"));
@@ -2547,15 +2547,15 @@ async fn owners_の名前は姓名の欠損と同名を扱う() {
     assert_eq!(name_of("2"), "姓のみ");
     assert_eq!(name_of("3"), "mail.local");
     assert_eq!(name_of("4"), "(名前なし)");
-    assert_eq!(name_of("5"), "同名 太郎");
-    assert_eq!(name_of("6"), "同名 太郎");
+    assert_eq!(name_of("5"), "太郎 同名");
+    assert_eq!(name_of("6"), "太郎 同名");
     assert_eq!(got.len(), 6);
     assert_eq!(
         v["owners"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|o| o["name"] == "同名 太郎")
+            .filter(|o| o["name"] == "太郎 同名")
             .map(|o| o["email"].as_str().unwrap())
             .collect::<Vec<_>>(),
         vec!["same1@example.test", "same2@example.test"]

@@ -1079,7 +1079,7 @@ async fn 管理者は全員の表を見られる() {
         .collect();
     // 架電数の多い順
     assert_eq!(ids, ["10", "9", "7", "8"]);
-    assert_eq!(rows[0]["name"], "三郎 架空");
+    assert_eq!(rows[0]["name"], "架空 三郎");
     assert_eq!(rows[0]["teams"], json!(["架空B"]));
     assert_eq!(rows[2]["metrics"]["appointments"], 2);
     assert_eq!(v["teams"], json!(["架空A", "架空B"]));
