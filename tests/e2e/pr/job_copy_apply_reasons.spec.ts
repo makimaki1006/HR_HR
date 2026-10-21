@@ -1,0 +1,36 @@
+import { expect, test } from '@playwright/test';
+import { login } from './helpers/login';
+import { applyReasonFixture } from '../../../frontend/src/screens/job-copy/applyReason.testFixtures';
+import { riskFixture, scopeFixture } from '../../../frontend/src/screens/job-copy/consultantRisk.testFixtures';
+
+test('応募理由の画面: メニューから開き、期間と地域の切り替えで値が変わる', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/api/job-copy/consultant-scope?*', route => route.fulfill({ json: scopeFixture }));
+  await page.route('**/api/job-copy/consultant-risk?*', route => route.fulfill({ json: riskFixture }));
+  await page.route('**/api/job-copy/apply-reasons', route => route.fulfill({ json: applyReasonFixture }));
+  await login(page);
+  await page.goto('/app/job-copy?view=risk&owner=11&owner_field=consultant');
+  const menu = page.getByRole('navigation', { name: '案件管理のメニュー' });
+  await menu.getByRole('button', { name: '応募理由', exact: true }).click();
+  await expect(page).toHaveURL(/view=reasons/);
+  await expect(menu.getByRole('button', { name: '応募理由', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(menu.getByRole('button', { name: '担当者で絞る' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 2, name: '応募理由の地域・職種別' })).toBeVisible();
+  await expect(page.getByText('応募理由が入っている応募は 13,454 件中 11 件（0.1%）')).toBeVisible();
+  await expect(page.getByText('1 件の応募が複数の区分に入ることがあります。')).toBeVisible();
+  const table = page.getByRole('table', { name: '地域別の応募理由' });
+  await expect(table.getByRole('row').nth(1)).toContainText('神奈川県');
+  await expect(table.getByRole('row').nth(1).getByRole('cell').last()).toHaveText('6');
+  await page.getByRole('combobox', { name: '期間' }).selectOption('1');
+  await expect(page).toHaveURL(/period=1/);
+  await expect(page.getByText('応募理由が入っている応募は 2,914 件中 4 件（0.1%）')).toBeVisible();
+  await expect(table.getByRole('row').nth(1).getByRole('cell').last()).toHaveText('2');
+  await page.getByRole('combobox', { name: '期間' }).selectOption('6');
+  await page.getByRole('combobox', { name: '地域' }).selectOption('job');
+  await expect(table.getByRole('row').nth(1).getByRole('cell').last()).toHaveText('7');
+  await table.getByRole('button', { name: '神奈川県の市区町村を開く' }).click();
+  await expect(table.getByRole('row').nth(2)).toContainText('横浜市');
+  await expect(table.getByRole('row').nth(3)).toContainText('平塚市');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
