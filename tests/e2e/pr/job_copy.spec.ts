@@ -104,7 +104,7 @@ test.describe('案件管理のタイムライン', () => {
     // ここから「ほかの分析」の横画面（旧タブ全体）の中を確かめる
     await openOtherAnalysis(page, 'タイムライン');
     const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-    await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由']);
+    await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']);
     await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     for (const lane of ['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場']) await expect(timeline.getByRole('group', { name: lane, exact: true })).toBeVisible();
