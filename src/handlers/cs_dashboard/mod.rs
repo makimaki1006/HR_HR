@@ -597,7 +597,7 @@ pub fn population_of(sheet: &SheetData) -> Population {
         active: active_all - active_option,
         option_amount: if amt > 0.0 { Some(amt) } else { None },
         note: format!(
-            "稼働中{active_all}件からオプション契約{active_option}件を除いた{}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。外した契約が無くなったわけではありません",
+            "稼働中{active_all}件からオプション契約{active_option}件を除いた{}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。外した契約は残っています",
             active_all - active_option
         ),
     }
