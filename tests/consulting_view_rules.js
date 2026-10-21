@@ -2141,7 +2141,7 @@ check("色と印の意味: ▲▼ は良し悪しの向きで、表の見出し�
   const dLeg = dl.slice(dl.indexOf("色と印の意味"), dl.indexOf("この画面が守っていること"));
   ok(/&#9650;<\/td><td[^>]*>まずい \/ 悪化。<b>値の上がり下がりではなく良し悪しの向き<\/b>/.test(dLeg) || dLeg.includes("まずい / 悪化。<b>値の上がり下がりではなく良し悪しの向き</b>"),
     "凡例（定義と検証の色と印の意味）に ▲ の意味の断りが無い");
-  ok(dLeg.includes("表の見出しの &#9650; / &#9660;") && dLeg.includes("並び順（小さい順 / 大きい順）。良し悪しではありません"), "凡例に表の見出しの ▲▼ の断りが無い");
+  ok(dLeg.includes("表の見出しの &#9650; / &#9660;") && dLeg.includes("並び順（小さい順 / 大きい順）"), "凡例に表の見出しの ▲▼ の説明が無い");
   ok(html.includes('<a class="golink" id="cs-legend" href="#monthly/trust?at=trust-defs" title="記録と数字の信頼度の「色と印の意味」の表へ">色と印の意味 →</a>'), "ヘッダから凡例（定義と検証）へのリンクが無い");
   // その注記（<i class="full">）が1行まるごと使う。.figlegend 用の定義しか無く、横に並んでいた（2026-09-24 検証）
   ok(/\.legend i\.full\{[^}]*flex:1 0 100%/.test(html), "「色と印の意味」の注記（.legend i.full）が1行を占める CSS が無い");
@@ -3821,7 +3821,7 @@ check("S-6: 表の見出しを短くし、「絞った条件」の説明を表�
   ok(t0.startsWith("全件は ") && t1.startsWith("全件は "), "サーバの文が無いとき「。」から始まる: " + t0 + " / " + t1);
 });
 
-check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出さない（1 列・3 区切り・9 項目）", () => {
+check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出さない（1 列・3 区切り・10 項目）", () => {
   // 2026-09-29 組み替え 段A: 上のメニューは無くし、左に 1 列で 3 区切り（見出し）と 11 画面を並べる（handover 09 の 3章・10章）
   ok(!html.includes('id="cs-menu"'), "上のメニュー（#cs-menu）が残っている");
   run('cur = { menu: "research", view: "phone" }; document.getElementById("cs-side").innerHTML = ""; drawSide();');
@@ -3830,7 +3830,7 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   ok(JSON.stringify(heads) === JSON.stringify(["毎日", "調べる", "月1・確かめる"]), "区切りの見出しが 毎日 / 調べる / 月1・確かめる でない: " + heads);
   ok(!side.includes('class="no"') && !/[①-⑩]/.test(side), "区切りに丸数字が残っている: " + side);
   const nBtn = (side.match(/<button /g) || []).length;
-  ok(nBtn === 9, "左の項目が 9 でない: " + nBtn);
+  ok(nBtn === 10, "左の項目が 10 でない: " + nBtn);
   ok(side.includes(">電話</button>") && side.includes(">記録と数字の信頼度</button>"), "左の項目名が出ていない: " + side);
   // 600px 以下は ul の箱を外して、区切りの見出しと項目を同じ流れに並べる（display:contents。見出しを別の行にすると 5 行 229px）。
   // 一覧であることは role="list" で読み上げに残す。
@@ -3858,13 +3858,14 @@ check("S-11: 「読み直す」は操作列の右端の文字リンクで、代�
   const v = run('viewOf("deal", "today")');
   const fresh = run('ctlbar(viewOf("deal", "today"), { meta: { source_as_of: "2026-09-27 21:30", source_age_days: 1 } })');
   ok(v.path, "前提: 今日動く先は API を持つ");
-  const sp = fresh.slice(fresh.indexOf('<span class="reload'), fresh.lastIndexOf("</span></span>") + 14);
+  const sp = fresh.slice(fresh.indexOf('<span class="reload'), fresh.lastIndexOf("</span>") + 7);
   ok(sp.includes('id="cs-reload"') && sp.includes(">読み直す</button>"), "読み直すのボタンが無い: " + fresh);
   ok(/title="[^"]*20 秒[^"]*他の人の画面[^"]*"/.test(sp), "title に代償（20 秒・他の人の画面）が無い: " + sp);
-  ok(/<span class="muted small">[^<]*20 秒[^<]*他の人の画面[^<]*<\/span>/.test(sp), "隣の小さな文に代償が無い: " + sp);
+  /* 2026-10-21 注記の整理: 隣の小さな文（取り直しに 20 秒ほど…）は消した。代償は title だけに残す */
+  ok(!/muted small/.test(sp) && !/取り直しに 20 秒ほど。/.test(sp), "読み直すの隣に添え書きが残っている: " + sp);
   ok(sp.startsWith('<span class="reload">'), "鮮度が緑（昨日）なのに目立たせている: " + sp.slice(0, 40));
-  /* 右端: 読み直すの後ろには「キャッシュから表示」の注記以外を置かない */
-  ok(/<\/span><\/span>(<span class="muted small">キャッシュから表示<\/span>)?<\/div>$/.test(fresh), "読み直すが操作列の右端でない: " + fresh.slice(-120));
+  /* 右端: 読み直すの後ろには何も置かない（「キャッシュから表示」の注記も消した） */
+  ok(/<\/button><\/span><\/div>$/.test(fresh), "読み直すが操作列の右端でない: " + fresh.slice(-120));
   ok(/\.ctlbar \.reload\{[^}]*margin-left:auto/.test(html), "CSS で右端に寄せていない（margin-left:auto）");
   ok(/\.ctlbar \.reload button\.act\.link\{[^}]*text-decoration:underline/.test(html), "文字リンクの見た目でない");
   /* 4日前（bad）・何日前か分からない（warn）→ 目立たせる。応答がまだ無い（定義と検証を最初に開いた）→ 目立たせない */
@@ -3885,7 +3886,7 @@ check("S-11: 「読み直す」は操作列の右端の文字リンクで、代�
   const det = run('ctlbar(viewOf("deal", "detail"), { meta: { source_as_of: "2026-09-27 21:30", source_age_days: 1 } })');
   ok(det.indexOf('id="dd-go"') >= 0 && det.indexOf('id="dd-go"') < det.indexOf('<span class="reload'),
     "案件の詳細で読み直すが探す欄より前にある（右端でない）: " + det.slice(det.indexOf('<div class="ctlbar">'), det.indexOf('<div class="ctlbar">') + 160));
-  ok(/<\/span><\/span>(<span class="muted small">キャッシュから表示<\/span>)?<\/div>$/.test(det), "案件の詳細で読み直すが操作列の末尾でない: " + det.slice(-120));
+  ok(/<\/button><\/span><\/div>$/.test(det), "案件の詳細で読み直すが操作列の末尾でない: " + det.slice(-120));
 });
 
 check("S-13: 今日動く先に Ctrl+クリックの案内、担当者ごとの接触は「マウスを重ねる」を前提にしない", () => {
@@ -3895,10 +3896,9 @@ check("S-13: 今日動く先に Ctrl+クリックの案内、担当者ごとの�
   /* Ctrl+クリックはタッチ端末に当てはまらず、400px では1画面目の2行を使った（2026-09-28 検証の指摘）。≤600px では出さない */
   ok(/<span class="pconly">案件名は Ctrl\+クリック[^<]*<\/span>/.test(lede), "Ctrl+クリックの案内が PC だけの印（.pconly）に入っていない: " + lede);
   ok(/@media \(max-width:600px\)\{ \.pconly\{ display:none; \} \}/.test(html), "CSS が ≤600px で .pconly を隠していない");
-  /* 「読み直す」の隣の文は 400px で同じ行に収まる長さ（31 字は必ず折れて操作列が 28px → 58px になった） */
+  /* 「読み直す」の隣の添え書きは消した（2026-10-21）。操作列が 400px で 1 行に収まる */
   const rl = run('ctlbar(viewOf("deal", "today"), { meta: { source_as_of: "2026-09-27 21:30", source_age_days: 1 } })');
-  const noteTxt = (rl.match(/<span class="muted small">([^<]*20 秒[^<]*)<\/span>/) || [])[1] || "";
-  ok(noteTxt && noteTxt.length <= 27, "読み直すの隣の文が長い（" + noteTxt.length + " 字。400px で次の行に折れる）: " + noteTxt);
+  ok(!/20 秒ほど。/.test(rl.replace(/title="[^"]*"/g, "")), "読み直すの隣に添え書きが残っている: " + rl);
   const ct = textOf(run('contactUnit = "month"; teamPick = ""; teamContact({ contact: __CT })'));
   ok(!ct.includes("点にマウスを重ねると"), "接触の推移の図の注記が「点にマウスを重ねると」のまま（タッチでは title が出ない）");
   ok(ct.includes("下の表にあります"), "値のある場所（下の表）を案内していない");
@@ -5060,7 +5060,7 @@ check("段B 満了と継続: ステージは件数だけ（確度を掛けない
   /* 2026-09-30 並びは HubSpot のステージの並び（工程順。サーバの stages の順。tests.rs renewal_pipe_stages_in_pipeline_order）。
      画面で件数順などに並べ替えず、並びの決まりを書く */
   ok(JSON.stringify(rows.slice(1).map((r) => r[0])) === JSON.stringify(ctx.__RP.stages), "ステージの表がサーバの並び（工程順）のままでない: " + rows.slice(1).map((r) => r[0]));
-  ok(textOf(h).includes("並びは HubSpot のステージの並び（工程の順）です。件数の多い順ではありません。"), "ステージの表の並びの決まりを書いていない");
+  ok(textOf(h).includes("並びは HubSpot のステージの並び（工程の順）です。"), "ステージの表の並びの決まりを書いていない");
   /* 🔴 2026-09-29 検証: 計の行が tbody にあり、枠の案内が「全 19 行」（ステージは 18 種）と出ていた。案内はステージの数と同じ */
   const sti = h.indexOf('id="rp-stage"');
   const cap = textOf(h.slice(h.indexOf('<div class="scroll-cap">', sti), h.indexOf('<table id="rp-stage-tbl"')));
@@ -5554,7 +5554,7 @@ check("M-5 (a): 図の見出し（h2「図 …」）の直後に図が 1 つだ�
   ok(/<figure class="fig titled" id="ph-reach-h" tabindex="-1">/.test(ph) && /<figure class="fig titled" id="ph-days-h" tabindex="-1">/.test(ph), "KPI の行き先（ph-reach-h / ph-days-h）が図に付いていない");
   // 画面に流す 3 か所（redrawMain・読み込み中・読み込んだ後）は finishView を通す
   const src = html.slice(html.indexOf("<script>"));
-  ok((src.match(/paintFigs\(main, \(\) => finishView\(ctlbar\(/g) || []).length === 3 && !/paintFigs\(main, \(\) => ctlbar\(/.test(src),
+  ok((src.match(/paintFigs\(main, \(\) => finishView\(tidyNotes\(v, ctlbar\(/g) || []).length === 3 && !/paintFigs\(main, \(\) => ctlbar\(/.test(src),
     "画面に流すところで finishView を通していない（図の題が 2 段のまま・foot が途中に残る）");
   // finishView は (a) と (c) の両方を通す（片方を外すと、画面に流すものが元に戻る）
   const fv = run('finishView(sec("図", "題の文") + fig("描いたもの", "", "<svg></svg>", "") + foot({ today: "2026-09-18" }) + "<p>後ろ</p>")');
@@ -5789,4 +5789,67 @@ check("案件の詳細: 並べ方の決まりを削除し、行の印と基準�
   ok(!/並べ方の決まり|読むときの注意|評価ではありません/.test(h), '削除した説明が残っている');
   ok(h.includes('付け直し') && h.includes('契約期間の外') && h.includes('推定'), '行の印が消えている');
   ok(h.includes('基準日 2026-09-18'), '基準日が無い');
+});
+
+/* 滞留した案件（stage_stay.rs）。入力は架空の 3 件 */
+ctx.__SS = {
+  meta: { today: "2026-10-20", stay_days: 45, n_active: 10, n_stay: 2, n_escalation: 1, n_unknown_entered: 2, n_exempt_stages: 0 },
+  rows: [
+    { deal_id: "1", name: "案件あ", consultant: "担当A", stage_label: "定期1", entered: "2026-10-15", days: 5, expiry: "2026-10-01", days_past_expiry: 19, escalation: true, stay: false },
+    { deal_id: "2", name: "案件い", consultant: "担当B", stage_label: "求人出稿完了", entered: "2026-08-01", days: 80, expiry: "2027-01-01", days_past_expiry: null, escalation: false, stay: true },
+    { deal_id: "3", name: "案件う", consultant: "担当A", stage_label: "定期2", entered: "2026-09-01", days: 49, expiry: "2027-01-01", days_past_expiry: null, escalation: false, stay: true },
+  ],
+};
+check("滞留した案件: 満了後も稼働中を先に、滞留を後に出し、入った日が分からない件数を書く。担当で絞れる", () => {
+  const M = JSON.parse(run("JSON.stringify(MENUS.map((x) => x.views.map((v) => [v.key, v.label, v.path])).flat())"));
+  const v = M.find((x) => x[0] === "stagestay");
+  ok(v && v[1] === "滞留した案件" && v[2] === "/api/consulting/stage-stay", "メニューが違う: " + JSON.stringify(v));
+  const h = run("stayConsultant = ''; renderStageStay(__SS)");
+  const tx = textOf(h);
+  ok(h.indexOf('id="stay-esc"') < h.indexOf('id="stay-long"'), "満了後の表が先でない");
+  ok(tx.includes("満了後も稼働中の案件（満了を過ぎた日数の多い順、1 件）") && tx.includes("滞留日数の長い順、2 件"), "見出しの件数が違う: " + tx);
+  ok(tx.includes("満了後 19 日") && tx.includes("80 日") && tx.includes("入った日が分からない案件が 2 件"), "満了後・滞留日数・履歴なしの件数が無い: " + tx);
+  ok(/id="stay-consultant"/.test(h), "担当の選択欄が無い");
+  const a = textOf(run("stayConsultant = '担当A'; try { renderStageStay(__SS) } finally { stayConsultant = ''; }"));
+  ok(a.includes("滞留日数の長い順、1 件") && !a.includes("案件い"), "担当で絞れていない: " + a);
+});
+
+/* 2026-10-21 注記の整理: 各画面の頭に常に見せる 1 行と、読み方の畳み（tidyNotes） */
+check("注記の整理: 全画面に「HubSpot に記録された分だけ・0 件と取れていないは別」の 1 行が常に出て、相関の画面には相関の断りも添える", () => {
+  const keys = ["team", "today", "board", "byowner", "stagestay", "detail", "customer", "focus", "renewalpipe", "phone", "results", "trust"];
+  for (const k of keys) {
+    const h = run('tidyNotes({ key: "' + k + '" }, "<div class=\\"ctlbar\\"></div>", "<h2>題</h2>")');
+    const lines = h.match(/<p class="muted small" data-readline="1">[^<]*<\/p>/g) || [];
+    ok(lines.length === 1, k + ": 常に見せる 1 行が 1 つでない: " + h);
+    ok(lines[0].includes("HubSpot に記録された分だけ") && lines[0].includes("0 件と「まだ取れていない」は別です"), k + ": 1 行の中身が違う: " + lines[0]);
+    ok(!h.includes("cs-readguide"), k + ": 動かす注記が無いのに読み方の畳みが出ている");
+  }
+  for (const k of ["customer", "focus", "results"]) {
+    ok(run('tidyNotes({ key: "' + k + '" }, "", "")').includes("相関であって、原因とは限りません"), k + ": 相関の断りが無い");
+  }
+  ok(!run('tidyNotes({ key: "team" }, "", "")').includes("相関であって"), "相関と関係の無い画面に相関の断りが出ている");
+});
+check("注記の整理: 本文の 1 行の注記は画面ごとに 1 つの「読み方」の畳みへ集める。表・図・畳みの中、id や入力を持つもの、リンクを持つ lede は動かさない", () => {
+  const body = '<h2>題</h2><p class="muted small">持ち件数 ＝ 稼働中の案件数。</p>' +
+    '<div class="lede">1行1回の交代。</div>' +
+    '<p class="muted small">上位の説明 <a href="#x">リンク</a></p>' +
+    '<p class="muted small">拠点数が入っていない 1 社は外れています</p>' +
+    '<p class="muted small">金額が空の 2 件は足していません。</p>' +
+    '<p class="muted small" id="keep-id">id を持つ注記</p>' +
+    '<div class="lede"><a href="#y">入口のリンク</a></div>' +
+    '<details class="fold"><summary>畳み</summary><p class="muted small">畳みの中の注記</p></details>' +
+    '<figure class="fig"><p class="muted small">図の中の注記</p></figure>' +
+    '<table><tr><td><span class="muted small">表の中</span></td></tr></table>';
+  const h = run("tidyNotes({ key: \"team\" }, '<div class=\"ctlbar\"></div>', " + JSON.stringify(body) + ")");
+  const at = h.indexOf('id="cs-readguide"');
+  ok(at > 0, "読み方の畳みが無い: " + h);
+  const panel = h.slice(at, h.indexOf("</details>", at));
+  ok(panel.includes("読み方（3 件）"), "畳みの件数が違う: " + panel.slice(0, 200));
+  ok(panel.includes("持ち件数 ＝ 稼働中の案件数。") && panel.includes("1行1回の交代。") && panel.includes('<a href="#x">リンク</a>'), "動かす注記が畳みに入っていない: " + panel);
+  const rest = h.slice(h.indexOf("</details>", at));
+  ok(rest.includes("拠点数が入っていない 1 社は外れています") && rest.includes("金額が空の 2 件は足していません。") && !panel.includes("外れています"), "結果から外れた件数の文を畳みに入れた: " + panel);
+  ok(rest.includes("id を持つ注記") && rest.includes('<a href="#y">入口のリンク</a>') && rest.includes("畳みの中の注記") && rest.includes("図の中の注記") && rest.includes("表の中"),
+    "動かしてはいけない注記まで畳みに入れた: " + rest);
+  ok(!/持ち件数 ＝ 稼働中の案件数。<\/p><h2|<h2>題<\/h2><p class="muted small">持ち件数/.test(rest), "元の場所に注記が残っている");
+  ok(h.indexOf('data-readline="1"') < at, "常に見せる 1 行が畳みより後ろにある");
 });

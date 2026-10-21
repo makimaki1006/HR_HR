@@ -283,6 +283,12 @@ pub fn build_deal_detail(
         meta["reason"] = json!("この取引は見つかりません（取引が消えたか、IDが違います）");
         return json!({"meta": meta});
     };
+    if d.is_referral() && !d.is_option() {
+        meta["reason"] = json!(
+            "紹介料の取引はコンサルの契約ではないため、この画面の母集団の外です。詳細を出していません"
+        );
+        return json!({"meta": meta});
+    }
     if d.is_option() {
         meta["reason"] = json!(
             "オプション契約（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は、\

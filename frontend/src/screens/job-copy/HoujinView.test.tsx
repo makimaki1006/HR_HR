@@ -171,6 +171,25 @@ it("法人の全節と数字・案件の詳細・条件のURLを表示", async (
     await screen.findByRole("link", { name: "取引の画面を開く" }),
   ).toBeTruthy();
 });
+it("応募が1件も無い取引だけを、求人票の数とHubSpotへのリンク付きで出す", async () => {
+  window.history.replaceState(
+    null,
+    "",
+    "/app/job-copy?view=deals&owner=11&deals_zero=yes",
+  );
+  mock();
+  render(<DealBoard />);
+  expect(
+    (await screen.findByRole("heading", { name: /応募が1件も無い取引/ }))
+      .textContent,
+  ).toBe("応募が1件も無い取引 1件");
+  expect(screen.getByRole("button", { name: "架空の採用支援01" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "架空の採用支援02" })).toBeNull();
+  expect(screen.getByText("3件")).toBeTruthy();
+  expect(
+    screen.getByRole("link", { name: "HubSpotで開く" }).getAttribute("href"),
+  ).toBe("https://app.hubspot.com/contacts/1234567/record/0-3/100");
+});
 it("案件一覧の新しい列を両方向に並べ替える", async () => {
   window.history.replaceState(null, "", "/app/job-copy?view=deals&owner=11");
   mock();

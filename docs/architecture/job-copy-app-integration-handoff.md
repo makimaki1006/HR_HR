@@ -38,7 +38,7 @@
 | `JOB_COPY_MOC_DRIVE_FILE_ID` | 今回の不変レビュー用JSONのDrive ID |
 | `JOB_COPY_MOC_DRIVE_SHA256` | JSON原bytesのSHA-256。IDと必ず両方設定する |
 | `JOB_COPY_DRIVE_LISTINGS` | 画像経路を有効にする28求人のallowlist |
-| `JOB_COPY_ALLOWED_EMAILS` | 閲覧可能なメール一覧。現在は指定された1アカウント |
+| `JOB_COPY_ALLOWED_EMAILS` | 使わなくなった (2026-10-21)。読まない。閲覧は会社ドメイン (`ALLOWED_DOMAINS`) の Google ログインなら全員 |
 | `JOB_COPY_MOC_PATH` | 今回は空。ローカルファイル指定へ依存しない |
 
 別途、既存の `HUBSPOT_ACCESS_TOKEN`、`GOOGLE_SA_KEY_B64`、Google Workspace OIDCのサーバー設定が必要。サービスアカウントは現在のDriveフォルダにreader権限を持つ。秘密値をフロントエンド環境変数へ設定しない。

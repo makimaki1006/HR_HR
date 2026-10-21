@@ -49,7 +49,7 @@ current の事前読取と previous/date 照合は実装したが、複数 write
 | `src/handlers/job_copy_live.rs` | 既存アプリ API と MOC の実行時画像 URL 解決 |
 | `examples/job_copy_drive_link.rs` | 少数求人の operator 用連携検証 |
 
-既存アプリの環境変数は `HUBSPOT_ACCESS_TOKEN`、`GOOGLE_SA_KEY_B64`、`JOB_COPY_ALLOWED_EMAILS`、`JOB_COPY_MOC_PATH`、`JOB_COPY_DRIVE_LISTINGS`。最後の項目は画像経路を有効にする求人 ID のカンマ区切り allowlist。秘密値はサーバーだけで扱い、ブラウザーへ渡さない。Drive reader は readonly scope を使う。
+既存アプリの環境変数は `HUBSPOT_ACCESS_TOKEN`、`GOOGLE_SA_KEY_B64`、`JOB_COPY_MOC_PATH`、`JOB_COPY_DRIVE_LISTINGS`。最後の項目は画像経路を有効にする求人 ID のカンマ区切り allowlist。秘密値はサーバーだけで扱い、ブラウザーへ渡さない。Drive reader は readonly scope を使う。
 
 `/api/job-copy/moc` と `/api/job-copy/image` は既存 Google Workspace OIDC セッションとユーザー allowlist を確認する。画像は company・listing・manifest・slot を入力に認可／chain 解決し、任意の Drive file ID をそのまま取得する proxy にはしない。画像レスポンスは `private, no-store`。これらはコードと限定サービス検証の確認範囲であり、配備後ログインの実証は別途必要。
 

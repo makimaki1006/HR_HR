@@ -20,10 +20,11 @@ describe('snapshot error user guidance', () => {
     expect(guidance.message).toContain('再ログイン');
     expect(renderToStaticMarkup(createElement(SnapshotErrorNotice, { guidance }))).toContain('href="/login"');
   });
-  it('offers account switching and an administrator permission request for a 403', () => {
+  it('asks for a company Google account and offers account switching for a 403', () => {
     const guidance = snapshotErrorGuidance(new ApiHttpError(403, { code: 'job_copy_access_denied' }));
     expect(guidance.message).toContain('閲覧する権限がありません');
-    expect(guidance.message).toContain('Google Workspace');
+    expect(guidance.message).toContain('会社のGoogleアカウントでログイン');
+    expect(guidance.message).not.toContain('管理者');
     expect(guidance.login).toBe(true);
   });
   it('does not imply reauthentication can enable a disabled account', () => {

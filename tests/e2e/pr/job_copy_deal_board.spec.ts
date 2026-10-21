@@ -146,7 +146,7 @@ test('初回案件の立ち上がり・要約・URL・ホームのカード', as
   await expect(table).toContainText('条件に合う案件はありません');
   await page.goto('/app/job-copy?owner=11');
   const homeCard = page.getByRole('button', { name: /初回で成果が出ていない/ });
-  await expect(homeCard.locator('.jh-count')).toHaveText('2件');
+  await expect(homeCard).toHaveText('初回で成果が出ていない 2件');
   await homeCard.click();
   await expect(page).toHaveURL(/view=deals/);
   await expect(page.getByLabel('初回案件だけ', { exact: true })).toBeChecked();
@@ -176,7 +176,7 @@ test('求人と応募の前回集計をやることと案件一覧に残して�
   await login(page);
   await page.goto('/app/job-copy?owner=11&owner_field=consultant');
   await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
-  await expect(page.locator('.jh-todo-cards .jh-card').first().locator('.jh-count')).toHaveText('1件');
+  await expect(page.locator('.jh-todo-cards').getByRole('button', { name: /契約満了が近い/ }).locator('.jh-count')).toHaveText('1件');
   await page.getByRole('button', { name: '案件の一覧', exact: true }).click();
   await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
   await expect(page.locator('.db-table tbody > tr')).toHaveCount(20);

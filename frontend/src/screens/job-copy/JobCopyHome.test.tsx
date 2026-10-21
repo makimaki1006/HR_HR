@@ -33,21 +33,25 @@ const at = <T,>(items: T[], index: number): T => { const item = items[index]; if
 const open = vi.fn(); const openListing = vi.fn();
 const renderHome = () => render(<JobCopyHome onOpenCompany={open} onOpenListing={openListing} onOpenDeal={vi.fn()} />);
 
-it('カードに件数と数え方を出し、押すとその求人の一覧が開く', async () => {
+it('常に出すカードは2枚まで。残りは件数だけの1行で、押すとその求人の一覧が開く', async () => {
   api.mockResolvedValue({ ok: true, data: response });
   renderHome();
-  const cards = await screen.findAllByRole('button', { name: /の数え方/ });
-  expect(cards).toHaveLength(5);
-  expect(within(at(cards, 0)).getByText('1')).toBeTruthy();
-  expect(within(at(cards, 2)).getByText('130')).toBeTruthy();
+  await screen.findByRole('button', { name: /課金が高いまま応募が少ない求人/ });
+  await screen.findByRole('button', { name: /直近7日に変更 0件/ });
+  const cards = [...document.querySelectorAll('.jh-cards .jh-card')];
+  expect(cards).toHaveLength(1);
+  expect(within(at(cards, 0) as HTMLElement).getByText('0')).toBeTruthy();
+  expect(document.querySelector('.jh-rule')).toBeNull();
+  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの見るもの：直近4週の応募が、前の4週より多い求人 1件・応募はあるが、前の4週とほぼ同じ求人 0件・直近4週の応募が、前の4週より少ない求人 130件・データが止まっている求人 0件・直近7日に変更 0件');
+  expect(screen.getByText('掲載中の求人の応募・課金です（応募はHubSpotに記録された分だけ）。増減は並べて見るためのもので、原因とは限りません。')).toBeTruthy();
   expect(screen.queryByText(/効果あり|効果なし|成功|失敗/)).toBeNull();
-  fireEvent.click(at(cards, 0));
+  fireEvent.click(screen.getByRole('button', { name: /より多い求人 1件/ }));
   const list = screen.getByRole('region', { name: '直近4週の応募が、前の4週より多い求人の一覧' });
   expect(within(list).getByText('13 → 20 件')).toBeTruthy();
   fireEvent.click(within(list).getByRole('button', { name: '配送ドライバー・大分1' }));
   expect(openListing).toHaveBeenCalledWith('1');
   // 一覧に出ている数より件数が多いときは、先頭だけだと伝える。
-  fireEvent.click(at(cards, 2));
+  fireEvent.click(screen.getByRole('button', { name: /より少ない求人 130件/ }));
   expect(screen.getByText('先頭の1件だけを表示しています。')).toBeTruthy();
 });
 
@@ -61,21 +65,28 @@ it.each(['api', 'cache'] as const)('%s の古い職種カードと未知のキ�
   // 実行時に受け取る旧形式は、現在の型の外にある。
   const cache = { current: source === 'cache' ? old as HomeResponse : null };
   render(<JobCopyHome cache={cache} onOpenCompany={open} onOpenListing={openListing} onOpenDeal={vi.fn()} />);
-  expect(await screen.findAllByRole('button', { name: /の数え方/ })).toHaveLength(5);
+  await screen.findByRole('button', { name: /課金が高いまま応募が少ない求人/ });
+  expect(document.querySelectorAll('.jh-cards .jh-card')).toHaveLength(1);
+  expect(document.querySelector('.jh-more')?.textContent).not.toContain('未指定');
   expect(screen.queryByText('市場の職種が未指定の求人')).toBeNull();
   expect(screen.queryByText('未知のカード')).toBeNull();
   expect(screen.queryByRole('region', { name: /未指定/ })).toBeNull();
   expect(screen.queryByRole('link', { name: '職種をまとめて指定する' })).toBeNull();
-  expect(screen.getByText('合成運輸')).toBeTruthy();
+  expect(screen.queryByText('合成運輸')).toBeNull();
   expect(api).toHaveBeenCalledTimes(source === 'cache' ? 0 : 1);
-  fireEvent.click(screen.getByRole('button', { name: /直近4週の応募が、前の4週より多い求人.*の数え方/ }));
+  fireEvent.click(screen.getByRole('button', { name: /直近4週の応募が、前の4週より多い求人 1件/ }));
   expect(screen.getByRole('region', { name: '直近4週の応募が、前の4週より多い求人の一覧' })).toBeTruthy();
 });
 
 it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客を開くができる', async () => {
   api.mockResolvedValue({ ok: true, data: response });
   renderHome();
-  await screen.findByText('合成運輸');
+  await screen.findByLabelText('顧客名で探す');
+  // 検索前・「すべて表示」前は表を出さない。
+  expect(screen.queryByRole('table')).toBeNull();
+  expect(screen.queryByText('合成運輸')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'すべて表示（3件）' }));
+  expect(screen.getByRole('button', { name: '表を閉じる' })).toBeTruthy();
   const names = () => screen.getAllByRole('rowheader').map(cell => cell.textContent);
   // 既定は「契約中の案件がある顧客」だけ。合成介護（契約終了だけ）は外れる。
   expect(names()).toEqual(['合成運輸', '合成倉庫']);
@@ -99,6 +110,19 @@ it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客�
   fireEvent.click(screen.getByRole('button', { name: '合成介護を開く' }));
   expect(open).toHaveBeenCalledWith({ id: '12', name: '合成介護' });
   expect(screen.getByText(/納品管理の案件に結び付いていない掲載中の求人が 2 件/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '表を閉じる' }));
+  expect(screen.getByRole('table')).toBeTruthy(); // 検索語が残っている間は表を出す
+  fireEvent.change(screen.getByLabelText('顧客名で探す'), { target: { value: '' } });
+  expect(screen.queryByRole('table')).toBeNull();
+});
+
+it('顧客名で探すと、すべて表示を押さなくても表が出て、契約が終わった顧客も見つかる', async () => {
+  api.mockResolvedValue({ ok: true, data: response });
+  renderHome();
+  await screen.findByLabelText('顧客名で探す');
+  expect(screen.queryByRole('table')).toBeNull();
+  fireEvent.change(screen.getByLabelText('顧客名で探す'), { target: { value: '介護' } });
+  expect(screen.getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['合成介護']);
 });
 
 it('一覧を準備中のときは待ち、読めなかったときは理由を出す', async () => {
@@ -121,22 +145,21 @@ it('パンくずは現在地だけがリンクにならず、上の階層を押�
   expect(select).toHaveBeenCalledWith('company');
 });
 
-it('7枚の見出し・件数・説明と、ゼロのままの求人の課金を出す', async () => {
+it('demo: 常に2枚のカード、残り5枚と直近7日の変更は件数だけの1行。ゼロのままの求人の課金を出す', async () => {
   api.mockResolvedValue({ ok: true, data: demoHome });
   renderHome();
-  await screen.findByRole('button', { name: /応募がゼロのままの求人/ });
-  const cards = screen.getAllByRole('button').filter(button => button.classList.contains('jh-card'));
-  expect(cards).toHaveLength(8);
-  for (const [index, item] of demoHome.home.cards.entries()) {
-    const button = at(cards, index);
-    expect(within(button).getByText(item.title)).toBeTruthy();
-    expect(within(button).getByText(String(item.count))).toBeTruthy();
-    expect(within(button).getByText(item.rule)).toBeTruthy();
-  }
+  await screen.findByRole('button', { name: /応募がゼロのままの求人 2件/ });
+  await screen.findByRole('button', { name: /直近7日に変更 0件/ });
+  const cards = [...document.querySelectorAll<HTMLElement>('.jh-cards .jh-card')];
+  expect(cards.map(button => button.querySelector('.jh-card-title')?.textContent)).toEqual(['応募がゼロになった求人', '課金が高いまま応募が少ない求人']);
+  expect(cards.map(button => button.querySelector('.jh-count')?.textContent)).toEqual(['1件', '2件']);
   expect(at(cards, 0).classList.contains('jh-alert')).toBe(true);
-  expect(at(cards, 1).classList.contains('jh-alert')).toBe(true);
-  expect(screen.getByText(/2件以上、または20%以上の差を増減/)).toBeTruthy();
-  fireEvent.click(at(cards, 0));
+  expect(at(cards, 1).classList.contains('jh-warn')).toBe(true);
+  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの見るもの：応募がゼロのままの求人 2件・直近4週の応募が、前の4週より少ない求人 1件・直近4週の応募が、前の4週より多い求人 1件・応募はあるが、前の4週とほぼ同じ求人 1件・データが止まっている求人 1件・直近7日に変更 0件');
+  // 数え方は押すと開く説明の中にある。
+  expect(screen.getByText(/2件以上、または20%以上の差を増減/).closest('details')?.hasAttribute('open')).toBe(false);
+  expect(screen.getByText(/掲載中で、週ごとの実績の最新の週が14日より前に終わっている求人/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /応募がゼロのままの求人 2件/ }));
   const list = screen.getByRole('region', { name: '応募がゼロのままの求人の一覧' });
   expect(within(list).getByRole('columnheader', { name: '課金（直近 4 週）' })).toBeTruthy();
   const rows = within(list).getAllByRole('row').slice(1);
@@ -228,7 +251,7 @@ it('集計が続く60秒間は6回、その次の60秒間は2回読み、ホー�
     expect(screen.getByText('やることを集計しています…')).toBeTruthy();
     expect(within(screen.getByRole('region', { name: '担当者で絞る' })).queryByRole('status')).toBeNull();
     expect(screen.getByText('まず見るもの')).toBeTruthy();
-    expect(screen.getByText('合成運輸')).toBeTruthy();
+    expect(screen.getByLabelText('顧客名で探す')).toBeTruthy();
     for (const [seconds, calls] of [[2, 2], [4, 3], [8, 4], [16, 5], [30, 6]] as const) {
       await act(async () => { await vi.advanceTimersByTimeAsync(seconds * 1_000); });
       expect(api).toHaveBeenCalledTimes(calls);
@@ -276,10 +299,10 @@ it('タブが隠れている間はホームと直近7日の変更を取り直さ
   } finally { vi.useRealTimers(); }
 });
 
-it('担当者を集計している間もカードと顧客の表を表示する', async () => {
+it('担当者を集計している間もカードと顧客の検索欄を表示する', async () => {
   api.mockResolvedValue({ ok: true, data: { ...response, work: { status: 'preparing' } } });
   renderHome();
   expect(await screen.findByText('担当者とやることを集計しています…')).toBeTruthy();
   expect(screen.getByText('まず見るもの')).toBeTruthy();
-  expect(screen.getByText('合成運輸')).toBeTruthy();
+  expect(screen.getByLabelText('顧客名で探す')).toBeTruthy();
 });

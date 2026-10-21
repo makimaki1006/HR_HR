@@ -1,6 +1,6 @@
 # 求人文面管理：HubSpot 求人一覧・版の読み取り
 
-2026-10-10。最初の PR は読み取りのみ。既存の固定一覧、Rust / Axum、React 画面、Google OIDC と JOB_COPY_ALLOWED_EMAILS を維持する。CRM のファイル・永続ストアは変更しない。
+2026-10-10。最初の PR は読み取りのみ。既存の固定一覧、Rust / Axum、React 画面、Google OIDC を維持する (閲覧は会社ドメインの Google ログイン全員。2026-10-21 以降 JOB_COPY_ALLOWED_EMAILS は読まない)。CRM のファイル・永続ストアは変更しない。
 
 ## API と呼び出し予算
 

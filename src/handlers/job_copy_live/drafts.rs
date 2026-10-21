@@ -175,7 +175,7 @@ async fn process(
 ) -> Result<(), ReadError> {
     let audit = state.audit.as_ref().ok_or_else(unavailable)?;
     op.attempts += 1;
-    let allowed = access.allowed.contains(&op.actor)
+    let allowed = crate::auth::validate_email_domain(&op.actor, &state.config.allowed_domains)
         && writes.allows(&op.listing)
         && !disabled(state, &op.actor).await?;
     let result = if !allowed {
@@ -650,7 +650,6 @@ mod tests {
         let mut state = super::super::integration_tests::moc_state();
         Arc::get_mut(&mut state).unwrap().audit = Some(audit);
         let access = Access {
-            allowed: BTreeSet::from(["writer@example.test".into()]),
             service: Some(Arc::new(JobReadService::for_test(base))),
             images: None,
             drive_listings: BTreeSet::new(),
@@ -933,7 +932,7 @@ mod tests {
             .await
             .unwrap();
         session
-            .insert(crate::auth::SESSION_USER_KEY, "outsider@example.test")
+            .insert(crate::auth::SESSION_USER_KEY, "outsider@other.test")
             .await
             .unwrap();
         assert_eq!(

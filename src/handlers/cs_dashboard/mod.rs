@@ -54,6 +54,7 @@ pub mod deal_detail;
 pub mod handover_contact;
 pub mod money;
 pub mod routes;
+pub mod stage_stay;
 mod team_history;
 
 #[cfg(test)]
@@ -230,15 +231,23 @@ pub const OPTION_STAGES: &[&str] = &["1049738304", "1281526627"];
 
 /// 「マーケ関連」ステージ。コンサルの納品ではない取引（紹介料・マーケ施策の計上）が置かれる。
 ///
-/// 実測（fixture）で稼働中 10件、全部が初回（継続回数0）・種別 `(新規)`・
-/// 契約種別「その他」。「紹介料＿…」の取引もこのステージに置かれている
-/// （Hubspot リポジトリの `consulting_pipeline_coverage.csv` で `紹介料＿…` → `1278456227` を確認）。接触も MTG も起きないのが普通なので、
-/// 「接触が1本も無い」「MTG が結べていない初回契約」の**名指しの表**を埋めてしまう。
+/// 実測（fixture）で稼働中 10件、全部が初回（継続回数0）・種別 `(新規)`・契約種別「その他」。
+/// 接触も MTG も起きないのが普通。
 ///
-/// 🔴 **母集団からは外していない**（オプションと違い、外すかどうかはまだ決めていない）。
-/// 外しているのは、上の2つの表の行と、その表の分母だけ。外した件数は表と一緒に返す。
-/// 判定は取引名ではなくステージの値で行う（名前で外すと本体契約を巻き込む）。
+/// 🔴 2026-10-20 ユーザー決定「紹介料の取引は外す」。紹介料の取引はコンサルの契約ではないので、
+/// 画面の母集団から外す（`Deal::is_referral`）。ステージだけでは漏れる
+/// （「9月分紹介料＿…」が別のステージ＝求人出稿完了に置かれていることがある）ので、
+/// 取引名に「紹介料」を含むものも外す。判定はこの 2 つの OR を `is_referral` の 1 か所だけで行う。
 pub const MARKETING_STAGES: &[&str] = &["1278456227"];
+
+/// 紹介料の取引を表す取引名の語。
+pub const REFERRAL_NAME_WORD: &str = "紹介料";
+
+/// 紹介料の取引か。**判定はここ 1 か所だけ。** ステージがマーケ関連、または取引名に「紹介料」を含む。
+/// シートの取引（`Deal::is_referral`）も、HubSpot から直接読む案件管理側の取引もこれを使う。
+pub fn is_referral_deal(name: &str, stage: &str) -> bool {
+    MARKETING_STAGES.contains(&stage) || name.contains(REFERRAL_NAME_WORD)
+}
 
 /// 決着の3状態。ここに入らないものは「結果待ち」で、分母に入れない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -432,6 +441,19 @@ impl Deal {
             || OPTION_STAGES.contains(&self.stage.as_str())
     }
 
+    /// 紹介料の取引か。**画面の母集団から外すもの。** 判定はここだけ。
+    ///
+    /// ステージがマーケ関連、または取引名に「紹介料」を含む。
+    /// （オプション契約は取引名で判定しないが、紹介料は名前でしか拾えないものがあるため名前も見る）
+    pub fn is_referral(&self) -> bool {
+        is_referral_deal(&self.name, &self.stage)
+    }
+
+    /// 画面の母集団から外す取引か（オプション契約、または紹介料の取引）。
+    pub fn is_excluded(&self) -> bool {
+        self.is_option() || self.is_referral()
+    }
+
     /// 満了月 `yyyy-MM`。満了日が無ければ `None`。
     pub fn manryou_month(&self) -> Option<&str> {
         // 🔴 バイト位置で切らない。7バイト目が文字の途中だと panic して全タブが落ちる
@@ -459,7 +481,7 @@ impl Deal {
     }
 }
 
-/// 画面が見る取引。**オプション契約は入っていない。**
+/// 画面が見る取引。**オプション契約と紹介料の取引は入っていない。**
 ///
 /// 🔴 ここで外すのは、外し忘れる画面を作らないため。実データで
 /// 稼働中703件のうち99件がオプション（求人追加・AirWork広告運用ほか）で、
@@ -468,7 +490,7 @@ impl Deal {
 pub fn deals_of(sheet: &SheetData) -> Vec<Deal> {
     deals_all_of(sheet)
         .into_iter()
-        .filter(|d| !d.is_option())
+        .filter(|d| !d.is_excluded())
         .collect()
 }
 
@@ -494,24 +516,37 @@ pub fn deals_all_of(sheet: &SheetData) -> Vec<Deal> {
 pub struct HoujinPopulation {
     /// オプション以外の取引を1件以上持つ法人（法人番号が空の取引は数えない）
     pub main: HashSet<String>,
-    /// 取引はあるが、全部オプション契約の法人の数
+    /// 取引はあるが、全部オプション契約か紹介料の取引の法人の数
     pub option_only: usize,
+    /// 紹介料の取引しか持たない法人。どの数にも入れない（画面の数から引くときに使う）
+    pub referral_only: HashSet<String>,
 }
 
 pub fn houjin_population(sheet: &SheetData) -> HoujinPopulation {
     let mut main = HashSet::new();
     let mut any = HashSet::new();
+    let mut referral = HashSet::new();
     for d in deals_all_of(sheet) {
         if d.houjin_resolved.is_empty() {
             continue;
         }
-        if !d.is_option() {
+        // 紹介料の取引しか持たない法人は、どの数にも入れない（オプション契約と重なるものはオプション）
+        if d.is_referral() && !d.is_option() {
+            referral.insert(d.houjin_resolved);
+            continue;
+        }
+        if !d.is_excluded() {
             main.insert(d.houjin_resolved.clone());
         }
         any.insert(d.houjin_resolved);
     }
     let option_only = any.len() - main.len();
-    HoujinPopulation { main, option_only }
+    let referral_only = referral.into_iter().filter(|h| !any.contains(h)).collect();
+    HoujinPopulation {
+        main,
+        option_only,
+        referral_only,
+    }
 }
 
 /// 画面に出す母集団。**どの画面でも同じ数字を出すために1か所で作る。**
@@ -540,7 +575,12 @@ pub struct Population {
 }
 
 pub fn population_of(sheet: &SheetData) -> Population {
-    let all = deals_all_of(sheet);
+    // 紹介料の取引は「もともと載せなくてよい」もの。数にも注記にも出さない
+    // （オプション契約と重なるものはオプションとして数える）
+    let all: Vec<Deal> = deals_all_of(sheet)
+        .into_iter()
+        .filter(|d| d.is_option() || !d.is_referral())
+        .collect();
     let deals_all = all.len();
     let deals_option = all.iter().filter(|d| d.is_option()).count();
     let active: Vec<&Deal> = all.iter().filter(|d| d.is_active).collect();
@@ -557,7 +597,7 @@ pub fn population_of(sheet: &SheetData) -> Population {
         active: active_all - active_option,
         option_amount: if amt > 0.0 { Some(amt) } else { None },
         note: format!(
-            "稼働中{active_all}件からオプション契約{active_option}件を除いた{}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。外した契約が無くなったわけではありません",
+            "稼働中{active_all}件からオプション契約{active_option}件を除いた{}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。外した契約は残っています",
             active_all - active_option
         ),
     }

@@ -40,6 +40,8 @@ pub struct TalkPersonRow {
     pub owner_id: Option<String>,
     pub name: String,
     pub team: Option<String>,
+    /// 発信数 (Zoom の発信すべて。相手が出る前に切ったもの・つながらなかったものを含む。営業KPI の「発信」)。dials と同じく読めなければ null
+    pub outbound: Option<u32>,
     /// 架電数 (Zoom でつながった通話。営業KPI の「架電数」と同じ)。シートが読めなければ null
     pub dials: Option<u32>,
     pub appointments: u32,

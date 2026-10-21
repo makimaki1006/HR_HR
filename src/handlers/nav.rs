@@ -306,11 +306,11 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: Some(Feature::Crm),
         hidden: None,
     },
-    // Reading private data still requires Google OIDC and JOB_COPY_ALLOWED_EMAILS.
+    // Reading private data still requires a Google OIDC login on a company domain (ALLOWED_DOMAINS).
     NavDef {
         id: "job-copy",
         label: "案件管理",
-        title: Some("求人本文・画像の履歴、差分、応募構成を確認"),
+        title: Some("自分の案件のやること・危ない案件・求人"),
         kind: NavKind::App,
         target: "/app/job-copy",
         group: None,

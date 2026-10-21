@@ -186,7 +186,6 @@ mod tests {
         Arc::get_mut(&mut state).unwrap().indeed_db =
             Some(crate::db::local_sqlite::LocalDb::new(db.path().to_str().unwrap()).unwrap());
         let access = Access {
-            allowed: BTreeSet::from(["writer@example.test".into()]),
             service: Some(Arc::new(super::super::JobReadService::for_test(base))),
             images: None,
             drive_listings: BTreeSet::new(),
@@ -294,7 +293,7 @@ mod tests {
         assert_eq!(e.0, StatusCode::UNAUTHORIZED);
         let e = call(
             &f,
-            session_for(Some("other@example.test")).await,
+            session_for(Some("other@other.test")).await,
             true,
             Some("看護師"),
             true,

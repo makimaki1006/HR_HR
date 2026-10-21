@@ -49,6 +49,7 @@ use crate::SESSION_USER_KEY;
 
 use super::contact_trend::build_contact_trend;
 use super::money::{build_money, build_renewal_pipe};
+use super::stage_stay::build_stage_stay;
 use super::{
     consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, focus_of, latest_nps,
     load, opt_num, Deal, Outcome, Sheets,
@@ -70,6 +71,7 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/handover", get(handover))
         .route("/api/consulting/contact-trend", get(contact_trend))
         .route("/api/consulting/deals", get(deal_board))
+        .route("/api/consulting/stage-stay", get(stage_stay))
         .route("/api/consulting/today", get(today_board))
         .route("/api/consulting/deal-detail", get(deal_detail))
         .route("/api/consulting/team", get(team))
@@ -246,6 +248,7 @@ simple_handler!(consultants, build_consultants);
 simple_handler!(handover, build_handover);
 simple_handler!(contact_trend, build_contact_trend);
 simple_handler!(deal_board, build_deal_board);
+simple_handler!(stage_stay, build_stage_stay);
 simple_handler!(today_board, build_today_board);
 async fn team(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
@@ -503,7 +506,11 @@ fn monthly_retention(deals: &[Deal]) -> Value {
 
     for d in deals {
         // オプションは `deals_of` の時点で落ちている。ここは保険。
-        debug_assert!(!d.is_option(), "オプションが母数に残っている: {}", d.name);
+        debug_assert!(
+            !d.is_excluded(),
+            "外すはずの取引が母数に残っている: {}",
+            d.name
+        );
         let Some(month) = d.manryou_month() else {
             no_expiry += 1;
             continue;
@@ -1303,12 +1310,9 @@ fn first_mtg(deals: &[Deal], mtg_first: &HashMap<String, NaiveDate>) -> Value {
 /// 稼働中の初回契約で、MTG の記録がまだ見つからないもの（していないのではなく記録が欠けていると読む。2026-09-29 藤巻さん。
 /// 2026-10-01 に初回契約に限った判断であることを確かめた）。
 fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDate) -> Value {
-    // 🔴 「マーケ関連」（紹介料・マーケ施策の計上）は MTG をしないのが普通なので、
-    //    この表と、その分母（稼働中の初回契約）から外す。件数は返す（黙って消さない）
-    let (marketing, first_time): (Vec<&&Deal>, Vec<&&Deal>) = act
-        .iter()
-        .filter(|d| d.renewal_no == Some(0))
-        .partition(|d| super::MARKETING_STAGES.contains(&d.stage.as_str()));
+    // 紹介料の取引（マーケ関連・名前に「紹介料」）は、母集団（`deals_of`）の時点で外れている。
+    // 外した件数は population の注記に出る。
+    let first_time: Vec<&&Deal> = act.iter().filter(|d| d.renewal_no == Some(0)).collect();
     let mut rows = Vec::new();
     for d in &first_time {
         if mtg_first.contains_key(&d.id) {
@@ -1331,7 +1335,6 @@ fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDat
     });
     json!({
         "first_active": first_time.len(),
-        "excluded_marketing": marketing.len(),
         "n": rows.len(),
         "rate": rate(rows.len() as f64, first_time.len() as f64),
         "rows": rows,
@@ -1401,7 +1404,7 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
     //    オプション契約の通話（fixture で 20,843行中 2,218行）が混ざっていた。
     let option_ids: HashSet<String> = super::deals_all_of(&sheets.deal)
         .into_iter()
-        .filter(|d| d.is_option())
+        .filter(|d| d.is_excluded())
         .map(|d| d.id)
         .collect();
 
@@ -1450,8 +1453,6 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
     let mut days: Vec<f64> = Vec::new();
     let mut no_call = 0usize;
     let mut no_contact = 0usize;
-    // 名指しの表から外した「マーケ関連」の件数（KPI の件数からは外していない）
-    let mut silent_marketing = 0usize;
     for d in &act {
         let n_all = all_by.get(d.id.as_str()).copied().unwrap_or(0);
         let hits = hit_by.get(d.id.as_str());
@@ -1466,13 +1467,6 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
         }
         // 接触が1本も無い、または最後の接触から90日超
         if !matches!(dd, None | Some(91..)) {
-            continue;
-        }
-        // 🔴 「マーケ関連」（紹介料・マーケ施策の計上）は電話をしないのが普通。
-        //    名指しの表に並べると、本当に音沙汰の無い契約が埋もれる。
-        //    KPI（no_call / no_contact / 経過日数）からは外さず、表からだけ外して件数を返す
-        if super::MARKETING_STAGES.contains(&d.stage.as_str()) {
-            silent_marketing += 1;
             continue;
         }
         silent.push(json!({
@@ -1515,8 +1509,6 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
         "silent": {
             "n": silent.len(),
             "rule": "接触が1本も無い、または最後の接触から90日超",
-            // 表から外した「マーケ関連」の件数。黙って消さない
-            "excluded_marketing": silent_marketing,
             "rows": silent,
         },
         "transcript": {
@@ -1700,7 +1692,7 @@ pub fn build_mtg_quality(sheets: &Sheets, today: NaiveDate) -> Value {
     //    （「取引に結べた率」の分母に要る）。fixture では 3,133行中 9行が外れる。
     let option_ids: HashSet<String> = super::deals_all_of(&sheets.deal)
         .into_iter()
-        .filter(|d| d.is_option())
+        .filter(|d| d.is_excluded())
         .map(|d| d.id)
         .collect();
     let rows: Vec<&Vec<std::sync::Arc<str>>> = mtg
@@ -1946,7 +1938,7 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
         .filter_map(|r| {
             let deal_id = hv.get(r, "deal_id");
             let d = by_id.get(deal_id)?;
-            if d.is_option() || !cx.has_span(deal_id) {
+            if d.is_excluded() || !cx.has_span(deal_id) {
                 return None;
             }
             Some((deal_id, super::date10(hv.get(r, "date"))?))
@@ -1969,7 +1961,7 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
     for r in &hv.rows {
         let deal_id = hv.get(r, "deal_id");
         let d = by_id.get(deal_id);
-        if d.is_some_and(|x| x.is_option()) {
+        if d.is_some_and(|x| x.is_excluded()) {
             option_excluded += 1;
             continue;
         }
@@ -2080,7 +2072,7 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
         "median_gap_days": median_gap,
         "n_gap": gaps.len(),
         "gap_rule": "「記録の遅れ」は、実際に替わった日（MTG のホストが替わった日）と HubSpot の担当者欄が直された日の差です。プラスなら HubSpot のほうが後。マイナスは、先に欄だけ直して実務の引き継ぎが後になったことを表します",
-        "source_rule": "交代日は MTG のホストが替わった日で取っています。HubSpot の担当者欄が直された日は交代日ではありません",
+        "source_rule": "交代日は MTG のホストが替わった日で取っています。HubSpot の担当者欄が直された日は使っていません",
         // 交代の前後の接触（2026-09-24 藤巻さんの要望。決まりごとは handover_contact.rs の頭）
         "contact_cmp": contact_cmp_json(&cx, &items, cmp_unavailable, &unresolved_no),
     })
@@ -2103,7 +2095,7 @@ fn unresolved_numbers<'a>(
     for r in &hv.rows {
         if by_id
             .get(hv.get(r, "deal_id"))
-            .is_some_and(|x| x.is_option())
+            .is_some_and(|x| x.is_excluded())
         {
             continue;
         }
@@ -2453,7 +2445,10 @@ fn focus_shape(
     // 🔴 図は選択肢と同じ集合で描く（モックの「517社のうち116社」とも同じ）ので、ここからは外さない。
     //    代わりに画面に「うち N 社はオプション契約だけ」と書く。書かないと、すぐ下の
     //    「オプション契約しか持たない法人は数えていません」が図にも掛かって読める（fixture 1社）
-    let n_display_option_only = disp.iter().filter(|c| !hp.main.contains(&c.houjin)).count();
+    let n_display_option_only = disp
+        .iter()
+        .filter(|c| !hp.main.contains(&c.houjin) && !hp.referral_only.contains(&c.houjin))
+        .count();
     json!({
         // `CS_顧客` の行数そのもの（データの点検で使う。画面の「全 N 法人」には使わない）
         "n_all": cust.len(),

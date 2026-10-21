@@ -387,7 +387,6 @@ async fn preparing_progress_is_returned_by_home_and_listings() {
         .await
         .unwrap();
     let access = Access {
-        allowed: BTreeSet::from(["reader@example.test".into()]),
         service: Some(Arc::new(f.service.clone())),
         moc_path: None,
         moc_drive: Ok(None),

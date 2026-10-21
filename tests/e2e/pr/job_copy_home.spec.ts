@@ -7,7 +7,7 @@ import { E2E_EMAIL } from './helpers/fixture_values';
 test.use({ locale: 'ja-JP' });
 
 // 外部サービスを使わず、5分類すべてと補助カードの合成データを返す。
-test('ホームの8枚のカードと、変更求人の一覧・求人と案件への移動を確認する', async ({ page }) => {
+test('ホームの常時2枚のカード・件数の1行と、変更求人の一覧・求人と案件への移動を確認する', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1500 });
   await page.route('**/api/job-copy/recent-changes', route => route.fulfill({ json: { status: 'ready', refresh_failed: false, report: { count: 3, listings: [
     { id: '1', title: '合成終了求人', media: 'airwork', publication_status: '掲載終了', deals: [{ id: '10', name: '合成案件A', company: '合成事業所' }, { id: '20', name: '合成案件B', company: '合成事業所' }], fields: ['本文', '給与', '求人名'], last_changed_at: '2026-10-15T16:12:00Z' },
@@ -18,28 +18,38 @@ test('ホームの8枚のカードと、変更求人の一覧・求人と案件�
   await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-15T01:00:00Z', capture_bundle: { schemaVersion: 1, capturedAt: '2026-10-15T01:00:00Z', jobs: [] }, results: [] } }));
   await login(page);
   await page.goto('/app/job-copy');
-  const cards = page.locator('.jh-card');
-  await expect(cards).toHaveCount(8);
+  // 常に出るカードは「応募がゼロになった」「課金が高いまま応募が少ない」の2枚。残りは件数だけの1行。
+  const cards = page.locator('.jh-cards .jh-card');
+  await expect(cards).toHaveCount(2);
   await expect(page.getByRole('button', { name: /市場の職種が未指定の求人/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /直近7日に変更/ }).locator('.jh-count')).toHaveText('3件');
-  for (const [index, card] of demoHome.home.cards.entries()) {
-    await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${card.count}件`);
-    await expect(cards.nth(index).locator('.jh-card-title')).toHaveText(card.title);
-    await expect(cards.nth(index).locator('.jh-rule')).toHaveText(card.rule);
+  const home = demoHome.home.cards;
+  const chip = (index: number) => page.getByRole('button', { name: `${home[index]!.title} ${home[index]!.count}件`, exact: true });
+  const opener = (index: number) => index === 1 ? cards.nth(0) : index === 5 ? cards.nth(1) : chip(index);
+  await expect(page.getByRole('button', { name: '直近7日に変更 3件', exact: true })).toBeVisible();
+  for (const [slot, index] of [[0, 1], [1, 5]] as const) {
+    await expect(cards.nth(slot).locator('.jh-count')).toHaveText(`${home[index]!.count}件`);
+    await expect(cards.nth(slot).locator('.jh-card-title')).toHaveText(home[index]!.title);
   }
+  for (const index of [0, 2, 3, 4, 6]) await expect(chip(index)).toBeVisible();
+  await expect(cards.locator('.jh-rule')).toHaveCount(0);
   await expect(cards.nth(0)).toHaveClass(/jh-alert/);
-  await expect(cards.nth(1)).toHaveClass(/jh-alert/);
+  await expect(page.getByText(/2件以上、または20%以上の差を増減/)).toBeHidden();
+  await page.locator('#jh-look summary').click();
   await expect(page.getByText(/2件以上、または20%以上の差を増減/)).toBeVisible();
+  for (const card of home) await expect(page.locator('.jc-infotip-body li').filter({ hasText: card.rule })).toBeVisible();
+  await page.locator('#jh-look summary').click();
   for (const [index, applications] of ['0 → 0 件', '1 → 0 件', '5 → 4 件', '0 → 1 件', '10 → 9 件'].entries()) {
-    await cards.nth(index).click();
-    const list = page.getByRole('region', { name: `${demoHome.home.cards[index]!.title}の一覧` });
+    await opener(index).click();
+    const list = page.getByRole('region', { name: `${home[index]!.title}の一覧` });
     await expect(list.getByRole('cell', { name: applications, exact: true }).first()).toBeVisible();
   }
-  await cards.nth(0).click();
+  await opener(0).click();
   const list = page.getByRole('region', { name: '応募がゼロのままの求人の一覧' });
   await expect(list.getByRole('columnheader', { name: '課金（直近 4 週）' })).toBeVisible();
   await expect(list.locator('tbody tr').nth(0)).toContainText('¥24,000');
   await expect(list.locator('tbody tr').nth(1)).toContainText('¥0');
+  await expect(page.locator('.jh-customer-table')).toHaveCount(0);
+  await page.getByRole('button', { name: /^すべて表示/ }).click();
   await expect(page.getByRole('columnheader', { name: '応募（前の 4 週 → 直近 4 週）' })).toBeVisible();
   await page.getByRole('button', { name: /直近7日に変更/ }).click();
   const changes = page.getByRole('region', { name: '直近7日に変更の一覧' });
@@ -107,6 +117,8 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   await expect(overdue.locator('tbody tr').first()).toContainText('合成事業所合成案件101対応中2026/10/15電話する合成担当A');
   await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('22');
   await expect(overdueCard.locator('.jh-count')).toHaveText('0件');
+  await expect(page.locator('.jh-customer-table')).toHaveCount(0);
+  await page.getByRole('button', { name: /^すべて表示/ }).click();
   await expect(page.locator('.jh-customer-table tbody')).toContainText('契約中の案件がある顧客はありません');
   await page.getByRole('button', { name: '自分に戻す' }).click();
   await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('11');
@@ -146,12 +158,13 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   await expect(page.getByRole('combobox', { name: '担当の項目' })).toHaveValue('consultant');
   await expect(page).toHaveURL(/owner=11/);
   const cards = page.locator('.jh-todo-cards .jh-card');
-  await expect(cards).toHaveCount(11);
-  for (const [index, count] of [1, 1, 1, 1, 0, 0, 0, 0, 198, 95, 112].entries()) await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${count}件`);
+  await expect(cards).toHaveCount(7);
+  for (const [index, count] of [198, 95, 112, 1, 1, 1, 0].entries()) await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${count}件`);
+  await expect(page.locator('.jh-more').first()).toHaveText('ほかの要対応：初回で成果が出ていない 1件・定期NPSが低い 0件・採用目標に届いていない 0件・採用単価が高い 0件');
   await expect(page.locator('.jh-todo-table')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'まず見るもの' })).toBeInViewport();
   const boxes = await cards.evaluateAll(elements => elements.map(el => ({ top: el.getBoundingClientRect().top, height: el.getBoundingClientRect().height })));
-  expect(new Set(boxes.map(box => Math.round(box.top))).size).toBe(3);
+  expect(new Set(boxes.map(box => Math.round(box.top))).size).toBe(2);
   const filterLayout = await page.locator('.jh-owner').evaluate(el => {
     const controls = [...el.querySelectorAll('label')];
     return controls.map(label => ({ direction: getComputedStyle(label).flexDirection, top: label.getBoundingClientRect().top, height: label.getBoundingClientRect().height }));
@@ -250,14 +263,14 @@ test('保存した前の集計と日時をすぐ表示し、新しい集計の�
   await login(page);
   await page.goto('/app/job-copy');
   const card = page.getByRole('button', { name: /直近7日に変更/ });
-  await expect(card.locator('.jh-count')).toHaveText('1件');
+  await expect(card).toHaveText('直近7日に変更 1件');
   await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
   await card.click();
   const list = page.getByRole('region', { name: '直近7日に変更の一覧' });
   await expect(list.getByRole('button', { name: '合成の前回求人' })).toBeVisible();
   await expect(list).toContainText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。');
   complete = true;
-  await expect(card.locator('.jh-count')).toHaveText('0件');
+  await expect(card).toHaveText('直近7日に変更 0件');
   await expect(list).toContainText('該当する求人はありません。');
   await expect(page.getByText(/時点の集計です。新しい集計を作っています/)).toHaveCount(0);
 });

@@ -105,7 +105,6 @@ impl Fixture {
             axum::serve(listener, upstream).await.unwrap();
         });
         let access = Access {
-            allowed: BTreeSet::from(["reader@example.test".into()]),
             service: Some(service),
             moc_path: None,
             moc_drive: Ok(None),
@@ -264,7 +263,7 @@ async fn cached_versions_still_require_an_authorized_user() {
         f.versions(&anonymous, "30", false).await.unwrap_err(),
         StatusCode::UNAUTHORIZED
     );
-    let outsider = session_for(Some("outside@example.test")).await;
+    let outsider = session_for(Some("outside@other.test")).await;
     assert_eq!(
         f.versions(&outsider, "30", false).await.unwrap_err(),
         StatusCode::FORBIDDEN
@@ -325,13 +324,9 @@ async fn company_is_its_own_request_cached_for_hours_and_authorized_each_time() 
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        f.company(
-            &session_for(Some("outside@example.test")).await,
-            "30",
-            false
-        )
-        .await
-        .unwrap_err(),
+        f.company(&session_for(Some("outside@other.test")).await, "30", false)
+            .await
+            .unwrap_err(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -425,13 +420,9 @@ async fn batch_names_refuse_bad_requests_and_unauthorized_users_before_any_read(
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        f.companies(
-            &session_for(Some("outside@example.test")).await,
-            "30",
-            false
-        )
-        .await
-        .unwrap_err(),
+        f.companies(&session_for(Some("outside@other.test")).await, "30", false)
+            .await
+            .unwrap_err(),
         StatusCode::FORBIDDEN
     );
     for bad in ["", "30,,31", "30,x/../1", "30,"] {

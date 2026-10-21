@@ -11,7 +11,7 @@ import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
 import {
   CALL_STATUS_TEXT, MARK_LABEL, MARK_TEXT, PERIOD_LABELS, activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary,
-  fmtCallTime, fmtPct, fmtSeconds, jstToday, periodRange, ruleSentences, sortPeople,
+  fmtCallTime, fmtPct, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
   type TalkSort,
 } from './talkModel';
 import type { AdminRoute } from './route';
@@ -112,12 +112,14 @@ function Loader<T>({ path, fixture, children }: { path: string; fixture: (() => 
 
 // ------------------------------------------------------------ 表
 
-function Cell({ flagged, children, className }: { flagged: boolean; children: ReactNode; className?: string }) {
-  const cls = [className, flagged ? 'talk-flag' : ''].filter(Boolean).join(' ');
-  return <td className={cls === '' ? undefined : cls} data-flagged={flagged ? 'true' : undefined}>{children}</td>;
+function Cell({ j, children, className }: { j: CellJudgement | null; children: ReactNode; className?: string }) {
+  const stateCls = j?.state === 'red' ? 'talk-flag' : j?.state === 'grey' ? 'talk-few' : '';
+  const cls = [className, stateCls].filter(Boolean).join(' ');
+  return <td className={cls === '' ? undefined : cls} data-flagged={j?.state === 'red' ? 'true' : undefined} data-state={j?.state} title={j?.reason}>{children}</td>;
 }
 
-function PersonRowView({ p, checks, total, onOpen }: { p: TalkPersonRow; checks: TalkCheckDef[]; total: boolean; onOpen?: (id: string) => void }) {
+function PersonRowView({ p, checks, total, totalRow, rules, onOpen }: { p: TalkPersonRow; checks: TalkCheckDef[]; total: boolean; totalRow: TalkPersonRow; rules: TalkSummaryResponse['rules']; onOpen?: (id: string) => void }) {
+  const apj = total ? null : judgeAppointment(p, totalRow, rules);
   return (
     <tr className={total ? 'talk-total' : undefined} data-testid={total ? 'talk-total-row' : 'talk-row'}>
       <td>
@@ -126,19 +128,21 @@ function PersonRowView({ p, checks, total, onOpen }: { p: TalkPersonRow; checks:
         )}
       </td>
       <td className="w8-muted">{p.team ?? '-'}</td>
+      <td className="w8-right">{p.outbound ?? '—'}</td>
       <td className="w8-right">{p.dials ?? '—'}</td>
       <td className="w8-right">{p.appointments}</td>
-      <Cell flagged={p.appointment_rate_flagged} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}</Cell>
+      <Cell j={apj} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}</Cell>
       <td className="w8-right">
         {p.reviewed}
         <span className="talk-small">対象 {p.eligible} 本 ・ 待ち {p.waiting} ・ 取れない {p.unavailable}</span>
       </td>
       {checks.map(c => {
         const it = p.items.find(i => i.id === c.id);
+        const j = total ? null : judgeItem(it, totalRow.items.find(i => i.id === c.id), rules);
         return (
-          <Cell key={c.id} flagged={it?.flagged === true} className="w8-right">
-            {fmtPct(it?.rate_pct ?? null)}
-            <span className="talk-small">{it === undefined ? '' : `${String(it.not_done)}/${String(it.applicable)}本`}</span>
+          <Cell key={c.id} j={j} className="w8-right">
+            {fmtPct(donePct(it))}
+            <span className="talk-small">{it === undefined ? '' : `できた ${String(it.applicable - it.not_done)}/${String(it.applicable)}本`}</span>
           </Cell>
         );
       })}
@@ -169,49 +173,59 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
   const ariaSort = (key: TalkSort['key']): 'ascending' | 'descending' | 'none' =>
     sort !== null && JSON.stringify(sort.key) === JSON.stringify(key) ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none';
   const arrow = (key: TalkSort['key']): string => (ariaSort(key) === 'none' ? '' : ariaSort(key) === 'ascending' ? ' ▲' : ' ▼');
+  const sortHead = (label: string, key: TalkSort['key']) => (
+    <th className="w8-right" aria-sort={ariaSort(key)}>
+      <button type="button" className="w8-sort" onClick={() => { toggle(key); }}>{label}{arrow(key)}</button>
+    </th>
+  );
   if (!data.enabled) {
     return <p className="w8-alert" role="status" data-testid="talk-disabled">まだ動いていません。トークの振り返りの設定が済むと、ここに人ごとの表が出ます。</p>;
   }
+  const rules = data.rules;
   return (
     <>
+      <p className="talk-legend" data-testid="talk-legend">
+        <span><i className="talk-swatch red" />赤: この表の全体より {rules.item_excess_pct} ポイント以上できていない（当てはまる電話が {rules.item_min_applicable} 本以上の人だけ）</span>
+        <span><i className="talk-swatch grey" />灰色: 本数が少ないので色を付けていない</span>
+        <span>アポ率の赤: 架電数 {rules.appointment_min_dials} 本以上で、全体のアポ率の{ratioText(rules.appointment_rate_ratio)}未満</span>
+      </p>
       <div className="w8-table-wrap">
         <table className="w8-table w8-table-dense talk-table" data-testid="talk-table">
           <thead>
             <tr>
-              <th colSpan={6} className="talk-group-blank" />
+              <th colSpan={7} className="talk-group-blank" />
               {stageGroups(data.checks).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
             </tr>
             <tr>
               <th>名前</th>
               <th>チーム</th>
-              <th className="w8-right">架電数</th>
-              <th className="w8-right">アポ数</th>
-              <th className="w8-right" aria-sort={ariaSort({ kind: 'rate' })}>
-                <button type="button" className="w8-sort" onClick={() => { toggle({ kind: 'rate' }); }}>アポ率{arrow({ kind: 'rate' })}</button>
-              </th>
-              <th className="w8-right">判定した電話数</th>
+              {sortHead('発信数', { kind: 'outbound' })}
+              {sortHead('架電数', { kind: 'dials' })}
+              {sortHead('アポ数', { kind: 'appointments' })}
+              {sortHead('アポ率', { kind: 'rate' })}
+              {sortHead('判定した電話数', { kind: 'reviewed' })}
               {data.checks.map(c => {
                 const key = { kind: 'item', id: c.id } as const;
+                const docTip = c.baseline_pct === null ? '' : `\n資料の全体: できた ${fmtPct(100 - c.baseline_pct)}${c.baseline_basis === null ? '' : `（${c.baseline_basis}）`}`;
                 return (
-                  <th key={c.id} className="w8-right talk-itemhead" title={c.rule} aria-sort={ariaSort(key)}>
+                  <th key={c.id} className="w8-right talk-itemhead" title={c.rule + docTip} aria-sort={ariaSort(key)}>
                     <button type="button" className="w8-sort" onClick={() => { toggle(key); }}>{c.title}{arrow(key)}</button>
-                    <span className="talk-base">{c.baseline_pct === null ? '全体 -' : `全体 ${fmtPct(c.baseline_pct)}`}</span>
+                    <span className="talk-base">この表の全体 {fmtPct(donePct(data.total.items.find(i => i.id === c.id)))}</span>
                   </th>
                 );
               })}
             </tr>
           </thead>
           <tbody>
-            {people.map(p => <PersonRowView key={p.owner_id ?? p.name} p={p} checks={data.checks} total={false} onOpen={onOpen} />)}
-            {people.length === 0 && <tr><td colSpan={6 + data.checks.length} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
-            <PersonRowView p={data.total} checks={data.checks} total />
+            {people.map(p => <PersonRowView key={p.owner_id ?? p.name} p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} onOpen={onOpen} />)}
+            {people.length === 0 && <tr><td colSpan={7 + data.checks.length} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
+            <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} />
           </tbody>
         </table>
       </div>
       <p className="talk-rules" data-testid="talk-rules">
-        {ruleSentences(data.rules).map(s => <span key={s} style={{ display: 'block' }}>{s}</span>)}
-        <span style={{ display: 'block' }}>各項目の割合は「できていない電話 ÷ その項目に当てはまる電話」で、小さい数字はその本数です。見出しの「全体」は資料にある全体の割合です。</span>
-        <span style={{ display: 'block' }} data-testid="talk-dials-rule">架電数は営業KPI と同じ、Zoom でつながった通話の数です。アポ率 ＝ アポ数 ÷ 架電数です。</span>
+        <span style={{ display: 'block' }}>各項目の割合は、その項目に当てはまる電話のうち、できた電話の割合です。</span>
+        <span style={{ display: 'block' }} data-testid="talk-dials-rule">発信数は Zoom の発信すべて（相手が出る前に切ったもの・つながらなかったものを含む）、架電数はそのうちつながった通話の数で、営業KPI と同じです。アポ率 ＝ アポ数 ÷ 架電数です。</span>
         <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる 70 秒以上の電話の本数です。</span>
       </p>
     </>
@@ -320,6 +334,27 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
 
 // ------------------------------------------------------------ 画面
 
+/** 日付は「決定」を押すまで読み直さない (1 つ変えるたびに待たされないように)。期間が変わったら key で作り直す */
+function DateRange({ from, to, onApply }: { from: string; to: string; onApply: (from: string, to: string) => void }) {
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
+  const ok = draftFrom !== '' && draftTo !== '' && draftFrom <= draftTo;
+  const changed = draftFrom !== from || draftTo !== to;
+  return (
+    <form
+      className="w8-subtle"
+      style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+      onSubmit={e => { e.preventDefault(); if (ok && changed) onApply(draftFrom, draftTo); }}
+    >
+      日付指定{' '}
+      <input type="date" aria-label="開始日" value={draftFrom} max={draftTo || undefined} onChange={e => { setDraftFrom(e.target.value); }} />
+      {' 〜 '}
+      <input type="date" aria-label="終了日" value={draftTo} min={draftFrom || undefined} onChange={e => { setDraftTo(e.target.value); }} />
+      <button type="submit" disabled={!ok || !changed}>決定</button>
+    </form>
+  );
+}
+
 function Controls({ route, navigate, teams, from, to, today }: {
   route: TalkRoute; navigate: (r: AdminRoute) => void; teams: string[]; from: string; to: string; today: string;
 }) {
@@ -332,12 +367,7 @@ function Controls({ route, navigate, teams, from, to, today }: {
           <button key={k} type="button" aria-pressed={active === k} onClick={() => { go(periodRange(k, today)); }}>{label}</button>
         ))}
       </div>
-      <label className="w8-subtle" style={{ margin: 0 }}>
-        日付指定{' '}
-        <input type="date" aria-label="開始日" value={from} max={to} onChange={e => { if (e.target.value !== '') go({ from: e.target.value, to: to < e.target.value ? e.target.value : to }); }} />
-        {' 〜 '}
-        <input type="date" aria-label="終了日" value={to} min={from} onChange={e => { if (e.target.value !== '') go({ to: e.target.value }); }} />
-      </label>
+      <DateRange key={from + to} from={from} to={to} onApply={(f, t) => { go({ from: f, to: t }); }} />
       <label className="w8-subtle" style={{ margin: 0 }}>
         チーム{' '}
         <select value={route.team} aria-label="チームで絞り込む" onChange={e => { go({ team: e.target.value }); }}>

@@ -9,12 +9,70 @@ use axum::{
 };
 use std::sync::Mutex;
 
+async fn seeded_session(email: &str, method: &str) -> Session {
+    let session = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+    session.insert(SESSION_USER_KEY, email).await.unwrap();
+    session
+        .insert(SESSION_LOGIN_METHOD_KEY, method)
+        .await
+        .unwrap();
+    session
+}
+
+/// 閲覧は会社ドメインの Google ログインなら誰でも。旧 JOB_COPY_ALLOWED_EMAILS は読まない。
+#[tokio::test]
+async fn company_domain_google_login_reads_regardless_of_the_old_email_list() {
+    let mut state = moc_state();
+    Arc::get_mut(&mut state)
+        .unwrap()
+        .config
+        .allowed_domains_extra = vec!["partner.test".into()];
+    let access = Access {
+        service: None,
+        moc_path: None,
+        moc_drive: Ok(None),
+        snapshot_reader: None,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
+        images: None,
+        drive_listings: BTreeSet::new(),
+        drive_config_error: None,
+    };
+    // 一覧に別の人だけが書いてあっても (Render に値が残っていても) 絞り込まれない。
+    std::env::set_var("JOB_COPY_ALLOWED_EMAILS", "someone.else@example.test");
+    let _router = router();
+    let ok = seeded_session("unlisted@example.test", LOGIN_METHOD_GOOGLE_OIDC).await;
+    assert_eq!(
+        authorized_user(&state, &access, &ok).await.unwrap(),
+        "unlisted@example.test"
+    );
+    std::env::remove_var("JOB_COPY_ALLOWED_EMAILS");
+    assert_eq!(
+        authorized_user(&state, &access, &ok).await.unwrap(),
+        "unlisted@example.test"
+    );
+    for (email, method) in [
+        ("unlisted@example.test", "password"),
+        ("outsider@other.test", LOGIN_METHOD_GOOGLE_OIDC),
+        ("partner@partner.test", LOGIN_METHOD_GOOGLE_OIDC),
+    ] {
+        let session = seeded_session(email, method).await;
+        let denied = authorized_user(&state, &access, &session)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            (denied.0, denied.1),
+            (StatusCode::FORBIDDEN, "job_copy_access_denied"),
+            "{email} {method}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn market_route_retains_oidc_allowlist_boundary_and_static_no_store_errors() {
     use tower::ServiceExt;
     let store = tower_sessions::MemoryStore::default();
     let access = Access {
-        allowed: BTreeSet::from(["reader@example.test".into()]),
         service: None,
         moc_path: None,
         moc_drive: Ok(None),
@@ -83,13 +141,7 @@ async fn configured_cloud_snapshot_through_authenticated_api_router() {
     let output = PathBuf::from(
         std::env::var_os("JOB_COPY_APP_TEST_OUTPUT").expect("private output required"),
     );
-    let email = std::env::var("JOB_COPY_ALLOWED_EMAILS")
-        .expect("allowlist required")
-        .split(',')
-        .next()
-        .unwrap()
-        .trim()
-        .to_owned();
+    let email = "reader@example.test".to_owned();
     assert!(snapshot_pointer(
         std::env::var("JOB_COPY_MOC_DRIVE_FILE_ID").ok().as_deref(),
         std::env::var("JOB_COPY_MOC_DRIVE_SHA256").ok().as_deref()
@@ -220,7 +272,6 @@ async fn invalid_cloud_configuration_does_not_fall_back_to_local_file() {
         .await
         .unwrap();
     let access = Access {
-        allowed: BTreeSet::from(["reader@example.test".into()]),
         service: None,
         moc_path: Some(PathBuf::from("never_read_local_file.json")),
         moc_drive: Err("moc_drive_configuration_invalid"),
@@ -249,7 +300,7 @@ pub(super) fn moc_state() -> Arc<AppState> {
             auth_password: String::new(),
             auth_password_hash: String::new(),
             external_passwords: vec![],
-            allowed_domains: vec![],
+            allowed_domains: vec!["example.test".into()],
             allowed_domains_extra: vec![],
             hellowork_db_path: String::new(),
             indeed_db_path: String::new(),
@@ -287,7 +338,6 @@ pub(super) fn moc_state() -> Arc<AppState> {
 async fn moc_requires_same_oidc_allowlist_before_disclosing_file_configuration() {
     let state = moc_state();
     let access = Access {
-        allowed: BTreeSet::from(["reader@example.test".into()]),
         service: None,
         moc_path: None,
         moc_drive: Ok(None),
@@ -372,12 +422,18 @@ async fn moc_requires_same_oidc_allowlist_before_disclosing_file_configuration()
             .1,
         "login_required"
     );
-    let empty = Access {
-        allowed: BTreeSet::new(),
-        ..access
-    };
+    // 会社ドメイン外の Google ログインは、設定の有無を明かす前に拒否する。
+    let outsider = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+    outsider
+        .insert(SESSION_USER_KEY, "outsider@other.test")
+        .await
+        .unwrap();
+    outsider
+        .insert(SESSION_LOGIN_METHOD_KEY, LOGIN_METHOD_GOOGLE_OIDC)
+        .await
+        .unwrap();
     assert_eq!(
-        moc(State(state), Extension(empty), session)
+        moc(State(state), Extension(access), outsider)
             .await
             .err()
             .unwrap()
@@ -390,7 +446,6 @@ async fn moc_requires_same_oidc_allowlist_before_disclosing_file_configuration()
 async fn image_requires_oidc_before_reading_drive_configuration() {
     let state = moc_state();
     let access = Access {
-        allowed: BTreeSet::from(["reader@example.test".into()]),
         service: None,
         moc_path: None,
         moc_drive: Ok(None),
@@ -1084,7 +1139,6 @@ fn progressive_fixture() -> Value {
 }
 fn progressive_access() -> Access {
     Access {
-        allowed: BTreeSet::from(["reader@example.test".into()]),
         service: None,
         moc_path: None,
         moc_drive: snapshot_pointer(Some("synthetic_snapshot_123"), Some(&"b".repeat(64))),
@@ -1533,7 +1587,6 @@ async fn job_copy_listings_auth_and_mock_contract() {
     let service = Arc::new(JobReadService::for_test(base));
     let store = tower_sessions::MemoryStore::default();
     let access = Access {
-        allowed: BTreeSet::from(["reader@example.test".into()]),
         service: Some(service.clone()),
         moc_path: None,
         moc_drive: Ok(None),
@@ -1751,7 +1804,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["jobs"][1]["body"], "合成AirWorkの本文");
     assert_eq!(calls.lock().unwrap().len(), 8); // one read for selected jobs
     session
-        .insert(SESSION_USER_KEY, "outside@example.test")
+        .insert(SESSION_USER_KEY, "outside@other.test")
         .await
         .unwrap();
     session.save().await.unwrap();

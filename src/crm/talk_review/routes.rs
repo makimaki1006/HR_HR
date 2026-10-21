@@ -284,6 +284,7 @@ pub(in crate::crm) async fn get_summary(
         owner_id: None,
         name: name.to_string(),
         team: None,
+        outbound: None,
         dials: None,
         appointments: 0,
         appointment_rate_pct: None,
@@ -399,6 +400,7 @@ pub(in crate::crm) async fn get_summary(
     let (people, total) = build(
         &members,
         dials.as_ref().map(|d| &d.by_owner),
+        dials.as_ref().map(|d| &d.calls_by_owner),
         &deals,
         &rows,
         &ids,

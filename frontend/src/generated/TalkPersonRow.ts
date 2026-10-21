@@ -10,6 +10,10 @@ export type TalkPersonRow = {
  */
 owner_id: string | null, name: string, team: string | null, 
 /**
+ * 発信数 (Zoom の発信すべて。相手が出る前に切ったもの・つながらなかったものを含む。営業KPI の「発信」)。dials と同じく読めなければ null
+ */
+outbound: number | null, 
+/**
  * 架電数 (Zoom でつながった通話。営業KPI の「架電数」と同じ)。シートが読めなければ null
  */
 dials: number | null, appointments: number, 

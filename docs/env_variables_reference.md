@@ -83,6 +83,7 @@
 | 25 | `HUBSPOT_ACCESS_TOKEN` | `""` | 従来の共通 Bearer トークン。求人文面・営業KPI など CRM 以外の機能と、専用鍵がない場合の CRM に使用 | 専用鍵もなければ CRM は 503 `not_configured`。専用鍵だけあれば CRM は利用可能 | `src/config.rs` / `src/main.rs` |
 | 25b | `HUBSPOT_CRM_ACCESS_TOKEN` | `""` | CRM 専用 private app の Bearer トークン。`/api/crm/*`、メール記録、返信取り込み、保存待ちの再送で優先。共通鍵の値は変更しない | `HUBSPOT_ACCESS_TOKEN` に戻る | 同上 / `src/crm/` |
 | 26 | `CRM_METADATA_ALLOWED_EMAILS` | `""` | Google Workspace ログインと既存 RBAC に加えるメールの絞り込み (カンマ区切り、完全一致)。変更後は再起動 | 追加のメール絞り込みなし。RBAC は必須 | `src/crm/rbac.rs` |
+| 26b | `JOB_COPY_ALLOWED_EMAILS` | (使わない) | 2026-10-21 から読まない。案件管理の閲覧は、会社ドメイン (`ALLOWED_DOMAINS`) の Google ログインで無効化されていない人なら全員可 (パスワードログイン・`ALLOWED_DOMAINS_EXTRA` の社外ドメインは不可)。Render に値が残っていても効かないので削除してよい | — | `src/handlers/job_copy_live.rs` |
 
 ### 専用 private app に付けるスコープ
 
@@ -301,7 +302,7 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 | `CALL_REVIEW_INTERVAL_SECS` | `600` | 対象の Call を読みに行く間隔 (秒)。30 以上。30 未満は既定の 600 |
 | `CALL_REVIEW_BACKFILL_DAYS` | `14` | 初回に過去何日まで遡るか。1〜62。範囲外は既定の 14 |
 | `CALL_REVIEW_PER_PERSON_DAY` | `10` | 1 人 1 日 (JST) あたりに判定する電話の最大本数。新しい電話から。1〜1000、範囲外・数字でない値は既定の 10 |
-| `CALL_REVIEW_CONCURRENCY` | `4` | 同時に判定する本数。1〜8、範囲外・数字でない値は既定の 4 |
+| `CALL_REVIEW_CONCURRENCY` | `4` | 同時に判定する本数。1〜64、範囲外・数字でない値は既定の 4 |
 | `CALL_REVIEW_TEAMS` | 未設定 | 対象の HubSpot チーム名 (カンマ区切り、前後の空白は除く)。未設定なら `BPO_リクロジ` と `新規営業` |
 | `ZOOM_ACCOUNT_ID` | 未設定 | Zoom Server-to-Server OAuth のアカウント ID。Zoom Phone の録音・文字起こしの読み取りに使う |
 | `ZOOM_CLIENT_ID` | 未設定 | 同 OAuth のクライアント ID |
