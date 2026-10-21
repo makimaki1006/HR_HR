@@ -593,9 +593,15 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
 
     async fn process_due(&mut self) {
         let mut done: HashSet<String> = HashSet::new();
-        for _ in 0..(MAX_PER_CYCLE / 40) {
+        // 1 回に取る本数は同時に判定する本数の 4 倍 (遅い 1 本を待つ間も残りの枠で進める)
+        let batch_size = (self.cfg.concurrency * 4).max(40);
+        for _ in 0..(MAX_PER_CYCLE / batch_size).max(1) {
             let now_s = store::ts_text(Utc::now());
-            let due = match store::blocking(&self.audit, move |t| store::due(t, &now_s, 40)).await {
+            let due = match store::blocking(&self.audit, move |t| {
+                store::due(t, &now_s, batch_size as i64)
+            })
+            .await
+            {
                 Ok(v) => v,
                 Err(e) => {
                     tracing::warn!(error = %e, "talk review: due select failed");

@@ -6,6 +6,8 @@ use crate::crm::caller_metrics::APPOINTMENT_TEAMS;
 use crate::crm::caller_metrics_month::SALES_TEAM;
 
 pub const DEFAULT_MODEL: &str = "MiniMax-M3";
+/// 同時に判定する本数の上限 (MiniMax の上限に当たったら worker の再試行に任せる)
+pub const MAX_CONCURRENCY: usize = 32;
 pub const DEFAULT_BASE_URL: &str = "https://api.minimax.io/v1";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,7 +75,7 @@ impl TalkReviewConfig {
                 .unwrap_or(10),
             concurrency: text("CALL_REVIEW_CONCURRENCY")
                 .and_then(|s| s.parse::<usize>().ok())
-                .filter(|n| (1..=8).contains(n))
+                .filter(|n| (1..=MAX_CONCURRENCY).contains(n))
                 .unwrap_or(4),
             teams,
         }
@@ -131,11 +133,11 @@ mod tests {
         let c = TalkReviewConfig::from_lookup(|k| {
             match k {
                 "CALL_REVIEW_PER_PERSON_DAY" => Some(" 3 "),
-                "CALL_REVIEW_CONCURRENCY" => Some("8"),
+                "CALL_REVIEW_CONCURRENCY" => Some("32"),
                 _ => None,
             }
             .map(String::from)
         });
-        assert_eq!((c.per_person_day, c.concurrency), (3, 8));
+        assert_eq!((c.per_person_day, c.concurrency), (3, 32));
     }
 }
