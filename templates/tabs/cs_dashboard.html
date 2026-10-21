@@ -5618,6 +5618,52 @@ function phoneSilentTable(D, counted) {
   return h;
 }
 
+/* ================================================================ 初回契約の開始月ごとの応募の推移（立ち上がりの節の図）
+   サーバは routes.rs launch_trend。応募数（累計）の月ごとの増え方を、契約を始めた月ごとの線にする。
+   🔴 取引数が MIN_N 件未満の月は点を載せない（線もそこで切れる）。載せなかった月は図の下に件数つきで書く。
+   🔴 まだ終わっていない月は、サーバが点を返さない。0 にして伸ばさない。 */
+const LAUNCH_COLORS = SERIES.concat([C.sora]);
+function launchSection(L) {
+  if (!L || !L.cohorts || !L.cohorts.length) return "";
+  const maxM = Math.max(0, ...L.cohorts.map((c) => c.points.length));
+  const dropped = [];
+  const series = L.cohorts.map((c, ci) => ({
+    color: LAUNCH_COLORS[ci % LAUNCH_COLORS.length],
+    pts: Array.from({ length: maxM }, (_, i) => {
+      const pt = c.points[i];
+      if (!pt || pt.mean == null) return null;
+      if (pt.n < MIN_N) { dropped.push({ start: c.start, m: pt.m, n: pt.n }); return null; }
+      return { v: pt.mean, note: num(pt.n) + " 取引" };
+    }),
+  }));
+  const shown = series.reduce((a, s) => a + s.pts.filter((p) => p && p.v != null).length, 0);
+  /* 横軸は、点を載せた一番遠い月まで（その先は点が無いので空の軸を伸ばさない） */
+  let lastShown = 0;
+  series.forEach((s) => s.pts.forEach((p, i) => { if (p && p.v != null && i + 1 > lastShown) lastShown = i + 1; }));
+  series.forEach((s) => { s.pts = s.pts.slice(0, lastShown); });
+  let h = sec("図", "初回契約の開始月ごとの応募の推移");
+  const body = shown
+    ? svgLine({ w: 680, h: 240, x: Array.from({ length: lastShown }, (_, i) => (i + 1) + "ヶ月目"), series,
+        yFmt: F.d1, yTickAuto: true, yLab: "1取引あたりの応募数", alt: "初回契約の開始月ごとの、契約開始からの月別の応募数" })
+    : '<div class="empty">取引数が ' + MIN_N + " 件を超える月がまだ無く、図にできません。</div>";
+  let legend = L.cohorts.map((c, ci) =>
+    lg("line", LAUNCH_COLORS[ci % LAUNCH_COLORS.length], esc(c.start) + " 開始（" + num(c.n_deals) + " 取引）")).join("");
+  if (dropped.length) {
+    const list = dropped.slice(0, 8).map((d) => esc(d.start) + " 開始の" + d.m + "ヶ月目 " + num(d.n) + "件").join(" / ") +
+      (dropped.length > 8 ? " ほか " + num(dropped.length - 8) + " 点" : "");
+    legend += '<i class="full" data-keep="1"><b>取引数が ' + MIN_N + " 件未満の " + num(dropped.length) + " 点を図から外しています</b>（" + list +
+      "）。少ない件数の平均は、たまたまでも大きく振れるためです。</i>";
+  }
+  legend += '<i class="full">初回契約（継続回数が 0）だけを、契約を始めた月ごとに分けています。横軸は開始の月を 1 ヶ月目とした暦の月、' +
+    "縦軸は取引の応募数（累計）の月ごとの増え方の、取引あたりの平均です。終わっていない月は線を伸ばしていません（0 にはしていません）。</i>" +
+    /* 外れた件数の文と、読み違えないための 1 行は畳まない（data-keep。fig() の figRules） */
+    '<i class="full" data-keep="1">満了月より後の月と、応募数の記録が無い取引 ' + num(L.n_no_series || 0) + " 件は数えていません" +
+    (L.n_decrease ? "（累計が減った " + num(L.n_decrease) + " 取引の月も除いています）" : "") + "。</i>" +
+    '<i class="full" data-keep="1">HubSpot に記録された応募数だけの数字です。<b>開始の時期と応募の増え方の関係は相関であって、原因とは限りません。</b></i>';
+  h += fig("開始月ごとの、契約してからの応募", "対象 " + num(L.n_first) + " 件（直近 " + L.cohorts.length + " か月に始まった初回契約）", body, legend);
+  return h;
+}
+
 /* ================================================================ 7 立ち上がり */
 /** 成果と継続の中の節（見出しに id を付けて目次の行き先にする）。表「MTG の記録がまだ無い初回契約」と末尾の基準日の枠は出さない。
     🔴 2026-09-29 段B: 表は案件一覧の見方に移した。前は id の無い呼び方（立ち上がりの画面）で表を出す分岐と
@@ -5676,6 +5722,8 @@ function renderRampup(D, id) {
     "「早ければ良い」とも「遅いほど悪い」とも言えません（結果が出た契約で割ると、遅い群が悪いという差は読めなくなりました）。" +
     "61日超には関係が薄い顧客が混じっている可能性があり、" +
     "<b>遅れが原因とは決められません（相関であって因果ではない）</b>。</i>");
+
+  h += launchSection(D.launch);
 
   /* 表は出さない。段B（09 の 10 章②）で案件一覧の見方（初回契約で MTG の記録が無い）に移した。
      見方の名前はサーバの文なので、ここではリンクの文字に書かない（名前は末尾の resultsActTables が meta.act_views から出す）

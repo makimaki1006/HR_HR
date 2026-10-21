@@ -5762,6 +5762,35 @@ check("文言: 見出しの問いを出さず、図の対象件数と範囲を�
   ok(!/n=|中央値|四分位|箱ひげ/.test(chart), "図に旧い文言が残っている");
 });
 
+/* 初回契約の開始月ごとの応募の推移（立ち上がりの節）。値は fixture（基準日 2026-09-18）の応答から抜き出した（tests.rs の開始月ごとの応募の推移）。 */
+check("立ち上がり: 開始月ごとの応募の推移は取引数 30 未満の月を載せず、終わっていない月を伸ばさず、常に見える断りが付く", () => {
+  const L = { n_first: 320, n_no_series: 5, n_decrease: 4, last_full: "2026-08", cohorts: [
+    { start: "2026-04", n_deals: 52, points: [{ m: 1, n: 40, mean: 3.05 }, { m: 2, n: 40, mean: 3.525 }, { m: 3, n: 52, mean: 3.5 },
+      { m: 4, n: 51, mean: 2.8039 }, { m: 5, n: 20, mean: 4.55 }] },
+    { start: "2026-07", n_deals: 78, points: [{ m: 1, n: 56, mean: 0.8571 }, { m: 2, n: 56, mean: 3.125 }] },
+    { start: "2026-08", n_deals: 57, points: [{ m: 1, n: 33, mean: 2.0606 }] }] };
+  ctx.__L = L;
+  const h = run("launchSection(__L)");
+  const t = textOf(h);
+  ok(h.includes("初回契約の開始月ごとの応募の推移"), "見出しが無い");
+  // 点: 4 月開始は 1〜4 か月目の 4 点（5 か月目は 20 件で外す）+ 7 月開始 2 点 + 8 月開始 1 点 = 7 点
+  const circles = (h.match(/<circle /g) || []).length;
+  ok(circles === 7, "点が " + circles + " 個（期待 7。20 取引の月を載せているか、伸ばしすぎ）");
+  ok(h.includes("2026-04 開始の5ヶ月目 20件"), "外した月の件数つきの注記が無い");
+  ok(t.includes("1 点を図から外しています"), "外した点数の文が無い: " + t);
+  ok(h.includes("2026-04 開始（52 取引）") && h.includes("2026-08 開始（57 取引）"), "凡例に開始月と取引数が無い");
+  ok(/<title>1ヶ月目: 3\.[01] \/ 40 取引<\/title>/.test(h), "点の説明に 1 取引あたりの応募数と取引数が無い");
+  ok(t.includes("HubSpot に記録された応募数だけ") && t.includes("相関であって、原因とは限りません"), "読み違えないための 1 行が常に見えない");
+  ok(t.includes("応募数の記録が無い取引 5 件は数えていません"), "外れた件数の文が無い");
+  const shownLegend = h.slice(h.indexOf('<div class="figlegend">'), h.indexOf("</div>", h.indexOf('<div class="figlegend">')));
+  ok(textOf(shownLegend).includes("HubSpot に記録された応募数だけ") && textOf(shownLegend).includes("相関であって、原因とは限りません") &&
+     textOf(shownLegend).includes("応募数の記録が無い取引 5 件は数えていません") && textOf(shownLegend).includes("1 点を図から外しています"),
+    "断りが畳みの中に入っている（常に見える凡例に無い）: " + textOf(shownLegend));
+  // 横軸は点を載せた一番遠い月（4 か月目）まで。外した 5 か月目の分は軸も伸ばさない
+  const axis = (h.match(/<text class="axl"[^>]*>([^<]*)<\/text>/g) || []).map((x) => x.replace(/<[^>]*>/g, ""));
+  ok(axis.join(",") === "1ヶ月目,2ヶ月目,3ヶ月目,4ヶ月目", "横軸が違う: " + axis.join(","));
+  ok(run("launchSection(null)") === "" && run("launchSection({cohorts: []})") === "", "データが無いとき何か出している");
+});
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
