@@ -476,7 +476,7 @@ Status: Accepted (2026-10-19、ユーザー決定)
 - 追記 (2026-10-20、本番で分かったこと): (1) BPO の発信は Zoom の Call Queue 経由で HubSpot の本文に録音 URL が入らないため、Zoom の通話履歴から相手番号と時刻で録音 ID を探す (`headless-crm-design.md` §22)。(2) 全員の全架電は判定せず、1 人 1 日あたり `CALL_REVIEW_PER_PERSON_DAY` 本 (既定 10) まで新しい電話から判定する。同時に判定する本数は `CALL_REVIEW_CONCURRENCY` (既定 4)。枠を超えた分は表の状態 `queued` で持つ (表の列は増やさない)。(3) アポの日ごとの数えは worker が前もって進め、画面は数え終わった日だけで答える。(4) 架電数は HubSpot の Call ではなく、営業KPI と同じ Zoom 由来のシート `KPI営業_架電日次` の「架電数」を使う (読めないときは出さない)。アポの BPO への付け方は、営業KPI の `is_bpo` と同じく `bpo_appo_date` が入った日の月に入るものだけ。
 - 戻すコスト: `CALL_REVIEW_ENABLED` を外すと worker が止まる。画面と 3 本の API を外せば機能は消える。表は残しても害はなく、HubSpot・Zoom のデータは変わらない。判定の定義 (`checks.json`) は別の仕組みへ流用できる。
 
-## ADR-032 — 案件管理の記録欄 (検証記録・要因メモ・外部文面) は既存監査 Turso に求人ごとに保存する
+## ADR-034 — 案件管理の記録欄 (検証記録・要因メモ・外部文面) は既存監査 Turso に求人ごとに保存する
 
 Status: Accepted for this implementation (2026-10-21、アプリ側で保持して HubSpot には書かない方針はユーザー決定、表の形と上限の判断は Claude)
 

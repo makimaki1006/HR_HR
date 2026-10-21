@@ -1,4 +1,4 @@
-//! 求人ごとの記録欄 3 つ (検証記録・要因メモ・外部文面) の保存 (ADR-032)。
+//! 求人ごとの記録欄 3 つ (検証記録・要因メモ・外部文面) の保存 (ADR-034)。
 //! HubSpot には書かない。既存の監査 Turso の表 `job_copy_listing_notes` に 1 欄 = 1 行で持つ。
 //! 書き込みは保存ボタンのときだけ (1 行の UPSERT)、読み取りはプロセス内に短時間だけ覚える。
 use super::{authorized_user, Access, ReadError};
