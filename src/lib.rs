@@ -955,6 +955,9 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                 middleware::from_fn_with_state(state.clone(), activity_log_mw),
             ),
         )
+        // 顧客向け応募者画面の社内向けテスト版 (/api/portal-test/*)。CRM と同じく auth_middleware の外に置き、
+        // 認可 (会社の Google ログイン) と書き込みの CSRF は各ハンドラ・ルートで行う。読み書きできるシートは 1 枚だけ。
+        .merge(handlers::portal_test::router())
         .merge(protected_routes)
         .merge(admin_routes)
         .merge(jobgen_routes)
