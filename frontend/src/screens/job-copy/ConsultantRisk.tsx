@@ -17,12 +17,19 @@ export function riskGroups(data: RiskResponse) {
   if (data.comparison !== 'ready') return [{ title: '危ない案件の一覧', rows: data.rows }];
   return [{ title: '今日わかった', rows: data.rows.filter(r => r.risk_flags.some(f => f.new)) }, { title: '前から出ていて直っていない', rows: data.rows.filter(r => !r.risk_flags.some(f => f.new)) }];
 }
+/** 名札の日付は行に 1 回だけ。いちばん前から出ている名札の日付を出す。 */
+export function earliestSince(flags: RiskFlag[]): string | null {
+  return flags.map(f => f.since).filter((d): d is string => !!d).sort()[0] ?? null;
+}
+/** 危ない案件の既定は、コンサルKPI「今日」と同じ名札 2 本以上。 */
+export const RISK_MIN_FLAGS = 2;
 function Flags({ flags, good = false }: { flags: RiskFlag[]; good?: boolean }) {
-  return <ul className="cr-flags">{flags.map(f => <li key={f.key} className={good ? 'cr-good' : f.new ? 'cr-new' : ''}><strong>{f.label}</strong>{f.new && <span>今日わかった</span>}{f.since && <small>{formatDateJst(f.since)}から</small>}</li>)}</ul>;
+  const since = earliestSince(flags);
+  return <><ul className="cr-flags">{flags.map(f => <li key={f.key} className={good ? 'cr-good' : f.new ? 'cr-new' : ''}><strong>{f.label}</strong>{f.new && <span>今日わかった</span>}</li>)}</ul>{since && <small className="cr-since">{formatDateJst(since)}から</small>}</>;
 }
 export function jobsHref(search: string, deal: string, listing?: string) {
   const q = new URLSearchParams(search);
-  for (const k of ['view', 'risk_deal', 'company', 'deal', 'listing', 'job', 'feature', 'analysis', 'drawer', 'drawerEvent', 'popup', 'popupListing', 'dialog', 'compareLeft', 'compareRight']) q.delete(k);
+  for (const k of ['view', 'risk_deal', 'risk_all', 'company', 'deal', 'listing', 'job', 'feature', 'analysis', 'drawer', 'drawerEvent', 'popup', 'popupListing', 'dialog', 'compareLeft', 'compareRight']) q.delete(k);
   q.set('deal', deal); if (listing) q.set('listing', listing);
   return `/app/job-copy?${q.toString()}`;
 }
@@ -76,11 +83,16 @@ export function ConsultantRisk({ good = false }: { good?: boolean }) {
     void load(); return () => { ctl.abort(); clearTimeout(timer); };
   }, [query, reload, good]);
   const ready = data?.status === 'ready' ? data : null;
+  const includeSingle = !good && new URLSearchParams(search).get('risk_all') === '1';
+  const shown = ready ? (good || includeSingle ? ready.rows : ready.rows.filter(r => r.flags.length >= RISK_MIN_FLAGS)) : [];
+  const singles = ready ? ready.rows.length - ready.rows.filter(r => r.flags.length >= RISK_MIN_FLAGS).length : 0;
+  const view = ready ? { ...ready, rows: shown } : null;
   const row = ready?.rows.find(r => r.deal_id === selected);
   return <div className="jc-page"><main className="cr-main" id="job-details"><header><div><h1>{title}{good && ready && <small> {ready.rows.length}件</small>}</h1>{ready && <p>{formatDateJst(ready.data_day, '集計日未取得')}のデータ{ready.previous_day ? ` ／ 前回：${formatDateJst(ready.previous_day)}` : ''}</p>}{ready && !good && (ready.comparison === 'first' || ready.comparison === 'unavailable') && <InfoTip label="前回との比較"><p>{ready.comparison === 'first' ? '前回と比べられるのは明日のデータからです。' : '前回との比較を取得できないため、一覧で表示しています。'}</p></InfoTip>}</div><button className="jc-button" onClick={() => { setReload(n => n + 1); }}>再読み込み</button></header>
+    {ready && !good && <p className="cr-scope" role="note"><label><input type="checkbox" checked={includeSingle} onChange={e => { updateJobCopyQuery({ risk_all: e.target.checked ? '1' : null }, 'replace'); }} /> 名札が1本だけの案件も出す</label> <span>{includeSingle ? `名札が1本だけの案件 ${String(singles)}件を含めて ${String(shown.length)}件を出しています。` : `名札が2本以上の案件 ${String(shown.length)}件を出しています（コンサルKPIの「今日」と同じ基準）。名札が1本だけの案件 ${String(singles)}件は出していません。`}</span></p>}
     {error && <p role="alert">{title}を読み込めませんでした。再読み込みしてください。</p>}{!error && (!data || data.status === 'preparing') && <p role="status">案件を集計しています…</p>}{data?.status === 'failed' && <p role="alert">案件を取得できませんでした。再読み込みしてください。</p>}
     {ready?.refresh_failed && <p>前に取得した担当と予定を表示しています。</p>}
-    {ready && (good ? [{ title: 'いい案件の一覧', rows: ready.rows }] : riskGroups(ready)).map(group => <section key={group.title} aria-label={group.title}>{!good && <h2>{group.title} <small>{group.rows.length}件</small></h2>}<div className="cr-scroll"><table><thead><tr>{['案件・法人', '担当', good ? '理由' : '名札・いつから', '満了まで', '最後の接触', '次の予定'].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{group.rows.map(r => <tr key={r.deal_id} onClick={() => { updateJobCopyQuery({ risk_deal: r.deal_id }); }}><th scope="row"><button className="jh-link" onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>{r.name}</button><small>{r.company ?? '法人未登録'}</small></th><td>{r.consultant || '未登録'}</td><td><Flags flags={r.good_flags ?? r.risk_flags} good={good} />{good && r.flags.length > 0 && <small>危ない名札もあり（{r.flags.length}件）</small>}</td><td>{r.days_left === null ? '未登録' : r.days_left < 0 ? `満了から${String(-r.days_left)}日` : `${String(r.days_left)}日`}</td><td>{r.days_since_contact === null ? '記録なし' : `${String(r.days_since_contact)}日前`}</td><td>{formatDateJst(r.actionyotei, '予定なし')}<small>{r.actionnaiyou ?? '内容未登録'}</small></td></tr>)}{!group.rows.length && <tr><td colSpan={6}>該当する案件はありません。</td></tr>}</tbody></table></div></section>)}
+    {view && (good ? [{ title: 'いい案件の一覧', rows: view.rows }] : riskGroups(view)).map(group => <section key={group.title} aria-label={group.title}>{!good && <h2>{group.title} <small>{group.rows.length}件</small></h2>}<div className="cr-scroll"><table><thead><tr>{['案件・法人', '担当', good ? '理由' : '名札・いつから', '満了まで', '最後の接触', '次の予定'].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{group.rows.map(r => <tr key={r.deal_id} onClick={() => { updateJobCopyQuery({ risk_deal: r.deal_id }); }}><th scope="row"><button className="jh-link" onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>{r.name}</button><small>{r.company ?? '法人未登録'}</small></th><td>{r.consultant || '未登録'}</td><td><Flags flags={r.good_flags ?? r.risk_flags} good={good} />{good && r.flags.length > 0 && <small>危ない名札もあり（{r.flags.length}件）</small>}</td><td>{r.days_left === null ? '未登録' : r.days_left < 0 ? `満了から${String(-r.days_left)}日` : `${String(r.days_left)}日`}</td><td>{r.days_since_contact === null ? '記録なし' : `${String(r.days_since_contact)}日前`}</td><td>{formatDateJst(r.actionyotei, '予定なし')}<small>{r.actionnaiyou ?? '内容未登録'}</small></td></tr>)}{!group.rows.length && <tr><td colSpan={6}>該当する案件はありません。</td></tr>}</tbody></table></div></section>)}
     {row && <RiskDetail key={row.deal_id} row={row} onClose={() => { updateJobCopyQuery({ risk_deal: null }); }} onSaved={() => { setReload(n => n + 1); }} />}
   </main></div>;
 }
