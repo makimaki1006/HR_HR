@@ -334,6 +334,27 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
 
 // ------------------------------------------------------------ 画面
 
+/** 日付は「決定」を押すまで読み直さない (1 つ変えるたびに待たされないように)。期間が変わったら key で作り直す */
+function DateRange({ from, to, onApply }: { from: string; to: string; onApply: (from: string, to: string) => void }) {
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
+  const ok = draftFrom !== '' && draftTo !== '' && draftFrom <= draftTo;
+  const changed = draftFrom !== from || draftTo !== to;
+  return (
+    <form
+      className="w8-subtle"
+      style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+      onSubmit={e => { e.preventDefault(); if (ok && changed) onApply(draftFrom, draftTo); }}
+    >
+      日付指定{' '}
+      <input type="date" aria-label="開始日" value={draftFrom} max={draftTo || undefined} onChange={e => { setDraftFrom(e.target.value); }} />
+      {' 〜 '}
+      <input type="date" aria-label="終了日" value={draftTo} min={draftFrom || undefined} onChange={e => { setDraftTo(e.target.value); }} />
+      <button type="submit" disabled={!ok || !changed}>決定</button>
+    </form>
+  );
+}
+
 function Controls({ route, navigate, teams, from, to, today }: {
   route: TalkRoute; navigate: (r: AdminRoute) => void; teams: string[]; from: string; to: string; today: string;
 }) {
@@ -346,12 +367,7 @@ function Controls({ route, navigate, teams, from, to, today }: {
           <button key={k} type="button" aria-pressed={active === k} onClick={() => { go(periodRange(k, today)); }}>{label}</button>
         ))}
       </div>
-      <label className="w8-subtle" style={{ margin: 0 }}>
-        日付指定{' '}
-        <input type="date" aria-label="開始日" value={from} max={to} onChange={e => { if (e.target.value !== '') go({ from: e.target.value, to: to < e.target.value ? e.target.value : to }); }} />
-        {' 〜 '}
-        <input type="date" aria-label="終了日" value={to} min={from} onChange={e => { if (e.target.value !== '') go({ to: e.target.value }); }} />
-      </label>
+      <DateRange key={from + to} from={from} to={to} onApply={(f, t) => { go({ from: f, to: t }); }} />
       <label className="w8-subtle" style={{ margin: 0 }}>
         チーム{' '}
         <select value={route.team} aria-label="チームで絞り込む" onChange={e => { go({ team: e.target.value }); }}>
