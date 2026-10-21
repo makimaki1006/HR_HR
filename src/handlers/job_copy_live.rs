@@ -43,6 +43,7 @@ mod manual_edit;
 mod owner_todo;
 pub mod phone_hearing;
 mod rikurozi;
+mod saved_notes;
 mod todo_signals;
 
 #[derive(Debug)]
@@ -2212,6 +2213,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             get(listings::refresh_deal),
         )
         .merge(drafts::router(state, access.clone()))
+        .merge(saved_notes::router())
         .layer(Extension(access))
 }
 

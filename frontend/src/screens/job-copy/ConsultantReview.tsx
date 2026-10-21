@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { JobCopyRecord } from './data';
 import { compareCopy } from './diff';
 import { compareImages, referenceImages, imagesByVersion } from './images';
@@ -5,12 +6,44 @@ import { ApplicantComposition } from './ApplicantComposition';
 import { compareDistributions, compositionDistribution } from './applicantCompositionModel';
 import { observationWindowError, reportBillingText } from './consultantReviewModel';
 import { AssumptionsNote } from './AssumptionsNote';
+import { SavedNoteBar } from './SavedNoteBar';
+import { persistableListingId, useSavedNote } from './savedNotes';
 import type { BillingEntry } from './timelineModel';
 import './consultant-review.css';
+
+const REVIEW_KEYS = ['hypothesis', 'criterion', 'findings', 'action', 'start', 'end'] as const;
+/** 保存する形。進行状況・変更対象と、記入した欄だけ。比較する本文の選択は保存しない。 */
+function serializeReview(draft: ConsultantDraft): string {
+  const fields: Record<string, string> = {};
+  for (const key of REVIEW_KEYS) if ((draft.fields[key] ?? '') !== '') fields[key] = draft.fields[key] ?? '';
+  return JSON.stringify({ stage: draft.stage, target: draft.target, fields });
+}
+function parseReview(text: string): Pick<ConsultantDraft, 'stage' | 'target' | 'fields'> | null {
+  try {
+    const raw = JSON.parse(text) as { stage?: unknown; target?: unknown; fields?: unknown };
+    if (typeof raw.stage !== 'string' || typeof raw.target !== 'string' || typeof raw.fields !== 'object' || raw.fields === null) return null;
+    const fields: Record<string, string> = {};
+    for (const key of REVIEW_KEYS) { const value = (raw.fields as Record<string, unknown>)[key]; if (typeof value === 'string') fields[key] = value; }
+    return { stage: raw.stage, target: raw.target, fields };
+  } catch { return null; }
+}
+const reviewIsBlank = (draft: ConsultantDraft) => draft.stage === 'plan' && draft.target === 'both' && REVIEW_KEYS.every(key => (draft.fields[key] ?? '') === '');
 
 export interface ConsultantDraft { stage: string; target: string; fields: Record<string, string>; selection: [string, string] }
 export function ConsultantReview({ job, draft, onDraft, billing }: { job: JobCopyRecord; draft: ConsultantDraft; onDraft: (value: ConsultantDraft) => void; billing?: readonly BillingEntry[] | undefined }) {
   const { stage, target, fields, selection } = draft;
+  const note = useSavedNote(persistableListingId(job), 'review');
+  const applied = useRef(false);
+  // 保存済みの記録は、まだ何も入力していないときだけ入力欄に読み込む (入力中の内容は上書きしない)。
+  useEffect(() => {
+    if (applied.current || note.status !== 'ready') return;
+    applied.current = true;
+    const saved = note.value === null ? null : parseReview(note.value);
+    if (saved && reviewIsBlank(draft)) onDraft({ ...draft, ...saved });
+  }, [note.status, note.value, draft, onDraft]);
+  const savedReview = note.value === null ? null : parseReview(note.value);
+  const dirty = savedReview === null ? !reviewIsBlank(draft) : serializeReview(draft) !== serializeReview({ ...draft, ...savedReview });
+  const persisted = note.status !== 'off';
   const periodError = observationWindowError(fields.start ?? '', fields.end ?? '');
   const setFields = (update: (value: Record<string, string>) => Record<string, string>) => { onDraft({ ...draft, fields: update(fields) }); };
   const versions = job.versions.filter(version => version.kind === 'published');
@@ -42,11 +75,12 @@ export function ConsultantReview({ job, draft, onDraft, billing }: { job: JobCop
     <AssumptionsNote className="jc-notice" summary="文面を確認した日時は、掲載が変わった正確な日時ではありません。" items={['毎日の確認では、前回の確認から今回の確認までの間を、変更があった期間として扱います。', '本文・画像・課金を同時に変えた場合、前後の差だけでは要因を特定できません。']} />
     <a className="jc-text-button jc-no-print" href="#job-copy-review-cycle">検証記録の入力へ移動 →</a>
     <ApplicantComposition job={job} billing={billing} selection={selection} onSelectionChange={value => { onDraft({ ...draft, selection: value }); }} />
-    <section className="jc-cycle" id="job-copy-review-cycle"><h3>検証記録</h3><p>仮説 → 実施 → 結果の確認 → 次の施策を残すための記録欄です。入力はこの画面の中だけに残り、求人の切り替え・再読み込みで消えます。HubSpotには保存しません。</p>
+    <section className="jc-cycle" id="job-copy-review-cycle"><h3>検証記録</h3><p>仮説 → 実施 → 結果の確認 → 次の施策を残すための記録欄です。{persisted ? '「保存」を押すと、この求人の記録として残り、案件管理を開ける人に表示されます。' : '入力はこの画面の中だけに残り、求人の切り替え・再読み込みで消えます。'}HubSpotには保存しません。</p>
       <div className="jc-cycle-controls"><label>進行状況<select value={stage} onChange={event => { onDraft({ ...draft, stage: event.target.value }); }}><option value="plan">Plan · 仮説と計画</option><option value="do">Do · 掲載変更を実施</option><option value="check">Check · 結果を確認</option><option value="act">Act · 次の施策を決定</option></select></label><label>変更対象<select value={target} onChange={event => { onDraft({ ...draft, target: event.target.value }); }}><option value="body">本文</option><option value="image">画像</option><option value="both">本文と画像</option></select></label>
       <label>確認開始日<input type="date" value={fields.start ?? ''} onChange={event => { setFields(value => ({ ...value, start: event.target.value })); }} /></label><label>確認終了日<input type="date" min={fields.start === '' ? undefined : fields.start} value={fields.end ?? ''} onChange={event => { setFields(value => ({ ...value, end: event.target.value })); }} /></label></div>
       {periodError && <p className="jc-error" role="alert">{periodError}</p>}
       {questions.map(([key, title, placeholder]) => <label key={key}>{title}<textarea aria-label={title} rows={3} maxLength={2000} placeholder={placeholder} value={fields[key] ?? ''} onChange={event => { setFields(value => ({ ...value, [key]: event.target.value })); }} /><span className="jc-print-text">{fields[key]?.trim() ? fields[key] : '未記入'}</span></label>)}
+      <SavedNoteBar note={note} dirty={dirty} onSave={() => { void note.save(serializeReview(draft)); }} />
     </section>
   </section>;
 }

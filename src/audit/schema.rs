@@ -82,6 +82,12 @@ const TABLE_DDL: &[&str] = &[
     BEGIN
         DELETE FROM job_copy_todo_fact_snapshots WHERE generation <> NEW.generation;
     END"#,
+    // ADR-032: 案件管理の記録欄 (検証記録・要因メモ・外部文面)。求人 ID x 欄の種類で 1 行。HubSpot の業務データは持たない。
+    r#"CREATE TABLE IF NOT EXISTS job_copy_listing_notes (
+        listing_id TEXT NOT NULL, field TEXT NOT NULL CHECK(field IN ('review','factor','incoming')),
+        value TEXT NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY(listing_id, field)
+    )"#,
     r#"CREATE TABLE IF NOT EXISTS crm_saved_views (
         id TEXT PRIMARY KEY, creator_email TEXT NOT NULL, name TEXT NOT NULL,
         scope TEXT NOT NULL CHECK(scope IN ('private','shared')), query TEXT NOT NULL,

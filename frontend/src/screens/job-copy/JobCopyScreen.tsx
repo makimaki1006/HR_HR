@@ -50,6 +50,7 @@ import { JobCopyDataImport } from './JobCopyDataImport';
 import type { BillingPeriod } from './billingTypes';
 import { AbComparison } from './AbComparison';
 import { ConsultantReview } from './ConsultantReview';
+import { ReceivedTextSaver } from './ReceivedTextSaver';
 import { HubSpotReadPanel } from './HubSpotReadPanel';
 import { RikuroziDraftPanel } from './RikuroziDraftPanel';
 import { HubSpotListingsPanel } from './HubSpotListingsPanel';
@@ -314,6 +315,7 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
       {readError && <p className="jc-error" role="alert">{readError}</p>}
       <label>受信元・資料名<input value={source} maxLength={200} onChange={event => { setSource(event.target.value); }} /></label>
       <label>受け取った文面<textarea value={incoming} maxLength={100_000} rows={12} placeholder="求人票の外部文面を貼り付けてください" onChange={event => { setIncoming(event.target.value); setCompared(false); }} /></label>
+      <ReceivedTextSaver job={job} source={source} incoming={incoming} onLoad={(loadedSource, text) => { setSource(loadedSource); setIncoming(text); setCompared(false); }} />
       <div className="jc-receive-actions"><button className="jc-button jc-primary" disabled={reading} onClick={() => { setCompared(true); }}>現在の本文と比較</button><button className="jc-button" onClick={() => { setIncoming(current?.body ?? ''); setSource('現在の本文の再取得デモ'); setCompared(false); }}>同じ文面で試す</button></div>
       {compared && <div className="jc-receive-result" role="status"><h3>{statusLabels[incomingResult.status]}</h3><p>掲載更新の確認: 未確認。判定は本文比較の結果です。</p>{incomingResult.status !== 'unavailable' && <button className="jc-button" onClick={addObservation}>{incomingResult.status === 'unchanged' ? '変更なしをデモ確認' : '確認待ちの文面としてデモ履歴に追加'}</button>}</div>}
       <p className="jc-notice">将来の文字起こし → AI文面案の生成は、タイムラインの「AI案」として接続予定です。この画面はまだAIを呼び出しません。</p>
@@ -468,7 +470,7 @@ function JobCopyMain() {
   const bannerLabel = snapshotLoading ? '実データを読み込み中' : snapshotAt ? '実データ（取得済み）' : snapshotRequested && !records.length ? '実データ未表示' : live ? 'HubSpot読み取り' : captured ? '媒体から取り込んだ求人' : '操作デモ';
   // The dummy billing is on by default, so the banner of real data says the amounts are made up.
   const dummyNote = showDummyBilling ? ' 課金額は、実際の課金データがまだ無いため仮の金額（ダミー）を表示しています。実際の請求額ではありません（「仮の課金データを表示」を外すと消えます）。' : '';
-  const bannerText = snapshotAt ? `媒体CSVの本文・画像とHubSpotの実求人・応募集計です。応募件数を確認した日時：${date(snapshotAt)}。最新値の自動更新ではありません。確認記録は画面内のみ保持します。${dummyNote}` : live ? `${records.some(job => job.id.startsWith('hubspot-history-')) ? 'HubSpot の求人・応募・課金の記録から表示しています。' : records.some(job => published(job).length > 0) ? '実際の取引先・求人に、媒体から取得した本文・画像と応募をつないでいます。画像の取得時点や、どの本文への応募か不明な件数は各表示で確認してください。検証記録はこの画面の中だけに残ります。' : 'HubSpotに保存された求人を表示しています。本文の日時や取得範囲は各本文の注記を確認してください。確認状況は画面内だけに保持します。'}${dummyNote}` : captured ? `HRハッカーの本文・画像です。過去の本文の有無と画像の取得時点は各本文の注記を確認してください。応募未取得・HubSpot未保存です。${dummyNote}` : snapshotRequested && !records.length ? '取得済みの実データを読み取ります。欠損を架空データで補いません。' : '求人・本文・応募数・課金額はすべて架空です。HubSpot未接続。追加した履歴・確認状況は再読み込みで消えます。';
+  const bannerText = snapshotAt ? `媒体CSVの本文・画像とHubSpotの実求人・応募集計です。応募件数を確認した日時：${date(snapshotAt)}。最新値の自動更新ではありません。確認記録は画面内のみ保持します。${dummyNote}` : live ? `${records.some(job => job.id.startsWith('hubspot-history-')) ? 'HubSpot の求人・応募・課金の記録から表示しています。' : records.some(job => published(job).length > 0) ? '実際の取引先・求人に、媒体から取得した本文・画像と応募をつないでいます。画像の取得時点や、どの本文への応募か不明な件数は各表示で確認してください。検証記録・要因メモ・受け取った文面は、保存を押すと求人ごとに残ります。' : 'HubSpotに保存された求人を表示しています。本文の日時や取得範囲は各本文の注記を確認してください。確認状況は画面内だけに保持します。'}${dummyNote}` : captured ? `HRハッカーの本文・画像です。過去の本文の有無と画像の取得時点は各本文の注記を確認してください。応募未取得・HubSpot未保存です。${dummyNote}` : snapshotRequested && !records.length ? '取得済みの実データを読み取ります。欠損を架空データで補いません。' : '求人・本文・応募数・課金額はすべて架空です。HubSpot未接続。追加した履歴・確認状況は再読み込みで消えます。';
   // 一覧の求人を入れ替えたら、新しい一覧に無い求人の課金CSVの反映を外す（表示と反映中の表示を合わせる）。
   function keepBillingFor(next: readonly JobCopyRecord[]) {
     setBillingPeriods(previous => previous.filter(period => next.some(job => job.id === period.jobId)));
