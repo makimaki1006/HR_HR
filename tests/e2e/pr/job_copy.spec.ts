@@ -104,7 +104,7 @@ test.describe('案件管理のタイムライン', () => {
     // ここから「ほかの分析」の横画面（旧タブ全体）の中を確かめる
     await openOtherAnalysis(page, 'タイムライン');
     const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-    await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '求人内容', '応募分析', '市場分析', '比較・報告']);
+    await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由']);
     await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     for (const lane of ['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場']) await expect(timeline.getByRole('group', { name: lane, exact: true })).toBeVisible();
@@ -366,7 +366,7 @@ test.describe('案件管理のタイムライン', () => {
     await expect(page.locator('.jc-mode')).not.toHaveAttribute('title', /.+/u);
   });
 
-  test('最初の画面: 出来事の一覧・最新の出来事の印・展開時の 3 つの確認・応募者の前後の横画面・ほかの分析の 13 のボタン', async ({ page }) => {
+  test('最初の画面: 出来事の一覧・最新の出来事の印・展開時の 3 つの確認・応募者の前後の横画面・ほかの分析の入口', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page);
     // 出来事（新しい順）: 合成データは 2026/08/20 の給与の変更と 2026/07/01 の掲載開始の 2 件
@@ -401,11 +401,9 @@ test.describe('案件管理のタイムライン', () => {
     await expect(who).toBeHidden();
     // 出来事の説明に、原因を決める言葉を使わない
     await expect(eventsSection).not.toContainText(/増えた|減った|効果/u);
-    // これまでの分析は、1 つずつ機能のボタンとして「ほかの分析」に並ぶ（13 個）
+    // ほかの分析は入口のボタン 1 つから開き、タブは 6 つ（13 → 6）
     const more = page.getByRole('region', { name: 'ほかの分析', exact: true });
-    await expect(more.getByRole('button')).toHaveText([
-      'タイムライン', '本文・画像', '応募推移', '応募者構成', '応募理由', '課金・クリック', '市場グラフ', '市場データ', '要因・仮説', '変更差分', '求人比較', '顧客報告・検証', '外部文面を確認',
-    ]);
+    await expect(more.getByRole('button')).toHaveText(['ほかの分析を開く']);
     await expect(page.getByRole('dialog', { name: 'ほかの分析', exact: true })).toHaveCount(0);
   });
 });

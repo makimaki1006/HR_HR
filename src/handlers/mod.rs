@@ -37,6 +37,7 @@ pub mod market;
 pub mod my;
 pub mod nav; // 2026-09-30: ナビ定義 (旧シェルと React シェル共通、/api/nav、hidden フラグ)
 pub mod overview;
+pub mod portal_test; // 2026-10-21: 顧客向け応募者画面の社内向けテスト版 (/app/portal-test の API)
 pub mod recruitment_diag;
 pub mod region;
 pub mod regional_analysis;

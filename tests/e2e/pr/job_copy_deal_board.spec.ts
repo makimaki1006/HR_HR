@@ -12,6 +12,8 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
     const owner = new URL(route.request().url()).searchParams.get('owner') ?? '11';
     return route.fulfill({ json: { ...boardFixture, rows: owner === '22' ? [] : boardRows, work: { ...demoOwnerTodo, owner } } });
   });
+  // 「いい」の印: いい案件の集計にある案件（100 と 105）だけを出す
+  await page.route('**/api/job-copy/consultant-good?*', route => route.fulfill({ json: { status: 'ready', data_day: '2026-10-15', previous_day: null, comparison: 'unavailable', rows: ['100', '105'].map(id => ({ deal_id: id, name: `架空の採用支援${String(Number(id) - 99).padStart(2, '0')}`, company: null, consultant: '合成担当A', flags: [], risk_flags: [], good_flags: [{ key: 'applications', label: '応募 3 → 7', new: false, since: null }], days_left: null, days_since_contact: null, mtg_last: null, actionyotei: null, actionnaiyou: null })) } }));
   await page.route('**/api/job-copy/home*', route => route.fulfill({ json: { ...demoHome, work: demoOwnerTodo } }));
   await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: { status: 'ready', refresh_failed: false, report: { count: 0, listings: [] } } }));
   await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capture_bundle: { schemaVersion: 1, jobs: [] }, results: [] } }));
@@ -25,7 +27,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
   await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
   await expect(page.getByText(/2026\/10\/15 時点（前日の集計）/)).toBeVisible();
-  await expect(table.locator('.nt-strong')).toHaveText('MTGが90日以上途絶');
+  await expect(table.locator('.nt-strong')).toHaveText('MTGが60日以上空いている');
   await expect(page.getByRole('checkbox', { name: '終わった案件も出す' })).not.toBeChecked();
   await expect(page.getByRole('combobox', { name: '並べ替え' })).toHaveCount(0);
   await expect(page.getByText('並び: 要対応の印が多い順', { exact: true })).toBeVisible();
@@ -57,19 +59,32 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await zero.click();
   await expect(table).toContainText('条件に合う案件はありません');
   await marks.getByRole('button', { name: 'すべて 23', exact: true }).click();
+  // 既定の列は 8 つ。採用・採用単価・金額・採用目標は「詳しい数字」を開くと出る
+  await expect(table.locator('thead th')).toHaveText(['案件・顧客 ▲▼', '要対応の印 ▲▼', '応募（直近4週） ▲▼', '満了まで ▲▼', '最後の接触 ▲▼', '最後のMTG ▲▼', 'NPS ▲▼', '担当 ▲▼', '詳しい数字']);
+  // 「いい」は印の先頭（すべての次）に並ぶ
+  await expect(marks.getByRole('button').nth(1)).toHaveText(/^いい\s*2$/);
+  const good = marks.getByRole('button', { name: 'いい 2', exact: true });
+  await good.click();
+  await expect(table.locator('tbody > tr')).toHaveCount(2);
+  await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
+  await expect(page).toHaveURL(/deals_reason=good/);
+  await good.click();
+  await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
   await table.locator('tbody > tr').first().getByRole('button', { name: '架空の採用支援01の詳しい数字を開く' }).click();
   await expect(table.locator('.db-detail').getByRole('columnheader', { name: /定期NPS/ })).toBeVisible();
   await expect(table.locator('.db-detail tbody td').nth(3)).toHaveText('4');
-  await expect(table.locator('.db-detail tbody td').last()).toHaveText('¥50,000');
+  await expect(table.locator('.db-detail tbody td').nth(7)).toHaveText('¥50,000');
+  await expect(table.locator('.db-detail tbody td').nth(8)).toHaveText('¥100,000');
+  await expect(table.locator('.db-detail tbody td').last()).toContainText('2 / 10人');
   await table.getByRole('button', { name: '架空の採用支援01の詳しい数字を開く' }).click();
   await expect(table.locator('.db-detail')).toHaveCount(0);
-  await table.getByRole('columnheader', { name: /金額/ }).getByRole('button').click();
-  await expect(table.getByRole('columnheader', { name: /金額/ })).toHaveAttribute('aria-sort', 'descending');
+  await table.getByRole('columnheader', { name: /応募（直近4週）/ }).getByRole('button').click();
+  await expect(table.getByRole('columnheader', { name: /応募（直近4週）/ })).toHaveAttribute('aria-sort', 'descending');
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援24');
-  await table.getByRole('columnheader', { name: /金額/ }).getByRole('button').click();
-  await expect(table.getByRole('columnheader', { name: /金額/ })).toHaveAttribute('aria-sort', 'ascending');
+  await table.getByRole('columnheader', { name: /応募（直近4週）/ }).getByRole('button').click();
+  await expect(table.getByRole('columnheader', { name: /応募（直近4週）/ })).toHaveAttribute('aria-sort', 'ascending');
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
-  await table.getByRole('columnheader', { name: /金額/ }).getByRole('button').click();
+  await table.getByRole('columnheader', { name: /応募（直近4週）/ }).getByRole('button').click();
   await page.getByRole('button', { name: '次の20件' }).click();
   await expect(page.getByText('23件・2 / 2ページ')).toBeVisible();
   await expect(table.locator('tbody > tr:not(.db-detail)')).toHaveCount(3);
@@ -97,18 +112,17 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await page.goBack();
   await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
   await page.goBack();
-  await expect(page.getByRole('heading', { name: 'ホーム', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
   await page.goForward();
   await expect(page.getByRole('heading', { name: '案件の一覧' })).toBeVisible();
   await page.getByRole('navigation', { name: '現在地' }).getByRole('button', { name: '案件管理', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'ホーム', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
 });
 
 test('シート未取得でも案件とHubSpotの値を表示する', async ({ page }) => {
   await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, sheet_as_of: null, rows: [{ ...boardRows[0], mtg_status: 'unavailable', last_mtg: null, reasons: [{ kind: 'nps', text: '定期NPSが4以下' }] }] } }));
   await login(page); await page.goto('/app/job-copy?view=deals&owner=11');
   await expect(page.locator('.db-table')).toContainText('未取得');
-  await expect(page.locator('.db-table')).toContainText('¥100,000');
   await expect(page.locator('.db-table .nt-reason')).toHaveText('定期NPSが4以下');
 });
 
@@ -181,4 +195,41 @@ test('求人と応募の前回集計をやることと案件一覧に残して�
   await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
   await expect(page.locator('.db-table tbody > tr')).toHaveCount(20);
   await expect(page.locator('.db-table tbody > tr').first()).toContainText('架空の採用支援01');
+});
+
+test('面接が1件も無い取引と、期間を指定した応募ゼロ（面接の数が空・応募日が不明な取引は別に数える）', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const urls: string[] = [];
+  // 100: 面接 0・期間 0 件、101: 面接が空・期間 2 件、102: 面接 0・応募日が不明、103: 面接 3・求人票なし
+  const rows = [
+    { ...boardRows[0], interviews: 0, listing_count: 2, contract_applications: 0, period_applications: 0, first_contract: true },
+    { ...boardRows[1], interviews: null, listing_count: 1, contract_applications: 5, period_applications: 2, first_contract: true },
+    { ...boardRows[2], interviews: 0, listing_count: 1, contract_applications: null, period_applications: null },
+    { ...boardRows[3], interviews: 3, listing_count: null },
+  ];
+  await page.route('**/api/job-copy/deals?*', route => { urls.push(route.request().url()); return route.fulfill({ json: { ...boardFixture, rows, work: demoOwnerTodo } }); });
+  await page.route('**/api/job-copy/consultant-good?*', route => route.fulfill({ json: { status: 'ready', data_day: '2026-10-15', previous_day: null, comparison: 'unavailable', rows: [] } }));
+  await login(page); await page.goto('/app/job-copy?view=deals&owner=11&owner_field=consultant');
+  const table = page.locator('.db-table');
+  await expect(table.locator('tbody > tr')).toHaveCount(4);
+  await page.getByRole('checkbox', { name: '面接が1件も無い取引だけ' }).check();
+  await expect(page).toHaveURL(/deals_interview=zero/);
+  await expect(table.locator('tbody > tr')).toHaveCount(2);
+  await expect(table.locator('tbody > tr').nth(0)).toContainText('架空の採用支援01');
+  await expect(table.locator('tbody > tr').nth(1)).toContainText('架空の採用支援03');
+  await expect(page.getByText('面接の数が入っていない1件は、0件とは別に数えて含めていません。')).toBeVisible();
+  await page.getByRole('checkbox', { name: '面接が1件も無い取引だけ' }).uncheck();
+  await page.getByRole('checkbox', { name: '応募が1件も無い取引だけ' }).check();
+  await page.getByRole('combobox', { name: '応募ゼロを調べる期間' }).selectOption('weeks');
+  await expect(table.locator('tbody > tr')).toHaveCount(1);
+  await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
+  await expect(page.getByText('応募日が分からない応募がある1件は、期間の応募数を数えられないため含みません。')).toBeVisible();
+  expect(urls.some(url => /period_from=\d{4}-\d{2}-\d{2}&period_to=\d{4}-\d{2}-\d{2}/.test(url))).toBe(true);
+  await page.getByRole('combobox', { name: '応募ゼロを調べる期間' }).selectOption('contract');
+  await expect(page.getByRole('heading', { name: /初回契約の期間中/ })).toBeVisible();
+  await expect(table.locator('tbody > tr')).toHaveCount(1);
+  await page.getByRole('combobox', { name: '応募ゼロを調べる期間' }).selectOption('dates');
+  await page.getByLabel('から').fill('2026-10-01');
+  await page.getByLabel('まで').fill('2026-10-15');
+  await expect.poll(() => urls.some(url => url.includes('period_from=2026-10-01') && url.includes('period_to=2026-10-15'))).toBe(true);
 });

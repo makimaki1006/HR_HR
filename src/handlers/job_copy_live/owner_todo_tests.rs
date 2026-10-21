@@ -528,11 +528,16 @@ fn merges_reasons_sorts_count_then_expiration_and_filters_owner() {
         rows.iter()
             .map(|v| v["id"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["1", "2", "3"]
+        ["1", "2", "4", "3"]
     );
     assert_eq!(rows[0]["reasons"].as_array().unwrap().len(), 2);
     assert_eq!(rows[1]["reasons"].as_array().unwrap().len(), 2);
-    assert_eq!(rows[2]["reasons"].as_array().unwrap().len(), 1);
+    // 4 は満了日（10/15）が今日より前で終了していないので「満了後も稼働中」だけが付く
+    assert_eq!(
+        rows[2]["reasons"],
+        json!([{"kind":"expired","text":"満了日から 1 日が過ぎている"}])
+    );
+    assert_eq!(rows[3]["reasons"].as_array().unwrap().len(), 1);
     let r = s.report(
         &OwnerQuery {
             owner: Some("22".into()),
@@ -542,8 +547,9 @@ fn merges_reasons_sorts_count_then_expiration_and_filters_owner() {
         day("2026-10-16"),
         false,
     );
-    assert_eq!(r["signals"].as_array().unwrap().len(), 1);
-    assert_eq!(r["signals"][0]["id"], "3");
+    assert_eq!(r["signals"].as_array().unwrap().len(), 2);
+    assert_eq!(r["signals"][0]["id"], "4");
+    assert_eq!(r["signals"][1]["id"], "3");
 }
 
 #[tokio::test]

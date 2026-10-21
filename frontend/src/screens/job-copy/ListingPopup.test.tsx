@@ -107,8 +107,7 @@ it('opens the selected timeline version from the detail heading, initially the l
   opener.focus(); fireEvent.click(opener);
   expect(screen.getByRole('dialog').textContent).toContain(jobs[0]?.versions[2]?.body);
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
-  const drawer = openOtherAnalysis('タイムライン');
-  fireEvent.click(within(drawer).getByRole('tab', { name: '求人内容' }));
+  const drawer = openOtherAnalysis('本文・画像');
   fireEvent.click(within(drawer).getByRole('button', { name: /給与・勤務条件変更.*2026\/09\/15/ }));
   fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);

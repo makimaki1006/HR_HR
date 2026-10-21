@@ -39,3 +39,7 @@
 /* 担当の2項目を同じ行に保ち、求人作業中の見出し行の高さは増やさない。 */
 .jc-topline > .cm-menu:has(.cm-owner:not(:empty)) { flex: 1 1 660px; }
 .jc-topline:has(> .cm-menu) > .jc-demo { flex-basis: 0; }
+.cr-since { display: block; margin-top: 4px; color: #4b5d6b; font-size: 12px; }
+.cr-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0 0 12px; font-size: 13px; color: #33475b; }
+.jc-page .cr-scope label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.jc-page .cr-scope input[type=checkbox] { width: auto; margin: 0; }

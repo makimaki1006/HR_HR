@@ -27,7 +27,9 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   await expect(row.getByRole('listitem')).toHaveText((goodRow.good_flags ?? []).map(f => f.label));
   await expect(row.getByText('危ない名札もあり（2件）')).toBeVisible();
   await expect(page.getByText('今日わかった', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'いい案件', exact: true })).toHaveAttribute('aria-current', 'page');
+  // メニューからは外した（案件一覧の「いい」の印へ）。URL で開いたときは案件一覧が現在地
+  await expect(page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: 'いい案件' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '案件一覧', exact: true })).toHaveAttribute('aria-current', 'page');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const dir = process.env.CONSULTANT_SCREENSHOT_DIR;
   if (dir) await page.screenshot({ path: `${dir}/good-list.png`, fullPage: false });

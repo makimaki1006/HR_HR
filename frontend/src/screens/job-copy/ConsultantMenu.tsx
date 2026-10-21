@@ -34,7 +34,7 @@ const ConsultantHeaderContent = createContext<ReactNode>(null);
 export function ConsultantMenuHeader() { return useContext(ConsultantHeaderContent); }
 export function ConsultantMenu({ children, inlineHeader = false, onNavigate }: { children: ReactNode; inlineHeader?: boolean; onNavigate?: () => void }) {
   const query = new URLSearchParams(useJobCopySearch()); const selected = query.get('view');
-  // ホーム・案件一覧の担当情報は、その画面が取得した応答を共通欄に表示する。
+  // 今日・案件一覧の担当情報は、その画面が取得した応答を共通欄に表示する。
   const nativeOwner = selected === 'deals' || (!selected && !['company', 'deal', 'listing', 'job'].some(key => query.has(key)) && !['fixed'].includes(query.get('source') ?? '') && query.get('demo') !== '1' && query.get('data') !== 'actual');
   const fullOwner = nativeOwner || selected === 'risk' || selected === 'good' || selected === 'houjin';
   const [ownerTarget, setOwnerTarget] = useState<HTMLDivElement | null>(null);
@@ -42,7 +42,7 @@ export function ConsultantMenu({ children, inlineHeader = false, onNavigate }: {
   const ownerPopoverId = useId();
   const [popoverTop, setPopoverTop] = useState(0);
   const menu = <OwnerFilterPlacement value={undefined}><div className="cm-menu"><nav aria-label="案件管理のメニュー">
-    {([[null, 'ホーム'], ['risk', '危ない案件'], ['good', 'いい案件'], ['houjin', '法人'], ['deals', '案件一覧']] as const).map(([view, label]) => <button type="button" key={label} aria-current={selected === view ? 'page' : undefined} onClick={() => { updateJobCopyQuery({ view, company: null, deal: null, listing: null, job: null, risk_deal: null, ...(view === null ? { source: null, data: null, demo: null } : {}) }); onNavigate?.(); }}>{label}</button>)}
+    {([[null, '今日'], ['risk', '危ない案件'], ['houjin', '法人'], ['deals', '案件一覧']] as const).map(([view, label]) => <button type="button" key={label} aria-current={selected === view || (view === 'deals' && selected === 'good') ? 'page' : undefined} onClick={() => { updateJobCopyQuery({ view, company: null, deal: null, listing: null, job: null, risk_deal: null, ...(view === null ? { source: null, data: null, demo: null } : {}) }); onNavigate?.(); }}>{label}</button>)}
     <a href="/consulting#deal/team">コンサルKPI</a>
     {!fullOwner && <div className="cm-owner-toggle"><button type="button" popoverTarget={ownerPopoverId} aria-controls={ownerPopoverId} aria-expanded={expanded} onClick={event => { setPopoverTop(event.currentTarget.getBoundingClientRect().bottom + 8); }}>担当者で絞る</button><div id={ownerPopoverId} popover="auto" className="cm-owner-popover" role="region" aria-label="担当者の選択" style={{ top: popoverTop }} onToggle={event => { setExpanded(event.newState === 'open'); }}>{expanded && <ConsultantScopeFilter />}</div></div>}
   </nav>{nativeOwner ? <div ref={setOwnerTarget} className="cm-owner" /> : fullOwner && <ConsultantScopeFilter />}</div></OwnerFilterPlacement>;

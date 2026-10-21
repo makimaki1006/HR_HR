@@ -1,5 +1,5 @@
 //! 案件一覧。取引は既存の5分キャッシュ、MTGはKPIの先読み済みシートだけを使う。
-use super::owner_todo::{OwnerQuery, Snapshot, ENDED_STAGES};
+use super::owner_todo::{OwnerQuery, Snapshot, WorkDeal, ENDED_STAGES};
 use super::*;
 use crate::handlers::cs_dashboard::{
     self as cs,
@@ -83,6 +83,58 @@ struct DealBoardRow {
     listing_count: Option<usize>,
     #[serde(default)]
     zero_applicants: bool,
+    /// 契約の開始日から満了日までの応募数（応募日で数える）。求人票が無い・応募日が不明な応募がある・日付が無いときは null。
+    #[serde(default)]
+    #[ts(type = "number | null", optional)]
+    contract_applications: Option<i64>,
+    /// 指定した期間（period_from〜period_to）の応募数。期間を指定しなかった・数えられないときは null。
+    #[serde(default)]
+    #[ts(type = "number | null", optional)]
+    period_applications: Option<i64>,
+}
+
+/// 期間を指定して応募ゼロを調べるための指定（日本時間の日付、両端を含む）。
+#[derive(Clone, Debug, Default, Deserialize)]
+pub(super) struct PeriodQuery {
+    period_from: Option<String>,
+    period_to: Option<String>,
+}
+impl PeriodQuery {
+    fn range(&self) -> Result<Option<(NaiveDate, NaiveDate)>, ReadError> {
+        let bad = || ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid");
+        let parse = |v: &str| NaiveDate::parse_from_str(v, "%Y-%m-%d").map_err(|_| bad());
+        match (self.period_from.as_deref(), self.period_to.as_deref()) {
+            (None, None) => Ok(None),
+            (Some(from), Some(to)) => {
+                let (from, to) = (parse(from)?, parse(to)?);
+                if from > to {
+                    return Err(bad());
+                }
+                Ok(Some((from, to)))
+            }
+            _ => Err(bad()),
+        }
+    }
+}
+
+/// 求人票が付いていて応募日がすべて分かる取引だけ、期間内の応募数を返す。
+/// 求人票が無い、または応募日が分からない応募がある取引は数えられないので None。
+fn applications_between(
+    facts: Option<&super::todo_signals::Facts>,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Option<i64> {
+    let facts = facts?;
+    if !matches!(facts.listings, Some(n) if n >= 1) || facts.unknown_dates > 0 {
+        return None;
+    }
+    Some(
+        facts
+            .days
+            .iter()
+            .filter(|d| **d >= from && **d <= to)
+            .count() as i64,
+    )
 }
 fn current(record: &Record) -> cs::Deal {
     let text = |key| record.value(key).unwrap_or("").to_owned();
@@ -165,15 +217,41 @@ impl<'a> Metrics<'a> {
         if cs::high_cpa(cs::cpa(d), median) {
             add("cpa", "採用単価が同じ進捗帯の1.5倍以上", false);
         }
-        if work.record.value("pipeline") == Some("21596025") {
-            if let Some(last) = &self.meetings.last {
-                let gap = cs::mtg_gap_of(d, last, today);
-                if let Some(days) = gap.days {
-                    let band = cs::mtg_band_for_days(days);
-                    if band.is_alert() {
-                        add("mtg", band.label(), days >= cs::MTG_GAP_CRITICAL_DAYS);
-                    }
-                }
+        if let Some(days) = self.mtg_days(work, today) {
+            let band = cs::mtg_band_for_days(days);
+            if band.is_alert() {
+                add("mtg", band.label(), days >= cs::MTG_GAP_CRITICAL_DAYS);
+            }
+        }
+        reasons
+    }
+    /// 最後の MTG からの日数（MTG の集計対象の契約で、記録があるときだけ）。
+    fn mtg_days(&self, work: &WorkDeal, today: NaiveDate) -> Option<i64> {
+        if work.record.value("pipeline") != Some("21596025") {
+            return None;
+        }
+        let last = self.meetings.last.as_ref()?;
+        let d = self.deals.get(&work.record.id)?;
+        cs::mtg_gap_of(d, last, today).days
+    }
+    /// ホームの要対応と取引ごとの「次にやること」で使う理由。
+    /// 「MTGが途絶えている」は案件管理で決めた基準（60 日以上）で絞る。
+    /// 案件一覧の印は共有の段階（`reasons`）のまま。
+    pub(super) fn todo_reasons(
+        &self,
+        snapshot: &Snapshot,
+        id: &str,
+        today: NaiveDate,
+    ) -> Vec<Value> {
+        let mut reasons = self.reasons(snapshot, id, today);
+        if reasons.iter().any(|r| r["kind"] == "mtg") {
+            let long_gap = snapshot
+                .deals
+                .get(id)
+                .and_then(|w| self.mtg_days(w, today))
+                .is_some_and(|days| days >= super::todo_signals::MTG_DAYS);
+            if !long_gap {
+                reasons.retain(|r| r["kind"] != "mtg");
             }
         }
         reasons
@@ -184,6 +262,16 @@ impl<'a> Metrics<'a> {
         query: &OwnerQuery,
         email: &str,
         today: NaiveDate,
+    ) -> Vec<DealBoardRow> {
+        self.rows_in(snapshot, query, email, today, None)
+    }
+    fn rows_in(
+        &self,
+        snapshot: &Snapshot,
+        query: &OwnerQuery,
+        email: &str,
+        today: NaiveDate,
+        period: Option<(NaiveDate, NaiveDate)>,
     ) -> Vec<DealBoardRow> {
         let (owner, _) = snapshot.selection(query, email);
         snapshot.deals.iter().filter(|(id, work)| snapshot.matches(id, query.field(), owner.as_deref()) && listings::is_delivery(work.record.value("pipeline")) && !self.deals[*id].is_referral()).map(|(id, work)| {
@@ -205,6 +293,8 @@ impl<'a> Metrics<'a> {
                 "launch": super::todo_signals::launch(&work.record,snapshot.facts.get(id),today),
                 "listing_count":snapshot.facts.get(id).and_then(|f| f.listings),
                 "zero_applicants":d.is_active && super::todo_signals::zero_applicants(snapshot.facts.get(id)),
+                "contract_applications":cs::date10(&d.contract_start_date).zip(cs::date10(&d.contract_expiration_date)).and_then(|(from,to)| applications_between(snapshot.facts.get(id),from,to)),
+                "period_applications":period.and_then(|(from,to)| applications_between(snapshot.facts.get(id),from,to)),
                 "target":d.saiyomokuhyou,"achievement":d.rate_tassei(),"cpa":cs::cpa(d),"amount":d.amount})).expect("deal board row contract")
         }).collect()
     }
@@ -214,16 +304,18 @@ pub(super) async fn read(
     Extension(access): Extension<Access>,
     session: Session,
     Query(query): Query<OwnerQuery>,
+    Query(period): Query<PeriodQuery>,
 ) -> Result<impl IntoResponse, ReadError> {
     let email = authorized_user(&state, &access, &session).await?;
     query.validate()?;
+    let period = period.range()?;
     let view = owner_todo::work_view(listings::service(&access)?).await;
     let apps = listings::consultant_applications(listings::service(&access)?).await;
     let body = if let Some(snapshot) = view.snapshot.filter(|s| s.complete) {
         let today = owner_todo::today(chrono::Utc::now());
         let meetings = MeetingData::cached().await;
         let metrics = Metrics::new(&snapshot, &meetings, today);
-        let mut rows = metrics.rows(&snapshot, &query, &email, today);
+        let mut rows = metrics.rows_in(&snapshot, &query, &email, today, period);
         for row in &mut rows {
             row.recent_applications = apps
                 .as_ref()
@@ -370,6 +462,33 @@ mod tests {
                 assert_eq!(mtg["strong"], strong);
                 assert_eq!(mtg["text"], label.unwrap());
             }
+        }
+    }
+    #[test]
+    fn home_todo_mtg_reason_needs_sixty_days_but_deal_board_mark_keeps_shared_bands() {
+        let s = snapshot(120, "5", "21596025");
+        for (days, in_todo) in [
+            (29, false),
+            (30, false),
+            (59, false),
+            (60, true),
+            (89, true),
+            (90, true),
+        ] {
+            let m = meetings(days);
+            let metrics = Metrics::new(&s, &m, day());
+            let has = |v: Vec<Value>| v.iter().any(|r| r["kind"] == "mtg");
+            assert_eq!(
+                has(metrics.todo_reasons(&s, "1", day())),
+                in_todo,
+                "days={days}"
+            );
+            // 案件一覧の印は共有の段階（30 日から）のまま
+            assert_eq!(
+                has(metrics.reasons(&s, "1", day())),
+                days >= 30,
+                "days={days}"
+            );
         }
     }
     #[test]
@@ -573,5 +692,101 @@ mod tests {
             .map(|r| (r.id.as_str(), r.listing_count))
             .collect();
         assert!(listings.contains(&("1", Some(2))) && listings.contains(&("7", None)));
+    }
+    #[test]
+    fn period_and_contract_application_counts_use_application_days_and_skip_uncountable_deals() {
+        use super::super::todo_signals::Facts;
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        let mut s = snapshot(30, "5", "21596025");
+        let base = s.deals["1"].clone();
+        // 契約は 2026-09-16 から 2026-11-01。応募日は契約の前・中・満了後に散らす。
+        let days = vec![
+            d("2026-09-10"),
+            d("2026-09-20"),
+            d("2026-10-12"),
+            d("2026-11-05"),
+        ];
+        let cases: Vec<(&str, Option<&str>, Facts)> = vec![
+            (
+                "1",
+                Some("0"),
+                Facts {
+                    listings: Some(1),
+                    days: days.clone(),
+                    ..Facts::default()
+                },
+            ),
+            (
+                "2",
+                None,
+                Facts {
+                    listings: Some(1),
+                    days: days.clone(),
+                    unknown_dates: 1,
+                    ..Facts::default()
+                },
+            ),
+            (
+                "3",
+                Some("4"),
+                Facts {
+                    listings: Some(0),
+                    ..Facts::default()
+                },
+            ),
+            (
+                "4",
+                None,
+                Facts {
+                    listings: None,
+                    days: days.clone(),
+                    ..Facts::default()
+                },
+            ),
+        ];
+        for (id, interviews, facts) in cases {
+            let mut deal = base.clone();
+            deal.record.id = id.into();
+            deal.record
+                .properties
+                .insert("mensetu".into(), interviews.map(Into::into));
+            s.deals.insert(id.into(), deal);
+            s.facts.insert(id.into(), facts);
+        }
+        let m = MeetingData::default();
+        let metrics = Metrics::new(&s, &m, day());
+        let q = OwnerQuery {
+            owner: Some("all".into()),
+            ..Default::default()
+        };
+        let by = |rows: &[DealBoardRow], id: &str| {
+            let r = rows.iter().find(|r| r.id == id).unwrap();
+            (r.contract_applications, r.period_applications, r.interviews)
+        };
+        let rows = metrics.rows_in(&s, &q, "", day(), Some((d("2026-10-10"), d("2026-10-16"))));
+        assert_eq!(by(&rows, "1"), (Some(2), Some(1), Some(0.0)));
+        // 応募日が分からない応募がある・求人票が無い・求人票の数が不明な取引は数えない。面接の数字が空なら null。
+        assert_eq!(by(&rows, "2"), (None, None, None));
+        assert_eq!(by(&rows, "3"), (None, None, Some(4.0)));
+        assert_eq!(by(&rows, "4"), (None, None, None));
+        let rows = metrics.rows_in(&s, &q, "", day(), Some((d("2026-10-13"), d("2026-10-16"))));
+        assert_eq!(by(&rows, "1").1, Some(0));
+        let rows = metrics.rows(&s, &q, "", day());
+        assert_eq!(by(&rows, "1").1, None);
+    }
+    #[test]
+    fn period_query_needs_both_dates_in_order() {
+        let q = |from: Option<&str>, to: Option<&str>| PeriodQuery {
+            period_from: from.map(Into::into),
+            period_to: to.map(Into::into),
+        };
+        assert!(q(None, None).range().unwrap().is_none());
+        assert!(q(Some("2026-10-01"), Some("2026-10-16"))
+            .range()
+            .unwrap()
+            .is_some());
+        assert!(q(Some("2026-10-16"), Some("2026-10-01")).range().is_err());
+        assert!(q(Some("2026-10-01"), None).range().is_err());
+        assert!(q(Some("2026-13-01"), Some("2026-13-02")).range().is_err());
     }
 }
