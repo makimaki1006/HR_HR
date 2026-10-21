@@ -596,8 +596,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
     async fn process_due(&mut self) -> bool {
         let started = std::time::Instant::now();
         let mut done: HashSet<String> = HashSet::new();
-        // 1 回に取る本数は同時に判定する本数の 4 倍 (遅い 1 本を待つ間も残りの枠で進める)
-        let batch_size = (self.cfg.concurrency * 4).max(40);
+        // 1 回に取る本数は同時に判定する本数の 8 倍 (遅い 1 本を待つ間も残りの枠で進める)
+        let batch_size = (self.cfg.concurrency * 8).max(40);
         for _ in 0..(MAX_PER_CYCLE / batch_size).max(1) {
             if started.elapsed() >= self.cfg.interval {
                 return true;
