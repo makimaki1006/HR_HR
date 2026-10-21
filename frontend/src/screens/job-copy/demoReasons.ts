@@ -16,6 +16,8 @@ const texts: DemoText[] = [
   [7, 'ouboriyuu_hiaringu', '2026-09-21', '時給が良いので'],
   [8, 'genshokumaeshokukaranotenshokuriyuu', '2026-09-24', '通勤に片道1時間かかるため'],
   [9, 'oubodouki', null, '大手で安定しているから'],
+  [1, 'honnin_kibou_kinyuuran', '2026-09-02', '日勤のみ希望'],
+  [3, 'honnin_kibou_kinyuuran', '2026-09-10', '月に2回までなら平日休みも可'],
   [8, 'kinmujoukennoyuusenjuni', '2026-09-24', '通勤時間、休日、給与の順で希望'],
   [8, 'nyuushakiboujiki', '2026-09-24', '翌月から'],
   [8, 'call_notes', '2026-09-24', '【架電】土日休みと、見学できる日程を確認したい。'],

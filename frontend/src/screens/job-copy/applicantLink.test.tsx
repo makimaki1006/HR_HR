@@ -22,7 +22,7 @@ it('同じ応募に属性・応募理由・電話ヒアリング・メモを表�
   fireEvent.click(within(event).getByRole('button'));
   expect(event.textContent).toContain('女性 ・ 38 ・ 大分県大分市');
   expect(event.textContent).toContain('通勤に片道1時間かかるため');
-  expect(event.textContent).toContain('勤務条件の優先順位通勤時間、休日、給与の順で希望');
+  expect(event.textContent).toContain('勤務条件の優先順位：通勤時間、休日、給与の順で希望');
   expect(event.textContent).toContain('【架電】土日休みと、見学できる日程を確認したい。');
   fireEvent.click(within(event).getByRole('button', { name: '電話ヒアリングのこの応募へ' }));
   expect(container.querySelector('details.ph-section')?.hasAttribute('open')).toBe(true);

@@ -824,8 +824,8 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
     assert_eq!(applicants["summary"]["dimensions"]["gender"]["不明"], 2);
     assert!(applicants.get("rows").is_none());
     assert_eq!(applicants["applicant_reasons"]["total_applicants"], 2);
-    assert_eq!(applicants["applicant_reasons"]["missing"], 8);
-    assert_eq!(applicants["applicant_reasons"]["total_source_values"], 12);
+    assert_eq!(applicants["applicant_reasons"]["missing"], 12);
+    assert_eq!(applicants["applicant_reasons"]["total_source_values"], 16);
     let counts = &applicants["applicant_reasons"]["source_counts"];
     assert_eq!(
         counts["genshokumaeshokukaranotenshokuriyuu"],
@@ -908,6 +908,8 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
             "ouboriyuu_baitaikisai",
             "ouboriyuu_hiaringu",
             "genshokumaeshokukaranotenshokuriyuu",
+            "kinmujoukennoyuusenjuni",
+            "honnin_kibou_kinyuuran",
             "ouboriyuukategori_hiaringu",
             "ouboriyuukategori_baitaikisai"
         ])

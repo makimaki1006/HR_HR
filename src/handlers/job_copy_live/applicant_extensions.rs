@@ -2,7 +2,7 @@
 use super::{
     applicant_reasons::{
         Reasons, CATEGORY_PROPERTIES, LEGACY_PROPERTIES, MAX_ITEMS, MAX_TEXT_CHARS,
-        MAX_VALUE_CHARS, PROPERTIES, TEXT_PROPERTIES,
+        MAX_VALUE_CHARS, PREVIOUS_PROPERTIES, PROPERTIES, TEXT_PROPERTIES,
     },
     keys_only,
 };
@@ -39,13 +39,20 @@ pub(super) fn validate(result: &Value, job: &Value) -> bool {
         // A snapshot written before 2026-10-08 has the three old sources, no applicant keys and
         // no selections. A newer one has every source, applicant keys and selections.
         let legacy = r.source_counts.len() == LEGACY_PROPERTIES.len();
+        // Between those two, the shape had the three old sources, the transfer reason and the
+        // two category selects (six); the current one adds two more texts (eight).
+        let previous = r.source_counts.len() == PREVIOUS_PROPERTIES.len();
         let sources: &[&str] = if legacy {
             &LEGACY_PROPERTIES
+        } else if previous {
+            &PREVIOUS_PROPERTIES
         } else {
             &PROPERTIES
         };
         let text_sources: &[&str] = if legacy {
             &LEGACY_PROPERTIES
+        } else if previous {
+            &PREVIOUS_PROPERTIES[..4]
         } else {
             &TEXT_PROPERTIES
         };
@@ -332,6 +339,8 @@ mod tests {
         let counts = reasons["source_counts"].as_object_mut().unwrap();
         for property in [
             "genshokumaeshokukaranotenshokuriyuu",
+            "kinmujoukennoyuusenjuni",
+            "honnin_kibou_kinyuuran",
             "ouboriyuukategori_hiaringu",
             "ouboriyuukategori_baitaikisai",
         ] {
@@ -359,6 +368,23 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("selections");
+        assert!(!validate(&bad, &job));
+    }
+    #[test]
+    fn snapshot_with_the_six_sources_written_before_the_two_new_texts_still_validates() {
+        let (result, job) = fixture();
+        let mut previous = result.clone();
+        let reasons = &mut previous["applicant_reasons"];
+        let counts = reasons["source_counts"].as_object_mut().unwrap();
+        for property in ["kinmujoukennoyuusenjuni", "honnin_kibou_kinyuuran"] {
+            counts.remove(property);
+        }
+        reasons["total_source_values"] = json!(6);
+        reasons["missing"] = json!(5);
+        assert!(validate(&previous, &job));
+        // The six-source shape may not carry a text of a source it did not read.
+        let mut bad = previous.clone();
+        bad["applicant_reasons"]["items"][0]["source_property"] = json!("honnin_kibou_kinyuuran");
         assert!(!validate(&bad, &job));
     }
     #[test]
