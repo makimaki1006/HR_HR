@@ -79,7 +79,7 @@ test('案件画面で契約を保存して緑、競合では現在値を確認�
   await expect(section).toContainText('¥420,000');
   expect(patches).toHaveLength(2);
   await page.getByRole('navigation', { name: '現在地' }).getByRole('button', { name: '案件管理' }).click();
-  await expect(page.getByRole('heading', { name: 'ホーム', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
   await expect.poll(() => homeReads).toBeGreaterThan(initialHomeReads);
 });
 
@@ -148,7 +148,7 @@ test('ステージ移動で必須入力と未保存の契約を保存し、緑�
   await expect.poll(() => companyReads).toBe(2);
   await section.screenshot({ path: 'docs/screenshots/job-copy-stage-move/03-saved.png', animations: 'disabled' });
   await page.getByRole('navigation', { name: '現在地' }).getByRole('button', { name: '案件管理' }).click();
-  await expect(page.getByRole('heading', { name: 'ホーム', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
   await expect.poll(() => homeReads).toBeGreaterThan(initialHomeReads);
   await page.getByRole('group', { name: '顧客の絞り込み' }).getByRole('button', { name: /^すべて/ }).click();
   await expect(page.locator('.jh-latest')).toContainText('継続済');

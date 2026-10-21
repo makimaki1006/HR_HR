@@ -122,7 +122,7 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
     expect(select).not.toBeNull(); expect(button).not.toBeNull();
     expect(Math.abs((select?.y ?? 0) + (select?.height ?? 0) - (button?.y ?? 0) - (button?.height ?? 0))).toBeLessThan(2);
     const purpose = await page.locator('.jc-feature-purpose').boundingBox();
-    const tabs = await page.getByRole('tablist', { name: '比較・報告の表示' }).boundingBox();
+    const tabs = await page.getByRole('tablist', { name: '求人管理の機能' }).boundingBox();
     expect(purpose?.y).toBeGreaterThanOrEqual((tabs?.y ?? 0) + (tabs?.height ?? 0));
     expect(writes).toHaveLength(0);
     if (width === 1440) {

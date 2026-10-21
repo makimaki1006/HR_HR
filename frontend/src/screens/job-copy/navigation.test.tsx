@@ -68,15 +68,15 @@ it('分析の開閉と機能タブを各1回積み、戻ると前のタブと閉
   render(<JobCopyScreen />);
   const start = window.location.href;
   const push = vi.spyOn(window.history, 'pushState');
-  fireEvent.click(within(screen.getByRole('region', { name: 'ほかの分析' })).getByRole('button', { name: 'タイムライン' }));
+  fireEvent.click(within(screen.getByRole('region', { name: 'ほかの分析' })).getByRole('button', { name: 'ほかの分析を開く' }));
   const timeline = window.location.href;
-  fireEvent.click(screen.getByRole('tab', { name: '求人内容' }));
+  fireEvent.click(screen.getByRole('tab', { name: '本文・画像' }));
   const body = window.location.href;
   expect(push).toHaveBeenCalledTimes(2);
   pop(timeline);
   expect(screen.getByRole('tab', { name: 'タイムライン' }).getAttribute('aria-selected')).toBe('true');
   pop(body);
-  expect(screen.getByRole('tab', { name: '求人内容' }).getAttribute('aria-selected')).toBe('true');
+  expect(screen.getByRole('tab', { name: '本文・画像' }).getAttribute('aria-selected')).toBe('true');
   pop(start);
   expect(screen.queryByRole('dialog', { name: 'ほかの分析' })).toBeNull();
 });
