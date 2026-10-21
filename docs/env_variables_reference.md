@@ -301,7 +301,7 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 | `CALL_REVIEW_INTERVAL_SECS` | `600` | 対象の Call を読みに行く間隔 (秒)。30 以上。30 未満は既定の 600 |
 | `CALL_REVIEW_BACKFILL_DAYS` | `14` | 初回に過去何日まで遡るか。1〜62。範囲外は既定の 14 |
 | `CALL_REVIEW_PER_PERSON_DAY` | `10` | 1 人 1 日 (JST) あたりに判定する電話の最大本数。新しい電話から。1〜1000、範囲外・数字でない値は既定の 10 |
-| `CALL_REVIEW_CONCURRENCY` | `4` | 同時に判定する本数。1〜8、範囲外・数字でない値は既定の 4 |
+| `CALL_REVIEW_CONCURRENCY` | `4` | 同時に判定する本数。1〜32、範囲外・数字でない値は既定の 4 |
 | `CALL_REVIEW_TEAMS` | 未設定 | 対象の HubSpot チーム名 (カンマ区切り、前後の空白は除く)。未設定なら `BPO_リクロジ` と `新規営業` |
 | `ZOOM_ACCOUNT_ID` | 未設定 | Zoom Server-to-Server OAuth のアカウント ID。Zoom Phone の録音・文字起こしの読み取りに使う |
 | `ZOOM_CLIENT_ID` | 未設定 | 同 OAuth のクライアント ID |
