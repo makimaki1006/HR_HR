@@ -173,7 +173,7 @@ fn text_of(v: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn bool_of(v: &Value, key: &str) -> Option<bool> {
+pub(super) fn bool_of(v: &Value, key: &str) -> Option<bool> {
     match v.get(key)? {
         Value::Bool(b) => Some(*b),
         Value::String(s) => match s.trim() {
@@ -185,7 +185,7 @@ fn bool_of(v: &Value, key: &str) -> Option<bool> {
     }
 }
 
-fn number_of(v: &Value) -> Option<u32> {
+pub(super) fn number_of(v: &Value) -> Option<u32> {
     match v {
         Value::Number(n) => n.as_u64().and_then(|n| u32::try_from(n).ok()),
         Value::String(s) => s.trim().parse().ok(),
@@ -289,9 +289,11 @@ impl MiniMaxJudge {
     }
 }
 
-impl Judge for MiniMaxJudge {
-    async fn judge(&self, checks: &Checks, turns: &[TalkTurn]) -> Result<JudgeOutput, JudgeError> {
-        let body = Self::request_body(&self.model, &build_prompt(checks, turns));
+impl MiniMaxJudge {
+    /// プロンプトを送り、応答から JSON を取り出す。混雑・通信の失敗は 3 回まで間を空けて試し直す。
+    /// 混雑 (429) で終わったときの理由は `http 429`
+    pub async fn complete_json(&self, prompt: &str) -> Result<Value, JudgeError> {
+        let body = Self::request_body(&self.model, prompt);
         let mut last = String::new();
         for attempt in 0..3u64 {
             if attempt > 0 {
@@ -328,11 +330,18 @@ impl Judge for MiniMaxJudge {
                 .and_then(Value::as_str)
                 .unwrap_or("");
             match extract_json(content) {
-                Some(j) => return Ok(convert_response(checks, &j)),
+                Some(j) => return Ok(j),
                 None => last = "json".into(),
             }
         }
         Err(JudgeError::Transient(last))
+    }
+}
+
+impl Judge for MiniMaxJudge {
+    async fn judge(&self, checks: &Checks, turns: &[TalkTurn]) -> Result<JudgeOutput, JudgeError> {
+        let j = self.complete_json(&build_prompt(checks, turns)).await?;
+        Ok(convert_response(checks, &j))
     }
 }
 

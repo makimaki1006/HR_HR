@@ -11,7 +11,7 @@ import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
 import {
   CALL_STATUS_TEXT, MARK_LABEL, MARK_TEXT, PERIOD_LABELS, activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary,
-  fmtCallTime, fmtPct, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
+  fmtCallTime, fmtPct, fmtPerContact, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
   type TalkSort,
 } from './talkModel';
 import type { AdminRoute } from './route';
@@ -132,6 +132,14 @@ function PersonRowView({ p, checks, total, totalRow, rules, onOpen }: { p: TalkP
       <td className="w8-right">{p.dials ?? '—'}</td>
       <td className="w8-right">{p.appointments}</td>
       <Cell j={apj} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}</Cell>
+      <td className="w8-right" data-testid="talk-contacts">
+        {p.contacts ?? '—'}
+        {p.contact_pending > 0 && <span className="talk-small" data-testid="talk-contact-pending">接触の判定待ち {p.contact_pending} 本</span>}
+      </td>
+      <td className="w8-right">{fmtPct(p.contact_rate_pct, 1)}</td>
+      <td className="w8-right">{p.date_proposal_calls ?? '—'}</td>
+      <td className="w8-right">{fmtPct(p.date_proposal_rate_pct, 1)}</td>
+      <td className="w8-right">{fmtPerContact(p.proposals_per_contact)}</td>
       <td className="w8-right">
         {p.reviewed}
         <span className="talk-small">対象 {p.eligible} 本 ・ 待ち {p.waiting} ・ 取れない {p.unavailable}</span>
@@ -193,7 +201,7 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
         <table className="w8-table w8-table-dense talk-table" data-testid="talk-table">
           <thead>
             <tr>
-              <th colSpan={7} className="talk-group-blank" />
+              <th colSpan={12} className="talk-group-blank" />
               {stageGroups(data.checks).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
             </tr>
             <tr>
@@ -203,6 +211,11 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
               {sortHead('架電数', { kind: 'dials' })}
               {sortHead('アポ数', { kind: 'appointments' })}
               {sortHead('アポ率', { kind: 'rate' })}
+              {sortHead('接触数', { kind: 'contacts' })}
+              {sortHead('接触率', { kind: 'contactRate' })}
+              {sortHead('日程切り本数', { kind: 'proposalCalls' })}
+              {sortHead('日程切り率', { kind: 'proposalRate' })}
+              {sortHead('1接触あたりの日程切り回数', { kind: 'perContact' })}
               {sortHead('判定した電話数', { kind: 'reviewed' })}
               {data.checks.map(c => {
                 const key = { kind: 'item', id: c.id } as const;
@@ -218,7 +231,7 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
           </thead>
           <tbody>
             {people.map(p => <PersonRowView key={p.owner_id ?? p.name} p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} onOpen={onOpen} />)}
-            {people.length === 0 && <tr><td colSpan={7 + data.checks.length} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
+            {people.length === 0 && <tr><td colSpan={12 + data.checks.length} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
             <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} />
           </tbody>
         </table>
@@ -226,6 +239,7 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
       <p className="talk-rules" data-testid="talk-rules">
         <span style={{ display: 'block' }}>各項目の割合は、その項目に当てはまる電話のうち、できた電話の割合です。</span>
         <span style={{ display: 'block' }} data-testid="talk-dials-rule">発信数は Zoom の発信すべて（相手が出る前に切ったもの・つながらなかったものを含む）、架電数はそのうちつながった通話の数で、営業KPI と同じです。アポ率 ＝ アポ数 ÷ 架電数です。</span>
+        <span style={{ display: 'block' }} data-testid="talk-contact-rule">接触は、受付を越えて担当者・決裁者と話せた発信で、日程を出していなくても数えます。接触率 ＝ 接触数 ÷ 発信数。日程切り本数は、具体的な日時（週・曜日・日付）を 1 回以上出した発信の本数で、日程切り率 ＝ 日程切り本数 ÷ 発信数です。1 接触あたりの日程切り回数は、接触した電話で日時を出した回数の合計 ÷ 接触数です。つながらなかった発信は接触 0・日程切り 0 として数えます。</span>
         <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる 70 秒以上の電話の本数です。</span>
       </p>
     </>

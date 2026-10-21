@@ -30,6 +30,15 @@ const TABLE_DDL: &[&str] = &[
         outcome TEXT, reached_person INTEGER, reception INTEGER, first_date_turn INTEGER,
         items TEXT, summary TEXT, note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     )"#,
+    // トークの振り返り: 接触・日程切りの印。1 行 = つながった発信 1 本 (Zoom の通話ログ ID)。
+    // status: pending (文字起こし待ち・未判定) / judged / unavailable (録音・文字起こしが取れない)
+    r#"CREATE TABLE IF NOT EXISTS call_contact_marks (
+        zoom_call_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, call_at TEXT NOT NULL,
+        connected INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL,
+        contacted INTEGER, date_proposals INTEGER,
+        attempts INTEGER NOT NULL DEFAULT 0, next_retry_at TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )"#,
     // ADR-032: empty deal/key is the daily completion marker, including zero flags.
     r#"CREATE TABLE IF NOT EXISTS consulting_deal_flags (
         data_day TEXT NOT NULL, deal_id TEXT NOT NULL, flag_key TEXT NOT NULL,
@@ -185,6 +194,8 @@ const TABLE_DDL: &[&str] = &[
 ];
 
 const INDEX_DDL: &[&str] = &[
+    "CREATE INDEX IF NOT EXISTS idx_call_contact_marks_call_at ON call_contact_marks(call_at)",
+    "CREATE INDEX IF NOT EXISTS idx_call_contact_marks_retry ON call_contact_marks(status, next_retry_at)",
     "CREATE INDEX IF NOT EXISTS idx_call_talk_reviews_call_at ON call_talk_reviews(call_at)",
     "CREATE INDEX IF NOT EXISTS idx_call_talk_reviews_retry ON call_talk_reviews(status, next_retry_at)",
     "CREATE INDEX IF NOT EXISTS idx_job_copy_draft_retry ON job_copy_draft_operations(status, next_retry_at)",

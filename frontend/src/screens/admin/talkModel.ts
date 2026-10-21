@@ -68,6 +68,11 @@ export function activePeriod(from: string, to: string, today: string): PeriodKey
 
 // ------------------------------------------------------------ 表示用の整形
 
+/** 1 接触あたりの日程切り回数 (小数 1 桁)。値が無ければ「-」 */
+export function fmtPerContact(v: number | null): string {
+  return v === null ? '-' : v.toFixed(1);
+}
+
 export function fmtPct(v: number | null, digits = 0): string {
   return v === null ? '-' : `${v.toFixed(digits)}%`;
 }
@@ -112,7 +117,10 @@ export function describeDays(days: string[]): string {
 
 // ------------------------------------------------------------ 並べ替え
 
-export type TalkSortKey = { kind: 'rate' } | { kind: 'outbound' } | { kind: 'dials' } | { kind: 'appointments' } | { kind: 'reviewed' } | { kind: 'item'; id: string };
+export type TalkSortKey =
+  | { kind: 'rate' } | { kind: 'outbound' } | { kind: 'dials' } | { kind: 'appointments' } | { kind: 'reviewed' }
+  | { kind: 'contacts' } | { kind: 'contactRate' } | { kind: 'proposalCalls' } | { kind: 'proposalRate' } | { kind: 'perContact' }
+  | { kind: 'item'; id: string };
 export interface TalkSort { key: TalkSortKey; dir: 'asc' | 'desc' }
 
 /** できた割合 (%)。当てはまる電話が 0 本なら null */
@@ -128,6 +136,11 @@ function sortValue(p: TalkPersonRow, key: TalkSortKey): number | null {
     case 'dials': return p.dials;
     case 'appointments': return p.appointments;
     case 'reviewed': return p.reviewed;
+    case 'contacts': return p.contacts;
+    case 'contactRate': return p.contact_rate_pct;
+    case 'proposalCalls': return p.date_proposal_calls;
+    case 'proposalRate': return p.date_proposal_rate_pct;
+    case 'perContact': return p.proposals_per_contact;
     case 'item': return donePct(p.items.find(i => i.id === key.id));
   }
 }
@@ -227,7 +240,9 @@ const FIXTURE_COUNTS: Record<string, [number, number][]> = {
   demand_denied_short: [[2, 7], [3, 9], [6, 7], [1, 2]],
 };
 
-function person(idx: number, id: string, name: string, team: string, dials: number, appts: number, flagged: boolean, reviewed: number, waiting: number, unavailable: number): TalkPersonRow {
+function person(idx: number, id: string, name: string, team: string, dials: number, appts: number, flagged: boolean, reviewed: number, waiting: number, unavailable: number, contact: [number, number, number, number]): TalkPersonRow {
+  const outbound = Math.round(dials * 2.3);
+  const [contacts, proposalCalls, proposals, pending] = contact;
   const items = FIXTURE_CHECKS.map(c => {
     const [nd, ap] = FIXTURE_COUNTS[c.id]?.[idx] ?? [0, 0];
     const all = FIXTURE_COUNTS[c.id] ?? [];
@@ -236,14 +251,14 @@ function person(idx: number, id: string, name: string, team: string, dials: numb
     const hit = ap >= FIXTURE_RULES.item_min_applicable && tap > 0 && (nd / ap) * 100 >= (tnd / tap) * 100 + FIXTURE_RULES.item_excess_pct;
     return rate(c.id, nd, ap, hit);
   });
-  return { owner_id: id, name, team, outbound: Math.round(dials * 2.3), dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items };
+  return { owner_id: id, name, team, outbound, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, contacts, contact_rate_pct: (contacts / outbound) * 100, date_proposal_calls: proposalCalls, date_proposal_rate_pct: (proposalCalls / outbound) * 100, proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: pending, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items };
 }
 
 export const FIXTURE_PEOPLE: TalkPersonRow[] = [
-  person(0, '9001', '架空 花子', '架空BPOチーム', 220, 5, false, 60, 12, 8),
-  person(1, '9002', 'サンプル 二郎', '架空BPOチーム', 310, 2, true, 70, 6, 4),
-  person(2, '9003', 'ダミー 三郎', '架空営業チーム', 150, 4, false, 45, 3, 2),
-  person(3, '9004', '架空 四郎', '架空営業チーム', 90, 1, false, 12, 20, 6),
+  person(0, '9001', '架空 花子', '架空BPOチーム', 220, 5, false, 60, 12, 8, [150, 60, 96, 4]),
+  person(1, '9002', 'サンプル 二郎', '架空BPOチーム', 310, 2, true, 70, 6, 4, [190, 90, 120, 0]),
+  person(2, '9003', 'ダミー 三郎', '架空営業チーム', 150, 4, false, 45, 3, 2, [100, 45, 80, 2]),
+  person(3, '9004', '架空 四郎', '架空営業チーム', 90, 1, false, 12, 20, 6, [40, 10, 12, 0]),
 ];
 
 function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow {
@@ -251,9 +266,15 @@ function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow
   const dials = sum(p => p.dials ?? 0);
   const outbound = sum(p => p.outbound ?? 0);
   const appts = sum(p => p.appointments);
+  const contacts = sum(p => p.contacts ?? 0);
+  const proposalCalls = sum(p => p.date_proposal_calls ?? 0);
+  const proposals = people.reduce((a, p) => a + (p.proposals_per_contact ?? 0) * (p.contacts ?? 0), 0);
   return {
     owner_id: null, name: 'チーム全体', team: null, outbound, dials, appointments: appts,
     appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: false,
+    contacts, contact_rate_pct: outbound === 0 ? null : (contacts / outbound) * 100,
+    date_proposal_calls: proposalCalls, date_proposal_rate_pct: outbound === 0 ? null : (proposalCalls / outbound) * 100,
+    proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: sum(p => p.contact_pending),
     eligible: sum(p => p.eligible), reviewed: sum(p => p.reviewed), waiting: sum(p => p.waiting), unavailable: sum(p => p.unavailable),
     items: checks.map(c => {
       const nd = sum(p => p.items.find(i => i.id === c.id)?.not_done ?? 0);

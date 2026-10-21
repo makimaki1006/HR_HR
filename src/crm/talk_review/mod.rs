@@ -8,6 +8,7 @@
 //! - `store`: 監査 Turso の表 `call_talk_reviews`
 //! - `dials`: 架電数 (営業KPI と同じ Zoom 由来のシートの値)
 //! - `live_dials`: 今日の架電数を Zoom の通話ログから約 15 分おきに数える
+//! - `contact` / `contact_store` / `contact_worker`: 接触・日程切りの判定 (表 `call_contact_marks`、別の周回)
 //! - `counts`: アポ数 (日ごとにキャッシュ)
 //! - `summary`: 集計と印 (純粋な計算)
 //! - `worker`: 背景で対象の Call を見つけて判定する (`CALL_REVIEW_ENABLED=1` のときだけ)
@@ -17,6 +18,9 @@
 
 pub mod checks;
 pub mod config;
+pub mod contact;
+pub mod contact_store;
+pub mod contact_worker;
 pub mod counts;
 pub mod dials;
 pub mod judge;

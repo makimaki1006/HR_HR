@@ -17,6 +17,8 @@ use tower_sessions::Session;
 
 use super::checks::{defs, loaded};
 use super::config::TalkReviewConfig;
+use super::contact::apply_contact;
+use super::contact_store;
 use super::counts::{CountsCache, TeamOwners};
 use super::dials::{self, Dials};
 use super::store::{self, ReviewRow, ST_FAILED, ST_JUDGED, ST_PENDING, ST_QUEUED, ST_UNAVAILABLE};
@@ -289,6 +291,12 @@ pub(in crate::crm) async fn get_summary(
         appointments: 0,
         appointment_rate_pct: None,
         appointment_rate_flagged: false,
+        contacts: None,
+        contact_rate_pct: None,
+        date_proposal_calls: None,
+        date_proposal_rate_pct: None,
+        proposals_per_contact: None,
+        contact_pending: 0,
         eligible: 0,
         reviewed: 0,
         waiting: 0,
@@ -397,7 +405,7 @@ pub(in crate::crm) async fn get_summary(
             team: Some(m.team),
         })
         .collect();
-    let (people, total) = build(
+    let (mut people, mut total) = build(
         &members,
         dials.as_ref().map(|d| &d.by_owner),
         dials.as_ref().map(|d| &d.calls_by_owner),
@@ -406,6 +414,21 @@ pub(in crate::crm) async fn get_summary(
         &ids,
         &ALERT_RULES,
     );
+    // 接触・日程切り。読めなければ空欄にする (ほかの列は出す)
+    let marks = match state.audit.clone() {
+        Some(audit) => {
+            let (a, b) = utc_bounds(from, to);
+            match store::blocking(&audit, move |t| contact_store::aggregate(t, &a, &b)).await {
+                Ok(m) => Some(m),
+                Err(e) => {
+                    tracing::warn!(error = %e, "talk review: contact marks read failed");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    apply_contact(&mut people, &mut total, marks.as_ref());
     Json(base(true, people, total, &snap.counting, dials.as_ref())).into_response()
 }
 

@@ -760,11 +760,19 @@ pub fn spawn_worker(state: Arc<AppState>) {
         return;
     };
     tracing::info!(model = %cfg.model, teams = ?cfg.teams, "talk review worker started");
+    let judge = Arc::new(judge);
+    super::contact_worker::spawn(
+        audit.clone(),
+        client.clone(),
+        zoom.clone(),
+        judge.clone(),
+        cfg.clone(),
+    );
     let w = Worker {
         audit,
         client,
         zoom,
-        judge: Arc::new(judge),
+        judge,
         cfg,
         known: HashSet::new(),
         team: None,

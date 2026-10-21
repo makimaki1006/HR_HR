@@ -22,6 +22,10 @@ pub struct TalkReviewConfig {
     pub per_person_day: u32,
     /// 同時に判定する本数
     pub concurrency: usize,
+    /// 接触・日程切りの判定を遡る日数 (`CALL_CONTACT_BACKFILL_DAYS`、既定 7、最大 62)
+    pub contact_backfill_days: i64,
+    /// 接触の判定を同時に進める本数 (`CALL_CONTACT_CONCURRENCY`、既定 16、最大 64)
+    pub contact_concurrency: usize,
     /// 判定の対象にする HubSpot のチーム。
     /// 既定は BPO (`APPOINTMENT_TEAMS` = BPO_リクロジ) と新規営業 (`SALES_TEAM`、`caller_metrics_month` が
     /// 「今月」を出すチームと同じ名前。設計書 §19)。
@@ -77,6 +81,14 @@ impl TalkReviewConfig {
                 .and_then(|s| s.parse::<usize>().ok())
                 .filter(|n| (1..=MAX_CONCURRENCY).contains(n))
                 .unwrap_or(4),
+            contact_backfill_days: text("CALL_CONTACT_BACKFILL_DAYS")
+                .and_then(|s| s.parse::<i64>().ok())
+                .filter(|n| (1..=62).contains(n))
+                .unwrap_or(7),
+            contact_concurrency: text("CALL_CONTACT_CONCURRENCY")
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|n| (1..=MAX_CONCURRENCY).contains(n))
+                .unwrap_or(16),
             teams,
         }
     }
@@ -100,6 +112,7 @@ mod tests {
         assert_eq!(c.backfill_days, 14);
         assert_eq!(c.interval, Duration::from_secs(600));
         assert_eq!((c.per_person_day, c.concurrency), (10, 4));
+        assert_eq!((c.contact_backfill_days, c.contact_concurrency), (7, 16));
         assert_eq!(
             c.teams,
             vec!["BPO_リクロジ".to_string(), "新規営業".to_string()]
@@ -139,5 +152,23 @@ mod tests {
             .map(String::from)
         });
         assert_eq!((c.per_person_day, c.concurrency), (3, 64));
+        let c = TalkReviewConfig::from_lookup(|k| {
+            match k {
+                "CALL_CONTACT_BACKFILL_DAYS" => Some("62"),
+                "CALL_CONTACT_CONCURRENCY" => Some("65"),
+                _ => None,
+            }
+            .map(String::from)
+        });
+        assert_eq!((c.contact_backfill_days, c.contact_concurrency), (62, 16));
+        let c = TalkReviewConfig::from_lookup(|k| {
+            match k {
+                "CALL_CONTACT_BACKFILL_DAYS" => Some("63"),
+                "CALL_CONTACT_CONCURRENCY" => Some("64"),
+                _ => None,
+            }
+            .map(String::from)
+        });
+        assert_eq!((c.contact_backfill_days, c.contact_concurrency), (7, 64));
     }
 }
