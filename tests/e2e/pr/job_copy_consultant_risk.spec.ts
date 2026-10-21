@@ -65,8 +65,8 @@ test('固定一覧・求人詳細からホームへ戻り、担当を保つ', as
   await login(page);
   for (const query of ['source=fixed&data=actual', 'listing=501']) {
     await page.goto(`/app/job-copy?${query}&owner=22&owner_field=consultant`);
-    await page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: 'ホーム', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'ホーム', exact: true })).toBeVisible();
+    await page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: '今日', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
     await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('22');
     expect(new URL(page.url()).searchParams.has('listing')).toBe(false);
     expect(new URL(page.url()).searchParams.has('source')).toBe(false);
