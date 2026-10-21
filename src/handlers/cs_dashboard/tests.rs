@@ -6094,7 +6094,17 @@ fn team_status_matches_today_and_board() {
     );
     // 束ねた中身は元の集計と同じ（作り直していない）
     assert_eq!(team["consultants"], cons);
-    assert_eq!(team["handover"], build_handover(&sh, day));
+    // 2026-10-21 メニュー整理: 担当の交代と録画の未結び付きは月1の「成果と継続」へ移した。チームと担当の応答には載せない
+    assert!(
+        team.get("handover").is_none(),
+        "チームと担当に担当の交代が残っている"
+    );
+    assert!(
+        team.get("pending_recordings").is_none(),
+        "チームと担当に録画の未結び付きが残っている"
+    );
+    let res = build_results(&sh, false, day);
+    assert_eq!(res["handover"], build_handover(&sh, day));
 }
 
 /// 09 の 7「成果と継続」: 束ねた中身は元の集計そのもの（定義を作り直していない）。打ち切りの切り替えも渡る
@@ -6142,7 +6152,22 @@ fn results_bundles_existing_aggregates() {
         keys(&v["meta"]["act_views"]),
         keys(&board["meta"]["act_views"])
     );
-    assert_eq!(keys(&v["meta"]["act_views"]).len(), 4);
+    // 2026-10-21 メニュー整理: 滞留の2つと NPS 4以下を足して7つ
+    assert_eq!(
+        keys(&v["meta"]["act_views"])
+            .iter()
+            .map(|(k, _)| k.trim_matches('"').to_string())
+            .collect::<Vec<_>>(),
+        vec![
+            "top",
+            "silent",
+            "no_mtg",
+            "mtg_risk",
+            "stay_esc",
+            "stay_long",
+            "nps_low"
+        ]
+    );
 }
 
 /// 09 の 7・10 章②: 成果と継続は「定期NPS 4以下」の表を段B の仮置きに入れず、名札「NPSが4以下」への
@@ -7138,12 +7163,16 @@ fn team_without_audit_keeps_counts_and_omits_comparison() {
 #[test]
 fn pending_recordings_requires_exact_header_and_sorts_newest_first() {
     let mut sh = trend_tiny("2026-09-18 09:00:00");
-    assert!(build_team(&sh, fixture_day())["pending_recordings"].is_null());
+    // 2026-10-21: 録画の未結び付きは「成果と継続」の束に載る（チームと担当からは移した）
+    assert!(build_team(&sh, fixture_day())
+        .get("pending_recordings")
+        .is_none());
+    assert!(build_results(&sh, false, fixture_day())["pending_recordings"].is_null());
     sh.pending_recordings = Some(tiny(&["deal_id", "name"], &[&["sample-a", "架空案件"]]));
-    assert!(build_team(&sh, fixture_day())["pending_recordings"].is_null());
+    assert!(build_results(&sh, false, fixture_day())["pending_recordings"].is_null());
     sh.pending_recordings = Some(tiny(super::routes::PENDING_RECORDING_HEADER, &[]));
     assert_eq!(
-        build_team(&sh, fixture_day())["pending_recordings"]["rows"],
+        build_results(&sh, false, fixture_day())["pending_recordings"]["rows"],
         serde_json::json!([])
     );
     sh.pending_recordings = Some(tiny(
@@ -7169,7 +7198,7 @@ fn pending_recordings_requires_exact_header_and_sorts_newest_first() {
             ],
         ],
     ));
-    let v = build_team(&sh, fixture_day());
+    let v = build_results(&sh, false, fixture_day());
     let rows = v["pending_recordings"]["rows"].as_array().unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(
@@ -7450,4 +7479,59 @@ fn 滞留の件数_fixture() {
         "1278456227"
     ]
     .contains(&r["stage"].as_str().unwrap())));
+}
+
+/// 2026-10-21 メニュー整理: 「滞留した案件」「いま見るべき顧客」の表を案件一覧のよく使う絞り込みにした。
+/// 件数と案件の集合が、元の画面（stage_stay・focus）と一致すること。滞留は満了後も稼働中の案件を数えない（元の画面の表の分け方）。
+#[test]
+fn act_views_stay_and_nps_match_the_original_screens() {
+    let sh = sheets();
+    let day = fixture_day();
+    let board = build_deal_board(&sh, day);
+    let views = board["meta"]["act_views"].as_array().unwrap();
+    let n = |k: &str| -> u64 {
+        views
+            .iter()
+            .find(|v| v["key"] == k)
+            .unwrap_or_else(|| panic!("見方 {k} が無い"))["n"]
+            .as_u64()
+            .unwrap()
+    };
+    let ids_of = |k: &str| -> std::collections::BTreeSet<String> {
+        board["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["views"].as_array().unwrap().iter().any(|x| x == k))
+            .map(|r| r["deal_id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // 具体値（fixture・基準日 2026-09-18）。元の画面「滞留した案件」の札と同じ
+    assert_eq!(n("stay_esc"), 10);
+    assert_eq!(n("stay_long"), 183);
+    // いま見るべき顧客の「定期NPS 4以下」の表と同じ
+    assert_eq!(n("nps_low"), 41);
+
+    let st = super::stage_stay::build_stage_stay(&sh, day);
+    let set = |pred: &dyn Fn(&Value) -> bool| -> std::collections::BTreeSet<String> {
+        st["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| pred(r))
+            .map(|r| r["deal_id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(ids_of("stay_esc"), set(&|r| r["escalation"] == true));
+    assert_eq!(ids_of("stay_long"), set(&|r| r["escalation"] != true));
+    // 満了後も稼働中の案件は滞留に数えない（元の画面でも上の表に入れている）
+    assert!(ids_of("stay_esc").is_disjoint(&ids_of("stay_long")));
+
+    let nps: std::collections::BTreeSet<String> = build_focus(&sh, day)["nps_low"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["deal_id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ids_of("nps_low"), nps);
 }

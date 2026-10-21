@@ -7,7 +7,7 @@ import { consultingFixture } from './helpers/consulting_layout_fixture';
 const template = readFileSync(process.env.CS_LAYOUT_TEMPLATE || resolve(__dirname, '../../../templates/tabs/cs_dashboard.html'), 'utf8');
 test.use({ actionTimeout: 10_000 });
 
-const screens = ['deal/team', 'deal/today', 'deal/board', 'research/customer', 'research/focus', 'research/renewalpipe', 'research/phone', 'monthly/results', 'monthly/trust', 'deal/byowner', 'deal/detail'];
+const screens = ['deal/team', 'deal/today', 'deal/board', 'research/customer', 'research/focus', 'monthly/renewalpipe', 'research/phone', 'monthly/results', 'monthly/trust', 'deal/byowner', 'deal/detail'];
 const scenarios = [
   { label: 'empty', count: 0, months: 0, long: false },
   { label: 'first-week', count: 1, months: 1, long: true },

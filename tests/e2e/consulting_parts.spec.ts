@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 // 共通部品と移動の確認。外部サービスを呼ばず、架空の案件を表示する。
 const row = {
   deal_id: 'sample-1', name: '架空の採用支援', consultant: '担当サンプル',
-  flags: ['採用目標の半分に届いていない', '満了まで60日以内', 'MTGが90日以上空いている'],
+  flags: ['採用目標の半分に届いていない', '満了まで60日以内', 'MTGが60日以上空いている'],
   n_flags: 3, amount: 1200000, days_left: 30, is_active: true,
   start: '2026-04-01', expiration: '2026-10-31', renewal_no: 1,
 };
@@ -34,16 +34,16 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('サイドバーは9項目で、非表示の2画面もハッシュから開ける', async ({ page }) => {
+test('サイドバーは6項目で、非表示の2画面もハッシュから開ける', async ({ page }) => {
   await page.goto('/consulting#deal/byowner');
   await expect(page.locator('#owner-tbl')).toContainText('担当サンプル');
-  await expect(page.locator('#cs-side button')).toHaveCount(9);
+  await expect(page.locator('#cs-side button')).toHaveCount(6);
   await expect(page.locator('#cs-side')).not.toContainText('担当者ごとの案件');
   await expect(page.locator('#cs-side')).not.toContainText('案件の詳細');
   await page.locator('#owner-tbl a.drill').click();
   await expect(page.locator('#board-tbl')).toContainText(row.name);
   await page.goto('/consulting#deal/detail');
-  await expect(page.locator('#cs-main')).toContainText('どの案件の中身を見るか');
+  await expect(page.locator('#cs-main')).toContainText('案件名・拠点名の一部で探せます');
   await expect(page).toHaveTitle('案件の詳細 — コンサルダッシュボード');
 });
 
@@ -51,11 +51,11 @@ test('案件名から詳細へ移動でき、注意と鮮度に条件と全文�
   await page.goto('/consulting#deal/board');
   const table = page.locator('#board-tbl');
   await expect(table).toContainText(row.name);
-  await expect(page.locator('#cs-main h2').first()).toHaveText('案件はいまどの状態か');
+  await expect(page.locator('#cs-main h2').first()).toContainText('稼働中の案件（1行が取引1件）');
   await expect(page.locator('#cs-main h2').first().locator('xpath=following-sibling::*[1]')).not.toHaveClass(/sec-hint/);
   const tags = table.locator('tbody tr').first().locator('.tag');
   await expect(tags).toHaveCount(3);
-  await expect(tags.nth(0)).toHaveText('MTG90日以上空いている');
+  await expect(tags.nth(0)).toHaveText('MTG60日以上空いている');
   await expect(tags.nth(1)).toHaveText('満了60日以内');
   await expect(tags.nth(2)).toHaveText('他1');
   await expect(tags.nth(2)).toHaveCSS('font-size', '12px');
@@ -100,8 +100,8 @@ test('見出しの補足とカード全文を残し、注意書きは畳まな�
 test('古い注意のリンクを開いても案件を絞り込める', async ({ page }) => {
   await page.goto('/consulting#deal/board?flag=' + encodeURIComponent('MTGが90日以上途絶'));
   await expect(page.locator('#board-tbl')).toContainText(row.name);
-  await expect(page.locator('#bf-flag')).toHaveValue('MTGが90日以上空いている');
-  await expect(page).toHaveURL(new RegExp(encodeURIComponent('MTGが90日以上空いている')));
+  await expect(page.locator('#bf-flag')).toHaveValue('MTGが60日以上空いている');
+  await expect(page).toHaveURL(new RegExp(encodeURIComponent('MTGが60日以上空いている')));
   await expect(page.locator('#cs-main')).not.toContainText('途絶');
   await expect(page.locator('#cs-main h2.mincho .no')).toHaveCount(0);
 });

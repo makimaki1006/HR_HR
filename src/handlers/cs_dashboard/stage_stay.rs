@@ -12,7 +12,7 @@
 //! - 紹介料の取引・オプション契約は `deals_of` で外れている。
 //! - 履歴にステージの変更が無い案件は入った日が分からない。黙って落とさず件数を返す。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
 use serde_json::{json, Value};
@@ -154,6 +154,25 @@ pub(super) fn stage_stay_of(
         },
         "rows": rows.into_iter().map(|r| r.3).collect::<Vec<_>>(),
     })
+}
+
+/// 案件一覧の見方「同じステージに 45 日超」「満了後も稼働中」の案件 ID。
+/// 🔴 「滞留した案件」の画面と同じ集合・同じ分け方（満了後も稼働中の案件は滞留の側に入れない）。
+///    集計は `stage_stay_of` の1か所だけに置き、ここは行の印を読むだけにする。
+pub(super) fn view_ids(sheets: &Sheets, today: NaiveDate) -> (HashSet<String>, HashSet<String>) {
+    let v = build_stage_stay(sheets, today);
+    let (mut long, mut esc) = (HashSet::new(), HashSet::new());
+    for r in v["rows"].as_array().into_iter().flatten() {
+        let Some(id) = r["deal_id"].as_str() else {
+            continue;
+        };
+        if r["escalation"] == true {
+            esc.insert(id.to_string());
+        } else if r["stay"] == true {
+            long.insert(id.to_string());
+        }
+    }
+    (long, esc)
 }
 
 #[cfg(test)]
