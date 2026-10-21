@@ -62,6 +62,7 @@ export const reasonSourceLabels: Record<string, string> = {
   kanrengyoumukeiken: '関連業務経験',
   shuugyoujoukyou: '就業状況',
   kinmujoukennoyuusenjuni: '勤務条件の優先順位',
+  honnin_kibou_kinyuuran: '本人希望記入欄',
   oubonoheiganjoukyou: '併願状況',
   kyuujinkensakujouken: '求人の探し方（検索条件）',
   shigotosagashinohanikoutsuushudan: '仕事探しの範囲・交通手段',
@@ -73,12 +74,18 @@ export const reasonSourceLabels: Record<string, string> = {
   bikou_hiaringu: '備考',
   call_notes: '架電メモ',
 };
-/** Free-text sources about why the person applied (classified into the reason categories). */
-export const APPLICATION_TEXT_SOURCES = ['oubodouki', 'ouboriyuu_baitaikisai', 'ouboriyuu_hiaringu'];
+/**
+ * Free-text sources about why the person applied (classified into the reason categories).
+ * 勤務条件の優先順位 and 本人希望記入欄 belong here only: a text is counted under one source, so the
+ * same sentence is never counted both as an application reason and as a phone hearing text.
+ */
+export const APPLICATION_TEXT_SOURCES = ['oubodouki', 'ouboriyuu_baitaikisai', 'ouboriyuu_hiaringu', 'kinmujoukennoyuusenjuni', 'honnin_kibou_kinyuuran'];
 /** Free text about leaving the current or last job. Shown and classified on its own, never mixed with application reasons. */
 export const TRANSFER_TEXT_SOURCE = 'genshokumaeshokukaranotenshokuriyuu';
-export const HEARING_TEXT_SOURCES = ['hoyuushikaku_hiaringu', 'kanrengyoumukeiken', 'shuugyoujoukyou', 'kinmujoukennoyuusenjuni', 'oubonoheiganjoukyou', 'kyuujinkensakujouken', 'shigotosagashinohanikoutsuushudan', 'nyuushakiboujiki', 'ichijitaiou_azukatta_shitsumon', 'ichijitaiou_jitai_riyuu', 'ichijitaiou_shokan_memo', 'tokukijikou', 'bikou_hiaringu', 'call_notes'];
-export const HEARING_CLASSIFICATION_SOURCES = ['kinmujoukennoyuusenjuni', 'oubonoheiganjoukyou', 'ichijitaiou_shokan_memo', 'bikou_hiaringu', 'call_notes'];
+export const HEARING_TEXT_SOURCES = ['hoyuushikaku_hiaringu', 'kanrengyoumukeiken', 'shuugyoujoukyou', 'oubonoheiganjoukyou', 'kyuujinkensakujouken', 'shigotosagashinohanikoutsuushudan', 'nyuushakiboujiki', 'ichijitaiou_azukatta_shitsumon', 'ichijitaiou_jitai_riyuu', 'ichijitaiou_shokan_memo', 'tokukijikou', 'bikou_hiaringu', 'call_notes'];
+export const HEARING_CLASSIFICATION_SOURCES = ['oubonoheiganjoukyou', 'ichijitaiou_shokan_memo', 'bikou_hiaringu', 'call_notes'];
+/** The sources of a stored file written from 2026-10-08 until 勤務条件の優先順位 and 本人希望記入欄 were added. */
+export const PREVIOUS_SOURCES = ['oubodouki', 'ouboriyuu_baitaikisai', 'ouboriyuu_hiaringu', 'genshokumaeshokukaranotenshokuriyuu', 'ouboriyuukategori_hiaringu', 'ouboriyuukategori_baitaikisai'];
 export const TEXT_SOURCES = [...APPLICATION_TEXT_SOURCES, TRANSFER_TEXT_SOURCE, ...HEARING_TEXT_SOURCES];
 export const CATEGORY_SOURCES = ['ouboriyuukategori_hiaringu', 'ouboriyuukategori_baitaikisai'];
 /** The sources of a stored file written before 2026-10-08. */

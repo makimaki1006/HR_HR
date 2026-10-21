@@ -103,7 +103,7 @@ test('the first view shows the full-height list beside the timeline, tabs stay o
 test('functional tabs isolate applicants, reasons, application trends, market graphs and tables while retaining same-job selections', async ({ page }) => {
   await setup(page);
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-  await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由']);
+  await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']);
   await expect(primary.getByRole('tab', { name: '本文・画像', exact: true })).toHaveAttribute('aria-selected', 'true');
   const panel = (name: string) => page.getByRole('tabpanel', { name, exact: true });
   await expect(jobFeaturePanel(page, 'body').locator('.jc-body')).toHaveText('合成Aの求人本文です。');

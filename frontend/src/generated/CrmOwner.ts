@@ -6,7 +6,7 @@ export type CrmOwner = {
  */
 id: string, 
 /**
- * 姓名 (空なら email の @ より前、それも無ければ「(名前なし)」)
+ * 「姓 名」(空なら email の @ より前、それも無ければ「(名前なし)」)
  */
 name: string, email: string | null, 
 /**

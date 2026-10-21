@@ -255,7 +255,7 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
       onOpenDrawer={(kind, event) => { setWhoSelection(event?.previousVersionId && event.versionId ? [event.previousVersionId, event.versionId] : undefined); setDrawer({ kind, event }); }} />
     <section className="lo-more" aria-label="ほかの分析">
       <h2>ほかの分析</h2>
-      <p>本文・画像、タイムライン、変更差分、求人比較、応募者構成、応募理由を、横から開く画面のタブで切り替えて確認します。</p>
+      <p>本文・画像、タイムライン、変更差分、求人比較、応募者構成、応募理由、要因・仮説を、横から開く画面のタブで切り替えて確認します。</p>
       <div><button type="button" className="jc-button" onClick={() => { openFeatureFromContent(jobFeatureMenu.some(feature => feature.id === tab) ? tab : 'timeline'); }}>ほかの分析を開く</button></div>
     </section>
     {drawer && <ListingDrawer title={drawer.kind === 'who' ? '応募者・応募理由の前後' : drawer.kind === 'market' ? '市場の推移' : '課金・クリック'} onClose={() => { setDrawer(null); }}>

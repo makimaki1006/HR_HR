@@ -5,12 +5,12 @@ import { JobFeaturePanel, JobFeatureTabs, jobFeatureMenu } from './JobFeatureTab
 
 afterEach(cleanup);
 describe('functional job tabs', () => {
-  it('shows six flat tabs and opens the remembered function of a group', () => {
+  it('shows seven flat tabs and opens the remembered function of a group', () => {
     const change = vi.fn();
     render(<JobFeatureTabs value="body" onChange={change} remembered={{ content: 'body' }} prefix="test">content</JobFeatureTabs>);
     const tabs = screen.getByRole('tablist', { name: '求人管理の機能' });
-    expect(within(tabs).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由']);
-    expect(jobFeatureMenu.map(feature => feature.id)).toEqual(['timeline', 'body', 'diff', 'ab', 'applicants', 'reasons']);
+    expect(within(tabs).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']);
+    expect(jobFeatureMenu.map(feature => feature.id)).toEqual(['timeline', 'body', 'diff', 'ab', 'applicants', 'reasons', 'factors']);
     // サブタブの段は無い
     expect(screen.queryByRole('tablist', { name: '本文・画像の表示' })).toBeNull();
     expect(screen.getByRole('tab', { name: '本文・画像' }).getAttribute('tabindex')).toBe('0');
@@ -29,7 +29,7 @@ describe('functional job tabs', () => {
     fireEvent.keyDown(primary.getByRole('tab', { name: '変更差分' }), { key: 'Home' });
     expect(change).toHaveBeenLastCalledWith('timeline');
     fireEvent.keyDown(primary.getByRole('tab', { name: '変更差分' }), { key: 'End' });
-    expect(change).toHaveBeenLastCalledWith('reasons');
+    expect(change).toHaveBeenLastCalledWith('factors');
     const leaf = screen.getByRole('tab', { name: '変更差分' });
     expect(document.getElementById(leaf.getAttribute('aria-controls') ?? '')).toBe(document.getElementById('keys-group-panel'));
     const panel = document.getElementById('keys-panel-diff');
@@ -40,8 +40,8 @@ describe('functional job tabs', () => {
     const leave = vi.fn();
     render(<JobFeatureTabs value="market-table" onChange={vi.fn()} remembered={{}} prefix="hidden" onLeaveHidden={leave}><JobFeaturePanel feature="market-table" active prefix="hidden">table content</JobFeaturePanel></JobFeatureTabs>);
     const tabs = within(screen.getByRole('tablist', { name: '求人管理の機能' })).getAllByRole('tab');
-    expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual(['false', 'false', 'false', 'false', 'false', 'false']);
-    expect(tabs.map(tab => tab.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1', '-1', '-1']);
+    expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual(['false', 'false', 'false', 'false', 'false', 'false', 'false']);
+    expect(tabs.map(tab => tab.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1', '-1', '-1', '-1']);
     expect(screen.getByRole('heading', { name: '市場データ' })).toBeTruthy();
     const panel = document.getElementById('hidden-panel-market-table');
     expect(panel?.textContent).toBe('table content');

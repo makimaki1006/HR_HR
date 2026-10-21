@@ -17,7 +17,7 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/static/app/job-copy-preview.html');
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-  await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由']);
+  await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']);
   await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
   const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
   for (const lane of ['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場']) await expect(timeline.getByRole('group', { name: lane, exact: true })).toBeVisible();

@@ -1,5 +1,5 @@
 import type { ApplicantReasonCollection, OptionLabelsStatus, ReasonSelection, ReasonSourceCounts } from './applicantReasonsModel';
-import { CATEGORY_SOURCES, LEGACY_SOURCES, TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
+import { CATEGORY_SOURCES, LEGACY_SOURCES, PREVIOUS_SOURCES, TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
 import { maskPersonalDetails } from './personalText';
 
 const OPTION_LABEL_STATUSES: OptionLabelsStatus[] = ['read', 'unavailable', 'not_stored'];
@@ -40,8 +40,12 @@ export function parseApplicantReasons(value: unknown, totalApplicants: number, p
   // A stored file written before 2026-10-08 has the three old sources, no applicant keys and no
   // selections; the other sources are then 未取得 (absent), never 0.
   const legacy = Object.keys(sourceRaw).length === LEGACY_SOURCES.length;
-  const sourceKeys = legacy ? LEGACY_SOURCES : Object.keys(sourceRaw).length === 6 ? [...LEGACY_SOURCES, 'genshokumaeshokukaranotenshokuriyuu', ...CATEGORY_SOURCES] : Object.keys(reasonSourceLabels);
-  const textSources = legacy ? LEGACY_SOURCES : TEXT_SOURCES;
+  // Six sources: a stored file before 勤務条件の優先順位 and 本人希望記入欄 were read; eight: the stored file
+  // since; all of reasonSourceLabels: a live read together with the phone hearing.
+  const previous = Object.keys(sourceRaw).length === PREVIOUS_SOURCES.length;
+  const stored = Object.keys(sourceRaw).length === 8;
+  const sourceKeys = legacy ? LEGACY_SOURCES : previous ? PREVIOUS_SOURCES : stored ? [...PREVIOUS_SOURCES.slice(0, 4), 'kinmujoukennoyuusenjuni', 'honnin_kibou_kinyuuran', ...CATEGORY_SOURCES] : Object.keys(reasonSourceLabels);
+  const textSources = legacy ? LEGACY_SOURCES : previous ? PREVIOUS_SOURCES.slice(0, 4) : TEXT_SOURCES;
   if (legacy !== (raw.selections === undefined)) return invalid();
   // Not in a stored file written before 2026-10-08 (no selections there); optional otherwise.
   if (legacy && raw.option_labels !== undefined) return invalid();

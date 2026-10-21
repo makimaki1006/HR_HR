@@ -1128,7 +1128,7 @@ async fn applicants_related_cards_reuse_batches_and_select_exact_sheet_deal() {
     let deal_fields = body["deals"][0]["fields"].as_array().unwrap();
     for (label, value) in [
         ("取引ステージ", "契約中"),
-        ("取引担当者", "担当 架空"),
+        ("取引担当者", "架空 担当"),
         ("契約開始日", "2026/10/01"),
         ("応募報告先", "架空報告窓口"),
         ("足切り条件", "資格を確認"),
