@@ -1,4 +1,6 @@
 //! Read-only job management. Existing HubSpot associations remain the source of truth.
+#[path = "job_copy_live/apply_reasons.rs"]
+mod apply_reasons;
 #[path = "job_copy_live/recent_changes.rs"]
 mod recent_changes;
 #[path = "job_copy_live/report_snapshot.rs"]
@@ -211,6 +213,7 @@ pub struct JobReadService {
     audit: Option<crate::audit::AuditDb>,
     reports_restored: Arc<tokio::sync::OnceCell<()>>,
     recent_changes: Arc<recent_changes::Cache>,
+    apply_reasons: Arc<apply_reasons::Cache>,
     owner_todo: Arc<owner_todo::Cache>,
     /// Every HubSpot read goes through this client (the process-wide gateway: rate limit,
     /// priority, bounded waiting, global 429 pause, coalescing of identical reads).
@@ -262,6 +265,7 @@ impl JobReadService {
             audit: None,
             reports_restored: Arc::default(),
             recent_changes: Arc::default(),
+            apply_reasons: Arc::default(),
             owner_todo: Arc::default(),
             labels: Arc::default(),
             publication: Arc::default(),
@@ -2153,6 +2157,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route("/api/job-copy/home", get(listings::read_home))
         .route("/api/job-copy/deals/{id}/todo", get(owner_todo::read_deal))
         .route("/api/job-copy/recent-changes", get(recent_changes::read))
+        .route("/api/job-copy/apply-reasons", get(apply_reasons::read))
         .route(
             "/api/job-copy/listing-body-dates",
             get(listings::read_body_dates),
