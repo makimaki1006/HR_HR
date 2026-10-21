@@ -42,7 +42,7 @@ pub const MAX_OWNER_PAGES: usize = 30;
 pub struct CrmOwner {
     /// HubSpot owner ID (架電キューの `owner` パラメータにそのまま渡す)
     pub id: String,
-    /// 姓名 (空なら email の @ より前、それも無ければ「(名前なし)」)
+    /// 「姓 名」(空なら email の @ より前、それも無ければ「(名前なし)」)
     pub name: String,
     pub email: Option<String>,
     /// 退職者など (HubSpot 上でアーカイブ済み)
@@ -152,7 +152,8 @@ fn parse_owner(v: &Value, archived: bool) -> Option<CrmOwner> {
         return None;
     }
     let email = s(v, "email");
-    let full = [s(v, "firstName"), s(v, "lastName")]
+    // 日本語の表記に合わせて「姓 名」の順 (HubSpot・Zoom は名・姓の順で持つ。営業KPI と同じ)
+    let full = [s(v, "lastName"), s(v, "firstName")]
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
