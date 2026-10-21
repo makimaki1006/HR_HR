@@ -1,5 +1,5 @@
 //! 案件一覧。取引は既存の5分キャッシュ、MTGはKPIの先読み済みシートだけを使う。
-use super::owner_todo::{OwnerQuery, Snapshot, ENDED_STAGES};
+use super::owner_todo::{OwnerQuery, Snapshot, WorkDeal, ENDED_STAGES};
 use super::*;
 use crate::handlers::cs_dashboard::{
     self as cs,
@@ -165,15 +165,41 @@ impl<'a> Metrics<'a> {
         if cs::high_cpa(cs::cpa(d), median) {
             add("cpa", "採用単価が同じ進捗帯の1.5倍以上", false);
         }
-        if work.record.value("pipeline") == Some("21596025") {
-            if let Some(last) = &self.meetings.last {
-                let gap = cs::mtg_gap_of(d, last, today);
-                if let Some(days) = gap.days {
-                    let band = cs::mtg_band_for_days(days);
-                    if band.is_alert() {
-                        add("mtg", band.label(), days >= cs::MTG_GAP_CRITICAL_DAYS);
-                    }
-                }
+        if let Some(days) = self.mtg_days(work, today) {
+            let band = cs::mtg_band_for_days(days);
+            if band.is_alert() {
+                add("mtg", band.label(), days >= cs::MTG_GAP_CRITICAL_DAYS);
+            }
+        }
+        reasons
+    }
+    /// 最後の MTG からの日数（MTG の集計対象の契約で、記録があるときだけ）。
+    fn mtg_days(&self, work: &WorkDeal, today: NaiveDate) -> Option<i64> {
+        if work.record.value("pipeline") != Some("21596025") {
+            return None;
+        }
+        let last = self.meetings.last.as_ref()?;
+        let d = self.deals.get(&work.record.id)?;
+        cs::mtg_gap_of(d, last, today).days
+    }
+    /// ホームの要対応と取引ごとの「次にやること」で使う理由。
+    /// 「MTGが途絶えている」は案件管理で決めた基準（60 日以上）で絞る。
+    /// 案件一覧の印は共有の段階（`reasons`）のまま。
+    pub(super) fn todo_reasons(
+        &self,
+        snapshot: &Snapshot,
+        id: &str,
+        today: NaiveDate,
+    ) -> Vec<Value> {
+        let mut reasons = self.reasons(snapshot, id, today);
+        if reasons.iter().any(|r| r["kind"] == "mtg") {
+            let long_gap = snapshot
+                .deals
+                .get(id)
+                .and_then(|w| self.mtg_days(w, today))
+                .is_some_and(|days| days >= super::todo_signals::MTG_DAYS);
+            if !long_gap {
+                reasons.retain(|r| r["kind"] != "mtg");
             }
         }
         reasons
@@ -370,6 +396,33 @@ mod tests {
                 assert_eq!(mtg["strong"], strong);
                 assert_eq!(mtg["text"], label.unwrap());
             }
+        }
+    }
+    #[test]
+    fn home_todo_mtg_reason_needs_sixty_days_but_deal_board_mark_keeps_shared_bands() {
+        let s = snapshot(120, "5", "21596025");
+        for (days, in_todo) in [
+            (29, false),
+            (30, false),
+            (59, false),
+            (60, true),
+            (89, true),
+            (90, true),
+        ] {
+            let m = meetings(days);
+            let metrics = Metrics::new(&s, &m, day());
+            let has = |v: Vec<Value>| v.iter().any(|r| r["kind"] == "mtg");
+            assert_eq!(
+                has(metrics.todo_reasons(&s, "1", day())),
+                in_todo,
+                "days={days}"
+            );
+            // 案件一覧の印は共有の段階（30 日から）のまま
+            assert_eq!(
+                has(metrics.reasons(&s, "1", day())),
+                days >= 30,
+                "days={days}"
+            );
         }
     }
     #[test]
