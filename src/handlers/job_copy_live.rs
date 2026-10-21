@@ -1121,7 +1121,6 @@ struct CachedSnapshot {
 }
 #[derive(Clone)]
 pub(super) struct Access {
-    allowed: BTreeSet<String>,
     service: Option<Arc<JobReadService>>,
     moc_path: Option<PathBuf>,
     moc_drive: Result<Option<SnapshotPointer>, &'static str>,
@@ -1210,12 +1209,16 @@ struct ReadQuery {
 fn authorize<'a>(
     email: Option<&'a str>,
     method: Option<&str>,
-    allowed: &BTreeSet<String>,
+    allowed_domains: &[String],
 ) -> Result<&'a str, ReadError> {
     let email = email
         .filter(|email| !email.is_empty())
         .ok_or(ReadError(StatusCode::UNAUTHORIZED, "login_required"))?;
-    if method != Some(LOGIN_METHOD_GOOGLE_OIDC) || !allowed.contains(&email.to_lowercase()) {
+    // 会社ドメイン (ALLOWED_DOMAINS。外部追加ドメインは含めない) の Google ログインなら誰でも読める。
+    // 個別のメール一覧 (旧 JOB_COPY_ALLOWED_EMAILS) は読まない。
+    if method != Some(LOGIN_METHOD_GOOGLE_OIDC)
+        || !crate::auth::validate_email_domain(email, allowed_domains)
+    {
         return Err(ReadError(StatusCode::FORBIDDEN, "job_copy_access_denied"));
     }
     Ok(email)
@@ -1233,7 +1236,11 @@ pub(super) async fn authorized_user(
         .get(SESSION_LOGIN_METHOD_KEY)
         .await
         .map_err(|_| fail("session_unavailable"))?;
-    let email = authorize(email.as_deref(), method.as_deref(), &access.allowed)?;
+    let email = authorize(
+        email.as_deref(),
+        method.as_deref(),
+        &state.config.allowed_domains,
+    )?;
     if crate::account_is_disabled(state, email).await {
         return Err(ReadError(StatusCode::FORBIDDEN, "account_disabled"));
     }
@@ -2080,12 +2087,6 @@ pub fn router_for_state(state: &Arc<AppState>) -> Router<Arc<AppState>> {
     router_with_index(Some(state))
 }
 fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
-    let allowed = std::env::var("JOB_COPY_ALLOWED_EMAILS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty())
-        .collect();
     let service = std::env::var("HUBSPOT_ACCESS_TOKEN")
         .ok()
         .and_then(|t| JobReadService::new(t).ok())
@@ -2126,7 +2127,6 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
     let drive_config_error = parsed_listings.as_ref().err().copied();
     let drive_listings = parsed_listings.unwrap_or_default();
     let access = Access {
-        allowed,
         service,
         images,
         drive_listings,
@@ -2380,30 +2380,40 @@ mod tests {
         );
     }
     #[test]
-    fn only_explicit_oidc_users_may_read() {
-        let allowed = BTreeSet::from(["reader@example.test".into()]);
+    fn only_company_domain_google_users_may_read() {
+        let domains = vec!["example.test".to_string()];
         assert_eq!(
-            authorize(None, Some(LOGIN_METHOD_GOOGLE_OIDC), &allowed)
+            authorize(None, Some(LOGIN_METHOD_GOOGLE_OIDC), &domains)
                 .unwrap_err()
                 .0,
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(
-            authorize(Some("reader@example.test"), Some("password"), &allowed)
+            authorize(Some("reader@example.test"), Some("password"), &domains)
                 .unwrap_err()
                 .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            authorize(
+                Some("outsider@other.test"),
+                Some(LOGIN_METHOD_GOOGLE_OIDC),
+                &domains
+            )
+            .unwrap_err()
+            .0,
             StatusCode::FORBIDDEN
         );
         assert!(authorize(
             Some("reader@example.test"),
             Some(LOGIN_METHOD_GOOGLE_OIDC),
-            &BTreeSet::new()
+            &[]
         )
         .is_err());
         assert!(authorize(
             Some("READER@example.test"),
             Some(LOGIN_METHOD_GOOGLE_OIDC),
-            &allowed
+            &domains
         )
         .is_ok());
     }

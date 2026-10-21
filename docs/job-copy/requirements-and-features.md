@@ -149,7 +149,7 @@ HRH 版と AirWork 版は、重複扱いを避けるためにわざと文面を�
 | 6 | 画像は HubSpot の項目に URL を入れて表示し、画像そのものは保存しない。変化は HubSpot の変更履歴で追う | HRH と同じ方式にそろえる | `listings.rs` の `AW_IMAGES`、`job-copy-airwork-images-results.md` |
 | 7 | UI の言葉に開発者用語を出さない（例「版対応不明」「観測」）。情報を並べすぎない。目的に関係の薄いものは統合・格下げ・非表示 | 利用者が目的を見失うため | `job-copy-ui-polish*.md` |
 | 8 | スマホ表示は不要。全部完成した後に直す。確認はパソコン幅 1440・1920 | 優先度 | 各 plan の「PC 幅 1440・1920」 |
-| 9 | 利用者は Google ログインかつ許可リスト（`JOB_COPY_ALLOWED_EMAILS`）。顧客の求人は Company → Deal → Listing の関連で認可 | 他の顧客の求人を見せないため | `job_copy_live.rs`（`authorized_user`）、`listings.rs`（関連の確認） |
+| 9 | 利用者は会社ドメイン（`ALLOWED_DOMAINS`）の Google ログインで、無効化されていない人全員（`JOB_COPY_ALLOWED_EMAILS` は 2026-10-21 から読まない）。顧客の求人は Company → Deal → Listing の関連で認可 | 他の顧客の求人を見せないため | `job_copy_live.rs`（`authorized_user`）、`listings.rs`（関連の確認） |
 | 10 | CRM（架電）とは別の画面・別の開発 | 担当と変更頻度が違う | `docs/architecture/job-copy-*.md` が CRM を変更しないと明記 |
 
 ## 4. いまある機能の一覧

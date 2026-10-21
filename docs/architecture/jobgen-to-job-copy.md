@@ -36,7 +36,7 @@ Status: Accepted for this implementation (既存の再送方式を求人の案�
 
 ## 有効化と運用
 
-`JOB_COPY_DRAFT_WRITES_ENABLED=true` または `JOB_COPY_DRAFT_WRITE_ALLOWLIST` に指定された求人に限って書ける（既定は停止）。さらに `JOB_COPY_ALLOWED_EMAILS`、Googleログイン、無効化されていないアカウント、既存監査DBの接続がすべて必要。検証では実際の設定・求人への書き込みは行わない。
+`JOB_COPY_DRAFT_WRITES_ENABLED=true` または `JOB_COPY_DRAFT_WRITE_ALLOWLIST` に指定された求人に限って書ける（既定は停止）。さらに会社ドメイン (`ALLOWED_DOMAINS`) のGoogleログイン、無効化されていないアカウント、既存監査DBの接続がすべて必要。検証では実際の設定・求人への書き込みは行わない。
 
 再送は1分・5分・30分・2時間・以降6時間、最大8回。新しい保留操作はworkerへ通知し、待ちがあるときは30秒ごと、ないときは10分ごとに読み取りのみで確認する。保存済み・失敗の掃除は1日1回。恒久失敗は保存結果の照会で表示し、操作者と結果は非公開ログに記録する。複数インスタンスでの排他は今回の対象外で、既存と同じ単一インスタンス前提。
 

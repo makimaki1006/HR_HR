@@ -306,7 +306,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: Some(Feature::Crm),
         hidden: None,
     },
-    // Reading private data still requires Google OIDC and JOB_COPY_ALLOWED_EMAILS.
+    // Reading private data still requires a Google OIDC login on a company domain (ALLOWED_DOMAINS).
     NavDef {
         id: "job-copy",
         label: "案件管理",
