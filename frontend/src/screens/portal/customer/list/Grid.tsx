@@ -196,7 +196,8 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
     const col = cols.find((c) => c.header === pos.column);
     const row = rows.find((r) => r.rowNumber === pos.rowNumber);
     if (!col || !row) return;
-    if (col.header === titleHeader) { onOpen(row.rowNumber); return; }
+    // 名前の列: 書けないシートでは詳細を開く。書けるシートでは、ほかのマスと同じくその場で直す（外国籍の人などが登録の名前を変えることがある）。
+    if (col.header === titleHeader && !col.writable) { onOpen(row.rowNumber); return; }
     if (!canWrite(col)) return;
     const base = row.values[col.header] ?? '';
     const e: Editing = { ...pos, base, value: opts.initial ?? base, mode: modeOf(col), query: opts.query ?? '' };
@@ -354,7 +355,7 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
                         focusGrid();
                         if (st?.kind === 'conflict' || st?.kind === 'failed') saver.setBubble(key);
                       }}
-                      onDoubleClick={() => { if (!isTitle) startEdit({ rowNumber: row.rowNumber, column: c.header }); }}
+                      onDoubleClick={() => { if (!isTitle || c.writable) startEdit({ rowNumber: row.rowNumber, column: c.header }); }}
                       className={cx(
                         'h-[36px] border-b border-r border-pt-line px-2.5 align-middle',
                         isTitle ? 'sticky left-0 z-10' : 'relative',
@@ -367,7 +368,11 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
                       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
                         {isTitle ? (
                           <>
-                            <button type="button" onMouseDown={(e) => { e.stopPropagation(); }} onClick={() => { onOpen(row.rowNumber); }} className="min-w-0 truncate text-left font-medium text-pt-ink hover:text-pt-primary hover:underline">{v === '' ? '（名前なし）' : v}</button>
+                            {c.writable ? (
+                              <span className="min-w-0 truncate font-medium text-pt-ink">{v === '' ? '（名前なし）' : v}</span>
+                            ) : (
+                              <button type="button" onMouseDown={(e) => { e.stopPropagation(); }} onClick={() => { onOpen(row.rowNumber); }} className="min-w-0 truncate text-left font-medium text-pt-ink hover:text-pt-primary hover:underline">{v === '' ? '（名前なし）' : v}</button>
+                            )}
                             <ChangeMark kind={row.changedSinceLastView} />
                             <button
                               type="button"

@@ -92,8 +92,8 @@ function realColumns(): ColumnConfig[] {
   return [
     col('応募発生日', { kind: 'date', group: 'summary' }),
     col('応募発生媒体', { options: MEDIA_OPTIONS, kind: 'choice', group: 'summary' }),
-    col('応募者名', { group: 'summary' }),
-    col('フリガナ', { inList: false, group: 'other' }),
+    col('応募者名', { writable: true, group: 'summary' }),
+    col('フリガナ', { writable: true, inList: false, group: 'other' }),
     col('年齢', { group: 'summary' }),
     col('電話番号', { kind: 'phone', group: 'summary' }),
     col('メールアドレス', { inList: false, kind: 'email', group: 'summary' }),
