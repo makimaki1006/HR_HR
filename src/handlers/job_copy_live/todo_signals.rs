@@ -6,6 +6,8 @@ use chrono::NaiveDate;
 // ユーザー決定 2026-10-16。判定に使う閾値の正本。
 pub(super) const EXPIRATION_DAYS: i64 = 60;
 const CONTACT_DAYS: i64 = 30;
+/// ホームの要対応「MTGが途絶えている」の基準（2026-10-21 ユーザー決定）。案件一覧の印には使わない。
+pub(super) const MTG_DAYS: i64 = 60;
 const APPLICATION_DAYS: i64 = 14;
 const FIRST_CONTRACT_TARGETS: [(i64, usize); 2] = [(30, 5), (60, 10)];
 const FIRST_CONTRACT_VALUE: &str = "新規契約";
@@ -130,6 +132,17 @@ pub(super) fn reasons(deal: &WorkDeal, facts: Option<&Facts>, today: NaiveDate) 
         .filter(|d| (0..=EXPIRATION_DAYS).contains(d))
     {
         add("expiration", format!("満了まで {days} 日"));
+    }
+    // 満了日を過ぎたのに終了していないステージにいる取引。ステージの直しは HubSpot で行う。
+    if let Some(days) = deal
+        .assignment
+        .contract_expiration_date
+        .as_deref()
+        .and_then(date)
+        .map(|d| (today - d).num_days())
+        .filter(|d| *d > 0)
+    {
+        add("expired", format!("満了日から {days} 日が過ぎている"));
     }
     let elapsed = deal
         .record
@@ -479,6 +492,43 @@ mod tests {
             reasons(&deal(30, None, 61), Some(&f), day("2026-10-16"))[0]["text"],
             "接触の記録が無い"
         );
+    }
+    #[test]
+    fn expired_while_still_active_starts_the_day_after_expiration() {
+        let f = Facts::default();
+        // 満了日が今日（0 日後）はまだ「満了が近い」。今日より前になって初めて「満了後も稼働中」。
+        for (expiration, expired, near) in [
+            (1, false, true),
+            (0, false, true),
+            (-1, true, false),
+            (-14, true, false),
+        ] {
+            let k = kinds(&deal(100, Some("2026-10-16"), expiration), &f);
+            assert_eq!(
+                k.contains(&"expired".into()),
+                expired,
+                "expiration={expiration}"
+            );
+            assert_eq!(
+                k.contains(&"expiration".into()),
+                near,
+                "expiration={expiration}"
+            );
+        }
+        let r = reasons(
+            &deal(100, Some("2026-10-16"), -14),
+            Some(&f),
+            day("2026-10-16"),
+        );
+        let expired = r.iter().find(|v| v["kind"] == "expired").unwrap();
+        assert_eq!(expired["text"], "満了日から 14 日が過ぎている");
+        // 終了したステージは対象外（案件管理の稼働中 = 終了ステージでない）
+        let mut ended = deal(100, Some("2026-10-16"), -14);
+        ended
+            .record
+            .properties
+            .insert("dealstage".into(), Some(ENDED_STAGES[0].into()));
+        assert!(reasons(&ended, Some(&f), day("2026-10-16")).is_empty());
     }
     #[test]
     fn stalled_fourteen_calendar_days_and_start_boundary() {

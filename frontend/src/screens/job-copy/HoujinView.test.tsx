@@ -125,7 +125,29 @@ it("法人の全節と数字・案件の詳細・条件のURLを表示", async (
   expect(stats.textContent).toContain("3件");
   expect(stats.textContent).toContain("2拠点");
   expect(stats.textContent).toContain("¥900,000");
-  const sites = screen.getByRole("table", { name: "拠点の比較" });
+  expect(screen.queryByRole("table", { name: "拠点の比較" })).toBeNull();
+  expect(screen.queryByTestId("hj-monthly-101")).toBeNull();
+  expect(screen.queryByTestId("hj-funnel")).toBeNull();
+  expect(screen.queryByTestId("hj-focus")).toBeNull();
+  expect(screen.getAllByTestId(/^hj-/).map((e) => e.dataset.testid)).toEqual([
+    "hj-contracts",
+  ]);
+  expect(
+    screen.getByRole("link", { name: "他の法人と比べる（コンサルKPI）" }).getAttribute("href"),
+  ).toBe("/consulting#research/customer?houjin=sample-a");
+  const fold = screen.getByText(/^分析の図と拠点の比較/).closest("details");
+  if (!fold) throw new Error("fold missing");
+  expect(fold.open).toBe(false);
+  expect(screen.getByRole("table", { name: "契約の系列" })).toBeTruthy();
+  expect(screen.getByRole("table", { name: "取引と求人の取引" })).toBeTruthy();
+  fold.open = true;
+  fireEvent(fold, new Event("toggle"));
+  const figures = screen.getAllByTestId(/^hj-/).length - 1;
+  expect(screen.getByText(/^分析の図と拠点の比較/).textContent).toBe(
+    `分析の図と拠点の比較（図${String(figures)}点）`,
+  );
+  expect(figures).toBe(14 - 1);
+  const sites = await screen.findByRole("table", { name: "拠点の比較" });
   expect(within(sites).getByText("¥800,000")).toBeTruthy();
   expect(within(sites).getByText("6（2件）")).toBeTruthy();
   const mtg = screen.getByRole("table", { name: "MTGの履歴" });
@@ -195,12 +217,21 @@ it("案件一覧の新しい列を両方向に並べ替える", async () => {
   mock();
   render(<DealBoard />);
   await screen.findByRole("button", { name: "架空の採用支援01" });
+  // 既定の列は NPS と応募。採用・採用単価・金額・採用目標は「詳しい数字」を開くと並べ替えられる。
+  fireEvent.click(await screen.findByRole("button", { name: "架空の採用支援01の詳しい数字を開く" }));
+  for (const label of ["採用", "採用単価", "金額", "採用目標に対して"]) {
+    expect(within(screen.getByRole("table", { name: "架空の採用支援01の詳しい数字" })).getByRole("button", { name: `${label} ▲▼` })).toBeTruthy();
+  }
+  fireEvent.click(within(screen.getByRole("table", { name: "架空の採用支援01の詳しい数字" })).getByRole("button", { name: "金額 ▲▼" }));
+  await waitFor(() => { expect(new URLSearchParams(window.location.search).get("deals_sort")).toBe("amount"); });
+  for (const key of ["cpa", "hires", "amount"] as const) {
+    const rows = [{ ...required(boardRows[0]), [key]: 100 }, { ...required(boardRows[1]), [key]: 0 }, { ...required(boardRows[2]), [key]: null }];
+    expect(sortDeals(rows, key, true).map((r) => r.id)).toEqual(["100", "101", "102"]);
+    expect(sortDeals(rows, key, false).map((r) => r.id)).toEqual(["101", "100", "102"]);
+  }
   for (const [key, label] of [
-    ["cpa", "採用単価"],
     ["nps", "NPS"],
     ["recent_applications", "応募（直近4週）"],
-    ["hires", "採用"],
-    ["amount", "金額"],
   ] as const) {
     const button = screen.getByRole("button", { name: `${label} ▲▼` });
     fireEvent.click(button);

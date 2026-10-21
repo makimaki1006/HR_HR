@@ -114,9 +114,7 @@ describe('HubSpot listing history', () => {
     fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(1); });
     const main = within(openOtherAnalysis('本文・画像'));
-    fireEvent.click(main.getByRole('tab', { name: '求人内容' }));
     expect(main.getByText('合成の新本文', { exact: true })).toBeTruthy();
-    fireEvent.click(main.getByRole('tab', { name: '比較・報告' }));
     fireEvent.click(main.getByRole('tab', { name: '変更差分' }));
     expect(container.querySelector('[id$="-panel-diff"]')?.textContent).toContain('合成の旧本文');
     expect(container.querySelector('[id$="-panel-diff"]')?.textContent).toContain('合成の新本文');
