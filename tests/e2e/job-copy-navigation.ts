@@ -17,8 +17,8 @@ export const jobFeatures: Record<JobFeature, { group: string; label: string }> =
   receive: { group: '外部文面を確認', label: '外部文面を確認' },
 };
 
-/** 「ほかの分析」のタブに並ぶ 6 つ。それ以外（応募推移・課金・クリック・市場グラフ・市場データ・要因・仮説・顧客報告・検証）は URL の feature で開く。 */
-const tabbedFeatures = new Set<JobFeature>(['timeline', 'body', 'diff', 'ab', 'applicants', 'reasons']);
+/** 「ほかの分析」のタブに並ぶ 7 つ。それ以外（応募推移・課金・クリック・市場グラフ・市場データ・顧客報告・検証）は URL の feature で開く。 */
+const tabbedFeatures = new Set<JobFeature>(['timeline', 'body', 'diff', 'ab', 'applicants', 'reasons', 'factors']);
 
 /**
  * 求人の復元を待ち、開いているドロワーのタブか、画面本体の機能ボタンから選ぶ。
