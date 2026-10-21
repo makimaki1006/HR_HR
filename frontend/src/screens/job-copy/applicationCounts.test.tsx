@@ -29,11 +29,9 @@ describe('one application denominator across panels', () => {
     // 主領域は週ごとの応募。ほかの分析から本文・画像を開いてから確かめる
     await screen.findByRole('region', { name: 'ほかの分析' });
     openOtherAnalysis('本文・画像');
-    fireEvent.click(await screen.findByRole('tab', { name: '求人内容' }));
     const summary = await screen.findByRole('region', { name: '本文ごとの応募状況' });
     expect(within(summary).getByRole('status').textContent).toBe('この本文に結びつく応募はまだありません（求人全体では34件）');
     expect(summary.querySelector('.jc-counts')?.textContent).toContain('どの本文への応募か不明（求人全体）34件');
-    fireEvent.click(screen.getByRole('tab', { name: '応募分析' }));
     fireEvent.click(screen.getByRole('tab', { name: '応募者構成' }));
     const overall = await screen.findByRole('region', { name: '求人全体の実応募者構成' });
     expect(overall.textContent).toContain('応募34件 · 応募日不明0件 · どの本文への応募か不明34件');

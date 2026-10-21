@@ -42,15 +42,17 @@ it('メニューの往復・再読込相当でも担当をURLに保持する', a
   await waitFor(() => { expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('22'); });
 });
 it.each([true, false])('新旧の名札・開始日・詳細・求人リンク（求人1件=%s）', async single => {
-  window.history.replaceState(null, '', '/app/job-copy?view=risk&owner=11'); mock(single);
+  window.history.replaceState(null, '', '/app/job-copy?view=risk&owner=11&risk_all=1'); mock(single);
   render(<ConsultantRisk />);
   const fresh = await screen.findByRole('region', { name: '今日わかった' });
   expect(within(fresh).getByRole('heading', { level: 2 }).textContent).toBe('今日わかった 2件');
   const mixed = within(fresh).getByRole('row', { name: new RegExp(riskRow.name) });
   expect(within(mixed).getAllByRole('listitem').map(el => [el.textContent, el.className])).toEqual([
-    ['NPSが4以下今日わかった2026/10/19から', 'cr-new'],
-    ['満了まで60日以内2026/10/16から', ''],
+    ['NPSが4以下今日わかった', 'cr-new'],
+    ['満了まで60日以内', ''],
   ]);
+  // 名札の日付は行に 1 回だけ（いちばん前から出ている名札の日付）
+  expect(mixed.textContent.match(/\d{4}\/\d{2}\/\d{2}から/g)).toEqual(['2026/10/16から']);
   expect(within(mixed).getAllByRole('cell')[3]?.textContent).toBe('1日前');
   const ongoing = screen.getByRole('region', { name: '前から出ていて直っていない' });
   expect(within(ongoing).getByRole('heading', { level: 2 }).textContent).toBe('前から出ていて直っていない 1件');
@@ -66,6 +68,21 @@ it.each([true, false])('新旧の名札・開始日・詳細・求人リンク�
   const link = await within(dialog).findByRole('link', { name: '求人を見る' });
   expect(link.getAttribute('href')).toContain('deal=101'); expect(link.getAttribute('href')?.includes('listing=501')).toBe(single);
   expect((await within(dialog).findByRole('link', { name: 'HubSpotで開く' })).getAttribute('href')).toBe('https://app.hubspot.com/contacts/123/record/0-3/101');
+});
+it('既定は名札2本以上。1本だけの案件は件数を添えて外し、切り替えで出す', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?view=risk&owner=11'); mock();
+  render(<ConsultantRisk />);
+  const fresh = await screen.findByRole('region', { name: '今日わかった' });
+  expect(within(fresh).getByRole('heading', { level: 2 }).textContent).toBe('今日わかった 1件');
+  expect(screen.getByRole('region', { name: '前から出ていて直っていない' }).textContent).toContain('該当する案件はありません。');
+  expect(screen.queryByRole('button', { name: '架空の採用支援C' })).toBeNull();
+  expect(screen.getByRole('note').textContent).toContain('名札が2本以上の案件 1件を出しています（コンサルKPIの「今日」と同じ基準）。名札が1本だけの案件 2件は出していません。');
+  fireEvent.click(screen.getByRole('checkbox', { name: '名札が1本だけの案件も出す' }));
+  expect(new URLSearchParams(window.location.search).get('risk_all')).toBe('1');
+  expect((await screen.findByRole('button', { name: '架空の採用支援C' })).textContent).toBe('架空の採用支援C');
+  expect(screen.getByRole('note').textContent).toContain('名札が1本だけの案件 2件を含めて 3件を出しています。');
+  fireEvent.click(screen.getByRole('checkbox', { name: '名札が1本だけの案件も出す' }));
+  expect(new URLSearchParams(window.location.search).has('risk_all')).toBe(false);
 });
 it('保存初日は翌日の比較案内を表示する', async () => {
   window.history.replaceState(null, '', '/app/job-copy?view=risk&owner=11'); mock(true, true);

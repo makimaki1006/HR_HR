@@ -38,6 +38,8 @@ export default defineConfig({
         'sales-kpi': fromHere('src/entries/sales-kpi.tsx'),
         // React 移行 競合調査 (2026-10-06): /app/competitor。ナビは旧 /competitor のまま
         competitor: fromHere('src/entries/competitor.tsx'),
+        // 顧客向け応募者画面の社内向けテスト版 (2026-10-21): /app/portal-test。ナビには出さない
+        'portal-test': fromHere('src/entries/portal-test.tsx'),
       },
     },
   },

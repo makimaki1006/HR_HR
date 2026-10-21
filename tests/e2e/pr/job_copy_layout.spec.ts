@@ -136,12 +136,12 @@ for (const width of [1280, 1440]) for (const scenario of cases) test(`案件管�
   await login(page);
   const prefix = `${width}-${scenario.name}`;
   await page.goto('/app/job-copy?owner=11');
-  await expect(page.getByRole('heading', { name: 'ホーム', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
   await audit(page, `${prefix}-home`);
   const cardCount = await page.locator('.jh-card').count();
   for (let index = 0; index < cardCount; index++) {
     await page.goto('/app/job-copy?owner=11');
-    await expect(page.getByRole('heading', { name: 'ホーム', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
     await page.locator('.jh-card').nth(index).click();
     await audit(page, `${prefix}-card-${index}`);
   }
@@ -243,13 +243,12 @@ await audit(page, `${prefix}-sort`);
   }
   await page.goto('/app/job-copy?listing=1&analysis=1&feature=timeline');
   await expect(page.locator('dialog[open]')).toBeVisible();
-  for (const group of ['タイムライン', '求人内容', '応募分析', '市場分析', '比較・報告']) {
+  for (const group of ['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由']) {
     await page.getByRole('tab', { name: group, exact: true }).click();
     if (group === 'タイムライン' && scenario.weeks > 1) {
       for (const id of ['jt-applications', 'jt-market']) expect((await getChartSeriesLengths(page, id)).some(n => n > 0)).toBe(true);
     }
     await audit(page, `${prefix}-${group}`);
-    for (const tab of await page.locator('.jc-feature-secondary:visible [role="tab"]').all()) { await tab.click(); await audit(page, `${prefix}-${await tab.textContent()}`); }
   }
 });
 

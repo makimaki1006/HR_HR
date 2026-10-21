@@ -26,6 +26,9 @@ import {
   MonthlyCharts,
   movementOption,
   chartOption,
+  monthlyFigureCount,
+  cpaFigureCount,
+  acrossFigureCount,
 } from "./HoujinCharts";
 import "./home.css";
 import "./houjin.css";
@@ -37,6 +40,30 @@ export interface HoujinResponse {
   customer: CustomerData | null;
   companies: { id: string; name: string | null }[];
   linkage: { total: number; unmatched: number };
+}
+/** 畳んでいる間は中身を作らない。開いたときに図を描く（ECharts を閉じた領域で初期化しない） */
+function Fold({
+  summary,
+  id,
+  children,
+}: {
+  summary: string;
+  id?: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="hj-fold"
+      id={id}
+      onToggle={(e) => {
+        setOpen(e.currentTarget.open);
+      }}
+    >
+      <summary>{summary}</summary>
+      {open && children}
+    </details>
+  );
 }
 export function HoujinView() {
   const search = useJobCopySearch();
@@ -120,6 +147,19 @@ export function HoujinView() {
     (matchesSelection && extraDeal?.scope === scope && extraDeal.id === query.get("risk_deal")
       ? { deal_id: extraDeal.id, name: extraDeal.name }
       : null);
+  const kpiHref = `/consulting#research/customer${ready?.selected_houjin ? `?houjin=${encodeURIComponent(ready.selected_houjin)}` : ""}`;
+  const figureCount = data
+    ? data.monthly
+        .filter((m) => siteIds.has(m.deal_id))
+        .reduce((n, m) => n + monthlyFigureCount(m), 0) +
+      1 +
+      cpaFigureCount(data, siteDeals) +
+      acrossFigureCount(
+        data,
+        deals.filter((d) => !excluded.includes(d.deal_id)),
+      ) +
+      1
+    : 0;
   const choose = (houjin: string) => {
     updateJobCopyQuery({ houjin, houjin_site: null, risk_deal: null });
   };
@@ -264,6 +304,8 @@ export function HoujinView() {
                   </select>
                 </label>
               </div>
+              <details className="hj-fold" id="hj-conditions">
+                <summary>条件で絞る（ボタン・数値条件）</summary>
               <div className="hj-controls">
                 {customerPresets.map((p) => (
                   <button
@@ -281,20 +323,7 @@ export function HoujinView() {
                     {p.label}
                   </button>
                 ))}
-                <button
-                  className="jc-button"
-                  onClick={() => {
-                    updateJobCopyQuery(
-                      { ...presetQuery({}), houjin_search: null },
-                      "replace",
-                    );
-                  }}
-                >
-                  条件を戻す
-                </button>
               </div>
-              <details>
-                <summary>絞り込み</summary>
                 <p className="jh-note">
                   月額は取引の最大額、継続の回数は最大回数。空欄の条件は使いません。
                 </p>
@@ -359,6 +388,19 @@ export function HoujinView() {
                   ))}
                 </div>
               </details>
+              <div className="hj-controls">
+                <button
+                  className="jc-button"
+                  onClick={() => {
+                    updateJobCopyQuery(
+                      { ...presetQuery({}), houjin_search: null },
+                      "replace",
+                    );
+                  }}
+                >
+                  条件を戻す
+                </button>
+              </div>
               <p role="status">
                 条件に合う {rows.length}社 ／ 全{ready.index.length}社
               </p>
@@ -475,6 +517,66 @@ export function HoujinView() {
                     </p>
                   )}
                 </section>
+                <section id="hj-site">
+                  <h2>事業所</h2>
+                  <label>
+                    拠点を選ぶ
+                    <select
+                      value={site?.key ?? ""}
+                      onChange={(e) => {
+                        updateJobCopyQuery({ houjin_site: e.target.value });
+                      }}
+                    >
+                      {sites.map((s) => (
+                        <option key={s.key} value={s.key}>
+                          {s.name}（契約{s.rows.length}件）
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p>
+                    法人の{deals.length}件のうち、この拠点の{siteDeals.length}件
+                    {!query.get("houjin_site") && "（最新の契約がある拠点）"}
+                  </p>
+                  <h3>契約の系列</h3>
+                  {dealTable(siteDeals)}
+                  <Figure
+                    title="契約の連なり"
+                    id="hj-contracts"
+                    onDealClick={open}
+                    note="案件ごとの開始日と満了日。"
+                    option={{
+                      ...chartOption([], []),
+                      xAxis: {
+                        type: "time",
+                        axisLabel: {
+                          formatter: (value: number) =>
+                            new Date(value).toLocaleDateString("ja-JP", {
+                              year: "numeric",
+                              month: "numeric",
+                            }),
+                        },
+                      },
+                      yAxis: {
+                        type: "category",
+                        data: siteDeals.map((d) => d.name),
+                      },
+                      series: siteDeals.map((d, i) => ({
+                        name: d.name,
+                        type: "line",
+                        data: [
+                          { value: [d.start, i], dealId: d.deal_id },
+                          { value: [d.expiration, i], dealId: d.deal_id },
+                        ],
+                        symbolSize: 8,
+                      })),
+                    }}
+                  />
+                </section>
+                <p>
+                  <a className="jh-link" href={kpiHref}>他の法人と比べる（コンサルKPI）</a>
+                </p>
+                <Fold summary={`分析の図と拠点の比較（図${String(figureCount)}点）`} id="hj-analysis">
                 <section>
                   <h2>拠点の比較</h2>
                   <p className="jh-note">
@@ -544,61 +646,7 @@ export function HoujinView() {
                     </table>
                   </div>
                 </section>
-                <section id="hj-site">
-                  <h2>事業所</h2>
-                  <label>
-                    拠点を選ぶ
-                    <select
-                      value={site?.key ?? ""}
-                      onChange={(e) => {
-                        updateJobCopyQuery({ houjin_site: e.target.value });
-                      }}
-                    >
-                      {sites.map((s) => (
-                        <option key={s.key} value={s.key}>
-                          {s.name}（契約{s.rows.length}件）
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <p>
-                    法人の{deals.length}件のうち、この拠点の{siteDeals.length}件
-                    {!query.get("houjin_site") && "（最新の契約がある拠点）"}
-                  </p>
-                  <h3>契約の系列</h3>
-                  {dealTable(siteDeals)}
-                  <Figure
-                    title="契約の連なり"
-                    id="hj-contracts"
-                    onDealClick={open}
-                    note="案件ごとの開始日と満了日。"
-                    option={{
-                      ...chartOption([], []),
-                      xAxis: {
-                        type: "time",
-                        axisLabel: {
-                          formatter: (value: number) =>
-                            new Date(value).toLocaleDateString("ja-JP", {
-                              year: "numeric",
-                              month: "numeric",
-                            }),
-                        },
-                      },
-                      yAxis: {
-                        type: "category",
-                        data: siteDeals.map((d) => d.name),
-                      },
-                      series: siteDeals.map((d, i) => ({
-                        name: d.name,
-                        type: "line",
-                        data: [
-                          { value: [d.start, i], dealId: d.deal_id },
-                          { value: [d.expiration, i], dealId: d.deal_id },
-                        ],
-                        symbolSize: 8,
-                      })),
-                    }}
-                  />
+                <section>
                   <div className="hj-site-details" id="hj-site-details">
                     <div>
                       {" "}
@@ -703,7 +751,7 @@ export function HoujinView() {
                         </table>
                       </div>
                     </aside>
-                  </div>{" "}
+                  </div>
                   <h3>採用単価の推移</h3>
                   <CpaCharts data={data} deals={siteDeals} prefix="hj-site" />
                 </section>
@@ -804,11 +852,9 @@ export function HoujinView() {
                     {data.focus.n_houjin_option_only}社を除く。
                   </p>
                 </section>
+                </Fold>
                 <section>
                   <h2>取引と求人</h2>
-                  <a href="/consulting#monthly/results?at=rs-hq">
-                    他の法人との比較（コンサルKPI）
-                  </a>
                   {dealTable(deals, "取引と求人の取引")}
                   {ready.companies.map((company) => (
                     <div key={company.id}>

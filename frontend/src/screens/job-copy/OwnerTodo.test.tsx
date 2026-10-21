@@ -30,7 +30,7 @@ it('7枚の件数カードと、ほかの要対応の件数の1行を表示し�
   expect(document.querySelectorAll('.jh-todo-cards .jh-card')).toHaveLength(7);
   expect([...document.querySelectorAll('.jh-todo-cards .jh-card .jh-card-title')].map(el => el.textContent)).toEqual(['期限切れ', '今日', '7日以内', '契約満了が近い', '接触が空いている', '応募が止まっている', 'MTGが途絶えている']);
   expect(document.querySelector('.jh-rule')).toBeNull();
-  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの要対応：初回で成果が出ていない 1件・定期NPSが低い 0件・採用目標に届いていない 0件・採用単価が高い 0件');
+  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの要対応：満了後も稼働中 0件・初回で成果が出ていない 1件・定期NPSが低い 0件・採用目標に届いていない 0件・採用単価が高い 0件');
   expect(screen.queryByRole('table')).toBeNull();
   const overdueCard = screen.getByRole('button', { name: /期限切れ/ });
   expect(overdueCard.classList.contains('jh-alert')).toBe(true);
@@ -52,6 +52,20 @@ it('7枚の件数カードと、ほかの要対応の件数の1行を表示し�
   expect(screen.getByText('満了まで 30 日')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /契約満了が近い/ }));
   expect(screen.queryByRole('table')).toBeNull();
+});
+it('満了後も稼働中は件数の1行に出し、押すと一覧にHubSpotで開くリンクを出す。MTGの基準は60日以上と説明する', () => {
+  const base = demoOwnerTodo.signals?.[0];
+  if (!base) throw new Error('合成データがありません');
+  const work = { ...demoOwnerTodo, hubspot_portal_id: '123', signals: [{ ...base, id: '777', name: '合成案件777', reasons: [{ kind: 'expired' as const, text: '満了日から 14 日が過ぎている' }] }] };
+  render(<OwnerTodo work={work} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
+  expect(document.querySelector('.jh-more')?.textContent.startsWith('ほかの要対応：満了後も稼働中 1件・')).toBe(true);
+  expect([...document.querySelectorAll('.jh-todo-cards .jh-card .jh-card-title')]).toHaveLength(7);
+  fireEvent.click(screen.getByRole('button', { name: '満了後も稼働中 1件' }));
+  const list = screen.getByRole('region', { name: '満了後も稼働中の一覧' });
+  expect(within(list).getByText('満了日から 14 日が過ぎている')).toBeTruthy();
+  expect(within(list).getByRole('link', { name: 'HubSpotで開く' }).getAttribute('href')).toBe('https://app.hubspot.com/contacts/123/record/0-3/777');
+  expect(screen.getByText('MTGが途絶えている：最後のMTGから60日以上')).toBeTruthy();
+  expect(screen.getByText('満了後も稼働中：満了日が今日より前で、終了していないステージ（ステージはHubSpotで直す）')).toBeTruthy();
 });
 it('198件を20件ずつ表示し、末尾の18件と担当変更時のページリセットを確認する', () => {
   const sample = demoOwnerTodo.actions.overdue[0];

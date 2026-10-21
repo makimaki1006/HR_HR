@@ -142,7 +142,14 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(page.getByRole("region", { name: "法人の数字" })).toContainText(
     "¥900,000",
   );
-  await expect.poll(() => charts.count()).toBeGreaterThan(10);
+  await expect(page.getByTestId("hj-contracts")).toHaveAttribute("data-chart-ready", "true");
+  expect(await charts.count()).toBe(1);
+  await expect(page.getByRole("table", { name: "拠点の比較" })).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "他の法人と比べる（コンサルKPI）" }),
+  ).toHaveAttribute("href", "/consulting#research/customer?houjin=sample-a");
+  await page.getByText(/^分析の図と拠点の比較（図13点）/).click();
+  await expect.poll(() => charts.count()).toBe(14);
   const rendered = await charts.evaluateAll((els) =>
     els.map((el) => {
       const instance = window.__echarts_getInstanceByDom?.(el as HTMLElement);
@@ -195,11 +202,13 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await page
     .getByRole("button", { name: "大きいのに拠点が少ない", exact: true })
     .click();
   await expect(page).toHaveURL(/houjin_sites_max=2/);
   await page.reload();
+  await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await expect(
     page.getByRole("button", { name: "大きいのに拠点が少ない", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -213,16 +222,19 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   ).toBeVisible();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("button", { name: "案件一覧", exact: true }).click();
-  await page.getByRole("button", { name: "採用単価 ▲▼", exact: true }).click();
-  await page.getByRole("button", { name: "採用単価 ▼", exact: true }).click();
+  // 既定の列は 8 つ（採用単価は「詳しい数字」の中）。並べ替えは応募（直近4週）で確かめる。
+  await page.getByRole("button", { name: "応募（直近4週） ▲▼", exact: true }).click();
+  await page.getByRole("button", { name: "応募（直近4週） ▼", exact: true }).click();
   const table = page.locator(".db-board-scroll>.db-table");
   await expect(table.locator("tbody>tr").first()).toContainText(
     "架空の採用支援01",
   );
   await expect(
-    page.getByRole("columnheader", { name: "採用単価 ▲", exact: true }),
+    page.getByRole("columnheader", { name: "応募（直近4週） ▲", exact: true }),
   ).toHaveAttribute("aria-sort", "ascending");
   await expect(page.getByText("HubSpotの今の値と、シートにある最後のMTGを確認できます。")).toHaveCount(0);
+  // 8 列は 1100px 以上あれば横に流れない。狭い画面で横に流れる合図が出ることを確かめる。
+  await page.setViewportSize({ width: 900, height: 800 });
   const frame = page.locator(".db-scroll-frame");
   await expect(frame).toHaveClass(/db-more-right/);
   await expect(frame).toHaveCSS("position", "relative");
@@ -244,7 +256,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(table.locator("tbody>tr")).toHaveCount(1);
   await expect(page.getByRole("combobox", { name: "担当者", exact: true })).toHaveValue("22");
   await expect(table).toContainText("架空の採用支援02");
-  for (const label of ["危ない案件", "いい案件", "法人"]) {
+  for (const label of ["危ない案件", "法人"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
     await expect(
       page.getByRole("combobox", { name: "担当者", exact: true }),

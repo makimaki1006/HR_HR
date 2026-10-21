@@ -56,7 +56,7 @@ describe('求人の画面（案3-2）', () => {
     expect(query('.lo-event.lo-open .lo-num').textContent).toBe('9');
   });
 
-  it('応募者・応募理由の前後は横から出て、閉じられる。「ほかの分析」に旧機能が13個残る', () => {
+  it('応募者・応募理由の前後は横から出て、閉じられる。「ほかの分析」は入口の1つから開き、タブは6つ', () => {
     render(<JobCopyScreen />);
     fireEvent.click(query('.lo-event-head'));
     fireEvent.click(screen.getByRole('button', { name: '応募者・応募理由の前後を見る' }));
@@ -64,6 +64,9 @@ describe('求人の画面（案3-2）', () => {
     expect(within(drawer).getByText(/前の4週 15 件 → 後の4週 3 件/u)).toBeTruthy();
     fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
     expect(screen.queryByRole('dialog', { name: '応募者・応募理由の前後' })).toBeNull();
-    expect(within(screen.getByRole('region', { name: 'ほかの分析' })).getAllByRole('button')).toHaveLength(13);
+    const more = within(screen.getByRole('region', { name: 'ほかの分析' }));
+    expect(more.getAllByRole('button').map(button => button.textContent)).toEqual(['ほかの分析を開く']);
+    fireEvent.click(more.getByRole('button', { name: 'ほかの分析を開く' }));
+    expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由']);
   });
 });

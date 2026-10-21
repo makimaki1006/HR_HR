@@ -42,7 +42,7 @@ import type { IndeedTitleChange } from './MarketOccupationSlot';
 import { ApplicationTrend } from './ApplicationTrend';
 import { MarketFactors } from './MarketFactors';
 import { ApplicantReasonReview } from './ApplicantReasonReview';
-import { JobFeatureTabs, JobFeaturePanel, featureFocusId, jobFeatureGroups } from './JobFeatureTabs';
+import { JobFeatureTabs, JobFeaturePanel, featureFocusId, jobFeatureGroups, jobFeatureMenu } from './JobFeatureTabs';
 import type { JobFeature } from './JobFeatureTabs';
 import { ReverseSearch } from './ReverseSearch';
 import { BillingImportPanel } from './BillingImportPanel';
@@ -254,8 +254,8 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
       onOpenDrawer={(kind, event) => { setWhoSelection(event?.previousVersionId && event.versionId ? [event.previousVersionId, event.versionId] : undefined); setDrawer({ kind, event }); }} />
     <section className="lo-more" aria-label="ほかの分析">
       <h2>ほかの分析</h2>
-      <p>これまでの分析は、横から開く画面にそのまま残っています。</p>
-      <div>{jobFeatureGroups.flatMap(group => group.features).map(feature => <button type="button" className="jc-button" key={feature.id} onClick={() => { openFeatureFromContent(feature.id); }}>{feature.label}</button>)}</div>
+      <p>本文・画像、タイムライン、変更差分、求人比較、応募者構成、応募理由を、横から開く画面のタブで切り替えて確認します。</p>
+      <div><button type="button" className="jc-button" onClick={() => { openFeatureFromContent(jobFeatureMenu.some(feature => feature.id === tab) ? tab : 'timeline'); }}>ほかの分析を開く</button></div>
     </section>
     {drawer && <ListingDrawer title={drawer.kind === 'who' ? '応募者・応募理由の前後' : drawer.kind === 'market' ? '市場の推移' : '課金・クリック'} onClose={() => { setDrawer(null); }}>
       {drawer.event && <p className="lo-drawer-context">{drawerContext(job, drawer.event, listingEvents)}</p>}

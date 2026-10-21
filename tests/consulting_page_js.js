@@ -1587,11 +1587,11 @@ check("S-2", "今日動く先の数字の札を押すと、同じ画面の表へ
   if (t.loc.hash !== "#deal/board?band=critical") throw new Error("URL が案件そのもの＋帯の絞り込みでない: " + t.loc.hash);
   // 案件そのものが届いたら、帯で絞った表と「絞り込み中: MTG途絶 …」が出る
   const B = { meta: { today: "2026-09-18", n_active: 2, order_rule: "", flag_counts: [],
-      mtg_gap: { bands: [{ band: "critical", label: "MTGが90日以上空いている", n: 1, alert: true }] } },
+      mtg_gap: { bands: [{ band: "critical", label: "MTGが60日以上空いている", n: 1, alert: true }] } },
     rows: [boardRow({ deal_id: "a", name: "空いているの案件", mtg_band: "critical" }), boardRow({ deal_id: "b", name: "元気な案件", mtg_band: "recent" })] };
   t.fetched[t.fetched.length - 1].resolve(jsonRes(B)); await tick(); await tick();
   const main = t.reg["cs-main"].innerHTML;
-  if (main.indexOf("2 件中 1 件") < 0 || main.indexOf("MTGが空いている期間 MTGが90日以上空いている") < 0) throw new Error("帯で絞った件数と言葉が出ていない");
+  if (main.indexOf("2 件中 1 件") < 0 || main.indexOf("MTGが空いている期間 MTGが60日以上空いている") < 0) throw new Error("帯で絞った件数と言葉が出ていない");
   if (main.indexOf("空いているの案件") < 0 || main.indexOf("元気な案件") >= 0) throw new Error("帯の外の行が残っている");
   if (!/<select id="bf-band">[\s\S]*?<option value="critical" selected>/.test(main)) throw new Error("絞り込みの欄で区分が選ばれていない");
   // 「絞り込みを外す」で帯も外れる
@@ -1605,12 +1605,12 @@ check("D-1a", "担当を選んでいるときに MTGが空いている期間の�
   const D = todayPayload([boardRow({ deal_id: "a", name: "上位", consultant: "担当A", n_flags: 2, flags: ["x", "y"], mtg_band: "critical" })]);
   D.candidates = D.rows.slice();
   // 担当A の帯の実数は 2（候補の中では 1）。2026-09-28 検証: 候補の中で数えると帯の実数と合わない担当が fixture で 27 名中 5 名
-  D.meta.mtg_gap = { bands: [{ band: "critical", label: "MTGが90日以上空いている", n: 5, alert: true }], critical_by_consultant: { "担当A": 2 } };
+  D.meta.mtg_gap = { bands: [{ band: "critical", label: "MTGが60日以上空いている", n: 5, alert: true }], critical_by_consultant: { "担当A": 2 } };
   t.ctx.__D = D;
   t.R('cur = { menu: "deal", view: "today" }; lastPayload = __D; todayConsultant = "担当A";');
   t.reg["cs-main"].innerHTML = t.R("renderToday(__D)");
   const main0 = t.reg["cs-main"].innerHTML;
-  if (!/data-band="critical" data-consultant="担当A"><span class="lbl">MTGが90日以上空いている<\/span><span class="big">2</.test(main0)) throw new Error("札が担当の実数（2）と担当を添えた形でない");
+  if (!/data-band="critical" data-consultant="担当A"><span class="lbl">MTGが60日以上空いている<\/span><span class="big">2</.test(main0)) throw new Error("札が担当の実数（2）と担当を添えた形でない");
   const band = new t.El(""); band.dataset = { band: "critical", consultant: "担当A" };
   t.qsa["#cs-main button.kpi[data-band]"] = [band];
   t.R("wire(viewOf('deal', 'today'))");
@@ -1623,13 +1623,13 @@ check("D-1a", "担当を選んでいるときに MTGが空いている期間の�
     throw new Error("URL が担当者ごとの案件＋担当と帯の絞り込みでない: " + t.loc.hash);
   // 届いた応答で、担当と帯の両方で絞った表と「絞り込み中: 担当 …, MTG途絶 …」が出る
   const B = { meta: { today: "2026-09-18", n_active: 3, order_rule: "", flag_counts: [],
-      mtg_gap: { bands: [{ band: "critical", label: "MTGが90日以上空いている", n: 2, alert: true }] } },
+      mtg_gap: { bands: [{ band: "critical", label: "MTGが60日以上空いている", n: 2, alert: true }] } },
     rows: [boardRow({ deal_id: "a", name: "空いているA", consultant: "担当A", mtg_band: "critical" }),
            boardRow({ deal_id: "b", name: "空いているB", consultant: "担当B", mtg_band: "critical" }),
            boardRow({ deal_id: "c", name: "元気A", consultant: "担当A", mtg_band: "recent" })] };
   t.fetched[t.fetched.length - 1].resolve(jsonRes(B)); await tick(); await tick();
   const main = t.reg["cs-main"].innerHTML;
-  if (main.indexOf("3 件中 1 件") < 0 || main.indexOf("担当 担当A") < 0 || main.indexOf("MTGが空いている期間 MTGが90日以上空いている") < 0) throw new Error("担当と帯で絞った件数と言葉が出ていない");
+  if (main.indexOf("3 件中 1 件") < 0 || main.indexOf("担当 担当A") < 0 || main.indexOf("MTGが空いている期間 MTGが60日以上空いている") < 0) throw new Error("担当と帯で絞った件数と言葉が出ていない");
   if (main.indexOf("空いているA") < 0 || main.indexOf("空いているB") >= 0 || main.indexOf("元気A") >= 0) throw new Error("担当か帯の外の行が残っている");
   t.R('todayConsultant = ""; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
 });
@@ -1906,7 +1906,7 @@ check("M-2", "絞り込み・並び替え・担当を変えると URL が追従�
   t.R('go("deal", "board")');
   const pushes = t.hist.push;
   t.fetched[t.fetched.length - 1].resolve(jsonRes({ meta: { flag_counts: [],
-    mtg_gap: { bands: [{ band: "critical", label: "MTGが90日以上空いている", n: 1, alert: true }] } },
+    mtg_gap: { bands: [{ band: "critical", label: "MTGが60日以上空いている", n: 1, alert: true }] } },
     rows: [boardRow({ deal_id: "a", mtg_band: "critical" })] }));
   await tick(); await tick();
   const sel = new t.El("bf-band"); t.reg["bf-band"] = sel;

@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobCopyScreen } from './JobCopyScreen';
 import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
+import { updateJobCopyQuery } from './navigation';
 import { jobs } from './data';
 import { CAUSAL_PATTERN, JARGON_PATTERN } from './format';
 
@@ -47,15 +48,22 @@ describe('job copy screen wording', () => {
       expect(visibleWording(), job.textContent).not.toMatch(JARGON_PATTERN);
       expect(visibleWording(), job.textContent).not.toMatch(CAUSAL_PATTERN);
       if (!screen.queryByRole('dialog', { name: 'ほかの分析' })) openOtherAnalysis('タイムライン');
-      // 上の段 5 つ（タイムライン・求人内容はサブタブなし）と、サブタブ 10 個
+      // タブ 6 つ。タブに並べない 7 つの画面（応募推移・課金・クリック・市場グラフ・市場データ・要因・仮説・顧客報告・検証・外部文面）は URL で開く。
       const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"][id*="-group-"], [role="tab"][id*="-feature-"]')];
-      expect(tabs.length).toBe(15);
+      expect(tabs.length).toBe(6);
       for (const tab of tabs) {
         await act(async () => { fireEvent.click(tab); await Promise.resolve(); });
         const wording = visibleWording();
         seen.push(wording);
         expect(wording, `${job.textContent} / ${tab.textContent}`).not.toMatch(JARGON_PATTERN);
         expect(wording, `${job.textContent} / ${tab.textContent}`).not.toMatch(CAUSAL_PATTERN);
+      }
+      for (const feature of ['applications', 'performance', 'market', 'market-table', 'factors', 'report', 'receive']) {
+        await act(async () => { updateJobCopyQuery({ feature }, 'replace'); await Promise.resolve(); });
+        const wording = visibleWording();
+        seen.push(wording);
+        expect(wording, `${job.textContent} / ${feature}`).not.toMatch(JARGON_PATTERN);
+        expect(wording, `${job.textContent} / ${feature}`).not.toMatch(CAUSAL_PATTERN);
       }
     }
     // データ取込（HubSpot・媒体・課金CSV・外部文面）と、そこから開く外部文面の照合
