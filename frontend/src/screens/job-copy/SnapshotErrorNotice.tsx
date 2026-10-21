@@ -29,7 +29,7 @@ export function snapshotErrorGuidance(error: ApiError): SnapshotErrorGuidance {
   }
   if (error instanceof ApiHttpError && error.status === 403) {
     if (code === 'account_disabled') return { message: 'このアカウントは無効になっています。管理者にアカウントの状態を確認してください。' };
-    return { message: '求人文面を閲覧する権限がありません。Google Workspaceの社内アカウントでログインしているか確認し、管理者に閲覧権限を依頼してください。別のアカウントで再ログインできます。', login: true };
+    return { message: '求人文面を閲覧する権限がありません。会社のGoogleアカウントでログインしてください。別のアカウントで再ログインできます。', login: true };
   }
   if (error instanceof ApiHttpError && (code === 'moc_not_configured' || error.status === 404)) {
     return { message: '求人文面の実データがサーバーに設定されていません。管理者にデータの設定を依頼してください。' };

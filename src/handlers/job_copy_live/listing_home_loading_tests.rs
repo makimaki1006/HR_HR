@@ -165,7 +165,6 @@ impl Fixture {
                 .unwrap();
         }
         let access = Access {
-            allowed: BTreeSet::from(["reader@example.test".into()]),
             service: Some(Arc::new(self.service.clone())),
             moc_path: None,
             moc_drive: Ok(None),

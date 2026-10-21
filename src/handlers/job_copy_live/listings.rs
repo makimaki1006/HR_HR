@@ -2195,7 +2195,6 @@ mod tests {
             axum::serve(listener, upstream).await.unwrap();
         });
         let access = Access {
-            allowed: BTreeSet::from(["reader@example.test".into()]),
             service: Some(service.clone()),
             moc_path: None,
             moc_drive: Ok(None),
@@ -2299,7 +2298,7 @@ mod tests {
             Err(ReadError(StatusCode::UNAUTHORIZED, _))
         ));
         session
-            .insert(SESSION_USER_KEY, "outside@example.test")
+            .insert(SESSION_USER_KEY, "outside@other.test")
             .await
             .unwrap();
         assert!(matches!(
@@ -3032,7 +3031,6 @@ mod tests {
             axum::serve(listener, upstream).await.unwrap();
         });
         let access = Access {
-            allowed: BTreeSet::new(),
             service: None,
             moc_path: None,
             moc_drive: Ok(None),
