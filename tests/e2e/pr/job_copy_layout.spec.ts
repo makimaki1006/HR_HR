@@ -243,7 +243,7 @@ await audit(page, `${prefix}-sort`);
   }
   await page.goto('/app/job-copy?listing=1&analysis=1&feature=timeline');
   await expect(page.locator('dialog[open]')).toBeVisible();
-  for (const group of ['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由']) {
+  for (const group of ['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']) {
     await page.getByRole('tab', { name: group, exact: true }).click();
     if (group === 'タイムライン' && scenario.weeks > 1) {
       for (const id of ['jt-applications', 'jt-market']) expect((await getChartSeriesLengths(page, id)).some(n => n > 0)).toBe(true);

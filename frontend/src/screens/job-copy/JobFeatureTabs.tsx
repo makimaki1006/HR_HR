@@ -12,12 +12,12 @@ export const jobFeatureGroups: { id: string; label: string; hidden?: boolean; fe
   { id: 'ab', label: '求人比較', features: [{ id: 'ab', label: '求人比較', description: '同じ顧客の求人や、ほかの顧客で応募が多い求人と、内容と成果を比べます。' }] },
   { id: 'applicants', label: '応募者構成', features: [{ id: 'applicants', label: '応募者構成', description: '性別・年代・地域の構成と、本文ごとの違いを確認します。' }] },
   { id: 'reasons', label: '応募理由', features: [{ id: 'reasons', label: '応募理由', description: '応募理由・応募動機の記録を出典別に確認します。' }] },
-  // 次の 7 つはタブに並べない。画面の URL（feature=…）で直接開ける。開いたときは見出しと「タイムラインに戻る」だけを出す。
+  { id: 'factors', label: '要因・仮説', features: [{ id: 'factors', label: '要因・仮説', description: '本文・画像を確認した履歴と、次に確認する要因を整理します。' }] },
+  // 次の 6 つはタブに並べない。画面の URL（feature=…）で直接開ける。開いたときは見出しと「タイムラインに戻る」だけを出す。
   { id: 'applications', label: '応募推移', hidden: true, features: [{ id: 'applications', label: '応募推移', description: '応募日の分かる実績を月別に確認します。' }] },
   { id: 'performance', label: '課金・クリック', hidden: true, features: [{ id: 'performance', label: '課金・クリック', description: '媒体の期間別実績を確認します。未接続のデータは表示しません。' }] },
   { id: 'market', label: '市場グラフ', hidden: true, features: [{ id: 'market', label: '市場グラフ', description: '各指標の月次推移を確認します。市場と比べる職種は右の欄で指定します。' }] },
   { id: 'market-table', label: '市場データ', hidden: true, features: [{ id: 'market-table', label: '市場データ', description: '市場グラフと同じ職種・地域・期間の実数を確認します。' }] },
-  { id: 'factors', label: '要因・仮説', hidden: true, features: [{ id: 'factors', label: '要因・仮説', description: '本文・画像を確認した履歴と、次に確認する要因を整理します。' }] },
   { id: 'report', label: '顧客報告・検証', hidden: true, features: [{ id: 'report', label: '顧客報告・検証', description: '比較結果を整理し、次に検証する施策を記録します。' }] },
   { id: 'import', label: '外部文面を確認', hidden: true, features: [{ id: 'receive', label: '外部文面を確認', description: '外部から届いた本文を現在の本文と照合します。' }] },
 ];
