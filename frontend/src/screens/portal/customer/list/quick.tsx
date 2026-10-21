@@ -3,14 +3,15 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { stageOf } from '../../data';
 import { cx } from '../../ui/kit';
 import type { ApplicantRow, ListSort, SheetConfig } from '../../types';
-import { parseLooseDay } from '../../columns';
-import { dayOffset } from './model';
+import { dayLabel, TODAY_NUM } from '../../columns';
+import { IconSort } from '../../ui/icons';
+import { dayOffset, rowRefDay } from './model';
 
 export type Quick = 'today' | 'tomorrow' | 'new' | 'unhandled';
 
 const interviewDay = (sheet: SheetConfig, row: ApplicantRow): number | null => {
   if (!sheet.interviewColumn) return null;
-  const ref = sheet.sortColumn ? parseLooseDay(row.values[sheet.sortColumn]) : null;
+  const ref = sheet.sortColumn ? rowRefDay(sheet, row) : null;
   return dayOffset(row.values[sheet.interviewColumn] ?? '', ref);
 };
 
@@ -27,6 +28,22 @@ export function matchesQuick(sheet: SheetConfig, row: ApplicantRow, q: Quick): b
   return isUnhandled(sheet, row);
 }
 
+/** 面接の日の通し番号（今日 = TODAY_NUM）。読めなければ null。 */
+export function interviewDayNum(sheet: SheetConfig, row: ApplicantRow): number | null {
+  const off = interviewDay(sheet, row);
+  return off === null ? null : off + TODAY_NUM;
+}
+
+/** 「今日の面接はありません。次は 10/23（金）に 2 件」。今日・明日が 0 件のときに出す。次の予定が無ければ文の前半だけ。 */
+export function noInterviewNote(sheet: SheetConfig, rows: ApplicantRow[], which: 'today' | 'tomorrow'): string {
+  const from = which === 'today' ? 0 : 1;
+  const days = rows.map((r) => interviewDayNum(sheet, r)).filter((n): n is number => n !== null && n > TODAY_NUM + from);
+  const head = which === 'today' ? '今日の面接はありません。' : '明日の面接はありません。';
+  if (days.length === 0) return head;
+  const next = Math.min(...days);
+  return `${head}次は ${dayLabel(next)}に ${String(days.filter((n) => n === next).length)} 件`;
+}
+
 /** 帯に出すチップ。面接の列が決まっていないシートでは面接の 2 つを出さない。 */
 export function quickChips(sheet: SheetConfig, rows: ApplicantRow[]): { id: Quick; label: string; count: number }[] {
   const count = (q: Quick): number => rows.filter((r) => matchesQuick(sheet, r, q)).length;
@@ -39,6 +56,13 @@ export function quickChips(sheet: SheetConfig, rows: ApplicantRow[]): { id: Quic
   if (sheet.stageMap && sheet.statusColumn) out.push({ id: 'unhandled', label: '未対応', count: count('unhandled') });
   return out;
 }
+
+const CHIP_TITLE: Record<Quick, string> = {
+  today: '面接予定日が今日の人',
+  tomorrow: '面接予定日が明日の人',
+  new: '前回見たあとに増えた応募者',
+  unhandled: '状況がまだ応募の段階の人（未連絡など）',
+};
 
 export function TodayBand({ chips, active, onPick, className }: {
   chips: { id: Quick; label: string; count: number }[];
@@ -56,9 +80,11 @@ export function TodayBand({ chips, active, onPick, className }: {
             key={c.id}
             type="button"
             aria-pressed={on}
+            title={CHIP_TITLE[c.id]}
             onClick={() => { onPick(on ? null : c.id); }}
             className={cx(
-              'inline-flex h-[44px] min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-3 text-[13px] whitespace-nowrap lg:h-7 lg:px-2.5',
+              'inline-flex h-[32px] min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-3 text-[13px] whitespace-nowrap lg:h-7 lg:px-2.5',
+              c.count === 0 && !on && 'opacity-50',
               on ? 'border-pt-select bg-pt-primary-soft font-medium text-pt-primary' : 'border-pt-line bg-pt-surface text-pt-ink hover:bg-pt-sunken',
               c.count === 0 && !on && 'text-pt-muted',
             )}
@@ -75,16 +101,21 @@ export function TodayBand({ chips, active, onPick, className }: {
 type SortChoice = 'default' | 'near' | 'changed' | 'custom';
 
 /** 並べ替え。見出しで並べているときは「見出しの並べ替え」と出る。 */
-export function SortSelect({ sort, interviewColumn, onChange, className }: {
+export function SortSelect({ sort, interviewColumn, onChange, className, compact = false }: {
   sort: ListSort | null;
   interviewColumn: string | undefined;
   onChange: (s: ListSort | null) => void;
   className?: string;
+  /** スマホ用。「絵＋並び」の見た目にして、押すと OS の選択肢が出る。 */
+  compact?: boolean;
 }) {
   const value: SortChoice = sort === null ? 'default' : sort.mode === 'near' ? 'near' : sort.mode === 'changed' ? 'changed' : 'custom';
   return (
-    <label className={cx('relative block', className)}>
+    <label className={cx('relative block', compact && 'h-[40px] w-[72px] shrink-0 rounded-md bg-pt-surface', className)}>
       <span className="sr-only">並べ替え</span>
+      {compact && (
+        <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1 text-[13px] text-pt-ink"><IconSort size={14} className="text-pt-muted" />並び</span>
+      )}
       <select
         value={value}
         onChange={(e) => {
@@ -93,7 +124,9 @@ export function SortSelect({ sort, interviewColumn, onChange, className }: {
           if (v === 'near' && interviewColumn) onChange({ column: interviewColumn, dir: 'asc', mode: 'near' });
           if (v === 'changed') onChange({ column: '', dir: 'desc', mode: 'changed' });
         }}
-        className="h-[44px] w-full rounded-md border border-pt-line-strong bg-pt-surface px-2.5 text-base text-pt-ink focus:border-pt-select focus:ring-2 focus:ring-pt-select/20 focus:outline-none lg:h-8 lg:text-[13px]"
+        className={compact
+          ? 'absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-md border border-pt-line-strong bg-transparent text-transparent focus:border-pt-select focus:ring-2 focus:ring-pt-select/20 focus:outline-none'
+          : 'h-[44px] w-full rounded-md border border-pt-line-strong bg-pt-surface px-2.5 text-base text-pt-ink focus:border-pt-select focus:ring-2 focus:ring-pt-select/20 focus:outline-none lg:h-8 lg:text-[13px]'}
       >
         <option value="default">応募日が新しい順</option>
         {interviewColumn && <option value="near">面接日が近い順</option>}
@@ -122,7 +155,7 @@ export function TabScroller({ children, fade, label }: { children: ReactNode; fa
     <div className="relative min-w-0">
       <div ref={ref} className="flex min-w-0 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label={label}>{children}</div>
       {more && (
-        <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 flex w-9 items-center justify-end pr-1 text-[18px] text-pt-muted" style={{ background: `linear-gradient(to left, ${fade} 45%, transparent)` }}>›</span>
+        <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 flex w-9 items-center justify-end pr-1 text-[18px] text-pt-muted lg:font-semibold lg:text-pt-ink" style={{ background: `linear-gradient(to left, ${fade} 45%, transparent)` }}>›</span>
       )}
     </div>
   );

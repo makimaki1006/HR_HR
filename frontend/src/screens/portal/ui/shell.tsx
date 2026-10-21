@@ -70,23 +70,40 @@ function SheetSwitcher() {
   const list = sheetsOf(d, d.currentCustomerId);
   if (list.length <= 1) {
     const only = list[0];
-    return only ? <span className="inline-flex items-center gap-1.5 text-[13px] text-pt-muted"><IconSheet size={14} className="text-pt-faint" />{only.tabName}</span> : null;
+    // 1 枚だけのときは PC だけ名前を出す（スマホは選ぶものが無いので出さない）。
+    return only ? <span className="hidden items-center gap-1.5 text-[13px] text-pt-muted lg:inline-flex"><IconSheet size={14} className="text-pt-faint" />{only.tabName}</span> : null;
   }
   return (
-    <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-md bg-pt-sunken p-0.5" role="tablist" aria-label="シート">
-      {list.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          role="tab"
-          aria-selected={s.id === d.currentSheetId}
-          onClick={() => { actions.selectSheet(s.id); }}
-          className={cx('inline-flex h-10 items-center gap-1.5 rounded px-2.5 text-[13px] whitespace-nowrap sm:h-7', s.id === d.currentSheetId ? 'bg-pt-surface font-medium text-pt-ink shadow-pt-card' : 'text-pt-muted hover:text-pt-ink')}
+    <>
+      {/* スマホ: 1 行の選択。 */}
+      <label className="relative flex h-[36px] min-w-0 items-center lg:hidden">
+        <span className="sr-only">シート</span>
+        <IconSheet size={14} className="pointer-events-none absolute left-2.5 text-pt-faint" />
+        <select
+          value={d.currentSheetId}
+          onChange={(e) => { actions.selectSheet(e.target.value); }}
+          className="h-[36px] w-full min-w-0 appearance-none truncate rounded-[6px] border border-pt-line-strong bg-pt-surface pr-8 pl-8 text-[13px] text-pt-ink"
         >
-          <IconSheet size={13} className={s.id === d.currentSheetId ? 'text-pt-muted' : 'text-pt-faint'} />{s.tabName}
-        </button>
-      ))}
-    </div>
+          {list.map((s) => <option key={s.id} value={s.id}>{s.tabName}</option>)}
+        </select>
+        <IconChevronDown size={14} className="pointer-events-none absolute right-2.5 text-pt-faint" />
+      </label>
+      {/* PC: タブ。 */}
+      <div className="hidden min-w-0 items-center gap-0.5 overflow-x-auto rounded-md bg-pt-sunken p-0.5 lg:flex" role="tablist" aria-label="シート">
+        {list.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            role="tab"
+            aria-selected={s.id === d.currentSheetId}
+            onClick={() => { actions.selectSheet(s.id); }}
+            className={cx('inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[13px] whitespace-nowrap', s.id === d.currentSheetId ? 'bg-pt-surface font-medium text-pt-ink shadow-pt-card' : 'text-pt-muted hover:text-pt-ink')}
+          >
+            <IconSheet size={13} className={s.id === d.currentSheetId ? 'text-pt-muted' : 'text-pt-faint'} />{s.tabName}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -110,19 +127,19 @@ function CustomerSwitcher() {
   const list = d.customers.filter((c) => q.trim() === '' || c.name.includes(q.trim()));
   return (
     <div ref={ref} className="relative">
-      <span className="mb-1 block text-[11px] font-medium text-pt-faint">表示中の顧客</span>
+      <span className="mb-1 block text-[12px] font-medium text-pt-faint">表示中の顧客</span>
       <button
         type="button"
         onClick={() => { setOpen(!open); setQ(''); }}
         aria-expanded={open}
         title={cur?.name}
-        className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 -ml-2 text-left text-[14px] font-semibold hover:bg-pt-surface"
+        className="flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 py-1 -ml-2 text-left text-[14px] leading-snug font-semibold hover:bg-pt-surface"
       >
-        <span className="min-w-0 flex-1 truncate">{cur?.name}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 break-words">{cur?.name}</span>
         <IconChevronDown size={14} className="shrink-0 text-pt-faint" />
       </button>
       {open && (
-        <div className="absolute top-full left-0 z-50 mt-1 w-72 rounded-lg border border-pt-line bg-pt-surface py-1 shadow-pt-pop">
+        <div className="absolute top-full left-0 z-50 mt-1 w-80 rounded-lg border border-pt-line bg-pt-surface py-1 shadow-pt-pop">
           <div className="relative px-2 pb-1">
             <IconSearch size={13} className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-pt-faint" />
             <input
@@ -143,7 +160,7 @@ function CustomerSwitcher() {
                   className={cx('flex h-8 w-full items-center gap-2 px-3 text-left text-[13px] hover:bg-pt-sunken', c.id === d.currentCustomerId && 'font-medium')}
                 >
                   <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                  {c.disabled && <span className="shrink-0 text-[11px] text-pt-faint">停止中</span>}
+                  {c.disabled && <span className="shrink-0 text-[12px] text-pt-faint lg:text-[12px]">停止中</span>}
                   {c.id === d.currentCustomerId && <IconCheck size={13} className="shrink-0 text-pt-select" />}
                 </button>
               </li>
@@ -156,7 +173,7 @@ function CustomerSwitcher() {
   );
 }
 
-export function AppShell({ section, title, actions: pageActions, children, flush = false, sync }: {
+export function AppShell({ section, title, actions: pageActions, children, flush = false, sync, mobileHeader = 'default' }: {
   section: Section;
   title: string;
   /** 見出しの右に並べるボタン。 */
@@ -166,6 +183,8 @@ export function AppShell({ section, title, actions: pageActions, children, flush
   flush?: boolean;
   /** つながりの状態の表示を上書きする（少し前の内容・読めないとき）。 */
   sync?: SyncInfo | undefined;
+  /** スマホの見出しの行の余白。'compact' は一覧のように上を詰めたい画面で使う。 */
+  mobileHeader?: 'default' | 'compact';
 }) {
   const nav = usePreviewNav();
   const d = useData();
@@ -174,13 +193,15 @@ export function AppShell({ section, title, actions: pageActions, children, flush
   /** シートに関係しない画面（アカウント）では、シートの切り替えと時刻を出さない。 */
   const noSheet = section === 'account';
   const items = NAV.filter((n) => (n.key === 'columns' ? isStaff || sheet?.customerCanEditColumns === true : n.key === 'account' ? !isStaff : true));
+  /** 顧客の担当者のスマホの下のナビには「項目の設定」を出さない（アカウントの画面から入る）。社内の人はアカウントの画面が無いので残す。 */
+  const bottomItems = isStaff ? items : items.filter((n) => n.key !== 'columns');
   return (
     <div style={isStaff ? { '--band': '2.25rem' } as CSSProperties : undefined}>
     <StaffBand />
     <div className="flex min-h-dvh bg-pt-bg">
-      <aside className="sticky top-[var(--band,0px)] hidden h-[calc(100dvh-var(--band,0px))] w-56 shrink-0 flex-col border-r border-pt-line bg-pt-sunken/60 lg:flex">
+      <aside className="sticky top-[var(--band,0px)] z-40 hidden h-[calc(100dvh-var(--band,0px))] w-56 shrink-0 flex-col border-r border-pt-line bg-pt-sunken/60 lg:flex">
         <div className="px-4 pt-4 pb-3">
-          <p className="mb-3 text-[11px] font-semibold tracking-[0.12em] text-pt-faint">応募者の管理</p>
+          <p className="mb-3 text-[12px] font-semibold tracking-[0.12em] text-pt-faint">応募者の管理</p>
           <CustomerSwitcher />
         </div>
         <nav className="flex flex-col gap-0.5 px-2">
@@ -208,32 +229,44 @@ export function AppShell({ section, title, actions: pageActions, children, flush
 
       <div className="flex min-w-0 flex-1 flex-col pb-16 lg:pb-0">
         <header className="sticky top-[var(--band,0px)] z-20 border-b border-pt-line bg-pt-bg/95 backdrop-blur">
-          <div className="flex items-center gap-2 px-4 pt-3 lg:hidden">
-            <div className="min-w-0 flex-1"><CustomerSwitcher /></div>
-            {!noSheet && <SyncStatus sync={sync} />}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 lg:px-6">
+          {/* スマホの顧客の行は社内の人だけ（顧客の切り替えに使う）。顧客の担当者は 1 社なので出さない。 */}
+          {isStaff && (
+            <div className="flex items-center gap-2 px-4 pt-3 lg:hidden">
+              <div className="min-w-0 flex-1"><CustomerSwitcher /></div>
+              {!noSheet && <SyncStatus sync={sync} />}
+            </div>
+          )}
+          <div className={cx('flex flex-wrap items-center gap-x-4 gap-y-2 px-4 lg:px-6 lg:py-2.5', mobileHeader === 'compact' ? 'py-2' : 'py-2.5')}>
             <h1 className="text-[17px] font-semibold">{title}</h1>
             {!noSheet && (
               <>
-                <span className="hidden h-4 w-px bg-pt-line-strong sm:block" aria-hidden="true" />
-                <div className="min-w-0 max-w-full flex-1 sm:flex-none"><SheetSwitcher /></div>
+                <span className="hidden h-4 w-px bg-pt-line-strong lg:block" aria-hidden="true" />
+                <div className="hidden lg:block"><SheetSwitcher /></div>
                 <div className="hidden lg:block"><SyncStatus sync={sync} /></div>
               </>
             )}
-            {pageActions && <div className="ml-auto flex items-center gap-2">{pageActions}</div>}
+            {(pageActions !== undefined || (!noSheet && !isStaff)) && (
+              <div className="ml-auto flex items-center gap-2">
+                {/* 顧客の担当者のスマホでは、つながりの状態を見出しの行の右端に出す。 */}
+                {!noSheet && !isStaff && <div className="lg:hidden"><SyncStatus sync={sync} /></div>}
+                {pageActions}
+              </div>
+            )}
+            {/* スマホ: シートが 2 枚以上のときだけ、見出しの下に 1 行の選択。 */}
+            {!noSheet && sheetsOf(d, d.currentCustomerId).length > 1 && <div className="w-full lg:hidden"><SheetSwitcher /></div>}
           </div>
         </header>
         <main className={cx('min-w-0 flex-1', !flush && 'px-4 py-4 lg:px-6')}>{children}</main>
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-pt-line bg-pt-surface lg:hidden">
-        {items.map((n) => (
+        {bottomItems.map((n) => (
           <button
             key={n.key}
             type="button"
             onClick={() => { nav.go(n.route); }}
-            className={cx('flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px]', n.key === section ? 'font-semibold text-pt-primary' : 'text-pt-muted')}
+            aria-current={n.key === section ? 'page' : undefined}
+            className={cx('flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[12px]', n.key === section ? 'font-semibold text-pt-primary' : 'text-pt-muted')}
           >
             {n.icon({ size: 20 })}{n.label}
           </button>

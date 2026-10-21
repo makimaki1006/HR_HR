@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { LOGIN_URL, SUPPORT, devices as initialDevices } from '../../fixtures';
-import { actions, getData, log, useData } from '../../data';
+import { actions, currentCustomer, currentSheet, getData, log, useData } from '../../data';
 import { ROUTES, usePreviewNav } from '../../preview';
 import { AppShell } from '../../ui/shell';
 import { Badge, Button, Dialog, Field, TextInput, cx, formatShortDateTime } from '../../ui/kit';
@@ -359,7 +359,11 @@ function PhoneRow() {
   };
   return (
     <Row title="スマホでも使う" desc="ホーム画面に追加すると、すぐ開けます。">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="space-y-2 text-[13px] text-pt-muted sm:hidden">
+        <p><span className="font-medium text-pt-ink">iPhone（Safari）</span>: 画面下の共有ボタンを押し、「ホーム画面に追加」を選びます。</p>
+        <p><span className="font-medium text-pt-ink">Android（Chrome）</span>: 右上のメニューを押し、「ホーム画面に追加」を選びます。</p>
+      </div>
+      <div className="hidden flex-wrap items-center gap-2 sm:flex">
         <code className="pt-num whitespace-nowrap rounded-md border border-pt-line bg-pt-surface px-2.5 py-1.5 text-xs text-pt-ink">{short}</code>
         <Button className={BTN} onClick={copy}><IconCopy size={14} />{copied ? 'コピーしました' : 'コピー'}</Button>
       </div>
@@ -400,12 +404,28 @@ function LogoutRow() {
   );
 }
 
-function AccountBody({ account, passwordDone, failing }: { account: PortalAccount; passwordDone: boolean; failing: boolean }) {
+function ColumnsLink() {
+  const { go } = usePreviewNav();
+  return (
+    <button
+      type="button"
+      onClick={() => { go(ROUTES.columns); }}
+      className="mb-2 flex h-[52px] w-full items-center justify-between rounded-lg border border-pt-line bg-pt-surface px-4 text-left text-[15px] font-medium text-pt-ink hover:bg-pt-bg sm:text-[13px] lg:hidden"
+    >
+      項目の設定
+      <IconChevronRight size={16} className="text-pt-faint" />
+    </button>
+  );
+}
+
+function AccountBody({ account, passwordDone, failing, companyName, canEditColumns }: { account: PortalAccount; passwordDone: boolean; failing: boolean; companyName: string; canEditColumns: boolean }) {
   const [devices, setDevices] = useState<TrustedDevice[]>(() =>
     initialDevices.filter((d) => d.accountId === account.id && (!passwordDone || d.current)),
   );
   return (
     <div className="max-w-3xl">
+      {companyName !== '' && <p className="mb-3 truncate text-[15px] font-semibold text-pt-ink">{companyName}</p>}
+      {canEditColumns && <ColumnsLink />}
       <ProfileRow account={account} failing={failing} />
       <PasswordRow failing={failing} initialDone={passwordDone} onChanged={() => { setDevices((l) => l.filter((d) => d.current)); }} />
       <DeviceRow list={devices} setList={setDevices} failing={failing} />
@@ -426,10 +446,12 @@ export function AccountScreen({ passwordDone = false, failing = false }: { passw
   const { go } = usePreviewNav();
   const viewerId = d.viewer.kind === 'customer' ? d.viewer.accountId : '';
   const account = d.viewer.kind === 'customer' ? d.accounts.find((a) => a.id === viewerId) : undefined;
+  const companyName = currentCustomer(d)?.name ?? '';
+  const canEditColumns = currentSheet(d)?.customerCanEditColumns === true;
   return (
     <AppShell section="account" title="アカウント">
       {account ? (
-        <AccountBody key={account.id} account={account} passwordDone={passwordDone} failing={failing} />
+        <AccountBody key={account.id} account={account} passwordDone={passwordDone} failing={failing} companyName={companyName} canEditColumns={canEditColumns} />
       ) : (
         <div className="max-w-3xl py-4 text-[13px]">
           <p className="text-pt-muted">社内の人の設定は、社内の管理画面で行います。</p>

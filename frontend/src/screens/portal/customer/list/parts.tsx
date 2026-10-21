@@ -16,8 +16,8 @@ export function StatusPill({ value, dot, className }: { value: string; dot: stri
 }
 
 export function ChangeMark({ kind }: { kind: ApplicantRow['changedSinceLastView'] }) {
-  if (kind === 'new') return <span className="shrink-0 text-[11px] leading-4 font-medium text-pt-new">新着</span>;
-  if (kind === 'updated') return <span className="shrink-0 text-[11px] leading-4 font-medium text-pt-warn">更新</span>;
+  if (kind === 'new') return <span className="shrink-0 text-[12px] leading-4 font-medium text-pt-new">新着</span>;
+  if (kind === 'updated') return <span className="shrink-0 text-[12px] leading-4 font-medium text-pt-warn">更新</span>;
   return null;
 }
 
@@ -71,7 +71,7 @@ export function SaveProblem({ state, display, onTakeSheet, onOverwrite, onRetry,
         <p className="mt-0.5 pl-3.5 text-pt-muted">あなたの入力: {display(state.mine)}</p>
         <div className="mt-2 flex flex-wrap gap-1.5 pl-3.5">
           <SmallButton onClick={onTakeSheet}>シートの値にする</SmallButton>
-          <SmallButton primary onClick={onOverwrite}>自分の値で上書き保存</SmallButton>
+          <SmallButton onClick={onOverwrite}>自分の値で上書き保存</SmallButton>
         </div>
       </div>
     );
@@ -119,7 +119,7 @@ export function ToastBar({ toast, onUndo, onClose }: { toast: Toast | null; onUn
         <span className="min-w-0 truncate">{toast.text}</span>
         {toast.undo && (
           <button type="button" onClick={onUndo} className="shrink-0 rounded px-1.5 py-1 font-medium text-white underline-offset-2 hover:underline">
-            元に戻す<span className="ml-1 hidden text-[11px] text-white/60 lg:inline">Ctrl+Z</span>
+            元に戻す<span className="ml-1 hidden text-[12px] text-white/60 lg:inline">Ctrl+Z</span>
           </button>
         )}
         {toast.action && (

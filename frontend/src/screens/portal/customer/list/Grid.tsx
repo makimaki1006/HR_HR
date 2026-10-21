@@ -3,14 +3,14 @@
 // キーボードは表の中の見えない入力欄（catcher）が受ける。日本語入力でも最初の文字から入るように、
 // 文字の列はその入力欄がそのままマスの上に出て編集欄になる（Google スプレッドシートと同じ作り）。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { kindOf, labelOf } from '../../columns';
+import { dominantDateStyle, kindOf, labelOf, type DateStyle } from '../../columns';
 import { actions } from '../../data';
 import { CellDisplay, CellInput } from '../../ui/cell';
 import { IconCheck, IconColumns, IconFilter, IconLock, IconSearch } from '../../ui/icons';
 import { cx } from '../../ui/kit';
 import type { ApplicantRow, ColumnConfig, SheetConfig } from '../../types';
 import { IconArrowDown, IconArrowUp, IconExpand } from './icons';
-import { columnWidths, statusDot, TITLE_MIN, type ColumnFilter, type SortSpec } from './model';
+import { columnWidths, rowRefDay, statusDot, TITLE_MIN, type ColumnFilter, type SortSpec } from './model';
 import { CellMark, ChangeMark, changeLine, SaveProblem, StatusPill, useOutside } from './parts';
 import { cellKey, type CellSaver } from './useCellSaver';
 
@@ -64,10 +64,30 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
   const composingRef = useRef(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const catcherRef = useRef<HTMLTextAreaElement>(null);
-  const widths = useMemo(() => columnWidths(cols, allRows, titleHeader, sheet.statusColumn ?? undefined), [cols, allRows, titleHeader, sheet.statusColumn]);
+  const widths = useMemo(() => columnWidths(cols, allRows, titleHeader, sheet.statusColumn ?? undefined, (r) => rowRefDay(sheet, r)), [cols, allRows, titleHeader, sheet]);
   const widthOf = (c: ColumnConfig): number => widths[c.header] ?? 128;
   const titleW = widths[titleHeader] ?? TITLE_MIN;
   const totalW = cols.reduce((s, c) => s + widthOf(c), 0);
+  // 右に隠れている列の数（P1-2「→ ほか N 列」）。
+  const [hiddenRight, setHiddenRight] = useState(0);
+  const measureHidden = () => {
+    const el = boxRef.current;
+    if (!el) return;
+    const edge = el.scrollLeft + el.clientWidth + 1;
+    let x = 0;
+    let n = 0;
+    for (const c of cols) { x += widthOf(c); if (x > edge) n += 1; }
+    setHiddenRight(n);
+  };
+  useEffect(() => {
+    measureHidden();
+    const el = boxRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(() => { measureHidden(); });
+    ro.observe(el);
+    return () => { ro.disconnect(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cols, widths]);
 
   const rowIndex = useMemo(() => new Map(rows.map((r, i) => [r.rowNumber, i])), [rows]);
   const colIndex = useMemo(() => new Map(cols.map((c, i) => [c.header, i])), [cols]);
@@ -293,9 +313,22 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
   const editingCol = textEditing ? cols.find((c) => c.header === textEditing.column) : undefined;
 
   return (
+    <div className="relative">
+    {hiddenRight > 0 && (
+      <>
+        <div aria-hidden className="pointer-events-none absolute top-0 right-0 bottom-0 z-30 w-6 bg-linear-to-l from-pt-surface to-transparent" />
+        <button
+          type="button"
+          onClick={() => { boxRef.current?.scrollBy({ left: Math.max(200, (boxRef.current.clientWidth - titleW) * 0.8), behavior: 'smooth' }); }}
+          className="pt-num absolute top-[6px] right-2 z-30 inline-flex h-6 items-center rounded-full border border-pt-line-strong bg-pt-surface px-2 text-[12px] text-pt-muted shadow-pt-card hover:text-pt-ink"
+        >
+          → ほか {hiddenRight} 列
+        </button>
+      </>
+    )}
     <div
       ref={boxRef}
-      onScroll={(e) => { const s = e.currentTarget.scrollLeft > 0; if (s !== scrolled) setScrolled(s); }}
+      onScroll={(e) => { const s = e.currentTarget.scrollLeft > 0; if (s !== scrolled) setScrolled(s); measureHidden(); }}
       className="relative overflow-auto bg-pt-surface"
       style={{ height, scrollPaddingTop: 37, scrollPaddingLeft: titleW }}
     >
@@ -388,7 +421,7 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
                         ) : c.header === sheet.statusColumn ? (
                           <StatusPill value={v} dot={statusDot(sheet, v)} />
                         ) : (
-                          <CellDisplay column={c} value={v} className={cx('truncate', c.multiline && 'text-pt-muted')} />
+                          <CellDisplay column={c} value={v} refDay={sheet.sortColumn ? rowRefDay(sheet, row) : null} className={cx('truncate', c.multiline && 'text-pt-muted')} />
                         )}
                       </div>
                       {st?.kind === 'conflict' && !isSel && <span className="pointer-events-none absolute inset-0 ring-1 ring-pt-warn ring-inset" />}
@@ -400,6 +433,8 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
                           col={c}
                           initial={editing.value}
                           wide={kindOf(c) === 'datetime'}
+                          dateStyle={dominantDateStyle(allRows, c.header)}
+                          refDay={sheet.sortColumn ? rowRefDay(sheet, row) : null}
                           place={fitInBox('below')}
                           onChange={setEditValue}
                           onCommit={commit}
@@ -407,7 +442,7 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
                         />
                       )}
                       {isEdit && editing.mode === 'choice' && (
-                        <ChoiceMenu col={c} value={editing.base} query={editing.query} place={fitInBox('below')} onPick={(o) => { commit(o, null); }} onCancel={cancel} />
+                        <ChoiceMenu col={c} value={editing.base} query={editing.query} place={fitInBox('below')} onPick={(o) => { commit(o, null); }} onCancel={cancel} {...(c.header === sheet.statusColumn ? { dotFor: (o: string) => statusDot(sheet, o) } : {})} />
                       )}
                       {saver.bubble === key && st && (st.kind === 'conflict' || st.kind === 'failed') && (
                         <div data-bubble ref={fitInBox('right')} className="absolute top-0 left-full z-40 ml-1 w-72 rounded-lg border border-pt-line bg-pt-surface p-3 whitespace-normal shadow-pt-pop" onMouseDown={(e) => { e.stopPropagation(); }}>
@@ -463,19 +498,22 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
         style={catcherStyle}
       />
       {textEditing && editingCol?.multiline && (
-        <p className="pointer-events-none absolute z-40 rounded bg-pt-surface px-1 text-[11px] text-pt-faint" style={{ left: catcherBox.left, top: catcherBox.top + catcherBox.height + 2 }}>Ctrl+Enter で保存、Esc で取り消し</p>
+        <p className="pointer-events-none absolute z-40 rounded bg-pt-surface px-1 text-[12px] text-pt-faint" style={{ left: catcherBox.left, top: catcherBox.top + catcherBox.height + 2 }}>Ctrl+Enter で保存、Esc で取り消し</p>
       )}
       {rows.length === 0 && <p className="sticky left-0 px-4 py-10 text-center text-[13px] text-pt-muted" style={{ width: 'min(100%, 100vw)' }}>条件に合う応募者はいません</p>}
       <div className="h-40" />
+    </div>
     </div>
   );
 }
 
 /** 日付・日時のマスの入力欄。値は自分で持ち、確定のときに渡す。 */
-function Editor({ col, initial, wide, place, onChange, onCommit, onCancel }: {
+function Editor({ col, initial, wide, dateStyle, refDay, place, onChange, onCommit, onCancel }: {
   col: ColumnConfig;
   initial: string;
   wide: boolean;
+  dateStyle: DateStyle;
+  refDay: number | null;
   place: (el: HTMLElement | null) => void;
   onChange: (v: string) => void;
   onCommit: (v: string, then: 'down' | 'right' | 'left' | null) => void;
@@ -498,7 +536,7 @@ function Editor({ col, initial, wide, place, onChange, onCommit, onCancel }: {
         onCommit(value, null);
       }}
     >
-      <CellInput column={col} value={value} onChange={set} onCommit={() => { onCommit(value, 'down'); }} onCancel={onCancel} compact />
+      <CellInput column={col} value={value} onChange={set} onCommit={() => { onCommit(value, 'down'); }} onCancel={onCancel} compact dateStyle={dateStyle} refDay={refDay} />
     </div>
   );
 }
@@ -507,8 +545,10 @@ function Editor({ col, initial, wide, place, onChange, onCommit, onCancel }: {
  * 選択肢の列のプルダウン。マスの下に開き、強調は今の値から始まる。
  * 上の欄で打った文字で絞り込める。マウスは実際に動かしたときだけ強調を動かす。
  */
-function ChoiceMenu({ col, value, query, place, onPick, onCancel }: {
+function ChoiceMenu({ col, value, query, place, onPick, onCancel, dotFor }: {
   col: ColumnConfig;
+  /** 状況の列なら、選択肢の左に段階の点を出す（詳細の吹き出しと同じ見た目）。 */
+  dotFor?: (v: string) => string;
   value: string;
   query: string;
   place: (el: HTMLElement | null) => void;
@@ -559,7 +599,7 @@ function ChoiceMenu({ col, value, query, place, onPick, onCancel }: {
           className="h-8 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-pt-faint"
         />
       </div>
-      <div id="pt-choice-list" role="listbox" className="max-h-64 overflow-y-auto py-1" onMouseMove={() => { mouseLive.current = true; }}>
+      <div id="pt-choice-list" role="listbox" className="max-h-[360px] overflow-y-auto py-1" onMouseMove={() => { mouseLive.current = true; }}>
         {options.length === 0 && <p className="px-2.5 py-2 text-[12px] text-pt-faint">合う選択肢はありません</p>}
         {options.map((o, i) => (
           <button
@@ -572,6 +612,7 @@ function ChoiceMenu({ col, value, query, place, onPick, onCancel }: {
             className={cx('flex h-8 w-full items-center gap-2 px-2.5 text-left text-[13px]', i === hi ? 'bg-pt-sunken' : '')}
           >
             <span className="w-3.5 shrink-0 text-pt-select">{o === value && <IconCheck size={13} />}</span>
+            {dotFor && o !== '' && <span className={cx('h-1.5 w-1.5 shrink-0 rounded-full', dotFor(o))} />}
             <span className={cx('truncate', o === '' && 'text-pt-faint')}>{o === '' ? '（空にする）' : o}</span>
           </button>
         ))}
@@ -657,9 +698,9 @@ function HeaderMenu({ col, sort, filter, onSort, onFilter, onSettings, allRows }
       <MenuItem active={sort === 'desc'} onClick={() => { onSort(sort === 'desc' ? null : 'desc'); }}><IconArrowDown size={13} />降順に並べる</MenuItem>
       <div className="my-1 border-t border-pt-line" />
       <div className="flex items-center px-3 pt-1 pb-1.5">
-        <p className="text-[11px] font-medium text-pt-faint">絞り込み</p>
+        <p className="text-[12px] font-medium text-pt-faint">絞り込み</p>
         {asList && (
-          <span className="ml-auto flex gap-2 text-[11px]">
+          <span className="ml-auto flex gap-2 text-[12px]">
             <button type="button" onClick={() => { onFilter(null); }} className="text-pt-primary hover:underline">すべて</button>
             <button type="button" onClick={() => { onFilter({ type: 'in', values: [] }); }} className="text-pt-muted hover:underline">外す</button>
           </span>

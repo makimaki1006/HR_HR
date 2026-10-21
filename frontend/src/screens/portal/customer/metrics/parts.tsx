@@ -22,11 +22,11 @@ export function Panel({ title, aside, children }: { title: string; aside?: React
 function Delta({ cur, prev, unit, inverse, kind }: { cur: number | null; prev: number | null; unit: string; inverse?: boolean | undefined; kind: 'count' | 'rate' }) {
   if (cur === null || prev === null) return null;
   const diff = kind === 'rate' ? Math.round((cur - prev) * 1000) / 10 : cur - prev;
-  if (diff === 0) return <span className="text-[11px] text-pt-faint">変わらず</span>;
+  if (diff === 0) return <span className="text-xs text-pt-faint">変わらず</span>;
   const up = diff > 0;
   const good = inverse ? !up : up;
   return (
-    <span className={cx('pt-num text-[11px]', good ? 'text-pt-ok' : 'text-pt-danger')}>
+    <span className={cx('pt-num text-xs', good ? 'text-pt-ok' : 'text-pt-danger')}>
       {up ? '▲' : '▼'} {String(Math.abs(diff))}{unit}
     </span>
   );
@@ -59,7 +59,7 @@ export function KpiCard({ label, big, num, den, basis, unit, cur, prev, kind, in
         <span className={cx('pt-num text-[22px] font-semibold', (small === true || unavailable === true) && 'text-pt-faint')}>{unavailable === true ? '—' : big}</span>
         {unavailable !== true && <Delta cur={cur} prev={prev} unit={kind === 'rate' ? 'pt' : (unit ?? '')} inverse={inverse} kind={kind} />}
       </p>
-      <p className="pt-num min-h-4 text-[11px] leading-4 text-pt-faint">
+      <p className="pt-num min-h-4 text-xs leading-4 text-pt-faint">
         {unavailable === true
           ? 'この段階の選択肢なし'
           : (<>
@@ -71,7 +71,7 @@ export function KpiCard({ label, big, num, den, basis, unit, cur, prev, kind, in
   );
 }
 
-export function Funnel({ t, missing }: { t: Tally; missing: Set<FunnelStage> }) {
+export function Funnel({ t, missing, optionNames }: { t: Tally; missing: Set<FunnelStage>; /** 段ごとに数えている選択肢の名前（採用は入社予定日の列があればその旨）。 */ optionNames: Partial<Record<FunnelStage, string>> }) {
   const steps = [
     { stage: 'applied' as const, n: t.total },
     { stage: 'screening' as const, n: t.reached.screening },
@@ -82,13 +82,22 @@ export function Funnel({ t, missing }: { t: Tally; missing: Set<FunnelStage> }) 
   ];
   return (
     <div>
-      <ul className="space-y-1.5">
+      <ul className="space-y-2">
         {steps.map((s, i) => {
           const prev = i === 0 ? null : (steps[i - 1]?.n ?? 0);
           const none = missing.has(s.stage);
           return (
-            <li key={s.stage} title={!none && prev !== null && prev > 0 ? `前の段階から ${pct(s.n / prev)}` : undefined} className={cx('grid grid-cols-[4.5rem_1fr_auto] items-center gap-3 sm:grid-cols-[5rem_1fr_auto]', none && 'opacity-60')}>
-              <span className="text-[13px] text-pt-muted">{STAGE_LABEL[s.stage]}</span>
+            <li key={s.stage} title={!none && prev !== null && prev > 0 ? `前の段階から ${pct(s.n / prev)}` : undefined} className={cx('grid grid-cols-[104px_1fr_auto] items-center gap-3 sm:grid-cols-[156px_1fr_auto]', none && 'opacity-60')}>
+              <span className="min-w-0 text-[13px] text-pt-muted">
+                {STAGE_LABEL[s.stage]}
+                {!none && i === 0 && <span className="block text-xs leading-4 text-pt-faint">すべての応募</span>}
+                {!none && i > 0 && optionNames[s.stage] !== undefined && (
+                  <span className="block text-xs leading-4 text-pt-faint">
+                    {(optionNames[s.stage] ?? '').split('・').map((n, j) => <span key={n} className="whitespace-nowrap">{j > 0 && '・'}{n}</span>)}
+                    {s.stage !== 'hired' && <span className="whitespace-nowrap"> 以降</span>}
+                  </span>
+                )}
+              </span>
               {none ? (
                 <span className="text-xs text-pt-faint">—（この段階の選択肢がありません）</span>
               ) : (
@@ -120,7 +129,7 @@ function RateText({ r }: { r: Rate }) {
   return (
     <span className={cx(small && 'text-pt-faint')} title={small ? `${String(r.num)} / ${String(r.den)} 人（人数が少ない）` : `${String(r.num)} / ${String(r.den)} 人`}>
       {pct(r.value)}
-      {small && <span className="ml-1 text-[10px]">少</span>}
+      {small && <span className="ml-1 text-xs">少</span>}
     </span>
   );
 }
@@ -175,7 +184,7 @@ export function MonthlyChart({ bars, range }: { bars: MonthBar[]; range: { from:
         {ticks.map((tk) => (
           <g key={tk}>
             <line x1="24" x2={W} y1={y(tk)} y2={y(tk)} className="stroke-pt-line" strokeDasharray="2 3" />
-            <text x="0" y={y(tk) + 4} fontSize="10" className="pt-num fill-pt-faint">{tk}</text>
+            <text x="0" y={y(tk) + 4} fontSize="12" className="pt-num fill-pt-faint">{tk}</text>
           </g>
         ))}
         <line x1="24" x2={W} y1={20 + plot} y2={20 + plot} className="stroke-pt-line-strong" />
@@ -186,8 +195,8 @@ export function MonthlyChart({ bars, range }: { bars: MonthBar[]; range: { from:
             <g key={b.label} opacity={on ? 1 : 0.4}>
               {b.applied > 0 && <rect x={cx0 - bw - 1} y={y(b.applied)} width={bw} height={20 + plot - y(b.applied)} rx="2" className="fill-pt-primary" opacity="0.7" />}
               {b.hired > 0 && <rect x={cx0 + 1} y={y(b.hired)} width={bw} height={20 + plot - y(b.hired)} rx="2" className="fill-pt-ok" />}
-              {b.applied > 0 && <text x={cx0 - bw / 2 - 1} y={y(b.applied) - 4} textAnchor="middle" fontSize="11" className="pt-num fill-pt-ink">{b.applied}</text>}
-              {b.hired > 0 && <text x={cx0 + bw / 2 + 1} y={y(b.hired) - 4} textAnchor="middle" fontSize="11" className="pt-num fill-pt-muted">{b.hired}</text>}
+              {b.applied > 0 && <text x={cx0 - bw / 2 - 1} y={y(b.applied) - 4} textAnchor="middle" fontSize="12" className="pt-num fill-pt-ink">{b.applied}</text>}
+              {b.hired > 0 && <text x={cx0 + bw / 2 + 1} y={y(b.hired) - 4} textAnchor="middle" fontSize="12" className="pt-num fill-pt-muted">{b.hired}</text>}
               <text x={cx0} y={20 + plot + 18} textAnchor="middle" fontSize="12" className="fill-pt-muted">{b.label}</text>
             </g>
           );

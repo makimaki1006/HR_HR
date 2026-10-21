@@ -187,7 +187,7 @@ export function ColumnsScreen() {
                     <span className="text-pt-muted"><Icon size={14} /></span>
                     <span className={cx('truncate', active && 'font-medium')}>{labelOf(c)}</span>
                     {active && dirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-pt-warn" aria-label="保存していない変更があります" />}
-                    <span className="ml-auto flex shrink-0 gap-1 pr-1 text-[11px] text-pt-faint">
+                    <span className="ml-auto flex shrink-0 gap-1 pr-1 text-[12px] text-pt-faint">
                       {c.writable && <span className="rounded bg-pt-sunken px-1">記入</span>}
                       {c.inList && <span className="rounded bg-pt-sunken px-1">カード</span>}
                     </span>

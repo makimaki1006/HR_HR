@@ -77,7 +77,7 @@ export function Invite() {
           <CheckRow checked={agree} onChange={setAgree} label="利用規約に同意します" />
           {tried && !agree && <p className="mt-1 text-xs text-pt-danger">利用規約への同意が必要です</p>}
         </div>
-        <CheckRow checked={remember} onChange={setRemember} label="この端末を覚える（90 日）" note="共用のパソコンでは使わないでください。" />
+        <CheckRow checked={remember} onChange={setRemember} label="この端末を覚える" note="90 日。自分だけが使う端末のとき" />
         <Button type="submit" variant="primary" className={BTN_LG} disabled={sending}>{sending ? '設定しています…' : '設定して始める'}</Button>
       </form>
     </AuthLayout>

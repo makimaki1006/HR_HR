@@ -41,7 +41,8 @@ export interface CellSaver {
   /** 吹き出しを出しているマス。 */
   bubble: string | null;
   setBubble: (key: string | null) => void;
-  save: (rowNumber: number, column: string, base: string, next: string, label: string) => void;
+  /** message を渡すと、保存できたときの知らせの文をそれにする（元に戻す付き）。 */
+  save: (rowNumber: number, column: string, base: string, next: string, label: string, message?: string) => void;
   undo: () => void;
   takeSheet: (key: string) => void;
   overwrite: (key: string, label: string) => void;
@@ -79,7 +80,7 @@ export function useCellSaver(sheetId: string): CellSaver {
     return () => { clearTimeout(t); };
   }, [toast]);
 
-  const run = useCallback(async (rowNumber: number, column: string, base: string, next: string, label: string, mode: 'edit' | 'undo') => {
+  const run = useCallback(async (rowNumber: number, column: string, base: string, next: string, label: string, mode: 'edit' | 'undo', message?: string) => {
     const key = cellKey(rowNumber, column);
     setCell(key, { kind: 'saving', value: next });
     const r: CellSaveResult = await actions.saveCell(sheetId, rowNumber, column, base, next);
@@ -88,7 +89,7 @@ export function useCellSaver(sheetId: string): CellSaver {
       setTimeout(() => { setCells((prev) => (prev[key]?.kind === 'saved' ? omit(prev, key) : prev)); }, 1800);
       if (mode === 'edit') {
         setUndoStack((s) => [...s.slice(-19), { rowNumber, column, before: base, after: next, label }]);
-        notify(`${label}を変更しました`, true);
+        notify(message ?? `${label}を変更しました`, true);
       } else {
         notify(`${label}を元に戻しました`);
       }
@@ -101,9 +102,9 @@ export function useCellSaver(sheetId: string): CellSaver {
     }
   }, [sheetId, setCell, notify]);
 
-  const save = useCallback((rowNumber: number, column: string, base: string, next: string, label: string) => {
+  const save = useCallback((rowNumber: number, column: string, base: string, next: string, label: string, message?: string) => {
     if (base === next) return;
-    void run(rowNumber, column, base, next, label, 'edit');
+    void run(rowNumber, column, base, next, label, 'edit', message);
   }, [run]);
 
   const undo = useCallback(() => {

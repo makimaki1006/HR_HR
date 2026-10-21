@@ -4,7 +4,8 @@
 import { useSyncExternalStore } from 'react';
 import { CURRENT_ACCOUNT_ID, NOW, STAFF_NAME, accounts, activity as initialActivity, customers as initialCustomers, initialRows, sheets as initialSheets } from './fixtures';
 import { applicantRows, kindOf, labelOf } from './columns';
-import type { ActivityEntry, ApplicantRow, CellSaveResult, ColumnConfig, Customer, FunnelStage, ListPrefs, PortalAccount, SheetConfig, Viewer } from './types';
+import type { ActivityEntry, ApplicantRow, CellSaveResult, ColumnConfig, Customer, FunnelStage, ListPrefs, ListQuick, ListUrlState, PortalAccount, SheetConfig, Viewer } from './types';
+export type { ListUrlState } from './types';
 
 export interface DataState {
   viewer: Viewer;
@@ -96,6 +97,54 @@ export function getListPrefs(s: DataState, sheetId: string): ListPrefs | null {
     if (raw) return JSON.parse(raw) as ListPrefs;
   } catch { /* 読めなければ既定 */ }
   return null;
+}
+
+// ---- 一覧の状態を URL に入れる ----
+// 置き場所は location.search（status / quick / q / sort / row）。試作の「#画面id」と、live・bar などほかのクエリはそのまま残す。
+// 優先順位は 呼び出し側で: URL にあれば URL、無ければ getListPrefs、無ければ既定。
+
+const URL_KEYS = ['status', 'quick', 'q', 'sort', 'row'] as const;
+const QUICKS: ListQuick[] = ['today', 'tomorrow', 'new', 'unhandled'];
+const SORTS: NonNullable<ListUrlState['sort']>[] = ['applied', 'near', 'changed'];
+
+/** URL から一覧の状態を読む。読めない値は無いものとして扱う。 */
+export function readListUrl(): ListUrlState {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    const out: ListUrlState = {};
+    const status = p.get('status');
+    if (status !== null && status !== '') out.status = status;
+    const quick = p.get('quick');
+    const qk = QUICKS.find((x) => x === quick);
+    if (qk) out.quick = qk;
+    const q = p.get('q');
+    if (q !== null && q !== '') out.q = q;
+    const sort = p.get('sort');
+    const sk = SORTS.find((x) => x === sort);
+    if (sk) out.sort = sk;
+    const row = Number(p.get('row') ?? '');
+    if (Number.isInteger(row) && row > 0) out.row = row;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** 一覧の状態を URL に書く。next に無い項目は URL から消す。push は履歴に積む（詳細を開くとき）、replace は積まない。 */
+export function writeListUrl(next: ListUrlState, mode: 'replace' | 'push'): void {
+  try {
+    const url = new URL(window.location.href);
+    for (const k of URL_KEYS) url.searchParams.delete(k);
+    if (next.status !== undefined && next.status !== '') url.searchParams.set('status', next.status);
+    if (next.quick !== undefined) url.searchParams.set('quick', next.quick);
+    if (next.q !== undefined && next.q !== '') url.searchParams.set('q', next.q);
+    if (next.sort !== undefined) url.searchParams.set('sort', next.sort);
+    if (next.row !== undefined) url.searchParams.set('row', String(next.row));
+    const href = url.pathname + url.search + url.hash;
+    if (href === window.location.pathname + window.location.search + window.location.hash) return;
+    if (mode === 'push') window.history.pushState({ ptList: true }, '', href);
+    else window.history.replaceState(window.history.state, '', href);
+  } catch { /* 書けなくても画面は動く */ }
 }
 
 const listeners = new Set<() => void>();
