@@ -591,11 +591,17 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         }));
     }
 
-    async fn process_due(&mut self) {
+    /// 判定待ちを新しい電話から進める。新しく入った電話を拾い直せるよう、1 回に使うのは `interval` まで。
+    /// 時間切れで残りがあれば true (呼び出し側は待たずに次の周回へ)
+    async fn process_due(&mut self) -> bool {
+        let started = std::time::Instant::now();
         let mut done: HashSet<String> = HashSet::new();
         // 1 回に取る本数は同時に判定する本数の 4 倍 (遅い 1 本を待つ間も残りの枠で進める)
         let batch_size = (self.cfg.concurrency * 4).max(40);
         for _ in 0..(MAX_PER_CYCLE / batch_size).max(1) {
+            if started.elapsed() >= self.cfg.interval {
+                return true;
+            }
             let now_s = store::ts_text(Utc::now());
             let due = match store::blocking(&self.audit, move |t| {
                 store::due(t, &now_s, batch_size as i64)
@@ -605,7 +611,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 Ok(v) => v,
                 Err(e) => {
                     tracing::warn!(error = %e, "talk review: due select failed");
-                    return;
+                    return false;
                 }
             };
             let mut batch: Vec<ReviewRow> = due
@@ -616,7 +622,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 })
                 .collect();
             if batch.is_empty() {
-                return;
+                return false;
             }
             // 録音 URL が Call に無い行は、相手番号を HubSpot から 1 回でまとめて読む (読めなければ今回は見送る)
             let need: Vec<String> = batch
@@ -687,6 +693,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             }
             while set.join_next().await.is_some() {}
         }
+        true
     }
 
     async fn run(mut self) {
@@ -726,8 +733,10 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             self.prefill_counts(now);
             self.promote().await;
             self.pending.flush(&self.audit).await;
-            self.process_due().await;
-            tokio::time::sleep(self.cfg.interval).await;
+            // 時間切れで判定待ちが残っていれば待たずに次の周回 (新しい電話を拾い直してから続ける)
+            if !self.process_due().await {
+                tokio::time::sleep(self.cfg.interval).await;
+            }
         }
     }
 }
