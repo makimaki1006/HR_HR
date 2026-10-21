@@ -7,7 +7,7 @@ use crate::crm::caller_metrics_month::SALES_TEAM;
 
 pub const DEFAULT_MODEL: &str = "MiniMax-M3";
 /// 同時に判定する本数の上限 (MiniMax の上限に当たったら worker の再試行に任せる)
-pub const MAX_CONCURRENCY: usize = 32;
+pub const MAX_CONCURRENCY: usize = 64;
 pub const DEFAULT_BASE_URL: &str = "https://api.minimax.io/v1";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -133,11 +133,11 @@ mod tests {
         let c = TalkReviewConfig::from_lookup(|k| {
             match k {
                 "CALL_REVIEW_PER_PERSON_DAY" => Some(" 3 "),
-                "CALL_REVIEW_CONCURRENCY" => Some("32"),
+                "CALL_REVIEW_CONCURRENCY" => Some("64"),
                 _ => None,
             }
             .map(String::from)
         });
-        assert_eq!((c.per_person_day, c.concurrency), (3, 32));
+        assert_eq!((c.per_person_day, c.concurrency), (3, 64));
     }
 }
