@@ -2003,10 +2003,10 @@ fn 本体契約はオプション判定に巻き込まれない() {
 
 // ================================================================ MTG途絶の帯
 
-/// 帯の線引きが GAS `no_mtg_alerter.gs` と同じであること。
+/// 帯の線引き。重大は 60 日（2026-10-21 ユーザー決定。GAS `no_mtg_alerter.gs` の 90 日とは違う）。
 ///
 /// ```text
-///   注意 30〜59 / 警告 60〜89 / 重大 90〜
+///   注意 30〜59 / 重大 60〜
 ///   立ち上がり期（契約開始30日以内）は帯を付けない
 ///   満了90日以内 かつ 30日以上途絶 → 強制的に重大
 /// ```
@@ -2049,8 +2049,8 @@ fn mtg途絶の線引きがgasと同じ() {
         (29, super::MtgBand::Recent),
         (30, super::MtgBand::Yellow),
         (59, super::MtgBand::Yellow),
-        (60, super::MtgBand::Red),
-        (89, super::MtgBand::Red),
+        (60, super::MtgBand::Critical),
+        (89, super::MtgBand::Critical),
         (90, super::MtgBand::Critical),
         (365, super::MtgBand::Critical),
     ] {
@@ -2133,8 +2133,8 @@ fn mtgの記録なしは赤にせず両方のソースで数える() {
             .and_then(|b| b["n"].as_i64())
             .unwrap_or_else(|| panic!("帯 {k} が無い"))
     };
-    assert_eq!(band("critical"), 102, "重大");
-    assert_eq!(band("red"), 7, "警告");
+    // 2026-10-21 重大を 90 日→60 日にした。前の重大 102 + 警告 7 = 109
+    assert_eq!(band("critical"), 109, "重大");
     assert_eq!(band("yellow"), 22, "注意");
     assert_eq!(band("recent"), 241, "直近30日にMTGあり");
     assert_eq!(band("no_record"), 34, "記録なし");
@@ -2274,20 +2274,21 @@ fn mtg途絶の名札が今日動く先に並ぶ() {
             )
         })
         .collect();
-    assert_eq!(counts.get("MTGが90日以上空いている"), Some(&56));
-    assert_eq!(counts.get("MTGが60〜89日空いている"), Some(&7));
+    // 2026-10-21 重大を 60 日にした。前は 90 日以上 56 件。60〜89 日の 21 件が加わる（うち 14 件は前は満了前の引き上げで重大だった）
+    assert_eq!(counts.get("MTGが60日以上空いている"), Some(&77));
+    assert_eq!(counts.get("MTGが60〜89日空いている"), None);
     assert_eq!(counts.get("MTGが30〜59日空いている"), Some(&22));
-    assert_eq!(counts.get("満了90日前でMTGが30日以上空いている"), Some(&46));
+    assert_eq!(counts.get("満了90日前でMTGが30日以上空いている"), Some(&32));
     // 重大の帯 = 経過日数で重大 + 満了前で引き上げたもの
-    assert_eq!(56 + 46, 102, "重大の内訳が帯の件数と合わない");
+    assert_eq!(77 + 32, 109, "重大の内訳が帯の件数と合わない");
 
     // 今日動く先の行にも帯が乗っている（別の計算を持っていない）
     for r in v["rows"].as_array().unwrap() {
         assert!(r["mtg_band"].is_string(), "今日動く先に区分が無い: {r}");
     }
     assert!(
-        v["meta"]["mtg_gap"]["bands"].as_array().unwrap().len() == 6,
-        "今日動く先に帯の内訳が無い"
+        v["meta"]["mtg_gap"]["bands"].as_array().unwrap().len() == 5,
+        "今日動く先に帯の内訳が無い（重大・注意・直近・記録なし・立ち上がり期の 5 つ）"
     );
 }
 
@@ -2943,7 +2944,7 @@ fn 今日動く先は全担当と担当ごとのmtg途絶の実数も返す() {
         "候補・満了・新規に出ない担当（稼働中の案件はある）の数が fixture と違う: {missing:?}"
     );
 
-    // 担当ごとの MTG途絶（critical）の実数。合計は帯の件数（102）と一致する
+    // 担当ごとの MTG途絶（critical）の実数。合計は帯の件数（109）と一致する
     let cb = v["meta"]["mtg_gap"]["critical_by_consultant"]
         .as_object()
         .expect("critical_by_consultant が無い");
@@ -2955,7 +2956,7 @@ fn 今日動く先は全担当と担当ごとのmtg途絶の実数も返す() {
         .find(|b| b["band"] == "critical")
         .map(|b| b["n"].as_u64().unwrap())
         .unwrap();
-    assert_eq!(band_n, 102, "帯 critical の件数（fixture）");
+    assert_eq!(band_n, 109, "帯 critical の件数（fixture）");
     assert_eq!(total, band_n, "担当ごとの実数の合計が帯の件数と合わない");
     // この項目が要る理由: 候補（名札2本以上）の中で数えると 5 名の担当で実数より少なくなる
     let mut in_cand: BTreeMap<&str, u64> = BTreeMap::new();
@@ -2973,7 +2974,7 @@ fn 今日動く先は全担当と担当ごとのmtg途絶の実数も返す() {
         .collect();
     assert_eq!(
         off.len(),
-        5,
+        8, // 重大を 60 日にして 5 → 8（名札 1 本だけの行が増えた）
         "候補の中の件数と帯の実数がずれる担当の数が fixture と違う: {off:?}"
     );
     assert!(
@@ -3689,7 +3690,7 @@ fn mtg途絶の帯の説明に仕組みの名前を出さない() {
         g["rule"]
             .as_str()
             .unwrap()
-            .contains("Slack に届く MTGが空いている期間の警告"),
+            .contains("案件管理の「危ない案件」と同じ"),
         "何と同じ線引きかを、現場の言葉で書いていない"
     );
 }

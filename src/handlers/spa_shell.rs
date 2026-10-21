@@ -52,6 +52,9 @@ pub const KNOWN_SCREENS: &[&str] = &[
     "job-copy",
     // React 移行 競合調査 (2026-10-06): /app/competitor。ナビは旧 /competitor のまま (PR-6 で切替)
     "competitor",
+    // 2026-10-21: 顧客向け応募者画面の社内向けテスト版 (/app/portal-test)。ナビには出さない。
+    // データは /api/portal-test/* が会社の Google ログインの人にだけ返す
+    "portal-test",
 ];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。
