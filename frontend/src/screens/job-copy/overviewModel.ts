@@ -73,26 +73,41 @@ export interface OverviewRow {
   asOf: string;
 }
 
-function rate(job: JobCopyRecord, start: string, endExclusive: string): WindowRate {
+export function rate(job: JobCopyRecord, start: string, endExclusive: string): WindowRate {
   const days = Math.max(0, daysBetween(start, endExclusive));
   const applications = days > 0 ? countApplications(job.overallApplications?.byDate, start, endExclusive) - countApplications(multiListingByDate(job) ?? undefined, start, endExclusive) : 0;
   return { days, applications, perDay: days > 0 ? applications / days : null };
 }
 
+/** Index of the earliest period whose content is known to be shown as the one at `index` (touching, nothing changed between). */
+export function runStartIndex(periods: readonly TimelinePeriod[], same: (index: number) => boolean, index: number): number {
+  let cursor = index;
+  while (cursor > 0 && same(cursor) && periods[cursor - 1]?.end === periods[cursor]?.start) cursor -= 1;
+  return cursor;
+}
+/** Index of the last period of the same run (same rule, forwards). */
+export function runEndIndex(periods: readonly TimelinePeriod[], same: (index: number) => boolean, index: number): number {
+  let cursor = index;
+  while (cursor < periods.length - 1 && same(cursor + 1) && periods[cursor]?.end === periods[cursor + 1]?.start) cursor += 1;
+  return cursor;
+}
 /**
  * First day the content of periods[index] is known to be shown: earlier periods count only while
  * they touch and nothing changed between them (the same content was seen again).
  */
-function runStart(periods: readonly TimelinePeriod[], ranges: readonly CountRange[], same: (index: number) => boolean, index: number): string {
-  let cursor = index;
-  while (cursor > 0 && same(cursor) && periods[cursor - 1]?.end === periods[cursor]?.start) cursor -= 1;
-  return ranges[cursor]?.start ?? '';
+export function runStart(periods: readonly TimelinePeriod[], ranges: readonly CountRange[], same: (index: number) => boolean, index: number): string {
+  return ranges[runStartIndex(periods, same, index)]?.start ?? '';
 }
 /** Exclusive end of the days the content of periods[index] is known to be shown (same rule). */
-function runEnd(periods: readonly TimelinePeriod[], ranges: readonly CountRange[], same: (index: number) => boolean, index: number, asOf: string): string {
-  let cursor = index;
-  while (cursor < periods.length - 1 && same(cursor + 1) && periods[cursor]?.end === periods[cursor + 1]?.start) cursor += 1;
-  return ranges[cursor]?.end ?? addDays(asOf, 1);
+export function runEnd(periods: readonly TimelinePeriod[], ranges: readonly CountRange[], same: (index: number) => boolean, index: number, asOf: string): string {
+  return ranges[runEndIndex(periods, same, index)]?.end ?? addDays(asOf, 1);
+}
+/** The acquisition window of the change into periods[index]; null for the first version. */
+export function changeWindowOf(periods: readonly TimelinePeriod[], index: number): ChangeWindow | null {
+  const period = periods[index]; const previous = periods[index - 1];
+  if (!period || !previous) return null;
+  const exact = period.basis === 'published' && previous.end === period.start;
+  return { from: exact ? period.start : previous.start, to: period.start, exact };
 }
 
 export function overviewRow(job: JobCopyRecord, options: { billing?: readonly BillingEntry[] | undefined; now?: Date | undefined; windowDays?: number | undefined; dummyBilling?: boolean | undefined } = {}): OverviewRow {
@@ -102,12 +117,7 @@ export function overviewRow(job: JobCopyRecord, options: { billing?: readonly Bi
   const periods = buildPeriods(job, asOf);
   const ranges = countRanges(job, asOf, periods);
   const same = (index: number) => { const change = changes[index]; return change !== undefined && boundaryStatus(change) === 'same'; };
-  const windowOf = (index: number): ChangeWindow | null => {
-    const change = changes[index]; const period = periods[index]; const previous = periods[index - 1];
-    if (!change || !period || !previous) return null;
-    const exact = period.basis === 'published' && previous.end === period.start;
-    return { from: exact ? period.start : previous.start, to: period.start, exact };
-  };
+  const windowOf = (index: number): ChangeWindow | null => (changes[index] ? changeWindowOf(periods, index) : null);
   const changed = changes.map((change, index) => ({ change, index, window: windowOf(index) })).filter(item => item.index > 0 && changeKinds(item.change).length > 0 && item.window);
   const latest = changed.at(-1) ?? null;
   const applicationsAvailable = job.overallApplications?.byDate !== undefined;

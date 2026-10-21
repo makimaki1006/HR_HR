@@ -6,7 +6,7 @@ import type { ApplicantDimension, ApplicantDistribution } from './applicantCompo
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import type { JointDemographics } from './reverseSearchModel';
-import { demoApplicantReasons } from './demoReasons';
+import { demoAirworkReasons, demoApplicantReasons } from './demoReasons';
 import type { MarketData } from './marketChartModel';
 import type { MediaPublicationState } from './mediaPublication';
 /** Fictional MOC fixtures. No HubSpot IDs, real employers, or applicant data. */
@@ -213,6 +213,7 @@ export const jobs: JobCopyRecord[] = [
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 6,
+    applicantReasons: demoAirworkReasons(),
     overallApplications: { total: 6, missingDate: 3, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-15': 1, '2026-09-29': 1, '2026-10-02': 1 } },
     versions: [
       {
@@ -226,6 +227,12 @@ export const jobs: JobCopyRecord[] = [
         certainty: 'unknown', kind: 'published', source: '求人XLSX（デモ・更新日時なし）',
         body: "キャッチコピー：朝の施設を整える仕事。車での通勤にも対応。\n\n仕事内容\n施設の廊下、入口、共有スペースを掃き掃除と拭き掃除で整えます。ごみを回収し、備品の破損に気づいた際は管理担当へ報告します。\n\n利用者が通る場所では作業中の表示を置き、周囲を確認します。洗剤は指定された用途と量を守って使い、終了後は道具を洗って所定の場所に戻します。\n\n仕事の進め方\n朝の集合時に担当エリアを確認します。入口から共有スペースへ順に進め、終了した場所をチェック表に記録して引き継ぎます。\n\n職場紹介\n複数のスタッフがエリアを分担する施設清掃です。利用者の動線を共有し、困った汚れや設備の不具合は責任者へ相談します。\n\n入社後の流れ\n清掃用具の使い方と安全確認を学びます。先輩と一緒に巡回し、場所ごとの手順と確認項目を覚えます。\n\n応募後の流れ\n勤務可能日と通勤方法を確認します。車通勤を希望する方には駐車場所を案内し、新しい勤務時間と開始日を相談します。" + '\n\n募集条件\n' + '職種：施設清掃\n仕事内容：共有スペースの清掃。\n給与：時給1,100円\n勤務時間：6:00〜10:00、週4日\n応募条件：車通勤可。経験不問。',
         applications: { confirmed: 0, estimated: 0, unknown: 2 }, note: '本文の変更は確認できますが、掲載切り替わり時刻は不明です。応募数は架空です。',
+      },
+      {
+        id: 'demo-004-v3', label: '再確認', observedAt: '2026-10-04T08:00:00+09:00',
+        certainty: 'unknown', kind: 'published', source: '求人XLSX（デモ・更新日時なし）',
+        body: "キャッチコピー：朝の施設を整える仕事。車での通勤にも対応。\n\n仕事内容\n施設の廊下、入口、共有スペースを掃き掃除と拭き掃除で整えます。ごみを回収し、備品の破損に気づいた際は管理担当へ報告します。\n\n利用者が通る場所では作業中の表示を置き、周囲を確認します。洗剤は指定された用途と量を守って使い、終了後は道具を洗って所定の場所に戻します。\n\n仕事の進め方\n朝の集合時に担当エリアを確認します。入口から共有スペースへ順に進め、終了した場所をチェック表に記録して引き継ぎます。\n\n職場紹介\n複数のスタッフがエリアを分担する施設清掃です。利用者の動線を共有し、困った汚れや設備の不具合は責任者へ相談します。\n\n入社後の流れ\n清掃用具の使い方と安全確認を学びます。先輩と一緒に巡回し、場所ごとの手順と確認項目を覚えます。\n\n応募後の流れ\n勤務可能日と通勤方法を確認します。車通勤を希望する方には駐車場所を案内し、新しい勤務時間と開始日を相談します。" + '\n\n募集条件\n' + '職種：施設清掃\n仕事内容：共有スペースの清掃。\n給与：時給1,100円\n勤務時間：6:00〜10:00、週4日\n応募条件：車通勤可。経験不問。',
+        applications: { confirmed: 0, estimated: 0, unknown: 0 }, note: '直前の本文と同じ内容を再確認した架空例です。',
       },
     ],
   },

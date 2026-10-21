@@ -20,7 +20,7 @@ export const imagesByVersion: Record<string, CopyImage[] | undefined> = {
   'demo-001-draft': [training],
   'demo-002-v1': [workplace], 'demo-002-v2': [workplace, training],
   'demo-003-v1': [workplace], 'demo-003-v2': [training, workplace],
-  'demo-004-v1': [], 'demo-004-v2': [workplace],
+  'demo-004-v1': [], 'demo-004-v2': [workplace], 'demo-004-v3': [workplace],
   'demo-005-v1': [workplace, training], 'demo-005-v2': [workplace],
   'demo-006-v1': [workplace], 'demo-006-v2': [training],
   'demo-007-v1': [workplace], 'demo-007-v2': [workplace, training],
