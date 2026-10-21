@@ -242,22 +242,6 @@ check("U1", "結果がまだ出ていない最近の契約のチェックが描�
 });
 
 /* ================================================================ U2 */
-check("U2", "系列を縦に並べる図の接触の区分に棒が立つ", async () => {
-  const t = boot();
-  const D = customerPayload([deal({ deal_id: "d1", start: "2025-01-01" })], {
-    monthly: [{ deal_id: "d1", name: "案件", start: "2025-01-01", period: 12,
-      series: { oubo: [{ m: 1, v: 3 }, { m: 2, v: 5 }, { m: 3, v: 5, carry: true }] }, nps: {} }],
-    contacts: [{ deal_id: "d1", dates: ["2025-02-03", "2025-02-20", "2025-03-05"] }],
-  });
-  const h = t.R("renderCustomer")(D);
-  const lane = h.slice(h.indexOf("接触（MTG・60秒超の通話）"));
-  // 横軸は暦の月（2025-01-01 開始なので 2ヶ月目＝25-02）。「Nヶ月」から変えた理由は N18b
-  if (count(lane, /<rect [^>]*>\s*<title>25-02: [^<]* 2<\/title>/g) !== 1)
-    throw new Error("2ヶ月目（25-02、接触2件）の棒が無い");
-  if (count(lane, /<rect [^>]*>\s*<title>25-03: [^<]* 1<\/title>/g) !== 1)
-    throw new Error("3ヶ月目（25-03、接触1件）の棒が無い");
-  if (/undefined/.test(lane.slice(0, lane.indexOf("</svg>")))) throw new Error("棒の説明に undefined が出る");
-});
 
 /* ================================================================ U3 */
 check("U3", "素早く切り替えると、前の画面の遅い応答で上書きされない", async () => {
@@ -421,19 +405,6 @@ check("U6", "今週始まった契約・今週満了の表も見出しを押す�
 });
 
 /* ================================================================ U7 */
-check("U7", "継続を追いかけるで拠点を絞ると、MTG の履歴も絞られる", async () => {
-  const t = boot();
-  const D = customerPayload([deal({ deal_id: "d1", site: "S1" }), deal({ deal_id: "d2", site: "S2" })], {
-    mtgs: [{ deal_id: "d1", date: "2025-02-01" }, { deal_id: "d2", date: "2025-03-01" },
-           { deal_id: "d2", date: "2025-04-01" }],
-  });
-  t.R('custSite = "S1"');
-  const h = t.R("renderCustomer")(D);
-  if (h.indexOf("1 件中 1 件") >= 0) throw new Error("前提が崩れている");
-  if (h.indexOf("MTG の履歴（1 件）") < 0)
-    throw new Error("拠点 S1（MTG 1件）に絞っても MTG の履歴が全拠点のまま: " +
-      (h.match(/MTG の履歴（[^）]*）/) || [""])[0]);
-});
 
 /* ================================================================ U9 */
 check("U9", "選択欄を操作して描き直しても、フォーカスがその選択欄に戻る", async () => {
@@ -531,11 +502,13 @@ check("U10", "401・JSON 以外の応答・本部への提案材料の取得で�
   {
     const t = boot();
     t.R('go("monthly", "results")');
-    const f = t.fetched[t.fetched.length - 1];
-    if (f.url.indexOf("/api/consulting/results") !== 0) throw new Error("成果と継続（本部への提案材料を含む束）を取りに行っていない: " + f.url);
+    /* 2026-10-21: 成果と継続は記録と数字・MTG の品質・電話も並べて取る（more）。主の束はそのうちの 1 本 */
+    const f = t.fetched.find((x) => x.url.indexOf("/api/consulting/results") === 0);
+    if (!f) throw new Error("成果と継続（本部への提案材料を含む束）を取りに行っていない: " + t.fetched.map((x) => x.url).join(","));
     if (t.fetched.some((x) => x.url.indexOf("/api/consulting/headquarters") === 0)) throw new Error("本部への提案材料を別にまだ取りに行っている");
-    f.resolve({ ok: true, status: 200, redirected: true, url: "http://test.local/login",
-      headers: html, json: badJson });
+    /* 並べて取る他の 3 本（記録と数字・MTG の品質・電話）も同じ応答で返す。どれか 1 つの失敗で画面ごと失敗にする */
+    t.fetched.forEach((x) => x.resolve({ ok: true, status: 200, redirected: true, url: "http://test.local/login",
+      headers: html, json: badJson }));
     await tick(); await tick(); await tick();
     const err = t.reg["cs-error"].innerHTML;
     if (err.indexOf("ログインし直してください") < 0 || err.indexOf("Unexpected token") >= 0)
@@ -601,27 +574,6 @@ check("U12", "別の法人を選んだら「既定で開いています」の注
 });
 
 /* ================================================================ U13 */
-check("U13", "拠点が空の取引の選択肢が「すべての拠点」と同じ値にならない", async () => {
-  const t = boot();
-  const D = customerPayload([deal({ deal_id: "d1", site: "S1" }), deal({ deal_id: "d2", site: "" })]);
-  const h = t.R("renderCustomer")(D);
-  const at = h.indexOf('id="cs-site"');
-  const sel = h.slice(at, h.indexOf("</select>", at));
-  const vals = [...sel.matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
-  // 2026-09-29 から拠点は1つずつ選ぶ（「すべての拠点」は無い）。拠点 S1 と拠点が空の2つ
-  if (vals.length !== 2) throw new Error("選択肢の数が合わない: " + vals.length);
-  if (vals.filter((v) => v === "").length !== 0) throw new Error("value が空の選択肢がある（拠点が空の取引が「選んでいない」と同じ値）");
-  const nosite = vals.find((v) => v !== "S1");
-  t.ctx.__v = nosite;
-  t.R("custSite = __v");
-  const h2 = t.R("renderCustomer")(D);
-  if (h2.indexOf("この法人の契約 2 件のうち、この拠点の 1 件") < 0) throw new Error("拠点が空の取引だけに絞れない");
-  if (!new RegExp('<option value="' + nosite + '" selected>').test(h2)) throw new Error("選んだ拠点（拠点が空）が選択欄で選ばれていない");
-  // 選択肢の文字に内部の値（__no_site__）を出さない
-  const texts = [...sel.matchAll(/<option [^>]*>([^<]*)<\/option>/g)].map((m) => m[1]);
-  if (texts.some((x) => x.indexOf(nosite) >= 0)) throw new Error("選択肢に内部の値 " + nosite + " がそのまま出る");
-  if (!texts.some((x) => x.indexOf("拠点が入っていない") === 0)) throw new Error("拠点が空の選択肢に名前が付いていない");
-});
 
 /* ================================================================ N5 */
 check("N5", "月次継続率: まだ結果が出ていないがある月・n<30 を実線にせず、0件 の月は点を作らない", async () => {
@@ -924,51 +876,6 @@ check("N18b", "満了日を過ぎた稼働中の案件は「何ヶ月目」を�
     rows: [boardRow({ deal_id: "p", months: 15, period: 6, past_expiry: true, days_left: -300 })] });
   if (h.indexOf("満了後") < 0) throw new Error("案件一覧の表に「満了後」が出ていない");
 });
-check("N18b", "推移の横軸は暦の月で出し、契約期間より多い月にまたがる理由を書く", async () => {
-  const t = boot();
-  // fixture にある形: 6ヶ月契約 2026-03-19〜2026-09-18（暦では 3月〜9月の7か月）
-  const pts = Array.from({ length: 7 }, (_, i) => ({ m: i + 1, v: 10 + i, carry: false }));
-  const D = customerPayload([deal({ deal_id: "d1", start: "2026-03-19", expiration: "2026-09-18" })], {
-    monthly: [{ deal_id: "d1", name: "案件", start: "2026-03-19", expiration: "2026-09-18",
-      period: 6, span_months: 7, series: { oubo: pts }, nps: {} }],
-  });
-  const h = unNw(t.R("renderCustomer")(D));
-  const a = h.indexOf(" の推移");
-  const fig1 = h.slice(a, h.indexOf("</figure>", a));
-  if (/\d+ヶ月</.test(fig1) || fig1.indexOf(">7ヶ月<") >= 0)
-    throw new Error("横軸に「Nヶ月」が残っている（契約 6ヶ月と食い違う）");
-  if (fig1.indexOf(">26-03<") < 0 || fig1.indexOf(">26-09<") < 0)
-    throw new Error("横軸が暦の月（26-03〜26-09）になっていない");
-  if (fig1.indexOf("横軸は暦の月") < 0 || fig1.indexOf("暦では 7 か月にまたがります") < 0)
-    throw new Error("期間 6 と 7 か月の違いの理由が書かれていない");
-  const b = h.indexOf("系列を縦に並べる");
-  const fig2 = h.slice(b, h.indexOf("</figure>", b));
-  if (/>\d+ヶ月</.test(fig2) || fig2.indexOf(">26-09<") < 0)
-    throw new Error("系列を縦に並べる図の横軸が暦の月になっていない");
-  // 月の頭に始まる契約（期間と暦の月数が同じ）には理由の文を付けない
-  const D2 = customerPayload([deal({ deal_id: "d2", start: "2026-04-01" })], {
-    monthly: [{ deal_id: "d2", name: "案件", start: "2026-04-01", expiration: "2026-09-30",
-      period: 6, span_months: 6, series: { oubo: pts.slice(0, 6) }, nps: {} }],
-  });
-  const h2 = t.R("renderCustomer")(D2);
-  if (h2.indexOf("またがります") >= 0) throw new Error("期間と暦の月数が同じなのに理由の文が出る");
-});
-check("histGap", "推移の図で、契約の頭に記録が無い月を図の副題に1回だけ書く（描いた画面で見る）", async () => {
-  const t = boot();
-  // fixture にある形: 2025-03-09 開始の契約で、記録が 5 か月目（2025-07）からしか無い
-  const pts = [{ m: 5, v: 12, carry: false }, { m: 6, v: 14, carry: false }];
-  const D = customerPayload([deal({ deal_id: "g1", start: "2025-03-09", expiration: "2025-09-08" })], {
-    monthly: [{ deal_id: "g1", name: "案件", start: "2025-03-09", expiration: "2025-09-08",
-      period: 6, span_months: 7, series: { oubo: pts }, nps: {} }],
-  });
-  const h = t.R("renderCustomer")(D);
-  const a = h.indexOf(" の推移");
-  const fig1 = h.slice(a, h.indexOf("</figure>", a));
-  if (fig1.indexOf("記録は 2025-07 からです") < 0 || fig1.indexOf("2025-03〜2025-06") < 0)
-    throw new Error("推移の図に、記録が無い期間（2025-03〜2025-06）の断り書きが出ていない");
-  const times = h.split("記録は 2025-07 からです").length - 1;
-  if (times !== 1) throw new Error("同じ断り書きが1つの契約で " + times + " 回出ている（1回にする）");
-});
 
 /* ================================================================ 法人の母数 */
 // 2026-09-23 実機: 法人番号で見る画面に「全 1,649 法人」（注力の注記）と「全 1,646 法人」
@@ -1082,83 +989,6 @@ check("N18c", "重点顧客の図の対象にオプション契約だけの法�
 });
 
 /* ================================================================ ループ4: 文言と表（2026-09-24 実機） */
-check("L4", "series: 「1つの縦軸に重ねていません」は契約ごとに繰り返さず、最初の図の下の1回だけ", async () => {
-  const t = boot();
-  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
-  const mm = (id) => ({ deal_id: id, name: "案件" + id, start: "2026-04-01", expiration: "2026-09-30",
-    period: 6, span_months: 6, series: { oubo: pts }, nps: {} });
-  const D = customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "b" }), deal({ deal_id: "c" })],
-    { monthly: [mm("a"), mm("b"), mm("c")] });
-  const h = t.R("renderCustomer")(D);
-  if (count(h, /系列を縦に並べる/g) < 3) throw new Error("契約ごとの図が3つ描かれていない（見張りの前提）");
-  const n = count(h, /1つの縦軸に重ねていません/g);
-  if (n !== 1) throw new Error("「1つの縦軸に重ねていません」の段落が " + n + " 回出ている（1回にする）");
-});
-check("L4", "series: NPS と接触がある契約の副題で、例文を結論のように書かない（読み方の例と言う）", async () => {
-  const t = boot();
-  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
-  const D = customerPayload([deal({ deal_id: "n1", start: "2026-04-01" })], {
-    monthly: [{ deal_id: "n1", name: "案件", start: "2026-04-01", expiration: "2026-09-30",
-      period: 6, span_months: 6, series: { oubo: pts }, nps: { nps: [{ m: 1, v: 6 }, { m: 2, v: 9 }] } }],
-    contacts: [{ deal_id: "n1", dates: ["2026-04-10"] }],
-  });
-  const h = t.R("renderCustomer")(D);
-  const b = h.indexOf("系列を縦に並べる");
-  const head = h.slice(b, h.indexOf("<svg", b));
-  if (head.indexOf("が読めます") >= 0 && head.indexOf("接触が切れていて、応募も止まっていた」が読めます") >= 0)
-    throw new Error("NPS が上がった契約にも「NPS が落ちた月に…が読めます」と結論のように出ている");
-  if (head.indexOf("読み方の例") < 0) throw new Error("副題の例文に「読み方の例」と書いていない");
-});
-check("L4", "series: 契約の図が1つだけのときは「下に続く契約の図も同じです」と書かない", async () => {
-  const t = boot();
-  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
-  const mm = (id) => ({ deal_id: id, name: "案件" + id, start: "2026-04-01", expiration: "2026-09-30",
-    period: 6, span_months: 6, series: { oubo: pts }, nps: {} });
-  // 変更履歴の無い契約（図にしない）が並んでいても、図が1つなら下には何も続かない
-  const one = t.R("renderCustomer")(customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "z" })],
-    { monthly: [mm("a"), { deal_id: "z", name: "案件z", start: "2026-04-01", series: {}, nps: {} }] }));
-  if (one.indexOf("案件a — 系列を縦に並べる") < 0 || one.indexOf("案件z — 系列を縦に並べる") >= 0)
-    throw new Error("契約ごとの図が1つ（案件a だけ）になっていない（見張りの前提）");
-  if (count(one, /1つの縦軸に重ねていません/g) !== 1) throw new Error("図が1つのときに理由の段落が出ていない");
-  if (one.indexOf("下に続く契約の図も同じです") >= 0) throw new Error("図が1つなのに「下に続く契約の図も同じです」と書いている");
-  const two = t.R("renderCustomer")(customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "b" })],
-    { monthly: [mm("a"), mm("b")] }));
-  if (two.indexOf("下に続く契約の図も同じです") < 0) throw new Error("図が2つ以上なのに「下に続く契約の図も同じです」が消えた");
-});
-check("L4", "series: 読み方の例（NPS と接触）は契約ごとに繰り返さず、最初の図の副題の1回だけ", async () => {
-  const t = boot();
-  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
-  const mm = (id) => ({ deal_id: id, name: "案件" + id, start: "2026-04-01", expiration: "2026-09-30",
-    period: 6, span_months: 6, series: { oubo: pts }, nps: { nps: [{ m: 1, v: 6 }, { m: 2, v: 9 }] } });
-  const D = customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "b" }), deal({ deal_id: "c" })], {
-    monthly: [mm("a"), mm("b"), mm("c")],
-    contacts: ["a", "b", "c"].map((id) => ({ deal_id: id, dates: ["2026-04-10"] })),
-  });
-  const h = t.R("renderCustomer")(D);
-  if (count(h, /系列を縦に並べる/g) < 3) throw new Error("契約ごとの図が3つ描かれていない（見張りの前提）");
-  const n = count(h, /読み方の例/g);
-  if (n !== 1) throw new Error("「読み方の例」が " + n + " 回出ている（最初の図の1回にする）");
-  if (count(h, /同じ月に何が起きていたかが読めます/g) < 3) throw new Error("2つ目以降の図の副題まで消えた");
-});
-check("L4", "series: 契約の連なりで金額が空の契約に「金額なし」と書く（「3回目」だけにしない）", async () => {
-  const t = boot();
-  const D = customerPayload([deal({ deal_id: "x1", renewal_no: 3, amount: null }),
-                             deal({ deal_id: "x2", renewal_no: 2, amount: 1200000, start: "2024-01-01" })]);
-  const h = t.R("renderCustomer")(D);
-  if (h.indexOf("3回目　金額なし") < 0) throw new Error("金額が空の契約の注記が「3回目」だけになっている");
-});
-check("L4", "契約の系列の表: 取引・ステージ・拠点を折り返す列にする（1440px で右端が切れない）", async () => {
-  const t = boot();
-  const h = t.R("custBlocks")(customerPayload([deal({ deal_id: "t1" })]), new Set(["deals"]));
-  const head = h.slice(h.indexOf("<thead>"), h.indexOf("</thead>"));
-  for (const [c, w] of [["取引", "wl"], ["ステージ", "ws"], ["拠点", "ws"]])
-    if (head.indexOf('<th class="' + w + '">' + c + "</th>") < 0)
-      throw new Error("契約の系列の「" + c + "」が折り返す列（" + w + "）になっていない");
-  // 折るだけでは 1440px の本文（1,117px）に 35px 足りなかった。開始と満了を1つの列に2段で出す
-  if (head.indexOf("<th>開始〜満了</th>") < 0 || head.indexOf("<th>開始</th>") >= 0)
-    throw new Error("契約の系列で開始と満了が別の列のまま（12列で右端が切れる）");
-  if (h.indexOf("2025-01-01<br>〜2025-12-31") < 0) throw new Error("開始〜満了の列に2段で日付が出ていない");
-});
 
 check("L4", "houjin: 「拠点をまたいで1本の線にしない」と基準日を1回ずつにする", async () => {
   const t = boot();
@@ -1268,26 +1098,25 @@ function handoverPayload() {
     },
   };
 }
-/* 2026-09-29 組み替え（09 の 6）: 担当の交代は「チームと担当」の中の節になった（応答の handover） */
-check("H1", "担当の交代: 開くと handover を取り、交代の前後の接触を描く（undefined・NaN を出さない）", async () => {
+/* 2026-10-21 メニュー整理: 担当の交代は「チームと担当」から「成果と継続」の節（rs-handover）へ移した（応答の handover も results の束へ）。
+   チームと担当には交代の節も録画の未結び付きも出ない */
+check("H1", "担当の交代: 成果と継続の節 rs-handover に描く（交代前後の接触・undefined と NaN を出さない）。チームと担当には出ない", async () => {
   const t = boot();
-  t.R('go("research", "team")');
-  const req = t.fetched[t.fetched.length - 1];
-  if (!req || req.url.indexOf("/api/consulting/team") !== 0)
-    throw new Error("チームと担当で team を取りに行っていない: " + (req && req.url));
-  req.resolve(jsonRes(teamPayload({ handover: handoverPayload() })));
-  await tick(); await tick();
-  const h = t.reg["cs-main"].innerHTML;
+  const h = t.R("renderHandover")(handoverPayload(), "rs-handover");
   for (const w of ["交代前後の接触", "引き継いだ側（次の担当）", "引き継がれた側（前の担当）",
     "接触の前後（30日あたり）", "記録の遅れ", "それぞれの担当期間の全体（通期）", "変化の平均 / 真ん中の値", "担当中"])
     if (h.indexOf(w) < 0) throw new Error("「" + w + "」が描かれていない");
   if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
-  /* 担当者ごとの接触は同じ画面の節（接触の推移）。そこへ移るボタン（URL のハッシュは変えない） */
-  if (h.indexOf('id="tm-ct-h"') < 0)
-    throw new Error("担当者ごとの接触（同じ画面の接触の推移）への行き先が無い");
+  if (h.indexOf('id="rs-handover"') < 0) throw new Error("節 rs-handover の見出しが無い");
   /* 交代の表の案件名は案件の詳細へ（09 の 3「担当の交代の表の案件名もリンクにする」） */
   if (h.indexOf('<a class="deallink" href="#deal/detail?id=40000000001">案件X</a>') < 0)
     throw new Error("交代の表の案件名が案件の詳細へのリンクでない");
+  const tm = t.R("renderTeam")(teamPayload({ handover: handoverPayload(),
+    pending_recordings: { rows: [{ date: "2026-09-10", subject: "録画A", recording: "", host: "H", candidates: "c", reason: "r" }] } }));
+  if (tm.indexOf("tm-ho-h") >= 0 || tm.indexOf("交代前後の接触") >= 0 || tm.indexOf("担当の交代") >= 0)
+    throw new Error("チームと担当に担当の交代の節が残っている");
+  if (tm.indexOf("結び付いていない録画") >= 0) throw new Error("チームと担当に録画の未結び付きが残っている");
+  if (tm.indexOf('id="tm-ct-h"') < 0) throw new Error("接触の推移の節が消えた");
 });
 
 /* ================================================================ D 案件の詳細（2026-09-26） */
@@ -1853,7 +1682,7 @@ check("M-2", "貼った URL の状態で開く（案件そのもの: 担当・�
   if (boot("#study").R("cur.view") !== "results" || boot("#deal/board").R("cur.view") !== "board") throw new Error("古い形（#study、#deal/board）が開かない");
   const t7 = boot("#study/renewal?excl=1");
   if (t7.R("cur.view") !== "results" || t7.R("renewalExcludeCensored") !== true) throw new Error("古い #study/renewal?excl=1 が成果と継続（打ち切りを外す）で開かない");
-  if (boot("#consultant/handover").R("cur.view") !== "team") throw new Error("古い #consultant/handover がチームと担当で開かない");
+  if (boot("#consultant/handover").R("cur.view") !== "results") throw new Error("古い #consultant/handover が成果と継続の担当の交代の節へ開かない");
 });
 
 check("M-2", "左の項目・本文のリンクから入り直すと、その画面の絞り込みだけ既定に戻る（段1レビュー D）。法人・並び（持ち越すもの）は残る", async () => {
@@ -2020,10 +1849,12 @@ check("M-6", "移動: 左のメニューは作り直さず印だけ付け替え�
   const main = t.reg["cs-main"]; const attrs = {}; main.setAttribute = (k, v) => { attrs[k] = v; };
   const mk = (ds) => { const b = new t.El(""); b.dataset = ds; b.attrs = {};
     b.setAttribute = (k, v) => { b.attrs[k] = v; }; b.removeAttribute = (k) => { delete b.attrs[k]; }; return b; };
-  /* 左のメニューは 1 列・3 区切り・10 項目（2026-09-29 組み替え 段A）。区切りをまたぐ移動でも作り直さない */
+  /* 左のメニューは 1 列・3 区切り・6 項目（2026-10-21 メニュー整理。滞留した案件・いま見るべき顧客・電話・記録と数字の信頼度は URL だけに残す）。
+     区切りをまたぐ移動でも作り直さない */
   const side = t.reg["cs-side"];
   const keys = t.R("MENUS.map((m) => m.views.filter((v) => !v.hidden).map((v) => v.key)).flat()");
-  if (keys.length !== 10) throw new Error("左のメニューの項目が 10 でない: " + keys.length);
+  if (JSON.stringify(keys) !== JSON.stringify(["team", "today", "board", "customer", "renewalpipe", "results"]))
+    throw new Error("左のメニューが 毎日(3)・調べる(1)・月1(2) の 6 項目でない: " + keys.join(","));
   const sideBtns = keys.map((v) => mk({ v }));
   side.querySelectorAll = () => sideBtns;
   side.innerHTML = "SIDE";
@@ -2050,10 +1881,10 @@ check("M-6", "移動: 左のメニューは作り直さず印だけ付け替え�
   t0.fetched[t0.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({})])));
   await tick(); await tick();
   if (t0.doc.activeElement !== t0.doc.body) throw new Error("開いた直後の読み込みで本文へフォーカスを移している（鮮度の区分が読み上げから飛ぶ）");
-  /* 区切りをまたぐ移動（毎日 → 調べる）でも作り直さず、印だけ移る */
-  t.R('go("research", "phone")');
+  /* 区切りをまたぐ移動（毎日 → 月1）でも作り直さず、印だけ移る */
+  t.R('go("monthly", "results")');
   if (side.innerHTML !== "SIDE") throw new Error("区切りをまたぐ移動で左のメニューを作り直している");
-  if (sideBtns[iOf("phone")].attrs["aria-current"] !== "page" || sideBtns.filter((b) => b.dataset.v !== "phone").some((b) => "aria-current" in b.attrs))
+  if (sideBtns[iOf("results")].attrs["aria-current"] !== "page" || sideBtns.filter((b) => b.dataset.v !== "results").some((b) => "aria-current" in b.attrs))
     throw new Error("区切りをまたいだとき、いま見ている印が付け替わらない");
   /* 待つ間に人が別の場所へフォーカスを動かしていたら、本文へは移さない（U9 と同じ決まり） */
   t.R('go("deal", "board")');
@@ -2410,7 +2241,7 @@ check("N8", "旧ハッシュ 17 本（と区切りだけの #consultant・#study
     ["#deal/today", "today", null], ["#deal/board", "board", null], ["#deal/detail?id=70000000001", "detail", null],
     ["#deal/series?houjin=H1&site=S1", "customer", "継続を追いかける"], ["#deal/houjin?houjin=H1", "customer", "法人番号で見る"],
     ["#consultant/team", "team", "担当者の一覧"], ["#consultant/byowner?c=" + encodeURIComponent("担当A"), "byowner", "担当者ごとの案件"],
-    ["#consultant/handover", "team", "担当の交代"], ["#consultant/contact?unit=week", "team", "担当者ごとの接触"],
+    ["#consultant/handover", "results", "担当の交代"], ["#consultant/contact?unit=week", "team", "担当者ごとの接触"],
     ["#study/renewal?excl=1", "results", "継続回数 × 成果"], ["#study/outcome", "results", "成果とリスク"],
     ["#study/focus", "focus", "いま見るべき顧客"], ["#study/rampup", "results", "立ち上がり"], ["#study/phone", "phone", "電話"],
     ["#study/mtgq", "trust", "MTG の品質"], ["#study/dq", "trust", "データ品質"], ["#study/defs", "trust", "定義と検証"],
@@ -2689,65 +2520,44 @@ function twoSites() {
   ], { monthly: [mm("o1", "古い拠点の案件", "2024-04-01"), mm("n1", "新しい拠点の案件", "2026-02-01")],
        mtgs: [{ deal_id: "o1", date: "2025-01-01" }, { deal_id: "n1", date: "2026-03-01" }, { deal_id: "n1", date: "2026-04-01" }] });
 }
-check("組替", "顧客: 拠点は1つずつ描く（全拠点を積まない）。選んでいなければ新しく始まった拠点を開き、そう書く", async () => {
+check("組替", "顧客: 事業所の節は契約ごとの図・MTG の履歴・契約の系列を描かず、案件管理「法人」で開くリンクにする（二重の画面を片方に寄せた）", async () => {
   const t = boot();
   t.ctx.__D = twoSites();
   const h = unNw(t.R("renderCustomer(__D)"));
   const site = h.slice(h.indexOf('id="cust-site"'), h.indexOf('id="cust-houjin"'));
-  if (site.indexOf("新しい拠点の案件 の推移") < 0) throw new Error("既定の拠点（いちばん新しく始まった NEW）の推移が無い");
-  if (site.indexOf("古い拠点の案件 の推移") >= 0) throw new Error("選んでいない拠点（OLD）の推移まで積んでいる（全拠点を縦に積む描き方）");
-  if (site.indexOf("MTG の履歴（2 件）") < 0) throw new Error("事業所の節の MTG の履歴が拠点 NEW の 2 件になっていない");
-  if (site.indexOf("拠点を選んでいないので、いちばん新しく契約が始まった拠点を開いています") < 0)
-    throw new Error("既定で開いた拠点だと書いていない（選んだように見せる）");
-  if (site.indexOf("この法人の契約 2 件のうち、この拠点の 1 件") < 0) throw new Error("拠点1つに絞っていることが件数の行に無い");
-  /* 選んだら、その拠点だけ。既定の断りは消える */
+  /* 既定の拠点（いちばん新しく始まった NEW）の案件管理「法人」へ。法人の番号と拠点の鍵を渡す */
+  const want = '<a class="golink wrap" id="cust-to-jc" href="/app/job-copy?view=houjin&amp;houjin=H1&amp;houjin_site=NEW">新しい拠点 を案件管理で開く →</a>';
+  if (site.indexOf(want) < 0) throw new Error("事業所の節に、案件管理「法人」で既定の拠点 NEW を開くリンクが無い: " + site);
+  /* 外したもの。顧客の画面のどこにも出ない */
+  for (const w of ["案件 の推移", "系列を縦に並べる", "MTG の履歴", "契約の系列", "契約の連なり", "こちらの動き（接触と担当交代）", "拠点を選ぶ"])
+    if (h.indexOf(w) >= 0) throw new Error("案件管理と二重の「" + w + "」が顧客の画面に残っている");
+  if (h.indexOf('id="cs-site"') >= 0) throw new Error("拠点を選ぶ欄が残っている（もう描き分ける拠点の層が無い）");
+  /* 拠点を選んだ URL（?site=OLD）で来たら、その拠点で開く */
   t.R('custSite = "OLD"');
   const h2 = unNw(t.R("renderCustomer(__D)"));
   const s2 = h2.slice(h2.indexOf('id="cust-site"'), h2.indexOf('id="cust-houjin"'));
-  if (s2.indexOf("古い拠点の案件 の推移") < 0 || s2.indexOf("新しい拠点の案件 の推移") >= 0) throw new Error("選んだ拠点 OLD だけにならない");
-  if (s2.indexOf("拠点を選んでいないので") >= 0) throw new Error("選んだのに「選んでいないので」と書く");
+  if (s2.indexOf('houjin_site=OLD">古い拠点 を案件管理で開く →</a>') < 0) throw new Error("選んだ拠点 OLD で案件管理を開くリンクにならない: " + s2);
   /* 拠点の名前は表示名（site_name）。照合用の鍵（NEW / OLD）を名前に出さない */
-  if (h2.indexOf(">OLD<") >= 0 || h2.indexOf(">OLD（") >= 0) throw new Error("拠点の鍵をそのまま名前に出している: " + h2.slice(Math.max(0, h2.indexOf(">OLD") - 200), h2.indexOf(">OLD") + 40));
+  if (h2.indexOf(">OLD<") >= 0 || h2.indexOf(">OLD（") >= 0) throw new Error("拠点の鍵をそのまま名前に出している");
   /* 法人に無い拠点の鍵（貼られた古い URL）は既定へ */
   t.R('custSite = "GONE"');
-  const h3 = t.R("renderCustomer(__D)");
-  if (h3.indexOf("拠点を選んでいないので") < 0) throw new Error("法人に無い拠点の鍵で、空の節を出している");
+  const h3 = unNw(t.R("renderCustomer(__D)"));
+  if (h3.indexOf("houjin_site=NEW\">新しい拠点 を案件管理で開く") < 0) throw new Error("法人に無い拠点の鍵で、既定の拠点に戻らない");
 });
-check("組替", "顧客: 拠点を比べる表の拠点名は hashFor のリンク。同じタブで押すと取り直さず描き直し、URL に拠点が載り、事業所の節へ移る", async () => {
+check("組替", "顧客: 拠点を比べる表の拠点名は案件管理「法人」の拠点を開くリンク（拠点が入っていない行は法人だけ）", async () => {
   const t = boot();
-  t.ctx.__D = twoSites();
-  t.R('cur = { menu: "research", view: "customer" }; customerHoujin = "H1"; customerReason = ""; custSite = "";');
-  const h = t.R("renderCustomer(__D)");
+  t.ctx.__D = customerPayload([
+    deal({ deal_id: "o1", name: "古い拠点の案件", site: "OLD", site_name: "古い拠点", start: "2024-04-01" }),
+    deal({ deal_id: "z1", name: "拠点なしの案件", site: "", start: "2025-04-01" }),
+  ]);
+  const h = unNw(t.R("renderCustomer(__D)"));
   const tbl = h.slice(h.indexOf('id="cust-sites"'), h.indexOf('id="cust-site"'));
-  const m = tbl.match(/<a data-site="OLD" href="([^"]*)">古い拠点<\/a>/);
-  if (!m) throw new Error("表の拠点名（いま見ていない拠点）がリンクになっていない");
-  if (m[1].replace(/&amp;/g, "&") !== t.R('hashFor("customer", { houjin: "H1", site: "OLD" })')) throw new Error("リンクが hashFor の形でない: " + m[1]);
-  if (tbl.indexOf('<b>新しい拠点</b> <span class="tag e">いま見ている</span>') < 0) throw new Error("いま見ている拠点に印が無い");
-  /* 押す（wireCustomer）。偽の DOM で本文を描き直す */
-  t.R("lastPayload = __D");
-  const a = new t.El(""); a.dataset = { site: "OLD" };
-  t.qsa["#cs-main a[data-site]"] = [a];
-  const head = new t.El("cust-site"); t.reg["cust-site"] = head;
-  t.R("wire(viewOf('research', 'customer'))");
-  const n = t.fetched.length;
-  let prevented = false;
-  a.onclick({ preventDefault: () => { prevented = true; } });
-  if (!prevented) throw new Error("同じタブで押したとき、ハッシュの移動（取り直し・頭へ戻る）を止めていない");
-  if (t.R("custSite") !== "OLD") throw new Error("押した拠点を選んでいない");
-  if (t.fetched.length !== n) throw new Error("拠点を選んだだけで取り直している");
-  if (t.loc.hash !== "#research/customer?houjin=H1&site=OLD") throw new Error("URL に拠点が載らない: " + t.loc.hash);
-  if (!head.focused) throw new Error("事業所の節へ移っていない");
-  /* Ctrl を押して別タブ: 止めない */
-  let p2 = false;
-  a.onclick({ ctrlKey: true, preventDefault: () => { p2 = true; } });
-  if (p2) throw new Error("別タブで開く操作まで止めている");
-  /* 法人を選び直すと拠点は既定へ（前の法人の拠点の鍵を URL に残さない） */
-  const sel = new t.El("cs-houjin"); t.reg["cs-houjin"] = sel;
-  t.ctx.__idx = houjinIndex(3, 1);
-  t.R("customerIndex = __idx");
-  t.R("wire(viewOf('research', 'customer'))");
-  sel.value = "H2"; sel.onchange();
-  if (t.R("custSite") !== "") throw new Error("法人を選び直しても前の法人の拠点が残る");
+  const links = [...tbl.matchAll(/<a href="(\/app\/job-copy[^"]*)"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[1].replace(/&amp;/g, "&"), m[2]]);
+  const old = links.find((x) => x[1] === "古い拠点");
+  if (!old || old[0] !== "/app/job-copy?view=houjin&houjin=H1&houjin_site=OLD") throw new Error("拠点 OLD のリンクが違う: " + JSON.stringify(links));
+  const none = links.find((x) => x[1] === "拠点が入っていない");
+  if (!none || none[0] !== "/app/job-copy?view=houjin&houjin=H1") throw new Error("拠点が入っていない行は法人だけを開く: " + JSON.stringify(links));
+  if (tbl.indexOf("data-site") >= 0 || tbl.indexOf("いま見ている") >= 0) throw new Error("同じ画面の拠点の切り替えが表に残っている");
 });
 check("組替", "顧客: 本部への提案材料は成果と継続へ移したので顧客には描かず取りにも行かない。黙って消さず、成果と継続の節（rs-hq）へのリンクを置く", async () => {
   /* 🔴 2026-09-29 横断レビュー: 成果と継続（rs-hq）へ移した後も顧客の末尾に残っていて、同じ中身が 2 か所にあった */
@@ -2922,8 +2732,7 @@ check("組替", "顧客: 画面の中の行き先は button（data-cjump）。a 
   b.onclick();
   if (!to.focused) throw new Error("行き先のボタンを押しても節へ移らない");
 });
-check("組替", "顧客: 既定の拠点は「いちばん新しく契約が始まった拠点」。表の先頭（契約の多い順）の拠点ではない", async () => {
-  /* 画面の文言（「いちばん新しく契約が始まった拠点を開いています」）と食い違わないこと */
+check("組替", "顧客: 事業所の節の既定の拠点は「いちばん新しく契約が始まった拠点」。表の先頭（契約の多い順）の拠点ではない", async () => {
   const t = boot();
   t.ctx.__D = customerPayload([
     deal({ deal_id: "o1", name: "古い拠点の案件1", site: "OLD", site_name: "古い拠点", start: "2024-04-01" }),
@@ -2931,12 +2740,12 @@ check("組替", "顧客: 既定の拠点は「いちばん新しく契約が始�
     deal({ deal_id: "n1", name: "新しい拠点の案件", site: "NEW", site_name: "新しい拠点", start: "2026-02-01" }),
   ]);
   t.R('custSite = ""');
-  const h = t.R("renderCustomer(__D)");
+  const h = unNw(t.R("renderCustomer(__D)"));
   const tbl = h.slice(h.indexOf('id="cust-sites"'), h.indexOf('id="cust-site"'));
   if (!(tbl.indexOf("古い拠点") >= 0 && tbl.indexOf("古い拠点") < tbl.indexOf("新しい拠点"))) throw new Error("前提が崩れている（表の先頭が契約の多い OLD でない）");
   if (t.R("custSiteNow(custSites(__D))") !== "NEW") throw new Error("既定の拠点が新しく始まった NEW でない: " + t.R("custSiteNow(custSites(__D))"));
   const site = h.slice(h.indexOf('id="cust-site"'), h.indexOf('id="cust-houjin"'));
-  if (site.indexOf("この拠点の 1 件") < 0) throw new Error("事業所の節が NEW（1 件）でない");
+  if (site.indexOf("houjin_site=NEW") < 0) throw new Error("事業所の節のリンクが NEW でない");
 });
 check("組替", "顧客: 法人の KPI は法人の全契約で描くので、札の説明に「選んだ契約」と書かない（チェックで変わるように読める）", async () => {
   const t = boot();

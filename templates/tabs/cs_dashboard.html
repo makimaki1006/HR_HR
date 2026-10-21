@@ -3051,7 +3051,8 @@ function kpi(label, big, fine, kind, act) {
   /* consultant: 帯で絞るときに担当も添える（今日動く先で担当を選んでいるとき。数字と行き先の母集団を揃える） */
   /* flag: 名札で絞って案件一覧を開く（今日の札「接触の記録が無い」。09 の 3章 1 の 2） */
   const to = (act.jump ? ' data-jump="' + esc(act.jump) + '"' : act.band ? ' data-band="' + esc(act.band) + '"'
-    : act.flag ? ' data-flag="' + esc(act.flag) + '"' : "") +
+    : act.flag ? ' data-flag="' + esc(act.flag) + '"'
+    : act.view ? ' data-view="' + esc(act.view) + '"' : "") +
     (act.consultant ? ' data-consultant="' + esc(act.consultant) + '"' : "");
   return '<button type="button" class="' + cls + '"' + to + ">" + inner +
     '<span class="act">' + esc(act.text || "一覧を見る") + "</span></button>";
@@ -3564,7 +3565,7 @@ function renderTeam(D) {
     h += '<p class="muted small">' + Number(day[1]) + "/" + Number(day[2]) + ' のデータとの差</p>';
   }
   const deltas = (D.comparison || {}).totals || {};
-  h += pageToc([["tm-tbl-h", "担当者 × 状態"], ["tm-ct-h", "接触の推移"], ["tm-ho-h", "担当の交代"]],
+  h += pageToc([["tm-tbl-h", "担当者 × 状態"], ["tm-ct-h", "接触の推移"]],
     goLink("deal", "byowner") + goLink("research", "phone"));
 
   /* 札 4 枚（09 の 6）。🔴 個人名は出さない（件数だけ）。前の「接触率 40% 未満の担当者」は、2つの定義を並べた表の
@@ -3584,8 +3585,6 @@ function renderTeam(D) {
         /* 0 件のときは飛ばない（div）。飛んだ先の表に印が 1 つも無いため（2026-09-29 検証） */
         D.meta.retired_deals ? "warn" : "", D.meta.retired_deals ? { jump: "tm-tbl-h", text: "表へ（担当者の列に印）" } : null) +
     "</div>";
-
-  h += pendingRecordingSection(D.pending_recordings);
 
   /* ---- 担当者 × 状態 ---- */
   h += sec("表", "担当者 × 状態（" + num(rows.length) + " 名）", "tm-tbl-h");
@@ -3628,9 +3627,6 @@ function renderTeam(D) {
 
   /* ---- 接触の推移 ---- */
   h += teamContact(D);
-
-  /* ---- 担当の交代 ---- */
-  h += renderHandover(D.handover || { rows: [], meta: {} }, "tm-ho-h");
 
   return h + foot(D.meta, "担当者 " + num(D.meta.n_consultant) + " 名");
 }
@@ -4110,8 +4106,6 @@ function renderResults(D) {
   const pop = D.population || {};
   /* 束ねた各集計には population（母集団）が無い（freshen が外側にだけ載せる）。月次の継続率の注記が使うので渡す */
   const part = (x) => Object.assign({ meta: {} }, x || {}, { population: pop });
-  const F0 = D.focus || {};
-  const c = F0.cpa || {};
   /* 🔴 09 の 7 の「答える問い」は節の問い（継続回数 × 成果・成果とリスク・本部アプローチ）をつないだ文で、そのまま書くと
         下の節で同じ文をもう一度読ませる（段A の統合 2026-09-29、見張りが落ちた）。画面の問いは全体を 1 つで言う */
   let h = '<div class="lede">月に1回、継続・成果・立ち上がりと、本部へ伝える材料を確かめます。</div>';
@@ -4120,25 +4114,29 @@ function renderResults(D) {
      🔴 前は「成果とリスク」を1節で描いていたので、立ち上がりが2軸リスクの後（顧客の図のさらに後）にあった。
         成果とリスクを「目標と応募効率」「リスク」の2節に分けて、間に立ち上がりを置く（renderOutcome の part） */
   h += pageToc([["rs-renewal", "継続回数と解約率"], ["rs-outcome", "目標に対する進捗と応募効率"], ["rs-rampup", "立ち上がり"],
-    ["rs-risk", "リスクの2軸と最優先"], ["rs-focus", "NPS・採用単価・MTG の記録・LTV"], ["rs-hq", "本部への提案材料"], ["rs-act", "対応が要る案件"]],
-    goLink("research", "focus") + goLink("research", "phone"));
+    ["rs-risk", "リスクの2軸と最優先"], ["rs-hq", "本部への提案材料"], ["rs-act", "対応が要る案件"],
+    ["rs-dq", "記録と数字"], ["rs-handover", "担当の交代"], ["rs-phone", "電話の到達"]],
+    goLink("research", "focus"));
   h += resultsKpis(D);
   h += renderRenewal(part(D.renewal), "rs-renewal");
   h += renderOutcome(part(D.outcome), "rs-outcome", "goal");
   h += renderRampup(part(D.rampup), "rs-rampup");
   h += renderOutcome(part(D.outcome), "rs-risk", "risk");
-  /* いま見るべき顧客の図（09 の 7「NPS・採用単価の悪化・LTV の散らばり」）。画面そのもの（札・表）は残っている（10 章⑤） */
-  h += sec("節", "顧客の状態", "rs-focus") +
-    '<div class="lede">' + goLink("research", "focus") + " と同じ図です。" +
-    "採用単価の悪化は<b>確定した契約どうし</b>で比べています（判定を見送った拠点 " + num(c.skipped_censored) + "" +
-    (c.skipped_no_site ? "・拠点が入っていない取引 " + num(c.skipped_no_site) + " 件は判定から外しています" : "") + "）。</div>";
-  if (F0.nps_low) h += focusNpsFig(F0.nps_low);
-  if (F0.cpa) h += focusCpaFig(F0.cpa);
-  if (F0.mtg_layers) h += focusMtgFig(F0.mtg_layers);
-  if (F0.shape) h += focusShapeFig(F0.shape);
   /* 本部アプローチ（前は法人番号で見るの2つ目の問い。09 の 4 章「本部アプローチ → 7 成果と継続」） */
   if (D.headquarters) h += sec("節", "本部向け", "rs-hq") + renderHq(D.headquarters);
   h += resultsActTables(D);
+  /* 2026-10-21 メニュー整理: 月1の確認に使う節をここへ集めた。元の画面（記録と数字の信頼度・電話）の描画をそのまま呼ぶ。
+     記録と数字・電話の到達は元の API を more で読む（応答が無ければ、無いと書く） */
+  const DQ = moreOf(D, "dq"), MQ = moreOf(D, "mtgq"), PH = moreOf(D, "phone");
+  h += sec("節", "記録と数字", "rs-dq") +
+    '<div class="lede">数字の欠けと偏り、MTG の記録を確かめます。色と印の意味は画面上の「色と印の意味」から開けます。</div>';
+  h += DQ ? partSec(renderDq(DQ), "データ品質", "rs-dq-data") : partSec(missingPart("データ品質"), "データ品質", "rs-dq-data");
+  h += MQ ? partSec(renderMtgQ(MQ), "MTG の品質", "rs-dq-mtg") : partSec(missingPart("MTG の品質"), "MTG の品質", "rs-dq-mtg");
+  h += D.handover
+    ? renderHandover(D.handover, "rs-handover") + pendingRecordingSection(D.pending_recordings)
+    : sec("節", "担当の交代", "rs-handover") + missingPart("担当の交代");
+  h += sec("節", "電話の到達", "rs-phone") +
+    (PH ? phoneReachParts(PH) : missingPart("電話の到達"));
   return h + foot(D.meta || {});
 }
 
@@ -4853,173 +4851,8 @@ function custBlocks(D, want) {
   }
   }
 
-  /* ---- 応募・面接・採用の推移 ---- */
-  if (want.has("monthly")) {
-  h += sec("図", "応募・面接・採用の推移");
-
-  /* 🔴 変更履歴が無い契約ごとに「変更履歴がありません」の空の枠を出していて、
-     空の枠が大量に続いていた（V11 目視）。まとめて1つの枠にし、どの契約かは名前で残す */
-  const noHist = [];
-  let laneWhy = false;   /* 「1つの縦軸に重ねていません」をもう出したか */
-  let laneEx = false;    /* 読み方の例（NPS と接触）をもう出したか */
-  /* 系列の図を描く契約の数。「下に続く契約の図も同じです」は2つ以上のときだけ言う */
-  const nLaneFig = D.monthly.filter((mm) =>
-    ["oubo", "mensetu", "syoudaku"].some((k) => ((mm.series || {})[k] || []).length)).length;
-  for (const mm of D.monthly) {
-    const ser = mm.series || {};
-    const any = ["oubo", "mensetu", "syoudaku"].some((k) => (ser[k] || []).length);
-    if (!any) { noHist.push(mm); continue; }
-    const months = [...new Set([].concat(...["oubo", "mensetu", "syoudaku"]
-      .map((k) => (ser[k] || []).map((x) => x.m))))].sort((a, b) => a - b);
-    const mk = (k) => months.map((mi) => {
-      const f = (ser[k] || []).find((x) => x.m === mi);
-      return f ? { v: f.v, carry: f.carry } : { v: null };
-    });
-    /* 🔴 横軸は**暦の月**。変更履歴が月単位なので、契約の「何ヶ月目」では並べられない。
-       以前は「1ヶ月」「2ヶ月」…と出していて、月の途中に始まった6ヶ月契約（3/19〜9/18）の
-       横軸が「7ヶ月」まであり、「契約 6ヶ月」と食い違って見えた（案件一覧の稼働中604件のうち553件がこの形）。
-       暦の月で出し、期間より多い月にまたがる理由を横に書く（span_months はサーバ） */
-    const xCal = months.map((m) => calMonth(mm.start, m));
-    const gap = histGap(mm, months);
-    h += fig(shortName(mm.name || mm.deal_id, 28) + " の推移",
-      spanHint(mm) + (gap ? "。" + gap : ""),
-      svgLine({ w: 680, h: 220,
-        x: xCal,
-        series: [
-          { color: C.ai, pts: mk("oubo") },
-          { color: C.ki, pts: mk("mensetu") },
-          { color: C.midori, pts: mk("syoudaku") },
-        ], yFmt: F.int, yLab: "件", alt: "応募・面接・採用の推移" }),
-      lg("line", C.ai, "応募") + lg("line", C.ki, "面接") + lg("line", C.midori, "採用") +
-      lg("dash", C.ghost, "持ち越し（その月に書き換えが無い）"));
-
-    /* ---- 系列を縦に積む ---- */
-    const npsSer = mm.nps || {};
-    // 🔴 何回目の定期かを点に載せる。載せないと図の文字が「定期undefined」になる。
-    //    キーは nps / nps2 … nps11 で、末尾の数字が回数（nps だけ 1 回目）。
-    const npsRound = (k) => (k === "nps" ? 1 : parseInt(k.slice(3), 10) || null);
-    const npsPts = months.map((mi) => {
-      let hit = null;
-      for (const k of Object.keys(npsSer)) {
-        const f = (npsSer[k] || []).find((x) => x.m === mi);
-        if (f && (hit == null || !f.carry)) hit = { v: f.v, carry: f.carry, round: npsRound(k) };
-      }
-      return hit || { v: null };
-    });
-    const ct = (D.contacts || []).find((x) => x.deal_id === mm.deal_id);
-    /* 🔴 棒の帯（bars）は p.fill / p.out を読む。{v:n} だけ返すと棒が1本も立たず、
-       上限も「1」のまま空の帯になっていた（2026-09-23 実機, U2）。
-       接触は「MTG・60秒超の通話」の1種類なので塗り（fill）に入れる。
-       v は帯が空かどうかの判定に使う（取引に接触の記録が無ければ null）。 */
-    const ctPts = months.map((mi) => {
-      if (!ct) return { v: null };
-      const n = ct.dates.filter((d) => monthIdx(mm.start, d.slice(0, 7)) === mi).length;
-      return { v: n, fill: n };
-    });
-    const lane = (label, color, pts, type, noneLabel, fillLabel) => {
-      const has = pts.some((p) => p.v != null);
-      return { label: label, color: color, type: type || "line",
-               pts: pts, empty: !has, noneLabel: noneLabel || "記録がありません",
-               fillLabel: fillLabel || label };
-    };
-    /* 🔴 「NPS が落ちた月に…が読めます」は、NPS と接触の両方に記録がある契約でしか言えない。
-       NPS の記録が無い契約にもこの文が出ていた（V11 目視） */
-    const hasNps = npsPts.some((p) => p.v != null);
-    const hasCt = ctPts.some((p) => p.v != null);
-    /* 🔴 NPS が上がった契約にも「NPS が落ちた月に接触が切れていて…が読めます」と出て、
-       例文が結論のように読めた（2026-09-24 実機）。例であることを文の中で言う */
-    /* 🔴 読み方の例を契約ごとの図の副題に毎回出していて、既定の事業所で17回並んでいた
-       （2026-09-24 検証）。例はどの契約でも同じなので、NPS と接触の両方がある最初の図だけに出す */
-    const ex = hasNps && hasCt && !laneEx;
-    if (ex) laneEx = true;
-    h += fig(shortName(mm.name || mm.deal_id, 28) + " — 系列を縦に並べる",
-      ex
-        ? "縦に目を落とすと、同じ月に何が起きていたかが読めます" +
-          "（読み方の例:「NPS が落ちた月に接触が切れていたか」。この契約の結論とは別の、見方の例です）"
-        : "縦に目を落とすと、同じ月に何が起きていたかが読めます" +
-          (hasNps ? "" : "（この契約には定期NPS の回答がありません）"),
-      svgStackLanes({ w: 940, months: xCal, lanes: [
-        lane("応募", C.ai, mk("oubo")),
-        lane("面接", C.ki, mk("mensetu")),
-        lane("採用", C.midori, mk("syoudaku")),
-        lane("定期NPS", C.murasaki, npsPts, "dots", "回答がありません"),
-        /* 接触は「あった」印なので赤（まずい）で塗らない（V9）。fillLabel は U2 */
-        lane("接触（MTG・60秒超の通話）", C.ink2, ctPts, "bars", "接触の記録がありません", "接触"),
-      ] }),
-      /* 🔴 histGap の断り書きは上の図の副題に1回だけ出す。ここにも出していて、
-         1つの契約で同じ文が2回（既定の法人では1画面に28回）並んでいた（2026-09-24 検証）。
-         この図の横軸は上の図と同じ月なので、読む人は上の副題で分かる */
-      /* 🔴 この段落を契約ごとの図の下に毎回出していて、既定の事業所で約20回並んでいた
-         （2026-09-24 実機）。どの図でも同じ決まりなので、最初の図の下の1回だけにする */
-      (laneWhy ? "" :
-      '<i class="full"><b>1つの縦軸に重ねていません。二軸も使っていません。</b>' +
-      "値の幅が違いすぎる（応募 0〜200 / NPS 0〜10 / 接触 0〜数十）ので、" +
-      "重ねると応募だけが動いて NPS が底に張り付きます。" +
-      "目盛りの取り方しだいで「相関して見える絵」を作れてしまうため、" +
-      "<b>横軸だけを共有して、系列ごとに自分の縦軸を持たせています</b>。" +
-      /* 🔴 契約の図が1つしかない事業所でも「下に続く…」と出ていた（2026-09-24 検証） */
-      (nLaneFig > 1 ? "下に続く契約の図も同じです。" : "") + "</i>"));
-    laneWhy = true;
-  }
-  if (noHist.length) {
-    h += note("info", "応募・面接・採用の変更履歴が無い契約（" + num(noHist.length) + " 件）",
-      "記録が無い契約です。図にしていないのは次の契約です: " +
-      noHist.map((mm) => esc(shortName(mm.name || mm.deal_id, 28))).join(" ／ "));
-  }
-  }
-
-  /* ---- 接触と担当交代 ---- */
-  if (want.has("timeline") &&
-      ((D.handover || []).length || (D.contacts || []).some((x) => x.dates.length))) {
-    h += sec("図", "こちらの動き（接触と担当交代）");
-    const lanes = [];
-    for (const ct of (D.contacts || [])) {
-      if (!ct.dates.length) continue;
-      const d = D.deals.find((x) => x.deal_id === ct.deal_id);
-      lanes.push({ label: shortName((d && d.name) || ct.deal_id, 16), full: (d && d.name) || ct.deal_id, color: C.ai,
-        marks: ct.dates.map((x) => ({ d: x })) });
-    }
-    if ((D.handover || []).length) {
-      lanes.push({ label: "担当交代", color: C.hi,
-        marks: D.handover.map((x) => ({ d: x.date, thick: true })),
-        note: D.handover.length + "件" });
-    }
-    h += fig("接触と担当交代の時系列", "交代の前後で間隔が開いたかを目で見る",
-      svgTimeline({ w: 940, lanes: lanes, alt: "接触と担当交代" }),
-      lg("dot", C.ai, "接触（MTG・60秒超の通話）") + lg("dot", C.hi, "担当交代") +
-      '<i class="full">交代の「反映なし」には、新しい担当の MTG が1回しか無く' +
-      "<b>引き継ぎか代理出席か区別が付かないもの</b>が混ざります。未反映と決めつけていません。</i>");
-  }
-
-  /* ---- 表（個別の行を特定したいときだけ）---- */
-  if (want.has("deals")) {
-  h += sec("表", "契約の系列（" + num(D.deals.length) + " 件）");
-  /* 🔴 2026-09-24 実機（1440px）: 取引・ステージ・拠点が折り返さず、12列のうち右の4列（金額から先）が切れていた。
-     長い文字の列だけを折り、開始と満了は1つの列に2段で出す（取引名が2行に折れるので行の高さは変わらない。
-     折るだけでは本文の幅 1,117px に 35px 足りなかった） */
-  h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "拠点", w: "s" }, { t: "種別" },
-                     { t: "開始〜満了" }, { t: "継続", n: 1 }, { t: "金額", n: 1 },
-                     { t: "応募", n: 1 }, { t: "面接", n: 1 }, { t: "承諾", n: 1 }, { t: "状態" }],
-    /* 取引名が空なら dealLink が「取引名なし」と書く。取引ID（内部ID）を名前に流し込まない（画面に内部IDを出さない） */
-    D.deals.map((d) => [dealLink(d.deal_id, d.name),
-      '<span class="muted small">' + esc(d.stage) + "</span>",
-      /* 拠点は表示名（site_name）。site は照合用の鍵で人が読む名前ではない（2026-09-29 応答に site_name を足した） */
-      '<span class="muted small">' + esc(d.site_name || d.site) + "</span>",
-      '<span class="muted small">' + esc(d.kind) + "</span>",
-      (esc(d.start) || DASH) + "<br>〜" + (esc(d.expiration) || DASH), nz(d.renewal_no), yen(d.amount),
-      nz(d.oubo), nz(d.mensetu), nz(d.syoudaku),
-      (d.is_active ? "稼働中" : "") +
-      (d.right_censored ? ' <span class="tag">未確定</span>' : "")]), "ser"), 420);
-  }
-
-  if (want.has("mtgs")) {
-  h += sec("表", "MTG の履歴（" + num(D.mtgs.length) + " 件）");
-
-  h += scroll(table([{ t: "開催日" }, { t: "リスク" }, { t: "やること", w: "l" },
-                     { t: "顧客の懸念", w: "l" }, { t: "抽出" }],
-    D.mtgs.map((m) => [esc(m.date), esc(m.risk) || DASH, esc(m.todo) || DASH,
-      esc(m.concern) || DASH, m.extracted ? "済" : '<span class="n0">未</span>'])), 420);
-  }
+  /* 応募・面接・採用の推移、接触と担当交代、契約の系列、MTG の履歴は、案件管理「法人」に同じものがあるので外した
+     （2026-10-21、二重の画面。顧客の「事業所」の節は案件管理への「案件管理で開く」リンク）。 */
   return h;
 }
 
@@ -5097,11 +4930,8 @@ function custSiteTable(D, sites, now) {
   h += scroll(table([{ t: "拠点", w: "l" }, { t: "契約", n: 1 }, { t: "稼働中", n: 1 }, { t: "継続（最大）" },
                      { t: "金額の合計", n: 1 }, { t: "採用の合計", n: 1 }, { t: "最初の開始" }, { t: "最後の満了" }],
     sites.map((s) => [
-      s.key === now
-        ? "<b>" + esc(custSiteLabel(s)) + '</b> <span class="tag e">いま見ている</span>'
-        : '<a data-site="' + esc(s.key) + '" href="' +
-          esc(hashFor("customer", Object.assign(stateParams("customer"), { site: s.key }))) + '">' +
-          esc(custSiteLabel(s)) + "</a>",
+      '<a href="' + esc(jobCopyHoujinUrl((D.meta || {}).houjin || customerHoujin, s.key === NO_SITE ? "" : s.key)) +
+        '" title="案件管理の「法人」で、この拠点の契約・MTG を開く">' + esc(custSiteLabel(s)) + "</a>",
       num(s.deals.length), num(s.active),
       s.maxRenewal ? num(s.maxRenewal) + "回目" : "初回",
       yen(s.amount),
@@ -5110,46 +4940,20 @@ function custSiteTable(D, sites, now) {
   return h;
 }
 
-/** 事業所の層（拠点1つ）。前の「継続を追いかける」の中身を、選んだ1拠点だけで描く。
-    picked: 人が選んだ拠点か（false なら既定で開いていると書く） */
+/** 案件管理「法人」を開くアドレス。法人の番号と拠点の鍵を渡すと、その法人・拠点が開く */
+function jobCopyHoujinUrl(houjin, site) {
+  return "/app/job-copy?view=houjin&houjin=" + encodeURIComponent(houjin || "") +
+    (site ? "&houjin_site=" + encodeURIComponent(site) : "");
+}
+/** 事業所の節。2026-10-21 契約ごとの図・MTG の履歴・契約の系列は案件管理「法人」と二重だったので外し、案件管理への
+    リンクにした（案件 1 件の明細は案件管理で見る。この画面は法人を比べる・本部への材料に絞る） */
 function custSiteLayer(D, sites, now, picked) {
   const s = sites.find((x) => x.key === now);
-  const all = D.deals || [];
-  const ids = new Set(s ? s.deals.map((d) => d.deal_id) : []);
-  const F2 = custFilter(D, ids);
-  let h = sec("事業所", s ? custSiteLabel(s) : "拠点がありません", "cust-site");
-  h += '<div class="ctlbar"><label class="act">拠点を選ぶ <select id="cs-site">' +
-    sites.map((x) => '<option value="' + esc(x.key) + '"' + (x.key === now ? " selected" : "") + ">" +
-      esc(custSiteLabel(x)) + "（契約 " + num(x.deals.length) + " 件）</option>").join("") +
-    "</select></label></div>";
-  /* 🔴 拠点1つに絞っていることを必ず書く。法人全体だと読むのが、この種の画面でいちばん起きる事故 */
-  h += '<div class="count-line on"><b>この法人の契約 ' + num(all.length) + " 件のうち、この拠点の " +
-    num(F2.deals.length) + " 件</b>を表示" +
-    (picked ? "" : "（拠点を選んでいないので、いちばん新しく契約が始まった拠点を開いています。上の表か、この欄で選び直せます）") +
-    "</div>";
-
-  /* 契約の連なり。何回目か・間が空いていないか */
-  h += sec("図", "契約の連なり");
-  const ordered = F2.deals.slice().sort((a, b) =>
-    String(a.start || "").localeCompare(String(b.start || "")));
-  h += fig("契約を古い順に並べる", "横は開始日。空きがあれば間が空いている",
-    ordered.length
-      ? svgTimeline({ w: 940, alt: "契約の連なり", lanes: ordered.map((d) => ({
-          label: shortName(d.name || d.deal_id, 18), full: d.name || d.deal_id,
-          color: d.is_active ? C.ai : C.ghost,
-          /* 🔴 金額が空の契約は「3回目」だけになり、ほかの行と並べると書き漏れに見えた（2026-09-24 実機）。
-             空であることを文字で書く（0 円として描かない） */
-          note: (d.renewal_no ? num(d.renewal_no) + "回目" : "初回") +
-                "　" + (d.amount != null ? yen(d.amount) : "金額なし"),
-          /* t: 何の日付か。吹き出しと「数字で読む」に日付だけが並び、開始か満了か分からなかった（2026-09-29 検証 M-11） */
-          marks: [{ d: d.start, t: "開始" }, { d: d.expiration, t: "満了" }].filter((m) => m.d).map((m) => ({ d: m.d, t: m.t, thick: true })),
-        })) })
-      : '<div class="empty">この拠点に契約がありません。</div>',
-    lg("dot", C.ai, "稼働中") + lg("dot", C.ghost, "決着済") +
-    '<i class="full">印は契約の開始日と満了日です。' +
-    "<b>間が空いていれば、その分だけ契約が途切れています。</b></i>");
-
-  h += custBlocks(F2, new Set(["monthly", "timeline", "deals", "mtgs"]));
+  const hj = (D.meta || {}).houjin || customerHoujin;
+  let h = sec("事業所", "事業所（拠点1つ）の契約・MTG", "cust-site");
+  h += '<p class="lede">1 件ごとの契約・応募の推移・MTG は、案件管理の「法人」で見ます。</p>';
+  h += '<p><a class="golink wrap" id="cust-to-jc" href="' + esc(jobCopyHoujinUrl(hj, s && s.key !== NO_SITE ? s.key : "")) + '">' +
+    (s ? esc(custSiteLabel(s)) + " を" : "") + "案件管理で開く →</a></p>";
   return h;
 }
 
@@ -5733,27 +5537,7 @@ function renderPhone(D) {
     kpi("文字起こしがある", pct1(D.transcript.rate, 2),
         num(D.transcript.n) + " / " + num(D.transcript.rows) + " 行", "warn", { jump: "ph-trans", text: "状況を見る" }) + "</div>";
 
-  h += sec("図", "電話の到達", "ph-reach-h");
-  const rp = [
-    { label: "接触がある（60秒超）", v: D.meta.n_active - r.no_contact, color: C.midori },
-    { label: "電話はあるが接触なし", v: r.no_contact - r.no_call, color: C.ki },
-    { label: "電話が1本も無い", v: r.no_call, color: C.hi },
-  ];
-  h += fig("稼働中 " + num(D.meta.n_active) + " 件の内訳", "",
-    svgStack({ w: 680, parts: rp }), stackLegend(rp) +
-    '<i class="full">' + esc(r.note) + "</i>");
-
-  h += sec("図", "最後に話してからの日数", "ph-days-h");
-  h += fig("経過日数の散らばり", "接触が1本も無い取引はここに入っていません（日数が出せないため）",
-    D.days_since && D.days_since.n >= MIN_N
-      ? svgBoxH({ w: 680, xFmt: F.int, rows: [{
-          label: "経過日数", med: D.days_since.median, q1: D.days_since.q1,
-          q3: D.days_since.q3, min: D.days_since.min, max: D.days_since.max,
-          mean: D.days_since.mean, n: D.days_since.n, color: C.ai }] })
-      : tooFew(D.days_since ? D.days_since.n : 0, "経過日数"),
-    lg("quart", C.ai, "多くが収まる範囲") + lg("line", C.ai, "真ん中の値") +
-    '<i class="full">接触が1本も無い ' + num(r.no_contact) +
-    " 件は<b>0日として混ぜていません</b>。0日にすると「昨日話した」ように見えます。</i>");
+  h += phoneReachParts(D);
 
   h += sec("図", "月ごとの本数");
   const openP = openMonth(D.meta);
@@ -5776,9 +5560,40 @@ function renderPhone(D) {
      KPI「文字起こしがある」の行き先なので、枠に id と tabindex=-1 を付けて止まれるようにする（段2 S-2） */
   h += '<div class="kpi-target" id="ph-trans" tabindex="-1">' + note("warn", "文字起こしの状況", esc(D.transcript.note)) + "</div>";
 
-  h += sec("表", "沈黙している取引（" + num(D.silent.n) + " 件）") + phoneSilentTable(D, "上の件数");
+  h += sec("表", "沈黙している取引（" + num(D.silent.n) + " 件）") +
+    '<p class="muted small">この表は 60 秒を超える通話だけで数えます。MTG も含めて数える一覧は、' +
+    '<a class="golink wrap" href="' + esc(hashFor("board", { view: "silent" })) + '">案件一覧のよく使う絞り込み</a>にあります。</p>' +
+    phoneSilentTable(D, "上の件数");
   return h + foot(D.meta);
 }
+/** 電話の到達の内訳の帯と、最後に話してからの日数の散らばり。電話の画面と、成果と継続の節「電話の到達」で同じものを出す */
+function phoneReachParts(D) {
+  const r = D.reach;
+  let h = "";
+  h += sec("図", "電話の到達", "ph-reach-h");
+  const rp = [
+    { label: "接触がある（60秒超）", v: D.meta.n_active - r.no_contact, color: C.midori },
+    { label: "電話はあるが接触なし", v: r.no_contact - r.no_call, color: C.ki },
+    { label: "電話が1本も無い", v: r.no_call, color: C.hi },
+  ];
+  h += fig("稼働中 " + num(D.meta.n_active) + " 件の内訳", "",
+    svgStack({ w: 680, parts: rp }), stackLegend(rp) +
+    '<i class="full">' + esc(r.note) + "</i>");
+
+  h += sec("図", "最後に話してからの日数", "ph-days-h");
+  h += fig("経過日数の散らばり", "接触が1本も無い取引はここに入っていません（日数が出せないため）",
+    D.days_since && D.days_since.n >= MIN_N
+      ? svgBoxH({ w: 680, xFmt: F.int, rows: [{
+          label: "経過日数", med: D.days_since.median, q1: D.days_since.q1,
+          q3: D.days_since.q3, min: D.days_since.min, max: D.days_since.max,
+          mean: D.days_since.mean, n: D.days_since.n, color: C.ai }] })
+      : tooFew(D.days_since ? D.days_since.n : 0, "経過日数"),
+    lg("quart", C.ai, "多くが収まる範囲") + lg("line", C.ai, "真ん中の値") +
+    '<i class="full">接触が1本も無い ' + num(r.no_contact) +
+    " 件は<b>0日として混ぜていません</b>。0日にすると「昨日話した」ように見えます。</i>");
+  return h;
+}
+
 /** 表「沈黙している取引」と、案件一覧の見方（接触が90日を超えて無い）の定義の違い。
     🔴 段B（09 の 10 章②）で手を打つ先は名札に定義を寄せた見方に移したが、電話の画面は残す（10 章⑤）。
        定義の違う2つの一覧が説明なしに並ぶと同じものに見えるので、ここで違いと行き先を言う（2026-09-29 検証。
@@ -6573,12 +6388,25 @@ function boardStartedOnlyWords(D) {
   return "。この注意は開始前の契約には立てていません（" + num(D.rows.length) + " 件のうち開始前 " + num(pre) +
     " 件・開始済み " + num(D.rows.length - pre) + " 件）";
 }
+/** 滞留の件数の札 2 枚（前の「滞留した案件」画面の札）。押すとその絞り込み（よく使う絞り込みの stay_esc・stay_long）になる。
+    件数・名前・定義はサーバの見方（meta.act_views）の文。押している札は aria-pressed */
+function boardStayCards(D) {
+  const esc2 = actViewOf(D, "stay_esc"), lng = actViewOf(D, "stay_long");
+  if (!esc2 || !lng) return "";
+  const on = boardFilter.view || "";
+  const card = (v, fine, warn) => kpi(v.label, num(v.n) + '<span class="u">件</span>', fine, warn && v.n ? "warn" : "",
+    { view: v.key, text: on === v.key ? "絞り込み中（もう一度押すと外す）" : "この絞り込みで見る" })
+    .replace('<button type="button"', '<button type="button" aria-pressed="' + (on === v.key) + '"');
+  return '<div class="kpis" id="board-stay">' +
+    card(esc2, "満了日を過ぎて、まだ稼働中のステージにいる", true) +
+    card(lng, "満了後も稼働中の案件は、左の件数に入れています", false) + "</div>";
+}
 function boardBody(D, shown, on) {
   const byOwner = cur.view === "byowner";
   /* 見方（段B）。ボタンは案件一覧だけに置く。担当者ごとの案件も URL の ?view= で絞れるので、絞っているときは
      定義の1行と外れた件数を出す（🔴 2026-09-29 検証: 担当者ごとの案件では件数の行に「見方 X」と出るだけで、
      前の定義から外れた案件を知る手段が無かった＝黙って絞る形）。外れた案件の表はその担当者の分に絞る */
-  let h = byOwner ? boardViewNote(D, boardFilter.consultant) : boardViewBar(D) + boardViewNote(D);
+  let h = byOwner ? boardViewNote(D, boardFilter.consultant) : boardStayCards(D) + boardViewBar(D) + boardViewNote(D);
   /* 🔴 絞り込んだら、何件中の何件を見ているのかを必ず出す。
      絞ったことを忘れて「全件がこう見える」と読み違えるのを防ぐ。 */
   h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
@@ -6640,6 +6468,15 @@ function wireBoardBody() {
   });
   const more = document.getElementById("board-more");
   if (more) more.onclick = () => { boardShowAll = more.dataset.all === "1"; boardRepaint(); };
+  /* 滞留の札。押すとその見方で絞る（見方のボタンと同じ。押している見方をもう一度押すと外す） */
+  document.querySelectorAll("#board-stay button.kpi[data-view]").forEach((b) => {
+    b.onclick = () => {
+      boardFilter.view = boardFilter.view === b.dataset.view ? "" : b.dataset.view;
+      boardShowAll = false;
+      boardRepaint();
+      refocus('#board-stay button.kpi[data-view="' + b.dataset.view + '"]');
+    };
+  });
   /* 見方のボタン。押している見方をもう一度押すと外す */
   document.querySelectorAll("#board-views button[data-view]").forEach((b) => {
     b.onclick = () => {
@@ -8403,8 +8240,9 @@ const MENUS = [
         render: (D) => renderToday(D) },
       { key: "board",    label: "案件一覧",         path: "/api/consulting/deals",
         render: (D) => renderBoard(D) },
-      /* 2026-10-20 足した。同じステージに 45 日を超えている案件と、満了後も稼働中の案件（stage_stay.rs） */
-      { key: "stagestay", label: "滞留した案件",    path: "/api/consulting/stage-stay",
+      /* 2026-10-21 メニューから外した（URL は残す）。同じステージに 45 日を超えている案件と満了後も稼働中の案件は、
+         案件一覧のよく使う絞り込み（stay_long・stay_esc）と、一覧の上の札 2 枚になった */
+      { key: "stagestay", label: "滞留した案件",    hidden: true, path: "/api/consulting/stage-stay",
         render: (D) => renderStageStay(D) },
       /* 10章⑤: 削除せず残す。置き場所は案件一覧の次 */
       { key: "byowner",  label: "担当者ごとの案件", hidden: true, path: "/api/consulting/deals",
@@ -8419,24 +8257,30 @@ const MENUS = [
       /* 前の「継続を追いかける」と「法人番号で見る」を 1 つに（09 の 4 顧客） */
       { key: "customer", label: "顧客",             path: "/api/consulting/customer",
         render: (D) => renderCustomer(D) },
-      /* 10章⑤: 削除せず残す。置き場所は顧客の次 */
-      { key: "focus",    label: "いま見るべき顧客", path: "/api/consulting/focus",
+      /* 2026-10-21 メニューから外した（URL は残す）。定期NPS 4以下は案件一覧のよく使う絞り込み（nps_low）、
+         4 つの図はこの画面だけに残る（成果と継続からは外した） */
+      { key: "focus",    label: "いま見るべき顧客", hidden: true, path: "/api/consulting/focus",
         render: (D) => renderFocus(D) },
-      /* 新しい画面（09 の 5）。今月・来月・再来月に満了する件数・金額・ステージと一覧（段B。money.rs build_renewal_pipe） */
-      { key: "renewalpipe", label: "満了と継続",    path: "/api/consulting/renewal-pipe",
-        render: (D) => renderRenewalPipe(D) },
-      /* 10章⑤: 電話も残す */
-      { key: "phone",    label: "電話",             path: "/api/consulting/phone",
+      /* 2026-10-21 メニューから外した（URL は残す）。沈黙している取引は案件一覧の絞り込み、到達と日数の図は成果と継続の節へ */
+      { key: "phone",    label: "電話",             hidden: true, path: "/api/consulting/phone",
         render: (D) => renderPhone(D) },
     ] },
-  { key: "monthly", label: "月1・確かめる",
+  { key: "monthly", label: "月1",
     views: [
+      /* 新しい画面（09 の 5）。今月・来月・再来月に満了する件数・金額・ステージと一覧（段B。money.rs build_renewal_pipe）。
+         2026-10-21 「調べる」から月1へ移した（ハッシュの区切りが変わるだけ。古い #research/renewalpipe も開く） */
+      { key: "renewalpipe", label: "満了と継続",    path: "/api/consulting/renewal-pipe",
+        render: (D) => renderRenewalPipe(D) },
       /* 前の「継続回数 × 成果」「成果とリスク」「立ち上がり」と、いま見るべき顧客の図・本部アプローチを 1 つに（09 の 7）。
-         /api/consulting/results が束ねて返す（1 本で取る） */
+         /api/consulting/results が束ねて返す（1 本で取る）。
+         2026-10-21 節として「記録と数字」（データ品質・MTG の品質）・「担当の交代」・「電話の到達」を足した。
+         記録と数字・電話の到達は元の API を more で読む */
       { key: "results",  label: "成果と継続",       path: "/api/consulting/results",
+        more: { dq: "/api/consulting/data-quality", mtgq: "/api/consulting/mtg-quality", phone: "/api/consulting/phone" },
         render: (D) => renderResults(D) },
-      /* 前の「データ品質」「MTG の品質」「定義と検証」を 1 つに（09 の 8。中身は全部残す） */
-      { key: "trust",    label: "記録と数字の信頼度", path: "/api/consulting/data-quality",
+      /* 前の「データ品質」「MTG の品質」「定義と検証」を 1 つに（09 の 8。中身は全部残す）。
+         2026-10-21 メニューから外した（URL は残す）。ヘッダの「色と印の意味」が定義の節（?at=trust-defs）を開く */
+      { key: "trust",    label: "記録と数字の信頼度", hidden: true, path: "/api/consulting/data-quality",
         more: { mtgq: "/api/consulting/mtg-quality" },
         render: (D) => renderTrust(D) },
     ] },
@@ -8467,7 +8311,7 @@ const LEGACY = {
   "consultant":          { to: "team",                            was: "担当者の一覧" },
   "consultant/team":     { to: "team",                            was: "担当者の一覧" },
   "consultant/byowner":  { to: "byowner",                         was: "担当者ごとの案件" },
-  "consultant/handover": { to: "team",     at: "tm-ho-h",         was: "担当の交代" },
+  "consultant/handover": { to: "results",  at: "rs-handover",     was: "担当の交代" },
   "consultant/contact":  { to: "team",     at: "tm-ct-h",         was: "担当者ごとの接触" },
   "study":               { to: "results",                         was: "継続回数 × 成果" },
   "study/renewal":       { to: "results",  at: "rs-renewal",      was: "継続回数 × 成果" },
@@ -8907,6 +8751,9 @@ function fromHash() {
   }
   if (!m) return Object.assign(defaultPlace(), { id: "", params: params, known: !raw, moved: null });
   const v = viewOf(m.key, p[1]);
+  /* 2026-10-21: 区切りが変わった画面（満了と継続は「調べる」から月1へ）の古いハッシュは、鍵を持つ区切りの画面を開く */
+  const other = !v && p[1] ? menuHaving(p[1]) : null;
+  if (other) return { menu: other.key, view: p[1], id: params.get("id") || "", params: params, known: true, moved: null };
   return { menu: m.key, view: (v || m.views[0]).key, id: params.get("id") || "", params: params, known: true, moved: null };
 }
 /* ---------------------------------------------------------------- 移ったことの帯と節への移動（N8）

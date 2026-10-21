@@ -1428,7 +1428,11 @@ check("V12 の残り: 本部への提案材料（成果と継続の rs-hq）を�
   ok(!/function (hqSection|wireHq)\b/.test(js), "消した後読みの部品（hqSection / wireHq）が残っている");
   ok(!js.includes('"/api/consulting/headquarters"'), "画面が本部への提案材料を別に取りに行く道が残っている");
   const v = run('JSON.stringify(viewOf("monthly", "results"))');
-  ok(v && JSON.parse(v).path === "/api/consulting/results" && !JSON.parse(v).more, "成果と継続が束（/api/consulting/results）1 本で取っていない: " + v);
+  /* 2026-10-21: 束の本体は /api/consulting/results の 1 本。記録と数字（データ品質・MTG の品質）と電話の到達の節だけ、元の API を more で並べて取る */
+  ok(v && JSON.parse(v).path === "/api/consulting/results" &&
+    JSON.stringify(JSON.parse(v).more) === JSON.stringify({ dq: "/api/consulting/data-quality", mtgq: "/api/consulting/mtg-quality", phone: "/api/consulting/phone" }),
+    "成果と継続が束（/api/consulting/results）を本体に、more で記録と数字・MTG の品質・電話だけを足す形でない: " + v);
+  ok(!JSON.stringify(JSON.parse(v).more).includes("headquarters"), "本部への提案材料を別に取りに行っている");
   ctx.__RSX = resultsWithHq();
   const part = rsHqPart(run("renderResults(__RSX)"));
   ok(part.includes("解約・充足 50.0%（結果が出た 4件中）"), "rs-hq の節に束の headquarters（renderHq の中身）が描かれていない");
@@ -2118,7 +2122,6 @@ check("series: 推移の図で、契約の頭に変更履歴が無い月を黙�
   ok(run('histGap({ start: "2025-03-09" }, [2, 3])').includes("2025-03 は記録が無い"), "1か月だけ無いときの書き方が崩れる");
   ok(run('histGap({ start: "2025-03-09" }, [1, 2])') === "", "始月から記録があるのに断り書きを出している");
   ok(run('histGap({ start: "" }, [3])') === "", "開始日が無いのに断り書きを作っている");
-  ok(/const gap = histGap\(mm, months\)/.test(jsNoComment), "推移の図が histGap を使っていない");
 });
 
 check("採用単価の図: 採れた人数を値の横に括弧で付ける（「162万2人」とくっつけない）", () => {
@@ -2623,20 +2626,6 @@ check("ループ4 採用単価の棒: 万円の目盛りを出す svgBarH の呼
   ok(!bad.length, "万円の svgBarH に軸の題名（xLab）を渡していない: " + bad.join(" / "));
 });
 
-check("ループ4 series: 契約の系列の表は折り返しの幅を詰め（table.ser）、1440px の本文に余白を残す", () => {
-  // 11列が本文 1,117px にちょうど収まるだけで、長い取引名・拠点名・ステージで右端（状態）が切れた
-  // （2026-09-24 検証。40字・20字・15字にすると 47px 超）。既定の 22em / 11em より狭くする
-  ctx.__SER = { meta: { found: true, houjin: "H1", today: "2026-09-23" },
-    customer: { name: "x", ltv: 1, deals: 1, sites: 1, active: 1, max_renewal_no: 0, last_expiration: "2027-01-31" },
-    focus: null, mtgs: [], cpa3: [], cpa_by_site: [], monthly: [], handover: [], contacts: [], funnel: {},
-    deals: [{ deal_id: "d1", name: "取引", stage: "定期1", site: "拠点", kind: "定期", start: "2025-01-01",
-      expiration: "2025-12-31", renewal_no: 1, amount: 100, oubo: 1, mensetu: 1, syoudaku: 1, is_active: true }] };
-  const h = run('custBlocks(__SER, new Set(["deals"]))');
-  ok(/<table class="ser"><thead><tr><th class="wl">取引<\/th>/.test(h), "契約の系列の表に class=\"ser\" が付いていない");
-  const em = (re) => { const m = html.match(re); return m ? parseFloat(m[1]) : NaN; };
-  const l = em(/table\.ser td\.wl\{\s*max-width:([\d.]+)em/), s2 = em(/table\.ser td\.ws\{\s*max-width:([\d.]+)em/);
-  ok(l <= 16 && s2 <= 9, "契約の系列の表の折り返しの幅が詰まっていない（wl " + l + "em / ws " + s2 + "em）");
-});
 
 check("ループ4統合: 横棒（svgBarH）は xLab を軸の題名として描く（採用単価の単位）", () => {
   const svg = run('svgBarH({ w: 680, fmt: F.man, xLab: "採用単価（万円）", rows: [{ label: "A", v: 500000, txt: "50万" }] })');
@@ -3383,11 +3372,7 @@ check("案件の詳細: 名前はエスケープし、値の無い項目は — 
 check("案件の詳細: 表の案件名（案件そのもの・継続を追いかける・法人番号で見る）は案件の詳細へのリンク", () => {
   const b = run('BOARD_COLS.find((c) => c.k === "name").fmt({ deal_id: "80000000001", name: "A&B" })');
   ok(b.indexOf('<a class="deallink" href="#deal/detail?id=80000000001">A&amp;B</a>') === 0, "案件の契約のどのあたりかの案件名がリンクでない: " + b);
-  ctx.__CD = { meta: { found: true, houjin: "H1" }, customer: null, deals: [{ deal_id: "80000000003", name: "系列の契約",
-    stage: "定期1", site: "S", kind: "サブスク", start: "2026-01-01", expiration: "2026-06-30", renewal_no: 0, amount: null,
-    oubo: null, mensetu: null, syoudaku: null, is_active: true, right_censored: false }], mtgs: [] };
-  const s = run('custBlocks(__CD, new Set(["deals"]))');
-  ok(s.indexOf('href="#deal/detail?id=80000000003"') >= 0, "契約の系列の表の案件名がリンクでない");
+  /* 契約の系列の表は顧客の画面から外した（2026-10-21。案件管理「法人」と二重だった）。案件名のリンクは案件一覧の表で見る */
   // リンクは折り返す（golink の nowrap を使うと長い案件名の列が伸びて右端の列が切れる）
   ok(/a\.deallink\{[^}]*overflow-wrap:anywhere/.test(html) && !/a\.deallink\{[^}]*nowrap/.test(html),
     "案件名のリンクが折り返さない");
@@ -3623,7 +3608,7 @@ check("S-8: 表が主役の画面（案件そのもの・担当者ごとの案�
   const t = run('contactUnit = "month"; teamPick = ""; renderTeam(teamOf(__TM, { contact: __CT, handover: __HOC }))');
   before(t, '<div class="kpis">', 'id="team-tbl"', "チームと担当: KPI → 表 の順でない");
   before(t, 'id="team-tbl"', "<figure", "チームと担当: 表が図の下");
-  before(t, "<figure", 'id="tm-ho-h"', "チームと担当: 接触の推移が担当の交代の下");
+  ok(!t.includes('id="tm-ho-h"') && !t.includes("交代前後の接触"), "チームと担当に担当の交代が残っている（成果と継続の節へ移した）");
   const hv = run("renderHandover(__HOC)");
   before(hv, '<div class="kpis">', "交代の記録（", "担当の交代: KPI → 表 の順でない");
   before(hv, "交代の記録（", "<figure", "担当の交代: 表が図の下");
@@ -3745,14 +3730,8 @@ check("S-4: 集計の4表（NPS低・沈黙・MTG未実施・最優先）の案�
   ctx.__S4FO2 = fo;
   const f2 = run("renderFocus(__S4FO2)");
   ok(!/>[^<]*80000000011[^<]*</.test(f2) && f2.includes("取引名なし"), "取引名が空の行で取引IDが画面の文字に出ている");
-  /* 契約の系列（継続を追いかける／法人番号で見る）と案件そのもの（BOARD_COLS）も同じ。前は呼び出し側が
-     `d.name || d.deal_id` で取引IDを名前に流し込んでいて、dealLink の「取引名なし」に届かなかった（2026-09-28 検証の指摘） */
-  const ser = JSON.parse(JSON.stringify(ctx.__SER));
-  ser.deals[0].deal_id = "80000000015"; ser.deals[0].name = "";
-  ctx.__S4SER = ser;
-  const s = run('custBlocks(__S4SER, new Set(["deals"]))');
-  ok(s.includes(link("80000000015", "取引名なし")) && !/>[^<]*80000000015[^<]*</.test(s),
-    "契約の系列で取引名が空の行に取引IDが画面の文字に出ている");
+  /* 案件そのもの（BOARD_COLS）も同じ。前は呼び出し側が `d.name || d.deal_id` で取引IDを名前に流し込んでいて、dealLink の
+     「取引名なし」に届かなかった（2026-09-28 検証の指摘）。契約の系列の表は顧客の画面から外した（2026-10-21） */
   const bc = run('BOARD_COLS.find((c) => c.k === "name").fmt({ deal_id: "80000000016", name: null, focus: false })');
   ok(bc.includes(link("80000000016", "取引名なし")) && !/>[^<]*80000000016[^<]*</.test(bc),
     "案件そのものの表で取引名が空の行に取引IDが画面の文字に出ている: " + bc);
@@ -3824,14 +3803,20 @@ check("S-6: 表の見出しを短くし、「絞った条件」の説明を表�
 check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出さない（1 列・3 区切り・10 項目）", () => {
   // 2026-09-29 組み替え 段A: 上のメニューは無くし、左に 1 列で 3 区切り（見出し）と 11 画面を並べる（handover 09 の 3章・10章）
   ok(!html.includes('id="cs-menu"'), "上のメニュー（#cs-menu）が残っている");
-  run('cur = { menu: "research", view: "phone" }; document.getElementById("cs-side").innerHTML = ""; drawSide();');
+  run('cur = { menu: "monthly", view: "results" }; document.getElementById("cs-side").innerHTML = ""; drawSide();');
   const side = run('document.getElementById("cs-side").innerHTML');
   const heads = [...side.matchAll(/<h2 id="side-[a-z]+">([^<]+)<\/h2>/g)].map((m) => m[1]);
-  ok(JSON.stringify(heads) === JSON.stringify(["毎日", "調べる", "月1・確かめる"]), "区切りの見出しが 毎日 / 調べる / 月1・確かめる でない: " + heads);
+  ok(JSON.stringify(heads) === JSON.stringify(["毎日", "調べる", "月1"]), "区切りの見出しが 毎日 / 調べる / 月1 でない: " + heads);
   ok(!side.includes('class="no"') && !/[①-⑩]/.test(side), "区切りに丸数字が残っている: " + side);
   const nBtn = (side.match(/<button /g) || []).length;
-  ok(nBtn === 10, "左の項目が 10 でない: " + nBtn);
-  ok(side.includes(">電話</button>") && side.includes(">記録と数字の信頼度</button>"), "左の項目名が出ていない: " + side);
+  ok(nBtn === 6, "左の項目が 6 でない: " + nBtn);
+  const labels = [...side.matchAll(/<button [^>]*>([^<]*)<\/button>/g)].map((m) => m[1]);
+  ok(JSON.stringify(labels) === JSON.stringify(["チームと担当", "今日", "案件一覧", "顧客", "満了と継続", "成果と継続"]), "左の項目名が違う: " + labels.join(" / "));
+  /* 外した画面は左に出さない。URL では今までどおり開ける（hidden） */
+  for (const k of ["stagestay", "focus", "phone", "trust", "byowner", "detail"])
+    ok(JSON.parse(run('JSON.stringify(MENUS.flatMap((m) => m.views).find((v) => v.key === "' + k + '"))')).hidden === true, k + " が hidden でない");
+  ok(!side.includes(">電話</button>") && !side.includes(">記録と数字の信頼度</button>") && !side.includes(">滞留した案件</button>") && !side.includes(">いま見るべき顧客</button>"),
+    "メニューから外した画面が左に残っている: " + side);
   // 600px 以下は ul の箱を外して、区切りの見出しと項目を同じ流れに並べる（display:contents。見出しを別の行にすると 5 行 229px）。
   // 一覧であることは role="list" で読み上げに残す。
   // 🔴 区切りの箱は外さない（2026-09-29 検証 400px: 3 区切りを 1 つの流れにしていたので、境目が行の途中に来て
@@ -3850,7 +3835,7 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   ok(/no-repeat local/.test(sideCss) && /no-repeat scroll/.test(sideCss), "600px 以下のメニューに、続きがある側の影が無い（右の項目があることに気づけない）");
   ok(!/\.side[^{]*\{[^}]*display:none/.test(narrow) && !/\.sidegrp[^{]*\{[^}]*display:none/.test(narrow), "600px 以下でメニューの項目を隠している");
   ok(!side.includes('class="n"') && !/>\d+<\/span>/.test(side), "左の項目名の後ろに番号が残っている（件数に見える）: " + side);
-  ok(/aria-current="page">電話</.test(side), "いま見ている項目の印（aria-current）が無い");
+  ok(/aria-current="page">成果と継続</.test(side), "いま見ている項目の印（aria-current）が無い");
   run('cur = { menu: "deal", view: "today" }');
 });
 
@@ -4632,7 +4617,6 @@ check("段2 M-11: 図の値を読み上げ用の一覧（ul.sr）と「数字で
   // 時間軸の図: 行の名前と、何の日付か（開始・満了）
   const tl = run('fig("連なり", "", svgTimeline({ w: 600, lanes: [{ label: "契約A", color: C.ai, marks: [{ d: "2024-06-10", t: "開始" }, { d: "2025-06-09", t: "満了" }] }, { label: "契約B", color: C.ai, marks: [{ d: "2025-06-10", t: "開始" }] }] }), "")');
   ok(srOf(tl) === "<li>契約A 開始 2024-06-10</li><li>契約A 満了 2025-06-09</li><li>契約B 開始 2025-06-10</li>", "時間軸の図の一覧に行の名前か日付の意味が無い: " + srOf(tl));
-  ok(/marks: \[\{ d: d\.start, t: "開始" \}, \{ d: d\.expiration, t: "満了" \}\]/.test(html), "契約の連なりの印に開始・満了の言葉が無い");
   // 前の値（中空の棒）は直前の棒の行に括弧で添える（独立した「前回: 11」の行にしない）
   const v0 = run('fig("前回つき", "", svgBarH({ rows: [{ label: "初回", v: 58, v0: 47, n: 1650 }, { label: "継続1", v: 45, v0: 34 }], w: 600, fmt: F.int }), "")');
   ok(srOf(v0) === "<li>初回: 58 (1650件)（前回: 47）</li><li>継続1: 45（前回: 34）</li>", "前の値が直前の棒の行に添えられていない: " + srOf(v0));
@@ -4690,18 +4674,22 @@ check("09 の 6 チームと担当: 画面の並び（担当者の一覧・担�
   ok(JSON.stringify(views("deal").find((v) => v[0] === "byowner")) === JSON.stringify(["byowner", "担当者ごとの案件", "/api/consulting/deals"]),
     "毎日の中に「担当者ごとの案件」が無い");
   const st = views("monthly");
-  ok(st.length && st[0][0] === "results" && st[0][1] === "成果と継続" && st[0][2] === "/api/consulting/results", "月1・確かめるの先頭が「成果と継続」でない: " + JSON.stringify(st[0]));
-  ok(all.some((v) => v[0] === "focus") && all.some((v) => v[0] === "phone"), "残す画面（いま見るべき顧客・電話）が消えた（10 章⑤）");
+  /* 2026-10-21 メニュー整理: 月1は 満了と継続 → 成果と継続。滞留した案件・いま見るべき顧客・電話・記録と数字の信頼度はメニューから外し、URL に残す */
+  ok(st.length >= 2 && JSON.stringify(st[0]) === JSON.stringify(["renewalpipe", "満了と継続", "/api/consulting/renewal-pipe"]) &&
+    JSON.stringify(st[1]) === JSON.stringify(["results", "成果と継続", "/api/consulting/results"]), "月1が 満了と継続 → 成果と継続 の順でない: " + JSON.stringify(st));
+  ok(all.some((v) => v[0] === "focus") && all.some((v) => v[0] === "phone") && all.some((v) => v[0] === "trust") && all.some((v) => v[0] === "stagestay"),
+    "URL に残す画面（いま見るべき顧客・電話・記録と数字の信頼度・滞留した案件）が消えた");
   ok(!all.some((v) => ["renewal", "outcome", "rampup", "handover", "contact"].includes(v[0])), "まとめた画面がメニューに残っている");
   run('contactUnit = "month"; teamPick = "";');
   const h = run("renderTeam(teamOf(__D, { contact: __CT, handover: __HOC }))");
   /* 目次: 同じ画面の 3 節（行き先の id が本文にある）＋ 残す画面（担当者ごとの案件・電話）へのリンク */
   const toc = h.slice(h.indexOf('<nav class="toc"'), h.indexOf("</nav>"));
   const js = [...toc.matchAll(/data-jump="([^"]+)"/g)].map((x) => x[1]);
-  ok(JSON.stringify(js) === JSON.stringify(["tm-tbl-h", "tm-ct-h", "tm-ho-h"]), "目次の行き先が違う: " + js.join(","));
-  js.forEach((id) => ok(h.includes(' id="' + id + '" tabindex="-1"'), "目次の行き先 " + id + " が本文に無い"));
+  /* 2026-10-21: 担当の交代を月1の成果と継続へ移したので、節は 2 つ（目次は 3 つ未満なので出さない） */
+  ok(js.length === 0 && !h.includes('<nav class="toc"'), "節が 2 つなのに目次が出ている: " + js.join(","));
+  ["tm-tbl-h", "tm-ct-h"].forEach((id) => ok(h.includes(' id="' + id + '" tabindex="-1"'), "節 " + id + " が本文に無い"));
+  ok(!h.includes('id="tm-ho-h"'), "担当の交代の節が残っている");
   ok(!toc.includes("href=") && !toc.includes("別の画面:"), "目次に別の画面へのリンクが残っている");
-  ok(h.indexOf('<nav class="toc"') < h.indexOf('<div class="kpis">'), "目次が冒頭に無い");
   /* 仕事量の一覧で、評価ではない: 閉じた畳みでも見える summary に出る */
   const sum = h.slice(h.indexOf("<summary>何のための画面か"), h.indexOf("</summary>", h.indexOf("<summary>何のための画面か")));
   ok(!h.includes('評価ではありません'), '評価の断り書きが残っている');
@@ -4767,18 +4755,23 @@ check("09 の 3章 7 成果と継続: 答え（解約率）→ 月次の継続�
   /* 2026-09-29 磨き込み: 前は立ち上がりが2軸のリスク（と顧客の図）の後にあった。09 の 3章 7 は「目標に対する進捗と応募効率 →
      立ち上がり → 2軸のリスクと最優先の広がり → NPS・採用単価・LTV → 本部」 */
   ctx.__RS = { meta: { today: "2026-09-18", exclude_right_censored: false }, population: { deals_option: 99 },
-    renewal: ctx.__RN, outcome: ctx.__OUT, focus: ctx.__FO, rampup: ctx.__RU, headquarters: ctx.__HQ, phone: ctx.__PH };
-  const h = run("renderResults(__RS)");
+    renewal: ctx.__RN, outcome: ctx.__OUT, focus: ctx.__FO, rampup: ctx.__RU, headquarters: ctx.__HQ, phone: ctx.__PH,
+    handover: ctx.__HOC, pending_recordings: { rows: [] }, _more: { dq: ctx.__DQ, mtgq: ctx.__MQ, phone: ctx.__PH } };
+  const h = run("oneFoot(renderResults(__RS))");
   const at = (s) => { const i = h.indexOf(s);
   ok(i >= 0, "「" + s + "」が無い"); return i; };
   const order = [at('id="rs-renewal"'), at('<span class="no">図</span>継続回数ごとの解約率'), at("月次の継続率（満了月ベース"), at('id="rs-outcome"'),
     at("達成率 ＝ 承諾数 ÷ 採用目標数"), at("応募数 ÷ 掲載数"), at('id="rs-rampup"'), at("初回MTGまでの日数の散らばり"),
     at('id="rs-risk"'), at("リスクは2軸だけで見る"), at("右上ほど金額が大きく満了が遠い"),
-    at('id="rs-focus"'), at("定期NPS の分布"), at('id="rs-hq"'), at('id="rs-act"')];
+    at('id="rs-hq"'), at('id="rs-act"'), at('id="rs-dq"'), at('id="rs-dq-data"'), at('id="rs-dq-mtg"'), at('id="rs-handover"'), at('id="rs-phone"'),
+    at('id="ph-reach-h"'), at('id="ph-days-h"')];
+  /* 2026-10-21 二重の画面: 顧客の状態の節（いま見るべき顧客と同じ 4 図）は外した。元の画面（いま見るべき顧客）には残る */
+  ok(!h.includes('id="rs-focus"') && !h.includes("定期NPS の分布") && !h.includes("顧客の状態"), "成果と継続に、いま見るべき顧客と同じ 4 図の再掲が残っている");
+  ok(run("renderFocus(__FO)").includes("定期NPS の分布"), "元の「いま見るべき顧客」から NPS の図まで消えた");
   ok(order.every((x, i) => !i || order[i - 1] < x), "節の並びが 09 の 7 と違う: " + order.join(","));
   const toc = h.slice(h.indexOf('<nav class="toc"'), h.indexOf("</nav>"));
   const js = [...toc.matchAll(/data-jump="([^"]+)"/g)].map((x) => x[1]);
-  ok(JSON.stringify(js) === JSON.stringify(["rs-renewal", "rs-outcome", "rs-rampup", "rs-risk", "rs-focus", "rs-hq", "rs-act"]), "目次の行き先が違う: " + js.join(","));
+  ok(JSON.stringify(js) === JSON.stringify(["rs-renewal", "rs-outcome", "rs-rampup", "rs-risk", "rs-hq", "rs-act", "rs-dq", "rs-handover", "rs-phone"]), "目次の行き先が違う: " + js.join(","));
   /* 節を分けても、リスクの図・目標の図・「この画面で数えていないもの」の畳みは1回ずつ（2回描かない） */
   const cnt = (s) => h.split(s).length - 1;
   /* 図の題は fig の中で aria などにも出るので、節の見出し（sec の「図」）の形で数える */
@@ -4803,7 +4796,7 @@ check("段B 成果と継続: 対応が要る案件の表3つは消し、案件�
     { key: "top", label: "最優先X", old: "前の出どころA" }, { key: "silent", label: "接触90日超X", old: "前の出どころB" },
     { key: "no_mtg", label: "初回MTG無しX", old: "前の出どころC" }, { key: "mtg_risk", label: "MTGリスク高X", old: null }];
   const h = run("renderResults(__RS)");
-  const act = h.slice(h.indexOf('id="rs-act"'), h.indexOf("集計の基準日", h.indexOf('id="rs-act"')));
+  const act = h.slice(h.indexOf('id="rs-act"'), h.indexOf('id="rs-dq"', h.indexOf('id="rs-act"')));
   ok(!/<table/.test(act) && !/<details class="fold"><summary>(最優先|電話で沈黙|契約開始から MTG)/.test(act), "対応が要る案件の表が畳んで残っている");
   for (const lede of ['<div class="lede">金額が大きい順。', '<div class="lede">稼働中の初回契約 '])
     ok(!h.includes(lede), "対応が要る案件の表が成果と継続のどこかに残っている: " + lede);
@@ -5018,7 +5011,7 @@ ctx.__RP = {
 
 check("段B 満了と継続: メニューは /api/consulting/renewal-pipe を読み、仮のつなぎ（renewalPipeInterim）は残っていない", () => {
   const M = JSON.parse(run("JSON.stringify(MENUS.map((x) => [x.key, x.views.map((v) => [v.key, v.label, v.path])]))"));
-  const v = M.find((x) => x[0] === "research")[1].find((x) => x[0] === "renewalpipe");
+  const v = M.find((x) => x[0] === "monthly")[1].find((x) => x[0] === "renewalpipe");
   ok(v && v[1] === "満了と継続" && v[2] === "/api/consulting/renewal-pipe", "満了と継続の API が違う: " + JSON.stringify(v));
   ok(run("typeof renewalPipeInterim") === "undefined", "仮のつなぎが残っている");
 });
@@ -5135,7 +5128,7 @@ check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満
   ok(tk.includes("67,761万") && tk.includes("稼働中 604 件の合計・金額が空の 2 件は足していません") && tk.includes("月額ではありません"),
     "稼働中の金額に対象・空の件数・月額でないことが無い: " + tk);
   ok(tk.includes("25,859万") && tk.includes("285 件（2026-09〜2026-11 に満了）") && tk.includes("確度は掛けていません"), "満了する金額の札: " + tk);
-  ok(k.includes('href="#research/renewalpipe"'), "満了する金額から満了と継続へ行けない");
+  ok(k.includes('href="#monthly/renewalpipe"'), "満了する金額から満了と継続へ行けない");
   /* 🔴 2026-09-29 検証: 先月以前に満了日を過ぎてまだ稼働中の契約（fixture 10 件）を外していることが札に無かった */
   ok(tk.includes("先月以前に満了日を過ぎてまだ稼働中の 10 件（127万）は入れていません"), "満了する金額の札が、外した先月以前の分を書いていない: " + tk);
   ok(tk.includes("66.1%") && tk.includes("満了した金額 6,050万（継続 4,000万・解約 1,500万・充足 550万）") && tk.includes("金額が空の 1 件は入れていません"),

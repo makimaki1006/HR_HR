@@ -2900,7 +2900,7 @@ pub(super) struct ActView {
 /// 🔴 2026-09-29 藤巻さんの判断（09 の 10 章②）: 表ごとに違っていた定義を、案件一覧の名札と帯に揃える。
 ///    前の定義で入っていて外れる案件は、`act_view_diff` が件数と理由つきで返す（黙って消さない）。
 ///    どれも名札・帯・行の値だけで決まる（行を見れば、なぜ入ったかが分かる）。
-pub(super) const ACT_VIEWS: [ActView; 4] = [
+pub(super) const ACT_VIEWS: [ActView; 7] = [
     ActView {
         key: "top",
         label: "最優先（満了が近く、接触も空いている）",
@@ -2937,6 +2937,27 @@ pub(super) const ACT_VIEWS: [ActView; 4] = [
 抽出を通していない MTG は判定が無いので、その前の判定を見ています",
         old: None,
     },
+    // 2026-10-21 メニュー整理: 「滞留した案件」「いま見るべき顧客」の表を見方にした。
+    // 件数は元の画面と同じ（滞留は stage_stay.rs の定義そのまま。NPS は名札「NPSが4以下」と同じ集合）
+    ActView {
+        key: "stay_esc",
+        label: "満了後も稼働中",
+        rule: "満了日を過ぎたのに、まだ稼働中のステージにいる案件。滞留日数が45日未満でも入れます",
+        old: None,
+    },
+    ActView {
+        key: "stay_long",
+        label: "同じステージに45日超",
+        rule: "同じ稼働中のステージに45日を超えて止まっている案件（45日ちょうどは含めません）。\
+入った日は、いまのステージに変わった最後の日（日本時間）です。満了後も稼働中の案件は「満了後も稼働中」に入れ、こちらには入れません",
+        old: None,
+    },
+    ActView {
+        key: "nps_low",
+        label: "NPS が4以下",
+        rule: "最新の定期NPSが4以下の案件（NPS が入っている案件だけが対象です）",
+        old: None,
+    },
 ];
 
 /// 見方の印を決める材料（`deal_rows` の1行ぶん）。
@@ -2948,6 +2969,9 @@ pub(super) struct ActFacts<'a> {
     pub renewal_no: Option<i64>,
     pub band: super::MtgBand,
     pub mtg_risk: Option<&'a str>,
+    /// 「滞留した案件」画面の滞留（満了後も稼働中は含めない）／満了後も稼働中
+    pub stay_long: bool,
+    pub stay_esc: bool,
 }
 
 /// 1件の案件に立つ見方の鍵（`ACT_VIEWS` の順）。🔴 名札・帯・行の値だけで決める（別の数え方を持ち込まない）
@@ -2974,6 +2998,15 @@ pub(super) fn act_views_of(f: &ActFacts) -> Vec<&'static str> {
     }
     if f.mtg_risk == Some(MTG_RISK_HIGH) {
         out.push("mtg_risk");
+    }
+    if f.stay_esc {
+        out.push("stay_esc");
+    }
+    if f.stay_long {
+        out.push("stay_long");
+    }
+    if has(TEAM_FLAG_NPS_LOW) {
+        out.push("nps_low");
     }
     out
 }
@@ -3233,6 +3266,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     let mut cover_any = 0usize;
     let mut view_count: BTreeMap<&str, usize> = BTreeMap::new();
     let mtg_risk = latest_mtg_risk_by_deal(&sheets.mtg);
+    let (stay_long, stay_esc) = super::stage_stay::view_ids(sheets, today);
     for d in &act {
         let (owner, retired) = who
             .get(&d.id)
@@ -3358,6 +3392,8 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             renewal_no: d.renewal_no,
             band: gap.band,
             mtg_risk: mrisk.map(|(_, r)| r.as_str()),
+            stay_long: stay_long.contains(&d.id),
+            stay_esc: stay_esc.contains(&d.id),
         });
         for v in &views {
             *view_count.entry(v).or_insert(0) += 1;
@@ -3899,9 +3935,7 @@ pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
                                  "nps_low": TEAM_FLAG_NPS_LOW },
             },
         },
-        "pending_recordings": pending_recordings(sheets.pending_recordings.as_deref()),
         "contact": build_contact_trend(sheets, today),
-        "handover": build_handover(sheets, today),
     })
 }
 
@@ -3922,6 +3956,9 @@ pub fn build_results(sheets: &Sheets, exclude_right_censored: bool, today: Naive
             "act_views": ACT_VIEWS.iter().map(|v| json!({"key": v.key, "label": v.label, "old": v.old}))
                 .collect::<Vec<_>>(),
         },
+        // 2026-10-21 メニュー整理: チームと担当から移した（担当の交代・録画の未結び付き）
+        "handover": build_handover(sheets, today),
+        "pending_recordings": pending_recordings(sheets.pending_recordings.as_deref()),
         "renewal": build_renewal(sheets, exclude_right_censored),
         "outcome": build_outcome(sheets, today),
         "focus": build_focus(sheets, today),

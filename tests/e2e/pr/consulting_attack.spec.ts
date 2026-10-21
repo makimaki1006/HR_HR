@@ -53,7 +53,7 @@ test('4つの条件ボタン、手で変更、URLから再現', async ({ page })
   await page.reload();
   await expect(page.getByRole('spinbutton', { name: '拠点数の上限' })).toHaveValue('1');
 });
-test('チームの既定と旧URL、録画2件の畳んだ一覧', async ({ page }) => {
+test('チームの既定と旧URL、録画2件の畳んだ一覧は成果と継続の節', async ({ page }) => {
   const fixture = consultingFixture(3, 3, false);
   let waiting: unknown = null;
   await page.route('**/api/consulting/**', r => {
@@ -62,8 +62,10 @@ test('チームの既定と旧URL、録画2件の畳んだ一覧', async ({ page
     if (u.pathname.endsWith('/team')) {
       data.status.meta.n_active = 9;
       data.status.rows = ['架空担当う', '架空担当あ', '架空担当い'].map((consultant, i) => ({ consultant, n_active: 3, unattended: [2, 1, 2][i] }));
-      data.pending_recordings = waiting;
+      data.pending_recordings = waiting;   // 古い応答に残っていても、チームと担当は描かない
     }
+    // 録画の未結び付きは成果と継続の節へ移した（チームと担当の応答には載らない）
+    if (u.pathname.endsWith('/results')) data.pending_recordings = waiting;
     return r.fulfill({ json: data });
   });
   await page.goto('http://localhost/consulting#deal/team');
@@ -73,6 +75,12 @@ test('チームの既定と旧URL、録画2件の畳んだ一覧', async ({ page
   await shot(page, '05-team-default');
   await page.goto('http://localhost/consulting#deal/team?sort=consultant');
   await expect(names).toHaveText(['架空担当あ', '架空担当い', '架空担当う']);
+  // 未結び付きの録画があっても、チームと担当には出さない
+  waiting = pending;
+  await page.reload();
+  await expect(page.locator('#cs-main')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.getByText('録画のうち案件に結び付いていないもの', { exact: false })).toHaveCount(0);
+  await page.goto('http://localhost/consulting#monthly/results');
   for (const value of [null, { rows: [] }, pending]) {
     waiting = value;
     await page.reload();
