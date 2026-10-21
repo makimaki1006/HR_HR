@@ -10,15 +10,18 @@
 .ar-controls select { border: 1px solid #bdcbd1; border-radius: 5px; padding: 7px; background: white; }
 .ar-scroll { overflow: auto; max-width: 100%; }
 .ar-main table { border-collapse: collapse; width: 100%; font-size: 14px; }
-.ar-main th, .ar-main td { border-bottom: 1px solid #d8e1e5; padding: 8px 10px; text-align: right; white-space: nowrap; }
+.ar-main th, .ar-main td { border-bottom: 1px solid #d8e1e5; padding: 8px 10px; text-align: right; white-space: nowrap; vertical-align: middle; }
+.ar-main td.ar-zero { color: #9aabb5; }
 .ar-main th:first-child, .ar-main td:first-child { text-align: left; }
 .ar-main thead th { background: #f2f6f8; font-weight: 600; }
 .ar-main tr.ar-child td:first-child { padding-left: 32px; color: #4a5f6c; }
 .ar-share { font-size: 12px; color: #4a5f6c; margin-left: 4px; }
-.ar-toggle { border: 0; background: none; cursor: pointer; padding: 0 6px 0 0; font: inherit; color: inherit; }
+.ar-toggle { min-height: 0; line-height: 1; border: 0; background: none; cursor: pointer; padding: 0 6px 0 0; font: inherit; color: inherit; }
 .ar-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 .ar-texts[open] { flex-basis: 100%; max-width: 520px; padding-left: 22px; }
-.ar-texts summary { display: inline; cursor: pointer; font-size: 12px; color: #2f5d7c; }
+.ar-main .ar-texts { margin: 0; display: inline-block; }
+.ar-main .ar-texts[open] { display: block; }
+.ar-texts summary { display: inline; min-height: 0; padding: 0; cursor: pointer; font-size: 12px; color: #2f5d7c; }
 .ar-texts ul { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; white-space: normal; text-align: left; }
 .ar-texts li { margin: 4px 0; }
 .ar-footnote { font-size: 13px; color: #4a5f6c; margin: 8px 0; }

@@ -3,7 +3,7 @@ import { apiGet } from '../../api/client';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { useReportPolling } from './useReportPolling';
 import { ReportFreshness } from './ReportFreshness';
-import { MIN_SHARE_N, REASON_CATEGORIES } from './reasonCategories';
+import { MIN_SHARE_N } from './reasonCategories';
 import { buildCrosstab, formatCount, formatShare, TABLE_COLUMNS } from './applyReasonCrosstabModel';
 import type { AreaKind, CrosstabRow, ApplyReasonResponse } from './applyReasonCrosstabModel';
 import { demoApplyReasons } from './demoApplyReasons';
@@ -28,7 +28,7 @@ function Cells({ row }: { row: CrosstabRow }) {
   return <>{TABLE_COLUMNS.map(c => {
     const n = row.counts[c] ?? 0;
     const s = n > 0 ? formatShare(n, row.withReason) : null;
-    return <td key={c}>{formatCount(n)}{s && <span className="ar-share">{s}</span>}</td>;
+    return <td key={c} className={n === 0 ? 'ar-zero' : undefined}>{formatCount(n)}{s && <span className="ar-share">{s}</span>}</td>;
   })}<td>{formatCount(row.withReason)}</td></>;
 }
 
@@ -79,7 +79,7 @@ export function ApplyReasonCrosstab() {
       <li>0 件は記録が無かったこと、未取得は読めなかったことを表します。</li>
       <li>1 件の応募が複数の区分に入ることがあります。</li>
     </ul>
-    <p className="ar-excluded">表から外した応募: 地域が読めない {formatCount(excluded.noArea)} 件（地域別の表）・職種が分からない {formatCount(excluded.noOccupation)} 件（職種が無い {formatCount(excluded.occupationMissing)}・対応表に無い {formatCount(excluded.occupationUnmatched)}・求人票が食い違う {formatCount(excluded.occupationConflict)}。職種別の表では「未分類」の行に入れています）・理由を分類できない {formatCount(excluded.unclassified)} 件（どちらの表にも「分類できない」の列で残しています）。外した応募も、上の {period ? formatCount(period.with_reason) : '0'} 件には含まれます。</p>
+    <p className="ar-excluded">表から外した応募: 地域が読めない {formatCount(excluded.noArea)} 件（地域別の表）・職種が分からない {formatCount(excluded.noOccupation)} 件（職種が無い {formatCount(excluded.occupationMissing)}・対応表に無い {formatCount(excluded.occupationUnmatched)}・求人票が食い違う {formatCount(excluded.occupationConflict)}。職種別の表では「未分類」の行）。理由を分類できない {formatCount(excluded.unclassified)} 件は「分類できない」の列に入れています。外した応募も上の {period ? formatCount(period.with_reason) : '0'} 件に含みます。</p>
 
     <h3>地域別</h3>
     <div className="ar-scroll"><table aria-label="地域別の応募理由">
@@ -100,6 +100,6 @@ export function ApplyReasonCrosstab() {
         {!crosstab.occupation.length && <tr><td colSpan={TABLE_COLUMNS.length + 2}>この期間に当たる応募はありません。</td></tr>}
       </tbody>
     </table></div>
-    {crosstab.hiddenShare && <p className="ar-footnote">{String(MIN_SHARE_N)} 件未満の行は割合を出していません。区分: {REASON_CATEGORIES.join('・')}。</p>}
+    {crosstab.hiddenShare && <p className="ar-footnote">{String(MIN_SHARE_N)} 件未満の行は割合を出していません。</p>}
   </main>;
 }
