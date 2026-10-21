@@ -46,12 +46,12 @@ const names = () => within(screen.getByRole('table')).getAllByRole('row').slice(
 
 it('既定の列は8つで、採用・採用単価・金額・採用目標は行の「詳しい数字」を開くと見られる', async () => {
   stub(); await open();
-  const headers = [...screen.getByRole('table').querySelectorAll('thead th')].map(th => th.textContent?.replace(/ ▲▼| ▼| ▲/gu, ''));
+  const headers = [...screen.getByRole('table').querySelectorAll('thead th')].map(th => th.textContent.replace(/ ▲▼| ▼| ▲/gu, ''));
   expect(headers).toEqual(['案件・顧客', '要対応の印', '応募（直近4週）', '満了まで', '最後の接触', '最後のMTG', 'NPS', '担当', '詳しい数字']);
   expect(screen.queryByRole('button', { name: /^(採用|採用単価|金額|採用目標に対して) / })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: `${row(0).name ?? ''}の詳しい数字を開く` }));
   const detail = within(screen.getByRole('table', { name: `${row(0).name ?? ''}の詳しい数字` }));
-  expect(detail.getAllByRole('columnheader').map(th => th.textContent?.replace(/ ▲▼/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期NPS', '応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
+  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ▲▼/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期NPS', '応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
   const cells = detail.getAllByRole('cell').map(td => td.textContent);
   expect(cells).toContain(yen(100_000));
   expect(cells).toContain(yen(50_000));
@@ -62,7 +62,7 @@ it('「いい」は印の先頭に並び、いい案件の集計にある案件�
   const urls = stub(['101', '103']); await open();
   const chip = await screen.findByRole('button', { name: 'いい 2' });
   const group = screen.getByRole('group', { name: '要対応の印で絞る' });
-  expect([...group.querySelectorAll('button')].slice(0, 2).map(b => b.textContent?.replace(/\s+/gu, ' '))).toEqual(['すべて 4', 'いい 2']);
+  expect([...group.querySelectorAll('button')].slice(0, 2).map(b => b.textContent.replace(/\s+/gu, ' '))).toEqual(['すべて 4', 'いい 2']);
   fireEvent.click(chip);
   // 標準の並びは要対応の印の数、続いて金額の多い順
   expect(names()).toEqual([row(3).name, row(1).name]);
