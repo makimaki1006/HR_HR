@@ -212,7 +212,7 @@ impl TalkState {
 /// 文字起こしの結果を持っておくか。成功と、録音が消えた (Gone) ことだけ。
 /// 通信失敗・混雑・まだできていない・設定なしは持たない (次に開いたときにすぐ取り直せるように)。
 pub fn cacheable(r: &Result<Vec<TalkTurn>, ZoomError>) -> bool {
-    matches!(r, Ok(_) | Err(ZoomError::Gone))
+    matches!(r, Ok(_) | Err(ZoomError::Gone | ZoomError::Untranscribable))
 }
 
 // ---------------------------------------------------------------------------
@@ -533,6 +533,7 @@ pub(in crate::crm) async fn get_calls(
 pub fn transcript_error_text(e: &ZoomError) -> &'static str {
     match e {
         ZoomError::Gone => "録音が残っていません",
+        ZoomError::Untranscribable => "短すぎる通話か、設定により文字起こしできません",
         ZoomError::NotReady => "文字起こしがまだできていません",
         ZoomError::Transient(_) => {
             "Zoom に接続できませんでした。少し待ってからもう一度開いてください"
@@ -691,6 +692,7 @@ mod tests {
     fn transcript_cache_keeps_only_success_and_gone() {
         assert!(cacheable(&Ok(vec![])));
         assert!(cacheable(&Err(ZoomError::Gone)));
+        assert!(cacheable(&Err(ZoomError::Untranscribable)));
         assert!(!cacheable(&Err(ZoomError::NotReady)));
         assert!(!cacheable(&Err(ZoomError::Transient("http 429".into()))));
         assert!(!cacheable(&Err(ZoomError::NotConfigured)));

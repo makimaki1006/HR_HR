@@ -194,6 +194,7 @@ pub async fn process_one<Z: TranscriptSource, J: ContactJudge>(
     let turns = match zoom.fetch(id).await {
         Ok(t) => t,
         Err(ZoomError::NotReady) => return Outcome::Retry("transcript_not_ready"),
+        Err(ZoomError::Untranscribable) => return Outcome::Unavailable("untranscribable"),
         Err(ZoomError::Gone) => {
             let old = DateTime::parse_from_rfc3339(call_at)
                 .is_ok_and(|t| now - t.with_timezone(&Utc) >= GONE_AFTER);
@@ -520,6 +521,25 @@ mod tests {
         assert_eq!(
             process_one(&FakeZoom(Err(ZoomError::NotReady)), &j, "i", FRESH, now()).await,
             Outcome::Retry("transcript_not_ready")
+        );
+        // 短すぎる通話・文字起こしが無効 (Zoom の code 12000 / 12001): 待たずに取れない扱い
+        assert_eq!(
+            process_one(
+                &FakeZoom(Err(ZoomError::Untranscribable)),
+                &j,
+                "i",
+                FRESH,
+                now()
+            )
+            .await,
+            Outcome::Unavailable("untranscribable")
+        );
+        assert_eq!(
+            decide(Outcome::Unavailable("untranscribable"), 0, now()),
+            Update::Final {
+                status: ST_UNAVAILABLE,
+                attempts: 1
+            }
         );
         // 録音が無い: 新しければ待つ、1 日以上前なら取れない
         assert_eq!(
