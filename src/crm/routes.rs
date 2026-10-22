@@ -309,6 +309,15 @@ fn router_full(
     Router::new()
         .route("/api/crm/applicants/queue", get(super::applicants::queue))
         .route(
+            "/api/crm/applicants/reminders",
+            get(super::applicants::reminders),
+        )
+        .route(
+            "/api/crm/applicants/presence",
+            post(super::applicants::presence)
+                .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
+        )
+        .route(
             "/api/crm/applicants/{id}",
             get(super::applicants::detail)
                 .patch(super::write::patch_applicant)

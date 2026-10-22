@@ -1,6 +1,8 @@
+import type { ApplicantViewer } from '../../generated/ApplicantViewer';
 import type { ApplicantRow } from '../../generated/ApplicantRow';
 import type { ApplicantQueue } from '../../generated/ApplicantQueue';
 import type { ApplicantDetail } from '../../generated/ApplicantDetail';
+import type { ApplicantReminders } from '../../generated/ApplicantReminders';
 const first: ApplicantRow = { id: '90001', name: '架空 はるか', phone: '+815000000000', deal: 'サンプル物流株式会社', job: '検品スタッフ（架空求人）', date: '2026-10-18', stage: '朝連絡', stage_id: '1431574804', appointment: '2026-10-18T09:00:00+09:00', media: '架空求人サイト' };
 const items: ApplicantRow[] = [
   first,
@@ -54,3 +56,17 @@ export function applicantDetailFixture(id: string, search = window.location.sear
     sheet_embed: id !== '90002',
   };
 }
+/** 約束架電の通知の架空サンプル。1 件は 5 分前を過ぎ、もう 1 件はまだ先 (帯に出ない)。 */
+export function applicantRemindersFixture(now = Date.now()): ApplicantReminders {
+  const promised = { stage: '約束あり連絡', stage_id: '1431576654' };
+  const rows = [
+    { ...first, id: '90005', name: '架空 みさき', ...promised, appointment: new Date(now + 2 * 60_000).toISOString() },
+    { ...first, id: '90004', name: '架空 みなと', ...promised, appointment: new Date(now + 20 * 60_000).toISOString() },
+  ];
+  return { items: rows, total: rows.length };
+}
+/** 開いている人の目印の架空サンプル。90002 を別の人が開き、90005 (約束架電) も別の人が開いている。 */
+export const applicantPresenceFixture: ApplicantViewer[] = [
+  { applicant: '90002', phone_key: '', name: 'kakuu_sato' },
+  { applicant: '90005', phone_key: '', name: 'kakuu_suzuki' },
+];

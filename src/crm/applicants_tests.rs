@@ -1294,3 +1294,102 @@ async fn applicants_listing_chunks_and_limits() {
         }
     }
 }
+#[tokio::test]
+async fn applicant_reminders_search_promised_stage_and_share_cache() {
+    let (app, c, f) = app().await;
+    let before = chrono::Utc::now().timestamp_millis();
+    let (status, _, a) = get_json(&app, "/api/crm/applicants/reminders", &c).await;
+    assert_eq!(status, StatusCode::OK, "{a}");
+    assert_eq!(a["total"], 1);
+    assert_eq!(a["items"][0]["id"], "100");
+    assert_eq!(a["items"][0]["name"], "架空 はるか");
+    let n = {
+        let g = f.lock().unwrap();
+        let (_, body) = g
+            .requests
+            .iter()
+            .find(|(p, _)| p.ends_with("0-421/search"))
+            .unwrap();
+        let filters = &body["filterGroups"][0]["filters"];
+        assert_eq!(
+            filters[0],
+            json!({"propertyName":"hs_pipeline_stage","operator":"EQ","value":"1431576654"})
+        );
+        assert_eq!(filters[1]["operator"], "LTE");
+        let until: i64 = filters[1]["value"].as_str().unwrap().parse().unwrap();
+        // 5 分前の通知に、共有キャッシュの 30 秒を足した先まで読む。
+        let lead = until - before;
+        assert!((330_000..340_000).contains(&lead), "{lead}");
+        assert_eq!(
+            body["sorts"],
+            json!([{"propertyName":"yakusokukadennichiji","direction":"ASCENDING"}])
+        );
+        g.requests.len()
+    };
+    assert_eq!(
+        get_json(&app, "/api/crm/applicants/reminders", &c).await.2,
+        a
+    );
+    assert_eq!(f.lock().unwrap().requests.len(), n);
+}
+async fn post_presence(app: &Router, cookie: &str, body: Value) -> (StatusCode, Value) {
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/api/crm/applicants/presence")
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let text = body_string(resp).await;
+    (status, serde_json::from_str(&text).unwrap_or(Value::Null))
+}
+#[tokio::test]
+async fn applicant_presence_shows_other_people_without_calling_hubspot() {
+    // HubSpot の鍵が無くても動く (HubSpot を呼ばない)
+    let app = crm_app_with(
+        test_state(None, None),
+        CrmAccess::from_list(&format!("{TEST_EMAIL},other@f-a-c.co.jp")),
+    );
+    let a = login_as(&app, "google_oidc", None).await;
+    let b = login_as_email(&app, "other@f-a-c.co.jp", "google_oidc", None).await;
+    let (status, v) = post_presence(
+        &app,
+        &a,
+        json!({"tab":"ta","applicant":"100","phone":"000-0000-0000"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["viewers"], json!([]));
+    let (_, v) = post_presence(&app, &b, json!({"tab":"tb","applicant":"200","phone":""})).await;
+    assert_eq!(
+        v["viewers"],
+        json!([{"applicant":"100","phone_key":"000000000","name":TEST_EMAIL.split('@').next().unwrap()}])
+    );
+    // 閉じたら消える
+    post_presence(&app, &a, json!({"tab":"ta","applicant":null})).await;
+    assert_eq!(
+        post_presence(&app, &b, json!({"tab":"tb","applicant":"200"}))
+            .await
+            .1["viewers"],
+        json!([])
+    );
+    // CSRF のヘッダーが無い POST は通さない
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/api/crm/applicants/presence")
+                .header(header::COOKIE, &a)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"tab":"ta","applicant":"1"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
