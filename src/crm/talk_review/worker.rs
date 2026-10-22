@@ -230,6 +230,7 @@ pub async fn process_one<Z: TranscriptSource, J: Judge>(
     let turns = match zoom.fetch(zid).await {
         Ok(t) => t,
         Err(ZoomError::NotReady) => return Outcome::Retry("transcript_not_ready"),
+        Err(ZoomError::Untranscribable) => return Outcome::Unavailable("untranscribable"),
         Err(ZoomError::Gone) => {
             let old = DateTime::parse_from_rfc3339(&row.call_at)
                 .is_ok_and(|t| now - t.with_timezone(&Utc) >= GONE_AFTER);
@@ -286,7 +287,9 @@ pub async fn resolve_recording<Z: TranscriptSource>(
     };
     match zoom.find_recording(number, at.timestamp_millis()).await {
         Ok(Some(rec)) => Resolve::Found(format!("{REC_PREFIX}{rec}")),
-        Ok(None) | Err(ZoomError::NotReady | ZoomError::Gone) => not_found,
+        Ok(None) | Err(ZoomError::NotReady | ZoomError::Gone | ZoomError::Untranscribable) => {
+            not_found
+        }
         Err(ZoomError::Transient(_)) => Resolve::Done(Outcome::Retry("zoom_error")),
         Err(ZoomError::NotConfigured) => Resolve::Done(Outcome::Retry("zoom_not_configured")),
     }
@@ -879,6 +882,10 @@ mod tests {
         assert_eq!(
             process_one(&FakeZoom(Err(ZoomError::NotReady)), &j_ok, &r, now()).await,
             Outcome::Retry("transcript_not_ready")
+        );
+        assert_eq!(
+            process_one(&FakeZoom(Err(ZoomError::Untranscribable)), &j_ok, &r, now()).await,
+            Outcome::Unavailable("untranscribable")
         );
         // 新しい通話の 404 は録音がまだ出来ていないだけかもしれない
         assert_eq!(
