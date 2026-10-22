@@ -10,7 +10,7 @@ import type {
   TrustedDevice,
 } from './types';
 
-export const NOW = '2026-10-20T14:32:00+09:00';
+export { NOW } from './now';
 
 /** 困ったときの連絡先（架空）。ログイン前の画面・一覧が読めないとき・設定の画面で、同じものを出す。 */
 export const SUPPORT = {

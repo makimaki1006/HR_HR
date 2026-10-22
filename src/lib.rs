@@ -16,6 +16,7 @@ pub mod job_gen;
 pub mod media_engine;
 pub mod minimum_wage;
 pub mod models;
+pub mod portal;
 pub mod scout;
 pub mod text_util;
 
@@ -958,6 +959,9 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // 顧客向け応募者画面の社内向けテスト版 (/api/portal-test/*)。CRM と同じく auth_middleware の外に置き、
         // 認可 (会社の Google ログイン) と書き込みの CSRF は各ハンドラ・ルートで行う。読み書きできるシートは 1 枚だけ。
         .merge(handlers::portal_test::router())
+        // 顧客向け応募者画面のログイン (/portal/*, /api/portal/*, /api/admin/portal/*)。顧客の Cookie だけを見る。
+        // auth_middleware の外に置き、社内の管理 API の認可は各ハンドラ (CRM と同じ + 管理者だけ) で行う。
+        .merge(portal::router())
         .merge(protected_routes)
         .merge(admin_routes)
         .merge(jobgen_routes)
