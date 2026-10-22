@@ -3,6 +3,7 @@ import { sheetsOf, useData } from '../../data';
 import { ROUTES, usePreviewNav } from '../../preview';
 import { Badge, Button, Dialog, IconButton, TextInput, cx, formatShortDateTime } from '../../ui/kit';
 import { IconEye, IconExternal, IconPlus, IconSheet } from '../../ui/icons';
+import { FEATURES, customerShows } from '../../features';
 import type { CustomerStage, SheetConfig } from '../../types';
 import { AccountStatusBadge } from '../accounts/shared';
 import { entrySentence } from '../accounts/activityView';
@@ -258,6 +259,25 @@ export function CustomerDetail() {
             <p className="mt-2 text-xs text-pt-muted"><Badge tone={STAGE_TONE[customer.stage]}>{STAGE_LABEL[customer.stage]}</Badge> {STAGE_MEANING[customer.stage]}</p>
             {block && !stopped && <p className="mt-1.5 text-xs text-pt-warn">「両方」「画面だけ」は選べない。{block}</p>}
             <p className="mt-1.5 text-xs text-pt-faint">最後に使われた {customer.lastUsedAt ? <span className="pt-num">{formatShortDateTime(customer.lastUsedAt)}</span> : 'まだ使われていない'}</p>
+          </section>
+
+          <section>
+            <SectionTitle>顧客に出す機能</SectionTitle>
+            <p className="mb-2 text-xs text-pt-muted">チェックを外した機能は、この顧客の担当者の画面に出ない。社内の人には全部出る。</p>
+            <ul className="flex flex-col gap-0.5">
+              {FEATURES.map((f) => (
+                <li key={f.key}>
+                  <label className={cx('flex items-start gap-2.5 rounded-md px-1.5 py-1.5', stopped ? 'opacity-60' : 'cursor-pointer hover:bg-pt-sunken')}>
+                    <input type="checkbox" checked={customerShows(customer, f.key)} disabled={stopped} onChange={(e) => { actions.setFeature(customer.id, f.key, e.target.checked); }} className="mt-0.5 size-4 shrink-0 accent-pt-primary" />
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-medium">{f.label}</span>
+                      <span className="block text-xs text-pt-muted">{f.note}</span>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-pt-faint">項目ごとに見せる・書ける、は左のシートの「項目とプルダウン」で選ぶ。</p>
           </section>
 
           <section>

@@ -18,6 +18,7 @@ import { matchesQuick, noInterviewNote, quickChips, SortSelect, TabScroller, Tod
 import { TodayInterviews } from './TodayInterviews';
 import { useCellSaver } from './useCellSaver';
 import { NOW } from '../../fixtures';
+import { canSee } from '../../features';
 
 export type ListState = 'normal' | 'empty' | 'unavailable' | 'stale';
 
@@ -208,7 +209,8 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
     if (statusCol) for (const r of quickRows) { const v = r.values[statusCol.header] ?? ''; m.set(v, (m.get(v) ?? 0) + 1); }
     return m;
   }, [quickRows, statusCol]);
-  const chips = useMemo(() => quickChips(sheet, sourceRows), [sheet, sourceRows]);
+  const showQuick = canSee(d, 'today');
+  const chips = useMemo(() => (showQuick ? quickChips(sheet, sourceRows) : []), [showQuick, sheet, sourceRows]);
   // 今日・明日の面接のチップを選んだら、面接の早い順に並べる（本人が並びを選び直すまで）。
   const viewSort = useMemo<SortSpec | null>(
     () => ((quick === 'today' || quick === 'tomorrow') && !sortTouched && sheet.interviewColumn ? { column: sheet.interviewColumn, dir: 'asc', mode: 'near' } : sort),
@@ -348,7 +350,7 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
   );
 
   if (!isDesktop) {
-    const showToday = sheet.interviewColumn !== undefined && status === null && quick === null && query === '' && Object.keys(filters).length === 0;
+    const showToday = showQuick && sheet.interviewColumn !== undefined && status === null && quick === null && query === '' && Object.keys(filters).length === 0;
     return (
       <div>
         <div className="border-b border-pt-line bg-pt-bg px-3 pt-2 pb-1">
@@ -385,8 +387,8 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
             </div>
           )}
           <span className="ml-auto" />
-          <ColumnPicker sheet={sheet} statusHeader={statusCol?.header} titleHeader={titleHeader} override={shownOverride} onChange={changeShown} />
-          <Button size="sm" onClick={exportCsv}><IconDownload size={14} />書き出し</Button>
+          {canSee(d, 'columnPicker') && <ColumnPicker sheet={sheet} statusHeader={statusCol?.header} titleHeader={titleHeader} override={shownOverride} onChange={changeShown} />}
+          {canSee(d, 'export') && <Button size="sm" onClick={exportCsv}><IconDownload size={14} />書き出し</Button>}
         </div>
         <div className="mt-2 -ml-1">{statusTabs}</div>
       </div>

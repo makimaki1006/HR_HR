@@ -13,7 +13,12 @@ export interface Customer {
   disabled: boolean;
   /** 最後に誰かが画面を使った日時（ISO）。 */
   lastUsedAt: string | null;
+  /** 顧客の担当者に出さない機能。社内の人には全部出す。未設定は全部出す。 */
+  hiddenFeatures?: CustomerFeature[];
 }
+
+/** 顧客ごとに出す・出さないを選べる機能。一覧は features.ts の FEATURES。 */
+export type CustomerFeature = 'metrics' | 'history' | 'today' | 'columnPicker' | 'export' | 'timeline';
 
 export type ColumnGroup = 'summary' | 'customer' | 'staff' | 'other';
 export type ColumnKind = 'text' | 'date' | 'datetime' | 'phone' | 'email' | 'choice';

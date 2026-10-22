@@ -1,10 +1,11 @@
-// ログイン後の画面の外枠（v2）。左のメニュー、表示中のシートの切り替え、シートとのつながりの状態。
+// ログイン後の画面の外枠（v2）。上の濃い青の帯、左のメニュー、表示中のシートの切り替え、シートとのつながりの状態。
 // 社内の人が見ているときは、顧客を切り替えられる（「顧客の画面を見る」）。
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { LIVE_SHEET_ID, actions, currentCustomer, currentSheet, retryLive, sheetsOf, useData, viewerName } from '../data';
 import { ROUTES, usePreviewNav } from '../preview';
 import { cx, formatTime } from './kit';
 import { StaffBand } from '../admin/customers/StaffBand';
+import { canSee } from '../features';
 import { IconChart, IconCheck, IconChevronDown, IconColumns, IconHistory, IconLogout, IconSearch, IconSheet, IconUser, IconUsers } from './icons';
 
 export type Section = 'applicants' | 'metrics' | 'history' | 'columns' | 'account';
@@ -122,24 +123,24 @@ function CustomerSwitcher() {
   }, [open]);
   const cur = currentCustomer(d);
   if (d.viewer.kind !== 'staff') {
-    return <p className="truncate text-[15px] font-semibold" title={cur?.name}>{cur?.name}</p>;
+    return <p className="truncate text-[14px] font-medium text-white" title={cur?.name}>{cur?.name}</p>;
   }
   const list = d.customers.filter((c) => q.trim() === '' || c.name.includes(q.trim()));
   return (
-    <div ref={ref} className="relative">
-      <span className="mb-1 block text-[12px] font-medium text-pt-faint">表示中の顧客</span>
+    <div ref={ref} className="relative min-w-0">
       <button
         type="button"
         onClick={() => { setOpen(!open); setQ(''); }}
         aria-expanded={open}
         title={cur?.name}
-        className="flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 py-1 -ml-2 text-left text-[14px] leading-snug font-semibold hover:bg-pt-surface"
+        aria-label={`表示中の顧客: ${cur?.name ?? ''}`}
+        className="flex h-8 max-w-full items-center gap-1.5 rounded-md px-2 text-left text-[14px] font-medium text-white hover:bg-white/15"
       >
-        <span className="line-clamp-2 min-w-0 flex-1 break-words">{cur?.name}</span>
-        <IconChevronDown size={14} className="shrink-0 text-pt-faint" />
+        <span className="min-w-0 truncate">{cur?.name}</span>
+        <IconChevronDown size={14} className="shrink-0 text-white/75" />
       </button>
       {open && (
-        <div className="absolute top-full left-0 z-50 mt-1 w-80 rounded-lg border border-pt-line bg-pt-surface py-1 shadow-pt-pop">
+        <div className="absolute top-full left-0 z-50 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-pt-line bg-pt-surface py-1 shadow-pt-pop">
           <div className="relative px-2 pb-1">
             <IconSearch size={13} className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-pt-faint" />
             <input
@@ -173,6 +174,31 @@ function CustomerSwitcher() {
   );
 }
 
+/** 上の濃い青の帯。画面の名前、表示中の顧客、見ている人。 */
+function BrandBar() {
+  const nav = usePreviewNav();
+  const d = useData();
+  const isStaff = d.viewer.kind === 'staff';
+  return (
+    <div className="sticky top-[var(--staff,0px)] z-40 flex h-12 items-center gap-3 bg-pt-brand px-4 text-white">
+      <span className="flex shrink-0 items-center gap-2">
+        <span className="flex size-7 items-center justify-center rounded-md bg-white/15"><IconSheet size={15} /></span>
+        <span className="hidden text-[14px] font-semibold sm:inline">応募者の管理</span>
+      </span>
+      <span className="hidden h-5 w-px shrink-0 bg-white/30 sm:block" aria-hidden="true" />
+      <div className="min-w-0 flex-1"><CustomerSwitcher /></div>
+      <div className="hidden shrink-0 items-center gap-3 lg:flex">
+        <span className="max-w-48 truncate text-[13px] text-white/85">{viewerName(d)}</span>
+        {isStaff ? (
+          <button type="button" onClick={() => { nav.go(ROUTES.adminCustomers); }} className="h-8 rounded-md px-2 text-[13px] font-medium text-white hover:bg-white/15">社内の管理画面へ</button>
+        ) : (
+          <button type="button" onClick={() => { nav.go(ROUTES.loggedOut); }} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-[13px] text-white/90 hover:bg-white/15 hover:text-white"><IconLogout size={14} />ログアウト</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function AppShell({ section, title, actions: pageActions, children, flush = false, sync, mobileHeader = 'default' }: {
   section: Section;
   title: string;
@@ -192,50 +218,37 @@ export function AppShell({ section, title, actions: pageActions, children, flush
   const isStaff = d.viewer.kind === 'staff';
   /** シートに関係しない画面（アカウント）では、シートの切り替えと時刻を出さない。 */
   const noSheet = section === 'account';
-  const items = NAV.filter((n) => (n.key === 'columns' ? isStaff || sheet?.customerCanEditColumns === true : n.key === 'account' ? !isStaff : true));
+  const items = NAV.filter((n) => {
+    if (n.key === 'columns') return isStaff || sheet?.customerCanEditColumns === true;
+    if (n.key === 'account') return !isStaff;
+    if (n.key === 'metrics' || n.key === 'history') return canSee(d, n.key);
+    return true;
+  });
   /** 顧客の担当者のスマホの下のナビには「項目の設定」を出さない（アカウントの画面から入る）。社内の人はアカウントの画面が無いので残す。 */
   const bottomItems = isStaff ? items : items.filter((n) => n.key !== 'columns');
   return (
-    <div style={isStaff ? { '--band': '2.25rem' } as CSSProperties : undefined}>
+    <div style={{ '--staff': isStaff ? '36px' : '0px', '--band': isStaff ? '84px' : '48px' } as CSSProperties}>
     <StaffBand />
+    <BrandBar />
     <div className="flex min-h-dvh bg-pt-bg">
-      <aside className="sticky top-[var(--band,0px)] z-40 hidden h-[calc(100dvh-var(--band,0px))] w-56 shrink-0 flex-col border-r border-pt-line bg-pt-sunken/60 lg:flex">
-        <div className="px-4 pt-4 pb-3">
-          <p className="mb-3 text-[12px] font-semibold tracking-[0.12em] text-pt-faint">応募者の管理</p>
-          <CustomerSwitcher />
-        </div>
-        <nav className="flex flex-col gap-0.5 px-2">
+      <aside className="sticky top-[var(--band,0px)] z-40 hidden h-[calc(100dvh-var(--band,0px))] w-56 shrink-0 flex-col border-r border-pt-line bg-pt-surface lg:flex">
+        <nav className="flex flex-col gap-0.5 px-2 pt-3">
           {items.map((n) => (
             <button
               key={n.key}
               type="button"
               onClick={() => { nav.go(n.route); }}
               aria-current={n.key === section ? 'page' : undefined}
-              className={cx('flex h-9 items-center gap-2.5 rounded-md px-2.5 text-[13px]', n.key === section ? 'bg-pt-surface font-medium text-pt-ink shadow-pt-card ring-1 ring-pt-line' : 'text-pt-muted hover:bg-pt-surface/70 hover:text-pt-ink')}
+              className={cx('flex h-9 items-center gap-2.5 rounded-md px-2.5 text-[13px]', n.key === section ? 'bg-pt-primary-soft font-semibold text-pt-primary' : 'text-pt-muted hover:bg-pt-sunken hover:text-pt-ink')}
             >
               {n.icon({ size: 16 })}{n.label}
             </button>
           ))}
         </nav>
-        <div className="mt-auto border-t border-pt-line px-4 py-3">
-          <p className="truncate text-[13px] font-medium">{viewerName(d)}</p>
-          {isStaff ? (
-            <button type="button" onClick={() => { nav.go(ROUTES.adminCustomers); }} className="mt-1 text-xs text-pt-primary hover:underline">社内の管理画面へ</button>
-          ) : (
-            <button type="button" onClick={() => { nav.go(ROUTES.loggedOut); }} className="mt-1 inline-flex items-center gap-1 text-xs text-pt-muted hover:text-pt-ink"><IconLogout size={13} />ログアウト</button>
-          )}
-        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col pb-16 lg:pb-0">
         <header className="sticky top-[var(--band,0px)] z-20 border-b border-pt-line bg-pt-bg/95 backdrop-blur">
-          {/* スマホの顧客の行は社内の人だけ（顧客の切り替えに使う）。顧客の担当者は 1 社なので出さない。 */}
-          {isStaff && (
-            <div className="flex items-center gap-2 px-4 pt-3 lg:hidden">
-              <div className="min-w-0 flex-1"><CustomerSwitcher /></div>
-              {!noSheet && <SyncStatus sync={sync} />}
-            </div>
-          )}
           <div className={cx('flex flex-wrap items-center gap-x-4 gap-y-2 px-4 lg:px-6 lg:py-2.5', mobileHeader === 'compact' ? 'py-2' : 'py-2.5')}>
             <h1 className="text-[17px] font-semibold">{title}</h1>
             {!noSheet && (
@@ -245,10 +258,10 @@ export function AppShell({ section, title, actions: pageActions, children, flush
                 <div className="hidden lg:block"><SyncStatus sync={sync} /></div>
               </>
             )}
-            {(pageActions !== undefined || (!noSheet && !isStaff)) && (
+            {(pageActions !== undefined || !noSheet) && (
               <div className="ml-auto flex items-center gap-2">
-                {/* 顧客の担当者のスマホでは、つながりの状態を見出しの行の右端に出す。 */}
-                {!noSheet && !isStaff && <div className="lg:hidden"><SyncStatus sync={sync} /></div>}
+                {/* スマホでは、つながりの状態を見出しの行の右端に出す。 */}
+                {!noSheet && <div className="lg:hidden"><SyncStatus sync={sync} /></div>}
                 {pageActions}
               </div>
             )}
