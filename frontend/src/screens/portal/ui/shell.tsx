@@ -5,6 +5,7 @@ import { LIVE_SHEET_ID, actions, currentCustomer, currentSheet, retryLive, sheet
 import { ROUTES, usePreviewNav } from '../preview';
 import { cx, formatTime } from './kit';
 import { StaffBand } from '../admin/customers/StaffBand';
+import { canSee } from '../features';
 import { IconChart, IconCheck, IconChevronDown, IconColumns, IconHistory, IconLogout, IconSearch, IconSheet, IconUser, IconUsers } from './icons';
 
 export type Section = 'applicants' | 'metrics' | 'history' | 'columns' | 'account';
@@ -217,7 +218,12 @@ export function AppShell({ section, title, actions: pageActions, children, flush
   const isStaff = d.viewer.kind === 'staff';
   /** シートに関係しない画面（アカウント）では、シートの切り替えと時刻を出さない。 */
   const noSheet = section === 'account';
-  const items = NAV.filter((n) => (n.key === 'columns' ? isStaff || sheet?.customerCanEditColumns === true : n.key === 'account' ? !isStaff : true));
+  const items = NAV.filter((n) => {
+    if (n.key === 'columns') return isStaff || sheet?.customerCanEditColumns === true;
+    if (n.key === 'account') return !isStaff;
+    if (n.key === 'metrics' || n.key === 'history') return canSee(d, n.key);
+    return true;
+  });
   /** 顧客の担当者のスマホの下のナビには「項目の設定」を出さない（アカウントの画面から入る）。社内の人はアカウントの画面が無いので残す。 */
   const bottomItems = isStaff ? items : items.filter((n) => n.key !== 'columns');
   return (

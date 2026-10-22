@@ -4,7 +4,8 @@ import { useSyncExternalStore } from 'react';
 import { applicantRows } from '../../columns';
 import { STAFF_NAME } from '../../fixtures';
 import { actions as data, getData, log, useData } from '../../data';
-import type { ActivityKind, ApplicantRow, CustomerStage, SheetConfig } from '../../types';
+import { FEATURES } from '../../features';
+import type { ActivityKind, ApplicantRow, CustomerFeature, CustomerStage, SheetConfig } from '../../types';
 
 export const SERVICE_ACCOUNT_EMAIL = 'portal-sheets@hrhr-portal.iam.gserviceaccount.com';
 
@@ -86,6 +87,16 @@ export const actions = {
   setDisabled(id: string, disabled: boolean): void {
     data.updateCustomers(getData().customers.map((c) => (c.id === id ? { ...c, disabled } : c)));
     adminLog(id, 'customer_change', disabled ? '顧客を停止' : '顧客を再開', { column: '状態', before: disabled ? '利用中' : '停止中', after: disabled ? '停止中' : '利用中' });
+  },
+
+  /** 顧客の担当者に出す機能を切り替える。 */
+  setFeature(id: string, key: CustomerFeature, show: boolean): void {
+    const c = getData().customers.find((x) => x.id === id);
+    if (!c) return;
+    const hidden = (c.hiddenFeatures ?? []).filter((k) => k !== key);
+    data.updateCustomers(getData().customers.map((x) => (x.id === id ? { ...x, hiddenFeatures: show ? hidden : [...hidden, key] } : x)));
+    const label = FEATURES.find((f) => f.key === key)?.label ?? key;
+    adminLog(id, 'customer_change', `「${label}」を顧客に${show ? '出す' : '出さない'}`, { column: `顧客に出す機能: ${label}`, before: show ? '出さない' : '出す', after: show ? '出す' : '出さない' });
   },
 
   /** 顧客が項目・プルダウンを変えてよいか。 */

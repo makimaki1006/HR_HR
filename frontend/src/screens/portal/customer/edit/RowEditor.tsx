@@ -1,6 +1,7 @@
 // 応募者 1 人の詳細。項目を「項目名｜値」で並べ、書ける項目は値を押すとその場で直せる。担当: detail チーム。
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { actions, cellHistory, getData, log, stageOf, useData, viewerName } from '../../data';
+import { canSee } from '../../features';
 import { TODAY_NUM, cardLayout, dominantDateStyle, formatDateTimeJa, formatDayJa, groupOf, kindOf, labelOf, parseLooseDay, parseTimeOfDay, type DateStyle } from '../../columns';
 import type { ApplicantRow, ColumnConfig, SheetConfig } from '../../types';
 import { Badge, BottomSheet, EditableBox, cx, formatShortDateTime } from '../../ui/kit';
@@ -553,7 +554,7 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
                   {statusLine(noteCol)}
                 </div>
               )}
-              <Timeline entries={history} labelFor={(h) => { const c = sheet.columns.find((x) => x.header === h); return c ? labelOf(c) : h; }} />
+              {canSee(data, 'timeline') && <Timeline entries={history} labelFor={(h) => { const c = sheet.columns.find((x) => x.header === h); return c ? labelOf(c) : h; }} />}
             </section>
           </div>
         </div>
