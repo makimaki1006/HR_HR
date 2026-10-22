@@ -11,7 +11,10 @@ export const HUBSPOT_BODY_SOURCE = 'HubSpotの仕事内容';
 
 export interface LiveApplicationSummary {
   total: number;
+  /** 応募日も作成日も無い応募。 */
   missing_date: number;
+  /** 応募日が無く、作成日で数えた応募（by_date に入っている）。古い保存データには無い。 */
+  created_date_count?: number | undefined;
   by_date: Record<string, number>;
   dimensions: Record<string, Record<string, number>>;
   /** Applications HubSpot also links to another job, by application date. Absent when not checked. */
@@ -39,6 +42,18 @@ export function multiListingFromSummary(summary: Pick<LiveApplicationSummary, 'm
   return { byDate: result, missingDate: missing };
 }
 
+/** 画面の注記: 応募日が無く作成日で数えた応募があるときだけ。 */
+export function createdDateNote(count: number | undefined): string | null {
+  return count !== undefined && count > 0 ? `応募日が無い ${String(count)}件は作成日で数えています` : null;
+}
+
+/** 作成日で数えた件数。数が正しくなければ null（推測しない）。undefined は「無い」。 */
+export function createdDateCountOf(raw: unknown, dated: number): number | null | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const count = wholeCount(raw);
+  return count === null || count > dated ? null : count;
+}
+
 const DIMENSIONS: readonly ApplicantDimension[] = ['gender', 'age', 'prefecture', 'municipality'];
 const wholeCount = (value: unknown): number | null => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
 const calendarDay = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(`${date}T00:00:00Z`)) && new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date;
@@ -60,6 +75,8 @@ export function overallFromLiveSummary(summary: LiveApplicationSummary, fetchedA
   if (dated + missingDate !== total) return null;
   const multiListing = multiListingFromSummary(summary, byDate, missingDate);
   if (multiListing === null) return null;
+  const createdDateCount = createdDateCountOf(summary.created_date_count, dated);
+  if (createdDateCount === null) return null;
   const distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>> = {};
   for (const dimension of DIMENSIONS) {
     const buckets = summary.dimensions[dimension];
@@ -71,5 +88,5 @@ export function overallFromLiveSummary(summary: LiveApplicationSummary, fetchedA
     // Leave a dimension out rather than show shares that do not add up to the total.
     if (categories.reduce((sum, row) => sum + row.count, 0) === total) distributions[dimension] = { total, categories };
   }
-  return { total, missingDate, fetchedAt, distributions, byDate, ...(multiListing ? { multiListing } : {}) };
+  return { total, missingDate, ...(createdDateCount ? { createdDateCount } : {}), fetchedAt, distributions, byDate, ...(multiListing ? { multiListing } : {}) };
 }

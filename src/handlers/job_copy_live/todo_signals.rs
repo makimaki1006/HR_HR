@@ -253,14 +253,14 @@ pub(super) async fn fetch(
     );
     let phase = std::time::Instant::now();
     let dates: BTreeMap<_, _> = service
-        .batch("0-421", &ids, &["yingmuri"])
+        .batch("0-421", &ids, &super::deal_summary::DATE_PROPERTIES)
         .await?
         .into_iter()
         .map(|r| {
             (
                 r.id.clone(),
-                r.value("yingmuri")
-                    .and_then(super::deal_summary::jst_day)
+                r.application_day()
+                    .map(|(day, _)| day)
                     .as_deref()
                     .and_then(date),
             )

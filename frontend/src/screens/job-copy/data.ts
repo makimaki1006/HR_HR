@@ -72,7 +72,7 @@ export interface JobCopyRecord {
   hubspotUrl?: string;
   attributionUnknown?: number;
   overallApplications?: {
-    total: number; missingDate: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>>; byDate?: Record<string, number>;
+    total: number; missingDate: number; /** 応募日が無く、作成日で数えた応募（byDate に入っている。missingDate には入らない）。 */ createdDateCount?: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>>; byDate?: Record<string, number>;
     /**
      * Applications that HubSpot also links to another job, by application date (included in byDate
      * and total). Absent when the source did not check. They are never put into a version's period.

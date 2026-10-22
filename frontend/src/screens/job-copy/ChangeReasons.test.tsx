@@ -36,7 +36,7 @@ describe('ChangeReasons', () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0]?.getAttribute('aria-label')).toBe('9/25 給与・本文・画像の変更');
     expect(blocks[1]?.getAttribute('aria-label')).toBe('9/15 給与・本文・画像の変更');
-    expect(screen.getByText('応募日が分からない記録 1件は、どの期間にも入れていません。')).toBeTruthy();
+    expect(screen.getByText('応募日も作成日も分からない記録 1件は、どの期間にも入れていません。')).toBeTruthy();
     const before = within(at(blocks, 0)).getByRole('group', { name: '変更前 10日' });
     expect(within(before).getByText('応募 8件')).toBeTruthy();
     expect(within(before).getByText('応募理由の記録 5件')).toBeTruthy();
@@ -46,6 +46,16 @@ describe('ChangeReasons', () => {
     expect(within(after).getByText('この期間に応募理由の記録はありません')).toBeTruthy();
     expect(container.textContent).not.toContain('%');
     expect(container.textContent).not.toContain('％');
+  });
+
+  it('tells how many applications were counted by their creation day, only when there are some', () => {
+    const base = demo('demo-job-001');
+    const overall = base.overallApplications;
+    if (!overall) throw new Error('missing overall applications');
+    const { rerender } = render(<ChangeReasons job={base} onOpenFactors={() => undefined} />);
+    expect(screen.queryByText(/作成日で数えています/u)).toBeNull();
+    rerender(<ChangeReasons job={{ ...base, overallApplications: { ...overall, createdDateCount: 15 } }} onOpenFactors={() => undefined} />);
+    expect(screen.getByText('応募日が無い 15件は作成日で数えています。')).toBeTruthy();
   });
 
   it('changes the counts when the weeks change', () => {

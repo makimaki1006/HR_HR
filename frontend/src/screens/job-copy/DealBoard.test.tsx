@@ -94,7 +94,7 @@ it('応募ゼロを調べる期間を指定すると、その期間の応募日�
   expect(days).toBe(27);
   await waitFor(() => { expect(names()).toEqual([row(0).name]); });
   expect(screen.getByRole('heading', { name: /応募が1件も無い取引（.*〜.*） 1件/u })).toBeTruthy();
-  expect(screen.getByText(/応募日が分からない応募がある1件は、期間の応募数を数えられないため含みません/u)).toBeTruthy();
+  expect(screen.getByText(/応募日も作成日も分からない応募がある1件は、期間の応募数を数えられないため含みません/u)).toBeTruthy();
   fireEvent.change(screen.getByRole('combobox', { name: '応募ゼロを調べる期間' }), { target: { value: 'contract' } });
   await waitFor(() => { expect(screen.getByRole('heading', { name: /初回契約の期間中/u })).toBeTruthy(); });
   expect(names()).toEqual([row(0).name]);

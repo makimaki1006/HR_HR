@@ -34,7 +34,7 @@ describe('one application denominator across panels', () => {
     expect(summary.querySelector('.jc-counts')?.textContent).toContain('どの本文への応募か不明（求人全体）34件');
     fireEvent.click(screen.getByRole('tab', { name: '応募者構成' }));
     const overall = await screen.findByRole('region', { name: '求人全体の実応募者構成' });
-    expect(overall.textContent).toContain('応募34件 · 応募日不明0件 · どの本文への応募か不明34件');
+    expect(overall.textContent).toContain('応募34件 · 応募日も作成日も不明0件 · どの本文への応募か不明34件');
     expect(screen.getByText(/どの本文への応募か不明: 34件/u)).toBeDefined();
     expect(screen.getAllByText('この本文に結びつく応募はまだありません（求人全体では34件）。割合は算出できません。')).toHaveLength(4);
     const municipality = within(overall).getByRole('region', { name: '求人全体の市区町村' });

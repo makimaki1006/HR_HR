@@ -116,7 +116,7 @@ describe('job copy screen wording', () => {
     openOtherAnalysis('タイムライン');
     const lane = screen.getByRole('group', { name: '応募' });
     expect(lane.textContent).not.toContain('応募日別の件数は未取得です');
-    expect(screen.getByText('応募日が分からない応募 1件 はグラフに含めていません')).toBeTruthy();
+    expect(screen.getByText('応募日も作成日も分からない応募 1件 はグラフに含めていません')).toBeTruthy();
     const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"][id*="-group-"], [role="tab"][id*="-feature-"]')];
     for (const tab of tabs) {
       await act(async () => { fireEvent.click(tab); await Promise.resolve(); });

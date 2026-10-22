@@ -45,7 +45,7 @@ function Composition({ jobs }: { jobs: JobCopyRecord[] }) {
 function Reasons({ job }: { job: JobCopyRecord }) {
   const reasons = job.applicantReasons;
   const texts = reasons?.available ? reasons.items.filter(item => APPLICATION_TEXT_SOURCES.includes(item.sourceProperty)) : [];
-  return <><p>{job.title}</p>{!reasons?.available ? <p>応募理由は未取得です。</p> : <><p>表示対象：{texts.length}記述。応募人数・回答率とは異なります。{reasons.truncated ? '取得上限による一部表示です。' : ''}</p>{texts.map(item => <details key={item.id}><summary>原文を開く · {reasonSourceLabels[item.sourceProperty] ?? '記録欄'} · {formatDateJst(item.applicationDate, '応募日不明')}</summary><blockquote>{item.text}</blockquote></details>)}</>}</>;
+  return <><p>{job.title}</p>{!reasons?.available ? <p>応募理由は未取得です。</p> : <><p>表示対象：{texts.length}記述。応募人数・回答率とは異なります。{reasons.truncated ? '取得上限による一部表示です。' : ''}</p>{texts.map(item => <details key={item.id}><summary>原文を開く · {reasonSourceLabels[item.sourceProperty] ?? '記録欄'} · {formatDateJst(item.applicationDate, '日付不明')}</summary><blockquote>{item.text}</blockquote></details>)}</>}</>;
 }
 
 function CandidateNumbers({ entry, today }: { entry: Selection; today: string }) {

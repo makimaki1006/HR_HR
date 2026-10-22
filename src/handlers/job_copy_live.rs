@@ -703,6 +703,7 @@ impl JobReadService {
         // fields (no extra read per source).
         let mut properties = vec![
             "yingmuri",
+            deal_summary::CREATED,
             "seibetsu",
             "nenrei",
             "todoufuken",
@@ -773,8 +774,10 @@ impl JobReadService {
                     .map(|row| crate::job_copy_date::ApplicantRecord {
                         application_id: row.id.clone(),
                         application_date: row
-                            .value("yingmuri")
-                            .and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
+                            .application_day()
+                            .and_then(|(day, _)| {
+                                chrono::NaiveDate::parse_from_str(&day, "%Y-%m-%d").ok()
+                            })
                             .map(|date| crate::job_copy_date::ApplicationDate::DateOnly { date })
                             .unwrap_or(crate::job_copy_date::ApplicationDate::Unknown),
                         listing_unambiguous: unambiguous
@@ -1035,13 +1038,12 @@ pub fn summarize_grouped(rows: &[Record], groups: &BTreeMap<String, String>) -> 
     let mut dates: BTreeMap<String, usize> = BTreeMap::new();
     let mut dimensions: BTreeMap<&str, BTreeMap<String, usize>> = BTreeMap::new();
     let mut missing_date = 0;
+    let mut from_created = 0;
     let mut keys = Vec::with_capacity(unique.len());
     for (id, row) in &unique {
-        if let Some(date) = row
-            .value("yingmuri")
-            .and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
-        {
-            *dates.entry(date.to_string()).or_default() += 1;
+        if let Some((date, created)) = row.application_day() {
+            *dates.entry(date).or_default() += 1;
+            from_created += usize::from(created);
         } else {
             missing_date += 1;
         }
@@ -1094,7 +1096,7 @@ pub fn summarize_grouped(rows: &[Record], groups: &BTreeMap<String, String>) -> 
             .or_default() += 1;
     }
     let cells:Vec<_> = joint.into_iter().map(|((gender,age,prefecture,municipality),count)|json!({"gender":gender,"age":age,"prefecture":prefecture,"municipality":municipality,"count":count})).collect();
-    json!({"total":unique.len(),"duplicate_ids":rows.len()-unique.len(),"by_date":dates,"missing_date":missing_date,"dimensions":dimensions,"joint_demographics":{"total":unique.len(),"cells":cells}})
+    json!({"total":unique.len(),"duplicate_ids":rows.len()-unique.len(),"by_date":dates,"missing_date":missing_date,"created_date_count":from_created,"dimensions":dimensions,"joint_demographics":{"total":unique.len(),"cells":cells}})
 }
 
 /// Adds `multi_listing_by_date` / `multi_listing_missing_date`: the applications (by
@@ -1107,11 +1109,8 @@ pub fn add_multi_listing(summary: &mut Value, rows: &[Record], multi: &BTreeSet<
         if !multi.contains(id) {
             continue;
         }
-        match row
-            .value("yingmuri")
-            .and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
-        {
-            Some(date) => *dates.entry(date.to_string()).or_default() += 1,
+        match row.application_day() {
+            Some((date, _)) => *dates.entry(date).or_default() += 1,
             None => missing += 1,
         }
     }
@@ -1551,6 +1550,7 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
                     "duplicate_ids",
                     "by_date",
                     "missing_date",
+                    "created_date_count",
                     "dimensions",
                     "joint_demographics",
                     "multi_listing_by_date",
@@ -1561,6 +1561,9 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
                 .iter()
                 .any(|key| summary[*key].as_u64().is_none())
             || !counts(&summary["by_date"])
+            || summary
+                .get("created_date_count")
+                .is_some_and(|value| value.as_u64().is_none())
             || summary
                 .get("multi_listing_by_date")
                 .is_some_and(|value| !counts(value))
@@ -2225,6 +2228,40 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn dated_record(id: &str, yingmuri: Option<&str>, created: Option<&str>) -> Record {
+        Record {
+            id: id.into(),
+            properties: [("yingmuri", yingmuri), ("hs_createdate", created)]
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v.map(str::to_owned)))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_a_missing_application_date_on_its_creation_day() {
+        let rows = [
+            dated_record("1", Some("2026-10-03"), Some("2026-10-05T00:00:00Z")),
+            dated_record("2", None, Some("2026-10-03T14:59:00Z")),
+            dated_record("3", Some(""), Some("2026-10-03T15:00:00Z")),
+            dated_record("4", None, None),
+        ];
+        let summary = summarize(&rows);
+        assert_eq!(summary["total"], 4);
+        // 1 and 2 on 10-03; 3 is created at 00:00 JST on 10-04; 4 has no date at all.
+        assert_eq!(
+            summary["by_date"],
+            json!({"2026-10-03": 2, "2026-10-04": 1})
+        );
+        assert_eq!(summary["missing_date"], 1);
+        assert_eq!(summary["created_date_count"], 2);
+        let mut summary = summary;
+        let multi: BTreeSet<String> = ["2", "4"].iter().map(|s| s.to_string()).collect();
+        add_multi_listing(&mut summary, &rows, &multi);
+        assert_eq!(summary["multi_listing_by_date"], json!({"2026-10-03": 1}));
+        assert_eq!(summary["multi_listing_missing_date"], 1);
+    }
+
     #[test]
     fn drive_listing_configuration_never_silently_drops_invalid_ids() {
         assert!(parse_drive_listings("").unwrap().is_empty());

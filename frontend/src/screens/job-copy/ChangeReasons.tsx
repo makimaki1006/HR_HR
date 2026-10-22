@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { JobCopyRecord } from './data';
+import { createdDateNote } from './liveApplications';
 import { changeDateLabel, changeReasonBlocks, changeReasonSummary } from './changeReasonsModel';
 import type { ChangeReasonBlock, ReasonWeeks, ReasonWindow } from './changeReasonsModel';
 import { formatDateJst } from './format';
@@ -68,13 +69,15 @@ export function ChangeReasons({ job, onOpenFactors }: { job: JobCopyRecord; onOp
   const asOf = asOfDate(job);
   const blocks = useMemo(() => changeReasonBlocks(job, weeks, asOf), [job, weeks, asOf]);
   const summary = useMemo(() => changeReasonSummary(job), [job]);
+  const createdNote = createdDateNote(job.overallApplications?.createdDateCount);
   const note = useSavedNote(persistableListingId(job), 'factor');
   const memo = note.status === 'ready' && note.value?.trim() ? note.value.trim() : null;
   return <section className="cr-changes" aria-label="変更ごとの応募理由">
     <p className="cr-lead">応募理由の記録はまだ少なく、1 つの求人・期間の件数だけで変更の効果は判断できません。</p>
     <ul className="cr-notes">
       <li>HubSpot に記録された分だけを数えています。</li>
-      {summary.undated > 0 && <li>応募日が分からない記録 {String(summary.undated)}件は、どの期間にも入れていません。</li>}
+      {createdNote && <li>{createdNote}。</li>}
+      {summary.undated > 0 && <li>応募日も作成日も分からない記録 {String(summary.undated)}件は、どの期間にも入れていません。</li>}
       {summary.multiListing ? <li>ほかの求人にも関連する応募 {String(summary.multiListing)}件は数えていません。</li> : null}
     </ul>
     <div className="cr-weeks jc-no-print" role="group" aria-label="前後の長さ">

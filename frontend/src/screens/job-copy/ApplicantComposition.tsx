@@ -34,7 +34,7 @@ export function ApplicantComposition({ job, selection, onSelectionChange, includ
   const imageComparison = compareImages(referenceImages(before), referenceImages(after));
 
   return <section className="ac-composition" aria-label="本文ごとの応募者構成">
-    {job.dataSource === 'hubspot' && job.overallApplications && <section className="ac-overall" aria-label="求人全体の実応募者構成"><h2>求人全体の実応募者構成</h2><p>応募{job.overallApplications.total}件 · 応募日不明{job.overallApplications.missingDate}件 · どの本文への応募か不明{unmatchedApplicationCount(job) ?? job.overallApplications.total}件</p>
+    {job.dataSource === 'hubspot' && job.overallApplications && <section className="ac-overall" aria-label="求人全体の実応募者構成"><h2>求人全体の実応募者構成</h2><p>応募{job.overallApplications.total}件 · 応募日も作成日も不明{job.overallApplications.missingDate}件 · どの本文への応募か不明{unmatchedApplicationCount(job) ?? job.overallApplications.total}件</p>
       {dimensions.map(dimension => {
         const distribution = displayDistribution(job.overallApplications?.distributions[dimension.id], dimension.id);
         return <section key={dimension.id} className="ac-chart" aria-label={`求人全体の${dimension.label}`}><h3>{dimension.label}</h3>{job.overallApplications?.total === 0 ? <p>求人全体の応募は0件です。割合は算出できません。</p> : !distribution ? <p>この属性は未取得です。0件・0%とは判定していません。</p> : <div className="ac-chart-rows">{orderCategories(dimension.id, distribution.categories).map(row => <div key={row.category} className="ac-chart-row"><strong>{row.category}</strong><div className="ac-bars" aria-hidden="true"><div className="ac-track"><span className="ac-before" style={{ width: `${String(row.percentage ?? 0)}%` }} /></div></div><span>{row.count}件 ({percent(row.percentage)})</span></div>)}</div>}</section>;

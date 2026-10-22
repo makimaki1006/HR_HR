@@ -1388,6 +1388,7 @@ pub(super) async fn read_application_dates(
     let applications = service.all_associations("0-420", &id, "0-421").await?;
     let mut properties = vec![
         "yingmuri",
+        super::deal_summary::CREATED,
         "seibetsu",
         "nenrei",
         "todoufuken",
@@ -1406,10 +1407,7 @@ pub(super) async fn read_application_dates(
                 .flatten()
         }
     };
-    let days: Vec<Option<String>> = rows
-        .iter()
-        .map(|r| r.value("yingmuri").and_then(super::deal_summary::jst_day))
-        .collect();
+    let (days, from_created) = super::deal_summary::days_of(&rows);
     let (by_date, missing) = super::deal_summary::count_by_date(&days);
     let people: Vec<Value> = rows
         .iter()
@@ -1431,7 +1429,7 @@ pub(super) async fn read_application_dates(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"by_date":by_date,
+            json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"created_date_count":from_created,"by_date":by_date,
             "applications":people,"applicant_reasons":reasons,
             "fetched_at":chrono::Utc::now().to_rfc3339()}),
         ),

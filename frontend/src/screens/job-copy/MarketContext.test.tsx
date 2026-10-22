@@ -18,7 +18,7 @@ describe('market UI evidence and recovery', () => {
     const view = render(<ApplicationTrend job={{ ...job, overallApplications: { total: 0, missingDate: 0, fetchedAt: '2026-10-05T00:00:00Z', distributions: {}, byDate: {} } }} />);
     expect(screen.getByText(/取得済み応募は0件です/)).toBeTruthy();
     view.rerender(<ApplicationTrend job={{ ...job, id: 'missing', overallApplications: { total: 3, missingDate: 3, fetchedAt: '2026-10-05T00:00:00Z', distributions: {}, byDate: {} } }} />);
-    expect(screen.getByText(/応募日がすべて不明/)).toBeTruthy();
+    expect(screen.getByText(/応募日も作成日もすべて不明/)).toBeTruthy();
     view.rerender(<ApplicationTrend job={{ ...job, id: 'uncollected' }} />);
     expect(screen.getByText(/応募日別集計が未取得/)).toBeTruthy();
     expect(api).not.toHaveBeenCalled();

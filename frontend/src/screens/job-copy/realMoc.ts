@@ -5,7 +5,7 @@ import { parseApplicantReasons } from './applicantReasonsParser';
 import { parseHrhPerformance } from './hrhPerformanceModel';
 import { parseJointDemographics } from './reverseSearchModel';
 import { roundApplicantAreasInRecord } from './applicantArea';
-import { multiListingFromSummary } from './liveApplications';
+import { createdDateCountOf, multiListingFromSummary } from './liveApplications';
 
 const dimensions: ApplicantDimension[] = ['gender', 'age', 'prefecture', 'municipality'];
 const invalid = (): never => { throw new Error('実データMOCの集計と求人の対応を確認できませんでした。'); };
@@ -82,6 +82,8 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
       byDate[date] = count(amount);
     }
     if (missingDate + Object.values(dated).reduce<number>((sum, amount) => sum + count(amount), 0) !== total) return invalid();
+    const createdDateCount = createdDateCountOf(summary.created_date_count, Object.values(byDate).reduce((sum, amount) => sum + amount, 0));
+    if (createdDateCount === null) return invalid();
     const multiListing = multiListingFromSummary({ multi_listing_by_date: summary.multi_listing_by_date as Record<string, number> | undefined, multi_listing_missing_date: summary.multi_listing_missing_date as number | undefined }, byDate, missingDate);
     if (multiListing === null) return invalid();
     const summaryDimensions = object(summary.dimensions);
@@ -98,7 +100,7 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
       applicantReasons: parseApplicantReasons(result.applicant_reasons, total, job.versions.filter(version => version.kind === 'published').map(version => version.id)),
       hrhPerformance: result.hrh_performance == null ? job.hrhPerformance : parseHrhPerformance(result.hrh_performance, job.mediaJobId),
       jointDemographics: summary.joint_demographics == null ? undefined : parseJointDemographics(summary.joint_demographics, total),
-      overallApplications: { total, missingDate, fetchedAt, distributions, byDate, ...(multiListing ? { multiListing } : {}) },
+      overallApplications: { total, missingDate, ...(createdDateCount ? { createdDateCount } : {}), fetchedAt, distributions, byDate, ...(multiListing ? { multiListing } : {}) },
       versions: job.versions.map(version => {
         if (buckets[version.id] === undefined) return version;
         const bucket = object(buckets[version.id]);

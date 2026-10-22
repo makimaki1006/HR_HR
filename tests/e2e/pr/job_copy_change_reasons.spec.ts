@@ -16,7 +16,7 @@ test.describe('応募理由の変更ごとの表示', () => {
     await dialog.getByRole('button', { name: '変更ごと', exact: true }).click();
     await expect(page).toHaveURL(/reasonView=changes/);
     await expect(dialog.getByText('応募理由の記録はまだ少なく、1 つの求人・期間の件数だけで変更の効果は判断できません。')).toBeVisible();
-    await expect(dialog.getByText('応募日が分からない記録 1件は、どの期間にも入れていません。')).toBeVisible();
+    await expect(dialog.getByText('応募日も作成日も分からない記録 1件は、どの期間にも入れていません。')).toBeVisible();
 
     const blocks = dialog.getByTestId('change-reason-block');
     await expect(blocks).toHaveCount(2);
