@@ -195,6 +195,15 @@ fn render_screen(manifest: Option<&AppManifest>, screen: &str) -> Response {
     }
 }
 
+/// `/app/*` 以外の入口 (顧客向けの `/portal/*`) の HTML シェル。`KNOWN_SCREENS` を見ない。
+/// エントリが無ければ「フロントエンド未ビルド」の注記。
+pub fn entry_page(manifest: Option<&AppManifest>, entry: &str) -> Response {
+    match manifest.and_then(|m| m.entry_for(entry).map(|e| (m, e))) {
+        Some((m, e)) => Html(shell_html(e, &m.css_for(e))).into_response(),
+        None => Html(not_built_html(entry)).into_response(),
+    }
+}
+
 fn shell_html(entry: &ManifestEntry, css: &[String]) -> String {
     let css_links: String = css
         .iter()

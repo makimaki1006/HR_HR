@@ -40,6 +40,8 @@ export default defineConfig({
         competitor: fromHere('src/entries/competitor.tsx'),
         // 顧客向け応募者画面の社内向けテスト版 (2026-10-21): /app/portal-test。ナビには出さない
         'portal-test': fromHere('src/entries/portal-test.tsx'),
+        // 顧客向け応募者画面の本番の入口 (2026-10-23): /portal/*。社内の画面のコードは含めない
+        portal: fromHere('src/entries/portal.tsx'),
         // トークの振り返り (2026-10-22): /app/talk。Google ログインの社内の人なら誰でも
         talk: fromHere('src/entries/talk.tsx'),
       },

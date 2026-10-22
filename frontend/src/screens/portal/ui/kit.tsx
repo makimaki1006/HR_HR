@@ -1,5 +1,5 @@
 // 顧客向け画面の共通部品。各画面はここを使い、見た目をそろえる。
-import { NOW } from '../fixtures';
+import { NOW } from '../now';
 import { useEffect } from 'react';
 import { IconPencil } from './icons';
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
