@@ -309,6 +309,10 @@ fn router_full(
     Router::new()
         .route("/api/crm/applicants/queue", get(super::applicants::queue))
         .route(
+            "/api/crm/applicants/reminders",
+            get(super::applicants::reminders),
+        )
+        .route(
             "/api/crm/applicants/{id}",
             get(super::applicants::detail)
                 .patch(super::write::patch_applicant)

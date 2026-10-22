@@ -41,6 +41,11 @@ pub const OPEN_STAGES: [&str; 8] = [
     "1431589173",
     "1431589174",
 ];
+/// 約束あり連絡。約束架電日時の5分前から通知し、ステージを移すと通知から外れる。
+pub const PROMISED_STAGE: &str = "1431576654";
+const REMINDER_LEAD_MS: i64 = 5 * 60 * 1000;
+const REMINDER_LIMIT: usize = 50;
+const REMINDER_TTL: Duration = Duration::from_secs(30);
 const PAGE: usize = 30;
 const QUEUE_TTL: Duration = Duration::from_secs(30);
 const DETAIL_TTL: Duration = Duration::from_secs(60);
@@ -142,6 +147,12 @@ pub struct ApplicantQueue {
     pub media_options: Vec<ApplicantStage>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ApplicantReminders {
+    /// 約束架電日時が今から5分後までの応募 (古い順)。画面が5分前になったものだけ出す。
+    pub items: Vec<ApplicantRow>,
+    pub total: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ApplicantNote {
     pub date: String,
     pub html: String,
@@ -192,6 +203,7 @@ pub(super) struct ApplicantsState {
     queues: TtlCache<String, ApplicantQueue>,
     related_ids: TtlCache<String, Vec<String>>,
     details: TtlCache<String, ApplicantDetail>,
+    reminders: TtlCache<(), ApplicantReminders>,
 }
 impl Default for ApplicantsState {
     fn default() -> Self {
@@ -203,6 +215,7 @@ impl Default for ApplicantsState {
             queues: TtlCache::new(QUEUE_TTL, 500),
             related_ids: TtlCache::new(Duration::from_secs(1800), 500),
             details: TtlCache::new(DETAIL_TTL, 500),
+            reminders: TtlCache::new(REMINDER_TTL, 1),
         }
     }
 }
@@ -222,6 +235,7 @@ impl ApplicantsState {
     pub(super) fn invalidate(&self, _id: &str) {
         self.details.clear();
         self.queues.clear();
+        self.reminders.clear();
     }
     async fn definitions(&self, client: &HubSpotClient) -> Result<Value, HubSpotError> {
         if let Some(v) = self.definitions.get(&()) {
@@ -751,6 +765,56 @@ pub(super) async fn queue(
     match tokio::time::timeout(Duration::from_secs(20), work).await {
         Ok(Ok(body)) => {
             ctx.applicants.queues.insert(key, body.clone());
+            Json(body).into_response()
+        }
+        Ok(Err(e)) => e,
+        Err(_) => super::routes::timeout_response(),
+    }
+}
+/// 約束あり連絡にいて、約束架電日時が今から (5 分 + キャッシュの 30 秒) 後までの応募。
+/// 全員で同じ結果を共有する (30 秒キャッシュ)。5 分前になったかは画面の時計で判定する。
+pub(super) async fn reminders(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<Arc<CrmCtx>>,
+    session: Session,
+) -> Response {
+    if let Err(e) = rbac::authorize(&session, &state, &ctx.access, None).await {
+        return e.into_response();
+    }
+    let Some(client) = state.crm_hubspot() else {
+        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
+    };
+    if let Some(body) = ctx.applicants.reminders.get(&()) {
+        return Json(body).into_response();
+    }
+    let work = async {
+        let defs = ctx
+            .applicants
+            .definitions(&client)
+            .await
+            .map_err(|e| applicant_error(&e))?;
+        let until = chrono::Utc::now().timestamp_millis()
+            + REMINDER_LEAD_MS
+            + REMINDER_TTL.as_millis() as i64;
+        let page = client
+            .search(
+                OBJECT,
+                json!({"filterGroups":[{"filters":[
+                    {"propertyName":"hs_pipeline_stage","operator":"EQ","value":PROMISED_STAGE},
+                    {"propertyName":"yakusokukadennichiji","operator":"LTE","value":until.to_string()}
+                ]}],"sorts":[{"propertyName":"yakusokukadennichiji","direction":"ASCENDING"}],
+                "properties":QUEUE_PROPERTIES,"limit":REMINDER_LIMIT}),
+            )
+            .await
+            .map_err(|e| applicant_error(&e))?;
+        Ok::<_, Response>(ApplicantReminders {
+            items: values(&page["results"]).map(|r| row(r, &defs)).collect(),
+            total: page["total"].as_u64().unwrap_or(0) as u32,
+        })
+    };
+    match tokio::time::timeout(Duration::from_secs(20), work).await {
+        Ok(Ok(body)) => {
+            ctx.applicants.reminders.insert((), body.clone());
             Json(body).into_response()
         }
         Ok(Err(e)) => e,

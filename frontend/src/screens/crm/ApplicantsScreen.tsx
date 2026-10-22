@@ -21,6 +21,7 @@ import { useZoomPhone } from './useZoomPhone';
 import type { FixedLink } from './centerLinks';
 import { toE164Jp } from './smartEmbed';
 import { ApplicantEditor } from './ApplicantEditor';
+import { ApplicantReminderBand } from './ApplicantReminders';
 import './crm.css';
 import './queue.css';
 import './applicants.css';
@@ -55,8 +56,11 @@ export function ApplicantSheet({ detail }: { detail: ApplicantDetail | null }) {
   return <LinkView key={url} tab={tab} showFrameHint={false} />;
 }
 const LAYOUT_KEY = 'hrhr.crm.applicantsDock.v1';
+/** 応募によらない固定の資料。URL が決まったらここに入れる */
+const SHARED_LINKS: Record<'script' | 'customerSheet', string | null> = { script: null, customerSheet: null };
+const SHARED_TABS = new Set(['applicant-script', 'applicant-customer-sheet']);
 const DEFAULT_APPLICANT_LAYOUT: DockLayout = { ...DEFAULT_LAYOUT, columns: [DEFAULT_LAYOUT.columns[0], { panels: ['overview', 'result', 'activity'], active: 'result' }, DEFAULT_LAYOUT.columns[2]] };
-const LABELS = { ...TAB_LABELS, queue: '応募一覧', overview: '応募の概要', result: '対応の入力', activity: 'メモ', links: '求人票・報告シート' };
+const LABELS = { ...TAB_LABELS, queue: '応募一覧', overview: '応募の概要', result: '対応の入力', activity: 'メモ', links: '求人票・シート・スクリプト' };
 function loadApplicantLayout(): DockLayout {
   try { const raw = localStorage.getItem(LAYOUT_KEY); const saved = raw === null ? DEFAULT_APPLICANT_LAYOUT : parseLayout(raw, DEFAULT_APPLICANT_LAYOUT); return new URLSearchParams(window.location.search).get('applicant') ? saved : dockReducer(saved, { type: 'activate', panel: 'queue' }); } catch { return DEFAULT_APPLICANT_LAYOUT; }
 }
@@ -177,6 +181,8 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   const fixed: FixedLink[] = [
     { id: 'applicant-posting', label: '求人票', url: detail?.posting_url ?? null, missing: 'この応募には求人票の URL がありません。' },
     { id: 'applicant-sheet', label: '報告シート', url: detail?.sheet_url ?? null, missing: 'この応募には報告シートの URL がありません' },
+    { id: 'applicant-script', label: 'スクリプト', url: SHARED_LINKS.script, missing: 'スクリプトの URL がまだ設定されていません。' },
+    { id: 'applicant-customer-sheet', label: '顧客シート', url: SHARED_LINKS.customerSheet, missing: '顧客シートの URL がまだ設定されていません。' },
   ];
   const tabs = useCenterTabs(selectedId, fixed, 'applicant-posting');
   const panels: Record<PanelId, ReactNode> = {
@@ -242,10 +248,10 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
     activity: <section className="dock-scroll applicant-notes" aria-label="応募のメモ">
       {!detail ? <p>応募を選択してください。</p> : <>{detail.notes.length === 0 && <p>メモはありません。</p>}{detail.notes.slice(0, 5).map((n, i) => <article key={i}><time>{date(n.date)}</time><div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} /></article>)}</>}
     </section>,
-    links: <aside className="cq-linkpanel applicants-right" aria-label="求人票と報告シート">
+    links: <aside className="cq-linkpanel applicants-right" aria-label="求人票・シート・スクリプト">
       <div className="cq-linkpanel-head"><CenterTabBar tabs={tabs} /></div>
       <div className="cq-cpanels">{tabs.fixed.map(item => <CenterPanel key={item.def.id} id={item.def.id} active={tabs.active === item.def.id}>
-        {!selectedId ? <p className="dock-placeholder">応募を選択してください。</p> : !detail ? <p role="status">詳細を読み込み中…</p> : item.def.id === 'applicant-sheet' ? (item.opened && <ApplicantSheet detail={detail} />) : item.tab === null ? <div className="dock-scroll"><p>{item.def.missing}</p>{detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) && <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a>}</div> : item.opened && <LinkView key={item.tab.url} tab={item.tab} actions={detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) ? <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a> : null} />}
+        {SHARED_TABS.has(item.def.id) ? (item.tab === null ? <div className="dock-scroll"><p>{item.def.missing}</p></div> : item.opened && <LinkView key={item.tab.url} tab={item.tab} />) : !selectedId ? <p className="dock-placeholder">応募を選択してください。</p> : !detail ? <p role="status">詳細を読み込み中…</p> : item.def.id === 'applicant-sheet' ? (item.opened && <ApplicantSheet detail={detail} />) : item.tab === null ? <div className="dock-scroll"><p>{item.def.missing}</p>{detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) && <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a>}</div> : item.opened && <LinkView key={item.tab.url} tab={item.tab} actions={detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) ? <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a> : null} />}
       </CenterPanel>)}</div>
     </aside>,
   };
@@ -260,6 +266,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
         selected={stages} onApply={s => { filter(s, media); }} />}
       <label>応募媒体<select value={media} onChange={e => { filter(stages, e.target.value); }}><option value="">すべて</option>{queue?.media_options.map(o => <option value={o.id} key={o.id}>{o.label}</option>)}</select></label>
     </div>}
+    <ApplicantReminderBand fixture={fixture} refresh={refresh} onOpen={select} />
     {error && <p role="alert">{error}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
     <Dock layout={layout} dispatch={dispatch} panels={panels} labels={LABELS} />
     {!fixture && <div className={`cq-zoom-drawer${drawerOpen ? ' is-open' : ''}`} inert={!drawerOpen} aria-hidden={!drawerOpen} onKeyDown={e => { if (e.key === 'Escape') setDrawerOpen(false); }}><ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} onClose={() => { setDrawerOpen(false); }} /></div>}

@@ -28,7 +28,7 @@ describe('応募の読み取りモード', () => {
     expect(screen.getByRole('tab', { name: '求人票' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.queryByRole('tab', { name: 'Zoom' })).toBeNull();
     expect(document.querySelector('iframe[title^="求人票"]')?.getAttribute('src')).toBe('https://www.example.com/jobs/fictional-inspection');
-    expect(within(screen.getByRole('complementary', { name: '求人票と報告シート' })).getByRole('link', { name: '案件管理で見る' }).getAttribute('target')).toBe('_blank');
+    expect(within(screen.getByRole('complementary', { name: '求人票・シート・スクリプト' })).getByRole('link', { name: '案件管理で見る' }).getAttribute('target')).toBe('_blank');
     expect(screen.getByRole('tab', { name: '対応の入力' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByRole('button', { name: /応募者.*に発信/ }).hasAttribute('disabled')).toBe(true);
     fireEvent.click(screen.getByRole('tab', { name: 'プロパティ' }));

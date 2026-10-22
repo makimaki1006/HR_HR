@@ -1294,3 +1294,41 @@ async fn applicants_listing_chunks_and_limits() {
         }
     }
 }
+#[tokio::test]
+async fn applicant_reminders_search_promised_stage_and_share_cache() {
+    let (app, c, f) = app().await;
+    let before = chrono::Utc::now().timestamp_millis();
+    let (status, _, a) = get_json(&app, "/api/crm/applicants/reminders", &c).await;
+    assert_eq!(status, StatusCode::OK, "{a}");
+    assert_eq!(a["total"], 1);
+    assert_eq!(a["items"][0]["id"], "100");
+    assert_eq!(a["items"][0]["name"], "架空 はるか");
+    let n = {
+        let g = f.lock().unwrap();
+        let (_, body) = g
+            .requests
+            .iter()
+            .find(|(p, _)| p.ends_with("0-421/search"))
+            .unwrap();
+        let filters = &body["filterGroups"][0]["filters"];
+        assert_eq!(
+            filters[0],
+            json!({"propertyName":"hs_pipeline_stage","operator":"EQ","value":"1431576654"})
+        );
+        assert_eq!(filters[1]["operator"], "LTE");
+        let until: i64 = filters[1]["value"].as_str().unwrap().parse().unwrap();
+        // 5 分前の通知に、共有キャッシュの 30 秒を足した先まで読む。
+        let lead = until - before;
+        assert!((330_000..340_000).contains(&lead), "{lead}");
+        assert_eq!(
+            body["sorts"],
+            json!([{"propertyName":"yakusokukadennichiji","direction":"ASCENDING"}])
+        );
+        g.requests.len()
+    };
+    assert_eq!(
+        get_json(&app, "/api/crm/applicants/reminders", &c).await.2,
+        a
+    );
+    assert_eq!(f.lock().unwrap().requests.len(), n);
+}

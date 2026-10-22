@@ -76,3 +76,11 @@
 .applicant-related .crm-property-list { display: flex; flex-direction: column; gap: 6px; }
 .applicant-related .crm-property-list > div { margin: 0; }
 .applicant-related .crm-property-list dt { margin-bottom: 0; }
+.applicant-reminders { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 20px; background: #fdecea; border-bottom: 2px solid #c62828; color: #7f1d1d; }
+.applicant-reminders > strong { font-size: 14px; }
+.applicant-reminders ul { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; }
+.applicant-reminders li { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.applicant-reminders button { padding: 2px 10px; border: 1px solid #c62828; border-radius: var(--cq-radius); background: white; color: #7f1d1d; font-weight: 600; cursor: pointer; }
+.applicant-reminders button:hover { background: #c62828; color: white; }
+.applicant-reminders-deal { color: #9f3a38; font-size: 12px; }
+.applicant-reminders p { margin: 0; font-size: 12px; }
