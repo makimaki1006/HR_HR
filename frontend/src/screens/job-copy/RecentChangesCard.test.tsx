@@ -116,6 +116,7 @@ it('内訳だけが集計中でも一覧を保ち、完成まで取り直す', a
 
 it('古い結果を表示したまま更新を待ち、完成した結果に入れ替える', async () => {
   vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-15T16:00:00Z'));
   const stale = { ...ready, built_at: '2026-10-15T15:10:00Z', stale: true, refreshing: true };
   api.mockResolvedValueOnce({ ok: true, data: stale }).mockResolvedValue({ ok: true, data: { ...ready, report: { count: 0, listings: [] }, refreshing: false, stale: false } });
   function Harness() { const recent = useRecentChanges(0); return <RecentChangesList data={recent.data} error="" onOpenListing={vi.fn()} onOpenDeal={vi.fn()} />; }

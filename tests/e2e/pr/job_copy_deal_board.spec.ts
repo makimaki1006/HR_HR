@@ -183,6 +183,8 @@ test('応募を集計中のときは0件として表示しない', async ({ page
 
 test('求人と応募の前回集計をやることと案件一覧に残して日時を表示する', async ({ page }) => {
   const saved = { facts_built_at: '2026-10-15T15:10:00Z', facts_stale: true, refreshing: true };
+  // 集計の時点から6時間未満の「今」に固定する（それ以上古いと文言が変わるため）。
+  await page.clock.setFixedTime(new Date('2026-10-15T17:00:00Z'));
   await page.route('**/api/job-copy/home*', route => route.fulfill({ json: { ...demoHome, work: { ...demoOwnerTodo, ...saved } } }));
   await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, ...saved } }));
   await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: { status: 'ready', refresh_failed: false, report: { count: 0, listings: [] } } }));

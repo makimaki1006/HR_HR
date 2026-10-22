@@ -75,6 +75,7 @@ describe('ApplyReasonCrosstab (API の応答)', () => {
   });
   it('古い集計には日時を添える', async () => {
     open('view=reasons'); mockApi({ ...applyReasonFixture, stale: true, refreshing: true });
+    vi.spyOn(Date, 'now').mockReturnValue(new Date(String(applyReasonFixture.built_at)).getTime() + 60 * 60 * 1000);
     render(<ApplyReasonCrosstab />);
     expect(await screen.findByText(/時点の集計です。新しい集計を作っています。/)).toBeTruthy();
   });
