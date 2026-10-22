@@ -16,6 +16,8 @@ pub enum ZoomError {
     NotReady,
     /// 録音が残っていない (古くて消えた)
     Gone,
+    /// 文字起こしが作れない (10 秒未満で短すぎる = code 12000、管理者が無効にしている = 12001)。何度取っても変わらない
+    Untranscribable,
     /// 通信・混雑・認証の一時的な失敗 (後で再試行)
     Transient(String),
     /// Zoom の設定 (環境変数) が無い
@@ -28,6 +30,17 @@ pub fn classify_status(status: u16) -> ZoomError {
         400 => ZoomError::NotReady,
         404 | 410 => ZoomError::Gone,
         s => ZoomError::Transient(format!("http {s}")),
+    }
+}
+
+/// 400 の本文 (`{"code":12000,...}`) を読んで分類する。12000・12001 は恒久、それ以外・読めない本文は `NotReady`
+pub fn classify_400(body: &str) -> ZoomError {
+    let code = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v.get("code").and_then(Value::as_i64));
+    match code {
+        Some(12000 | 12001) => ZoomError::Untranscribable,
+        _ => ZoomError::NotReady,
     }
 }
 
@@ -229,6 +242,10 @@ impl ZoomClient {
             *self.token.lock().await = None;
         }
         if !st.is_success() {
+            if st.as_u16() == 400 {
+                let body = r.text().await.unwrap_or_default();
+                return Err(classify_400(&body));
+            }
             return Err(classify_status(st.as_u16()));
         }
         r.json()
@@ -420,6 +437,17 @@ mod tests {
             classify_status(503),
             ZoomError::Transient("http 503".into())
         );
+    }
+
+    #[test]
+    fn body_code_decides_400() {
+        let m = |c: i64| format!(r#"{{"code":{c},"message":"x"}}"#);
+        assert_eq!(classify_400(&m(12000)), ZoomError::Untranscribable);
+        assert_eq!(classify_400(&m(12001)), ZoomError::Untranscribable);
+        assert_eq!(classify_400(&m(300)), ZoomError::NotReady);
+        assert_eq!(classify_400(""), ZoomError::NotReady);
+        assert_eq!(classify_400("<html>"), ZoomError::NotReady);
+        assert_eq!(classify_400(r#"{"message":"x"}"#), ZoomError::NotReady);
     }
 
     fn ms(s: &str) -> i64 {
