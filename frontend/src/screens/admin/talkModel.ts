@@ -2,6 +2,7 @@
 import type { TalkCallDetailResponse } from '../../generated/TalkCallDetailResponse';
 import type { TalkCallRow } from '../../generated/TalkCallRow';
 import type { TalkCallsResponse } from '../../generated/TalkCallsResponse';
+import type { DialBreakdown } from '../../generated/DialBreakdown';
 import type { TalkCheckDef } from '../../generated/TalkCheckDef';
 import type { TalkItemRate } from '../../generated/TalkItemRate';
 import type { TalkPersonRow } from '../../generated/TalkPersonRow';
@@ -71,6 +72,18 @@ export function activePeriod(from: string, to: string, today: string): PeriodKey
 /** 1 接触あたりの日程切り回数 (小数 1 桁)。値が無ければ「-」 */
 export function fmtPerContact(v: number | null): string {
   return v === null ? '-' : v.toFixed(1);
+}
+
+/** 発信の内訳の表の行。社内の内線は 0 本なら出さない。割合は発信 (内訳の合計) に占める % を小数 1 桁 (四捨五入) */
+export function dialBreakdownRows(b: DialBreakdown): { label: string; count: number; pct: string }[] {
+  const rows: [string, number][] = [
+    ['つながった', b.connected],
+    ['発信に失敗した（相手側の回線・番号の問題など）', b.failed],
+    ['こちらで切った', b.cancelled],
+    ['モニタリング（他の人の通話を聞いた）', b.monitor],
+  ];
+  if (b.extension > 0) rows.push(['社内の内線', b.extension]);
+  return rows.map(([label, count]) => ({ label, count, pct: b.total === 0 ? '-' : `${(Math.round((count / b.total) * 1000) / 10).toFixed(1)}%` }));
 }
 
 export function fmtPct(v: number | null, digits = 0): string {
@@ -242,6 +255,12 @@ const FIXTURE_COUNTS: Record<string, [number, number][]> = {
 
 function person(idx: number, id: string, name: string, team: string, dials: number, appts: number, flagged: boolean, reviewed: number, waiting: number, unavailable: number, contact: [number, number, number, number]): TalkPersonRow {
   const outbound = Math.round(dials * 2.3);
+  const connectedN = Math.round(outbound * 0.8);
+  const cancelled = Math.round(outbound * 0.1);
+  const monitor = idx === 1 ? 4 : 0;
+  const extension = idx === 0 ? 2 : 0;
+  const failed = outbound - connectedN - cancelled - monitor - extension;
+  const dial_breakdown: DialBreakdown = { connected: connectedN, failed, cancelled, monitor, extension, total: outbound };
   const [contacts, proposalCalls, proposals, pending] = contact;
   const items = FIXTURE_CHECKS.map(c => {
     const [nd, ap] = FIXTURE_COUNTS[c.id]?.[idx] ?? [0, 0];
@@ -251,7 +270,7 @@ function person(idx: number, id: string, name: string, team: string, dials: numb
     const hit = ap >= FIXTURE_RULES.item_min_applicable && tap > 0 && (nd / ap) * 100 >= (tnd / tap) * 100 + FIXTURE_RULES.item_excess_pct;
     return rate(c.id, nd, ap, hit);
   });
-  return { owner_id: id, name, team, outbound, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, contacts, contact_rate_pct: (contacts / outbound) * 100, date_proposal_calls: proposalCalls, date_proposal_rate_pct: (proposalCalls / outbound) * 100, proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: pending, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items };
+  return { owner_id: id, name, team, outbound, dial_breakdown, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, contacts, contact_rate_pct: (contacts / outbound) * 100, date_proposal_calls: proposalCalls, date_proposal_rate_pct: (proposalCalls / outbound) * 100, proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: pending, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items };
 }
 
 export const FIXTURE_PEOPLE: TalkPersonRow[] = [
@@ -270,7 +289,10 @@ function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow
   const proposalCalls = sum(p => p.date_proposal_calls ?? 0);
   const proposals = people.reduce((a, p) => a + (p.proposals_per_contact ?? 0) * (p.contacts ?? 0), 0);
   return {
-    owner_id: null, name: 'チーム全体', team: null, outbound, dials, appointments: appts,
+    owner_id: null, name: 'チーム全体', team: null, outbound, dial_breakdown: people.reduce<DialBreakdown>((a, p) => {
+      const b = p.dial_breakdown;
+      return b === null ? a : { connected: a.connected + b.connected, failed: a.failed + b.failed, cancelled: a.cancelled + b.cancelled, monitor: a.monitor + b.monitor, extension: a.extension + b.extension, total: a.total + b.total };
+    }, { connected: 0, failed: 0, cancelled: 0, monitor: 0, extension: 0, total: 0 }), dials, appointments: appts,
     appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: false,
     contacts, contact_rate_pct: outbound === 0 ? null : (contacts / outbound) * 100,
     date_proposal_calls: proposalCalls, date_proposal_rate_pct: outbound === 0 ? null : (proposalCalls / outbound) * 100,
@@ -289,7 +311,7 @@ export function fixtureSummary(from: string, to: string, team: string): TalkSumm
   return {
     from, to, as_of: `${to}T14:05:00+09:00`, enabled: true,
     teams: ['架空BPOチーム', '架空営業チーム'],
-    checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, per_person_day: 10, counting_days: [], dials_error: false, dials_partial: true, dials_fetched_at: `${to} 06:30`, total: totalOf(people, FIXTURE_CHECKS),
+    checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, per_person_day: 10, counting_days: [], dials_error: false, dials_partial: true, dials_fetched_at: `${to} 06:30`, dial_breakdown_pending: false, total: totalOf(people, FIXTURE_CHECKS),
   };
 }
 

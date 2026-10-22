@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Utc};
 use serde_json::Value;
 
+use super::dial_breakdown::classify;
+use super::types::DialBreakdown;
 use super::zoom::ZoomClient;
 use crate::crm::owners::CrmOwner;
 
@@ -29,6 +31,8 @@ pub struct LiveToday {
     pub by_owner: HashMap<String, u32>,
     /// 発信数 (切れた・つながらなかったものを含む発信すべて)
     pub calls_by_owner: HashMap<String, u32>,
+    /// 発信の内訳 (Zoom の記録から直接数えたもの)
+    pub breakdown_by_owner: HashMap<String, DialBreakdown>,
     pub fetched_at: String,
 }
 
@@ -63,6 +67,7 @@ pub fn owner_by_email(owners: &[CrmOwner]) -> HashMap<String, String> {
 pub struct Counts {
     pub calls: HashMap<String, u32>,
     pub connected: HashMap<String, u32>,
+    pub breakdown: HashMap<String, DialBreakdown>,
 }
 
 /// 通話ログのページから、JST の `day` の人ごとの発信数と架電数。
@@ -77,7 +82,7 @@ pub fn count_calls(
     let start = day.and_hms_opt(0, 0, 0).expect("midnight").and_utc() - ChronoDuration::hours(9);
     let end = start + ChronoDuration::days(1);
     let mut seen = std::collections::HashSet::new();
-    let mut per_user: HashMap<String, (u32, u32)> = HashMap::new();
+    let mut per_user: HashMap<String, (u32, u32, DialBreakdown)> = HashMap::new();
     for page in pages {
         let Some(logs) = page.get("call_logs").and_then(Value::as_array) else {
             continue;
@@ -106,18 +111,23 @@ pub fn count_calls(
             let Some(uid) = text("user_id") else {
                 continue;
             };
-            let e = per_user.entry(uid.to_string()).or_insert((0, 0));
+            let e = per_user
+                .entry(uid.to_string())
+                .or_insert((0, 0, DialBreakdown::default()));
             e.0 += 1;
             if text("result") == Some("Auto Recorded") {
                 e.1 += 1;
             }
+            e.2.add(classify(log));
         }
     }
     let mut out = Counts::default();
-    for (uid, (c, k)) in per_user {
+    for (uid, (c, k, b)) in per_user {
         if let Some(owner) = user_email.get(&uid).and_then(|e| email_owner.get(e)) {
             *out.calls.entry(owner.clone()).or_insert(0) += c;
             *out.connected.entry(owner.clone()).or_insert(0) += k;
+            let e = out.breakdown.entry(owner.clone()).or_default();
+            *e = e.plus(&b);
         }
     }
     out
@@ -129,6 +139,27 @@ struct Inner {
     in_flight: bool,
     retry_after: Option<Instant>,
     users: Option<(Instant, Arc<HashMap<String, String>>)>,
+}
+
+/// 有効な Zoom ユーザー (`user_id -> メール`)。1 時間は持ち回す
+pub(super) async fn active_users(
+    zoom: &ZoomClient,
+) -> Result<Arc<HashMap<String, String>>, super::zoom::ZoomError> {
+    let cached = {
+        let g = state().lock().unwrap();
+        g.users
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() < USERS_TTL)
+            .map(|(_, u)| u.clone())
+    };
+    match cached {
+        Some(u) => Ok(u),
+        None => {
+            let u = Arc::new(zoom.active_user_emails().await?);
+            state().lock().unwrap().users = Some((Instant::now(), u.clone()));
+            Ok(u)
+        }
+    }
 }
 
 fn state() -> &'static Mutex<Inner> {
@@ -144,21 +175,7 @@ fn jst_text(now: DateTime<Utc>) -> String {
 
 async fn refresh(zoom: Arc<ZoomClient>, owner_map: HashMap<String, String>, day: NaiveDate) {
     let result = async {
-        let cached_users = {
-            let g = state().lock().unwrap();
-            g.users
-                .as_ref()
-                .filter(|(at, _)| at.elapsed() < USERS_TTL)
-                .map(|(_, u)| u.clone())
-        };
-        let users = match cached_users {
-            Some(u) => u,
-            None => {
-                let u = Arc::new(zoom.active_user_emails().await?);
-                state().lock().unwrap().users = Some((Instant::now(), u.clone()));
-                u
-            }
-        };
+        let users = active_users(&zoom).await?;
         let (from, to) = utc_range(day);
         let pages = zoom.call_log_pages(&from, &to).await?;
         Ok::<_, super::zoom::ZoomError>(count_calls(&pages, day, &users, &owner_map))
@@ -175,6 +192,7 @@ async fn refresh(zoom: Arc<ZoomClient>, owner_map: HashMap<String, String>, day:
                 Arc::new(LiveToday {
                     by_owner: counts.connected,
                     calls_by_owner: counts.calls,
+                    breakdown_by_owner: counts.breakdown,
                     fetched_at: jst_text(Utc::now()),
                 }),
             ));

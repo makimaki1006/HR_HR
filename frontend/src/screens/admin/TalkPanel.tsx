@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { ApiAbortedError, ApiHttpError, AuthRequiredError, apiGet, type ApiError } from '../../api/client';
 import { redirectToLogin } from '../../shell/navigation';
+import type { DialBreakdown } from '../../generated/DialBreakdown';
 import type { TalkCallDetailResponse } from '../../generated/TalkCallDetailResponse';
 import type { TalkCallRow } from '../../generated/TalkCallRow';
 import type { TalkCallsResponse } from '../../generated/TalkCallsResponse';
@@ -10,7 +11,7 @@ import type { TalkCheckDef } from '../../generated/TalkCheckDef';
 import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
 import {
-  CALL_STATUS_TEXT, MARK_LABEL, MARK_TEXT, PERIOD_LABELS, activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary,
+  CALL_STATUS_TEXT, MARK_LABEL, dialBreakdownRows, MARK_TEXT, PERIOD_LABELS, activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary,
   fmtCallTime, fmtPct, fmtPerContact, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
   type TalkSort,
 } from './talkModel';
@@ -33,6 +34,11 @@ export const TALK_RECOUNT_MAX_TRIES = 80;
 function countingDaysOf(data: unknown): string[] {
   const d = (data as { counting_days?: unknown } | null)?.counting_days;
   return Array.isArray(d) ? d.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** 発信の内訳を過去の日から取り込み中か (終わると消える) */
+function breakdownPendingOf(data: unknown): boolean {
+  return (data as { dial_breakdown_pending?: unknown } | null)?.dial_breakdown_pending === true;
 }
 
 type TalkState<T> =
@@ -58,7 +64,7 @@ function useTalkGet<T>(path: string): TalkState<T> {
         if (ctl.signal.aborted) return;
         if (r.ok) {
           put({ status: 'ok', data: r.data });
-          if (countingDaysOf(r.data).length > 0 && n < TALK_RECOUNT_MAX_TRIES) {
+          if ((countingDaysOf(r.data).length > 0 || breakdownPendingOf(r.data)) && n < TALK_RECOUNT_MAX_TRIES) {
             timer = setTimeout(() => { load(n + 1); }, TALK_RECOUNT_MS);
           }
           return;
@@ -118,7 +124,49 @@ function Cell({ j, children, className }: { j: CellJudgement | null; children: R
   return <td className={cls === '' ? undefined : cls} data-flagged={j?.state === 'red' ? 'true' : undefined} data-state={j?.state} title={j?.reason}>{children}</td>;
 }
 
-function PersonRowView({ p, checks, total, totalRow, rules, onOpen }: { p: TalkPersonRow; checks: TalkCheckDef[]; total: boolean; totalRow: TalkPersonRow; rules: TalkSummaryResponse['rules']; onOpen?: (id: string) => void }) {
+/** 発信数のセル。マウスを当てる・キーボードで止まると、発信の内訳 (Zoom の記録から数えたもの) を表で出す */
+function OutboundCell({ value, breakdown, pending }: { value: number | null; breakdown: DialBreakdown | null; pending: boolean }) {
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const text = value ?? '—';
+  if (value === null || (breakdown === null && !pending) || (breakdown !== null && breakdown.total === 0)) {
+    return <td className="w8-right">{text}</td>;
+  }
+  // 表の外にはみ出して切れないよう、画面に固定して置く (数字の左下から)
+  const show = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setPos({ left: Math.max(8, Math.min(r.right - 360, window.innerWidth - 376)), top: r.bottom + 4 });
+  };
+  const hide = () => { setPos(null); };
+  return (
+    <td className="w8-right talk-tipcell">
+      <span
+        className="talk-tipbtn" tabIndex={0} data-testid="talk-outbound-trigger" aria-describedby={pos === null ? undefined : 'talk-outbound-tip'}
+        onMouseEnter={e => { show(e.currentTarget); }} onMouseLeave={hide}
+        onFocus={e => { show(e.currentTarget); }} onBlur={hide}
+        onKeyDown={e => { if (e.key === 'Escape') hide(); }}
+      >{text}</span>
+      {pos !== null && (
+        <div id="talk-outbound-tip" className="talk-tip" role="tooltip" data-testid="talk-outbound-tip" style={{ left: pos.left, top: pos.top }}>
+          {breakdown === null ? <p>内訳を集計中です</p> : (
+            <>
+              <table>
+                <thead><tr><th>内訳</th><th className="w8-right">本数</th><th className="w8-right">発信に占める割合</th></tr></thead>
+                <tbody>
+                  {dialBreakdownRows(breakdown).map(r => (
+                    <tr key={r.label}><td>{r.label}</td><td className="w8-right">{r.count}</td><td className="w8-right">{r.pct}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="talk-tip-note">Zoom の記録から数えた内訳（合計 {breakdown.total} 本）</p>
+            </>
+          )}
+        </div>
+      )}
+    </td>
+  );
+}
+
+function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, onOpen }: { p: TalkPersonRow; checks: TalkCheckDef[]; total: boolean; totalRow: TalkPersonRow; rules: TalkSummaryResponse['rules']; breakdownPending: boolean; onOpen?: (id: string) => void }) {
   const apj = total ? null : judgeAppointment(p, totalRow, rules);
   return (
     <tr className={total ? 'talk-total' : undefined} data-testid={total ? 'talk-total-row' : 'talk-row'}>
@@ -128,7 +176,7 @@ function PersonRowView({ p, checks, total, totalRow, rules, onOpen }: { p: TalkP
         )}
       </td>
       <td className="w8-muted">{p.team ?? '-'}</td>
-      <td className="w8-right">{p.outbound ?? '—'}</td>
+      <OutboundCell value={p.outbound} breakdown={p.dial_breakdown} pending={breakdownPending} />
       <td className="w8-right">{p.dials ?? '—'}</td>
       <td className="w8-right">{p.appointments}</td>
       <Cell j={apj} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}</Cell>
@@ -230,9 +278,9 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
             </tr>
           </thead>
           <tbody>
-            {people.map(p => <PersonRowView key={p.owner_id ?? p.name} p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} onOpen={onOpen} />)}
+            {people.map(p => <PersonRowView key={p.owner_id ?? p.name} p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} onOpen={onOpen} />)}
             {people.length === 0 && <tr><td colSpan={12 + data.checks.length} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
-            <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} />
+            <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} />
           </tbody>
         </table>
       </div>

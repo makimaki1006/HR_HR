@@ -7,6 +7,7 @@
 //! - `judge`: MiniMax による項目ごとの判定 (差し替え可能な `Judge`)
 //! - `store`: 監査 Turso の表 `call_talk_reviews`
 //! - `dials`: 架電数 (営業KPI と同じ Zoom 由来のシートの値)
+//! - `dial_breakdown`: 発信の内訳 (つながった・失敗・切った・モニタリング・内線)。過去の日は日単位でキャッシュ
 //! - `live_dials`: 今日の架電数を Zoom の通話ログから約 15 分おきに数える
 //! - `contact` / `contact_store` / `contact_worker`: 接触・日程切りの判定 (表 `call_contact_marks`、別の周回)
 //! - `counts`: アポ数 (日ごとにキャッシュ)
@@ -22,6 +23,7 @@ pub mod contact;
 pub mod contact_store;
 pub mod contact_worker;
 pub mod counts;
+pub mod dial_breakdown;
 pub mod dials;
 pub mod judge;
 pub mod live_dials;

@@ -32,6 +32,43 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(Array.from(rowOf('ダミー 三郎').querySelectorAll('td'))[20]?.getAttribute('data-flagged')).toBe('true');
   });
 
+  it('発信数にマウスを当てると、発信の内訳が本数と割合で出る（内線 0 件は行ごと出さない）', () => {
+    render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    expect(screen.queryByTestId('talk-outbound-tip')).toBeNull();
+    // サンプル 二郎: 発信 713 = つながった 570 / 失敗 ... / 切った 71 / モニタリング 4 / 内線 0
+    const trigger = within(rowOf('サンプル 二郎')).getByTestId('talk-outbound-trigger');
+    fireEvent.mouseEnter(trigger);
+    const tip = screen.getByTestId('talk-outbound-tip');
+    const rows = Array.from(tip.querySelectorAll('tbody tr')).map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.textContent));
+    expect(rows).toEqual([
+      ['つながった', '570', '79.9%'],
+      ['発信に失敗した（相手側の回線・番号の問題など）', '68', '9.5%'],
+      ['こちらで切った', '71', '10.0%'],
+      ['モニタリング（他の人の通話を聞いた）', '4', '0.6%'],
+    ]);
+    expect(tip.textContent).toContain('Zoom の記録から数えた内訳（合計 713 本）');
+    fireEvent.mouseLeave(trigger);
+    expect(screen.queryByTestId('talk-outbound-tip')).toBeNull();
+    // キーボードでも出て、内線がある人は行が増える
+    const hanako = within(rowOf('架空 花子')).getByTestId('talk-outbound-trigger');
+    fireEvent.focus(hanako);
+    expect(within(screen.getByTestId('talk-outbound-tip')).getByText('社内の内線').closest('tr')?.textContent).toBe('社内の内線20.4%');
+    fireEvent.blur(hanako);
+    // 合計行は人の内訳の合計
+    fireEvent.focus(within(screen.getByTestId('talk-total-row')).getByTestId('talk-outbound-trigger'));
+    expect(screen.getByTestId('talk-outbound-tip').textContent).toContain('合計 1771 本');
+  });
+
+  it('内訳が集計中なら「内訳を集計中です」、取れないときは出さない', () => {
+    const noBreakdown = { ...summary, people: summary.people.map(p => ({ ...p, dial_breakdown: null })), total: { ...summary.total, dial_breakdown: null } };
+    const { unmount } = render(<TalkSummaryTable data={{ ...noBreakdown, dial_breakdown_pending: true }} onOpen={() => undefined} />);
+    fireEvent.mouseEnter(within(rowOf('サンプル 二郎')).getByTestId('talk-outbound-trigger'));
+    expect(screen.getByTestId('talk-outbound-tip').textContent).toBe('内訳を集計中です');
+    unmount();
+    render(<TalkSummaryTable data={noBreakdown} onOpen={() => undefined} />);
+    expect(screen.queryByTestId('talk-outbound-trigger')).toBeNull();
+  });
+
   it('見出しに資料の全体の割合と決まりを出し、最後の行はチーム全体', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
     const head = screen.getByRole('columnheader', { name: /早く日付を出す/ });
