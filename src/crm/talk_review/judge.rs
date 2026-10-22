@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::checks::{Check, Checks};
+use super::lang::{find_foreign, FALLBACK_TEXT};
 use super::types::TalkTurn;
 
 /// 結果に残す短い引用の最大文字数
@@ -250,6 +251,125 @@ pub fn convert_response(checks: &Checks, v: &Value) -> JudgeOutput {
 }
 
 // ---------------------------------------------------------------------------
+// 文章の言語の検査 (日本語以外が混ざったら再判定。ADR-033 追記)
+// ---------------------------------------------------------------------------
+
+/// 日本語の文章を最初から書き直させる最大回数 (最初の 1 回に足す)
+pub const LANG_RETRIES: usize = 2;
+
+/// 再判定のときにプロンプトへ足す念押し
+const STRICT_SUFFIX: &str = "\n\n重要: summary・advice・note は必ず日本語だけで書く。中国語・韓国語・英語の単語を混ぜない(Indeed、Zoom などの固有名詞は可)。";
+
+/// 英単語の許可に使う元の文字 (文字起こしと引用)
+pub fn source_text(turns: &[TalkTurn], items: &[StoredItem]) -> String {
+    let mut s: String = turns
+        .iter()
+        .map(|t| t.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    for q in items.iter().filter_map(|i| i.quote.as_deref()) {
+        s.push('\n');
+        s.push_str(q);
+    }
+    s
+}
+
+/// 助言・メモ・まとめに日本語以外が混ざっているか (引用は検査しない)
+pub fn texts_foreign(items: &[StoredItem], summary: Option<&str>, source: &str) -> bool {
+    items.iter().any(|i| {
+        i.advice
+            .as_deref()
+            .is_some_and(|t| find_foreign(t, source).is_some())
+            || i.note
+                .as_deref()
+                .is_some_and(|t| find_foreign(t, source).is_some())
+    }) || summary.is_some_and(|t| find_foreign(t, source).is_some())
+}
+
+/// 混ざった文章を取り除く。助言は消して、メモに「作れませんでした」を入れる。まとめは置き換える。
+/// 判定の結果 (できた / できていない) は残す
+pub fn sanitize_texts(items: &mut [StoredItem], summary: &mut Option<String>, source: &str) {
+    for i in items {
+        let bad_advice = i
+            .advice
+            .as_deref()
+            .is_some_and(|t| find_foreign(t, source).is_some());
+        let bad_note = i
+            .note
+            .as_deref()
+            .is_some_and(|t| find_foreign(t, source).is_some());
+        if bad_advice {
+            i.advice = None;
+        }
+        if bad_note || (bad_advice && i.note.is_none()) {
+            i.note = Some(FALLBACK_TEXT.to_string());
+        }
+    }
+    if summary
+        .as_deref()
+        .is_some_and(|t| find_foreign(t, source).is_some())
+    {
+        *summary = Some(FALLBACK_TEXT.to_string());
+    }
+}
+
+impl JudgeOutput {
+    pub fn has_foreign_text(&self, source: &str) -> bool {
+        texts_foreign(&self.items, self.summary.as_deref(), source)
+    }
+    pub fn sanitize(&mut self, source: &str) {
+        sanitize_texts(&mut self.items, &mut self.summary, source);
+    }
+}
+
+/// プロンプトを送って JSON を返すもの (テストでは偽物に差し替える)
+pub trait Completer: Send + Sync {
+    fn complete(
+        &self,
+        prompt: &str,
+    ) -> impl std::future::Future<Output = Result<Value, JudgeError>> + Send;
+}
+
+/// 判定して、文章に日本語以外が混ざっていたら念押しして最大 `LANG_RETRIES` 回やり直す。
+/// それでも混ざる文章は取り除いて返す (結果の できた / できていない は残す)
+pub async fn judge_via<C: Completer>(
+    c: &C,
+    checks: &Checks,
+    turns: &[TalkTurn],
+) -> Result<JudgeOutput, JudgeError> {
+    let base = build_prompt(checks, turns);
+    let mut last: Option<JudgeOutput> = None;
+    for attempt in 0..=LANG_RETRIES {
+        let prompt = if attempt == 0 {
+            base.clone()
+        } else {
+            format!("{base}{STRICT_SUFFIX}")
+        };
+        let out = match c.complete(&prompt).await {
+            Ok(j) => convert_response(checks, &j),
+            // やり直しの途中で通信が失敗したら、前の結果から混ざった文章を除いて使う
+            Err(e) => match last.take() {
+                Some(mut o) => {
+                    let src = source_text(turns, &o.items);
+                    o.sanitize(&src);
+                    return Ok(o);
+                }
+                None => return Err(e),
+            },
+        };
+        let src = source_text(turns, &out.items);
+        if !out.has_foreign_text(&src) {
+            return Ok(out);
+        }
+        last = Some(out);
+    }
+    let mut o = last.expect("at least one attempt");
+    let src = source_text(turns, &o.items);
+    o.sanitize(&src);
+    Ok(o)
+}
+
+// ---------------------------------------------------------------------------
 // MiniMax
 // ---------------------------------------------------------------------------
 
@@ -338,10 +458,15 @@ impl MiniMaxJudge {
     }
 }
 
+impl Completer for MiniMaxJudge {
+    async fn complete(&self, prompt: &str) -> Result<Value, JudgeError> {
+        self.complete_json(prompt).await
+    }
+}
+
 impl Judge for MiniMaxJudge {
     async fn judge(&self, checks: &Checks, turns: &[TalkTurn]) -> Result<JudgeOutput, JudgeError> {
-        let j = self.complete_json(&build_prompt(checks, turns)).await?;
-        Ok(convert_response(checks, &j))
+        judge_via(self, checks, turns).await
     }
 }
 
@@ -416,6 +541,93 @@ mod tests {
         let o = convert_response(c, &v);
         assert_eq!(o.outcome, None);
         assert_eq!(o.items[2].quote.as_ref().unwrap().chars().count(), 200);
+    }
+
+    struct Scripted(std::sync::Mutex<Vec<Value>>, std::sync::Mutex<Vec<String>>);
+    impl Completer for Scripted {
+        async fn complete(&self, prompt: &str) -> Result<Value, JudgeError> {
+            self.1.lock().unwrap().push(prompt.to_string());
+            let mut q = self.0.lock().unwrap();
+            if q.is_empty() {
+                Err(JudgeError::Transient("empty".into()))
+            } else {
+                Ok(q.remove(0))
+            }
+        }
+    }
+    fn resp(advice: &str, summary: &str) -> Value {
+        json!({"outcome": "決まらなかった", "checks": [
+            {"id": "early_date", "status": "できていない", "evidence": [1],
+             "quote": "来週はどうですか", "advice": advice, "note": ""}],
+         "summary": summary})
+    }
+    fn one_turn() -> Vec<TalkTurn> {
+        vec![TalkTurn {
+            n: 1,
+            speaker: "rep".into(),
+            text: "来週はどうですか".into(),
+        }]
+    }
+    fn early(o: &JudgeOutput) -> &StoredItem {
+        o.items.iter().find(|i| i.id == "early_date").unwrap()
+    }
+
+    #[tokio::test]
+    async fn retries_with_stronger_prompt_then_accepts() {
+        let c = Scripted(
+            std::sync::Mutex::new(vec![
+                resp("这个问题需要先确认", "日付が早い"),
+                resp("先に用件を伝える", "日付が早い"),
+            ]),
+            Default::default(),
+        );
+        let o = judge_via(&c, &loaded().checks, &one_turn()).await.unwrap();
+        assert_eq!(early(&o).advice.as_deref(), Some("先に用件を伝える"));
+        let prompts = c.1.lock().unwrap();
+        assert_eq!(prompts.len(), 2);
+        assert!(!prompts[0].contains("中国語・韓国語"));
+        assert!(prompts[1].contains("中国語・韓国語"));
+    }
+
+    #[tokio::test]
+    async fn three_failures_drop_the_text_but_keep_the_result() {
+        let bad = || resp("operatorsconciled を言う", "먼저 말한다");
+        let c = Scripted(
+            std::sync::Mutex::new(vec![bad(), bad(), bad(), bad()]),
+            Default::default(),
+        );
+        let o = judge_via(&c, &loaded().checks, &one_turn()).await.unwrap();
+        assert_eq!(c.1.lock().unwrap().len(), 3, "最初の 1 回 + 再試行 2 回");
+        let e = early(&o);
+        assert_eq!(e.status, "not_done", "できていない、の結果は残す");
+        assert_eq!(e.advice, None);
+        assert_eq!(e.note.as_deref(), Some(FALLBACK_TEXT));
+        assert_eq!(o.summary.as_deref(), Some(FALLBACK_TEXT));
+        assert_eq!(e.quote.as_deref(), Some("来週はどうですか"));
+    }
+
+    #[tokio::test]
+    async fn quote_with_foreign_text_is_not_checked() {
+        let mut r = resp("先に用件を伝える", "日付が早い");
+        r["checks"][0]["quote"] = json!("This is 这个 quote");
+        let c = Scripted(std::sync::Mutex::new(vec![r]), Default::default());
+        let o = judge_via(&c, &loaded().checks, &one_turn()).await.unwrap();
+        assert_eq!(c.1.lock().unwrap().len(), 1);
+        assert_eq!(early(&o).quote.as_deref(), Some("This is 这个 quote"));
+    }
+
+    #[tokio::test]
+    async fn transport_error_on_retry_uses_sanitized_previous_result() {
+        let c = Scripted(
+            std::sync::Mutex::new(vec![resp("这个问题", "日付が早い")]),
+            Default::default(),
+        );
+        let o = judge_via(&c, &loaded().checks, &one_turn()).await.unwrap();
+        assert_eq!(early(&o).advice, None);
+        assert_eq!(o.summary.as_deref(), Some("日付が早い"));
+        // 1 回目から失敗なら従来どおりエラー
+        let c = Scripted(Default::default(), Default::default());
+        assert!(judge_via(&c, &loaded().checks, &one_turn()).await.is_err());
     }
 
     #[test]

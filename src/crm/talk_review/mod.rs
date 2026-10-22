@@ -5,6 +5,7 @@
 //! - `transcript`: 録音 URL の取り出しと話者分け
 //! - `zoom`: Zoom Phone の録音・文字起こし (Server-to-Server OAuth)
 //! - `judge`: MiniMax による項目ごとの判定 (差し替え可能な `Judge`)
+//! - `lang`: 判定の文章が日本語だけかの検査 (中国語・韓国語・英単語が混ざったら再判定)
 //! - `store`: 監査 Turso の表 `call_talk_reviews`
 //! - `dials`: 架電数 (営業KPI と同じ Zoom 由来のシートの値)
 //! - `dial_breakdown`: 発信の内訳 (つながった・失敗・切った・モニタリング・内線)。過去の日は日単位でキャッシュ
@@ -26,6 +27,7 @@ pub mod counts;
 pub mod dial_breakdown;
 pub mod dials;
 pub mod judge;
+pub mod lang;
 pub mod live_dials;
 pub mod routes;
 pub mod store;
