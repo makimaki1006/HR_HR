@@ -225,7 +225,7 @@ test('面接が1件も無い取引と、期間を指定した応募ゼロ（面�
   await page.getByRole('combobox', { name: '応募ゼロを調べる期間' }).selectOption('weeks');
   await expect(table.locator('tbody > tr')).toHaveCount(1);
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
-  await expect(page.getByText('応募日が分からない応募がある1件は、期間の応募数を数えられないため含みません。')).toBeVisible();
+  await expect(page.getByText('応募日も作成日も分からない応募がある1件は、期間の応募数を数えられないため含みません。')).toBeVisible();
   expect(urls.some(url => /period_from=\d{4}-\d{2}-\d{2}&period_to=\d{4}-\d{2}-\d{2}/.test(url))).toBe(true);
   await page.getByRole('combobox', { name: '応募ゼロを調べる期間' }).selectOption('contract');
   await expect(page.getByRole('heading', { name: /初回契約の期間中/ })).toBeVisible();

@@ -764,7 +764,10 @@ pub fn extract_with_labels(
     };
     for row in unique.values() {
         let applicant = applicant_key(listing, &row.id);
-        let application_date = row.value("yingmuri").and_then(date);
+        let application_date = row
+            .application_day()
+            .map(|(day, _)| day)
+            .and_then(|d| date(&d));
         for property in PROPERTIES {
             let counts = reasons
                 .source_counts
@@ -921,6 +924,40 @@ mod tests {
         let c = &reasons.source_counts["kinmujoukennoyuusenjuni"];
         assert_eq!((c.missing, c.blank, c.nonblank), (1, 0, 1));
         assert!(!TEXT_PROPERTIES.contains(&"kyuujinkensakujouken"));
+    }
+    #[test]
+    fn a_reason_without_an_application_date_takes_its_creation_day() {
+        let reasons = extract_rows(&[
+            row(
+                "60",
+                &[
+                    ("oubodouki", Some("理由A")),
+                    ("yingmuri", Some("")),
+                    ("hs_createdate", Some("2026-10-05T15:00:00.000Z")),
+                ],
+            ),
+            row(
+                "61",
+                &[
+                    ("oubodouki", Some("理由B")),
+                    ("yingmuri", Some("2026-10-02")),
+                    ("hs_createdate", Some("2026-10-05T15:00:00.000Z")),
+                ],
+            ),
+            row("62", &[("oubodouki", Some("理由C"))]),
+        ]);
+        let date_of = |text: &str| {
+            reasons
+                .items
+                .iter()
+                .find(|i| i.text == text)
+                .unwrap()
+                .application_date
+                .clone()
+        };
+        assert_eq!(date_of("理由A").as_deref(), Some("2026-10-06"));
+        assert_eq!(date_of("理由B").as_deref(), Some("2026-10-02"));
+        assert_eq!(date_of("理由C"), None);
     }
     #[test]
     fn source_counts_conserve_missing_blank_and_nonblank_without_person_fields() {

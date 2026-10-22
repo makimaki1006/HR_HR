@@ -805,6 +805,8 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
     assert_eq!(applicants["summary"]["total"], 2);
     assert_eq!(applicants["summary"]["by_date"]["2026-10-03"], 1);
     assert_eq!(applicants["summary"]["missing_date"], 1);
+    // 51 has neither a 応募日 nor a creation time, so nothing falls back to a creation day.
+    assert_eq!(applicants["summary"]["created_date_count"], 0);
     // The dated application 50 is also linked to job 31: counted apart, by its date.
     assert_eq!(
         applicants["summary"]["multi_listing_by_date"],
@@ -900,6 +902,7 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
         applicant_batch.body["properties"],
         json!([
             "yingmuri",
+            "hs_createdate",
             "seibetsu",
             "nenrei",
             "todoufuken",

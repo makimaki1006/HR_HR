@@ -118,7 +118,7 @@ test.describe('案件管理のタイムライン', () => {
     await expect(billingLane.locator('.jt-billing')).toHaveText(['ダミー 7万3,000円', 'ダミー 4万7,097円']);
     await expect(billingLane.locator('.jt-billing-dummy')).toHaveCount(2);
     await expect(timeline.getByRole('note').filter({ hasText: '実際の請求額ではありません' })).toBeVisible();
-    await expect(timeline).toContainText('応募日が分からない応募 1件 はグラフに含めていません');
+    await expect(timeline).toContainText('応募日も作成日も分からない応募 1件 はグラフに含めていません');
     // 市場は人が指定した職種と、勤務地から選んだ都道府県で取る
     await expect(timeline.getByText('市場と比べる職種：配送ドライバー（人が指定）', { exact: true })).toBeVisible();
     await expect(timeline.getByLabel('都道府県')).toHaveValue('大分県');

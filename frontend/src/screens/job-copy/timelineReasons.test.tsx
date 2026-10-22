@@ -50,7 +50,7 @@ describe('応募理由 lane and the per-period table', () => {
     expect(document.activeElement?.tagName).toBe('TR');
     expect(document.activeElement?.querySelector('th')?.textContent).toContain('給与・勤務条件変更');
     expect(screen.getByText(/枠を押すと、下の「期間ごとの応募理由」の表で分類ごとの数を確認できます/u)).toBeTruthy();
-    expect(screen.getByText('応募日が分からない応募理由 1件 は段と表に入れていません')).toBeTruthy();
+    expect(screen.getByText('応募日も作成日も分からない応募理由 1件 は段と表に入れていません')).toBeTruthy();
     const section = screen.getByRole('region', { name: '期間ごとの応募理由' });
     expect(section.textContent).not.toMatch(CAUSAL_PATTERN);
     expect(section.textContent).not.toMatch(JARGON_PATTERN);
@@ -320,7 +320,7 @@ describe('a lane with reasons but no box', () => {
     render(<JobTimeline job={{ ...job, applicantReasons: undated }} marketMode="demo" />);
     const lane = screen.getByRole('group', { name: '応募理由' });
     expect(lane.querySelectorAll('.jt-reason')).toHaveLength(0);
-    expect(lane.textContent).toContain('表の期間に入る応募理由はありません（応募理由の記録 9件 は、応募日が分からないか表の期間の外です）');
+    expect(lane.textContent).toContain('表の期間に入る応募理由はありません（応募理由の記録 9件 は、日付が分からないか表の期間の外です）');
   });
 
   it('says why when there are no periods at all, and still shows the reason table section', () => {

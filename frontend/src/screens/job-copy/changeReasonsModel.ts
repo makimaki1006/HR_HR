@@ -42,7 +42,7 @@ export interface ChangeReasonBlock {
 export interface ChangeReasonSummary {
   /** 応募理由を収集できているか。 */
   reasonsAvailable: boolean;
-  /** 応募日が分からず、どの期間にも入れていない記録（応募ごと）。 */
+  /** 応募日も作成日も分からず、どの期間にも入れていない記録（応募ごと）。 */
   undated: number;
   /** ほかの求人にも関連するため数えていない応募。分からないときは null。 */
   multiListing: number | null;

@@ -160,7 +160,18 @@ describe('job timeline lanes', () => {
     expect((lastChart('jt-applications')?.option as { series: { data: unknown[] }[] }).series[0]?.data).toHaveLength(12);
     fireEvent.click(screen.getByRole('button', { name: '月ごと' }));
     expect(total()).toBe(18);
-    expect(screen.getByText('応募日が分からない応募 10件 はグラフに含めていません')).toBeTruthy();
+    expect(screen.getByText('応募日も作成日も分からない応募 10件 はグラフに含めていません')).toBeTruthy();
+  });
+
+  it('tells how many applications were dated by their creation day, only when there are some', () => {
+    const base = demo('demo-job-001');
+    const overall = base.overallApplications;
+    if (!overall) throw new Error('missing overall applications');
+    const { rerender } = render(<JobTimeline job={base} marketMode="demo" />);
+    expect(screen.queryByText(/作成日で数えています/u)).toBeNull();
+    rerender(<JobTimeline job={{ ...base, overallApplications: { ...overall, createdDateCount: 4 } }} marketMode="demo" />);
+    expect(screen.getByText('応募日が無い 4件は作成日で数えています')).toBeTruthy();
+    expect(screen.getByText('応募日も作成日も分からない応募 10件 はグラフに含めていません')).toBeTruthy();
   });
 
   it('opens the body or the diff from a selected version', () => {

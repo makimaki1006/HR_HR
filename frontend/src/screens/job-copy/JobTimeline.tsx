@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode, RefObject } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { EChart } from '../../components/EChart';
 import type { JobCopyRecord } from './data';
+import { createdDateNote } from './liveApplications';
 import { marketRows } from './marketChartModel';
 import type { MarketData, MarketRow } from './marketChartModel';
 import { useMarketFetch } from './marketSource';
@@ -310,6 +311,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
     if (selected && panel && 'scrollIntoView' in panel) panel.scrollIntoView({ block: 'nearest' });
   }, [selected]);
   const applications = job.overallApplications;
+  const createdNote = createdDateNote(applications?.createdDateCount);
   const buckets = useMemo(() => applicationBuckets(applications?.byDate, granularity), [applications, granularity]);
   // While a new choice loads, the chart keeps the previous rows (staleRows) so it is not torn down.
   const laneRows = market.state.rows ?? (market.state.status === 'loading' ? market.state.staleRows : null);
@@ -482,7 +484,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       </Lane>
       <div className="jt-lane-tools">
         <div className="jt-granularity" role="group" aria-label="応募の集計単位">{(['day', 'week', 'month'] as const).map(value => <button type="button" key={value} aria-pressed={granularity === value} onClick={() => { setGranularity(value); }}>{granularityLabel[value]}ごと</button>)}</div>
-        {applications && applications.missingDate > 0 && <span>応募日が分からない応募 {applications.missingDate}件 はグラフに含めていません</span>}
+        {createdNote && <span>{createdNote}</span>}
+        {applications && applications.missingDate > 0 && <span>応募日も作成日も分からない応募 {applications.missingDate}件 はグラフに含めていません</span>}
         {outside > 0 && <span>{captured ? `最初に文面を確認した日まで（その日を含む）の応募 ${String(outside)}件` : `最初の掲載より前の日付の応募 ${String(outside)}件`}</span>}
         {unsure > 0 && <span>文面を確認した日の間・最後の確認より後の応募 {unsure}件 は、どちらの内容への応募か分からないため期間比較表の各本文には入れていません</span>}
         {multi ? multiTotal > 0 && <span>複数の求人に関連する応募 {multiTotal}件 は期間比較表に入れていません</span>
@@ -493,7 +496,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         {!reasonClasses ? <p className="jt-empty">応募理由は未取得です（0件という意味ではありません）</p>
           : !reasonClasses.applications.length ? <p className="jt-empty">{emptyReasonText(reasonClasses, selectionsUnread, job.applicantReasons?.truncated === true)}</p>
             : rows.length === 0 ? <p className="jt-empty">掲載期間が取得できていないため、期間ごとに分けられません（応募理由の記録 {reasonClasses.applications.length}件 は「応募理由」で確認できます）</p>
-              : !reasonInPeriods ? <p className="jt-empty">表の期間に入る応募理由はありません（応募理由の記録 {reasonClasses.applications.length}件 は、応募日が分からないか表の期間の外です）</p>
+              : !reasonInPeriods ? <p className="jt-empty">表の期間に入る応募理由はありません（応募理由の記録 {reasonClasses.applications.length}件 は、日付が分からないか表の期間の外です）</p>
                 : rows.filter(row => !row.afterCounts).map(row => {
                   const result = reasonOf(row.key);
                   if (!result || result.n === 0) return null;
@@ -507,7 +510,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         {reasonInPeriods && <span>枠を押すと、下の「期間ごとの応募理由」の表で分類ごとの数を確認できます。斜線の枠は、どちらの内容への応募か分からない期間（文面を確認した日の間・最後の確認より後）です</span>}
         {job.applicantReasons?.selections === null && reasonClasses?.applications.length ? <span>このデータでは分類の選択を取得していないため、数はすべて文から言葉で推定したものです（選択済みは0件ではなく未取得）</span> : null}
         {job.applicantReasons?.truncated === true && <span>記述が多く一部しか読み込んでいないため、期間ごとの応募理由の数は実際より少ないことがあります</span>}
-        {reasonPeriods.undated > 0 && <span>応募日が分からない応募理由 {reasonPeriods.undated}件 は段と表に入れていません</span>}
+        {reasonPeriods.undated > 0 && <span>応募日も作成日も分からない応募理由 {reasonPeriods.undated}件 は段と表に入れていません</span>}
         {reasonPeriods.outside > 0 && <span>表のどの期間にも入らない日付の応募理由 {reasonPeriods.outside}件 は段と表に入れていません</span>}
         {(reasonClasses?.multiListing ?? 0) > 0 && <span>複数の求人に関連する応募の応募理由 {reasonClasses?.multiListing}件 は、期間比較表と同じく段と表に入れていません</span>}
       </div>}

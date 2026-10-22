@@ -42,6 +42,53 @@ pub(super) fn jst_day(value: &str) -> Option<String> {
         .map(|time| time.with_timezone(&jst).format("%Y-%m-%d").to_string())
 }
 
+/// HubSpot property read together with `yingmuri`: the day an application was created.
+pub(super) const CREATED: &str = "hs_createdate";
+/// The properties every application-date read asks for (the same batch read, no extra call).
+pub(super) const DATE_PROPERTIES: [&str; 2] = ["yingmuri", CREATED];
+
+/// The day (JST, `YYYY-MM-DD`) an application is counted on, and whether it came from the
+/// creation time. The 応募日 (`yingmuri`) is used when it is readable; when it is empty the
+/// creation time is used instead (HubSpot creates the record 0–2 days after the real 応募日).
+/// None only when both are missing or unreadable.
+pub(super) fn application_day_of(
+    yingmuri: Option<&str>,
+    created: Option<&str>,
+) -> Option<(String, bool)> {
+    fn blank(v: Option<&str>) -> Option<&str> {
+        v.map(str::trim).filter(|v| !v.is_empty())
+    }
+    if let Some(day) = blank(yingmuri).and_then(jst_day) {
+        return Some((day, false));
+    }
+    let created = blank(created)?;
+    // HubSpot sends an ISO time; some paths hold epoch milliseconds.
+    let day = jst_day(created).or_else(|| {
+        let at = DateTime::<chrono::Utc>::from_timestamp_millis(created.parse::<i64>().ok()?)?;
+        Some(
+            at.with_timezone(&FixedOffset::east_opt(9 * 3600)?)
+                .format("%Y-%m-%d")
+                .to_string(),
+        )
+    })?;
+    Some((day, true))
+}
+
+impl Record {
+    /// See [`application_day_of`].
+    pub(super) fn application_day(&self) -> Option<(String, bool)> {
+        application_day_of(self.value("yingmuri"), self.value(CREATED))
+    }
+}
+
+/// Day per application (None when neither date exists) and how many of them came from the
+/// creation time. The latter is inside the dated count, not added to it.
+pub(super) fn days_of(rows: &[Record]) -> (Vec<Option<String>>, usize) {
+    let found: Vec<_> = rows.iter().map(Record::application_day).collect();
+    let created = found.iter().flatten().filter(|(_, c)| *c).count();
+    (found.into_iter().map(|d| d.map(|d| d.0)).collect(), created)
+}
+
 /// Counts of dated applications by day, and the number without a usable date.
 pub(super) fn count_by_date(days: &[Option<String>]) -> (BTreeMap<String, usize>, usize) {
     let mut by_date = BTreeMap::new();
@@ -152,15 +199,14 @@ pub(super) async fn read(
                 return Err(ReadError(StatusCode::FORBIDDEN, "listing_not_in_deal"));
             }
             let applications = service.all_associations("0-420", id, "0-421").await?;
-            let rows = service.batch("0-421", &applications, &["yingmuri"]).await?;
-            let days: Vec<Option<String>> = rows
-                .iter()
-                .map(|r| r.value("yingmuri").and_then(jst_day))
-                .collect();
+            let rows = service
+                .batch("0-421", &applications, &DATE_PROPERTIES)
+                .await?;
+            let (days, from_created) = days_of(&rows);
             let (by_date, missing) = count_by_date(&days);
             let pairs = rows.iter().map(|r| r.id.clone()).zip(days).collect();
             Ok((
-                json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"by_date":by_date,
+                json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"created_date_count":from_created,"by_date":by_date,
                     "fetched_at":chrono::Utc::now().to_rfc3339()}),
                 pairs,
             ))
@@ -258,6 +304,71 @@ mod tests {
         assert_eq!(map["1"].0, "indeed_weekly_perf");
         assert_eq!(map["1"].1["rows"][0]["cost_yen"], 12345.5);
         assert!(!map.contains_key("2") && !map.contains_key("3") && !map.contains_key("4"));
+    }
+
+    fn rec(id: &str, yingmuri: Option<&str>, created: Option<&str>) -> Record {
+        Record {
+            id: id.into(),
+            properties: [("yingmuri", yingmuri), ("hs_createdate", created)]
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v.map(str::to_owned)))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn application_day_prefers_the_application_date_then_the_creation_day() {
+        let day = |y, c| application_day_of(y, c);
+        // 応募日あり: 作成日は見ない。
+        assert_eq!(
+            day(Some("2026-10-03"), Some("2026-10-05T00:00:00Z")),
+            Some(("2026-10-03".into(), false))
+        );
+        // 応募日が空・空白・読めない: 作成日（JST の日付）。UTC 15:00 以降は翌日になる。
+        for blank in [None, Some(""), Some("  "), Some("bad")] {
+            assert_eq!(
+                day(blank, Some("2026-10-05T14:59:59.999Z")),
+                Some(("2026-10-05".into(), true))
+            );
+            assert_eq!(
+                day(blank, Some("2026-10-05T15:00:00.000Z")),
+                Some(("2026-10-06".into(), true))
+            );
+        }
+        // epoch ミリ秒でも同じ（2026-10-05T15:00:00Z）。
+        assert_eq!(
+            day(None, Some("1791212400000")),
+            Some(("2026-10-06".into(), true))
+        );
+        // 両方ない・作成日も読めない: 数えない。
+        assert_eq!(day(None, None), None);
+        assert_eq!(day(Some(" "), Some("")), None);
+        assert_eq!(day(None, Some("not a time")), None);
+    }
+
+    #[test]
+    fn days_of_counts_creation_fallbacks_inside_the_dated_count() {
+        let rows = [
+            rec("1", Some("2026-10-03"), Some("2026-10-05T00:00:00Z")),
+            rec("2", None, Some("2026-10-04T01:00:00Z")),
+            rec("3", Some(""), Some("2026-10-04T20:00:00Z")),
+            rec("4", None, None),
+        ];
+        let (days, from_created) = days_of(&rows);
+        assert_eq!(
+            days,
+            vec![
+                Some("2026-10-03".into()),
+                Some("2026-10-04".into()),
+                Some("2026-10-05".into()),
+                None
+            ]
+        );
+        assert_eq!(from_created, 2);
+        let (by_date, missing) = count_by_date(&days);
+        assert_eq!(by_date.values().sum::<usize>() + missing, rows.len());
+        assert_eq!(missing, 1);
+        assert_eq!(by_date["2026-10-05"], 1);
     }
 
     #[test]

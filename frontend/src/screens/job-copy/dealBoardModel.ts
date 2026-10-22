@@ -55,7 +55,7 @@ export function isZeroApplicant(row: DealRow, mode: ZeroPeriod): boolean {
   if (!row.active || !attached(row)) return false;
   return mode === 'contract' ? row.first_contract && row.contract_applications === 0 : row.period_applications === 0;
 }
-/** 期間の応募数を数えられない取引（求人票はあるが応募日が分からない応募がある）。 */
+/** 期間の応募数を数えられない取引（求人票はあるが応募日も作成日も分からない応募がある）。 */
 export function periodUnknown(row: DealRow, mode: ZeroPeriod): boolean {
   if (mode === 'all' || !row.active || !attached(row)) return false;
   return mode === 'contract' ? row.first_contract && row.contract_applications == null : row.period_applications == null;

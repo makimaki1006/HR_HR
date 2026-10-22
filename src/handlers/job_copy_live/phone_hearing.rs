@@ -200,7 +200,7 @@ fn extract(
                 .map(str::to_owned),
             prefecture: attribute(row, "todoufuken"),
             municipality: attribute(row, "shikuchouson"),
-            application_date: row.value("yingmuri").and_then(super::deal_summary::jst_day),
+            application_date: row.application_day().map(|(day, _)| day),
             media: media_property
                 .and_then(|p| display(row, p, labels))
                 .map(|s| bounded(&s, &mut result.truncated)),
@@ -339,6 +339,7 @@ impl JobReadService {
             FIELDS.iter().flat_map(|(p, _)| p.iter().copied()).collect();
         properties.extend([
             "yingmuri",
+            super::deal_summary::CREATED,
             "seibetsu",
             "nenrei",
             "todoufuken",
@@ -472,10 +473,7 @@ fn bundle(
     reasons.missing += counts.missing;
     reasons.source_counts.insert("call_notes".into(), counts);
     reasons.truncated |= hearing.truncated;
-    let days: Vec<_> = rows
-        .iter()
-        .map(|r| r.value("yingmuri").and_then(super::deal_summary::jst_day))
-        .collect();
+    let (days, from_created) = super::deal_summary::days_of(rows);
     let (by_date, missing) = super::deal_summary::count_by_date(&days);
     let people: Vec<_> = rows.iter().zip(days).map(|(row, day)| json!({
         "key":applicant_key(listing, &row.id), "date":day,
@@ -488,7 +486,7 @@ fn bundle(
         .as_array_mut()
         .expect("hearing items")
         .truncate(MAX_ITEMS);
-    json!({"listing_id":listing,"total":total,"missing_date":missing,"by_date":by_date,
+    json!({"listing_id":listing,"total":total,"missing_date":missing,"created_date_count":from_created,"by_date":by_date,
         "applications":people,"applicant_reasons":reasons,"phone_hearing":hearing,"fetched_at":fetched})
 }
 fn add_reason(
@@ -508,7 +506,7 @@ fn add_reason(
         text,
         source: "hubspot".into(),
         source_property: property.into(),
-        application_date: row.value("yingmuri").and_then(super::deal_summary::jst_day),
+        application_date: row.application_day().map(|(day, _)| day),
         collected_at: None,
         version_id: None,
     });

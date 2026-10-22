@@ -169,22 +169,11 @@ fn nonblank(properties: &Value, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 fn app_date(properties: &Value) -> Option<NaiveDate> {
-    if let Some(day) = nonblank(properties, "yingmuri") {
-        if let Ok(d) = NaiveDate::parse_from_str(day.get(..10).unwrap_or(&day), "%Y-%m-%d") {
-            return Some(d);
-        }
-    }
-    let created = nonblank(properties, "hs_createdate")?;
-    let at = DateTime::parse_from_rfc3339(&created)
-        .ok()
-        .map(|d| d.with_timezone(&Utc))
-        .or_else(|| {
-            created
-                .parse::<i64>()
-                .ok()
-                .and_then(DateTime::<Utc>::from_timestamp_millis)
-        })?;
-    Some((at + chrono::Duration::hours(9)).date_naive())
+    let yingmuri = nonblank(properties, "yingmuri");
+    let created = nonblank(properties, super::deal_summary::CREATED);
+    let (day, _) =
+        super::deal_summary::application_day_of(yingmuri.as_deref(), created.as_deref())?;
+    NaiveDate::parse_from_str(&day, "%Y-%m-%d").ok()
 }
 fn is_unset(value: &str, label: Option<&str>) -> bool {
     let plain = |s: &str| s.trim().to_lowercase();
