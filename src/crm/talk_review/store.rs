@@ -268,6 +268,30 @@ pub fn mark_judged(
     )
 }
 
+/// 判定済みの行 (新しい電話から)。助言の文が不合格の行を見つける起動時の 1 回の SELECT 用
+pub fn judged_since(t: &TursoDb, since: &str) -> Result<Vec<ReviewRow>, String> {
+    let sql = format!(
+        "SELECT {COLS} FROM call_talk_reviews WHERE status = 'judged' AND call_at >= ?1 ORDER BY call_at DESC"
+    );
+    Ok(t.query(&sql, &[&since])?.iter().map(row_from).collect())
+}
+
+/// 判定の結果は変えずに、助言・メモ・まとめの文章だけを書き換える (録音が消えて判定し直せない行用)
+pub fn mark_text_cleaned(
+    t: &TursoDb,
+    id: &str,
+    items: &[StoredItem],
+    summary: Option<&str>,
+    now: &str,
+) -> Result<(), String> {
+    let items = serde_json::to_string(items).map_err(|e| e.to_string())?;
+    t.execute(
+        "UPDATE call_talk_reviews SET items = ?2, summary = ?3, updated_at = ?4 \
+         WHERE hubspot_call_id = ?1 AND status = 'judged'",
+        &[&id, &items, &NullText(summary.map(str::to_string)), &now],
+    )
+}
+
 /// `[from, to)` (UTC の文字列) の行。`owner` を指定するとその人だけ
 pub fn rows_in(
     t: &TursoDb,
@@ -383,6 +407,31 @@ mod tests {
             assert_eq!(r.first_date_turn, Some(4));
             assert_eq!(r.items, out.items);
             assert_eq!(r.checks_version.as_deref(), Some("abcd1234"));
+            // 判定済みの行の一覧と、文章だけの書き換え
+            assert_eq!(judged_since(t, "2026-10-01T00:00:00Z")?.len(), 1);
+            let mut cleaned = out.items.clone();
+            cleaned[0].advice = None;
+            mark_text_cleaned(
+                t,
+                "c1",
+                &cleaned,
+                Some("判定の文章を作れませんでした"),
+                "2026-10-15T00:50:00Z",
+            )?;
+            let r = get(t, "c1")?.unwrap();
+            assert_eq!(r.items[0].advice, None);
+            assert_eq!(r.summary.as_deref(), Some("判定の文章を作れませんでした"));
+            assert_eq!(r.outcome.as_deref(), Some("決まらなかった"));
+            assert_eq!(r.items[0].status, "not_done");
+            mark_judged(
+                t,
+                "c1",
+                1,
+                "abcd1234",
+                "MiniMax-M3",
+                &out,
+                "2026-10-15T00:51:00Z",
+            )?;
             // 判定済みの行は再試行の更新を受けない
             mark_retry(t, "c1", 9, "x", "x", "x")?;
             assert_eq!(get(t, "c1")?.unwrap().attempts, 1);

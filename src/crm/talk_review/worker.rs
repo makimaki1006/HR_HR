@@ -19,7 +19,9 @@ use serde_json::{json, Value};
 use super::checks::loaded;
 use super::config::TalkReviewConfig;
 use super::counts::TeamOwners;
-use super::judge::{Judge, JudgeError, JudgeOutput, MiniMaxJudge};
+use super::judge::{
+    sanitize_texts, source_text, texts_foreign, Judge, JudgeError, JudgeOutput, MiniMaxJudge,
+};
 use super::store::{self, NewRow, ReviewRow, ST_FAILED, ST_QUEUED, ST_UNAVAILABLE};
 use super::transcript::{extract_call_log_id, has_both_sides};
 use super::zoom::{TranscriptSource, ZoomClient, ZoomError, REC_PREFIX};
@@ -455,9 +457,86 @@ struct Worker<Z, J> {
     backfill_next: Option<chrono::NaiveDate>,
     backfill_anchor: Option<DateTime<Utc>>,
     pending: Arc<PendingWrites>,
+    /// 助言の文が日本語だけでない判定済みの行 (起動時に 1 回だけ探し、周回ごとに少しずつ判定し直す)
+    rejudge: std::collections::VecDeque<ReviewRow>,
+}
+
+/// 保存済みの行の文章に日本語以外が混ざっているか (英単語の許可は行の引用だけで判断する)
+pub fn row_has_foreign_text(row: &ReviewRow) -> bool {
+    let src = source_text(&[], &row.items);
+    texts_foreign(&row.items, row.summary.as_deref(), &src)
+}
+
+/// 1 周に判定し直す行の上限 (同時に判定する本数の 2 倍。既定 8 本)
+fn rejudge_limit(concurrency: usize) -> usize {
+    (concurrency * 2).max(1)
 }
 
 impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
+    /// 起動後に 1 回: 判定済みの行から、文章に日本語以外が混ざったものを集める (SELECT 1 回)
+    async fn find_rejudge(&mut self) {
+        let since = store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
+        match store::blocking(&self.audit, move |t| store::judged_since(t, &since)).await {
+            Ok(rows) => {
+                self.rejudge = rows.into_iter().filter(row_has_foreign_text).collect();
+                tracing::info!(rows = self.rejudge.len(), "talk review: rows to rejudge");
+            }
+            Err(e) => tracing::warn!(error = %e, "talk review: rejudge scan failed"),
+        }
+    }
+
+    /// 文章が不合格の行を、1 周に上限本数だけ判定し直す。録音が消えた行は文章だけ取り除く。
+    /// 通信などの一時的な失敗は、その行を見送る (次の起動でまた探す)
+    async fn process_rejudge(&mut self) {
+        let n = rejudge_limit(self.cfg.concurrency).min(self.rejudge.len());
+        if n == 0 {
+            return;
+        }
+        let sem = Arc::new(tokio::sync::Semaphore::new(self.cfg.concurrency));
+        let mut set = tokio::task::JoinSet::new();
+        for row in self.rejudge.drain(..n) {
+            let (zoom, judge, audit, model, sem, pending) = (
+                self.zoom.clone(),
+                self.judge.clone(),
+                self.audit.clone(),
+                self.cfg.model.clone(),
+                sem.clone(),
+                self.pending.clone(),
+            );
+            set.spawn(async move {
+                let Ok(_p) = sem.acquire().await else { return };
+                match process_one(&*zoom, &*judge, &row, Utc::now()).await {
+                    Outcome::Judged(o) => {
+                        apply(
+                            &audit,
+                            &pending,
+                            row.hubspot_call_id.clone(),
+                            Update::Judged(o, row.attempts),
+                            model,
+                        )
+                        .await;
+                    }
+                    Outcome::Unavailable(_) => {
+                        let (mut items, mut summary) = (row.items.clone(), row.summary.clone());
+                        sanitize_texts(&mut items, &mut summary, &source_text(&[], &row.items));
+                        let (id, now) = (row.hubspot_call_id.clone(), store::ts_text(Utc::now()));
+                        if let Err(e) = store::blocking(&audit, move |t| {
+                            store::mark_text_cleaned(t, &id, &items, summary.as_deref(), &now)
+                        })
+                        .await
+                        {
+                            tracing::warn!(error = %e, "talk review: text cleanup failed");
+                        }
+                    }
+                    Outcome::Retry(note) => {
+                        tracing::info!(note, "talk review: rejudge skipped");
+                    }
+                }
+            });
+        }
+        while set.join_next().await.is_some() {}
+    }
+
     async fn discover(&mut self, now: DateTime<Utc>) -> Result<(), String> {
         let bg = self.client.background();
         let list = crate::crm::owners::fetch_all(&bg)
@@ -725,6 +804,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 tracing::warn!(error = %e, "talk review: requeue failed");
             }
         }
+        self.find_rejudge().await;
         loop {
             let now = Utc::now();
             if let Err(e) = self.discover(now).await {
@@ -735,6 +815,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             self.pending.flush(&self.audit).await;
             // 時間切れで判定待ちが残っていれば待たずに次の周回 (新しい電話を拾い直してから続ける)
             if !self.process_due().await {
+                // 新しい判定が無い周回に、文章が不合格の行を少しずつ判定し直す
+                self.process_rejudge().await;
                 tokio::time::sleep(self.cfg.interval).await;
             }
         }
@@ -781,6 +863,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         backfill_next: None,
         backfill_anchor: None,
         pending: Arc::new(PendingWrites::default()),
+        rejudge: Default::default(),
     };
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -791,6 +874,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crm::talk_review::judge::StoredItem;
     use crate::crm::talk_review::store::ST_PENDING;
     use crate::crm::talk_review::types::TalkTurn;
 
@@ -866,6 +950,32 @@ mod tests {
         DateTime::parse_from_rfc3339("2026-10-15T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn rows_with_foreign_advice_are_found_for_rejudge() {
+        let item = |advice: &str, quote: &str| StoredItem {
+            id: "early_date".into(),
+            status: "not_done".into(),
+            evidence: vec![],
+            quote: Some(quote.into()),
+            advice: Some(advice.into()),
+            note: None,
+        };
+        let mut r = row(Some("z"), "2026-10-15T11:00:00Z");
+        r.items = vec![item("先に用件を伝える", "来週は")];
+        assert!(!row_has_foreign_text(&r));
+        r.items = vec![item("这个问题", "来週は")];
+        assert!(row_has_foreign_text(&r));
+        r.items = vec![item("operatorsconciled", "来週は")];
+        assert!(row_has_foreign_text(&r));
+        // 引用にある語は許す
+        r.items = vec![item("kintone を出す", "kintone です")];
+        assert!(!row_has_foreign_text(&r));
+        r.items = vec![item("先に用件を伝える", "来週は")];
+        r.summary = Some("먼저".into());
+        assert!(row_has_foreign_text(&r));
+        assert_eq!(rejudge_limit(4), 8);
     }
 
     #[tokio::test]
