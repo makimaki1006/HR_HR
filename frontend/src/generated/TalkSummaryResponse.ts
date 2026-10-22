@@ -44,6 +44,10 @@ dials_partial: boolean,
  */
 dials_fetched_at: string | null, 
 /**
+ * 発信の内訳をまだ集計している (過去の日を Zoom から取り込み中。しばらくして取り直すと出る)
+ */
+dial_breakdown_pending: boolean, 
+/**
  * チーム全体 (絞り込み後の people 全員の合計)
  */
 total: TalkPersonRow, };

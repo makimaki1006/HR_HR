@@ -287,6 +287,7 @@ pub(in crate::crm) async fn get_summary(
         name: name.to_string(),
         team: None,
         outbound: None,
+        dial_breakdown: None,
         dials: None,
         appointments: 0,
         appointment_rate_pct: None,
@@ -316,7 +317,8 @@ pub(in crate::crm) async fn get_summary(
                 people: Vec<TalkPersonRow>,
                 total: TalkPersonRow,
                 counting: &[NaiveDate],
-                dials: Option<&Dials>| TalkSummaryResponse {
+                dials: Option<&Dials>,
+                breakdown_pending: bool| TalkSummaryResponse {
         from: from.to_string(),
         to: to.to_string(),
         as_of: now_text(now),
@@ -331,10 +333,19 @@ pub(in crate::crm) async fn get_summary(
         dials_error: enabled && dials.is_none(),
         dials_partial: dials.is_some_and(|d| d.partial),
         dials_fetched_at: dials.and_then(|d| d.fetched_at.clone()),
+        dial_breakdown_pending: breakdown_pending,
         total,
     };
     if !cfg.enabled || state.audit.is_none() {
-        return Json(base(false, vec![], empty_total("チーム全体"), &[], None)).into_response();
+        return Json(base(
+            false,
+            vec![],
+            empty_total("チーム全体"),
+            &[],
+            None,
+            false,
+        ))
+        .into_response();
     }
     let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
@@ -391,6 +402,16 @@ pub(in crate::crm) async fn get_summary(
         None
     };
     let dials = dials::load_with_live(from, to, today, live.as_deref()).await;
+    // 発信の内訳 (発信数のホバー用)。今日は live と同じページから、前の日は背景で取り込んだキャッシュから
+    let breakdown = super::dial_breakdown::resolve(
+        st.zoom_client(),
+        super::live_dials::owner_by_email(&list.owners),
+        from,
+        to,
+        today,
+        live.as_deref(),
+    );
+    let breakdown_pending = breakdown == super::dial_breakdown::Outcome::Pending;
     let members: Vec<Member> = all_members
         .into_iter()
         .filter(|m| {
@@ -429,7 +450,18 @@ pub(in crate::crm) async fn get_summary(
         None => None,
     };
     apply_contact(&mut people, &mut total, marks.as_ref());
-    Json(base(true, people, total, &snap.counting, dials.as_ref())).into_response()
+    if let super::dial_breakdown::Outcome::Ready(map) = &breakdown {
+        super::dial_breakdown::apply(&mut people, &mut total, map);
+    }
+    Json(base(
+        true,
+        people,
+        total,
+        &snap.counting,
+        dials.as_ref(),
+        breakdown_pending,
+    ))
+    .into_response()
 }
 
 pub(in crate::crm) async fn get_calls(

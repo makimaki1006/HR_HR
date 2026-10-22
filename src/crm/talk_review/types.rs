@@ -33,6 +33,23 @@ pub struct TalkItemRate {
     pub flagged: bool,
 }
 
+/// 発信の内訳 (Zoom の通話記録から直接数えた本数。シート由来の発信数と数本ずれることがある)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, TS)]
+pub struct DialBreakdown {
+    /// つながった (録音が残った発信)
+    pub connected: u32,
+    /// 発信に失敗した (相手側の回線・番号の問題など。記録上は「つながった」と出るが録音が無いもの)
+    pub failed: u32,
+    /// こちらで切った
+    pub cancelled: u32,
+    /// モニタリング (他の人の通話を聞いた)
+    pub monitor: u32,
+    /// 社内の内線
+    pub extension: u32,
+    /// 上の合計
+    pub total: u32,
+}
+
 /// 表の 1 行 (1 人、またはチーム全体)
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct TalkPersonRow {
@@ -42,6 +59,8 @@ pub struct TalkPersonRow {
     pub team: Option<String>,
     /// 発信数 (Zoom の発信すべて。相手が出る前に切ったもの・つながらなかったものを含む。営業KPI の「発信」)。dials と同じく読めなければ null
     pub outbound: Option<u32>,
+    /// 発信の内訳 (発信数のホバー用)。集計中・Zoom から取れないときは null
+    pub dial_breakdown: Option<DialBreakdown>,
     /// 架電数 (Zoom でつながった通話。営業KPI の「架電数」と同じ)。シートが読めなければ null
     pub dials: Option<u32>,
     pub appointments: u32,
@@ -111,6 +130,8 @@ pub struct TalkSummaryResponse {
     pub dials_partial: bool,
     /// 途中経過の取得時刻 (`yyyy-MM-dd HH:mm`)。分からなければ null
     pub dials_fetched_at: Option<String>,
+    /// 発信の内訳をまだ集計している (過去の日を Zoom から取り込み中。しばらくして取り直すと出る)
+    pub dial_breakdown_pending: bool,
     /// チーム全体 (絞り込み後の people 全員の合計)
     pub total: TalkPersonRow,
 }
