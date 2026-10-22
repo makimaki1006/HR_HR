@@ -4,6 +4,11 @@ use super::*;
 
 const TIME_LIMIT: Duration = Duration::from_secs(10 * 60);
 const DEALS_PER_CHUNK: usize = 50;
+/// 途中経過を引き継げる期間。通常の期限(60分)で捨てると、画面を開く人がいない時間や
+/// 再起動をまたいだとき、いつまでも最初からやり直しになるため、一日は引き継ぐ。
+const RESUME_WINDOW: Duration = Duration::from_secs(24 * 60 * 60);
+/// 締め切りの後の保存待ちも含めた、1回の更新の絶対的な上限の余裕。
+const PERSIST_GRACE: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Progress {
@@ -96,7 +101,13 @@ async fn refresh_with_limit(
     limit: Duration,
 ) {
     let started = Instant::now();
-    let result = run_with_limit(service, deals, limit).await;
+    // 保存が固まっても「作成中」のまま戻らなくならないよう、全体にも上限を置く。
+    let result = tokio::time::timeout(limit + PERSIST_GRACE, run_with_limit(service, deals, limit))
+        .await
+        .unwrap_or(Err(ReadError(
+            StatusCode::GATEWAY_TIMEOUT,
+            "todo_facts_stuck",
+        )));
     let mut state = service.owner_todo.state.lock().await;
     if let Err(error) = result {
         state.facts_failed_at = Some(Instant::now());
@@ -117,6 +128,7 @@ async fn run_with_limit(
 ) -> Result<(), ReadError> {
     let deadline = tokio::time::Instant::now() + limit;
     let started = Instant::now();
+    let resume_window = RESUME_WINDOW;
     let mut progress = service
         .owner_todo
         .state
@@ -128,7 +140,7 @@ async fn run_with_limit(
             Utc::now()
                 .signed_duration_since(p.started_at)
                 .to_std()
-                .is_ok_and(|age| age < FACTS_TTL)
+                .is_ok_and(|age| age < resume_window)
         })
         .unwrap_or_else(|| Progress {
             started_at: Utc::now(),
@@ -346,5 +358,68 @@ mod tests {
         assert!(view.failed);
         assert!(!view.refreshing);
         assert_eq!(view.snapshot.unwrap().facts, facts);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn progress_older_than_an_hour_still_resumes_and_finishes() {
+        let big_reads = Arc::new(AtomicUsize::new(0));
+        let reads = big_reads.clone();
+        let app = Router::new().fallback(axum::routing::post(move |Json(body): Json<Value>| {
+            let reads = reads.clone();
+            async move {
+                let inputs = body["inputs"].as_array().unwrap();
+                if inputs.len() == DEALS_PER_CHUNK { reads.fetch_add(1, Ordering::SeqCst); }
+                Json(json!({"results": inputs.iter().map(|v| json!({"from":{"id":v["id"]},"to":[]})).collect::<Vec<_>>()}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let service = JobReadService::for_test(base);
+        let deals = deals(51);
+        seed(&service, deals.clone()).await;
+        // 3 hours ago: beyond the 60-minute TTL but inside the resume window.
+        let done: BTreeSet<String> = deals.keys().take(50).cloned().collect();
+        service.owner_todo.state.lock().await.facts_pending = Some(Progress {
+            started_at: Utc::now() - chrono::Duration::hours(3),
+            facts: done
+                .iter()
+                .map(|id| {
+                    (
+                        id.clone(),
+                        Facts {
+                            live: 4,
+                            ..Facts::default()
+                        },
+                    )
+                })
+                .collect(),
+            completed: done,
+        });
+        service.owner_todo.state.lock().await.facts_refreshing = true;
+        refresh_with_limit(&service, &deals, Duration::from_secs(5)).await;
+        assert_eq!(
+            big_reads.load(Ordering::SeqCst),
+            0,
+            "saved 50 must not be read again"
+        );
+        let view = work_view(&service).await;
+        assert!(!view.partial && !view.failed && !view.refreshing);
+        let facts = view.snapshot.unwrap().facts.clone();
+        assert_eq!(facts.len(), 51);
+        assert_eq!(facts.values().filter(|f| f.live == 4).count(), 50);
+        // Progress older than the window is discarded.
+        service.owner_todo.state.lock().await.facts_pending = Some(Progress {
+            started_at: Utc::now() - chrono::Duration::hours(25),
+            completed: deals.keys().cloned().collect(),
+            facts: BTreeMap::new(),
+        });
+        refresh_with_limit(&service, &deals, Duration::from_secs(5)).await;
+        assert_eq!(
+            big_reads.load(Ordering::SeqCst),
+            1,
+            "expired progress restarts from scratch"
+        );
+        server.abort();
     }
 }

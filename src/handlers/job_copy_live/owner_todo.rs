@@ -295,7 +295,17 @@ fn refresh_facts_on_request(service: &JobReadService, state: &mut CacheState) {
     let mut service = service.clone();
     service.hs = service.hs.background();
     tokio::spawn(async move {
-        facts_refresh::run(&service, &deals).await;
+        // 処理が panic しても「作成中」が戻らなくならないよう、別タスクで走らせて結果を見る。
+        let worker = {
+            let service = service.clone();
+            tokio::spawn(async move { facts_refresh::run(&service, &deals).await })
+        };
+        if worker.await.is_err() {
+            let mut state = service.owner_todo.state.lock().await;
+            state.facts_refreshing = false;
+            state.facts_failed_at = Some(Instant::now());
+            tracing::warn!("job-copy todo applications refresh task aborted");
+        }
     });
 }
 

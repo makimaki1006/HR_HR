@@ -253,6 +253,8 @@ test('職種の一括指定は URL から引き続き開ける', async ({ page }
 });
 
 test('保存した前の集計と日時をすぐ表示し、新しい集計の完成後に入れ替える', async ({ page }) => {
+  // 集計の時点から6時間未満の「今」に固定する（それ以上古いと文言が変わるため）。
+  await page.clock.setFixedTime(new Date('2026-10-15T17:00:00Z'));
   let complete = false;
   await page.route('**/api/job-copy/home*', route => route.fulfill({ json: demoHome }));
   await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: {
