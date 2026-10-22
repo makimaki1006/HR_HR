@@ -8,7 +8,7 @@ export function AuthLayout({ children, hideFooter = false, company }: { children
   return (
     <div className="flex min-h-dvh flex-col items-center bg-pt-bg px-4 py-10 sm:py-20">
       <div className="mb-6 flex flex-col items-center gap-1">
-        <span className="flex size-8 items-center justify-center rounded-md bg-pt-ink text-pt-surface"><IconSheet size={16} /></span>
+        <span className="flex size-8 items-center justify-center rounded-md bg-pt-brand text-white"><IconSheet size={16} /></span>
         <p className="text-[13px] font-semibold text-pt-ink">応募者の管理</p>
         {company && <p className="text-xs text-pt-faint">{company}</p>}
       </div>
@@ -44,7 +44,7 @@ export function AdminLayout({ title, badge, current, onNavigate, actions, back, 
       <header className="border-b border-pt-line bg-pt-surface">
         <div className="mx-auto flex h-11 max-w-[1280px] items-center gap-5 px-4">
           <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-pt-ink">
-            <span className="flex size-6 items-center justify-center rounded bg-pt-ink text-pt-surface"><IconSheet size={13} /></span>
+            <span className="flex size-6 items-center justify-center rounded bg-pt-brand text-white"><IconSheet size={13} /></span>
             応募者画面の管理
             <span className="rounded bg-pt-sunken px-1.5 py-0.5 text-[12px] font-medium text-pt-muted">社内</span>
           </span>
@@ -55,7 +55,7 @@ export function AdminLayout({ title, badge, current, onNavigate, actions, back, 
                 type="button"
                 onClick={() => { onNavigate(n.key); }}
                 aria-current={n.key === current ? 'page' : undefined}
-                className={cx('relative px-3 text-[13px] whitespace-nowrap', n.key === current ? 'font-medium text-pt-ink after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-pt-ink' : 'text-pt-muted hover:text-pt-ink')}
+                className={cx('relative px-3 text-[13px] whitespace-nowrap', n.key === current ? 'font-medium text-pt-ink after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-pt-brand' : 'text-pt-muted hover:text-pt-ink')}
               >
                 {n.label}
               </button>

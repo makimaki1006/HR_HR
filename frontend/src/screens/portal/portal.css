@@ -1,32 +1,35 @@
 /*
  * 顧客向け画面（/portal）専用のスタイル。社内画面の app.css（暗い色の旧シェル）は読み込まない。
- * 明るい無彩色を基調に、選択・リンクだけ青を使う。色は下のトークンだけを使う。
+ * 上の帯とボタン・選択は事業部の青、表の中は白と青みの薄い灰色。色は下のトークンだけを使う。
  */
 @import "tailwindcss";
 
 @theme {
-  --color-pt-bg: #f5f5f3;
-  --color-pt-sunken: #efeeeb;
+  /* 事業部（リクロジ）のロゴの青 #006BCB を基準にする。灰色も少し青みに寄せる。 */
+  --color-pt-brand: #006bcb;
+  --color-pt-brand-deep: #0058a8;
+  --color-pt-bg: #f3f5f8;
+  --color-pt-sunken: #eaeef3;
   --color-pt-surface: #ffffff;
-  --color-pt-line: #e6e4df;
-  --color-pt-line-strong: #d2cfc8;
-  --color-pt-ink: #1b1a18;
-  --color-pt-muted: #67645e;
-  --color-pt-faint: #9a968e;
-  --color-pt-primary: #1f4f8f;
-  --color-pt-primary-hover: #183f73;
-  --color-pt-primary-soft: #e9eff8;
-  --color-pt-select: #2f6fd6;
+  --color-pt-line: #e0e5ec;
+  --color-pt-line-strong: #cbd2dc;
+  --color-pt-ink: #16202c;
+  --color-pt-muted: #586373;
+  --color-pt-faint: #8b95a3;
+  --color-pt-primary: #006bcb;
+  --color-pt-primary-hover: #0058a8;
+  --color-pt-primary-soft: #e6f0fa;
+  --color-pt-select: #006bcb;
   --color-pt-ok: #23704a;
   --color-pt-ok-soft: #e6f3ec;
   --color-pt-warn: #8a5a0e;
   --color-pt-warn-soft: #faf1dd;
   --color-pt-danger: #a3291f;
   --color-pt-danger-soft: #fbe9e6;
-  --color-pt-new: #2f6fd6;
+  --color-pt-new: #006bcb;
   --color-pt-changed: #fff6d6;
   --color-pt-stage-early: #7a8699;   /* 状況の点: 応募・選考中 */
-  --color-pt-field: #ecebe7;          /* 書ける値の箱の常時の枠（--color-pt-line より 1 段薄い） */
+  --color-pt-field: #e6eaf0;          /* 書ける値の箱の常時の枠（--color-pt-line より 1 段薄い） */
   /*
    * html の文字を 13px にしているので、rem で決まる Tailwind の大きさを px で決め直す。
    * そのままだと text-xs が 9.75px、余白の単位が 3.25px になり、12px 未満の文字や 44px に届かないボタンが出る。
@@ -44,8 +47,8 @@
   --radius-md: 6px;
   --radius-lg: 8px;
   --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
-  --shadow-pt-pop: 0 8px 28px rgb(27 26 24 / 0.14), 0 1px 3px rgb(27 26 24 / 0.08);
-  --shadow-pt-card: 0 1px 2px rgb(27 26 24 / 0.05);
+  --shadow-pt-pop: 0 8px 28px rgb(22 32 44 / 0.14), 0 1px 3px rgb(22 32 44 / 0.08);
+  --shadow-pt-card: 0 1px 2px rgb(22 32 44 / 0.05);
 }
 
 html, body {
