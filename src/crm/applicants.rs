@@ -1,6 +1,10 @@
 //! 応募 (0-421) の読み取り・保存。正本と業務履歴は HubSpot。
 #[path = "applicant_write.rs"]
 mod editing;
+#[path = "applicant_presence.rs"]
+mod presence;
+pub(super) use presence::presence;
+pub use presence::{ApplicantPresence, ApplicantViewer};
 #[path = "applicant_related.rs"]
 mod related;
 #[path = "applicant_sheet.rs"]
@@ -204,6 +208,7 @@ pub(super) struct ApplicantsState {
     related_ids: TtlCache<String, Vec<String>>,
     details: TtlCache<String, ApplicantDetail>,
     reminders: TtlCache<(), ApplicantReminders>,
+    presence: presence::PresenceState,
 }
 impl Default for ApplicantsState {
     fn default() -> Self {
@@ -216,6 +221,7 @@ impl Default for ApplicantsState {
             related_ids: TtlCache::new(Duration::from_secs(1800), 500),
             details: TtlCache::new(DETAIL_TTL, 500),
             reminders: TtlCache::new(REMINDER_TTL, 1),
+            presence: presence::PresenceState::default(),
         }
     }
 }

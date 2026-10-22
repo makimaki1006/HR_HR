@@ -84,3 +84,7 @@
 .applicant-reminders button:hover { background: #c62828; color: white; }
 .applicant-reminders-deal { color: #9f3a38; font-size: 12px; }
 .applicant-reminders p { margin: 0; font-size: 12px; }
+/* だれかが開いている応募の目印 (重ねて電話しないため) */
+.applicant-presence-tag { display: inline-block; align-self: flex-start; margin-top: 2px; padding: 1px 8px; border-radius: var(--cq-radius); background: #fff3cd; border: 1px solid #d39e00; color: #6b4e00; font-size: 12px; font-weight: 600; }
+.applicant-presence { margin: 6px 0 0; padding: 6px 10px; border-radius: var(--cq-radius); background: #fff3cd; border: 1px solid #d39e00; color: #6b4e00; font-size: 13px; font-weight: 600; }
+.applicant-reminders-presence { padding: 0 6px; border-radius: var(--cq-radius); background: #fff3cd; color: #6b4e00; font-size: 12px; font-weight: 600; }

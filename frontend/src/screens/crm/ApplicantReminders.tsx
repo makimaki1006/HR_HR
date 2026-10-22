@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { ApplicantReminders as Reminders } from '../../generated/ApplicantReminders';
 import type { ApplicantRow } from '../../generated/ApplicantRow';
 import { applicantRemindersFixture } from './applicantFixture';
+import type { ApplicantViewer } from '../../generated/ApplicantViewer';
+import { presenceText, viewersOf } from './ApplicantPresence';
 
 /** 約束架電日時の何分前から出すか */
 export const REMINDER_LEAD_MS = 5 * 60_000;
@@ -26,7 +28,7 @@ function when(raw: string, now: number): string {
  * 約束あり連絡の応募を、約束架電日時の 5 分前から画面の上に出し続ける。
  * 応募画面を開いている全員に出す。タブが隠れている間は読み直さない。
  */
-export function ApplicantReminderBand({ fixture, refresh, onOpen }: { fixture: boolean; refresh: number; onOpen: (row: ApplicantRow) => void }) {
+export function ApplicantReminderBand({ fixture, refresh, onOpen, viewers }: { fixture: boolean; refresh: number; onOpen: (row: ApplicantRow) => void; viewers: readonly ApplicantViewer[] }) {
   const [data, setData] = useState<Reminders | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -51,7 +53,10 @@ export function ApplicantReminderBand({ fixture, refresh, onOpen }: { fixture: b
   const more = (data?.total ?? 0) > (data?.items.length ?? 0);
   return <section className="applicant-reminders" role="alert" aria-label="約束架電の時間">
     <strong>約束架電の時間です</strong>
-    <ul>{due.map(r => <li key={r.id}><button type="button" onClick={() => { onOpen(r); }}>{r.name || '氏名未登録'}</button><span>{when(r.appointment, now)}</span>{r.deal && <span className="applicant-reminders-deal">{r.deal}</span>}</li>)}</ul>
+    <ul>{due.map(r => <li key={r.id}><button type="button" onClick={() => { onOpen(r); }}>{r.name || '氏名未登録'}</button><span>{when(r.appointment, now)}</span>{r.deal && <span className="applicant-reminders-deal">{r.deal}</span>}<ReminderPresence text={presenceText(viewersOf(viewers, r.id, r.phone))} /></li>)}</ul>
     {more && <p>ほかにも約束あり連絡の応募があります。応募一覧で確認してください。</p>}
   </section>;
+}
+function ReminderPresence({ text }: { text: string }) {
+  return text ? <span className="applicant-reminders-presence">{text}</span> : null;
 }

@@ -130,6 +130,7 @@ mod tests {
         crate::crm::applicants::ApplicantQueue::export_all(&cfg).unwrap();
         crate::crm::applicants::ApplicantDetail::export_all(&cfg).unwrap();
         crate::crm::applicants::ApplicantReminders::export_all(&cfg).unwrap();
+        crate::crm::applicants::ApplicantPresence::export_all(&cfg).unwrap();
         crate::crm::property_catalog::CrmPropertyCatalogResponse::export_all(&cfg)
             .expect("CrmPropertyCatalogResponse の TS 型を書き出せない");
         crate::crm::write::CrmEditSchemaResponse::export_all(&cfg)

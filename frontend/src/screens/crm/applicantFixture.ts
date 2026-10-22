@@ -1,3 +1,4 @@
+import type { ApplicantViewer } from '../../generated/ApplicantViewer';
 import type { ApplicantRow } from '../../generated/ApplicantRow';
 import type { ApplicantQueue } from '../../generated/ApplicantQueue';
 import type { ApplicantDetail } from '../../generated/ApplicantDetail';
@@ -64,3 +65,8 @@ export function applicantRemindersFixture(now = Date.now()): ApplicantReminders 
   ];
   return { items: rows, total: rows.length };
 }
+/** 開いている人の目印の架空サンプル。90002 を別の人が開き、90005 (約束架電) も別の人が開いている。 */
+export const applicantPresenceFixture: ApplicantViewer[] = [
+  { applicant: '90002', phone_key: '', name: 'kakuu_sato' },
+  { applicant: '90005', phone_key: '', name: 'kakuu_suzuki' },
+];

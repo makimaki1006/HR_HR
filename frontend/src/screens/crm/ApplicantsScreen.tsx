@@ -22,10 +22,14 @@ import type { FixedLink } from './centerLinks';
 import { toE164Jp } from './smartEmbed';
 import { ApplicantEditor } from './ApplicantEditor';
 import { ApplicantReminderBand } from './ApplicantReminders';
+import { presenceText, useApplicantPresence, viewersOf } from './ApplicantPresence';
 import './crm.css';
 import './queue.css';
 import './applicants.css';
 
+function PresenceTag({ text }: { text: string }) {
+  return text ? <span className="applicant-presence-tag">{text}</span> : null;
+}
 async function read<T>(url: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(url, { signal, credentials: 'same-origin' });
   const body: unknown = await response.json();
@@ -161,6 +165,8 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   function filter(nextStages: string[], nextMedia: string) { dispatch({ type: 'activate', panel: 'queue' }); setStages(nextStages); setMedia(nextMedia); setCursor(null); setQueue(null); setLoading(true); setSelected(null); setSelectedId(null); setDetail(null); }
   function select(item: ApplicantRow) { if (selectedId === item.id) return; setSelected(item); setSelectedId(item.id); setDetail(null); setDetailError(''); setDialNotice(''); }
   const headline = detail?.row ?? selected;
+  const viewers = useApplicantPresence(fixture, selectedId, detail?.phone ?? headline?.phone ?? '');
+  const presenceHere = selectedId ? presenceText(viewersOf(viewers, selectedId, detail?.phone ?? headline?.phone ?? '')) : '';
   const headlineName = (headline?.name ?? '').trim();
   const firstPipeline = queue?.pipelines[0];
   const busy = zoom.call.phase === 'connected' || zoom.call.phase === 'ringing' || zoom.pending !== null;
@@ -197,6 +203,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
             <span className="cq-row-extra">{item.deal} · {item.job}</span>
             <span className="cq-row-l3"><span>応募日 {date(item.date)}</span><span>{item.media}</span></span>
             {item.appointment && <span className="cq-row-extra">約束架電日時 {date(item.appointment)}</span>}
+            <PresenceTag text={presenceText(viewersOf(viewers, item.id, item.phone))} />
           </button>
         </li>)}</ul>
         {queue?.items.length === 0 && <><p>条件に一致する応募はありません。</p>{query && !scope && <button onClick={() => { setScope(true); filter([], media); }}>すべての応募で探す</button>}</>}
@@ -231,6 +238,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
           <p className="applicant-job"><button type="button" disabled={!detail} onClick={() => { showRelated('deals'); }}>{headline?.deal.length ? headline.deal : '取引を確認'}</button> · <button type="button" disabled={!detail} onClick={() => { showRelated('listings'); }}>{headline?.job.length ? headline.job : '求人票を確認'}</button></p>
           <div className="wd-line wd-line-2"><PhoneRow label="応募者" raw={detail?.phone ?? headline?.phone ?? ''} zoom={dialZoom} compact blocked={!!detail?.stop_reason || busy || !detail} blockReason={!detail ? (detailError ? '詳細を確認できません' : '読み込み中…') : detail.stop_reason ?? (busy ? '通話中です' : null)} /></div>
           <p className="applicant-meta">{headline?.stage} · {headline?.media} · 応募日 {date(headline?.date ?? '')}</p>
+          {presenceHere && <p className="applicant-presence" role="status">{presenceHere}</p>}
           {detail?.stop_reason && <p role="alert">架電禁止・ブロック: {detail.stop_reason}</p>}{dialNotice && <p role="status">{dialNotice}</p>}
         </div></article>
         {detailError && <p role="alert">{detailError}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
@@ -266,7 +274,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
         selected={stages} onApply={s => { filter(s, media); }} />}
       <label>応募媒体<select value={media} onChange={e => { filter(stages, e.target.value); }}><option value="">すべて</option>{queue?.media_options.map(o => <option value={o.id} key={o.id}>{o.label}</option>)}</select></label>
     </div>}
-    <ApplicantReminderBand fixture={fixture} refresh={refresh} onOpen={select} />
+    <ApplicantReminderBand fixture={fixture} refresh={refresh} onOpen={select} viewers={viewers} />
     {error && <p role="alert">{error}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
     <Dock layout={layout} dispatch={dispatch} panels={panels} labels={LABELS} />
     {!fixture && <div className={`cq-zoom-drawer${drawerOpen ? ' is-open' : ''}`} inert={!drawerOpen} aria-hidden={!drawerOpen} onKeyDown={e => { if (e.key === 'Escape') setDrawerOpen(false); }}><ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} onClose={() => { setDrawerOpen(false); }} /></div>}

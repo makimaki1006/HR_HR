@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { dueReminders } from './ApplicantReminders';
 import { applicantRemindersFixture } from './applicantFixture';
+import type { ApplicantRow } from '../../generated/ApplicantRow';
 
 describe('dueReminders', () => {
   const now = Date.parse('2026-10-22T10:00:00+09:00');
-  const row = (appointment: string) => ({ ...applicantRemindersFixture(now).items[0], appointment });
+  const row = (appointment: string): ApplicantRow => ({ id: '1', name: '架空', phone: '', deal: '', job: '', date: '', stage: '', stage_id: '', appointment, media: '' });
   it('約束架電日時の5分前から出し、過ぎても出し続ける', () => {
     expect(dueReminders([row('2026-10-22T10:05:00+09:00')], now)).toHaveLength(1);
     expect(dueReminders([row('2026-10-22T10:05:01+09:00')], now)).toHaveLength(0);

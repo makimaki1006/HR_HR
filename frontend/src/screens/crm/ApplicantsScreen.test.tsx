@@ -266,7 +266,9 @@ it.each([false, true])('詳細の応答待ちは読み込み中と表示し、�
   let finish: ((value: unknown) => void) | undefined;
   vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/queue')
     ? Promise.resolve({ ok: true, json: () => Promise.resolve(applicantQueueFixture) })
-    : new Promise(resolve => { finish = resolve; })));
+    : url.includes('/presence') || url.includes('/reminders')
+      ? Promise.resolve({ ok: true, json: () => Promise.resolve({ viewers: [], items: [], total: 0 }) })
+      : new Promise(resolve => { finish = resolve; })));
   render(<ApplicantsScreen fixture={false} />);
   await screen.findByText('2件');
   if (fromQueue) fireEvent.click(screen.getByRole('button', { name: /架空 はるか/ }));

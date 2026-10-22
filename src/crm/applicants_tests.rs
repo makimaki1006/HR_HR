@@ -1332,3 +1332,64 @@ async fn applicant_reminders_search_promised_stage_and_share_cache() {
     );
     assert_eq!(f.lock().unwrap().requests.len(), n);
 }
+async fn post_presence(app: &Router, cookie: &str, body: Value) -> (StatusCode, Value) {
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/api/crm/applicants/presence")
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let text = body_string(resp).await;
+    (status, serde_json::from_str(&text).unwrap_or(Value::Null))
+}
+#[tokio::test]
+async fn applicant_presence_shows_other_people_without_calling_hubspot() {
+    // HubSpot の鍵が無くても動く (HubSpot を呼ばない)
+    let app = crm_app_with(
+        test_state(None, None),
+        CrmAccess::from_list(&format!("{TEST_EMAIL},other@f-a-c.co.jp")),
+    );
+    let a = login_as(&app, "google_oidc", None).await;
+    let b = login_as_email(&app, "other@f-a-c.co.jp", "google_oidc", None).await;
+    let (status, v) = post_presence(
+        &app,
+        &a,
+        json!({"tab":"ta","applicant":"100","phone":"000-0000-0000"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["viewers"], json!([]));
+    let (_, v) = post_presence(&app, &b, json!({"tab":"tb","applicant":"200","phone":""})).await;
+    assert_eq!(
+        v["viewers"],
+        json!([{"applicant":"100","phone_key":"000000000","name":TEST_EMAIL.split('@').next().unwrap()}])
+    );
+    // 閉じたら消える
+    post_presence(&app, &a, json!({"tab":"ta","applicant":null})).await;
+    assert_eq!(
+        post_presence(&app, &b, json!({"tab":"tb","applicant":"200"}))
+            .await
+            .1["viewers"],
+        json!([])
+    );
+    // CSRF のヘッダーが無い POST は通さない
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/api/crm/applicants/presence")
+                .header(header::COOKIE, &a)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"tab":"ta","applicant":"1"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
