@@ -1,4 +1,4 @@
-//! `/api/crm/talk-review/*` (管理者だけ。認可は `/api/crm/metrics/today/all` と同じ)。
+//! `/api/crm/talk-review/*` (Google ログインした社内の人なら誰でも。役割は問わない。パスワードログインは拒否)。
 //! 認可で落ちる限り HubSpot・Zoom・Turso は呼ばない。
 
 use std::collections::HashMap;
@@ -219,17 +219,15 @@ pub fn cacheable(r: &Result<Vec<TalkTurn>, ZoomError>) -> bool {
 // ハンドラ
 // ---------------------------------------------------------------------------
 
-async fn admin_gate(
+async fn login_gate(
     session: &Session,
     state: &Arc<AppState>,
     ctx: &CrmCtx,
 ) -> Result<(), Response> {
-    let principal = rbac::authorize(session, state, &ctx.access, None)
+    // authorize が Google ログイン・会社ドメイン・許可リスト・無効化アカウントを確かめる。役割は問わない
+    rbac::authorize(session, state, &ctx.access, None)
         .await
         .map_err(IntoResponse::into_response)?;
-    if !rbac::resolve_role(&principal).is_admin() {
-        return Err(error_json(StatusCode::FORBIDDEN, "forbidden"));
-    }
     Ok(())
 }
 
@@ -271,7 +269,7 @@ pub(in crate::crm) async fn get_summary(
     Extension(ctx): Extension<Arc<CrmCtx>>,
     Query(q): Query<PeriodQuery>,
 ) -> Response {
-    if let Err(r) = admin_gate(&session, &state, &ctx).await {
+    if let Err(r) = login_gate(&session, &state, &ctx).await {
         return r;
     }
     let now = ctx.queue.now();
@@ -470,7 +468,7 @@ pub(in crate::crm) async fn get_calls(
     Extension(ctx): Extension<Arc<CrmCtx>>,
     Query(q): Query<PeriodQuery>,
 ) -> Response {
-    if let Err(r) = admin_gate(&session, &state, &ctx).await {
+    if let Err(r) = login_gate(&session, &state, &ctx).await {
         return r;
     }
     let now = ctx.queue.now();
@@ -549,7 +547,7 @@ pub(in crate::crm) async fn get_call_detail(
     Extension(ctx): Extension<Arc<CrmCtx>>,
     Path(id): Path<String>,
 ) -> Response {
-    if let Err(r) = admin_gate(&session, &state, &ctx).await {
+    if let Err(r) = login_gate(&session, &state, &ctx).await {
         return r;
     }
     if id.is_empty() || id.len() > 20 || !id.bytes().all(|b| b.is_ascii_digit()) {
@@ -750,6 +748,42 @@ mod tests {
         assert_eq!(call_status("unavailable"), "unavailable");
     }
 
+    /// パスワードログインの人 (社内パスワード) のセッションを作る
+    async fn inject_password_session(session: Session, Json(v): Json<Value>) -> StatusCode {
+        session
+            .insert(crate::auth::SESSION_USER_KEY, v["email"].as_str().unwrap())
+            .await
+            .unwrap();
+        session
+            .insert(
+                crate::auth::SESSION_LOGIN_METHOD_KEY,
+                crate::auth::LOGIN_METHOD_PASSWORD_INTERNAL,
+            )
+            .await
+            .unwrap();
+        StatusCode::NO_CONTENT
+    }
+
+    async fn password_login(app: &Router, email: &str) -> String {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/__test/pw_session")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(json!({"email": email}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        resp.headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_string())
+            .find(|c| c.starts_with("id="))
+            .map(|c| c.split(';').next().unwrap().to_string())
+            .expect("cookie")
+    }
+
     async fn app() -> (Router, String, String) {
         let admin = "ta@f-a-c.co.jp";
         let bpo = "tb@f-a-c.co.jp";
@@ -760,6 +794,7 @@ mod tests {
                     .with_test_role(bpo, CrmRole::Bpo),
             ))
             .route("/__test/session", post(inject_session))
+            .route("/__test/pw_session", post(inject_password_session))
             .with_state(test_state(None))
             .layer(SessionManagerLayer::new(MemoryStore::default()));
         let a = login(&app, admin).await;
@@ -786,22 +821,36 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn non_admin_gets_403_and_anonymous_401_on_every_endpoint() {
+    async fn google_login_of_any_role_gets_200_password_403_anonymous_401() {
         let (app, admin, bpo) = app().await;
+        let pw = password_login(&app, "ta@f-a-c.co.jp").await;
         for uri in [
             "/api/crm/talk-review/summary",
             "/api/crm/talk-review/calls?owner=1",
             "/api/crm/talk-review/calls/123",
         ] {
+            // 管理者でない Google ログインの人も認可は通る (中身の検証で 400 になる URL は 403/401 でないことを見る)
             let (s, v) = get(&app, uri, Some(&bpo)).await;
+            assert_ne!(s, StatusCode::FORBIDDEN, "{uri} {v}");
+            assert_ne!(s, StatusCode::UNAUTHORIZED, "{uri} {v}");
+            // パスワードログインは管理者のメールでも拒否
+            let (s, v) = get(&app, uri, Some(&pw)).await;
             assert_eq!(
                 (s, v["error_kind"].as_str()),
-                (StatusCode::FORBIDDEN, Some("forbidden")),
+                (StatusCode::FORBIDDEN, Some("google_login_required")),
                 "{uri}"
             );
             let (s, _) = get(&app, uri, None).await;
             assert_eq!(s, StatusCode::UNAUTHORIZED, "{uri}");
         }
+        // 管理者でない人も summary は 200
+        let (s, v) = get(
+            &app,
+            "/api/crm/talk-review/summary?from=2026-10-01&to=2026-10-02",
+            Some(&bpo),
+        )
+        .await;
+        assert_eq!((s, v["enabled"].clone()), (StatusCode::OK, json!(false)));
         // 管理者: 期間の誤りは 400、機能が無効なら中身は空で 200 (外部は呼ばない)
         let (s, v) = get(
             &app,

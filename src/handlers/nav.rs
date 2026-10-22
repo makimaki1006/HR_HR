@@ -306,6 +306,18 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: Some(Feature::Crm),
         hidden: None,
     },
+    // トークの振り返り (React 画面 /app/talk)。`/api/crm/talk-review/*` は Google ログインした社内の人なら誰でも
+    // (役割は問わない)。CRM と同じ認可規則 (Feature::Crm = `session_may_open_crm`) で出し分ける。
+    NavDef {
+        id: "talk-review",
+        label: "トークの振り返り",
+        title: Some("架電のトークを項目ごとに振り返る。人ごとの表と1本ごとの判定"),
+        kind: NavKind::App,
+        target: "/app/talk",
+        group: None,
+        requires: Some(Feature::Crm),
+        hidden: None,
+    },
     // Reading private data still requires a Google OIDC login on a company domain (ALLOWED_DOMAINS).
     NavDef {
         id: "job-copy",
@@ -1089,6 +1101,33 @@ mod tests {
         assert!(!NavFeatures::from_env().crm);
         assert_eq!(crm_visible(true), crm_screen_registered());
         assert!(!crm_visible(false));
+    }
+
+    #[test]
+    fn トークの振り返りは認可された人にだけ管理者でなくても出る() {
+        assert!(super::super::spa_shell::KNOWN_SCREENS.contains(&"talk"));
+        for is_admin in [true, false] {
+            let allowed = build_nav_response(
+                "a@f-a-c.co.jp".into(),
+                is_admin,
+                &NavFeatures {
+                    crm: true,
+                    ..features(false, false)
+                },
+            );
+            let t = allowed
+                .items
+                .iter()
+                .find(|i| i.id == "talk-review")
+                .unwrap_or_else(|| panic!("admin={is_admin} の items に talk-review が無い"));
+            assert_eq!(
+                (t.label.as_str(), t.href.as_str(), t.kind, t.hidden),
+                ("トークの振り返り", "/app/talk", NavKind::App, false)
+            );
+            let denied =
+                build_nav_response("u@f-a-c.co.jp".into(), is_admin, &features(false, false));
+            assert!(!ids(&denied.items).contains(&"talk-review"));
+        }
     }
 
     #[test]
