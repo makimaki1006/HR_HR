@@ -3,9 +3,10 @@
 # だけをランタイムに渡す。Node 本体と node_modules はランタイムに入らない。
 # Rust の builder とは依存が無いので、BuildKit なら並列に走る。
 # node のメジャーは CI (.github/workflows/ci.yml の frontend ジョブ) の 22 と揃える。
+# 版は固定する (2026-10-21 の Node.js のセキュリティ更新 22.23.4)。上げるときは下の pdf ステージも同じ版にする。
 # vite.config.ts の outDir は '../static/app' なので、リポジトリと同じ並び
 # (/src/frontend → /src/static/app) で置く。
-FROM node:22-bookworm-slim AS web
+FROM node:22.23.4-bookworm-slim AS web
 WORKDIR /src/frontend
 # package*.json が変わらない限り npm ci の層はキャッシュに乗る
 COPY frontend/package.json frontend/package-lock.json ./
@@ -22,7 +23,7 @@ RUN npm run build \
 #     rust イメージを使ってランタイムと glibc を揃える。
 #  2) キャッシュ: latest はタグの中身が動くので、動いた瞬間に下の依存ビルド層まで
 #     まるごと無効化される。バージョンを固定するとそれが起きない。
-FROM node:22-bookworm-slim AS pdf
+FROM node:22.23.4-bookworm-slim AS pdf
 WORKDIR /app
 COPY scripts/pdf/package.json scripts/pdf/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
