@@ -423,6 +423,49 @@ impl JobReadService {
         }
         Ok(records)
     }
+    /// Which of `ids` exist as `object` records. Missing ones are not an error
+    /// (HubSpot reports them in `errors`); any other error is a failed read.
+    async fn existing_ids(
+        &self,
+        object: &str,
+        ids: &[String],
+    ) -> Result<BTreeSet<String>, ReadError> {
+        let mut found = BTreeSet::new();
+        for chunk in ids.chunks(100) {
+            let data = self
+                .request(
+                    &format!("/crm/v3/objects/{object}/batch/read"),
+                    &[],
+                    Some(json!({
+                        "properties": [],
+                        "inputs": chunk.iter().map(|id| json!({"id": id})).collect::<Vec<_>>()
+                    })),
+                )
+                .await?;
+            for error in data
+                .get("errors")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                if error["category"] != "OBJECT_NOT_FOUND" {
+                    return Err(fail("hubspot_partial_read"));
+                }
+            }
+            for row in data["results"]
+                .as_array()
+                .ok_or_else(|| fail("hubspot_invalid_response"))?
+            {
+                let id = row["id"]
+                    .as_str()
+                    .ok_or_else(|| fail("hubspot_invalid_response"))?;
+                if chunk.iter().any(|c| c == id) {
+                    found.insert(id.to_owned());
+                }
+            }
+        }
+        Ok(found)
+    }
     async fn association_map(
         &self,
         from: &str,
@@ -491,11 +534,22 @@ impl JobReadService {
             if expected != seen.union(&fallback).cloned().collect() {
                 return Err(fail("hubspot_partial_read"));
             }
-            // Live HubSpot returns 207 OBJECT_NOT_FOUND for some empty lists.
-            // Verify each affected source via GET; never equate that error to zero.
-            // Bound parallelism to three GETs, retaining all historical contracts.
+            // Live HubSpot returns 207 OBJECT_NOT_FOUND for sources whose list is
+            // empty. Never equate that error to zero by itself: confirm the source
+            // record exists with one batch read (100 per call). Existing records
+            // have an empty list; the rest are verified one by one via GET.
             let fallback: Vec<_> = fallback.into_iter().collect();
-            for sources in fallback.chunks(3) {
+            let existing = self.existing_ids(from, &fallback).await?;
+            let mut missing = Vec::new();
+            for id in &fallback {
+                if existing.contains(id) {
+                    mapping.insert(id.clone(), Vec::new());
+                } else {
+                    missing.push(id.clone());
+                }
+            }
+            // Bound parallelism to three GETs, retaining all historical contracts.
+            for sources in missing.chunks(3) {
                 let fetch = |index: usize| async move {
                     match sources.get(index) {
                         Some(id) => Ok(Some((

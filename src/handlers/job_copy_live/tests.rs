@@ -557,6 +557,7 @@ enum Scenario {
     AssociationDuplicate,
     AssociationErrors,
     AssociationEmpty207,
+    AssociationEmpty207Gone,
     ForeignJob,
     PagingLoop,
     MalformedCursor,
@@ -683,7 +684,7 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
             let first = json!({"from":{"id":"20"},"to":[{"toObjectId":"30"}],"paging":{}});
             let second = json!({"from":{"id":"21"},"to":[{"toObjectId":"30"}]});
             match fixture.scenario {
-                Scenario::AssociationEmpty207=>return (StatusCode::MULTI_STATUS,Json(json!({"status":"COMPLETE","results":[first],"errors":[{"status":"error","category":"OBJECT_NOT_FOUND","context":{"fromObjectId":["21"],"fromObjectType":["0-3"],"toObjectType":["0-420"]}}]}))).into_response(),
+                Scenario::AssociationEmpty207|Scenario::AssociationEmpty207Gone=>return (StatusCode::MULTI_STATUS,Json(json!({"status":"COMPLETE","results":[first],"errors":[{"status":"error","category":"OBJECT_NOT_FOUND","context":{"fromObjectId":["21"],"fromObjectType":["0-3"],"toObjectType":["0-420"]}}]}))).into_response(),
                 Scenario::AssociationPartial => json!({"results":[first]}),
                 Scenario::AssociationDuplicate => json!({"results":[first.clone(),first,second]}),
                 Scenario::AssociationErrors => {
@@ -760,6 +761,12 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
                     .filter_map(|input| {
                         let id = input["id"].as_str().unwrap();
                         if matches!(fixture.scenario, Scenario::MissingBatchRecord) && id == "21" {
+                            return None;
+                        }
+                        if matches!(fixture.scenario, Scenario::AssociationEmpty207Gone)
+                            && path == "/crm/v3/objects/deals/batch/read"
+                            && id == "21"
+                        {
                             return None;
                         }
                         let props = match (path.as_str(), id) {
@@ -1055,9 +1062,51 @@ async fn empty_association_207_requires_successful_individual_read_before_zero()
     let jobs = upstream.service().jobs("10", 0).await.unwrap();
     assert_eq!(jobs["total"], 2);
     assert_eq!(jobs["jobs"][0]["deal_ids"], json!(["20"]));
+    // The source record exists, so the list is empty: confirmed by one batch read,
+    // not by a GET per source.
+    let calls = upstream.calls();
+    let map = upstream
+        .service()
+        .association_map("deals", &["20".to_owned(), "21".to_owned()], "0-420")
+        .await
+        .unwrap();
+    assert_eq!(map["21"], Vec::<String>::new());
+    assert!(!calls.iter().any(
+        |c| c.method == Method::GET && c.path == "/crm/v4/objects/deals/21/associations/0-420"
+    ));
+}
+
+#[tokio::test]
+async fn empty_association_207_for_a_missing_source_still_reads_it_individually() {
+    let upstream = Upstream::start(Scenario::AssociationEmpty207Gone).await;
+    let map = upstream
+        .service()
+        .association_map("deals", &["20".to_owned(), "21".to_owned()], "0-420")
+        .await
+        .unwrap();
+    assert_eq!(map["20"], vec!["30".to_owned(), "31".to_owned()]);
+    assert_eq!(map["21"], vec!["30".to_owned()]);
     assert!(upstream.calls().iter().any(
         |c| c.method == Method::GET && c.path == "/crm/v4/objects/deals/21/associations/0-420"
     ));
+}
+
+#[tokio::test]
+async fn existence_check_runs_one_call_per_hundred_sources() {
+    let upstream = Upstream::start(Scenario::Happy).await;
+    let ids: Vec<String> = (1000..1250).map(|n| n.to_string()).collect();
+    let found = upstream
+        .service()
+        .existing_ids("deals", &ids)
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 250);
+    let posts = upstream
+        .calls()
+        .iter()
+        .filter(|c| c.path == "/crm/v3/objects/deals/batch/read")
+        .count();
+    assert_eq!(posts, 3);
 }
 
 #[tokio::test]
