@@ -243,6 +243,9 @@
      左の小さな字（.no）は前の画面の名前 */
   h2.sec.mincho.mid{ font-size:19px; margin-top:var(--space-6); }
   h2.sec + .lede{ color:var(--ink-2); font-size:12.5px; margin:0 0 var(--space-4); max-width:76ch; }
+  .dd-goals{ display:flex; flex-wrap:wrap; gap:4px 16px; align-items:baseline; max-width:none; }
+  .dd-goals .dd-goal, .dd-goals .muted{ flex-basis:100%; }
+  .dd-goals ul{ margin:2px 0 0; padding-left:18px; }
   p.sec-hint{ margin:0 0 var(--space-3); font-size:13px; line-height:1.6; color:var(--ink-2); }
   h3.sub{ font-size:14.5px; font-weight:700; margin:30px 0 10px; letter-spacing:.03em;
           display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
@@ -7692,6 +7695,8 @@ function renderDetail(D) {
   h += detailCrumbs(d) + (hsOpen ? '<div class="lede">' + hsOpen + "</div>" : "");
   /* ---- 次の行動に要るもの（M-3 (1)）。電話の前に読む3つ（最後にいつ話したか・何を約束したか・何を気にしていたか）を1画面目に ---- */
   h += detailNext(D);
+  /* ---- 初回MTGの目標（2026-10-23）。描いたあと wireDetail が HubSpot から読む ---- */
+  h += '<div class="lede dd-goals" id="dd-goals" data-deal="' + esc(d.deal_id) + '"><b>初回MTGの目標</b> <span class="muted">読み込んでいます…</span></div>';
 
   /* ---- 時系列 ---- */
   h += sec("図", "時系列（新しい順）", "dd-tl-h");
@@ -7866,7 +7871,45 @@ function detailNext(D) {
   return h;
 }
 
+/* 初回MTGの目標（2026-10-23）。保存先は HubSpot の取引の 3 項目（理想・前進ライン・データ）。
+   ここでは表示だけで、入力・訂正は案件管理の案件の画面で行う（明細の操作は案件管理に一本化）。 */
+const GOAL_PROPS = { ideal: "shokai_mtg_mokuhyou_risou", minimum: "shokai_mtg_mokuhyou_zenshin", data: "shokai_mtg_mokuhyou_data" };
+function goalsBlock(v) {
+  let data = null;
+  try { data = JSON.parse(v[GOAL_PROPS.data] || ""); } catch (e) { data = null; }
+  const lines = (t) => String(t || "").split("\n").map((x) => x.trim()).filter(Boolean);
+  const list = (label, t) => '<div class="dd-goal"><b>' + label + "</b>" + (lines(t).length
+    ? "<ul>" + lines(t).map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>" : '<span class="muted">未入力</span>') + "</div>";
+  const unclassified = data && Array.isArray(data.goals) ? data.goals.filter((g) => g && g.kind === "unclassified").length : 0;
+  const empty = !lines(v[GOAL_PROPS.ideal]).length && !lines(v[GOAL_PROPS.minimum]).length && !unclassified;
+  let h = "";
+  if (data && data.status === "draft") h += '<div class="muted">MTGから読み取った案です（まだ担当者が確かめていません）。</div>';
+  if (empty) return h + '<span class="muted">まだ入力されていません。</span>';
+  h += list("理想（頑張ればできそうな目標）", v[GOAL_PROPS.ideal]) + list("前進ライン（必ず達成する目標）", v[GOAL_PROPS.minimum]);
+  if (unclassified) h += '<div class="muted">どちらか決められない目標が ' + num(unclassified) + " 件あります。案件管理で選んでください。</div>";
+  return h;
+}
+function loadDetailGoals() {
+  const box = document.getElementById("dd-goals");
+  if (!box || !box.dataset.deal) return;
+  const id = box.dataset.deal;
+  const link = ' <a href="/app/job-copy?deal=' + encodeURIComponent(id) + '" target="_blank" rel="noopener">案件管理で入力・訂正する &#8599;</a>';
+  fetch("/api/crm/workspace/deals/" + encodeURIComponent(id) + "?deal_props=" + Object.values(GOAL_PROPS).join(","),
+        { credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    .then((j) => {
+      if (document.getElementById("dd-goals") !== box) return;   /* 読む間に別の案件へ移った */
+      const partial = (j.partial || []).some((p) => p.part === "selected_properties");
+      box.innerHTML = "<b>初回MTGの目標</b>" + link + (partial
+        ? '<div class="muted">目標の項目を読めませんでした。</div>' : goalsBlock((j.selected && j.selected.deal) || {}));
+    })
+    .catch(() => {
+      if (document.getElementById("dd-goals") !== box) return;
+      box.innerHTML = '<b>初回MTGの目標</b>' + link + '<div class="muted">HubSpot から読めませんでした。</div>';
+    });
+}
 function wireDetail() {
+  loadDetailGoals();
   const qi = document.getElementById("dd-q");
   const run = () => {
     detailQ = (qi && qi.value || "").trim();

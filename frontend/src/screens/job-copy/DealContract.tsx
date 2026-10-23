@@ -12,7 +12,7 @@ import { contractWriteApi } from './dealContractApi';
 import { CONTRACT_FIELDS, DISPLAY_FIELDS, DELIVERY_PIPELINES, contractRequest, displayValue, inputValue } from './dealContractModel';
 import './deal-contract.css';
 
-function SaveStatus({ statuses }: { statuses: FieldStatus[] }) {
+export function SaveStatus({ statuses }: { statuses: FieldStatus[] }) {
   const status = statuses.find(item => item.phase === 'error' || item.phase === 'invalid')
     ?? statuses.find(item => item.phase === 'saving')
     ?? statuses.find(item => item.phase === 'queued')
