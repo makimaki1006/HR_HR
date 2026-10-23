@@ -98,13 +98,23 @@ RUN touch src/main.rs src/lib.rs \
 # ===== ランタイムステージ =====
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 2026-10-23: eMudhra の中間証明書の秘密鍵の漏えい (2026-10-19 公表) への対策。
+# Debian は ca-certificates 20250419~deb12u2 (2026-10-20、bookworm-security) で
+# 「emSign ECC Root CA - G3」と「Comodo AAA Services root」を外した。それより前の束だと、
+# 漏えいした中間証明書の通信を信頼してしまう (修正前の束で試験用サーバーにつながることを確かめた)。
+# 本番の通信 (reqwest の native-tls = OpenSSL) はこの束を使う。
+# apt の層が組み立てのキャッシュで使い回されると古い束のままになるので、日付を変えて層を作り直させる。
+# 証明書の更新が出たら、この日付を変えて組み立て直す。
+ARG CA_REFRESH=2026-10-23
+RUN echo "ca-certificates refresh: ${CA_REFRESH}" && apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     chromium \
     fonts-noto-cjk \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && v="$(dpkg-query -W -f='${Version}' ca-certificates)" && echo "ca-certificates ${v}" \
+    && dpkg --compare-versions "${v}" ge "20250419~deb12u2"
 
 WORKDIR /app
 
