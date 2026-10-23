@@ -20,6 +20,8 @@ jobs:
 
       - name: Install Playwright + browsers
         run: |
+          # eMudhra 証明書の件 (2026-10): pip 26.2.2 未満は同梱の古い証明書を信頼するので先に上げる
+          python -m pip install --upgrade "pip>=26.2.2" "certifi>=2026.10.19"
           pip install playwright
           playwright install --with-deps chromium
 
