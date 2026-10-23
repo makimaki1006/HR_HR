@@ -96,8 +96,8 @@
         <div class="flex items-center gap-2 md:gap-4 flex-wrap">
             <!-- 2026-08-10: 「統合PDF」ボタンを UI から削除（用途不明・認知負荷）。
                  /integrated-report のハンドラ・ルートは温存（URL 直アクセスは可）。 -->
-            <button type="button" onclick="navigateToTab('/tab/guide')" title="使い方ガイド"
-                class="text-slate-400 hover:text-white text-sm transition p-2 rounded hover:bg-navy-700">?</button>
+            <!-- 2026-10-23: 「?」（使い方ガイド）ボタンを削除（ユーザー指示「いらない」）。
+                 /tab/guide のハンドラ・ルートは温存（URL 直アクセスは可）。 -->
             <span class="text-slate-400 text-sm">ログイン: {{USER_EMAIL}}</span>
             <!-- 2026-08-10: 自分の操作履歴だけを見る「履歴」リンクを削除。
                  /my/activity のルートは温存（URL 直アクセスは可）。
