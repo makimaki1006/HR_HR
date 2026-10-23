@@ -39,7 +39,7 @@ for (const width of [1440, 1920]) {
       server = spawn(process.env.E2E_BIN ?? path.join(root, '.e2e-bin/rust_dashboard'), [], {
         cwd: root, stdio: ['ignore', 'ignore', 'ignore'],
         env: { ...env, PORT: String(port), AUTH_PASSWORD: E2E_PASSWORD, ALLOWED_DOMAINS: 'f-a-c.co.jp',
-          HELLOWORK_DB_PATH: db, AUDIT_TURSO_URL: audit.url, AUDIT_TURSO_TOKEN: 'test-only', SESSION_COOKIE_KEY: Buffer.alloc(64, 42).toString('base64') },
+          HELLOWORK_DB_PATH: db, HELLOWORK_DB_ENABLED: '1', AUDIT_TURSO_URL: audit.url, AUDIT_TURSO_TOKEN: 'test-only', SESSION_COOKIE_KEY: Buffer.alloc(64, 42).toString('base64') },
       });
       await expect.poll(async () => {
         if (server?.exitCode !== null) throw new Error('検証用サーバが終了しました');

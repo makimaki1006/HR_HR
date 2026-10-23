@@ -60,7 +60,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     PORT: String(LIVE.appPort),
     AUTH_PASSWORD: `live-e2e-${process.pid}`,
     ALLOWED_DOMAINS: 'f-a-c.co.jp',
-    HELLOWORK_DB_PATH: db,
+    HELLOWORK_DB_PATH: db, HELLOWORK_DB_ENABLED: '1',
     HUBSPOT_ACCESS_TOKEN: 'fake-live-e2e-token',
     HUBSPOT_BASE_URL: LIVE.hubspot,
     GOOGLE_OIDC_CLIENT_ID: 'test-client',

@@ -303,6 +303,7 @@ pub(super) fn moc_state() -> Arc<AppState> {
             allowed_domains: vec!["example.test".into()],
             allowed_domains_extra: vec![],
             hellowork_db_path: String::new(),
+            hellowork_db_enabled: false,
             indeed_db_path: String::new(),
             cache_ttl_secs: 60,
             cache_max_entries: 10,

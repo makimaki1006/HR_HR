@@ -151,6 +151,9 @@ pub struct AppConfig {
     pub allowed_domains_extra: Vec<String>,
     /// ハローワークDBパス
     pub hellowork_db_path: String,
+    /// ハローワークDBを読み込むか。既定は読み込まない (2026-10-23、使っていないためメモリ節約)。
+    /// 環境変数: HELLOWORK_DB_ENABLED=1。非表示の画面を戻すときは 1 にする
+    pub hellowork_db_enabled: bool,
     /// Indeed 採用市場データ（分析層）。無くてもアプリは起動する
     pub indeed_db_path: String,
     /// キャッシュTTL（秒）
@@ -230,6 +233,9 @@ impl AppConfig {
                 .unwrap_or_else(|_| "data/indeed_insights.db".to_string()),
             hellowork_db_path: env::var("HELLOWORK_DB_PATH")
                 .unwrap_or_else(|_| "data/hellowork.db".to_string()),
+            hellowork_db_enabled: env::var("HELLOWORK_DB_ENABLED")
+                .map(|v| matches!(v.trim(), "1" | "true"))
+                .unwrap_or(false),
             cache_ttl_secs: env::var("CACHE_TTL_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -305,6 +311,7 @@ mod tests {
             "ALLOWED_DOMAINS",
             "ALLOWED_DOMAINS_EXTRA",
             "HELLOWORK_DB_PATH",
+            "HELLOWORK_DB_ENABLED",
             "CACHE_TTL_SECS",
             "CACHE_MAX_ENTRIES",
             "RATE_LIMIT_MAX_ATTEMPTS",
@@ -336,6 +343,18 @@ mod tests {
         clear_env();
         let config = AppConfig::from_env();
         assert_eq!(config.hellowork_db_path, "data/hellowork.db");
+        assert!(!config.hellowork_db_enabled);
+    }
+
+    #[test]
+    fn test_hellowork_db_enabled() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+        env::set_var("HELLOWORK_DB_ENABLED", "1");
+        assert!(AppConfig::from_env().hellowork_db_enabled);
+        env::set_var("HELLOWORK_DB_ENABLED", "0");
+        assert!(!AppConfig::from_env().hellowork_db_enabled);
+        clear_env();
     }
 
     #[test]

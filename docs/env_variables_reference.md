@@ -28,6 +28,7 @@
 | 5 | `ALLOWED_DOMAINS` | `f-a-c.co.jp` | 社内ドメイン (カンマ区切り) | 2026-08-10 に cyxen.co.jp を削除 | `config.rs:93` |
 | 6 | `ALLOWED_DOMAINS_EXTRA` | `""` | 外部追加ドメイン | 追加なし | `config.rs:80` |
 | 7 | `HELLOWORK_DB_PATH` | `data/hellowork.db` | SQLite ファイルパス | デフォルト | `config.rs:86` |
+| 7b | `HELLOWORK_DB_ENABLED` | 未設定 (読み込まない) | `1` でハローワークDBを展開・読み込む (2026-10-23 から既定 OFF、メモリ節約) | DB 無しで起動。各画面は「未接続」の扱い (赤バナーは出さない、`/health` は unhealthy にしない)。非表示の画面を戻すときは `1` にする | `config.rs` |
 | 8 | `CACHE_TTL_SECS` | `1800` (30 分) | DashMap TTL | デフォルト | `config.rs:88` |
 | 9 | `CACHE_MAX_ENTRIES` | `3000` | DashMap 最大エントリ | デフォルト | `config.rs:92` |
 | 10 | `RATE_LIMIT_MAX_ATTEMPTS` | `5` | ログイン失敗上限 | デフォルト | `config.rs:96` |
