@@ -42,7 +42,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       PORT: String(PR_PORT),
       AUTH_PASSWORD: E2E_PASSWORD,
       ALLOWED_DOMAINS: 'f-a-c.co.jp',
-      HELLOWORK_DB_PATH: db,
+      HELLOWORK_DB_PATH: db, HELLOWORK_DB_ENABLED: '1',
       // debug ビルドだけが読む CSRF の追加許可 Origin (src/lib.rs)。ブラウザ内 fetch の POST を通す
       CSRF_EXTRA_ORIGINS_DEBUG: PR_BASE_URL,
       // 営業KPI: Sheets の代わりに TSV から組む経路 (src/handlers/sales_kpi/fixture.rs)。値は helpers/fixture_values.ts の SALES_KPI_FIXTURE

@@ -58,13 +58,20 @@ async fn main() {
     //   `ServeDir::new("static").precompressed_gzip()` 経由 (`/static/geojson/*.json`)
     //   は templates / JS いずれからも未参照のため、再 gzip は dead I/O。
     //   削除により Render cold start を 5-20s 短縮見込 (AUDIT_I_PERFORMANCE.md P0-2)。
-    decompress_db_if_needed(&config.hellowork_db_path);
+    // ハローワークDBは既定で読み込まない (2026-10-23)。展開 (約1.6GB) と ANALYZE を省き、
+    // メモリと起動時間を減らす。非表示の画面を戻すときは HELLOWORK_DB_ENABLED=1 にする。
+    // 読まないときは hw_db = None で、各画面は従来の「未接続」の扱いになる。
+    let hw_db = if !config.hellowork_db_enabled {
+        tracing::info!("HelloWork DB disabled (set HELLOWORK_DB_ENABLED=1 to load)");
+        None
+    } else {
+        decompress_db_if_needed(&config.hellowork_db_path);
 
-    let hw_db = match LocalDb::new(&config.hellowork_db_path) {
-        Ok(db) => {
-            tracing::info!("HelloWork DB loaded: {}", config.hellowork_db_path);
-            // インデックス自動作成
-            let idx_sqls = [
+        match LocalDb::new(&config.hellowork_db_path) {
+            Ok(db) => {
+                tracing::info!("HelloWork DB loaded: {}", config.hellowork_db_path);
+                // インデックス自動作成
+                let idx_sqls = [
                 "CREATE INDEX IF NOT EXISTS idx_postings_job_pref ON postings (job_type, prefecture)",
                 "CREATE INDEX IF NOT EXISTS idx_postings_job_lat_lng ON postings (job_type, latitude, longitude)",
                 "CREATE INDEX IF NOT EXISTS idx_postings_lat_lng ON postings (latitude, longitude)",
@@ -85,19 +92,20 @@ async fn main() {
                 "CREATE INDEX IF NOT EXISTS idx_postings_pref_salary ON postings (prefecture, salary_min DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_postings_pref_muni_job ON postings (prefecture, municipality, job_type)",
             ];
-            for sql in &idx_sqls {
-                if let Err(e) = db.execute(sql, &[]) {
-                    tracing::warn!("Index creation failed: {e}");
+                for sql in &idx_sqls {
+                    if let Err(e) = db.execute(sql, &[]) {
+                        tracing::warn!("Index creation failed: {e}");
+                    }
                 }
+                if let Err(e) = db.execute("ANALYZE", &[]) {
+                    tracing::warn!("ANALYZE failed: {e}");
+                }
+                Some(db)
             }
-            if let Err(e) = db.execute("ANALYZE", &[]) {
-                tracing::warn!("ANALYZE failed: {e}");
+            Err(e) => {
+                tracing::warn!("HelloWork DB not available: {e}");
+                None
             }
-            Some(db)
-        }
-        Err(e) => {
-            tracing::warn!("HelloWork DB not available: {e}");
-            None
         }
     };
 

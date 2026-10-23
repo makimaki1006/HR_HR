@@ -137,6 +137,7 @@ mod tests {
                 allowed_domains: Vec::new(),
                 allowed_domains_extra: Vec::new(),
                 hellowork_db_path: String::new(),
+                hellowork_db_enabled: false,
                 indeed_db_path: String::new(),
                 cache_ttl_secs: 60,
                 cache_max_entries: 10,

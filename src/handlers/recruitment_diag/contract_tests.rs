@@ -110,6 +110,7 @@ pub(super) fn test_app_state_opt(hw_db: Option<LocalDb>) -> Arc<AppState> {
         allowed_domains: Vec::new(),
         allowed_domains_extra: Vec::new(),
         hellowork_db_path: String::new(),
+        hellowork_db_enabled: false,
         indeed_db_path: "data/indeed_insights.db".to_string(),
         cache_ttl_secs: 60,
         cache_max_entries: 10,

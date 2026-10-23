@@ -44,6 +44,7 @@ pub(crate) fn test_state(audit: Option<AuditDb>) -> Arc<AppState> {
         allowed_domains: vec!["f-a-c.co.jp".to_string()],
         allowed_domains_extra: vec![],
         hellowork_db_path: String::new(),
+        hellowork_db_enabled: false,
         indeed_db_path: String::new(),
         cache_ttl_secs: 60,
         cache_max_entries: 10,

@@ -368,6 +368,7 @@ Panel 5 の emp_type は `condition_gap.rs` で `emp_classifier::from_ui_value` 
 | `ALLOWED_DOMAINS` | `f-a-c.co.jp` | 社内ドメイン | 2026-08-10 に cyxen.co.jp を削除 |
 | `ALLOWED_DOMAINS_EXTRA` | "" | 外部追加ドメイン | 追加なし |
 | `HELLOWORK_DB_PATH` | `data/hellowork.db` | SQLite ファイルパス | デフォルト |
+| `HELLOWORK_DB_ENABLED` | 未設定 | `1` でハローワークDBを読み込む (2026-10-23 から既定 OFF。非表示の画面を戻すときは `1`) | DB 無しで起動。地図・媒体分析のHW統合・企業検索のHW部分・consult・上部の都道府県選択肢などは「未接続」の扱い |
 | `CACHE_TTL_SECS` | `1800` (30 分) | DashMap TTL | デフォルト |
 | `CACHE_MAX_ENTRIES` | `3000` | DashMap 最大エントリ | デフォルト |
 | `RATE_LIMIT_MAX_ATTEMPTS` | `5` | ログイン失敗上限 | デフォルト |

@@ -1773,7 +1773,8 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
         String::new()
     };
 
-    let db_warning = if state.hw_db.is_none() {
+    // 読み込みを止めている (HELLOWORK_DB_ENABLED 未設定) ときは接続エラーではないので出さない
+    let db_warning = if state.hw_db.is_none() && state.config.hellowork_db_enabled {
         r#"<div id="db-warning" class="bg-red-900/80 border border-red-600 text-red-200 px-4 py-3 text-sm flex items-center gap-2">
             <span class="text-lg">⚠️</span>
             <div>
@@ -1990,7 +1991,8 @@ async fn health_check(
         .iter()
         .all(|s| *s != "error");
 
-    let status = if !db_ok {
+    // 読み込みを止めているときは DB 無しでも unhealthy にしない
+    let status = if !db_ok && state.config.hellowork_db_enabled {
         "unhealthy"
     } else if externals_ok {
         "healthy"
@@ -2007,6 +2009,7 @@ async fn health_check(
         "status": status,
         "commit": commit,
         "db_connected": db_ok,
+        "db_enabled": state.config.hellowork_db_enabled,
         "db_rows": db_rows,
         "cache_entries": state.cache.len(),
         "turso_external": turso_external_status,

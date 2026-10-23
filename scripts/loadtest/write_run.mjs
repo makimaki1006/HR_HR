@@ -146,7 +146,7 @@ async function startProcesses(workDir) {
     PORT: String(OPT.appPort),
     AUTH_PASSWORD: `loadtest-${process.pid}`,
     ALLOWED_DOMAINS: 'f-a-c.co.jp',
-    HELLOWORK_DB_PATH: db,
+    HELLOWORK_DB_PATH: db, HELLOWORK_DB_ENABLED: '1',
     HUBSPOT_ACCESS_TOKEN: 'fake-loadtest-token',
     HUBSPOT_BASE_URL: HS,
     GOOGLE_OIDC_CLIENT_ID: 'test-client',
