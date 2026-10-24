@@ -14,6 +14,7 @@ pub mod indeed;
 pub mod job_copy_date;
 pub mod job_gen;
 pub mod media_engine;
+pub mod mem_watch;
 pub mod minimum_wage;
 pub mod models;
 pub mod portal;
@@ -1021,6 +1022,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                 .layer(middleware::from_fn_with_state(login_cookie, auth::login_cookie::restore_login))
                 .layer(CompressionLayer::new()),
         )
+        // メモリの急増を記録するときに、処理中の要求を一緒に出すため (mem_watch)
+        .layer(middleware::from_fn(mem_watch::track))
 }
 
 /// 採用提案パッケージの試作モック (2026-07-25)。
