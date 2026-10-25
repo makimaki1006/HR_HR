@@ -20,12 +20,13 @@ export function failureReason(code: string | null): string {
   }
 }
 
-export function FailedOpsView({ rows, onChanged }: { rows: CrmAdminOperation[]; onChanged: (id: string) => void }) {
+export function FailedOpsView({ rows, onChanged, fixture = false }: { rows: CrmAdminOperation[]; onChanged: (id: string) => void; fixture?: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const act = async (id: string, kind: 'retry' | 'discard') => {
     setBusy(id);
     setMessage('');
+    if (fixture) { setBusy(null); onChanged(id); return; }
     const r = await apiPost<unknown>(`/api/admin/crm-operations/${encodeURIComponent(id)}/${kind}`, {});
     setBusy(null);
     if (r.ok) onChanged(id);
@@ -64,14 +65,35 @@ export function FailedOpsView({ rows, onChanged }: { rows: CrmAdminOperation[]; 
   );
 }
 
-export function FailedOpsPanel() {
-  const state = useApiGet<CrmAdminOperationsResponse>('/api/admin/crm-operations?status=failed');
+const FIXTURE_ROWS: CrmAdminOperation[] = [
+  { operation_id: 'fx-1', deal_id: '9001', operator_email: 'bpo-a@f-a-c.co.jp', props: ['bpo_16'], status: 'failed', error: 'conflict', attempts: 2, created_at: '2026-10-25T01:00:00Z', updated_at: '2026-10-25T01:02:03Z', next_retry_at: null },
+  { operation_id: 'fx-2', deal_id: '9002', operator_email: 'bpo-b@f-a-c.co.jp', props: ['dealstage', 'bpo_13'], status: 'failed', error: 'missing_required', attempts: 1, created_at: '2026-10-25T02:00:00Z', updated_at: '2026-10-25T02:10:00Z', next_retry_at: null },
+  { operation_id: 'fx-3', deal_id: '9003', operator_email: 'bpo-a@f-a-c.co.jp', props: ['risuto_kadennbi'], status: 'failed', error: 'max_attempts', attempts: 8, created_at: '2026-10-25T03:00:00Z', updated_at: '2026-10-25T05:30:00Z', next_retry_at: null },
+];
+
+function useGone() {
   const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
+  return [gone, (id: string) => { setGone(prev => new Set(prev).add(id)); }] as const;
+}
+
+/** 架空サンプル (`?mode=fixture`): 通信せず、再試行・破棄は一覧から外すだけ */
+function FixtureFailedOps() {
+  const [gone, markGone] = useGone();
+  return <FailedOpsView fixture rows={FIXTURE_ROWS.filter(o => !gone.has(o.operation_id))} onChanged={markGone} />;
+}
+
+function LiveFailedOps() {
+  const state = useApiGet<CrmAdminOperationsResponse>('/api/admin/crm-operations?status=failed');
+  const [gone, markGone] = useGone();
   if (state.status === 'loading') return <p>読み込み中…</p>;
   if (state.status === 'error') {
     const t = describeApiError(state.error);
     return <p className="w8-alert" role="alert"><strong>{t.title}</strong> {t.detail}</p>;
   }
-  const rows = state.data.operations.filter(o => !gone.has(o.operation_id));
-  return <FailedOpsView rows={rows} onChanged={id => { setGone(prev => new Set(prev).add(id)); }} />;
+  return <FailedOpsView rows={state.data.operations.filter(o => !gone.has(o.operation_id))} onChanged={markGone} />;
+}
+
+export function FailedOpsPanel() {
+  const fixture = new URLSearchParams(window.location.search).get('mode') === 'fixture';
+  return fixture ? <FixtureFailedOps /> : <LiveFailedOps />;
 }
