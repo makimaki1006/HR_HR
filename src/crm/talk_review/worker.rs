@@ -237,7 +237,11 @@ pub async fn process_one<Z: TranscriptSource, J: Judge>(
                 Outcome::Retry("recording_not_found_yet")
             };
         }
-        Err(ZoomError::Transient(_)) => return Outcome::Retry("zoom_error"),
+        Err(ZoomError::Transient(reason)) => {
+            // 理由は短い記号だけ (http 429・token: 接続の種類 など)。URL・鍵は含まない
+            tracing::info!(%reason, "talk review: zoom transcript failed");
+            return Outcome::Retry("zoom_error");
+        }
         Err(ZoomError::NotConfigured) => return Outcome::Retry("zoom_not_configured"),
     };
     // 200 でも発言が 1 件も無い文字起こしは、まだ空 (後で取り直す)
@@ -291,7 +295,10 @@ pub async fn resolve_recording<Z: TranscriptSource>(
         Ok(None) | Err(ZoomError::NotReady | ZoomError::Gone | ZoomError::Untranscribable) => {
             not_found
         }
-        Err(ZoomError::Transient(_)) => Resolve::Done(Outcome::Retry("zoom_error")),
+        Err(ZoomError::Transient(reason)) => {
+            tracing::info!(%reason, "talk review: zoom call history failed");
+            Resolve::Done(Outcome::Retry("zoom_error"))
+        }
         Err(ZoomError::NotConfigured) => Resolve::Done(Outcome::Retry("zoom_not_configured")),
     }
 }
