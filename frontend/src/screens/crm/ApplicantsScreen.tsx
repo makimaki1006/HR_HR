@@ -184,8 +184,12 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
     setLoginPrompt(null);
     setDialNotice(ZOOM_LOGIN_DONE);
   }
+  const [pagePick, setPagePick] = useState<{ applicant: string; url: string } | null>(null);
+  const jobPages = detail?.job_pages ?? [];
+  const pickedPage = detail && pagePick?.applicant === detail.row.id && jobPages.some(p => p.url === pagePick.url) ? pagePick.url : null;
+  const postingUrl = pickedPage ?? detail?.posting_url ?? null;
   const fixed: FixedLink[] = [
-    { id: 'applicant-posting', label: '求人票', url: detail?.posting_url ?? null, missing: 'この応募には求人票の URL がありません。' },
+    { id: 'applicant-posting', label: '求人票', url: postingUrl, missing: 'この応募には求人票の URL がありません。' },
     { id: 'applicant-sheet', label: '報告シート', url: detail?.sheet_url ?? null, missing: 'この応募には報告シートの URL がありません' },
     { id: 'applicant-script', label: 'スクリプト', url: SHARED_LINKS.script, missing: 'スクリプトの URL がまだ設定されていません。' },
     { id: 'applicant-customer-sheet', label: '顧客シート', url: SHARED_LINKS.customerSheet, missing: '顧客シートの URL がまだ設定されていません。' },
@@ -259,7 +263,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
     links: <aside className="cq-linkpanel applicants-right" aria-label="求人票・シート・スクリプト">
       <div className="cq-linkpanel-head"><CenterTabBar tabs={tabs} /></div>
       <div className="cq-cpanels">{tabs.fixed.map(item => <CenterPanel key={item.def.id} id={item.def.id} active={tabs.active === item.def.id}>
-        {SHARED_TABS.has(item.def.id) ? (item.tab === null ? <div className="dock-scroll"><p>{item.def.missing}</p></div> : item.opened && <LinkView key={item.tab.url} tab={item.tab} />) : !selectedId ? <p className="dock-placeholder">応募を選択してください。</p> : !detail ? <p role="status">詳細を読み込み中…</p> : item.def.id === 'applicant-sheet' ? (item.opened && <ApplicantSheet detail={detail} />) : item.tab === null ? <div className="dock-scroll"><p>{item.def.missing}</p>{detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) && <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a>}</div> : item.opened && <LinkView key={item.tab.url} tab={item.tab} actions={detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) ? <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a> : null} />}
+        {SHARED_TABS.has(item.def.id) ? (item.tab === null ? <div className="dock-scroll"><p>{item.def.missing}</p></div> : item.opened && <LinkView key={item.tab.url} tab={item.tab} />) : !selectedId ? <p className="dock-placeholder">応募を選択してください。</p> : !detail ? <p role="status">詳細を読み込み中…</p> : item.def.id === 'applicant-sheet' ? (item.opened && <ApplicantSheet detail={detail} />) : item.tab === null ? <div className="dock-scroll"><p>{item.def.missing}</p>{detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) && <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a>}</div> : item.opened && <>{item.def.id === 'applicant-posting' && jobPages.length >= 2 && <div className="applicant-pages" role="group" aria-label="求人票のページ">{jobPages.map(page => <button key={page.url} type="button" aria-pressed={page.url === postingUrl} onClick={() => { setPagePick({ applicant: detail.row.id, url: page.url }); }}>{page.label}</button>)}</div>}<LinkView key={item.tab.url} tab={item.tab} actions={detail.jobcopy_url && safeHttpUrl(detail.jobcopy_url) ? <a href={detail.jobcopy_url} target="_blank" rel="noopener noreferrer">案件管理で見る</a> : null} /></>}
       </CenterPanel>)}</div>
     </aside>,
   };
