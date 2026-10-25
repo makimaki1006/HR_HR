@@ -250,7 +250,11 @@ pub async fn process_one<Z: TranscriptSource, J: Judge>(
     }
     match judge.judge(&loaded().checks, &turns).await {
         Ok(o) => Outcome::Judged(o),
-        Err(JudgeError::Transient(_)) => Outcome::Retry("judge_error"),
+        Err(JudgeError::Transient(reason)) => {
+            // 理由は短い記号だけ (http 429・json・send: 接続の種類)。本文・鍵は含まない
+            tracing::info!(%reason, "talk review: judge failed");
+            Outcome::Retry("judge_error")
+        }
         Err(JudgeError::NotConfigured) => Outcome::Retry("judge_not_configured"),
     }
 }
