@@ -51,6 +51,10 @@ export function applicantDetailFixture(id: string, search = window.location.sear
     ],
     notes: [{ date: '2026-10-18T00:00:00Z', html: '<p>午後の連絡を希望しています。</p>' }],
     posting_url: Number(id) % 2 === 0 ? null : 'https://www.example.com/jobs/fictional-inspection',
+    job_pages: Number(id) % 2 === 0 ? [] : [
+      { label: 'HRハッカー', url: 'https://www.example.com/jobs/fictional-inspection' },
+      { label: 'AirWork', url: 'https://www.example.com/airwork/fictional-inspection' },
+    ],
     jobcopy_url: 'https://www.example.com/app/job-copy/fictional-posting',
     sheet_url: id === '90002' ? null : 'https://docs.google.com/spreadsheets/d/fictional-applicants-sheet/edit',
     sheet_embed: id !== '90002',

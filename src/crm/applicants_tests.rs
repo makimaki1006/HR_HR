@@ -368,6 +368,17 @@ async fn applicants_detail_labels_empty_fields_sheet_notes_cache_and_fresh() {
         "https://www.example.com/fictional-posting"
     );
     assert_eq!(
+        a["job_pages"][0]["url"],
+        "https://www.example.com/fictional-posting"
+    );
+    assert_eq!(a["job_pages"][0]["label"], "HRハッカー");
+    assert_eq!(
+        a["job_pages"][1]["url"],
+        "https://www.example.com/fictional-airwork"
+    );
+    assert_eq!(a["job_pages"][1]["label"], "AirWork");
+    assert_eq!(a["job_pages"].as_array().unwrap().len(), 2);
+    assert_eq!(
         a["jobcopy_url"],
         "https://www.example.com/app/job-copy/fictional"
     );

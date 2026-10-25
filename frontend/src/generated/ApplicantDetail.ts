@@ -7,4 +7,8 @@ import type { ApplicantRelatedCard } from "./ApplicantRelatedCard";
 import type { ApplicantRow } from "./ApplicantRow";
 import type { ApplicantSection } from "./ApplicantSection";
 
-export type ApplicantDetail = { values: { [key in string]: string | null }, editable: Array<ApplicantEditField>, write_pipeline: ApplicantPipeline | null, writes_enabled: boolean, listings: Array<ApplicantRelatedCard>, deals: Array<ApplicantRelatedCard>, related_notice: string | null, row: ApplicantRow, sections: Array<ApplicantSection>, phone: string, stop_reason: string | null, deep_link: string, jobs: Array<ApplicantLink>, notes: Array<ApplicantNote>, posting_url: string | null, jobcopy_url: string | null, sheet_url: string | null, sheet_embed: boolean, };
+export type ApplicantDetail = { values: { [key in string]: string | null }, editable: Array<ApplicantEditField>, write_pipeline: ApplicantPipeline | null, writes_enabled: boolean, listings: Array<ApplicantRelatedCard>, deals: Array<ApplicantRelatedCard>, related_notice: string | null, row: ApplicantRow, sections: Array<ApplicantSection>, phone: string, stop_reason: string | null, deep_link: string, jobs: Array<ApplicantLink>, notes: Array<ApplicantNote>, posting_url: string | null, 
+/**
+ * 求人票の切り替え用。既定で出す `posting_url` が先頭。2 つ以上のときだけ画面に切り替えを出す。
+ */
+job_pages: Array<ApplicantLink>, jobcopy_url: string | null, sheet_url: string | null, sheet_embed: boolean, };

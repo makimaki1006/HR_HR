@@ -38,6 +38,13 @@ for (const size of [{ width:1512, height:742 }, { width:1280, height:800 }]) {
       if (output) { fs.mkdirSync(output, { recursive:true }); await page.screenshot({ path:path.join(output, `${size.width}x${size.height}-${name}.png`) }); }
     }
     await shot('01-posting');
+    const pages = page.getByRole('group', { name:'求人票のページ' });
+    await expect(pages.getByRole('button')).toHaveText(['HRハッカー', 'AirWork']);
+    await pages.getByRole('button', { name:'AirWork' }).click();
+    await expect(page.locator('iframe[title^="求人票"]')).toHaveAttribute('src','https://www.example.com/airwork/fictional-inspection');
+    await shot('01b-posting-airwork');
+    await pages.getByRole('button', { name:'HRハッカー' }).click();
+    await expect(page.locator('iframe[title^="求人票"]')).toHaveAttribute('src','https://www.example.com/jobs/fictional-inspection');
     await page.getByRole('tab', { name:'報告シート', exact:true }).click();
     await expect(page.locator('iframe[title^="報告シート"]')).toHaveAttribute('src','https://docs.google.com/spreadsheets/d/fictional-applicants-sheet/edit');
     await expect(page.frameLocator('iframe[title^="報告シート"]').getByText('架空の報告シート（レイアウト確認用）')).toBeVisible();

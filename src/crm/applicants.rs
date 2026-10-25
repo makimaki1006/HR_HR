@@ -194,6 +194,9 @@ pub struct ApplicantDetail {
     pub jobs: Vec<ApplicantLink>,
     pub notes: Vec<ApplicantNote>,
     pub posting_url: Option<String>,
+    /// 求人票の切り替え用。既定で出す `posting_url` が先頭。2 つ以上のときだけ画面に切り替えを出す。
+    #[serde(default)]
+    pub job_pages: Vec<ApplicantLink>,
     pub jobcopy_url: Option<String>,
     pub sheet_url: Option<String>,
     pub sheet_embed: bool,
@@ -876,6 +879,59 @@ fn posting_url(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<Stri
         .or_else(|| job_url(jobs, "url_hrhakkaa"))
         .or_else(|| job_url(jobs, "url_airwork"))
 }
+/// 求人票ページの候補（ラベルと URL）。先頭は `posting_url` と同じ。URL の重複は 1 つにまとめる。
+fn job_pages(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Vec<ApplicantLink> {
+    let mut pages: Vec<ApplicantLink> = vec![];
+    let mut push = |label: String, url: String, front: bool| {
+        if let Some(i) = pages.iter().position(|x| x.url == url) {
+            if front && i != 0 {
+                let x = pages.remove(i);
+                pages.insert(0, x);
+            }
+            return;
+        }
+        let page = ApplicantLink { label, url };
+        if front {
+            pages.insert(0, page)
+        } else {
+            pages.push(page)
+        }
+    };
+    for j in jobs {
+        let name = j
+            .properties
+            .get("hs_name")
+            .or_else(|| j.properties.get("name"))
+            .and_then(|v| v.as_deref())
+            .unwrap_or("応募先求人");
+        for (prop, media) in [("url_hrhakkaa", "HRハッカー"), ("url_airwork", "AirWork")] {
+            if let Some(url) = j
+                .properties
+                .get(prop)
+                .and_then(|v| v.as_deref())
+                .and_then(http_url)
+            {
+                let label = if jobs.len() > 1 {
+                    format!("{name} {media}")
+                } else {
+                    media.to_string()
+                };
+                push(label, url, false);
+            }
+        }
+    }
+    if let Some(url) = http_url(&text(p, "oubosaki_kyuujin_url")) {
+        push("応募時のページ".into(), url, true);
+    }
+    // 既定で出すページ（`posting_url`）を必ず先頭にする。
+    if let Some(def) = posting_url(p, jobs) {
+        if let Some(i) = pages.iter().position(|x| x.url == def) {
+            let x = pages.remove(i);
+            pages.insert(0, x);
+        }
+    }
+    pages
+}
 fn sheet_embeddable(url: Option<&str>) -> bool {
     url.is_some_and(|s| s.starts_with("https://docs.google.com/spreadsheets/"))
 }
@@ -1097,6 +1153,7 @@ pub(super) async fn detail(
                 })
                 .collect(),
             posting_url: posting_url(p, &jobs),
+            job_pages: job_pages(p, &jobs),
             jobcopy_url: job_url(&jobs, "jobcopy_app_url"),
             notes,
             sheet_embed: sheet_embeddable(sheet_url.as_deref()),
@@ -1219,6 +1276,53 @@ mod tests {
             Some("https://www.example.com/airwork")
         );
         assert_eq!(posting_url(&json!({}), &[]), None);
+        let pages = job_pages(&json!({}), &jobs);
+        assert_eq!(
+            pages
+                .iter()
+                .map(|x| (x.label.as_str(), x.url.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("HRハッカー", "https://www.example.com/hrhacker"),
+                ("AirWork", "https://www.example.com/airwork")
+            ]
+        );
+        let pages = job_pages(
+            &json!({"oubosaki_kyuujin_url":"https://www.example.com/airwork"}),
+            &jobs,
+        );
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[0].url, "https://www.example.com/airwork");
+        let pages = job_pages(
+            &json!({"oubosaki_kyuujin_url":"https://www.example.com/applicant"}),
+            &jobs,
+        );
+        assert_eq!(pages.len(), 3);
+        assert_eq!(pages[0].label, "応募時のページ");
+        assert!(job_pages(&json!({}), &[]).is_empty());
+        let mut second = jobs[0].clone();
+        second.id = "80002".into();
+        second
+            .properties
+            .insert("hs_name".into(), Some("B店".into()));
+        second.properties.remove("url_hrhakkaa");
+        let mut first = jobs[0].clone();
+        first
+            .properties
+            .insert("hs_name".into(), Some("A店".into()));
+        first.properties.remove("url_hrhakkaa");
+        first.properties.insert(
+            "url_airwork".into(),
+            Some("https://www.example.com/a-air".into()),
+        );
+        second.properties.insert(
+            "url_hrhakkaa".into(),
+            Some("https://www.example.com/b-hrh".into()),
+        );
+        let pages = job_pages(&json!({}), &[first, second]);
+        assert_eq!(pages[0].url, "https://www.example.com/b-hrh");
+        assert_eq!(pages[0].label, "B店 HRハッカー");
+        assert_eq!(pages.len(), 3);
         assert_eq!(
             posting_url(&json!({"oubosaki_kyuujin_url":"ftp://example.com/a"}), &[]),
             None

@@ -233,6 +233,25 @@ it('対象ごとに検索し、未完了にない応募は全範囲で探せる'
   await screen.findByText('2件');
   expect(new URLSearchParams(window.location.search).get('qt')).toBe('listing');
 });
+it('求人票のページが 2 つあるときだけ切り替えが出て、選んだページの URL が枠に入る', async () => {
+  vi.stubGlobal('fetch', vi.fn());
+  render(<ApplicantsScreen fixture />);
+  await screen.findByText('2件');
+  fireEvent.click(screen.getByRole('button', { name: /架空 はるか/ }));
+  const group = await screen.findByRole('group', { name: '求人票のページ' });
+  const frame = () => document.querySelector('iframe[title^="求人票"]')?.getAttribute('src');
+  expect(within(group).getAllByRole('button').map(b => b.textContent)).toEqual(['HRハッカー', 'AirWork']);
+  expect(within(group).getByRole('button', { name: 'HRハッカー' }).getAttribute('aria-pressed')).toBe('true');
+  expect(frame()).toBe('https://www.example.com/jobs/fictional-inspection');
+  fireEvent.click(within(group).getByRole('button', { name: 'AirWork' }));
+  expect(frame()).toBe('https://www.example.com/airwork/fictional-inspection');
+  expect(within(group).getByRole('button', { name: 'AirWork' }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getAllByRole('link', { name: '新しいタブで開く' }).some(a => a.getAttribute('href') === 'https://www.example.com/airwork/fictional-inspection')).toBe(true);
+  // ページが無い応募（偶数番）は切り替えを出さない。
+  fireEvent.click(screen.getByRole('button', { name: /架空 あおい/ }));
+  await screen.findByText('この応募には求人票の URL がありません。');
+  expect(screen.queryByRole('group', { name: '求人票のページ' })).toBeNull();
+});
 it('応募の概要から求人票・取引カードを開き、今の契約と過去の取引を確認できる', async () => {
   const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
   render(<ApplicantsScreen fixture />);

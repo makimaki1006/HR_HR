@@ -88,3 +88,6 @@
 .applicant-presence-tag { display: inline-block; align-self: flex-start; margin-top: 2px; padding: 1px 8px; border-radius: var(--cq-radius); background: #fff3cd; border: 1px solid #d39e00; color: #6b4e00; font-size: 12px; font-weight: 600; }
 .applicant-presence { margin: 6px 0 0; padding: 6px 10px; border-radius: var(--cq-radius); background: #fff3cd; border: 1px solid #d39e00; color: #6b4e00; font-size: 13px; font-weight: 600; }
 .applicant-reminders-presence { padding: 0 6px; border-radius: var(--cq-radius); background: #fff3cd; color: #6b4e00; font-size: 12px; font-weight: 600; }
+.applicant-pages { display: flex; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--cq-line); font-size: 12px; flex-wrap: wrap; }
+.applicant-pages button { padding: 2px 10px; border: 1px solid var(--cq-line); border-radius: 12px; background: white; cursor: pointer; }
+.applicant-pages button[aria-pressed="true"] { background: #e6efff; border-color: #6b8fd6; font-weight: 600; }
