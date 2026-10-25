@@ -195,6 +195,14 @@ pub fn set_zoom_id(t: &TursoDb, id: &str, zoom_id: &str, now: &str) -> Result<()
     )
 }
 
+/// 行の担当者を書き換える (Zoom でかけた人に直すとき)
+pub fn set_owner(t: &TursoDb, id: &str, owner: &str, now: &str) -> Result<(), String> {
+    t.execute(
+        "UPDATE call_talk_reviews SET owner_id = ?2, updated_at = ?3 WHERE hubspot_call_id = ?1",
+        &[&id, &owner, &now],
+    )
+}
+
 /// 再試行の時刻が来た行
 pub fn due(t: &TursoDb, now: &str, limit: i64) -> Result<Vec<ReviewRow>, String> {
     let sql = format!(
@@ -407,6 +415,20 @@ mod tests {
             assert_eq!(r.first_date_turn, Some(4));
             assert_eq!(r.items, out.items);
             assert_eq!(r.checks_version.as_deref(), Some("abcd1234"));
+            // 担当者を Zoom でかけた人に直すと、その人の行として読める
+            set_owner(t, "c1", "o7", "2026-10-15T00:50:00Z")?;
+            assert_eq!(get(t, "c1")?.unwrap().owner_id, "o7");
+            assert_eq!(
+                rows_in(
+                    t,
+                    "2026-10-15T00:00:00Z",
+                    "2026-10-16T00:00:00Z",
+                    Some("o7")
+                )?
+                .len(),
+                1
+            );
+            set_owner(t, "c1", "o1", "2026-10-15T00:51:00Z")?;
             // 判定済みの行の一覧と、文章だけの書き換え
             assert_eq!(judged_since(t, "2026-10-01T00:00:00Z")?.len(), 1);
             let mut cleaned = out.items.clone();

@@ -919,7 +919,7 @@ HubSpot の Call (純正連携 / 70 秒以上 / OUTBOUND)
 
 - 文字起こしの全文は保存しない。画面で詳細を開くときに Zoom から取り直す (プロセス内に 10 分・最大 50 件のキャッシュ)。Zoom が録音を返さなければ「録音が残っていません」と出す。
 - 文字起こしがまだ無い (Zoom が処理中) Call は、10 分・30 分・1 時間・2 時間・4 時間・8 時間・12 時間の間隔で再試行し、8 回で諦める。
-- 録音 URL が無い Call は、作成から 2 時間待つ。BPO の発信は Zoom の Call Queue 経由で、HubSpot の本文に録音 URL が入らない。そのため待ったあと、Zoom の通話履歴 (`GET /v2/phone/call_history`、JST の日ごとに 10 分キャッシュ、最大 40 ページ) から相手番号 (下 9 桁、HubSpot の `hs_call_to_number`) と開始時刻 (差 60 秒以内で最も近いもの) で同じ通話を探し、その詳細 (`call_elements` の Call Queue の要素) の `recording_id` を使う。見つけた ID は行の `zoom_call_log_id` に `rec:` を付けて覚える。見つからなければ理由 `no_recording_found` で「取れない」にする。
+- 録音 URL が無い Call は、作成から 2 時間待つ。BPO の発信は Zoom の Call Queue 経由で、HubSpot の本文に録音 URL が入らない。そのため待ったあと、Zoom の通話履歴 (`GET /v2/phone/call_history`、JST の日ごとに 10 分キャッシュ、最大 80 ページ。2026-10-23 は 1 日 37 ページあり、旧上限 40 に近かった) から相手番号 (下 9 桁、HubSpot の `hs_call_to_number`) と開始時刻 (差 60 秒以内で最も近いもの) で同じ通話を探し、その詳細 (`call_elements` の Call Queue の要素) の `recording_id` を使う。見つけた ID は行の `zoom_call_log_id` に `rec:` を付けて覚える。見つからなければ理由 `no_recording_found` で「取れない」にする。
 - 起動後に 1 回、理由が旧 `no_recording_url` の「取れない」の行を順番待ちに戻して、通話履歴から探し直す。
 - Zoom が 404 を返した Call は、通話から 1 日未満なら録音がまだ出来ていないものとして再試行し、1 日以上経っていれば録音が消えたものとして「取れない」にする。
 - 営業しか話していない文字起こしは判定せず「取れない」にする。
@@ -932,6 +932,7 @@ HubSpot の Call (純正連携 / 70 秒以上 / OUTBOUND)
 
 - チーム: BPO (`BPO_リクロジ`) と社内の新規営業 (`新規営業`)。`CALL_REVIEW_TEAMS` で上書きできる。
 - Call の条件: `hs_call_source = INTEGRATIONS_PLATFORM`、`hs_call_direction = OUTBOUND`、`hs_call_duration` が `checks.json` の `min_talk_sec` (70 秒) 以上。
+- 判定の結果を付ける人 (2026-10-25): HubSpot の担当者ではなく、Zoom でかけた人。純正連携が別の人の名前で Call を記録することがある (2026-10-22・23 の照合で、対象チームの 70 秒以上の発信の約 11%。6 組)。取り込むときに、Zoom の通話ログ (`phone/call_logs`、JST の日ごとに 10 分キャッシュ) から相手番号 (下 9 桁) と開始時刻 (差 3 分以内で最も近いもの) で同じ発信を探し、その `user_id` → メール → HubSpot の担当者 (有効な人を優先) を行の `owner_id` にする。Call Queue 経由の発信も通話ログには本人が入る。見つからない・担当者に結び付かないときは HubSpot の担当者のまま。Zoom が一時的に読めないときは行を作らず、同じ範囲を次の周回で読み直す。起動後に 1 回、取り込み済みの行 (過去 `CALL_REVIEW_BACKFILL_DAYS` + 2 日) も同じ方法で直す。対象の Call を探す Search は今も HubSpot の担当者 (対象チームの人) で絞るので、チーム外の人の名前で記録された Call は拾わない (同じ照合で 0 本)。
 - 架電数: 営業KPI と同じ値。日次同期がシート `KPI営業_架電日次` の「架電数」に書く、Zoom の通話ログのうち `result == "Auto Recorded"` (つながった通話) の数。`sales_kpi` の `kaden_of` / `kaden_period` をそのまま使い、HubSpot の Call では数えない。今日の分はシートの途中経過 (朝・夕の同期の時点) で、取得条件の「架電の最終日は途中」「架電の取得時刻」を見て画面に「○○ 時点の数」と出す (`sales_kpi::kaden_last_day` を営業KPI と共用)。シートが読めないときは架電数とアポ率を出さず (null / 「—」)、画面に読めなかったことを出す。HubSpot で数える旧経路へのフォールバックは無い。アポ率 = アポ数 ÷ 架電数。
 - 今日の架電数 (2026-10-20): 期間に今日が入るときだけ、今日の分は Zoom の通話ログ (`phone/call_logs`) から約 15 分おきに数える (`live_dials.rs`。プロセス内で共有し、更新中は前の値を返す。失敗しても前の値を残し、値が無いときはシートの今日の値に戻る)。数え方は営業KPI の日次同期 (`fetch_outbound_by_user`) と同じ: 発信のみ・id で重複除外・JST の日に入るもの・`Auto Recorded` だけ、Zoom ユーザー → メール → HubSpot の担当者 (有効な人を優先)。今日より前の日はシートのまま。画面の「○○ 時点」は Zoom で数えた時刻になる。
 - 発信数 (2026-10-20): 架電数の左に、相手が出る前に切ったもの・つながらなかったものを含む Zoom の発信すべてを「発信数」として出す。今日より前はシート `KPI営業_架電日次` の「発信」列 (`kaden_period` の `calls`)、今日は架電数と同じ Zoom の数え方から `Auto Recorded` の条件だけを外した件数 (同じ一回の取得で両方数える)。シートが読めないときは架電数と同じく null。アポ率は引き続きアポ数 ÷ 架電数。
