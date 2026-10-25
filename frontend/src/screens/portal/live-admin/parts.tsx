@@ -4,7 +4,7 @@ import type { PortalAdminPreview } from '../../../generated/PortalAdminPreview';
 import type { PortalAdminStatus } from '../../../generated/PortalAdminStatus';
 import { AdminLayout, type AdminSection } from '../ui/layouts';
 import { Button, Dialog, Field, Notice, Select, TextInput, formatShortDateTime } from '../ui/kit';
-import { get, type Result } from './api';
+import { get, post, type Result } from './api';
 import { routeHref, type Route } from './model';
 
 // ---- 画面の中の移動 ----
@@ -38,19 +38,21 @@ export function Link({ to, children, className }: { to: Route; children: ReactNo
 export type Load<T> = { state: 'loading' } | { state: 'ok'; data: T } | { state: 'error'; message: string; status: number };
 
 /** GET して持つ。reload で読み直す */
-export function useGet<T>(path: string | null): [Load<T>, () => void, (data: T) => void] {
+export function useGet<T>(path: string | null, method: 'GET' | 'POST' = 'GET'): [Load<T>, () => void, (data: T) => void] {
   const [n, setN] = useState(0);
   const [result, setResult] = useState<{ key: string; load: Load<T> } | null>(null);
   const key = `${path ?? ''}#${String(n)}`;
   useEffect(() => {
     if (path === null) return undefined;
     const c = new AbortController();
-    void get<T>(path, c.signal).then((r: Result<T>) => {
+    // POST は記録を残す読み取り (シートを試しに読む) に使う。本文は空
+    const req = method === 'POST' ? post<T>(path, {}) : get<T>(path, c.signal);
+    void req.then((r: Result<T>) => {
       if (c.signal.aborted) return;
       setResult({ key, load: r.ok ? { state: 'ok', data: r.data } : { state: 'error', message: r.message, status: r.status } });
     });
     return () => { c.abort(); };
-  }, [path, key]);
+  }, [path, key, method]);
   const reload = useCallback(() => { setN((x) => x + 1); }, []);
   const replace = useCallback((data: T) => { setResult({ key, load: { state: 'ok', data } }); }, [key]);
   const load: Load<T> = result !== null && result.key === key ? result.load : { state: 'loading' };
@@ -90,6 +92,13 @@ export function StatusBanner({ status }: { status: PortalAdminStatus | null }) {
     return (
       <Notice tone="danger" title={`社内用シートへの保存待ちが ${String(status.pending)} 件あります`}>
         {status.last_error ?? '裏で書き込んでいます。'} 変更はこの画面ではもう効いていますが、保存が終わる前にアプリが再起動すると、その変更は失われます。
+      </Notice>
+    );
+  }
+  if (status.last_error !== null) {
+    return (
+      <Notice tone="danger" title="社内用シートの処理で問題が起きています">
+        {status.last_error}
       </Notice>
     );
   }

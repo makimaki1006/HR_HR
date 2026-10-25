@@ -66,7 +66,7 @@ pub(super) fn routes() -> Router<Arc<AppState>> {
             post(preview_unregistered),
         )
         .route("/api/admin/portal/sheets/{id}", put(update_sheet))
-        .route("/api/admin/portal/sheets/{id}/preview", get(preview_sheet))
+        .route("/api/admin/portal/sheets/{id}/preview", post(preview_sheet))
         .route(
             "/api/admin/portal/sheets/{id}/columns",
             get(get_columns).put(put_columns),
@@ -759,6 +759,16 @@ async fn update_customer(
     if auth.store().update_customer(c.clone()).is_err() {
         return not_found("顧客");
     }
+    if c.disabled && !old.disabled {
+        // 再開しても、止める前の端末・ログイン中の画面・招待は生き返らない
+        let n = auth.revoke_customer_access(&c.id, Utc::now());
+        log(&auth, &by, "customer_revoke", |e| {
+            e.customer_id = c.id.clone();
+            e.detail = format!(
+                "顧客を止めたので、アカウント {n} 件の覚えた端末・ログイン中の画面・招待を無効にした"
+            );
+        });
+    }
     let changes: [(&str, String, String); 4] = [
         ("顧客名", old.name.clone(), c.name.clone()),
         (
@@ -834,10 +844,17 @@ fn probe_error(e: ProbeError, reader: &dyn SheetsApi) -> Response {
     }
 }
 
-fn parse_url(url: &str) -> Result<(String, Option<i64>), Response> {
-    sheets::parse_sheet_url(url).ok_or_else(|| {
+/// 顧客のシートの URL を読む。社内用シート (アプリの情報) は、試しに読む・登録することを拒む
+fn parse_url(ctx: &Ctx, url: &str) -> Result<(String, Option<i64>), Response> {
+    let (id, gid) = sheets::parse_sheet_url(url).ok_or_else(|| {
         invalid("Google スプレッドシートの URL を貼ってください（https://docs.google.com/spreadsheets/d/… の形）")
-    })
+    })?;
+    if ctx.store_spreadsheet.as_deref() == Some(id.as_str()) {
+        return Err(invalid(
+            "このシートはアプリの情報を置く社内用のシートです。顧客のシートとしては読めません",
+        ));
+    }
+    Ok((id, gid))
 }
 
 #[derive(Deserialize)]
@@ -857,7 +874,7 @@ async fn probe(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let (spreadsheet_id, gid) = match parse_url(&body.url) {
+    let (spreadsheet_id, gid) = match parse_url(&ctx, &body.url) {
         Ok(v) => v,
         Err(r) => return r,
     };
@@ -927,7 +944,7 @@ async fn preview_unregistered(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let (spreadsheet_id, _) = match parse_url(&body.url) {
+    let (spreadsheet_id, _) = match parse_url(&ctx, &body.url) {
         Ok(v) => v,
         Err(r) => return r,
     };
@@ -953,7 +970,10 @@ async fn preview_unregistered(
                 p.rows.len()
             );
             log(&auth, &by, "sheet_preview", |e| {
-                e.detail = "登録前のシートを試しに読んだ".into();
+                e.detail = format!(
+                    "登録前のシートを試しに読んだ（スプレッドシート {spreadsheet_id}・タブ {}「{}」）",
+                    body.sheet_id, p.tab_title
+                );
             });
             Json(preview_view(p, body.header_row, body.example_rows)).into_response()
         }
@@ -987,7 +1007,7 @@ async fn add_sheet(
     if auth.store().customer(&customer_id).is_none() {
         return not_found("顧客");
     }
-    let (spreadsheet_id, _) = match parse_url(&body.url) {
+    let (spreadsheet_id, _) = match parse_url(&ctx, &body.url) {
         Ok(v) => v,
         Err(r) => return r,
     };
@@ -1041,29 +1061,7 @@ async fn add_sheet(
         Err(StoreError::NotFound) => return not_found("顧客"),
     }
     // 項目は見出しから作り、最初は全部「見せない」(設定するまで顧客には何も出ない)
-    let mut seen = std::collections::HashSet::new();
-    let columns: Vec<ColumnSetting> = preview
-        .headers
-        .iter()
-        .map(|h| h.trim().to_string())
-        .filter(|h| {
-            !h.is_empty() && h.chars().count() <= MAX_HEADER_CHARS && seen.insert(h.clone())
-        })
-        .take(MAX_COLUMNS)
-        .enumerate()
-        .map(|(i, header)| ColumnSetting {
-            sheet_reg_id: sheet.id.clone(),
-            header,
-            label: String::new(),
-            visible: false,
-            writable: false,
-            in_list: false,
-            multiline: false,
-            kind: ColumnKind::Text,
-            group: ColumnGroup::Other,
-            order: i as u32,
-        })
-        .collect();
+    let columns = columns_from_headers(&sheet.id, &preview.headers, &[]);
     let n = columns.len();
     auth.store().replace_columns(&sheet.id, columns);
     log(&auth, &by, "sheet_add", |e| {
@@ -1074,6 +1072,45 @@ async fn add_sheet(
     persist(&auth).await;
     tracing::info!("[portal] シートを登録した（項目 {n} 個, by {by}）");
     Json(sheet_view(&auth, &sheet)).into_response()
+}
+
+/// 見出しの行から項目を作る。前の設定 (`old`) に同じ見出しがあればその設定を引き継ぎ、
+/// 無い見出しは「見せない」で足す。シートに無くなった見出しの項目は消える
+fn columns_from_headers(
+    sheet_id: &str,
+    headers: &[String],
+    old: &[ColumnSetting],
+) -> Vec<ColumnSetting> {
+    let mut seen = std::collections::HashSet::new();
+    headers
+        .iter()
+        .map(|h| sheets::clean_header(h))
+        .filter(|h| {
+            !h.is_empty() && h.chars().count() <= MAX_HEADER_CHARS && seen.insert(h.clone())
+        })
+        .take(MAX_COLUMNS)
+        .enumerate()
+        .map(
+            |(i, header)| match old.iter().find(|c| c.header == header) {
+                Some(c) => ColumnSetting {
+                    order: i as u32,
+                    ..c.clone()
+                },
+                None => ColumnSetting {
+                    sheet_reg_id: sheet_id.to_string(),
+                    header,
+                    label: String::new(),
+                    visible: false,
+                    writable: false,
+                    in_list: false,
+                    multiline: false,
+                    kind: ColumnKind::Text,
+                    group: ColumnGroup::Other,
+                    order: i as u32,
+                },
+            },
+        )
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -1120,9 +1157,46 @@ async fn update_sheet(
     if s == old {
         return Json(sheet_view(&auth, &s)).into_response();
     }
+    // 見出しの行を変えたら、その行を読んで項目を作り直す (同じ見出しの設定は引き継ぐ)。
+    // 読めなければ何も変えない (古い見出しの項目のまま新しい行を読ませない)
+    let mut rebuilt = None;
+    if s.header_row != old.header_row {
+        let reader = match require_reader(&ctx) {
+            Ok(r) => r,
+            Err(r) => return r,
+        };
+        match sheets::read_preview(
+            reader.as_ref(),
+            &s.spreadsheet_id,
+            s.sheet_id,
+            s.header_row,
+            s.example_rows,
+        )
+        .await
+        {
+            Ok(p) => {
+                s.tab_title = p.tab_title.clone();
+                rebuilt = Some(columns_from_headers(
+                    &s.id,
+                    &p.headers,
+                    &auth.store().columns(&s.id),
+                ));
+            }
+            Err(e) => return probe_error(e, reader.as_ref()),
+        }
+    }
     s.updated_at = Utc::now();
     if auth.store().update_sheet(s.clone()).is_err() {
         return not_found("シート");
+    }
+    if let Some(cols) = rebuilt {
+        let n = cols.len();
+        auth.store().replace_columns(&s.id, cols);
+        log(&auth, &by, "column_change", |e| {
+            e.customer_id = s.customer_id.clone();
+            e.sheet_reg_id = s.id.clone();
+            e.detail = format!("見出しの行を変えたので、項目を作り直した（項目 {n} 個）");
+        });
     }
     let yes_no = |b: bool| if b { "はい" } else { "いいえ" }.to_string();
     let changes: [(&str, String, String); 5] = [
@@ -1184,6 +1258,7 @@ async fn preview_sheet(
     .await
     {
         Ok(p) => {
+            // 読み取りの操作なので POST (CSRF を通す)。タブの名前が変わっていれば覚え直す
             if p.tab_title != s.tab_title {
                 let mut s2 = s.clone();
                 s2.tab_title = p.tab_title.clone();
@@ -1193,7 +1268,10 @@ async fn preview_sheet(
             log(&auth, &by, "sheet_preview", |e| {
                 e.customer_id = s.customer_id.clone();
                 e.sheet_reg_id = s.id.clone();
-                e.detail = "シートを試しに読んだ".into();
+                e.detail = format!(
+                    "シートを試しに読んだ（スプレッドシート {}・タブ {}「{}」）",
+                    s.spreadsheet_id, s.sheet_id, p.tab_title
+                );
             });
             Json(preview_view(p, s.header_row, s.example_rows)).into_response()
         }
@@ -1245,7 +1323,8 @@ fn to_settings(sheet_id: &str, cols: &[PortalAdminColumn]) -> Result<Vec<ColumnS
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::with_capacity(cols.len());
     for (i, c) in cols.iter().enumerate() {
-        let Some(header) = clean_text(&c.header, MAX_HEADER_CHARS) else {
+        // 登録・項目の作成と同じに見出しをそろえる (セル内の改行は空白にする)
+        let Some(header) = clean_text(&sheets::clean_header(&c.header), MAX_HEADER_CHARS) else {
             return Err(invalid("見出しが空、または長すぎる項目があります"));
         };
         if !seen.insert(header.clone()) {

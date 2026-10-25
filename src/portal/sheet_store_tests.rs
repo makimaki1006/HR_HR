@@ -339,7 +339,7 @@ async fn 読めない値は閉じる側に倒す() {
     assert_eq!(s.account("a1").unwrap().email, "a@example.com");
     assert_eq!(
         s.account("a2").unwrap().password_changed_at,
-        Some(chrono::DateTime::<Utc>::MAX_UTC),
+        Some(unreadable_time()),
         "読めない変更日時は、それより前のログインを全部無効にする"
     );
     assert!(s.invite("h1").is_none(), "期限が読めない招待は捨てる");
@@ -449,4 +449,230 @@ async fn 裏の処理が書き終えるのを待てる_回数は変更をまと�
     *fake.fail_writes.lock().unwrap() = None;
     assert!(s.persisted(Duration::from_secs(5)).await);
     assert!(loaded(&fake).await.customer("late").is_some());
+}
+
+// ---- レビューの指摘への対応 (2026-10-26) ----
+
+fn row_of(fake: &FakeSheets, tab: &str, id: &str) -> (usize, Vec<String>) {
+    fake.rows(tab)
+        .into_iter()
+        .enumerate()
+        .find(|(_, r)| r.first().map(String::as_str) == Some(id))
+        .expect("行がある")
+}
+
+/// 読めない「パスワードの変更日時」のアカウントを更新しても panic せず、元の文字のまま書き戻す
+#[tokio::test]
+async fn 読めない変更日時のアカウントを更新しても止まらず元の文字のまま書き戻す() {
+    let ts = "2026-10-23T10:00:00.000+09:00";
+    let fake = Arc::new(
+        FakeSheets::default()
+            .with_tab(
+                TAB_CUSTOMERS,
+                1,
+                vec![
+                    H_CUSTOMERS.to_vec(),
+                    vec!["c1", "顧客", "", "both", "", ts, ts],
+                ],
+            )
+            .with_tab(
+                TAB_ACCOUNTS,
+                2,
+                vec![
+                    H_ACCOUNTS.to_vec(),
+                    vec![
+                        "a1",
+                        "a@example.com",
+                        "c1",
+                        "$2b$04$x",
+                        "",
+                        "active",
+                        "読めない日時",
+                        "",
+                        ts,
+                    ],
+                ],
+            ),
+    );
+    let s = loaded(&fake).await;
+    let auth = PortalAuth::new(s.clone(), cfg());
+    // 読み込み → 更新 → 書き戻し
+    auth.set_extra_email("a1", "phone@example.jp").unwrap();
+    auth.disable("a1", t0()).unwrap();
+    s.flush_once().await.expect("panic せずに書ける");
+    let (_, row) = row_of(&fake, TAB_ACCOUNTS, "a1");
+    assert_eq!(row[6], "読めない日時", "読めなかった文字のまま");
+    assert_eq!(row[4], "phone@example.jp");
+    assert_eq!(row[5], "disabled");
+    // 読み直しても閉じる側のまま
+    let again = loaded(&fake).await;
+    assert_eq!(
+        again.account("a1").unwrap().password_changed_at,
+        Some(unreadable_time())
+    );
+    // 表せない時刻も panic しない
+    assert!(!fmt_time(chrono::DateTime::<Utc>::MAX_UTC).is_empty());
+    assert!(!fmt_time(chrono::DateTime::<Utc>::MIN_UTC).is_empty());
+}
+
+/// 書き戻しの処理が止まっても黙って続けず、理由を出してやり直す
+#[tokio::test]
+async fn 書き戻しの処理が止まったら理由を出してやり直す() {
+    let fake = Arc::new(FakeSheets::default());
+    let cfg = SheetStoreConfig {
+        debounce: Duration::from_millis(10),
+        min_gap: Duration::from_millis(10),
+        reload_every: Duration::from_secs(3600),
+        retry_max: Duration::from_millis(50),
+    };
+    let s = SheetStore::start(fake.clone(), "store-sheet", cfg);
+    for _ in 0..100 {
+        if s.ready() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    *fake.panic_writes.lock().unwrap() = true;
+    s.insert_customer(customer("c1")).unwrap();
+    let mut seen = false;
+    for _ in 0..200 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        if s.status()
+            .last_error
+            .is_some_and(|e| e.contains("止まった"))
+        {
+            seen = true;
+            break;
+        }
+    }
+    assert!(seen, "止まったことを管理画面に出す");
+    assert!(s.status().pending > 0);
+    *fake.panic_writes.lock().unwrap() = false;
+    assert!(
+        s.persisted(Duration::from_secs(5)).await,
+        "やり直して書ける"
+    );
+    assert!(loaded(&fake).await.customer("c1").is_some());
+}
+
+async fn active_account(fake: &Arc<FakeSheets>) -> (Arc<SheetStore>, PortalAuth, String, String) {
+    let s = loaded(fake).await;
+    s.insert_customer(customer("c1")).unwrap();
+    let auth = PortalAuth::new(s.clone(), cfg());
+    let (a, token) = auth.create_account("a@example.com", "c1", t0()).unwrap();
+    auth.accept_invite(&token, PW, t0()).unwrap();
+    let LoginResult::CodeRequired {
+        challenge, code, ..
+    } = auth.login("a@example.com", PW, None, "ip", t0())
+    else {
+        panic!()
+    };
+    let CodeResult::SignedIn { session, .. } = auth.verify_code(&challenge, &code, true, t0())
+    else {
+        panic!()
+    };
+    s.flush_once().await.unwrap();
+    (s, auth, a.id, session)
+}
+
+/// 保存待ちがあっても、シートで止めたアカウントは読み直しで取り込み、書き戻しで止めたのを戻さない
+#[tokio::test]
+async fn 保存待ちがあってもシートで止めたアカウントを取り込み書き戻しで戻さない() {
+    let fake = Arc::new(FakeSheets::default());
+    let (s, auth, id, session) = active_account(&fake).await;
+    *fake.fail_writes.lock().unwrap() = Some(GoogleError::Status(503));
+    auth.set_extra_email(&id, "phone@example.jp").unwrap();
+    assert!(s.flush_once().await.is_err());
+    let (n, _) = row_of(&fake, TAB_ACCOUNTS, &id);
+    fake.set_cell(TAB_ACCOUNTS, n, 5, "disabled");
+    s.reload().await.unwrap();
+    assert_eq!(s.account(&id).unwrap().status, AccountStatus::Disabled);
+    assert!(
+        auth.current(&session, t0()).is_none(),
+        "シートで止めたらすぐ入れない"
+    );
+    assert_eq!(
+        s.account(&id).unwrap().extra_code_email.as_deref(),
+        Some("phone@example.jp"),
+        "保存待ちの変更は残す"
+    );
+    *fake.fail_writes.lock().unwrap() = None;
+    s.flush_once().await.unwrap();
+    s.flush_once().await.unwrap();
+    let (_, row) = row_of(&fake, TAB_ACCOUNTS, &id);
+    assert_eq!(row[5], "disabled", "書き戻しで止めたのを戻さない");
+    assert_eq!(row[4], "phone@example.jp");
+}
+
+/// 読み直しの前に書き戻しが走っても、シートで止められた行は止めたまま書き、メモリも止める
+#[tokio::test]
+async fn 書く直前にシートで止められていたら止めたまま書いてメモリも止める() {
+    let fake = Arc::new(FakeSheets::default());
+    let (s, auth, id, session) = active_account(&fake).await;
+    let (n, _) = row_of(&fake, TAB_ACCOUNTS, &id);
+    fake.set_cell(TAB_ACCOUNTS, n, 5, "disabled");
+    let (cn, _) = row_of(&fake, TAB_CUSTOMERS, "c1");
+    fake.set_cell(TAB_CUSTOMERS, cn, 4, "TRUE");
+    auth.set_extra_email(&id, "phone@example.jp").unwrap();
+    let mut c = s.customer("c1").unwrap();
+    c.name = "名前を変えた".into();
+    s.update_customer(c).unwrap();
+    s.flush_once().await.unwrap();
+    assert_eq!(row_of(&fake, TAB_ACCOUNTS, &id).1[5], "disabled");
+    assert_eq!(row_of(&fake, TAB_CUSTOMERS, "c1").1[4], "TRUE");
+    assert_eq!(row_of(&fake, TAB_CUSTOMERS, "c1").1[1], "名前を変えた");
+    assert_eq!(s.account(&id).unwrap().status, AccountStatus::Disabled);
+    assert!(s.customer("c1").unwrap().disabled);
+    assert!(auth.current(&session, t0()).is_none());
+}
+
+/// アプリで止めて再開したときは、アプリが書いた「停止」に引きずられない
+#[tokio::test]
+async fn アプリで止めて再開すればシートも再開する() {
+    let fake = Arc::new(FakeSheets::default());
+    let (s, auth, id, _) = active_account(&fake).await;
+    auth.disable(&id, t0()).unwrap();
+    s.flush_once().await.unwrap();
+    assert_eq!(row_of(&fake, TAB_ACCOUNTS, &id).1[5], "disabled");
+    auth.enable(&id).unwrap();
+    s.flush_once().await.unwrap();
+    assert_eq!(row_of(&fake, TAB_ACCOUNTS, &id).1[5], "active");
+    s.reload().await.unwrap();
+    assert_eq!(s.account(&id).unwrap().status, AccountStatus::Active);
+}
+
+/// 裏の処理は、保存待ちが残っていても決まった間隔で読み直す
+#[tokio::test]
+async fn 保存待ちが残っていても裏で読み直してシートの停止を取り込む() {
+    let fake = Arc::new(FakeSheets::default());
+    let (_, _, id, _) = active_account(&fake).await;
+    let cfg = SheetStoreConfig {
+        debounce: Duration::from_millis(10),
+        min_gap: Duration::from_millis(10),
+        reload_every: Duration::from_millis(100),
+        retry_max: Duration::from_millis(30),
+    };
+    let s = SheetStore::start(fake.clone(), "store-sheet", cfg);
+    for _ in 0..100 {
+        if s.ready() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    *fake.fail_writes.lock().unwrap() = Some(GoogleError::Network);
+    let mut c = s.customer("c1").unwrap();
+    c.name = "保存待ち".into();
+    s.update_customer(c).unwrap();
+    let (n, _) = row_of(&fake, TAB_ACCOUNTS, &id);
+    fake.set_cell(TAB_ACCOUNTS, n, 5, "disabled");
+    let mut stopped = false;
+    for _ in 0..200 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        if s.account(&id).unwrap().status == AccountStatus::Disabled {
+            stopped = true;
+            break;
+        }
+    }
+    assert!(stopped, "保存待ちがあっても読み直しが走る");
+    assert!(s.status().pending > 0);
 }

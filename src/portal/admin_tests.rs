@@ -54,11 +54,16 @@ struct H {
 }
 
 async fn harness_with(reader: Arc<FakeSheets>) -> H {
+    harness_store(reader, None).await
+}
+
+async fn harness_store(reader: Arc<FakeSheets>, store_spreadsheet: Option<&str>) -> H {
     let auth = Arc::new(super::super::auth::PortalAuth::new(store_c1(), cfg()));
     let parts = Parts {
         auth: Some(auth.clone()),
         mailer: Some(Arc::new(FakeMailer::default())),
         reader: Some(reader.clone()),
+        store_spreadsheet: store_spreadsheet.map(str::to_string),
     };
     let access = CrmAccess::from_list(&format!("{BOSS},{STAFF}"))
         .with_test_role(BOSS, CrmRole::Admin)
@@ -239,7 +244,7 @@ async fn 顧客とシートを登録し_試しに読み_項目を設定して招
 
     let (s, v) = boss(
         &h,
-        "GET",
+        "POST",
         &format!("/api/admin/portal/sheets/{sid}/preview"),
         None,
     )
@@ -338,7 +343,7 @@ async fn 管理者でない社内の人は403_書き込みはcsrfの確認が要
         ("POST", "/api/admin/portal/sheet-probe"),
         ("POST", "/api/admin/portal/sheet-preview"),
         ("PUT", "/api/admin/portal/sheets/s-x"),
-        ("GET", "/api/admin/portal/sheets/s-x/preview"),
+        ("POST", "/api/admin/portal/sheets/s-x/preview"),
         ("GET", "/api/admin/portal/sheets/s-x/columns"),
         ("PUT", "/api/admin/portal/sheets/s-x/columns"),
         ("GET", "/api/admin/portal/activity"),
@@ -528,7 +533,7 @@ async fn ログに個人情報と鍵を出さない() {
     let sid = v["id"].as_str().unwrap().to_string();
     boss(
         &h,
-        "GET",
+        "POST",
         &format!("/api/admin/portal/sheets/{sid}/preview"),
         None,
     )
@@ -589,4 +594,369 @@ async fn ログに個人情報と鍵を出さない() {
     ] {
         assert!(!text.contains(secret), "ログに「{secret}」が出た:\n{text}");
     }
+}
+
+// ---- レビューの指摘への対応 (2026-10-26) ----
+
+async fn add_customer_and_sheet(h: &H) -> (String, String) {
+    let (_, v) = boss(
+        h,
+        "POST",
+        "/api/admin/portal/customers",
+        Some(json!({ "name": "架空の顧客" })),
+    )
+    .await;
+    let cid = v["id"].as_str().unwrap().to_string();
+    let (s, v) = boss(
+        h,
+        "POST",
+        &format!("/api/admin/portal/customers/{cid}/sheets"),
+        Some(json!({ "url": SHEET_URL, "sheet_id": 777, "label": "応募者", "header_row": 1, "example_rows": 1 })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    (cid, v["id"].as_str().unwrap().to_string())
+}
+
+/// 見出しのセル内の改行は空白 1 つにそろえ、そのまま項目の設定を保存できる
+#[tokio::test]
+async fn 見出しの改行は空白にそろえて項目の設定を保存できる() {
+    let r = Arc::new(FakeSheets::default().with_tab(
+        "応募者",
+        777,
+        vec![
+            vec!["応募\n日", "面接\r\n予定日", "状況"],
+            vec!["2026/10/20", "", "未連絡"],
+        ],
+    ));
+    let h = harness_with(r).await;
+    let (_, sid) = add_customer_and_sheet(&h).await;
+    let (_, v) = boss(
+        &h,
+        "GET",
+        &format!("/api/admin/portal/sheets/{sid}/columns"),
+        None,
+    )
+    .await;
+    let headers: Vec<&str> = v["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["header"].as_str().unwrap())
+        .collect();
+    assert_eq!(headers, vec!["応募 日", "面接 予定日", "状況"]);
+    let col = |h: &str| json!({ "header": h, "label": "", "visible": true, "writable": false, "in_list": true, "multiline": false, "kind": "text", "group": "summary" });
+    let (s, v) = boss(
+        &h,
+        "PUT",
+        &format!("/api/admin/portal/sheets/{sid}/columns"),
+        Some(json!({ "columns": [col("応募 日"), col("面接\n予定日")] })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["columns"][1]["header"], "面接 予定日",
+        "保存のときも同じにそろえる"
+    );
+}
+
+/// 社内用シートは、試しに読む・顧客のシートとして登録することを拒む
+#[tokio::test]
+async fn 社内用シートは試しに読めず登録もできない() {
+    let h = harness_store(reader(), Some("1TestSheetIdForPortal_abcdefghij")).await;
+    for (path, body) in [
+        ("/api/admin/portal/sheet-probe", json!({ "url": SHEET_URL })),
+        (
+            "/api/admin/portal/sheet-preview",
+            json!({ "url": SHEET_URL, "sheet_id": 777, "header_row": 1 }),
+        ),
+        (
+            "/api/admin/portal/customers/c1/sheets",
+            json!({ "url": SHEET_URL, "sheet_id": 777, "label": "x", "header_row": 1 }),
+        ),
+    ] {
+        let (s, v) = boss(&h, "POST", path, Some(body)).await;
+        assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{path}");
+        assert!(v["message"].as_str().unwrap().contains("社内用"));
+    }
+    assert!(
+        h.reader.calls.lock().unwrap().is_empty(),
+        "Google を呼ばない"
+    );
+    assert!(h.auth.store().sheets(None).is_empty());
+}
+
+/// 試しに読んだ記録に、スプレッドシートとタブを残す
+#[tokio::test]
+async fn 試しに読んだ記録にスプレッドシートとタブを残す() {
+    let h = harness_with(reader()).await;
+    let (_, sid) = add_customer_and_sheet(&h).await;
+    let (s, _) = boss(
+        &h,
+        "POST",
+        &format!("/api/admin/portal/sheets/{sid}/preview"),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let logs = h.auth.store().recent_logs(10);
+    let previews: Vec<_> = logs.iter().filter(|e| e.kind == "sheet_preview").collect();
+    assert_eq!(
+        previews.len(),
+        1,
+        "登録の前の読み取りは別の記録。登録したシートを読んだのは 1 回"
+    );
+    assert!(previews[0]
+        .detail
+        .contains("1TestSheetIdForPortal_abcdefghij"));
+    assert!(previews[0].detail.contains("777"));
+    assert!(previews[0].detail.contains("応募者情報管理"));
+    assert_eq!(previews[0].sheet_reg_id, sid);
+}
+
+/// 試しに読むは POST (副作用があるので CSRF を通す)。GET では読めない
+#[tokio::test]
+async fn 試しに読むはpostでcsrfが要る() {
+    let h = harness_with(reader()).await;
+    let (_, sid) = add_customer_and_sheet(&h).await;
+    let n = h.auth.store().recent_logs(50).len();
+    let (s, _, _) = call(
+        &h.app,
+        "GET",
+        &format!("/api/admin/portal/sheets/{sid}/preview"),
+        &h.boss,
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(s, StatusCode::METHOD_NOT_ALLOWED);
+    let (s, _, _) = call(
+        &h.app,
+        "POST",
+        &format!("/api/admin/portal/sheets/{sid}/preview"),
+        &h.boss,
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    assert_eq!(
+        h.auth.store().recent_logs(50).len(),
+        n,
+        "断った読み取りは記録しない"
+    );
+}
+
+/// 見出しの行を変えたら、その行の見出しで項目を作り直す (同じ見出しの設定は引き継ぐ)
+#[tokio::test]
+async fn 見出しの行を変えたら項目を作り直す() {
+    let r = Arc::new(FakeSheets::default().with_tab(
+        "応募者",
+        777,
+        vec![
+            vec!["注記"],
+            vec!["応募日", "状況", "備考"],
+            vec!["2026/10/20", "未連絡", ""],
+        ],
+    ));
+    let h = harness_with(r).await;
+    let (_, sid) = add_customer_and_sheet(&h).await;
+    let (_, v) = boss(
+        &h,
+        "GET",
+        &format!("/api/admin/portal/sheets/{sid}/columns"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        v["columns"].as_array().unwrap().len(),
+        1,
+        "1 行目は注記だけ"
+    );
+    let (s, v) = boss(
+        &h,
+        "PUT",
+        &format!("/api/admin/portal/sheets/{sid}"),
+        Some(json!({ "header_row": 2, "example_rows": 0 })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, v) = boss(
+        &h,
+        "GET",
+        &format!("/api/admin/portal/sheets/{sid}/columns"),
+        None,
+    )
+    .await;
+    let headers: Vec<&str> = v["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["header"].as_str().unwrap())
+        .collect();
+    assert_eq!(headers, vec!["応募日", "状況", "備考"]);
+    // 設定を入れてから同じ見出しの行に戻すと、設定を引き継ぐ
+    let col = |h: &str, vis: bool| json!({ "header": h, "label": "", "visible": vis, "writable": false, "in_list": vis, "multiline": false, "kind": "text", "group": "summary" });
+    boss(
+        &h,
+        "PUT",
+        &format!("/api/admin/portal/sheets/{sid}/columns"),
+        Some(json!({ "columns": [col("応募日", false), col("状況", true), col("備考", false)] })),
+    )
+    .await;
+    boss(
+        &h,
+        "PUT",
+        &format!("/api/admin/portal/sheets/{sid}"),
+        Some(json!({ "header_row": 1 })),
+    )
+    .await;
+    boss(
+        &h,
+        "PUT",
+        &format!("/api/admin/portal/sheets/{sid}"),
+        Some(json!({ "header_row": 2 })),
+    )
+    .await;
+    let (_, v) = boss(
+        &h,
+        "GET",
+        &format!("/api/admin/portal/sheets/{sid}/columns"),
+        None,
+    )
+    .await;
+    let cols = v["columns"].as_array().unwrap();
+    assert_eq!(cols.len(), 3);
+    assert_eq!(
+        cols[1]["visible"], false,
+        "1 行目に戻したときに消えた見出しの設定は引き継がない"
+    );
+    // 読めなければ何も変えない
+    *h.reader.fail_reads.lock().unwrap() = Some(GoogleError::Status(500));
+    let (s, _) = boss(
+        &h,
+        "PUT",
+        &format!("/api/admin/portal/sheets/{sid}"),
+        Some(json!({ "header_row": 1 })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_GATEWAY);
+    assert_eq!(h.auth.store().sheet(&sid).unwrap().header_row, 2);
+}
+
+/// 顧客を止めると、その顧客のアカウントのログイン中の画面・覚えた端末・招待を消し、再開しても生き返らない
+#[tokio::test]
+async fn 顧客を止めると端末と画面と招待を消し再開しても生き返らない() {
+    let h = harness_with(reader()).await;
+    let auth = &h.auth;
+    let (a, token) = auth
+        .create_account("a@example.com", "c1", Utc::now())
+        .unwrap();
+    auth.accept_invite(&token, PW, Utc::now()).unwrap();
+    let super::super::auth::LoginResult::CodeRequired {
+        challenge, code, ..
+    } = auth.login("a@example.com", PW, None, "ip", Utc::now())
+    else {
+        panic!()
+    };
+    let super::super::auth::CodeResult::SignedIn { session, device } =
+        auth.verify_code(&challenge, &code, true, Utc::now())
+    else {
+        panic!()
+    };
+    let (_, b_token) = auth
+        .create_account("b@example.com", "c1", Utc::now())
+        .unwrap();
+
+    let (s, _) = boss(
+        &h,
+        "PUT",
+        "/api/admin/portal/customers/c1",
+        Some(json!({ "disabled": true })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _) = boss(
+        &h,
+        "PUT",
+        "/api/admin/portal/customers/c1",
+        Some(json!({ "disabled": false })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(
+        auth.current(&session, Utc::now()).is_none(),
+        "ログイン中の画面は戻らない"
+    );
+    assert!(
+        matches!(
+            auth.login("a@example.com", PW, device.as_deref(), "ip", Utc::now()),
+            super::super::auth::LoginResult::CodeRequired { .. }
+        ),
+        "覚えた端末は戻らない (パスワードとコードで入り直す)"
+    );
+    assert!(
+        auth.invite_info(&b_token, Utc::now()).is_err(),
+        "招待は戻らない"
+    );
+    assert_eq!(
+        auth.store().account(&a.id).unwrap().status,
+        super::super::store::AccountStatus::Active
+    );
+    assert!(h
+        .auth
+        .store()
+        .recent_logs(20)
+        .iter()
+        .any(|e| e.kind == "customer_revoke"));
+}
+
+#[test]
+fn 二つの鍵が同じサービスアカウントなら顧客のシート側を使わない() {
+    let a: Arc<dyn super::super::sheets::SheetsApi> = Arc::new(FakeSheets::default());
+    let b = FakeSheets::default();
+    assert!(super::super::distinct_reader(Some(a.clone()), Some(&b)).is_none());
+    assert!(super::super::distinct_reader(Some(a.clone()), None).is_some());
+    struct Other;
+    impl super::super::sheets::SheetsApi for Other {
+        fn client_email(&self) -> &str {
+            "store@other.iam.gserviceaccount.com"
+        }
+        fn tabs<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> super::super::sheets::ApiFuture<'a, Vec<super::super::sheets::TabInfo>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+        fn add_tabs<'a>(
+            &'a self,
+            _: &'a str,
+            _: &'a [String],
+        ) -> super::super::sheets::ApiFuture<'a, ()> {
+            Box::pin(async { Ok(()) })
+        }
+        fn batch_get<'a>(
+            &'a self,
+            _: &'a str,
+            _: &'a [String],
+        ) -> super::super::sheets::ApiFuture<'a, Vec<Vec<Vec<String>>>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+        fn batch_update<'a>(
+            &'a self,
+            _: &'a str,
+            _: &'a [(String, Vec<Vec<String>>)],
+        ) -> super::super::sheets::ApiFuture<'a, ()> {
+            Box::pin(async { Ok(()) })
+        }
+        fn append<'a>(
+            &'a self,
+            _: &'a str,
+            _: &'a str,
+            _: &'a [Vec<String>],
+        ) -> super::super::sheets::ApiFuture<'a, ()> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+    assert!(super::super::distinct_reader(Some(a), Some(&Other)).is_some());
 }

@@ -17,6 +17,8 @@ pub struct FakeSheets {
     /// 書き込みを全部失敗させる
     pub fail_writes: Mutex<Option<GoogleError>>,
     pub calls: Mutex<Vec<String>>,
+    /// 書き込みで panic する (書き戻しの処理が止まったときの確かめ用)
+    pub panic_writes: Mutex<bool>,
 }
 
 fn col_index(letters: &str) -> usize {
@@ -205,6 +207,9 @@ impl SheetsApi for FakeSheets {
     ) -> ApiFuture<'a, ()> {
         Box::pin(async move {
             self.calls.lock().unwrap().push("batch_update".into());
+            if *self.panic_writes.lock().unwrap() {
+                panic!("テスト用の panic");
+            }
             self.write()?;
             for (r, v) in data {
                 self.put_range(r, v);

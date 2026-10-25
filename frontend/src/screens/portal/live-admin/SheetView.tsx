@@ -30,7 +30,7 @@ function SheetSettings({ sheet, onSaved }: { sheet: PortalAdminSheet; onSaved: (
     <div className="rounded-lg border border-pt-line bg-pt-surface p-4">
       <div className="grid gap-3 md:grid-cols-4">
         <TextField label="顧客に見せる名前" value={label} maxLength={50} onChange={(e) => { setLabel(e.target.value); }} />
-        <TextField label="見出しの行" type="number" min={1} max={20} value={String(headerRow)} onChange={(e) => { setHeaderRow(Math.max(1, Math.min(20, Number(e.target.value) || 1))); }} />
+        <TextField label="見出しの行" hint="変えて保存すると、その行の見出しで項目を作り直します（同じ見出しの設定は引き継ぎます）。" type="number" min={1} max={20} value={String(headerRow)} onChange={(e) => { setHeaderRow(Math.max(1, Math.min(20, Number(e.target.value) || 1))); }} />
         <TextField label="記入例の行数" type="number" min={0} max={10} value={String(exampleRows)} onChange={(e) => { setExampleRows(Math.max(0, Math.min(10, Number(e.target.value) || 0))); }} />
         <div className="flex items-end">
           <Button variant="primary" disabled={!dirty || busy} onClick={() => { void save({ label, header_row: headerRow, example_rows: exampleRows }); }}>保存</Button>
@@ -139,7 +139,7 @@ export function ColumnsEditor({ initial, headers, sheetId, onSaved }: { initial:
 
 export function SheetView({ id, status }: { id: string; status: PortalAdminStatus | null }) {
   const [load, reload, replace] = useGet<PortalAdminColumns>(`${API}/sheets/${encodeURIComponent(id)}/columns`);
-  const [previewLoad, reread] = useGet<PortalAdminPreview>(`${API}/sheets/${encodeURIComponent(id)}/preview`);
+  const [previewLoad, reread] = useGet<PortalAdminPreview>(`${API}/sheets/${encodeURIComponent(id)}/preview`, 'POST');
 
   if (load.state !== 'ok') {
     return (

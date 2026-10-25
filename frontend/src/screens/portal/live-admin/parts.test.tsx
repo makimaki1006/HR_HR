@@ -55,6 +55,9 @@ describe('保存先の帯', () => {
     const pending = renderToStaticMarkup(<StatusBanner status={status({ pending: 3, last_error: 'Google につながりません。再試行します' })} />);
     expect(pending).toContain('保存待ちが 3 件');
     expect(pending).toContain('Google につながりません');
+    const stopped = renderToStaticMarkup(<StatusBanner status={status({ last_error: '社内用シートへの書き戻しの処理が止まったので、やり直しています' })} />);
+    expect(stopped).toContain('社内用シートの処理で問題が起きています');
+    expect(stopped).toContain('書き戻しの処理が止まった');
   });
 });
 

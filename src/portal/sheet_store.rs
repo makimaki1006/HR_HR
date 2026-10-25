@@ -182,9 +182,21 @@ fn jst() -> FixedOffset {
     FixedOffset::east_opt(9 * 3600).expect("+09:00")
 }
 
+/// 日本時間の ISO 形式。どんな時刻でも panic しない (表せない年は読めない文字にして、読み直したら閉じる側に倒す)
 pub fn fmt_time(t: DateTime<Utc>) -> String {
-    t.with_timezone(&jst())
-        .to_rfc3339_opts(SecondsFormat::Millis, false)
+    use chrono::Datelike;
+    match t.checked_add_signed(chrono::Duration::hours(9)) {
+        Some(j) if (1..=9999).contains(&j.year()) => t
+            .with_timezone(&jst())
+            .to_rfc3339_opts(SecondsFormat::Millis, false),
+        _ => format!("表せない日時（{}）", t.timestamp()),
+    }
+}
+
+/// 「パスワードの変更日時」が読めなかった印。これより前のログイン・覚えた端末は全部無効になる。
+/// 書き戻すときは、読んだときの元の文字をそのまま書く ([`Tables::unreadable`])
+pub fn unreadable_time() -> DateTime<Utc> {
+    chrono::TimeZone::with_ymd_and_hms(&Utc, 9999, 1, 1, 0, 0, 0).unwrap()
 }
 
 fn fmt_opt(t: Option<DateTime<Utc>>) -> String {
@@ -285,7 +297,14 @@ fn encode(t: &Tables, table: Table, key: &str) -> Option<Vec<String>> {
                 a.password_hash.clone().unwrap_or_default(),
                 a.extra_code_email.clone().unwrap_or_default(),
                 a.status.as_str().into(),
-                fmt_opt(a.password_changed_at),
+                match (
+                    a.password_changed_at,
+                    t.unreadable.get(&(Table::Accounts, key.to_string(), 6)),
+                ) {
+                    // 読めなかった値は、読んだときの文字のまま書き戻す
+                    (Some(c), Some(raw)) if c == unreadable_time() => raw.clone(),
+                    (c, _) => fmt_opt(c),
+                },
                 fmt_opt(a.last_login_at),
                 fmt_time(a.created_at),
             ]
@@ -341,12 +360,16 @@ fn encode_log(e: &LogEntry) -> Vec<String> {
     ]
 }
 
-/// 期限や状態の時刻が読めないときは「とても先」にし、パスワードを変えた扱いで全部のログインを無効にする
-fn changed_at(s: &str) -> Option<DateTime<Utc>> {
+/// パスワードの変更日時が読めないときは [`unreadable_time`] (とても先) にし、
+/// パスワードを変えた扱いで全部のログインを無効にする。読めなかったかどうかも返す
+fn changed_at(s: &str) -> (Option<DateTime<Utc>>, bool) {
     if s.trim().is_empty() {
-        None
+        (None, false)
     } else {
-        Some(parse_time(s).unwrap_or(DateTime::<Utc>::MAX_UTC))
+        match parse_time(s) {
+            Some(t) => (Some(t), false),
+            None => (Some(unreadable_time()), true),
+        }
     }
 }
 
@@ -438,6 +461,11 @@ fn decode_into(t: &mut Tables, table: Table, r: &[String]) -> bool {
             if email.is_empty() || customer_id.is_empty() || t.accounts.contains_key(&id) {
                 return false;
             }
+            let (password_changed_at, unreadable) = changed_at(cell(r, 6));
+            if unreadable {
+                t.unreadable
+                    .insert((Table::Accounts, id.clone(), 6), cell(r, 6).to_string());
+            }
             t.accounts.insert(
                 id.clone(),
                 Account {
@@ -447,7 +475,7 @@ fn decode_into(t: &mut Tables, table: Table, r: &[String]) -> bool {
                     password_hash: opt_str(cell(r, 3)),
                     extra_code_email: opt_str(cell(r, 4)).map(|e| e.to_lowercase()),
                     status: AccountStatus::parse(cell(r, 5)),
-                    password_changed_at: changed_at(cell(r, 6)),
+                    password_changed_at,
                     last_login_at: parse_time(cell(r, 7)),
                     created_at: parse_time(cell(r, 8)).unwrap_or_else(epoch),
                 },
@@ -568,6 +596,71 @@ struct St {
     loaded_at: Option<DateTime<Utc>>,
     last_saved_at: Option<DateTime<Utc>>,
     last_error: Option<String>,
+    /// 停止の列 (アカウントの状態・顧客の停止) について、シートで最後に見た・書いた値。
+    /// シートの値がこれと違って「停止」なら、社内の人がシートで止めたとみなして必ず取り込む
+    seen_stop: HashMap<(Table, String), bool>,
+    /// 書き戻しの処理が止まって、やり直した回数
+    worker_restarts: u32,
+}
+
+/// 停止の列がある表の、その列の位置
+fn stop_col(table: Table) -> Option<usize> {
+    match table {
+        Table::Accounts => Some(5),
+        Table::Customers => Some(4),
+        _ => None,
+    }
+}
+
+/// シートの 1 行の停止の列が「停止」か (読めない値も停止)
+fn stop_in_row(table: Table, row: &[String]) -> bool {
+    match table {
+        Table::Accounts => AccountStatus::parse(cell(row, 5)) == AccountStatus::Disabled,
+        Table::Customers => flag_closed(cell(row, 4)),
+        _ => false,
+    }
+}
+
+/// メモリの行を止める。アカウントなら覚えた端末・ログイン中の画面・招待も無効にする (変わった行を返す)
+fn force_stop(t: &mut Tables, table: Table, key: &str, now: DateTime<Utc>) -> Changed {
+    let mut out = Vec::new();
+    match table {
+        Table::Accounts => {
+            if let Some(a) = t.accounts.get_mut(key) {
+                if a.status != AccountStatus::Disabled {
+                    a.status = AccountStatus::Disabled;
+                    out.push((Table::Accounts, key.to_string()));
+                }
+            }
+            out.extend(t.revoke_devices(key));
+            out.extend(t.end_sessions(key, now));
+            out.extend(t.revoke_invites(key));
+        }
+        Table::Customers => {
+            if let Some(c) = t.customers.get_mut(key) {
+                if !c.disabled {
+                    c.disabled = true;
+                    out.push((Table::Customers, key.to_string()));
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+fn all_stops(t: &Tables) -> HashMap<(Table, String), bool> {
+    let mut m = HashMap::new();
+    for (k, a) in &t.accounts {
+        m.insert(
+            (Table::Accounts, k.clone()),
+            a.status == AccountStatus::Disabled,
+        );
+    }
+    for (k, c) in &t.customers {
+        m.insert((Table::Customers, k.clone()), c.disabled);
+    }
+    m
 }
 
 pub struct SheetStore {
@@ -790,6 +883,7 @@ impl SheetStore {
             Ok(t) => {
                 let mut st = self.lock();
                 let logs = std::mem::take(&mut st.t.logs);
+                st.seen_stop = all_stops(&t);
                 st.t = t;
                 st.t.logs = logs;
                 st.ready = true;
@@ -848,6 +942,7 @@ impl SheetStore {
                 }
             }
         }
+        let fresh_stops = all_stops(&fresh);
         let St { t: old, dirty, .. } = &*st;
         keep(
             &mut fresh.customers,
@@ -862,8 +957,29 @@ impl SheetStore {
         keep(&mut fresh.devices, &old.devices, Table::Devices, dirty);
         keep(&mut fresh.sessions, &old.sessions, Table::Sessions, dirty);
         fresh.logs = std::mem::take(&mut st.t.logs);
+        // 保存待ちの行でも、社内の人がシートで止めたものは取り込む (停止は「どちらかが止めていれば停止」)
+        let now = Utc::now();
+        let mut forced: Changed = Vec::new();
+        for ((table, key), stopped) in &fresh_stops {
+            let human = *stopped && st.seen_stop.get(&(*table, key.clone())) != Some(&true);
+            if human && st.dirty.contains_key(&(*table, key.clone())) {
+                forced.extend(force_stop(&mut fresh, *table, key, now));
+            }
+        }
+        st.seen_stop = fresh_stops;
         st.t = fresh;
-        st.loaded_at = Some(Utc::now());
+        st.loaded_at = Some(now);
+        if !forced.is_empty() {
+            tracing::warn!(
+                "[portal store] シートで止めた行を取り込んだ（{} 行）",
+                forced.len()
+            );
+            st.gen += 1;
+            let g = st.gen;
+            for k in forced {
+                st.dirty.insert(k, g);
+            }
+        }
         if st.dirty.is_empty() {
             st.last_error = None;
         }
@@ -872,25 +988,46 @@ impl SheetStore {
 
     /// 保存待ちを 1 回書く。鍵の列を読み直して行の位置を引き、まとめて 1 回で書く。記録は追記で 1 回
     pub async fn flush_once(&self) -> Result<(), GoogleError> {
-        let (snapshot, rows, logs) = {
+        let (snapshot, rows, logs, seen) = {
             let mut st = self.lock();
             let snapshot = st.gen;
+            let seen = st.seen_stop.clone();
             let rows: Vec<(Table, String, Option<Vec<String>>)> = st
                 .dirty
                 .keys()
                 .map(|(table, key)| (*table, key.clone(), encode(&st.t, *table, key)))
                 .collect();
             let logs = std::mem::take(&mut st.logs);
-            (snapshot, rows, logs)
+            (snapshot, rows, logs, seen)
         };
         if rows.is_empty() && logs.is_empty() {
             return Ok(());
         }
-        let result = self.write(&rows, &logs).await;
+        let result = self.write(&rows, &logs, &seen).await;
         let mut st = self.lock();
         match result {
-            Ok(()) => {
+            Ok(written) => {
                 st.dirty.retain(|_, g| *g > snapshot);
+                // 書いた停止の列を覚える。シートで止められていた行はメモリも止める
+                let now = Utc::now();
+                let mut forced: Changed = Vec::new();
+                for (table, key, stopped, was_forced) in written {
+                    st.seen_stop.insert((table, key.clone()), stopped);
+                    if was_forced {
+                        forced.extend(force_stop(&mut st.t, table, &key, now));
+                    }
+                }
+                if !forced.is_empty() {
+                    tracing::warn!(
+                        "[portal store] シートで止めた行を取り込んだ（{} 行）",
+                        forced.len()
+                    );
+                    st.gen += 1;
+                    let g = st.gen;
+                    for k in forced {
+                        st.dirty.insert(k, g);
+                    }
+                }
                 st.last_saved_at = Some(Utc::now());
                 st.last_error = None;
                 drop(st);
@@ -903,6 +1040,7 @@ impl SheetStore {
                 Ok(())
             }
             Err((wrote_rows, e)) => {
+                let wrote_rows = wrote_rows.is_some();
                 if wrote_rows {
                     st.dirty.retain(|_, g| *g > snapshot);
                 }
@@ -917,11 +1055,15 @@ impl SheetStore {
         }
     }
 
+    /// 書いた停止の列 (表・鍵・止めたか・シートで止められていたので止めたか) を返す
+    #[allow(clippy::type_complexity)]
     async fn write(
         &self,
         rows: &[(Table, String, Option<Vec<String>>)],
         logs: &[(u64, LogEntry)],
-    ) -> Result<(), (bool, GoogleError)> {
+        seen: &HashMap<(Table, String), bool>,
+    ) -> Result<Vec<(Table, String, bool, bool)>, (Option<()>, GoogleError)> {
+        let mut written: Vec<(Table, String, bool, bool)> = Vec::new();
         if !rows.is_empty() {
             let mut tables: Vec<Table> = rows.iter().map(|r| r.0).collect();
             tables.sort();
@@ -930,14 +1072,16 @@ impl SheetStore {
                 .iter()
                 .map(|t| {
                     let d = def(*t);
-                    a1(d.title, &format!("A2:{}", col_letter(d.key_cols - 1)))
+                    // 停止の列がある表は、その列まで読む (シートで止められたかを見る)
+                    let last = stop_col(*t).unwrap_or(d.key_cols - 1);
+                    a1(d.title, &format!("A2:{}", col_letter(last)))
                 })
                 .collect();
             let keys = self
                 .api
                 .batch_get(&self.spreadsheet, &ranges)
                 .await
-                .map_err(|e| (false, e))?;
+                .map_err(|e| (None, e))?;
             let mut data: Vec<(String, Vec<Vec<String>>)> = Vec::new();
             for (ti, table) in tables.iter().enumerate() {
                 let d = def(*table);
@@ -955,6 +1099,24 @@ impl SheetStore {
                     let found = at.get(key).cloned().unwrap_or_default();
                     match row {
                         Some(values) => {
+                            let mut values = values.clone();
+                            if let Some(col) = stop_col(*table) {
+                                // シートで止められた (前に見た・書いた値は止めていない) なら、止めたまま書く
+                                let sheet_stopped = found.iter().any(|n| {
+                                    existing.get(n - 2).is_some_and(|r| stop_in_row(*table, r))
+                                });
+                                let ours = stop_in_row(*table, &values);
+                                let human = sheet_stopped
+                                    && seen.get(&(*table, key.clone())) != Some(&true);
+                                let forced = human && !ours;
+                                if forced {
+                                    values[col] = match table {
+                                        Table::Accounts => AccountStatus::Disabled.as_str().into(),
+                                        _ => flag(true),
+                                    };
+                                }
+                                written.push((*table, key.clone(), ours || forced, forced));
+                            }
                             let targets = if found.is_empty() {
                                 let n = next;
                                 next += 1;
@@ -985,7 +1147,7 @@ impl SheetStore {
                 self.api
                     .batch_update(&self.spreadsheet, &data)
                     .await
-                    .map_err(|e| (false, e))?;
+                    .map_err(|e| (None, e))?;
             }
         }
         if !logs.is_empty() {
@@ -997,18 +1159,42 @@ impl SheetStore {
                     &values,
                 )
                 .await
-                .map_err(|e| (true, e))?;
+                .map_err(|e| (Some(()), e))?;
         }
-        Ok(())
+        Ok(written)
     }
 
-    /// 起動時の読み込み (成功するまで再試行) のあと、書き戻しと読み直しを続ける
+    /// 起動時の読み込み (成功するまで再試行) のあと、書き戻しと読み直しを続ける。
+    /// 書き戻しの処理が何かで止まったら (panic)、管理画面に理由を出してやり直す (黙って止まらない)
     pub async fn run(self: Arc<Self>) {
         let mut wait = Duration::from_secs(5);
         while self.load().await.is_err() {
             tokio::time::sleep(wait).await;
             wait = (wait * 2).min(Duration::from_secs(300));
         }
+        loop {
+            match tokio::spawn(self.clone().work()).await {
+                Ok(()) => return,
+                Err(e) if e.is_panic() => {
+                    tracing::error!(
+                        "[portal store] 社内用シートへの書き戻しの処理が止まった。やり直す"
+                    );
+                    {
+                        let mut st = self.lock();
+                        st.worker_restarts += 1;
+                        st.last_error = Some(
+                            "社内用シートへの書き戻しの処理が止まったので、やり直しています。続くときは開発の担当に連絡してください"
+                                .into(),
+                        );
+                    }
+                    tokio::time::sleep(self.cfg.retry_max.max(Duration::from_millis(50))).await;
+                }
+                Err(_) => return,
+            }
+        }
+    }
+
+    async fn work(self: Arc<Self>) {
         let mut backoff: Option<Duration> = None;
         let mut last_flush = tokio::time::Instant::now() - self.cfg.min_gap;
         let mut next_reload = tokio::time::Instant::now() + self.cfg.reload_every;
@@ -1040,7 +1226,9 @@ impl SheetStore {
                         backoff = Some(b.min(self.cfg.retry_max));
                     }
                 }
-            } else if tokio::time::Instant::now() >= next_reload {
+            }
+            // 保存待ちがあっても読み直す (シートで止めた行を取り込むため)
+            if tokio::time::Instant::now() >= next_reload {
                 let _ = self.reload().await;
                 next_reload = tokio::time::Instant::now() + self.cfg.reload_every;
             }
@@ -1067,6 +1255,11 @@ impl PortalStore for SheetStore {
         let c = self.lock().t.update_account(account)?;
         self.mark(c);
         Ok(())
+    }
+
+    fn touch_login(&self, account_id: &str, now: DateTime<Utc>) {
+        let c = self.lock().t.touch_login(account_id, now);
+        self.mark(c);
     }
 
     fn insert_invite(&self, invite: Invite) {

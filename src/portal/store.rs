@@ -352,6 +352,8 @@ pub trait PortalStore: Send + Sync {
     fn account_by_email(&self, email: &str) -> Option<Account>;
     fn insert_account(&self, account: Account) -> Result<(), StoreError>;
     fn update_account(&self, account: Account) -> Result<(), StoreError>;
+    /// 最後のログインの日時だけを変える (ほかの項目は今の値のまま。古い読み取りで上書きしない)
+    fn touch_login(&self, account_id: &str, now: DateTime<Utc>);
 
     fn insert_invite(&self, invite: Invite);
     fn invite(&self, token_hash: &str) -> Option<Invite>;
@@ -436,6 +438,8 @@ pub struct Tables {
     /// 鍵は [`column_key`]
     pub columns: HashMap<String, ColumnSetting>,
     pub logs: VecDeque<LogEntry>,
+    /// 社内用シートで読めなかったマスの元の文字 (表・鍵・列)。書き戻すときはこの文字のまま書く
+    pub unreadable: HashMap<(Table, String, usize), String>,
 }
 
 impl Tables {
@@ -468,6 +472,16 @@ impl Tables {
                 Ok(vec![(Table::Accounts, key)])
             }
             None => Err(StoreError::NotFound),
+        }
+    }
+
+    pub fn touch_login(&mut self, account_id: &str, now: DateTime<Utc>) -> Changed {
+        match self.accounts.get_mut(account_id) {
+            Some(a) => {
+                a.last_login_at = Some(now);
+                vec![(Table::Accounts, account_id.to_string())]
+            }
+            None => Vec::new(),
         }
     }
 
@@ -682,6 +696,9 @@ impl PortalStore for MemoryStore {
     }
     fn update_account(&self, account: Account) -> Result<(), StoreError> {
         self.lock().update_account(account).map(drop)
+    }
+    fn touch_login(&self, account_id: &str, now: DateTime<Utc>) {
+        self.lock().touch_login(account_id, now);
     }
 
     fn insert_invite(&self, invite: Invite) {

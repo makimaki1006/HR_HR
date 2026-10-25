@@ -71,12 +71,15 @@ pub struct Parts {
     pub mailer: Option<Arc<dyn Mailer>>,
     /// 顧客のシートを読む (試しに読む)
     pub reader: Option<Arc<dyn SheetsApi>>,
+    /// 社内用シートのスプレッドシート ID (顧客のシートとして読ませない)
+    pub store_spreadsheet: Option<String>,
 }
 
 struct Ctx {
     auth: Option<Arc<PortalAuth>>,
     mailer: Option<Arc<dyn Mailer>>,
     reader: Option<Arc<dyn SheetsApi>>,
+    store_spreadsheet: Option<String>,
     access: CrmAccess,
     manifest: Option<AppManifest>,
 }
@@ -194,7 +197,8 @@ fn parts_from_env() -> Parts {
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty());
     let store_api = sheets::GoogleSheetsApi::from_env_var(sheets::ENV_STORE_KEY);
-    let auth = match (spreadsheet, store_api) {
+    let reader = distinct_reader(reader, store_api.as_deref());
+    let auth = match (spreadsheet.clone(), store_api) {
         (Some(id), Some(api)) => {
             tracing::info!("[portal] 社内用シートを保存先にする（読み込み中）");
             let store =
@@ -211,6 +215,24 @@ fn parts_from_env() -> Parts {
         auth,
         mailer: None,
         reader,
+        store_spreadsheet: spreadsheet,
+    }
+}
+
+/// 顧客のシート用の鍵が社内用シートの鍵と同じサービスアカウントなら、顧客のシート側を使わない
+/// (同じアカウントだと、顧客のシートを読む操作で社内用シートにも届くため。計画 9.1)
+fn distinct_reader(
+    reader: Option<Arc<dyn SheetsApi>>,
+    store: Option<&dyn SheetsApi>,
+) -> Option<Arc<dyn SheetsApi>> {
+    match (reader, store) {
+        (Some(r), Some(s)) if r.client_email() == s.client_email() => {
+            tracing::warn!(
+                "[portal] 顧客のシート用の鍵が社内用シートの鍵と同じサービスアカウントなので、顧客のシートは読まない。別のサービスアカウントにしてください"
+            );
+            None
+        }
+        (r, _) => r,
     }
 }
 
@@ -243,6 +265,7 @@ fn dev_parts(reader: Option<Arc<dyn SheetsApi>>) -> Parts {
         auth: Some(auth),
         mailer: Some(Arc::new(mail::DevLogMailer)),
         reader: reader.or_else(|| Some(Arc::new(dev_sheet::DevSheet) as Arc<dyn SheetsApi>)),
+        store_spreadsheet: None,
     }
 }
 
@@ -258,6 +281,7 @@ fn router_with(
             auth: Some(p.auth.clone()),
             mailer: Some(p.mailer.clone()),
             reader: None,
+            store_spreadsheet: None,
         },
         None => Parts::default(),
     };
@@ -273,6 +297,7 @@ fn router_parts(
         auth: parts.auth,
         mailer: parts.mailer,
         reader: parts.reader,
+        store_spreadsheet: parts.store_spreadsheet,
         access,
         manifest,
     });

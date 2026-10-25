@@ -297,6 +297,15 @@ impl From<GoogleError> for ProbeError {
     }
 }
 
+/// 見出しの比べ方をそろえる: セル内の改行・タブなどの制御文字と続く空白を空白 1 つにし、前後の空白を落とす。
+/// 登録・項目の作成・項目の保存・(PR4 以降の) シートの読み取りで同じものを使う
+pub fn clean_header(s: &str) -> String {
+    s.split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn clip(s: &str) -> String {
     let t: String = s.chars().take(PREVIEW_CELL_CHARS).collect();
     if t.len() < s.len() {
@@ -343,7 +352,7 @@ pub async fn read_preview(
     let e = h + 1 + example_rows as usize;
     Ok(Preview {
         tab_title: title,
-        headers: norm(&top[h]),
+        headers: norm(&top[h]).iter().map(|c| clean_header(c)).collect(),
         above: top[..h].iter().map(norm).collect(),
         examples: top[h + 1..e].iter().map(norm).collect(),
         rows: top[e..]
@@ -357,6 +366,14 @@ pub async fn read_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 見出しの改行や制御文字は空白1つにそろえる() {
+        assert_eq!(clean_header(" 応募\n日 "), "応募 日");
+        assert_eq!(clean_header("面接\r\n\t予定日"), "面接 予定日");
+        assert_eq!(clean_header("状況\u{7}"), "状況");
+        assert_eq!(clean_header("\n \t"), "");
+    }
 
     #[test]
     fn シートのurlから番号を取る() {
