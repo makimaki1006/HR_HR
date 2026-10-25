@@ -42,6 +42,8 @@ export default defineConfig({
         'portal-test': fromHere('src/entries/portal-test.tsx'),
         // 顧客向け応募者画面の本番の入口 (2026-10-23): /portal/*。社内の画面のコードは含めない
         portal: fromHere('src/entries/portal.tsx'),
+        // 顧客向け応募者画面の社内の管理 (2026-10-26): /app/portal-admin。管理者だけ (/api/admin/portal/*)
+        'portal-admin': fromHere('src/entries/portal-admin.tsx'),
         // トークの振り返り (2026-10-22): /app/talk。Google ログインの社内の人なら誰でも
         talk: fromHere('src/entries/talk.tsx'),
       },

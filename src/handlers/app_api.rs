@@ -136,6 +136,14 @@ mod tests {
         crate::portal::PortalInviteInfo::export_all(&cfg).unwrap();
         crate::portal::PortalAdminAccounts::export_all(&cfg).unwrap();
         crate::portal::PortalAdminInvite::export_all(&cfg).unwrap();
+        crate::portal::PortalAdminAccount::export_all(&cfg).unwrap();
+        crate::portal::admin::PortalAdminStatus::export_all(&cfg).unwrap();
+        crate::portal::admin::PortalAdminCustomers::export_all(&cfg).unwrap();
+        crate::portal::admin::PortalAdminCustomerDetail::export_all(&cfg).unwrap();
+        crate::portal::admin::PortalAdminProbe::export_all(&cfg).unwrap();
+        crate::portal::admin::PortalAdminPreview::export_all(&cfg).unwrap();
+        crate::portal::admin::PortalAdminColumns::export_all(&cfg).unwrap();
+        crate::portal::admin::PortalAdminLogs::export_all(&cfg).unwrap();
         crate::crm::property_catalog::CrmPropertyCatalogResponse::export_all(&cfg)
             .expect("CrmPropertyCatalogResponse の TS 型を書き出せない");
         crate::crm::write::CrmEditSchemaResponse::export_all(&cfg)

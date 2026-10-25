@@ -55,6 +55,8 @@ pub const KNOWN_SCREENS: &[&str] = &[
     // 2026-10-21: 顧客向け応募者画面の社内向けテスト版 (/app/portal-test)。ナビには出さない。
     // データは /api/portal-test/* が会社の Google ログインの人にだけ返す
     "portal-test",
+    // 2026-10-26: 顧客向け応募者画面の社内の管理 (/app/portal-admin)。データは /api/admin/portal/* が管理者にだけ返す
+    "portal-admin",
     // 2026-10-22: トークの振り返り (/app/talk)。Google ログインの社内の人なら誰でも。ナビは Feature::Crm と同じ条件で出す
     "talk",
 ];

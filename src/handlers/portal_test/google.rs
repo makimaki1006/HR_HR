@@ -70,7 +70,13 @@ fn epoch_now() -> u64 {
 impl GoogleSa {
     /// `GOOGLE_SA_KEY_B64` から作る。無い・読めないときは None (理由はログに出さない)。
     pub fn from_env() -> Option<Self> {
-        let b64 = std::env::var("GOOGLE_SA_KEY_B64").ok()?;
+        Self::from_env_var("GOOGLE_SA_KEY_B64")
+    }
+
+    /// 指定した環境変数 (base64 の SA JSON) から作る。顧客向け応募者画面は用途ごとに別の鍵を使う。
+    /// 無い・読めないときは None (理由・中身はログに出さない)。
+    pub fn from_env_var(name: &str) -> Option<Self> {
+        let b64 = std::env::var(name).ok().filter(|v| !v.trim().is_empty())?;
         let bytes = B64.decode(b64.trim()).ok()?;
         let key: ServiceAccountKey = serde_json::from_slice(&bytes).ok()?;
         let http = reqwest::Client::builder()
@@ -148,6 +154,25 @@ impl GoogleSa {
                 .get(url)
                 .query(query)
                 .bearer_auth(token)
+                .send()
+                .await,
+        )
+        .await
+    }
+
+    pub async fn post(
+        &self,
+        url: &str,
+        query: &[(&str, &str)],
+        body: &Value,
+    ) -> Result<Value, GoogleError> {
+        let token = self.access_token().await?;
+        Self::finish(
+            self.http
+                .post(url)
+                .query(query)
+                .bearer_auth(token)
+                .json(body)
                 .send()
                 .await,
         )

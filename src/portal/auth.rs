@@ -285,7 +285,8 @@ impl PortalAuth {
             Some(a)
                 if password_ok
                     && a.status == AccountStatus::Active
-                    && a.password_hash.is_some() =>
+                    && a.password_hash.is_some()
+                    && self.customer_usable(&a) =>
             {
                 a
             }
@@ -402,7 +403,7 @@ impl PortalAuth {
         let Some(account) = self
             .store
             .account(&account_id)
-            .filter(|a| a.status == AccountStatus::Active)
+            .filter(|a| a.status == AccountStatus::Active && self.customer_usable(a))
         else {
             return CodeResult::Expired;
         };
@@ -445,7 +446,7 @@ impl PortalAuth {
         let Some(account) = self
             .store
             .account(&c.account_id)
-            .filter(|a| a.status == AccountStatus::Active)
+            .filter(|a| a.status == AccountStatus::Active && self.customer_usable(a))
         else {
             g.remove(&ch);
             return ResendResult::Expired;
@@ -471,7 +472,16 @@ impl PortalAuth {
         self.store
             .account(&s.account_id)
             .filter(|a| a.status == AccountStatus::Active)
+            .filter(|a| self.customer_usable(a))
             .filter(|a| a.password_changed_at.is_none_or(|t| s.created_at >= t))
+    }
+
+    /// アカウントの顧客が登録されていて、止めておらず、段階が「シートだけ」でない。
+    /// 顧客を止める・「シートだけ」に戻すと、その顧客の全員がすぐ入れなくなる
+    pub fn customer_usable(&self, account: &Account) -> bool {
+        self.store
+            .customer(&account.customer_id)
+            .is_some_and(|c| c.usable())
     }
 
     pub fn logout(&self, session: &str, now: DateTime<Utc>) {

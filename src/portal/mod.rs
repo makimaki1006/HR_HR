@@ -8,36 +8,42 @@
 //! 保存先 (社内用シート) とメールの送信用アカウントはまだ無い。どちらも差し替えられる作りにし、
 //! 揃うまでは本番では `/api/portal/*` が 503 を返す。debug ビルドで `PORTAL_DEV_MEMORY=1` のときだけ、
 //! メモリの保存先とログに出すメールで動かせる (手元の確認用)。
+pub mod admin;
 pub mod auth;
+#[cfg(debug_assertions)]
+mod dev_sheet;
 pub mod mail;
+pub mod sheet_store;
+pub mod sheets;
 pub mod store;
 
+#[cfg(test)]
+mod sheet_store_tests;
+#[cfg(test)]
+mod test_fake;
 #[cfg(test)]
 mod tests;
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::set_header::SetResponseHeaderLayer;
-use tower_sessions::Session;
 use ts_rs::TS;
 
-use crate::crm::rbac::{self, CrmAccess};
+use crate::crm::rbac::CrmAccess;
 use crate::handlers::spa_shell::{self, AppManifest};
 use crate::AppState;
-use auth::{
-    AdminError, CodeResult, InviteError, LoginResult, PasswordProblem, PortalAuth, ResendResult,
-};
+use auth::{CodeResult, InviteError, LoginResult, PasswordProblem, PortalAuth, ResendResult};
 use mail::Mailer;
-use store::Account;
+use sheets::{GoogleError, SheetsApi};
+use store::{Account, LogEntry, LogSource};
 
 pub const SESSION_COOKIE: &str = "__Host-portal_session";
 pub const DEVICE_COOKIE: &str = "__Host-portal_device";
@@ -49,15 +55,43 @@ const PORTAL_CSP: &str =
 img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; \
 frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
+/// 顧客がログインするのに要るもの (保存先とメールの送信)
+#[derive(Clone)]
 pub struct Portal {
     pub auth: Arc<PortalAuth>,
     pub mailer: Arc<dyn Mailer>,
 }
 
+/// 組み立てに使う部品。揃っていないものは None (その API は 503)
+#[derive(Default, Clone)]
+pub struct Parts {
+    /// 保存先 (社内用シート / メモリ) の上のログインの決まり。社内の管理 API に要る
+    pub auth: Option<Arc<PortalAuth>>,
+    /// 確認コードを送る。顧客のログインに要る
+    pub mailer: Option<Arc<dyn Mailer>>,
+    /// 顧客のシートを読む (試しに読む)
+    pub reader: Option<Arc<dyn SheetsApi>>,
+}
+
 struct Ctx {
-    portal: Option<Arc<Portal>>,
+    auth: Option<Arc<PortalAuth>>,
+    mailer: Option<Arc<dyn Mailer>>,
+    reader: Option<Arc<dyn SheetsApi>>,
     access: CrmAccess,
     manifest: Option<AppManifest>,
+}
+
+impl Ctx {
+    /// 顧客の API を開けるか。保存先が読み込み済みで、メールを送れるときだけ
+    fn portal(&self) -> Option<Portal> {
+        match (&self.auth, &self.mailer) {
+            (Some(auth), Some(mailer)) if auth.store().ready() => Some(Portal {
+                auth: auth.clone(),
+                mailer: mailer.clone(),
+            }),
+            _ => None,
+        }
+    }
 }
 
 // ---- 応答の型 (ts-rs) ----
@@ -128,48 +162,117 @@ fn invite_path(token: &str) -> String {
 
 pub fn router() -> Router<Arc<AppState>> {
     let manifest = spa_shell::load_manifest(std::path::Path::new(spa_shell::MANIFEST_PATH));
-    router_with(portal_from_env(), CrmAccess::from_env(), manifest)
+    router_parts(parts_from_env(), CrmAccess::from_env(), manifest)
 }
 
-/// 保存先とメールの送信が揃うまで本番は None。debug ビルドの `PORTAL_DEV_MEMORY=1` だけメモリで動かす。
-fn portal_from_env() -> Option<Arc<Portal>> {
+fn auth_config() -> auth::AuthConfig {
+    let max = std::env::var("RATE_LIMIT_MAX_ATTEMPTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let lock = std::env::var("RATE_LIMIT_LOCKOUT_SECONDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300);
+    auth::AuthConfig::new(max, lock)
+}
+
+/// 環境変数から部品を作る。
+/// - 社内用シート (`PORTAL_STORE_SPREADSHEET_ID` と `PORTAL_STORE_SA_KEY_B64`) が両方あれば保存先にする。
+///   どちらかが無ければ保存先は無効 (社内の管理 API も顧客の API も 503)。
+/// - 顧客のシートを読む鍵 (`PORTAL_GOOGLE_SA_KEY_B64`) があれば「試しに読む」に使う。
+/// - メールの送信用アカウントはまだ無いので、本番の顧客の API は 503 のまま。
+/// - debug ビルドで `PORTAL_DEV_MEMORY=1` のときだけ、メモリの保存先とログに出すメールで動かす (手元の確認用)。
+fn parts_from_env() -> Parts {
+    let reader = sheets::GoogleSheetsApi::from_env_var(sheets::ENV_CUSTOMER_KEY);
     #[cfg(debug_assertions)]
     if std::env::var("PORTAL_DEV_MEMORY").is_ok_and(|v| v == "1") {
-        let max = std::env::var("RATE_LIMIT_MAX_ATTEMPTS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(5);
-        let lock = std::env::var("RATE_LIMIT_LOCKOUT_SECONDS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(300);
-        let mut cfg = auth::AuthConfig::new(max, lock);
-        cfg.bcrypt_cost = 6;
-        let auth = Arc::new(PortalAuth::new(
-            Arc::new(store::MemoryStore::default()),
-            cfg,
-        ));
-        if let Ok((_, token)) = auth.create_account("dev@example.com", "dev", Utc::now()) {
-            tracing::warn!(
-                "[portal dev] メモリの保存先で動かす。試しのアカウント dev@example.com の招待: {}",
-                invite_path(&token)
-            );
-        }
-        return Some(Arc::new(Portal {
-            auth,
-            mailer: Arc::new(mail::DevLogMailer),
-        }));
+        return dev_parts(reader);
     }
-    None
+    let spreadsheet = std::env::var(sheets::ENV_STORE_SPREADSHEET)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    let store_api = sheets::GoogleSheetsApi::from_env_var(sheets::ENV_STORE_KEY);
+    let auth = match (spreadsheet, store_api) {
+        (Some(id), Some(api)) => {
+            tracing::info!("[portal] 社内用シートを保存先にする（読み込み中）");
+            let store =
+                sheet_store::SheetStore::start(api, &id, sheet_store::SheetStoreConfig::default());
+            Some(Arc::new(PortalAuth::new(store, auth_config())))
+        }
+        (Some(_), None) => {
+            tracing::warn!("[portal] 社内用シートの鍵が無い・読めないので、保存先は無効");
+            None
+        }
+        _ => None,
+    };
+    Parts {
+        auth,
+        mailer: None,
+        reader,
+    }
 }
 
+#[cfg(debug_assertions)]
+fn dev_parts(reader: Option<Arc<dyn SheetsApi>>) -> Parts {
+    let mut cfg = auth_config();
+    cfg.bcrypt_cost = 6;
+    let store = Arc::new(store::MemoryStore::default());
+    let now = Utc::now();
+    let _ = store::PortalStore::insert_customer(
+        store.as_ref(),
+        store::Customer {
+            id: "dev".into(),
+            name: "サンプル株式会社".into(),
+            hubspot_company_id: None,
+            stage: store::CustomerStage::Both,
+            disabled: false,
+            created_at: now,
+            updated_at: now,
+        },
+    );
+    let auth = Arc::new(PortalAuth::new(store, cfg));
+    if let Ok((_, token)) = auth.create_account("dev@example.com", "dev", now) {
+        tracing::warn!(
+            "[portal dev] メモリの保存先で動かす。試しのアカウント dev@example.com の招待: {}",
+            invite_path(&token)
+        );
+    }
+    Parts {
+        auth: Some(auth),
+        mailer: Some(Arc::new(mail::DevLogMailer)),
+        reader: reader.or_else(|| Some(Arc::new(dev_sheet::DevSheet) as Arc<dyn SheetsApi>)),
+    }
+}
+
+/// テスト用: 顧客のログインに要るものが揃った (または無い) ときの組み立て
+#[cfg(test)]
 fn router_with(
     portal: Option<Arc<Portal>>,
     access: CrmAccess,
     manifest: Option<AppManifest>,
 ) -> Router<Arc<AppState>> {
+    let parts = match portal {
+        Some(p) => Parts {
+            auth: Some(p.auth.clone()),
+            mailer: Some(p.mailer.clone()),
+            reader: None,
+        },
+        None => Parts::default(),
+    };
+    router_parts(parts, access, manifest)
+}
+
+fn router_parts(
+    parts: Parts,
+    access: CrmAccess,
+    manifest: Option<AppManifest>,
+) -> Router<Arc<AppState>> {
     let ctx = Arc::new(Ctx {
-        portal,
+        auth: parts.auth,
+        mailer: parts.mailer,
+        reader: parts.reader,
         access,
         manifest,
     });
@@ -184,20 +287,7 @@ fn router_with(
         .route("/api/portal/logout", post(logout))
         .route("/api/portal/invite/check", post(invite_check))
         .route("/api/portal/invite/accept", post(invite_accept))
-        .route(
-            "/api/admin/portal/accounts",
-            get(admin_list).post(admin_create),
-        )
-        .route("/api/admin/portal/accounts/{id}/invite", post(admin_invite))
-        .route(
-            "/api/admin/portal/accounts/{id}/disable",
-            post(admin_disable),
-        )
-        .route("/api/admin/portal/accounts/{id}/enable", post(admin_enable))
-        .route(
-            "/api/admin/portal/accounts/{id}/extra-email",
-            put(admin_extra_email),
-        )
+        .merge(admin::routes())
         .route_layer(middleware::from_fn(csrf_guard));
     pages
         .merge(api)
@@ -315,6 +405,27 @@ fn now() -> DateTime<Utc> {
     Utc::now()
 }
 
+/// 顧客の操作を記録に残す (アカウントの番号だけ。メールアドレス・パスワードは残さない)
+fn portal_log(p: &Portal, kind: &str, account: Option<&Account>, detail: &str) {
+    let mut e = LogEntry::new(now(), "", LogSource::Portal, kind);
+    if let Some(a) = account {
+        e.actor = a.id.clone();
+        e.account_id = a.id.clone();
+        e.customer_id = a.customer_id.clone();
+    }
+    e.detail = detail.to_string();
+    p.auth.store().append_log(e);
+}
+
+/// Google の失敗をログに出す (HTTP の状態だけ)
+fn log_google(what: &str, e: GoogleError) {
+    match e {
+        GoogleError::Status(s) => tracing::warn!("[portal] {what}の失敗（{s}）"),
+        GoogleError::Network => tracing::warn!("[portal] {what}の失敗（通信）"),
+        GoogleError::Token => tracing::warn!("[portal] {what}の失敗（認証）"),
+    }
+}
+
 const SESSION_MAX_AGE: i64 = 12 * 60 * 60;
 const DEVICE_MAX_AGE: i64 = 90 * 24 * 60 * 60;
 const CHALLENGE_MAX_AGE: i64 = 30 * 60;
@@ -322,7 +433,7 @@ const CHALLENGE_MAX_AGE: i64 = 30 * 60;
 // ---- 顧客 ----
 
 async fn me(Extension(ctx): Extension<Arc<Ctx>>, headers: HeaderMap) -> Response {
-    let Some(p) = &ctx.portal else {
+    let Some(p) = ctx.portal() else {
         return unavailable();
     };
     match cookie(&headers, SESSION_COOKIE).and_then(|s| p.auth.current(s, now())) {
@@ -346,7 +457,7 @@ async fn login(
     headers: HeaderMap,
     Json(body): Json<LoginBody>,
 ) -> Response {
-    let Some(p) = ctx.portal.clone() else {
+    let Some(p) = ctx.portal() else {
         return unavailable();
     };
     if body.email.len() > 254 || body.password.len() > 1024 {
@@ -355,6 +466,10 @@ async fn login(
     let device = cookie(&headers, DEVICE_COOKIE).map(str::to_string);
     let ip = client_ip(&headers);
     let auth = p.auth.clone();
+    let known = p
+        .auth
+        .store()
+        .account_by_email(&auth::normalize_email(&body.email));
     let result = match tokio::task::spawn_blocking(move || {
         auth.login(&body.email, &body.password, device.as_deref(), &ip, now())
     })
@@ -372,6 +487,7 @@ async fn login(
     match result {
         LoginResult::SignedIn { session } => {
             tracing::info!("[portal] ログイン (覚えた端末)");
+            portal_log(&p, "login", known.as_ref(), "ログイン (覚えた端末)");
             let mut resp = Json(PortalLoginResponse {
                 status: "signed_in".into(),
                 to: Vec::new(),
@@ -412,13 +528,31 @@ async fn login(
         }
         LoginResult::Invalid => {
             tracing::info!("[portal] ログイン失敗");
+            portal_log(
+                &p,
+                "login_failed",
+                known.as_ref(),
+                if known.is_some() {
+                    "ログインの失敗"
+                } else {
+                    "ログインの失敗 (登録の無いメールアドレス)"
+                },
+            );
             invalid_credentials()
         }
-        LoginResult::Locked => err(
-            StatusCode::TOO_MANY_REQUESTS,
-            "locked",
-            "続けて間違えたため、しばらくログインできません。時間をおいてお試しください",
-        ),
+        LoginResult::Locked => {
+            portal_log(
+                &p,
+                "login_locked",
+                known.as_ref(),
+                "続けて間違えたため一時ロック中",
+            );
+            err(
+                StatusCode::TOO_MANY_REQUESTS,
+                "locked",
+                "続けて間違えたため、しばらくログインできません。時間をおいてお試しください",
+            )
+        }
     }
 }
 
@@ -446,7 +580,7 @@ async fn verify_code(
     headers: HeaderMap,
     Json(body): Json<CodeBody>,
 ) -> Response {
-    let Some(p) = &ctx.portal else {
+    let Some(p) = ctx.portal() else {
         return unavailable();
     };
     let Some(challenge) = cookie(&headers, CHALLENGE_COOKIE) else {
@@ -458,6 +592,8 @@ async fn verify_code(
     {
         CodeResult::SignedIn { session, device } => {
             tracing::info!("[portal] ログイン (確認コード)");
+            let who = p.auth.current(&session, now());
+            portal_log(&p, "login", who.as_ref(), "ログイン (確認コード)");
             let mut resp = Json(json!({ "status": "signed_in" })).into_response();
             set_cookie(&mut resp, SESSION_COOKIE, &session, SESSION_MAX_AGE, "Lax");
             if let Some(d) = device {
@@ -492,7 +628,7 @@ fn code_expired() -> Response {
 }
 
 async fn resend(Extension(ctx): Extension<Arc<Ctx>>, headers: HeaderMap) -> Response {
-    let Some(p) = &ctx.portal else {
+    let Some(p) = ctx.portal() else {
         return unavailable();
     };
     let Some(challenge) = cookie(&headers, CHALLENGE_COOKIE) else {
@@ -532,8 +668,18 @@ async fn resend(Extension(ctx): Extension<Arc<Ctx>>, headers: HeaderMap) -> Resp
 }
 
 async fn logout(Extension(ctx): Extension<Arc<Ctx>>, headers: HeaderMap) -> Response {
-    if let (Some(p), Some(s)) = (&ctx.portal, cookie(&headers, SESSION_COOKIE)) {
+    if let (Some(p), Some(s)) = (ctx.portal(), cookie(&headers, SESSION_COOKIE)) {
+        let who = p.auth.current(s, now());
         p.auth.logout(s, now());
+        if who.is_some() {
+            portal_log(&p, "logout", who.as_ref(), "ログアウト");
+        }
+        // ログアウトは社内用シートに書けるまで少し待つ (再起動で戻らないように)
+        let _ = p
+            .auth
+            .store()
+            .persisted(std::time::Duration::from_secs(3))
+            .await;
     }
     let mut resp = Json(json!({ "status": "signed_out" })).into_response();
     clear_cookie(&mut resp, SESSION_COOKIE);
@@ -557,7 +703,7 @@ async fn invite_check(
     Extension(ctx): Extension<Arc<Ctx>>,
     Json(body): Json<InviteCheckBody>,
 ) -> Response {
-    let Some(p) = &ctx.portal else {
+    let Some(p) = ctx.portal() else {
         return unavailable();
     };
     match p.auth.invite_info(body.token.trim(), now()) {
@@ -580,7 +726,7 @@ async fn invite_accept(
     Extension(ctx): Extension<Arc<Ctx>>,
     Json(body): Json<InviteAcceptBody>,
 ) -> Response {
-    let Some(p) = ctx.portal.clone() else {
+    let Some(p) = ctx.portal() else {
         return unavailable();
     };
     if body.password.len() > 1024 {
@@ -616,189 +762,4 @@ fn password_problem(p: PasswordProblem) -> Response {
         PasswordProblem::SameAsEmail => "メールアドレスと同じパスワードは使えません",
     };
     err(StatusCode::UNPROCESSABLE_ENTITY, "weak_password", message)
-}
-
-// ---- 社内の管理 ----
-
-#[allow(clippy::result_large_err)]
-async fn admin_gate(
-    session: &Session,
-    state: &Arc<AppState>,
-    ctx: &Ctx,
-) -> Result<(Arc<Portal>, String), Response> {
-    let principal = rbac::authorize(session, state, &ctx.access, None)
-        .await
-        .map_err(IntoResponse::into_response)?;
-    if !principal.role.is_some_and(|r| r.is_admin()) {
-        return Err(err(
-            StatusCode::FORBIDDEN,
-            "forbidden",
-            "管理者だけが使えます",
-        ));
-    }
-    let p = ctx.portal.clone().ok_or_else(unavailable)?;
-    Ok((p, principal.email.unwrap_or_default()))
-}
-
-fn admin_error(e: AdminError) -> Response {
-    match e {
-        AdminError::BadEmail => err(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "bad_email",
-            "メールアドレスの形が正しくありません",
-        ),
-        AdminError::BadCustomer => err(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "bad_customer",
-            "顧客を選んでください",
-        ),
-        AdminError::Duplicate => err(
-            StatusCode::CONFLICT,
-            "duplicate",
-            "このメールアドレスのアカウントはすでにあります",
-        ),
-        AdminError::NotFound => err(
-            StatusCode::NOT_FOUND,
-            "not_found",
-            "アカウントが見つかりません",
-        ),
-    }
-}
-
-async fn admin_list(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<Arc<Ctx>>,
-    session: Session,
-) -> Response {
-    let (p, _) = match admin_gate(&session, &state, &ctx).await {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let accounts = p
-        .auth
-        .store()
-        .accounts()
-        .iter()
-        .map(admin_account)
-        .collect();
-    Json(PortalAdminAccounts { accounts }).into_response()
-}
-
-#[derive(Deserialize)]
-struct CreateBody {
-    email: String,
-    customer_id: String,
-}
-
-async fn admin_create(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<Arc<Ctx>>,
-    session: Session,
-    Json(body): Json<CreateBody>,
-) -> Response {
-    let (p, by) = match admin_gate(&session, &state, &ctx).await {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    match p.auth.create_account(&body.email, &body.customer_id, now()) {
-        Ok((a, token)) => {
-            tracing::info!("[portal] アカウントを作った (by {by})");
-            Json(PortalAdminInvite {
-                account: admin_account(&a),
-                invite_path: invite_path(&token),
-            })
-            .into_response()
-        }
-        Err(e) => admin_error(e),
-    }
-}
-
-async fn admin_invite(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<Arc<Ctx>>,
-    session: Session,
-    Path(id): Path<String>,
-) -> Response {
-    let (p, by) = match admin_gate(&session, &state, &ctx).await {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let result = p.auth.issue_invite(&id, now()).and_then(|t| {
-        p.auth
-            .store()
-            .account(&id)
-            .map(|a| (a, t))
-            .ok_or(AdminError::NotFound)
-    });
-    match result {
-        Ok((a, token)) => {
-            tracing::info!("[portal] 招待のリンクを出した (by {by})");
-            Json(PortalAdminInvite {
-                account: admin_account(&a),
-                invite_path: invite_path(&token),
-            })
-            .into_response()
-        }
-        Err(e) => admin_error(e),
-    }
-}
-
-async fn admin_disable(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<Arc<Ctx>>,
-    session: Session,
-    Path(id): Path<String>,
-) -> Response {
-    let (p, by) = match admin_gate(&session, &state, &ctx).await {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    match p.auth.disable(&id, now()) {
-        Ok(a) => {
-            tracing::info!("[portal] アカウントを止めた (by {by})");
-            Json(admin_account(&a)).into_response()
-        }
-        Err(e) => admin_error(e),
-    }
-}
-
-async fn admin_enable(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<Arc<Ctx>>,
-    session: Session,
-    Path(id): Path<String>,
-) -> Response {
-    let (p, by) = match admin_gate(&session, &state, &ctx).await {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    match p.auth.enable(&id) {
-        Ok(a) => {
-            tracing::info!("[portal] アカウントの停止を戻した (by {by})");
-            Json(admin_account(&a)).into_response()
-        }
-        Err(e) => admin_error(e),
-    }
-}
-
-#[derive(Deserialize)]
-struct ExtraEmailBody {
-    email: String,
-}
-
-async fn admin_extra_email(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<Arc<Ctx>>,
-    session: Session,
-    Path(id): Path<String>,
-    Json(body): Json<ExtraEmailBody>,
-) -> Response {
-    let (p, _) = match admin_gate(&session, &state, &ctx).await {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    match p.auth.set_extra_email(&id, &body.email) {
-        Ok(a) => Json(admin_account(&a)).into_response(),
-        Err(e) => admin_error(e),
-    }
 }

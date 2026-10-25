@@ -59,6 +59,7 @@ export function AdminNav() {
       <AdminLink route={{ view: 'hubspot' }}>HubSpot</AdminLink>
       <AdminLink route={{ view: 'callers' }}>今日の架電</AdminLink>
       <AdminLink route={{ view: 'talk', from: '', to: '', team: '', owner: '', call: '' }}>トークの振り返り</AdminLink>
+      <a href="/app/portal-admin">応募者画面</a>
       <a href="/app/my?view=activity" className="w8-nav-right">
         自分の履歴
       </a>

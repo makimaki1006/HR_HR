@@ -12,7 +12,7 @@ use super::auth::{
     ResendResult,
 };
 use super::mail::{MailError, MailFuture, Mailer};
-use super::store::{AccountStatus, MemoryStore, PortalStore};
+use super::store::{AccountStatus, Customer, CustomerStage, MemoryStore, PortalStore};
 use super::*;
 
 const PW: &str = "correct horse battery";
@@ -21,6 +21,23 @@ fn cfg() -> AuthConfig {
     let mut c = AuthConfig::new(5, 300);
     c.bcrypt_cost = 4;
     c
+}
+
+/// 顧客 c1 (段階「両方」) を登録したメモリの保存先
+fn store_c1() -> Arc<MemoryStore> {
+    let store = Arc::new(MemoryStore::default());
+    store
+        .insert_customer(Customer {
+            id: "c1".into(),
+            name: "テスト顧客".into(),
+            hubspot_company_id: None,
+            stage: CustomerStage::Both,
+            disabled: false,
+            created_at: t0(),
+            updated_at: t0(),
+        })
+        .unwrap();
+    store
 }
 
 fn t0() -> DateTime<Utc> {
@@ -49,7 +66,7 @@ fn code_login(auth: &PortalAuth, email: &str, remember: bool) -> (String, Option
 
 #[test]
 fn 新しい端末ではコードを聞き_覚えた端末では聞かない() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "taro@example.com");
     let (session, device) = code_login(&auth, "Taro@Example.com ", true);
     assert!(auth.current(&session, t0()).is_some());
@@ -76,7 +93,7 @@ fn 新しい端末ではコードを聞き_覚えた端末では聞かない() {
 
 #[test]
 fn 覚えた端末でもパスワードは要る_別の人の札は使えない() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "a@example.com");
     ready(&auth, "b@example.com");
     let (_, device) = code_login(&auth, "a@example.com", true);
@@ -99,7 +116,7 @@ fn 覚えた端末でもパスワードは要る_別の人の札は使えない(
 
 #[test]
 fn コードは別のやり取りでは通らず_5回間違えると無効_10分で切れる() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "a@example.com");
     let LoginResult::CodeRequired {
         challenge: c1,
@@ -139,7 +156,7 @@ fn コードは別のやり取りでは通らず_5回間違えると無効_10分
 
 #[test]
 fn 送り直しは60秒あけて3回まで_古いコードは使えない() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "a@example.com");
     let LoginResult::CodeRequired {
         challenge,
@@ -178,7 +195,7 @@ fn 送り直しは60秒あけて3回まで_古いコードは使えない() {
 
 #[test]
 fn 失敗が続くとロックし_登録の無いメールも同じ扱い() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "a@example.com");
     for _ in 0..5 {
         assert!(matches!(
@@ -216,7 +233,7 @@ fn 失敗が続くとロックし_登録の無いメールも同じ扱い() {
 
 #[test]
 fn 招待は1回だけ_1週間_新しいリンクで前のは使えない() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     let (a, t1) = auth.create_account("a@example.com", "c1", t0()).unwrap();
     // パスワードを決める前はログインできない
     assert!(matches!(
@@ -256,7 +273,7 @@ fn 招待は1回だけ_1週間_新しいリンクで前のは使えない() {
 
 #[test]
 fn パスワードの再設定と停止で端末とログイン中の画面が無効になる() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     let id = ready(&auth, "a@example.com");
     let (session, device) = code_login(&auth, "a@example.com", true);
     let device = device.unwrap();
@@ -307,7 +324,7 @@ fn パスワードの再設定と停止で端末とログイン中の画面が�
 
 #[test]
 fn 追加の送り先にもコードを送り_ログイン中の画面は12時間で切れる() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     let id = ready(&auth, "a@example.com");
     auth.set_extra_email(&id, "Phone@Example.jp").unwrap();
     assert!(auth.set_extra_email(&id, "a@example.com").is_err());
@@ -334,7 +351,7 @@ fn 追加の送り先にもコードを送り_ログイン中の画面は12時�
 
 #[test]
 fn 保存先にはハッシュだけを置く() {
-    let store = Arc::new(MemoryStore::default());
+    let store = store_c1();
     let auth = PortalAuth::new(store.clone(), cfg());
     let (a, token) = auth.create_account("a@example.com", "c1", t0()).unwrap();
     assert!(store.invite(&token).is_none());
@@ -399,7 +416,7 @@ struct Harness {
 }
 
 fn harness() -> Harness {
-    let auth = Arc::new(PortalAuth::new(Arc::new(MemoryStore::default()), cfg()));
+    let auth = Arc::new(PortalAuth::new(store_c1(), cfg()));
     let mailer = Arc::new(FakeMailer::default());
     let portal = Arc::new(Portal {
         auth: auth.clone(),
@@ -582,7 +599,7 @@ async fn httpの失敗は登録の有無を明かさず_csrfが無い書き込�
 
 #[tokio::test]
 async fn コードを送れなければ503でやり取りを残さない() {
-    let auth = Arc::new(PortalAuth::new(Arc::new(MemoryStore::default()), cfg()));
+    let auth = Arc::new(PortalAuth::new(store_c1(), cfg()));
     let (_, token) = auth
         .create_account("a@example.com", "c1", Utc::now())
         .unwrap();
@@ -777,7 +794,7 @@ async fn 社内の管理者は作る_招待を出し直す_止める_送り先�
     use crate::crm::rbac::CrmRole;
     const BOSS: &str = "boss@f-a-c.co.jp";
     const STAFF: &str = "staff@f-a-c.co.jp";
-    let auth = Arc::new(PortalAuth::new(Arc::new(MemoryStore::default()), cfg()));
+    let auth = Arc::new(PortalAuth::new(store_c1(), cfg()));
     let portal = Arc::new(Portal {
         auth: auth.clone(),
         mailer: Arc::new(FakeMailer::default()),
@@ -914,3 +931,6 @@ async fn 社内の管理者は作る_招待を出し直す_止める_送り先�
     let text = v.to_string();
     assert!(!text.contains("password") && !text.contains(&second));
 }
+
+#[path = "admin_tests.rs"]
+mod admin_tests;
