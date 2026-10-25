@@ -101,7 +101,7 @@ pub fn search_body(
     ];
     let mut body = json!({
         "filterGroups": [{"filters": filters}],
-        "properties": ["hubspot_owner_id", "hs_timestamp", "hs_call_duration", "hs_call_body"],
+        "properties": ["hubspot_owner_id", "hs_timestamp", "hs_call_duration", "hs_call_body", "hs_call_to_number"],
         "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
         "limit": 100,
     });
@@ -118,6 +118,8 @@ pub struct Candidate {
     pub ts_ms: i64,
     pub duration_ms: i64,
     pub zoom_id: Option<String>,
+    /// 相手番号 (`hs_call_to_number`)。かけた人を Zoom で探すのに使う
+    pub to_number: Option<String>,
 }
 
 fn time_ms(v: &Value) -> Option<i64> {
@@ -152,7 +154,45 @@ pub fn parse_candidate(v: &Value) -> Option<Candidate> {
             .get("hs_call_body")
             .and_then(Value::as_str)
             .and_then(extract_call_log_id),
+        to_number: p
+            .get("hs_call_to_number")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
     })
+}
+
+/// 行に付ける担当者。Zoom でかけた人が HubSpot の担当者に結び付けば、その人。
+/// 結び付かない (Zoom に見つからない・担当者に居ない) ときは HubSpot の担当者のまま
+pub fn attribute(
+    hubspot_owner: &str,
+    caller_email: Option<&str>,
+    email_owner: &HashMap<String, String>,
+) -> String {
+    caller_email
+        .and_then(|e| email_owner.get(&e.to_lowercase()))
+        .cloned()
+        .unwrap_or_else(|| hubspot_owner.to_string())
+}
+
+/// 行の担当者を Zoom でかけた人に直す。Zoom の読み取りに失敗したら `Err` (呼び出し側はやり直す)
+async fn caller_owner<Z: TranscriptSource>(
+    zoom: &Z,
+    hubspot_owner: &str,
+    to_number: Option<&str>,
+    at_ms: i64,
+    email_owner: &HashMap<String, String>,
+) -> Result<String, String> {
+    let email = match to_number {
+        Some(n) => match zoom.find_caller(n, at_ms).await {
+            Ok(e) => e,
+            Err(ZoomError::Transient(reason)) => return Err(format!("zoom call logs: {reason}")),
+            Err(_) => None,
+        },
+        None => None,
+    };
+    Ok(attribute(hubspot_owner, email.as_deref(), email_owner))
 }
 
 async fn search_candidates(
@@ -552,6 +592,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             .await
             .map_err(|e| e.error_kind().to_string())?;
         let members = team_members(&list.owners, &self.cfg.teams);
+        let email_owner = super::live_dials::owner_by_email(&list.owners);
         let ids: Vec<String> = {
             let mut v: Vec<String> = members.iter().map(|m| m.id.clone()).collect();
             v.sort();
@@ -585,7 +626,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                     let cands = search_candidates(&bg, "hs_timestamp", a, b, None, &ids, min_ms)
                         .await
                         .map_err(|e| e.error_kind().to_string())?;
-                    self.ingest(cands, now).await;
+                    self.ingest(cands, now, &email_owner).await?;
                     day += chrono::Duration::days(1);
                     self.backfill_next = Some(day);
                 }
@@ -607,15 +648,22 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 )
                 .await
                 .map_err(|e| e.error_kind().to_string())?;
-                self.ingest(cands, now).await;
+                self.ingest(cands, now, &email_owner).await?;
                 self.last_poll = Some(now);
             }
         }
         Ok(())
     }
 
-    async fn ingest(&mut self, cands: Vec<Candidate>, now: DateTime<Utc>) {
-        let mut fresh = 0;
+    /// 新しい Call を順番待ちの行にする。担当者は Zoom でかけた人 (`attribute`)。
+    /// Zoom が読めなければ `Err` で止め、呼び出し側は同じ範囲を次の周回で読み直す
+    async fn ingest(
+        &mut self,
+        cands: Vec<Candidate>,
+        now: DateTime<Utc>,
+        email_owner: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        let (mut fresh, mut moved) = (0, 0);
         for c in cands {
             if self.known.contains(&c.id) {
                 continue;
@@ -628,10 +676,21 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             if c.zoom_id.is_none() && now - at < URL_GRACE {
                 continue;
             }
+            let owner = caller_owner(
+                &*self.zoom,
+                &c.owner_id,
+                c.to_number.as_deref(),
+                c.ts_ms,
+                email_owner,
+            )
+            .await?;
+            if owner != c.owner_id {
+                moved += 1;
+            }
             let ts = store::ts_text(now);
             let row = NewRow {
                 hubspot_call_id: c.id.clone(),
-                owner_id: c.owner_id,
+                owner_id: owner,
                 call_at: store::ts_text(at),
                 duration_sec: c.duration_ms / 1000,
                 zoom_call_log_id: c.zoom_id,
@@ -647,7 +706,58 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 Err(e) => tracing::warn!(error = %e, "talk review: row insert failed"),
             }
         }
-        tracing::info!(new_rows = fresh, "talk review ingest done");
+        tracing::info!(
+            new_rows = fresh,
+            caller_differs = moved,
+            "talk review ingest done"
+        );
+        Ok(())
+    }
+
+    /// 起動後に 1 回: 取り込み済みの行の担当者を、Zoom でかけた人に直す (この変更より前に入った行)
+    async fn reattribute(&self) -> Result<(), String> {
+        let bg = self.client.background();
+        let list = crate::crm::owners::fetch_all(&bg)
+            .await
+            .map_err(|e| e.error_kind().to_string())?;
+        let email_owner = super::live_dials::owner_by_email(&list.owners);
+        let since = store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
+        let to = store::ts_text(Utc::now() + chrono::Duration::days(1));
+        let rows =
+            store::blocking(&self.audit, move |t| store::rows_in(t, &since, &to, None)).await?;
+        let ids: Vec<String> = rows.iter().map(|r| r.hubspot_call_id.clone()).collect();
+        let numbers: HashMap<String, String> = bg
+            .batch_read("calls", &ids, &["hs_call_to_number"])
+            .await
+            .map_err(|e| e.error_kind().to_string())?
+            .into_iter()
+            .filter_map(|r| match r.properties.get("hs_call_to_number") {
+                Some(Some(n)) => Some((r.id, n.clone())),
+                _ => None,
+            })
+            .collect();
+        let mut moved = 0;
+        for r in rows {
+            let Ok(at) = DateTime::parse_from_rfc3339(&r.call_at) else {
+                continue;
+            };
+            let owner = caller_owner(
+                &*self.zoom,
+                &r.owner_id,
+                numbers.get(&r.hubspot_call_id).map(String::as_str),
+                at.timestamp_millis(),
+                &email_owner,
+            )
+            .await?;
+            if owner == r.owner_id {
+                continue;
+            }
+            let (id, now) = (r.hubspot_call_id.clone(), store::ts_text(Utc::now()));
+            store::blocking(&self.audit, move |t| store::set_owner(t, &id, &owner, &now)).await?;
+            moved += 1;
+        }
+        tracing::info!(moved, "talk review: rows reattributed to the Zoom caller");
+        Ok(())
     }
 
     /// 順番待ちの行を、1 人 1 日の枠まで文字起こし待ちにする
@@ -813,6 +923,9 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 tracing::warn!(error = %e, "talk review: requeue failed");
             }
         }
+        if let Err(e) = self.reattribute().await {
+            tracing::warn!(error = %e, "talk review: reattribute failed");
+        }
         self.find_rejudge().await;
         loop {
             let now = Utc::now();
@@ -896,6 +1009,15 @@ mod tests {
             match number {
                 "03-1234-5678" => Ok(Some("REC1".into())),
                 "err" => Err(ZoomError::Transient("x".into())),
+                _ => Ok(None),
+            }
+        }
+        async fn find_caller(&self, number: &str, _: i64) -> Result<Option<String>, ZoomError> {
+            match number {
+                "03-1111-2222" => Ok(Some("Kubo@X".into())),
+                "03-3333-4444" => Ok(Some("outsider@x".into())),
+                "err" => Err(ZoomError::Transient("x".into())),
+                "gone" => Err(ZoomError::Gone),
                 _ => Ok(None),
             }
         }
@@ -1110,6 +1232,7 @@ mod tests {
             "hubspot_owner_id": "7", "hs_timestamp": "2026-10-15T01:02:03Z", "hs_call_duration": "95000",
             "hs_call_body": format!("Recording Url: https://x/audio/play/0/{id}")}});
         let c = parse_candidate(&v).unwrap();
+        assert_eq!(c.to_number, None);
         assert_eq!(
             (c.id.as_str(), c.owner_id.as_str(), c.duration_ms),
             ("55", "7", 95_000)
@@ -1139,6 +1262,42 @@ mod tests {
         assert_eq!(b["after"], "cur");
         // HubSpot の上限 (1 まとまり 6 条件) を超えない
         assert!(f.len() <= 6, "filters = {}", f.len());
+    }
+
+    #[tokio::test]
+    async fn rows_go_to_the_zoom_caller_not_the_hubspot_owner() {
+        let z = FakeZoom(Ok(vec![]));
+        let m: HashMap<String, String> = [
+            ("kubo@x".to_string(), "11".to_string()),
+            ("aikawa@x".to_string(), "22".to_string()),
+        ]
+        .into();
+        let who = |n: Option<&'static str>| {
+            let (z, m) = (&z, &m);
+            async move { caller_owner(z, "22", n, 0, m).await }
+        };
+        // HubSpot では相川さん (22) の名前でも、Zoom でかけたのは久保さん (11)。メールの大小文字は区別しない
+        assert_eq!(who(Some("03-1111-2222")).await, Ok("11".into()));
+        // かけた人が担当者に居ない・Zoom に見つからない・番号が無い・通話が消えた → HubSpot の担当者のまま
+        assert_eq!(who(Some("03-3333-4444")).await, Ok("22".into()));
+        assert_eq!(who(Some("03-9999-9999")).await, Ok("22".into()));
+        assert_eq!(who(None).await, Ok("22".into()));
+        assert_eq!(who(Some("gone")).await, Ok("22".into()));
+        // Zoom が読めないときは決めずにやり直す (HubSpot の担当者で書かない)
+        assert!(who(Some("err")).await.is_err());
+
+        let v = json!({"id": "9", "properties": {"hubspot_owner_id": "22",
+            "hs_timestamp": "2026-10-15T01:02:03Z", "hs_call_to_number": " +81311112222 "}});
+        assert_eq!(
+            parse_candidate(&v).unwrap().to_number.as_deref(),
+            Some("+81311112222")
+        );
+        let b = search_body("hs_timestamp", 10, 20, &["7".into()], 70_000, None);
+        assert!(b["properties"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p == "hs_call_to_number"));
     }
 
     #[tokio::test(flavor = "multi_thread")]

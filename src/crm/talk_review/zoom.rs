@@ -58,12 +58,23 @@ pub trait TranscriptSource: Send + Sync {
         to_number: &str,
         at_ms: i64,
     ) -> impl std::future::Future<Output = Result<Option<String>, ZoomError>> + Send;
+
+    /// 相手番号と開始時刻 (ミリ秒) の発信を、Zoom で実際にかけた人のメール (小文字)。
+    /// HubSpot の担当者が、かけた人と違う名前で記録されることがあるため (2026-10-22 の調査)。
+    /// 見つからなければ `None`
+    fn find_caller(
+        &self,
+        _to_number: &str,
+        _at_ms: i64,
+    ) -> impl std::future::Future<Output = Result<Option<String>, ZoomError>> + Send {
+        async { Ok(None) }
+    }
 }
 
 /// 行の `zoom_call_log_id` に録音 ID を直接入れるときの印 (通話履歴から見つけたもの)
 pub const REC_PREFIX: &str = "rec:";
-/// 通話履歴の一覧のページ数の上限 (1 ページ 300 件。1 日約 6,000 件)
-const MAX_HISTORY_PAGES: usize = 40;
+/// 通話履歴の一覧のページ数の上限 (1 ページ 300 件。2026-10-23 は 1 日 10,807 件 = 37 ページ)
+const MAX_HISTORY_PAGES: usize = 80;
 /// 今日の架電数を数える通話ログのページ数の上限 (営業KPI の同期と同じ)
 const MAX_LIVE_PAGES: usize = 200;
 const MAX_USER_PAGES: usize = 50;
@@ -71,6 +82,8 @@ const HISTORY_TTL: Duration = Duration::from_secs(600);
 const HISTORY_MAX_DAYS: usize = 16;
 /// HubSpot の通話の時刻と Zoom の開始時刻を同じ電話とみなす差
 pub const MATCH_WINDOW_MS: i64 = 60_000;
+/// かけた人を探すときの差 (通話ログの時刻と HubSpot の時刻。照合の調査と同じ 3 分)
+pub const CALLER_WINDOW_MS: i64 = 180_000;
 
 /// 電話番号を数字だけにして下 9 桁にする (+81 の有無・ハイフンの違いを吸収)。9 桁に満たなければ `None`
 pub fn normalize_number(s: &str) -> Option<String> {
@@ -133,6 +146,56 @@ pub fn pick_match<'a>(
         .min_by_key(|e| (e.start_ms - at_ms).abs())
 }
 
+/// 通話ログの 1 件 (発信の相手番号・開始時刻・かけた人のメール)
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallerEntry {
+    pub number9: String,
+    pub start_ms: i64,
+    pub email: String,
+}
+
+/// `phone/call_logs` のページから、発信ごとのかけた人。Call Queue からの発信も `user_id` に本人が入る。
+/// 着信・番号なし・時刻なし・メールが分からない人は除く
+pub fn caller_entries(pages: &[Value], user_email: &HashMap<String, String>) -> Vec<CallerEntry> {
+    let mut out = Vec::new();
+    for page in pages {
+        let Some(logs) = page.get("call_logs").and_then(Value::as_array) else {
+            continue;
+        };
+        for log in logs {
+            let text = |k: &str| log.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+            if text("direction") != Some("outbound") {
+                continue;
+            }
+            let (Some(number9), Some(start_ms), Some(email)) = (
+                text("callee_number").and_then(normalize_number),
+                text("date_time")
+                    .or_else(|| text("start_time"))
+                    .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+                    .map(|t| t.timestamp_millis()),
+                text("user_id").and_then(|u| user_email.get(u)),
+            ) else {
+                continue;
+            };
+            out.push(CallerEntry {
+                number9,
+                start_ms,
+                email: email.clone(),
+            });
+        }
+    }
+    out
+}
+
+/// 相手番号が同じで、開始時刻の差が `CALLER_WINDOW_MS` 以内のうち最も近い発信のかけた人
+pub fn pick_caller<'a>(entries: &'a [CallerEntry], number9: &str, at_ms: i64) -> Option<&'a str> {
+    entries
+        .iter()
+        .filter(|e| e.number9 == number9 && (e.start_ms - at_ms).abs() <= CALLER_WINDOW_MS)
+        .min_by_key(|e| (e.start_ms - at_ms).abs())
+        .map(|e| e.email.as_str())
+}
+
 /// 通話履歴の詳細 (`call_elements[]`) から録音 ID を取る。Call Queue の要素を先に見る
 pub fn recording_id_from(detail: &Value) -> Option<String> {
     let els = detail.get("call_elements").and_then(Value::as_array)?;
@@ -154,6 +217,7 @@ struct Token {
 }
 
 type HistoryCache = HashMap<NaiveDate, (Instant, Arc<Vec<HistoryEntry>>)>;
+type CallerCache = HashMap<NaiveDate, (Instant, Arc<Vec<CallerEntry>>)>;
 
 pub struct ZoomClient {
     account_id: String,
@@ -163,6 +227,8 @@ pub struct ZoomClient {
     token: tokio::sync::Mutex<Option<Token>>,
     /// JST の日ごとの通話履歴 (Call ごとに取り直さない)
     history: tokio::sync::Mutex<HistoryCache>,
+    /// JST の日ごとの、発信とかけた人 (通話ログから)
+    callers: tokio::sync::Mutex<CallerCache>,
 }
 
 impl ZoomClient {
@@ -183,6 +249,7 @@ impl ZoomClient {
                 .ok()?,
             token: tokio::sync::Mutex::new(None),
             history: tokio::sync::Mutex::new(HashMap::new()),
+            callers: tokio::sync::Mutex::new(HashMap::new()),
         }))
     }
 
@@ -299,6 +366,25 @@ impl ZoomClient {
 }
 
 impl ZoomClient {
+    /// その日 (JST) の発信とかけた人。`HISTORY_TTL` の間は取り直さない
+    async fn callers_for(&self, day: NaiveDate) -> Result<Arc<Vec<CallerEntry>>, ZoomError> {
+        let mut g = self.callers.lock().await;
+        if let Some((at, v)) = g.get(&day) {
+            if at.elapsed() < HISTORY_TTL {
+                return Ok(v.clone());
+            }
+        }
+        let (from, to) = super::live_dials::utc_range(day);
+        let pages = self.call_log_pages(&from, &to).await?;
+        let users = self.active_user_emails().await?;
+        let out = Arc::new(caller_entries(&pages, &users));
+        if g.len() >= HISTORY_MAX_DAYS {
+            g.clear();
+        }
+        g.insert(day, (Instant::now(), out.clone()));
+        Ok(out)
+    }
+
     /// 1 日分 (UTC の `from`/`to`) の通話ログ (`phone/call_logs`) のページ。上限 `MAX_LIVE_PAGES` ページ
     pub async fn call_log_pages(&self, from: &str, to: &str) -> Result<Vec<Value>, ZoomError> {
         let mut pages = Vec::new();
@@ -359,6 +445,19 @@ impl ZoomClient {
 }
 
 impl TranscriptSource for ZoomClient {
+    async fn find_caller(&self, to_number: &str, at_ms: i64) -> Result<Option<String>, ZoomError> {
+        let (Some(n9), Some(at)) = (
+            normalize_number(to_number),
+            DateTime::<Utc>::from_timestamp_millis(at_ms),
+        ) else {
+            return Ok(None);
+        };
+        let list = self
+            .callers_for(crate::crm::caller_metrics::jst_day(at).0)
+            .await?;
+        Ok(pick_caller(&list, &n9, at_ms).map(str::to_string))
+    }
+
     async fn find_recording(
         &self,
         to_number: &str,
@@ -521,6 +620,45 @@ mod tests {
         // ちょうど 60 秒は含む
         let edge = vec![e("edge", "312345678", "2026-10-15T01:01:00Z")];
         assert_eq!(pick_match(&edge, "312345678", at).unwrap().ids[0], "edge");
+    }
+
+    #[test]
+    fn caller_is_the_zoom_user_of_the_closest_outbound_log() {
+        let users: HashMap<String, String> = [
+            ("U1".to_string(), "kubo@x".to_string()),
+            ("U2".to_string(), "aikawa@x".to_string()),
+        ]
+        .into();
+        let pages = vec![
+            json!({"call_logs": [
+                {"direction": "outbound", "user_id": "U1", "callee_number": "+81312345678",
+                 "date_time": "2026-10-15T01:00:05Z"},
+                {"direction": "inbound", "user_id": "U2", "callee_number": "+81312345678",
+                 "date_time": "2026-10-15T01:00:00Z"},
+                {"direction": "outbound", "user_id": "GONE", "callee_number": "0399999999",
+                 "date_time": "2026-10-15T01:00:00Z"},
+            ]}),
+            json!({"call_logs": [
+                {"direction": "outbound", "user_id": "U2", "callee_number": "03-1234-5678",
+                 "date_time": "2026-10-15T01:02:30Z"},
+            ]}),
+        ];
+        let e = caller_entries(&pages, &users);
+        // 着信と、メールが分からない人は除く
+        assert_eq!(e.len(), 2);
+        let at = ms("2026-10-15T01:00:00Z");
+        // 5 秒差の久保さんが、150 秒差の相川さんより近い
+        assert_eq!(pick_caller(&e, "312345678", at), Some("kubo@x"));
+        // 3 分を超えたら別の電話
+        assert_eq!(
+            pick_caller(&e[1..], "312345678", ms("2026-10-15T00:59:29Z")),
+            None
+        );
+        assert_eq!(
+            pick_caller(&e[1..], "312345678", ms("2026-10-15T00:59:30Z")),
+            Some("aikawa@x")
+        );
+        assert_eq!(pick_caller(&e, "311111111", at), None);
     }
 
     #[test]
