@@ -2190,6 +2190,65 @@ pub async fn api_admin_list(
     }
 }
 
+/// 失敗した操作の件数のキャッシュの有効期間 (Turso の読み取りを増やさない)
+const FAILED_COUNT_TTL: Duration = Duration::from_secs(60);
+
+/// 失敗件数の短いキャッシュ (プロセス内。管理者の再試行・破棄で捨てる)
+#[derive(Default)]
+pub struct FailedCountCache {
+    slot: std::sync::Mutex<Option<(std::time::Instant, i64)>>,
+}
+
+impl FailedCountCache {
+    pub fn invalidate(&self) {
+        if let Ok(mut g) = self.slot.lock() {
+            *g = None;
+        }
+    }
+
+    pub(super) fn fresh(&self) -> Option<i64> {
+        let g = self.slot.lock().ok()?;
+        g.filter(|(at, _)| at.elapsed() < FAILED_COUNT_TTL)
+            .map(|(_, n)| n)
+    }
+
+    pub(super) fn put(&self, n: i64) {
+        if let Ok(mut g) = self.slot.lock() {
+            *g = Some((std::time::Instant::now(), n));
+        }
+    }
+}
+
+pub(super) fn shared_failed_count() -> &'static FailedCountCache {
+    static SHARED: std::sync::OnceLock<FailedCountCache> = std::sync::OnceLock::new();
+    SHARED.get_or_init(FailedCountCache::default)
+}
+
+/// 失敗件数 (キャッシュにあれば Turso を読まない)。読めなければ None
+async fn failed_count(cache: &FailedCountCache, audit: &AuditDb) -> Option<i64> {
+    if let Some(n) = cache.fresh() {
+        return Some(n);
+    }
+    match pending::blocking(audit, pending::count_failed).await {
+        Ok(Ok(n)) => {
+            cache.put(n);
+            Some(n)
+        }
+        _ => None,
+    }
+}
+
+/// 画面の印用の件数。監査 DB が使えないときは 503 (画面は何も出さない)
+pub async fn api_admin_failed_count(State(state): State<Arc<AppState>>) -> Response {
+    let Some(audit) = state.audit.clone() else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
+    };
+    match failed_count(shared_failed_count(), &audit).await {
+        Some(n) => Json(json!({ "failed": n })).into_response(),
+        None => err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable"),
+    }
+}
+
 /// 失敗した操作をもう一度再送待ちに戻す (回数を数え直す)
 pub async fn api_admin_retry(
     State(state): State<Arc<AppState>>,
@@ -2265,6 +2324,7 @@ async fn admin_transition(state: Arc<AppState>, operation_id: String, retry: boo
     if !matches!(res, Ok(Ok(()))) {
         return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
     }
+    shared_failed_count().invalidate();
     // 管理者の操作も状態の表に写す (本番の表は要求側・worker と共有のもの)
     op_status::shared().put(
         &row.operation_id,
@@ -2799,3 +2859,7 @@ mod tests {
         assert_eq!(api_status(&mk("discarded", 1)), "failed");
     }
 }
+
+#[cfg(test)]
+#[path = "failed_count_tests.rs"]
+mod failed_count_tests;

@@ -7,6 +7,7 @@
 //   /app/admin?view=login-failures -> login failures    (old: /admin/login-failures)
 //   /app/admin?view=hubspot        -> HubSpot usage     (new 2026-10-08, no old page)
 //   /app/admin?view=callers        -> today's callers   (new 2026-10-13; add &mode=fixture for fake data)
+//   /app/admin?view=crm-failed     -> HubSpot に保存できなかった操作 (2026-10-25)
 //   /app/admin?view=talk&from=&to=&team=&owner=&call= -> トークの振り返り (ADR-033; add &mode=fixture for fake data)
 
 export type AdminRoute =
@@ -16,6 +17,7 @@ export type AdminRoute =
   | { view: 'login-failures' }
   | { view: 'hubspot' }
   | { view: 'callers' }
+  | { view: 'crm-failed' }
   | { view: 'talk'; from: string; to: string; team: string; owner: string; call: string };
 
 /** Same default as the Rust handler (`q.days.unwrap_or(30)`). */
@@ -36,6 +38,8 @@ export function parseAdminRoute(search: string): AdminRoute {
       return { view: 'hubspot' };
     case 'callers':
       return { view: 'callers' };
+    case 'crm-failed':
+      return { view: 'crm-failed' };
     case 'talk':
       return {
         view: 'talk',
@@ -83,6 +87,8 @@ export function adminApiPath(route: AdminRoute): string {
       return '/api/admin/hubspot-usage';
     case 'callers':
       return '/api/crm/metrics/today/all';
+    case 'crm-failed':
+      return '/api/admin/crm-operations?status=failed';
     case 'talk':
       return '/api/crm/talk-review/summary';
   }

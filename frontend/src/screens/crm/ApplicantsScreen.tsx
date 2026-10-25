@@ -12,6 +12,7 @@ import { PhoneRow, ZOOM_LOGIN_DONE, ZOOM_LOGIN_REQUIRED, ZOOM_NO_RESPONSE } from
 import { ZoomPhonePanel } from './ZoomPhonePanel';
 import type { ApplicantSection } from '../../generated/ApplicantSection';
 import { CrmModeSwitch } from './CrmModeSwitch';
+import { FailedWritesBadge } from './FailedWritesBadge';
 import { applicantQueueFixture, applicantAllQueueFixture, applicantDetailFixture } from './applicantFixture';
 import { StageFilter } from './StageFilter';
 import { CenterTabBar, CenterPanel, LinkView, PropLink, useCenterTabs } from './CenterTabs';
@@ -264,7 +265,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
     </aside>,
   };
   return <div className="crm-app cq-app applicants-app">
-    <header className="applicants-head"><a href="/">HR_HR</a><strong>CRM</strong><CrmModeSwitch applicants /><span>{fixture ? '架空サンプル' : 'HubSpot の応募'}</span>{!fixture && <button onClick={() => { setDrawerOpen(v => !v); }}>Zoom</button>}<button onClick={() => { setCursor(null); setDetail(null); setRefresh(v => v + 1); }}>最新にする</button></header>
+    <header className="applicants-head"><a href="/">HR_HR</a><strong>CRM</strong><CrmModeSwitch applicants /><FailedWritesBadge fixture={fixture} /><span>{fixture ? '架空サンプル' : 'HubSpot の応募'}</span>{!fixture && <button onClick={() => { setDrawerOpen(v => !v); }}>Zoom</button>}<button onClick={() => { setCursor(null); setDetail(null); setRefresh(v => v + 1); }}>最新にする</button></header>
     <div className="cq-filter-summary applicants-filter-summary"><span>{scope ? 'すべての応募' : '一次対応が必要な未完了'} · ステージ: {stages.length ? `${String(stages.length)}件選択` : 'すべて'} · 応募媒体: {media || 'すべて'}</span><button type="button" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(v => !v); }}>条件を変更</button></div>
     <form className="applicants-search" role="search" onSubmit={e => { e.preventDefault(); applySearch(search); }}><label>検索対象<select value={target} onChange={e => { dispatch({ type: 'activate', panel: 'queue' }); setTarget(e.target.value); setCursor(null); setQueue(null); setLoading(true); }}><option value="applicant">応募者</option><option value="deal">取引</option><option value="listing">求人</option></select></label><label>応募を検索<input type="search" value={search} onChange={e => { setSearch(e.target.value); }} placeholder={target === 'deal' ? '取引名' : target === 'listing' ? '求人名' : '応募者名'} /></label></form>
     {filtersOpen && <div className="applicants-toolbar">

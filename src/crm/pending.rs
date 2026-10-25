@@ -299,11 +299,23 @@ pub fn next_due(turso: &TursoDb) -> Result<Option<String>, String> {
         .filter(|t| !t.is_empty()))
 }
 
+/// 「最後まで失敗した操作」の条件。管理者の一覧と件数 (`count_failed`) で同じものを使う
+const FAILED_WHERE: &str = "status = 'failed'";
+
+/// 管理者の一覧 (`list_ops(.., "failed", ..)`) と同じ条件の件数 (掃除される前の全件)
+pub fn count_failed(turso: &TursoDb) -> Result<i64, String> {
+    let rows = turso.query(
+        &format!("SELECT COUNT(*) AS n FROM crm_pending_operations WHERE {FAILED_WHERE}"),
+        &[],
+    )?;
+    Ok(rows.first().map(|r| get_i64(r, "n")).unwrap_or(0))
+}
+
 /// 管理画面の一覧 (`status` は `failed` / `pending`。新しい順)。
 /// `failed` は破棄 (`discarded`) を含まない。`pending` は送信中 (`in_progress`) も含む
 pub fn list_ops(turso: &TursoDb, status: &str, limit: i64) -> Result<Vec<OpRow>, String> {
     let where_clause = match status {
-        "failed" => "status = 'failed'",
+        "failed" => FAILED_WHERE,
         _ => "status IN ('pending', 'in_progress')",
     };
     let rows = turso.query(

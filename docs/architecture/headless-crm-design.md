@@ -329,7 +329,8 @@ Durable Retry の保存技術は ADR-018 (2026-10-09) で **既存の監査 Turs
 - 上限 `CRM_PENDING_MAX` (既定 50000) を超える一時障害は 503 `queue_full` (台帳は `failed`、再送しない)。
 - 1 人あたりの受付は 1 分 200 件まで (`CRM_WRITE_RATE_PER_MIN`、既定 200、最小 1。0・不正は 200)。超えたら 429 `rate_limited` で何も保存せず積まない。画面は「短時間に保存が多すぎます。少し待ってから保存してください。何も保存されていません。」を赤で出す。
 - 台帳に記録できない (監査 DB 未接続・Turso 障害) ときは HubSpot に書かず 503 `queue_unavailable`。
-- 未実装: Dead Letter の管理者通知 (一覧に出るだけ)、再送成功後のキャッシュ即時破棄 (60 秒 / 30 秒で自然に切れる)、
+- 管理者への印 (2026-10-25 ユーザー決定: Slack・メールには送らず画面に印だけ): 管理者が `/app/crm` (取引・応募どちらも) を開いている間、上部に「HubSpot に保存できなかった操作が N 件あります」を出し、押すと `/app/admin?view=crm-failed` (失敗の一覧・再試行・破棄) へ移る。0 件・管理者以外・監査 DB が使えないときは何も出さない。件数は `GET /api/admin/crm-operations/failed-count` (管理者だけ)。数える条件は一覧の `failed` と同じ (`pending.rs` の `FAILED_WHERE` を共用、掃除される前の全件)。Turso の読み取りを増やさないよう、プロセス内で 60 秒キャッシュし、管理者の再試行・破棄で捨てる。画面は 2 分おきに取り直し、タブが隠れている間は止める。単一インスタンス前提。
+- 未実装: 再送成功後のキャッシュ即時破棄 (60 秒 / 30 秒で自然に切れる)、
   複数インスタンスでの worker の排他 (現状 Render は 1 インスタンス前提)。
 
 ### 実装メモ: 同じレコードへの同時書き込み (2026-10-09、`src/crm/record_lock.rs`)
@@ -562,7 +563,7 @@ Core Seat 運用へ戻すことは可能。
 - Zoom Phone Smart Embed の認証・イベント設計
 - Pending Sync Queue の具体的な durable storage (候補: 既存 audit Turso への表追加 / 既存 Google Sheets 連携。AGENTS.md rule 7)
 - 書き込みの retry/backoff policy (読み取りは下記で決定済み)
-- Dead Letter の管理者通知先
+- Dead Letter の管理者通知先 → 決定済み (2026-10-25 ユーザー決定): 外には送らず、管理者が開いている CRM 画面に印を出す (§10)
 - HubSpot custom properties の追加有無
 - 役割 (RBAC role) の種類と保持先 (ADR-017 の候補から選ぶ)。`/api/crm/*` と ナビの CRM は、Google ログインした会社ドメイン (`ALLOWED_DOMAINS`) の無効化されていない人全員に開く (2026-10-14 ユーザー決定「現場にテストしてもらいたい」。`CRM_METADATA_ALLOWED_EMAILS` を設定すればその人だけに絞れる。判定は `rbac::check_session_and_domain` をナビと認可で共有)。管理画面・全員分の指標・`/api/admin/*`・役割の変更は引き続き管理者だけ
 - レコード単位のアクセス範囲 (他部署のレコードを読めるか)

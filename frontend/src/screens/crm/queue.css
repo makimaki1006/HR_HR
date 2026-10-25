@@ -514,3 +514,6 @@
 @media (max-width: 850px) {
   .cq-app .cq-fields-scope { grid-template-columns: minmax(0, 1fr); }
 }
+/* 管理者にだけ出す、HubSpot に保存できなかった操作の印 */
+.crm-failed-writes { display: inline-block; align-self: flex-start; margin: 2px 8px; padding: 2px 10px; border: 1px solid #e3b7b0; border-radius: 999px; background: #fdf1ef; color: #9a2f22; font-size: 12px; text-decoration: none; white-space: nowrap; }
+.crm-failed-writes:hover, .crm-failed-writes:focus-visible { background: #fbe3df; text-decoration: underline; }
