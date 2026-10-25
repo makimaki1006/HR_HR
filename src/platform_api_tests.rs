@@ -1036,7 +1036,7 @@ async fn geo_既存html_apiとjsonが一致する() {
 }
 
 #[tokio::test]
-async fn geo_未ログインは401_dbなしは空配列() {
+async fn geo_未ログインは401_dbなしはマスタの一覧() {
     let (_tmp, db) = geo_db(&tokyo_rows());
     let app = geo_app(Some(db));
     for uri in [
@@ -1056,14 +1056,28 @@ async fn geo_未ログインは401_dbなしは空配列() {
     }
     let app = geo_app(None);
     let cookie = login(&app, USER).await;
-    for uri in [
-        "/api/app/geo/prefectures",
+    // DB が無ければ 47 都道府県 (JIS 順) と市区町村マスタの一覧を返す
+    let prefs = get_json(&app, "/api/app/geo/prefectures", &cookie).await;
+    let prefs = prefs.as_array().unwrap();
+    assert_eq!(prefs.len(), 47);
+    assert_eq!(
+        prefs[0],
+        serde_json::json!({"name": "北海道", "prefcode": 1})
+    );
+    assert_eq!(
+        prefs[46],
+        serde_json::json!({"name": "沖縄県", "prefcode": 47})
+    );
+    let munis = get_json(
+        &app,
         "/api/app/geo/municipalities?prefecture=%E6%9D%B1%E4%BA%AC%E9%83%BD",
-    ] {
-        assert_eq!(
-            get_json(&app, uri, &cookie).await,
-            serde_json::json!([]),
-            "{uri}"
-        );
-    }
+        &cookie,
+    )
+    .await;
+    let munis = munis.as_array().unwrap();
+    assert_eq!(munis.len(), 62);
+    assert_eq!(
+        munis[0],
+        serde_json::json!({"name": "千代田区", "citycode": 13101})
+    );
 }
