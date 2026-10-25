@@ -73,7 +73,7 @@ pub(crate) fn list_municipalities(db: &LocalDb, pref: &str) -> Vec<(String, Opti
     .collect()
 }
 
-/// 非同期ラッパ。DB 未接続なら空。
+/// 非同期ラッパ。DB 未接続なら 47 都道府県 (JIS 順)。
 pub(crate) async fn fetch_prefectures(db: Option<&LocalDb>) -> Vec<String> {
     match db {
         Some(db) => {
@@ -82,11 +82,11 @@ pub(crate) async fn fetch_prefectures(db: Option<&LocalDb>) -> Vec<String> {
                 .await
                 .unwrap_or_default()
         }
-        None => Vec::new(),
+        None => PREFECTURE_ORDER.iter().map(|p| p.to_string()).collect(),
     }
 }
 
-/// 非同期ラッパ。DB 未接続なら空。
+/// 非同期ラッパ。DB 未接続なら市区町村マスタ (`geo::city_code`) の一覧 (citycode 順)。
 pub(crate) async fn fetch_municipalities(
     db: Option<&LocalDb>,
     pref: &str,
@@ -99,7 +99,10 @@ pub(crate) async fn fetch_municipalities(
                 .await
                 .unwrap_or_default()
         }
-        None => Vec::new(),
+        None => crate::geo::city_code::cities_of(pref)
+            .into_iter()
+            .map(|(name, code)| (name, Some(code)))
+            .collect(),
     }
 }
 

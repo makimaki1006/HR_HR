@@ -46,6 +46,20 @@ pub fn city_name_to_code(pref_name: &str, city_name: &str) -> Option<u32> {
         .copied()
 }
 
+/// 都道府県名から、その都道府県の市区町村名と citycode を citycode 順に返す (ハローワーク DB が無いときの選択肢)
+pub fn cities_of(pref_name: &str) -> Vec<(String, u32)> {
+    let Some(prefcode) = pref_name_to_code().get(pref_name).map(|c| c.to_string()) else {
+        return Vec::new();
+    };
+    let mut v: Vec<(String, u32)> = map()
+        .iter()
+        .filter(|((p, _), _)| *p == prefcode)
+        .map(|((_, name), code)| (name.clone(), *code))
+        .collect();
+    v.sort_by_key(|(_, code)| *code);
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,6 +72,15 @@ mod tests {
         assert_eq!(city_name_to_code("東京都", "千代田区"), Some(13101));
         // 大阪府大阪市北区 = 27127
         assert_eq!(city_name_to_code("大阪府", "大阪市北区"), Some(27127));
+    }
+
+    #[test]
+    fn cities_of_lists_the_prefecture_in_code_order() {
+        let tokyo = cities_of("東京都");
+        assert_eq!(tokyo.len(), 62);
+        assert_eq!(tokyo[0], ("千代田区".to_string(), 13101));
+        assert!(tokyo.windows(2).all(|w| w[0].1 < w[1].1));
+        assert!(cities_of("架空県").is_empty());
     }
 
     #[test]
