@@ -115,13 +115,21 @@ pub struct OpRow {
 impl OpRow {
     /// 変えようとしている項目の名前 (オブジェクト順)
     pub fn changed_props(&self) -> Vec<String> {
+        self.changed_props_with_object()
+            .into_iter()
+            .map(|(_, name)| name)
+            .collect()
+    }
+
+    /// `changed_props` に、項目が属するオブジェクト (`deals` / `0-421` 等) を添えたもの (表示名の引き当て用)
+    pub fn changed_props_with_object(&self) -> Vec<(String, String)> {
         let mut v = Vec::new();
         for s in &self.payload.steps {
             for k in s.set.keys() {
-                v.push(k.clone());
+                v.push((s.object.clone(), k.clone()));
             }
             if s.stage.is_some() {
-                v.push("dealstage".to_string());
+                v.push((s.object.clone(), "dealstage".to_string()));
             }
         }
         v

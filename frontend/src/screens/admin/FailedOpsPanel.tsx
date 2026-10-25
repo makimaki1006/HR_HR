@@ -42,14 +42,14 @@ export function FailedOpsView({ rows, onChanged, fixture = false }: { rows: CrmA
       ) : (
         <div className="w8-table-wrap">
           <table className="w8-table w8-table-dense" data-testid="failed-ops-table">
-            <thead><tr><th>日時</th><th>操作した人</th><th>取引</th><th>変えようとした項目</th><th>理由</th><th /></tr></thead>
+            <thead><tr><th>日時</th><th>操作した人</th><th>対象</th><th>変えようとした項目</th><th>理由</th><th /></tr></thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.operation_id}>
                   <td>{r.updated_at.slice(0, 16).replace('T', ' ')}</td>
                   <td>{r.operator_email}</td>
-                  <td>{r.deal_id}</td>
-                  <td>{r.props.join('、')}</td>
+                  <td><a className="w8-link" href={r.record_url} target="_blank" rel="noopener noreferrer">{r.applicant ? '応募' : '取引'} {r.deal_id}</a></td>
+                  <td>{r.prop_labels.join('、')}</td>
                   <td>{failureReason(r.error)}</td>
                   <td>
                     <button type="button" className="w8-button" disabled={busy !== null} onClick={() => { void act(r.operation_id, 'retry'); }}>もう一度保存する</button>{' '}
@@ -66,9 +66,9 @@ export function FailedOpsView({ rows, onChanged, fixture = false }: { rows: CrmA
 }
 
 const FIXTURE_ROWS: CrmAdminOperation[] = [
-  { operation_id: 'fx-1', deal_id: '9001', operator_email: 'bpo-a@f-a-c.co.jp', props: ['bpo_16'], status: 'failed', error: 'conflict', attempts: 2, created_at: '2026-10-25T01:00:00Z', updated_at: '2026-10-25T01:02:03Z', next_retry_at: null },
-  { operation_id: 'fx-2', deal_id: '9002', operator_email: 'bpo-b@f-a-c.co.jp', props: ['dealstage', 'bpo_13'], status: 'failed', error: 'missing_required', attempts: 1, created_at: '2026-10-25T02:00:00Z', updated_at: '2026-10-25T02:10:00Z', next_retry_at: null },
-  { operation_id: 'fx-3', deal_id: '9003', operator_email: 'bpo-a@f-a-c.co.jp', props: ['risuto_kadennbi'], status: 'failed', error: 'max_attempts', attempts: 8, created_at: '2026-10-25T03:00:00Z', updated_at: '2026-10-25T05:30:00Z', next_retry_at: null },
+  { operation_id: 'fx-1', deal_id: '9001', operator_email: 'bpo-a@f-a-c.co.jp', props: ['bpo_16'], prop_labels: ['タスクメモ'], record_url: 'https://app.hubspot.com/contacts/23708633/record/0-3/9001/', applicant: false, status: 'failed', error: 'conflict', attempts: 2, created_at: '2026-10-25T01:00:00Z', updated_at: '2026-10-25T01:02:03Z', next_retry_at: null },
+  { operation_id: 'fx-2', deal_id: '9002', operator_email: 'bpo-b@f-a-c.co.jp', props: ['dealstage', 'bpo_13'], prop_labels: ['取引ステージ', '次回架電日'], record_url: 'https://app.hubspot.com/contacts/23708633/record/0-3/9002/', applicant: false, status: 'failed', error: 'missing_required', attempts: 1, created_at: '2026-10-25T02:00:00Z', updated_at: '2026-10-25T02:10:00Z', next_retry_at: null },
+  { operation_id: 'fx-3', deal_id: '9003', operator_email: 'bpo-a@f-a-c.co.jp', props: ['risuto_kadennbi'], prop_labels: ['架電日'], record_url: 'https://app.hubspot.com/contacts/23708633/record/0-421/9003/', applicant: true, status: 'failed', error: 'max_attempts', attempts: 8, created_at: '2026-10-25T03:00:00Z', updated_at: '2026-10-25T05:30:00Z', next_retry_at: null },
 ];
 
 function useGone() {

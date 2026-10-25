@@ -306,6 +306,9 @@ fn router_full(
         metric_prefs: super::metric_prefs::PrefsStore::default(),
         custom_metrics: Arc::new(super::custom_metrics::CustomMetricsCache::default()),
     });
+    // 管理者の失敗の一覧が、同じ定義のキャッシュで項目の表示名を引く (テストは明示的に差し込む)
+    #[cfg(not(test))]
+    super::write::register_label_source(ctx.clone());
     Router::new()
         .route("/api/crm/applicants/queue", get(super::applicants::queue))
         .route(

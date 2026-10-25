@@ -12,7 +12,7 @@ vi.mock('../../api/client', async (importOriginal) => ({
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const row: CrmAdminOperation = {
-  operation_id: 'op-1', deal_id: '9001', operator_email: 'bpo@f-a-c.co.jp', props: ['bpo_50', 'dealstage'],
+  operation_id: 'op-1', deal_id: '9001', operator_email: 'bpo@f-a-c.co.jp', props: ['bpo_50', 'dealstage'], prop_labels: ['架電メモ', '取引ステージ'], record_url: 'https://app.hubspot.com/contacts/23708633/record/0-3/9001/', applicant: false,
   status: 'failed', error: 'conflict', attempts: 2, created_at: '2026-10-25T01:00:00Z', updated_at: '2026-10-25T01:02:03Z', next_retry_at: null,
 };
 
@@ -20,7 +20,11 @@ describe('FailedOpsView', () => {
   it('理由を平易な日本語にし、内部のコードは出さない', () => {
     expect(failureReason('conflict')).toBe('保存しようとしたあとで、HubSpot の値が変わっていました');
     render(<FailedOpsView rows={[row]} onChanged={() => undefined} />);
-    expect(screen.getByTestId('failed-ops-table').textContent).toContain('bpo_50、dealstage');
+    const table = screen.getByTestId('failed-ops-table');
+    expect(table.textContent).toContain('架電メモ、取引ステージ');
+    expect(table.textContent).not.toContain('bpo_50');
+    const link = screen.getByRole('link', { name: '取引 9001' });
+    expect(link.getAttribute('href')).toBe('https://app.hubspot.com/contacts/23708633/record/0-3/9001/');
     expect(document.body.textContent).not.toContain('conflict');
   });
 
