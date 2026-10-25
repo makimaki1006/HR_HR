@@ -285,7 +285,8 @@ impl PortalAuth {
             Some(a)
                 if password_ok
                     && a.status == AccountStatus::Active
-                    && a.password_hash.is_some() =>
+                    && a.password_hash.is_some()
+                    && self.customer_usable(&a) =>
             {
                 a
             }
@@ -345,7 +346,7 @@ impl PortalAuth {
                 .is_none_or(|t| d.created_at >= t)
     }
 
-    fn start_session(&self, mut account: Account, now: DateTime<Utc>) -> String {
+    fn start_session(&self, account: Account, now: DateTime<Utc>) -> String {
         let token = random_token();
         self.store.insert_session(Session {
             token_hash: hash_token(&token),
@@ -353,8 +354,8 @@ impl PortalAuth {
             created_at: now,
             ended_at: None,
         });
-        account.last_login_at = Some(now);
-        let _ = self.store.update_account(account);
+        // 最後のログインの日時だけを変える (読んだあとに管理者が止めた・変えた値を、古い値で戻さない)
+        self.store.touch_login(&account.id, now);
         token
     }
 
@@ -402,7 +403,7 @@ impl PortalAuth {
         let Some(account) = self
             .store
             .account(&account_id)
-            .filter(|a| a.status == AccountStatus::Active)
+            .filter(|a| a.status == AccountStatus::Active && self.customer_usable(a))
         else {
             return CodeResult::Expired;
         };
@@ -445,7 +446,7 @@ impl PortalAuth {
         let Some(account) = self
             .store
             .account(&c.account_id)
-            .filter(|a| a.status == AccountStatus::Active)
+            .filter(|a| a.status == AccountStatus::Active && self.customer_usable(a))
         else {
             g.remove(&ch);
             return ResendResult::Expired;
@@ -471,7 +472,16 @@ impl PortalAuth {
         self.store
             .account(&s.account_id)
             .filter(|a| a.status == AccountStatus::Active)
+            .filter(|a| self.customer_usable(a))
             .filter(|a| a.password_changed_at.is_none_or(|t| s.created_at >= t))
+    }
+
+    /// アカウントの顧客が登録されていて、止めておらず、段階が「シートだけ」でない。
+    /// 顧客を止める・「シートだけ」に戻すと、その顧客の全員がすぐ入れなくなる
+    pub fn customer_usable(&self, account: &Account) -> bool {
+        self.store
+            .customer(&account.customer_id)
+            .is_some_and(|c| c.usable())
     }
 
     pub fn logout(&self, session: &str, now: DateTime<Utc>) {
@@ -603,6 +613,26 @@ impl PortalAuth {
             .update_account(a.clone())
             .map_err(|_| AdminError::NotFound)?;
         Ok(a)
+    }
+
+    /// 顧客を止めたとき、その顧客の全アカウントの覚えた端末・ログイン中の画面・招待・送ったコードを無効にする。
+    /// アカウントの状態は変えない (顧客を再開すれば、パスワードでログインし直せる。端末・招待は生き返らない)。
+    /// 無効にしたアカウントの数を返す
+    pub fn revoke_customer_access(&self, customer_id: &str, now: DateTime<Utc>) -> usize {
+        let ids: Vec<String> = self
+            .store
+            .accounts()
+            .into_iter()
+            .filter(|a| a.customer_id == customer_id)
+            .map(|a| a.id)
+            .collect();
+        for id in &ids {
+            self.store.revoke_devices(id);
+            self.store.end_sessions(id, now);
+            self.store.revoke_invites(id);
+            self.drop_challenges_of(id);
+        }
+        ids.len()
     }
 
     /// 止めたのを戻す。パスワードが無ければ招待済みに戻る (端末は戻らない)

@@ -12,7 +12,7 @@ use super::auth::{
     ResendResult,
 };
 use super::mail::{MailError, MailFuture, Mailer};
-use super::store::{AccountStatus, MemoryStore, PortalStore};
+use super::store::{AccountStatus, Customer, CustomerStage, MemoryStore, PortalStore};
 use super::*;
 
 const PW: &str = "correct horse battery";
@@ -21,6 +21,23 @@ fn cfg() -> AuthConfig {
     let mut c = AuthConfig::new(5, 300);
     c.bcrypt_cost = 4;
     c
+}
+
+/// 顧客 c1 (段階「両方」) を登録したメモリの保存先
+fn store_c1() -> Arc<MemoryStore> {
+    let store = Arc::new(MemoryStore::default());
+    store
+        .insert_customer(Customer {
+            id: "c1".into(),
+            name: "テスト顧客".into(),
+            hubspot_company_id: None,
+            stage: CustomerStage::Both,
+            disabled: false,
+            created_at: t0(),
+            updated_at: t0(),
+        })
+        .unwrap();
+    store
 }
 
 fn t0() -> DateTime<Utc> {
@@ -49,7 +66,7 @@ fn code_login(auth: &PortalAuth, email: &str, remember: bool) -> (String, Option
 
 #[test]
 fn 新しい端末ではコードを聞き_覚えた端末では聞かない() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "taro@example.com");
     let (session, device) = code_login(&auth, "Taro@Example.com ", true);
     assert!(auth.current(&session, t0()).is_some());
@@ -76,7 +93,7 @@ fn 新しい端末ではコードを聞き_覚えた端末では聞かない() {
 
 #[test]
 fn 覚えた端末でもパスワードは要る_別の人の札は使えない() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "a@example.com");
     ready(&auth, "b@example.com");
     let (_, device) = code_login(&auth, "a@example.com", true);
@@ -99,7 +116,7 @@ fn 覚えた端末でもパスワードは要る_別の人の札は使えない(
 
 #[test]
 fn コードは別のやり取りでは通らず_5回間違えると無効_10分で切れる() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "a@example.com");
     let LoginResult::CodeRequired {
         challenge: c1,
@@ -139,7 +156,7 @@ fn コードは別のやり取りでは通らず_5回間違えると無効_10分
 
 #[test]
 fn 送り直しは60秒あけて3回まで_古いコードは使えない() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "a@example.com");
     let LoginResult::CodeRequired {
         challenge,
@@ -178,7 +195,7 @@ fn 送り直しは60秒あけて3回まで_古いコードは使えない() {
 
 #[test]
 fn 失敗が続くとロックし_登録の無いメールも同じ扱い() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     ready(&auth, "a@example.com");
     for _ in 0..5 {
         assert!(matches!(
@@ -216,7 +233,7 @@ fn 失敗が続くとロックし_登録の無いメールも同じ扱い() {
 
 #[test]
 fn 招待は1回だけ_1週間_新しいリンクで前のは使えない() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     let (a, t1) = auth.create_account("a@example.com", "c1", t0()).unwrap();
     // パスワードを決める前はログインできない
     assert!(matches!(
@@ -256,7 +273,7 @@ fn 招待は1回だけ_1週間_新しいリンクで前のは使えない() {
 
 #[test]
 fn パスワードの再設定と停止で端末とログイン中の画面が無効になる() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     let id = ready(&auth, "a@example.com");
     let (session, device) = code_login(&auth, "a@example.com", true);
     let device = device.unwrap();
@@ -307,7 +324,7 @@ fn パスワードの再設定と停止で端末とログイン中の画面が�
 
 #[test]
 fn 追加の送り先にもコードを送り_ログイン中の画面は12時間で切れる() {
-    let auth = PortalAuth::new(Arc::new(MemoryStore::default()), cfg());
+    let auth = PortalAuth::new(store_c1(), cfg());
     let id = ready(&auth, "a@example.com");
     auth.set_extra_email(&id, "Phone@Example.jp").unwrap();
     assert!(auth.set_extra_email(&id, "a@example.com").is_err());
@@ -334,7 +351,7 @@ fn 追加の送り先にもコードを送り_ログイン中の画面は12時�
 
 #[test]
 fn 保存先にはハッシュだけを置く() {
-    let store = Arc::new(MemoryStore::default());
+    let store = store_c1();
     let auth = PortalAuth::new(store.clone(), cfg());
     let (a, token) = auth.create_account("a@example.com", "c1", t0()).unwrap();
     assert!(store.invite(&token).is_none());
@@ -399,7 +416,7 @@ struct Harness {
 }
 
 fn harness() -> Harness {
-    let auth = Arc::new(PortalAuth::new(Arc::new(MemoryStore::default()), cfg()));
+    let auth = Arc::new(PortalAuth::new(store_c1(), cfg()));
     let mailer = Arc::new(FakeMailer::default());
     let portal = Arc::new(Portal {
         auth: auth.clone(),
@@ -582,7 +599,7 @@ async fn httpの失敗は登録の有無を明かさず_csrfが無い書き込�
 
 #[tokio::test]
 async fn コードを送れなければ503でやり取りを残さない() {
-    let auth = Arc::new(PortalAuth::new(Arc::new(MemoryStore::default()), cfg()));
+    let auth = Arc::new(PortalAuth::new(store_c1(), cfg()));
     let (_, token) = auth
         .create_account("a@example.com", "c1", Utc::now())
         .unwrap();
@@ -777,7 +794,7 @@ async fn 社内の管理者は作る_招待を出し直す_止める_送り先�
     use crate::crm::rbac::CrmRole;
     const BOSS: &str = "boss@f-a-c.co.jp";
     const STAFF: &str = "staff@f-a-c.co.jp";
-    let auth = Arc::new(PortalAuth::new(Arc::new(MemoryStore::default()), cfg()));
+    let auth = Arc::new(PortalAuth::new(store_c1(), cfg()));
     let portal = Arc::new(Portal {
         auth: auth.clone(),
         mailer: Arc::new(FakeMailer::default()),
@@ -914,3 +931,142 @@ async fn 社内の管理者は作る_招待を出し直す_止める_送り先�
     let text = v.to_string();
     assert!(!text.contains("password") && !text.contains(&second));
 }
+
+/// ログインのとき、古く読んだアカウントを丸ごと書き戻さない (最後のログインの日時だけを変える)。
+/// ログインの途中 (セッションを作る瞬間) に管理者がアカウントを止めた場合に、止めたのが戻らないこと
+#[test]
+fn ログインは最後のログインの日時だけを変えて管理者の停止を戻さない() {
+    struct Racy {
+        inner: Arc<MemoryStore>,
+    }
+    impl PortalStore for Racy {
+        fn accounts(&self) -> Vec<store::Account> {
+            self.inner.accounts()
+        }
+        fn account(&self, id: &str) -> Option<store::Account> {
+            self.inner.account(id)
+        }
+        fn account_by_email(&self, e: &str) -> Option<store::Account> {
+            self.inner.account_by_email(e)
+        }
+        fn insert_account(&self, a: store::Account) -> Result<(), store::StoreError> {
+            self.inner.insert_account(a)
+        }
+        fn update_account(&self, a: store::Account) -> Result<(), store::StoreError> {
+            self.inner.update_account(a)
+        }
+        fn touch_login(&self, id: &str, now: DateTime<Utc>) {
+            self.inner.touch_login(id, now)
+        }
+        fn insert_invite(&self, i: store::Invite) {
+            self.inner.insert_invite(i)
+        }
+        fn invite(&self, h: &str) -> Option<store::Invite> {
+            self.inner.invite(h)
+        }
+        fn use_invite(&self, h: &str, now: DateTime<Utc>) -> bool {
+            self.inner.use_invite(h, now)
+        }
+        fn revoke_invites(&self, id: &str) {
+            self.inner.revoke_invites(id)
+        }
+        fn insert_device(&self, d: store::Device) {
+            self.inner.insert_device(d)
+        }
+        fn device(&self, h: &str) -> Option<store::Device> {
+            self.inner.device(h)
+        }
+        fn touch_device(&self, h: &str, now: DateTime<Utc>) {
+            self.inner.touch_device(h, now)
+        }
+        fn revoke_devices(&self, id: &str) {
+            self.inner.revoke_devices(id)
+        }
+        fn insert_session(&self, s: store::Session) {
+            // セッションを作る瞬間に、管理者がアカウントを止めた
+            let mut a = self.inner.account(&s.account_id).unwrap();
+            a.status = AccountStatus::Disabled;
+            self.inner.update_account(a).unwrap();
+            self.inner.insert_session(s)
+        }
+        fn session(&self, h: &str) -> Option<store::Session> {
+            self.inner.session(h)
+        }
+        fn end_session(&self, h: &str, now: DateTime<Utc>) {
+            self.inner.end_session(h, now)
+        }
+        fn end_sessions(&self, id: &str, now: DateTime<Utc>) {
+            self.inner.end_sessions(id, now)
+        }
+        fn customers(&self) -> Vec<store::Customer> {
+            self.inner.customers()
+        }
+        fn customer(&self, id: &str) -> Option<store::Customer> {
+            self.inner.customer(id)
+        }
+        fn insert_customer(&self, c: store::Customer) -> Result<(), store::StoreError> {
+            self.inner.insert_customer(c)
+        }
+        fn update_customer(&self, c: store::Customer) -> Result<(), store::StoreError> {
+            self.inner.update_customer(c)
+        }
+        fn sheets(&self, c: Option<&str>) -> Vec<store::SheetReg> {
+            self.inner.sheets(c)
+        }
+        fn sheet(&self, id: &str) -> Option<store::SheetReg> {
+            self.inner.sheet(id)
+        }
+        fn insert_sheet(&self, s: store::SheetReg) -> Result<(), store::StoreError> {
+            self.inner.insert_sheet(s)
+        }
+        fn update_sheet(&self, s: store::SheetReg) -> Result<(), store::StoreError> {
+            self.inner.update_sheet(s)
+        }
+        fn columns(&self, id: &str) -> Vec<store::ColumnSetting> {
+            self.inner.columns(id)
+        }
+        fn replace_columns(&self, id: &str, c: Vec<store::ColumnSetting>) {
+            self.inner.replace_columns(id, c)
+        }
+        fn append_log(&self, e: store::LogEntry) {
+            self.inner.append_log(e)
+        }
+        fn recent_logs(&self, n: usize) -> Vec<store::LogEntry> {
+            self.inner.recent_logs(n)
+        }
+        fn status(&self) -> store::StoreStatus {
+            self.inner.status()
+        }
+    }
+    let inner = store_c1();
+    let plain = PortalAuth::new(inner.clone(), cfg());
+    let (a, token) = plain.create_account("a@example.com", "c1", t0()).unwrap();
+    plain.accept_invite(&token, PW, t0()).unwrap();
+    let auth = PortalAuth::new(
+        Arc::new(Racy {
+            inner: inner.clone(),
+        }),
+        cfg(),
+    );
+    let LoginResult::CodeRequired {
+        challenge, code, ..
+    } = auth.login("a@example.com", PW, None, "ip", t0())
+    else {
+        panic!()
+    };
+    let CodeResult::SignedIn { session, .. } = auth.verify_code(&challenge, &code, false, t0())
+    else {
+        panic!()
+    };
+    let saved = inner.account(&a.id).unwrap();
+    assert_eq!(
+        saved.status,
+        AccountStatus::Disabled,
+        "止めたのが古い値で戻っていない"
+    );
+    assert_eq!(saved.last_login_at, Some(t0()), "最後のログインは入る");
+    assert!(auth.current(&session, t0()).is_none());
+}
+
+#[path = "admin_tests.rs"]
+mod admin_tests;
