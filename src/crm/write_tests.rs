@@ -2497,3 +2497,72 @@ async fn 納品管理の再送は現在地を再確認し別パイプライン�
 
 #[path = "applicant_write_tests.rs"]
 mod applicant_writes;
+
+fn failed_row(id: &str, record: &str, steps: Value) -> super::pending::OpRow {
+    super::pending::OpRow {
+        operation_id: id.into(),
+        operator_email: OPERATOR.into(),
+        deal_id: record.into(),
+        payload: serde_json::from_value(json!({ "steps": steps })).unwrap(),
+        status: "failed".into(),
+        attempts: 2,
+        last_error_code: "conflict".into(),
+        http_status: 0,
+        result_json: String::new(),
+        next_retry_at: String::new(),
+        created_at: "2026-10-25T00:00:00Z".into(),
+        updated_at: "2026-10-25T00:00:00Z".into(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 管理者の失敗の一覧は項目の表示名とリンクを返し_定義のキャッシュがあれば_hubspot_を呼ばない(
+) {
+    let (client, hs) = start_hs(base_fake()).await;
+    let catalog = super::property_catalog::PropertyCatalogCache::default();
+    let applicants = super::applicants::ApplicantsState::default();
+    let rows = vec![
+        failed_row(
+            "op-lbl-deal001",
+            "9001",
+            json!([{"object":"deals","id":"9001","base":{},"set":{"bpo_50":"x","amount":"1","zz_unknown":"y"},"types":{}}]),
+        ),
+        failed_row(
+            "op-lbl-appl001",
+            "5555",
+            json!([{"object":"0-421","id":"5555","base":{},"set":{"meeruadoresu":"a@example.com"},"types":{}}]),
+        ),
+    ];
+    let calls = |hs: &Shared<Fake>, k: &str| hs.lock().unwrap().count(k);
+
+    // 冷えているとき: CRM の画面と同じ定義の読み取りを 1 回ずつ
+    let labels = write::AdminLabels::load_from(&catalog, &applicants, &client, &rows).await;
+    let deal = write::admin_row(&rows[0], &labels);
+    // 表示名は項目の一覧と同じ (標準項目は label_ja で日本語、会社の項目は HubSpot の表示名)。引けない項目は内部名のまま
+    assert_eq!(deal.props, vec!["amount", "bpo_50", "zz_unknown"]);
+    assert_eq!(deal.prop_labels, vec!["金額", "架電メモ", "zz_unknown"]);
+    assert_eq!(
+        deal.record_url,
+        "https://app.hubspot.com/contacts/23708633/record/0-3/9001/"
+    );
+    assert!(!deal.applicant);
+    let appl = write::admin_row(&rows[1], &labels);
+    assert_eq!(appl.prop_labels, vec!["メールアドレス"]);
+    assert_eq!(
+        appl.record_url,
+        "https://app.hubspot.com/contacts/23708633/record/0-421/5555/"
+    );
+    assert!(appl.applicant);
+    assert_eq!(calls(&hs, "GET /crm/v3/properties/deals"), 1);
+    assert_eq!(calls(&hs, "GET /crm/v3/properties/0-421"), 1);
+
+    // 温まっているとき: 呼び出しは増えない
+    let _ = write::AdminLabels::load_from(&catalog, &applicants, &client, &rows).await;
+    assert_eq!(calls(&hs, "GET /crm/v3/properties/deals"), 1);
+    assert_eq!(calls(&hs, "GET /crm/v3/properties/0-421"), 1);
+
+    // 取引の操作だけなら応募の定義は読まない
+    let fresh_appl = super::applicants::ApplicantsState::default();
+    let _ = write::AdminLabels::load_from(&catalog, &fresh_appl, &client, &rows[..1]).await;
+    assert_eq!(calls(&hs, "GET /crm/v3/properties/0-421"), 1);
+}

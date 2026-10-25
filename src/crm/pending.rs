@@ -115,13 +115,21 @@ pub struct OpRow {
 impl OpRow {
     /// 変えようとしている項目の名前 (オブジェクト順)
     pub fn changed_props(&self) -> Vec<String> {
+        self.changed_props_with_object()
+            .into_iter()
+            .map(|(_, name)| name)
+            .collect()
+    }
+
+    /// `changed_props` に、項目が属するオブジェクト (`deals` / `0-421` 等) を添えたもの (表示名の引き当て用)
+    pub fn changed_props_with_object(&self) -> Vec<(String, String)> {
         let mut v = Vec::new();
         for s in &self.payload.steps {
             for k in s.set.keys() {
-                v.push(k.clone());
+                v.push((s.object.clone(), k.clone()));
             }
             if s.stage.is_some() {
-                v.push("dealstage".to_string());
+                v.push((s.object.clone(), "dealstage".to_string()));
             }
         }
         v
@@ -299,11 +307,23 @@ pub fn next_due(turso: &TursoDb) -> Result<Option<String>, String> {
         .filter(|t| !t.is_empty()))
 }
 
+/// 「最後まで失敗した操作」の条件。管理者の一覧と件数 (`count_failed`) で同じものを使う
+const FAILED_WHERE: &str = "status = 'failed'";
+
+/// 管理者の一覧 (`list_ops(.., "failed", ..)`) と同じ条件の件数 (掃除される前の全件)
+pub fn count_failed(turso: &TursoDb) -> Result<i64, String> {
+    let rows = turso.query(
+        &format!("SELECT COUNT(*) AS n FROM crm_pending_operations WHERE {FAILED_WHERE}"),
+        &[],
+    )?;
+    Ok(rows.first().map(|r| get_i64(r, "n")).unwrap_or(0))
+}
+
 /// 管理画面の一覧 (`status` は `failed` / `pending`。新しい順)。
 /// `failed` は破棄 (`discarded`) を含まない。`pending` は送信中 (`in_progress`) も含む
 pub fn list_ops(turso: &TursoDb, status: &str, limit: i64) -> Result<Vec<OpRow>, String> {
     let where_clause = match status {
-        "failed" => "status = 'failed'",
+        "failed" => FAILED_WHERE,
         _ => "status IN ('pending', 'in_progress')",
     };
     let rows = turso.query(

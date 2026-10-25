@@ -4,4 +4,16 @@ export type CrmAdminOperation = { operation_id: string, deal_id: string, operato
 /**
  * 変えようとした項目 (`dealstage` はステージ移動)
  */
-props: Array<string>, status: string, error: string | null, attempts: number, created_at: string, updated_at: string, next_retry_at: string | null, };
+props: Array<string>, 
+/**
+ * `props` と同じ並びの表示名 (日本語。引けない項目は内部名のまま)
+ */
+prop_labels: Array<string>, 
+/**
+ * HubSpot で取引 (応募の操作なら応募) を開くリンク
+ */
+record_url: string, 
+/**
+ * 応募 (0-421) の操作か
+ */
+applicant: boolean, status: string, error: string | null, attempts: number, created_at: string, updated_at: string, next_retry_at: string | null, };

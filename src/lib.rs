@@ -789,6 +789,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // Headless CRM の書き込み台帳 (失敗した操作の一覧・再試行・破棄)と、ステージ必須項目の設定のずれ
         .route("/api/admin/crm-operations", get(crm::write::api_admin_list))
         .route(
+            "/api/admin/crm-operations/failed-count",
+            get(crm::write::api_admin_failed_count),
+        )
+        .route(
             "/api/admin/crm-operations/{id}/retry",
             post(crm::write::api_admin_retry),
         )

@@ -235,8 +235,8 @@ describe('CallQueueScreen', () => {
       // キュー (1 回) と、所有者の一覧 (全員が使う。実データのときだけ) だけ
       const urls = spy.mock.calls.map(c => (typeof c[0] === 'string' ? c[0] : ''));
       expect(urls.filter(u => u.startsWith('/api/crm/call-queue?'))).toEqual(['/api/crm/call-queue?limit=50']);
-      // ほかは所有者の一覧とパイプライン名 (どちらも実データのときだけ)
-      expect(urls.filter(u => !u.startsWith('/api/crm/call-queue?')).sort()).toEqual(['/api/crm/call-queue/pipelines', '/api/crm/metrics/today', '/api/crm/owners?me=1', '/api/crm/views']);
+      // ほかは所有者の一覧・パイプライン名・管理者の印の確認 (/api/nav。いずれも実データのときだけ)
+      expect(urls.filter(u => !u.startsWith('/api/crm/call-queue?')).sort()).toEqual(['/api/crm/call-queue/pipelines', '/api/crm/metrics/today', '/api/crm/owners?me=1', '/api/crm/views', '/api/nav']);
       expect(screen.queryByText('架空食品株式会社')).toBeNull();
     } finally { vi.unstubAllGlobals(); }
   });

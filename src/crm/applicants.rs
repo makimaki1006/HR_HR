@@ -246,7 +246,7 @@ impl ApplicantsState {
         self.queues.clear();
         self.reminders.clear();
     }
-    async fn definitions(&self, client: &HubSpotClient) -> Result<Value, HubSpotError> {
+    pub(super) async fn definitions(&self, client: &HubSpotClient) -> Result<Value, HubSpotError> {
         if let Some(v) = self.definitions.get(&()) {
             return Ok(v);
         }

@@ -350,6 +350,12 @@ pub struct CrmAdminOperation {
     pub operator_email: String,
     /// 変えようとした項目 (`dealstage` はステージ移動)
     pub props: Vec<String>,
+    /// `props` と同じ並びの表示名 (日本語。引けない項目は内部名のまま)
+    pub prop_labels: Vec<String>,
+    /// HubSpot で取引 (応募の操作なら応募) を開くリンク
+    pub record_url: String,
+    /// 応募 (0-421) の操作か
+    pub applicant: bool,
     pub status: String,
     pub error: Option<String>,
     #[ts(type = "number")]
@@ -2153,13 +2159,112 @@ pub struct AdminListQuery {
     status: Option<String>,
 }
 
-fn admin_row(r: &pending::OpRow) -> CrmAdminOperation {
+/// 管理者の一覧が項目の表示名を引く元 (CRM の定義のキャッシュを持つ共有物。起動時に 1 回登録)
+static LABEL_SOURCE: std::sync::Mutex<Option<Arc<super::routes::CrmCtx>>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(not(test))]
+pub(super) fn register_label_source(ctx: Arc<super::routes::CrmCtx>) {
+    if let Ok(mut g) = LABEL_SOURCE.lock() {
+        *g = Some(ctx);
+    }
+}
+
+#[cfg(test)]
+pub(super) fn set_label_source_for_test(ctx: Option<Arc<super::routes::CrmCtx>>) {
+    if let Ok(mut g) = LABEL_SOURCE.lock() {
+        *g = ctx;
+    }
+}
+
+/// 一覧の表示名の元 (取引・担当者・会社の一覧と、応募の定義)。引けなければ None のまま内部名で出す
+#[derive(Default)]
+pub(super) struct AdminLabels {
+    catalog: Option<Arc<CatalogEntry>>,
+    applicant: Option<Value>,
+}
+
+impl AdminLabels {
+    /// キャッシュ済みなら HubSpot を呼ばない。切れていれば CRM の画面と同じ読み取り (取引系 6 回・応募 2 回) を 1 度だけ行う
+    async fn load(state: &AppState, rows: &[pending::OpRow]) -> Self {
+        let ctx = LABEL_SOURCE.lock().ok().and_then(|g| g.clone());
+        let (Some(ctx), Some(client)) = (ctx, state.crm_hubspot()) else {
+            return Self::default();
+        };
+        Self::load_from(&ctx.catalog, &ctx.applicants, &client, rows).await
+    }
+
+    pub(super) async fn load_from(
+        catalog_cache: &super::property_catalog::PropertyCatalogCache,
+        applicants: &super::applicants::ApplicantsState,
+        client: &HubSpotClient,
+        rows: &[pending::OpRow],
+    ) -> Self {
+        let objs = |applicant: bool| {
+            rows.iter()
+                .flat_map(|r| r.payload.steps.iter())
+                .any(|s| (s.object == "0-421") == applicant)
+        };
+        let catalog = if objs(false) {
+            catalog_cache.get(client).await.ok().map(|(e, _)| e)
+        } else {
+            None
+        };
+        let applicant = if objs(true) {
+            applicants.definitions(client).await.ok()
+        } else {
+            None
+        };
+        Self { catalog, applicant }
+    }
+
+    fn label(&self, object: &str, name: &str) -> String {
+        let found = if object == "0-421" {
+            if name == "dealstage" {
+                return "ステージ".to_string();
+            }
+            self.applicant
+                .as_ref()
+                .and_then(|d| d["properties"].as_array())
+                .and_then(|a| a.iter().find(|p| p["name"] == name))
+                .and_then(|p| p["label"].as_str())
+                .map(str::to_string)
+        } else {
+            self.catalog
+                .as_ref()
+                .and_then(|c| c.property(object, name))
+                .map(|p| p.label.clone())
+        };
+        found
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| name.to_string())
+    }
+}
+
+pub(super) fn admin_row(r: &pending::OpRow, labels: &AdminLabels) -> CrmAdminOperation {
     let opt = |s: &str| (!s.is_empty()).then(|| s.to_string());
+    let applicant = r.payload.steps.iter().any(|s| s.object == "0-421");
+    let portal = crate::hubspot::deep_link::hubspot_portal_id();
+    let record_url = if applicant {
+        format!(
+            "https://app.hubspot.com/contacts/{portal}/record/0-421/{}/",
+            r.deal_id
+        )
+    } else {
+        crate::hubspot::deep_link::record_url(&portal, crate::hubspot::RecordType::Deal, &r.deal_id)
+    };
     CrmAdminOperation {
         operation_id: r.operation_id.clone(),
         deal_id: r.deal_id.clone(),
         operator_email: r.operator_email.clone(),
         props: r.changed_props(),
+        prop_labels: r
+            .changed_props_with_object()
+            .iter()
+            .map(|(o, n)| labels.label(o, n))
+            .collect(),
+        record_url,
+        applicant,
         status: api_status(r).to_string(),
         error: opt(&r.last_error_code),
         attempts: r.attempts,
@@ -2182,11 +2287,73 @@ pub async fn api_admin_list(
         Some(_) => return err(StatusCode::BAD_REQUEST, "invalid_param"),
     };
     match pending::blocking(&audit, move |t| pending::list_ops(t, status, 200)).await {
-        Ok(Ok(rows)) => Json(CrmAdminOperationsResponse {
-            operations: rows.iter().map(admin_row).collect(),
-        })
-        .into_response(),
+        Ok(Ok(rows)) => {
+            let labels = AdminLabels::load(&state, &rows).await;
+            Json(CrmAdminOperationsResponse {
+                operations: rows.iter().map(|r| admin_row(r, &labels)).collect(),
+            })
+            .into_response()
+        }
         _ => err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable"),
+    }
+}
+
+/// 失敗した操作の件数のキャッシュの有効期間 (Turso の読み取りを増やさない)
+const FAILED_COUNT_TTL: Duration = Duration::from_secs(60);
+
+/// 失敗件数の短いキャッシュ (プロセス内。管理者の再試行・破棄で捨てる)
+#[derive(Default)]
+pub struct FailedCountCache {
+    slot: std::sync::Mutex<Option<(std::time::Instant, i64)>>,
+}
+
+impl FailedCountCache {
+    pub fn invalidate(&self) {
+        if let Ok(mut g) = self.slot.lock() {
+            *g = None;
+        }
+    }
+
+    pub(super) fn fresh(&self) -> Option<i64> {
+        let g = self.slot.lock().ok()?;
+        g.filter(|(at, _)| at.elapsed() < FAILED_COUNT_TTL)
+            .map(|(_, n)| n)
+    }
+
+    pub(super) fn put(&self, n: i64) {
+        if let Ok(mut g) = self.slot.lock() {
+            *g = Some((std::time::Instant::now(), n));
+        }
+    }
+}
+
+pub(super) fn shared_failed_count() -> &'static FailedCountCache {
+    static SHARED: std::sync::OnceLock<FailedCountCache> = std::sync::OnceLock::new();
+    SHARED.get_or_init(FailedCountCache::default)
+}
+
+/// 失敗件数 (キャッシュにあれば Turso を読まない)。読めなければ None
+async fn failed_count(cache: &FailedCountCache, audit: &AuditDb) -> Option<i64> {
+    if let Some(n) = cache.fresh() {
+        return Some(n);
+    }
+    match pending::blocking(audit, pending::count_failed).await {
+        Ok(Ok(n)) => {
+            cache.put(n);
+            Some(n)
+        }
+        _ => None,
+    }
+}
+
+/// 画面の印用の件数。監査 DB が使えないときは 503 (画面は何も出さない)
+pub async fn api_admin_failed_count(State(state): State<Arc<AppState>>) -> Response {
+    let Some(audit) = state.audit.clone() else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
+    };
+    match failed_count(shared_failed_count(), &audit).await {
+        Some(n) => Json(json!({ "failed": n })).into_response(),
+        None => err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable"),
     }
 }
 
@@ -2265,6 +2432,7 @@ async fn admin_transition(state: Arc<AppState>, operation_id: String, retry: boo
     if !matches!(res, Ok(Ok(()))) {
         return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
     }
+    shared_failed_count().invalidate();
     // 管理者の操作も状態の表に写す (本番の表は要求側・worker と共有のもの)
     op_status::shared().put(
         &row.operation_id,
@@ -2799,3 +2967,7 @@ mod tests {
         assert_eq!(api_status(&mk("discarded", 1)), "failed");
     }
 }
+
+#[cfg(test)]
+#[path = "failed_count_tests.rs"]
+mod failed_count_tests;
