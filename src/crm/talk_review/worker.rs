@@ -81,16 +81,17 @@ pub fn team_members(owners: &[CrmOwner], teams: &[String]) -> Vec<TeamMember> {
 // Search
 // ---------------------------------------------------------------------------
 
+/// HubSpot の Search は 1 まとまり 6 条件まで (7 個で 400)。通話の日時の下限 (`ts_from`) は
+/// 条件に入れず、`search_candidates` が受け取ってから絞る
 pub fn search_body(
     range_prop: &str,
     from: i64,
     to: i64,
-    ts_from: Option<i64>,
     owners: &[String],
     min_ms: i64,
     after: Option<&str>,
 ) -> Value {
-    let mut filters = vec![
+    let filters = vec![
         flt("hs_call_source", "EQ", json!(CALL_SOURCE)),
         flt("hs_call_direction", "EQ", json!("OUTBOUND")),
         flt("hs_call_duration", "GTE", json!(min_ms.to_string())),
@@ -98,9 +99,6 @@ pub fn search_body(
         flt(range_prop, "LT", json!(to.to_string())),
         json!({"propertyName": "hubspot_owner_id", "operator": "IN", "values": owners}),
     ];
-    if let Some(t) = ts_from {
-        filters.push(flt("hs_timestamp", "GTE", json!(t.to_string())));
-    }
     let mut body = json!({
         "filterGroups": [{"filters": filters}],
         "properties": ["hubspot_owner_id", "hs_timestamp", "hs_call_duration", "hs_call_body"],
@@ -180,21 +178,18 @@ async fn search_candidates(
             let v = client
                 .search(
                     "calls",
-                    search_body(
-                        range_prop,
-                        from,
-                        to,
-                        ts_from,
-                        chunk,
-                        min_ms,
-                        after.as_deref(),
-                    ),
+                    search_body(range_prop, from, to, chunk, min_ms, after.as_deref()),
                 )
                 .await?;
             let results = v.get("results").and_then(Value::as_array).ok_or_else(|| {
                 crate::hubspot::HubSpotError::Decode("calls without results".into())
             })?;
-            out.extend(results.iter().filter_map(parse_candidate));
+            out.extend(
+                results
+                    .iter()
+                    .filter_map(parse_candidate)
+                    .filter(|c| ts_from.is_none_or(|t| c.ts_ms >= t)),
+            );
             match v
                 .pointer("/paging/next/after")
                 .and_then(Value::as_str)
@@ -255,7 +250,11 @@ pub async fn process_one<Z: TranscriptSource, J: Judge>(
     }
     match judge.judge(&loaded().checks, &turns).await {
         Ok(o) => Outcome::Judged(o),
-        Err(JudgeError::Transient(_)) => Outcome::Retry("judge_error"),
+        Err(JudgeError::Transient(reason)) => {
+            // 理由は短い記号だけ (http 429・json・send: 接続の種類)。本文・鍵は含まない
+            tracing::info!(%reason, "talk review: judge failed");
+            Outcome::Retry("judge_error")
+        }
         Err(JudgeError::NotConfigured) => Outcome::Retry("judge_not_configured"),
     }
 }
@@ -1119,15 +1118,7 @@ mod tests {
             parse_candidate(&json!({"id": "1", "properties": {"hs_timestamp": "1"}})).is_none()
         );
 
-        let b = search_body(
-            "hs_timestamp",
-            10,
-            20,
-            None,
-            &["7".into()],
-            70_000,
-            Some("cur"),
-        );
+        let b = search_body("hs_timestamp", 10, 20, &["7".into()], 70_000, Some("cur"));
         let f = b["filterGroups"][0]["filters"].as_array().unwrap();
         assert!(f
             .iter()
@@ -1139,6 +1130,8 @@ mod tests {
             .iter()
             .any(|x| x["propertyName"] == "hubspot_owner_id" && x["operator"] == "IN"));
         assert_eq!(b["after"], "cur");
+        // HubSpot の上限 (1 まとまり 6 条件) を超えない
+        assert!(f.len() <= 6, "filters = {}", f.len());
     }
 
     #[tokio::test(flavor = "multi_thread")]
