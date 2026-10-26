@@ -124,7 +124,13 @@ export function ExcelTab({ report }: { report: CompetitorReport }) {
             series={excel.histograms.lower}
           />
           <AllKeywordChart rows={excel.keyword_all} />
-          <ComparisonChart rows={cmp.rows} headN={cmp.head_n} allN={cmp.all_n} />
+          <ComparisonChart
+            rows={cmp.rows}
+            headN={cmp.head_n}
+            allN={cmp.all_n}
+            superN={cmp.super_popular_n}
+            popularN={cmp.popular_n}
+          />
         </div>
       </section>
       <p className="cmp-caption">
@@ -170,6 +176,10 @@ function KeywordTable({ title, rows }: { title: string; rows: readonly KeywordRo
 
 /** 先頭 N 件と全体の占有率の比較表。全体に語が無いときは — (0 にしない)。 */
 function ComparisonTable({ cmp }: { cmp: KeywordComparison }) {
+  const hasSuper = cmp.super_popular_n > 0;
+  const hasPopular = cmp.popular_n > 0;
+  const columns = 5 + Number(hasSuper) + Number(hasPopular);
+  const pct = (v: number | null): string => (v === null ? MISSING : `${fixed(v, 1)}%`);
   return (
     <>
       <h2>求人票ワード調査（先頭 {cmp.head_n} 件）</h2>
@@ -181,6 +191,8 @@ function ComparisonTable({ cmp }: { cmp: KeywordComparison }) {
             <th>先頭率</th>
             <th>全体率</th>
             <th>差(pt)</th>
+            {hasSuper && <th>超人気率</th>}
+            {hasPopular && <th>人気率</th>}
           </tr>
         </thead>
         <tbody>
@@ -191,11 +203,13 @@ function ComparisonTable({ cmp }: { cmp: KeywordComparison }) {
               <td>{fixed(r.head_share_pct, 1)}%</td>
               <td>{r.all_share_pct === null ? MISSING : `${fixed(r.all_share_pct, 1)}%`}</td>
               <td>{r.all_share_pct === null ? MISSING : signedPoints(r.head_share_pct - r.all_share_pct)}</td>
+              {hasSuper && <td>{pct(r.super_popular_share_pct)}</td>}
+              {hasPopular && <td>{pct(r.popular_share_pct)}</td>}
             </tr>
           ))}
           {cmp.rows.length === 0 && (
             <tr>
-              <td colSpan={5}>
+              <td colSpan={columns}>
                 {cmp.head_n === 0 ? '取り込み順の比較データがありません' : '先頭の求人にキーワードがありません'}
               </td>
             </tr>
@@ -205,6 +219,11 @@ function ComparisonTable({ cmp }: { cmp: KeywordComparison }) {
       <p className="cmp-note cmp-word-basis">
         母数：先頭 {cmp.head_n} 件 / 全体 {cmp.all_n} 件。先頭は収録順、差は先頭率−全体率。
       </p>
+      {(hasSuper || hasPopular) && (
+        <p className="cmp-note cmp-word-basis">
+          超人気 {cmp.super_popular_n} 件 / 人気 {cmp.popular_n} 件の中での占有率。
+        </p>
+      )}
     </>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ComparisonRow } from '../../../generated/ComparisonRow';
 import type { KeywordRow } from '../../../generated/KeywordRow';
-import { keywordLayout, type KeywordBar } from './keywordLayout';
+import { GROUP_COLORS, keywordLayout, type KeywordBar, type KeywordGroup } from './keywordLayout';
 
 interface Item {
   word: string;
@@ -33,35 +33,75 @@ export function AllKeywordChart({ rows }: { rows: readonly KeywordRow[] }) {
   );
 }
 
-/** 先頭 N 件と全体の占有率 (同じ語・同じ 0〜100% の軸)。全体が欠測の語は棒を描かず — を出す。 */
+/** 占有率の系列が無いときに伝える一文 (SP 版 CSV 以外)。 */
+export const POPULARITY_ONLY_SP = '人気・超人気のタグがあるSP版CSVのときだけ表示されます';
+/** 超人気・人気の件数がこの数未満のとき「参考値」と添える。 */
+const SMALL_CLASS_N = 5;
+const SMALL_N_NOTE = '件数が少ないため参考値';
+
+/** 超人気・人気の系列に関する注記の文。 */
+export function popularityNotes(superN: number, popularN: number): string[] {
+  const notes: string[] = [];
+  if (superN === 0 && popularN === 0) notes.push(POPULARITY_ONLY_SP);
+  else if (superN === 0) notes.push('超人気の求人がないため、超人気は表示していません');
+  else if (popularN === 0) notes.push('人気の求人がないため、人気は表示していません');
+  for (const [label, n] of [
+    ['超人気', superN],
+    ['人気', popularN],
+  ] as const) {
+    if (n > 0 && n < SMALL_CLASS_N) notes.push(`${label}（${String(n)}件）は${SMALL_N_NOTE}です`);
+  }
+  return notes;
+}
+
+/** 先頭 N 件・全体・超人気・人気の占有率 (同じ語・同じ 0〜100% の軸)。全体が欠測の語は棒を描かず — を出す。 */
 export function ComparisonChart({
   rows,
   headN,
   allN,
+  superN,
+  popularN,
 }: {
   rows: readonly ComparisonRow[];
   headN: number;
   allN: number;
+  superN: number;
+  popularN: number;
 }) {
-  const items: Item[] = rows.map((r) => ({
-    word: r.word,
-    bars: [
+  const items: Item[] = rows.map((r) => {
+    const bars: KeywordBar[] = [
       { group: '全体', value: r.all_share_pct },
       { group: '先頭', value: r.head_share_pct },
-    ],
-  }));
+    ];
+    if (superN > 0) bars.push({ group: '超人気', value: r.super_popular_share_pct });
+    if (popularN > 0) bars.push({ group: '人気', value: r.popular_share_pct });
+    return { word: r.word, bars };
+  });
+  const extra = superN > 0 || popularN > 0;
+  const legend: { group: KeywordGroup; text: string }[] = extra
+    ? [
+        { group: '全体', text: `全体 ${String(allN)}件` },
+        { group: '先頭', text: `先頭 ${String(headN)}件` },
+      ]
+    : [
+        { group: '全体', text: '全体' },
+        { group: '先頭', text: `先頭 ${String(headN)}件` },
+      ];
+  if (superN > 0) legend.push({ group: '超人気', text: `超人気 ${String(superN)}件` });
+  if (popularN > 0) legend.push({ group: '人気', text: `人気 ${String(popularN)}件` });
   return (
     <ChartFrame
       caption="訴求語の占有率比較（上位20語）"
       empty="比較できるキーワードデータがありません"
       count={items.length}
+      notes={items.length > 0 ? popularityNotes(superN, popularN) : []}
     >
       {(size) => (
         <KeywordSvg
           title={`訴求語の占有率比較：先頭 ${String(headN)} 件 / 全体 ${String(allN)} 件`}
           label={`先頭 ${String(headN)} 件と全体 ${String(allN)} 件の占有率比較。先頭の上位20語。横軸0から100パーセント`}
           mode="comparison"
-          headN={headN}
+          legend={legend}
           items={items}
           size={size}
         />
@@ -80,11 +120,13 @@ function ChartFrame({
   caption,
   empty,
   count,
+  notes = [],
   children,
 }: {
   caption: string;
   empty: string;
   count: number;
+  notes?: readonly string[];
   children: (size: Size) => ReactNode;
 }) {
   const frame = useRef<HTMLElement>(null);
@@ -110,6 +152,11 @@ function ChartFrame({
     <figure className="cmp-chart cmp-keyword-chart" ref={frame}>
       <figcaption>{caption}</figcaption>
       {count === 0 ? <p className="cmp-note">{empty}</p> : children(size)}
+      {notes.map((n) => (
+        <p key={n} className="cmp-note">
+          {n}
+        </p>
+      ))}
     </figure>
   );
 }
@@ -118,14 +165,14 @@ function KeywordSvg({
   title,
   label,
   mode,
-  headN = 0,
+  legend = [],
   items,
   size,
 }: {
   title: string;
   label: string;
   mode: 'all' | 'comparison';
-  headN?: number;
+  legend?: readonly { group: KeywordGroup; text: string }[];
   items: readonly Item[];
   size: Size;
 }) {
@@ -146,18 +193,19 @@ function KeywordSvg({
           </text>
         </g>
       ))}
-      {mode === 'comparison' && (
-        <>
-          <rect x={l.left} y={8} width={12} height={8} fill="#006666" />
-          <text x={l.left + 17} y={17} fontSize={12} className="cmp-label">
-            全体
-          </text>
-          <rect x={l.left + 83} y={8} width={12} height={8} fill="#4472c4" />
-          <text x={l.left + 100} y={17} fontSize={12} className="cmp-label">
-            {`先頭 ${String(headN)}件`}
-          </text>
-        </>
-      )}
+      {mode === 'comparison' &&
+        legend.map((g, i) => {
+          const x = l.top > 42 ? l.left + (i % 2) * 105 : l.left + i * 83;
+          const y = l.top > 42 ? 8 + Math.floor(i / 2) * 16 : 8;
+          return (
+            <g key={g.group}>
+              <rect x={x} y={y} width={12} height={8} fill={GROUP_COLORS[g.group]} />
+              <text x={x + 17} y={y + 9} fontSize={12} className="cmp-label">
+                {g.text}
+              </text>
+            </g>
+          );
+        })}
       {l.rows.map((r, i) => (
         <g key={i}>
           <text x={l.left - 10} y={r.cy + 4} textAnchor="end" fontSize={13} className="cmp-label">

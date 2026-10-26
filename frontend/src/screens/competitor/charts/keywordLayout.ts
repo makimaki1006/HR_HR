@@ -1,7 +1,17 @@
 // キーワードのグラフの寸法規則。旧 static/js/competitor-keywords.js の draw() の算術をそのまま移した。
 // 描画 (SVG 要素) とは分けて、値から数値で検証できるようにしてある。
+export type KeywordGroup = '全体' | '先頭' | '超人気' | '人気';
+
+/** 系列ごとの色 (旧 static/js/competitor-keywords.js と同じ)。 */
+export const GROUP_COLORS: Record<KeywordGroup, string> = {
+  全体: '#006666',
+  先頭: '#4472c4',
+  超人気: '#c0504d',
+  人気: '#e69f00',
+};
+
 export interface KeywordBar {
-  group: '全体' | '先頭';
+  group: KeywordGroup;
   /** 比較は占有率 (%)、全体は件数。欠測は null (0 にしない)。 */
   value: number | null;
 }
@@ -25,7 +35,7 @@ export interface KeywordLayout {
     label: string;
     cy: number;
     bars: {
-      group: '全体' | '先頭';
+      group: KeywordGroup;
       value: number | null;
       y: number;
       width: number;
@@ -43,7 +53,9 @@ export function keywordLayout(input: KeywordLayoutInput): KeywordLayout {
   const left = Math.min(170, Math.max(86, w * 0.34));
   const right = 48;
   const plot = w - left - right;
-  const top = comparison ? 42 : 20;
+  // 超人気・人気の系列があるとき (棒が 3 本以上) は凡例を 2 行にして棒を細くする。
+  const extra = comparison && Math.max(0, ...items.map((r) => r.bars.length)) > 2;
+  const top = comparison ? (extra ? 58 : 42) : 20;
   const bottom = 30;
   const step = (h - top - bottom) / Math.max(1, items.length);
   const max = comparison ? 100 : Math.max(1, ...items.map((r) => r.bars[0]?.value ?? 0));
@@ -58,9 +70,13 @@ export function keywordLayout(input: KeywordLayoutInput): KeywordLayout {
     const cy = y + step / 2;
     const chars = Array.from(r.word);
     const label = chars.length > labelLength ? `${chars.slice(0, labelLength - 1).join('')}…` : r.word;
-    const offsets = comparison ? [cy - 11, cy + 1] : [cy - 10];
-    const colors = comparison ? ['#006666', '#4472c4'] : ['#006666'];
-    const height = comparison ? 9 : 20;
+    const n = r.bars.length;
+    const offsets = extra
+      ? r.bars.map((_, j) => cy - n * 3.5 + j * 7)
+      : comparison
+        ? [cy - 11, cy + 1]
+        : [cy - 10];
+    const height = extra ? 6 : comparison ? 9 : 20;
     return {
       word: r.word,
       label,
@@ -71,7 +87,7 @@ export function keywordLayout(input: KeywordLayoutInput): KeywordLayout {
         y: offsets[j] ?? cy,
         width: b.value === null ? 0 : (plot * b.value) / max,
         height,
-        color: colors[j] ?? '#006666',
+        color: GROUP_COLORS[b.group],
         text: b.value === null ? '—' : comparison ? `${b.value.toFixed(1)}%` : `${String(b.value)}件`,
       })),
     };

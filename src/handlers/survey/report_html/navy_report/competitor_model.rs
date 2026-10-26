@@ -423,6 +423,12 @@ pub(crate) fn build_competitor_report(
                 denom,
                 &comp.tag_counts_all,
                 agg.total_count,
+                &competitor_keywords::PopularityCounts {
+                    super_n: comp.super_popular_n,
+                    super_counts: &comp.tag_counts_super,
+                    popular_n: comp.popular_n,
+                    popular_counts: &comp.tag_counts_popular,
+                },
             ),
             histograms: Histograms {
                 upper: histogram(hi),
@@ -908,6 +914,74 @@ mod tests {
         assert!(row["delta"].is_null());
         assert_eq!(v["excel"]["keyword_comparison"]["all_n"], 2);
         assert_eq!(v["excel"]["histograms"]["lower"]["n"], 2);
+    }
+
+    fn popularity_report(tags: &[&str]) -> Value {
+        let salaries = vec!["月給 25万円"; tags.len()].join("\n");
+        let mut records = salary_fixture::records(&salaries, "大阪府 大阪市");
+        for (r, t) in records.iter_mut().zip(tags) {
+            r.tags_raw = (*t).to_owned();
+        }
+        let agg = aggregate_records_with_mode(&records, WageMode::Monthly);
+        let r = build_competitor_report(&agg, 45, "", &Value::Null, &Value::Null, &Value::Null);
+        serde_json::to_value(&r).unwrap()["excel"]["keyword_comparison"].clone()
+    }
+
+    #[test]
+    fn keyword_comparison_has_popularity_series_with_hand_computed_values() {
+        // 10 件: 超人気 2 (j0, j1)、人気 3 (j2〜j4)、タグなし・その他 5。
+        // j1 は "人気/超人気" と書かれ、区切り `/` でも超人気に数える (超人気 > 人気)。
+        let cmp = popularity_report(&[
+            "超人気,研修あり,研修あり",
+            "人気/超人気,賞与あり",
+            "人気,研修あり",
+            "人気、研修あり",
+            "人気,賞与あり",
+            "研修あり",
+            "",
+            "",
+            "",
+            "",
+        ]);
+        assert_eq!(cmp["all_n"], 10);
+        assert_eq!(cmp["super_popular_n"], 2);
+        assert_eq!(cmp["popular_n"], 3);
+        let rows = cmp["rows"].as_array().unwrap();
+        let row = |w: &str| rows.iter().find(|r| r["word"] == w).unwrap();
+        // 研修あり: 全体 4 件 (j0 は 2 回書いても 1 回)、超人気 1/2、人気 2/3。
+        let training = row("研修あり");
+        assert_eq!(training["all_count"], 4);
+        assert_eq!(training["all_share_pct"].as_f64(), Some(40.0));
+        assert_eq!(training["super_popular_count"], 1);
+        assert_eq!(training["super_popular_share_pct"].as_f64(), Some(50.0));
+        assert_eq!(training["popular_count"], 2);
+        let pop = training["popular_share_pct"].as_f64().unwrap();
+        assert!((pop - 200.0 / 3.0).abs() < 1e-9);
+        // 賞与あり: 超人気 1 (j1)、人気 1 (j4)。
+        let bonus = row("賞与あり");
+        assert_eq!(bonus["super_popular_count"], 1);
+        assert_eq!(bonus["popular_count"], 1);
+        assert_eq!(
+            bonus["popular_share_pct"].as_f64().map(|v| v.round()),
+            Some(33.0)
+        );
+    }
+
+    #[test]
+    fn keyword_comparison_omits_popularity_series_without_popularity_tags() {
+        let cmp = popularity_report(&["研修あり", "研修あり", "賞与あり"]);
+        assert_eq!(cmp["super_popular_n"], 0);
+        assert_eq!(cmp["popular_n"], 0);
+        for row in cmp["rows"].as_array().unwrap() {
+            for key in [
+                "super_popular_count",
+                "super_popular_share_pct",
+                "popular_count",
+                "popular_share_pct",
+            ] {
+                assert!(row[key].is_null(), "{key} は 0 でなく欠測");
+            }
+        }
     }
 
     #[test]
