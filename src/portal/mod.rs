@@ -15,11 +15,14 @@ mod dev_sheet;
 pub mod live;
 pub mod mail;
 pub mod mail_grant;
+pub mod notify;
 pub mod sheet_store;
 pub mod sheets;
 pub mod store;
 pub mod view;
 
+#[cfg(test)]
+mod notify_tests;
 #[cfg(test)]
 mod sheet_store_tests;
 #[cfg(test)]
@@ -76,6 +79,18 @@ pub struct Parts {
     pub reader: Option<Arc<dyn SheetsApi>>,
     /// 社内用シートのスプレッドシート ID (顧客のシートとして読ませない)
     pub store_spreadsheet: Option<String>,
+    /// 応募の通知 (計画 14 章)。送信元の Gmail と保存先と顧客のシートの鍵が揃うときだけ
+    pub notify: Option<NotifySetup>,
+}
+
+/// 応募の通知の組み立てに使うもの
+#[derive(Clone)]
+pub struct NotifySetup {
+    /// 行の指紋のハッシュの鍵 (既存の秘密から導く)
+    pub key: [u8; 32],
+    /// 顧客の画面の URL (通知の本文に入れる)
+    pub portal_url: String,
+    pub cfg: notify::NotifyConfig,
 }
 
 struct Ctx {
@@ -86,8 +101,10 @@ struct Ctx {
     /// 顧客のシートの読み取りの共有 (reader があるときだけ)
     live: Option<Arc<live::LiveSheets>>,
     views: view::ViewLog,
-    /// 確認コードの送信の回数の上限 (アカウントごと・全体)
-    limits: mail::SendLimits,
+    /// 確認コードと応募の通知の送信の回数の上限 (アカウントごと・全体)
+    limits: Arc<mail::SendLimits>,
+    /// 応募の通知 (保存先・送信・顧客のシートの鍵が揃うときだけ)
+    notifier: Option<Arc<notify::Notifier>>,
     access: CrmAccess,
     manifest: Option<AppManifest>,
 }
@@ -222,12 +239,19 @@ fn parts_from_env(audit: Option<crate::audit::AuditDb>) -> Parts {
         }
         _ => None,
     };
-    let mailer = mail::GmailMailer::from_env(audit).map(|m| m as Arc<dyn Mailer>);
+    let gmail = mail::GmailMailer::from_env(audit);
+    let notify = gmail.as_ref().map(|g| NotifySetup {
+        key: notify::derive_key(&g.service().cfg.key),
+        portal_url: format!("{}/portal", g.service().cfg.base_url),
+        cfg: notify::NotifyConfig::default(),
+    });
+    let mailer = gmail.map(|m| m as Arc<dyn Mailer>);
     Parts {
         auth,
         mailer,
         reader,
         store_spreadsheet: spreadsheet,
+        notify,
     }
 }
 
@@ -285,11 +309,21 @@ fn dev_parts(reader: Option<Arc<dyn SheetsApi>>) -> Parts {
             invite_path(&token)
         );
     }
+    let port = std::env::var("PORT").unwrap_or_else(|_| "9216".into());
     Parts {
         auth: Some(auth),
         mailer: Some(Arc::new(mail::DevLogMailer)),
         reader: Some(reader),
         store_spreadsheet: None,
+        // 手元の確認用: 架空の鍵で、30 秒おきに確かめる (送らずにログに出す)
+        notify: Some(NotifySetup {
+            key: notify::derive_key(b"portal-dev-only-key"),
+            portal_url: format!("http://localhost:{port}/portal"),
+            cfg: notify::NotifyConfig {
+                every: std::time::Duration::from_secs(30),
+                first_delay: std::time::Duration::from_secs(3),
+            },
+        }),
     }
 }
 
@@ -306,6 +340,7 @@ fn router_with(
             mailer: Some(p.mailer.clone()),
             reader: None,
             store_spreadsheet: None,
+            notify: None,
         },
         None => Parts::default(),
     };
@@ -321,13 +356,33 @@ fn router_parts(
         .reader
         .clone()
         .map(|r| Arc::new(live::LiveSheets::new(r, live::LiveConfig::default())));
+    let limits = Arc::new(mail::SendLimits::default());
+    // 保存先・送信・顧客のシートの鍵が揃うときだけ、応募の通知を裏で動かす
+    let notifier = match (&parts.notify, &parts.auth, &parts.mailer, &live) {
+        (Some(n), Some(auth), Some(mailer), Some(live)) => {
+            let me = notify::Notifier::new(
+                auth.clone(),
+                mailer.clone(),
+                live.clone(),
+                limits.clone(),
+                n.key,
+                n.portal_url.clone(),
+                parts.store_spreadsheet.clone(),
+                n.cfg.clone(),
+            );
+            me.spawn();
+            Some(me)
+        }
+        _ => None,
+    };
     let ctx = Arc::new(Ctx {
         auth: parts.auth,
         mailer: parts.mailer,
         reader: parts.reader,
         live,
         views: view::ViewLog::default(),
-        limits: mail::SendLimits::default(),
+        limits,
+        notifier,
         store_spreadsheet: parts.store_spreadsheet,
         access,
         manifest,

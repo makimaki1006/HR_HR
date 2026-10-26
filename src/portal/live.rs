@@ -175,26 +175,62 @@ impl LiveSheets {
         r
     }
 
-    async fn tab_title(&self, shape: &Shape, refresh: bool) -> Result<String, ReadError> {
-        let s = slot(&self.tabs, &shape.spreadsheet, self.cfg.idle_drop);
+    /// タブの一覧。`tabs_ttl` の間使い回す (`refresh` なら取り直す)
+    async fn tabs_list(&self, spreadsheet: &str, refresh: bool) -> Result<Vec<TabInfo>, ReadError> {
+        let s = slot(&self.tabs, spreadsheet, self.cfg.idle_drop);
         let mut g = s.lock().await;
         let cached = g
             .value
             .as_ref()
             .filter(|(at, _)| !refresh && at.elapsed() < self.cfg.tabs_ttl)
             .map(|(_, t)| t.clone());
-        let tabs = match cached {
+        Ok(match cached {
             Some(t) => t,
             None => {
-                let t = self.api.tabs(&shape.spreadsheet).await?;
+                let t = self.api.tabs(spreadsheet).await?;
                 g.value = Some((Instant::now(), t.clone()));
                 t
             }
-        };
-        tabs.into_iter()
+        })
+    }
+
+    async fn tab_title(&self, shape: &Shape, refresh: bool) -> Result<String, ReadError> {
+        self.tabs_list(&shape.spreadsheet, refresh)
+            .await?
+            .into_iter()
             .find(|t| t.sheet_id == shape.sheet_id)
             .map(|t| t.title)
             .ok_or(ReadError::TabNotFound)
+    }
+
+    /// 名前で選んだタブの全部のマス (応募の通知の送り先を読む。計画 14 章)。
+    /// `forbidden` の番号のタブ (応募者のタブ) は、名前が合っても読まない。
+    /// 値はキャッシュしない (送る直前に読む)
+    pub async fn tab_cells(
+        &self,
+        spreadsheet: &str,
+        title: &str,
+        forbidden: &[i64],
+    ) -> Result<Vec<Vec<String>>, ReadError> {
+        let title = title.trim();
+        let mut refreshed = false;
+        loop {
+            let tabs = self.tabs_list(spreadsheet, refreshed).await?;
+            match tabs.iter().find(|t| t.title.trim() == title) {
+                Some(t) if forbidden.contains(&t.sheet_id) => return Err(ReadError::TabNotFound),
+                Some(t) => {
+                    let ranges = [a1(&t.title, "A1:ZZ")];
+                    match self.api.batch_get(spreadsheet, &ranges).await {
+                        Err(GoogleError::Status(400)) if !refreshed => refreshed = true,
+                        Err(e) => return Err(e.into()),
+                        Ok(mut got) => return Ok(got.pop().unwrap_or_default()),
+                    }
+                }
+                // タブを足した・名前を変えた直後かもしれないので、一度だけ一覧を取り直す
+                None if !refreshed => refreshed = true,
+                None => return Err(ReadError::TabNotFound),
+            }
+        }
     }
 
     async fn read(&self, shape: &Shape) -> Result<Vec<Vec<String>>, ReadError> {

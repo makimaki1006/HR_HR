@@ -1,5 +1,6 @@
 // 応募者画面の社内の管理 (/app/portal-admin) の、画面に依らない決まり。テストで確かめる。
 import type { PortalAdminColumn } from '../../../generated/PortalAdminColumn';
+import type { PortalAdminNotify } from '../../../generated/PortalAdminNotify';
 
 // ---- 画面の中の行き先 (?view=) ----
 
@@ -100,6 +101,7 @@ export const LOG_KIND_LABEL: Record<string, string> = {
   login_failed: 'ログインの失敗',
   login_locked: 'ロック中のログイン',
   logout: 'ログアウト',
+  notify: '応募の通知',
 };
 
 export const SOURCE_LABEL: Record<string, string> = {
@@ -176,3 +178,14 @@ export function gidFromUrl(url: string): number | null {
 }
 
 export const SHEET_URL_PATTERN = /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]{20,}/;
+
+// ---- 応募の通知 ----
+
+/** シートの一覧に出す、応募の通知の短い状態 */
+export function notifySummary(n: PortalAdminNotify): { tone: 'ok' | 'warn' | 'neutral'; text: string } {
+  if (n.tab.trim() === '') return { tone: 'neutral', text: '通知しない' };
+  if (!n.running) return { tone: 'neutral', text: '準備中' };
+  if (n.problem !== null) return { tone: 'warn', text: '止まっています' };
+  if (n.recipients === null) return { tone: 'neutral', text: '確かめています' };
+  return { tone: 'ok', text: `${String(n.recipients)} 件に送る` };
+}

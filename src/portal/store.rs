@@ -180,6 +180,18 @@ pub struct SheetReg {
     pub disabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// 応募の通知の送り先のタブの名前 (同じスプレッドシートの中)。空なら通知しない (計画 14 章)
+    pub notify_tab: String,
+}
+
+/// 応募の通知を送った行 (計画 14 章)。同じ行に 2 度送らないために持つ。
+/// 行の指紋は電話・メールから作るので、生の値は置かず鍵付きのハッシュ (HMAC) だけを置く
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotifiedRow {
+    pub sheet_reg_id: String,
+    /// 行の指紋の鍵付きハッシュ (16 進)
+    pub fingerprint: String,
+    pub sent_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -388,6 +400,11 @@ pub trait PortalStore: Send + Sync {
     /// そのシートの項目の設定を丸ごと置き換える
     fn replace_columns(&self, sheet_reg_id: &str, columns: Vec<ColumnSetting>);
 
+    /// 応募の通知を送った行 (そのシートの分)
+    fn notified(&self, sheet_reg_id: &str) -> Vec<NotifiedRow>;
+    /// 応募の通知を送った行を足す (同じ鍵はそのまま)
+    fn insert_notified(&self, rows: Vec<NotifiedRow>);
+
     fn append_log(&self, entry: LogEntry);
     /// 新しい順。プロセス内に残っている分だけ (古いものは社内用シートで見る)
     fn recent_logs(&self, limit: usize) -> Vec<LogEntry>;
@@ -413,6 +430,7 @@ pub enum Table {
     Invites,
     Devices,
     Sessions,
+    Notified,
 }
 
 /// 変わった行 (表と鍵)。社内用シートへ書き戻す対象
@@ -437,6 +455,8 @@ pub struct Tables {
     pub sheets: HashMap<String, SheetReg>,
     /// 鍵は [`column_key`]
     pub columns: HashMap<String, ColumnSetting>,
+    /// 鍵は [`column_key`] (シートの番号と指紋のハッシュ)
+    pub notified: HashMap<String, NotifiedRow>,
     pub logs: VecDeque<LogEntry>,
     /// 社内用シートで読めなかったマスの元の文字 (表・鍵・列)。書き戻すときはこの文字のまま書く
     pub unreadable: HashMap<(Table, String, usize), String>,
@@ -658,6 +678,32 @@ impl Tables {
         out
     }
 
+    pub fn notified(&self, sheet_reg_id: &str) -> Vec<NotifiedRow> {
+        let mut out: Vec<_> = self
+            .notified
+            .values()
+            .filter(|n| n.sheet_reg_id == sheet_reg_id)
+            .cloned()
+            .collect();
+        out.sort_by(|a, b| (a.sent_at, &a.fingerprint).cmp(&(b.sent_at, &b.fingerprint)));
+        out
+    }
+    pub fn insert_notified(&mut self, rows: Vec<NotifiedRow>) -> Changed {
+        let mut out = Vec::new();
+        for r in rows {
+            let k = column_key(&r.sheet_reg_id, &r.fingerprint);
+            if r.sheet_reg_id.is_empty()
+                || r.fingerprint.is_empty()
+                || self.notified.contains_key(&k)
+            {
+                continue;
+            }
+            self.notified.insert(k.clone(), r);
+            out.push((Table::Notified, k));
+        }
+        out
+    }
+
     pub fn push_log(&mut self, entry: LogEntry) {
         if self.logs.len() >= RECENT_LOGS {
             self.logs.pop_front();
@@ -771,6 +817,13 @@ impl PortalStore for MemoryStore {
     }
     fn replace_columns(&self, sheet_reg_id: &str, columns: Vec<ColumnSetting>) {
         self.lock().replace_columns(sheet_reg_id, columns);
+    }
+
+    fn notified(&self, sheet_reg_id: &str) -> Vec<NotifiedRow> {
+        self.lock().notified(sheet_reg_id)
+    }
+    fn insert_notified(&self, rows: Vec<NotifiedRow>) {
+        self.lock().insert_notified(rows);
     }
 
     fn append_log(&self, entry: LogEntry) {
