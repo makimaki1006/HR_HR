@@ -3716,7 +3716,8 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
 /// ②案件の立ち位置。稼働中の全件を返す（画面で並び替える）。
 /// 🔴 見方の突き合わせ（`act_view_diff`）はここだけで返す（今日動く先・チームと担当には要らない）。
 pub fn build_deal_board(sheets: &Sheets, today: NaiveDate) -> Value {
-    let (rows, mut meta) = deal_rows(sheets, today);
+    let (mut rows, mut meta) = deal_rows(sheets, today);
+    super::gakkari::annotate_current(&mut rows, &mut meta, today);
     if let Some(m) = meta.as_object_mut() {
         m.insert(
             "act_view_diff".into(),
@@ -3814,7 +3815,8 @@ fn has_low_satisfaction(row: &Value) -> bool {
 /// 🔴 **件数が多すぎると使われない。** 上から順に潰せる長さに絞る。
 /// 絞った条件は画面に出す。
 pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
-    let (rows, mut meta) = deal_rows(sheets, today);
+    let (mut rows, mut meta) = deal_rows(sheets, today);
+    super::gakkari::annotate_current(&mut rows, &mut meta, today);
 
     // 名札が2本以上、または満足度の名札（直近の値が 4 以下）が付いているもの（2026-10-26 に後者を足した）。
     // そのうえで `deal_rows` の並び（名札の本数が多い順、同じ本数なら金額の大きい順）の上から 24件。

@@ -46,6 +46,7 @@ mod owner_todo;
 pub mod phone_hearing;
 mod rikurozi;
 mod saved_notes;
+pub mod shared_applications;
 mod todo_signals;
 
 #[derive(Debug)]

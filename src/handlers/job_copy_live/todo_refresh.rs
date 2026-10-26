@@ -61,6 +61,10 @@ pub(super) async fn restore(service: &JobReadService) {
             if let Some((_, snapshot)) = state.snapshot.as_mut() {
                 Arc::make_mut(snapshot).facts = complete.facts.clone();
             }
+            crate::handlers::job_copy_live::shared_applications::publish(
+                complete.built_at,
+                &complete.facts,
+            );
             state.facts_snapshot = Some((
                 report_snapshot::instant(complete.built_at, FACTS_TTL),
                 complete.facts,
@@ -184,8 +188,10 @@ async fn run_with_limit(
         if let Some((_, snapshot)) = state.snapshot.as_mut() {
             Arc::make_mut(snapshot).facts = progress.facts.clone();
         }
+        let built_at = Utc::now();
+        crate::handlers::job_copy_live::shared_applications::publish(built_at, &progress.facts);
         state.facts_snapshot = Some((Instant::now(), progress.facts));
-        state.facts_built_at = Some(Utc::now());
+        state.facts_built_at = Some(built_at);
         state.facts_pending = None;
         state.facts_failed_at = None;
     }

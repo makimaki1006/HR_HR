@@ -5820,6 +5820,39 @@ check("立ち上がり: 開始月ごとの応募の推移は取引数 30 未満�
   ok(axis.join(",") === "1ヶ月目,2ヶ月目,3ヶ月目,4ヶ月目", "横軸が違う: " + axis.join(","));
   ok(run("launchSection(null)") === "" && run("launchSection({cohorts: []})") === "", "データが無いとき何か出している");
 });
+check("2026-10-27 がっかり: 応募が30日無い印は注意の本数に数えず、点線の枡で別に出し、案件一覧の欄で絞れる。応募の時点と決まりを書く", () => {
+  const mk = (id, g, flags, last) => ({ deal_id: id, name: "案件" + id, consultant: "担当A", flags, n_flags: flags.length,
+    gakkari: g ? ["no_applicants_30d"] : [], last_application: last || null, amount: 1000 });
+  ctx.__GK = { meta: { flag_counts: [], mtg_gap: { bands: [] }, order_rule: "",
+    gakkari_counts: [{ key: "no_applicants_30d", label: "応募が30日無い", n: 2 }], gakkari_checked: 3,
+    gakkari_rule: "「がっかり」は注意の数には数えません。候補者の辞退・入社後すぐの退職・同じ不満2回は、MTGの記録から拾う予定です。",
+    applications_as_of: "2026-10-27T03:00:00Z" },
+    rows: [mk("g1", true, [], "2026-09-01"), mk("g2", true, ["満足度が4以下"], null), mk("g3", false, [], "2026-10-20")] };
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "" }; boardShowAll = false;');
+  // 注意が無くてもがっかりだけは出る。注意の枡と並ぶ。応募が無い行には出ない
+  const c1 = run("flagCell(__GK.rows[0])"), c2 = run("flagCell(__GK.rows[1])"), c3 = run("flagCell(__GK.rows[2])");
+  ok(c1.includes("tag c g") && textOf(c1).includes("がっかり: 応募が30日無い") && c1.includes("最後の応募 2026-09-01"), "がっかりの枡が出ない: " + c1);
+  ok(c2.includes("満足度4以下") && c2.includes("tag c g") && c2.indexOf("満足度4以下") < c2.indexOf("がっかり"), "注意とがっかりが並ばない: " + c2);
+  ok(c2.includes("直近の応募なし"), "応募が1件も無い行の説明が無い");
+  ok(!c3.includes("がっかり") && c3.includes("n0"), "印の無い行に出ている: " + c3);
+  // 名札の本数・名札の絞り込みには混ざらない
+  run('boardFilter.flag = "応募が30日無い";');
+  ok(run("boardApply(__GK.rows).length") === 0, "名札の欄でがっかりに当たっている");
+  run('boardFilter.flag = ""; boardFilter.gakkari = "no_applicants_30d";');
+  ok(run("boardApply(__GK.rows).map((r) => r.deal_id).join()") === "g1,g2", "がっかりの絞り込みが違う");
+  ok(run("boardFilterOn()") === true && run("boardFilterWords(__GK)") === "がっかり 応募が30日無い", "絞った文が違う: " + run("boardFilterWords(__GK)"));
+  ok(run("JSON.stringify(stateParams('board'))").includes('"gakkari":"no_applicants_30d"'), "がっかりの絞り込みが URL に載らない");
+  run('boardFilter.gakkari = "";');
+  const bar = run("boardFilterBar(__GK)");
+  ok(bar.includes('id="bf-gakkari"') && bar.includes("応募が30日無い（2）"), "絞り込みの欄と件数が無い");
+  ok(!run("boardFilterBar({ meta: { flag_counts: [], mtg_gap: { bands: [] } }, rows: [] })").includes("bf-gakkari"), "応募のデータが無いのに欄を出している");
+  // 決まりと応募の時点（日本時間）
+  ok(run("gakkariAsOf(__GK.meta)") === "10月27日 12時", "応募の時点が日本時間でない: " + run("gakkariAsOf(__GK.meta)"));
+  const note = textOf(run("gakkariNote(__GK.meta)"));
+  ok(note.includes("応募は 10月27日 12時 時点です") && note.includes("候補者の辞退・入社後すぐの退職・同じ不満2回は、MTGの記録から拾う予定です"), "決まりの文が違う: " + note);
+  ok(textOf(run("gakkariNote({ gakkari_rule: 'x', applications_as_of: null })")).includes("まだ集計できていないため、今は付けていません"), "データが無いときの案内が無い");
+  ok(textOf(run("renderBoard(__GK)")).includes("応募は 10月27日 12時 時点です"), "案件一覧に決まりが出ない");
+});
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
