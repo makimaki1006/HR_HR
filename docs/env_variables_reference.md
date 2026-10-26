@@ -320,3 +320,20 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 | `MINIMAX_BASE_URL` | `https://api.minimax.io/v1` | MiniMax の API の場所 (OpenAI 互換) |
 
 Zoom のアプリには Zoom Phone の録音・文字起こしを読むスコープを付ける。値は Render の環境変数に設定する (リポジトリには書かない)。
+
+### アポの自動判定 (既定 OFF、ADR-035、設計書 §23)
+
+HubSpot・Zoom (`ZOOM_*`)・MiniMax (`MINIMAX_API_KEY` / `MINIMAX_BASE_URL`) の設定は上の表と共通。監査 DB は使わない。
+
+| 変数 | 既定 | 用途 |
+|------|------|------|
+| `APO_JUDGE_ENABLED` | 未設定 | `1` のときだけ worker が動く。取引のプロパティ `apo_ai_*` を先に作っておく (`scripts/ensure_apo_ai_properties.py`) |
+| `APO_JUDGE_DRY_RUN` | 未設定 | `1` のとき、判定までして HubSpot に書かない (取引 ID・区分・点数だけログに出す)。初回の確認用 |
+| `APO_JUDGE_INTERVAL_SECS` | `300` | 対象の取引を探す間隔 (秒)。30〜3600、範囲外は既定 |
+| `APO_JUDGE_LOOKBACK_HOURS` | `72` | アポ日確定に入ってからこの時間以内の取引だけを見る。1〜720 |
+| `APO_JUDGE_WAIT_HOURS` | `6` | 文字起こしが取れるのを待つ時間 (ステージに入ってから)。過ぎたら「文字起こしなし」を書く。1〜48 |
+| `APO_JUDGE_STAGES` | `52035886,1095457875` | 対象のステージ ID (カンマ区切り、数字のみ)。新規営業と BPO のアポ日確定 |
+| `APO_JUDGE_MAX_PER_CYCLE` | `20` | 1 周に判定する取引の最大数。1〜100 |
+| `APO_JUDGE_MIN_TALK_SEC` | `60` | 判定に使う電話の通話時間の下限 (秒)。0〜3600 |
+| `APO_JUDGE_MODEL` | `CALL_REVIEW_MODEL` または `MiniMax-M3` | 判定に使う MiniMax のモデル名 |
+

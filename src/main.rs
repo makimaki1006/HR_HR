@@ -410,6 +410,8 @@ async fn main() {
     rust_dashboard::crm::caller_metrics::spawn_warmup(state.clone());
     // トークの振り返り (CALL_REVIEW_ENABLED=1 のときだけ。ADR-033)
     rust_dashboard::crm::talk_review::spawn_worker(state.clone());
+    // アポの自動判定 (APO_JUDGE_ENABLED=1 のときだけ。ADR-035)
+    rust_dashboard::crm::apo_judge::spawn_worker(state.clone());
 
     // メモリの使用量を 1 分おきに記録し、急増したら処理中の要求と一緒に出す
     rust_dashboard::mem_watch::spawn();

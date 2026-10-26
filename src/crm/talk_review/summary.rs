@@ -140,7 +140,7 @@ pub fn build(
     let apo_sum = unique_deals(apo_deals, &ids);
     let total = TalkPersonRow {
         owner_id: None,
-        name: "チーム全体".to_string(),
+        name: "この表の全体".to_string(),
         team: None,
         outbound: outbound_sum,
         dial_breakdown: None,
@@ -333,6 +333,47 @@ mod tests {
         assert!(!by("い").appointment_rate_flagged);
         assert!(!by("う").appointment_rate_flagged, "架電 100 本未満");
         assert!(!total.appointment_rate_flagged);
+    }
+
+    #[test]
+    fn per_team_totals_use_only_that_teams_people_with_the_same_counting_as_the_whole_row() {
+        // BPO: B1(架電 100 本・アポ 2) / 新規営業: S1(架電 300 本・アポ 2)。取引 3 件のうち 1 件は両方に付く。
+        let deals: Vec<Vec<String>> = vec![
+            vec!["B1".into()],
+            vec!["B1".into(), "S1".into()],
+            vec!["S1".into()],
+        ];
+        let dials: HashMap<String, u32> = [("B1".into(), 100), ("S1".into(), 300)].into();
+        let mem = |id: &str, team: &str| Member {
+            owner_id: id.into(),
+            name: id.into(),
+            team: Some(team.into()),
+        };
+        let members = [mem("B1", "BPO"), mem("S1", "新規営業")];
+        let (_, whole) = build(&members, Some(&dials), None, &deals, &[], &[], &ALERT_RULES);
+        assert_eq!((whole.dials, whole.appointments), (Some(400), 3));
+        let (_, bpo) = build(
+            &members[..1],
+            Some(&dials),
+            None,
+            &deals,
+            &[],
+            &[],
+            &ALERT_RULES,
+        );
+        assert_eq!((bpo.dials, bpo.appointments), (Some(100), 2));
+        assert_eq!(bpo.appointment_rate_pct, Some(2.0));
+        let (_, sales) = build(
+            &members[1..],
+            Some(&dials),
+            None,
+            &deals,
+            &[],
+            &[],
+            &ALERT_RULES,
+        );
+        assert_eq!((sales.dials, sales.appointments), (Some(300), 2));
+        assert!((sales.appointment_rate_pct.unwrap() - 2.0 / 3.0).abs() < 1e-9);
     }
 
     #[test]

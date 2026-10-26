@@ -11,7 +11,7 @@ afterEach(() => {
 describe('/app/talk', () => {
   it('view なしのクエリを読み、view を付けない URL を作る', () => {
     const r = parseTalkRoute('?from=2026-10-19&to=2026-10-20&team=A&owner=7&call=9');
-    expect(r).toEqual({ view: 'talk', from: '2026-10-19', to: '2026-10-20', team: 'A', owner: '7', call: '9' });
+    expect(r).toEqual({ view: 'talk', from: '2026-10-19', to: '2026-10-20', team: 'A', owner: '7', call: '9', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '' });
     window.history.replaceState(null, '', '/app/talk');
     expect(talkHref(r)).toBe('?from=2026-10-19&to=2026-10-20&team=A&owner=7&call=9');
   });

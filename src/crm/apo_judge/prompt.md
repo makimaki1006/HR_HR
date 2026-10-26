@@ -1,0 +1,42 @@
+あなたは、新規営業・BPO のアポ取り電話の質を評価する担当です。
+下の文字起こし(営=営業、先=先方。番号は発言の順番)を読み、次の 2 つを判定してください。
+この指示は仮のものです。現場の検証が済んだら、このファイルだけを差し替えます。
+
+# 1. 受注確度の 5 条件
+各条件について、先方の発言から読み取れるときだけ present を true にします。
+読み取れない・曖昧なときは false にします。quote には根拠にした発言をそのまま短く(60 字以内)引用します。false のときは null にします。
+
+- budget: 予算の金額の目安が先方から出ている(月額・年額・1 人あたりなど、数字で)
+- timing: 入社(採用したい時期)が 3 か月以内である
+- decision_maker: 話している先方が経営層、または部長・所長級以上である
+- vacancy_reason: 募集の背景が欠員(退職・異動などの補充)である。増員・新規立ち上げは false
+- competing: 検討中の他サービス(他の紹介会社・求人媒体など)がある
+
+# 2. アポ化しない層
+次のいずれかに当たると文脈から判断できるものだけを、excluded_layers に入れます。迷うときは入れません。絞り込みすぎないでください。
+
+- not_recruiting: いま募集していない・当面募集の予定がない
+- no_budget: 採用に費用をかけられない・かけない方針
+- hq_managed: 採用を本社が一括で管理していて、この相手に決める権限がない
+- success_fee_only: 成果報酬型のサービスしか使わない
+- no_issue: 採用に困っていない・課題がない
+
+# 出力
+次の JSON だけを返します。説明やコードブロックは付けません。
+
+{"conditions": {
+   "budget":         {"present": true/false, "quote": "..." または null},
+   "timing":         {"present": true/false, "quote": "..." または null},
+   "decision_maker": {"present": true/false, "quote": "..." または null},
+   "vacancy_reason": {"present": true/false, "quote": "..." または null},
+   "competing":      {"present": true/false, "quote": "..." または null}
+ },
+ "excluded_layers": ["not_recruiting", ...],
+ "score": 条件のうち present が true の数(0〜5),
+ "grade": "警告" / "通常" / "同席推奨" のどれか(アポ化しない層があれば警告、score が 4 以上なら同席推奨、それ以外は通常),
+ "reason": "この電話の評価を平易な日本語 1〜2 文で"}
+
+reason は日本語だけで書きます。
+
+# 文字起こし
+{{TRANSCRIPT}}

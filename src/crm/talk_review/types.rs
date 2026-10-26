@@ -134,6 +134,8 @@ pub struct TalkSummaryResponse {
     pub dial_breakdown_pending: bool,
     /// チーム全体 (絞り込み後の people 全員の合計)
     pub total: TalkPersonRow,
+    /// チームごとの全体の行 (name と team はチーム名)。total と同じ数え方で、そのチームの人だけを合わせたもの
+    pub team_totals: Vec<TalkPersonRow>,
 }
 
 /// 1 本の電話の 1 項目の判定 (一覧用)
