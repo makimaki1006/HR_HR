@@ -318,13 +318,13 @@ fn number(value: Option<f64>) -> String {
 
 fn render_indeed(html: &mut String, data: &IndeedSection) {
     html.push_str("<section class=\"page-navy\" id=\"competitor-indeed\">");
-    push_page_head(
-        html,
-        "採用市場",
-        "Indeed採用レポート",
-        "選択した職種・都道府県の月別データ",
-    );
-    let (title, region, rows) = match data {
+    // 職種名は出力に出さない。見出しの補足は地域だけ。
+    let sub = match data {
+        IndeedSection::Ok { region, .. } if region == "全国" => "全国の月別データ",
+        _ => "選択した都道府県の月別データ",
+    };
+    push_page_head(html, "採用市場", "Indeed採用レポート", sub);
+    let (region, rows) = match data {
         IndeedSection::Unavailable { message } => {
             html.push_str(&format!(
                 "<p class=\"note\">{}</p></section>",
@@ -332,14 +332,9 @@ fn render_indeed(html: &mut String, data: &IndeedSection) {
             ));
             return;
         }
-        IndeedSection::Ok {
-            title,
-            region,
-            rows,
-            ..
-        } => (title, region, rows),
+        IndeedSection::Ok { region, rows, .. } => (region, rows),
     };
-    html.push_str(&format!("<p>{} / {}</p><p class=\"note\">出典：Indeed採用市場レポート｜全給与形態。閲覧人数は応募数ではありません。</p>",escape_html(title),escape_html(region)));
+    html.push_str(&format!("<p>{}</p><p class=\"note\">出典：Indeed採用市場レポート｜全給与形態。閲覧人数は応募数ではありません。</p>",escape_html(region)));
     html.push_str("<div class=\"trend-grid\">");
     for (label, unit, color, ratio, pick) in [
         (
