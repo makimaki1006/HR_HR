@@ -537,6 +537,9 @@ fn monthly_retention(deals: &[Deal]) -> Value {
                 "pending": m.pending,
                 // 決着0件なら空。0% にしない。
                 "rate": rate(m.keep as f64, denom as f64),
+                // 充足（採れて終わった）を分母から外した継続率。**主の数字にはしない**（比較のためだけに返す）。
+                // 主の `rate` は充足も分母に入れる（確定した定義）。ここは 継続 ÷（継続 ＋ 解約）
+                "rate_excl_fill": rate(m.keep as f64, (m.keep + m.cancel) as f64),
             })
         })
         .collect();
@@ -553,6 +556,7 @@ fn monthly_retention(deals: &[Deal]) -> Value {
 ///
 /// 解約率の分子は **解約 + 充足**、分母は **決着済み（継続＋解約＋充足）**。
 /// 充足を外さないのが確定した定義（外すと初回は 58.1%→46.9% に見える）。
+/// 外した値（`cancel_rate_excl_fill`）は比べるためだけに返す。
 fn by_renewal(deals: &[Deal], exclude_right_censored: bool) -> Vec<Value> {
     let mut groups: BTreeMap<i64, Vec<&Deal>> = BTreeMap::new();
     for d in deals {
@@ -1031,7 +1035,7 @@ fn nps_low(
         "coverage": rate(have as f64, act.len() as f64),
         "dist": dist.iter().map(|(v, n)| json!({"v": v, "n": n})).collect::<Vec<_>>(),
         "rows": rows,
-        "note": "NPS はリスクの軸に入れていません。稼働中の半分にしか無く、半分の顧客では構造的に発火しないためです。独立した指標として出しています",
+        "note": "満足度（顧客に聞いた点数）はリスクの軸に入れていません。稼働中の半分にしか無く、半分の顧客では構造的に発火しないためです。独立した指標として出しています",
     })
 }
 
@@ -3049,7 +3053,7 @@ pub(super) const ACT_VIEWS: [ActView; 7] = [
         old: None,
     },
     // 2026-10-21 メニュー整理: 「滞留した案件」「いま見るべき顧客」の表を見方にした。
-    // 件数は元の画面と同じ（滞留は stage_stay.rs の定義そのまま。NPS は名札「NPSが4以下」と同じ集合）
+    // 件数は元の画面と同じ（滞留は stage_stay.rs の定義そのまま。NPS は名札「満足度が4以下」と同じ集合）
     ActView {
         key: "stay_esc",
         label: "満了後も稼働中",
@@ -3065,8 +3069,8 @@ pub(super) const ACT_VIEWS: [ActView; 7] = [
     },
     ActView {
         key: "nps_low",
-        label: "NPS が4以下",
-        rule: "最新の定期NPSが4以下の案件（NPS が入っている案件だけが対象です）",
+        label: "満足度が4以下",
+        rule: "最新の満足度（顧客に聞いた点数）が4以下の案件（満足度が入っている案件だけが対象です）",
         old: None,
     },
 ];
@@ -3450,8 +3454,10 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
 
         // ---- 名札。🔴 これの本数で並べる。スコアにしない ----
         let mut flags: Vec<&str> = Vec::new();
+        // 🔴 満足度の名札は**必ず先頭**に立てる（一番前に出す合図。画面の並べ替えも同じ順を守る）。
+        //    値は直近が 4 以下のときだけ（最低値ではない。直近が戻れば外れる）
         if super::low_nps(np.map(|(_, v)| *v)) {
-            flags.push("NPSが4以下");
+            flags.push(TEAM_FLAG_NPS_LOW);
         }
         if matches!(days_left, Some(x) if (0..=60).contains(&x)) {
             flags.push("満了まで60日以内");
@@ -3748,6 +3754,16 @@ pub(super) fn act_view_diff_memo_in<T: Clone>(
     v
 }
 
+/// 今日動く先の候補か。名札が2本以上、または満足度の名札（直近の値が 4 以下）が付いている。
+/// 名札 1 本でも満足度が低い案件を落とさない。満足度が無い案件は名札が付かないので、
+/// 「問題なし」ではなく「回答が無いだけ」。画面は値の欄に「満足度 未回答」と出す。
+pub(crate) fn is_today_candidate(row: &Value) -> bool {
+    row["n_flags"].as_u64().unwrap_or(0) >= 2
+        || row["flags"]
+            .as_array()
+            .is_some_and(|fs| fs.iter().any(|f| f == TEAM_FLAG_NPS_LOW))
+}
+
 /// ③今日動く先。
 ///
 /// 🔴 **件数が多すぎると使われない。** 上から順に潰せる長さに絞る。
@@ -3755,13 +3771,15 @@ pub(super) fn act_view_diff_memo_in<T: Clone>(
 pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
     let (rows, mut meta) = deal_rows(sheets, today);
 
-    // 名札が2本以上。そのうえで `deal_rows` の並び（名札の本数が多い順、
-    // 同じ本数なら金額の大きい順）の上から 24件
+    // 名札が2本以上、または満足度の名札（直近の値が 4 以下）が付いているもの（2026-10-26 に後者を足した）。
+    // そのうえで `deal_rows` の並び（名札の本数が多い順、同じ本数なら金額の大きい順）の上から 24件。
+    // 🔴 並びと 24 件の切り方は変えていない。名札 1 本の満足度低は並びの後ろに来るので、
+    //    担当を選ばない画面の 24 件は今までと同じで、担当を選んだとき（candidates 全件）に出てくる
     const KEEP: usize = 24;
     const MIN_FLAGS: u64 = 2;
     let picked: Vec<Value> = rows
         .iter()
-        .filter(|r| r["n_flags"].as_u64().unwrap_or(0) >= MIN_FLAGS)
+        .filter(|r| is_today_candidate(r))
         .cloned()
         .collect();
     let n_hit = picked.len();
@@ -3853,7 +3871,8 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         //    メニューに無い名前を案内していた（左は「案件そのもの」。2026-09-28 UI/UX 改善 S-6）。
         //    全件への行き先は画面側が MENUS の名前で添える（cs_dashboard.html todayFilterRule）。
         m.insert("filter_rule".into(), json!(format!(
-            "注意が {MIN_FLAGS} つ以上ついた {n_hit} 件から、注意の数が多い順（同じ数なら金額の大きい順）に {KEEP} 件を出しています。\
+            "注意が {MIN_FLAGS} つ以上ついた案件、または満足度（顧客に聞いた点数）が低い（直近の値が4以下）注意がついた案件、合わせて {n_hit} 件から、\
+注意の数が多い順（同じ数なら金額の大きい順）に {KEEP} 件を出しています。\
 毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} つという線引きは取り決めです"
         )));
         m.insert("n_hit".into(), json!(n_hit));
@@ -3913,7 +3932,10 @@ const TEAM_EXPIRY_WEEK_DAYS: i64 = 7;
 /// 担当者 × 状態の表で数える名札。文字は `deal_rows` の名札そのもの（画面はこの文字で案件そのものを絞る）
 const TEAM_FLAG_NO_CONTACT: &str = "接触の記録が無い";
 const TEAM_FLAG_EXPIRY60: &str = "満了まで60日以内";
-const TEAM_FLAG_NPS_LOW: &str = "NPSが4以下";
+/// 満足度（顧客に聞いた点数。内部名は nps）の名札。直近の値が 4 以下のときだけ付く（最低値ではない。直近が戻れば外れる）。
+/// 画面の文言を「NPS」から「満足度」に言い換えた（2026-10-26）。API のキー（nps_low など）は変えていない。
+/// 名札の文字は `deal_rows` が立てる文字と画面の絞り込みが同じ文字で突き合わせるので、ここ 1 か所で決める。
+const TEAM_FLAG_NPS_LOW: &str = "満足度が4以下";
 
 pub(super) const PENDING_RECORDING_HEADER: &[&str] = &[
     "録画UUID",
@@ -4060,7 +4082,7 @@ pub fn build_results(sheets: &Sheets, exclude_right_censored: bool, today: Naive
             "today": today.to_string(),
             "all_cached": sheets.all_cached,
             "exclude_right_censored": exclude_right_censored,
-            // 定期NPS 4以下の表（focus.nps_low）は名札「NPSが4以下」と同じ集合（fixture で 41 件、deal_id 41/41 一致）。
+            // 定期NPS 4以下の表（focus.nps_low）は名札「満足度が4以下」と同じ集合（fixture で 41 件、deal_id 41/41 一致）。
             // 画面は表を畳みに入れず、この名札で絞った案件一覧へのリンクにする。名札の文字は正本（deal_rows）から渡す
             "nps_flag": TEAM_FLAG_NPS_LOW,
             // 手を打つ先は案件一覧の見方に移った（段B）。画面はこの鍵と名前で案件一覧へのリンクを作る（件数は案件一覧で数える）

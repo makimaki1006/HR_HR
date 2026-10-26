@@ -3488,7 +3488,7 @@ const TEAM_COLS = [
       teamDrill(r.no_contact, hashFor("byowner", { c: r.consultant, flag: L.no_contact }), "この担当の「" + L.no_contact + "」の案件を開く") },
   { k: "expiring60", t: "満了まで60日以内", n: 1, fmt: (r, L) =>
       teamDrill(r.expiring60, hashFor("byowner", { c: r.consultant, flag: L.expiring60 }), "この担当の「" + L.expiring60 + "」の案件を開く") },
-  { k: "nps_low", t: "NPS 4以下", n: 1, fmt: (r, L) =>
+  { k: "nps_low", t: "満足度 4以下", n: 1, fmt: (r, L) =>
       teamDrill(r.nps_low, hashFor("byowner", { c: r.consultant, flag: L.nps_low }), "この担当の「" + L.nps_low + "」の案件を開く") },
   { k: "expiring_week", t: "今週満了", n: 1, fmt: (r) => num(r.expiring_week) },
   /* 人ごとの接触 定義1。前の担当者の一覧の「接触率」。40% / 70% の線は取り決め（色だけにしない: 40% 未満は ▼ と文字も添える） */
@@ -3815,8 +3815,8 @@ function renderFocus(D) {
      MTG の記録 → 事実と推定の帯、LTV 中央値 → LTV の散らばりの図。「NPS が入っている」（記入率）はそれを示す節が無いので div のまま */
   h += '<div class="kpis">' +
     /* 🔴 数えているのは取引（契約）。「社」と書くと法人数に読める（V20） */
-    kpi("定期NPS が " + n.threshold + " 以下", num(n.n) + '<span class="u">件</span>',
-        "NPSの回答がある " + num(n.n_have_nps) + " 件のうち", "bad", { jump: "fc-nps-tbl-h", text: "表へ" }) +
+    kpi("満足度（顧客に聞いた点数）が " + n.threshold + " 以下", num(n.n) + '<span class="u">件</span>',
+        "満足度の回答がある " + num(n.n_have_nps) + " 件のうち", "bad", { jump: "fc-nps-tbl-h", text: "表へ" }) +
     kpi("採用単価が悪化した拠点", num(c.worse) + '<span class="u">拠点</span>',
         "比べられた " + num(c.judged) + " 拠点のうち", "bad", { jump: "fc-cpa-h", text: "図へ" }) +
     /* 🔴 同じ「どちらも無い 115件」が、ここでは山吹（warn）、下の MTG の記録の帯では灰だった
@@ -3824,7 +3824,7 @@ function renderFocus(D) {
     /* 🔴 2026-09-29 藤巻さんの判断: MTG はしているはずで、記録が見つからないと読む（「無い」は「していない」に読める） */
     kpi("MTG の記録がどちらにも見つからない", num(m.neither) + '<span class="u">件</span>',
         "稼働中 " + num(m.n_act) + " 件のうち", "", { jump: "fc-mtg-h", text: "図へ" }) +
-    kpi("NPS が入っている", pct1(n.coverage),
+    kpi("満足度が入っている", pct1(n.coverage),
         num(n.n_have_nps) + " / " + num(n.n_act) + " 件") +
     kpi("LTV 真ん中の値", sh.ltv ? yen(sh.ltv.median) : DASH,
         /* 「Q3」と英字の略号のままだった（2026-09-24）。上位4分の1の境 */
@@ -3843,7 +3843,7 @@ function renderFocus(D) {
      この画面の出力は前と同じ */
   h += focusNpsFig(n);
   /* ---- 表 NPSが低い顧客 ---- */
-  h += sec("表", "定期NPS が " + n.threshold + " 以下の顧客（" + num(n.n) + " 件）", "fc-nps-tbl-h");
+  h += sec("表", "満足度（顧客に聞いた点数）が " + n.threshold + " 以下の顧客（" + num(n.n) + " 件）", "fc-nps-tbl-h");
   h += focusNpsTable(n);
   h += focusCpaFig(c) + focusMtgFig(m) + focusShapeFig(sh);
   return h + foot(D.meta);
@@ -3852,13 +3852,13 @@ function renderFocus(D) {
 function focusNpsFig(n) {
   let h = "";
   /* ---- 図 定期NPSの分布 ---- */
-  h += sec("図", "定期NPS の分布");
+  h += sec("図", "満足度の分布");
   const dist = (n.dist || []).map((d) => ({
-    label: "NPS " + d.v, v: d.n, txt: num(d.n) + "件",
+    label: "満足度 " + d.v, v: d.n, txt: num(d.n) + "件",
     color: d.v <= n.threshold ? C.hi : (d.v >= 9 ? C.midori : C.ai),
   }));
-  h += fig("定期NPS の最新回答", "回ごとに別プロパティなので、月が新しい方を採っています",
-    dist.length ? svgBarH({ rows: dist, w: 660, fmt: F.int }) : tooFew(0, "NPS"),
+  h += fig("満足度（顧客に聞いた点数）の最新回答", "回ごとに別プロパティなので、月が新しい方を採っています",
+    dist.length ? svgBarH({ rows: dist, w: 660, fmt: F.int }) : tooFew(0, "満足度"),
     lg("box", C.hi, n.threshold + " 以下") + lg("box", C.ai, "5〜8") +
     lg("box", C.midori, "9以上") +
     '<i class="full">' + esc(n.note) + "</i>");
@@ -3867,12 +3867,12 @@ function focusNpsFig(n) {
 /** いま見るべき顧客の表「定期NPS が 4 以下の顧客」の中身（見出しの下から）。成果と継続の「手を打つ先の表」でも使う */
 function focusNpsTable(n) {
   /* ---- 表 NPSが低い顧客 ---- */
-  let h = '<div class="lede">NPS の低い順、同じなら金額の大きい順。' +
+  let h = '<div class="lede">満足度の低い順、同じなら金額の大きい順。' +
     /* 🔴 200件で切っているのに書いていなかった（V20） */
     (n.rows.length > 200 ? "<b>上位200件だけ出しています（全 " + num(n.rows.length) + " 件）。</b>" : "") +
     "</div>";
   h += scroll(table(
-    [{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "NPS", n: 1 }, { t: "回答月" },
+    [{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "満足度", n: 1 }, { t: "回答月" },
      { t: "金額", n: 1 }, { t: "満了まで", n: 1 }, { t: "接触の記録", n: 1 }],
     n.rows.slice(0, 200).map((r) => [
       /* 🔴 2026-09-28 UI/UX 改善 S-4: 文字だけで行き止まりだった（名前を覚えて案件の詳細の探す欄に打ち直す4手順）。
@@ -4165,7 +4165,12 @@ function resultsKpis(D) {
       ? kpi("月次の継続率（" + last.month + " に満了）", pct1(last.rate),
           "結果が出た " + num(last.denom) + " 件のうち", "", { jump: "rs-renewal", text: "月ごとの推移へ" })
       : kpi("月次の継続率", DASH, "結果がそろい対象が " + MIN_N + " 件以上の満了月がありません")) +
+    (last && last.rate_excl_fill != null
+      ? kpi("採れて終わった分を除くと", pct1(last.rate_excl_fill),
+          last.month + " に満了・継続 ÷（継続 + 解約）", "", { jump: "rs-renewal", text: "月ごとの推移へ" })
+      : "") +
     resultsMoneyKpis(D.money, last, "rate") +
+    resultsMoneyKpis(D.money, last, "rate_excl") +
     (reached
       ? kpi("採用目標に届いた稼働中の契約", num(reached.n) + '<span class="u">件</span>',
           "目標・承諾数あり " + num(ga.both) + " 件（途中）", "", { jump: "rs-outcome", text: "区分の図へ" })
@@ -4173,7 +4178,8 @@ function resultsKpis(D) {
     "</div>" +
     '<div class="muted small">' +
     (last ? '<span>月次の継続率は、結果がそろった最新の満了月。' + num(last.denom) + "件" +
-      "（継続 " + num(last.keep) + "・解約 " + num(last.cancel) + "・充足 " + num(last.fill) + "）。</span> " : "") +
+      "（継続 " + num(last.keep) + "・解約 " + num(last.cancel) + "・充足 " + num(last.fill) + "）。" +
+      "充足は採れて終わった契約で、継続率の分母に入れています。「採れて終わった分を除くと」は充足を分母から外した比べるための数字です。</span> " : "") +
     (reached ? '<span>目標が入っているのは稼働中 ' + num(ga.has_goal) + " / " + num(ga.pop) +
       " 件。途中の値で、届いていない契約はまだ伸びます。</span> " : "") + resultsMoneyKpis(D.money, last, "notes") + "</div>";
 }
@@ -4207,6 +4213,12 @@ function resultsMoneyKpis(M, last, part) {
         (r.settled_missing ? "。金額が空の " + num(r.settled_missing) + " 件は入れていません" : "") +
         "。件数の継続率と同じ契約を金額で足しています（長い契約ほど重く効きます）。</span> " : "");
   }
+  if (part === "rate_excl") {
+    /* 充足（採れて終わった）の金額を分母から外した率。主の金額の継続率の横に並べる比較用の数字 */
+    if (!r || r.rate_excl_fill == null) return "";
+    return kpi("金額でも、採れて終わった分を除くと", pct1(r.rate_excl_fill),
+      r.month + " に満了・金額で同じ計算", "", { jump: "rs-renewal", text: "件数の推移へ" });
+  }
   if (!r || r.rate == null)
     return kpi("金額で見た継続率", DASH, last ? last.month + " に満了した金額がありません" : "結果がそろい対象が " + MIN_N + " 件以上の満了月がありません");
   return kpi("金額で見た継続率（" + r.month + " に満了）", pct1(r.rate),
@@ -4235,7 +4247,7 @@ function resultsActTables(D) {
           ? foldNote("info", "前の定義との対応", V.filter((v) => v.old).map((v) => "「" + esc(v.label) + "」（前は " + esc(v.old) + "）").join("</p><p>"), "", "")
           : "")
       : '<p class="muted small">よく使う絞り込みの一覧が届いていません。' + goLink("deal", "board") + " で見られます。</p>") +
-    '<p class="muted small"><b>定期NPS が ' + esc(n.threshold) + " 以下の顧客（" + num(n.n) + " 件）</b>は、" +
+    '<p class="muted small"><b>満足度（顧客に聞いた点数）が ' + esc(n.threshold) + " 以下の顧客（" + num(n.n) + " 件）</b>は、" +
     (flag
       ? '案件一覧の注意「' + esc(flag) + "」と同じ集合です。" +
         '<a class="golink wrap" href="' + esc(hashFor("board", { flag: flag })) + '">注意「' + esc(flag) + "」で絞った案件一覧</a>・"
@@ -4338,7 +4350,8 @@ function renderRenewal(D, id) {
      「数字で読む（1 件）」の下に 34 か月分が読点でつながった 1 行になり、月を拾えず読み上げも 1 項目で長かった。
      figSay は他の図と共通（担当外）なので、この図の出力だけを置き換える。点を打たない月（n<30・決着 0 件）も 1 行ずつ入れる */
   const mrLi = mrRows.map((r) => "<li>" + esc(r.month) + "（" + num(r.denom) + "件）: " +
-    (r.denom && r.rate != null ? pct1(r.rate) : "率なし（決着 0 件）") + " / " + cnt(r) +
+    (r.denom && r.rate != null ? pct1(r.rate) : "率なし（決着 0 件）") +
+    (r.denom && r.rate_excl_fill != null ? "（採れて終わった分を除くと " + pct1(r.rate_excl_fill) + "）" : "") + " / " + cnt(r) +
     (r.pending > 0 ? " / 未確定" : "") +
     (r.denom > 0 && r.denom < MIN_N ? " / 決着が " + MIN_N + " 件未満のため点は打っていません" : "") + "</li>").join("");
   h += mrFig.replace(/<ul class="sr">[\s\S]*?<\/ul><details class="fold figsay">[\s\S]*?<\/details>/, "")
@@ -5971,10 +5984,14 @@ const LEGACY_FLAGS = {
   "MTGが90日以上空いている": "MTGが60日以上空いている",
   "MTGが60〜89日途絶": "MTGが60日以上空いている",
   "MTGが60〜89日空いている": "MTGが60日以上空いている",
-  "MTGが30〜59日途絶": "MTGが30〜59日空いている"
+  "MTGが30〜59日途絶": "MTGが30〜59日空いている",
+  /* 2026-10-26 名札の呼び名を NPS から満足度に変えた。貼られた古い URL の絞り込みも開く */
+  "NPSが4以下": "満足度が4以下"
 };
+/* 満足度の名札の文字（サーバ routes.rs TEAM_FLAG_NPS_LOW と同じ。tests/consulting_view_rules.js が突き合わせる） */
+const FLAG_SATISFACTION_LOW = "満足度が4以下";
 const FLAG_SHORT = {
-  "NPSが4以下": "NPS4以下",
+  "満足度が4以下": "満足度4以下",
   "満了まで60日以内": "満了60日以内",
   "接触の記録が無い": "接触記録なし",
   "接触が30日以上空いている": "接触30日以上空き",
@@ -5988,7 +6005,9 @@ const FLAG_SHORT = {
 function tagsShort(fs) {
   if (!fs || !fs.length) return '<span class="n0">—</span>';
   const order = { hi: 0, ki: 1, murasaki: 2 };
-  const sorted = fs.slice().sort((a, b) => order[tagColor(a)] - order[tagColor(b)]);
+  /* 満足度の名札は一番前に出す合図。色が同じ緋の中でも先頭にする（並べ替えは安定なので、ほかの順は変わらない） */
+  const first = (f) => (f === FLAG_SATISFACTION_LOW ? -1 : 0);
+  const sorted = fs.slice().sort((a, b) => first(a) - first(b) || order[tagColor(a)] - order[tagColor(b)]);
   return sorted.slice(0, 2).map((f) => {
     const col = tagColor(f), s = FLAG_SHORT[f];
     const style = ' style="border-color:var(--' + col + ');color:var(--' + col + ')"';
@@ -6035,7 +6054,7 @@ function pos(r) {
       esc(r.band) + "</span>" : "");
 }
 function npsCell(r) {
-  if (r.nps == null) return '<span class="n0">未回答</span>';
+  if (r.nps == null) return '<span class="n0" title="満足度（顧客に聞いた点数）の回答がまだありません。名札が付いていないのは問題がないという意味ではありません">満足度 未回答</span>';
   const col = r.nps <= 4 ? "hi" : r.nps >= 9 ? "midori" : "ink-2";
   return '<b style="color:var(--' + col + ')">' + num(r.nps) + "</b>" +
     '<span class="muted small"> ' + esc(r.nps_month || "") + "</span>";
@@ -6109,7 +6128,7 @@ const BOARD_COLS = [
         ? '<b style="color:var(--ki)">' + num(r.days_left) + "日</b>"
         : num(r.days_left) + "日";
     } },
-  { k: "nps",        t: "定期NPS",     n: 1, fmt: npsCell },
+  { k: "nps",        t: "満足度",     n: 1, fmt: npsCell },
   { k: "days_since_contact", t: "最後の接触", n: 1, fmt: touchCell },
   /* 🔴 「最後の接触」（MTG＋60秒超の通話）とは別の列。こちらは MTG だけ。
      2つ並べているのは、電話でつないでいるだけで MTG が落ちている先を見つけるため */
@@ -6606,7 +6625,7 @@ function flagGroup(label) {
   /* 🔴 「満了90日前でMTGが30日以上途絶」は満了の話でもあるので、
      先に MTG を見る。順番を入れ替えると分類が変わる */
   if (label.indexOf("MTG") >= 0) return { color: C.hi, word: "関係が危ない" };
-  if (label.indexOf("NPS") >= 0 || label.indexOf("退職") >= 0)
+  if (label.indexOf("満足度") >= 0 || label.indexOf("退職") >= 0)
     return { color: C.hi, word: "関係が危ない" };
   if (label.indexOf("満了") >= 0 || label.indexOf("接触") >= 0)
     return { color: C.ki, word: "時間が迫っている" };
@@ -6806,11 +6825,11 @@ function renderToday(D0) {
   const crit = !c ? bandN("critical") : CB ? (CB[c] || 0) : D.rows.filter((r) => r.mtg_band === "critical").length;
   h += '<div class="kpis">' +
     kpi("今日出す先", num(D.rows.length) + '<span class="u">件</span>',
-        c ? "注意が2つ以上ついた候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
-          : "注意が2つ以上ついた " + num(D.meta.n_hit) + " 件から",
+        c ? "注意が2つ以上、または満足度（顧客に聞いた点数）が低い候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
+          : "注意が2つ以上、または満足度が低い " + num(D.meta.n_hit) + " 件から",
         "", { jump: "td-today-h", text: "表へ" }) +
     kpi("MTGが60日以上空いている", num(crit) + '<span class="u">件</span>',
-        c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（注意2つ以上）の中で。") + "全社では " + num(bandN("critical")) + " 件"
+        c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（注意2つ以上、または満足度が低い）の中で。") + "全社では " + num(bandN("critical")) + " 件"
           : "うち " + num(G.forced_by_expiry) + " 件は満了90日前のMTGの間隔が空いているため引き上げたもの",
         crit ? "bad" : "", { band: "critical", consultant: c && CB ? c : "", text: c && CB ? "この担当の一覧を見る" : "全社の一覧を見る" }) +
     todayNoContactKpi(D0, c) +
@@ -6838,7 +6857,7 @@ function renderToday(D0) {
      畳みと案内は scroll() の side で同じ 1 行（.caprow）に並べる。
      担当を選んでいるときは、絞った条件（サーバの filter_rule は全社の説明）の前に、この表が何かを 1 文書く */
   const rule = "";
-  if (c && !D.rows.length) h += '<div class="empty">この担当には注意が2つ以上ついた案件がありません。</div>';
+  if (c && !D.rows.length) h += '<div class="empty">この担当には注意が2つ以上、または満足度が低い案件がありません。</div>';
   h += scroll(boardTable(D.rows, todaySort["today-tbl"], "today-tbl", TODAY_COLS), "none", c ? null : D.meta.n_hit, rule);
 
   /* ---------------- 今週満了（行動。名札に関わらず出す。開いたまま） ---------------- */

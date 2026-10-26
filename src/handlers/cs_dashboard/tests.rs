@@ -2862,20 +2862,34 @@ fn 今日動く先は名札2本以上の全候補も返す() {
     let cand = v["candidates"].as_array().expect("candidates が無い");
     let rows = v["rows"].as_array().unwrap();
     assert_eq!(v["meta"]["keep"], 24, "meta.keep");
-    assert_eq!(cand.len(), 243, "注意2つ以上の候補の件数");
-    assert_eq!(v["meta"]["n_hit"], 243, "n_hit は候補の件数");
+    // 243 件（注意2つ以上）+ 8 件（注意が満足度の1本だけで、満足度が低い。2026-10-26 に候補へ足した）
+    assert_eq!(cand.len(), 251, "候補の件数");
+    assert_eq!(v["meta"]["n_hit"], 251, "n_hit は候補の件数");
     assert_eq!(rows.len(), 24, "rows は今までどおり keep 件");
     assert_eq!(
         &cand[..rows.len()],
         &rows[..],
         "rows が candidates の先頭 keep 件になっていない"
     );
+    let low = "満足度が4以下";
+    let mut one_flag_low = 0;
     for r in cand {
+        let n = r["n_flags"].as_u64().unwrap_or(0);
+        let has_low = r["flags"].as_array().unwrap().iter().any(|f| f == low);
         assert!(
-            r["n_flags"].as_u64().unwrap_or(0) >= 2,
-            "注意が2本未満の行が候補に入っている: {r}"
+            n >= 2 || has_low,
+            "注意が2本未満で満足度も低くない行が候補に入っている: {r}"
         );
+        if n < 2 {
+            one_flag_low += 1;
+            assert_eq!(r["flags"][0], low, "1本だけの注意が満足度の名札でない: {r}");
+            assert!(
+                r["nps"].as_f64().unwrap() <= 4.0,
+                "満足度が4を超えている: {r}"
+            );
+        }
     }
+    assert_eq!(one_flag_low, 8, "注意1本で満足度が低いだけの候補");
     let owners = |rs: &[Value]| -> std::collections::BTreeSet<String> {
         rs.iter()
             .map(|r| r["consultant"].as_str().unwrap_or("").to_string())
@@ -6005,10 +6019,19 @@ fn team_status_matches_today_and_board() {
     let board_rows = board["rows"].as_array().unwrap();
     let cands = today["candidates"].as_array().unwrap();
     // 全体: 名札2本以上 ＝ 今日動く先の候補の数（n_hit）、持ち件数の合計＋担当なし ＝ 稼働中
+    // 今日動く先の候補は「注意2つ以上」＋「満足度が低い注意1本」。チームの「注意2つ以上」は前者だけ
+    let flags2_in_cands = today["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["n_flags"].as_u64().unwrap() >= 2)
+        .count();
     assert_eq!(
-        st["meta"]["n_flags2"], today["meta"]["n_hit"],
-        "注意2つ以上の合計が今日動く先の候補と違う"
+        st["meta"]["n_flags2"].as_u64().unwrap() as usize,
+        flags2_in_cands,
+        "注意2つ以上の合計が今日動く先の候補（注意2つ以上）と違う"
     );
+    assert_eq!(today["meta"]["n_hit"], 251);
     let sum = |k: &str| rows.iter().map(|r| r[k].as_u64().unwrap()).sum::<u64>();
     assert_eq!(
         sum("n_active") + st["meta"]["unknown"]["n_active"].as_u64().unwrap(),
@@ -6016,7 +6039,7 @@ fn team_status_matches_today_and_board() {
     );
     assert_eq!(
         sum("n_flags2") + st["meta"]["unknown"]["n_flags2"].as_u64().unwrap(),
-        cands.len() as u64
+        flags2_in_cands as u64
     );
     // 今週満了 ＝ 今日動く先の「今週満了」
     assert_eq!(
@@ -6040,7 +6063,10 @@ fn team_status_matches_today_and_board() {
         );
         assert_eq!(
             r["n_flags2"].as_u64().unwrap(),
-            cands.iter().filter(|b| &b["consultant"] == c).count() as u64,
+            cands
+                .iter()
+                .filter(|b| &b["consultant"] == c && b["n_flags"].as_u64().unwrap() >= 2)
+                .count() as u64,
             "{c}: 注意2つ以上（今日動く先の候補）"
         );
         assert_eq!(
@@ -7154,9 +7180,17 @@ fn team_without_audit_keeps_counts_and_omits_comparison() {
     assert!(team["comparison"].is_null());
     assert_eq!(team["status"]["meta"]["n_active"], 594);
     assert_eq!(team["status"]["meta"]["n_flags2"], 243);
+    // チームの「注意2つ以上」は今日の候補のうち注意2つ以上の分（候補は満足度が低い注意1本の8件が加わって251件）
+    let today = build_today_board(&sh, fixture_day());
+    assert_eq!(today["meta"]["n_hit"], 251);
     assert_eq!(
-        team["status"]["meta"]["n_flags2"],
-        build_today_board(&sh, fixture_day())["meta"]["n_hit"]
+        team["status"]["meta"]["n_flags2"].as_u64().unwrap() as usize,
+        today["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["n_flags"].as_u64().unwrap() >= 2)
+            .count()
     );
 }
 
@@ -7573,4 +7607,111 @@ fn 開始月ごとの応募の推移は終わった月だけで具体値が合�
     // 取引数が 30 未満の月も n とともに返す（足切りは画面）。2026-04 の 5 か月目は 20 取引
     assert_eq!(pt("2026-04", 5)["n"], 20);
     assert_eq!(cohorts[0]["n_deals"], 57);
+}
+
+/// 2026-10-26: 満足度の名札は、直近の値が 4 以下のときだけ付き、行の名札の先頭に来る。
+/// 値の欄は「満足度 未回答」を出せるよう、無い案件では nps が null で返る。
+#[test]
+fn 満足度の名札は先頭で値が4以下のときだけ付く() {
+    let v = build_today_board(&sheets(), fixture_day());
+    let low = "満足度が4以下";
+    let mut n_low = 0;
+    let mut n_unanswered = 0;
+    for r in v["candidates"].as_array().unwrap() {
+        let flags = r["flags"].as_array().unwrap();
+        let nps = r["nps"].as_f64();
+        assert_eq!(
+            flags.iter().any(|f| f == low),
+            nps.is_some_and(|x| x <= 4.0),
+            "名札と満足度の値が合わない: {r}"
+        );
+        if flags.iter().any(|f| f == low) {
+            n_low += 1;
+            assert_eq!(flags[0], low, "満足度の名札が先頭でない: {r}");
+        }
+        if nps.is_none() {
+            n_unanswered += 1;
+        }
+    }
+    assert!(n_low > 0, "確かめる前提が無い");
+    assert!(n_unanswered > 0, "満足度が未回答の行が無い");
+}
+
+/// 2026-10-26: 充足を除いた継続率（継続 ÷（継続 + 解約））。主の率は充足も分母に入れたまま。
+#[test]
+fn 充足を除いた継続率は主の率と別のキーで返る() {
+    let v = build_renewal(&sheets(), false);
+    let mut checked = 0;
+    for r in v["monthly_retention"]["rows"].as_array().unwrap() {
+        let (k, c, f) = (
+            r["keep"].as_f64().unwrap(),
+            r["cancel"].as_f64().unwrap(),
+            r["fill"].as_f64().unwrap(),
+        );
+        if k + c + f == 0.0 {
+            assert!(r["rate"].is_null());
+        } else {
+            let main = r["rate"].as_f64().unwrap();
+            assert!(
+                (main - k / (k + c + f) * 100.0).abs() < 0.06,
+                "主の率が変わった: {r}"
+            );
+        }
+        if k + c == 0.0 {
+            assert!(
+                r["rate_excl_fill"].is_null(),
+                "継続も解約も0件なのに率がある: {r}"
+            );
+        } else {
+            let want = k / (k + c) * 100.0;
+            assert!(
+                (r["rate_excl_fill"].as_f64().unwrap() - want).abs() < 0.06,
+                "{r}"
+            );
+            assert!(r["rate_excl_fill"].as_f64().unwrap() >= r["rate"].as_f64().unwrap() - 1e-9);
+            if f > 0.0 {
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 0, "充足がある月が無く、確かめられていない");
+    // 具体値（fixture）: 月ごとの値を一つ固定する
+    let rows = v["monthly_retention"]["rows"].as_array().unwrap();
+    let r = rows
+        .iter()
+        .find(|r| r["fill"].as_f64().unwrap() > 0.0 && r["denom"].as_u64().unwrap() >= 30)
+        .expect("充足がある月");
+    assert_eq!(r["month"], "2023-10");
+    assert!((r["rate"].as_f64().unwrap() - 56.7).abs() < 0.05);
+    assert!(
+        (r["rate_excl_fill"].as_f64().unwrap() - 68.0).abs() < 1e-9,
+        "17 ÷ (17 + 8)"
+    );
+    // 画面の札と同じ月（結果待ち 0 件で決着 30 件以上の最新の満了月）の件数と金額
+    let last = rows
+        .iter()
+        .rfind(|r| {
+            r["denom"].as_u64().unwrap() >= 30
+                && r["pending"].as_u64().unwrap() == 0
+                && !r["rate"].is_null()
+        })
+        .expect("札の月");
+    let m = super::money::build_money(&sheets(), fixture_day());
+    let mr = m["retention"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["month"] == last["month"])
+        .expect("金額の月");
+    assert_eq!(last["month"], "2026-08");
+    assert!((last["rate"].as_f64().unwrap() - 61.4).abs() < 0.05);
+    assert!(
+        (last["rate_excl_fill"].as_f64().unwrap() - 64.6).abs() < 0.05,
+        "62 ÷ (62 + 34)"
+    );
+    assert!((mr["rate"].as_f64().unwrap() - 69.4).abs() < 0.05);
+    assert!(
+        (mr["rate_excl_fill"].as_f64().unwrap() - 73.4).abs() < 0.05,
+        "金額: 76,530,000 ÷ (76,530,000 + 27,690,000)"
+    );
 }
