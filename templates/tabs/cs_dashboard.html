@@ -6607,7 +6607,8 @@ function actViewOf(D, k) {
 }
 /** 見方のボタンの列。押している見方は aria-pressed と太字・枠（色だけにしない） */
 function boardViewBar(D) {
-  const V = (D.meta || {}).act_views || [];
+  /* 満了後も稼働中（stay_esc）は「満了日超過の稼働中」の画面で見る。ここに残すと押しても表が空になる */
+  const V = ((D.meta || {}).act_views || []).filter((v) => v.key !== "stay_esc");
   if (!V.length) return "";
   const on = boardFilter.view || "";
   return '<div class="ctlbar" id="board-views" role="group" aria-label="よく使う絞り込み（対応が要る案件）"><span class="act">よく使う絞り込み</span>' +
