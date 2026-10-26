@@ -5,7 +5,7 @@
 //!   社内の `/app/*`・`/api/*`・`/tab/*` は社内の Cookie しか見ないので、顧客の Cookie では入れない。
 //! - 社内の管理 API `/api/admin/portal/*`。CRM と同じ認可 (会社の Google ログイン) + 管理者だけ。
 //!
-//! 保存先 (社内用シート) とメールの送信用アカウントはまだ無い。どちらも差し替えられる作りにし、
+//! 保存先 (社内用シート) とメールの送信 (社員本人の Gmail、`PORTAL_MAIL_SENDER`) が
 //! 揃うまでは本番では `/api/portal/*` が 503 を返す。debug ビルドで `PORTAL_DEV_MEMORY=1` のときだけ、
 //! メモリの保存先とログに出すメールで動かせる (手元の確認用)。
 pub mod admin;
@@ -93,7 +93,7 @@ impl Ctx {
     /// 顧客の API を開けるか。保存先が読み込み済みで、メールを送れるときだけ
     fn portal(&self) -> Option<Portal> {
         match (&self.auth, &self.mailer) {
-            (Some(auth), Some(mailer)) if auth.store().ready() => Some(Portal {
+            (Some(auth), Some(mailer)) if auth.store().ready() && mailer.ready() => Some(Portal {
                 auth: auth.clone(),
                 mailer: mailer.clone(),
             }),
@@ -168,9 +168,10 @@ fn invite_path(token: &str) -> String {
 
 // ---- 組み立て ----
 
-pub fn router() -> Router<Arc<AppState>> {
+/// `audit` は確認コードのメールの送信元の許可 (CRM のメール送信の許可) を読むのに使う
+pub fn router(audit: Option<crate::audit::AuditDb>) -> Router<Arc<AppState>> {
     let manifest = spa_shell::load_manifest(std::path::Path::new(spa_shell::MANIFEST_PATH));
-    router_parts(parts_from_env(), CrmAccess::from_env(), manifest)
+    router_parts(parts_from_env(audit), CrmAccess::from_env(), manifest)
 }
 
 fn auth_config() -> auth::AuthConfig {
@@ -189,9 +190,10 @@ fn auth_config() -> auth::AuthConfig {
 /// - 社内用シート (`PORTAL_STORE_SPREADSHEET_ID` と `PORTAL_STORE_SA_KEY_B64`) が両方あれば保存先にする。
 ///   どちらかが無ければ保存先は無効 (社内の管理 API も顧客の API も 503)。
 /// - 顧客のシートを読む鍵 (`PORTAL_GOOGLE_SA_KEY_B64`) があれば「試しに読む」に使う。
-/// - メールの送信用アカウントはまだ無いので、本番の顧客の API は 503 のまま。
+/// - 確認コードのメールは社員本人 (`PORTAL_MAIL_SENDER`) の Gmail から、CRM のメール送信の許可を使って送る
+///   ([`mail::GmailMailer`])。CRM のメール送信が無効・許可が無いときは、本番の顧客の API は 503 のまま。
 /// - debug ビルドで `PORTAL_DEV_MEMORY=1` のときだけ、メモリの保存先とログに出すメールで動かす (手元の確認用)。
-fn parts_from_env() -> Parts {
+fn parts_from_env(audit: Option<crate::audit::AuditDb>) -> Parts {
     let reader = sheets::GoogleSheetsApi::from_env_var(sheets::ENV_CUSTOMER_KEY);
     #[cfg(debug_assertions)]
     if std::env::var("PORTAL_DEV_MEMORY").is_ok_and(|v| v == "1") {
@@ -216,9 +218,10 @@ fn parts_from_env() -> Parts {
         }
         _ => None,
     };
+    let mailer = mail::GmailMailer::from_env(audit).map(|m| m as Arc<dyn Mailer>);
     Parts {
         auth,
-        mailer: None,
+        mailer,
         reader,
         store_spreadsheet: spreadsheet,
     }

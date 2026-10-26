@@ -1,6 +1,6 @@
 //! One-to-one email: Gmail sends, HubSpot owns history. Pending retries only record.
-mod gmail;
-mod grants;
+pub(crate) mod gmail;
+pub(crate) mod grants;
 mod oauth;
 pub mod replies;
 mod routes;

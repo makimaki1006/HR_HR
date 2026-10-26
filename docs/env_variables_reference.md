@@ -72,10 +72,11 @@
 | 23 | `GOOGLE_OIDC_REDIRECT_URL` | `""` | 承認済みリダイレクト URI と完全一致させる。本番 `https://hr-hw.onrender.com/auth/google/callback` | 同上 | 同上 |
 | 24 | `GOOGLE_OIDC_HOSTED_DOMAIN` | `""` | ID token の `hd` クレームと email のドメインをこれと照合 (例 `f-a-c.co.jp`)。`ALLOWED_DOMAINS` は流用しない (`*` 設定で hd 検証が無効化されるのを避けるため) | 同上 | 同上 |
 | 25 | `CSRF_EXTRA_ORIGINS_DEBUG` | `""` | **debug ビルド専用** (release では読まない)。CSRF の許可 Origin に追加する (カンマ区切り、例 `http://localhost:9217`)。PR 時 E2E の POST 用 | 追加なし | `src/lib.rs` (`origin_allowed`) |
-| 26 | `PORTAL_DEV_MEMORY` | `""` | **debug ビルド専用** (release では読まない)。`1` なら顧客向け応募者画面のログイン (`/portal/*`, `/api/portal/*`) をメモリの保存先と、コードをログに出すメール (送らない) で動かす。起動時に試しのアカウント `dev@example.com` の招待のパスを出す。手元の確認用 | 顧客のログインは 503 (保存先と送信用アカウントが揃うまで本番も同じ) | `src/portal/mod.rs` (`parts_from_env`) |
+| 26 | `PORTAL_DEV_MEMORY` | `""` | **debug ビルド専用** (release では読まない)。`1` なら顧客向け応募者画面のログイン (`/portal/*`, `/api/portal/*`) をメモリの保存先と、コードをログに出すメール (送らない) で動かす。起動時に試しのアカウント `dev@example.com` の招待のパスを出す。手元の確認用 | 顧客のログインは 503 (保存先と確認コードのメールの送信 (30) が揃うまで本番も同じ) | `src/portal/mod.rs` (`parts_from_env`) |
 | 27 | `PORTAL_STORE_SPREADSHEET_ID` | `""` | 顧客向け応募者画面のアプリの情報 (顧客・シート・項目・アカウント・招待・端末・ログイン・操作の記録) を置く社内用スプレッドシートの ID (計画 `customer-applicant-portal-plan.html` 9 章) | 28 と両方そろうまで保存先は無効 (社内の管理 `/api/admin/portal/*` も顧客の `/api/portal/*` も 503) | `src/portal/mod.rs` / `src/portal/sheet_store.rs` |
 | 28 | `PORTAL_STORE_SA_KEY_B64` | `""` | 社内用シートを読み書きするサービスアカウントの鍵 (base64 の JSON)。顧客のシート用・既存の `GOOGLE_SA_KEY_B64` とは別にする。社内用シートにこのアドレスを編集者として共有する。中身はログに出さない | 同上 | `src/portal/sheets.rs` |
 | 29 | `PORTAL_GOOGLE_SA_KEY_B64` | `""` | 顧客のシートを読み書きするサービスアカウントの鍵 (base64 の JSON)。PR1 では社内の管理画面の「試しに読む」に使う。対象のシートにこのアドレスを編集者として共有する | 「試しに読む」・シートの登録ができない (管理画面に案内を出す) | `src/portal/sheets.rs` |
+| 30 | `PORTAL_MAIL_SENDER` | `""` | 顧客向け応募者画面の確認コードのメールの送信元にする社員のメールアドレス (公開リポなので値は書かない)。その人の Gmail から送り、許可は CRM のメール送信の許可 (ADR-022、監査 Turso の `crm_gmail_grants`) をそのまま使う。送信元の人が CRM の画面で一度 Gmail の許可をしておく。`CRM_EMAIL_ENABLED=1`・`CRM_EMAIL_TOKEN_KEY`・Google の設定・`AUDIT_TURSO_*` (下の「CRM メール送信」の節) も必要。ログにはアドレス・トークンを出さない | 確認コードを送れないので、顧客の `/api/portal/*` は 503。CRM のメール送信が無効・許可が無い・取り消されたときも同じ | `src/portal/mail.rs` (`GmailMailer`) |
 
 ユーザー側の準備 (Google Cloud): OAuth 同意画面を「内部」で作成 → OAuth クライアント ID (ウェブアプリ) を作成 → 承認済みリダイレクト URI に上の URL を登録 → 4 つを Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
 

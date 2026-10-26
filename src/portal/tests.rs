@@ -377,6 +377,9 @@ struct FakeMailer {
 }
 
 impl Mailer for FakeMailer {
+    fn send<'a>(&'a self, _: &'a [String], _: &'a str, _: &'a str) -> MailFuture<'a> {
+        Box::pin(async { Err(MailError) })
+    }
     fn send_code<'a>(&'a self, to: &'a [String], code: &'a str) -> MailFuture<'a> {
         Box::pin(async move {
             if self.fail {
@@ -1073,3 +1076,6 @@ mod admin_tests;
 
 #[path = "view_tests.rs"]
 mod view_tests;
+
+#[path = "mail_tests.rs"]
+mod mail_tests;

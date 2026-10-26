@@ -19,6 +19,14 @@ pub struct Tokens {
     pub refresh_token: Option<String>,
     pub id_token: Option<String>,
     pub scope: Option<String>,
+    #[serde(default)]
+    pub expires_in: Option<u64>,
+}
+/// Gmail へ送った 1 通の失敗 (顧客向け画面の確認コード用。CRM の send_gmail とは別の分け方)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawSendError {
+    Network,
+    Status(u16),
 }
 impl EmailService {
     pub async fn tokens(&self, fields: &[(&str, &str)]) -> Result<Tokens, EmailError> {
@@ -49,13 +57,36 @@ impl EmailService {
         r.json().await.map_err(|_| EmailError::GmailUnavailable)
     }
     pub async fn access_token(&self, refresh: &str) -> Result<String, EmailError> {
+        self.access_token_with_expiry(refresh).await.map(|(t, _)| t)
+    }
+    /// access token と有効秒数 (Google が返したとき)
+    pub async fn access_token_with_expiry(
+        &self,
+        refresh: &str,
+    ) -> Result<(String, Option<u64>), EmailError> {
         let t = self
             .tokens(&[("grant_type", "refresh_token"), ("refresh_token", refresh)])
             .await?;
         if t.access_token.is_empty() {
             return Err(EmailError::GrantRequired);
         }
-        Ok(t.access_token)
+        Ok((t.access_token, t.expires_in))
+    }
+    /// 組み立て済みの RFC 822 (base64url) を 1 通送る。再送はしない
+    pub async fn send_raw(&self, access: &str, raw: &str) -> Result<(), RawSendError> {
+        let r = self
+            .http
+            .post(format!("{}/users/me/messages/send", self.cfg.gmail_url))
+            .bearer_auth(access)
+            .json(&json!({ "raw": raw }))
+            .send()
+            .await
+            .map_err(|_| RawSendError::Network)?;
+        if r.status().is_success() {
+            Ok(())
+        } else {
+            Err(RawSendError::Status(r.status().as_u16()))
+        }
     }
     pub async fn revoke_google(&self, refresh: &str) -> Result<(), EmailError> {
         let r = self
@@ -158,6 +189,18 @@ impl EmailService {
             .map(|m| serde_json::from_value(m.clone()).map_err(|_| EmailError::GmailUnavailable))
             .transpose()
     }
+}
+/// 1 宛先・本文は文字だけのメール。宛先・送信元は呼ぶ側で valid_address を通してあること
+pub fn plain_mime(from: &str, to: &str, subject: &str, body: &str) -> String {
+    let subject = format!("=?UTF-8?B?{}?=", STANDARD.encode(subject));
+    let body = STANDARD.encode(body.replace("\r\n", "\n").replace('\n', "\r\n"));
+    let wrapped = body
+        .as_bytes()
+        .chunks(76)
+        .map(|c| std::str::from_utf8(c).unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\r\n");
+    URL_SAFE_NO_PAD.encode(format!("From: {from}\r\nTo: {to}\r\nSubject: {subject}\r\nDate: {}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{wrapped}\r\n", chrono::Utc::now().to_rfc2822()))
 }
 pub fn mime(operator: &str, email: &EmailOperation) -> String {
     // Every address/subject is validated before this; UTF-8 encoded-word avoids header injection.
