@@ -11,6 +11,7 @@
 //! - `dial_breakdown`: 発信の内訳 (つながった・失敗・切った・モニタリング・内線)。過去の日は日単位でキャッシュ
 //! - `live_dials`: 今日の架電数を Zoom の通話ログから約 15 分おきに数える
 //! - `contact` / `contact_store` / `contact_worker`: 接触・日程切りの判定 (表 `call_contact_marks`、別の周回)
+//! - `scope`: アポ取り以外の電話を、かけた時点の取引のステージで外す (接触の判定の手前)
 //! - `counts`: アポ数 (日ごとにキャッシュ)
 //! - `target`: 9 項目の判定の対象 = 接触した電話 (接触の印と Call の結び付け)
 //! - `summary`: 集計と印 (純粋な計算)
@@ -31,6 +32,7 @@ pub mod judge;
 pub mod lang;
 pub mod live_dials;
 pub mod routes;
+pub mod scope;
 pub mod store;
 pub mod summary;
 pub mod target;

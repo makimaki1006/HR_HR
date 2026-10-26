@@ -20,6 +20,8 @@ use super::zoom::{TranscriptSource, ZoomError};
 
 pub const ST_PENDING: &str = "pending";
 pub const ST_JUDGED: &str = "judged";
+/// アポ取り以外の電話 (かけた時点の取引のステージが対象外)。判定せず、接触・日程切りにも数えない
+pub const ST_OUT_OF_SCOPE: &str = "out_of_scope";
 
 /// 録音が消えたとみなす通話の年齢
 const GONE_AFTER: ChronoDuration = ChronoDuration::days(1);
@@ -39,6 +41,8 @@ pub struct Candidate {
     pub owner_id: String,
     /// UTC、`ts_text` の形
     pub call_at: String,
+    /// 被呼番号の下 9 桁 (通話ログの `callee_number`)。HubSpot の Call と結び付けて取引のステージを見るのに使う
+    pub callee9: Option<String>,
 }
 
 /// 通話ログのページから、JST の `day` の「つながった発信」(録音あり)。
@@ -96,6 +100,9 @@ pub fn discover(
                 id: id.to_string(),
                 owner_id: owner.clone(),
                 call_at: ts_text(when),
+                callee9: text("callee_number")
+                    .or_else(|| text("callee_did_number"))
+                    .and_then(super::zoom::normalize_number),
             });
         }
     }

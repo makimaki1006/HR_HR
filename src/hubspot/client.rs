@@ -68,6 +68,8 @@ pub const TOKEN_INFO_TTL: Duration = Duration::from_secs(300);
 
 /// batch read 1 回あたりの上限 (HubSpot の仕様)
 const BATCH_READ_LIMIT: usize = 100;
+/// 履歴付きの batch read は 1 回 50 件まで (HubSpot の上限)
+const HISTORY_READ_LIMIT: usize = 50;
 /// Retry-After / 指数待ちの上限
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(10);
 
@@ -867,6 +869,38 @@ impl HubSpotClient {
             for r in batch_results(&v, "batch read")? {
                 out.push(parse_record(r)?);
             }
+        }
+        Ok(out)
+    }
+
+    /// `POST /crm/v3/objects/{object}/batch/read` に `propertiesWithHistory` を付けた読み取り (最大 50 件ずつ)。
+    /// 応答の `results[]` をそのまま返す (履歴は `propertiesWithHistory.{名前}[]` の `value` / `timestamp`、新しい順)。
+    /// 見つからない ID は結果に含まれないだけでエラーにしない。
+    pub async fn batch_read_with_history(
+        &self,
+        object: &str,
+        ids: &[String],
+        properties: &[&str],
+        history: &[&str],
+    ) -> Result<Vec<Value>, HubSpotError> {
+        check_object(object)?;
+        for id in ids {
+            check_id(id)?;
+        }
+        let path = format!("/crm/v3/objects/{object}/batch/read");
+        let mut out = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(HISTORY_READ_LIMIT) {
+            let body = json!({
+                "properties": properties,
+                "propertiesWithHistory": history,
+                "inputs": chunk.iter().map(|id| json!({ "id": id })).collect::<Vec<_>>(),
+            });
+            let v = self.send(Method::POST, &path, &[], Some(&body)).await?;
+            out.extend(
+                batch_results(&v, "batch read with history")?
+                    .iter()
+                    .cloned(),
+            );
         }
         Ok(out)
     }

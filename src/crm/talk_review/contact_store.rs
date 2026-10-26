@@ -5,7 +5,9 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
-use super::contact::{Candidate, ContactAgg, ContactResult, ST_JUDGED, ST_PENDING};
+use super::contact::{
+    Candidate, ContactAgg, ContactResult, ST_JUDGED, ST_OUT_OF_SCOPE, ST_PENDING,
+};
 use super::target::MarkState;
 use crate::db::turso_http::{ToSqlTurso, TursoDb};
 
@@ -25,6 +27,21 @@ fn n(r: &HashMap<String, Value>, k: &str) -> Option<i64> {
 
 /// 見つけた発信をまとめて入れる (判定待ちとして、すぐ判定できる状態で)。同じ通話ログ ID は二度入らない
 pub fn insert_batch(t: &TursoDb, now: &str, rows: &[Candidate]) -> Result<(), String> {
+    insert_with_status(t, now, rows, ST_PENDING)
+}
+
+/// アポ取り以外の電話を、最初から `out_of_scope` の行として入れる (判定待ちにしない。書き込みは通常の挿入と同じ回数)
+pub fn insert_out_of_scope(t: &TursoDb, now: &str, rows: &[Candidate]) -> Result<(), String> {
+    insert_with_status(t, now, rows, ST_OUT_OF_SCOPE)
+}
+
+fn insert_with_status(
+    t: &TursoDb,
+    now: &str,
+    rows: &[Candidate],
+    status: &'static str,
+) -> Result<(), String> {
+    let pending = status == ST_PENDING;
     for chunk in rows.chunks(INSERT_CHUNK) {
         let mut sql = String::from(
             "INSERT OR IGNORE INTO call_contact_marks (zoom_call_id, owner_id, call_at, connected, \
@@ -37,11 +54,16 @@ pub fn insert_batch(t: &TursoDb, now: &str, rows: &[Candidate]) -> Result<(), St
             }
             let b = i * 3;
             sql.push_str(&format!(
-                "(?{}, ?{}, ?{}, 1, 'pending', 0, ?{}, ?{}, ?{})",
+                "(?{}, ?{}, ?{}, 1, '{}', 0, {}, ?{}, ?{})",
                 b + 1,
                 b + 2,
                 b + 3,
-                chunk.len() * 3 + 1,
+                status,
+                if pending {
+                    format!("?{}", chunk.len() * 3 + 1)
+                } else {
+                    "NULL".to_string()
+                },
                 chunk.len() * 3 + 1,
                 chunk.len() * 3 + 1,
             ));
@@ -249,6 +271,7 @@ mod tests {
             id: id.into(),
             owner_id: owner.into(),
             call_at: at.into(),
+            callee9: None,
         }
     }
 
@@ -321,6 +344,67 @@ mod tests {
             let agg = aggregate(t, "2026-10-15T00:00:00Z", "2026-10-16T00:00:00Z")?;
             let a = agg.get("o1").unwrap();
             assert_eq!((a.contacts, a.pending), (2, 0));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn out_of_scope_rows_are_never_due_and_never_counted() {
+        let (audit, _conn) = start_sqlite_audit().await;
+        blocking(&audit, move |t| {
+            insert_batch(
+                t,
+                "2026-10-15T06:00:00Z",
+                &[cand("in1", "o1", "2026-10-15T01:00:00Z")],
+            )?;
+            insert_out_of_scope(
+                t,
+                "2026-10-15T06:00:00Z",
+                &[
+                    cand("out1", "o1", "2026-10-15T02:00:00Z"),
+                    cand("out2", "o1", "2026-10-15T03:00:00Z"),
+                ],
+            )?;
+            // 同じ ID は二度入らない
+            insert_out_of_scope(t, "x", &[cand("in1", "o1", "2026-10-15T01:00:00Z")])?;
+            assert_eq!(known_ids(t, "2026-10-01T00:00:00Z")?.len(), 3);
+            let d = due(t, "2026-10-16T00:00:00Z", 100)?;
+            assert_eq!(
+                d.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(),
+                vec!["in1"],
+                "判定待ちは対象の電話だけ。対象外は MiniMax に回らない"
+            );
+            let agg = aggregate(t, "2026-10-15T00:00:00Z", "2026-10-16T00:00:00Z")?;
+            let a = agg.get("o1").unwrap();
+            assert_eq!(
+                (a.contacts, a.pending),
+                (0, 1),
+                "対象外は判定待ちにも数えない"
+            );
+            // 9 項目の結び付け: 対象外の印は接触していない電話と同じ (見送り)
+            let m = marks_for(t, &["out1".to_string()], &[])?;
+            assert_eq!(
+                (m[0].status.as_str(), m[0].contacted),
+                ("out_of_scope", None)
+            );
+            assert_eq!(
+                crate::crm::talk_review::target::verdict(
+                    None,
+                    "o1",
+                    m[0].at_ms,
+                    &m,
+                    &mut Default::default()
+                ),
+                crate::crm::talk_review::target::Verdict::Skip
+            );
+            assert!(contacted_marks(t, "2026-10-15T00:00:00Z", "2026-10-16T00:00:00Z")?.is_empty());
+            // 更新も受けない
+            mark_final(t, "out1", "unavailable", 1, "x")?;
+            mark_retry(t, "out1", 1, "x", "x")?;
+            let m = marks_for(t, &["out1".to_string()], &[])?;
+            assert_eq!(m[0].status, "out_of_scope");
             Ok(())
         })
         .await
