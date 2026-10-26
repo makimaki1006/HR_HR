@@ -264,7 +264,7 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
               {sortHead('日程切り本数', { kind: 'proposalCalls' })}
               {sortHead('日程切り率', { kind: 'proposalRate' })}
               {sortHead('1接触あたりの日程切り回数', { kind: 'perContact' })}
-              {sortHead('判定した電話数', { kind: 'reviewed' })}
+              {sortHead('判定した電話数（接触した電話）', { kind: 'reviewed' })}
               {data.checks.map(c => {
                 const key = { kind: 'item', id: c.id } as const;
                 const docTip = c.baseline_pct === null ? '' : `\n資料の全体: できた ${fmtPct(100 - c.baseline_pct)}${c.baseline_basis === null ? '' : `（${c.baseline_basis}）`}`;
@@ -288,7 +288,7 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
         <span style={{ display: 'block' }}>各項目の割合は、その項目に当てはまる電話のうち、できた電話の割合です。</span>
         <span style={{ display: 'block' }} data-testid="talk-dials-rule">発信数は Zoom の発信すべて（相手が出る前に切ったもの・つながらなかったものを含む）、架電数はそのうちつながった通話の数で、営業KPI と同じです。アポ率 ＝ アポ数 ÷ 架電数です。</span>
         <span style={{ display: 'block' }} data-testid="talk-contact-rule">接触は、受付を越えて担当者・決裁者と話せた発信で、日程を出していなくても数えます。接触率 ＝ 接触数 ÷ 発信数。日程切り本数は、具体的な日時（週・曜日・日付）を 1 回以上出した発信の本数で、日程切り率 ＝ 日程切り本数 ÷ 発信数です。1 接触あたりの日程切り回数は、接触した電話で日時を出した回数の合計 ÷ 接触数です。つながらなかった発信は接触 0・日程切り 0 として数えます。</span>
-        <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる 70 秒以上の電話の本数です。</span>
+        <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる、担当者と話せた電話（接触した電話）の本数です。電話の長さでは絞っていません。資料の全体の割合は 70 秒以上の電話で取った値で、短い電話も入るこの表とは、そのまま比べられません。</span>
       </p>
     </>
   );

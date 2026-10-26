@@ -142,6 +142,7 @@ pub fn known_ids(t: &TursoDb, since: &str) -> Result<HashSet<String>, String> {
 }
 
 /// 順番待ちの行を、1 人 1 日あたり `per_day` 本の枠まで文字起こし待ちにする。
+/// 枠に入れるのは接触した電話 (`note = 'contacted'`) の行だけ (接触を調べていない古い行は入れない)。
 /// 枠は判定済み + 文字起こし待ちの本数で数え、新しい電話から入れる (取れなくなった行は枠を空ける)。
 pub fn promote(t: &TursoDb, since: &str, per_day: u32, now: &str) -> Result<(), String> {
     t.execute(
@@ -152,10 +153,35 @@ pub fn promote(t: &TursoDb, since: &str, per_day: u32, now: &str) -> Result<(), 
                PARTITION BY owner_id, date(call_at, '+9 hours') \
                ORDER BY (status = 'queued'), call_at DESC) AS rn \
              FROM call_talk_reviews \
-             WHERE call_at >= ?1 AND status IN ('queued', 'pending_transcript', 'judged')) \
+             WHERE call_at >= ?1 AND status IN ('queued', 'pending_transcript', 'judged') \
+               AND (status <> 'queued' OR note = 'contacted')) \
            WHERE status = 'queued' AND rn <= ?2)",
         &[&since, &i64::from(per_day), &now],
     )
+}
+
+/// 接触の印をまだ付けていない順番待ちの行 (この変更より前に取り込んだ行)。起動後に 1 回だけ読む
+pub fn queued_unmarked(t: &TursoDb, since: &str) -> Result<Vec<ReviewRow>, String> {
+    let sql = format!(
+        "SELECT {COLS} FROM call_talk_reviews WHERE status = 'queued' AND note IS NULL AND call_at >= ?1"
+    );
+    Ok(t.query(&sql, &[&since])?.iter().map(row_from).collect())
+}
+
+/// 接触した電話と分かった順番待ちの行に印を付ける (枠に入れるようにする)
+pub fn mark_contacted(t: &TursoDb, ids: &[String], now: &str) -> Result<(), String> {
+    for chunk in ids.chunks(200) {
+        let ph: Vec<String> = (2..=chunk.len() + 1).map(|i| format!("?{i}")).collect();
+        let sql = format!(
+            "UPDATE call_talk_reviews SET note = 'contacted', updated_at = ?1 \
+             WHERE status = 'queued' AND note IS NULL AND hubspot_call_id IN ({})",
+            ph.join(",")
+        );
+        let mut params: Vec<&dyn ToSqlTurso> = vec![&now];
+        params.extend(chunk.iter().map(|x| x as &dyn ToSqlTurso));
+        t.execute(&sql, &params)?;
+    }
+    Ok(())
 }
 
 /// 枠を超えた文字起こし待ちの行を順番待ちに戻す (起動後に 1 回。枠ができる前の版が全部を待ちにしていた分)。
@@ -487,6 +513,7 @@ mod tests {
             let q = |id: &str, owner: &str, at: &str| NewRow {
                 status: ST_QUEUED,
                 next_retry_at: None,
+                note: Some("contacted".into()),
                 ..new(id, owner, at)
             };
             // o1 の JST 10/15 (UTC 10/14 15:00 から 10/15 14:59): 4 本。UTC 10/14 14:00 は JST 10/14 の別の日
@@ -508,6 +535,17 @@ mod tests {
             assert_eq!(status("a4")?, ST_QUEUED);
             assert_eq!(status("b1")?, ST_PENDING, "別の日は別の枠");
             assert_eq!(status("c1")?, ST_PENDING, "別の人は別の枠");
+            // 接触を調べていない古い行 (note が空) は枠に入らず、新しい電話の枠も奪わない
+            let mut u = q("u1", "o5", "2026-10-15T04:00:00Z");
+            u.note = None;
+            insert_new(t, "2026-10-15T05:05:00Z", &u)?;
+            promote(t, "2026-10-01T00:00:00Z", 2, "2026-10-15T05:11:00Z")?;
+            assert_eq!(status("u1")?, ST_QUEUED);
+            assert_eq!(status("a1")?, ST_QUEUED);
+            assert_eq!(queued_unmarked(t, "2026-10-01T00:00:00Z")?.len(), 1);
+            mark_contacted(t, &["u1".to_string()], "2026-10-15T05:12:00Z")?;
+            assert_eq!(queued_unmarked(t, "2026-10-01T00:00:00Z")?.len(), 0);
+            assert_eq!(get(t, "u1")?.unwrap().note.as_deref(), Some("contacted"));
             // 何度呼んでも枠を超えない
             promote(t, "2026-10-01T00:00:00Z", 2, "2026-10-15T05:20:00Z")?;
             assert_eq!(status("a1")?, ST_QUEUED);
@@ -525,7 +563,8 @@ mod tests {
             assert_eq!(status("a4")?, ST_QUEUED);
             // 文字起こし待ちになった行は新しい順に処理される
             let d = due(t, "2026-10-15T06:00:00Z", 10)?;
-            assert_eq!(d[0].hubspot_call_id, "a2");
+            assert_eq!(d[0].hubspot_call_id, "u1");
+            assert_eq!(d[1].hubspot_call_id, "a2");
             // 古い no_recording_url の行は順番待ちに戻る (理由が違う行・URL がある行は戻らない)
             let mut n = new("n1", "o3", "2026-10-15T01:00:00Z");
             n.zoom_call_log_id = None;

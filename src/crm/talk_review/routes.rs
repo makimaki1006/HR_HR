@@ -137,6 +137,33 @@ pub fn call_row(r: &ReviewRow, check_ids: &[String]) -> TalkCallRow {
 type RowsCache = Mutex<HashMap<(String, String), (Instant, Arc<Vec<ReviewRow>>)>>;
 type TranscriptCache = Mutex<HashMap<String, (Instant, Result<Vec<TalkTurn>, ZoomError>)>>;
 
+/// 期間の行のうち、接触した電話 (接触の判定で `contacted = 1`) だけ。集計も一覧もこの行で数える。
+/// 接触の印が読めなければ全体を失敗にする (定義の違う数を混ぜて出さない)
+async fn contacted_in(
+    audit: &crate::audit::AuditDb,
+    from: String,
+    to: String,
+    owner: Option<String>,
+) -> Result<Vec<ReviewRow>, String> {
+    // 印の時刻は Zoom の通話ログ、行の時刻は HubSpot の Call。境目の電話を取りこぼさないよう少し広げて読む
+    let pad = chrono::Duration::milliseconds(super::zoom::CALLER_WINDOW_MS);
+    let widen = |s: &str, d: chrono::Duration| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|t| store::ts_text(t.with_timezone(&chrono::Utc) + d))
+            .unwrap_or_else(|_| s.to_string())
+    };
+    let (mfrom, mto) = (widen(&from, -pad), widen(&to, pad));
+    store::blocking(audit, move |t| {
+        let rows = store::rows_in(t, &from, &to, owner.as_deref())?;
+        if rows.is_empty() {
+            return Ok(rows);
+        }
+        let marks = contact_store::contacted_marks(t, &mfrom, &mto)?;
+        Ok(super::target::contacted_rows(rows, &marks))
+    })
+    .await
+}
+
 #[derive(Default)]
 pub struct TalkState {
     pub(super) counts: CountsCache,
@@ -170,7 +197,7 @@ impl TalkState {
                 "not_configured",
             ));
         };
-        let rows = store::blocking(&audit, move |t| store::rows_in(t, &a, &b, None))
+        let rows = contacted_in(&audit, a, b, None)
             .await
             .map_err(|_| error_json(StatusCode::SERVICE_UNAVAILABLE, "review_unavailable"))?;
         let rows = Arc::new(rows);
@@ -494,7 +521,7 @@ pub(in crate::crm) async fn get_calls(
     };
     let (a, b) = utc_bounds(from, to);
     let o2 = owner.clone();
-    let rows = match store::blocking(&audit, move |t| store::rows_in(t, &a, &b, Some(&o2))).await {
+    let rows = match contacted_in(&audit, a, b, Some(o2)).await {
         Ok(r) => r,
         Err(_) => return error_json(StatusCode::SERVICE_UNAVAILABLE, "review_unavailable"),
     };

@@ -12,6 +12,7 @@
 //! - `live_dials`: 今日の架電数を Zoom の通話ログから約 15 分おきに数える
 //! - `contact` / `contact_store` / `contact_worker`: 接触・日程切りの判定 (表 `call_contact_marks`、別の周回)
 //! - `counts`: アポ数 (日ごとにキャッシュ)
+//! - `target`: 9 項目の判定の対象 = 接触した電話 (接触の印と Call の結び付け)
 //! - `summary`: 集計と印 (純粋な計算)
 //! - `worker`: 背景で対象の Call を見つけて判定する (`CALL_REVIEW_ENABLED=1` のときだけ)
 //! - `routes`: `/api/crm/talk-review/*` (Google ログインした社内の人なら誰でも)
@@ -32,6 +33,7 @@ pub mod live_dials;
 pub mod routes;
 pub mod store;
 pub mod summary;
+pub mod target;
 pub mod transcript;
 pub mod types;
 pub mod worker;

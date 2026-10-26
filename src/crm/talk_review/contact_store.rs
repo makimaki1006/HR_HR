@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use super::contact::{Candidate, ContactAgg, ContactResult, ST_JUDGED, ST_PENDING};
+use super::target::MarkState;
 use crate::db::turso_http::{ToSqlTurso, TursoDb};
 
 /// 1 回の INSERT にまとめる行数
@@ -136,6 +137,77 @@ pub fn mark_final(
     )
 }
 
+fn mark_state(r: &HashMap<String, Value>) -> Option<MarkState> {
+    let at = chrono::DateTime::parse_from_rfc3339(&s(r, "call_at")?).ok()?;
+    Some(MarkState {
+        id: s(r, "zoom_call_id")?,
+        owner_id: s(r, "owner_id")?,
+        at_ms: at.timestamp_millis(),
+        status: s(r, "status")?,
+        contacted: n(r, "contacted").map(|v| v == 1),
+    })
+}
+
+/// 一度に調べる ID / 時刻の窓の数
+const LOOKUP_CHUNK: usize = 25;
+
+/// 9 項目の取り込み用: 通話ログ ID の印と、(担当者, 開始, 終了) の窓に入る印 (どの状態も)。SELECT のみ
+pub fn marks_for(
+    t: &TursoDb,
+    ids: &[String],
+    windows: &[(String, String, String)],
+) -> Result<Vec<MarkState>, String> {
+    const COLS: &str = "zoom_call_id, owner_id, call_at, status, contacted";
+    let mut out: Vec<MarkState> = Vec::new();
+    for chunk in ids.chunks(100) {
+        let ph: Vec<String> = (1..=chunk.len()).map(|i| format!("?{i}")).collect();
+        let sql = format!(
+            "SELECT {COLS} FROM call_contact_marks WHERE zoom_call_id IN ({})",
+            ph.join(",")
+        );
+        let params: Vec<&dyn ToSqlTurso> = chunk.iter().map(|x| x as &dyn ToSqlTurso).collect();
+        out.extend(t.query(&sql, &params)?.iter().filter_map(mark_state));
+    }
+    for chunk in windows.chunks(LOOKUP_CHUNK) {
+        let conds: Vec<String> = (0..chunk.len())
+            .map(|i| {
+                format!(
+                    "(owner_id = ?{} AND call_at >= ?{} AND call_at <= ?{})",
+                    i * 3 + 1,
+                    i * 3 + 2,
+                    i * 3 + 3
+                )
+            })
+            .collect();
+        let sql = format!(
+            "SELECT {COLS} FROM call_contact_marks WHERE {}",
+            conds.join(" OR ")
+        );
+        let mut params: Vec<&dyn ToSqlTurso> = Vec::with_capacity(chunk.len() * 3);
+        for (o, a, b) in chunk {
+            params.push(o);
+            params.push(a);
+            params.push(b);
+        }
+        out.extend(t.query(&sql, &params)?.iter().filter_map(mark_state));
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out.dedup_by(|a, b| a.id == b.id);
+    Ok(out)
+}
+
+/// 集計・一覧用: `[from, to)` の接触した印 (`contacted = 1`) だけ
+pub fn contacted_marks(t: &TursoDb, from: &str, to: &str) -> Result<Vec<MarkState>, String> {
+    Ok(t.query(
+        "SELECT zoom_call_id, owner_id, call_at, status, contacted FROM call_contact_marks \
+         WHERE call_at >= ?1 AND call_at < ?2 AND status = 'judged' AND contacted = 1",
+        &[&from, &to],
+    )?
+    .iter()
+    .filter_map(mark_state)
+    .collect())
+}
+
 /// `[from, to)` (UTC の文字列) の人ごとの合計
 pub fn aggregate(t: &TursoDb, from: &str, to: &str) -> Result<HashMap<String, ContactAgg>, String> {
     let rows = t.query(
@@ -249,6 +321,48 @@ mod tests {
             let agg = aggregate(t, "2026-10-15T00:00:00Z", "2026-10-16T00:00:00Z")?;
             let a = agg.get("o1").unwrap();
             assert_eq!((a.contacts, a.pending), (2, 0));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn marks_are_found_by_id_and_by_owner_time_window() {
+        let (audit, _conn) = start_sqlite_audit().await;
+        blocking(&audit, move |t| {
+            let rows = vec![
+                cand("z1", "o1", "2026-10-15T01:00:00Z"),
+                cand("z2", "o1", "2026-10-15T01:00:50Z"),
+                cand("z3", "o2", "2026-10-15T01:00:10Z"),
+                cand("z4", "o1", "2026-10-15T05:00:00Z"),
+            ];
+            insert_batch(t, "2026-10-15T06:00:00Z", &rows)?;
+            let r = |c| ContactResult {
+                contacted: c,
+                date_proposals: 0,
+            };
+            mark_judged(t, "z1", 1, &r(true), "x")?;
+            mark_judged(t, "z2", 1, &r(false), "x")?;
+            mark_judged(t, "z4", 1, &r(true), "x")?;
+            let m = marks_for(
+                t,
+                &["z4".to_string()],
+                &[(
+                    "o1".to_string(),
+                    "2026-10-15T00:58:00Z".to_string(),
+                    "2026-10-15T01:02:00Z".to_string(),
+                )],
+            )?;
+            let ids: Vec<&str> = m.iter().map(|x| x.id.as_str()).collect();
+            assert_eq!(ids, vec!["z1", "z2", "z4"], "他の担当者の z3 は入らない");
+            let z2 = m.iter().find(|x| x.id == "z2").unwrap();
+            assert_eq!((z2.status.as_str(), z2.contacted), ("judged", Some(false)));
+            // 集計用は接触した印だけ
+            let c = contacted_marks(t, "2026-10-15T00:00:00Z", "2026-10-16T00:00:00Z")?;
+            let ids: Vec<&str> = c.iter().map(|x| x.id.as_str()).collect();
+            assert_eq!(ids.len(), 2);
+            assert!(ids.contains(&"z1") && ids.contains(&"z4"));
             Ok(())
         })
         .await
