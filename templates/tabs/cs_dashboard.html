@@ -509,6 +509,8 @@
   .tag.s{ color:var(--ki); background:var(--ki-soft); }
   .tag.e{ background:var(--ai-soft); color:var(--ai); }
   .tag.d{ color:var(--ghost); border-style:dashed; }
+  /* がっかりの印。注意（色つきの枠）とは別物なので、色を付けず点線の枠で区別する */
+  .tag.g{ color:var(--ink); background:var(--panel-2); border:1px dashed var(--rule-strong); }
   .muted{ color:var(--ink-2); } .small{ font-size:12px; }
   /* 原文の引用。読ませるが、こちらの主張ではないので一段落とす */
   .quote{ color:var(--ink-2); font-size:12px; line-height:1.7; }
@@ -6013,6 +6015,37 @@ function tagsShort(fs) {
   }).join(" ") + (sorted.length > 2
     ? ' <span class="tag c more" title="' + esc(sorted.join(" ／ ")) + '">他' + (sorted.length - 2) + "</span>" : "");
 }
+/* がっかりの印（名札の本数には数えない。サーバ gakkari.rs の鍵と同じ）。注意の枡の隣に点線の枠で出す */
+const GAKKARI_LABELS = { no_applicants_30d: "応募が30日無い" };
+function gakkariTag(r) {
+  return ((r && r.gakkari) || []).map((k) => {
+    const last = r.last_application ? "（最後の応募 " + r.last_application + "）" : "（直近の応募なし）";
+    return '<span class="tag c g" title="がっかり: ' + esc(GAKKARI_LABELS[k] || k) + esc(last) + '">がっかり: ' +
+      esc(GAKKARI_LABELS[k] || k) + "</span>";
+  }).join(" ");
+}
+/* 注意の欄。注意が無くてもがっかりがあれば、それだけを出す */
+function flagCell(r) {
+  const g = gakkariTag(r);
+  if (!g) return tagsShort(r.flags);
+  return ((r.flags || []).length ? tagsShort(r.flags) + " " : "") + g;
+}
+/* 応募のデータの時点（サーバの applications_as_of、UTC）を日本時間の「10月27日 12時」にする。無ければ空 */
+function gakkariAsOf(meta) {
+  const s = meta && meta.applications_as_of;
+  const t = s ? new Date(s) : null;
+  if (!t || isNaN(t.getTime())) return "";
+  const p = Object.fromEntries(new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "numeric", hour12: false })
+    .formatToParts(t).map((x) => [x.type, x.value]));
+  return p.month + "月" + p.day + "日 " + p.hour + "時";
+}
+/* がっかりの決まりごと（短い1段落）。応募の時点も添える。まだ集計されていなければ、その旨を書く */
+function gakkariNote(meta) {
+  if (!meta || !meta.gakkari_rule) return "";
+  const at = gakkariAsOf(meta);
+  return '<p class="muted small" id="gakkari-note">' + esc(meta.gakkari_rule) + " " +
+    (at ? "応募は " + esc(at) + " 時点です。" : "応募のデータはまだ集計できていないため、今は付けていません。") + "</p>";
+}
 /** 今日動く先の決まりごとに置く「名札の略し方」。3 表に出ている名札のうち短くしたものだけを並べる（無ければ空） */
 
 /* 履歴から取った値。🔴 その月に書き換えが無ければ「持越」と出す */
@@ -6122,7 +6155,7 @@ const BOARD_COLS = [
      🔴 折り返す列（w:"l"、td.wl は最大 22em）にする。2026-09-28 検証（fixture 1440px）: 2 列目に移した名札を
      折り返さないままにしたら列の幅が 799px になり、枠（1,149px）に最初から見える列が 8 列 → 3 列
      （案件・名札・担当）に減っていた。満了まで・定期NPS・最後の接触・最後のMTG が横スクロールの外 */
-  { k: "n_flags",    t: "注意",        n: 0, w: "l", fmt: (r) => tags(r.flags) },
+  { k: "n_flags",    t: "注意",        n: 0, w: "l", fmt: (r) => flagCell(r) },
   { k: "consultant", t: "担当",        n: 0, fmt: (r) => esc(r.consultant) || DASH },
   /* 段階（2026-10-26）。サーバの phase_label（0 契約前〜4 2回目以降）。満了後は段階を付けず、不明は開始日か満了日が空 */
   { k: "phase",      t: "段階",        n: 0, fmt: phaseCell, sv: phaseSort },
@@ -6176,7 +6209,7 @@ const TODAY_COLS = ["name", "n_flags", "nps", "consultant", "phase", "days_left"
   .map((k) => {
     const c = BOARD_COLS.find((x) => x.k === k);
     if (k === "name") return Object.assign({}, c, { w: "l" });
-    if (k === "n_flags") return Object.assign({}, c, { w: "f", fmt: (r) => tagsShort(r.flags) });
+    if (k === "n_flags") return Object.assign({}, c, { w: "f", fmt: (r) => flagCell(r) });
     return c;
   });
 
@@ -6184,7 +6217,7 @@ let boardSort = { key: "n_flags", asc: false };
 
 /* ③の絞り込み。②から担当者を押して来たときも、ここに入る。
    🔴 絞ったら必ず「◯件中 N件を表示」を出す（全件を見ていると誤認させない）。 */
-let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "" };
+let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "" };
 
 /* 満了までの帯。値は days_left（null は「満了日が入っていない」） */
 const EXPIRY_BANDS = [
@@ -6229,6 +6262,8 @@ function boardHit(f) {
   return (r) => {
     if (f.consultant && (r.consultant || "") !== f.consultant) return false;
     if (f.flag && !(r.flags || []).some((x) => x === f.flag)) return false;
+    /* がっかりの印（名札とは別の欄。行の gakkari） */
+    if (f.gakkari && !(r.gakkari || []).some((x) => x === f.gakkari)) return false;
     /* MTG 途絶の帯（行の mtg_band）。今日動く先の KPI「MTGが60日以上空いている N 件」から来る（S-2） */
     if (f.band && (r.mtg_band || "") !== f.band) return false;
     /* 見方の印（段B、09 の 10 章②。行の views に routes.rs ACT_VIEWS の鍵が入っている） */
@@ -6249,7 +6284,7 @@ function boardRowsButAmount(rows) {
 
 function boardFilterOn() {
   const f = boardFilter;
-  return !!(f.consultant || f.flag || f.band || f.view || f.expiry || f.amount || f.phase || f.q.trim());
+  return !!(f.consultant || f.flag || f.gakkari || f.band || f.view || f.expiry || f.amount || f.phase || f.q.trim());
 }
 
 /* いま何で絞っているかを日本語で並べる。D は帯の名前（meta.mtg_gap.bands の label）を引くため */
@@ -6257,6 +6292,7 @@ function boardFilterWords(D) {
   const f = boardFilter, w = [];
   if (f.consultant) w.push("担当 " + f.consultant);
   if (f.flag) w.push("注意 " + f.flag);
+  if (f.gakkari) w.push("がっかり " + (GAKKARI_LABELS[f.gakkari] || "（見つからない印）"));
   /* 見方は鍵（top など）を出さない。名前が引けないときは「見方（見つからない印）」 */
   if (f.view) {
     const v = actViewOf(D, f.view);
@@ -6319,6 +6355,14 @@ function boardFilterBar(D, onlyOwner) {
     opt("", "すべて", boardFilter.flag) +
     flags.map((x) => opt(x.label, x.label + "（" + num(x.n) + "）", boardFilter.flag)).join("") +
     "</select></label>";
+  /* がっかりの印（名札の本数には数えない）。応募のデータがまだ無いときは欄を出さない */
+  const gk = (D.meta.gakkari_counts || []).filter((x) => x.n > 0 || x.key === boardFilter.gakkari);
+  if (gk.length) {
+    h += '<label class="act" title="括弧の件数は、稼働中の全件で数えた件数です。注意の数には数えません">がっかり <select id="bf-gakkari">' +
+      opt("", "すべて", boardFilter.gakkari) +
+      gk.map((x) => opt(x.key, x.label + "（" + num(x.n) + "）", boardFilter.gakkari)).join("") +
+      "</select></label>";
+  }
   /* MTG 途絶の帯（S-2、2026-09-28）。今日動く先の KPI「MTGが60日以上空いている N 件」の N 件は名札 2 種（fixture 63+46）に
      割れていて名札の欄では 1 つの条件にならないので、行の帯（mtg_band）で絞る欄を置く。選択肢はサーバの帯そのまま */
   const bands = ((D.meta.mtg_gap || {}).bands || []).filter((b) => b.n > 0 || b.band === boardFilter.band);
@@ -6896,6 +6940,7 @@ function renderToday(D0) {
      母数（n_hit 件から n_shown 件）は畳まず、その 1 行目に書く */
   /* 見出しは今のメニュー名（今日）に合わせる。前は「今日動く先」で、左のメニューに無い名前だった（2026-09-29） */
   h += sec("表", "今日の案件（" + num(D.rows.length) + " 件" + (extra.length ? " ＋ 満足度4以下 " + num(extra.length) + " 件" : "") + "）", "td-today-h");
+  h += gakkariNote(D.meta);
   /* 決まりごとの畳み。母数（n_hit 件から n_shown 件）は枠の案内（scroll-cap の「N 行を出しています（全 T 件のうち）」）が
      言うので、summary では繰り返さない。🔴 2026-09-28 検証（fixture 1440×900）: summary と scroll-cap が同じ
      「243 件から 24 件」を 40px の間に 2 回言い、表の見出し行が 772 で 1 画面目に完全な行が 0 行だった。
@@ -7099,6 +7144,7 @@ function renderBoard(D) {
     "開始日か満了日が空の案件は不明です。面接数は HubSpot の取引の項目なので、入力が遅れると段階1が実際より長く見えます。" +
     "段階3に入る日は、3か月の契約なら開始から約1か月（満了の60日前）、6か月なら約4か月（満了の60日前）、12か月なら約8.5か月（契約の7割）です。" +
     "満了日を過ぎた契約には段階を付けず、「満了日超過の稼働中」の画面に出します。</p>";
+  h += gakkariNote(D.meta);
 
   h += boardFilterBar(D);
   /* 🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 表が図「名札の分布」の下（y=1,391）で、行を特定する画面なのに
@@ -7117,6 +7163,7 @@ function wireBoard() {
     if (e) e.onchange = () => { boardFilter[key] = e.value; boardShowAll = false; redraw(); };
   };
   pick("bf-consultant", "consultant");
+  pick("bf-gakkari", "gakkari");
   /* 担当を選ぶ前の持ち件数の表。名前を押したらその担当で絞る（②の表と同じ作り）。
      🔴 押したリンクは描き直しで消えるので、フォーカスが body に飛んでいた（2026-09-23 検証、
      Playwright 400px で Enter → activeElement が BODY）。focusKey では戻す先が作れないので、
@@ -7166,7 +7213,7 @@ function wireBoard() {
      名札＋案件名「株式」で 0 件 → 押すと件数の行は 604 件、#bf-flag・#bf-q は前の値のまま）。
      欄だけ値を戻す手もあるが、選択肢の件数・既定値の組み立ては boardFilterBar 1 か所に置いておく。押す頻度は低い */
   if (cl) cl.onclick = () => {
-    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "" };
+    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "" };
     boardShowAll = false;
     redrawMain(boardCache);
   };
@@ -8710,7 +8757,7 @@ const boardState = (k) => ({ kind: "filter", get: () => boardFilter[k] || "", se
                              reset: () => { boardFilter[k] = ""; } });
 const flagState = (get, set) => ({ kind: "ctx", get: () => (get() ? "1" : ""), set: (v) => set(v === "1"), reset: () => set(false) });
 const BOARD_URL_STATE = {
-  c: boardState("consultant"), flag: boardState("flag"), band: boardState("band"), view: boardState("view"),
+  c: boardState("consultant"), flag: boardState("flag"), gakkari: boardState("gakkari"), band: boardState("band"), view: boardState("view"),
   expiry: { kind: "filter", get: () => boardFilter.expiry || "",
             set: (v) => { boardFilter.expiry = EXPIRY_BANDS.some((b) => b.k === v) ? v : ""; },
             reset: () => { boardFilter.expiry = ""; } },

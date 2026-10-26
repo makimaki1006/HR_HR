@@ -53,6 +53,7 @@
 
 pub mod contact_trend;
 pub mod deal_detail;
+pub mod gakkari;
 pub mod handover_contact;
 pub mod money;
 pub mod phase;
