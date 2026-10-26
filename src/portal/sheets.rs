@@ -11,7 +11,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 pub use crate::handlers::portal_test::google::GoogleError;
-use crate::handlers::portal_test::google::{GoogleSa, SHEETS_API};
+use crate::handlers::portal_test::google::{GoogleSa, DRIVE_API, SHEETS_API};
 
 pub type ApiFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, GoogleError>> + Send + 'a>>;
 
@@ -54,6 +54,9 @@ pub trait SheetsApi: Send + Sync {
         range: &'a str,
         rows: &'a [Vec<String>],
     ) -> ApiFuture<'a, ()>;
+    /// スプレッドシートの最終更新時刻 (Drive files.get の modifiedTime だけ)。
+    /// 中身が変わったかを Sheets を読まずに確かめる (計画 4.2)
+    fn modified_time<'a>(&'a self, spreadsheet: &'a str) -> ApiFuture<'a, String>;
 }
 
 /// サービスアカウントの鍵で本物の Google を呼ぶ
@@ -204,6 +207,24 @@ impl SheetsApi for GoogleSheetsApi {
                 )
                 .await?;
             Ok(())
+        })
+    }
+
+    fn modified_time<'a>(&'a self, spreadsheet: &'a str) -> ApiFuture<'a, String> {
+        Box::pin(async move {
+            let url = format!("{DRIVE_API}/{}", urlencoding::encode(spreadsheet));
+            let resp = self
+                .sa
+                .get(
+                    &url,
+                    &[("fields", "modifiedTime"), ("supportsAllDrives", "true")],
+                )
+                .await?;
+            Ok(resp
+                .get("modifiedTime")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string())
         })
     }
 }

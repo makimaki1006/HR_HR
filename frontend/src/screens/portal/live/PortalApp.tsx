@@ -1,5 +1,5 @@
 // 顧客向け応募者画面の本番の入口 (/portal/*)。ログイン・確認コード・招待のパスワード設定と、ログイン後の入口。
-// 見た目は試作 (customer/auth/*) の部品を使う。応募者の一覧は後の段階 (計画の PR4) で足す。
+// 見た目は試作 (customer/auth/*) の部品を使う。ログイン後は応募者の見る画面 (applicants/、計画の PR4)。
 import { useCallback, useEffect, useState, type SyntheticEvent } from 'react';
 import type { PortalInviteInfo } from '../../../generated/PortalInviteInfo';
 import type { PortalLoginResponse } from '../../../generated/PortalLoginResponse';
@@ -10,6 +10,7 @@ import { AuthLayout } from '../ui/layouts';
 import { IconCheck } from '../ui/icons';
 import { Button, Field, Notice, TextInput } from '../ui/kit';
 import { call, inviteTokenFromHash, NETWORK, type ApiResult } from './api';
+import { ApplicantsScreen } from './applicants/ApplicantsScreen';
 
 const RESEND_WAIT = 60;
 const MIN_PASSWORD = 12;
@@ -305,15 +306,11 @@ function HomeScreen({ nav }: { nav: Nav }) {
     void call('POST', '/api/portal/logout').then(() => { nav(PATHS.login, { notice: 'ログアウトしました' }); });
   };
 
+  const signedOut = useCallback(() => { nav(PATHS.login); }, [nav]);
+
   if (problem) return <AuthLayout><Notice tone="warn">{problem}</Notice></AuthLayout>;
   if (!me) return <AuthLayout><p className="text-[13px] text-pt-muted">確かめています…</p></AuthLayout>;
-  return (
-    <AuthLayout>
-      <Heading title="ログインしました" lead={<span className="break-all">{me.email}</span>} />
-      <p className="text-[13px] leading-relaxed text-pt-muted">応募者の一覧は準備中です。使えるようになったら、弊社の担当者からご案内します。</p>
-      <Button variant="secondary" className={`${BTN_LG} mt-5`} onClick={logout}>ログアウト</Button>
-    </AuthLayout>
-  );
+  return <ApplicantsScreen me={me} onSignedOut={signedOut} onLogout={logout} />;
 }
 
 interface Route extends NavState { path: string }

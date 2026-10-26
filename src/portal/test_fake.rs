@@ -19,6 +19,12 @@ pub struct FakeSheets {
     pub calls: Mutex<Vec<String>>,
     /// 書き込みで panic する (書き戻しの処理が止まったときの確かめ用)
     pub panic_writes: Mutex<bool>,
+    /// Drive の最終更新時刻 (modified_time が返す値)
+    pub modified: Mutex<String>,
+    /// Drive の確認だけを失敗させる
+    pub fail_modified: Mutex<Option<GoogleError>>,
+    /// 値の読み取り (batch_get) にかける時間 (同時の要求を重ねる確かめ用)
+    pub read_delay: Mutex<Option<std::time::Duration>>,
 }
 
 fn col_index(letters: &str) -> usize {
@@ -64,6 +70,16 @@ impl FakeSheets {
             ),
         );
         self
+    }
+
+    /// 呼び出しの記録のうち、その名前の回数
+    pub fn count(&self, name: &str) -> usize {
+        self.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| *c == name)
+            .count()
     }
 
     pub fn rows(&self, title: &str) -> Vec<Vec<String>> {
@@ -196,6 +212,10 @@ impl SheetsApi for FakeSheets {
     ) -> ApiFuture<'a, Vec<Vec<Vec<String>>>> {
         Box::pin(async move {
             self.calls.lock().unwrap().push("batch_get".into());
+            let delay = *self.read_delay.lock().unwrap();
+            if let Some(d) = delay {
+                tokio::time::sleep(d).await;
+            }
             self.read()?;
             Ok(ranges.iter().map(|r| self.get_range(r)).collect())
         })
@@ -234,6 +254,15 @@ impl SheetsApi for FakeSheets {
             }
             t.extend(rows.iter().cloned());
             Ok(())
+        })
+    }
+    fn modified_time<'a>(&'a self, _s: &'a str) -> ApiFuture<'a, String> {
+        Box::pin(async move {
+            self.calls.lock().unwrap().push("modified_time".into());
+            if let Some(e) = *self.fail_modified.lock().unwrap() {
+                return Err(e);
+            }
+            Ok(self.modified.lock().unwrap().clone())
         })
     }
 }
