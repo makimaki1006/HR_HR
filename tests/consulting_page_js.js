@@ -2908,6 +2908,35 @@ check("チームの並び", "多い順・同数は名前順、旧URLの名前順
   if (names() !== '架空あ,架空い,架空う') throw new Error('旧URLの名前順が使えない');
 });
 
+check("負荷軽減", "「＋N」は window の click で開閉し、「ほかの条件」は開いたまま描き直しても閉じ戻らず、掛かっている数を見出しに出す", async () => {
+  const t = boot();
+  // window の click は 1 本（rcMoreClick）。そこから「＋N」の開閉を受ける
+  const clicks = t.listeners.click || [];
+  if (clicks.length !== 1) throw new Error('window の click が 1 本でない: ' + clicks.length);
+  const rest = { hidden: true }, attrs = {};
+  const btn = { textContent: '＋2', setAttribute: (k, v) => { attrs[k] = v; }, getAttribute: (k) => (k === 'data-n' ? '2' : null),
+    parentNode: { querySelector: (q) => (q === '.tag-rest' ? rest : null) } };
+  btn.closest = (q) => (q === '.tag-more' ? btn : null);
+  let stopped = 0;
+  clicks[0]({ target: btn, stopPropagation: () => { stopped++; } });
+  if (rest.hidden !== false || attrs['aria-expanded'] !== 'true' || btn.textContent !== '閉じる' || stopped !== 1) throw new Error('押しても開かない');
+  clicks[0]({ target: btn, stopPropagation: () => { stopped++; } });
+  if (rest.hidden !== true || attrs['aria-expanded'] !== 'false' || btn.textContent !== '＋2') throw new Error('もう一度押しても閉じない');
+  // 「ほかの条件」: 掛かっていない → 閉じている。ユーザーが開いた記憶（boardMoreOpen）があれば描き直しても開いたまま
+  t.R(`__d = { meta:{ flag_counts:[{label:'満足度が4以下', n:3}], mtg_gap:{bands:[]}, phase_counts:[] }, rows:[{deal_id:'1', consultant:'担当A', flags:[], amount:1000}] };
+       boardFilter = { consultant:'', flag:'', expiry:'', q:'', band:'', view:'', amount:'', phase:'', gakkari:'' }; boardMoreOpen = false;`);
+  const closed = t.R('boardFilterBar(__d)');
+  if (!/<details class="bf-more" id="bf-more"><summary id="bf-more-sum">ほかの条件<\/summary>/.test(closed)) throw new Error('掛かっていないのに開いている: ' + closed.slice(closed.indexOf('<details')));
+  t.R('boardMoreOpen = true;');
+  if (!/<details class="bf-more" id="bf-more" open>/.test(t.R('boardFilterBar(__d)'))) throw new Error('開いた記憶があるのに閉じ戻る');
+  // 欄を変えたら見出しの数を書き換える（欄の行は描き直さないため）
+  const sum = new t.El('bf-more-sum'); t.reg['bf-more-sum'] = sum;
+  t.R("boardFilter.flag = '満足度が4以下'; boardFilter.expiry = 'lt30'; boardMoreSync();");
+  if (sum.textContent !== 'ほかの条件（2）') throw new Error('見出しの数が違う: ' + sum.textContent);
+  t.R("boardFilter.flag = ''; boardFilter.expiry = ''; boardMoreSync();");
+  if (sum.textContent !== 'ほかの条件') throw new Error('外したのに数が残る: ' + sum.textContent);
+});
+
 (async () => {
   if (mainJs == null) {
     console.error("FAIL 動きの見張り: 画面の <script> が取り出せない");

@@ -3468,7 +3468,7 @@ check("S-3: 今日動く先の3表は9列（案件・注意・満足度・担当
     ok(ths === 9, id + " の列数が " + ths + "（9 でない）");
     // 名札は折り返す列。段2 A で wl（22em）から今日動く先だけの wf（25.5em・短い名札）に変えた。折り返す性質は同じ
     ok(/<th class="wf sortable"[^>]*><button[^>]*data-k="n_flags"/.test(t), id + " の注意の列が折り返す列（wf）でない");
-    const tds = t.split("<tbody>")[1].split("</tr>")[0];
+    const tds = t.split("<tbody>")[1].replace(/<tr class="grp">[\s\S]*?<\/tr>/g, "").split("</tr>")[0];
     ok(/<td class="wl"><a class="deallink"/.test(tds), id + " の案件名の列が折り返す列（wl）でない: " + tds.slice(0, 120));
   }
   // 今日動く先の枠だけ高さの制限を外す（24 行を一望）。今週満了・今週始まったは 320px の枠のまま
@@ -4465,11 +4465,13 @@ check("段2 A: 今日動く先の注意は短い書き方（正式名は title �
   const h = run("renderToday(__A1)");
   const t = h.slice(h.indexOf('<table id="today-tbl"'), h.indexOf("</table>", h.indexOf('<table id="today-tbl"')));
   // 短い名札。正式な名札と分類の言葉を title に持つ abbr。色は図の分類（flagGroup）と同じ（MTG 途絶は緋）
-  ok(/<td class="wf"><abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="満足度が4以下（関係が危ない）">満足度4以下<\/abbr>/.test(t),
+  ok(/<td class="wf"><span class="tagset"><abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="満足度が4以下（関係が危ない）">満足度4以下<\/abbr>/.test(t),
     "満足度が4以下 が短い注意（abbr.tag.c、title に正式名と分類）になっていない: " + t.slice(t.indexOf('<td class="wf">'), t.indexOf('<td class="wf">') + 200));
   ok(/<abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="MTGが60日以上空いている（関係が危ない）">MTG60日以上空いている<\/abbr>/.test(t),
     "MTGが60日以上空いている の枡が図の分類（緋・関係が危ない）と食い違う（前は紫だった）");
-  ok(/<span class="tag c more" title="[^"]*">他3<\/span>/.test(t), "残り3つの数が出ていない");
+  // 見える名札は 1 本だけ。残りの 4 本は「＋4」を押すと開く（畳んだ側 .tag-rest は hidden）
+  ok(/<button type="button" class="tag c more tag-more" aria-expanded="false" data-n="4"[^>]*>＋4<\/button>/.test(t), "残り4つの数（＋4）のボタンが出ていない");
+  ok(/<span class="tag-rest" hidden>[^]*?MTG60日以上空いている/.test(t), "残りの名札が畳んだ側（hidden）に入っていない");
   for (const f of row.flags) ok(t.includes(f), "全文の注意が title に無い: " + f);
   for (const [full, short] of Object.entries(run("FLAG_SHORT"))) {
     ok(run("tagsShort(" + JSON.stringify([full]) + ")").includes(">" + short + "</abbr>"), "短い注意が違う: " + full);
@@ -4484,8 +4486,8 @@ check("段2 A: 今日動く先の注意は短い書き方（正式名は title �
   ok(!rule.includes("色が見分けられなくても読めます"), "色だけで伝えていないことが書かれていない");
   const b = run('boardTable(__A1.rows, { key: "n_flags", asc: false }, "board-tbl")');
   ok(b.includes('title="満足度が4以下（関係が危ない）">満足度4以下</abbr>') &&
-     b.includes('title="MTGが60日以上空いている（関係が危ない）">MTG60日以上空いている</abbr>') && b.includes('>他3</span>'),
-    "案件一覧でも重い注意2つと残りの数を出していない");
+     b.includes('title="MTGが60日以上空いている（関係が危ない）">MTG60日以上空いている</abbr>') && b.includes('>＋4</button>'),
+    "案件一覧でも重い注意1つと残りの数（＋4）を出していない");
   ok(run('tags(["満了90日前でMTGが30日以上空いている"])').includes('border-color:var(--hi)'), "満了前の MTGが空いている期間が赤でない");
   // 名札の文の正本はサーバ。Rust が出せる名札は全部 FLAG_SHORT にある（新しい名札が正式名のまま長く出るのを見張る）
   const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8");
@@ -5022,9 +5024,14 @@ check("段B 満了と継続: 満了月ごとの件数・金額（空の件数つ
   const tx = textOf(h);
   const k = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('<div class="note'));
   const lbls = [...k.matchAll(/<span class="lbl">([^<]*)<\/span>/g)].map((m) => m[1]);
-  ok(JSON.stringify(lbls) === JSON.stringify(["今月 2026-09 に満了", "来月 2026-10 に満了", "再来月 2026-11 に満了", "先月以前に満了日を過ぎて、まだ稼働中"]),
-    "札が今月・来月・再来月・先月以前でない: " + lbls.join(" / "));
-  ok(textOf(k).includes("5,375万（金額が空 0 件）。うち満了日を過ぎてまだ稼働中 1 件"), "今月の札に金額・空の件数・過ぎた件数が無い: " + textOf(k));
+  /* 件数の札の行 → 金額の札の行（成果と継続と同じ順・同じ部品）。金額は大きい数字、件数と空の件数は説明の行 */
+  ok(JSON.stringify(lbls) === JSON.stringify(["今月 2026-09 に満了", "来月 2026-10 に満了", "再来月 2026-11 に満了", "先月以前に満了日を過ぎて、まだ稼働中",
+    "今月 2026-09 に満了する金額", "来月 2026-10 に満了する金額", "再来月 2026-11 に満了する金額", "満了日を過ぎてまだ稼働中の金額"]),
+    "札が 件数の行 → 金額の行 の順でない: " + lbls.join(" / "));
+  ok((k.match(/<div class="kpis">/g) || []).length === 2, "件数の行と金額の行の 2 つに分かれていない");
+  ok(/<div class="kpis">(?:(?!<div class="kpis">)[\s\S])*?62<span class="u">件<\/span>/.test(k) && /5,375万/.test(k), "件数が大きい数字・金額が大きい数字になっていない");
+  ok(textOf(k).includes("5,375万") && textOf(k).includes("62 件・確度を掛けない金額・金額が空 0 件") && textOf(k).includes("うち満了日を過ぎてまだ稼働中 1 件"),
+    "今月の札に金額・件数・空の件数・過ぎた件数が無い: " + textOf(k));
   /* 母数の箱は note（畳まない）。4 つの行き先の件数を全部書く */
   const i = h.indexOf("何を数えているか（対象）");
   ok(i >= 0 && !/<details[^>]*>(?:(?!<\/details>)[\s\S])*$/.test(h.slice(0, i)), "対象の箱が無い、または畳まれている");
@@ -5736,17 +5743,21 @@ check("共通部品: カードの説明全文をHTMLなしのtitleに残す", ()
   ok(h.includes('title="対象40件 30件未満・&quot;確認&quot;"'), "titleがHTMLを含むか、数字や記号が変わった: " + h);
   ok(h.includes('<b>対象40件</b><br>30件未満'), "説明本文が消えている");
 });
-check("共通部品: 注意は赤・山吹・その他の順に2つまで、残りと全文も残す", () => {
+check("共通部品: 注意は一番大事な1本と「＋N」だけ見せ、残りと全文も残す", () => {
   const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "MTGが60日以上空いている", "満足度が4以下"];
   const h = run('tags(' + JSON.stringify(flags) + ')');
   ok(h === run('tagsShort(' + JSON.stringify(flags) + ')'), "注意の表示が共通でない");
-  ok((h.match(/<abbr /g) || []).length === 2 && h.includes('>他2</span>'), "2つと残りの数でない");
+  const visible = h.slice(0, h.indexOf('<button'));
+  ok((visible.match(/<abbr /g) || []).length === 1 && visible.includes('>満足度4以下</abbr>') && h.includes('>＋3</button>'), "見えるのが満足度の1本と ＋3 でない: " + h);
+  ok(/aria-expanded="false"/.test(h) && /aria-label="ほかの注意 3 件を開く"/.test(h), "ボタンに aria-expanded / aria-label が無い");
+  ok((h.slice(h.indexOf('class="tag-rest"')).match(/<abbr /g) || []).length === 3, "畳んだ側に残り3本が入っていない");
   /* 満足度の名札は一番前に出す合図（2026-10-26）。同じ緋の中でも先頭。ほかの順（MTG は接触・採用目標より前）は変わらない */
   ok(h.indexOf('>満足度4以下</abbr>') < h.indexOf('>MTG60日以上空いている</abbr>'), "満足度の名札が先頭でない");
-  const more = h.match(/class="tag c more" title="([^"]*)"/)[1];
-  for (const f of flags) ok(more.includes(f), "全文が無い: " + f);
+  const more = h.match(/class="tag c more tag-more"[^>]*title="([^"]*)"/)[1];
+  ok(!more.includes("満足度が4以下"), "全文の title に先頭の満足度まで入っている");
+  for (const f of flags.filter((x) => x !== "満足度が4以下")) ok(more.includes(f), "全文が無い: " + f);
   const pair = run('tags(["採用目標の半分に届いていない", "接触が30日以上空いている"])');
-  ok(pair.indexOf('>接触30日以上空き</abbr>') < pair.indexOf('>採用目標の半分未満</abbr>') && !pair.includes('>他'), "山吹が先でないか2つでも残りの印が出る");
+  ok(pair.indexOf('>接触30日以上空き</abbr>') < pair.indexOf('>採用目標の半分未満</abbr>') && pair.includes('>＋1</button>'), "山吹が先でないか、2つのとき ＋1 が出ない");
 });
 
 check("短い文言: 金額のカードを短くしても対象・除外件数・途中の値は開いた本文に残る", () => {
@@ -5852,6 +5863,134 @@ check("2026-10-27 がっかり: 応募が30日無い印は注意の本数に数�
   ok(note.includes("応募は 10月27日 12時 時点です") && note.includes("候補者の辞退・入社後すぐの退職・同じ不満2回は、MTGの記録から拾う予定です"), "決まりの文が違う: " + note);
   ok(textOf(run("gakkariNote({ gakkari_rule: 'x', applications_as_of: null })")).includes("まだ集計できていないため、今は付けていません"), "データが無いときの案内が無い");
   ok(textOf(run("renderBoard(__GK)")).includes("応募は 10月27日 12時 時点です"), "案件一覧に決まりが出ない");
+});
+
+/* ================================================================ 2026-10-27 認知負荷を下げる（機能は削らず、畳む・並べ直す） */
+check("負荷軽減 1: 注意の欄は一番大事な名札 1 本と「＋N」だけ。押すと残りが開き（aria-expanded）、がっかりは畳んだ側に入る。名札が1本だけなら ＋N は出ない", () => {
+  const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "満足度が4以下"];
+  const h = run("flagCell(" + JSON.stringify({ flags, gakkari: ["no_applicants_30d"], last_application: "2026-09-01" }) + ")");
+  const vis = h.slice(0, h.indexOf("<button"));
+  ok((vis.match(/class="tag c/g) || []).length === 1 && vis.includes(">満足度4以下</abbr>"), "見えているのが満足度の 1 本でない: " + vis);
+  ok(h.includes(">＋3</button>") && h.includes('aria-expanded="false"'), "＋3 のボタンが無い");
+  const rest = h.slice(h.indexOf('<span class="tag-rest" hidden>'));
+  ok(rest.includes(">接触30日以上空き</abbr>") && rest.includes(">採用目標の半分未満</abbr>") && rest.includes("がっかり: 応募が30日無い"), "残りとがっかりが畳んだ側に無い");
+  // がっかりだけのときは畳まず、そのまま見せる（注意が無くても印は見える）
+  const g = run("flagCell(" + JSON.stringify({ flags: [], gakkari: ["no_applicants_30d"], last_application: null }) + ")");
+  ok(g.includes("がっかり: 応募が30日無い") && !g.includes("<button") && !g.includes("hidden"), "がっかりだけなのに畳んでいる: " + g);
+  const one = run('tagsShort(["満足度が4以下"])');
+  ok(!one.includes("<button") && one.includes(">満足度4以下</abbr>"), "1 本だけなのにボタンが出る");
+  ok(run("tagsShort([])").includes("n0"), "名札が無いとき — が出ない");
+  // 押すと開く / もう一度押すと閉じる。押した印とラベルが変わる
+  const rst = { hidden: true };
+  const attrs = {};
+  const btn = { textContent: "＋3", setAttribute: (k2, v) => { attrs[k2] = v; }, getAttribute: (k2) => (k2 === "data-n" ? "3" : null),
+    parentNode: { querySelector: (q) => (q === ".tag-rest" ? rst : null) } };
+  btn.closest = (q) => (q === ".tag-more" ? btn : null);
+  ctx.__TG = { target: btn, stopPropagation() { ctx.__TGSTOP = true; } };
+  run("rcMoreClick(__TG)");
+  ok(rst.hidden === false && attrs["aria-expanded"] === "true" && btn.textContent === "閉じる" && ctx.__TGSTOP === true, "押しても開かない: " + JSON.stringify([rst, attrs, btn.textContent]));
+  run("rcMoreClick(__TG)");
+  ok(rst.hidden === true && attrs["aria-expanded"] === "false" && btn.textContent === "＋3", "もう一度押しても閉じない");
+  // 並べ替えに使う n_flags は列のまま（注意の列を押して並べ替えられる）
+  ok(run('BOARD_COLS.find((c) => c.k === "n_flags").t') === "注意" && run('TODAY_COLS.some((c) => c.k === "n_flags")'), "注意の列が消えている");
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/button\.tag-more\{[^}]*min-height:24px/.test(css) && /button\.tag-more:focus-visible\{/.test(css), "＋N のボタンの的とフォーカスの CSS が無い");
+});
+check("負荷軽減 2: 今日の表は段階（0,1,2,3,4,不明）ごとに「3 更新の判断（N件）」の見出し行で分け、中は並び替えのまま。満足度4以下だけの行も同じ段階の中に入り、件数が見出しに出る", () => {
+  const mk = (id, key, n, extra) => ({ deal_id: id, name: "案件" + id, consultant: "担当A", flags: ["x", "y"], n_flags: n, amount: 1000, days_left: 50,
+    phase_key: key, phase_label: key, mtg_band: "recent" });
+  const D = { rows: [mk("a3", "3", 3), mk("a1", "1", 2), mk("b3", "3", 5), mk("a0", "0", 2), mk("a9", "unknown", 2)],
+    extra_low_satisfaction: [mk("x3", "3", 1), mk("x4", "4", 1)], expiring_this_week: [], started_this_week: [],
+    meta: { n_hit: 7, n_shown: 5, n_flags2: 5, n_low_only: 2, n_active: 604, filter_rule: "", order_rule: "", new_deal_rule: "", mtg_gap: {} } };
+  D.rows.push(mk("a2", "2", 2));
+  D.expiring_this_week = [mk("s1", "3", 2)];
+  ctx.__GRP = Object.assign({}, D, { extra: D.extra_low_satisfaction });
+  run("todayConsultant = '';");
+  const h = run("renderToday(__GRP)");
+  const t = h.slice(h.indexOf('<table id="today-tbl"'), h.indexOf("</table>", h.indexOf('<table id="today-tbl"')));
+  const heads = [...t.matchAll(/<tr class="grp"><th colspan="9" scope="colgroup">([\s\S]*?)<\/th><\/tr>/g)].map((m) => textOf(m[1]).replace(/\s+/g, " ").trim());
+  ok(JSON.stringify(heads) === JSON.stringify(["0 契約前（1件）", "1 立ち上げ（1件）", "2 最初の判断材料（1件）",
+    "3 更新の判断（3件） うち満足度4以下だけで入った 1 件", "4 2回目以降（1件） うち満足度4以下だけで入った 1 件", "不明（1件）"]), "見出しが違う: " + JSON.stringify(heads));
+  // 並びは段階の順。段階 3 の中は注意の数が多い順（b3=5, a3=3, x3=1）
+  const at = (id) => t.indexOf("案件" + id);
+  ok(at("a0") < at("a1") && at("a1") < at("a2") && at("a2") < at("b3") && at("b3") < at("a3") && at("a3") < at("x3") && at("x3") < at("x4") && at("x4") < at("a9"), "段階の順・段階の中の並びが違う");
+  // 行の数え（枠の案内）に見出し行を入れない: 本文は 8 行
+  const cap = textOf(h.slice(h.lastIndexOf('<div class="scroll-cap">', h.indexOf('id="today-tbl"')), h.indexOf('id="today-tbl"')));
+  ok(cap.replace(/\s+/g, "").includes("全8行×9列"), "見出し行まで行に数えている: " + cap);
+  // 上の札の数（今日出す先）は行 + 続き（満足度4以下）で変わらない
+  ok(textOf(h).includes("今日の案件（6 件 ＋ 満足度4以下 2 件）") && /今日出す先<\/span>[\s\S]{0,120}?8<span class="u">件/.test(h), "見出しや札の件数が変わった");
+  // 並び替えを変えても段階の見出しは崩れない（段階の中だけが並び替わる）
+  run('todaySort["today-tbl"] = { key: "n_flags", asc: true };');
+  const t2 = run("renderToday(__GRP)");
+  const u = t2.slice(t2.indexOf('<table id="today-tbl"'), t2.indexOf("</table>", t2.indexOf('<table id="today-tbl"')));
+  ok(u.indexOf("案件a3") < u.indexOf("案件b3") && (u.match(/class="grp"/g) || []).length === 6, "昇順にしても段階の見出しが保たれない");
+  run('todaySort["today-tbl"] = { key: "n_flags", asc: false };');
+  // 担当を選ぶと分け方はそのまま、その人の行だけ
+  // 今週満了・今週始まったの表は分けない
+  ok(h.indexOf('id="soon-tbl"') > 0 && !/class="grp"/.test(h.slice(h.indexOf('id="soon-tbl"'))), "今週満了の表まで段階で分けている");
+});
+check("負荷軽減 3: 案件一覧の絞り込みは 1 行目に 担当・段階・案件名（と絞り込みを外す）。ほかの条件（N）に 注意・がっかり・MTGが空いている期間・満了まで・契約総額 を畳み、掛かっていれば開く", () => {
+  ctx.__BF = { meta: { flag_counts: [{ label: "満足度が4以下", n: 3 }], mtg_gap: { bands: [{ band: "critical", label: "MTGが60日以上空いている", n: 2 }] },
+    phase_counts: [{ key: "1", n: 1 }], gakkari_counts: [{ key: "no_applicants_30d", label: "応募が30日無い", n: 1 }] },
+    rows: [{ deal_id: "1", consultant: "担当A", flags: [], amount: 1000000 }] };
+  const clear = '{ consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "" }';
+  run("boardFilter = " + clear + "; boardMoreOpen = false;");
+  const b0 = run("boardFilterBar(__BF)");
+  const first = b0.slice(0, b0.indexOf('<details class="bf-more"'));
+  const ids = (x) => [...x.matchAll(/id="(bf-[a-z]+)"/g)].map((m) => m[1]);
+  ok(JSON.stringify(ids(first)) === JSON.stringify(["bf-consultant", "bf-phase", "bf-q", "bf-clear"]), "1 行目が 担当・段階・案件名・絞り込みを外す でない: " + ids(first));
+  const inner = b0.slice(b0.indexOf('<details class="bf-more"'));
+  ok(JSON.stringify(ids(inner.slice(inner.indexOf("<div")))) === JSON.stringify(["bf-flag", "bf-gakkari", "bf-band", "bf-expiry", "bf-amount"]), "畳んだ側の欄が違う: " + ids(inner));
+  ok(/<summary id="bf-more-sum">ほかの条件<\/summary>/.test(b0) && !/<details class="bf-more" id="bf-more" open>/.test(b0), "掛かっていないのに開いている／件数が付く");
+  // 畳んだ側の条件を 2 つ掛けると「（2）」で、開いて描く
+  run('boardFilter.flag = "満足度が4以下"; boardFilter.band = "critical";');
+  const b2 = run("boardFilterBar(__BF)");
+  ok(/<details class="bf-more" id="bf-more" open><summary id="bf-more-sum">ほかの条件（2）<\/summary>/.test(b2), "掛かっている 2 件が「ほかの条件（2）」で開いていない: " + b2.slice(b2.indexOf("<details")).slice(0, 160));
+  ok(run("boardHiddenCount()") === 2, "畳んだ側の数が違う");
+  // 1 行目の条件（担当・段階・案件名）は数に入れない
+  run('boardFilter = ' + clear + '; boardFilter.phase = "1"; boardFilter.consultant = "担当A"; boardFilter.q = "あ";');
+  ok(run("boardHiddenCount()") === 0, "1 行目の条件を「ほかの条件」に数えている");
+  ok(!/<details class="bf-more" id="bf-more" open>/.test(run("boardFilterBar(__BF)")), "1 行目の条件だけで開いている");
+  // 欄の値を変えたら見出しの数を書き換える
+  run('boardFilter = ' + clear + ';');
+  const sum = { textContent: "" };
+  const gd = run("document.getElementById");
+  run("boardMoreLabel(3)") === "ほかの条件（3）" || (() => { throw new Error("見出しの文が違う"); })();
+  // よく使う絞り込み（view）は別の帯のボタンのまま残り、絞り込みの数にも「ほかの条件」にも混ざらない
+  run('boardFilter.view = "silent";');
+  ok(run("boardFilterOn()") === true && run("boardHiddenCount()") === 0, "よく使う絞り込みが ほかの条件 に混ざる");
+  run('boardFilter = ' + clear + ';');
+  // 担当を選ぶ前の担当者ごとの案件は、担当の欄だけ（畳みも無い）
+  ok(!run("boardFilterBar(__BF, true)").includes("bf-more"), "担当を選ぶ前に ほかの条件 が出る");
+});
+check("負荷軽減 6: 稼働中の件数の言い方をそろえる。案件一覧の頭と件数の行が「稼働中 594 件のうち、満了日超過の 10 件を除く 584 件」で通る（担当者ごとの案件も同じ件数の行）", () => {
+  const mk = (id, over) => ({ deal_id: id, name: "案件" + id, consultant: "担当A", flags: [], n_flags: 0, overdue_active: !!over, phase_key: over ? "overdue" : "1", amount: 1 });
+  const rows = []; for (let i = 0; i < 584; i++) rows.push(mk("n" + i, false)); for (let i = 0; i < 10; i++) rows.push(mk("o" + i, true));
+  ctx.__CN = { rows, meta: { flag_counts: [], mtg_gap: { bands: [] }, phase_counts: [], order_rule: "" } };
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "" }; boardShowAll = false;');
+  run('cur = { menu: "deal", view: "board" };');
+  const h = textOf(run("renderBoard(__CN)"));
+  ok(h.includes("稼働中 594 件のうち、満了日超過の 10 件を除く 584 件を、注意の数が多い順に並べています。"), "頭の 1 行が違う: " + h.slice(0, 200));
+  const sq = (x) => x.replace(/\s+/g, "");
+  ok(sq(h).includes(sq("稼働中 594 件のうち満了日超過の 10 件を除く 584 件中 584 件を表示（絞り込みなし）")), "件数の行が違う");
+  // 担当者ごとの案件（担当を選んだ後）も同じ件数の行
+  run('cur = { menu: "consultant", view: "byowner" }; boardFilter.consultant = "担当A";');
+  const o = textOf(run("renderBoard(__CN)"));
+  ok(sq(o).includes(sq("稼働中 594 件のうち満了日超過の 10 件を除く 584 件中 584 件を表示")), "担当者ごとの案件の件数の行が違う");
+  // 超過が 0 件なら今までの言い方（余計な言い換えを足さない）
+  ctx.__CN0 = { rows: rows.slice(0, 584), meta: { flag_counts: [], mtg_gap: { bands: [] }, phase_counts: [] } };
+  run('cur = { menu: "deal", view: "board" }; boardFilter.consultant = "";');
+  const z = textOf(run("renderBoard(__CN0)"));
+  ok(z.includes("稼働中 584 件を、注意の数が多い順に並べています。") && sq(z).includes(sq("584 件中 584 件を表示")) && !z.includes("満了日超過の 0 件") && !z.includes("件を除く"), "超過 0 件のときの言い方が違う");
+  run('boardFilter.consultant = "";');
+});
+check("負荷軽減 7a: 満足度の名札の説明に、満足度の最低値で数えた継続率（21%・72% など）を出さない。名札は直近の値で付く", () => {
+  const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8");
+  for (const [name, text] of [["画面", html], ["サーバ", rs]]) {
+    ok(!/最低値/.test(text.replace(/（最低値ではない[^）]*）/g, "")), name + "に「最低値」の語が残っている（満足度の名札は直近の値）");
+    ok(!/(?:満足度|NPS|nps)[^\n]{0,60}(?:21|72) ?%/.test(text) && !/(?:21|72) ?%[^\n]{0,60}(?:満足度|NPS)/.test(text), name + "に満足度と並べた 21% / 72% の継続率がある");
+  }
+  ok(rs.includes("直近が 4 以下のときだけ（最低値ではない。直近が戻れば外れる）"), "名札が直近の値で付くことの説明が消えている");
 });
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");

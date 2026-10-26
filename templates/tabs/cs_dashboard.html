@@ -504,7 +504,17 @@
   .tag{ display:inline-block; font-size:12px; line-height:18px; padding:0 6px; border-radius:var(--radius-pill);
         border:1px solid var(--rule); margin-right:var(--space-1); white-space:nowrap;
         color:var(--ink-2); background:var(--panel-3); letter-spacing:.02em; }
+  /* 今日の表の段階ごとの見出し行 */
+  tr.grp > th{ text-align:left; font-size:12.5px; font-weight:700; color:var(--ink); background:var(--panel-2);
+               padding:6px var(--space-3); border-top:1px solid var(--rule-strong); border-bottom:1px solid var(--rule); }
+  tr.grp .grp-sub{ font-weight:400; color:var(--ink-2); }
   .tag.more{ background:var(--panel-2); color:var(--ink-2); border-color:var(--rule); }
+  /* 注意の欄の「＋N」。押すと残りが同じ場所に開く。ボタンなので的は 24px 以上 */
+  button.tag-more{ font:inherit; font-size:12px; cursor:pointer; min-height:24px; min-width:24px; }
+  button.tag-more:hover{ background:var(--ai-soft); color:var(--ai); border-color:var(--ai); }
+  button.tag-more:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+  .tagset{ white-space:normal; }
+  .tag-rest[hidden]{ display:none; }
   .tag.m{ color:var(--midori); background:var(--midori-soft); }
   .tag.s{ color:var(--ki); background:var(--ki-soft); }
   .tag.e{ background:var(--ai-soft); color:var(--ai); }
@@ -620,6 +630,11 @@ a.backlink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 .ctlbar select:focus-visible, .ctlbar input:focus-visible,
 .ctlbar button.act:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 /* 表の下の「残りも出す」（案件そのもの。段2 M-8）。枠の直下に寄せ、説明は同じ行に流す */
+/* 案件一覧の「ほかの条件」。開いたら全幅に広げ、中の欄を同じ並びで置く */
+.ctlbar > details.bf-more{ flex:1 1 100%; margin:0; }
+.ctlbar > details.bf-more > summary{ cursor:pointer; font-size:12.5px; color:var(--ai); min-height:24px; line-height:24px; }
+.ctlbar > details.bf-more > summary:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+.ctlbar .bf-more-body{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-3); margin-top:var(--space-2); }
 .ctlbar.board-more{ margin:var(--space-2) 0 var(--space-3); }
 /* 「読み直す」は右端に寄せ、文字リンク程度にする（S-11）。鮮度が緑でないとき（.urge）だけ元の枡の見た目に戻して目立たせる */
 .ctlbar .reload{ margin-left:auto; display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
@@ -3245,7 +3260,24 @@ function capOf(w) {
 }
 /** 「残り N 行を出す」（rowCap のボタン）。描き直しで作り直されるので window で捕捉して受ける。
     押したら枠に rc-open を付けて隠した行を出し、案内の「先頭 N 行を出しています」も消す。ボタンは消えるのでフォーカスを枠へ */
+/** 注意の欄の「＋N」を押したとき、残りの名札を開く（もう一度押すと閉じる） */
+function tagMoreClick(ev) {
+  const t = ev && ev.target;
+  const b = t && t.closest ? t.closest(".tag-more") : null;
+  if (!b) return false;
+  const set = b.parentNode;
+  const rest = set && set.querySelector ? set.querySelector(".tag-rest") : null;
+  if (!rest) return true;
+  const open = rest.hidden;   /* いま閉じていれば、これから開く */
+  rest.hidden = !open;
+  b.setAttribute("aria-expanded", open ? "true" : "false");
+  b.textContent = open ? "閉じる" : "＋" + b.getAttribute("data-n");
+  b.setAttribute("aria-label", open ? "ほかの注意を閉じる" : "ほかの注意 " + b.getAttribute("data-n") + " 件を開く");
+  if (ev.stopPropagation) ev.stopPropagation();
+  return true;
+}
 function rcMoreClick(ev) {
+  if (tagMoreClick(ev)) return;
   const t = ev && ev.target;
   const b = t && t.closest ? t.closest(".rc-more") : null;
   if (!b) return;
@@ -3334,7 +3366,7 @@ function scrollCap(inner, total, noCap, hidden) {
   /* hidden: 600px 以下で隠している行数（rowCap）。0 なら「先頭 N 行」の文を出さない */
   const s = String(inner);
   const body = s.split("<tbody>").slice(1).join("");
-  const rows = (body.match(/<tr[\s>]/g) || []).length;
+  const rows = (body.match(/<tr(?![^>]*class="grp")(?=[\s>])/g) || []).length;   /* 段階の見出し行（tr.grp）は数えない */
   const head = (s.split("</thead>")[0] || "");
   const cols = (head.match(/<th[\s>]/g) || []).length;
   /* 表が1つでない（details の中に表が並ぶ等）ときは件数を言わず、スクロールだけ伝える */
@@ -6000,35 +6032,52 @@ const FLAG_SHORT = {
   "MTGが60日以上空いている": "MTG60日以上空いている",
   "MTGが30〜59日空いている": "MTG30〜59日空いている",
 };
-function tagsShort(fs) {
-  if (!fs || !fs.length) return '<span class="n0">—</span>';
+/* 名札を並べた順（満足度 → 緋 → 山吹 → その他）の、1 本ずつの HTML と全文 */
+function tagItems(fs) {
   const order = { hi: 0, ki: 1, murasaki: 2 };
   /* 満足度の名札は一番前に出す合図。色が同じ緋の中でも先頭にする（並べ替えは安定なので、ほかの順は変わらない） */
   const first = (f) => (f === FLAG_SATISFACTION_LOW ? -1 : 0);
-  const sorted = fs.slice().sort((a, b) => first(a) - first(b) || order[tagColor(a)] - order[tagColor(b)]);
-  return sorted.slice(0, 2).map((f) => {
+  const sorted = (fs || []).slice().sort((a, b) => first(a) - first(b) || order[tagColor(a)] - order[tagColor(b)]);
+  return sorted.map((f) => {
     const col = tagColor(f), s = FLAG_SHORT[f];
     const style = ' style="border-color:var(--' + col + ');color:var(--' + col + ')"';
-    return s
-      ? '<abbr class="tag c"' + style + ' title="' + esc(f) + "（" + esc(flagGroup(f).word) + '）">' + esc(s) + "</abbr>"
-      : '<span class="tag c"' + style + ' title="' + esc(flagGroup(f).word) + '">' + esc(f) + "</span>";
-  }).join(" ") + (sorted.length > 2
-    ? ' <span class="tag c more" title="' + esc(sorted.join(" ／ ")) + '">他' + (sorted.length - 2) + "</span>" : "");
+    return {
+      full: f,
+      html: s
+        ? '<abbr class="tag c"' + style + ' title="' + esc(f) + "（" + esc(flagGroup(f).word) + '）">' + esc(s) + "</abbr>"
+        : '<span class="tag c"' + style + ' title="' + esc(flagGroup(f).word) + '">' + esc(f) + "</span>"
+    };
+  });
+}
+/* 注意の欄は一番大事な 1 本だけを出し、残りは「＋N」を押すと同じ場所に開く（行を 1 行の高さに保つ）。
+   items は { html, full }。押した先の開閉は rcMoreClick の中の tagMoreClick が受ける（window の click は 1 本だけ） */
+function tagsCollapsed(items) {
+  if (!items.length) return '<span class="n0">—</span>';
+  if (items.length === 1) return items[0].html;
+  const rest = items.slice(1);
+  return '<span class="tagset">' + items[0].html +
+    ' <button type="button" class="tag c more tag-more" aria-expanded="false" data-n="' + rest.length + '"' +
+    ' aria-label="ほかの注意 ' + rest.length + ' 件を開く" title="' + esc(rest.map((x) => x.full).join(" ／ ")) + '">＋' + rest.length + "</button>" +
+    ' <span class="tag-rest" hidden>' + rest.map((x) => x.html).join(" ") + "</span></span>";
+}
+function tagsShort(fs) {
+  return tagsCollapsed(tagItems(fs));
 }
 /* がっかりの印（名札の本数には数えない。サーバ gakkari.rs の鍵と同じ）。注意の枡の隣に点線の枠で出す */
 const GAKKARI_LABELS = { no_applicants_30d: "応募が30日無い" };
-function gakkariTag(r) {
+function gakkariItems(r) {
   return ((r && r.gakkari) || []).map((k) => {
     const last = r.last_application ? "（最後の応募 " + r.last_application + "）" : "（直近の応募なし）";
-    return '<span class="tag c g" title="がっかり: ' + esc(GAKKARI_LABELS[k] || k) + esc(last) + '">がっかり: ' +
-      esc(GAKKARI_LABELS[k] || k) + "</span>";
-  }).join(" ");
+    const label = "がっかり: " + (GAKKARI_LABELS[k] || k);
+    return { full: label, html: '<span class="tag c g" title="がっかり: ' + esc(GAKKARI_LABELS[k] || k) + esc(last) + '">' + esc(label) + "</span>" };
+  });
 }
-/* 注意の欄。注意が無くてもがっかりがあれば、それだけを出す */
+function gakkariTag(r) {
+  return gakkariItems(r).map((x) => x.html).join(" ");
+}
+/* 注意の欄。注意が無くてもがっかりがあれば、それだけを出す。がっかりは注意があるとき畳んだ側に入れる */
 function flagCell(r) {
-  const g = gakkariTag(r);
-  if (!g) return tagsShort(r.flags);
-  return ((r.flags || []).length ? tagsShort(r.flags) + " " : "") + g;
+  return tagsCollapsed(tagItems(r.flags).concat(gakkariItems(r)));
 }
 /* 応募のデータの時点（サーバの applications_as_of、UTC）を日本時間の「10月27日 12時」にする。無ければ空 */
 function gakkariAsOf(meta) {
@@ -6351,25 +6400,8 @@ function boardFilterBar(D, onlyOwner) {
     opt("", "すべて", boardFilter.consultant) +
     names.map((n) => opt(n, n, boardFilter.consultant)).join("") + "</select></label>";
   if (onlyOwner) return h + "</div>";
-  h += '<label class="act" title="括弧の件数は、稼働中の全件（全担当）で数えた件数です">注意 <select id="bf-flag">' +
-    opt("", "すべて", boardFilter.flag) +
-    flags.map((x) => opt(x.label, x.label + "（" + num(x.n) + "）", boardFilter.flag)).join("") +
-    "</select></label>";
-  /* がっかりの印（名札の本数には数えない）。応募のデータがまだ無いときは欄を出さない */
-  const gk = (D.meta.gakkari_counts || []).filter((x) => x.n > 0 || x.key === boardFilter.gakkari);
-  if (gk.length) {
-    h += '<label class="act" title="括弧の件数は、稼働中の全件で数えた件数です。注意の数には数えません">がっかり <select id="bf-gakkari">' +
-      opt("", "すべて", boardFilter.gakkari) +
-      gk.map((x) => opt(x.key, x.label + "（" + num(x.n) + "）", boardFilter.gakkari)).join("") +
-      "</select></label>";
-  }
-  /* MTG 途絶の帯（S-2、2026-09-28）。今日動く先の KPI「MTGが60日以上空いている N 件」の N 件は名札 2 種（fixture 63+46）に
-     割れていて名札の欄では 1 つの条件にならないので、行の帯（mtg_band）で絞る欄を置く。選択肢はサーバの帯そのまま */
-  const bands = ((D.meta.mtg_gap || {}).bands || []).filter((b) => b.n > 0 || b.band === boardFilter.band);
-  h += '<label class="act">MTGが空いている期間 <select id="bf-band">' +
-    opt("", "すべて", boardFilter.band) +
-    bands.map((b) => opt(b.band, b.label + "（" + num(b.n) + "）", boardFilter.band)).join("") +
-    "</select></label>";
+  /* 1 行目は使う回数の多い 3 つ（担当・段階・案件名）。ほかの条件は「ほかの条件（N）」に畳む。
+     N は掛かっている畳んだ側の条件の数。1 つでも掛かっていれば（URL から来たときも）開いて描く */
   const phaseN = {};
   for (const x of D.meta.phase_counts || []) phaseN[x.key] = x.n;
   h += '<label class="act" title="括弧の件数は、稼働中の全件で数えた件数です">段階 <select id="bf-phase">' +
@@ -6377,21 +6409,51 @@ function boardFilterBar(D, onlyOwner) {
     PHASE_OPTIONS.filter((b) => phaseN[b.k] || b.k === boardFilter.phase)
       .map((b) => opt(b.k, b.t + "（" + num(phaseN[b.k] || 0) + "）", boardFilter.phase)).join("") +
     "</select></label>";
-  h += '<label class="act">満了まで <select id="bf-expiry">' +
+  /* 幅は CSS の min-width / max-width で決める。ここに px を書かない */
+  h += '<label class="act">案件名 <input type="search" id="bf-q" placeholder="部分一致" ' +
+    'value="' + esc(boardFilter.q) + '"></label>';
+  h += '<button type="button" class="act" id="bf-clear">絞り込みを外す</button>';
+  const hid = boardHiddenCount();
+  let m = '<label class="act" title="括弧の件数は、稼働中の全件（全担当）で数えた件数です">注意 <select id="bf-flag">' +
+    opt("", "すべて", boardFilter.flag) +
+    flags.map((x) => opt(x.label, x.label + "（" + num(x.n) + "）", boardFilter.flag)).join("") +
+    "</select></label>";
+  /* がっかりの印（名札の本数には数えない）。応募のデータがまだ無いときは欄を出さない */
+  const gk = (D.meta.gakkari_counts || []).filter((x) => x.n > 0 || x.key === boardFilter.gakkari);
+  if (gk.length) {
+    m += '<label class="act" title="括弧の件数は、稼働中の全件で数えた件数です。注意の数には数えません">がっかり <select id="bf-gakkari">' +
+      opt("", "すべて", boardFilter.gakkari) +
+      gk.map((x) => opt(x.key, x.label + "（" + num(x.n) + "）", boardFilter.gakkari)).join("") +
+      "</select></label>";
+  }
+  /* MTG 途絶の帯（S-2、2026-09-28）。今日動く先の KPI「MTGが60日以上空いている N 件」の N 件は名札 2 種（fixture 63+46）に
+     割れていて名札の欄では 1 つの条件にならないので、行の帯（mtg_band）で絞る欄を置く。選択肢はサーバの帯そのまま */
+  const bands = ((D.meta.mtg_gap || {}).bands || []).filter((b) => b.n > 0 || b.band === boardFilter.band);
+  m += '<label class="act">MTGが空いている期間 <select id="bf-band">' +
+    opt("", "すべて", boardFilter.band) +
+    bands.map((b) => opt(b.band, b.label + "（" + num(b.n) + "）", boardFilter.band)).join("") +
+    "</select></label>";
+  m += '<label class="act">満了まで <select id="bf-expiry">' +
     opt("", "すべて", boardFilter.expiry) +
     EXPIRY_BANDS.map((b) => opt(b.k, b.t, boardFilter.expiry)).join("") + "</select></label>";
   /* 契約総額（09 の 3章 2）。選択肢に件数を添え、金額が空の件数は「金額が空（N）」で別に出す（帯に混ぜない）。
      欄の名前に「契約総額」と書く（月額と読ませない。月額は CS_取引の別の列） */
   /* 件数は、契約総額の帯を外したほかの絞り込み（担当・名札など）の中で数える（boardRowsButAmount）。「すべて（N）」の N が
      その母数で、帯の件数と「金額が空」を足すと N になる（名札の件数は今までどおり全社の件数で、欄の title に書く） */
-  h += '<label class="act" title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・注意など）を掛けた中の件数です">契約総額 <select id="bf-amount">' +
+  m += '<label class="act" title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・注意など）を掛けた中の件数です">契約総額 <select id="bf-amount">' +
     boardAmountOptions(D) + "</select></label>";
-  /* 幅は CSS の min-width / max-width で決める。ここに px を書かない */
-  h += '<label class="act">案件名 <input type="search" id="bf-q" placeholder="部分一致" ' +
-    'value="' + esc(boardFilter.q) + '"></label>';
-  h += '<button type="button" class="act" id="bf-clear">絞り込みを外す</button>';
+  h += '<details class="bf-more" id="bf-more"' + (hid > 0 || boardMoreOpen ? " open" : "") + ">" +
+    '<summary id="bf-more-sum">' + boardMoreLabel(hid) + '</summary><div class="bf-more-body">' + m + "</div></details>";
   return h + "</div>";
 }
+/** 畳んだ側の条件（注意・がっかり・MTGが空いている期間・満了まで・契約総額）のうち、いま掛かっている数 */
+function boardHiddenCount() {
+  const f = boardFilter;
+  return [f.flag, f.gakkari, f.band, f.expiry, f.amount].filter(Boolean).length;
+}
+const boardMoreLabel = (n) => "ほかの条件" + (n > 0 ? "（" + num(n) + "）" : "");
+/** ユーザーが「ほかの条件」を開いたか。絞り込みの描き直しで閉じ戻さないために覚える */
+let boardMoreOpen = false;
 
 /* ②のコンサルタント名から③へ飛ぶ。担当で絞った状態で開く */
 function drillToBoard(name) {
@@ -6459,9 +6521,11 @@ function refocus(k) {
    （2026-09-28 fixture 1440px 実測: 2 回組みの描き直し 1,197ms）。表ごと（id）に 1 つだけ覚える */
 const boardTblMemo = {};
 let BOARD_TBL_BUILDS = 0;   /* 組んだ回数。見張り（tests/consulting_view_rules.js「段2 M-8」）と描画時間の計測で読む */
-function boardTable(rows, sort, id, cols, limit) {
+/* group: 段階ごとの見出し行を入れる指定 { order: [鍵…], of: (行) => 鍵, label: (鍵, 行の配列) => HTML }。
+   並べ替えは先に全体で行い、その並びを保ったまま鍵の順にまとめる（グループの中の順は、並べ替えの結果のまま） */
+function boardTable(rows, sort, id, cols, limit, group) {
   cols = cols || BOARD_COLS;
-  const key = sort.key + "|" + (sort.asc ? 1 : 0) + "|" + (limit || 0) + "|" + cols.map((c) => c.k).join(",");
+  const key = sort.key + "|" + (sort.asc ? 1 : 0) + "|" + (limit || 0) + "|" + cols.map((c) => c.k).join(",") + (group ? "|g" : "");
   const m = boardTblMemo[id];
   if (m && m.rows === rows && m.key === key) return m.html;
   BOARD_TBL_BUILDS++;
@@ -6481,10 +6545,24 @@ function boardTable(rows, sort, id, cols, limit) {
   let t = '<table id="' + id + '"><thead><tr>';
   for (const c of cols) t += sortTh(c, k, asc);
   t += "</tr></thead><tbody>";
-  for (const r of shown) {
-    t += "<tr>";
-    for (const c of cols) t += '<td' + (colClass(c) ? ' class="' + colClass(c) + '"' : "") + ">" + c.fmt(r) + "</td>";
-    t += "</tr>";
+  const line = (r) => {
+    let x = "<tr>";
+    for (const c of cols) x += '<td' + (colClass(c) ? ' class="' + colClass(c) + '"' : "") + ">" + c.fmt(r) + "</td>";
+    return x + "</tr>";
+  };
+  if (group) {
+    const buckets = {};
+    for (const r of shown) {
+      const g = group.of(r);
+      (buckets[g] = buckets[g] || []).push(r);
+    }
+    for (const g of group.order) {
+      if (!buckets[g]) continue;
+      t += '<tr class="grp"><th colspan="' + cols.length + '" scope="colgroup">' + group.label(g, buckets[g]) + "</th></tr>";
+      for (const r of buckets[g]) t += line(r);
+    }
+  } else {
+    for (const r of shown) t += line(r);
   }
   t += "</tbody></table>";
   boardTblMemo[id] = { rows, key, html: t };
@@ -6562,7 +6640,8 @@ function boardBody(D, shown, on) {
       " 件は「満了日超過の稼働中」に分けています。</p>";
   }
   h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
-    "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
+    "<b>" + (D.overdue_n ? "稼働中 " + num(D.rows.length + D.overdue_n) + " 件のうち満了日超過の " + num(D.overdue_n) + " 件を除く " : "") +
+    num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
     (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + boardStartedOnlyWords(D) + "</div>";
   /* 表が主役の画面なので表を先に、図はその下（08 の S-8）。
      🔴 見出しは画面名（左の「案件そのもの」）と重ならない語にする。前は「案件の立ち位置」で、
@@ -6915,7 +6994,7 @@ function renderToday(D0) {
     kpi("今日出す先", num(D.rows.length + extra.length) + '<span class="u">件</span>',
         c ? "注意が2つ以上、または満足度（顧客に聞いた点数）が低い候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
           : "注意が2つ以上 " + num(D.meta.n_flags2) + " 件と、満足度が低いだけの " + num(D.meta.n_low_only) + " 件から" +
-            (extra.length ? "（満足度が低い " + num(extra.length) + " 件を表の後ろに続けています）" : ""),
+            (extra.length ? "（うち満足度が低いだけの " + num(extra.length) + " 件も、段階ごとの中に入れています）" : ""),
         "", { jump: "td-today-h", text: "表へ" }) +
     kpi("MTGが60日以上空いている", num(crit) + '<span class="u">件</span>',
         c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（注意2つ以上、または満足度が低い）の中で。") + "全社では " + num(bandN("critical")) + " 件"
@@ -6948,7 +7027,7 @@ function renderToday(D0) {
      担当を選んでいるときは、絞った条件（サーバの filter_rule は全社の説明）の前に、この表が何かを 1 文書く */
   const rule = "";
   if (c && !D.rows.length) h += '<div class="empty">この担当には注意が2つ以上、または満足度が低い案件がありません。</div>';
-  h += scroll(boardTable(D.rows.concat(extra), todaySort["today-tbl"], "today-tbl", TODAY_COLS), "none", c ? null : D.meta.n_hit, rule);
+  h += scroll(boardTable(D.rows.concat(extra), todaySort["today-tbl"], "today-tbl", TODAY_COLS, 0, todayGroup(extra)), "none", c ? null : D.meta.n_hit, rule);
 
   /* ---------------- 今週満了（行動。名札に関わらず出す。開いたまま） ---------------- */
   h += sec("表", "今週満了（" + num(soon.length) + " 件）", "td-soon-h");
@@ -6984,6 +7063,27 @@ function renderToday(D0) {
   }
 
   return h + foot(D.meta);
+}
+
+/** 今日の表を段階（0 契約前〜4 2回目以降、不明）ごとに分ける指定。見出しは「3 更新の判断（N件）」。
+    満足度4以下だけで入った行（extra）も同じ段階の中に入れ、その段階の中の件数を見出しに添える
+    （別の塊にすると、同じ段階の案件が 2 か所に分かれて探しにくい。行の注意の欄には満足度4以下が先頭に出ている）。
+    段階の鍵が 0〜4・不明・満了後のどれでもないものは、黙って落とさず不明に入れる */
+const TODAY_PHASE_ORDER = ["0", "1", "2", "3", "4", "unknown", "overdue"];
+function todayGroup(extra) {
+  const lowOnly = new Set((extra || []).map((r) => r.deal_id));
+  const keyOf = (r) => (TODAY_PHASE_ORDER.indexOf(r.phase_key) >= 0 ? r.phase_key : "unknown");
+  return {
+    order: TODAY_PHASE_ORDER,
+    of: keyOf,
+    label: (k, rs) => {
+      const opt = PHASE_OPTIONS.find((b) => b.k === k);
+      const name = k === "unknown" ? "不明" : k === "overdue" ? "満了後" : opt ? opt.t : k;
+      const low = rs.filter((r) => lowOnly.has(r.deal_id)).length;
+      return esc(name) + "（" + num(rs.length) + "件）" +
+        (low ? ' <span class="grp-sub">うち満足度4以下だけで入った ' + num(low) + " 件</span>" : "");
+    }
+  };
 }
 
 /** 今日の札「接触の記録が無い」（09 の 3章 1 の 2、2026-09-29 磨き込み）。押すと案件一覧をその名札で開く。
@@ -7136,8 +7236,10 @@ function renderBoard(D) {
     /* 稼働中の件数は頭の1行と「N 件中 M 件を表示」にあるので、末尾では繰り返さない */
     return h + foot(D.meta, "");
   }
-  let h = '<div class="lede">稼働中 ' + num(D.rows.length) +
-    " 件。注意の数が多い順に並べています。</div>";
+  let h = '<div class="lede">' + (D.overdue_n
+    ? "稼働中 " + num(D.rows.length + D.overdue_n) + " 件のうち、満了日超過の " + num(D.overdue_n) + " 件を除く " + num(D.rows.length) + " 件を"
+    : "稼働中 " + num(D.rows.length) + " 件を") +
+    "、注意の数が多い順に並べています。</div>";
   h += '<p class="muted small">段階は、案件ごとに上から最初に当てはまるものです。' +
     "0 契約前（開始日が今日より後）、3 更新の判断（満了の60日前と契約の7割が過ぎた日の、早いほう以降）、" +
     "4 2回目以降（継続回数が1以上）、2 最初の判断材料（面接が1件以上）、1 立ち上げ（上のどれでもない）。" +
@@ -7160,10 +7262,12 @@ function wireBoard() {
   const redraw = boardRepaint;
   const pick = (id, key) => {
     const e = document.getElementById(id);
-    if (e) e.onchange = () => { boardFilter[key] = e.value; boardShowAll = false; redraw(); };
+    if (e) e.onchange = () => { boardFilter[key] = e.value; boardShowAll = false; redraw(); boardMoreSync(); };
   };
   pick("bf-consultant", "consultant");
   pick("bf-gakkari", "gakkari");
+  const more = document.getElementById("bf-more");
+  if (more) more.ontoggle = () => { boardMoreOpen = !!more.open; };
   /* 担当を選ぶ前の持ち件数の表。名前を押したらその担当で絞る（②の表と同じ作り）。
      🔴 押したリンクは描き直しで消えるので、フォーカスが body に飛んでいた（2026-09-23 検証、
      Playwright 400px で Enter → activeElement が BODY）。focusKey では戻す先が作れないので、
@@ -7220,6 +7324,11 @@ function wireBoard() {
   wireBoardBody();   /* 表の見出しの並び替え・残りも出す（段2 M-8） */
 }
 let boardCache = null;
+/** 畳んだ側の条件を変えたら、見出しの件数を数え直す（欄の行は描き直さないので、ここで書き換える） */
+function boardMoreSync() {
+  const sum = document.getElementById("bf-more-sum");
+  if (sum) sum.textContent = boardMoreLabel(boardHiddenCount());
+}
 
 /* 同じ列を押したら向きを反転、別の列なら既定の向き（名前・残り日数は小さい順、他は大きい順） */
 function nextSort(s, kk) {
@@ -8290,13 +8399,25 @@ function renderRenewalPipe(D) {
   /* 札はその月の表へ飛ぶ（rp-m0〜2）。
      🔴 2026-09-29 検証: 前は 3 枚とも 3 か月を 1 つにした一覧（fixture 285 行・640px の枠）の頭へ飛び、
      「来月 に満了」を押しても今月の 62 行から始まって、来月の行は 63 行目からだった（札と行き先の中身が違う） */
+  /* 札は成果と継続と同じ書き方にする（2026-10-27）。前はここだけ「件数が大きい数字・金額は小さい字の説明」で、
+     成果と継続・チームの「金額が大きい数字の札」と読み方が逆だった。札の部品（kpi）と言い回しを揃え、
+     件数の札の行 → 金額の札の行の順に並べる（成果と継続の「件数の札 → 金額の札」と同じ順）。
+     継続率の札はここに無い: この画面は満了がこれから来る月（結果がまだ出ていない）の契約なので継続率が定義できない。
+     結果が出た月の継続率は成果と継続の札にある（下の読み方の枠から行ける） */
+  const amt = (s2) => (s2.amount == null ? DASH : yen(s2.amount));
+  const miss = (s2) => (s2.amount_missing ? "・金額が空の " + num(s2.amount_missing) + " 件は足していません" : "・金額が空 0 件");
   h += '<div class="kpis">' + months.map((m, i) =>
     kpi(word(i) + " に満了", num(m.n) + '<span class="u">件</span>',
-      pipeAmount(m) + (i === 0 && pastThis ? "。うち満了日を過ぎてまだ稼働中 " + num(pastThis) + " 件" : ""),
+      "稼働中の契約" + (i === 0 && pastThis ? "。うち満了日を過ぎてまだ稼働中 " + num(pastThis) + " 件" : ""),
       "", { jump: "rp-m" + i, text: "この月の一覧へ" })).join("") +
     (ov.sum.n
-      ? kpi("先月以前に満了日を過ぎて、まだ稼働中", num(ov.sum.n) + '<span class="u">件</span>', pipeAmount(ov.sum) +
-          "。満了後も状態が変わっていない契約", "", { jump: "rp-over", text: "一覧へ" })
+      ? kpi("先月以前に満了日を過ぎて、まだ稼働中", num(ov.sum.n) + '<span class="u">件</span>',
+          "満了後も状態が変わっていない契約", "", { jump: "rp-over", text: "一覧へ" })
+      : "") + "</div>";
+  h += '<div class="kpis">' + months.map((m, i) =>
+    kpi(word(i) + " に満了する金額", amt(m), num(m.n) + " 件・確度を掛けない金額" + miss(m))).join("") +
+    (ov.sum.n
+      ? kpi("満了日を過ぎてまだ稼働中の金額", amt(ov.sum), num(ov.sum.n) + " 件・確度を掛けない金額" + miss(ov.sum))
       : "") + "</div>";
   /* 母数の箱は畳まない（外した件数・空の件数を書いた箱。08 の 2.4） */
   h += note("info", "何を数えているか（対象）",
