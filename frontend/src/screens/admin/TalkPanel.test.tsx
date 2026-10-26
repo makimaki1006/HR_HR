@@ -69,7 +69,7 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(screen.queryByTestId('talk-outbound-trigger')).toBeNull();
   });
 
-  it('見出しに資料の全体の割合と決まりを出し、最後の行はチーム全体', () => {
+  it('見出しに資料の全体の割合と決まりを出し、最後の行はこの表の全体', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
     const head = screen.getByRole('columnheader', { name: /早く日付を出す/ });
     expect(head.textContent).toContain('この表の全体 43%');
@@ -78,7 +78,7 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(screen.getByRole('columnheader', { name: /既存感/ }).textContent).toContain('この表の全体 64%');
     const rows = within(screen.getByTestId('talk-table')).getAllByRole('row');
     const last = Array.from(rows.at(-1)?.querySelectorAll('td') ?? []).map(td => td.textContent);
-    expect(last.slice(0, 6)).toEqual(['チーム全体', '-', '1771', '770', '12', '1.56%']);
+    expect(last.slice(0, 6)).toEqual(['この表の全体', '-', '1771', '770', '12', '1.56%']);
     expect(last[14]).toBe('43%できた 54/125本');
     // 場面ごとのまとまり
     expect(Array.from(document.querySelectorAll('th.talk-group')).map(t => `${t.textContent}:${t.getAttribute('colspan') ?? ''}`)).toEqual(['受付:1', '日付の前:5', '断られた後:3']);

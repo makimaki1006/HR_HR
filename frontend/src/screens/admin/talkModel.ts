@@ -289,7 +289,7 @@ function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow
   const proposalCalls = sum(p => p.date_proposal_calls ?? 0);
   const proposals = people.reduce((a, p) => a + (p.proposals_per_contact ?? 0) * (p.contacts ?? 0), 0);
   return {
-    owner_id: null, name: 'チーム全体', team: null, outbound, dial_breakdown: people.reduce<DialBreakdown>((a, p) => {
+    owner_id: null, name: 'この表の全体', team: null, outbound, dial_breakdown: people.reduce<DialBreakdown>((a, p) => {
       const b = p.dial_breakdown;
       return b === null ? a : { connected: a.connected + b.connected, failed: a.failed + b.failed, cancelled: a.cancelled + b.cancelled, monitor: a.monitor + b.monitor, extension: a.extension + b.extension, total: a.total + b.total };
     }, { connected: 0, failed: 0, cancelled: 0, monitor: 0, extension: 0, total: 0 }), dials, appointments: appts,

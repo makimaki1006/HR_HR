@@ -378,7 +378,7 @@ pub(in crate::crm) async fn get_summary(
         return Json(base(
             false,
             vec![],
-            empty_total("チーム全体"),
+            empty_total("この表の全体"),
             vec![],
             &[],
             None,

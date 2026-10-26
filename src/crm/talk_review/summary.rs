@@ -140,7 +140,7 @@ pub fn build(
     let apo_sum = unique_deals(apo_deals, &ids);
     let total = TalkPersonRow {
         owner_id: None,
-        name: "チーム全体".to_string(),
+        name: "この表の全体".to_string(),
         team: None,
         outbound: outbound_sum,
         dial_breakdown: None,
