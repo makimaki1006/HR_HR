@@ -8,7 +8,7 @@ import type { PortalAdminStatus } from '../../../generated/PortalAdminStatus';
 import { Badge, Button, IconButton, Notice, Select, TextInput } from '../ui/kit';
 import { IconChevronDown, IconExternal, IconRefresh } from '../ui/icons';
 import { API, put } from './api';
-import { GROUP_OPTIONS, KIND_OPTIONS, missingHeaders, moveColumn, setColumn, withNewHeaders } from './model';
+import { duplicateHeaders, GROUP_OPTIONS, KIND_OPTIONS, missingHeaders, moveColumn, setColumn, withNewHeaders } from './model';
 import { ErrorLine, LoadError, Loading, Page, PreviewCaption, PreviewTable, Section, TD, TH, Table, TextField, useGet } from './parts';
 
 function SheetSettings({ sheet, onSaved }: { sheet: PortalAdminSheet; onSaved: () => void }) {
@@ -62,6 +62,7 @@ export function ColumnsEditor({ initial, headers, sheetId, onSaved }: { initial:
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const gone = headers === null ? [] : missingHeaders(cols, headers);
+  const dup = headers === null ? [] : duplicateHeaders(headers);
   const edit = (i: number, patch: Partial<PortalAdminColumn>): void => { setSaved(false); setCols((c) => setColumn(c, i, patch)); };
   const move = (i: number, d: -1 | 1): void => { setSaved(false); setCols((c) => moveColumn(c, i, d)); };
   const save = async (): Promise<void> => {
@@ -78,6 +79,13 @@ export function ColumnsEditor({ initial, headers, sheetId, onSaved }: { initial:
   };
   return (
     <>
+      {dup.length > 0 && (
+        <div className="mb-3">
+          <Notice tone="warn" title="シートに同じ見出しが 2 つ以上あります">
+            {dup.join('、')}。どちらの列の値か決められないので、顧客の画面には出しません。シートの見出しを別の名前にしてください。
+          </Notice>
+        </div>
+      )}
       {gone.length > 0 && (
         <div className="mb-3">
           <Notice tone="warn" title="シートの見出しに無い項目があります">

@@ -957,6 +957,9 @@ fn 二つの鍵が同じサービスアカウントなら顧客のシート側�
         ) -> super::super::sheets::ApiFuture<'a, ()> {
             Box::pin(async { Ok(()) })
         }
+        fn modified_time<'a>(&'a self, _: &'a str) -> super::super::sheets::ApiFuture<'a, String> {
+            Box::pin(async { Ok(String::new()) })
+        }
     }
     assert!(super::super::distinct_reader(Some(a), Some(&Other)).is_some());
 }

@@ -12,10 +12,12 @@ pub mod admin;
 pub mod auth;
 #[cfg(debug_assertions)]
 mod dev_sheet;
+pub mod live;
 pub mod mail;
 pub mod sheet_store;
 pub mod sheets;
 pub mod store;
+pub mod view;
 
 #[cfg(test)]
 mod sheet_store_tests;
@@ -80,6 +82,9 @@ struct Ctx {
     mailer: Option<Arc<dyn Mailer>>,
     reader: Option<Arc<dyn SheetsApi>>,
     store_spreadsheet: Option<String>,
+    /// 顧客のシートの読み取りの共有 (reader があるときだけ)
+    live: Option<Arc<live::LiveSheets>>,
+    views: view::ViewLog,
     access: CrmAccess,
     manifest: Option<AppManifest>,
 }
@@ -254,6 +259,18 @@ fn dev_parts(reader: Option<Arc<dyn SheetsApi>>) -> Parts {
             updated_at: now,
         },
     );
+    // 顧客のシートの鍵が無いときは架空の表を読み、架空のシート 2 枚を登録しておく (見る画面の確認用)
+    let reader = match reader {
+        Some(r) => r,
+        None => {
+            for (reg, cols) in dev_sheet::dev_registrations("dev", now) {
+                let id = reg.id.clone();
+                let _ = store::PortalStore::insert_sheet(store.as_ref(), reg);
+                store::PortalStore::replace_columns(store.as_ref(), &id, cols);
+            }
+            Arc::new(dev_sheet::DevSheet) as Arc<dyn SheetsApi>
+        }
+    };
     let auth = Arc::new(PortalAuth::new(store, cfg));
     if let Ok((_, token)) = auth.create_account("dev@example.com", "dev", now) {
         tracing::warn!(
@@ -264,7 +281,7 @@ fn dev_parts(reader: Option<Arc<dyn SheetsApi>>) -> Parts {
     Parts {
         auth: Some(auth),
         mailer: Some(Arc::new(mail::DevLogMailer)),
-        reader: reader.or_else(|| Some(Arc::new(dev_sheet::DevSheet) as Arc<dyn SheetsApi>)),
+        reader: Some(reader),
         store_spreadsheet: None,
     }
 }
@@ -293,10 +310,16 @@ fn router_parts(
     access: CrmAccess,
     manifest: Option<AppManifest>,
 ) -> Router<Arc<AppState>> {
+    let live = parts
+        .reader
+        .clone()
+        .map(|r| Arc::new(live::LiveSheets::new(r, live::LiveConfig::default())));
     let ctx = Arc::new(Ctx {
         auth: parts.auth,
         mailer: parts.mailer,
         reader: parts.reader,
+        live,
+        views: view::ViewLog::default(),
         store_spreadsheet: parts.store_spreadsheet,
         access,
         manifest,
@@ -312,6 +335,7 @@ fn router_parts(
         .route("/api/portal/logout", post(logout))
         .route("/api/portal/invite/check", post(invite_check))
         .route("/api/portal/invite/accept", post(invite_accept))
+        .merge(view::routes())
         .merge(admin::routes())
         .route_layer(middleware::from_fn(csrf_guard));
     pages

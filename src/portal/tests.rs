@@ -1070,3 +1070,6 @@ fn ログインは最後のログインの日時だけを変えて管理者の�
 
 #[path = "admin_tests.rs"]
 mod admin_tests;
+
+#[path = "view_tests.rs"]
+mod view_tests;
