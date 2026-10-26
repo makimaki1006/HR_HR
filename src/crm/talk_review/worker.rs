@@ -42,6 +42,17 @@ const URL_GRACE: chrono::Duration = chrono::Duration::hours(2);
 /// 古くて録音が消えたとみなす Call の年齢
 const GONE_AFTER: chrono::Duration = chrono::Duration::days(1);
 
+/// 2 回目以降に読む範囲の始まり (`hs_lastmodifieddate`)。前回の 30 分前か、
+/// 録音 URL の猶予 + 30 分前の早い方。URL の無い Call (外部アポインターの通話など) は
+/// 作られた後に更新されないので、猶予が明けるまで読み続けないと取り込まれない
+fn poll_from(prev: DateTime<Utc>, now: DateTime<Utc>, backfill_from: i64) -> i64 {
+    let margin = chrono::Duration::minutes(30);
+    (prev - margin)
+        .min(now - URL_GRACE - margin)
+        .timestamp_millis()
+        .max(backfill_from)
+}
+
 /// 次の再試行までの間隔 (試行回数ごと)
 pub fn backoff(attempts: u32) -> chrono::Duration {
     let mins = [10, 30, 60, 120, 240, 480, 720];
@@ -634,9 +645,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             }
             Some(prev) => {
                 let to = (now + chrono::Duration::hours(1)).timestamp_millis();
-                let from = (prev - chrono::Duration::minutes(30))
-                    .timestamp_millis()
-                    .max(backfill_from);
+                let from = poll_from(prev, now, backfill_from);
                 let cands = search_candidates(
                     &bg,
                     "hs_lastmodifieddate",
@@ -1262,6 +1271,26 @@ mod tests {
         assert_eq!(b["after"], "cur");
         // HubSpot の上限 (1 まとまり 6 条件) を超えない
         assert!(f.len() <= 6, "filters = {}", f.len());
+    }
+
+    #[test]
+    fn poll_reaches_back_past_the_url_grace() {
+        let t = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
+        let ms = |s: &str| t(s).timestamp_millis();
+        let now = t("2026-10-26T03:00:00Z");
+        // 前回が直前でも、猶予 (2 時間) + 30 分前から読む: 09:00 に作られて URL が付かない Call を 11:00 過ぎに拾う
+        assert_eq!(
+            poll_from(t("2026-10-26T02:59:00Z"), now, 0),
+            ms("2026-10-26T00:30:00Z")
+        );
+        // 前回がもっと前ならそこから
+        assert_eq!(
+            poll_from(t("2026-10-25T20:00:00Z"), now, 0),
+            ms("2026-10-25T19:30:00Z")
+        );
+        // 遡りの下限より前は読まない
+        let floor = ms("2026-10-26T01:00:00Z");
+        assert_eq!(poll_from(t("2026-10-26T02:59:00Z"), now, floor), floor);
     }
 
     #[tokio::test]
