@@ -4,6 +4,8 @@
 /** サーバの上限 (lib.rs の DefaultBodyLimit) と同じ。 */
 export const MAX_CSV_BYTES = 20 * 1024 * 1024;
 export const TEXT_MAX_CHARS = 200;
+/** 職種名の上限 (サーバと同じ 40 文字)。 */
+export const JOB_NAME_MAX_CHARS = 40;
 export const TOP_N_MIN = 1;
 export const TOP_N_MAX = 200;
 
@@ -11,9 +13,10 @@ export type SourceType = 'indeed_sp' | 'indeed';
 export type WageMode = 'monthly' | 'hourly';
 
 export interface FormValues {
-  surveyTitle: string;
+  jobName: string;
   marketTitle: string;
   prefecture: string;
+  municipality: string;
   searchKeyword: string;
   includeGoogle: boolean;
   sourceType: SourceType;
@@ -23,9 +26,10 @@ export interface FormValues {
 }
 
 export const DEFAULT_FORM: FormValues = {
-  surveyTitle: '',
+  jobName: '',
   marketTitle: '',
   prefecture: '',
+  municipality: '',
   searchKeyword: '',
   includeGoogle: true,
   sourceType: 'indeed_sp',
@@ -35,7 +39,7 @@ export const DEFAULT_FORM: FormValues = {
 };
 
 export type FormErrors = Partial<
-  Record<'file' | 'topN' | 'surveyTitle' | 'searchKeyword' | 'prefecture', string>
+  Record<'file' | 'topN' | 'jobName' | 'searchKeyword' | 'prefecture' | 'municipality', string>
 >;
 
 /** CSV だけの検証 (選択した時点で指摘するのにも使う)。 */
@@ -57,16 +61,23 @@ export function parseTopN(raw: string): number | null {
   return n >= TOP_N_MIN && n <= TOP_N_MAX ? n : null;
 }
 
-/** `prefectures` が空 (選択肢をまだ取得できていない) ときは都道府県を検証しない。 */
-export function validateForm(values: FormValues, prefectures: readonly string[]): FormErrors {
+/**
+ * `prefectures` が空 (選択肢をまだ取得できていない) ときは都道府県・市区町村を検証しない。
+ * `municipalities` は都道府県ごとの市区町村の選択肢。
+ */
+export function validateForm(
+  values: FormValues,
+  prefectures: readonly string[],
+  municipalities: Readonly<Record<string, readonly string[] | undefined>> = {},
+): FormErrors {
   const errors: FormErrors = {};
   const fileError = validateFile(values.file);
   if (fileError !== undefined) errors.file = fileError;
   if (parseTopN(values.topN) === null) {
     errors.topN = `比較する件数は ${String(TOP_N_MIN)}〜${String(TOP_N_MAX)} の整数で入力してください。`;
   }
-  if (Array.from(values.surveyTitle).length > TEXT_MAX_CHARS) {
-    errors.surveyTitle = `調査名は ${String(TEXT_MAX_CHARS)} 文字以内にしてください。`;
+  if (Array.from(values.jobName.trim()).length > JOB_NAME_MAX_CHARS) {
+    errors.jobName = `職種名は ${String(JOB_NAME_MAX_CHARS)} 文字以内にしてください。`;
   }
   if (Array.from(values.searchKeyword).length > TEXT_MAX_CHARS) {
     errors.searchKeyword = `検索語は ${String(TEXT_MAX_CHARS)} 文字以内にしてください。`;
@@ -78,15 +89,22 @@ export function validateForm(values: FormValues, prefectures: readonly string[])
   ) {
     errors.prefecture = '都道府県を選択肢から選んでください。';
   }
+  if (values.municipality !== '' && prefectures.length > 0) {
+    const cities = municipalities[values.prefecture];
+    if (values.prefecture === '' || !cities?.includes(values.municipality)) {
+      errors.municipality = '市区町村を選択肢から選んでください。';
+    }
+  }
   return errors;
 }
 
 /** 旧画面と同じ name で組む。`include_google` はチェックボックスと同じで、OFF のときは送らない。 */
 export function buildFormData(values: FormValues): FormData {
   const data = new FormData();
-  data.set('survey_title', values.surveyTitle);
   data.set('market_title', values.marketTitle);
   data.set('prefecture', values.prefecture);
+  data.set('municipality', values.municipality);
+  data.set('job_name', values.jobName.trim());
   data.set('search_keyword', values.searchKeyword);
   if (values.includeGoogle) data.set('include_google', '1');
   data.set('source_type', values.sourceType);

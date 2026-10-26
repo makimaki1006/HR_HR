@@ -242,7 +242,7 @@ async fn report_json_has_exact_values_for_monthly_fixture() {
             "{key}"
         );
     }
-    // ワード (全体): 求人票のタグ列 + 人気バッジ (人気・超人気) を数える。件数の多い順、同数は語の昇順。分母は求人数 60
+    // ワード (全体): 求人票のタグ列を数える (人気・超人気は区分で、語に数えない)。件数の多い順、同数は語の昇順。分母は求人数 60
     let kw = r["excel"]["keyword_all"].as_array().unwrap();
     let head: Vec<(&str, u64)> = kw
         .iter()
@@ -256,9 +256,7 @@ async fn report_json_has_exact_values_for_monthly_fixture() {
             ("社会保険完備", 18),
             ("未経験歓迎", 17),
             ("賞与あり", 17),
-            ("駅チカ", 16),
-            ("人気", 14),
-            ("超人気", 4)
+            ("駅チカ", 16)
         ]
     );
     assert_eq!(kw[0]["jobs"], 60);
@@ -269,7 +267,7 @@ async fn report_json_has_exact_values_for_monthly_fixture() {
     assert_eq!(r["population"]["status"], "unavailable");
     // 都道府県未選択は全国の市区町村を合算する経路。外部統計 DB が無いので取得できなかった旨を返す (地域は「全国」)
     assert_eq!(r["population"]["region"], "全国");
-    // 新しい表示に要る項目もモデルに載っている: 給与分布の件数・幅、比較の母数、採用のヒント
+    // 新しい表示に要る項目もモデルに載っている: 給与分布の件数・幅、比較の母数
     assert_eq!(r["excel"]["histograms"]["upper"]["n"], 60);
     assert_eq!(
         r["excel"]["histograms"]["upper"]["step"].as_f64(),
@@ -767,6 +765,83 @@ async fn options_lists_47_prefectures_and_reports_market_unavailable_without_db(
     assert_eq!(v["prefectures"][0], "北海道");
     assert_eq!(v["market_available"], false);
     assert_eq!(v["titles"], json!([]));
+}
+
+#[tokio::test]
+async fn options_lists_municipalities_per_prefecture_from_the_city_master() {
+    let app = app(1024);
+    let cookie = login(&app, "options-muni@example.test").await;
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/competitor/options")
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let v: Value =
+        serde_json::from_slice(&res.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let gunma = v["municipalities"]["群馬県"].as_array().unwrap();
+    assert!(gunma.contains(&json!("太田市")));
+    assert!(!gunma.contains(&json!("札幌市中央区")));
+    assert_eq!(v["municipalities"]["北海道"][0], "札幌市中央区");
+    assert_eq!(v["municipalities"].as_object().unwrap().len(), 47);
+}
+
+#[tokio::test]
+async fn region_choice_overrides_csv_region_and_builds_title() {
+    let app = app(20 * 1024 * 1024);
+    let cookie = login(&app, "region-choice@example.test").await;
+    let csv = fixture("sp_utf8.csv");
+    // 何も選ばない: CSV 由来の値 (従来どおり) と旧 survey_title。
+    let (s, base) = post_api(&app, &cookie, &csv, &form("indeed_sp", "monthly")).await;
+    assert_eq!(s, StatusCode::OK, "{base}");
+    assert_eq!(base["report"]["meta"]["title"], "API契約");
+    assert_eq!(base["report"]["meta"]["prefecture"], "大阪府");
+    assert_eq!(base["report"]["meta"]["municipality"], "大阪市");
+    // 都道府県 + 市区町村 + 職種名: 選んだ地域が報告書に出て、題名は自動で組み立てる。
+    let mut f = form("indeed_sp", "monthly");
+    f.push(("prefecture", "群馬県"));
+    f.push(("municipality", "太田市"));
+    f.push(("job_name", "  製造スタッフ "));
+    let (s, v) = post_api(&app, &cookie, &csv, &f).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["report"]["meta"]["prefecture"], "群馬県");
+    assert_eq!(v["report"]["meta"]["municipality"], "太田市");
+    assert_eq!(v["report"]["meta"]["title"], "群馬県太田市 製造スタッフ");
+    // 都道府県だけ: 市区町村は空 (CSV の値で埋めない)。
+    let mut f = form("indeed_sp", "monthly");
+    f.push(("prefecture", "群馬県"));
+    let (s, v) = post_api(&app, &cookie, &csv, &f).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["report"]["meta"]["prefecture"], "群馬県");
+    assert!(v["report"]["meta"]["municipality"].is_null());
+    assert_eq!(v["report"]["meta"]["title"], "群馬県");
+}
+
+#[tokio::test]
+async fn municipality_must_belong_to_the_chosen_prefecture() {
+    let app = app(20 * 1024 * 1024);
+    let cookie = login(&app, "region-invalid@example.test").await;
+    let csv = fixture("sp_utf8.csv");
+    for (pref, muni) in [("北海道", "太田市"), ("", "太田市"), ("群馬県", "存在市")]
+    {
+        let mut f = form("indeed_sp", "monthly");
+        f.push(("prefecture", pref));
+        f.push(("municipality", muni));
+        let (s, v) = post_api(&app, &cookie, &csv, &f).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{pref}/{muni}");
+        assert_error(&v, "invalid_municipality");
+    }
+    let mut f = form("indeed_sp", "monthly");
+    let too_long = "あ".repeat(41);
+    f.push(("job_name", &too_long));
+    let (s, v) = post_api(&app, &cookie, &csv, &f).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_error(&v, "field_too_long");
 }
 
 // ---------------------------------------------------------------- 認証・CSRF (本物のルーター)

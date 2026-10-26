@@ -391,6 +391,13 @@ pub struct CompetitorAnalysis {
     /// タグを付けた求人の件数 (求人単位で重複排除、上位での切り詰めなし)。件数降順 → タグ名昇順。
     /// by_tags (出現回数) とは異なり、件数 ≤ 求人数 が常に成り立つ (占有率 ≤ 100%)。
     pub tag_counts_all: Vec<(String, usize)>,
+    /// 「人気・超人気」区分の求人 (Indeed SP。人気または超人気のタグがある求人を 1 回だけ数える) の中で、
+    /// その語を付けた求人の件数 (求人単位で重複排除)。件数降順 → 語昇順。
+    #[serde(default)]
+    pub tag_counts_popular_any: Vec<(String, usize)>,
+    /// 「人気・超人気」区分の求人数 (占有率の母数)。
+    #[serde(default)]
+    pub popular_any_n: usize,
     /// 人気比較の単位。true = 時給求人のみ (円/時)、false = 月給求人のみ (円/月)。
     /// SurveyAggregation::is_hourly と同じ値 (ネイティブ単位配列と同じ方針)。
     pub pop_is_hourly: bool,
@@ -417,22 +424,36 @@ pub(crate) fn split_tags(tags_raw: &str) -> Vec<String> {
         .collect()
 }
 
-/// 1 求人のタグ (split_tags と同じ分解、同じタグは初出の 1 つだけ残す)。
-/// 競合調査章の占有率 (= そのタグを付けた求人の割合) の分子に使う。
+/// 訴求語 (キーワード) として数えないタグ。人気・超人気は求人の区分で、語ではない。
+/// 区分の判定 (`popularity_signal`) は `split_tags` を直接使うので、この除外の影響を受けない。
+pub(crate) const NON_KEYWORD_TAGS: [&str; 2] = ["人気", "超人気"];
+
+/// 1 求人のタグ (split_tags と同じ分解、同じタグは初出の 1 つだけ残す)。人気・超人気は語として数えず除く。
+/// 競合調査章の占有率 (= その語を付けた求人の割合) の分子に使う。
 pub(crate) fn record_tags(tags_raw: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for t in split_tags(tags_raw) {
-        if !out.contains(&t) {
+        if !NON_KEYWORD_TAGS.contains(&t.as_str()) && !out.contains(&t) {
             out.push(t);
         }
     }
     out
 }
 
-/// §05 人気度と同じ判定 (`,` 区切り + 厳密一致)。戻り値 (超人気, 人気)。
+/// §05 人気度の判定 (`split_tags` と同じ区切り `,` `、` `/` タブ + 厳密一致)。戻り値 (超人気, 人気)。
 fn popularity_signal(tags_raw: &str) -> (bool, bool) {
-    let tokens: Vec<&str> = tags_raw.split(',').map(|s| s.trim()).collect();
-    (tokens.contains(&"超人気"), tokens.contains(&"人気"))
+    let tokens = split_tags(tags_raw);
+    (
+        tokens.iter().any(|t| t == "超人気"),
+        tokens.iter().any(|t| t == "人気"),
+    )
+}
+
+/// タグ件数 (求人単位) を件数降順 → タグ名昇順の一覧にする。
+fn sorted_tag_counts(map: HashMap<String, usize>) -> Vec<(String, usize)> {
+    let mut v: Vec<(String, usize)> = map.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    v
 }
 
 /// 競合調査章の集計。`is_hourly` は SurveyAggregation::is_hourly と同じ値を渡す。
@@ -458,11 +479,12 @@ fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAn
             *tag_map.entry(t).or_default() += 1;
         }
     }
-    let mut tag_counts_all: Vec<(String, usize)> = tag_map.into_iter().collect();
-    tag_counts_all.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let tag_counts_all = sorted_tag_counts(tag_map);
 
     // 人気比較: §05 と同じく Indeed (SP) 由来のみが母数。単位はモードの主単位だけ
     // (native_value_for_mode: 時給モード=時給求人の円/時、月給モード=月給求人の円/月)。
+    let mut popular_any_n = 0usize;
+    let mut popular_any_map: HashMap<String, usize> = HashMap::new();
     let (mut all_min, mut all_max, mut pop_min, mut pop_max) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for r in records {
@@ -470,6 +492,13 @@ fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAn
             continue;
         }
         let (is_super, is_popular) = popularity_signal(&r.tags_raw);
+        // 占有率比較用: 人気または超人気のタグがある求人を 1 区分にまとめ、1 求人は 1 回だけ数える。
+        if is_super || is_popular {
+            popular_any_n += 1;
+            for t in record_tags(&r.tags_raw) {
+                *popular_any_map.entry(t).or_default() += 1;
+            }
+        }
         let st = &r.salary_parsed.salary_type;
         let lo = r
             .salary_parsed
@@ -497,6 +526,8 @@ fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAn
         indeed_count,
         head_tags,
         tag_counts_all,
+        tag_counts_popular_any: sorted_tag_counts(popular_any_map),
+        popular_any_n,
         pop_is_hourly: is_hourly,
         pop_all: BoundStats::from_values(&all_min, &all_max),
         pop_popular: BoundStats::from_values(&pop_min, &pop_max),
@@ -2214,6 +2245,17 @@ mod tests {
     use super::super::salary_parser::{ParsedSalary, SalaryType};
     use super::super::upload::{CsvSource, SurveyRecord};
     use super::*;
+
+    #[test]
+    fn popularity_signal_uses_the_same_separators_as_split_tags() {
+        assert_eq!(popularity_signal("人気/超人気"), (true, true));
+        assert_eq!(popularity_signal("急募、人気"), (false, true));
+        assert_eq!(popularity_signal("超人気\t研修あり"), (true, false));
+        assert_eq!(popularity_signal("人気,超人気"), (true, true));
+        // 部分一致では判定しない。
+        assert_eq!(popularity_signal("大人気企業,人気急上昇"), (false, false));
+        assert_eq!(popularity_signal(""), (false, false));
+    }
 
     // ======== テストヘルパー ========
 

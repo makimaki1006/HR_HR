@@ -8,4 +8,12 @@ head_share_pct: number,
 /**
  * 全体にその語の件数が無い・全体の母数が 0 のときは null (0 とは言えないので欠測のまま)。
  */
-all_count: number | null, all_share_pct: number | null, };
+all_count: number | null, all_share_pct: number | null, 
+/**
+ * 人気・超人気の求人の中でその語を含む件数。その区分の求人が無いときは null (0 にしない)。
+ */
+popular_any_count: number | null, 
+/**
+ * 人気・超人気の件数 / その区分の求人数 × 100。
+ */
+popular_any_share_pct: number | null, };

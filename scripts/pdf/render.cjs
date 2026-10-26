@@ -13,7 +13,7 @@ const { chromium } = require(modulePath);
     await page.evaluate(() => fitPages());
     const fits = await page.evaluate(() => {
       const panels = [...document.querySelectorAll('.pdf-content')];
-      const expected = ['panel-excel', 'panel-google', 'panel-indeed', 'panel-population', 'panel-consultation'];
+      const expected = ['panel-excel', 'panel-google', 'panel-indeed', 'panel-population'];
       if (panels.length !== expected.length) return false;
       return panels.every((panel, index) => {
         if (panel.id !== expected[index]) return false;

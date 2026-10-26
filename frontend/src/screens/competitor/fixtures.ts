@@ -40,9 +40,10 @@ export function makeReport(): CompetitorReport {
       keyword_comparison: {
         head_n: 45,
         all_n: 1234,
+        popular_any_n: 0,
         rows: [
-          { word: '未経験歓迎', head_count: 30, head_share_pct: 66.666, all_count: 400, all_share_pct: 32.4 },
-          { word: '賞与あり', head_count: 9, head_share_pct: 20, all_count: null, all_share_pct: null },
+          { word: '未経験歓迎', head_count: 30, head_share_pct: 66.666, all_count: 400, all_share_pct: 32.4, popular_any_count: null, popular_any_share_pct: null },
+          { word: '賞与あり', head_count: 9, head_share_pct: 20, all_count: null, all_share_pct: null, popular_any_count: null, popular_any_share_pct: null },
         ],
       },
       histograms: {
@@ -101,7 +102,6 @@ export function makeReport(): CompetitorReport {
     },
     indeed: {
       status: 'ok',
-      title: 'テスト職',
       region: '大阪府',
       source: 'テスト出典',
       caveat: 'テスト注意書き',

@@ -56,6 +56,8 @@ pub enum CompetitorErrorCode {
     InvalidSourceType,
     InvalidWageMode,
     InvalidPrefecture,
+    /// 市区町村が選んだ都道府県の選択肢にない・都道府県なしで指定された。
+    InvalidMunicipality,
     /// 同じユーザーの前のレポート作成がまだ終わっていない。
     ReportInProgress,
     /// 保持期限切れ・存在しない・他人の `report_id` (区別しない)。
@@ -282,6 +284,8 @@ pub struct CompetitorOptions {
     /// Indeed 採用市場の職種 (五十音ではなく文字コード順)。
     pub titles: Vec<String>,
     pub prefectures: Vec<String>,
+    /// 都道府県ごとの市区町村の選択肢 (市区町村コード順)。
+    pub municipalities: std::collections::HashMap<String, Vec<String>>,
     /// false のとき職種の選択肢は空 (CSV の競合調査だけ使える)。
     pub market_available: bool,
 }
@@ -306,6 +310,18 @@ pub async fn api_options(State(state): State<Arc<AppState>>) -> Json<CompetitorO
         prefectures: crate::models::job_seeker::PREFECTURE_ORDER
             .iter()
             .map(|p| (*p).to_owned())
+            .collect(),
+        municipalities: crate::models::job_seeker::PREFECTURE_ORDER
+            .iter()
+            .map(|p| {
+                (
+                    (*p).to_owned(),
+                    crate::geo::city_code::cities_of(p)
+                        .into_iter()
+                        .map(|(name, _)| name)
+                        .collect(),
+                )
+            })
             .collect(),
         market_available,
     })
@@ -379,6 +395,7 @@ async fn build(
         &google,
         &population,
     );
+    super::apply_region(&mut report.meta, &req);
     if !req.top_n_raw.is_empty() {
         report.meta.top_n_requested = Some(req.top_n_raw.clone());
         if req.top_n_raw.parse::<i64>().ok() != Some(req.top_n as i64) {

@@ -12,10 +12,10 @@ tests/e2e/pr/helpers/fixture_values.ts の COMPETITOR_FIXTURE に貼る。
 - ボリュームゾーンは全 60 件を月給換算 (時給 x 167 時間) した円を 1 万円 (時給モードは 50 円) で切り捨てた階級。
   時給モードの階級は時給の行 (16 件) の円/時を 50 円刻み。最小〜最大の間の空の階級も 0 件の階級として残す。
   階級が 81 個を超えるときだけ、幅を基準幅の整数倍に広げる。
-- キーワードは「、」区切りのタグ (カテゴリ列) + 人気/超人気。1 求人に同じ語が複数あっても 1 回と数える。
+- キーワードは「、」区切りのタグ (カテゴリ列)。人気/超人気は求人の区分で語ではないので数えない。1 求人に同じ語が複数あっても 1 回と数える。
+- 人気・超人気の系列: 人気または超人気のタグがある求人 (1 求人は 1 回) を 1 区分にし、その中での語の割合 (母数 = その区分の求人数)。
   件数降順、同数は文字コード順。上位 N 件は重複排除後の先頭 N 行 (N = TOP_N)。
 - 先頭 N 件と全体の比較: 先頭率 = 先頭件数 / N、全体率 = 全体件数 / 全体の求人数。差 = 先頭率 − 全体率 (pt)。
-- 採用のヒント: 先頭率が全体率より低い語を差の小さい順 (同じなら語の文字コード順) に最大 3 つ。
 """
 import collections, csv, json, math, re, statistics
 from decimal import Decimal, ROUND_HALF_UP
@@ -62,10 +62,6 @@ def hist(vals, base, label_div):
     return bins, f"{step / label_div:.0f}"
 
 
-def signed(text):
-    return text if text.startswith("-") else "+" + text
-
-
 def main():
     rows = list(csv.reader(open(SRC, encoding="utf8")))[1:]
     seen, uniq = set(), []
@@ -87,8 +83,6 @@ def main():
 
     def row_tags(r):
         tags = {t for t in r[6].split("、") if t}
-        if r[-1] in ("人気", "超人気"):
-            tags.add(r[-1])
         return tags
 
     def counts(rs):
@@ -106,10 +100,13 @@ def main():
     head_n = len(head)
     call = counts(uniq)
     chead = counts(head)
+    pop_rows = [r for r in uniq if popular(r)]
+    pop_n = len(pop_rows)
+    cpop = counts(pop_rows)
     all_order = ordered(call)
     head_order = ordered(chead)
 
-    out = {"total": all_n, "head_n": head_n}
+    out = {"total": all_n, "head_n": head_n, "popular_any_n": pop_n}
     # 全体の表 (上位 10 語): [語, 件数, 求人数, 占有率 %(小数 0 桁)]
     out["keywords_all"] = [[w, n, all_n, q(Decimal(n) / all_n * 100, 0)] for w, n in all_order[:10]]
     # 全体のグラフ (上位 20 語): 棒の title は「語: N件」
@@ -125,6 +122,9 @@ def main():
             "head_share": f"{head_share:.1f}",
             "all_share": None if all_share is None else f"{all_share:.1f}",
             "delta": None if all_share is None else ("0.0" if abs(head_share - all_share) < 0.05 else f"{head_share - all_share:+.1f}"),
+            "popular_any": cpop.get(w, 0) if pop_n else None,
+            "popular_any_share": f"{cpop.get(w, 0) / pop_n * 100:.1f}" if pop_n else None,
+            "popular_any_js": js_fixed1(Decimal(cpop.get(w, 0)) / pop_n * 100) if pop_n else None,
             "head_js": js_fixed1(head_share),
             "all_js": None if all_share is None else js_fixed1(all_share),
         })
@@ -155,24 +155,6 @@ def main():
     out["hourly"]["hist_lower"], _ = hist([p[2] for p in hp], 50, 1)
     out["hourly"]["hist_n"] = len(hp)
 
-    # 採用のヒント: 訴求の確認候補 (先頭率が全体率より低い語)
-    gaps = []
-    for w, c in call.items():
-        h = chead.get(w, 0)
-        if h * all_n < c * head_n:
-            gaps.append((100 * (h / head_n - c / all_n), w, h, c))
-    gaps.sort()
-    out["gaps"] = [
-        [w, f"{h}/{head_n} ({h / head_n * 100:.1f}%)", f"{c}/{all_n} ({c / all_n * 100:.1f}%)", f"{pts:+.1f}"]
-        for pts, w, h, c in gaps[:3]
-    ]
-    for mode in ("monthly", "hourly"):
-        m = out[mode]
-        # 中央値の行: [ラベル, "総合 / 件数", "人気 / 件数", 総合−人気 (符号つき)]
-        m["consultation"] = [
-            ["下限", f"{m['all_lower'][1]} / {m['counts'][0]}件", f"{m['pop_lower'][1]} / {m['counts'][2]}件", signed(m["diff_lower"][1])],
-            ["上限", f"{m['all_upper'][1]} / {m['counts'][1]}件", f"{m['pop_upper'][1]} / {m['counts'][3]}件", signed(m["diff_upper"][1])],
-        ]
     print(json.dumps(out, ensure_ascii=False, indent=1))
 
 

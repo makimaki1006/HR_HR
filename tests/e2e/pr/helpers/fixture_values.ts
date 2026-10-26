@@ -169,11 +169,12 @@ export const SALES_KPI_FIXTURE = {
  * scripts/e2e/competitor_expected.py が Rust と無関係に計算した値 (python scripts/e2e/competitor_expected.py)。
  * 給与は表示の書式 (月給 = 万円 小数 2 桁 / 時給 = 円の整数)。先頭 N 件の N は 10。
  * 画面に出る文字列は旧画面 (/report/competitor の HTML) の書式。
- * 給与分布は空の給与区間も 0 件の階級として含む。キーワードのグラフは上位 20 語 (fixture は語が 8 種類)。
+ * 給与分布は空の給与区間も 0 件の階級として含む。キーワードのグラフは上位 20 語 (人気・超人気は語に数えない)。
  */
 export const COMPETITOR_FIXTURE = {
   "total": 60,
   "head_n": 10,
+  "popular_any_n": 18,
   "keywords_all": [
     [
       "交通費支給",
@@ -210,18 +211,6 @@ export const COMPETITOR_FIXTURE = {
       16,
       60,
       "27"
-    ],
-    [
-      "人気",
-      14,
-      60,
-      "23"
-    ],
-    [
-      "超人気",
-      4,
-      60,
-      "7"
     ]
   ],
   "keywords_all_chart": [
@@ -248,14 +237,6 @@ export const COMPETITOR_FIXTURE = {
     [
       "駅チカ",
       16
-    ],
-    [
-      "人気",
-      14
-    ],
-    [
-      "超人気",
-      4
     ]
   ],
   "comparison": [
@@ -265,6 +246,9 @@ export const COMPETITOR_FIXTURE = {
       "head_share": "40.0",
       "all_share": "30.0",
       "delta": "+10.0",
+      "popular_any": 1,
+      "popular_any_share": "5.6",
+      "popular_any_js": "5.6",
       "head_js": "40.0",
       "all_js": "30.0"
     },
@@ -274,6 +258,9 @@ export const COMPETITOR_FIXTURE = {
       "head_share": "40.0",
       "all_share": "30.0",
       "delta": "+10.0",
+      "popular_any": 7,
+      "popular_any_share": "38.9",
+      "popular_any_js": "38.9",
       "head_js": "40.0",
       "all_js": "30.0"
     },
@@ -283,6 +270,9 @@ export const COMPETITOR_FIXTURE = {
       "head_share": "30.0",
       "all_share": "30.0",
       "delta": "0.0",
+      "popular_any": 2,
+      "popular_any_share": "11.1",
+      "popular_any_js": "11.1",
       "head_js": "30.0",
       "all_js": "30.0"
     },
@@ -292,6 +282,9 @@ export const COMPETITOR_FIXTURE = {
       "head_share": "30.0",
       "all_share": "28.3",
       "delta": "+1.7",
+      "popular_any": 9,
+      "popular_any_share": "50.0",
+      "popular_any_js": "50.0",
       "head_js": "30.0",
       "all_js": "28.3"
     },
@@ -301,6 +294,9 @@ export const COMPETITOR_FIXTURE = {
       "head_share": "30.0",
       "all_share": "28.3",
       "delta": "+1.7",
+      "popular_any": 10,
+      "popular_any_share": "55.6",
+      "popular_any_js": "55.6",
       "head_js": "30.0",
       "all_js": "28.3"
     },
@@ -310,26 +306,11 @@ export const COMPETITOR_FIXTURE = {
       "head_share": "30.0",
       "all_share": "26.7",
       "delta": "+3.3",
+      "popular_any": 3,
+      "popular_any_share": "16.7",
+      "popular_any_js": "16.7",
       "head_js": "30.0",
       "all_js": "26.7"
-    },
-    {
-      "word": "人気",
-      "head": 2,
-      "head_share": "20.0",
-      "all_share": "23.3",
-      "delta": "-3.3",
-      "head_js": "20.0",
-      "all_js": "23.3"
-    },
-    {
-      "word": "超人気",
-      "head": 1,
-      "head_share": "10.0",
-      "all_share": "6.7",
-      "delta": "+3.3",
-      "head_js": "10.0",
-      "all_js": "6.7"
     }
   ],
   "monthly": {
@@ -522,21 +503,7 @@ export const COMPETITOR_FIXTURE = {
         3
       ]
     ],
-    "hist_n": 60,
-    "consultation": [
-      [
-        "下限",
-        "27.00 / 44件",
-        "26.50 / 14件",
-        "+0.50"
-      ],
-      [
-        "上限",
-        "32.00 / 44件",
-        "31.50 / 14件",
-        "+0.50"
-      ]
-    ]
+    "hist_n": 60
   },
   "hourly": {
     "counts": [
@@ -632,28 +599,6 @@ export const COMPETITOR_FIXTURE = {
         1
       ]
     ],
-    "hist_n": 16,
-    "consultation": [
-      [
-        "下限",
-        "1255 / 16件",
-        "1225 / 4件",
-        "+30"
-      ],
-      [
-        "上限",
-        "1405 / 16件",
-        "1350 / 4件",
-        "+55"
-      ]
-    ]
-  },
-  "gaps": [
-    [
-      "人気",
-      "2/10 (20.0%)",
-      "14/60 (23.3%)",
-      "-3.3"
-    ]
-  ]
+    "hist_n": 16
+  }
 } as const;
