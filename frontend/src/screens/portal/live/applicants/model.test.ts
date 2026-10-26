@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PortalColumn } from '../../../../generated/PortalColumn';
-import { listLayout, mailHref, matches, newestFirst, readUrl, telHref, urlFor } from './model';
+import { isGone, listLayout, mailHref, matches, newestFirst, readUrl, telHref, urlFor } from './model';
 
 const col = (label: string, kind: string, in_list: boolean, group = 'summary'): PortalColumn => ({ label, kind, group, in_list, multiline: false });
 
@@ -45,4 +45,12 @@ it('URL のシートと行を読み書きする', () => {
   expect(readUrl('?row=-1')).toEqual({ sheet: null, row: null });
   expect(urlFor('/portal', 's1', 3)).toBe('/portal?sheet=s1&row=3');
   expect(urlFor('/portal', null, null)).toBe('/portal');
+});
+
+it('見られなくなったかは 404 と 503 sheet_unavailable だけ', () => {
+  expect(isGone({ status: 404, error: 'not_found' })).toBe(true);
+  expect(isGone({ status: 503, error: 'sheet_unavailable' })).toBe(true);
+  expect(isGone({ status: 503, error: 'sheet_busy' })).toBe(false);
+  expect(isGone({ status: 503, error: 'portal_unavailable' })).toBe(false);
+  expect(isGone({ status: 0, error: 'network' })).toBe(false);
 });

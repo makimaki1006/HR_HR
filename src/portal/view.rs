@@ -273,7 +273,8 @@ fn applicants(
     rows: &[Vec<String>],
 ) -> (Vec<PortalColumn>, Vec<PortalApplicant>) {
     let header_row = s.header_row.max(1);
-    let mut positions: HashMap<String, usize> = HashMap::new();
+    // 見出し → 列の位置。同じ見出しが 2 つ以上ある列はどちらの値か決められないので None にする
+    let mut positions: HashMap<String, Option<usize>> = HashMap::new();
     for (i, h) in rows
         .first()
         .map(Vec::as_slice)
@@ -283,17 +284,29 @@ fn applicants(
     {
         let h = clean_header(h);
         if !h.is_empty() {
-            positions.entry(h).or_insert(i);
+            positions
+                .entry(h)
+                .and_modify(|p| *p = None)
+                .or_insert(Some(i));
         }
     }
+    let duplicated = cols
+        .iter()
+        .filter(|c| matches!(positions.get(&c.header), Some(None)))
+        .count();
     let found: Vec<(&ColumnSetting, usize)> = cols
         .iter()
-        .filter_map(|c| positions.get(&c.header).map(|&i| (c, i)))
+        .filter_map(|c| positions.get(&c.header).copied().flatten().map(|i| (c, i)))
         .collect();
-    if found.len() < cols.len() {
+    if duplicated > 0 {
+        tracing::warn!(
+            "[portal] シートに同じ見出しが 2 つ以上あり、出さない項目がある（{duplicated} 件）"
+        );
+    }
+    if found.len() + duplicated < cols.len() {
         tracing::warn!(
             "[portal] シートに見出しが見つからない項目がある（{} 件）",
-            cols.len() - found.len()
+            cols.len() - found.len() - duplicated
         );
     }
     let columns = found
@@ -370,7 +383,13 @@ async fn version(
             version: version_of(&m, &s, &cols),
         })
         .into_response(),
-        Err(e) => sheet_unavailable(e.into()),
+        Err(e) => {
+            let e: ReadError = e.into();
+            if e == ReadError::NotShared {
+                live.forget(&s.id).await;
+            }
+            sheet_unavailable(e)
+        }
     }
 }
 
@@ -391,12 +410,20 @@ async fn rows(
         Ok(l) => l,
         Err(r) => return r,
     };
+    // Drive が 403 / 404 なら共有が外れた: 前に読んだ表も出さない。
+    // 前の表を返してよいのは、混雑・通信の失敗などの一時的なときだけ
     let modified = match live.modified(&s.spreadsheet_id).await {
         Ok(m) => Some(m),
-        Err(e) => {
-            log_read(e.into());
-            None
-        }
+        Err(e) => match ReadError::from(e) {
+            ReadError::NotShared => {
+                live.forget(&s.id).await;
+                return sheet_unavailable(ReadError::NotShared);
+            }
+            other => {
+                log_read(other);
+                None
+            }
+        },
     };
     let (grid, stale) = match live.grid(&s, modified.as_deref()).await {
         Ok(GridResult::Fresh(g)) => (g, false),

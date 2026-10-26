@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PortalAdminColumn } from '../../../generated/PortalAdminColumn';
-import { gidFromUrl, missingHeaders, moveColumn, parseRoute, routeHref, setColumn, withNewHeaders } from './model';
+import { duplicateHeaders, gidFromUrl, missingHeaders, moveColumn, parseRoute, routeHref, setColumn, withNewHeaders } from './model';
 
 const col = (header: string, patch: Partial<PortalAdminColumn> = {}): PortalAdminColumn => ({
   header,
@@ -65,4 +65,9 @@ describe('URL のタブの番号', () => {
     expect(gidFromUrl('https://docs.google.com/spreadsheets/d/abc/edit?gid=0')).toBe(0);
     expect(gidFromUrl('https://docs.google.com/spreadsheets/d/abc/edit')).toBeNull();
   });
+});
+
+it('シートに 2 回以上ある見出しを拾う', () => {
+  expect(duplicateHeaders(['応募日', '備考', ' 備考 ', '', '', '状況'])).toEqual(['備考']);
+  expect(duplicateHeaders(['応募日', '状況'])).toEqual([]);
 });

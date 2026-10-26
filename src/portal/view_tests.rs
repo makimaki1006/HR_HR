@@ -473,3 +473,113 @@ async fn 保存先とメールが揃っていなければ503() {
         assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE, "{uri}");
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn driveが404_sheetsが403なら前の表を出さず503() {
+    let h = harness();
+    let (s, _) = get(&h, &h.a, "/api/portal/sheets/s1/rows").await;
+    assert_eq!(s, StatusCode::OK);
+    // 共有が外れた: Drive は 404、Sheets は 403
+    *h.fake.fail_modified.lock().unwrap() = Some(GoogleError::Status(404));
+    *h.fake.fail_reads.lock().unwrap() = Some(GoogleError::Status(403));
+    tokio::time::advance(Duration::from_secs(21)).await;
+    for path in ["rows", "version"] {
+        let (s, v) = get(&h, &h.a, &format!("/api/portal/sheets/s1/{path}")).await;
+        assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        assert_eq!(v["error"], "sheet_unavailable", "{path}");
+        assert!(!v.to_string().contains(APPLICANT), "{path}");
+    }
+    // Drive だけ戻っても (時刻は同じ)、捨てた表は出さず、Sheets の 403 をそのまま返す
+    *h.fake.fail_modified.lock().unwrap() = None;
+    tokio::time::advance(Duration::from_secs(21)).await;
+    let (s, v) = get(&h, &h.a, "/api/portal/sheets/s1/rows").await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(v["error"], "sheet_unavailable");
+    assert!(!v.to_string().contains(APPLICANT));
+    // 共有し直せば、また読める
+    *h.fake.fail_reads.lock().unwrap() = None;
+    tokio::time::advance(Duration::from_secs(11)).await;
+    let (s, v) = get(&h, &h.a, "/api/portal/sheets/s1/rows").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["stale"], false);
+}
+
+#[tokio::test(start_paused = true)]
+async fn 読み取りの失敗は10秒覚え_連打でsheetsを読まない() {
+    let h = harness();
+    get(&h, &h.a, "/api/portal/sheets/s1/rows").await;
+    assert_eq!(h.fake.count("batch_get"), 1);
+    // シートが書き換わったが、Sheets が混んでいる (500)
+    *h.fake.modified.lock().unwrap() = "2026-10-26T00:09:00.000Z".into();
+    *h.fake.fail_reads.lock().unwrap() = Some(GoogleError::Status(500));
+    tokio::time::advance(Duration::from_secs(21)).await;
+    for _ in 0..10 {
+        let (s, v) = get(&h, &h.a, "/api/portal/sheets/s1/rows").await;
+        assert_eq!(s, StatusCode::OK, "一時的な失敗は前の表を出す");
+        assert_eq!(v["stale"], true);
+    }
+    assert_eq!(
+        h.fake.count("batch_get"),
+        2,
+        "失敗のあと 10 秒は読みにいかない"
+    );
+    // 10 秒たてば読み直す
+    *h.fake.fail_reads.lock().unwrap() = None;
+    tokio::time::advance(Duration::from_secs(11)).await;
+    let (_, v) = get(&h, &h.a, "/api/portal/sheets/s1/rows").await;
+    assert_eq!(v["stale"], false);
+    assert_eq!(h.fake.count("batch_get"), 3);
+}
+
+#[tokio::test(start_paused = true)]
+async fn 同じ見出しが2つある項目は出さない() {
+    let h = harness();
+    h.fake.tabs.lock().unwrap().insert(
+        "重複".into(),
+        (
+            31,
+            vec![
+                vec!["応募者名".into(), "備考".into(), "備考".into()],
+                vec!["記入例".into(), "".into(), "".into()],
+                vec![APPLICANT.into(), "左の備考".into(), "右の備考".into()],
+            ],
+        ),
+    );
+    let store = h.auth.store();
+    store
+        .insert_sheet(reg("s3", "c1", "SPREAD-c1-dup-00000000000", 31))
+        .unwrap();
+    store.replace_columns(
+        "s3",
+        vec![
+            col("s3", "応募者名", true, true, 0),
+            col("s3", "備考", true, false, 1),
+        ],
+    );
+    let (s, v) = get(&h, &h.a, "/api/portal/sheets/s3/rows").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["columns"].as_array().unwrap().len(), 1);
+    assert_eq!(v["columns"][0]["label"], "応募者名");
+    assert_eq!(v["applicants"][0]["cells"], serde_json::json!([APPLICANT]));
+    let text = v.to_string();
+    assert!(!text.contains("左の備考") && !text.contains("右の備考"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn 止めたシートの登録は404() {
+    let h = harness();
+    assert_eq!(
+        get(&h, &h.a, "/api/portal/sheets/s1/rows").await.0,
+        StatusCode::OK
+    );
+    let mut s1 = h.auth.store().sheet("s1").unwrap();
+    s1.disabled = true;
+    h.auth.store().update_sheet(s1).unwrap();
+    for path in ["rows", "version"] {
+        let (s, v) = get(&h, &h.a, &format!("/api/portal/sheets/s1/{path}")).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{path}");
+        assert_eq!(v["error"], "not_found");
+    }
+    let (_, v) = get(&h, &h.a, "/api/portal/sheets").await;
+    assert_eq!(v["sheets"], serde_json::json!([]));
+}

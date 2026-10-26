@@ -59,6 +59,14 @@ export function matches(a: PortalApplicant, query: string): boolean {
   });
 }
 
+/**
+ * サーバーで見られなくなったか (404、または共有が外れた 503 sheet_unavailable)。
+ * このときは画面に残っている内容を捨てる。混雑 (503 sheet_busy) や通信の失敗は一時的なので、内容を残して帯で知らせる
+ */
+export function isGone(r: { status: number; error: string }): boolean {
+  return r.status === 404 || (r.status === 503 && r.error === 'sheet_unavailable');
+}
+
 /** 新しく入った行（シートの下の行）を上にする。 */
 export function newestFirst(list: PortalApplicant[]): PortalApplicant[] {
   return [...list].sort((a, b) => b.row - a.row);

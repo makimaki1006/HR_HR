@@ -109,6 +109,13 @@ struct TabsSlot {
 #[derive(Default)]
 struct GridSlot {
     value: Option<Arc<Grid>>,
+    /// 直前の読み取りの失敗 (いつ・どの形・どの最終更新時刻で)。`error_ttl` の間は Sheets を読み直さない
+    failed: Option<(Instant, Shape, Option<String>, ReadError)>,
+}
+
+/// 共有が外れた・タブが無いなど、待っても直らない失敗
+fn permanent(e: ReadError) -> bool {
+    matches!(e, ReadError::NotShared | ReadError::TabNotFound)
 }
 
 type Slots<T> = Mutex<HashMap<String, (Arc<AsyncMutex<T>>, Instant)>>;
@@ -232,7 +239,19 @@ impl LiveSheets {
                 Some(_) => {}
             }
         }
-        match self.read(&shape).await {
+        // 直前に失敗したばかりなら Sheets を読まずに同じ失敗として扱う (連打で枠を使い切らない)
+        let recent_failure = g
+            .failed
+            .as_ref()
+            .filter(|(at, sh, m, _)| {
+                at.elapsed() < self.cfg.error_ttl && *sh == shape && m.as_deref() == modified
+            })
+            .map(|(_, _, _, e)| *e);
+        let result = match recent_failure {
+            Some(e) => Err(e),
+            None => self.read(&shape).await,
+        };
+        match result {
             Ok(rows) => {
                 let grid = Arc::new(Grid {
                     shape,
@@ -241,14 +260,30 @@ impl LiveSheets {
                     read_at: Utc::now(),
                 });
                 g.value = Some(grid.clone());
+                g.failed = None;
                 Ok(GridResult::Fresh(grid))
             }
-            Err(e) => match cached {
-                Some(c) if !matches!(e, ReadError::NotShared | ReadError::TabNotFound) => {
-                    Ok(GridResult::Stale(c))
+            Err(e) => {
+                if recent_failure.is_none() {
+                    g.failed = Some((Instant::now(), shape, modified.map(str::to_string), e));
                 }
-                _ => Err(e),
-            },
+                if permanent(e) {
+                    // 共有が外れたら、前に読んだ表も捨てる
+                    g.value = None;
+                    return Err(e);
+                }
+                match cached {
+                    Some(c) => Ok(GridResult::Stale(c)),
+                    None => Err(e),
+                }
+            }
         }
+    }
+
+    /// その登録の読んだ表を捨てる (共有が外れたと分かったとき)
+    pub async fn forget(&self, reg_id: &str) {
+        let s = slot(&self.grids, reg_id, self.cfg.idle_drop);
+        let mut g = s.lock().await;
+        g.value = None;
     }
 }

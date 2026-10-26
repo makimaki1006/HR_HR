@@ -10,7 +10,7 @@ import type { PortalSheetVersion } from '../../../../generated/PortalSheetVersio
 import { IconChevronDown, IconChevronRight, IconLogout, IconMail, IconPhone, IconSearch, IconSheet, IconX } from '../../ui/icons';
 import { Badge, Button, cx, formatTime, IconButton, Notice } from '../../ui/kit';
 import { call, NETWORK } from '../api';
-import { DETAIL_GROUPS, GROUP_TITLE, groupOf, listLayout, mailHref, matches, newestFirst, readUrl, statusTone, telHref, urlFor, type ListLayout } from './model';
+import { DETAIL_GROUPS, GROUP_TITLE, groupOf, isGone, listLayout, mailHref, matches, newestFirst, readUrl, statusTone, telHref, urlFor, type ListLayout } from './model';
 
 const CHECK_EVERY_MS = 30_000;
 const PATH = '/portal';
@@ -19,7 +19,9 @@ const PATH = '/portal';
 type Load =
   | { sheet: string | null; state: 'loading' }
   | { sheet: string; state: 'ready'; data: PortalSheetRows }
-  | { sheet: string; state: 'failed'; message: string };
+  | { sheet: string; state: 'failed'; message: string }
+  /** サーバーで見られなくなった。読んだ内容は捨てた */
+  | { sheet: string; state: 'gone' };
 
 function message(r: { error: string; message: string }): string {
   if (r.error === NETWORK) return '通信できませんでした。電波のよい所で、もう一度お試しください';
@@ -227,11 +229,16 @@ function Detail({ data, layout, applicant, onClose }: { data: PortalSheetRows; l
 
 export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; onSignedOut: () => void; onLogout: () => void }) {
   const [sheets, setSheets] = useState<PortalSheets['sheets'] | null>(null);
+  const sheetsRef = useRef<PortalSheets['sheets'] | null>(null);
+  useEffect(() => { sheetsRef.current = sheets; }, [sheets]);
   const [listProblem, setListProblem] = useState<string | null>(null);
   const [url, setUrl] = useState(() => readUrl(window.location.search));
   const [rawLoad, setLoad] = useState<Load>({ sheet: null, state: 'loading' });
   const [checkProblem, setCheckProblem] = useState(false);
   const [query, setQuery] = useState('');
+  const [listKey, setListKey] = useState(0);
+  /** 見られなくなったシート (別のシートに移ったあとも知らせる) */
+  const [goneSheet, setGoneSheet] = useState<{ id: string; label: string } | null>(null);
   const versionRef = useRef<string | null>(null);
   const reqRef = useRef(0);
 
@@ -243,7 +250,7 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
       else if (r.status === 401) onSignedOut();
       else setListProblem(message(r));
     });
-  }, [onSignedOut]);
+  }, [onSignedOut, listKey]);
 
   useEffect(() => {
     const onPop = () => { setUrl(readUrl(window.location.search)); };
@@ -251,7 +258,22 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
     return () => { window.removeEventListener('popstate', onPop); };
   }, []);
 
-  /** 読み直す。quiet なら失敗しても今の表示を残し、帯で知らせる */
+  /**
+   * サーバーで見られなくなった (共有が外れた・登録を止めた・別の顧客に移った)。
+   * 画面に残っている応募者の内容を捨て、シートの一覧を取り直す
+   */
+  const markGone = useCallback((id: string) => {
+    reqRef.current += 1;
+    versionRef.current = null;
+    setCheckProblem(false);
+    setLoad({ sheet: id, state: 'gone' });
+    setGoneSheet((prev) => ({ id, label: sheetsRef.current?.find((s) => s.id === id)?.label ?? prev?.label ?? 'シート' }));
+    window.history.replaceState(null, '', urlFor(PATH, id, null));
+    setUrl({ sheet: id, row: null });
+    setListKey((k) => k + 1);
+  }, []);
+
+  /** 読み直す。quiet なら一時的な失敗では今の表示を残し、帯で知らせる */
   const reload = useCallback((id: string, quiet: boolean) => {
     const req = ++reqRef.current;
     void call<PortalSheetRows>('GET', `/api/portal/sheets/${encodeURIComponent(id)}/rows`).then((r) => {
@@ -262,13 +284,15 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
         setLoad({ sheet: id, state: 'ready', data: r.data });
       } else if (r.status === 401) {
         onSignedOut();
+      } else if (isGone(r)) {
+        markGone(id);
       } else if (quiet) {
         setCheckProblem(true);
       } else {
         setLoad({ sheet: id, state: 'failed', message: message(r) });
       }
     });
-  }, [onSignedOut]);
+  }, [onSignedOut, markGone]);
 
   useEffect(() => {
     if (!sheetId) return;
@@ -288,6 +312,8 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
           else setCheckProblem(false);
         } else if (r.status === 401) {
           onSignedOut();
+        } else if (isGone(r)) {
+          markGone(sheetId);
         } else {
           setCheckProblem(true);
         }
@@ -302,7 +328,7 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
     if (!document.hidden) start();
     document.addEventListener('visibilitychange', onVisible);
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, [sheetId, reload, onSignedOut]);
+  }, [sheetId, reload, onSignedOut, markGone]);
 
   const go = (sheet: string | null, row: number | null, push: boolean) => {
     const next = urlFor(PATH, sheet, row);
@@ -331,6 +357,7 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
   else if (!sheets) body = <p className="py-12 text-center text-[13px] text-pt-muted">読み込んでいます…</p>;
   else if (sheets.length === 0) body = <Notice tone="info" title="見られるシートがまだありません">準備ができたら、弊社の担当者からご案内します。</Notice>;
   else if (load.state === 'loading') body = <p className="py-12 text-center text-[13px] text-pt-muted">応募者を読み込んでいます…</p>;
+  else if (load.state === 'gone') body = <Notice tone="warn" title="このシートは見られなくなりました" action={sheetId ? <Button size="sm" onClick={() => { setLoad({ sheet: sheetId, state: 'loading' }); setGoneSheet(null); reload(sheetId, false); }}>読み直す</Button> : undefined}>表示していた応募者の内容は消しました。続けてご覧になるときは、弊社の担当者にご連絡ください。</Notice>;
   else if (load.state === 'failed') body = <Notice tone="warn" action={sheetId ? <Button size="sm" onClick={() => { setLoad({ sheet: sheetId, state: 'loading' }); reload(sheetId, false); }}>読み直す</Button> : undefined}>{load.message}</Notice>;
   else if (data && layout) {
     body = (
@@ -367,12 +394,17 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
             <span className="flex size-6 items-center justify-center rounded bg-pt-brand text-white"><IconSheet size={13} /></span>
             <span className="hidden sm:inline">応募者の管理</span>
           </span>
-          {sheets && <div className="flex min-w-0 flex-1 items-center"><SheetSwitch sheets={sheets} current={sheetId} onSelect={(id) => { go(id, null, false); setQuery(''); }} /></div>}
+          {sheets && <div className="flex min-w-0 flex-1 items-center"><SheetSwitch sheets={sheets} current={sheetId} onSelect={(id) => { go(id, null, false); setQuery(''); setGoneSheet(null); }} /></div>}
           <span className="ml-auto hidden max-w-[240px] truncate text-xs text-pt-muted md:inline" title={me.email}>{me.email}</span>
           <IconButton label="ログアウト" onClick={onLogout} className="ml-auto md:ml-0"><IconLogout size={16} /></IconButton>
         </div>
       </header>
-      <main className="mx-auto max-w-[1280px] px-4 py-4 lg:py-5">{body}</main>
+      <main className="mx-auto max-w-[1280px] px-4 py-4 lg:py-5">
+        {goneSheet && goneSheet.id !== sheetId && (
+          <div className="mb-3"><Notice tone="warn" action={<Button size="sm" variant="ghost" onClick={() => { setGoneSheet(null); }}>閉じる</Button>}>「{goneSheet.label}」は見られなくなりました。続けてご覧になるときは、弊社の担当者にご連絡ください。</Notice></div>
+        )}
+        {body}
+      </main>
     </div>
   );
 }

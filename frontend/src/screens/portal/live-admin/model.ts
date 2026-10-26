@@ -153,6 +153,19 @@ export function missingHeaders(cols: PortalAdminColumn[], headers: string[]): st
   return cols.filter((c) => !set.has(c.header)).map((c) => c.header);
 }
 
+/** シートの見出しに 2 回以上ある見出し。顧客の画面では、どちらの列の値か決められないのでその項目を出さない */
+export function duplicateHeaders(headers: string[]): string[] {
+  const seen = new Set<string>();
+  const dup = new Set<string>();
+  for (const raw of headers) {
+    const h = raw.trim();
+    if (h === '') continue;
+    if (seen.has(h)) dup.add(h);
+    seen.add(h);
+  }
+  return [...dup];
+}
+
 /** URL の #gid= / ?gid= のタブの番号。無ければ null */
 export function gidFromUrl(url: string): number | null {
   const m = /[#?&]gid=(\d+)/.exec(url);
