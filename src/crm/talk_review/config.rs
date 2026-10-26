@@ -30,6 +30,10 @@ pub struct TalkReviewConfig {
     /// 既定は BPO (`APPOINTMENT_TEAMS` = BPO_リクロジ) と新規営業 (`SALES_TEAM`、`caller_metrics_month` が
     /// 「今月」を出すチームと同じ名前。設計書 §19)。
     pub teams: Vec<String>,
+    /// 新規営業 (BPO 以外) の電話を、かけた時点の取引のステージでアポ取りだけに絞るか (`CALL_REVIEW_SCOPE_FILTER=0` で止める)
+    pub scope_filter: bool,
+    /// 対象のステージ ID を既定の表 (`scope::DEFAULT_SCOPE_STAGES`) の代わりに指定する (`CALL_REVIEW_SCOPE_STAGES`、カンマ区切り)
+    pub scope_stages: Vec<String>,
 }
 
 impl TalkReviewConfig {
@@ -90,6 +94,15 @@ impl TalkReviewConfig {
                 .filter(|n| (1..=MAX_CONCURRENCY).contains(n))
                 .unwrap_or(16),
             teams,
+            scope_filter: text("CALL_REVIEW_SCOPE_FILTER").as_deref() != Some("0"),
+            scope_stages: text("CALL_REVIEW_SCOPE_STAGES")
+                .map(|s| {
+                    s.split(',')
+                        .map(|t| t.trim().to_string())
+                        .filter(|t| !t.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 
@@ -113,10 +126,25 @@ mod tests {
         assert_eq!(c.interval, Duration::from_secs(600));
         assert_eq!((c.per_person_day, c.concurrency), (10, 4));
         assert_eq!((c.contact_backfill_days, c.contact_concurrency), (7, 16));
+        assert!(c.scope_filter && c.scope_stages.is_empty());
         assert_eq!(
             c.teams,
             vec!["BPO_リクロジ".to_string(), "新規営業".to_string()]
         );
+    }
+
+    #[test]
+    fn scope_settings() {
+        let c = TalkReviewConfig::from_lookup(|k| {
+            match k {
+                "CALL_REVIEW_SCOPE_FILTER" => Some("0"),
+                "CALL_REVIEW_SCOPE_STAGES" => Some(" a, b ,,c"),
+                _ => None,
+            }
+            .map(String::from)
+        });
+        assert!(!c.scope_filter);
+        assert_eq!(c.scope_stages, vec!["a", "b", "c"]);
     }
 
     #[test]

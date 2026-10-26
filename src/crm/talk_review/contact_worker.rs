@@ -5,8 +5,13 @@
 //! (超えたら、新しい電話を拾い直すために見つけ直しへ戻る)。
 //! 見つけるのは、初回は過去 `CALL_CONTACT_BACKFILL_DAYS` 日、以後は今日と昨日だけ (通話ログの読み取りを増やさない)。
 //! MiniMax が混雑 (429) を返したら、全体で少し待ってから続ける。
+//!
+//! 新規営業 (BPO 以外) の発信は、見つけても表に入れる前に `scope.rs` で「かけた時点の取引のステージ」を調べ、
+//! アポ取りの段階なら通常どおり判定待ち、そうでなければ `out_of_scope` の行として入れる (文字起こしも MiniMax も呼ばない)。
+//! 調べられるまでは表に入れずメモリで待ち (`scope_wait`)、上限 (`scope::SCOPE_WAIT`) を超えたら対象として入れる。
+//! 再起動で待ちが消えても、通話ログの読み直し (今日と昨日) で拾い直すので、Turso の列も書き込みも増えない。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,6 +21,7 @@ use super::config::TalkReviewConfig;
 use super::contact::{self, ContactJudge, Outcome, Update};
 use super::contact_store as cstore;
 use super::live_dials::{owner_by_email, utc_range};
+use super::scope::{self, HubspotScope, ScopeQuery, ScopeResolver};
 use super::store;
 use super::worker::team_members;
 use super::zoom::{TranscriptSource, ZoomClient};
@@ -37,6 +43,11 @@ struct ContactWorker<Z, J> {
     /// 初回の見つけ(遡り)が全部の日で済んだか
     backfilled: bool,
     pause_until: Arc<Mutex<Option<Instant>>>,
+    /// アポ取りかの判定を待っている発信 (まだ表に入れていない)
+    scope_wait: HashMap<String, contact::Candidate>,
+    scope: Arc<ScopeResolver<HubspotScope>>,
+    /// 発信をアポ取りだけに絞る担当者 (BPO 以外のチームの人)
+    filtered: HashSet<String>,
 }
 
 impl ContactWorker<ZoomClient, super::judge::MiniMaxJudge> {
@@ -46,10 +57,17 @@ impl ContactWorker<ZoomClient, super::judge::MiniMaxJudge> {
         let list = crate::crm::owners::fetch_all(&bg)
             .await
             .map_err(|e| e.error_kind().to_string())?;
-        let allowed: HashSet<String> = team_members(&list.owners, &self.cfg.teams)
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
+        let members = team_members(&list.owners, &self.cfg.teams);
+        self.filtered = if self.cfg.scope_filter {
+            members
+                .iter()
+                .filter(|m| !TalkReviewConfig::is_bpo_team(&m.team))
+                .map(|m| m.id.clone())
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        let allowed: HashSet<String> = members.into_iter().map(|m| m.id).collect();
         if allowed.is_empty() {
             return Ok(());
         }
@@ -86,23 +104,111 @@ impl ContactWorker<ZoomClient, super::judge::MiniMaxJudge> {
             if fresh.is_empty() {
                 continue;
             }
-            let ts = store::ts_text(now);
-            let rows = fresh.clone();
-            match store::blocking(&self.audit, move |t| cstore::insert_batch(t, &ts, &rows)).await {
-                Ok(()) => {
-                    tracing::info!(%day, new_rows = fresh.len(), "contact marks ingest done");
-                    self.known.extend(fresh.into_iter().map(|c| c.id));
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "contact marks: insert failed");
-                    all_ok = false;
-                }
+            // BPO の発信は絞らずそのまま入れる。新規営業の発信は、アポ取りかの判定を待つ
+            let (direct, waiting): (Vec<_>, Vec<_>) = fresh
+                .into_iter()
+                .partition(|c| !self.filtered.contains(&c.owner_id));
+            for c in waiting {
+                self.scope_wait.entry(c.id.clone()).or_insert(c);
+            }
+            if direct.is_empty() {
+                continue;
+            }
+            if self.insert(&direct, false, now).await {
+                tracing::info!(%day, new_rows = direct.len(), "contact marks ingest done");
+            } else {
+                all_ok = false;
             }
         }
         if all_ok {
             self.backfilled = true;
         }
         Ok(())
+    }
+}
+
+impl<Z, J> ContactWorker<Z, J> {
+    /// 行を表に入れる。入れたら `known` に足して true
+    async fn insert(
+        &mut self,
+        rows: &[contact::Candidate],
+        out_of_scope: bool,
+        now: DateTime<Utc>,
+    ) -> bool {
+        let ts = store::ts_text(now);
+        let owned = rows.to_vec();
+        let res = store::blocking(&self.audit, move |t| {
+            if out_of_scope {
+                cstore::insert_out_of_scope(t, &ts, &owned)
+            } else {
+                cstore::insert_batch(t, &ts, &owned)
+            }
+        })
+        .await;
+        match res {
+            Ok(()) => {
+                self.known.extend(rows.iter().map(|c| c.id.clone()));
+                for c in rows {
+                    self.scope_wait.remove(&c.id);
+                }
+                true
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "contact marks: insert failed");
+                false
+            }
+        }
+    }
+
+    /// 待っている発信をアポ取りか調べ、対象は判定待ちとして、対象外は `out_of_scope` として表に入れる。
+    /// 分からないものは待ち、上限を超えたら対象として入れる
+    async fn settle_scope(&mut self, now: DateTime<Utc>) {
+        if self.scope_wait.is_empty() {
+            return;
+        }
+        let waiting: Vec<contact::Candidate> = self.scope_wait.values().cloned().collect();
+        let mut qs = Vec::with_capacity(waiting.len());
+        let mut ages = HashMap::new();
+        for c in &waiting {
+            let Ok(at) = DateTime::parse_from_rfc3339(&c.call_at) else {
+                continue;
+            };
+            qs.push(ScopeQuery {
+                id: c.id.clone(),
+                callee9: c.callee9.clone(),
+                at_ms: at.timestamp_millis(),
+            });
+            ages.insert(c.id.clone(), now - at.with_timezone(&Utc));
+        }
+        let verdicts = self.scope.resolve(&qs, now.timestamp_millis()).await;
+        let p = scope::partition(&verdicts, &ages);
+        let pick = |ids: &[String]| -> Vec<contact::Candidate> {
+            ids.iter()
+                .filter_map(|i| self.scope_wait.get(i).cloned())
+                .collect()
+        };
+        let include = [pick(&p.include), pick(&p.timed_out)].concat();
+        let exclude = pick(&p.exclude);
+        // 日付の読めない発信は待ちから外れないので、対象として入れる
+        let broken: Vec<contact::Candidate> = waiting
+            .iter()
+            .filter(|c| !ages.contains_key(&c.id))
+            .cloned()
+            .collect();
+        let include = [include, broken].concat();
+        if !include.is_empty() {
+            self.insert(&include, false, now).await;
+        }
+        if !exclude.is_empty() {
+            self.insert(&exclude, true, now).await;
+        }
+        tracing::info!(
+            in_scope = p.include.len(),
+            out_of_scope = p.exclude.len(),
+            timed_out = p.timed_out.len(),
+            waiting = p.waiting.len(),
+            "contact marks scope settled"
+        );
     }
 }
 
@@ -200,6 +306,7 @@ impl ContactWorker<ZoomClient, super::judge::MiniMaxJudge> {
             if let Err(e) = self.discover(Utc::now()).await {
                 tracing::warn!(error = %e, "contact marks discover failed");
             }
+            self.settle_scope(Utc::now()).await;
             if !self.process_due().await {
                 tokio::time::sleep(self.cfg.interval).await;
             }
@@ -220,6 +327,7 @@ pub fn spawn(
         concurrency = cfg.contact_concurrency,
         "contact marks worker started"
     );
+    let scope = Arc::new(scope::production_resolver(&client, &cfg.scope_stages));
     let w = ContactWorker {
         audit,
         client,
@@ -229,6 +337,9 @@ pub fn spawn(
         known: HashSet::new(),
         backfilled: false,
         pause_until: Arc::new(Mutex::new(None)),
+        scope_wait: HashMap::new(),
+        scope,
+        filtered: HashSet::new(),
     };
     tokio::spawn(async move {
         // 9 項目の worker と同時に重い読み取りを始めない
