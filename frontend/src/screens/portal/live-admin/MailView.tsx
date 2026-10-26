@@ -1,4 +1,4 @@
-// 確認コードのメールの送信元 (ADR-035)。送信元の社員本人の Gmail の許可を取る・状態を見る・取り消す。
+// 確認コードのメールの送信元 (ADR-036)。送信元の社員本人の Gmail の許可を取る・状態を見る・取り消す。
 // 許可を押せるのは送信元に決まっている本人だけ (サーバーが確かめる)。取り消しは管理者なら誰でも。
 import { useState } from 'react';
 import type { PortalAdminMail } from '../../../generated/PortalAdminMail';
@@ -20,7 +20,7 @@ function MailBody({ mail, onChanged }: { mail: PortalAdminMail; onChanged: () =>
   if (!mail.configured) {
     return (
       <Notice tone="warn" title="メールの送信元が設定されていません">
-        送信元にする社員のアドレスと、送信の設定がそろうと使えるようになります。そろうまで、顧客はログインできません。
+        送信元にする社員を決めて設定すると使えるようになります（設定は開発の担当者に頼んでください）。設定されるまで、顧客はログインできません。
       </Notice>
     );
   }
@@ -47,13 +47,20 @@ function MailBody({ mail, onChanged }: { mail: PortalAdminMail; onChanged: () =>
         <dt className="text-pt-muted">許可</dt>
         <dd data-testid="mail-state">
           {STATE_LABEL[mail.state] ?? mail.state}
-          {granted && mail.granted_at !== null && <span className="ml-2 text-pt-muted">（{formatShortDateTime(mail.granted_at)}）</span>}
+          {granted && mail.granted_at !== null && <span className="ml-2 text-pt-muted">（{formatShortDateTime(mail.granted_at)} に許可）</span>}
         </dd>
       </dl>
       {mail.paused && (
         <div className="mt-4">
           <Notice tone="warn" title="Gmail に送信を断られました">
             送信の上限などの理由で、10 分ほど確認コードを送りません。続くときは送信元の人の Gmail を確かめてください。
+          </Notice>
+        </div>
+      )}
+      {mail.state === 'none' && (
+        <div className="mt-4">
+          <Notice tone="warn" title="まだ許可されていません">
+            許可されるまで、確認コードを送れません。顧客は新しい端末からログインできません（ログイン中の人と、覚えた端末からのログインは使えます）。
           </Notice>
         </div>
       )}
@@ -80,8 +87,7 @@ function MailBody({ mail, onChanged }: { mail: PortalAdminMail; onChanged: () =>
       </div>
       <ErrorLine message={error} />
       <p className="mt-5 text-xs text-pt-muted">
-        確認コードのメールは送信元の人の Gmail から送ります。送ったメールは送信元の人の送信済みフォルダに残り、顧客が返信すると送信元の人の受信箱に届きます。
-        許可はメールを送る範囲だけで、受信箱は読みません。
+        確認コードのメールは送信元の人の Gmail から送ります。送ったメールは送信元の人の送信済みフォルダに残り、顧客が返信すると送信元の人の受信箱に届きます。{'許可はメールを送る範囲だけで、受信箱は読みません。'}
       </p>
     </Card>
   );

@@ -1,4 +1,4 @@
-//! 確認コードのメールの送信元の Gmail 許可 (ADR-035)。社内の管理画面 `/app/portal-admin` から取る。
+//! 確認コードのメールの送信元の Gmail 許可 (ADR-036)。社内の管理画面 `/app/portal-admin` から取る。
 //!
 //! - CRM のメール送信の許可 (`crm_gmail_grants`) とは別の表 `portal_mail_grants` に置き、範囲は gmail.send だけ。
 //! - 暗号化は CRM と同じ方式・同じ鍵 (`CRM_EMAIL_TOKEN_KEY`) だが、AAD に用途の文字を足すので

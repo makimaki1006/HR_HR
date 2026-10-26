@@ -171,7 +171,7 @@ fn invite_path(token: &str) -> String {
 
 // ---- 組み立て ----
 
-/// `audit` は確認コードのメールの送信元の許可 (`portal_mail_grants`、ADR-035) を読むのに使う
+/// `audit` は確認コードのメールの送信元の許可 (`portal_mail_grants`、ADR-036) を読むのに使う
 pub fn router(audit: Option<crate::audit::AuditDb>) -> Router<Arc<AppState>> {
     let manifest = spa_shell::load_manifest(std::path::Path::new(spa_shell::MANIFEST_PATH));
     router_parts(parts_from_env(audit), CrmAccess::from_env(), manifest)

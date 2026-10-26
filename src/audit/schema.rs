@@ -129,7 +129,7 @@ const TABLE_DDL: &[&str] = &[
         operator_email TEXT PRIMARY KEY, encrypted_refresh_token TEXT NOT NULL,
         scopes TEXT NOT NULL, granted_at TEXT NOT NULL, revoked_at TEXT
     )"#,
-    // ADR-035: 顧客向け応募者画面の確認コードの送信元の Gmail 許可 (gmail.send だけ)。CRM の許可とは別の表・別の AAD
+    // ADR-036: 顧客向け応募者画面の確認コードの送信元の Gmail 許可 (gmail.send だけ)。CRM の許可とは別の表・別の AAD
     r#"CREATE TABLE IF NOT EXISTS portal_mail_grants (
         sender_email TEXT PRIMARY KEY, encrypted_refresh_token TEXT NOT NULL,
         scopes TEXT NOT NULL, granted_at TEXT NOT NULL, revoked_at TEXT

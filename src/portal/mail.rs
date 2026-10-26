@@ -1,7 +1,7 @@
 //! 確認コードのメール。計画 8 章: 会社の Google Workspace の Gmail から送る (別のサービスは使わない)。
 //!
 //! 本番の送信は [`GmailMailer`]: 社員本人 (`PORTAL_MAIL_SENDER`) の Gmail から送る。
-//! 許可は顧客画面のために別に取る (ADR-035、監査 Turso の `portal_mail_grants`、gmail.send だけ。
+//! 許可は顧客画面のために別に取る (ADR-036、監査 Turso の `portal_mail_grants`、gmail.send だけ。
 //! 取り方は [`super::mail_grant`])。CRM のメール送信の許可 (`crm_gmail_grants`) は使わない。
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
