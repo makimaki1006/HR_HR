@@ -3543,12 +3543,12 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         let oubo = hist_last(d, "oubo");
         let mensetu = hist_last(d, "mensetu");
         let syoudaku = hist_last(d, "syoudaku");
-        // 段階（2026-10-26）。面接数はシートの累計（履歴の最新、無ければ取引の値）
+        // 段階（2026-10-26）。面接数は HubSpot の取引の項目 mensetu。いずれ顧客ごとの別のデータから読む
         let phase = super::phase::phase_of_deal(
             start,
             date10(&d.contract_expiration_date),
             d.renewal_no,
-            mensetu.as_ref().map(|x| x.1).or(d.mensetu),
+            d.mensetu,
             today,
         );
         *phase_count.entry(phase.key()).or_insert(0) += 1;

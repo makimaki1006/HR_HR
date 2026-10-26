@@ -3811,7 +3811,7 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   const nBtn = (side.match(/<button /g) || []).length;
   ok(nBtn === 7, "左の項目が 7 でない: " + nBtn);
   const labels = [...side.matchAll(/<button [^>]*>([^<]*)<\/button>/g)].map((m) => m[1]);
-  ok(JSON.stringify(labels) === JSON.stringify(["チームと担当", "今日", "案件一覧", "顧客", "満了日が過ぎた稼働中", "満了と継続", "成果と継続"]), "左の項目名が違う: " + labels.join(" / "));
+  ok(JSON.stringify(labels) === JSON.stringify(["チームと担当", "今日", "案件一覧", "顧客", "満了日超過の稼働中", "満了と継続", "成果と継続"]), "左の項目名が違う: " + labels.join(" / "));
   /* 外した画面は左に出さない。URL では今までどおり開ける（hidden） */
   for (const k of ["stagestay", "focus", "phone", "trust", "byowner", "detail"])
     ok(JSON.parse(run('JSON.stringify(MENUS.flatMap((m) => m.views).find((v) => v.key === "' + k + '"))')).hidden === true, k + " が hidden でない");
@@ -5946,7 +5946,13 @@ check("2026-10-26 段階: 案件一覧は段階で絞れて並べ替えられ、
   ok(run("JSON.stringify(stateParams('board'))").includes('"phase":"3"'), "段階が URL に載らない");
   run('boardFilter.phase = "";');
   const bar = run("boardFilterBar(__PH)");
-  ok(bar.includes("3 更新の判断（2）") && bar.includes("満了後（段階なし）（1）") && !bar.includes("0 契約前"), "段階の選択肢と件数が違う");
+  ok(bar.includes("3 更新の判断（2）") && !bar.includes("満了後（段階なし）") && !bar.includes("0 契約前"), "段階の選択肢と件数が違う");
+  /* 案件一覧は満了日超過の稼働中を外し、外した件数を1行で言う。件数の行も外した後の数 */
+  ctx.__PH2 = run("boardOnly(__PH)");
+  ok(run("__PH2.rows.map((r) => r.deal_id).join()") === "p1,p3,p3b,pu" && run("__PH2.overdue_n") === 1, "満了日超過の行が外れていない");
+  const bb = textOf(run("boardBody(__PH2, boardApply(__PH2.rows), false)"));
+  ok(bb.includes("4 件中 4 件") && bb.includes("満了日を過ぎても稼働中の 1 件は「満了日超過の稼働中」に分けています") && !bb.includes("案件po"), "案件一覧に超過が残る/注記が無い: " + bb.slice(0, 200));
+  ok(!textOf(run("boardBody(boardOnly({ rows: [mk0()] , meta: {} }), [], false)".replace("mk0()", "{ deal_id: 'z', name: 'z', flags: [], phase_key: '1' }"))).includes("分けています"), "0 件なのに注記が出る");
   const sorted = run('boardTable(__PH.rows, { key: "phase", asc: true }, "ph-tbl")');
   ok(sorted.indexOf("案件p1") < sorted.indexOf("案件p3") && sorted.indexOf("案件p3b") < sorted.indexOf("案件po") &&
     sorted.indexOf("案件po") < sorted.indexOf("案件pu"), "段階の並びが 1,3,満了後,不明 の順でない");
