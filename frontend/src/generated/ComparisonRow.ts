@@ -10,18 +10,10 @@ head_share_pct: number,
  */
 all_count: number | null, all_share_pct: number | null, 
 /**
- * 超人気の求人の中でその語を含む件数。超人気の求人が無いときは null (0 にしない)。
+ * 人気・超人気の求人の中でその語を含む件数。その区分の求人が無いときは null (0 にしない)。
  */
-super_popular_count: number | null, 
+popular_any_count: number | null, 
 /**
- * 超人気の件数 / 超人気の求人数 × 100。
+ * 人気・超人気の件数 / その区分の求人数 × 100。
  */
-super_popular_share_pct: number | null, 
-/**
- * 人気の求人の中でその語を含む件数。人気の求人が無いときは null。
- */
-popular_count: number | null, 
-/**
- * 人気の件数 / 人気の求人数 × 100。
- */
-popular_share_pct: number | null, };
+popular_any_share_pct: number | null, };

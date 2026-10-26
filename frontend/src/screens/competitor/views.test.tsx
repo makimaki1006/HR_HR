@@ -121,8 +121,8 @@ describe('ExcelTab', () => {
   it('差(pt) は 0.05 未満なら符号なしの 0.0、負は -', () => {
     const r = makeReport();
     r.excel.keyword_comparison.rows = [
-      { word: 'A', head_count: 1, head_share_pct: 50, all_count: 2, all_share_pct: 50.02, super_popular_count: null, super_popular_share_pct: null, popular_count: null, popular_share_pct: null },
-      { word: 'B', head_count: 1, head_share_pct: 20, all_count: 5, all_share_pct: 80, super_popular_count: null, super_popular_share_pct: null, popular_count: null, popular_share_pct: null },
+      { word: 'A', head_count: 1, head_share_pct: 50, all_count: 2, all_share_pct: 50.02, popular_any_count: null, popular_any_share_pct: null },
+      { word: 'B', head_count: 1, head_share_pct: 20, all_count: 5, all_share_pct: 80, popular_any_count: null, popular_any_share_pct: null },
     ];
     render(<ExcelTab report={r} />);
     const heading = screen.getByRole('heading', { name: '求人票ワード調査（先頭 45 件）' });
@@ -133,22 +133,21 @@ describe('ExcelTab', () => {
 
   it('比較の語が無いときは理由つきの空の文言', () => {
     const r = makeReport();
-    r.excel.keyword_comparison = { head_n: 0, all_n: 10, super_popular_n: 0, popular_n: 0, rows: [] };
+    r.excel.keyword_comparison = { head_n: 0, all_n: 10, popular_any_n: 0, rows: [] };
     const { unmount } = render(<ExcelTab report={r} />);
     expect(screen.getByText('取り込み順の比較データがありません')).toBeTruthy();
     unmount();
-    r.excel.keyword_comparison = { head_n: 5, all_n: 10, super_popular_n: 0, popular_n: 0, rows: [] };
+    r.excel.keyword_comparison = { head_n: 5, all_n: 10, popular_any_n: 0, rows: [] };
     render(<ExcelTab report={r} />);
     expect(screen.getByText('先頭の求人にキーワードがありません')).toBeTruthy();
   });
 
-  it('超人気・人気の系列: 4 本の棒と凡例の n、件数が少ない系列は参考値、表に率の列', () => {
+  it('人気・超人気の系列: 3 本の棒と凡例の n、件数が少ない系列は参考値、表に率の列', () => {
     const r = makeReport();
     r.excel.keyword_comparison = {
       head_n: 4,
       all_n: 8,
-      super_popular_n: 2,
-      popular_n: 6,
+      popular_any_n: 6,
       rows: [
         {
           word: 'A',
@@ -156,16 +155,14 @@ describe('ExcelTab', () => {
           head_share_pct: 50,
           all_count: 2,
           all_share_pct: 25,
-          super_popular_count: 1,
-          super_popular_share_pct: 50,
-          popular_count: 3,
-          popular_share_pct: 50,
+          popular_any_count: 3,
+          popular_any_share_pct: 50,
         },
       ],
     };
     render(<ExcelTab report={r} />);
     const svg = screen.getByRole('img', { name: /占有率比較/ });
-    for (const text of ['全体 8件', '先頭 4件', '超人気 2件', '人気 6件']) {
+    for (const text of ['全体 8件', '先頭 4件', '人気・超人気 6件']) {
       expect(within(svg).getByText(text)).toBeTruthy();
     }
     const groups = [...svg.querySelectorAll('rect[data-group]')].map((e) => [
@@ -175,18 +172,18 @@ describe('ExcelTab', () => {
     expect(groups).toEqual([
       ['全体', '25'],
       ['先頭', '50'],
-      ['超人気', '50'],
-      ['人気', '50'],
+      ['人気・超人気', '50'],
     ]);
-    expect(screen.getByText('超人気（2件）は件数が少ないため参考値です')).toBeTruthy();
+    // 6 件なので参考値の注記は出ない (5 件未満のときだけ)
+    expect(screen.queryByText(/件数が少ないため参考値/)).toBeNull();
     expect(screen.queryByText('人気・超人気のタグがあるSP版CSVのときだけ表示されます')).toBeNull();
     const heading = screen.getByRole('heading', { name: '求人票ワード調査（先頭 4 件）' });
     const rows = within(heading.nextElementSibling as HTMLElement).getAllByRole('row');
-    expect(cells(must(rows[0]))).toEqual(['上位10語', '件数', '先頭率', '全体率', '差(pt)', '超人気率', '人気率']);
-    expect(cells(must(rows[1]))).toEqual(['A', '2', '50.0%', '25.0%', '+25.0', '50.0%', '50.0%']);
+    expect(cells(must(rows[0]))).toEqual(['上位10語', '件数', '先頭率', '全体率', '差(pt)', '人気・超人気率']);
+    expect(cells(must(rows[1]))).toEqual(['A', '2', '50.0%', '25.0%', '+25.0', '50.0%']);
   });
 
-  it('SP 版でない CSV: 超人気・人気の系列は出さず一文で伝える (0% の棒を描かない)', () => {
+  it('SP 版でない CSV: 人気・超人気の系列は出さず一文で伝える (0% の棒を描かない)', () => {
     render(<ExcelTab report={makeReport()} />);
     const svg = screen.getByRole('img', { name: /占有率比較/ });
     expect([...svg.querySelectorAll('rect[data-group]')].map((e) => e.getAttribute('data-group'))).toEqual([

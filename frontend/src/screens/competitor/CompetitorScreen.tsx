@@ -505,7 +505,7 @@ function FormView(p: FormViewProps) {
         </section>
       </form>
       <p className="cmp-lead">
-        給与・待遇、検索需要、採用市場、人口、採用のヒントをA3横のPDFで保存できます。
+        給与・待遇、検索需要、採用市場、人口をA3横のPDFで保存できます。
       </p>
     </>
   );

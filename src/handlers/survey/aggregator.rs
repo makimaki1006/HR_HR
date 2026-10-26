@@ -391,18 +391,13 @@ pub struct CompetitorAnalysis {
     /// タグを付けた求人の件数 (求人単位で重複排除、上位での切り詰めなし)。件数降順 → タグ名昇順。
     /// by_tags (出現回数) とは異なり、件数 ≤ 求人数 が常に成り立つ (占有率 ≤ 100%)。
     pub tag_counts_all: Vec<(String, usize)>,
-    /// 超人気の求人 (Indeed SP) の中で、そのタグを付けた求人の件数 (求人単位で重複排除)。件数降順 → タグ名昇順。
+    /// 「人気・超人気」区分の求人 (Indeed SP。人気または超人気のタグがある求人を 1 回だけ数える) の中で、
+    /// その語を付けた求人の件数 (求人単位で重複排除)。件数降順 → 語昇順。
     #[serde(default)]
-    pub tag_counts_super: Vec<(String, usize)>,
-    /// 人気の求人 (Indeed SP、超人気は含まない) の中で、そのタグを付けた求人の件数。
+    pub tag_counts_popular_any: Vec<(String, usize)>,
+    /// 「人気・超人気」区分の求人数 (占有率の母数)。
     #[serde(default)]
-    pub tag_counts_popular: Vec<(String, usize)>,
-    /// 超人気の求人数 (占有率の母数)。
-    #[serde(default)]
-    pub super_popular_n: usize,
-    /// 人気の求人数 (占有率の母数)。超人気と人気の両方のタグがある求人は超人気に数える。
-    #[serde(default)]
-    pub popular_n: usize,
+    pub popular_any_n: usize,
     /// 人気比較の単位。true = 時給求人のみ (円/時)、false = 月給求人のみ (円/月)。
     /// SurveyAggregation::is_hourly と同じ値 (ネイティブ単位配列と同じ方針)。
     pub pop_is_hourly: bool,
@@ -429,12 +424,16 @@ pub(crate) fn split_tags(tags_raw: &str) -> Vec<String> {
         .collect()
 }
 
-/// 1 求人のタグ (split_tags と同じ分解、同じタグは初出の 1 つだけ残す)。
-/// 競合調査章の占有率 (= そのタグを付けた求人の割合) の分子に使う。
+/// 訴求語 (キーワード) として数えないタグ。人気・超人気は求人の区分で、語ではない。
+/// 区分の判定 (`popularity_signal`) は `split_tags` を直接使うので、この除外の影響を受けない。
+pub(crate) const NON_KEYWORD_TAGS: [&str; 2] = ["人気", "超人気"];
+
+/// 1 求人のタグ (split_tags と同じ分解、同じタグは初出の 1 つだけ残す)。人気・超人気は語として数えず除く。
+/// 競合調査章の占有率 (= その語を付けた求人の割合) の分子に使う。
 pub(crate) fn record_tags(tags_raw: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for t in split_tags(tags_raw) {
-        if !out.contains(&t) {
+        if !NON_KEYWORD_TAGS.contains(&t.as_str()) && !out.contains(&t) {
             out.push(t);
         }
     }
@@ -484,9 +483,8 @@ fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAn
 
     // 人気比較: §05 と同じく Indeed (SP) 由来のみが母数。単位はモードの主単位だけ
     // (native_value_for_mode: 時給モード=時給求人の円/時、月給モード=月給求人の円/月)。
-    let (mut super_n, mut popular_n) = (0usize, 0usize);
-    let mut super_map: HashMap<String, usize> = HashMap::new();
-    let mut popular_map: HashMap<String, usize> = HashMap::new();
+    let mut popular_any_n = 0usize;
+    let mut popular_any_map: HashMap<String, usize> = HashMap::new();
     let (mut all_min, mut all_max, mut pop_min, mut pop_max) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for r in records {
@@ -494,19 +492,11 @@ fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAn
             continue;
         }
         let (is_super, is_popular) = popularity_signal(&r.tags_raw);
-        // 占有率比較用: 超人気 > 人気 の 1 区分 (求人ごとに 1 回、同じタグは 1 回)。
-        let class_map = if is_super {
-            super_n += 1;
-            Some(&mut super_map)
-        } else if is_popular {
-            popular_n += 1;
-            Some(&mut popular_map)
-        } else {
-            None
-        };
-        if let Some(map) = class_map {
+        // 占有率比較用: 人気または超人気のタグがある求人を 1 区分にまとめ、1 求人は 1 回だけ数える。
+        if is_super || is_popular {
+            popular_any_n += 1;
             for t in record_tags(&r.tags_raw) {
-                *map.entry(t).or_default() += 1;
+                *popular_any_map.entry(t).or_default() += 1;
             }
         }
         let st = &r.salary_parsed.salary_type;
@@ -536,10 +526,8 @@ fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAn
         indeed_count,
         head_tags,
         tag_counts_all,
-        tag_counts_super: sorted_tag_counts(super_map),
-        tag_counts_popular: sorted_tag_counts(popular_map),
-        super_popular_n: super_n,
-        popular_n,
+        tag_counts_popular_any: sorted_tag_counts(popular_any_map),
+        popular_any_n,
         pop_is_hourly: is_hourly,
         pop_all: BoundStats::from_values(&all_min, &all_max),
         pop_popular: BoundStats::from_values(&pop_min, &pop_max),

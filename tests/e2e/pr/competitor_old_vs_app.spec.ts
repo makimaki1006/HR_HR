@@ -52,7 +52,6 @@ interface Extracted {
   google: { paragraphs: string[]; tables: string[][][] };
   indeed: { paragraphs: string[]; tables: string[][][] };
   population: { paragraphs: string[]; tables: string[][][] };
-  consultation: { paragraphs: string[]; tables: string[][][] };
 }
 
 /**
@@ -108,7 +107,6 @@ async function extract(page: Page): Promise<Extracted> {
       google: { paragraphs: parasOf(panel('google')), tables: tablesOf(panel('google')) },
       indeed: { paragraphs: parasOf(panel('indeed')), tables: tablesOf(panel('indeed')) },
       population: { paragraphs: parasOf(panel('population')), tables: tablesOf(panel('population')) },
-      consultation: { paragraphs: parasOf(panel('consultation')), tables: tablesOf(panel('consultation')) },
     };
   });
 }
@@ -299,42 +297,6 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
   }
 }
 
-/** 採用のヒント: 給与の中央値と有効件数・差、訴求の確認候補、外部データの取得状況 (fixture から別途確定した値)。 */
-function assertConsultation(label: string, x: Extracted, c: Conditions): void {
-  const mode = c.wageMode;
-  const unit = mode === 'monthly' ? '万円/月' : '円/時';
-  const tag = (s: string): string => `${label}: ${s}`;
-  const salaryTable = [
-    [`中央値（${unit}）`, '総合 / 有効件数', '人気 / 有効件数', '総合−人気'],
-    ...K[mode].consultation,
-  ];
-  // 総合・人気のどれかが 1〜9 件のときは参考値の注記が出る (時給の人気求人は 4 件)
-  const small = K[mode].counts.some((n) => n > 0 && n < 10);
-  const gapsTable = [['語', '先頭 件/母数', '全体 件/母数', '差(pt)'], ...K.gaps];
-  const status = [
-    ['Google検索需要', '未取得'], // CI は資格情報なし、または検索を選ばない
-    ['Google関連語', '未取得'],
-    ['Indeed採用市場', '未取得'],
-    ['人口・地域', c.prefecture === '' ? '未取得' : '取得済み'],
-  ];
-  expect(x.consultation.tables, tag('採用のヒントの表')).toEqual([salaryTable, gapsTable, status]);
-  const cohort =
-    mode === 'monthly'
-      ? '総合：Indeed SPの月給求人の実額（月給換算は含みません）'
-      : '総合：Indeed SPの時給求人の実額';
-  expect(x.consultation.paragraphs, tag('採用のヒントの文言')).toEqual([
-    '競合データをもとに、給与・求人票・掲載後の反応を見直しましょう。',
-    `${cohort}。人気求人：SPの「人気」「超人気」付き、選択単位の実額。`,
-    `給与分布の有効件数：下限 ${String(K[mode].hist_n)} 件・上限 ${String(K[mode].hist_n)} 件。`,
-    ...(small ? ['10件未満の比較は参考値です。'] : []),
-    '給与相場と自社の条件を比較し、勤務時間・手当も含めて見直しましょう。',
-    '先頭の求人と全体を比較。先頭は収録順です。',
-    '実際に提供できる待遇を、求人票で分かりやすく伝えましょう。',
-    '外部データの対象地域・基準日は各タブに表示しています。',
-    '職務内容に合う検索語を選び、掲載後の閲覧数・応募数・有効応募数を比較しましょう。',
-  ]);
-}
-
 // ---------------------------------------------------------------- テスト
 
 test.describe('競合調査 旧画面 == 新画面 == 既知値', () => {
@@ -356,8 +318,6 @@ test.describe('競合調査 旧画面 == 新画面 == 既知値', () => {
 
         assertKnown('旧画面', legacy, c);
         assertKnown('新画面', app, c);
-        assertConsultation('旧画面', legacy, c);
-        assertConsultation('新画面', app, c);
         // 既知値に載せていない部分 (棒の位置・高さ、注記、キャプション等) も旧 == 新
         expect(app).toEqual(legacy);
       } finally {

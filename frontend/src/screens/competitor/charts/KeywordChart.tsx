@@ -35,49 +35,38 @@ export function AllKeywordChart({ rows }: { rows: readonly KeywordRow[] }) {
 
 /** 占有率の系列が無いときに伝える一文 (SP 版 CSV 以外)。 */
 export const POPULARITY_ONLY_SP = '人気・超人気のタグがあるSP版CSVのときだけ表示されます';
-/** 超人気・人気の件数がこの数未満のとき「参考値」と添える。 */
+/** 人気・超人気の件数がこの数未満のとき「参考値」と添える。 */
 const SMALL_CLASS_N = 5;
 const SMALL_N_NOTE = '件数が少ないため参考値';
 
-/** 超人気・人気の系列に関する注記の文。 */
-export function popularityNotes(superN: number, popularN: number): string[] {
-  const notes: string[] = [];
-  if (superN === 0 && popularN === 0) notes.push(POPULARITY_ONLY_SP);
-  else if (superN === 0) notes.push('超人気の求人がないため、超人気は表示していません');
-  else if (popularN === 0) notes.push('人気の求人がないため、人気は表示していません');
-  for (const [label, n] of [
-    ['超人気', superN],
-    ['人気', popularN],
-  ] as const) {
-    if (n > 0 && n < SMALL_CLASS_N) notes.push(`${label}（${String(n)}件）は${SMALL_N_NOTE}です`);
-  }
-  return notes;
+/** 人気・超人気の系列に関する注記の文。 */
+export function popularityNotes(popularAnyN: number): string[] {
+  if (popularAnyN === 0) return [POPULARITY_ONLY_SP];
+  if (popularAnyN < SMALL_CLASS_N) return [`人気・超人気（${String(popularAnyN)}件）は${SMALL_N_NOTE}です`];
+  return [];
 }
 
-/** 先頭 N 件・全体・超人気・人気の占有率 (同じ語・同じ 0〜100% の軸)。全体が欠測の語は棒を描かず — を出す。 */
+/** 先頭 N 件・全体・人気・超人気 (1 区分) の占有率 (同じ語・同じ 0〜100% の軸)。全体が欠測の語は棒を描かず — を出す。 */
 export function ComparisonChart({
   rows,
   headN,
   allN,
-  superN,
-  popularN,
+  popularAnyN,
 }: {
   rows: readonly ComparisonRow[];
   headN: number;
   allN: number;
-  superN: number;
-  popularN: number;
+  popularAnyN: number;
 }) {
   const items: Item[] = rows.map((r) => {
     const bars: KeywordBar[] = [
       { group: '全体', value: r.all_share_pct },
       { group: '先頭', value: r.head_share_pct },
     ];
-    if (superN > 0) bars.push({ group: '超人気', value: r.super_popular_share_pct });
-    if (popularN > 0) bars.push({ group: '人気', value: r.popular_share_pct });
+    if (popularAnyN > 0) bars.push({ group: '人気・超人気', value: r.popular_any_share_pct });
     return { word: r.word, bars };
   });
-  const extra = superN > 0 || popularN > 0;
+  const extra = popularAnyN > 0;
   const legend: { group: KeywordGroup; text: string }[] = extra
     ? [
         { group: '全体', text: `全体 ${String(allN)}件` },
@@ -87,14 +76,13 @@ export function ComparisonChart({
         { group: '全体', text: '全体' },
         { group: '先頭', text: `先頭 ${String(headN)}件` },
       ];
-  if (superN > 0) legend.push({ group: '超人気', text: `超人気 ${String(superN)}件` });
-  if (popularN > 0) legend.push({ group: '人気', text: `人気 ${String(popularN)}件` });
+  if (popularAnyN > 0) legend.push({ group: '人気・超人気', text: `人気・超人気 ${String(popularAnyN)}件` });
   return (
     <ChartFrame
       caption="訴求語の占有率比較（上位20語）"
       empty="比較できるキーワードデータがありません"
       count={items.length}
-      notes={items.length > 0 ? popularityNotes(superN, popularN) : []}
+      notes={items.length > 0 ? popularityNotes(popularAnyN) : []}
     >
       {(size) => (
         <KeywordSvg
@@ -183,6 +171,7 @@ function KeywordSvg({
       role="img"
       aria-label={label}
       data-series={mode === 'all' ? 'keyword-all' : 'keyword-head'}
+      style={l.h > size.h ? { minHeight: l.h } : undefined}
     >
       <title>{title}</title>
       {l.ticks.map((t, i) => (
@@ -235,7 +224,7 @@ function KeywordSvg({
                 <text
                   x={l.left + b.width + 4}
                   y={b.y + b.height}
-                  fontSize={mode === 'comparison' ? 11 : 13}
+                  fontSize={l.labelSize}
                   className="cmp-label"
                 >
                   {b.text}

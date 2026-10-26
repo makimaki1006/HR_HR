@@ -2,7 +2,7 @@
 import type { ComparisonRow } from "./ComparisonRow";
 
 /**
- * 先頭 N 件・全体・超人気・人気の占有率の比較 (同じ語・同じ 0〜100% の軸)。
+ * 先頭 N 件・全体・人気・超人気 (1 区分) の占有率の比較 (同じ語・同じ 0〜100% の軸)。
  */
 export type KeywordComparison = { 
 /**
@@ -14,13 +14,10 @@ head_n: number,
  */
 all_n: number, 
 /**
- * 超人気の求人数 (占有率の母数)。0 のとき超人気の系列は出さない (SP 版 CSV 以外・該当なし)。
+ * 人気または超人気のタグがある求人数 (1 求人は 1 回だけ数える。占有率の母数)。
+ * 0 のとき「人気・超人気」の系列は出さない (SP 版 CSV 以外・該当なし)。
  */
-super_popular_n: number, 
-/**
- * 人気の求人数 (占有率の母数)。0 のとき人気の系列は出さない。
- */
-popular_n: number, 
+popular_any_n: number, 
 /**
  * 先頭で件数の多い順の上位 20 語。
  */

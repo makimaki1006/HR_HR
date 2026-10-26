@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { histogramLayout, pyramidLayout } from './geometry';
-import { keywordLayout } from './keywordLayout';
+import { EXTRA_BAR_PITCH, keywordLayout } from './keywordLayout';
 import { trendLayout } from './trendLayout';
 
 const bins = (counts: number[]): { label: string; count: number }[] =>
@@ -93,28 +93,58 @@ describe('keywordLayout: 旧 competitor-keywords.js の算術', () => {
     expect(missing?.text).toBe('—');
   });
 
-  it('超人気・人気の系列があると棒は 4 本・細く、上に 16px 空ける。色は系列ごと', () => {
+  it('人気・超人気の系列があると棒は 3 本・細く、上に 16px 空ける。色は系列ごと', () => {
     const four = [
       {
         word: 'A',
         bars: [
           { group: '全体' as const, value: 25 },
           { group: '先頭' as const, value: 50 },
-          { group: '超人気' as const, value: 50 },
-          { group: '人気' as const, value: null },
+          { group: '人気・超人気' as const, value: null },
         ],
       },
     ];
-    const l = keywordLayout({ mode: 'comparison', items: four, w: 440, h: 731 });
+    const l = keywordLayout({ mode: 'comparison', items: four, w: 440, h: 100 });
     expect(l.top).toBe(58);
+    // 1 語でも語ごとの縦幅は 42px 以上で、枠はそれに合わせて広がる。
+    expect(l.h).toBe(58 + 30 + 42);
     const row = l.rows[0];
-    const step = (731 - 58 - 30) / 1;
+    const step = 42;
     expect(row?.cy).toBeCloseTo(58 + step / 2, 10);
-    expect(row?.bars.map((b) => b.height)).toEqual([6, 6, 6, 6]);
-    expect(row?.bars.map((b) => b.color)).toEqual(['#006666', '#4472c4', '#c0504d', '#e69f00']);
-    const ys = row?.bars.map((b) => b.y - (row.cy - 14)) ?? [];
-    expect(ys).toEqual([0, 7, 14, 21]);
-    expect(row?.bars[3]?.text).toBe('—');
+    expect(row?.bars.map((b) => b.height)).toEqual([8, 8, 8]);
+    expect(row?.bars.map((b) => b.color)).toEqual(['#006666', '#4472c4', '#c0504d']);
+    const ys = row?.bars.map((b) => b.y - (row.cy - 18)) ?? [];
+    expect(ys).toEqual([0, 12, 24]);
+    expect(row?.bars[2]?.text).toBe('—');
+  });
+
+  it('3 系列: 棒の間隔は数値の文字 (11px) + 1px 以上で、語どうしも重ならない', () => {
+    const word = (w: string) => ({
+      word: w,
+      bars: [
+        { group: '全体' as const, value: 30 },
+        { group: '先頭' as const, value: 35.6 },
+        { group: '人気・超人気' as const, value: 25 },
+      ],
+    });
+    const items = Array.from({ length: 20 }, (_, i) => word(`w${String(i)}`));
+    // 枠が低くても (h=715) 間隔は保たれる
+    const l = keywordLayout({ mode: 'comparison', items, w: 440, h: 715 });
+    expect(l.labelSize).toBe(11);
+    expect(EXTRA_BAR_PITCH).toBeGreaterThanOrEqual(l.labelSize + 1);
+    const ys = l.rows.flatMap((r) => r.bars.map((b) => b.y));
+    for (let i = 1; i < ys.length; i++) {
+      expect((ys[i] ?? 0) - (ys[i - 1] ?? 0)).toBeGreaterThanOrEqual(l.labelSize + 1);
+    }
+    expect(l.h).toBe(58 + 30 + 42 * 20);
+  });
+
+  it('2 系列の配置は変えない (h は入力のまま、間隔 12、高さ 9)', () => {
+    const l = keywordLayout({ mode: 'comparison', items, w: 440, h: 715 });
+    expect(l.h).toBe(715);
+    const r = l.rows[0];
+    expect(r?.bars.map((b) => b.y - (r.cy - 11))).toEqual([0, 12]);
+    expect(r?.bars.map((b) => b.height)).toEqual([9, 9]);
   });
 
   it('幅 400 未満は 3 目盛り', () => {

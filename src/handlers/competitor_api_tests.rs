@@ -242,7 +242,7 @@ async fn report_json_has_exact_values_for_monthly_fixture() {
             "{key}"
         );
     }
-    // ワード (全体): 求人票のタグ列 + 人気バッジ (人気・超人気) を数える。件数の多い順、同数は語の昇順。分母は求人数 60
+    // ワード (全体): 求人票のタグ列を数える (人気・超人気は区分で、語に数えない)。件数の多い順、同数は語の昇順。分母は求人数 60
     let kw = r["excel"]["keyword_all"].as_array().unwrap();
     let head: Vec<(&str, u64)> = kw
         .iter()
@@ -256,9 +256,7 @@ async fn report_json_has_exact_values_for_monthly_fixture() {
             ("社会保険完備", 18),
             ("未経験歓迎", 17),
             ("賞与あり", 17),
-            ("駅チカ", 16),
-            ("人気", 14),
-            ("超人気", 4)
+            ("駅チカ", 16)
         ]
     );
     assert_eq!(kw[0]["jobs"], 60);
@@ -269,7 +267,7 @@ async fn report_json_has_exact_values_for_monthly_fixture() {
     assert_eq!(r["population"]["status"], "unavailable");
     // 都道府県未選択は全国の市区町村を合算する経路。外部統計 DB が無いので取得できなかった旨を返す (地域は「全国」)
     assert_eq!(r["population"]["region"], "全国");
-    // 新しい表示に要る項目もモデルに載っている: 給与分布の件数・幅、比較の母数、採用のヒント
+    // 新しい表示に要る項目もモデルに載っている: 給与分布の件数・幅、比較の母数
     assert_eq!(r["excel"]["histograms"]["upper"]["n"], 60);
     assert_eq!(
         r["excel"]["histograms"]["upper"]["step"].as_f64(),
