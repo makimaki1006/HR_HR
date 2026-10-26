@@ -56,7 +56,7 @@ with sync_playwright() as p:
         page.locator('#panel-population').screenshot(path=str(folder / 'population.png'))
         for width in [320, 900, 1600]:
             page.set_viewport_size({'width': width, 'height': 1100})
-            for tab in ['excel', 'google', 'indeed', 'population', 'consultation']:
+            for tab in ['excel', 'google', 'indeed', 'population']:
                 page.locator('#tab-' + tab).click()
                 page.wait_for_timeout(100)
                 assert page.locator('[role=tabpanel]:visible').count() == 1
@@ -65,7 +65,7 @@ with sync_playwright() as p:
                     assert page.evaluate('document.body.scrollHeight') < 5000
         page.locator('#tab-excel').focus()
         page.keyboard.press('End')
-        assert page.locator('#panel-consultation').is_visible()
+        assert page.locator('#panel-population').is_visible()
         page.keyboard.press('Home')
         page.wait_for_timeout(200)
         assert page.locator('#panel-excel').is_visible()

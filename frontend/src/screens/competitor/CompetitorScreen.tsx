@@ -43,9 +43,10 @@ function loadValues(): FormValues {
     const str = (v: unknown, d: string): string => (typeof v === 'string' ? v : d);
     return {
       ...DEFAULT_FORM,
-      surveyTitle: str(p.surveyTitle, ''),
+      jobName: str(p.jobName, ''),
       marketTitle: str(p.marketTitle, ''),
       prefecture: str(p.prefecture, ''),
+      municipality: str(p.municipality, ''),
       searchKeyword: str(p.searchKeyword, ''),
       includeGoogle: typeof p.includeGoogle === 'boolean' ? p.includeGoogle : true,
       sourceType: p.sourceType === 'indeed' ? 'indeed' : 'indeed_sp',
@@ -60,9 +61,10 @@ function loadValues(): FormValues {
 function saveValues(values: FormValues): void {
   try {
     const persisted: Persisted = {
-      surveyTitle: values.surveyTitle,
+      jobName: values.jobName,
       marketTitle: values.marketTitle,
       prefecture: values.prefecture,
+      municipality: values.municipality,
       searchKeyword: values.searchKeyword,
       includeGoogle: values.includeGoogle,
       sourceType: values.sourceType,
@@ -157,7 +159,7 @@ export function CompetitorScreen() {
   const onSubmit = (event: SyntheticEvent): void => {
     event.preventDefault();
     if (busyRef.current) return;
-    const found = validateForm(values, prefectures);
+    const found = validateForm(values, prefectures, options?.municipalities ?? {});
     setErrors(found);
     if (Object.keys(found).length > 0) {
       setFailure(null);
@@ -289,15 +291,20 @@ function FormView(p: FormViewProps) {
       <form onSubmit={p.onSubmit} noValidate aria-busy={submitting}>
         <section className="cmp-card">
           <h2>1. 調査する職種・地域</h2>
-          <Field label="調査名" htmlFor="survey-title" error={errors.surveyTitle}>
+          <Field
+            label="職種名"
+            htmlFor="job-name"
+            error={errors.jobName}
+            help="報告書の題名になります。例：製造スタッフ（空欄でも作成できます）"
+          >
             <input
-              id="survey-title"
-              name="survey_title"
-              maxLength={200}
-              placeholder="例：大阪府・施設長・正社員"
-              value={values.surveyTitle}
+              id="job-name"
+              name="job_name"
+              maxLength={40}
+              placeholder="例：製造スタッフ"
+              value={values.jobName}
               onChange={(e) => {
-                p.update('surveyTitle', e.target.value);
+                p.update('jobName', e.target.value);
               }}
             />
           </Field>
@@ -324,7 +331,7 @@ function FormView(p: FormViewProps) {
               label="対象都道府県"
               htmlFor="prefecture"
               error={errors.prefecture}
-              help="外部データの対象地域です。CSVの求人は地域で絞り込みません。"
+              help="Indeedで調べた地域です。報告書の題名と人口などの外部データに使います。CSVの求人は地域で絞り込みません。"
             >
               <select
                 id="prefecture"
@@ -332,10 +339,34 @@ function FormView(p: FormViewProps) {
                 value={values.prefecture}
                 onChange={(e) => {
                   p.update('prefecture', e.target.value);
+                  p.update('municipality', '');
                 }}
               >
                 <option value="">全国</option>
                 {options?.prefectures.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field
+              label="対象市区町村"
+              htmlFor="municipality"
+              error={errors.municipality}
+              help="都道府県を選ぶと選べます。報告書に表示します。"
+            >
+              <select
+                id="municipality"
+                name="municipality"
+                disabled={values.prefecture === ''}
+                value={values.municipality}
+                onChange={(e) => {
+                  p.update('municipality', e.target.value);
+                }}
+              >
+                <option value="">指定しない</option>
+                {(options?.municipalities[values.prefecture] ?? []).map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
@@ -474,7 +505,7 @@ function FormView(p: FormViewProps) {
         </section>
       </form>
       <p className="cmp-lead">
-        給与・待遇、検索需要、採用市場、人口、採用のヒントをA3横のPDFで保存できます。
+        給与・待遇、検索需要、採用市場、人口をA3横のPDFで保存できます。
       </p>
     </>
   );

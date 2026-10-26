@@ -36,12 +36,23 @@ fn fmt_salary(v: Option<f64>, decimals: u8) -> String {
         .unwrap_or_else(|| "—".into())
 }
 
+/// 「採用のヒント」の節 (タブ・パネル) を画面・PDF に出すか。集計と API の JSON は残してあり、true に戻せば再び出る。
+/// React 側は frontend/src/screens/competitor/ReportView.tsx の SHOW_CONSULTATION_TAB と同じ意味。
+pub(crate) const SHOW_CONSULTATION: bool = false;
+const CONSULTATION_TAB_BUTTON: &str = "<button id=\"tab-consultation\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-consultation\" tabindex=\"-1\">採用のヒント</button>";
+
 pub(crate) fn render_html(report: &CompetitorReport) -> String {
     let meta = &report.meta;
     let excel = &report.excel;
     let decimals = excel.decimals;
     let mut html = format!("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>競合調査</title><style>{}</style></head><body><nav class=\"toolbar no-print\"><a href=\"/competitor\">調査条件に戻る / PDFダウンロード</a><a href=\"/\">市場分析</a></nav><main>",include_str!("../../../../../static/css/competitor-dashboard.css"));
-    html.push_str("<div class=\"report-tabs no-print\" role=\"tablist\" aria-label=\"競合調査の表示切り替え\"><button id=\"tab-excel\" role=\"tab\" aria-selected=\"true\" aria-controls=\"panel-excel\" tabindex=\"0\">給与・待遇</button><button id=\"tab-google\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-google\" tabindex=\"-1\">Google検索需要</button><button id=\"tab-indeed\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-indeed\" tabindex=\"-1\">Indeed採用レポート</button><button id=\"tab-population\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-population\" tabindex=\"-1\">人口・地域データ</button><button id=\"tab-consultation\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-consultation\" tabindex=\"-1\">採用のヒント</button></div><div id=\"panel-excel\" role=\"tabpanel\" aria-labelledby=\"tab-excel\" tabindex=\"0\">");
+    html.push_str("<div class=\"report-tabs no-print\" role=\"tablist\" aria-label=\"競合調査の表示切り替え\"><button id=\"tab-excel\" role=\"tab\" aria-selected=\"true\" aria-controls=\"panel-excel\" tabindex=\"0\">給与・待遇</button><button id=\"tab-google\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-google\" tabindex=\"-1\">Google検索需要</button><button id=\"tab-indeed\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-indeed\" tabindex=\"-1\">Indeed採用レポート</button><button id=\"tab-population\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-population\" tabindex=\"-1\">人口・地域データ</button></div><div id=\"panel-excel\" role=\"tabpanel\" aria-labelledby=\"tab-excel\" tabindex=\"0\">");
+    if SHOW_CONSULTATION {
+        html.insert_str(
+            html.rfind("</div>").unwrap_or(html.len()),
+            CONSULTATION_TAB_BUTTON,
+        );
+    }
     let unit = meta.unit.as_str();
     html.push_str("<section class=\"excel-dashboard\" aria-label=\"競合調査ダッシュボード\"><aside class=\"summary\"><h1>競合調査</h1><table class=\"meta\">");
     for (a, b, c, d) in [
@@ -103,18 +114,22 @@ pub(crate) fn render_html(report: &CompetitorReport) -> String {
     render_indeed(&mut html, &report.indeed);
     html.push_str("</div><div id=\"panel-population\" role=\"tabpanel\" aria-labelledby=\"tab-population\" tabindex=\"0\" hidden>");
     render_population(&mut html, &report.population);
-    html.push_str("</div><div id=\"panel-consultation\" role=\"tabpanel\" aria-labelledby=\"tab-consultation\" tabindex=\"0\" hidden>");
-    competitor_consultation::render(
-        &mut html,
-        &report.consultation,
-        if meta.is_hourly {
-            "円/時"
-        } else {
-            "万円/月"
-        },
-        decimals,
-    );
-    html.push_str("</div></main><script>");
+    html.push_str("</div>");
+    if SHOW_CONSULTATION {
+        html.push_str("<div id=\"panel-consultation\" role=\"tabpanel\" aria-labelledby=\"tab-consultation\" tabindex=\"0\" hidden>");
+        competitor_consultation::render(
+            &mut html,
+            &report.consultation,
+            if meta.is_hourly {
+                "円/時"
+            } else {
+                "万円/月"
+            },
+            decimals,
+        );
+        html.push_str("</div>");
+    }
+    html.push_str("</main><script>");
     html.push_str(include_str!("../../../../../static/js/competitor-tabs.js"));
     html.push_str(include_str!(
         "../../../../../static/js/competitor-keywords.js"

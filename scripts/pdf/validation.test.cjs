@@ -12,7 +12,7 @@ const modulePath = process.env.PDF_PLAYWRIGHT_MODULE || resolve('node_modules/pl
 const { chromium } = require(modulePath);
 const executable = process.env.PDF_CHROMIUM_PATH || (process.platform === 'win32'
   ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' : chromium.executablePath());
-const panels = ['excel', 'google', 'indeed', 'population', 'consultation'];
+const panels = ['excel', 'google', 'indeed', 'population'];
 const fixture = `<html><head><style>@page{size:A3 landscape;margin:8mm}
 body{margin:0}.pdf-page{position:relative;width:1510px;height:1045px;break-after:page}
 .pdf-page:last-child{break-after:auto}.pdf-content{width:1510px}</style></head><body>

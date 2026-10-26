@@ -9,7 +9,7 @@ import { login } from './helpers/login';
  *
  * 同じ fixture CSV (tests/fixtures/competitor/sp_utf8.csv、架空の合成データ) と同じ条件を両方に送り、
  * 画面に出た値 (表のセル・SVG の階級と件数・状態の文言) を取り出して比べる。要素の存在では判定しない。
- * タブは 5 つ (給与・待遇 / Google / Indeed / 人口 / 採用のヒント)。
+ * タブは 4 つ (給与・待遇 / Google / Indeed / 人口)。採用のヒントは出さない。
  * 判定は 旧 == 新 == 既知値 の 3 点。既知値 (helpers/fixture_values.ts の COMPETITOR_FIXTURE) は
  * scripts/e2e/competitor_expected.py が CSV から Rust と無関係に計算した値で、Rust の出力のコピーではない。
  *
@@ -19,11 +19,12 @@ import { login } from './helpers/login';
  */
 
 const CSV = path.resolve(__dirname, '../../fixtures/competitor/sp_utf8.csv');
-const TITLE = 'E2E 大阪府・施設長';
+const JOB_NAME = '施設長';
 const TOP_N = '10';
 
 interface Conditions {
-  title: string;
+  /** 職種名 (報告書の題名は 都道府県+市区町村 + 職種名 から組み立てる)。 */
+  jobName: string;
   prefecture: string;
   wageMode: 'monthly' | 'hourly';
   google: boolean;
@@ -31,10 +32,10 @@ interface Conditions {
 }
 
 const CASE_MONTHLY: Conditions = {
-  title: TITLE, prefecture: '大阪府', wageMode: 'monthly', google: true, keyword: '施設長 求人',
+  jobName: JOB_NAME, prefecture: '大阪府', wageMode: 'monthly', google: true, keyword: '施設長 求人',
 };
 const CASE_HOURLY: Conditions = {
-  title: '', prefecture: '', wageMode: 'hourly', google: false, keyword: '',
+  jobName: '', prefecture: '', wageMode: 'hourly', google: false, keyword: '',
 };
 
 // ---------------------------------------------------------------- 画面から値を取り出す (旧・新で同じ関数)
@@ -52,7 +53,6 @@ interface Extracted {
   google: { paragraphs: string[]; tables: string[][][] };
   indeed: { paragraphs: string[]; tables: string[][][] };
   population: { paragraphs: string[]; tables: string[][][] };
-  consultation: { paragraphs: string[]; tables: string[][][] };
 }
 
 /**
@@ -108,15 +108,25 @@ async function extract(page: Page): Promise<Extracted> {
       google: { paragraphs: parasOf(panel('google')), tables: tablesOf(panel('google')) },
       indeed: { paragraphs: parasOf(panel('indeed')), tables: tablesOf(panel('indeed')) },
       population: { paragraphs: parasOf(panel('population')), tables: tablesOf(panel('population')) },
-      consultation: { paragraphs: parasOf(panel('consultation')), tables: tablesOf(panel('consultation')) },
     };
   });
 }
 
 // ---------------------------------------------------------------- 旧・新の操作
 
-async function fillCommon(page: Page, c: Conditions): Promise<void> {
-  await page.locator('#survey-title').fill(c.title);
+async function fillCommon(page: Page, c: Conditions, legacy: boolean): Promise<void> {
+  if (legacy) {
+    // 旧画面のフォームには職種名の欄が無いので、同じ名前の入力を足して同じ値を送る (サーバの題名の組み立てを両方で確かめる)
+    await page.evaluate((v) => {
+      const i = document.createElement('input');
+      i.type = 'hidden';
+      i.name = 'job_name';
+      i.value = v;
+      document.getElementById('competitor-form')!.appendChild(i);
+    }, c.jobName);
+  } else {
+    await page.locator('#job-name').fill(c.jobName);
+  }
   await page.locator('#prefecture').selectOption(c.prefecture === '' ? { value: '' } : { label: c.prefecture });
   await page.locator('#wage-mode').selectOption(c.wageMode);
   await page.locator('#top-n').fill(TOP_N);
@@ -129,7 +139,7 @@ async function fillCommon(page: Page, c: Conditions): Promise<void> {
 
 async function legacyReport(page: Page, c: Conditions): Promise<Extracted> {
   await page.goto('/competitor');
-  await fillCommon(page, c);
+  await fillCommon(page, c, true);
   await page.getByRole('button', { name: '画面で確認' }).click();
   await expect(page).toHaveURL(/\/report\/competitor$/);
   await expect(page.locator('#panel-excel')).toBeVisible();
@@ -139,7 +149,7 @@ async function legacyReport(page: Page, c: Conditions): Promise<Extracted> {
 async function appReport(page: Page, c: Conditions): Promise<Extracted> {
   await page.goto('/app/competitor');
   await expect(page.locator('#csv-file')).toBeVisible();
-  await fillCommon(page, c);
+  await fillCommon(page, c, false);
   await page.getByRole('button', { name: 'レポートを作成' }).click();
   await expect(page.locator('[data-testid="result-summary"]')).toBeVisible();
   await expect(page.locator('#panel-excel')).toBeVisible();
@@ -147,6 +157,12 @@ async function appReport(page: Page, c: Conditions): Promise<Extracted> {
 }
 
 // ---------------------------------------------------------------- 既知値 (fixture から別途確定した値)
+
+/** 報告書の題名: 「{都道府県}{市区町村} {職種名}」。どちらも無ければ既定名。 */
+function expectedTitle(c: Conditions): string {
+  if (c.prefecture === '' && c.jobName === '') return 'Indeed競合調査';
+  return c.prefecture !== '' && c.jobName !== '' ? `${c.prefecture} ${c.jobName}` : `${c.prefecture}${c.jobName}`;
+}
 
 const SALARY_LABELS = ['平均値', '中央値', '最頻値'];
 
@@ -177,22 +193,24 @@ function knownWords(rows: readonly (readonly [string, number, number, string])[]
 /** 先頭 N 件と全体の比較表 (上位 10 語)。全体に語が無いときは —。 */
 function knownComparison(): string[][] {
   return [
-    ['上位10語', '件数', '先頭率', '全体率', '差(pt)'],
+    ['上位10語', '件数', '先頭率', '全体率', '差(pt)', '人気・超人気率'],
     ...K.comparison.slice(0, 10).map((c) => [
       c.word,
       String(c.head),
       `${c.head_share}%`,
       c.all_share === null ? '—' : `${c.all_share}%`,
       c.delta ?? '—',
+      c.popular_any_share === null ? '—' : `${c.popular_any_share}%`,
     ]),
   ];
 }
 
-/** 比較グラフの棒の title (全体 → 先頭の順。全体が欠測の語は全体の棒なし)。値は JS の toFixed(1)。 */
+/** 比較グラフの棒の title (全体 → 先頭 → 人気・超人気の順。全体が欠測の語は全体の棒なし)。値は JS の toFixed(1)。 */
 function knownComparisonBars(): string[] {
   return K.comparison.flatMap((c) => [
     ...(c.all_js === null ? [] : [`${c.word} / 全体: ${c.all_js}%`]),
     `${c.word} / 先頭: ${c.head_js}%`,
+    ...(c.popular_any_js === null ? [] : [`${c.word} / 人気・超人気: ${c.popular_any_js}%`]),
   ]);
 }
 
@@ -211,9 +229,10 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
   const tag = (s: string): string => `${label}: ${s}`;
   expect(x.meta, tag('概要表')).toEqual([
     ['調査名', '雇用形態'],
-    [c.title === '' ? 'Indeed競合調査' : c.title, '正社員'],
+    [expectedTitle(c), '正社員'],
     ['該当都道府県', '主な市町村'],
-    ['大阪府', '大阪市'],
+    // 都道府県を選んだときは選んだ地域を使い (市区町村は未選択なので —)、選ばないときは CSV から読み取った値
+    ['大阪府', c.prefecture === '' ? '大阪市' : '—'],
     ['集計対象', '該当件数'],
     ['CSV重複排除後', String(K.total)],
   ]);
@@ -229,6 +248,7 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
   expect(x.wordsHead, tag('先頭 10 件と全体の比較表')).toEqual(knownComparison());
   expect(x.asideNotes, tag('比較の母数と注記')).toEqual([
     `母数：先頭 ${String(K.head_n)} 件 / 全体 ${String(K.total)} 件。先頭は収録順、差は先頭率−全体率。`,
+    `人気・超人気 ${String(K.popular_any_n)} 件（人気または超人気のタグがある求人）の中での占有率。`,
     '人気求人：Indeedの「人気」「超人気」タグ付き。',
   ]);
   expect(x.caption, tag('キャプション')).toEqual([
@@ -299,42 +319,6 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
   }
 }
 
-/** 採用のヒント: 給与の中央値と有効件数・差、訴求の確認候補、外部データの取得状況 (fixture から別途確定した値)。 */
-function assertConsultation(label: string, x: Extracted, c: Conditions): void {
-  const mode = c.wageMode;
-  const unit = mode === 'monthly' ? '万円/月' : '円/時';
-  const tag = (s: string): string => `${label}: ${s}`;
-  const salaryTable = [
-    [`中央値（${unit}）`, '総合 / 有効件数', '人気 / 有効件数', '総合−人気'],
-    ...K[mode].consultation,
-  ];
-  // 総合・人気のどれかが 1〜9 件のときは参考値の注記が出る (時給の人気求人は 4 件)
-  const small = K[mode].counts.some((n) => n > 0 && n < 10);
-  const gapsTable = [['語', '先頭 件/母数', '全体 件/母数', '差(pt)'], ...K.gaps];
-  const status = [
-    ['Google検索需要', '未取得'], // CI は資格情報なし、または検索を選ばない
-    ['Google関連語', '未取得'],
-    ['Indeed採用市場', '未取得'],
-    ['人口・地域', c.prefecture === '' ? '未取得' : '取得済み'],
-  ];
-  expect(x.consultation.tables, tag('採用のヒントの表')).toEqual([salaryTable, gapsTable, status]);
-  const cohort =
-    mode === 'monthly'
-      ? '総合：Indeed SPの月給求人の実額（月給換算は含みません）'
-      : '総合：Indeed SPの時給求人の実額';
-  expect(x.consultation.paragraphs, tag('採用のヒントの文言')).toEqual([
-    '競合データをもとに、給与・求人票・掲載後の反応を見直しましょう。',
-    `${cohort}。人気求人：SPの「人気」「超人気」付き、選択単位の実額。`,
-    `給与分布の有効件数：下限 ${String(K[mode].hist_n)} 件・上限 ${String(K[mode].hist_n)} 件。`,
-    ...(small ? ['10件未満の比較は参考値です。'] : []),
-    '給与相場と自社の条件を比較し、勤務時間・手当も含めて見直しましょう。',
-    '先頭の求人と全体を比較。先頭は収録順です。',
-    '実際に提供できる待遇を、求人票で分かりやすく伝えましょう。',
-    '外部データの対象地域・基準日は各タブに表示しています。',
-    '職務内容に合う検索語を選び、掲載後の閲覧数・応募数・有効応募数を比較しましょう。',
-  ]);
-}
-
 // ---------------------------------------------------------------- テスト
 
 test.describe('競合調査 旧画面 == 新画面 == 既知値', () => {
@@ -356,8 +340,6 @@ test.describe('競合調査 旧画面 == 新画面 == 既知値', () => {
 
         assertKnown('旧画面', legacy, c);
         assertKnown('新画面', app, c);
-        assertConsultation('旧画面', legacy, c);
-        assertConsultation('新画面', app, c);
         // 既知値に載せていない部分 (棒の位置・高さ、注記、キャプション等) も旧 == 新
         expect(app).toEqual(legacy);
       } finally {
@@ -472,7 +454,7 @@ test.describe('競合調査 新画面 /app/competitor 単独', () => {
       expect(response.headers()['content-type']).toContain('application/pdf');
       const download = await downloadEvent;
       expect(download, 'ダウンロードが始まらない').not.toBeNull();
-      expect(download!.suggestedFilename()).toBe(`競合調査_大阪府_Indeed競合調査_${jstToday()}.pdf`);
+      expect(download!.suggestedFilename()).toBe(`競合調査_大阪府_大阪府_${jstToday()}.pdf`);
       const bytes = await readFile((await download!.path())!);
       expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
       expect(bytes.subarray(Math.max(0, bytes.length - 32)).toString('latin1')).toContain('%%EOF');

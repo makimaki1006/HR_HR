@@ -6,6 +6,10 @@ export type CompetitorOptions = {
  */
 titles: Array<string>, prefectures: Array<string>, 
 /**
+ * 都道府県ごとの市区町村の選択肢 (市区町村コード順)。
+ */
+municipalities: { [key in string]: Array<string> }, 
+/**
  * false のとき職種の選択肢は空 (CSV の競合調査だけ使える)。
  */
 market_available: boolean, };

@@ -423,6 +423,10 @@ pub(crate) fn build_competitor_report(
                 denom,
                 &comp.tag_counts_all,
                 agg.total_count,
+                &competitor_keywords::PopularityCounts {
+                    popular_any_n: comp.popular_any_n,
+                    popular_any_counts: &comp.tag_counts_popular_any,
+                },
             ),
             histograms: Histograms {
                 upper: histogram(hi),
@@ -908,6 +912,112 @@ mod tests {
         assert!(row["delta"].is_null());
         assert_eq!(v["excel"]["keyword_comparison"]["all_n"], 2);
         assert_eq!(v["excel"]["histograms"]["lower"]["n"], 2);
+    }
+
+    fn popularity_report(tags: &[&str]) -> Value {
+        let salaries = vec!["月給 25万円"; tags.len()].join("\n");
+        let mut records = salary_fixture::records(&salaries, "大阪府 大阪市");
+        for (r, t) in records.iter_mut().zip(tags) {
+            r.tags_raw = (*t).to_owned();
+        }
+        let agg = aggregate_records_with_mode(&records, WageMode::Monthly);
+        let r = build_competitor_report(&agg, 45, "", &Value::Null, &Value::Null, &Value::Null);
+        serde_json::to_value(&r).unwrap()["excel"]["keyword_comparison"].clone()
+    }
+
+    #[test]
+    fn keyword_comparison_has_popularity_series_with_hand_computed_values() {
+        // 10 件: 超人気 2 (j0, j1)、人気 3 (j2〜j4)、タグなし・その他 5。
+        // j1 は "人気/超人気" と両方のタグを持つが、人気・超人気の区分には 1 回だけ数える。
+        let cmp = popularity_report(&[
+            "超人気,研修あり,研修あり",
+            "人気/超人気,賞与あり",
+            "人気,研修あり",
+            "人気、研修あり",
+            "人気,賞与あり",
+            "研修あり",
+            "",
+            "",
+            "",
+            "",
+        ]);
+        assert_eq!(cmp["all_n"], 10);
+        // 区分の求人は 5 件 (両方のタグを持つ j1 も 1 件)。
+        assert_eq!(cmp["popular_any_n"], 5);
+        let rows = cmp["rows"].as_array().unwrap();
+        let row = |w: &str| rows.iter().find(|r| r["word"] == w).unwrap();
+        // 研修あり: 全体 4 件 (j0 は 2 回書いても 1 回)、区分 3/5 (j0, j2, j3)。
+        let training = row("研修あり");
+        assert_eq!(training["all_count"], 4);
+        assert_eq!(training["all_share_pct"].as_f64(), Some(40.0));
+        assert_eq!(training["popular_any_count"], 3);
+        assert_eq!(training["popular_any_share_pct"].as_f64(), Some(60.0));
+        // 賞与あり: 区分 2/5 (j1, j4)。
+        let bonus = row("賞与あり");
+        assert_eq!(bonus["popular_any_count"], 2);
+        assert_eq!(bonus["popular_any_share_pct"].as_f64(), Some(40.0));
+    }
+
+    #[test]
+    fn popular_tags_are_not_keywords_but_still_define_the_class() {
+        let cmp_and_all = |tags: &[&str]| {
+            let salaries = vec!["月給 25万円"; tags.len()].join("\n");
+            let mut records = salary_fixture::records(&salaries, "大阪府 大阪市");
+            for (r, t) in records.iter_mut().zip(tags) {
+                r.tags_raw = (*t).to_owned();
+            }
+            let agg = aggregate_records_with_mode(&records, WageMode::Monthly);
+            let r = build_competitor_report(&agg, 3, "", &Value::Null, &Value::Null, &Value::Null);
+            serde_json::to_value(&r).unwrap()["excel"].clone()
+        };
+        let excel = cmp_and_all(&[
+            "人気,研修あり",
+            "超人気,研修あり,賞与あり",
+            "賞与あり",
+            "研修あり",
+        ]);
+        let words = |key: &str| -> Vec<(String, u64)> {
+            excel[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| {
+                    (
+                        r["word"].as_str().unwrap().to_owned(),
+                        r["count"].as_u64().unwrap(),
+                    )
+                })
+                .collect()
+        };
+        for key in ["keyword_all", "keyword_head"] {
+            let w = words(key);
+            assert!(
+                w.iter().all(|(t, _)| t != "人気" && t != "超人気"),
+                "{key}: {w:?}"
+            );
+        }
+        // 全体は 研修あり 3・賞与あり 2 が 1 位・2 位。
+        assert_eq!(
+            words("keyword_all"),
+            vec![("研修あり".to_owned(), 3), ("賞与あり".to_owned(), 2)]
+        );
+        // 区分の求人数 (2) は人気・超人気のタグから判定され、変わらない。
+        assert_eq!(excel["keyword_comparison"]["popular_any_n"], 2);
+        let rows = excel["keyword_comparison"]["rows"].as_array().unwrap();
+        assert!(rows
+            .iter()
+            .all(|r| r["word"] != "人気" && r["word"] != "超人気"));
+    }
+
+    #[test]
+    fn keyword_comparison_omits_popularity_series_without_popularity_tags() {
+        let cmp = popularity_report(&["研修あり", "研修あり", "賞与あり"]);
+        assert_eq!(cmp["popular_any_n"], 0);
+        for row in cmp["rows"].as_array().unwrap() {
+            for key in ["popular_any_count", "popular_any_share_pct"] {
+                assert!(row[key].is_null(), "{key} は 0 でなく欠測");
+            }
+        }
     }
 
     #[test]
