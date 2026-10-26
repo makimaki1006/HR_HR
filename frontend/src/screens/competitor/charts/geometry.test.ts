@@ -93,6 +93,30 @@ describe('keywordLayout: 旧 competitor-keywords.js の算術', () => {
     expect(missing?.text).toBe('—');
   });
 
+  it('超人気・人気の系列があると棒は 4 本・細く、上に 16px 空ける。色は系列ごと', () => {
+    const four = [
+      {
+        word: 'A',
+        bars: [
+          { group: '全体' as const, value: 25 },
+          { group: '先頭' as const, value: 50 },
+          { group: '超人気' as const, value: 50 },
+          { group: '人気' as const, value: null },
+        ],
+      },
+    ];
+    const l = keywordLayout({ mode: 'comparison', items: four, w: 440, h: 731 });
+    expect(l.top).toBe(58);
+    const row = l.rows[0];
+    const step = (731 - 58 - 30) / 1;
+    expect(row?.cy).toBeCloseTo(58 + step / 2, 10);
+    expect(row?.bars.map((b) => b.height)).toEqual([6, 6, 6, 6]);
+    expect(row?.bars.map((b) => b.color)).toEqual(['#006666', '#4472c4', '#c0504d', '#e69f00']);
+    const ys = row?.bars.map((b) => b.y - (row.cy - 14)) ?? [];
+    expect(ys).toEqual([0, 7, 14, 21]);
+    expect(row?.bars[3]?.text).toBe('—');
+  });
+
   it('幅 400 未満は 3 目盛り', () => {
     expect(keywordLayout({ mode: 'comparison', items, w: 390, h: 715 }).ticks.map((t) => t.label)).toEqual([
       '0%',
