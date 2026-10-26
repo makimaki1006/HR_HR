@@ -38,6 +38,10 @@ const WINDOW_MAX_MS: i64 = 6 * 3_600_000;
 const MAX_PAGES: usize = 40;
 /// 取引の履歴のキャッシュの件数の上限 (超えたら全部捨てる)
 const CACHE_MAX: usize = 5_000;
+/// 通話からこれだけ経っても分からない発信は、Search を毎周回でなくこの間隔で読み直す
+/// (Call が作られない発信が 3 時間残るあいだ、全社の Call を 10 分ごとに読み直さないため)
+const SLOW_RETRY_AFTER_MS: i64 = 30 * 60_000;
+const SLOW_RETRY_EVERY_MS: i64 = 30 * 60_000;
 
 /// 既定の対象のステージ (アポ取り)。(パイプライン ID, パイプライン名, ステージ ID, ステージ名)。
 /// 2026-10-26 に HubSpot の pipelines API (読み取り) で名前から特定した。`CALL_REVIEW_SCOPE_STAGES`
@@ -515,6 +519,8 @@ pub struct ScopeResolver<S> {
     stages: HashSet<String>,
     /// 取引 ID → (読んだ時刻, 履歴)。読んだ時刻が発信より後のものだけ、その発信の判定に使える
     cache: Mutex<HashMap<String, (i64, Vec<StageEntry>)>>,
+    /// 通話 ID → 最後に Search で探した時刻 (間隔をあけて読み直すため)
+    tried: Mutex<HashMap<String, i64>>,
 }
 
 impl<S: ScopeSource> ScopeResolver<S> {
@@ -523,6 +529,7 @@ impl<S: ScopeSource> ScopeResolver<S> {
             source,
             stages,
             cache: Mutex::new(HashMap::new()),
+            tried: Mutex::new(HashMap::new()),
         }
     }
 
@@ -530,15 +537,31 @@ impl<S: ScopeSource> ScopeResolver<S> {
     pub async fn resolve(&self, qs: &[ScopeQuery], now_ms: i64) -> HashMap<String, Scope> {
         let mut out: HashMap<String, Scope> = HashMap::new();
         let mut todo: Vec<(&ScopeQuery, &str)> = Vec::new();
-        for q in qs {
-            match q.callee9.as_deref() {
-                None => {
-                    out.insert(q.id.clone(), Scope::In("no_number"));
+        {
+            let mut tried = self.tried.lock().unwrap();
+            let live: HashSet<&str> = qs.iter().map(|q| q.id.as_str()).collect();
+            tried.retain(|id, _| live.contains(id.as_str()));
+            for q in qs {
+                match q.callee9.as_deref() {
+                    None => {
+                        out.insert(q.id.clone(), Scope::In("no_number"));
+                    }
+                    Some(_) if now_ms - q.at_ms < SETTLE_DELAY_MS => {
+                        out.insert(q.id.clone(), Scope::Unknown("settling"));
+                    }
+                    Some(_)
+                        if now_ms - q.at_ms >= SLOW_RETRY_AFTER_MS
+                            && tried
+                                .get(&q.id)
+                                .is_some_and(|t| now_ms - t < SLOW_RETRY_EVERY_MS) =>
+                    {
+                        out.insert(q.id.clone(), Scope::Unknown("backoff"));
+                    }
+                    Some(n) => {
+                        tried.insert(q.id.clone(), now_ms);
+                        todo.push((q, n));
+                    }
                 }
-                Some(_) if now_ms - q.at_ms < SETTLE_DELAY_MS => {
-                    out.insert(q.id.clone(), Scope::Unknown("settling"));
-                }
-                Some(n) => todo.push((q, n)),
             }
         }
         if todo.is_empty() {
@@ -562,11 +585,18 @@ impl<S: ScopeSource> ScopeResolver<S> {
             {
                 Ok(v) => calls.extend(v),
                 Err(e) => {
+                    // 読めなかった窓の通話だけを待ちにして、ほかの窓は続ける
                     tracing::info!(reason = %e, "talk scope: call search failed");
-                    fail(&mut out, &todo, "hubspot_error");
-                    return out;
+                    let (bad, rest): (Vec<_>, Vec<_>) = todo
+                        .into_iter()
+                        .partition(|(q, _)| q.at_ms >= from && q.at_ms <= to);
+                    fail(&mut out, &bad, "hubspot_error");
+                    todo = rest;
                 }
             }
+        }
+        if todo.is_empty() {
+            return out;
         }
 
         // 2. 番号の下 9 桁と時刻 (±3 分) で結び付ける。同じ Call は 1 本の通話にだけ
@@ -721,7 +751,12 @@ impl<S: ScopeSource> ScopeResolver<S> {
         }
         let cache = self.cache.lock().unwrap();
         for (q, deals) in &deals_of {
-            if fetched_err && deals.iter().any(|d| !cache.contains_key(d)) {
+            // 読み直しに失敗したときは、発信より前に読んだ古い履歴でも決めない
+            if fetched_err
+                && deals
+                    .iter()
+                    .any(|d| cache.get(d).is_none_or(|(fetched, _)| *fetched <= q.at_ms))
+            {
                 out.insert(q.id.clone(), Scope::Unknown("hubspot_error"));
                 continue;
             }
@@ -809,6 +844,10 @@ mod tests {
         assert!(s.contains("appointmentscheduled"));
         assert!(!s.contains("1404977820"), "契約先企業");
         assert!(!s.contains("1251636516"), "過去契約先");
+        // アポ確定後の確認電話の段階は対象外 (2026-10-27)。アポヨミは対象
+        assert!(!s.contains("1332175104"), "日程確保済み");
+        assert!(!s.contains("51997752"), "TEL_アポ日確定");
+        assert!(s.contains("1366400580"), "アポヨミ");
         // 商談 (アポ日確定 52035886 ほか)・納品管理・bpo は対象外
         for id in ["52035886", "52035887", "52016153", "66848546", "1095387442"] {
             assert!(!s.contains(id), "{id}");
@@ -910,6 +949,7 @@ mod tests {
         contact_deals: BTreeMap<String, Vec<String>>,
         histories: HashMap<String, Vec<StageEntry>>,
         fail_search: bool,
+        fail_history: std::sync::atomic::AtomicBool,
         searches: AtomicUsize,
         reads: AtomicUsize,
     }
@@ -943,6 +983,9 @@ mod tests {
             ids: &[String],
         ) -> Result<HashMap<String, Vec<StageEntry>>, String> {
             self.reads.fetch_add(1, Ordering::SeqCst);
+            if self.fail_history.load(Ordering::SeqCst) {
+                return Err("hubspot_busy".into());
+            }
             Ok(ids
                 .iter()
                 .filter_map(|i| self.histories.get(i).map(|v| (i.clone(), v.clone())))
@@ -1093,6 +1136,61 @@ mod tests {
             )
             .await;
         assert_eq!(out["n"], Scope::In("no_number"));
+    }
+
+    #[tokio::test]
+    async fn old_unmatched_calls_are_searched_every_30_minutes_not_every_round() {
+        // Call が作られない発信 (通話から 1 時間)。最初は探し、30 分たつまでは探さない
+        let r = ScopeResolver::new(Fake::default(), scope_stage_set(&[]));
+        let qs = vec![q("x", "311111111", "2026-10-20T04:00:00Z")];
+        let out = r.resolve(&qs, ms("2026-10-20T05:00:00Z")).await;
+        assert_eq!(out["x"], Scope::Unknown("call_not_found"));
+        let out = r.resolve(&qs, ms("2026-10-20T05:10:00Z")).await;
+        assert_eq!(out["x"], Scope::Unknown("backoff"));
+        let out = r.resolve(&qs, ms("2026-10-20T05:20:00Z")).await;
+        assert_eq!(out["x"], Scope::Unknown("backoff"));
+        assert_eq!(r.source.searches.load(Ordering::SeqCst), 1);
+        let out = r.resolve(&qs, ms("2026-10-20T05:30:00Z")).await;
+        assert_eq!(out["x"], Scope::Unknown("call_not_found"));
+        assert_eq!(r.source.searches.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn stale_history_is_not_used_when_rereading_fails() {
+        // 10:00 に読んだ履歴は商談 (対象外)。11:00 の発信のために読み直すが失敗 → 古い履歴で決めない
+        let mut f = Fake::default();
+        f.calls = vec![
+            hc("c0", "311111111", "2026-10-20T00:30:00Z"),
+            hc("c1", "322222222", "2026-10-20T02:00:00Z"),
+        ];
+        f.call_deals = [
+            ("c0".to_string(), v(&["d1"])),
+            ("c1".to_string(), v(&["d1"])),
+        ]
+        .into_iter()
+        .collect();
+        f.histories = [(
+            "d1".to_string(),
+            vec![entry("2026-10-01T00:00:00Z", "52035887")],
+        )]
+        .into_iter()
+        .collect();
+        let r = ScopeResolver::new(f, scope_stage_set(&[]));
+        let out = r
+            .resolve(
+                &[q("a", "311111111", "2026-10-20T00:30:00Z")],
+                ms("2026-10-20T01:00:00Z"),
+            )
+            .await;
+        assert_eq!(out["a"], Scope::Out);
+        r.source.fail_history.store(true, Ordering::SeqCst);
+        let out = r
+            .resolve(
+                &[q("b", "322222222", "2026-10-20T02:00:00Z")],
+                ms("2026-10-20T03:00:00Z"),
+            )
+            .await;
+        assert_eq!(out["b"], Scope::Unknown("hubspot_error"));
     }
 
     #[tokio::test]

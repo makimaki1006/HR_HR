@@ -297,9 +297,12 @@ fn pct(num: u32, den: Option<u32>) -> Option<f64> {
         .map(|d| f64::from(num) / f64::from(d) * 100.0)
 }
 
-fn fill(row: &mut TalkPersonRow, a: &ContactAgg) {
-    // 率の分母はアポ取りの発信だけ (発信数からアポ取り以外として外した本数を引く)。発信数の表示は営業KPIのまま
-    let den = row.outbound.map(|o| o.saturating_sub(a.out_of_scope));
+/// 率の分母: アポ取りの発信だけ (発信数からアポ取り以外として外した本数を引く)。発信数の表示は営業KPIのまま
+fn rate_den(row: &TalkPersonRow, a: &ContactAgg) -> Option<u32> {
+    row.outbound.map(|o| o.saturating_sub(a.out_of_scope))
+}
+
+fn fill(row: &mut TalkPersonRow, a: &ContactAgg, den: Option<u32>) {
     row.contacts = Some(a.contacts);
     row.contact_rate_pct = pct(a.contacts, den);
     row.date_proposal_calls = Some(a.proposal_calls);
@@ -318,6 +321,8 @@ pub fn apply_contact(
 ) {
     let Some(agg) = agg else { return };
     let mut sum = ContactAgg::default();
+    // 全体の分母は各行の分母の合計 (発信数の無い人の対象外の本数を全体から引かない)
+    let mut den_sum: u32 = 0;
     for p in people.iter_mut() {
         let a = p
             .owner_id
@@ -326,9 +331,12 @@ pub fn apply_contact(
             .copied()
             .unwrap_or_default();
         sum.add(&a);
-        fill(p, &a);
+        let den = rate_den(p, &a);
+        den_sum += den.unwrap_or(0);
+        fill(p, &a, den);
     }
-    fill(total, &sum);
+    let den = total.outbound.map(|_| den_sum);
+    fill(total, &sum, den);
 }
 
 #[cfg(test)]
@@ -653,6 +661,14 @@ mod tests {
                     out_of_scope: 20,
                 },
             ),
+            // C は発信数 0 なのに対象外が 10 本ある (営業KPI に載っていない日など)。全体の分母から引かない
+            (
+                "C".to_string(),
+                ContactAgg {
+                    out_of_scope: 10,
+                    ..Default::default()
+                },
+            ),
             (
                 "Z".to_string(),
                 ContactAgg {
@@ -685,7 +701,7 @@ mod tests {
         let c = by("う");
         assert_eq!(c.contacts, Some(0));
         assert_eq!((c.contact_rate_pct, c.date_proposal_rate_pct), (None, None));
-        // 合計: 表に出ている人だけ (Z は入らない)。発信 150 本 − アポ取り以外 20 本
+        // 合計: 表に出ている人だけ (Z は入らない)。分母は各行の分母の合計 = 80 + 50 + 0 (C の 10 本は引かない)
         assert_eq!(total.contacts, Some(20));
         assert_eq!(
             total.contact_rate_pct.map(|v| (v * 100.0).round() / 100.0),
