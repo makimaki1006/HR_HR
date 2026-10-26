@@ -1,8 +1,8 @@
 //! 9 項目の判定の対象 = 接触の判定で `contacted = 1` になった電話 (2026-10-26、ADR-033)。
 //!
 //! 接触の判定 (`call_contact_marks`、1 行 = Zoom の通話ログ 1 本) と HubSpot の Call (`call_talk_reviews`) を結び付ける。
-//! - Call の本文に録音 URL があれば、その Zoom の通話ログ ID と同じ印が相手。
-//! - URL が無い Call (Call Queue 経由) は、同じ担当者で時刻が近い (3 分以内) 印のうち最も近いもの。
+//! - 同じ担当者で時刻が近い (3 分以内) 印のうち最も近いもの。録音 URL の ID は Zoom の録音の ID で、
+//!   印 (通話ログ ID) とは一致しないので使わない。
 //!
 //! 接触していない電話は行を作らない (Turso の書き込みを増やさない)。ここは純粋な部分だけ。
 
@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use chrono::DateTime;
 
 use super::store::ReviewRow;
-use super::zoom::{CALLER_WINDOW_MS, REC_PREFIX};
+use super::zoom::CALLER_WINDOW_MS;
 
 /// 接触した電話として行を作るときに `note` に入れる印。順番待ちの行を枠に入れるのはこの印のある行だけ
 /// (この変更より前の、接触を調べていない行を枠に入れて判定しないため)
@@ -59,25 +59,24 @@ pub enum Verdict {
     Wait(WaitKind),
 }
 
-/// Call に対応する印。`link` (録音 URL の通話ログ ID) があればその ID、無ければ同じ担当者で最も近い未使用の印
+/// Call に対応する印 = 同じ担当者で時刻が近い (3 分以内) 未使用の印のうち最も近いもの。
+/// `link` (HubSpot の本文の録音 URL の ID) は Zoom の録音の ID で、印の通話ログ ID とは別物なので照合に使わない
+/// (2026-10-26 本番で、URL のある Call が 1 本も印と結び付かなかった)
 fn find<'a>(
-    link: Option<&str>,
+    _link: Option<&str>,
     owner: &str,
     at_ms: i64,
     marks: &'a [MarkState],
     used: &HashSet<String>,
 ) -> Option<&'a MarkState> {
-    match link {
-        Some(id) => marks.iter().find(|m| m.id == id),
-        None => marks
-            .iter()
-            .filter(|m| {
-                m.owner_id == owner
-                    && !used.contains(&m.id)
-                    && (m.at_ms - at_ms).abs() <= CALLER_WINDOW_MS
-            })
-            .min_by_key(|m| (m.at_ms - at_ms).abs()),
-    }
+    marks
+        .iter()
+        .filter(|m| {
+            m.owner_id == owner
+                && !used.contains(&m.id)
+                && (m.at_ms - at_ms).abs() <= CALLER_WINDOW_MS
+        })
+        .min_by_key(|m| (m.at_ms - at_ms).abs())
 }
 
 /// 取り込み前の Call について、9 項目の対象にするか待つか見送るかを決める
@@ -104,32 +103,13 @@ pub fn verdict(
     }
 }
 
-/// 録音 URL から取った通話ログ ID。Zoom の通話履歴から見つけた録音 ID (`rec:`) は通話ログ ID ではない
-pub fn link_of(r: &ReviewRow) -> Option<&str> {
-    r.zoom_call_log_id
-        .as_deref()
-        .filter(|z| !z.starts_with(REC_PREFIX))
-}
-
 /// 集計・一覧に入れる行 = 接触した電話。`marks` は接触した印 (`contacted = 1`) だけでよい。
-/// 録音 URL のある行はその ID の印があるものだけ、無い行は同じ担当者で最も近い未使用の印があるものだけを残す。
+/// 同じ担当者で時刻が最も近い未使用の印があるものだけを残す。
 /// 並びは入力のまま
 pub fn contacted_rows(rows: Vec<ReviewRow>, marks: &[MarkState]) -> Vec<ReviewRow> {
     let mut used: HashSet<String> = HashSet::new();
     let mut keep = vec![false; rows.len()];
-    // 録音 URL のある行を先に確定し、その印を時刻の照合から外す
     for (i, r) in rows.iter().enumerate() {
-        if let Some(id) = link_of(r) {
-            if marks.iter().any(|m| m.id == id) {
-                keep[i] = true;
-                used.insert(id.to_string());
-            }
-        }
-    }
-    for (i, r) in rows.iter().enumerate() {
-        if link_of(r).is_some() {
-            continue;
-        }
         let Ok(at) = DateTime::parse_from_rfc3339(&r.call_at) else {
             continue;
         };
@@ -183,7 +163,8 @@ mod tests {
     }
 
     #[test]
-    fn url_calls_follow_the_mark_with_the_same_zoom_id() {
+    fn calls_with_a_recording_url_still_match_by_owner_and_time() {
+        // HubSpot の録音 URL の ID (日付-uuid) は印の ID と一致しない。時刻で結ぶ
         let marks = vec![
             mark("Z1", "o1", "2026-10-26T01:00:00Z", "judged", Some(true)),
             mark("Z2", "o1", "2026-10-26T01:05:00Z", "judged", Some(false)),
@@ -191,18 +172,41 @@ mod tests {
             mark("Z4", "o1", "2026-10-26T01:15:00Z", "unavailable", None),
         ];
         let mut used = HashSet::new();
-        let v = |id: &str, used: &mut HashSet<String>| {
-            verdict(Some(id), "o1", ms("2026-10-26T01:00:00Z"), &marks, used)
-        };
-        assert_eq!(v("Z1", &mut used), Verdict::Target("Z1".into()));
-        assert_eq!(v("Z2", &mut used), Verdict::Skip, "接触していない");
-        assert_eq!(v("Z3", &mut used), Verdict::Wait(WaitKind::Judging));
+        let link = Some("20261026-17301d4b-24f9-4ebe-aa68-ea42cb39f76a");
+        let v = |at: &str, used: &mut HashSet<String>| verdict(link, "o1", ms(at), &marks, used);
         assert_eq!(
-            v("Z4", &mut used),
+            v("2026-10-26T01:00:30Z", &mut used),
+            Verdict::Target("Z1".into())
+        );
+        assert_eq!(
+            v("2026-10-26T01:05:10Z", &mut used),
+            Verdict::Skip,
+            "接触していない"
+        );
+        assert_eq!(
+            v("2026-10-26T01:10:00Z", &mut used),
+            Verdict::Wait(WaitKind::Judging)
+        );
+        assert_eq!(
+            v("2026-10-26T01:15:00Z", &mut used),
             Verdict::Skip,
             "取れない印は対象にしない"
         );
-        assert_eq!(v("Z9", &mut used), Verdict::Wait(WaitKind::NoMark));
+        assert_eq!(
+            v("2026-10-26T02:00:00Z", &mut used),
+            Verdict::Wait(WaitKind::NoMark)
+        );
+        assert_eq!(
+            verdict(
+                link,
+                "o2",
+                ms("2026-10-26T01:00:00Z"),
+                &marks,
+                &mut HashSet::new()
+            ),
+            Verdict::Wait(WaitKind::NoMark),
+            "別の担当者の印とは結ばない"
+        );
     }
 
     #[test]
@@ -271,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn a_url_call_claims_its_mark_before_a_url_less_call_nearby() {
+    fn one_mark_goes_to_one_row_the_nearest_first_in_input_order() {
         let marks = vec![mark(
             "Z1",
             "o1",
@@ -281,10 +285,14 @@ mod tests {
         )];
         let rows = vec![
             row("h0", "o1", "2026-10-26T01:00:20Z", None),
-            row("h1", "o1", "2026-10-26T01:00:00Z", Some("Z1")),
+            row(
+                "h1",
+                "o1",
+                "2026-10-26T01:00:00Z",
+                Some("20261026-e28993ea-3cc3-4b12-9b44-42163afb81af"),
+            ),
         ];
         let kept = contacted_rows(rows, &marks);
-        assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].hubspot_call_id, "h1");
+        assert_eq!(kept.len(), 1, "印 1 つに行は 1 つ");
     }
 }
