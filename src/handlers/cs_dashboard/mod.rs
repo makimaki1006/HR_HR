@@ -56,6 +56,7 @@ pub mod deal_detail;
 pub mod gakkari;
 pub mod handover_contact;
 pub mod money;
+pub mod onboarding;
 pub mod phase;
 pub mod routes;
 pub mod stage_stay;

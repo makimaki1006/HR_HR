@@ -2184,6 +2184,36 @@ check("がっかり", "案件一覧の「がっかり」の欄を選ぶと該当
   cl.onclick();
   if (t.R("boardFilter.gakkari") !== "") throw new Error("絞り込みを外してもがっかりが残る");
 });
+check("初回の立ち上げ", "案件一覧の「初回の立ち上げ（遅れあり）」の欄を選ぶと遅れのある初回の行だけに絞れ、外すと欄も戻る。注意の本数は変わらない", async () => {
+  const t = boot();
+  const gate = (key, label, short, late) => ({ key, label, short, deadline_label: "開始から7日", done: 0, late, unknown: 0 });
+  const rows = [
+    boardRow({ deal_id: "n1", name: "株式1", n_flags: 1, flags: ["札X"], onboarding: { states: ["ok", "late", "ok", "wait", "wait"], late: 1 }, onboarding_late: true }),
+    boardRow({ deal_id: "n2", name: "株式2", n_flags: 1, flags: ["札X"], onboarding: { states: ["ok", "ok", "ok", "wait", "wait"], late: 0 }, onboarding_late: false }),
+    boardRow({ deal_id: "n3", name: "株式3", onboarding: null, onboarding_late: false }),
+    boardRow({ deal_id: "n4", name: "株式4", onboarding: { states: ["late", "unknown", "unknown", "wait", "wait"], late: 1 }, onboarding_late: true })];
+  t.ctx.__D = { meta: { flag_counts: [{ label: "札X", n: 2 }], mtg_gap: { bands: [] }, order_rule: "",
+    onboarding: { provisional: true, n_initial: 3, n_late_any: 2, filter_label: "初回の立ち上げ（遅れあり）", rule: "決まり", has_facts: true,
+      gates: [gate("mtg", "初回MTGの記録がある", "MTG", 1), gate("live", "求人が掲載中", "掲載", 1), gate("applied", "応募が1件以上", "応募", 0),
+              gate("interview", "面接が1件以上", "面接", 0), gate("satisfaction", "満足度の回答がある", "満足度", 0)] } }, rows };
+  t.R('cur = { menu: "deal", view: "board" }; boardCache = __D; lastPayload = __D; boardShowAll = false; ' +
+      'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "", onb: "" }; boardSort = { key: "n_flags", asc: false };');
+  t.reg["cs-main"].innerHTML = t.R("renderBoard(__D)");
+  const main = t.reg["cs-main"].innerHTML;
+  if (!main.includes('id="bf-onb"') || !main.includes("初回の立ち上げ（遅れあり）（2）")) throw new Error("初回の立ち上げの欄・件数が出ていない");
+  // 初回の行にだけ5つの点が出る（n1・n2・n4 の 3 行）。初回でない行には出ない
+  if ((main.match(/class="onb"/g) || []).length !== 3) throw new Error("点の行数が 3 でない: " + (main.match(/class="onb"/g) || []).length);
+  const body = new t.El("board-body"); t.reg["board-body"] = body;
+  const sel = new t.El("bf-onb"); t.reg["bf-onb"] = sel;
+  const cl = new t.El("bf-clear"); t.reg["bf-clear"] = cl;
+  t.R("wire(viewOf('deal', 'board'))");
+  sel.value = "late"; sel.onchange();
+  if (t.R("boardApply(__D.rows).map((r) => r.deal_id).join()") !== "n1,n4") throw new Error("遅れありで絞れていない");
+  if (!body.innerHTML.includes("4 件中 2 件")) throw new Error("件数の行が絞った件数でない: " + body.innerHTML.slice(0, 200));
+  if (t.R("__D.rows.filter((r) => r.n_flags >= 1).length") !== 2) throw new Error("注意の本数が変わっている");
+  cl.onclick();
+  if (t.R("boardFilter.onb") !== "") throw new Error("絞り込みを外しても初回の立ち上げが残る");
+});
 check("M-8", "「絞り込みを外す」は絞り込みの欄も既定に戻す（本文全体を描き直す）。「残りも出す」は絞り込みを変える・外す・画面に入り直すと既定の上位 100 行に戻る", async () => {
   const t = boot();
   const rows = [0, 1, 2].map((i) => boardRow({ deal_id: "r" + i, name: "株式" + i, consultant: "担当A", n_flags: 1, flags: ["札X"] }));

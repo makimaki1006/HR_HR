@@ -2867,24 +2867,52 @@ fn 今日動く先は名札2本以上の全候補も返す() {
     let rows = v["rows"].as_array().unwrap();
     assert_eq!(v["meta"]["keep"], 24, "meta.keep");
     // 243 件（注意2つ以上）+ 8 件（注意が満足度の1本だけで、満足度が低い。2026-10-26 に候補へ足した）
-    assert_eq!(cand.len(), 251, "候補の件数");
-    assert_eq!(v["meta"]["n_hit"], 251, "n_hit は候補の件数");
-    assert_eq!(rows.len(), 24, "rows は今までどおり keep 件");
+    // + 初回の立ち上げの関門に遅れがある案件のうち、上の251件に入っていないもの（2026-10-27。応募・掲載のデータが無い状態でも、
+    // MTG・面接・満足度の遅れは出る）。注意の数・n_hit は変えていない
+    let n_onb_only = v["meta"]["n_onboarding_only"].as_u64().unwrap() as usize;
+    assert_eq!(n_onb_only, 13, "初回の遅れだけで候補に入った件数");
+    assert_eq!(cand.len(), 251 + n_onb_only, "候補の件数");
     assert_eq!(
-        &cand[..rows.len()],
-        &rows[..],
-        "rows が candidates の先頭 keep 件になっていない"
+        v["meta"]["n_hit"], 251,
+        "n_hit は注意2つ以上・満足度4以下の候補の件数"
     );
+    assert_eq!(rows.len(), 24, "rows は今までどおり keep 件");
+    let cand_ids: Vec<&str> = cand
+        .iter()
+        .map(|r| r["deal_id"].as_str().unwrap())
+        .collect();
+    let first_24: Vec<&str> = cand
+        .iter()
+        .filter(|r| {
+            r["n_flags"].as_u64().unwrap_or(0) >= 2 || {
+                r["flags"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|f| f == "満足度が4以下")
+            }
+        })
+        .take(24)
+        .map(|r| r["deal_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        rows.iter()
+            .map(|r| r["deal_id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        first_24,
+        "rows が注意2つ以上・満足度4以下の候補の先頭 keep 件になっていない"
+    );
+    assert!(first_24.iter().all(|id| cand_ids.contains(id)));
     let low = "満足度が4以下";
     let mut one_flag_low = 0;
     for r in cand {
         let n = r["n_flags"].as_u64().unwrap_or(0);
         let has_low = r["flags"].as_array().unwrap().iter().any(|f| f == low);
         assert!(
-            n >= 2 || has_low,
-            "注意が2本未満で満足度も低くない行が候補に入っている: {r}"
+            n >= 2 || has_low || r["onboarding_late"] == true,
+            "注意が2本未満で満足度も低くなく初回の遅れも無い行が候補に入っている: {r}"
         );
-        if n < 2 {
+        if n < 2 && has_low {
             one_flag_low += 1;
             assert_eq!(r["flags"][0], low, "1本だけの注意が満足度の名札でない: {r}");
             assert!(
@@ -7382,6 +7410,8 @@ fn team_unattended_counts_overlapping_flags_once_per_deal() {
 
 #[path = "tests/mail_history.rs"]
 mod mail_history;
+#[path = "tests/onboarding.rs"]
+mod onboarding;
 
 // ================================================================ 紹介料の取引を外す（2026-10-20）
 

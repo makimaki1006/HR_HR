@@ -92,6 +92,7 @@ mod tests {
         DealApplications {
             days: days.iter().map(|s| d(s)).collect(),
             unknown_dates: unknown,
+            live: 0,
         }
     }
     const TODAY: &str = "2026-10-27";
