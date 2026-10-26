@@ -15,6 +15,9 @@ import {
   fmtCallTime, fmtPct, fmtPerContact, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
   type TalkSort,
 } from './talkModel';
+import {
+  diffClass, fmtMetric, joinPeople, metricDiff, parsePeople, previousPeriod, sumRows, togglePerson, validCompare, type Diff, type MetricId,
+} from './talkCompare';
 import type { AdminRoute } from './route';
 import { describeApiError } from './useApiGet';
 
@@ -42,6 +45,7 @@ function breakdownPendingOf(data: unknown): boolean {
 }
 
 type TalkState<T> =
+  | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'counting' }
   | { status: 'not_configured' }
@@ -53,9 +57,10 @@ function errorKind(e: ApiError): string | undefined {
 }
 
 /** GET して、503 counting は数秒おきに取り直す (上限あり)。503 not_configured は「まだ動いていません」用の状態にする */
-function useTalkGet<T>(path: string): TalkState<T> {
+function useTalkGet<T>(path: string | null): TalkState<T> {
   const [result, setResult] = useState<{ path: string; state: TalkState<T> } | null>(null);
   useEffect(() => {
+    if (path === null) return;
     const ctl = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const put = (state: TalkState<T>) => { setResult({ path, state }); };
@@ -87,12 +92,14 @@ function useTalkGet<T>(path: string): TalkState<T> {
       if (timer !== null) clearTimeout(timer);
     };
   }, [path]);
+  if (path === null) return { status: 'idle' };
   return result !== null && result.path === path ? result.state : { status: 'loading' };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
 function Live<T>({ path, children }: { path: string; children: (data: T) => ReactNode }) {
   const state = useTalkGet<T>(path);
+  if (state.status === 'idle') return null;
   if (state.status === 'loading') return <p className="w8-subtle" role="status" data-testid="admin-loading">読み込み中…</p>;
   if (state.status === 'counting') return <p className="w8-subtle" role="status" data-testid="talk-counting">集計しています…（数字を数え終わるまで、少し待ってください）</p>;
   if (state.status === 'not_configured') return <p className="w8-alert" role="status" data-testid="talk-disabled">まだ動いていません。トークの振り返りの設定が済むと、ここに表示されます。</p>;
@@ -125,11 +132,11 @@ function Cell({ j, children, className }: { j: CellJudgement | null; children: R
 }
 
 /** 発信数のセル。マウスを当てる・キーボードで止まると、発信の内訳 (Zoom の記録から数えたもの) を表で出す */
-function OutboundCell({ value, breakdown, pending }: { value: number | null; breakdown: DialBreakdown | null; pending: boolean }) {
+function OutboundCell({ value, breakdown, pending, extra }: { value: number | null; breakdown: DialBreakdown | null; pending: boolean; extra?: ReactNode }) {
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const text = value ?? '—';
   if (value === null || (breakdown === null && !pending) || (breakdown !== null && breakdown.total === 0)) {
-    return <td className="w8-right">{text}</td>;
+    return <td className="w8-right">{text}{extra}</td>;
   }
   // 表の外にはみ出して切れないよう、画面に固定して置く (数字の左下から)
   const show = (el: HTMLElement) => {
@@ -145,6 +152,7 @@ function OutboundCell({ value, breakdown, pending }: { value: number | null; bre
         onFocus={e => { show(e.currentTarget); }} onBlur={hide}
         onKeyDown={e => { if (e.key === 'Escape') hide(); }}
       >{text}</span>
+      {extra}
       {pos !== null && (
         <div id="talk-outbound-tip" className="talk-tip" role="tooltip" data-testid="talk-outbound-tip" style={{ left: pos.left, top: pos.top }}>
           {breakdown === null ? <p>内訳を集計中です</p> : (
@@ -166,28 +174,60 @@ function OutboundCell({ value, breakdown, pending }: { value: number | null; bre
   );
 }
 
-function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, onOpen }: { p: TalkPersonRow; checks: TalkCheckDef[]; total: boolean; totalRow: TalkPersonRow; rules: TalkSummaryResponse['rules']; breakdownPending: boolean; onOpen?: (id: string) => void }) {
-  const apj = total ? null : judgeAppointment(p, totalRow, rules);
+/** 差の 1 行。cmp = 比べる期間との差、team = チームの全体との差 */
+function DiffNote({ kind, cur, base, m, itemId, rules }: { kind: 'cmp' | 'team'; cur: TalkPersonRow; base: TalkPersonRow | null | undefined; m: MetricId; itemId?: string | undefined; rules: TalkSummaryResponse['rules'] }) {
+  if (base === null || base === undefined) return null;
+  const id = itemId ?? '';
+  const d: Diff | null = metricDiff(cur, base, m, id, rules);
+  if (d === null) return null;
+  const head = kind === 'cmp' ? '前' : 'チーム比';
+  const what = kind === 'cmp' ? '比べる期間' : base.name;
+  const thin = d.faint ? '（件数が少ないので参考程度）' : '';
   return (
-    <tr className={total ? 'talk-total' : undefined} data-testid={total ? 'talk-total-row' : 'talk-row'}>
+    <span className={diffClass(d)} data-diff={kind} data-dir={d.dir} data-faint={d.faint ? 'true' : undefined} title={`${what}: ${fmtMetric(base, m, id)}${thin}`}>{head} {d.text}</span>
+  );
+}
+
+/** 行ごとの比べる相手 (undefined = 比べない、null = 相手の行が無い) */
+interface RowCompare { cmp?: TalkPersonRow | null | undefined; team?: TalkPersonRow | null | undefined }
+
+function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, onOpen, compare, select, rowId }: {
+  p: TalkPersonRow; checks: TalkCheckDef[]; total: boolean; totalRow: TalkPersonRow; rules: TalkSummaryResponse['rules']; breakdownPending: boolean;
+  onOpen?: (id: string) => void; compare?: RowCompare | undefined; select?: { checked: boolean; onChange: () => void } | undefined; rowId?: string;
+}) {
+  const apj = total ? null : judgeAppointment(p, totalRow, rules);
+  const dn = (m: MetricId, itemId?: string) => (
+    <>
+      <DiffNote kind="cmp" cur={p} base={compare?.cmp} m={m} itemId={itemId} rules={rules} />
+      {(m === 'appointmentRate' || m === 'contactRate' || m === 'proposalRate' || m === 'item') && (
+        <DiffNote kind="team" cur={p} base={compare?.team} m={m} itemId={itemId} rules={rules} />
+      )}
+    </>
+  );
+  return (
+    <tr className={total ? 'talk-total' : undefined} data-testid={rowId ?? (total ? 'talk-total-row' : 'talk-row')}>
       <td>
+        {select !== undefined && (
+          <input type="checkbox" className="talk-pick" aria-label={`${p.name}を選ぶ`} checked={select.checked} onChange={select.onChange} />
+        )}
         {total || p.owner_id === null || onOpen === undefined ? p.name : (
           <button type="button" className="talk-namebtn" onClick={() => { onOpen(p.owner_id ?? ''); }}>{p.name}</button>
         )}
+        {compare?.cmp === null && <span className="talk-small" data-testid="talk-no-prev">比べる期間にはデータなし</span>}
       </td>
       <td className="w8-muted">{p.team ?? '-'}</td>
-      <OutboundCell value={p.outbound} breakdown={p.dial_breakdown} pending={breakdownPending} />
-      <td className="w8-right">{p.dials ?? '—'}</td>
-      <td className="w8-right">{p.appointments}</td>
-      <Cell j={apj} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}</Cell>
+      <OutboundCell value={p.outbound} breakdown={p.dial_breakdown} pending={breakdownPending} extra={dn('outbound')} />
+      <td className="w8-right">{p.dials ?? '—'}{dn('dials')}</td>
+      <td className="w8-right">{p.appointments}{dn('appointments')}</td>
+      <Cell j={apj} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}{dn('appointmentRate')}</Cell>
       <td className="w8-right" data-testid="talk-contacts">
-        {p.contacts ?? '—'}
+        {p.contacts ?? '—'}{dn('contacts')}
         {p.contact_pending > 0 && <span className="talk-small" data-testid="talk-contact-pending">接触の判定待ち {p.contact_pending} 本</span>}
       </td>
-      <td className="w8-right">{fmtPct(p.contact_rate_pct, 1)}</td>
-      <td className="w8-right">{p.date_proposal_calls ?? '—'}</td>
-      <td className="w8-right">{fmtPct(p.date_proposal_rate_pct, 1)}</td>
-      <td className="w8-right">{fmtPerContact(p.proposals_per_contact)}</td>
+      <td className="w8-right">{fmtPct(p.contact_rate_pct, 1)}{dn('contactRate')}</td>
+      <td className="w8-right">{p.date_proposal_calls ?? '—'}{dn('proposalCalls')}</td>
+      <td className="w8-right">{fmtPct(p.date_proposal_rate_pct, 1)}{dn('proposalRate')}</td>
+      <td className="w8-right">{fmtPerContact(p.proposals_per_contact)}{dn('perContact')}</td>
       <td className="w8-right">
         {p.reviewed}
         <span className="talk-small">対象 {p.eligible} 本 ・ 待ち {p.waiting} ・ 取れない {p.unavailable}</span>
@@ -199,6 +239,7 @@ function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, on
           <Cell key={c.id} j={j} className="w8-right">
             {fmtPct(donePct(it))}
             <span className="talk-small">{it === undefined ? '' : `できた ${String(it.applicable - it.not_done)}/${String(it.applicable)}本`}</span>
+            {dn('item', c.id)}
           </Cell>
         );
       })}
@@ -217,9 +258,38 @@ function stageGroups(checks: TalkCheckDef[]): { stage: string; count: number; st
   return out;
 }
 
-export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; onOpen: (ownerId: string) => void }) {
+/** 人の選び方・比べる相手 (無ければ従来の表) */
+export interface TalkTableView {
+  /** 選んだ人の担当者 ID */
+  selected: string[];
+  /** 選んだ人だけを表に出す */
+  only: boolean;
+  onToggle: (ownerId: string) => void;
+  onOnly: (only: boolean) => void;
+  onClear: () => void;
+  /** 比べる期間の集計 (比べない・まだ読めていないときは undefined) */
+  cmp?: TalkSummaryResponse | undefined;
+  /** チームの全体との差を出す */
+  vsTeam: boolean;
+}
+
+export function TalkSummaryTable({ data, onOpen, view }: { data: TalkSummaryResponse; onOpen: (ownerId: string) => void; view?: TalkTableView }) {
   const [sort, setSort] = useState<TalkSort | null>(null);
-  const people = sortPeople(data.people, sort);
+  const sorted = sortPeople(data.people, sort);
+  const selSet = new Set(view?.selected ?? []);
+  const selectedRows = data.people.filter(p => p.owner_id !== null && selSet.has(p.owner_id));
+  const people = view?.only === true && selectedRows.length > 0 ? sorted.filter(p => p.owner_id !== null && selSet.has(p.owner_id)) : sorted;
+  const cmpOf = (p: TalkPersonRow): TalkPersonRow | null | undefined =>
+    view?.cmp === undefined ? undefined : (view.cmp.people.find(c => c.owner_id === p.owner_id) ?? null);
+  const teamOf = (p: TalkPersonRow): TalkPersonRow | null | undefined =>
+    view?.vsTeam !== true ? undefined : (data.team_totals.find(t => t.name === p.team) ?? null);
+  const shownTeams = view?.vsTeam === true ? [...new Set(people.map(p => p.team).filter((t): t is string => t !== null))] : [];
+  const selectedSum = selectedRows.length > 0 ? sumRows(selectedRows, data.checks, `選んだ人の合計（${String(selectedRows.length)}人）`) : null;
+  const selectedCmp: TalkPersonRow | null | undefined = (() => {
+    if (view?.cmp === undefined || selectedSum === null) return undefined;
+    const rows = view.cmp.people.filter(c => c.owner_id !== null && selSet.has(c.owner_id));
+    return rows.length === 0 ? null : sumRows(rows, data.checks, '比べる期間の合計');
+  })();
   const toggle = (key: TalkSort['key']) => {
     setSort(prev => {
       const same = prev !== null && JSON.stringify(prev.key) === JSON.stringify(key);
@@ -245,6 +315,19 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
         <span><i className="talk-swatch grey" />灰色: 本数が少ないので色を付けていない</span>
         <span>アポ率の赤: 架電数 {rules.appointment_min_dials} 本以上で、全体のアポ率の{ratioText(rules.appointment_rate_ratio)}未満</span>
       </p>
+      {view !== undefined && (
+        <p className="w8-subtle talk-selbar" data-testid="talk-selbar">
+          {selectedRows.length === 0 ? (
+            '名前の横のチェックで人を選ぶと、選んだ人の合計が出ます。選んだ人だけの表にもできます。'
+          ) : (
+            <>
+              選んだ人 {selectedRows.length} 人{' '}
+              <button type="button" onClick={() => { view.onOnly(!view.only); }} aria-pressed={view.only}>{view.only ? '全員を表示' : '選んだ人だけ表示'}</button>{' '}
+              <button type="button" onClick={view.onClear}>選びなおす</button>
+            </>
+          )}
+        </p>
+      )}
       <div className="w8-table-wrap">
         <table className="w8-table w8-table-dense talk-table" data-testid="talk-table">
           <thead>
@@ -278,9 +361,28 @@ export function TalkSummaryTable({ data, onOpen }: { data: TalkSummaryResponse; 
             </tr>
           </thead>
           <tbody>
-            {people.map(p => <PersonRowView key={p.owner_id ?? p.name} p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} onOpen={onOpen} />)}
+            {people.map(p => (
+              <PersonRowView
+                key={p.owner_id ?? p.name} p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} onOpen={onOpen}
+                compare={view === undefined ? undefined : { cmp: cmpOf(p), team: teamOf(p) }}
+                select={view === undefined || p.owner_id === null ? undefined : { checked: selSet.has(p.owner_id), onChange: () => { view.onToggle(p.owner_id ?? ''); } }}
+              />
+            ))}
             {people.length === 0 && <tr><td colSpan={12 + data.checks.length} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
-            <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} />
+            {shownTeams.map(t => {
+              const row = data.team_totals.find(x => x.name === t);
+              if (row === undefined) return null;
+              return (
+                <PersonRowView
+                  key={`team-${t}`} p={{ ...row, name: `${t}の全体` }} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-team-row"
+                  compare={view?.cmp === undefined ? undefined : { cmp: view.cmp.team_totals.find(x => x.name === t) ?? null }}
+                />
+              );
+            })}
+            {selectedSum !== null && (
+              <PersonRowView p={selectedSum} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-selected-row" compare={{ cmp: selectedCmp }} />
+            )}
+            <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} compare={view?.cmp === undefined ? undefined : { cmp: view.cmp.total }} />
           </tbody>
         </table>
       </div>
@@ -397,7 +499,7 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
 // ------------------------------------------------------------ 画面
 
 /** 日付は「決定」を押すまで読み直さない (1 つ変えるたびに待たされないように)。期間が変わったら key で作り直す */
-function DateRange({ from, to, onApply }: { from: string; to: string; onApply: (from: string, to: string) => void }) {
+function DateRange({ from, to, onApply, label = '日付指定', applyLabel = '決定' }: { from: string; to: string; onApply: (from: string, to: string) => void; label?: string; applyLabel?: string }) {
   const [draftFrom, setDraftFrom] = useState(from);
   const [draftTo, setDraftTo] = useState(to);
   const ok = draftFrom !== '' && draftTo !== '' && draftFrom <= draftTo;
@@ -408,11 +510,11 @@ function DateRange({ from, to, onApply }: { from: string; to: string; onApply: (
       style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
       onSubmit={e => { e.preventDefault(); if (ok && changed) onApply(draftFrom, draftTo); }}
     >
-      日付指定{' '}
-      <input type="date" aria-label="開始日" value={draftFrom} max={draftTo || undefined} onChange={e => { setDraftFrom(e.target.value); }} />
+      {label}{' '}
+      <input type="date" aria-label={label === '日付指定' ? '開始日' : `${label}の開始日`} value={draftFrom} max={draftTo || undefined} onChange={e => { setDraftFrom(e.target.value); }} />
       {' 〜 '}
-      <input type="date" aria-label="終了日" value={draftTo} min={draftFrom || undefined} onChange={e => { setDraftTo(e.target.value); }} />
-      <button type="submit" disabled={!ok || !changed}>決定</button>
+      <input type="date" aria-label={label === '日付指定' ? '終了日' : `${label}の終了日`} value={draftTo} min={draftFrom || undefined} onChange={e => { setDraftTo(e.target.value); }} />
+      <button type="submit" disabled={!ok || !changed}>{applyLabel}</button>
     </form>
   );
 }
@@ -421,23 +523,90 @@ function Controls({ route, navigate, teams, from, to, today }: {
   route: TalkRoute; navigate: (r: AdminRoute) => void; teams: string[]; from: string; to: string; today: string;
 }) {
   const active = activePeriod(from, to, today);
-  const go = (patch: Partial<TalkRoute>) => { navigate({ ...route, owner: '', call: '', ...patch }); };
+  const prev = previousPeriod(from, to);
+  const cmpOn = validCompare(route.cmp_from, route.cmp_to);
+  const go = (patch: Partial<TalkRoute>) => {
+    const next = { ...route, owner: '', call: '', ...patch };
+    // 「直前の同じ長さ」を選んでいたときは、期間を変えても直前に追従する
+    if (('from' in patch || 'to' in patch) && !('cmp_from' in patch) && cmpOn && route.cmp_from === prev.from && route.cmp_to === prev.to) {
+      const np = previousPeriod(next.from, next.to === '' ? next.from : next.to);
+      next.cmp_from = np.from;
+      next.cmp_to = np.to;
+    }
+    navigate(next);
+  };
   return (
-    <div className="talk-bar">
-      <div role="group" aria-label="期間" className="talk-period">
-        {PERIOD_LABELS.map(([k, label]) => (
-          <button key={k} type="button" aria-pressed={active === k} onClick={() => { go(periodRange(k, today)); }}>{label}</button>
-        ))}
+    <>
+      <div className="talk-bar">
+        <div role="group" aria-label="期間" className="talk-period">
+          {PERIOD_LABELS.map(([k, label]) => (
+            <button key={k} type="button" aria-pressed={active === k} onClick={() => { go(periodRange(k, today)); }}>{label}</button>
+          ))}
+        </div>
+        <DateRange key={from + to} from={from} to={to} onApply={(f, t) => { go({ from: f, to: t }); }} />
+        <label className="w8-subtle" style={{ margin: 0 }}>
+          チーム{' '}
+          <select value={route.team} aria-label="チームで絞り込む" onChange={e => { go({ team: e.target.value }); }}>
+            <option value="">すべて</option>
+            {teams.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
       </div>
-      <DateRange key={from + to} from={from} to={to} onApply={(f, t) => { go({ from: f, to: t }); }} />
-      <label className="w8-subtle" style={{ margin: 0 }}>
-        チーム{' '}
-        <select value={route.team} aria-label="チームで絞り込む" onChange={e => { go({ team: e.target.value }); }}>
-          <option value="">すべて</option>
-          {teams.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-      </label>
-    </div>
+      <details className="talk-more" open={cmpOn || route.vs_team === '1' ? true : undefined} data-testid="talk-compare-ctl">
+        <summary>比べる</summary>
+        <div className="talk-bar">
+          <div role="group" aria-label="比べる期間" className="talk-period">
+            <button type="button" aria-pressed={!cmpOn} onClick={() => { go({ cmp_from: '', cmp_to: '' }); }}>比べない</button>
+            <button type="button" aria-pressed={cmpOn && route.cmp_from === prev.from && route.cmp_to === prev.to} onClick={() => { go({ cmp_from: prev.from, cmp_to: prev.to }); }}>直前の同じ長さの期間</button>
+          </div>
+          <DateRange key={`c${route.cmp_from}${route.cmp_to}`} label="比べる期間" applyLabel="比べる期間を決定" from={cmpOn ? route.cmp_from : prev.from} to={cmpOn ? route.cmp_to : prev.to} onApply={(f, t) => { go({ cmp_from: f, cmp_to: t }); }} />
+          <label className="w8-subtle" style={{ margin: 0 }}>
+            <input type="checkbox" checked={route.vs_team === '1'} onChange={e => { go({ vs_team: e.target.checked ? '1' : '' }); }} />{' '}
+            チームの全体との差を出す
+          </label>
+        </div>
+      </details>
+    </>
+  );
+}
+
+/** 表に、人の選び方と比べる期間 (もう 1 回 summary を読む) をつなぐ */
+function SummaryWithCompare({ d, route, navigate, fx, teamQ }: { d: TalkSummaryResponse; route: TalkRoute; navigate: (r: AdminRoute) => void; fx: boolean; teamQ: string }) {
+  const cmpOn = validCompare(route.cmp_from, route.cmp_to);
+  const cmpPath = cmpOn && !fx ? `/api/crm/talk-review/summary?from=${encodeURIComponent(route.cmp_from)}&to=${encodeURIComponent(route.cmp_to)}${teamQ}` : null;
+  const live = useTalkGet<TalkSummaryResponse>(cmpPath);
+  const cmp: TalkState<TalkSummaryResponse> = cmpOn && fx ? { status: 'ok', data: fixtureSummary(route.cmp_from, route.cmp_to, route.team, true) } : live;
+  const selected = parsePeople(route.people);
+  const go = (patch: Partial<TalkRoute>) => { navigate({ ...route, owner: '', call: '', ...patch }); };
+  const cmpData = cmp.status === 'ok' && cmp.data.enabled ? cmp.data : undefined;
+  return (
+    <>
+      {cmpOn && (
+        <p className="w8-subtle" data-testid="talk-cmp-note">
+          {route.cmp_from === route.cmp_to ? route.cmp_from : `${route.cmp_from} 〜 ${route.cmp_to}`} と比べています。各数字の下の「前」は、その期間との差です（割合はポイント、本数は増減）。
+          {cmp.status === 'loading' && ' 比べる期間の数字を読んでいます…'}
+          {(cmp.status === 'counting') && ' 比べる期間を集計しています…'}
+          {cmpData !== undefined && cmpData.counting_days.length > 0 && ' 比べる期間のアポは数えている途中です。'}
+        </p>
+      )}
+      {cmpOn && (cmp.status === 'error' || cmp.status === 'not_configured') && (
+        <p className="w8-alert" role="alert" data-testid="talk-cmp-error">比べる期間の数字を読めませんでした。期間を短くするか、しばらくしてからやり直してください。</p>
+      )}
+      {route.vs_team === '1' && (
+        <p className="w8-subtle" data-testid="talk-vsteam-note">「チーム比」は、その人のチーム全体の割合との差です（ポイント）。チーム全体の割合は、そのチームの人の件数を合わせて出しています。件数が少ない割合の差は薄く出しています。</p>
+      )}
+      <TalkSummaryTable
+        data={d}
+        onOpen={id => { go({ owner: id }); }}
+        view={{
+          selected, only: route.only === '1',
+          onToggle: id => { go({ people: joinPeople(togglePerson(selected, id)) }); },
+          onOnly: v => { go({ only: v ? '1' : '' }); },
+          onClear: () => { go({ people: '', only: '' }); },
+          cmp: cmpData, vsTeam: route.vs_team === '1',
+        }}
+      />
+    </>
   );
 }
 
@@ -505,7 +674,7 @@ export function TalkPanel({ route, navigate, fixture }: { route: TalkRoute; navi
                 {d.dials_fetched_at === null ? '最終日の架電数は途中の数です。' : `最終日の架電数は ${d.dials_fetched_at} 時点の数です。`}
               </p>
             )}
-            <TalkSummaryTable data={d} onOpen={id => { navigate({ ...withPeriod, owner: id, call: '' }); }} />
+            <SummaryWithCompare d={d} route={withPeriod} navigate={navigate} fx={fx} teamQ={teamQ} />
           </>
         )}
       </Loader>

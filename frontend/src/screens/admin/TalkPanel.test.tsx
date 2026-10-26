@@ -9,7 +9,7 @@ afterEach(cleanup);
 
 const summary = fixtureSummary('2026-10-19', '2026-10-19', '');
 const rowOf = (name: string) => within(screen.getByTestId('talk-table')).getByText(name).closest('tr') as HTMLElement;
-const route = (patch: Partial<TalkRoute> = {}): TalkRoute => ({ view: 'talk', from: '2026-10-19', to: '2026-10-19', team: '', owner: '', call: '', ...patch });
+const route = (patch: Partial<TalkRoute> = {}): TalkRoute => ({ view: 'talk', from: '2026-10-19', to: '2026-10-19', team: '', owner: '', call: '', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '', ...patch });
 
 describe('トークの振り返り: 人ごとの表', () => {
   it('アポ率は小数2桁、印のセルだけ目立たせる', () => {
@@ -304,9 +304,9 @@ describe('トークの振り返り: 画面とルート', () => {
 
   it('URL のクエリを往復できる', () => {
     const r = parseAdminRoute('?view=talk&from=2026-10-12&to=2026-10-18&team=A&owner=9001&call=c1');
-    expect(r).toEqual({ view: 'talk', from: '2026-10-12', to: '2026-10-18', team: 'A', owner: '9001', call: 'c1' });
+    expect(r).toEqual({ view: 'talk', from: '2026-10-12', to: '2026-10-18', team: 'A', owner: '9001', call: 'c1', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '' });
     expect(adminHref(r)).toBe('?view=talk&from=2026-10-12&to=2026-10-18&team=A&owner=9001&call=c1');
-    expect(parseAdminRoute('?view=talk')).toEqual({ view: 'talk', from: '', to: '', team: '', owner: '', call: '' });
+    expect(parseAdminRoute('?view=talk')).toEqual({ view: 'talk', from: '', to: '', team: '', owner: '', call: '', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '' });
   });
 });
 

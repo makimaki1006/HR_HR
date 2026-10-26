@@ -336,6 +336,47 @@ mod tests {
     }
 
     #[test]
+    fn per_team_totals_use_only_that_teams_people_with_the_same_counting_as_the_whole_row() {
+        // BPO: B1(架電 100 本・アポ 2) / 新規営業: S1(架電 300 本・アポ 2)。取引 3 件のうち 1 件は両方に付く。
+        let deals: Vec<Vec<String>> = vec![
+            vec!["B1".into()],
+            vec!["B1".into(), "S1".into()],
+            vec!["S1".into()],
+        ];
+        let dials: HashMap<String, u32> = [("B1".into(), 100), ("S1".into(), 300)].into();
+        let mem = |id: &str, team: &str| Member {
+            owner_id: id.into(),
+            name: id.into(),
+            team: Some(team.into()),
+        };
+        let members = [mem("B1", "BPO"), mem("S1", "新規営業")];
+        let (_, whole) = build(&members, Some(&dials), None, &deals, &[], &[], &ALERT_RULES);
+        assert_eq!((whole.dials, whole.appointments), (Some(400), 3));
+        let (_, bpo) = build(
+            &members[..1],
+            Some(&dials),
+            None,
+            &deals,
+            &[],
+            &[],
+            &ALERT_RULES,
+        );
+        assert_eq!((bpo.dials, bpo.appointments), (Some(100), 2));
+        assert_eq!(bpo.appointment_rate_pct, Some(2.0));
+        let (_, sales) = build(
+            &members[1..],
+            Some(&dials),
+            None,
+            &deals,
+            &[],
+            &[],
+            &ALERT_RULES,
+        );
+        assert_eq!((sales.dials, sales.appointments), (Some(300), 2));
+        assert!((sales.appointment_rate_pct.unwrap() - 2.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn team_total_counts_a_deal_once_even_if_two_people_get_credit() {
         // 取引 3 件: B1 だけ / B1 と S1 の両方 / S1 だけ。人ごとは B1=2, S1=2、チーム全体は 3 件
         let deals: Vec<Vec<String>> = vec![

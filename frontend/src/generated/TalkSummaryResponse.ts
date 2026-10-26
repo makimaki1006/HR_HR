@@ -50,4 +50,8 @@ dial_breakdown_pending: boolean,
 /**
  * チーム全体 (絞り込み後の people 全員の合計)
  */
-total: TalkPersonRow, };
+total: TalkPersonRow, 
+/**
+ * チームごとの全体の行 (name と team はチーム名)。total と同じ数え方で、そのチームの人だけを合わせたもの
+ */
+team_totals: Array<TalkPersonRow>, };

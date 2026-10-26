@@ -18,7 +18,7 @@ export type AdminRoute =
   | { view: 'hubspot' }
   | { view: 'callers' }
   | { view: 'crm-failed' }
-  | { view: 'talk'; from: string; to: string; team: string; owner: string; call: string };
+  | { view: 'talk'; from: string; to: string; team: string; owner: string; call: string; people: string; only: string; cmp_from: string; cmp_to: string; vs_team: string };
 
 /** Same default as the Rust handler (`q.days.unwrap_or(30)`). */
 export const DEFAULT_USAGE_DAYS = 30;
@@ -48,6 +48,11 @@ export function parseAdminRoute(search: string): AdminRoute {
         team: q.get('team') ?? '',
         owner: q.get('owner') ?? '',
         call: q.get('call') ?? '',
+        people: q.get('people') ?? '',
+        only: q.get('only') ?? '',
+        cmp_from: q.get('cmp_from') ?? '',
+        cmp_to: q.get('cmp_to') ?? '',
+        vs_team: q.get('vs_team') ?? '',
       };
     default: {
       // Rust clamps to 1..=365 server-side; the response's `days` is what the UI shows.
@@ -63,7 +68,7 @@ export function adminHref(route: AdminRoute): string {
   if (route.view === 'user') q.set('id', route.id);
   if (route.view === 'usage') q.set('days', String(route.days));
   if (route.view === 'talk') {
-    for (const k of ['from', 'to', 'team', 'owner', 'call'] as const) {
+    for (const k of ['from', 'to', 'team', 'owner', 'call', 'people', 'only', 'cmp_from', 'cmp_to', 'vs_team'] as const) {
       if (route[k] !== '') q.set(k, route[k]);
     }
     // 架空サンプルの表示は、画面を移っても保つ
