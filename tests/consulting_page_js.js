@@ -1853,8 +1853,8 @@ check("M-6", "移動: 左のメニューは作り直さず印だけ付け替え�
      区切りをまたぐ移動でも作り直さない */
   const side = t.reg["cs-side"];
   const keys = t.R("MENUS.map((m) => m.views.filter((v) => !v.hidden).map((v) => v.key)).flat()");
-  if (JSON.stringify(keys) !== JSON.stringify(["team", "today", "board", "customer", "renewalpipe", "results"]))
-    throw new Error("左のメニューが 毎日(3)・調べる(1)・月1(2) の 6 項目でない: " + keys.join(","));
+  if (JSON.stringify(keys) !== JSON.stringify(["team", "today", "board", "customer", "overdue", "renewalpipe", "results"]))
+    throw new Error("左のメニューが 毎日(3)・調べる(2)・月1(2) の 7 項目でない: " + keys.join(","));
   const sideBtns = keys.map((v) => mk({ v }));
   side.querySelectorAll = () => sideBtns;
   side.innerHTML = "SIDE";

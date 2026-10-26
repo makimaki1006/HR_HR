@@ -55,6 +55,7 @@ pub mod contact_trend;
 pub mod deal_detail;
 pub mod handover_contact;
 pub mod money;
+pub mod phase;
 pub mod routes;
 pub mod stage_stay;
 mod team_history;

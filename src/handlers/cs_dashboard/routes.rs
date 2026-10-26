@@ -2596,6 +2596,23 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
     let focus = focus_shape(&cust, &fflags, &super::houjin_population(&sheets.deal));
 
     let Some(h) = houjin.filter(|x| !x.is_empty()) else {
+        // 法人ごとの稼働中の案件の段階（段階の鍵 → 件数）。重点顧客の一覧に重ねる
+        let mut phases_by_houjin: HashMap<String, BTreeMap<&'static str, usize>> = HashMap::new();
+        for r in deal_rows(sheets, today).0 {
+            let (Some(h), Some(k)) = (r["houjin"].as_str(), r["phase_key"].as_str()) else {
+                continue;
+            };
+            let key: &'static str = super::phase::KEYS
+                .iter()
+                .copied()
+                .find(|x| *x == k)
+                .unwrap_or("unknown");
+            *phases_by_houjin
+                .entry(h.to_string())
+                .or_default()
+                .entry(key)
+                .or_insert(0) += 1;
+        }
         // 法人の指定が無ければ一覧だけ返す（全部の明細を返すと巨大になる）
         let mut list: Vec<&super::Customer> = cust.iter().filter(|c| c.is_display_target).collect();
         list.sort_by(|a, b| {
@@ -2637,6 +2654,11 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
                     "active": c.active_deal_count, "last_expiration": c.last_expiration,
                     // 注力かどうかと、**なぜ注力なのか**。理由を出さないと絞り込めない
                     "focus": f.any, "focus_why": f.reasons(),
+                    // 稼働中の案件の段階ごとの件数 [{key, label, n}]（段階の順）
+                    "phases": phases_by_houjin.get(&c.houjin).map(|m| super::phase::KEYS.iter()
+                        .filter_map(|k| m.get(k).map(|n| json!({
+                            "key": k, "label": super::phase::label_of_key(k), "n": n})))
+                        .collect::<Vec<_>>()).unwrap_or_default(),
                 })
             }).collect::<Vec<_>>(),
             "focus": focus,
@@ -3381,6 +3403,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     let mut cover_mail = 0usize;
     let mut cover_any = 0usize;
     let mut view_count: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut phase_count: BTreeMap<&str, usize> = BTreeMap::new();
     let mtg_risk = latest_mtg_risk_by_deal(&sheets.mtg);
     let (stay_long, stay_esc) = super::stage_stay::view_ids(sheets, today);
     for d in &act {
@@ -3520,8 +3543,23 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         let oubo = hist_last(d, "oubo");
         let mensetu = hist_last(d, "mensetu");
         let syoudaku = hist_last(d, "syoudaku");
+        // 段階（2026-10-26）。面接数はシートの累計（履歴の最新、無ければ取引の値）
+        let phase = super::phase::phase_of_deal(
+            start,
+            date10(&d.contract_expiration_date),
+            d.renewal_no,
+            mensetu.as_ref().map(|x| x.1).or(d.mensetu),
+            today,
+        );
+        *phase_count.entry(phase.key()).or_insert(0) += 1;
 
         rows.push(json!({
+            "houjin": d.houjin_resolved,
+            "expiry": date10(&d.contract_expiration_date).map(|e| e.to_string()),
+            "phase": phase.number(),
+            "phase_key": phase.key(),
+            "phase_label": phase.label(),
+            "overdue_active": phase == super::phase::Phase::Overdue,
             "deal_id": d.id, "name": d.name, "stage": d.stage_label,
             "consultant": owner, "retired": retired,
             "amount": d.amount, "focus": focus.get(&d.houjin_resolved).copied().unwrap_or(false),
@@ -3609,6 +3647,9 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         "today": today.to_string(),
         "n_active": act.len(),
         "all_cached": sheets.all_cached,
+        // 段階ごとの件数（鍵は phase_key）
+        "phase_counts": phase_count.iter().map(|(k, v)| json!({"key": k, "n": v}))
+            .collect::<Vec<_>>(),
         "flag_counts": flag_count.iter().map(|(k, v)| json!({"label": k, "n": v}))
             .collect::<Vec<_>>(),
         // 開始前の契約には立てない名札（上の not_started）。案件一覧はこの名札で絞ったとき、開始前の件数を件数の行に添える。
