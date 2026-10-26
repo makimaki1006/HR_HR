@@ -80,7 +80,7 @@ pub struct TalkPersonRow {
     pub proposals_per_contact: Option<f64>,
     /// 接触の判定がまだ済んでいない、つながった発信の本数
     pub contact_pending: u32,
-    /// 判定の対象になった電話の本数 (70 秒以上。枠を超えて判定しないものも含む)
+    /// 判定の対象になった電話の本数 (接触した電話。枠を超えて判定しないものも含む)
     pub eligible: u32,
     /// 判定できた電話の本数
     pub reviewed: u32,

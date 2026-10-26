@@ -55,7 +55,7 @@ proposals_per_contact: number | null,
  */
 contact_pending: number, 
 /**
- * 判定の対象になった電話の本数 (70 秒以上。枠を超えて判定しないものも含む)
+ * 判定の対象になった電話の本数 (接触した電話。枠を超えて判定しないものも含む)
  */
 eligible: number, 
 /**

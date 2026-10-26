@@ -1,7 +1,8 @@
 //! 背景の worker (ADR-033)。`CALL_REVIEW_ENABLED=1` のときだけ動く。
 //!
-//! 10 分おき (既定) に、対象のチームの担当者の Call (Zoom 純正連携・発信・70 秒以上) を
-//! Search (関所の `Background` 優先度) で見つけて表に行を作り (順番待ち `queued`)、1 人 1 日あたり
+//! 10 分おき (既定) に、対象のチームの担当者の Call (Zoom 純正連携・発信・つながったもの) を
+//! Search (関所の `Background` 優先度) で見つけ、接触の判定 (`contact_worker.rs`) で `contacted = 1` になった電話だけ
+//! 表に行を作り (順番待ち `queued`、2026-10-26。長さの線は無い)、1 人 1 日あたり
 //! `CALL_REVIEW_PER_PERSON_DAY` 本まで新しい電話から文字起こし待ちにして、Zoom から文字起こしを取って判定する。
 //! 初回は過去 `CALL_REVIEW_BACKFILL_DAYS` 日まで遡る。同時に `CALL_REVIEW_CONCURRENCY` 本。判定済みの Call は二度判定しない。
 //! 文字起こしがまだ無いものは間隔を空けて再試行し (上限あり)、取れないものは `unavailable` にして諦める
@@ -23,6 +24,7 @@ use super::judge::{
     sanitize_texts, source_text, texts_foreign, Judge, JudgeError, JudgeOutput, MiniMaxJudge,
 };
 use super::store::{self, NewRow, ReviewRow, ST_FAILED, ST_QUEUED, ST_UNAVAILABLE};
+use super::target::{self, MarkState, Verdict, CONTACTED_NOTE};
 use super::transcript::{extract_call_log_id, has_both_sides};
 use super::zoom::{TranscriptSource, ZoomClient, ZoomError, REC_PREFIX};
 use crate::crm::caller_metrics::{flt, jst_day, CALL_SOURCE};
@@ -37,6 +39,8 @@ pub const MAX_ATTEMPTS: u32 = 8;
 const MAX_SEARCHES: u32 = 300;
 /// 1 周の中で処理する行の上限
 const MAX_PER_CYCLE: usize = 1_000;
+/// Search の下限。10 秒未満は Zoom が文字起こしできず (code 12000)、接触の判定も付かない
+const MIN_CONNECTED_SEC: i64 = 10;
 /// 録音 URL がまだ無い Call を「録音なし」にするまでの猶予
 const URL_GRACE: chrono::Duration = chrono::Duration::hours(2);
 /// 古くて録音が消えたとみなす Call の年齢
@@ -502,6 +506,53 @@ async fn apply(
 // 1 周
 // ---------------------------------------------------------------------------
 
+/// 接触の判定を待っている Call (担当者は Zoom でかけた人に直したもの)
+#[derive(Debug, Clone)]
+pub struct Waiting {
+    pub cand: Candidate,
+    pub owner: String,
+}
+
+#[derive(Debug, Default)]
+pub struct Settled {
+    pub targets: Vec<Waiting>,
+    pub skipped: Vec<String>,
+    pub waiting: Vec<Waiting>,
+}
+
+/// 待っている Call を、接触の印に照らして振り分ける (純粋)。録音 URL のある Call を先に結び、新しい電話から
+pub fn settle(
+    mut pool: Vec<Waiting>,
+    marks: &[MarkState],
+    used: &mut HashSet<String>,
+    now: DateTime<Utc>,
+) -> Settled {
+    pool.sort_by_key(|w| (w.cand.zoom_id.is_none(), std::cmp::Reverse(w.cand.ts_ms)));
+    let mut out = Settled::default();
+    for w in pool {
+        match target::verdict(
+            w.cand.zoom_id.as_deref(),
+            &w.owner,
+            w.cand.ts_ms,
+            marks,
+            used,
+        ) {
+            Verdict::Target(_) => out.targets.push(w),
+            Verdict::Skip => out.skipped.push(w.cand.id),
+            Verdict::Wait(kind) => {
+                let age = DateTime::<Utc>::from_timestamp_millis(w.cand.ts_ms)
+                    .map_or(chrono::Duration::zero(), |at| now - at);
+                if age > kind.limit() {
+                    out.skipped.push(w.cand.id);
+                } else {
+                    out.waiting.push(w);
+                }
+            }
+        }
+    }
+    out
+}
+
 struct Worker<Z, J> {
     audit: crate::audit::AuditDb,
     client: Arc<HubSpotClient>,
@@ -509,6 +560,12 @@ struct Worker<Z, J> {
     judge: Arc<J>,
     cfg: TalkReviewConfig,
     known: HashSet<String>,
+    /// 接触の判定を待っている Call (メモリだけ。再起動したら初回の読み込みで見つけ直す)
+    waiting: HashMap<String, Waiting>,
+    /// 接触していない・判定できない Call (読み直しで拾い直さない)
+    skipped: HashSet<String>,
+    /// 結び付けに使った接触の印 (時刻で結ぶ Call が同じ印を二度使わない)
+    used_marks: HashSet<String>,
     /// 対象の担当者 (アポの数えに使う)
     team: Option<TeamOwners>,
     counts_task: Option<tokio::task::JoinHandle<()>>,
@@ -626,7 +683,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         let today = jst_day(now).0;
         let backfill_start = today - chrono::Duration::days(self.cfg.backfill_days);
         let backfill_from = jst_midnight_ms(backfill_start);
-        let min_ms = i64::from(loaded().checks.min_talk_sec) * 1000;
+        let min_ms = MIN_CONNECTED_SEC * 1000;
         match self.last_poll {
             None => {
                 // 初回: 日ごとに読み、1 日済むたびに進み具合を覚える (途中で止まっても続きから)
@@ -664,7 +721,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         Ok(())
     }
 
-    /// 新しい Call を順番待ちの行にする。担当者は Zoom でかけた人 (`attribute`)。
+    /// 新しい Call のうち、接触した電話だけを順番待ちの行にする。担当者は Zoom でかけた人 (`attribute`)。
+    /// 接触の判定がまだの Call はメモリで待つ (行は作らない)。接触していない Call は何も書かない。
     /// Zoom が読めなければ `Err` で止め、呼び出し側は同じ範囲を次の周回で読み直す
     async fn ingest(
         &mut self,
@@ -672,55 +730,137 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         now: DateTime<Utc>,
         email_owner: &HashMap<String, String>,
     ) -> Result<(), String> {
-        let (mut fresh, mut moved) = (0, 0);
+        let mut pool: Vec<Waiting> = std::mem::take(&mut self.waiting).into_values().collect();
+        let mut in_pool: HashSet<String> = pool.iter().map(|w| w.cand.id.clone()).collect();
+        let mut moved = 0;
         for c in cands {
-            if self.known.contains(&c.id) {
+            if self.known.contains(&c.id) || self.skipped.contains(&c.id) || in_pool.contains(&c.id)
+            {
                 continue;
             }
             let Some(at) = DateTime::<Utc>::from_timestamp_millis(c.ts_ms) else {
                 continue;
             };
             // 録音 URL は通話のあとで本文に入る。まだなら次の周回で見直す。
-            // 猶予を過ぎても無いものは、判定のときに Zoom の通話履歴から探す
+            // 猶予を過ぎても無いものは、時刻で接触の印と結び、判定のときに Zoom の通話履歴から録音を探す
             if c.zoom_id.is_none() && now - at < URL_GRACE {
                 continue;
             }
-            let owner = caller_owner(
+            let owner = match caller_owner(
                 &*self.zoom,
                 &c.owner_id,
                 c.to_number.as_deref(),
                 c.ts_ms,
                 email_owner,
             )
-            .await?;
+            .await
+            {
+                Ok(o) => o,
+                Err(e) => {
+                    self.waiting = pool.into_iter().map(|w| (w.cand.id.clone(), w)).collect();
+                    return Err(e);
+                }
+            };
             if owner != c.owner_id {
                 moved += 1;
             }
+            in_pool.insert(c.id.clone());
+            pool.push(Waiting { cand: c, owner });
+        }
+        if pool.is_empty() {
+            return Ok(());
+        }
+        // 接触の印を読む (SELECT のみ)。録音 URL のある Call は通話ログ ID で、無い Call は担当者と時刻の窓で
+        let ids: Vec<String> = pool.iter().filter_map(|w| w.cand.zoom_id.clone()).collect();
+        let window = chrono::Duration::milliseconds(super::zoom::CALLER_WINDOW_MS);
+        let windows: Vec<(String, String, String)> = pool
+            .iter()
+            .filter(|w| w.cand.zoom_id.is_none())
+            .filter_map(|w| {
+                let at = DateTime::<Utc>::from_timestamp_millis(w.cand.ts_ms)?;
+                Some((
+                    w.owner.clone(),
+                    store::ts_text(at - window),
+                    store::ts_text(at + window),
+                ))
+            })
+            .collect();
+        let marks = match store::blocking(&self.audit, move |t| {
+            super::contact_store::marks_for(t, &ids, &windows)
+        })
+        .await
+        {
+            Ok(m) => m,
+            Err(e) => {
+                self.waiting = pool.into_iter().map(|w| (w.cand.id.clone(), w)).collect();
+                return Err(format!("contact marks read: {e}"));
+            }
+        };
+        let settled = settle(pool, &marks, &mut self.used_marks, now);
+        self.skipped.extend(settled.skipped);
+        let mut fresh = 0;
+        let mut retry: Vec<Waiting> = settled.waiting;
+        for w in settled.targets {
+            let (c, owner) = (&w.cand, w.owner.clone());
+            let Some(at) = DateTime::<Utc>::from_timestamp_millis(c.ts_ms) else {
+                continue;
+            };
             let ts = store::ts_text(now);
             let row = NewRow {
                 hubspot_call_id: c.id.clone(),
                 owner_id: owner,
                 call_at: store::ts_text(at),
                 duration_sec: c.duration_ms / 1000,
-                zoom_call_log_id: c.zoom_id,
+                zoom_call_log_id: c.zoom_id.clone(),
                 status: ST_QUEUED,
-                note: None,
+                note: Some(CONTACTED_NOTE.to_string()),
                 next_retry_at: None,
             };
             match store::blocking(&self.audit, move |t| store::insert_new(t, &ts, &row)).await {
                 Ok(()) => {
-                    self.known.insert(c.id);
+                    self.known.insert(c.id.clone());
                     fresh += 1;
                 }
-                Err(e) => tracing::warn!(error = %e, "talk review: row insert failed"),
+                Err(e) => {
+                    tracing::warn!(error = %e, "talk review: row insert failed");
+                    retry.push(w);
+                }
             }
         }
+        let waiting_n = retry.len();
+        self.waiting = retry.into_iter().map(|w| (w.cand.id.clone(), w)).collect();
         tracing::info!(
             new_rows = fresh,
+            waiting = waiting_n,
             caller_differs = moved,
             "talk review ingest done"
         );
         Ok(())
+    }
+
+    /// 起動後に 1 回: この変更より前に取り込んだ順番待ちの行のうち、接触した電話に印を付ける。
+    /// 印の無い行は枠に入らない。書き込みは接触した行の分だけ (200 行ずつ 1 文)
+    async fn adopt_backlog(&self) {
+        let since = store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
+        let to = store::ts_text(Utc::now() + chrono::Duration::days(1));
+        let res = store::blocking(&self.audit, move |t| {
+            let rows = store::queued_unmarked(t, &since)?;
+            if rows.is_empty() {
+                return Ok(0);
+            }
+            let marks = super::contact_store::contacted_marks(t, &since, &to)?;
+            let ids: Vec<String> = target::contacted_rows(rows, &marks)
+                .into_iter()
+                .map(|r| r.hubspot_call_id)
+                .collect();
+            store::mark_contacted(t, &ids, &store::ts_text(Utc::now()))?;
+            Ok(ids.len())
+        })
+        .await;
+        match res {
+            Ok(n) => tracing::info!(rows = n, "talk review: backlog rows adopted as contacted"),
+            Err(e) => tracing::warn!(error = %e, "talk review: backlog adopt failed"),
+        }
     }
 
     /// 起動後に 1 回: 取り込み済みの行の担当者を、Zoom でかけた人に直す (この変更より前に入った行)
@@ -935,6 +1075,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         if let Err(e) = self.reattribute().await {
             tracing::warn!(error = %e, "talk review: reattribute failed");
         }
+        self.adopt_backlog().await;
         self.find_rejudge().await;
         loop {
             let now = Utc::now();
@@ -988,6 +1129,9 @@ pub fn spawn_worker(state: Arc<AppState>) {
         judge,
         cfg,
         known: HashSet::new(),
+        waiting: HashMap::new(),
+        skipped: HashSet::new(),
+        used_marks: HashSet::new(),
         team: None,
         counts_task: None,
         last_poll: None,
@@ -1360,6 +1504,78 @@ mod tests {
             (status.as_str(), attempts, model.as_str()),
             ("judged", 2, "MiniMax-M3")
         );
+    }
+
+    fn waiting(id: &str, owner: &str, at: &str, zid: Option<&str>) -> Waiting {
+        let ts = DateTime::parse_from_rfc3339(at).unwrap().timestamp_millis();
+        Waiting {
+            cand: Candidate {
+                id: id.into(),
+                owner_id: owner.into(),
+                ts_ms: ts,
+                duration_ms: 40_000,
+                zoom_id: zid.map(String::from),
+                to_number: None,
+            },
+            owner: owner.into(),
+        }
+    }
+    fn mk(id: &str, owner: &str, at: &str, status: &str, c: Option<bool>) -> MarkState {
+        MarkState {
+            id: id.into(),
+            owner_id: owner.into(),
+            at_ms: DateTime::parse_from_rfc3339(at).unwrap().timestamp_millis(),
+            status: status.into(),
+            contacted: c,
+        }
+    }
+
+    #[test]
+    fn only_contacted_calls_become_rows_and_uncontacted_ones_are_dropped() {
+        let at = "2026-10-26T01:00:00Z";
+        // 40 秒の電話でも接触していれば対象。90 秒でも接触していなければ対象外。判定中は待つ
+        let pool = vec![
+            waiting("short_contact", "o1", at, Some("Z1")),
+            waiting("long_no_contact", "o1", at, Some("Z2")),
+            waiting("judging", "o1", at, Some("Z3")),
+            waiting("no_mark_yet", "o1", at, Some("Z4")),
+            waiting("queue_call", "o2", "2026-10-26T01:00:20Z", None),
+        ];
+        let marks = vec![
+            mk("Z1", "o1", at, "judged", Some(true)),
+            mk("Z2", "o1", at, "judged", Some(false)),
+            mk("Z3", "o1", at, "pending", None),
+            mk("Q", "o2", "2026-10-26T01:00:00Z", "judged", Some(true)),
+        ];
+        let now = DateTime::parse_from_rfc3339("2026-10-26T02:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut used = HashSet::new();
+        let s = settle(pool, &marks, &mut used, now);
+        let ids = |v: &[Waiting]| {
+            let mut x: Vec<String> = v.iter().map(|w| w.cand.id.clone()).collect();
+            x.sort();
+            x
+        };
+        assert_eq!(ids(&s.targets), vec!["queue_call", "short_contact"]);
+        assert_eq!(s.skipped, vec!["long_no_contact".to_string()]);
+        assert_eq!(ids(&s.waiting), vec!["judging", "no_mark_yet"]);
+    }
+
+    #[test]
+    fn waiting_gives_up_when_no_mark_appears_in_six_hours() {
+        let at = "2026-10-26T01:00:00Z";
+        let pool = vec![waiting("a", "o1", at, Some("Z9"))];
+        let early = DateTime::parse_from_rfc3339("2026-10-26T06:59:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let late = DateTime::parse_from_rfc3339("2026-10-26T07:01:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let s = settle(pool.clone(), &[], &mut HashSet::new(), early);
+        assert_eq!((s.waiting.len(), s.skipped.len()), (1, 0));
+        let s = settle(pool, &[], &mut HashSet::new(), late);
+        assert_eq!((s.waiting.len(), s.skipped), (0, vec!["a".to_string()]));
     }
 
     #[test]
