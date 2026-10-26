@@ -1,7 +1,7 @@
 //! `/api/crm/talk-review/*` (Google ログインした社内の人なら誰でも。役割は問わない。パスワードログインは拒否)。
 //! 認可で落ちる限り HubSpot・Zoom・Turso は呼ばない。
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -32,6 +32,8 @@ use crate::crm::routes::{error_json, hubspot_error_response, CrmCtx, CRM_REQUEST
 use crate::hubspot::deep_link::hubspot_portal_id;
 use crate::AppState;
 
+/// アポ数の内訳の待ちの上限 (62 日の全体で HubSpot を約 110 回読む。画面の待ちは 30 秒)
+const APO_BREAKDOWN_DEADLINE: Duration = Duration::from_secs(28);
 /// 期間の最大日数
 pub const MAX_PERIOD_DAYS: i64 = 62;
 const ROWS_TTL: Duration = Duration::from_secs(60);
@@ -167,6 +169,7 @@ async fn contacted_in(
 #[derive(Default)]
 pub struct TalkState {
     pub(super) counts: CountsCache,
+    apo_breakdown: Arc<super::apo_breakdown::BreakdownCache>,
     rows: RowsCache,
     transcripts: TranscriptCache,
     zoom: OnceLock<Option<Arc<ZoomClient>>>,
@@ -597,6 +600,124 @@ pub(in crate::crm) async fn get_calls(
     .into_response()
 }
 
+/// アポ数の内訳 (アポ数を押すと開く)。`owner` があればその人、無ければ表の全体 (`team` で絞った人)。
+/// アポを数え終わっていない日があれば 503 `counting` (画面は数秒おきに取り直す)
+pub(in crate::crm) async fn get_appointments(
+    session: Session,
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<Arc<CrmCtx>>,
+    Query(q): Query<PeriodQuery>,
+) -> Response {
+    if let Err(r) = login_gate(&session, &state, &ctx).await {
+        return r;
+    }
+    let now = ctx.queue.now();
+    let (today, _, _) = jst_day(now);
+    let (from, to) = match parse_period(q.from.as_deref(), q.to.as_deref(), today) {
+        Ok(v) => v,
+        Err(e) => return period_error(e),
+    };
+    let owner: Option<String> = match q.owner.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        None => None,
+        Some(s) if s.len() <= 20 && s.bytes().all(|b| b.is_ascii_digit()) => Some(s.to_string()),
+        Some(_) => return error_json(StatusCode::BAD_REQUEST, "invalid_owner"),
+    };
+    let cfg = TalkReviewConfig::from_env();
+    if !cfg.enabled || state.audit.is_none() {
+        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
+    }
+    let Some(client) = state.crm_hubspot() else {
+        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
+    };
+    let list = match owners_list(&ctx, &client).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let all_members = team_members(&list.owners, &cfg.teams);
+    let st = shared();
+    let (deals, counting) = st.counts.deals_in(from, to);
+    if !counting.is_empty() {
+        let team = TeamOwners {
+            bpo: all_members
+                .iter()
+                .filter(|m| TalkReviewConfig::is_bpo_team(&m.team))
+                .map(|m| m.id.clone())
+                .collect(),
+            sales: all_members
+                .iter()
+                .filter(|m| !TalkReviewConfig::is_bpo_team(&m.team))
+                .map(|m| m.id.clone())
+                .collect(),
+        };
+        let (st, client) = (st.clone(), client.clone());
+        tokio::spawn(async move {
+            if let Err(e) = st.counts.fill(&client, &team, from, to, now, false).await {
+                tracing::warn!(error = %e.error_kind(), "talk review: counting failed");
+            }
+        });
+        return error_json(StatusCode::SERVICE_UNAVAILABLE, "counting");
+    }
+    // 対象の人: 1 人、または表の全体 (チームで絞った人。summary の全体の行と同じ顔ぶれ)
+    let who: BTreeSet<String> = match &owner {
+        Some(o) => [o.clone()].into_iter().collect(),
+        None => all_members
+            .iter()
+            .filter(|m| {
+                q.team
+                    .as_deref()
+                    .filter(|t| !t.is_empty())
+                    .is_none_or(|t| t == m.team)
+            })
+            .map(|m| m.id.clone())
+            .collect(),
+    };
+    let mine: Vec<super::counts::ApoDeal> = deals
+        .into_iter()
+        .filter(|d| d.who.iter().any(|w| who.contains(w)))
+        .collect();
+    let key = super::apo_breakdown::cache_key(&mine);
+    let ttl = if to >= today - ChronoDuration::days(1) {
+        super::apo_breakdown::RECENT_TTL
+    } else {
+        super::apo_breakdown::SETTLED_TTL
+    };
+    let portal = hubspot_portal_id();
+    let bg = client.background();
+    let load = async move { super::apo_breakdown::breakdown(&bg, &portal, &mine).await };
+    let rows = match st
+        .apo_breakdown
+        .get_or_load(key, ttl, APO_BREAKDOWN_DEADLINE, load)
+        .await
+    {
+        Ok(v) => v,
+        Err(super::apo_breakdown::LoadError::Timeout) => {
+            return crate::crm::routes::timeout_response()
+        }
+        Err(super::apo_breakdown::LoadError::Hub(e)) => return hubspot_error_response(&e),
+        Err(super::apo_breakdown::LoadError::Aborted) => {
+            return error_json(StatusCode::SERVICE_UNAVAILABLE, "aborted")
+        }
+    };
+    let name = match &owner {
+        Some(o) => list
+            .owners
+            .iter()
+            .find(|x| &x.id == o)
+            .map(|x| x.name.clone())
+            .unwrap_or_else(|| "(名前を取得できません)".to_string()),
+        None => "この表の全体".to_string(),
+    };
+    Json(TalkApoResponse {
+        owner_id: owner,
+        name,
+        from: from.to_string(),
+        to: to.to_string(),
+        counts: super::apo_breakdown::counts_of(&rows),
+        deals: rows,
+    })
+    .into_response()
+}
+
 pub fn transcript_error_text(e: &ZoomError) -> &'static str {
     match e {
         ZoomError::Gone => "録音が残っていません",
@@ -897,6 +1018,7 @@ mod tests {
             "/api/crm/talk-review/summary",
             "/api/crm/talk-review/calls?owner=1",
             "/api/crm/talk-review/calls/123",
+            "/api/crm/talk-review/appointments?owner=1",
         ] {
             // 管理者でない Google ログインの人も認可は通る (中身の検証で 400 になる URL は 403/401 でないことを見る)
             let (s, v) = get(&app, uri, Some(&bpo)).await;
@@ -912,6 +1034,27 @@ mod tests {
             let (s, _) = get(&app, uri, None).await;
             assert_eq!(s, StatusCode::UNAUTHORIZED, "{uri}");
         }
+        // アポの内訳: 担当者 ID の誤りは 400、機能が無効なら 503 not_configured (外部は呼ばない)
+        let (s, v) = get(
+            &app,
+            "/api/crm/talk-review/appointments?owner=abc",
+            Some(&bpo),
+        )
+        .await;
+        assert_eq!(
+            (s, v["error_kind"].as_str()),
+            (StatusCode::BAD_REQUEST, Some("invalid_owner"))
+        );
+        let (s, v) = get(
+            &app,
+            "/api/crm/talk-review/appointments?owner=1&from=2026-10-01&to=2026-10-02",
+            Some(&bpo),
+        )
+        .await;
+        assert_eq!(
+            (s, v["error_kind"].as_str()),
+            (StatusCode::SERVICE_UNAVAILABLE, Some("not_configured"))
+        );
         // 管理者でない人も summary は 200
         let (s, v) = get(
             &app,

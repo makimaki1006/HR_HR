@@ -389,6 +389,10 @@ fn router_full(
             get(super::talk_review::routes::get_summary),
         )
         .route(
+            "/api/crm/talk-review/appointments",
+            get(super::talk_review::routes::get_appointments),
+        )
+        .route(
             "/api/crm/talk-review/calls",
             get(super::talk_review::routes::get_calls),
         )

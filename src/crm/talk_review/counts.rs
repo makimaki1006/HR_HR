@@ -117,12 +117,24 @@ pub fn credit_for_stage(
     owner.map(|o| vec![o.to_string()]).unwrap_or_default()
 }
 
-/// 1 日分のアポ (取引ごとに、付いた担当者の一覧)。`covered` は読んだ時の対象の担当者
+/// アポ 1 件 (取引 1 件)。内訳 (`apo_breakdown`) のために取引 ID・ステージ・入った時刻も持つ
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApoDeal {
+    pub deal_id: String,
+    /// 入ったアポ日確定のステージ (`ST_APO` / `ST_APO_BPO`)
+    pub stage: String,
+    /// そのステージに入った時刻 (ms)
+    pub entered_ms: i64,
+    /// アポを付けた担当者 (1 人以下)
+    pub who: Vec<String>,
+}
+
+/// 1 日分のアポ。`covered` は読んだ時の対象の担当者
 #[derive(Debug, Clone)]
 struct ApoDay {
     at: DateTime<Utc>,
     covered: BTreeSet<String>,
-    deals: Vec<Vec<String>>,
+    deals: Vec<ApoDeal>,
 }
 
 #[derive(Default)]
@@ -184,11 +196,25 @@ impl CountsCache {
         let mut out = Snapshot::default();
         for d in days(from, to) {
             match g.apo.get(&d) {
-                Some(e) => out.deals.extend(e.deals.iter().cloned()),
+                Some(e) => out.deals.extend(e.deals.iter().map(|x| x.who.clone())),
                 None => out.counting.push(d),
             }
         }
         out
+    }
+
+    /// 期間のアポを取引ごとに (内訳用)。2 つめは、まだ数え終わっていない日
+    pub fn deals_in(&self, from: NaiveDate, to: NaiveDate) -> (Vec<ApoDeal>, Vec<NaiveDate>) {
+        let g = self.inner.lock().unwrap();
+        let mut deals = Vec::new();
+        let mut counting = Vec::new();
+        for d in days(from, to) {
+            match g.apo.get(&d) {
+                Some(e) => deals.extend(e.deals.iter().cloned()),
+                None => counting.push(d),
+            }
+        }
+        (deals, counting)
     }
 
     /// 持っていない日・古い日のアポを HubSpot から読んで残す。同時に読むのは 1 本。
@@ -241,17 +267,22 @@ impl CountsCache {
     }
 }
 
-fn entered_day(v: &Value) -> Option<NaiveDate> {
-    let ms = match v {
+/// `hs_v2_date_entered_*` の値 (ms の文字列・数・RFC3339) → ms
+pub fn entered_ms(v: &Value) -> Option<i64> {
+    match v {
         Value::String(s) => s.parse::<i64>().ok().or_else(|| {
             DateTime::parse_from_rfc3339(s)
                 .ok()
                 .map(|t| t.timestamp_millis())
-        })?,
-        Value::Number(n) => n.as_i64()?,
-        _ => return None,
-    };
-    Some(jst_day(DateTime::<Utc>::from_timestamp_millis(ms)?).0)
+        }),
+        Value::Number(n) => n.as_i64(),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+fn entered_day(v: &Value) -> Option<NaiveDate> {
+    Some(jst_day(DateTime::<Utc>::from_timestamp_millis(entered_ms(v)?)?).0)
 }
 
 /// `[first, last]` (JST の日) に「アポ日確定」へ入った取引を、日ごと・担当者ごとに数える
@@ -261,10 +292,10 @@ async fn fetch_appointments(
     first: NaiveDate,
     last: NaiveDate,
     searches: &mut u32,
-) -> Result<BTreeMap<NaiveDate, Vec<Vec<String>>>, HubSpotError> {
+) -> Result<BTreeMap<NaiveDate, Vec<ApoDeal>>, HubSpotError> {
     let from = jst_midnight_ms(first);
     let to = jst_midnight_ms(last) + 86_400_000;
-    let mut out: BTreeMap<NaiveDate, Vec<Vec<String>>> = BTreeMap::new();
+    let mut out: BTreeMap<NaiveDate, Vec<ApoDeal>> = BTreeMap::new();
     let mut seen: HashSet<String> = HashSet::new();
     for stage in [ST_APO, ST_APO_BPO] {
         let prop = format!("hs_v2_date_entered_{stage}");
@@ -292,14 +323,23 @@ async fn fetch_appointments(
                 .and_then(Value::as_array)
                 .ok_or_else(|| HubSpotError::Decode("deals without results".into()))?;
             for r in results {
-                let id = r.get("id").map(Value::to_string).unwrap_or_default();
-                if !seen.insert(id) {
+                let id = match r.get("id") {
+                    Some(Value::String(s)) => s.clone(),
+                    Some(v) => v.to_string(),
+                    None => String::new(),
+                };
+                if !seen.insert(id.clone()) {
                     continue;
                 }
                 let Some(p) = r.get("properties") else {
                     continue;
                 };
-                let Some(day) = p.get(&prop).and_then(entered_day) else {
+                let Some(entered_ms) = p.get(&prop).and_then(entered_ms) else {
+                    continue;
+                };
+                let Some(day) =
+                    DateTime::<Utc>::from_timestamp_millis(entered_ms).map(|t| jst_day(t).0)
+                else {
                     continue;
                 };
                 let owner = p
@@ -309,7 +349,12 @@ async fn fetch_appointments(
                     .filter(|s| !s.is_empty());
                 let who = credit_for_stage(stage, p, day, owner);
                 if !who.is_empty() {
-                    out.entry(day).or_default().push(who);
+                    out.entry(day).or_default().push(ApoDeal {
+                        deal_id: id,
+                        stage: stage.to_string(),
+                        entered_ms,
+                        who,
+                    });
                 }
             }
             match v
@@ -440,7 +485,15 @@ mod tests {
             let apo = |deals: Vec<Vec<String>>| ApoDay {
                 at,
                 covered: BTreeSet::new(),
-                deals,
+                deals: deals
+                    .into_iter()
+                    .map(|who| ApoDeal {
+                        deal_id: "1".into(),
+                        stage: ST_APO.into(),
+                        entered_ms: 0,
+                        who,
+                    })
+                    .collect(),
             };
             g.apo.insert(d(7), apo(vec![vec!["1".into()]]));
             g.apo.insert(d(8), apo(vec![]));

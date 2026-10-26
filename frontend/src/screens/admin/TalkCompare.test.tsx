@@ -10,7 +10,7 @@ afterEach(cleanup);
 
 const route = (patch: Partial<TalkRoute> = {}): TalkRoute => ({
   view: 'talk', from: '2026-10-19', to: '2026-10-19', team: '', owner: '', call: '',
-  people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '', ...patch,
+  people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '', tab: '', ...patch,
 });
 const cells = (tr: HTMLElement) => Array.from(tr.querySelectorAll('td'));
 const rowOf = (name: string) => within(screen.getByTestId('talk-table')).getByText(name).closest('tr') as HTMLElement;
@@ -24,7 +24,7 @@ describe('URL', () => {
   it('people・only・cmp_from・cmp_to・vs_team を読み書きできる', () => {
     const q = '?view=talk&from=2026-10-12&to=2026-10-18&people=9001,9002&only=1&cmp_from=2026-10-05&cmp_to=2026-10-11&vs_team=1';
     const r = parseAdminRoute(q);
-    expect(r).toEqual({ view: 'talk', from: '2026-10-12', to: '2026-10-18', team: '', owner: '', call: '', people: '9001,9002', only: '1', cmp_from: '2026-10-05', cmp_to: '2026-10-11', vs_team: '1' });
+    expect(r).toEqual({ view: 'talk', from: '2026-10-12', to: '2026-10-18', team: '', owner: '', call: '', people: '9001,9002', only: '1', cmp_from: '2026-10-05', cmp_to: '2026-10-11', vs_team: '1', tab: '' });
     expect(adminHref(r)).toBe('?view=talk&from=2026-10-12&to=2026-10-18&people=9001%2C9002&only=1&cmp_from=2026-10-05&cmp_to=2026-10-11&vs_team=1');
   });
   it('people の値の扱い', () => {
@@ -137,14 +137,17 @@ describe('表の上での動き', () => {
   it('比べる期間: 各セルに前との差が出る。前の期間に行が無い人は注記', () => {
     panel(route({ cmp_from: '2026-10-18', cmp_to: '2026-10-18' }));
     expect(cells(rowOf('架空 花子'))[3]?.textContent).toBe('220前 +22');
-    expect(within(rowOf('架空 花子')).getAllByText(/前 \+5\.0pt/).length).toBeGreaterThan(0);
     expect(within(rowOf('架空 四郎')).getByTestId('talk-no-prev')).toBeTruthy();
     expect(screen.getByTestId('talk-cmp-note').textContent).toContain('2026-10-18 と比べています');
+    // トークのタブでも、項目ごとに前との差が出る
+    cleanup();
+    panel(route({ cmp_from: '2026-10-18', cmp_to: '2026-10-18', tab: 'talk' }));
+    expect(cells(rowOf('架空 花子'))[5]?.textContent).toBe('50%できた 20/40本前 +5.0pt');
   });
 
   it('チームとの差: 率の横にチーム比と、チームの全体の行が出る', () => {
-    panel(route({ vs_team: '1' }));
-    expect(cells(rowOf('架空 花子'))[14]?.textContent).toBe('50%できた 20/40本チーム比 +15.9pt');
+    panel(route({ vs_team: '1', tab: 'talk' }));
+    expect(cells(rowOf('架空 花子'))[5]?.textContent).toBe('50%できた 20/40本チーム比 +15.9pt');
     expect(screen.getAllByTestId('talk-team-row')).toHaveLength(2);
     expect(screen.getByText('架空BPOチームの全体')).toBeTruthy();
   });

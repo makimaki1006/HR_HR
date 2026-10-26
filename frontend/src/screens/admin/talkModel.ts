@@ -7,6 +7,7 @@ import type { TalkCheckDef } from '../../generated/TalkCheckDef';
 import type { TalkItemRate } from '../../generated/TalkItemRate';
 import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
+import type { TalkApoResponse } from '../../generated/TalkApoResponse';
 
 // ------------------------------------------------------------ 期間 (JST、週は月曜始まり)
 
@@ -394,5 +395,63 @@ export function fixtureDetail(callId: string): TalkCallDetailResponse {
       { n: 9, speaker: 'rep', text: 'そうですか、では、また改めてお電話します。' },
       { n: 10, speaker: 'customer', text: 'はい、お願いします。' },
     ],
+  };
+}
+
+// ------------------------------------------------------------ 表のタブ
+
+/** 人ごとの表のタブ。URL の `tab` (空 = 数字) */
+export type TalkTab = 'numbers' | 'talk';
+export const TALK_TABS: [TalkTab, string][] = [
+  ['numbers', '数字'],
+  ['talk', 'トーク'],
+];
+export function parseTalkTab(v: string): TalkTab {
+  return v === 'talk' ? 'talk' : 'numbers';
+}
+
+// ------------------------------------------------------------ アポ数の内訳
+
+export type ApoKind = 'past_customer' | 're_meeting' | 're_apo' | 'fresh';
+/** 区分の表示名 (上が優先) */
+export const APO_KINDS: [ApoKind, string][] = [
+  ['past_customer', '過去客（会社で判定）'],
+  ['re_meeting', '再商談'],
+  ['re_apo', '再アポ'],
+  ['fresh', '純粋なアポ'],
+];
+export function apoKindLabel(kind: string): string {
+  return APO_KINDS.find(([k]) => k === kind)?.[1] ?? kind;
+}
+export const APO_VIA_LABEL: Record<string, string> = { bpo: 'BPO', sales: '新規営業' };
+
+/** 架空のアポの内訳。件数はその人のアポ数に合わせ、区分は順に割り当てる */
+export function fixtureApo(ownerId: string | null, from: string, to: string, team: string): TalkApoResponse {
+  const s = fixtureSummary(from, to, team);
+  const row = ownerId === null ? s.total : s.people.find(p => p.owner_id === ownerId);
+  const n = row?.appointments ?? 0;
+  const order: ApoKind[] = ['fresh', 'past_customer', 'fresh', 're_apo', 're_meeting', 'fresh', 're_apo'];
+  const companies = ['架空工業', 'サンプル運輸', 'ダミー食品', '架空介護サービス', 'サンプル建設', 'ダミー物流', '架空製作所'];
+  const deals = Array.from({ length: n }, (_, i) => {
+    const day = String(Math.max(1, 19 - i)).padStart(2, '0');
+    return {
+      deal_id: String(70000 + i),
+      deal_name: `${companies[i % companies.length] ?? ''}_${String(i + 1)}`,
+      company_name: companies[i % companies.length] ?? null,
+      kind: order[i % order.length] ?? 'fresh',
+      via: i % 3 === 2 ? 'sales' : 'bpo',
+      entered_at: `2026-10-${day}T0${String(i % 9)}:15:00Z`,
+      history_short: i === 3,
+      hubspot_url: `https://app.hubspot.com/contacts/23708633/record/0-3/${String(70000 + i)}/`,
+    };
+  });
+  const count = (k: ApoKind) => deals.filter(d => d.kind === k).length;
+  return {
+    owner_id: ownerId,
+    name: row?.name ?? 'この表の全体',
+    from: s.from,
+    to: s.to,
+    counts: { past_customer: count('past_customer'), re_meeting: count('re_meeting'), re_apo: count('re_apo'), fresh: count('fresh'), total: deals.length, history_short: deals.filter(d => d.history_short).length },
+    deals,
   };
 }

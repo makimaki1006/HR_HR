@@ -1,6 +1,6 @@
 // /app/admin?view=talk: トークの振り返り (ADR-033)。人ごとの「できていない割合」の表 → 電話の一覧 → 1 本の詳細。
-// データは GET /api/crm/talk-review/* (管理者だけ)。&mode=fixture で架空の数字。
-import { useEffect, useState, type ReactNode } from 'react';
+// データは GET /api/crm/talk-review/* (社内の Google ログインなら誰でも。ADR-033)。&mode=fixture で架空の数字。
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { ApiAbortedError, ApiHttpError, AuthRequiredError, apiGet, type ApiError } from '../../api/client';
 import { redirectToLogin } from '../../shell/navigation';
 import type { DialBreakdown } from '../../generated/DialBreakdown';
@@ -10,10 +10,11 @@ import type { TalkCallsResponse } from '../../generated/TalkCallsResponse';
 import type { TalkCheckDef } from '../../generated/TalkCheckDef';
 import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
+import type { TalkApoResponse } from '../../generated/TalkApoResponse';
 import {
   CALL_STATUS_TEXT, MARK_LABEL, dialBreakdownRows, MARK_TEXT, PERIOD_LABELS, activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary,
   fmtCallTime, fmtPct, fmtPerContact, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
-  type TalkSort,
+  type TalkSort, TALK_TABS, parseTalkTab, type TalkTab, APO_KINDS, apoKindLabel, APO_VIA_LABEL, fixtureApo,
 } from './talkModel';
 import {
   diffClass, fmtMetric, joinPeople, metricDiff, parsePeople, previousPeriod, sumRows, togglePerson, validCompare, type Diff, type MetricId,
@@ -191,9 +192,13 @@ function DiffNote({ kind, cur, base, m, itemId, rules }: { kind: 'cmp' | 'team';
 /** 行ごとの比べる相手 (undefined = 比べない、null = 相手の行が無い) */
 interface RowCompare { cmp?: TalkPersonRow | null | undefined; team?: TalkPersonRow | null | undefined }
 
-function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, onOpen, compare, select, rowId }: {
+/** アポ数のセルを押したときの開閉 (無ければ数字だけ) */
+interface ApoToggle { open: boolean; onToggle: () => void }
+
+function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, onOpen, compare, select, rowId, tab, apo }: {
   p: TalkPersonRow; checks: TalkCheckDef[]; total: boolean; totalRow: TalkPersonRow; rules: TalkSummaryResponse['rules']; breakdownPending: boolean;
   onOpen?: (id: string) => void; compare?: RowCompare | undefined; select?: { checked: boolean; onChange: () => void } | undefined; rowId?: string;
+  tab: TalkTab; apo?: ApoToggle | undefined;
 }) {
   const apj = total ? null : judgeAppointment(p, totalRow, rules);
   const dn = (m: MetricId, itemId?: string) => (
@@ -216,9 +221,15 @@ function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, on
         {compare?.cmp === null && <span className="talk-small" data-testid="talk-no-prev">比べる期間にはデータなし</span>}
       </td>
       <td className="w8-muted">{p.team ?? '-'}</td>
+      {tab === 'numbers' && <>
       <OutboundCell value={p.outbound} breakdown={p.dial_breakdown} pending={breakdownPending} extra={dn('outbound')} />
       <td className="w8-right">{p.dials ?? '—'}{dn('dials')}</td>
-      <td className="w8-right">{p.appointments}{dn('appointments')}</td>
+      <td className="w8-right">
+        {apo === undefined || p.appointments === 0 ? p.appointments : (
+          <button type="button" className="talk-apobtn" aria-expanded={apo.open} data-testid="talk-apo-trigger" title="押すとアポの内訳が開きます" onClick={apo.onToggle}>{p.appointments}</button>
+        )}
+        {dn('appointments')}
+      </td>
       <Cell j={apj} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}{dn('appointmentRate')}</Cell>
       <td className="w8-right" data-testid="talk-contacts">
         {p.contacts ?? '—'}{dn('contacts')}
@@ -228,6 +239,8 @@ function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, on
       <td className="w8-right">{p.date_proposal_calls ?? '—'}{dn('proposalCalls')}</td>
       <td className="w8-right">{fmtPct(p.date_proposal_rate_pct, 1)}{dn('proposalRate')}</td>
       <td className="w8-right">{fmtPerContact(p.proposals_per_contact)}{dn('perContact')}</td>
+      </>}
+      {tab === 'talk' && <>
       <td className="w8-right">
         {p.reviewed}
         <span className="talk-small">対象 {p.eligible} 本 ・ 待ち {p.waiting} ・ 取れない {p.unavailable}</span>
@@ -243,6 +256,7 @@ function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, on
           </Cell>
         );
       })}
+      </>}
     </tr>
   );
 }
@@ -273,8 +287,81 @@ export interface TalkTableView {
   vsTeam: boolean;
 }
 
-export function TalkSummaryTable({ data, onOpen, view }: { data: TalkSummaryResponse; onOpen: (ownerId: string) => void; view?: TalkTableView }) {
+/** アポ数の内訳の取り方 (無ければアポ数は押せない) */
+export interface ApoQuery {
+  /** チームの絞り込み (表の全体の内訳に使う) */
+  team: string;
+  /** 架空サンプル */
+  fixture: boolean;
+}
+
+/** 区分ごとの「履歴不足」の件数。件数は区分を変えずに数えるので、明細から数える */
+function shortOf(data: TalkApoResponse, kind: string): number {
+  return data.deals.filter(d => d.kind === kind && d.history_short).length;
+}
+
+/** アポ数を押すと開く内訳。開いている間だけ読む */
+export function ApoBreakdownView({ data, onClose }: { data: TalkApoResponse; onClose: () => void }) {
+  return (
+    <div className="talk-apo" data-testid="talk-apo">
+      <div className="talk-apo-head">
+        <strong>{data.name} のアポの内訳</strong>
+        <span className="w8-muted">（{data.from === data.to ? data.from : `${data.from} 〜 ${data.to}`}、{data.counts.total} 件）</span>
+        <button type="button" className="talk-apo-close" onClick={onClose}>閉じる</button>
+      </div>
+      <ul className="talk-apo-counts" data-testid="talk-apo-counts">
+        {APO_KINDS.map(([k, label]) => (
+          <li key={k} data-kind={k}>
+            <span>{label}</span><strong>{data.counts[k]} 件</strong>
+            {(k === 're_meeting' || k === 're_apo' || k === 'fresh') && shortOf(data, k) > 0 && (
+              <small className="w8-muted talk-apo-short" data-testid="talk-apo-short" title="ステージの履歴が上限の 20 件いっぱいで、今回より前の履歴が見えていません。前のアポ・商談を見落としている可能性があります。">うち履歴不足 {shortOf(data, k)}</small>
+            )}
+          </li>
+        ))}
+      </ul>
+      {data.deals.length === 0 ? <p className="w8-muted">この期間のアポはありません。</p> : (
+        <table className="w8-table w8-table-dense talk-apo-table" data-testid="talk-apo-table">
+          <thead>
+            <tr><th>区分</th><th>会社名</th><th>取引名</th><th>経路</th><th>アポ日確定に入った日時</th><th /></tr>
+          </thead>
+          <tbody>
+            {data.deals.map(d => (
+              <tr key={`${d.deal_id}-${d.entered_at}`} data-testid="talk-apo-row">
+                <td>{apoKindLabel(d.kind)}{d.history_short && <small className="w8-muted talk-apo-flag" data-testid="talk-apo-flag" title="ステージの履歴が上限の 20 件いっぱいで、今回より前の履歴が見えていません">（履歴不足で不確か）</small>}</td>
+                <td>{d.company_name ?? '-'}</td>
+                <td>{d.deal_name ?? '-'}</td>
+                <td>{APO_VIA_LABEL[d.via] ?? d.via}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>{fmtCallTime(d.entered_at)}</td>
+                <td><a className="w8-link" href={d.hubspot_url} target="_blank" rel="noreferrer">HubSpot で開く</a></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="talk-apo-note">1 件の取引は、上の区分から順に最初に当てはまる 1 つに入れています。過去客は、取引の会社に、この取引とは別に受注した取引（納品管理・計上にある取引、または契約先企業・過去契約先に入ったことがある取引）があるものです。再商談は、今回より前に商談後のステージに入ったことがある取引、再アポは今回より前にアポ日確定に入ったことがある取引です。HubSpot が返すステージの履歴は新しい順に 20 件までなので、履歴の上限のため再アポ・再商談が少なめに出ることがあります（その取引には「履歴不足」の印を付けています）。</p>
+    </div>
+  );
+}
+
+function ApoBreakdown({ ownerId, from, to, query, onClose }: { ownerId: string | null; from: string; to: string; query: ApoQuery; onClose: () => void }) {
+  const q = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  const who = ownerId === null
+    ? (query.team === '' ? '' : `&team=${encodeURIComponent(query.team)}`)
+    : `&owner=${encodeURIComponent(ownerId)}`;
+  return (
+    <Loader<TalkApoResponse> path={`/api/crm/talk-review/appointments?${q}${who}`} fixture={query.fixture ? () => fixtureApo(ownerId, from, to, query.team) : null}>
+      {d => <ApoBreakdownView data={d} onClose={onClose} />}
+    </Loader>
+  );
+}
+
+export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, apoQuery }: {
+  data: TalkSummaryResponse; onOpen: (ownerId: string) => void; view?: TalkTableView;
+  tab?: TalkTab; onTab?: (tab: TalkTab) => void; apoQuery?: ApoQuery;
+}) {
   const [sort, setSort] = useState<TalkSort | null>(null);
+  /** 内訳を開いている行 (担当者 ID、表の全体は 'total') */
+  const [openApo, setOpenApo] = useState<string | null>(null);
   const sorted = sortPeople(data.people, sort);
   const selSet = new Set(view?.selected ?? []);
   const selectedRows = data.people.filter(p => p.owner_id !== null && selSet.has(p.owner_id));
@@ -308,8 +395,28 @@ export function TalkSummaryTable({ data, onOpen, view }: { data: TalkSummaryResp
     return <p className="w8-alert" role="status" data-testid="talk-disabled">まだ動いていません。トークの振り返りの設定が済むと、ここに人ごとの表が出ます。</p>;
   }
   const rules = data.rules;
+  // 名前・チーム + タブの列
+  const colCount = 2 + (tab === 'numbers' ? 9 : 1 + data.checks.length);
+  const apoOf = (key: string): ApoToggle | undefined => (apoQuery === undefined || tab !== 'numbers' ? undefined : {
+    open: openApo === key,
+    onToggle: () => { setOpenApo(prev => (prev === key ? null : key)); },
+  });
+  const apoRow = (key: string, ownerId: string | null) => (apoQuery === undefined || tab !== 'numbers' || openApo !== key ? null : (
+    <tr className="talk-apo-row" data-testid="talk-apo-open">
+      <td colSpan={colCount}>
+        <ApoBreakdown ownerId={ownerId} from={data.from} to={data.to} query={apoQuery} onClose={() => { setOpenApo(null); }} />
+      </td>
+    </tr>
+  ));
   return (
     <>
+      {onTab !== undefined && (
+        <div role="tablist" aria-label="表の切り替え" className="talk-tabs" data-testid="talk-tabs">
+          {TALK_TABS.map(([k, label]) => (
+            <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'talk-tab is-active' : 'talk-tab'} onClick={() => { onTab(k); }}>{label}</button>
+          ))}
+        </div>
+      )}
       <p className="talk-legend" data-testid="talk-legend">
         <span><i className="talk-swatch red" />赤: この表の全体より {rules.item_excess_pct} ポイント以上できていない（当てはまる電話が {rules.item_min_applicable} 本以上の人だけ）</span>
         <span><i className="talk-swatch grey" />灰色: 本数が少ないので色を付けていない</span>
@@ -328,16 +435,20 @@ export function TalkSummaryTable({ data, onOpen, view }: { data: TalkSummaryResp
           )}
         </p>
       )}
-      <div className="w8-table-wrap">
-        <table className="w8-table w8-table-dense talk-table" data-testid="talk-table">
+      {apoQuery !== undefined && tab === 'numbers' && <p className="w8-subtle talk-apohint">アポ数を押すと、アポの内訳（過去客・再商談・再アポ・純粋なアポ）と明細が開きます。</p>}
+      <div className="w8-table-wrap talk-scroll">
+        <table className={`w8-table w8-table-dense talk-table talk-tab-${tab}`} data-testid="talk-table" data-tab={tab}>
           <thead>
-            <tr>
-              <th colSpan={12} className="talk-group-blank" />
-              {stageGroups(data.checks).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
-            </tr>
-            <tr>
+            {tab === 'talk' && (
+              <tr>
+                <th colSpan={3} className="talk-group-blank" />
+                {stageGroups(data.checks).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
+              </tr>
+            )}
+            <tr className="talk-headrow">
               <th>名前</th>
               <th>チーム</th>
+              {tab === 'numbers' && <>
               {sortHead('発信数', { kind: 'outbound' })}
               {sortHead('架電数', { kind: 'dials' })}
               {sortHead('アポ数', { kind: 'appointments' })}
@@ -347,6 +458,8 @@ export function TalkSummaryTable({ data, onOpen, view }: { data: TalkSummaryResp
               {sortHead('日程切り本数', { kind: 'proposalCalls' })}
               {sortHead('日程切り率', { kind: 'proposalRate' })}
               {sortHead('1接触あたりの日程切り回数', { kind: 'perContact' })}
+              </>}
+              {tab === 'talk' && <>
               {sortHead('判定した電話数（接触した電話）', { kind: 'reviewed' })}
               {data.checks.map(c => {
                 const key = { kind: 'item', id: c.id } as const;
@@ -358,40 +471,49 @@ export function TalkSummaryTable({ data, onOpen, view }: { data: TalkSummaryResp
                   </th>
                 );
               })}
+              </>}
             </tr>
           </thead>
           <tbody>
             {people.map(p => (
-              <PersonRowView
-                key={p.owner_id ?? p.name} p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} onOpen={onOpen}
-                compare={view === undefined ? undefined : { cmp: cmpOf(p), team: teamOf(p) }}
-                select={view === undefined || p.owner_id === null ? undefined : { checked: selSet.has(p.owner_id), onChange: () => { view.onToggle(p.owner_id ?? ''); } }}
-              />
+              <Fragment key={p.owner_id ?? p.name}>
+                <PersonRowView
+                  p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} onOpen={onOpen} tab={tab}
+                  compare={view === undefined ? undefined : { cmp: cmpOf(p), team: teamOf(p) }}
+                  select={view === undefined || p.owner_id === null ? undefined : { checked: selSet.has(p.owner_id), onChange: () => { view.onToggle(p.owner_id ?? ''); } }}
+                  apo={p.owner_id === null ? undefined : apoOf(p.owner_id)}
+                />
+                {p.owner_id !== null && apoRow(p.owner_id, p.owner_id)}
+              </Fragment>
             ))}
-            {people.length === 0 && <tr><td colSpan={12 + data.checks.length} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
+            {people.length === 0 && <tr><td colSpan={colCount} className="w8-muted">この期間に判定できた電話はまだありません。</td></tr>}
             {shownTeams.map(t => {
               const row = data.team_totals.find(x => x.name === t);
               if (row === undefined) return null;
               return (
                 <PersonRowView
-                  key={`team-${t}`} p={{ ...row, name: `${t}の全体` }} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-team-row"
+                  key={`team-${t}`} p={{ ...row, name: `${t}の全体` }} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-team-row" tab={tab}
                   compare={view?.cmp === undefined ? undefined : { cmp: view.cmp.team_totals.find(x => x.name === t) ?? null }}
                 />
               );
             })}
             {selectedSum !== null && (
-              <PersonRowView p={selectedSum} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-selected-row" compare={{ cmp: selectedCmp }} />
+              <PersonRowView p={selectedSum} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-selected-row" compare={{ cmp: selectedCmp }} tab={tab} />
             )}
-            <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} compare={view?.cmp === undefined ? undefined : { cmp: view.cmp.total }} />
+            <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} compare={view?.cmp === undefined ? undefined : { cmp: view.cmp.total }} tab={tab} apo={apoOf('total')} />
+            {apoRow('total', null)}
           </tbody>
         </table>
       </div>
-      <p className="talk-rules" data-testid="talk-rules">
-        <span style={{ display: 'block' }}>各項目の割合は、その項目に当てはまる電話のうち、できた電話の割合です。</span>
-        <span style={{ display: 'block' }} data-testid="talk-dials-rule">発信数は Zoom の発信すべて（相手が出る前に切ったもの・つながらなかったものを含む）、架電数はそのうちつながった通話の数で、営業KPI と同じです。アポ率 ＝ アポ数 ÷ 架電数です。</span>
-        <span style={{ display: 'block' }} data-testid="talk-contact-rule">接触は、受付を越えて担当者・決裁者と話せた発信で、日程を出していなくても数えます。接触率 ＝ 接触数 ÷ 発信数。日程切り本数は、具体的な日時（週・曜日・日付）を 1 回以上出した発信の本数で、日程切り率 ＝ 日程切り本数 ÷ 発信数です。1 接触あたりの日程切り回数は、接触した電話で日時を出した回数の合計 ÷ 接触数です。つながらなかった発信は接触 0・日程切り 0 として数えます。新規営業の電話は、かけた時点の取引のステージがアポ取りの段階のものだけを数え、それ以外（商談前の確認・商談後の催促など）は接触率・日程切り率の分母からも外します。発信数は営業KPIの値のままです。</span>
-        <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる、担当者と話せた電話（接触した電話）の本数です。電話の長さでは絞っていません。資料の全体の割合は 70 秒以上の電話で取った値で、短い電話も入るこの表とは、そのまま比べられません。</span>
-      </p>
+      <details className="talk-howto" data-testid="talk-howto">
+        <summary>数え方</summary>
+        <p className="talk-rules" data-testid="talk-rules">
+          <span style={{ display: 'block' }}>各項目の割合は、その項目に当てはまる電話のうち、できた電話の割合です。</span>
+          <span style={{ display: 'block' }} data-testid="talk-dials-rule">発信数は Zoom の発信すべて（相手が出る前に切ったもの・つながらなかったものを含む）、架電数はそのうちつながった通話の数で、営業KPI と同じです。アポ率 ＝ アポ数 ÷ 架電数です。</span>
+          <span style={{ display: 'block' }} data-testid="talk-contact-rule">接触は、受付を越えて担当者・決裁者と話せた発信で、日程を出していなくても数えます。接触率 ＝ 接触数 ÷ 発信数。日程切り本数は、具体的な日時（週・曜日・日付）を 1 回以上出した発信の本数で、日程切り率 ＝ 日程切り本数 ÷ 発信数です。1 接触あたりの日程切り回数は、接触した電話で日時を出した回数の合計 ÷ 接触数です。つながらなかった発信は接触 0・日程切り 0 として数えます。新規営業の電話は、かけた時点の取引のステージがアポ取りの段階のものだけを数え、それ以外（商談前の確認・商談後の催促など）は接触率・日程切り率の分母からも外します。発信数は営業KPIの値のままです。</span>
+          <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる、担当者と話せた電話（接触した電話）の本数です。電話の長さでは絞っていません。資料の全体の割合は 70 秒以上の電話で取った値で、短い電話も入るこの表とは、そのまま比べられません。</span>
+        </p>
+      </details>
     </>
   );
 }
@@ -597,6 +719,9 @@ function SummaryWithCompare({ d, route, navigate, fx, teamQ }: { d: TalkSummaryR
       )}
       <TalkSummaryTable
         data={d}
+        tab={parseTalkTab(route.tab)}
+        onTab={t => { go({ tab: t === 'numbers' ? '' : t }); }}
+        apoQuery={{ team: route.team, fixture: fx }}
         onOpen={id => { go({ owner: id }); }}
         view={{
           selected, only: route.only === '1',

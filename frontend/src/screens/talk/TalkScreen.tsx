@@ -12,7 +12,7 @@ export function parseTalkRoute(search: string): TalkRoute {
 
 export function talkHref(route: TalkRoute): string {
   const q = new URLSearchParams();
-  for (const k of ['from', 'to', 'team', 'owner', 'call', 'people', 'only', 'cmp_from', 'cmp_to', 'vs_team'] as const) {
+  for (const k of ['from', 'to', 'team', 'owner', 'call', 'people', 'only', 'cmp_from', 'cmp_to', 'vs_team', 'tab'] as const) {
     if (route[k] !== '') q.set(k, route[k]);
   }
   // 架空サンプルの表示は、画面を移っても保つ

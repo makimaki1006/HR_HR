@@ -221,3 +221,50 @@ pub struct TalkCallDetailResponse {
     pub model: Option<String>,
     pub checks_version: Option<String>,
 }
+
+/// アポの区分ごとの件数 (1 件の取引は 1 区分だけ)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, TS)]
+pub struct TalkApoCounts {
+    /// 過去客 (会社で判定): 取引の会社に、この取引とは別に受注した取引がある
+    pub past_customer: u32,
+    /// 再商談: この取引が、今回より前に商談後のステージに入ったことがある
+    pub re_meeting: u32,
+    /// 再アポ: この取引が、今回より前にアポ日確定に入ったことがある
+    pub re_apo: u32,
+    /// 純粋なアポ: どれにも当たらない
+    pub fresh: u32,
+    pub total: u32,
+    /// 上の区分のうち、履歴が足りず判定が不確かな件数 (区分は変えない)
+    pub history_short: u32,
+}
+
+/// アポ 1 件 (取引 1 件) の明細
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct TalkApoDeal {
+    pub deal_id: String,
+    pub deal_name: Option<String>,
+    pub company_name: Option<String>,
+    /// "past_customer" | "re_meeting" | "re_apo" | "fresh"
+    pub kind: String,
+    /// "bpo" (BPO のアポ日確定) | "sales" (新規営業のアポ日確定)
+    pub via: String,
+    /// 今回アポ日確定に入った時刻 (RFC 3339)
+    pub entered_at: String,
+    /// ステージの履歴が上限 (20 件) いっぱいで、今回より前の履歴が見えず判定が不確か
+    pub history_short: bool,
+    /// HubSpot で取引を開く URL
+    pub hubspot_url: String,
+}
+
+/// GET /api/crm/talk-review/appointments?owner=&from=&to=&team=
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct TalkApoResponse {
+    /// 1 人の内訳なら担当者 ID。表の全体なら null
+    pub owner_id: Option<String>,
+    pub name: String,
+    pub from: String,
+    pub to: String,
+    pub counts: TalkApoCounts,
+    /// 今回入った時刻の新しい順
+    pub deals: Vec<TalkApoDeal>,
+}

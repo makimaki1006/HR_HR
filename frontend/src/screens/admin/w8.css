@@ -391,3 +391,31 @@ code.w8-code {
 .talk-calls td:last-child { min-width: 240px; }
 .talk-calls th.talk-itemhead { min-width: 76px; max-width: 90px; }
 .talk-calls td:last-child { min-width: 150px; }
+
+/* トークの振り返り: タブ・固定の見出しと名前・アポの内訳 */
+.talk-tabs { display: flex; gap: 4px; border-bottom: 1px solid #334155; margin: 12px 0 4px; }
+.talk-tab { border: 1px solid transparent; border-bottom: 0; background: transparent; color: #94a3b8; padding: 6px 16px; font: inherit; font-size: 14px; cursor: pointer; border-radius: 4px 4px 0 0; margin-bottom: -1px; }
+.talk-tab:hover { color: #e2e8f0; }
+.talk-tab.is-active { color: #e2e8f0; background: #17233a; border-color: #334155; font-weight: 700; }
+.talk-scroll { max-height: calc(100vh - 160px); overflow: auto; }
+.talk-table thead { position: sticky; top: 0; z-index: 3; }
+.talk-table thead th { background: #1e293b; }
+.talk-table thead tr.talk-headrow th:first-child { position: sticky; left: 0; z-index: 4; background: #1e293b; }
+.talk-table td:first-child { position: sticky; left: 0; z-index: 2; background: #17233a; box-shadow: 1px 0 0 #334155; }
+.talk-table tr.talk-apo-row td:first-child { position: static; box-shadow: none; background: transparent; }
+.talk-apobtn { border: 0; background: transparent; color: #60a5fa; cursor: pointer; font: inherit; padding: 0; text-decoration: underline dotted; text-underline-offset: 3px; }
+.talk-apobtn:hover, .talk-apobtn[aria-expanded="true"] { color: #93c5fd; text-decoration-style: solid; }
+.talk-apohint { margin: 0 0 4px; font-size: 12px; }
+.talk-apo { position: sticky; left: 0; width: min(880px, calc(100vw - 64px)); padding: 10px 12px; margin: 4px 0; background: #0f172a; border: 1px solid #334155; border-radius: 6px; text-align: left; white-space: normal; }
+.talk-apo-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.talk-apo-close { margin-left: auto; }
+.talk-apo-counts { display: flex; flex-wrap: wrap; gap: 6px 10px; list-style: none; padding: 0; margin: 8px 0; }
+.talk-apo-counts li { display: flex; gap: 8px; align-items: baseline; padding: 4px 10px; border: 1px solid #334155; border-radius: 4px; background: rgba(30, 41, 59, 0.6); }
+.talk-apo-short { font-size: 11px; }
+.talk-apo-table td, .talk-apo-table th { white-space: nowrap; }
+.talk-apo-note { color: #94a3b8; font-size: 12px; margin: 8px 0 0; }
+.talk-howto { margin-top: 12px; }
+.talk-howto summary { cursor: pointer; color: #93c5fd; font-size: 13px; }
+.talk-howto .talk-rules { margin-top: 6px; }
+/* 固定した見出しの境目から下の行が透けないよう、枠線をセルごとに持つ */
+table.w8-table.talk-table { border-collapse: separate; border-spacing: 0; }

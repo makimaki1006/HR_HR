@@ -8,7 +8,7 @@
 //   /app/admin?view=hubspot        -> HubSpot usage     (new 2026-10-08, no old page)
 //   /app/admin?view=callers        -> today's callers   (new 2026-10-13; add &mode=fixture for fake data)
 //   /app/admin?view=crm-failed     -> HubSpot に保存できなかった操作 (2026-10-25)
-//   /app/admin?view=talk&from=&to=&team=&owner=&call= -> トークの振り返り (ADR-033; add &mode=fixture for fake data)
+//   /app/admin?view=talk&from=&to=&team=&owner=&call=&tab= -> トークの振り返り (ADR-033; add &mode=fixture for fake data)
 
 export type AdminRoute =
   | { view: 'usage'; days: number }
@@ -18,7 +18,7 @@ export type AdminRoute =
   | { view: 'hubspot' }
   | { view: 'callers' }
   | { view: 'crm-failed' }
-  | { view: 'talk'; from: string; to: string; team: string; owner: string; call: string; people: string; only: string; cmp_from: string; cmp_to: string; vs_team: string };
+  | { view: 'talk'; from: string; to: string; team: string; owner: string; call: string; people: string; only: string; cmp_from: string; cmp_to: string; vs_team: string; tab: string };
 
 /** Same default as the Rust handler (`q.days.unwrap_or(30)`). */
 export const DEFAULT_USAGE_DAYS = 30;
@@ -53,6 +53,8 @@ export function parseAdminRoute(search: string): AdminRoute {
         cmp_from: q.get('cmp_from') ?? '',
         cmp_to: q.get('cmp_to') ?? '',
         vs_team: q.get('vs_team') ?? '',
+        // 人ごとの表のタブ (空 = 数字、talk = トーク)
+        tab: q.get('tab') ?? '',
       };
     default: {
       // Rust clamps to 1..=365 server-side; the response's `days` is what the UI shows.
@@ -68,7 +70,7 @@ export function adminHref(route: AdminRoute): string {
   if (route.view === 'user') q.set('id', route.id);
   if (route.view === 'usage') q.set('days', String(route.days));
   if (route.view === 'talk') {
-    for (const k of ['from', 'to', 'team', 'owner', 'call', 'people', 'only', 'cmp_from', 'cmp_to', 'vs_team'] as const) {
+    for (const k of ['from', 'to', 'team', 'owner', 'call', 'people', 'only', 'cmp_from', 'cmp_to', 'vs_team', 'tab'] as const) {
       if (route[k] !== '') q.set(k, route[k]);
     }
     // 架空サンプルの表示は、画面を移っても保つ
