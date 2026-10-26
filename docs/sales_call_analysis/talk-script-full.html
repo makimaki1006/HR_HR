@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>トークスクリプト 完全版</title><style>
+:root{color-scheme:light;--ink:#1c1c1a;--sub:#66625b;--rule:#d9d4ca;--acc:#a8432a;--paper:#fbfaf7}
+*{box-sizing:border-box}html,body{overflow-x:hidden}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;font-size:15.5px;line-height:1.85}
+main{max-width:860px;margin:0 auto;padding:48px 20px 96px;overflow-wrap:anywhere}
+h1,h2,h3,.sn,.big{font-family:"Hiragino Mincho ProN","Noto Serif JP","Yu Mincho",serif}
+.eyebrow{font-size:12.5px;letter-spacing:.12em;color:var(--sub);margin:0}
+h1{font-size:34px;line-height:1.35;margin:6px 0 10px;font-weight:600}
+.lead{color:var(--sub);margin:0 0 28px;max-width:46em}
+hr{border:0;border-top:1px solid var(--ink);margin:0}
+h2{font-size:23px;font-weight:600;margin:64px 0 6px;padding-top:14px;border-top:1px solid var(--ink)}
+h2 small{display:block;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-size:12.5px;letter-spacing:.1em;color:var(--sub);font-weight:400}
+h3{font-size:18px;margin:0 0 2px;font-weight:600}
+p{margin:8px 0}a{color:var(--acc)}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,45%),1fr));border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:22px 0}
+.sum div{padding:14px 14px 12px 0}
+.big{font-size:34px;line-height:1.1}.sum .l{font-size:12.5px;color:var(--sub)}
+.big.a{color:var(--acc)}
+.fig{margin:22px 0 8px;overflow-x:auto}.fig svg{width:100%;min-width:540px;height:auto;display:block}
+.cap{font-size:12.5px;color:var(--sub);margin:4px 0 0}
+.cap b{color:var(--ink)}
+svg text{font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+.lb{font-size:13px;fill:#1c1c1a}.vl{font-size:13px;fill:#1c1c1a;font-weight:600}.vw{font-size:13px;fill:#fff;font-weight:600}.ax{font-size:11.5px;fill:#66625b}.ac{font-size:12px;fill:#a8432a;font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:12px 0}
+th{text-align:left;font-weight:600;border-bottom:1.5px solid var(--ink);padding:8px 10px 6px 0;vertical-align:bottom}
+td{border-bottom:1px solid var(--rule);padding:9px 10px 9px 0;vertical-align:top}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+td.hi{color:var(--acc);font-weight:600}
+.tbl{overflow-x:auto}
+.mt th,.mt td{font-size:13px;padding-right:12px}.mt td{min-width:92px}
+.mb{position:relative;height:6px;background:#eeeae2;margin:5px 0 4px}.mb i{position:absolute;left:0;top:0;bottom:0;background:#3b3a37}.mb em{position:absolute;top:0;bottom:0;background:#a8432a}
+b.acc{color:var(--acc)}
+
+.note{font-size:13px;color:var(--sub)}
+.aside{border-left:3px solid var(--acc);padding:2px 0 2px 14px;margin:16px 0;font-size:14px}
+.aside ul{margin:4px 0;padding-left:18px}
+.rules{counter-reset:r;list-style:none;padding:0;margin:18px 0}
+.rules li{display:grid;grid-template-columns:44px 1fr;gap:6px;padding:12px 0;border-bottom:1px solid var(--rule)}
+.rules li:before{counter-increment:r;content:counter(r);font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;font-size:28px;line-height:1;color:var(--acc)}
+.rules b{font-size:16.5px}.rules span{display:block;color:var(--sub);font-size:14px}
+.mflow{display:grid;grid-template-columns:repeat(3,1fr);row-gap:14px;gap:0;margin:22px 0 6px}
+.ms{position:relative;padding:10px 14px 10px 10px;border-top:3px solid #3b3a37;margin-right:12px}
+.ms:after{content:"";position:absolute;right:-12px;top:-9px;border:7.5px solid transparent;border-left:9px solid #3b3a37}
+.ms.last{border-top-color:var(--acc)}.ms.last:after{display:none}
+.mh{font-weight:700;font-size:15px}.ms.last .mh{color:var(--acc)}
+.md{font-size:12.5px;color:var(--sub);line-height:1.6}
+@media (max-width:720px){.mflow{grid-template-columns:1fr}.ms:after{display:none}}
+.step{display:grid;grid-template-columns:64px 1fr;gap:4px;padding:22px 0;border-bottom:1px solid var(--rule)}
+.sn{font-size:30px;line-height:1;color:var(--sub)}
+.meta{font-size:12.5px;color:var(--sub);margin:0 0 6px}
+.k{font-size:12.5px;font-weight:700;letter-spacing:.06em;margin:10px 0 0}.k.x{color:var(--acc)}
+.step ul{margin:2px 0;padding-left:18px}.xl li{color:#5a3328}
+.mean{margin-top:12px;font-weight:600}.mean span{display:inline-block;font-size:11.5px;font-weight:700;border:1px solid var(--ink);padding:0 6px;margin-right:8px;letter-spacing:.06em}
+@media (max-width:560px){.step{grid-template-columns:1fr}h1{font-size:27px}.big{font-size:28px}}
+.toc{columns:2;column-gap:28px;font-size:14px;margin:18px 0;padding:0;list-style:none;counter-reset:t}
+.toc li{break-inside:avoid;padding:3px 0;border-bottom:1px dotted var(--rule)}.toc li:before{counter-increment:t;content:counter(t) ". ";color:var(--sub)}
+.toc a{color:var(--ink);text-decoration:none}
+@media (max-width:560px){.toc{columns:1}}
+footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-size:12.5px;color:var(--sub)}
+
+
+.part{margin:72px 0 0;padding:10px 0;border-top:3px double var(--ink);border-bottom:1px solid var(--rule);font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;font-size:20px;letter-spacing:.12em;color:var(--acc)}
+.toc-g{font-size:12.5px;letter-spacing:.1em;color:var(--sub);margin:16px 0 0}
+.toc+.toc-g{margin-top:6px}
+.flow{display:flex;flex-direction:column;align-items:center;margin:22px 0 6px}
+.node{background:#fff;border:1px solid var(--ink);padding:10px 14px;max-width:560px;width:100%;text-align:center}
+.node small{display:block;color:var(--sub);font-size:13px;line-height:1.6}
+.node.key{border:2px solid var(--acc)}.node.key b{color:var(--acc)}
+.node.go{border-top:3px solid #3b3a37}.node.stop{border-style:dashed;color:var(--sub)}
+.arrow{width:1px;height:22px;background:var(--ink);position:relative;margin:2px 0 8px}
+.arrow:after{content:"";position:absolute;left:-5px;bottom:-6px;border:5px solid transparent;border-top:6px solid var(--ink)}
+.branch{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%}
+.branch .col{display:flex;flex-direction:column;align-items:center}
+.lab{font-size:12.5px;font-weight:700;margin-bottom:6px;letter-spacing:.04em}
+.lab.g{color:var(--ink)}.lab.w{color:var(--acc)}.lab.b{color:var(--sub)}
+@media (max-width:640px){.branch{grid-template-columns:1fr}}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:10px 0}
+@media (max-width:640px){.pair{grid-template-columns:1fr}}
+.ex{padding:4px 0 4px 14px;font-size:15px}
+.ex.good{border-left:3px solid #3b3a37}.ex.bad{border-left:3px solid var(--acc)}
+.ex .h{font-size:12.5px;font-weight:700;letter-spacing:.08em}.ex.bad .h{color:var(--acc)}
+.ex p{margin:4px 0}
+.why{font-size:14px;color:var(--sub);margin:8px 0 18px}
+#detail~h3,#script~h3{margin-top:26px}
+.script{border-top:1px solid var(--ink);border-bottom:1px solid var(--ink);margin:10px 0}
+.line{display:grid;grid-template-columns:52px 1fr;gap:8px;padding:7px 0;border-bottom:1px dotted var(--rule)}
+.line:last-child{border-bottom:none}
+.who{font-size:12.5px;font-weight:700;color:var(--sub);padding-top:2px}.who.me{color:var(--acc)}
+.tip{font-size:14px;margin:8px 0 6px;padding-left:14px;border-left:3px solid var(--rule)}
+.tag{display:inline-block;font-size:11.5px;font-weight:700;padding:0 6px;border:1px solid var(--ink);white-space:nowrap}
+.tag.l{border-style:dashed;color:var(--sub);border-color:var(--sub)}
+.ph th{white-space:nowrap}
+td.up{font-weight:600;white-space:nowrap}td.dn{color:var(--acc);font-weight:600;white-space:nowrap}
+@media print{body{background:#fff}.step,.fig,.script,.pair,.flow{break-inside:avoid}.part{break-before:page}}
+.scene{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;color:#fff;background:var(--acc);padding:1px 8px;margin-right:8px;vertical-align:2px}
+.goal{border:1px solid var(--ink);padding:10px 14px;margin:14px 0;font-size:15px}
+.goal b{color:var(--acc)}
+.rules span.trial{display:inline-block;margin-top:4px}
+.trial{font-size:11.5px;font-weight:700;padding:0 6px;border:1px dashed var(--sub);color:var(--sub);white-space:nowrap}
+
+.chk{display:inline-block;font-size:11px;font-weight:700;padding:0 5px;margin-left:6px;border:1px solid var(--acc);color:var(--acc);white-space:nowrap;vertical-align:1px}
+.no{font-size:12.5px;color:var(--sub);font-weight:700;letter-spacing:.06em;margin:28px 0 0}
+.sid{font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;color:var(--acc);margin-right:6px}
+</style></head><body>
+<main>
+<p class="eyebrow">営業通話分析 ｜ 2026年10月 ｜ 新規営業・BPO のアポ取り</p>
+<h1>トークスクリプト 完全版</h1>
+<p class="lead">アポ取りの電話1本を、最初の一言から電話を切るまで書いたスクリプトです。場面は v2 と同じ3つ(受付を突破するまで・受付を突破した後・アポ後のヒアリング)です。先方の返事ごとの分かれ道をすべて書き、言う言葉の横に、トークの振り返り(<a href="/app/talk">/app/talk</a>)で判定する項目の印を付けました。</p>
+<div class="sum">
+<div><div class="big">3</div><div class="l">場面</div></div>
+<div><div class="big">24</div><div class="l">分かれ道</div></div>
+<div><div class="big a">14</div><div class="l">判定する項目</div></div>
+<div><div class="big">11</div><div class="l">通話で比べた分かれ道</div></div>
+</div>
+<div class="aside">印の見方: <span class="chk">名前</span> などの印は、そのセリフができているかを判定する項目です。項目の一覧は<a href="#items">「判定する項目」</a>にあります。<span class="trial">比べて差なし</span> <span class="trial">件数不足</span> の分かれ道は、通話の文字起こしで比べても差が見えなかった、または場面が少なく比べられなかった言い方で、現場の型として書いています。それ以外は <a href="apo-talk-v1.html">アポ取りトーク v1</a> と <a href="talk-script-v2.html">トークスクリプト v2</a> の分析に基づきます。〇〇は相手の名前・会社名・日付に置き換えます。言い回しは自分の言葉にしてかまいません。順番と「言わないこと」は守ります。</div>
+
+<p class="toc-g">目次</p>
+<ol class="toc">
+<li><a href="#flow">電話の流れ</a></li>
+<li><a href="#s1">場面1 受付を突破するまで</a></li>
+<li><a href="#s2">場面2 受付を突破した後</a></li>
+<li><a href="#s3">場面3 アポ後のヒアリング</a></li>
+<li><a href="#after">電話の後に記録すること</a></li>
+<li><a href="#never">全場面で言わないこと</a></li>
+<li><a href="#items">判定する項目</a></li>
+<li><a href="#basis">根拠と比べた結果</a></li>
+</ol>
+
+<h2 id="flow"><small>全体</small>電話の流れ</h2>
+<div class="mflow">
+<div class="ms"><div class="mh">場面1 受付</div><div class="md">目的: 担当者本人と話す<br>次へ: 本人が出る<br>分かれ道 1-A〜1-H</div></div>
+<div class="ms"><div class="mh">場面2 突破後</div><div class="md">目的: 日時を決める<br>次へ: 先方が日時に了承<br>分かれ道 2-A〜2-I</div></div>
+<div class="ms last"><div class="mh">場面3 ヒアリング</div><div class="md">目的: 決める人と近い採用時期を商談に連れてくる<br>終わり: 復唱して切る<br>分かれ道 3-A〜3-G</div></div>
+</div>
+<p class="cap"><b>図1</b> 前の場面の目的を果たすまで、次の場面の話はしない。日時が決まる前にヒアリングをしない。</p>
+<div class="tbl"><table>
+<tr><th>先方の返事</th><th>行く先</th></tr>
+<tr><td>受付が出た(名前が分かる / 分からない)</td><td>1-A / 1-B</td></tr>
+<tr><td>受付「どういったご用件で」</td><td>1-C</td></tr>
+<tr><td>受付「不在・会議中」</td><td>1-D</td></tr>
+<tr><td>受付「営業のお電話はお断りしています」</td><td>1-E</td></tr>
+<tr><td>受付「資料をメールで送ってください」</td><td>1-F</td></tr>
+<tr><td>受付が名前を教えてくれない</td><td>1-G</td></tr>
+<tr><td>担当者本人が直接出た</td><td>1-H → 2-A</td></tr>
+<tr><td>担当者が出た</td><td>2-A</td></tr>
+<tr><td>日程の話に乗ってきた(「午後なら」「水曜なら」)</td><td>2-B</td></tr>
+<tr><td>「何の件ですか」「覚えていない」</td><td>2-C</td></tr>
+<tr><td>「その日は無理」「忙しい」</td><td>2-D</td></tr>
+<tr><td>「今は募集していない」</td><td>2-E</td></tr>
+<tr><td>「紹介会社でしょ」「紹介は使わない」</td><td>2-F</td></tr>
+<tr><td>「資料を送って」「メールで」</td><td>2-G</td></tr>
+<tr><td>「こちらから連絡します」</td><td>2-H</td></tr>
+<tr><td>「いくらかかるの」</td><td>2-I</td></tr>
+<tr><td>日時が決まった</td><td>3-A → 3-B → 3-C → 3-D → 3-E</td></tr>
+<tr><td>「自分では決められない」・同席を断られた</td><td>3-B の中の分かれ道</td></tr><tr><td>採用の時期が決まっていない</td><td>3-C の中の分かれ道</td></tr><tr><td>先方が人数・職種・媒体などの細かい話を始めた</td><td>3-F</td></tr><tr><td>「オンラインは難しい」</td><td>3-G</td></tr>
+</table></div>
+<h2 id="s1"><small>場面1</small>受付を突破するまで</h2>
+<div class="goal">目的は<b>担当者本人と話すこと</b>です。受付では用件の説明も日程の話もしません。</div><h3 id="1-A"><span class="sid">1-A</span>名前が分かっているとき</h3><div class="script"><div class="line"><div class="who">受付</div><div>はい、〇〇株式会社でございます。</div></div><div class="line"><div class="who me">営業</div><div>お世話になっております。リクロジの〇〇です。以前〇〇様とお話ししておりまして、〇〇様はいらっしゃいますか。<span class="chk">名前</span></div></div><div class="line"><div class="who">受付</div><div>少々お待ちください。</div></div></div><div class="tip">社名と自分の名前は、はっきりゆっくり言います。受付に社名を聞き返された電話は、アポが取れても商談に進む率が7〜8ポイント低い。第一声で前回のことに触れると、担当者につながる率が10.7ポイント高い。</div><h3 id="1-B"><span class="sid">1-B</span>名前が分からないとき</h3><div class="script"><div class="line"><div class="who me">営業</div><div>お世話になっております。リクロジの〇〇です。採用のご担当者様はいらっしゃいますか。</div></div><div class="line"><div class="who">受付</div><div>人事の〇〇ですね、少々お待ちください。</div></div><div class="line"><div class="who me">営業</div><div>(名前を控える。つながったら最初に「〇〇様」と呼ぶ)<span class="chk">名前</span></div></div></div><div class="tip">名前で呼ぶと、担当者につながる率が13.3ポイント高い。名前が分からない電話では、受付か本人から必ず名前を手に入れます。受付が名前を言わなければ 1-G。</div><h3 id="1-C"><span class="sid">1-C</span>「どういったご用件で」と聞かれたとき</h3><div class="script"><div class="line"><div class="who">受付</div><div>どういったご用件でしょうか。</div></div><div class="line"><div class="who me">営業</div><div>以前〇〇様とお話ししていた件の続きでご連絡いたしました。<span class="chk">受付1文</span></div></div></div><div class="tip">1文で答えます。「採用の件で」と答えても差はなかったので、言いやすい方でよい。サービスの説明は続けません。</div><h3 id="1-D"><span class="sid">1-D</span>不在・会議中と言われたとき <span class="trial">比べて差なし</span></h3><div class="script"><div class="line"><div class="who">受付</div><div>あいにく〇〇は席を外しておりまして。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。何時頃お戻りのご予定でしょうか。<span class="chk">戻り時間</span></div></div><div class="line"><div class="who">受付</div><div>15時には戻ると思います。</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。では15時過ぎに改めてご連絡いたします。</div></div></div><div class="tip">戻りの時間が分かれば聞いて HubSpot に残します。分からなくても、こちらからかけ直します。戻りの時間を聞いた電話と聞かずに切った電話で、14日以内に本人とつながった率に差はありませんでした(63.2% / 60.0%)。折り返しを頼んだ電話は少なく比べられません。受付や代わりの人と日程を決めません。目当ての人が不在で別の人と日程を決めたアポは、商談に進む率が10〜12ポイント低い。戻りの時間と担当者の名前を HubSpot に残します。</div><h3 id="1-E"><span class="sid">1-E</span>「営業のお電話はお断りしています」と言われたとき <span class="trial">比べて差なし</span></h3><div class="script"><div class="line"><div class="who">受付</div><div>営業のお電話はお断りしております。</div></div><div class="line"><div class="who me">営業</div><div>失礼いたしました。以前〇〇様にお時間をいただいておりまして、その続きのご連絡です。〇〇様にお取り次ぎいただくことは難しいでしょうか。<span class="chk">受付1文</span></div></div><div class="line"><div class="who">受付</div><div>申し訳ありませんが、お断りしております。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。お忙しいところ失礼いたしました。</div></div></div><div class="tip">名前と前回のことを1文で伝え直すのは1回だけ。1回言い直した電話は取り次がれた率がやや高い向きでした(14.3% / 言い直さない 5.3%、168本で差は確かではない)。2回目に断られたら丁寧に終えます(2回以上言い直した電話は1本で比べられない)。サービスの説明で説得しません。</div><h3 id="1-F"><span class="sid">1-F</span>受付に「資料をメールで送ってください」と言われたとき <span class="trial">件数不足</span></h3><div class="script"><div class="line"><div class="who">受付</div><div>資料をメールで送っていただけますか。</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。お送りする前に、〇〇様に一言だけご確認したいことがありまして。〇〇様はいつ頃でしたらご在席でしょうか。<span class="chk">戻り時間</span></div></div></div><div class="tip">この場面はほとんど起きません(約3.5万本中19本)。資料を送って終わりにせず、本人と話せる時間を聞きます。送ってほしいと強く言われたら送り先と宛名(担当者の名前)を聞き、その名前で次の電話をかけます。</div><h3 id="1-G"><span class="sid">1-G</span>受付が担当者の名前を教えてくれないとき <span class="trial">比べて差なし</span></h3><div class="script"><div class="line"><div class="who">受付</div><div>担当におつなぎします。</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。よろしくお願いいたします。</div></div><div class="line"><div class="who">先方</div><div>お電話代わりました。</div></div><div class="line"><div class="who me">営業</div><div>お世話になっております。リクロジの〇〇です。恐れ入ります、お名前を伺ってもよろしいですか。<span class="chk">名前</span></div></div></div><div class="tip">受付で無理に聞かず、本人が出たら最初に「恐れ入ります、お名前を伺ってもよろしいですか」と確かめます。つなぐ前に受付に聞いても本人につながる率は変わらず(46.5% / 聞かない 48.1%)、聞いた電話の4本に1本ほどで受付が教えるのを断るか嫌がりました。名前で呼べず、名前も手に入れずに終わる電話は作りません。</div><h3 id="1-H"><span class="sid">1-H</span>担当者本人が直接出たとき</h3><div class="script"><div class="line"><div class="who">先方</div><div>はい、〇〇です。</div></div><div class="line"><div class="who me">営業</div><div>〇〇様、お世話になっております。リクロジの〇〇です。<span class="chk">名前</span></div></div></div><div class="tip">そのまま 2-A に進みます。名前が分からなければ、ここで聞きます。</div><h3>場面1で言わないこと</h3>
+<table><tr><th>言いがちなこと</th><th>代わりに</th></tr>
+<tr><td>名前が分かっているのに「採用のご担当者様」</td><td class="hi">「〇〇様」と名前で呼ぶ</td></tr>
+<tr><td>受付にサービスの説明をする</td><td class="hi">用件は1文</td></tr>
+<tr><td>受付に日程を聞く・受付と日程を決める</td><td class="hi">戻りの時間を聞き、本人にかけ直す</td></tr>
+<tr><td>受付に「今は募集されていますか」と聞く</td><td class="hi">需要の話は商談でする</td></tr>
+<tr><td>折り返しをお願いする</td><td class="hi">こちらからかけ直す</td></tr>
+</table><h2 id="s2"><small>場面2</small>受付を突破した後</h2>
+<div class="goal">目的は<b>日時を決めること</b>です。名乗ってから2〜3回のやり取りで、日付(週・曜日)を出します。需要の確認と説明は、日時が決まった後か商談でします。</div><h3 id="2-A"><span class="sid">2-A</span>担当者が出たら、既存感で入ってすぐ日付</h3><div class="script"><div class="line"><div class="who me">営業</div><div>〇〇様、お忙しいところ失礼します。リクロジの〇〇です。〇〇様、覚えていただいてますか?</div></div><div class="line"><div class="who">先方</div><div>ああ、なんとなく。</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。前回〇月にお電話したんですけど、タイミングが合わなかったので、改めて〇〇様とお話ができればと思いまして。<span class="chk">既存感</span></div></div><div class="line"><div class="who me">営業</div><div>来週の水曜か木曜あたり、30分ほどご都合いかがですか。<span class="chk">早く日付</span><span class="chk">需要を聞かない</span><span class="chk">中身を言わない</span></div></div></div><div class="tip">「サービスの中身をお伝えしたく」「〇〇職の採用の件で」は言いません。「今は募集されていますか」も挟みません。前回「また日程を」と言われていた相手には、「前回、日程を調整いただけるとのことだったので」と入ります。覚えていないと言われても、同じように前回のことと改めた理由を一言添えて日付を出します。</div><h3 id="2-B"><span class="sid">2-B</span>日程の話に乗ってきたとき(時刻の決め方)</h3><div class="script"><div class="line"><div class="who">先方</div><div>木曜なら午後が空いてるかな。</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。午後ですと、何時頃がよろしいですか。</div></div><div class="line"><div class="who">先方</div><div>14時なら。</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。では来週木曜の14時でお願いいたします。</div></div></div><div class="tip">先方の都合を先方の口から言ってもらう入り方は、その後の商談に進む率が7〜10ポイント高い。こちらから「14時か15時ですと」と時刻を出してもよい。「何時」「空いてる」「ちょっと待ってください」は脈ありのサインなので、そのまま日時を決めます。決まったら 3-A へ。</div><h3 id="2-C"><span class="sid">2-C</span>「何の件ですか」「覚えていない」と言われたとき</h3><div class="script"><div class="line"><div class="who">先方</div><div>えーと、何の件でしたっけ。</div></div><div class="line"><div class="who me">営業</div><div>失礼いたしました。採用のご支援の件です。求人媒体の選び方から運用までをまとめてお手伝いしています。<span class="chk">何の件</span></div></div><div class="line"><div class="who me">営業</div><div>一度〇〇様とお話ができればと思いまして、来週の水曜か木曜あたりはいかがですか。<span class="chk">何の件</span></div></div></div><div class="tip">4本に1本ほどはこう聞かれます。1〜2文で答えて、すぐ日付に戻ります。説明を続けると、営業電話として断る流れに入ります。</div><h3 id="2-D"><span class="sid">2-D</span>「その日は無理」「忙しい」と言われたとき</h3><div class="script"><div class="line"><div class="who">先方</div><div>来週はちょっとバタバタしてて。</div></div><div class="line"><div class="who me">営業</div><div>そうですよね、失礼いたしました。では再来週の火曜か水曜あたりはいかがですか。<span class="chk">忙しい→別の日</span></div></div><div class="line"><div class="who">先方</div><div>再来週もちょっと。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。では再来週の金曜の午前中はいかがですか。<span class="chk">忙しい→別の日</span></div></div><div class="line"><div class="who">先方</div><div>いや、今は特に考えてないので。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。またタイミングを見てご連絡いたします。お忙しいところありがとうございました。</div></div></div><div class="tip">「いつ頃ならよろしいですか」と先方に選ばせず、こちらから具体的な週・曜日・時間帯を出します。謝るより次の日を出します。「お盆明け」「落ち着いたら」とぼかしません。断る理由が変わった(「忙しい」→「今は考えていない」)ら本当の断りなので、そこで丁寧に終えます。断る理由が日程である限り出し直します。5〜6回目に出した日付でも2割前後がアポになっていて、回数で区切る根拠はありませんでした。</div><h3 id="2-E"><span class="sid">2-E</span>「今は募集していない」と言われてしまったとき</h3><div class="script"><div class="line"><div class="who">先方</div><div>今は募集してないんですよ。</div></div><div class="line"><div class="who me">営業</div><div>そうなんですね。ちなみに、次に採用をお考えになるのは、いつ頃になりそうですか。</div></div><div class="line"><div class="who">先方</div><div>うーん、来年かな。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。お忙しいところありがとうございました。またその頃に改めてご連絡させてください。</div></div></div><div class="tip">ここからはほとんど取れません(1,650本でアポ18件)。「本当にないですか」「どういう状況ですか」と聞き直さず、次の時期と担当者の名前を記録して短く終えます。大事なのは、この返事を引き出さないことです(2-A で需要を聞かない)。</div><h3 id="2-F"><span class="sid">2-F</span>「紹介会社でしょ」「紹介は使わない」と言われたとき</h3><div class="script"><div class="line"><div class="who">先方</div><div>紹介会社さんですよね? 紹介は使ってないんで。</div></div><div class="line"><div class="who me">営業</div><div>人材紹介とは違って、求人媒体の選び方と運用をお手伝いしています。<span class="chk">何の件</span></div></div><div class="line"><div class="who me">営業</div><div>一度〇〇様とお話ができればと思いまして、来週の水曜あたりいかがですか。<span class="chk">早く日付</span></div></div></div><div class="tip">違いを一言で返して日付に戻ります。「人材紹介とは違って」は、使った電話の方がアポになりやすかった言い回しです(確か)。</div><h3 id="2-G"><span class="sid">2-G</span>「資料を送って」「メールで」と言われたとき <span class="trial">件数不足</span></h3><div class="script"><div class="line"><div class="who">先方</div><div>とりあえず資料をメールで送ってもらえますか。</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。お送りします。資料だけですと分かりにくいところもあるので、30分ほどで画面を見ながらご説明できればと思いまして、来週の水曜か木曜あたりはいかがですか。<span class="chk">早く日付</span></div></div><div class="line"><div class="who">先方</div><div>まずは資料を見てからで。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。では資料をお送りして、来週の水曜に改めてお電話いたします。送り先はどちらがよろしいですか。</div></div></div><div class="tip">資料を送るのは断らず、日付を1回だけ出します。断られたら送り先と次に電話する日を決めて終えます。</div><h3 id="2-H"><span class="sid">2-H</span>「こちらから連絡します」と言われたとき</h3><div class="script"><div class="line"><div class="who">先方</div><div>必要になったらこちらから連絡します。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。ちなみに、次に採用をお考えになるのは、いつ頃になりそうですか。</div></div><div class="line"><div class="who">先方</div><div>春くらいかな。</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。ではその前に一度ご連絡させてください。お忙しいところありがとうございました。</div></div></div><div class="tip">脈なしのサインです。粘らず、次にかける時期だけ聞いて短く終えます。</div><h3 id="2-I"><span class="sid">2-I</span>「いくらかかるの」と聞かれたとき <span class="trial">比べて差なし</span></h3><div class="script"><div class="line"><div class="who">先方</div><div>それっていくらかかるんですか。</div></div><div class="line"><div class="who me">営業</div><div>月額〇万円ほどからです。ご状況によって変わりますので、当日に具体的な金額までお示しします。30分ほどで、来週の水曜か木曜あたりはいかがですか。<span class="chk">早く日付</span></div></div></div><div class="tip">目安を1文で答えても、「金額は当日」と回しても、アポになる率に差はありませんでした(当日に回した 20.5% / 電話で説明 23.1%、243本)。どちらでもよいので、答えたら必ず日付に戻ります。金額の説明を続けません。</div><h3>場面2で言わないこと</h3>
+<table><tr><th>言いがちなこと</th><th>代わりに</th></tr>
+<tr><td>日付の前に「今は募集していないですか」「充足していますか」</td><td class="hi">需要に触れずに日付を出す</td></tr>
+<tr><td>「採用サービスの中身をお伝えしたく」「〇〇職の採用の件で」</td><td class="hi">前回のことと改めた理由を一言添えて日付を出す</td></tr>
+<tr><td>「お話しする機会をいただけませんか」(日付なし)</td><td class="hi">「来週の水曜か木曜は」と日付で聞く</td></tr>
+<tr><td>「忙しい」に「また改めます」「いつ頃なら」</td><td class="hi">こちらから別の週・日を出す</td></tr>
+<tr><td>「良いタイミングでぜひ」</td><td class="hi">日付を出す</td></tr>
+<tr><td>日時が決まる前に人数・職種・媒体を聞く</td><td class="hi">場面3か商談で聞く</td></tr>
+</table><h2 id="s3"><small>場面3</small>アポ後のヒアリング</h2>
+<div class="goal">先方が日時に了承したところから始めます。目的は<b>商談に「決める人」と「近い採用時期」を連れてくること</b>です。聞くのは 3-A〜3-D の4つだけにします。人数・職種・媒体・募集の背景・課題は商談で聞きます。</div><h3 id="3-A"><span class="sid">3-A</span>日時を復唱し、形式と案内の送り先を確かめる</h3><div class="script"><div class="line"><div class="who">先方</div><div>じゃあ木曜の14時で。</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。来週木曜の14時から、オンラインでお願いいたします。ご案内はどちらのメールアドレスにお送りすればよろしいですか。<span class="chk">復唱・送り先</span></div></div><div class="line"><div class="who">先方</div><div>〇〇@〇〇.co.jp でお願いします。</div></div></div><div class="tip">「オンラインは難しい」と言われたら 3-G。</div><h3 id="3-B"><span class="sid">3-B</span>当日の参加者を聞き、決める方の同席をお願いする</h3><div class="script"><div class="line"><div class="who me">営業</div><div>ありがとうございます。当日はどなたがご参加になりますか。<span class="chk">参加者</span></div></div><div class="line"><div class="who">先方</div><div>私だけですかね。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。もしご都合が合えば、最終的にお決めになる方にもご同席いただけますと、その場で具体的な費用や進め方までお話しできます。<span class="chk">参加者</span></div></div><div class="line"><div class="who">先方</div><div>社長に聞いてみます。</div></div></div><div class="tip">役員本人が商談に出た取引の成約は約20%で、部長・担当者だけの取引より高い。同席のお願いは1回、軽くするだけにします。お願いした電話では先方が「聞いてみる」と答えることは増えましたが、実際に役員が商談に出た率は増えず(13.1% / お願いしていない 14.7%)、成約はやや低い向きでした。決める方の名前と役職を聞いて記録し、商談担当に渡すことを主にします。「決裁者はどなたですか」と立場を問いただす形にはしません。</div><p class="no">分かれ道: 「自分では決められない」と言われたら</p><div class="script"><div class="line"><div class="who">先方</div><div>私では決められないので、話を聞くだけになりますけど。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。最終的にはどなたがお決めになりますか。もしご都合が合えば、その方にも当日少しだけご同席いただけますと、〇〇様から改めてご説明いただくお手間がかかりません。<span class="chk">参加者</span></div></div></div><p class="no">分かれ道: 同席を断られたら</p><div class="script"><div class="line"><div class="who">先方</div><div>社長は出られないと思います。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。では当日は、〇〇様から社長様へお伝えいただきやすい形でご説明いたします。</div></div></div><div class="tip">同席が難しければ、そのまま記録して終えます。アポは取り下げません。「自分では決められない」と言われたアポは商談に進む率が8〜12ポイント低いので、記録して商談担当に知らせます。</div><h3 id="3-C"><span class="sid">3-C</span>採用を始めたい時期を聞く</h3><div class="script"><div class="line"><div class="who me">営業</div><div>差し支えなければ、採用はいつ頃から始められるご予定ですか。いつ頃までに採用できるとよろしいでしょうか。<span class="chk">時期</span></div></div><div class="line"><div class="who">先方</div><div>来月には出したいと思ってます。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。</div></div></div><p class="no">分かれ道: 時期が決まっていないと言われたら</p><div class="script"><div class="line"><div class="who">先方</div><div>まだ全然決まってないです。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。当日、状況を伺いながら一緒に整理できればと思います。</div></div></div><div class="tip">答えは先方の言葉のまま記録します。商談前に「1か月以内」と答えた取引の成約は15.5%、「3か月以内」は1.2%。時期を聞いても、商談に進む率は下がりませんでした。</div><h3 id="3-D"><span class="sid">3-D</span>事前アンケートの記入をお願いする</h3><div class="script"><div class="line"><div class="who me">営業</div><div>ご案内と一緒に簡単な事前アンケートをお送りしますので、ご記入いただけますと当日のお話がスムーズです。</div></div></div><div class="tip">予算はここで書いてもらい、電話では聞きません。アンケートに答えた取引は商談の実施率が86%(答えていない取引は69%)。</div><h3 id="3-E"><span class="sid">3-E</span>最後にもう一度復唱して切る</h3><div class="script"><div class="line"><div class="who me">営業</div><div>では来週木曜14時、オンラインで、ご案内を〇〇@〇〇.co.jp にお送りします。当日はどうぞよろしくお願いいたします。<span class="chk">復唱・送り先</span></div></div><div class="line"><div class="who">先方</div><div>よろしくお願いします。</div></div></div><h3 id="3-F"><span class="sid">3-F</span>先方が人数・職種・媒体などの細かい話を始めたとき <span class="trial">通話で比べて支持・暫定</span></h3><div class="script"><div class="line"><div class="who">先方</div><div>今ドライバーを3人募集してて、媒体はIndeedに出してるんだけど、全然来なくて。</div></div><div class="line"><div class="who me">営業</div><div>(相づちだけで最後まで聞く)</div></div><div class="line"><div class="who me">営業</div><div>ありがとうございます。当日はそれを踏まえてご提案いたします。<span class="chk">聞きすぎない</span></div></div></div><div class="tip">先方が話す分は止めずに聞き、こちらから質問を重ねません。先方から話し始めた電話で、質問を重ねずに聞き切ったアポは C以上 77.1%、質問を重ねたアポは 49.2% でした(同じ営業の中で +25.5pt、330本)。「そのあたりは当日伺います」と途中で区切った電話は、質問を重ねた電話と差がありませんでした。こちらから聞くのは人数・職種・媒体・募集の背景・課題のうち2つまでにします。日時が決まった後に聞いた項目が多いアポほど、商談に進む率が低かった(0項目 57% → 5項目 42%)。</div><h3 id="3-G"><span class="sid">3-G</span>「オンラインは難しい」と言われたとき <span class="trial">比べて差なし</span></h3><div class="script"><div class="line"><div class="who">先方</div><div>オンラインはちょっと苦手で。</div></div><div class="line"><div class="who me">営業</div><div>承知いたしました。でしたら当日お電話で、資料をお送りしながらご説明する形でも対応いたします。</div></div></div><div class="tip">形式で日時を取り消さず、電話での説明か訪問を相談します。決まった形式を記録します。電話・訪問を提案したアポとそれ以外で、商談の実施率に差はありませんでした(50.0% / 51.6%、105本)。</div><p class="no">熱くないアポ</p>
+<p>日時が決まった後に「募集の予定はない」「費用をかける予定はない」とはっきり言われたときは、営業側から見送ることがあります。見送りは営業の失敗として扱いません。迷うときは見送らず、記録して商談担当に回します。</p>
+<h3>場面3で言わないこと</h3>
+<table><tr><th>言いがちなこと</th><th>なぜ避けるか</th></tr>
+<tr><td>人数・職種・媒体・募集の背景・課題を細かく聞く</td><td>多く聞いたアポほど商談に進む率が低かった。商談で聞く</td></tr>
+<tr><td>「決裁者はどなたですか」と立場を問いただす</td><td>決める人を聞いたアポは商談に進む率がやや低かった。参加者を聞き、決める方の名前と役職を記録する形にする</td></tr>
+<tr><td>電話で予算の額を聞く</td><td>アンケートで書いてもらう</td></tr>
+</table><h2 id="after"><small>運用</small>電話の後に記録すること</h2>
+<table><tr><th>項目(HubSpot)</th><th>なぜ</th></tr>
+<tr><td>担当者の名前</td><td>次の電話で名前で呼べる(1-A)</td></tr>
+<tr><td>不在のときの戻りの時間</td><td>その時間にかけ直す(1-D)</td></tr>
+<tr><td>当日の参加者と役職、決める方の同席の有無</td><td>商談の結果を一番大きく分けるのは、商談に誰が出るか</td></tr>
+<tr><td>採用を始めたい時期(先方の言葉のまま)</td><td>1〜2か月以内かどうかで成約が大きく違う</td></tr>
+<tr><td>「自分では決められない」「目当ての人と違う人と決めた」「用件を覚えていなかった」</td><td>商談に進みにくいアポの目印。商談担当が準備に使う</td></tr>
+<tr><td>断られたときの次の時期(2-E・2-H)</td><td>その前に電話する</td></tr>
+</table>
+
+<h2 id="never"><small>全場面</small>言わないこと</h2>
+<ol class="rules">
+<li><div><b>日付の前に需要を聞かない</b><span>「今は募集していないですか」「充足していますか」。受付にも担当者にも聞かない。</span></div></li>
+<li><div><b>日付の前にサービスの中身・職種を言わない</b><span>「サービスの中身をお伝えしたく」「〇〇職の採用の件で」。聞かれたら1〜2文で答える。</span></div></li>
+<li><div><b>先方に日を選ばせない</b><span>「いつ頃なら」「良いタイミングで」。こちらから週・曜日を出す。</span></div></li>
+<li><div><b>名前が分かっているのに「ご担当者様」と呼ばない</b><span>名前が分からなければ、その電話で手に入れる。</span></div></li>
+<li><div><b>日時が決まる前にヒアリングをしない</b><span>決まった後も、聞くのは4つだけ。</span></div></li>
+</ol>
+<h2 id="items"><small>運用</small>判定する項目</h2>
+<p>トークの振り返りでは、電話の文字起こしから下の項目を判定します。名前は「名前で呼んだ / 名前なしで呼び、名前を聞き出した / 名前なしで呼び、聞き出していない」の3つに分けて判定し、集計では「名前で呼ぶ」と「名前を手に入れる」の2つに分けます。合わせて14項目です。</p>
+<div class="tbl"><table class="mt">
+<tr><th>印</th><th>場面</th><th>項目</th><th>できた</th><th>当てはまらない電話</th><th>分かれ道</th></tr>
+<tr><td><span class="chk">名前</span></td><td>1</td><td>名前で呼ぶ / 名前を手に入れる</td><td>受付か本人を「〇〇様」と名前で呼んだ、または名前が分からずに呼んだ電話で名前を聞き出した</td><td>受付も本人も出ていない電話</td><td class="num">1-A 1-B 1-G 1-H</td></tr><tr><td><span class="chk">受付1文</span></td><td>1</td><td>受付に用件を1文で答える</td><td>受付に用件を聞かれたとき、1〜2文で答え、サービスの説明を続けなかった</td><td>用件を聞かれていない電話</td><td class="num">1-C 1-E</td></tr><tr><td><span class="chk">戻り時間</span></td><td>1</td><td>不在のとき戻りの時間を聞く</td><td>不在・会議中と言われたとき戻りの時間を聞いた。聞かずに切った、受付や別の人と日程を決めたらできていない</td><td>不在と言われていない電話</td><td class="num">1-D 1-F</td></tr><tr><td><span class="chk">既存感</span></td><td>2</td><td>既存感(前回のこと・改めた理由)</td><td>日付の前に、前回の電話に触れ、改めて電話した理由を添えた</td><td>担当者と話せていない電話</td><td class="num">2-A</td></tr><tr><td><span class="chk">早く日付</span></td><td>2</td><td>早く日付を出す</td><td>名乗ってから営業の発言2〜3回以内に、具体的な週・曜日・日を出した</td><td>担当者と話せていない電話</td><td class="num">2-A 2-F 2-G 2-I</td></tr><tr><td><span class="chk">需要を聞かない</span></td><td>2</td><td>日付の前に需要を聞かない</td><td>最初に日付を出すより前に、募集・需要の有無を聞いたらできていない</td><td>担当者と話せていない電話</td><td class="num">2-A</td></tr><tr><td><span class="chk">中身を言わない</span></td><td>2</td><td>日程を切るとき中身・職種を言わない</td><td>日程を切る一言かその直前に、営業から「サービスの中身を」「〇〇職の件で」と言ったらできていない(聞かれて答えたのはできた)</td><td>日程を切っていない電話</td><td class="num">2-A</td></tr><tr><td><span class="chk">何の件</span></td><td>2</td><td>「何の件ですか」に短く答えて日付に戻る</td><td>1〜2文で答えてすぐ日付を出し直した</td><td>そう聞かれていない電話</td><td class="num">2-C 2-F</td></tr><tr><td><span class="chk">忙しい→別の日</span></td><td>2</td><td>「忙しい」の後にこちらから別の日を出す</td><td>予定の理由で断られた後、こちらから具体的な別の週・曜日・日を出した。「いつ頃なら」と選ばせた、引き下がったらできていない</td><td>予定の理由で断られていない電話</td><td class="num">2-D</td></tr><tr><td><span class="chk">復唱・送り先</span></td><td>3</td><td>日時を復唱し案内の送り先を確かめる</td><td>日時が決まった後、日時を復唱し、案内の送り先を確かめた</td><td>日時が決まらなかった電話</td><td class="num">3-A 3-E</td></tr><tr><td><span class="chk">参加者</span></td><td>3</td><td>当日の参加者を聞く</td><td>当日の参加者を聞いた、または決める方の同席を頼んだ</td><td>日時が決まらなかった電話</td><td class="num">3-B</td></tr><tr><td><span class="chk">時期</span></td><td>3</td><td>採用を始めたい時期を聞く</td><td>採用を始めたい時期・いつまでに採用したいかを聞いた</td><td>日時が決まらなかった電話</td><td class="num">3-C</td></tr><tr><td><span class="chk">聞きすぎない</span></td><td>3</td><td>細かいことを聞きすぎない</td><td>日時が決まった後に聞いた人数・職種・媒体・募集の背景・課題が2つ以下</td><td>日時が決まらなかった電話</td><td class="num">3-F</td></tr>
+</table></div>
+<p class="note">遵守率は、場面ごとに「その電話に当てはまる項目のうち、できた項目の割合」です。事前アンケートのお願い(3-D)は、アンケートの回答の有無で見るので、電話の判定には入れません。「名前で呼べず、名前も手に入れていない」電話は、あってはならない電話として本数を数えます。</p>
+<h2 id="basis"><small>根拠</small>根拠と比べた結果</h2>
+<table>
+<tr><th>分かれ道</th><th>分かったこと</th><th>対象</th></tr>
+<tr><td>1-A 1-B</td><td>名前で呼ぶと担当者につながる率 +13.3pt、第一声で前回に触れると +10.7pt。受付への用件の答え方では差なし</td><td>全架電 15,455本</td></tr>
+<tr><td>1-A 1-D 3-B</td><td>受付が社名を聞き返した −7〜8pt、目当ての人が不在で別の人と決めた −10〜12pt、「自分では決められない」−8〜12pt(商談に進む率)</td><td>7〜9月にアポを取った電話 2,025本</td></tr>
+<tr><td>2-A〜2-E</td><td>需要を聞かない・早く日付・「忙しい」で引かない・名前で呼ぶ。「人材紹介とは違って」はアポになりやすい言い回し</td><td>総架電 56,009本(6/1〜10/9)。<a href="apo-talk-v1.html">アポ取りトーク v1</a></td></tr>
+<tr><td>2-B</td><td>先方の都合を聞く入り方は、商談に進む率 +7〜10pt</td><td>アポを取った電話 2,025本</td></tr>
+<tr><td>3-B 3-C 3-D</td><td>役員本人が出た商談の成約 約20%。採用時期 1か月以内 15.5%、3か月以内 1.2%。アンケートに答えた取引の実施率 86%(答えていない 69%)</td><td>初回商談 1,749件、事前アンケートに答えた 8〜9月の商談 639件</td></tr>
+<tr><td>3-F</td><td>日時が決まった後に聞いた項目が多いほど商談に進む率が低い(0項目 57% → 5項目 42%)。同じ営業の中では −1〜5pt に縮む</td><td>アポを取った電話 2,025本</td></tr>
+</table>
+<h3>分かれ道ごとに通話で比べた結果</h3>
+<p>7〜8月にアポ取得者57人が発信した電話から無作為に選んだ6万本の文字起こしのうち、会話になった34,888本(場面1・2)と、7〜9月にアポを取った電話2,026本(場面3)で比べました。2-G と 2-I には6〜10月の通話9,681本も加えています。差は同じ営業の中で比べた値で、95%区間は同じ番号をまとめて選び直して出しました。期間を2つに分けて、向きが同じかも見ています。</p>
+<div class="tbl"><table class="mt">
+<tr><th>分かれ道</th><th>結果</th><th>数字(書いた言い方 / 比べた相手)</th></tr>
+<tr><td>3-F</td><td>支持(暫定)</td><td>先方から話し始めた330本。質問を重ねず聞き切った35本 / 重ねた295本。C以上 77.1% / 49.2%(+25.5pt、区間 +8.8〜+43.4、両期間とも同じ向き)。商談の実施率は差がはっきりしない(85.7% / 78.0%)</td></tr>
+<tr><td>2-D</td><td>回数で区切る根拠なし</td><td>日程の理由で断られた回数ごとに、もう一度日付を出した電話のアポ率: 1回 23.1%・2回 30.5%・3回 26.6%・4回 23.2%・5回 17.8%。出さなかった電話は 0〜12%。出し直さないとアポにならない構造を含む数字です</td></tr>
+<tr><td>1-D</td><td>差なし</td><td>不在の場面2,576本。戻りの時間を聞いた1,177本 / 聞かずに切った1,319本。14日以内に本人とつながった率 63.2% / 60.0%(+3.9pt、区間 −1.3〜+9.0)</td></tr>
+<tr><td>1-E</td><td>差なし(同じ向き)</td><td>168本。1回言い直した35本 / 言い直さない132本。取り次がれた率 14.3% / 5.3%(+7.1pt、区間 −3.8〜+21.7)</td></tr>
+<tr><td>1-G</td><td>差なし</td><td>924本。受付に名前を聞いた230本 / 聞かない694本。本人につながった率 46.5% / 48.1%。聞いた230本のうち52本で受付が断るか嫌がった</td></tr>
+<tr><td>2-I</td><td>差なし</td><td>243本。金額は当日と回した44本 / 電話で説明199本。その電話のアポ 20.5% / 23.1%(−3.6pt、区間 −19.5〜+14.7)</td></tr>
+<tr><td>3-B</td><td>差なし(成約はやや低い向き)</td><td>決める人が別にいると分かった929本。同席をお願いした456本 / しない473本。先方が「同席する・聞いてみる」と答えた率 38.2% / 7.2%。商談に役員が出た率 13.1% / 14.7%、成約 3.9% / 6.3%(−2.4pt、区間 −5.2〜+0.8、両期間ともマイナス)</td></tr>
+<tr><td>3-G</td><td>差なし</td><td>105本。電話・訪問を提案した48本 / それ以外31本。商談の実施率 50.0% / 51.6%(区間 −13.5〜+34.1)</td></tr>
+<tr><td>1-A</td><td>差なし</td><td>受付への依頼で、前回のことと名前を1文にまとめた53本 / それ以外。本人につながった率 52.8% / 55.0%</td></tr>
+<tr><td>1-F</td><td>件数不足</td><td>場面が約3.5万本中19本</td></tr>
+<tr><td>2-G</td><td>件数不足</td><td>106本。日付を出したのは17本(アポ 23.5% / 9.0%、区間 −4.2〜+46.7)</td></tr>
+</table></div>
+<p class="note">判定は MiniMax-M3 と、精度の低かった項目はキーワードの規則で行いました。11の項目で72件を読み比べ、約73%が一致しました。3-F の「先方が自分から話し始めたか」は10件中5件の一致で、3-F を暫定としたのはこのためです。2-G・2-I も一致は5件中2〜3件です。数字は言い方と結果が一緒に出ているというだけで、効果の大きさは示していません。</p>
+<footer>トークスクリプト 完全版 ｜ 2026-10-26 ｜ v2 の3つの場面に、先方の返事ごとの分かれ道とトークの振り返りの項目を合わせたもの。顧客名と文字起こしの原文は載せていない。</footer>
+</main>
+</body></html>
