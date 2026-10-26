@@ -14,6 +14,7 @@ pub mod auth;
 mod dev_sheet;
 pub mod live;
 pub mod mail;
+pub mod mail_grant;
 pub mod sheet_store;
 pub mod sheets;
 pub mod store;
@@ -85,6 +86,8 @@ struct Ctx {
     /// 顧客のシートの読み取りの共有 (reader があるときだけ)
     live: Option<Arc<live::LiveSheets>>,
     views: view::ViewLog,
+    /// 確認コードの送信の回数の上限 (アカウントごと・全体)
+    limits: mail::SendLimits,
     access: CrmAccess,
     manifest: Option<AppManifest>,
 }
@@ -93,7 +96,7 @@ impl Ctx {
     /// 顧客の API を開けるか。保存先が読み込み済みで、メールを送れるときだけ
     fn portal(&self) -> Option<Portal> {
         match (&self.auth, &self.mailer) {
-            (Some(auth), Some(mailer)) if auth.store().ready() && mailer.ready() => Some(Portal {
+            (Some(auth), Some(mailer)) if auth.store().ready() => Some(Portal {
                 auth: auth.clone(),
                 mailer: mailer.clone(),
             }),
@@ -168,7 +171,7 @@ fn invite_path(token: &str) -> String {
 
 // ---- 組み立て ----
 
-/// `audit` は確認コードのメールの送信元の許可 (CRM のメール送信の許可) を読むのに使う
+/// `audit` は確認コードのメールの送信元の許可 (`portal_mail_grants`、ADR-035) を読むのに使う
 pub fn router(audit: Option<crate::audit::AuditDb>) -> Router<Arc<AppState>> {
     let manifest = spa_shell::load_manifest(std::path::Path::new(spa_shell::MANIFEST_PATH));
     router_parts(parts_from_env(audit), CrmAccess::from_env(), manifest)
@@ -190,8 +193,9 @@ fn auth_config() -> auth::AuthConfig {
 /// - 社内用シート (`PORTAL_STORE_SPREADSHEET_ID` と `PORTAL_STORE_SA_KEY_B64`) が両方あれば保存先にする。
 ///   どちらかが無ければ保存先は無効 (社内の管理 API も顧客の API も 503)。
 /// - 顧客のシートを読む鍵 (`PORTAL_GOOGLE_SA_KEY_B64`) があれば「試しに読む」に使う。
-/// - 確認コードのメールは社員本人 (`PORTAL_MAIL_SENDER`) の Gmail から、CRM のメール送信の許可を使って送る
-///   ([`mail::GmailMailer`])。CRM のメール送信が無効・許可が無いときは、本番の顧客の API は 503 のまま。
+/// - 確認コードのメールは社員本人 (`PORTAL_MAIL_SENDER`) の Gmail から送る ([`mail::GmailMailer`])。
+///   許可は社内の管理画面で別に取る ([`mail_grant`]、CRM の許可とは別)。送信の設定が無ければ顧客の API は 503。
+///   許可が無い間は確認コードを送る操作だけを断る。
 /// - debug ビルドで `PORTAL_DEV_MEMORY=1` のときだけ、メモリの保存先とログに出すメールで動かす (手元の確認用)。
 fn parts_from_env(audit: Option<crate::audit::AuditDb>) -> Parts {
     let reader = sheets::GoogleSheetsApi::from_env_var(sheets::ENV_CUSTOMER_KEY);
@@ -323,6 +327,7 @@ fn router_parts(
         reader: parts.reader,
         live,
         views: view::ViewLog::default(),
+        limits: mail::SendLimits::default(),
         store_spreadsheet: parts.store_spreadsheet,
         access,
         manifest,
@@ -340,6 +345,7 @@ fn router_parts(
         .route("/api/portal/invite/accept", post(invite_accept))
         .merge(view::routes())
         .merge(admin::routes())
+        .merge(mail_grant::routes())
         .route_layer(middleware::from_fn(csrf_guard));
     pages
         .merge(api)
@@ -554,19 +560,28 @@ async fn login(
             code,
             to,
         } => {
-            if p.mailer.send_code(&to, &code).await.is_err() {
+            if !p.mailer.ready() {
+                p.auth.drop_challenge(&challenge);
+                tracing::warn!("[portal] 確認コードを送れない状態なので送らなかった");
+                return mail_failed();
+            }
+            if !ctx
+                .limits
+                .take(&limit_key(&to), to.len(), std::time::Instant::now())
+            {
+                p.auth.drop_challenge(&challenge);
+                tracing::warn!("[portal] 確認コードの送信の回数の上限を超えた");
+                return mail_limit();
+            }
+            let Ok(delivered) = p.mailer.send_code(&to, &code).await else {
                 p.auth.drop_challenge(&challenge);
                 tracing::warn!("[portal] 確認コードを送れなかった");
-                return err(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "mail_failed",
-                    "確認コードを送れませんでした。少し待ってからもう一度お試しください",
-                );
-            }
+                return mail_failed();
+            };
             tracing::info!("[portal] 確認コードを送った");
             let mut resp = Json(PortalLoginResponse {
                 status: "code_required".into(),
-                to: to.iter().map(|e| auth::mask_email(e)).collect(),
+                to: delivered.iter().map(|e| auth::mask_email(e)).collect(),
             })
             .into_response();
             set_cookie(
@@ -606,6 +621,29 @@ async fn login(
             )
         }
     }
+}
+
+fn mail_failed() -> Response {
+    err(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "mail_failed",
+        "確認コードを送れませんでした。少し待ってからもう一度お試しください",
+    )
+}
+
+fn mail_limit() -> Response {
+    err(
+        StatusCode::TOO_MANY_REQUESTS,
+        "mail_limit",
+        "確認コードを送る回数が多すぎます。1 時間ほどおいてからお試しください",
+    )
+}
+
+/// 送信の回数を数える鍵: アカウントのメールアドレス (送り先の先頭)
+fn limit_key(to: &[String]) -> String {
+    to.first()
+        .map(|e| auth::normalize_email(e))
+        .unwrap_or_default()
 }
 
 fn invalid_credentials() -> Response {
@@ -686,18 +724,32 @@ async fn resend(Extension(ctx): Extension<Arc<Ctx>>, headers: HeaderMap) -> Resp
     let Some(challenge) = cookie(&headers, CHALLENGE_COOKIE) else {
         return code_expired();
     };
+    // 送れない・上限を超えたときは、今のコードを変えずに断る
+    if let Some(email) = p.auth.challenge_email(challenge) {
+        if !p.mailer.ready() {
+            return mail_failed();
+        }
+        let key = limit_key(std::slice::from_ref(&email));
+        if !ctx.limits.allows(&key, 1, std::time::Instant::now()) {
+            tracing::warn!("[portal] 確認コードの送信の回数の上限を超えた");
+            return mail_limit();
+        }
+    }
     match p.auth.resend(challenge, now()) {
         ResendResult::Sent { code, to } => {
-            if p.mailer.send_code(&to, &code).await.is_err() {
-                return err(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "mail_failed",
-                    "確認コードを送れませんでした。少し待ってからもう一度お試しください",
-                );
+            if !ctx
+                .limits
+                .take(&limit_key(&to), to.len(), std::time::Instant::now())
+            {
+                tracing::warn!("[portal] 確認コードの送信の回数の上限を超えた");
+                return mail_limit();
             }
+            let Ok(delivered) = p.mailer.send_code(&to, &code).await else {
+                return mail_failed();
+            };
             Json(PortalLoginResponse {
                 status: "code_required".into(),
-                to: to.iter().map(|e| auth::mask_email(e)).collect(),
+                to: delivered.iter().map(|e| auth::mask_email(e)).collect(),
             })
             .into_response()
         }

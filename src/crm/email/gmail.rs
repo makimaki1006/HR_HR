@@ -190,9 +190,30 @@ impl EmailService {
             .transpose()
     }
 }
+/// 件名を RFC 2047 の encoded-word にする。1 語は 75 文字まで (UTF-8 の 45 バイトずつ、文字の途中で切らない)。
+/// 語どうしは折り返し (CRLF + 空白) でつなぐ
+pub fn encode_subject(subject: &str) -> String {
+    const MAX_BYTES: usize = 45; // base64 で 60 文字 + "=?UTF-8?B?" と "?=" の 12 文字 = 72 文字
+    let mut words = Vec::new();
+    let mut chunk = String::new();
+    for c in subject.chars() {
+        if chunk.len() + c.len_utf8() > MAX_BYTES {
+            words.push(std::mem::take(&mut chunk));
+        }
+        chunk.push(c);
+    }
+    if !chunk.is_empty() || words.is_empty() {
+        words.push(chunk);
+    }
+    words
+        .iter()
+        .map(|w| format!("=?UTF-8?B?{}?=", STANDARD.encode(w)))
+        .collect::<Vec<_>>()
+        .join("\r\n ")
+}
 /// 1 宛先・本文は文字だけのメール。宛先・送信元は呼ぶ側で valid_address を通してあること
 pub fn plain_mime(from: &str, to: &str, subject: &str, body: &str) -> String {
-    let subject = format!("=?UTF-8?B?{}?=", STANDARD.encode(subject));
+    let subject = encode_subject(subject);
     let body = STANDARD.encode(body.replace("\r\n", "\n").replace('\n', "\r\n"));
     let wrapped = body
         .as_bytes()

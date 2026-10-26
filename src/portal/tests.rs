@@ -374,6 +374,8 @@ fn 保存先にはハッシュだけを置く() {
 struct FakeMailer {
     sent: Mutex<Vec<(Vec<String>, String)>>,
     fail: bool,
+    /// 送れない状態 (ready() が false)
+    not_ready: bool,
 }
 
 impl Mailer for FakeMailer {
@@ -389,8 +391,11 @@ impl Mailer for FakeMailer {
                 .lock()
                 .unwrap()
                 .push((to.to_vec(), code.to_string()));
-            Ok(())
+            Ok(to.to_vec())
         })
+    }
+    fn ready(&self) -> bool {
+        !self.not_ready
     }
 }
 

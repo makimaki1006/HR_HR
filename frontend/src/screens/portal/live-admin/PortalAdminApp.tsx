@@ -11,6 +11,7 @@ import { API } from './api';
 import { AccountRows, useAccountActions } from './CustomerView';
 import { CustomerView } from './CustomerView';
 import { CustomersView } from './CustomersView';
+import { MailView } from './MailView';
 import { LOG_KIND_LABEL, SOURCE_LABEL, parseRoute, routeHref, type Route } from './model';
 import { ErrorLine, LoadError, Loading, NavContext, Page, TD, TH, Table, useGet, useStatus } from './parts';
 import { SheetAddView } from './SheetAddView';
@@ -117,6 +118,7 @@ export function PortalAdminApp() {
       {route.view === 'sheet' && <SheetView key={key} id={route.id} status={status} />}
       {route.view === 'accounts' && <AccountsView key={key} status={status} />}
       {route.view === 'activity' && <ActivityView key={key} status={status} />}
+      {route.view === 'mail' && <MailView key={key} status={status} />}
     </NavContext.Provider>
   );
 }
