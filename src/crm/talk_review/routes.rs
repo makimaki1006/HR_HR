@@ -290,6 +290,17 @@ async fn owners_list(
     }
 }
 
+/// 人が属するチーム名 (重複なし、出てきた順)
+fn distinct_teams(members: &[Member]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in members.iter().filter_map(|m| m.team.as_ref()) {
+        if !out.contains(t) {
+            out.push(t.clone());
+        }
+    }
+    out
+}
+
 pub(in crate::crm) async fn get_summary(
     session: Session,
     State(state): State<Arc<AppState>>,
@@ -341,6 +352,7 @@ pub(in crate::crm) async fn get_summary(
     let base = |enabled: bool,
                 people: Vec<TalkPersonRow>,
                 total: TalkPersonRow,
+                team_totals: Vec<TalkPersonRow>,
                 counting: &[NaiveDate],
                 dials: Option<&Dials>,
                 breakdown_pending: bool| TalkSummaryResponse {
@@ -360,12 +372,14 @@ pub(in crate::crm) async fn get_summary(
         dials_fetched_at: dials.and_then(|d| d.fetched_at.clone()),
         dial_breakdown_pending: breakdown_pending,
         total,
+        team_totals,
     };
     if !cfg.enabled || state.audit.is_none() {
         return Json(base(
             false,
             vec![],
-            empty_total("チーム全体"),
+            empty_total("この表の全体"),
+            vec![],
             &[],
             None,
             false,
@@ -478,10 +492,36 @@ pub(in crate::crm) async fn get_summary(
     if let super::dial_breakdown::Outcome::Ready(map) = &breakdown {
         super::dial_breakdown::apply(&mut people, &mut total, map);
     }
+    // チームごとの全体の行。表の全体の行と同じ数え方 (その チーム の人だけで build して同じ後処理を通す)
+    let mut team_totals: Vec<TalkPersonRow> = Vec::new();
+    for name in distinct_teams(&members) {
+        let subset: Vec<Member> = members
+            .iter()
+            .filter(|m| m.team.as_deref() == Some(name.as_str()))
+            .cloned()
+            .collect();
+        let (mut tp, mut tt) = build(
+            &subset,
+            dials.as_ref().map(|d| &d.by_owner),
+            dials.as_ref().map(|d| &d.calls_by_owner),
+            &deals,
+            &rows,
+            &ids,
+            &ALERT_RULES,
+        );
+        apply_contact(&mut tp, &mut tt, marks.as_ref());
+        if let super::dial_breakdown::Outcome::Ready(map) = &breakdown {
+            super::dial_breakdown::apply(&mut tp, &mut tt, map);
+        }
+        tt.name = name.clone();
+        tt.team = Some(name);
+        team_totals.push(tt);
+    }
     Json(base(
         true,
         people,
         total,
+        team_totals,
         &snap.counting,
         dials.as_ref(),
         breakdown_pending,

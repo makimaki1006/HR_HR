@@ -289,7 +289,7 @@ function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow
   const proposalCalls = sum(p => p.date_proposal_calls ?? 0);
   const proposals = people.reduce((a, p) => a + (p.proposals_per_contact ?? 0) * (p.contacts ?? 0), 0);
   return {
-    owner_id: null, name: 'チーム全体', team: null, outbound, dial_breakdown: people.reduce<DialBreakdown>((a, p) => {
+    owner_id: null, name: 'この表の全体', team: null, outbound, dial_breakdown: people.reduce<DialBreakdown>((a, p) => {
       const b = p.dial_breakdown;
       return b === null ? a : { connected: a.connected + b.connected, failed: a.failed + b.failed, cancelled: a.cancelled + b.cancelled, monitor: a.monitor + b.monitor, extension: a.extension + b.extension, total: a.total + b.total };
     }, { connected: 0, failed: 0, cancelled: 0, monitor: 0, extension: 0, total: 0 }), dials, appointments: appts,
@@ -306,12 +306,32 @@ function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow
   };
 }
 
-export function fixtureSummary(from: string, to: string, team: string): TalkSummaryResponse {
-  const people = FIXTURE_PEOPLE.filter(p => team === '' || p.team === team);
+export function fixtureSummary(from: string, to: string, team: string, prior = false): TalkSummaryResponse {
+  const base = FIXTURE_PEOPLE.filter(p => team === '' || p.team === team);
+  const people = prior ? base.filter(p => p.owner_id !== '9004').map(priorOf) : base;
+  const teamNames = [...new Set(people.map(p => p.team).filter((t): t is string => t !== null))];
+  const team_totals = teamNames.map(t => ({ ...totalOf(people.filter(p => p.team === t), FIXTURE_CHECKS), name: t, team: t }));
   return {
     from, to, as_of: `${to}T14:05:00+09:00`, enabled: true,
     teams: ['架空BPOチーム', '架空営業チーム'],
-    checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, per_person_day: 10, counting_days: [], dials_error: false, dials_partial: true, dials_fetched_at: `${to} 06:30`, dial_breakdown_pending: false, total: totalOf(people, FIXTURE_CHECKS),
+    checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, per_person_day: 10, counting_days: [], dials_error: false, dials_partial: true, dials_fetched_at: `${to} 06:30`, dial_breakdown_pending: false, total: totalOf(people, FIXTURE_CHECKS), team_totals,
+  };
+}
+
+/** 比べる期間の架空の数字: 発信・接触が少なく、できていない電話が少し少ない。四郎は前の期間に行が無い */
+function priorOf(p: TalkPersonRow): TalkPersonRow {
+  const outbound = p.outbound === null ? null : Math.round(p.outbound * 0.9);
+  const dials = p.dials === null ? null : Math.round(p.dials * 0.9);
+  const appointments = Math.max(0, p.appointments - 1);
+  const contacts = p.contacts === null ? null : Math.round(p.contacts * 0.8);
+  const proposalCalls = p.date_proposal_calls === null ? null : Math.round(p.date_proposal_calls * 0.85);
+  return {
+    ...p, outbound, dials, appointments, contacts, date_proposal_calls: proposalCalls,
+    dial_breakdown: null,
+    appointment_rate_pct: dials === null || dials === 0 ? null : (appointments / dials) * 100,
+    contact_rate_pct: outbound === null || outbound === 0 || contacts === null ? null : (contacts / outbound) * 100,
+    date_proposal_rate_pct: outbound === null || outbound === 0 || proposalCalls === null ? null : (proposalCalls / outbound) * 100,
+    items: p.items.map(i => rate(i.id, i.not_done + 2 > i.applicable ? i.applicable : i.not_done + 2, i.applicable)),
   };
 }
 
