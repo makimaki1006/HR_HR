@@ -13,6 +13,7 @@
 //! - `contact` / `contact_store` / `contact_worker`: 接触・日程切りの判定 (表 `call_contact_marks`、別の周回)
 //! - `scope`: アポ取り以外の電話を、かけた時点の取引のステージで外す (接触の判定の手前)
 //! - `counts`: アポ数 (日ごとにキャッシュ)
+//! - `apo_breakdown`: アポ数の内訳 (過去客・再商談・再アポ・純粋なアポ)
 //! - `target`: 9 項目の判定の対象 = 接触した電話 (接触の印と Call の結び付け)
 //! - `summary`: 集計と印 (純粋な計算)
 //! - `worker`: 背景で対象の Call を見つけて判定する (`CALL_REVIEW_ENABLED=1` のときだけ)
@@ -20,6 +21,7 @@
 //!
 //! **単一インスタンス前提** (他の worker と同じ)。
 
+pub mod apo_breakdown;
 pub mod checks;
 pub mod config;
 pub mod contact;

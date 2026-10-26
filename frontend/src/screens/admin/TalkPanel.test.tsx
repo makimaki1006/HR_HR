@@ -9,27 +9,33 @@ afterEach(cleanup);
 
 const summary = fixtureSummary('2026-10-19', '2026-10-19', '');
 const rowOf = (name: string) => within(screen.getByTestId('talk-table')).getByText(name).closest('tr') as HTMLElement;
-const route = (patch: Partial<TalkRoute> = {}): TalkRoute => ({ view: 'talk', from: '2026-10-19', to: '2026-10-19', team: '', owner: '', call: '', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '', ...patch });
+const route = (patch: Partial<TalkRoute> = {}): TalkRoute => ({ view: 'talk', from: '2026-10-19', to: '2026-10-19', team: '', owner: '', call: '', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '', tab: '', ...patch });
 
 describe('トークの振り返り: 人ごとの表', () => {
   it('アポ率は小数2桁、印のセルだけ目立たせる', () => {
-    render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    const { unmount } = render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    // 数字のタブ: 名前・チーム・発信数・架電数・アポ・アポ率・接触数・接触率・日程切り本数・日程切り率・1接触あたり
     const jiro = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
-    // 名前・チーム・発信数・架電数・アポ・アポ率・接触数・接触率・日程切り本数・日程切り率・1接触あたり・判定数・4項目
+    expect(jiro).toHaveLength(11);
     expect(jiro[3]?.textContent).toBe('310');
     expect(jiro[5]?.textContent).toBe('0.65%');
     expect(jiro[5]?.getAttribute('data-flagged')).toBe('true');
-    expect(jiro[11]?.textContent).toContain('70');
-    expect(jiro[11]?.textContent).toContain('待ち 6 ・ 取れない 4');
-    // 日程を早く出す: 36/45 = 80% が印、受付は 25% で印なし
-    expect(jiro[14]?.textContent).toBe('20%できた 9/45本');
-    expect(jiro[14]?.getAttribute('data-flagged')).toBe('true');
-    expect(jiro[12]?.getAttribute('data-flagged')).toBeNull();
     const hanako = Array.from(rowOf('架空 花子').querySelectorAll('td'));
     expect(hanako[5]?.textContent).toBe('2.27%');
     expect(hanako[5]?.getAttribute('data-flagged')).toBeNull();
+    unmount();
+    // トークのタブ: 名前・チーム・判定数・9項目
+    render(<TalkSummaryTable data={summary} onOpen={() => undefined} tab="talk" />);
+    const talk = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
+    expect(talk).toHaveLength(12);
+    expect(talk[2]?.textContent).toContain('70');
+    expect(talk[2]?.textContent).toContain('待ち 6 ・ 取れない 4');
+    // 日程を早く出す: 36/45 = 80% が印、受付は 25% で印なし
+    expect(talk[5]?.textContent).toBe('20%できた 9/45本');
+    expect(talk[5]?.getAttribute('data-flagged')).toBe('true');
+    expect(talk[3]?.getAttribute('data-flagged')).toBeNull();
     // 項目の印は別の人 (断られた後 14/16)
-    expect(Array.from(rowOf('ダミー 三郎').querySelectorAll('td'))[20]?.getAttribute('data-flagged')).toBe('true');
+    expect(Array.from(rowOf('ダミー 三郎').querySelectorAll('td'))[11]?.getAttribute('data-flagged')).toBe('true');
   });
 
   it('発信数にマウスを当てると、発信の内訳が本数と割合で出る（内線 0 件は行ごと出さない）', () => {
@@ -70,16 +76,21 @@ describe('トークの振り返り: 人ごとの表', () => {
   });
 
   it('見出しに資料の全体の割合と決まりを出し、最後の行はこの表の全体', () => {
-    render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    const lastCells = () => Array.from(within(screen.getByTestId('talk-table')).getAllByRole('row').at(-1)?.querySelectorAll('td') ?? []).map(td => td.textContent);
+    const { unmount } = render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    expect(lastCells().slice(0, 6)).toEqual(['この表の全体', '-', '1771', '770', '12', '1.56%']);
+    // 数字のタブには場面のまとまりの行が無い
+    expect(document.querySelectorAll('th.talk-group')).toHaveLength(0);
+    unmount();
+    render(<TalkSummaryTable data={summary} onOpen={() => undefined} tab="talk" />);
     const head = screen.getByRole('columnheader', { name: /早く日付を出す/ });
     expect(head.textContent).toContain('この表の全体 43%');
     expect(head.getAttribute('title')).toContain('資料の全体: できた 19%（話せた電話のうち）');
     expect(head.getAttribute('title')).toContain('具体的な週・曜日・日');
     expect(screen.getByRole('columnheader', { name: /既存感/ }).textContent).toContain('この表の全体 64%');
-    const rows = within(screen.getByTestId('talk-table')).getAllByRole('row');
-    const last = Array.from(rows.at(-1)?.querySelectorAll('td') ?? []).map(td => td.textContent);
-    expect(last.slice(0, 6)).toEqual(['この表の全体', '-', '1771', '770', '12', '1.56%']);
-    expect(last[14]).toBe('43%できた 54/125本');
+    const last = lastCells();
+    expect(last.slice(0, 2)).toEqual(['この表の全体', '-']);
+    expect(last[5]).toBe('43%できた 54/125本');
     // 場面ごとのまとまり
     expect(Array.from(document.querySelectorAll('th.talk-group')).map(t => `${t.textContent}:${t.getAttribute('colspan') ?? ''}`)).toEqual(['受付:1', '日付の前:5', '断られた後:3']);
   });
@@ -96,9 +107,9 @@ describe('トークの振り返り: 人ごとの表', () => {
   });
 
   it('判定した本数と対象の本数を並べ、割合は判定した電話の中の割合だと書く', () => {
-    render(<TalkSummaryTable data={summary} onOpen={() => undefined} />);
+    render(<TalkSummaryTable data={summary} onOpen={() => undefined} tab="talk" />);
     // 二郎: 判定 70、待ち 6、取れない 4、枠を超えて判定していない 35 → 対象 115
-    const cell = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'))[11]?.textContent ?? '';
+    const cell = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'))[2]?.textContent ?? '';
     expect(cell).toContain('70');
     expect(cell).toContain('対象 115 本');
     const note = screen.getByTestId('talk-sampling').textContent;
@@ -134,7 +145,8 @@ describe('トークの振り返り: 人ごとの表', () => {
     const heads = screen.getAllByRole('columnheader').map(h => h.textContent);
     const at = heads.findIndex(t => t.startsWith('アポ率'));
     expect(heads.slice(at + 1, at + 6)).toEqual(['接触数', '接触率', '日程切り本数', '日程切り率', '1接触あたりの日程切り回数']);
-    expect(heads[at + 6]).toMatch(/^判定した電話数/);
+    // 数字のタブは 1接触あたりで終わる (判定数・9 項目はトークのタブ)
+    expect(heads).toHaveLength(at + 6);
     // 二郎: 発信 713 本、接触 190 (26.6%)、日程切り 90 本 (12.6%)、合計 120 回 ÷ 接触 190 = 0.6、判定待ちなし
     const jiro = Array.from(rowOf('サンプル 二郎').querySelectorAll('td')).map(td => td.textContent);
     expect(jiro.slice(6, 11)).toEqual(['190', '26.6%', '90', '12.6%', '0.6']);
@@ -200,6 +212,8 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(screen.getByRole('columnheader', { name: /架電数/ }).getAttribute('aria-sort')).toBe('ascending');
     fireEvent.click(screen.getByRole('button', { name: /^アポ数/ }));
     expect(screen.getByRole('columnheader', { name: /アポ数/ }).getAttribute('aria-sort')).toBe('descending');
+    cleanup();
+    render(<TalkSummaryTable data={summary} onOpen={() => undefined} tab="talk" />);
     fireEvent.click(screen.getByRole('button', { name: /^判定した電話数/ }));
     expect(screen.getByRole('columnheader', { name: /判定した電話数/ }).getAttribute('aria-sort')).toBe('descending');
   });
@@ -305,9 +319,9 @@ describe('トークの振り返り: 画面とルート', () => {
 
   it('URL のクエリを往復できる', () => {
     const r = parseAdminRoute('?view=talk&from=2026-10-12&to=2026-10-18&team=A&owner=9001&call=c1');
-    expect(r).toEqual({ view: 'talk', from: '2026-10-12', to: '2026-10-18', team: 'A', owner: '9001', call: 'c1', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '' });
+    expect(r).toEqual({ view: 'talk', from: '2026-10-12', to: '2026-10-18', team: 'A', owner: '9001', call: 'c1', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '', tab: '' });
     expect(adminHref(r)).toBe('?view=talk&from=2026-10-12&to=2026-10-18&team=A&owner=9001&call=c1');
-    expect(parseAdminRoute('?view=talk')).toEqual({ view: 'talk', from: '', to: '', team: '', owner: '', call: '', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '' });
+    expect(parseAdminRoute('?view=talk')).toEqual({ view: 'talk', from: '', to: '', team: '', owner: '', call: '', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '', tab: '' });
   });
 });
 
@@ -416,5 +430,103 @@ describe('トークの振り返り: 並べ替えと色の決まり (具体値)',
     const key = { kind: 'item', id: 'k' } as const;
     expect(sortPeople(ps, { key, dir: 'asc' }).map(p => p.name).join('')).toBe('BAC');
     expect(sortPeople(ps, { key, dir: 'desc' }).map(p => p.name).join('')).toBe('ABC');
+  });
+});
+
+describe('トークの振り返り: タブとアポの内訳', () => {
+  const heads = () => screen.getAllByRole('columnheader').map(h => h.textContent);
+
+  it('タブで列が入れ替わり、選んだタブは URL の tab に残る', () => {
+    const navigate = vi.fn();
+    const { unmount } = render(<TalkPanel route={route()} navigate={navigate} fixture />);
+    expect(screen.getByRole('tab', { name: '数字' }).getAttribute('aria-selected')).toBe('true');
+    expect(heads()).toContain('アポ率');
+    expect(heads().some(h => h.startsWith('判定した電話数'))).toBe(false);
+    // 「ヒアリング」「アポの質」の列は無いのでタブも出さない
+    expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['数字', 'トーク']);
+    fireEvent.click(screen.getByRole('tab', { name: 'トーク' }));
+    expect(navigate).toHaveBeenLastCalledWith(route({ tab: 'talk' }));
+    unmount();
+    // 比べる期間・選んだ人と一緒に URL に残る
+    render(<TalkPanel route={route({ tab: 'talk', people: '9001', cmp_from: '2026-10-18', cmp_to: '2026-10-18' })} navigate={navigate} fixture />);
+    expect(screen.getByRole('tab', { name: 'トーク' }).getAttribute('aria-selected')).toBe('true');
+    expect(heads()).not.toContain('アポ率');
+    expect(heads().filter(h => h.startsWith('判定した電話数'))).toHaveLength(1);
+    expect(screen.getByRole('columnheader', { name: /早く日付を出す/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: '数字' }));
+    expect(navigate).toHaveBeenLastCalledWith(route({ people: '9001', cmp_from: '2026-10-18', cmp_to: '2026-10-18' }));
+    expect(adminHref(route({ tab: 'talk', vs_team: '1' }))).toBe('?view=talk&from=2026-10-19&to=2026-10-19&vs_team=1&tab=talk');
+    expect(parseAdminRoute('?view=talk&tab=talk&people=9001').view === 'talk' && (parseAdminRoute('?view=talk&tab=talk&people=9001') as TalkRoute).tab).toBe('talk');
+  });
+
+  it('説明文は「数え方」に畳み、押すと開く', () => {
+    render(<TalkPanel route={route()} navigate={() => undefined} fixture />);
+    const how = screen.getByTestId<HTMLDetailsElement>('talk-howto');
+    expect(how.tagName).toBe('DETAILS');
+    expect(how.open).toBe(false);
+    expect(how.querySelector('summary')?.textContent).toBe('数え方');
+    expect(within(how).getByTestId('talk-dials-rule').textContent).toContain('アポ率 ＝ アポ数 ÷ 架電数');
+  });
+
+  it('アポ数を押すと、その人の内訳の件数と明細が開き、もう一度押すと閉じる', () => {
+    render(<TalkPanel route={route()} navigate={() => undefined} fixture />);
+    expect(screen.queryByTestId('talk-apo')).toBeNull();
+    const btn = within(rowOf('架空 花子')).getByTestId('talk-apo-trigger');
+    expect(btn.textContent).toBe('5');
+    fireEvent.click(btn);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    const box = screen.getByTestId('talk-apo');
+    expect(box.textContent).toContain('架空 花子 のアポの内訳');
+    const counts = Array.from(within(box).getByTestId('talk-apo-counts').querySelectorAll('li')).map(li => li.textContent);
+    expect(counts).toEqual(['過去客（会社で判定）1 件', '再商談1 件', '再アポ1 件', '純粋なアポ2 件']);
+    const rows = within(box).getAllByTestId('talk-apo-row').map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.textContent));
+    expect(rows).toHaveLength(5);
+    expect(rows[1]?.slice(0, 4)).toEqual(['過去客（会社で判定）', 'サンプル運輸', 'サンプル運輸_2', 'BPO']);
+    expect(rows[2]?.[3]).toBe('新規営業');
+    expect(within(box).getAllByRole('link', { name: 'HubSpot で開く' })[0]?.getAttribute('href')).toBe('https://app.hubspot.com/contacts/23708633/record/0-3/70000/');
+    // 内訳は開いた人の行のすぐ下
+    expect(rowOf('架空 花子').nextElementSibling?.getAttribute('data-testid')).toBe('talk-apo-open');
+    fireEvent.click(btn);
+    expect(screen.queryByTestId('talk-apo')).toBeNull();
+  });
+
+  it('全体の行のアポ数を押すと、表の全体の内訳が出る', () => {
+    render(<TalkPanel route={route()} navigate={() => undefined} fixture />);
+    fireEvent.click(within(screen.getByTestId('talk-total-row')).getByTestId('talk-apo-trigger'));
+    const box = screen.getByTestId('talk-apo');
+    expect(box.textContent).toContain('この表の全体 のアポの内訳');
+    const counts = Array.from(within(box).getByTestId('talk-apo-counts').querySelectorAll('li')).map(li => li.textContent);
+    expect(counts).toEqual(['過去客（会社で判定）2 件', '再商談2 件', '再アポ3 件', '純粋なアポ5 件']);
+    fireEvent.click(within(box).getByRole('button', { name: '閉じる' }));
+    expect(screen.queryByTestId('talk-apo')).toBeNull();
+  });
+
+  it('本番では開いたときだけ内訳の API を読む (人は owner、全体は team)', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      calls.push(url);
+      const body = url.includes('/appointments')
+        ? { owner_id: '9001', name: '架空 花子', from: '2026-10-19', to: '2026-10-19', counts: { past_customer: 0, re_meeting: 0, re_apo: 1, fresh: 0, total: 1 }, deals: [{ deal_id: '1', deal_name: '取引A', company_name: '会社A', kind: 're_apo', via: 'sales', entered_at: '2026-10-19T01:00:00Z', hubspot_url: 'https://app.hubspot.com/x' }] }
+        : summary;
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }));
+    try {
+      render(<TalkPanel route={route({ team: '架空BPOチーム' })} navigate={() => undefined} fixture={false} />);
+      await screen.findByTestId('talk-table');
+      expect(calls.some(c => c.includes('/appointments'))).toBe(false);
+      fireEvent.click(within(rowOf('架空 花子')).getByTestId('talk-apo-trigger'));
+      expect((await screen.findByTestId('talk-apo-table')).textContent).toContain('会社A');
+      expect(calls.filter(c => c.includes('/appointments'))).toEqual(['/api/crm/talk-review/appointments?from=2026-10-19&to=2026-10-19&owner=9001']);
+      fireEvent.click(within(screen.getByTestId('talk-total-row')).getByTestId('talk-apo-trigger'));
+      await screen.findByTestId('talk-apo');
+      expect(calls.filter(c => c.includes('/appointments')).at(-1)).toBe('/api/crm/talk-review/appointments?from=2026-10-19&to=2026-10-19&team=%E6%9E%B6%E7%A9%BABPO%E3%83%81%E3%83%BC%E3%83%A0');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('トークのタブではアポ数の列も内訳も出さない', () => {
+    render(<TalkPanel route={route({ tab: 'talk' })} navigate={() => undefined} fixture />);
+    expect(screen.queryByTestId('talk-apo-trigger')).toBeNull();
   });
 });
