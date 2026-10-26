@@ -103,6 +103,13 @@ pub fn label_of_key(key: &str) -> &'static str {
     .map_or("不明", Phase::label)
 }
 
+/// 更新の判断（段階3）に入る日。`phase_of_deal` の境目と同じ式で、開始日から何日目かを切り上げて日付にする。
+pub fn renewal_decision_date(start: NaiveDate, expiry: NaiveDate) -> NaiveDate {
+    let total = (expiry - start).num_days() as f64;
+    let line = (total - RENEWAL_DAYS_BEFORE_EXPIRY as f64).min(total * RENEWAL_CONTRACT_RATIO);
+    start + chrono::Duration::days(line.ceil() as i64)
+}
+
 /// 段階を決める。`mensetu` は HubSpot の取引の項目 mensetu の面接数（いずれ顧客ごとの別のデータから読む）
 pub fn phase_of_deal(
     start: Option<NaiveDate>,
@@ -284,6 +291,25 @@ mod tests {
             phase_of_deal(Some(d("2026-03-01")), None, None, None, d("2026-02-01")),
             Phase::Pre
         );
+    }
+
+    #[test]
+    fn renewal_decision_date_matches_phase_boundary() {
+        // 3・6・12か月（90・181・365日）の境目の日と、その前日の段階
+        let cases = [
+            ("2026-01-01", "2026-04-01", "2026-01-31"),
+            ("2026-01-01", "2026-07-01", "2026-05-02"),
+            ("2026-01-01", "2027-01-01", "2026-09-14"),
+        ];
+        for (s, e, day) in cases {
+            assert_eq!(renewal_decision_date(d(s), d(e)), d(day), "{s}〜{e}");
+            assert_eq!(at(s, e, Some(0), None, day), Phase::RenewalDecision);
+            let before = d(day) - chrono::Duration::days(1);
+            assert_eq!(
+                phase_of_deal(Some(d(s)), Some(d(e)), Some(0), None, before),
+                Phase::Launch
+            );
+        }
     }
 
     #[test]

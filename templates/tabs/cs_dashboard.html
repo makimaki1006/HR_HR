@@ -508,6 +508,10 @@
   tr.grp > th{ text-align:left; font-size:12.5px; font-weight:700; color:var(--ink); background:var(--panel-2);
                padding:6px var(--space-3); border-top:1px solid var(--rule-strong); border-bottom:1px solid var(--rule); }
   tr.grp .grp-sub{ font-weight:400; color:var(--ink-2); }
+  /* 初回の立ち上げの点（済・未・遅れ・不明）。遅れは赤、不明は灰色の白抜き */
+  .onb{ white-space:nowrap; letter-spacing:.08em; font-size:13px; }
+  .od-ok{ color:var(--ink); } .od-wait{ color:var(--ink); }
+  .od-late{ color:var(--hi); } .od-unknown{ color:var(--ghost); }
   .tag.more{ background:var(--panel-2); color:var(--ink-2); border-color:var(--rule); }
   /* 注意の欄の「＋N」。押すと残りが同じ場所に開く。ボタンなので的は 24px 以上 */
   button.tag-more{ font:inherit; font-size:12px; cursor:pointer; min-height:24px; min-width:24px; }
@@ -6095,6 +6099,36 @@ function gakkariNote(meta) {
   return '<p class="muted small" id="gakkari-note">' + esc(meta.gakkari_rule) + " " +
     (at ? "応募は " + esc(at) + " 時点です。" : "応募のデータはまだ集計できていないため、今は付けていません。") + "</p>";
 }
+/* 初回の立ち上げの関門（サーバ onboarding.rs）。関門の名前・期限・件数は meta.onboarding から読む（画面に直書きしない）。
+   点は関門の順に5つ。済は塗り、未は白抜き、遅れは赤の塗り、不明は灰色の白抜き。名札の本数には数えない */
+const ONB_STATE = { ok: ["●", "済"], wait: ["○", "未"], late: ["●", "遅れ"], unknown: ["○", "不明"] };
+let onbGates = [];
+function onbSetMeta(meta) { onbGates = (meta && meta.onboarding && meta.onboarding.gates) || []; }
+function onboardingTip(r) {
+  const o = r && r.onboarding;
+  if (!o || !o.states) return "";
+  return o.states.map((st, i) => {
+    const g = onbGates[i];
+    return (g ? g.label : "関門" + (i + 1)) + "：" + (ONB_STATE[st] || ONB_STATE.unknown)[1];
+  }).join(" ／ ");
+}
+function onboardingCell(r) {
+  const o = r && r.onboarding;
+  if (!o || !o.states) return "";
+  const tip = onboardingTip(r);
+  const dots = o.states.map((st) => '<span class="od od-' + (ONB_STATE[st] ? st : "unknown") + '">' + (ONB_STATE[st] || ONB_STATE.unknown)[0] + "</span>").join("");
+  return '<span class="onb" role="img" aria-label="初回の立ち上げ（' + esc(tip) + '）" title="' + esc(tip) + '">' + dots + "</span>";
+}
+/* 初回の立ち上げの決まりごと（短い1段落）と、関門ごとの遅れの件数。応募・掲載の時点は応募のデータと同じ */
+function onboardingNote(meta) {
+  const o = meta && meta.onboarding;
+  if (!o || !o.rule) return "";
+  const at = gakkariAsOf(meta);
+  const counts = (o.gates || []).map((g) => esc(g.short) + " " + num(g.late) + (g.unknown ? "（不明 " + num(g.unknown) + "）" : "")).join("、");
+  return '<p class="muted small" id="onboarding-note">' + esc(o.rule) + " " +
+    (o.has_facts && at ? "掲載・応募は " + esc(at) + " 時点です。" : "掲載・応募のデータはまだ集計できていないため、その2つは不明にしています。") +
+    " 初回の契約 " + num(o.n_initial) + " 件のうち、遅れがあるのは " + num(o.n_late_any) + " 件です。関門ごとの遅れ（不明）: " + counts + "。</p>";
+}
 /** 今日動く先の決まりごとに置く「名札の略し方」。3 表に出ている名札のうち短くしたものだけを並べる（無ければ空） */
 
 /* 履歴から取った値。🔴 その月に書き換えが無ければ「持越」と出す */
@@ -6208,6 +6242,8 @@ const BOARD_COLS = [
   { k: "consultant", t: "担当",        n: 0, fmt: (r) => esc(r.consultant) || DASH },
   /* 段階（2026-10-26）。サーバの phase_label（0 契約前〜4 2回目以降）。満了後は段階を付けず、不明は開始日か満了日が空 */
   { k: "phase",      t: "段階",        n: 0, fmt: phaseCell, sv: phaseSort },
+  /* 初回の立ち上げの関門（初回の契約だけ。5つの点が MTG・掲載・応募・面接・満足度の順）。並べ替えは遅れの数 */
+  { k: "onboarding", t: "初回",        n: 0, fmt: onboardingCell, sv: (r) => (r.onboarding ? r.onboarding.late : null) },
   /* 🔴 並べ替えは画面に出ている順に合わせる（sv）。「満了後」の行は数字を出していないのに、
      内部の months（15 など）で他の行の間に並んでいた（fixture 20件）。
      満了後は稼働中の月より後ろに置き、その中は満了を過ぎた日数の順 */
@@ -6254,7 +6290,7 @@ const BOARD_COLS = [
    案件名は折り返す（w:"l"、td.wl は 12〜22 字）。8列で 1440px の本文幅（約 1,150px）に入る。
    🔴 名札は短い書き方（tagsShort）を 25.5em の列（w:"f"、td.wf）に詰める（段2 A）。wl の 22em に正式な名札のままだと
    1 本ずつ折れて 1 行が 79〜100px で、1440×900 の 1 画面目に完全な行が 0 行だった（2026-09-28 fixture 実測） */
-const TODAY_COLS = ["name", "n_flags", "nps", "consultant", "phase", "days_left", "days_since_contact", "mtg_days", "amount"]
+const TODAY_COLS = ["name", "n_flags", "nps", "consultant", "phase", "onboarding", "days_left", "days_since_contact", "mtg_days", "amount"]
   .map((k) => {
     const c = BOARD_COLS.find((x) => x.k === k);
     if (k === "name") return Object.assign({}, c, { w: "l" });
@@ -6266,7 +6302,7 @@ let boardSort = { key: "n_flags", asc: false };
 
 /* ③の絞り込み。②から担当者を押して来たときも、ここに入る。
    🔴 絞ったら必ず「◯件中 N件を表示」を出す（全件を見ていると誤認させない）。 */
-let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "" };
+let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "", onb: "" };
 
 /* 満了までの帯。値は days_left（null は「満了日が入っていない」） */
 const EXPIRY_BANDS = [
@@ -6313,6 +6349,8 @@ function boardHit(f) {
     if (f.flag && !(r.flags || []).some((x) => x === f.flag)) return false;
     /* がっかりの印（名札とは別の欄。行の gakkari） */
     if (f.gakkari && !(r.gakkari || []).some((x) => x === f.gakkari)) return false;
+    /* 初回の立ち上げに遅れがあるもの（行の onboarding_late。名札とは別） */
+    if (f.onb && r.onboarding_late !== true) return false;
     /* MTG 途絶の帯（行の mtg_band）。今日動く先の KPI「MTGが60日以上空いている N 件」から来る（S-2） */
     if (f.band && (r.mtg_band || "") !== f.band) return false;
     /* 見方の印（段B、09 の 10 章②。行の views に routes.rs ACT_VIEWS の鍵が入っている） */
@@ -6333,7 +6371,7 @@ function boardRowsButAmount(rows) {
 
 function boardFilterOn() {
   const f = boardFilter;
-  return !!(f.consultant || f.flag || f.gakkari || f.band || f.view || f.expiry || f.amount || f.phase || f.q.trim());
+  return !!(f.consultant || f.flag || f.gakkari || f.onb || f.band || f.view || f.expiry || f.amount || f.phase || f.q.trim());
 }
 
 /* いま何で絞っているかを日本語で並べる。D は帯の名前（meta.mtg_gap.bands の label）を引くため */
@@ -6342,6 +6380,7 @@ function boardFilterWords(D) {
   if (f.consultant) w.push("担当 " + f.consultant);
   if (f.flag) w.push("注意 " + f.flag);
   if (f.gakkari) w.push("がっかり " + (GAKKARI_LABELS[f.gakkari] || "（見つからない印）"));
+  if (f.onb) w.push(((((D || {}).meta || {}).onboarding || {}).filter_label) || "初回の立ち上げ（遅れあり）");
   /* 見方は鍵（top など）を出さない。名前が引けないときは「見方（見つからない印）」 */
   if (f.view) {
     const v = actViewOf(D, f.view);
@@ -6426,6 +6465,14 @@ function boardFilterBar(D, onlyOwner) {
       gk.map((x) => opt(x.key, x.label + "（" + num(x.n) + "）", boardFilter.gakkari)).join("") +
       "</select></label>";
   }
+  /* 初回の立ち上げ（遅れあり）。関門に遅れがある初回の契約だけ。件数はサーバの meta.onboarding。データが無いときは欄を出さない */
+  const ob = D.meta.onboarding;
+  if (ob && (ob.n_late_any > 0 || boardFilter.onb)) {
+    m += '<label class="act" title="括弧の件数は、稼働中の全件で数えた件数です。注意の数には数えません">初回の立ち上げ <select id="bf-onb">' +
+      opt("", "すべて", boardFilter.onb) +
+      opt("late", ob.filter_label + "（" + num(ob.n_late_any) + "）", boardFilter.onb) +
+      "</select></label>";
+  }
   /* MTG 途絶の帯（S-2、2026-09-28）。今日動く先の KPI「MTGが60日以上空いている N 件」の N 件は名札 2 種（fixture 63+46）に
      割れていて名札の欄では 1 つの条件にならないので、行の帯（mtg_band）で絞る欄を置く。選択肢はサーバの帯そのまま */
   const bands = ((D.meta.mtg_gap || {}).bands || []).filter((b) => b.n > 0 || b.band === boardFilter.band);
@@ -6449,7 +6496,7 @@ function boardFilterBar(D, onlyOwner) {
 /** 畳んだ側の条件（注意・がっかり・MTGが空いている期間・満了まで・契約総額）のうち、いま掛かっている数 */
 function boardHiddenCount() {
   const f = boardFilter;
-  return [f.flag, f.gakkari, f.band, f.expiry, f.amount].filter(Boolean).length;
+  return [f.flag, f.gakkari, f.onb, f.band, f.expiry, f.amount].filter(Boolean).length;
 }
 const boardMoreLabel = (n) => "ほかの条件" + (n > 0 ? "（" + num(n) + "）" : "");
 /** ユーザーが「ほかの条件」を開いたか。絞り込みの描き直しで閉じ戻さないために覚える */
@@ -6893,10 +6940,14 @@ function todayFilterRule(meta) {
 function todayScope(D) {
   const c = todayConsultant;
   /* 担当を選ばない全社の表は、上位 keep 件の後ろに、入らなかった満足度が低い案件を同じ並びで続ける（サーバの extra_low_satisfaction） */
-  if (!c) return Object.assign({}, D, { extra: D.extra_low_satisfaction || [] });
+  /* さらにその後ろに、初回の立ち上げに遅れがあって上の2つに入らなかった案件（extra_onboarding_late。重なりなし）を続ける */
+  if (!c) {
+    const low = D.extra_low_satisfaction || [], onb = D.extra_onboarding_late || [];
+    return Object.assign({}, D, { extra: low.concat(onb), extraLow: low, extraOnb: onb });
+  }
   const mine = (rs) => (rs || []).filter((r) => (r.consultant || "") === c);
   return Object.assign({}, D, {
-    extra: [],
+    extra: [], extraLow: [], extraOnb: [],
     rows: mine(D.candidates || D.rows),
     expiring_this_week: mine(D.expiring_this_week),
     started_this_week: mine(D.started_this_week),
@@ -6933,6 +6984,8 @@ function todayOwnerBar(D0) {
           : "（この端末では覚えられません。開き直すと全員に戻ります）")
       : "全社の上位 " + num(D.meta.n_shown) + " 件" +
         ((D.extra_low_satisfaction || []).length ? "と、満足度4以下の " + num(D.extra_low_satisfaction.length) + " 件" : "") +
+        ((D.extra_onboarding_late || []).length ? (D.extra_low_satisfaction || []).length ? "、初回の遅れ " : "と、初回の遅れ " : "") +
+        ((D.extra_onboarding_late || []).length ? num(D.extra_onboarding_late.length) + " 件" : "") +
         "。担当を選ぶと、その人の候補を全件出します") +
     "</span></div>";
 }
@@ -6971,6 +7024,8 @@ function renderToday(D0) {
   const soon = D.expiring_this_week || [];
   const started = D.started_this_week || [];
   const extra = D.extra || [];
+  const extraLow = D.extraLow || [], extraOnb = D.extraOnb || [];
+  onbSetMeta(D.meta);
   const G = D.meta.mtg_gap || {};
   const bandN = (k) => ((G.bands || []).find((b) => b.band === k) || {}).n || 0;
   let h = '<div class="lede">今日・今週の連絡先を、上から順に確かめます。' +
@@ -6992,9 +7047,10 @@ function renderToday(D0) {
   const crit = !c ? bandN("critical") : CB ? (CB[c] || 0) : D.rows.filter((r) => r.mtg_band === "critical").length;
   h += '<div class="kpis">' +
     kpi("今日出す先", num(D.rows.length + extra.length) + '<span class="u">件</span>',
-        c ? "注意が2つ以上、または満足度（顧客に聞いた点数）が低い候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
+        c ? "注意が2つ以上、満足度（顧客に聞いた点数）が低い、初回の立ち上げに遅れがあるのどれかの候補のうち、この担当のもの。全社は " + num(D.meta.n_hit + (D.meta.n_onboarding_only || 0)) + " 件から " + num(D.meta.n_shown) + " 件"
           : "注意が2つ以上 " + num(D.meta.n_flags2) + " 件と、満足度が低いだけの " + num(D.meta.n_low_only) + " 件から" +
-            (extra.length ? "（うち満足度が低いだけの " + num(extra.length) + " 件も、段階ごとの中に入れています）" : ""),
+            (extraLow.length ? "（うち満足度が低いだけの " + num(extraLow.length) + " 件も、段階ごとの中に入れています）" : "") +
+            (extraOnb.length ? "。このほかに、初回の立ち上げに遅れがある " + num(extraOnb.length) + " 件も段階ごとの中に入れています" : ""),
         "", { jump: "td-today-h", text: "表へ" }) +
     kpi("MTGが60日以上空いている", num(crit) + '<span class="u">件</span>',
         c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（注意2つ以上、または満足度が低い）の中で。") + "全社では " + num(bandN("critical")) + " 件"
@@ -7018,8 +7074,10 @@ function renderToday(D0) {
      決まりごと（絞った条件・並び・採用単価の比べ方）は取り決めなので、見出しの直下の 1 行に畳む（開けば全文）。
      母数（n_hit 件から n_shown 件）は畳まず、その 1 行目に書く */
   /* 見出しは今のメニュー名（今日）に合わせる。前は「今日動く先」で、左のメニューに無い名前だった（2026-09-29） */
-  h += sec("表", "今日の案件（" + num(D.rows.length) + " 件" + (extra.length ? " ＋ 満足度4以下 " + num(extra.length) + " 件" : "") + "）", "td-today-h");
+  h += sec("表", "今日の案件（" + num(D.rows.length) + " 件" + (extraLow.length ? " ＋ 満足度4以下 " + num(extraLow.length) + " 件" : "") +
+    (extraOnb.length ? " ＋ 初回の遅れ " + num(extraOnb.length) + " 件" : "") + "）", "td-today-h");
   h += gakkariNote(D.meta);
+  h += onboardingNote(D.meta);
   /* 決まりごとの畳み。母数（n_hit 件から n_shown 件）は枠の案内（scroll-cap の「N 行を出しています（全 T 件のうち）」）が
      言うので、summary では繰り返さない。🔴 2026-09-28 検証（fixture 1440×900）: summary と scroll-cap が同じ
      「243 件から 24 件」を 40px の間に 2 回言い、表の見出し行が 772 で 1 画面目に完全な行が 0 行だった。
@@ -7027,7 +7085,7 @@ function renderToday(D0) {
      担当を選んでいるときは、絞った条件（サーバの filter_rule は全社の説明）の前に、この表が何かを 1 文書く */
   const rule = "";
   if (c && !D.rows.length) h += '<div class="empty">この担当には注意が2つ以上、または満足度が低い案件がありません。</div>';
-  h += scroll(boardTable(D.rows.concat(extra), todaySort["today-tbl"], "today-tbl", TODAY_COLS, 0, todayGroup(extra)), "none", c ? null : D.meta.n_hit, rule);
+  h += scroll(boardTable(D.rows.concat(extra), todaySort["today-tbl"], "today-tbl", TODAY_COLS, 0, todayGroup(extraLow, extraOnb, c)), "none", c ? null : D.meta.n_hit, rule);
 
   /* ---------------- 今週満了（行動。名札に関わらず出す。開いたまま） ---------------- */
   h += sec("表", "今週満了（" + num(soon.length) + " 件）", "td-soon-h");
@@ -7070,8 +7128,12 @@ function renderToday(D0) {
     （別の塊にすると、同じ段階の案件が 2 か所に分かれて探しにくい。行の注意の欄には満足度4以下が先頭に出ている）。
     段階の鍵が 0〜4・不明・満了後のどれでもないものは、黙って落とさず不明に入れる */
 const TODAY_PHASE_ORDER = ["0", "1", "2", "3", "4", "unknown", "overdue"];
-function todayGroup(extra) {
-  const lowOnly = new Set((extra || []).map((r) => r.deal_id));
+function todayGroup(extraLow, extraOnb, consultant) {
+  const lowOnly = new Set((extraLow || []).map((r) => r.deal_id));
+  /* 初回の遅れだけで入った行。全社の表はサーバが後ろに続けた行（extraOnb）、担当を選んだときは候補に入る条件（注意2つ以上・満足度4以下）に当たらない行 */
+  const isOnbOnly = consultant
+    ? (r) => r.onboarding_late === true && (r.n_flags || 0) < 2 && (r.flags || []).indexOf(FLAG_SATISFACTION_LOW) < 0
+    : (() => { const ids = new Set((extraOnb || []).map((r) => r.deal_id)); return (r) => ids.has(r.deal_id); })();
   const keyOf = (r) => (TODAY_PHASE_ORDER.indexOf(r.phase_key) >= 0 ? r.phase_key : "unknown");
   return {
     order: TODAY_PHASE_ORDER,
@@ -7080,8 +7142,10 @@ function todayGroup(extra) {
       const opt = PHASE_OPTIONS.find((b) => b.k === k);
       const name = k === "unknown" ? "不明" : k === "overdue" ? "満了後" : opt ? opt.t : k;
       const low = rs.filter((r) => lowOnly.has(r.deal_id)).length;
+      const onb = rs.filter(isOnbOnly).length;
       return esc(name) + "（" + num(rs.length) + "件）" +
-        (low ? ' <span class="grp-sub">うち満足度4以下だけで入った ' + num(low) + " 件</span>" : "");
+        (low ? ' <span class="grp-sub">うち満足度4以下だけで入った ' + num(low) + " 件</span>" : "") +
+        (onb ? ' <span class="grp-sub">うち初回の遅れだけで入った ' + num(onb) + " 件</span>" : "");
     }
   };
 }
@@ -7176,6 +7240,7 @@ function renderMyContact(CT, name) {
 /* ---------------------------------------------------------------- 2 案件の立ち位置 */
 function renderBoard(D) {
   D = boardOnly(D);
+  onbSetMeta(D.meta);
   const shown = boardApply(D.rows);
   const on = boardFilterOn();
   /* 同じ表を①と②の両方で使う。問いだけ変える */
@@ -7247,6 +7312,7 @@ function renderBoard(D) {
     "段階3に入る日は、3か月の契約なら開始から約1か月（満了の60日前）、6か月なら約4か月（満了の60日前）、12か月なら約8.5か月（契約の7割）です。" +
     "満了日を過ぎた契約には段階を付けず、「満了日超過の稼働中」の画面に出します。</p>";
   h += gakkariNote(D.meta);
+  h += onboardingNote(D.meta);
 
   h += boardFilterBar(D);
   /* 🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 表が図「名札の分布」の下（y=1,391）で、行を特定する画面なのに
@@ -7266,6 +7332,7 @@ function wireBoard() {
   };
   pick("bf-consultant", "consultant");
   pick("bf-gakkari", "gakkari");
+  pick("bf-onb", "onb");
   const more = document.getElementById("bf-more");
   if (more) more.ontoggle = () => { boardMoreOpen = !!more.open; };
   /* 担当を選ぶ前の持ち件数の表。名前を押したらその担当で絞る（②の表と同じ作り）。
@@ -7317,7 +7384,7 @@ function wireBoard() {
      名札＋案件名「株式」で 0 件 → 押すと件数の行は 604 件、#bf-flag・#bf-q は前の値のまま）。
      欄だけ値を戻す手もあるが、選択肢の件数・既定値の組み立ては boardFilterBar 1 か所に置いておく。押す頻度は低い */
   if (cl) cl.onclick = () => {
-    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "" };
+    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "", onb: "" };
     boardShowAll = false;
     redrawMain(boardCache);
   };
@@ -8878,7 +8945,10 @@ const boardState = (k) => ({ kind: "filter", get: () => boardFilter[k] || "", se
                              reset: () => { boardFilter[k] = ""; } });
 const flagState = (get, set) => ({ kind: "ctx", get: () => (get() ? "1" : ""), set: (v) => set(v === "1"), reset: () => set(false) });
 const BOARD_URL_STATE = {
-  c: boardState("consultant"), flag: boardState("flag"), gakkari: boardState("gakkari"), band: boardState("band"), view: boardState("view"),
+  c: boardState("consultant"), flag: boardState("flag"), gakkari: boardState("gakkari"),
+  /* 初回の立ち上げ（遅れあり）。値は late だけ */
+  onb: { kind: "filter", get: () => boardFilter.onb || "", set: (v) => { boardFilter.onb = v === "late" ? "late" : ""; }, reset: () => { boardFilter.onb = ""; } },
+  band: boardState("band"), view: boardState("view"),
   expiry: { kind: "filter", get: () => boardFilter.expiry || "",
             set: (v) => { boardFilter.expiry = EXPIRY_BANDS.some((b) => b.k === v) ? v : ""; },
             reset: () => { boardFilter.expiry = ""; } },

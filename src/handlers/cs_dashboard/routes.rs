@@ -3404,6 +3404,11 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     let mut cover_any = 0usize;
     let mut view_count: BTreeMap<&str, usize> = BTreeMap::new();
     let mut phase_count: BTreeMap<&str, usize> = BTreeMap::new();
+    // 初回の関門のために、MTG と満足度のデータを読めているか（空なら「無い」ではなく「分からない」）
+    let mtg_loaded = !sheets.mtg.rows.is_empty()
+        || !sheets.mail_mtg.rows.is_empty()
+        || !sheets.zoom_mtg.rows.is_empty();
+    let satisfaction_loaded = !sheets.history.rows.is_empty();
     let mtg_risk = latest_mtg_risk_by_deal(&sheets.mtg);
     let (stay_long, stay_esc) = super::stage_stay::view_ids(sheets, today);
     for d in &act {
@@ -3607,6 +3612,14 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             "n_flags": flags.len(),
             // 継続回数（0＝初回契約）。見方「初回契約で MTG の記録が見つからない」の材料
             "renewal_no": d.renewal_no,
+            // 初回の立ち上げの関門（onboarding.rs）の材料。MTG の記録が1件でもあるか（データが読めていなければ null）、
+            // HubSpot の取引の項目 mensetu（面接数）
+            "mtg_record": if mtg_loaded {
+                json!(last_mtg.get(&d.id).is_some_and(|(r, m)| r.is_some() || m.is_some()))
+            } else {
+                Value::Null
+            },
+            "interviews": d.mensetu,
             // 判定のある MTG のうち、いちばん新しいもののリスク判定と開催日（無ければ null）
             "mtg_risk": mrisk.map(|(_, r)| r.clone()),
             "mtg_risk_date": mrisk.map(|(dt, _)| dt.to_string()),
@@ -3648,6 +3661,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         "n_active": act.len(),
         "all_cached": sheets.all_cached,
         // 段階ごとの件数（鍵は phase_key）
+        "onboarding_data": {"mtg": mtg_loaded, "satisfaction": satisfaction_loaded},
         "phase_counts": phase_count.iter().map(|(k, v)| json!({"key": k, "n": v}))
             .collect::<Vec<_>>(),
         "flag_counts": flag_count.iter().map(|(k, v)| json!({"label": k, "n": v}))
@@ -3713,11 +3727,32 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     (rows, meta)
 }
 
+/// 案件管理が公開した応募・掲載のデータを読んで付ける印（がっかり・初回の立ち上げの関門）。名札の本数には数えない
+pub(super) fn annotate_shared(
+    rows: &mut [Value],
+    meta: &mut Value,
+    today: NaiveDate,
+    facts: Option<&crate::handlers::job_copy_live::shared_applications::Published>,
+) {
+    super::gakkari::annotate(rows, meta, today, facts);
+    super::onboarding::annotate(rows, meta, today, facts);
+}
+
 /// ②案件の立ち位置。稼働中の全件を返す（画面で並び替える）。
 /// 🔴 見方の突き合わせ（`act_view_diff`）はここだけで返す（今日動く先・チームと担当には要らない）。
 pub fn build_deal_board(sheets: &Sheets, today: NaiveDate) -> Value {
+    let facts = crate::handlers::job_copy_live::shared_applications::current();
+    build_deal_board_with(sheets, today, facts.as_deref())
+}
+
+/// 応募・掲載のデータ（案件管理が公開したもの）を渡せる形。テストは自分のデータを渡す
+pub(super) fn build_deal_board_with(
+    sheets: &Sheets,
+    today: NaiveDate,
+    facts: Option<&crate::handlers::job_copy_live::shared_applications::Published>,
+) -> Value {
     let (mut rows, mut meta) = deal_rows(sheets, today);
-    super::gakkari::annotate_current(&mut rows, &mut meta, today);
+    annotate_shared(&mut rows, &mut meta, today, facts);
     if let Some(m) = meta.as_object_mut() {
         m.insert(
             "act_view_diff".into(),
@@ -3815,8 +3850,18 @@ fn has_low_satisfaction(row: &Value) -> bool {
 /// 🔴 **件数が多すぎると使われない。** 上から順に潰せる長さに絞る。
 /// 絞った条件は画面に出す。
 pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
+    let facts = crate::handlers::job_copy_live::shared_applications::current();
+    build_today_board_with(sheets, today, facts.as_deref())
+}
+
+/// 応募・掲載のデータ（案件管理が公開したもの）を渡せる形。テストは自分のデータを渡す
+pub(super) fn build_today_board_with(
+    sheets: &Sheets,
+    today: NaiveDate,
+    facts: Option<&crate::handlers::job_copy_live::shared_applications::Published>,
+) -> Value {
     let (mut rows, mut meta) = deal_rows(sheets, today);
-    super::gakkari::annotate_current(&mut rows, &mut meta, today);
+    annotate_shared(&mut rows, &mut meta, today, facts);
 
     // 名札が2本以上、または満足度の名札（直近の値が 4 以下）が付いているもの（2026-10-26 に後者を足した）。
     // そのうえで `deal_rows` の並び（名札の本数が多い順、同じ本数なら金額の大きい順）の上から 24件。
@@ -3835,7 +3880,14 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
     // 切った後は 11 名しか出ず、12 名は自分の案件が 1 件も 24 件に入らなかった（候補を 1 件も
     // 持たない 4 名を足すと 27 名中 16 名）。
     // `rows` は今までどおり上から KEEP 件（担当を選んでいないときの見え方は変えない）
-    let candidates = picked.clone();
+    // 初回の立ち上げの関門に遅れがある案件（onboarding.rs）も候補に入れる。並びは rows のまま。
+    // 注意の本数・上位 KEEP 件・満足度の名札の数え方には触れない（n_hit / n_flags2 / n_low_only は下の元の候補で数える）
+    let onb_late = |r: &Value| r["onboarding_late"] == true;
+    let candidates: Vec<Value> = rows
+        .iter()
+        .filter(|r| is_today_candidate(r) || onb_late(r))
+        .cloned()
+        .collect();
     // 注意2つ以上の件数と、満足度の名札 1 本だけで候補に入った件数（チームと担当の「注意2つ以上」との差の内訳）
     let n_flags2 = picked
         .iter()
@@ -3852,6 +3904,23 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         .cloned()
         .collect();
     top.truncate(KEEP);
+    // 初回の遅れがあるのに、上位 KEEP 件にも満足度4以下の追加にも入っていない案件は、さらにその後ろに続ける
+    let shown_ids: BTreeSet<&str> = top
+        .iter()
+        .chain(extra_low.iter())
+        .filter_map(|r| r["deal_id"].as_str())
+        .collect();
+    let extra_onb: Vec<Value> = rows
+        .iter()
+        .filter(|r| {
+            onb_late(r)
+                && !r["deal_id"]
+                    .as_str()
+                    .is_some_and(|id| shown_ids.contains(id))
+        })
+        .cloned()
+        .collect();
+    let n_onb_only = candidates.len() - n_hit;
 
     // 担当の選択欄に載せる名前（D-1a の検証、2026-09-28）。候補・今週満了・今週始まった から集めると、
     // 稼働中の案件を持っていても候補が 0 件の担当（fixture で 27 名中 3 名）が自分を選べず、
@@ -3935,9 +4004,14 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
             "候補は {n_hit} 件です（注意が {MIN_FLAGS} つ以上ついた案件 {n_flags2} 件と、注意が満足度の1つだけで満足度が低い（直近の値が4以下）案件 {n_low_only} 件）。\
 注意の数が多い順（同じ数なら金額の大きい順）に {KEEP} 件を出しています。その {KEEP} 件に入らなかった満足度が低い案件 {n_extra} 件は、同じ並びでその後ろに続けています。\
 毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} つという線引きは取り決めです。\
-「チームと担当」の「注意{MIN_FLAGS}つ以上」は満足度だけの案件を数えないので、その分だけ少なく出ます",
-            n_extra = extra_low.len()
+「チームと担当」の「注意{MIN_FLAGS}つ以上」は満足度だけの案件を数えないので、その分だけ少なく出ます。\
+このほかに、初回の立ち上げの関門に遅れがある案件も候補に入れています（注意の数には数えません）。\
+全社の表では、上の {KEEP} 件と満足度が低い案件に入っていない初回の遅れ {n_extra_onb} 件を、さらにその後ろに続けています",
+            n_extra = extra_low.len(),
+            n_extra_onb = extra_onb.len()
         )));
+        m.insert("n_extra_onboarding".into(), json!(extra_onb.len()));
+        m.insert("n_onboarding_only".into(), json!(n_onb_only));
         m.insert("n_flags2".into(), json!(n_flags2));
         m.insert("n_low_only".into(), json!(n_low_only));
         m.insert("n_extra_low".into(), json!(extra_low.len()));
@@ -3982,6 +4056,8 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         "candidates": candidates,
         // 上位 keep 件に入らなかった満足度が低い案件（rows の後ろに続けて出す。担当を選んだときは candidates 全件を出すので使わない）
         "extra_low_satisfaction": extra_low,
+        // 初回の立ち上げの関門に遅れがあるのに、上の2つに入らなかった案件（rows と extra_low_satisfaction の後ろに続けて出す。重なりなし）
+        "extra_onboarding_late": extra_onb,
         "consultants": consultants,
         "expiring_this_week": soon,
         "started_this_week": started,

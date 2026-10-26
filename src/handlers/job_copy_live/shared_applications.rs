@@ -1,4 +1,4 @@
-//! 案件ごとの応募日を、他の画面（コンサルKPI）が読むための読み取り専用の公開口。
+//! 案件ごとの応募日と掲載中の求人数を、他の画面（コンサルKPI）が読むための読み取り専用の公開口。
 //! 案件管理が集計し終えたとき（と起動時に保存データを戻したとき）に、その時点の結果をそのまま置く。
 //! 新しい読み取り・保存先・更新の仕組みは持たない。
 use super::todo_signals::Facts;
@@ -12,6 +12,8 @@ pub struct DealApplications {
     pub days: Vec<NaiveDate>,
     /// 応募日が分からない応募の数。0 でないとき「応募が無い」とは言えない。
     pub unknown_dates: usize,
+    /// いま掲載中の求人の数（案件管理が数えたもの）。
+    pub live: usize,
 }
 
 #[derive(Debug)]
@@ -31,6 +33,7 @@ pub(super) fn publish(built_at: DateTime<Utc>, facts: &BTreeMap<String, Facts>) 
                 DealApplications {
                     days: f.days.clone(),
                     unknown_dates: f.unknown_dates,
+                    live: f.live,
                 },
             )
         })

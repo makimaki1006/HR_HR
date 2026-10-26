@@ -3449,13 +3449,13 @@ check("案件の詳細: 電話の AI 要約には「誤りを含むことがあ�
 });
 
 /* ================================================================ 段1（2026-09-28、08_UIUX改善案の S-3） */
-check("S-3: 今日動く先の3表は9列（案件・注意・満足度・担当・段階・満了まで・最後の接触・最後のMTG・金額）で、注意が2列目", () => {
+check("S-3: 今日動く先の3表は10列（案件・注意・満足度・担当・段階・初回・満了まで・最後の接触・最後のMTG・金額）で、注意が2列目", () => {
   const cols = run("TODAY_COLS.map((c) => c.t)");
-  ok(JSON.stringify(cols) === JSON.stringify(["案件", "注意", "満足度", "担当", "段階", "満了まで", "最後の接触", "最後のMTG", "金額"]),
+  ok(JSON.stringify(cols) === JSON.stringify(["案件", "注意", "満足度", "担当", "段階", "初回", "満了まで", "最後の接触", "最後のMTG", "金額"]),
     "今日動く先の列が違う: " + cols.join(" / "));
   // 案件そのものは 15 列のまま。名札（並びの根拠）だけ案件名の隣へ
   ok(run("BOARD_COLS[1].k") === "n_flags", "案件そのものの注意の列が2列目でない");
-  ok(run("BOARD_COLS.length") === 16, "案件そのものの列数が 16 でない（列を落としていないか）");
+  ok(run("BOARD_COLS.length") === 17, "案件そのものの列数が 17 でない（列を落としていないか）");
   const row = { deal_id: "a", name: "案件A", consultant: "担当A", flags: ["x", "y"], n_flags: 2, amount: 100000, days_left: 12, nps: 3 };
   ctx.__TD3 = { rows: [row], expiring_this_week: [row], started_this_week: [row],
     meta: { n_hit: 1, n_shown: 1, filter_rule: "", order_rule: "", mtg_gap: {}, new_deal_rule: "" } };
@@ -3465,7 +3465,7 @@ check("S-3: 今日動く先の3表は9列（案件・注意・満足度・担当
     ok(at >= 0, id + " の表が無い");
     const t = h.slice(at, h.indexOf("</table>", at));
     const ths = (t.split("</thead>")[0].match(/<th[\s>]/g) || []).length;
-    ok(ths === 9, id + " の列数が " + ths + "（9 でない）");
+    ok(ths === 10, id + " の列数が " + ths + "（10 でない）");
     // 名札は折り返す列。段2 A で wl（22em）から今日動く先だけの wf（25.5em・短い名札）に変えた。折り返す性質は同じ
     ok(/<th class="wf sortable"[^>]*><button[^>]*data-k="n_flags"/.test(t), id + " の注意の列が折り返す列（wf）でない");
     const tds = t.split("<tbody>")[1].replace(/<tr class="grp">[\s\S]*?<\/tr>/g, "").split("</tr>")[0];
@@ -3479,7 +3479,7 @@ check("S-3: 今日動く先の3表は9列（案件・注意・満足度・担当
     "今週満了の枠が 320px の枠でない");
   const b = run('boardTable([__TD3.rows[0]], { key: "n_flags", asc: false }, "board-tbl")');
   const bh = b.split("</thead>")[0];
-  ok((bh.match(/<th[\s>]/g) || []).length === 16, "案件そのものの表が 16 列でない");
+  ok((bh.match(/<th[\s>]/g) || []).length === 17, "案件そのものの表が 17 列でない");
   ok(bh.indexOf('data-k="n_flags"') < bh.indexOf('data-k="consultant"'), "案件そのものの表で注意が担当より後ろにある");
   // 名札だけは折り返す列（wl）。2026-09-28 検証（fixture 1440px）: 2 列目に移した名札を折り返さないままにしたら列の幅が
   // 799px になり、枠（1,149px）に最初から見える列が 8 列 → 3 列に減った。案件名ほかの 14 列は折り返さない（横スクロールのまま）
@@ -4527,7 +4527,7 @@ check("段2 M-8: 案件そのものは既定で上位 100 行＋「残りも出�
   const n0 = run("BOARD_TBL_BUILDS");
   const h = run("renderBoard(__M8)");
   ok(nRows(h) === 100, "既定で上位 100 行でない: " + nRows(h));
-  ok(h.includes("<b>100</b> 行を出しています（全 130 件のうち）× 16 列"), "枠の案内が「100 行を出しています（全 130 件のうち）」でない");
+  ok(h.includes("<b>100</b> 行を出しています（全 130 件のうち）× 17 列"), "枠の案内が「100 行を出しています（全 130 件のうち）」でない");
   ok(/<div class="ctlbar board-more"><button type="button" class="act" id="board-more" data-all="1">残りの 30 行も出す<\/button>/.test(h),
     "表の下に「残りの 30 行も出す」が無い");
   // 名札の本数順（既定）で切るので、名札 0 本の行（案件0, 5, 10, …）は 100 行の外。上位は 4 本の行
@@ -4553,11 +4553,11 @@ check("段2 M-8: 案件そのものは既定で上位 100 行＋「残りも出�
   run("boardShowAll = true;");
   const h4 = run("renderBoard(__M8)");
   ok(nRows(h4) === 130, "残りも出すで全件にならない: " + nRows(h4));
-  ok(h4.includes("全 <b>130</b> 行 × 16 列") && /id="board-more" data-all="0">上位 100 行だけにする</.test(h4), "全件のときの案内・戻すボタンが違う");
+  ok(h4.includes("全 <b>130</b> 行 × 17 列") && /id="board-more" data-all="0">上位 100 行だけにする</.test(h4), "全件のときの案内・戻すボタンが違う");
   // 絞り込みは切る前の件数で言い、100 行に満たなければ「残りも出す」を出さない
   run('boardShowAll = false; boardFilter.q = "案件12";');
   const h5 = run("renderBoard(__M8)");
-  ok(h5.includes("<b>130 件中 11 件</b>を表示") && h5.includes("全 <b>11</b> 行 × 16 列") && !h5.includes('id="board-more"'),
+  ok(h5.includes("<b>130 件中 11 件</b>を表示") && h5.includes("全 <b>11</b> 行 × 17 列") && !h5.includes('id="board-more"'),
     "絞り込み後の件数・案内が違う");
   // 別の応答（別の配列）なら組み直す（古い表を出さない）
   ctx.__M8b = { rows: rows.slice(0, 3), meta: ctx.__M8.meta };
@@ -5865,6 +5865,77 @@ check("2026-10-27 がっかり: 応募が30日無い印は注意の本数に数�
   ok(textOf(run("renderBoard(__GK)")).includes("応募は 10月27日 12時 時点です"), "案件一覧に決まりが出ない");
 });
 
+check("2026-10-27 初回の立ち上げ: 5つの点（済●・未○・遅れ赤●・不明灰○）を段階の隣に出し、初回でない行には何も出さない。案件一覧の欄で絞れ、今日は遅れの行を後ろに続ける", () => {
+  const GATES = [
+    { key: "mtg", label: "初回MTGの記録がある", short: "MTG", deadline_label: "開始から7日", done: 3, late: 1, unknown: 0 },
+    { key: "live", label: "求人が掲載中", short: "掲載", deadline_label: "開始から14日", done: 1, late: 2, unknown: 1 },
+    { key: "applied", label: "応募が1件以上", short: "応募", deadline_label: "開始から30日", done: 1, late: 1, unknown: 1 },
+    { key: "interview", label: "面接が1件以上", short: "面接", deadline_label: "更新の判断（段階3）に入る日", done: 2, late: 0, unknown: 0 },
+    { key: "satisfaction", label: "満足度の回答がある", short: "満足度", deadline_label: "更新の判断（段階3）に入る日", done: 2, late: 0, unknown: 0 }];
+  const meta = { onboarding: { provisional: true, n_initial: 4, n_late_any: 2, gates: GATES, filter_label: "初回の立ち上げ（遅れあり）",
+    rule: "初回の立ち上げの関門（仮置き。関門と期限の日数は変わることがあります）: ①初回MTGの記録がある（開始から7日まで）。", has_facts: true },
+    applications_as_of: "2026-10-27T03:00:00Z", flag_counts: [], mtg_gap: { bands: [] }, order_rule: "" };
+  const st = (states) => ({ states, late: states.filter((x) => x === "late").length });
+  const mk = (id, states, extra) => Object.assign({ deal_id: id, name: "案件" + id, consultant: "担当A", flags: [], n_flags: 0, amount: 1000, phase_key: "1", phase: 1, phase_label: "1 立ち上げ", days_left: 50,
+    onboarding: states ? st(states) : null, onboarding_late: !!states && states.includes("late") }, extra || {});
+  const rows = [mk("o1", ["ok", "late", "late", "wait", "wait"]), mk("o2", ["ok", "ok", "ok", "wait", "wait"]), mk("o3", ["ok", "unknown", "unknown", "wait", "wait"]), mk("o4", null), mk("o5", ["late", "ok", "ok", "ok", "ok"])];
+  ctx.__ON = { rows, meta };
+  run("onbSetMeta(__ON.meta);");
+  // 点: 済は塗り、未は白抜き、遅れは赤の塗り、不明は灰色の白抜き
+  const c1 = run("onboardingCell(__ON.rows[0])");
+  ok(textOf(c1).replace(/\s+/g, "") === "●●●○○", "点の並びが違う: " + textOf(c1));
+  ok((c1.match(/class="od od-late"/g) || []).length === 2 && (c1.match(/class="od od-ok"/g) || []).length === 1 && (c1.match(/class="od od-wait"/g) || []).length === 2, "状態の class が違う: " + c1);
+  ok(textOf(run("onboardingCell(__ON.rows[2])")).replace(/\s+/g, "") === "●○○○○" && run("onboardingCell(__ON.rows[2])").includes('class="od od-unknown"'), "不明の点が違う");
+  // 読み上げ・ツールチップ: 関門の名前と状態を全部並べる（点の色だけに頼らない）
+  ok(c1.includes('role="img"') && c1.includes('aria-label="初回の立ち上げ（初回MTGの記録がある：済 ／ 求人が掲載中：遅れ ／ 応募が1件以上：遅れ ／ 面接が1件以上：未 ／ 満足度の回答がある：未）"'), "読み上げが違う: " + c1);
+  ok(c1.includes('title="初回MTGの記録がある：済'), "ツールチップが無い");
+  ok(run("onboardingCell(__ON.rows[3])") === "", "初回でない行に何か出ている");
+  // 列: 案件一覧・今日の3表に「初回」。段階の隣
+  ok(run("BOARD_COLS.map((c) => c.k).slice(2, 5).join()") === "consultant,phase,onboarding" && run("TODAY_COLS.map((c) => c.k).slice(3, 6).join()") === "consultant,phase,onboarding", "列の位置が違う");
+  // 並べ替えは遅れの数の多い順、初回でない行は末尾
+  const tbl = run('boardTable(__ON.rows, { key: "onboarding", asc: false }, "on-tbl")');
+  const at = (id) => tbl.indexOf("案件" + id);
+  ok(at("o1") < at("o5") && at("o5") < at("o2") && at("o4") > at("o2") && at("o4") > at("o3"), "遅れの数の順・初回でない行が末尾でない");
+  // 案件一覧の絞り込み: ほかの条件の中に 1 つの選択肢と件数。URL に載る
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "", onb: "" }; boardShowAll = false;');
+  const bar = run("boardFilterBar(__ON)");
+  ok(bar.includes('id="bf-onb"') && bar.includes("初回の立ち上げ（遅れあり）（2）") && bar.indexOf("bf-onb") > bar.indexOf('id="bf-more"'), "絞り込みの欄・件数が無い（ほかの条件の中でない）");
+  ok(!run("boardFilterBar({ meta: { flag_counts: [], mtg_gap: { bands: [] } }, rows: [] })").includes("bf-onb"), "データが無いのに欄を出している");
+  run('boardFilter.onb = "late";');
+  ok(run("boardApply(__ON.rows).map((r) => r.deal_id).join()") === "o1,o5", "遅れありの絞り込みが違う");
+  ok(run("boardFilterWords(__ON)") === "初回の立ち上げ（遅れあり）" && run("boardHiddenCount()") === 1 && run("boardFilterOn()") === true, "絞った文・畳んだ側の数が違う");
+  ok(run("JSON.stringify(stateParams('board'))").includes('"onb":"late"'), "絞り込みが URL に載らない");
+  run('boardFilter.onb = "";');
+  // 決まりの文: 5つの関門・期限・時点・仮置き・関門ごとの遅れの件数
+  const note = textOf(run("onboardingNote(__ON.meta)"));
+  ok(note.includes("仮置き") && note.includes("開始から7日まで") && note.includes("掲載・応募は 10月27日 12時 時点です") &&
+     note.includes("初回の契約 4 件のうち、遅れがあるのは 2 件です") && note.includes("MTG 1、掲載 2（不明 1）、応募 1（不明 1）、面接 0、満足度 0"), "決まりの文が違う: " + note);
+  ok(textOf(run("onboardingNote({ onboarding: { rule: 'x', n_initial: 0, n_late_any: 0, gates: [], has_facts: false } })")).includes("まだ集計できていないため、その2つは不明にしています"), "データが無いときの案内が無い");
+  ok(run("onboardingNote({})") === "", "応答に無いのに決まりを出している");
+  ok(textOf(run("renderBoard(__ON)")).includes("掲載・応募は 10月27日 12時 時点です"), "案件一覧に決まりが出ない");
+  // 今日: 初回の遅れだけで入った行は満足度4以下の続きのさらに後ろ。見出し・札・段階の見出しに件数
+  const D = { rows: [mk("a1", ["ok", "late", "ok", "ok", "ok"], { flags: ["x", "y"], n_flags: 2 })], extra_low_satisfaction: [mk("x1", ["ok", "ok", "ok", "wait", "wait"], { flags: ["満足度が4以下"], n_flags: 1 })],
+    extra_onboarding_late: [mk("z1", ["late", "ok", "ok", "ok", "ok"]), mk("z2", ["ok", "ok", "late", "wait", "wait"])], expiring_this_week: [], started_this_week: [],
+    meta: Object.assign({}, meta, { n_hit: 2, n_shown: 1, n_flags2: 1, n_low_only: 1, n_active: 5, n_onboarding_only: 2, filter_rule: "", new_deal_rule: "", mtg_gap: {} }) };
+  ctx.__TO = D;
+  run("todayConsultant = '';");
+  const h = run("renderToday(__TO)");
+  const t = h.slice(h.indexOf('<table id="today-tbl"'), h.indexOf("</table>", h.indexOf('<table id="today-tbl"')));
+  const heads = [...t.matchAll(/<tr class="grp"><th colspan="10" scope="colgroup">([\s\S]*?)<\/th><\/tr>/g)].map((m) => textOf(m[1]).replace(/\s+/g, " ").trim());
+  ok(JSON.stringify(heads) === JSON.stringify(["1 立ち上げ（4件） うち満足度4以下だけで入った 1 件 うち初回の遅れだけで入った 2 件"]), "段階の見出しが違う: " + JSON.stringify(heads));
+  ok(textOf(h).includes("今日の案件（1 件 ＋ 満足度4以下 1 件 ＋ 初回の遅れ 2 件）") && /今日出す先<\/span>[\s\S]{0,120}?4<span class="u">件/.test(h), "見出しや札の件数が違う");
+  ok(textOf(h).includes("初回の立ち上げに遅れがある 2 件も段階ごとの中に入れています") && textOf(h).includes("と、満足度4以下の 1 件、初回の遅れ 2 件"), "札・担当欄の説明が違う");
+  ok(h.includes('id="onboarding-note"'), "今日に決まりが出ない");
+  // 担当を選ぶと候補を全件出す。初回の遅れだけで入った行の件数を段階の見出しに添える（注意2つ以上・満足度4以下の行は数えない）
+  ctx.__TO2 = Object.assign({}, D, { candidates: D.rows.concat(D.extra_low_satisfaction, D.extra_onboarding_late) });
+  run("todayConsultant = '担当A';");
+  const h2 = run("renderToday(__TO2)");
+  const t2 = h2.slice(h2.indexOf('<table id="today-tbl"'), h2.indexOf("</table>", h2.indexOf('<table id="today-tbl"')));
+  const heads2 = [...t2.matchAll(/<tr class="grp"><th colspan="10" scope="colgroup">([\s\S]*?)<\/th><\/tr>/g)].map((m) => textOf(m[1]).replace(/\s+/g, " ").trim());
+  ok(JSON.stringify(heads2) === JSON.stringify(["1 立ち上げ（4件） うち初回の遅れだけで入った 2 件"]), "担当を選んだときの見出しが違う: " + JSON.stringify(heads2));
+  run("todayConsultant = '';");
+});
+
 /* ================================================================ 2026-10-27 認知負荷を下げる（機能は削らず、畳む・並べ直す） */
 check("負荷軽減 1: 注意の欄は一番大事な名札 1 本と「＋N」だけ。押すと残りが開き（aria-expanded）、がっかりは畳んだ側に入る。名札が1本だけなら ＋N は出ない", () => {
   const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "満足度が4以下"];
@@ -5900,25 +5971,26 @@ check("負荷軽減 2: 今日の表は段階（0,1,2,3,4,不明）ごとに「3 
   const mk = (id, key, n, extra) => ({ deal_id: id, name: "案件" + id, consultant: "担当A", flags: ["x", "y"], n_flags: n, amount: 1000, days_left: 50,
     phase_key: key, phase_label: key, mtg_band: "recent" });
   const D = { rows: [mk("a3", "3", 3), mk("a1", "1", 2), mk("b3", "3", 5), mk("a0", "0", 2), mk("a9", "unknown", 2)],
-    extra_low_satisfaction: [mk("x3", "3", 1), mk("x4", "4", 1)], expiring_this_week: [], started_this_week: [],
+    extra_low_satisfaction: [mk("x3", "3", 1), mk("x4", "4", 1)],
+    extra_onboarding_late: [Object.assign(mk("o2", "2", 1), { onboarding_late: true })], expiring_this_week: [], started_this_week: [],
     meta: { n_hit: 7, n_shown: 5, n_flags2: 5, n_low_only: 2, n_active: 604, filter_rule: "", order_rule: "", new_deal_rule: "", mtg_gap: {} } };
   D.rows.push(mk("a2", "2", 2));
   D.expiring_this_week = [mk("s1", "3", 2)];
-  ctx.__GRP = Object.assign({}, D, { extra: D.extra_low_satisfaction });
+  ctx.__GRP = D;
   run("todayConsultant = '';");
   const h = run("renderToday(__GRP)");
   const t = h.slice(h.indexOf('<table id="today-tbl"'), h.indexOf("</table>", h.indexOf('<table id="today-tbl"')));
-  const heads = [...t.matchAll(/<tr class="grp"><th colspan="9" scope="colgroup">([\s\S]*?)<\/th><\/tr>/g)].map((m) => textOf(m[1]).replace(/\s+/g, " ").trim());
-  ok(JSON.stringify(heads) === JSON.stringify(["0 契約前（1件）", "1 立ち上げ（1件）", "2 最初の判断材料（1件）",
+  const heads = [...t.matchAll(/<tr class="grp"><th colspan="10" scope="colgroup">([\s\S]*?)<\/th><\/tr>/g)].map((m) => textOf(m[1]).replace(/\s+/g, " ").trim());
+  ok(JSON.stringify(heads) === JSON.stringify(["0 契約前（1件）", "1 立ち上げ（1件）", "2 最初の判断材料（2件） うち初回の遅れだけで入った 1 件",
     "3 更新の判断（3件） うち満足度4以下だけで入った 1 件", "4 2回目以降（1件） うち満足度4以下だけで入った 1 件", "不明（1件）"]), "見出しが違う: " + JSON.stringify(heads));
   // 並びは段階の順。段階 3 の中は注意の数が多い順（b3=5, a3=3, x3=1）
   const at = (id) => t.indexOf("案件" + id);
-  ok(at("a0") < at("a1") && at("a1") < at("a2") && at("a2") < at("b3") && at("b3") < at("a3") && at("a3") < at("x3") && at("x3") < at("x4") && at("x4") < at("a9"), "段階の順・段階の中の並びが違う");
-  // 行の数え（枠の案内）に見出し行を入れない: 本文は 8 行
+  ok(at("a0") < at("a1") && at("a1") < at("a2") && at("a2") < at("o2") && at("o2") < at("b3") && at("b3") < at("a3") && at("a3") < at("x3") && at("x3") < at("x4") && at("x4") < at("a9"), "段階の順・段階の中の並びが違う");
+  // 行の数え（枠の案内）に見出し行を入れない: 本文は 9 行
   const cap = textOf(h.slice(h.lastIndexOf('<div class="scroll-cap">', h.indexOf('id="today-tbl"')), h.indexOf('id="today-tbl"')));
-  ok(cap.replace(/\s+/g, "").includes("全8行×9列"), "見出し行まで行に数えている: " + cap);
+  ok(cap.replace(/\s+/g, "").includes("全9行×10列"), "見出し行まで行に数えている: " + cap);
   // 上の札の数（今日出す先）は行 + 続き（満足度4以下）で変わらない
-  ok(textOf(h).includes("今日の案件（6 件 ＋ 満足度4以下 2 件）") && /今日出す先<\/span>[\s\S]{0,120}?8<span class="u">件/.test(h), "見出しや札の件数が変わった");
+  ok(textOf(h).includes("今日の案件（6 件 ＋ 満足度4以下 2 件 ＋ 初回の遅れ 1 件）") && /今日出す先<\/span>[\s\S]{0,120}?9<span class="u">件/.test(h), "見出しや札の件数が変わった");
   // 並び替えを変えても段階の見出しは崩れない（段階の中だけが並び替わる）
   run('todaySort["today-tbl"] = { key: "n_flags", asc: true };');
   const t2 = run("renderToday(__GRP)");
