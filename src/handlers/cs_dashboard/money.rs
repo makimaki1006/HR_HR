@@ -361,6 +361,9 @@ pub fn build_money(sheets: &Sheets, today: NaiveDate) -> Value {
                 "settled_missing": m.settled_missing,
                 // 決着した金額が 0 なら空。0% にしない
                 "rate": rate(m.keep, denom),
+                // 充足（採れて終わった）の金額を分母から外した継続率。主の `rate` は充足も分母に入れる（確定した定義）。
+                // これは比較のためだけに返す。継続 ÷（継続 ＋ 解約）の金額
+                "rate_excl_fill": rate(m.keep, m.keep + m.cancel),
             })
         })
         .collect();

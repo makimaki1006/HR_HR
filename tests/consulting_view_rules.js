@@ -107,7 +107,7 @@ function teamOf(C, o) {
     status: { rows: (C.rows || []).map((r) => ({ consultant: r.consultant, n_active: r.n_active || 0, n_flags2: 0, unattended: 0, mtg_critical: 0,
       no_contact: 0, expiring60: 0, expiring_week: 0, nps_low: 0, retired: !!r.retired })),
       meta: { n_active: C.meta.n_active, n_flags2: 0, expiring_week: 0, min_flags: 2, week_days: 7, unknown: {},
-              flag_labels: { no_contact: "接触の記録が無い", expiring60: "満了まで60日以内", nps_low: "NPSが4以下" } } },
+              flag_labels: { no_contact: "接触の記録が無い", expiring60: "満了まで60日以内", nps_low: "満足度が4以下" } } },
     contact: { meta: {}, month: { periods: [], rows: [], team: [] }, week: { periods: [], rows: [], team: [] } },
     handover: { meta: { n: 0, n_active: 0 }, rows: [], reflected_dist: [], to_retired: 0, median_gap_days: null, n_gap: 0,
                 source_rule: "", gap_rule: "" },
@@ -979,7 +979,7 @@ check("英語: 成果とリスク・定義と検証・電話に英語の用語�
 ctx.__BD = { meta: { today: "2026-09-18", n_active: 3, order_rule: "並びのきまりXYZ", flag_counts: [],
     not_counted: "※ 予測ではありません" },
   rows: [
-    { deal_id: "d1", name: "案件1", consultant: "田中", flags: ["NPSが4以下"], focus: true, days_left: 10 },
+    { deal_id: "d1", name: "案件1", consultant: "田中", flags: ["満足度が4以下"], focus: true, days_left: 10 },
     { deal_id: "d2", name: "案件2", consultant: "田中", flags: [], focus: false, days_left: 200 },
     { deal_id: "d3", name: "案件3", consultant: "佐藤", flags: [], focus: false, days_left: 20 }] };
 
@@ -1339,7 +1339,7 @@ check("V12 の残り: 表の枠の端に、横の続きがある側だけ影を�
 
 check("byowner: 担当を選ぶ前の持ち件数は、見えない絞り込み（注意・満了・案件名）で減らさない", () => {
   // 案件そのものの画面で名札・案件名を絞ってから byowner に来た形。選択欄は隠れている
-  run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "", flag: "NPSが4以下", expiry: "", q: "案件1" };');
+  run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "", flag: "満足度が4以下", expiry: "", q: "案件1" };');
   try {
     const h = run("renderBoard(__BD)");
     const tbl = h.split('<table id="owner-tbl"')[1].split("</table>")[0];
@@ -3449,9 +3449,9 @@ check("案件の詳細: 電話の AI 要約には「誤りを含むことがあ�
 });
 
 /* ================================================================ 段1（2026-09-28、08_UIUX改善案の S-3） */
-check("S-3: 今日動く先の3表は8列（案件・注意・担当・満了まで・最後の接触・最後のMTG・定期NPS・金額）で、注意が2列目", () => {
+check("S-3: 今日動く先の3表は8列（案件・注意・満足度・担当・満了まで・最後の接触・最後のMTG・金額）で、注意が2列目", () => {
   const cols = run("TODAY_COLS.map((c) => c.t)");
-  ok(JSON.stringify(cols) === JSON.stringify(["案件", "注意", "担当", "満了まで", "最後の接触", "最後のMTG", "定期NPS", "金額"]),
+  ok(JSON.stringify(cols) === JSON.stringify(["案件", "注意", "満足度", "担当", "満了まで", "最後の接触", "最後のMTG", "金額"]),
     "今日動く先の列が違う: " + cols.join(" / "));
   // 案件そのものは 15 列のまま。名札（並びの根拠）だけ案件名の隣へ
   ok(run("BOARD_COLS[1].k") === "n_flags", "案件そのものの注意の列が2列目でない");
@@ -3577,7 +3577,7 @@ check("D-1a: 担当を選ぶと、その人の候補（注意2つ以上）を全
   run("todayConsultant = '担当Z';");
   const none = run("renderToday(__TD5)");
   ok(none.includes('<option value="担当Z" selected>'), "覚えている担当が候補に無いときに欄から消えている");
-  ok(none.includes("この担当には注意が2つ以上ついた案件がありません") && none.includes("今日の案件（0 件）"), "0 件の理由が無い");
+  ok(none.includes("この担当には注意が2つ以上、または満足度が低い案件がありません") && none.includes("今日の案件（0 件）"), "0 件の理由が無い");
   // 古い応答（candidates が無い）でも rows から絞れる
   const old = todayFixture(); delete old.candidates; ctx.__TD6 = old;
   run("todayConsultant = '担当A';");
@@ -3638,7 +3638,7 @@ check("D-1a の検証: 担当の選択欄の顔ぶれは選んだ担当で変わ
   ok(opts(b) === ",担当A,担当B,担当C,担当D,担当E", "consultants の顔ぶれになっていない: " + opts(b));
   run("todayConsultant = '担当E';");
   const e = run("renderToday(__TD7)");
-  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には注意が2つ以上ついた案件がありません") && e.includes("今日の案件（0 件）"),
+  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には注意が2つ以上、または満足度が低い案件がありません") && e.includes("今日の案件（0 件）"),
     "候補 0 件の担当を選んだときに、選ばれた状態と 0 件の理由が無い");
   run("todayConsultant = '';");
 });
@@ -3667,7 +3667,7 @@ check("D-1a の検証: 担当を選んだときの KPI「MTGが60日以上空い
   ctx.__TD9 = todayFixture();
   run("todayConsultant = '担当C';");
   const old = run("renderToday(__TD9)");
-  ok(/data-band="critical"><span class="lbl">MTGが60日以上空いている<\/span><span class="big">1<span class="u">件/.test(old) && textOf(old).includes("この担当の候補（注意2つ以上）の中で。全社では 9 件"),
+  ok(/data-band="critical"><span class="lbl">MTGが60日以上空いている<\/span><span class="big">1<span class="u">件/.test(old) && textOf(old).includes("この担当の候補（注意2つ以上、または満足度が低い）の中で。全社では 9 件"),
     "古い応答で候補の中の件数（1）と、その断りが無い");
   run("todayConsultant = '';");
 });
@@ -4456,7 +4456,7 @@ check("M-12: 帯（svgStack）の中の文字は、空（--sora）の上でも 4
 
 /* ================================================================ 段2 表と図（2026-09-28）: A / M-8 / M-11 / S-2 の残り */
 check("段2 A: 今日動く先の注意は短い書き方（正式名は title と決まりごとの畳み）を詰めた枡（tag c）で 25.5em の列（wf）に並べる。案件一覧も同じ短い注意で2つまで", () => {
-  const row = TD_ROW({ deal_id: "a1", name: "案件A", n_flags: 5, flags: ["NPSが4以下", "接触が30日以上空いている",
+  const row = TD_ROW({ deal_id: "a1", name: "案件A", n_flags: 5, flags: ["満足度が4以下", "接触が30日以上空いている",
     "採用単価が同じ進捗の区分の1.5倍以上", "MTGが60日以上空いている", "採用目標の半分に届いていない"] });
   const odd = TD_ROW({ deal_id: "a2", name: "案件B", n_flags: 1, flags: ["見たことのない注意"] });
   ctx.__A1 = { rows: [row, odd], expiring_this_week: [], started_this_week: [],
@@ -4465,8 +4465,8 @@ check("段2 A: 今日動く先の注意は短い書き方（正式名は title �
   const h = run("renderToday(__A1)");
   const t = h.slice(h.indexOf('<table id="today-tbl"'), h.indexOf("</table>", h.indexOf('<table id="today-tbl"')));
   // 短い名札。正式な名札と分類の言葉を title に持つ abbr。色は図の分類（flagGroup）と同じ（MTG 途絶は緋）
-  ok(/<td class="wf"><abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="NPSが4以下（関係が危ない）">NPS4以下<\/abbr>/.test(t),
-    "NPSが4以下 が短い注意（abbr.tag.c、title に正式名と分類）になっていない: " + t.slice(t.indexOf('<td class="wf">'), t.indexOf('<td class="wf">') + 200));
+  ok(/<td class="wf"><abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="満足度が4以下（関係が危ない）">満足度4以下<\/abbr>/.test(t),
+    "満足度が4以下 が短い注意（abbr.tag.c、title に正式名と分類）になっていない: " + t.slice(t.indexOf('<td class="wf">'), t.indexOf('<td class="wf">') + 200));
   ok(/<abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="MTGが60日以上空いている（関係が危ない）">MTG60日以上空いている<\/abbr>/.test(t),
     "MTGが60日以上空いている の枡が図の分類（緋・関係が危ない）と食い違う（前は紫だった）");
   ok(/<span class="tag c more" title="[^"]*">他3<\/span>/.test(t), "残り3つの数が出ていない");
@@ -4483,7 +4483,7 @@ check("段2 A: 今日動く先の注意は短い書き方（正式名は title �
   ok(!rule.includes("満了60日以内 ＝"), "表に出ていない注意まで略し方に並べている");
   ok(!rule.includes("色が見分けられなくても読めます"), "色だけで伝えていないことが書かれていない");
   const b = run('boardTable(__A1.rows, { key: "n_flags", asc: false }, "board-tbl")');
-  ok(b.includes('title="NPSが4以下（関係が危ない）">NPS4以下</abbr>') &&
+  ok(b.includes('title="満足度が4以下（関係が危ない）">満足度4以下</abbr>') &&
      b.includes('title="MTGが60日以上空いている（関係が危ない）">MTG60日以上空いている</abbr>') && b.includes('>他3</span>'),
     "案件一覧でも重い注意2つと残りの数を出していない");
   ok(run('tags(["満了90日前でMTGが30日以上空いている"])').includes('border-color:var(--hi)'), "満了前の MTGが空いている期間が赤でない");
@@ -4491,6 +4491,7 @@ check("段2 A: 今日動く先の注意は短い書き方（正式名は title �
   const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8");
   const md = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/mod.rs"), "utf-8");
   const labels = [...rs.matchAll(/flags\.push\("([^"]+)"\)/g)].map((m) => m[1])
+    .concat([...rs.matchAll(/const TEAM_FLAG_NPS_LOW: &str = "([^"]+)";/g)].map((m) => m[1]))
     .concat([...md.matchAll(/MtgBand::(?:Critical|Yellow) => "([^"]+)"/g)].map((m) => m[1]));
   ok(labels.length >= 10, "Rust から注意の文が拾えない（形が変わった？）: " + labels.length);
   const missing = labels.filter((l) => !run("FLAG_SHORT[" + JSON.stringify(l) + "]"));
@@ -4643,10 +4644,10 @@ check("段2 S-2 の残り: 担当者の一覧・いま見るべき顧客・電�
   ok(tm.indexOf('id="tm-tbl-h"') < tm.indexOf('<table id="team-tbl"'), "飛ぶ先の見出しが表の直前でない");
   const fo = run("renderFocus(__FO)");
   const fj = jumps(fo);
-  ok(JSON.stringify(fj) === JSON.stringify([["定期NPS が 4 以下", "fc-nps-tbl-h"], ["採用単価が悪化した拠点", "fc-cpa-h"],
+  ok(JSON.stringify(fj) === JSON.stringify([["満足度（顧客に聞いた点数）が 4 以下", "fc-nps-tbl-h"], ["採用単価が悪化した拠点", "fc-cpa-h"],
     ["MTG の記録がどちらにも見つからない", "fc-mtg-h"], ["LTV 真ん中の値", "fc-shape-h"]]), "いま見るべき顧客の札の行き先が違う: " + JSON.stringify(fj));
   fj.forEach(([, id]) => ok(hasId(fo, id), "いま見るべき顧客: 飛ぶ先 " + id + " が本文に無い"));
-  ok(/<div class="kpi"><span class="lbl">NPS が入っている/.test(fo), "行き先の無い札（NPS が入っている）を button にしている");
+  ok(/<div class="kpi"><span class="lbl">満足度が入っている/.test(fo), "行き先の無い札（NPS が入っている）を button にしている");
   const ph = run("renderPhone(__PH)");
   const pj = jumps(ph);
   ok(JSON.stringify(pj) === JSON.stringify([["電話が1本も無い", "ph-reach-h"], ["接触が1本も無い", "ph-reach-h"],
@@ -4733,7 +4734,7 @@ check("09 の 6 チームと担当: 表の数は押すとその担当とその�
   ok(row.includes('<a class="drill" href="' + href("today", { c: who }) + '"') && row.includes(">3</a>"), "注意2つ以上が今日動く先（その担当）へのリンクでない: " + row);
   ok(row.includes('href="' + href("byowner", { band: "critical", c: who }) + '"'), "MTGが空いている期間がその担当・重大の区分へのリンクでない");
   ok(row.includes('href="' + href("byowner", { c: who, flag: "接触の記録が無い" }) + '"'), "接触の記録が無いが注意で絞ったリンクでない");
-  ok(row.includes('href="' + href("byowner", { c: who, flag: "NPSが4以下" }) + '"'), "NPS 4以下が注意で絞ったリンクでない");
+  ok(row.includes('href="' + href("byowner", { c: who, flag: "満足度が4以下" }) + '"'), "NPS 4以下が注意で絞ったリンクでない");
   ok(!row.includes(href("byowner", { c: who, flag: "満了まで60日以内" })), "0 件（満了まで60日以内）をリンクにしている");
 });
 
@@ -4766,8 +4767,8 @@ check("09 の 3章 7 成果と継続: 答え（解約率）→ 月次の継続�
     at('id="rs-hq"'), at('id="rs-act"'), at('id="rs-dq"'), at('id="rs-dq-data"'), at('id="rs-dq-mtg"'), at('id="rs-handover"'), at('id="rs-phone"'),
     at('id="ph-reach-h"'), at('id="ph-days-h"')];
   /* 2026-10-21 二重の画面: 顧客の状態の節（いま見るべき顧客と同じ 4 図）は外した。元の画面（いま見るべき顧客）には残る */
-  ok(!h.includes('id="rs-focus"') && !h.includes("定期NPS の分布") && !h.includes("顧客の状態"), "成果と継続に、いま見るべき顧客と同じ 4 図の再掲が残っている");
-  ok(run("renderFocus(__FO)").includes("定期NPS の分布"), "元の「いま見るべき顧客」から NPS の図まで消えた");
+  ok(!h.includes('id="rs-focus"') && !h.includes("満足度の分布") && !h.includes("顧客の状態"), "成果と継続に、いま見るべき顧客と同じ 4 図の再掲が残っている");
+  ok(run("renderFocus(__FO)").includes("満足度の分布"), "元の「いま見るべき顧客」から NPS の図まで消えた");
   ok(order.every((x, i) => !i || order[i - 1] < x), "節の並びが 09 の 7 と違う: " + order.join(","));
   const toc = h.slice(h.indexOf('<nav class="toc"'), h.indexOf("</nav>"));
   const js = [...toc.matchAll(/data-jump="([^"]+)"/g)].map((x) => x[1]);
@@ -4791,7 +4792,7 @@ check("09 の 3章 7 成果と継続: 答え（解約率）→ 月次の継続�
 check("段B 成果と継続: 対応が要る案件の表3つは消し、案件一覧のよく使う絞り込み（注意に寄せた4つ）へのリンクにする。節からもよく使う絞り込みへ行ける", () => {
   /* 2026-09-29 段B（09 の 10 章②）: 表は定義を名札に寄せて案件一覧の見方に移した。成果と継続に表を残すと、定義の違う2つの一覧が並ぶ。
      見方の名前はサーバ（routes.rs build_results の meta.act_views）から来る */
-  ctx.__RS.meta.nps_flag = "NPSが4以下";
+  ctx.__RS.meta.nps_flag = "満足度が4以下";
   ctx.__RS.meta.act_views = [
     { key: "top", label: "最優先X", old: "前の出どころA" }, { key: "silent", label: "接触90日超X", old: "前の出どころB" },
     { key: "no_mtg", label: "初回MTG無しX", old: "前の出どころC" }, { key: "mtg_risk", label: "MTGリスク高X", old: null }];
@@ -4830,7 +4831,7 @@ check("段B 案件一覧: よく使う絞り込みのボタン（押している
     { key: "mtg_risk", n: 0, old: null }];
   ctx.__BV = { meta: Object.assign({}, ctx.__BD.meta, { act_views: V, act_view_diff: diff }),
     rows: [
-      { deal_id: "d1", name: "案件1", consultant: "田中", flags: ["NPSが4以下"], views: ["top", "silent"], days_left: 10 },
+      { deal_id: "d1", name: "案件1", consultant: "田中", flags: ["満足度が4以下"], views: ["top", "silent"], days_left: 10 },
       { deal_id: "d2", name: "案件2", consultant: "田中", flags: [], views: ["silent"], days_left: 200 },
       { deal_id: "d3", name: "案件3", consultant: "佐藤", flags: [], views: [], days_left: 20 }] };
   const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "" }; boardShowAll = false;';
@@ -4929,17 +4930,17 @@ check("電話: 定義の違いについての長い説明を削除する", () =>
 check("09 の 7 成果と継続: 定期NPS 4以下は注意と同じ集合なので「別の数え方・段B で揃える」に入れず、注意で絞った案件一覧へ", () => {
   /* 2026-09-29 検証: NPS 4以下の表を段B の仮置きに入れて「名札とは別の数え方」と書いていた（focus.nps_low 41 件と名札 41 件は deal_id 41/41 一致。
      同じ集合であることは tests.rs results_nps_low_is_the_same_set_as_the_deal_flag が見張る） */
-  ctx.__RS.meta.nps_flag = "NPSが4以下";
+  ctx.__RS.meta.nps_flag = "満足度が4以下";
   const h = run("renderResults(__RS)");
   const act = h.slice(h.indexOf('id="rs-act"'));
-  ok(!act.includes('<div class="lede">NPS の低い順、同じなら金額の大きい順。') && !/<summary>定期NPS/.test(act),
+  ok(!act.includes('<div class="lede">満足度の低い順、同じなら金額の大きい順。') && !/<summary>満足度/.test(act),
     "定期NPS 4以下の表を段B の仮置き（注意とは別の数え方）に入れている");
-  ok(!h.includes('<div class="lede">NPS の低い順、同じなら金額の大きい順。'), "定期NPS 4以下の表が成果と継続の中に残っている");
-  const href = run('esc(hashFor("board", { flag: "NPSが4以下" }))');
-  ok(act.includes('href="' + href + '"') && textOf(act).includes("注意「NPSが4以下」と同じ集合"),
+  ok(!h.includes('<div class="lede">満足度の低い順、同じなら金額の大きい順。'), "定期NPS 4以下の表が成果と継続の中に残っている");
+  const href = run('esc(hashFor("board", { flag: "満足度が4以下" }))');
+  ok(act.includes('href="' + href + '"') && textOf(act).includes("注意「満足度が4以下」と同じ集合"),
     "定期NPS 4以下が注意で絞った案件一覧へのリンクになっていない（黙って消した）");
   ok(act.includes('href="#research/focus"'), "いま見るべき顧客の表への行き先が無い");
-  ok(textOf(act).includes("定期NPS が 4 以下の顧客（" + run("__FO.nps_low.n") + " 件）"), "件数を書いていない");
+  ok(textOf(act).includes("満足度（顧客に聞いた点数）が 4 以下の顧客（" + run("__FO.nps_low.n") + " 件）"), "件数を書いていない");
 });
 
 check("09 の 7 成果と継続: 満了月ごとの約60行の表の代わりの「数字で読む」は満了月ごとに 1 行（1 行に全部つながない）", () => {
@@ -5106,6 +5107,33 @@ check("段B 満了と継続: 一覧は満了日・満了まで（過ぎたもの
   ok(h.indexOf('id="rp-m0"') < h.indexOf('id="rp-stage"'), "一覧がステージの内訳より後ろにある");
 });
 
+check("2026-10-26 成果と継続: 主の継続率の横に「採れて終わった分を除くと」を並べる（件数・金額）。主の数字は変えない", () => {
+  const RS = JSON.parse(JSON.stringify(ctx.__RS));
+  const mr = RS.renewal.monthly_retention.rows;
+  /* 札の月（結果待ち 0 件・決着 30 件以上の最新）に、サーバが返す値と同じ形の値を入れる: 継続 62・解約 34・充足 5 */
+  const lastRow = mr.filter((r) => r.denom >= 30 && !(r.pending > 0) && r.rate != null).pop();
+  Object.assign(lastRow, { keep: 62, cancel: 34, fill: 5, denom: 101, rate: 61.386138613861384, rate_excl_fill: 64.58333333333334 });
+  RS.money = {
+    active_total: { n: 604, amount: 677609694, amount_n: 602, amount_missing: 2 },
+    window: { months: ["2026-09"], sum: { n: 285, amount: 258592800, amount_n: 285, amount_missing: 0 } },
+    overdue_before: { n: 0, amount: 0, amount_n: 0, amount_missing: 0 },
+    retention: { rows: [{ month: lastRow.month, keep: 76530000, cancel: 27690000, fill: 6030000, denom: 110250000, pending: 0,
+      settled_n: 101, settled_missing: 0, rate: 69.41496598639456, rate_excl_fill: 73.43120322394934 }] },
+    amount_basis: "",
+  };
+  ctx.__RSX = RS;
+  const h = run("renderResults(__RSX)");
+  const k = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="rs-renewal"'));
+  const lbls = [...k.matchAll(/<span class="lbl">([^<]*)<\/span>/g)].map((m) => m[1]);
+  const m = lastRow.month;
+  ok(JSON.stringify(lbls) === JSON.stringify(["稼働中の契約の金額（会社全体）", "今月〜再来月に満了する金額",
+    "月次の継続率（" + m + " に満了）", "金額で見た継続率（" + m + " に満了）", "採用目標に届いた稼働中の契約"]),
+    "札は5枚のまま（除いた率は別の札にしない）: " + lbls.join(" / "));
+  const tk = textOf(k);
+  const tkc = tk.replace(/\s+/g, "");
+  ok(tkc.includes("61.4%") && tkc.includes("採れて終わった5件を除くと64.6%"), "件数の札に主の率と除いた率が無い: " + tk);
+  ok(tkc.includes("69.4%") && tkc.includes("採れて終わった分を除くと73.4%"), "金額の札に主の率と除いた率が無い: " + tk);
+});
 check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満了・金額で見た継続率）は会社全体だけ。継続率は件数の札と同じ月で、満了した金額を並べる", () => {
   const RS = JSON.parse(JSON.stringify(ctx.__RS));
   RS.money = {
@@ -5709,11 +5737,12 @@ check("共通部品: カードの説明全文をHTMLなしのtitleに残す", ()
   ok(h.includes('<b>対象40件</b><br>30件未満'), "説明本文が消えている");
 });
 check("共通部品: 注意は赤・山吹・その他の順に2つまで、残りと全文も残す", () => {
-  const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "MTGが60日以上空いている", "NPSが4以下"];
+  const flags = ["採用目標の半分に届いていない", "接触が30日以上空いている", "MTGが60日以上空いている", "満足度が4以下"];
   const h = run('tags(' + JSON.stringify(flags) + ')');
   ok(h === run('tagsShort(' + JSON.stringify(flags) + ')'), "注意の表示が共通でない");
   ok((h.match(/<abbr /g) || []).length === 2 && h.includes('>他2</span>'), "2つと残りの数でない");
-  ok(h.indexOf('>MTG60日以上空いている</abbr>') < h.indexOf('>NPS4以下</abbr>'), "同じ重さの順が変わった");
+  /* 満足度の名札は一番前に出す合図（2026-10-26）。同じ緋の中でも先頭。ほかの順（MTG は接触・採用目標より前）は変わらない */
+  ok(h.indexOf('>満足度4以下</abbr>') < h.indexOf('>MTG60日以上空いている</abbr>'), "満足度の名札が先頭でない");
   const more = h.match(/class="tag c more" title="([^"]*)"/)[1];
   for (const f of flags) ok(more.includes(f), "全文が無い: " + f);
   const pair = run('tags(["採用目標の半分に届いていない", "接触が30日以上空いている"])');
@@ -5750,8 +5779,8 @@ check("文言: 古い注意の絞り込み値でも新しい注意に一致す�
       ok(run("BOARD_URL_STATE.flag.get()") === current, "新しい値で保存されない: " + old);
       ok(run("boardHit({ flag: boardFilter.flag })({ flags: [" + JSON.stringify(current) + "] })"), "新しい注意に一致しない: " + old);
     }
-    run('BOARD_URL_STATE.flag.set("NPSが4以下")');
-    ok(run("boardFilter.flag") === "NPSが4以下", "変わらない注意も変更した");
+    run('BOARD_URL_STATE.flag.set("満足度が4以下")');
+    ok(run("boardFilter.flag") === "満足度が4以下", "変わらない注意も変更した");
   } finally { run("boardFilter = " + saved); }
 });
 
@@ -5876,4 +5905,29 @@ check("注記の整理: 本文の 1 行の注記は画面ごとに 1 つの「�
     "動かしてはいけない注記まで畳みに入れた: " + rest);
   ok(!/持ち件数 ＝ 稼働中の案件数。<\/p><h2|<h2>題<\/h2><p class="muted small">持ち件数/.test(rest), "元の場所に注記が残っている");
   ok(h.indexOf('data-readline="1"') < at, "常に見せる 1 行が畳みより後ろにある");
+});
+
+check("2026-10-26 今日の表: 満足度が無い案件は「満足度 未回答」、低い案件は赤の値。列の名前は満足度", () => {
+  const na = textOf(run('npsCell({ nps: null })'));
+  ok(na.includes("満足度 未回答"), "未回答の表示: " + na);
+  const lo = run('npsCell({ nps: 3, nps_month: "2026-09" })');
+  ok(lo.includes("var(--hi)") && textOf(lo).includes("3"), "低い値が赤でない: " + lo);
+  ok(!/NPS/.test(run("TODAY_COLS.map((c) => c.t).join('/')")), "列の名前に NPS が残っている");
+});
+
+check("2026-10-26 今日: 全社の表は上位24件の後ろに満足度4以下を続け、見出しに件数を書く。担当を選ぶと候補を全件出して続きは付けない", () => {
+  const D = JSON.parse(JSON.stringify(todayFixture()));
+  const mk = (id, n) => ({ deal_id: id, name: "案件" + id, consultant: "担当A", n_flags: n, flags: ["満足度が4以下"], nps: 2, nps_month: "2026-09", amount: 400 - n * 100 });
+  D.extra_low_satisfaction = [mk("x1", 1), mk("x2", 1), mk("x3", 1)];
+  D.meta.n_flags2 = 243; D.meta.n_low_only = 8; D.meta.n_hit = 251;
+  ctx.__TDX = D;
+  run("todayConsultant = '';");
+  const h = run("renderToday(__TDX)");
+  const n = D.rows.length;
+  ok(textOf(h).includes("今日の案件（" + n + " 件 ＋ 満足度4以下 3 件）"), "見出し: " + textOf(h).slice(0, 400));
+  ok(h.indexOf("案件x1") > 0 && h.indexOf("案件x1") < h.indexOf("案件x2") && h.indexOf("案件x2") < h.indexOf("案件x3"), "続きの並びが違う");
+  ok(textOf(h).includes("注意が2つ以上 243 件と、満足度が低いだけの 8 件から"), "内訳が無い");
+  const D0 = JSON.parse(JSON.stringify(D)); D0.extra_low_satisfaction = [];
+  ctx.__TDY = D0;
+  ok(!textOf(run("renderToday(__TDY)")).includes("＋ 満足度4以下"), "0 件なのに見出しに足している");
 });

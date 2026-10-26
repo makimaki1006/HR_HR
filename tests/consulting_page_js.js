@@ -1033,7 +1033,7 @@ function teamPayload(o) {
             owner_ties: 0, not_counted: "※ 担当者の評価ではありません。" },
     consultants: { meta: {}, rows: [], contact_rule: "", focus_rule: "", owner_rule: "", small_n_rule: "" },
     status: { rows: [], meta: { n_active: 0, n_flags2: 0, expiring_week: 0, min_flags: 2, week_days: 7, unknown: {},
-              flag_labels: { no_contact: "接触の記録が無い", expiring60: "満了まで60日以内", nps_low: "NPSが4以下" } } },
+              flag_labels: { no_contact: "接触の記録が無い", expiring60: "満了まで60日以内", nps_low: "満足度が4以下" } } },
     contact: contactPayload(),
     handover: { meta: { n: 0, n_active: 0 }, rows: [], reflected_dist: [], to_retired: 0, median_gap_days: null, n_gap: 0 },
   }, o || {});

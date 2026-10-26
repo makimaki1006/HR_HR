@@ -16,7 +16,7 @@ function team(withDifference: boolean) {
       { ...row, consultant: '架空担当みどり', n_active: 4, n_flags2: 1 }],
       meta: { n_active: 15, n_flags2: 7, expiring_week: 4, min_flags: 2, week_days: 7,
         unknown: { n_active: 1, n_flags2: 1 }, flag_labels: {
-          no_contact: '接触の記録が無い', expiring60: '満了まで60日以内', nps_low: 'NPSが4以下' } } },
+          no_contact: '接触の記録が無い', expiring60: '満了まで60日以内', nps_low: '満足度が4以下' } } },
     contact: { meta: {}, month: { periods: [], rows: [], team: [] } },
     handover: { meta: { n: 0, n_active: 0 }, rows: [], reflected_dist: [] },
     ...(withDifference ? { comparison: { data_day: '2026-10-16', totals: { ...delta, n_flags2: 4 } } } : {}),
