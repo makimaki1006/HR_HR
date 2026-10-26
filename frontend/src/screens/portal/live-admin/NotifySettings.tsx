@@ -47,7 +47,7 @@ export function NotifySettings({ sheet, onSaved }: { sheet: PortalAdminSheet; on
       <div className="grid gap-3 md:grid-cols-[minmax(0,24rem)_auto]">
         <TextField
           label="送り先のタブの名前"
-          hint="このシートの中のタブです。メールアドレスが書いてあれば、列の並びは問いません。空にすると通知しません。"
+          hint="このシートの中のタブです。メールアドレスが書いてあれば、列の並びは問いません。保存したタブは、あとで名前を変えても同じタブから読みます。空にすると通知しません。"
           value={tab}
           maxLength={100}
           placeholder="例：通知の送り先"
@@ -87,6 +87,8 @@ export function NotifySettings({ sheet, onSaved }: { sheet: PortalAdminSheet; on
       {on && (
         <p className="mt-2 text-xs text-pt-muted">
           5 分おきにシートを確かめます。登録した直後と、アプリを入れ直した直後は、今ある行を基準にするだけで送りません。同じ応募者には 1 回だけ送ります。
+          新しい応募を見分けるため、「項目の設定」で電話番号かメールアドレスの種類の項目が要ります。
+          送る数は全体で 1 時間 100 通・1 日 500 通、このシートで 1 時間 50 通までで、超えた分は保留して後で送ります。
         </p>
       )}
     </div>

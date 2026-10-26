@@ -203,32 +203,38 @@ impl LiveSheets {
             .ok_or(ReadError::TabNotFound)
     }
 
-    /// 名前で選んだタブの全部のマス (応募の通知の送り先を読む。計画 14 章)。
-    /// `forbidden` の番号のタブ (応募者のタブ) は、名前が合っても読まない。
-    /// 値はキャッシュしない (送る直前に読む)
+    /// 番号で選んだタブの先頭の範囲 `A1:Z200` (応募の通知の送り先を読む。計画 14 章)。
+    /// `forbidden` の番号のタブ (応募者のタブ) は読まない。値はキャッシュしない (送る直前に読む)
     pub async fn tab_cells(
         &self,
         spreadsheet: &str,
-        title: &str,
+        sheet_id: i64,
         forbidden: &[i64],
     ) -> Result<Vec<Vec<String>>, ReadError> {
-        let title = title.trim();
+        if forbidden.contains(&sheet_id) {
+            return Err(ReadError::TabNotFound);
+        }
+        let shape = Shape {
+            spreadsheet: spreadsheet.to_string(),
+            sheet_id,
+            header_row: 1,
+        };
         let mut refreshed = false;
         loop {
-            let tabs = self.tabs_list(spreadsheet, refreshed).await?;
-            match tabs.iter().find(|t| t.title.trim() == title) {
-                Some(t) if forbidden.contains(&t.sheet_id) => return Err(ReadError::TabNotFound),
-                Some(t) => {
-                    let ranges = [a1(&t.title, "A1:ZZ")];
-                    match self.api.batch_get(spreadsheet, &ranges).await {
-                        Err(GoogleError::Status(400)) if !refreshed => refreshed = true,
-                        Err(e) => return Err(e.into()),
-                        Ok(mut got) => return Ok(got.pop().unwrap_or_default()),
-                    }
+            let title = match self.tab_title(&shape, refreshed).await {
+                // タブを足した直後かもしれないので、一度だけ一覧を取り直す
+                Err(ReadError::TabNotFound) if !refreshed => {
+                    refreshed = true;
+                    continue;
                 }
-                // タブを足した・名前を変えた直後かもしれないので、一度だけ一覧を取り直す
-                None if !refreshed => refreshed = true,
-                None => return Err(ReadError::TabNotFound),
+                r => r?,
+            };
+            let ranges = [a1(&title, "A1:Z200")];
+            match self.api.batch_get(spreadsheet, &ranges).await {
+                // 名前が変わった直後は範囲が読めない。一度だけ一覧を取り直す
+                Err(GoogleError::Status(400)) if !refreshed => refreshed = true,
+                Err(e) => return Err(e.into()),
+                Ok(mut got) => return Ok(got.pop().unwrap_or_default()),
             }
         }
     }

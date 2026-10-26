@@ -337,6 +337,7 @@ pub fn dev_registrations(
             } else {
                 String::new()
             },
+            notify_tab_id: (id == "dev-sheet-now").then_some(TAB_NOTIFY_ID),
         };
         // (見出し, 画面での名前, 見せる, 一覧に出す, 複数行, 種類, まとまり)
         let cols: [(&str, &str, bool, bool, bool, ColumnKind, ColumnGroup); 12] = [

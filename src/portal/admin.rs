@@ -1098,6 +1098,7 @@ async fn add_sheet(
         created_at: now,
         updated_at: now,
         notify_tab: String::new(),
+        notify_tab_id: None,
     };
     match auth.store().insert_sheet(sheet.clone()) {
         Ok(()) => {}
@@ -1211,9 +1212,12 @@ async fn update_sheet(
         if t.chars().count() > super::notify::MAX_TAB_CHARS || t.chars().any(char::is_control) {
             return invalid("送り先のタブの名前を 100 文字以内で入れてください");
         }
-        if !t.is_empty() && t != old.notify_tab {
-            if let Err(r) = check_notify_tab(&ctx, &auth, &s, t).await {
-                return r;
+        if t.is_empty() {
+            s.notify_tab_id = None;
+        } else if t != old.notify_tab || old.notify_tab_id.is_none() {
+            match check_notify_tab(&ctx, &auth, &s, t).await {
+                Ok(id) => s.notify_tab_id = Some(id),
+                Err(r) => return r,
             }
         }
         s.notify_tab = t.to_string();
@@ -1295,7 +1299,7 @@ async fn update_sheet(
         }
     }
     persist(&auth).await;
-    if old.notify_tab != s.notify_tab {
+    if old.notify_tab_id != s.notify_tab_id {
         if let Some(n) = &ctx.notifier {
             n.tab_changed(&s.id);
         }
@@ -1303,39 +1307,44 @@ async fn update_sheet(
     Json(sheet_view(&ctx, &auth, &s)).into_response()
 }
 
-/// 送り先のタブを確かめる: 応募者のタブ (同じスプレッドシートに登録したもの) は送り先にできない。
-/// 顧客のシートの鍵があれば、そのタブがシートにあることも確かめる
+/// 送り先のタブを確かめ、そのタブの番号を返す (送り先は番号で読むので、名前を変えられても差し替わらない)。
+/// - 電話・メールの種類の項目が無いシートは通知を使えない (新しい応募を見分けられない)
+/// - 同じスプレッドシートに登録した応募者のタブ (送り先を設定していない登録も含む) は送り先にできない
+/// - 顧客のシートを読む鍵で、そのタブがシートにあることを確かめる
 async fn check_notify_tab(
     ctx: &Ctx,
     auth: &PortalAuth,
     s: &SheetReg,
     tab: &str,
-) -> Result<(), Response> {
-    let applicant_tabs: Vec<SheetReg> = auth
-        .store()
-        .sheets(None)
-        .into_iter()
-        .filter(|o| o.spreadsheet_id == s.spreadsheet_id)
-        .collect();
+) -> Result<i64, Response> {
+    if !super::notify::has_fp_columns(&auth.store().columns(&s.id)) {
+        return Err(invalid(
+            "新しい応募を見分けるには、電話番号かメールアドレスの項目が要ります。「項目の設定」で、その列の種類を「電話番号」か「メールアドレス」にしてから保存してください",
+        ));
+    }
+    // 同じスプレッドシートに登録した応募者のタブ (送り先を設定していない登録も含む)
+    let is_applicant_tab = |id: i64| {
+        id == s.sheet_id
+            || auth
+                .store()
+                .sheets(None)
+                .iter()
+                .any(|o| o.spreadsheet_id == s.spreadsheet_id && o.sheet_id == id)
+    };
     let applicant = || {
         invalid("応募者のタブは送り先にできません。送り先のメールアドレスを書いたタブを指定してください")
     };
-    if applicant_tabs.iter().any(|o| o.tab_title.trim() == tab) {
-        return Err(applicant());
-    }
-    let Some(reader) = ctx.reader.as_ref() else {
-        return Ok(());
-    };
-    match reader.tabs(&s.spreadsheet_id).await {
-        Ok(tabs) => match tabs.iter().find(|t| t.title.trim() == tab) {
-            None => Err(invalid(&format!(
-                "シートに「{tab}」というタブが見つかりません。タブの名前を確かめてください"
-            ))),
-            Some(t) if applicant_tabs.iter().any(|o| o.sheet_id == t.sheet_id) => Err(applicant()),
-            Some(_) => Ok(()),
-        },
-        // 読めないときは保存し、通知の状態で知らせる
-        Err(_) => Ok(()),
+    let reader = require_reader(ctx)?;
+    let tabs = reader
+        .tabs(&s.spreadsheet_id)
+        .await
+        .map_err(|e| probe_error(e.into(), reader.as_ref()))?;
+    match tabs.iter().find(|t| t.title.trim() == tab) {
+        None => Err(invalid(&format!(
+            "シートに「{tab}」というタブが見つかりません。タブの名前を確かめてください"
+        ))),
+        Some(t) if is_applicant_tab(t.sheet_id) => Err(applicant()),
+        Some(t) => Ok(t.sheet_id),
     }
 }
 

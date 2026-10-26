@@ -322,6 +322,7 @@ fn dev_parts(reader: Option<Arc<dyn SheetsApi>>) -> Parts {
             cfg: notify::NotifyConfig {
                 every: std::time::Duration::from_secs(30),
                 first_delay: std::time::Duration::from_secs(3),
+                ..notify::NotifyConfig::default()
             },
         }),
     }
@@ -364,7 +365,6 @@ fn router_parts(
                 auth.clone(),
                 mailer.clone(),
                 live.clone(),
-                limits.clone(),
                 n.key,
                 n.portal_url.clone(),
                 parts.store_spreadsheet.clone(),

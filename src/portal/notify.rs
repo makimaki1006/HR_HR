@@ -4,23 +4,29 @@
 //! メールアドレス全員に、宛先ごとに 1 通ずつ知らせる。本文に個人情報は入れない (件名に会社名、本文は画面へのリンクだけ)。
 //!
 //! - いつ読むか: 送り先のタブを登録したシートだけを [`NotifyConfig::every`] おきに確かめる。
-//!   Drive の最終更新時刻 (modifiedTime) が前回と同じなら Sheets を読まない。読み取りは見る画面と同じ
-//!   [`LiveSheets`] を使い回す (同じスプレッドシートの確認は 20 秒にまとめる)。
+//!   Drive の最終更新時刻 (modifiedTime) が前回と同じで、未送信の行も無ければ Sheets を読まない。
+//!   読み取りは見る画面と同じ [`LiveSheets`] を使い回す。1 回の確認にかける時間には上限
+//!   ([`NotifyConfig::budget`]) があり、超えたら残りのシートは次の確認に回す (次はそこから始める)。
+//! - 送り先のタブは番号 (sheetId) で読む。名前は表示用。同じスプレッドシートに登録した応募者のタブ
+//!   (送り先を設定していない登録も含む) は、送り先として読まない。
 //! - 新しい行の見分け方 (計画 10.2 の「行の指紋」): 種類が電話・メールの項目の値 (電話は数字だけ、メールは小文字) と、
 //!   種類が日付の項目のうち並びが最初のもの。見せない項目も使う。同じ指紋の行は上から 1・2 と番号を付ける。
+//!   電話・メールの種類の項目がシートに無いときは、通知しない (日付だけでは別の人を同じ人とみなしてしまう)。
 //!   前回の読み取りに無かった指紋の行を新しいとみなす。ただし同じ行番号に前回あった指紋が今どこにも無いなら、
 //!   その行の書き換え (電話を後から足した など) とみなして送らない。電話もメールも日付も空の行は、
 //!   前回の読み取りでその行番号が空だったときだけ新しいとみなす。
 //! - 初めて読むとき (登録の直後・再起動の直後・指紋に使う項目の設定を変えた直後) は、いまある行を基準にするだけで送らない。
-//! - 同じ指紋には 1 回だけ送る: 送った行は社内用シートの「通知済み」に鍵付きのハッシュ (HMAC) で残し、再起動しても送らない。
-//! - 送れなかった (送り先のタブが無い・空・送信の許可が無い・上限・失敗) 新しい行は、次の確認でまとめて送る。
-//!   1 回の確認で新しい行が何件あっても、宛先ごとに 1 通にまとめる。
+//! - 見つけた新しい行は、すぐ社内用シートの「通知済み」に「未送信」で残す (再起動しても送る)。
+//!   送り先の全員に届いたら「送った」にする。一部の宛先に届かなければ、その宛先 (鍵付きのハッシュ) を残し、
+//!   次の確認でその宛先にだけ送る。1 回の確認で新しい行が何件あっても、宛先ごとに 1 通にまとめる。
+//! - 送る回数は確認コードとは別の枠: 全体で 1 時間 100 通・1 日 500 通、シートごとに 1 時間 50 通。
+//!   当たったら送らずに未送信のまま残す。
 //! - 保存先 (社内用シート) が読み込み前、または送信元の Gmail の許可が無い間は、シートを読まない。
 //!
 //! 単一インスタンス前提 (基準はプロセス内に持つ)。ログには件数と理由だけを出し、アドレス・セルの値は出さない。
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
@@ -28,14 +34,20 @@ use tokio::sync::Notify;
 
 use super::auth::PortalAuth;
 use super::live::{GridResult, LiveSheets, ReadError};
-use super::mail::{Mailer, SendLimits};
-use super::store::{ColumnKind, ColumnSetting, LogEntry, LogSource, NotifiedRow, SheetReg};
+use super::mail::Mailer;
+use super::store::{
+    ColumnKind, ColumnSetting, LogEntry, LogSource, NotifiedRow, NotifyState, SheetReg,
+};
 use super::view::header_positions;
 
 /// 送り先のタブから読む宛先の上限 (違うタブを指定して大勢に送らないように)
 pub const MAX_RECIPIENTS: usize = 50;
 /// 送り先のタブの名前の長さの上限
 pub const MAX_TAB_CHARS: usize = 100;
+/// 「通知済み」の行を残す期間
+const KEEP_NOTIFIED: chrono::Duration = chrono::Duration::days(365);
+/// 「通知済み」の掃除の間隔
+const PURGE_EVERY: Duration = Duration::from_secs(24 * 3600);
 
 #[derive(Debug, Clone)]
 pub struct NotifyConfig {
@@ -43,6 +55,14 @@ pub struct NotifyConfig {
     pub every: Duration,
     /// 起動してから最初に確かめるまで
     pub first_delay: Duration,
+    /// 1 回の確認 (全シート) にかける時間の上限。超えたら残りは次の確認に回す
+    pub budget: Duration,
+    /// 全体で 1 時間に送る通数の上限 (確認コードとは別の枠)
+    pub total_per_hour: usize,
+    /// 全体で 1 日に送る通数の上限
+    pub total_per_day: usize,
+    /// シートごとに 1 時間に送る通数の上限
+    pub sheet_per_hour: usize,
 }
 
 impl Default for NotifyConfig {
@@ -50,6 +70,10 @@ impl Default for NotifyConfig {
         Self {
             every: Duration::from_secs(5 * 60),
             first_delay: Duration::from_secs(30),
+            budget: Duration::from_secs(120),
+            total_per_hour: 100,
+            total_per_day: 500,
+            sheet_per_hour: 50,
         }
     }
 }
@@ -62,12 +86,14 @@ pub enum Problem {
     SheetStopped,
     SheetUnreadable,
     Busy,
+    NoFingerprintColumns,
     TabMissing(String),
     ApplicantTab,
     NoRecipients,
     TooManyRecipients,
     RateLimited,
     MailFailed,
+    PartlyDelivered,
 }
 
 impl Problem {
@@ -78,12 +104,33 @@ impl Problem {
             Problem::SheetStopped => "このシートを止めているため、送っていません".into(),
             Problem::SheetUnreadable => "シートを読めないため、確かめていません。共有が外れていないか確かめてください".into(),
             Problem::Busy => "いまはシートを確かめられませんでした。次の確認でやり直します".into(),
-            Problem::TabMissing(t) => format!("送り先のタブ「{t}」が見つかりません。タブの名前を確かめてください"),
+            Problem::NoFingerprintColumns => "新しい応募を見分けるには、電話番号かメールアドレスの項目が要ります。「項目の設定」で、その列の種類を「電話番号」か「メールアドレス」にしてください".into(),
+            Problem::TabMissing(t) => format!("送り先のタブ「{t}」が見つかりません。消された可能性があります。送り先のタブを設定し直してください"),
             Problem::ApplicantTab => "送り先に応募者のタブが指定されています。別のタブにしてください".into(),
             Problem::NoRecipients => "送り先のタブにメールアドレスがありません".into(),
             Problem::TooManyRecipients => format!("送り先のタブのメールアドレスが多すぎます（{MAX_RECIPIENTS} 件まで）。タブを確かめてください"),
-            Problem::RateLimited => "メールを送る回数の上限に当たったため、少し待ってから送ります".into(),
+            Problem::RateLimited => "送る回数の上限（全体で 1 時間 100 通・1 日 500 通、このシートで 1 時間 50 通）に当たったため、保留しています。上限が空いたら送ります".into(),
             Problem::MailFailed => "メールを送れませんでした。次の確認でやり直します".into(),
+            Problem::PartlyDelivered => "一部の宛先に届きませんでした。次の確認で、その宛先にだけ送ります".into(),
+        }
+    }
+
+    /// ログ用 (タブの名前も出さない)
+    fn for_log(&self) -> &'static str {
+        match self {
+            Problem::MailNotReady => "送信元の許可がない",
+            Problem::CustomerUnusable => "顧客が使えない状態",
+            Problem::SheetStopped => "シートを止めている",
+            Problem::SheetUnreadable => "シートを読めない",
+            Problem::Busy => "シートを確かめられない",
+            Problem::NoFingerprintColumns => "電話・メールの項目が無い",
+            Problem::TabMissing(_) => "送り先のタブが無い",
+            Problem::ApplicantTab => "送り先が応募者のタブ",
+            Problem::NoRecipients => "送り先が空",
+            Problem::TooManyRecipients => "送り先が多すぎる",
+            Problem::RateLimited => "送る回数の上限",
+            Problem::MailFailed => "送信の失敗",
+            Problem::PartlyDelivered => "一部の宛先に届かなかった",
         }
     }
 }
@@ -95,7 +142,7 @@ pub struct NotifyStatus {
     pub recipients: Option<usize>,
     /// 最後に読んだとき、メールアドレスの形でなかったので飛ばした数
     pub skipped: usize,
-    /// まだ知らせていない新しい行の数
+    /// まだ知らせ終わっていない新しい行の数
     pub waiting: usize,
     pub last_checked_at: Option<DateTime<Utc>>,
     pub last_sent_at: Option<DateTime<Utc>>,
@@ -123,21 +170,70 @@ struct Baseline {
     known: HashSet<String>,
     /// 行番号 → 指紋のある行なら Some(鍵)、指紋の無い行なら None
     rows: HashMap<u32, Option<String>>,
-    /// 見つけたがまだ知らせていない行の鍵
-    pending: HashSet<String>,
+}
+
+/// 通知の送る回数 (確認コードとは別の枠。プロセス内で数える)
+#[derive(Default)]
+struct NotifyLimits {
+    total: VecDeque<Instant>,
+    sheets: HashMap<String, VecDeque<Instant>>,
+}
+
+impl NotifyLimits {
+    fn take(&mut self, cfg: &NotifyConfig, sheet: &str, mails: usize, now: Instant) -> bool {
+        let hour = Duration::from_secs(3600);
+        let day = Duration::from_secs(24 * 3600);
+        while self
+            .total
+            .front()
+            .is_some_and(|t| now.saturating_duration_since(*t) >= day)
+        {
+            self.total.pop_front();
+        }
+        self.sheets.retain(|_, q| {
+            while q
+                .front()
+                .is_some_and(|t| now.saturating_duration_since(*t) >= hour)
+            {
+                q.pop_front();
+            }
+            !q.is_empty()
+        });
+        let in_hour = self
+            .total
+            .iter()
+            .filter(|t| now.saturating_duration_since(**t) < hour)
+            .count();
+        let sheet_hour = self.sheets.get(sheet).map_or(0, VecDeque::len);
+        if in_hour + mails > cfg.total_per_hour
+            || self.total.len() + mails > cfg.total_per_day
+            || sheet_hour + mails > cfg.sheet_per_hour
+        {
+            return false;
+        }
+        self.total.extend(std::iter::repeat_n(now, mails));
+        self.sheets
+            .entry(sheet.to_string())
+            .or_default()
+            .extend(std::iter::repeat_n(now, mails));
+        true
+    }
 }
 
 pub struct Notifier {
     auth: Arc<PortalAuth>,
     mailer: Arc<dyn Mailer>,
     live: Arc<LiveSheets>,
-    limits: Arc<SendLimits>,
     key: [u8; 32],
     portal_url: String,
     store_spreadsheet: Option<String>,
     cfg: NotifyConfig,
     base: Mutex<HashMap<String, Baseline>>,
     status: Mutex<HashMap<String, NotifyStatus>>,
+    limits: Mutex<NotifyLimits>,
+    /// 次の確認で最初に見るシート (時間の上限で残したシートから始める)
+    cursor: Mutex<Option<String>>,
+    last_purge: Mutex<Option<Instant>>,
     wake: Notify,
 }
 
@@ -202,6 +298,20 @@ fn fp_columns(cols: &[ColumnSetting]) -> Vec<&ColumnSetting> {
         out.push(d);
     }
     out
+}
+
+/// 指紋に使える項目 (種類が電話かメール) が項目の設定にあるか
+pub fn has_fp_columns(cols: &[ColumnSetting]) -> bool {
+    cols.iter()
+        .any(|c| matches!(c.kind, ColumnKind::Phone | ColumnKind::Email))
+}
+
+/// 種類が電話かメールの項目の見出しが、読んだ表の見出しに 1 つでも (重ならずに) あるか
+fn fp_headers_present(cols: &[ColumnSetting], header: &[String]) -> bool {
+    let positions = header_positions(header);
+    cols.iter()
+        .filter(|c| matches!(c.kind, ColumnKind::Phone | ColumnKind::Email))
+        .any(|c| positions.get(&c.header).copied().flatten().is_some())
 }
 
 /// 基準を作り直すかを決める印 (読む範囲と指紋に使う項目)
@@ -360,13 +470,22 @@ pub fn notify_message(customer_name: &str, portal_url: &str) -> (String, String)
     (subject, body)
 }
 
+/// 同じスプレッドシートに登録した応募者のタブの番号 (送り先を設定していない登録も含む)
+fn applicant_tabs(s: &SheetReg, all: &[SheetReg]) -> Vec<i64> {
+    let mut v: Vec<i64> = all
+        .iter()
+        .filter(|o| o.spreadsheet_id == s.spreadsheet_id)
+        .map(|o| o.sheet_id)
+        .collect();
+    v.push(s.sheet_id);
+    v
+}
+
 impl Notifier {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         auth: Arc<PortalAuth>,
         mailer: Arc<dyn Mailer>,
         live: Arc<LiveSheets>,
-        limits: Arc<SendLimits>,
         key: [u8; 32],
         portal_url: String,
         store_spreadsheet: Option<String>,
@@ -376,13 +495,15 @@ impl Notifier {
             auth,
             mailer,
             live,
-            limits,
             key,
             portal_url,
             store_spreadsheet,
             cfg,
             base: Mutex::new(HashMap::new()),
             status: Mutex::new(HashMap::new()),
+            limits: Mutex::new(NotifyLimits::default()),
+            cursor: Mutex::new(None),
+            last_purge: Mutex::new(None),
             wake: Notify::new(),
         })
     }
@@ -442,7 +563,8 @@ impl Notifier {
             .store()
             .notified(sheet_reg_id)
             .iter()
-            .map(|n| n.sent_at)
+            .filter(|n| n.state == NotifyState::Sent)
+            .map(|n| n.at)
             .max();
         st.last_sent_at = st.last_sent_at.max(saved);
         st
@@ -451,6 +573,10 @@ impl Notifier {
     fn set_status(&self, id: &str, f: impl FnOnce(&mut NotifyStatus)) {
         let mut g = self.status.lock().unwrap_or_else(|e| e.into_inner());
         f(g.entry(id.to_string()).or_default());
+    }
+
+    fn problem(&self, id: &str, p: Problem) {
+        self.set_status(id, |st| st.problem = Some(p));
     }
 
     fn take_base(&self, id: &str) -> Option<Baseline> {
@@ -467,17 +593,37 @@ impl Notifier {
             .insert(id.to_string(), b);
     }
 
-    /// 送り先のタブを登録したシートを 1 回ずつ確かめる
+    fn purge_if_due(&self) {
+        let due = {
+            let mut g = self.last_purge.lock().unwrap_or_else(|e| e.into_inner());
+            let due = g.is_none_or(|t| t.elapsed() >= PURGE_EVERY);
+            if due {
+                *g = Some(Instant::now());
+            }
+            due
+        };
+        if due {
+            let n = self.auth.store().purge_notified(Utc::now() - KEEP_NOTIFIED);
+            if n > 0 {
+                tracing::info!("[portal notify] 1 年より古い「通知済み」の行を {n} 行消した");
+            }
+        }
+    }
+
+    /// 送り先のタブを登録したシートを 1 回ずつ確かめる。時間の上限を超えたら残りは次の確認に回す
     pub async fn tick(&self) {
         let store = self.auth.store();
         if !store.ready() {
             return;
         }
-        let sheets: Vec<SheetReg> = store
-            .sheets(None)
-            .into_iter()
+        self.purge_if_due();
+        let all = store.sheets(None);
+        let mut sheets: Vec<SheetReg> = all
+            .iter()
             .filter(|s| !s.notify_tab.trim().is_empty())
+            .cloned()
             .collect();
+        sheets.sort_by(|a, b| a.id.cmp(&b.id));
         {
             let ids: HashSet<&str> = sheets.iter().map(|s| s.id.as_str()).collect();
             self.base
@@ -489,82 +635,109 @@ impl Notifier {
                 .unwrap_or_else(|e| e.into_inner())
                 .retain(|k, _| ids.contains(k.as_str()));
         }
+        // 前の確認で残したシートから始める
+        let start = self
+            .cursor
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .and_then(|c| sheets.iter().position(|s| s.id >= c))
+            .unwrap_or(0);
+        sheets.rotate_left(start);
         let mail_ok = self.mailer.ready();
-        for s in &sheets {
-            self.check_sheet(s, &sheets, mail_ok).await;
+        let began = Instant::now();
+        for (i, s) in sheets.iter().enumerate() {
+            if i > 0 && began.elapsed() >= self.cfg.budget {
+                tracing::warn!(
+                    "[portal notify] 確認の時間の上限に当たった。残り {} シートは次の確認に回す",
+                    sheets.len() - i
+                );
+                *self.cursor.lock().unwrap_or_else(|e| e.into_inner()) = Some(s.id.clone());
+                break;
+            }
+            self.check_sheet(s, &all, mail_ok).await;
         }
     }
 
     async fn check_sheet(&self, s: &SheetReg, all: &[SheetReg], mail_ok: bool) {
         let now = Utc::now();
         self.set_status(&s.id, |st| st.last_checked_at = Some(now));
-        let problem = |p: Problem| {
-            self.set_status(&s.id, |st| st.problem = Some(p));
-        };
         let store = self.auth.store();
+        // 止めた・使えない間は読まない。基準は残す (再開したら、その間に入った行も知らせる)
         if s.disabled || self.store_spreadsheet.as_deref() == Some(s.spreadsheet_id.as_str()) {
-            self.take_base(&s.id);
-            return problem(Problem::SheetStopped);
+            return self.problem(&s.id, Problem::SheetStopped);
         }
         if !store.customer(&s.customer_id).is_some_and(|c| c.usable()) {
-            return problem(Problem::CustomerUnusable);
+            return self.problem(&s.id, Problem::CustomerUnusable);
         }
         if !mail_ok {
-            return problem(Problem::MailNotReady);
+            return self.problem(&s.id, Problem::MailNotReady);
+        }
+        let cols = store.columns(&s.id);
+        if !has_fp_columns(&cols) {
+            return self.problem(&s.id, Problem::NoFingerprintColumns);
         }
         let modified = match self.live.modified(&s.spreadsheet_id).await {
             Ok(m) => m,
             Err(e) => {
-                return match ReadError::from(e) {
-                    ReadError::NotShared => {
-                        self.take_base(&s.id);
-                        problem(Problem::SheetUnreadable)
-                    }
-                    _ => problem(Problem::Busy),
-                };
+                return self.problem(
+                    &s.id,
+                    match ReadError::from(e) {
+                        ReadError::NotShared => Problem::SheetUnreadable,
+                        _ => Problem::Busy,
+                    },
+                );
             }
         };
-        let cols = store.columns(&s.id);
         let tag = shape_tag(s, &cols);
         let prev = self.take_base(&s.id);
-        // 送り先をまだ読めていない (登録の直後・送り先のタブを変えた直後・タブが無かった)
+        let has_pending = store
+            .notified(&s.id)
+            .iter()
+            .any(|n| n.state == NotifyState::Pending);
+        // 送り先をまだ読めていない (登録の直後・送り先のタブを変えた直後・タブが無い・空)
         let need_recipients = self
             .status
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(&s.id)
             .is_none_or(|st| st.recipients.is_none_or(|n| n == 0 || n > MAX_RECIPIENTS));
-        let unchanged = prev.as_ref().is_some_and(|b| {
-            b.tag == tag && b.modified == modified && b.pending.is_empty() && !need_recipients
-        });
+        let unchanged = prev
+            .as_ref()
+            .is_some_and(|b| b.tag == tag && b.modified == modified)
+            && !has_pending
+            && !need_recipients;
         if unchanged {
             // 変わっていない: Sheets を読まない
             if let Some(b) = prev {
                 self.put_base(&s.id, b);
             }
-            self.set_status(&s.id, |st| st.problem = None);
+            self.set_status(&s.id, |st| {
+                st.problem = None;
+                st.waiting = 0;
+            });
             return;
         }
+        let restore = |prev: Option<Baseline>, p: Problem| {
+            if let Some(b) = prev {
+                self.put_base(&s.id, b);
+            }
+            self.problem(&s.id, p);
+        };
         let grid = match self.live.grid(s, Some(&modified)).await {
             Ok(GridResult::Fresh(g)) => g,
-            Ok(GridResult::Stale(_)) => {
-                if let Some(b) = prev {
-                    self.put_base(&s.id, b);
-                }
-                return problem(Problem::Busy);
+            Ok(GridResult::Stale(_)) => return restore(prev, Problem::Busy),
+            Err(ReadError::NotShared | ReadError::TabNotFound) => {
+                return restore(prev, Problem::SheetUnreadable)
             }
-            Err(e) => {
-                if matches!(e, ReadError::NotShared | ReadError::TabNotFound) {
-                    return problem(Problem::SheetUnreadable);
-                }
-                if let Some(b) = prev {
-                    self.put_base(&s.id, b);
-                }
-                return problem(Problem::Busy);
-            }
+            Err(ReadError::Google(_)) => return restore(prev, Problem::Busy),
         };
+        let header: &[String] = grid.rows.first().map(Vec::as_slice).unwrap_or(&[]);
+        if !fp_headers_present(&cols, header) {
+            return restore(prev, Problem::NoFingerprintColumns);
+        }
         let marks = row_marks(&self.key, s, &cols, &grid.rows);
-        let mut next = Baseline {
+        let next = Baseline {
             tag: tag.clone(),
             modified: modified.clone(),
             known: marks
@@ -576,65 +749,71 @@ impl Notifier {
                 .iter()
                 .map(|m| (m.row, m.has_fp.then(|| m.key.clone())))
                 .collect(),
-            pending: HashSet::new(),
         };
-        let prev = match prev.filter(|b| b.tag == tag) {
-            Some(b) => b,
+        // 新しい行は、すぐ「未送信」で残す (再起動しても送る)
+        match prev.filter(|b| b.tag == tag) {
+            Some(prev) => {
+                let saved: HashSet<String> = store
+                    .notified(&s.id)
+                    .into_iter()
+                    .map(|n| n.fingerprint)
+                    .collect();
+                let fresh: Vec<NotifiedRow> = new_rows(&prev, &marks)
+                    .into_iter()
+                    .filter(|m| !saved.contains(&m.key))
+                    .map(|m| NotifiedRow {
+                        sheet_reg_id: s.id.clone(),
+                        fingerprint: m.key.clone(),
+                        state: NotifyState::Pending,
+                        at: now,
+                        remaining: Vec::new(),
+                    })
+                    .collect();
+                if !fresh.is_empty() {
+                    tracing::info!("[portal notify] 新しい応募を {} 件見つけた", fresh.len());
+                    store.put_notified(fresh);
+                }
+            }
             None => {
                 // 初めて読んだ (登録・再起動の直後、指紋に使う項目を変えた直後): 基準にするだけで送らない
                 tracing::info!(
                     "[portal notify] 応募の通知の基準を作った（{} 行）",
                     marks.len()
                 );
-                self.put_base(&s.id, next);
-                self.set_status(&s.id, |st| {
-                    st.waiting = 0;
-                    st.problem = None;
-                });
-                self.refresh_recipients(s, all).await;
-                return;
-            }
-        };
-        let sent: HashSet<String> = store
-            .notified(&s.id)
-            .into_iter()
-            .map(|n| n.fingerprint)
-            .collect();
-        let mut fresh: Vec<&RowMark> = new_rows(&prev, &marks);
-        for m in &marks {
-            if prev.pending.contains(&m.key) && !fresh.iter().any(|f| f.key == m.key) {
-                fresh.push(m);
             }
         }
-        fresh.retain(|m| !sent.contains(&m.key));
-        fresh.sort_by_key(|m| m.row);
-        if fresh.is_empty() {
-            self.put_base(&s.id, next);
+        self.put_base(&s.id, next);
+        let row_of: HashMap<&str, u32> = marks.iter().map(|m| (m.key.as_str(), m.row)).collect();
+        // シートに今ある未送信の行 (消えた行には送らない)
+        let pending: Vec<NotifiedRow> = store
+            .notified(&s.id)
+            .into_iter()
+            .filter(|n| {
+                n.state == NotifyState::Pending && row_of.contains_key(n.fingerprint.as_str())
+            })
+            .collect();
+        if pending.is_empty() {
             self.set_status(&s.id, |st| {
                 st.waiting = 0;
                 st.problem = None;
             });
             if need_recipients {
-                self.refresh_recipients(s, all).await;
+                if let Err(p) = self.recipients(s, all).await {
+                    self.problem(&s.id, p);
+                }
             }
             return;
         }
-        // 送る直前に送り先を読む
-        let result = self.send(s, all, &fresh).await;
-        match result {
-            Ok(()) => {
-                self.set_status(&s.id, |st| {
-                    st.waiting = 0;
-                    st.problem = None;
-                    st.last_sent_at = Some(Utc::now());
-                });
-            }
+        let n = pending.len();
+        match self.deliver(s, all, &pending, &row_of).await {
+            Ok(left) => self.set_status(&s.id, |st| {
+                st.waiting = left;
+                st.problem = (left > 0).then_some(Problem::PartlyDelivered);
+            }),
             Err(p) => {
-                next.pending = fresh.iter().map(|m| m.key.clone()).collect();
-                let n = next.pending.len();
                 tracing::warn!(
                     "[portal notify] 新しい応募 {n} 件を知らせられなかった: {}",
-                    p.message_for_log()
+                    p.for_log()
                 );
                 self.set_status(&s.id, |st| {
                     st.waiting = n;
@@ -642,46 +821,48 @@ impl Notifier {
                 });
             }
         }
-        self.put_base(&s.id, next);
-    }
-
-    /// 送り先のタブの番号では読まない応募者のタブ (同じスプレッドシートに登録したもの)
-    fn forbidden_tabs(s: &SheetReg, all: &[SheetReg]) -> Vec<i64> {
-        let mut v: Vec<i64> = all
-            .iter()
-            .filter(|o| o.spreadsheet_id == s.spreadsheet_id)
-            .map(|o| o.sheet_id)
-            .collect();
-        v.push(s.sheet_id);
-        v
     }
 
     /// 送り先を読み、状態に残す
     async fn recipients(&self, s: &SheetReg, all: &[SheetReg]) -> Result<Vec<String>, Problem> {
-        let tab = s.notify_tab.trim();
-        if all
-            .iter()
-            .filter(|o| o.spreadsheet_id == s.spreadsheet_id)
-            .any(|o| o.tab_title.trim() == tab)
-        {
+        let forbidden = applicant_tabs(s, all);
+        let missing = || Problem::TabMissing(s.notify_tab.trim().to_string());
+        let clear = || {
+            self.set_status(&s.id, |st| {
+                st.recipients = None;
+                st.skipped = 0;
+            })
+        };
+        let Some(tab_id) = s.notify_tab_id else {
+            clear();
+            return Err(missing());
+        };
+        if forbidden.contains(&tab_id) {
+            clear();
             return Err(Problem::ApplicantTab);
         }
-        let cells = self
+        let cells = match self
             .live
-            .tab_cells(&s.spreadsheet_id, tab, &Self::forbidden_tabs(s, all))
+            .tab_cells(&s.spreadsheet_id, tab_id, &forbidden)
             .await
-            .map_err(|e| match e {
-                ReadError::TabNotFound => Problem::TabMissing(tab.to_string()),
-                ReadError::NotShared => Problem::SheetUnreadable,
-                ReadError::Google(_) => Problem::Busy,
-            })?;
+        {
+            Ok(c) => c,
+            Err(ReadError::TabNotFound) => {
+                clear();
+                return Err(missing());
+            }
+            Err(ReadError::NotShared) => return Err(Problem::SheetUnreadable),
+            Err(ReadError::Google(_)) => return Err(Problem::Busy),
+        };
         let (addrs, skipped) = extract_addresses(&cells);
         self.set_status(&s.id, |st| {
             st.recipients = Some(addrs.len());
             st.skipped = skipped;
         });
         if skipped > 0 {
-            tracing::info!("[portal notify] 送り先のタブで、メールアドレスの形でないものを {skipped} 件飛ばした");
+            tracing::info!(
+                "[portal notify] 送り先のタブで、メールアドレスの形でないものを {skipped} 件飛ばした"
+            );
         }
         if addrs.is_empty() {
             return Err(Problem::NoRecipients);
@@ -692,104 +873,141 @@ impl Notifier {
         Ok(addrs)
     }
 
-    async fn refresh_recipients(&self, s: &SheetReg, all: &[SheetReg]) {
-        match self.recipients(s, all).await {
-            Ok(_) => {}
-            Err(p) => {
-                if matches!(p, Problem::TabMissing(_) | Problem::ApplicantTab) {
-                    self.set_status(&s.id, |st| {
-                        st.recipients = None;
-                        st.skipped = 0;
-                    });
-                }
-                self.set_status(&s.id, |st| st.problem = Some(p));
-            }
-        }
+    fn addr_key(&self, s: &SheetReg, addr: &str) -> String {
+        hex16(&hmac_sha256(
+            &self.key,
+            format!("a1\u{1f}{}\u{1f}{addr}", s.id).as_bytes(),
+        ))
     }
 
-    async fn send(&self, s: &SheetReg, all: &[SheetReg], rows: &[&RowMark]) -> Result<(), Problem> {
-        let to = match self.recipients(s, all).await {
-            Ok(v) => v,
-            Err(p) => {
-                if matches!(p, Problem::TabMissing(_) | Problem::ApplicantTab) {
-                    self.set_status(&s.id, |st| {
-                        st.recipients = None;
-                        st.skipped = 0;
-                    });
-                }
-                return Err(p);
-            }
-        };
+    /// 未送信の行を知らせる。宛先ごとに 1 通。届かなかった宛先が残った行の数を返す
+    async fn deliver(
+        &self,
+        s: &SheetReg,
+        all: &[SheetReg],
+        pending: &[NotifiedRow],
+        row_of: &HashMap<&str, u32>,
+    ) -> Result<usize, Problem> {
         let store = self.auth.store();
-        let name = store
-            .customer(&s.customer_id)
-            .map(|c| c.name)
-            .unwrap_or_default();
-        let key = format!("notify:{}", s.id);
-        if !self.limits.take(&key, to.len(), std::time::Instant::now()) {
-            return Err(Problem::RateLimited);
+        // 送る直前に、シートと顧客が止められていないかを読み直す
+        let Some(s) = store.sheet(&s.id) else {
+            return Err(Problem::SheetStopped);
+        };
+        if s.disabled {
+            return Err(Problem::SheetStopped);
         }
-        let (subject, body) = notify_message(&name, &self.portal_url);
-        let delivered = self
-            .mailer
-            .send(&to, &subject, &body)
-            .await
-            .map_err(|_| Problem::MailFailed)?;
-        let now = Utc::now();
-        store.insert_notified(
-            rows.iter()
-                .map(|m| NotifiedRow {
-                    sheet_reg_id: s.id.clone(),
-                    fingerprint: m.key.clone(),
-                    sent_at: now,
-                })
-                .collect(),
-        );
-        let row_list = rows
+        let Some(customer) = store.customer(&s.customer_id).filter(|c| c.usable()) else {
+            return Err(Problem::CustomerUnusable);
+        };
+        let to = self.recipients(&s, all).await?;
+        let keyed: Vec<(String, String)> = to
             .iter()
-            .map(|m| m.row.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let mut e = LogEntry::new(now, "system", LogSource::System, "notify");
-        e.customer_id = s.customer_id.clone();
-        e.sheet_reg_id = s.id.clone();
-        e.row = row_list;
-        e.detail = format!(
-            "新しい応募の通知を送った（新しい行 {} 件・{} 通{}）。送り先: {}",
-            rows.len(),
-            delivered.len(),
-            if delivered.len() < to.len() {
-                format!("。{} 通は送れなかった", to.len() - delivered.len())
-            } else {
-                String::new()
-            },
-            delivered.join(", ")
-        );
-        store.append_log(e);
-        tracing::info!(
-            "[portal notify] 新しい応募の通知を送った（新しい行 {} 件・{} 通）",
-            rows.len(),
-            delivered.len()
-        );
-        Ok(())
-    }
-}
-
-impl Problem {
-    /// ログ用 (タブの名前も出さない)
-    fn message_for_log(&self) -> &'static str {
-        match self {
-            Problem::MailNotReady => "送信元の許可がない",
-            Problem::CustomerUnusable => "顧客が使えない状態",
-            Problem::SheetStopped => "シートを止めている",
-            Problem::SheetUnreadable => "シートを読めない",
-            Problem::Busy => "シートを確かめられない",
-            Problem::TabMissing(_) => "送り先のタブが無い",
-            Problem::ApplicantTab => "送り先が応募者のタブ",
-            Problem::NoRecipients => "送り先が空",
-            Problem::TooManyRecipients => "送り先が多すぎる",
-            Problem::RateLimited => "送る回数の上限",
-            Problem::MailFailed => "送信の失敗",
+            .map(|a| (a.clone(), self.addr_key(&s, a)))
+            .collect();
+        // 行ごとに送る宛先: 未送信なら全員、一部に届かなかった行はその宛先だけ (送り先から外れた宛先は送らない)
+        let needs: Vec<Vec<&str>> = pending
+            .iter()
+            .map(|r| {
+                keyed
+                    .iter()
+                    .filter(|(_, k)| r.remaining.is_empty() || r.remaining.contains(k))
+                    .map(|(a, _)| a.as_str())
+                    .collect()
+            })
+            .collect();
+        let send_to: Vec<String> = to
+            .iter()
+            .filter(|a| needs.iter().any(|n| n.contains(&a.as_str())))
+            .cloned()
+            .collect();
+        let now = Utc::now();
+        let delivered: HashSet<String> = if send_to.is_empty() {
+            HashSet::new()
+        } else {
+            let ok = self.limits.lock().unwrap_or_else(|e| e.into_inner()).take(
+                &self.cfg,
+                &s.id,
+                send_to.len(),
+                Instant::now(),
+            );
+            if !ok {
+                return Err(Problem::RateLimited);
+            }
+            let (subject, body) = notify_message(&customer.name, &self.portal_url);
+            self.mailer
+                .send(&send_to, &subject, &body)
+                .await
+                .map_err(|_| Problem::MailFailed)?
+                .into_iter()
+                .collect()
+        };
+        let mut done_rows = Vec::new();
+        let mut left_rows = 0;
+        let updates: Vec<NotifiedRow> = pending
+            .iter()
+            .zip(&needs)
+            .map(|(r, need)| {
+                let left: Vec<String> = need
+                    .iter()
+                    .filter(|a| !delivered.contains(**a))
+                    .map(|a| self.addr_key(&s, a))
+                    .collect();
+                if left.is_empty() {
+                    if let Some(n) = row_of.get(r.fingerprint.as_str()) {
+                        done_rows.push(*n);
+                    }
+                    NotifiedRow {
+                        state: NotifyState::Sent,
+                        at: now,
+                        remaining: Vec::new(),
+                        ..r.clone()
+                    }
+                } else {
+                    left_rows += 1;
+                    NotifiedRow {
+                        state: NotifyState::Pending,
+                        remaining: left,
+                        ..r.clone()
+                    }
+                }
+            })
+            .collect();
+        store.put_notified(updates);
+        if !delivered.is_empty() {
+            done_rows.sort_unstable();
+            let mut e = LogEntry::new(now, "system", LogSource::System, "notify");
+            e.customer_id = s.customer_id.clone();
+            e.sheet_reg_id = s.id.clone();
+            e.row = done_rows
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let failed = send_to.len() - delivered.len();
+            let sent: Vec<&str> = send_to
+                .iter()
+                .filter(|a| delivered.contains(*a))
+                .map(String::as_str)
+                .collect();
+            e.detail = format!(
+                "新しい応募の通知を送った（新しい行 {} 件・{} 通{}）。送り先: {}",
+                pending.len(),
+                delivered.len(),
+                if failed > 0 {
+                    format!("。{failed} 通は届かず、次の確認で送り直す")
+                } else {
+                    String::new()
+                },
+                sent.join(", ")
+            );
+            store.append_log(e);
+            tracing::info!(
+                "[portal notify] 新しい応募の通知を送った（新しい行 {} 件・{} 通・届かなかった {failed} 通）",
+                pending.len(),
+                delivered.len()
+            );
+            self.set_status(&s.id, |st| st.last_sent_at = Some(now));
         }
+        Ok(left_rows)
     }
 }

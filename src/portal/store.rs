@@ -180,18 +180,49 @@ pub struct SheetReg {
     pub disabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    /// 応募の通知の送り先のタブの名前 (同じスプレッドシートの中)。空なら通知しない (計画 14 章)
+    /// 応募の通知の送り先のタブの名前 (表示用。保存したときの名前)。空なら通知しない (計画 14 章)
     pub notify_tab: String,
+    /// 応募の通知の送り先のタブの番号。送り先はこの番号で読む (名前の変更で別のタブに差し替わらない)
+    pub notify_tab_id: Option<i64>,
 }
 
-/// 応募の通知を送った行 (計画 14 章)。同じ行に 2 度送らないために持つ。
-/// 行の指紋は電話・メールから作るので、生の値は置かず鍵付きのハッシュ (HMAC) だけを置く
+/// 応募の通知の行の状態
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotifyState {
+    /// 送り先の全員に届いた
+    Sent,
+    /// まだ送っていない、または一部の宛先に届いていない
+    Pending,
+}
+
+impl NotifyState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NotifyState::Sent => "sent",
+            NotifyState::Pending => "pending",
+        }
+    }
+    /// 知らない値は「送った」(2 度送らない側に倒す)
+    pub fn parse(s: &str) -> Self {
+        match s.trim() {
+            "pending" => NotifyState::Pending,
+            _ => NotifyState::Sent,
+        }
+    }
+}
+
+/// 応募の通知の行 (計画 14 章)。同じ行に 2 度送らないため・送れなかった行を再起動後も送るために持つ。
+/// 行の指紋と宛先は鍵付きのハッシュ (HMAC) だけを置き、生の値は置かない
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotifiedRow {
     pub sheet_reg_id: String,
     /// 行の指紋の鍵付きハッシュ (16 進)
     pub fingerprint: String,
-    pub sent_at: DateTime<Utc>,
+    pub state: NotifyState,
+    /// 送った日時 (未送信なら見つけた日時)
+    pub at: DateTime<Utc>,
+    /// 一部の宛先に届かなかったとき、その宛先の鍵付きハッシュ。空で未送信なら送り先の全員
+    pub remaining: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,10 +431,12 @@ pub trait PortalStore: Send + Sync {
     /// そのシートの項目の設定を丸ごと置き換える
     fn replace_columns(&self, sheet_reg_id: &str, columns: Vec<ColumnSetting>);
 
-    /// 応募の通知を送った行 (そのシートの分)
+    /// 応募の通知の行 (そのシートの分)
     fn notified(&self, sheet_reg_id: &str) -> Vec<NotifiedRow>;
-    /// 応募の通知を送った行を足す (同じ鍵はそのまま)
-    fn insert_notified(&self, rows: Vec<NotifiedRow>);
+    /// 応募の通知の行を足す・置き換える。「送った」行を「未送信」には戻さない
+    fn put_notified(&self, rows: Vec<NotifiedRow>);
+    /// `before` より古い応募の通知の行を消す。消した数
+    fn purge_notified(&self, before: DateTime<Utc>) -> usize;
 
     fn append_log(&self, entry: LogEntry);
     /// 新しい順。プロセス内に残っている分だけ (古いものは社内用シートで見る)
@@ -685,23 +718,37 @@ impl Tables {
             .filter(|n| n.sheet_reg_id == sheet_reg_id)
             .cloned()
             .collect();
-        out.sort_by(|a, b| (a.sent_at, &a.fingerprint).cmp(&(b.sent_at, &b.fingerprint)));
+        out.sort_by(|a, b| (a.at, &a.fingerprint).cmp(&(b.at, &b.fingerprint)));
         out
     }
-    pub fn insert_notified(&mut self, rows: Vec<NotifiedRow>) -> Changed {
+    pub fn put_notified(&mut self, rows: Vec<NotifiedRow>) -> Changed {
         let mut out = Vec::new();
         for r in rows {
             let k = column_key(&r.sheet_reg_id, &r.fingerprint);
-            if r.sheet_reg_id.is_empty()
-                || r.fingerprint.is_empty()
-                || self.notified.contains_key(&k)
-            {
+            if r.sheet_reg_id.is_empty() || r.fingerprint.is_empty() {
                 continue;
+            }
+            match self.notified.get(&k) {
+                Some(old) if old.state == NotifyState::Sent => continue,
+                Some(old) if *old == r => continue,
+                _ => {}
             }
             self.notified.insert(k.clone(), r);
             out.push((Table::Notified, k));
         }
         out
+    }
+    pub fn purge_notified(&mut self, before: DateTime<Utc>) -> Changed {
+        let old: Vec<String> = self
+            .notified
+            .iter()
+            .filter(|(_, n)| n.at < before)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in &old {
+            self.notified.remove(k);
+        }
+        old.into_iter().map(|k| (Table::Notified, k)).collect()
     }
 
     pub fn push_log(&mut self, entry: LogEntry) {
@@ -822,8 +869,11 @@ impl PortalStore for MemoryStore {
     fn notified(&self, sheet_reg_id: &str) -> Vec<NotifiedRow> {
         self.lock().notified(sheet_reg_id)
     }
-    fn insert_notified(&self, rows: Vec<NotifiedRow>) {
-        self.lock().insert_notified(rows);
+    fn put_notified(&self, rows: Vec<NotifiedRow>) {
+        self.lock().put_notified(rows);
+    }
+    fn purge_notified(&self, before: DateTime<Utc>) -> usize {
+        self.lock().purge_notified(before).len()
     }
 
     fn append_log(&self, entry: LogEntry) {

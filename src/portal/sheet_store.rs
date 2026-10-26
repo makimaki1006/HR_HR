@@ -60,6 +60,7 @@ pub const H_SHEETS: &[&str] = &[
     "作成日時",
     "更新日時",
     "送り先のタブ",
+    "送り先のタブの番号",
 ];
 pub const H_COLUMNS: &[&str] = &[
     "シートの番号",
@@ -101,7 +102,13 @@ pub const H_DEVICES: &[&str] = &[
 ];
 pub const H_SESSIONS: &[&str] = &["セッションのハッシュ", "アカウントの番号", "開始", "終了"];
 /// 応募の通知を送った行。指紋は鍵付きのハッシュだけ (電話・メールから元の値を割り出させない)
-pub const H_NOTIFIED: &[&str] = &["シートの番号", "行の指紋（鍵付きハッシュ）", "送った日時"];
+pub const H_NOTIFIED: &[&str] = &[
+    "シートの番号",
+    "行の指紋（鍵付きハッシュ）",
+    "日時",
+    "状態",
+    "届いていない宛先（鍵付きハッシュ）",
+];
 pub const H_LOG: &[&str] = &[
     "日時",
     "操作者",
@@ -282,6 +289,7 @@ fn encode(t: &Tables, table: Table, key: &str) -> Option<Vec<String>> {
                 fmt_time(s.created_at),
                 fmt_time(s.updated_at),
                 s.notify_tab.clone(),
+                s.notify_tab_id.map(|i| i.to_string()).unwrap_or_default(),
             ]
         }
         Table::Columns => {
@@ -355,7 +363,9 @@ fn encode(t: &Tables, table: Table, key: &str) -> Option<Vec<String>> {
             vec![
                 n.sheet_reg_id.clone(),
                 n.fingerprint.clone(),
-                fmt_time(n.sent_at),
+                fmt_time(n.at),
+                n.state.as_str().into(),
+                n.remaining.join(" "),
             ]
         }
     };
@@ -448,6 +458,7 @@ fn decode_into(t: &mut Tables, table: Table, r: &[String]) -> bool {
                     created_at: parse_time(cell(r, 10)).unwrap_or_else(epoch),
                     updated_at: parse_time(cell(r, 11)).unwrap_or_else(epoch),
                     notify_tab: cell(r, 12).trim().to_string(),
+                    notify_tab_id: cell(r, 13).trim().parse().ok(),
                 },
             );
         }
@@ -574,8 +585,10 @@ fn decode_into(t: &mut Tables, table: Table, r: &[String]) -> bool {
                 NotifiedRow {
                     sheet_reg_id: id,
                     fingerprint: fingerprint.into(),
-                    // 読めない日時でも「送った」扱い (2 度送らない側に倒す)
-                    sent_at: parse_time(cell(r, 2)).unwrap_or_else(epoch),
+                    // 読めない日時は古い扱い (1 年で掃除される)
+                    at: parse_time(cell(r, 2)).unwrap_or_else(epoch),
+                    state: NotifyState::parse(cell(r, 3)),
+                    remaining: cell(r, 4).split_whitespace().map(str::to_string).collect(),
                 },
             );
         }
@@ -1398,9 +1411,15 @@ impl PortalStore for SheetStore {
     fn notified(&self, sheet_reg_id: &str) -> Vec<NotifiedRow> {
         self.lock().t.notified(sheet_reg_id)
     }
-    fn insert_notified(&self, rows: Vec<NotifiedRow>) {
-        let c = self.lock().t.insert_notified(rows);
+    fn put_notified(&self, rows: Vec<NotifiedRow>) {
+        let c = self.lock().t.put_notified(rows);
         self.mark(c);
+    }
+    fn purge_notified(&self, before: DateTime<Utc>) -> usize {
+        let c = self.lock().t.purge_notified(before);
+        let n = c.len();
+        self.mark(c);
+        n
     }
 
     fn append_log(&self, entry: LogEntry) {

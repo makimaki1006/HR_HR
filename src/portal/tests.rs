@@ -1000,8 +1000,11 @@ fn ログインは最後のログインの日時だけを変えて管理者の�
         fn notified(&self, id: &str) -> Vec<store::NotifiedRow> {
             self.inner.notified(id)
         }
-        fn insert_notified(&self, rows: Vec<store::NotifiedRow>) {
-            self.inner.insert_notified(rows)
+        fn put_notified(&self, rows: Vec<store::NotifiedRow>) {
+            self.inner.put_notified(rows)
+        }
+        fn purge_notified(&self, before: DateTime<Utc>) -> usize {
+            self.inner.purge_notified(before)
         }
         fn session(&self, h: &str) -> Option<store::Session> {
             self.inner.session(h)

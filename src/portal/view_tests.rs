@@ -85,6 +85,7 @@ fn reg(id: &str, customer: &str, spreadsheet: &str, sheet_id: i64) -> SheetReg {
         created_at: Utc::now(),
         updated_at: Utc::now(),
         notify_tab: String::new(),
+        notify_tab_id: None,
     }
 }
 
