@@ -13,6 +13,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use super::competitor_consultation::{self, ConsultationSection};
+use super::competitor_keyword_analysis::{self, KeywordAnalysis};
 use super::competitor_keywords::{self, KeywordComparison};
 use super::competitor_population::{self, PopulationShares};
 use super::section_05b_competitor::head_tag_counts;
@@ -191,6 +192,10 @@ pub enum IndeedSection {
         caveat: String,
         built_at: String,
         rows: Vec<IndeedRow>,
+        /// 「キーワードの推移・分析」。スナップショットから読めなかったときは出力に含めない。
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        keyword_analysis: Option<Box<KeywordAnalysis>>,
     },
 }
 
@@ -601,6 +606,7 @@ fn indeed_section(data: &Value) -> IndeedSection {
         source: s(data, "source"),
         caveat: s(data, "caveat"),
         built_at: s(data, "built_at"),
+        keyword_analysis: competitor_keyword_analysis::build(data),
         rows: data["rows"]
             .as_array()
             .into_iter()

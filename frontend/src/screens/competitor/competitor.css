@@ -333,3 +333,5 @@ html:has(.competitor) { background: #eef1f6; }
 @media (max-width: 900px) {
   .cmp-trend-grid, .cmp-population-metrics, .cmp-consultation-grid { grid-template-columns: 1fr; }
 }
+.cmp-kw h3 { font-size: 20px; margin: 32px 0 8px; }
+.cmp-kw h4 { font-size: 16px; margin: 24px 0 6px; }

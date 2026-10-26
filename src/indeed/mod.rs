@@ -17,6 +17,7 @@
 //! 数字と文字列の一致を固定している。JS 側を直したら金型を作り直すこと。
 
 pub mod aggregate;
+pub mod compkw;
 pub mod data;
 pub mod detail;
 pub mod industry;

@@ -106,3 +106,5 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--blue);outline-offse
 .population-legend i{display:inline-block;width:10px;height:10px;margin-right:6px}
 @media(max-width:900px){.trend-grid,.population-metrics{grid-template-columns:1fr}}
 @media print{.trend-plot{overflow:visible}.trend-plot svg{min-width:0}}
+.kw-part{min-width:0;margin-bottom:12px}
+.kw-caveats{margin-top:8px}

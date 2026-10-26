@@ -19,11 +19,18 @@ body{margin:0}.pdf-page{position:relative;width:1510px;height:1045px;break-after
 ${panels.map(id => `<section class="pdf-page"><div class="pdf-content" id="panel-${id}"><p>${id} sentinel</p></div></section>`).join('')}
 <script>function fitPages(){};document.documentElement.dataset.pdfReady='true';</script></body></html>`;
 
+// 検索語の分析があるときは Indeed の直後に 5 ページ目が入る。
+const withKeywords = fixture.replace('<section class="pdf-page"><div class="pdf-content" id="panel-population">',
+  '<section class="pdf-page"><div class="pdf-content" id="panel-indeed-keywords"><p>keywords sentinel</p></div></section><section class="pdf-page"><div class="pdf-content" id="panel-population">');
+
 test('renderer rejects missing, hidden and overflowing content', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'pdf-reverse-'));
   try {
     for (const [name, html, valid] of [
       ['baseline', fixture, true],
+      ['with-keyword-page', withKeywords, true],
+      ['keyword-page-overflow', withKeywords.replace('keywords sentinel', '<span style="position:absolute;top:1100px">lost</span>keywords sentinel'), false],
+      ['keyword-page-wrong-order', withKeywords.replace('id="panel-indeed-keywords"', 'id="panel-keywords-misplaced"'), false],
       ['left-overflow', fixture.replace('excel sentinel', '<span style="position:absolute;left:-500px">lost</span>excel sentinel'), false],
       ['right-overflow', fixture.replace('excel sentinel', '<span style="position:absolute;left:1600px">lost</span>excel sentinel'), false],
       ['bottom-overflow', fixture.replace('excel sentinel', '<span style="position:absolute;top:1100px">lost</span>excel sentinel'), false],

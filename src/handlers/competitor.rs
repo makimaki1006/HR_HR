@@ -342,6 +342,7 @@ async fn collect_context(state: Arc<AppState>, req: &ReportRequest) -> (Value, V
     let pref = req.pref.clone();
     let title = req.market_title.clone();
     let region_state = state.clone();
+    let keyword_state = state.clone();
     let region_pref = pref.clone();
     let region_task =
         tokio::task::spawn_blocking(move || population_context(&region_state, &region_pref));
@@ -351,7 +352,23 @@ async fn collect_context(state: Arc<AppState>, req: &ReportRequest) -> (Value, V
     .await
     .ok()
     .flatten();
-    let indeed = indeed_context(market, &title, &pref);
+    let mut indeed = indeed_context(market, &title, &pref);
+    if indeed["status"] == "ok" {
+        // 「キーワードの推移・分析」の元データ。スナップショットだけを読み、外部 API は呼ばない。
+        let (kw_title, kw_pref) = (title.clone(), pref.clone());
+        let raw = tokio::task::spawn_blocking(move || {
+            keyword_state
+                .indeed_db
+                .as_ref()
+                .map(|db| crate::indeed::compkw::raw_context(db, &kw_title, &kw_pref))
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(raw) = raw {
+            indeed["keyword_raw"] = raw;
+        }
+    }
     let keyword = if req.search_keyword.is_empty() && !title.is_empty() {
         format!("{title} 求人")
     } else {

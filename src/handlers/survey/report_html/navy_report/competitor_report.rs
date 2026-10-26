@@ -324,7 +324,7 @@ fn render_indeed(html: &mut String, data: &IndeedSection) {
         _ => "選択した都道府県の月別データ",
     };
     push_page_head(html, "採用市場", "Indeed採用レポート", sub);
-    let (region, rows) = match data {
+    let (region, rows, keyword_analysis) = match data {
         IndeedSection::Unavailable { message } => {
             html.push_str(&format!(
                 "<p class=\"note\">{}</p></section>",
@@ -332,7 +332,12 @@ fn render_indeed(html: &mut String, data: &IndeedSection) {
             ));
             return;
         }
-        IndeedSection::Ok { region, rows, .. } => (region, rows),
+        IndeedSection::Ok {
+            region,
+            rows,
+            keyword_analysis,
+            ..
+        } => (region, rows, keyword_analysis.as_ref()),
     };
     html.push_str(&format!("<p>{}</p><p class=\"note\">出典：Indeed採用市場レポート｜全給与形態。閲覧人数は応募数ではありません。</p>",escape_html(region)));
     html.push_str("<div class=\"trend-grid\">");
@@ -371,7 +376,11 @@ fn render_indeed(html: &mut String, data: &IndeedSection) {
     for row in rows {
         html.push_str(&format!("<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",escape_html(&row.month),number(row.job),number(row.ctk),number(row.emp),number(row.spp)));
     }
-    html.push_str("</tbody></table></section>");
+    html.push_str("</tbody></table>");
+    if let Some(ka) = keyword_analysis {
+        super::competitor_keyword_analysis::render_html(html, ka);
+    }
+    html.push_str("</section>");
 }
 
 fn render_google(html: &mut String, data: &GoogleSection) {

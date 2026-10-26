@@ -2,6 +2,7 @@ import type { IndeedSection } from '../../../generated/IndeedSection';
 import type { IndeedRow } from '../../../generated/IndeedRow';
 import { TrendChart } from '../charts/TrendChart';
 import { fmtNumber } from '../format';
+import { KeywordAnalysisBlock } from './KeywordAnalysisBlock';
 
 const SERIES: { label: string; unit: string; color: string; ratio: boolean; pick: (r: IndeedRow) => number | null }[] = [
   { label: '求人数の推移', unit: '件', color: '#007d79', ratio: false, pick: (r) => r.job },
@@ -65,6 +66,7 @@ export function IndeedTab({ data }: { data: IndeedSection }) {
               ))}
             </tbody>
           </table>
+          {data.keyword_analysis && <KeywordAnalysisBlock data={data.keyword_analysis} />}
         </>
       )}
     </section>
