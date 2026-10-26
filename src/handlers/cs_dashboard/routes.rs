@@ -556,7 +556,8 @@ fn monthly_retention(deals: &[Deal]) -> Value {
 ///
 /// 解約率の分子は **解約 + 充足**、分母は **決着済み（継続＋解約＋充足）**。
 /// 充足を外さないのが確定した定義（外すと初回は 58.1%→46.9% に見える）。
-/// 外した値（`cancel_rate_excl_fill`）は比べるためだけに返す。
+/// 充足を除いた値（`cancel_rate_excl_fill`）は 解約 ÷（継続＋解約）。充足は「採れて終わった」として別に数え、
+/// 分子にも分母にも入れない（`rate_excl_fill` の 継続 ÷（継続＋解約）と同じ分母）。比べるためだけに返す。
 fn by_renewal(deals: &[Deal], exclude_right_censored: bool) -> Vec<Value> {
     let mut groups: BTreeMap<i64, Vec<&Deal>> = BTreeMap::new();
     for d in deals {
@@ -608,9 +609,9 @@ fn by_renewal(deals: &[Deal], exclude_right_censored: bool) -> Vec<Value> {
                 "denom": denom,
                 // 分子は解約＋充足。母数は決着済み（継続＋解約＋充足）。
                 "cancel_rate": rate((cancel + fill) as f64, denom as f64),
-                // 充足を外した値。**画面の主値にはしない**（比較のためだけに返す）。
-                // 分母は主値と同じ決着済み（分子だけが違う形にして、並べたときに比べられるように）
-                "cancel_rate_excl_fill": rate(cancel as f64, denom as f64),
+                // 充足（採れて終わった）を分子にも分母にも入れない値。**画面の主値にはしない**（比較のためだけに返す）。
+                // 解約 ÷（継続＋解約）。月次の継続率の `rate_excl_fill`（継続 ÷（継続＋解約））と同じ分母にそろえてある
+                "cancel_rate_excl_fill": rate(cancel as f64, (keep + cancel) as f64),
                 "n_stats": stat_src.len(),
                 "oubo": pick(&|d| d.oubo),
                 "mensetu": pick(&|d| d.mensetu),
@@ -3758,10 +3759,13 @@ pub(super) fn act_view_diff_memo_in<T: Clone>(
 /// 名札 1 本でも満足度が低い案件を落とさない。満足度が無い案件は名札が付かないので、
 /// 「問題なし」ではなく「回答が無いだけ」。画面は値の欄に「満足度 未回答」と出す。
 pub(crate) fn is_today_candidate(row: &Value) -> bool {
-    row["n_flags"].as_u64().unwrap_or(0) >= 2
-        || row["flags"]
-            .as_array()
-            .is_some_and(|fs| fs.iter().any(|f| f == TEAM_FLAG_NPS_LOW))
+    row["n_flags"].as_u64().unwrap_or(0) >= 2 || has_low_satisfaction(row)
+}
+
+fn has_low_satisfaction(row: &Value) -> bool {
+    row["flags"]
+        .as_array()
+        .is_some_and(|fs| fs.iter().any(|f| f == TEAM_FLAG_NPS_LOW))
 }
 
 /// ③今日動く先。
@@ -3789,7 +3793,21 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
     // 持たない 4 名を足すと 27 名中 16 名）。
     // `rows` は今までどおり上から KEEP 件（担当を選んでいないときの見え方は変えない）
     let candidates = picked.clone();
+    // 注意2つ以上の件数と、満足度の名札 1 本だけで候補に入った件数（チームと担当の「注意2つ以上」との差の内訳）
+    let n_flags2 = picked
+        .iter()
+        .filter(|r| r["n_flags"].as_u64().unwrap_or(0) >= MIN_FLAGS)
+        .count();
+    let n_low_only = n_hit - n_flags2;
     let mut top = picked;
+    // 満足度の名札が付いているのに上位 KEEP 件に入らなかった案件は、同じ並びのまま後ろに続けて出す
+    // （2026-10-26 レビュー: 担当を選ばない全社の表にも満足度4以下を必ず入れる）
+    let extra_low: Vec<Value> = top
+        .iter()
+        .skip(KEEP)
+        .filter(|r| has_low_satisfaction(r))
+        .cloned()
+        .collect();
     top.truncate(KEEP);
 
     // 担当の選択欄に載せる名前（D-1a の検証、2026-09-28）。候補・今週満了・今週始まった から集めると、
@@ -3871,10 +3889,15 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         //    メニューに無い名前を案内していた（左は「案件そのもの」。2026-09-28 UI/UX 改善 S-6）。
         //    全件への行き先は画面側が MENUS の名前で添える（cs_dashboard.html todayFilterRule）。
         m.insert("filter_rule".into(), json!(format!(
-            "注意が {MIN_FLAGS} つ以上ついた案件、または満足度（顧客に聞いた点数）が低い（直近の値が4以下）注意がついた案件、合わせて {n_hit} 件から、\
-注意の数が多い順（同じ数なら金額の大きい順）に {KEEP} 件を出しています。\
-毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} つという線引きは取り決めです"
+            "候補は {n_hit} 件です（注意が {MIN_FLAGS} つ以上ついた案件 {n_flags2} 件と、注意が満足度の1つだけで満足度が低い（直近の値が4以下）案件 {n_low_only} 件）。\
+注意の数が多い順（同じ数なら金額の大きい順）に {KEEP} 件を出しています。その {KEEP} 件に入らなかった満足度が低い案件 {n_extra} 件は、同じ並びでその後ろに続けています。\
+毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} つという線引きは取り決めです。\
+「チームと担当」の「注意{MIN_FLAGS}つ以上」は満足度だけの案件を数えないので、その分だけ少なく出ます",
+            n_extra = extra_low.len()
         )));
+        m.insert("n_flags2".into(), json!(n_flags2));
+        m.insert("n_low_only".into(), json!(n_low_only));
+        m.insert("n_extra_low".into(), json!(extra_low.len()));
         m.insert("n_hit".into(), json!(n_hit));
         m.insert("n_shown".into(), json!(top.len()));
         // 画面が「担当を選んでいないときは何件に切るか」を知るため（候補は candidates に全件ある）
@@ -3914,6 +3937,8 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         "meta": meta,
         "rows": top,
         "candidates": candidates,
+        // 上位 keep 件に入らなかった満足度が低い案件（rows の後ろに続けて出す。担当を選んだときは candidates 全件を出すので使わない）
+        "extra_low_satisfaction": extra_low,
         "consultants": consultants,
         "expiring_this_week": soon,
         "started_this_week": started,

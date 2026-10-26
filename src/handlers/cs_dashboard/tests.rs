@@ -216,10 +216,10 @@ fn 継続回数ごとの解約率が資料の値と一致する() {
     }
 }
 
-/// 充足を外すと 58.1% が 46.9% に見える（どちらも分母は決着済み）。
+/// 充足（採れて終わった）を除いた解約率は 解約 ÷（継続＋解約）。主値（58.1%）は 解約＋充足 ÷（継続＋解約＋充足）のまま。
 ///
-/// **外さないのが確定した定義**。両方返しているのは画面で並べて見せるためで、
-/// 主値を取り違えていないことをここで固定する。
+/// 2026-10-26 までは 解約 ÷（継続＋解約＋充足）で、月次の継続率の「除く」（継続 ÷（継続＋解約））と分母が違った。
+/// 両方を同じ分母 継続＋解約 にそろえた。主値を取り違えていないこともここで固定する。
 #[test]
 fn 充足を外した値は別のキーで返る() {
     let v = build_renewal(&sheets(), false);
@@ -227,10 +227,14 @@ fn 充足を外した値は別のキーで返る() {
     let main = r["cancel_rate"].as_f64().unwrap();
     let excl = r["cancel_rate_excl_fill"].as_f64().unwrap();
     assert!((main - 58.1).abs() < 0.05, "主値が {main:.1}%");
+    let (k, c) = (r["keep"].as_f64().unwrap(), r["cancel"].as_f64().unwrap());
     assert!(
-        excl < main - 5.0,
-        "充足を外すと {excl:.1}% まで下がるはず（主値 {main:.1}%）"
+        (excl - c / (k + c) * 100.0).abs() < 1e-9,
+        "充足を除いた解約率が 解約 ÷（継続＋解約） でない: {r}"
     );
+    // 初回（継続0）: 継続 691・解約 773 → 773 ÷ 1,464 = 52.8%（以前の 解約 ÷ 決着済み は 46.9% だった）
+    assert_eq!((k, c), (691.0, 773.0));
+    assert!((excl - 52.8).abs() < 0.05, "{excl}");
 }
 
 /// 右側打ち切りを外すと代表値が動く。
@@ -2890,6 +2894,46 @@ fn 今日動く先は名札2本以上の全候補も返す() {
         }
     }
     assert_eq!(one_flag_low, 8, "注意1本で満足度が低いだけの候補");
+    assert_eq!(v["meta"]["n_flags2"], 243);
+    assert_eq!(v["meta"]["n_low_only"], 8);
+    assert_eq!(v["meta"]["n_hit"], 251);
+    // 全社の表（rows 24 件）に入らなかった満足度が低い案件は、同じ並びで後ろに続く
+    let rows = v["rows"].as_array().unwrap();
+    let extra = v["extra_low_satisfaction"].as_array().unwrap();
+    let low_all = cand
+        .iter()
+        .filter(|r| r["flags"].as_array().unwrap().iter().any(|f| f == low))
+        .count();
+    let low_in_top = rows
+        .iter()
+        .filter(|r| r["flags"].as_array().unwrap().iter().any(|f| f == low))
+        .count();
+    assert_eq!(
+        extra.len(),
+        low_all - low_in_top,
+        "表に続く満足度が低い案件の件数"
+    );
+    assert_eq!(
+        v["meta"]["n_extra_low"].as_u64().unwrap() as usize,
+        extra.len()
+    );
+    assert!(extra.len() >= 8, "名札1本の8件は必ず後ろに続く");
+    eprintln!(
+        "EXTRA_LOW n={} low_all={low_all} low_in_top={low_in_top}",
+        extra.len()
+    );
+    let pos = |r: &Value| {
+        cand.iter()
+            .position(|x| x["deal_id"] == r["deal_id"])
+            .unwrap()
+    };
+    assert!(
+        extra.windows(2).all(|w| pos(&w[0]) < pos(&w[1])),
+        "同じ並びでない"
+    );
+    assert!(extra.iter().all(|r| pos(r) >= 24), "上位24件と重なっている");
+    let rule = v["meta"]["filter_rule"].as_str().unwrap();
+    assert!(rule.contains("243 件") && rule.contains("8 件"), "{rule}");
     let owners = |rs: &[Value]| -> std::collections::BTreeSet<String> {
         rs.iter()
             .map(|r| r["consultant"].as_str().unwrap_or("").to_string())

@@ -2199,9 +2199,9 @@ function svgBarH(o) {
         if (bw0r >= V0_MIN_W) {
           const xb = X(r.v0) >= x0 ? x0 : x0 - bw0r;
           g += `<rect x="${xb.toFixed(1)}" y="${(y - bh / 2 - 2).toFixed(1)}" width="${bw0r.toFixed(1)}" height="${bh + 4}" rx="2" fill="none" style="stroke:${col}" stroke-width="1.2" stroke-dasharray="3 2.4" opacity=".75">` +
-               `<title>前回: ${esc(fmt(r.v0))}</title></rect>`;
+               `<title>${esc(r.v0Label || "前回")}: ${esc(fmt(r.v0))}</title></rect>`;
         } else {
-          g += `<line data-v0tick="1" x1="${X(r.v0).toFixed(1)}" y1="${(y - bh / 2 - 4).toFixed(1)}" x2="${X(r.v0).toFixed(1)}" y2="${(y + bh / 2 + 4).toFixed(1)}" style="stroke:${col}" stroke-width="2" stroke-dasharray="2.4 1.6"><title>前回: ${esc(fmt(r.v0))}</title></line>`;
+          g += `<line data-v0tick="1" x1="${X(r.v0).toFixed(1)}" y1="${(y - bh / 2 - 4).toFixed(1)}" x2="${X(r.v0).toFixed(1)}" y2="${(y + bh / 2 + 4).toFixed(1)}" style="stroke:${col}" stroke-width="2" stroke-dasharray="2.4 1.6"><title>${esc(r.v0Label || "前回")}: ${esc(fmt(r.v0))}</title></line>`;
         }
       }
       /* 🔴 2026-09-24（400px, 担当の交代の「交代ごとの変化」）: 左へ長く伸びた負の棒の値（「−7.00 減った」）を
@@ -3843,7 +3843,7 @@ function renderFocus(D) {
      この画面の出力は前と同じ */
   h += focusNpsFig(n);
   /* ---- 表 NPSが低い顧客 ---- */
-  h += sec("表", "満足度（顧客に聞いた点数）が " + n.threshold + " 以下の顧客（" + num(n.n) + " 件）", "fc-nps-tbl-h");
+  h += sec("表", "満足度が " + n.threshold + " 以下の顧客（" + num(n.n) + " 件）", "fc-nps-tbl-h");
   h += focusNpsTable(n);
   h += focusCpaFig(c) + focusMtgFig(m) + focusShapeFig(sh);
   return h + foot(D.meta);
@@ -3857,7 +3857,7 @@ function focusNpsFig(n) {
     label: "満足度 " + d.v, v: d.n, txt: num(d.n) + "件",
     color: d.v <= n.threshold ? C.hi : (d.v >= 9 ? C.midori : C.ai),
   }));
-  h += fig("満足度（顧客に聞いた点数）の最新回答", "回ごとに別プロパティなので、月が新しい方を採っています",
+  h += fig("満足度の最新回答", "回ごとに別プロパティなので、月が新しい方を採っています",
     dist.length ? svgBarH({ rows: dist, w: 660, fmt: F.int }) : tooFew(0, "満足度"),
     lg("box", C.hi, n.threshold + " 以下") + lg("box", C.ai, "5〜8") +
     lg("box", C.midori, "9以上") +
@@ -4163,14 +4163,12 @@ function resultsKpis(D) {
   return '<div class="kpis">' + resultsMoneyKpis(D.money, last, "before") +
     (last
       ? kpi("月次の継続率（" + last.month + " に満了）", pct1(last.rate),
-          "結果が出た " + num(last.denom) + " 件のうち", "", { jump: "rs-renewal", text: "月ごとの推移へ" })
+          "結果が出た " + num(last.denom) + " 件のうち" +
+          (last.rate_excl_fill != null
+            ? "<br>採れて終わった " + num(last.fill) + " 件を除くと <b>" + pct1(last.rate_excl_fill) + "</b>" : ""),
+          "", { jump: "rs-renewal", text: "月ごとの推移へ" })
       : kpi("月次の継続率", DASH, "結果がそろい対象が " + MIN_N + " 件以上の満了月がありません")) +
-    (last && last.rate_excl_fill != null
-      ? kpi("採れて終わった分を除くと", pct1(last.rate_excl_fill),
-          last.month + " に満了・継続 ÷（継続 + 解約）", "", { jump: "rs-renewal", text: "月ごとの推移へ" })
-      : "") +
     resultsMoneyKpis(D.money, last, "rate") +
-    resultsMoneyKpis(D.money, last, "rate_excl") +
     (reached
       ? kpi("採用目標に届いた稼働中の契約", num(reached.n) + '<span class="u">件</span>',
           "目標・承諾数あり " + num(ga.both) + " 件（途中）", "", { jump: "rs-outcome", text: "区分の図へ" })
@@ -4213,16 +4211,13 @@ function resultsMoneyKpis(M, last, part) {
         (r.settled_missing ? "。金額が空の " + num(r.settled_missing) + " 件は入れていません" : "") +
         "。件数の継続率と同じ契約を金額で足しています（長い契約ほど重く効きます）。</span> " : "");
   }
-  if (part === "rate_excl") {
-    /* 充足（採れて終わった）の金額を分母から外した率。主の金額の継続率の横に並べる比較用の数字 */
-    if (!r || r.rate_excl_fill == null) return "";
-    return kpi("金額でも、採れて終わった分を除くと", pct1(r.rate_excl_fill),
-      r.month + " に満了・金額で同じ計算", "", { jump: "rs-renewal", text: "件数の推移へ" });
-  }
   if (!r || r.rate == null)
     return kpi("金額で見た継続率", DASH, last ? last.month + " に満了した金額がありません" : "結果がそろい対象が " + MIN_N + " 件以上の満了月がありません");
   return kpi("金額で見た継続率（" + r.month + " に満了）", pct1(r.rate),
-    "満了した金額 " + yen(r.denom), "", { jump: "rs-renewal", text: "件数の推移へ" });
+    "満了した金額 " + yen(r.denom) +
+    (r.rate_excl_fill != null
+      ? "<br>採れて終わった分を除くと <b>" + pct1(r.rate_excl_fill) + "</b>" : ""),
+    "", { jump: "rs-renewal", text: "件数の推移へ" });
 }
 
 /** 成果と継続の末尾「手を打つ先」。🔴 段B（2026-09-29、09 の 10 章②）で、畳んで残していた表3つ（最優先・電話で沈黙・
@@ -4270,11 +4265,11 @@ function renderRenewal(D, id) {
   h += fig("分子は「解約 ＋ 充足」", "初回を乗り切れれば、あとは残ります",
     svgBarH({ w: 660, fmt: F.pp, rh: 26,
       rows: big.map((r) => ({
-        label: label(r), v: r.cancel_rate, v0: r.cancel_rate_excl_fill,
+        label: label(r), v: r.cancel_rate, v0: r.cancel_rate_excl_fill, v0Label: "採れて終わった分（充足）を除くと",
         txt: pct1(r.cancel_rate), note: num(r.denom) + "件",
         color: cancelColor(r.cancel_rate) })) }),   /* 色の線は全画面共通（CANCEL_HI） */
     cancelLegend(big.map((r) => r.cancel_rate)) +
-    lg("dash", C.ghost, "充足を外すと") +
+    lg("dash", C.ghost, "採れて終わった分（充足）を除くと") +
     '<i class="full">対象は結果が出た（継続＋解約＋充足）の件数で、解約率の分母です。' +
     "まだ結果が出ていない（稼働中）は分母に入れていません。対象が " + MIN_N +
     " 件未満の継続回数は図に載せていません（下の表には出しています）。" +
@@ -4385,7 +4380,7 @@ function renderRenewal(D, id) {
   /* 11列あり、枠に入れないと 400px幅でページが 1,015px に広がっていた（V17 実測） */
   h += scroll(table([{ t: "継続回数" }, { t: "件数", n: 1 }, { t: "稼働中", n: 1 },
               { t: "結果が出た（対象）", n: 1 },
-              { t: "解約率", n: 1 }, { t: "（充足を外すと）", n: 1 },
+              { t: "解約率", n: 1 }, { t: "（採れて終わった分を除くと）", n: 1 },
               { t: "応募数", n: 1 }, { t: "面接数", n: 1 }, { t: "承諾数", n: 1 },
               { t: "求人票あたり応募", n: 1 }, { t: "契約額", n: 1 }],
     /* 🔴 n<30 の行（継続9〜14回は n=1〜6）に 0.0% / 50.0% が印なしで並んでいた（V15）。
@@ -6054,7 +6049,7 @@ function pos(r) {
       esc(r.band) + "</span>" : "");
 }
 function npsCell(r) {
-  if (r.nps == null) return '<span class="n0" title="満足度（顧客に聞いた点数）の回答がまだありません。名札が付いていないのは問題がないという意味ではありません">満足度 未回答</span>';
+  if (r.nps == null) return '<span class="n0" title="満足度の回答がまだありません">満足度 未回答</span>';
   const col = r.nps <= 4 ? "hi" : r.nps >= 9 ? "midori" : "ink-2";
   return '<b style="color:var(--' + col + ')">' + num(r.nps) + "</b>" +
     '<span class="muted small"> ' + esc(r.nps_month || "") + "</span>";
@@ -6160,7 +6155,7 @@ const BOARD_COLS = [
    案件名は折り返す（w:"l"、td.wl は 12〜22 字）。8列で 1440px の本文幅（約 1,150px）に入る。
    🔴 名札は短い書き方（tagsShort）を 25.5em の列（w:"f"、td.wf）に詰める（段2 A）。wl の 22em に正式な名札のままだと
    1 本ずつ折れて 1 行が 79〜100px で、1440×900 の 1 画面目に完全な行が 0 行だった（2026-09-28 fixture 実測） */
-const TODAY_COLS = ["name", "n_flags", "consultant", "days_left", "days_since_contact", "mtg_days", "nps", "amount"]
+const TODAY_COLS = ["name", "n_flags", "nps", "consultant", "days_left", "days_since_contact", "mtg_days", "amount"]
   .map((k) => {
     const c = BOARD_COLS.find((x) => x.k === k);
     if (k === "name") return Object.assign({}, c, { w: "l" });
@@ -6730,9 +6725,11 @@ function todayFilterRule(meta) {
    古い応答（candidates が無い）では rows から絞る */
 function todayScope(D) {
   const c = todayConsultant;
-  if (!c) return D;
+  /* 担当を選ばない全社の表は、上位 keep 件の後ろに、入らなかった満足度が低い案件を同じ並びで続ける（サーバの extra_low_satisfaction） */
+  if (!c) return Object.assign({}, D, { extra: D.extra_low_satisfaction || [] });
   const mine = (rs) => (rs || []).filter((r) => (r.consultant || "") === c);
   return Object.assign({}, D, {
+    extra: [],
     rows: mine(D.candidates || D.rows),
     expiring_this_week: mine(D.expiring_this_week),
     started_this_week: mine(D.started_this_week),
@@ -6804,6 +6801,7 @@ function renderToday(D0) {
   const c = todayConsultant;
   const soon = D.expiring_this_week || [];
   const started = D.started_this_week || [];
+  const extra = D.extra || [];
   const G = D.meta.mtg_gap || {};
   const bandN = (k) => ((G.bands || []).find((b) => b.band === k) || {}).n || 0;
   let h = '<div class="lede">今日・今週の連絡先を、上から順に確かめます。' +
@@ -6826,7 +6824,8 @@ function renderToday(D0) {
   h += '<div class="kpis">' +
     kpi("今日出す先", num(D.rows.length) + '<span class="u">件</span>',
         c ? "注意が2つ以上、または満足度（顧客に聞いた点数）が低い候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
-          : "注意が2つ以上、または満足度が低い " + num(D.meta.n_hit) + " 件から",
+          : "注意が2つ以上 " + num(D.meta.n_flags2) + " 件と、満足度が低いだけの " + num(D.meta.n_low_only) + " 件から" +
+            (extra.length ? "（満足度が低い " + num(extra.length) + " 件を表の後ろに続けています）" : ""),
         "", { jump: "td-today-h", text: "表へ" }) +
     kpi("MTGが60日以上空いている", num(crit) + '<span class="u">件</span>',
         c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（注意2つ以上、または満足度が低い）の中で。") + "全社では " + num(bandN("critical")) + " 件"
@@ -6850,7 +6849,7 @@ function renderToday(D0) {
      決まりごと（絞った条件・並び・採用単価の比べ方）は取り決めなので、見出しの直下の 1 行に畳む（開けば全文）。
      母数（n_hit 件から n_shown 件）は畳まず、その 1 行目に書く */
   /* 見出しは今のメニュー名（今日）に合わせる。前は「今日動く先」で、左のメニューに無い名前だった（2026-09-29） */
-  h += sec("表", "今日の案件（" + num(D.rows.length) + " 件）", "td-today-h");
+  h += sec("表", "今日の案件（" + num(D.rows.length) + " 件" + (extra.length ? " ＋ 満足度4以下 " + num(extra.length) + " 件" : "") + "）", "td-today-h");
   /* 決まりごとの畳み。母数（n_hit 件から n_shown 件）は枠の案内（scroll-cap の「N 行を出しています（全 T 件のうち）」）が
      言うので、summary では繰り返さない。🔴 2026-09-28 検証（fixture 1440×900）: summary と scroll-cap が同じ
      「243 件から 24 件」を 40px の間に 2 回言い、表の見出し行が 772 で 1 画面目に完全な行が 0 行だった。
@@ -6858,7 +6857,7 @@ function renderToday(D0) {
      担当を選んでいるときは、絞った条件（サーバの filter_rule は全社の説明）の前に、この表が何かを 1 文書く */
   const rule = "";
   if (c && !D.rows.length) h += '<div class="empty">この担当には注意が2つ以上、または満足度が低い案件がありません。</div>';
-  h += scroll(boardTable(D.rows, todaySort["today-tbl"], "today-tbl", TODAY_COLS), "none", c ? null : D.meta.n_hit, rule);
+  h += scroll(boardTable(D.rows.concat(extra), todaySort["today-tbl"], "today-tbl", TODAY_COLS), "none", c ? null : D.meta.n_hit, rule);
 
   /* ---------------- 今週満了（行動。名札に関わらず出す。開いたまま） ---------------- */
   h += sec("表", "今週満了（" + num(soon.length) + " 件）", "td-soon-h");

@@ -3449,9 +3449,9 @@ check("案件の詳細: 電話の AI 要約には「誤りを含むことがあ�
 });
 
 /* ================================================================ 段1（2026-09-28、08_UIUX改善案の S-3） */
-check("S-3: 今日動く先の3表は8列（案件・注意・担当・満了まで・最後の接触・最後のMTG・満足度・金額）で、注意が2列目", () => {
+check("S-3: 今日動く先の3表は8列（案件・注意・満足度・担当・満了まで・最後の接触・最後のMTG・金額）で、注意が2列目", () => {
   const cols = run("TODAY_COLS.map((c) => c.t)");
-  ok(JSON.stringify(cols) === JSON.stringify(["案件", "注意", "担当", "満了まで", "最後の接触", "最後のMTG", "満足度", "金額"]),
+  ok(JSON.stringify(cols) === JSON.stringify(["案件", "注意", "満足度", "担当", "満了まで", "最後の接触", "最後のMTG", "金額"]),
     "今日動く先の列が違う: " + cols.join(" / "));
   // 案件そのものは 15 列のまま。名札（並びの根拠）だけ案件名の隣へ
   ok(run("BOARD_COLS[1].k") === "n_flags", "案件そのものの注意の列が2列目でない");
@@ -5127,13 +5127,12 @@ check("2026-10-26 成果と継続: 主の継続率の横に「採れて終わっ
   const lbls = [...k.matchAll(/<span class="lbl">([^<]*)<\/span>/g)].map((m) => m[1]);
   const m = lastRow.month;
   ok(JSON.stringify(lbls) === JSON.stringify(["稼働中の契約の金額（会社全体）", "今月〜再来月に満了する金額",
-    "月次の継続率（" + m + " に満了）", "採れて終わった分を除くと",
-    "金額で見た継続率（" + m + " に満了）", "金額でも、採れて終わった分を除くと", "採用目標に届いた稼働中の契約"]),
-    "札の顔ぶれ・並びが違う: " + lbls.join(" / "));
+    "月次の継続率（" + m + " に満了）", "金額で見た継続率（" + m + " に満了）", "採用目標に届いた稼働中の契約"]),
+    "札は5枚のまま（除いた率は別の札にしない）: " + lbls.join(" / "));
   const tk = textOf(k);
-  ok(tk.includes("61.4%") && tk.includes("64.6%"), "件数の継続率 61.4% と除いた 64.6% が並んでいない: " + tk);
-  ok(tk.includes("69.4%") && tk.includes("73.4%"), "金額の継続率 69.4% と除いた 73.4% が並んでいない: " + tk);
-  ok(tk.includes("比べるための数字"), "除いた率が比較用と書かれていない");
+  const tkc = tk.replace(/\s+/g, "");
+  ok(tkc.includes("61.4%") && tkc.includes("採れて終わった5件を除くと64.6%"), "件数の札に主の率と除いた率が無い: " + tk);
+  ok(tkc.includes("69.4%") && tkc.includes("採れて終わった分を除くと73.4%"), "金額の札に主の率と除いた率が無い: " + tk);
 });
 check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満了・金額で見た継続率）は会社全体だけ。継続率は件数の札と同じ月で、満了した金額を並べる", () => {
   const RS = JSON.parse(JSON.stringify(ctx.__RS));
@@ -5914,4 +5913,21 @@ check("2026-10-26 今日の表: 満足度が無い案件は「満足度 未回�
   const lo = run('npsCell({ nps: 3, nps_month: "2026-09" })');
   ok(lo.includes("var(--hi)") && textOf(lo).includes("3"), "低い値が赤でない: " + lo);
   ok(!/NPS/.test(run("TODAY_COLS.map((c) => c.t).join('/')")), "列の名前に NPS が残っている");
+});
+
+check("2026-10-26 今日: 全社の表は上位24件の後ろに満足度4以下を続け、見出しに件数を書く。担当を選ぶと候補を全件出して続きは付けない", () => {
+  const D = JSON.parse(JSON.stringify(todayFixture()));
+  const mk = (id, n) => ({ deal_id: id, name: "案件" + id, consultant: "担当A", n_flags: n, flags: ["満足度が4以下"], nps: 2, nps_month: "2026-09", amount: 400 - n * 100 });
+  D.extra_low_satisfaction = [mk("x1", 1), mk("x2", 1), mk("x3", 1)];
+  D.meta.n_flags2 = 243; D.meta.n_low_only = 8; D.meta.n_hit = 251;
+  ctx.__TDX = D;
+  run("todayConsultant = '';");
+  const h = run("renderToday(__TDX)");
+  const n = D.rows.length;
+  ok(textOf(h).includes("今日の案件（" + n + " 件 ＋ 満足度4以下 3 件）"), "見出し: " + textOf(h).slice(0, 400));
+  ok(h.indexOf("案件x1") > 0 && h.indexOf("案件x1") < h.indexOf("案件x2") && h.indexOf("案件x2") < h.indexOf("案件x3"), "続きの並びが違う");
+  ok(textOf(h).includes("注意が2つ以上 243 件と、満足度が低いだけの 8 件から"), "内訳が無い");
+  const D0 = JSON.parse(JSON.stringify(D)); D0.extra_low_satisfaction = [];
+  ctx.__TDY = D0;
+  ok(!textOf(run("renderToday(__TDY)")).includes("＋ 満足度4以下"), "0 件なのに見出しに足している");
 });
