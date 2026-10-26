@@ -597,3 +597,36 @@ async fn handler_ten_thousand_rows_matches_golden() {
     );
     check_golden("h9_ten_thousand_rows.html", &html);
 }
+
+#[test]
+fn keyword_analysis_block_is_its_own_pdf_page_and_absent_without_data() {
+    let cs = cases();
+    let mut ind = indeed_ok();
+    ind["keyword_raw"] = json!({
+        "prefecture": "大阪府",
+        "search": [{"variant":"job","months":["2026-07","2026-08"],"series":[100.0,200.0],
+                    "latest":200,"latest_month":"2026-08","yoy_pct":10.0,"peak_month":3,"competition":"LOW"}],
+        "shifts": [], "term_monthly": {"months": [], "terms": []},
+        "pref_months": [{"month":"2026-08","kw_available":1,"top_keywords":"施設長:30;介護:10"}]
+    });
+    let records =
+        parse_csv_bytes_with_hints(&fixture(cs[0].csv), Some("大阪府"), cs[0].source).unwrap();
+    let agg = aggregate_records_with_mode(&records, cs[0].mode);
+    let html = render_competitor_report(
+        &agg,
+        cs[0].top_n,
+        cs[0].title,
+        &ind,
+        &(cs[0].google)(),
+        &(cs[0].pop)(),
+    );
+    assert!(html.contains("キーワードの推移・分析"));
+    assert!(html.contains("<td>施設長</td><td class=\"num\">30</td><td class=\"num\">75.0%</td>"));
+    let doc = pdf::document(&html);
+    assert!(doc.contains("data-pdf-page=\"indeed-keywords\""));
+    assert!(doc.contains("panel-indeed-keywords"));
+    // データが無い通常のケースでは、この区画も見出しも出ない。
+    let plain = cs[0].render();
+    assert!(!plain.contains("キーワードの推移・分析"));
+    assert!(!plain.contains("data-pdf-page"));
+}
