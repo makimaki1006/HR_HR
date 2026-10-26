@@ -66,9 +66,9 @@ describe('validateForm', () => {
     expect(e.topN !== undefined).toBe(bad);
   });
 
-  it('調査名・検索語は 200 文字まで (文字数で数える)', () => {
-    expect(validateForm(ok({ surveyTitle: 'あ'.repeat(200) }), PREFS).surveyTitle).toBeUndefined();
-    expect(validateForm(ok({ surveyTitle: 'あ'.repeat(201) }), PREFS).surveyTitle).toContain('200');
+  it('職種名は 40 文字まで、検索語は 200 文字まで (文字数で数える)', () => {
+    expect(validateForm(ok({ jobName: 'あ'.repeat(40) }), PREFS).jobName).toBeUndefined();
+    expect(validateForm(ok({ jobName: 'あ'.repeat(41) }), PREFS).jobName).toContain('40');
     expect(validateForm(ok({ searchKeyword: 'a'.repeat(201) }), PREFS).searchKeyword).toContain(
       '200',
     );
@@ -78,6 +78,16 @@ describe('validateForm', () => {
     expect(validateForm(ok({ prefecture: '' }), PREFS).prefecture).toBeUndefined();
     expect(validateForm(ok({ prefecture: '大阪府' }), PREFS).prefecture).toBeUndefined();
     expect(validateForm(ok({ prefecture: '火星' }), PREFS).prefecture).toContain('選択');
+  });
+
+  it('市区町村は選んだ都道府県の選択肢にあるものだけ', () => {
+    const cities = { 大阪府: ['大阪市北区', '堺市堺区'] };
+    const check = (prefecture: string, municipality: string) =>
+      validateForm(ok({ prefecture, municipality }), PREFS, cities).municipality;
+    expect(check('大阪府', '')).toBeUndefined();
+    expect(check('大阪府', '堺市堺区')).toBeUndefined();
+    expect(check('大阪府', '札幌市中央区')).toContain('選択');
+    expect(check('', '堺市堺区')).toContain('選択');
   });
 
   it('選択肢がまだ無い (options 未取得) ときは都道府県を検証しない', () => {
@@ -91,9 +101,10 @@ describe('buildFormData', () => {
     const data = buildFormData(
       ok({
         file: f,
-        surveyTitle: '大阪府・施設長',
+        jobName: ' 施設長 ',
         marketTitle: '施設長',
         prefecture: '大阪府',
+        municipality: '堺市堺区',
         searchKeyword: '施設長 求人',
         includeGoogle: true,
         sourceType: 'indeed',
@@ -101,7 +112,9 @@ describe('buildFormData', () => {
         topN: ' 30 ',
       }),
     );
-    expect(data.get('survey_title')).toBe('大阪府・施設長');
+    expect(data.get('job_name')).toBe('施設長');
+    expect(data.has('survey_title')).toBe(false);
+    expect(data.get('municipality')).toBe('堺市堺区');
     expect(data.get('market_title')).toBe('施設長');
     expect(data.get('prefecture')).toBe('大阪府');
     expect(data.get('search_keyword')).toBe('施設長 求人');

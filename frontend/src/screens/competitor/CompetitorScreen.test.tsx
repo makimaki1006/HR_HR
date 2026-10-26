@@ -28,6 +28,7 @@ const mOptions = vi.mocked(fetchOptions);
 const OPTIONS = {
   titles: ['施設長', '介護職'],
   prefectures: ['北海道', '大阪府'],
+  municipalities: { 北海道: ['札幌市中央区'], 大阪府: ['大阪市北区', '堺市堺区'] },
   market_available: true,
 };
 
@@ -213,7 +214,7 @@ describe('送信中と二重送信', () => {
     );
     await mount();
     chooseFile(csv('keep.csv'));
-    fireEvent.change(screen.getByLabelText('調査名'), { target: { value: '保持される調査名' } });
+    fireEvent.change(screen.getByLabelText('職種名'), { target: { value: '保持される調査名' } });
     fireEvent.click(submitButton());
     fireEvent.click(await screen.findByRole('button', { name: 'キャンセル' }));
     await waitFor(() => {
@@ -221,9 +222,26 @@ describe('送信中と二重送信', () => {
     });
     expect(seen?.aborted).toBe(true);
     expect(screen.getByRole('status').textContent).toContain('キャンセル');
-    expect((screen.getByLabelText<HTMLInputElement>('調査名')).value).toBe('保持される調査名');
+    expect((screen.getByLabelText<HTMLInputElement>('職種名')).value).toBe('保持される調査名');
     expect(screen.getByText(/keep\.csv/)).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('調査地域', () => {
+  it('調査名の入力欄は無く、市区町村は都道府県を選ぶまで選べない。都道府県を変えると選択が戻る', async () => {
+    await mount();
+    expect(screen.queryByLabelText('調査名')).toBeNull();
+    const muni = screen.getByLabelText<HTMLSelectElement>('対象市区町村');
+    expect(muni.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('対象都道府県'), { target: { value: '大阪府' } });
+    expect(muni.disabled).toBe(false);
+    expect(Array.from(muni.options).map((o) => o.text)).toEqual(['指定しない', '大阪市北区', '堺市堺区']);
+    fireEvent.change(muni, { target: { value: '堺市堺区' } });
+    expect(muni.value).toBe('堺市堺区');
+    fireEvent.change(screen.getByLabelText('対象都道府県'), { target: { value: '北海道' } });
+    expect(muni.value).toBe('');
+    expect(Array.from(muni.options).map((o) => o.text)).toEqual(['指定しない', '札幌市中央区']);
   });
 });
 
@@ -232,16 +250,19 @@ describe('成功', () => {
     mCreate.mockResolvedValue({ ok: true, data: makeResponse() });
     await mount();
     chooseFile(csv('jobs.csv'));
-    fireEvent.change(screen.getByLabelText('調査名'), { target: { value: '大阪・施設長' } });
+    fireEvent.change(screen.getByLabelText('職種名'), { target: { value: '大阪・施設長' } });
     fireEvent.change(screen.getByLabelText('対象都道府県'), { target: { value: '大阪府' } });
+    fireEvent.change(screen.getByLabelText('対象市区町村'), { target: { value: '堺市堺区' } });
     fireEvent.change(screen.getByLabelText('Indeed採用市場の職種'), { target: { value: '施設長' } });
     fireEvent.change(screen.getByLabelText('給与の表示単位'), { target: { value: 'hourly' } });
     fireEvent.click(submitButton());
     await screen.findByRole('tablist');
     expect(mCreate).toHaveBeenCalledTimes(1);
     const form = mCreate.mock.calls[0]?.[0];
-    expect(form?.get('survey_title')).toBe('大阪・施設長');
+    expect(form?.get('job_name')).toBe('大阪・施設長');
+    expect(form?.has('survey_title')).toBe(false);
     expect(form?.get('prefecture')).toBe('大阪府');
+    expect(form?.get('municipality')).toBe('堺市堺区');
     expect(form?.get('market_title')).toBe('施設長');
     expect(form?.get('wage_mode')).toBe('hourly');
     expect(form?.get('top_n')).toBe('45');
@@ -291,12 +312,12 @@ describe('成功', () => {
     mCreate.mockResolvedValue({ ok: true, data: makeResponse() });
     await mount();
     chooseFile(csv('again.csv'));
-    fireEvent.change(screen.getByLabelText('調査名'), { target: { value: '再作成の調査名' } });
+    fireEvent.change(screen.getByLabelText('職種名'), { target: { value: '再作成の調査名' } });
     fireEvent.click(submitButton());
     await screen.findByRole('tablist');
     fireEvent.click(screen.getByRole('button', { name: '条件を変えて再作成' }));
     expect(screen.queryByRole('tablist')).toBeNull();
-    expect((screen.getByLabelText<HTMLInputElement>('調査名')).value).toBe('再作成の調査名');
+    expect((screen.getByLabelText<HTMLInputElement>('職種名')).value).toBe('再作成の調査名');
     expect(screen.getByText(/again\.csv/)).toBeTruthy();
   });
 
@@ -330,7 +351,7 @@ describe('エラー', () => {
     mCreate.mockResolvedValue({ ok: false, error: new AuthRequiredError('x') });
     await mount();
     chooseFile(csv('auth.csv'));
-    fireEvent.change(screen.getByLabelText('調査名'), { target: { value: '消えない調査名' } });
+    fireEvent.change(screen.getByLabelText('職種名'), { target: { value: '消えない調査名' } });
     fireEvent.change(screen.getByLabelText('先頭の求人を何件比較するか'), { target: { value: '30' } });
     fireEvent.click(submitButton());
     const alert = await screen.findByRole('alert');
@@ -340,7 +361,7 @@ describe('エラー', () => {
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toContain('noopener');
     // 入力は全部残っている
-    expect((screen.getByLabelText<HTMLInputElement>('調査名')).value).toBe('消えない調査名');
+    expect((screen.getByLabelText<HTMLInputElement>('職種名')).value).toBe('消えない調査名');
     expect((screen.getByLabelText<HTMLInputElement>('先頭の求人を何件比較するか')).value).toBe('30');
     expect(screen.getByText(/auth\.csv/)).toBeTruthy();
     // 再ログイン後にもう一度押せる
@@ -374,11 +395,11 @@ describe('エラー', () => {
     mCreate.mockResolvedValue({ ok: false, error: new ApiHttpError(status, { error: code, message }) });
     await mount();
     chooseFile(csv('e.csv'));
-    fireEvent.change(screen.getByLabelText('調査名'), { target: { value: 'エラー後も残る' } });
+    fireEvent.change(screen.getByLabelText('職種名'), { target: { value: 'エラー後も残る' } });
     fireEvent.click(submitButton());
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain(message);
-    expect((screen.getByLabelText<HTMLInputElement>('調査名')).value).toBe('エラー後も残る');
+    expect((screen.getByLabelText<HTMLInputElement>('職種名')).value).toBe('エラー後も残る');
     expect(screen.queryByRole('tablist')).toBeNull();
   });
 
@@ -537,11 +558,11 @@ describe('PDF', () => {
 describe('入力の保存 (リロード対策)', () => {
   it('CSV 以外の入力を sessionStorage に保存し、再表示で復元する', async () => {
     await mount();
-    fireEvent.change(screen.getByLabelText('調査名'), { target: { value: '復元される' } });
+    fireEvent.change(screen.getByLabelText('職種名'), { target: { value: '復元される' } });
     fireEvent.change(screen.getByLabelText('対象都道府県'), { target: { value: '大阪府' } });
     cleanup();
     await mount();
-    expect((screen.getByLabelText<HTMLInputElement>('調査名')).value).toBe('復元される');
+    expect((screen.getByLabelText<HTMLInputElement>('職種名')).value).toBe('復元される');
     expect((screen.getByLabelText<HTMLSelectElement>('対象都道府県')).value).toBe('大阪府');
   });
 
@@ -553,8 +574,8 @@ describe('入力の保存 (リロード対策)', () => {
       throw new Error('blocked');
     });
     await mount();
-    fireEvent.change(screen.getByLabelText('調査名'), { target: { value: 'x' } });
-    expect((screen.getByLabelText<HTMLInputElement>('調査名')).value).toBe('x');
+    fireEvent.change(screen.getByLabelText('職種名'), { target: { value: 'x' } });
+    expect((screen.getByLabelText<HTMLInputElement>('職種名')).value).toBe('x');
     vi.restoreAllMocks();
   });
 });
