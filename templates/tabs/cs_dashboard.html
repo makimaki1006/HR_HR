@@ -6764,7 +6764,9 @@ function todayOwnerBar(D0) {
         (kept ? "（この端末が覚えます。次に開いても同じ担当）"
           : fromUrl ? "（リンクの担当で開いています。この端末が覚えている担当は変えていません。欄で選び直すと、この端末が覚えます）"
           : "（この端末では覚えられません。開き直すと全員に戻ります）")
-      : "全社の上位 " + num(D.meta.n_shown) + " 件。担当を選ぶと、その人の候補を全件出します") +
+      : "全社の上位 " + num(D.meta.n_shown) + " 件" +
+        ((D.extra_low_satisfaction || []).length ? "と、満足度4以下の " + num(D.extra_low_satisfaction.length) + " 件" : "") +
+        "。担当を選ぶと、その人の候補を全件出します") +
     "</span></div>";
 }
 
@@ -6822,7 +6824,7 @@ function renderToday(D0) {
   const CB = G.critical_by_consultant;
   const crit = !c ? bandN("critical") : CB ? (CB[c] || 0) : D.rows.filter((r) => r.mtg_band === "critical").length;
   h += '<div class="kpis">' +
-    kpi("今日出す先", num(D.rows.length) + '<span class="u">件</span>',
+    kpi("今日出す先", num(D.rows.length + extra.length) + '<span class="u">件</span>',
         c ? "注意が2つ以上、または満足度（顧客に聞いた点数）が低い候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
           : "注意が2つ以上 " + num(D.meta.n_flags2) + " 件と、満足度が低いだけの " + num(D.meta.n_low_only) + " 件から" +
             (extra.length ? "（満足度が低い " + num(extra.length) + " 件を表の後ろに続けています）" : ""),
