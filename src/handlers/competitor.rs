@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 
 use crate::handlers::helpers::escape_html;
 use crate::handlers::survey::aggregator::aggregate_records_with_mode;
-use crate::handlers::survey::report_html::{parse_top_n, render_competitor_report};
+use crate::handlers::survey::report_html::{
+    competitor_model::build_competitor_report, parse_top_n, render_competitor_html,
+};
 use crate::handlers::survey::upload::{parse_csv_bytes_with_hints, UserSourceHint, WageMode};
 use crate::indeed::data::{snapshot, Series, Snapshot};
 use crate::AppState;
@@ -168,11 +170,41 @@ struct ReportRequest {
     /// 利用者が送った `top_n` (空なら空文字)。
     top_n_raw: String,
     pref: String,
+    /// 利用者が選んだ市区町村 (都道府県と組になっていることを検証済み。未選択は空)。
+    municipality: String,
     market_title: String,
+    /// 報告書の題名。地域・職種名から組み立てる (どちらも無ければ旧 `survey_title`、それも空なら空)。
     survey_title: String,
     search_keyword: String,
     include_google: bool,
     output_format: String,
+}
+
+/// 職種名の上限 (文字数)。
+const JOB_NAME_MAX_CHARS: usize = 40;
+
+/// 報告書の題名。「{都道府県}{市区町村} {職種名}」。地域も職種名も無いときは旧 `survey_title` (空なら空)。
+fn compose_title(pref: &str, municipality: &str, job_name: &str, legacy_title: &str) -> String {
+    let region = format!("{pref}{municipality}");
+    if region.is_empty() && job_name.is_empty() {
+        return legacy_title.to_owned();
+    }
+    match (region.is_empty(), job_name.is_empty()) {
+        (false, false) => format!("{region} {job_name}"),
+        (false, true) => region,
+        _ => job_name.to_owned(),
+    }
+}
+
+/// 利用者が選んだ地域を報告書に反映する。何も選んでいなければ CSV から読み取った値のまま。
+fn apply_region(
+    meta: &mut crate::handlers::survey::report_html::competitor_model::ReportMeta,
+    req: &ReportRequest,
+) {
+    if !req.pref.is_empty() {
+        meta.prefecture = Some(req.pref.clone());
+        meta.municipality = (!req.municipality.is_empty()).then(|| req.municipality.clone());
+    }
 }
 
 fn parse_request(raw: RawForm) -> Result<ReportRequest, FormError> {
@@ -219,13 +251,43 @@ fn parse_request(raw: RawForm) -> Result<ReportRequest, FormError> {
             "対象都道府県を選択肢から選んでください。",
         ));
     }
+    let municipality = get("municipality").to_owned();
+    if !municipality.is_empty() {
+        if pref.is_empty() {
+            return Err(FormError::bad(
+                Code::InvalidMunicipality,
+                "市区町村を選ぶときは都道府県も選んでください。",
+            ));
+        }
+        if !crate::geo::city_code::cities_of(&pref)
+            .iter()
+            .any(|(name, _)| *name == municipality)
+        {
+            return Err(FormError::bad(
+                Code::InvalidMunicipality,
+                "市区町村を選択肢から選んでください。",
+            ));
+        }
+    }
+    let job_name = get("job_name")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if job_name.chars().count() > JOB_NAME_MAX_CHARS {
+        return Err(FormError::bad(
+            Code::FieldTooLong,
+            "職種名は40文字以内で入力してください。",
+        ));
+    }
+    let survey_title = compose_title(&pref, &municipality, &job_name, get("survey_title"));
     Ok(ReportRequest {
         source,
         mode,
         top_n,
         top_n_raw: get("top_n").to_owned(),
         market_title: get("market_title").to_owned(),
-        survey_title: get("survey_title").to_owned(),
+        survey_title,
+        municipality,
         search_keyword: get("search_keyword").to_owned(),
         include_google: get("include_google") == "1",
         output_format: get("output_format").to_owned(),
@@ -320,7 +382,7 @@ pub async fn report(State(state): State<Arc<AppState>>, mut multipart: Multipart
         }
     };
     let (indeed, google, population) = collect_context(state, &req).await;
-    let html = render_competitor_report(
+    let mut model = build_competitor_report(
         &agg,
         req.top_n,
         &req.survey_title,
@@ -328,6 +390,8 @@ pub async fn report(State(state): State<Arc<AppState>>, mut multipart: Multipart
         &google,
         &population,
     );
+    apply_region(&mut model.meta, &req);
+    let html = render_competitor_html(&model);
     if req.output_format == "pdf" {
         match pdf::generate(&html).await {
             Ok(bytes) => (
@@ -435,6 +499,29 @@ async fn google_context(keyword: &str, pref: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn title_is_composed_from_region_and_job_name() {
+        assert_eq!(
+            compose_title("群馬県", "太田市", "製造スタッフ", ""),
+            "群馬県太田市 製造スタッフ"
+        );
+        assert_eq!(
+            compose_title("群馬県", "", "製造スタッフ", ""),
+            "群馬県 製造スタッフ"
+        );
+        assert_eq!(compose_title("群馬県", "太田市", "", ""), "群馬県太田市");
+        assert_eq!(
+            compose_title("", "", "製造スタッフ", "旧題名"),
+            "製造スタッフ"
+        );
+        // 地域も職種名も無いときだけ旧 survey_title (空なら空 = 既定名は組み立て側が付ける)。
+        assert_eq!(compose_title("", "", "", "旧題名"), "旧題名");
+        assert_eq!(compose_title("", "", "", ""), "");
+        // 地域か職種名があれば旧題名は使わない。
+        assert_eq!(compose_title("群馬県", "", "", "旧題名"), "群馬県");
+    }
+
     use crate::indeed::data::PrefSeries;
 
     #[test]
