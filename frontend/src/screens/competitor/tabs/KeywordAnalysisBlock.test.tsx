@@ -61,16 +61,22 @@ afterEach(cleanup);
 const rowText = (cell: HTMLElement): string[] =>
   Array.from(cell.closest('tr')?.querySelectorAll('td') ?? []).map((c) => c.textContent);
 
+const first = (els: HTMLElement[]): HTMLElement => {
+  const el = els[0];
+  if (!el) throw new Error('要素がありません');
+  return el;
+};
+
 describe('KeywordAnalysisBlock', () => {
   it('4つの部分を正確な数値で表示する', () => {
     render(<KeywordAnalysisBlock data={make()} />);
     expect(screen.getByText('全国の検索数（都道府県別ではありません）')).toBeTruthy();
-    expect(rowText(screen.getAllByRole('cell', { name: 'テスト職 求人' })[0])).toEqual(['テスト職 求人', '2026-07', '3,000', '-14.4%', '1月', '強い']);
-    expect(rowText(screen.getAllByRole('cell', { name: 'テスト職' })[0])).toEqual(['テスト職', '2026-07', '12,100', '+2.0%', '5月', '弱い']);
+    expect(rowText(first(screen.getAllByRole('cell', { name: 'テスト職 求人' })))).toEqual(['テスト職 求人', '2026-07', '3,000', '-14.4%', '1月', '強い']);
+    expect(rowText(first(screen.getAllByRole('cell', { name: 'テスト職' })))).toEqual(['テスト職', '2026-07', '12,100', '+2.0%', '5月', '弱い']);
     expect(screen.getByText('2026-01〜2026-03と2026-06〜2026-08の割合を比べています。')).toBeTruthy();
     expect(rowText(screen.getByRole('cell', { name: '一般語' }))).toEqual(['一般語', '5.3%', '19.9%', '+14.6']);
     expect(screen.getByText('この職種は最新月の検索語が12語と少なく、割合が大きく振れることがあります。')).toBeTruthy();
-    expect(rowText(screen.getAllByRole('cell', { name: '主語' })[0])).toEqual(['1', '主語', '34,802', '79.4%', '60.0%', '+19.4']);
+    expect(rowText(first(screen.getAllByRole('cell', { name: '主語' })))).toEqual(['1', '主語', '34,802', '79.4%', '60.0%', '+19.4']);
     expect(rowText(screen.getByRole('cell', { name: '新語' }))).toEqual(['2', '新語', '1,000', '2.3%', '圏外', '圏外']);
     expect(screen.getByText('比べる月：2025-08（12か月前）')).toBeTruthy();
     expect(screen.getByText('Indeedは選んだ都道府県、Googleは全国。閲覧数は応募数ではありません。')).toBeTruthy();
@@ -119,10 +125,10 @@ describe('multiLineLayout', () => {
     ]);
     expect(l?.step).toBe(25);
     expect(l?.ymax).toBe(100);
-    expect(l?.lines[0].segments).toHaveLength(0);
-    expect(l?.lines[0].dots).toHaveLength(2);
-    expect(l?.lines[1].segments).toHaveLength(1);
-    expect(l?.lines[1].dots[0].y).toBeCloseTo(24 + 212 * 0.9, 6);
+    expect(l?.lines[0]?.segments).toHaveLength(0);
+    expect(l?.lines[0]?.dots).toHaveLength(2);
+    expect(l?.lines[1]?.segments).toHaveLength(1);
+    expect(l?.lines[1]?.dots[0]?.y).toBeCloseTo(24 + 212 * 0.9, 6);
     // 月ラベルは最後の月を必ず含み、そこから等間隔 (14 か月 → 2 か月おきで 2026-08 を含む)。
     const m14 = Array.from({ length: 14 }, (_, i) => `m${String(i)}`);
     const l14 = multiLineLayout(m14, [{ label: 'x', values: m14.map(() => 1) }]);

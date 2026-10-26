@@ -107,6 +107,7 @@ pub enum PrefTermsPart {
         /// "12か月前" または "収録の最初の月"。
         compare_kind: Option<String>,
         /// 一覧に載った語のクリック合計。
+        #[ts(type = "number")]
         listed_clicks: i64,
         rows: Vec<PrefTermRow>,
     },
@@ -116,6 +117,7 @@ pub enum PrefTermsPart {
 pub struct PrefTermRow {
     pub rank: u32,
     pub term: String,
+    #[ts(type = "number")]
     pub clicks: i64,
     /// 一覧に載った語の合計に占める割合 (%)。
     pub share_pct: f64,

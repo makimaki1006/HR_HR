@@ -2,7 +2,7 @@
 import type { IndeedRow } from "./IndeedRow";
 import type { KeywordAnalysis } from "./KeywordAnalysis";
 
-export type IndeedSection = { "status": "unavailable", message: string, } | { "status": "ok", title: string, region: string, source: string, caveat: string, built_at: string, rows: Array<IndeedRow>, 
+export type IndeedSection = { "status": "unavailable", message: string, } | { "status": "ok", region: string, source: string, caveat: string, built_at: string, rows: Array<IndeedRow>, 
 /**
  * 「キーワードの推移・分析」。スナップショットから読めなかったときは出力に含めない。
  */

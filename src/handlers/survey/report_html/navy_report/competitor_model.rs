@@ -187,7 +187,6 @@ pub enum IndeedSection {
         message: String,
     },
     Ok {
-        title: String,
         region: String,
         source: String,
         caveat: String,
@@ -603,7 +602,6 @@ fn indeed_section(data: &Value) -> IndeedSection {
         };
     }
     IndeedSection::Ok {
-        title: s(data, "title"),
         region: s(data, "region"),
         source: s(data, "source"),
         caveat: s(data, "caveat"),
@@ -884,7 +882,7 @@ mod tests {
             &agg(),
             10,
             "",
-            &json!({"status":"ok","title":"t","region":"r","rows":[]}),
+            &json!({"status":"ok","region":"r","rows":[]}),
             &json!({"status":"ok","keyword":"k","region":"","demand":{"status":"ok","region":null,"keywords":[]},"suggestions":{"status":"error"}}),
             &Value::Null,
         );
@@ -1028,7 +1026,7 @@ mod tests {
 
     #[test]
     fn indeed_missing_months_stay_null_not_zero() {
-        let indeed = json!({"status":"ok","title":"t","region":"大阪府","source":"s","caveat":"c","built_at":"2026-09-01",
+        let indeed = json!({"status":"ok","region":"大阪府","source":"s","caveat":"c","built_at":"2026-09-01",
             "rows":[{"month":"2026-07","job":100,"ctk":null,"emp":0,"spp":null}]});
         let r = build_competitor_report(&agg(), 10, "", &indeed, &Value::Null, &Value::Null);
         let v = serde_json::to_value(&r).unwrap();

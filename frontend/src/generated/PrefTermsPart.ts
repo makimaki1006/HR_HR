@@ -13,4 +13,4 @@ compare_kind: string | null,
 /**
  * 一覧に載った語のクリック合計。
  */
-listed_clicks: bigint, rows: Array<PrefTermRow>, };
+listed_clicks: number, rows: Array<PrefTermRow>, };

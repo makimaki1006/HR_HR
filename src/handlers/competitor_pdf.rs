@@ -228,7 +228,7 @@ mod tests {
         use serde_json::json;
         let records = parse_csv_bytes_with_hints("タイトル,会社名,勤務地,給与,雇用形態\n施設長,A社,大阪府大阪市,月給 25万円 ~ 30万円,正社員\n".as_bytes(), Some("大阪府"), UserSourceHint::Indeed).unwrap();
         let agg = aggregate_records_with_mode(&records, WageMode::Monthly);
-        let indeed = json!({"status":"ok","title":"検証用データ・施設長","region":"大阪府","rows":(1..=24).map(|i|json!({"month":format!("検証月{i}"),"job":100,"ctk":250,"emp":20,"spp":2.5})).collect::<Vec<_>>()});
+        let indeed = json!({"status":"ok","region":"大阪府","rows":(1..=24).map(|i|json!({"month":format!("検証月{i}"),"job":100,"ctk":250,"emp":20,"spp":2.5})).collect::<Vec<_>>()});
         let google = json!({"status":"ok","keyword":"検証用データ・施設長 求人","region":"大阪府","demand":{"status":"ok","keywords":[{"keyword":"施設長 求人","avg_monthly":320,"competition":"HIGH","monthly_12m":(1..=12).map(|i|json!({"month":format!("検証月{i}"),"search_volume":390})).collect::<Vec<_>>()}]},"suggestions":{"status":"ok","suggestions":(1..=20).map(|i|json!({"keyword":format!("施設長 転職 検証語{i}"),"avg_monthly":170})).collect::<Vec<_>>()}});
         let population = json!({"status":"ok","region":"大阪府（検証用データ）","bands":(0..18).map(|i|json!({"age_group":format!("{}〜{}歳",i*5,i*5+4),"male_count":1234,"female_count":2345})).collect::<Vec<_>>(),"minimum_wage":1231,"labor":{"fiscal_year":2024,"unemployment_rate":2.5}});
         let rich = crate::handlers::survey::report_html::render_competitor_report(

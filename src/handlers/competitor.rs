@@ -471,7 +471,7 @@ fn indeed_context(market: Option<&Snapshot>, title: &str, pref: &str) -> Value {
     };
     let spp = series.seekers_per_posting();
     json!({
-        "status":"ok", "title":title, "region":if pref.is_empty() {"全国"} else {pref},
+        "status":"ok", "region":if pref.is_empty() {"全国"} else {pref},
         "source":snap.meta.source, "caveat":snap.meta.caveat, "built_at":snap.meta.built_at,
         "rows":snap.meta.months.iter().enumerate().map(|(i, month)| json!({
             "month":month, "job":series.job.get(i).copied().flatten(),
@@ -565,5 +565,44 @@ mod tests {
             indeed_context(Some(&snap), "施設長", "東京都")["status"],
             "unavailable"
         );
+    }
+
+    #[test]
+    fn job_title_is_not_in_indeed_context_or_rendered_html() {
+        use crate::handlers::survey::aggregator::{aggregate_records_with_mode, salary_fixture};
+        use crate::handlers::survey::upload::WageMode;
+        let series = Series {
+            job: vec![Some(100.0)],
+            ctk: vec![Some(250.0)],
+            emp: vec![Some(20.0)],
+        };
+        let mut snap = Snapshot::default();
+        snap.meta.months = vec!["2026-07".into()];
+        snap.by_pref.push(PrefSeries {
+            prefecture: "埼玉県".into(),
+            title: "工作機械オペレーター".into(),
+            series,
+            mobile_pct: None,
+        });
+        let indeed = indeed_context(Some(&snap), "工作機械オペレーター", "埼玉県");
+        assert_eq!(indeed["status"], "ok");
+        assert_eq!(indeed["region"], "埼玉県");
+        assert!(indeed.get("title").is_none());
+        let model = build_competitor_report(
+            &aggregate_records_with_mode(
+                &salary_fixture::records("月給 20万円", "埼玉県 さいたま市"),
+                WageMode::Monthly,
+            ),
+            1,
+            "",
+            &indeed,
+            &Value::Null,
+            &Value::Null,
+        );
+        let html = render_competitor_html(&model);
+        assert!(!html.contains("工作機械オペレーター"));
+        assert!(html.contains("<p>埼玉県</p>"));
+        assert!(html.contains("選択した都道府県の月別データ"));
+        assert!(!html.contains("選択した職種"));
     }
 }

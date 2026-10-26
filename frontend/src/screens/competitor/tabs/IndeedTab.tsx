@@ -17,15 +17,15 @@ export function IndeedTab({ data }: { data: IndeedSection }) {
       <header className="cmp-page-head">
         <span className="cmp-eyebrow">採用市場</span>
         <h2>Indeed採用レポート</h2>
-        <p className="cmp-sub">選択した職種・都道府県の月別データ</p>
+        <p className="cmp-sub">
+          {data.status === 'ok' && data.region === '全国' ? '全国の月別データ' : '選択した都道府県の月別データ'}
+        </p>
       </header>
       {data.status === 'unavailable' ? (
         <p className="cmp-note">{data.message}</p>
       ) : (
         <>
-          <p>
-            {data.title} / {data.region}
-          </p>
+          <p>{data.region}</p>
           <p className="cmp-note">出典：Indeed採用市場レポート｜全給与形態。閲覧人数は応募数ではありません。</p>
           <div className="cmp-trend-grid">
             {SERIES.map((x) => (
