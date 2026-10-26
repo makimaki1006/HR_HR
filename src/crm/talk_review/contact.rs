@@ -278,6 +278,8 @@ pub struct ContactAgg {
     pub proposals: u32,
     /// 判定がまだ済んでいない、つながった発信の本数
     pub pending: u32,
+    /// アポ取り以外として外した発信の本数 (率の分母から引く)
+    pub out_of_scope: u32,
 }
 
 impl ContactAgg {
@@ -286,6 +288,7 @@ impl ContactAgg {
         self.proposal_calls += o.proposal_calls;
         self.proposals += o.proposals;
         self.pending += o.pending;
+        self.out_of_scope += o.out_of_scope;
     }
 }
 
@@ -295,17 +298,19 @@ fn pct(num: u32, den: Option<u32>) -> Option<f64> {
 }
 
 fn fill(row: &mut TalkPersonRow, a: &ContactAgg) {
+    // 率の分母はアポ取りの発信だけ (発信数からアポ取り以外として外した本数を引く)。発信数の表示は営業KPIのまま
+    let den = row.outbound.map(|o| o.saturating_sub(a.out_of_scope));
     row.contacts = Some(a.contacts);
-    row.contact_rate_pct = pct(a.contacts, row.outbound);
+    row.contact_rate_pct = pct(a.contacts, den);
     row.date_proposal_calls = Some(a.proposal_calls);
-    row.date_proposal_rate_pct = pct(a.proposal_calls, row.outbound);
+    row.date_proposal_rate_pct = pct(a.proposal_calls, den);
     row.proposals_per_contact =
         (a.contacts > 0).then(|| f64::from(a.proposals) / f64::from(a.contacts));
     row.contact_pending = a.pending;
 }
 
 /// 人ごとの行とチーム全体の行に、接触・日程切りの数を入れる。`agg` が無い (読めなかった) ときは何も入れない。
-/// チーム全体は表に出ている人の合計。率の分母は各行の発信数。
+/// チーム全体は表に出ている人の合計。率の分母は各行の発信数からアポ取り以外の本数を引いたもの。
 pub fn apply_contact(
     people: &mut [TalkPersonRow],
     total: &mut TalkPersonRow,
@@ -645,6 +650,7 @@ mod tests {
                     proposal_calls: 8,
                     proposals: 12,
                     pending: 3,
+                    out_of_scope: 20,
                 },
             ),
             (
@@ -654,6 +660,7 @@ mod tests {
                     proposal_calls: 99,
                     proposals: 99,
                     pending: 99,
+                    out_of_scope: 99,
                 },
             ),
         ]
@@ -662,9 +669,10 @@ mod tests {
         let by = |n: &str| people.iter().find(|p| p.name == n).unwrap();
         let a = by("あ");
         assert_eq!(a.contacts, Some(20));
-        assert_eq!(a.contact_rate_pct, Some(20.0));
+        // 発信 100 本のうちアポ取り以外 20 本を分母から外す
+        assert_eq!(a.contact_rate_pct, Some(25.0));
         assert_eq!(a.date_proposal_calls, Some(8));
-        assert_eq!(a.date_proposal_rate_pct, Some(8.0));
+        assert_eq!(a.date_proposal_rate_pct, Some(10.0));
         assert_eq!(a.proposals_per_contact, Some(0.6));
         assert_eq!(a.contact_pending, 3);
         let b = by("い");
@@ -677,11 +685,11 @@ mod tests {
         let c = by("う");
         assert_eq!(c.contacts, Some(0));
         assert_eq!((c.contact_rate_pct, c.date_proposal_rate_pct), (None, None));
-        // 合計: 表に出ている人だけ (Z は入らない)。発信 150 本
+        // 合計: 表に出ている人だけ (Z は入らない)。発信 150 本 − アポ取り以外 20 本
         assert_eq!(total.contacts, Some(20));
         assert_eq!(
             total.contact_rate_pct.map(|v| (v * 100.0).round() / 100.0),
-            Some(13.33)
+            Some(15.38)
         );
         assert_eq!(total.date_proposal_calls, Some(8));
         assert_eq!(total.proposals_per_contact, Some(0.6));
@@ -701,6 +709,7 @@ mod tests {
                 proposal_calls: 2,
                 proposals: 3,
                 pending: 0,
+                out_of_scope: 0,
             },
         )]
         .into();

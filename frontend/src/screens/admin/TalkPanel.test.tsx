@@ -150,7 +150,7 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(rule).toContain('接触率 ＝ 接触数 ÷ 発信数');
     expect(rule).toContain('日程切り率 ＝ 日程切り本数 ÷ 発信数');
     expect(rule).toContain('接触した電話で日時を出した回数の合計 ÷ 接触数');
-    expect(rule).toContain('新規営業の電話は、かけた時点の取引のステージがアポ取りの段階のものだけを数えます');
+    expect(rule).toContain('接触率・日程切り率の分母からも外します');
   });
 
   it('接触・日程切りの見出しで並べ替え、値の無い人は向きによらず最後に置く', () => {

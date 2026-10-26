@@ -254,6 +254,7 @@ pub fn aggregate(t: &TursoDb, from: &str, to: &str) -> Result<HashMap<String, Co
                 e.proposals += u("proposals");
             }
             Some(ST_PENDING) => e.pending += u("n"),
+            Some(ST_OUT_OF_SCOPE) => e.out_of_scope += u("n"),
             _ => {}
         }
     }
@@ -379,9 +380,9 @@ mod tests {
             let agg = aggregate(t, "2026-10-15T00:00:00Z", "2026-10-16T00:00:00Z")?;
             let a = agg.get("o1").unwrap();
             assert_eq!(
-                (a.contacts, a.pending),
-                (0, 1),
-                "対象外は判定待ちにも数えない"
+                (a.contacts, a.pending, a.out_of_scope),
+                (0, 1, 2),
+                "対象外は判定待ちにも数えず、率の分母から引く本数として数える"
             );
             // 9 項目の結び付け: 対象外の印は接触していない電話と同じ (見送り)
             let m = marks_for(t, &["out1".to_string()], &[])?;
