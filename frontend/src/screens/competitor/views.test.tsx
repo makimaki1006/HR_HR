@@ -451,7 +451,10 @@ describe('IndeedTab', () => {
 
   it('見出し・出典・集計日・caveat', () => {
     render(<IndeedTab data={makeReport().indeed} />);
-    expect(screen.getByText('テスト職 / 大阪府')).toBeTruthy();
+    expect(screen.getByText('大阪府')).toBeTruthy();
+    expect(document.body.textContent).toContain('選択した都道府県の月別データ');
+    expect(document.body.textContent).not.toContain('選択した職種');
+    expect(document.body.textContent).not.toContain('テスト職');
     expect(document.body.textContent).toContain('出典：Indeed採用市場レポート｜全給与形態。閲覧人数は応募数ではありません。');
   });
 });

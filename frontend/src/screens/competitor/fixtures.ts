@@ -102,7 +102,6 @@ export function makeReport(): CompetitorReport {
     },
     indeed: {
       status: 'ok',
-      title: 'テスト職',
       region: '大阪府',
       source: 'テスト出典',
       caveat: 'テスト注意書き',
