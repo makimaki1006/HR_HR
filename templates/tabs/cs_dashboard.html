@@ -3992,7 +3992,7 @@ function foot(meta, counts) {
 const READ_BASE = "HubSpot に記録された分だけの数です。0 件と「まだ取れていない」は別です。";
 const READ_CORR = "成果との関係は相関であって、原因とは限りません。";
 const READ_LINE = {
-  team: READ_BASE, today: READ_BASE, board: READ_BASE, byowner: READ_BASE, stagestay: READ_BASE, detail: READ_BASE,
+  team: READ_BASE, today: READ_BASE, board: READ_BASE, byowner: READ_BASE, stagestay: READ_BASE, overdue: READ_BASE, detail: READ_BASE,
   customer: READ_BASE + READ_CORR, focus: READ_BASE + READ_CORR, renewalpipe: READ_BASE, phone: READ_BASE,
   results: READ_BASE + READ_CORR, trust: READ_BASE,
 };
@@ -4498,11 +4498,12 @@ function customerFilterResults() {
   h += result.missing.filter((m) => m.n).map((m) => '<p class="muted small">' + esc(m.label) + 'が入っていない ' + num(m.n) + ' 社は外れています</p>').join("");
   if (result.numeric) {
     const count = (v) => v == null ? "—" : num(v);
-    h += scroll(table([{ t: "法人" }, ...["従業員数", "月額", "拠点", "LTV", "継続回数", "応募", "面接", "承諾", "稼働中"].map((t) => ({ t, n: 1 }))],
+    h += scroll(table([{ t: "法人" }, ...["従業員数", "月額", "拠点", "LTV", "継続回数", "応募", "面接", "承諾", "稼働中"].map((t) => ({ t, n: 1 })), { t: "稼働中の案件の段階", w: "l" }],
       result.rows.slice(0, 50).map((r) => [
         '<a data-customer="' + esc(r.houjin) + '" href="' + esc(hashFor("customer", { ...stateParams("customer"), houjin: r.houjin, site: "" })) + '">' + esc(r.name || r.houjin) + '</a>',
         count(r.kigyouzentaininzuu), r.monthly_amount_max == null ? "—" : yen(r.monthly_amount_max), count(r.sites), r.ltv == null ? "—" : yen(r.ltv),
         count(r.max_renewal_no), count(r.oubo_total), count(r.mensetu_total), count(r.syoudaku_total), count(r.active),
+        (r.phases || []).length ? (r.phases || []).map((p) => esc(p.label) + " ×" + num(p.n)).join("、") : DASH,
       ]), "", "customer-filter-table"), 340, result.rows.length);
     if (result.rows.length > 50) h += '<p class="muted small">ほか ' + num(result.rows.length - 50) + ' 社</p>';
   }
@@ -6097,6 +6098,20 @@ function cpaCell(r) {
 
 /* 採用単価の比べ方。サーバの cpa_band_rule に、「何ヶ月目」の立ち位置とは区切りが違うことを添える */
 
+/* 段階の絞り込みの選択肢（鍵はサーバの phase_key） */
+const PHASE_OPTIONS = [
+  { k: "0", t: "0 契約前" }, { k: "1", t: "1 立ち上げ" }, { k: "2", t: "2 最初の判断材料" },
+  { k: "3", t: "3 更新の判断" }, { k: "4", t: "4 2回目以降" },
+  { k: "unknown", t: "不明（開始日か満了日が空）" },
+];
+function phaseCell(r) {
+  if (r.phase_key === "overdue") return '<span class="muted small">満了後</span>';
+  if (r.phase == null) return '<span class="muted small">不明</span>';
+  return esc(r.phase_label);
+}
+/* 並べ替え: 0〜4 の順、そのあとに満了後、不明 */
+const phaseSort = (r) => (r.phase != null ? r.phase : r.phase_key === "overdue" ? 9 : 10);
+
 const BOARD_COLS = [
   /* 案件名から「案件の詳細」へ（戻るでこの表へ戻る）。取引名が空なら dealLink が「取引名なし」と書く（取引IDを出さない） */
   { k: "name",       t: "案件",        n: 0, fmt: (r) => dealLink(r.deal_id, r.name) +
@@ -6109,6 +6124,8 @@ const BOARD_COLS = [
      （案件・名札・担当）に減っていた。満了まで・定期NPS・最後の接触・最後のMTG が横スクロールの外 */
   { k: "n_flags",    t: "注意",        n: 0, w: "l", fmt: (r) => tags(r.flags) },
   { k: "consultant", t: "担当",        n: 0, fmt: (r) => esc(r.consultant) || DASH },
+  /* 段階（2026-10-26）。サーバの phase_label（0 契約前〜4 2回目以降）。満了後は段階を付けず、不明は開始日か満了日が空 */
+  { k: "phase",      t: "段階",        n: 0, fmt: phaseCell, sv: phaseSort },
   /* 🔴 並べ替えは画面に出ている順に合わせる（sv）。「満了後」の行は数字を出していないのに、
      内部の months（15 など）で他の行の間に並んでいた（fixture 20件）。
      満了後は稼働中の月より後ろに置き、その中は満了を過ぎた日数の順 */
@@ -6155,7 +6172,7 @@ const BOARD_COLS = [
    案件名は折り返す（w:"l"、td.wl は 12〜22 字）。8列で 1440px の本文幅（約 1,150px）に入る。
    🔴 名札は短い書き方（tagsShort）を 25.5em の列（w:"f"、td.wf）に詰める（段2 A）。wl の 22em に正式な名札のままだと
    1 本ずつ折れて 1 行が 79〜100px で、1440×900 の 1 画面目に完全な行が 0 行だった（2026-09-28 fixture 実測） */
-const TODAY_COLS = ["name", "n_flags", "nps", "consultant", "days_left", "days_since_contact", "mtg_days", "amount"]
+const TODAY_COLS = ["name", "n_flags", "nps", "consultant", "phase", "days_left", "days_since_contact", "mtg_days", "amount"]
   .map((k) => {
     const c = BOARD_COLS.find((x) => x.k === k);
     if (k === "name") return Object.assign({}, c, { w: "l" });
@@ -6167,7 +6184,7 @@ let boardSort = { key: "n_flags", asc: false };
 
 /* ③の絞り込み。②から担当者を押して来たときも、ここに入る。
    🔴 絞ったら必ず「◯件中 N件を表示」を出す（全件を見ていると誤認させない）。 */
-let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
+let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "" };
 
 /* 満了までの帯。値は days_left（null は「満了日が入っていない」） */
 const EXPIRY_BANDS = [
@@ -6216,6 +6233,7 @@ function boardHit(f) {
     if (f.band && (r.mtg_band || "") !== f.band) return false;
     /* 見方の印（段B、09 の 10 章②。行の views に routes.rs ACT_VIEWS の鍵が入っている） */
     if (f.view && !(r.views || []).some((x) => x === f.view)) return false;
+    if (f.phase && (r.phase_key || "") !== f.phase) return false;
     if (band && !band.hit(r.days_left)) return false;
     if (amt && !amt.hit(amountOf(r))) return false;
     if (q && String(r.name || r.deal_id || "").toLowerCase().indexOf(q) < 0) return false;
@@ -6231,7 +6249,7 @@ function boardRowsButAmount(rows) {
 
 function boardFilterOn() {
   const f = boardFilter;
-  return !!(f.consultant || f.flag || f.band || f.view || f.expiry || f.amount || f.q.trim());
+  return !!(f.consultant || f.flag || f.band || f.view || f.expiry || f.amount || f.phase || f.q.trim());
 }
 
 /* いま何で絞っているかを日本語で並べる。D は帯の名前（meta.mtg_gap.bands の label）を引くため */
@@ -6259,6 +6277,10 @@ function boardFilterWords(D) {
     /* 金額の帯で絞ったときは、金額が空で入らない件数を添える（黙って落とさない。空はどの帯にも入れていない） */
     const nNone = f.amount === "none" ? 0 : boardRowsButAmount((D || {}).rows).filter((r) => amountOf(r) == null).length;
     if (b) w.push("契約総額 " + b.t + (nNone ? "（金額が空の " + nNone + " 件は入りません）" : ""));
+  }
+  if (f.phase) {
+    const b = PHASE_OPTIONS.find((x) => x.k === f.phase);
+    w.push("段階 " + (b ? b.t : "（見つからない段階）"));
   }
   if (f.q.trim()) w.push("案件名に " + f.q.trim());
   return w.join(" / ");
@@ -6304,6 +6326,13 @@ function boardFilterBar(D, onlyOwner) {
     opt("", "すべて", boardFilter.band) +
     bands.map((b) => opt(b.band, b.label + "（" + num(b.n) + "）", boardFilter.band)).join("") +
     "</select></label>";
+  const phaseN = {};
+  for (const x of D.meta.phase_counts || []) phaseN[x.key] = x.n;
+  h += '<label class="act" title="括弧の件数は、稼働中の全件で数えた件数です">段階 <select id="bf-phase">' +
+    opt("", "すべて", boardFilter.phase) +
+    PHASE_OPTIONS.filter((b) => phaseN[b.k] || b.k === boardFilter.phase)
+      .map((b) => opt(b.k, b.t + "（" + num(phaseN[b.k] || 0) + "）", boardFilter.phase)).join("") +
+    "</select></label>";
   h += '<label class="act">満了まで <select id="bf-expiry">' +
     opt("", "すべて", boardFilter.expiry) +
     EXPIRY_BANDS.map((b) => opt(b.k, b.t, boardFilter.expiry)).join("") + "</select></label>";
@@ -6322,7 +6351,7 @@ function boardFilterBar(D, onlyOwner) {
 
 /* ②のコンサルタント名から③へ飛ぶ。担当で絞った状態で開く */
 function drillToBoard(name) {
-  boardFilter = { consultant: name, flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
+  boardFilter = { consultant: name, flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "" };
   go("consultant", "byowner", false, undefined, "keep");   /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2） */
 }
 /* ①今日動く先の KPI から③へ。MTG 途絶の帯で絞った状態で開く（S-2。裁定: KPI を押したら案件そのものを絞って開く）。
@@ -6330,14 +6359,14 @@ function drillToBoard(name) {
    consultant: 今日動く先で担当を選んでいるとき。札の数字はその担当の実数（critical_by_consultant）なので、行き先も
    その担当のその帯にする。案件そのものは入るときに担当を外すので、「担当者ごとの案件」で開く（同じ表・同じ絞り込み欄） */
 function drillToBand(band, consultant) {
-  boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band, view: "", amount: "" };
+  boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band, view: "", amount: "", phase: "" };
   /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2）。URL には #deal/board?band=critical の形で残る */
   if (consultant) go("consultant", "byowner", false, undefined, "keep"); else go("deal", "board", false, undefined, "keep");
 }
 /* 今日の札「接触の記録が無い」から、その名札で絞った案件一覧へ（09 の 3章 1 の 2）。担当を選んでいるときは drillToBand と同じ理由で
    担当者ごとの案件をその担当で開く（札の数字はその担当の実数。行き先の母集団を揃える） */
 function drillToFlag(flag, consultant) {
-  boardFilter = { consultant: consultant || "", flag: flag, expiry: "", q: "", band: "", view: "", amount: "" };
+  boardFilter = { consultant: consultant || "", flag: flag, expiry: "", q: "", band: "", view: "", amount: "", phase: "" };
   if (consultant) go("consultant", "byowner", false, undefined, "keep"); else go("deal", "board", false, undefined, "keep");
 }
 
@@ -6453,18 +6482,28 @@ function boardStartedOnlyWords(D) {
   return "。この注意は開始前の契約には立てていません（" + num(D.rows.length) + " 件のうち開始前 " + num(pre) +
     " 件・開始済み " + num(D.rows.length - pre) + " 件）";
 }
-/** 滞留の件数の札 2 枚（前の「滞留した案件」画面の札）。押すとその絞り込み（よく使う絞り込みの stay_esc・stay_long）になる。
+/** 満了日を過ぎても稼働中の契約は案件一覧に出さず、「満了日超過の稼働中」の画面だけで見る（2026-10-27 ユーザー決定）。
+    表・件数・絞り込みはこの形（overdue_n に外した件数）で数える。何度通しても同じ */
+const boardOnlyMemo = new WeakMap();   /* 同じ応答からは同じ形を返す（表の覚え書きが rows の同一性で効くため） */
+function boardOnly(D) {
+  if (!D || D.board_only || !Array.isArray(D.rows)) return D;
+  if (boardOnlyMemo.has(D)) return boardOnlyMemo.get(D);
+  const rows = D.rows.filter((r) => !r.overdue_active);
+  const out = Object.assign({}, D, { rows, board_only: true, overdue_n: D.rows.length - rows.length });
+  boardOnlyMemo.set(D, out);
+  return out;
+}
+/** 滞留の件数の札（前の「滞留した案件」画面の札）。押すとその絞り込み（よく使う絞り込みの stay_esc・stay_long）になる。
     件数・名前・定義はサーバの見方（meta.act_views）の文。押している札は aria-pressed */
 function boardStayCards(D) {
-  const esc2 = actViewOf(D, "stay_esc"), lng = actViewOf(D, "stay_long");
-  if (!esc2 || !lng) return "";
+  const lng = actViewOf(D, "stay_long");
+  if (!lng) return "";
   const on = boardFilter.view || "";
   const card = (v, fine, warn) => kpi(v.label, num(v.n) + '<span class="u">件</span>', fine, warn && v.n ? "warn" : "",
     { view: v.key, text: on === v.key ? "絞り込み中（もう一度押すと外す）" : "この絞り込みで見る" })
     .replace('<button type="button"', '<button type="button" aria-pressed="' + (on === v.key) + '"');
   return '<div class="kpis" id="board-stay">' +
-    card(esc2, "満了日を過ぎて、まだ稼働中のステージにいる", true) +
-    card(lng, "満了後も稼働中の案件は、左の件数に入れています", false) + "</div>";
+    card(lng, "同じステージに長くとどまっている案件", false) + "</div>";
 }
 function boardBody(D, shown, on) {
   const byOwner = cur.view === "byowner";
@@ -6474,6 +6513,10 @@ function boardBody(D, shown, on) {
   let h = byOwner ? boardViewNote(D, boardFilter.consultant) : boardStayCards(D) + boardViewBar(D) + boardViewNote(D);
   /* 🔴 絞り込んだら、何件中の何件を見ているのかを必ず出す。
      絞ったことを忘れて「全件がこう見える」と読み違えるのを防ぐ。 */
+  if (D.overdue_n) {
+    h += '<p class="muted small" id="board-overdue-note">満了日を過ぎても稼働中の ' + num(D.overdue_n) +
+      " 件は「満了日超過の稼働中」に分けています。</p>";
+  }
   h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
     "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
     (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + boardStartedOnlyWords(D) + "</div>";
@@ -6564,7 +6607,8 @@ function actViewOf(D, k) {
 }
 /** 見方のボタンの列。押している見方は aria-pressed と太字・枠（色だけにしない） */
 function boardViewBar(D) {
-  const V = (D.meta || {}).act_views || [];
+  /* 満了後も稼働中（stay_esc）は「満了日超過の稼働中」の画面で見る。ここに残すと押しても表が空になる */
+  const V = ((D.meta || {}).act_views || []).filter((v) => v.key !== "stay_esc");
   if (!V.length) return "";
   const on = boardFilter.view || "";
   return '<div class="ctlbar" id="board-views" role="group" aria-label="よく使う絞り込み（対応が要る案件）"><span class="act">よく使う絞り込み</span>' +
@@ -6986,6 +7030,7 @@ function renderMyContact(CT, name) {
 
 /* ---------------------------------------------------------------- 2 案件の立ち位置 */
 function renderBoard(D) {
+  D = boardOnly(D);
   const shown = boardApply(D.rows);
   const on = boardFilterOn();
   /* 同じ表を①と②の両方で使う。問いだけ変える */
@@ -7048,6 +7093,12 @@ function renderBoard(D) {
   }
   let h = '<div class="lede">稼働中 ' + num(D.rows.length) +
     " 件。注意の数が多い順に並べています。</div>";
+  h += '<p class="muted small">段階は、案件ごとに上から最初に当てはまるものです。' +
+    "0 契約前（開始日が今日より後）、3 更新の判断（満了の60日前と契約の7割が過ぎた日の、早いほう以降）、" +
+    "4 2回目以降（継続回数が1以上）、2 最初の判断材料（面接が1件以上）、1 立ち上げ（上のどれでもない）。" +
+    "開始日か満了日が空の案件は不明です。面接数は HubSpot の取引の項目なので、入力が遅れると段階1が実際より長く見えます。" +
+    "段階3に入る日は、3か月の契約なら開始から約1か月（満了の60日前）、6か月なら約4か月（満了の60日前）、12か月なら約8.5か月（契約の7割）です。" +
+    "満了日を過ぎた契約には段階を付けず、「満了日超過の稼働中」の画面に出します。</p>";
 
   h += boardFilterBar(D);
   /* 🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 表が図「名札の分布」の下（y=1,391）で、行を特定する画面なのに
@@ -7078,6 +7129,7 @@ function wireBoard() {
   });
   pick("bf-flag", "flag");
   pick("bf-band", "band");
+  pick("bf-phase", "phase");
   pick("bf-expiry", "expiry");
   pick("bf-amount", "amount");
   const q = document.getElementById("bf-q");
@@ -7114,7 +7166,7 @@ function wireBoard() {
      名札＋案件名「株式」で 0 件 → 押すと件数の行は 604 件、#bf-flag・#bf-q は前の値のまま）。
      欄だけ値を戻す手もあるが、選択肢の件数・既定値の組み立ては boardFilterBar 1 か所に置いておく。押す頻度は低い */
   if (cl) cl.onclick = () => {
-    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
+    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "" };
     boardShowAll = false;
     redrawMain(boardCache);
   };
@@ -8309,6 +8361,27 @@ function wireStageStay() {
   if (sel) sel.onchange = () => { stayConsultant = sel.value; redrawMain(lastPayload); };
 }
 
+/* ================================================================ 満了日が過ぎた稼働中
+   満了日を過ぎてもステージが稼働中のままの契約（案件一覧の行の overdue_active）。直すのは HubSpot のステージ。 */
+const OVERDUE_COLS = [
+  { t: "案件", w: "l", fmt: (r) => dealLink(r.deal_id, r.name) },
+  { t: "担当", fmt: (r) => esc(r.consultant) || DASH },
+  { t: "満了日", fmt: (r) => esc(r.expiry) || DASH },
+  { t: "過ぎた日数", n: 1, fmt: (r) => (r.days_left == null ? DASH : num(-r.days_left) + " 日") },
+  { t: "ステージ", w: "s", fmt: (r) => esc(r.stage) || '<span class="muted small">ステージ名なし</span>' },
+  { t: "HubSpot", fmt: (r) => hsLink(r.deal_id, "HubSpot で開く &#8599;") || DASH },
+];
+function renderOverdue(D) {
+  const rows = (D.rows || []).filter((r) => r.overdue_active)
+    .sort((a, b) => (a.days_left || 0) - (b.days_left || 0));
+  let h = '<div class="lede">満了日を過ぎてもステージが稼働中のままの契約です。HubSpot でステージを直してください。</div>';
+  h += sec("表", "満了日超過の稼働中の契約（過ぎた日数の多い順、" + num(rows.length) + " 件）", "overdue-h");
+  h += rows.length
+    ? scroll(table(OVERDUE_COLS, rows.map((r) => OVERDUE_COLS.map((c) => c.fmt(r))), "", "overdue-tbl"), 640, rows.length)
+    : '<p class="muted">満了日を過ぎて稼働中の契約はありません。</p>';
+  return h + foot(D.meta, "稼働中 " + num((D.rows || []).length) + " 件");
+}
+
 /* ================================================================ 画面の並び
 
    メニューは左に 1 列、使う間隔で 3 つに区切る（毎日 / 調べる / 月1・確かめる）。計 11 画面。
@@ -8368,6 +8441,9 @@ const MENUS = [
       /* 前の「継続を追いかける」と「法人番号で見る」を 1 つに（09 の 4 顧客） */
       { key: "customer", label: "顧客",             path: "/api/consulting/customer",
         render: (D) => renderCustomer(D) },
+      /* 2026-10-26: 満了日を過ぎてもステージが稼働中のままの契約。段階は付けず、ここで一覧にする */
+      { key: "overdue",  label: "満了日超過の稼働中", path: "/api/consulting/deals",
+        render: (D) => renderOverdue(D) },
       /* 2026-10-21 メニューから外した（URL は残す）。定期NPS 4以下は案件一覧のよく使う絞り込み（nps_low）、
          4 つの図はこの画面だけに残る（成果と継続からは外した） */
       { key: "focus",    label: "いま見るべき顧客", hidden: true, path: "/api/consulting/focus",
@@ -8642,6 +8718,10 @@ const BOARD_URL_STATE = {
   amt: { kind: "filter", get: () => boardFilter.amount || "",
          set: (v) => { boardFilter.amount = AMOUNT_BANDS.some((b) => b.k === v) ? v : ""; },
          reset: () => { boardFilter.amount = ""; } },
+  /* 段階。知らない鍵（貼られた URL）は既定へ */
+  phase: { kind: "filter", get: () => boardFilter.phase || "",
+           set: (v) => { boardFilter.phase = PHASE_OPTIONS.some((b) => b.k === v) ? v : ""; },
+           reset: () => { boardFilter.phase = ""; } },
   q: boardState("q"),
   sort: sortState(() => boardSort, (s) => { boardSort = s; }, BOARD_COLS, { key: "n_flags", asc: false }),
 };
@@ -9154,7 +9234,7 @@ async function load(refresh, opts) {
     if (cur.view === "team") teamCache = body;
     /* 「残りも出す」（boardShowAll）は画面に入り直したら既定の上位 100 行に戻す（段2 M-8 の検証 2026-09-29。
        前は一度押すと、画面を移っても担当を替えても全件描画のままだった） */
-    if (cur.view === "board" || cur.view === "byowner") { boardCache = body; boardShowAll = false; }
+    if (cur.view === "board" || cur.view === "byowner") { body = boardOnly(body); boardCache = body; boardShowAll = false; }
     lastPayload = body;   /* 絞り込みで描き直すときに使う。取り直しはしない */
     /* HubSpot の portal_id は全 API の meta に同じ値で載る（routes.rs freshen）。最初の応答で覚える */
     if (body.meta && body.meta.hubspot_portal_id) hsPortal = String(body.meta.hubspot_portal_id);

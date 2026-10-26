@@ -7759,3 +7759,66 @@ fn 充足を除いた継続率は主の率と別のキーで返る() {
         "金額: 76,530,000 ÷ (76,530,000 + 27,690,000)"
     );
 }
+
+/// 段階（2026-10-26）。fixture・基準日 2026-09-18 での件数。
+/// 開始前は既存の not_started と同じ集合、満了後は past_expiry と同じ集合、残りは段階 1〜4 と不明に分かれる。
+#[test]
+fn 案件の段階は排他で全件に付き開始前と満了後は既存の集合と一致する() {
+    let v = build_deal_board(&sheets(), fixture_day());
+    let rows = v["rows"].as_array().expect("rows");
+    let mut by_key: std::collections::BTreeMap<String, usize> = Default::default();
+    for r in rows {
+        *by_key
+            .entry(r["phase_key"].as_str().expect("phase_key").to_string())
+            .or_insert(0) += 1;
+        assert_eq!(r["phase_key"] == "0", r["not_started"] == true);
+        assert_eq!(r["overdue_active"] == true, r["past_expiry"] == true);
+        assert_eq!(r["phase_key"] == "overdue", r["overdue_active"] == true);
+        assert_eq!(
+            r["phase"].is_null(),
+            r["phase_key"].as_str().is_some_and(|k| k.len() > 1)
+        );
+    }
+    println!("段階ごとの件数: {by_key:?} / 稼働中 {}", rows.len());
+    assert_eq!(by_key.values().sum::<usize>(), rows.len());
+    let expect: &[(&str, usize)] = &[
+        ("0", 59),
+        ("1", 76),
+        ("2", 57),
+        ("3", 216),
+        ("4", 176),
+        ("overdue", 10),
+    ];
+    for (k, n) in expect {
+        assert_eq!(by_key.get(*k).copied().unwrap_or(0), *n, "段階 {k}");
+    }
+}
+
+/// 重点顧客の一覧に重ねる法人ごとの段階。件数の合計は、その法人の稼働中の案件の数と同じ
+#[test]
+fn 法人の一覧に稼働中の案件の段階の件数が付く() {
+    let s = sheets();
+    let day = fixture_day();
+    let rows = super::routes::deal_rows(&s, day).0;
+    let v = build_customer(&s, None, day);
+    let index = v["index"].as_array().expect("index");
+    let mut with_phase = 0;
+    for c in index {
+        let h = c["houjin"].as_str().unwrap();
+        let want = rows.iter().filter(|r| r["houjin"] == h).count() as u64;
+        let got: u64 = c["phases"]
+            .as_array()
+            .expect("phases")
+            .iter()
+            .map(|p| p["n"].as_u64().unwrap())
+            .sum();
+        assert_eq!(got, want, "法人 {h} の段階の合計");
+        if got > 0 {
+            with_phase += 1;
+        }
+    }
+    assert!(
+        with_phase > 100,
+        "段階が付いた法人が少なすぎる: {with_phase}"
+    );
+}

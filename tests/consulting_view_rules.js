@@ -3449,13 +3449,13 @@ check("案件の詳細: 電話の AI 要約には「誤りを含むことがあ�
 });
 
 /* ================================================================ 段1（2026-09-28、08_UIUX改善案の S-3） */
-check("S-3: 今日動く先の3表は8列（案件・注意・満足度・担当・満了まで・最後の接触・最後のMTG・金額）で、注意が2列目", () => {
+check("S-3: 今日動く先の3表は9列（案件・注意・満足度・担当・段階・満了まで・最後の接触・最後のMTG・金額）で、注意が2列目", () => {
   const cols = run("TODAY_COLS.map((c) => c.t)");
-  ok(JSON.stringify(cols) === JSON.stringify(["案件", "注意", "満足度", "担当", "満了まで", "最後の接触", "最後のMTG", "金額"]),
+  ok(JSON.stringify(cols) === JSON.stringify(["案件", "注意", "満足度", "担当", "段階", "満了まで", "最後の接触", "最後のMTG", "金額"]),
     "今日動く先の列が違う: " + cols.join(" / "));
   // 案件そのものは 15 列のまま。名札（並びの根拠）だけ案件名の隣へ
   ok(run("BOARD_COLS[1].k") === "n_flags", "案件そのものの注意の列が2列目でない");
-  ok(run("BOARD_COLS.length") === 15, "案件そのものの列数が 15 でない（列を落としていないか）");
+  ok(run("BOARD_COLS.length") === 16, "案件そのものの列数が 16 でない（列を落としていないか）");
   const row = { deal_id: "a", name: "案件A", consultant: "担当A", flags: ["x", "y"], n_flags: 2, amount: 100000, days_left: 12, nps: 3 };
   ctx.__TD3 = { rows: [row], expiring_this_week: [row], started_this_week: [row],
     meta: { n_hit: 1, n_shown: 1, filter_rule: "", order_rule: "", mtg_gap: {}, new_deal_rule: "" } };
@@ -3465,7 +3465,7 @@ check("S-3: 今日動く先の3表は8列（案件・注意・満足度・担当
     ok(at >= 0, id + " の表が無い");
     const t = h.slice(at, h.indexOf("</table>", at));
     const ths = (t.split("</thead>")[0].match(/<th[\s>]/g) || []).length;
-    ok(ths === 8, id + " の列数が " + ths + "（8 でない）");
+    ok(ths === 9, id + " の列数が " + ths + "（9 でない）");
     // 名札は折り返す列。段2 A で wl（22em）から今日動く先だけの wf（25.5em・短い名札）に変えた。折り返す性質は同じ
     ok(/<th class="wf sortable"[^>]*><button[^>]*data-k="n_flags"/.test(t), id + " の注意の列が折り返す列（wf）でない");
     const tds = t.split("<tbody>")[1].split("</tr>")[0];
@@ -3479,7 +3479,7 @@ check("S-3: 今日動く先の3表は8列（案件・注意・満足度・担当
     "今週満了の枠が 320px の枠でない");
   const b = run('boardTable([__TD3.rows[0]], { key: "n_flags", asc: false }, "board-tbl")');
   const bh = b.split("</thead>")[0];
-  ok((bh.match(/<th[\s>]/g) || []).length === 15, "案件そのものの表が 15 列でない");
+  ok((bh.match(/<th[\s>]/g) || []).length === 16, "案件そのものの表が 16 列でない");
   ok(bh.indexOf('data-k="n_flags"') < bh.indexOf('data-k="consultant"'), "案件そのものの表で注意が担当より後ろにある");
   // 名札だけは折り返す列（wl）。2026-09-28 検証（fixture 1440px）: 2 列目に移した名札を折り返さないままにしたら列の幅が
   // 799px になり、枠（1,149px）に最初から見える列が 8 列 → 3 列に減った。案件名ほかの 14 列は折り返さない（横スクロールのまま）
@@ -3809,9 +3809,9 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   ok(JSON.stringify(heads) === JSON.stringify(["毎日", "調べる", "月1"]), "区切りの見出しが 毎日 / 調べる / 月1 でない: " + heads);
   ok(!side.includes('class="no"') && !/[①-⑩]/.test(side), "区切りに丸数字が残っている: " + side);
   const nBtn = (side.match(/<button /g) || []).length;
-  ok(nBtn === 6, "左の項目が 6 でない: " + nBtn);
+  ok(nBtn === 7, "左の項目が 7 でない: " + nBtn);
   const labels = [...side.matchAll(/<button [^>]*>([^<]*)<\/button>/g)].map((m) => m[1]);
-  ok(JSON.stringify(labels) === JSON.stringify(["チームと担当", "今日", "案件一覧", "顧客", "満了と継続", "成果と継続"]), "左の項目名が違う: " + labels.join(" / "));
+  ok(JSON.stringify(labels) === JSON.stringify(["チームと担当", "今日", "案件一覧", "顧客", "満了日超過の稼働中", "満了と継続", "成果と継続"]), "左の項目名が違う: " + labels.join(" / "));
   /* 外した画面は左に出さない。URL では今までどおり開ける（hidden） */
   for (const k of ["stagestay", "focus", "phone", "trust", "byowner", "detail"])
     ok(JSON.parse(run('JSON.stringify(MENUS.flatMap((m) => m.views).find((v) => v.key === "' + k + '"))')).hidden === true, k + " が hidden でない");
@@ -4525,7 +4525,7 @@ check("段2 M-8: 案件そのものは既定で上位 100 行＋「残りも出�
   const n0 = run("BOARD_TBL_BUILDS");
   const h = run("renderBoard(__M8)");
   ok(nRows(h) === 100, "既定で上位 100 行でない: " + nRows(h));
-  ok(h.includes("<b>100</b> 行を出しています（全 130 件のうち）× 15 列"), "枠の案内が「100 行を出しています（全 130 件のうち）」でない");
+  ok(h.includes("<b>100</b> 行を出しています（全 130 件のうち）× 16 列"), "枠の案内が「100 行を出しています（全 130 件のうち）」でない");
   ok(/<div class="ctlbar board-more"><button type="button" class="act" id="board-more" data-all="1">残りの 30 行も出す<\/button>/.test(h),
     "表の下に「残りの 30 行も出す」が無い");
   // 名札の本数順（既定）で切るので、名札 0 本の行（案件0, 5, 10, …）は 100 行の外。上位は 4 本の行
@@ -4551,11 +4551,11 @@ check("段2 M-8: 案件そのものは既定で上位 100 行＋「残りも出�
   run("boardShowAll = true;");
   const h4 = run("renderBoard(__M8)");
   ok(nRows(h4) === 130, "残りも出すで全件にならない: " + nRows(h4));
-  ok(h4.includes("全 <b>130</b> 行 × 15 列") && /id="board-more" data-all="0">上位 100 行だけにする</.test(h4), "全件のときの案内・戻すボタンが違う");
+  ok(h4.includes("全 <b>130</b> 行 × 16 列") && /id="board-more" data-all="0">上位 100 行だけにする</.test(h4), "全件のときの案内・戻すボタンが違う");
   // 絞り込みは切る前の件数で言い、100 行に満たなければ「残りも出す」を出さない
   run('boardShowAll = false; boardFilter.q = "案件12";');
   const h5 = run("renderBoard(__M8)");
-  ok(h5.includes("<b>130 件中 11 件</b>を表示") && h5.includes("全 <b>11</b> 行 × 15 列") && !h5.includes('id="board-more"'),
+  ok(h5.includes("<b>130 件中 11 件</b>を表示") && h5.includes("全 <b>11</b> 行 × 16 列") && !h5.includes('id="board-more"'),
     "絞り込み後の件数・案内が違う");
   // 別の応答（別の配列）なら組み直す（古い表を出さない）
   ctx.__M8b = { rows: rows.slice(0, 3), meta: ctx.__M8.meta };
@@ -5930,4 +5930,35 @@ check("2026-10-26 今日: 全社の表は上位24件の後ろに満足度4以下
   const D0 = JSON.parse(JSON.stringify(D)); D0.extra_low_satisfaction = [];
   ctx.__TDY = D0;
   ok(!textOf(run("renderToday(__TDY)")).includes("＋ 満足度4以下"), "0 件なのに見出しに足している");
+});
+
+check("2026-10-26 段階: 案件一覧は段階で絞れて並べ替えられ、満了後は段階なしで別の画面に出る。重点顧客の表に段階の件数を重ねる", () => {
+  const mk = (id, key, no, label, over) => ({ deal_id: id, name: "案件" + id, consultant: "担当A", stage: "ステージX",
+    phase: no, phase_key: key, phase_label: label, overdue_active: !!over, expiry: "2026-09-01", days_left: over ? -17 : 100,
+    flags: [], n_flags: 0, amount: 1000 });
+  ctx.__PH = { rows: [mk("p1", "1", 1, "1 立ち上げ"), mk("p3", "3", 3, "3 更新の判断"), mk("p3b", "3", 3, "3 更新の判断"),
+    mk("po", "overdue", null, "満了後", true), mk("pu", "unknown", null, "不明")],
+    meta: { phase_counts: [{ key: "1", n: 1 }, { key: "3", n: 2 }, { key: "overdue", n: 1 }, { key: "unknown", n: 1 }] } };
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "" };');
+  run('boardFilter.phase = "3";');
+  ok(run("boardApply(__PH.rows).map((r) => r.deal_id).join()") === "p3,p3b", "段階 3 で絞れない");
+  ok(run("boardFilterWords(__PH)") === "段階 3 更新の判断", "絞った文に段階が出ない: " + run("boardFilterWords(__PH)"));
+  ok(run("JSON.stringify(stateParams('board'))").includes('"phase":"3"'), "段階が URL に載らない");
+  run('boardFilter.phase = "";');
+  const bar = run("boardFilterBar(__PH)");
+  ok(bar.includes("3 更新の判断（2）") && !bar.includes("満了後（段階なし）") && !bar.includes("0 契約前"), "段階の選択肢と件数が違う");
+  /* 案件一覧は満了日超過の稼働中を外し、外した件数を1行で言う。件数の行も外した後の数 */
+  ctx.__PH2 = run("boardOnly(__PH)");
+  ok(run("__PH2.rows.map((r) => r.deal_id).join()") === "p1,p3,p3b,pu" && run("__PH2.overdue_n") === 1, "満了日超過の行が外れていない");
+  const bb = textOf(run("boardBody(__PH2, boardApply(__PH2.rows), false)"));
+  ok(bb.includes("4 件中 4 件") && bb.includes("満了日を過ぎても稼働中の 1 件は「満了日超過の稼働中」に分けています") && !bb.includes("案件po"), "案件一覧に超過が残る/注記が無い: " + bb.slice(0, 200));
+  ok(!textOf(run("boardBody(boardOnly({ rows: [mk0()] , meta: {} }), [], false)".replace("mk0()", "{ deal_id: 'z', name: 'z', flags: [], phase_key: '1' }"))).includes("分けています"), "0 件なのに注記が出る");
+  const sorted = run('boardTable(__PH.rows, { key: "phase", asc: true }, "ph-tbl")');
+  ok(sorted.indexOf("案件p1") < sorted.indexOf("案件p3") && sorted.indexOf("案件p3b") < sorted.indexOf("案件po") &&
+    sorted.indexOf("案件po") < sorted.indexOf("案件pu"), "段階の並びが 1,3,満了後,不明 の順でない");
+  ok(sorted.includes("1 立ち上げ") && sorted.includes('<span class="muted small">満了後</span>'), "段階の列の表示が違う");
+  const od = textOf(run("renderOverdue(__PH)"));
+  ok(od.includes("満了日を過ぎてもステージが稼働中のままの契約です。HubSpot でステージを直してください。") && od.includes("1 件") &&
+    od.includes("案件po") && !od.includes("案件p1") && od.includes("17 日"), "満了日が過ぎた稼働中の一覧が違う: " + od.slice(0, 300));
+  ok(run("MENUS.find((m) => m.key === 'research').views.some((v) => v.key === 'overdue' && !v.hidden)"), "調べるに満了日が過ぎた稼働中が無い");
 });
