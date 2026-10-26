@@ -185,7 +185,7 @@ pub struct TitleDetail {
 }
 
 /// 「語:回数;語:回数」の形をほどく。
-fn parse_keywords(s: &str) -> Vec<(String, i64)> {
+pub(crate) fn parse_keywords(s: &str) -> Vec<(String, i64)> {
     s.split(';')
         .filter_map(|part| {
             let (term, n) = part.rsplit_once(':')?;
