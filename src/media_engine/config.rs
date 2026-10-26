@@ -7,8 +7,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// 既定 API バージョン(Python `DEFAULT_API_VERSION` と一致)。
-pub const DEFAULT_API_VERSION: &str = "v22";
+/// 既定 API バージョン。v22 は 2026-10 に廃止 (UNSUPPORTED_VERSION)。
+/// v23 の停止は 2027-02。v24 以降は予測 (generateKeywordForecastMetrics) の
+/// 要求・応答の形が変わり、表示回数とクリック率が返らなくなるため、上げるときは予測も直す。
+pub const DEFAULT_API_VERSION: &str = "v23";
 
 /// 既定 `.env` の場所。
 ///
@@ -176,7 +178,7 @@ mod tests {
     fn from_maps_defaults_api_version() {
         let dotenv = HashMap::from([("GOOGLE_ADS_CLIENT_ID".to_string(), "cid".to_string())]);
         let cfg = GoogleAdsConfig::from_maps(&dotenv);
-        assert_eq!(cfg.api_version, "v22");
+        assert_eq!(cfg.api_version, "v23");
         assert_eq!(cfg.client_id, "cid");
         // 未設定必須キーの検出
         assert!(cfg.missing().contains(&"GOOGLE_ADS_DEVELOPER_TOKEN"));
