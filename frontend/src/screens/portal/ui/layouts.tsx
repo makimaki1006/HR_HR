@@ -19,12 +19,13 @@ export function AuthLayout({ children, hideFooter = false, company }: { children
 }
 
 /** 社内の管理画面。上に明るい細い帯（顧客の画面と同じ面）、その下に見出しと本文。 */
-export type AdminSection = 'customers' | 'accounts' | 'activity';
+export type AdminSection = 'customers' | 'accounts' | 'activity' | 'mail';
 
 const ADMIN_NAV: { key: AdminSection; label: string }[] = [
   { key: 'customers', label: '顧客とシート' },
   { key: 'accounts', label: 'アカウント' },
   { key: 'activity', label: '操作の記録' },
+  { key: 'mail', label: 'メールの送信元' },
 ];
 
 export function AdminLayout({ title, badge, current, onNavigate, actions, back, children }: {

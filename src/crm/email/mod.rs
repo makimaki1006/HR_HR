@@ -1,6 +1,6 @@
 //! One-to-one email: Gmail sends, HubSpot owns history. Pending retries only record.
-mod gmail;
-mod grants;
+pub(crate) mod gmail;
+pub(crate) mod grants;
 mod oauth;
 pub mod replies;
 mod routes;
@@ -72,6 +72,10 @@ impl EmailConfig {
         if std::env::var("CRM_EMAIL_ENABLED").ok().as_deref() != Some("1") {
             return None;
         }
+        Self::from_env_with_redirect(std::env::var("CRM_EMAIL_REDIRECT_URL").ok(), CALLBACK)
+    }
+    /// Same key and Google client as CRM, with another callback (customer portal sender consent).
+    pub fn from_env_with_redirect(redirect_url: Option<String>, callback: &str) -> Option<Self> {
         let google = Self::google_client(
             GoogleOidcConfig::from_env(),
             std::env::var("CRM_EMAIL_GOOGLE_CLIENT_ID").ok(),
@@ -82,9 +86,9 @@ impl EmailConfig {
             .ok()?
             .try_into()
             .ok()?;
-        let redirect_url = std::env::var("CRM_EMAIL_REDIRECT_URL").ok()?;
+        let redirect_url = redirect_url?;
         let url = reqwest::Url::parse(&redirect_url).ok()?;
-        if url.path() != CALLBACK
+        if url.path() != callback
             || url.query().is_some()
             || url.fragment().is_some()
             || (url.scheme() != "https"

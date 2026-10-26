@@ -23,10 +23,11 @@ describe('画面の中の行き先', () => {
     expect(parseRoute('?view=sheet&id=s-1')).toEqual({ view: 'sheet', id: 's-1' });
     expect(parseRoute('?view=accounts')).toEqual({ view: 'accounts' });
     expect(parseRoute('?view=activity')).toEqual({ view: 'activity' });
+    expect(parseRoute('?view=mail')).toEqual({ view: 'mail' });
     expect(parseRoute('?view=unknown')).toEqual({ view: 'customers' });
   });
   it('href と行き来できる', () => {
-    for (const r of [{ view: 'customer', id: 'c 1&x' }, { view: 'sheet-add', customer: 'c-2' }, { view: 'activity' }] as const) {
+    for (const r of [{ view: 'customer', id: 'c 1&x' }, { view: 'sheet-add', customer: 'c-2' }, { view: 'activity' }, { view: 'mail' }] as const) {
       expect(parseRoute(routeHref(r))).toEqual(r);
     }
   });

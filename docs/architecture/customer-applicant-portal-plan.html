@@ -237,7 +237,7 @@ HR_HR（Rust / Axum ＋ React）の中に顧客専用の入口 <code>/portal</co
 <tr><td>保存</td><td>社内用のスプレッドシート（9 章）。読み書きは 1 つのモジュールにまとめ、後で DB に替えるときはそこだけを差し替える。確認コードはプロセス内のメモリ（再起動したら送り直し）</td></tr>
 <tr><td>型</td><td>ts-rs</td></tr>
 <tr><td>テスト</td><td>Rust のテスト、Vitest、Playwright（今の CI）</td></tr>
-<tr><td>メール</td><td>会社の Google Workspace の Gmail から送る（別のサービスは使わない）。送信用のアカウントは要決定（送信専用の会社アカウントの Gmail API か、Workspace 管理者の設定でサービスアカウントから送る）。確認コードと応募の通知で同じ送り方を使う</td></tr>
+<tr><td>メール</td><td>会社の Google Workspace の Gmail から送る（別のサービスは使わない）。送信元は社員本人の Gmail（2026-10-26 ユーザー決定。環境変数 <code>PORTAL_MAIL_SENDER</code>）。許可は顧客画面のために別に取る（社内の管理画面 <code>/app/portal-admin</code> の「メールの送信元」で送信元本人が押す。範囲は gmail.send だけ。BPO・一次対応が使う CRM（<code>/app/crm</code>）のメール送信の許可とは別。ADR-036）。確認コードと応募の通知で同じ送り方を使う</td></tr>
 </table>
 
 <h2>9. 社内用スプレッドシートのタブ（案）</h2>
@@ -347,11 +347,13 @@ HR_HR（Rust / Axum ＋ React）の中に顧客専用の入口 <code>/portal</co
 <tr><td><code>PORTAL_STORE_SPREADSHEET_ID</code></td><td>社内用シートのスプレッドシート ID</td></tr>
 <tr><td><code>PORTAL_STORE_SA_KEY_B64</code></td><td>社内用シートを読み書きするサービスアカウントの鍵（base64）。社内用シートにこのアドレスを編集者として共有する</td></tr>
 <tr><td><code>PORTAL_GOOGLE_SA_KEY_B64</code></td><td>顧客のシートを読み書きするサービスアカウントの鍵（base64）。PR1 では「試しに読む」に使う</td></tr>
+<tr><td><code>PORTAL_MAIL_SENDER</code></td><td>確認コードのメールの送信元にする社員のメールアドレス。その人が社内の管理画面「メールの送信元」で Gmail の許可を押す</td></tr>
+<tr><td><code>PORTAL_MAIL_REDIRECT_URL</code></td><td>許可の手続きの戻り先（例 <code>https://hr-hw.onrender.com/api/admin/portal/mail/callback</code>）。使う Google の OAuth クライアントの承認済みリダイレクト URI に登録する。鍵 <code>CRM_EMAIL_TOKEN_KEY</code> と Google の設定は CRM のメール送信と共用（<code>CRM_EMAIL_ENABLED</code> は要らない）</td></tr>
 </table>
 </div>
 <ul>
 <li>社内用シートの 2 つがそろったときだけ、社内用シートを保存先にする。そろっていなければ保存先は無効で、管理画面も顧客の画面も今どおり使えない。</li>
-<li>メールの送信用アカウントがまだ無いので、本番の顧客の API（<code>/api/portal/*</code>）は保存先がそろっても 503 のまま。</li>
+<li>本番の顧客の API（<code>/api/portal/*</code>）は、保存先と確認コードのメールの送り方（<code>PORTAL_MAIL_SENDER</code>・<code>PORTAL_MAIL_REDIRECT_URL</code>・鍵・Google の設定・監査 DB）がそろったときだけ開く。そろっていなければ 503。そろったあと送信元の Gmail の許可が無い・切れたときは、確認コードを送る操作（新しい端末のログイン・送り直し）だけを断り、ログイン中の画面と覚えた端末のログインは使える。</li>
 <li>社内の管理画面は <code>/app/portal-admin</code>（<code>/app/admin</code> の上のメニュー「応募者画面」から）。管理者だけが使える。顧客の追加・段階・停止、シートの登録（URL を貼る → タブを選ぶ → 見出しの行と記入例の行数を決めて試しに読む → 登録）、項目の設定、アカウントの招待・招待のリンクの出し直し・停止・再開、操作の記録。</li>
 <li>シートを登録するときは必ず試しに読み、開けてタブがあることを確かめる。開けなければ、シートに追加するアドレスを出す。同じシートの同じタブは、どの顧客にも二重に登録させない。登録した直後の項目は全部「見せない」で、設定するまで顧客には何も出ない。</li>
 <li>「両方」「画面だけ」に進めるのは、見せる項目のあるシートがあるときだけ。顧客を止める、または段階を「シートだけ」に戻すと、その顧客のアカウントは全員すぐログインできなくなる。</li>
@@ -379,6 +381,9 @@ HR_HR（Rust / Axum ＋ React）の中に顧客専用の入口 <code>/portal</co
 <p><strong>実装状況（2026-10-26）</strong>: PR1 を作成した。社内用シートを保存先にする <code>PortalStore</code> の実装（<code>src/portal/sheet_store.rs</code>。つくりと整合の取り方は 9.2〜9.4）、Google Sheets の呼び出し（<code>src/portal/sheets.rs</code>）、社内の管理 API の追加（<code>src/portal/admin.rs</code>: 顧客・シート・項目・試しに読む・操作の記録・保存先の状態）、社内の管理画面 <code>/app/portal-admin</code>（<code>frontend/src/screens/portal/live-admin/</code>）。実物の社内用シート・サービスアカウント・送信用アカウントはまだ無いので、偽の Sheets のテストと、手元の確認（debug ビルドの <code>PORTAL_DEV_MEMORY=1</code>。顧客のシートの代わりに架空の表を返す）で確かめた。本番は環境変数が入るまで今どおり 503。</p>
 
 <p><strong>実装状況（2026-10-26、PR4）</strong>: 顧客がログインした後の見る画面を作成した（読み取りだけ。書く画面は PR5）。API は <code>src/portal/view.rs</code>、シートの読み取りの共有は <code>src/portal/live.rs</code>、画面は <code>frontend/src/screens/portal/live/applicants/</code>。新しい環境変数・DB・外部サービスは足していない。本番は今どおり、保存先と送信用アカウントがそろうまで <code>/api/portal/*</code> は 503。手元の確認（debug ビルドの <code>PORTAL_DEV_MEMORY=1</code>）では、架空の顧客に架空のシートを 2 枚（今年・去年）登録し、架空の応募者で動く。</p>
+
+<p><strong>実装状況（2026-10-26、確認コードのメール）</strong>: 確認コードのメールを実際に送れるようにした（<code>src/portal/mail.rs</code> の <code>GmailMailer</code>、許可の取り方は <code>src/portal/mail_grant.rs</code>、画面は <code>/app/portal-admin?view=mail</code>）。送信元は社員本人の Gmail。許可は顧客画面のために別に取り（監査 Turso の新しい表 <code>portal_mail_grants</code>、範囲は gmail.send だけ、ADR-036）、CRM（<code>/app/crm</code>）のメール送信の許可は使わない。CRM で許可・取り消しをしても顧客画面の送信は変わらず、その逆も同じ。暗号化の鍵（<code>CRM_EMAIL_TOKEN_KEY</code>）と Google の OAuth クライアントは共用し、AAD に用途の文字を足して CRM の行と取り違えて復号できないようにした。許可を押せるのは管理者のうち送信元本人だけで、Google で選んだアカウントが送信元と違えば保存しない。取り消しは管理者なら誰でも押せる。宛先 1 つにつき 1 通ずつ送り（宛先どうしは見えない）、From は送信元、件名にコード（長い件名は 75 文字ごとに分ける）、本文は文字だけ。access token は期限内ならプロセス内で使い回すが、送るたびに監査 DB で許可がいまもあること・送信元のアカウントが HR_HR で無効になっていないことを読み直す（取り消しはすぐ効く）。送れない間（許可が無い・取り消された・Gmail が許可切れを返した・Gmail に 403 / 429 で断られてから 10 分）は、確認コードを送る操作（新しい端末のログイン・送り直し）だけを断る。ログイン中の画面・見る画面・覚えた端末のログインはそのまま使える。送る回数はアカウントごとに 1 時間 5 回まで、全体で 1 時間 200 通まで（プロセス内で数える。単一インスタンス前提）。超えたら送らずに「確認コードを送る回数が多すぎます。1 時間ほどおいてからお試しください」と断る。一部の宛先だけ届いたときは、届いた宛先だけを画面に出す。ログには理由だけを出し、アドレス・トークン・コードは出さない。応募の通知（14 章）にも使えるよう、件名・本文・宛先を渡す汎用の送信を持たせた（通知そのものはまだ作っていない）。本物の Gmail には送っていない（偽の Google のテストだけ）。</p>
+<p><strong>送信元の受信箱の扱い</strong>: 送ったメールは送信元の人の Gmail の送信済みフォルダに残る（確認コードと顧客のアドレスが見える）。顧客がこのメールに返信すると、送信元の人の受信箱に届く。このため送信元に指定するのは、受信箱を社内で守れる人（共有のアカウントにしない・他の人に受信箱を見せない・2 段階認証をしている社員）に限る。顧客からの返信の受け取り方（誰が読み、どう担当者に回すか）は送信元の人と決めておく。</p>
 
 <h3>10.1 見る画面（PR4）</h3>
 <div class="scroll">
@@ -429,7 +434,8 @@ HR_HR（Rust / Axum ＋ React）の中に顧客専用の入口 <code>/portal</co
 <tr><td>試すシートの作り（タブ、見出しの行、プルダウン、数式の列、顧客が書いてよい列）を確かめる</td><td>ユーザーと一緒に</td></tr>
 <tr><td>Google Cloud のプロジェクトとサービスアカウントを作り、鍵を Render に入れる</td><td>ユーザー（鍵は人が扱う）</td></tr>
 <tr><td>試すシートにサービスアカウントを編集者として共有する</td><td>社内の担当者</td></tr>
-<tr><td>確認コード・通知のメールを送る送信用のアカウントを Workspace の管理者と決める</td><td>ユーザー</td></tr>
+<tr><td>確認コード・通知のメールを送る送信用のアカウント → 決定（2026-10-26）: 社員本人の Gmail（環境変数 <code>PORTAL_MAIL_SENDER</code>）。その人が社内の管理画面「メールの送信元」で Gmail の許可を押す（CRM の許可とは別）。受信箱を社内で守れる人にする（10 章）</td><td>ユーザー</td></tr>
+<tr><td>許可の戻り先 <code>PORTAL_MAIL_REDIRECT_URL</code> を、使う Google の OAuth クライアントの承認済みリダイレクト URI に登録する</td><td>ユーザー（Google Cloud）</td></tr>
 <tr><td>会社のドメインの送信認証（SPF・DKIM・DMARC）の設定を確かめる</td><td>ユーザー（Workspace の管理者）</td></tr>
 <tr><td>利用規約の文面と、応募者の個人情報の扱いを法務と確認する</td><td>ユーザー</td></tr>
 <tr><td>ログインしていないアカウントを自動で止める期間</td><td>ユーザー</td></tr>

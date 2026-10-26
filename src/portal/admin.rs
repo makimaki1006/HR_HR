@@ -214,7 +214,7 @@ pub struct PortalAdminLogs {
 
 /// 管理者か。保存先の有無は見ない
 #[allow(clippy::result_large_err)]
-async fn admin_email(
+pub(super) async fn admin_email(
     session: &Session,
     state: &Arc<AppState>,
     ctx: &Ctx,

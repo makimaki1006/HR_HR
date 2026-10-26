@@ -374,9 +374,14 @@ fn 保存先にはハッシュだけを置く() {
 struct FakeMailer {
     sent: Mutex<Vec<(Vec<String>, String)>>,
     fail: bool,
+    /// 送れない状態 (ready() が false)
+    not_ready: bool,
 }
 
 impl Mailer for FakeMailer {
+    fn send<'a>(&'a self, _: &'a [String], _: &'a str, _: &'a str) -> MailFuture<'a> {
+        Box::pin(async { Err(MailError) })
+    }
     fn send_code<'a>(&'a self, to: &'a [String], code: &'a str) -> MailFuture<'a> {
         Box::pin(async move {
             if self.fail {
@@ -386,8 +391,11 @@ impl Mailer for FakeMailer {
                 .lock()
                 .unwrap()
                 .push((to.to_vec(), code.to_string()));
-            Ok(())
+            Ok(to.to_vec())
         })
+    }
+    fn ready(&self) -> bool {
+        !self.not_ready
     }
 }
 
@@ -1073,3 +1081,6 @@ mod admin_tests;
 
 #[path = "view_tests.rs"]
 mod view_tests;
+
+#[path = "mail_tests.rs"]
+mod mail_tests;

@@ -966,7 +966,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .merge(handlers::portal_test::router())
         // 顧客向け応募者画面のログイン (/portal/*, /api/portal/*, /api/admin/portal/*)。顧客の Cookie だけを見る。
         // auth_middleware の外に置き、社内の管理 API の認可は各ハンドラ (CRM と同じ + 管理者だけ) で行う。
-        .merge(portal::router())
+        .merge(portal::router(state.audit.clone()))
         .merge(protected_routes)
         .merge(admin_routes)
         .merge(jobgen_routes)

@@ -133,7 +133,7 @@ export function Page({ current, title, badge, actions, back, status, children }:
   children: ReactNode;
 }) {
   const go = useNav();
-  const section = (s: AdminSection): Route => (s === 'accounts' ? { view: 'accounts' } : s === 'activity' ? { view: 'activity' } : { view: 'customers' });
+  const section = (s: AdminSection): Route => (s === 'customers' ? { view: 'customers' } : { view: s });
   return (
     <AdminLayout
       title={title}

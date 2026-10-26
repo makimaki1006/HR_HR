@@ -138,6 +138,7 @@ mod tests {
         crate::portal::PortalAdminInvite::export_all(&cfg).unwrap();
         crate::portal::PortalAdminAccount::export_all(&cfg).unwrap();
         crate::portal::admin::PortalAdminStatus::export_all(&cfg).unwrap();
+        crate::portal::mail_grant::PortalAdminMail::export_all(&cfg).unwrap();
         crate::portal::admin::PortalAdminCustomers::export_all(&cfg).unwrap();
         crate::portal::admin::PortalAdminCustomerDetail::export_all(&cfg).unwrap();
         crate::portal::admin::PortalAdminProbe::export_all(&cfg).unwrap();

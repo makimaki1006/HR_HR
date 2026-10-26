@@ -9,7 +9,8 @@ export type Route =
   | { view: 'sheet-add'; customer: string }
   | { view: 'sheet'; id: string }
   | { view: 'accounts' }
-  | { view: 'activity' };
+  | { view: 'activity' }
+  | { view: 'mail' };
 
 export function parseRoute(search: string): Route {
   const q = new URLSearchParams(search);
@@ -27,6 +28,8 @@ export function parseRoute(search: string): Route {
       return { view: 'accounts' };
     case 'activity':
       return { view: 'activity' };
+    case 'mail':
+      return { view: 'mail' };
     default:
       return { view: 'customers' };
   }

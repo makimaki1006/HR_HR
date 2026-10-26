@@ -18,9 +18,9 @@ use tower_sessions::{
     Session,
 };
 
-pub(super) struct GrantTx {
-    login: LoginTx,
-    operator: String,
+pub(crate) struct GrantTx {
+    pub(crate) login: LoginTx,
+    pub(crate) operator: String,
     created: Instant,
 }
 const COOKIE: &str = "hrhr_gmail_tx";
@@ -39,9 +39,17 @@ fn cookie(value: String, age: i64) -> HeaderValue {
 }
 impl EmailService {
     pub fn authorization(&self, operator: String) -> Result<(String, String), EmailError> {
+        self.authorization_for(operator, &SCOPES)
+    }
+    /// Consent URL for the given Gmail scopes (the customer portal asks for gmail.send only).
+    pub(crate) fn authorization_for(
+        &self,
+        operator: String,
+        scopes: &[&str],
+    ) -> Result<(String, String), EmailError> {
         let login = LoginTx::generate();
         let state = login.state.clone();
-        let scope = format!("openid email {}", SCOPES.join(" "));
+        let scope = format!("openid email {}", scopes.join(" "));
         let challenge = login.code_challenge();
         let url = reqwest::Url::parse_with_params(
             &self.cfg.authorization_url,
@@ -81,13 +89,22 @@ impl EmailService {
         Ok((url.to_string(), state))
     }
     fn consume(&self, state: &str, headers: &HeaderMap) -> Option<GrantTx> {
+        self.consume_with(state, headers, COOKIE)
+    }
+    /// One-time consent transaction: the state must match the named Lax cookie.
+    pub(crate) fn consume_with(
+        &self,
+        state: &str,
+        headers: &HeaderMap,
+        cookie_name: &str,
+    ) -> Option<GrantTx> {
         let value = headers
             .get_all(header::COOKIE)
             .iter()
             .filter_map(|v| v.to_str().ok())
             .flat_map(|v| v.split(';'))
             .filter_map(|v| v.trim().split_once('='))
-            .find(|(name, _)| *name == COOKIE)?
+            .find(|(name, _)| *name == cookie_name)?
             .1;
         if state.is_empty() || state != value {
             return None;
@@ -97,6 +114,14 @@ impl EmailService {
             .ok()?
             .remove(state)
             .filter(|t| t.created.elapsed().as_secs() < 300)
+    }
+}
+impl EmailService {
+    /// Drop outstanding consent requests of this operator (after revocation).
+    pub(crate) fn forget_transactions(&self, operator: &str) {
+        if let Ok(mut txs) = self.transactions.lock() {
+            txs.retain(|_, tx| tx.operator != operator);
+        }
     }
 }
 pub(in crate::crm) async fn authorize(

@@ -424,6 +424,16 @@ impl PortalAuth {
         }
     }
 
+    /// やり取りのアカウントのメールアドレス (送信の回数を数える鍵)。やり取りが無ければ None
+    pub fn challenge_email(&self, challenge: &str) -> Option<String> {
+        let ch = hash_token(challenge);
+        let account_id = {
+            let g = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+            g.get(&ch)?.account_id.clone()
+        };
+        self.store.account(&account_id).map(|a| a.email)
+    }
+
     pub fn resend(&self, challenge: &str, now: DateTime<Utc>) -> ResendResult {
         let ch = hash_token(challenge);
         let mut g = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
