@@ -234,6 +234,8 @@ pub struct TalkApoCounts {
     /// 純粋なアポ: どれにも当たらない
     pub fresh: u32,
     pub total: u32,
+    /// 上の区分のうち、履歴が足りず判定が不確かな件数 (区分は変えない)
+    pub history_short: u32,
 }
 
 /// アポ 1 件 (取引 1 件) の明細
@@ -248,6 +250,8 @@ pub struct TalkApoDeal {
     pub via: String,
     /// 今回アポ日確定に入った時刻 (RFC 3339)
     pub entered_at: String,
+    /// ステージの履歴が上限 (20 件) いっぱいで、今回より前の履歴が見えず判定が不確か
+    pub history_short: bool,
     /// HubSpot で取引を開く URL
     pub hubspot_url: String,
 }

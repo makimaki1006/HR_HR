@@ -2,7 +2,7 @@
 //!
 //! 1 件の取引は、上から最初に当てはまる区分 1 つに入れる:
 //! 1. 過去客 (会社で判定): 取引の会社に、この取引とは別に受注した取引がある。受注 = 納品管理・計上パイプラインにある取引
-//!    (作られたのが今回より前)、または受注管理_アポ前の「契約先企業」「過去契約先」に今回より前に入ったことがある取引
+//!    (そのパイプラインのどれかのステージに入った最初の時刻 `hs_v2_date_entered_<ステージ>`、無ければ作成時刻が今回より前)、または受注管理_アポ前の「契約先企業」「過去契約先」に今回より前に入ったことがある取引
 //! 2. 再商談: この取引が、今回より前に商談後のステージに入ったことがある
 //! 3. 再アポ: この取引が、今回より前にアポ日確定 (`ST_APO` / `ST_APO_BPO`) に入ったことがある
 //! 4. 純粋なアポ: どれにも当たらない
@@ -14,11 +14,12 @@
 //! 結果はプロセス内に持つ (今日を含む期間は 5 分、過去だけの期間は 6 時間)。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::Value;
+use tokio::sync::watch;
 
 use super::counts::{entered_ms, ApoDeal};
 use super::scope::{parse_stage_history, StageEntry};
@@ -100,18 +101,84 @@ pub struct OtherDeal {
     pub pipeline: Option<String>,
     /// 作られた時刻 (ms)。分からなければ None
     pub created_ms: Option<i64>,
+    /// 受注パイプライン (納品管理・計上) のどれかのステージに入った時刻 (ms) のうち最も早いもの。
+    /// 商談パイプラインで作られ、後で納品管理・計上へ移った取引の「受注した時刻」になる
+    pub won_pipeline_ms: Option<i64>,
     /// 契約先企業・過去契約先に入った時刻 (ms) のうち早いほう
     pub won_stage_ms: Option<i64>,
 }
 
-/// 受注した取引か (今回より前に)。作られた時刻が分からない受注パイプラインの取引は受注とみなす
+/// 受注した取引か (今回より前に)。受注パイプラインにある取引は、受注パイプラインに入った時刻 (無ければ作成時刻) が
+/// 今回より前のときだけ受注。どちらも分からないものは受注とみなす
 pub fn won_before(d: &OtherDeal, at_ms: i64) -> bool {
     let in_won_pipeline = d
         .pipeline
         .as_deref()
         .is_some_and(|p| WON_PIPELINES.contains(&p))
-        && d.created_ms.is_none_or(|c| c < at_ms);
+        && d.won_pipeline_ms.or(d.created_ms).is_none_or(|c| c < at_ms);
     in_won_pipeline || d.won_stage_ms.is_some_and(|w| w < at_ms)
+}
+
+/// pipelines API の応答から、受注パイプラインのステージ ID
+pub fn won_pipeline_stage_ids(pipelines: &Value) -> Vec<String> {
+    let mut out: BTreeSet<String> = BTreeSet::new();
+    for p in pipelines
+        .get("results")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let Some(pid) = p.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if !WON_PIPELINES.contains(&pid) {
+            continue;
+        }
+        for st in p
+            .get("stages")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            if let Some(id) = st.get("id").and_then(Value::as_str) {
+                out.insert(id.to_string());
+            }
+        }
+    }
+    out.into_iter().collect()
+}
+
+/// HubSpot が返すステージの履歴の上限 (新しい順に 20 件まで)
+pub const HISTORY_LIMIT: usize = 20;
+
+/// 履歴が上限いっぱいで、見えている一番古い記録が今回の時刻以降なら、今回より前の履歴が見えていない
+pub fn history_short(record: &Value, entered_ms: i64) -> bool {
+    let Some(a) = record
+        .pointer("/propertiesWithHistory/dealstage")
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    if a.len() < HISTORY_LIMIT {
+        return false;
+    }
+    let oldest = parse_stage_history(record).iter().map(|e| e.at_ms).min();
+    oldest.is_some_and(|o| o >= entered_ms - SAME_ENTRY_MS)
+}
+
+/// 同じ取引が別のアポ日確定 (BPO と新規営業) にも入っているとき、今回の時刻は早い方にそろえる
+/// (もう片方を前のアポとして数えない)。返すのは `deals` と同じ順の「今回の時刻」
+pub fn effective_times(deals: &[ApoDeal]) -> Vec<i64> {
+    deals
+        .iter()
+        .map(|d| {
+            deals
+                .iter()
+                .filter(|o| o.deal_id == d.deal_id && o.stage != d.stage)
+                .map(|o| o.entered_ms)
+                .fold(d.entered_ms, i64::min)
+        })
+        .collect()
 }
 
 /// 1 件の取引の区分 (純粋な関数)。
@@ -229,12 +296,14 @@ pub async fn breakdown(
         .batch_read_with_history("deals", &ids, &props, &["dealstage"])
         .await?;
     let mut history: HashMap<String, Vec<StageEntry>> = HashMap::new();
+    let mut raw: HashMap<String, Value> = HashMap::new();
     let mut names: HashMap<String, String> = HashMap::new();
     for r in &records {
         let Some(id) = r.get("id").and_then(Value::as_str) else {
             continue;
         };
         history.insert(id.to_string(), stage_entries(r));
+        raw.insert(id.to_string(), r.clone());
         if let Some(n) = r
             .pointer("/properties/dealname")
             .and_then(Value::as_str)
@@ -280,12 +349,22 @@ pub async fn breakdown(
             .iter()
             .map(|s| format!("hs_v2_date_entered_{s}"))
             .collect();
+        // 受注パイプラインの各ステージに入った時刻 (パイプライン定義は 1 回読む)
+        let won_pipe_props: Vec<String> = won_pipeline_stage_ids(&bg.deal_pipelines().await?)
+            .iter()
+            .map(|s| format!("hs_v2_date_entered_{s}"))
+            .collect();
         let mut props: Vec<&str> = vec!["pipeline", "createdate"];
         props.extend(won_props.iter().map(String::as_str));
+        props.extend(won_pipe_props.iter().map(String::as_str));
         let mut others: HashMap<String, OtherDeal> = HashMap::new();
         if !other_ids.is_empty() {
             for d in bg.batch_read("deals", &other_ids, &props).await? {
                 let won_stage_ms = won_props
+                    .iter()
+                    .filter_map(|k| prop_ms(&d.properties, k))
+                    .min();
+                let won_pipeline_ms = won_pipe_props
                     .iter()
                     .filter_map(|k| prop_ms(&d.properties, k))
                     .min();
@@ -300,6 +379,7 @@ pub async fn breakdown(
                         id: d.id.clone(),
                         pipeline: d.properties.get("pipeline").cloned().flatten(),
                         created_ms,
+                        won_pipeline_ms,
                         won_stage_ms,
                     },
                 );
@@ -315,9 +395,11 @@ pub async fn breakdown(
         }
     }
     let empty: Vec<OtherDeal> = Vec::new();
+    let times = effective_times(deals);
     let mut out: Vec<TalkApoDeal> = deals
         .iter()
-        .map(|d| {
+        .zip(times)
+        .map(|(d, at_ms)| {
             let companies = deal_companies
                 .get(&d.deal_id)
                 .map(Vec::as_slice)
@@ -330,7 +412,10 @@ pub async fn breakdown(
                 .get(&d.deal_id)
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            let kind = classify(&d.deal_id, d.entered_ms, h, &all_other);
+            let kind = classify(&d.deal_id, at_ms, h, &all_other);
+            // 区分は変えず、履歴が足りず前のアポ・商談を見落としたかもしれないものに印を付ける
+            let short = matches!(kind, ApoKind::Fresh | ApoKind::ReApo)
+                && raw.get(&d.deal_id).is_some_and(|r| history_short(r, at_ms));
             TalkApoDeal {
                 deal_id: d.deal_id.clone(),
                 deal_name: names.get(&d.deal_id).cloned(),
@@ -344,6 +429,7 @@ pub async fn breakdown(
                 }
                 .to_string(),
                 entered_at: ms_text(d.entered_ms),
+                history_short: short,
                 hubspot_url: record_url(portal_id, RecordType::Deal, &d.deal_id),
             }
         })
@@ -367,7 +453,9 @@ pub fn counts_of(deals: &[TalkApoDeal]) -> TalkApoCounts {
             _ => ApoKind::Fresh,
         })
         .collect();
-    tally(&kinds)
+    let mut c = tally(&kinds);
+    c.history_short = deals.iter().filter(|d| d.history_short).count() as u32;
+    c
 }
 
 // ---------------------------------------------------------------------------
@@ -384,9 +472,37 @@ type Key = Vec<(String, i64)>;
 /// 入れた時刻・持ち時間・明細
 type Entry = (Instant, Duration, Vec<TalkApoDeal>);
 
+type Outcome = Result<Vec<TalkApoDeal>, Arc<HubSpotError>>;
+
 #[derive(Default)]
 pub struct BreakdownCache {
     inner: Mutex<HashMap<Key, Entry>>,
+    /// 読み込み中の組 (同じ組は 1 本だけ読み、他は結果を待つ)
+    inflight: Mutex<HashMap<Key, watch::Receiver<Option<Outcome>>>>,
+}
+
+/// 待ちの結果
+pub enum LoadError {
+    /// 待ちの上限に達した (裏の読み込みは続き、終われば結果はキャッシュに入る)
+    Timeout,
+    /// HubSpot の読み取りが失敗した
+    Hub(Arc<HubSpotError>),
+    /// 読み込みが途中で止まった
+    Aborted,
+}
+
+/// 読み込み中の印を、読み込みの終わり (パニックも含む) で必ず外す
+struct InflightGuard {
+    cache: Arc<BreakdownCache>,
+    key: Key,
+}
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        if let Ok(mut g) = self.cache.inflight.lock() {
+            g.remove(&self.key);
+        }
+    }
 }
 
 pub fn cache_key(deals: &[ApoDeal]) -> Key {
@@ -399,6 +515,61 @@ pub fn cache_key(deals: &[ApoDeal]) -> Key {
 }
 
 impl BreakdownCache {
+    /// キャッシュにあればそれを返す。無ければ同じ組の読み込みが走っていればそれに相乗りし、無ければ読み込みを 1 本始める。
+    /// 待ちは `deadline` まで。超えても読み込みは裏で続け、結果はキャッシュに入れる。
+    pub async fn get_or_load<F>(
+        self: &Arc<Self>,
+        key: Key,
+        ttl: Duration,
+        deadline: Duration,
+        load: F,
+    ) -> Result<Vec<TalkApoDeal>, LoadError>
+    where
+        F: std::future::Future<Output = Result<Vec<TalkApoDeal>, HubSpotError>> + Send + 'static,
+    {
+        let mut rx = {
+            let mut g = self.inflight.lock().unwrap();
+            if let Some(rx) = g.get(&key) {
+                rx.clone()
+            } else if let Some(v) = self.get(&key) {
+                return Ok(v);
+            } else {
+                let (tx, rx) = watch::channel(None);
+                g.insert(key.clone(), rx.clone());
+                let guard = InflightGuard {
+                    cache: self.clone(),
+                    key: key.clone(),
+                };
+                tokio::spawn(async move {
+                    let out: Outcome = match load.await {
+                        Ok(v) => {
+                            guard.cache.put(guard.key.clone(), ttl, v.clone());
+                            Ok(v)
+                        }
+                        Err(e) => Err(Arc::new(e)),
+                    };
+                    drop(guard);
+                    let _ = tx.send(Some(out));
+                });
+                rx
+            }
+        };
+        let wait = async {
+            loop {
+                if let Some(o) = rx.borrow().clone() {
+                    return o.map_err(LoadError::Hub);
+                }
+                if rx.changed().await.is_err() {
+                    return Err(LoadError::Aborted);
+                }
+            }
+        };
+        match tokio::time::timeout(deadline, wait).await {
+            Err(_) => Err(LoadError::Timeout),
+            Ok(r) => r,
+        }
+    }
+
     pub fn get(&self, key: &Key) -> Option<Vec<TalkApoDeal>> {
         let g = self.inner.lock().unwrap();
         g.get(key)
@@ -444,7 +615,7 @@ mod tests {
             id: id.into(),
             pipeline: Some(pipeline.into()),
             created_ms: Some(ms(created)),
-            won_stage_ms: None,
+            ..Default::default()
         }
     }
 
@@ -515,6 +686,7 @@ mod tests {
             pipeline: Some("default".into()),
             created_ms: Some(ms("2025-01-01T00:00:00Z")),
             won_stage_ms: Some(ms("2026-10-22T00:00:00Z")),
+            ..Default::default()
         };
         assert_eq!(classify("D1", now(), &h, &[o]), ApoKind::Fresh);
     }
@@ -542,6 +714,7 @@ mod tests {
             pipeline: Some("default".into()),
             created_ms: Some(ms("2024-01-01T00:00:00Z")),
             won_stage_ms: Some(ms("2025-03-01T00:00:00Z")),
+            ..Default::default()
         };
         assert_eq!(classify("D1", now(), &[], &[o]), ApoKind::PastCustomer);
     }
@@ -602,5 +775,195 @@ mod tests {
             cache_key(&[a("2", 5), a("1", 3)]),
             cache_key(&[a("1", 3), a("2", 5)])
         );
+    }
+
+    fn apo(id: &str, stage: &str, at: &str) -> ApoDeal {
+        ApoDeal {
+            deal_id: id.into(),
+            stage: stage.into(),
+            entered_ms: ms(at),
+            who: vec![],
+        }
+    }
+
+    #[test]
+    fn won_time_is_the_earliest_entry_into_a_won_pipeline_stage() {
+        // 商談パイプラインで 2025 年に作られ、今回より後に納品管理へ移った取引は、今回の時点では受注していない
+        let moved_later = OtherDeal {
+            id: "D9".into(),
+            pipeline: Some("21596025".into()),
+            created_ms: Some(ms("2025-01-01T00:00:00Z")),
+            won_pipeline_ms: Some(ms("2026-10-25T00:00:00Z")),
+            won_stage_ms: None,
+        };
+        assert!(!won_before(&moved_later, now()));
+        assert_eq!(classify("D1", now(), &[], &[moved_later]), ApoKind::Fresh);
+        // 今回より前に移った取引は受注済み (作成が今回より後でも、入った時刻で決める)
+        let moved_before = OtherDeal {
+            id: "D8".into(),
+            pipeline: Some("21596025".into()),
+            created_ms: Some(ms("2025-01-01T00:00:00Z")),
+            won_pipeline_ms: Some(ms("2026-09-01T00:00:00Z")),
+            won_stage_ms: None,
+        };
+        assert_eq!(
+            classify("D1", now(), &[], &[moved_before]),
+            ApoKind::PastCustomer
+        );
+        // 入った時刻が無ければ作成時刻 (従来どおり)
+        let created_only = won("D7", "22417753", "2026-10-21T00:00:00Z");
+        assert!(!won_before(&created_only, now()));
+    }
+
+    #[test]
+    fn won_pipeline_stage_ids_pick_only_won_pipelines() {
+        let p = serde_json::json!({"results": [
+            {"id": "21596025", "stages": [{"id": "a1"}, {"id": "a2"}]},
+            {"id": "21724969", "stages": [{"id": "b1"}]},
+            {"id": "22417753", "stages": [{"id": "c1"}]}
+        ]});
+        assert_eq!(won_pipeline_stage_ids(&p), vec!["a1", "a2", "c1"]);
+    }
+
+    fn full_history(oldest: &str) -> Value {
+        // 20 件 (新しい順)。一番古いのが oldest
+        let base = ms(oldest);
+        let h: Vec<Value> = (0..20)
+            .rev()
+            .map(|i| {
+                let t = DateTime::<Utc>::from_timestamp_millis(base + i * 86_400_000).unwrap();
+                serde_json::json!({"value": "1095387442", "timestamp": t.to_rfc3339_opts(SecondsFormat::Secs, true)})
+            })
+            .collect();
+        serde_json::json!({"id": "1", "propertiesWithHistory": {"dealstage": h}})
+    }
+
+    #[test]
+    fn history_short_when_full_and_oldest_is_not_before_this_time() {
+        // 20 件で、一番古い記録が今回 (10/20) より後 → 前の履歴が見えていない
+        assert!(history_short(&full_history("2026-10-21T00:00:00Z"), now()));
+        // 今回の記録そのものが一番古い (数秒のずれ) ときも同じ
+        assert!(history_short(&full_history("2026-10-20T03:00:02Z"), now()));
+        // 一番古い記録が今回より前なら足りている
+        assert!(!history_short(&full_history("2026-09-01T00:00:00Z"), now()));
+        // 19 件なら上限に達していないので足りている
+        let mut r = full_history("2026-10-21T00:00:00Z");
+        r["propertiesWithHistory"]["dealstage"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        assert!(!history_short(&r, now()));
+    }
+
+    #[test]
+    fn counts_show_how_many_have_short_history() {
+        let d = |id: &str, short: bool| TalkApoDeal {
+            deal_id: id.into(),
+            deal_name: None,
+            company_name: None,
+            kind: "fresh".into(),
+            via: "bpo".into(),
+            entered_at: String::new(),
+            history_short: short,
+            hubspot_url: String::new(),
+        };
+        let c = counts_of(&[d("1", true), d("2", false), d("3", true)]);
+        assert_eq!((c.fresh, c.total, c.history_short), (3, 3, 2));
+    }
+
+    #[test]
+    fn same_deal_in_both_appointment_stages_uses_the_earlier_time() {
+        let rows = [
+            apo("D1", ST_APO_BPO, "2026-10-20T03:00:00Z"),
+            apo("D1", ST_APO, "2026-10-20T05:00:00Z"),
+            apo("D2", ST_APO, "2026-10-21T00:00:00Z"),
+        ];
+        let t = effective_times(&rows);
+        assert_eq!(
+            t,
+            vec![
+                ms("2026-10-20T03:00:00Z"),
+                ms("2026-10-20T03:00:00Z"),
+                ms("2026-10-21T00:00:00Z")
+            ]
+        );
+        // 両方の記録が履歴にあっても、どちらの行も純粋なアポ
+        let h = vec![
+            entry("2026-10-20T03:00:00Z", ST_APO_BPO),
+            entry("2026-10-20T05:00:00Z", ST_APO),
+        ];
+        assert_eq!(classify("D1", t[0], &h, &[]), ApoKind::Fresh);
+        assert_eq!(classify("D1", t[1], &h, &[]), ApoKind::Fresh);
+        // そろえなければ遅い方は再アポになってしまう (従来の誤り)
+        assert_eq!(classify("D1", rows[1].entered_ms, &h, &[]), ApoKind::ReApo);
+    }
+
+    #[test]
+    fn same_deal_same_stage_on_another_day_stays_separate() {
+        let rows = [
+            apo("D1", ST_APO, "2026-10-10T03:00:00Z"),
+            apo("D1", ST_APO, "2026-10-20T03:00:00Z"),
+        ];
+        let t = effective_times(&rows);
+        assert_eq!(t, vec![rows[0].entered_ms, rows[1].entered_ms]);
+    }
+
+    fn row(id: &str) -> TalkApoDeal {
+        TalkApoDeal {
+            deal_id: id.into(),
+            deal_name: None,
+            company_name: None,
+            kind: "fresh".into(),
+            via: "bpo".into(),
+            entered_at: String::new(),
+            history_short: false,
+            hubspot_url: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_requests_share_one_load() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let cache = Arc::new(BreakdownCache::default());
+        let reads = Arc::new(AtomicUsize::new(0));
+        let key: Key = vec![("D1".into(), 1)];
+        let mk = |reads: Arc<AtomicUsize>| async move {
+            reads.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            Ok(vec![row("D1")])
+        };
+        let dl = Duration::from_secs(5);
+        let (a, b, c) = tokio::join!(
+            cache.get_or_load(key.clone(), RECENT_TTL, dl, mk(reads.clone())),
+            cache.get_or_load(key.clone(), RECENT_TTL, dl, mk(reads.clone())),
+            cache.get_or_load(key.clone(), RECENT_TTL, dl, mk(reads.clone())),
+        );
+        for r in [a, b, c] {
+            assert_eq!(r.ok().unwrap().len(), 1);
+        }
+        assert_eq!(reads.load(Ordering::SeqCst), 1);
+        // 済んだあとはキャッシュから (読まない)
+        let r = cache
+            .get_or_load(key, RECENT_TTL, dl, mk(reads.clone()))
+            .await;
+        assert!(r.is_ok());
+        assert_eq!(reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn timeout_keeps_loading_and_fills_the_cache() {
+        let cache = Arc::new(BreakdownCache::default());
+        let key: Key = vec![("D2".into(), 1)];
+        let slow = async {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            Ok(vec![row("D2")])
+        };
+        let r = cache
+            .get_or_load(key.clone(), RECENT_TTL, Duration::from_millis(20), slow)
+            .await;
+        assert!(matches!(r, Err(LoadError::Timeout)));
+        assert!(cache.get(&key).is_none());
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(cache.get(&key).unwrap()[0].deal_id, "D2");
     }
 }

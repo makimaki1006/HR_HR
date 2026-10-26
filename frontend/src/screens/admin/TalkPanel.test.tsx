@@ -2,8 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAdminRoute, adminHref } from './route';
-import { TalkCallsTable, TalkDetailView, TalkPanel, TalkSummaryTable, type TalkRoute } from './TalkPanel';
-import { activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary, periodRange, sortPeople, judgeItem, judgeAppointment, donePct } from './talkModel';
+import { ApoBreakdownView, TalkCallsTable, TalkDetailView, TalkPanel, TalkSummaryTable, type TalkRoute } from './TalkPanel';
+import { activePeriod, describeDays, fixtureApo, fixtureCalls, fixtureDetail, fixtureSummary, periodRange, sortPeople, judgeItem, judgeAppointment, donePct } from './talkModel';
 
 afterEach(cleanup);
 
@@ -478,10 +478,16 @@ describe('トークの振り返り: タブとアポの内訳', () => {
     const box = screen.getByTestId('talk-apo');
     expect(box.textContent).toContain('架空 花子 のアポの内訳');
     const counts = Array.from(within(box).getByTestId('talk-apo-counts').querySelectorAll('li')).map(li => li.textContent);
-    expect(counts).toEqual(['過去客（会社で判定）1 件', '再商談1 件', '再アポ1 件', '純粋なアポ2 件']);
+    expect(counts).toEqual(['過去客（会社で判定）1 件', '再商談1 件', '再アポ1 件うち履歴不足 1', '純粋なアポ2 件']);
     const rows = within(box).getAllByTestId('talk-apo-row').map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.textContent));
     expect(rows).toHaveLength(5);
     expect(rows[1]?.slice(0, 4)).toEqual(['過去客（会社で判定）', 'サンプル運輸', 'サンプル運輸_2', 'BPO']);
+    // 履歴不足の印は、その取引 (4 件目) の区分の横だけ。区分は変わらない
+    expect(rows[3]?.[0]).toBe('再アポ（履歴不足で不確か）');
+    expect(within(box).getAllByTestId('talk-apo-flag')).toHaveLength(1);
+    expect(box.querySelector('[data-kind="re_apo"] [data-testid="talk-apo-short"]')?.textContent).toBe('うち履歴不足 1');
+    expect(box.querySelector('[data-kind="fresh"] [data-testid="talk-apo-short"]')).toBeNull();
+    expect(within(box).getByText(/履歴の上限のため再アポ・再商談が少なめに出ることがあります/)).toBeTruthy();
     expect(rows[2]?.[3]).toBe('新規営業');
     expect(within(box).getAllByRole('link', { name: 'HubSpot で開く' })[0]?.getAttribute('href')).toBe('https://app.hubspot.com/contacts/23708633/record/0-3/70000/');
     // 内訳は開いた人の行のすぐ下
@@ -490,13 +496,25 @@ describe('トークの振り返り: タブとアポの内訳', () => {
     expect(screen.queryByTestId('talk-apo')).toBeNull();
   });
 
+  it('同じ取引が別の日に再び入っても、明細の key が重ならず 2 行出る', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const base = fixtureApo('9001', '2026-10-19', '2026-10-19', '');
+    const d0 = base.deals[0];
+    if (d0 === undefined) throw new Error('fixture');
+    const data = { ...base, deals: [d0, { ...d0, entered_at: '2026-10-12T01:00:00Z', kind: 're_apo' }] };
+    render(<ApoBreakdownView data={data} onClose={() => undefined} />);
+    expect(screen.getAllByTestId('talk-apo-row')).toHaveLength(2);
+    expect(err.mock.calls.filter(c => String(c[0]).includes('same key'))).toHaveLength(0);
+    err.mockRestore();
+  });
+
   it('全体の行のアポ数を押すと、表の全体の内訳が出る', () => {
     render(<TalkPanel route={route()} navigate={() => undefined} fixture />);
     fireEvent.click(within(screen.getByTestId('talk-total-row')).getByTestId('talk-apo-trigger'));
     const box = screen.getByTestId('talk-apo');
     expect(box.textContent).toContain('この表の全体 のアポの内訳');
     const counts = Array.from(within(box).getByTestId('talk-apo-counts').querySelectorAll('li')).map(li => li.textContent);
-    expect(counts).toEqual(['過去客（会社で判定）2 件', '再商談2 件', '再アポ3 件', '純粋なアポ5 件']);
+    expect(counts).toEqual(['過去客（会社で判定）2 件', '再商談2 件', '再アポ3 件うち履歴不足 1', '純粋なアポ5 件']);
     fireEvent.click(within(box).getByRole('button', { name: '閉じる' }));
     expect(screen.queryByTestId('talk-apo')).toBeNull();
   });

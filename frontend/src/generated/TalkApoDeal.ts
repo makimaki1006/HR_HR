@@ -17,6 +17,10 @@ via: string,
  */
 entered_at: string, 
 /**
+ * ステージの履歴が上限 (20 件) いっぱいで、今回より前の履歴が見えず判定が不確か
+ */
+history_short: boolean, 
+/**
  * HubSpot で取引を開く URL
  */
 hubspot_url: string, };

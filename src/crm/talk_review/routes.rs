@@ -169,7 +169,7 @@ async fn contacted_in(
 #[derive(Default)]
 pub struct TalkState {
     pub(super) counts: CountsCache,
-    apo_breakdown: super::apo_breakdown::BreakdownCache,
+    apo_breakdown: Arc<super::apo_breakdown::BreakdownCache>,
     rows: RowsCache,
     transcripts: TranscriptCache,
     zoom: OnceLock<Option<Arc<ZoomClient>>>,
@@ -676,25 +676,26 @@ pub(in crate::crm) async fn get_appointments(
         .filter(|d| d.who.iter().any(|w| who.contains(w)))
         .collect();
     let key = super::apo_breakdown::cache_key(&mine);
-    let rows = match st.apo_breakdown.get(&key) {
-        Some(v) => v,
-        None => {
-            let portal = hubspot_portal_id();
-            let bg = client.background();
-            let fut = super::apo_breakdown::breakdown(&bg, &portal, &mine);
-            match tokio::time::timeout(APO_BREAKDOWN_DEADLINE, fut).await {
-                Err(_) => return crate::crm::routes::timeout_response(),
-                Ok(Err(e)) => return hubspot_error_response(&e),
-                Ok(Ok(v)) => {
-                    let ttl = if to >= today - ChronoDuration::days(1) {
-                        super::apo_breakdown::RECENT_TTL
-                    } else {
-                        super::apo_breakdown::SETTLED_TTL
-                    };
-                    st.apo_breakdown.put(key, ttl, v.clone());
-                    v
-                }
-            }
+    let ttl = if to >= today - ChronoDuration::days(1) {
+        super::apo_breakdown::RECENT_TTL
+    } else {
+        super::apo_breakdown::SETTLED_TTL
+    };
+    let portal = hubspot_portal_id();
+    let bg = client.background();
+    let load = async move { super::apo_breakdown::breakdown(&bg, &portal, &mine).await };
+    let rows = match st
+        .apo_breakdown
+        .get_or_load(key, ttl, APO_BREAKDOWN_DEADLINE, load)
+        .await
+    {
+        Ok(v) => v,
+        Err(super::apo_breakdown::LoadError::Timeout) => {
+            return crate::crm::routes::timeout_response()
+        }
+        Err(super::apo_breakdown::LoadError::Hub(e)) => return hubspot_error_response(&e),
+        Err(super::apo_breakdown::LoadError::Aborted) => {
+            return error_json(StatusCode::SERVICE_UNAVAILABLE, "aborted")
         }
     };
     let name = match &owner {

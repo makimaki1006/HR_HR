@@ -19,4 +19,8 @@ re_apo: number,
 /**
  * 純粋なアポ: どれにも当たらない
  */
-fresh: number, total: number, };
+fresh: number, total: number, 
+/**
+ * 上の区分のうち、履歴が足りず判定が不確かな件数 (区分は変えない)
+ */
+history_short: number, };

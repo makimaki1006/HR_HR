@@ -441,6 +441,7 @@ export function fixtureApo(ownerId: string | null, from: string, to: string, tea
       kind: order[i % order.length] ?? 'fresh',
       via: i % 3 === 2 ? 'sales' : 'bpo',
       entered_at: `2026-10-${day}T0${String(i % 9)}:15:00Z`,
+      history_short: i === 3,
       hubspot_url: `https://app.hubspot.com/contacts/23708633/record/0-3/${String(70000 + i)}/`,
     };
   });
@@ -450,7 +451,7 @@ export function fixtureApo(ownerId: string | null, from: string, to: string, tea
     name: row?.name ?? 'この表の全体',
     from: s.from,
     to: s.to,
-    counts: { past_customer: count('past_customer'), re_meeting: count('re_meeting'), re_apo: count('re_apo'), fresh: count('fresh'), total: deals.length },
+    counts: { past_customer: count('past_customer'), re_meeting: count('re_meeting'), re_apo: count('re_apo'), fresh: count('fresh'), total: deals.length, history_short: deals.filter(d => d.history_short).length },
     deals,
   };
 }

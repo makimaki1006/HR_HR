@@ -411,6 +411,7 @@ code.w8-code {
 .talk-apo-close { margin-left: auto; }
 .talk-apo-counts { display: flex; flex-wrap: wrap; gap: 6px 10px; list-style: none; padding: 0; margin: 8px 0; }
 .talk-apo-counts li { display: flex; gap: 8px; align-items: baseline; padding: 4px 10px; border: 1px solid #334155; border-radius: 4px; background: rgba(30, 41, 59, 0.6); }
+.talk-apo-short { font-size: 11px; }
 .talk-apo-table td, .talk-apo-table th { white-space: nowrap; }
 .talk-apo-note { color: #94a3b8; font-size: 12px; margin: 8px 0 0; }
 .talk-howto { margin-top: 12px; }

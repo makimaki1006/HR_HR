@@ -1,5 +1,5 @@
 // /app/admin?view=talk: トークの振り返り (ADR-033)。人ごとの「できていない割合」の表 → 電話の一覧 → 1 本の詳細。
-// データは GET /api/crm/talk-review/* (管理者だけ)。&mode=fixture で架空の数字。
+// データは GET /api/crm/talk-review/* (社内の Google ログインなら誰でも。ADR-033)。&mode=fixture で架空の数字。
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { ApiAbortedError, ApiHttpError, AuthRequiredError, apiGet, type ApiError } from '../../api/client';
 import { redirectToLogin } from '../../shell/navigation';
@@ -295,6 +295,11 @@ export interface ApoQuery {
   fixture: boolean;
 }
 
+/** 区分ごとの「履歴不足」の件数。件数は区分を変えずに数えるので、明細から数える */
+function shortOf(data: TalkApoResponse, kind: string): number {
+  return data.deals.filter(d => d.kind === kind && d.history_short).length;
+}
+
 /** アポ数を押すと開く内訳。開いている間だけ読む */
 export function ApoBreakdownView({ data, onClose }: { data: TalkApoResponse; onClose: () => void }) {
   return (
@@ -306,7 +311,12 @@ export function ApoBreakdownView({ data, onClose }: { data: TalkApoResponse; onC
       </div>
       <ul className="talk-apo-counts" data-testid="talk-apo-counts">
         {APO_KINDS.map(([k, label]) => (
-          <li key={k} data-kind={k}><span>{label}</span><strong>{data.counts[k]} 件</strong></li>
+          <li key={k} data-kind={k}>
+            <span>{label}</span><strong>{data.counts[k]} 件</strong>
+            {(k === 're_meeting' || k === 're_apo' || k === 'fresh') && shortOf(data, k) > 0 && (
+              <small className="w8-muted talk-apo-short" data-testid="talk-apo-short" title="ステージの履歴が上限の 20 件いっぱいで、今回より前の履歴が見えていません。前のアポ・商談を見落としている可能性があります。">うち履歴不足 {shortOf(data, k)}</small>
+            )}
+          </li>
         ))}
       </ul>
       {data.deals.length === 0 ? <p className="w8-muted">この期間のアポはありません。</p> : (
@@ -316,8 +326,8 @@ export function ApoBreakdownView({ data, onClose }: { data: TalkApoResponse; onC
           </thead>
           <tbody>
             {data.deals.map(d => (
-              <tr key={d.deal_id} data-testid="talk-apo-row">
-                <td>{apoKindLabel(d.kind)}</td>
+              <tr key={`${d.deal_id}-${d.entered_at}`} data-testid="talk-apo-row">
+                <td>{apoKindLabel(d.kind)}{d.history_short && <small className="w8-muted talk-apo-flag" data-testid="talk-apo-flag" title="ステージの履歴が上限の 20 件いっぱいで、今回より前の履歴が見えていません">（履歴不足で不確か）</small>}</td>
                 <td>{d.company_name ?? '-'}</td>
                 <td>{d.deal_name ?? '-'}</td>
                 <td>{APO_VIA_LABEL[d.via] ?? d.via}</td>
@@ -328,7 +338,7 @@ export function ApoBreakdownView({ data, onClose }: { data: TalkApoResponse; onC
           </tbody>
         </table>
       )}
-      <p className="talk-apo-note">1 件の取引は、上の区分から順に最初に当てはまる 1 つに入れています。過去客は、取引の会社に、この取引とは別に受注した取引（納品管理・計上にある取引、または契約先企業・過去契約先に入ったことがある取引）があるものです。再商談は、今回より前に商談後のステージに入ったことがある取引、再アポは今回より前にアポ日確定に入ったことがある取引です。</p>
+      <p className="talk-apo-note">1 件の取引は、上の区分から順に最初に当てはまる 1 つに入れています。過去客は、取引の会社に、この取引とは別に受注した取引（納品管理・計上にある取引、または契約先企業・過去契約先に入ったことがある取引）があるものです。再商談は、今回より前に商談後のステージに入ったことがある取引、再アポは今回より前にアポ日確定に入ったことがある取引です。HubSpot が返すステージの履歴は新しい順に 20 件までなので、履歴の上限のため再アポ・再商談が少なめに出ることがあります（その取引には「履歴不足」の印を付けています）。</p>
     </div>
   );
 }
