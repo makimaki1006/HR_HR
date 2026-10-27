@@ -317,6 +317,7 @@ html:has(.competitor) { background: #eef1f6; }
 .cmp-trend-card figcaption { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
 .cmp-trend-value { font-size: 14px; color: var(--ink-3); margin: 0 0 12px; }
 .cmp-trend-plot { overflow-x: auto; max-width: 100%; }
+.cmp-trend-plot circle:hover, .cmp-trend-plot circle:focus-visible { stroke-width: 4; outline: none; }
 .cmp-trend-plot svg { width: 100%; min-width: 620px; height: auto; display: block; }
 .cmp-population-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 20px 0; }
 .cmp-population-metrics article { padding: 16px; background: var(--accent-bg); }

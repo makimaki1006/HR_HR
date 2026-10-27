@@ -5,6 +5,7 @@
 //! 各タブの部品は兄弟モジュール (competitor_keywords / _trends / _population / _consultation) にある。
 use super::common::push_page_head;
 use super::competitor_consultation;
+use super::competitor_google::render_google;
 use super::competitor_keywords as keywords;
 use super::competitor_model::{
     build_competitor_report, CompetitorReport, GoogleDemand, GoogleSection, GoogleSuggestions,
@@ -379,124 +380,6 @@ fn render_indeed(html: &mut String, data: &IndeedSection) {
     html.push_str("</tbody></table>");
     if let Some(ka) = keyword_analysis {
         super::competitor_keyword_analysis::render_html(html, ka);
-    }
-    html.push_str("</section>");
-}
-
-fn render_google(html: &mut String, data: &GoogleSection) {
-    html.push_str("<section class=\"page-navy\" id=\"competitor-google\">");
-    push_page_head(
-        html,
-        "検索需要",
-        "Google広告APIの検索需要",
-        "月間検索数と推移",
-    );
-    html.push_str("<p class=\"note\">出典：Google広告 Keyword Planner API｜検索数は推定値。広告競合度は広告主間の競合です。</p>");
-    let (keyword, region, demand, suggestions) = match data {
-        GoogleSection::NotRequested { message } | GoogleSection::Error { message } => {
-            html.push_str(&format!("<p>{}</p></section>", escape_html(message)));
-            return;
-        }
-        GoogleSection::Ok {
-            keyword,
-            region,
-            demand,
-            suggestions,
-        } => (keyword, region, demand, suggestions),
-    };
-    html.push_str(&format!(
-        "<p>検索語: {} / 指定地域: {}</p>",
-        escape_html(keyword),
-        if region.is_empty() {
-            "全国".into()
-        } else {
-            escape_html(region)
-        }
-    ));
-    if let GoogleDemand::Ok {
-        region_name,
-        keywords,
-    } = demand
-    {
-        match region_name {
-            None if !region.is_empty() => html.push_str(
-                "<p class=\"note\">指定地域を解決できなかったため全国の検索需要です。</p>",
-            ),
-            Some(name) => html.push_str(&format!(
-                "<p class=\"note\">取得地域: {}</p>",
-                escape_html(name)
-            )),
-            None => {}
-        }
-        html.push_str("<table class=\"table-navy\"><thead><tr><th>検索語</th><th>平均月間検索数</th><th>広告競合度</th></tr></thead><tbody>");
-        if keywords.is_empty() {
-            html.push_str("<tr><td colspan=\"3\">検索需要のデータがありません。</td></tr>");
-        }
-        for row in keywords {
-            html.push_str(&format!(
-                "<tr><td>{}</td><td class=\"num\">{}</td><td>{}</td></tr>",
-                escape_html(&row.keyword),
-                number(row.avg_monthly),
-                escape_html(&row.competition)
-            ));
-        }
-        html.push_str("</tbody></table>");
-        for row in keywords {
-            let points: Vec<trends::Point<'_>> = row
-                .monthly
-                .iter()
-                .map(|m| (m.month.as_str(), m.search_volume))
-                .collect();
-            trends::chart(
-                html,
-                &format!("{}：月間検索数の推移", row.keyword),
-                &points,
-                "回/月",
-                "#007d79",
-                false,
-            );
-            html.push_str(&format!("<div class=\"block-title\">{} の月別検索数</div><table class=\"table-navy\"><thead><tr><th>月</th><th>検索数</th></tr></thead><tbody>",escape_html(&row.keyword)));
-            for month in &row.monthly {
-                html.push_str(&format!(
-                    "<tr><td>{}</td><td class=\"num\">{}</td></tr>",
-                    escape_html(&month.month),
-                    number(month.search_volume)
-                ));
-            }
-            html.push_str("</tbody></table>");
-        }
-    } else {
-        // 外部APIの生エラーは資格情報を含む可能性があるので本文に転記しない。
-        html.push_str("<p class=\"note\">Google検索需要を取得できませんでした。</p>");
-    }
-    // 取得できなかった関連語は空の見出しを出さない。
-    if let GoogleSuggestions::Ok {
-        region_name,
-        suggestions,
-    } = suggestions
-    {
-        html.push_str("<div class=\"block-title\">関連キーワード（上位20件）</div>");
-        match region_name {
-            None => html.push_str("<p class=\"note\">関連キーワードの取得地域：全国（地域指定なし・地域未解決）。指定地域の需要とは限りません。</p>"),
-            Some(name) => html.push_str(&format!(
-                "<p class=\"note\">関連キーワードの取得地域：{}</p>",
-                escape_html(name)
-            )),
-        }
-        html.push_str("<table class=\"table-navy\"><thead><tr><th>関連語</th><th>平均月間検索数</th></tr></thead><tbody>");
-        if suggestions.is_empty() {
-            html.push_str("<tr><td colspan=\"2\">関連キーワードのデータがありません。需要0を意味しません。</td></tr>");
-        }
-        for row in suggestions {
-            html.push_str(&format!(
-                "<tr><td>{}</td><td class=\"num\">{}</td></tr>",
-                escape_html(&row.keyword),
-                number(row.avg_monthly)
-            ));
-        }
-        html.push_str(
-            "</tbody></table><p class=\"note\">求人票の訴求語と検索語を比較できます。</p>",
-        );
     }
     html.push_str("</section>");
 }

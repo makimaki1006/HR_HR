@@ -1,7 +1,19 @@
 import type { CompetitorReport } from '../../generated/CompetitorReport';
 // テスト用の架空データ (実在の求人・企業・人名は含めない)。型は ts-rs の生成物に合わせる。
 import type { CompetitorReportResponse } from '../../generated/CompetitorReportResponse';
+import type { GoogleMonth } from '../../generated/GoogleMonth';
 import type { PopularitySplit } from '../../generated/PopularitySplit';
+
+/** 開始 (年, 月) から n か月分の月次検索数。値は f(i)。 */
+export function makeMonthly(start: [number, number], n: number, f: (i: number) => number | null): GoogleMonth[] {
+  return Array.from({ length: n }, (_, i) => {
+    const t = start[0] * 12 + (start[1] - 1) + i;
+    return {
+      month: `${String(Math.floor(t / 12))}-${String((t % 12) + 1).padStart(2, '0')}`,
+      search_volume: f(i),
+    };
+  });
+}
 
 export function makeReport(): CompetitorReport {
   return {
@@ -82,13 +94,15 @@ export function makeReport(): CompetitorReport {
             keyword: 'テスト職 求人',
             avg_monthly: 1900,
             competition: 'HIGH',
-            monthly_12m: [
-              { month: '2025-10', search_volume: 1800 },
-              { month: '2025-11', search_volume: 0 },
-              { month: '2025-12', search_volume: null },
-            ],
+            monthly: makeMonthly([2022, 10], 48, (i) => 1500 + (i % 12) * 50),
           },
-          { keyword: '別の語', avg_monthly: null, competition: 'LOW', monthly_12m: [] },
+          {
+            keyword: 'テスト職 募集',
+            avg_monthly: 800,
+            competition: 'MEDIUM',
+            monthly: makeMonthly([2022, 10], 48, (i) => 700 + (i % 12) * 20),
+          },
+          { keyword: '別の語', avg_monthly: null, competition: 'LOW', monthly: [] },
         ],
       },
       suggestions: {

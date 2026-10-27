@@ -14,6 +14,7 @@
 #![allow(dead_code)]
 
 mod competitor_consultation;
+mod competitor_google;
 mod competitor_keyword_analysis;
 mod competitor_keywords;
 pub(crate) mod competitor_model;

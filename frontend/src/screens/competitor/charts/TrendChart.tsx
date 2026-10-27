@@ -8,13 +8,15 @@ interface Props {
   color: string;
   /** 1 求人あたりの人数のような比 (小数 2 桁、軸の刻みは 0.1 単位)。 */
   ratio?: boolean;
+  /** ホバー表示に出す系列名。省略時は見出し。 */
+  seriesName?: string;
 }
 
 /**
  * 月ごとの折れ線 (旧 competitor_trends.rs の SVG)。欠測の月は線を切り、点も打たない (0 にしない)。
  * 観測した 0 は 0 の位置に点を打つ。観測値が 1 つも無ければ何も出さない。
  */
-export function TrendChart({ label, points, unit, color, ratio = false }: Props) {
+export function TrendChart({ label, points, unit, color, ratio = false, seriesName }: Props) {
   const l = trendLayout(points, ratio);
   if (l === null) return null;
   const fmt = (v: number): string => (ratio ? fixed(v, 2) : fmtInt(Math.trunc(v)));
@@ -61,8 +63,10 @@ export function TrendChart({ label, points, unit, color, ratio = false }: Props)
               strokeWidth={2}
               data-month={d.month}
               data-value={d.value}
+              tabIndex={0}
+              aria-label={`${d.month}\u3000${seriesName ?? label}: ${fmt(d.value)} ${unit}`}
             >
-              <title>{`${d.month}：${fmt(d.value)} ${unit}`}</title>
+              <title>{`${d.month}\u3000${seriesName ?? label}: ${fmt(d.value)} ${unit}`}</title>
             </circle>
           ))}
           {l.monthLabels.map((m, i) => (

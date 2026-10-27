@@ -182,7 +182,14 @@ pub(crate) fn build(data: &Value) -> Option<Box<KeywordAnalysis>> {
     let raw = data.get("keyword_raw").filter(|v| v.is_object())?;
     let title = str_of(data, "title");
     let region = str_of(data, "region");
-    let search_trend = search_trend(&title, &raw["search"]);
+    let title_missing = title.trim().is_empty();
+    let search_trend = if title_missing {
+        SearchTrendPart::Unavailable {
+            message: TITLE_REQUIRED.to_owned(),
+        }
+    } else {
+        search_trend(&title, &raw["search"])
+    };
     let google_job = match &search_trend {
         SearchTrendPart::Ok { months, series, .. } => series
             .iter()
@@ -211,13 +218,21 @@ pub(crate) fn build(data: &Value) -> Option<Box<KeywordAnalysis>> {
         search_trend,
         term_shifts: term_shifts_part(raw),
         pref_terms: pref_terms(&prefecture, &entries),
-        overlay: overlay_part(&region, google_job, &indeed_ctk),
+        overlay: if title_missing {
+            OverlayPart::Unavailable {
+                message: TITLE_REQUIRED.to_owned(),
+            }
+        } else {
+            overlay_part(&region, google_job, &indeed_ctk)
+        },
         caveats: vec![
             "Indeedの行動データのみで、労働市場全体ではありません。閲覧数は応募数ではありません。".to_owned(),
             "Googleの検索数は検索エンジンの推定値で、丸めた値です。「職種名 求人」を求職の目安にしています。".to_owned(),
         ],
     }))
 }
+
+const TITLE_REQUIRED: &str = "職種名を指定すると表示します。";
 
 fn search_trend(title: &str, rows: &Value) -> SearchTrendPart {
     let mut series: Vec<SearchSeries> = Vec::new();
@@ -556,7 +571,10 @@ fn overlap_months(
 
 // ---------------------------------------------------------------- 旧 HTML / PDF の描画
 
-const PALETTE: [&str; 5] = ["#007d79", "#4472c4", "#8567a5", "#b37d20", "#c0504d"];
+const PALETTE: [&str; 10] = [
+    "#007d79", "#4472c4", "#8567a5", "#b37d20", "#c0504d", "#2f8f3a", "#d4608f", "#5b6770",
+    "#8a5a2b", "#1b9bc9",
+];
 
 fn pt(v: f64) -> String {
     format!("{v:+.1}")
@@ -569,6 +587,24 @@ fn pct1(v: Option<f64>) -> String {
 fn int(v: Option<f64>) -> String {
     v.map(|v| format_number(v as i64))
         .unwrap_or_else(|| "—".into())
+}
+
+/// 点にマウスを当てると数値が出る、透明な当たり判定の円。印刷には出ない (fill が透明)。
+pub(super) fn hover_circle(
+    x: f64,
+    y: f64,
+    month: &str,
+    name: &str,
+    value_text: &str,
+    unit: &str,
+) -> String {
+    format!(
+        "<circle cx=\"{x:.3}\" cy=\"{y:.3}\" r=\"9\" fill=\"transparent\" stroke=\"none\" pointer-events=\"all\"><title>{}　{}: {}{}</title></circle>",
+        escape_html(month),
+        escape_html(name),
+        escape_html(value_text),
+        escape_html(unit)
+    )
 }
 
 /// 複数の折れ線を 1 枚の SVG にする。凡例は SVG の中に入れる。欠測の月は線を切る。
@@ -588,7 +624,8 @@ pub(super) fn multi_line_chart(
     let Some(peak) = peak else { return };
     let step = (peak / 4.0).ceil().max(1.0);
     let ymax = step * 4.0;
-    let legend_h = 22.0 * lines.len() as f64;
+    let legend_cols = if lines.len() > 5 { 2 } else { 1 };
+    let legend_h = 22.0 * lines.len().div_ceil(legend_cols) as f64;
     let height = 280.0 + legend_h;
     html.push_str(&format!(
         "<figure class=\"trend-card\"><figcaption>{}</figcaption><div class=\"trend-plot\"><svg viewBox=\"0 0 900 {height}\" role=\"img\" aria-label=\"{}\"><title>{}</title>",
@@ -603,6 +640,7 @@ pub(super) fn multi_line_chart(
         ));
     }
     let last = months.len().saturating_sub(1).max(1) as f64;
+    let mut hits = String::new();
     for (k, (name, values)) in lines.iter().enumerate() {
         let color = PALETTE[k % PALETTE.len()];
         let mut run: Vec<String> = Vec::new();
@@ -618,15 +656,33 @@ pub(super) fn multi_line_chart(
         for (i, v) in values.iter().enumerate() {
             let x = 85.0 + 791.0 * i as f64 / last;
             match v.filter(|v| v.is_finite() && *v >= 0.0) {
-                Some(v) => run.push(format!("{x:.3},{:.3}", 24.0 + 212.0 * (1.0 - v / ymax))),
+                Some(v) => {
+                    let y = 24.0 + 212.0 * (1.0 - v / ymax);
+                    run.push(format!("{x:.3},{y:.3}"));
+                    hits.push_str(&hover_circle(
+                        x,
+                        y,
+                        months.get(i).map(String::as_str).unwrap_or("—"),
+                        name,
+                        &if unit == "回/月" {
+                            format_number(v.round() as i64)
+                        } else {
+                            format!("{v:.1}")
+                        },
+                        unit,
+                    ));
+                }
                 None => flush(&mut run, html),
             }
         }
         flush(&mut run, html);
-        let ly = 292.0 + 22.0 * k as f64;
+        let (row, col) = (k / legend_cols.max(1), k % legend_cols);
+        let lx = 85.0 + 400.0 * col as f64;
+        let ly = 292.0 + 22.0 * row as f64;
         html.push_str(&format!(
-            "<rect x=\"85\" y=\"{}\" width=\"22\" height=\"4\" fill=\"{color}\"/><text x=\"115\" y=\"{}\" font-size=\"14\">{}</text>",
+            "<rect x=\"{lx}\" y=\"{}\" width=\"22\" height=\"4\" fill=\"{color}\"/><text x=\"{}\" y=\"{}\" font-size=\"14\">{}</text>",
             ly - 6.0,
+            lx + 30.0,
             ly,
             escape_html(name)
         ));
@@ -644,6 +700,7 @@ pub(super) fn multi_line_chart(
             ));
         }
     }
+    html.push_str(&hits);
     html.push_str(&format!(
         "</svg></div><p class=\"note\">単位：{}</p></figure>",
         escape_html(unit)
@@ -1143,6 +1200,21 @@ mod tests {
         assert!(
             matches!(&ka.overlay, OverlayPart::Ok { months, .. } if months == &["2026-06", "2026-07"])
         );
+    }
+
+    #[test]
+    fn blank_title_makes_search_and_overlay_unavailable() {
+        for title in ["", "  　"] {
+            let mut data = raw_fixture();
+            data["title"] = json!(title);
+            let ka = build(&data).unwrap();
+            assert!(
+                matches!(&ka.search_trend, SearchTrendPart::Unavailable { message } if message == "職種名を指定すると表示します。")
+            );
+            assert!(
+                matches!(&ka.overlay, OverlayPart::Unavailable { message } if message == "職種名を指定すると表示します。")
+            );
+        }
     }
 
     #[test]

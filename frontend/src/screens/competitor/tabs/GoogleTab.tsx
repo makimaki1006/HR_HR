@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import type { GoogleKeyword } from '../../../generated/GoogleKeyword';
 import type { GoogleSection } from '../../../generated/GoogleSection';
-import { TrendChart } from '../charts/TrendChart';
-import { fmtNumber } from '../format';
+import { MultiLineChart } from '../charts/MultiLineChart';
+import { fixed, fmtInt, fmtNumber, MISSING } from '../format';
+import { allMonths, keywordLines, monthYearPivot, summarize, yearOverlay } from '../googleStats';
 
 // 生のエラー本文は資格情報を含みうるので、Rust 側が落としている。ここは固定文だけを出す。
 const DEMAND_FAILED = 'Google検索需要を取得できませんでした。';
@@ -37,40 +37,7 @@ function GoogleBody({ data }: { data: Extract<GoogleSection, { status: 'ok' }> }
           ) : (
             <p className="cmp-note">取得地域: {demand.region_name}</p>
           )}
-          <table className="cmp-table">
-            <thead>
-              <tr>
-                <th>検索語</th>
-                <th>平均月間検索数</th>
-                <th>広告競合度</th>
-              </tr>
-            </thead>
-            <tbody>
-              {demand.keywords.length === 0 && (
-                <tr>
-                  <td colSpan={3}>検索需要のデータがありません。</td>
-                </tr>
-              )}
-              {demand.keywords.map((row, i) => (
-                <tr key={i}>
-                  <td>{row.keyword}</td>
-                  <td className="cmp-num">{fmtNumber(row.avg_monthly)}</td>
-                  <td>{row.competition}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {demand.keywords.map((row, i) => (
-            <div key={i}>
-              <TrendChart
-                label={`${row.keyword}：月間検索数の推移`}
-                unit="回/月"
-                color="#007d79"
-                points={row.monthly_12m.map((m) => ({ month: m.month, value: m.search_volume }))}
-              />
-              <MonthlyTable row={row} />
-            </div>
-          ))}
+          <DemandView keywords={demand.keywords} />
         </>
       ) : (
         <p className="cmp-note">{DEMAND_FAILED}</p>
@@ -111,39 +78,95 @@ function GoogleBody({ data }: { data: Extract<GoogleSection, { status: 'ok' }> }
   );
 }
 
-/** 語ごとの 12 か月の表。語が多いと縦に長くなるので、開くまで行を DOM に出さない。 */
-function MonthlyTable({ row }: { row: GoogleKeyword }) {
-  const [open, setOpen] = useState(false);
+const signed = (v: number): string => `${v >= 0 ? '+' : '-'}${fixed(Math.abs(v), 1)}`;
+
+/** 先頭の検索語がメイン、続くのが近隣の検索語。 */
+function DemandView({ keywords }: { keywords: GoogleKeyword[] }) {
+  const main = keywords[0];
+  const months = allMonths(keywords);
+  const rows = keywords.map(summarize);
+  const overlay = main ? yearOverlay(main) : null;
+  const pivot = main ? monthYearPivot(main) : null;
   return (
-    <div className="cmp-monthly">
-      <button
-        type="button"
-        className="cmp-disclosure"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen((v) => !v);
-        }}
-      >
-        {row.keyword} の月別検索数
-      </button>
-      {open && (
-        <table className="cmp-table">
-          <thead>
+    <>
+      <div className="cmp-block-title">検索語ごとの要約</div>
+      <table className="cmp-table">
+        <thead>
+          <tr>
+            <th>検索語</th>
+            <th>平均月間検索数</th>
+            <th>直近12か月の合計</th>
+            <th>前年同期比</th>
+            <th>ピーク月</th>
+            <th>広告競合度</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
             <tr>
-              <th>月</th>
-              <th>検索数</th>
+              <td colSpan={6}>検索需要のデータがありません。</td>
             </tr>
-          </thead>
-          <tbody>
-            {row.monthly_12m.map((m, i) => (
-              <tr key={i}>
-                <td>{m.month}</td>
-                <td className="cmp-num">{fmtNumber(m.search_volume)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          )}
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td>{r.keyword}</td>
+              <td className="cmp-num">{fmtNumber(r.avgMonthly)}</td>
+              <td className="cmp-num">{r.last12Total === null ? MISSING : fmtInt(r.last12Total)}</td>
+              <td className="cmp-num">{r.yoyPct === null ? MISSING : `${signed(r.yoyPct)}%`}</td>
+              <td>{r.peakMonth === null ? MISSING : `${String(r.peakMonth)}月`}</td>
+              <td>{r.competition}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="cmp-note">
+        前年同期比は、直近12か月とその前の12か月がそろっている検索語だけ出します。ピーク月は、同じ月どうしの平均が最も大きい月です。
+      </p>
+      {months.length > 0 && (
+        <MultiLineChart
+          label="月間検索数の推移（近隣の検索語を含む）"
+          months={months}
+          lines={keywordLines(keywords, months)}
+          unit="回/月"
+        />
       )}
-    </div>
+      {main && overlay && overlay.years.length > 0 && (
+        <>
+          <MultiLineChart
+            label={`${main.keyword}：年ごとの重ね合わせ`}
+            months={overlay.months}
+            lines={overlay.lines}
+            unit="回/月"
+          />
+          {pivot && (
+            <>
+              <div className="cmp-block-title">{main.keyword} の月別検索数</div>
+              <table className="cmp-table">
+                <thead>
+                  <tr>
+                    <th>月</th>
+                    {pivot.years.map((y) => (
+                      <th key={y}>{y}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pivot.rows.map((row, m) => (
+                    <tr key={m}>
+                      <td>{m + 1}月</td>
+                      {row.map((v, j) => (
+                        <td key={j} className="cmp-num">
+                          {fmtNumber(v)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </>
+      )}
+    </>
   );
 }

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // 各 union 状態の描画。欠測 (null) は「—」、0 は 0。値は JSON から決まる。
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { GoogleDemand } from '../../generated/GoogleDemand';
 import type { GoogleSection } from '../../generated/GoogleSection';
@@ -8,7 +8,7 @@ import type { GoogleSuggestions } from '../../generated/GoogleSuggestions';
 import type { IndeedSection } from '../../generated/IndeedSection';
 import type { PopulationSection } from '../../generated/PopulationSection';
 import type { PopulationShares } from '../../generated/PopulationShares';
-import { makeReport } from './fixtures';
+import { makeMonthly, makeReport } from './fixtures';
 import { ConsultationTab } from './tabs/ConsultationTab';
 import { ExcelTab } from './tabs/ExcelTab';
 import { GoogleTab } from './tabs/GoogleTab';
@@ -298,13 +298,32 @@ const DEMAND_OK: GoogleDemand = {
       keyword: 'テスト職 求人',
       avg_monthly: 1900,
       competition: 'HIGH',
-      monthly_12m: [
+      monthly: [
         { month: '2025-10', search_volume: 1800 },
         { month: '2025-11', search_volume: 0 },
         { month: '2025-12', search_volume: null },
       ],
     },
-    { keyword: '別の語', avg_monthly: null, competition: 'LOW', monthly_12m: [] },
+    { keyword: '別の語', avg_monthly: null, competition: 'LOW', monthly: [] },
+  ],
+};
+// 2022-10 から 48 か月 (〜2026-09)。1 語目は 2026 年だけ 2 倍、2 語目は一定。
+const DEMAND_48: GoogleDemand = {
+  status: 'ok',
+  region_name: 'Osaka',
+  keywords: [
+    {
+      keyword: 'テスト職 求人',
+      avg_monthly: 1900,
+      competition: 'HIGH',
+      monthly: makeMonthly([2022, 10], 48, (i) => (i >= 39 ? 200 : 100) + (i % 12 === 5 ? 50 : 0)),
+    },
+    {
+      keyword: 'テスト職 募集',
+      avg_monthly: 800,
+      competition: 'MEDIUM',
+      monthly: makeMonthly([2022, 10], 48, () => 30),
+    },
   ],
 };
 const SUGG_OK: GoogleSuggestions = {
@@ -339,10 +358,11 @@ describe('GoogleTab', () => {
     render(<GoogleTab data={googleOk(DEMAND_OK, SUGG_OK)} />);
     expect(screen.getByText(/検索語: テスト職 求人 \/ 指定地域: 大阪府/)).toBeTruthy();
     expect(screen.getByText('取得地域: Osaka')).toBeTruthy();
+    // 3 か月分しか無いので直近12か月の合計・前年同期比・(欠測を除いた)ピーク月は 合計/比が —
     const demandRow = rowOf(screen.getAllByRole('cell', { name: 'テスト職 求人' })[0]);
-    expect(cells(demandRow)).toEqual(['テスト職 求人', '1,900', 'HIGH']);
+    expect(cells(demandRow)).toEqual(['テスト職 求人', '1,900', '—', '—', '10月', 'HIGH']);
     const nullRow = rowOf(screen.getAllByRole('cell', { name: '別の語' })[0]);
-    expect(cells(nullRow)).toEqual(['別の語', '—', 'LOW']);
+    expect(cells(nullRow)).toEqual(['別の語', '—', '—', '—', '—', 'LOW']);
     expect(cells(rowOf(screen.getByRole('cell', { name: '関連語B' })))).toEqual([
       '関連語B',
       '0',
@@ -353,15 +373,56 @@ describe('GoogleTab', () => {
     ]);
   });
 
-  it('月別検索数は開くまで行を出さない (DOM を増やさない)。開くと null は —、0 は 0', () => {
+  it('月別の表は 行=1〜12月・列=年 の 1 つだけ。null は —、0 は 0', () => {
     render(<GoogleTab data={googleOk(DEMAND_OK, SUGG_OK)} />);
-    expect(screen.queryByRole('cell', { name: '2025-10' })).toBeNull();
-    const summary = screen.getByText('テスト職 求人 の月別検索数');
-    fireEvent.click(summary);
-    const row = (m: string): string[] => cells(rowOf(screen.getByRole('cell', { name: m })));
-    expect(row('2025-10')).toEqual(['2025-10', '1,800']);
-    expect(row('2025-11')).toEqual(['2025-11', '0']);
-    expect(row('2025-12')).toEqual(['2025-12', '—']);
+    const head = screen.getByRole('columnheader', { name: '2025' }).closest('tr');
+    expect(cells(head as HTMLElement)).toEqual(['月', '2025']);
+    const pivot = head?.closest('table') as HTMLElement;
+    const row = (m: string): string[] => cells(rowOf(within(pivot).getByRole('cell', { name: m })));
+    expect(row('10月')).toEqual(['10月', '1,800']);
+    expect(row('11月')).toEqual(['11月', '0']);
+    expect(row('12月')).toEqual(['12月', '—']);
+    expect(row('1月')).toEqual(['1月', '—']);
+    expect(screen.getAllByText('テスト職 求人 の月別検索数')).toHaveLength(1);
+  });
+
+  it('48か月・複数語: 要約表の合計・前年同期比・ピーク月、重ね線、年ごとの重ね合わせ', () => {
+    render(<GoogleTab data={googleOk(DEMAND_48, SUGG_OK)} />);
+    // 直近12か月 = 2025-10〜2026-09: i=36..47。i>=39 は 200、i%12==5 (3月) は +50。
+    // 36..38 は 100 → 300、39..47 は 200 → 1800。+50 が i=41 (2026-03) に 1 回。合計 2150。
+    // 前の12か月 = i=24..35: 100×12 + 50 (i=29) = 1250。前年同期比 +72.0%。
+    // 暦月ごとの平均が最大 = 3月 (i=5,17,29,41: 150,150,150,250 → 175)。
+    const main = rowOf(screen.getAllByRole('cell', { name: 'テスト職 求人' })[0]);
+    expect(cells(main)).toEqual(['テスト職 求人', '1,900', '2,150', '+72.0%', '3月', 'HIGH']);
+    const sub = rowOf(screen.getAllByRole('cell', { name: 'テスト職 募集' })[0]);
+    expect(cells(sub)).toEqual(['テスト職 募集', '800', '360', '+0.0%', '1月', 'MEDIUM']);
+    // 全語を重ねた線: 2 系列 × 48 点
+    const all = screen.getByRole('img', { name: '月間検索数の推移（近隣の検索語を含む）' });
+    expect(all.querySelectorAll('circle')).toHaveLength(96);
+    // ホバー表示 (title) と aria-label は「月\u3000系列: 値 単位」
+    const first = all.querySelector('circle');
+    expect(first?.querySelector('title')?.textContent).toBe('2022-10\u3000テスト職 求人: 100 回/月');
+    expect(first?.getAttribute('aria-label')).toBe('2022-10\u3000テスト職 求人: 100 回/月');
+    expect(first?.getAttribute('tabindex')).toBe('0');
+    // 年ごとの重ね合わせ: 西暦ごとに 1 本 (2022〜2026)
+    const ov = screen.getByRole('img', { name: 'テスト職 求人：年ごとの重ね合わせ' });
+    expect([...ov.querySelectorAll('g[data-series]')].map((g) => g.getAttribute('data-series'))).toEqual([
+      '2022',
+      '2023',
+      '2024',
+      '2025',
+      '2026',
+    ]);
+  });
+
+  it('欠測のある月は点を打たず、観測した 0 は点になる', () => {
+    render(<GoogleTab data={googleOk(DEMAND_OK, SUGG_OK)} />);
+    const svg = screen.getByRole('img', { name: 'テスト職 求人：年ごとの重ね合わせ' });
+    const dots = [...svg.querySelectorAll('circle')].map((c) => [c.getAttribute('data-month'), c.getAttribute('data-value')]);
+    expect(dots).toEqual([
+      ['10月', '1800'],
+      ['11月', '0'],
+    ]);
   });
 
   it('region_name が null で region 指定あり → 全国の注記', () => {
@@ -403,18 +464,6 @@ describe('GoogleTab', () => {
     render(<GoogleTab data={googleOk({ status: 'timeout' }, { status: 'missing_credentials' })} />);
     expect(screen.getByText(DEMAND_FAIL)).toBeTruthy();
     expect(screen.queryByText(/関連キーワード/)).toBeNull();
-  });
-
-  it('語ごとの月間検索数の折れ線: 欠測の月は点を打たず、観測した 0 は点になる', () => {
-    render(<GoogleTab data={googleOk(DEMAND_OK, SUGG_OK)} />);
-    const svg = screen.getByRole('img', { name: 'テスト職 求人：月間検索数の推移' });
-    const dots = [...svg.querySelectorAll('circle')].map((c) => [c.getAttribute('data-month'), c.getAttribute('data-value')]);
-    expect(dots).toEqual([
-      ['2025-10', '1800'],
-      ['2025-11', '0'],
-    ]);
-    // 観測値の無い語 (別の語) はグラフを出さない
-    expect(screen.queryByRole('img', { name: '別の語：月間検索数の推移' })).toBeNull();
   });
 
   it('関連語の取得地域は検索需要とは別。null は全国の注記、地域名があればその名前', () => {

@@ -353,7 +353,7 @@ async fn collect_context(state: Arc<AppState>, req: &ReportRequest) -> (Value, V
     .ok()
     .flatten();
     let mut indeed = indeed_context(market, &title, &pref);
-    if indeed["status"] == "ok" {
+    if indeed["status"] == "ok" && !title.trim().is_empty() {
         // 「キーワードの推移・分析」の元データ。スナップショットだけを読み、外部 API は呼ばない。
         let (kw_title, kw_pref) = (title.clone(), pref.clone());
         let raw = tokio::task::spawn_blocking(move || {
@@ -369,7 +369,7 @@ async fn collect_context(state: Arc<AppState>, req: &ReportRequest) -> (Value, V
             indeed["keyword_raw"] = raw;
         }
     }
-    let keyword = if req.search_keyword.is_empty() && !title.is_empty() {
+    let keyword = if req.search_keyword.is_empty() && !title.trim().is_empty() {
         format!("{title} 求人")
     } else {
         req.search_keyword.clone()
@@ -481,19 +481,127 @@ fn indeed_context(market: Option<&Snapshot>, title: &str, pref: &str) -> Value {
     })
 }
 
+/// 検索語が「求人」「アルバイト」など一般語だけで出来ているか。語は空白(半角・全角)で分ける。
+const GENERIC_WORDS: &[&str] = &[
+    "求人",
+    "仕事",
+    "募集",
+    "バイト",
+    "アルバイト",
+    "パート",
+    "転職",
+    "正社員",
+    "派遣",
+    "採用",
+    "求人票",
+    "求人情報",
+    "仕事探し",
+    "中途採用",
+    "新卒",
+    "契約社員",
+    "職業",
+    "就職",
+];
+
+/// 求人サイト・企業名。含むものは近隣の検索語にも関連語の表にも出さない。
+const SITE_WORDS: &[&str] = &[
+    "求人ボックス",
+    "ハローワーク",
+    "indeed",
+    "インディード",
+    "タウンワーク",
+    "バイトル",
+    "マイナビ",
+    "リクナビ",
+    "ジョブメドレー",
+    "doda",
+    "デューダ",
+    "エン転職",
+    "エン派遣",
+    "スタンバイ",
+    "フロムエー",
+    "ジョブオプ",
+    "イーアイデム",
+    "グーペ",
+    "リクルート",
+    "ビズリーチ",
+];
+
+fn normalize_term(term: &str) -> String {
+    term.split(|c: char| c.is_whitespace())
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 一般語だけ、またはサイト・企業名を含む検索語は意味のある近隣語ではない。
+pub(crate) fn is_noise_term(term: &str) -> bool {
+    let normalized = normalize_term(term);
+    if normalized.is_empty() {
+        return true;
+    }
+    if normalized
+        .split(' ')
+        .all(|word| GENERIC_WORDS.contains(&word))
+    {
+        return true;
+    }
+    let lower = normalized.to_lowercase();
+    SITE_WORDS.iter().any(|site| lower.contains(site))
+}
+
+/// 関連語から近隣の検索語を最大 9 件選ぶ。検索数が 0 より大きいもの・シードと別のもの・
+/// 一般語だけやサイト名でないものを、検索数の多い順に並べる。
+pub(crate) fn pick_neighbours(seed: &str, suggestions: &[(String, Option<f64>)]) -> Vec<String> {
+    let seed_key = normalize_term(seed);
+    let mut candidates: Vec<(&str, f64)> = suggestions
+        .iter()
+        .filter_map(|(term, volume)| Some((term.as_str(), (*volume).filter(|v| *v > 0.0)?)))
+        .filter(|(term, _)| normalize_term(term) != seed_key && !is_noise_term(term))
+        .collect();
+    candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let mut seen = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .map(|(term, _)| normalize_term(term))
+        .filter(|term| seen.insert(term.clone()))
+        .take(9)
+        .collect()
+}
+
+fn suggestion_pairs(suggestions: &Value) -> Vec<(String, Option<f64>)> {
+    suggestions["suggestions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            Some((
+                row["keyword"].as_str()?.to_owned(),
+                row["avg_monthly"].as_f64(),
+            ))
+        })
+        .collect()
+}
+
+/// 関連語の表。一般語だけ・サイト名の語を除き、上位 20 件に絞る。
+fn filter_suggestions(suggestions: &mut Value) {
+    if let Some(rows) = suggestions["suggestions"].as_array_mut() {
+        rows.retain(|row| {
+            row["keyword"]
+                .as_str()
+                .is_some_and(|term| !is_noise_term(term))
+        });
+        rows.truncate(20);
+    }
+}
+
 async fn google_context(keyword: &str, pref: &str) -> Value {
     use crate::media_engine::handlers::{
         keywords_endpoint, suggest_endpoint, KeywordsQuery, SuggestQuery,
     };
     let region = (!pref.is_empty()).then_some(pref);
-    // ハンドラの入力・資格情報・地域解決・API実装を共有。ブラウザから実測値は受け取らない。
-    let demand: KeywordsQuery = match serde_json::from_value(json!({"kw":keyword,"region":region}))
-    {
-        Ok(query) => query,
-        Err(_) => return json!({"status":"error", "message":"検索条件を読み取れませんでした。"}),
-    };
-    let suggestions: SuggestQuery = match serde_json::from_value(
-        json!({"seed":keyword,"region":region,"limit":20}),
+    let suggest_query: SuggestQuery = match serde_json::from_value(
+        json!({"seed":keyword,"region":region,"limit":40}),
     ) {
         Ok(query) => query,
         Err(_) => {
@@ -501,21 +609,89 @@ async fn google_context(keyword: &str, pref: &str) -> Value {
         }
     };
     let timeout = std::time::Duration::from_secs(45);
-    let (demand, suggestions) = tokio::join!(
-        tokio::time::timeout(timeout, keywords_endpoint(Query(demand))),
-        tokio::time::timeout(timeout, suggest_endpoint(Query(suggestions)))
-    );
-    let timeout_result = || json!({"status":"timeout"});
+    // 先に関連語を取り、近隣の検索語を選ぶ。取れなければシードだけで需要を取る。
+    let mut suggestions = tokio::time::timeout(timeout, suggest_endpoint(Query(suggest_query)))
+        .await
+        .map(|response| response.0)
+        .unwrap_or_else(|_| json!({"status":"timeout"}));
+    let neighbours = if suggestions["status"] == "ok" {
+        pick_neighbours(keyword, &suggestion_pairs(&suggestions))
+    } else {
+        Vec::new()
+    };
+    filter_suggestions(&mut suggestions);
+    let kw = std::iter::once(keyword)
+        .chain(neighbours.iter().map(String::as_str))
+        .map(|term| term.replace([',', '\n'], " "))
+        .collect::<Vec<_>>()
+        .join(",");
+    // ハンドラの入力・資格情報・地域解決・API実装を共有。ブラウザから実測値は受け取らない。
+    let demand: KeywordsQuery =
+        match serde_json::from_value(json!({"kw":kw,"region":region,"months":48})) {
+            Ok(query) => query,
+            Err(_) => {
+                return json!({"status":"error", "message":"検索条件を読み取れませんでした。"})
+            }
+        };
+    let demand = tokio::time::timeout(timeout, keywords_endpoint(Query(demand)))
+        .await
+        .map(|response| response.0)
+        .unwrap_or_else(|_| json!({"status":"timeout"}));
     json!({
         "status":"ok", "keyword":keyword,"region":pref,
-        "demand":demand.map(|response| response.0).unwrap_or_else(|_| timeout_result()),
-        "suggestions":suggestions.map(|response| response.0).unwrap_or_else(|_| timeout_result())
+        "demand":demand,
+        "suggestions":suggestions
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn neighbours_are_filtered_and_ranked() {
+        let s = |t: &str, v: Option<f64>| (t.to_string(), v);
+        let sug = vec![
+            s("製造オペレーター 求人", Some(900.0)),
+            s("求人", Some(50000.0)),
+            s("アルバイト 求人", Some(40000.0)),
+            s("製造 工場", Some(300.0)),
+            s("工場 求人 ハローワーク", Some(8000.0)),
+            s("オペレーター", Some(1200.0)),
+            s("indeed 製造", Some(7000.0)),
+            s("ライン工", Some(0.0)),
+            s("検査員", None),
+            s("機械オペレーター", Some(1200.0)),
+        ];
+        assert_eq!(
+            pick_neighbours("製造オペレーター 求人", &sug),
+            vec!["オペレーター", "機械オペレーター", "製造 工場"]
+        );
+        let many: Vec<_> = (1..=15)
+            .map(|i| (format!("語{i}"), Some(i as f64)))
+            .collect();
+        let picked = pick_neighbours("x", &many);
+        assert_eq!(picked.len(), 9);
+        assert_eq!(picked[0], "語15");
+    }
+
+    #[test]
+    fn suggestion_table_drops_generic_and_site_words() {
+        let mut v = json!({"status":"ok","suggestions":[
+            {"keyword":"求人","avg_monthly":1000},
+            {"keyword":"工場 仕事","avg_monthly":900},
+            {"keyword":"求人ボックス 製造","avg_monthly":800},
+            {"keyword":"製造 派遣","avg_monthly":700}
+        ]});
+        filter_suggestions(&mut v);
+        let words: Vec<_> = v["suggestions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["keyword"].as_str().unwrap())
+            .collect();
+        assert_eq!(words, ["工場 仕事", "製造 派遣"]);
+    }
 
     #[test]
     fn title_is_composed_from_region_and_job_name() {

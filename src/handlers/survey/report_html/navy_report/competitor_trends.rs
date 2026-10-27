@@ -55,6 +55,7 @@ pub(super) fn chart(
         html.push_str(&format!("<path d=\"M85 {y} H876\" stroke=\"#e1e8ec\"/><text x=\"75\" y=\"{}\" font-size=\"14\" text-anchor=\"end\">{}</text>", y+5.0,fmt(step*i as f64)));
     }
     let mut points = Vec::new();
+    let mut hits = String::new();
     let flush = |points: &mut Vec<String>, html: &mut String| {
         if points.len() > 1 {
             html.push_str(&format!(
@@ -70,7 +71,15 @@ pub(super) fn chart(
         if let Some(value) = values[i] {
             let y = 24.0 + 212.0 * (1.0 - value / ymax);
             points.push(format!("{x:.3},{y:.3}"));
-            html.push_str(&format!("<circle cx=\"{x:.3}\" cy=\"{y:.3}\" r=\"4\" fill=\"white\" stroke=\"{color}\" stroke-width=\"2\" data-month=\"{month}\" data-value=\"{value}\"><title>{month}：{} {}</title></circle>",fmt(value),escape_html(unit)));
+            html.push_str(&format!("<circle cx=\"{x:.3}\" cy=\"{y:.3}\" r=\"4\" fill=\"white\" stroke=\"{color}\" stroke-width=\"2\" data-month=\"{month}\" data-value=\"{value}\"/>"));
+            hits.push_str(&super::competitor_keyword_analysis::hover_circle(
+                x,
+                y,
+                if row.0.is_empty() { "—" } else { row.0 },
+                label,
+                &fmt(value),
+                unit,
+            ));
         } else {
             flush(&mut points, html);
         }
@@ -81,6 +90,7 @@ pub(super) fn chart(
         }
     }
     flush(&mut points, html);
+    html.push_str(&hits);
     html.push_str("</svg></div></figure>");
 }
 
@@ -101,7 +111,8 @@ mod tests {
         assert!(html.contains("cx=\"876.000\" cy=\"24.000\""));
         assert!(!html.contains("polyline"));
         assert!(!html.contains("<test>"));
-        assert_eq!(html.matches("<circle").count(), 2);
+        assert_eq!(html.matches("<circle").count(), 4);
+        assert!(html.contains("<title>2026-03　&lt;test&gt;: 4件</title>"));
     }
 
     #[test]
