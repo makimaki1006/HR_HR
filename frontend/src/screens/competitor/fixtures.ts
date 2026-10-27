@@ -261,6 +261,32 @@ export function makePopularitySplit(): PopularitySplit {
       tags_more: [{ tag: '学歴不問', n: 67, before: 16.3, after: 15.1 }],
       tags_less: [{ tag: '寮完備', n: 8, before: -4.2, after: null }],
     },
+    reach: {
+      open_words: ['学歴不問', '未経験者歓迎', 'ブランクOK', 'フリーター歓迎', '第二新卒歓迎'],
+      min_band_n: 30,
+      bands: [
+        { label: 'なし', n: 200, popular: 50, super_popular: 8, n_share_pct: 61.5, popular_share_pct: 47.2, rate_pct: 25 },
+        { label: '1つ', n: 45, popular: 14, super_popular: 3, n_share_pct: 13.8, popular_share_pct: 13.2, rate_pct: 31.1 },
+        { label: '2つ以上', n: 80, popular: 42, super_popular: 9, n_share_pct: 24.6, popular_share_pct: 39.6, rate_pct: 52.5 },
+      ],
+      strata: [
+        { label: '0〜3個', without_open: { n: 120, popular: 20, rate_pct: 16.7 }, with_open: { n: 0, popular: 0, rate_pct: null } },
+        { label: '4〜6個', without_open: { n: 60, popular: 16, rate_pct: 26.7 }, with_open: { n: 50, popular: 29, rate_pct: 58 } },
+        { label: '7個以上', without_open: { n: 20, popular: 5, rate_pct: 25 }, with_open: { n: 75, popular: 27, rate_pct: 36 } },
+      ],
+      band_tags: [
+        {
+          label: 'なし',
+          n: 200,
+          popular: 50,
+          shown: true,
+          more: [{ tag: '長期休暇あり', n: 40, diff: 12.5 }],
+          less: [{ tag: '昇給あり', n: 30, diff: -8.3 }],
+        },
+        { label: '1つ', n: 45, popular: 14, shown: true, more: [], less: [] },
+        { label: '2つ以上', n: 25, popular: 10, shown: false, more: [], less: [] },
+      ],
+    },
     salary: {
       popular_median: 220000,
       popular_n: 106,

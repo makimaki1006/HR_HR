@@ -101,6 +101,67 @@ pub struct TagSection {
     pub count_buckets: Vec<Bucket>,
 }
 
+/// 対象の広さ (間口を広げる語の数で分けた帯)。割合は 0〜100。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReachBand {
+    pub label: String,
+    pub n: u32,
+    pub popular: u32,
+    pub super_popular: u32,
+    /// 全求人に占める割合。
+    pub n_share_pct: f64,
+    /// 人気・超人気全体に占める割合 (絶対数の貢献)。
+    pub popular_share_pct: f64,
+    /// この帯の人気率。求人 0 件なら None。
+    pub rate_pct: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReachCell {
+    pub n: u32,
+    pub popular: u32,
+    pub rate_pct: Option<f64>,
+}
+
+/// 間口を広げる語以外のタグの数の層ごとの、間口を広げる語の有無の比較。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReachStratum {
+    pub label: String,
+    pub without_open: ReachCell,
+    pub with_open: ReachCell,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReachTagGap {
+    pub tag: String,
+    /// 帯の中でこのタグが付く求人数。
+    pub n: u32,
+    /// 帯の人気求人でのタグの割合 − 帯の全体でのタグの割合 (0〜100 の差)。
+    pub diff: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReachBandTags {
+    pub label: String,
+    pub n: u32,
+    pub popular: u32,
+    /// 求人数が足りない帯は false (表を出さない)。
+    pub shown: bool,
+    pub more: Vec<ReachTagGap>,
+    pub less: Vec<ReachTagGap>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReachSection {
+    /// 間口を広げる語の一覧。
+    pub open_words: Vec<String>,
+    /// この求人数に満たない帯は条件タグの差を出さない。
+    pub min_band_n: u32,
+    pub bands: Vec<ReachBand>,
+    pub strata: Vec<ReachStratum>,
+    pub band_tags: Vec<ReachBandTags>,
+}
+
 /// 会社の影響の判定。決まりの値はここ 1 か所。
 const BIAS_MIN_DIFF: f64 = 2.0;
 const BIAS_MIN_Z: f64 = 2.0;
@@ -179,12 +240,27 @@ pub struct PopularitySplit {
     pub super_recent: Option<SuperRecent>,
     pub companies: CompanySection,
     pub company_bias: CompanyBias,
+    pub reach: ReachSection,
     pub salary: SalarySection,
     pub tags: TagSection,
     pub writing: Vec<Group>,
     pub clarity: Vec<Bucket>,
     pub work_style: Vec<Bucket>,
 }
+
+/// 間口を広げる語 (応募できる人の範囲を広げるタグ)。変えるときはここだけ。
+pub(crate) const OPEN_WORDS: [&str; 5] = [
+    "学歴不問",
+    "未経験者歓迎",
+    "ブランクOK",
+    "フリーター歓迎",
+    "第二新卒歓迎",
+];
+const REACH_MIN_BAND_N: u32 = 30;
+const REACH_TAG_MIN_N: u32 = 3;
+const REACH_TAG_ROWS: usize = 5;
+const REACH_BANDS: [&str; 3] = ["なし", "1つ", "2つ以上"];
+const REACH_STRATA: [&str; 3] = ["0〜3個", "4〜6個", "7個以上"];
 
 const AGE_FRESH: &str = "0〜14日";
 const AGE_MID: &str = "15〜29日";
@@ -861,6 +937,152 @@ fn salary(items: &[Item]) -> SalarySection {
     }
 }
 
+fn cell(items: &[&Item]) -> ReachCell {
+    let n = items.len() as u32;
+    let popular = items.iter().filter(|i| i.popular).count() as u32;
+    ReachCell {
+        n,
+        popular,
+        rate_pct: (n > 0).then(|| pct(popular as usize, n as usize)),
+    }
+}
+
+fn open_count(it: &Item) -> usize {
+    it.cond
+        .iter()
+        .filter(|t| OPEN_WORDS.contains(&t.as_str()))
+        .count()
+}
+
+fn band_index(open: usize) -> usize {
+    open.min(2)
+}
+
+/// 帯の中で、人気求人での割合 − 全体の割合 が大きい / 小さい条件タグ (間口を広げる語は除く)。
+fn reach_tag_gaps(items: &[&Item]) -> (Vec<ReachTagGap>, Vec<ReachTagGap>) {
+    let n = items.len();
+    let pop = items.iter().filter(|i| i.popular).count();
+    if n == 0 || pop == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let mut m: BTreeMap<&str, (u32, u32)> = BTreeMap::new();
+    for it in items {
+        for t in &it.cond {
+            if OPEN_WORDS.contains(&t.as_str()) {
+                continue;
+            }
+            let e = m.entry(t.as_str()).or_default();
+            e.0 += 1;
+            e.1 += it.popular as u32;
+        }
+    }
+    let mut v: Vec<ReachTagGap> = m
+        .into_iter()
+        .filter(|(_, (c, _))| *c >= REACH_TAG_MIN_N)
+        .map(|(t, (c, p))| ReachTagGap {
+            tag: t.to_owned(),
+            n: c,
+            diff: pct(p as usize, pop) - pct(c as usize, n),
+        })
+        .collect();
+    v.sort_by(|a, b| {
+        b.diff
+            .total_cmp(&a.diff)
+            .then(b.n.cmp(&a.n))
+            .then_with(|| a.tag.cmp(&b.tag))
+    });
+    let more: Vec<ReachTagGap> = v
+        .iter()
+        .filter(|g| g.diff > 0.0)
+        .take(REACH_TAG_ROWS)
+        .cloned()
+        .collect();
+    let mut less: Vec<ReachTagGap> = v
+        .into_iter()
+        .rev()
+        .filter(|g| g.diff < 0.0)
+        .take(REACH_TAG_ROWS)
+        .collect();
+    less.sort_by(|a, b| {
+        a.diff
+            .total_cmp(&b.diff)
+            .then(b.n.cmp(&a.n))
+            .then_with(|| a.tag.cmp(&b.tag))
+    });
+    (more, less)
+}
+
+fn reach(items: &[Item]) -> ReachSection {
+    let total = items.len();
+    let popular = items.iter().filter(|i| i.popular).count();
+    let mut by_band: [Vec<&Item>; 3] = Default::default();
+    let mut strata: [[Vec<&Item>; 2]; 3] = Default::default();
+    for it in items {
+        let open = open_count(it);
+        by_band[band_index(open)].push(it);
+        let others = it.cond.len() - open;
+        let s = match others {
+            0..=3 => 0,
+            4..=6 => 1,
+            _ => 2,
+        };
+        strata[s][(open > 0) as usize].push(it);
+    }
+    let bands = by_band
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let c = cell(v);
+            ReachBand {
+                label: REACH_BANDS[i].to_owned(),
+                n: c.n,
+                popular: c.popular,
+                super_popular: v.iter().filter(|x| x.sup).count() as u32,
+                n_share_pct: pct(v.len(), total),
+                popular_share_pct: pct(c.popular as usize, popular),
+                rate_pct: c.rate_pct,
+            }
+        })
+        .collect();
+    let strata = strata
+        .iter()
+        .enumerate()
+        .map(|(i, [w, o])| ReachStratum {
+            label: REACH_STRATA[i].to_owned(),
+            without_open: cell(w),
+            with_open: cell(o),
+        })
+        .collect();
+    let band_tags = by_band
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let c = cell(v);
+            let shown = c.n >= REACH_MIN_BAND_N;
+            let (more, less) = if shown {
+                reach_tag_gaps(v)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+            ReachBandTags {
+                label: REACH_BANDS[i].to_owned(),
+                n: c.n,
+                popular: c.popular,
+                shown,
+                more,
+                less,
+            }
+        })
+        .collect();
+    ReachSection {
+        open_words: OPEN_WORDS.iter().map(|w| (*w).to_owned()).collect(),
+        min_band_n: REACH_MIN_BAND_N,
+        bands,
+        strata,
+        band_tags,
+    }
+}
+
 /// 人気の分かれ方を集計する。Indeed (SP) 由来の求人が無ければ None。
 pub fn compute(records: &[SurveyRecord]) -> Option<PopularitySplit> {
     let items: Vec<Item> = records
@@ -976,6 +1198,7 @@ pub fn compute(records: &[SurveyRecord]) -> Option<PopularitySplit> {
         super_recent: super_recent(&items),
         companies: companies(&items),
         company_bias: company_bias(&items),
+        reach: reach(&items),
         salary: salary(&items),
         tags: TagSection {
             welfare: tag_stats(&all_refs, &WELFARE_KEYS),
@@ -1413,5 +1636,143 @@ mod tests {
         let b = compute(&recs).unwrap().company_bias;
         eprintln!("{b:#?}");
         assert_eq!((b.total, b.popular), (322, 105));
+    }
+
+    // ---- 対象の広さ ----
+
+    fn many(tags: &str, n: usize) -> Vec<SurveyRecord> {
+        (0..n)
+            .map(|_| rec("A", "", "月給20万円", tags, Some((1, false))))
+            .collect()
+    }
+
+    #[test]
+    fn reach_band_boundaries_and_shares() {
+        // 0 語: 4 件 (人気 1)、1 語: 3 件 (人気 1)、2 語: 2 件 (人気 2)、3 語: 1 件 (超人気)
+        let mut v = many("休暇あり", 3);
+        v.extend(many("人気,休暇あり", 1));
+        v.extend(many("学歴不問", 2));
+        v.extend(many("人気,学歴不問", 1));
+        v.extend(many("人気,学歴不問,ブランクOK", 1));
+        v.extend(many("超人気,学歴不問,ブランクOK", 1));
+        v.extend(many("超人気,学歴不問,ブランクOK,未経験者歓迎", 1));
+        let r = compute(&v).unwrap().reach;
+        assert_eq!(r.bands.len(), 3);
+        let b: Vec<_> = r
+            .bands
+            .iter()
+            .map(|x| (x.label.as_str(), x.n, x.popular, x.super_popular))
+            .collect();
+        assert_eq!(
+            b,
+            vec![("なし", 4, 1, 0), ("1つ", 3, 1, 0), ("2つ以上", 3, 3, 2)]
+        );
+        assert!((r.bands[0].n_share_pct - 40.0).abs() < 1e-9);
+        assert!((r.bands[2].popular_share_pct - 60.0).abs() < 1e-9);
+        assert_eq!(r.bands[2].rate_pct, Some(100.0));
+        // 人気・超人気・新着は条件タグに数えない: 1 求人 1 回
+        assert_eq!(r.open_words.len(), 5);
+    }
+
+    #[test]
+    fn reach_without_popular_has_no_gaps_and_zero_share() {
+        let v = many("休暇あり,昇給あり", 40);
+        let r = compute(&v).unwrap().reach;
+        assert_eq!(r.bands[0].popular, 0);
+        assert_eq!(r.bands[0].popular_share_pct, 0.0);
+        assert!(r.band_tags[0].shown);
+        assert!(r.band_tags[0].more.is_empty() && r.band_tags[0].less.is_empty());
+        assert_eq!(r.bands[1].n, 0);
+        assert_eq!(r.bands[1].rate_pct, None);
+    }
+
+    #[test]
+    fn reach_strata_counts_exclude_open_words() {
+        // 他タグ 4 個 + 間口 1 語 → 4〜6 層の「あり」。他タグ 0 個で間口 0 → 0〜3 層の「なし」。
+        let mut v = many("人気,休暇あり,昇給あり,賞与あり,保険あり,学歴不問", 2);
+        v.extend(many("休暇あり,昇給あり,賞与あり,保険あり,学歴不問", 2));
+        v.extend(many("", 3));
+        let r = compute(&v).unwrap().reach;
+        let s0 = &r.strata[0];
+        assert_eq!((s0.without_open.n, s0.without_open.popular), (3, 0));
+        assert_eq!(s0.with_open.n, 0);
+        assert_eq!(s0.with_open.rate_pct, None);
+        let s1 = &r.strata[1];
+        assert_eq!((s1.with_open.n, s1.with_open.popular), (4, 2));
+        assert_eq!(s1.with_open.rate_pct, Some(50.0));
+        assert_eq!(s1.without_open.n, 0);
+        assert_eq!(r.strata[2].with_open.n + r.strata[2].without_open.n, 0);
+    }
+
+    #[test]
+    fn reach_tag_gaps_only_for_big_bands() {
+        // 「なし」帯 30 件: 人気 10 件が全部「休暇あり」、全体では 20 件が「休暇あり」
+        let mut v = many("人気,休暇あり", 10);
+        v.extend(many("休暇あり", 10));
+        v.extend(many("昇給あり", 10));
+        // 「1つ」帯は 29 件で出さない
+        v.extend(many("学歴不問", 29));
+        let r = compute(&v).unwrap().reach;
+        let b0 = &r.band_tags[0];
+        assert!(b0.shown);
+        assert_eq!((b0.n, b0.popular), (30, 10));
+        let k = b0.more.iter().find(|g| g.tag == "休暇あり").unwrap();
+        assert_eq!(k.n, 20);
+        // 100% − 20/30 = 33.33
+        assert!((k.diff - (100.0 - 100.0 * 20.0 / 30.0)).abs() < 1e-9);
+        let u = b0.less.iter().find(|g| g.tag == "昇給あり").unwrap();
+        assert_eq!(u.n, 10);
+        assert!((u.diff + 100.0 / 3.0).abs() < 1e-9);
+        let b1 = &r.band_tags[1];
+        assert!(!b1.shown);
+        assert_eq!(b1.n, 29);
+        assert!(b1.more.is_empty() && b1.less.is_empty());
+    }
+
+    #[test]
+    fn reach_tag_gap_needs_three_and_skips_open_words() {
+        let mut v = many("人気,休暇あり,寮完備", 2);
+        v.extend(many("昇給あり", 28));
+        let r = compute(&v).unwrap().reach;
+        let b0 = &r.band_tags[0];
+        assert!(b0.shown);
+        // 休暇あり・寮完備は 2 件なので出ない
+        assert!(b0.more.is_empty());
+        assert_eq!(b0.less.len(), 1);
+        assert_eq!(b0.less[0].tag, "昇給あり");
+    }
+
+    #[test]
+    fn reach_json_has_no_titles() {
+        let json =
+            serde_json::to_string(&compute(&many("人気,学歴不問", 40)).unwrap().reach).unwrap();
+        assert!(!json.contains("秘密のタイトル"));
+    }
+
+    /// 実 CSV で試算値が再現するか (cargo test --lib real_csv_reach -- --ignored --nocapture)。
+    #[test]
+    #[ignore]
+    fn real_csv_reach() {
+        let path = "/Users/s_fujimaki/Downloads/indeed-2026-10-26.csv";
+        let Ok(bytes) = std::fs::read(path) else {
+            return;
+        };
+        let recs = parse_csv_bytes_with_hints(&bytes, None, UserSourceHint::Auto).unwrap();
+        let r = compute(&recs).unwrap().reach;
+        eprintln!("{r:#?}");
+        let b: Vec<_> = r.bands.iter().map(|x| (x.n, x.popular)).collect();
+        assert_eq!(b[0].0, 203);
+        assert_eq!(b[1].0, 42);
+        assert_eq!(b[2].0, 77);
+        let rate = |i: usize| r.bands[i].rate_pct.unwrap().round() as i64;
+        assert_eq!((rate(0), rate(1), rate(2)), (25, 31, 55));
+        let st = |i: usize| {
+            (
+                r.strata[i].without_open.rate_pct.map(|x| x.round() as i64),
+                r.strata[i].with_open.rate_pct.map(|x| x.round() as i64),
+            )
+        };
+        assert_eq!(st(1), (Some(27), Some(58)));
+        assert_eq!(st(2), (Some(26), Some(45)));
     }
 }
