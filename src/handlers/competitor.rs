@@ -373,6 +373,7 @@ async fn collect_context(
     let title = req.market_title.clone();
     let region_state = state.clone();
     let keyword_state = state.clone();
+    let market_db_state = state.clone();
     let region_pref = pref.clone();
     let region_task =
         tokio::task::spawn_blocking(move || population_context(&region_state, &region_pref));
@@ -401,7 +402,22 @@ async fn collect_context(
     }
     let keyword = google_keyword(req);
     let google = if req.include_google && !keyword.is_empty() {
-        google_context(&keyword, &pref, tracker).await
+        let mut google = google_context(&keyword, &pref, tracker).await;
+        if google["season_source"].is_object() {
+            let market_state = market_db_state.clone();
+            let market = tokio::task::spawn_blocking(move || {
+                market_state
+                    .indeed_db
+                    .as_ref()
+                    .and_then(|db| crate::indeed::season::load(db).ok())
+                    .and_then(|list| crate::indeed::season::market_calendar(&list))
+            })
+            .await
+            .ok()
+            .flatten();
+            attach_season_context(&mut google, market);
+        }
+        google
     } else {
         json!({"status":"not_requested", "message":"検索需要を取得するには検索語を指定し、Google広告APIの取得を選択してください。"})
     };
@@ -662,15 +678,83 @@ async fn google_context(keyword: &str, pref: &str, tracker: &Tracker) -> Value {
                 return json!({"status":"error", "message":"検索条件を読み取れませんでした。"})
             }
         };
-    let demand = tokio::time::timeout(timeout, keywords_endpoint(Query(demand)))
-        .await
-        .map(|response| response.0)
-        .unwrap_or_else(|_| json!({"status":"timeout"}));
-    json!({
+    // 暦月の型 (全国) 用の値。地域指定ありのときだけ、全国の取得 (1 語・1 回) を並行して足す。
+    let national_demand: Option<KeywordsQuery> = (!pref.is_empty())
+        .then(|| {
+            serde_json::from_value(json!({
+                "kw": keyword.replace([',', '\n'], " "),
+                "months": 48
+            }))
+            .ok()
+        })
+        .flatten();
+    let national_call = async {
+        match national_demand {
+            Some(q) => tokio::time::timeout(timeout, keywords_endpoint(Query(q)))
+                .await
+                .map(|response| response.0)
+                .ok(),
+            None => None,
+        }
+    };
+    let (demand, national) = tokio::join!(
+        async {
+            tokio::time::timeout(timeout, keywords_endpoint(Query(demand)))
+                .await
+                .map(|response| response.0)
+                .unwrap_or_else(|_| json!({"status":"timeout"}))
+        },
+        national_call
+    );
+    let national_source = if pref.is_empty() {
+        Some(&demand)
+    } else {
+        national.as_ref()
+    };
+    let season_source = national_source.and_then(|d| national_seed_months(d, keyword));
+    let mut out = json!({
         "status":"ok", "keyword":keyword,"region":pref,
         "demand":demand,
         "suggestions":suggestions
-    })
+    });
+    if let Some(months) = season_source {
+        out["season_source"] = json!({"keyword": keyword, "months": months});
+    }
+    out
+}
+
+/// 全国の `keywords_endpoint` の応答から、主語の検索語の月次 (`[{month, search_volume}]`) を取り出す。
+/// 応答が ok でない・主語が見つからない・月が無いときは None。
+fn national_seed_months(demand: &Value, seed: &str) -> Option<Value> {
+    if demand["status"] != "ok" || !demand["region"].is_null() {
+        return None;
+    }
+    let compact = |t: &str| t.split_whitespace().collect::<String>();
+    let seed_key = compact(seed);
+    let row = demand["keywords"].as_array()?.iter().find(|row| {
+        row["keyword"]
+            .as_str()
+            .is_some_and(|k| compact(k) == seed_key)
+    })?;
+    let months = row["monthly_12m"].as_array()?;
+    (!months.is_empty()).then(|| Value::Array(months.clone()))
+}
+
+/// 今の月 (JST、1〜12)。
+fn jst_month() -> u32 {
+    use chrono::Datelike;
+    (chrono::Utc::now() + chrono::Duration::hours(9)).month()
+}
+
+/// 暦月の型に、今の月と市場全体の型 (ローカル DB の職種ごとの月次をならしたもの) を足す。
+fn attach_season_context(google: &mut Value, market: Option<([f64; 12], usize)>) {
+    if !google["season_source"].is_object() {
+        return;
+    }
+    google["season_source"]["current_month"] = json!(jst_month());
+    if let Some((months, n)) = market {
+        google["season_source"]["market"] = json!({"months": months, "n_series": n});
+    }
 }
 
 #[cfg(test)]

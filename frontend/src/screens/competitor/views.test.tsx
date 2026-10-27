@@ -240,6 +240,7 @@ const googleOk = (demand: GoogleDemand, suggestions: GoogleSuggestions, region =
   region,
   demand,
   suggestions,
+  season: null,
 });
 const DEMAND_OK: GoogleDemand = {
   status: 'ok',

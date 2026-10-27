@@ -1,6 +1,9 @@
 import type { GoogleKeyword } from '../../../generated/GoogleKeyword';
 import type { GoogleSection } from '../../../generated/GoogleSection';
+import type { GoogleSeason } from '../../../generated/GoogleSeason';
 import { MultiLineChart } from '../charts/MultiLineChart';
+import { SeasonChart } from '../charts/SeasonChart';
+import type { SeasonLineInput } from '../charts/seasonLayout';
 import { fixed, fmtInt, fmtNumber, MISSING } from '../format';
 import { allMonths, keywordLines, monthYearPivot, summarize, yearOverlay } from '../googleStats';
 
@@ -22,7 +25,7 @@ export function GoogleTab({ data }: { data: GoogleSection }) {
 }
 
 function GoogleBody({ data }: { data: Extract<GoogleSection, { status: 'ok' }> }) {
-  const { keyword, region, demand, suggestions } = data;
+  const { keyword, region, demand, suggestions, season } = data;
   return (
     <>
       <p>
@@ -38,6 +41,7 @@ function GoogleBody({ data }: { data: Extract<GoogleSection, { status: 'ok' }> }
             <p className="cmp-note">取得地域: {demand.region_name}</p>
           )}
           <DemandView keywords={demand.keywords} />
+          {season !== null && <SeasonBlock s={season} />}
         </>
       ) : (
         <p className="cmp-note">{DEMAND_FAILED}</p>
@@ -75,6 +79,88 @@ function GoogleBody({ data }: { data: Extract<GoogleSection, { status: 'ok' }> }
         </>
       )}
     </>
+  );
+}
+
+/** 「暦月の型（全国）」。言えるときは職種の型を主に、言えないときは市場全体の型を主にする。 */
+function SeasonBlock({ s }: { s: GoogleSeason }) {
+  const googleLines: SeasonLineInput[] = s.months.map((m) => ({
+    month: m.month,
+    mean: m.mean,
+    range: [m.min, m.max],
+  }));
+  const market = s.market;
+  const marketLines: SeasonLineInput[] =
+    market === null ? [] : market.months.map((m) => ({ month: m.month, mean: m.mean, range: null }));
+  return (
+    <div id="competitor-google-season">
+      <div className="cmp-block-title">暦月の型（全国）</div>
+      <p className="cmp-note">
+        {s.keyword} の全国の検索数。完全な年（12 か月そろった年）{s.full_years.length} 年分から、年平均を 100 とした暦月の指数を出しています。
+      </p>
+      <p>
+        <strong>{s.headline}</strong>
+      </p>
+      {s.caveat !== null && <p className="cmp-note">{s.caveat}</p>}
+      {!s.reliable && market !== null && (
+        <>
+          <p>
+            {market.headline}（{market.n_series} 職種の平均）
+          </p>
+          <SeasonChart
+            label="職種全体の暦月の型"
+            lineName="職種全体の平均"
+            color="#5b6770"
+            lines={marketLines}
+            currentMonth={s.current_month}
+            indeed={null}
+          />
+        </>
+      )}
+      <SeasonChart
+        label={s.reliable ? `${s.keyword}：暦月の型` : `${s.keyword}：暦月の指数（参考）`}
+        lineName="Google 検索数の平均"
+        color="#007d79"
+        lines={googleLines}
+        currentMonth={s.current_month}
+        indeed={s.indeed}
+      />
+      {s.indeed !== null && (
+        <>
+          <p className="cmp-note">{s.indeed.span_note}</p>
+          <p className="cmp-note">{s.indeed.shift_note}</p>
+        </>
+      )}
+      {s.reliable && s.next_three.length > 0 && (
+        <table className="cmp-table">
+          <thead>
+            <tr>
+              <th>月</th>
+              <th>年平均比</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.current_index !== null && (
+              <tr>
+                <td>{s.current_month}月（今月）</td>
+                <td className="cmp-num">{Math.round(s.current_index)}</td>
+              </tr>
+            )}
+            {s.next_three.map((n) => (
+              <tr key={n.month}>
+                <td>{n.month}月</td>
+                <td className="cmp-num">{Math.round(n.index)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {s.reliable && market !== null && (
+        <p className="cmp-note">
+          {market.headline}（{market.n_series} 職種の平均）
+        </p>
+      )}
+    </div>
   );
 }
 

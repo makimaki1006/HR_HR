@@ -16,6 +16,7 @@ use super::competitor_consultation::{self, ConsultationSection};
 use super::competitor_keyword_analysis::{self, KeywordAnalysis};
 use super::competitor_keywords::{self, KeywordComparison};
 use super::competitor_population::{self, PopulationShares};
+use super::competitor_season;
 use super::competitor_tag_usage::{self, TagUsage};
 use super::section_05b_competitor::head_tag_counts;
 use crate::handlers::survey::aggregator::{BoundStats, SurveyAggregation};
@@ -137,7 +138,106 @@ pub enum GoogleSection {
         region: String,
         demand: GoogleDemand,
         suggestions: GoogleSuggestions,
+        /// 暦月の型 (全国)。検索語が空・全国の値を取れなかったときは null。
+        season: Option<GoogleSeason>,
     },
+}
+
+/// 主語の検索語 1 本・全国・完全な年だけで作る暦月の型。
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct GoogleSeason {
+    pub keyword: String,
+    /// 常に "全国"。
+    pub scope: String,
+    /// 全国の月平均 (取れた月の平均)。
+    pub monthly_avg: Option<f64>,
+    /// 使った完全な年 (その年の 12 か月がすべて数値)。
+    pub full_years: Vec<i32>,
+    /// 暦月 1〜12 の指数 (年平均 100)。完全な年が無いときは空。
+    pub months: Vec<SeasonMonth>,
+    /// 「この職種は○月ごろに多い」と言ってよいか (3 条件すべて)。
+    pub reliable: bool,
+    pub headline: String,
+    /// 言えないときの理由。言えるときは null。
+    pub caveat: Option<String>,
+    pub peak_month: Option<u32>,
+    pub low_month: Option<u32>,
+    /// 今の月の次の 3 か月 (年平均比の指数)。
+    pub next_three: Vec<SeasonNext>,
+    /// 今の月 (JST)。
+    pub current_month: u32,
+    pub current_index: Option<f64>,
+    pub market: Option<MarketSeason>,
+    /// Indeed の暦月の指数 (年ごとの点)。Indeed が取れていないときは null。
+    pub indeed: Option<IndeedSeason>,
+}
+
+/// Indeed の閲覧数・求人数を、系列の全期間の平均を 100 とした指数にして暦月に振り分けたもの。
+/// 同じ暦月が複数あるときは平均せず、年ごとの点として持つ。
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct IndeedSeason {
+    pub series: Vec<IndeedSeries>,
+    /// 値のある月の範囲 "YYYY-MM"。
+    pub first_month: String,
+    pub last_month: String,
+    /// 値のある月の数 (閲覧数・求人数のどちらかがある月)。
+    pub n_months: u32,
+    /// 暦月 1〜12 ごとの点数 (閲覧数・求人数のうち多い方)。
+    pub points_per_month: Vec<u32>,
+    /// グラフの下の事実の 1 文。
+    pub span_note: String,
+    /// 24 か月以上あるときだけ山の月の差。未満は表示の予告文。
+    pub shift_note: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct IndeedSeries {
+    /// "閲覧数" か "求人数"。
+    pub label: String,
+    pub points: Vec<IndeedPoint>,
+    /// 24 か月以上あるときだけ。暦月ごとの点の平均が最大の月。
+    pub peak_month: Option<u32>,
+    /// Google の山の月との差 (か月、−5〜+6、円環)。24 か月以上で Google の型が言えるときだけ。
+    pub shift_from_google: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct IndeedPoint {
+    pub month: u32,
+    pub year: i32,
+    /// 系列の全期間の平均を 100 とした値。
+    pub index: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct SeasonMonth {
+    pub month: u32,
+    /// 完全な年の指数の平均。
+    pub mean: f64,
+    pub min: f64,
+    pub max: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct SeasonNext {
+    pub month: u32,
+    pub index: f64,
+}
+
+/// 市場全体 (職種をならした) の暦月の型。
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct MarketSeason {
+    pub months: Vec<MarketMonth>,
+    pub n_series: u32,
+    pub peak_month: Option<u32>,
+    pub low_month: Option<u32>,
+    pub headline: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct MarketMonth {
+    pub month: u32,
+    pub mean: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -286,8 +386,21 @@ pub(crate) fn build_competitor_report(
     population: &Value,
 ) -> CompetitorReport {
     let (head, denom) = head_tag_counts(agg, top_n);
-    let google = google_section(google);
+    let mut google = google_section(google);
     let indeed = indeed_section(indeed);
+    if let (
+        GoogleSection::Ok {
+            season: Some(season),
+            ..
+        },
+        IndeedSection::Ok { rows, .. },
+    ) = (&mut google, &indeed)
+    {
+        season.indeed = competitor_season::indeed_overlay(
+            rows,
+            season.reliable.then_some(season.peak_month).flatten(),
+        );
+    }
     let population = population_section(population);
     let external = competitor_consultation::ExternalAvailability {
         google_demand: matches!(
@@ -539,6 +652,7 @@ pub(super) fn google_section(data: &Value) -> GoogleSection {
             region: s(data, "region"),
             demand: google_demand(&data["demand"]),
             suggestions: google_suggestions(&data["suggestions"]),
+            season: super::competitor_season::from_value(&data["season_source"]),
         },
         Some("not_requested") => GoogleSection::NotRequested {
             message: s(data, "message"),

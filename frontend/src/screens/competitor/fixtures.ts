@@ -144,6 +144,7 @@ export function makeReport(): CompetitorReport {
           { keyword: '関連語C', avg_monthly: null },
         ],
       },
+      season: null,
     },
     indeed: {
       status: 'ok',

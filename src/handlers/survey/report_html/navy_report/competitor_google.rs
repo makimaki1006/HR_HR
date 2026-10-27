@@ -5,7 +5,10 @@ use std::collections::BTreeMap;
 
 use super::common::push_page_head;
 use super::competitor_keyword_analysis::multi_line_chart;
-use super::competitor_model::{GoogleDemand, GoogleKeyword, GoogleSection, GoogleSuggestions};
+use super::competitor_model::{
+    GoogleDemand, GoogleKeyword, GoogleSeason, GoogleSection, GoogleSuggestions, IndeedSeason,
+    MarketSeason,
+};
 use crate::handlers::helpers::{escape_html, format_number};
 
 /// 検索語ごとの要約。`yoy_pct` は直近 12 か月とその前の 12 か月の両方が全て数値のときだけ。
@@ -151,7 +154,7 @@ pub(super) fn render_google(html: &mut String, data: &GoogleSection) {
         "月間検索数と推移",
     );
     html.push_str("<p class=\"note\">出典：Google広告 Keyword Planner API｜検索数は推定値。広告競合度は広告主間の競合です。</p>");
-    let (keyword, region, demand, suggestions) = match data {
+    let (keyword, region, demand, suggestions, season) = match data {
         GoogleSection::NotRequested { message } | GoogleSection::Error { message } => {
             html.push_str(&format!("<p>{}</p></section>", escape_html(message)));
             return;
@@ -161,7 +164,8 @@ pub(super) fn render_google(html: &mut String, data: &GoogleSection) {
             region,
             demand,
             suggestions,
-        } => (keyword, region, demand, suggestions),
+            season,
+        } => (keyword, region, demand, suggestions, season),
     };
     html.push_str(&format!(
         "<p>検索語: {} / 指定地域: {}</p>",
@@ -188,6 +192,9 @@ pub(super) fn render_google(html: &mut String, data: &GoogleSection) {
             None => {}
         }
         render_demand(html, keyword, keywords);
+        if let Some(season) = season {
+            render_season(html, season);
+        }
     } else {
         // 外部APIの生エラーは資格情報を含む可能性があるので本文に転記しない。
         html.push_str("<p class=\"note\">Google検索需要を取得できませんでした。</p>");
@@ -285,6 +292,306 @@ fn render_demand(html: &mut String, seed: &str, keywords: &[GoogleKeyword]) {
         html.push_str("</tr>");
     }
     html.push_str("</tbody></table>");
+}
+
+/// 季節の型の折れ線 1 本分 (暦月 1〜12)。`range` は年ごとの最小〜最大 (市場全体は無し)。
+struct SeasonLine {
+    month: u32,
+    mean: f64,
+    range: Option<(f64, f64)>,
+}
+
+const IDX_LEFT: f64 = 85.0;
+const IDX_W: f64 = 791.0;
+const IDX_TOP: f64 = 24.0;
+const IDX_H: f64 = 180.0;
+
+/// 暦月 1〜12 の指数 (年平均 100) の折れ線・最小〜最大の帯・今の月の印。Indeed の点は線でつながない。
+fn season_chart(
+    html: &mut String,
+    label: &str,
+    line_name: &str,
+    color: &str,
+    lines: &[SeasonLine],
+    current_month: u32,
+    indeed: Option<&IndeedSeason>,
+) {
+    if lines.is_empty() {
+        return;
+    }
+    let mut lo = 100.0f64;
+    let mut hi = 100.0f64;
+    for l in lines {
+        let (a, b) = l.range.unwrap_or((l.mean, l.mean));
+        lo = lo.min(a).min(l.mean);
+        hi = hi.max(b).max(l.mean);
+    }
+    if let Some(i) = indeed {
+        for s in &i.series {
+            for p in &s.points {
+                lo = lo.min(p.index);
+                hi = hi.max(p.index);
+            }
+        }
+    }
+    let lo = ((lo - 5.0) / 20.0).floor() * 20.0;
+    let hi = ((hi + 5.0) / 20.0).ceil() * 20.0;
+    let lo = lo.max(0.0);
+    let span = (hi - lo).max(20.0);
+    let y_of = |v: f64| IDX_TOP + IDX_H * (1.0 - (v - lo) / span);
+    let x_of = |m: u32| IDX_LEFT + IDX_W * f64::from(m - 1) / 11.0;
+    let height = 300.0;
+    html.push_str(&format!(
+        "<figure class=\"trend-card\"><figcaption>{}</figcaption><div class=\"trend-plot\"><svg viewBox=\"0 0 900 {height}\" role=\"img\" aria-label=\"{}\"><title>{}</title>",
+        escape_html(label), escape_html(label), escape_html(label)
+    ));
+    let mut g = lo;
+    while g <= hi + 0.001 {
+        html.push_str(&format!(
+            "<path d=\"M{IDX_LEFT} {y:.1} H876\" stroke=\"#e1e8ec\"/><text x=\"75\" y=\"{ty:.1}\" font-size=\"14\" text-anchor=\"end\">{}</text>",
+            format_number(g as i64),
+            y = y_of(g),
+            ty = y_of(g) + 5.0
+        ));
+        g += 20.0;
+    }
+    // 今の月の印 (帯)。
+    if (1..=12).contains(&current_month) {
+        let x = x_of(current_month);
+        html.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{IDX_TOP}\" width=\"36\" height=\"{IDX_H}\" fill=\"#f3e9c8\" opacity=\"0.7\"/><text x=\"{x:.1}\" y=\"{:.1}\" font-size=\"13\" text-anchor=\"middle\" fill=\"#8a6d1d\">今月</text>",
+            x - 18.0,
+            IDX_TOP + IDX_H + 36.0
+        ));
+    }
+    // 年平均 100 の基準線。
+    html.push_str(&format!(
+        "<path d=\"M{IDX_LEFT} {y:.1} H876\" stroke=\"#8a949b\" stroke-dasharray=\"5 4\"/>",
+        y = y_of(100.0)
+    ));
+    // 最小〜最大の帯。
+    if lines.iter().all(|l| l.range.is_some()) {
+        let upper: Vec<String> = lines
+            .iter()
+            .map(|l| format!("{:.1},{:.1}", x_of(l.month), y_of(l.range.unwrap().1)))
+            .collect();
+        let lower: Vec<String> = lines
+            .iter()
+            .rev()
+            .map(|l| format!("{:.1},{:.1}", x_of(l.month), y_of(l.range.unwrap().0)))
+            .collect();
+        html.push_str(&format!(
+            "<polygon points=\"{} {}\" fill=\"{color}\" opacity=\"0.16\" stroke=\"none\"/>",
+            upper.join(" "),
+            lower.join(" ")
+        ));
+    }
+    let pts: Vec<String> = lines
+        .iter()
+        .map(|l| format!("{:.1},{:.1}", x_of(l.month), y_of(l.mean)))
+        .collect();
+    html.push_str(&format!(
+        "<polyline points=\"{}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"3\"/>",
+        pts.join(" ")
+    ));
+    let mut hits = String::new();
+    for l in lines {
+        let tip = match l.range {
+            Some((a, b)) => format!(
+                "{}月　年平均比 {}（最小 {}〜最大 {}）",
+                l.month,
+                l.mean.round() as i64,
+                a.round() as i64,
+                b.round() as i64
+            ),
+            None => format!("{}月　年平均比 {}", l.month, l.mean.round() as i64),
+        };
+        hits.push_str(&format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"9\" fill=\"transparent\" stroke=\"none\" pointer-events=\"all\"><title>{}</title></circle>",
+            x_of(l.month),
+            y_of(l.mean),
+            escape_html(&tip)
+        ));
+    }
+    // Indeed の点 (線でつながない)。閲覧数 = ひし形、求人数 = 四角。
+    let mut legend = vec![(line_name.to_owned(), color.to_owned(), 'l')];
+    if let Some(i) = indeed {
+        for (k, s) in i.series.iter().enumerate() {
+            let (c, shape) = if k == 0 {
+                ("#c0504d", 'd')
+            } else {
+                ("#8567a5", 's')
+            };
+            legend.push((format!("Indeed {}", s.label), c.to_owned(), shape));
+            for p in &s.points {
+                let (x, y) = (x_of(p.month), y_of(p.index));
+                let mark = if shape == 'd' {
+                    format!(
+                        "<path d=\"M{x:.1} {:.1} l5.5 5.5 l-5.5 5.5 l-5.5 -5.5 z\" fill=\"{c}\" stroke=\"#fff\" stroke-width=\"1\"/>",
+                        y - 5.5
+                    )
+                } else {
+                    format!(
+                        "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"9\" height=\"9\" fill=\"{c}\" stroke=\"#fff\" stroke-width=\"1\"/>",
+                        x - 4.5,
+                        y - 4.5
+                    )
+                };
+                html.push_str(&mark);
+                hits.push_str(&format!(
+                    "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"9\" fill=\"transparent\" stroke=\"none\" pointer-events=\"all\"><title>{}</title></circle>",
+                    escape_html(&format!(
+                        "{}月 {}年　{} 年平均比 {}",
+                        p.month,
+                        p.year,
+                        s.label,
+                        p.index.round() as i64
+                    ))
+                ));
+            }
+        }
+    }
+    for m in 1..=12u32 {
+        html.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"14\">{m}月</text>",
+            x_of(m),
+            IDX_TOP + IDX_H + 22.0
+        ));
+    }
+    for (k, (name, c, shape)) in legend.iter().enumerate() {
+        let lx = IDX_LEFT + 220.0 * k as f64;
+        let ly = 272.0;
+        let mark = match shape {
+            'l' => format!(
+                "<rect x=\"{lx}\" y=\"{}\" width=\"22\" height=\"4\" fill=\"{c}\"/>",
+                ly - 6.0
+            ),
+            'd' => format!(
+                "<path d=\"M{} {} l5.5 5.5 l-5.5 5.5 l-5.5 -5.5 z\" fill=\"{c}\"/>",
+                lx + 11.0,
+                ly - 10.0
+            ),
+            _ => format!(
+                "<rect x=\"{}\" y=\"{}\" width=\"9\" height=\"9\" fill=\"{c}\"/>",
+                lx + 6.0,
+                ly - 9.0
+            ),
+        };
+        html.push_str(&mark);
+        html.push_str(&format!(
+            "<text x=\"{}\" y=\"{ly}\" font-size=\"14\">{}</text>",
+            lx + 30.0,
+            escape_html(name)
+        ));
+    }
+    html.push_str(&hits);
+    html.push_str("</svg></div><p class=\"note\">縦軸は年平均を 100 とした指数です。</p></figure>");
+}
+
+fn market_lines(m: &MarketSeason) -> Vec<SeasonLine> {
+    m.months
+        .iter()
+        .map(|x| SeasonLine {
+            month: x.month,
+            mean: x.mean,
+            range: None,
+        })
+        .collect()
+}
+
+/// 「暦月の型（全国）」。言えるときは職種の型を主に、言えないときは市場全体の型を主にする。
+fn render_season(html: &mut String, s: &GoogleSeason) {
+    html.push_str("<div class=\"block-title\">暦月の型（全国）</div>");
+    html.push_str(&format!(
+        "<p class=\"note\">{} の全国の検索数。完全な年（12 か月そろった年）{} 年分から、年平均を 100 とした暦月の指数を出しています。</p>",
+        escape_html(&s.keyword),
+        s.full_years.len()
+    ));
+    html.push_str(&format!(
+        "<p><strong>{}</strong></p>",
+        escape_html(&s.headline)
+    ));
+    if let Some(c) = &s.caveat {
+        html.push_str(&format!("<p class=\"note\">{}</p>", escape_html(c)));
+    }
+    let google_lines: Vec<SeasonLine> = s
+        .months
+        .iter()
+        .map(|m| SeasonLine {
+            month: m.month,
+            mean: m.mean,
+            range: Some((m.min, m.max)),
+        })
+        .collect();
+    if !s.reliable {
+        if let Some(m) = &s.market {
+            html.push_str(&format!(
+                "<p>{}（{} 職種の平均）</p>",
+                escape_html(&m.headline),
+                m.n_series
+            ));
+            season_chart(
+                html,
+                "職種全体の暦月の型",
+                "職種全体の平均",
+                "#5b6770",
+                &market_lines(m),
+                s.current_month,
+                None,
+            );
+        }
+    }
+    let caption = if s.reliable {
+        format!("{}：暦月の型", s.keyword)
+    } else {
+        format!("{}：暦月の指数（参考）", s.keyword)
+    };
+    season_chart(
+        html,
+        &caption,
+        "Google 検索数の平均",
+        "#007d79",
+        &google_lines,
+        s.current_month,
+        s.indeed.as_ref(),
+    );
+    if let Some(i) = &s.indeed {
+        html.push_str(&format!(
+            "<p class=\"note\">{}</p>",
+            escape_html(&i.span_note)
+        ));
+        html.push_str(&format!(
+            "<p class=\"note\">{}</p>",
+            escape_html(&i.shift_note)
+        ));
+    }
+    if s.reliable {
+        if !s.next_three.is_empty() {
+            html.push_str("<table class=\"table-navy\"><thead><tr><th>月</th><th>年平均比</th></tr></thead><tbody>");
+            if let Some(v) = s.current_index {
+                html.push_str(&format!(
+                    "<tr><td>{}月（今月）</td><td class=\"num\">{}</td></tr>",
+                    s.current_month,
+                    v.round() as i64
+                ));
+            }
+            for n in &s.next_three {
+                html.push_str(&format!(
+                    "<tr><td>{}月</td><td class=\"num\">{}</td></tr>",
+                    n.month,
+                    n.index.round() as i64
+                ));
+            }
+            html.push_str("</tbody></table>");
+        }
+        if let Some(m) = &s.market {
+            html.push_str(&format!(
+                "<p class=\"note\">{}（{} 職種の平均）</p>",
+                escape_html(&m.headline),
+                m.n_series
+            ));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -419,6 +726,106 @@ mod tests {
         let last12: i64 = (36..48).map(|i| 100 + i).sum();
         assert!(html.contains(&format_number(last12)));
         assert!(html.contains("前年同期比"));
+    }
+
+    fn season_section(base: f64, cur: u32, indeed_months: usize) -> GoogleSection {
+        let mut months = Vec::new();
+        for y in 2022..2026 {
+            for m in 1..=12u32 {
+                let f = match m {
+                    3 => 1.3,
+                    8 => 0.7,
+                    _ => 1.0,
+                };
+                months.push(
+                    serde_json::json!({"month":format!("{y}-{m:02}"),"search_volume":base*f}),
+                );
+            }
+        }
+        let g = serde_json::json!({
+            "status":"ok","keyword":"飲食店 求人","region":"",
+            "demand":{"status":"ok","region":null,"keywords":[]},
+            "suggestions":{"status":"ok","region":null,"suggestions":[]},
+            "season_source":{"keyword":"飲食店 求人","months":months,"current_month":cur,
+                "market":{"months":[100,100,109,100,109,100,100,94,100,100,93,83],"n_series":84}}
+        });
+        let mut section = super::super::competitor_model::google_section(&g);
+        if indeed_months > 0 {
+            let (mut y, mut m) = (2025, 5u32);
+            let rows: Vec<_> = (0..indeed_months)
+                .map(|i| {
+                    let r = super::super::competitor_model::IndeedRow {
+                        month: format!("{y}-{m:02}"),
+                        job: Some(100.0),
+                        ctk: Some(if i == 0 { 200.0 } else { 100.0 }),
+                        emp: None,
+                        spp: None,
+                    };
+                    m += 1;
+                    if m > 12 {
+                        m = 1;
+                        y += 1;
+                    }
+                    r
+                })
+                .collect();
+            if let GoogleSection::Ok {
+                season: Some(s), ..
+            } = &mut section
+            {
+                s.indeed = super::super::competitor_season::indeed_overlay(&rows, None);
+            }
+        }
+        section
+    }
+
+    #[test]
+    fn season_block_reliable_shows_headline_hover_current_month_and_indeed_points() {
+        let mut html = String::new();
+        render_google(&mut html, &season_section(2000.0, 11, 14));
+        assert!(html.contains("暦月の型（全国）"));
+        assert!(html.contains(
+            "例年、3月ごろに最も多く（年平均比 +30%）、8月ごろに最も少ない（年平均比 −30%）。"
+        ));
+        assert!(html.contains("<title>3月　年平均比 130（最小 130〜最大 130）</title>"));
+        assert!(html.contains(">今月</text>"));
+        // 今月 (11 月) の次の 3 か月。
+        assert!(html.contains("<tr><td>11月（今月）</td><td class=\"num\">100</td></tr>"));
+        assert!(html.contains("<tr><td>2月</td><td class=\"num\">100</td></tr>"));
+        // Indeed の点 (2025-05 の閲覧数は年平均比 187) と事実の 1 文、24 か月未満の予告。
+        assert!(html.contains("<title>5月 2025年　閲覧数 年平均比 187</title>"));
+        assert!(html
+            .contains("Indeed は 2025-05〜2026-06 の 14 か月分で、暦月ごとの点数は 1〜2 点です。"));
+        assert!(html.contains("Indeed が 24 か月分たまると"));
+        // 市場全体は 1 行の注記だけ (信頼できるときは主にしない)。
+        assert!(!html.contains("職種全体の暦月の型"));
+        assert!(html.contains("84 職種の平均"));
+    }
+
+    #[test]
+    fn season_block_unreliable_shows_facts_and_market_as_main_without_indeed_line() {
+        let mut html = String::new();
+        render_google(&mut html, &season_section(900.0, 1, 0));
+        assert!(html.contains("時期の型は出せません。（全国の月平均 900 回・完全な年 4 年）"));
+        assert!(!html.contains("ごろに最も多く"));
+        assert!(html.contains("職種全体の暦月の型"));
+        assert!(html.contains("<title>3月　年平均比 109</title>"));
+        // Indeed が無ければ Indeed の線も文も出ない。次の 3 か月の表も出さない。
+        assert!(!html.contains("Indeed"));
+        assert!(!html.contains("（今月）"));
+        assert!(html.ends_with("</section>"));
+    }
+
+    #[test]
+    fn season_block_absent_without_season_source() {
+        let mut html = String::new();
+        render_google(
+            &mut html,
+            &data(serde_json::json!([
+                {"keyword":"製造 求人","avg_monthly":210,"competition":"HIGH","monthly_12m":months_json((2022, 8), 48)}
+            ])),
+        );
+        assert!(!html.contains("暦月の型"));
     }
 
     #[test]
