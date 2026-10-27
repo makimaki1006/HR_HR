@@ -146,6 +146,72 @@ pub fn calendar_index(months: &[&str], values: &[Option<f64>]) -> [Option<f64>; 
     index
 }
 
+/// 1 年ぶんの暦月の指数 (その年の平均を 100 とした値)。
+#[derive(Debug, Clone, PartialEq)]
+pub struct YearIndex {
+    pub year: i32,
+    pub index: [f64; 12],
+}
+
+/// 「完全な年」(その年の 12 か月がすべて数値の年) だけを使い、年ごとに年平均を 100 とした暦月の指数を出す。
+///
+/// 欠けた月がある年・年平均が 0 以下の年は捨てる (部分的な年を混ぜると、入っている月の偏りで指数がずれる)。
+pub fn full_year_indices(months: &[&str], values: &[Option<f64>]) -> Vec<YearIndex> {
+    let mut by_year: std::collections::BTreeMap<i32, [Option<f64>; 12]> = Default::default();
+    for (label, value) in months.iter().zip(values.iter()) {
+        let (Some(m), Some(year)) = (
+            calendar_month(label),
+            label.get(..4).and_then(|y| y.parse::<i32>().ok()),
+        ) else {
+            continue;
+        };
+        by_year.entry(year).or_insert([None; 12])[(m - 1) as usize] =
+            value.filter(|v| v.is_finite() && *v >= 0.0);
+    }
+    by_year
+        .into_iter()
+        .filter_map(|(year, vals)| {
+            let all: Option<Vec<f64>> = vals.iter().copied().collect();
+            let all = all?;
+            let mean = all.iter().sum::<f64>() / 12.0;
+            if mean <= 0.0 {
+                return None;
+            }
+            let mut index = [0.0; 12];
+            for (o, v) in index.iter_mut().zip(all.iter()) {
+                *o = v / mean * 100.0;
+            }
+            Some(YearIndex { year, index })
+        })
+        .collect()
+}
+
+/// 市場全体の暦月の型。職種ごとに [`full_year_indices`] の平均を出し、職種をまたいで平均する。
+/// 完全な年が 3 年以上ある職種だけを使い、10 職種に満たなければ `None`。
+pub fn market_calendar(list: &[TitleSeason]) -> Option<([f64; 12], usize)> {
+    let mut sum = [0.0f64; 12];
+    let mut n = 0usize;
+    for t in list {
+        let months: Vec<&str> = t.months.iter().map(String::as_str).collect();
+        let years = full_year_indices(&months, &t.series);
+        if years.len() < 3 {
+            continue;
+        }
+        for (m, slot) in sum.iter_mut().enumerate() {
+            *slot += years.iter().map(|y| y.index[m]).sum::<f64>() / years.len() as f64;
+        }
+        n += 1;
+    }
+    if n < 10 {
+        return None;
+    }
+    let mut out = [0.0; 12];
+    for (o, s) in out.iter_mut().zip(sum.iter()) {
+        *o = s / n as f64;
+    }
+    Some((out, n))
+}
+
 /// カンマ区切りの並びを数字に開く。
 ///
 /// 空の要素と数字として読めない要素は欠測（`None`）にする。
