@@ -177,6 +177,7 @@ export function makePopularitySplit(): PopularitySplit {
     ],
     tags_by_age: [
       { label: '0〜14日', tags: [{ tag: 'ブランクOK', n: 12, popular: 7 }] },
+      { label: '15〜29日', tags: [{ tag: '服装自由', n: 20, popular: 9 }] },
       { label: '30日以上', tags: [{ tag: '転勤なし', n: 30, popular: 14 }] },
     ],
     super_recent: {

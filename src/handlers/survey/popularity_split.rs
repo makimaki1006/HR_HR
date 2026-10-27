@@ -635,6 +635,10 @@ pub fn compute(records: &[SurveyRecord]) -> Option<PopularitySplit> {
                 tags: tags_above_rate(&in_age(Age::Fresh)),
             },
             AgeTags {
+                label: AGE_MID.to_owned(),
+                tags: tags_above_rate(&in_age(Age::Mid)),
+            },
+            AgeTags {
                 label: AGE_LONG.to_owned(),
                 tags: tags_above_rate(&in_age(Age::Long)),
             },
@@ -744,6 +748,9 @@ mod tests {
         assert_eq!((u.n, u.popular), (1, 0));
         // 超人気かつ人気の求人 B は 1 回だけ数える
         assert_eq!(s.by_age.iter().map(|b| b.n).sum::<u32>(), 7);
+        // 条件タグの比較は 0〜14日・15〜29日・30日以上の3区分
+        let labels: Vec<&str> = s.tags_by_age.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, vec![AGE_FRESH, AGE_MID, AGE_LONG]);
     }
 
     #[test]
