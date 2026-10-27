@@ -382,6 +382,7 @@ html:has(.competitor) { background: #eef1f6; }
   .cmp-fit-wide svg text.cmp-ylab { font-size: 20px; }
   .cmp-kwcard-main .cmp-fit svg text { font-size: 24px; }
   .cmp-kwcard:not(.cmp-kwcard-main) .cmp-fit svg text { font-size: 17px; }
+}
 
 /* ---- レポート本体は明暗にかかわらず紙のレポート調 (旧画面 static/css/competitor-dashboard.css と同じ値) ----
    条件入力フォームは従来どおりテーマに従う。共通のテーマ変数は変えず、タブとパネルの内側だけで上書きする。 */
