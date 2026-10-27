@@ -2,6 +2,7 @@ import type { GoogleKeyword } from '../../../generated/GoogleKeyword';
 import { fixed, fmtInt, fmtNumber, MISSING } from '../format';
 import { isLowVolume, lowVolumeNote, summarize, yoyWord } from '../googleStats';
 import { keywordCardLayout, YEAR_STYLES } from './keywordCardLayout';
+import { useNarrow } from './useNarrow';
 
 const SP = '　';
 const BADGE_COLOR = { 上昇: '#006666', 下降: '#b3261e', 横ばい: '#5b6770' } as const;
@@ -11,6 +12,7 @@ const BADGE_COLOR = { 上昇: '#006666', 下降: '#b3261e', 横ばい: '#5b6770'
  * 縦軸は 0 から自分の最大まで。月平均が少ない検索語は線を描かず、理由の 1 行だけを出す。
  */
 export function KeywordCard({ k, big }: { k: GoogleKeyword; big: boolean }) {
+  const narrow = useNarrow();
   const low = isLowVolume(k);
   const s = summarize(k);
   const values = k.monthly.map((m) => m.search_volume).filter((v): v is number => v !== null);
@@ -22,7 +24,7 @@ export function KeywordCard({ k, big }: { k: GoogleKeyword; big: boolean }) {
     if (peak !== null) meta.push(`ピーク ${String(peak)}月`);
   }
   const yoy = low ? null : s.yoyPct;
-  const l = low ? null : keywordCardLayout(k, big, peak);
+  const l = low ? null : keywordCardLayout(k, big, peak, narrow);
   return (
     <figure className={`cmp-trend-card cmp-kwcard${big ? ' cmp-kwcard-main' : ''}`} data-keyword={k.keyword}>
       <figcaption className="cmp-kwcard-head">
@@ -72,7 +74,7 @@ export function KeywordCard({ k, big }: { k: GoogleKeyword; big: boolean }) {
               );
             })}
             {l.months.map((m) => (
-              <text key={m.text} x={m.x} y={l.height - 12} textAnchor="middle" fontSize={13} className="cmp-label">
+              <text key={m.text} x={m.x} y={l.monthY} textAnchor="middle" fontSize={13} className="cmp-label">
                 {m.text}
               </text>
             ))}

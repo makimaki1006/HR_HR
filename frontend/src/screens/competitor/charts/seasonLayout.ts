@@ -20,12 +20,13 @@ export interface SeasonLayout {
   /** Indeed の点。shape: 閲覧数 = diamond、求人数 = square。 */
   indeed: { x: number; y: number; tip: string; shape: 'diamond' | 'square'; label: string }[];
   months: { x: number; text: string }[];
+  frame: SeasonFrame;
 }
 
-const LEFT = 85;
-const WIDTH = 791;
-const TOP = 24;
-const HEIGHT = 180;
+/** 画面幅が広いときの枠 (旧画面・PDF と同じ) と、スマホ向けの縦に高い枠。 */
+export const SEASON_WIDE = { vw: 900, vh: 252, left: 85, width: 791, top: 24, height: 180, font: 14 } as const;
+export const SEASON_NARROW = { vw: 450, vh: 330, left: 44, width: 392, top: 16, height: 250, font: 13 } as const;
+export type SeasonFrame = typeof SEASON_WIDE | typeof SEASON_NARROW;
 
 /** 全角空白 (ホバー文の区切り)。 */
 const SP = '\u3000';
@@ -35,7 +36,10 @@ export function seasonLayout(
   lines: readonly SeasonLineInput[],
   currentMonth: number,
   indeed: IndeedSeason | null,
+  compact = false,
 ): SeasonLayout | null {
+  const frame: SeasonFrame = compact ? SEASON_NARROW : SEASON_WIDE;
+  const { left: LEFT, width: WIDTH, top: TOP, height: HEIGHT } = frame;
   if (lines.length === 0) return null;
   let lo = 100;
   let hi = 100;
@@ -94,7 +98,7 @@ export function seasonLayout(
     dots,
     indeed: ind,
     months: Array.from({ length: 12 }, (_, i) => ({ x: xOf(i + 1), text: `${String(i + 1)}月` })),
+    frame,
   };
 }
 
-export const SEASON_AXIS = { top: TOP, height: HEIGHT };

@@ -14,13 +14,20 @@ export interface TrendLayout {
   /** 連続して観測できた月ごとの線 (2 点以上のものだけ)。 */
   segments: { x: number; y: number }[][];
   dots: { x: number; y: number; month: string; value: number }[];
-  monthLabels: { x: number; text: string }[];
+  /** 最後の月は end (右端に寄せる)。 */
+  monthLabels: { x: number; text: string; end: boolean }[];
 }
 
 const LEFT = 85;
 const WIDTH = 791;
 const TOP = 24;
 const HEIGHT = 212;
+
+/** 横軸ラベルを出す月か。最後の月を必ず出し、そこから等間隔にさかのぼる (Rust の axis_label_shown と同じ)。 */
+export function axisLabelShown(i: number, n: number): boolean {
+  const every = Math.max(Math.ceil(n / 8), 1);
+  return n > 0 && i >= 0 && i < n && (n - 1 - i) % every === 0;
+}
 
 /** 観測値が 1 つも無いときは null (グラフを出さない)。 */
 export function trendLayout(points: readonly TrendPoint[], ratio: boolean): TrendLayout | null {
@@ -39,7 +46,6 @@ export function trendLayout(points: readonly TrendPoint[], ratio: boolean): Tren
   };
   const dots: TrendLayout['dots'] = [];
   const monthLabels: TrendLayout['monthLabels'] = [];
-  const every = Math.max(Math.ceil(points.length / 8), 1);
   points.forEach((p, i) => {
     const x = LEFT + (WIDTH * i) / Math.max(points.length - 1, 1);
     const v = values[i] ?? null;
@@ -51,7 +57,7 @@ export function trendLayout(points: readonly TrendPoint[], ratio: boolean): Tren
     } else {
       flush();
     }
-    if (i % every === 0 || i === points.length - 1) monthLabels.push({ x, text: month });
+    if (axisLabelShown(i, points.length)) monthLabels.push({ x, text: month, end: i === points.length - 1 });
   });
   flush();
   return { step, ymax, grid, segments, dots, monthLabels };
