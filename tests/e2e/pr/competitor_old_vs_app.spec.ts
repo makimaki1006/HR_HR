@@ -45,11 +45,13 @@ interface Extracted {
   headings: string[];
   salary: string[][];
   diff: string[][];
-  wordsAll: string[][];
+  /** 全体の割合の帯別の表 (件数が無い帯は出ないので枚数は可変)。見出し (h3) と表を同じ順で持つ。 */
+  bandTitles: string[];
+  bands: string[][][];
   wordsHead: string[][];
   asideNotes: string[];
   caption: string[];
-  charts: { caption: string; bars: string[]; axis: string[]; geometry: string[] }[];
+  charts: { caption: string; notes: string[]; bars: string[]; axis: string[]; geometry: string[] }[];
   google: { paragraphs: string[]; tables: string[][][] };
   indeed: { paragraphs: string[]; tables: string[][][] };
   population: { paragraphs: string[]; tables: string[][][] };
@@ -76,22 +78,26 @@ async function extract(page: Page): Promise<Extracted> {
     const aside = excel.querySelector('aside');
     if (!aside) throw new Error('aside が無い');
     const tables = Array.from(aside.querySelectorAll('table'));
-    if (tables.length !== 5) throw new Error(`集計表が ${String(tables.length)} 枚 (期待 5)`);
+    // 固定の 3 枚 (メタ・給与・差異) + 帯別の表 (0〜3 枚) + 先頭 N 件の比較表 (最後の 1 枚)
+    if (tables.length < 4 || tables.length > 7) throw new Error(`集計表が ${String(tables.length)} 枚 (期待 4〜7)`);
+    const bandTables = tables.slice(3, -1);
+    const bandTitles = Array.from(aside.querySelectorAll('h3')).map((h) => norm(h.textContent));
+    if (bandTitles.length !== bandTables.length) {
+      throw new Error(`帯の見出し ${String(bandTitles.length)} 件と表 ${String(bandTables.length)} 枚が合わない`);
+    }
     const r1 = (n: number): string => (Math.round(n * 10) / 10).toFixed(1);
     const charts = Array.from(excel.querySelectorAll('figure')).map((f) => ({
       caption: norm(f.querySelector('figcaption')?.textContent),
+      notes: Array.from(f.querySelectorAll('p')).map((p) => norm(p.textContent)),
       bars: Array.from(f.querySelectorAll('rect > title')).map((t) => norm(t.textContent)),
-      // キーワードのグラフの軸は表示幅で目盛りの数が変わる (幅 400 未満は 3 目盛り) ので、旧・新の幅が違っても比べられるよう除く
-      axis: f.querySelector('svg[data-series]')
-        ? []
+      // 帯別・人気求人との差のグラフ (viewBox 固定、旧 = サーバ SVG、新 = React) は文字が g の入れ子の深さで違うので、全 text を順に比べる
+      axis: f.classList.contains('tag-usage') || f.className.includes('tag-usage')
+        ? Array.from(f.querySelectorAll('svg text')).map((t) => norm(t.textContent))
         : Array.from(f.querySelectorAll('svg > text, svg > g > text')).map((t) => norm(t.textContent)),
-      // 棒の位置と高さ (小数 1 桁): 件数が同じでも棒の長さが旧と違えば検知する。
-      // キーワードのグラフは表示幅を測って描き直す (旧 = JS、新 = React) ので、寸法は比べず、値 (title と数値) を比べる
-      geometry: f.querySelector('svg[data-series]')
-        ? []
-        : Array.from(f.querySelectorAll('rect')).map(
-            (r) => `${r1(Number(r.getAttribute('x')))}/${r1(Number(r.getAttribute('height')))}`,
-          ),
+      // 棒の位置と高さ (小数 1 桁): 件数が同じでも棒の長さが旧と違えば検知する (旧は小数 3 桁、新は倍精度なので 1 桁に丸めて比べる)
+      geometry: Array.from(f.querySelectorAll('rect')).map(
+        (r) => `${r1(Number(r.getAttribute('x')))}/${r1(Number(r.getAttribute('width')))}/${r1(Number(r.getAttribute('height')))}`,
+      ),
     }));
     return {
       meta: rowsOf(tables[0]!),
@@ -100,8 +106,9 @@ async function extract(page: Page): Promise<Extracted> {
         .filter((t) => t !== '競合調査'),
       salary: rowsOf(tables[1]!),
       diff: rowsOf(tables[2]!),
-      wordsAll: rowsOf(tables[3]!),
-      wordsHead: rowsOf(tables[4]!),
+      bandTitles,
+      bands: bandTables.map(rowsOf),
+      wordsHead: rowsOf(tables[tables.length - 1]!),
       asideNotes: Array.from(aside.querySelectorAll(':scope > p')).map((p) => norm(p.textContent)),
       caption: Array.from(excel.querySelectorAll(':scope > p')).map((p) => norm(p.textContent)),
       charts,
@@ -183,11 +190,46 @@ function knownDiff(mode: 'monthly' | 'hourly'): string[][] {
   return [['', '下限', '上限'], ...SALARY_LABELS.map((l, i) => [l, m.diff_lower[i]!, m.diff_upper[i]!])];
 }
 
-function knownWords(rows: readonly (readonly [string, number, number, string])[]): string[][] {
+/**
+ * 全体の割合の帯別 (求人票キーワード調査)。fixture の語は 6 語で、全体の割合は 26.7〜30.0% なので全部「半数前後」
+ * (20% 以上 50% 未満)。50% 以上と、20% 未満で 3 件以上の帯は 0 語で「該当する語はありません」になる。
+ * 語の順は 人気求人での割合 − 全体の割合 の大きい順。割合は N/60・M/18 (M = 人気・超人気の件数) を JS で
+ * 小数 1 桁にした値、差は小数 1 桁に丸める前の値の差。件数 N は K.keywords_all、M は K.comparison から取る。
+ */
+interface Band { title: string; rows: string[][] }
+
+function knownBands(): Band[] {
+  const header = ['語', '件数', '全体の割合', '人気求人での割合', '差(pt)'];
+  const empty = [[ '該当する語はありません' ]];
+  const words = K.keywords_all.map(([word, n]) => {
+    const pop = K.comparison.find((c) => c.word === word)!.popular_any;
+    const all = (n / K.total) * 100;
+    const popular = (pop / K.popular_any_n) * 100;
+    const d = popular - all;
+    return { word, n, pop, all, popular, d };
+  });
+  words.sort((x, y) => y.d - x.d);
+  const mid = words.filter((w) => w.all >= 20 && w.all < 50);
+  expect(mid.length, '全 6 語が半数前後の帯に入る fixture').toBe(words.length);
   return [
-    ['上位10件', '件数', '求人数', '占有率'],
-    ...rows.map(([w, n, jobs, pct]) => [w, String(n), String(jobs), `${pct}%`]),
+    { title: 'ほとんどの求人が付けている 0語（全体の50%以上）', rows: [header, ...empty] },
+    {
+      title: `半数前後 ${String(mid.length)}語（全体の20%以上50%未満）`,
+      rows: [
+        header,
+        ...mid.map((w) => [
+          w.word, String(w.n), `${w.all.toFixed(1)}%`, `${w.popular.toFixed(1)}%`,
+          `${w.d >= 0 ? '+' : ''}${w.d.toFixed(1)}`,
+        ]),
+      ],
+    },
+    { title: '一部の求人だけ 0語（全体の20%未満（3件以上））', rows: [header, ...empty] },
   ];
+}
+
+/** 帯別グラフ・差のグラフの棒の title: 「語: N件・全体% / 人気求人 M件・人気% / 差 d」。 */
+function knownBandBarTitle(row: string[], pop: number): string {
+  return `${row[0]!}: ${row[1]!}件・${row[2]!} / 人気求人 ${String(pop)}件・${row[3]!} / 差 ${row[4]!}`;
 }
 
 /** 先頭 N 件と全体の比較表 (上位 10 語)。全体に語が無いときは —。 */
@@ -203,15 +245,6 @@ function knownComparison(): string[][] {
       c.popular_any_share === null ? '—' : `${c.popular_any_share}%`,
     ]),
   ];
-}
-
-/** 比較グラフの棒の title (全体 → 先頭 → 人気・超人気の順。全体が欠測の語は全体の棒なし)。値は JS の toFixed(1)。 */
-function knownComparisonBars(): string[] {
-  return K.comparison.flatMap((c) => [
-    ...(c.all_js === null ? [] : [`${c.word} / 全体: ${c.all_js}%`]),
-    `${c.word} / 先頭: ${c.head_js}%`,
-    ...(c.popular_any_js === null ? [] : [`${c.word} / 人気・超人気: ${c.popular_any_js}%`]),
-  ]);
 }
 
 function knownBars(bins: readonly (readonly [string, number])[]): string[] {
@@ -239,14 +272,17 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
   expect(x.headings, tag('見出し')).toEqual([
     `給与関係（${unit}）`,
     '差異（総合 − 人気求人）',
-    '求人票ワード調査（全体）',
+    '求人票キーワード調査（帯別）',
     `求人票ワード調査（先頭 ${String(K.head_n)} 件）`,
   ]);
   expect(x.salary, tag('給与表')).toEqual(knownSalary(mode));
   expect(x.diff, tag('差異表')).toEqual(knownDiff(mode));
-  expect(x.wordsAll, tag('ワード表(全体)')).toEqual(knownWords(K.keywords_all));
+  const bands = knownBands();
+  expect(x.bandTitles, tag('帯の見出し')).toEqual(bands.map((b) => b.title));
+  expect(x.bands, tag('帯別の表')).toEqual(bands.map((b) => b.rows));
   expect(x.wordsHead, tag('先頭 10 件と全体の比較表')).toEqual(knownComparison());
   expect(x.asideNotes, tag('比較の母数と注記')).toEqual([
+    `母数：全体 ${String(K.total)} 件 / 人気求人 ${String(K.popular_any_n)} 件（人気または超人気のタグがある求人）。件数1〜2の語（0語）は帯に入れていません。差は人気求人での割合−全体の割合。`,
     `母数：先頭 ${String(K.head_n)} 件 / 全体 ${String(K.total)} 件。先頭は収録順、差は先頭率−全体率。`,
     `人気・超人気 ${String(K.popular_any_n)} 件（人気または超人気のタグがある求人）の中での占有率。`,
     '人気求人：Indeedの「人気」「超人気」タグ付き。',
@@ -255,20 +291,38 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
     `CSV重複排除後 ${String(K.total)} 件 / 上位 ${String(K.head_n)} 件は収録順。占有率は語を含む求人数の割合。給与分布は${mode === 'monthly' ? '月給換算' : '時給の実額'}。`,
   ]);
 
-  const [upper, lower, wordsAll, wordsHead] = x.charts;
+  const [upper, lower, bandChart, diffChart] = x.charts;
   const histN = K[mode].hist_n;
   const step = K[mode].hist_step;
   expect(x.charts.map((ch) => ch.caption), tag('グラフの題')).toEqual([
     `上限ボリュームゾーン（${unit}・n=${String(histN)}・${step}刻み）`,
     `下限ボリュームゾーン（${unit}・n=${String(histN)}・${step}刻み）`,
-    '求人票キーワード調査（全体・上位20語）',
-    '訴求語の占有率比較（上位20語）',
+    '求人票キーワード調査（全体の割合の帯別）',
+    '人気求人に多い語・少ない語',
   ]);
   expect(upper!.bars, tag('上限ヒストグラム')).toEqual(knownBars(K[mode].hist_upper));
   expect(lower!.bars, tag('下限ヒストグラム')).toEqual(knownBars(K[mode].hist_lower));
-  // キーワードのグラフは上位 20 語 (fixture は 8 語)。全体は「語 / 全体: N件」、比較は 0〜100% の共通軸の「語 / 全体|先頭: x.x%」
-  expect(wordsAll!.bars, tag('キーワード棒(全体)')).toEqual(K.keywords_all_chart.map(([w, n]) => `${w} / 全体: ${String(n)}件`));
-  expect(wordsHead!.bars, tag('キーワード比較棒')).toEqual(knownComparisonBars());
+  // 帯別グラフ: 半数前後の 6 語の棒 (「該当する語はありません」の帯に棒は無い)。title は表の行と同じ値
+  const midRows = bands[1]!.rows.slice(1);
+  const popOf = (word: string): number => K.comparison.find((c) => c.word === word)!.popular_any;
+  expect(bandChart!.bars, tag('帯別グラフの棒')).toEqual(midRows.map((r) => knownBandBarTitle(r, popOf(r[0]!))));
+  expect(bandChart!.notes, tag('帯別グラフの注記')).toEqual([
+    `全体 ${String(K.total)} 件のうち、その語が付く求人の割合。件数1〜2の語（0語）は帯に入れていません。`,
+  ]);
+  expect(bandChart!.axis, tag('帯別グラフの軸と見出し')).toEqual(
+    expect.arrayContaining(['0%', '50%', '100%', bands[0]!.title, '該当する語はありません', bands[1]!.title, bands[2]!.title]),
+  );
+  // 人気求人との差のグラフ: 差の大きい上位 3 語 (多い) と、小さい下位 3 語 (少ない、最も小さい語から)。fixture は 6 語なので 3 + 3
+  const more = midRows.slice(0, 3);
+  const fewer = midRows.slice(3).reverse();
+  expect(diffChart!.bars, tag('差のグラフの棒')).toEqual([...more, ...fewer].map((r) => knownBandBarTitle(r, popOf(r[0]!))));
+  expect(diffChart!.axis, tag('差のグラフの見出しと軸')).toEqual(
+    expect.arrayContaining(['-30', '0', '+30', '人気求人に多い語 3語', '人気求人に少ない語 3語']),
+  );
+  expect(diffChart!.notes, tag('差のグラフの注記')).toEqual([
+    `棒は人気求人での割合から全体の割合を引いた差（ポイント）。人気求人 ${String(K.popular_any_n)} 件、全体 ${String(K.total)} 件。件数3以上の語が対象。`,
+  ]);
+  // 上位 10 語の比較表は先頭 N 件と全体の比較 (表のみ。グラフは作らない)
   // 空の給与区間も 0 件の棒として残る (階級が連続): 件数 0 の棒が 1 つ以上ある
   if (mode === 'monthly') expect(K[mode].hist_upper.some(([, n]) => n === 0), tag('空の給与区間を残す')).toBe(true);
   // ヒストグラムの件数の合計は、月給モードは換算後の全件 (60)、時給モードは時給の行 (16)
