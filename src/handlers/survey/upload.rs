@@ -35,6 +35,10 @@ pub struct SurveyRecord {
     /// 推定自体は 2026-07-01 のユーザー方針 (css-1hwmqh1 消失対応) で維持する。
     pub employment_type_inferred: bool,
     pub tags_raw: String,
+    /// Indeed が求人カードに付ける印「高返信率」(どこかのセルが完全一致)。
+    pub high_reply: bool,
+    /// 同じく印「カンタン応募」。
+    pub easy_apply: bool,
     pub url: Option<String>,
     pub is_new: bool,
     /// 掲載日数 (Indeed SP の「N日前」「30+日前」「新着」。「新着」は 0)。読めなければ None。
@@ -396,14 +400,15 @@ fn parse_csv_bytes_inner(
         .map(|(i, _)| i)
         .collect();
 
-    let mut records = Vec::new();
+    let mut records: Vec<SurveyRecord> = Vec::new();
     let mut skipped_metadata = 0_usize;
     let mut skipped_incomplete = 0_usize;
     // 2026-04-26 Fix-A: CSV 行レベル重複検出
     // hash(job_title + company_name + location_raw + salary_raw + employment_type) で
     // 完全一致行 (典型例: 同一求人を媒体内で複数日に渡って収集) を 1 件にまとめる。
     // 注意: 異なる雇用形態 (正社員/パート) は別求人として扱うため key に含める。
-    let mut seen_row_hashes: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut seen_row_hashes: std::collections::HashMap<u64, usize> =
+        std::collections::HashMap::new();
     let mut duplicates_removed = 0_usize;
     for (idx, result) in rdr.records().enumerate() {
         let row = match result {
@@ -554,6 +559,9 @@ fn parse_csv_bytes_inner(
                 }
             }
         }
+        // Indeed が求人カードに付ける印。どの列に入っていても、セルが完全一致したときだけ真。
+        let high_reply = row.iter().any(|c| c.trim() == "高返信率");
+        let easy_apply = row.iter().any(|c| c.trim() == "カンタン応募");
         let (posted_days, posted_plus) = parse_posted_age(row.iter());
         let url = {
             let u = get("url");
@@ -615,10 +623,14 @@ fn parse_csv_bytes_inner(
                 job_key.hash(&mut hasher);
             }
             let row_hash = hasher.finish();
-            if !seen_row_hashes.insert(row_hash) {
+            if let Some(&first) = seen_row_hashes.get(&row_hash) {
+                // 重複行は捨てるが、印は最初の行に OR で統合する。
+                records[first].high_reply |= high_reply;
+                records[first].easy_apply |= easy_apply;
                 duplicates_removed += 1;
                 continue;
             }
+            seen_row_hashes.insert(row_hash, records.len());
         }
 
         records.push(SurveyRecord {
@@ -631,6 +643,8 @@ fn parse_csv_bytes_inner(
             employment_type,
             employment_type_inferred,
             tags_raw,
+            high_reply,
+            easy_apply,
             url,
             is_new,
             posted_days,
@@ -2844,6 +2858,8 @@ mod gemini_fallback_tests {
             ai_paid_leave_rate: None,
             ai_weekly_holiday_type: None,
             ai_overtime_hours_monthly: None,
+            high_reply: false,
+            easy_apply: false,
         }
     }
 

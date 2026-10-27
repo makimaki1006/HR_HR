@@ -151,6 +151,38 @@ pub struct ReachBandTags {
     pub less: Vec<ReachTagGap>,
 }
 
+/// Indeed が求人カードに付ける印 1 つの、あり / なしの比較。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReplyMark {
+    pub label: String,
+    pub with_mark: ReplyCounts,
+    pub without_mark: ReplyCounts,
+}
+
+/// 求人数・人気・超人気・人気率 (件数 0 の率は None)。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReplyCounts {
+    pub n: u32,
+    pub popular: u32,
+    pub super_popular: u32,
+    pub rate_pct: Option<f64>,
+}
+
+/// 間口を広げる語の有無 × 高返信率の印の有無 の 4 つのセル。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReplyCross {
+    pub label: String,
+    pub with_reply: ReachCell,
+    pub without_reply: ReachCell,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct ReplySection {
+    pub marks: Vec<ReplyMark>,
+    /// 「間口を広げる語なし」「1つ以上」の 2 区分。
+    pub cross: Vec<ReplyCross>,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 pub struct ReachSection {
     /// 間口を広げる語の一覧。
@@ -160,6 +192,8 @@ pub struct ReachSection {
     pub bands: Vec<ReachBand>,
     pub strata: Vec<ReachStratum>,
     pub band_tags: Vec<ReachBandTags>,
+    /// 応募のしやすさの印 (高返信率・カンタン応募)。
+    pub reply: ReplySection,
 }
 
 /// 会社の影響の判定。決まりの値はここ 1 か所。
@@ -1012,6 +1046,48 @@ fn reach_tag_gaps(items: &[&Item]) -> (Vec<ReachTagGap>, Vec<ReachTagGap>) {
     (more, less)
 }
 
+fn band0(items: &[&Item]) -> ReplyCounts {
+    let n = items.len() as u32;
+    let popular = items.iter().filter(|i| i.popular).count() as u32;
+    ReplyCounts {
+        n,
+        popular,
+        super_popular: items.iter().filter(|i| i.sup).count() as u32,
+        rate_pct: (n > 0).then(|| pct(popular as usize, n as usize)),
+    }
+}
+
+fn reply(items: &[Item]) -> ReplySection {
+    let mark = |label: &str, f: fn(&Item) -> bool| {
+        let (w, o): (Vec<&Item>, Vec<&Item>) = items.iter().partition(|i| f(i));
+        ReplyMark {
+            label: label.to_owned(),
+            with_mark: band0(&w),
+            without_mark: band0(&o),
+        }
+    };
+    let marks = vec![
+        mark("高返信率", |i| i.rec.high_reply),
+        mark("カンタン応募", |i| i.rec.easy_apply),
+    ];
+    let cross = ["間口を広げる語なし", "間口を広げる語が1つ以上"]
+        .iter()
+        .enumerate()
+        .map(|(k, label)| {
+            let (w, o): (Vec<&Item>, Vec<&Item>) = items
+                .iter()
+                .filter(|i| (open_count(i) > 0) as usize == k)
+                .partition(|i| i.rec.high_reply);
+            ReplyCross {
+                label: (*label).to_owned(),
+                with_reply: cell(&w),
+                without_reply: cell(&o),
+            }
+        })
+        .collect();
+    ReplySection { marks, cross }
+}
+
 fn reach(items: &[Item]) -> ReachSection {
     let total = items.len();
     let popular = items.iter().filter(|i| i.popular).count();
@@ -1080,6 +1156,7 @@ fn reach(items: &[Item]) -> ReachSection {
         bands,
         strata,
         band_tags,
+        reply: reply(items),
     }
 }
 
@@ -1740,6 +1817,98 @@ mod tests {
         assert!(b0.more.is_empty());
         assert_eq!(b0.less.len(), 1);
         assert_eq!(b0.less[0].tag, "昇給あり");
+    }
+
+    fn marked(tags: &str, hr: bool, ea: bool, n: usize) -> Vec<SurveyRecord> {
+        let mut v = many(tags, n);
+        for r in &mut v {
+            r.high_reply = hr;
+            r.easy_apply = ea;
+        }
+        v
+    }
+
+    #[test]
+    fn reply_marks_and_cross_counts() {
+        // 高返信率あり: 間口なし 4 件(人気1) + 間口あり 2 件(人気2)
+        let mut v = marked("人気", true, false, 1);
+        v.extend(marked("休暇あり", true, false, 3));
+        v.extend(marked("超人気,学歴不問", true, true, 1));
+        v.extend(marked("人気,学歴不問", true, true, 1));
+        // 高返信率なし: 間口なし 5 件(人気 0) + 間口あり 3 件(人気 1)
+        v.extend(marked("休暇あり", false, true, 5));
+        v.extend(marked("人気,学歴不問", false, false, 1));
+        v.extend(marked("学歴不問", false, false, 2));
+        let r = compute(&v).unwrap().reach.reply;
+        let hr = &r.marks[0];
+        assert_eq!(hr.label, "高返信率");
+        assert_eq!(
+            (
+                hr.with_mark.n,
+                hr.with_mark.popular,
+                hr.with_mark.super_popular
+            ),
+            (6, 3, 1)
+        );
+        assert_eq!(hr.with_mark.rate_pct, Some(50.0));
+        assert_eq!((hr.without_mark.n, hr.without_mark.popular), (8, 1));
+        assert_eq!(hr.without_mark.rate_pct, Some(12.5));
+        let ea = &r.marks[1];
+        assert_eq!((ea.with_mark.n, ea.with_mark.popular), (7, 2));
+        assert_eq!((ea.without_mark.n, ea.without_mark.popular), (7, 2));
+        let c0 = &r.cross[0];
+        assert_eq!((c0.with_reply.n, c0.with_reply.popular), (4, 1));
+        assert_eq!(c0.with_reply.rate_pct, Some(25.0));
+        assert_eq!((c0.without_reply.n, c0.without_reply.popular), (5, 0));
+        let c1 = &r.cross[1];
+        assert_eq!((c1.with_reply.n, c1.with_reply.popular), (2, 2));
+        assert_eq!(c1.with_reply.rate_pct, Some(100.0));
+        assert_eq!((c1.without_reply.n, c1.without_reply.popular), (3, 1));
+    }
+
+    #[test]
+    fn reply_empty_cell_is_none() {
+        let v = marked("休暇あり", false, false, 3);
+        let r = compute(&v).unwrap().reach.reply;
+        assert_eq!(r.marks[0].with_mark.n, 0);
+        assert_eq!(r.marks[0].with_mark.rate_pct, None);
+        assert_eq!(r.cross[0].with_reply.rate_pct, None);
+        assert_eq!(r.cross[1].with_reply.n, 0);
+    }
+
+    #[test]
+    fn reply_marks_read_from_exact_cells_and_or_on_duplicates() {
+        let csv = "css-bxyec3,css-14qk2ra,css-18rxko3,css-u74ql7,css-x1,css-x2\n\
+            タイトル,会社,月給20万円,人気,カンタン応募,\n\
+            タイトル,会社,月給20万円,人気,,高返信率\n\
+            別,会社,月給20万円,人気,高返信率だよ,\n";
+        let recs = parse_csv_bytes_with_hints(csv.as_bytes(), None, UserSourceHint::Auto).unwrap();
+        assert_eq!(recs.len(), 2);
+        // 重複 2 行は OR で統合される
+        assert!(recs[0].high_reply && recs[0].easy_apply);
+        // 完全一致でないセルは印にならない
+        assert!(!recs[1].high_reply && !recs[1].easy_apply);
+    }
+
+    #[test]
+    fn reply_json_has_no_titles() {
+        let json =
+            serde_json::to_string(&compute(&marked("人気", true, true, 3)).unwrap().reach).unwrap();
+        assert!(!json.contains("秘密のタイトル"));
+    }
+
+    /// 実 CSV の印 (cargo test --lib real_csv_reply -- --ignored --nocapture)。
+    #[test]
+    #[ignore]
+    fn real_csv_reply() {
+        let path = "/Users/s_fujimaki/Downloads/indeed-2026-10-26.csv";
+        let Ok(bytes) = std::fs::read(path) else {
+            return;
+        };
+        let recs = parse_csv_bytes_with_hints(&bytes, None, UserSourceHint::Auto).unwrap();
+        let r = compute(&recs).unwrap().reach.reply;
+        eprintln!("{r:#?}");
+        assert!(r.marks[0].with_mark.n > 100);
     }
 
     #[test]

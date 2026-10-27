@@ -456,6 +456,70 @@ function ReachView({ data }: { data: PopularitySplit }) {
           )}
         </section>
       ))}
+      <h3 className="cmp-block-title">応募のしやすさの印</h3>
+      <p className="cmp-note">
+        「高返信率」「カンタン応募」は、Indeedが求人カードに付けている印です。印の有無ごとの人気率を並べています。
+      </p>
+      <table className="cmp-table">
+        <thead>
+          <tr>
+            <th>印</th>
+            <th>有無</th>
+            <th className="cmp-num">求人数</th>
+            <th className="cmp-num">人気</th>
+            <th className="cmp-num">超人気</th>
+            <th className="cmp-num">人気率</th>
+          </tr>
+        </thead>
+        <tbody>
+          {r.reply.marks.flatMap((m) =>
+            [
+              { w: 'あり', x: m.with_mark },
+              { w: 'なし', x: m.without_mark },
+            ].map(({ w, x }) => (
+              <tr key={`${m.label}-${w}`}>
+                <td>{m.label}</td>
+                <td>{w}</td>
+                <td className="cmp-num">{fmtInt(x.n)}</td>
+                <td className="cmp-num">{x.n === 0 ? MISSING : fmtInt(x.popular)}</td>
+                <td className="cmp-num">{x.n === 0 ? MISSING : fmtInt(x.super_popular)}</td>
+                <td className="cmp-num">{rate1(x.rate_pct)}</td>
+              </tr>
+            )),
+          )}
+        </tbody>
+      </table>
+      <p className="cmp-note">人気は人気と超人気の合計です。求人数 n={fmtInt(data.total)}。</p>
+      <h3 className="cmp-block-title">間口を広げる語と「高返信率」の組み合わせ</h3>
+      <table className="cmp-table">
+        <thead>
+          <tr>
+            <th rowSpan={2}>間口を広げる語</th>
+            <th colSpan={2} className="cmp-num">
+              高返信率あり
+            </th>
+            <th colSpan={2} className="cmp-num">
+              高返信率なし
+            </th>
+          </tr>
+          <tr>
+            <th className="cmp-num">人気率</th>
+            <th className="cmp-num">求人数</th>
+            <th className="cmp-num">人気率</th>
+            <th className="cmp-num">求人数</th>
+          </tr>
+        </thead>
+        <tbody>
+          {r.reply.cross.map((x) => (
+            <tr key={x.label}>
+              <td>{x.label}</td>
+              <StratumCell c={x.with_reply} />
+              <StratumCell c={x.without_reply} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="cmp-note">求人数が0件の組み合わせは「—」です。</p>
       <p className="cmp-note">
         分け方: 求人に付く条件タグのうち、{r.open_words.join('・')}の数で「なし」「1つ」「2つ以上」に分けています。1つの求人は1回だけ数えます。条件タグの差は求人数が{fmtInt(r.min_band_n)}件以上の帯だけ出します。人気・超人気は、Indeed上でその表示が付いている求人です。
       </p>

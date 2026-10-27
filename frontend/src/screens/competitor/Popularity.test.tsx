@@ -8,8 +8,8 @@ import { PopularityTab, ratePct } from './tabs/PopularityTab';
 
 afterEach(cleanup);
 
-const rowText = (name: string): string[] => {
-  const td = screen.getAllByText(name, { selector: 'td' })[0];
+const rowText = (name: string, i = 0): string[] => {
+  const td = screen.getAllByText(name, { selector: 'td' })[i];
   const cells: Element[] = td?.parentElement ? Array.from(td.parentElement.children) : [];
   return cells.map((c) => c.textContent);
 };
@@ -48,6 +48,17 @@ describe('PopularityTab', () => {
     expect(g.getByText('+12.5')).toBeTruthy();
     expect(g.getByText('-8.3')).toBeTruthy();
     expect(screen.getByText('求人数 25 件のため、この帯の比較は出しません。')).toBeTruthy();
+    expect(screen.getByText('応募のしやすさの印')).toBeTruthy();
+    expect(rowText('高返信率', 0)).toEqual(['高返信率', 'あり', '182', '77', '22', '42.3%']);
+    expect(rowText('高返信率', 1)).toEqual(['高返信率', 'なし', '140', '28', '5', '20.0%']);
+    expect(rowText('カンタン応募', 1)).toEqual(['カンタン応募', 'なし', '0', '—', '—', '—']);
+    expect(rowText('間口を広げる語が1つ以上')).toEqual([
+      '間口を広げる語が1つ以上',
+      '55.8%',
+      '95',
+      '8.3%',
+      '24',
+    ]);
     expect(screen.getByText(/分け方: 求人に付く条件タグのうち、学歴不問・未経験者歓迎/)).toBeTruthy();
   });
 

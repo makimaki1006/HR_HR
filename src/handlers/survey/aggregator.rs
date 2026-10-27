@@ -2240,6 +2240,8 @@ pub(crate) mod salary_fixture {
                 ai_paid_leave_rate: None,
                 ai_weekly_holiday_type: None,
                 ai_overtime_hours_monthly: None,
+                high_reply: false,
+                easy_apply: false,
             })
             .collect()
     }
@@ -2340,6 +2342,8 @@ mod tests {
             ai_paid_leave_rate: None,
             ai_weekly_holiday_type: None,
             ai_overtime_hours_monthly: None,
+            high_reply: false,
+            easy_apply: false,
         }
     }
 
@@ -3034,6 +3038,8 @@ mod tests {
             ai_paid_leave_rate: None,
             ai_weekly_holiday_type: None,
             ai_overtime_hours_monthly: None,
+            high_reply: false,
+            easy_apply: false,
         }
     }
 
@@ -3167,6 +3173,8 @@ mod tests {
             ai_paid_leave_rate: None,
             ai_weekly_holiday_type: None,
             ai_overtime_hours_monthly: None,
+            high_reply: false,
+            easy_apply: false,
         }
     }
 
@@ -3305,6 +3313,8 @@ mod tests {
             ai_paid_leave_rate: None,
             ai_weekly_holiday_type: None,
             ai_overtime_hours_monthly: None,
+            high_reply: false,
+            easy_apply: false,
         }
     }
 
