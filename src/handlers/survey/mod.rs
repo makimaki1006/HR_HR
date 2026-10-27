@@ -10,6 +10,7 @@ pub mod hw_enrichment;
 pub mod integration;
 pub mod job_seeker;
 pub mod location_parser;
+pub mod popularity_split;
 pub mod render;
 pub mod report;
 pub mod report_html;

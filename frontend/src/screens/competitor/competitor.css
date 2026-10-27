@@ -335,3 +335,16 @@ html:has(.competitor) { background: #eef1f6; }
 }
 .cmp-kw h3 { font-size: 20px; margin: 32px 0 8px; }
 .cmp-kw h4 { font-size: 16px; margin: 24px 0 6px; }
+
+/* ---- 人気の分かれ方・会社別の求人数 ---- */
+.cmp-pop-sub { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.cmp-pop-sub-btn {
+  font: inherit; font-size: 12px; padding: 3px 10px; cursor: pointer;
+  border: 1px solid var(--line-2); border-radius: 3px; background: var(--surface); color: var(--ink);
+}
+.cmp-pop-sub-btn[aria-pressed='true'] { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+.cmp-pop-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .cmp-pop-cols { grid-template-columns: 1fr; } }
+.cmp-chip { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 8px; background: var(--accent-bg); border-radius: 3px; font-size: 12px; }
+.cmp-hbar-cell { width: 30%; }
+.cmp-hbar { display: block; height: 10px; background: var(--bar); }

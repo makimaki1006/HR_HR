@@ -3,6 +3,7 @@ import type { ConsultationSection } from "./ConsultationSection";
 import type { ExcelSection } from "./ExcelSection";
 import type { GoogleSection } from "./GoogleSection";
 import type { IndeedSection } from "./IndeedSection";
+import type { PopularitySplit } from "./PopularitySplit";
 import type { PopulationSection } from "./PopulationSection";
 import type { ReportMeta } from "./ReportMeta";
 
@@ -10,4 +11,8 @@ export type CompetitorReport = { meta: ReportMeta, excel: ExcelSection, google: 
 /**
  * 「採用のヒント」タブ。給与の比較・訴求の確認候補・外部データの取得状況。
  */
-consultation: ConsultationSection, };
+consultation: ConsultationSection, 
+/**
+ * 「人気の分かれ方」。Indeed (SP) 由来の求人が無いときは null。
+ */
+popularity_split: PopularitySplit | null, };

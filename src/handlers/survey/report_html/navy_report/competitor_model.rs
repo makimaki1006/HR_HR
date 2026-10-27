@@ -18,6 +18,7 @@ use super::competitor_keywords::{self, KeywordComparison};
 use super::competitor_population::{self, PopulationShares};
 use super::section_05b_competitor::head_tag_counts;
 use crate::handlers::survey::aggregator::{BoundStats, SurveyAggregation};
+use crate::handlers::survey::popularity_split::PopularitySplit;
 
 /// 表の最大行数。HTML の表は上位 10 語、グラフは上位 20 語を使うので、25 語あれば足りる。
 const KEYWORD_ROWS: usize = 25;
@@ -31,6 +32,8 @@ pub struct CompetitorReport {
     pub population: PopulationSection,
     /// 「採用のヒント」タブ。給与の比較・訴求の確認候補・外部データの取得状況。
     pub consultation: ConsultationSection,
+    /// 「人気の分かれ方」。Indeed (SP) 由来の求人が無いときは null。
+    pub popularity_split: Option<PopularitySplit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -441,6 +444,7 @@ pub(crate) fn build_competitor_report(
         indeed,
         population,
         consultation: competitor_consultation::build(agg, all, pop, top_n, use_fallback, &external),
+        popularity_split: comp.popularity_split.clone(),
     }
 }
 

@@ -1,6 +1,7 @@
-// テスト用の架空データ (実在の求人・企業・人名は含めない)。型は ts-rs の生成物に合わせる。
 import type { CompetitorReport } from '../../generated/CompetitorReport';
+// テスト用の架空データ (実在の求人・企業・人名は含めない)。型は ts-rs の生成物に合わせる。
 import type { CompetitorReportResponse } from '../../generated/CompetitorReportResponse';
+import type { PopularitySplit } from '../../generated/PopularitySplit';
 
 export function makeReport(): CompetitorReport {
   return {
@@ -130,6 +131,7 @@ export function makeReport(): CompetitorReport {
       minimum_wage_source_url: null,
       labor: { fiscal_year: 2024, unemployment_rate: 2.5, separation_rate: null },
     },
+    popularity_split: null,
     consultation: {
       cohort: '総合：Indeed SPの月給求人の実額（月給換算は含みません）',
       salary: [
@@ -159,4 +161,52 @@ export function makeReport(): CompetitorReport {
 
 export function makeResponse(report: CompetitorReport = makeReport()): CompetitorReportResponse {
   return { report_id: 'a'.repeat(64), expires_in_secs: 1800, report };
+}
+
+// 人気の分かれ方 (契約 report.popularity_split)。架空の値。
+export function makePopularitySplit(): PopularitySplit {
+  return {
+    total: 325,
+    popular: 106,
+    super_popular: 20,
+    by_age: [
+      { label: '0〜14日', n: 82, popular: 19, super_popular: 5 },
+      { label: '15〜29日', n: 61, popular: 30, super_popular: 4 },
+      { label: '30日以上', n: 182, popular: 57, super_popular: 11 },
+      { label: '不明', n: 0, popular: 0, super_popular: 0 },
+    ],
+    tags_by_age: [
+      { label: '0〜14日', tags: [{ tag: 'ブランクOK', n: 12, popular: 7 }] },
+      { label: '30日以上', tags: [{ tag: '転勤なし', n: 30, popular: 14 }] },
+    ],
+    super_recent: {
+      n_super: 5,
+      n_base: 77,
+      tags: [{ tag: '研修あり', super_pct: 60, base_pct: 22.5 }],
+      credential_share: { super_pct: 40, base_pct: 10.25 },
+    },
+    companies: {
+      rows: [
+        { name: 'テスト工業', n: 6, popular: 3, super_popular: 2, longest_days: null, longest_is_30plus: true },
+        { name: 'サンプル商事', n: 4, popular: 0, super_popular: 0, longest_days: 25, longest_is_30plus: false },
+      ],
+      multi: { companies: 48, n: 137, popular: 36 },
+      single: { companies: 0, n: 0, popular: 0 },
+    },
+    salary: {
+      popular_median: 220000,
+      popular_n: 106,
+      other_median: null,
+      other_n: 219,
+      bands: [{ label: '〜20.5万', n: 67, popular: 21, super_popular: 3 }],
+    },
+    tags: {
+      welfare: [{ tag: '食事補助あり', n: 13, popular: 8 }],
+      easy_apply: [{ tag: '主婦・主夫歓迎', n: 10, popular: 8 }],
+      count_buckets: [{ label: '0個', n: 23, popular: 1, super_popular: 0 }],
+    },
+    writing: [{ title: '見出しの長さ別', rows: [{ label: '26〜40字', n: 105, popular: 52, super_popular: 9 }] }],
+    clarity: [{ label: '4点', n: 72, popular: 35, super_popular: 6 }],
+    work_style: [{ label: '夜勤', n: 17, popular: 12, super_popular: 3 }],
+  };
 }

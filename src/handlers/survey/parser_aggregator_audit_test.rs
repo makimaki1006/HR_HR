@@ -86,6 +86,8 @@ fn rec_with_salary_and_pref(
         tags_raw: String::new(),
         url: None,
         is_new: false,
+        posted_days: None,
+        posted_plus: false,
         description: String::new(),
         snippet: String::new(),
         salary_parsed: sal,
