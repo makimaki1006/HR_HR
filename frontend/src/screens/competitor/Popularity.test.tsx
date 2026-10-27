@@ -35,6 +35,22 @@ describe('PopularityTab', () => {
     expect(sec.getByText('10.2%')).toBeTruthy();
   });
 
+  it('対象の広さ: 帯の表・層別の —・30件未満の帯は事実だけ', () => {
+    render(<PopularityTab data={makePopularitySplit()} />);
+    fireEvent.click(screen.getByRole('button', { name: '対象の広さ' }));
+    expect(rowText('2つ以上')).toEqual(['2つ以上', '80', '24.6%', '42', '52.5%', '39.6%']);
+    expect(rowText('なし')[1]).toBe('200');
+    expect(screen.getByText('求人数 n=325／人気・超人気 n=106')).toBeTruthy();
+    expect(rowText('0〜3個')).toEqual(['0〜3個', '16.7%', '120', '—', '—']);
+    expect(rowText('4〜6個')).toEqual(['4〜6個', '26.7%', '60', '58.0%', '50']);
+    const g = within(screen.getByRole('region', { name: '間口を広げる語 なし' }));
+    expect(g.getByText('長期休暇あり')).toBeTruthy();
+    expect(g.getByText('+12.5')).toBeTruthy();
+    expect(g.getByText('-8.3')).toBeTruthy();
+    expect(screen.getByText('求人数 25 件のため、この帯の比較は出しません。')).toBeTruthy();
+    expect(screen.getByText(/分け方: 求人に付く条件タグのうち、学歴不問・未経験者歓迎/)).toBeTruthy();
+  });
+
   it('super_recent が無ければ超人気ブロックを出さない', () => {
     render(<PopularityTab data={{ ...makePopularitySplit(), super_recent: null }} />);
     expect(screen.queryByRole('region', { name: '14日以内の超人気' })).toBeNull();
