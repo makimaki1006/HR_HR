@@ -1,14 +1,21 @@
 import type { GoogleKeyword } from '../../../generated/GoogleKeyword';
 import type { GoogleSection } from '../../../generated/GoogleSection';
 import type { GoogleSeason } from '../../../generated/GoogleSeason';
-import { MultiLineChart } from '../charts/MultiLineChart';
+import { KeywordCard } from '../charts/KeywordCard';
 import { SeasonChart } from '../charts/SeasonChart';
 import type { SeasonLineInput } from '../charts/seasonLayout';
 import { fixed, fmtInt, fmtNumber, MISSING } from '../format';
-import { allMonths, keywordLines, monthYearPivot, summarize, yearOverlay } from '../googleStats';
+import { isLowVolume, MIN_MONTHLY_MEAN, monthlyMean, monthYearPivot, summarize, yearOverlay } from '../googleStats';
 
 // 生のエラー本文は資格情報を含みうるので、Rust 側が落としている。ここは固定文だけを出す。
 const DEMAND_FAILED = 'Google検索需要を取得できませんでした。';
+
+const COMPETITION_JA: Record<string, string> = { HIGH: '高', MEDIUM: '中', LOW: '低' };
+/** 広告競合度は旧画面・PDF と同じく 高・中・低 で表示する。未指定は「—」。 */
+function competitionJa(raw: string): string {
+  if (raw === '' || raw === 'UNSPECIFIED' || raw === 'UNKNOWN') return MISSING;
+  return COMPETITION_JA[raw] ?? raw;
+}
 
 export function GoogleTab({ data }: { data: GoogleSection }) {
   return (
@@ -40,7 +47,7 @@ function GoogleBody({ data }: { data: Extract<GoogleSection, { status: 'ok' }> }
           ) : (
             <p className="cmp-note">取得地域: {demand.region_name}</p>
           )}
-          <DemandView keywords={demand.keywords} />
+          <DemandView seed={keyword} keywords={demand.keywords} />
           {season !== null && <SeasonBlock s={season} />}
         </>
       ) : (
@@ -102,29 +109,33 @@ function SeasonBlock({ s }: { s: GoogleSeason }) {
         <strong>{s.headline}</strong>
       </p>
       {s.caveat !== null && <p className="cmp-note">{s.caveat}</p>}
-      {!s.reliable && market !== null && (
-        <>
-          <p>
-            {market.headline}（{market.n_series} 職種の平均）
-          </p>
-          <SeasonChart
-            label="職種全体の暦月の型"
-            lineName="職種全体の平均"
-            color="#5b6770"
-            lines={marketLines}
-            currentMonth={s.current_month}
-            indeed={null}
-          />
-        </>
+      {s.reliable ? (
+        <SeasonChart
+          label={`${s.keyword}：暦月の型`}
+          lineName="Google 検索数の平均"
+          color="#007d79"
+          lines={googleLines}
+          currentMonth={s.current_month}
+          indeed={s.indeed}
+        />
+      ) : (
+        market !== null && (
+          <>
+            <p>
+              {market.headline}（{market.n_series} 職種の平均）
+            </p>
+            {/* 信頼の目安を満たさないときは Google の線と帯を描かず、市場全体の型に Indeed の点だけを重ねる。 */}
+            <SeasonChart
+              label="職種全体の暦月の型"
+              lineName="職種全体の平均"
+              color="#5b6770"
+              lines={marketLines}
+              currentMonth={s.current_month}
+              indeed={s.indeed}
+            />
+          </>
+        )
       )}
-      <SeasonChart
-        label={s.reliable ? `${s.keyword}：暦月の型` : `${s.keyword}：暦月の指数（参考）`}
-        lineName="Google 検索数の平均"
-        color="#007d79"
-        lines={googleLines}
-        currentMonth={s.current_month}
-        indeed={s.indeed}
-      />
       {s.indeed !== null && (
         <>
           <p className="cmp-note">{s.indeed.span_note}</p>
@@ -167,12 +178,15 @@ function SeasonBlock({ s }: { s: GoogleSeason }) {
 const signed = (v: number): string => `${v >= 0 ? '+' : '-'}${fixed(Math.abs(v), 1)}`;
 
 /** 先頭の検索語がメイン、続くのが近隣の検索語。 */
-function DemandView({ keywords }: { keywords: GoogleKeyword[] }) {
-  const main = keywords[0];
-  const months = allMonths(keywords);
+function DemandView({ seed, keywords }: { seed: string; keywords: GoogleKeyword[] }) {
+  const compact = (t: string): string => t.replace(/\s+/g, '');
+  const main = keywords.find((k) => compact(k.keyword) === compact(seed)) ?? keywords[0];
+  const others = keywords.filter((k) => k !== main && !isLowVolume(k));
+  const lowOthers = keywords.filter((k) => k !== main && isLowVolume(k));
   const rows = keywords.map(summarize);
-  const overlay = main ? yearOverlay(main) : null;
-  const pivot = main ? monthYearPivot(main) : null;
+  const showMain = main !== undefined && !isLowVolume(main);
+  const overlay = showMain ? yearOverlay(main) : null;
+  const pivot = showMain ? monthYearPivot(main) : null;
   return (
     <>
       <div className="cmp-block-title">検索語ごとの要約</div>
@@ -193,37 +207,65 @@ function DemandView({ keywords }: { keywords: GoogleKeyword[] }) {
               <td colSpan={6}>検索需要のデータがありません。</td>
             </tr>
           )}
-          {rows.map((r, i) => (
+          {rows.map((r, i) => {
+            const low = keywords[i] !== undefined && isLowVolume(keywords[i]);
+            return (
             <tr key={i}>
               <td>{r.keyword}</td>
               <td className="cmp-num">{fmtNumber(r.avgMonthly)}</td>
               <td className="cmp-num">{r.last12Total === null ? MISSING : fmtInt(r.last12Total)}</td>
-              <td className="cmp-num">{r.yoyPct === null ? MISSING : `${signed(r.yoyPct)}%`}</td>
-              <td>{r.peakMonth === null ? MISSING : `${String(r.peakMonth)}月`}</td>
-              <td>{r.competition}</td>
+              <td className="cmp-num">{r.yoyPct === null || low ? MISSING : `${signed(r.yoyPct)}%`}</td>
+              <td>{r.peakMonth === null || low ? MISSING : `${String(r.peakMonth)}月`}</td>
+              <td>{competitionJa(r.competition)}</td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       <p className="cmp-note">
         前年同期比は、直近12か月とその前の12か月がそろっている検索語だけ出します。ピーク月は、同じ月どうしの平均が最も大きい月です。
       </p>
-      {months.length > 0 && (
-        <MultiLineChart
-          label="月間検索数の推移（近隣の検索語を含む）"
-          months={months}
-          lines={keywordLines(keywords, months)}
-          unit="回/月"
-        />
+      {main !== undefined && (
+        <>
+          <div className="cmp-block-title">検索語ごとの月間検索数の推移（年別）</div>
+          <KeywordCard k={main} big />
+          {others.length > 0 && (
+            <div className="cmp-kwcards">
+              {others.map((k, i) => (
+                <KeywordCard key={i} k={k} big={false} />
+              ))}
+            </div>
+          )}
+          {lowOthers.length > 0 && (
+            <>
+              <div className="cmp-block-title">
+                月平均{MIN_MONTHLY_MEAN}回未満のため、月ごとの推移は出せません
+              </div>
+              <table className="cmp-table">
+                <thead>
+                  <tr>
+                    <th>検索語</th>
+                    <th>月平均</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lowOthers.map((k, i) => {
+                    const m = monthlyMean(k);
+                    return (
+                      <tr key={i}>
+                        <td>{k.keyword}</td>
+                        <td className="cmp-num">{m === null ? MISSING : fmtInt(Math.round(m))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
+          )}
+        </>
       )}
       {main && overlay && overlay.years.length > 0 && (
         <>
-          <MultiLineChart
-            label={`${main.keyword}：年ごとの重ね合わせ`}
-            months={overlay.months}
-            lines={overlay.lines}
-            unit="回/月"
-          />
           {pivot && (
             <>
               <div className="cmp-block-title">{main.keyword} の月別検索数</div>

@@ -312,9 +312,9 @@ describe('GoogleTab', () => {
     expect(screen.getByText('取得地域: Osaka')).toBeTruthy();
     // 3 か月分しか無いので直近12か月の合計・前年同期比・(欠測を除いた)ピーク月は 合計/比が —
     const demandRow = rowOf(screen.getAllByRole('cell', { name: 'テスト職 求人' })[0]);
-    expect(cells(demandRow)).toEqual(['テスト職 求人', '1,900', '—', '—', '10月', 'HIGH']);
+    expect(cells(demandRow)).toEqual(['テスト職 求人', '1,900', '—', '—', '10月', '高']);
     const nullRow = rowOf(screen.getAllByRole('cell', { name: '別の語' })[0]);
-    expect(cells(nullRow)).toEqual(['別の語', '—', '—', '—', '—', 'LOW']);
+    expect(cells(nullRow)).toEqual(['別の語', '—', '—', '—', '—', '低']);
     expect(cells(rowOf(screen.getByRole('cell', { name: '関連語B' })))).toEqual([
       '関連語B',
       '0',
@@ -345,35 +345,38 @@ describe('GoogleTab', () => {
     // 前の12か月 = i=24..35: 100×12 + 50 (i=29) = 1250。前年同期比 +72.0%。
     // 暦月ごとの平均が最大 = 3月 (i=5,17,29,41: 150,150,150,250 → 175)。
     const main = rowOf(screen.getAllByRole('cell', { name: 'テスト職 求人' })[0]);
-    expect(cells(main)).toEqual(['テスト職 求人', '1,900', '2,150', '+72.0%', '3月', 'HIGH']);
+    expect(cells(main)).toEqual(['テスト職 求人', '1,900', '2,150', '+72.0%', '3月', '高']);
     const sub = rowOf(screen.getAllByRole('cell', { name: 'テスト職 募集' })[0]);
-    expect(cells(sub)).toEqual(['テスト職 募集', '800', '360', '+0.0%', '1月', 'MEDIUM']);
-    // 全語を重ねた線: 2 系列 × 48 点
-    const all = screen.getByRole('img', { name: '月間検索数の推移（近隣の検索語を含む）' });
-    expect(all.querySelectorAll('circle')).toHaveLength(96);
-    // ホバー表示 (title) と aria-label は「月\u3000系列: 値 単位」
-    const first = all.querySelector('circle');
-    expect(first?.querySelector('title')?.textContent).toBe('2022-10\u3000テスト職 求人: 100 回/月');
-    expect(first?.getAttribute('aria-label')).toBe('2022-10\u3000テスト職 求人: 100 回/月');
+    expect(cells(sub)).toEqual(['テスト職 募集', '800', '360', '—', '—', '中']);
+    // 検索語ごとのカード: メイン語は新しい 4 年 (2023〜2026) の 45 点。月平均 100 回未満の語は線を描かず 1 行。
+    const card = screen.getByRole('img', { name: 'テスト職 求人' });
+    expect(card.querySelectorAll('circle')).toHaveLength(45);
+    const first = card.querySelector('circle');
+    expect(first?.querySelector('title')?.textContent).toBe('2023-01\u3000テスト職 求人: 100回/月');
+    expect(first?.getAttribute('aria-label')).toBe('2023-01\u3000テスト職 求人: 100回/月');
     expect(first?.getAttribute('tabindex')).toBe('0');
-    // 年ごとの重ね合わせ: 西暦ごとに 1 本 (2022〜2026)
-    const ov = screen.getByRole('img', { name: 'テスト職 求人：年ごとの重ね合わせ' });
-    expect([...ov.querySelectorAll('g[data-series]')].map((g) => g.getAttribute('data-series'))).toEqual([
-      '2022',
+    expect([...card.querySelectorAll('g[data-year]')].map((g) => g.getAttribute('data-year'))).toEqual([
       '2023',
       '2024',
       '2025',
       '2026',
     ]);
+    expect(screen.queryByRole('img', { name: 'テスト職 募集' })).toBeNull();
+    // 月平均 100 回未満の近隣語はカードにせず、まとめた表に載る。
+    expect(screen.getByText('月平均100回未満のため、月ごとの推移は出せません')).toBeTruthy();
+    const low = rowOf(screen.getAllByRole('cell', { name: 'テスト職 募集' }).at(-1));
+    expect(cells(low)).toEqual(['テスト職 募集', '30']);
+    expect(document.querySelectorAll('figure.cmp-kwcard').length).toBe(1);
+    expect(screen.queryByText(/年ごとの重ね合わせ/)).toBeNull();
   });
 
   it('欠測のある月は点を打たず、観測した 0 は点になる', () => {
     render(<GoogleTab data={googleOk(DEMAND_OK, SUGG_OK)} />);
-    const svg = screen.getByRole('img', { name: 'テスト職 求人：年ごとの重ね合わせ' });
+    const svg = screen.getByRole('img', { name: 'テスト職 求人' });
     const dots = [...svg.querySelectorAll('circle')].map((c) => [c.getAttribute('data-month'), c.getAttribute('data-value')]);
     expect(dots).toEqual([
-      ['10月', '1800'],
-      ['11月', '0'],
+      ['2025-10', '1800'],
+      ['2025-11', '0'],
     ]);
   });
 
