@@ -2,10 +2,15 @@ import { expect, test } from '@playwright/test';
 import { login } from './helpers/login';
 import { readFile } from 'node:fs/promises';
 
-test('競合調査を独立ページから作成し5タブと最低賃金を確認する', async ({ page }) => {
+test('ナビの競合調査は新画面 /app/competitor を開く', async ({ page }) => {
   await login(page);
   await page.getByRole('link', { name: '競合調査', exact: true }).click();
-  await expect(page).toHaveURL(/\/competitor$/);
+  await expect(page).toHaveURL(/\/app\/competitor$/);
+});
+
+test('競合調査を旧画面から作成し5タブと最低賃金を確認する', async ({ page }) => {
+  await login(page);
+  await page.goto('/competitor');
   await page.locator('#survey-title').fill('大阪府・施設長');
   await page.locator('#prefecture').selectOption('大阪府');
   await page.locator('input[name="include_google"]').uncheck();
