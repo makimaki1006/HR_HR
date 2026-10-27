@@ -173,15 +173,24 @@ pub(super) fn table(html: &mut String, cmp: &KeywordComparison) {
 
 pub(super) fn chart(html: &mut String, cmp: &KeywordComparison) {
     let (head_n, all_n) = (cmp.head_n, cmp.all_n);
-    html.push_str(
-        "<figure class=\"chart keyword-comparison\"><figcaption>訴求語の占有率比較（上位20語）</figcaption>",
-    );
     let rows = &cmp.rows;
     if rows.is_empty() {
-        html.push_str("<p class=\"note\">比較できるキーワードデータがありません</p></figure>");
+        html.push_str(
+            "<figure class=\"chart keyword-comparison\"><figcaption>訴求語の占有率比較（上位20語）</figcaption><p class=\"note\">比較できるキーワードデータがありません</p></figure>",
+        );
         return;
     }
     let extra = cmp.popular_any_n > 0;
+    // 人気・超人気の系列があるとグラフが 931px になる。枠も同じだけ広げないと、
+    // 印刷の固定行 (700px) からはみ出して枠の外に棒が出る。
+    let figure_style = if extra {
+        " style=\"min-height:980px\""
+    } else {
+        ""
+    };
+    html.push_str(&format!(
+        "<figure class=\"chart keyword-comparison\"{figure_style}><figcaption>訴求語の占有率比較（上位20語）</figcaption>"
+    ));
     // 人気・超人気の系列があるときだけ、凡例を 2 行にして棒を 3 本に細くする。
     // 棒の右の数値が重ならないよう、3 本のときは棒の間隔を 12px (数値の文字 11px + 1px) にし、
     // 語ごとの高さを広げる。2 系列の出力は変えない。

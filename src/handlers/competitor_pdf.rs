@@ -12,7 +12,7 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .pdf-page:last-child{break-after:auto;page-break-after:auto}
 .pdf-document .pdf-content{width:1510px;display:flow-root}
 .pdf-document .excel-dashboard{grid-template-columns:32% 68%;break-inside:auto}
-.pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px 700px}
+.pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px minmax(700px,auto)}
 .pdf-document .chart.wide{grid-column:1/-1}
 .pdf-document .summary td,.pdf-document .summary th{overflow-wrap:anywhere}
 .pdf-document .summary{padding:10px 12px}
