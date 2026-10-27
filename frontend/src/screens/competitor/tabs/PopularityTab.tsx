@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { Bucket } from '../../../generated/Bucket';
+import type { BiasTagGap } from '../../../generated/BiasTagGap';
+import type { CompanyBias } from '../../../generated/CompanyBias';
 import type { CompanyGroup } from '../../../generated/CompanyGroup';
 import type { PopularitySplit } from '../../../generated/PopularitySplit';
 import type { TagStat } from '../../../generated/TagStat';
@@ -197,6 +199,100 @@ function GroupCompare({ multi, single }: { multi: CompanyGroup; single: CompanyG
   );
 }
 
+const signed1 = (v: number): string => {
+  const t = fixed(v, 1);
+  return t === '-0.0' ? '0.0' : v > 0 ? `+${t}` : t;
+};
+
+function BiasTagTable({ heading, rows }: { heading: string; rows: readonly BiasTagGap[] }) {
+  return (
+    <table className="cmp-table">
+      <thead>
+        <tr>
+          <th>{heading}</th>
+          <th className="cmp-num">求人数</th>
+          <th className="cmp-num">会社を除く前の差</th>
+          <th className="cmp-num">会社を除いた後の差</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={4}>該当するタグがありません。</td>
+          </tr>
+        )}
+        {rows.map((r) => (
+          <tr key={r.tag}>
+            <td>{r.tag}</td>
+            <td className="cmp-num">{fmtInt(r.n)}</td>
+            <td className="cmp-num">{signed1(r.before)}</td>
+            <td className="cmp-num">{r.after === null ? MISSING : signed1(r.after)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function BiasView({ b }: { b: CompanyBias }) {
+  return (
+    <>
+      <h3 className="cmp-block-title">判定</h3>
+      <p>
+        人気・超人気の求人 {fmtInt(b.popular)} 件（n={fmtInt(b.total)}）のうち、会社に偏りがある会社は{' '}
+        {fmtInt(b.biased_companies)} 社（掲載3件以上の {fmtInt(b.judged_companies)} 社中）。その会社の人気・超人気は{' '}
+        {fmtInt(b.biased_popular)} 件で人気・超人気全体の {fixed(b.biased_popular_pct, 1)}%、求人は {fmtInt(b.biased_n)}{' '}
+        件で全求人の {fixed(b.biased_n_pct, 1)}%。人気が少ない会社は {fmtInt(b.fewer_companies)} 社。
+      </p>
+      <table className="cmp-table">
+        <thead>
+          <tr>
+            <th>会社名</th>
+            <th className="cmp-num">掲載数</th>
+            <th className="cmp-num">人気・超人気</th>
+            <th className="cmp-num">期待人気数</th>
+            <th className="cmp-num">差</th>
+            <th>判定</th>
+          </tr>
+        </thead>
+        <tbody>
+          {b.rows.length === 0 && (
+            <tr>
+              <td colSpan={6}>掲載3件以上の会社がありません。</td>
+            </tr>
+          )}
+          {b.rows.map((r) => (
+            <tr key={r.name}>
+              <td>{r.name}</td>
+              <td className="cmp-num">{fmtInt(r.n)}</td>
+              <td className="cmp-num">{fmtInt(r.popular)}</td>
+              <td className="cmp-num">{fixed(r.expected, 1)}</td>
+              <td className="cmp-num">{signed1(r.diff)}</td>
+              <td>{r.verdict}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="cmp-note">
+        期待人気数は、その会社の求人を除いたほかの会社の求人のうち、給与帯・条件タグの数・掲載の長さが同じ求人の人気・超人気の割合から出しています。
+        同じ層のほかの会社の求人が10件に満たないときは、掲載の長さを外した層、給与帯だけの層、ほかの会社全体の割合の順に切り替えています
+        （掲載の長さを外した求人 {fmtInt(b.fallback_no_age)} 件、給与帯だけ {fmtInt(b.fallback_salary_only)} 件、全体の割合{' '}
+        {fmtInt(b.fallback_overall)} 件）。期待より2件以上多く、偏りが偶然とは言えない水準のときを「会社に偏りがある」、
+        2件以上少なく同じ水準のときを「人気が少ない会社」、それ以外を「給与・条件の範囲」としています。表は掲載3件以上の会社で、
+        会社に偏りがある会社を先頭に、差の大きい順で最大20社です。
+      </p>
+      <h3 className="cmp-block-title">会社を除いた条件の差</h3>
+      <p className="cmp-note">
+        会社に偏りがある {fmtInt(b.biased_companies)} 社の求人を除いた {fmtInt(b.after_total)} 件（人気・超人気{' '}
+        {fmtInt(b.after_popular)} 件）で、各条件タグの 人気求人での割合 − 全体の割合（ポイント）を、除く前と並べています。
+        会社を除いても差が残るタグは、条件によるものとして読めます。求人3件以上のタグだけです。
+      </p>
+      <BiasTagTable heading="人気側に多いタグ" rows={b.tags_more} />
+      <BiasTagTable heading="人気側に少ないタグ" rows={b.tags_less} />
+    </>
+  );
+}
+
 const manYen = (v: number | null): string => (v === null ? MISSING : `${fixed(v / 10000, 1)}万円`);
 
 function SalaryView({ data }: { data: PopularitySplit }) {
@@ -235,20 +331,14 @@ function PopularityBody({ sub, data }: { sub: SubId; data: PopularitySplit }) {
   switch (sub) {
     case 'age':
       return <AgeView data={data} />;
-    case 'company': {
-      const top = [...data.companies.rows].sort((a, b) => b.n - a.n).slice(0, 10);
+    case 'company':
       return (
         <>
           <h3 className="cmp-block-title">複数の求人を出す会社と、1件の会社</h3>
           <GroupCompare multi={data.companies.multi} single={data.companies.single} />
-          <h3 className="cmp-block-title">上位の会社の人気・超人気の割合</h3>
-          <BucketTable
-            heading="会社名"
-            rows={top.map((r) => ({ label: r.name, n: r.n, popular: r.popular, super_popular: r.super_popular }))}
-          />
+          <BiasView b={data.company_bias} />
         </>
       );
-    }
     case 'salary':
       return <SalaryView data={data} />;
     case 'tags':

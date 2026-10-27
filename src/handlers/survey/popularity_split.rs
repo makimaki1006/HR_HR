@@ -101,6 +101,68 @@ pub struct TagSection {
     pub count_buckets: Vec<Bucket>,
 }
 
+/// 会社の影響の判定。決まりの値はここ 1 か所。
+const BIAS_MIN_DIFF: f64 = 2.0;
+const BIAS_MIN_Z: f64 = 2.0;
+/// 判定する会社の最小の掲載数。
+const BIAS_MIN_COMPANY_N: u32 = 3;
+/// 期待人気率を出す層の最小の求人数 (会社を除いたもの)。
+const BIAS_MIN_STRATUM_N: u32 = 10;
+const BIAS_COMPANY_ROWS: usize = 20;
+const BIAS_TAG_ROWS: usize = 10;
+const BIAS_TAG_MIN_N: u32 = 3;
+const VERDICT_BIASED: &str = "会社に偏りがある";
+const VERDICT_FEWER: &str = "人気が少ない会社";
+const VERDICT_RANGE: &str = "給与・条件の範囲";
+const VERDICT_NONE: &str = "判定なし";
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct BiasCompanyRow {
+    pub name: String,
+    pub n: u32,
+    pub popular: u32,
+    /// 同じ条件のほかの会社の人気率から出した期待人気数。
+    pub expected: f64,
+    pub diff: f64,
+    /// 「会社に偏りがある」「人気が少ない会社」「給与・条件の範囲」「判定なし」。
+    pub verdict: String,
+}
+
+/// 条件タグごとの 人気求人での割合 − 全体の割合 (百分率の差)。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct BiasTagGap {
+    pub tag: String,
+    /// 全求人でのタグ付き求人数。
+    pub n: u32,
+    pub before: f64,
+    /// 偏りのある会社を除いた求人での差。除いた後に件数が 3 未満なら null。
+    pub after: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct CompanyBias {
+    pub total: u32,
+    pub popular: u32,
+    /// 掲載 3 件以上で判定した会社の数。
+    pub judged_companies: u32,
+    pub biased_companies: u32,
+    pub biased_popular: u32,
+    pub biased_popular_pct: f64,
+    pub biased_n: u32,
+    pub biased_n_pct: f64,
+    pub fewer_companies: u32,
+    /// 期待人気率を、掲載の長さを外した層・給与帯だけの層・全体の人気率に切り替えた求人数。
+    pub fallback_no_age: u32,
+    pub fallback_salary_only: u32,
+    pub fallback_overall: u32,
+    pub rows: Vec<BiasCompanyRow>,
+    /// 偏りのある会社を除いた求人の数と人気求人の数。
+    pub after_total: u32,
+    pub after_popular: u32,
+    pub tags_more: Vec<BiasTagGap>,
+    pub tags_less: Vec<BiasTagGap>,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 pub struct Group {
     pub title: String,
@@ -116,6 +178,7 @@ pub struct PopularitySplit {
     pub tags_by_age: Vec<AgeTags>,
     pub super_recent: Option<SuperRecent>,
     pub companies: CompanySection,
+    pub company_bias: CompanyBias,
     pub salary: SalarySection,
     pub tags: TagSection,
     pub writing: Vec<Group>,
@@ -478,6 +541,273 @@ fn companies(items: &[Item]) -> CompanySection {
     }
 }
 
+/// 判定の決まり。差と分散から判定名を返す。
+fn bias_verdict(diff: f64, variance: f64) -> &'static str {
+    if variance <= 1e-12 {
+        return VERDICT_NONE;
+    }
+    let z = diff / variance.sqrt();
+    const EPS: f64 = 1e-9;
+    if diff >= BIAS_MIN_DIFF - EPS && z >= BIAS_MIN_Z - EPS {
+        VERDICT_BIASED
+    } else if diff <= -BIAS_MIN_DIFF + EPS && z <= -BIAS_MIN_Z + EPS {
+        VERDICT_FEWER
+    } else {
+        VERDICT_RANGE
+    }
+}
+
+/// 給与帯の区分 (月給下限の四分位。月給が読めない求人は「不明」)。
+fn salary_band_index(items: &[Item]) -> Vec<u8> {
+    let mut all: Vec<i64> = items.iter().filter_map(|i| monthly_min(i.rec)).collect();
+    all.sort_unstable();
+    let q: Vec<i64> = if all.is_empty() {
+        Vec::new()
+    } else {
+        (1..4)
+            .map(|k| all[(all.len() * k / 4).min(all.len() - 1)])
+            .collect()
+    };
+    items
+        .iter()
+        .map(|i| match monthly_min(i.rec) {
+            Some(v) => q.iter().filter(|b| v >= **b).count() as u8,
+            None => 4,
+        })
+        .collect()
+}
+
+fn count_bucket_index(n: usize) -> u8 {
+    match n {
+        0 => 0,
+        1..=2 => 1,
+        3..=4 => 2,
+        _ => 3,
+    }
+}
+
+fn age_index(a: Age) -> u8 {
+    match a {
+        Age::Fresh => 0,
+        Age::Mid => 1,
+        Age::Long => 2,
+        Age::Unknown => 3,
+    }
+}
+
+type Tally = (u32, u32);
+
+fn tally_add(m: &mut HashMap<Vec<u32>, Tally>, key: Vec<u32>, popular: bool) {
+    let e = m.entry(key).or_default();
+    e.0 += 1;
+    e.1 += popular as u32;
+}
+
+/// 条件タグごとの (全体でのタグ付き求人数, 人気求人での割合 − 全体の割合)。
+fn tag_gaps(items: &[&Item]) -> HashMap<String, (u32, f64)> {
+    let n = items.len() as f64;
+    let pop = items.iter().filter(|i| i.popular).count() as f64;
+    let mut m: HashMap<&str, (u32, u32)> = HashMap::new();
+    for it in items {
+        for t in &it.cond {
+            let e = m.entry(t.as_str()).or_default();
+            e.0 += 1;
+            e.1 += it.popular as u32;
+        }
+    }
+    if pop == 0.0 {
+        return HashMap::new();
+    }
+    m.into_iter()
+        .filter(|(_, (c, _))| *c >= BIAS_TAG_MIN_N)
+        .map(|(t, (c, p))| (t.to_owned(), (c, (p as f64 / pop - c as f64 / n) * 100.0)))
+        .collect()
+}
+
+/// 人気が会社によるのか、給与・条件の範囲かを分ける。
+/// 各求人の期待人気率 = その求人の会社を除いたほかの会社の、同じ層の人気率。
+fn company_bias(items: &[Item]) -> CompanyBias {
+    let band = salary_band_index(items);
+    // 会社名なしは別々の会社として扱う (一つの会社とは見ない)。
+    let comp: Vec<String> = items
+        .iter()
+        .enumerate()
+        .map(|(i, it)| {
+            let c = normalize_company(&it.rec.company_name);
+            if c == NO_COMPANY {
+                format!("\u{0}{i}")
+            } else {
+                c
+            }
+        })
+        .collect();
+    // 層の鍵: [1, 給与帯, タグ数, 掲載] / [2, 給与帯, タグ数] / [3, 給与帯]
+    let keys = |i: usize| -> [Vec<u32>; 3] {
+        let it = &items[i];
+        let (b, c, a) = (
+            band[i] as u32,
+            count_bucket_index(it.cond.len()) as u32,
+            age_index(it.age) as u32,
+        );
+        [vec![1, b, c, a], vec![2, b, c], vec![3, b]]
+    };
+    let mut all: [HashMap<Vec<u32>, Tally>; 1] = [HashMap::new()];
+    let mut per_company: HashMap<(String, Vec<u32>), Tally> = HashMap::new();
+    let mut comp_total: HashMap<&str, Tally> = HashMap::new();
+    for (i, it) in items.iter().enumerate() {
+        for k in keys(i) {
+            tally_add(&mut all[0], k.clone(), it.popular);
+            let e = per_company.entry((comp[i].clone(), k)).or_default();
+            e.0 += 1;
+            e.1 += it.popular as u32;
+        }
+        let e = comp_total.entry(comp[i].as_str()).or_default();
+        e.0 += 1;
+        e.1 += it.popular as u32;
+    }
+    let n_all = items.len() as u32;
+    let pop_all = items.iter().filter(|i| i.popular).count() as u32;
+
+    let mut fb = (0u32, 0u32, 0u32);
+    let mut p_of: Vec<f64> = Vec::with_capacity(items.len());
+    for (i, ci) in comp.iter().enumerate() {
+        let ks = keys(i);
+        let mut chosen = None;
+        for (level, k) in ks.iter().enumerate() {
+            let (tn, tp) = all[0].get(k).copied().unwrap_or_default();
+            let (cn, cp) = per_company
+                .get(&(ci.clone(), k.clone()))
+                .copied()
+                .unwrap_or_default();
+            let (on, op) = (tn - cn, tp - cp);
+            if on >= BIAS_MIN_STRATUM_N {
+                chosen = Some((level, op as f64 / on as f64));
+                break;
+            }
+        }
+        let p = match chosen {
+            Some((level, p)) => {
+                match level {
+                    1 => fb.0 += 1,
+                    2 => fb.1 += 1,
+                    _ => {}
+                }
+                p
+            }
+            None => {
+                fb.2 += 1;
+                let (cn, cp) = comp_total.get(ci.as_str()).copied().unwrap_or_default();
+                let (on, op) = (n_all - cn, pop_all - cp);
+                if on > 0 {
+                    op as f64 / on as f64
+                } else {
+                    pop_all as f64 / n_all as f64
+                }
+            }
+        };
+        p_of.push(p);
+    }
+
+    let mut rows: Vec<BiasCompanyRow> = Vec::new();
+    let mut by: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+    for (i, c) in comp.iter().enumerate() {
+        by.entry(c.as_str()).or_default().push(i);
+    }
+    for (name, idx) in &by {
+        if (idx.len() as u32) < BIAS_MIN_COMPANY_N {
+            continue;
+        }
+        let popular = idx.iter().filter(|i| items[**i].popular).count() as u32;
+        let expected: f64 = idx.iter().map(|i| p_of[*i]).sum();
+        let variance: f64 = idx.iter().map(|i| p_of[*i] * (1.0 - p_of[*i])).sum();
+        let diff = popular as f64 - expected;
+        rows.push(BiasCompanyRow {
+            name: (*name).to_owned(),
+            n: idx.len() as u32,
+            popular,
+            expected,
+            diff,
+            verdict: bias_verdict(diff, variance).to_owned(),
+        });
+    }
+    let judged_companies = rows.len() as u32;
+    let biased: Vec<&BiasCompanyRow> = rows
+        .iter()
+        .filter(|r| r.verdict == VERDICT_BIASED)
+        .collect();
+    let biased_names: std::collections::HashSet<&str> =
+        biased.iter().map(|r| r.name.as_str()).collect();
+    let biased_companies = biased.len() as u32;
+    let biased_popular: u32 = biased.iter().map(|r| r.popular).sum();
+    let biased_n: u32 = biased.iter().map(|r| r.n).sum();
+    let fewer_companies = rows.iter().filter(|r| r.verdict == VERDICT_FEWER).count() as u32;
+
+    let before_refs: Vec<&Item> = items.iter().collect();
+    let after_refs: Vec<&Item> = items
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !biased_names.contains(comp[*i].as_str()))
+        .map(|(_, it)| it)
+        .collect();
+    let before = tag_gaps(&before_refs);
+    let after = tag_gaps(&after_refs);
+    let mut gaps: Vec<BiasTagGap> = before
+        .into_iter()
+        .map(|(tag, (n, b))| BiasTagGap {
+            after: after.get(&tag).map(|a| a.1),
+            tag,
+            n,
+            before: b,
+        })
+        .collect();
+    gaps.sort_by(|a, b| {
+        b.before
+            .total_cmp(&a.before)
+            .then_with(|| a.tag.cmp(&b.tag))
+    });
+    let tags_more: Vec<BiasTagGap> = gaps
+        .iter()
+        .filter(|g| g.before > 0.0)
+        .take(BIAS_TAG_ROWS)
+        .cloned()
+        .collect();
+    let tags_less: Vec<BiasTagGap> = gaps
+        .iter()
+        .rev()
+        .filter(|g| g.before < 0.0)
+        .take(BIAS_TAG_ROWS)
+        .cloned()
+        .collect();
+
+    rows.sort_by(|a, b| {
+        ((b.verdict == VERDICT_BIASED) as u8)
+            .cmp(&((a.verdict == VERDICT_BIASED) as u8))
+            .then(b.diff.total_cmp(&a.diff))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    rows.truncate(BIAS_COMPANY_ROWS);
+
+    CompanyBias {
+        total: n_all,
+        popular: pop_all,
+        judged_companies,
+        biased_companies,
+        biased_popular,
+        biased_popular_pct: pct(biased_popular as usize, pop_all as usize),
+        biased_n,
+        biased_n_pct: pct(biased_n as usize, n_all as usize),
+        fewer_companies,
+        fallback_no_age: fb.0,
+        fallback_salary_only: fb.1,
+        fallback_overall: fb.2,
+        rows,
+        after_total: after_refs.len() as u32,
+        after_popular: after_refs.iter().filter(|i| i.popular).count() as u32,
+        tags_more,
+        tags_less,
+    }
+}
+
 fn salary(items: &[Item]) -> SalarySection {
     let mut all: Vec<i64> = items.iter().filter_map(|i| monthly_min(i.rec)).collect();
     all.sort_unstable();
@@ -645,6 +975,7 @@ pub fn compute(records: &[SurveyRecord]) -> Option<PopularitySplit> {
         ],
         super_recent: super_recent(&items),
         companies: companies(&items),
+        company_bias: company_bias(&items),
         salary: salary(&items),
         tags: TagSection {
             welfare: tag_stats(&all_refs, &WELFARE_KEYS),
@@ -931,5 +1262,156 @@ mod tests {
         assert_eq!(g(AGE_MID), (59, 29));
         assert_eq!(g(AGE_LONG), (181, 57));
         assert_eq!((s.total, s.popular), (322, 105));
+    }
+
+    // ---- 会社の影響 ----
+
+    fn repeat(c: &str, tags: &str, age: Option<(u32, bool)>, n: usize) -> Vec<SurveyRecord> {
+        (0..n)
+            .map(|_| rec(c, "", "月給20万円", tags, age))
+            .collect()
+    }
+
+    /// 会社 X の 6 求人が全部人気。ほかの 15 社 (2 件ずつ) は 30 件中 3 件が人気。
+    fn concentrated() -> Vec<SurveyRecord> {
+        let a = Some((1, false));
+        let mut v = repeat("X", "人気,寮完備", a, 6);
+        for i in 1..=15 {
+            let c = format!("O{i}");
+            let first = match i {
+                1..=3 => "人気,昇給あり",
+                4..=6 => "昇給あり",
+                _ => "",
+            };
+            v.push(rec(&c, "", "月給20万円", first, a));
+            v.push(rec(&c, "", "月給20万円", "", a));
+        }
+        v
+    }
+
+    #[test]
+    fn verdict_boundaries() {
+        // 差ちょうど 2、z ちょうど 2 (分散 1) は偏りあり
+        assert_eq!(bias_verdict(2.0, 1.0), VERDICT_BIASED);
+        // z が 2 に届かない
+        assert_eq!(bias_verdict(2.0, 1.01), VERDICT_RANGE);
+        // 差が 2 に届かない
+        assert_eq!(bias_verdict(1.99, 0.25), VERDICT_RANGE);
+        assert_eq!(bias_verdict(-2.0, 1.0), VERDICT_FEWER);
+        assert_eq!(bias_verdict(-1.99, 0.25), VERDICT_RANGE);
+        assert_eq!(bias_verdict(5.0, 0.0), VERDICT_NONE);
+    }
+
+    #[test]
+    fn concentrated_popularity_is_company_bias() {
+        let s = compute(&concentrated()).unwrap();
+        let b = &s.company_bias;
+        assert_eq!((b.total, b.popular), (36, 9));
+        // 掲載 3 件未満の会社は出ない
+        assert_eq!(b.rows.len(), 1);
+        assert_eq!(b.judged_companies, 1);
+        let x = &b.rows[0];
+        assert_eq!((x.name.as_str(), x.n, x.popular), ("X", 6, 6));
+        // 期待人気数は X を除いた 30 件の人気率 (3/30) から。X を含めると 1.5 になってしまう
+        assert!((x.expected - 0.6).abs() < 1e-9, "{}", x.expected);
+        assert!((x.diff - 5.4).abs() < 1e-9);
+        assert_eq!(x.verdict, VERDICT_BIASED);
+        assert_eq!(b.biased_companies, 1);
+        assert_eq!((b.biased_popular, b.biased_n), (6, 6));
+        assert!((b.biased_popular_pct - 100.0 * 6.0 / 9.0).abs() < 1e-9);
+        assert!((b.biased_n_pct - 100.0 * 6.0 / 36.0).abs() < 1e-9);
+        assert_eq!((b.after_total, b.after_popular), (30, 3));
+    }
+
+    #[test]
+    fn tag_gap_before_and_after_removing_biased_company() {
+        let b = compute(&concentrated()).unwrap().company_bias;
+        let get = |v: &Vec<BiasTagGap>, t: &str| v.iter().find(|g| g.tag == t).cloned();
+        // 寮完備は X だけが持つ: 6/9 − 6/36 = 50 pt。X を除くと求人が無くなる
+        let ryo = get(&b.tags_more, "寮完備").unwrap();
+        assert_eq!(ryo.n, 6);
+        assert!((ryo.before - 50.0).abs() < 1e-9);
+        assert_eq!(ryo.after, None);
+        // 昇給あり: 3/9 − 6/36 = 16.67 pt、X を除くと 3/3 − 6/30 = 80 pt
+        let kyu = get(&b.tags_more, "昇給あり").unwrap();
+        assert!((kyu.before - (100.0 / 3.0 - 100.0 / 6.0)).abs() < 1e-9);
+        assert!((kyu.after.unwrap() - 80.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn same_rate_everywhere_has_no_bias() {
+        let a = Some((1, false));
+        let mut v = Vec::new();
+        for c in ["A", "B", "C"] {
+            v.extend(repeat(c, "人気", a, 2));
+            v.extend(repeat(c, "", a, 2));
+        }
+        let b = compute(&v).unwrap().company_bias;
+        assert_eq!(b.biased_companies, 0);
+        assert_eq!(b.rows.len(), 3);
+        for r in &b.rows {
+            assert!((r.expected - 2.0).abs() < 1e-9);
+            assert_eq!(r.verdict, VERDICT_RANGE);
+        }
+    }
+
+    #[test]
+    fn stratum_fallback_levels() {
+        let fresh = Some((1, false));
+        let long = Some((40, false));
+        let mut v = repeat("A", "", fresh, 3);
+        v.extend(repeat("B", "休暇あり,賞与あり,昇給あり", long, 3));
+        for i in 1..=6 {
+            let c = format!("O{i}");
+            v.push(rec(&c, "", "月給20万円", "人気", long));
+            v.push(rec(&c, "", "月給20万円", "", long));
+        }
+        let b = compute(&v).unwrap().company_bias;
+        // A は掲載の長さが同じ層にほかの会社が無く、掲載の長さを外した層へ
+        assert_eq!(b.fallback_no_age, 3);
+        // B はタグ数が同じ層にほかの会社が無く、給与帯だけの層へ
+        assert_eq!(b.fallback_salary_only, 3);
+        assert_eq!(b.fallback_overall, 0);
+        // A の期待人気率は A 以外の「タグ 0 個」12 件の 6/12
+        let a = b.rows.iter().find(|r| r.name == "A").unwrap();
+        assert!((a.expected - 1.5).abs() < 1e-9, "{}", a.expected);
+        // B は A を除く給与帯の層: B 以外 15 件中 6 件が人気
+        let bb = b.rows.iter().find(|r| r.name == "B").unwrap();
+        assert!(
+            (bb.expected - 3.0 * 6.0 / 15.0).abs() < 1e-9,
+            "{}",
+            bb.expected
+        );
+    }
+
+    #[test]
+    fn small_data_falls_back_to_overall() {
+        let a = Some((1, false));
+        let mut v = repeat("A", "人気", a, 3);
+        v.extend(repeat("B", "", a, 3));
+        let b = compute(&v).unwrap().company_bias;
+        assert_eq!(b.fallback_overall, 6);
+        let ra = b.rows.iter().find(|r| r.name == "A").unwrap();
+        assert!((ra.expected - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn bias_json_has_no_titles() {
+        let json = serde_json::to_string(&compute(&concentrated()).unwrap().company_bias).unwrap();
+        assert!(!json.contains("秘密のタイトル"));
+    }
+
+    /// 実 CSV の確認 (cargo test --lib real_csv_company_bias -- --ignored --nocapture)。
+    #[test]
+    #[ignore]
+    fn real_csv_company_bias() {
+        let path = "/Users/s_fujimaki/Downloads/indeed-2026-10-26.csv";
+        let Ok(bytes) = std::fs::read(path) else {
+            return;
+        };
+        let recs = parse_csv_bytes_with_hints(&bytes, None, UserSourceHint::Auto).unwrap();
+        let b = compute(&recs).unwrap().company_bias;
+        eprintln!("{b:#?}");
+        assert_eq!((b.total, b.popular), (322, 105));
     }
 }

@@ -53,6 +53,12 @@ describe('PopularityTab', () => {
     fireEvent.click(screen.getByRole('button', { name: '会社' }));
     expect(rowText('2件以上')).toEqual(['2件以上', '48', '137', '36', '26%']);
     expect(rowText('1件')).toEqual(['1件', '0', '0', '0', '—']);
+    expect(rowText('テスト工業')).toEqual(['テスト工業', '6', '5', '1.6', '+3.4', '会社に偏りがある']);
+    expect(rowText('サンプル商事')).toEqual(['サンプル商事', '4', '1', '1.0', '0.0', '給与・条件の範囲']);
+    expect(screen.getByText(/会社に偏りがある会社は 2 社/)).toBeTruthy();
+    expect(screen.getByText(/全体の 8.5%/)).toBeTruthy();
+    expect(rowText('学歴不問')).toEqual(['学歴不問', '67', '+16.3', '+15.1']);
+    expect(rowText('寮完備')).toEqual(['寮完備', '8', '-4.2', '—']);
     fireEvent.click(screen.getByRole('button', { name: '条件タグ' }));
     expect(rowText('食事補助あり').slice(0, 4)).toEqual(['食事補助あり', '13', '8', '62%']);
     fireEvent.click(screen.getByRole('button', { name: '書き方' }));
