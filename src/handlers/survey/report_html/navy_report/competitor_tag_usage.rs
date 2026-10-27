@@ -378,7 +378,7 @@ pub(super) fn tables(html: &mut String, u: &TagUsage) {
     html.push_str("<h2>求人票キーワード調査（帯別）</h2>");
     for b in &u.bands {
         html.push_str(&format!(
-            "<h3 class=\"band-title\">{} {}語（{}）</h3><table class=\"words tag-usage-table\"><thead><tr><th>語</th><th>件数</th><th>全体の割合</th>{}</tr></thead><tbody>",
+            "<h3 class=\"band-title\">{} {}語（{}）</h3><table class=\"words\"><thead><tr><th>語</th><th>件数</th><th>全体の割合</th>{}</tr></thead><tbody>",
             escape_html(&b.label),
             b.rows.len(),
             escape_html(&b.range),
