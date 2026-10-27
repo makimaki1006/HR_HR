@@ -181,6 +181,8 @@ mod tests {
             .expect("CompetitorReportResponse の TS 型を書き出せない");
         crate::handlers::competitor::CompetitorOptions::export_all(&cfg)
             .expect("CompetitorOptions の TS 型を書き出せない");
+        crate::handlers::competitor::CompetitorProgress::export_all(&cfg)
+            .expect("CompetitorProgress の TS 型を書き出せない");
         crate::handlers::competitor::CompetitorError::export_all(&cfg)
             .expect("CompetitorError の TS 型を書き出せない");
         let written = std::fs::read_to_string(out_dir.join("AppPingResponse.ts")).unwrap();

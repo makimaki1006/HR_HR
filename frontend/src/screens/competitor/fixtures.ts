@@ -1,7 +1,19 @@
 import type { CompetitorReport } from '../../generated/CompetitorReport';
 // テスト用の架空データ (実在の求人・企業・人名は含めない)。型は ts-rs の生成物に合わせる。
 import type { CompetitorReportResponse } from '../../generated/CompetitorReportResponse';
+import type { GoogleMonth } from '../../generated/GoogleMonth';
 import type { PopularitySplit } from '../../generated/PopularitySplit';
+
+/** 開始 (年, 月) から n か月分の月次検索数。値は f(i)。 */
+export function makeMonthly(start: [number, number], n: number, f: (i: number) => number | null): GoogleMonth[] {
+  return Array.from({ length: n }, (_, i) => {
+    const t = start[0] * 12 + (start[1] - 1) + i;
+    return {
+      month: `${String(Math.floor(t / 12))}-${String((t % 12) + 1).padStart(2, '0')}`,
+      search_volume: f(i),
+    };
+  });
+}
 
 export function makeReport(): CompetitorReport {
   return {
@@ -47,6 +59,36 @@ export function makeReport(): CompetitorReport {
           { word: '賞与あり', head_count: 9, head_share_pct: 20, all_count: null, all_share_pct: null, popular_any_count: null, popular_any_share_pct: null },
         ],
       },
+      tag_usage: {
+        n: 1234,
+        popular_n: 40,
+        bands: [
+          {
+            key: 'most',
+            label: 'ほとんどの求人が付けている',
+            range: '全体の50%以上',
+            rows: [{ word: '交通費支給', n_tag: 700, share_pct: 56.7, popular_tag_n: 30, popular_share_pct: 75, gap_pt: 18.3 }],
+          },
+          {
+            key: 'half',
+            label: '半数前後',
+            range: '全体の20%以上50%未満',
+            rows: [{ word: '昇給あり', n_tag: 400, share_pct: 32.4, popular_tag_n: 8, popular_share_pct: 20, gap_pt: -12.4 }],
+          },
+          {
+            key: 'some',
+            label: '一部の求人だけ',
+            range: '全体の20%未満（3件以上）',
+            rows: [{ word: '車通勤OK', n_tag: 50, share_pct: 4.05, popular_tag_n: 6, popular_share_pct: 15, gap_pt: 10.95 }],
+          },
+        ],
+        minor_word_count: 7,
+        popular_up: [
+          { word: '交通費支給', n_tag: 700, share_pct: 56.7, popular_tag_n: 30, popular_share_pct: 75, gap_pt: 18.3 },
+          { word: '車通勤OK', n_tag: 50, share_pct: 4.05, popular_tag_n: 6, popular_share_pct: 15, gap_pt: 10.95 },
+        ],
+        popular_down: [{ word: '昇給あり', n_tag: 400, share_pct: 32.4, popular_tag_n: 8, popular_share_pct: 20, gap_pt: -12.4 }],
+      },
       histograms: {
         upper: {
           bins: [
@@ -82,13 +124,15 @@ export function makeReport(): CompetitorReport {
             keyword: 'テスト職 求人',
             avg_monthly: 1900,
             competition: 'HIGH',
-            monthly_12m: [
-              { month: '2025-10', search_volume: 1800 },
-              { month: '2025-11', search_volume: 0 },
-              { month: '2025-12', search_volume: null },
-            ],
+            monthly: makeMonthly([2022, 10], 48, (i) => 1500 + (i % 12) * 50),
           },
-          { keyword: '別の語', avg_monthly: null, competition: 'LOW', monthly_12m: [] },
+          {
+            keyword: 'テスト職 募集',
+            avg_monthly: 800,
+            competition: 'MEDIUM',
+            monthly: makeMonthly([2022, 10], 48, (i) => 700 + (i % 12) * 20),
+          },
+          { keyword: '別の語', avg_monthly: null, competition: 'LOW', monthly: [] },
         ],
       },
       suggestions: {

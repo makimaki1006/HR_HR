@@ -137,3 +137,21 @@ describe('multiLineLayout', () => {
     expect(multiLineLayout(['a'], [{ label: 'x', values: [null] }])).toBeNull();
   });
 });
+
+describe('MultiLineChart の防御とホバー表示', () => {
+  it('名前の空の系列・点が 1 つも無い系列は描かず、凡例にも出さない。点は「月　系列: 値」', () => {
+    const a = make();
+    if (a.search_trend.status !== 'ok') throw new Error('fixture');
+    a.search_trend.series = [
+      { label: '', variant: 'x', values: [10, 20], latest: 20, latest_month: '2026-07', yoy_pct: null, peak_month: null, competition: 'LOW' },
+      { label: '点なし', variant: 'y', values: [null, null], latest: null, latest_month: '', yoy_pct: null, peak_month: null, competition: 'LOW' },
+      { label: 'テスト職 求人', variant: 'job', values: [2000, 3000], latest: 3000, latest_month: '2026-07', yoy_pct: null, peak_month: null, competition: 'HIGH' },
+    ];
+    render(<KeywordAnalysisBlock data={a} />);
+    const svg = screen.getByRole('img', { name: 'Google検索数の推移' });
+    expect([...svg.querySelectorAll('g[data-series]')].map((g) => g.getAttribute('data-series'))).toEqual(['テスト職 求人']);
+    expect(svg.textContent).not.toContain('点なし');
+    const titles = [...svg.querySelectorAll('circle > title')].map((t) => t.textContent);
+    expect(titles).toEqual(['2026-06　テスト職 求人: 2,000 回/月', '2026-07　テスト職 求人: 3,000 回/月']);
+  });
+});

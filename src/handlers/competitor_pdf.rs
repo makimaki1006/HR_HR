@@ -23,6 +23,10 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .summary h2{font-size:14px;margin:8px 0 5px}
 .pdf-document .summary .note{font-size:10px;line-height:1.4}
 .pdf-document .page-navy{margin-top:0;break-inside:auto}
+/* Google 検索需要は縦に長いので 2 段組にして、ページ全体の縮小を小さくする。 */
+.pdf-document #competitor-google{columns:2;column-gap:28px}
+.pdf-document #competitor-google>*{break-inside:avoid}
+.pdf-document #competitor-google>h1,.pdf-document #competitor-google>.page-header,.pdf-document #competitor-google>header{column-span:all}
 .pdf-document #panel-indeed-keywords{display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;align-content:start}
 .pdf-document #panel-indeed-keywords>.block-title,.pdf-document #panel-indeed-keywords>.kw-caveats{grid-column:1/-1}
 .pdf-document #panel-indeed-keywords .kw-part{min-width:0}

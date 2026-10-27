@@ -3,6 +3,7 @@ import type { Histograms } from "./Histograms";
 import type { KeywordComparison } from "./KeywordComparison";
 import type { KeywordRow } from "./KeywordRow";
 import type { SalaryRow } from "./SalaryRow";
+import type { TagUsage } from "./TagUsage";
 
 export type ExcelSection = { 
 /**
@@ -32,4 +33,8 @@ keyword_head: Array<KeywordRow>,
 /**
  * 先頭 N 件と全体の占有率比較 (上位 20 語)。語ごとに同じ語の全体件数を引いてある。
  */
-keyword_comparison: KeywordComparison, histograms: Histograms, };
+keyword_comparison: KeywordComparison, 
+/**
+ * 条件タグの使われ方 (全体の割合の帯と、人気求人との差)。見出し・本文は読まない。
+ */
+tag_usage: TagUsage, histograms: Histograms, };

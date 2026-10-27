@@ -26,7 +26,8 @@ use tower_sessions::Session;
 use ts_rs::TS;
 
 use super::{
-    analyze, collect_context, parse_request, read_form, AnalyzeError, FormError, ReportRequest,
+    analyze, collect_context, parse_request, progress, read_form, uses_google, AnalyzeError,
+    FormError, ReportRequest, Stage, Tracker,
 };
 use crate::handlers::survey::report_html::competitor_model::{
     build_competitor_report, CompetitorReport,
@@ -382,11 +383,13 @@ async fn build(
         .await
         .and_then(parse_request)
         .map_err(form_error)?;
+    let tracker = Tracker::start(user, req.progress_id.as_deref(), uses_google(&req));
     let csv = std::mem::take(&mut req.csv);
     let agg = analyze(csv, req.source, req.mode, &req.pref, Some(MAX_CSV_ROWS))
         .await
         .map_err(analysis_error)?;
-    let (indeed, google, population) = collect_context(state.clone(), &req).await;
+    let (indeed, google, population) = collect_context(state.clone(), &req, &tracker).await;
+    tracker.enter(Stage::Build);
     let mut report = build_competitor_report(
         &agg,
         req.top_n,
@@ -406,11 +409,43 @@ async fn build(
         }
     }
     let report_id = store().insert(user, report.clone(), Instant::now());
+    tracker.finish();
     Ok(CompetitorReportResponse {
         report_id,
         expires_in_secs: REPORT_TTL_SECS as u32,
         report,
     })
+}
+
+// ---------------------------------------------------------------- 進捗
+
+/// `GET /api/competitor/progress/{id}`。作った本人だけ。まだ記録が無い・他人・期限切れは 404。
+pub async fn api_progress(
+    session: Session,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    let user: Option<String> = session
+        .get(crate::auth::SESSION_USER_KEY)
+        .await
+        .ok()
+        .flatten();
+    let Some(user) = user else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            [(header::CONTENT_TYPE, "application/json")],
+            crate::auth::AUTH_REQUIRED_JSON,
+        )
+            .into_response();
+    };
+    match progress::store().get(&user, &id, Instant::now()) {
+        Some(p) => {
+            let mut res = Json(p).into_response();
+            res.headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            res
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 // ---------------------------------------------------------------- PDF (PR-3)
