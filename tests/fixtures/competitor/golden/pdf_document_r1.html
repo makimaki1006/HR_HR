@@ -119,11 +119,17 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .pdf-page{width:1510px;height:1045px;position:relative;break-after:page;page-break-after:always}
 .pdf-document .pdf-page:last-child{break-after:auto;page-break-after:auto}
 .pdf-document .pdf-content{width:1510px;display:flow-root}
-.pdf-document .excel-dashboard{grid-template-columns:32% 68%;break-inside:auto}
-.pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px minmax(700px,auto)}
+.pdf-document .excel-dashboard{grid-template-columns:54% 46%;break-inside:auto}
+.pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:200px 200px minmax(520px,auto)}
+.pdf-document .keyword-comparison{min-height:520px}
+.pdf-document .keyword-comparison svg{min-height:460px}
 .pdf-document .chart.wide{grid-column:1/-1}
 .pdf-document .summary td,.pdf-document .summary th{overflow-wrap:anywhere}
-.pdf-document .summary{padding:10px 12px}
+.pdf-document .summary{padding:10px 12px;columns:2;column-gap:16px}
+.pdf-document .summary>h1,.pdf-document .summary>.meta{column-span:all}
+.pdf-document .summary td:not(:first-child){white-space:nowrap}
+.pdf-document .summary>h2,.pdf-document .summary>.band-title{break-after:avoid}
+.pdf-document .summary>table:not(.words):not(.word-comparison){break-inside:avoid}
 .pdf-document .summary table{font-size:12px;margin-bottom:8px}
 .pdf-document .summary th,.pdf-document .summary td{padding:2px 4px;line-height:1.15}
 .pdf-document .summary .meta td{font-size:14px;padding:4px}
@@ -132,18 +138,32 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .summary .note{font-size:10px;line-height:1.4}
 .pdf-document .page-navy{margin-top:0;break-inside:auto}
 /* Google 検索需要は縦に長いので 2 段組にして、ページ全体の縮小を小さくする。 */
-.pdf-document #competitor-google{columns:2;column-gap:28px}
+.pdf-document #competitor-google{columns:3;column-gap:24px}
 .pdf-document #competitor-google>*{break-inside:avoid}
+.pdf-document #competitor-google>div:not(.page-head){break-inside:auto}
+.pdf-document #competitor-google .trend-card{break-inside:avoid}
+.pdf-document #competitor-google>p:has(+.trend-card),.pdf-document #competitor-google>p:has(+p+.trend-card){break-after:avoid}
 .pdf-document #competitor-google>.block-title{break-after:avoid-column;break-after:avoid}
 .pdf-document #competitor-google>h1,.pdf-document #competitor-google>.page-header,.pdf-document #competitor-google>header{column-span:all}
-.pdf-document #panel-indeed-keywords{display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;align-content:start}
-.pdf-document #panel-indeed-keywords>.block-title,.pdf-document #panel-indeed-keywords>.kw-caveats{grid-column:1/-1}
+.pdf-document #panel-indeed-keywords{display:block;columns:3;column-gap:24px}
+.pdf-document #panel-indeed-keywords>.block-title,.pdf-document #panel-indeed-keywords>.kw-caveats{column-span:all}
+.pdf-document #panel-indeed-keywords>.kw-part{break-inside:avoid}
 .pdf-document #panel-indeed-keywords .kw-part{min-width:0}
 /* 印刷時の幅は Chromium が 900px 未満として扱い、画面用の @media(max-width:900px) が効いて 1 列になる。
    fitPages は 2 列の高さで縮小率を決めるので、印刷時に 1 列になるとページの下へ溢れる。 */
 .pdf-document .trend-grid{grid-template-columns:1fr 1fr}
+/* Indeed: 推移グラフ (2x2) を左、月別の表を右に置く。縦に長いままだと高さで縮んで右が空く。 */
+.pdf-document #competitor-indeed{display:grid;grid-template-columns:minmax(0,1fr) 32%;column-gap:24px;align-items:start}
+.pdf-document #competitor-indeed>*{grid-column:1/-1;min-width:0}
+.pdf-document #competitor-indeed>.trend-grid{grid-column:1;margin:12px 0}
+.pdf-document #competitor-indeed>.table-navy{grid-column:2;margin:12px 0}
 .pdf-document .population-metrics{grid-template-columns:repeat(3,1fr)}
-.pdf-document .population-grid{grid-template-columns:1fr 1fr}
+.pdf-document .population-grid{grid-template-columns:1.4fr 1fr}
+/* 人口: 人口ピラミッドと年齢別の表を左、最低賃金・労働統計を右に置く (縦に長いままだと高さで縮んで右が空く)。 */
+.pdf-document #panel-population>.page-navy:has(>.population-grid~table.table-navy){display:grid;grid-template-columns:minmax(0,2.4fr) minmax(0,1fr);grid-template-rows:auto auto auto auto auto auto 1fr;column-gap:28px;align-items:start}
+.pdf-document #panel-population>.page-navy:has(>.population-grid~table.table-navy)>*{grid-column:1/-1;min-width:0}
+.pdf-document #panel-population>.page-navy:has(>.population-grid~table.table-navy)>.population-grid{grid-column:1;grid-row:span 3}
+.pdf-document #panel-population>.page-navy:has(>.population-grid~table.table-navy)>.population-grid~*{grid-column:2}
 .pdf-document .consultation-grid{display:block;columns:2;column-gap:24px}
 .pdf-document .consultation-card{break-inside:avoid;margin-bottom:12px;padding:10px}
 .pdf-document .consultation-card p{font-size:13px;line-height:1.5}
@@ -268,8 +288,18 @@ if(kw){
 }
 function fitPages(){
   for(const panel of document.querySelectorAll('.pdf-content')){
-    panel.style.zoom='';
+    panel.style.zoom='';panel.style.width='';
     let scale=Math.min(1,1508/Math.max(1510,panel.scrollWidth),1040/Math.max(1,panel.scrollHeight));
+    // 縦が余り (内容がページの半分以上ある) ときは、レイアウト幅を狭めて拡大し、紙面を使い切る。
+    // 拡大しても幅・高さがページに収まる最大の倍率だけを採る。収まらなければ 1 のまま。
+    if(scale>=0.99&&panel.scrollHeight>=470){
+      for(let z=1.4;z>1.02;z-=0.05){
+        const wd=Math.floor(1508/z);
+        panel.style.width=wd+'px';panel.style.zoom='1';
+        if(panel.scrollWidth<=wd+1&&panel.scrollHeight*z<=1030){scale=z;break;}
+        panel.style.width='';
+      }
+    }
     panel.style.zoom=String(scale);
     // Zoom participates in pagination; transforms would clip the unscaled layout at a page break.
     for(let i=0;i<4;i++){
