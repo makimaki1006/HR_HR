@@ -71,6 +71,8 @@ fn is_parse_poor_true_for_records_with_all_empty_salary() {
             ai_paid_leave_rate: None,
             ai_weekly_holiday_type: None,
             ai_overtime_hours_monthly: None,
+            posted_days: None,
+            posted_plus: false,
         })
         .collect();
 
@@ -221,6 +223,8 @@ fn guard_demo_15_call_cap_skips_over_300_records() {
             ai_paid_leave_rate: None,
             ai_weekly_holiday_type: None,
             ai_overtime_hours_monthly: None,
+            posted_days: None,
+            posted_plus: false,
         })
         .collect();
 

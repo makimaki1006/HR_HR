@@ -408,6 +408,9 @@ pub struct CompetitorAnalysis {
     /// 実額の最頻値。同数の場合は低い金額を採用する。
     #[serde(default)]
     pub salary_modes: [Option<i64>; 4],
+    /// 人気の分かれ方 (Indeed SP 由来が無ければ None)。
+    #[serde(default)]
+    pub popularity_split: Option<super::popularity_split::PopularitySplit>,
 }
 
 /// tags_raw をタグに分解する (by_tags / 競合調査章で共通)。
@@ -441,7 +444,7 @@ pub(crate) fn record_tags(tags_raw: &str) -> Vec<String> {
 }
 
 /// §05 人気度の判定 (`split_tags` と同じ区切り `,` `、` `/` タブ + 厳密一致)。戻り値 (超人気, 人気)。
-fn popularity_signal(tags_raw: &str) -> (bool, bool) {
+pub(crate) fn popularity_signal(tags_raw: &str) -> (bool, bool) {
     let tokens = split_tags(tags_raw);
     (
         tokens.iter().any(|t| t == "超人気"),
@@ -523,6 +526,7 @@ fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAn
     }
 
     CompetitorAnalysis {
+        popularity_split: super::popularity_split::compute(records),
         indeed_count,
         head_tags,
         tag_counts_all,
@@ -2222,6 +2226,8 @@ pub(crate) mod salary_fixture {
                 tags_raw: String::new(),
                 url: None,
                 is_new: false,
+                posted_days: None,
+                posted_plus: false,
                 description: String::new(),
                 snippet: String::new(),
                 salary_parsed: parse_salary(sal, SalaryType::Monthly),
@@ -2320,6 +2326,8 @@ mod tests {
             tags_raw: tags.to_string(),
             url: None,
             is_new: false,
+            posted_days: None,
+            posted_plus: false,
             description: String::new(),
             snippet: String::new(),
             salary_parsed: sal,
@@ -3012,6 +3020,8 @@ mod tests {
             tags_raw: String::new(),
             url: None,
             is_new: false,
+            posted_days: None,
+            posted_plus: false,
             description: String::new(),
             snippet: String::new(),
             salary_parsed: sal,
@@ -3143,6 +3153,8 @@ mod tests {
             tags_raw: String::new(),
             url: None,
             is_new: false,
+            posted_days: None,
+            posted_plus: false,
             description: String::new(),
             snippet: String::new(),
             salary_parsed: sal,
@@ -3279,6 +3291,8 @@ mod tests {
             tags_raw: tags.to_string(),
             url: None,
             is_new: false,
+            posted_days: None,
+            posted_plus: false,
             description: String::new(),
             snippet: String::new(),
             salary_parsed: sal,

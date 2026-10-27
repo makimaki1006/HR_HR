@@ -37,6 +37,11 @@ pub struct SurveyRecord {
     pub tags_raw: String,
     pub url: Option<String>,
     pub is_new: bool,
+    /// 掲載日数 (Indeed SP の「N日前」「30+日前」「新着」。「新着」は 0)。読めなければ None。
+    /// 「30+日前」は 30 と plus フラグで持つ (実日数は不明で 30 日以上)。
+    pub posted_days: Option<u32>,
+    /// 「30+日前」のように 30 日以上としか分からない。
+    pub posted_plus: bool,
     pub description: String,
     /// タイトル下の訴求スニペット (Indeed SP: css-lx9x6g 列)。
     /// 説明文とは別列で「月収35万円以上も可能」等の訴求が入る。
@@ -532,11 +537,15 @@ fn parse_csv_bytes_inner(
         //   先に確定するため紐付かない。Section 07.6 (popularity) 集計が
         //   tags_raw に「人気」「超人気」が含まれることを前提とするので、
         //   ここで headers から css-u74ql7 列を直接 lookup して結合する。
+        // css-u74ql7 は「css-u74ql7 (2)」のように複数列に分かれることがある (実 CSV で確認)。全列を見る。
         if matches!(source, CsvSource::IndeedSp) {
-            if let Some(popular_idx) = headers.iter().position(|h| h == "css-u74ql7") {
+            for (popular_idx, h) in headers.iter().enumerate() {
+                if h != "css-u74ql7" && !h.starts_with("css-u74ql7 (") {
+                    continue;
+                }
                 if popular_idx < row.len() {
                     let v = row.get(popular_idx).unwrap_or("").trim();
-                    if !v.is_empty() && !tags_raw.contains(v) {
+                    if !v.is_empty() && !tags_raw.split(',').any(|t| t == v) {
                         if !tags_raw.is_empty() {
                             tags_raw.push(',');
                         }
@@ -545,6 +554,7 @@ fn parse_csv_bytes_inner(
                 }
             }
         }
+        let (posted_days, posted_plus) = parse_posted_age(row.iter());
         let url = {
             let u = get("url");
             if u.is_empty() {
@@ -623,6 +633,8 @@ fn parse_csv_bytes_inner(
             tags_raw,
             url,
             is_new,
+            posted_days,
+            posted_plus,
             description,
             snippet,
             salary_parsed,
@@ -1374,6 +1386,30 @@ fn try_extract_before(text: &str, keyword: &str) -> Option<i64> {
 ///
 /// GAS `Constants.js` の `ANNUAL_HOLIDAYS_PATTERNS` (18 パターン) を網羅 + V2 拡張。
 /// 優先度順に試行し、最初の妥当値 (70-99 or 100-180) を返す。
+/// 行の列から掲載日数を読む。左の列から見て最初に「N日前」「N+日前」「新着」と
+/// 全体が一致するセルを採用する (戻り値: 日数, 30 日以上フラグ)。
+pub(crate) fn parse_posted_age<'a>(cells: impl Iterator<Item = &'a str>) -> (Option<u32>, bool) {
+    for cell in cells {
+        let c = cell.trim();
+        if c == "新着" {
+            return (Some(0), false);
+        }
+        let Some(body) = c.strip_suffix("日前") else {
+            continue;
+        };
+        let (digits, plus) = match body.strip_suffix('+') {
+            Some(d) => (d, true),
+            None => (body, false),
+        };
+        if !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit()) {
+            if let Ok(n) = digits.parse::<u32>() {
+                return (Some(n), plus);
+            }
+        }
+    }
+    (None, false)
+}
+
 fn extract_annual_holidays(text: &str) -> Option<i64> {
     if text.is_empty() {
         return None;
@@ -2794,6 +2830,8 @@ mod gemini_fallback_tests {
             tags_raw: String::new(),
             url: None,
             is_new: false,
+            posted_days: None,
+            posted_plus: false,
             description: String::new(),
             snippet: String::new(),
             salary_parsed: parse_salary(salary, SalaryType::Monthly),
