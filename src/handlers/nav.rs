@@ -187,8 +187,8 @@ pub const NAV_DEFS: &[NavDef] = &[
         id: "competitor",
         label: "競合調査",
         title: Some("Excel競合調査・検索需要・Indeed採用市場・人口統計"),
-        kind: NavKind::Page,
-        target: "/competitor",
+        kind: NavKind::App,
+        target: "/app/competitor",
         group: None,
         requires: None,
         hidden: None,
@@ -782,7 +782,7 @@ mod tests {
             visible,
             vec![
                 ("survey", "/?tab=/tab/survey", None),
-                ("competitor", "/competitor", None),
+                ("competitor", "/app/competitor", None),
                 ("keyword-tools", "/?tab=/tab/keyword_tools", None),
                 ("jobgen-tools", "/?tab=/tab/jobgen_tools", None),
                 ("jobmap", "/?tab=/tab/jobmap", Some("explore")),
@@ -1294,7 +1294,7 @@ mod tests {
             assert_eq!(competitor[0].0, "a");
             assert!(competitor[0]
                 .1
-                .contains(&("href".into(), "/competitor".into())));
+                .contains(&("href".into(), "/app/competitor".into())));
             let job_copy_items: Vec<_> =
                 items.iter().filter(|item| item.id == "job-copy").collect();
             assert_eq!(job_copy_items.len(), 1);
