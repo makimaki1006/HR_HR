@@ -139,6 +139,10 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document #panel-indeed-keywords{display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;align-content:start}
 .pdf-document #panel-indeed-keywords>.block-title,.pdf-document #panel-indeed-keywords>.kw-caveats{grid-column:1/-1}
 .pdf-document #panel-indeed-keywords .kw-part{min-width:0}
+/* 印刷時の幅は Chromium が 900px 未満として扱い、画面用の @media(max-width:900px) が効いて 1 列になる。
+   fitPages は 2 列の高さで縮小率を決めるので、印刷時に 1 列になるとページの下へ溢れる。 */
+.pdf-document .trend-grid{grid-template-columns:1fr 1fr}
+.pdf-document .population-metrics{grid-template-columns:repeat(3,1fr)}
 .pdf-document .population-grid{grid-template-columns:1fr 1fr}
 .pdf-document .consultation-grid{display:block;columns:2;column-gap:24px}
 .pdf-document .consultation-card{break-inside:avoid;margin-bottom:12px;padding:10px}

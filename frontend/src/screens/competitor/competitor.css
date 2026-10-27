@@ -382,4 +382,73 @@ html:has(.competitor) { background: #eef1f6; }
   .cmp-fit-wide svg text.cmp-ylab { font-size: 20px; }
   .cmp-kwcard-main .cmp-fit svg text { font-size: 24px; }
   .cmp-kwcard:not(.cmp-kwcard-main) .cmp-fit svg text { font-size: 17px; }
+
+/* ---- レポート本体は明暗にかかわらず紙のレポート調 (旧画面 static/css/competitor-dashboard.css と同じ値) ----
+   条件入力フォームは従来どおりテーマに従う。共通のテーマ変数は変えず、タブとパネルの内側だけで上書きする。 */
+.cmp-tablist,
+.cmp-panel {
+  color-scheme: light;
+  --surface: #fff;
+  --surface-2: #fbfcfe;
+  --ink: #20272c;
+  --ink-2: #3c4a60;
+  --ink-3: #536169;
+  --line: #d5d9dd;
+  --line-2: #d5d9dd;
+  --accent: #006666;
+  --accent-ink: #006666;
+  --accent-bg: #edf6f6;
+  --bar: #4472c4;
+  --grid: #d5d9dd;
+  --male: #1f2d4d;
+  --female: #c9a24b;
+  --btn-ink: #fff;
+}
+.cmp-panel { color: var(--ink); }
+.cmp-tablist { border-bottom: 2px solid #006666; gap: 0; }
+.cmp-tablist .cmp-tab {
+  font-weight: 600;
+  border: 1px solid #d5d9dd;
+  border-bottom: 0;
+  border-radius: 0;
+  padding: 12px 20px;
+  background: #fff;
+  color: #006666;
+}
+.cmp-tablist .cmp-tab:hover { background: #e1eeee; }
+.cmp-tablist .cmp-tab[aria-selected='true'] { background: #006666; color: #fff; border-color: #006666; }
+.cmp-tablist .cmp-tab[aria-selected='true']:hover { background: #005858; }
+.cmp-excel { border: 1px solid #333; border-radius: 0; background: #fff; }
+.cmp-summary { background: #006666; color: #fff; }
+.cmp-summary th, .cmp-summary td { border: 1px solid #ffffff70; }
+.cmp-summary .cmp-note { color: #ffffffd9; }
+.cmp-summary a { color: #fff; }
+.cmp-chart { background: #fff; border: 1px solid #d5d9dd; border-radius: 0; }
+.cmp-salary-chart { background: #fbfcfe; border-color: #dce5eb; }
+.cmp-salary-chart figcaption { color: #263b4a; }
+.cmp-trend-card { background: #fbfdfd; }
+.cmp-consultation-card { background: #f6fafa; }
+.cmp-page { background: #fff; border-top: 3px solid #006666; }
+.cmp-table th { background: #edf6f6; }
+
+/* ---- レイアウトも旧画面 (competitor-dashboard.css の .summary table / .charts) と同じにする ---- */
+/* 集計パネルの表: 列幅は固定配分 (語の列だけ広く)。数字のセルは折り返さず、語の列は折り返してよい。 */
+.cmp-summary table { table-layout: fixed; }
+.cmp-summary th, .cmp-summary td { overflow-wrap: normal; line-height: 1.2; }
+.cmp-summary td:not(:first-child) { white-space: nowrap; }
+.cmp-summary .cmp-words td:first-child { overflow-wrap: anywhere; }
+.cmp-summary .cmp-meta td { white-space: normal; overflow-wrap: anywhere; }
+@media (min-width: 1400px) { .cmp-summary table { font-size: 13px; } }
+@media (max-width: 900px) { .cmp-summary { padding: 16px; } .cmp-summary table { font-size: 13px; } }
+/* グラフ: 行の高さを固定して、上 2 つ (給与分布) は 250px 前後、下段 (キーワード 2 つ) が残りを使う。 */
+.cmp-charts { grid-template-rows: 250px 250px minmax(700px, auto); }
+.cmp-chart svg { height: calc(100% - 30px); }
+.cmp-salary-chart svg { height: calc(100% - 51px); }
+.cmp-chart.cmp-keyword-chart svg { height: 0; }
+.cmp-chart.cmp-tag-usage svg { height: auto; contain: none; min-height: 0; }
+@media (min-width: 1400px) { .cmp-charts { grid-template-rows: 220px 220px minmax(700px, auto); } }
+@media (max-width: 900px) { .cmp-charts { grid-template-rows: 240px 240px minmax(700px, auto); } }
+@media (max-width: 550px) {
+  .cmp-charts { grid-template-rows: repeat(2, 220px) repeat(2, auto); gap: 8px; }
+  .cmp-chart figcaption { font-size: 15px; }
 }
