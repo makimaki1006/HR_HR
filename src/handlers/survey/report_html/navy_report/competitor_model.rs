@@ -16,6 +16,7 @@ use super::competitor_consultation::{self, ConsultationSection};
 use super::competitor_keyword_analysis::{self, KeywordAnalysis};
 use super::competitor_keywords::{self, KeywordComparison};
 use super::competitor_population::{self, PopulationShares};
+use super::competitor_tag_usage::{self, TagUsage};
 use super::section_05b_competitor::head_tag_counts;
 use crate::handlers::survey::aggregator::{BoundStats, SurveyAggregation};
 use crate::handlers::survey::popularity_split::PopularitySplit;
@@ -74,6 +75,8 @@ pub struct ExcelSection {
     pub keyword_head: Vec<KeywordRow>,
     /// 先頭 N 件と全体の占有率比較 (上位 20 語)。語ごとに同じ語の全体件数を引いてある。
     pub keyword_comparison: KeywordComparison,
+    /// 条件タグの使われ方 (全体の割合の帯と、人気求人との差)。見出し・本文は読まない。
+    pub tag_usage: TagUsage,
     pub histograms: Histograms,
 }
 
@@ -435,6 +438,12 @@ pub(crate) fn build_competitor_report(
                     popular_any_n: comp.popular_any_n,
                     popular_any_counts: &comp.tag_counts_popular_any,
                 },
+            ),
+            tag_usage: competitor_tag_usage::build(
+                &comp.tag_counts_all,
+                agg.total_count,
+                &comp.tag_counts_popular_any,
+                comp.popular_any_n,
             ),
             histograms: Histograms {
                 upper: histogram(hi),
@@ -1016,6 +1025,62 @@ mod tests {
         assert!(rows
             .iter()
             .all(|r| r["word"] != "人気" && r["word"] != "超人気"));
+    }
+
+    #[test]
+    fn tag_usage_matches_popularity_split_and_counts_each_job_once() {
+        // 10 件の SP 求人。人気 3 件 (j0〜j2)。賞与あり は j0, j1, j3, j4 + 同じ求人内の重複。
+        let tags = [
+            "人気,賞与あり,賞与あり",
+            "超人気,賞与あり,交通費支給",
+            "人気,交通費支給,新着",
+            "賞与あり,交通費支給",
+            "賞与あり,3日前",
+            "交通費支給",
+            "",
+            "",
+            "",
+            "",
+        ];
+        let salaries = vec!["月給 25万円"; tags.len()].join("\n");
+        let mut records = salary_fixture::records(&salaries, "大阪府 大阪市");
+        for (r, t) in records.iter_mut().zip(tags) {
+            r.tags_raw = t.to_owned();
+        }
+        let agg = aggregate_records_with_mode(&records, WageMode::Monthly);
+        let r = build_competitor_report(&agg, 45, "", &Value::Null, &Value::Null, &Value::Null);
+        let u = &r.excel.tag_usage;
+        assert_eq!((u.n, u.popular_n), (10, 3));
+        let split = r.popularity_split.as_ref().expect("SP の求人がある");
+        assert_eq!(u.popular_n, split.popular);
+        assert_eq!(u.n, split.total);
+        let row = |w: &str| {
+            u.bands
+                .iter()
+                .flat_map(|b| &b.rows)
+                .find(|x| x.word == w)
+                .unwrap_or_else(|| panic!("{w}"))
+        };
+        // 賞与あり 4/10 = 40% (半数前後)、人気求人では 2/3。差 = 66.666.. - 40。
+        let bonus = row("賞与あり");
+        assert_eq!((bonus.n_tag, bonus.popular_tag_n), (4, 2));
+        assert!((bonus.share_pct - 40.0).abs() < 1e-9);
+        assert!((bonus.gap_pt.unwrap() - (200.0 / 3.0 - 40.0)).abs() < 1e-9);
+        // 交通費支給 4/10、人気求人 2/3。新着・3日前・人気・超人気は語に出ない。
+        assert_eq!(row("交通費支給").n_tag, 4);
+        let all_words: Vec<&str> = u
+            .bands
+            .iter()
+            .flat_map(|b| &b.rows)
+            .map(|x| x.word.as_str())
+            .collect();
+        for w in ["新着", "3日前", "人気", "超人気"] {
+            assert!(!all_words.contains(&w), "{w}");
+        }
+        // 帯に入るのは 3 件以上の 賞与あり・交通費支給 の 2 語だけ。
+        assert_eq!(all_words.len(), 2);
+        // 1 求人 1 回: 賞与あり を 2 回書いた j0 も 1 件。
+        assert_eq!(u.minor_word_count, 0);
     }
 
     #[test]

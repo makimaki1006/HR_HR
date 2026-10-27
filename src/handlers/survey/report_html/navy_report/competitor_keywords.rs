@@ -1,5 +1,4 @@
 //! Same-keyword, same-scale comparison for the Excel-based standalone report.
-use super::competitor_model::KeywordRow;
 use crate::handlers::helpers::escape_html;
 use serde::Serialize;
 use ts_rs::TS;
@@ -171,6 +170,7 @@ pub(super) fn table(html: &mut String, cmp: &KeywordComparison) {
     }
 }
 
+#[cfg(test)]
 pub(super) fn chart(html: &mut String, cmp: &KeywordComparison) {
     let (head_n, all_n) = (cmp.head_n, cmp.all_n);
     html.push_str(
@@ -289,43 +289,6 @@ pub(super) fn chart(html: &mut String, cmp: &KeywordComparison) {
             "popularAny":opt(r.popular_any_count)
         })).collect::<Vec<_>>()});
     attach_data(html, "keyword-head", data);
-    html.push_str("</figure>");
-}
-
-pub(super) fn all_chart(html: &mut String, all: &[KeywordRow]) {
-    html.push_str("<figure class=\"chart keyword-comparison\"><figcaption>求人票キーワード調査（全体・上位20語）</figcaption>");
-    if all.is_empty() {
-        html.push_str("<p class=\"note\">集計できるキーワードがありません</p></figure>");
-        return;
-    }
-    let max = all
-        .iter()
-        .take(20)
-        .map(|r| r.count as usize)
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    html.push_str("<svg data-series=\"keyword-all\" viewBox=\"0 0 440 715\" role=\"img\" aria-label=\"全体の上位20語を含む求人数\"><title>全体の訴求語・求人数</title>");
-    for (i, KeywordRow { word, count, .. }) in all.iter().take(20).enumerate() {
-        let n = *count as usize;
-        let y = 32 + i * 32;
-        let label = if word.chars().count() > 10 {
-            format!("{}…", word.chars().take(9).collect::<String>())
-        } else {
-            word.clone()
-        };
-        let width = n as f64 / max as f64 * 230.0;
-        html.push_str(&format!("<text x=\"140\" y=\"{}\" text-anchor=\"end\" font-size=\"14\"><title>{}</title>{}</text><rect x=\"150\" y=\"{y}\" width=\"{width:.3}\" height=\"18\" fill=\"#006666\"><title>{}: {n}件</title></rect><text x=\"{}\" y=\"{}\" font-size=\"13\">{n}件</text>",y+14,escape_html(word),escape_html(&label),escape_html(word),width+155.0,y+14));
-    }
-    html.push_str(
-        "<text x=\"150\" y=\"705\" font-size=\"13\">棒の長さ：その語を含む求人数</text></svg>",
-    );
-    attach_data(
-        html,
-        "keyword-all",
-        serde_json::json!({"mode":"all","title":"全体の訴求語・求人数",
-        "rows":all.iter().take(20).map(|r|serde_json::json!({"word":r.word,"all":r.count})).collect::<Vec<_>>() }),
-    );
     html.push_str("</figure>");
 }
 

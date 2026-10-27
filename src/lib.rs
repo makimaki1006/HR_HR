@@ -418,6 +418,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             post(handlers::competitor::api_report)
                 .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT_BYTES)),
         )
+        .route(
+            "/api/competitor/progress/{id}",
+            get(handlers::competitor::api_progress),
+        )
         // 2026-10-06 (React 移行 PR-3): 保持中のレポート (report_id) から PDF を作る。本文は小さな JSON だけ。
         .route(
             "/api/competitor/pdf",

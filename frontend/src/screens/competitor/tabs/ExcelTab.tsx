@@ -1,10 +1,12 @@
 import type { CompetitorReport } from '../../../generated/CompetitorReport';
-import type { KeywordRow } from '../../../generated/KeywordRow';
+import type { TagUsage } from '../../../generated/TagUsage';
 import type { SalaryRow } from '../../../generated/SalaryRow';
 import type { KeywordComparison } from '../../../generated/KeywordComparison';
-import { AllKeywordChart, ComparisonChart } from '../charts/KeywordChart';
+import { POPULARITY_ONLY_SP } from '../charts/KeywordChart';
+import { TagBandsChart, TagGapChart } from '../charts/TagUsageCharts';
+import { signed } from '../charts/tagUsageLayout';
 import { SalaryHistogram } from '../charts/SalaryHistogram';
-import { fixed, fmtInt, fmtPct0, fmtSalary, MISSING } from '../format';
+import { fixed, fmtInt, fmtSalary, MISSING } from '../format';
 
 const WORD_ROWS = 10;
 
@@ -109,7 +111,7 @@ export function ExcelTab({ report }: { report: CompetitorReport }) {
             </tbody>
           </table>
 
-          <KeywordTable title="求人票ワード調査（全体）" rows={excel.keyword_all} />
+          <TagUsageTables usage={excel.tag_usage} />
           <ComparisonTable cmp={cmp} />
           <p className="cmp-note">人気求人：Indeedの「人気」「超人気」タグ付き。</p>
         </aside>
@@ -123,13 +125,8 @@ export function ExcelTab({ report }: { report: CompetitorReport }) {
             caption={`下限ボリュームゾーン（${unit}・n=${String(excel.histograms.lower.n)}・${fixed(excel.histograms.lower.step, 0)}刻み）`}
             series={excel.histograms.lower}
           />
-          <AllKeywordChart rows={excel.keyword_all} />
-          <ComparisonChart
-            rows={cmp.rows}
-            headN={cmp.head_n}
-            allN={cmp.all_n}
-            popularAnyN={cmp.popular_any_n}
-          />
+          <TagBandsChart usage={excel.tag_usage} />
+          <TagGapChart usage={excel.tag_usage} />
         </div>
       </section>
       <p className="cmp-caption">
@@ -140,35 +137,57 @@ export function ExcelTab({ report }: { report: CompetitorReport }) {
   );
 }
 
-function KeywordTable({ title, rows }: { title: string; rows: readonly KeywordRow[] }) {
+const TABLE_ROWS_PER_BAND = 8;
+
+/** 3 つの帯の表 (語・件数・全体の割合・人気求人での割合・差)。n を必ず添える。 */
+function TagUsageTables({ usage }: { usage: TagUsage }) {
+  const hasPopular = usage.popular_n > 0;
+  const cols = hasPopular ? 5 : 3;
   return (
     <>
-      <h2>{title}</h2>
-      <table className="cmp-words">
-        <thead>
-          <tr>
-            <th>上位10件</th>
-            <th>件数</th>
-            <th>求人数</th>
-            <th>占有率</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, WORD_ROWS).map((r, i) => (
-            <tr key={i}>
-              <td>{r.word}</td>
-              <td>{r.count}</td>
-              <td>{r.jobs}</td>
-              <td>{fmtPct0(r.share_pct)}</td>
-            </tr>
-          ))}
-          {rows.length === 0 && (
-            <tr>
-              <td colSpan={4}>キーワードデータがありません</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <h2>求人票キーワード調査（帯別）</h2>
+      {usage.bands.map((b) => (
+        <div key={b.key}>
+          <h3 className="cmp-band-title">{`${b.label} ${String(b.rows.length)}語（${b.range}）`}</h3>
+          <table className="cmp-words cmp-tag-usage-table">
+            <thead>
+              <tr>
+                <th>語</th>
+                <th>件数</th>
+                <th>全体の割合</th>
+                {hasPopular && <th>人気求人での割合</th>}
+                {hasPopular && <th>差(pt)</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {b.rows.slice(0, TABLE_ROWS_PER_BAND).map((r) => (
+                <tr key={r.word}>
+                  <td>{r.word}</td>
+                  <td>{r.n_tag}</td>
+                  <td>{fixed(r.share_pct, 1)}%</td>
+                  {hasPopular && <td>{r.popular_share_pct === null ? MISSING : `${fixed(r.popular_share_pct, 1)}%`}</td>}
+                  {hasPopular && <td>{r.gap_pt === null ? MISSING : signed(r.gap_pt)}</td>}
+                </tr>
+              ))}
+              {b.rows.length === 0 && (
+                <tr>
+                  <td colSpan={cols}>該当する語はありません</td>
+                </tr>
+              )}
+              {b.rows.length > TABLE_ROWS_PER_BAND && (
+                <tr>
+                  <td colSpan={cols}>ほか {b.rows.length - TABLE_ROWS_PER_BAND} 語</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      <p className="cmp-note cmp-word-basis">
+        母数：全体 {usage.n} 件 / 人気求人 {usage.popular_n} 件（人気または超人気のタグがある求人）。件数1〜2の語（
+        {usage.minor_word_count}語）は帯に入れていません。差は人気求人での割合−全体の割合。
+      </p>
+      {!hasPopular && <p className="cmp-note cmp-word-basis">{POPULARITY_ONLY_SP}</p>}
     </>
   );
 }

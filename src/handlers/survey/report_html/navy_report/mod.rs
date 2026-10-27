@@ -20,6 +20,7 @@ mod competitor_keywords;
 pub(crate) mod competitor_model;
 mod competitor_population;
 mod competitor_report;
+mod competitor_tag_usage;
 mod competitor_trends;
 pub(crate) use competitor_report::{render_competitor_report, render_html};
 

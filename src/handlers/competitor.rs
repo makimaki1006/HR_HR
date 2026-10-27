@@ -19,11 +19,16 @@ use crate::AppState;
 #[path = "competitor_pdf.rs"]
 mod pdf;
 
+#[path = "competitor_progress.rs"]
+mod progress;
+pub use progress::CompetitorProgress;
+use progress::{Stage, Tracker};
+
 #[path = "competitor_api.rs"]
 mod api;
 pub use api::{
-    api_options, api_pdf, api_report, CompetitorError, CompetitorErrorCode, CompetitorOptions,
-    CompetitorReportResponse,
+    api_options, api_pdf, api_progress, api_report, CompetitorError, CompetitorErrorCode,
+    CompetitorOptions, CompetitorReportResponse,
 };
 
 #[cfg(test)]
@@ -178,6 +183,8 @@ struct ReportRequest {
     search_keyword: String,
     include_google: bool,
     output_format: String,
+    /// 画面が進捗の取り直しに使う ID (形が正しいときだけ)。旧画面は送らない。
+    progress_id: Option<String>,
 }
 
 /// 職種名の上限 (文字数)。
@@ -291,6 +298,9 @@ fn parse_request(raw: RawForm) -> Result<ReportRequest, FormError> {
         search_keyword: get("search_keyword").to_owned(),
         include_google: get("include_google") == "1",
         output_format: get("output_format").to_owned(),
+        progress_id: Some(get("progress_id"))
+            .filter(|id| progress::valid_id(id))
+            .map(str::to_owned),
         pref,
         csv,
     })
@@ -337,8 +347,28 @@ async fn analyze(
     }
 }
 
+/// Google 広告で調べる検索語。検索語が空なら職種名から作る。
+fn google_keyword(req: &ReportRequest) -> String {
+    let title = &req.market_title;
+    if req.search_keyword.is_empty() && !title.trim().is_empty() {
+        format!("{title} 求人")
+    } else {
+        req.search_keyword.clone()
+    }
+}
+
+/// Google 広告を実際に呼ぶか (進捗の段階の数え方に使う)。
+fn uses_google(req: &ReportRequest) -> bool {
+    req.include_google && !google_keyword(req).is_empty()
+}
+
 /// Indeed 採用市場・Google・人口の 3 つの外部コンテキスト (この順)。Google は選択されたときだけ呼ぶ。
-async fn collect_context(state: Arc<AppState>, req: &ReportRequest) -> (Value, Value, Value) {
+async fn collect_context(
+    state: Arc<AppState>,
+    req: &ReportRequest,
+    tracker: &Tracker,
+) -> (Value, Value, Value) {
+    tracker.enter(Stage::Indeed);
     let pref = req.pref.clone();
     let title = req.market_title.clone();
     let region_state = state.clone();
@@ -369,16 +399,13 @@ async fn collect_context(state: Arc<AppState>, req: &ReportRequest) -> (Value, V
             indeed["keyword_raw"] = raw;
         }
     }
-    let keyword = if req.search_keyword.is_empty() && !title.trim().is_empty() {
-        format!("{title} 求人")
-    } else {
-        req.search_keyword.clone()
-    };
+    let keyword = google_keyword(req);
     let google = if req.include_google && !keyword.is_empty() {
-        google_context(&keyword, &pref).await
+        google_context(&keyword, &pref, tracker).await
     } else {
         json!({"status":"not_requested", "message":"検索需要を取得するには検索語を指定し、Google広告APIの取得を選択してください。"})
     };
+    tracker.enter(Stage::Population);
     let population = region_task.await.unwrap_or_else(
         |_| json!({"status":"unavailable","message":"人口・地域データを取得できませんでした。"}),
     );
@@ -398,7 +425,7 @@ pub async fn report(State(state): State<Arc<AppState>>, mut multipart: Multipart
             return error("分析できるIndeed求人がありません。CSVの列と内容を確認してください。")
         }
     };
-    let (indeed, google, population) = collect_context(state, &req).await;
+    let (indeed, google, population) = collect_context(state, &req, &Tracker::none()).await;
     let mut model = build_competitor_report(
         &agg,
         req.top_n,
@@ -595,7 +622,8 @@ fn filter_suggestions(suggestions: &mut Value) {
     }
 }
 
-async fn google_context(keyword: &str, pref: &str) -> Value {
+async fn google_context(keyword: &str, pref: &str, tracker: &Tracker) -> Value {
+    tracker.enter(Stage::GoogleSuggest);
     use crate::media_engine::handlers::{
         keywords_endpoint, suggest_endpoint, KeywordsQuery, SuggestQuery,
     };
@@ -620,6 +648,7 @@ async fn google_context(keyword: &str, pref: &str) -> Value {
         Vec::new()
     };
     filter_suggestions(&mut suggestions);
+    tracker.enter(Stage::GoogleDemand);
     let kw = std::iter::once(keyword)
         .chain(neighbours.iter().map(String::as_str))
         .map(|term| term.replace([',', '\n'], " "))

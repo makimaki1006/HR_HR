@@ -349,3 +349,19 @@ html:has(.competitor) { background: #eef1f6; }
 .cmp-chip { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 8px; background: var(--accent-bg); border-radius: 3px; font-size: 12px; }
 .cmp-hbar-cell { width: 30%; }
 .cmp-hbar { display: block; height: 10px; background: var(--bar); }
+
+.cmp-progress { margin: 10px 0 4px; }
+.cmp-progress__track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line, #d9dde3);
+  overflow: hidden;
+}
+.cmp-progress__fill {
+  height: 100%;
+  background: var(--accent, #1f4e8c);
+  transition: width 0.4s ease;
+}
+.cmp-progress__label { margin: 6px 0 0; color: var(--ink-2); font-size: 0.9em; }
+.cmp-tag-usage svg { display: block; width: 100%; height: auto; }
+.cmp-band-title { margin: 10px 0 4px; font-size: 13px; }

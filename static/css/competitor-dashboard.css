@@ -108,3 +108,6 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--blue);outline-offse
 @media print{.trend-plot{overflow:visible}.trend-plot svg{min-width:0}}
 .kw-part{min-width:0;margin-bottom:12px}
 .kw-caveats{margin-top:8px}
+.chart.tag-usage svg{height:auto;contain:none;min-height:0}
+.chart.tag-usage text{fill:var(--ink)}
+.summary .band-title{margin:10px 0 4px;font-size:13px}

@@ -14,16 +14,20 @@ import type { CompetitorReportResponse } from '../../generated/CompetitorReportR
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api')>();
-  return { ...actual, fetchOptions: vi.fn(), createReport: vi.fn(), downloadPdf: vi.fn() };
+  return { ...actual, fetchOptions: vi.fn(), createReport: vi.fn(),
+    downloadPdf: vi.fn(),
+    fetchProgress: vi.fn(),
+  };
 });
 
-import { createReport, downloadPdf, fetchOptions, type PdfResult } from './api';
+import { createReport, downloadPdf, fetchOptions, fetchProgress, type PdfResult } from './api';
 import { CompetitorScreen } from './CompetitorScreen';
 import { makeReport, makeResponse } from './fixtures';
 
 const mCreate = vi.mocked(createReport);
 const mPdf = vi.mocked(downloadPdf);
 const mOptions = vi.mocked(fetchOptions);
+const mProgress = vi.mocked(fetchProgress);
 
 const OPTIONS = {
   titles: ['施設長', '介護職'],
@@ -69,6 +73,7 @@ const submitButton = (): HTMLButtonElement =>
 beforeEach(() => {
   vi.clearAllMocks();
   mOptions.mockResolvedValue({ ok: true, data: OPTIONS });
+  mProgress.mockResolvedValue({ ok: false, error: new ApiNetworkError() });
   try {
     sessionStorage.clear();
   } catch {
@@ -184,6 +189,40 @@ describe('送信中と二重送信', () => {
       await d.promise;
     });
     expect(mCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('作成中は進捗バーが段階に応じて値と文を変え、同じ ID を送る', async () => {
+    const d = deferred<CreateResult>();
+    mCreate.mockReturnValue(d.promise);
+    await mount();
+    chooseFile();
+    fireEvent.click(submitButton());
+    const bar = await screen.findByRole('progressbar');
+    expect(bar.getAttribute('aria-valuenow')).toBe('0');
+    expect(screen.getByText('CSVを送信中')).toBeTruthy();
+    const form = mCreate.mock.calls[0]?.[0];
+    const id = form?.get('progress_id');
+    expect(id).toMatch(/^[0-9a-f]{32}$/);
+    await waitFor(() => {
+      expect(mProgress).toHaveBeenCalledWith(id, expect.anything());
+    });
+    mProgress.mockResolvedValue({
+      ok: true,
+      data: { total: 6, completed: 3, label: 'Google: 検索数(最大48か月)を取得中', finished: false },
+    });
+    await waitFor(
+      () => {
+        expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('3');
+      },
+      { timeout: 4000 },
+    );
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuemax')).toBe('6');
+    expect(screen.getByText('Google: 検索数(最大48か月)を取得中（3 / 6）')).toBeTruthy();
+    await act(async () => {
+      d.resolve({ ok: true, data: makeResponse() });
+      await d.promise;
+    });
+    expect(screen.queryByRole('progressbar')).toBeNull();
   });
 
   it('連打 (click 3 回) でも 1 回', async () => {

@@ -2,7 +2,15 @@ import { useCallback, useEffect, useRef, useState, type SyntheticEvent, type Rea
 import type { UploadProgress } from '../../api/client';
 import type { CompetitorOptions } from '../../generated/CompetitorOptions';
 import type { CompetitorReportResponse } from '../../generated/CompetitorReportResponse';
-import { createReport, describeFailure, downloadPdf, fetchOptions, type Failure } from './api';
+import {
+  createReport,
+  describeFailure,
+  downloadPdf,
+  fetchOptions,
+  newProgressId,
+  type Failure,
+} from './api';
+import { ProgressBar, useReportProgress } from './ProgressBar';
 import {
   DEFAULT_FORM,
   buildFormData,
@@ -106,6 +114,8 @@ export function CompetitorScreen() {
   const [optionsState, setOptionsState] = useState<OptionsState>({ status: 'loading' });
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
+  const [progressId, setProgressId] = useState<string | null>(null);
+  const stage = useReportProgress(progressId);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [result, setResult] = useState<CompetitorReportResponse | null>(null);
   const [tab, setTab] = useState<TabId>(readTab);
@@ -171,7 +181,9 @@ export function CompetitorScreen() {
     setSubmitting(true);
     setFailure(null);
     setProgress(null);
-    void createReport(buildFormData(values), {
+    const id = newProgressId();
+    setProgressId(id);
+    void createReport(buildFormData(values, id), {
       signal: controller.signal,
       onProgress: setProgress,
     }).then((res) => {
@@ -180,6 +192,7 @@ export function CompetitorScreen() {
       abortRef.current = null;
       setSubmitting(false);
       setProgress(null);
+      setProgressId(null);
       if (res.ok) {
         setResult(res.data);
         setPdf({ status: 'idle' });
@@ -242,6 +255,7 @@ export function CompetitorScreen() {
           errors={errors}
           optionsState={optionsState}
           submitting={submitting}
+          stage={stage}
           progress={progress}
           failure={failure}
           update={update}
@@ -270,6 +284,7 @@ interface FormViewProps {
   errors: FormErrors;
   optionsState: OptionsState;
   submitting: boolean;
+  stage: ReturnType<typeof useReportProgress>;
   progress: UploadProgress | null;
   failure: Failure | null;
   update: <K extends keyof FormValues>(key: K, value: FormValues[K]) => void;
@@ -279,7 +294,7 @@ interface FormViewProps {
 }
 
 function FormView(p: FormViewProps) {
-  const { values, errors, optionsState, submitting, progress, failure } = p;
+  const { values, errors, optionsState, submitting, stage, progress, failure } = p;
   const options = optionsState.status === 'ok' ? optionsState.options : null;
   const marketOff = !options?.market_available;
 
@@ -491,7 +506,7 @@ function FormView(p: FormViewProps) {
             </p>
           )}
 
-          <FormStatus submitting={submitting} progress={progress} failure={failure} />
+          <FormStatus submitting={submitting} stage={stage} progress={progress} failure={failure} />
           <div className="cmp-actions">
             <button type="submit" className="cmp-btn cmp-btn--primary" disabled={submitting}>
               レポートを作成
@@ -513,24 +528,24 @@ function FormView(p: FormViewProps) {
 
 function FormStatus({
   submitting,
+  stage,
   progress,
   failure,
 }: {
   submitting: boolean;
+  stage: ReturnType<typeof useReportProgress>;
   progress: UploadProgress | null;
   failure: Failure | null;
 }) {
   let status = '';
   if (submitting) {
     status = 'レポートを作成しています。Googleのデータ取得には時間がかかる場合があります。';
-    if (progress !== null && progress.ratio < 1) {
-      status += ` アップロード中 ${String(Math.round(progress.ratio * 100))}%`;
-    }
   } else if (failure?.kind === 'aborted') {
     status = failure.message;
   }
   return (
     <>
+      {submitting && <ProgressBar stage={stage} upload={progress} />}
       <p role="status" aria-live="polite" className="cmp-status">
         {status}
       </p>

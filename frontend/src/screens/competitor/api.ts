@@ -13,6 +13,7 @@ import {
   type UploadProgress,
 } from '../../api/client';
 import type { CompetitorErrorCode } from '../../generated/CompetitorErrorCode';
+import type { CompetitorProgress } from '../../generated/CompetitorProgress';
 import type { CompetitorOptions } from '../../generated/CompetitorOptions';
 import type { CompetitorReportResponse } from '../../generated/CompetitorReportResponse';
 
@@ -28,6 +29,21 @@ const DEFAULT_PDF_NAME = 'competitor-report.pdf';
 
 export function fetchOptions(signal?: AbortSignal): Promise<ApiResult<CompetitorOptions>> {
   return apiGet<CompetitorOptions>(OPTIONS_PATH, signal ? { signal } : {});
+}
+
+/** 進捗の ID。送信前に作り、レポート作成の要求と進捗の取り直しの両方に使う (16 進 32 桁)。 */
+export function newProgressId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** 作成中の段階。サーバが記録を作る前(CSV 送信中)は 404 になる。 */
+export function fetchProgress(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ApiResult<CompetitorProgress>> {
+  return apiGet<CompetitorProgress>(`/api/competitor/progress/${id}`, signal ? { signal } : {});
 }
 
 export interface CreateOptions {

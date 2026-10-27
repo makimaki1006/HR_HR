@@ -99,8 +99,9 @@ export function validateForm(
 }
 
 /** 旧画面と同じ name で組む。`include_google` はチェックボックスと同じで、OFF のときは送らない。 */
-export function buildFormData(values: FormValues): FormData {
+export function buildFormData(values: FormValues, progressId?: string): FormData {
   const data = new FormData();
+  if (progressId !== undefined) data.set('progress_id', progressId);
   data.set('market_title', values.marketTitle);
   data.set('prefecture', values.prefecture);
   data.set('municipality', values.municipality);

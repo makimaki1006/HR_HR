@@ -198,7 +198,7 @@ struct Item<'a> {
     cond: Vec<String>,
 }
 
-fn is_condition_tag(t: &str) -> bool {
+pub(crate) fn is_condition_tag(t: &str) -> bool {
     if t == "新着" || t.ends_with("日前") {
         return false;
     }
