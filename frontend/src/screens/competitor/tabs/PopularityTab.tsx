@@ -3,6 +3,8 @@ import type { Bucket } from '../../../generated/Bucket';
 import type { BiasTagGap } from '../../../generated/BiasTagGap';
 import type { CompanyBias } from '../../../generated/CompanyBias';
 import type { CompanyGroup } from '../../../generated/CompanyGroup';
+import type { ReachBandTags } from '../../../generated/ReachBandTags';
+import type { ReachCell } from '../../../generated/ReachCell';
 import type { PopularitySplit } from '../../../generated/PopularitySplit';
 import type { TagStat } from '../../../generated/TagStat';
 import { fixed, fmtInt, MISSING } from '../format';
@@ -21,6 +23,7 @@ const SUBS = [
   { id: 'company', label: '会社' },
   { id: 'salary', label: '給与帯' },
   { id: 'tags', label: '条件タグ' },
+  { id: 'reach', label: '対象の広さ' },
   { id: 'writing', label: '書き方' },
   { id: 'clarity', label: 'わかりやすさ' },
   { id: 'style', label: '勤務形態' },
@@ -327,6 +330,139 @@ function SalaryView({ data }: { data: PopularitySplit }) {
   );
 }
 
+const rate1 = (v: number | null): string => (v === null ? MISSING : `${fixed(v, 1)}%`);
+
+function StratumCell({ c }: { c: ReachCell }) {
+  return c.n === 0 ? (
+    <>
+      <td className="cmp-num">{MISSING}</td>
+      <td className="cmp-num">{MISSING}</td>
+    </>
+  ) : (
+    <>
+      <td className="cmp-num">{rate1(c.rate_pct)}</td>
+      <td className="cmp-num">{fmtInt(c.n)}</td>
+    </>
+  );
+}
+
+function ReachGapTable({ heading, rows }: { heading: string; rows: ReachBandTags['more'] }) {
+  return (
+    <table className="cmp-table">
+      <thead>
+        <tr>
+          <th>{heading}</th>
+          <th className="cmp-num">求人数</th>
+          <th className="cmp-num">差</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={3}>該当するタグがありません。</td>
+          </tr>
+        )}
+        {rows.map((r) => (
+          <tr key={r.tag}>
+            <td>{r.tag}</td>
+            <td className="cmp-num">{fmtInt(r.n)}</td>
+            <td className="cmp-num">{signed1(r.diff)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ReachView({ data }: { data: PopularitySplit }) {
+  const r = data.reach;
+  return (
+    <>
+      <h3 className="cmp-block-title">間口を広げる語の数別</h3>
+      <table className="cmp-table">
+        <thead>
+          <tr>
+            <th>間口を広げる語</th>
+            <th className="cmp-num">求人数</th>
+            <th className="cmp-num">全求人に占める割合</th>
+            <th className="cmp-num">人気・超人気</th>
+            <th className="cmp-num">人気率</th>
+            <th className="cmp-num">人気・超人気全体に占める割合</th>
+          </tr>
+        </thead>
+        <tbody>
+          {r.bands.map((b) => (
+            <tr key={b.label}>
+              <td>{b.label}</td>
+              <td className="cmp-num">{fmtInt(b.n)}</td>
+              <td className="cmp-num">{pct1(b.n_share_pct)}</td>
+              <td className="cmp-num">{fmtInt(b.popular)}</td>
+              <td className="cmp-num">{rate1(b.rate_pct)}</td>
+              <td className="cmp-num">{pct1(b.popular_share_pct)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="cmp-note">
+        求人数 n={fmtInt(data.total)}／人気・超人気 n={fmtInt(data.popular)}
+      </p>
+      <h3 className="cmp-block-title">ほかの条件タグの数を揃えた比較</h3>
+      <table className="cmp-table">
+        <thead>
+          <tr>
+            <th rowSpan={2}>間口を広げる語以外のタグ</th>
+            <th colSpan={2} className="cmp-num">
+              間口を広げる語なし
+            </th>
+            <th colSpan={2} className="cmp-num">
+              間口を広げる語あり
+            </th>
+          </tr>
+          <tr>
+            <th className="cmp-num">人気率</th>
+            <th className="cmp-num">求人数</th>
+            <th className="cmp-num">人気率</th>
+            <th className="cmp-num">求人数</th>
+          </tr>
+        </thead>
+        <tbody>
+          {r.strata.map((s) => (
+            <tr key={s.label}>
+              <td>{s.label}</td>
+              <StratumCell c={s.without_open} />
+              <StratumCell c={s.with_open} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h3 className="cmp-block-title">帯ごとの条件タグの差</h3>
+      <p className="cmp-note">
+        差は、その帯の人気・超人気の求人でのタグの割合から、その帯の全求人でのタグの割合を引いた値です（求人数3件以上のタグ。間口を広げる語は除く）。
+      </p>
+      {r.band_tags.map((b) => (
+        <section key={b.label} aria-label={`間口を広げる語 ${b.label}`}>
+          <h4 className="cmp-block-title">
+            間口を広げる語 {b.label}（求人数 n={fmtInt(b.n)}・人気・超人気 n={fmtInt(b.popular)}）
+          </h4>
+          {b.shown ? (
+            <div className="cmp-pop-cols">
+              <ReachGapTable heading="人気側に多いタグ" rows={b.more} />
+              <ReachGapTable heading="人気側に少ないタグ" rows={b.less} />
+            </div>
+          ) : (
+            <p className="cmp-note">
+              求人数 {fmtInt(b.n)} 件のため、この帯の比較は出しません。
+            </p>
+          )}
+        </section>
+      ))}
+      <p className="cmp-note">
+        分け方: 求人に付く条件タグのうち、{r.open_words.join('・')}の数で「なし」「1つ」「2つ以上」に分けています。1つの求人は1回だけ数えます。条件タグの差は求人数が{fmtInt(r.min_band_n)}件以上の帯だけ出します。人気・超人気は、Indeed上でその表示が付いている求人です。
+      </p>
+    </>
+  );
+}
+
 function PopularityBody({ sub, data }: { sub: SubId; data: PopularitySplit }) {
   switch (sub) {
     case 'age':
@@ -352,6 +488,8 @@ function PopularityBody({ sub, data }: { sub: SubId; data: PopularitySplit }) {
           <BucketTable heading="区分" rows={data.tags.count_buckets} />
         </>
       );
+    case 'reach':
+      return <ReachView data={data} />;
     case 'writing':
       return (
         <>

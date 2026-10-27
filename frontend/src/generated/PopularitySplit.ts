@@ -4,8 +4,9 @@ import type { Bucket } from "./Bucket";
 import type { CompanyBias } from "./CompanyBias";
 import type { CompanySection } from "./CompanySection";
 import type { Group } from "./Group";
+import type { ReachSection } from "./ReachSection";
 import type { SalarySection } from "./SalarySection";
 import type { SuperRecent } from "./SuperRecent";
 import type { TagSection } from "./TagSection";
 
-export type PopularitySplit = { total: number, popular: number, super_popular: number, by_age: Array<Bucket>, tags_by_age: Array<AgeTags>, super_recent: SuperRecent | null, companies: CompanySection, company_bias: CompanyBias, salary: SalarySection, tags: TagSection, writing: Array<Group>, clarity: Array<Bucket>, work_style: Array<Bucket>, };
+export type PopularitySplit = { total: number, popular: number, super_popular: number, by_age: Array<Bucket>, tags_by_age: Array<AgeTags>, super_recent: SuperRecent | null, companies: CompanySection, company_bias: CompanyBias, reach: ReachSection, salary: SalarySection, tags: TagSection, writing: Array<Group>, clarity: Array<Bucket>, work_style: Array<Bucket>, };
