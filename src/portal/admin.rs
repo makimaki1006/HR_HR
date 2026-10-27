@@ -131,6 +131,27 @@ pub struct PortalAdminSheet {
     /// 顧客に見せる項目の数
     pub visible_columns: u32,
     pub created_at: String,
+    /// 応募の通知 (計画 14 章)
+    pub notify: PortalAdminNotify,
+}
+
+/// シートごとの応募の通知の状態。宛先のアドレスそのものは返さない (数だけ)
+#[derive(Serialize, TS)]
+pub struct PortalAdminNotify {
+    /// 送り先のタブの名前 (空なら通知しない)
+    pub tab: String,
+    /// 通知の仕組みが動いているか (保存先・送信元・顧客のシートの鍵が揃っている)
+    pub running: bool,
+    /// 最後に読めた送り先の数 (まだ読んでいなければ null)
+    pub recipients: Option<u32>,
+    /// メールアドレスの形でなかったので飛ばした数
+    pub skipped: u32,
+    /// まだ知らせていない新しい行の数
+    pub waiting: u32,
+    pub last_checked_at: Option<String>,
+    pub last_sent_at: Option<String>,
+    /// 止まっている理由 (利用者向けの文)
+    pub problem: Option<String>,
 }
 
 #[derive(Serialize, TS)]
@@ -552,8 +573,36 @@ fn customer_view(auth: &PortalAuth, c: &Customer) -> PortalAdminCustomer {
     }
 }
 
-fn sheet_view(auth: &PortalAuth, s: &SheetReg) -> PortalAdminSheet {
+fn notify_view(ctx: &Ctx, s: &SheetReg) -> PortalAdminNotify {
+    let tab = s.notify_tab.clone();
+    let Some(n) = ctx.notifier.as_ref() else {
+        return PortalAdminNotify {
+            tab,
+            running: false,
+            recipients: None,
+            skipped: 0,
+            waiting: 0,
+            last_checked_at: None,
+            last_sent_at: None,
+            problem: None,
+        };
+    };
+    let st = n.status(&s.id);
+    PortalAdminNotify {
+        tab,
+        running: true,
+        recipients: st.recipients.map(|v| v as u32),
+        skipped: st.skipped as u32,
+        waiting: st.waiting as u32,
+        last_checked_at: st.last_checked_at.map(|t| t.to_rfc3339()),
+        last_sent_at: st.last_sent_at.map(|t| t.to_rfc3339()),
+        problem: st.problem.map(|p| p.message()),
+    }
+}
+
+fn sheet_view(ctx: &Ctx, auth: &PortalAuth, s: &SheetReg) -> PortalAdminSheet {
     PortalAdminSheet {
+        notify: notify_view(ctx, s),
         id: s.id.clone(),
         customer_id: s.customer_id.clone(),
         spreadsheet_id: s.spreadsheet_id.clone(),
@@ -671,7 +720,7 @@ async fn get_customer(
         .store()
         .sheets(Some(&id))
         .iter()
-        .map(|s| sheet_view(&auth, s))
+        .map(|s| sheet_view(&ctx, &auth, s))
         .collect();
     let accounts = auth
         .store()
@@ -1048,6 +1097,8 @@ async fn add_sheet(
         disabled: false,
         created_at: now,
         updated_at: now,
+        notify_tab: String::new(),
+        notify_tab_id: None,
     };
     match auth.store().insert_sheet(sheet.clone()) {
         Ok(()) => {}
@@ -1071,7 +1122,7 @@ async fn add_sheet(
     });
     persist(&auth).await;
     tracing::info!("[portal] シートを登録した（項目 {n} 個, by {by}）");
-    Json(sheet_view(&auth, &sheet)).into_response()
+    Json(sheet_view(&ctx, &auth, &sheet)).into_response()
 }
 
 /// 見出しの行から項目を作る。前の設定 (`old`) に同じ見出しがあればその設定を引き継ぎ、
@@ -1121,6 +1172,8 @@ struct UpdateSheetBody {
     example_rows: Option<u32>,
     customer_can_edit_columns: Option<bool>,
     disabled: Option<bool>,
+    /// 応募の通知の送り先のタブの名前。空にすると通知しない
+    notify_tab: Option<String>,
 }
 
 async fn update_sheet(
@@ -1154,8 +1207,23 @@ async fn update_sheet(
         .customer_can_edit_columns
         .unwrap_or(s.customer_can_edit_columns);
     s.disabled = body.disabled.unwrap_or(s.disabled);
+    if let Some(t) = &body.notify_tab {
+        let t = t.trim();
+        if t.chars().count() > super::notify::MAX_TAB_CHARS || t.chars().any(char::is_control) {
+            return invalid("送り先のタブの名前を 100 文字以内で入れてください");
+        }
+        if t.is_empty() {
+            s.notify_tab_id = None;
+        } else if t != old.notify_tab || old.notify_tab_id.is_none() {
+            match check_notify_tab(&ctx, &auth, &s, t).await {
+                Ok(id) => s.notify_tab_id = Some(id),
+                Err(r) => return r,
+            }
+        }
+        s.notify_tab = t.to_string();
+    }
     if s == old {
-        return Json(sheet_view(&auth, &s)).into_response();
+        return Json(sheet_view(&ctx, &auth, &s)).into_response();
     }
     // 見出しの行を変えたら、その行を読んで項目を作り直す (同じ見出しの設定は引き継ぐ)。
     // 読めなければ何も変えない (古い見出しの項目のまま新しい行を読ませない)
@@ -1199,7 +1267,7 @@ async fn update_sheet(
         });
     }
     let yes_no = |b: bool| if b { "はい" } else { "いいえ" }.to_string();
-    let changes: [(&str, String, String); 5] = [
+    let changes: [(&str, String, String); 6] = [
         ("顧客に見せる名前", old.label.clone(), s.label.clone()),
         (
             "見出しの行",
@@ -1217,6 +1285,7 @@ async fn update_sheet(
             yes_no(s.customer_can_edit_columns),
         ),
         ("停止", yes_no(old.disabled), yes_no(s.disabled)),
+        ("送り先のタブ", old.notify_tab.clone(), s.notify_tab.clone()),
     ];
     for (column, before, after) in changes {
         if before != after {
@@ -1230,7 +1299,53 @@ async fn update_sheet(
         }
     }
     persist(&auth).await;
-    Json(sheet_view(&auth, &s)).into_response()
+    if old.notify_tab_id != s.notify_tab_id {
+        if let Some(n) = &ctx.notifier {
+            n.tab_changed(&s.id);
+        }
+    }
+    Json(sheet_view(&ctx, &auth, &s)).into_response()
+}
+
+/// 送り先のタブを確かめ、そのタブの番号を返す (送り先は番号で読むので、名前を変えられても差し替わらない)。
+/// - 電話・メールの種類の項目が無いシートは通知を使えない (新しい応募を見分けられない)
+/// - 同じスプレッドシートに登録した応募者のタブ (送り先を設定していない登録も含む) は送り先にできない
+/// - 顧客のシートを読む鍵で、そのタブがシートにあることを確かめる
+async fn check_notify_tab(
+    ctx: &Ctx,
+    auth: &PortalAuth,
+    s: &SheetReg,
+    tab: &str,
+) -> Result<i64, Response> {
+    if !super::notify::has_fp_columns(&auth.store().columns(&s.id)) {
+        return Err(invalid(
+            "新しい応募を見分けるには、電話番号かメールアドレスの項目が要ります。「項目の設定」で、その列の種類を「電話番号」か「メールアドレス」にしてから保存してください",
+        ));
+    }
+    // 同じスプレッドシートに登録した応募者のタブ (送り先を設定していない登録も含む)
+    let is_applicant_tab = |id: i64| {
+        id == s.sheet_id
+            || auth
+                .store()
+                .sheets(None)
+                .iter()
+                .any(|o| o.spreadsheet_id == s.spreadsheet_id && o.sheet_id == id)
+    };
+    let applicant = || {
+        invalid("応募者のタブは送り先にできません。送り先のメールアドレスを書いたタブを指定してください")
+    };
+    let reader = require_reader(ctx)?;
+    let tabs = reader
+        .tabs(&s.spreadsheet_id)
+        .await
+        .map_err(|e| probe_error(e.into(), reader.as_ref()))?;
+    match tabs.iter().find(|t| t.title.trim() == tab) {
+        None => Err(invalid(&format!(
+            "シートに「{tab}」というタブが見つかりません。タブの名前を確かめてください"
+        ))),
+        Some(t) if is_applicant_tab(t.sheet_id) => Err(applicant()),
+        Some(t) => Ok(t.sheet_id),
+    }
 }
 
 /// 登録したシートを試しに読む (見出しと先頭の数行)
@@ -1303,7 +1418,7 @@ async fn get_columns(
         return not_found("シート");
     };
     Json(PortalAdminColumns {
-        sheet: sheet_view(&auth, &s),
+        sheet: sheet_view(&ctx, &auth, &s),
         columns: auth.store().columns(&id).iter().map(column_view).collect(),
     })
     .into_response()
@@ -1395,7 +1510,7 @@ async fn put_columns(
     });
     persist(&auth).await;
     Json(PortalAdminColumns {
-        sheet: sheet_view(&auth, &s),
+        sheet: sheet_view(&ctx, &auth, &s),
         columns: auth.store().columns(&id).iter().map(column_view).collect(),
     })
     .into_response()

@@ -8,6 +8,7 @@ import type { PortalAdminStatus } from '../../../generated/PortalAdminStatus';
 import { Badge, Button, IconButton, Notice, Select, TextInput } from '../ui/kit';
 import { IconChevronDown, IconExternal, IconRefresh } from '../ui/icons';
 import { API, put } from './api';
+import { NotifySettings } from './NotifySettings';
 import { duplicateHeaders, GROUP_OPTIONS, KIND_OPTIONS, missingHeaders, moveColumn, setColumn, withNewHeaders } from './model';
 import { ErrorLine, LoadError, Loading, Page, PreviewCaption, PreviewTable, Section, TD, TH, Table, TextField, useGet } from './parts';
 
@@ -168,6 +169,10 @@ export function SheetView({ id, status }: { id: string; status: PortalAdminStatu
     >
       <p className="-mt-2 mb-3 text-xs text-pt-muted">タブ「{sheet.tab_title}」・見出しは {String(sheet.header_row)} 行目</p>
       <SheetSettings key={`${sheet.label}|${String(sheet.header_row)}|${String(sheet.example_rows)}`} sheet={sheet} onSaved={() => { reload(); reread(); }} />
+
+      <Section title="応募の通知">
+        <NotifySettings key={sheet.notify.tab} sheet={sheet} onSaved={reload} />
+      </Section>
 
       <Section title="試しに読んだ結果" actions={<Button size="sm" onClick={reread}><IconRefresh size={14} />読み直す</Button>}>
         {previewLoad.state === 'loading' && <Loading />}

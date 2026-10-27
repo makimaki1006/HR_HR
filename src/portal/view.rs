@@ -265,23 +265,10 @@ fn version_of(modified: &str, s: &SheetReg, cols: &[ColumnSetting]) -> String {
     format!("{modified}|{}", config_tag(s, cols))
 }
 
-/// 読んだ表から、見せる項目だけを取り出す。シートに見出しが無い項目は出さない。
-/// 見せる項目がどれも空の行は出さない
-fn applicants(
-    s: &SheetReg,
-    cols: &[ColumnSetting],
-    rows: &[Vec<String>],
-) -> (Vec<PortalColumn>, Vec<PortalApplicant>) {
-    let header_row = s.header_row.max(1);
-    // 見出し → 列の位置。同じ見出しが 2 つ以上ある列はどちらの値か決められないので None にする
+/// 見出し → 列の位置。同じ見出しが 2 つ以上ある列はどちらの値か決められないので None にする
+pub(super) fn header_positions(header: &[String]) -> HashMap<String, Option<usize>> {
     let mut positions: HashMap<String, Option<usize>> = HashMap::new();
-    for (i, h) in rows
-        .first()
-        .map(Vec::as_slice)
-        .unwrap_or(&[])
-        .iter()
-        .enumerate()
-    {
+    for (i, h) in header.iter().enumerate() {
         let h = clean_header(h);
         if !h.is_empty() {
             positions
@@ -290,6 +277,18 @@ fn applicants(
                 .or_insert(Some(i));
         }
     }
+    positions
+}
+
+/// 読んだ表から、見せる項目だけを取り出す。シートに見出しが無い項目は出さない。
+/// 見せる項目がどれも空の行は出さない
+fn applicants(
+    s: &SheetReg,
+    cols: &[ColumnSetting],
+    rows: &[Vec<String>],
+) -> (Vec<PortalColumn>, Vec<PortalApplicant>) {
+    let header_row = s.header_row.max(1);
+    let positions = header_positions(rows.first().map(Vec::as_slice).unwrap_or(&[]));
     let duplicated = cols
         .iter()
         .filter(|c| matches!(positions.get(&c.header), Some(None)))
