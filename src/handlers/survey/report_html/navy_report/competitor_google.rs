@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use super::common::push_page_head;
-use super::competitor_keyword_analysis::multi_line_chart;
+use super::competitor_keyword_analysis::hover_circle;
 use super::competitor_model::{
     GoogleDemand, GoogleKeyword, GoogleSeason, GoogleSection, GoogleSuggestions, IndeedSeason,
     MarketSeason,
@@ -24,6 +24,32 @@ fn parse_month(month: &str) -> Option<(i32, u32)> {
     let (y, m) = month.split_once('-')?;
     let m: u32 = m.get(..2).unwrap_or(m).parse().ok()?;
     ((1..=12).contains(&m)).then_some((y.parse().ok()?, m))
+}
+
+/// 月平均がこの値 (回/月) 未満の検索語は、Keyword Planner の丸めの底に張り付くので月ごとの推移を出さない。
+/// React 画面 (frontend/src/screens/competitor/googleStats.ts の `MIN_MONTHLY_MEAN`) と同じ値。
+pub(super) const MIN_MONTHLY_MEAN: f64 = 100.0;
+
+/// 取得できた月 (全期間) の月平均。値のある月が無ければ None。
+pub(super) fn monthly_mean(k: &GoogleKeyword) -> Option<f64> {
+    let v: Vec<f64> = k.monthly.iter().filter_map(|m| m.search_volume).collect();
+    (!v.is_empty()).then(|| v.iter().sum::<f64>() / v.len() as f64)
+}
+
+/// 月平均が小さく、月ごとの推移・前年同期比・ピーク月を出せない検索語。
+pub(super) fn is_low_volume(k: &GoogleKeyword) -> bool {
+    monthly_mean(k).is_none_or(|m| m < MIN_MONTHLY_MEAN)
+}
+
+/// 推移を出せない理由の 1 行。
+pub(super) fn low_volume_note(k: &GoogleKeyword) -> String {
+    match monthly_mean(k) {
+        Some(m) => format!(
+            "検索数が少なく、月ごとの推移は出せません（月平均 {} 回）",
+            format_number(m.round() as i64)
+        ),
+        None => "月ごとの検索数を取得できていないため、推移は出せません".to_owned(),
+    }
 }
 
 fn window_sum(values: &[Option<f64>]) -> Option<f64> {
@@ -86,32 +112,6 @@ pub(super) fn yearly_lines(k: &GoogleKeyword) -> Vec<(String, Vec<Option<f64>>)>
         }
     }
     years.into_iter().map(|(y, v)| (y.to_string(), v)).collect()
-}
-
-/// 全検索語の月を合わせた軸 (昇順) と、軸に揃えた系列。
-fn aligned(keywords: &[GoogleKeyword]) -> (Vec<String>, Vec<(String, Vec<Option<f64>>)>) {
-    let mut months: Vec<String> = keywords
-        .iter()
-        .flat_map(|k| k.monthly.iter().map(|m| m.month.clone()))
-        .collect();
-    months.sort();
-    months.dedup();
-    let lines = keywords
-        .iter()
-        .map(|k| {
-            let values = months
-                .iter()
-                .map(|m| {
-                    k.monthly
-                        .iter()
-                        .find(|x| &x.month == m)
-                        .and_then(|x| x.search_volume)
-                })
-                .collect();
-            (k.keyword.clone(), values)
-        })
-        .collect();
-    (months, lines)
 }
 
 fn compact(s: &str) -> String {
@@ -243,8 +243,14 @@ fn render_demand(html: &mut String, seed: &str, keywords: &[GoogleKeyword]) {
             escape_html(&row.keyword),
             number(s.avg_monthly),
             int(s.last12),
-            s.yoy_pct.map(|v| format!("{v:+.1}%")).unwrap_or_else(|| "—".into()),
-            s.peak_month.map(|m| format!("{m}月")).unwrap_or_else(|| "—".into()),
+            s.yoy_pct
+                .filter(|_| !is_low_volume(row))
+                .map(|v| format!("{v:+.1}%"))
+                .unwrap_or_else(|| "—".into()),
+            s.peak_month
+                .filter(|_| !is_low_volume(row))
+                .map(|m| format!("{m}月"))
+                .unwrap_or_else(|| "—".into()),
             competition_ja(&row.competition)
         ));
     }
@@ -252,30 +258,47 @@ fn render_demand(html: &mut String, seed: &str, keywords: &[GoogleKeyword]) {
     if keywords.is_empty() {
         return;
     }
-    let (months, lines) = aligned(keywords);
-    multi_line_chart(
-        html,
-        "検索語ごとの月間検索数の推移",
-        &months,
-        &lines,
-        "回/月",
-    );
     let main = keywords
         .iter()
         .find(|k| compact(&k.keyword) == compact(seed))
         .unwrap_or(&keywords[0]);
+    // 検索語ごとに 1 枚のカード (年別の重ね合わせ)。メイン語は先頭で横幅いっぱい、近隣語は 2 段組。
+    html.push_str("<div class=\"block-title\">検索語ごとの月間検索数の推移（年別）</div>");
+    keyword_card(html, main, true);
+    let (low, drawn): (Vec<&GoogleKeyword>, Vec<&GoogleKeyword>) = keywords
+        .iter()
+        .filter(|k| !std::ptr::eq(*k, main))
+        .partition(|k| is_low_volume(k));
+    if !drawn.is_empty() {
+        html.push_str("<div style=\"display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px\">");
+        for k in drawn {
+            keyword_card(html, k, false);
+        }
+        html.push_str("</div>");
+    }
+    // 月平均が少ない近隣語は、カードを作らず 1 つの小さな表にまとめる。
+    if !low.is_empty() {
+        html.push_str(&format!(
+            "<div class=\"block-title\">月平均{}回未満のため、月ごとの推移は出せません</div><table class=\"table-navy\"><thead><tr><th>検索語</th><th>月平均</th></tr></thead><tbody>",
+            MIN_MONTHLY_MEAN as i64
+        ));
+        for k in low {
+            html.push_str(&format!(
+                "<tr><td>{}</td><td class=\"num\">{}</td></tr>",
+                escape_html(&k.keyword),
+                int(monthly_mean(k))
+            ));
+        }
+        html.push_str("</tbody></table>");
+    }
+    if is_low_volume(main) {
+        return;
+    }
     let yearly = yearly_lines(main);
     if yearly.is_empty() {
         return;
     }
     let axis: Vec<String> = (1..=12).map(|m| format!("{m}月")).collect();
-    multi_line_chart(
-        html,
-        &format!("{}：年ごとの重ね合わせ", main.keyword),
-        &axis,
-        &yearly,
-        "回/月",
-    );
     html.push_str(&format!(
         "<div class=\"block-title\">{} の月別検索数（年別）</div><table class=\"table-navy\"><thead><tr><th>月</th>",
         escape_html(&main.keyword)
@@ -292,6 +315,175 @@ fn render_demand(html: &mut String, seed: &str, keywords: &[GoogleKeyword]) {
         html.push_str("</tr>");
     }
     html.push_str("</tbody></table>");
+}
+
+/// 年ごとの線の見た目 (新しい年から)。最新年ほど太い実線、古い年ほど細い破線。
+const YEAR_STYLES: [(&str, f64, &str); 4] = [
+    ("#006666", 2.8, ""),
+    ("#4472c4", 2.0, ""),
+    ("#b37d20", 1.8, "6 3"),
+    ("#8a949b", 1.6, "2 3"),
+];
+
+/// 前年比の上昇・下降・横ばいの境 (%)。
+const YOY_FLAT_PCT: f64 = 5.0;
+
+/// 検索語 1 つ分のカード。1〜12 月の横軸に、年ごとに 1 本の線 (新しい方から 4 年) を重ねる。
+/// 縦軸は 0 から自分の最大まで。月平均が `MIN_MONTHLY_MEAN` 未満なら線は描かず、理由の 1 行だけを出す。
+/// `big` はメイン語 (横幅いっぱい)。
+fn keyword_card(html: &mut String, k: &GoogleKeyword, big: bool) {
+    let low = is_low_volume(k);
+    let s = summarize(k);
+    let max = k
+        .monthly
+        .iter()
+        .filter_map(|m| m.search_volume)
+        .fold(None, |a: Option<f64>, v| Some(a.map_or(v, |x| x.max(v))));
+    let mut meta = vec![format!("平均 {}", number(k.avg_monthly))];
+    if !low {
+        meta.push(format!("最大 {}", int(max)));
+        if let Some(m) = s.peak_month {
+            meta.push(format!("ピーク {m}月"));
+        }
+    }
+    let badge = match s.yoy_pct.filter(|_| !low) {
+        Some(v) => {
+            let (word, color) = if v > YOY_FLAT_PCT {
+                ("上昇", "#006666")
+            } else if v < -YOY_FLAT_PCT {
+                ("下降", "#b3261e")
+            } else {
+                ("横ばい", "#5b6770")
+            };
+            format!(
+                "<span style=\"margin-left:6px;color:{color};font-weight:700\">前年比 {v:+.1}%（{word}）</span>"
+            )
+        }
+        None => String::new(),
+    };
+    html.push_str(&format!(
+        "<figure class=\"trend-card\" style=\"margin:0;min-width:0\"><figcaption><span>{}</span><span style=\"display:block;font-weight:400;font-size:12px;margin-top:2px\">{}{}</span></figcaption>",
+        escape_html(&k.keyword),
+        escape_html(&meta.join("・")),
+        badge
+    ));
+    if low {
+        html.push_str(&format!(
+            "<p class=\"note\">{}</p></figure>",
+            escape_html(&low_volume_note(k))
+        ));
+        return;
+    }
+    let mut years = yearly_lines(k);
+    years.reverse();
+    years.truncate(YEAR_STYLES.len());
+    let peak = years
+        .iter()
+        .flat_map(|(_, v)| v.iter().flatten())
+        .copied()
+        .filter(|v| v.is_finite() && *v >= 0.0)
+        .fold(0.0f64, f64::max);
+    let step = (peak / 2.0).ceil().max(1.0);
+    let ymax = step * 2.0;
+    let (w, h, left) = if big {
+        (900.0, 226.0, 85.0)
+    } else {
+        (450.0, 174.0, 55.0)
+    };
+    let (top, bottom, right) = (12.0, 46.0, 14.0);
+    let plot_h = h - top - bottom;
+    let plot_w = w - left - right;
+    let y_of = |v: f64| top + plot_h * (1.0 - v / ymax);
+    let x_of = |m: usize| left + plot_w * m as f64 / 11.0;
+    html.push_str(&format!(
+        "<div class=\"trend-plot\"><svg viewBox=\"0 0 {w} {h}\" role=\"img\" aria-label=\"{}\"><title>{}</title>",
+        escape_html(&k.keyword),
+        escape_html(&k.keyword)
+    ));
+    for i in 0..=2 {
+        let y = y_of(step * f64::from(i));
+        html.push_str(&format!(
+            "<path d=\"M{left} {y:.1} H{:.1}\" stroke=\"#e1e8ec\"/><text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" text-anchor=\"end\">{}</text>",
+            left + plot_w,
+            left - 6.0,
+            y + 5.0,
+            format_number((step * f64::from(i)) as i64)
+        ));
+    }
+    // ピーク月の縦の破線。
+    if let Some(m) = s.peak_month {
+        let x = x_of(m as usize - 1);
+        html.push_str(&format!(
+            "<path d=\"M{x:.1} {top} V{:.1}\" stroke=\"#8a949b\" stroke-dasharray=\"3 3\"/>",
+            top + plot_h
+        ));
+    }
+    let mut hits = String::new();
+    // 古い年から描き、最新年を最後 (前面) にする。
+    for (rank, (year, values)) in years.iter().enumerate().rev() {
+        let (color, width, dash) = YEAR_STYLES[rank];
+        let mut run: Vec<String> = Vec::new();
+        let flush = |run: &mut Vec<String>, html: &mut String| {
+            if run.len() > 1 {
+                let d = if dash.is_empty() {
+                    String::new()
+                } else {
+                    format!(" stroke-dasharray=\"{dash}\"")
+                };
+                html.push_str(&format!(
+                    "<polyline points=\"{}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"{width}\"{d} stroke-linejoin=\"round\"/>",
+                    run.join(" ")
+                ));
+            }
+            run.clear();
+        };
+        for (i, v) in values.iter().enumerate() {
+            match v.filter(|v| v.is_finite() && *v >= 0.0) {
+                Some(v) => {
+                    let (x, y) = (x_of(i), y_of(v));
+                    run.push(format!("{x:.3},{y:.3}"));
+                    hits.push_str(&hover_circle(
+                        x,
+                        y,
+                        &format!("{year}-{:02}", i + 1),
+                        &k.keyword,
+                        &format_number(v.round() as i64),
+                        "回/月",
+                    ));
+                }
+                None => flush(&mut run, html),
+            }
+        }
+        flush(&mut run, html);
+    }
+    for m in 0..12 {
+        html.push_str(&format!(
+            "<text x=\"{:.3}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"13\">{}</text>",
+            x_of(m),
+            h - 28.0,
+            m + 1
+        ));
+    }
+    // 凡例は年。
+    for (rank, (year, _)) in years.iter().enumerate() {
+        let (color, width, dash) = YEAR_STYLES[rank];
+        let lx = left + 90.0 * rank as f64;
+        let d = if dash.is_empty() {
+            String::new()
+        } else {
+            format!(" stroke-dasharray=\"{dash}\"")
+        };
+        html.push_str(&format!(
+            "<line x1=\"{lx}\" y1=\"{ly}\" x2=\"{:.1}\" y2=\"{ly}\" stroke=\"{color}\" stroke-width=\"{width}\"{d}/><text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\">{}年</text>",
+            lx + 20.0,
+            lx + 26.0,
+            h - 2.0,
+            escape_html(year),
+            ly = h - 6.0
+        ));
+    }
+    html.push_str(&hits);
+    html.push_str("</svg></div></figure>");
 }
 
 /// 季節の型の折れ線 1 本分 (暦月 1〜12)。`range` は年ごとの最小〜最大 (市場全体は無し)。
@@ -523,38 +715,34 @@ fn render_season(html: &mut String, s: &GoogleSeason) {
             range: Some((m.min, m.max)),
         })
         .collect();
-    if !s.reliable {
-        if let Some(m) = &s.market {
-            html.push_str(&format!(
-                "<p>{}（{} 職種の平均）</p>",
-                escape_html(&m.headline),
-                m.n_series
-            ));
-            season_chart(
-                html,
-                "職種全体の暦月の型",
-                "職種全体の平均",
-                "#5b6770",
-                &market_lines(m),
-                s.current_month,
-                None,
-            );
-        }
+    if s.reliable {
+        let caption = format!("{}：暦月の型", s.keyword);
+        season_chart(
+            html,
+            &caption,
+            "Google 検索数の平均",
+            "#007d79",
+            &google_lines,
+            s.current_month,
+            s.indeed.as_ref(),
+        );
+    } else if let Some(m) = &s.market {
+        // 信頼の目安を満たさないときは Google の線と帯を描かず、市場全体の型に Indeed の点だけを重ねる。
+        html.push_str(&format!(
+            "<p>{}（{} 職種の平均）</p>",
+            escape_html(&m.headline),
+            m.n_series
+        ));
+        season_chart(
+            html,
+            "職種全体の暦月の型",
+            "職種全体の平均",
+            "#5b6770",
+            &market_lines(m),
+            s.current_month,
+            s.indeed.as_ref(),
+        );
     }
-    let caption = if s.reliable {
-        format!("{}：暦月の型", s.keyword)
-    } else {
-        format!("{}：暦月の指数（参考）", s.keyword)
-    };
-    season_chart(
-        html,
-        &caption,
-        "Google 検索数の平均",
-        "#007d79",
-        &google_lines,
-        s.current_month,
-        s.indeed.as_ref(),
-    );
     if let Some(i) = &s.indeed {
         html.push_str(&format!(
             "<p class=\"note\">{}</p>",
@@ -709,11 +897,12 @@ mod tests {
         let mut html = String::new();
         render_google(&mut html, &section);
         // ホバー: 月・系列名・値。
-        assert!(html.contains("<title>2022-08　製造 求人: 100回/月</title>"));
+        assert!(html.contains("<title>2023-01　製造 求人: 105回/月</title>"));
         assert!(html.contains("fill=\"transparent\""));
-        // 年ごとの重ね合わせは 5 本 (2022〜2026)。ピボット表の列見出しも西暦。
-        assert!(html.contains("年ごとの重ね合わせ"));
-        assert!(html.contains("<title>1月　2026: 141回/月</title>"));
+        // 検索語ごとのカードは年別の重ね合わせ (新しい 4 年)。ピボット表の列見出しは西暦 5 年。
+        assert!(html.contains("検索語ごとの月間検索数の推移（年別）"));
+        assert!(html.contains("<title>2026-01　製造 求人: 141回/月</title>"));
+        assert!(!html.contains("<title>2022-08　製造 求人"));
         for y in 2022..=2026 {
             assert!(html.contains(&format!("<th>{y}</th>")), "{y}");
         }
@@ -839,5 +1028,121 @@ mod tests {
         assert!(html.contains("<td class=\"num\">210</td><td class=\"num\">1,266</td><td class=\"num\">—</td><td>7月</td>"));
         assert!(html.contains("<th>2025</th><th>2026</th>"));
         assert!(html.ends_with("</section>"));
+    }
+
+    fn flat_json(v: i64, n: usize) -> serde_json::Value {
+        let (mut y, mut m) = (2022, 8u32);
+        let mut out = Vec::new();
+        for i in 0..n {
+            out.push(serde_json::json!({"month":format!("{y}-{m:02}"),"search_volume":v + (i as i64 % 2) * 10}));
+            m += 1;
+            if m > 12 {
+                m = 1;
+                y += 1;
+            }
+        }
+        serde_json::Value::Array(out)
+    }
+
+    #[test]
+    fn low_volume_keywords_get_one_line_and_no_polyline() {
+        // 月平均 15 回 (10 と 20 の往復)。メイン語も近隣語も底に張り付く (県指定の状態)。
+        let section = data(serde_json::json!([
+            {"keyword":"製造 求人","avg_monthly":15,"competition":"HIGH","monthly_12m":flat_json(10, 48)},
+            {"keyword":"工場 仕事","avg_monthly":15,"competition":"LOW","monthly_12m":flat_json(10, 48)}
+        ]));
+        let mut html = String::new();
+        render_google(&mut html, &section);
+        // メイン語のカードだけ理由の 1 行つき。近隣語は 1 つの表にまとめる。
+        assert_eq!(
+            html.matches("検索数が少なく、月ごとの推移は出せません（月平均 15 回）")
+                .count(),
+            1
+        );
+        assert!(html.contains("月平均100回未満のため、月ごとの推移は出せません</div><table"));
+        assert!(html.contains("<tr><td>工場 仕事</td><td class=\"num\">15</td></tr>"));
+        // 折れ線もホバーも出ない。メイン語が底のとき重ね合わせ・月別の表も出さない。
+        assert!(!html.contains("<polyline"));
+        assert!(!html.contains("回/月</title>"));
+        assert!(!html.contains("年ごとの重ね合わせ"));
+        assert!(!html.contains("の月別検索数（年別）"));
+        // 要約表の前年同期比・ピーク月は「—」。
+        assert!(html.contains("<td class=\"num\">—</td><td>—</td><td>高</td>"));
+    }
+
+    #[test]
+    fn mean_of_100_or_more_is_drawn_and_below_is_not() {
+        let hundred = serde_json::json!([
+            {"keyword":"製造 求人","avg_monthly":100,"competition":"HIGH","monthly_12m":flat_json(100, 48)}
+        ]);
+        let mut html = String::new();
+        render_google(&mut html, &data(hundred));
+        // 100 と 110 の往復 = 月平均 105。描く。
+        assert!(html.contains("<polyline"));
+        assert!(html.contains("<title>2023-01　製造 求人: 110回/月</title>"));
+        let low = serde_json::json!([
+            {"keyword":"製造 求人","avg_monthly":99,"competition":"HIGH","monthly_12m":flat_json(90, 48)}
+        ]);
+        let mut html = String::new();
+        render_google(&mut html, &data(low));
+        // 90 と 100 の往復 = 月平均 95。描かない。
+        assert!(!html.contains("<polyline"));
+        assert!(html.contains("（月平均 95 回）"));
+    }
+
+    #[test]
+    fn keywords_are_split_into_separate_charts_with_own_axis() {
+        let section = data(serde_json::json!([
+            {"keyword":"製造 求人","avg_monthly":1000,"competition":"HIGH","monthly_12m":flat_json(1000, 48)},
+            {"keyword":"工場 仕事","avg_monthly":300,"competition":"LOW","monthly_12m":flat_json(300, 48)},
+            {"keyword":"倉庫 求人","avg_monthly":5,"competition":"LOW","monthly_12m":flat_json(5, 48)}
+        ]));
+        let mut html = String::new();
+        render_google(&mut html, &section);
+        let a = html.find("検索語ごとの月間検索数の推移").unwrap();
+        let tail = &html[a..];
+        // 検索語ごとに 1 枚。見出しの右に平均月間検索数。
+        assert!(tail.contains("<span>製造 求人</span>"));
+        assert!(tail.contains("平均 1,000・最大 1,010"));
+        assert!(tail.contains("<span>工場 仕事</span>"));
+        // 月平均 100 回未満の近隣語はカードにせず、まとめた表に載る。
+        assert!(!tail.contains("<span>倉庫 求人</span>"));
+        assert!(tail.contains("<tr><td>倉庫 求人</td><td class=\"num\">10</td></tr>"));
+        // 折れ線は 2 本 (底の 1 語は描かない) に、メイン語の年ごとの重ね合わせ。
+        let charts = &tail[..tail.find("の月別検索数（年別）").unwrap()];
+        assert_eq!(charts.matches("<polyline").count(), 8);
+        assert_eq!(charts.matches("<figure").count(), 2);
+        // それぞれ自分の縦軸: 1,000 台は 1,010 が上端、300 台は 310 が上端。
+        assert!(tail.contains(">1,010</text>"));
+        assert!(tail.contains(">310</text>"));
+        assert!(!tail.contains("（月平均 10 回）"));
+        // 2 段組のグリッドに近隣語が入る。
+        assert!(tail.contains("grid-template-columns:repeat(2,minmax(0,1fr))"));
+        // ホバーは残る。
+        assert!(tail.contains("<title>2023-01　工場 仕事: 310回/月</title>"));
+    }
+
+    #[test]
+    fn unreliable_season_draws_market_with_indeed_points_and_no_google_line_or_band() {
+        let mut html = String::new();
+        render_google(&mut html, &season_section(900.0, 1, 14));
+        assert!(html.contains("職種全体の暦月の型"));
+        assert!(!html.contains("暦月の指数（参考）"));
+        assert!(!html.contains("Google 検索数の平均"));
+        // 帯 (polygon) は無い。Indeed の点は出る。
+        assert!(!html.contains("<polygon"));
+        assert!(html.contains("<title>5月 2025年　閲覧数 年平均比 187</title>"));
+        assert!(html.contains("<title>3月　年平均比 109</title>"));
+    }
+
+    #[test]
+    fn reliable_season_still_draws_google_line_band_and_axis_is_non_negative() {
+        let mut html = String::new();
+        render_google(&mut html, &season_section(2000.0, 11, 14));
+        assert!(html.contains("暦月の型</figcaption>"));
+        assert!(html.contains("<polygon"));
+        let a = html.find("暦月の型（全国）").unwrap();
+        assert!(!html[a..].contains("text-anchor=\"end\">-"));
+        assert!(!html[a..].contains("text-anchor=\"end\">−"));
     }
 }

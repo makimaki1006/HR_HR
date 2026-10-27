@@ -28,13 +28,13 @@ export function SeasonChart({ label, lineName, color, lines, currentMonth, indee
   return (
     <figure className="cmp-trend-card">
       <figcaption>{label}</figcaption>
-      <div className="cmp-trend-plot">
-        <svg viewBox="0 0 900 300" role="img" aria-label={label}>
+      <div className="cmp-trend-plot cmp-fit cmp-fit-wide">
+        <svg viewBox="0 0 900 252" role="img" aria-label={label}>
           <title>{label}</title>
           {l.grid.map((g, i) => (
             <g key={i}>
               <path d={`M85 ${g.y.toFixed(1)} H876`} className="cmp-gridline" />
-              <text x={75} y={g.y + 5} fontSize={14} textAnchor="end" className="cmp-label">
+              <text x={75} y={g.y + 5} fontSize={14} textAnchor="end" className="cmp-label cmp-ylab">
                 {fmtInt(g.value)}
               </text>
             </g>
@@ -69,21 +69,6 @@ export function SeasonChart({ label, lineName, color, lines, currentMonth, indee
               {m.text}
             </text>
           ))}
-          {legend.map((g, k) => {
-            const lx = 85 + 220 * k;
-            return (
-              <g key={g.name}>
-                {g.shape === 'line' && <rect x={lx} y={266} width={22} height={4} fill={g.color} />}
-                {g.shape === 'diamond' && (
-                  <path d={`M${String(lx + 11)} 262 l5.5 5.5 l-5.5 5.5 l-5.5 -5.5 z`} fill={g.color} />
-                )}
-                {g.shape === 'square' && <rect x={lx + 6} y={263} width={9} height={9} fill={g.color} />}
-                <text x={lx + 30} y={272} fontSize={14} className="cmp-label">
-                  {g.name}
-                </text>
-              </g>
-            );
-          })}
           {l.dots.map((d, i) => (
             <circle key={`g${String(i)}`} cx={d.x.toFixed(1)} cy={d.y.toFixed(1)} r={9} fill="transparent" tabIndex={0} aria-label={d.tip}>
               <title>{d.tip}</title>
@@ -96,6 +81,19 @@ export function SeasonChart({ label, lineName, color, lines, currentMonth, indee
           ))}
         </svg>
       </div>
+      {/* 凡例は図の外に置き、幅が狭いときは折り返す (図の中だと文字が重なる)。 */}
+      <ul className="cmp-season-legend">
+        {legend.map((g) => (
+          <li key={g.name}>
+            <svg width="22" height="14" aria-hidden="true">
+              {g.shape === 'line' && <rect x={0} y={5} width={22} height={4} fill={g.color} />}
+              {g.shape === 'diamond' && <path d="M11 1 l6 6 l-6 6 l-6 -6 z" fill={g.color} />}
+              {g.shape === 'square' && <rect x={6} y={2} width={10} height={10} fill={g.color} />}
+            </svg>
+            {g.name}
+          </li>
+        ))}
+      </ul>
       <p className="cmp-note">縦軸は年平均を 100 とした指数です。</p>
     </figure>
   );

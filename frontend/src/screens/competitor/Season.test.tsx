@@ -101,9 +101,22 @@ describe('暦月の型 (全国)', () => {
     );
     expect(screen.getByText(/時期の型は出せません。（全国の月平均 900 回・完全な年 4 年）/)).toBeTruthy();
     expect(container.textContent).not.toContain('ごろに最も多く');
-    expect(container.querySelectorAll('figure').length).toBe(2);
+    // Google の線と帯は描かず、市場全体の型だけ (Indeed なしなら点も無い)。
+    expect(container.querySelectorAll('figure').length).toBe(1);
+    expect(container.textContent).not.toContain('暦月の指数（参考）');
+    expect(container.querySelectorAll('polygon').length).toBe(0);
     expect(container.textContent).not.toContain('Indeed');
     expect(screen.queryByText('11月（今月）')).toBeNull();
+  });
+
+  it('言えないとき Indeed があれば、市場全体の型に Indeed の点だけを重ねる (Google の線と帯は無い)', () => {
+    const { container } = render(<GoogleTab data={section(season({ reliable: false, caveat: '理由' }))} />);
+    expect(container.querySelectorAll('figure').length).toBe(1);
+    expect(container.querySelectorAll('polygon').length).toBe(0);
+    expect(container.textContent).not.toContain('Google 検索数の平均');
+    expect(container.textContent).toContain('職種全体の平均');
+    expect(container.textContent).toContain('Indeed');
+    expect(container.querySelectorAll('svg circle').length).toBeGreaterThan(12);
   });
 
   it('season が null ならブロックを出さない', () => {

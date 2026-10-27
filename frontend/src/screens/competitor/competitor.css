@@ -365,3 +365,21 @@ html:has(.competitor) { background: #eef1f6; }
 .cmp-progress__label { margin: 6px 0 0; color: var(--ink-2); font-size: 0.9em; }
 .cmp-tag-usage svg { display: block; width: 100%; height: auto; }
 .cmp-band-title { margin: 10px 0 4px; font-size: 13px; }
+
+/* ---- Google検索需要: 検索語ごとのカード・暦月の型 (幅に合わせて縮む) ---- */
+.cmp-kwcards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+.cmp-kwcard { margin: 0 0 16px; }
+.cmp-kwcards .cmp-kwcard { margin: 0; }
+.cmp-kwcard-meta { display: block; margin-top: 2px; font-size: 13px; font-weight: 400; color: var(--ink-3); }
+.cmp-trend-plot.cmp-fit { overflow: visible; }
+.cmp-trend-plot.cmp-fit svg { min-width: 0; }
+@media (max-width: 900px) { .cmp-kwcards { grid-template-columns: 1fr; } }
+.cmp-season-legend { display: flex; flex-wrap: wrap; gap: 4px 18px; list-style: none; margin: 4px 0 0; padding: 0; font-size: 13px; }
+.cmp-season-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.cmp-season-legend svg { width: 22px; min-width: 22px; height: 14px; }
+@media (max-width: 640px) {
+  .cmp-fit-wide svg text { font-size: 24px; }
+  .cmp-fit-wide svg text.cmp-ylab { font-size: 20px; }
+  .cmp-kwcard-main .cmp-fit svg text { font-size: 24px; }
+  .cmp-kwcard:not(.cmp-kwcard-main) .cmp-fit svg text { font-size: 17px; }
+}
