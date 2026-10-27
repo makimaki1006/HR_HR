@@ -2,6 +2,7 @@
 import type { ReachBand } from "./ReachBand";
 import type { ReachBandTags } from "./ReachBandTags";
 import type { ReachStratum } from "./ReachStratum";
+import type { ReplySection } from "./ReplySection";
 
 export type ReachSection = { 
 /**
@@ -11,4 +12,8 @@ open_words: Array<string>,
 /**
  * この求人数に満たない帯は条件タグの差を出さない。
  */
-min_band_n: number, bands: Array<ReachBand>, strata: Array<ReachStratum>, band_tags: Array<ReachBandTags>, };
+min_band_n: number, bands: Array<ReachBand>, strata: Array<ReachStratum>, band_tags: Array<ReachBandTags>, 
+/**
+ * 応募のしやすさの印 (高返信率・カンタン応募)。
+ */
+reply: ReplySection, };

@@ -285,6 +285,32 @@ export function makePopularitySplit(): PopularitySplit {
         { label: '1つ', n: 45, popular: 14, shown: true, more: [], less: [] },
         { label: '2つ以上', n: 25, popular: 10, shown: false, more: [], less: [] },
       ],
+      reply: {
+        marks: [
+          {
+            label: '高返信率',
+            with_mark: { n: 182, popular: 77, super_popular: 22, rate_pct: 42.3 },
+            without_mark: { n: 140, popular: 28, super_popular: 5, rate_pct: 20 },
+          },
+          {
+            label: 'カンタン応募',
+            with_mark: { n: 242, popular: 80, super_popular: 23, rate_pct: 33.1 },
+            without_mark: { n: 0, popular: 0, super_popular: 0, rate_pct: null },
+          },
+        ],
+        cross: [
+          {
+            label: '間口を広げる語なし',
+            with_reply: { n: 87, popular: 24, rate_pct: 27.6 },
+            without_reply: { n: 116, popular: 26, rate_pct: 22.4 },
+          },
+          {
+            label: '間口を広げる語が1つ以上',
+            with_reply: { n: 95, popular: 53, rate_pct: 55.8 },
+            without_reply: { n: 24, popular: 2, rate_pct: 8.3 },
+          },
+        ],
+      },
     },
     salary: {
       popular_median: 220000,

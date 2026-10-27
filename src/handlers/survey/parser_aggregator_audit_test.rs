@@ -100,6 +100,8 @@ fn rec_with_salary_and_pref(
         ai_paid_leave_rate: None,
         ai_weekly_holiday_type: None,
         ai_overtime_hours_monthly: None,
+        high_reply: false,
+        easy_apply: false,
     }
 }
 
