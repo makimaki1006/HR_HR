@@ -1,6 +1,7 @@
 import type { IndeedSeason } from '../../../generated/IndeedSeason';
 import { fmtInt } from '../format';
-import { SEASON_AXIS, seasonLayout, type SeasonLineInput } from './seasonLayout';
+import { seasonLayout, type SeasonLineInput } from './seasonLayout';
+import { useNarrow } from './useNarrow';
 
 const INDEED_COLORS = ['#c0504d', '#8567a5'];
 
@@ -15,8 +16,11 @@ interface Props {
 
 /** 暦月 1〜12 の指数 (年平均 100) の折れ線・最小〜最大の帯・今の月の印。Indeed の点は線でつながない。 */
 export function SeasonChart({ label, lineName, color, lines, currentMonth, indeed }: Props) {
-  const l = seasonLayout(lines, currentMonth, indeed);
+  const narrow = useNarrow();
+  const l = seasonLayout(lines, currentMonth, indeed, narrow);
   if (l === null) return null;
+  const f = l.frame;
+  const right = f.left + f.width;
   const legend: { name: string; color: string; shape: 'line' | 'diamond' | 'square' }[] = [
     { name: lineName, color, shape: 'line' },
     ...(indeed?.series ?? []).map((s, k) => ({
@@ -28,26 +32,26 @@ export function SeasonChart({ label, lineName, color, lines, currentMonth, indee
   return (
     <figure className="cmp-trend-card">
       <figcaption>{label}</figcaption>
-      <div className="cmp-trend-plot cmp-fit cmp-fit-wide">
-        <svg viewBox="0 0 900 252" role="img" aria-label={label}>
+      <div className="cmp-trend-plot cmp-fit">
+        <svg viewBox={`0 0 ${String(f.vw)} ${String(f.vh)}`} role="img" aria-label={label}>
           <title>{label}</title>
           {l.grid.map((g, i) => (
             <g key={i}>
-              <path d={`M85 ${g.y.toFixed(1)} H876`} className="cmp-gridline" />
-              <text x={75} y={g.y + 5} fontSize={14} textAnchor="end" className="cmp-label cmp-ylab">
+              <path d={`M${String(f.left)} ${g.y.toFixed(1)} H${String(right)}`} className="cmp-gridline" />
+              <text x={f.left - 10} y={g.y + 5} fontSize={f.font} textAnchor="end" className="cmp-label cmp-ylab">
                 {fmtInt(g.value)}
               </text>
             </g>
           ))}
           {l.current !== null && (
             <g data-testid="season-current">
-              <rect x={l.current.x} y={SEASON_AXIS.top} width={36} height={SEASON_AXIS.height} fill="#f3e9c8" opacity={0.7} />
-              <text x={l.current.cx} y={SEASON_AXIS.top + SEASON_AXIS.height + 36} fontSize={13} textAnchor="middle" fill="#8a6d1d">
+              <rect x={l.current.x} y={f.top} width={36} height={f.height} fill="#f3e9c8" opacity={0.7} />
+              <text x={l.current.cx} y={f.top + f.height + (narrow ? 42 : 36)} fontSize={f.font - 1} textAnchor="middle" fill="#8a6d1d">
                 今月
               </text>
             </g>
           )}
-          <path d={`M85 ${l.baselineY.toFixed(1)} H876`} stroke="#8a949b" strokeDasharray="5 4" />
+          <path d={`M${String(f.left)} ${l.baselineY.toFixed(1)} H${String(right)}`} stroke="#8a949b" strokeDasharray="5 4" />
           {l.band !== null && <polygon points={l.band} fill={color} opacity={0.16} stroke="none" />}
           <polyline points={l.line} fill="none" stroke={color} strokeWidth={3} />
           {l.indeed.map((p, i) => {
@@ -65,7 +69,7 @@ export function SeasonChart({ label, lineName, color, lines, currentMonth, indee
             );
           })}
           {l.months.map((m) => (
-            <text key={m.text} x={m.x} y={SEASON_AXIS.top + SEASON_AXIS.height + 22} textAnchor="middle" fontSize={14} className="cmp-label">
+            <text key={m.text} x={m.x} y={f.top + f.height + (narrow ? 20 : 22)} textAnchor="middle" fontSize={f.font} className="cmp-label">
               {m.text}
             </text>
           ))}

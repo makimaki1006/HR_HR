@@ -70,7 +70,7 @@ export function TrendChart({ label, points, unit, color, ratio = false, seriesNa
             </circle>
           ))}
           {l.monthLabels.map((m, i) => (
-            <text key={i} x={m.x} y={268} textAnchor="middle" fontSize={14} className="cmp-label">
+            <text key={i} x={m.x} y={268} textAnchor={m.end ? 'end' : 'middle'} fontSize={14} className="cmp-label">
               {m.text}
             </text>
           ))}
