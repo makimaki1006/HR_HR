@@ -2,6 +2,12 @@ name: AirWork image contracts
 on:
   pull_request:
     branches: [main]
+# 同じ PR / ブランチで新しい実行が始まったら、古い実行は止める。
+# main への push は止めない (全コミットの結果を残す)。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   offline-images:
     runs-on: ubuntu-latest

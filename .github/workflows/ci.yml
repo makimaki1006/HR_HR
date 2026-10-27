@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# 同じ PR / ブランチで新しい実行が始まったら、古い実行は止める。
+# main への push は止めない (全コミットの結果を残す)。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # -----------------------------------------------------------------------
   # Statistical-expression lint
@@ -85,7 +91,10 @@ jobs:
             exit 1
           fi
           git diff --exit-code -- frontend/src/generated
+      # release ビルドは LTO で約7分かかる。PR では docker-context-check が
+      # 同じ入力で cargo check --release を見るので、main への push のときだけ行う。
       - name: Build release
+        if: github.event_name == 'push'
         run: cargo build --release
 
   docker-context-check:
