@@ -4,6 +4,13 @@ use crate::handlers::helpers::escape_html;
 /// 1 か月分の観測値。未取得は None (0 にしない)。
 pub(super) type Point<'a> = (&'a str, Option<f64>);
 
+/// 横軸ラベルを出す月か。最後の月を必ず出し、そこから等間隔 (最大 8 本前後) にさかのぼる。
+/// 最後の 2 つが近すぎて重ならない。React 側 (`axisLabelShown`) と同じ規則。
+pub(super) fn axis_label_shown(i: usize, n: usize) -> bool {
+    let every = n.div_ceil(8).max(1);
+    n > 0 && i < n && (n - 1 - i).is_multiple_of(every)
+}
+
 pub(super) fn chart(
     html: &mut String,
     label: &str,
@@ -83,9 +90,10 @@ pub(super) fn chart(
         } else {
             flush(&mut points, html);
         }
-        if i % rows.len().div_ceil(8).max(1) == 0 || i == rows.len() - 1 {
+        if axis_label_shown(i, rows.len()) {
+            let anchor = if i + 1 == rows.len() { "end" } else { "middle" };
             html.push_str(&format!(
-                "<text x=\"{x}\" y=\"268\" text-anchor=\"middle\" font-size=\"14\">{month}</text>"
+                "<text x=\"{x}\" y=\"268\" text-anchor=\"{anchor}\" font-size=\"14\">{month}</text>"
             ));
         }
     }
@@ -113,6 +121,19 @@ mod tests {
         assert!(!html.contains("<test>"));
         assert_eq!(html.matches("<circle").count(), 4);
         assert!(html.contains("<title>2026-03　&lt;test&gt;: 4件</title>"));
+    }
+
+    #[test]
+    fn axis_labels_keep_last_and_drop_the_one_before() {
+        let shown = |n: usize| {
+            (0..n)
+                .filter(|&i| axis_label_shown(i, n))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(shown(14), vec![1, 3, 5, 7, 9, 11, 13]);
+        assert_eq!(shown(12), vec![1, 3, 5, 7, 9, 11]);
+        assert_eq!(shown(5), vec![0, 1, 2, 3, 4]);
+        assert_eq!(shown(1), vec![0]);
     }
 
     #[test]

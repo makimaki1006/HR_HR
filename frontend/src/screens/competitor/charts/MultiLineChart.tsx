@@ -36,7 +36,7 @@ export function MultiLineChart({ label, months, lines: rawLines, unit }: Props) 
   return (
     <figure className="cmp-trend-card">
       <figcaption>{label}</figcaption>
-      <div className="cmp-trend-plot">
+      <div className="cmp-trend-plot cmp-multi">
         <svg viewBox={`0 0 900 ${String(height)}`} role="img" aria-label={label}>
           <title>{label}</title>
           {l.grid.map((g, i) => (

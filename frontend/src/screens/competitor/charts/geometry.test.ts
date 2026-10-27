@@ -270,3 +270,18 @@ describe('pyramidLayout (720 x 40+18n+24)', () => {
     expect(z.max).toBe(1);
   });
 });
+
+describe('trendLayout: 横軸ラベルは最後の月を残して間引く', () => {
+  const pts = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ month: `m${String(i + 1).padStart(2, '0')}`, value: i + 1 }));
+  it('14 か月は最後を残し、その手前を落とす (最後は右端に寄せる)', () => {
+    const l = trendLayout(pts(14), false);
+    expect(l?.monthLabels.map((m) => m.text)).toEqual(['m02', 'm04', 'm06', 'm08', 'm10', 'm12', 'm14']);
+    expect(l?.monthLabels.map((m) => m.end)).toEqual([false, false, false, false, false, false, true]);
+  });
+  it('12 か月・5 か月・1 か月', () => {
+    expect(trendLayout(pts(12), false)?.monthLabels.map((m) => m.text)).toEqual(['m02', 'm04', 'm06', 'm08', 'm10', 'm12']);
+    expect(trendLayout(pts(5), false)?.monthLabels.length).toBe(5);
+    expect(trendLayout(pts(1), false)?.monthLabels.map((m) => m.end)).toEqual([true]);
+  });
+});

@@ -377,12 +377,9 @@ html:has(.competitor) { background: #eef1f6; }
 .cmp-season-legend { display: flex; flex-wrap: wrap; gap: 4px 18px; list-style: none; margin: 4px 0 0; padding: 0; font-size: 13px; }
 .cmp-season-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .cmp-season-legend svg { width: 22px; min-width: 22px; height: 14px; }
-@media (max-width: 640px) {
-  .cmp-fit-wide svg text { font-size: 24px; }
-  .cmp-fit-wide svg text.cmp-ylab { font-size: 20px; }
-  .cmp-kwcard-main .cmp-fit svg text { font-size: 24px; }
-  .cmp-kwcard:not(.cmp-kwcard-main) .cmp-fit svg text { font-size: 17px; }
-}
+/* 幅の狭い画面では、図の枠そのものを縦に高くする (SeasonChart / KeywordCard が useNarrow で切り替える)。文字の大きさは枠の寸法に合わせて SVG の属性で決める。 */
+/* 全幅の複数折れ線は、半分の幅のカードの図と文字の大きさがそろうよう幅に上限を置く。 */
+.cmp-trend-plot.cmp-multi svg { max-width: 620px; }
 
 /* ---- レポート本体は明暗にかかわらず紙のレポート調 (旧画面 static/css/competitor-dashboard.css と同じ値) ----
    条件入力フォームは従来どおりテーマに従う。共通のテーマ変数は変えず、タブとパネルの内側だけで上書きする。 */

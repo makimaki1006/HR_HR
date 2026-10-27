@@ -27,11 +27,18 @@ export interface KeywordCardLayout {
   plotH: number;
   left: number;
   plotW: number;
+  /** 横軸の月ラベルの y (基線)。 */
+  monthY: number;
 }
 
 const ok = (v: number | null | undefined): v is number => v !== null && v !== undefined && Number.isFinite(v) && v >= 0;
 
-export function keywordCardLayout(k: GoogleKeyword, big: boolean, peakMonth: number | null): KeywordCardLayout | null {
+export function keywordCardLayout(
+  k: GoogleKeyword,
+  big: boolean,
+  peakMonth: number | null,
+  compact = false,
+): KeywordCardLayout | null {
   const o = yearOverlay(k);
   const shown = o.years
     .map((year, i) => ({ year, values: o.lines[i]?.values ?? [] }))
@@ -39,9 +46,11 @@ export function keywordCardLayout(k: GoogleKeyword, big: boolean, peakMonth: num
     .slice(0, YEAR_STYLES.length);
   const observed = shown.flatMap((s) => s.values.filter(ok));
   if (observed.length === 0) return null;
-  const [width, height, left] = big ? [900, 212, 85] : [450, 160, 55];
+  // スマホでは大きいカードも 450 幅の枠にし、縮んでも「0」と「1」がぶつからないよう下に余白を取る。
+  const [width, height, left] = compact ? [450, 210, 50] : big ? [900, 212, 85] : [450, 160, 55];
   const top = 12;
-  const plotH = height - top - 32;
+  const bottom = compact ? 44 : 32;
+  const plotH = height - top - bottom;
   const plotW = width - left - 14;
   const step = Math.max(Math.ceil(Math.max(...observed) / 2), 1);
   const ymax = step * 2;
@@ -78,5 +87,6 @@ export function keywordCardLayout(k: GoogleKeyword, big: boolean, peakMonth: num
     plotH,
     left,
     plotW,
+    monthY: compact ? height - 10 : height - 12,
   };
 }
