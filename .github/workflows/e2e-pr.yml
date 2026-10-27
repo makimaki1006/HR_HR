@@ -11,15 +11,32 @@ on:
   pull_request:
     branches: [main]
 
+# 同じ PR / ブランチで新しい実行が始まったら、古い実行は止める。
+# main への push は止めない (全コミットの結果を残す)。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   e2e-pr:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # spec ファイルを 3 台のランナーに分けて並列に流す。各ランナーが自分のサーバと
+    # fixture DB を持つので、workers: 1 (サーバ・DB 共有) の前提は変わらない。
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+      # ci.yml の rust-test と同じ鍵を読む (main への push で保存される) ので、新しい PR でも
+      # 依存のビルドが温まった状態で始まる。保存は main のときだけ (PR ごとの肥大を防ぐ)。
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build server (debug)
         run: cargo build --bin rust_dashboard
 
@@ -56,31 +73,37 @@ jobs:
           E2E_KEEP_WORKDIR: "1"
         run: |
           export PDF_CHROMIUM_PATH="$(node -e 'process.stdout.write(require("@playwright/test").chromium.executablePath())')"
-          npx playwright test -c tests/e2e/pr/playwright.pr.config.ts
+          npx playwright test -c tests/e2e/pr/playwright.pr.config.ts --shard=${{ matrix.shard }}/3
 
       - name: Email tracking display and self-open protection (fake data only)
+        if: matrix.shard == 1
         run: npx playwright test -c tests/e2e/crm-email-tracking.config.ts
 
       - name: Email thread display E2E (fake data only)
+        if: matrix.shard == 1
         run: npx playwright test -c tests/e2e/crm-email-thread.config.ts
 
       - name: Email compose usability (fake data only)
+        if: matrix.shard == 1
         run: npx playwright test -c tests/e2e/crm-email-compose.config.ts
 
       - name: Role property layout E2E
+        if: matrix.shard == 1
         run: npx playwright test -c tests/e2e/crm-property-layout.config.ts
 
       - name: Saved queue views E2E (fictional data only)
+        if: matrix.shard == 1
         run: npx playwright test -c tests/e2e/crm-saved-views.config.ts
 
       - name: Today's caller metrics E2E (fictional data only)
+        if: matrix.shard == 1
         run: npx playwright test -c tests/e2e/crm-caller-metrics.config.ts
 
       - name: Upload traces and screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-pr-report
+          name: e2e-pr-report-${{ matrix.shard }}
           path: |
             test-results-pr/
             test-results/email-tracking/

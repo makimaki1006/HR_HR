@@ -17,7 +17,7 @@ main{max-width:1500px;margin:0 auto;padding:0 20px 24px}
 .summary .word-comparison th:first-child,.summary .word-comparison td:first-child{width:40%;overflow-wrap:anywhere}
 .summary .word-basis{margin:0 0 8px}
 .summary .note{color:#ffffffd9;font-size:11px;line-height:1.6}
-.charts{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:250px 250px minmax(700px,1fr);padding:12px;gap:12px}
+.charts{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:250px 250px minmax(700px,auto);padding:12px;gap:12px}
 .chart{margin:0;min-width:0;border:1px solid var(--grid);padding:10px;background:white}
 .chart.wide{grid-column:1/-1}
 .chart figcaption{text-align:center;font-size:17px;margin-bottom:6px}
@@ -40,18 +40,18 @@ main{max-width:1500px;margin:0 auto;padding:0 20px 24px}
 .table-navy .num{text-align:right}
 .block-title{font-size:14px;font-weight:600;margin-top:20px}
 @media(min-width:1400px){.summary table{font-size:13px}
-.charts{grid-template-rows:220px 220px minmax(700px,1fr)}
+.charts{grid-template-rows:220px 220px minmax(700px,auto)}
 }
 @media(max-width:900px){.excel-dashboard{grid-template-columns:1fr}
 .summary{padding:16px}
 .summary table{font-size:13px}
-.charts{grid-template-rows:240px 240px minmax(700px,1fr)}
+.charts{grid-template-rows:240px 240px minmax(700px,auto)}
 .sources{grid-template-columns:1fr}
 }
 @media(max-width:550px){main{padding:0 10px 20px}
 .toolbar{padding:12px 10px;gap:12px;font-size:12px}
 .toolbar button{padding:7px}
-.charts{grid-template-columns:1fr;grid-template-rows:repeat(2,220px) repeat(2,700px);padding:8px;gap:8px}
+.charts{grid-template-columns:1fr;grid-template-rows:repeat(2,220px) repeat(2,auto);padding:8px;gap:8px}
 .chart.wide{grid-column:auto}
 .chart figcaption{font-size:15px}
 .page-navy{padding:12px}
@@ -64,7 +64,7 @@ main{max-width:1500px;margin:0 auto;padding:0 20px 24px}
 main{max-width:none;padding:0}
 .excel-dashboard{grid-template-columns:32% 68%;break-inside:avoid}
 .summary{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px 700px}
+.charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px minmax(700px,auto)}
 .chart.wide{grid-column:1/-1}
 .sources{display:block}
 .page-navy{break-inside:avoid;margin-top:20px}
@@ -120,7 +120,7 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .pdf-page:last-child{break-after:auto;page-break-after:auto}
 .pdf-document .pdf-content{width:1510px;display:flow-root}
 .pdf-document .excel-dashboard{grid-template-columns:32% 68%;break-inside:auto}
-.pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px 700px}
+.pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px minmax(700px,auto)}
 .pdf-document .chart.wide{grid-column:1/-1}
 .pdf-document .summary td,.pdf-document .summary th{overflow-wrap:anywhere}
 .pdf-document .summary{padding:10px 12px}
