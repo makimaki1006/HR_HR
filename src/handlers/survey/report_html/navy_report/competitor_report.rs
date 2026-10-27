@@ -443,7 +443,7 @@ fn render_google(html: &mut String, data: &GoogleSection) {
         html.push_str("</tbody></table>");
         for row in keywords {
             let points: Vec<trends::Point<'_>> = row
-                .monthly_12m
+                .monthly
                 .iter()
                 .map(|m| (m.month.as_str(), m.search_volume))
                 .collect();
@@ -456,7 +456,7 @@ fn render_google(html: &mut String, data: &GoogleSection) {
                 false,
             );
             html.push_str(&format!("<div class=\"block-title\">{} の月別検索数</div><table class=\"table-navy\"><thead><tr><th>月</th><th>検索数</th></tr></thead><tbody>",escape_html(&row.keyword)));
-            for month in &row.monthly_12m {
+            for month in &row.monthly {
                 html.push_str(&format!(
                     "<tr><td>{}</td><td class=\"num\">{}</td></tr>",
                     escape_html(&month.month),

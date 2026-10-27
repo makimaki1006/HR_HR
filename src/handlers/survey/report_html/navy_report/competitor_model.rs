@@ -155,7 +155,8 @@ pub struct GoogleKeyword {
     pub keyword: String,
     pub avg_monthly: Option<f64>,
     pub competition: String,
-    pub monthly_12m: Vec<GoogleMonth>,
+    /// 月次の検索数 (古い順)。最大 48 か月。
+    pub monthly: Vec<GoogleMonth>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -557,7 +558,7 @@ fn google_demand(data: &Value) -> GoogleDemand {
                     keyword: s(row, "keyword"),
                     avg_monthly: n(row, "avg_monthly"),
                     competition: s(row, "competition"),
-                    monthly_12m: row["monthly_12m"]
+                    monthly: row["monthly_12m"]
                         .as_array()
                         .into_iter()
                         .flatten()
