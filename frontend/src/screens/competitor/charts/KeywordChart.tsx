@@ -165,13 +165,16 @@ function KeywordSvg({
   size: Size;
 }) {
   const l = keywordLayout({ mode, items, ...size });
+  // 最低限必要な高さ (3 系列のとき語数で決まる床)。測った高さには依存させない:
+  // 「測った高さ < 描画の高さ」のときだけ min-height を付ける書き方だと、min-height で枠が伸びる → 測る → 付けない → 縮む → 測る…を毎フレーム繰り返して揺れ続けた。
+  const floor = keywordLayout({ mode, items, w: size.w, h: 0 }).h;
   return (
     <svg
       viewBox={`0 0 ${String(l.w)} ${String(l.h)}`}
       role="img"
       aria-label={label}
       data-series={mode === 'all' ? 'keyword-all' : 'keyword-head'}
-      style={l.h > size.h ? { minHeight: l.h } : undefined}
+      style={floor > 0 ? { minHeight: floor } : undefined}
     >
       <title>{title}</title>
       {l.ticks.map((t, i) => (
