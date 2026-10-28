@@ -8,6 +8,7 @@ import type { ReachCell } from '../../../generated/ReachCell';
 import type { PopularitySplit } from '../../../generated/PopularitySplit';
 import type { TagStat } from '../../../generated/TagStat';
 import { fixed, fmtInt, MISSING } from '../format';
+import { VisualTable } from '../charts/PopularityChart';
 
 /** popular / n を四捨五入した整数%。n が 0 のときは null。 */
 export function ratePct(popular: number, n: number): number | null {
@@ -18,6 +19,12 @@ const rateText = (popular: number, n: number): string => {
   return p === null ? MISSING : `${String(p)}%`;
 };
 
+const GROUPS = [
+  { label: '求人の条件', ids: ['salary', 'tags', 'reach', 'style'] },
+  { label: '求人票の記載', ids: ['writing', 'clarity'] },
+  { label: '掲載期間・会社', ids: ['age', 'company'] },
+] as const;
+
 const SUBS = [
   { id: 'age', label: '掲載の長さ' },
   { id: 'company', label: '会社' },
@@ -25,7 +32,7 @@ const SUBS = [
   { id: 'tags', label: 'キーワード' },
   { id: 'reach', label: '対象の広さ' },
   { id: 'writing', label: '書き方' },
-  { id: 'clarity', label: 'わかりやすさ' },
+  { id: 'clarity', label: '記載4項目の数' },
   { id: 'style', label: '勤務形態' },
 ] as const;
 type SubId = (typeof SUBS)[number]['id'];
@@ -44,7 +51,7 @@ function RateCell({ popular, n }: { popular: number; n: number }) {
 
 function BucketTable({ heading, rows }: { heading: string; rows: readonly Bucket[] }) {
   return (
-    <table className="cmp-table">
+    <VisualTable chart={{unit:'%',series:['人気・超人気の割合'],rows:rows.map(r=>({label:r.label,values:[{value:ratePct(r.popular,r.n),n:r.n,popular:r.popular}]}))}}>
       <thead>
         <tr>
           <th>{heading}</th>
@@ -69,13 +76,13 @@ function BucketTable({ heading, rows }: { heading: string; rows: readonly Bucket
           </tr>
         ))}
       </tbody>
-    </table>
+    </VisualTable>
   );
 }
 
 function TagTable({ heading, rows }: { heading: string; rows: readonly TagStat[] }) {
   return (
-    <table className="cmp-table">
+    <VisualTable chart={{unit:'%',series:['人気・超人気の割合'],rows:rows.map(r=>({label:r.tag,values:[{value:ratePct(r.popular,r.n),n:r.n,popular:r.popular}]}))}}>
       <thead>
         <tr>
           <th>{heading}</th>
@@ -100,7 +107,7 @@ function TagTable({ heading, rows }: { heading: string; rows: readonly TagStat[]
           </tr>
         ))}
       </tbody>
-    </table>
+    </VisualTable>
   );
 }
 
@@ -141,7 +148,7 @@ function AgeView({ data }: { data: PopularitySplit }) {
           <p className="cmp-note">
             超人気 n={fmtInt(sr.n_super)}／比較 n={fmtInt(sr.n_base)}
           </p>
-          <table className="cmp-table">
+          <VisualTable chart={{unit:'%',series:[`超人気側の割合（${String(sr.n_super)}件）`,`比較側の割合（${String(sr.n_base)}件）`],rows:[...sr.tags.map(t=>({label:t.tag,values:[{value:t.super_pct,n:sr.n_super},{value:t.base_pct,n:sr.n_base}]})),{label:'見出しの資格・信用語',values:[{value:sr.credential_share.super_pct,n:sr.n_super},{value:sr.credential_share.base_pct,n:sr.n_base}]}]}}>
             <thead>
               <tr>
                 <th>キーワード</th>
@@ -163,7 +170,7 @@ function AgeView({ data }: { data: PopularitySplit }) {
                 <td className="cmp-num">{pct1(sr.credential_share.base_pct)}</td>
               </tr>
             </tbody>
-          </table>
+          </VisualTable>
         </section>
       )}
     </>
@@ -172,7 +179,7 @@ function AgeView({ data }: { data: PopularitySplit }) {
 
 function GroupCompare({ multi, single }: { multi: CompanyGroup; single: CompanyGroup }) {
   return (
-    <table className="cmp-table">
+    <VisualTable chart={{unit:'%',series:['人気・超人気の割合'],rows:[{label:'2件以上',values:[{value:ratePct(multi.popular,multi.n),n:multi.n,popular:multi.popular}]},{label:'1件',values:[{value:ratePct(single.popular,single.n),n:single.n,popular:single.popular}]}]}}>
       <thead>
         <tr>
           <th />
@@ -198,7 +205,7 @@ function GroupCompare({ multi, single }: { multi: CompanyGroup; single: CompanyG
           </tr>
         ))}
       </tbody>
-    </table>
+    </VisualTable>
   );
 }
 
@@ -209,7 +216,7 @@ const signed1 = (v: number): string => {
 
 function BiasTagTable({ heading, rows }: { heading: string; rows: readonly BiasTagGap[] }) {
   return (
-    <table className="cmp-table">
+    <VisualTable chart={{unit:'pt',series:['会社を除く前の差','会社を除いた後の差'],note:'件数は除く前の該当求人数です。除いた後の該当件数はこの集計では未取得です。',rows:rows.map(r=>({label:r.tag,values:[{value:r.before,n:r.n,nLabel:'除く前の該当求人数'},{value:r.after}]}))}}>
       <thead>
         <tr>
           <th>{heading}</th>
@@ -233,7 +240,7 @@ function BiasTagTable({ heading, rows }: { heading: string; rows: readonly BiasT
           </tr>
         ))}
       </tbody>
-    </table>
+    </VisualTable>
   );
 }
 
@@ -247,7 +254,7 @@ function BiasView({ b }: { b: CompanyBias }) {
         {fmtInt(b.biased_popular)} 件で人気・超人気全体の {fixed(b.biased_popular_pct, 1)}%、求人は {fmtInt(b.biased_n)}{' '}
         件で全求人の {fixed(b.biased_n_pct, 1)}%。人気が期待を下回る会社は {fmtInt(b.fewer_companies)} 社。
       </p>
-      <table className="cmp-table">
+      <VisualTable chart={{unit:'件',series:['実際の人気・超人気','期待人気数'],rows:b.rows.map(r=>({label:r.name,values:[{value:r.popular,n:r.n},{value:r.expected,n:r.n}]}))}}>
         <thead>
           <tr>
             <th>会社名</th>
@@ -275,7 +282,7 @@ function BiasView({ b }: { b: CompanyBias }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </VisualTable>
       <p className="cmp-note">
         期待人気数は、その会社の求人を除いたほかの会社の求人のうち、給与帯・キーワードの数・掲載の長さが同じ求人の人気・超人気の割合から出しています。
         同じ層のほかの会社の求人が10件に満たないときは、掲載の長さを外した層、給与帯だけの層、ほかの会社全体の割合の順に切り替えています
@@ -303,7 +310,7 @@ function SalaryView({ data }: { data: PopularitySplit }) {
   return (
     <>
       <h3 className="cmp-block-title">月給下限の中央値（参考）</h3>
-      <table className="cmp-table">
+      <VisualTable chart={{unit:'万円',series:['月給下限の中央値'],rows:[{label:'人気・超人気',values:[{value:s.popular_median===null?null:s.popular_median/10000,n:s.popular_n}]},{label:'それ以外',values:[{value:s.other_median===null?null:s.other_median/10000,n:s.other_n}]}]}}>
         <thead>
           <tr>
             <th />
@@ -323,7 +330,7 @@ function SalaryView({ data }: { data: PopularitySplit }) {
             <td className="cmp-num">{manYen(s.other_median)}</td>
           </tr>
         </tbody>
-      </table>
+      </VisualTable>
       <h3 className="cmp-block-title">給与帯別の人気・超人気の割合</h3>
       <BucketTable heading="区分" rows={s.bands} />
     </>
@@ -348,7 +355,7 @@ function StratumCell({ c }: { c: ReachCell }) {
 
 function ReachGapTable({ heading, rows }: { heading: string; rows: ReachBandTags['more'] }) {
   return (
-    <table className="cmp-table">
+    <VisualTable chart={{unit:'pt',series:['人気求人での割合−全体の割合'],rows:rows.map(r=>({label:r.tag,values:[{value:r.diff,n:r.n}]}))}}>
       <thead>
         <tr>
           <th>{heading}</th>
@@ -370,7 +377,7 @@ function ReachGapTable({ heading, rows }: { heading: string; rows: ReachBandTags
           </tr>
         ))}
       </tbody>
-    </table>
+    </VisualTable>
   );
 }
 
@@ -379,7 +386,7 @@ function ReachView({ data }: { data: PopularitySplit }) {
   return (
     <>
       <h3 className="cmp-block-title">間口を広げる語の数別</h3>
-      <table className="cmp-table">
+      <VisualTable chart={{unit:'%',series:[`全求人に占める割合（${String(data.total)}件）`,'条件内の人気・超人気の割合',`人気・超人気全体に占める割合（${String(data.popular)}件）`],rows:r.bands.map(b=>({label:b.label,values:[{value:data.total===0?null:b.n_share_pct,n:data.total},{value:b.rate_pct,n:b.n,popular:b.popular},{value:data.popular===0?null:b.popular_share_pct,n:data.popular}]}))}}>
         <thead>
           <tr>
             <th>間口を広げる語</th>
@@ -402,12 +409,12 @@ function ReachView({ data }: { data: PopularitySplit }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </VisualTable>
       <p className="cmp-note">
         求人数 n={fmtInt(data.total)}／人気・超人気 n={fmtInt(data.popular)}
       </p>
       <h3 className="cmp-block-title">ほかのキーワードの数を揃えた比較</h3>
-      <table className="cmp-table">
+      <VisualTable chart={{unit:'%',series:['間口を広げる語なし','間口を広げる語あり'],rows:r.strata.map(s=>({label:s.label,values:[{value:s.without_open.rate_pct,n:s.without_open.n,popular:s.without_open.popular},{value:s.with_open.rate_pct,n:s.with_open.n,popular:s.with_open.popular}]}))}}>
         <thead>
           <tr>
             <th rowSpan={2}>間口を広げる語以外のキーワード</th>
@@ -434,7 +441,7 @@ function ReachView({ data }: { data: PopularitySplit }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </VisualTable>
       <h3 className="cmp-block-title">帯ごとのキーワードの差</h3>
       <p className="cmp-note">
         差は、その帯の人気・超人気の求人でのキーワードの割合から、その帯の全求人でのキーワードの割合を引いた値です（求人数3件以上のキーワード。間口を広げる語は除く）。
@@ -460,7 +467,7 @@ function ReachView({ data }: { data: PopularitySplit }) {
       <p className="cmp-note">
         「高返信率」「カンタン応募」は、Indeedが求人カードに付けている印です。印の有無ごとの人気率を並べています。
       </p>
-      <table className="cmp-table">
+      <VisualTable chart={{unit:'%',series:['人気・超人気の割合'],rows:r.reply.marks.flatMap(m=>[{label:`${m.label} あり`,values:[{value:m.with_mark.rate_pct,n:m.with_mark.n,popular:m.with_mark.popular}]},{label:`${m.label} なし`,values:[{value:m.without_mark.rate_pct,n:m.without_mark.n,popular:m.without_mark.popular}]}])}}>
         <thead>
           <tr>
             <th>印</th>
@@ -488,10 +495,10 @@ function ReachView({ data }: { data: PopularitySplit }) {
             )),
           )}
         </tbody>
-      </table>
+      </VisualTable>
       <p className="cmp-note">人気は人気と超人気の合計です。求人数 n={fmtInt(data.total)}。</p>
       <h3 className="cmp-block-title">間口を広げる語と「高返信率」の組み合わせ</h3>
-      <table className="cmp-table">
+      <VisualTable chart={{unit:'%',series:['高返信率あり','高返信率なし'],rows:r.reply.cross.map(x=>({label:x.label,values:[{value:x.with_reply.rate_pct,n:x.with_reply.n,popular:x.with_reply.popular},{value:x.without_reply.rate_pct,n:x.without_reply.n,popular:x.without_reply.popular}]}))}}>
         <thead>
           <tr>
             <th rowSpan={2}>間口を広げる語</th>
@@ -518,7 +525,7 @@ function ReachView({ data }: { data: PopularitySplit }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </VisualTable>
       <p className="cmp-note">求人数が0件の組み合わせは「—」です。</p>
       <p className="cmp-note">
         分け方: 求人に付くキーワードのうち、{r.open_words.join('・')}の数で「なし」「1つ」「2つ以上」に分けています。1つの求人は1回だけ数えます。キーワードの差は求人数が{fmtInt(r.min_band_n)}件以上の帯だけ出します。人気・超人気は、Indeed上でその表示が付いている求人です。
@@ -568,7 +575,7 @@ function PopularityBody({ sub, data }: { sub: SubId; data: PopularitySplit }) {
     case 'clarity':
       return (
         <>
-          <h3 className="cmp-block-title">わかりやすさの点別</h3>
+          <h3 className="cmp-block-title">記載4項目の数別</h3>
           <BucketTable heading="区分" rows={data.clarity} />
           <p className="cmp-note">
             見出しがある／給与の数字がある／キーワードが3個以上／休日の日数が書いてある、を1点ずつ数えた合計。福利厚生・キーワード数と重なる部分があります。
@@ -587,6 +594,7 @@ function PopularityBody({ sub, data }: { sub: SubId; data: PopularitySplit }) {
 
 export function PopularityTab({ data }: { data: PopularitySplit }) {
   const [sub, setSub] = useState<SubId>('age');
+  const [group, setGroup] = useState(2);
   return (
     <section className="cmp-page" id="competitor-popularity">
       <header className="cmp-page-head">
@@ -597,8 +605,12 @@ export function PopularityTab({ data }: { data: PopularitySplit }) {
       <p className="cmp-note">
         人気・超人気は合算して比べています（Indeed上でその表示が付いている求人とそれ以外）
       </p>
+      <div className="cmp-pop-groups" role="group" aria-label="比較する情報">
+        {GROUPS.map((g,i)=><button key={g.label} type="button" aria-pressed={group===i} onClick={()=>{setGroup(i);setSub(g.ids[0]);}}>{g.label}</button>)}
+      </div>
+      <p className="cmp-note">表示されていない条件を「条件なし」と断定できません。割合の差は、条件を変えた効果を示すものではありません。</p>
       <div className="cmp-pop-sub" role="group" aria-label="見方の切り替え">
-        {SUBS.map((s) => (
+        {SUBS.filter(s => (GROUPS[group]?.ids as readonly string[] | undefined)?.includes(s.id)).map((s) => (
           <button
             key={s.id}
             type="button"

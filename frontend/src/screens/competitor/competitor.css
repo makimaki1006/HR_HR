@@ -456,3 +456,27 @@ html:has(.competitor) { background: #eef1f6; }
 .cmp-kw-tab .cmp-summary .cmp-words { width: 100%; }
 .cmp-kw-tab .cmp-summary .cmp-words th:first-child, .cmp-kw-tab .cmp-summary .cmp-words td:first-child { width: 32%; }
 @media (max-width: 900px) { .cmp-excel.cmp-kw-tab .cmp-charts { grid-template-columns: 1fr; } }
+
+/* 人気の分かれ方: 元表を残し、同じ集計値を可視化。 */
+.cmp-pop-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}
+.cmp-pop-groups button{font:inherit;color:#006666;background:#fff;border:1px solid #b8ceca;padding:16px;text-align:left;cursor:pointer}
+.cmp-pop-groups button[aria-pressed=true]{background:#edf6f4;border:2px solid #006666;padding:15px;font-weight:700}
+.cmp-pop-chart{margin:16px 0;padding:16px;border:1px solid #d7e4e0;background:#fbfdfc;color:#263a3a}
+.cmp-pop-chart figcaption{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px;font-weight:600}
+.cmp-pop-zoom{font:inherit;font-size:12px;background:white;color:#006666;border:1px solid #b8ceca;padding:5px 10px;cursor:pointer;flex-shrink:0}
+.cmp-pop-legend{display:flex;flex-wrap:wrap;gap:8px 16px;list-style:none;padding:0;font-size:11px}
+.cmp-pop-legend i{display:inline-block;width:10px;height:8px;margin-right:5px}
+.cmp-pop-axis{display:flex;justify-content:space-between;margin:16px 135px 10px 158px;font-size:10px;color:#617772}
+.cmp-pop-chart-row{display:grid;grid-template-columns:146px minmax(0,1fr);gap:12px;align-items:center;margin:18px 0}
+.cmp-pop-chart-label{font-size:12px;overflow-wrap:anywhere}
+.cmp-pop-plot{min-width:0}
+.cmp-pop-series-row{display:grid;grid-template-columns:minmax(0,1fr) 125px;gap:10px;align-items:center;min-height:34px}
+.cmp-pop-lane{position:relative;min-width:0;height:22px;background:repeating-linear-gradient(to right,transparent 0,transparent calc(25% - 1px),#dce7e3 calc(25% - 1px),#dce7e3 25%)}
+.cmp-pop-bar{position:absolute;top:5px;height:12px}
+.cmp-pop-dot{position:absolute;top:5px;width:12px;height:12px;border-radius:50%;transform:translateX(-50%)}
+.cmp-pop-value{text-align:right;font-size:12px;font-weight:600}
+.cmp-pop-value small{display:block;font-weight:400;font-size:10px;color:#617772}
+.cmp-pop-raw{margin:10px 0 24px;border:1px solid #d7e4e0;padding:10px 12px}
+.cmp-pop-raw summary{font-size:12px;color:#006666;cursor:pointer}
+.cmp-pop-table-scroll{overflow:auto}
+@media(max-width:700px){.cmp-pop-groups{grid-template-columns:1fr;gap:8px}.cmp-pop-groups button{padding:10px}.cmp-pop-groups button[aria-pressed=true]{padding:9px}.cmp-pop-chart{padding:10px}.cmp-pop-chart-row{grid-template-columns:85px minmax(0,1fr);gap:8px}.cmp-pop-series-row{grid-template-columns:minmax(0,1fr) 82px;gap:7px}.cmp-pop-axis{margin-left:93px;margin-right:89px}.cmp-pop-value{font-size:11px}.cmp-pop-value small{font-size:9px}}
