@@ -1,13 +1,13 @@
-//! 求人票の条件タグの使われ方 (全体の割合の帯と、人気求人との差)。
+//! 求人票のキーワード (全体の割合の帯と、人気求人との差)。
 //!
-//! 語は Indeed の求人カードに付く条件タグのまま。見出し・本文は読まない。
+//! 語は Indeed の求人カードに付くキーワードのまま。見出し・本文は読まない。
 //! 数え方 (1 求人 1 回、人気・超人気・日数・新着・数値だけのバッジを除く) は「人気の分かれ方」と同じ。
 use crate::handlers::helpers::escape_html;
 use serde::Serialize;
 use ts_rs::TS;
 
 /// 人気求人が無いときの一文 (SP 版 CSV 以外)。
-pub const POPULARITY_ONLY_SP: &str = "人気・超人気のタグがあるSP版CSVのときだけ表示されます";
+pub const POPULARITY_ONLY_SP: &str = "人気・超人気の表示があるSP版CSVのときだけ表示されます";
 
 /// この件数未満のタグは帯に入れず、まとめて語の数だけ出す。
 pub const MIN_BAND_COUNT: u32 = 3;
@@ -24,7 +24,7 @@ const TABLE_ROWS_PER_BAND: usize = 8;
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct TagUsageRow {
     pub word: String,
-    /// その条件タグが付く求人数 (1 求人 1 回)。
+    /// そのキーワードが付く求人数 (1 求人 1 回)。
     pub n_tag: u32,
     /// n_tag / n × 100。
     pub share_pct: f64,
@@ -71,7 +71,7 @@ fn band(key: &str, label: &str, range: &str) -> TagBand {
     }
 }
 
-/// `all` / `pop` は条件タグの求人数 (1 求人 1 回)。`n` / `popular_n` はその母数。
+/// `all` / `pop` はキーワードの求人数 (1 求人 1 回)。`n` / `popular_n` はその母数。
 pub(super) fn build(
     all: &[(String, usize)],
     n: usize,
@@ -269,7 +269,7 @@ pub(super) fn bands_chart(html: &mut String, u: &TagUsage) {
         ));
     }
     html.push_str(&format!(
-        "<svg viewBox=\"0 0 {W} {height}\" role=\"img\" aria-label=\"条件タグを全体の割合で3つの帯に分けた語と割合。横軸0から100パーセント\"><title>条件タグの割合の帯別（全体 {} 件）</title>{grid}{body}</svg>",
+        "<svg viewBox=\"0 0 {W} {height}\" role=\"img\" aria-label=\"キーワードを全体の割合で3つの帯に分けた語と割合。横軸0から100パーセント\"><title>キーワードの割合の帯別（全体 {} 件）</title>{grid}{body}</svg>",
         u.n
     ));
     html.push_str(&format!(
@@ -372,8 +372,18 @@ pub(super) fn gap_chart(html: &mut String, u: &TagUsage) {
     ));
 }
 
+/// 「キーワード」タブ。左に帯別の表 3 枚、右に 2 つのグラフ。
+pub(super) fn render_page(html: &mut String, u: &TagUsage) {
+    html.push_str("<section class=\"excel-dashboard kw-tab\" aria-label=\"キーワード\"><aside class=\"summary\"><h1>キーワード</h1>");
+    tables(html, u);
+    html.push_str("</aside><div class=\"charts\">");
+    bands_chart(html, u);
+    gap_chart(html, u);
+    html.push_str("</div></section>");
+}
+
 /// 3 つの帯の表 (語・件数・全体の割合・人気求人での割合・差)。n を必ず添える。
-pub(super) fn tables(html: &mut String, u: &TagUsage) {
+fn tables(html: &mut String, u: &TagUsage) {
     let has_popular = u.popular_n > 0;
     html.push_str("<h2>求人票キーワード調査（帯別）</h2>");
     for b in &u.bands {
@@ -414,7 +424,7 @@ pub(super) fn tables(html: &mut String, u: &TagUsage) {
         html.push_str("</tbody></table>");
     }
     html.push_str(&format!(
-        "<p class=\"note word-basis\">母数：全体 {} 件 / 人気求人 {} 件（人気または超人気のタグがある求人）。件数1〜2の語（{}語）は帯に入れていません。差は人気求人での割合−全体の割合。</p>",
+        "<p class=\"note word-basis\">母数：全体 {} 件 / 人気求人 {} 件（人気または超人気の表示がある求人）。件数1〜2の語（{}語）は帯に入れていません。差は人気求人での割合−全体の割合。</p>",
         u.n, u.popular_n, u.minor_word_count
     ));
     if !has_popular {

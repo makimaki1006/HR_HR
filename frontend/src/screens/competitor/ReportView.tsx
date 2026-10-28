@@ -1,6 +1,7 @@
 import type { CompetitorReport } from '../../generated/CompetitorReport';
 import { Tabs } from './Tabs';
 import { ExcelTab } from './tabs/ExcelTab';
+import { KeywordTab } from './tabs/KeywordTab';
 import { ConsultationTab } from './tabs/ConsultationTab';
 import { GoogleTab } from './tabs/GoogleTab';
 import { IndeedTab } from './tabs/IndeedTab';
@@ -11,7 +12,7 @@ import { CompanyCountTab } from './tabs/CompanyCountTab';
 /** 「採用のヒント」タブを画面に出すか。コードと API の出力は残してあり、true に戻せば再び出る (PDF・旧画面は別)。 */
 export const SHOW_CONSULTATION_TAB = false;
 
-const ALL_TAB_IDS = ['excel', 'google', 'indeed', 'population', 'popularity', 'companies', 'consultation'] as const;
+const ALL_TAB_IDS = ['excel', 'keyword', 'google', 'indeed', 'population', 'popularity', 'companies', 'consultation'] as const;
 export type TabId = (typeof ALL_TAB_IDS)[number];
 // フラグは定数で、false の間は条件が常に偽になる (戻せるよう残す)。
 /* eslint-disable @typescript-eslint/no-unnecessary-condition */
@@ -43,6 +44,7 @@ export function ReportView({ report, tab, onTabChange }: Props) {
       }}
       items={[
         { id: 'excel', label: '給与・待遇', content: <ExcelTab report={report} /> },
+        { id: 'keyword', label: 'キーワード', content: <KeywordTab report={report} /> },
         { id: 'google', label: 'Google検索需要', content: <GoogleTab data={report.google} /> },
         { id: 'indeed', label: 'Indeed採用レポート', content: <IndeedTab data={report.indeed} /> },
         {

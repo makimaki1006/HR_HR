@@ -111,3 +111,8 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--blue);outline-offse
 .chart.tag-usage svg{height:auto;contain:none;min-height:0}
 .chart.tag-usage text{fill:var(--ink)}
 .summary .band-title{margin:10px 0 4px;font-size:13px}
+.excel-dashboard.kw-tab .charts{grid-template-columns:1fr 1fr;grid-template-rows:auto;align-items:start}
+.excel-dashboard.kw-tab .charts .chart{min-height:0;height:auto}
+.kw-tab .summary .words{width:100%}
+@media(max-width:900px){.excel-dashboard.kw-tab .charts{grid-template-columns:1fr}}
+.kw-tab .summary .words th:first-child,.kw-tab .summary .words td:first-child{width:32%}

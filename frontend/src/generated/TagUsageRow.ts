@@ -2,7 +2,7 @@
 
 export type TagUsageRow = { word: string, 
 /**
- * その条件タグが付く求人数 (1 求人 1 回)。
+ * そのキーワードが付く求人数 (1 求人 1 回)。
  */
 n_tag: number, 
 /**

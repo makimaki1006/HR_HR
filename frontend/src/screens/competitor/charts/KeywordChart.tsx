@@ -34,7 +34,7 @@ export function AllKeywordChart({ rows }: { rows: readonly KeywordRow[] }) {
 }
 
 /** 占有率の系列が無いときに伝える一文 (SP 版 CSV 以外)。 */
-export const POPULARITY_ONLY_SP = '人気・超人気のタグがあるSP版CSVのときだけ表示されます';
+export const POPULARITY_ONLY_SP = '人気・超人気の表示があるSP版CSVのときだけ表示されます';
 /** 人気・超人気の件数がこの数未満のとき「参考値」と添える。 */
 const SMALL_CLASS_N = 5;
 const SMALL_N_NOTE = '件数が少ないため参考値';

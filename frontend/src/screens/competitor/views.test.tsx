@@ -98,21 +98,14 @@ describe('ExcelTab', () => {
     expect(within(metaTable).getAllByText('—')).toHaveLength(3);
   });
 
-  it('帯別の表: 語・件数・全体の割合・人気求人での割合・差。n を添える', () => {
+  it('ワード表は上位 10 語だけ、占有率は小数 0 桁', () => {
     render(<ExcelTab report={makeReport()} />);
-    const heading = screen.getByRole('heading', { name: 'ほとんどの求人が付けている 1語（全体の50%以上）' });
-    const rows = within(heading.nextElementSibling as HTMLElement).getAllByRole('row');
-    expect(cells(must(rows[0]))).toEqual(['語', '件数', '全体の割合', '人気求人での割合', '差(pt)']);
-    expect(cells(must(rows[1]))).toEqual(['交通費支給', '700', '56.7%', '75.0%', '+18.3']);
-    expect(screen.getByText(/母数：全体 1234 件 \/ 人気求人 40 件/)).toBeTruthy();
-    const half = screen.getByRole('heading', { name: '半数前後 1語（全体の20%以上50%未満）' });
-    expect(cells(must(within(half.nextElementSibling as HTMLElement).getAllByRole('row')[1]))).toEqual([
-      '昇給あり',
-      '400',
-      '32.4%',
-      '20.0%',
-      '-12.4',
-    ]);
+    const heading = screen.getByRole('heading', { name: '求人票ワード調査（全体）' });
+    const table = heading.nextElementSibling as HTMLElement;
+    const rows = within(table).getAllByRole('row');
+    expect(rows).toHaveLength(1 + 10);
+    expect(cells(must(rows[1]))).toEqual(['ワード1', '100', '1234', '8%']);
+    expect(cells(must(rows[10]))[0]).toBe('ワード10');
   });
 
   it('先頭 N 件の比較表: 先頭率・全体率・差(pt)。全体が欠測の語は — (0 にしない)', () => {
@@ -149,7 +142,7 @@ describe('ExcelTab', () => {
     expect(screen.getByText('先頭の求人にキーワードがありません')).toBeTruthy();
   });
 
-  it('人気・超人気の系列: 先頭の比較表に率の列', () => {
+  it('人気・超人気の系列: 3 本の棒と凡例の n、件数が少ない系列は参考値、表に率の列', () => {
     const r = makeReport();
     r.excel.keyword_comparison = {
       head_n: 4,
@@ -168,29 +161,44 @@ describe('ExcelTab', () => {
       ],
     };
     render(<ExcelTab report={r} />);
+    const svg = screen.getByRole('img', { name: /占有率比較/ });
+    for (const text of ['全体 8件', '先頭 4件', '人気・超人気 6件']) {
+      expect(within(svg).getByText(text)).toBeTruthy();
+    }
+    const groups = [...svg.querySelectorAll('rect[data-group]')].map((e) => [
+      e.getAttribute('data-group'),
+      e.getAttribute('data-value'),
+    ]);
+    expect(groups).toEqual([
+      ['全体', '25'],
+      ['先頭', '50'],
+      ['人気・超人気', '50'],
+    ]);
+    // 6 件なので参考値の注記は出ない (5 件未満のときだけ)
+    expect(screen.queryByText(/件数が少ないため参考値/)).toBeNull();
+    expect(screen.queryByText('人気・超人気の表示があるSP版CSVのときだけ表示されます')).toBeNull();
     const heading = screen.getByRole('heading', { name: '求人票ワード調査（先頭 4 件）' });
     const rows = within(heading.nextElementSibling as HTMLElement).getAllByRole('row');
     expect(cells(must(rows[0]))).toEqual(['上位10語', '件数', '先頭率', '全体率', '差(pt)', '人気・超人気率']);
     expect(cells(must(rows[1]))).toEqual(['A', '2', '50.0%', '25.0%', '+25.0', '50.0%']);
   });
 
-  it('SP 版でない CSV: 人気求人の列とグラフは出さず一文で伝える', () => {
-    const r = makeReport();
-    r.excel.tag_usage = { ...r.excel.tag_usage, popular_n: 0, popular_up: [], popular_down: [] };
-    for (const b of r.excel.tag_usage.bands) {
-      b.rows = b.rows.map((x) => ({ ...x, popular_tag_n: 0, popular_share_pct: null, gap_pt: null }));
-    }
-    render(<ExcelTab report={r} />);
-    expect(screen.queryByRole('img', { name: /人気求人での割合から全体の割合を引いた差/ })).toBeNull();
-    expect(screen.getAllByText('人気・超人気のタグがあるSP版CSVのときだけ表示されます').length).toBeGreaterThan(0);
-    expect(screen.queryByText('人気求人での割合')).toBeNull();
+  it('SP 版でない CSV: 人気・超人気の系列は出さず一文で伝える (0% の棒を描かない)', () => {
+    render(<ExcelTab report={makeReport()} />);
+    const svg = screen.getByRole('img', { name: /占有率比較/ });
+    expect([...svg.querySelectorAll('rect[data-group]')].map((e) => e.getAttribute('data-group'))).toEqual([
+      '全体',
+      '先頭',
+      '先頭',
+    ]);
+    expect(screen.getByText('人気・超人気の表示があるSP版CSVのときだけ表示されます')).toBeTruthy();
   });
 
-  it('条件タグが無ければ空の文言', () => {
+  it('全体のワードが空なら空の文言', () => {
     const r = makeReport();
-    for (const b of r.excel.tag_usage.bands) b.rows = [];
+    r.excel.keyword_all = [];
     render(<ExcelTab report={r} />);
-    expect(screen.getAllByText('該当する語はありません').length).toBe(3);
+    expect(screen.getByText('キーワードデータがありません')).toBeTruthy();
     expect(screen.getByText('集計できるキーワードがありません')).toBeTruthy();
   });
 
@@ -200,8 +208,49 @@ describe('ExcelTab', () => {
     expect(upper.querySelectorAll('rect')).toHaveLength(4);
     const lower = screen.getByRole('img', { name: '下限ボリュームゾーン（万円・n=6・1刻み）' });
     expect(lower.querySelectorAll('rect')).toHaveLength(2);
-    expect(screen.getByRole('img', { name: /条件タグを全体の割合で3つの帯に分けた語と割合/ })).toBeTruthy();
-    expect(screen.getByRole('img', { name: /人気求人での割合から全体の割合を引いた差/ })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '全体の上位20語を含む求人数' })).toBeTruthy();
+    expect(
+      screen.getByRole('img', {
+        name: '先頭 45 件と全体 1234 件の占有率比較。先頭の上位20語。横軸0から100パーセント',
+      }),
+    ).toBeTruthy();
+  });
+
+  it('比較グラフ: 値は占有率 (%)。全体が欠測の語は全体の棒を描かず — を出す (0 にしない)', () => {
+    const { container } = render(<ExcelTab report={makeReport()} />);
+    const svg = must(container.querySelector('svg[data-series="keyword-head"]'));
+    const bars = [...svg.querySelectorAll('rect[data-word]')].map((r) => [
+      r.getAttribute('data-word'),
+      r.getAttribute('data-group'),
+      Number(r.getAttribute('data-value')),
+    ]);
+    expect(bars).toEqual([
+      ['未経験歓迎', '全体', 32.4],
+      ['未経験歓迎', '先頭', 66.666],
+      ['賞与あり', '先頭', 20],
+    ]);
+    expect([...svg.querySelectorAll('text')].filter((t) => t.textContent === '—')).toHaveLength(1);
+    expect(svg.querySelector('rect[data-word="賞与あり"][data-group="全体"]')).toBeNull();
+    // 軸は 0〜100% の共通軸 (幅 440 は 5 目盛り)
+    expect([...svg.querySelectorAll('text')].map((t) => t.textContent)).toEqual(
+      expect.arrayContaining(['0%', '25%', '50%', '75%', '100%']),
+    );
+  });
+
+  it('全体のグラフ: 棒の title は「語 / 全体: N件」で、上位 20 語まで', () => {
+    const r = makeReport();
+    r.excel.keyword_all = Array.from({ length: 25 }, (_, i) => ({
+      word: `語${String(i)}`,
+      count: 100 - i,
+      jobs: 1234,
+      share_pct: 1,
+    }));
+    const { container } = render(<ExcelTab report={r} />);
+    const svg = must(container.querySelector('svg[data-series="keyword-all"]'));
+    const titles = [...svg.querySelectorAll('rect > title')].map((t) => t.textContent);
+    expect(titles).toHaveLength(20);
+    expect(titles[0]).toBe('語0 / 全体: 100件');
+    expect(titles[19]).toBe('語19 / 全体: 81件');
   });
 
   it('ヒストグラム: 最大 10 件で軸は 12、棒の高さは件数に比例し、0 件の棒は高さ 0。最多の帯の一文を出す', () => {

@@ -32,9 +32,9 @@ function BandsSvg({ usage }: { usage: TagUsage }) {
     <svg
       viewBox={`0 0 ${String(VIEW_W)} ${String(l.height)}`}
       role="img"
-      aria-label="条件タグを全体の割合で3つの帯に分けた語と割合。横軸0から100パーセント"
+      aria-label="キーワードを全体の割合で3つの帯に分けた語と割合。横軸0から100パーセント"
     >
-      <title>{`条件タグの割合の帯別（全体 ${String(usage.n)} 件）`}</title>
+      <title>{`キーワードの割合の帯別（全体 ${String(usage.n)} 件）`}</title>
       {[0, 50, 100].map((t) => (
         <g key={t}>
           <path d={`M ${String(140 + 2.4 * t)} ${String(l.gridTop)} V ${String(l.gridBottom)}`} className="cmp-gridline" />

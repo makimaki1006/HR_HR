@@ -1,4 +1,5 @@
 //! Same-keyword, same-scale comparison for the Excel-based standalone report.
+use super::competitor_model::KeywordRow;
 use crate::handlers::helpers::escape_html;
 use serde::Serialize;
 use ts_rs::TS;
@@ -10,7 +11,7 @@ pub struct KeywordComparison {
     pub head_n: u32,
     /// 全体の求人数。
     pub all_n: u32,
-    /// 人気または超人気のタグがある求人数 (1 求人は 1 回だけ数える。占有率の母数)。
+    /// 人気または超人気の表示がある求人数 (1 求人は 1 回だけ数える。占有率の母数)。
     /// 0 のとき「人気・超人気」の系列は出さない (SP 版 CSV 以外・該当なし)。
     pub popular_any_n: u32,
     /// 先頭で件数の多い順の上位 20 語。
@@ -20,7 +21,7 @@ pub struct KeywordComparison {
 /// 人気・超人気の件数をこの数未満のとき「参考値」と添える。
 pub const SMALL_CLASS_N: u32 = 5;
 /// SP 版 CSV 以外では人気・超人気の系列が無いことを伝える一文。
-pub const POPULARITY_ONLY_SP: &str = "人気・超人気のタグがあるSP版CSVのときだけ表示されます";
+pub const POPULARITY_ONLY_SP: &str = "人気・超人気の表示があるSP版CSVのときだけ表示されます";
 /// 件数が少ない系列に添える注記。
 pub const SMALL_N_NOTE: &str = "件数が少ないため参考値";
 
@@ -128,7 +129,7 @@ pub(super) fn table(html: &mut String, cmp: &KeywordComparison) {
         ""
     };
     let columns = 5 + usize::from(has_popular);
-    html.push_str(&format!("<h2>求人票ワード調査（先頭 {head_n} 件）</h2><table class=\"words word-comparison\"><thead><tr><th>上位10語</th><th>件数</th><th>先頭率</th><th>全体率</th><th>差(pt)</th>{extra_head}</tr></thead><tbody>"));
+    html.push_str(&format!("<div class=\"kw-block\"><h2>求人票ワード調査（先頭 {head_n} 件）</h2><table class=\"words word-comparison\"><thead><tr><th>上位10語</th><th>件数</th><th>先頭率</th><th>全体率</th><th>差(pt)</th>{extra_head}</tr></thead><tbody>"));
     for row in cmp.rows.iter().take(10) {
         let (all, delta) = row.all_share_pct.map_or_else(
             || ("—".into(), "—".into()),
@@ -161,16 +162,15 @@ pub(super) fn table(html: &mut String, cmp: &KeywordComparison) {
             "<tr><td colspan=\"{columns}\">{message}</td></tr>"
         ));
     }
-    html.push_str(&format!("</tbody></table><p class=\"note word-basis\">母数：先頭 {head_n} 件 / 全体 {all_n} 件。先頭は収録順、差は先頭率−全体率。</p>"));
+    html.push_str(&format!("</tbody></table></div><p class=\"note word-basis\">母数：先頭 {head_n} 件 / 全体 {all_n} 件。先頭は収録順、差は先頭率−全体率。</p>"));
     if has_popular {
         html.push_str(&format!(
-            "<p class=\"note word-basis\">人気・超人気 {} 件（人気または超人気のタグがある求人）の中での占有率。</p>",
+            "<p class=\"note word-basis\">人気・超人気 {} 件（人気または超人気の表示がある求人）の中での占有率。</p>",
             cmp.popular_any_n
         ));
     }
 }
 
-#[cfg(test)]
 pub(super) fn chart(html: &mut String, cmp: &KeywordComparison) {
     let (head_n, all_n) = (cmp.head_n, cmp.all_n);
     let rows = &cmp.rows;
@@ -298,6 +298,43 @@ pub(super) fn chart(html: &mut String, cmp: &KeywordComparison) {
             "popularAny":opt(r.popular_any_count)
         })).collect::<Vec<_>>()});
     attach_data(html, "keyword-head", data);
+    html.push_str("</figure>");
+}
+
+pub(super) fn all_chart(html: &mut String, all: &[KeywordRow]) {
+    html.push_str("<figure class=\"chart keyword-comparison\"><figcaption>求人票キーワード調査（全体・上位20語）</figcaption>");
+    if all.is_empty() {
+        html.push_str("<p class=\"note\">集計できるキーワードがありません</p></figure>");
+        return;
+    }
+    let max = all
+        .iter()
+        .take(20)
+        .map(|r| r.count as usize)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    html.push_str("<svg data-series=\"keyword-all\" viewBox=\"0 0 440 715\" role=\"img\" aria-label=\"全体の上位20語を含む求人数\"><title>全体の訴求語・求人数</title>");
+    for (i, KeywordRow { word, count, .. }) in all.iter().take(20).enumerate() {
+        let n = *count as usize;
+        let y = 32 + i * 32;
+        let label = if word.chars().count() > 10 {
+            format!("{}…", word.chars().take(9).collect::<String>())
+        } else {
+            word.clone()
+        };
+        let width = n as f64 / max as f64 * 230.0;
+        html.push_str(&format!("<text x=\"140\" y=\"{}\" text-anchor=\"end\" font-size=\"14\"><title>{}</title>{}</text><rect x=\"150\" y=\"{y}\" width=\"{width:.3}\" height=\"18\" fill=\"#006666\"><title>{}: {n}件</title></rect><text x=\"{}\" y=\"{}\" font-size=\"13\">{n}件</text>",y+14,escape_html(word),escape_html(&label),escape_html(word),width+155.0,y+14));
+    }
+    html.push_str(
+        "<text x=\"150\" y=\"705\" font-size=\"13\">棒の長さ：その語を含む求人数</text></svg>",
+    );
+    attach_data(
+        html,
+        "keyword-all",
+        serde_json::json!({"mode":"all","title":"全体の訴求語・求人数",
+        "rows":all.iter().take(20).map(|r|serde_json::json!({"word":r.word,"all":r.count})).collect::<Vec<_>>() }),
+    );
     html.push_str("</figure>");
 }
 

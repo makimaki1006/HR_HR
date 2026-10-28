@@ -38,9 +38,9 @@ pub struct ConsultationSalaryRow {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum GapsSection {
-    /// 先頭のタグ記録・母数が足りない、または集計が矛盾していて判断できない。
+    /// 先頭のキーワード記録・母数が足りない、または集計が矛盾していて判断できない。
     Insufficient,
-    /// 確認できるタグでは、全体より先頭の占有率が低い語がない。
+    /// 確認できるキーワードでは、全体より先頭の占有率が低い語がない。
     NoLowerShare,
     Rows {
         head_n: u32,
@@ -253,8 +253,8 @@ pub(super) fn render(html: &mut String, c: &ConsultationSection, unit: &str, dec
     }
     html.push_str("<p>給与相場と自社の条件を比較し、勤務時間・手当も含めて見直しましょう。</p></article><article class=\"consultation-card\"><h2>2. 求人票の訴求を見直す</h2><p class=\"note\">先頭の求人と全体を比較。先頭は収録順です。</p>");
     match &c.gaps {
-        GapsSection::Insufficient => html.push_str("<p>先頭のタグ記録または比較母数が不足・不整合のため、差の判断を保留します。</p>"),
-        GapsSection::NoLowerShare => html.push_str("<p>確認できるタグでは、全体より先頭の占有率が低い語はありません。訴求が十分であることの証明ではありません。</p>"),
+        GapsSection::Insufficient => html.push_str("<p>先頭のキーワード記録または比較母数が不足・不整合のため、差の判断を保留します。</p>"),
+        GapsSection::NoLowerShare => html.push_str("<p>確認できるキーワードでは、全体より先頭の占有率が低い語はありません。訴求が十分であることの証明ではありません。</p>"),
         GapsSection::Rows { head_n, all_n, rows } => {
             html.push_str("<table class=\"table-navy\"><thead><tr><th>語</th><th>先頭 件/母数</th><th>全体 件/母数</th><th>差(pt)</th></tr></thead><tbody>");
             for row in rows {
