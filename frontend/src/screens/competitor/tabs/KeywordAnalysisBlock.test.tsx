@@ -80,7 +80,7 @@ describe('KeywordAnalysisBlock', () => {
     expect(rowText(screen.getByRole('cell', { name: '新語' }))).toEqual(['2', '新語', '1,000', '2.3%', '圏外', '圏外']);
     expect(screen.getByText('比べる月：2025-08（12か月前）')).toBeTruthy();
     expect(screen.getByText('Indeedは選んだ都道府県、Googleは全国。閲覧数は応募数ではありません。')).toBeTruthy();
-    expect(screen.getByText('2026-06を100とした指数です。')).toBeTruthy();
+    expect(screen.getByText('2026-06を100とした値です。')).toBeTruthy();
     expect(screen.getByText('Indeedの求人を見た人数（大阪府）')).toBeTruthy();
     expect(screen.getByText('注意B')).toBeTruthy();
   });

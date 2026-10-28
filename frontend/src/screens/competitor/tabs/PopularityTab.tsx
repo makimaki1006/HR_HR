@@ -245,7 +245,7 @@ function BiasView({ b }: { b: CompanyBias }) {
         人気・超人気の求人 {fmtInt(b.popular)} 件（n={fmtInt(b.total)}）のうち、会社に偏りがある会社は{' '}
         {fmtInt(b.biased_companies)} 社（掲載3件以上の {fmtInt(b.judged_companies)} 社中）。その会社の人気・超人気は{' '}
         {fmtInt(b.biased_popular)} 件で人気・超人気全体の {fixed(b.biased_popular_pct, 1)}%、求人は {fmtInt(b.biased_n)}{' '}
-        件で全求人の {fixed(b.biased_n_pct, 1)}%。人気が少ない会社は {fmtInt(b.fewer_companies)} 社。
+        件で全求人の {fixed(b.biased_n_pct, 1)}%。人気が期待を下回る会社は {fmtInt(b.fewer_companies)} 社。
       </p>
       <table className="cmp-table">
         <thead>
@@ -281,7 +281,7 @@ function BiasView({ b }: { b: CompanyBias }) {
         同じ層のほかの会社の求人が10件に満たないときは、掲載の長さを外した層、給与帯だけの層、ほかの会社全体の割合の順に切り替えています
         （掲載の長さを外した求人 {fmtInt(b.fallback_no_age)} 件、給与帯だけ {fmtInt(b.fallback_salary_only)} 件、全体の割合{' '}
         {fmtInt(b.fallback_overall)} 件）。期待より2件以上多く、偏りが偶然とは言えない水準のときを「会社に偏りがある」、
-        2件以上少なく同じ水準のときを「人気が少ない会社」、それ以外を「給与・条件の範囲」としています。表は掲載3件以上の会社で、
+        2件以上少なく同じ水準のときを「人気が期待を下回る」、それ以外を「給与・条件の範囲」としています。表は掲載3件以上の会社で、
         会社に偏りがある会社を先頭に、差の大きい順で最大20社です。
       </p>
       <h3 className="cmp-block-title">会社を除いた条件の差</h3>

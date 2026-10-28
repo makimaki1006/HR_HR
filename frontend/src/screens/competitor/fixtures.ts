@@ -255,6 +255,7 @@ export function makePopularitySplit(): PopularitySplit {
       rows: [
         { name: 'テスト工業', n: 6, popular: 5, expected: 1.62, diff: 3.38, verdict: '会社に偏りがある' },
         { name: 'サンプル商事', n: 4, popular: 1, expected: 1.04, diff: -0.04, verdict: '給与・条件の範囲' },
+        { name: 'ひかえめ食品', n: 5, popular: 0, expected: 2.4, diff: -2.4, verdict: '人気が期待を下回る' },
       ],
       after_total: 314,
       after_popular: 97,

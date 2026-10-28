@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GoogleKeyword } from '../../generated/GoogleKeyword';
-import { allMonths, keywordLines, monthYearPivot, summarize, yearOverlay } from './googleStats';
+import { keywordCardLayout } from './charts/keywordCardLayout';
+import { allMonths, keywordLines, lowVolumeNote, monthYearPivot, summarize, yearOverlay } from './googleStats';
 
 /** 開始月から n か月、値は f(i)。 */
 function kw(keyword: string, start: [number, number], n: number, f: (i: number) => number | null): GoogleKeyword {
@@ -90,5 +91,18 @@ describe('allMonths / keywordLines', () => {
     const lines = keywordLines([a, b], months);
     expect(lines[0]?.values).toEqual([1, 1, 1, null]);
     expect(lines[1]?.values).toEqual([null, 2, 2, 2]);
+  });
+});
+
+describe('月平均が少ない検索語のカード', () => {
+  const mk = (v: number): GoogleKeyword => kw('x', [2025, 1], 24, () => v);
+  it.each([0, 10])('全部 %i でも縦軸は 0 から有限の最大まで', (v) => {
+    const l = keywordCardLayout(mk(v), false, null);
+    expect(l).not.toBeNull();
+    expect(l?.grid.map((g) => g.value)).toEqual([0, 1, 2].map((i) => Math.max(Math.ceil(v / 2), 1) * i));
+    for (const y of l?.years ?? []) for (const p of y.dots) expect(Number.isFinite(p.y)).toBe(true);
+  });
+  it('添え書きは月平均と目安の断り', () => {
+    expect(lowVolumeNote(mk(15))).toBe('月平均 15 回（丸め値が多く、動きは目安）');
   });
 });

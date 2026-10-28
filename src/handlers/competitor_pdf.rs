@@ -35,11 +35,10 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 /* Google 検索需要は縦に長いので 2 段組にして、ページ全体の縮小を小さくする。 */
 .pdf-document #competitor-google{columns:3;column-gap:24px}
 .pdf-document #competitor-google>*{break-inside:avoid}
-.pdf-document #competitor-google>div:not(.page-head){break-inside:auto}
+.pdf-document #competitor-google>div{break-inside:auto}
 .pdf-document #competitor-google .trend-card{break-inside:avoid}
 .pdf-document #competitor-google>p:has(+.trend-card),.pdf-document #competitor-google>p:has(+p+.trend-card){break-after:avoid}
 .pdf-document #competitor-google>.block-title{break-after:avoid-column;break-after:avoid}
-.pdf-document #competitor-google>h1,.pdf-document #competitor-google>.page-header,.pdf-document #competitor-google>header{column-span:all}
 .pdf-document #panel-indeed-keywords{display:block;columns:3;column-gap:24px}
 .pdf-document #panel-indeed-keywords>.block-title,.pdf-document #panel-indeed-keywords>.kw-caveats{column-span:all}
 .pdf-document #panel-indeed-keywords>.kw-part{break-inside:avoid}

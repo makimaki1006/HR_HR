@@ -1712,7 +1712,7 @@ fn season_section(seasons: &[crate::indeed::season::TitleSeason]) -> String {
          <h3 class=\"text-slate-100 text-lg font-bold mb-1\">1 年のうち、いつ動くか（過去 {y} 年）</h3>\
          <p class=\"text-slate-400 text-xs mb-2 leading-relaxed max-w-lg\">\
          検索エンジンで職種名がどれだけ検索されたかを、{n} 職種ぶんならして\
-         暦月ごとに平均したものです。<strong>0 が年間の平均</strong>で、\
+         同じ月どうしで平均したものです。<strong>0 が年間の平均</strong>で、\
          +10% なら平均より 1 割多い月という意味です。\
          上の求人数とは<strong>別の出どころ</strong>で、求人の数ではなく\
          「求職者の動き」を表します。</p>{chart}\

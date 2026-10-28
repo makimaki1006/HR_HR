@@ -534,7 +534,7 @@ fn overlay_part(
     let base = &overlap[0];
     if base.1 <= 0.0 || base.2 <= 0.0 {
         return OverlayPart::Unavailable {
-            message: "最初の重なる月の値が0のため、指数にできません。".to_owned(),
+            message: "最初の重なる月の値が0のため、100とした値にできません。".to_owned(),
         };
     }
     let region_label = if region.is_empty() { "全国" } else { region };
@@ -853,7 +853,7 @@ pub(super) fn render_html(html: &mut String, ka: &KeywordAnalysis) {
             ..
         } => {
             html.push_str(&format!(
-                "<p class=\"note\">{}</p><p class=\"note\">{}を100とした指数です。</p>",
+                "<p class=\"note\">{}</p><p class=\"note\">{}を100とした値です。</p>",
                 escape_html(caption),
                 escape_html(base_month)
             ));
@@ -867,7 +867,13 @@ pub(super) fn render_html(html: &mut String, ka: &KeywordAnalysis) {
                     google_index.iter().map(|v| Some(*v)).collect::<Vec<_>>(),
                 ),
             ];
-            multi_line_chart(html, "閲覧数と検索数の指数", months, &lines, "指数");
+            multi_line_chart(
+                html,
+                "閲覧数と検索数の推移（基準月＝100）",
+                months,
+                &lines,
+                "値",
+            );
         }
     }
     html.push_str("</div>");
