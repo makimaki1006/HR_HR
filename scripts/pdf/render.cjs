@@ -41,6 +41,8 @@ const { chromium } = require(modulePath);
             if (rect.width > 0 && rect.height > 0 && !within(rect)) return false;
           }
         }
+        // 段組みの境界をまたいだ見出しと表は、外枠内でも読みにくい。まとまりが分割されていないことも検査する。
+        if (![...panel.querySelectorAll('.pdf-heading-group')].every(group => group.getClientRects().length === 1)) return false;
         return [...panel.querySelectorAll('svg,img')].every(element => within(element.getBoundingClientRect()));
       });
     });

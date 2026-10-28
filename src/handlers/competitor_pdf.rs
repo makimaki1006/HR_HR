@@ -55,15 +55,32 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .population-metrics{grid-template-columns:repeat(3,1fr)}
 .pdf-document .population-grid{grid-template-columns:1.4fr 1fr}
 /* 人口: 人口ピラミッドと年齢別の表を左、最低賃金・労働統計を右に置く (縦に長いままだと高さで縮んで右が空く)。 */
-.pdf-document #panel-population>.page-navy:has(>.population-grid~table.table-navy){display:grid;grid-template-columns:minmax(0,2.4fr) minmax(0,1fr);grid-template-rows:auto auto auto auto auto auto 1fr;column-gap:28px;align-items:start}
-.pdf-document #panel-population>.page-navy:has(>.population-grid~table.table-navy)>*{grid-column:1/-1;min-width:0}
-.pdf-document #panel-population>.page-navy:has(>.population-grid~table.table-navy)>.population-grid{grid-column:1;grid-row:span 3}
-.pdf-document #panel-population>.page-navy:has(>.population-grid~table.table-navy)>.population-grid~*{grid-column:2}
+.pdf-document #panel-population>.page-navy:has(>.population-grid~:is(table.table-navy,.pdf-population-context)){display:grid;grid-template-columns:minmax(0,2.4fr) minmax(0,1fr);grid-template-rows:auto auto auto auto auto auto 1fr;column-gap:28px;align-items:start}
+.pdf-document #panel-population>.page-navy:has(>.population-grid~:is(table.table-navy,.pdf-population-context))>*{grid-column:1/-1;min-width:0}
+.pdf-document #panel-population>.page-navy:has(>.population-grid~:is(table.table-navy,.pdf-population-context))>.population-grid{grid-column:1;grid-row:span 3}
+.pdf-document #panel-population>.page-navy:has(>.population-grid~:is(table.table-navy,.pdf-population-context))>.population-grid~*{grid-column:2}
 .pdf-document .consultation-grid{display:block;columns:2;column-gap:24px}
 .pdf-document .consultation-card{break-inside:avoid;margin-bottom:12px;padding:10px}
 .pdf-document .consultation-card p{font-size:13px;line-height:1.5}
 .pdf-document .table-navy{table-layout:fixed;overflow-wrap:anywhere}
 .pdf-document .table-navy td,.pdf-document .table-navy th{overflow-wrap:anywhere}
+/* PDF の2ページ目以降だけを補正。画面用の狭幅ルールで図が縦積みになるのを防ぐ。 */
+.pdf-document #panel-keyword .charts{grid-template-columns:1fr 1fr}
+.pdf-document #panel-keyword .summary table{font-size:14px}
+.pdf-document #panel-keyword .summary th,.pdf-document #panel-keyword .summary td{padding:4px;line-height:1.3}
+.pdf-document #competitor-google .table-navy td,.pdf-document #competitor-google .table-navy th{padding:3px;line-height:1.25}
+.pdf-document #competitor-google .trend-card{padding:10px}
+.pdf-document #competitor-google .block-title{margin-top:10px}
+.pdf-document #competitor-google .pdf-heading-group{display:inline-block;width:100%;vertical-align:top;break-inside:avoid}
+.pdf-document #competitor-google .trend-plot svg text{font-size:18px}
+.pdf-document #competitor-google .trend-plot svg[viewBox^="0 0 900"] text{font-size:22px}
+.pdf-document #competitor-google .trend-plot svg[viewBox="0 0 900 226"] text[text-anchor="middle"]{font-size:20px}
+.pdf-document #competitor-google .trend-plot svg[viewBox="0 0 900 300"] text{font-size:14px}
+.pdf-document #competitor-google .trend-plot svg[viewBox="0 0 900 300"] text[font-size="13"]{font-size:13px}
+.pdf-document #competitor-google .trend-plot svg[viewBox="0 0 900 300"] text[fill='#8a6d1d']{transform:translateY(6px)}
+.pdf-document #competitor-google:not(:has(svg,table)){columns:auto}
+.pdf-document #panel-population .population-grid svg text{font-size:20px}
+.pdf-document #panel-indeed .trend-plot svg text,.pdf-document #panel-indeed-keywords .trend-plot svg text{font-size:22px}
 </style>"#;
 
 const FIT: &str = r#"<script>
@@ -82,7 +99,48 @@ if(kw){
   kw.id='panel-indeed-keywords';kw.classList.add('pdf-content');
   page.append(kw);host.after(page);
 }
+// 印刷だけで見出し・注記・直後の表/図をひとまとまりにする。画面用HTMLは変えない。
+const google=document.querySelector('#competitor-google');
+if(google){
+  for(const heading of [...google.querySelectorAll('.block-title')]){
+    const group=document.createElement('div');group.className='pdf-heading-group';
+    heading.before(group);group.append(heading);
+    while(group.nextElementSibling){
+      const next=group.nextElementSibling;
+      if(!next.matches('p,table,figure'))break;
+      group.append(next);
+      if(next.matches('table,figure'))break;
+    }
+  }
+}
+// 構成比ありの人口も、人数だけの経路と同じ既存の図・表の並びにそろえる。
+const population=document.querySelector('#panel-population>.page-navy');
+if(population?.querySelector(':scope > .population-metrics')){
+  const figure=population.querySelector(':scope > figure.trend-card');
+  const note=figure?.nextElementSibling;
+  const table=note?.nextElementSibling;
+  if(figure&&note?.matches('p.note')&&table?.matches('table.table-navy')){
+    const grid=document.createElement('div');grid.className='population-grid';
+    const plot=document.createElement('div');const values=document.createElement('div');
+    figure.before(grid);plot.append(figure,note);values.append(table);grid.append(plot,values);
+    if(grid.nextElementSibling){
+      const context=document.createElement('div');context.className='pdf-population-context';
+      grid.after(context);
+      while(context.nextElementSibling)context.append(context.nextElementSibling);
+    }
+  }
+}
 function fitPages(){
+  // 文字を大きくした横軸は、最新月を残して近接する月だけ間引く。
+  for(const svg of document.querySelectorAll('#panel-indeed svg,#panel-indeed-keywords svg')){
+    let nextLeft=Infinity;
+    for(const label of [...svg.querySelectorAll('text[y="268"]')].reverse()){
+      label.style.visibility='';
+      const box=label.getBBox();
+      if(box.x+box.width+8>nextLeft)label.style.visibility='hidden';
+      else nextLeft=box.x;
+    }
+  }
   for(const panel of document.querySelectorAll('.pdf-content')){
     panel.style.zoom='';panel.style.width='';
     let scale=Math.min(1,1508/Math.max(1510,panel.scrollWidth),1040/Math.max(1,panel.scrollHeight));
