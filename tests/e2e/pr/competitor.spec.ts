@@ -22,9 +22,9 @@ test('競合調査を旧画面から作成し5タブと最低賃金を確認す�
   await page.getByRole('button', { name: '画面で確認' }).click();
   await expect(page).toHaveURL(/\/report\/competitor$/);
   await expect(page.locator('#panel-excel')).toBeVisible();
-  await expect(page.locator('[role="tab"]')).toHaveCount(4);
-  await expect(page.locator('[role="tab"]')).toHaveText(['給与・待遇', 'Google検索需要', 'Indeed採用レポート', '人口・地域データ']);
-  for (const name of ['google', 'indeed', 'population', 'excel']) {
+  await expect(page.locator('[role="tab"]')).toHaveCount(5);
+  await expect(page.locator('[role="tab"]')).toHaveText(['給与・待遇', 'キーワード', 'Google検索需要', 'Indeed採用レポート', '人口・地域データ']);
+  for (const name of ['keyword', 'google', 'indeed', 'population', 'excel']) {
     await page.locator(`#tab-${name}`).click();
     await expect(page.locator(`#panel-${name}`)).toBeVisible();
     await expect(page.locator('[role="tabpanel"]:visible')).toHaveCount(1);

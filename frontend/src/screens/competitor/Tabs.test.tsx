@@ -110,12 +110,13 @@ describe('Tabs のキー操作', () => {
 });
 
 describe('ReportView のタブ', () => {
-  it('4 つの見出し (採用のヒントは出さない)。給与・待遇が最初に選択される', () => {
+  it('5 つの見出し (採用のヒントは出さない)。給与・待遇が最初に選択される', () => {
     const { container } = render(
       <ReportView report={makeReport()} tab="excel" onTabChange={() => undefined} />,
     );
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
       '給与・待遇',
+      'キーワード',
       'Google検索需要',
       'Indeed採用レポート',
       '人口・地域データ',
@@ -125,10 +126,10 @@ describe('ReportView のタブ', () => {
     expect(screen.getByRole('tab', { name: '給与・待遇' }).getAttribute('aria-selected')).toBe(
       'true',
     );
-    const hidden = ['google', 'indeed', 'population'].map(
+    const hidden = ['keyword', 'google', 'indeed', 'population'].map(
       (id) => container.querySelector<HTMLElement>(`#panel-${id}`)?.hidden,
     );
-    expect(hidden).toEqual([true, true, true]);
+    expect(hidden).toEqual([true, true, true, true]);
   });
 
   it('選択すると onTabChange に ID が渡る', () => {

@@ -47,7 +47,7 @@ pub(crate) fn render_html(report: &CompetitorReport) -> String {
     let excel = &report.excel;
     let decimals = excel.decimals;
     let mut html = format!("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>競合調査</title><style>{}</style></head><body><nav class=\"toolbar no-print\"><a href=\"/competitor\">調査条件に戻る / PDFダウンロード</a><a href=\"/\">市場分析</a></nav><main>",include_str!("../../../../../static/css/competitor-dashboard.css"));
-    html.push_str("<div class=\"report-tabs no-print\" role=\"tablist\" aria-label=\"競合調査の表示切り替え\"><button id=\"tab-excel\" role=\"tab\" aria-selected=\"true\" aria-controls=\"panel-excel\" tabindex=\"0\">給与・待遇</button><button id=\"tab-google\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-google\" tabindex=\"-1\">Google検索需要</button><button id=\"tab-indeed\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-indeed\" tabindex=\"-1\">Indeed採用レポート</button><button id=\"tab-population\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-population\" tabindex=\"-1\">人口・地域データ</button></div><div id=\"panel-excel\" role=\"tabpanel\" aria-labelledby=\"tab-excel\" tabindex=\"0\">");
+    html.push_str("<div class=\"report-tabs no-print\" role=\"tablist\" aria-label=\"競合調査の表示切り替え\"><button id=\"tab-excel\" role=\"tab\" aria-selected=\"true\" aria-controls=\"panel-excel\" tabindex=\"0\">給与・待遇</button><button id=\"tab-keyword\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-keyword\" tabindex=\"-1\">キーワード</button><button id=\"tab-google\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-google\" tabindex=\"-1\">Google検索需要</button><button id=\"tab-indeed\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-indeed\" tabindex=\"-1\">Indeed採用レポート</button><button id=\"tab-population\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-population\" tabindex=\"-1\">人口・地域データ</button></div><div id=\"panel-excel\" role=\"tabpanel\" aria-labelledby=\"tab-excel\" tabindex=\"0\">");
     if SHOW_CONSULTATION {
         html.insert_str(
             html.rfind("</div>").unwrap_or(html.len()),
@@ -94,9 +94,9 @@ pub(crate) fn render_html(report: &CompetitorReport) -> String {
         ));
     }
     html.push_str("</table>");
-    super::competitor_tag_usage::tables(&mut html, &excel.tag_usage);
+    keyword_table(&mut html, "求人票ワード調査（全体）", &excel.keyword_all);
     keywords::table(&mut html, &excel.keyword_comparison);
-    html.push_str("<p class=\"note\">人気求人：Indeedの「人気」「超人気」タグ付き。</p></aside><div class=\"charts\">");
+    html.push_str("<p class=\"note\">人気求人：Indeedの「人気」「超人気」の表示がある求人。</p></aside><div class=\"charts\">");
     for (label, series) in [
         ("上限ボリュームゾーン", &excel.histograms.upper),
         ("下限ボリュームゾーン", &excel.histograms.lower),
@@ -107,9 +107,11 @@ pub(crate) fn render_html(report: &CompetitorReport) -> String {
             series,
         );
     }
-    super::competitor_tag_usage::bands_chart(&mut html, &excel.tag_usage);
-    super::competitor_tag_usage::gap_chart(&mut html, &excel.tag_usage);
-    html.push_str(&format!("</div></section><p class=\"caption\">CSV重複排除後 {} 件 / 上位 {} 件は収録順。占有率は語を含む求人数の割合。給与分布は{}。</p></div><div id=\"panel-google\" role=\"tabpanel\" aria-labelledby=\"tab-google\" tabindex=\"0\" hidden>",meta.total_count,excel.keyword_comparison.head_n,if meta.is_hourly{"時給の実額"}else{"月給換算"}));
+    keywords::all_chart(&mut html, &excel.keyword_all);
+    keywords::chart(&mut html, &excel.keyword_comparison);
+    html.push_str(&format!("</div></section><p class=\"caption\">CSV重複排除後 {} 件 / 上位 {} 件は収録順。占有率は語を含む求人数の割合。給与分布は{}。</p></div><div id=\"panel-keyword\" role=\"tabpanel\" aria-labelledby=\"tab-keyword\" tabindex=\"0\" hidden>",meta.total_count,excel.keyword_comparison.head_n,if meta.is_hourly{"時給の実額"}else{"月給換算"}));
+    super::competitor_tag_usage::render_page(&mut html, &excel.tag_usage);
+    html.push_str("</div><div id=\"panel-google\" role=\"tabpanel\" aria-labelledby=\"tab-google\" tabindex=\"0\" hidden>");
     render_google(&mut html, &report.google);
     html.push_str("</div><div id=\"panel-indeed\" role=\"tabpanel\" aria-labelledby=\"tab-indeed\" tabindex=\"0\" hidden>");
     render_indeed(&mut html, &report.indeed);
@@ -231,6 +233,23 @@ fn render_population_bands(html: &mut String, bands: &[PopulationBand]) {
         html.push_str("<tr><td colspan=\"4\">データなし</td></tr>");
     }
     html.push_str("</tbody></table></div></div>");
+}
+
+fn keyword_table(html: &mut String, label: &str, data: &[KeywordRow]) {
+    html.push_str(&format!("<div class=\"kw-block\"><h2>{}</h2><table class=\"words\"><tr><th>上位10件</th><th>件数</th><th>求人数</th><th>占有率</th></tr>",escape_html(label)));
+    for row in data.iter().take(10) {
+        html.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{:.0}%</td></tr>",
+            escape_html(&row.word),
+            row.count,
+            row.jobs,
+            row.share_pct
+        ));
+    }
+    if data.is_empty() {
+        html.push_str("<tr><td colspan=\"4\">キーワードデータがありません</td></tr>");
+    }
+    html.push_str("</table></div>");
 }
 
 /// 給与分布の縦棒グラフ。空の給与区間も 0 件の棒 (高さ 0) として残し、軸を連続にする。

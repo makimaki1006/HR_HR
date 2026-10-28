@@ -12,6 +12,9 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .pdf-page:last-child{break-after:auto;page-break-after:auto}
 .pdf-document .pdf-content{width:1510px;display:flow-root}
 .pdf-document .excel-dashboard{grid-template-columns:54% 46%;break-inside:auto}
+.pdf-document .excel-dashboard.kw-tab{grid-template-columns:42% 58%}
+.pdf-document .kw-tab .summary{columns:auto}
+.pdf-document .kw-tab .summary td:not(:first-child){white-space:nowrap}
 .pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:200px 200px minmax(520px,auto)}
 .pdf-document .keyword-comparison{min-height:520px}
 .pdf-document .keyword-comparison svg{min-height:460px}
@@ -21,7 +24,7 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .summary>h1,.pdf-document .summary>.meta{column-span:all}
 .pdf-document .summary td:not(:first-child){white-space:nowrap}
 .pdf-document .summary>h2,.pdf-document .summary>.band-title{break-after:avoid}
-.pdf-document .summary>table:not(.words):not(.word-comparison){break-inside:avoid}
+.pdf-document .summary>table:not(.words):not(.word-comparison),.pdf-document .summary .kw-block{break-inside:avoid}
 .pdf-document .summary table{font-size:12px;margin-bottom:8px}
 .pdf-document .summary th,.pdf-document .summary td{padding:2px 4px;line-height:1.15}
 .pdf-document .summary .meta td{font-size:14px;padding:4px}

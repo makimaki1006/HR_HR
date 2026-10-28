@@ -18,7 +18,7 @@ body{margin:0;background:#0d1525;color:#e2e8f0;font:16px/1.7 system-ui,sans-seri
 <div class="grid"><div><label for="source-type">CSVの媒体</label><select id="source-type" name="source_type"><option value="indeed_sp">Indeed (SP・スマホ版)</option><option value="indeed">Indeed (PC版)</option></select></div>
 <div><label for="wage-mode">給与の表示単位</label><select id="wage-mode" name="wage_mode"><option value="monthly">月給</option><option value="hourly">時給</option></select></div></div>
 <label for="top-n">先頭の求人を何件比較するか</label><input id="top-n" name="top_n" type="number" min="1" max="200" value="45" required>
-<label for="csv-file">求人一覧CSV</label><input id="csv-file" name="csv_file" type="file" accept=".csv,.txt" required><small>UTF-8推奨。Excelブックは求人一覧シートをCSVに書き出してください。人気比較には人気・超人気タグのあるSP版CSVが必要です。</small>
+<label for="csv-file">求人一覧CSV</label><input id="csv-file" name="csv_file" type="file" accept=".csv,.txt" required><small>UTF-8推奨。Excelブックは求人一覧シートをCSVに書き出してください。人気比較には人気・超人気の表示があるSP版CSVが必要です。</small>
 <p id="submit-status" role="status" aria-live="polite"></p><button type="submit" name="output_format" value="pdf">PDFをダウンロード</button> <button type="submit" name="output_format" value="html">画面で確認</button>
 </section></form>
 <p>給与・待遇、検索需要、採用市場、人口、採用のヒントをA3横のPDFで保存できます。</p>

@@ -488,7 +488,7 @@ function FormView(p: FormViewProps) {
             label="求人一覧CSV"
             htmlFor="csv-file"
             error={errors.file}
-            help="UTF-8推奨。20MBまで、.csv / .txt。Excelブックは求人一覧シートをCSVに書き出してください。人気比較には人気・超人気タグのあるSP版CSVが必要です。"
+            help="UTF-8推奨。20MBまで、.csv / .txt。Excelブックは求人一覧シートをCSVに書き出してください。人気比較には人気・超人気の表示があるSP版CSVが必要です。"
           >
             <input
               id="csv-file"

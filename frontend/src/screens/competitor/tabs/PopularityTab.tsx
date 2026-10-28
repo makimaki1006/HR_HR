@@ -22,7 +22,7 @@ const SUBS = [
   { id: 'age', label: '掲載の長さ' },
   { id: 'company', label: '会社' },
   { id: 'salary', label: '給与帯' },
-  { id: 'tags', label: '条件タグ' },
+  { id: 'tags', label: 'キーワード' },
   { id: 'reach', label: '対象の広さ' },
   { id: 'writing', label: '書き方' },
   { id: 'clarity', label: 'わかりやすさ' },
@@ -88,7 +88,7 @@ function TagTable({ heading, rows }: { heading: string; rows: readonly TagStat[]
       <tbody>
         {rows.length === 0 && (
           <tr>
-            <td colSpan={5}>該当するタグがありません。</td>
+            <td colSpan={5}>該当するキーワードがありません。</td>
           </tr>
         )}
         {rows.map((r) => (
@@ -144,7 +144,7 @@ function AgeView({ data }: { data: PopularitySplit }) {
           <table className="cmp-table">
             <thead>
               <tr>
-                <th>タグ</th>
+                <th>キーワード</th>
                 <th className="cmp-num">超人気側の割合 (n={fmtInt(sr.n_super)})</th>
                 <th className="cmp-num">比較側の割合 (n={fmtInt(sr.n_base)})</th>
               </tr>
@@ -221,7 +221,7 @@ function BiasTagTable({ heading, rows }: { heading: string; rows: readonly BiasT
       <tbody>
         {rows.length === 0 && (
           <tr>
-            <td colSpan={4}>該当するタグがありません。</td>
+            <td colSpan={4}>該当するキーワードがありません。</td>
           </tr>
         )}
         {rows.map((r) => (
@@ -277,7 +277,7 @@ function BiasView({ b }: { b: CompanyBias }) {
         </tbody>
       </table>
       <p className="cmp-note">
-        期待人気数は、その会社の求人を除いたほかの会社の求人のうち、給与帯・条件タグの数・掲載の長さが同じ求人の人気・超人気の割合から出しています。
+        期待人気数は、その会社の求人を除いたほかの会社の求人のうち、給与帯・キーワードの数・掲載の長さが同じ求人の人気・超人気の割合から出しています。
         同じ層のほかの会社の求人が10件に満たないときは、掲載の長さを外した層、給与帯だけの層、ほかの会社全体の割合の順に切り替えています
         （掲載の長さを外した求人 {fmtInt(b.fallback_no_age)} 件、給与帯だけ {fmtInt(b.fallback_salary_only)} 件、全体の割合{' '}
         {fmtInt(b.fallback_overall)} 件）。期待より2件以上多く、偏りが偶然とは言えない水準のときを「会社に偏りがある」、
@@ -287,11 +287,11 @@ function BiasView({ b }: { b: CompanyBias }) {
       <h3 className="cmp-block-title">会社を除いた条件の差</h3>
       <p className="cmp-note">
         会社に偏りがある {fmtInt(b.biased_companies)} 社の求人を除いた {fmtInt(b.after_total)} 件（人気・超人気{' '}
-        {fmtInt(b.after_popular)} 件）で、各条件タグの 人気求人での割合 − 全体の割合（ポイント）を、除く前と並べています。
-        会社を除いても差が残るタグは、条件によるものとして読めます。求人3件以上のタグだけです。
+        {fmtInt(b.after_popular)} 件）で、各キーワードの 人気求人での割合 − 全体の割合（ポイント）を、除く前と並べています。
+        会社を除いても差が残るキーワードは、条件によるものとして読めます。求人3件以上のキーワードだけです。
       </p>
-      <BiasTagTable heading="人気側に多いタグ" rows={b.tags_more} />
-      <BiasTagTable heading="人気側に少ないタグ" rows={b.tags_less} />
+      <BiasTagTable heading="人気側に多いキーワード" rows={b.tags_more} />
+      <BiasTagTable heading="人気側に少ないキーワード" rows={b.tags_less} />
     </>
   );
 }
@@ -359,7 +359,7 @@ function ReachGapTable({ heading, rows }: { heading: string; rows: ReachBandTags
       <tbody>
         {rows.length === 0 && (
           <tr>
-            <td colSpan={3}>該当するタグがありません。</td>
+            <td colSpan={3}>該当するキーワードがありません。</td>
           </tr>
         )}
         {rows.map((r) => (
@@ -406,11 +406,11 @@ function ReachView({ data }: { data: PopularitySplit }) {
       <p className="cmp-note">
         求人数 n={fmtInt(data.total)}／人気・超人気 n={fmtInt(data.popular)}
       </p>
-      <h3 className="cmp-block-title">ほかの条件タグの数を揃えた比較</h3>
+      <h3 className="cmp-block-title">ほかのキーワードの数を揃えた比較</h3>
       <table className="cmp-table">
         <thead>
           <tr>
-            <th rowSpan={2}>間口を広げる語以外のタグ</th>
+            <th rowSpan={2}>間口を広げる語以外のキーワード</th>
             <th colSpan={2} className="cmp-num">
               間口を広げる語なし
             </th>
@@ -435,9 +435,9 @@ function ReachView({ data }: { data: PopularitySplit }) {
           ))}
         </tbody>
       </table>
-      <h3 className="cmp-block-title">帯ごとの条件タグの差</h3>
+      <h3 className="cmp-block-title">帯ごとのキーワードの差</h3>
       <p className="cmp-note">
-        差は、その帯の人気・超人気の求人でのタグの割合から、その帯の全求人でのタグの割合を引いた値です（求人数3件以上のタグ。間口を広げる語は除く）。
+        差は、その帯の人気・超人気の求人でのキーワードの割合から、その帯の全求人でのキーワードの割合を引いた値です（求人数3件以上のキーワード。間口を広げる語は除く）。
       </p>
       {r.band_tags.map((b) => (
         <section key={b.label} aria-label={`間口を広げる語 ${b.label}`}>
@@ -446,8 +446,8 @@ function ReachView({ data }: { data: PopularitySplit }) {
           </h4>
           {b.shown ? (
             <div className="cmp-pop-cols">
-              <ReachGapTable heading="人気側に多いタグ" rows={b.more} />
-              <ReachGapTable heading="人気側に少ないタグ" rows={b.less} />
+              <ReachGapTable heading="人気側に多いキーワード" rows={b.more} />
+              <ReachGapTable heading="人気側に少ないキーワード" rows={b.less} />
             </div>
           ) : (
             <p className="cmp-note">
@@ -521,7 +521,7 @@ function ReachView({ data }: { data: PopularitySplit }) {
       </table>
       <p className="cmp-note">求人数が0件の組み合わせは「—」です。</p>
       <p className="cmp-note">
-        分け方: 求人に付く条件タグのうち、{r.open_words.join('・')}の数で「なし」「1つ」「2つ以上」に分けています。1つの求人は1回だけ数えます。条件タグの差は求人数が{fmtInt(r.min_band_n)}件以上の帯だけ出します。人気・超人気は、Indeed上でその表示が付いている求人です。
+        分け方: 求人に付くキーワードのうち、{r.open_words.join('・')}の数で「なし」「1つ」「2つ以上」に分けています。1つの求人は1回だけ数えます。キーワードの差は求人数が{fmtInt(r.min_band_n)}件以上の帯だけ出します。人気・超人気は、Indeed上でその表示が付いている求人です。
       </p>
     </>
   );
@@ -544,11 +544,11 @@ function PopularityBody({ sub, data }: { sub: SubId; data: PopularitySplit }) {
     case 'tags':
       return (
         <>
-          <h3 className="cmp-block-title">福利厚生系タグ別</h3>
+          <h3 className="cmp-block-title">福利厚生系キーワード別</h3>
           <TagTable heading="区分" rows={data.tags.welfare} />
-          <h3 className="cmp-block-title">応募しやすさ系タグ別</h3>
+          <h3 className="cmp-block-title">応募しやすさ系キーワード別</h3>
           <TagTable heading="区分" rows={data.tags.easy_apply} />
-          <h3 className="cmp-block-title">条件タグの数別</h3>
+          <h3 className="cmp-block-title">キーワードの数別</h3>
           <BucketTable heading="区分" rows={data.tags.count_buckets} />
         </>
       );
@@ -571,7 +571,7 @@ function PopularityBody({ sub, data }: { sub: SubId; data: PopularitySplit }) {
           <h3 className="cmp-block-title">わかりやすさの点別</h3>
           <BucketTable heading="区分" rows={data.clarity} />
           <p className="cmp-note">
-            見出しがある／給与の数字がある／タグが3個以上／休日の日数が書いてある、を1点ずつ数えた合計。福利厚生・タグ数と重なる部分があります。
+            見出しがある／給与の数字がある／キーワードが3個以上／休日の日数が書いてある、を1点ずつ数えた合計。福利厚生・キーワード数と重なる部分があります。
           </p>
         </>
       );

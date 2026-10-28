@@ -59,7 +59,7 @@ describe('PopularityTab', () => {
       '8.3%',
       '24',
     ]);
-    expect(screen.getByText(/分け方: 求人に付く条件タグのうち、学歴不問・未経験者歓迎/)).toBeTruthy();
+    expect(screen.getByText(/分け方: 求人に付くキーワードのうち、学歴不問・未経験者歓迎/)).toBeTruthy();
   });
 
   it('super_recent が無ければ超人気ブロックを出さない', () => {
@@ -75,7 +75,7 @@ describe('PopularityTab', () => {
     expect(rowText('〜20.5万').slice(0, 4)).toEqual(['〜20.5万', '67', '21', '31%']);
   });
 
-  it('会社: 1件側が 0 のときの割合は —、勤務形態・わかりやすさ・書き方・条件タグ', () => {
+  it('会社: 1件側が 0 のときの割合は —、勤務形態・わかりやすさ・書き方・キーワード', () => {
     render(<PopularityTab data={makePopularitySplit()} />);
     fireEvent.click(screen.getByRole('button', { name: '会社' }));
     expect(rowText('2件以上')).toEqual(['2件以上', '48', '137', '36', '26%']);
@@ -86,7 +86,7 @@ describe('PopularityTab', () => {
     expect(screen.getByText(/全体の 8.5%/)).toBeTruthy();
     expect(rowText('学歴不問')).toEqual(['学歴不問', '67', '+16.3', '+15.1']);
     expect(rowText('寮完備')).toEqual(['寮完備', '8', '-4.2', '—']);
-    fireEvent.click(screen.getByRole('button', { name: '条件タグ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キーワード' }));
     expect(rowText('食事補助あり').slice(0, 4)).toEqual(['食事補助あり', '13', '8', '62%']);
     fireEvent.click(screen.getByRole('button', { name: '書き方' }));
     expect(rowText('26〜40字').slice(0, 4)).toEqual(['26〜40字', '105', '52', '50%']);

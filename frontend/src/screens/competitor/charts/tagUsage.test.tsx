@@ -42,7 +42,7 @@ describe('TagBandsChart / TagGapChart', () => {
   it('人気求人が 0 件のときは SP 版の案内だけ', () => {
     const u = { ...usage(), popular_n: 0 };
     const { container } = render(<TagGapChart usage={u} />);
-    expect(container.textContent).toContain('人気・超人気のタグがあるSP版CSVのときだけ表示されます');
+    expect(container.textContent).toContain('人気・超人気の表示があるSP版CSVのときだけ表示されます');
     expect(container.querySelector('svg')).toBeNull();
   });
   it('差の値を符号つきで出す', () => {

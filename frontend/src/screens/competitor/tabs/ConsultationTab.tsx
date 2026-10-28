@@ -82,12 +82,12 @@ export function ConsultationTab({ data, unit, decimals }: Props) {
 function Gaps({ data }: { data: ConsultationSection }) {
   const g = data.gaps;
   if (g.status === 'insufficient') {
-    return <p>先頭のタグ記録または比較母数が不足・不整合のため、差の判断を保留します。</p>;
+    return <p>先頭のキーワード記録または比較母数が不足・不整合のため、差の判断を保留します。</p>;
   }
   if (g.status === 'no_lower_share') {
     return (
       <p>
-        確認できるタグでは、全体より先頭の占有率が低い語はありません。訴求が十分であることの証明ではありません。
+        確認できるキーワードでは、全体より先頭の占有率が低い語はありません。訴求が十分であることの証明ではありません。
       </p>
     );
   }

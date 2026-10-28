@@ -450,3 +450,9 @@ html:has(.competitor) { background: #eef1f6; }
   .cmp-charts { grid-template-rows: repeat(2, 220px) repeat(2, auto); gap: 8px; }
   .cmp-chart figcaption { font-size: 15px; }
 }
+
+.cmp-excel.cmp-kw-tab .cmp-charts { grid-template-columns: 1fr 1fr; grid-template-rows: auto; align-items: start; }
+.cmp-excel.cmp-kw-tab .cmp-charts .cmp-chart { min-height: 0; height: auto; }
+.cmp-kw-tab .cmp-summary .cmp-words { width: 100%; }
+.cmp-kw-tab .cmp-summary .cmp-words th:first-child, .cmp-kw-tab .cmp-summary .cmp-words td:first-child { width: 32%; }
+@media (max-width: 900px) { .cmp-excel.cmp-kw-tab .cmp-charts { grid-template-columns: 1fr; } }

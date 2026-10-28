@@ -285,7 +285,7 @@ describe('調査地域', () => {
 });
 
 describe('成功', () => {
-  it('旧画面と同じ FormData で送り、4 タブの結果を出す', async () => {
+  it('旧画面と同じ FormData で送り、5 タブの結果を出す', async () => {
     mCreate.mockResolvedValue({ ok: true, data: makeResponse() });
     await mount();
     chooseFile(csv('jobs.csv'));
@@ -307,7 +307,7 @@ describe('成功', () => {
     expect(form?.get('top_n')).toBe('45');
     expect(form?.get('include_google')).toBe('1');
     expect((form?.get('csv_file') as File).name).toBe('jobs.csv');
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
     expect(screen.getByRole('button', { name: 'PDFをダウンロード' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '条件を変えて再作成' })).toBeTruthy();
   });
