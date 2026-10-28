@@ -175,6 +175,15 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .consultation-grid{display:block;columns:2;column-gap:24px}
 .pdf-document .consultation-card{break-inside:avoid;margin-bottom:12px;padding:10px}
 .pdf-document .consultation-card p{font-size:13px;line-height:1.5}
+/* ユーザー指定(2026-10-28): 1ページ目は Excel の元のレイアウトで固定。変更しない。 */
+/* PAGE1-FIXED-BEGIN */
+.pdf-document #panel-excel .excel-dashboard{grid-template-columns:32% 68%;break-inside:auto}
+.pdf-document #panel-excel .charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px minmax(700px,auto)}
+.pdf-document #panel-excel .keyword-comparison{min-height:700px}
+.pdf-document #panel-excel .keyword-comparison svg{min-height:640px}
+.pdf-document #panel-excel .summary{padding:10px 12px;columns:auto}
+.pdf-document #panel-excel .summary td:not(:first-child){white-space:normal}
+/* PAGE1-FIXED-END */
 .pdf-document .table-navy{table-layout:fixed;overflow-wrap:anywhere}
 .pdf-document .table-navy td,.pdf-document .table-navy th{overflow-wrap:anywhere}
 /* PDF の2ページ目以降だけを補正。画面用の狭幅ルールで図が縦積みになるのを防ぐ。 */
@@ -356,9 +365,10 @@ function fitPages(){
   for(const panel of document.querySelectorAll('.pdf-content')){
     panel.style.zoom='';panel.style.width='';
     let scale=Math.min(1,1508/Math.max(1510,panel.scrollWidth),1040/Math.max(1,panel.scrollHeight));
+    // 1 ページ目 (#panel-excel) は元のレイアウトで固定するので拡大しない。
     // 縦が余り (内容がページの半分以上ある) ときは、レイアウト幅を狭めて拡大し、紙面を使い切る。
     // 拡大しても幅・高さがページに収まる最大の倍率だけを採る。収まらなければ 1 のまま。
-    if(scale>=0.99&&panel.scrollHeight>=470){
+    if(panel.id!=='panel-excel'&&scale>=0.99&&panel.scrollHeight>=470){
       for(let z=1.4;z>1.02;z-=0.05){
         const wd=Math.floor(1508/z);
         panel.style.width=wd+'px';panel.style.zoom='1';
