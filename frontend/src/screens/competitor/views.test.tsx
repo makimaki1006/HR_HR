@@ -350,9 +350,12 @@ describe('GoogleTab', () => {
     }
   });
 
-  it('出典の注記は常にある', () => {
-    render(<GoogleTab data={{ status: 'not_requested', message: 'x' }} />);
-    expect(screen.getByText(/Google広告 Keyword Planner API/)).toBeTruthy();
+  it('先頭の見出し・副題・出典の注記は出さない。未取得の文言は残る', () => {
+    render(<GoogleTab data={{ status: 'not_requested', message: '検索需要を取得するには…' }} />);
+    expect(screen.queryByText(/Google広告 Keyword Planner API/)).toBeNull();
+    expect(screen.queryByText('Google広告APIの検索需要')).toBeNull();
+    expect(screen.queryByText('月間検索数と推移')).toBeNull();
+    expect(screen.getByText('検索需要を取得するには…')).toBeTruthy();
   });
 
   it('ok × ok: 検索需要表と関連語表。null は —、0 は 0', () => {
@@ -410,12 +413,15 @@ describe('GoogleTab', () => {
       '2025',
       '2026',
     ]);
-    expect(screen.queryByRole('img', { name: 'テスト職 募集' })).toBeNull();
-    // 月平均 100 回未満の近隣語はカードにせず、まとめた表に載る。
-    expect(screen.getByText('月平均100回未満のため、月ごとの推移は出せません')).toBeTruthy();
-    const low = rowOf(screen.getAllByRole('cell', { name: 'テスト職 募集' }).at(-1));
-    expect(cells(low)).toEqual(['テスト職 募集', '30']);
-    expect(document.querySelectorAll('figure.cmp-kwcard').length).toBe(1);
+    // 月平均 100 回未満の近隣語もカードにする: 線は描き、添え書きだけ付き、前年比・ピーク月は出さない。
+    const lowCard = screen.getByRole('img', { name: 'テスト職 募集' });
+    expect(lowCard.querySelectorAll('circle').length).toBeGreaterThan(0);
+    expect(lowCard.querySelectorAll('polyline').length).toBeGreaterThan(0);
+    expect(screen.getByText('月平均 30 回（丸め値が多く、動きは目安）')).toBeTruthy();
+    expect(screen.queryByText(/月平均100回未満のため/)).toBeNull();
+    const lowFig = lowCard.closest('figure');
+    expect(lowFig?.textContent).not.toMatch(/前年比|ピーク/);
+    expect(document.querySelectorAll('figure.cmp-kwcard').length).toBe(2);
     expect(screen.queryByText(/年ごとの重ね合わせ/)).toBeNull();
   });
 

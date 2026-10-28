@@ -6,6 +6,6 @@ export type BiasCompanyRow = { name: string, n: number, popular: number,
  */
 expected: number, diff: number, 
 /**
- * 「会社に偏りがある」「人気が少ない会社」「給与・条件の範囲」「判定なし」。
+ * 「会社に偏りがある」「人気が期待を下回る」「給与・条件の範囲」「判定なし」。
  */
 verdict: string, };

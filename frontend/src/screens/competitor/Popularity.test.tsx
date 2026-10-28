@@ -83,6 +83,9 @@ describe('PopularityTab', () => {
     expect(rowText('テスト工業')).toEqual(['テスト工業', '6', '5', '1.6', '+3.4', '会社に偏りがある']);
     expect(rowText('サンプル商事')).toEqual(['サンプル商事', '4', '1', '1.0', '0.0', '給与・条件の範囲']);
     expect(screen.getByText(/会社に偏りがある会社は 2 社/)).toBeTruthy();
+    expect(rowText('ひかえめ食品')).toEqual(['ひかえめ食品', '5', '0', '2.4', '-2.4', '人気が期待を下回る']);
+    expect(screen.getByText(/人気が期待を下回る会社は 1 社/)).toBeTruthy();
+    expect(screen.queryByText(/人気が少ない/)).toBeNull();
     expect(screen.getByText(/全体の 8.5%/)).toBeTruthy();
     expect(rowText('学歴不問')).toEqual(['学歴不問', '67', '+16.3', '+15.1']);
     expect(rowText('寮完備')).toEqual(['寮完備', '8', '-4.2', '—']);

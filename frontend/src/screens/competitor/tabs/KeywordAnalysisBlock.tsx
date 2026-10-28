@@ -161,15 +161,15 @@ export function KeywordAnalysisBlock({ data }: { data: KeywordAnalysis }) {
       ) : (
         <>
           <p className="cmp-note">{d.caption}</p>
-          <p className="cmp-note">{d.base_month}を100とした指数です。</p>
+          <p className="cmp-note">{d.base_month}を100とした値です。</p>
           <MultiLineChart
-            label="閲覧数と検索数の指数"
+            label="閲覧数と検索数の推移（基準月＝100）"
             months={d.months}
             lines={[
               { label: d.indeed_label, values: d.indeed_index },
               { label: d.google_label, values: d.google_index },
             ]}
-            unit="指数"
+            unit="値"
           />
         </>
       )}

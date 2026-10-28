@@ -98,7 +98,7 @@ export function SeasonChart({ label, lineName, color, lines, currentMonth, indee
           </li>
         ))}
       </ul>
-      <p className="cmp-note">縦軸は年平均を 100 とした指数です。</p>
+      <p className="cmp-note">縦軸は、年平均を 100 とした値です。</p>
     </figure>
   );
 }

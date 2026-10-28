@@ -18,7 +18,7 @@ const season = (over: Partial<GoogleSeason> = {}): GoogleSeason => ({
   full_years: [2022, 2023, 2024, 2025],
   months,
   reliable: true,
-  headline: '例年、3月ごろに最も多く（年平均比 +30%）、8月ごろに最も少ない（年平均比 −30%）。',
+  headline: '例年、3月ごろに最も多く（年平均より +30%）、8月ごろに最も少ない（年平均より −30%）。',
   caveat: null,
   peak_month: 3,
   low_month: 8,
@@ -34,7 +34,7 @@ const season = (over: Partial<GoogleSeason> = {}): GoogleSeason => ({
     n_series: 84,
     peak_month: 3,
     low_month: 8,
-    headline: '職種全体の傾向では、3月ごろに多く（年平均比 +30%）、8月ごろに少ない（年平均比 −30%）。',
+    headline: '職種全体の傾向では、3月ごろに多く（年平均より +30%）、8月ごろに少ない（年平均より −30%）。',
   },
   indeed: {
     series: [
@@ -52,7 +52,7 @@ const season = (over: Partial<GoogleSeason> = {}): GoogleSeason => ({
     last_month: '2026-06',
     n_months: 14,
     points_per_month: [1, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1],
-    span_note: 'Indeed は 2025-05〜2026-06 の 14 か月分で、暦月ごとの点数は 1〜2 点です。',
+    span_note: 'Indeed は 2025-05〜2026-06 の 14 か月分で、同じ月のデータは 1〜2 点です。',
     shift_note: 'Indeed が 24 か月分たまると、山の月と Google とのずれを表示します。',
   },
   ...over,
@@ -72,18 +72,20 @@ afterEach(cleanup);
 describe('暦月の型 (全国)', () => {
   it('言えるとき: 見出し・今月の印・Indeed の点・事実の 1 文・次の 3 か月の表', () => {
     const { container } = render(<GoogleTab data={section(season())} />);
-    expect(screen.getByText('暦月の型（全国）')).toBeTruthy();
-    expect(screen.getByText('例年、3月ごろに最も多く（年平均比 +30%）、8月ごろに最も少ない（年平均比 −30%）。')).toBeTruthy();
-    expect(screen.getByText('Indeed は 2025-05〜2026-06 の 14 か月分で、暦月ごとの点数は 1〜2 点です。')).toBeTruthy();
+    expect(screen.getByText('毎年の月ごとの検索の動き（全国）')).toBeTruthy();
+    expect(screen.getByText('今月から先の3か月')).toBeTruthy();
+    expect(screen.getByText('年平均を100とした値')).toBeTruthy();
+    expect(screen.getByText('例年、3月ごろに最も多く（年平均より +30%）、8月ごろに最も少ない（年平均より −30%）。')).toBeTruthy();
+    expect(screen.getByText('Indeed は 2025-05〜2026-06 の 14 か月分で、同じ月のデータは 1〜2 点です。')).toBeTruthy();
     expect(screen.getByText('Indeed が 24 か月分たまると、山の月と Google とのずれを表示します。')).toBeTruthy();
     expect(screen.getByText('11月（今月）')).toBeTruthy();
     expect(container.querySelector('[data-testid="season-current"]')).not.toBeNull();
     const titles = [...container.querySelectorAll('svg title')].map((t) => t.textContent);
-    expect(titles).toContain('3月　年平均比 130（最小 130〜最大 130）');
-    expect(titles).toContain('5月 2025年　閲覧数 年平均比 187');
-    expect(titles).toContain('5月 2026年　閲覧数 年平均比 93');
+    expect(titles).toContain('3月　年平均を100として 130（最小 130〜最大 130）');
+    expect(titles).toContain('5月 2025年　閲覧数 年平均を100として 187');
+    expect(titles).toContain('5月 2026年　閲覧数 年平均を100として 93');
     // 市場全体は 1 行の注記だけ (主にしない)
-    expect(screen.queryByText('職種全体の暦月の型')).toBeNull();
+    expect(screen.queryByText('職種全体：月ごとの検索の多さ（年平均＝100）')).toBeNull();
   });
 
   it('言えないとき: 事実だけ。「ごろに最も多く」と書かず、市場全体の型を主に出す。Indeed なしなら線も文も無い', () => {
@@ -92,18 +94,18 @@ describe('暦月の型 (全国)', () => {
         data={section(
           season({
             reliable: false,
-            headline: 'この職種の検索は、年による差が季節の差より大きく、時期の型は出せません。（全国の月平均 900 回・完全な年 4 年）',
+            headline: 'この職種の検索は、年による差が季節の差より大きく、月ごとの傾向は出せません。（全国の月平均 900 回・完全な年 4 年）',
             caveat: '月平均が 1,000 回に届かず、検索数の丸めの影響が季節の差と同じ大きさになります。',
             indeed: null,
           }),
         )}
       />,
     );
-    expect(screen.getByText(/時期の型は出せません。（全国の月平均 900 回・完全な年 4 年）/)).toBeTruthy();
+    expect(screen.getByText(/月ごとの傾向は出せません。（全国の月平均 900 回・完全な年 4 年）/)).toBeTruthy();
     expect(container.textContent).not.toContain('ごろに最も多く');
     // Google の線と帯は描かず、市場全体の型だけ (Indeed なしなら点も無い)。
     expect(container.querySelectorAll('figure').length).toBe(1);
-    expect(container.textContent).not.toContain('暦月の指数（参考）');
+    expect(container.textContent).not.toContain('月ごとの検索の多さ（参考');
     expect(container.querySelectorAll('polygon').length).toBe(0);
     expect(container.textContent).not.toContain('Indeed');
     expect(screen.queryByText('11月（今月）')).toBeNull();
@@ -121,7 +123,7 @@ describe('暦月の型 (全国)', () => {
 
   it('season が null ならブロックを出さない', () => {
     render(<GoogleTab data={section(null)} />);
-    expect(screen.queryByText('暦月の型（全国）')).toBeNull();
+    expect(screen.queryByText('毎年の月ごとの検索の動き（全国）')).toBeNull();
   });
 });
 

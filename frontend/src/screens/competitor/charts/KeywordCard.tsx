@@ -9,7 +9,7 @@ const BADGE_COLOR = { 上昇: '#006666', 下降: '#b3261e', 横ばい: '#5b6770'
 
 /**
  * 検索語 1 つ分のカード。1〜12 月の横軸に、年ごとに 1 本の線 (新しい方から 4 年) を重ねる。
- * 縦軸は 0 から自分の最大まで。月平均が少ない検索語は線を描かず、理由の 1 行だけを出す。
+ * 縦軸は 0 から自分の最大まで。月平均が少ない検索語も線は描くが、前年比・ピーク月は出さず、動きは目安だと添える。
  */
 export function KeywordCard({ k, big }: { k: GoogleKeyword; big: boolean }) {
   const narrow = useNarrow();
@@ -19,12 +19,10 @@ export function KeywordCard({ k, big }: { k: GoogleKeyword; big: boolean }) {
   const max = values.length === 0 ? null : Math.max(...values);
   const peak = low ? null : s.peakMonth;
   const meta = [`平均 ${fmtNumber(k.avg_monthly)}`];
-  if (!low) {
-    meta.push(`最大 ${max === null ? MISSING : fmtInt(Math.round(max))}`);
-    if (peak !== null) meta.push(`ピーク ${String(peak)}月`);
-  }
+  meta.push(`最大 ${max === null ? MISSING : fmtInt(Math.round(max))}`);
+  if (peak !== null) meta.push(`ピーク ${String(peak)}月`);
   const yoy = low ? null : s.yoyPct;
-  const l = low ? null : keywordCardLayout(k, big, peak, narrow);
+  const l = keywordCardLayout(k, big, peak, narrow);
   return (
     <figure className={`cmp-trend-card cmp-kwcard${big ? ' cmp-kwcard-main' : ''}`} data-keyword={k.keyword}>
       <figcaption className="cmp-kwcard-head">
@@ -38,8 +36,8 @@ export function KeywordCard({ k, big }: { k: GoogleKeyword; big: boolean }) {
             </strong>
           )}
         </span>
+        {low && <span className="cmp-kwcard-meta">{lowVolumeNote(k)}</span>}
       </figcaption>
-      {low && <p className="cmp-note">{lowVolumeNote(k)}</p>}
       {l !== null && (
         <div className="cmp-trend-plot cmp-fit">
           <svg viewBox={`0 0 ${String(l.width)} ${String(l.height)}`} role="img" aria-label={k.keyword}>

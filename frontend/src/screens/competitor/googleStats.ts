@@ -75,8 +75,8 @@ export function yearOverlay(k: GoogleKeyword): YearOverlay {
 }
 
 /**
- * 月平均 (回/月) がこの値未満の検索語は、Keyword Planner の丸めの底に張り付くので月ごとの推移を出さない。
- * 旧画面 (Rust の `MIN_MONTHLY_MEAN`) と同じ値。
+ * 月平均 (回/月) がこの値未満の検索語は、Keyword Planner の丸めの底に張り付く。折れ線は描くが、
+ * 前年比・ピーク月は出さず、動きは目安だと添える。旧画面 (Rust の `MIN_MONTHLY_MEAN`) と同じ値。
  */
 export const MIN_MONTHLY_MEAN = 100;
 
@@ -91,12 +91,12 @@ export function isLowVolume(k: GoogleKeyword): boolean {
   return m === null || m < MIN_MONTHLY_MEAN;
 }
 
-/** 推移を出せない理由の 1 行。 */
+/** カードの見出し行に添える 1 行。 */
 export function lowVolumeNote(k: GoogleKeyword): string {
   const m = monthlyMean(k);
   return m === null
     ? '月ごとの検索数を取得できていないため、推移は出せません'
-    : `検索数が少なく、月ごとの推移は出せません（月平均 ${Math.round(m).toLocaleString('en-US')} 回）`;
+    : `月平均 ${Math.round(m).toLocaleString('en-US')} 回（丸め値が多く、動きは目安）`;
 }
 
 /** 前年比の上昇・下降・横ばいの境 (%)。旧画面の `YOY_FLAT_PCT` と同じ。 */

@@ -7,7 +7,7 @@
 //! # 「言える」かの判定 (3 つすべて)
 //! (a) 全国の月平均 1,000 回以上、(b) 完全な年が 3 年以上あり、各年の山の月が ±1 か月 (12 月と 1 月は隣) に収まる、
 //! (c) 季節の振幅 (暦月の指数の平均の最大 − 最小) が、年ごとのばらつき (暦月ごとの年間の最大 − 最小の中央値) より大きい。
-//! 満たさないときは「時期の型は出せません」と事実だけを書き、市場全体の型を代わりに主として見せる。
+//! 満たさないときは「月ごとの傾向は出せません」と事実だけを書き、市場全体の型を代わりに主として見せる。
 use serde_json::Value;
 
 use super::competitor_model::{
@@ -133,12 +133,12 @@ pub(crate) fn build(input: &SeasonInput) -> Option<GoogleSeason> {
         .unwrap_or_else(|| "—".into());
     let headline = match (reliable, peak_month, low_month) {
         (true, Some(p), Some(l)) => format!(
-            "例年、{p}月ごろに最も多く（年平均比 {}）、{l}月ごろに最も少ない（年平均比 {}）。",
+            "例年、{p}月ごろに最も多く（年平均より {}）、{l}月ごろに最も少ない（年平均より {}）。",
             plus(means[p as usize - 1] - 100.0),
             minus(100.0 - means[l as usize - 1])
         ),
         _ => format!(
-            "この職種の検索は、年による差が季節の差より大きく、時期の型は出せません。（全国の月平均 {avg_text} 回・完全な年 {} 年）",
+            "この職種の検索は、年による差が季節の差より大きく、月ごとの傾向は出せません。（全国の月平均 {avg_text} 回・完全な年 {} 年）",
             years.len()
         ),
     };
@@ -178,7 +178,7 @@ pub(crate) fn build(input: &SeasonInput) -> Option<GoogleSeason> {
         let (p, l) = (argmax(&mm), argmin(&mm));
         let headline = match (p, l) {
             (Some(p), Some(l)) => format!(
-                "職種全体の傾向では、{p}月ごろに多く（年平均比 {}）、{l}月ごろに少ない（年平均比 {}）。個々の職種では当てはまらないことがあります。",
+                "職種全体の傾向では、{p}月ごろに多く（年平均より {}）、{l}月ごろに少ない（年平均より {}）。個々の職種では当てはまらないことがあります。",
                 plus(mm[p as usize - 1] - 100.0),
                 minus(100.0 - mm[l as usize - 1])
             ),
@@ -305,7 +305,7 @@ pub(crate) fn indeed_overlay(rows: &[IndeedRow], google_peak: Option<u32>) -> Op
         format!("{lo}〜{hi} 点")
     };
     let span_note = format!(
-        "Indeed は {}〜{} の {n_months} か月分で、暦月ごとの点数は {points_text}です。",
+        "Indeed は {}〜{} の {n_months} か月分で、同じ月のデータは {points_text}です。",
         fmt(first),
         fmt(last)
     );
@@ -335,7 +335,7 @@ pub(crate) fn indeed_overlay(rows: &[IndeedRow], google_peak: Option<u32>) -> Op
             };
         }
         match google_peak {
-            None => "Google の時期の型を出せないため、山の月のずれは出しません。".to_owned(),
+            None => "Google の月ごとの傾向を出せないため、山の月のずれは出しません。".to_owned(),
             Some(g) => {
                 let parts: Vec<String> = series
                     .iter()
@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(r.low_month, Some(8));
         assert_eq!(
             r.headline,
-            "例年、3月ごろに最も多く（年平均比 +30%）、8月ごろに最も少ない（年平均比 −30%）。"
+            "例年、3月ごろに最も多く（年平均より +30%）、8月ごろに最も少ない（年平均より −30%）。"
         );
         assert!(r.caveat.is_none());
     }
@@ -469,7 +469,7 @@ mod tests {
         let s = series(2022..2026, clear(900.0));
         let r = build(&input(&s, 5)).unwrap();
         assert!(!r.reliable);
-        assert!(r.headline.contains("時期の型は出せません"));
+        assert!(r.headline.contains("月ごとの傾向は出せません"));
         assert!(r.headline.contains("全国の月平均 900 回・完全な年 4 年"));
         assert!(r.caveat.unwrap().contains("月平均が 1,000 回に届かず"));
         assert!(!r.headline.contains("ごろに最も多く"));
@@ -549,7 +549,7 @@ mod tests {
         assert_eq!((m.peak_month, m.low_month), (Some(3), Some(11)));
         assert!(m
             .headline
-            .contains("3月ごろに多く（年平均比 +9%）、11月ごろに少ない（年平均比 −17%）"));
+            .contains("3月ごろに多く（年平均より +9%）、11月ごろに少ない（年平均より −17%）"));
     }
 
     #[test]
@@ -619,7 +619,7 @@ mod tests {
         assert_eq!(o.n_months, 14);
         assert_eq!(
             o.span_note,
-            "Indeed は 2025-05〜2026-06 の 14 か月分で、暦月ごとの点数は 1〜2 点です。"
+            "Indeed は 2025-05〜2026-06 の 14 か月分で、同じ月のデータは 1〜2 点です。"
         );
         assert!(o.series[1]
             .points

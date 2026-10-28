@@ -73,8 +73,8 @@ export function seasonLayout(
     y: yOf(l.mean),
     tip:
       l.range === null
-        ? `${String(l.month)}月${SP}年平均比 ${String(r(l.mean))}`
-        : `${String(l.month)}月${SP}年平均比 ${String(r(l.mean))}（最小 ${String(r(l.range[0]))}〜最大 ${String(r(l.range[1]))}）`,
+        ? `${String(l.month)}月${SP}年平均を100として ${String(r(l.mean))}`
+        : `${String(l.month)}月${SP}年平均を100として ${String(r(l.mean))}（最小 ${String(r(l.range[0]))}〜最大 ${String(r(l.range[1]))}）`,
   }));
   const ind: SeasonLayout['indeed'] = [];
   (indeed?.series ?? []).forEach((s, k) => {
@@ -82,7 +82,7 @@ export function seasonLayout(
       ind.push({
         x: xOf(p.month),
         y: yOf(p.index),
-        tip: `${String(p.month)}月 ${String(p.year)}年${SP}${s.label} 年平均比 ${String(r(p.index))}`,
+        tip: `${String(p.month)}月 ${String(p.year)}年${SP}${s.label} 年平均を100として ${String(r(p.index))}`,
         shape: k === 0 ? 'diamond' : 'square',
         label: s.label,
       });

@@ -207,7 +207,7 @@ const BIAS_COMPANY_ROWS: usize = 20;
 const BIAS_TAG_ROWS: usize = 10;
 const BIAS_TAG_MIN_N: u32 = 3;
 const VERDICT_BIASED: &str = "会社に偏りがある";
-const VERDICT_FEWER: &str = "人気が少ない会社";
+const VERDICT_FEWER: &str = "人気が期待を下回る";
 const VERDICT_RANGE: &str = "給与・条件の範囲";
 const VERDICT_NONE: &str = "判定なし";
 
@@ -219,7 +219,7 @@ pub struct BiasCompanyRow {
     /// 同じ条件のほかの会社の人気率から出した期待人気数。
     pub expected: f64,
     pub diff: f64,
-    /// 「会社に偏りがある」「人気が少ない会社」「給与・条件の範囲」「判定なし」。
+    /// 「会社に偏りがある」「人気が期待を下回る」「給与・条件の範囲」「判定なし」。
     pub verdict: String,
 }
 
