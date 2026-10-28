@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use super::sheets::{ApiFuture, GoogleError, SheetsApi, TabInfo};
+use super::sheets::{ApiFuture, GoogleError, SheetCell, SheetCells, SheetsApi, TabInfo};
 
 /// (タブの番号, 行)
 pub type Tab = (i64, Vec<Vec<String>>);
@@ -25,6 +25,8 @@ pub struct FakeSheets {
     pub fail_modified: Mutex<Option<GoogleError>>,
     /// 値の読み取り (batch_get) にかける時間 (同時の要求を重ねる確かめ用)
     pub read_delay: Mutex<Option<std::time::Duration>>,
+    /// (タブ、行0始まり、列0始まり) の数式・入力規則。
+    pub metadata: Mutex<BTreeMap<(String, usize, usize), SheetCell>>,
 }
 
 fn col_index(letters: &str) -> usize {
@@ -101,6 +103,15 @@ impl FakeSheets {
             t[row].resize(col + 1, String::new());
         }
         t[row][col] = v.to_string();
+        if let Some(cell) = self
+            .metadata
+            .lock()
+            .unwrap()
+            .get_mut(&(title.to_string(), row, col))
+        {
+            cell.text = v.to_string();
+            cell.entered = serde_json::json!({"stringValue":v});
+        }
     }
 
     /// 全部のタブの全部のマスをつなげた文字 (値が置かれていないことを確かめる用)
@@ -174,6 +185,48 @@ impl SheetsApi for FakeSheets {
     fn client_email(&self) -> &str {
         "reader@test-project.iam.gserviceaccount.com"
     }
+    fn cells<'a>(&'a self, _s: &'a str, ranges: &'a [String]) -> ApiFuture<'a, Vec<SheetCells>> {
+        Box::pin(async move {
+            self.calls.lock().unwrap().push("batch_get".into());
+            let delay = *self.read_delay.lock().unwrap();
+            if let Some(d) = delay {
+                tokio::time::sleep(d).await;
+            }
+            self.read()?;
+            Ok(ranges
+                .iter()
+                .map(|range| {
+                    let (title, first, _, start_col, _) = parse_range(range);
+                    let mut rows: Vec<Vec<SheetCell>> = self
+                        .get_range(range)
+                        .into_iter()
+                        .map(|row| row.into_iter().map(SheetCell::literal).collect())
+                        .collect();
+                    for ((tab, row, col), cell) in self.metadata.lock().unwrap().iter() {
+                        let (_, _, end, _, last_col) = parse_range(range);
+                        if tab != &title
+                            || *row < first
+                            || end.is_some_and(|end| *row > end)
+                            || *col < start_col
+                            || *col > last_col
+                        {
+                            continue;
+                        }
+                        let r = *row - first;
+                        let c = *col - start_col;
+                        if rows.len() <= r {
+                            rows.resize(r + 1, Vec::new());
+                        }
+                        if rows[r].len() <= c {
+                            rows[r].resize(c + 1, SheetCell::default());
+                        }
+                        rows[r][c] = cell.clone();
+                    }
+                    SheetCells { rows }
+                })
+                .collect())
+        })
+    }
     fn tabs<'a>(&'a self, _spreadsheet: &'a str) -> ApiFuture<'a, Vec<TabInfo>> {
         Box::pin(async move {
             self.calls.lock().unwrap().push("tabs".into());
@@ -233,6 +286,18 @@ impl SheetsApi for FakeSheets {
             self.write()?;
             for (r, v) in data {
                 self.put_range(r, v);
+                let (title, first, _, first_col, _) = parse_range(r);
+                let mut metadata = self.metadata.lock().unwrap();
+                for (i, row) in v.iter().enumerate() {
+                    for (j, text) in row.iter().enumerate() {
+                        if let Some(cell) =
+                            metadata.get_mut(&(title.clone(), first + i, first_col + j))
+                        {
+                            cell.text = text.clone();
+                            cell.entered = serde_json::json!({"stringValue":text});
+                        }
+                    }
+                }
             }
             Ok(())
         })

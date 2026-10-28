@@ -16,7 +16,8 @@ import { downloadText, matchesFilters, matchesQuery, omit, orderColumns, sortRow
 import { ToastBar, useOutside } from './parts';
 import { matchesQuick, noInterviewNote, quickChips, SortSelect, TabScroller, TodayBand, type Quick } from './quick';
 import { TodayInterviews } from './TodayInterviews';
-import { useCellSaver } from './useCellSaver';
+import { useCellSaver, type SaveCell } from './useCellSaver';
+const savePreviewCell: SaveCell = (...args) => actions.saveCell(...args);
 import { NOW } from '../../fixtures';
 import { canSee } from '../../features';
 
@@ -102,7 +103,7 @@ function Empty() {
 function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: ListState; openAtStart?: number | undefined }) {
   const d = useData();
   const isDesktop = useIsDesktop();
-  const saver = useCellSaver(sheet.id);
+  const saver = useCellSaver(sheet.id, savePreviewCell);
   // URL に入れた状態（状況タブ・チップ・検索・並び・開いている応募者）を先に読み、無ければ覚えている設定を使う。
   const [urlInit] = useState(() => readListUrl());
   const [query, setQuery] = useState(urlInit.q ?? '');
@@ -203,7 +204,7 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
 
   const baseRows = useMemo(() => sourceRows.filter((r) => matchesQuery(r, searchCols, query, sheet.sortColumn) && matchesFilters(r, filters)), [sourceRows, searchCols, query, filters, sheet.sortColumn]);
   // 状況タブの数は、チップ・検索・見出しの絞り込みを当てたあとの行で数える。
-  const quickRows = useMemo(() => (quick === null ? baseRows : baseRows.filter((r) => matchesQuick(sheet, r, quick))), [baseRows, quick, sheet]);
+  const quickRows = useMemo(() => (quick === null ? baseRows : baseRows.filter((r) => matchesQuick(sheet, r, quick, sourceRows))), [baseRows, quick, sheet, sourceRows]);
   const statusCounts = useMemo(() => {
     const m = new Map<string, number>();
     if (statusCol) for (const r of quickRows) { const v = r.values[statusCol.header] ?? ''; m.set(v, (m.get(v) ?? 0) + 1); }
@@ -366,7 +367,7 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
         {showToday && <TodayInterviews sheet={sheet} rows={sourceRows} onOpen={open} onPick={pickQuick} />}
         {emptyActions}
         <div className="h-2" />
-        <MobileList sheet={sheet} rows={rows} readOnly={readOnly} saver={saver} onOpen={open} />
+        <MobileList sheet={sheet} rows={rows} allRows={sourceRows} readOnly={readOnly} saver={saver} onOpen={open} />
         {editor}
         {toast}
       </div>
@@ -396,6 +397,7 @@ function ListBody({ sheet, state, openAtStart }: { sheet: SheetConfig; state: Li
       {emptyActions}
       <div ref={gridWrap}>
         <Grid
+          onCellSeen={(row, column) => { actions.markCellSeen(sheet.id, row, column); }}
           sheet={sheet}
           rows={rows}
           allRows={sourceRows}

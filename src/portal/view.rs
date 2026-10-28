@@ -58,6 +58,10 @@ pub struct PortalSheets {
 
 #[derive(Serialize, TS)]
 pub struct PortalColumn {
+    /// 登録済みの見出し。保存では列の順番でなくこの番号を送る。
+    pub id: String,
+    pub writable: bool,
+    pub options: Option<Vec<String>>,
     /// 画面での名前 (未設定なら見出し)
     pub label: String,
     /// `text` / `choice` / `date` / `datetime` / `phone` / `email`
@@ -70,6 +74,8 @@ pub struct PortalColumn {
 
 #[derive(Serialize, TS)]
 pub struct PortalApplicant {
+    /// 秘密列を含む行全体の照合。値から逆算できない署名。
+    pub revision: String,
     /// シートの行番号 (1 始まり)
     pub row: u32,
     /// `columns` と同じ並びの値
@@ -118,11 +124,11 @@ impl ViewLog {
 
 // ---- 共通 ----
 
-fn not_found() -> Response {
+pub(super) fn not_found() -> Response {
     err(StatusCode::NOT_FOUND, "not_found", "シートが見つかりません")
 }
 
-fn sheet_unavailable(e: ReadError) -> Response {
+pub(super) fn sheet_unavailable(e: ReadError) -> Response {
     let (code, message) = match e {
         ReadError::NotShared | ReadError::TabNotFound => (
             "sheet_unavailable",
@@ -156,7 +162,7 @@ fn log_read(e: ReadError) {
 }
 
 /// ログイン中の顧客。保存先・メールが揃っていなければ 503、ログインしていなければ 401
-fn viewer(ctx: &Ctx, headers: &HeaderMap) -> Result<(Portal, Account), Response> {
+pub(super) fn viewer(ctx: &Ctx, headers: &HeaderMap) -> Result<(Portal, Account), Response> {
     let Some(p) = ctx.portal() else {
         return Err(unavailable());
     };
@@ -167,7 +173,7 @@ fn viewer(ctx: &Ctx, headers: &HeaderMap) -> Result<(Portal, Account), Response>
 }
 
 /// 見せる項目 (並びの順)
-fn visible_columns(p: &Portal, sheet_id: &str) -> Vec<ColumnSetting> {
+pub(super) fn visible_columns(p: &Portal, sheet_id: &str) -> Vec<ColumnSetting> {
     let mut cols: Vec<ColumnSetting> = p
         .auth
         .store()
@@ -202,7 +208,7 @@ fn usable_sheets(ctx: &Ctx, p: &Portal, a: &Account) -> Vec<(SheetReg, Vec<Colum
     list
 }
 
-fn sheet_of(
+pub(super) fn sheet_of(
     ctx: &Ctx,
     p: &Portal,
     a: &Account,
@@ -214,7 +220,7 @@ fn sheet_of(
         .ok_or_else(not_found)
 }
 
-fn live(ctx: &Ctx) -> Result<&LiveSheets, Response> {
+pub(super) fn live(ctx: &Ctx) -> Result<&LiveSheets, Response> {
     ctx.live.as_deref().ok_or_else(|| {
         err(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -224,7 +230,7 @@ fn live(ctx: &Ctx) -> Result<&LiveSheets, Response> {
     })
 }
 
-fn summary(s: &SheetReg) -> PortalSheet {
+pub(super) fn summary(s: &SheetReg) -> PortalSheet {
     PortalSheet {
         id: s.id.clone(),
         label: if s.label.trim().is_empty() {
@@ -251,6 +257,7 @@ fn config_tag(s: &SheetReg, cols: &[ColumnSetting]) -> String {
             &c.header,
             &c.label,
             c.in_list,
+            c.writable,
             c.multiline,
             c.kind.as_str(),
             c.group.as_str(),
@@ -268,10 +275,14 @@ fn version_of(modified: &str, s: &SheetReg, cols: &[ColumnSetting]) -> String {
 /// 読んだ表から、見せる項目だけを取り出す。シートに見出しが無い項目は出さない。
 /// 見せる項目がどれも空の行は出さない
 fn applicants(
+    ctx: &Ctx,
+    p: &Portal,
+    a: &Account,
     s: &SheetReg,
     cols: &[ColumnSetting],
-    rows: &[Vec<String>],
+    grid: &super::live::Grid,
 ) -> (Vec<PortalColumn>, Vec<PortalApplicant>) {
+    let rows = &grid.rows;
     let header_row = s.header_row.max(1);
     // 見出し → 列の位置。同じ見出しが 2 つ以上ある列はどちらの値か決められないので None にする
     let mut positions: HashMap<String, Option<usize>> = HashMap::new();
@@ -311,16 +322,48 @@ fn applicants(
     }
     let columns = found
         .iter()
-        .map(|(c, _)| PortalColumn {
-            label: if c.label.trim().is_empty() {
-                c.header.clone()
-            } else {
-                c.label.clone()
-            },
-            kind: c.kind.as_str().into(),
-            group: c.group.as_str().into(),
-            in_list: c.in_list,
-            multiline: c.multiline,
+        .map(|(c, at)| {
+            let mut writable = c.writable;
+            let mut options: Option<Vec<String>> = None;
+            for cell in grid
+                .cells
+                .iter()
+                .skip(1 + s.example_rows as usize)
+                .filter_map(|row| row.get(*at))
+            {
+                if cell.formula() {
+                    writable = false;
+                }
+                match cell.options() {
+                    Err(_) => writable = false,
+                    Ok(Some(values)) => {
+                        let choices = options.get_or_insert_with(Vec::new);
+                        for value in values {
+                            if !choices.contains(&value) {
+                                choices.push(value);
+                            }
+                        }
+                        if choices.len() > 500 {
+                            writable = false;
+                        }
+                    }
+                    Ok(None) => {}
+                }
+            }
+            PortalColumn {
+                id: c.header.clone(),
+                writable,
+                options,
+                label: if c.label.trim().is_empty() {
+                    c.header.clone()
+                } else {
+                    c.label.clone()
+                },
+                kind: c.kind.as_str().into(),
+                group: c.group.as_str().into(),
+                in_list: c.in_list,
+                multiline: c.multiline,
+            }
         })
         .collect();
     let skip = 1 + s.example_rows as usize;
@@ -337,6 +380,14 @@ fn applicants(
                 return None;
             }
             Some(PortalApplicant {
+                revision: ctx.edits.revision(
+                    a,
+                    s,
+                    &p.auth.store().columns(&s.id),
+                    grid.cells.first().map(Vec::as_slice).unwrap_or(&[]),
+                    header_row + i as u32,
+                    grid.cells.get(i).map(Vec::as_slice).unwrap_or(&[]),
+                ),
                 row: header_row + i as u32,
                 cells,
             })
@@ -430,7 +481,7 @@ async fn rows(
         Ok(GridResult::Stale(g)) => (g, true),
         Err(e) => return sheet_unavailable(e),
     };
-    let (columns, list) = applicants(&s, &cols, &grid.rows);
+    let (columns, list) = applicants(&ctx, &p, &a, &s, &cols, &grid);
     if ctx.views.should_log(&a.id, &s.id) {
         let mut detail = format!("応募者の一覧を開いた（{} 人）", list.len());
         if stale {
