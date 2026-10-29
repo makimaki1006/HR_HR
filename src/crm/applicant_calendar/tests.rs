@@ -454,8 +454,8 @@ fn rec(id: &str, props: &[(&str, &str)]) -> HubSpotRecord {
 
 fn defs(interview_type: &str) -> Vec<Value> {
     vec![
-        json!({"name": "mensetsuyoteibi", "type": interview_type, "label": "面接予定日"}),
-        json!({"name": "nyuushayoteibi", "type": "datetime", "label": "入社予定日"}),
+        json!({"name": "mensetsuyoteibi", "type": interview_type, "fieldType": "date", "label": "面接予定日"}),
+        json!({"name": "nyuushayoteibi", "type": "datetime", "fieldType": "date", "label": "入社予定日"}),
         json!({"name": "naiteinichi", "type": "date", "label": "内定日"}),
         json!({"name": "oubosaki_kyuujin_title", "type": "string", "label": "応募先求人タイトル"}),
     ]
@@ -652,6 +652,8 @@ fn hubspot() -> FakeHs {
         owners: HashMap::from([
             ("O1".to_string(), GUEST.to_string()),
             ("O2".to_string(), "other@example.com".to_string()),
+            ("O3".to_string(), "ended@example.com".to_string()),
+            ("O4".to_string(), "option@example.com".to_string()),
         ]),
         ..Default::default()
     };
@@ -873,17 +875,222 @@ async fn existing_id_conflict_is_overwritten_and_confirmed() {
     assert_eq!(calls[i + 1], format!("patch {id}"));
 }
 
-#[tokio::test]
-async fn no_guest_when_no_deal_is_selected_and_company_falls_back() {
-    let (hs, cal) = (hubspot(), FakeCal::default());
-    // 報告シートのある取引が無い → 担当を決めない (ゲストなし)。会社名も取れず、応募先取引名を使う
-    hs.records.lock().unwrap().insert(
-        "deals".into(),
-        vec![rec(
-            "902",
-            &[("dealstage", "52016153"), ("hubspot_owner_id", "O2")],
-        )],
+/// 報告シートの URL を持つ取引を無くし、取引の一覧を差し替える
+fn deals_without_sheet(hs: &FakeHs, deals: Vec<HubSpotRecord>) {
+    let ids: Vec<String> = deals.iter().map(|d| d.id.clone()).collect();
+    hs.records.lock().unwrap().insert("deals".into(), deals);
+    hs.assoc.lock().unwrap().insert(
+        ("0-420".into(), "deals".into()),
+        BTreeMap::from([("501".into(), ids)]),
     );
+}
+
+async fn guest_of(hs: &FakeHs) -> Value {
+    let cal = FakeCal::default();
+    let mut c = Cycle::default();
+    run(&mut c, hs, &cal, now()).await;
+    cal.event("101", "mensetsuyoteibi")["attendees"].clone()
+}
+
+#[tokio::test]
+async fn guest_falls_back_to_ranked_deal_without_sheet_url() {
+    let hs = hubspot();
+    // どれも報告シートの URL なし。終わった契約 (O3、開始日が最新) < 生きているオプション (O4) < 生きている主契約 (O2)
+    deals_without_sheet(
+        &hs,
+        vec![
+            rec(
+                "903",
+                &[
+                    ("dealstage", "999"),
+                    ("dealname", "終わった契約"),
+                    ("contract_start_date", "2026-09-01"),
+                    ("hubspot_owner_id", "O3"),
+                ],
+            ),
+            rec(
+                "904",
+                &[
+                    ("dealstage", "52016153"),
+                    ("dealname", "求人追加 秋"),
+                    ("contract_start_date", "2026-08-01"),
+                    ("hubspot_owner_id", "O4"),
+                ],
+            ),
+            rec(
+                "902",
+                &[
+                    ("dealstage", "52016153"),
+                    ("dealname", "主契約"),
+                    ("contract_start_date", "2026-04-01"),
+                    ("hubspot_owner_id", "O2"),
+                ],
+            ),
+        ],
+    );
+    // 報告シートの選び方は変えない (URL が無ければ選ばない)
+    let deals = hs.records.lock().unwrap()["deals"].clone();
+    let ids: Vec<String> = vec!["903".into(), "904".into(), "902".into()];
+    assert!(crate::crm::applicants::report_deal(&ids, &deals).is_none());
+    assert_eq!(
+        crate::crm::applicants::ranked_deal(&ids, &deals)
+            .unwrap()
+            .id,
+        "902"
+    );
+    assert_eq!(
+        guest_of(&hs).await,
+        json!([{ "email": "other@example.com" }])
+    );
+
+    // 生きている主契約が無ければ生きているオプション
+    deals_without_sheet(
+        &hs,
+        vec![
+            rec(
+                "903",
+                &[
+                    ("dealstage", "999"),
+                    ("contract_start_date", "2026-09-01"),
+                    ("hubspot_owner_id", "O3"),
+                ],
+            ),
+            rec(
+                "904",
+                &[
+                    ("dealstage", "1049738304"),
+                    ("contract_start_date", "2026-01-01"),
+                    ("hubspot_owner_id", "O4"),
+                ],
+            ),
+        ],
+    );
+    assert_eq!(
+        guest_of(&hs).await,
+        json!([{ "email": "option@example.com" }])
+    );
+
+    // どれも生きていなければ全体から、契約開始日が新しい方
+    deals_without_sheet(
+        &hs,
+        vec![
+            rec(
+                "905",
+                &[
+                    ("dealstage", "999"),
+                    ("contract_start_date", "2025-01-01"),
+                    ("hubspot_owner_id", "O2"),
+                ],
+            ),
+            rec(
+                "903",
+                &[
+                    ("dealstage", "998"),
+                    ("contract_start_date", "2025-06-01"),
+                    ("hubspot_owner_id", "O3"),
+                ],
+            ),
+        ],
+    );
+    assert_eq!(
+        guest_of(&hs).await,
+        json!([{ "email": "ended@example.com" }])
+    );
+}
+
+#[tokio::test]
+async fn ranked_deal_ties_break_by_createdate_then_association_order() {
+    let hs = hubspot();
+    // 契約開始日が同じなら作成日が新しい方
+    deals_without_sheet(
+        &hs,
+        vec![
+            rec(
+                "902",
+                &[
+                    ("dealstage", "52016153"),
+                    ("contract_start_date", "2026-04-01"),
+                    ("createdate", "2026-03-01T00:00:00Z"),
+                    ("hubspot_owner_id", "O2"),
+                ],
+            ),
+            rec(
+                "906",
+                &[
+                    ("dealstage", "52016153"),
+                    ("contract_start_date", "2026-04-01"),
+                    ("createdate", "2026-03-05T00:00:00Z"),
+                    ("hubspot_owner_id", "O4"),
+                ],
+            ),
+        ],
+    );
+    assert_eq!(
+        guest_of(&hs).await,
+        json!([{ "email": "option@example.com" }])
+    );
+    // 何もかも同じなら関連の先勝ち (ここでは 906 が先)
+    deals_without_sheet(
+        &hs,
+        vec![
+            rec(
+                "906",
+                &[
+                    ("dealstage", "52016153"),
+                    ("contract_start_date", "2026-04-01"),
+                    ("hubspot_owner_id", "O4"),
+                ],
+            ),
+            rec(
+                "902",
+                &[
+                    ("dealstage", "52016153"),
+                    ("contract_start_date", "2026-04-01"),
+                    ("hubspot_owner_id", "O2"),
+                ],
+            ),
+        ],
+    );
+    assert_eq!(
+        guest_of(&hs).await,
+        json!([{ "email": "option@example.com" }])
+    );
+    // URL を持つ取引があれば、順位が上の URL なしの取引より URL のある取引 (今の選び方のまま)
+    deals_without_sheet(
+        &hs,
+        vec![
+            rec(
+                "902",
+                &[
+                    ("dealstage", "52016153"),
+                    ("contract_start_date", "2026-09-01"),
+                    ("hubspot_owner_id", "O2"),
+                ],
+            ),
+            rec(
+                "907",
+                &[
+                    ("dealstage", "999"),
+                    (
+                        "customer_sheet_url",
+                        "https://docs.google.com/spreadsheets/d/y",
+                    ),
+                    ("hubspot_owner_id", "O3"),
+                ],
+            ),
+        ],
+    );
+    assert_eq!(
+        guest_of(&hs).await,
+        json!([{ "email": "ended@example.com" }])
+    );
+}
+
+#[tokio::test]
+async fn no_guest_when_no_deal_is_readable_and_company_falls_back() {
+    let (hs, cal) = (hubspot(), FakeCal::default());
+    // 関連する取引が読めない → 担当を決めない (ゲストなし)。会社名も取れず、応募先取引名を使う
+    hs.records.lock().unwrap().insert("deals".into(), vec![]);
     let mut c = Cycle::default();
     run(&mut c, &hs, &cal, now()).await;
     let e = cal.event("101", "mensetsuyoteibi");

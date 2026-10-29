@@ -21,7 +21,7 @@ use super::{
     applicant_link, description, event_id, insert_body, jst, patch_body, same, summary, when_of,
     CalendarConfig, Desired, When, APPLICANT_KEY, PROP_KEY,
 };
-use crate::crm::applicants::{report_deal, REPORT_DEAL_PROPERTIES};
+use crate::crm::applicants::{ranked_deal, report_deal, REPORT_DEAL_PROPERTIES};
 use crate::hubspot::{HubSpotClient, HubSpotRecord};
 use crate::AppState;
 
@@ -356,17 +356,14 @@ impl Cycle {
                     unique_push(&mut deal_ids, d);
                 }
             }
-            let selected = report_deal(&deal_ids, &deals);
+            // 報告シートの URL を持つ取引があれば報告シートと同じ選び方、無ければ同じ順位で全取引から
+            let selected =
+                report_deal(&deal_ids, &deals).or_else(|| ranked_deal(&deal_ids, &deals));
             let guest = selected
                 .and_then(|r| r.properties.get("hubspot_owner_id").cloned().flatten())
                 .and_then(|oid| owners.get(oid.trim()).cloned());
-            // 会社名は選んだ取引、無ければ読めた最初の取引から
-            let for_company = selected.map(|r| r.id.clone()).or_else(|| {
-                deal_ids
-                    .iter()
-                    .find(|d| deals.iter().any(|r| &r.id == *d))
-                    .cloned()
-            });
+            // 会社名は選んだ取引から (取引が読めなければ無し)
+            let for_company = selected.map(|r| r.id.clone());
             if let Some(d) = for_company {
                 unique_push(&mut company_deals, &d);
                 company_deal_of.insert(id.clone(), d);
