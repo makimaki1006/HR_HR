@@ -1,6 +1,5 @@
 // 一覧の上の「今日」の帯、並べ替えの選択、はみ出すタブの手がかり。PC とスマホで同じものを使う。
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { stageOf } from '../../data';
 import { cx } from '../../ui/kit';
 import type { ApplicantRow, ListSort, SheetConfig } from '../../types';
 import { dayLabel, TODAY_NUM } from '../../columns';
@@ -9,35 +8,35 @@ import { dayOffset, rowRefDay } from './model';
 
 export type Quick = 'today' | 'tomorrow' | 'new' | 'unhandled';
 
-const interviewDay = (sheet: SheetConfig, row: ApplicantRow): number | null => {
+const interviewDay = (sheet: SheetConfig, row: ApplicantRow, rows: ApplicantRow[] = [row]): number | null => {
   if (!sheet.interviewColumn) return null;
-  const ref = sheet.sortColumn ? rowRefDay(sheet, row) : null;
+  const ref = sheet.sortColumn ? rowRefDay(sheet, row, rows) : null;
   return dayOffset(row.values[sheet.interviewColumn] ?? '', ref);
 };
 
 /** 未対応の人か（選考状況が「応募」の段階）。段階が決まっていないシートでは数えない。 */
 const isUnhandled = (sheet: SheetConfig, row: ApplicantRow): boolean => {
   const col = sheet.statusColumn;
-  return col !== undefined && stageOf(sheet, row.values[col] ?? '') === 'applied';
+  return col !== undefined && sheet.stageMap?.[row.values[col] ?? ''] === 'applied';
 };
 
-export function matchesQuick(sheet: SheetConfig, row: ApplicantRow, q: Quick): boolean {
-  if (q === 'today') return interviewDay(sheet, row) === 0;
-  if (q === 'tomorrow') return interviewDay(sheet, row) === 1;
+export function matchesQuick(sheet: SheetConfig, row: ApplicantRow, q: Quick, rows: ApplicantRow[] = [row]): boolean {
+  if (q === 'today') return interviewDay(sheet, row, rows) === 0;
+  if (q === 'tomorrow') return interviewDay(sheet, row, rows) === 1;
   if (q === 'new') return row.changedSinceLastView === 'new';
   return isUnhandled(sheet, row);
 }
 
 /** 面接の日の通し番号（今日 = TODAY_NUM）。読めなければ null。 */
-export function interviewDayNum(sheet: SheetConfig, row: ApplicantRow): number | null {
-  const off = interviewDay(sheet, row);
+export function interviewDayNum(sheet: SheetConfig, row: ApplicantRow, rows: ApplicantRow[] = [row]): number | null {
+  const off = interviewDay(sheet, row, rows);
   return off === null ? null : off + TODAY_NUM;
 }
 
 /** 「今日の面接はありません。次は 10/23（金）に 2 件」。今日・明日が 0 件のときに出す。次の予定が無ければ文の前半だけ。 */
 export function noInterviewNote(sheet: SheetConfig, rows: ApplicantRow[], which: 'today' | 'tomorrow'): string {
   const from = which === 'today' ? 0 : 1;
-  const days = rows.map((r) => interviewDayNum(sheet, r)).filter((n): n is number => n !== null && n > TODAY_NUM + from);
+  const days = rows.map((r) => interviewDayNum(sheet, r, rows)).filter((n): n is number => n !== null && n > TODAY_NUM + from);
   const head = which === 'today' ? '今日の面接はありません。' : '明日の面接はありません。';
   if (days.length === 0) return head;
   const next = Math.min(...days);
@@ -46,7 +45,7 @@ export function noInterviewNote(sheet: SheetConfig, rows: ApplicantRow[], which:
 
 /** 帯に出すチップ。面接の列が決まっていないシートでは面接の 2 つを出さない。 */
 export function quickChips(sheet: SheetConfig, rows: ApplicantRow[]): { id: Quick; label: string; count: number }[] {
-  const count = (q: Quick): number => rows.filter((r) => matchesQuick(sheet, r, q)).length;
+  const count = (q: Quick): number => rows.filter((r) => matchesQuick(sheet, r, q, rows)).length;
   const out: { id: Quick; label: string; count: number }[] = [];
   if (sheet.interviewColumn) {
     out.push({ id: 'today', label: '今日の面接', count: count('today') });

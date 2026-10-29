@@ -1,5 +1,5 @@
 // 顧客向け画面の共通部品。各画面はここを使い、見た目をそろえる。
-import { NOW } from '../now';
+import { portalNow } from '../clock';
 import { useEffect } from 'react';
 import { IconPencil } from './icons';
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
@@ -109,7 +109,7 @@ export function formatShortDateTime(iso: string): string {
 export function formatDateTimeSmart(iso: string): string {
   const d = new Date(iso);
   const jp = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', ...o }).format(d);
-  const sameYear = jp({ year: 'numeric' }) === new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric' }).format(new Date(NOW));
+  const sameYear = jp({ year: 'numeric' }) === new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric' }).format(new Date(portalNow()));
   const date = sameYear ? jp({ month: 'numeric', day: 'numeric' }) : jp({ year: 'numeric', month: 'numeric', day: 'numeric' });
   return `${date} ${jp({ hour: '2-digit', minute: '2-digit', hour12: false })}`;
 }

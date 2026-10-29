@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 
-use super::sheets::{a1, GoogleError, SheetsApi, TabInfo};
+use super::sheets::{a1, GoogleError, SheetCell, SheetCells, SheetsApi, TabInfo};
 use super::store::SheetReg;
 
 #[derive(Debug, Clone)]
@@ -85,6 +85,7 @@ pub struct Grid {
     /// 読む前に確かめた最終更新時刻
     pub modified: String,
     pub rows: Vec<Vec<String>>,
+    pub cells: Vec<Vec<SheetCell>>,
     pub read_at: DateTime<Utc>,
 }
 
@@ -197,7 +198,7 @@ impl LiveSheets {
             .ok_or(ReadError::TabNotFound)
     }
 
-    async fn read(&self, shape: &Shape) -> Result<Vec<Vec<String>>, ReadError> {
+    async fn read(&self, shape: &Shape) -> Result<SheetCells, ReadError> {
         let mut refreshed = false;
         loop {
             let title = match self.tab_title(shape, refreshed).await {
@@ -209,7 +210,7 @@ impl LiveSheets {
                 r => r?,
             };
             let ranges = [a1(&title, &format!("A{}:ZZ", shape.header_row))];
-            match self.api.batch_get(&shape.spreadsheet, &ranges).await {
+            match self.api.cells(&shape.spreadsheet, &ranges).await {
                 // タブの名前が変わった直後は範囲が読めない。一度だけ一覧を取り直す
                 Err(GoogleError::Status(400)) if !refreshed => {
                     refreshed = true;
@@ -252,11 +253,12 @@ impl LiveSheets {
             None => self.read(&shape).await,
         };
         match result {
-            Ok(rows) => {
+            Ok(cells) => {
                 let grid = Arc::new(Grid {
                     shape,
                     modified: modified.unwrap_or("").to_string(),
-                    rows,
+                    rows: cells.texts(),
+                    cells: cells.rows,
                     read_at: Utc::now(),
                 });
                 g.value = Some(grid.clone());
@@ -285,5 +287,48 @@ impl LiveSheets {
         let s = slot(&self.grids, reg_id, self.cfg.idle_drop);
         let mut g = s.lock().await;
         g.value = None;
+    }
+
+    /// 保存時の読み直し。値のキャッシュは使わず、見出しとその行だけを1回で読む。
+    pub async fn fresh_row(
+        &self,
+        reg: &SheetReg,
+        row: u32,
+    ) -> Result<(String, Vec<SheetCell>, Vec<SheetCell>), ReadError> {
+        let shape = Shape::of(reg);
+        let title = self.tab_title(&shape, true).await?;
+        let ranges = [
+            a1(
+                &title,
+                &format!("A{}:ZZ{}", shape.header_row, shape.header_row),
+            ),
+            a1(&title, &format!("A{row}:ZZ{row}")),
+        ];
+        let mut values = self.api.cells(&shape.spreadsheet, &ranges).await?;
+        if values.len() != 2 {
+            return Err(ReadError::Google(GoogleError::Status(502)));
+        }
+        let current = values
+            .pop()
+            .unwrap()
+            .rows
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        let headers = values
+            .pop()
+            .unwrap()
+            .rows
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        Ok((title, headers, current))
+    }
+
+    /// 書き込み後はDriveの時刻も捨てる。変更時刻の反映が遅れても次の要求は値を読む。
+    pub async fn invalidate(&self, reg: &SheetReg) {
+        self.forget(&reg.id).await;
+        let slot = slot(&self.versions, &reg.spreadsheet_id, self.cfg.idle_drop);
+        slot.lock().await.value = None;
     }
 }

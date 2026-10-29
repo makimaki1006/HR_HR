@@ -1,15 +1,18 @@
 // ログイン後の見る画面（計画の PR4）。自分の顧客のシートの応募者を、PC は表、スマホはカードで出す。読み取りだけ。
 // 画面を開いている間（タブが見えている間）だけ、30 秒おきに軽い確認（版）を呼び、変わったときだけ読み直す。
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { PortalApplicant } from '../../../../generated/PortalApplicant';
 import type { PortalColumn } from '../../../../generated/PortalColumn';
 import type { PortalMe } from '../../../../generated/PortalMe';
 import type { PortalSheetRows } from '../../../../generated/PortalSheetRows';
 import type { PortalSheets } from '../../../../generated/PortalSheets';
 import type { PortalSheetVersion } from '../../../../generated/PortalSheetVersion';
-import { IconChevronDown, IconChevronRight, IconLogout, IconMail, IconPhone, IconSearch, IconSheet, IconX } from '../../ui/icons';
+import { IconChevronDown, IconLogout, IconMail, IconPhone, IconSearch, IconSheet, IconX } from '../../ui/icons';
 import { Badge, Button, cx, formatTime, IconButton, Notice } from '../../ui/kit';
 import { call, NETWORK } from '../api';
+import { ApplicantGrid } from './ApplicantGrid';
+import { columnConfig, validApplicant, type EditableApplicant, type EditableColumn, type SaveRow, type SaveRowResult } from './editing';
+import { CellInput } from '../../ui/cell';
 import { DETAIL_GROUPS, GROUP_TITLE, groupOf, isGone, listLayout, mailHref, matches, newestFirst, readUrl, statusTone, telHref, urlFor, type ListLayout } from './model';
 
 const CHECK_EVERY_MS = 30_000;
@@ -101,53 +104,6 @@ function SheetSwitch({ sheets, current, onSelect }: { sheets: PortalSheets['shee
   );
 }
 
-function Table({ data, layout, rows, selected, onOpen }: { data: PortalSheetRows; layout: ListLayout; rows: PortalApplicant[]; selected: number | null; onOpen: (row: number) => void }) {
-  return (
-    <div className="overflow-x-auto rounded-lg border border-pt-line bg-pt-surface shadow-pt-card">
-      <table className="pt-grid w-full border-collapse text-[13px]">
-        <thead>
-          <tr className="border-b border-pt-line bg-pt-bg text-left text-xs text-pt-muted">
-            {layout.list.map((i) => <th key={i} scope="col" className="px-3 py-2 font-medium whitespace-nowrap">{data.columns[i]?.label}</th>)}
-            <th scope="col" className="w-8"><span className="sr-only">詳細</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((a) => {
-            const name = layout.title !== null ? (a.cells[layout.title] ?? '') : '';
-            return (
-              <tr
-                key={a.row}
-                onClick={() => { onOpen(a.row); }}
-                aria-selected={a.row === selected}
-                className={cx('cursor-pointer border-b border-pt-line last:border-b-0 hover:bg-pt-bg', a.row === selected && 'bg-pt-primary-soft hover:bg-pt-primary-soft')}
-              >
-                {layout.list.map((i) => {
-                  const c = data.columns[i];
-                  const v = a.cells[i] ?? '';
-                  if (!c) return <td key={i} />;
-                  if (i === layout.title) {
-                    return (
-                      <td key={i} className="px-3 py-2.5 font-medium whitespace-nowrap text-pt-ink">
-                        <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(a.row); }} className="text-left hover:underline">{v === '' ? '（名前なし）' : v}</button>
-                      </td>
-                    );
-                  }
-                  return (
-                    <td key={i} className={cx('max-w-[280px] truncate px-3 py-2.5 text-pt-ink', (c.kind === 'date' || c.kind === 'datetime' || c.kind === 'phone') && 'pt-num whitespace-nowrap')} title={c.kind === 'choice' ? undefined : v}>
-                      {c.kind === 'choice' ? <StatusBadge value={v} /> : v === '' ? <span className="text-pt-faint">—</span> : v}
-                    </td>
-                  );
-                })}
-                <td className="pr-2 text-pt-faint" aria-hidden="true"><IconChevronRight size={14} /><span className="sr-only">{name}</span></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function Cards({ data, layout, rows, onOpen }: { data: PortalSheetRows; layout: ListLayout; rows: PortalApplicant[]; onOpen: (row: number) => void }) {
   return (
     <ul className="flex flex-col gap-2">
@@ -172,16 +128,42 @@ function Cards({ data, layout, rows, onOpen }: { data: PortalSheetRows; layout: 
   );
 }
 
-function Detail({ data, layout, applicant, onClose }: { data: PortalSheetRows; layout: ListLayout; applicant: PortalApplicant; onClose: () => void }) {
+function Detail({ data, layout, applicant, onClose, saveRow }: { data: PortalSheetRows; layout: ListLayout; applicant: EditableApplicant; onClose: () => void; saveRow: SaveRow }) {
+  const [baseline, setBaseline] = useState(applicant);
+  const [draft, setDraft] = useState(() => applicant.cells.slice());
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [conflict, setConflict] = useState<EditableApplicant | null>(null);
+  const dirty = draft.some((value, index) => value !== baseline.cells[index]);
+  const requestClose = useCallback(() => { if (!saving && (!dirty || window.confirm('保存していない入力があります。閉じてもよいですか？'))) onClose(); }, [saving, dirty, onClose]);
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => { window.removeEventListener('beforeunload', warn); };
+  }, [dirty]);
+  const submit = async () => {
+    if (saving || data.stale || conflict) return;
+    const changes = data.columns.flatMap((column: EditableColumn, index) => column.id && columnConfig(column).writable && draft[index] !== baseline.cells[index] ? [{ column: column.id, value: draft[index] ?? '' }] : []);
+    if (changes.length === 0) return;
+    setSaving(true); setProblem(''); setSaved(false);
+    const result = await saveRow(baseline, changes);
+    setSaving(false);
+    if (result.kind === 'saved') { setBaseline(result.applicant); setDraft(result.applicant.cells.slice()); setConflict(null); setSaved(true); }
+    else if (result.kind === 'conflict') setConflict(result.latest);
+    else setProblem(result.message);
+  };
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { closeRef.current?.focus(); }, [applicant.row]);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') requestClose(); };
     document.addEventListener('keydown', k);
     return () => { document.removeEventListener('keydown', k); };
-  }, [onClose]);
+  }, [requestClose]);
   const name = layout.title !== null ? (applicant.cells[layout.title] ?? '') : '';
   const status = layout.status !== null ? (applicant.cells[layout.status] ?? '') : null;
+  const statusColumn = layout.status === null ? undefined : data.columns[layout.status];
   const fields = (pick: (c: PortalColumn, i: number) => boolean) => data.columns.map((c, i) => ({ c, i })).filter(({ c, i }) => pick(c, i));
   const summary = fields((c, i) => groupOf(c) === 'summary' && i !== layout.title && i !== layout.status);
   const rowsOf = (list: { c: PortalColumn; i: number }[]): ReactNode => (
@@ -189,20 +171,20 @@ function Detail({ data, layout, applicant, onClose }: { data: PortalSheetRows; l
       {list.map(({ c, i }) => (
         <div key={i} className="contents">
           <dt className="pt-0.5 text-[13px] text-pt-muted">{c.label}</dt>
-          <dd className="min-w-0 text-pt-ink"><Value column={c} value={applicant.cells[i] ?? ''} /></dd>
+          <dd className="min-w-0 text-pt-ink">{columnConfig(c).writable ? <fieldset disabled={saving || data.stale}><legend className="sr-only">{c.label}</legend><CellInput column={columnConfig(c)} value={draft[i] ?? ''} onChange={(value) => { setDraft((current) => current.map((item, index) => index === i ? value : item)); setSaved(false); }} onCommit={() => { void submit(); }} onCancel={requestClose} autoFocus={false} /></fieldset> : <Value column={c} value={applicant.cells[i] ?? ''} />}</dd>
         </div>
       ))}
     </dl>
   );
   return (
-    <div role="dialog" aria-modal="true" aria-label={`${name}さんの詳細`} className="fixed inset-0 z-[60] flex justify-end bg-black/30 lg:bg-black/10" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div role="dialog" aria-modal="true" aria-label={`${name}さんの詳細`} className="fixed inset-0 z-[60] flex justify-end bg-black/30 lg:bg-black/10" onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }}>
       <div className="pt-sheet-enter flex h-full w-full flex-col bg-pt-surface shadow-pt-pop lg:max-w-[460px]">
         <div className="flex items-center gap-2 border-b border-pt-line px-4 py-2.5">
-          <button ref={closeRef} type="button" onClick={onClose} className="-ml-2 inline-flex h-[44px] items-center gap-1 rounded-md px-2 text-[15px] text-pt-muted hover:bg-pt-sunken lg:hidden">
+          <button ref={closeRef} type="button" onClick={requestClose} className="-ml-2 inline-flex h-[44px] items-center gap-1 rounded-md px-2 text-[15px] text-pt-muted hover:bg-pt-sunken lg:hidden">
             <span aria-hidden="true">←</span>一覧へ
           </button>
           <span className="hidden text-xs text-pt-faint lg:inline">応募者の詳細</span>
-          <span className="ml-auto hidden lg:block"><IconButton label="閉じる" onClick={onClose}><IconX size={16} /></IconButton></span>
+          <span className="ml-auto hidden lg:block"><IconButton label="閉じる" onClick={requestClose}><IconX size={16} /></IconButton></span>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-[calc(24px+env(safe-area-inset-bottom))]">
           <div className="flex flex-wrap items-center gap-2">
@@ -210,6 +192,7 @@ function Detail({ data, layout, applicant, onClose }: { data: PortalSheetRows; l
             {status !== null && <StatusBadge value={status} />}
           </div>
           {summary.length > 0 && <div className="mt-4">{rowsOf(summary)}</div>}
+          {layout.status !== null && statusColumn && columnConfig(statusColumn).writable && <div className="mt-4">{rowsOf([{ c: statusColumn, i: layout.status }])}</div>}
           {DETAIL_GROUPS.map((g) => {
             const list = fields((c, i) => groupOf(c) === g && i !== layout.title && i !== layout.status);
             if (list.length === 0) return null;
@@ -220,7 +203,11 @@ function Detail({ data, layout, applicant, onClose }: { data: PortalSheetRows; l
               </section>
             );
           })}
-          <p className="mt-8 text-xs text-pt-faint">シートの {applicant.row} 行目の内容です。</p>
+          {data.stale && <div className="mt-4"><Notice tone="warn">シートを確かめられないため、いまは保存できません。入力は残しています。</Notice></div>}
+          {conflict && <div className="mt-4" role="alert"><Notice tone="warn" title="シートで変更されています">入力は保存していません。最新の内容を確認してください。<ul className="mt-2">{data.columns.map((column, index) => baseline.cells[index] !== conflict.cells[index] ? <li key={index}>{column.label}：{conflict.cells[index] === '' ? '未入力' : conflict.cells[index]}</li> : null)}</ul><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" onClick={() => { setBaseline(conflict); setDraft(conflict.cells.slice()); setConflict(null); }}>最新の内容で開き直す</Button><Button size="sm" onClick={() => { setBaseline(conflict); setConflict(null); }}>入力を残して再確認</Button></div></Notice></div>}
+          {problem && <p role="alert" className="mt-4 text-sm text-pt-danger">{problem} 入力した内容は残しています。</p>}
+          {saved && <p role="status" className="mt-4 text-sm text-pt-ok">保存しました</p>}
+          {data.columns.some((column) => columnConfig(column).writable) && <div className="sticky bottom-0 mt-5 border-t border-pt-line bg-pt-surface py-3"><Button variant="primary" disabled={!dirty || saving || data.stale || conflict !== null} onClick={() => { void submit(); }}>{saving ? '保存しています…' : '変更を保存'}</Button></div>}
         </div>
       </div>
     </div>
@@ -232,6 +219,7 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
   const sheetsRef = useRef<PortalSheets['sheets'] | null>(null);
   useEffect(() => { sheetsRef.current = sheets; }, [sheets]);
   const [listProblem, setListProblem] = useState<string | null>(null);
+  const [schemaNotice, setSchemaNotice] = useState(false);
   const [url, setUrl] = useState(() => readUrl(window.location.search));
   const [rawLoad, setLoad] = useState<Load>({ sheet: null, state: 'loading' });
   const [checkProblem, setCheckProblem] = useState(false);
@@ -241,16 +229,27 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
   const [goneSheet, setGoneSheet] = useState<{ id: string; label: string } | null>(null);
   const versionRef = useRef<string | null>(null);
   const reqRef = useRef(0);
+  const dataRef = useRef<PortalSheetRows | null>(null);
+  const savingRef = useRef(false);
+  const readData = useCallback(() => dataRef.current, []);
+  const activeSheetRef = useRef<string | null>(null);
+  const clearSession = useCallback(() => {
+    ++reqRef.current; versionRef.current = null; dataRef.current = null; savingRef.current = false;
+    setLoad({ sheet: null, state: 'loading' }); setSheets([]); sheetsRef.current = []; setQuery(''); setGoneSheet(null);
+    onSignedOut();
+  }, [onSignedOut]);
 
   const sheetId = sheets && sheets.length > 0 ? (sheets.find((s) => s.id === url.sheet)?.id ?? sheets[0]?.id ?? null) : null;
+
+  useLayoutEffect(() => { activeSheetRef.current = sheetId; }, [sheetId]);
 
   useEffect(() => {
     void call<PortalSheets>('GET', '/api/portal/sheets').then((r) => {
       if (r.ok) setSheets(r.data.sheets);
-      else if (r.status === 401) onSignedOut();
+      else if (r.status === 401) clearSession();
       else setListProblem(message(r));
     });
-  }, [onSignedOut, listKey]);
+  }, [clearSession, listKey]);
 
   useEffect(() => {
     const onPop = () => { setUrl(readUrl(window.location.search)); };
@@ -263,6 +262,9 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
    * 画面に残っている応募者の内容を捨て、シートの一覧を取り直す
    */
   const markGone = useCallback((id: string) => {
+    if (activeSheetRef.current !== id) { setListKey((key) => key + 1); return; }
+    dataRef.current = null;
+    setQuery('');
     reqRef.current += 1;
     versionRef.current = null;
     setCheckProblem(false);
@@ -277,22 +279,22 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
   const reload = useCallback((id: string, quiet: boolean) => {
     const req = ++reqRef.current;
     void call<PortalSheetRows>('GET', `/api/portal/sheets/${encodeURIComponent(id)}/rows`).then((r) => {
-      if (req !== reqRef.current) return;
+      if (!r.ok && r.status === 401) { clearSession(); return; }
+      if (activeSheetRef.current !== id) return;
+      if (!r.ok && isGone(r)) { markGone(id); return; }
+      if (req !== reqRef.current || savingRef.current) return;
       if (r.ok) {
+        if (dataRef.current && JSON.stringify(dataRef.current.columns) !== JSON.stringify(r.data.columns)) setQuery('');
         versionRef.current = r.data.version;
         setCheckProblem(false);
         setLoad({ sheet: id, state: 'ready', data: r.data });
-      } else if (r.status === 401) {
-        onSignedOut();
-      } else if (isGone(r)) {
-        markGone(id);
       } else if (quiet) {
         setCheckProblem(true);
       } else {
         setLoad({ sheet: id, state: 'failed', message: message(r) });
       }
     });
-  }, [onSignedOut, markGone]);
+  }, [clearSession, markGone]);
 
   useEffect(() => {
     if (!sheetId) return;
@@ -306,14 +308,15 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
     let timer: number | undefined;
     const check = () => {
       if (document.hidden || versionRef.current === null) return;
+      const generation = reqRef.current;
       void call<PortalSheetVersion>('GET', `/api/portal/sheets/${encodeURIComponent(sheetId)}/version`).then((r) => {
+        if (!r.ok && r.status === 401) { clearSession(); return; }
+        if (activeSheetRef.current !== sheetId) return;
+        if (!r.ok && isGone(r)) { markGone(sheetId); return; }
+        if (generation !== reqRef.current || savingRef.current) return;
         if (r.ok) {
           if (r.data.version !== versionRef.current) reload(sheetId, true);
           else setCheckProblem(false);
-        } else if (r.status === 401) {
-          onSignedOut();
-        } else if (isGone(r)) {
-          markGone(sheetId);
         } else {
           setCheckProblem(true);
         }
@@ -328,7 +331,7 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
     if (!document.hidden) start();
     document.addEventListener('visibilitychange', onVisible);
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, [sheetId, reload, onSignedOut, markGone]);
+  }, [sheetId, reload, clearSession, markGone]);
 
   const go = (sheet: string | null, row: number | null, push: boolean) => {
     const next = urlFor(PATH, sheet, row);
@@ -339,6 +342,41 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
 
   const load: Load = rawLoad.sheet === sheetId ? rawLoad : { sheet: sheetId, state: 'loading' };
   const data = load.state === 'ready' ? load.data : null;
+  useLayoutEffect(() => { dataRef.current = data; }, [data]);
+  const saveRow = useCallback<SaveRow>(async (row, changes) => {
+    const current = dataRef.current;
+    if (!current || current.stale || current.sheet.id !== sheetId || !row.revision) return { kind: 'failed', message: '最新のシートを読み直してからお試しください' };
+    if (savingRef.current) return { kind: 'failed', message: '前の保存が終わってからお試しください' };
+    savingRef.current = true;
+    ++reqRef.current;
+    const result = await call<{ applicant: EditableApplicant }>('PATCH', `/api/portal/sheets/${encodeURIComponent(current.sheet.id)}/rows/${String(row.row)}`, { revision: row.revision, changes });
+    savingRef.current = false;
+    ++reqRef.current;
+    if (!result.ok && result.status === 401) { clearSession(); return { kind: 'failed', message: message(result) }; }
+    if (!result.ok && isGone(result)) { markGone(current.sheet.id); return { kind: 'failed', message: message(result) }; }
+    const displayed = readData();
+    if (current.sheet.id !== displayed?.sheet.id) return { kind: 'failed', message: '表示するシートが変わりました' };
+    if (!result.ok && result.status === 409 && !validApplicant(result.extra.latest)) {
+      dataRef.current = null; versionRef.current = null;
+      setLoad({ sheet: current.sheet.id, state: 'loading' });
+      setSchemaNotice(true);
+      window.history.replaceState(null, '', urlFor(PATH, current.sheet.id, null));
+      setUrl({ sheet: current.sheet.id, row: null });
+      reload(current.sheet.id, false);
+      return { kind: 'failed', message: '項目の設定が変わりました。応募者を開き直してください' };
+    }
+    let outcome: SaveRowResult;
+    if (result.ok && validApplicant(result.data.applicant)) outcome = { kind: 'saved', applicant: result.data.applicant };
+    else if (!result.ok && result.status === 409 && validApplicant(result.extra.latest)) outcome = { kind: 'conflict', latest: result.extra.latest };
+    else {
+      return { kind: 'failed', message: result.ok ? '保存結果を確認できませんでした。シートを読み直してください' : message(result) };
+    }
+    const latest = outcome.kind === 'saved' ? outcome.applicant : outcome.latest;
+    setLoad((previous) => previous.state === 'ready' && previous.sheet === current.sheet.id ? { ...previous, data: { ...previous.data, applicants: previous.data.applicants.map((item) => item.row === latest.row ? latest : item) } } : previous);
+    dataRef.current = { ...displayed, applicants: displayed.applicants.map((item) => item.row === latest.row ? latest : item) };
+    if (outcome.kind === 'saved') { versionRef.current = null; reload(current.sheet.id, true); }
+    return outcome;
+  }, [sheetId, clearSession, markGone, reload, readData]);
   const layout = useMemo(() => (data ? listLayout(data.columns) : null), [data]);
   const shown = useMemo(() => (data ? newestFirst(data.applicants.filter((a) => matches(a, query))) : []), [data, query]);
   const open = data && url.row !== null ? data.applicants.find((a) => a.row === url.row) : undefined;
@@ -377,34 +415,35 @@ export function ApplicantsScreen({ me, onSignedOut, onLogout }: { me: PortalMe; 
           <p className="rounded-lg border border-pt-line bg-pt-surface px-4 py-12 text-center text-[13px] text-pt-muted">条件に合う応募者はいません</p>
         ) : (
           <>
-            <div className="hidden lg:block"><Table data={data} layout={layout} rows={shown} selected={open?.row ?? null} onOpen={openRow} /></div>
+            <div className="hidden lg:block"><ApplicantGrid key={`${data.sheet.id}:${JSON.stringify(data.columns)}`} data={data} query={query} selected={open?.row ?? null} onOpen={openRow} saveRow={saveRow} /></div>
             <div className="lg:hidden"><Cards data={data} layout={layout} rows={shown} onOpen={openRow} /></div>
           </>
         )}
-        {open && <Detail data={data} layout={layout} applicant={open} onClose={closeDetail} />}
+        {open && <Detail key={`${data.sheet.id}:${String(open.row)}:${JSON.stringify(data.columns)}`} data={data} layout={layout} applicant={open} onClose={closeDetail} saveRow={saveRow} />}
       </>
     );
   }
 
   return (
     <div className="min-h-dvh bg-pt-bg">
-      <header className="sticky top-0 z-40 border-b border-pt-line bg-pt-surface">
+      <header className="sticky top-0 z-40 border-b border-pt-brand bg-pt-brand text-white">
         <div className="mx-auto flex h-[52px] max-w-[1280px] items-center gap-3 px-4 lg:gap-5">
-          <span className="inline-flex shrink-0 items-center gap-2 text-[13px] font-semibold text-pt-ink">
+          <span className="inline-flex shrink-0 items-center gap-2 text-[13px] font-semibold text-white">
             <span className="flex size-6 items-center justify-center rounded bg-pt-brand text-white"><IconSheet size={13} /></span>
-            <span className="hidden sm:inline">応募者の管理</span>
+            <span>応募者の管理</span>
           </span>
-          {sheets && <div className="flex min-w-0 flex-1 items-center"><SheetSwitch sheets={sheets} current={sheetId} onSelect={(id) => { go(id, null, false); setQuery(''); setGoneSheet(null); }} /></div>}
-          <span className="ml-auto hidden max-w-[240px] truncate text-xs text-pt-muted md:inline" title={me.email}>{me.email}</span>
-          <IconButton label="ログアウト" onClick={onLogout} className="ml-auto md:ml-0"><IconLogout size={16} /></IconButton>
+          <span className="ml-auto hidden max-w-[240px] truncate text-xs text-white/85 md:inline" title={me.email}>{me.email}</span>
+          <button type="button" aria-label="ログアウト" onClick={onLogout} className="ml-auto inline-flex size-10 items-center justify-center rounded-md text-white hover:bg-white/15 md:ml-0"><IconLogout size={16} /></button>
         </div>
       </header>
-      <main className="mx-auto max-w-[1280px] px-4 py-4 lg:py-5">
+      <div className="flex"><aside className="hidden w-56 shrink-0 border-r border-pt-line bg-pt-surface px-2 pt-3 lg:block"><nav aria-label="顧客のメニュー"><span aria-current="page" className="flex h-9 items-center gap-2 rounded-md bg-pt-primary-soft px-3 text-[13px] font-semibold text-pt-primary"><IconSheet size={16} />応募者</span></nav></aside><main className="min-w-0 flex-1 px-4 py-4 lg:py-5">
+        <div className="mb-4 flex min-w-0 flex-wrap items-center gap-4"><h1 className="text-[17px] font-semibold">応募者</h1>{sheets && <SheetSwitch sheets={sheets} current={sheetId} onSelect={(id) => { go(id, null, false); setQuery(''); setGoneSheet(null); }} />}</div>
         {goneSheet && goneSheet.id !== sheetId && (
           <div className="mb-3"><Notice tone="warn" action={<Button size="sm" variant="ghost" onClick={() => { setGoneSheet(null); }}>閉じる</Button>}>「{goneSheet.label}」は見られなくなりました。続けてご覧になるときは、弊社の担当者にご連絡ください。</Notice></div>
         )}
+        {schemaNotice && <div className="mb-3"><Notice tone="info">項目の設定が変わったため、一覧を読み直しました。応募者を開き直してください。</Notice></div>}
         {body}
-      </main>
+      </main></div>
     </div>
   );
 }

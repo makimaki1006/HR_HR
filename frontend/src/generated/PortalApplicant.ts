@@ -2,6 +2,10 @@
 
 export type PortalApplicant = { 
 /**
+ * 秘密列を含む行全体の照合。値から逆算できない署名。
+ */
+revision: string, 
+/**
  * シートの行番号 (1 始まり)
  */
 row: number, 

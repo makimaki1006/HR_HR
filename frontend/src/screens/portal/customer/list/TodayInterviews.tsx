@@ -1,7 +1,7 @@
 // スマホの一覧の先頭に出す「今日の面接」の欄。時刻の早い順に最大 3 人、電話ボタンつき。
 import { useMemo } from 'react';
 import { cardLayout, dayLabel, kindOf, parseTimeOfDay, TODAY_NUM } from '../../columns';
-import { NOW } from '../../fixtures';
+import { portalNow } from '../../clock';
 import { IconChevronRight, IconPhone } from '../../ui/icons';
 import { Badge, Card, cx } from '../../ui/kit';
 import type { ApplicantRow, ColumnConfig, SheetConfig } from '../../types';
@@ -11,7 +11,7 @@ const MAX_ROWS = 3;
 
 /** 試作の「いま」の、日本時間での 0 時からの分。 */
 const nowMinutes = (): number => {
-  const d = new Date(Date.parse(NOW) + 9 * 3_600_000);
+  const d = new Date(portalNow() + 9 * 3_600_000);
   return d.getUTCHours() * 60 + d.getUTCMinutes();
 };
 
@@ -40,7 +40,7 @@ export function TodayInterviews({ sheet, rows, onOpen, onPick }: {
   onPick: (q: Quick) => void;
 }) {
   const today = useMemo(() => {
-    const list = rows.filter((r) => matchesQuick(sheet, r, 'today')).map((r) => ({ row: r, at: interviewMinutes(sheet, r) }));
+    const list = rows.filter((r) => matchesQuick(sheet, r, 'today', rows)).map((r) => ({ row: r, at: interviewMinutes(sheet, r) }));
     return list.sort((a, b) => {
       if (a.at === null && b.at === null) return a.row.rowNumber - b.row.rowNumber;
       if (a.at === null) return 1;
@@ -48,7 +48,7 @@ export function TodayInterviews({ sheet, rows, onOpen, onPick }: {
       return a.at - b.at;
     });
   }, [rows, sheet]);
-  const tomorrow = useMemo(() => rows.filter((r) => matchesQuick(sheet, r, 'tomorrow')).length, [rows, sheet]);
+  const tomorrow = useMemo(() => rows.filter((r) => matchesQuick(sheet, r, 'tomorrow', rows)).length, [rows, sheet]);
   const nameCol = cardLayout(sheet).title;
   const job = jobColumn(sheet);
   const phone = phoneColumn(sheet);
