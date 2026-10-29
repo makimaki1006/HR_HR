@@ -338,6 +338,22 @@ HubSpot・Zoom (`ZOOM_*`)・MiniMax (`MINIMAX_API_KEY` / `MINIMAX_BASE_URL`) の
 | `APO_JUDGE_MODEL` | `CALL_REVIEW_MODEL` または `MiniMax-M3` | 判定に使う MiniMax のモデル名 |
 
 
+### 応募の日付のカレンダー (既定 OFF、ADR-037、設計書 §24)
+
+`CRM_EMAIL_TOKEN_KEY`・Google の設定 (`GOOGLE_OIDC_*`、`CRM_EMAIL_GOOGLE_CLIENT_ID` / `_SECRET` があればその内部のクライアント)・`AUDIT_TURSO_*`・HubSpot の鍵は上の表と共通。`CRM_EMAIL_ENABLED` は要らない。許可は管理画面 `/app/admin?view=calendar` でアカウント本人が押す (監査 Turso の `applicant_calendar_grants`)。
+
+| 変数 | 既定 | 用途 |
+|------|------|------|
+| `APPLICANT_CALENDAR_ENABLED` | 未設定 | `1` のときだけ背景の周回が動く。許可は OFF のままでも先に取れる |
+| `APPLICANT_CALENDAR_ACCOUNT` | 未設定 | 管理用カレンダーのアカウントのアドレス (公開リポなので値は書かない)。この人だけが許可を押せる。未設定・形が違うと機能全体が使えない (管理画面は「設定がされていません」) |
+| `APPLICANT_CALENDAR_REDIRECT_URL` | 未設定 | 許可の戻り先。パスは `/api/admin/applicant-calendar/callback` 固定、HTTPS 必須 (localhost は HTTP 可)。例 `https://hr-hw.onrender.com/api/admin/applicant-calendar/callback`。使う OAuth クライアントの承認済みリダイレクト URI に登録する |
+| `APPLICANT_CALENDAR_ID` | `primary` | 載せ先のカレンダー ID。`primary` は許可したアカウントの既定のカレンダー |
+| `APPLICANT_CALENDAR_PROPS` | `mensetsuyoteibi:面接,nyuushayoteibi:入社,naiteinichi:内定` | 載せる応募の項目 (内部名:予定の名前の頭の種類、カンマ区切り)。内部名は英小文字・数字・`_`、種類は 1〜10 文字。形が違えば既定を使う。予定の形 (時刻つき / 終日) は HubSpot の型で決まる |
+| `APPLICANT_CALENDAR_INTERVAL_SECS` | `300` | 周回の間隔 (秒)。60〜3600、範囲外は既定 |
+| `APPLICANT_CALENDAR_EVENT_MINUTES` | `60` | 時刻つきの予定の長さ (分)。5〜1440 |
+
+Google Cloud のプロジェクト (使う OAuth クライアントのもの) で Google Calendar API を有効にしておく。
+
 ### 架電の練習 (`/app/call-practice`、管理者だけ、第 1 段。設計書 `docs/architecture/call-practice-design.md`)
 
 | 変数 | 既定 | 用途 |

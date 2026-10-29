@@ -30,7 +30,7 @@ const LIVE_STAGES: &[&str] = &[
     "1216616082",
     "1216616083",
 ];
-pub(super) const PROPERTIES: &[&str] = &[
+pub(crate) const PROPERTIES: &[&str] = &[
     "customer_sheet_url",
     "dealstage",
     "dealname",
@@ -79,7 +79,10 @@ fn key(r: &HubSpotRecord) -> (u8, String, &str) {
         property(r, "createdate"),
     )
 }
-fn owner_deal<'a>(ids: &[String], deals: &'a [HubSpotRecord]) -> Option<&'a HubSpotRecord> {
+pub(crate) fn owner_deal<'a>(
+    ids: &[String],
+    deals: &'a [HubSpotRecord],
+) -> Option<&'a HubSpotRecord> {
     let mut best: Option<&HubSpotRecord> = None;
     for id in ids {
         if let Some(r) = deals

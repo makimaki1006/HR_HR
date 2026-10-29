@@ -134,6 +134,11 @@ const TABLE_DDL: &[&str] = &[
         sender_email TEXT PRIMARY KEY, encrypted_refresh_token TEXT NOT NULL,
         scopes TEXT NOT NULL, granted_at TEXT NOT NULL, revoked_at TEXT
     )"#,
+    // ADR-037: 応募の日付を載せる管理用カレンダーの Google 許可 (calendar.events だけ)。CRM・顧客画面の許可とは別の表・別の AAD
+    r#"CREATE TABLE IF NOT EXISTS applicant_calendar_grants (
+        account_email TEXT PRIMARY KEY, encrypted_refresh_token TEXT NOT NULL,
+        scopes TEXT NOT NULL, granted_at TEXT NOT NULL, revoked_at TEXT
+    )"#,
     // ADR-019: 求人本文の複製DBではなく、書き込みの再送と冪等性だけの台帳。
     r#"CREATE TABLE IF NOT EXISTS job_copy_draft_operations (
         operation_id TEXT PRIMARY KEY, operator_email TEXT NOT NULL, listing_id TEXT NOT NULL,

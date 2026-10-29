@@ -23,6 +23,7 @@
 //! HubSpot への通信は `crate::hubspot::HubSpotClient` (`AppState.hubspot`) に一本化している。
 
 pub mod apo_judge;
+pub mod applicant_calendar;
 pub mod applicants;
 pub mod assoc_labels;
 pub mod call_queue;
