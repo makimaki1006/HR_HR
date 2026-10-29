@@ -2086,6 +2086,7 @@ dependencies = [
  "flate2",
  "html-escape",
  "http",
+ "http-body",
  "http-body-util",
  "jsonwebtoken",
  "lol_html",

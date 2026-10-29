@@ -337,3 +337,14 @@ HubSpot・Zoom (`ZOOM_*`)・MiniMax (`MINIMAX_API_KEY` / `MINIMAX_BASE_URL`) の
 | `APO_JUDGE_MIN_TALK_SEC` | `60` | 判定に使う電話の通話時間の下限 (秒)。0〜3600 |
 | `APO_JUDGE_MODEL` | `CALL_REVIEW_MODEL` または `MiniMax-M3` | 判定に使う MiniMax のモデル名 |
 
+
+### 架電の練習 (`/app/call-practice`、管理者だけ、第 1 段。設計書 `docs/architecture/call-practice-design.md`)
+
+| 変数 | 既定 | 用途 |
+|------|------|------|
+| `ANTHROPIC_API_KEY` | 未設定 | お客さん役 (Claude の Messages API) の鍵。未設定のときは練習を始められず、画面に「いまはお客さん役を呼び出せません」と出る。値はログにも画面にも出さない |
+| `CALL_PRACTICE_MODEL` | `claude-sonnet-5-5` | お客さん役のモデル名 |
+| `CALL_PRACTICE_SCORE_MODEL` | `MiniMax-M3` | 採点のコメントを付ける MiniMax のモデル名。鍵は `MINIMAX_API_KEY`、接続先は `MINIMAX_BASE_URL` (トークの振り返りと同じ) |
+
+- 練習の状態はサーバのメモリだけに持つ (保存しない・表を作らない)。再起動で消える。単一インスタンス前提。
+- 同時に呼ぶ LLM は 2 本まで (超えたら 503 `llm_busy`)。往復は 30 回、長さは 15 分まで。

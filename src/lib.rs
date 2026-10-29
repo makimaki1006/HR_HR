@@ -2,6 +2,7 @@
 #![recursion_limit = "256"]
 pub mod audit;
 pub mod auth;
+pub mod call_practice;
 pub mod config;
 pub mod crm;
 pub mod db;
@@ -965,6 +966,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                 middleware::from_fn_with_state(state.clone(), activity_log_mw),
             ),
         )
+        // 架電の練習 (/api/call-practice/*)。管理者だけ。未ログインは JSON の 401 で返すため auth_middleware の外に置く
+        .merge(call_practice::routes::router(crm::rbac::CrmAccess::from_env()))
         // 顧客向け応募者画面の社内向けテスト版 (/api/portal-test/*)。CRM と同じく auth_middleware の外に置き、
         // 認可 (会社の Google ログイン) と書き込みの CSRF は各ハンドラ・ルートで行う。読み書きできるシートは 1 枚だけ。
         .merge(handlers::portal_test::router())

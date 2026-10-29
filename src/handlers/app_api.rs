@@ -133,6 +133,15 @@ mod tests {
         crate::crm::applicants::ApplicantDetail::export_all(&cfg).unwrap();
         crate::crm::applicants::ApplicantReminders::export_all(&cfg).unwrap();
         crate::crm::applicants::ApplicantPresence::export_all(&cfg).unwrap();
+        // 架電の練習 (自分の型の Deserialize 側もまとめて書き出す)
+        crate::call_practice::types::PracticeConfig::export_all(&cfg).unwrap();
+        crate::call_practice::types::PracticeStartRequest::export_all(&cfg).unwrap();
+        crate::call_practice::types::PracticeStartResponse::export_all(&cfg).unwrap();
+        crate::call_practice::types::PracticeTurnRequest::export_all(&cfg).unwrap();
+        crate::call_practice::types::PracticeTurnResponse::export_all(&cfg).unwrap();
+        crate::call_practice::types::PracticeSessionView::export_all(&cfg).unwrap();
+        crate::call_practice::types::PracticeFinishRequest::export_all(&cfg).unwrap();
+        crate::call_practice::types::PracticeResult::export_all(&cfg).unwrap();
         crate::portal::PortalMe::export_all(&cfg).unwrap();
         crate::portal::PortalLoginResponse::export_all(&cfg).unwrap();
         crate::portal::PortalInviteInfo::export_all(&cfg).unwrap();

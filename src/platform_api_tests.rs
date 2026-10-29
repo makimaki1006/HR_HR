@@ -210,8 +210,8 @@ async fn api_navはログイン済みなら定義どおりのjsonを返す() {
         .filter(|i| i["hidden"] == true)
         .count();
     assert_eq!(
-        hidden, 15,
-        "隠し対象 15 件 (8 タブ + 求人検索 + dead route 4 + proposal-mock + 架電)"
+        hidden, 16,
+        "隠し対象 16 件 (8 タブ + 求人検索 + dead route 4 + proposal-mock + 架電 + 架電の練習)"
     );
     // 表示順: 既存の営業・コンサルKPIの順序を保持し、求人文面を末尾に追加。
     let visible: Vec<&str> = v["items"]
@@ -354,7 +354,7 @@ async fn 隠した画面のurl直アクセスはログイン済みで200のま�
             (i["id"].as_str().unwrap().to_string(), direct)
         })
         .collect();
-    assert_eq!(hidden.len(), 15);
+    assert_eq!(hidden.len(), 16);
     assert!(hidden.iter().any(|(_, u)| u == "/tab/overview"));
     assert!(hidden.iter().any(|(_, u)| u == "/call-quality"));
     assert!(hidden.iter().any(|(_, u)| u == "/proposal-mock"));
