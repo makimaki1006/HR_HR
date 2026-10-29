@@ -59,6 +59,8 @@ pub const KNOWN_SCREENS: &[&str] = &[
     "portal-admin",
     // 2026-10-22: トークの振り返り (/app/talk)。Google ログインの社内の人なら誰でも。ナビは Feature::Crm と同じ条件で出す
     "talk",
+    // 2026-10-29: 架電の練習 (/app/call-practice)。第 1 段は管理者だけ。ナビでは隠す (nav.rs)
+    "call-practice",
 ];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。

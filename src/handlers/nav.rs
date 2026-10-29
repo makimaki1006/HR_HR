@@ -494,6 +494,20 @@ pub const NAV_DEFS: &[NavDef] = &[
             since: Some("2026-09-07"),
         }),
     },
+    // 架電の練習 (React 画面 /app/call-practice)。第 1 段は管理者だけ。型と採点を確かめてから広げる
+    NavDef {
+        id: "call-practice",
+        label: "架電の練習",
+        title: Some("お客さん役を相手にヒアリングを練習する"),
+        kind: NavKind::App,
+        target: "/app/call-practice",
+        group: None,
+        requires: None,
+        hidden: Some(Hidden {
+            reason: "第 1 段は管理者だけが URL で開く試験版 (2026-10-29)。型と採点を確かめてからナビに出す",
+            since: Some("2026-10-29"),
+        }),
+    },
 ];
 
 /// `legacy_tab` の href。旧シェルが `URLSearchParams.get('tab')` で復号する `?tab=` 復元形。
@@ -856,6 +870,7 @@ mod tests {
                 ("workstyle", "/?tab=/tab/workstyle", None),
                 ("proposal-mock", "/proposal-mock", Some("2026-08-11")),
                 ("call-quality", "/call-quality", Some("2026-09-07")),
+                ("call-practice", "/app/call-practice", Some("2026-10-29")),
             ]
         );
         for i in items.iter().filter(|i| i.hidden) {
