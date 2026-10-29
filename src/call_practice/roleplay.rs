@@ -8,7 +8,8 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::persona::{Persona, SLOTS};
+use super::persona::{self, Persona, Range, SLOTS};
+use crate::crm::talk_review::judge::{extract_json, Completer, JudgeError};
 
 pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -36,6 +37,8 @@ pub struct CustomerReply {
     pub asked_slots: Vec<String>,
     pub is_question: bool,
     pub irritated: bool,
+    /// 日時の打診を断った・渋った返事か (お客さん役の印)
+    pub objection: bool,
     pub end: bool,
 }
 
@@ -135,6 +138,11 @@ pub fn parse_reply(full: &str) -> CustomerReply {
         .and_then(|m| m.get("mood"))
         .and_then(Value::as_str)
         == Some("irritated");
+    let objection = meta
+        .as_ref()
+        .and_then(|m| m.get("objection"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let end = meta
         .as_ref()
         .and_then(|m| m.get("end"))
@@ -145,6 +153,7 @@ pub fn parse_reply(full: &str) -> CustomerReply {
         asked_slots,
         is_question,
         irritated,
+        objection,
         end,
     }
 }
@@ -167,9 +176,13 @@ fn slot_label(slot: &str) -> &'static str {
 }
 
 /// 練習の間は変わらない部分 (プロンプトキャッシュの対象)
-pub fn build_system(p: &Persona) -> String {
+pub fn build_system(p: &Persona, range: Range) -> String {
     let mut s = String::new();
-    s.push_str("あなたは電話口のお客さん役です。採用支援サービスの営業から電話を受け、オンライン商談の日時に了承したところです。営業の練習相手として、実際の先方のように短く答えます。助言・解説・採点はしません。\n\n");
+    if range.has_appointment() {
+        s.push_str("あなたは電話口の担当者役です。採用支援サービスの営業から電話を受け、受付から担当者本人に代わったところです。営業は、オンライン商談の日時を決めようとします。営業の練習相手として、本物の担当者のように素っ気なく答えます。助言・解説・採点はしません。\n\n");
+    } else {
+        s.push_str("あなたは電話口のお客さん役です。採用支援サービスの営業から電話を受け、オンライン商談の日時に了承したところです。営業の練習相手として、本物の担当者のように素っ気なく答えます。助言・解説・採点はしません。\n\n");
+    }
     s.push_str(&format!(
         "## 人物 (架空)\n{}の{}。規模は{}。口調は「{}」。話の長さ(0〜3)は{}、答えるまでの渋さ(0〜3)は{}。\n\n",
         p.setting.industry,
@@ -179,20 +192,49 @@ pub fn build_system(p: &Persona) -> String {
         p.personality.talkative,
         p.personality.guard
     ));
-    s.push_str("## 隠れた答え (聞かれた項目だけ、この内容のとおりに答える。内容を変えない)\n");
-    for slot in SLOTS {
-        let say = match p.text_answer(slot) {
-            Some(t) => t.say.as_str(),
-            None => p.choice(slot).map(|c| c.say.as_str()).unwrap_or(""),
-        };
-        s.push_str(&format!("- {}: {}\n", slot_label(slot), say));
+    if range.has_appointment() {
+        s.push_str(&format!(
+            "## 日時の打診への反応 (この人物の決まり。変えない)\n{}\n日時を受けるかどうか、どの断り文句を使うかは、各ターンの最後に付く「進行メモ」の指示に従う。\n\n",
+            p.appointment.stance
+        ));
+    }
+    if range.has_hearing() {
+        s.push_str("## 隠れた答え (聞かれた項目だけ、この内容のとおりに答える。内容を変えない)\n");
+        for slot in SLOTS {
+            let say = match p.text_answer(slot) {
+                Some(t) => t.say.as_str(),
+                None => p.choice(slot).map(|c| c.say.as_str()).unwrap_or(""),
+            };
+            s.push_str(&format!("- {}: {}\n", slot_label(slot), say));
+        }
+        s.push('\n');
+    }
+    s.push_str("## 話し方 (最も大事)\n");
+    s.push_str("- 本物の担当者に近い、素っ気ない話し方にする。ふつうの返事は10〜25文字。「はい」「ええ」「まあ」「そうですね」で短く受ける。少し面倒そうな調子でよい。\n");
+    s.push_str("- 敬語は崩しすぎない (「〜です」「〜ですね」程度)。接客のような丁寧さ (「ありがとうございます」「承知いたしました」「素晴らしいですね」「ぜひ」) は使わない。聞かれていない気遣いや感想も言わない。\n");
+    s.push_str("- 営業が長く話しても、全部には反応せず、気になったところだけ短く返す。\n\n");
+    let rp = persona::real_phrases();
+    s.push_str(&format!(
+        "## 実際の担当者の返事の例 (実際の架電 {} 本の文字起こしから。短さと温度の目安。そのまま使ってもよいし、似た短さで言い換えてもよい)\n",
+        rp.calls_scanned
+    ));
+    for (scene, label) in [
+        ("person_greet", "担当者が出た直後"),
+        ("after_purpose", "用件を言われた直後"),
+        ("after_date_offer", "日時を言われたとき"),
+        ("refusal", "断るとき"),
+    ] {
+        if let Some(list) = rp.scenes.get(scene) {
+            let v: Vec<String> = list.iter().map(|x| format!("「{}」", x.text)).collect();
+            s.push_str(&format!("- {}: {}\n", label, v.join(" ")));
+        }
     }
     s.push_str("\n## 決まり\n");
     s.push_str("1. 聞かれた項目だけに答える。1回の返事で答える項目は1つ (話の長さが2以上なら2つまで)。聞かれていない項目は自分から言わない。\n");
     s.push_str("2. あいまいに聞かれたら、あいまいに答える (例: 「人は足りていますか」には「まあ、ぼちぼちですね」)。具体的に聞かれたときに答えの中身を出す。\n");
-    s.push_str("3. 隠れた答えに無いことを聞かれたら、人物に合わせて「特にないです」「分からないです」と答える。\n");
+    s.push_str("3. 答えの設定に無いことを聞かれたら、人物に合わせて「特にないです」「分からないです」と答える。\n");
     s.push_str(
-        "4. 返事は80文字まで。話し言葉の日本語だけで書く。英単語・中国語・韓国語を混ぜない。\n",
+        "4. 返事は50文字まで。話し言葉の日本語だけで書く。英単語・中国語・韓国語を混ぜない。\n",
     );
     s.push_str("5. 各ターンの最後に付く「進行メモ」に従う。嫌がる段階が「嫌がり始める」なら、短く「それ、当日じゃだめですか」のように嫌がる。「会話を閉じる」なら、挨拶して電話を切る方向の返事にして end を true にする。\n");
     s.push_str("6. 営業が締めの挨拶 (「ありがとうございました」「失礼いたします」など) をしたら、挨拶を返して end を true にする。\n");
@@ -209,30 +251,72 @@ pub fn build_system(p: &Persona) -> String {
         "\n## 出力の形\n返事の文だけを先に書く。そのあと改行して、最後の行に次の形で印を付ける。\n",
     );
     s.push_str(
-        "###{\"asked_slots\":[...],\"is_question\":true,\"mood\":\"normal\",\"end\":false}\n",
+        "###{\"asked_slots\":[...],\"is_question\":true,\"mood\":\"normal\",\"objection\":false,\"end\":false}\n",
     );
     s.push_str("- asked_slots: 営業が今回の発言で聞いた項目 (hiring_3m, hiring_later, issue, urgency, consider, budget, decider, attend のうち該当するもの。聞いていなければ空)\n");
     s.push_str("- is_question: 営業の発言が質問か (あいさつ・相づち・確認だけなら false)\n");
     s.push_str("- mood: 嫌がった返事なら \"irritated\"、それ以外は \"normal\"\n");
+    s.push_str("- objection: 日時の打診を断った・渋った返事なら true\n");
     s.push_str("- end: 会話を閉じるなら true\n");
     s.push_str("印の行以外に説明を書かない。\n");
     s
 }
 
+/// 今回の発言についての日時の打診の扱い
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OfferInfo {
+    /// 打診の何回目か
+    pub n: u32,
+    pub accept: bool,
+    /// 受けない型が電話を切る回数に達した
+    pub give_up: bool,
+}
+
+/// ターンごとの進行メモの材料
+#[derive(Debug, Clone, Copy)]
+pub struct MemoCtx {
+    pub question_count: u32,
+    pub fee_told: bool,
+    /// 日時が決まっているか (ヒアリングだけの範囲は最初から true)
+    pub agreed: bool,
+    /// 今回の発言が日時の打診なら、その扱い
+    pub offer: Option<OfferInfo>,
+}
+
 /// ターンごとに変わる進行メモ。営業の発言の後ろに足す
-pub fn progress_memo(question_count: u32, p: &Persona, fee_told: bool) -> String {
+pub fn progress_memo(c: &MemoCtx, p: &Persona) -> String {
+    if !c.agreed {
+        let body = match c.offer {
+            None => "今回の発言は日時の打診ではない。日時はまだ決まっていない。用件を聞かれたら、短く受けるか聞き返す程度にする。採用の中身を詳しく聞かれても、詳しくは答えず「それは当日で」くらいに留める。".to_string(),
+            Some(o) if o.give_up => format!(
+                "今回は日時の打診の{}回目。これ以上は受けない。「{}」の趣旨で短く断り、電話を切る方向の返事にする。objection を true、end を true にする。",
+                o.n,
+                p.objection_for(o.n)
+            ),
+            Some(o) if o.accept => format!(
+                "今回は日時の打診の{}回目。日時を受ける。「{}」の趣旨で短く返す。",
+                o.n, p.appointment.accept_say
+            ),
+            Some(o) => format!(
+                "今回は日時の打診の{}回目。まだ日時は受けない。断り文句は「{}」の趣旨で、自分の言い方で短く言う。objection を true にする。",
+                o.n,
+                p.objection_for(o.n)
+            ),
+        };
+        return format!("\n\n(進行メモ: {body})");
+    }
     let patience = p.personality.patience;
-    let stage = if question_count > patience + 3 {
+    let stage = if c.question_count > patience + 3 {
         "会話を閉じる"
-    } else if question_count > patience {
+    } else if c.question_count > patience {
         "嫌がり始める"
     } else {
         "なし"
     };
     format!(
         "\n\n(進行メモ: 営業の質問はここまで{}問。月額定額は{}。嫌がる段階: {}。)",
-        question_count,
-        if fee_told {
+        c.question_count,
+        if c.fee_told {
             "伝えられた"
         } else {
             "まだ伝えられていない"
@@ -372,6 +456,116 @@ impl AnthropicClient {
     }
 }
 
+/// 採点のコメントと判定を作る Claude (ストリームなし)。MiniMax は考え中の文が長く、
+/// 日本語以外が混ざった崩れた JSON を返すことがあるため、お客さん役と同じ Claude を使う。
+pub struct ClaudeScorer {
+    http: reqwest::Client,
+    api_key: String,
+    model: String,
+    url: String,
+}
+
+pub const DEFAULT_SCORE_MODEL: &str = "claude-sonnet-5-5";
+/// 採点 1 回の待ちの上限
+const SCORE_CALL_TIMEOUT: Duration = Duration::from_secs(40);
+
+impl ClaudeScorer {
+    /// `ANTHROPIC_API_KEY` が無ければ None。モデルは `CALL_PRACTICE_SCORE_MODEL`
+    pub fn from_env() -> Option<Self> {
+        let key = std::env::var("ANTHROPIC_API_KEY")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())?;
+        let model = std::env::var("CALL_PRACTICE_SCORE_MODEL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| DEFAULT_SCORE_MODEL.to_string());
+        Self::new(key, model, API_URL.to_string())
+    }
+
+    pub fn new(api_key: String, model: String, url: String) -> Option<Self> {
+        Some(Self {
+            http: reqwest::Client::builder()
+                .timeout(SCORE_CALL_TIMEOUT)
+                .build()
+                .ok()?,
+            api_key,
+            model,
+            url,
+        })
+    }
+
+    pub fn request_body(model: &str, prompt: &str) -> Value {
+        json!({
+            "model": model,
+            "max_tokens": 4000,
+            "thinking": {"type": "between_tools"},
+            "output_config": {"effort": "low"},
+            "messages": [{"role": "user", "content":
+                format!("{prompt}\n\n説明やコードブロックは付けず、JSON だけを出力してください。")}],
+        })
+    }
+
+    /// 応答の本文 (text ブロックをつなげたもの)
+    pub fn text_of(v: &Value) -> String {
+        v.get("content")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                    .filter_map(|b| b.get("text").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default()
+    }
+}
+
+impl Completer for ClaudeScorer {
+    async fn complete(&self, prompt: &str) -> Result<Value, JudgeError> {
+        let body = Self::request_body(&self.model, prompt);
+        let mut last = String::new();
+        for attempt in 0..2u64 {
+            if attempt > 0 {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            let r = match self
+                .http
+                .post(&self.url)
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    last = format!("send: {}", e.without_url());
+                    continue;
+                }
+            };
+            let st = r.status().as_u16();
+            if matches!(st, 429 | 500 | 502 | 503 | 504 | 529) {
+                last = format!("http {st}");
+                continue;
+            }
+            if !r.status().is_success() {
+                return Err(JudgeError::Transient(format!("http {st}")));
+            }
+            let Ok(v) = r.json::<Value>().await else {
+                last = "body".into();
+                continue;
+            };
+            match extract_json(&Self::text_of(&v)) {
+                Some(j) => return Ok(j),
+                None => last = "json".into(),
+            }
+        }
+        Err(JudgeError::Transient(last))
+    }
+}
+
 /// 決まった返事を順に返す偽物 (テスト用)
 pub struct FakeCustomer {
     replies: Mutex<VecDeque<Result<String, LlmError>>>,
@@ -496,12 +690,142 @@ mod tests {
     #[test]
     fn システムプロンプトは型の答えを含み嫌がる段階はメモで渡す() {
         let p = persona::find("budget_01").unwrap();
-        let s = build_system(p);
+        let s = build_system(p, Range::Hearing);
         assert!(s.contains("介護職を1名"));
         assert!(s.contains("月額定額の内容や金額感を聞いたあと"));
-        let m = progress_memo(9, p, true);
+        assert!(!s.contains("日時の打診への反応"));
+        let memo = |q, fee| {
+            progress_memo(
+                &MemoCtx {
+                    question_count: q,
+                    fee_told: fee,
+                    agreed: true,
+                    offer: None,
+                },
+                p,
+            )
+        };
+        let m = memo(9, true);
         assert!(m.contains("9問") && m.contains("伝えられた") && m.contains("嫌がり始める"));
-        assert!(progress_memo(12, p, false).contains("会話を閉じる"));
-        assert!(progress_memo(2, p, false).contains("嫌がる段階: なし"));
+        assert!(memo(12, false).contains("会話を閉じる"));
+        assert!(memo(2, false).contains("嫌がる段階: なし"));
+    }
+
+    #[test]
+    fn 話し方は素っ気なく実際の返事の例が入り範囲で中身が変わる() {
+        let p = persona::find("busy_01").unwrap();
+        let full = build_system(p, Range::Full);
+        assert!(full.contains("素っ気なく") && full.contains("10〜25文字"));
+        assert!(full.contains("実際の架電 2022 本"));
+        assert!(full.contains("「何の件ですか」") && full.contains("「結構」"));
+        assert!(full.contains("今ちょっと忙しくて") || full.contains("いつも忙しそう"));
+        assert!(full.contains("日時の打診への反応") && full.contains("組立の作業員を1名"));
+        let appt = build_system(p, Range::Appointment);
+        assert!(appt.contains("日時の打診への反応"));
+        assert!(!appt.contains("組立の作業員を1名"));
+        let hear = build_system(p, Range::Hearing);
+        assert!(hear.contains("日時に了承したところ") && !hear.contains("日時の打診への反応"));
+    }
+
+    #[test]
+    fn 日時の前の進行メモは断る_受ける_切るを指示する() {
+        let p = persona::find("docs_01").unwrap();
+        let ctx = |offer| MemoCtx {
+            question_count: 0,
+            fee_told: false,
+            agreed: false,
+            offer,
+        };
+        let none = progress_memo(&ctx(None), p);
+        assert!(none.contains("日時の打診ではない") && none.contains("それは当日で"));
+        let no = progress_memo(
+            &ctx(Some(OfferInfo {
+                n: 1,
+                accept: false,
+                give_up: false,
+            })),
+            p,
+        );
+        assert!(
+            no.contains("1回目")
+                && no.contains("資料だけ送ってもらえますか")
+                && no.contains("objection を true")
+        );
+        let yes = progress_memo(
+            &ctx(Some(OfferInfo {
+                n: 3,
+                accept: true,
+                give_up: false,
+            })),
+            p,
+        );
+        assert!(yes.contains("日時を受ける") && yes.contains("少しだけなら"));
+        let c = persona::find("cold_01").unwrap();
+        let cut = progress_memo(
+            &ctx(Some(OfferInfo {
+                n: 4,
+                accept: false,
+                give_up: true,
+            })),
+            c,
+        );
+        assert!(cut.contains("電話を切る") && cut.contains("end を true"));
+    }
+
+    #[test]
+    fn 採点の要求は考えを使い_json_だけを出させる() {
+        let b = ClaudeScorer::request_body("claude-sonnet-5-5", "P");
+        assert_eq!(b["model"], "claude-sonnet-5-5");
+        assert!(b.get("stream").is_none() && b.get("temperature").is_none());
+        assert!(b["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .ends_with("JSON だけを出力してください。"));
+        let v = json!({"content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"{\"a\":1}"}]});
+        assert_eq!(ClaudeScorer::text_of(&v), "{\"a\":1}");
+    }
+
+    /// 手元の確認用 (scripts/call_practice/proto_stage2.py が読む)。API は呼ばない。
+    /// 実行: cargo test --lib call_practice::roleplay::tests::dump_prompts -- --ignored
+    #[test]
+    #[ignore]
+    fn dump_prompts() {
+        let mut out = serde_json::Map::new();
+        for p in persona::all() {
+            let ctx = |offer| MemoCtx {
+                question_count: 0,
+                fee_told: false,
+                agreed: false,
+                offer,
+            };
+            let mut memos = vec![json!(progress_memo(&ctx(None), p))];
+            for n in 1..=super::super::persona::NEVER_END_OFFERS {
+                let o = OfferInfo {
+                    n,
+                    accept: p.accepts_offer(n),
+                    give_up: p.appointment.accept_after.is_none()
+                        && n >= super::super::persona::NEVER_END_OFFERS,
+                };
+                memos.push(json!(progress_memo(&ctx(Some(o)), p)));
+            }
+            out.insert(
+                p.id.clone(),
+                json!({
+                    "system_full": build_system(p, Range::Full),
+                    "memos": memos,
+                    "accept_after": p.appointment.accept_after,
+                    "opening": p.first_line(Range::Full),
+                    "setting": p.setting_text(),
+                }),
+            );
+        }
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/call_practice/out");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("prompts.json"),
+            serde_json::to_string_pretty(&out).unwrap(),
+        )
+        .unwrap();
     }
 }

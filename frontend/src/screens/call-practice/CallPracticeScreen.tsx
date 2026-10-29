@@ -6,7 +6,7 @@ import type { PracticeResult } from '../../generated/PracticeResult';
 import type { TalkTurn } from '../../generated/TalkTurn';
 import { PracticeError, realApi, type PracticeApi } from './api';
 import { createFixtureApi } from './fixtureApi';
-import { FIELDS, HEAT_OPTIONS, SCRIPT_LINES, blankLabels, emptyRecord, toRequestRecord, type FieldDef, type RecordState } from './record';
+import { APPT_SCRIPT_LINES, FIELDS, HEAT_OPTIONS, RANGES, SCRIPT_LINES, blankLabels, emptyRecord, hasHearing, isRange, toRequestRecord, type FieldDef, type Range, type RecordState } from './record';
 import { ResultView } from './ResultView';
 import { useSpeechInput } from './useSpeechInput';
 
@@ -41,6 +41,8 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
   const [step, setStep] = useState<Step>('loading');
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [scriptSeen, setScriptSeen] = useState(false);
+  const [range, setRange] = useState<Range>('full');
+  const [dateAgreed, setDateAgreed] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TalkTurn[]>([]);
   const [ended, setEnded] = useState(false);
@@ -91,6 +93,8 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
             setTranscript(v.transcript);
             setEnded(v.ended);
             setScriptSeen(v.script_seen);
+            if (isRange(v.range)) setRange(v.range);
+            setDateAgreed(v.date_agreed);
             if (v.result !== null) {
               setResult(v.result);
               setStep('result');
@@ -153,6 +157,7 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
         setTranscript((t) => [...t, resp.rep_turn, resp.customer_turn]);
         lastTry.current = null;
         if (resp.ended) setEnded(true);
+        if (resp.date_agreed) setDateAgreed(true);
       } catch (e) {
         // 発言は入力欄に残す
         setDraft(text);
@@ -177,10 +182,12 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
     paused: busy || ended || step !== 'practice',
   });
 
-  const begin = async (personaId: string | null): Promise<void> => {
+  const begin = async (personaId: string | null, rangeArg?: Range): Promise<void> => {
     setError(null);
     try {
-      const r = await api.start({ persona_id: personaId, script_seen: scriptSeen });
+      const r = await api.start({ persona_id: personaId, script_seen: scriptSeen, range: rangeArg ?? range });
+      if (isRange(r.range)) setRange(r.range);
+      setDateAgreed(r.range === 'hearing');
       setSessionId(r.session_id);
       sessionRef.current = r.session_id;
       setSessionParam(r.session_id);
@@ -207,7 +214,7 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
     setError(null);
     setStep('scoring');
     try {
-      const r = await api.finish(sessionId, { record: toRequestRecord(record), heat_guess: heat });
+      const r = await api.finish(sessionId, { record: toRequestRecord(record), heat_guess: hasHearing(range) ? heat : 'mixed' });
       setResult(r);
       setStep('result');
     } catch (e) {
@@ -217,6 +224,10 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
   };
 
   const onFinishClick = (): void => {
+    if (!hasHearing(range)) {
+      void finish();
+      return;
+    }
     if (heat === '') {
       setError('見立てを選んでから終えてください。');
       return;
@@ -228,12 +239,21 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
     void finish();
   };
 
-  const again = (personaId: string | null): void => {
+  const again = (personaId: string | null, rangeArg?: Range): void => {
     setSessionParam(null);
     setSessionId(null);
     setTranscript([]);
     setResult(null);
-    void begin(personaId);
+    void begin(personaId, rangeArg);
+  };
+
+  const backToIntro = (): void => {
+    setSessionParam(null);
+    setSessionId(null);
+    setTranscript([]);
+    setResult(null);
+    setError(null);
+    setStep('intro');
   };
 
   const setField = (def: FieldDef, patch: Partial<{ notHeard: boolean; value: string }>): void => {
@@ -260,10 +280,30 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
 
       {step === 'intro' && (
         <section className="w8-card cp-intro" data-testid="practice-intro">
-          <ol>
-            <li>アポの日時が決まった直後から始まります。</li>
-            <li>台本の 4 項目を聞いて、右の記録欄に書いてください。</li>
-            <li>終えたら、取れた項目と、お客さんの本当の答えを見せます。</li>
+          <h2 className="w8-h2">練習する範囲を選んでください</h2>
+          <div className="cp-ranges" role="radiogroup" aria-label="練習する範囲">
+            {RANGES.map((r) => (
+              <label key={r.value} className={`cp-range ${range === r.value ? 'cp-range-on' : ''}`} data-testid={`range-${r.value}`}>
+                <input
+                  type="radio"
+                  name="range"
+                  value={r.value}
+                  checked={range === r.value}
+                  onChange={() => {
+                    setRange(r.value);
+                  }}
+                />{' '}
+                <strong>{r.label}</strong>
+                <span className="w8-muted">{r.detail}</span>
+              </label>
+            ))}
+          </div>
+          <ol data-testid="intro-steps">
+            {range !== 'hearing' && <li>担当者につながった直後から始まります。断り文句をかわして、日時を決めてください。</li>}
+            {range === 'hearing' && <li>アポの日時が決まった直後から始まります。</li>}
+            {range === 'full' && <li>日時が決まったら、そのまま 4 項目のヒアリングに進みます。</li>}
+            {hasHearing(range) && <li>台本の 4 項目を聞いて、右の記録欄に書いてください。</li>}
+            <li>終えたら、結果と、お客さんの型を見せます。</li>
           </ol>
           <p className="w8-muted">マイクに向かって話すと、話し終わりに自動で送られます。文字で入力することもできます。</p>
           <label>
@@ -296,13 +336,18 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
           <div>
             {scriptSeen && (
               <div className="cp-script" data-testid="script-panel">
-                {SCRIPT_LINES.map((s) => (
+                {[...(range === 'hearing' ? [] : APPT_SCRIPT_LINES), ...(hasHearing(range) ? SCRIPT_LINES : [])].map((s) => (
                   <div key={s.group}>
                     <strong>{s.group}</strong>
                     <p>{s.line}</p>
                   </div>
                 ))}
               </div>
+            )}
+            {range !== 'hearing' && (
+              <p className={`cp-stage ${dateAgreed ? 'cp-stage-ok' : ''}`} data-testid="stage-banner">
+                {dateAgreed ? '日時が決まりました' : '日時はまだ決まっていません'}
+              </p>
             )}
             <div className="cp-chat" data-testid="chat" aria-live="polite">
               {transcript.map((t) => (
@@ -328,7 +373,11 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
 
             {ended ? (
               <p className="cp-notice" data-testid="ended-notice">
-                お客さんとの会話は終わりました。右の記録を見直して終えてください。
+                {range === 'appointment'
+                  ? dateAgreed
+                    ? '日時が決まりました。「終える」を押して結果を見てください。'
+                    : 'お客さんとの会話は終わりました。「終える」を押して結果を見てください。'
+                  : 'お客さんとの会話は終わりました。右の記録を見直して終えてください。'}
               </p>
             ) : (
               <>
@@ -392,6 +441,8 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
           </div>
 
           <div className="w8-card" data-testid="record-panel">
+            {hasHearing(range) && (
+              <>
             <h2 className="w8-h2">記録欄</h2>
             <div className="cp-fields">
               {FIELDS.map((f, i) => (
@@ -460,6 +511,9 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
                 </label>
               ))}
             </fieldset>
+              </>
+            )}
+            {!hasHearing(range) && <p className="w8-muted" data-testid="appt-panel-note">日時が決まったら、または会話が終わったら「終える」を押してください。</p>}
             {confirmBlank && (
               <div className="cp-notice" data-testid="blank-confirm">
                 <p>空欄が残っています。空欄は「聞けていない」として採点します。</p>
@@ -501,11 +555,12 @@ export function CallPracticeScreen({ api: apiProp }: { api?: PracticeApi }) {
         <ResultView
           result={result}
           onAgainSame={() => {
-            again(result.persona.id);
+            again(result.persona.id, isRange(result.range) ? result.range : undefined);
           }}
           onAgainOther={() => {
-            again(null);
+            again(null, isRange(result.range) ? result.range : undefined);
           }}
+          onChangeRange={backToIntro}
         />
       )}
     </div>

@@ -5,7 +5,7 @@ import type { PracticeTurnResponse } from '../../generated/PracticeTurnResponse'
 import type { PracticeApi } from './api';
 import { PracticeError } from './api';
 import { CallPracticeScreen } from './CallPracticeScreen';
-import { createFixtureApi, FIXTURE_OPENING, FIXTURE_REPLIES } from './fixtureApi';
+import { createFixtureApi, FIXTURE_ACCEPT, FIXTURE_OBJECTION, FIXTURE_OPENING, FIXTURE_REPLIES } from './fixtureApi';
 import { DENIED_MESSAGE, UNSUPPORTED_MESSAGE } from './useSpeechInput';
 
 interface Item {
@@ -53,9 +53,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function startPractice(): Promise<void> {
-  fireEvent.click(await screen.findByText('練習を始める'));
+async function startPractice(range: 'appointment' | 'hearing' | 'full' = 'hearing'): Promise<void> {
+  const card = await screen.findByTestId(`range-${range}`);
+  fireEvent.click(within(card).getByRole('radio'));
+  fireEvent.click(screen.getByText('練習を始める'));
   await screen.findByTestId('practice-room');
+}
+
+async function sendText(text: string): Promise<void> {
+  fireEvent.change(screen.getByTestId('draft'), { target: { value: text } });
+  fireEvent.click(screen.getByText('送る'));
+  await waitFor(() => {
+    expect(screen.queryByTestId('pending-rep')).toBeNull();
+    expect(screen.queryByTestId('streaming')).toBeNull();
+  });
 }
 
 describe('/app/call-practice', () => {
@@ -136,6 +147,7 @@ describe('/app/call-practice', () => {
         rep_turn: { n: 2, speaker: 'rep', text: 'ひとつめの質問です' },
         customer_turn: { n: 3, speaker: 'customer', text: 'はい' },
         ended: false,
+        date_agreed: true,
       });
     });
     await waitFor(() => {
@@ -208,5 +220,81 @@ describe('/app/call-practice', () => {
     expect(screen.getByTestId('persona-label').textContent).toBe('熱い型');
     expect(screen.getByTestId('heat-marks').textContent).toBe('隠れた答えにあった熱い印は 5 個、そのうち聞き出せたのは 2 個でした。');
     expect(screen.getByText('同じ型でもう一度')).toBeTruthy();
+  });
+
+  it('最初に 3 つの範囲から選べて、選んだ範囲の説明が出る', async () => {
+    render(<CallPracticeScreen api={createFixtureApi(1)} />);
+    const intro = await screen.findByTestId('practice-intro');
+    expect(['appointment', 'hearing', 'full'].map((r) => within(screen.getByTestId(`range-${r}`)).getByRole('radio').getAttribute('value'))).toEqual(['appointment', 'hearing', 'full']);
+    expect(intro.textContent).toContain('日時を決めるまで');
+    expect(intro.textContent).toContain('ヒアリングだけ');
+    expect(intro.textContent).toContain('通し');
+    // 既定は通し
+    expect(screen.getByTestId('intro-steps').textContent).toContain('日時が決まったら、そのまま 4 項目のヒアリングに進みます。');
+    fireEvent.click(within(screen.getByTestId('range-hearing')).getByRole('radio'));
+    expect(screen.getByTestId('intro-steps').textContent).toContain('アポの日時が決まった直後から始まります。');
+  });
+
+  it('日時を決める範囲: 担当者の一言から始まり、1 回断られ、2 回目の打診で決まって終わる。記録欄は無く、結果に打診の回数と判定が出る', async () => {
+    render(<CallPracticeScreen api={createFixtureApi(1)} />);
+    await startPractice('appointment');
+    expect(screen.getByTestId('turn-1').textContent).toContain('はい、お電話代わりました');
+    expect(screen.getByTestId('stage-banner').textContent).toBe('日時はまだ決まっていません');
+    expect(screen.queryByTestId('mic-toggle')).toBeNull();
+    expect(screen.queryByText('記録欄')).toBeNull();
+    await sendText('採用のご支援の件でお電話しました');
+    await waitFor(() => {
+      expect(screen.getByTestId('turn-3').textContent).toContain('はあ、何の件ですか');
+    });
+    await sendText('来週の水曜か木曜あたりはいかがですか');
+    await waitFor(() => {
+      expect(screen.getByTestId('turn-5').textContent).toContain(FIXTURE_OBJECTION);
+    });
+    await sendText('では再来週の火曜はいかがですか');
+    await waitFor(() => {
+      expect(screen.getByTestId('turn-7').textContent).toContain(FIXTURE_ACCEPT);
+    });
+    expect(screen.getByTestId('stage-banner').textContent).toBe('日時が決まりました');
+    expect(screen.getByTestId('ended-notice').textContent).toContain('日時が決まりました。「終える」を押して結果を見てください。');
+    fireEvent.click(screen.getByTestId('finish'));
+    await screen.findByTestId('practice-result');
+    expect(screen.getByTestId('result-range').textContent).toContain('日時を決めるまで');
+    expect(screen.getByTestId('appt-note').textContent).toBe('日時が決まりました。日時の打診は 2 回、決まるまでのあなたの発言は 3 回、42 秒でした。');
+    const nums = within(screen.getByTestId('appt-numbers'));
+    expect(nums.getByText('2 回(4 番、6 番)')).toBeTruthy();
+    expect(screen.getByTestId('appt-rule').textContent).toBe('2 回目の打診で日時を受ける型');
+    expect(screen.getByTestId('appt-objections').textContent).toContain('5 番「今は大丈夫ですね」');
+    expect(screen.getByTestId('appt-objections').textContent).toContain('別の日時を出し直した');
+    expect(within(screen.getByTestId('appt-check-kizonkan')).getByText('できていない')).toBeTruthy();
+    // ヒアリングの欄は出ない
+    expect(screen.queryByTestId('result-items')).toBeNull();
+    expect(screen.queryByTestId('heat-summary')).toBeNull();
+  });
+
+  it('通し: 日時が決まった後も続き、ヒアリングの記録欄と、日時の結果の両方が出る', async () => {
+    render(<CallPracticeScreen api={createFixtureApi(1)} />);
+    await startPractice('full');
+    expect(screen.getByTestId('record-panel').textContent).toContain('記録欄');
+    await sendText('来週の水曜か木曜あたりはいかがですか');
+    await waitFor(() => {
+      expect(screen.getByTestId('turn-3').textContent).toContain(FIXTURE_OBJECTION);
+    });
+    await sendText('では再来週の火曜はいかがですか');
+    await waitFor(() => {
+      expect(screen.getByTestId('turn-5').textContent).toContain(FIXTURE_ACCEPT);
+    });
+    expect(screen.getByTestId('stage-banner').textContent).toBe('日時が決まりました');
+    expect(screen.queryByTestId('ended-notice')).toBeNull();
+    await sendText('直近3か月以内で、採用が必要な職種はありますか');
+    await waitFor(() => {
+      expect(screen.getByTestId('turn-7').textContent).toContain(FIXTURE_REPLIES[0]);
+    });
+    fireEvent.click(screen.getByLabelText('熱い'));
+    fireEvent.click(screen.getByTestId('finish'));
+    fireEvent.click(await screen.findByText('このまま進む'));
+    await screen.findByTestId('practice-result');
+    expect(screen.getByTestId('appt-note').textContent).toContain('日時の打診は 2 回');
+    expect(screen.getByTestId('question-count').textContent).toContain('あなたの質問は 3 問でした。');
+    expect(screen.getByTestId('persona-label').textContent).toBe('熱い型');
   });
 });

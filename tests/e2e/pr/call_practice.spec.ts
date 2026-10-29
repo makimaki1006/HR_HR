@@ -67,15 +67,71 @@ test.describe('架電の練習 /app/call-practice', () => {
     expect(((await res.json()) as { error_kind: string }).error_kind).toBe('google_login_required');
   });
 
-  test('声で聞くと途中の文字が出て、話し終わりに自動で送られ、記録して終えると結果が出る', async ({ page }) => {
+  test('最初に 3 つの範囲から選べる', async ({ page }) => {
+    await login(page);
+    await page.goto('/app/call-practice?mode=fixture');
+    await expect(page.getByRole('heading', { name: '練習する範囲を選んでください' })).toBeVisible();
+    await expect(page.getByTestId('range-appointment')).toContainText('日時を決めるまで');
+    await expect(page.getByTestId('range-hearing')).toContainText('ヒアリングだけ');
+    await expect(page.getByTestId('range-full')).toContainText('通し');
+    await expect(page.getByTestId('range-full').getByRole('radio')).toBeChecked();
+    await expect(page.getByTestId('intro-steps')).toContainText('日時が決まったら、そのまま 4 項目のヒアリングに進みます。');
+    await page.getByTestId('range-hearing').getByRole('radio').check();
+    await expect(page.getByTestId('intro-steps')).toContainText('アポの日時が決まった直後から始まります。');
+    await shot(page, 'call-practice-range.png');
+  });
+
+  test('日時を決めるまで: 担当者の一言から始まり、1 回断られて 2 回目で決まって終わり、結果に打診の回数と判定が出る', async ({ page }) => {
+    await login(page);
+    await page.goto('/app/call-practice?mode=fixture');
+    await page.getByTestId('range-appointment').getByRole('radio').check();
+    await page.getByLabel('台本を横に出して練習する').check();
+    await page.getByRole('button', { name: '練習を始める' }).click();
+    await expect(page.getByTestId('turn-1')).toContainText('はい、お電話代わりました');
+    await expect(page.getByTestId('stage-banner')).toHaveText('日時はまだ決まっていません');
+    await expect(page.getByTestId('script-panel')).toContainText('前回お電話したことに触れて');
+    await expect(page.getByTestId('record-panel')).not.toContainText('記録欄');
+
+    const send = async (t: string): Promise<void> => {
+      await page.getByTestId('draft').fill(t);
+      await page.getByRole('button', { name: '送る' }).click();
+    };
+    await send('採用のご支援の件でお電話しました');
+    await expect(page.getByTestId('turn-3')).toContainText('はあ、何の件ですか');
+    await send('来週の水曜か木曜あたりはいかがですか');
+    await expect(page.getByTestId('turn-5')).toContainText('今は大丈夫ですね');
+    await expect(page.getByTestId('stage-banner')).toHaveText('日時はまだ決まっていません');
+    await shot(page, 'call-practice-appt-practice.png');
+    await send('では再来週の火曜はいかがですか');
+    await expect(page.getByTestId('turn-7')).toContainText('じゃあ、その日でいいですよ');
+    await expect(page.getByTestId('stage-banner')).toHaveText('日時が決まりました');
+    await expect(page.getByTestId('ended-notice')).toContainText('日時が決まりました。「終える」を押して結果を見てください。');
+    await page.getByTestId('finish').click();
+
+    await expect(page.getByTestId('practice-result')).toBeVisible();
+    await expect(page.getByTestId('result-range')).toContainText('日時を決めるまで');
+    await expect(page.getByTestId('appt-note')).toHaveText('日時が決まりました。日時の打診は 2 回、決まるまでのあなたの発言は 3 回、42 秒でした。');
+    await expect(page.getByTestId('appt-numbers')).toContainText('2 回(4 番、6 番)');
+    await expect(page.getByTestId('appt-rule')).toHaveText('2 回目の打診で日時を受ける型');
+    await expect(page.getByTestId('appt-objections')).toContainText('5 番「今は大丈夫ですね」');
+    await expect(page.getByTestId('appt-objections')).toContainText('別の日時を出し直した');
+    await expect(page.getByTestId('appt-check-early_date')).toContainText('できた');
+    await expect(page.getByTestId('appt-check-kizonkan')).toContainText('できていない');
+    await expect(page.getByTestId('appt-check-busy_reoffer')).toContainText('報告書では、「忙しい」と言われた電話のうちの 11% が「できていない」');
+    await expect(page.getByTestId('result-items')).toHaveCount(0);
+    await expect(page.getByTestId('heat-summary')).toHaveCount(0);
+    await shot(page, 'call-practice-appt-result.png');
+  });
+
+  test('ヒアリングだけ: 声で聞くと途中の文字が出て、話し終わりに自動で送られ、記録して終えると結果が出る', async ({ page }) => {
     await installFakeMic(page);
     await login(page);
     await page.goto('/app/call-practice?mode=fixture');
-    await expect(page.getByRole('heading', { name: '架電の練習' })).toBeVisible();
-    await expect(page.getByTestId('practice-intro')).toContainText('アポの日時が決まった直後から始まります。');
+    await page.getByTestId('range-hearing').getByRole('radio').check();
     await page.getByRole('button', { name: '練習を始める' }).click();
     await expect(page.getByTestId('turn-1')).toContainText('はい、ではその日でお願いします');
     await expect(page.getByTestId('mic-state')).toHaveText('聞き取っています');
+    await expect(page.getByTestId('stage-banner')).toHaveCount(0);
 
     await emit(page, [{ t: '直近3か月以内で', final: false }]);
     await expect(page.getByTestId('interim')).toHaveText('聞き取り中: 直近3か月以内で');
@@ -90,17 +146,16 @@ test.describe('架電の練習 /app/call-practice', () => {
     await expect(page.getByTestId('turn-5')).toContainText('前任が辞めてしまって、早く埋めたいんです');
     await shot(page, 'call-practice-practice.png');
 
-    // 記録欄
     await page.locator('#rec-hiring_3m').fill('ドライバー 2名');
     await page.locator('#rec-urgency').selectOption('not_so');
-    await page.getByLabel('聞けていない').nth(4).check(); // 検討
+    await page.getByLabel('聞けていない').nth(4).check();
     await page.getByLabel('熱い', { exact: true }).check();
     await page.getByTestId('finish').click();
     await expect(page.getByTestId('blank-confirm')).toContainText('空欄は「聞けていない」として採点します');
     await page.getByRole('button', { name: 'このまま進む' }).click();
 
-    const result = page.getByTestId('practice-result');
-    await expect(result).toBeVisible();
+    await expect(page.getByTestId('practice-result')).toBeVisible();
+    await expect(page.getByTestId('appt-result')).toHaveCount(0);
     await expect(page.getByTestId('result-item-hiring')).toContainText('取れた');
     await expect(page.getByTestId('result-item-hiring')).toContainText('3か月以内の職種と人数: ドライバー 2名');
     await expect(page.getByTestId('result-item-issue')).toContainText('記録が違う');
@@ -114,6 +169,34 @@ test.describe('架電の練習 /app/call-practice', () => {
     await shot(page, 'call-practice-result.png');
   });
 
+  test('通し: 日時が決まった後もヒアリングに進み、結果に日時の場面と 4 項目の両方が出る', async ({ page }) => {
+    await login(page);
+    await page.goto('/app/call-practice?mode=fixture');
+    await page.getByRole('button', { name: '練習を始める' }).click();
+    await expect(page.getByTestId('turn-1')).toContainText('はい、お電話代わりました');
+    await expect(page.getByTestId('record-panel')).toContainText('記録欄');
+    const send = async (t: string): Promise<void> => {
+      await page.getByTestId('draft').fill(t);
+      await page.getByRole('button', { name: '送る' }).click();
+    };
+    await send('来週の水曜か木曜あたりはいかがですか');
+    await expect(page.getByTestId('turn-3')).toContainText('今は大丈夫ですね');
+    await send('では再来週の火曜はいかがですか');
+    await expect(page.getByTestId('turn-5')).toContainText('じゃあ、その日でいいですよ');
+    await expect(page.getByTestId('stage-banner')).toHaveText('日時が決まりました');
+    await expect(page.getByTestId('ended-notice')).toHaveCount(0);
+    await send('直近3か月以内で、採用が必要な職種はありますか？');
+    await expect(page.getByTestId('turn-7')).toContainText('ドライバーを2名、3か月以内に採りたいですね');
+    await page.getByLabel('熱い', { exact: true }).check();
+    await page.getByTestId('finish').click();
+    await page.getByRole('button', { name: 'このまま進む' }).click();
+    await expect(page.getByTestId('practice-result')).toBeVisible();
+    await expect(page.getByTestId('result-range')).toContainText('通し');
+    await expect(page.getByTestId('appt-note')).toContainText('日時の打診は 2 回');
+    await expect(page.getByTestId('question-count')).toContainText('あなたの質問は 3 問でした。');
+    await expect(page.getByTestId('persona-label')).toHaveText('熱い型');
+  });
+
   test('音声認識が使えないブラウザでは文字入力に切り替える旨が出て、文字で送れる', async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(window, 'SpeechRecognition', { value: undefined, configurable: true });
@@ -121,6 +204,7 @@ test.describe('架電の練習 /app/call-practice', () => {
     });
     await login(page);
     await page.goto('/app/call-practice?mode=fixture');
+    await page.getByTestId('range-hearing').getByRole('radio').check();
     await page.getByRole('button', { name: '練習を始める' }).click();
     await expect(page.getByTestId('speech-notice')).toHaveText('このブラウザでは音声入力が使えません。文字で入力してください。');
     await expect(page.getByTestId('mic-toggle')).toHaveCount(0);

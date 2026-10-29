@@ -344,7 +344,7 @@ HubSpot・Zoom (`ZOOM_*`)・MiniMax (`MINIMAX_API_KEY` / `MINIMAX_BASE_URL`) の
 |------|------|------|
 | `ANTHROPIC_API_KEY` | 未設定 | お客さん役 (Claude の Messages API) の鍵。未設定のときは練習を始められず、画面に「いまはお客さん役を呼び出せません」と出る。値はログにも画面にも出さない |
 | `CALL_PRACTICE_MODEL` | `claude-sonnet-5-5` | お客さん役のモデル名 |
-| `CALL_PRACTICE_SCORE_MODEL` | `MiniMax-M3` | 採点のコメントを付ける MiniMax のモデル名。鍵は `MINIMAX_API_KEY`、接続先は `MINIMAX_BASE_URL` (トークの振り返りと同じ) |
+| `CALL_PRACTICE_SCORE_MODEL` | `claude-sonnet-5-5` | 採点 (アポ取りトークの判定と、良い例・直すとよい例のコメント) に使う Claude のモデル名。鍵はお客さん役と同じ `ANTHROPIC_API_KEY` |
 
 - 練習の状態はサーバのメモリだけに持つ (保存しない・表を作らない)。再起動で消える。単一インスタンス前提。
 - 同時に呼ぶ LLM は 2 本まで (超えたら 503 `llm_busy`)。往復は 30 回、長さは 15 分まで。

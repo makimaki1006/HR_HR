@@ -3,9 +3,10 @@
 
 use serde_json::Value;
 
-use super::persona::{self, Persona, SLOTS};
+use super::persona::{self, Persona, Range, NEVER_END_OFFERS, SLOTS};
 use super::types::*;
-use crate::crm::talk_review::judge::{Completer, JudgeError};
+use crate::crm::talk_review::checks::loaded;
+use crate::crm::talk_review::judge::{judge_via, Completer, JudgeError, StoredItem};
 use crate::crm::talk_review::lang::find_foreign;
 use crate::crm::talk_review::types::TalkTurn;
 
@@ -18,7 +19,39 @@ pub struct RepMark {
     pub asked_price: bool,
 }
 
+/// 日時を決める場面の記録 (ヒアリングだけの範囲では使わない)
+#[derive(Debug, Clone)]
+pub struct ApptInput {
+    pub range: Range,
+    pub agreed: bool,
+    pub agreed_turn: Option<u32>,
+    pub agreed_secs: Option<u32>,
+    pub offer_turns: Vec<u32>,
+    /// 断ったお客さん役の発言の番号
+    pub objection_turns: Vec<u32>,
+}
+
+impl Default for ApptInput {
+    fn default() -> Self {
+        Self {
+            range: Range::Hearing,
+            agreed: true,
+            agreed_turn: None,
+            agreed_secs: None,
+            offer_turns: vec![],
+            objection_turns: vec![],
+        }
+    }
+}
+
+/// 既存の判定 (トークの振り返りと同じ項目) の結果
+pub struct Judged {
+    pub items: Vec<StoredItem>,
+    pub summary: Option<String>,
+}
+
 pub struct ScoreInput<'a> {
+    pub appt: ApptInput,
     pub persona: &'static Persona,
     pub transcript: &'a [TalkTurn],
     pub marks: &'a [RepMark],
@@ -238,6 +271,7 @@ pub fn build_result(
     commentary: Option<Commentary>,
     commentary_note: Option<String>,
     issue_match: Option<bool>,
+    appt: Option<AppointmentResult>,
 ) -> PracticeResult {
     let p = inp.persona;
     let asked_all: Vec<&str> = inp
@@ -378,7 +412,9 @@ pub fn build_result(
         .collect();
 
     let band = question_band(inp.question_count).to_string();
-    PracticeResult {
+    let mut result = PracticeResult {
+        range: inp.appt.range.as_str().to_string(),
+        appointment: appt,
         not_heard_left: not_heard_items.len() as u32,
         not_heard_items,
         items,
@@ -416,7 +452,138 @@ pub fn build_result(
         script_seen: inp.script_seen,
         transcript: inp.transcript.to_vec(),
         reference_note: "成約率は相関の値です。聞き方を変えたときの成約の増え方は示していません。人・時期をそろえていない素の率です。".into(),
+    };
+    if !inp.appt.range.has_hearing() {
+        // 日時を決めるまでの範囲: 4 項目に関する欄は使わない
+        result.items = vec![];
+        result.not_heard_left = 0;
+        result.not_heard_items = vec![];
+        result.question_bands = vec![];
+        result.shortest_note = String::new();
+        result.irritations = vec![];
+        result.persona.hidden = vec![];
+        result.heat.message = String::new();
     }
+    result
+}
+
+fn status_ja(s: &str) -> &'static str {
+    match s {
+        "done" => "できた",
+        "not_done" => "できていない",
+        _ => "該当なし",
+    }
+}
+
+/// 日時を決める場面の結果。規則で数える部分と、既存の判定 (`judged`) を合わせる
+pub fn appointment_result(
+    inp: &ScoreInput<'_>,
+    judged: Option<Judged>,
+    checks_note: Option<String>,
+) -> AppointmentResult {
+    let a = &inp.appt;
+    let p = inp.persona;
+    let offers = a.offer_turns.len() as u32;
+    let rep_turns_to_agree = a.agreed_turn.map(|t| {
+        inp.transcript
+            .iter()
+            .filter(|x| x.speaker == "rep" && x.n < t)
+            .count() as u32
+    });
+    let objections: Vec<ObjectionRow> = a
+        .objection_turns
+        .iter()
+        .filter_map(|c| {
+            let ct = inp.transcript.iter().find(|x| x.n == *c)?;
+            let next = inp
+                .transcript
+                .iter()
+                .find(|x| x.n > *c && x.speaker == "rep");
+            Some(ObjectionRow {
+                turn: *c,
+                customer_text: ct.text.clone(),
+                next_rep_turn: next.map(|x| x.n),
+                next_rep_text: next.map(|x| x.text.clone()),
+                reoffered: next.is_some_and(|x| a.offer_turns.contains(&x.n)),
+            })
+        })
+        .collect();
+    let persona_rule = match p.appointment.accept_after {
+        Some(1) => "最初の打診で日時を受ける型".to_string(),
+        Some(k) => format!("{k} 回目の打診で日時を受ける型"),
+        None => {
+            format!("最後まで日時を受けない型 (打診が {NEVER_END_OFFERS} 回に達すると電話を切る)")
+        }
+    };
+    let result_note = if a.agreed {
+        format!(
+            "日時が決まりました。日時の打診は {} 回、決まるまでのあなたの発言は {} 回、{} 秒でした。",
+            offers,
+            rep_turns_to_agree.unwrap_or(0),
+            a.agreed_secs.unwrap_or(0)
+        )
+    } else if p.appointment.accept_after.is_none() {
+        format!(
+            "この型は最後まで日時を受けない型でした。日時が決まらないのも、この型では正しい結果です。打診は {offers} 回でした。断りへの返し方を見てください。"
+        )
+    } else {
+        format!(
+            "日時は決まりませんでした。この型は {} 回目の打診で日時を受けます。あなたの打診は {offers} 回でした。",
+            p.appointment.accept_after.unwrap_or(1)
+        )
+    };
+    let defs = loaded();
+    let (checks, summary) = match judged {
+        None => (vec![], None),
+        Some(j) => (
+            j.items
+                .iter()
+                .map(|i| {
+                    let def = defs.checks.checks.iter().find(|c| c.id == i.id);
+                    ApptCheckRow {
+                        id: i.id.clone(),
+                        stage: def.map(|d| d.stage.clone()).unwrap_or_default(),
+                        title: def.map(|d| d.title.clone()).unwrap_or_else(|| i.id.clone()),
+                        status: i.status.clone(),
+                        status_label: status_ja(&i.status).to_string(),
+                        advice: i.advice.clone(),
+                        quote: i.quote.clone(),
+                        evidence: i.evidence.clone(),
+                        baseline_text: def.and_then(|d| d.baseline.as_ref()).map(|b| {
+                            format!("報告書では、{}の {}% が「できていない」", b.basis, b.pct)
+                        }),
+                    }
+                })
+                .collect(),
+            j.summary,
+        ),
+    };
+    AppointmentResult {
+        agreed: a.agreed,
+        offers,
+        offer_turns: a.offer_turns.clone(),
+        rep_turns_to_agree,
+        seconds_to_agree: a.agreed_secs,
+        objections,
+        persona_rule,
+        result_note,
+        checks,
+        summary,
+        checks_note,
+    }
+}
+
+/// 既存の判定 (`talk_review::judge::judge_via`、判定項目 `checks.json`) に練習の会話を渡す。
+/// 練習の会話は本番の文字起こしと同じ形 (`TalkTurn`) なので、そのまま渡せる
+pub async fn judge_appointment<C: Completer>(
+    c: &C,
+    transcript: &[TalkTurn],
+) -> Result<Judged, JudgeError> {
+    let out = judge_via(c, &loaded().checks, transcript).await?;
+    Ok(Judged {
+        items: out.items,
+        summary: out.summary,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -636,6 +803,7 @@ mod tests {
         q: u32,
     ) -> ScoreInput<'a> {
         ScoreInput {
+            appt: ApptInput::default(),
             persona: find("hot_01").unwrap(),
             transcript: tr,
             marks,
@@ -660,7 +828,7 @@ mod tests {
             ),
             heat_guess: "hot".into(),
         };
-        let r = build_result(&input(&tr, &marks, &irr, 2), &req, None, None, None);
+        let r = build_result(&input(&tr, &marks, &irr, 2), &req, None, None, None, None);
         let st: Vec<(&str, &str)> = r
             .items
             .iter()
@@ -712,7 +880,7 @@ mod tests {
             record,
             heat_guess: "cold".into(),
         };
-        let r = build_result(&input(&tr, &marks, &[], 9), &req, None, None, None);
+        let r = build_result(&input(&tr, &marks, &[], 9), &req, None, None, None, None);
         let st: Vec<&str> = r.items.iter().map(|i| i.status.as_str()).collect();
         // ① 3名は違う / ② 聞けていないと記録 / ③ 空欄 / ④ 決める人が違う
         assert_eq!(st, ["wrong_record", "not_heard", "empty", "wrong_record"]);
@@ -730,7 +898,7 @@ mod tests {
             record: rec(f("value", "ドライバー2名"), f("empty", ""), f("empty", "")),
             heat_guess: "cold".into(),
         };
-        let r = build_result(&input(&tr, &marks, &[], 1), &req, None, None, None);
+        let r = build_result(&input(&tr, &marks, &[], 1), &req, None, None, None, None);
         assert_eq!(r.heat.truth, "hot");
         assert_eq!(r.heat.hot_marks_hidden, 5);
         assert_eq!(r.heat.hot_marks_heard, 1);
@@ -759,6 +927,7 @@ mod tests {
                 heat_guess: "mixed".into(),
             };
             let inp = ScoreInput {
+                appt: ApptInput::default(),
                 persona: p,
                 transcript: &tr,
                 marks: &marks,
@@ -768,7 +937,7 @@ mod tests {
                 budget_at_ask: at.map(String::from),
                 script_seen: false,
             };
-            build_result(&inp, &req, None, None, None)
+            build_result(&inp, &req, None, None, None, None)
         };
         assert_eq!(mk(true, Some("yes"), "yes").items[2].status, "got");
         assert_eq!(mk(false, Some("no"), "no").items[2].status, "got");
@@ -866,9 +1035,9 @@ mod tests {
             heat_guess: "hot".into(),
         };
         let inp = input(&tr, &marks, &[], 1);
-        let by_rule = build_result(&inp, &req, None, None, None);
+        let by_rule = build_result(&inp, &req, None, None, None, None);
         assert_eq!(by_rule.items[1].status, "got");
-        let by_llm = build_result(&inp, &req, None, None, Some(false));
+        let by_llm = build_result(&inp, &req, None, None, Some(false), None);
         assert_eq!(by_llm.items[1].status, "wrong_record");
     }
 }

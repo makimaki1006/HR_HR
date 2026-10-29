@@ -2,4 +2,4 @@
 import type { PracticeResult } from "./PracticeResult";
 import type { TalkTurn } from "./TalkTurn";
 
-export type PracticeSessionView = { session_id: string, transcript: Array<TalkTurn>, ended: boolean, finished: boolean, max_turns: number, script_seen: boolean, result: PracticeResult | null, };
+export type PracticeSessionView = { session_id: string, range: string, date_agreed: boolean, transcript: Array<TalkTurn>, ended: boolean, finished: boolean, max_turns: number, script_seen: boolean, result: PracticeResult | null, };

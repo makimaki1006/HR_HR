@@ -32,3 +32,10 @@
 .cp-script { background: #1e293b; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
 .cp-script p { margin: 4px 0 10px; }
 .cp-elapsed { color: #94a3b8; }
+.cp-ranges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+@media (max-width: 900px) { .cp-ranges { grid-template-columns: 1fr; } }
+.cp-range { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid #475569; border-radius: 8px; cursor: pointer; }
+.cp-range-on { border-color: #3b82f6; background: #1e293b; }
+.cp-stage { margin: 0 0 8px; padding: 6px 12px; border-radius: 6px; background: #334155; color: #fbbf24; font-weight: 600; }
+.cp-stage-ok { background: #064e3b; color: #6ee7b7; }
+.cp-appt-list { padding-left: 20px; }
