@@ -107,7 +107,7 @@ export function CalendarView({ data, onChanged }: { data: ApplicantCalendarStatu
       {data.problem !== null && <p className="w8-alert" role="status">{data.problem}</p>}
       <p style={{ marginTop: 12 }}>
         {data.is_account ? (
-          <a className="w8-button" href="/api/admin/applicant-calendar/authorize">
+          <a className="w8-button" style={{ textDecoration: 'none' }} href="/api/admin/applicant-calendar/authorize">
             {granted ? '許可し直す' : '管理用カレンダーへの書き込みを許可する'}
           </a>
         ) : (
