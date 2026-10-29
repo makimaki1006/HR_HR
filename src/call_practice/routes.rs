@@ -21,20 +21,19 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio::sync::Semaphore;
 use tower_sessions::Session;
 
-use super::persona;
-use super::roleplay::{self, AnthropicClient, Customer, LlmError};
-use super::score::{self, ScoreInput};
+use super::persona::{self, Range};
+use super::roleplay::{self, AnthropicClient, ClaudeScorer, Customer, LlmError};
+use super::score::{self, ApptInput, ScoreInput};
 use super::session::{Begin, FinishErr, Store, MAX_MINUTES, MAX_TEXT_CHARS, MAX_TURNS};
 use super::types::*;
 use crate::crm::rbac::{self, CrmAccess};
-use crate::crm::talk_review::config::TalkReviewConfig;
-use crate::crm::talk_review::judge::{Completer, MiniMaxJudge};
+use crate::crm::talk_review::judge::Completer;
 use crate::AppState;
 
 /// 同時に呼ぶ LLM の数 (本番の判定の枠を守る)
 const MAX_LLM: usize = 2;
-const SCORE_TIMEOUT: Duration = Duration::from_secs(90);
-const DEFAULT_SCORE_MODEL: &str = "MiniMax-M3";
+/// 採点の部分ごとの待ちの上限 (超えたら、その部分は付けずに規則の部分だけ返す)
+const SCORE_TIMEOUT: Duration = Duration::from_secs(45);
 
 pub struct PracticeCtx {
     pub access: CrmAccess,
@@ -190,12 +189,17 @@ pub fn start_session(
         Some(id) => persona::find(id).ok_or((StatusCode::BAD_REQUEST, "invalid_input"))?,
         None => persona::pick_random(),
     };
+    let range = match req.range.as_deref() {
+        Some(r) => Range::parse(r).ok_or((StatusCode::BAD_REQUEST, "invalid_input"))?,
+        None => Range::Hearing,
+    };
     let (id, opening) = ctx
         .store
-        .create(owner, p, req.script_seen)
+        .create(owner, p, range, req.script_seen)
         .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "sessions_full"))?;
     Ok(PracticeStartResponse {
         session_id: id,
+        range: range.as_str().to_string(),
         opening,
         max_turns: MAX_TURNS,
     })
@@ -362,7 +366,8 @@ fn record_valid(r: &HearingRecord) -> bool {
     })
 }
 
-/// 採点して結果を保存する。`completer` が無い・使えないときは規則の部分だけで返し、理由を添える
+/// 採点して結果を保存する。規則の部分は必ず返す。`completer` が無い・使えない・遅いときは
+/// コメントと判定を付けず、理由を添える
 pub async fn finish_session<C: Completer>(
     ctx: &PracticeCtx,
     id: &str,
@@ -370,16 +375,30 @@ pub async fn finish_session<C: Completer>(
     req: PracticeFinishRequest,
     completer: Option<&C>,
 ) -> Result<PracticeResult, ApiErr> {
-    if !record_valid(&req.record) || !["hot", "mixed", "cold"].contains(&req.heat_guess.as_str()) {
-        return Err((StatusCode::BAD_REQUEST, "invalid_input"));
-    }
     let snap = match ctx.store.snapshot_for_finish(id, owner) {
         Ok(s) => s,
         Err(FinishErr::NotFound) => return Err((StatusCode::NOT_FOUND, "session_not_found")),
         Err(FinishErr::InProgress) => return Err((StatusCode::CONFLICT, "turn_in_progress")),
         Err(FinishErr::Done(r)) => return Ok(*r),
     };
+    // 入力の検査は、練習を取り出した後でも練習を戻せるよう、失敗したら解放する
+    let hearing = snap.range.has_hearing();
+    if hearing
+        && (!record_valid(&req.record)
+            || !["hot", "mixed", "cold"].contains(&req.heat_guess.as_str()))
+    {
+        ctx.store.release(id);
+        return Err((StatusCode::BAD_REQUEST, "invalid_input"));
+    }
     let inp = ScoreInput {
+        appt: ApptInput {
+            range: snap.range,
+            agreed: snap.agreed,
+            agreed_turn: snap.agreed_turn,
+            agreed_secs: snap.agreed_secs,
+            offer_turns: snap.offer_turns.clone(),
+            objection_turns: snap.objection_turns.clone(),
+        },
         persona: snap.persona,
         transcript: &snap.transcript,
         marks: &snap.marks,
@@ -391,25 +410,93 @@ pub async fn finish_session<C: Completer>(
     };
     let mut commentary = None;
     let mut issue_match = None;
-    let note = match (completer, ctx.llm.clone().try_acquire_owned()) {
-        (None, _) => Some("コメントはいま付けられません。".to_string()),
+    let mut commentary_note = None;
+    let mut judged = None;
+    let mut checks_note = None;
+    let unavailable = |why: &str| Some(why.to_string());
+    match (completer, ctx.llm.clone().try_acquire_owned()) {
+        (None, _) => {
+            commentary_note = unavailable("コメントはいま付けられません。");
+            checks_note = unavailable("判定はいま付けられません。");
+        }
         (Some(_), Err(_)) => {
-            Some("いま混み合っているので、コメントは付けられませんでした。".to_string())
+            commentary_note =
+                unavailable("いま混み合っているので、コメントは付けられませんでした。");
+            checks_note = unavailable("いま混み合っているので、判定は付けられませんでした。");
         }
         (Some(c), Ok(_permit)) => {
-            match tokio::time::timeout(SCORE_TIMEOUT, score::commentary_via(c, &inp, &req)).await {
-                Ok(Ok((com, im))) => {
+            // ヒアリングのコメントと日時の判定は別々に呼び、片方が失敗しても規則の部分とあわせて返す
+            let com_fut = async {
+                if !hearing {
+                    return None;
+                }
+                Some(
+                    tokio::time::timeout(SCORE_TIMEOUT, score::commentary_via(c, &inp, &req)).await,
+                )
+            };
+            let judge_fut = async {
+                if !snap.range.has_appointment() {
+                    return None;
+                }
+                Some(
+                    tokio::time::timeout(
+                        SCORE_TIMEOUT,
+                        score::judge_appointment(c, &snap.transcript),
+                    )
+                    .await,
+                )
+            };
+            let (com, jud) = tokio::join!(com_fut, judge_fut);
+            match com {
+                Some(Ok(Ok((com, im)))) => {
                     commentary = Some(com);
                     issue_match = im;
-                    None
                 }
-                _ => Some("コメントを作れませんでした。数字の部分は上のとおりです。".to_string()),
+                Some(_) => {
+                    commentary_note =
+                        unavailable("コメントを作れませんでした。数字の部分は上のとおりです。");
+                }
+                None => {}
+            }
+            match jud {
+                Some(Ok(Ok(j))) => judged = Some(j),
+                Some(_) => {
+                    checks_note =
+                        unavailable("判定を作れませんでした。数字の部分は上のとおりです。");
+                }
+                None => {}
             }
         }
-    };
-    let result = score::build_result(&inp, &req, commentary, note, issue_match);
+    }
+    let appt = snap
+        .range
+        .has_appointment()
+        .then(|| score::appointment_result(&inp, judged, checks_note));
+    let req = if hearing { req } else { blank_request() };
+    let result = score::build_result(&inp, &req, commentary, commentary_note, issue_match, appt);
     ctx.store.store_result(id, result.clone());
     Ok(result)
+}
+
+/// 日時を決めるまでの範囲で、使わない記録欄の代わり
+fn blank_request() -> PracticeFinishRequest {
+    let f = || RecordField {
+        mode: "empty".into(),
+        value: String::new(),
+    };
+    PracticeFinishRequest {
+        record: HearingRecord {
+            hiring_3m: f(),
+            hiring_later: f(),
+            issue: f(),
+            urgency: f(),
+            consider: f(),
+            budget: f(),
+            decider: f(),
+            attend: f(),
+        },
+        heat_guess: "mixed".into(),
+    }
 }
 
 async fn post_finish(
@@ -423,14 +510,8 @@ async fn post_finish(
         Ok(o) => o,
         Err(r) => return r,
     };
-    let model = std::env::var("CALL_PRACTICE_SCORE_MODEL")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_SCORE_MODEL.to_string());
-    let base = TalkReviewConfig::from_env().minimax_base_url;
-    let judge = MiniMaxJudge::new(&base, &model);
-    match finish_session(&ctx, &id, &owner, req, judge.as_ref()).await {
+    let scorer = ClaudeScorer::from_env();
+    match finish_session(&ctx, &id, &owner, req, scorer.as_ref()).await {
         Ok(r) => Json(r).into_response(),
         Err(e) => err_response(e),
     }
@@ -489,6 +570,7 @@ mod tests {
             &PracticeStartRequest {
                 persona_id: Some("hot_01".into()),
                 script_seen: false,
+                range: None,
             },
         )
         .unwrap();
@@ -603,7 +685,8 @@ mod tests {
                 "a",
                 &PracticeStartRequest {
                     persona_id: Some("zzz".into()),
-                    script_seen: false
+                    script_seen: false,
+                    range: None
                 }
             )
             .unwrap_err()
@@ -678,6 +761,7 @@ mod tests {
             &PracticeStartRequest {
                 persona_id: Some("hot_01".into()),
                 script_seen: true,
+                range: None,
             },
         )
         .unwrap();
@@ -722,6 +806,7 @@ mod tests {
             &PracticeStartRequest {
                 persona_id: Some("cold_01".into()),
                 script_seen: false,
+                range: None,
             },
         )
         .unwrap();
@@ -745,6 +830,175 @@ mod tests {
                 .await
                 .unwrap_err()
                 .1,
+            "invalid_input"
+        );
+    }
+
+    struct ApptC;
+    impl Completer for ApptC {
+        async fn complete(&self, p: &str) -> Result<Value, JudgeError> {
+            // 判定の項目 (checks) を要求されたときだけ checks を返す。コメントの要求には答えない
+            assert!(
+                p.contains("アポ取り電話を評価する担当"),
+                "既存の判定のプロンプトを使う"
+            );
+            Ok(json!({
+                "outcome": "日程が決まった",
+                "checks": [
+                    {"id": "early_date", "status": "できた", "evidence": [2], "quote": "来週の水曜か木曜あたりはいかがですか"},
+                    {"id": "kizonkan", "status": "できていない", "evidence": [], "advice": "前回のことと改めた理由を一言添える"}
+                ],
+                "summary": "前回のことに触れてから日付を出すとよい"
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn 日時を決める範囲は規則の数字と既存の判定を返し_ヒアリングの記録は要らない() {
+        let ctx = ctx_with(vec![
+            Ok("今は大丈夫ですね\n###{\"asked_slots\":[],\"is_question\":false,\"mood\":\"normal\",\"objection\":true,\"end\":false}".into()),
+            Ok("じゃあ、その日でいいですよ\n###{\"asked_slots\":[],\"is_question\":false,\"mood\":\"normal\",\"objection\":false,\"end\":false}".into()),
+        ]);
+        let r = start_session(
+            &ctx,
+            "a",
+            &PracticeStartRequest {
+                persona_id: Some("budget_01".into()),
+                script_seen: false,
+                range: Some("appointment".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(r.range, "appointment");
+        assert_eq!(r.opening.text, "はい、お電話代わりました");
+        let ev = drain(
+            start_turn(
+                &ctx,
+                &r.session_id,
+                "a",
+                treq("1", "来週の水曜か木曜あたりはいかがですか"),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(ev.last().unwrap().1["date_agreed"], false);
+        let ev = drain(
+            start_turn(
+                &ctx,
+                &r.session_id,
+                "a",
+                treq("2", "では再来週の火曜はいかがですか"),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        let (_, done) = ev.last().unwrap();
+        assert_eq!(
+            (done["date_agreed"].clone(), done["ended"].clone()),
+            (json!(true), json!(true))
+        );
+        // ヒアリングの記録は空のまま・見立ても無しで終えられる
+        let res = finish_session(&ctx, &r.session_id, "a", blank_request(), Some(&ApptC))
+            .await
+            .unwrap();
+        assert_eq!(res.range, "appointment");
+        assert!(res.items.is_empty() && res.commentary.is_none() && res.commentary_note.is_none());
+        let a = res.appointment.unwrap();
+        assert!(a.agreed);
+        assert_eq!((a.offers, a.offer_turns.clone()), (2, vec![2, 4]));
+        assert_eq!(
+            (a.rep_turns_to_agree, a.persona_rule.as_str()),
+            (Some(2), "2 回目の打診で日時を受ける型")
+        );
+        assert_eq!(a.objections.len(), 1);
+        assert_eq!(
+            (
+                a.objections[0].turn,
+                a.objections[0].next_rep_turn,
+                a.objections[0].reoffered
+            ),
+            (3, Some(4), true)
+        );
+        assert_eq!(a.checks.len(), 9);
+        assert_eq!(a.checks[2].id, "early_date");
+        assert_eq!(
+            (
+                a.checks[2].status.as_str(),
+                a.checks[2].status_label.as_str()
+            ),
+            ("done", "できた")
+        );
+        assert_eq!(
+            a.checks[2].baseline_text.as_deref(),
+            Some("報告書では、話せた電話のうちの 81% が「できていない」")
+        );
+        let kz = a.checks.iter().find(|c| c.id == "kizonkan").unwrap();
+        assert_eq!(
+            kz.advice.as_deref(),
+            Some("前回のことと改めた理由を一言添える")
+        );
+        assert_eq!(
+            a.summary.as_deref(),
+            Some("前回のことに触れてから日付を出すとよい")
+        );
+        assert!(a.checks_note.is_none());
+        assert!(
+            a.result_note.contains("日時の打診は 2 回") && a.result_note.contains("発言は 2 回")
+        );
+    }
+
+    #[tokio::test]
+    async fn 判定が使えなくても日時の規則の数字は返す_受けない型は決まらなくても正しい結果() {
+        let ctx = ctx_with(vec![]);
+        let r = start_session(
+            &ctx,
+            "a",
+            &PracticeStartRequest {
+                persona_id: Some("cold_01".into()),
+                script_seen: false,
+                range: Some("full".into()),
+            },
+        )
+        .unwrap();
+        let bad = PracticeFinishRequest {
+            heat_guess: "boiling".into(),
+            ..finish_req("hot")
+        };
+        // 通しではヒアリングの検査も行い、失敗しても練習は残る
+        assert_eq!(
+            finish_session(&ctx, &r.session_id, "a", bad, Some(&DownC))
+                .await
+                .unwrap_err()
+                .1,
+            "invalid_input"
+        );
+        let res = finish_session(&ctx, &r.session_id, "a", finish_req("cold"), Some(&DownC))
+            .await
+            .unwrap();
+        let a = res.appointment.unwrap();
+        assert!(!a.agreed && a.offers == 0 && a.checks.is_empty());
+        assert_eq!(
+            a.checks_note.as_deref(),
+            Some("判定を作れませんでした。数字の部分は上のとおりです。")
+        );
+        assert!(a.result_note.contains("最後まで日時を受けない型でした"));
+        assert!(a.persona_rule.contains("最後まで日時を受けない型"));
+        assert_eq!(res.items.len(), 4);
+        assert!(res.commentary.is_none());
+        assert_eq!(
+            start_session(
+                &ctx,
+                "a",
+                &PracticeStartRequest {
+                    persona_id: None,
+                    script_seen: false,
+                    range: Some("zzz".into())
+                }
+            )
+            .unwrap_err()
+            .1,
             "invalid_input"
         );
     }

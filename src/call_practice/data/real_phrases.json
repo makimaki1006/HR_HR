@@ -1,0 +1,41 @@
+{
+  "_note": "実際の架電の文字起こし (2,022 本) から数えた、担当者側の短い返事。固有名詞を避けるため、45文字以内・数字や人名/社名らしい語を含まない・2本以上の別の通話に同じ文が出るものだけを残した。数は出てきた通話の本数。文字起こしの原文・会社名・人名は入れていない。抽出は apoq-work/call_practice/extract_phrases.py",
+  "calls_scanned": 2022,
+  "scenes": {
+    "person_greet": [
+      {"text": "お世話になります", "calls": 4},
+      {"text": "はい、お世話になります", "calls": 2}
+    ],
+    "after_purpose": [
+      {"text": "はい", "calls": 20},
+      {"text": "そうですね", "calls": 15},
+      {"text": "わかりました", "calls": 4},
+      {"text": "なるほど", "calls": 2},
+      {"text": "あーそうですか", "calls": 2},
+      {"text": "そうなんですね", "calls": 2},
+      {"text": "まあ、そうですね", "calls": 2},
+      {"text": "何の件ですか", "calls": 2},
+      {"text": "使ってますよ", "calls": 2},
+      {"text": "ないです", "calls": 3}
+    ],
+    "after_date_offer": [
+      {"text": "はい", "calls": 22},
+      {"text": "そうですね", "calls": 14},
+      {"text": "わかりました", "calls": 10},
+      {"text": "大丈夫です", "calls": 7},
+      {"text": "はい、大丈夫です", "calls": 5},
+      {"text": "お願いいたします", "calls": 4},
+      {"text": "うーん", "calls": 3},
+      {"text": "ちょっと待ってください", "calls": 3},
+      {"text": "大丈夫ですよ", "calls": 3},
+      {"text": "いいですよ", "calls": 2},
+      {"text": "午前中", "calls": 2}
+    ],
+    "refusal": [
+      {"text": "結構", "calls": 2},
+      {"text": "今はないですね", "calls": 2},
+      {"text": "募集してない", "calls": 2},
+      {"text": "今は一人ですね", "calls": 2}
+    ]
+  }
+}

@@ -123,3 +123,29 @@ export const SCRIPT_LINES: readonly { group: string; line: string }[] = [
   { group: '③ 検討と予算', line: '弊社は月額定額のサービスです。その形でしたら、ご検討いただけそうですか？' },
   { group: '④ 決める人と同席', line: '最終的にお決めになる方と、当日ご同席いただけるかを伺えますか？' },
 ];
+
+export type Range = 'appointment' | 'hearing' | 'full';
+
+export const RANGES: readonly { value: Range; label: string; detail: string }[] = [
+  { value: 'appointment', label: '日時を決めるまで', detail: '担当者につながったところから、断り文句をかわして、日時が決まるまで。' },
+  { value: 'hearing', label: 'ヒアリングだけ', detail: '日時が決まった直後から、4 項目を聞いて記録する。' },
+  { value: 'full', label: '通し', detail: '担当者につながったところから、日時を決めて、4 項目を聞くまで。' },
+];
+
+export const RANGE_LABEL: Record<string, string> = { appointment: '日時を決めるまで', hearing: 'ヒアリングだけ', full: '通し' };
+
+export function hasHearing(r: Range): boolean {
+  return r !== 'appointment';
+}
+
+/** 日時を決める場面の台本 (アポ取りトーク v1 の言い方) */
+export const APPT_SCRIPT_LINES: readonly { group: string; line: string }[] = [
+  { group: '入り方', line: '前回お電話したことに触れて、改めた理由を一言添える。(例: 前回お電話したんですが、タイミングが合わなかったので、改めてご連絡しました)' },
+  { group: '日付', line: 'すぐに「来週の水曜か木曜あたりはいかがですか」と、具体的な日を出す。' },
+  { group: '何の件かと聞かれたら', line: '1〜2 文で用件を答えて、すぐ日付に戻る。' },
+  { group: '忙しいと言われたら', line: '引き下がらず、こちらから別の週・日を出し直す。「いつ頃なら」と聞き返さない。' },
+];
+
+export function isRange(v: string | null): v is Range {
+  return v === 'appointment' || v === 'hearing' || v === 'full';
+}

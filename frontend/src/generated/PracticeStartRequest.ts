@@ -8,4 +8,8 @@ persona_id: string | null,
 /**
  * 台本を横に出して練習するか
  */
-script_seen: boolean, };
+script_seen: boolean, 
+/**
+ * 練習の範囲: "appointment" (日時を決めるまで) | "hearing" (ヒアリングだけ) | "full" (通し)。省略は "hearing"
+ */
+range: string | null, };

@@ -1,6 +1,6 @@
 // 採点と振り返り (設計書 §3.5)。上から順に出す。
 import type { PracticeResult } from '../../generated/PracticeResult';
-import { HEAT_LABEL } from './record';
+import { HEAT_LABEL, RANGE_LABEL } from './record';
 
 const STATUS_CLASS: Record<string, string> = {
   got: 'cp-status-good',
@@ -14,16 +14,113 @@ export function ResultView({
   result,
   onAgainSame,
   onAgainOther,
+  onChangeRange,
 }: {
   result: PracticeResult;
   onAgainSame: () => void;
   onAgainOther: () => void;
+  onChangeRange: () => void;
 }) {
   const turnText = (n: number): string => result.transcript.find((t) => t.n === n)?.text ?? '';
   const heat = result.heat;
+  const appt = result.appointment;
+  const hearing = result.range !== 'appointment';
   return (
     <div className="cp-result" data-testid="practice-result">
       <h2 className="w8-h2">結果</h2>
+      <p className="w8-muted" data-testid="result-range">練習の範囲: {RANGE_LABEL[result.range] ?? result.range}</p>
+
+      {appt !== null && (
+        <section className="w8-card cp-section" data-testid="appt-result">
+          <h3 className="w8-section-title">日時を決める場面</h3>
+          <p className={appt.agreed ? 'cp-status-good' : 'cp-status-mid'} data-testid="appt-note">
+            {appt.result_note}
+          </p>
+          <table className="cp-table" data-testid="appt-numbers">
+            <tbody>
+              <tr>
+                <th>日時が決まったか</th>
+                <td>{appt.agreed ? '決まった' : '決まらなかった'}</td>
+              </tr>
+              <tr>
+                <th>日時の打診</th>
+                <td>
+                  {appt.offers} 回{appt.offer_turns.length > 0 ? `(${appt.offer_turns.map((n) => `${String(n)} 番`).join('、')})` : ''}
+                </td>
+              </tr>
+              <tr>
+                <th>決まるまでのあなたの発言</th>
+                <td>{appt.rep_turns_to_agree === null ? 'なし' : `${String(appt.rep_turns_to_agree)} 回 / ${String(appt.seconds_to_agree ?? 0)} 秒`}</td>
+              </tr>
+              <tr>
+                <th>お客さんの型の決まり</th>
+                <td data-testid="appt-rule">{appt.persona_rule}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>断り文句と、そのあとのあなたの発言</h4>
+          {appt.objections.length === 0 ? (
+            <p className="w8-muted" data-testid="appt-objections-none">断り文句はありませんでした。</p>
+          ) : (
+            <ul className="cp-appt-list" data-testid="appt-objections">
+              {appt.objections.map((o) => (
+                <li key={o.turn}>
+                  {o.turn} 番「{o.customer_text}」→{' '}
+                  {o.next_rep_turn === null ? (
+                    <span className="cp-status-bad">そのあとの発言なし(引き下がった)</span>
+                  ) : (
+                    <span>
+                      {o.next_rep_turn} 番「{o.next_rep_text ?? ''}」{' '}
+                      <span className={o.reoffered ? 'cp-status-good' : 'cp-status-mid'}>{o.reoffered ? '別の日時を出し直した' : '日時は出し直していない'}</span>
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <h4>アポ取りトークの判定項目</h4>
+          {appt.checks.length === 0 ? (
+            <p className="w8-muted" data-testid="appt-checks-note">{appt.checks_note ?? '判定はありません。'}</p>
+          ) : (
+            <>
+              {appt.summary !== null && <p className="cp-summary" data-testid="appt-summary">{appt.summary}</p>}
+              <div className="w8-table-wrap">
+                <table className="cp-table" data-testid="appt-checks">
+                  <thead>
+                    <tr>
+                      <th>項目</th>
+                      <th>判定</th>
+                      <th>次に言うとよい一言・根拠</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {appt.checks.map((c) => (
+                      <tr key={c.id} data-testid={`appt-check-${c.id}`}>
+                        <td>
+                          {c.title}
+                          <div className="w8-muted">{c.stage}</div>
+                        </td>
+                        <td className={c.status === 'done' ? 'cp-status-good' : c.status === 'not_done' ? 'cp-status-bad' : 'cp-status-mid'}>{c.status_label}</td>
+                        <td>
+                          {c.advice !== null && <div>{c.advice}</div>}
+                          {c.quote !== null && <div className="w8-muted">「{c.quote}」{c.evidence.length > 0 ? `(${c.evidence.map((n) => `${String(n)} 番`).join('、')})` : ''}</div>}
+                          {c.baseline_text !== null && <div className="w8-muted">{c.baseline_text}</div>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {appt.checks_note !== null && <p className="w8-muted">{appt.checks_note}</p>}
+            </>
+          )}
+        </section>
+      )}
+
+      {hearing && (
+        <>
 
       <section className="w8-card cp-section">
         <h3 className="w8-section-title">4 項目の取れ方</h3>
@@ -139,6 +236,9 @@ export function ResultView({
         )}
       </section>
 
+        </>
+      )}
+
       <section className="w8-card cp-section" data-testid="persona-reveal">
         <h3 className="w8-section-title">お客さんの型</h3>
         <p>
@@ -162,6 +262,9 @@ export function ResultView({
         </button>
         <button type="button" className="w8-button" onClick={onAgainOther}>
           別の型で練習する
+        </button>
+        <button type="button" className="w8-button" data-testid="change-range" onClick={onChangeRange}>
+          範囲を選び直す
         </button>
       </div>
     </div>

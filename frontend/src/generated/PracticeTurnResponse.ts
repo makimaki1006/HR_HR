@@ -3,6 +3,10 @@ import type { TalkTurn } from "./TalkTurn";
 
 export type PracticeTurnResponse = { rep_turn: TalkTurn, customer_turn: TalkTurn, 
 /**
- * お客さん役が会話を閉じた、または往復の上限に来た
+ * お客さん役が会話を閉じた、または往復の上限に来た (日時を決める範囲では、日時が決まったときも)
  */
-ended: boolean, };
+ended: boolean, 
+/**
+ * このやり取りまでに日時が決まった (ヒアリングだけの範囲では最初から true)
+ */
+date_agreed: boolean, };
