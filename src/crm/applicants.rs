@@ -27,6 +27,10 @@ use axum::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 pub use editing::ApplicantEditField;
 pub(super) use editing::{build_write_step, WRITE_SCOPE_MESSAGE};
+/// 報告シートと同じ取引の選び方 (応募の日付のカレンダーがコンサル担当を決めるのに使う)
+pub(crate) use report_sheet::{
+    owner_deal as report_deal, ranked_deal, PROPERTIES as REPORT_DEAL_PROPERTIES,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};

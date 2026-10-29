@@ -412,6 +412,8 @@ async fn main() {
     rust_dashboard::crm::talk_review::spawn_worker(state.clone());
     // アポの自動判定 (APO_JUDGE_ENABLED=1 のときだけ。ADR-035)
     rust_dashboard::crm::apo_judge::spawn_worker(state.clone());
+    // 応募の日付を管理用カレンダーに載せる (APPLICANT_CALENDAR_ENABLED=1 のときだけ。ADR-037)
+    rust_dashboard::crm::applicant_calendar::spawn_worker(state.clone());
 
     // メモリの使用量を 1 分おきに記録し、急増したら処理中の要求と一緒に出す
     rust_dashboard::mem_watch::spawn();

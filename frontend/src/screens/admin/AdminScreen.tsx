@@ -11,6 +11,7 @@ import type { AdminUsageResponse } from '../../generated/AdminUsageResponse';
 import type { AdminUserDetailResponse } from '../../generated/AdminUserDetailResponse';
 import type { AdminUsersResponse } from '../../generated/AdminUsersResponse';
 import { dashIfEmpty, truncateChars, unknownIfEmpty } from './format';
+import { CalendarPanel } from './CalendarPanel';
 import { CallersPanel } from './CallersPanel';
 import { FailedOpsPanel } from './FailedOpsPanel';
 import { HubSpotUsagePanel } from './HubSpotUsagePanel';
@@ -60,6 +61,7 @@ export function AdminNav() {
       <AdminLink route={{ view: 'hubspot' }}>HubSpot</AdminLink>
       <AdminLink route={{ view: 'callers' }}>今日の架電</AdminLink>
       <AdminLink route={{ view: 'crm-failed' }}>保存できなかった操作</AdminLink>
+      <AdminLink route={{ view: 'calendar' }}>カレンダー</AdminLink>
       <AdminLink route={{ view: 'talk', from: '', to: '', team: '', owner: '', call: '', people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '', tab: '' }}>トークの振り返り</AdminLink>
       <a href="/app/portal-admin">応募者画面</a>
       <a href="/app/my?view=activity" className="w8-nav-right">
@@ -595,6 +597,7 @@ function AdminBody({ route }: { route: AdminRoute }) {
     case 'hubspot':
     case 'callers':
     case 'crm-failed':
+    case 'calendar':
     case 'talk':
       // AdminScreen renders these panels (each with its own refresh) instead of AdminBody.
       return null;
@@ -607,7 +610,7 @@ export function AdminScreen() {
     <NavigateContext.Provider value={navigate}>
       <div className="w8-page">
         <AdminNav />
-        {route.view === 'hubspot' ? <HubSpotUsagePanel /> : route.view === 'callers' ? <CallersPanel /> : route.view === 'crm-failed' ? <FailedOpsPanel /> : route.view === 'talk' ? <TalkPanel route={route} navigate={navigate} /> : <AdminBody route={route} />}
+        {route.view === 'hubspot' ? <HubSpotUsagePanel /> : route.view === 'callers' ? <CallersPanel /> : route.view === 'crm-failed' ? <FailedOpsPanel /> : route.view === 'calendar' ? <CalendarPanel /> : route.view === 'talk' ? <TalkPanel route={route} navigate={navigate} /> : <AdminBody route={route} />}
       </div>
     </NavigateContext.Provider>
   );

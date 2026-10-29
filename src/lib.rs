@@ -974,6 +974,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // 顧客向け応募者画面のログイン (/portal/*, /api/portal/*, /api/admin/portal/*)。顧客の Cookie だけを見る。
         // auth_middleware の外に置き、社内の管理 API の認可は各ハンドラ (CRM と同じ + 管理者だけ) で行う。
         .merge(portal::router(state.audit.clone()))
+        // 応募の日付を載せる管理用カレンダーの許可 (/api/admin/applicant-calendar/*、ADR-037)。管理者だけ。
+        // callback は Google からの移動で Strict のログイン Cookie が届かないので auth_middleware の外に置く
+        .merge(crm::applicant_calendar::routes::router(
+            crm::applicant_calendar::ApplicantCalendar::global(state.audit.clone()),
+            crm::rbac::CrmAccess::from_env(),
+        ))
         .merge(protected_routes)
         .merge(admin_routes)
         .merge(jobgen_routes)

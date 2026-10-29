@@ -1137,3 +1137,67 @@ HubSpot Search: アポ日確定に直近 72 時間以内に入った取引 か�
 - 通話の Search で `associations.contact` を条件に使う (本番では未確認。使えないときは `ApoHubSpot::find_calls` だけを差し替える)。
 - ステージに入った後に別の電話で日程が決まった場合も、入る前の直近の発信を使う。入る前の発信が無い取引は「文字起こしなし」になる。
 - 判定済みの取引の再判定はしない。やり直したいときは `apo_ai_judged_at` を空にする。
+
+## 24. 応募の日付を管理用カレンダーに載せる (2026-10-29、ADR-037)
+
+状態: 実装済み (`src/crm/applicant_calendar/`)。既定 OFF (`APPLICANT_CALENDAR_ENABLED=1` のときだけ背景の周回が動く)。目的は見える化 (ユーザー決定)。
+
+### 載せるもの
+
+- 応募 (0-421) の日付の項目を、既存の「管理用カレンダー」のアカウントの Google カレンダーに予定として載せる。項目は設定 `APPLICANT_CALENDAR_PROPS` で持つ (既定: 面接予定日 `mensetsuyoteibi`・入社予定日 `nyuushayoteibi`・内定日 `naiteinichi`。種類は「面接」「入社」「内定」)。
+- 予定の形は HubSpot のプロパティ定義の型で決める (コードに書かない): `datetime` は時刻つき (日本時間、長さは `APPLICANT_CALENDAR_EVENT_MINUTES`、既定 60 分)、`date` は終日 (終わりは翌日)。それ以外の型の項目は載せない。定義は 6 時間おきに読み直し、型が変わった項目はその次の周回で値の範囲 (下記) で読み直して予定を作り直す (終日⇔時刻つき)。
+- 予定の名前: 「面接｜応募者名｜会社名」(全角の縦棒)。名前・会社名が空ならその部分を省く。応募者名は `ouboshashimei` (無ければ `ouboshashimei_kana`)。会社名は、ゲストを決めるときに選んだ取引 (下記) に関連する会社がちょうど 1 つならその名前、無ければ応募の `oubosaki_torihiki_name`。
+- 説明欄: 応募者名・会社名・求人名 (応募の `oubosaki_*` のうち表示名に「タイトル」「求人名」を含む項目)・応募の HubSpot へのリンク (`HUBSPOT_PORTAL_ID`)・「日付の変更は HubSpot の応募で」の一文だけ。電話番号などは書かない。
+- ゲスト: その応募のコンサル担当。応募 → 求人票 (0-420) → 取引を辿り、報告シートの URL を持つ取引があれば報告シートと同じ選び方 (§21「報告シート」、`applicant_sheet.rs` の `owner_deal` を共用。生きている主契約 → オプション → 全体、契約開始日 → 作成日、同順位は関連の先勝ち) で選ぶ。URL を持つ取引が無ければ、同じ順位で関連する全取引から 1 つ選ぶ (`ranked_deal`。報告シートの選び方は変えない)。選んだ取引の `hubspot_owner_id` → 担当者一覧のメール。関連する取引が読めない・担当者のメールが取れなければゲストなしで載せる。
+- 招待メールは送らない (作成・上書き・削除はすべて `sendUpdates=none`)。
+
+### 予定と応募の結び付け (表を作らない)
+
+- 予定の ID を `hrhr` + SHA-256(応募 ID + ":" + 項目名) の先頭 20 バイトを base32hex にした 32 文字で作る (合計 36 文字、a-v と 0-9)。再起動しても同じ予定を指すので二重に作らない。
+- 予定の拡張プロパティ (private) に `hrhr=applicant`・`hrhr_applicant`・`hrhr_prop` を書く。消すのはこの印があり、ID が応募と項目から作ったものと一致する予定だけ。
+- 書き方: 周回ごとに、印のある自分の予定のうち今日 − 30 日以降に終わるものの一覧を 1 回読む (`privateExtendedProperty`)。値があり、一覧の予定と内容 (名前・説明・日時・ゲスト・印・状態) が同じなら書かない。違えば patch (使わない側の `date` / `dateTime` を null で消し、`status=confirmed`)。一覧に無ければ insert、409 (同じ ID がある。削除済みでも 409) なら patch で上書きして表示に戻す。一覧の範囲より前に終わる予定だけは、書く前に GET して同じなら書かない。値が空になった応募の予定は、一覧にあれば削除する。
+- 応募が消えた (Search にも batch read にも出ない) 予定は、6 時間に 1 回、一覧の予定の応募 ID を batch read で確かめて消す。載せる項目から外した項目の予定も同じときに消す。HubSpot を読めなかったときは何も消さない。
+
+### 周回 (`sync.rs`)
+
+- 間隔 `APPLICANT_CALENDAR_INTERVAL_SECS` (既定 300 秒)。起動 60 秒後から。
+- 起動直後の初回: 載せる項目のどれかの値が今日 (日本時間) − 30 日の 0 時以降の応募を、項目ごとの filterGroups の OR で Search する (1 回の Search は 5 項目まで、超えたら分ける)。
+- 2 回目以降: `hs_lastmodifieddate` が前回の読み始め − 5 分以降の応募を、更新時刻の古い順に Search する。10,000 件で切れたら、最後に読んだ更新時刻から次の周回で続ける。
+- 1 件でも書けなかった・読めなかった周回は、前回の読み始めを進めない (次の周回で同じ範囲を読み直す。内容が同じ予定は書かないので重ならない)。Google の上限 (429 / 403 の上限) や 401 に当たったらその周回を止める。
+- Calendar への呼び出しの間に 150 ms 空ける (初回にまとめて作るときに 1 分あたりの上限に当たらないように)。
+- HubSpot は CRM の鍵 (ADR-025 の選び方)・関所の `Background` 優先度 (§18)。担当者一覧は 10 分、プロパティ定義は 6 時間、プロセス内で覚える。
+- 同期の状態 (前回の読み始め・型・最後の同期・件数) はプロセス内だけ。Turso に書かない。再起動すると初回の読み方からやり直す (予定の ID が決定的なので二重にならず、内容が同じなら書かない)。**単一インスタンス前提**。
+
+### 許可 (`google.rs`・`routes.rs`)
+
+- 管理用カレンダーのアカウント (`APPLICANT_CALENDAR_ACCOUNT`) が管理画面 `/app/admin?view=calendar` で一度だけ Google の許可を押す。範囲は `https://www.googleapis.com/auth/calendar.events` だけ (offline)。押せるのは管理者のうちそのアカウント本人だけで、Google で選んだアカウント・手続きを始めた人のどちらかが違う、HR_HR で無効、範囲が選ばれていない、のどれかなら保存しない。取り消しは管理者なら誰でも。
+- 手続き (state・PKCE・nonce・ID token の検証・token の交換) は CRM のメール (ADR-022) の `EmailService` を使い回す。OAuth クライアントも同じ選び方 (`CRM_EMAIL_GOOGLE_CLIENT_ID` / `_SECRET` があればその「内部」のクライアント)。戻り先は `APPLICANT_CALENDAR_REDIRECT_URL` (パス `/api/admin/applicant-calendar/callback` 固定)。
+- refresh token は監査 Turso の表 `applicant_calendar_grants` に、CRM と同じ鍵 (`CRM_EMAIL_TOKEN_KEY`) の AES-256-GCM で暗号化して置く。AAD は `applicant-calendar:` + アドレスで、CRM の行 (AAD = アドレスだけ)・顧客画面の送信元の行 (ADR-036) と取り違えて復号できない。
+- 許可が切れた (token の取り直しが `invalid_grant` 等で断られた) ら、管理画面に「許可が切れています」を出す (プロセス内の印。許可し直すと消える)。
+- 管理画面には、許可したアカウント・許可した日時・最後に同期した時刻・直近の周回の追加/変更/削除/書けなかった件数・起動してからの書けなかった件数の合計を出す。
+
+| API | 内容 |
+|---|---|
+| `GET /api/admin/applicant-calendar` | 状態 (管理者だけ) |
+| `GET /api/admin/applicant-calendar/authorize` | Google の許可へ移る (アカウント本人だけ) |
+| `GET /api/admin/applicant-calendar/callback` | Google から戻る。本人と範囲を確かめて保存 |
+| `POST /api/admin/applicant-calendar/revoke` | 取り消し (管理者なら誰でも。`X-Requested-With: fetch` と Origin の確認) |
+
+### 呼び出し回数の見積もり (実測ではない)
+
+| 先 | 回数 |
+|---|---|
+| HubSpot Search | 周回ごとに 1 回 (更新が 200 件を超えるとページの数だけ)。1 日 288 回〜 |
+| HubSpot その他 (日付のある応募が更新された周回だけ) | 関連 2 回 (応募→求人票、求人票→取引)・取引 batch read 1 回・関連 1 回 (取引→会社)・会社 batch read 1 回 (どれも 100 件ごと)。担当者一覧は 10 分に 1 回 (100 人ごと 1 回)、定義は 6 時間に 1 回、応募が消えたかの確認は 6 時間に 1 回 (100 件ごと 1 回)。合わせて 1 日 2,000 回程度まで (1 日の上限 625,000 の 0.4% 未満) |
+| Google Calendar | 一覧の読み取りが周回ごとに 1 回 (2,500 件ごと)。書き込みは日付が変わった予定だけ (1 件 1 回、409 のときは 2 回)。初回は今日 − 30 日以降の日付の数だけ作る (例: 1,000 件なら 150 ms 間隔で約 3 分) |
+| Google の token | access token の取り直しが約 1 時間に 1 回 |
+| 監査 Turso | 書き込みは許可の保存・取り消しのときだけ。読み取りは周回ごとに許可の SELECT 1 回 (1 日 288 回) と、管理画面を開いたとき |
+
+### 確認済みの前提
+
+- 本番の 0-421 の型 (2026-10-29、HubSpot の API で確認): `mensetsuyoteibi`・`nyuushayoteibi` は `type=datetime` (`fieldType=date`) なので時刻つきの予定、`naiteinichi` は `type=date` なので終日の予定になる。予定の形は `type` で決める (`fieldType` は見ない)。
+
+### 未確認の前提
+
+- Google カレンダーの patch で `start.date` / `start.dateTime` を null にすると古い側が消える (公開仕様の patch の決まり)。偽のカレンダーで確かめただけで、本物では未確認。
+- ゲストを `sendUpdates=none` で足したとき、ゲストのカレンダーに予定が出るかは Google Workspace の「招待を自動で追加」の設定による。
