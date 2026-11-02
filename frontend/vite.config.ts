@@ -46,6 +46,8 @@ export default defineConfig({
         'portal-admin': fromHere('src/entries/portal-admin.tsx'),
         // トークの振り返り (2026-10-22): /app/talk。Google ログインの社内の人なら誰でも
         talk: fromHere('src/entries/talk.tsx'),
+        // コンサルKPI v2 (2026-11-02): /app/consulting-v2。今のコンサルKPI (/consulting) と並べて見比べる
+        'consulting-v2': fromHere('src/entries/consulting-v2.tsx'),
         // 架電の練習 (2026-10-29): /app/call-practice。第 1 段は管理者だけ
         'call-practice': fromHere('src/entries/call-practice.tsx'),
       },

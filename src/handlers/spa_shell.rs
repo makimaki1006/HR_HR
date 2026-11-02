@@ -61,6 +61,9 @@ pub const KNOWN_SCREENS: &[&str] = &[
     "talk",
     // 2026-10-29: 架電の練習 (/app/call-practice)。第 1 段は管理者だけ。ナビでは隠す (nav.rs)
     "call-practice",
+    // 2026-11-02: コンサルKPI v2 (/app/consulting-v2)。今のコンサルKPI (/consulting) と並べて見比べる画面案。
+    // データは今のコンサルKPIと同じ /api/consulting/* (ログインしていれば誰でも)。ナビは今のコンサルKPIの隣
+    "consulting-v2",
 ];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。
@@ -160,12 +163,13 @@ pub fn load_manifest(path: &Path) -> Option<AppManifest> {
     }
 }
 
-/// 英小文字で始まり、英小文字とハイフンだけから成る 1〜64 文字。
+/// 英小文字で始まり、英小文字・数字・ハイフンだけから成る 1〜64 文字 (`consulting-v2` のように版の数字を含む画面名がある)。
 fn is_valid_screen_name(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 64
         && s.as_bytes()[0].is_ascii_lowercase()
-        && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// `/app/{screen}` のルータ。`manifest` は起動時に読み込んだもの (テストでは任意に渡す)。
@@ -407,6 +411,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn コンサルkpi_v2は数字を含む名前でも開ける() {
+        assert!(KNOWN_SCREENS.contains(&"consulting-v2"));
+        let manifest = AppManifest::parse(SAMPLE_MANIFEST).unwrap();
+        let (status, _) = get_path(app(Some(manifest)), "/app/consulting-v2").await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn 未知や不正な画面名は404() {
         let manifest = AppManifest::parse(SAMPLE_MANIFEST).unwrap();
         for uri in [
@@ -416,6 +428,7 @@ mod tests {
             "/app/../x",      // セグメント数が合わずルートに当たらない
             "/app/dummy.tsx", // ドット
             "/app/-dummy",    // 先頭ハイフン
+            "/app/2dummy",    // 先頭が数字
             "/app/",          // 空
             "/app",           // 画面名なし
         ] {
@@ -423,6 +436,9 @@ mod tests {
             assert_eq!(status, StatusCode::NOT_FOUND, "{uri} -> {status} {body}");
             assert!(!body.contains("/static/app/assets/"), "{uri}");
         }
+        // 数字を含む画面名でも、KNOWN_SCREENS に無ければ 404
+        let (status, _) = get_path(app(Some(manifest.clone())), "/app/dummy2").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
         // manifest が無くても、未知の画面名は注記ではなく 404
         let (status, _) = get_path(app(None), "/app/unknown").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
@@ -443,7 +459,8 @@ mod tests {
     fn 画面名の検査() {
         assert!(is_valid_screen_name("dummy"));
         assert!(is_valid_screen_name("recruitment-diag"));
-        for bad in ["", "Dummy", "../x", "a/b", "a.b", "-a", "a_b", "a1", "ａ"] {
+        assert!(is_valid_screen_name("consulting-v2"));
+        for bad in ["", "Dummy", "../x", "a/b", "a.b", "-a", "a_b", "1a", "ａ"] {
             assert!(!is_valid_screen_name(bad), "{bad:?}");
         }
         assert!(!is_valid_screen_name(&"a".repeat(65)));
