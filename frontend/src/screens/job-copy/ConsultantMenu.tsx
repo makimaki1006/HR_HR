@@ -22,6 +22,8 @@ function ConsultantScopeFilter() {
       const r = await apiGet<ConsultantScope & { status: string }>(`/api/job-copy/consultant-scope?${ownerQuery}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (!r.ok || r.data.status === 'failed') { setError(true); return; }
+      // 形の違う応答（担当者の一覧が無い等）で画面全体が落ちないよう、読み込めなかった扱いにする。
+      if (r.data.status === 'ready' && !Array.isArray(r.data.owners)) { setError(true); return; }
       if (r.data.status !== 'ready') { timer = setTimeout(() => { void load(); }, 2000); return; }
       setScope(r.data); setError(false);
       if (!r.data.notice && [null, 'me'].includes(new URLSearchParams(ownerQuery).get('owner'))) updateJobCopyQuery({ owner: r.data.owner, owner_field: r.data.owner_field }, 'replace');

@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import columns from '../../frontend/src/generated/jobgen/columns.json';
-import { selectJobFeature, openOtherAnalysis, closeOtherAnalysis, findListings } from './job-copy-navigation';
+import { selectJobFeature, openOtherAnalysis, closeOtherAnalysis, findListings, openWork } from './job-copy-navigation';
 import { composeFixtureBody } from './job-copy-listings-fixture.mjs';
 import type { DraftSnapshot } from '../../frontend/src/generated/DraftSnapshot';
 const shots = path.resolve('docs/screenshots/job-copy-manage-edit-flow');
@@ -68,6 +68,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await list.getByRole('button', { name: '架空看護スタッフの本文を見る' }).click();
       await expectBodyContains(page, '健康を支える看護');
       await expect(page).toHaveURL(/listing=31/);
+      await openWork(page);
       await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
       await expect(page.getByLabel('仕事の内容', { exact: true })).toHaveValue('健康を支える看護のお仕事です。時給1,800円。9時〜18時、週休2日。');
       await page.getByRole('button', { name: '手直しを閉じる' }).click();
@@ -82,6 +83,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await page.route('**/api/job-copy/listings/31/versions', route => route.fulfill({ json: { listing: { id: '31', media: 'airwork', media_job_id: 'secret-aw', title: '架空看護スタッフ' }, versions: [{ written_at: '2026-10-01T00:00:00Z', body, image_urls: null }], drafts: [], draft_revision: 'a'.repeat(64), can_write_drafts: true, history_counts: {}, history_may_be_incomplete: false } }));
       await page.goto('/app/job-copy?listing=31&demo=1');
       await findListings(page);
+      await openWork(page);
       await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
       await expect(page.getByLabel('仕事の内容', { exact: true })).toHaveValue(body);
       await page.getByLabel('変更した項目と内容を確認しました').check();
@@ -101,6 +103,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({ json: { listing: { id: '30', media: 'hrh', title: '架空配送スタッフ' }, current_row: current, versions: [{ written_at: '2026-10-01T00:00:00Z', body: composeFixtureBody(current), image_urls: null }], drafts: [], draft_revision: 'a'.repeat(64), can_write_drafts: true, history_counts: {}, history_may_be_incomplete: false } }));
       await page.goto('/app/job-copy?listing=30&demo=1');
       await findListings(page);
+      await openWork(page);
       await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
       const editor = page.getByRole('region', { name: '求人の手直し' });
       await editor.getByLabel('求人の見出し').fill(after!);
@@ -130,6 +133,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       } }));
       await page.goto('/app/job-copy?listing=30&demo=1');
       await findListings(page);
+      await openWork(page);
       await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
       const editor = page.getByRole('region', { name: '求人の手直し' });
       const input = editor.getByLabel('働く時間・休憩', { exact: true });
@@ -171,6 +175,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await expect(list.getByRole('button', { name: /の本文を見る/ })).toHaveCount(1);
       await shot(page, width, '01-manage');
       await list.getByRole('button', { name: '架空配送スタッフの本文を見る' }).click();
+      await openWork(page);
       await page.getByRole('button', { name: '現在の文面を手直しする', exact: true }).click();
       const editor = page.getByRole('region', { name: '求人の手直し' });
       await expect(editor.locator('.jc-manual-fields textarea')).toHaveCount(81);
@@ -226,6 +231,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
     test('保存済みAI案から手直しでき、変更前の値も維持する', async ({ page }) => {
       const { requests } = await mockFlow(page); await page.goto('/app/job-copy?listing=30&demo=1');
       await findListings(page);
+      await openWork(page);
       await page.getByRole('button', { name: '保存済みの案を手直しする' }).click();
       const editor = page.getByRole('region', { name: '求人の手直し' });
       await expect(editor.getByLabel('仕事の内容', { exact: true })).toHaveValue('チームで日用品を配送します。');
@@ -242,6 +248,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await mockFlow(page); await page.goto('/app/job-copy?listing=31&demo=1');
       await findListings(page);
       await expectBodyContains(page, '時給1,800円');
+      await openWork(page);
       await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
       const editor = page.getByRole('region', { name: '求人の手直し' });
       await expect(editor.getByLabel('仕事の内容', { exact: true })).toHaveValue('健康を支える看護のお仕事です。時給1,800円。9時〜18時、週休2日。');
@@ -251,9 +258,12 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
     test('権限なしの操作とサーバーの拒否を確認し保存済みと表示しない', async ({ page }) => {
       const { requests } = await mockFlow(page, false); await page.goto('/app/job-copy?listing=30&demo=1');
       await findListings(page);
+      await openWork(page);
       await expect(page.getByRole('button', { name: '現在の文面を手直しする' })).toBeDisabled();
+      await openWork(page);
       await expect(page.getByRole('button', { name: '保存済みの案を手直しする' })).toBeDisabled(); expect(requests).toHaveLength(0);
       await mockFlow(page, true, true); await page.reload();
+      await openWork(page);
       await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
       await page.getByLabel('変更した項目と内容を確認しました').check();
       await page.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
@@ -264,6 +274,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       drafts[0]!.row = { ...row, '求人id': '', '店舗id': '', '職種id': '' };
       await page.goto('/app/job-copy?listing=30&demo=1');
       await findListings(page);
+      await openWork(page);
       await page.getByRole('button', { name: '保存済みの案を手直しする' }).click();
       const editor = page.getByRole('region', { name: '求人の手直し' });
       await editor.getByLabel('求人の見出し').fill('見出しを手直しした配送スタッフ');
@@ -279,7 +290,9 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({ json: { listing: { id: '30', media: 'hrh', media_job_id: 'secret-job', account_id: null, title: '架空配送スタッフ', prefecture: null, municipality: null, category: null, publication_status: null, last_csv_detected_at: null, application_count: null }, versions: [], drafts, current_row: null, current: null, history_counts: {}, history_may_be_incomplete: false, draft_revision: 'a'.repeat(64), can_write_drafts: true } }));
       await page.goto('/app/job-copy?listing=30&demo=1');
       await findListings(page);
+      await openWork(page);
       await expect(page.getByRole('button', { name: '現在の文面を手直しする' })).toBeDisabled();
+      await openWork(page);
       await expect(page.getByRole('button', { name: '保存済みの案を手直しする' })).toBeDisabled();
       await expect(page.getByText('現在の本文が未取得のため、手直しを保存できません。求人を読み込み直して内容を確認してください。')).toBeVisible();
       expect(requests).toHaveLength(0);
@@ -287,6 +300,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
     test('手直しを閉じて既存の求人票表示と比較へ戻れる', async ({ page }) => {
       await mockFlow(page); await page.goto('/app/job-copy?listing=30&demo=1');
       await findListings(page);
+      await openWork(page);
       await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
       await page.getByRole('button', { name: '手直しを閉じる' }).click();
       await selectJobFeature(page, 'body'); await expect(page.getByLabel('求人票')).toContainText('250,000円');

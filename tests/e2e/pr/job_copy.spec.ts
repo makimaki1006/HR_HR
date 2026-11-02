@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { login } from './helpers/login';
 import { demoHome } from '../../../frontend/src/screens/job-copy/demoHome';
-import { closeOtherAnalysis, openOtherAnalysis, selectJobFeature } from '../job-copy-navigation';
+import { closeOtherAnalysis, openOtherAnalysis, openWork, selectJobFeature } from '../job-copy-navigation';
 
 /**
  * 案件管理 (/app/job-copy) を Rust が配る React 画面で確かめる。
@@ -247,11 +247,12 @@ test.describe('案件管理のタイムライン', () => {
     for (const mark of overlaps) expect(mark.pinTop, `${String(mark.label)} の線が文字に重なる`).toBeGreaterThanOrEqual(mark.textBottom);
   });
 
-  test('1100x623 で上の帯が 1 行に収まり、印を選ぶと「選んだ本文」が画面内に出る', async ({ page }) => {
+  test('1100x623 で上の帯が 2 段（メニューと担当）に収まり、印を選ぶと「選んだ本文」が画面内に出る', async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 623 });
     await open(page, defaultCapturedAt, { keepOpen: true });
     const topline = await page.locator('.jc-topline').evaluate(element => element.getBoundingClientRect().height);
-    expect(topline).toBeLessThan(60);
+    // 担当の選択を全画面で同じく出すため、上の帯は 2 段（メニュー + 担当）。小さい画面でも 72px までに収める。
+    expect(topline).toBeLessThan(72);
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     await timeline.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark').last().click();
     const panel = timeline.getByRole('region', { name: '選んだ本文', exact: true });
@@ -401,7 +402,8 @@ test.describe('案件管理のタイムライン', () => {
     await expect(who).toBeHidden();
     // 出来事の説明に、原因を決める言葉を使わない
     await expect(eventsSection).not.toContainText(/増えた|減った|効果/u);
-    // ほかの分析は入口のボタン 1 つから開き、タブは 6 つ（13 → 6）
+    // ほかの分析は畳んだ「作業」の中の入口のボタン 1 つから開き、タブは 6 つ（13 → 6）
+    await openWork(page);
     const more = page.getByRole('region', { name: 'ほかの分析', exact: true });
     await expect(more.getByRole('button')).toHaveText(['ほかの分析を開く']);
     await expect(page.getByRole('dialog', { name: 'ほかの分析', exact: true })).toHaveCount(0);
@@ -412,6 +414,7 @@ test('電話ヒアリングを開くとデモの聞き取りと通話記録を�
   await page.setViewportSize({ width: 1440, height: 1000 });
   await login(page);
   await page.goto('/app/job-copy?demo=1&job=demo-job-001');
+  await openWork(page);
   const section = page.locator('.ph-section');
   await expect(section.locator('summary')).toHaveText('電話ヒアリング（記録あり 3件 / 応募 28件）');
   await expect(section).not.toHaveAttribute('open');
@@ -502,6 +505,9 @@ test('出来事の応募に属性と応募理由と電話ヒアリングが同�
   await login(page);
   await page.goto('/app/job-copy?demo=1&job=demo-job-001');
   const event = page.locator(`[id="application-${'8'.repeat(64)}"]`);
+  // 出来事は既定で最新5件。古い応募は「すべて表示」で出す。
+  const showAll = page.getByRole('button', { name: /^すべて表示/u });
+  if (await showAll.count()) await showAll.click();
   await event.locator('.lo-event-head').click();
   await expect(event).toContainText('女性 ・ 38 ・ 大分県大分市');
   await expect(event).toContainText('通勤に片道1時間かかるため');

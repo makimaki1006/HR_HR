@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openWork } from './job-copy-navigation';
 import { mkdir } from 'node:fs/promises';
 import { mockFlow } from './job-copy-manage-edit-flow-scenarios';
 test('手直しの空欄と管理項目、本文の比較状態を利用者の言葉で表示する', async ({ page }) => {
@@ -7,6 +8,7 @@ test('手直しの空欄と管理項目、本文の比較状態を利用者の�
   await mockFlow(page);
   await page.goto('/app/job-copy?listing=30');
   await expect(page.locator('.jc-detail-heading')).toContainText('過去の本文がないため比較できません');
+  await openWork(page);
   await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
   const editor = page.getByRole('region', { name: '求人の手直し' });
   const management = editor.locator('.jc-management-fields');

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
-import { findListings } from './job-copy-navigation';
+import { findListings, openWork } from './job-copy-navigation';
 const shots = path.resolve('docs/screenshots/rikurozi-draft');
 const csv = '\ufeff求人id,店舗id,画像1\r\n1234567,4081,https://example.invalid/one.jpg\r\n';
 const result = {
@@ -41,6 +41,7 @@ for (const width of [1440, 1920]) {
     await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
     await findListings(page);
     await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
+    await openWork(page);
     await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
     const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
     await expect(draft.getByText('要確認の案', { exact: true })).toBeVisible();
@@ -68,6 +69,7 @@ for (const width of [1440, 1920]) {
     await page.getByRole('button', { name: '看護スタッフ・大分31の本文を見る' }).click();
     await expect(page.getByRole('button', { name: 'リクロジメディア向けの案を作る' })).toHaveCount(0);
     await page.getByRole('button', { name: '配送ドライバー・沖縄2の本文を見る' }).click();
+    await openWork(page);
     await expect(page.getByRole('button', { name: 'リクロジメディア向けの案を作る' })).toBeVisible();
     await expect(page.getByRole('button', { name: '確認用の案をダウンロード' })).toHaveCount(0);
   });
@@ -80,6 +82,7 @@ test('1440px: failure is readable and allows retry', async ({ page }) => {
   await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
   await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
+  await openWork(page);
   await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
   await expect(draft.getByRole('alert')).toContainText('取引先との関連');
@@ -95,6 +98,7 @@ test('1440px: copied condition mismatch stops CSV output', async ({ page }) => {
   await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
   await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
+  await openWork(page);
   await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
   await expect(draft.getByRole('alert')).toContainText('出力を止めました（要確認）');

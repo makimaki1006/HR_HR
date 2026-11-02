@@ -154,3 +154,10 @@ it('顧客・求人・危ない案件のどの画面でも担当選択の要素�
   }
 });
 
+it('担当者の応答に一覧が無くても画面は落ちず、読み込めなかった案内を出す', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?listing=501');
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ status: 'ready', dates: {} }), { status: 200, headers: { 'content-type': 'application/json' } }))));
+  render(<ConsultantMenu><p>求人の本文</p></ConsultantMenu>);
+  expect(await screen.findByText('担当者を読み込めませんでした。')).toBeTruthy();
+  expect(screen.getByText('求人の本文')).toBeTruthy();
+});
