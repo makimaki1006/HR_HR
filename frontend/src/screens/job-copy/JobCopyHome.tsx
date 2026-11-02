@@ -12,6 +12,7 @@ import { formatDateTimeJst, formatDateJst } from './format';
 import { appsChange, customerName, dealCountLabel, filterCustomers, listingCountLabel, mediaName, sortCustomers, yen } from './homeModel';
 import type { CardKey, CustomerSort, HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 import './home.css';
+import { useRevealOnMount } from './revealList';
 import { CountLine, OwnerFilter, OwnerTodo, ownerParams } from './OwnerTodo';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '案件管理のホームを読み込めませんでした。時間を置いて再取得してください。';
@@ -21,7 +22,8 @@ const mainCardKeys: readonly CardKey[] = ['to_zero', 'costly'];
 const customerColumns: [CustomerSort, string, boolean][] = [['name', '顧客名', false], ['deals', '契約中の案件 ／ 全案件', true], ['latest', '今の取引', false], ['live', '掲載中の求人 ／ 全求人', true], ['apps', '応募（前の 4 週 → 直近 4 週）', true], ['cost', '課金（直近 4 週）', true], ['cpa', '応募 1 件あたり', true]];
 
 function CardList({ card, onOpenListing }: { card: HomeCard; onOpenListing: (id: string) => void }) {
-  return <section className="jh-list" aria-label={`${card.title}の一覧`}>
+  const reveal = useRevealOnMount();
+  return <section ref={reveal} className="jh-list" aria-label={`${card.title}の一覧`}>
     <h3>{card.title}（{card.count}件）</h3>
     {card.count === 0 ? <p>該当する求人はありません。</p> : <div className="jh-scroll"><table><thead><tr><th scope="col">求人</th><th scope="col">顧客</th><th scope="col">媒体</th><th scope="col" className="num">応募（前 → 直近）</th><th scope="col" className="num">課金（直近 4 週）</th><th scope="col">実績の最新の週</th></tr></thead><tbody>
       {card.listings.map(row => <tr key={row.id}><th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenListing(row.id); }}>{row.title ?? '求人名未取得'}</button></th><td>{row.company ?? '—'}</td><td>{mediaName(row.media)}</td><td className="num">{appsChange(row.prev_apps, row.recent_apps)}</td><td className="num">{yen(row.recent_cost)}</td><td>{formatDateJst(row.latest_week_end, '実績なし')}</td></tr>)}
@@ -83,6 +85,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const card = cards.find(item => item.key === open);
   const mainCards = cards.filter(item => mainCardKeys.includes(item.key));
   const otherCards = cards.filter(item => !mainCardKeys.includes(item.key));
+  const reveal = useRevealOnMount();
   const tableShown = showAll || query.trim() !== '';
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
     <header className="jh-head"><div><h1>今日</h1><button type="button" className="jc-button" onClick={() => { updateJobCopyQuery({ view: 'deals', card: null }); }}>案件の一覧</button></div><button type="button" className="jc-button" onClick={() => { setReload(value => value + 1); }}>再読み込み</button></header>
@@ -101,8 +104,8 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
         </button>)}</div>
         <CountLine label="ほかの見るもの" items={[...otherCards.map(item => ({ key: item.key, label: item.title, count: `${String(item.count)}件` })), { key: 'recent_changes', label: '直近7日に変更', count: recent.data.status === 'ready' ? `${String(recent.data.report.count)}件` : recent.data.status === 'preparing' ? '集計中' : '取得できませんでした' }]} openKey={open} onToggle={key => { setOpen(open === key ? null : key as CardKey | 'recent_changes'); }} />
         {open !== 'recent_changes' && recent.data.status === 'ready' && <ReportFreshness builtAt={recent.data.built_at} stale={recent.data.stale} refreshing={recent.data.refreshing} />}
-        {open === 'recent_changes' && <RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} onOpenListing={onOpenListing} />}
-        {card && <CardList card={card} onOpenListing={onOpenListing} />}
+        {open === 'recent_changes' && <div key="recent_changes" ref={reveal} className="jh-reveal"><RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} onOpenListing={onOpenListing} /></div>}
+        {card && <CardList key={card.key} card={card} onOpenListing={onOpenListing} />}
       </section>
       <section aria-labelledby="jh-customers" className="jh-customers"><div className="jh-customers-head"><h2 id="jh-customers">顧客</h2>
         <label>顧客名で探す<input type="search" value={query} onChange={event => { setQuery(event.target.value); }} placeholder="顧客名の一部" /></label>

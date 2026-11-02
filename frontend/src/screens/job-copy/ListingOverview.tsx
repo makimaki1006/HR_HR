@@ -2,6 +2,7 @@ import { PhoneHearingContent, usePhoneHearing } from './PhoneHearing';
 import type { PhoneHearing as Hearing } from '../../generated/PhoneHearing';
 import { formatDateJst } from './format';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { JobCopyRecord } from './data';
 import { RetryApplicants } from './RetryApplicants';
 import { applicationsCutoffDate, noApplicationDatesText } from './detailBandModel';
@@ -58,6 +59,10 @@ interface Props {
   onSelect: (id: string | null) => void;
   onCompare: (left: string | undefined, right: string | undefined) => void;
   onOpenDrawer: (kind: ListingDrawerKind, event: ListingEvent | null) => void;
+  /** 必要なときだけ使うもの（案を作る・手直し・ほかの分析）。電話ヒアリングと一緒に「作業」へ畳む。 */
+  work?: ReactNode;
+  workOpen?: boolean;
+  onWorkToggle?: (open: boolean) => void;
 }
 
 const num = (value: number | null) => value === null ? '—' : value.toLocaleString('ja-JP');
@@ -144,7 +149,7 @@ function ApplicationDetails({ job, event, hearing, loading }: { job: JobCopyReco
     {card && <>
       <h3>電話ヒアリング</h3><dl className="lo-application-fields">{fields.map(field => <div key={field.label}><dt>{field.label}</dt><dd>{maskPersonalDetails(field.text)}</dd></div>)}</dl>
       {card.notes.length > 0 && <section aria-label="メモ"><h3>メモ</h3>{card.notes.map((note, index) => <p key={index}>{maskPersonalDetails(note.text)}</p>)}</section>}
-      <button type="button" className="jc-button" onClick={() => { const target = document.getElementById(`hearing-${card.applicant}`); const section = target?.closest('details'); if (section) section.open = true; target?.scrollIntoView({ block: 'center' }); target?.focus(); }}>電話ヒアリングのこの応募へ</button>
+      <button type="button" className="jc-button" onClick={() => { const target = document.getElementById(`hearing-${card.applicant}`); for (let section = target?.closest('details') ?? null; section; section = section.parentElement?.closest('details') ?? null) section.open = true; target?.scrollIntoView({ block: 'center' }); target?.focus(); }}>電話ヒアリングのこの応募へ</button>
     </>}
   </div>;
 }
@@ -159,13 +164,21 @@ export function ListingReasons({ job }: { job: JobCopyRecord }) {
   return <section className="lo-card" aria-labelledby="lo-reasons-title" data-testid="listing-reasons"><div className="lo-head"><h2 id="lo-reasons-title">応募理由（ヒアリング内容）</h2><span>応募の出来事を開くと、その人の応募理由を見られます。</span></div>{body}</section>;
 }
 
-export function ListingOverview({ job, events, billing, market, selectedId, onSelect, onCompare, onOpenDrawer }: Props) {
+/** 出来事を既定で出す件数。残りは「すべて表示」で出す。 */
+export const RECENT_EVENT_COUNT = 5;
+
+export function ListingOverview({ job, events, billing, market, selectedId, onSelect, onCompare, onOpenDrawer, work, workOpen = false, onWorkToggle }: Props) {
   const hearing = usePhoneHearing(job);
   const asOf = applicationsCutoffDate(job);
   const listingStart = events.find(event => event.kind === 'start')?.date ?? null;
   const selected = events.find(event => event.id === selectedId) ?? null;
   const [showApplications, setShowApplications] = useState(true);
+  const [showAllEvents, setShowAllEvents] = useState(false);
   const newestFirst = useMemo(() => [...events].reverse().filter(event => showApplications || event.kind !== 'application'), [events, showApplications]);
+  const selectedIndex = selectedId ? newestFirst.findIndex(event => event.id === selectedId) : -1;
+  // 選んだ出来事が畳まれた側にあるときは、見失わないように全件を出す。
+  const expanded = showAllEvents || selectedIndex >= RECENT_EVENT_COUNT;
+  const shownEvents = expanded ? newestFirst : newestFirst.slice(0, RECENT_EVENT_COUNT);
   const lifeline = useMemo(() => buildLifeline(job, events, billing), [job, events, billing]);
   const selectedWeek = lifeline && selected ? weekIndex(lifeline, selected.date) : null;
   const applicationCount = events.filter(event => event.kind === 'application').length;
@@ -178,19 +191,19 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
     onSelect(event.id);
     requestAnimationFrame(() => { document.getElementById(`application-${key}`)?.scrollIntoView({ block: 'center' }); });
   }} />;
-  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section><ListingReasons job={job} />{phonePanel}</div>;
+  const workSection = <details className="lo-work" open={workOpen} onToggle={event => { onWorkToggle?.(event.currentTarget.open); }}><summary>作業（案を作る・手直し・電話ヒアリング・ほかの分析）</summary><div className="lo-work-body">{work}{phonePanel}</div></details>;
+  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section><ListingReasons job={job} />{workSection}</div>;
   return <div className="lo-main">
     <section className="lo-card" aria-labelledby="lo-chart-title">
       <div className="lo-head"><h2 id="lo-chart-title">求人のライフライン</h2><span>掲載開始から{lifeline?.endIndex !== null && lifeline?.endIndex !== undefined ? '掲載終了' : '今日'}まで、1週を1列で並べています（月曜はじまり）。横にスクロールできます。</span></div>
       {lifeline ? <LifelineChart lifeline={lifeline} job={job} selectedWeek={selectedWeek} onSelect={onSelect} /> : <p className="lo-note" role="status">掲載の開始日が分からないため、週ごとの推移は出せません。</p>}
       {!job.overallApplications && <p className="lo-note" role={job.applicationDates === 'failed' ? 'alert' : 'status'}>{noApplicationDatesText(job)}{job.applicationDates === 'failed' && <RetryApplicants id={job.hubspotId} />}</p>}
     </section>
-    <ListingReasons job={job} />{phonePanel}
     <section aria-labelledby="lo-events-title">
       <div className="lo-head"><h2 id="lo-events-title">出来事（新しい順）</h2>{applicationCount > 0 && <label className="lo-toggle"><input type="checkbox" checked={showApplications} onChange={event => { setShowApplications(event.target.checked); }} />応募（{applicationCount}件）を出す</label>}</div>
       <p className="lo-note">押すと、横の時間軸のその週に印が付きます。前後4週の応募の件数の差は、出来事のほかの要因でも動くため、原因を決めるものではありません。</p>
       <div className="lo-events">
-        {newestFirst.map(event => {
+        {shownEvents.map(event => {
           const open = event.id === selected?.id;
           const isApplication = event.kind === 'application';
           const counts = eventCounts(job, event, asOf, listingStart);
@@ -221,6 +234,9 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
           </article>;
         })}
       </div>
+      {newestFirst.length > RECENT_EVENT_COUNT && <p className="lo-more-events"><span>{expanded ? `${String(newestFirst.length)}件すべてを表示しています。` : `新しい順に${String(RECENT_EVENT_COUNT)}件を表示しています（全${String(newestFirst.length)}件）。`}</span>{selectedIndex < RECENT_EVENT_COUNT && <button type="button" className="jc-button" aria-expanded={expanded} onClick={() => { setShowAllEvents(value => !value); }}>{expanded ? `最新${String(RECENT_EVENT_COUNT)}件だけにする` : `すべて表示（${String(newestFirst.length)}件）`}</button>}</p>}
     </section>
+    <ListingReasons job={job} />
+    {workSection}
   </div>;
 }

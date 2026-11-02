@@ -131,17 +131,33 @@ it.each(['', '?view=deals'])('既存画面の担当情報を共通欄へ移し�
   expect(new URLSearchParams(window.location.search).get('owner')).toBe('22');
   expect(calls).toEqual([]);
 });
-it('求人の作業中は担当選択を開いたときだけ読み込み、求人のURLを保持する', async () => {
+it('求人の作業中も担当選択を他の画面と同じ形で出し、求人のURLを保持する', async () => {
   window.history.replaceState(null, '', '/app/job-copy?listing=501&owner=22');
   const calls = mock();
   render(<ConsultantMenu><p>求人の本文</p></ConsultantMenu>);
-  expect(calls).toEqual([]);
-  const trigger = screen.getByRole('button', { name: '担当者で絞る' });
-  const popover = document.getElementById(trigger.getAttribute('popovertarget') ?? '');
-  if (!popover) throw new Error('担当選択の開閉欄がありません');
-  fireEvent(popover, Object.assign(new Event('toggle'), { newState: 'open' }));
+  expect(screen.queryByRole('button', { name: '担当者で絞る' })).toBeNull();
   const owner = await screen.findByRole('combobox', { name: '担当者' });
   expect((owner as HTMLSelectElement).value).toBe('22');
+  expect(screen.getByRole('combobox', { name: '担当の項目' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '自分に戻す' })).toBeTruthy();
   expect(calls).toEqual(['/api/job-copy/consultant-scope?owner=22']);
   expect(new URLSearchParams(window.location.search).get('listing')).toBe('501');
+});
+it('顧客・求人・危ない案件のどの画面でも担当選択の要素が同じ', async () => {
+  for (const url of ['?company=9&owner=22', '?listing=501&owner=22', '?view=risk&owner=22']) {
+    window.history.replaceState(null, '', `/app/job-copy${url}`); mock();
+    const { unmount } = render(<ConsultantMenu><p>本文</p></ConsultantMenu>);
+    await screen.findByRole('combobox', { name: '担当者' });
+    expect(screen.getAllByRole('combobox').map(e => e.getAttribute('aria-label') ?? e.closest('label')?.textContent.slice(0, 5))).toHaveLength(2);
+    expect(screen.getByRole('region', { name: '担当者で絞る' })).toBeTruthy();
+    unmount();
+  }
+});
+
+it('担当者の応答に一覧が無くても画面は落ちず、読み込めなかった案内を出す', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?listing=501');
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ status: 'ready', dates: {} }), { status: 200, headers: { 'content-type': 'application/json' } }))));
+  render(<ConsultantMenu><p>求人の本文</p></ConsultantMenu>);
+  expect(await screen.findByText('担当者を読み込めませんでした。')).toBeTruthy();
+  expect(screen.getByText('求人の本文')).toBeTruthy();
 });

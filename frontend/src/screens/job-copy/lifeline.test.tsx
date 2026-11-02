@@ -103,6 +103,7 @@ describe('画面', () => {
     const reasons = { ...job, applicantReasons: { available: true, basis: 'b', fetchedAt: '2026-07-13T00:00:00Z', totalApplicants: 3, totalSourceValues: 0, sourceCounts: {}, missing: 0, blank: 0, truncated: false, selections: [], optionLabels: 'read' as const,
       items: [{ id: 'r1', applicant: 'a1', text: '家から近いので応募しました', sourceProperty: 'ouboriyuu_hiaringu', applicationDate: '2026-06-16', collectedAt: null, versionId: null }] } };
     view(reasons);
+    fireEvent.click(screen.getByRole('button', { name: /すべて表示/u }));
     fireEvent.click(screen.getByRole('button', { name: /応 6\/16/u }));
     expect(screen.getByText('家から近いので応募しました')).toBeTruthy();
     expect(screen.getByTestId('lifeline-selected').style.left).toBe('0px');

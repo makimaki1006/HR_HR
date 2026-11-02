@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { apiGet } from '../../api/client';
 import { OwnerFilter, OwnerFilterPlacement, ownerParams } from './OwnerTodo';
@@ -22,6 +22,8 @@ function ConsultantScopeFilter() {
       const r = await apiGet<ConsultantScope & { status: string }>(`/api/job-copy/consultant-scope?${ownerQuery}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (!r.ok || r.data.status === 'failed') { setError(true); return; }
+      // 形の違う応答（担当者の一覧が無い等）で画面全体が落ちないよう、読み込めなかった扱いにする。
+      if (r.data.status === 'ready' && !Array.isArray(r.data.owners)) { setError(true); return; }
       if (r.data.status !== 'ready') { timer = setTimeout(() => { void load(); }, 2000); return; }
       setScope(r.data); setError(false);
       if (!r.data.notice && [null, 'me'].includes(new URLSearchParams(ownerQuery).get('owner'))) updateJobCopyQuery({ owner: r.data.owner, owner_field: r.data.owner_field }, 'replace');
@@ -36,15 +38,12 @@ export function ConsultantMenu({ children, inlineHeader = false, onNavigate }: {
   const query = new URLSearchParams(useJobCopySearch()); const selected = query.get('view');
   // 今日・案件一覧の担当情報は、その画面が取得した応答を共通欄に表示する。
   const nativeOwner = selected === 'deals' || (!selected && !['company', 'deal', 'listing', 'job'].some(key => query.has(key)) && !['fixed'].includes(query.get('source') ?? '') && query.get('demo') !== '1' && query.get('data') !== 'actual');
-  const fullOwner = nativeOwner || selected === 'risk' || selected === 'good' || selected === 'houjin';
+  // 担当の選択は「いつも見るもの」として、どの画面でも同じ形で手元に出す（応募理由だけは担当で絞らないので出さない）。
+  const fullOwner = selected !== 'reasons';
   const [ownerTarget, setOwnerTarget] = useState<HTMLDivElement | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  const ownerPopoverId = useId();
-  const [popoverTop, setPopoverTop] = useState(0);
   const menu = <OwnerFilterPlacement value={undefined}><div className="cm-menu"><nav aria-label="案件管理のメニュー">
     {([[null, '今日'], ['risk', '危ない案件'], ['houjin', '法人'], ['deals', '案件一覧'], ['reasons', '応募理由']] as const).map(([view, label]) => <button type="button" key={label} aria-current={selected === view || (view === 'deals' && selected === 'good') ? 'page' : undefined} onClick={() => { updateJobCopyQuery({ view, company: null, deal: null, listing: null, job: null, risk_deal: null, ...(view === null ? { source: null, data: null, demo: null } : {}) }); onNavigate?.(); }}>{label}</button>)}
     <a href="/consulting#deal/team">コンサルKPI</a>
-    {!fullOwner && selected !== 'reasons' && <div className="cm-owner-toggle"><button type="button" popoverTarget={ownerPopoverId} aria-controls={ownerPopoverId} aria-expanded={expanded} onClick={event => { setPopoverTop(event.currentTarget.getBoundingClientRect().bottom + 8); }}>担当者で絞る</button><div id={ownerPopoverId} popover="auto" className="cm-owner-popover" role="region" aria-label="担当者の選択" style={{ top: popoverTop }} onToggle={event => { setExpanded(event.newState === 'open'); }}>{expanded && <ConsultantScopeFilter />}</div></div>}
   </nav>{nativeOwner ? <div ref={setOwnerTarget} className="cm-owner" /> : fullOwner && <ConsultantScopeFilter />}</div></OwnerFilterPlacement>;
   return <div className="jc-app cm-shell"><ConsultantHeaderContent value={inlineHeader ? menu : null}>{!inlineHeader && menu}<OwnerFilterPlacement value={nativeOwner ? ownerTarget : null}>{children}</OwnerFilterPlacement></ConsultantHeaderContent></div>;
 }

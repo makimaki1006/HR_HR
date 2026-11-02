@@ -83,19 +83,15 @@ test('固定一覧・求人詳細からホームへ戻り、担当を保つ', as
 });
 
 
-test('求人作業中の担当選択を開いて切り替え、Escで閉じる', async ({ page }) => {
+test('求人作業中も担当選択が開いていて切り替えられる', async ({ page }) => {
   await page.route('**/api/job-copy/consultant-scope?*', route => route.fulfill({ json: { ...scopeFixture, owner: new URL(route.request().url()).searchParams.get('owner') ?? '11' } }));
   await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-19T00:00:00Z', capture_bundle: { schemaVersion: 1, jobs: [] }, results: [] } }));
   await login(page);
   await page.goto('/app/job-copy?source=fixed&data=actual&owner=11&owner_field=consultant');
   const owner = page.getByRole('combobox', { name: '担当者', exact: true });
-  await expect(owner).toHaveCount(0);
-  await page.getByRole('button', { name: '担当者で絞る', exact: true }).click();
   await expect(owner).toHaveValue('11');
   await owner.selectOption('22');
   await expect(owner).toHaveValue('22');
   await expect(page).toHaveURL(/owner=22/);
   await expect(page).toHaveURL(/source=fixed/);
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('region', { name: '担当者の選択' })).toBeHidden();
 });

@@ -30,7 +30,6 @@
 
 .cm-owner:empty { display: none; }
 .cm-menu > .jh-owner, .cm-owner:not(:empty) { margin-top: 6px; }
-.cm-owner-popover { position: fixed; inset: auto 16px auto auto; margin: 0; width: min(700px, 90vw); padding: 12px; background: white; border: 1px solid #d4dfe7; border-radius: 6px; box-shadow: 0 4px 12px #122b3d20; }
 
 .jc-topline > .cm-menu { flex: 0 1 auto; padding: 0; border: 0; position: static; z-index: auto; }
 .jc-topline > .cm-menu nav { gap: 8px; }

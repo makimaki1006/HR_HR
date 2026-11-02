@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openOtherAnalysis, closeOtherAnalysis, selectJobFeature } from './job-copy-navigation';
+import { openOtherAnalysis, closeOtherAnalysis, selectJobFeature, openWork } from './job-copy-navigation';
 
 test('求人選択・内容ポップアップ・分析を戻る／進むで復元し、再読込と二重pushをしない', async ({ page }) => {
   await page.addInitScript(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
@@ -28,6 +28,7 @@ test('求人選択・内容ポップアップ・分析を戻る／進むで復�
   await expect(page).toHaveURL(popup);
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.goBack();
+  await openWork(page);
   await page.getByRole('region', { name: 'ほかの分析', exact: true }).getByRole('button', { name: 'ほかの分析を開く', exact: true }).click();
   const timeline = page.url();
   await page.getByRole('tab', { name: '本文・画像', exact: true }).click();
@@ -59,6 +60,7 @@ test('再読み込みで復元した分析を操作でき、閉じるとURLか�
   expect(new URL(page.url()).searchParams.has('drawer')).toBe(false);
   expect(new URL(page.url()).searchParams.has('drawerEvent')).toBe(false);
   await page.reload();
+  await openWork(page);
   await expect(page.getByRole('region', { name: 'ほかの分析', exact: true })).toBeVisible();
   await expect(dialog).toHaveCount(0);
 });

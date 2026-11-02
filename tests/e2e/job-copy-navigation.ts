@@ -40,16 +40,26 @@ export function jobFeaturePanel(page: Page, key: JobFeature) {
   return page.locator(`[role="tabpanel"][id$="-panel-${key}"]`);
 }
 
+/** 求人の画面の畳んだ「作業」（案を作る・手直し・ほかの分析・電話ヒアリング）を開く。すでに開いていれば何もしない。 */
+export async function openWork(page: Page) {
+  const summary = page.locator('details.lo-work > summary');
+  await summary.waitFor({ state: 'visible' });
+  if (await page.locator('details.lo-work').getAttribute('open') === null) await summary.click();
+  await page.locator('details.lo-work[open]').waitFor({ state: 'visible' });
+}
+
 /** 「ほかの分析」を指定機能で表示する。入口のボタンで横画面を開き、タブで切り替える。タブに無い機能は URL の feature で開く。 */
 export async function openOtherAnalysis(page: Page, label = 'タイムライン') {
   const entry = page.getByRole('region', { name: 'ほかの分析', exact: true });
   const dialog = page.getByRole('dialog', { name: 'ほかの分析', exact: true });
-  // 求人の非同期読込を待つ。URL から analysis=1 を復元する場合、背後のボタンは押せない。
-  await entry.waitFor({ state: 'visible' });
+  // 求人の非同期読込を待つ。入口は畳んだ「作業」の中にあるので、ドロワーが開いていなければ先に作業を開く。
+  // URL から analysis=1 を復元する場合や、すでにドロワーが開いている場合は、背後のボタンは押せない。
+  await dialog.or(page.locator('details.lo-work > summary')).first().waitFor({ state: 'visible' });
   const feature = Object.entries(jobFeatures).find(([, item]) => item.label === label);
   if (!feature) throw new Error(`求人の機能が見つかりません: ${label}`);
   const [key] = feature as [JobFeature, { group: string; label: string }];
   if (new URL(page.url()).searchParams.get('analysis') !== '1' && !await dialog.isVisible()) {
+    await openWork(page);
     await entry.getByRole('button', { name: 'ほかの分析を開く', exact: true }).click();
   }
   await dialog.waitFor({ state: 'visible' });
