@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ConsultantRisk, jobsHref, riskGroups } from './ConsultantRisk';
 import { ConsultantMenu } from './ConsultantMenu';
@@ -160,4 +160,23 @@ it('担当者の応答に一覧が無くても画面は落ちず、読み込め�
   render(<ConsultantMenu><p>求人の本文</p></ConsultantMenu>);
   expect(await screen.findByText('担当者を読み込めませんでした。')).toBeTruthy();
   expect(screen.getByText('求人の本文')).toBeTruthy();
+});
+it('本番の準備中の応答（{"status":"preparing"}）でも、顧客・求人・今日以外の画面の担当選択が出る。URL の担当を選んだ状態で、取り直しは間隔を広げる', async () => {
+  vi.useFakeTimers();
+  try {
+    for (const url of ['?company=9&owner=314945657&owner_field=consultant', '?listing=501&owner=314945657&owner_field=consultant']) {
+      window.history.replaceState(null, '', `/app/job-copy${url}`);
+      const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ status: 'preparing' }), { status: 200, headers: { 'content-type': 'application/json' } })));
+      vi.stubGlobal('fetch', fetchMock);
+      const { unmount } = render(<ConsultantMenu><p>本文</p></ConsultantMenu>);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      expect(screen.queryByText('担当者を確認しています…')).toBeNull();
+      expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当の項目' }).value).toBe('consultant');
+      expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('314945657');
+      expect(screen.getByRole('button', { name: '自分に戻す' })).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(6);
+      unmount();
+    }
+  } finally { vi.useRealTimers(); }
 });
