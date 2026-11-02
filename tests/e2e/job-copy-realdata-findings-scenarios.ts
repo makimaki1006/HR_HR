@@ -85,7 +85,7 @@ test('作り直し回数と写した条件の表示を1440×900で確認する',
   await expect(draft).toContainText('文の一致率：25.0％ ／ 似すぎ・不合格');
   await draft.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'docs/screenshots/job-copy-realdata-findings/04-regeneration-1440.png' });
-  await draft.getByText('原本から写した条件', { exact: true }).scrollIntoViewIfNeeded();
+  await draft.getByText('原本の条件', { exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'docs/screenshots/job-copy-realdata-findings/05-copied-conditions-1440.png' });
 });
 
