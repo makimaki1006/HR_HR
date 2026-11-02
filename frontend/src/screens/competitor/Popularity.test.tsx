@@ -4,9 +4,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { makePopularitySplit, makeReport } from './fixtures';
 import { ReportView } from './ReportView';
 import { CompanyCountTab } from './tabs/CompanyCountTab';
-import { PopularityTab, ratePct } from './tabs/PopularityTab';
+import { PopularityTab } from './tabs/PopularityTab';
+import { ratePct } from './featureModel';
 
 afterEach(cleanup);
+
+const figRow = (label: string): HTMLElement | null =>
+  within(screen.getByRole('figure')).getByText(label).closest<HTMLElement>('.cmp-feat-row');
 
 const rowText = (name: string, i = 0): string[] => {
   const td = screen.getAllByText(name, { selector: 'td' })[i];
@@ -14,96 +18,51 @@ const rowText = (name: string, i = 0): string[] => {
   return cells.map((c) => c.textContent);
 };
 
-const selectSub = (name: string): void => {
-  const group = ['給与帯', 'キーワード', '対象の広さ', '勤務形態'].includes(name) ? '求人の条件' : ['書き方', '記載4項目の数'].includes(name) ? '求人票の記載' : '掲載期間・会社';
-  fireEvent.click(screen.getByRole('button', { name: group }));
-  fireEvent.click(screen.getByRole('button', { name }));
-};
-
 describe('PopularityTab', () => {
-  it('割合は popular/n の四捨五入、n=0 は —', () => {
-    expect(ratePct(19, 82)).toBe(23);
-    expect(ratePct(30, 61)).toBe(49);
+  it('割合は popular/n の四捨五入、n=0 は —。上の帯は全体の件数と割合', () => {
+    expect(ratePct(25, 34)).toBe(74);
     expect(ratePct(0, 0)).toBeNull();
     render(<PopularityTab data={makePopularitySplit()} />);
-    expect(rowText('0〜14日').slice(0, 4)).toEqual(['0〜14日', '82', '19', '23%']);
-    expect(rowText('30日以上').slice(0, 4)).toEqual(['30日以上', '182', '57', '31%']);
-    expect(rowText('不明').slice(0, 4)).toEqual(['不明', '0', '0', '—']);
+    expect(screen.getByText('全331件のうち、人気・超人気150件(45%)')).toBeTruthy();
+    expect(screen.getAllByRole('button').slice(0, 6).map((b) => b.textContent.slice(0, 2))).toEqual(['給料', '待遇', '休み', '応募', '職場', '募集']);
   });
 
-  it('掲載の長さ: 注記・キーワード・超人気ブロックが出る', () => {
+  it('休み・時間・通勤: 駅近5分以内 74% / 34件中25件、見方の文と軸', () => {
     render(<PopularityTab data={makePopularitySplit()} />);
-    expect(screen.getByText(/掲載日数は29日まで実日数/)).toBeTruthy();
-    expect(screen.getByText('ブランクOK（n=12・人気 7）')).toBeTruthy();
-    expect(screen.getByText('転勤なし（n=30・人気 14）')).toBeTruthy();
-    const sec = within(screen.getByRole('region', { name: '14日以内の超人気' }));
-    expect(sec.getByText('60.0%')).toBeTruthy();
-    expect(sec.getByText('10.2%')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /休み・時間・通勤/ }));
+    expect(screen.getByRole('button', { name: /休み・時間・通勤/ }).getAttribute('aria-pressed')).toBe('true');
+    const fig = screen.getByRole('figure');
+    expect(fig.textContent).toContain('74%34件中25件');
+    expect(fig.textContent).toContain('見方: 緑の棒は「');
+    expect(fig.textContent).toContain('と載っている求人');
+    expect(screen.getByText('載っていない求人')).toBeTruthy();
+    expect(screen.getAllByText('元の表・全数値を見る').length).toBe(1);
   });
 
-  it('対象の広さ: 帯の表・層別の —・30件未満の帯は事実だけ', () => {
+  it('給料: 4つのボタンで切り替え、帯は「この区分/ほかの区分」。月給以外は含めない注記', () => {
     render(<PopularityTab data={makePopularitySplit()} />);
-    selectSub('対象の広さ');
-    expect(rowText('2つ以上')).toEqual(['2つ以上', '80', '24.6%', '42', '52.5%', '39.6%']);
-    expect(rowText('なし')[1]).toBe('200');
-    expect(screen.getByText('求人数 n=325／人気・超人気 n=106')).toBeTruthy();
-    expect(rowText('0〜3個')).toEqual(['0〜3個', '16.7%', '120', '—', '—']);
-    expect(rowText('4〜6個')).toEqual(['4〜6個', '26.7%', '60', '58.0%', '50']);
-    const g = within(screen.getByRole('region', { name: '間口を広げる語 なし' }));
-    expect(g.getByText('長期休暇あり', { selector: 'td' })).toBeTruthy();
-    expect(g.getByText('+12.5', { selector: 'td' })).toBeTruthy();
-    expect(g.getByText('-8.3', { selector: 'td' })).toBeTruthy();
-    expect(screen.getByText('求人数 25 件のため、この帯の比較は出しません。')).toBeTruthy();
-    expect(screen.getByText('応募のしやすさの印')).toBeTruthy();
-    expect(rowText('高返信率', 0)).toEqual(['高返信率', 'あり', '182', '77', '22', '42.3%']);
-    expect(rowText('高返信率', 1)).toEqual(['高返信率', 'なし', '140', '28', '5', '20.0%']);
-    expect(rowText('カンタン応募', 1)).toEqual(['カンタン応募', 'なし', '0', '—', '—', '—']);
-    expect(rowText('間口を広げる語が1つ以上')).toEqual([
-      '間口を広げる語が1つ以上',
-      '55.8%',
-      '95',
-      '8.3%',
-      '24',
-    ]);
-    expect(screen.getByText(/分け方: 求人に付くキーワードのうち、学歴不問・未経験者歓迎/)).toBeTruthy();
+    const names = ['下限の帯', '上限の帯', '月給の書き方', '上限と下限の差'];
+    for (const n of names) expect(screen.getByRole('button', { name: n })).toBeTruthy();
+    expect(screen.getByText('この区分の求人')).toBeTruthy();
+    expect(screen.getByText('ほかの区分の求人')).toBeTruthy();
+    expect(screen.getByText(/月給以外の求人\(ほか .*含めていない。/)).toBeTruthy();
+    expect(figRow('25.0万円未満')?.textContent).toContain('38%52件中20件');
+    fireEvent.click(screen.getByRole('button', { name: '上限と下限の差' }));
+    expect(screen.getByRole('heading', { name: '上限と下限の差ごとの割合' })).toBeTruthy();
   });
 
-  it('super_recent が無ければ超人気ブロックを出さない', () => {
-    render(<PopularityTab data={{ ...makePopularitySplit(), super_recent: null }} />);
-    expect(screen.queryByRole('region', { name: '14日以内の超人気' })).toBeNull();
-  });
-
-  it('サブタブ切り替え: 給与帯は中央値と件数だけ、欠測は —', () => {
+  it('20件未満は薄色で(少なめ)、表は具体値', () => {
     render(<PopularityTab data={makePopularitySplit()} />);
-    selectSub('給与帯');
-    expect(rowText('人気・超人気')).toEqual(['人気・超人気', '106', '22.0万円']);
-    expect(rowText('それ以外')).toEqual(['それ以外', '219', '—']);
-    expect(rowText('〜20.5万').slice(0, 4)).toEqual(['〜20.5万', '67', '21', '31%']);
+    fireEvent.click(screen.getByRole('button', { name: /待遇・手当/ }));
+    expect(screen.getByText('求人数 5件(少なめ)')).toBeTruthy();
+    expect(figRow('昇格あり')?.querySelector<HTMLElement>('.cmp-feat-plot')?.style.opacity).toBe('0.45');
+    expect(rowText('賞与あり').slice(0, 5)).toEqual(['賞与あり', '112', '64', '57%', '39%']);
   });
 
-  it('会社: 1件側が 0 のときの割合は —、勤務形態・わかりやすさ・書き方・キーワード', () => {
-    render(<PopularityTab data={makePopularitySplit()} />);
-    selectSub('会社');
-    expect(rowText('2件以上')).toEqual(['2件以上', '48', '137', '36', '26%']);
-    expect(rowText('1件')).toEqual(['1件', '0', '0', '0', '—']);
-    expect(rowText('テスト工業')).toEqual(['テスト工業', '6', '5', '1.6', '+3.4', '会社に偏りがある']);
-    expect(rowText('サンプル商事')).toEqual(['サンプル商事', '4', '1', '1.0', '0.0', '給与・条件の範囲']);
-    expect(screen.getByText(/会社に偏りがある会社は 2 社/)).toBeTruthy();
-    expect(rowText('ひかえめ食品')).toEqual(['ひかえめ食品', '5', '0', '2.4', '-2.4', '人気が期待を下回る']);
-    expect(screen.getByText(/人気が期待を下回る会社は 1 社/)).toBeTruthy();
-    expect(screen.queryByText(/人気が少ない/)).toBeNull();
-    expect(screen.getByText(/全体の 8.5%/)).toBeTruthy();
-    expect(rowText('学歴不問')).toEqual(['学歴不問', '67', '+16.3', '+15.1']);
-    expect(rowText('寮完備')).toEqual(['寮完備', '8', '-4.2', '—']);
-    selectSub('キーワード');
-    expect(rowText('食事補助あり').slice(0, 4)).toEqual(['食事補助あり', '13', '8', '62%']);
-    selectSub('書き方');
-    expect(rowText('26〜40字').slice(0, 4)).toEqual(['26〜40字', '105', '52', '50%']);
-    selectSub('記載4項目の数');
-    expect(screen.getByText(/1点ずつ数えた合計/)).toBeTruthy();
-    expect(rowText('4点').slice(0, 4)).toEqual(['4点', '72', '35', '49%']);
-    selectSub('勤務形態');
-    expect(rowText('夜勤').slice(0, 4)).toEqual(['夜勤', '17', '12', '71%']);
+  it('features が空なら一文だけ', () => {
+    render(<PopularityTab data={{ ...makePopularitySplit(), features: [] }} />);
+    expect(screen.getByText('このCSVでは項目別の比較を出せませんでした。')).toBeTruthy();
+    expect(screen.queryByRole('figure')).toBeNull();
   });
 });
 

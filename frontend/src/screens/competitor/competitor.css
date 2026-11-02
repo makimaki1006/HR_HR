@@ -338,17 +338,6 @@ html:has(.competitor) { background: #eef1f6; }
 .cmp-kw h4 { font-size: 16px; margin: 24px 0 6px; }
 
 /* ---- 人気の分かれ方・会社別の求人数 ---- */
-.cmp-pop-sub { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
-.cmp-pop-sub-btn {
-  font: inherit; font-size: 12px; padding: 3px 10px; cursor: pointer;
-  border: 1px solid var(--line-2); border-radius: 3px; background: var(--surface); color: var(--ink);
-}
-.cmp-pop-sub-btn[aria-pressed='true'] { background: var(--accent); color: var(--surface); border-color: var(--accent); }
-.cmp-pop-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 700px) { .cmp-pop-cols { grid-template-columns: 1fr; } }
-.cmp-chip { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 8px; background: var(--accent-bg); border-radius: 3px; font-size: 12px; }
-.cmp-hbar-cell { width: 30%; }
-.cmp-hbar { display: block; height: 10px; background: var(--bar); }
 
 .cmp-progress { margin: 10px 0 4px; }
 .cmp-progress__track {
@@ -458,25 +447,60 @@ html:has(.competitor) { background: #eef1f6; }
 @media (max-width: 900px) { .cmp-excel.cmp-kw-tab .cmp-charts { grid-template-columns: 1fr; } }
 
 /* 人気の分かれ方: 元表を残し、同じ集計値を可視化。 */
-.cmp-pop-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}
-.cmp-pop-groups button{font:inherit;color:#006666;background:#fff;border:1px solid #b8ceca;padding:16px;text-align:left;cursor:pointer}
-.cmp-pop-groups button[aria-pressed=true]{background:#edf6f4;border:2px solid #006666;padding:15px;font-weight:700}
-.cmp-pop-chart{margin:16px 0;padding:16px;border:1px solid #d7e4e0;background:#fbfdfc;color:#263a3a}
-.cmp-pop-chart figcaption{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px;font-weight:600}
-.cmp-pop-zoom{font:inherit;font-size:12px;background:white;color:#006666;border:1px solid #b8ceca;padding:5px 10px;cursor:pointer;flex-shrink:0}
-.cmp-pop-legend{display:flex;flex-wrap:wrap;gap:8px 16px;list-style:none;padding:0;font-size:11px}
-.cmp-pop-legend i{display:inline-block;width:10px;height:8px;margin-right:5px}
-.cmp-pop-axis{display:flex;justify-content:space-between;margin:16px 135px 10px 158px;font-size:10px;color:#617772}
-.cmp-pop-chart-row{display:grid;grid-template-columns:146px minmax(0,1fr);gap:12px;align-items:center;margin:18px 0}
-.cmp-pop-chart-label{font-size:12px;overflow-wrap:anywhere}
-.cmp-pop-plot{min-width:0}
-.cmp-pop-series-row{display:grid;grid-template-columns:minmax(0,1fr) 125px;gap:10px;align-items:center;min-height:34px}
-.cmp-pop-lane{position:relative;min-width:0;height:22px;background:repeating-linear-gradient(to right,transparent 0,transparent calc(25% - 1px),#dce7e3 calc(25% - 1px),#dce7e3 25%)}
-.cmp-pop-bar{position:absolute;top:5px;height:12px}
-.cmp-pop-dot{position:absolute;top:5px;width:12px;height:12px;border-radius:50%;transform:translateX(-50%)}
-.cmp-pop-value{text-align:right;font-size:12px;font-weight:600}
-.cmp-pop-value small{display:block;font-weight:400;font-size:10px;color:#617772}
-.cmp-pop-raw{margin:10px 0 24px;border:1px solid #d7e4e0;padding:10px 12px}
-.cmp-pop-raw summary{font-size:12px;color:#006666;cursor:pointer}
-.cmp-pop-table-scroll{overflow:auto}
-@media(max-width:700px){.cmp-pop-groups{grid-template-columns:1fr;gap:8px}.cmp-pop-groups button{padding:10px}.cmp-pop-groups button[aria-pressed=true]{padding:9px}.cmp-pop-chart{padding:10px}.cmp-pop-chart-row{grid-template-columns:85px minmax(0,1fr);gap:8px}.cmp-pop-series-row{grid-template-columns:minmax(0,1fr) 82px;gap:7px}.cmp-pop-axis{margin-left:93px;margin-right:89px}.cmp-pop-value{font-size:11px}.cmp-pop-value small{font-size:9px}}
+
+/* ---- 人気の分かれ方 (特徴別の比較) ---- */
+.cmp-feat { --lab: 148px; --val: 124px; --gap: 12px; font-variant-numeric: tabular-nums; }
+.cmp-feat, .cmp-feat * { box-sizing: border-box; }
+.cmp-feat h3 { font-size: 16px; font-weight: 500; margin: 24px 0 8px; padding-bottom: 8px; border-bottom: 1px solid #d7e4e0; }
+.cmp-feat-lead { color: var(--ink-2); margin: 0 0 16px; }
+.cmp-feat-sum { background: var(--surface); border-left: 4px solid #006666; padding: 12px 16px; margin: 16px 0; }
+.cmp-feat-sum strong { display: block; font-size: 20px; line-height: 1.4; font-weight: 500; color: #006666; }
+.cmp-feat-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.cmp-feat-gcard { font: inherit; color: #006666; background: #fff; border: 1px solid #b8ceca; padding: 12px 16px; text-align: left; cursor: pointer; }
+.cmp-feat-gcard b { display: block; font-size: 14px; font-weight: 500; }
+.cmp-feat-gcard span { display: block; font-size: 12px; color: #617772; margin-top: 4px; }
+.cmp-feat-gcard[aria-pressed='true'] { background: #edf6f4; border-color: #006666; box-shadow: inset 0 0 0 1px #006666; }
+.cmp-feat-gcard:focus-visible, .cmp-feat-pill:focus-visible { outline: 2px solid #006666; outline-offset: 2px; }
+.cmp-feat-main { background: #fff; color: #182031; border: 1px solid #e0e8e5; padding: 20px 24px 24px; }
+.cmp-feat-note { background: #f3f6f5; border-left: 3px solid #006666; padding: 8px 12px; font-size: 12px; color: #3c4a60; margin-bottom: 8px; }
+.cmp-feat-note2 { font-size: 12px; color: #617772; margin: 8px 0; }
+.cmp-feat-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
+.cmp-feat-pill { font: inherit; font-size: 12px; padding: 4px 16px; border-radius: 999px; border: 1px solid #b8ceca; background: #fff; color: #006666; cursor: pointer; }
+.cmp-feat-pill[aria-pressed='true'] { background: #006666; border-color: #006666; color: #fff; }
+.cmp-feat-chart { margin: 16px 0; padding: 16px 20px 20px; border: 1px solid #d7e4e0; background: #fbfdfc; color: #263a3a; }
+.cmp-feat-chart figcaption { font-size: 14px; font-weight: 500; }
+.cmp-feat-eg { font-size: 12px; color: #3c4a60; margin: 8px 0 0; }
+.cmp-feat-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; list-style: none; padding: 0; margin: 8px 0 0; font-size: 12px; }
+.cmp-feat-legend li { display: flex; align-items: center; }
+.cmp-feat-legend i { display: inline-block; width: 12px; height: 8px; margin-right: 8px; }
+.cmp-feat-axis { display: flex; justify-content: space-between; margin: 12px calc(var(--val) + var(--gap)) 4px calc(var(--lab) + var(--gap)); font-size: 12px; color: #617772; }
+.cmp-feat-row { display: grid; grid-template-columns: var(--lab) minmax(0, 1fr); gap: var(--gap); align-items: center; margin: 16px 0; }
+.cmp-feat-label { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.cmp-feat-label small { display: block; font-size: 12px; color: #617772; }
+.cmp-feat-plot { min-width: 0; }
+.cmp-feat-srow { display: grid; grid-template-columns: minmax(0, 1fr) var(--val); gap: var(--gap); align-items: center; min-height: 16px; }
+.cmp-feat-srow + .cmp-feat-srow { margin-top: 4px; }
+.cmp-feat-lane { position: relative; height: 12px; background: repeating-linear-gradient(to right, transparent 0, transparent calc(25% - 1px), #dce7e3 calc(25% - 1px), #dce7e3 25%); }
+.cmp-feat-bar { position: absolute; left: 0; top: 2px; height: 8px; }
+.cmp-feat-val { text-align: right; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.cmp-feat-val small { font-weight: 400; color: #617772; font-size: 12px; margin-left: 8px; }
+.cmp-feat-raw { margin: 12px 0 0; border: 1px solid #d7e4e0; padding: 8px 12px; }
+.cmp-feat-raw summary { font-size: 12px; color: #006666; cursor: pointer; }
+.cmp-feat-scroll { overflow: auto; }
+.cmp-feat-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.cmp-feat-table th, .cmp-feat-table td { border: 1px solid #d7e4e0; padding: 4px 8px; text-align: left; }
+.cmp-feat-table th { background: #edf6f4; font-weight: 500; }
+.cmp-feat-table .n { text-align: right; }
+.cmp-feat-rownote { display: block; color: #617772; }
+.cmp-feat-gcard, .cmp-feat-pill { transition: background-color .15s cubic-bezier(.22, 1, .36, 1), border-color .15s cubic-bezier(.22, 1, .36, 1), color .15s cubic-bezier(.22, 1, .36, 1); }
+.cmp-feat-gcard:hover { background: #f6faf9; border-color: #006666; }
+.cmp-feat-pill:hover { background: #edf6f4; border-color: #006666; }
+.cmp-feat-pill[aria-pressed='true']:hover { background: #006666; }
+@media (max-width: 700px) {
+  .cmp-feat { --lab: 76px; --val: 80px; --gap: 8px; }
+  .cmp-feat-groups { grid-template-columns: 1fr; gap: 8px; }
+  .cmp-feat-gcard { padding: 8px 12px; }
+  .cmp-feat-main { padding: 16px 12px; }
+  .cmp-feat-chart { padding: 12px; }
+  .cmp-feat-val small { display: block; margin-left: 0; line-height: 1.3; }
+}
