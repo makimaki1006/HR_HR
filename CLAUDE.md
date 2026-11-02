@@ -2,7 +2,7 @@
 
 **最終更新**: 2026-04-26
 **リポジトリ**: `makimaki1006/HR_HR`
-**デプロイリポ**: `hellowork-deploy/` (Render: `hellowork-dashboard`)
+**デプロイリポ**: `hellowork-deploy/` (Render のサービス名: `HR_HW`、`hr-hw.onrender.com`。2026-10-30 確認)
 **本ドキュメントの位置付け**: 新規参入者・自分自身が最初に読むべき索引。各深掘り資料は §13 から辿る。
 
 ---
