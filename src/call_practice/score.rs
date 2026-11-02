@@ -6,7 +6,9 @@ use serde_json::Value;
 use super::persona::{self, Persona, Range, NEVER_END_OFFERS, SLOTS};
 use super::types::*;
 use crate::crm::talk_review::checks::loaded;
-use crate::crm::talk_review::judge::{judge_via, Completer, JudgeError, StoredItem};
+use crate::crm::talk_review::judge::{
+    is_hearing, judge_main_via, Completer, JudgeError, StoredItem,
+};
 use crate::crm::talk_review::lang::find_foreign;
 use crate::crm::talk_review::types::TalkTurn;
 
@@ -573,15 +575,27 @@ pub fn appointment_result(
     }
 }
 
-/// 既存の判定 (`talk_review::judge::judge_via`、判定項目 `checks.json`) に練習の会話を渡す。
-/// 練習の会話は本番の文字起こしと同じ形 (`TalkTurn`) なので、そのまま渡せる
+/// 既存の判定 (`talk_review::judge::judge_main_via`、判定項目 `checks.json`) に練習の会話を渡す。
+/// 練習の会話は本番の文字起こしと同じ形 (`TalkTurn`) なので、そのまま渡せる。
+/// 練習は日時を決める範囲を見るので、ヒアリングの項目は呼ばず (呼び出し 1 回)、結果からも外す
 pub async fn judge_appointment<C: Completer>(
     c: &C,
     transcript: &[TalkTurn],
 ) -> Result<Judged, JudgeError> {
-    let out = judge_via(c, &loaded().checks, transcript).await?;
+    let checks = &loaded().checks;
+    let out = judge_main_via(c, checks, transcript).await?;
+    let hearing: Vec<&str> = checks
+        .checks
+        .iter()
+        .filter(|c| is_hearing(c))
+        .map(|c| c.id.as_str())
+        .collect();
     Ok(Judged {
-        items: out.items,
+        items: out
+            .items
+            .into_iter()
+            .filter(|i| !hearing.contains(&i.id.as_str()))
+            .collect(),
         summary: out.summary,
     })
 }

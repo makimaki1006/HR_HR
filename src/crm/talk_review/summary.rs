@@ -210,6 +210,9 @@ mod tests {
                         quote: None,
                         advice: None,
                         note: None,
+                        answer: None,
+                        asked: None,
+                        answered: None,
                     }]
                 })
                 .unwrap_or_default(),

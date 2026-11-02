@@ -17,6 +17,8 @@ pub struct TalkCheckDef {
     pub baseline_pct: Option<f64>,
     /// その割合の分母 (例: 話せた電話のうち)
     pub baseline_basis: Option<String>,
+    /// 先方の答えの選択肢。空でなければヒアリングの項目 (「できた」= 相応しい答えが得られた)
+    pub answers: Vec<String>,
 }
 
 /// 1 人 (またはチーム全体) の 1 項目の集計
@@ -144,6 +146,8 @@ pub struct TalkItemMark {
     pub id: String,
     /// "done" | "not_done" | "na"
     pub status: String,
+    /// ヒアリングの項目の先方の答え (選択肢の 1 つ)。無ければ null
+    pub answer: Option<String>,
 }
 
 /// 電話の一覧の 1 行
@@ -187,6 +191,12 @@ pub struct TalkItemDetail {
     /// 次に言うとよいこと (できていないときだけ)
     pub advice: Option<String>,
     pub note: Option<String>,
+    /// ヒアリングの項目の先方の答え (選択肢の 1 つ)。無ければ null
+    pub answer: Option<String>,
+    /// ヒアリングの項目: 営業が質問したか (それ以外の項目は null)
+    pub asked: Option<bool>,
+    /// ヒアリングの項目: 相応しい答えが得られたか (それ以外の項目は null)
+    pub answered: Option<bool>,
 }
 
 /// 文字起こしの 1 発言

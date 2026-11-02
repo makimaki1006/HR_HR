@@ -24,7 +24,7 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(hanako[5]?.textContent).toBe('2.27%');
     expect(hanako[5]?.getAttribute('data-flagged')).toBeNull();
     unmount();
-    // トークのタブ: 名前・チーム・判定数・9項目
+    // アポ前のタブ: 名前・チーム・判定数・9項目 (日程が決まった後の6項目はアポ後のタブ)
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} tab="talk" />);
     const talk = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
     expect(talk).toHaveLength(12);
@@ -93,6 +93,20 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(last[5]).toBe('43%できた 54/125本');
     // 場面ごとのまとまり
     expect(Array.from(document.querySelectorAll('th.talk-group')).map(t => `${t.textContent}:${t.getAttribute('colspan') ?? ''}`)).toEqual(['受付:1', '日付の前:5', '断られた後:3']);
+    // 時期改めの項目は本番から外した
+    expect(screen.queryByRole('columnheader', { name: /時期改め/ })).toBeNull();
+    expect(head.querySelector('[data-testid="talk-hearing-basis"]')).toBeNull();
+    expect(screen.getByTestId('talk-hearing-rule').textContent).toContain('先方から相応しい答えが得られた電話の割合');
+    cleanup();
+    // アポ後のタブ: 日程が決まった後の6項目。割合の分母を見出しに書く
+    render(<TalkSummaryTable data={summary} onOpen={() => undefined} tab="after" />);
+    expect(Array.from(document.querySelectorAll('th.talk-group')).map(t => `${t.textContent}:${t.getAttribute('colspan') ?? ''}`)).toEqual(['日程が決まった後:6']);
+    const budget = screen.getByRole('columnheader', { name: /^予算/ });
+    expect(budget.querySelector('[data-testid="talk-hearing-basis"]')?.textContent).toBe('日程が決まった電話のうち');
+    expect(budget.getAttribute('title')).toContain('割合は日程が決まった電話のうち、相応しい答えが得られた電話の割合です。');
+    // 予算: 二郎 2/2 本得られず → 0%、全体 8/12 本得られず → 33%
+    expect(budget.textContent).toContain('この表の全体 33%');
+    expect(screen.getByTestId('talk-hearing-rule').textContent).toContain('先方から相応しい答えが得られた電話の割合');
   });
 
   it('色の凡例を表の上に出し、割合はできた割合だと書く', () => {
@@ -238,7 +252,12 @@ describe('トークの振り返り: 電話の一覧と詳細', () => {
     const rows = screen.getAllByTestId('talk-call-row');
     expect(rows).toHaveLength(6);
     expect(Array.from(rows[0]?.querySelectorAll('td') ?? []).map(td => td.textContent)).toEqual(
-      ['10/19 15:42', '3分32秒', '日程が決まらなかった', '○', '×', '×', '×', '○', '−', '×', '×', '−', '日程の前に「今は募集していないですか」と聞き、「忙しい」と言われて引き下がっています。']);
+      ['10/19 15:42', '3分32秒', '日程が決まらなかった', '○', '×', '×', '×', '○', '−', '×', '×', '−', '', '日程の前に「今は募集していないですか」と聞き、「忙しい」と言われて引き下がっています。']);
+    // ヒアリングの項目は ○× の列にせず、先方の答えを 1 行で出す (答えが得られなかった項目は「得られず」)
+    expect(screen.getAllByRole('columnheader').map(h => h.textContent)).not.toContain('予算');
+    expect(rows[1]?.querySelector('[data-testid="talk-call-answers"]')?.textContent)
+      .toBe('入社 3か月以内・職種 現場系・理由 欠員・予算 得られず（未定）・本人が判断者');
+    expect(rows[3]?.querySelector('[data-testid="talk-call-answers"]')?.textContent).toBe('');
     expect(rows[3]?.textContent).toContain('文字起こし待ち');
     expect(rows[4]?.textContent).toContain('録音が残っていない');
     expect(rows[5]?.textContent).toContain('判定できなかった');
@@ -257,6 +276,33 @@ describe('トークの振り返り: 電話の一覧と詳細', () => {
     expect(turns[5]?.textContent).toContain('先方');
     expect(screen.getByText(/別の週・日をもう1回出す/).textContent).toContain('次に言うとよいこと');
     expect(screen.getByRole('link', { name: 'HubSpot で開く' }).getAttribute('href')).toContain('hubspot.com');
+  });
+
+  it('詳細では、ヒアリングの項目を場面ごとに分けて先方の答えを出す', () => {
+    const { unmount } = render(<TalkDetailView data={fixtureDetail('fx-9001-2')} />);
+    // 既存の 9 項目とは別のまとまり
+    expect(screen.getAllByTestId('talk-item')).toHaveLength(9);
+    const groups = screen.getAllByTestId('talk-hearing-group');
+    const g1 = groups[0];
+    if (g1 === undefined) throw new Error('まとまりが無い');
+    expect(groups.map(g => g.querySelector('h3')?.textContent)).toEqual(['日程が決まった後に聞くこと']);
+    const items = within(g1).getAllByTestId('talk-hearing-item');
+    expect(items).toHaveLength(6);
+    expect(items[0]?.textContent).toContain('入社時期');
+    expect(items[0]?.textContent).toContain('答えが得られた・営業が質問した');
+    expect(items[0]?.querySelector('[data-testid="talk-hearing-answer"]')?.textContent).toBe('先方の答え: 3か月以内');
+    expect(items[3]?.textContent).toContain('答えが得られていない・営業が質問した');
+    expect(items[3]?.querySelector('[data-testid="talk-hearing-answer"]')?.textContent).toBe('先方の答え: 未定');
+    expect(items[5]?.textContent).toContain('該当なし');
+    // 画面に開発者用語を出さない
+    expect(document.body.textContent).not.toMatch(/asked|answered|status|aq_|tk_/);
+    unmount();
+    // 日程が決まらなかった電話: ヒアリングのまとまりは当てはまらない (時期改めのまとまりは無い)
+    render(<TalkDetailView data={fixtureDetail('fx-9001-1')} />);
+    const g2 = screen.getAllByTestId('talk-hearing-group');
+    expect(g2).toHaveLength(1);
+    expect(g2[0]?.textContent).toContain('この電話は当てはまりません。');
+    expect(document.body.textContent).not.toContain('時期改め');
   });
 
   it('文字起こしが取れないときは理由を出す', () => {
@@ -443,13 +489,13 @@ describe('トークの振り返り: タブとアポの内訳', () => {
     expect(heads()).toContain('アポ率');
     expect(heads().some(h => h.startsWith('判定した電話数'))).toBe(false);
     // 「ヒアリング」「アポの質」の列は無いのでタブも出さない
-    expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['数字', 'トーク']);
-    fireEvent.click(screen.getByRole('tab', { name: 'トーク' }));
+    expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['数字', 'アポ前', 'アポ後']);
+    fireEvent.click(screen.getByRole('tab', { name: 'アポ前' }));
     expect(navigate).toHaveBeenLastCalledWith(route({ tab: 'talk' }));
     unmount();
     // 比べる期間・選んだ人と一緒に URL に残る
     render(<TalkPanel route={route({ tab: 'talk', people: '9001', cmp_from: '2026-10-18', cmp_to: '2026-10-18' })} navigate={navigate} fixture />);
-    expect(screen.getByRole('tab', { name: 'トーク' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: 'アポ前' }).getAttribute('aria-selected')).toBe('true');
     expect(heads()).not.toContain('アポ率');
     expect(heads().filter(h => h.startsWith('判定した電話数'))).toHaveLength(1);
     expect(screen.getByRole('columnheader', { name: /早く日付を出す/ })).toBeTruthy();
@@ -546,5 +592,22 @@ describe('トークの振り返り: タブとアポの内訳', () => {
   it('トークのタブではアポ数の列も内訳も出さない', () => {
     render(<TalkPanel route={route({ tab: 'talk' })} navigate={() => undefined} fixture />);
     expect(screen.queryByTestId('talk-apo-trigger')).toBeNull();
+  });
+
+  it('タブは数字・アポ前・アポ後の3つで、アポ前とアポ後で出す項目が分かれる', () => {
+    const { unmount } = render(<TalkPanel route={route({ tab: 'talk' })} navigate={() => undefined} fixture />);
+    expect(within(screen.getByTestId('talk-tabs')).getAllByRole('tab').map(b => b.textContent)).toEqual(['数字', 'アポ前', 'アポ後']);
+    const before = within(screen.getByTestId('talk-table')).getAllByRole('columnheader').map(h => h.textContent);
+    expect(before.some(t => t.includes('受付で担当者を名前で呼ぶ'))).toBe(true);
+    expect(before.some(t => t.includes('時期改め'))).toBe(false);
+    expect(before.some(t => t.includes('入社時期'))).toBe(false);
+    unmount();
+    render(<TalkPanel route={route({ tab: 'after' })} navigate={() => undefined} fixture />);
+    const after = within(screen.getByTestId('talk-table')).getAllByRole('columnheader').map(h => h.textContent);
+    expect(after.some(t => t.includes('入社時期'))).toBe(true);
+    expect(after.some(t => t.includes('予算'))).toBe(true);
+    expect(after.some(t => t.includes('受付で担当者を名前で呼ぶ'))).toBe(false);
+    expect(after.some(t => t.startsWith('日程が決まった電話'))).toBe(true);
+    expect(screen.getAllByTestId('talk-after-calls').length).toBeGreaterThan(0);
   });
 });

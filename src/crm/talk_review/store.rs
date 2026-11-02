@@ -388,6 +388,9 @@ mod tests {
                 quote: Some("来週は".into()),
                 advice: Some("先に内容".into()),
                 note: None,
+                answer: None,
+                asked: None,
+                answered: None,
             }],
             summary: Some("日付が早い".into()),
         };

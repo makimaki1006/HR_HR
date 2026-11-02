@@ -1245,6 +1245,9 @@ mod tests {
             quote: Some(quote.into()),
             advice: Some(advice.into()),
             note: None,
+            answer: None,
+            asked: None,
+            answered: None,
         };
         let mut r = row(Some("z"), "2026-10-15T11:00:00Z");
         r.items = vec![item("先に用件を伝える", "来週は")];

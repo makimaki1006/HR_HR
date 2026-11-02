@@ -15,4 +15,16 @@ evidence: Array<number>, quote: string | null,
 /**
  * 次に言うとよいこと (できていないときだけ)
  */
-advice: string | null, note: string | null, };
+advice: string | null, note: string | null, 
+/**
+ * ヒアリングの項目の先方の答え (選択肢の 1 つ)。無ければ null
+ */
+answer: string | null, 
+/**
+ * ヒアリングの項目: 営業が質問したか (それ以外の項目は null)
+ */
+asked: boolean | null, 
+/**
+ * ヒアリングの項目: 相応しい答えが得られたか (それ以外の項目は null)
+ */
+answered: boolean | null, };

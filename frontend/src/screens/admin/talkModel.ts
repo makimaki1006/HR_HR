@@ -114,6 +114,70 @@ export const CALL_STATUS_TEXT: Record<string, string> = {
 export const MARK_TEXT: Record<string, string> = { done: '○', not_done: '×', na: '−' };
 export const MARK_LABEL: Record<string, string> = { done: 'できている', not_done: 'できていない', na: '該当なし' };
 
+// ------------------------------------------------------------ ヒアリングの項目 (先方の答えを残す項目)
+
+/** 先方の答えを残す項目か (「できた」= 相応しい答えが得られた) */
+export function isHearing(c: Pick<TalkCheckDef, 'answers'>): boolean {
+  return c.answers.length > 0;
+}
+
+/** ヒアリングの場面ごとの見出しと、割合の分母 */
+export const HEARING_STAGES: { stage: string; heading: string; basis: string }[] = [
+  { stage: '日程が決まった後', heading: '日程が決まった後に聞くこと', basis: '日程が決まった電話のうち' },
+];
+
+/** ヒアリングの項目の割合の分母 (それ以外の項目は null) */
+export function hearingBasis(c: Pick<TalkCheckDef, 'answers' | 'stage'>): string | null {
+  if (!isHearing(c)) return null;
+  return HEARING_STAGES.find(h => h.stage === c.stage)?.basis ?? null;
+}
+
+/** 一覧の 1 行で使う短い名前。空なら答えだけで意味が通る */
+const HEARING_SHORT: Record<string, string> = {
+  aq_timing: '入社',
+  aq_job: '職種',
+  aq_reason: '理由',
+  aq_budget: '予算',
+  aq_decider: '',
+  aq_attend: '',
+};
+
+/** 答えが得られた・得られなかったを短く (詳細用) */
+export function hearingResultText(answered: boolean | null): string {
+  if (answered === true) return '答えが得られた';
+  if (answered === false) return '答えが得られていない';
+  return '';
+}
+
+export function hearingAskedText(asked: boolean | null): string {
+  if (asked === true) return '営業が質問した';
+  if (asked === false) return '営業は質問していない';
+  return '';
+}
+
+/**
+ * 電話の一覧で、先方の答えを 1 行にまとめる (例「入社 3か月以内・職種 現場系・予算 具体額・本人が判断者」)。
+ * 該当なしの項目は出さない。答えが得られなかった項目は「予算 得られず（未定）」のように書く。
+ */
+export function hearingLine(checks: TalkCheckDef[], items: { id: string; status: string; answer: string | null }[]): string {
+  const parts: string[] = [];
+  for (const c of checks) {
+    if (!isHearing(c)) continue;
+    const m = items.find(i => i.id === c.id);
+    if (m === undefined || m.status === 'na') continue;
+    const short = HEARING_SHORT[c.id] ?? c.title;
+    const label = short === '' ? c.title : short;
+    // 「再開月 月が分かった」と重ならないように
+    const a = m.answer === '月が分かった' ? '分かった' : m.answer;
+    if (m.status === 'done' && a !== null && a !== '不明') {
+      parts.push(short === '' ? a : `${short} ${a}`);
+    } else {
+      parts.push(a !== null && a !== '不明' ? `${label} 得られず（${a}）` : `${label} 得られず`);
+    }
+  }
+  return parts.join('・');
+}
+
 /** 数えている途中の日 (YYYY-MM-DD) を「10/06〜10/08、10/10」に。続く日はまとめる */
 export function describeDays(days: string[]): string {
   const dayMs = (d: string): number => Date.parse(`${d}T00:00:00Z`);
@@ -221,15 +285,21 @@ export function sortPeople(people: TalkPersonRow[], sort: TalkSort | null): Talk
 // ------------------------------------------------------------ 架空データ (mode=fixture と試験)
 
 export const FIXTURE_CHECKS: TalkCheckDef[] = [
-  { id: "reception_name", stage: "受付", title: "受付で担当者を名前で呼ぶ", rule: "受付(担当者以外)が出たとき、営業が担当者を「〇〇様」と名前で呼んだか。名前が分からず「採用のご担当者様」と聞いた場合は、つながった後に名前を聞いていればできたとする。", baseline_pct: null, baseline_basis: null },
-  { id: "no_demand_question", stage: "日付の前", title: "日付の前に需要を聞かない", rule: "最初に日付(週・曜日・日)を出すより前に、営業が「今は募集していないですか」「充足していますか」「採用の予定はありますか」など、募集・需要の有無を聞いたら、できていない。", baseline_pct: 10, baseline_basis: "話せた電話のうち" },
-  { id: "early_date", stage: "日付の前", title: "早く日付を出す", rule: "担当者が出て営業が名乗ってから、営業の発言2〜3回以内に、具体的な週・曜日・日(「来週の水曜か木曜あたり」など)を出したか。「お話しする機会をいただけませんか」のような日付なしの依頼は日付を出したことにしない。", baseline_pct: 81, baseline_basis: "話せた電話のうち" },
-  { id: "no_content_before_date", stage: "日付の前", title: "日程を切るとき「サービスの中身」「〇〇職の件」と言わない", rule: "最初に日程を切る一言、またはその直前に、「採用サービスの中身をお伝えしたく」「〇〇職の採用の件で」など、中身・用件を営業から言ったら、できていない。先方に「何の件ですか」と聞かれて答えた場合は対象外(できたとする)。", baseline_pct: 42, baseline_basis: "日程を切った電話のうち" },
-  { id: "kizonkan", stage: "日付の前", title: "既存感(前回のこと・改めた理由・覚えていますか)", rule: "日付の前に、①前回の電話に触れる(「前回〇月にお電話した」)②改めた理由を添える(「タイミングが合わなかったので」)③覚えているかを確かめる、のうち①と②があればできた。どれもなければできていない。", baseline_pct: null, baseline_basis: null },
-  { id: "what_is_it_handled", stage: "日付の前", title: "「何の件ですか」と聞かれたら1〜2文で答えて日付に戻る", rule: "先方に「何の件ですか」「覚えていない」と聞かれたとき、営業が1〜2文で用件を答え、すぐ日付を出し直したらできた。説明を長く続けて日付に戻らなければできていない。", baseline_pct: null, baseline_basis: null },
-  { id: "busy_reoffer", stage: "断られた後", title: "「忙しい」「その日は無理」で引かない", rule: "日付に対して「忙しい」「その日は無理」など予定の理由で断られたとき、営業がそのまま「また改めます」と引き下がったら、できていない。別の日を出し直したか、聞き返したならこの項目はできた。", baseline_pct: 11, baseline_basis: "「忙しい」と言われた電話のうち" },
-  { id: "busy_concrete_day", stage: "断られた後", title: "「忙しい」の後に具体的な日を出す", rule: "予定の理由で断られた後、営業がこちらから具体的な別の週・曜日・日を出したらできた。「いつ頃ならよろしいですか」と先方に選ばせた、または引き下がった場合はできていない。", baseline_pct: 67, baseline_basis: "「忙しい」と言われた電話のうち" },
-  { id: "demand_denied_short", stage: "断られた後", title: "「募集していない」と言われたら短く終える", rule: "先方が需要を否定した(「今は募集していない」「充足している」)後、営業が「本当にないですか」と何度も聞き直したらできていない。次の時期・担当者名を聞いて短く終えたらできた。", baseline_pct: null, baseline_basis: null },
+  { id: "reception_name", stage: "受付", title: "受付で担当者を名前で呼ぶ", rule: "受付(担当者以外)が出たとき、営業が担当者を「〇〇様」と名前で呼んだか。名前が分からず「採用のご担当者様」と聞いた場合は、つながった後に名前を聞いていればできたとする。", baseline_pct: null, baseline_basis: null, answers: [] },
+  { id: "no_demand_question", stage: "日付の前", title: "日付の前に需要を聞かない", rule: "最初に日付(週・曜日・日)を出すより前に、営業が「今は募集していないですか」「充足していますか」「採用の予定はありますか」など、募集・需要の有無を聞いたら、できていない。", baseline_pct: 10, baseline_basis: "話せた電話のうち", answers: [] },
+  { id: "early_date", stage: "日付の前", title: "早く日付を出す", rule: "担当者が出て営業が名乗ってから、営業の発言2〜3回以内に、具体的な週・曜日・日(「来週の水曜か木曜あたり」など)を出したか。「お話しする機会をいただけませんか」のような日付なしの依頼は日付を出したことにしない。", baseline_pct: 81, baseline_basis: "話せた電話のうち", answers: [] },
+  { id: "no_content_before_date", stage: "日付の前", title: "日程を切るとき「サービスの中身」「〇〇職の件」と言わない", rule: "最初に日程を切る一言、またはその直前に、「採用サービスの中身をお伝えしたく」「〇〇職の採用の件で」など、中身・用件を営業から言ったら、できていない。先方に「何の件ですか」と聞かれて答えた場合は対象外(できたとする)。", baseline_pct: 42, baseline_basis: "日程を切った電話のうち", answers: [] },
+  { id: "kizonkan", stage: "日付の前", title: "既存感(前回のこと・改めた理由・覚えていますか)", rule: "日付の前に、①前回の電話に触れる(「前回〇月にお電話した」)②改めた理由を添える(「タイミングが合わなかったので」)③覚えているかを確かめる、のうち①と②があればできた。どれもなければできていない。", baseline_pct: null, baseline_basis: null, answers: [] },
+  { id: "what_is_it_handled", stage: "日付の前", title: "「何の件ですか」と聞かれたら1〜2文で答えて日付に戻る", rule: "先方に「何の件ですか」「覚えていない」と聞かれたとき、営業が1〜2文で用件を答え、すぐ日付を出し直したらできた。説明を長く続けて日付に戻らなければできていない。", baseline_pct: null, baseline_basis: null, answers: [] },
+  { id: "busy_reoffer", stage: "断られた後", title: "「忙しい」「その日は無理」で引かない", rule: "日付に対して「忙しい」「その日は無理」など予定の理由で断られたとき、営業がそのまま「また改めます」と引き下がったら、できていない。別の日を出し直したか、聞き返したならこの項目はできた。", baseline_pct: 11, baseline_basis: "「忙しい」と言われた電話のうち", answers: [] },
+  { id: "busy_concrete_day", stage: "断られた後", title: "「忙しい」の後に具体的な日を出す", rule: "予定の理由で断られた後、営業がこちらから具体的な別の週・曜日・日を出したらできた。「いつ頃ならよろしいですか」と先方に選ばせた、または引き下がった場合はできていない。", baseline_pct: 67, baseline_basis: "「忙しい」と言われた電話のうち", answers: [] },
+  { id: "demand_denied_short", stage: "断られた後", title: "「募集していない」と言われたら短く終える", rule: "先方が需要を否定した(「今は募集していない」「充足している」)後、営業が「本当にないですか」と何度も聞き直したらできていない。次の時期・担当者名を聞いて短く終えたらできた。", baseline_pct: null, baseline_basis: null, answers: [] },
+  { id: "aq_timing", stage: "日程が決まった後", title: "入社時期", rule: "質問: 採用した人にいつまでに入社してほしいかを営業が聞いたか。 相応しい答え: 「3か月以内」「4か月以上」と分かる時期、または「未定」「いい人がいれば」と時期を決めていないことの明言。", baseline_pct: null, baseline_basis: null, answers: ["3か月以内", "4か月以上", "未定", "不明"] },
+  { id: "aq_job", stage: "日程が決まった後", title: "募集の職種", rule: "質問: 今回募集している職種を営業が聞いたか。 相応しい答え: 職種の名前。製造・倉庫(軽作業を含む)・ドライバーだけを「現場系」とし、建設・施工管理・介護・営業・事務・技術職などは「それ以外」。", baseline_pct: null, baseline_basis: null, answers: ["現場系", "それ以外", "不明"] },
+  { id: "aq_reason", stage: "日程が決まった後", title: "募集の理由", rule: "質問: 今回の募集の理由を営業が聞いたか。 相応しい答え: 欠員・若返り・増員など今の募集の具体的な理由。過去の欠員をすでに補充し、さらに人を足したいなら「増員」。", baseline_pct: null, baseline_basis: null, answers: ["欠員", "若返り", "増員", "その他", "不明"] },
+  { id: "aq_budget", stage: "日程が決まった後", title: "予算", rule: "質問: 採用にかける予算を営業が聞いたか。 相応しい答え: 具体的な金額、または「予算は無い」「都度確保する」。営業が示した月額を先方が受け入れた(「出せる」「やれないことはない」など)場合も「具体額」。「分からない」「上と相談」「未定」は相応しい答えではない。", baseline_pct: null, baseline_basis: null, answers: ["具体額", "無い", "都度確保", "未定", "不明"] },
+  { id: "aq_decider", stage: "日程が決まった後", title: "判断する人", rule: "質問: 採用を最終的に判断する人が誰かを営業が聞いたか。 相応しい答え: 話している相手が判断する人か、ほかの誰か(社長・本社など)が判断するかが分かる答え。", baseline_pct: null, baseline_basis: null, answers: ["本人が判断者", "本人以外が判断者", "不明"] },
+  { id: "aq_attend", stage: "日程が決まった後", title: "判断する人の同席", rule: "質問: 判断する人が商談に同席するかを営業が聞いたか。 相応しい答え: 同席する・しないが分かる答え。「社長と相談する」などから推し量らない。", baseline_pct: null, baseline_basis: null, answers: ["判断者が同席する", "判断者は同席しない", "不明"] },
 ];
 
 export const FIXTURE_RULES: TalkSummaryResponse['rules'] = {
@@ -252,6 +322,12 @@ const FIXTURE_COUNTS: Record<string, [number, number][]> = {
   busy_reoffer: [[1, 9], [4, 10], [1, 8], [1, 2]],
   busy_concrete_day: [[6, 9], [7, 10], [3, 8], [2, 2]],
   demand_denied_short: [[2, 7], [3, 9], [6, 7], [1, 2]],
+  aq_timing: [[1, 5], [1, 2], [0, 4], [1, 1]],
+  aq_job: [[0, 5], [0, 2], [1, 4], [0, 1]],
+  aq_reason: [[2, 5], [1, 2], [1, 4], [1, 1]],
+  aq_budget: [[3, 5], [2, 2], [2, 4], [1, 1]],
+  aq_decider: [[1, 5], [1, 2], [0, 4], [0, 1]],
+  aq_attend: [[2, 3], [1, 1], [1, 2], [0, 0]],
 };
 
 function person(idx: number, id: string, name: string, team: string, dials: number, appts: number, flagged: boolean, reviewed: number, waiting: number, unavailable: number, contact: [number, number, number, number]): TalkPersonRow {
@@ -336,18 +412,26 @@ function priorOf(p: TalkPersonRow): TalkPersonRow {
   };
 }
 
-/** 'd' できた / 'x' できていない / '-' 該当なし を項目の順に */
-const marks = (s: string): TalkCallRow['items'] => FIXTURE_CHECKS.map((c, i) => ({ id: c.id, status: { d: 'done', x: 'not_done' }[s[i] ?? '-'] ?? 'na' }));
+/** 'd' できた / 'x' できていない / '-' 該当なし を項目の順に。answers は先方の答え (項目 ID → 答え) */
+const marks = (s: string, answers: Record<string, string> = {}): TalkCallRow['items'] => FIXTURE_CHECKS.map((c, i) => {
+  const status = { d: 'done', x: 'not_done' }[s[i] ?? '-'] ?? 'na';
+  return { id: c.id, status, answer: status === 'na' ? null : answers[c.id] ?? null };
+});
+
+/** 日程が決まった架空の電話 (2 本目) の先方の答え */
+const FIXTURE_AGREED_ANSWERS: Record<string, string> = {
+  aq_timing: '3か月以内', aq_job: '現場系', aq_reason: '欠員', aq_budget: '未定', aq_decider: '本人が判断者',
+};
 
 export function fixtureCalls(ownerId: string, from: string, to: string): TalkCallsResponse {
   const name = FIXTURE_PEOPLE.find(p => p.owner_id === ownerId)?.name ?? '架空 担当者';
-  const mk = (n: number, at: string, sec: number, status: string, outcome: string | null, m: string, summary: string | null): TalkCallRow =>
-    ({ hubspot_call_id: `fx-${ownerId}-${String(n)}`, call_at: `${to}T${at}:00+09:00`, duration_sec: sec, status, outcome, items: status === 'judged' ? marks(m) : [], summary });
+  const mk = (n: number, at: string, sec: number, status: string, outcome: string | null, m: string, summary: string | null, answers: Record<string, string> = {}): TalkCallRow =>
+    ({ hubspot_call_id: `fx-${ownerId}-${String(n)}`, call_at: `${to}T${at}:00+09:00`, duration_sec: sec, status, outcome, items: status === 'judged' ? marks(m, answers) : [], summary });
   return {
     owner_id: ownerId, name, from, to, checks: FIXTURE_CHECKS,
     calls: [
-      mk(1, '15:42', 212, 'judged', '日程が決まらなかった', 'dxxxd-xx-', '日程の前に「今は募集していないですか」と聞き、「忙しい」と言われて引き下がっています。'),
-      mk(2, '14:20', 95, 'judged', '日程が決まった', 'dddddd---', null),
+      mk(1, '15:42', 212, 'judged', '日程が決まらなかった', 'dxxxd-xx-------', '日程の前に「今は募集していないですか」と聞き、「忙しい」と言われて引き下がっています。'),
+      mk(2, '14:20', 95, 'judged', '日程が決まった', 'dddddd---dddxd-', '予算を金額で聞けていません。', FIXTURE_AGREED_ANSWERS),
       mk(3, '13:05', 48, 'judged', '担当者不在', 'x--------', '受付で担当者を名前で呼ばず、用件だけを伝えています。'),
       mk(4, '11:30', 130, 'waiting', null, '', null),
       mk(5, '10:12', 0, 'unavailable', null, '', null),
@@ -366,7 +450,8 @@ export function fixtureDetail(callId: string): TalkCallDetailResponse {
     ?? fixtureCalls(ownerId, '2026-10-19', '2026-10-19').calls[0] ?? fallbackCall;
   const rep = FIXTURE_PEOPLE.find(p => p.owner_id === ownerId)?.name ?? '架空 担当者';
   const base = { call, owner_id: ownerId, rep_name: rep, checks: FIXTURE_CHECKS, reached_person: true, reception: true, first_date_turn: null, hubspot_url: `https://app.hubspot.com/contacts/0/record/0-48/${callId}`, model: '架空モデル', checks_version: 'fixture' };
-  const it = (id: string, status: string, evidence: number[], quote: string | null, advice: string | null, note: string | null = null) => ({ id, status, evidence, quote, advice, note });
+  const it = (id: string, status: string, evidence: number[], quote: string | null, advice: string | null, note: string | null = null) => ({ id, status, evidence, quote, advice, note, answer: null, asked: null, answered: null });
+  const na = (id: string, note: string) => it(id, 'na', [], null, null, note);
   const A: Record<string, string> = {"reception_name": "「〇〇様いらっしゃいますか」と名前で呼ぶ。名前が分からないときだけ「採用のご担当者様」と聞き、つながったら名前を聞いて記録する。", "no_demand_question": "需要には触れずに日付を出す。冒頭で聞くと「していない」という断り文句をこちらから言わせることになる。", "early_date": "前回のことに一言触れ、改めた理由を添えて、すぐ「来週の水曜か木曜あたりはいかがですか」と日付を出す。", "no_content_before_date": "中身・用件は言わず、前回のことと改めた理由を一言添えて日付を出す。用件は聞かれたら1〜2文で答えて日付に戻る。", "kizonkan": "「覚えていただけてますか? 前回〇月にお電話したんですけど、タイミングが合わなかったので」と、前回のことと改めた理由をセットで言う。", "what_is_it_handled": "「採用のご支援の件です。求人媒体の選び方から運用までをまとめてお手伝いしています」と1〜2文で答え、すぐ日付を出す。", "busy_reoffer": "「そうですよね、失礼しました。では再来週の火曜か水曜あたりはいかがですか」と別の週・日をもう1回出す。", "busy_concrete_day": "「いつ頃なら」と聞き返さず、こちらから別の日を出す。", "demand_denied_short": "「次に採用を考えられるのはどのあたりになりそうですか」と次の時期だけ聞いて、丁寧に短く終える。"};
   const items: TalkCallDetailResponse['items'] = [
     it('reception_name', 'done', [2], '総務の佐藤様はいらっしゃいますか。', null),
@@ -378,8 +463,19 @@ export function fixtureDetail(callId: string): TalkCallDetailResponse {
     it('busy_reoffer', 'not_done', [9], 'では、また改めてお電話します。', A.busy_reoffer ?? null),
     it('busy_concrete_day', 'not_done', [9], 'では、また改めてお電話します。', A.busy_concrete_day ?? null),
     it('demand_denied_short', 'na', [], null, null, '需要を否定されていない'),
+    ...['aq_timing', 'aq_job', 'aq_reason', 'aq_budget', 'aq_decider', 'aq_attend'].map(id => na(id, '日程が決まらなかった電話')),
   ];
-  if (n === 2) return { ...base, items, transcript: null, transcript_error: '録音が残っていません' };
+  if (n === 2) {
+    // 日程が決まった電話: 日程が決まった後に聞くことに先方の答えが入る
+    const heard = (id: string, answer: string, answered: boolean) => ({ ...it(id, answered ? 'done' : 'not_done', [], null, null), answer, asked: true, answered });
+    const agreed = items.map(x => {
+      const a = FIXTURE_AGREED_ANSWERS[x.id];
+      if (x.id === 'aq_attend') return na(x.id, '話している相手が判断する人');
+      if (a !== undefined) return heard(x.id, a, a !== '未定');
+      return x;
+    });
+    return { ...base, items: agreed, transcript: null, transcript_error: '録音が残っていません' };
+  }
   if (call.status !== 'judged') return { ...base, items: [], transcript: null, transcript_error: '判定前のため文字起こしを取っていません' };
   return {
     ...base, items, transcript_error: null,
@@ -401,13 +497,22 @@ export function fixtureDetail(callId: string): TalkCallDetailResponse {
 // ------------------------------------------------------------ 表のタブ
 
 /** 人ごとの表のタブ。URL の `tab` (空 = 数字) */
-export type TalkTab = 'numbers' | 'talk';
+export type TalkTab = 'numbers' | 'talk' | 'after';
 export const TALK_TABS: [TalkTab, string][] = [
   ['numbers', '数字'],
-  ['talk', 'トーク'],
+  ['talk', 'アポ前'],
+  ['after', 'アポ後'],
 ];
 export function parseTalkTab(v: string): TalkTab {
-  return v === 'talk' ? 'talk' : 'numbers';
+  return v === 'talk' || v === 'after' ? v : 'numbers';
+}
+/** アポ後のタブに出す項目の場面 (日程が決まった後のヒアリング) */
+export const AFTER_STAGE = '日程が決まった後';
+/** タブごとに出す項目。アポ前 = 日程を決めるまで、アポ後 = 日程が決まった後のヒアリング */
+export function checksForTab<T extends Pick<TalkCheckDef, 'stage'>>(checks: T[], tab: TalkTab): T[] {
+  if (tab === 'after') return checks.filter(c => c.stage === AFTER_STAGE);
+  if (tab === 'talk') return checks.filter(c => c.stage !== AFTER_STAGE);
+  return checks;
 }
 
 // ------------------------------------------------------------ アポ数の内訳
