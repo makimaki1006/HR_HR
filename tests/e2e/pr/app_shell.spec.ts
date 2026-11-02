@@ -30,7 +30,7 @@ test.describe('AppShell', () => {
     const topLabels = visible.filter((i) => i.group === null).map((i) => i.label);
     const exploreLabels = visible.filter((i) => i.group === 'explore').map((i) => i.label);
     // fixture のサーバは GEMINI/キーワード系 env 無し・非 admin なので、隠しタブ・CRM・求人票作成は出ない
-    expect(topLabels).toEqual(['媒体分析', '競合調査', '営業KPI', 'コンサルKPI', '案件管理']);
+    expect(topLabels).toEqual(['媒体分析', '競合調査', '営業KPI', 'コンサルKPI', 'コンサルKPI v2', '案件管理']);
     const jobCopy = visible.filter((item) => item.id === 'job-copy');
     expect(jobCopy).toEqual([expect.objectContaining({ kind: 'app', href: '/app/job-copy', group: null })]);
     const legacyJobCopy = page.locator('nav[aria-label="ダッシュボードタブ"] a[href="/app/job-copy"]');

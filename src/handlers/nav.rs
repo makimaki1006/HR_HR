@@ -295,6 +295,18 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: None,
         hidden: None,
     },
+    // コンサルKPI v2 (React 画面 /app/consulting-v2)。今のコンサルKPI (/consulting) と並べて見比べるための画面案。
+    // 見られる人は今のコンサルKPIと同じ (requires なし = ログインしていれば誰でも。`/api/consulting/*` と同じ認可)
+    NavDef {
+        id: "consulting-v2",
+        label: "コンサルKPI v2",
+        title: Some("コンサルKPIの新しい画面案。今のコンサルKPIと同じデータを表示する"),
+        kind: NavKind::App,
+        target: "/app/consulting-v2",
+        group: None,
+        requires: None,
+        hidden: None,
+    },
     // CRM (React 画面 /app/crm)。`crm_visible` を満たすときだけ items に入る (`/api/crm/*` を使える人)。
     NavDef {
         id: "crm",
@@ -811,6 +823,7 @@ mod tests {
                 ("indeed", "/?tab=/tab/indeed", Some("explore")),
                 ("sales-kpi", "/sales-kpi", None),
                 ("consulting", "/consulting", None),
+                ("consulting-v2", "/app/consulting-v2", None),
                 ("job-copy", "/app/job-copy", None),
             ]
         );
@@ -1086,9 +1099,13 @@ mod tests {
         assert_eq!(crm.href, "/app/crm");
         assert!(!crm.hidden);
         assert_eq!(crm.group, None);
-        // 位置: コンサルKPI の直後 (hidden 群の前)
+        // 位置: コンサルKPI v2 の直後 (hidden 群の前)
         let pos = |items: &[NavItem], id: &str| items.iter().position(|i| i.id == id).unwrap();
-        assert_eq!(pos(&with_crm, "crm"), pos(&with_crm, "consulting") + 1);
+        assert_eq!(pos(&with_crm, "crm"), pos(&with_crm, "consulting-v2") + 1);
+        assert_eq!(
+            pos(&with_crm, "consulting-v2"),
+            pos(&with_crm, "consulting") + 1
+        );
 
         // 実際に出すかは「/api/crm/* を使える人 (features.crm)」かつ「/app/crm が登録済み」。管理者かどうかは見ない
         for is_admin in [true, false] {
@@ -1202,6 +1219,8 @@ mod tests {
            title="今月の商談と架電。営業の現場が毎朝見る画面">営業KPI</a>
         <a class="tab-btn tab-link" href="/consulting"
            title="契約の継続と成果、いま手を打つべき顧客。コンサルが見る画面">コンサルKPI</a>
+        <a class="tab-btn tab-link" href="/app/consulting-v2"
+           title="コンサルKPIの新しい画面案。今のコンサルKPIと同じデータを表示する">コンサルKPI v2</a>
 "##;
     const OLD_KEYWORDS_TAB: &str = r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/keyword_tools" hx-target="#content" hx-swap="innerHTML" onclick="setActiveTab(this)" title="検索キーワードの需要をアプリ内で確認">キーワード需要</button>"##;
     const OLD_JOBGEN_TAB: &str = r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobgen_tools" hx-target="#content" hx-swap="innerHTML" onclick="setActiveTab(this)" title="求人票生成・競合比較・応募者ジャーニー診断">求人票作成</button>"##;
@@ -1358,8 +1377,8 @@ mod tests {
         );
         assert_eq!(
             elements(&old_top(true, true)).len(),
-            7,
-            "survey, kw, jobgen, group, sep, sales, consulting"
+            8,
+            "survey, kw, jobgen, group, sep, sales, consulting, consulting-v2"
         );
         assert_eq!(elements(OLD_EXPLORE).len(), 6);
     }
