@@ -19,12 +19,8 @@ export function ownerParams(search: string): string {
   for (const key of ['owner_field', 'owner']) { const value = source.get(key); if (value) result.set(key, value); }
   return result.toString();
 }
-/** 担当者の一覧がまだ無い（準備中・読み込み中）間に出す選択。URL の担当をそのまま選んだ状態で、選びかえも「自分に戻す」もできる。 */
-export function pendingScope(search: string): Pick<WorkReady, 'owner' | 'owner_field' | 'notice' | 'owners'> {
-  const query = new URLSearchParams(search);
-  return { owner: query.get('owner') ?? 'me', owner_field: query.get('owner_field') === 'hubspot_owner_id' ? 'hubspot_owner_id' : 'consultant', notice: null, owners: [] };
-}
-export function PendingOwnerFilter() { return <OwnerFilter work={pendingScope(useJobCopySearch())} />; }
+/** 担当者の一覧がまだ届かない間（準備中）の 1 行。上の帯の高さを増やさないよう、選択欄の代わりに短い文だけを出す。 */
+export function PendingOwnerFilter() { return <p className="cm-owner-pending" role="status">担当者の一覧を準備しています。準備ができると、担当で絞れます。</p>; }
 /** undefined は元の位置、null は非表示、要素があれば共通メニューへ移す。 */
 export const OwnerFilterPlacement = createContext<HTMLElement | null | undefined>(undefined);
 export function OwnerFilter({ work }: { work: Pick<WorkReady, 'owner' | 'owner_field' | 'notice' | 'owners'> }) {
@@ -33,8 +29,7 @@ export function OwnerFilter({ work }: { work: Pick<WorkReady, 'owner' | 'owner_f
   const filter = <section className="jh-owner" aria-label="担当者で絞る"><strong>担当者で絞る</strong>
     <label>担当の項目<select value={work.owner_field} onChange={event => { updateJobCopyQuery({ owner_field: event.target.value, todo_page: null, deals_page: null }, 'replace'); }}><option value="consultant">コンサル担当</option><option value="hubspot_owner_id">取引の担当者</option></select></label>
     <label>担当者<select value={work.owner} onChange={event => { updateJobCopyQuery({ owner: event.target.value, todo_page: null, deals_page: null }, 'replace'); }}><option value="all">全員</option>
-      {work.owner === 'me' && <option value="me">自分</option>}
-      {!work.owners.some(o => o.id === work.owner) && work.owner !== 'all' && work.owner !== 'me' && <option value={work.owner}>{work.owners.length ? '選択中の担当者（該当案件なし）' : '選択中の担当者'}</option>}
+      {!work.owners.some(o => o.id === work.owner) && work.owner !== 'all' && <option value={work.owner}>選択中の担当者（該当案件なし）</option>}
       <optgroup label="在籍中">{work.owners.filter(o => !o.archived).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</optgroup>
       <optgroup label="退職者">{work.owners.filter(o => o.archived).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</optgroup>
     </select></label>

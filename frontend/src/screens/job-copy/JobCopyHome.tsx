@@ -89,7 +89,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const tableShown = showAll || query.trim() !== '';
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
     <header className="jh-head"><div><h1>今日</h1><button type="button" className="jc-button" onClick={() => { updateJobCopyQuery({ view: 'deals', card: null }); }}>案件の一覧</button></div><button type="button" className="jc-button" onClick={() => { setReload(value => value + 1); }}>再読み込み</button></header>
-    {!work && <PendingOwnerFilter />}
+    {data && !work && <PendingOwnerFilter />}
     {error && <p role="alert">{error}</p>}
     {!data && !error && <p role="status">今日の画面を読み込んでいます…</p>}
     {data?.status === 'preparing' && <ListingPreparationNotice progress={data.progress} />}

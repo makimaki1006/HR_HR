@@ -161,7 +161,7 @@ it('担当者の応答に一覧が無くても画面は落ちず、読み込め�
   expect(await screen.findByText('担当者を読み込めませんでした。')).toBeTruthy();
   expect(screen.getByText('求人の本文')).toBeTruthy();
 });
-it('本番の準備中の応答（{"status":"preparing"}）でも、顧客・求人・今日以外の画面の担当選択が出る。URL の担当を選んだ状態で、取り直しは間隔を広げる', async () => {
+it('本番の準備中の応答（{"status":"preparing"}）では、顧客・求人の画面に準備中の 1 行を出し、取り直しは間隔を広げる', async () => {
   vi.useFakeTimers();
   try {
     for (const url of ['?company=9&owner=314945657&owner_field=consultant', '?listing=501&owner=314945657&owner_field=consultant']) {
@@ -171,9 +171,8 @@ it('本番の準備中の応答（{"status":"preparing"}）でも、顧客・求
       const { unmount } = render(<ConsultantMenu><p>本文</p></ConsultantMenu>);
       await act(async () => { await vi.advanceTimersByTimeAsync(10); });
       expect(screen.queryByText('担当者を確認しています…')).toBeNull();
-      expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当の項目' }).value).toBe('consultant');
-      expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('314945657');
-      expect(screen.getByRole('button', { name: '自分に戻す' })).toBeTruthy();
+      expect(screen.getByRole('status').textContent).toContain('準備しています');
+      expect(screen.queryByRole('combobox')).toBeNull();
       await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
       expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(6);
       unmount();
