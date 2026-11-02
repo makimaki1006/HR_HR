@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 
 // 合成データ: HubSpot の本文の履歴は 10/09 から、Indeed の週ごとの実績は 6/15 から。
 const SHOTS = process.env.JOB_COPY_SHOTS_DIR;
@@ -14,14 +14,15 @@ const perf = (count: number) => ({ schema_version: 1, source: 'hrhacker', job_id
 const history = { kyuujin_status: [], baitai_genjoukyou_hrhakkaa: [{ timestamp: '2026-06-15T00:00:00Z', value: '公開' }, { timestamp: '2026-08-03T03:00:00Z', value: '非公開' }, { timestamp: '2026-08-17T03:00:00Z', value: '公開' }], baitai_genjoukyou_airwork: [] };
 const person = (n: number, date: string) => ({ key: String(n).padStart(64, '0'), date, gender: n % 2 ? '女性' : '男性', age: '30代', prefecture: '大分県', municipality: '大分市' });
 
-async function open(page: Page, application: Record<string, unknown> | 'fail', extra: Record<string, unknown> = {}, weekCount = 17) {
+type ApplicantsReply = (route: Route) => Promise<void>;
+async function open(page: Page, application: Record<string, unknown> | 'fail' | ApplicantsReply, extra: Record<string, unknown> = {}, weekCount = 17) {
   await page.route('**/api/job-copy/**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith('/versions')) return route.fulfill({ json: { listing, status_history: history, ...extra, indeed_weekly_perf: perf(weekCount), versions: [
       { written_at: '2026-10-09T00:00:00Z', body: '仕事内容\n配送します。\n給与：時給 1,100 円', image_urls: [] },
       { written_at: '2026-10-13T00:00:00Z', body: '仕事内容\n配送します。\n給与：時給 1,200 円', image_urls: [] },
     ], history_counts: { hrh_kyuujinhyou_honbun: 2, hrh_kyuujinhyou_gazou: 0 }, history_may_be_incomplete: false } });
-    if (url.pathname.endsWith('/applicants')) return application === 'fail' ? route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } }) : route.fulfill({ json: { listing_id: '10', fetched_at: '2026-10-14T09:00:00+09:00', ...application } });
+    if (url.pathname.endsWith('/applicants')) return typeof application === 'function' ? application(route) : application === 'fail' ? route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } }) : route.fulfill({ json: { listing_id: '10', fetched_at: '2026-10-14T09:00:00+09:00', ...application } });
     if (url.pathname.endsWith('/listings')) return route.fulfill({ json: { listings: [listing], titles: ['ドライバー'], status: 'ready', total: 1, index_built_at: '2026-10-14T00:00:00Z', offset: 0, next_offset: null, refreshing: false, refresh_failed: false } });
     if (url.pathname.endsWith('/market')) return route.fulfill({ json: { titles: [], prefectures: [], series: null } });
     return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
@@ -59,10 +60,22 @@ test('応募が0件の求人は、分からないではなく0件で出す', asy
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/events-zero-applications.png`, fullPage: true });
 });
 
-test('応募を取得できなかったときだけ、そう言う', async ({ page }) => {
-  await open(page, 'fail');
-  await expect(page.locator('.lo-card').first()).toContainText('応募を取得できませんでした');
+test('応募を読み込めなかったら「読み込み中」で止めず、押すと読み直して数字を出す', async ({ page }) => {
+  let attempts = 0;
+  const ok = { listing_id: '10', fetched_at: '2026-10-14T09:00:00+09:00', total: 3, missing_date: 0, by_date: { '2026-10-01': 1, '2026-10-12': 2 } };
+  await open(page, async route => {
+    attempts += 1;
+    return attempts === 1 ? route.fulfill({ status: 504, json: { code: 'applicants_timeout' } }) : route.fulfill({ json: ok });
+  });
+  const card = page.locator('.lo-card').first();
+  await expect(card).toContainText('応募を読み込めませんでした');
+  await expect(page.getByText('応募を読み込み中です。')).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/events-applications-failed.png`, fullPage: true });
+  await page.getByRole('button', { name: 'もう一度読み込む' }).first().click();
+  await expect(page.getByTestId('rail-last-application')).toContainText('2026');
+  await expect(page.getByText('応募を読み込めませんでした')).toHaveCount(0);
+  expect(attempts).toBe(2);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/events-applications-retried.png`, fullPage: true });
 });
 
 test('30週以上の求人でも出る', async ({ page }) => {

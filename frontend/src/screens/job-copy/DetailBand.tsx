@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { JobCopyRecord } from './data';
+import { RetryApplicants } from './RetryApplicants';
 import { bandNumbers, formatBandYen, noApplicationDatesText } from './detailBandModel';
 import { lastMarketMonth } from './timelineModel';
 import { md, MARKET_CAUTION_PCT, BILLING_EVENT_MIN_PCT } from './listingEventsModel';
@@ -80,7 +81,7 @@ export function AssumptionsRail({ job, billing, mode, onIndeedTitleChanged }: { 
     <section aria-label="データ"><h3>データ</h3>
       <dl><dt>応募データの最後の日</dt><dd data-testid="rail-last-application">{n.lastApplicationDate === null && job.overallApplications?.byDate ? 'まだ応募なし' : jpDate(n.lastApplicationDate)}</dd>
         <dt>課金データの最後の日</dt><dd data-testid="rail-last-billing">{jpDate(n.lastBillingDate)}</dd></dl>
-      {n.asOf ? <p className="jc-muted">4週は、応募を取得した{jpDate(n.asOf)}までの28日です。</p> : <p className="jc-muted" role="status">{noApplicationDatesText(job)}</p>}
+      {n.asOf ? <p className="jc-muted">4週は、応募を取得した{jpDate(n.asOf)}までの28日です。</p> : <p className="jc-muted" role={job.applicationDates === 'failed' ? 'alert' : 'status'}>{noApplicationDatesText(job)}{job.applicationDates === 'failed' && <RetryApplicants id={job.hubspotId} />}</p>}
     </section>
     <section aria-label="市場と比べる範囲"><h3>市場（Indeed）と比べる範囲</h3>
       <MarketOccupationSlot record={job} prefecture={prefectureFromLocation(job.location)} onChanged={onIndeedTitleChanged} />

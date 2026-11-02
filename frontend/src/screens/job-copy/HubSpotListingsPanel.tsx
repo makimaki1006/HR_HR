@@ -3,7 +3,7 @@ import { useJobCopySearch } from './navigation';
 import { ListingPreparationNotice } from './ListingPreparationNotice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
-import { loadApplicationDates } from './listingApplicationDates';
+import { loadApplicationDates, RETRY_APPLICANTS_EVENT } from './listingApplicationDates';
 import type { LoadedApplications } from './listingApplicationDates';
 import { loadCompanies, loadVersions, prefetchNeighbors } from './listingDetailCache';
 import type { JobCopyRecord } from './data';
@@ -77,6 +77,17 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   const orderRef = useRef<string[]>([]);
   const opened = useRef('');
   const restored = useRef('');
+  // 「もう一度読み込む」: 開いている求人の応募だけを読み直す（本文は読み直さない）。
+  useEffect(() => {
+    const retry = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (id !== opened.current) return;
+      datesRequest.current?.abort(); const dates = new AbortController(); datesRequest.current = dates;
+      void loadApplicationDates(id, dates.signal).then(loaded => { if (!dates.signal.aborted) onApplicationDates?.(id, loaded); });
+    };
+    window.addEventListener(RETRY_APPLICANTS_EVENT, retry);
+    return () => { window.removeEventListener(RETRY_APPLICANTS_EVENT, retry); };
+  }, [onApplicationDates]);
   const openId = useCallback(async (id: string, listedRow?: HubSpotListing) => {
     opened.current = id; loadedRecord.current = null;
     countRequest.current?.controller.abort(); countRequest.current = null;

@@ -223,6 +223,8 @@ pub struct JobReadService {
     listing_index: listings::Cache,
     /// HubSpot listing record (60 s) and customer name (6 h) reads, shared across users.
     detail_cache: Arc<listing_cache::DetailCaches>,
+    /// 求人ごとの応募の束（60 秒、全員で共有）。
+    applicants: Arc<phone_hearing::ApplicantCache>,
 }
 /// Maps a client failure (nothing usable came back from HubSpot) to this API's codes.
 fn client_error(e: crate::hubspot::HubSpotError) -> ReadError {
@@ -271,6 +273,7 @@ impl JobReadService {
             publication: Arc::default(),
             listing_index: Arc::default(),
             detail_cache: Arc::default(),
+            applicants: Arc::default(),
         }
     }
     /// The HubSpot client (the image bridge's operator writes wait on its gateway too).
