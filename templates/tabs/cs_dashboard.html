@@ -7824,8 +7824,9 @@ function detailItem(e) {
       body += '<span class="via"><span class="tag d">未抽出</span>やること・懸念などはまだ抽出していません</span>';
     }
   } else if (e.kind === "zoom_mtg") {
-    head = '<span class="mark">MTG</span>' + meta("（Zoom の開催記録・事実）") +
-      (e.time ? meta(esc(e.time) + (e.end_time ? "〜" + (e.end_date && e.end_date !== e.date ? esc(e.end_date) + " " : "") + esc(e.end_time) : "")) : "");
+    /* 旧版と同じ表記「（Zoom の開催記録・事実）　10:00〜11:00」（全角スペース区切り）。既存の E2E がこの文字列で確かめる */
+    head = '<span class="mark">MTG</span>' + meta("（Zoom の開催記録・事実）" +
+      (e.time ? "　" + esc(e.time) + (e.end_time ? "〜" + (e.end_date && e.end_date !== e.date ? esc(e.end_date) + " " : "") + esc(e.end_time) : "") : ""));
   } else if (e.kind === "email") {
     head = '<span class="mark">メール</span>' + meta(esc(e.direction || "")) +
       (e.mail_type ? '<span class="tag">' + esc(e.mail_type) + "</span>" : "");
