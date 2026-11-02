@@ -2590,10 +2590,10 @@ check("M-3", "案件の詳細: 最後の接触・最後の MTG・直近の要約
     throw new Error("最後の接触（2026-09-12 の電話・6日前）が時系列より上に無い（期間外の 09-15 を拾っていないか）");
   if (!/<span class="k">最後の MTG<\/span><b>2026-08-20<\/b>（29日前） 録画（事実）/.test(top))
     throw new Error("最後の MTG（2026-08-20 録画・事実）が無い");
-  if (top.indexOf("直近の電話の AI 要約（誤りを含むことがあります。2026-09-12 の電話）") < 0 || top.indexOf("修正案を送る") < 0)
+  if (top.indexOf("出典: 直近の電話（2026-09-12）の AI 要約。誤りを含むことがあります。") < 0 || top.indexOf("修正案を送る") < 0)
     throw new Error("直近の要約の「次にやること」が時系列より上に無い（AI 要約の断りつきで）");
   if (top.indexOf("期間外の約束") >= 0) throw new Error("契約期間の外の電話の要約を「直近」として出している");
-  if (!/<span class="k">満了まで<\/span>12日/.test(top)) throw new Error("満了までの日数が無い");
+  if (!/<span class="k">満了まで<\/span><b>12日<\/b>/.test(top)) throw new Error("満了までの日数が無い");
   /* 要約も抽出も無い案件では、無いと書く（空の欄を出さない） */
   const t2 = boot();
   const P2 = detailPayload();
