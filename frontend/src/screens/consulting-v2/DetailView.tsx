@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { apiGet } from '../../api/client';
 import { DASH, dayDiff, durText, monthsBefore, num, orText, yen } from './format';
-import { Async, CaseLink, FlagChips, NoData, Section } from './parts';
+import { Async, CaseLink, FlagChips, Fresh, HubspotLink, NoData, Section } from './parts';
 import type { Route } from './route';
 import type { DetailEvent, DetailResponse, GoalsResponse } from './types';
 import { useApi } from './useApi';
@@ -230,6 +230,14 @@ function Goals({ dealId }: { dealId: string }) {
   );
 }
 
+function countsText(c: DetailResponse['counts']): string {
+  const n = (k: string): string => {
+    const v = c?.[k];
+    return typeof v === 'number' ? num(v) : '0';
+  };
+  return `MTG 録画 ${n('mtg')} 件（抽出済み ${n('mtg_extracted')}）／ Zoom 開催記録 ${n('zoom_mtg')} 件／ MTG 推定 ${n('mail_mtg')} 件／ 電話 ${n('call')} 件（60秒超 ${n('call_contact')}・要約あり ${n('call_summarized')}）／ メール ${n('email')} 件／ 交代 ${n('handover')} 件`;
+}
+
 function Search({ go }: { go: (r: Partial<Route>) => void }) {
   const [q, setQ] = useState('');
   const [submitted, setSubmitted] = useState('');
@@ -303,6 +311,7 @@ function Body({ d, go }: { d: DetailResponse; go: (r: Partial<Route>) => void })
   const nth = deal.renewal_no === null || deal.renewal_no === undefined ? '' : deal.renewal_no === 0 ? '（初回）' : `（${num(deal.renewal_no)}回目の継続）`;
   return (
     <>
+      <Fresh meta={d.meta} />
       <div className="cv2-detail-head">
         <nav className="cv2-crumbs" aria-label="この案件の位置">
           <span>{deal.houjin_name ?? '法人の情報なし'}</span>
@@ -321,7 +330,10 @@ function Body({ d, go }: { d: DetailResponse; go: (r: Partial<Route>) => void })
         <p className="cv2-attr">
           注意 {deal.flags === null || deal.flags === undefined ? <span className="cv2-dim">稼働中の案件にだけ付けています</span> : <FlagChips flags={deal.flags} max={6} />}
         </p>
-        <p><CaseLink dealId={deal.deal_id} /></p>
+        <p className="cv2-links">
+          <CaseLink dealId={deal.deal_id} />
+          <HubspotLink portal={d.meta.hubspot_portal_id} dealId={deal.deal_id} />
+        </p>
       </div>
 
       <div className="cv2-facts">
@@ -388,6 +400,10 @@ function Body({ d, go }: { d: DetailResponse; go: (r: Partial<Route>) => void })
           <b>{num(events.length)} 件中 {num(shown.length)} 件</b>を表示
           {nOlder > 0 ? `（直近${String(RECENT_MONTHS)}か月（${cut} 以降）だけ）` : byKind.length < events.length ? '（種類・電話の絞り込み）' : '（全部出しています）'}
         </p>
+        <details className="cv2-more">
+          <summary>件数の内訳</summary>
+          <p className="cv2-dim">{countsText(d.counts)}</p>
+        </details>
         <p className="cv2-dim">事実のほか、メール由来の MTG は推定です。付け直した記録は元の取引を併記します。</p>
         {shown.length > 0 ? (
           <ol className="cv2-timeline">

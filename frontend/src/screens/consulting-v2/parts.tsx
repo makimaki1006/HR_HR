@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { caseManagementHref, flagTone, shortFlag } from './format';
+import { caseManagementHref, flagTone, hubspotDealUrl, shortFlag } from './format';
+import type { FreshMeta } from './types';
 import type { Loaded } from './useApi';
 
 export function Kpi({
@@ -8,12 +9,14 @@ export function Kpi({
   unit,
   note,
   onClick,
+  delta,
 }: {
   label: string;
   value: string;
-  unit?: string;
-  note?: string;
-  onClick?: () => void;
+  unit?: string | undefined;
+  note?: string | undefined;
+  onClick?: (() => void) | undefined;
+  delta?: ReactNode;
 }) {
   const body = (
     <>
@@ -21,6 +24,7 @@ export function Kpi({
       <strong>
         {value}
         {unit !== undefined && <span className="cv2-kpi-unit">{unit}</span>}
+        {delta}
       </strong>
       {note !== undefined && <small>{note}</small>}
     </>
@@ -64,6 +68,17 @@ export function CaseLink({ dealId, label }: { dealId: string | null | undefined;
     <a className="cv2-case-link" href={href} target="_blank" rel="noopener noreferrer">
       {label ?? (linked ? '案件管理で確認' : '案件管理の一覧を開く')}
       <span aria-hidden="true"> ↗</span>
+    </a>
+  );
+}
+
+/** HubSpot で同じ取引を開くリンク。portal id か取引 ID が無ければ何も出さない */
+export function HubspotLink({ portal, dealId }: { portal: string | undefined; dealId: string | null | undefined }) {
+  const href = hubspotDealUrl(portal, dealId);
+  if (href === null) return null;
+  return (
+    <a className="cv2-case-link" href={href} target="_blank" rel="noopener noreferrer">
+      HubSpot で開く<span aria-hidden="true"> ↗</span>
     </a>
   );
 }
@@ -129,4 +144,48 @@ export function Async<T>({
     );
   }
   return <>{children(result.data)}</>;
+}
+
+function shortWhen(s: string): string {
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? s.slice(5, 16) : s;
+}
+
+/** データの取得日時と古さ。今のコンサルKPI の鮮度の帯 (setFresh) と同じ線引き。いつのものか分からないときは分からないと書く */
+export function Fresh({ meta }: { meta: FreshMeta }) {
+  const src = meta.source_as_of ?? '';
+  const gen = meta.generated_at ?? '';
+  const age = meta.source_age_days ?? null;
+  const when = src === '' ? gen : src;
+  if (when === '') {
+    return (
+      <div className="cv2-fresh cv2-fresh-bad" role="status">
+        <b>このデータがいつのものか分かりません。</b>
+        {meta.today ? <span className="cv2-dim"> 計算の基準日 {meta.today}</span> : null}
+      </div>
+    );
+  }
+  const tone = age === null ? 'warn' : age <= 1 ? 'ok' : age <= 3 ? 'warn' : 'bad';
+  const word = age === null ? '' : age <= 0 ? '今日' : age === 1 ? '昨日' : `${String(age)}日前`;
+  const stamp = when.replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}$/, '$1');
+  return (
+    <div className={`cv2-fresh cv2-fresh-${tone}`} role="status">
+      {tone === 'ok' ? (
+        <>
+          <b>{word} {shortWhen(when)}</b> 時点のデータ<span className="cv2-dim">{src === '' ? '（シートを作った時刻）' : '（HubSpot から落とした時刻）'}</span>
+        </>
+      ) : (
+        <b>{word === '' ? '取得日が分からない' : `${word}の`}データです（{stamp}）。</b>
+      )}
+      <details className="cv2-more">
+        <summary>ほかの時刻</summary>
+        <p className="cv2-dim">
+          {src === '' ? 'シートを作ったのは' : '元データを落としたのは'} {when}。
+          {gen !== '' && src !== '' && gen.slice(0, 10) !== src.slice(0, 10) ? `シートを作り直したのは ${gen}（元データはそれより前のもの）。` : ''}
+          {meta.today ? `計算の基準日は ${meta.today}（データの新しさとは別物）。` : ''}
+          {meta.update_schedule ? `自動更新: ${meta.update_schedule}。` : ''}
+          {tone === 'bad' ? '元データが4日以上前なので、この案内を赤くしています。' : '更新が止まると、この案内が赤くなります（元データが4日以上前）。'}
+        </p>
+      </details>
+    </div>
+  );
 }

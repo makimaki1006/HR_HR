@@ -1,5 +1,5 @@
-import { DASH, num, orText, yen } from './format';
-import { CaseLink, FlagChips } from './parts';
+import { DASH, num, orText, pct1, yen } from './format';
+import { CaseLink, FlagChips, HubspotLink } from './parts';
 import type { DealRow } from './types';
 
 export type DealColumn =
@@ -13,6 +13,12 @@ export type DealColumn =
   | 'contact'
   | 'mtg'
   | 'amount'
+  | 'oubo'
+  | 'mensetu'
+  | 'syoudaku'
+  | 'goal'
+  | 'contact_rate'
+  | 'cpa'
   | 'link';
 
 const HEAD: Record<DealColumn, string> = {
@@ -26,10 +32,16 @@ const HEAD: Record<DealColumn, string> = {
   contact: '最後の接触',
   mtg: '最後のMTG',
   amount: '金額',
+  oubo: '応募',
+  mensetu: '面接',
+  syoudaku: '採用',
+  goal: '採用目標に対して',
+  contact_rate: '接触率',
+  cpa: '採用単価',
   link: '案件管理',
 };
 
-const NUMERIC = new Set<DealColumn>(['months', 'days_left', 'nps', 'contact', 'mtg', 'amount']);
+const NUMERIC = new Set<DealColumn>(['months', 'days_left', 'nps', 'contact', 'mtg', 'amount', 'oubo', 'mensetu', 'syoudaku', 'goal', 'contact_rate', 'cpa']);
 
 export const BOARD_COLUMNS: DealColumn[] = [
   'name',
@@ -41,6 +53,12 @@ export const BOARD_COLUMNS: DealColumn[] = [
   'nps',
   'contact',
   'mtg',
+  'oubo',
+  'mensetu',
+  'syoudaku',
+  'goal',
+  'contact_rate',
+  'cpa',
   'amount',
   'link',
 ];
@@ -151,7 +169,57 @@ function Mtg({ r }: { r: DealRow }) {
   );
 }
 
-function Cell({ col, r, onOpen }: { col: DealColumn; r: DealRow; onOpen: (id: string) => void }) {
+function Carry({ v, carry }: { v: number | null | undefined; carry: boolean | null | undefined }) {
+  if (v === null || v === undefined) return <span className="cv2-dim">{DASH}</span>;
+  return (
+    <>
+      {num(v)}
+      {carry === true ? <small title="その月に書き換えが無く、前の値を引き継いだ"> 持越</small> : null}
+    </>
+  );
+}
+
+function Goal({ r }: { r: DealRow }) {
+  if (r.saiyomokuhyou === null || r.saiyomokuhyou === undefined || r.saiyomokuhyou <= 0) return <small>目標なし</small>;
+  if (r.rate_tassei === null || r.rate_tassei === undefined) return <span className="cv2-dim">{DASH}</span>;
+  const done = r.rate_tassei >= 1;
+  return (
+    <>
+      <b className={done ? 'cv2-green' : undefined}>{pct1(r.rate_tassei * 100, 0)}</b>
+      <small> {num(r.syoudaku ?? null) || DASH}/{num(r.saiyomokuhyou)}{done ? '' : '（途中）'}</small>
+    </>
+  );
+}
+
+function ContactRate({ r }: { r: DealRow }) {
+  if (r.not_started === true) return <small>開始前</small>;
+  if (r.contact_rate === null || r.contact_rate === undefined) return <span className="cv2-dim">{DASH}</span>;
+  const cls = r.contact_rate < 40 ? 'cv2-red' : r.contact_rate < 70 ? 'cv2-amber' : 'cv2-green';
+  return (
+    <>
+      <b className={cls}>{pct1(r.contact_rate, 0)}</b>
+      <small> {num(r.contact_touched ?? null)}/{num(r.contact_months ?? null)} か月</small>
+    </>
+  );
+}
+
+function Cpa({ r }: { r: DealRow }) {
+  if (r.amount === null || r.amount === undefined) return <small>金額なし</small>;
+  if (r.cpa === null || r.cpa === undefined) return <small>採用0</small>;
+  const hot = r.cpa_vs_band !== null && r.cpa_vs_band !== undefined && r.cpa_vs_band >= 1.5;
+  return (
+    <>
+      <b className={hot ? 'cv2-red' : undefined}>{yen(r.cpa)}</b>
+      {r.cpa_band_median === null || r.cpa_band_median === undefined ? (
+        r.cpa_band ? <small> {r.cpa_band} は件数が足りず比べていない</small> : null
+      ) : (
+        <small> {r.cpa_band ?? '同じ進み具合の区分'} の中央 {yen(r.cpa_band_median)}</small>
+      )}
+    </>
+  );
+}
+
+function Cell({ col, r, onOpen, portal }: { col: DealColumn; r: DealRow; onOpen: (id: string) => void; portal: string | undefined }) {
   switch (col) {
     case 'name':
       return (
@@ -186,8 +254,25 @@ function Cell({ col, r, onOpen }: { col: DealColumn; r: DealRow; onOpen: (id: st
       return <Mtg r={r} />;
     case 'amount':
       return <>{yen(r.amount)}</>;
+    case 'oubo':
+      return <Carry v={r.oubo} carry={r.oubo_carry} />;
+    case 'mensetu':
+      return <Carry v={r.mensetu} carry={r.mensetu_carry} />;
+    case 'syoudaku':
+      return <Carry v={r.syoudaku} carry={r.syoudaku_carry} />;
+    case 'goal':
+      return <Goal r={r} />;
+    case 'contact_rate':
+      return <ContactRate r={r} />;
+    case 'cpa':
+      return <Cpa r={r} />;
     case 'link':
-      return <CaseLink dealId={r.deal_id} />;
+      return (
+        <>
+          <CaseLink dealId={r.deal_id} />
+          <HubspotLink portal={portal} dealId={r.deal_id} />
+        </>
+      );
   }
 }
 
@@ -196,11 +281,13 @@ export function DealTable({
   columns,
   onOpen,
   caption,
+  portal,
 }: {
   rows: DealRow[];
   columns: DealColumn[];
   onOpen: (id: string) => void;
   caption: string;
+  portal?: string | undefined;
 }) {
   if (rows.length === 0) return <p className="cv2-empty">この条件に合う案件はありません。</p>;
   return (
@@ -221,7 +308,7 @@ export function DealTable({
             <tr key={r.deal_id}>
               {columns.map((c) => (
                 <td key={c} className={NUMERIC.has(c) ? 'cv2-num' : undefined}>
-                  <Cell col={c} r={r} onOpen={onOpen} />
+                  <Cell col={c} r={r} onOpen={onOpen} portal={portal} />
                 </td>
               ))}
             </tr>
