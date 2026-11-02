@@ -2,6 +2,9 @@
 // 今のコンサルKPI (/consulting) と同じ /api/consulting/* の応答を読み、同じ値を描く。このファイルは読み取り専用で、書き込みは無い。
 import { useCallback } from 'react';
 import { useQueryRoute } from '../admin/useQueryRoute';
+import { CustomerView } from './CustomerView';
+import { RenewalView } from './RenewalView';
+import { ResultsView } from './ResultsView';
 import { BoardView } from './BoardView';
 import { DetailView } from './DetailView';
 import { TeamView } from './TeamView';
@@ -17,7 +20,7 @@ export function ConsultingV2Screen() {
     [navigate, route],
   );
   const open = (view: Route['view']): void => {
-    navigate({ view, c: '', flag: '', band: '', id: '' });
+    navigate({ view, c: '', flag: '', band: '', id: '', houjin: '' });
   };
   const current = VIEWS.find((v) => v.key === route.view) ?? VIEWS[0];
   return (
@@ -33,19 +36,22 @@ export function ConsultingV2Screen() {
       </header>
       <div className="cv2-layout">
         <aside className="cv2-side" aria-label="画面の切り替え">
-          <p>毎日</p>
-          {VIEWS.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              className={v.key === route.view ? 'cv2-side-on' : undefined}
-              aria-current={v.key === route.view ? 'page' : undefined}
-              onClick={() => { open(v.key); }}
-            >
-              {v.label}
-            </button>
+          {[...new Set(VIEWS.map((v) => v.group))].map((g) => (
+            <div key={g} className="cv2-side-group">
+              <p>{g}</p>
+              {VIEWS.filter((v) => v.group === g).map((v) => (
+                <button
+                  key={v.key}
+                  type="button"
+                  className={v.key === route.view ? 'cv2-side-on' : undefined}
+                  aria-current={v.key === route.view ? 'page' : undefined}
+                  onClick={() => { open(v.key); }}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
           ))}
-          <small>このほかの画面（顧客と拠点、満了と継続、成果と継続など）は、今のコンサルKPIで見られます。</small>
         </aside>
         <main className="cv2-main" id="cv2-main">
           <div className="cv2-title">
@@ -59,6 +65,9 @@ export function ConsultingV2Screen() {
           {route.view === 'today' && <TodayView route={route} go={go} />}
           {route.view === 'board' && <BoardView route={route} go={go} />}
           {route.view === 'detail' && <DetailView route={route} go={go} />}
+          {route.view === 'customer' && <CustomerView route={route} go={go} />}
+          {route.view === 'renewal' && <RenewalView go={go} />}
+          {route.view === 'results' && <ResultsView go={go} />}
         </main>
       </div>
     </div>
