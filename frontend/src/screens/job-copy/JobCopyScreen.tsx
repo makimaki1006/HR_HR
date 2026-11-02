@@ -26,6 +26,7 @@ import { Breadcrumbs } from './Breadcrumbs';
 import { buildCrumbs, readTrail, trailAt, writeTrail } from './trail';
 import type { Level, Trail, TrailNames } from './trail';
 import { JobCopyBody } from './JobCopyBody';
+import { RETRY_APPLICANTS_EVENT } from './listingApplicationDates';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { ChangeEvent } from 'react';
@@ -356,6 +357,15 @@ function JobCopyMain() {
   const [initialId] = useState(query.get('job'));
   const [snapshotRequested] = useState(!query.has('listing') && query.get('demo') !== '1' && (query.get('data') === 'actual' || window.location.pathname === '/app/job-copy' || window.location.pathname === '/'));
   const [records, setRecords] = useState<JobCopyRecord[]>(snapshotRequested || query.has('listing') ? [] : jobs);
+  // 応募の読み込みに失敗した求人を「もう一度読み込む」で読み直すとき、画面を読み込み中に戻す。
+  useEffect(() => {
+    const retry = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      setRecords(items => items.map(item => item.hubspotId === id && item.applicationDates === 'failed' ? { ...item, applicationDates: 'loading' } : item));
+    };
+    window.addEventListener(RETRY_APPLICANTS_EVENT, retry);
+    return () => { window.removeEventListener(RETRY_APPLICANTS_EVENT, retry); };
+  }, []);
   const recordCache = useRef(new Map<string, JobCopyRecord>());
   useEffect(() => { for (const record of records) recordCache.current.set(record.id, record); }, [records]);
   const [snapshotAt, setSnapshotAt] = useState('');

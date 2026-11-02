@@ -45,6 +45,7 @@ mod manual_edit;
 mod owner_todo;
 pub mod phone_hearing;
 mod rikurozi;
+mod rikurozi_listing;
 mod saved_notes;
 mod todo_signals;
 
@@ -223,6 +224,8 @@ pub struct JobReadService {
     listing_index: listings::Cache,
     /// HubSpot listing record (60 s) and customer name (6 h) reads, shared across users.
     detail_cache: Arc<listing_cache::DetailCaches>,
+    /// 求人ごとの応募の束（60 秒、全員で共有）。
+    applicants: Arc<phone_hearing::ApplicantCache>,
 }
 /// Maps a client failure (nothing usable came back from HubSpot) to this API's codes.
 fn client_error(e: crate::hubspot::HubSpotError) -> ReadError {
@@ -271,6 +274,7 @@ impl JobReadService {
             publication: Arc::default(),
             listing_index: Arc::default(),
             detail_cache: Arc::default(),
+            applicants: Arc::default(),
         }
     }
     /// The HubSpot client (the image bridge's operator writes wait on its gateway too).
@@ -2250,6 +2254,14 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route(
             "/api/job-copy/listings/{id}/rikurozi-draft",
             axum::routing::post(rikurozi::generate),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/rikurozi-listing",
+            get(rikurozi_listing::read).post(rikurozi_listing::create),
+        )
+        .route(
+            "/api/job-copy/rikurozi-listings/{id}/reclogi-id",
+            axum::routing::put(rikurozi_listing::put_reclogi_id),
         )
         .route(
             "/api/job-copy/listings/{id}/indeed-title",

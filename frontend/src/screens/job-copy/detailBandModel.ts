@@ -96,6 +96,6 @@ export function bandNumbers(job: JobCopyRecord, billing: readonly BillingEntry[]
  */
 export function noApplicationDatesText(job: Pick<JobCopyRecord, 'overallApplications' | 'applicationDates'>): string {
   if (job.applicationDates === 'loading') return '応募を読み込み中です。';
-  if (job.applicationDates === 'failed') return '応募を取得できませんでした。時間を置いて、もう一度開いてください。';
+  if (job.applicationDates === 'failed') return '応募を読み込めませんでした。';
   return 'この求人の応募はまだ記録されていません。';
 }
