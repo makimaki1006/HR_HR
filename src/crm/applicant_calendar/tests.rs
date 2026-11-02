@@ -691,7 +691,7 @@ fn hubspot() -> FakeHs {
                     ),
                     ("dealstage", "52016153"),
                     ("dealname", "主契約"),
-                    ("hubspot_owner_id", "O1"),
+                    ("consultant", "O1"),
                 ],
             ),
             rec(
@@ -699,7 +699,7 @@ fn hubspot() -> FakeHs {
                 &[
                     ("dealstage", "52016153"),
                     ("dealname", "シートなし"),
-                    ("hubspot_owner_id", "O2"),
+                    ("consultant", "O2"),
                 ],
             ),
         ],
@@ -905,7 +905,7 @@ async fn guest_falls_back_to_ranked_deal_without_sheet_url() {
                     ("dealstage", "999"),
                     ("dealname", "終わった契約"),
                     ("contract_start_date", "2026-09-01"),
-                    ("hubspot_owner_id", "O3"),
+                    ("consultant", "O3"),
                 ],
             ),
             rec(
@@ -914,7 +914,7 @@ async fn guest_falls_back_to_ranked_deal_without_sheet_url() {
                     ("dealstage", "52016153"),
                     ("dealname", "求人追加 秋"),
                     ("contract_start_date", "2026-08-01"),
-                    ("hubspot_owner_id", "O4"),
+                    ("consultant", "O4"),
                 ],
             ),
             rec(
@@ -923,7 +923,7 @@ async fn guest_falls_back_to_ranked_deal_without_sheet_url() {
                     ("dealstage", "52016153"),
                     ("dealname", "主契約"),
                     ("contract_start_date", "2026-04-01"),
-                    ("hubspot_owner_id", "O2"),
+                    ("consultant", "O2"),
                 ],
             ),
         ],
@@ -952,7 +952,7 @@ async fn guest_falls_back_to_ranked_deal_without_sheet_url() {
                 &[
                     ("dealstage", "999"),
                     ("contract_start_date", "2026-09-01"),
-                    ("hubspot_owner_id", "O3"),
+                    ("consultant", "O3"),
                 ],
             ),
             rec(
@@ -960,7 +960,7 @@ async fn guest_falls_back_to_ranked_deal_without_sheet_url() {
                 &[
                     ("dealstage", "1049738304"),
                     ("contract_start_date", "2026-01-01"),
-                    ("hubspot_owner_id", "O4"),
+                    ("consultant", "O4"),
                 ],
             ),
         ],
@@ -979,7 +979,7 @@ async fn guest_falls_back_to_ranked_deal_without_sheet_url() {
                 &[
                     ("dealstage", "999"),
                     ("contract_start_date", "2025-01-01"),
-                    ("hubspot_owner_id", "O2"),
+                    ("consultant", "O2"),
                 ],
             ),
             rec(
@@ -987,7 +987,7 @@ async fn guest_falls_back_to_ranked_deal_without_sheet_url() {
                 &[
                     ("dealstage", "998"),
                     ("contract_start_date", "2025-06-01"),
-                    ("hubspot_owner_id", "O3"),
+                    ("consultant", "O3"),
                 ],
             ),
         ],
@@ -1011,7 +1011,7 @@ async fn ranked_deal_ties_break_by_createdate_then_association_order() {
                     ("dealstage", "52016153"),
                     ("contract_start_date", "2026-04-01"),
                     ("createdate", "2026-03-01T00:00:00Z"),
-                    ("hubspot_owner_id", "O2"),
+                    ("consultant", "O2"),
                 ],
             ),
             rec(
@@ -1020,7 +1020,7 @@ async fn ranked_deal_ties_break_by_createdate_then_association_order() {
                     ("dealstage", "52016153"),
                     ("contract_start_date", "2026-04-01"),
                     ("createdate", "2026-03-05T00:00:00Z"),
-                    ("hubspot_owner_id", "O4"),
+                    ("consultant", "O4"),
                 ],
             ),
         ],
@@ -1038,7 +1038,7 @@ async fn ranked_deal_ties_break_by_createdate_then_association_order() {
                 &[
                     ("dealstage", "52016153"),
                     ("contract_start_date", "2026-04-01"),
-                    ("hubspot_owner_id", "O4"),
+                    ("consultant", "O4"),
                 ],
             ),
             rec(
@@ -1046,7 +1046,7 @@ async fn ranked_deal_ties_break_by_createdate_then_association_order() {
                 &[
                     ("dealstage", "52016153"),
                     ("contract_start_date", "2026-04-01"),
-                    ("hubspot_owner_id", "O2"),
+                    ("consultant", "O2"),
                 ],
             ),
         ],
@@ -1064,7 +1064,7 @@ async fn ranked_deal_ties_break_by_createdate_then_association_order() {
                 &[
                     ("dealstage", "52016153"),
                     ("contract_start_date", "2026-09-01"),
-                    ("hubspot_owner_id", "O2"),
+                    ("consultant", "O2"),
                 ],
             ),
             rec(
@@ -1075,7 +1075,7 @@ async fn ranked_deal_ties_break_by_createdate_then_association_order() {
                         "customer_sheet_url",
                         "https://docs.google.com/spreadsheets/d/y",
                     ),
-                    ("hubspot_owner_id", "O3"),
+                    ("consultant", "O3"),
                 ],
             ),
         ],
@@ -1084,6 +1084,49 @@ async fn ranked_deal_ties_break_by_createdate_then_association_order() {
         guest_of(&hs).await,
         json!([{ "email": "ended@example.com" }])
     );
+}
+
+#[tokio::test]
+async fn guest_is_the_consultant_not_the_deal_owner() {
+    let hs = hubspot();
+    // 取引の担当者 (営業) とコンサル担当が別の人 → コンサル担当だけをゲストにする
+    hs.records.lock().unwrap().insert(
+        "deals".into(),
+        vec![rec(
+            "901",
+            &[
+                (
+                    "customer_sheet_url",
+                    "https://docs.google.com/spreadsheets/d/x",
+                ),
+                ("dealstage", "52016153"),
+                ("hubspot_owner_id", "O2"),
+                ("consultant", "O1"),
+            ],
+        )],
+    );
+    assert_eq!(guest_of(&hs).await, json!([{ "email": GUEST }]));
+}
+
+#[tokio::test]
+async fn no_guest_when_consultant_is_empty_even_with_deal_owner() {
+    let hs = hubspot();
+    // コンサル担当が空なら、取引の担当者 (営業) に戻さずゲストなし
+    hs.records.lock().unwrap().insert(
+        "deals".into(),
+        vec![rec(
+            "901",
+            &[
+                (
+                    "customer_sheet_url",
+                    "https://docs.google.com/spreadsheets/d/x",
+                ),
+                ("dealstage", "52016153"),
+                ("hubspot_owner_id", "O1"),
+            ],
+        )],
+    );
+    assert_eq!(guest_of(&hs).await, json!([]));
 }
 
 #[tokio::test]
