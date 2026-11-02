@@ -1,0 +1,310 @@
+{
+ "meta": {
+  "today": "2026-11-02",
+  "found": true,
+  "deal_id": "90000000001",
+  "reason": null,
+  "summary_sheet": "ok",
+  "hubspot_portal_id": "1"
+ },
+ "deal": {
+  "deal_id": "90000000001",
+  "name": "架空の案件",
+  "site": "架空拠点",
+  "stage": "定期",
+  "kind": "(継続)",
+  "start": "2026-07-01",
+  "expiration": "2026-12-31",
+  "period": 6,
+  "consultant": "架空 太郎",
+  "consultant_retired": false,
+  "amount": 300000,
+  "renewal_no": 1,
+  "is_active": true,
+  "right_censored": false,
+  "flags": [],
+  "houjin": null,
+  "houjin_name": null,
+  "site_key": null
+ },
+ "chain": {
+  "has_site": true,
+  "position": 1,
+  "prev": "90000000002",
+  "next": "90000000003",
+  "rows": [
+   {
+    "deal_id": "90000000002",
+    "name": "架空の前契約",
+    "stage": "完了",
+    "start": "2026-01-01",
+    "expiration": "2026-06-30",
+    "renewal_no": 0,
+    "amount": 200000,
+    "is_active": false,
+    "current": false
+   },
+   {
+    "deal_id": "90000000001",
+    "name": "架空の案件",
+    "stage": "定期",
+    "start": "2026-07-01",
+    "expiration": "2026-12-31",
+    "renewal_no": 1,
+    "amount": 300000,
+    "is_active": true,
+    "current": true
+   },
+   {
+    "deal_id": "90000000003",
+    "name": "架空の継続契約",
+    "stage": "定期",
+    "start": "2027-01-01",
+    "expiration": "2027-06-30",
+    "renewal_no": 2,
+    "amount": 300000,
+    "is_active": false,
+    "current": false
+   }
+  ]
+ },
+ "counts": {
+  "mtg": 2,
+  "mtg_extracted": 1,
+  "mtg_link_not_high": 1,
+  "mtg_moved_in": 1,
+  "mtg_outside": 0,
+  "zoom_mtg": 1,
+  "zoom_moved_in": 0,
+  "zoom_outside": 1,
+  "email": 2,
+  "email_kinds": [
+   {
+    "kind": "MTG予定",
+    "n": 1
+   },
+   {
+    "kind": "応募の報告",
+    "n": 1
+   }
+  ],
+  "email_moved_in": 0,
+  "email_outside": 0,
+  "mail_mtg": 1,
+  "mail_moved_in": 0,
+  "mail_outside": 1,
+  "mail_not_held": [],
+  "call": 3,
+  "call_contact": 2,
+  "call_transcript": 1,
+  "call_summarized": 1,
+  "handover": 1,
+  "call_moved_in": 0,
+  "call_outside": 0
+ },
+ "events": [
+  {
+   "kind": "call",
+   "date": "2026-10-30",
+   "time": "10:00",
+   "fact": true,
+   "source_label": "通話記録（事実）",
+   "call_id": "c61",
+   "duration_sec": 61,
+   "contact": true,
+   "direction": "outbound",
+   "handler": "zoom_taro",
+   "handler_label": "架空 太郎",
+   "owner": "架空 太郎",
+   "has_transcript": true,
+   "summary": {
+    "summary": "架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。",
+    "next_action": "架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。架空の次の対応。",
+    "concern": "架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。架空の懸念。",
+    "model": "架空モデル",
+    "generated_at": "2026-10-30 11:00"
+   },
+   "attach": {
+    "state": "own",
+    "in_span": true,
+    "moved_from": null,
+    "moved_to": null
+   }
+  },
+  {
+   "kind": "call",
+   "date": "2026-10-30",
+   "time": "09:00",
+   "fact": true,
+   "source_label": "通話記録（事実）",
+   "call_id": "c60",
+   "duration_sec": 60,
+   "contact": false,
+   "direction": "inbound",
+   "handler": null,
+   "owner": "架空 太郎",
+   "has_transcript": false,
+   "summary": null,
+   "attach": {
+    "state": "own",
+    "in_span": true,
+    "moved_from": null,
+    "moved_to": null
+   }
+  },
+  {
+   "kind": "mtg",
+   "date": "2026-10-20",
+   "time": "14:00",
+   "fact": true,
+   "source_label": "Zoom 録画（事実）",
+   "host": "架空 太郎",
+   "minutes": 45,
+   "mtg_type": "定例",
+   "extracted": true,
+   "todo": "架空のやること",
+   "concern": "架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。架空の長文。",
+   "positive": "架空の前向き",
+   "risk": "中",
+   "risk_reason": "架空の理由",
+   "next": "2026-11-10",
+   "link_certainty": "中",
+   "link_reason": "架空の結び付け理由",
+   "attach": {
+    "state": "own",
+    "in_span": true,
+    "moved_from": null,
+    "moved_to": null
+   }
+  },
+  {
+   "kind": "mtg",
+   "date": "2026-10-10",
+   "time": "14:00",
+   "fact": true,
+   "source_label": "Zoom 録画（事実）",
+   "host": null,
+   "minutes": 30,
+   "mtg_type": null,
+   "extracted": false,
+   "attach": {
+    "state": "moved_in",
+    "in_span": true,
+    "moved_from": {
+     "deal_id": "90000000002",
+     "name": "架空の前契約",
+     "relation": "earlier"
+    },
+    "moved_to": null
+   }
+  },
+  {
+   "kind": "zoom_mtg",
+   "date": "2026-10-05",
+   "time": "23:30",
+   "end_date": "2026-10-06",
+   "end_time": "00:30",
+   "fact": true,
+   "source_label": "Zoom の開催記録・事実",
+   "attach": {
+    "state": "outside",
+    "in_span": false,
+    "moved_from": null,
+    "moved_to": null
+   },
+   "period": "契約の間"
+  },
+  {
+   "kind": "email",
+   "date": "2026-10-04",
+   "time": "09:10",
+   "fact": true,
+   "source_label": "メール",
+   "direction": "受けた",
+   "mail_type": "MTG予定",
+   "subject": "架空の日程連絡",
+   "zoom_held_time": "10:00",
+   "attach": {
+    "state": "own",
+    "in_span": true,
+    "moved_from": null,
+    "moved_to": null
+   }
+  },
+  {
+   "kind": "email",
+   "date": "2026-10-03",
+   "time": "09:10",
+   "fact": true,
+   "source_label": "メール",
+   "direction": "送った",
+   "mail_type": "応募の報告",
+   "subject": "架空の応募報告",
+   "zoom_held_time": null,
+   "attach": {
+    "state": "own",
+    "in_span": true,
+    "moved_from": null,
+    "moved_to": null
+   }
+  },
+  {
+   "kind": "mail_mtg",
+   "date": "2026-10-02",
+   "time": null,
+   "fact": false,
+   "source_label": "メール由来（推定）",
+   "certainty": "推定(±1日 83.3%)",
+   "same_day_recording": true,
+   "attach": {
+    "state": "ambiguous",
+    "in_span": false,
+    "moved_from": null,
+    "moved_to": null
+   }
+  },
+  {
+   "kind": "handover",
+   "date": "2026-09-30",
+   "time": null,
+   "fact": true,
+   "source_label": "担当交代",
+   "from": "架空 花子",
+   "to": "架空 太郎",
+   "to_retired": false,
+   "reflected": "反映済み",
+   "record_gap_days": 3,
+   "attach": {
+    "state": "moved_out",
+    "in_span": false,
+    "moved_from": null,
+    "moved_to": {
+     "deal_id": "90000000003",
+     "name": "架空の継続契約"
+    }
+   }
+  },
+  {
+   "kind": "call",
+   "date": "2026-05-01",
+   "time": "10:00",
+   "fact": true,
+   "source_label": "通話記録（事実）",
+   "call_id": "old",
+   "duration_sec": 120,
+   "contact": true,
+   "direction": "outbound",
+   "handler": null,
+   "owner": "架空 花子",
+   "has_transcript": false,
+   "summary": null,
+   "attach": {
+    "state": "own",
+    "in_span": true,
+    "moved_from": null,
+    "moved_to": null
+   }
+  }
+ ],
+ "rules": {}
+}
