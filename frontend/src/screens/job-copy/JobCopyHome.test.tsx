@@ -306,3 +306,12 @@ it('担当者を集計している間もカードと顧客の検索欄を表示�
   expect(screen.getByText('まず見るもの')).toBeTruthy();
   expect(screen.getByLabelText('顧客名で探す')).toBeTruthy();
 });
+
+it('今日の画面は、ホームが準備中で担当者の一覧が無い間、選択欄の代わりに準備中の 1 行を出す', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?owner=314945657&owner_field=consultant');
+  api.mockResolvedValue({ ok: true, data: { status: 'preparing' } });
+  renderHome();
+  await act(() => Promise.resolve());
+  expect(screen.getByText('担当者の一覧を準備しています。準備ができると、担当で絞れます。')).toBeTruthy();
+  expect(screen.queryByRole('combobox', { name: '担当者' })).toBeNull();
+});

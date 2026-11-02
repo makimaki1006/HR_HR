@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { apiGet } from '../../api/client';
-import { OwnerFilter, OwnerFilterPlacement, ownerParams } from './OwnerTodo';
+import { OwnerFilter, OwnerFilterPlacement, PendingOwnerFilter, ownerParams } from './OwnerTodo';
 import type { WorkReady } from './OwnerTodo';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import './consultant-risk.css';
@@ -17,20 +17,21 @@ function ConsultantScopeFilter() {
   const [reload, setReload] = useState(0);
   useEffect(() => {
     if (demo) return;
-    const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>;
+    const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>; let attempt = 0;
     const load = async () => {
       const r = await apiGet<ConsultantScope & { status: string }>(`/api/job-copy/consultant-scope?${ownerQuery}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (!r.ok || r.data.status === 'failed') { setError(true); return; }
       // 形の違う応答（担当者の一覧が無い等）で画面全体が落ちないよう、読み込めなかった扱いにする。
       if (r.data.status === 'ready' && !Array.isArray(r.data.owners)) { setError(true); return; }
-      if (r.data.status !== 'ready') { timer = setTimeout(() => { void load(); }, 2000); return; }
+      if (r.data.status !== 'ready') { attempt += 1; timer = setTimeout(() => { void load(); }, Math.min(10_000, 2000 * attempt)); return; }
       setScope(r.data); setError(false);
       if (!r.data.notice && [null, 'me'].includes(new URLSearchParams(ownerQuery).get('owner'))) updateJobCopyQuery({ owner: r.data.owner, owner_field: r.data.owner_field }, 'replace');
     };
     void load(); return () => { controller.abort(); clearTimeout(timer); };
   }, [ownerQuery, reload, demo]);
-  return scope ? <OwnerFilter work={scope} /> : <p role={error ? 'alert' : 'status'}>{error ? '担当者を読み込めませんでした。' : '担当者を確認しています…'}{error && <button onClick={() => { setReload(n => n + 1); }}>担当者を再読み込み</button>}</p>;
+  // 一覧が届くまでは短い 1 行だけを出す（選択欄を先に出すと上の帯が高くなり、一覧に見える枚数が減る）。
+  return scope ? <OwnerFilter work={scope} /> : error ? <p role="alert">担当者を読み込めませんでした。<button onClick={() => { setReload(n => n + 1); }}>担当者を再読み込み</button></p> : <PendingOwnerFilter />;
 }
 const ConsultantHeaderContent = createContext<ReactNode>(null);
 export function ConsultantMenuHeader() { return useContext(ConsultantHeaderContent); }

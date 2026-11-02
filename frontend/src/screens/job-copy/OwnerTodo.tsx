@@ -19,6 +19,8 @@ export function ownerParams(search: string): string {
   for (const key of ['owner_field', 'owner']) { const value = source.get(key); if (value) result.set(key, value); }
   return result.toString();
 }
+/** 担当者の一覧がまだ届かない間（準備中）の 1 行。上の帯の高さを増やさないよう、選択欄の代わりに短い文だけを出す。 */
+export function PendingOwnerFilter() { return <p className="cm-owner-pending" role="status">担当者の一覧を準備しています。準備ができると、担当で絞れます。</p>; }
 /** undefined は元の位置、null は非表示、要素があれば共通メニューへ移す。 */
 export const OwnerFilterPlacement = createContext<HTMLElement | null | undefined>(undefined);
 export function OwnerFilter({ work }: { work: Pick<WorkReady, 'owner' | 'owner_field' | 'notice' | 'owners'> }) {

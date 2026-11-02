@@ -13,7 +13,7 @@ import { appsChange, customerName, dealCountLabel, filterCustomers, listingCount
 import type { CardKey, CustomerSort, HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 import './home.css';
 import { useRevealOnMount } from './revealList';
-import { CountLine, OwnerFilter, OwnerTodo, ownerParams } from './OwnerTodo';
+import { CountLine, OwnerFilter, OwnerTodo, PendingOwnerFilter, ownerParams } from './OwnerTodo';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '案件管理のホームを読み込めませんでした。時間を置いて再取得してください。';
 const cardTone: Record<CardKey, string> = { zero_stay: 'alert', to_zero: 'alert', less: 'plain', more: 'plain', flat: 'plain', costly: 'warn', stale: 'alert' };
@@ -89,6 +89,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const tableShown = showAll || query.trim() !== '';
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
     <header className="jh-head"><div><h1>今日</h1><button type="button" className="jc-button" onClick={() => { updateJobCopyQuery({ view: 'deals', card: null }); }}>案件の一覧</button></div><button type="button" className="jc-button" onClick={() => { setReload(value => value + 1); }}>再読み込み</button></header>
+    {data && !work && <PendingOwnerFilter />}
     {error && <p role="alert">{error}</p>}
     {!data && !error && <p role="status">今日の画面を読み込んでいます…</p>}
     {data?.status === 'preparing' && <ListingPreparationNotice progress={data.progress} />}
