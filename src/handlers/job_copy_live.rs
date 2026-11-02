@@ -45,6 +45,7 @@ mod manual_edit;
 mod owner_todo;
 pub mod phone_hearing;
 mod rikurozi;
+mod rikurozi_listing;
 mod saved_notes;
 mod todo_signals;
 
@@ -2250,6 +2251,14 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route(
             "/api/job-copy/listings/{id}/rikurozi-draft",
             axum::routing::post(rikurozi::generate),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/rikurozi-listing",
+            get(rikurozi_listing::read).post(rikurozi_listing::create),
+        )
+        .route(
+            "/api/job-copy/rikurozi-listings/{id}/reclogi-id",
+            axum::routing::put(rikurozi_listing::put_reclogi_id),
         )
         .route(
             "/api/job-copy/listings/{id}/indeed-title",

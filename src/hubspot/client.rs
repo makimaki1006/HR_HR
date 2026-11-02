@@ -719,6 +719,60 @@ impl HubSpotClient {
         }
     }
 
+    /// リクロジメディア向けの新しい求人 (0-420) を 1 件作る。**1 回だけ送り、retry しない**
+    /// (結果が分からない失敗でも二重に作らないため。重複の確認は呼び出し側が検索で行う)。
+    pub(crate) async fn create_rikurozi_listing(
+        &self,
+        properties: &BTreeMap<String, String>,
+    ) -> Result<String, HubSpotError> {
+        if properties.is_empty() {
+            return Err(HubSpotError::Decode("empty properties".into()));
+        }
+        let body = json!({ "properties": properties });
+        let reply = self
+            .raw_once_with(
+                self.priority,
+                &Method::POST,
+                "/crm/v3/objects/0-420",
+                &[],
+                Some(&body),
+            )
+            .await?;
+        let value = email_reply(reply)?;
+        value["id"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or(HubSpotError::Decode("missing listing id".into()))
+    }
+
+    /// 求人 (0-420) と取引の既定の関連を作る (同じ組を何度送っても 1 本のまま)。
+    pub(crate) async fn associate_listing_deal(
+        &self,
+        listing_id: &str,
+        deal_id: &str,
+    ) -> Result<(), HubSpotError> {
+        check_id(listing_id)?;
+        check_id(deal_id)?;
+        let path =
+            format!("/crm/v4/objects/0-420/{listing_id}/associations/default/deals/{deal_id}");
+        email_reply(
+            self.raw_once_with(self.priority, &Method::PUT, &path, &[], None)
+                .await?,
+        )
+        .map(|_| ())
+    }
+
+    /// リクロジの求人ID (`id_reclogi`) だけを書く。
+    pub(crate) async fn patch_listing_reclogi_id(
+        &self,
+        id: &str,
+        value: &str,
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        let props = BTreeMap::from([("id_reclogi".to_owned(), Some(value.to_owned()))]);
+        self.patch_object_inner("0-420", id, &props).await
+    }
+
     /// `PATCH /crm/v3/objects/{object}/{id}` (プロパティの書き込み。Contact / Company / Deal のみ)。
     ///
     /// **1 回だけ送る** (retry しない・他の呼び出しと相乗りしない)。失敗の扱い (キューに積むか) は呼び出し側が決める
