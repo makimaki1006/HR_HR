@@ -28,7 +28,7 @@ function ReclogiIdField({ listingId, reload }: { listingId: string; reload: numb
   useEffect(() => {
     const request = new AbortController();
     void apiGet<{ listings: MadeListing[] }>(`/api/job-copy/listings/${encodeURIComponent(listingId)}/rikurozi-listing`, { signal: request.signal }).then(result => {
-      if (!request.signal.aborted && result.ok) setRows(result.data.listings);
+      if (!request.signal.aborted && result.ok) setRows(Array.isArray(result.data.listings) ? result.data.listings : []);
     });
     return () => { request.abort(); };
   }, [listingId, reload]);

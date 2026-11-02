@@ -127,4 +127,10 @@ describe('リクロジメディア向けの案', () => {
     fireEvent.click(screen.getByRole('button', { name: 'IDを保存' }));
     expect((await screen.findByText('リクロジの求人ID：424242')).textContent).toBeTruthy();
   });
+  it('求人の一覧が想定外の形で返っても画面を壊さない', async () => {
+    routed({ list: () => json({ status: 'ready', dates: {}, report: { count: 0, listings: [] }, jobs: [] }) });
+    render(<RikuroziDraftPanel listingId="1" />);
+    expect(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' })).toBeTruthy();
+    await waitFor(() => { expect(screen.queryByText('リクロジ向けに作った求人')).toBeNull(); });
+  });
 });
