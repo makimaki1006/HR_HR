@@ -529,7 +529,8 @@ fn parse_csv_bytes_inner(
         for &ci in &jobcard_tag_indices {
             if ci < row.len() {
                 let val = row.get(ci).unwrap_or("").trim();
-                if !val.is_empty() && !tags_raw.contains(val) && val.len() < 30 {
+                // 同じタグかは完全一致で見る(部分一致だと「長期休暇あり」のあとの「長期」が落ちる)
+                if !val.is_empty() && !tags_raw.split(',').any(|t| t == val) && val.len() < 30 {
                     if !tags_raw.is_empty() {
                         tags_raw.push(',');
                     }
@@ -796,10 +797,16 @@ fn build_column_map(
                 // Indeed (SP) 固有 CSS クラス判定 (既存 map にあれば上書きしない)
                 // The supplied Excel workbook uses css-f6zp9m instead of css-bxyec3.
                 // Losing its URL also loses the Indeed job key used for deduplication.
-                if (h == "css-bxyec3 href" || h == "css-f6zp9m href") && !map.contains_key("url") {
+                // 2026-11-03: 2026-10 以降の SP の CSV は css-cdutv5。未対応だと求人名が空・URL(jk)も無くなり、
+                //   表示5項目が同じ別求人を重複として捨てていた(実 CSV で 350 件 → 331 件)。
+                if (h == "css-bxyec3 href" || h == "css-f6zp9m href" || h == "css-cdutv5 href")
+                    && !map.contains_key("url")
+                {
                     map.insert("url", i);
                 }
-                if (h == "css-bxyec3" || h == "css-f6zp9m") && !map.contains_key("job_title") {
+                if (h == "css-bxyec3" || h == "css-f6zp9m" || h == "css-cdutv5")
+                    && !map.contains_key("job_title")
+                {
                     map.insert("job_title", i);
                 }
                 if h == "css-14qk2ra" && !map.contains_key("company_name") {
@@ -2224,6 +2231,48 @@ mod fixa_upload_tests {
             Some("https://jp.indeed.com/viewjob?jk=second")
         );
         assert_eq!(rows[0].employment_type, "正社員");
+    }
+
+    #[test]
+    fn competitor_sp_header_cdutv5_preserves_titles_and_distinct_job_keys() {
+        // 2026-10 以降の SP の CSV は求人名・URL の列が css-cdutv5。
+        let csv = "css-1hwmqh1,css-cdutv5 href,css-cdutv5,css-lx9x6g,css-14qk2ra,css-18rxko3,css-18rxko3 (2),jobsearch-JobCard-tag,css-u74ql7\n\
+            正社員,https://jp.indeed.com/viewjob?jk=first,大型ドライバー,見出し,A社,大阪府大阪市,月給 30万円,賞与あり,人気\n\
+            正社員,https://jp.indeed.com/viewjob?jk=second,大型ドライバー,見出し,A社,大阪府大阪市,月給 30万円,賞与あり,\n\
+            正社員,https://jp.indeed.com/viewjob?jk=first&from=search,大型ドライバー,見出し,A社,大阪府大阪市,月給 30万円,賞与あり,人気\n";
+        let rows =
+            parse_csv_bytes_with_hints(csv.as_bytes(), Some("大阪府"), UserSourceHint::IndeedSp)
+                .unwrap();
+        assert_eq!(
+            rows.len(),
+            2,
+            "jk が違う別求人は残し、トラッキングだけ違う同じ求人は1件にまとめる"
+        );
+        assert_eq!(rows[0].job_title, "大型ドライバー");
+        assert_eq!(
+            rows[0].url.as_deref(),
+            Some("https://jp.indeed.com/viewjob?jk=first")
+        );
+        assert_eq!(
+            rows[1].url.as_deref(),
+            Some("https://jp.indeed.com/viewjob?jk=second")
+        );
+    }
+
+    #[test]
+    fn job_card_tags_are_deduplicated_by_exact_match() {
+        // 「長期休暇あり」のあとの「長期」は別のタグ。文字列の一部が重なるだけで落とさない。
+        let csv = "css-1hwmqh1,css-cdutv5 href,css-cdutv5,css-14qk2ra,css-18rxko3,css-18rxko3 (2),jobsearch-JobCard-tag,jobsearch-JobCard-tag (2),jobsearch-JobCard-tag (3)\n\
+            正社員,https://jp.indeed.com/viewjob?jk=a,大型ドライバー,A社,大阪府大阪市,月給 30万円,長期休暇あり,長期,長期休暇あり\n";
+        let rows =
+            parse_csv_bytes_with_hints(csv.as_bytes(), Some("大阪府"), UserSourceHint::IndeedSp)
+                .unwrap();
+        let tags: Vec<&str> = rows[0].tags_raw.split(',').collect();
+        assert_eq!(
+            tags,
+            ["長期休暇あり", "長期"],
+            "同じタグは1つ、別のタグは残す"
+        );
     }
 
     #[test]
