@@ -2,6 +2,7 @@ import type { CompetitorReport } from '../../generated/CompetitorReport';
 // テスト用の架空データ (実在の求人・企業・人名は含めない)。型は ts-rs の生成物に合わせる。
 import type { CompetitorReportResponse } from '../../generated/CompetitorReportResponse';
 import type { GoogleMonth } from '../../generated/GoogleMonth';
+import type { FeatureGroup } from '../../generated/FeatureGroup';
 import type { PopularitySplit } from '../../generated/PopularitySplit';
 
 /** 開始 (年, 月) から n か月分の月次検索数。値は f(i)。 */
@@ -211,8 +212,8 @@ export function makeResponse(report: CompetitorReport = makeReport()): Competito
 // 人気の分かれ方 (契約 report.popularity_split)。架空の値。
 export function makePopularitySplit(): PopularitySplit {
   return {
-    total: 325,
-    popular: 106,
+    total: 331,
+    popular: 150,
     super_popular: 20,
     by_age: [
       { label: '0〜14日', n: 82, popular: 19, super_popular: 5 },
@@ -329,5 +330,810 @@ export function makePopularitySplit(): PopularitySplit {
     writing: [{ title: '見出しの長さ別', rows: [{ label: '26〜40字', n: 105, popular: 52, super_popular: 9 }] }],
     clarity: [{ label: '4点', n: 72, popular: 35, super_popular: 6 }],
     work_style: [{ label: '夜勤', n: 17, popular: 12, super_popular: 3 }],
+    features: POPULARITY_FEATURES,
   };
 }
+
+// 人気の分かれ方の特徴別比較 (6 グループ)。元データは配送ドライバー・大阪の Indeed CSV 1 本 (N=331、人気・超人気 150) を一度だけ変換したもの。
+export const POPULARITY_FEATURES: FeatureGroup[] = [
+ {
+  "id": "pay",
+  "label": "給料",
+  "caption": "月給の下限・上限・書き方",
+  "charts": [
+   {
+    "id": "lo",
+    "title": "下限の帯",
+    "total": 317,
+    "total_popular": 147,
+    "ordered": true,
+    "band": true,
+    "rows": [
+     {
+      "label": "25.0万円未満",
+      "n": 52,
+      "popular": 20,
+      "rest_n": 265,
+      "rest_popular": 127,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "25.0〜29.5万円未満",
+      "n": 106,
+      "popular": 56,
+      "rest_n": 211,
+      "rest_popular": 91,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "29.5〜33.0万円未満",
+      "n": 75,
+      "popular": 32,
+      "rest_n": 242,
+      "rest_popular": 115,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "33.0万円以上",
+      "n": 84,
+      "popular": 39,
+      "rest_n": 233,
+      "rest_popular": 108,
+      "uncertain": false,
+      "note": null
+     }
+    ],
+    "notes": [
+     "月給の下限(月給 317件が対象)",
+     "月給以外の求人(ほか 日給4件、年俸3件、年収2件、時給1件、記載なし 4件)は含めていない。"
+    ]
+   },
+   {
+    "id": "hi",
+    "title": "上限の帯",
+    "total": 317,
+    "total_popular": 147,
+    "ordered": true,
+    "band": true,
+    "rows": [
+     {
+      "label": "35.0万円未満",
+      "n": 69,
+      "popular": 30,
+      "rest_n": 139,
+      "rest_popular": 64,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "35.0〜40.0万円未満",
+      "n": 47,
+      "popular": 25,
+      "rest_n": 161,
+      "rest_popular": 69,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "40.0万円以上",
+      "n": 92,
+      "popular": 39,
+      "rest_n": 116,
+      "rest_popular": 55,
+      "uncertain": false,
+      "note": null
+     }
+    ],
+    "notes": [
+     "月給の上限(「○万〜○万円」と範囲で書いた求人のみ)",
+     "月給以外の求人(ほか 日給4件、年俸3件、年収2件、時給1件、記載なし 4件)は含めていない。"
+    ]
+   },
+   {
+    "id": "form",
+    "title": "月給の書き方",
+    "total": 317,
+    "total_popular": 147,
+    "ordered": true,
+    "band": true,
+    "rows": [
+     {
+      "label": "「○万〜○万円」と範囲で書く",
+      "n": 208,
+      "popular": 94,
+      "rest_n": 109,
+      "rest_popular": 53,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "「○万円以上」とだけ書く",
+      "n": 99,
+      "popular": 49,
+      "rest_n": 218,
+      "rest_popular": 98,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "「○万円」と1つだけ書く",
+      "n": 10,
+      "popular": 4,
+      "rest_n": 307,
+      "rest_popular": 143,
+      "uncertain": false,
+      "note": null
+     }
+    ],
+    "notes": [
+     "月給以外の求人(ほか 日給4件、年俸3件、年収2件、時給1件、記載なし 4件)は含めていない。"
+    ]
+   },
+   {
+    "id": "width",
+    "title": "上限と下限の差",
+    "total": 317,
+    "total_popular": 147,
+    "ordered": true,
+    "band": true,
+    "rows": [
+     {
+      "label": "上限と下限の差が3万円未満",
+      "n": 21,
+      "popular": 11,
+      "rest_n": 187,
+      "rest_popular": 83,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "上限と下限の差が3万〜6万円未満",
+      "n": 60,
+      "popular": 21,
+      "rest_n": 148,
+      "rest_popular": 73,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "上限と下限の差が6万〜10万円未満",
+      "n": 42,
+      "popular": 20,
+      "rest_n": 166,
+      "rest_popular": 74,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "上限と下限の差が10万円以上",
+      "n": 85,
+      "popular": 42,
+      "rest_n": 123,
+      "rest_popular": 52,
+      "uncertain": false,
+      "note": null
+     }
+    ],
+    "notes": [
+     "「○万〜○万円」と範囲で書いた求人のみ",
+     "月給以外の求人(ほか 日給4件、年俸3件、年収2件、時給1件、記載なし 4件)は含めていない。"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "treat",
+  "label": "待遇・手当",
+  "caption": "賞与・昇給・保険・手当",
+  "charts": [
+   {
+    "id": "main",
+    "title": "待遇・手当",
+    "total": 331,
+    "total_popular": 150,
+    "ordered": false,
+    "band": false,
+    "rows": [
+     {
+      "label": "交通費支給",
+      "n": 188,
+      "popular": 95,
+      "rest_n": 143,
+      "rest_popular": 55,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "賞与あり",
+      "n": 112,
+      "popular": 64,
+      "rest_n": 219,
+      "rest_popular": 86,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "昇給あり",
+      "n": 110,
+      "popular": 47,
+      "rest_n": 221,
+      "rest_popular": 103,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "社会保険完備",
+      "n": 41,
+      "popular": 14,
+      "rest_n": 290,
+      "rest_popular": 136,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "資格取得支援あり",
+      "n": 45,
+      "popular": 21,
+      "rest_n": 286,
+      "rest_popular": 129,
+      "uncertain": true,
+      "note": null
+     },
+     {
+      "label": "住宅手当あり",
+      "n": 15,
+      "popular": 8,
+      "rest_n": 316,
+      "rest_popular": 142,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "制服貸与",
+      "n": 17,
+      "popular": 8,
+      "rest_n": 314,
+      "rest_popular": 142,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "寮・社宅あり",
+      "n": 13,
+      "popular": 8,
+      "rest_n": 318,
+      "rest_popular": 142,
+      "uncertain": true,
+      "note": null
+     },
+     {
+      "label": "食事補助あり",
+      "n": 10,
+      "popular": 4,
+      "rest_n": 321,
+      "rest_popular": 146,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "昇格あり",
+      "n": 5,
+      "popular": 0,
+      "rest_n": 326,
+      "rest_popular": 150,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "社割あり",
+      "n": 7,
+      "popular": 4,
+      "rest_n": 324,
+      "rest_popular": 146,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "各種保険あり",
+      "n": 92,
+      "popular": 47,
+      "rest_n": 239,
+      "rest_popular": 103,
+      "uncertain": false,
+      "note": "健康・厚生年金・雇用・労災のいずれか"
+     }
+    ],
+    "notes": []
+   }
+  ]
+ },
+ {
+  "id": "time",
+  "label": "休み・時間・通勤",
+  "caption": "通勤・残業・シフト",
+  "charts": [
+   {
+    "id": "main",
+    "title": "休み・時間・通勤",
+    "total": 331,
+    "total_popular": 150,
+    "ordered": false,
+    "band": false,
+    "rows": [
+     {
+      "label": "車通勤OK",
+      "n": 123,
+      "popular": 62,
+      "rest_n": 208,
+      "rest_popular": 88,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "転勤なし",
+      "n": 76,
+      "popular": 44,
+      "rest_n": 255,
+      "rest_popular": 106,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "長期休暇あり",
+      "n": 59,
+      "popular": 38,
+      "rest_n": 272,
+      "rest_popular": 112,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "バイク通勤OK",
+      "n": 61,
+      "popular": 36,
+      "rest_n": 270,
+      "rest_popular": 114,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "シフト制",
+      "n": 44,
+      "popular": 24,
+      "rest_n": 287,
+      "rest_popular": 126,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "残業月20時間以内",
+      "n": 26,
+      "popular": 18,
+      "rest_n": 305,
+      "rest_popular": 132,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "固定時間制",
+      "n": 39,
+      "popular": 15,
+      "rest_n": 292,
+      "rest_popular": 135,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "駅近5分以内",
+      "n": 34,
+      "popular": 25,
+      "rest_n": 297,
+      "rest_popular": 125,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "長期",
+      "n": 20,
+      "popular": 7,
+      "rest_n": 311,
+      "rest_popular": 143,
+      "uncertain": true,
+      "note": null
+     },
+     {
+      "label": "残業なし",
+      "n": 23,
+      "popular": 14,
+      "rest_n": 308,
+      "rest_popular": 136,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "変形労働時間制",
+      "n": 18,
+      "popular": 9,
+      "rest_n": 313,
+      "rest_popular": 141,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "シフト自由",
+      "n": 17,
+      "popular": 5,
+      "rest_n": 314,
+      "rest_popular": 145,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "夜勤",
+      "n": 12,
+      "popular": 3,
+      "rest_n": 319,
+      "rest_popular": 147,
+      "uncertain": false,
+      "note": null
+     }
+    ],
+    "notes": []
+   }
+  ]
+ },
+ {
+  "id": "who",
+  "label": "応募できる人",
+  "caption": "経験・年代・歓迎",
+  "charts": [
+   {
+    "id": "main",
+    "title": "応募できる人",
+    "total": 331,
+    "total_popular": 150,
+    "ordered": false,
+    "band": false,
+    "rows": [
+     {
+      "label": "学歴不問",
+      "n": 148,
+      "popular": 83,
+      "rest_n": 183,
+      "rest_popular": 67,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "ブランクOK",
+      "n": 98,
+      "popular": 62,
+      "rest_n": 233,
+      "rest_popular": 88,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "研修あり",
+      "n": 70,
+      "popular": 43,
+      "rest_n": 261,
+      "rest_popular": 107,
+      "uncertain": true,
+      "note": null
+     },
+     {
+      "label": "フリーター歓迎",
+      "n": 84,
+      "popular": 49,
+      "rest_n": 247,
+      "rest_popular": 101,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "経験者歓迎",
+      "n": 50,
+      "popular": 26,
+      "rest_n": 281,
+      "rest_popular": 124,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "第二新卒歓迎",
+      "n": 66,
+      "popular": 42,
+      "rest_n": 265,
+      "rest_popular": 108,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "有資格者歓迎",
+      "n": 31,
+      "popular": 15,
+      "rest_n": 300,
+      "rest_popular": 135,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "未経験者歓迎",
+      "n": 42,
+      "popular": 18,
+      "rest_n": 289,
+      "rest_popular": 132,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "主婦・主夫歓迎",
+      "n": 37,
+      "popular": 23,
+      "rest_n": 294,
+      "rest_popular": 127,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "40代以上も応募可",
+      "n": 24,
+      "popular": 11,
+      "rest_n": 307,
+      "rest_popular": 139,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "50代以上も応募可",
+      "n": 17,
+      "popular": 12,
+      "rest_n": 314,
+      "rest_popular": 138,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "U・Iターン歓迎",
+      "n": 10,
+      "popular": 2,
+      "rest_n": 321,
+      "rest_popular": 148,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "履歴書不要",
+      "n": 9,
+      "popular": 4,
+      "rest_n": 322,
+      "rest_popular": 146,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "60代以上も応募可",
+      "n": 12,
+      "popular": 9,
+      "rest_n": 319,
+      "rest_popular": 141,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "友達と応募OK",
+      "n": 6,
+      "popular": 6,
+      "rest_n": 325,
+      "rest_popular": 144,
+      "uncertain": false,
+      "note": null
+     }
+    ],
+    "notes": []
+   }
+  ]
+ },
+ {
+  "id": "free",
+  "label": "職場の自由さ",
+  "caption": "髪型・服装など",
+  "charts": [
+   {
+    "id": "main",
+    "title": "職場の自由さ",
+    "total": 331,
+    "total_popular": 150,
+    "ordered": false,
+    "band": false,
+    "rows": [
+     {
+      "label": "髪型・髪色自由",
+      "n": 22,
+      "popular": 13,
+      "rest_n": 309,
+      "rest_popular": 137,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "ピアスOK",
+      "n": 7,
+      "popular": 7,
+      "rest_n": 324,
+      "rest_popular": 143,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "服装自由",
+      "n": 8,
+      "popular": 5,
+      "rest_n": 323,
+      "rest_popular": 145,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "ひげOK",
+      "n": 5,
+      "popular": 2,
+      "rest_n": 326,
+      "rest_popular": 148,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "副業・WワークOK",
+      "n": 7,
+      "popular": 4,
+      "rest_n": 324,
+      "rest_popular": 146,
+      "uncertain": true,
+      "note": null
+     }
+    ],
+    "notes": []
+   }
+  ]
+ },
+ {
+  "id": "post",
+  "label": "募集の出し方",
+  "caption": "掲載日数・見出し",
+  "charts": [
+   {
+    "id": "main",
+    "title": "募集の出し方",
+    "total": 331,
+    "total_popular": 150,
+    "ordered": false,
+    "band": false,
+    "rows": [
+     {
+      "label": "積極採用中",
+      "n": 49,
+      "popular": 23,
+      "rest_n": 282,
+      "rest_popular": 127,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "即日勤務OK",
+      "n": 51,
+      "popular": 16,
+      "rest_n": 280,
+      "rest_popular": 134,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "急募",
+      "n": 9,
+      "popular": 2,
+      "rest_n": 322,
+      "rest_popular": 148,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "勤務開始時期調整",
+      "n": 5,
+      "popular": 1,
+      "rest_n": 326,
+      "rest_popular": 149,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "掲載 0〜14日",
+      "n": 93,
+      "popular": 26,
+      "rest_n": 238,
+      "rest_popular": 124,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "掲載 15〜29日",
+      "n": 50,
+      "popular": 32,
+      "rest_n": 281,
+      "rest_popular": 118,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "掲載 30日以上",
+      "n": 188,
+      "popular": 92,
+      "rest_n": 143,
+      "rest_popular": 58,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "見出しがない",
+      "n": 49,
+      "popular": 5,
+      "rest_n": 282,
+      "rest_popular": 145,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "見出しが〜25字",
+      "n": 21,
+      "popular": 10,
+      "rest_n": 310,
+      "rest_popular": 140,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "見出しが26〜40字",
+      "n": 135,
+      "popular": 81,
+      "rest_n": 196,
+      "rest_popular": 69,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "見出しが41字〜",
+      "n": 126,
+      "popular": 54,
+      "rest_n": 205,
+      "rest_popular": 96,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "見出し記号あり",
+      "n": 138,
+      "popular": 79,
+      "rest_n": 193,
+      "rest_popular": 71,
+      "uncertain": false,
+      "note": null
+     },
+     {
+      "label": "休日日数の明記あり",
+      "n": 41,
+      "popular": 23,
+      "rest_n": 290,
+      "rest_popular": 127,
+      "uncertain": false,
+      "note": null
+     }
+    ],
+    "notes": []
+   }
+  ]
+ }
+];

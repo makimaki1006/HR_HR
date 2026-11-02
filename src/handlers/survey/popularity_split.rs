@@ -264,6 +264,50 @@ pub struct Group {
     pub rows: Vec<Bucket>,
 }
 
+/// 「人気の分かれ方」の特徴 1 行。その特徴が載っている求人 (n 件中 popular 件が人気・超人気) と、
+/// 載っていない求人 (rest_n 件中 rest_popular 件) の件数。割合は画面で計算する。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct FeatureRow {
+    pub label: String,
+    pub n: u32,
+    pub popular: u32,
+    pub rest_n: u32,
+    pub rest_popular: u32,
+    /// 分類に迷いが残る特徴 (画面で注記する)。
+    pub uncertain: bool,
+    /// 補足 1 行 (例: 各種保険あり = 健康・厚生年金・雇用・労災のいずれか)。
+    pub note: Option<String>,
+}
+
+/// 1 つの棒グラフ。給料グループは 4 つ (下限の帯・上限の帯・月給の書き方・上限と下限の差)、
+/// ほかのグループは 1 つ。total / total_popular はこのグラフの母数 (給料は月給の求人など)。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct FeatureChart {
+    /// グループ内の識別子 (給料: "lo" / "hi" / "form" / "width"、ほか: "main")。
+    pub id: String,
+    pub title: String,
+    pub total: u32,
+    pub total_popular: u32,
+    /// true なら rows の順を保つ (帯など)。false なら画面で割合の高い順に並べる。
+    pub ordered: bool,
+    /// 「載っている / 載っていない」ではなく「この区分 / ほかの区分」で比べるグラフ。
+    pub band: bool,
+    pub rows: Vec<FeatureRow>,
+    /// グラフの下に出す補足 (例: 時給の求人 N 件は含めていません)。
+    pub notes: Vec<String>,
+}
+
+/// 6 つのグループ (給料 / 待遇・手当 / 休み・時間・通勤 / 応募できる人 / 職場の自由さ / 募集の出し方)。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct FeatureGroup {
+    /// "pay" / "treat" / "time" / "who" / "free" / "post"。
+    pub id: String,
+    pub label: String,
+    /// タブの下の説明 (例: 月給の下限・上限・書き方)。
+    pub caption: String,
+    pub charts: Vec<FeatureChart>,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 pub struct PopularitySplit {
     pub total: u32,
@@ -280,6 +324,8 @@ pub struct PopularitySplit {
     pub writing: Vec<Group>,
     pub clarity: Vec<Bucket>,
     pub work_style: Vec<Bucket>,
+    /// 6 グループの特徴別の比較 (新しい「人気の分かれ方」の表示用)。
+    pub features: Vec<FeatureGroup>,
 }
 
 /// 間口を広げる語 (応募できる人の範囲を広げるタグ)。変えるときはここだけ。
@@ -362,13 +408,13 @@ fn age_of(r: &SurveyRecord) -> Age {
 }
 
 /// 1 求人の計算済みの値。
-struct Item<'a> {
-    rec: &'a SurveyRecord,
-    popular: bool,
-    sup: bool,
+pub(super) struct Item<'a> {
+    pub(super) rec: &'a SurveyRecord,
+    pub(super) popular: bool,
+    pub(super) sup: bool,
     age: Age,
     /// 条件タグ (人気・超人気・掲載日数・新着・数字+ のバッジを除く。重複なし)。
-    cond: Vec<String>,
+    pub(super) cond: Vec<String>,
 }
 
 pub(crate) fn is_condition_tag(t: &str) -> bool {
@@ -1250,6 +1296,23 @@ pub fn compute(records: &[SurveyRecord]) -> Option<PopularitySplit> {
     }
     let in_age = |a: Age| -> Vec<&Item> { items.iter().filter(|i| i.age == a).collect() };
     let all_refs: Vec<&Item> = items.iter().collect();
+    let by_age = age.finish(true);
+    let writing = vec![
+        Group {
+            title: "見出しの長さ".to_owned(),
+            rows: len.finish(true),
+        },
+        Group {
+            title: "見出し記号".to_owned(),
+            rows: sym.finish(true),
+        },
+        Group {
+            title: "休日日数の明記".to_owned(),
+            rows: hol.finish(true),
+        },
+    ];
+    let work_style = style.finish(true);
+    let features = super::popularity_features::build(&items, &by_age, &writing, &work_style);
     let mut clarity = clarity.finish(false);
     // 0 点が無いときは先頭の空行を作らない (finish は 0 件の区分を省く)。
     clarity.retain(|b| b.n > 0);
@@ -1257,7 +1320,7 @@ pub fn compute(records: &[SurveyRecord]) -> Option<PopularitySplit> {
         total: items.len() as u32,
         popular: items.iter().filter(|i| i.popular).count() as u32,
         super_popular: items.iter().filter(|i| i.sup).count() as u32,
-        by_age: age.finish(true),
+        by_age,
         tags_by_age: vec![
             AgeTags {
                 label: AGE_FRESH.to_owned(),
@@ -1282,22 +1345,10 @@ pub fn compute(records: &[SurveyRecord]) -> Option<PopularitySplit> {
             easy_apply: tag_stats(&all_refs, &EASY_KEYS),
             count_buckets: counts.finish(true),
         },
-        writing: vec![
-            Group {
-                title: "見出しの長さ".to_owned(),
-                rows: len.finish(true),
-            },
-            Group {
-                title: "見出し記号".to_owned(),
-                rows: sym.finish(true),
-            },
-            Group {
-                title: "休日日数の明記".to_owned(),
-                rows: hol.finish(true),
-            },
-        ],
+        writing,
         clarity,
-        work_style: style.finish(true),
+        work_style,
+        features,
     })
 }
 
