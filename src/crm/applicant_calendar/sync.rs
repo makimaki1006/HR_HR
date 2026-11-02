@@ -33,6 +33,8 @@ const OWNERS_TTL: Duration = Duration::from_secs(10 * 60);
 const SEARCH_PAGE: usize = 200;
 /// HubSpot の Search は 1 つの条件で 10,000 件まで
 const SEARCH_MAX: usize = 10_000;
+/// 取引の「コンサル担当」(担当者を選ぶ型)。ゲストはこの人。取引の担当者 (`hubspot_owner_id`) は営業側なので使わない
+const CONSULTANT_PROP: &str = "consultant";
 const NAME_PROPS: [&str; 3] = [
     "ouboshashimei",
     "ouboshashimei_kana",
@@ -340,7 +342,9 @@ impl Cycle {
         for d in deals_of.values().flatten() {
             unique_push(&mut all_deals, d);
         }
-        let deals = hs.read("deals", &all_deals, REPORT_DEAL_PROPERTIES).await?;
+        let mut deal_props = REPORT_DEAL_PROPERTIES.to_vec();
+        deal_props.push(CONSULTANT_PROP);
+        let deals = hs.read("deals", &all_deals, &deal_props).await?;
         let owners = if deals.is_empty() {
             HashMap::new()
         } else {
@@ -360,7 +364,7 @@ impl Cycle {
             let selected =
                 report_deal(&deal_ids, &deals).or_else(|| ranked_deal(&deal_ids, &deals));
             let guest = selected
-                .and_then(|r| r.properties.get("hubspot_owner_id").cloned().flatten())
+                .and_then(|r| r.properties.get(CONSULTANT_PROP).cloned().flatten())
                 .and_then(|oid| owners.get(oid.trim()).cloned());
             // 会社名は選んだ取引から (取引が読めなければ無し)
             let for_company = selected.map(|r| r.id.clone());
