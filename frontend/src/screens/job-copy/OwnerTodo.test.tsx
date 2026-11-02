@@ -108,3 +108,27 @@ it('要対応が1件以上なら期限切れと同じ警告色、0件なら通�
   expect(screen.getByRole('button', { name: /接触が空いている/ }).classList.contains('jh-alert')).toBe(true);
   for (const name of ['契約満了が近い', '応募が止まっている', '初回で成果が出ていない']) expect(screen.getByRole('button', { name: new RegExp(name) }).classList.contains('jh-alert')).toBe(false);
 });
+it('カードを押すと、開いた一覧の見出しまで画面が動く', () => {
+  const scroll = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, writable: true, value: scroll });
+  const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 0; });
+  window.history.replaceState(null, '', '/app/job-copy?owner=11');
+  render(<OwnerTodo work={demoOwnerTodo} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
+  expect(scroll).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /期限切れ/ }));
+  expect(scroll).toHaveBeenCalledTimes(1);
+  expect(scroll.mock.contexts[0]).toBe(screen.getByRole('region', { name: '期限切れの一覧' }));
+  expect(scroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+  fireEvent.click(screen.getByRole('button', { name: /契約満了が近い/ }));
+  expect(scroll).toHaveBeenCalledTimes(2);
+  raf.mockRestore();
+});
+it('URL に card= があって最初から開いている一覧にも、表示した直後に画面が動く', () => {
+  const scroll = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, writable: true, value: scroll });
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 0; });
+  window.history.replaceState(null, '', '/app/job-copy?owner=11&card=todo_overdue');
+  render(<OwnerTodo work={demoOwnerTodo} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
+  expect(scroll).toHaveBeenCalledTimes(1);
+  expect(scroll.mock.contexts[0]).toBe(screen.getByRole('region', { name: '期限切れの一覧' }));
+});

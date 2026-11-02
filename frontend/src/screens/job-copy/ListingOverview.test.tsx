@@ -24,14 +24,33 @@ describe('求人の画面（案3-2）', () => {
     expect(within(band).getByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeTruthy();
   });
 
-  it('出来事は応募も含めて新しい順に9件、番号は古い順。件数は前の4週 → 後の4週で、判定語を出さない', () => {
+  it('出来事は既定で新しい順に5件だけ出し、すべて表示で全9件になる。番号は古い順で、判定語を出さない', () => {
     render(<JobCopyScreen />);
+    const nums = () => [...query('.lo-events').querySelectorAll('.lo-event-head')].map(head => head.querySelector('.lo-num')?.textContent);
+    expect(nums()).toEqual(['9', '応', '応', '6', '5']);
+    expect(screen.getByText('新しい順に5件を表示しています（全9件）。')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'すべて表示（9件）' }));
+    expect(nums()).toEqual(['9', '応', '応', '6', '5', '応', '応', '2', '1']);
     const list = query('.lo-events');
     const heads = list.querySelectorAll('.lo-event-head');
-    expect([...heads].map(head => head.querySelector('.lo-num')?.textContent)).toEqual(['9', '応', '応', '6', '5', '応', '応', '2', '1']);
     expect(heads[0]?.querySelector('.lo-result strong')?.textContent).toBe('15 → 3 件');
     expect(heads[0]?.querySelector('.lo-result small')?.textContent).toBe('差 −12 件（前は掲載後24日分・後は11日分）');
     expect(list.textContent).not.toMatch(/増えた|減った|効果|効いた/u);
+    fireEvent.click(screen.getByRole('button', { name: '最新5件だけにする' }));
+    expect(nums()).toHaveLength(5);
+  });
+
+  it('必要なときだけ使うもの（案・手直し・ほかの分析・電話ヒアリング）は畳んだ「作業」に入り、開くとすぐ使える', () => {
+    render(<JobCopyScreen />);
+    const work = query('details.lo-work');
+    expect((work as HTMLDetailsElement).open).toBe(false);
+    expect(work.querySelector('summary')?.textContent).toContain('作業');
+    expect(within(work).getByRole('button', { name: 'ほかの分析を開く' })).toBeTruthy();
+    expect(work.querySelector('details.ph-section summary')?.textContent).toContain('電話ヒアリング');
+    // いつも見るもの（ライフライン・応募理由・出来事）は作業の外にある。
+    for (const name of ['求人のライフライン', '応募理由（ヒアリング内容）', '出来事（新しい順）']) expect(work.contains(screen.getByRole('heading', { name }))).toBe(false);
+    fireEvent.click(query('details.lo-work > summary'));
+    expect((query('details.lo-work') as HTMLDetailsElement).open).toBe(true);
   });
 
   it('出来事を押すと、ほかに応募を動かしそうなことが出る。もう一度押すと閉じる', () => {

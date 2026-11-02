@@ -170,6 +170,8 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
   const setListingPopupOpen = (open: boolean) => { updateJobCopyQuery({ popup: open ? 'listing' : null }); };
   const [selected, setSelected] = useState(current?.id ?? '');
   const [editing, setEditing] = useState<CopyVersion | null>(null);
+  // 「作業」のまとまりは畳んでおく。手直しを始めたときは開く。
+  const [workOpen, setWorkOpen] = useState(false);
   const [before, setBefore] = useState(draft ? current?.id ?? '' : published(job).at(-2)?.id ?? current?.id ?? '');
   const [after, setAfter] = useState(draft?.id ?? current?.id ?? '');
   const [incoming, setIncoming] = useState('');
@@ -236,28 +238,31 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
   const listingMarket = useListingMarket(job, demo ? 'demo' : 'api');
   return <article ref={detailElement} className="jc-detail" id="job-details" tabIndex={-1}>
     <DetailBand job={job} billing={realBillingEntries} onOpenFullCompare={() => { setBandCompareOpen(true); }} latestEvent={listingEvents.at(-1) ?? null} onOpenLatest={() => { const latestId = listingEvents.at(-1)?.id; if (latestId) setSelectedEventId(latestId); }}
-      onNewPattern={() => { if (current) { setEditing(current); setTab('body'); requestAnimationFrame(() => { document.getElementById('jc-manual-editor')?.scrollIntoView({ block: 'start' }); }); } }}
+      onNewPattern={() => { if (current) { setEditing(current); setWorkOpen(true); setTab('body'); requestAnimationFrame(() => { document.getElementById('jc-manual-editor')?.scrollIntoView({ block: 'start' }); }); } }}
       newPatternDisabled={!job.hubspotId || !job.canWriteDrafts || !current?.body || editing !== null} />
     <FullTextCompareDialog record={job} open={bandCompareOpen} onClose={() => { setBandCompareOpen(false); }} />
     <FullTextCompareDialog record={job} open={eventCompare !== null} onClose={() => { setEventCompare(null); }} initialLeft={eventCompare?.left} initialRight={eventCompare?.right} />
     <div className="jc-detail-cols"><div className="jc-detail-content">
     <header className="jc-detail-heading"><div><div className="jc-detail-title-row"><button className="jc-button" onClick={() => { setListingPopupOpen(true); }}>求人の内容を確認する</button></div><p>{joinPresent([job.company, job.location, job.media])}{job.dataSource === 'hubspot' && <span className="jc-publication"> ／ 公開状況：{publicationLabel(job.listingPublicationStatus ?? null)}</span>}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
     {listingPopupOpen && <ListingPopup navigation={popupNavigation} job={job} version={version} onClose={() => { setListingPopupOpen(false); }} />}
-    {job.id.startsWith('hubspot-history-') && job.media === 'HRハッカー' && job.hubspotId && <RikuroziDraftPanel listingId={job.hubspotId} />}
     {job.historyMayBeIncomplete && <p className="jc-notice" role="status">履歴は項目ごとに20件までの可能性があり、過去の文面がすべて含まれているとは限りません。</p>}
     <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '表示中の本文（HubSpotの現在値）' : '表示中の本文'}: {current?.label ?? '本文未取得'}</span><InfoTip className="jc-infotip-left" label={`${job.id.startsWith('hubspot-history-') && current?.source !== 'HubSpotの現在の本文' ? 'HubSpot記録日時' : '本文を確認した日時'}: ${current ? date(current.observedAt) : '—'}`}><p>{current?.source === 'HubSpotの現在の本文' ? '今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' : job.id.startsWith('hubspot-history-') ? '本文がHubSpotに記録された日時です。掲載開始日時は不明です。' : 'ファイルの本文を確認した日時です。掲載開始日時は不明です。'}</p></InfoTip>{job.hubspotId ? null : <InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip>}</div>
-    {message && <p className="jc-message" role="status">{message}</p>}
-    {job.hubspotId && <nav className="jc-flow-actions" aria-label="求人を管理して手直しする流れ">{!current?.body && <p>現在の本文が未取得のため、手直しを保存できません。求人を読み込み直して内容を確認してください。</p>}<span>求人を選ぶ → 手直し → 比較・確認 → 求人票を見る</span><button className="jc-button" disabled={!job.canWriteDrafts || !current?.body || editing !== null} onClick={() => { if (current) { setEditing(current); setTab('body'); } }}>現在の文面を手直しする</button>{draft && <button className="jc-button" disabled={!job.canWriteDrafts || !current?.body || editing !== null} onClick={() => { setEditing(draft); setTab('body'); }}>保存済みの案を手直しする</button>}{!job.canWriteDrafts && <p>案を保存する権限または利用設定がありません。</p>}<button className="jc-button" onClick={() => { setBefore(current?.id ?? ''); setAfter(draft?.id ?? current?.id ?? ''); openFeatureFromContent('diff'); }}>現在の文面と案を比較する</button>{draft?.draft?.review_status === 'adopted' && <button className="jc-button" onClick={() => { setSelected(draft.id); openFeatureFromContent('body'); }}>採用した案を求人票で見る</button>}</nav>}
-    {editing && current && <div id="jc-manual-editor"><ManualDraftEditor key={editing.id} job={job} current={current} base={editing} onCancel={() => { setEditing(null); }} onSaved={(saved, revision) => { onDraftSaved(saved, revision); setEditing(null); setBefore(current.id); setAfter(`hubspot-draft-${saved.draft_id}`); openFeatureFromContent('diff'); }} /></div>}
     {draft && <p className="jc-notice lo-draft-notice" role="status">確認待ちの案があります。<button type="button" className="jc-button" onClick={() => { openFeatureFromContent('diff'); }}>案の確認・比較を開く</button></p>}
     <ListingOverview job={job} events={listingEvents} billing={realBillingEntries} market={listingMarket} selectedId={selectedEventId} onSelect={setSelectedEventId}
       onCompare={(left, right) => { setEventCompare({ left, right }); }}
-      onOpenDrawer={(kind, event) => { setWhoSelection(event?.previousVersionId && event.versionId ? [event.previousVersionId, event.versionId] : undefined); setDrawer({ kind, event }); }} />
+      onOpenDrawer={(kind, event) => { setWhoSelection(event?.previousVersionId && event.versionId ? [event.previousVersionId, event.versionId] : undefined); setDrawer({ kind, event }); }}
+      workOpen={workOpen} onWorkToggle={setWorkOpen}
+      work={<>
+    {job.id.startsWith('hubspot-history-') && job.media === 'HRハッカー' && job.hubspotId && <RikuroziDraftPanel listingId={job.hubspotId} />}
+    {message && <p className="jc-message" role="status">{message}</p>}
+    {job.hubspotId && <nav className="jc-flow-actions" aria-label="求人を管理して手直しする流れ">{!current?.body && <p>現在の本文が未取得のため、手直しを保存できません。求人を読み込み直して内容を確認してください。</p>}<span>求人を選ぶ → 手直し → 比較・確認 → 求人票を見る</span><button className="jc-button" disabled={!job.canWriteDrafts || !current?.body || editing !== null} onClick={() => { if (current) { setEditing(current); setTab('body'); } }}>現在の文面を手直しする</button>{draft && <button className="jc-button" disabled={!job.canWriteDrafts || !current?.body || editing !== null} onClick={() => { setEditing(draft); setTab('body'); }}>保存済みの案を手直しする</button>}{!job.canWriteDrafts && <p>案を保存する権限または利用設定がありません。</p>}<button className="jc-button" onClick={() => { setBefore(current?.id ?? ''); setAfter(draft?.id ?? current?.id ?? ''); openFeatureFromContent('diff'); }}>現在の文面と案を比較する</button>{draft?.draft?.review_status === 'adopted' && <button className="jc-button" onClick={() => { setSelected(draft.id); openFeatureFromContent('body'); }}>採用した案を求人票で見る</button>}</nav>}
+    {editing && current && <div id="jc-manual-editor"><ManualDraftEditor key={editing.id} job={job} current={current} base={editing} onCancel={() => { setEditing(null); }} onSaved={(saved, revision) => { onDraftSaved(saved, revision); setEditing(null); setBefore(current.id); setAfter(`hubspot-draft-${saved.draft_id}`); openFeatureFromContent('diff'); }} /></div>}
     <section className="lo-more" aria-label="ほかの分析">
       <h2>ほかの分析</h2>
       <p>本文・画像、タイムライン、変更差分、求人比較、応募者構成、応募理由、要因・仮説を、横から開く画面のタブで切り替えて確認します。</p>
       <div><button type="button" className="jc-button" onClick={() => { openFeatureFromContent(jobFeatureMenu.some(feature => feature.id === tab) ? tab : 'timeline'); }}>ほかの分析を開く</button></div>
     </section>
+      </>} />
     {drawer && <ListingDrawer title={drawer.kind === 'who' ? '応募者・応募理由の前後' : drawer.kind === 'market' ? '市場の推移' : '課金・クリック'} onClose={() => { setDrawer(null); }}>
       {drawer.event && <p className="lo-drawer-context">{drawerContext(job, drawer.event, listingEvents)}</p>}
       {drawer.kind === 'who' && <><ApplicantComposition job={job} {...(whoSelection ? { selection: whoSelection } : {})} onSelectionChange={setWhoSelection} billing={billing} /></>}

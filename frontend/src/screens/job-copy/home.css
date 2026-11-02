@@ -99,3 +99,6 @@
 /* 顧客の案件を左に並べたときも、長い名前を枠内に収めて最後までたどれるようにする。 */
 .jc-side-context { min-height: 0; overflow-y: auto; }
 .jc-side-context li button { overflow-wrap: anywhere; }
+
+/* 開いた一覧まで画面を動かしたとき、上のバー（メニューと担当の欄）に見出しが隠れない位置で止める。 */
+.jh-list, .jh-reveal { scroll-margin-top: 140px; }

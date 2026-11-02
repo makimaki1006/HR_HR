@@ -142,3 +142,11 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .lf-track { padding-bottom: 52px; }
 /* 印の縦線にも数値の先頭を重ねない。変更ボタンの列幅は保つ。 */
 .lf-row[role="row"] > .lf-cell { padding-inline: 3px; }
+
+/* 必要なときだけ使うものを 1 つにまとめた「作業」。畳んでいても 1 行で場所が分かる。 */
+.lo-work { background: var(--jc-paper); border: 1px solid var(--jc-border); border-radius: 8px; padding: 0 16px; }
+.lo-work > summary { cursor: pointer; padding: 12px 0; font-size: 14px; font-weight: 600; }
+.lo-work[open] > summary { border-bottom: 1px solid var(--jc-border); margin-bottom: 12px; }
+.lo-work-body { display: grid; gap: 16px; padding-bottom: 16px; min-width: 0; }
+.lo-work-body .lo-more { margin-top: 0; }
+.lo-more-events { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 0; color: var(--jc-muted); font-size: 12px; }
