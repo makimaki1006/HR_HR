@@ -87,7 +87,7 @@ export function BoardView({ route, go }: { route: Route; go: (r: Partial<Route>)
                   ? `（${[route.c !== '' ? `担当 ${route.c}` : '', route.flag !== '' ? `注意 ${route.flag}` : '', route.band !== '' ? `MTGが空いている期間 ${bandLabel ?? '区分'}` : ''].filter((x) => x !== '').join('・')}）`
                   : '（全部出しています）'}
               </p>
-              <DealTable rows={shown} columns={BOARD_COLUMNS} onOpen={(id) => { go({ view: 'detail', id }); }} caption="稼働中の案件一覧" />
+              <DealTable rows={shown} columns={BOARD_COLUMNS} onOpen={(id) => { go({ view: 'detail', id }); }} caption="稼働中の案件一覧" portal={d.meta.hubspot_portal_id} />
             </Section>
           </>
         );

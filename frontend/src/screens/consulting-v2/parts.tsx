@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { caseManagementHref, flagTone, shortFlag } from './format';
+import { caseManagementHref, flagTone, hubspotDealUrl, shortFlag } from './format';
 import type { Loaded } from './useApi';
 
 export function Kpi({
@@ -11,9 +11,9 @@ export function Kpi({
 }: {
   label: string;
   value: string;
-  unit?: string;
-  note?: string;
-  onClick?: () => void;
+  unit?: string | undefined;
+  note?: string | undefined;
+  onClick?: (() => void) | undefined;
 }) {
   const body = (
     <>
@@ -64,6 +64,17 @@ export function CaseLink({ dealId, label }: { dealId: string | null | undefined;
     <a className="cv2-case-link" href={href} target="_blank" rel="noopener noreferrer">
       {label ?? (linked ? '案件管理で確認' : '案件管理の一覧を開く')}
       <span aria-hidden="true"> ↗</span>
+    </a>
+  );
+}
+
+/** HubSpot で同じ取引を開くリンク。portal id か取引 ID が無ければ何も出さない */
+export function HubspotLink({ portal, dealId }: { portal: string | undefined; dealId: string | null | undefined }) {
+  const href = hubspotDealUrl(portal, dealId);
+  if (href === null) return null;
+  return (
+    <a className="cv2-case-link" href={href} target="_blank" rel="noopener noreferrer">
+      HubSpot で開く<span aria-hidden="true"> ↗</span>
     </a>
   );
 }

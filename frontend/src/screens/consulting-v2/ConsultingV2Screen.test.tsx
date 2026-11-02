@@ -2,7 +2,7 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConsultingV2Screen } from './ConsultingV2Screen';
-import { BOARD, DETAIL, GOALS, TEAM, TODAY } from './__fixtures__/fixtures';
+import { BOARD, CUSTOMER, CUSTOMER_INDEX, DETAIL, GOALS, MTGQ, PHONE, RENEWAL_PIPE, RESULTS, TEAM, TODAY } from './__fixtures__/fixtures';
 import { caseManagementHref } from './format';
 
 function reply(path: string): unknown {
@@ -10,6 +10,12 @@ function reply(path: string): unknown {
   if (path.startsWith('/api/consulting/today')) return TODAY;
   if (path.startsWith('/api/consulting/deals')) return BOARD;
   if (path.startsWith('/api/consulting/deal-detail')) return DETAIL;
+  if (path.startsWith('/api/consulting/renewal-pipe')) return RENEWAL_PIPE;
+  if (path.startsWith('/api/consulting/customer?houjin=')) return CUSTOMER;
+  if (path.startsWith('/api/consulting/customer')) return CUSTOMER_INDEX;
+  if (path.startsWith('/api/consulting/results')) return RESULTS;
+  if (path.startsWith('/api/consulting/mtg-quality')) return MTGQ;
+  if (path.startsWith('/api/consulting/phone')) return PHONE;
   if (path.startsWith('/api/crm/workspace/deals/')) return GOALS;
   return null;
 }
@@ -111,6 +117,63 @@ describe('コンサルKPI v2', () => {
     render(<ConsultingV2Screen />);
     expect(await screen.findByText('読み込めませんでした。')).toBeTruthy();
     expect(screen.queryByText('この条件に合う案件はありません。')).toBeNull();
+  });
+});
+
+describe('コンサルKPI v2 第2段', () => {
+  it('案件一覧に応募・面接・採用・目標・接触率・採用単価の列と HubSpot へのリンクが出る', async () => {
+    open('?view=board&c=架空担当あお');
+    render(<ConsultingV2Screen />);
+    const row = (await screen.findByText('架空株式会社A 本社')).closest('tr') as HTMLElement;
+    const text = row.textContent;
+    expect(text).toContain('12'); // 応募
+    expect(text).toContain('持越'); // 面接は前の値を引き継いだ
+    expect(text).toContain('25%'); // 採用目標に対して
+    expect(text).toContain('1/4（途中）');
+    expect(text).toContain('40%');
+    expect(text).toContain('2/5 か月');
+    expect(text).toContain('120万');
+    expect(text).toContain('80万'); // 同じ進み具合の区分の中央
+    const hs = within(row).getByRole('link', { name: /HubSpot で開く/ });
+    expect(hs.getAttribute('href')).toBe('https://app.hubspot.com/contacts/12345/record/0-3/70000000001/');
+  });
+
+  it('満了と継続は API の件数・金額をそのまま出し、金額が空なら金額なしと書く', async () => {
+    open('?view=renewal');
+    render(<ConsultingV2Screen />);
+    expect(await screen.findByText('今月 2026-11 に満了する契約（満了の近い順、1 件）')).toBeTruthy();
+    expect(screen.getAllByText(/金額が空 1 件/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/金額なし（金額が空 0 件）/).length).toBe(2);
+  });
+
+  it('顧客と拠点: 法人の一覧から法人を開ける', async () => {
+    open('?view=customer');
+    render(<ConsultingV2Screen />);
+    expect(await screen.findByText('法人を選ぶ（2 社）')).toBeTruthy();
+    expect(screen.getByText('1,200人')).toBeTruthy();
+    open('?view=customer&houjin=9000000000001');
+    cleanup();
+    render(<ConsultingV2Screen />);
+    expect(await screen.findByText('拠点: 本社（契約 2 件）')).toBeTruthy();
+    expect(screen.getByText('累計契約金額')).toBeTruthy();
+    expect(screen.getByText('210万')).toBeTruthy();
+  });
+
+  it('成果と継続: 月次の継続率・金額継続率・結果待ちの月を API の値で出す', async () => {
+    open('?view=results');
+    render(<ConsultingV2Screen />);
+    // 結果待ちが残る 10 月は札にせず、結果がそろった 9 月を使う
+    expect(await screen.findByText('月次の継続率（2026-09 に満了）')).toBeTruthy();
+    expect(screen.getAllByText('66.7%').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('72.7%').length).toBeGreaterThan(0);
+    expect(await screen.findByText('MTG の品質')).toBeTruthy();
+    expect(await screen.findByText('電話の到達')).toBeTruthy();
+  });
+
+  it('接触の推移の図が出る', async () => {
+    open('');
+    render(<ConsultingV2Screen />);
+    expect(await screen.findByRole('img', { name: '担当ごとの1件あたりの接触回数の推移' })).toBeTruthy();
   });
 });
 

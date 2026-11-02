@@ -1,4 +1,5 @@
 import { DASH, num, pct1 } from './format';
+import { ContactTrend } from './ContactTrend';
 import { Async, Kpi, Section } from './parts';
 import type { Route } from './route';
 import type { ContactCell, ContactPeriod, TeamResponse, TeamStatusRow } from './types';
@@ -223,6 +224,7 @@ export function TeamView({ go }: { go: (r: Partial<Route>) => void }) {
                 「1件あたりの接触回数」は、確定した最新月の接触回数 ÷ 持ち件数で、別の指標です。担当者の評価ではありません。
               </p>
             </Section>
+            {d.contact ? <ContactTrend contact={d.contact} /> : null}
           </>
         );
       }}

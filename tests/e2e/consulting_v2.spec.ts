@@ -5,7 +5,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { BOARD, DETAIL, GOALS, TEAM, TODAY } from '../../frontend/src/screens/consulting-v2/__fixtures__/fixtures';
+import { BOARD, CUSTOMER, CUSTOMER_INDEX, DETAIL, GOALS, MTGQ, PHONE, RENEWAL_PIPE, RESULTS, TEAM, TODAY } from '../../frontend/src/screens/consulting-v2/__fixtures__/fixtures';
 
 const email = process.env.E2E_EMAIL ?? 'tester@f-a-c.co.jp';
 const pass = process.env.E2E_PASS ?? '';
@@ -23,6 +23,11 @@ async function mockApi(page: Page) {
   await page.route('**/api/consulting/today*', (r) => r.fulfill({ json: TODAY }));
   await page.route('**/api/consulting/deals*', (r) => r.fulfill({ json: BOARD }));
   await page.route('**/api/consulting/deal-detail*', (r) => r.fulfill({ json: DETAIL }));
+  await page.route('**/api/consulting/renewal-pipe*', (r) => r.fulfill({ json: RENEWAL_PIPE }));
+  await page.route('**/api/consulting/customer*', (r) => r.fulfill({ json: r.request().url().includes('houjin=') ? CUSTOMER : CUSTOMER_INDEX }));
+  await page.route('**/api/consulting/results*', (r) => r.fulfill({ json: RESULTS }));
+  await page.route('**/api/consulting/mtg-quality*', (r) => r.fulfill({ json: MTGQ }));
+  await page.route('**/api/consulting/phone*', (r) => r.fulfill({ json: PHONE }));
   await page.route('**/api/crm/workspace/deals/*', (r) => r.fulfill({ json: GOALS }));
 }
 
@@ -68,6 +73,27 @@ test.describe('コンサルKPI v2', () => {
     await expect(page.getByText('応募を月10件にする')).toBeVisible();
     await shot(page, '05-detail');
     await expect(page.getByRole('link', { name: /案件管理で確認/ }).first()).toHaveAttribute('href', '/app/job-copy?deal=70000000001');
+  });
+
+  test('顧客と拠点・満了と継続・成果と継続', async ({ page }) => {
+    await page.goto('/app/consulting-v2?view=customer');
+    await expect(page.getByText('法人を選ぶ（2 社）')).toBeVisible();
+    await page.getByRole('button', { name: '架空株式会社A', exact: true }).click();
+    await expect(page.getByText('拠点: 本社（契約 2 件）')).toBeVisible();
+    await shot(page, '06-customer');
+    await page.getByRole('button', { name: '満了と継続' }).click();
+    await expect(page.getByText('今月 2026-11 に満了する契約（満了の近い順、1 件）')).toBeVisible();
+    await shot(page, '07-renewal');
+    await page.getByRole('button', { name: '成果と継続' }).click();
+    await expect(page.getByText('月次の継続率（2026-09 に満了）')).toBeVisible();
+    await expect(page.getByText('電話の到達')).toBeVisible();
+    await shot(page, '08-results');
+    await page.goto('/app/consulting-v2?view=board');
+    await expect(page.getByRole('link', { name: 'HubSpot で開く' }).first()).toBeVisible();
+    await shot(page, '09-board-columns');
+    await page.goto('/app/consulting-v2');
+    await expect(page.getByRole('img', { name: '担当ごとの1件あたりの接触回数の推移' })).toBeVisible();
+    await shot(page, '10-team-trend');
   });
 
   test('今のコンサルKPI (/consulting) は v2 の追加で変わらない', async ({ page }) => {

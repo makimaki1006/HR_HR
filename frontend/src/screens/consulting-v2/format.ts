@@ -94,3 +94,10 @@ export function caseManagementHref(dealId: string | null | undefined): { href: s
 export function orText(v: string | null | undefined, fallback: string): string {
   return v === null || v === undefined || v === '' ? fallback : v;
 }
+
+/** HubSpot の取引ページ。portal id は API の meta に載っている。取引 ID が数字でなければ作らない */
+export function hubspotDealUrl(portal: string | undefined, dealId: string | null | undefined): string | null {
+  const id = (dealId ?? '').trim();
+  if (portal === undefined || portal === '' || !/^\d+$/.test(id)) return null;
+  return `https://app.hubspot.com/contacts/${encodeURIComponent(portal)}/record/0-3/${encodeURIComponent(id)}/`;
+}
