@@ -3,6 +3,7 @@ import type { PhoneHearing as Hearing } from '../../generated/PhoneHearing';
 import { formatDateJst } from './format';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JobCopyRecord } from './data';
+import { RetryApplicants } from './RetryApplicants';
 import { applicationsCutoffDate, noApplicationDatesText } from './detailBandModel';
 import { COLUMN_PX, buildLifeline, changeMarkerLabel, weekIndex } from './lifelineModel';
 import type { Lifeline, LifelineWeek } from './lifelineModel';
@@ -135,7 +136,7 @@ function ApplicationDetails({ job, event, hearing, loading }: { job: JobCopyReco
   const recorded = items.length > 0 || picked.length > 0 || Boolean(card);
   return <div className="lo-reasons-of">
     <p className="lo-summary">応募日：{formatDateJst(event.date, '不明')} / 応募媒体：{card?.media ?? job.applicationRows?.find(row => row.key === event.applicationKey)?.media ?? '記録なし'}</p>
-    {job.applicationDates === 'failed' ? <p role="status">応募の記録を取得できませんでした。時間を置いて、もう一度開いてください。</p> : loading || job.applicationDates === 'loading' ? <p role="status">電話で聞いた内容を読み込み中です。</p> : !hearing && job.hubspotId ? <p role="status">電話で聞いた内容を取得できませんでした。時間を置いて、もう一度開いてください。</p> : !recorded && job.applicantReasons?.truncated ? <p>一部だけ表示しているため、この応募の記録を確認できません。</p> : !recorded && <p>この応募には、応募理由や電話で聞いた内容の記録がありません</p>}
+    {job.applicationDates === 'failed' ? <p role="alert">応募の記録を読み込めませんでした。<RetryApplicants id={job.hubspotId} /></p> : loading || job.applicationDates === 'loading' ? <p role="status">電話で聞いた内容を読み込み中です。</p> : !hearing && job.hubspotId ? <p role="status">電話で聞いた内容を取得できませんでした。時間を置いて、もう一度開いてください。</p> : !recorded && job.applicantReasons?.truncated ? <p>一部だけ表示しているため、この応募の記録を確認できません。</p> : !recorded && <p>この応募には、応募理由や電話で聞いた内容の記録がありません</p>}
     <div className="lo-reasons-of">
     {picked.map(item => <p key={`${item.sourceProperty}-${item.value}`} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由の分類'}：</strong>{item.label ?? '分類の名前を確認できません'}</p>)}
     {reasons.map(item => <p key={item.id} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由'}：</strong>{maskPersonalDetails(item.text)}</p>)}
@@ -152,7 +153,7 @@ function ApplicationDetails({ job, event, hearing, loading }: { job: JobCopyReco
 export function ListingReasons({ job }: { job: JobCopyRecord }) {
   const collection = job.applicantReasons;
   const body = job.applicationDates === 'loading' ? <p className="lo-note" role="status">応募理由を読み込み中です。</p>
-    : job.applicationDates === 'failed' ? <p className="lo-note" role="status">応募理由を取得できませんでした。時間を置いて、もう一度開いてください。</p>
+    : job.applicationDates === 'failed' ? <p className="lo-note" role="alert">応募理由を読み込めませんでした。<RetryApplicants id={job.hubspotId} /></p>
     : !collection?.available || (!collection.items.some(item => item.text.trim()) && !(collection.selections ?? []).length) ? <p className="lo-note" role="status">応募理由の記録はまだありません。</p>
     : <ReasonCategorySummary collection={collection} />;
   return <section className="lo-card" aria-labelledby="lo-reasons-title" data-testid="listing-reasons"><div className="lo-head"><h2 id="lo-reasons-title">応募理由（ヒアリング内容）</h2><span>応募の出来事を開くと、その人の応募理由を見られます。</span></div>{body}</section>;
@@ -182,7 +183,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
     <section className="lo-card" aria-labelledby="lo-chart-title">
       <div className="lo-head"><h2 id="lo-chart-title">求人のライフライン</h2><span>掲載開始から{lifeline?.endIndex !== null && lifeline?.endIndex !== undefined ? '掲載終了' : '今日'}まで、1週を1列で並べています（月曜はじまり）。横にスクロールできます。</span></div>
       {lifeline ? <LifelineChart lifeline={lifeline} job={job} selectedWeek={selectedWeek} onSelect={onSelect} /> : <p className="lo-note" role="status">掲載の開始日が分からないため、週ごとの推移は出せません。</p>}
-      {!job.overallApplications && <p className="lo-note" role="status">{noApplicationDatesText(job)}</p>}
+      {!job.overallApplications && <p className="lo-note" role={job.applicationDates === 'failed' ? 'alert' : 'status'}>{noApplicationDatesText(job)}{job.applicationDates === 'failed' && <RetryApplicants id={job.hubspotId} />}</p>}
     </section>
     <ListingReasons job={job} />{phonePanel}
     <section aria-labelledby="lo-events-title">

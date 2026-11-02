@@ -92,3 +92,19 @@ describe('案件の上の帯と数字の前提の表示', () => {
     await waitFor(() => { expect(screen.getByText('都道府県：大分県')).toBeTruthy(); });
   });
 });
+
+describe('応募を読み込めなかったとき', () => {
+  it('「読み込み中」のまま止めず、読み込めなかったことと再試行のボタンを出す', () => {
+    const failed: JobCopyRecord = { ...job, hubspotId: '555', applicationDates: 'failed' };
+    delete failed.overallApplications;
+    const heard = vi.fn();
+    const listen = (event: Event) => { heard((event as CustomEvent<string>).detail); };
+    window.addEventListener('jobcopy:retry-applicants', listen);
+    render(<AssumptionsRail job={failed} billing={undefined} mode="demo" onIndeedTitleChanged={() => undefined} />);
+    expect(screen.getByRole('alert').textContent).toContain('応募を読み込めませんでした。');
+    expect(screen.queryByText('応募を読み込み中です。')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度読み込む' }));
+    window.removeEventListener('jobcopy:retry-applicants', listen);
+    expect(heard).toHaveBeenCalledWith('555');
+  });
+});

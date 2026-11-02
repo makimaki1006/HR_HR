@@ -164,6 +164,32 @@ async fn deal_company(
         .map(|name| (company.clone(), name.to_owned())))
 }
 
+/// 事業所の画面は求人 30 件ぶんをまとめて読む。この時間を超えた求人は「読めなかった」にする。
+const DEAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(40);
+
+async fn read_listing(
+    service: &super::JobReadService,
+    deal: &str,
+    id: &str,
+) -> Result<(Value, Vec<(String, Option<String>)>), ReadError> {
+    let deals = service.all_associations("0-420", id, "deals").await?;
+    if !deals.iter().any(|d| d == deal) {
+        return Err(ReadError(StatusCode::FORBIDDEN, "listing_not_in_deal"));
+    }
+    let applications = service.all_associations("0-420", id, "0-421").await?;
+    let rows = service
+        .batch("0-421", &applications, &DATE_PROPERTIES)
+        .await?;
+    let (days, from_created) = days_of(&rows);
+    let (by_date, missing) = count_by_date(&days);
+    let pairs = rows.iter().map(|r| r.id.clone()).zip(days).collect();
+    Ok((
+        json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"created_date_count":from_created,"by_date":by_date,
+            "fetched_at":chrono::Utc::now().to_rfc3339()}),
+        pairs,
+    ))
+}
+
 pub(super) async fn read(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
@@ -190,28 +216,41 @@ pub(super) async fn read(
     for id in &ids {
         valid_id(id)?;
     }
+    // 求人ごとの読み取りは同時に 4 本まで進め、全体の締め切り (`DEAL_DEADLINE`) を超えた求人は
+    // 「読めなかった」として返す（画面は「—」にし、残りの求人の数字は出す）。
+    let deadline = tokio::time::Instant::now() + DEAL_DEADLINE;
+    let limit = Arc::new(tokio::sync::Semaphore::new(4));
+    let mut tasks = tokio::task::JoinSet::new();
+    for (index, id) in ids.iter().enumerate() {
+        let (service, limit, id, deal) = (
+            Arc::clone(service),
+            Arc::clone(&limit),
+            id.clone(),
+            query.deal.clone(),
+        );
+        tasks.spawn(async move {
+            let read = tokio::time::timeout_at(deadline, async {
+                let _permit = limit.acquire().await.ok();
+                read_listing(&service, &deal, &id).await
+            })
+            .await
+            .unwrap_or(Err(ReadError(
+                StatusCode::GATEWAY_TIMEOUT,
+                "applications_timeout",
+            )));
+            (index, id, read)
+        });
+    }
+    let mut results = Vec::new();
+    while let Some(joined) = tasks.join_next().await {
+        if let Ok(item) = joined {
+            results.push(item);
+        }
+    }
+    results.sort_by_key(|(index, ..)| *index);
     let mut listings = Vec::new();
     let mut linked = Vec::new();
-    for id in &ids {
-        let read: Result<(Value, Vec<(String, Option<String>)>), ReadError> = async {
-            let deals = service.all_associations("0-420", id, "deals").await?;
-            if !deals.contains(&query.deal) {
-                return Err(ReadError(StatusCode::FORBIDDEN, "listing_not_in_deal"));
-            }
-            let applications = service.all_associations("0-420", id, "0-421").await?;
-            let rows = service
-                .batch("0-421", &applications, &DATE_PROPERTIES)
-                .await?;
-            let (days, from_created) = days_of(&rows);
-            let (by_date, missing) = count_by_date(&days);
-            let pairs = rows.iter().map(|r| r.id.clone()).zip(days).collect();
-            Ok((
-                json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"created_date_count":from_created,"by_date":by_date,
-                    "fetched_at":chrono::Utc::now().to_rfc3339()}),
-                pairs,
-            ))
-        }
-        .await;
+    for (_, id, read) in results {
         match read {
             Ok((value, pairs)) => {
                 listings.push(value);
@@ -263,6 +302,58 @@ pub(super) async fn read(
 
 #[cfg(test)]
 mod tests {
+
+    async fn mock(
+        extra_deal: &'static str,
+    ) -> (super::super::JobReadService, tokio::task::JoinHandle<()>) {
+        let app = axum::Router::new().fallback(axum::routing::any(
+            move |uri: axum::http::Uri, _body: axum::body::Bytes| async move {
+                let path = uri.path().to_owned();
+                axum::Json(if path.ends_with("/associations/deals") {
+                    json!({"results":[{"toObjectId":extra_deal.parse::<u64>().unwrap()}]})
+                } else if path.ends_with("/associations/0-421") {
+                    json!({"results":[{"toObjectId":501},{"toObjectId":502},{"toObjectId":503}]})
+                } else if path == "/crm/v3/objects/0-421/batch/read" {
+                    json!({"results":[
+                        {"id":"501","properties":{"yingmuri":"2026-10-01"}},
+                        {"id":"502","properties":{"yingmuri":"2026-10-01"}},
+                        {"id":"503","properties":{"yingmuri":"2026-10-02"}}]})
+                } else {
+                    panic!("unexpected {path}")
+                })
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let service = super::super::JobReadService::for_test(format!(
+            "http://{}",
+            listener.local_addr().unwrap()
+        ));
+        (
+            service,
+            tokio::spawn(async move { axum::serve(listener, app).await.unwrap() }),
+        )
+    }
+
+    #[tokio::test]
+    async fn one_listing_counts_its_applications_by_day() {
+        let (service, server) = mock("10").await;
+        let (value, pairs) = read_listing(&service, "10", "7").await.unwrap();
+        assert_eq!(value["total"], 3);
+        assert_eq!(value["by_date"], json!({"2026-10-01":2,"2026-10-02":1}));
+        assert_eq!(pairs.len(), 3);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_listing_of_another_deal_is_refused_not_counted() {
+        let (service, server) = mock("99").await;
+        let error = read_listing(&service, "10", "7").await.unwrap_err();
+        assert_eq!(
+            (error.0, error.1),
+            (StatusCode::FORBIDDEN, "listing_not_in_deal")
+        );
+        server.abort();
+    }
     use super::*;
 
     #[test]

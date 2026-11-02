@@ -4,6 +4,7 @@ import type { CompanyDeal } from './companyDeals';
 import { dealName } from './companyDeals';
 import type { Billing, SummarySource } from './DealSummary';
 import { loadCompanyDatas } from './dealSummaryLoad';
+import type { DealData } from './dealSummaryLoad';
 import { companyListingPeriod, companyListingsModel } from './companyListingsModel';
 import { mediaLabel, publicationLabel } from './hubspotListings';
 import type { HubSpotListing, HubSpotListingPage } from './hubspotListings';
@@ -27,7 +28,7 @@ async function loadRows(deals: readonly CompanyDeal[], ownerQuery: string, signa
     while (offset !== null) {
       const params = new URLSearchParams(ownerQuery);
       params.set('deal', ids); params.set('offset', String(offset)); params.set('sort', 'title'); params.set('descending', 'false');
-      const result = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${params.toString()}`, { signal, timeoutMs: 120_000 });
+      const result = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${params.toString()}`, { signal, timeoutMs: 60_000 });
       if (!result.ok || result.data.status !== 'ready') throw new Error('unavailable');
       rows.push(...result.data.listings);
       const next: number | null = result.data.next_offset;
@@ -49,17 +50,20 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
   const [error, setError] = useState(false);
   const [loadedQuery, setLoadedQuery] = useState('');
   const [source, setSource] = useState<SummarySource>({ status: 'loading' });
+  const [partial, setPartial] = useState<DealData[]>([]);
+  const [reload, setReload] = useState(0);
   const [livePage, setLivePage] = useState(0);
   const [pastPage, setPastPage] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     void loadRows(deals, ownerQuery, controller.signal).then(rows => { if (!controller.signal.aborted) { setRows(rows); setLoadedQuery(ownerQuery); setError(false); setLivePage(0); setPastPage(0); } }).catch(() => { if (!controller.signal.aborted) { setError(true); setLoadedQuery(ownerQuery); } });
-    void loadCompanyDatas(companyId, controller.signal, deals).then(source => { if (!controller.signal.aborted) setSource(source); });
+    setSource({ status: 'loading' }); setPartial([]);
+    void loadCompanyDatas(companyId, controller.signal, deals, datas => { if (!controller.signal.aborted) setPartial(datas); }).then(source => { if (!controller.signal.aborted) setSource(source); });
     return () => { controller.abort(); };
-  }, [companyId, deals, ownerQuery]);
+  }, [companyId, deals, ownerQuery, reload]);
   if (error && loadedQuery === ownerQuery) return <p role="alert">求人を読み込めませんでした。時間を置いて画面を開き直してください。</p>;
   if (!rows || loadedQuery !== ownerQuery) return <p role="status">求人を読み込んでいます…</p>;
-  const model = companyListingsModel(rows, source.status === 'ready' ? source.datas : [], deals, billingByJob);
+  const model = companyListingsModel(rows, source.status === 'ready' ? source.datas : partial, deals, billingByJob);
   const table = (items: typeof model.live, page: number, setPage: (page: number) => void, label: string) => { const view = paginate(items, page, PAGE_SIZE); return <>
     {items.length ? <div className="jh-scroll"><table className="jh-listing-table" aria-label={`${label}の求人`}><thead><tr>
       <th scope="col">求人名</th><th scope="col">媒体</th><th scope="col">掲載期間</th><th scope="col" className="num">直近4週の応募</th><th scope="col" className="num">今の課金（4週）</th><th scope="col">最後の変更</th>
@@ -73,7 +77,7 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
   </>; };
   return <>
     {source.status === 'loading' && <p role="status">応募・課金を読み込んでいます…</p>}
-    {source.status === 'error' && <p role="alert">応募・課金を読み込めませんでした。求人は表示しています。</p>}
+    {source.status === 'error' && <p role="alert">応募・課金を読み込めませんでした。求人は表示しています。<button type="button" className="jh-link" onClick={() => { setReload(count => count + 1); }}>もう一度読み込む</button></p>}
     {source.status === 'ready' && source.notes?.map(note => <p key={note} className="jh-note">応募・課金：{note}</p>)}
     {source.status === 'ready' && source.datas.some(data => data.capped || data.rows.length > 30) && <p className="jh-note">応募・課金は各案件で取得できた求人の分だけ表示しています。</p>}
     <p className="jh-note">納品管理の求人を本文の変更が新しい順に表示。案件名から求人を比較できます。<br />応募・課金は {formatDay(model.asOf)} までの4週間（未取得は「—」）。最後の変更は本文のみ。</p>

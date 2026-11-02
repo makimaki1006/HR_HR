@@ -79,7 +79,7 @@ describe('応募が0件の求人', () => {
 describe('応募の日別データが無いときの文', () => {
   it('読み込み中・失敗・記録元なしを分ける', () => {
     expect(noApplicationDatesText({ applicationDates: 'loading' })).toBe('応募を読み込み中です。');
-    expect(noApplicationDatesText({ applicationDates: 'failed' })).toBe('応募を取得できませんでした。時間を置いて、もう一度開いてください。');
+    expect(noApplicationDatesText({ applicationDates: 'failed' })).toBe('応募を読み込めませんでした。');
     expect(noApplicationDatesText({})).toBe('この求人の応募はまだ記録されていません。');
   });
 });

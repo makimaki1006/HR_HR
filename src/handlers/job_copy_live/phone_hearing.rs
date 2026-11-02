@@ -286,8 +286,34 @@ impl JobReadService {
         serde_json::from_value(self.applicant_bundle(listing).await?["phone_hearing"].clone())
             .map_err(|_| fail("hubspot_invalid_response"))
     }
-    async fn applicant_bundle(&self, listing: &str) -> Result<Value, ReadError> {
-        let ids = self.all_associations("0-420", listing, "0-421").await?;
+    /// 応募の束（日付・理由・電話で聞いた内容）。同じ求人は 60 秒、全員で 1 回の読み取りを共有する。
+    /// 画面は「応募」と「電話ヒアリング」を別々に呼ぶので、同時に 2 回走らせない。
+    /// 全体の締め切りは `APPLICANT_DEADLINE`。超えたら 504 `applicants_timeout`（画面は「読み込めませんでした」と再試行を出す）。
+    pub(super) async fn applicant_bundle(&self, listing: &str) -> Result<Value, ReadError> {
+        let slot = self.applicants.slot(listing);
+        let work = async {
+            let mut guard = slot.lock().await;
+            if let Some((at, value)) = guard.as_ref() {
+                if at.elapsed() < APPLICANT_TTL {
+                    return Ok(value.clone());
+                }
+            }
+            let value = self.applicant_bundle_uncached(listing).await?;
+            *guard = Some((Instant::now(), value.clone()));
+            Ok(value)
+        };
+        match tokio::time::timeout(APPLICANT_DEADLINE, work).await {
+            Ok(result) => result,
+            Err(_) => Err(ReadError(StatusCode::GATEWAY_TIMEOUT, "applicants_timeout")),
+        }
+    }
+    async fn applicant_bundle_uncached(&self, listing: &str) -> Result<Value, ReadError> {
+        // 応募の関連と、応募の項目定義は互いに待たなくてよい。
+        let (ids, definitions) = tokio::join!(
+            self.all_associations("0-420", listing, "0-421"),
+            self.request("/crm/v3/properties/0-421", &[], None)
+        );
+        let ids = ids?;
         if ids.is_empty() {
             let hearing = PhoneHearing {
                 total_applicants: 0,
@@ -305,7 +331,7 @@ impl JobReadService {
             ));
         }
         // Resolve media by its definition label, rather than guessing its internal name.
-        let definitions = self.request("/crm/v3/properties/0-421", &[], None).await?;
+        let definitions = definitions?;
         let definitions = definitions["results"]
             .as_array()
             .ok_or_else(|| fail("hearing_definitions_invalid"))?;
@@ -351,8 +377,13 @@ impl JobReadService {
         }
         // All records contribute to the denominator; only bounded, masked texts leave the server.
         let selected = ids.clone();
-        let rows = self.batch("0-421", &selected, &properties).await?;
-        let note_links = self.hearing_links(&selected, "notes").await?;
+        // 応募本体・メモの関連・求人票の関連は互いに待たずに同時に読む。
+        let (rows, note_links, listing_links) = tokio::join!(
+            self.batch("0-421", &selected, &properties),
+            self.hearing_links(&selected, "notes"),
+            self.hearing_links(&selected, "0-420")
+        );
+        let (rows, note_links, listing_links) = (rows?, note_links?, listing_links?);
         let note_ids: Vec<_> = note_links
             .values()
             .flatten()
@@ -363,7 +394,6 @@ impl JobReadService {
         let notes = self
             .batch("notes", &note_ids, &["hs_note_body", "hs_timestamp"])
             .await?;
-        let listing_links = self.hearing_links(&selected, "0-420").await?;
         let multi = listing_links
             .into_iter()
             .filter(|(_, ids)| ids.len() > 1)
@@ -511,6 +541,40 @@ fn add_reason(
         version_id: None,
     });
 }
+/// 求人ごとの応募の束の 60 秒キャッシュ（全員で共有。最大 64 件）。
+type Slot = Arc<tokio::sync::Mutex<Option<(Instant, Value)>>>;
+#[derive(Default)]
+pub(super) struct ApplicantCache {
+    slots: std::sync::Mutex<BTreeMap<String, Slot>>,
+}
+impl ApplicantCache {
+    fn slot(&self, listing: &str) -> Slot {
+        let mut slots = self
+            .slots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slots.len() >= 64 && !slots.contains_key(listing) {
+            // 使われていない（誰も待っていない）古い枠から捨てる。
+            let stale: Vec<_> = slots
+                .iter()
+                .filter(|(_, slot)| Arc::strong_count(slot) == 1)
+                .map(|(key, _)| key.clone())
+                .take(16)
+                .collect();
+            for key in stale {
+                slots.remove(&key);
+            }
+        }
+        slots.entry(listing.to_owned()).or_default().clone()
+    }
+}
+const APPLICANT_TTL: Duration = Duration::from_secs(60);
+/// 画面の待ち（45 秒）より短くして、画面が先に諦める前にサーバーが答える。
+#[cfg(not(test))]
+pub(super) const APPLICANT_DEADLINE: Duration = Duration::from_secs(40);
+#[cfg(test)]
+pub(super) const APPLICANT_DEADLINE: Duration = Duration::from_millis(400);
+
 pub(super) async fn read_applicants(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
@@ -533,6 +597,93 @@ pub(super) async fn read(
     valid_id(&id)?;
     let result = listings::service(&access)?.phone_hearing(&id).await?;
     Ok(([(header::CACHE_CONTROL, "private, no-store")], Json(result)))
+}
+
+#[cfg(test)]
+mod bundle_cache_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// 架空の HubSpot。応募 2 件の求人 "10" だけを返し、呼ばれた回数を数える。
+    async fn serve(
+        calls: Arc<AtomicUsize>,
+        delay: Duration,
+    ) -> (JobReadService, tokio::task::JoinHandle<()>) {
+        let app = axum::Router::new().fallback(axum::routing::any(
+            move |uri: axum::http::Uri, _body: axum::body::Bytes| {
+                let calls = calls.clone();
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(delay).await;
+                    let path = uri.path().to_owned();
+                    let value = if path.ends_with("/associations/0-421") {
+                        json!({"results":[{"toObjectId":201},{"toObjectId":202}]})
+                    } else if path == "/crm/v3/properties/0-421" {
+                        json!({"results":[]})
+                    } else if path == "/crm/v3/objects/0-421/batch/read" {
+                        json!({"results":[
+                            {"id":"201","properties":{"yingmuri":"2026-10-01"}},
+                            {"id":"202","properties":{"yingmuri":"2026-10-02"}}]})
+                    } else if path.ends_with("/0-421/notes/batch/read")
+                        || path.ends_with("/0-421/0-420/batch/read")
+                    {
+                        json!({"results":[
+                            {"from":{"id":"201"},"to":[]},
+                            {"from":{"id":"202"},"to":[]}]})
+                    } else if path == "/crm/v3/objects/notes/batch/read" {
+                        json!({"results":[]})
+                    } else {
+                        panic!("unexpected {path}");
+                    };
+                    axum::Json(value)
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let service =
+            JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (service, server)
+    }
+
+    #[tokio::test]
+    async fn same_listing_is_read_once_for_two_screens_and_counts_by_date() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (service, server) = serve(calls.clone(), Duration::ZERO).await;
+        let (a, b) = tokio::join!(
+            service.applicant_bundle("10"),
+            service.applicant_bundle("10")
+        );
+        let (a, b) = (a.unwrap(), b.unwrap());
+        assert_eq!(a["total"], 2);
+        assert_eq!(a["by_date"], json!({"2026-10-01":1,"2026-10-02":1}));
+        assert_eq!(a["fetched_at"], b["fetched_at"], "二度目は同じ結果を使う");
+        // 関連 1 + 定義 1 + 応募本体 1 + メモ関連 1 + 求人票関連 1 + メモ本体 1 (メモが 0 件でも呼ぶ場合あり)
+        let first = calls.load(Ordering::SeqCst);
+        assert!((5..=6).contains(&first), "calls = {first}");
+        service.applicant_bundle("10").await.unwrap();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            first,
+            "60 秒以内は読み直さない"
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_read_that_takes_too_long_ends_with_a_timeout_instead_of_hanging() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (service, server) = serve(calls, Duration::from_millis(250)).await;
+        let started = tokio::time::Instant::now();
+        let error = service.applicant_bundle("10").await.unwrap_err();
+        assert_eq!(
+            (error.0, error.1),
+            (StatusCode::GATEWAY_TIMEOUT, "applicants_timeout")
+        );
+        assert_eq!(error.1, "applicants_timeout");
+        assert!(started.elapsed() < APPLICANT_DEADLINE + Duration::from_millis(400));
+        server.abort();
+    }
 }
 
 #[cfg(test)]
@@ -881,8 +1032,13 @@ mod tests {
             .filter(|(p, _)| p.ends_with("objects/0-421/batch/read"))
             .all(|(_, b)| b["inputs"].as_array().unwrap().len() == 2));
         broken.store(true, Ordering::SeqCst);
+        // 60 秒のキャッシュを通さず、読み取りそのものの失敗が伝わることを確かめる。
         assert_eq!(
-            service.phone_hearing("30").await.unwrap_err().code(),
+            service
+                .applicant_bundle_uncached("30")
+                .await
+                .unwrap_err()
+                .code(),
             "hubspot_partial_read"
         );
         server.abort();
