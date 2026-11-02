@@ -163,13 +163,34 @@ pub(super) async fn generate(
         StatusCode::SERVICE_UNAVAILABLE,
         "hubspot_not_configured",
     ))?;
+    let base_url = std::env::var("MINIMAX_BASE_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| crate::crm::talk_review::config::DEFAULT_BASE_URL.into());
+    let model = std::env::var("RIKUROZI_MODEL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| crate::crm::talk_review::config::DEFAULT_MODEL.into());
+    let minimax = crate::crm::talk_review::judge::MiniMaxJudge::new(base_url.trim(), model.trim())
+        .ok_or(ReadError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "draft_configuration_invalid",
+        ))?;
     let source = service.rikurozi_source(&id).await?;
     let result = draft::run(
         &source,
         threshold,
         min_chars,
-        |prompt, schema, temperature| async move {
-            crate::job_gen::handlers::jobgen_llm(&prompt, &schema, temperature).await
+        |prompt, _schema, _temperature| {
+            let minimax = &minimax;
+            async move {
+                // The item prompt specifies the single text field. The shared client
+                // reuses its connection and never logs the prompt or response body.
+                minimax
+                    .complete_json(&prompt)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("MiniMaxで項目を作成できませんでした"))
+            }
         },
     )
     .await
