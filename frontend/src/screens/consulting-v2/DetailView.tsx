@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { apiGet } from '../../api/client';
 import { DASH, dayDiff, durText, monthsBefore, num, orText, yen } from './format';
-import { Async, CaseLink, FlagChips, HubspotLink, NoData, Section } from './parts';
+import { Async, CaseLink, FlagChips, Fresh, HubspotLink, NoData, Section } from './parts';
 import type { Route } from './route';
 import type { DetailEvent, DetailResponse, GoalsResponse } from './types';
 import { useApi } from './useApi';
@@ -311,6 +311,7 @@ function Body({ d, go }: { d: DetailResponse; go: (r: Partial<Route>) => void })
   const nth = deal.renewal_no === null || deal.renewal_no === undefined ? '' : deal.renewal_no === 0 ? '（初回）' : `（${num(deal.renewal_no)}回目の継続）`;
   return (
     <>
+      <Fresh meta={d.meta} />
       <div className="cv2-detail-head">
         <nav className="cv2-crumbs" aria-label="この案件の位置">
           <span>{deal.houjin_name ?? '法人の情報なし'}</span>

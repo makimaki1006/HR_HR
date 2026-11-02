@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DASH, num, orText, yen } from './format';
-import { Async, CaseLink, FlagChips, HubspotLink, Kpi, Section } from './parts';
+import { Async, CaseLink, FlagChips, Fresh, HubspotLink, Kpi, Section } from './parts';
 import type { Route } from './route';
 import type { PipeAmount, PipeRow, RenewalPipeResponse } from './types';
 import { useApi } from './useApi';
@@ -70,6 +70,7 @@ export function RenewalView({ go }: { go: (r: Partial<Route>) => void }) {
         const cnt = (m: (typeof months)[number], s: string): number => m.stages?.find((x) => x.label === s)?.n ?? 0;
         return (
           <>
+            <Fresh meta={d.meta} />
             <div className="cv2-kpis">
               {months.map((m, i) => (
                 <Kpi key={m.month} label={`${WORDS[i] ?? ''} ${win[i] ?? ''} に満了`} value={num(m.n)} unit="件" note={amountText(m)} />

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { BOARD_COLUMNS, DealTable } from './DealTable';
 import { num } from './format';
-import { Async, Kpi, Section } from './parts';
+import { Async, Fresh, Kpi, Section } from './parts';
 import type { Route } from './route';
 import type { BoardResponse, DealRow } from './types';
 import { useApi } from './useApi';
@@ -50,6 +50,7 @@ export function BoardView({ route, go }: { route: Route; go: (r: Partial<Route>)
         const narrowed = route.c !== '' || route.flag !== '' || route.band !== '';
         return (
           <>
+            <Fresh meta={d.meta} />
             <div className="cv2-kpis">
               <Kpi label="稼働中の案件" value={num(d.meta.n_active ?? d.rows.length)} unit="件" note="注意の数が多い順（同じなら金額の大きい順）" />
               {flagOptions.slice(0, 3).map((f) => (

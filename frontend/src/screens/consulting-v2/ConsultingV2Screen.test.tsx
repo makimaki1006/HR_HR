@@ -120,6 +120,32 @@ describe('コンサルKPI v2', () => {
   });
 });
 
+describe('今のコンサルKPIとそろえた表示', () => {
+  it('データの古さと取得日時を常に出す（7日前なら警告の色）', async () => {
+    open('');
+    render(<ConsultingV2Screen />);
+    const box = await screen.findByText('7日前のデータです（2026-10-26 14:01）。');
+    expect(box.closest('.cv2-fresh')?.className).toContain('cv2-fresh-bad');
+  });
+
+  it('担当者ごとの表の既定の並びは「手が回っていない案件」の多い順', async () => {
+    open('');
+    render(<ConsultingV2Screen />);
+    const table = await screen.findByRole('table', { name: '担当者ごとの状態' });
+    const names = within(table).getAllByRole('row').slice(1, 3).map((r) => r.textContent);
+    expect(names[0]).toContain('架空担当みどり'); // 手が回っていない 2
+    expect(names[1]).toContain('架空担当あお'); // 手が回っていない 1
+  });
+
+  it('上の札にも前回との差を出す', async () => {
+    open('');
+    render(<ConsultingV2Screen />);
+    await screen.findByText('担当者ごとの状態（2 名）');
+    expect(screen.getByText('注意が 2 つ以上の案件').closest('.cv2-kpi')?.textContent).toContain('+1');
+    expect(screen.getAllByText('今週満了')[0]?.closest('.cv2-kpi')?.textContent).toContain('−1');
+  });
+});
+
 describe('コンサルKPI v2 第2段', () => {
   it('案件一覧に応募・面接・採用・目標・接触率・採用単価の列と HubSpot へのリンクが出る', async () => {
     open('?view=board&c=架空担当あお');

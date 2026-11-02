@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DASH, num, orText, pct1, yen } from './format';
-import { Async, Kpi, Section } from './parts';
+import { Async, Fresh, Kpi, Section } from './parts';
 import type { Route } from './route';
 import type { MtgQualityResponse, PhoneResponse, ResultsResponse } from './types';
 import { useApi } from './useApi';
@@ -107,6 +107,7 @@ export function ResultsView({ go }: { go: (r: Partial<Route>) => void }) {
           const reached = ga?.bands?.find((b) => b.label.startsWith('100%'))?.n;
           return (
             <>
+              <Fresh meta={d.meta} />
               <div className="cv2-kpis">
                 <Kpi label="稼働中の契約金額" value={money?.active_total ? yen(money.active_total.amount) : DASH} note={money?.active_total ? `対象 ${num(money.active_total.n)} 件・金額が空 ${num(money.active_total.amount_missing)} 件` : undefined} />
                 <Kpi

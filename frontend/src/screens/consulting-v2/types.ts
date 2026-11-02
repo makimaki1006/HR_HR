@@ -1,6 +1,15 @@
 // /api/consulting/* の応答の形（src/handlers/cs_dashboard/routes.rs が正本）。
 // この画面で使う項目だけを書く。値が無いとき null か項目ごと無いことがあるので、どれも省略可で扱う。
 
+/** どの応答の meta にも載る、データの取得日時と古さ (routes.rs の freshen) */
+export interface FreshMeta {
+  today?: string;
+  source_as_of?: string | null;
+  source_age_days?: number | null;
+  generated_at?: string | null;
+  update_schedule?: string | null;
+}
+
 export interface DealRow {
   deal_id: string;
   name?: string | null;
@@ -49,7 +58,7 @@ export interface DealRow {
   cpa_vs_band?: number | null;
 }
 
-export interface BoardMeta {
+export interface BoardMeta extends FreshMeta {
   today?: string;
   hubspot_portal_id?: string;
   n_active?: number;
@@ -125,7 +134,7 @@ export interface ContactUnit {
 }
 
 export interface TeamResponse {
-  meta: {
+  meta: FreshMeta & {
     hubspot_portal_id?: string;
     n_consultant?: number;
     n_active?: number;
@@ -219,8 +228,7 @@ export interface ChainRow {
 }
 
 export interface DetailResponse {
-  meta: {
-    today?: string;
+  meta: FreshMeta & {
     hubspot_portal_id?: string;
     found?: boolean;
     deal_id?: string | null;
@@ -273,7 +281,7 @@ export interface PipeRow {
 }
 
 export interface RenewalPipeResponse {
-  meta: { today?: string; hubspot_portal_id?: string; n_active?: number; window?: string[]; amount_basis?: string };
+  meta: FreshMeta & { hubspot_portal_id?: string; n_active?: number; window?: string[]; amount_basis?: string };
   months?: (PipeAmount & { month: string; stages?: { label: string; n: number }[] })[];
   stages?: string[];
   window_total?: PipeAmount;
@@ -317,7 +325,7 @@ export interface CustomerDeal {
 }
 
 export interface CustomerResponse {
-  meta: { today?: string; hubspot_portal_id?: string; houjin?: string; found?: boolean };
+  meta: FreshMeta & { hubspot_portal_id?: string; houjin?: string; found?: boolean };
   default_houjin?: string | null;
   index?: CustomerIndexRow[];
   customer?: CustomerIndexRow | null;
@@ -361,7 +369,7 @@ export interface MoneyRetentionRow {
 }
 
 export interface ResultsResponse {
-  meta: { today?: string; hubspot_portal_id?: string };
+  meta: FreshMeta & { hubspot_portal_id?: string };
   renewal?: { monthly_retention?: { rows?: MonthlyRetentionRow[] }; by_renewal?: ByRenewalRow[] };
   outcome?: { goal_act?: { pop?: number; has_goal?: number; both?: number; median?: number | null; bands?: { label: string; n: number }[] } };
   money?: { active_total?: PipeAmount; window?: { months?: string[]; sum?: PipeAmount }; retention?: { rows?: MoneyRetentionRow[]; rule?: string }; amount_basis?: string };
@@ -377,7 +385,7 @@ export interface ResultsResponse {
 }
 
 export interface MtgQualityResponse {
-  meta: { n_mtg?: number };
+  meta: FreshMeta & { n_mtg?: number };
   linked?: { n: number; rate: number | null; note?: string };
   filled?: { field: string; n: number; rate: number | null }[];
   filled_note?: string;

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DASH, num, orText, yen } from './format';
-import { Async, CaseLink, HubspotLink, Kpi, Section } from './parts';
+import { Async, CaseLink, Fresh, HubspotLink, Kpi, Section } from './parts';
 import type { Route } from './route';
 import type { CustomerResponse } from './types';
 import { useApi } from './useApi';
@@ -17,6 +17,8 @@ export function CustomerView({ route, go }: { route: Route; go: (r: Partial<Rout
         if (route.houjin === '') {
           const list = (d.index ?? []).filter((c) => q.trim() === '' || (c.name ?? '').includes(q.trim()));
           return (
+            <>
+            <Fresh meta={d.meta} />
             <Section title={`法人を選ぶ（${num(list.length)} 社）`}>
               <div className="cv2-filters">
                 <label className="cv2-field">
@@ -60,6 +62,7 @@ export function CustomerView({ route, go }: { route: Route; go: (r: Partial<Rout
               </div>
               {list.length > 200 ? <p className="cv2-dim">先頭の 200 社だけ出しています。法人名で絞ってください。</p> : null}
             </Section>
+            </>
           );
         }
         if (d.meta.found !== true || !d.customer) {
@@ -80,6 +83,7 @@ export function CustomerView({ route, go }: { route: Route; go: (r: Partial<Rout
         const portal = d.meta.hubspot_portal_id;
         return (
           <>
+            <Fresh meta={d.meta} />
             <p>
               <button type="button" onClick={() => { go({ houjin: '' }); }}>← 法人の一覧へ戻る</button>
             </p>

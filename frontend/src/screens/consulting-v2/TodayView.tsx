@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ConsultantSelect, filterRows } from './BoardView';
 import { DealTable, TODAY_COLUMNS } from './DealTable';
 import { num } from './format';
-import { Async, Kpi, Section } from './parts';
+import { Async, Fresh, Kpi, Section } from './parts';
 import type { Route } from './route';
 import type { TodayResponse } from './types';
 import { useApi } from './useApi';
@@ -20,6 +20,7 @@ export function TodayView({ route, go }: { route: Route; go: (r: Partial<Route>)
         const open = (id: string): void => { go({ view: 'detail', id }); };
         return (
           <>
+            <Fresh meta={d.meta} />
             <div className="cv2-kpis">
               <Kpi label="今日動く候補" value={num(d.meta.n_hit)} unit="件" note={`注意が2つ以上 ${num(d.meta.n_flags2)} 件を含む`} />
               <Kpi label="今週満了" value={num((d.expiring_this_week ?? []).length)} unit="件" note="満了まで7日以内" />

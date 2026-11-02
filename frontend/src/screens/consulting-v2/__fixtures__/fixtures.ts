@@ -126,11 +126,11 @@ export const TODAY: TodayResponse = {
 };
 
 export const TEAM: TeamResponse = {
-  meta: { n_consultant: 2, n_active: 3, retired_deals: 0, retired_people: 0, unknown_owner: 0 },
+  meta: { source_as_of: '2026-10-26 14:01:00', source_age_days: 7, generated_at: '2026-10-26 14:05:00', update_schedule: '毎日 21:30', n_consultant: 2, n_active: 3, retired_deals: 0, retired_people: 0, unknown_owner: 0 },
   status: {
     rows: [
       { consultant: '架空担当あお', n_active: 1, unattended: 1, n_flags2: 1, mtg_critical: 1, no_contact: 0, expiring60: 1, nps_low: 1, expiring_week: 0, delta: { n_flags2: 1 } },
-      { consultant: '架空担当みどり', n_active: 2, unattended: 1, n_flags2: 0, mtg_critical: 0, no_contact: 1, expiring60: 0, nps_low: 0, expiring_week: 0 },
+      { consultant: '架空担当みどり', n_active: 2, unattended: 2, n_flags2: 0, mtg_critical: 0, no_contact: 1, expiring60: 0, nps_low: 0, expiring_week: 0 },
     ],
     meta: {
       n_active: 3,
@@ -157,7 +157,7 @@ export const TEAM: TeamResponse = {
       ],
     },
   },
-  comparison: { data_day: '2026-10-30', totals: { n_flags2: 1 } },
+  comparison: { data_day: '2026-10-30', totals: { n_flags2: 1, expiring_week: -1 } },
 };
 
 export const DETAIL: DetailResponse = {

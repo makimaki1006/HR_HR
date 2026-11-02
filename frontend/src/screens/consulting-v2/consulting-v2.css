@@ -154,3 +154,9 @@
   .cv2-goals { grid-template-columns: 1fr; }
 }
 body:has(.cv2) { margin: 0; background: #f4f7fa; }
+
+.cv2-fresh { border-radius: 6px; padding: 10px 16px; margin-bottom: 16px; background: #eaf4ed; color: #1f4d3a; }
+.cv2-fresh-warn { background: #fff1dd; color: #6b4210; }
+.cv2-fresh-bad { background: #fbe6e3; color: #7d2019; }
+.cv2-fresh details { display: inline-block; margin-left: 12px; }
+.cv2-fresh .cv2-dim { color: inherit; opacity: 0.8; }

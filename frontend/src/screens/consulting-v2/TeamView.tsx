@@ -1,6 +1,6 @@
 import { DASH, num, pct1 } from './format';
 import { ContactTrend } from './ContactTrend';
-import { Async, Kpi, Section } from './parts';
+import { Async, Fresh, Kpi, Section } from './parts';
 import type { Route } from './route';
 import type { ContactCell, ContactPeriod, TeamResponse, TeamStatusRow } from './types';
 import { useApi } from './useApi';
@@ -15,7 +15,7 @@ function lastFixed(periods: ContactPeriod[] | undefined): number {
   return -1;
 }
 
-function Delta({ v }: { v: number | undefined }) {
+export function Delta({ v }: { v: number | undefined }) {
   if (v === undefined || v === 0) return null;
   return <span className={`cv2-delta ${v > 0 ? 'cv2-delta-worse' : 'cv2-delta-better'}`}>{v > 0 ? '+' : '−'}{num(Math.abs(v))}</span>;
 }
@@ -54,7 +54,7 @@ type SortKey = 'consultant' | 'n_active' | 'unattended' | 'n_flags2' | 'mtg_crit
 export function TeamView({ go }: { go: (r: Partial<Route>) => void }) {
   const [reload, setReload] = useState(0);
   const result = useApi<TeamResponse>('/api/consulting/team', reload);
-  const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: 'n_flags2', asc: false });
+  const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: 'unattended', asc: false });
   return (
     <Async result={result} onRetry={() => { setReload((n) => n + 1); }}>
       {(d) => {
@@ -90,6 +90,7 @@ export function TeamView({ go }: { go: (r: Partial<Route>) => void }) {
         );
         return (
           <>
+            <Fresh meta={d.meta} />
             {d.comparison?.data_day ? (
               <p className="cv2-dim">
                 {Number(d.comparison.data_day.split('-')[1])}/{Number(d.comparison.data_day.split('-')[2])} のデータとの差
@@ -106,10 +107,11 @@ export function TeamView({ go }: { go: (r: Partial<Route>) => void }) {
                 label={`注意が ${num(sm.min_flags)} つ以上の案件`}
                 value={num(sm.n_flags2)}
                 unit="件"
+                delta={<Delta v={deltas.n_flags2} />}
                 note={`稼働中 ${num(sm.n_active)} 件のうち`}
                 onClick={() => { go({ view: 'today' }); }}
               />
-              <Kpi label="今週満了" value={num(sm.expiring_week)} unit="件" note={`満了まで ${num(sm.week_days)} 日以内`} />
+              <Kpi label="今週満了" value={num(sm.expiring_week)} unit="件" delta={<Delta v={deltas.expiring_week} />} note={`満了まで ${num(sm.week_days)} 日以内`} />
               <Kpi
                 label="退職者のまま"
                 value={num(d.meta.retired_deals)}
