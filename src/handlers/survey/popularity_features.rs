@@ -724,7 +724,8 @@ mod tests {
         };
         let recs = parse_csv_bytes_with_hints(&bytes, None, UserSourceHint::Auto).unwrap();
         let s = compute(&recs).unwrap();
-        assert_eq!((s.total, s.popular), (331, 150));
+        // 求人キー (jk) は 350 種類。求人名・URL の列 (css-cdutv5) を読めなかった頃は 331 件 / 150 件だった。
+        assert_eq!((s.total, s.popular), (350, 157));
         let out = std::env::var("FEATURES_OUT").unwrap_or_default();
         if !out.is_empty() {
             std::fs::write(out, serde_json::to_string_pretty(&s.features).unwrap()).unwrap();
