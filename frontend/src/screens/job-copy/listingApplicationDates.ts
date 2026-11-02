@@ -18,6 +18,14 @@ export interface LoadedApplications {
   reasons: JobCopyRecord['applicantReasons'];
 }
 
+/** サーバーの締め切り（40 秒）より少し長い。これを過ぎたら「読み込めませんでした」にする。 */
+export const APPLICANTS_TIMEOUT_MS = 45_000;
+/** 画面の「もう一度読み込む」から、開いている求人の応募を読み直させる合図。 */
+export const RETRY_APPLICANTS_EVENT = 'jobcopy:retry-applicants';
+export function requestApplicantsRetry(id: string): void {
+  window.dispatchEvent(new CustomEvent<string>(RETRY_APPLICANTS_EVENT, { detail: id }));
+}
+
 const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value : null;
 
 export function applicationRows(raw: unknown): ApplicationRow[] {
@@ -33,7 +41,7 @@ export function applicationRows(raw: unknown): ApplicationRow[] {
 }
 
 export async function loadApplicationDates(id: string, signal?: AbortSignal): Promise<LoadedApplications | null> {
-  const result = await apiGet<ApplicationDates>(`/api/job-copy/listings/${encodeURIComponent(id)}/applicants`, { timeoutMs: 120_000, ...(signal ? { signal } : {}) });
+  const result = await apiGet<ApplicationDates>(`/api/job-copy/listings/${encodeURIComponent(id)}/applicants`, { timeoutMs: APPLICANTS_TIMEOUT_MS, ...(signal ? { signal } : {}) });
   if (!result.ok || result.data.listing_id !== id) return null;
   const overall = overallFromLiveSummary({ total: result.data.total, missing_date: result.data.missing_date, by_date: result.data.by_date, dimensions: {} }, result.data.fetched_at);
   if (!overall) return null;

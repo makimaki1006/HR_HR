@@ -3448,6 +3448,27 @@ check("案件の詳細: 電話の AI 要約には「誤りを含むことがあ�
   ok(jsNoComment.includes("AI 要約（誤りを含むことがあります）"), "要約の見出しに AI 要約の断りが無い");
 });
 
+check("案件の詳細: 長文は先頭だけにして全文を表示で読める。補助の項目は記録の詳細に畳み、空の項目は並べない", () => {
+  const long = "あ".repeat(300);
+  ok(run('ddText("短い")') === "短い", "短い本文を畳んでいる");
+  const t = run("ddText(" + JSON.stringify(long) + ")");
+  ok(t.includes("全文を表示") && t.includes('<div class="full">' + long + "</div>") && t.includes("あ".repeat(120) + "…"), "長文の畳み方が違う");
+  ok(run('ddRows([["やること", ""], ["懸念", null]], true)') === "", "空の項目を並べている");
+  ok(run('ddMore([["前向きシグナル", ""]])') === "", "空の補助項目で記録の詳細を出している");
+  ok(run('ddMore([["前向きシグナル", "x"]])').includes("記録の詳細"), "補助項目が記録の詳細に入っていない");
+  const P = ddPayload();
+  P.events = [{ kind: "mtg", date: "2026-09-10", time: "10:00", fact: true, source_label: "Zoom 録画（事実）", host: "担当A", minutes: 30,
+    mtg_type: null, extracted: true, todo: "T", concern: "C", positive: "前向き内容", risk: "中", risk_reason: "R", next: "N",
+    link_certainty: "中", link_reason: "L", attach: { state: "own" } }];
+  ctx.__DD = P;
+  const it = ddItems(run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }"))[0];
+  ok(it.includes("取引への結び付け: 確度 中"), "推定の印が閉じた状態で見えない");
+  ok(it.indexOf("記録の詳細") > it.indexOf("顧客の懸念") && it.slice(it.indexOf("記録の詳細")).includes("前向き内容") &&
+     it.slice(it.indexOf("記録の詳細")).includes("次回予定"), "補助項目が記録の詳細に無い");
+  const h = run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }");
+  ok(h.includes('href="/app/job-copy?deal=80000000001"'), "案件管理で開くリンクが無い");
+});
+
 /* ================================================================ 段1（2026-09-28、08_UIUX改善案の S-3） */
 check("S-3: 今日動く先の3表は9列（案件・注意・満足度・担当・段階・満了まで・最後の接触・最後のMTG・金額）で、注意が2列目", () => {
   const cols = run("TODAY_COLS.map((c) => c.t)");
@@ -4019,7 +4040,8 @@ check("S-12: 600px 以下だけ、枠内の縦スクロールをやめ・入力�
     "PC で枠の上の案内が 600px 以下用の文になっている、または PC 用の文が消えている");
   ok(!/td:first-child\{ white-space:normal/.test(outside), "1列目の折り返し（40vw の上限）が PC にも効いている");
   ok(!/max-height:none !important/.test(outside), "枠の縦スクロールを PC でも外している（640px の枠に 24 行を収める設計が崩れる）");
-  ok(!/min-height:40px/.test(outside), "40px の当たりが PC にも効いている");
+  /* 案件の詳細だけ（body.dd-page）は新しい操作版で PC も 40px の当たりを使う。他の画面に効いていないことを見る */
+  ok(!/min-height:40px/.test(outside.replace(/body\.dd-page[^{}]*\{[^}]*\}/g, "")), "40px の当たりが PC にも効いている");
   ok(/\.side button\{[^}]*min-height:34px/.test(outside) && /\.ctlbar select, \.ctlbar input, \.ctlbar button\.act\{[^}]*min-height:28px/.test(outside),
     "PC のサイドの項目 34px・操作列 28px が変わっている");
 });

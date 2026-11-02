@@ -126,6 +126,8 @@
   .pick input:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
   .pick span{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .count-line b{ color:var(--ink); }
+  .count-line details.cnt{ margin-top:var(--space-1); }
+  .count-line details.cnt > summary{ font-size:12px; }
   .stamp{ font-size:12px; color:var(--ink-2); text-align:right; line-height:1.7;
           font-variant-numeric:tabular-nums; }
   .stamp b{ color:var(--ink); font-weight:600; }
@@ -243,8 +245,10 @@
      左の小さな字（.no）は前の画面の名前 */
   h2.sec.mincho.mid{ font-size:19px; margin-top:var(--space-6); }
   h2.sec + .lede{ color:var(--ink-2); font-size:12.5px; margin:0 0 var(--space-4); max-width:76ch; }
-  .dd-goals{ display:flex; flex-wrap:wrap; gap:4px 16px; align-items:baseline; max-width:none; }
-  .dd-goals .dd-goal, .dd-goals .muted{ flex-basis:100%; }
+  .dd-goals{ max-width:none; }
+  details.fold.dd-goals > summary{ font-size:15px; font-weight:600; }
+  .dd-goals .body{ padding:var(--space-2) 0; }
+  .dd-goals .dd-goal, .dd-goals .muted{ display:block; }
   .dd-goals ul{ margin:2px 0 0; padding-left:18px; }
   p.sec-hint{ margin:0 0 var(--space-3); font-size:13px; line-height:1.6; color:var(--ink-2); }
   h3.sub{ font-size:14.5px; font-weight:700; margin:30px 0 10px; letter-spacing:.03em;
@@ -940,13 +944,152 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
 .tl dt{ color:var(--ink-2); font-size:12px; }
 .tl dd{ margin:0; min-width:0; }
 .tl .via{ display:block; margin-top:2px; font-size:12px; color:var(--ink-2); }
+/* 案件の詳細だけ（.tl / .dd-* の中に閉じる。他の画面に漏らさない） */
+.tl li{ background:transparent; }
+.tl .what{ max-width:900px; font-size:14px; line-height:1.8; }
+.tl .what > .mark{ margin-bottom:var(--space-1); }
+.tl dl{ grid-template-columns:minmax(140px,200px) 1fr; gap:var(--space-1) var(--space-3); margin:var(--space-2) 0 0; }
+.tl dt{ font-size:12px; }
+.tl dd{ font-size:14px; }
+.longtxt summary{ cursor:pointer; list-style:none; }
+.longtxt summary::-webkit-details-marker{ display:none; }
+.longtxt .tg{ color:var(--ai); text-decoration:underline; text-underline-offset:2px; font-size:12px; white-space:nowrap; }
+.longtxt .t-open{ display:none; }
+.longtxt[open] .t-open{ display:inline; }
+.longtxt[open] .t-close, .longtxt[open] .pv{ display:none; }
+.longtxt .full{ white-space:pre-wrap; }
+.count-line details.evd, .tl details.evd{ margin-top:var(--space-2); font-size:12px; }
+.count-line details.evd > summary, .tl details.evd > summary{ cursor:pointer; color:var(--ai); text-decoration:underline; text-underline-offset:2px; }
+.tl details.evd dl{ background:var(--panel); border:1px solid var(--rule-2); padding:var(--space-2) var(--space-3); border-radius:var(--radius-lg); }
+.tl summary:focus-visible, .dd-open a:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
+.dd-open{ display:flex; gap:var(--space-2); flex-wrap:wrap; }
+.dd-nextbox{ margin:var(--space-3) 0; padding:var(--space-3) var(--space-4); background:var(--panel); border:1px solid var(--rule); border-left:3px solid var(--ai); border-radius:var(--radius-lg); max-width:900px; }
+.dd-nextbox h3{ margin:0 0 var(--space-1); font-size:15px; font-weight:600; }
+.dd-nextbox .src{ margin:var(--space-2) 0 0; font-size:12px; color:var(--ink-2); }
+.dd-pt{ display:grid; grid-template-columns:140px 1fr; gap:var(--space-3); margin:var(--space-1) 0; line-height:1.8; }
+.dd-pt .k{ font-size:12px; color:var(--ink-2); }
 @media (max-width:600px){
+  .dd-pt{ grid-template-columns:1fr; gap:0; }
   .tl li{ grid-template-columns:1fr; gap:2px; }
   /* 要約の見出し（dt）と本文（dd）を縦に積む（S-12）。2026-09-28 診断: 400px で左列（dt）が
      約 200px を取り、本文が細い列で折り返されていた。読む順（見出し→本文）はそのまま */
   .tl dl{ grid-template-columns:1fr; }
 }
 .customer-min { width: 100px; }
+
+/* ====================================================================
+   個別案件ページ（#deal/detail）だけの見た目。承認された新しい操作版（navy ヘッダー・ゴシック・カード・余白・情報階層）に合わせる。
+   🔴 すべて body.dd-page の中に閉じる（go() が案件の詳細を開いている間だけ付ける）。他の画面には漏らさない。
+   旧版の明朝題字・二重罫線・小さい文字の密集には戻さない。
+   ==================================================================== */
+body.dd-page{ background:#f4f7fa; color:#24384c; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","BIZ UDPGothic",Meiryo,sans-serif; }
+body.dd-page .wrap{ max-width:none; padding:0 0 80px; }
+body.dd-page .masthead{ background:#172f49; color:#fff; border:0; margin:0; padding:18px 32px; gap:8px 24px; }
+body.dd-page .masthead h1, body.dd-page .masthead h1.mincho{ font-family:inherit; font-size:20px; font-weight:600; letter-spacing:.02em; color:#fff; }
+body.dd-page .masthead a, body.dd-page .masthead .stamp, body.dd-page .masthead .backlink{ color:#d7e7fa; }
+body.dd-page .masthead .fresh{ background:#e9eff5; color:#24384c; border-color:#c3d0dd; border-radius:6px; font-size:13px; }
+body.dd-page .masthead .fresh a, body.dd-page .masthead .fresh summary{ color:#225d96; }
+body.dd-page .masthead .fresh.warn{ background:#fff1dd; border-color:#c08a3e; }
+body.dd-page .masthead .fresh.bad{ background:#fdeceb; border-color:#ab2f26; }
+body.dd-page .rule-thin{ display:none; }
+body.dd-page .layout{ grid-template-columns:200px minmax(0,1fr); gap:0; background:linear-gradient(90deg,#fff 0,#fff 200px,#dae2eb 200px,#dae2eb 201px,transparent 201px); }
+body.dd-page .count-line details.evd > summary, body.dd-page .tl details.evd > summary{ text-decoration:none; color:#365e85; }
+body.dd-page .side{ top:0; max-height:100vh; background:#fff; border-right:0; padding:24px 20px; min-height:calc(100vh - 66px); }
+body.dd-page .side button{ border-left:0; border-radius:6px; padding:12px; font-size:14px; color:#475d74; min-height:44px; }
+body.dd-page .side button:hover{ background:#edf3f9; color:#24384c; }
+body.dd-page .side button[aria-current="page"]{ background:#e9f1fa; color:#1c5488; font-weight:600; border-left:0; }
+body.dd-page .side h2, body.dd-page .sidegrp > p{ font-size:12px; color:#63768b; margin:24px 0 12px; }
+body.dd-page #cs-main{ padding:32px; max-width:1500px; min-width:0; }
+body.dd-page #cs-main h2.sec{ font-size:19px; font-weight:600; letter-spacing:0; margin:0 0 16px; color:#24384c; }
+body.dd-page #cs-main h2.sec::after{ display:none; }
+body.dd-page #cs-main h2.sec .no{ display:none; }
+/* 母集団・検索・読み直すの操作列は残し、案件の見出しより目立たせない */
+body.dd-page #cs-main > .ctlbar:first-child{ font-size:12px; margin:0 0 16px; padding:0; background:none; border:0; }
+body.dd-page #cs-main > .lede:first-of-type{ font-size:12px; }
+/* 案件の見出し */
+body.dd-page .dd-head{ display:flex; flex-direction:column; margin:8px 0 24px; }
+body.dd-page .dd-head .crumbs{ order:-1; font-size:13px; color:#607388; margin:0 0 8px; }
+body.dd-page #cs-main .dd-head h2.sec{ font-size:28px; font-weight:500; margin:0 0 8px; line-height:1.4; }
+body.dd-page .dd-open{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:0; font-size:14px; }
+body.dd-page .dd-jc{ font-weight:600; }
+/* 状況カード（最後の接触・最後の MTG・満了まで・担当） */
+body.dd-page .dd-status{ display:flex; flex-direction:column; margin:0 0 24px; }
+body.dd-page #dd-attr{ order:2; margin:12px 0 0; font-size:13px; color:#607388; max-width:none; }
+body.dd-page .dd-kv{ order:1; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin:0; padding:0; background:none; border:0; }
+body.dd-page .dd-kv > div{ background:#fff; border:1px solid #d8e1ea; border-radius:8px; padding:20px; display:flex; flex-direction:column; gap:10px; font-size:13px; line-height:1.6; color:#607388; }
+body.dd-page .dd-kv span.k{ font-size:13px; color:#475d74; }
+body.dd-page .dd-kv b{ display:block; font-size:24px; font-weight:500; color:#214f7b; line-height:1.3; }
+body.dd-page .dd-kv a{ font-size:18px; color:#225d96; }
+/* カード */
+body.dd-page .dd-card, body.dd-page .dd-nextbox, body.dd-page details.fold.dd-goals{ background:#fff; border:1px solid #dae2eb; border-radius:8px; padding:24px; margin:24px 0; max-width:none; }
+body.dd-page .dd-nextbox{ border-left:1px solid #dae2eb; }
+body.dd-page .dd-nextbox h3{ font-size:19px; font-weight:600; margin:0 0 16px; }
+body.dd-page .dd-pt{ grid-template-columns:140px minmax(0,1fr); gap:8px 20px; margin:16px 0; line-height:1.85; }
+body.dd-page .dd-pt .k{ font-size:13px; font-weight:600; color:#53657a; padding-top:2px; }
+body.dd-page .dd-pt > :last-child{ font-size:15px; max-width:900px; overflow-wrap:anywhere; }
+body.dd-page .dd-nextbox .src{ font-size:12px; color:#607388; margin:16px 0 0; }
+body.dd-page details.fold.dd-goals > summary{ font-size:19px; font-weight:600; color:#24384c; padding:0; text-decoration:none; }
+body.dd-page details.fold.dd-goals .body{ padding-top:16px; font-size:15px; line-height:1.85; }
+body.dd-page details.fold.dd-goals .dd-goal b{ font-size:13px; color:#53657a; }
+/* 履歴カードの操作列・件数 */
+body.dd-page #dd-ctl{ display:flex; flex-wrap:wrap; gap:16px 24px; align-items:center; padding:16px 20px; background:#fff; border:1px solid #dae2eb; border-radius:8px; margin:0 0 12px; font-size:13px; }
+body.dd-page #dd-ctl .act{ font-size:13px; }
+body.dd-page #dd-ctl select, body.dd-page #dd-ctl button.act{ min-height:40px; border:1px solid #ccd7e2; border-radius:6px; background:#fff; padding:8px 12px; }
+body.dd-page #dd-ctl button.act[aria-pressed="true"]{ background:#244e76; color:#fff; border-color:#244e76; font-weight:600; }
+body.dd-page .count-line{ background:none; border:0; border-left:0; padding:0; margin:0 0 8px; font-size:13px; color:#607388; }
+body.dd-page .count-line b{ color:#24384c; font-size:14px; }
+body.dd-page .legend{ margin:0 0 8px; }
+/* 接触履歴の1件 = 見出しの帯 + 項目名と本文 */
+body.dd-page ol.tl{ border-left:0; margin:0; }
+body.dd-page .tl li{ display:block; padding:24px 0; border-bottom:1px solid #dce4ed; }
+body.dd-page .tl li::before{ display:none; }
+body.dd-page .tl .rec-head{ display:flex; align-items:center; gap:12px; justify-content:space-between; background:#f1f5f9; padding:12px 16px; border-radius:6px; }
+body.dd-page .tl .rec-kind{ display:flex; align-items:center; flex-wrap:wrap; gap:4px 12px; min-width:0; }
+body.dd-page .tl .when{ font-size:14px; color:#324d68; white-space:nowrap; margin-left:auto; }
+body.dd-page .tl .when b{ display:inline; margin-right:8px; font-weight:600; }
+body.dd-page .tl .mark{ background:#dfeaf5; color:#234e77; font-weight:600; border:0; border-radius:4px; padding:4px 8px; font-size:12px; margin:0; letter-spacing:0; }
+body.dd-page .tl .mark::before{ content:"● "; font-size:9px; }
+body.dd-page .tl li.est .mark{ background:#fff; border:1px dashed #607388; font-weight:500; }
+body.dd-page .tl li.est .mark::before{ content:"◇ "; }
+body.dd-page .tl li.k-handover .mark{ background:#ebe5f7; color:#5b4b8a; }
+body.dd-page .tl .dur{ font-size:14px; font-weight:600; }
+body.dd-page .tl .what{ max-width:900px; padding:12px 16px 0; font-size:15px; line-height:1.85; }
+body.dd-page .tl .what dl, body.dd-page .tl details.evd dl{ grid-template-columns:140px minmax(0,1fr); gap:8px 20px; margin:16px 0; }
+body.dd-page .tl dt{ font-size:13px; font-weight:600; color:#53657a; padding-top:2px; }
+body.dd-page .tl dd{ font-size:15px; line-height:1.85; }
+body.dd-page .tl .via{ font-size:13px; color:#53657a; margin-top:8px; }
+body.dd-page .tl .via.warnbox{ background:#fff5e7; border-left:3px solid #ac752e; padding:12px 16px; border-radius:4px; }
+body.dd-page .tl .tag{ background:#edf3f8; color:#365e85; border:0; border-radius:4px; padding:2px 8px; font-size:12px; }
+body.dd-page .tl .tag.d{ background:#fff1dd; color:#8b541b; font-weight:600; }
+body.dd-page .tl .subj{ font-size:15px; font-weight:500; margin-top:4px; }
+body.dd-page .tl details.evd{ margin-top:12px; border-top:1px dashed #dde5ed; padding-top:8px; font-size:13px; }
+body.dd-page .tl details.evd > summary{ font-size:13px; padding:6px 0; min-height:32px; }
+body.dd-page .tl details.evd dl{ background:none; border:0; padding:0; }
+body.dd-page .count-line details.evd > summary{ font-size:12px; }
+body.dd-page #dd-chaincard .lede{ font-size:14px; max-width:none; }
+body.dd-page .lede.dd-open + *{ margin-top:0; }
+@media (max-width:1100px){
+  body.dd-page .layout{ grid-template-columns:160px minmax(0,1fr); background:linear-gradient(90deg,#fff 0,#fff 160px,#dae2eb 160px,#dae2eb 161px,transparent 161px); }
+  body.dd-page .dd-kv{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  body.dd-page #cs-main{ padding:24px; }
+}
+@media (max-width:900px){
+  body.dd-page .layout{ grid-template-columns:minmax(0,1fr); background:none; }
+  body.dd-page .side{ min-height:0; padding:8px 12px; border-right:0; border-bottom:1px solid #dae2eb; }
+  body.dd-page .side button{ min-height:40px; padding:8px 12px; }
+}
+@media (max-width:700px){
+  body.dd-page .masthead{ padding:16px; }
+  body.dd-page #cs-main{ padding:20px 16px; }
+  body.dd-page #cs-main .dd-head h2.sec{ font-size:24px; }
+  body.dd-page .dd-kv{ gap:8px; }
+  body.dd-page .dd-kv > div{ padding:16px; }
+  body.dd-page .dd-kv b{ font-size:22px; }
+  body.dd-page .dd-card, body.dd-page .dd-nextbox, body.dd-page details.fold.dd-goals{ padding:16px; }
+  body.dd-page .dd-pt, body.dd-page .tl .what dl, body.dd-page .tl details.evd dl{ grid-template-columns:1fr; gap:6px; }
+  body.dd-page .tl .what{ padding:12px 0 0; }
+  body.dd-page .tl .rec-head{ flex-wrap:wrap; }
+}
 </style>
 </head>
 <body>
@@ -7631,81 +7774,100 @@ function detailLegend(shown) {
   return '<div class="legend"><i>● 事実　◇ メール由来の MTG（推定）　↪ 付け直し　契約期間の外</i></div>';
 }
 
+/* 長い本文は先頭だけ出し、「全文を表示」で全部読める（details なので Tab・Enter・Space で開閉できる）。
+   短ければそのまま。切ったことは「全文を表示」の言葉で言う（黙って切らない） */
+const DD_CLAMP = 120;
+function ddText(v) {
+  const t = String(v == null ? "" : v);
+  if (t.length <= DD_CLAMP) return esc(t);
+  return '<details class="longtxt"><summary><span class="pv">' + esc(t.slice(0, DD_CLAMP)) + '…</span> ' +
+    '<span class="tg t-close">全文を表示</span><span class="tg t-open">閉じる</span></summary>' +
+    '<div class="full">' + esc(t) + "</div></details>";
+}
+/** 項目名と本文の組。値が空の項目は出さない（空白の項目を並べない） */
+function ddRows(rows, long) {
+  const r = rows.filter((x) => x[1] != null && String(x[1]) !== "");
+  return r.length ? "<dl>" + r.map(([k, v]) => "<dt>" + esc(k) + "</dt><dd>" + (long ? ddText(v) : esc(v)) + "</dd>").join("") + "</dl>" : "";
+}
+/** 解釈に必須でない補助の項目は、記録の詳細に畳む。空なら何も出さない */
+function ddMore(rows) {
+  const d = ddRows(rows, true);
+  return d ? '<details class="evd"><summary>記録の詳細</summary>' + d + "</details>" : "";
+}
+
 /* 1件ぶんの中身 */
 function detailItem(e) {
   const when = "<b>" + esc(e.date) + "</b>" + (e.time ? esc(e.time) : "");
-  let what = "";
+  /* head: 種類の札と、見出しの行に並べる短い事実（時間・担当・ホスト）。body: 本文（項目名と本文の組）と、解釈に要る印 */
+  let head = "", body = "";
   let cls = "k-" + ((e.kind === "mail_mtg" || e.kind === "zoom_mtg") ? "mtg" : e.kind);
+  const meta = (t, title) => '<span class="muted small"' + (title ? ' title="' + esc(title) + '"' : "") + ">" + t + "</span>";
   if (e.kind === "mtg") {
-    what = '<span class="mark">MTG</span><span class="muted small">' + esc(e.source_label) + "</span>" +
-      (e.minutes != null ? "　" + num(e.minutes) + "分" : "") +
-      (e.host ? '　<span class="muted small">ホスト ' + esc(e.host) + "</span>" : "") +
-      (e.mtg_type ? '　<span class="tag">' + esc(e.mtg_type) + "</span>" : "");
+    head = '<span class="mark">MTG</span>' + meta(esc(e.source_label)) +
+      (e.minutes != null ? meta(num(e.minutes) + "分") : "") +
+      (e.host ? meta("ホスト " + esc(e.host)) : "") +
+      (e.mtg_type ? '<span class="tag">' + esc(e.mtg_type) + "</span>" : "");
     /* 🔴 録画があったことは事実。この取引の録画だという点は推定（確度 高・中） */
     if (e.link_certainty && e.link_certainty !== "高") {
-      what += '<span class="via"><span class="tag d">取引への結び付け: 確度 ' + esc(e.link_certainty) + "</span>" +
+      body += '<span class="via warnbox"><span class="tag d">取引への結び付け: 確度 ' + esc(e.link_certainty) + "</span>" +
         "録画があったことは事実ですが、この取引の MTG だという結び付けは推定で、確かさは中です" +
         (e.link_reason ? "（" + esc(e.link_reason) + "）" : "") + "</span>";
     }
     if (e.extracted) {
-      const rows = [["やること", e.todo], ["顧客の懸念", e.concern], ["前向きシグナル", e.positive],
+      const main = ddRows([["やること", e.todo], ["顧客の懸念", e.concern]], true);
+      body += main || '<span class="via"><span class="tag d">記載なし</span>抽出済みですが、やること・顧客の懸念は空です</span>';
+      body += ddMore([["前向きシグナル", e.positive],
         ["リスク判定", e.risk ? e.risk + (e.risk_reason ? "（" + e.risk_reason + "）" : "") : null],
-        ["次回予定", e.next]];
-      what += "<dl>" + rows.map(([k, v]) => "<dt>" + esc(k) + "</dt><dd>" +
-        (v ? esc(v) : DASH) + "</dd>").join("") + "</dl>";
+        ["次回予定", e.next]]);
     } else {
       /* 🔴 空なのは「まだ抽出していない」。記録が無いのとは違う */
-      what += '<span class="via"><span class="tag d">未抽出</span>やること・懸念などはまだ抽出していません' +
-        "</span>";
+      body += '<span class="via"><span class="tag d">未抽出</span>やること・懸念などはまだ抽出していません</span>';
     }
   } else if (e.kind === "zoom_mtg") {
-    what = '<span class="mark">MTG</span><span class="muted small">（Zoom の開催記録・事実）</span>' +
-      (e.time ? '　' + esc(e.time) : '') + (e.end_time ? '〜' + (e.end_date && e.end_date !== e.date ? esc(e.end_date) + ' ' : '') + esc(e.end_time) : '');
+    /* 旧版と同じ表記「（Zoom の開催記録・事実）　10:00〜11:00」（全角スペース区切り）。既存の E2E がこの文字列で確かめる */
+    head = '<span class="mark">MTG</span>' + meta("（Zoom の開催記録・事実）" +
+      (e.time ? "　" + esc(e.time) + (e.end_time ? "〜" + (e.end_date && e.end_date !== e.date ? esc(e.end_date) + " " : "") + esc(e.end_time) : "") : ""));
   } else if (e.kind === "email") {
-    what = '<span class="mark">メール</span><span class="muted small">' + esc(e.direction || '') + '</span>' +
-      (e.mail_type ? '　<span class="tag">' + esc(e.mail_type) + '</span>' : '') +
-      '<div>' + esc(e.subject || '件名なし') + '</div>' +
-      (e.zoom_held_time ? '<span class="via">Zoom で開催 ' + esc(e.zoom_held_time) + '</span>' : '');
+    head = '<span class="mark">メール</span>' + meta(esc(e.direction || "")) +
+      (e.mail_type ? '<span class="tag">' + esc(e.mail_type) + "</span>" : "");
+    body += '<div class="subj">' + esc(e.subject || "件名なし") + "</div>" +
+      (e.zoom_held_time ? '<span class="via">Zoom で開催 ' + esc(e.zoom_held_time) + "</span>" : "");
   } else if (e.kind === "mail_mtg") {
     cls += " est";
     /* M-3 (4): 定型の断り（メールの文面から起こした実施日・確かさ・録画のような中身は無い）は凡例に1回（detailLegend）。
-       前は行ごとに出していて、推定の行が続く案件では同じ文が並んだ（08 の M-3: 60 件で 5,600px）。
-       行には札（MTG（推定））と◇の点、同じ日の録画だけ。札の title にも同じ文を残す（PC でマウスを重ねたとき） */
-    what = '<span class="mark" title="' + esc(mailMtgNote(e.certainty)) + '">MTG（推定）</span><span class="muted small">' +
-      esc(e.source_label) + "</span>" +
-      (e.same_day_recording ? '<span class="via"><b>同じ日に録画の MTG があります</b>（同じ MTG の見込みが高い）</span>' : "");
+       行には札（MTG（推定））と同じ日の録画だけ。札の title にも同じ文を残す（PC でマウスを重ねたとき） */
+    head = '<span class="mark" title="' + esc(mailMtgNote(e.certainty)) + '">MTG（推定）</span>' + meta(esc(e.source_label));
+    body += e.same_day_recording ? '<span class="via"><b>同じ日に録画の MTG があります</b>（同じ MTG の見込みが高い）</span>' : "";
   } else if (e.kind === "call") {
     /* 話した人は Zoom の表示名をそろえたもの（handler_label）。元の書き方は title に残す */
     const who = e.handler_label || e.handler || e.owner;
-    what = '<span class="mark">電話</span><span class="muted small">' + esc(e.source_label) + "</span>" +
-      "　" + durText(e.duration_sec) +
-      (e.contact ? "" : '　<span class="tag d">60秒以下</span>') +
-      (e.direction === "outbound" ? "　発信" : e.direction === "inbound" ? "　着信" : "") +
-      (who ? '　<span class="muted small"' + (e.handler ? ' title="Zoom の表示名: ' + esc(e.handler) + '"' : "") + ">" +
-        (e.handler ? "話した人 " : "担当 ") + esc(who) + "</span>" : "") +
-      '　<span class="muted small">文字起こし' + (e.has_transcript ? "あり" : "なし") + "</span>";
+    head = '<span class="mark">電話</span>' + meta(esc(e.source_label)) + '<span class="dur">' + durText(e.duration_sec) + "</span>" +
+      (e.contact ? "" : '<span class="tag d">60秒以下</span>') +
+      (e.direction === "outbound" ? meta("発信") : e.direction === "inbound" ? meta("着信") : "") +
+      (who ? meta((e.handler ? "話した人 " : "担当 ") + esc(who), e.handler ? "Zoom の表示名: " + e.handler : "") : "") +
+      meta("文字起こし" + (e.has_transcript ? "あり" : "なし"));
     const s = e.summary;
     if (s && s.summary) {
-      /* 🔴 AI 要約は取り違えを含む（2026-09-26 検証: 手で突き合わせた約11件中2件が誤り。
-         受付と相手・別の候補者の取り違え）。機械の検証では防げないので、要約の見出しで必ず断る */
-      what += "<dl><dt>AI 要約（誤りを含むことがあります）</dt><dd>" + esc(s.summary) + "</dd>" +
-        "<dt>次にやること</dt><dd>" + (s.next_action ? esc(s.next_action) : DASH) + "</dd>" +
-        "<dt>顧客の懸念</dt><dd>" + (s.concern ? esc(s.concern) : DASH) + "</dd></dl>" +
-        '<span class="via">要約: ' + esc(s.model || "") + (s.generated_at ? "（" + esc(s.generated_at) + " 作成）" : "") +
-        "。通話の要約</span>";
+      /* 🔴 AI 要約は取り違えを含む（2026-09-26 検証: 手で突き合わせた約11件中2件が誤り）。要約の見出しで必ず断る。
+         次にやること・顧客の懸念が空のときは「記載なし」と書く（要約が無いのとは別） */
+      body += "<dl><dt>AI 要約（誤りを含むことがあります）</dt><dd>" + ddText(s.summary) + "</dd>" +
+        "<dt>次にやること</dt><dd>" + (s.next_action ? ddText(s.next_action) : '<span class="muted">記載なし</span>') + "</dd>" +
+        "<dt>顧客の懸念</dt><dd>" + (s.concern ? ddText(s.concern) : '<span class="muted">記載なし</span>') + "</dd></dl>" +
+        '<span class="via">通話の要約（抽出文）</span>' +
+        ddMore([["要約の作成", (s.model || "") + (s.generated_at ? "（" + s.generated_at + " 作成）" : "")]]);
     } else {
-      what += '<span class="via"><span class="tag d">要約なし</span></span>';
+      body += '<span class="via"><span class="tag d">要約なし</span></span>';
     }
   } else if (e.kind === "handover") {
-    what = '<span class="mark">交代</span><span class="muted small">' + esc(e.source_label) + "</span>" +
-      '<span class="via">' + (esc(e.from) || "（不明）") + " &#8594; " + (esc(e.to) || "（不明）") +
+    head = '<span class="mark">交代</span>' + meta(esc(e.source_label));
+    body += '<span class="via">' + (esc(e.from) || "（不明）") + " &#8594; " + (esc(e.to) || "（不明）") +
       (e.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "") +
       (e.reflected ? "　HubSpot への反映: " + esc(e.reflected) : "") +
       (e.record_gap_days != null ? "（担当欄の書き換えとのずれ " + num(e.record_gap_days) + "日）" : "") +
       "</span>";
   }
-  return '<li class="' + cls + '"><div class="when">' + when + '</div><div class="what">' +
-    what + attachNote(e.attach, e) + "</div></li>";
+  return '<li class="' + cls + '"><div class="rec-head"><div class="rec-kind">' + head + '</div><div class="when">' + when +
+    '</div></div><div class="what">' + body + attachNote(e.attach, e) + "</div></li>";
 }
 
 /* 絞り込みに当たるか */
@@ -7763,15 +7925,20 @@ function renderDetail(D) {
   /* 「HubSpot で開く」（S-5）。記録を書く・電話をかける先は HubSpot なので、詳細から1クリックで行けるようにする。
      電話番号・連絡先はこの画面のデータに無く、HubSpot 側で見る */
   const hsOpen = hsLink(d.deal_id, "HubSpot で開く &#8599;", "lg");
-  let h = sec("案件", d.name || "取引名なし");
-  h += detailCrumbs(d) + (hsOpen ? '<div class="lede">' + hsOpen + "</div>" : "");
+  /* 案件の見出し: パンくず → 案件名 → 案件管理・HubSpot への導線（新しい操作版の構成。見た目は .dd-head の CSS） */
+  let h = "";
+  /* 案件管理で開く（実際の取引IDだけ。数字でなければ作らない）。編集はここではせず案件管理で行う */
+  const jcOpen = /^\d+$/.test(String(d.deal_id || ""))
+    ? '<a class="golink dd-jc" href="/app/job-copy?deal=' + encodeURIComponent(d.deal_id) + '">案件管理で開く</a>' : "";
+  h += '<div class="dd-head">' + detailCrumbs(d) + sec("案件", d.name || "取引名なし") +
+    (hsOpen || jcOpen ? '<div class="lede dd-open">' + jcOpen + (jcOpen && hsOpen ? " " : "") + hsOpen + "</div>" : "") + "</div>";
   /* ---- 次の行動に要るもの（M-3 (1)）。電話の前に読む3つ（最後にいつ話したか・何を約束したか・何を気にしていたか）を1画面目に ---- */
   h += detailNext(D);
   /* ---- 初回MTGの目標（2026-10-23）。描いたあと wireDetail が HubSpot から読む ---- */
-  h += '<div class="lede dd-goals" id="dd-goals" data-deal="' + esc(d.deal_id) + '"><b>初回MTGの目標</b> <span class="muted">読み込んでいます…</span></div>';
+  h += '<details class="fold dd-goals" id="dd-goals" open data-deal="' + esc(d.deal_id) + '"><summary>初回MTGの目標</summary><div class="body"><span class="muted">読み込んでいます…</span></div></details>';
 
   /* ---- 時系列 ---- */
-  h += sec("図", "時系列（新しい順）", "dd-tl-h");
+  h += '<section class="dd-card" id="dd-hist">' + sec("節", "接触履歴（新しい順）", "dd-tl-h");
   if (D.meta.summary_sheet !== "ok") {
     /* 🔴 読めない理由は「まだ作られていない」とは限らない（一時的な失敗もある）。決めつけない */
     h += note("info", "電話の要約はまだありません",
@@ -7805,12 +7972,12 @@ function renderDetail(D) {
                byKind.length < all.length ? "種類・電話の絞り込み" : ""].filter(Boolean).join("・");
   h += '<div class="count-line' + (filtered ? " on" : "") + '" id="dd-count"><b>' + num(all.length) + " 件中 " +
     num(shown.length) + " 件</b>を表示" + (filtered ? "（" + (why || "絞り込み中") + "）" : "（全部出しています）") +
-    '<span class="muted">　MTG 録画 ' + num(c.mtg) + " 件（抽出済み " + num(c.mtg_extracted) +
+    '<details class="evd cnt"><summary>件数の内訳</summary><span class="muted">MTG 録画 ' + num(c.mtg) + " 件（抽出済み " + num(c.mtg_extracted) +
     (c.mtg_link_not_high ? "・結び付けの確度が中 " + num(c.mtg_link_not_high) : "") + "）／ Zoom 開催記録 " + num(c.zoom_mtg || 0) + " 件／ MTG 推定 " +
     num(c.mail_mtg) + " 件（うち契約期間の外 " + num(c.mail_outside || 0) + "）／ 電話 " + num(c.call) +
     " 件（60秒超 " + num(c.call_contact) + "・要約あり " +
     num(c.call_summarized) + "）／ メール " + num(c.email || 0) + " 件" +
-    ((c.email_kinds || []).length ? "（" + c.email_kinds.map(x => esc(x.kind || "種類なし") + " " + num(x.n) + " 件").join("・") + "）" : "") + "／ 交代 " + num(c.handover) + " 件</span></div>";
+    ((c.email_kinds || []).length ? "（" + c.email_kinds.map(x => esc(x.kind || "種類なし") + " " + num(x.n) + " 件").join("・") + "）" : "") + "／ 交代 " + num(c.handover) + " 件</span></details></div>";
   h += detailLegend(shown);
   h += shown.length ? '<ol class="tl" id="dd-tl">' + shown.map(detailItem).join("") + "</ol>"
     : '<div class="empty">' + (nOlder
@@ -7833,17 +8000,19 @@ function renderDetail(D) {
       "です（行ごとに印を付けています）。</div>";
   }
 
+  h += "</section>";
   /* ---- 契約の連なり（M-3 (3)）: 前後の契約を1行、表は畳む ----
      🔴 09 の 3章の順（時系列の後）。前は時系列より上にあり、時系列を1画面目から押し出していた（2026-09-29 検証） */
   const rows = (ch && ch.rows) || [];
+  let chainH = "";
   if (rows.length > 1) {
     const at = rows.findIndex((r) => r.current);
     const prev = at > 0 ? rows[at - 1] : null, next = at >= 0 ? rows[at + 1] : null;
-    h += '<div class="lede">同じ拠点の契約の連なり: ' +
+    chainH += '<div class="lede">同じ拠点の契約の連なり: ' +
       (prev ? "前の契約 " + dealLink(prev.deal_id, prev.name, true) : "前の契約なし") + " &#8592; " +
       "<b>いま（" + (at >= 0 ? num(at + 1) + " 件目" : "位置不明") + " / 全 " + num(rows.length) + " 件）</b> &#8594; " +
       (next ? "次の契約 " + dealLink(next.deal_id, next.name, true) : "次の契約なし") + "</div>";
-    h += '<details class="fold" id="dd-chain"><summary>同じ拠点の契約の連なりを表で見る（' + num(rows.length) + " 件・開始の古い順）</summary>" +
+    chainH += '<details class="fold" id="dd-chain"><summary>同じ拠点の契約の連なりを表で見る（' + num(rows.length) + " 件・開始の古い順）</summary>" +
       scroll(table([{ t: "案件", w: "l" }, { t: "ステージ", w: "s" }, { t: "開始〜満了" },
                     { t: "継続", n: 1 }, { t: "金額", n: 1 }, { t: "状態" }],
         rows.map((r) => [r.current ? "<b>" + esc(r.name) + '</b> <span class="tag e">いま見ている</span>'
@@ -7853,8 +8022,10 @@ function renderDetail(D) {
           nz(r.renewal_no), yen(r.amount), r.is_active ? '<span class="tag e">稼働中</span>' : ""])), 320) +
       "</details>";
   } else if (ch && !ch.has_site) {
-    h += '<div class="lede">拠点が入っていないので、前後の契約はたどれません。</div>';
+    chainH += '<div class="lede">拠点が入っていないので、前後の契約はたどれません。</div>';
   }
+
+  if (chainH) h += '<section class="dd-card" id="dd-chaincard">' + sec("節", "契約の連なり") + chainH + "</section>";
 
   /* 戻り道（09 の 3 の 5）。担当を選んでいれば今日動く先はその担当で開く（c は持ち越す状態。hashFor に載せない） */
   h += '<div class="lede">' + backToToday() + "</div>";
@@ -7908,7 +8079,7 @@ function detailNext(D) {
     "注意 " + (d.flags == null ? '<span class="muted small">稼働中の案件にだけ付けています</span>'
       : d.flags.length ? d.flags.map((f) => '<span class="tag">' + esc(f) + "</span>").join("")
       : '<span class="muted small">なし</span>')];
-  let h = '<div class="lede" id="dd-attr">' + attr.join(sepA) + "</div>" +
+  let h = '<div class="dd-status"><div class="lede" id="dd-attr">' + attr.join(sepA) + "</div>" +
     '<div class="dd-kv">' +
     kv("最後の接触（MTG・60秒超の電話）", ct
       ? "<b>" + esc(ct.date) + "</b>" + ago(ct.date) + " " + (ct.kind === "mtg" ? "MTG（録画）" : ct.kind === "zoom_mtg" ? "MTG（Zoom 開催記録）" : "電話 " + durText(ct.duration_sec))
@@ -7920,23 +8091,22 @@ function detailNext(D) {
       ? "<b>" + esc(mt.date) + "</b>" + ago(mt.date) + " " + (mt.kind === "mtg" ? "録画（事実）" : mt.kind === "zoom_mtg" ? "Zoom 開催記録（事実）" : "メール由来（推定）")
       : '<span class="muted small">この契約の期間に MTG の記録が見つかりません（MTG をしていないとは限りません。' +
         "欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない）</span>") +
-    kv("満了まで", left == null ? DASH : left >= 0 ? num(left) + "日" + exp : "満了日を過ぎています" + exp) +
+    kv("満了まで", left == null ? DASH : left >= 0 ? "<b>" + num(left) + "日</b>" + exp : "満了日を過ぎています" + exp) +
     kv("担当", (d.consultant
       ? '<a href="' + esc(hashFor("board", { c: d.consultant })) + '" title="この担当の案件を案件一覧で見る">' + esc(d.consultant) + "</a>"
       : DASH) +
       (d.consultant_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "")) +
-    "</div>";
+    "</div></div>";
+  /* 次の対応と顧客の懸念: 見出し1つ・項目2つ・出典1行。AI 要約は取り違えを含む（2026-09-26 検証）ので、出典の行で必ず断る */
+  const nextBox = (src, a, c) => '<section class="dd-nextbox" aria-label="次の対応と顧客の懸念"><h3>次の対応と顧客の懸念</h3>' +
+    '<div class="dd-pt"><span class="k">次の対応</span>' + (a ? ddText(a) : DASH) + "</div>" +
+    '<div class="dd-pt"><span class="k">顧客の懸念</span>' + (c ? ddText(c) : DASH) + "</div>" +
+    '<p class="src">' + src + "</p></section>";
   if (sm && sm.kind === "call") {
-    /* 🔴 AI 要約は取り違えを含む（2026-09-26 検証: 手で突き合わせた約11件中2件が誤り）。見出しで必ず断る */
-    h += note("info", "直近の電話の AI 要約（誤りを含むことがあります。" + sm.date + " の電話）",
-      "<b>次にやること</b>: " + (sm.summary.next_action ? esc(sm.summary.next_action) : DASH) + "<br>" +
-      "<b>顧客の懸念</b>: " + (sm.summary.concern ? esc(sm.summary.concern) : DASH) +
-      '<br><span class="muted small">通話の要約。全文は下の時系列にあります。</span>');
+    h += nextBox("出典: 直近の電話（" + esc(sm.date) + "）の AI 要約。誤りを含むことがあります。全文は下の時系列にあります。",
+      sm.summary.next_action, sm.summary.concern);
   } else if (sm) {
-    h += note("info", "直近の MTG から抽出した項目（" + sm.date + " の録画 MTG）",
-      "<b>やること</b>: " + (sm.todo ? esc(sm.todo) : DASH) + "<br>" +
-      "<b>顧客の懸念</b>: " + (sm.concern ? esc(sm.concern) : DASH) +
-      '<br><span class="muted small">全部の項目は下の時系列にあります。</span>');
+    h += nextBox("出典: 直近の録画 MTG（" + esc(sm.date) + "）から抽出した項目。全部の項目は下の時系列にあります。", sm.todo, sm.concern);
   } else {
     h += '<div class="lede">この契約の期間の電話の要約・MTG の抽出はまだありません（「次にやること」「顧客の懸念」を出せません）。</div>';
   }
@@ -7972,12 +8142,12 @@ function loadDetailGoals() {
     .then((j) => {
       if (document.getElementById("dd-goals") !== box) return;   /* 読む間に別の案件へ移った */
       const partial = (j.partial || []).some((p) => p.part === "selected_properties");
-      box.innerHTML = "<b>初回MTGの目標</b>" + link + (partial
+      box.querySelector(".body").innerHTML = link + (partial
         ? '<div class="muted">目標の項目を読めませんでした。</div>' : goalsBlock((j.selected && j.selected.deal) || {}));
     })
     .catch(() => {
       if (document.getElementById("dd-goals") !== box) return;
-      box.innerHTML = '<b>初回MTGの目標</b>' + link + '<div class="muted">HubSpot から読めませんでした。</div>';
+      box.querySelector(".body").innerHTML = link + '<div class="muted">HubSpot から読めませんでした。</div>';
     });
 }
 function wireDetail() {
@@ -8895,6 +9065,8 @@ function go(menu, view, refresh, how, state, trav, moved) {
      （絞っていることは件数の行「N 件中 M 件を表示（絞り込み中: 担当 …）」に出る） */
   if (state !== "keep") applyState(v.key, state instanceof URLSearchParams ? state : null, trav != null);
   cur = { menu: m.key, view: v.key };
+  /* 案件の詳細だけ新しい操作版の見た目（body.dd-page）。他の画面へ移ったら外す */
+  if (document.body && document.body.classList) document.body.classList.toggle("dd-page", m.key === "deal" && v.key === "detail");
   /* URL に残す。共有と戻るボタンのため。
      🔴 画面の中の移動は履歴に**積む**（pushState）。replaceState だと何回移動しても
         履歴が増えず、戻るで画面そのものから出てしまっていた

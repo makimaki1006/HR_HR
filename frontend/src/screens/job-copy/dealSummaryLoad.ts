@@ -33,8 +33,15 @@ export interface DealData {
   company: { id: string; name: string } | null;
 }
 
+/** 取引ひとつの 1 回の読み取りの待ち。サーバーの締め切り（40 秒）より少し長い。 */
+const DEAL_STEP_TIMEOUT_MS = 60_000;
+/** 事業所ぜんぶの読み込みの待ち。これを過ぎた取引は「読み込めなかった」として数える。 */
+export const COMPANY_LOAD_TIMEOUT_MS = 120_000;
+/** 事業所の取引を同時に読む数。HubSpot の呼び出しは関所が順番に通す。 */
+const COMPANY_PARALLEL = 3;
+
 export async function loadDealData(dealId: string, name: string, signal: AbortSignal): Promise<DealData | null> {
-  const page = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${new URLSearchParams({ deal: dealId, offset: '0', sort: 'title', descending: 'false' }).toString()}`, { signal, timeoutMs: 120_000 });
+  const page = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${new URLSearchParams({ deal: dealId, offset: '0', sort: 'title', descending: 'false' }).toString()}`, { signal, timeoutMs: DEAL_STEP_TIMEOUT_MS });
   if (signal.aborted || !page.ok) return null;
   const rows = page.data.listings;
   const data: DealData = {
@@ -44,7 +51,7 @@ export async function loadDealData(dealId: string, name: string, signal: AbortSi
   if (!rows.length) return data;
   const ids = rows.slice(0, 30).map(row => encodeURIComponent(row.id)).join(',');
   const [apps, dates] = await Promise.all([
-    apiGet<DealApplications>(`/api/job-copy/deal-applications?deal=${encodeURIComponent(dealId)}&ids=${ids}`, { signal, timeoutMs: 120_000 }),
+    apiGet<DealApplications>(`/api/job-copy/deal-applications?deal=${encodeURIComponent(dealId)}&ids=${ids}`, { signal, timeoutMs: DEAL_STEP_TIMEOUT_MS }),
     fetchBodyDates(rows.map(row => row.id)),
   ]);
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- aborted can change while awaiting
@@ -79,21 +86,40 @@ export function dealGroup(data: DealData, billingByJob: Readonly<Record<string, 
 }
 
 /** 顧客（事業所）の全部の取引の求人を集める。同じ求人は取引をまたいで 1 回だけ数える（合計は呼び出し側）。 */
-export async function loadCompanyDatas(companyId: string, signal: AbortSignal, knownDeals?: CompanyDeal[]): Promise<{ status: 'ready'; datas: DealData[]; notes: string[] } | { status: 'error'; message: string }> {
+export async function loadCompanyDatas(companyId: string, signal: AbortSignal, knownDeals?: CompanyDeal[], onProgress?: (datas: DealData[]) => void): Promise<{ status: 'ready'; datas: DealData[]; notes: string[] } | { status: 'error'; message: string }> {
   const deals = knownDeals ? { ok: true as const, data: { deals: knownDeals } } : await loadCompanyDeals(companyId);
-  if (!deals.ok) return { status: 'error', message: 'この事業所の取引を読み込めませんでした。時間を置いて再取得してください。' };
+  if (!deals.ok) return { status: 'error', message: 'この事業所の取引を読み込めませんでした。' };
   const wanted = deals.data.deals.slice(0, ROLLUP_RULES.maxDeals);
-  const loaded: DealData[] = [];
-  let missing = 0;
-  for (const deal of wanted) {
-    const data = await loadDealData(deal.id, deal.name ?? '取引名未取得', signal);
-     
-    if (signal.aborted) return { status: 'error', message: '' };
-    if (data === null) missing += 1; else if (data.rows.length) loaded.push(data);
+  // 全体の待ちを区切る。区切りを過ぎても、読めた取引の分は出す。
+  const limit = new AbortController();
+  const timer = setTimeout(() => { limit.abort(); }, COMPANY_LOAD_TIMEOUT_MS);
+  const forward = () => { limit.abort(); };
+  signal.addEventListener('abort', forward, { once: true });
+  const results: (DealData | null | undefined)[] = wanted.map(() => undefined);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const index = next; next += 1;
+      const deal = wanted[index];
+      if (!deal || limit.signal.aborted) return;
+      const data = await loadDealData(deal.id, deal.name ?? '取引名未取得', limit.signal).catch(() => null);
+      results[index] = data;
+      if (data?.rows.length && !signal.aborted) onProgress?.(results.filter((item): item is DealData => !!item?.rows.length));
+    }
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(COMPANY_PARALLEL, wanted.length) }, worker));
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', forward);
   }
+  if (signal.aborted) return { status: 'error', message: '' };
+  const loaded = results.filter((item): item is DealData => !!item?.rows.length);
+  // 読み込めなかった = 失敗、または全体の待ちを過ぎて読み始められなかった取引
+  const missing = results.filter(item => item === null || item === undefined).length;
   const notes: string[] = [];
   if (deals.data.deals.length > wanted.length) notes.push(`取引が多いため、先頭の${String(wanted.length)}件までで集計しています。`);
   if (missing > 0) notes.push(`読み込めなかった取引が ${String(missing)}件あります。その取引の求人は合計に含まれていません。`);
-  if (loaded.length === 0 && missing > 0) return { status: 'error', message: 'この事業所の求人を読み込めませんでした。時間を置いて再取得してください。' };
+  if (loaded.length === 0 && missing > 0) return { status: 'error', message: 'この事業所の求人を読み込めませんでした。' };
   return { status: 'ready', datas: loaded, notes };
 }
