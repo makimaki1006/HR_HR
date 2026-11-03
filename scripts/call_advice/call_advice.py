@@ -179,6 +179,12 @@ def hearing_prompt(checks, turns):
         for c in checks['checks'] if c['stage'] == HEARING_STAGE)
     return f"""あなたは新規営業のアポ取り電話で、日程が決まった電話のヒアリングを確かめる担当です。下の文字起こし(営=営業、先=先方。番号は発言の順番)を、項目ごとに確かめてください。
 
+はじめに、この電話の種類を call_kind に書く:
+- "新しく決めた": この電話で打ち合わせの日時を新しく決めた。「前回〇〇の件で」と始まっても、日時を決めたのがこの電話ならこちら。
+- "決まった日程の連絡": この電話より前に日時がすでに決まっていて、この電話はその確認・時刻の変更・お礼・案内の送付などの連絡だけ。
+- "決まっていない": この電話で日時が決まらなかった (断られた、「また連絡する」で終わった、日時の了承が無い)。
+"決まった日程の連絡" と "決まっていない" のときは、項目の判定はしなくてよい (checks は空でよい)。
+
 決まり:
 - 日程が決まる前も含めた電話全体で見る。前段で先方が話していれば答えが得られたとする。
 - asked: 営業がその項目を質問したか (true/false)
@@ -196,7 +202,8 @@ def hearing_prompt(checks, turns):
 {transcript(turns)}
 
 次の JSON だけを返してください:
-{{"checks": [{{"id": "...", "status": "...", "asked": true/false, "answered": true/false, "answer": "...", "evidence": [番号], "detail": "..."}}]}}"""
+{{"call_kind": "新しく決めた" / "決まった日程の連絡" / "決まっていない" のどれか,
+ "checks": [{{"id": "...", "status": "...", "asked": true/false, "answered": true/false, "answer": "...", "evidence": [番号], "detail": "..."}}]}}"""
 
 
 def quote_from(turns, evidence):

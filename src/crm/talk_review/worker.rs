@@ -17,11 +17,12 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 
-use super::checks::loaded;
+use super::checks::{loaded, Checks};
 use super::config::TalkReviewConfig;
 use super::counts::TeamOwners;
 use super::judge::{
-    sanitize_texts, source_text, texts_foreign, Judge, JudgeError, JudgeOutput, MiniMaxJudge,
+    is_hearing, sanitize_texts, source_text, summary_of, texts_foreign, Judge, JudgeError,
+    JudgeOutput, MiniMaxJudge, StoredItem, SCHEDULED,
 };
 use super::store::{self, NewRow, ReviewRow, ST_FAILED, ST_QUEUED, ST_UNAVAILABLE};
 use super::target::{self, MarkState, Verdict, CONTACTED_NOTE};
@@ -576,12 +577,50 @@ struct Worker<Z, J> {
     pending: Arc<PendingWrites>,
     /// 助言の文が日本語だけでない判定済みの行 (起動時に 1 回だけ探し、周回ごとに少しずつ判定し直す)
     rejudge: std::collections::VecDeque<ReviewRow>,
+    /// ヒアリングを入れる前に判定した「日程が決まった」行 (起動時に 1 回だけ探し、少しずつヒアリングだけ付ける)
+    hearing_backfill: std::collections::VecDeque<ReviewRow>,
 }
 
 /// 保存済みの行の文章に日本語以外が混ざっているか (英単語の許可は行の引用だけで判断する)
 pub fn row_has_foreign_text(row: &ReviewRow) -> bool {
     let src = source_text(&[], &row.items);
     texts_foreign(&row.items, row.summary.as_deref(), &src)
+}
+
+/// ヒアリングを入れる前に判定した「日程が決まった」行か (ヒアリングの項目を 1 つも持たない)
+pub fn needs_hearing(row: &ReviewRow, checks: &Checks) -> bool {
+    row.outcome.as_deref() == Some(SCHEDULED)
+        && checks
+            .checks
+            .iter()
+            .filter(|c| is_hearing(c))
+            .all(|c| row.items.iter().all(|i| i.id != c.id))
+}
+
+/// 保存済みの項目にヒアリングの項目を足し、checks の順に並べる (checks に無い古い項目は後ろに残す)
+pub fn merge_hearing(
+    checks: &Checks,
+    items: &[StoredItem],
+    hearing: Vec<StoredItem>,
+) -> Vec<StoredItem> {
+    let mut out: Vec<StoredItem> = checks
+        .checks
+        .iter()
+        .filter_map(|c| {
+            hearing
+                .iter()
+                .chain(items.iter())
+                .find(|i| i.id == c.id)
+                .cloned()
+        })
+        .collect();
+    out.extend(
+        items
+            .iter()
+            .filter(|i| checks.checks.iter().all(|c| c.id != i.id))
+            .cloned(),
+    );
+    out
 }
 
 /// 1 周に判定し直す行の上限 (同時に判定する本数の 2 倍。既定 8 本)
@@ -595,8 +634,20 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         let since = store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
         match store::blocking(&self.audit, move |t| store::judged_since(t, &since)).await {
             Ok(rows) => {
-                self.rejudge = rows.into_iter().filter(row_has_foreign_text).collect();
-                tracing::info!(rows = self.rejudge.len(), "talk review: rows to rejudge");
+                let (rejudge, rest): (Vec<_>, Vec<_>) =
+                    rows.into_iter().partition(row_has_foreign_text);
+                self.rejudge = rejudge.into();
+                // 判定し直す行は、判定し直しでヒアリングも付くので除く
+                let checks = &loaded().checks;
+                self.hearing_backfill = rest
+                    .into_iter()
+                    .filter(|r| needs_hearing(r, checks))
+                    .collect();
+                tracing::info!(
+                    rows = self.rejudge.len(),
+                    hearing = self.hearing_backfill.len(),
+                    "talk review: rows to rejudge"
+                );
             }
             Err(e) => tracing::warn!(error = %e, "talk review: rejudge scan failed"),
         }
@@ -648,6 +699,57 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                     Outcome::Retry(note) => {
                         tracing::info!(note, "talk review: rejudge skipped");
                     }
+                }
+            });
+        }
+        while set.join_next().await.is_some() {}
+    }
+
+    /// ヒアリングを入れる前の「日程が決まった」行に、ヒアリングだけを 1 周に上限本数まで付ける。
+    /// 今の判定 (9 項目・outcome) は変えない。録音が取れない・判定に失敗した行は、この起動では見送る
+    async fn process_hearing_backfill(&mut self) {
+        let n = rejudge_limit(self.cfg.concurrency).min(self.hearing_backfill.len());
+        if n == 0 {
+            return;
+        }
+        let sem = Arc::new(tokio::sync::Semaphore::new(self.cfg.concurrency));
+        let mut set = tokio::task::JoinSet::new();
+        for row in self.hearing_backfill.drain(..n) {
+            let (zoom, judge, audit, sem) = (
+                self.zoom.clone(),
+                self.judge.clone(),
+                self.audit.clone(),
+                sem.clone(),
+            );
+            set.spawn(async move {
+                let Ok(_p) = sem.acquire().await else { return };
+                let Some(zid) = row.zoom_call_log_id.as_deref() else {
+                    return;
+                };
+                let turns = match zoom.fetch(zid).await {
+                    Ok(t) if has_both_sides(&t) => t,
+                    _ => {
+                        tracing::info!("talk review: hearing backfill skipped (transcript)");
+                        return;
+                    }
+                };
+                let checks = &loaded().checks;
+                let hearing = match judge.hearing(checks, &turns).await {
+                    Ok(h) => h,
+                    Err(_) => {
+                        tracing::info!("talk review: hearing backfill skipped (judge)");
+                        return;
+                    }
+                };
+                let items = merge_hearing(checks, &row.items, hearing);
+                let summary = summary_of(&items);
+                let (id, now) = (row.hubspot_call_id.clone(), store::ts_text(Utc::now()));
+                if let Err(e) = store::blocking(&audit, move |t| {
+                    store::mark_text_cleaned(t, &id, &items, summary.as_deref(), &now)
+                })
+                .await
+                {
+                    tracing::warn!(error = %e, "talk review: hearing backfill write failed");
                 }
             });
         }
@@ -1089,6 +1191,10 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             if !self.process_due().await {
                 // 新しい判定が無い周回に、文章が不合格の行を少しずつ判定し直す
                 self.process_rejudge().await;
+                // その後で、ヒアリングを入れる前の「日程が決まった」行にヒアリングを付ける
+                if self.rejudge.is_empty() {
+                    self.process_hearing_backfill().await;
+                }
                 tokio::time::sleep(self.cfg.interval).await;
             }
         }
@@ -1139,6 +1245,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         backfill_anchor: None,
         pending: Arc::new(PendingWrites::default()),
         rejudge: Default::default(),
+        hearing_backfill: Default::default(),
     };
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -1183,6 +1290,13 @@ mod tests {
             _: &[TalkTurn],
         ) -> Result<JudgeOutput, JudgeError> {
             self.0.clone()
+        }
+        async fn hearing(
+            &self,
+            _: &super::super::checks::Checks,
+            _: &[TalkTurn],
+        ) -> Result<Vec<StoredItem>, JudgeError> {
+            Err(JudgeError::NotConfigured)
         }
     }
 
@@ -1234,6 +1348,62 @@ mod tests {
         DateTime::parse_from_rfc3339("2026-10-15T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn old_scheduled_rows_get_only_the_hearing_added() {
+        let c = &loaded().checks;
+        let main = |id: &str, st: &str| StoredItem {
+            id: id.into(),
+            status: st.into(),
+            evidence: vec![],
+            quote: None,
+            advice: None,
+            note: None,
+            answer: None,
+            asked: None,
+            answered: None,
+        };
+        let mut r = row(Some("z"), "2026-10-27T00:00:00Z");
+        r.outcome = Some("日程が決まった".into());
+        r.items = vec![
+            main("early_date", "done"),
+            main("old_removed_check", "done"),
+        ];
+        assert!(
+            needs_hearing(&r, c),
+            "ヒアリングの項目が無い日程が決まった行"
+        );
+        r.outcome = Some("決まらなかった".into());
+        assert!(!needs_hearing(&r, c), "日程が決まらなかった行は対象外");
+        r.outcome = Some("日程が決まった".into());
+        let hearing: Vec<StoredItem> = c
+            .checks
+            .iter()
+            .filter(|c| is_hearing(c))
+            .map(|c| main(&c.id, "not_done"))
+            .collect();
+        let merged = merge_hearing(c, &r.items, hearing);
+        let ids: Vec<&str> = merged.iter().map(|i| i.id.as_str()).collect();
+        let order: Vec<&str> = c
+            .checks
+            .iter()
+            .map(|c| c.id.as_str())
+            .filter(|id| ids.contains(id))
+            .collect();
+        assert_eq!(&ids[..order.len()], &order[..], "checks の順");
+        assert_eq!(
+            ids.last(),
+            Some(&"old_removed_check"),
+            "checks に無い古い項目は後ろに残す"
+        );
+        assert_eq!(
+            merged.iter().find(|i| i.id == "early_date").unwrap().status,
+            "done",
+            "今の判定は変えない"
+        );
+        r.items = merged;
+        assert!(!needs_hearing(&r, c), "付けた後はもう対象にしない");
     }
 
     #[test]
