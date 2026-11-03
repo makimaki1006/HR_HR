@@ -47,6 +47,7 @@ pub mod phone_hearing;
 mod rikurozi;
 mod rikurozi_listing;
 mod saved_notes;
+pub mod shared_applications;
 mod todo_signals;
 
 #[derive(Debug)]

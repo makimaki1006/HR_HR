@@ -2161,6 +2161,29 @@ check("M-8", "案件そのものの絞り込み・並び替えは #board-body �
   const main2 = t.reg["cs-main"].innerHTML;
   if (main2 === main1 || !main2.includes("担当者ごとの持ち件数")) throw new Error("担当を外したのに本文全体を描き直していない（持ち件数の表に戻らない）");
 });
+check("がっかり", "案件一覧の「がっかり」の欄を選ぶと該当の行だけに絞れ、外すと欄も戻る。注意の本数は変わらない", async () => {
+  const t = boot();
+  const rows = [
+    boardRow({ deal_id: "k1", name: "株式1", gakkari: ["no_applicants_30d"], last_application: "2026-09-01" }),
+    boardRow({ deal_id: "k2", name: "株式2", gakkari: [], n_flags: 1, flags: ["札X"] }),
+    boardRow({ deal_id: "k3", name: "株式3", gakkari: ["no_applicants_30d"], n_flags: 1, flags: ["札X"] })];
+  t.ctx.__D = { meta: { flag_counts: [{ label: "札X", n: 2 }], mtg_gap: { bands: [] }, order_rule: "",
+    gakkari_counts: [{ key: "no_applicants_30d", label: "応募が30日無い", n: 2 }], gakkari_rule: "決まり", applications_as_of: "2026-10-27T03:00:00Z" }, rows };
+  t.R('cur = { menu: "deal", view: "board" }; boardCache = __D; lastPayload = __D; boardShowAll = false; ' +
+      'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "", phase: "", gakkari: "" }; boardSort = { key: "n_flags", asc: false };');
+  t.reg["cs-main"].innerHTML = t.R("renderBoard(__D)");
+  const body = new t.El("board-body"); t.reg["board-body"] = body;
+  const sel = new t.El("bf-gakkari"); t.reg["bf-gakkari"] = sel;
+  const cl = new t.El("bf-clear"); t.reg["bf-clear"] = cl;
+  t.R("wire(viewOf('deal', 'board'))");
+  if (!t.reg["cs-main"].innerHTML.includes('id="bf-gakkari"')) throw new Error("がっかりの欄が出ていない");
+  sel.value = "no_applicants_30d"; sel.onchange();
+  if (t.R("boardApply(__D.rows).map((r) => r.deal_id).join()") !== "k1,k3") throw new Error("がっかりで絞れていない");
+  if (!body.innerHTML.includes("2 件中 2 件") && !/3 件中 2 件/.test(body.innerHTML)) throw new Error("件数の行が絞った件数でない: " + body.innerHTML.slice(0, 200));
+  if (t.R("__D.rows.filter((r) => r.n_flags >= 1).length") !== 2) throw new Error("注意の本数が変わっている");
+  cl.onclick();
+  if (t.R("boardFilter.gakkari") !== "") throw new Error("絞り込みを外してもがっかりが残る");
+});
 check("M-8", "「絞り込みを外す」は絞り込みの欄も既定に戻す（本文全体を描き直す）。「残りも出す」は絞り込みを変える・外す・画面に入り直すと既定の上位 100 行に戻る", async () => {
   const t = boot();
   const rows = [0, 1, 2].map((i) => boardRow({ deal_id: "r" + i, name: "株式" + i, consultant: "担当A", n_flags: 1, flags: ["札X"] }));
