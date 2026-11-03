@@ -310,7 +310,8 @@ pub fn judged_since(t: &TursoDb, since: &str) -> Result<Vec<ReviewRow>, String> 
     Ok(t.query(&sql, &[&since])?.iter().map(row_from).collect())
 }
 
-/// 判定の結果は変えずに、助言・メモ・まとめの文章だけを書き換える (録音が消えて判定し直せない行用)
+/// 判定済みの行の項目とまとめだけを書き換える (録音が消えて判定し直せない行の文章の掃除と、
+/// ヒアリングを入れる前の行にヒアリングの項目を足すとき。outcome などは変えない)
 pub fn mark_text_cleaned(
     t: &TursoDb,
     id: &str,
