@@ -2,6 +2,10 @@
 
 export type PortalColumn = { 
 /**
+ * 登録済みの見出し。保存では列の順番でなくこの番号を送る。
+ */
+id: string, writable: boolean, options: Array<string> | null, 
+/**
  * 画面での名前 (未設定なら見出し)
  */
 label: string, 

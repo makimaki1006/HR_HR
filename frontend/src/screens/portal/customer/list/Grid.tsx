@@ -4,7 +4,6 @@
 // 文字の列はその入力欄がそのままマスの上に出て編集欄になる（Google スプレッドシートと同じ作り）。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { dominantDateStyle, kindOf, labelOf, type DateStyle } from '../../columns';
-import { actions } from '../../data';
 import { CellDisplay, CellInput } from '../../ui/cell';
 import { IconCheck, IconColumns, IconFilter, IconLock, IconSearch } from '../../ui/icons';
 import { cx } from '../../ui/kit';
@@ -51,9 +50,11 @@ export interface GridProps {
   /** この行へ移って選ぶ（新しい応募者の「見る」）。seq が変わるたびに動く。 */
   jump: { rowNumber: number; seq: number } | null;
   height: number;
+  onCellSeen?: (row: number, column: string) => void;
+  onEditStart?: (row: number, column: string) => void;
 }
 
-export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver, sort, onSort, filters, onFilter, onOpen, openRowNumber = null, canEditColumns, onColumnSettings, jump, height }: GridProps) {
+export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver, sort, onSort, filters, onFilter, onOpen, openRowNumber = null, canEditColumns, onColumnSettings, jump, height, onCellSeen, onEditStart }: GridProps) {
   const [sel, setSel] = useState<Pos | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
@@ -64,7 +65,7 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
   const composingRef = useRef(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const catcherRef = useRef<HTMLTextAreaElement>(null);
-  const widths = useMemo(() => columnWidths(cols, allRows, titleHeader, sheet.statusColumn ?? undefined, (r) => rowRefDay(sheet, r)), [cols, allRows, titleHeader, sheet]);
+  const widths = useMemo(() => columnWidths(cols, allRows, titleHeader, sheet.statusColumn ?? undefined, (r) => rowRefDay(sheet, r, allRows)), [cols, allRows, titleHeader, sheet]);
   const widthOf = (c: ColumnConfig): number => widths[c.header] ?? 128;
   const titleW = widths[titleHeader] ?? TITLE_MIN;
   const totalW = cols.reduce((s, c) => s + widthOf(c), 0);
@@ -114,8 +115,8 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
 
   // シートで変わったマスを選んだら、変わった印（色）を消す。
   useEffect(() => {
-    if (sel) actions.markCellSeen(sheet.id, sel.rowNumber, sel.column);
-  }, [sel, sheet.id]);
+    if (sel) onCellSeen?.(sel.rowNumber, sel.column);
+  }, [sel, onCellSeen]);
 
   // 選んだマスを見える位置に。
   useEffect(() => {
@@ -219,6 +220,7 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
     // 名前の列: 書けないシートでは詳細を開く。書けるシートでは、ほかのマスと同じくその場で直す（外国籍の人などが登録の名前を変えることがある）。
     if (col.header === titleHeader && !col.writable) { onOpen(row.rowNumber); return; }
     if (!canWrite(col)) return;
+    onEditStart?.(row.rowNumber, col.header);
     const base = row.values[col.header] ?? '';
     const e: Editing = { ...pos, base, value: opts.initial ?? base, mode: modeOf(col), query: opts.query ?? '' };
     editingRef.current = e;
@@ -421,7 +423,7 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
                         ) : c.header === sheet.statusColumn ? (
                           <StatusPill value={v} dot={statusDot(sheet, v)} />
                         ) : (
-                          <CellDisplay column={c} value={v} refDay={sheet.sortColumn ? rowRefDay(sheet, row) : null} className={cx('truncate', c.multiline && 'text-pt-muted')} />
+                          <CellDisplay column={c} value={v} refDay={sheet.sortColumn ? rowRefDay(sheet, row, allRows) : null} className={cx('truncate', c.multiline && 'text-pt-muted')} />
                         )}
                       </div>
                       {st?.kind === 'conflict' && !isSel && <span className="pointer-events-none absolute inset-0 ring-1 ring-pt-warn ring-inset" />}
@@ -434,7 +436,7 @@ export function Grid({ sheet, rows, allRows, cols, titleHeader, readOnly, saver,
                           initial={editing.value}
                           wide={kindOf(c) === 'datetime'}
                           dateStyle={dominantDateStyle(allRows, c.header)}
-                          refDay={sheet.sortColumn ? rowRefDay(sheet, row) : null}
+                          refDay={sheet.sortColumn ? rowRefDay(sheet, row, allRows) : null}
                           place={fitInBox('below')}
                           onChange={setEditValue}
                           onCommit={commit}

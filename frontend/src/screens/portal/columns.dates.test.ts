@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { setPortalPreviewClock } from './clock';
+import { NOW } from './now';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { dateSearchText, dayNum, dominantDateStyle, formatDateTimeJa, formatDayJa, writeDate } from './columns';
 import type { ApplicantRow } from './types';
+
+beforeEach(() => { setPortalPreviewClock(NOW); });
 
 const row = (n: number, v: string): ApplicantRow => ({ rowNumber: n, values: { 面接予定日: v }, changedSinceLastView: null });
 

@@ -49,7 +49,7 @@ export function statusTone(s: string): 'warn' | 'info' | 'ok' | 'neutral' {
 const norm = (s: string): string => s.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
 
 /** 探す: 見せる項目のどれかに入っていれば出す。電話番号はハイフンを除いても合う。 */
-export function matches(a: PortalApplicant, query: string): boolean {
+export function matches(a: Pick<PortalApplicant, 'cells'>, query: string): boolean {
   const q = norm(query);
   if (q === '') return true;
   const digits = /^[0-9-]+$/.test(q) ? q.replace(/-/g, '') : '';
@@ -68,7 +68,7 @@ export function isGone(r: { status: number; error: string }): boolean {
 }
 
 /** 新しく入った行（シートの下の行）を上にする。 */
-export function newestFirst(list: PortalApplicant[]): PortalApplicant[] {
+export function newestFirst<T extends Pick<PortalApplicant, 'row'>>(list: T[]): T[] {
   return [...list].sort((a, b) => b.row - a.row);
 }
 

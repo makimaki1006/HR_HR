@@ -4,20 +4,23 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { PortalSheetRows } from '../../../../generated/PortalSheetRows';
 import { ApplicantsScreen } from './ApplicantsScreen';
+import type { EditableApplicant, EditableColumn } from './editing';
 
 const NAME = '架空 花子';
 const SCRIPT = '<script>alert(1)</script>';
 
+const viewColumns: EditableColumn[] = [
+  { id: '応募者名', label: '応募者名', kind: 'text', group: 'summary', in_list: true, multiline: false, writable: false, options: null },
+  { id: '備考', label: '備考', kind: 'text', group: 'customer', in_list: true, multiline: false, writable: false, options: null },
+];
+const viewApplicant: EditableApplicant = { row: 3, cells: [NAME, SCRIPT], revision: 'r1' };
 const rows: PortalSheetRows = {
   sheet: { id: 's1', label: '応募者一覧' },
   version: 'v1',
   read_at: '2026-10-26T01:00:00Z',
   stale: false,
-  columns: [
-    { label: '応募者名', kind: 'text', group: 'summary', in_list: true, multiline: false },
-    { label: '備考', kind: 'text', group: 'customer', in_list: true, multiline: false },
-  ],
-  applicants: [{ row: 3, cells: [NAME, SCRIPT] }],
+  columns: viewColumns,
+  applicants: [viewApplicant],
 };
 
 interface Reply { status: number; body: unknown }

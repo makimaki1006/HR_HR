@@ -1,10 +1,74 @@
 //! 手元の確認用 (debug ビルドの `PORTAL_DEV_MEMORY=1` だけ): 顧客のシートの代わりに架空の表を返す。
 //! 名前・電話番号・メールアドレスはすべて架空 (example.com・090-0000-00xx)。
-//! タブは 2 つ (今年の応募者と、去年の応募者)。範囲のタブ名で表を選び、行・列の範囲は見ずに全部返す。
-use super::sheets::{ApiFuture, SheetsApi, TabInfo};
+//! タブは 2 つ (今年の応募者と、去年の応募者)。範囲ごとの読み書きをメモリに保持する。
+use super::sheets::{ApiFuture, GoogleError, SheetCell, SheetCells, SheetsApi, TabInfo};
 use super::store::{ColumnGroup, ColumnKind, ColumnSetting, SheetReg};
+use serde_json::json;
+use std::collections::BTreeMap;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 
-pub struct DevSheet;
+pub struct DevSheet {
+    grids: Mutex<BTreeMap<String, Vec<Vec<String>>>>,
+    revision: AtomicU64,
+}
+
+impl Default for DevSheet {
+    fn default() -> Self {
+        Self {
+            grids: Mutex::new(BTreeMap::from([
+                (TAB_NOW.to_string(), grid(&NOW_PEOPLE, 1)),
+                (TAB_PAST.to_string(), grid(&PAST_PEOPLE, 101)),
+            ])),
+            revision: AtomicU64::new(0),
+        }
+    }
+}
+
+fn bounds(range: &str) -> (usize, Option<usize>, usize, usize) {
+    let cells = range.rsplit_once('!').map(|x| x.1).unwrap_or(range);
+    let (first, last) = cells.split_once(':').unwrap_or((cells, cells));
+    let part = |s: &str| {
+        let letters: String = s.chars().take_while(|c| c.is_ascii_uppercase()).collect();
+        let col = letters
+            .bytes()
+            .fold(0usize, |n, b| n * 26 + (b - b'A' + 1) as usize)
+            .saturating_sub(1);
+        (
+            s[letters.len()..]
+                .parse::<usize>()
+                .ok()
+                .map(|n| n.saturating_sub(1)),
+            col,
+        )
+    };
+    let (r, c) = part(first);
+    let (last_r, last_c) = part(last);
+    (r.unwrap_or(0), last_r, c, last_c)
+}
+
+impl DevSheet {
+    fn read_range(&self, range: &str) -> Vec<Vec<String>> {
+        let g = self.grids.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(rows) = g.get(&tab_of(range)) else {
+            return Vec::new();
+        };
+        let (first, last, start_col, end_col) = bounds(range);
+        let end = last.map_or(rows.len(), |n| (n + 1).min(rows.len()));
+        (first..end)
+            .map(|r| {
+                rows[r]
+                    .iter()
+                    .skip(start_col)
+                    .take(end_col - start_col + 1)
+                    .cloned()
+                    .collect()
+            })
+            .collect()
+    }
+}
 
 /// 手元の確認で登録するスプレッドシートの番号 (架空)
 pub const DEV_SPREADSHEET: &str = "dev-spreadsheet-000000000000";
@@ -12,7 +76,7 @@ pub const TAB_NOW: &str = "応募者情報管理";
 pub const TAB_PAST: &str = "2025年度";
 const TAB_NOW_ID: i64 = 0;
 const TAB_PAST_ID: i64 = 2;
-/// Drive の最終更新時刻 (架空。変わらない)
+/// Drive の最終更新時刻の基準 (架空。保存ごとの連番を末尾に足す)
 const MODIFIED: &str = "2026-10-26T00:00:00.000Z";
 
 const HEADERS: [&str; 12] = [
@@ -429,7 +493,10 @@ pub fn dev_registrations(
                     header: header.into(),
                     label: label.into(),
                     visible,
-                    writable: false,
+                    writable: matches!(
+                        header,
+                        "応募者名" | "フリガナ" | "状況" | "面接予定日" | "時間" | "備考"
+                    ),
                     in_list,
                     multiline,
                     kind,
@@ -447,8 +514,11 @@ impl SheetsApi for DevSheet {
     fn client_email(&self) -> &str {
         "portal-sheets@example-project.iam.gserviceaccount.com"
     }
-    fn tabs<'a>(&'a self, _spreadsheet: &'a str) -> ApiFuture<'a, Vec<TabInfo>> {
-        Box::pin(async {
+    fn tabs<'a>(&'a self, spreadsheet: &'a str) -> ApiFuture<'a, Vec<TabInfo>> {
+        Box::pin(async move {
+            if spreadsheet != DEV_SPREADSHEET {
+                return Err(GoogleError::Status(404));
+            }
             Ok(vec![
                 TabInfo {
                     sheet_id: TAB_NOW_ID,
@@ -465,8 +535,30 @@ impl SheetsApi for DevSheet {
             ])
         })
     }
+    fn cells<'a>(
+        &'a self,
+        spreadsheet: &'a str,
+        ranges: &'a [String],
+    ) -> ApiFuture<'a, Vec<SheetCells>> {
+        Box::pin(async move {
+            if spreadsheet != DEV_SPREADSHEET {
+                return Err(GoogleError::Status(404));
+            }
+            Ok(ranges.iter().map(|range| {
+                let (first,_,start_col,_) = bounds(range);
+                let rows = self.read_range(range).into_iter().enumerate().map(|(i,row)| row.into_iter().enumerate().map(|(j,text)| {
+                    let mut cell = SheetCell::literal(text);
+                    if first+i > 0 && start_col+j == 7 {
+                        cell.validation = Some(json!({"condition":{"type":"ONE_OF_LIST","values": (["未連絡","応募者連絡待ち","面接調整中","面接予定","面接済み","内定","採用","不採用","辞退"].into_iter().map(|v|json!({"userEnteredValue":v})).collect::<Vec<_>>())}}));
+                    }
+                    cell
+                }).collect()).collect();
+                SheetCells { rows }
+            }).collect())
+        })
+    }
     fn add_tabs<'a>(&'a self, _s: &'a str, _t: &'a [String]) -> ApiFuture<'a, ()> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async { Err(GoogleError::Status(501)) })
     }
     fn batch_get<'a>(
         &'a self,
@@ -474,22 +566,42 @@ impl SheetsApi for DevSheet {
         ranges: &'a [String],
     ) -> ApiFuture<'a, Vec<Vec<Vec<String>>>> {
         Box::pin(async move {
-            Ok(ranges
-                .iter()
-                .map(|r| match tab_of(r).as_str() {
-                    TAB_PAST => grid(&PAST_PEOPLE, 101),
-                    TAB_NOW => grid(&NOW_PEOPLE, 1),
-                    _ => vec![row(&["合計"])],
-                })
-                .collect())
+            if _spreadsheet != DEV_SPREADSHEET {
+                return Err(GoogleError::Status(404));
+            }
+            Ok(ranges.iter().map(|r| self.read_range(r)).collect())
         })
     }
     fn batch_update<'a>(
         &'a self,
         _s: &'a str,
-        _d: &'a [(String, Vec<Vec<String>>)],
+        data: &'a [(String, Vec<Vec<String>>)],
     ) -> ApiFuture<'a, ()> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            if _s != DEV_SPREADSHEET {
+                return Err(GoogleError::Status(404));
+            }
+            let mut grids = self.grids.lock().unwrap_or_else(|e| e.into_inner());
+            for (range, values) in data {
+                let (first, _, start_col, _) = bounds(range);
+                let rows = grids
+                    .get_mut(&tab_of(range))
+                    .ok_or(GoogleError::Status(404))?;
+                for (i, row) in values.iter().enumerate() {
+                    if rows.len() <= first + i {
+                        rows.resize(first + i + 1, Vec::new());
+                    }
+                    if rows[first + i].len() < start_col + row.len() {
+                        rows[first + i].resize(start_col + row.len(), String::new());
+                    }
+                    for (j, v) in row.iter().enumerate() {
+                        rows[first + i][start_col + j] = v.clone();
+                    }
+                }
+            }
+            self.revision.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
     }
     fn append<'a>(
         &'a self,
@@ -497,9 +609,17 @@ impl SheetsApi for DevSheet {
         _r: &'a str,
         _rows: &'a [Vec<String>],
     ) -> ApiFuture<'a, ()> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async { Err(GoogleError::Status(501)) })
     }
     fn modified_time<'a>(&'a self, _s: &'a str) -> ApiFuture<'a, String> {
-        Box::pin(async { Ok(MODIFIED.to_string()) })
+        Box::pin(async move {
+            if _s != DEV_SPREADSHEET {
+                return Err(GoogleError::Status(404));
+            }
+            Ok(format!(
+                "{MODIFIED}|{}",
+                self.revision.load(Ordering::SeqCst)
+            ))
+        })
     }
 }

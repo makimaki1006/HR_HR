@@ -28,6 +28,68 @@ pub struct TabInfo {
     pub title: String,
 }
 
+/// 保存前の照合に使うセル。値と数式・入力規則をサーバー内でだけ持つ。
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct SheetCell {
+    pub text: String,
+    pub entered: Value,
+    pub validation: Option<Value>,
+}
+
+impl SheetCell {
+    pub fn literal(text: String) -> Self {
+        Self {
+            entered: json!({"stringValue": text}),
+            text,
+            validation: None,
+        }
+    }
+
+    pub fn formula(&self) -> bool {
+        self.entered.get("formulaValue").is_some()
+    }
+
+    /// 未対応の入力規則は自由入力にせず、編集不可として扱う。
+    pub fn options(&self) -> Result<Option<Vec<String>>, &'static str> {
+        let Some(v) = &self.validation else {
+            return Ok(None);
+        };
+        let Some(condition) = v.get("condition") else {
+            return Err("入力規則を確認できません");
+        };
+        if condition.get("type").and_then(Value::as_str) != Some("ONE_OF_LIST") {
+            return Err("この入力規則にはまだ対応していません");
+        }
+        let Some(values) = condition.get("values").and_then(Value::as_array) else {
+            return Err("入力規則を確認できません");
+        };
+        values
+            .iter()
+            .map(|v| {
+                v.get("userEnteredValue")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .ok_or("入力規則を確認できません")
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SheetCells {
+    pub rows: Vec<Vec<SheetCell>>,
+}
+
+impl SheetCells {
+    pub fn texts(&self) -> Vec<Vec<String>> {
+        self.rows
+            .iter()
+            .map(|r| r.iter().map(|c| c.text.clone()).collect())
+            .collect()
+    }
+}
+
 pub trait SheetsApi: Send + Sync {
     /// シートに編集者として追加してもらうアドレス
     fn client_email(&self) -> &str;
@@ -57,6 +119,14 @@ pub trait SheetsApi: Send + Sync {
     /// スプレッドシートの最終更新時刻 (Drive files.get の modifiedTime だけ)。
     /// 中身が変わったかを Sheets を読まずに確かめる (計画 4.2)
     fn modified_time<'a>(&'a self, spreadsheet: &'a str) -> ApiFuture<'a, String>;
+    /// 範囲ごとの表示値・数式・入力規則。実装漏れを保存成功と誤認しない。
+    fn cells<'a>(
+        &'a self,
+        _spreadsheet: &'a str,
+        _ranges: &'a [String],
+    ) -> ApiFuture<'a, Vec<SheetCells>> {
+        Box::pin(async { Err(GoogleError::Status(501)) })
+    }
 }
 
 /// サービスアカウントの鍵で本物の Google を呼ぶ
@@ -97,6 +167,70 @@ fn grid(v: Option<&Value>) -> Vec<Vec<String>> {
 impl SheetsApi for GoogleSheetsApi {
     fn client_email(&self) -> &str {
         self.sa.client_email()
+    }
+
+    fn cells<'a>(
+        &'a self,
+        spreadsheet: &'a str,
+        ranges: &'a [String],
+    ) -> ApiFuture<'a, Vec<SheetCells>> {
+        Box::pin(async move {
+            let url = format!("{SHEETS_API}/{spreadsheet}");
+            let mut result = Vec::with_capacity(ranges.len());
+            // A single get with several ranges returns GridData blocks in range order.
+            let mut query = vec![(
+                "fields",
+                "sheets(data(rowData(values(formattedValue,userEnteredValue,dataValidation))))",
+            )];
+            for range in ranges {
+                query.push(("ranges", range.as_str()));
+            }
+            let response = self.sa.get(&url, &query).await?;
+            for data in response
+                .get("sheets")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .flat_map(|sheet| {
+                    sheet
+                        .get("data")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                })
+            {
+                let rows = data
+                    .get("rowData")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .map(|row| {
+                        row.get("values")
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .map(|cell| SheetCell {
+                                text: cell
+                                    .get("formattedValue")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string(),
+                                entered: cell
+                                    .get("userEnteredValue")
+                                    .cloned()
+                                    .unwrap_or(Value::Null),
+                                validation: cell.get("dataValidation").cloned(),
+                            })
+                            .collect()
+                    })
+                    .collect();
+                result.push(SheetCells { rows });
+            }
+            if result.len() != ranges.len() {
+                return Err(GoogleError::Status(502));
+            }
+            Ok(result)
+        })
     }
 
     fn tabs<'a>(&'a self, spreadsheet: &'a str) -> ApiFuture<'a, Vec<TabInfo>> {

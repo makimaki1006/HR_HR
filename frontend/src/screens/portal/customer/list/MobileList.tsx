@@ -4,7 +4,6 @@ import { cardLayout, formatDateTimeJa, formatDayJa, labelOf, TODAY_NUM } from '.
 import { IconChevronDown } from '../../ui/icons';
 import { BottomSheet, cx } from '../../ui/kit';
 import type { ApplicantRow, ColumnConfig, SheetConfig } from '../../types';
-import { stageOf } from '../../data';
 import { rowRefDay, sheetBaseRef, statusDot } from './model';
 import { interviewDayNum } from './quick';
 import { ChangeMark, changeLine, SaveProblem } from './parts';
@@ -12,14 +11,14 @@ import { StatusSheetList } from './StatusSheet';
 import { cellKey, type CellSaver } from './useCellSaver';
 
 /** 2 段目の文。上から順に当てはまる 1 つだけ出す。 */
-function subline(sheet: SheetConfig, row: ApplicantRow, media: ColumnConfig | undefined, action: ColumnConfig | undefined): { lead?: string; main: string; today?: boolean } {
+function subline(sheet: SheetConfig, row: ApplicantRow, media: ColumnConfig | undefined, action: ColumnConfig | undefined, rows: ApplicantRow[]): { lead?: string; main: string; today?: boolean } {
   const get = (h: string | undefined) => (h ? (row.values[h] ?? '') : '');
-  const ref = sheet.sortColumn ? rowRefDay(sheet, row) : null;
-  const applied = sheet.sortColumn ? formatDayJa(get(sheet.sortColumn), sheetBaseRef(sheet))?.text : undefined;
+  const ref = sheet.sortColumn ? rowRefDay(sheet, row, rows) : null;
+  const applied = sheet.sortColumn ? formatDayJa(get(sheet.sortColumn), sheetBaseRef(sheet, rows))?.text : undefined;
   const appliedLine = [applied !== undefined ? `${applied}応募` : '', get(media?.header)].filter((x) => x !== '').join('・');
   if (row.changedSinceLastView === 'new' && appliedLine !== '') return { main: appliedLine };
-  const dayNum = interviewDayNum(sheet, row);
-  const stage = sheet.statusColumn ? stageOf(sheet, get(sheet.statusColumn)) : undefined;
+  const dayNum = interviewDayNum(sheet, row, rows);
+  const stage = sheet.statusColumn ? sheet.stageMap?.[get(sheet.statusColumn)] : undefined;
   const closed = stage === 'rejected' || stage === 'declined';
   if (sheet.interviewColumn && !closed && dayNum !== null && dayNum >= TODAY_NUM) {
     const f = formatDateTimeJa(get(sheet.interviewColumn), sheet.interviewTimeColumn ? get(sheet.interviewTimeColumn) : undefined, ref);
@@ -30,9 +29,10 @@ function subline(sheet: SheetConfig, row: ApplicantRow, media: ColumnConfig | un
   return { main: appliedLine };
 }
 
-export function MobileList({ sheet, rows, readOnly, saver, onOpen }: {
+export function MobileList({ sheet, rows, allRows = rows, readOnly, saver, onOpen }: {
   sheet: SheetConfig;
   rows: ApplicantRow[];
+  allRows?: ApplicantRow[];
   readOnly: boolean;
   saver: CellSaver;
   onOpen: (rowNumber: number) => void;
@@ -56,7 +56,7 @@ export function MobileList({ sheet, rows, readOnly, saver, onOpen }: {
           const st = saver.cells[key];
           const statusValue = st?.kind === 'saving' ? st.value : (status ? (row.values[status.header] ?? '') : '');
           const label = `${name}さんの「${status ? labelOf(status) : ''}」`;
-          const sub = subline(sheet, row, media, action);
+          const sub = subline(sheet, row, media, action, allRows);
           const canPick = status !== undefined && status.writable && !readOnly && st?.kind !== 'saving';
           const line = changeLine(row.changedSinceLastView);
           return (
