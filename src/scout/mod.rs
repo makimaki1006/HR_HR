@@ -22,7 +22,10 @@ use aes_gcm::{
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{header::CACHE_CONTROL, HeaderMap, HeaderValue, StatusCode},
+    http::{
+        header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE},
+        HeaderMap, HeaderValue, StatusCode,
+    },
     routing::{get, post},
     Json, Router,
 };
@@ -45,6 +48,96 @@ const CREDENTIAL_UPSERT_SQL: &str =
 const CONFIG_PATCH_SQL: &str = "INSERT INTO kv_settings(workspace_id,key,value) VALUES(?,?,?) \
      ON CONFLICT(workspace_id,key) DO UPDATE SET \
      value=json_patch(COALESCE(kv_settings.value,'{}'), ?)";
+
+// ===== 実行ログ(run_logs)の SQL / 定数 =====
+//
+// send_history は「送れた分」だけが載る表で、弾かれた候補者・落ちた理由は中央に
+// 1行も残っていなかった(run_logs が 0 行)。run_logs はその「結末の全部」を受ける。
+
+/// 実行ログ1行の INSERT。**ログなので冪等化しない**。
+/// 同じ候補者が何度も弾かれたなら、その回数ぶん行が残るのが正しい
+/// (send_history の冪等ガードと役割が違う)。
+const RUN_LOG_INSERT_SQL: &str =
+    "INSERT INTO run_logs(ts,campaign_id,iter,candidate_web_id,subject_chars,body_chars,\
+     api_seconds,status,workspace_id,user_id,platform,error_kind,error_step,error_detail,error_url) \
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+
+/// `campaigns` 表があるかの判定。
+///
+/// キャンペーン名は現状 `kv_settings.__config__` の JSON 側にあり、中央の
+/// scout DB に `campaigns` 表があるかは**こちらから確認できない**(Turso へは触らない)。
+/// 無い DB で LEFT JOIN すると SELECT 全体が落ちて CSV が1行も出せなくなるので、
+/// 先に存在を見て、無ければ campaign_name を空にした SQL に切り替える。
+const RUN_LOG_CAMPAIGNS_EXISTS_SQL: &str =
+    "SELECT name AS name FROM sqlite_master WHERE type='table' AND name='campaigns'";
+
+/// CSV エクスポートの本体 SQL(`campaigns` 表がある場合)。
+///
+/// `from`/`to`/`platform` は**空文字で「指定なし」**を表し、SQL 側で `?=''` を見る。
+/// 文字列連結で WHERE を組み立てないのは、SQL を1本の定数として
+/// ローカル SQLite にそのまま流して検証できる形にしておくため。
+/// `LIMIT 50001` は上限(50,000)+1 件取って、打ち切りが起きたことを呼び出し元に知らせるため。
+const RUN_LOG_EXPORT_SQL: &str = "SELECT l.ts AS ts, l.campaign_id AS campaign_id, \
+     COALESCE(c.name,'') AS campaign_name, l.platform AS platform, \
+     l.candidate_web_id AS candidate_web_id, l.status AS status, \
+     l.subject_chars AS subject_chars, l.body_chars AS body_chars, \
+     l.api_seconds AS api_seconds, l.error_kind AS error_kind, l.error_step AS error_step, \
+     l.error_detail AS error_detail, l.error_url AS error_url, l.user_id AS user_id \
+     FROM run_logs l \
+     LEFT JOIN campaigns c ON c.id=l.campaign_id AND c.workspace_id=l.workspace_id \
+     WHERE l.workspace_id=? \
+       AND (?='' OR substr(l.ts,1,10)>=?) \
+       AND (?='' OR substr(l.ts,1,10)<=?) \
+       AND (?='' OR l.platform=?) \
+     ORDER BY l.ts LIMIT 50001";
+
+/// `campaigns` 表が無い DB 用。列の並び・名前は `RUN_LOG_EXPORT_SQL` と同一に保つ
+/// (CSV 生成側が列名で引くので、ここがズレると列が空になる)。
+const RUN_LOG_EXPORT_SQL_WITHOUT_CAMPAIGNS: &str = "SELECT l.ts AS ts, \
+     l.campaign_id AS campaign_id, '' AS campaign_name, l.platform AS platform, \
+     l.candidate_web_id AS candidate_web_id, l.status AS status, \
+     l.subject_chars AS subject_chars, l.body_chars AS body_chars, \
+     l.api_seconds AS api_seconds, l.error_kind AS error_kind, l.error_step AS error_step, \
+     l.error_detail AS error_detail, l.error_url AS error_url, l.user_id AS user_id \
+     FROM run_logs l \
+     WHERE l.workspace_id=? \
+       AND (?='' OR substr(l.ts,1,10)>=?) \
+       AND (?='' OR substr(l.ts,1,10)<=?) \
+       AND (?='' OR l.platform=?) \
+     ORDER BY l.ts LIMIT 50001";
+
+/// CSV の見出し行。列の数・順序は `run_log_csv_row` と1対1で対応させる。
+const RUN_LOG_CSV_HEADER: &str = "ts,campaign_id,campaign_name,platform,candidate_web_id,status,\
+subject_chars,body_chars,api_seconds,error_kind,error_step,error_detail,error_url,user_id";
+
+/// CSV の列数(打ち切り行のカンマ数と見出しの整合をテストで縛るため)。
+const RUN_LOG_CSV_COLUMNS: usize = 14;
+
+/// CSV に出す最大行数。これを超えた分は**黙って捨てない**
+/// (`X-Truncated` ヘッダと最終行の注記で呼び出し元に見せる)。
+const RUN_LOG_EXPORT_MAX_ROWS: usize = 50_000;
+
+/// 打ち切ったことを CSV 本文にも残す注記(ヘッダを見ない人が Excel で開く前提)。
+const RUN_LOG_TRUNCATED_NOTICE: &str =
+    "上限50000行で打ち切りました。from/to で期間を狭めて取り直してください";
+
+/// `error_detail` の保存上限(文字数)。暴走したページの文面で表が膨らむのを止める。
+const RUN_LOG_ERROR_DETAIL_MAX_CHARS: usize = 500;
+
+/// `error_url` の保存上限(文字数)。クエリ付きの長大 URL を切る。
+const RUN_LOG_ERROR_URL_MAX_CHARS: usize = 300;
+
+/// `run_logs.platform` の後付け。定数に出してあるのは、テストが
+/// **実装と同じ文**をローカル SQLite に流して検証できるようにするため。
+const RUN_LOG_PLATFORM_ALTER_SQL: &str = "ALTER TABLE run_logs ADD COLUMN platform TEXT";
+
+/// `run_logs` の失敗内容4列の後付け。SQLite の ALTER TABLE は1文1列なので4本に分ける。
+const RUN_LOG_ERROR_COLUMN_ALTER_SQL: [&str; 4] = [
+    "ALTER TABLE run_logs ADD COLUMN error_kind TEXT",
+    "ALTER TABLE run_logs ADD COLUMN error_step TEXT",
+    "ALTER TABLE run_logs ADD COLUMN error_detail TEXT",
+    "ALTER TABLE run_logs ADD COLUMN error_url TEXT",
+];
 
 /// 新規 workspace の既定 config（空キャンペーン＋既定設定）。ローカルアプリが即使える状態にする。
 const DEFAULT_CONFIG_JSON: &str = r#"{
@@ -77,6 +170,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/scout/api/sent", post(sent))
         .route("/scout/api/has-sent", get(has_sent))
         .route("/scout/api/stats", get(stats))
+        // 送信できなかった候補者の結末と理由も中央に残す(記録と取り出し)。
+        .route("/scout/api/run-log", post(run_log))
+        .route("/scout/api/run-log/export", get(run_log_export))
         .route("/scout/api/killswitch", get(killswitch))
         .route("/scout/api/admin/killswitch", post(admin_killswitch))
         .route("/scout/api/admin/disable", post(admin_disable))
@@ -107,6 +203,8 @@ pub fn router() -> Router<Arc<AppState>> {
 type CoreErr = (StatusCode, String);
 type ApiResult = Result<Json<Value>, (StatusCode, Json<Value>)>;
 type CredentialApiResult = Result<(HeaderMap, Json<Value>), (StatusCode, HeaderMap, Json<Value>)>;
+/// CSV を返すエンドポイント用。成功は (ヘッダ, CSV本文)、失敗は既存と同じ JSON エラー。
+type CsvApiResult = Result<(HeaderMap, String), (StatusCode, Json<Value>)>;
 
 fn cerr(code: StatusCode, msg: impl Into<String>) -> CoreErr {
     (code, msg.into())
@@ -169,6 +267,20 @@ fn get_str(row: &HashMap<String, Value>, key: &str) -> String {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string()
+}
+
+/// リクエストボディから文字列を1つ取る(欠落・型違い・空白のみは空文字)。
+fn body_str(body: &Value, key: &str) -> String {
+    body.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+/// 先頭 `max` 文字で切る。**バイトでなく文字**で数える(日本語の文面が入るため)。
+fn clip_chars(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
 }
 
 fn token_from(headers: &HeaderMap) -> String {
@@ -320,6 +432,36 @@ fn ensure_send_history_user_column(db: &TursoDb) {
     static ENSURED: OnceLock<()> = OnceLock::new();
     ENSURED.get_or_init(|| {
         let _ = db.execute("ALTER TABLE send_history ADD COLUMN user_id TEXT", &[]);
+    });
+}
+
+/// `run_logs.platform` 列を後付けする(どの媒体での出来事かを残すため)。
+///
+/// run_logs は媒体列を持たずに作られている。これが無いと
+/// 「AMBI だけ件名の文字数で弾かれている」のような**媒体単位の切り分けができない**。
+/// 既に列がある/ALTER 非対応でも失敗を無視する(冪等)。※同期。spawn_blocking 内で呼ぶこと。
+fn ensure_run_log_platform_column(db: &TursoDb) {
+    static ENSURED: OnceLock<()> = OnceLock::new();
+    ENSURED.get_or_init(|| {
+        // 既に列が存在すると Turso はエラーを返すが、それは正常系として無視する。
+        let _ = db.execute(RUN_LOG_PLATFORM_ALTER_SQL, &[]);
+    });
+}
+
+/// `run_logs` に失敗の中身を残す4列を後付けする。
+///
+/// `status` だけでは「verify_failed が何件」までしか言えず、**なぜ落ちたか**が
+/// 中央に残らない。error_kind(分類)/error_step(どの段で)/error_detail(画面の文言)/
+/// error_url(現場の URL)を足して、顧客PCのログを見に行かずに原因を言えるようにする。
+/// SQLite の ALTER TABLE は1文で1列しか足せないので4回実行する。
+/// 既に列がある/ALTER 非対応でも失敗を無視する(冪等)。※同期。spawn_blocking 内で呼ぶこと。
+fn ensure_run_log_error_columns(db: &TursoDb) {
+    static ENSURED: OnceLock<()> = OnceLock::new();
+    ENSURED.get_or_init(|| {
+        for sql in RUN_LOG_ERROR_COLUMN_ALTER_SQL {
+            // 既に列が存在する場合のエラーは正常系として無視する。
+            let _ = db.execute(sql, &[]);
+        }
     });
 }
 
@@ -1231,6 +1373,219 @@ async fn stats(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiRes
     .await
 }
 
+// ===== 実行ログ（送れなかった候補者の結末と理由） =====
+//
+// `send_history` は「送れた分」だけの表で、スキップ・失敗とその理由は中央に
+// 1行も残っていなかった(`run_logs` が 0 行)。ここで全候補者の結末を受け、
+// CSV で取り出せるようにする。
+
+/// 実行ログ1行の記録。**送信成功に限らず**スキップ・失敗も受ける。要トークン。
+///
+/// workspace は**セッションから**決める(ボディの値は見ない)。ログなので冪等化せず、
+/// 来た行は全部入れる(同じ候補者が3回弾かれたら3行残るのが正しい)。
+/// `candidate_web_id` は空でも受ける(ID を読む前に落ちる失敗が実際にあるため)。
+async fn run_log(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let token = token_from(&headers);
+    let ts_in = body_str(&body, "ts");
+    let campaign_id = body_str(&body, "campaign_id");
+    let candidate = body_str(&body, "candidate_web_id");
+    let platform = body_str(&body, "platform");
+    let status = body_str(&body, "status");
+    let error_kind = body_str(&body, "error_kind");
+    let error_step = body_str(&body, "error_step");
+    // 暴走したページの文面で表が膨らまないよう、サーバ側で切る(入口で止める)。
+    let error_detail = clip_chars(
+        &body_str(&body, "error_detail"),
+        RUN_LOG_ERROR_DETAIL_MAX_CHARS,
+    );
+    let error_url = clip_chars(&body_str(&body, "error_url"), RUN_LOG_ERROR_URL_MAX_CHARS);
+    let iteration = body.get("iteration").and_then(|v| v.as_i64()).unwrap_or(0);
+    let subject_chars = body
+        .get("subject_chars")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let body_chars = body.get("body_chars").and_then(|v| v.as_i64()).unwrap_or(0);
+    let api_seconds = body
+        .get("api_seconds")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        let u = require_user(&dbh, &token)?;
+        if campaign_id.is_empty() || status.is_empty() {
+            return Err(cerr(
+                StatusCode::BAD_REQUEST,
+                "campaign_id と status が必要です",
+            ));
+        }
+        ensure_run_log_platform_column(&dbh);
+        ensure_run_log_error_columns(&dbh);
+        // ts 省略時はサーバ時刻。空文字のまま入れると日付で絞れない行になる。
+        let ts = if ts_in.is_empty() { now_str() } else { ts_in };
+        let p: [&dyn ToSqlTurso; 15] = [
+            &ts,
+            &campaign_id,
+            &iteration,
+            &candidate,
+            &subject_chars,
+            &body_chars,
+            &api_seconds,
+            &status,
+            &u.workspace_id,
+            &u.user_id,
+            &platform,
+            &error_kind,
+            &error_step,
+            &error_detail,
+            &error_url,
+        ];
+        dbh.execute(RUN_LOG_INSERT_SQL, &p)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        Ok(json!({ "ok": true }))
+    })
+    .await
+}
+
+/// CSV セル1個。カンマ・引用符・改行を含むときだけ引用符で囲む(RFC 4180)。
+/// `error_detail` には画面の文言がそのまま入るので、ここを通さないと列がずれる。
+fn run_log_csv_cell(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// 数値セル。NULL・列なしは **0 ではなく空欄**にする
+/// (「件名0文字」と「記録が無い」を取り違えないため)。
+fn run_log_num_cell(row: &HashMap<String, Value>, key: &str) -> String {
+    match row.get(key) {
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// 1行ぶんの CSV。列の順序は `RUN_LOG_CSV_HEADER` と一致させる。
+fn run_log_csv_row(row: &HashMap<String, Value>) -> String {
+    let text = ["ts", "campaign_id", "campaign_name", "platform", "candidate_web_id", "status"];
+    let mut cells: Vec<String> = text
+        .iter()
+        .map(|k| run_log_csv_cell(&get_str(row, k)))
+        .collect();
+    cells.push(run_log_num_cell(row, "subject_chars"));
+    cells.push(run_log_num_cell(row, "body_chars"));
+    cells.push(run_log_num_cell(row, "api_seconds"));
+    for k in ["error_kind", "error_step", "error_detail", "error_url", "user_id"] {
+        cells.push(run_log_csv_cell(&get_str(row, k)));
+    }
+    cells.join(",")
+}
+
+/// 取得行から CSV 全文を組む。戻りは (CSV, 打ち切ったか)。
+///
+/// 上限を超えた分は**黙って捨てない**。最終行に注記を1行足し、ヘッダ側でも知らせる。
+fn build_run_log_csv(rows: &[HashMap<String, Value>]) -> (String, bool) {
+    let truncated = rows.len() > RUN_LOG_EXPORT_MAX_ROWS;
+    let mut out = String::new();
+    out.push('\u{feff}'); // BOM。Windows の Excel が UTF-8 と判定できるようにする。
+    out.push_str(RUN_LOG_CSV_HEADER);
+    out.push_str("\r\n");
+    for row in rows.iter().take(RUN_LOG_EXPORT_MAX_ROWS) {
+        out.push_str(&run_log_csv_row(row));
+        out.push_str("\r\n");
+    }
+    if truncated {
+        out.push_str(&run_log_csv_cell(RUN_LOG_TRUNCATED_NOTICE));
+        out.push_str(&",".repeat(RUN_LOG_CSV_COLUMNS - 1));
+        out.push_str("\r\n");
+    }
+    (out, truncated)
+}
+
+fn run_log_csv_headers(truncated: bool) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    headers.insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"run_logs.csv\""),
+    );
+    // 打ち切りの有無は毎回出す。true のときだけ付けると、ヘッダが無い理由が
+    // 「打ち切っていない」のか「古い版のサーバ」なのか呼び出し元から区別できない。
+    headers.insert(
+        "x-truncated",
+        HeaderValue::from_static(if truncated { "true" } else { "false" }),
+    );
+    headers
+}
+
+/// 実行ログの CSV エクスポート。要トークン。呼び出し元の workspace だけに絞る。
+///
+/// クエリ: `from`/`to`(`YYYY-MM-DD`、任意)、`platform`(任意)。いずれも省略可。
+/// 返却: UTF-8 BOM 付き CSV(`text/csv`、`run_logs.csv` として添付)。
+/// 50,000 行で打ち切り、そのときは `X-Truncated: true` と最終行の注記で明示する。
+async fn run_log_export(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> CsvApiResult {
+    let token = token_from(&headers);
+    let pick = |k: &str| q.get(k).map(|v| v.trim().to_string()).unwrap_or_default();
+    let from = pick("from");
+    let to = pick("to");
+    let platform = pick("platform");
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    let built = tokio::task::spawn_blocking(move || -> Result<(String, bool), CoreErr> {
+        let u = require_user(&dbh, &token)?;
+        // 列が無い DB では SELECT 自体が落ちるので、読む前に後付けを済ませる。
+        ensure_run_log_platform_column(&dbh);
+        ensure_run_log_error_columns(&dbh);
+        let has_campaigns = !dbh
+            .query(RUN_LOG_CAMPAIGNS_EXISTS_SQL, &[])
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+            .is_empty();
+        let sql = if has_campaigns {
+            RUN_LOG_EXPORT_SQL
+        } else {
+            RUN_LOG_EXPORT_SQL_WITHOUT_CAMPAIGNS
+        };
+        let p: [&dyn ToSqlTurso; 7] = [
+            &u.workspace_id,
+            &from,
+            &from,
+            &to,
+            &to,
+            &platform,
+            &platform,
+        ];
+        let rows = dbh
+            .query(sql, &p)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        Ok(build_run_log_csv(&rows))
+    })
+    .await;
+    match built {
+        Ok(Ok((csv, truncated))) => Ok((run_log_csv_headers(truncated), csv)),
+        Ok(Err((code, msg))) => Err((code, Json(json!({ "error": msg })))),
+        Err(_) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "internal task error" })),
+        )),
+    }
+}
+
 /// キルスイッチ状態の照会。ローカルアプリが送信ループ前に確認する。要トークン。
 async fn killswitch(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult {
     let token = token_from(&headers);
@@ -1787,6 +2142,375 @@ mod config_patch_tests {
         let config: Value = serde_json::from_str(&stored).unwrap();
         assert_eq!(config["campaigns"][0]["name"], "campaign_1");
         assert_eq!(config["prompt_templates"][0]["text"], "saved prompt");
+    }
+}
+
+#[cfg(test)]
+mod run_log_tests {
+    //! 実行ログの SQL を**実装の定数そのまま**ローカル SQLite に流して確かめる。
+    //! 「列が存在する」ではなく、入った値・絞り込み結果・列の順序を具体値で見る。
+    use super::{
+        build_run_log_csv, clip_chars, run_log_csv_row, RUN_LOG_CAMPAIGNS_EXISTS_SQL,
+        RUN_LOG_CSV_COLUMNS, RUN_LOG_CSV_HEADER, RUN_LOG_ERROR_COLUMN_ALTER_SQL,
+        RUN_LOG_EXPORT_MAX_ROWS, RUN_LOG_EXPORT_SQL, RUN_LOG_EXPORT_SQL_WITHOUT_CAMPAIGNS,
+        RUN_LOG_INSERT_SQL, RUN_LOG_PLATFORM_ALTER_SQL, RUN_LOG_TRUNCATED_NOTICE,
+    };
+    use rusqlite::types::ValueRef;
+    use rusqlite::{params, Connection};
+    use serde_json::Value;
+    use std::collections::HashMap;
+
+    /// 中央DBに実在する run_logs の形 + 起動時に後付けする5列を、実装と同じ ALTER 文で作る。
+    fn database() -> Connection {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute(
+            "CREATE TABLE run_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, \
+             campaign_id TEXT, iter INTEGER, candidate_web_id TEXT, subject_chars INTEGER, \
+             body_chars INTEGER, api_seconds REAL, status TEXT, \
+             workspace_id TEXT NOT NULL DEFAULT 'default', user_id TEXT)",
+            [],
+        )
+        .unwrap();
+        db.execute(RUN_LOG_PLATFORM_ALTER_SQL, []).unwrap();
+        for sql in RUN_LOG_ERROR_COLUMN_ALTER_SQL {
+            db.execute(sql, []).unwrap();
+        }
+        db
+    }
+
+    fn with_campaigns(db: &Connection) {
+        db.execute(
+            "CREATE TABLE campaigns(id TEXT, workspace_id TEXT, name TEXT, platform TEXT)",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO campaigns(id,workspace_id,name,platform) \
+             VALUES('c1','ws1','新卒_AMBI','ambi'),('c1','ws2','他社の同IDキャンペーン','green')",
+            [],
+        )
+        .unwrap();
+    }
+
+    /// `POST /scout/api/run-log` が流すのと同じ 15 パラメータで1行入れる。
+    fn insert(
+        db: &Connection,
+        ts: &str,
+        campaign: &str,
+        candidate: &str,
+        ws: &str,
+        platform: &str,
+        status: &str,
+    ) {
+        db.execute(
+            RUN_LOG_INSERT_SQL,
+            params![
+                ts,
+                campaign,
+                12_i64,
+                candidate,
+                48_i64,
+                820_i64,
+                5.2_f64,
+                status,
+                ws,
+                "user-1",
+                platform,
+                "send",
+                status,
+                "件名は50文字以内で入力してください",
+                "https://example.test/scout"
+            ],
+        )
+        .unwrap();
+    }
+
+    /// Turso の行表現(`HashMap<String, Value>`)に合わせて読み出す。CSV 生成関数へそのまま渡せる。
+    fn export(
+        db: &Connection,
+        sql: &str,
+        ws: &str,
+        from: &str,
+        to: &str,
+        platform: &str,
+    ) -> Vec<HashMap<String, Value>> {
+        let mut stmt = db.prepare(sql).unwrap();
+        let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        let mut out = Vec::new();
+        let mut q = stmt
+            .query(params![ws, from, from, to, to, platform, platform])
+            .unwrap();
+        while let Some(row) = q.next().unwrap() {
+            let mut map = HashMap::new();
+            for (i, name) in names.iter().enumerate() {
+                let v = match row.get_ref(i).unwrap() {
+                    ValueRef::Null => Value::Null,
+                    ValueRef::Integer(n) => Value::from(n),
+                    ValueRef::Real(f) => serde_json::Number::from_f64(f)
+                        .map(Value::Number)
+                        .unwrap_or(Value::Null),
+                    ValueRef::Text(t) => Value::String(String::from_utf8_lossy(t).to_string()),
+                    ValueRef::Blob(_) => Value::Null,
+                };
+                map.insert(name.clone(), v);
+            }
+            out.push(map);
+        }
+        out
+    }
+
+    fn cell(rows: &[HashMap<String, Value>], i: usize, key: &str) -> String {
+        match rows[i].get(key) {
+            Some(Value::String(s)) => s.clone(),
+            Some(Value::Number(n)) => n.to_string(),
+            _ => String::new(),
+        }
+    }
+
+    /// ログなので冪等化しない。同じ候補者が2回弾かれたら2行残る。
+    #[test]
+    fn run_log_insert_keeps_every_row_for_the_same_candidate() {
+        let db = database();
+        insert(&db, "2026-10-08T10:00:00", "c1", "w-1", "ws1", "ambi", "verify_failed");
+        insert(&db, "2026-10-08T10:05:00", "c1", "w-1", "ws1", "ambi", "skipped_sent");
+        let n: i64 = db
+            .query_row("SELECT COUNT(*) FROM run_logs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2);
+        let (status, kind, detail, platform, secs, iter): (String, String, String, String, f64, i64) =
+            db.query_row(
+                "SELECT status,error_kind,error_detail,platform,api_seconds,iter FROM run_logs \
+                 ORDER BY id LIMIT 1",
+                [],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(status, "verify_failed");
+        assert_eq!(kind, "send");
+        assert_eq!(detail, "件名は50文字以内で入力してください");
+        assert_eq!(platform, "ambi");
+        assert!((secs - 5.2).abs() < 1e-9);
+        assert_eq!(iter, 12);
+    }
+
+    /// 他社(別 workspace)の行は1行も混ざらない。campaign_name は同じ workspace の名前だけ引く。
+    #[test]
+    fn export_scopes_rows_to_the_callers_workspace() {
+        let db = database();
+        with_campaigns(&db);
+        insert(&db, "2026-10-08T09:00:00", "c1", "w-1", "ws1", "ambi", "sent");
+        insert(&db, "2026-10-07T09:00:00", "c9", "w-2", "ws1", "green", "skipped_sent");
+        insert(&db, "2026-10-08T09:30:00", "c1", "w-3", "ws2", "ambi", "sent");
+        let rows = export(&db, RUN_LOG_EXPORT_SQL, "ws1", "", "", "");
+        assert_eq!(rows.len(), 2);
+        // ts 昇順。
+        assert_eq!(cell(&rows, 0, "ts"), "2026-10-07T09:00:00");
+        assert_eq!(cell(&rows, 1, "ts"), "2026-10-08T09:00:00");
+        // 未知のキャンペーンIDは空、既知は自分の workspace の名前。
+        assert_eq!(cell(&rows, 0, "campaign_name"), "");
+        assert_eq!(cell(&rows, 1, "campaign_name"), "新卒_AMBI");
+        assert_eq!(cell(&rows, 1, "candidate_web_id"), "w-1");
+    }
+
+    #[test]
+    fn export_filters_by_from_to_and_platform() {
+        let db = database();
+        with_campaigns(&db);
+        insert(&db, "2026-10-05T09:00:00", "c1", "w-1", "ws1", "ambi", "sent");
+        insert(&db, "2026-10-07T09:00:00", "c1", "w-2", "ws1", "ambi", "verify_failed");
+        insert(&db, "2026-10-09T09:00:00", "c1", "w-3", "ws1", "green", "sent");
+        // from のみ
+        let r = export(&db, RUN_LOG_EXPORT_SQL, "ws1", "2026-10-07", "", "");
+        assert_eq!(r.len(), 2);
+        // from..to（両端を含む）
+        let r = export(&db, RUN_LOG_EXPORT_SQL, "ws1", "2026-10-07", "2026-10-07", "");
+        assert_eq!(r.len(), 1);
+        assert_eq!(cell(&r, 0, "candidate_web_id"), "w-2");
+        // platform のみ
+        let r = export(&db, RUN_LOG_EXPORT_SQL, "ws1", "", "", "green");
+        assert_eq!(r.len(), 1);
+        assert_eq!(cell(&r, 0, "candidate_web_id"), "w-3");
+        // 全部空は無指定（3件）
+        assert_eq!(export(&db, RUN_LOG_EXPORT_SQL, "ws1", "", "", "").len(), 3);
+    }
+
+    /// `campaigns` 表が無い DB でも落ちず、列の名前と順序は join 版と同じまま。
+    #[test]
+    fn export_works_without_a_campaigns_table() {
+        let db = database();
+        insert(&db, "2026-10-08T09:00:00", "c1", "w-1", "ws1", "ambi", "sent");
+        assert!(db
+            .prepare(RUN_LOG_CAMPAIGNS_EXISTS_SQL)
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .count()
+            .eq(&0));
+        let rows = export(&db, RUN_LOG_EXPORT_SQL_WITHOUT_CAMPAIGNS, "ws1", "", "", "");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(cell(&rows, 0, "campaign_name"), "");
+        assert_eq!(cell(&rows, 0, "status"), "sent");
+
+        let db2 = database();
+        with_campaigns(&db2);
+        assert_eq!(
+            db2.prepare(RUN_LOG_CAMPAIGNS_EXISTS_SQL)
+                .unwrap()
+                .query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .count(),
+            1
+        );
+    }
+
+    /// SQL が返す列の名前と順序が CSV の見出しと1対1であること。
+    /// ここがズレると、見出しと中身が違う CSV を黙って配ることになる。
+    #[test]
+    fn export_sql_columns_match_the_csv_header() {
+        let db = database();
+        with_campaigns(&db);
+        let expected: Vec<&str> = RUN_LOG_CSV_HEADER.split(',').collect();
+        assert_eq!(expected.len(), RUN_LOG_CSV_COLUMNS);
+        for sql in [RUN_LOG_EXPORT_SQL, RUN_LOG_EXPORT_SQL_WITHOUT_CAMPAIGNS] {
+            let stmt = db.prepare(sql).unwrap();
+            assert_eq!(stmt.column_names(), expected);
+        }
+        // 上限+1件取って打ち切りを検知する約束。
+        assert!(RUN_LOG_EXPORT_SQL.ends_with(&format!("LIMIT {}", RUN_LOG_EXPORT_MAX_ROWS + 1)));
+        assert!(RUN_LOG_EXPORT_SQL_WITHOUT_CAMPAIGNS
+            .ends_with(&format!("LIMIT {}", RUN_LOG_EXPORT_MAX_ROWS + 1)));
+    }
+
+    /// `error_detail` には画面の文言が入る。カンマ・引用符・改行で列がずれないこと。
+    #[test]
+    fn csv_quotes_commas_quotes_and_newlines() {
+        let mut row: HashMap<String, Value> = HashMap::new();
+        row.insert("ts".into(), Value::from("2026-10-08T10:00:00"));
+        row.insert("campaign_id".into(), Value::from("c1"));
+        row.insert("campaign_name".into(), Value::from("新卒, AMBI"));
+        row.insert("platform".into(), Value::from("ambi"));
+        row.insert("candidate_web_id".into(), Value::from("w-1"));
+        row.insert("status".into(), Value::from("verify_failed"));
+        row.insert("subject_chars".into(), Value::from(48));
+        row.insert("body_chars".into(), Value::from(820));
+        row.insert("api_seconds".into(), Value::from(5.2));
+        row.insert("error_kind".into(), Value::from("send"));
+        row.insert("error_step".into(), Value::from("verify_failed"));
+        row.insert(
+            "error_detail".into(),
+            Value::from("件名は\"50文字\"以内,\n入力してください"),
+        );
+        row.insert("error_url".into(), Value::from("https://example.test/x?a=1"));
+        row.insert("user_id".into(), Value::from("user-1"));
+        let line = run_log_csv_row(&row);
+        assert!(line.starts_with("2026-10-08T10:00:00,c1,\"新卒, AMBI\",ambi,w-1,verify_failed,48,820,5.2,send,verify_failed,"));
+        assert!(line.contains("\"件名は\"\"50文字\"\"以内,\n入力してください\""));
+        assert!(line.ends_with(",https://example.test/x?a=1,user-1"));
+
+        // 値が無い数値列は 0 ではなく空欄（「0文字」と「記録が無い」を取り違えない）。
+        let empty: HashMap<String, Value> = HashMap::new();
+        assert_eq!(run_log_csv_row(&empty), ",".repeat(RUN_LOG_CSV_COLUMNS - 1));
+    }
+
+    #[test]
+    fn csv_has_bom_and_shows_truncation_in_the_body() {
+        let rows: Vec<HashMap<String, Value>> = vec![HashMap::new(); 3];
+        let (csv, truncated) = build_run_log_csv(&rows);
+        assert!(!truncated);
+        assert!(csv.starts_with('\u{feff}'));
+        assert!(csv[3..].starts_with(RUN_LOG_CSV_HEADER));
+        assert_eq!(csv.matches("\r\n").count(), 4); // 見出し + 3行
+        assert!(!csv.contains(RUN_LOG_TRUNCATED_NOTICE));
+
+        let many: Vec<HashMap<String, Value>> = vec![HashMap::new(); RUN_LOG_EXPORT_MAX_ROWS + 1];
+        let (csv, truncated) = build_run_log_csv(&many);
+        assert!(truncated);
+        // 出すのは上限ぶんだけ。最終行は打ち切りの注記（1列目）。
+        assert_eq!(csv.matches("\r\n").count(), RUN_LOG_EXPORT_MAX_ROWS + 2);
+        let last = csv.trim_end_matches("\r\n").lines().last().unwrap().to_string();
+        assert_eq!(
+            last,
+            format!(
+                "{}{}",
+                RUN_LOG_TRUNCATED_NOTICE,
+                ",".repeat(RUN_LOG_CSV_COLUMNS - 1)
+            )
+        );
+    }
+
+    #[test]
+    fn clip_chars_counts_characters_not_bytes() {
+        let s = "あ".repeat(600);
+        assert_eq!(clip_chars(&s, 500).chars().count(), 500);
+        assert_eq!(clip_chars("abc", 500), "abc");
+    }
+}
+
+#[cfg(test)]
+mod run_log_route_tests {
+    //! ルートが本当に生えているかを HTTP の層で見る。
+    //! `router()` に書き足しただけでは、メソッド違い(405)や綴り違い(404)に気づけない。
+    //! scout DB 未設定なら 503 が返るのが正しい。**404/405 でないこと**で配線を確かめる。
+    use std::sync::Arc;
+
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    use crate::auth::session::RateLimiter;
+    use crate::config::AppConfig;
+    use crate::db::cache::AppCache;
+    use crate::AppState;
+
+    fn bare_state() -> Arc<AppState> {
+        let config = AppConfig::from_env();
+        let cache = AppCache::new(config.cache_ttl_secs, config.cache_max_entries);
+        let rate_limiter = RateLimiter::new(
+            config.rate_limit_max_attempts,
+            config.rate_limit_lockout_secs,
+        );
+        Arc::new(AppState {
+            config,
+            hw_db: None,
+            indeed_db: None,
+            turso_db: None,
+            salesnow_db: None,
+            scout_db: None,
+            cache,
+            rate_limiter,
+            company_geo_cache: None,
+            audit: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn run_log_routes_are_wired() {
+        let app = super::router().with_state(bare_state());
+        let post = Request::builder()
+            .method("POST")
+            .uri("/scout/api/run-log")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"campaign_id":"c1","status":"verify_failed"}"#))
+            .unwrap();
+        let res = app.clone().oneshot(post).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let get = Request::builder()
+            .method("GET")
+            .uri("/scout/api/run-log/export?from=2026-10-01&to=2026-10-08&platform=ambi")
+            .body(Body::empty())
+            .unwrap();
+        let res = app.oneshot(get).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }
 
