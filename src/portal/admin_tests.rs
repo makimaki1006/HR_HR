@@ -64,6 +64,7 @@ async fn harness_store(reader: Arc<FakeSheets>, store_spreadsheet: Option<&str>)
         mailer: Some(Arc::new(FakeMailer::default())),
         reader: Some(reader.clone()),
         store_spreadsheet: store_spreadsheet.map(str::to_string),
+        notify: None,
     };
     let access = CrmAccess::from_list(&format!("{BOSS},{STAFF}"))
         .with_test_role(BOSS, CrmRole::Admin)
@@ -962,4 +963,121 @@ fn 二つの鍵が同じサービスアカウントなら顧客のシート側�
         }
     }
     assert!(super::super::distinct_reader(Some(a), Some(&Other)).is_some());
+}
+
+/// 応募の通知 (計画 14 章): 送り先のタブを保存できる。応募者のタブ・シートに無いタブは断る
+#[tokio::test]
+async fn 送り先のタブを保存でき_応募者のタブや無いタブは断る() {
+    use super::super::store::{ColumnGroup, ColumnKind, ColumnSetting, SheetReg};
+    let h = harness_with(reader()).await;
+    // 送り先を設定していない、同じスプレッドシートの別の応募者のタブ (去年の分など)
+    h.reader
+        .tabs
+        .lock()
+        .unwrap()
+        .insert("2025年度".into(), (778, vec![vec!["応募者名".into()]]));
+    h.auth
+        .store()
+        .insert_sheet(SheetReg {
+            id: "s-past".into(),
+            customer_id: "c1".into(),
+            spreadsheet_id: "1TestSheetIdForPortal_abcdefghij".into(),
+            sheet_id: 778,
+            tab_title: "2025年度".into(),
+            label: "去年".into(),
+            header_row: 1,
+            example_rows: 0,
+            customer_can_edit_columns: false,
+            disabled: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            notify_tab: String::new(),
+            notify_tab_id: None,
+        })
+        .unwrap();
+    h.auth
+        .store()
+        .insert_sheet(SheetReg {
+            id: "s-notify".into(),
+            customer_id: "c1".into(),
+            spreadsheet_id: "1TestSheetIdForPortal_abcdefghij".into(),
+            sheet_id: 777,
+            tab_title: "応募者情報管理".into(),
+            label: "応募者一覧".into(),
+            header_row: 1,
+            example_rows: 1,
+            customer_can_edit_columns: false,
+            disabled: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            notify_tab: String::new(),
+            notify_tab_id: None,
+        })
+        .unwrap();
+    let uri = "/api/admin/portal/sheets/s-notify";
+    // 電話・メールの種類の項目が無いうちは、通知を有効にできない
+    let (s, v) = boss(&h, "PUT", uri, Some(json!({ "notify_tab": "集計" }))).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert!(v["message"]
+        .as_str()
+        .unwrap()
+        .contains("電話番号かメールアドレス"));
+    h.auth.store().replace_columns(
+        "s-notify",
+        vec![ColumnSetting {
+            sheet_reg_id: "s-notify".into(),
+            header: "電話番号".into(),
+            label: String::new(),
+            visible: true,
+            writable: false,
+            in_list: false,
+            multiline: false,
+            kind: ColumnKind::Phone,
+            group: ColumnGroup::Summary,
+            order: 0,
+        }],
+    );
+    for bad in ["応募者情報管理", "2025年度", "無いタブ"] {
+        let (s, v) = boss(&h, "PUT", uri, Some(json!({ "notify_tab": bad }))).await;
+        assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {v}");
+    }
+    assert_eq!(h.auth.store().sheet("s-notify").unwrap().notify_tab, "");
+
+    let (s, v) = boss(&h, "PUT", uri, Some(json!({ "notify_tab": " 集計 " }))).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["notify"]["tab"], "集計");
+    assert_eq!(
+        v["notify"]["running"], false,
+        "テストでは通知の仕組みを組み立てていない"
+    );
+    let saved = h.auth.store().sheet("s-notify").unwrap();
+    assert_eq!(saved.notify_tab, "集計");
+    assert_eq!(saved.notify_tab_id, Some(5), "送り先はタブの番号で持つ");
+    let logged = h
+        .auth
+        .store()
+        .recent_logs(5)
+        .into_iter()
+        .any(|e| e.column == "送り先のタブ" && e.after == "集計");
+    assert!(logged, "変えたことを記録に残す");
+
+    // 管理者でない人は変えられない
+    let (s, _, _) = call(
+        &h.app,
+        "PUT",
+        uri,
+        &h.staff,
+        Some(json!({ "notify_tab": "" })),
+        true,
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    // 空にすると通知しない
+    let (s, v) = boss(&h, "PUT", uri, Some(json!({ "notify_tab": "" }))).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["notify"]["tab"], "");
+    assert_eq!(
+        h.auth.store().sheet("s-notify").unwrap().notify_tab_id,
+        None
+    );
 }

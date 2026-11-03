@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PortalAdminColumn } from '../../../generated/PortalAdminColumn';
-import { duplicateHeaders, gidFromUrl, missingHeaders, moveColumn, parseRoute, routeHref, setColumn, withNewHeaders } from './model';
+import { duplicateHeaders, gidFromUrl, missingHeaders, moveColumn, notifySummary, parseRoute, routeHref, setColumn, withNewHeaders } from './model';
 
 const col = (header: string, patch: Partial<PortalAdminColumn> = {}): PortalAdminColumn => ({
   header,
@@ -71,4 +71,17 @@ describe('URL のタブの番号', () => {
 it('シートに 2 回以上ある見出しを拾う', () => {
   expect(duplicateHeaders(['応募日', '備考', ' 備考 ', '', '', '状況'])).toEqual(['備考']);
   expect(duplicateHeaders(['応募日', '状況'])).toEqual([]);
+});
+
+describe('応募の通知の短い状態', () => {
+  const base = { tab: '通知の送り先', running: true, recipients: 3, skipped: 0, waiting: 0, last_checked_at: null, last_sent_at: null, problem: null };
+  it('送り先のタブが無ければ「通知しない」、揃っていなければ「準備中」', () => {
+    expect(notifySummary({ ...base, tab: ' ' }).text).toBe('通知しない');
+    expect(notifySummary({ ...base, running: false }).text).toBe('準備中');
+  });
+  it('止まっている理由があれば警告、なければ送り先の数', () => {
+    expect(notifySummary({ ...base, problem: '送り先のタブにメールアドレスがありません' })).toEqual({ tone: 'warn', text: '止まっています' });
+    expect(notifySummary({ ...base, recipients: null }).text).toBe('確かめています');
+    expect(notifySummary(base)).toEqual({ tone: 'ok', text: '3 件に送る' });
+  });
 });

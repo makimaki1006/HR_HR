@@ -10,6 +10,7 @@ import { IconExternal, IconPlus } from '../ui/icons';
 import { API, post, put } from './api';
 import { ACCOUNT_STATUS_LABEL, STAGE_LABEL, STAGE_MEANING, stageOf, type Stage } from './model';
 import { ErrorLine, InviteLinkDialog, Link, LoadError, Loading, Page, Section, TD, TH, Table, TextField, useGet, useNav } from './parts';
+import { NotifyBadge } from './NotifySettings';
 
 export function AccountRows({ accounts, onInvite, onToggle, busy, customerName }: {
   accounts: PortalAdminAccount[];
@@ -19,7 +20,7 @@ export function AccountRows({ accounts, onInvite, onToggle, busy, customerName }
   customerName?: (id: string) => string;
 }) {
   return (
-    <Table minWidth={760}>
+    <Table minWidth={860}>
       <thead>
         <tr>
           <th className={TH}>メールアドレス</th>
@@ -223,6 +224,7 @@ export function CustomerView({ id, status }: { id: string; status: PortalAdminSt
               <th className={TH + ' text-right'}>見出しの行</th>
               <th className={TH + ' text-right'}>見せる項目</th>
               <th className={TH}>状態</th>
+              <th className={TH}>応募の通知</th>
               <th className={TH + ' w-24'} />
             </tr>
           </thead>
@@ -234,12 +236,13 @@ export function CustomerView({ id, status }: { id: string; status: PortalAdminSt
                 <td className={TD + ' pt-num text-right'}>{String(s.header_row)}</td>
                 <td className={TD + ' pt-num text-right'}>{s.visible_columns === 0 ? <span className="text-pt-warn">まだ設定していない</span> : String(s.visible_columns)}</td>
                 <td className={TD}>{s.disabled ? <Badge tone="neutral">停止中</Badge> : <Badge tone="ok">使う</Badge>}</td>
+                <td className={TD}><NotifyBadge notify={s.notify} /></td>
                 <td className={TD + ' text-right'}>
-                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-pt-primary hover:underline">シートを開く<IconExternal size={12} /></a>
+                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-pt-primary hover:underline">シートを開く<IconExternal size={12} /></a>
                 </td>
               </tr>
             ))}
-            {sheets.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-pt-muted">まだシートがありません。「シートを登録」から追加します。</td></tr>}
+            {sheets.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-pt-muted">まだシートがありません。「シートを登録」から追加します。</td></tr>}
           </tbody>
         </Table>
       </Section>

@@ -84,6 +84,8 @@ fn reg(id: &str, customer: &str, spreadsheet: &str, sheet_id: i64) -> SheetReg {
         disabled: false,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        notify_tab: String::new(),
+        notify_tab_id: None,
     }
 }
 
@@ -165,6 +167,7 @@ fn harness() -> H {
         mailer: Some(Arc::new(FakeMailer::default())),
         reader: Some(fake.clone()),
         store_spreadsheet: Some(STORE_SHEET.into()),
+        notify: None,
     };
     let app = router_parts(parts, CrmAccess::from_list(""), None).with_state(test_state());
     H {
@@ -466,6 +469,7 @@ async fn 保存先とメールが揃っていなければ503() {
         mailer: None,
         reader: Some(fake()),
         store_spreadsheet: None,
+        notify: None,
     };
     let app = router_parts(parts, CrmAccess::from_list(""), None).with_state(test_state());
     for uri in ["/api/portal/sheets", "/api/portal/sheets/s1/rows"] {
