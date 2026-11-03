@@ -934,14 +934,23 @@ mod tests {
             a.checks[2].baseline_text.as_deref(),
             Some("報告書では、話せた電話のうちの 81% が「できていない」")
         );
+        // 助言・要約はモデルの文ではなく checks.json の決まった言い方 (要約は最初の「できていない」項目)
         let kz = a.checks.iter().find(|c| c.id == "kizonkan").unwrap();
+        let kz_advice = crate::crm::talk_review::checks::loaded()
+            .checks
+            .checks
+            .iter()
+            .find(|c| c.id == "kizonkan")
+            .unwrap()
+            .advice
+            .clone();
+        assert!(kz_advice.starts_with("「覚えていただけてますか?"));
+        assert_eq!(kz.advice.as_deref(), Some(kz_advice.as_str()));
+        assert_eq!(a.summary.as_deref(), Some(kz_advice.as_str()));
+        // 引用はモデルの quote ではなく、根拠の番号 (2) の発言を写す
         assert_eq!(
-            kz.advice.as_deref(),
-            Some("前回のことと改めた理由を一言添える")
-        );
-        assert_eq!(
-            a.summary.as_deref(),
-            Some("前回のことに触れてから日付を出すとよい")
+            a.checks[2].quote.as_deref(),
+            Some("来週の水曜か木曜あたりはいかがですか")
         );
         assert!(a.checks_note.is_none());
         assert!(

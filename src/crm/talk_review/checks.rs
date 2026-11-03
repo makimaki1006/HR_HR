@@ -23,6 +23,12 @@ pub struct Check {
     pub rule: String,
     pub na_when: String,
     pub baseline: Option<Baseline>,
+    /// 先方の答えの選択肢 (空なら答えを残さない項目)
+    #[serde(default)]
+    pub answers: Vec<String>,
+    /// できていないときに出す助言 (決まった言い方。モデルには書かせない)
+    #[serde(default)]
+    pub advice: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -62,6 +68,7 @@ pub fn defs() -> Vec<TalkCheckDef> {
             rule: c.rule.clone(),
             baseline_pct: c.baseline.as_ref().map(|b| b.pct),
             baseline_basis: c.baseline.as_ref().map(|b| b.basis.clone()),
+            answers: c.answers.clone(),
         })
         .collect()
 }
@@ -74,7 +81,10 @@ mod tests {
     fn checks_json_is_the_single_definition() {
         let l = loaded();
         assert_eq!(l.checks.min_talk_sec, 70);
-        assert_eq!(l.checks.checks.len(), 9);
+        assert_eq!(l.checks.checks.len(), 15);
+        // 時期改めの項目は本番から外した (呼び出しが増えるため)
+        assert!(l.checks.checks.iter().all(|c| c.stage != "時期改め"));
+        assert!(l.checks.checks.iter().all(|c| !c.advice.is_empty()));
         assert_eq!(l.checks.checks[0].id, "reception_name");
         let d = defs();
         assert_eq!(d[2].id, "early_date");

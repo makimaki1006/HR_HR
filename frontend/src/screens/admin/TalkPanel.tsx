@@ -14,8 +14,10 @@ import type { TalkApoResponse } from '../../generated/TalkApoResponse';
 import {
   CALL_STATUS_TEXT, MARK_LABEL, dialBreakdownRows, MARK_TEXT, PERIOD_LABELS, activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary,
   fmtCallTime, fmtPct, fmtPerContact, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
-  type TalkSort, TALK_TABS, parseTalkTab, type TalkTab, APO_KINDS, apoKindLabel, APO_VIA_LABEL, fixtureApo,
+  type TalkSort, TALK_TABS, parseTalkTab, type TalkTab, checksForTab, APO_KINDS, apoKindLabel, APO_VIA_LABEL, fixtureApo,
+  HEARING_STAGES, hearingAskedText, hearingBasis, hearingLine, hearingResultText, isHearing,
 } from './talkModel';
+import type { TalkItemDetail } from '../../generated/TalkItemDetail';
 import {
   diffClass, fmtMetric, joinPeople, metricDiff, parsePeople, previousPeriod, sumRows, togglePerson, validCompare, type Diff, type MetricId,
 } from './talkCompare';
@@ -240,11 +242,19 @@ function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, on
       <td className="w8-right">{fmtPct(p.date_proposal_rate_pct, 1)}{dn('proposalRate')}</td>
       <td className="w8-right">{fmtPerContact(p.proposals_per_contact)}{dn('perContact')}</td>
       </>}
-      {tab === 'talk' && <>
+      {tab === 'talk' && (
       <td className="w8-right">
         {p.reviewed}
         <span className="talk-small">対象 {p.eligible} 本 ・ 待ち {p.waiting} ・ 取れない {p.unavailable}</span>
       </td>
+      )}
+      {tab === 'after' && (
+      <td className="w8-right" data-testid="talk-after-calls">
+        {p.items.find(i => i.id === checks[0]?.id)?.applicable ?? 0}
+        <span className="talk-small">判定した {p.reviewed} 本のうち</span>
+      </td>
+      )}
+      {tab !== 'numbers' && <>
       {checks.map(c => {
         const it = p.items.find(i => i.id === c.id);
         const j = total ? null : judgeItem(it, totalRow.items.find(i => i.id === c.id), rules);
@@ -395,8 +405,9 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
     return <p className="w8-alert" role="status" data-testid="talk-disabled">まだ動いていません。トークの振り返りの設定が済むと、ここに人ごとの表が出ます。</p>;
   }
   const rules = data.rules;
+  const shown = checksForTab(data.checks, tab);
   // 名前・チーム + タブの列
-  const colCount = 2 + (tab === 'numbers' ? 9 : 1 + data.checks.length);
+  const colCount = 2 + (tab === 'numbers' ? 9 : 1 + shown.length);
   const apoOf = (key: string): ApoToggle | undefined => (apoQuery === undefined || tab !== 'numbers' ? undefined : {
     open: openApo === key,
     onToggle: () => { setOpenApo(prev => (prev === key ? null : key)); },
@@ -439,10 +450,10 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
       <div className="w8-table-wrap talk-scroll">
         <table className={`w8-table w8-table-dense talk-table talk-tab-${tab}`} data-testid="talk-table" data-tab={tab}>
           <thead>
-            {tab === 'talk' && (
+            {tab !== 'numbers' && (
               <tr>
                 <th colSpan={3} className="talk-group-blank" />
-                {stageGroups(data.checks).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
+                {stageGroups(shown).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
               </tr>
             )}
             <tr className="talk-headrow">
@@ -459,14 +470,17 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
               {sortHead('日程切り率', { kind: 'proposalRate' })}
               {sortHead('1接触あたりの日程切り回数', { kind: 'perContact' })}
               </>}
-              {tab === 'talk' && <>
-              {sortHead('判定した電話数（接触した電話）', { kind: 'reviewed' })}
-              {data.checks.map(c => {
+              {tab !== 'numbers' && <>
+              {tab === 'talk' ? sortHead('判定した電話数（接触した電話）', { kind: 'reviewed' }) : <th className="w8-right">日程が決まった電話</th>}
+              {shown.map(c => {
                 const key = { kind: 'item', id: c.id } as const;
                 const docTip = c.baseline_pct === null ? '' : `\n資料の全体: できた ${fmtPct(100 - c.baseline_pct)}${c.baseline_basis === null ? '' : `（${c.baseline_basis}）`}`;
+                const basis = hearingBasis(c);
+                const basisTip = basis === null ? '' : `\n割合は${basis}、相応しい答えが得られた電話の割合です。`;
                 return (
-                  <th key={c.id} className="w8-right talk-itemhead" title={c.rule + docTip} aria-sort={ariaSort(key)}>
+                  <th key={c.id} className="w8-right talk-itemhead" title={c.rule + docTip + basisTip} aria-sort={ariaSort(key)}>
                     <button type="button" className="w8-sort" onClick={() => { toggle(key); }}>{c.title}{arrow(key)}</button>
+                    {basis !== null && <span className="talk-base" data-testid="talk-hearing-basis">{basis}</span>}
                     <span className="talk-base">この表の全体 {fmtPct(donePct(data.total.items.find(i => i.id === c.id)))}</span>
                   </th>
                 );
@@ -478,7 +492,7 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
             {people.map(p => (
               <Fragment key={p.owner_id ?? p.name}>
                 <PersonRowView
-                  p={p} checks={data.checks} total={false} totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} onOpen={onOpen} tab={tab}
+                  p={p} checks={shown} total={false} totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} onOpen={onOpen} tab={tab}
                   compare={view === undefined ? undefined : { cmp: cmpOf(p), team: teamOf(p) }}
                   select={view === undefined || p.owner_id === null ? undefined : { checked: selSet.has(p.owner_id), onChange: () => { view.onToggle(p.owner_id ?? ''); } }}
                   apo={p.owner_id === null ? undefined : apoOf(p.owner_id)}
@@ -492,15 +506,15 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
               if (row === undefined) return null;
               return (
                 <PersonRowView
-                  key={`team-${t}`} p={{ ...row, name: `${t}の全体` }} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-team-row" tab={tab}
+                  key={`team-${t}`} p={{ ...row, name: `${t}の全体` }} checks={shown} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-team-row" tab={tab}
                   compare={view?.cmp === undefined ? undefined : { cmp: view.cmp.team_totals.find(x => x.name === t) ?? null }}
                 />
               );
             })}
             {selectedSum !== null && (
-              <PersonRowView p={selectedSum} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-selected-row" compare={{ cmp: selectedCmp }} tab={tab} />
+              <PersonRowView p={selectedSum} checks={shown} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} rowId="talk-selected-row" compare={{ cmp: selectedCmp }} tab={tab} />
             )}
-            <PersonRowView p={data.total} checks={data.checks} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} compare={view?.cmp === undefined ? undefined : { cmp: view.cmp.total }} tab={tab} apo={apoOf('total')} />
+            <PersonRowView p={data.total} checks={shown} total totalRow={data.total} rules={rules} breakdownPending={data.dial_breakdown_pending} compare={view?.cmp === undefined ? undefined : { cmp: view.cmp.total }} tab={tab} apo={apoOf('total')} />
             {apoRow('total', null)}
           </tbody>
         </table>
@@ -509,6 +523,7 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
         <summary>数え方</summary>
         <p className="talk-rules" data-testid="talk-rules">
           <span style={{ display: 'block' }}>各項目の割合は、その項目に当てはまる電話のうち、できた電話の割合です。</span>
+          {data.checks.some(isHearing) && <span style={{ display: 'block' }} data-testid="talk-hearing-rule">「日程が決まった後」の項目は、日程が決まった電話のうち先方から相応しい答えが得られた電話の割合です（営業が聞かずに先方が話した場合も得られたに数えます）。</span>}
           <span style={{ display: 'block' }} data-testid="talk-dials-rule">発信数は Zoom の発信すべて（相手が出る前に切ったもの・つながらなかったものを含む）、架電数はそのうちつながった通話の数で、営業KPI と同じです。アポ率 ＝ アポ数 ÷ 架電数です。</span>
           <span style={{ display: 'block' }} data-testid="talk-contact-rule">接触は、受付を越えて担当者・決裁者と話せた発信で、日程を出していなくても数えます。接触率 ＝ 接触数 ÷ 発信数。日程切り本数は、具体的な日時（週・曜日・日付）を 1 回以上出した発信の本数で、日程切り率 ＝ 日程切り本数 ÷ 発信数です。1 接触あたりの日程切り回数は、接触した電話で日時を出した回数の合計 ÷ 接触数です。つながらなかった発信は接触 0・日程切り 0 として数えます。新規営業の電話は、かけた時点の取引のステージがアポ取りの段階のものだけを数え、それ以外（商談前の確認・商談後の催促など）は接触率・日程切り率の分母からも外します。発信数は営業KPIの値のままです。</span>
           <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる、担当者と話せた電話（接触した電話）の本数です。電話の長さでは絞っていません。資料の全体の割合は 70 秒以上の電話で取った値で、短い電話も入るこの表とは、そのまま比べられません。</span>
@@ -525,20 +540,24 @@ function Mark({ status }: { status: string }) {
 }
 
 export function TalkCallsTable({ data, onOpen }: { data: TalkCallsResponse; onOpen: (callId: string) => void }) {
+  // ヒアリングの項目は ○×の列にせず、「先方の答え」の 1 列にまとめる
+  const marks = data.checks.filter(c => !isHearing(c));
+  const hasHearing = marks.length < data.checks.length;
   return (
     <div className="w8-table-wrap">
       <table className="w8-table w8-table-dense talk-calls" data-testid="talk-calls-table">
         <thead>
           <tr>
             <th colSpan={3} className="talk-group-blank" />
-            {stageGroups(data.checks).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
-            <th className="talk-group-blank" />
+            {stageGroups(marks).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
+            <th colSpan={hasHearing ? 2 : 1} className="talk-group-blank" />
           </tr>
           <tr>
             <th>日時</th>
             <th className="w8-right">通話時間</th>
             <th>結果</th>
-            {data.checks.map(c => <th key={c.id} title={c.rule} className="talk-itemhead">{c.title}</th>)}
+            {marks.map(c => <th key={c.id} title={c.rule} className="talk-itemhead">{c.title}</th>)}
+            {hasHearing && <th title="日程が決まった後に先方から聞けた答え">先方の答え</th>}
             <th>直すとよい点</th>
           </tr>
         </thead>
@@ -548,14 +567,15 @@ export function TalkCallsTable({ data, onOpen }: { data: TalkCallsResponse; onOp
               <td style={{ whiteSpace: 'nowrap' }}><button type="button" className="talk-namebtn" onClick={() => { onOpen(c.hubspot_call_id); }}>{fmtCallTime(c.call_at)}</button></td>
               <td className="w8-right" style={{ whiteSpace: 'nowrap' }}>{fmtSeconds(c.duration_sec)}</td>
               <td>{c.status === 'judged' ? c.outcome ?? '-' : <span className="w8-muted">{CALL_STATUS_TEXT[c.status] ?? c.status}</span>}</td>
-              {data.checks.map(ch => {
+              {marks.map(ch => {
                 const m = c.items.find(i => i.id === ch.id);
                 return <td key={ch.id}>{c.status === 'judged' && m !== undefined ? <Mark status={m.status} /> : ''}</td>;
               })}
+              {hasHearing && <td data-testid="talk-call-answers">{c.status === 'judged' ? hearingLine(data.checks, c.items) : ''}</td>}
               <td>{c.summary ?? ''}</td>
             </tr>
           ))}
-          {data.calls.length === 0 && <tr><td colSpan={4 + data.checks.length} className="w8-muted">この期間の電話はありません。</td></tr>}
+          {data.calls.length === 0 && <tr><td colSpan={4 + marks.length + (hasHearing ? 1 : 0)} className="w8-muted">この期間の電話はありません。</td></tr>}
         </tbody>
       </table>
     </div>
@@ -563,6 +583,27 @@ export function TalkCallsTable({ data, onOpen }: { data: TalkCallsResponse; onOp
 }
 
 // ------------------------------------------------------------ 詳細
+
+/** ヒアリングの 1 項目: 先方の答えと、答えが得られたか・営業が質問したか */
+function HearingItem({ it, title }: { it: TalkItemDetail; title: string }) {
+  if (it.status === 'na') {
+    return (
+      <div className={`talk-item na`} data-testid="talk-hearing-item">
+        <div><Mark status="na" /> <strong>{title}</strong> <span className="w8-muted w8-xs">該当なし</span></div>
+        {it.note !== null && <div className="w8-xs w8-muted">{it.note}</div>}
+      </div>
+    );
+  }
+  const facts = [hearingResultText(it.answered), hearingAskedText(it.asked)].filter(t => t !== '');
+  return (
+    <div className={`talk-item ${it.status}`} data-testid="talk-hearing-item">
+      <div><Mark status={it.status} /> <strong>{title}</strong> <span className="w8-muted w8-xs">{facts.join('・')}</span></div>
+      <div data-testid="talk-hearing-answer">先方の答え: <strong>{it.answer ?? '分からない'}</strong>{it.note !== null && <span className="w8-xs w8-muted">（{it.note}）</span>}</div>
+      {it.quote !== null && <div className="talk-quote">「{it.quote}」{it.evidence.length > 0 && <span className="w8-xs w8-muted"> （発言 {it.evidence.join('・')}）</span>}</div>}
+      {it.advice !== null && <div className="talk-advice">次に言うとよいこと: {it.advice}</div>}
+    </div>
+  );
+}
 
 export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
   const checkOf = (id: string) => data.checks.find(c => c.id === id);
@@ -573,6 +614,11 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
     for (const n of it.evidence) evidence.set(n, [...(evidence.get(n) ?? []), checkOf(it.id)?.title ?? it.id]);
   }
   const c = data.call;
+  const hearingIds = new Set(data.checks.filter(isHearing).map(x => x.id));
+  const talkItems = data.items.filter(it => !hearingIds.has(it.id));
+  const hearingGroups = HEARING_STAGES
+    .map(h => ({ ...h, items: data.items.filter(it => hearingIds.has(it.id) && checkOf(it.id)?.stage === h.stage) }))
+    .filter(g => g.items.length > 0);
   return (
     <>
       <p className="w8-subtle">
@@ -584,12 +630,20 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
         <section data-testid="talk-items">
           <h2 className="w8-section-title">項目ごとの判定</h2>
           {data.items.length === 0 && <p className="w8-muted">この電話はまだ判定されていません。</p>}
-          {data.items.map(it => (
+          {talkItems.map(it => (
             <div key={it.id} className={`talk-item ${it.status}`} data-testid="talk-item">
               <div><Mark status={it.status} /> <strong>{checkOf(it.id)?.title ?? it.id}</strong> <span className="w8-muted w8-xs">{MARK_LABEL[it.status] ?? it.status}</span></div>
               {it.quote !== null && <div className="talk-quote">「{it.quote}」{it.evidence.length > 0 && <span className="w8-xs w8-muted"> （発言 {it.evidence.join('・')}）</span>}</div>}
               {it.advice !== null && <div className="talk-advice">次に言うとよいこと: {it.advice}</div>}
               {it.note !== null && <div className="w8-xs w8-muted">{it.note}</div>}
+            </div>
+          ))}
+          {hearingGroups.map(g => (
+            <div key={g.stage} data-testid="talk-hearing-group">
+              <h3 className="w8-section-title">{g.heading}</h3>
+              {g.items.every(it => it.status === 'na') ? (
+                <p className="w8-muted w8-xs">この電話は当てはまりません。</p>
+              ) : g.items.map(it => <HearingItem key={it.id} it={it} title={checkOf(it.id)?.title ?? it.id} />)}
             </div>
           ))}
         </section>

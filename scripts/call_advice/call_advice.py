@@ -118,32 +118,102 @@ def turns_from(tx):
     return out
 
 
-def build_prompt(checks, turns):
-    items = '\n'.join(
-        f'- id: {c["id"]}\n  項目: {c["title"]}\n  判定: {c["rule"]}\n  該当なし: {c["na_when"]}' for c in checks['checks'])
-    tr = '\n'.join(f'{t["n"]}. {t["sp"]}: {t["text"]}' for t in turns)
+HEARING_STAGE = '日程が決まった後'  # 日程が決まった電話だけ、別の呼び出しで判定する項目
+NA_ONLY_UNSCHEDULED = '日程が決まらなかった電話'  # ヒアリングの呼び出しでは書かない該当なし
+QUOTE_MAX = 200
+
+# 本番 (src/crm/talk_review/judge.rs の COMMON・build_prompt・build_hearing_prompt) と同じ文言。
+# 片方を直したらもう片方も直す (cargo test の prompts_match_the_python_prototype で照合する)
+COMMON = """- 引用は書かない。根拠は evidence の発言番号だけで示す(引用はこちらで文字起こしから写す)。
+- 迷う項目は長く考えず、文字起こしから読み取れる範囲で簡単に決める。考え直しは考える部分で済ませ、JSON の中に書かない。
+
+日本語の決まり:
+- JSON の中の文は、日本の職場で使う自然な日本語だけで書く。中国語・韓国語・英語の単語、ローマ字、記号の羅列を混ぜない。
+- 文字起こしの言葉、金額、月、人名は元の表記のまま書く。
+- 書く前に、他の言語が混ざっていないか、途中で別の言葉にすり替わっていないかを確かめる。
+
+悪い出力の例と正しい形:
+悪い:「16時がetinyms的理由で難しConsumersになった後」
+正しい:「16時が難しいと言われた後」
+悪い:「ちょっと今考えてない-tradnego esque?auen? No! Wait」
+正しい: (引用は書かず evidence に発言番号だけを入れる)
+悪い:「名乗りorbitalでも伊藤さんと名前で呼んでいる」
+正しい:「名乗りでも伊藤さんと名前で呼んでいる」"""
+
+
+def transcript(turns):
+    return '\n'.join(f'{t["n"]}. {t["sp"]}: {t["text"]}' for t in turns)
+
+
+def main_prompt(checks, turns):
+    """今の判定 (ヒアリング以外の項目)。接触した電話 1 本につき 1 回。"""
+    items = '\n'.join(f'- id: {c["id"]}\n  項目: {c["title"]}\n  判定: {c["rule"]}\n  該当なし: {c["na_when"]}'
+                      for c in checks['checks'] if c['stage'] != HEARING_STAGE)
     return f"""あなたは新規営業のアポ取り電話を評価する担当です。下の文字起こし(営=営業、先=先方。番号は発言の順番)を、項目ごとに判定してください。
 
 決まり:
 - アポが決まった後の会話(日時の復唱、Zoom・メールアドレスの確認など)は判定に使わない。決まったかどうかは outcome に書くだけにする。
-- 判定は「できた」「できていない」「該当なし」のどれか。文字起こしが崩れていて判断できないときは「該当なし」にして note に理由を書く。
-- evidence には判定の根拠になった発言の番号を入れる。quote にはその発言をそのまま短く引用する。
-- advice は「できていない」ときだけ、その電話の流れに合わせて、営業が次に言うとよい一言を具体的に書く。資料の言い方を参考にする。
-- 平易な日本語で書く。
+- 判定は「できた」「できていない」「該当なし」のどれか。文字起こしが崩れていて判断できないときは「該当なし」にする。
+- evidence には判定の根拠になった発言の番号を入れる。
+{COMMON}
 
 項目:
 {items}
 
 文字起こし:
-{tr}
+{transcript(turns)}
 
 次の JSON だけを返してください:
 {{"reached_person": true/false (担当者と話せたか),
  "reception": true/false (受付を通したか),
  "first_date_turn": 営業が最初に具体的な日付を出した発言の番号 または null,
  "outcome": "日程が決まった" / "決まらなかった" / "担当者不在" のどれか,
- "checks": [{{"id": "...", "status": "...", "evidence": [番号], "quote": "...", "advice": "...", "note": "..."}}],
- "summary": "この電話で一番直すとよい点を1文で"}}"""
+ "checks": [{{"id": "...", "status": "...", "evidence": [番号]}}]}}"""
+
+
+def hearing_prompt(checks, turns):
+    """ヒアリング (場面「日程が決まった後」の項目)。日程が決まった電話だけ、もう 1 回。"""
+    items = '\n'.join(
+        f'- id: {c["id"]}\n  項目: {c["title"]}\n  判定: {c["rule"]}\n  先方の答え: {" / ".join(c["answers"])}'
+        + (f'\n  該当なし: {c["na_when"]}' if c['na_when'] != NA_ONLY_UNSCHEDULED else '')
+        for c in checks['checks'] if c['stage'] == HEARING_STAGE)
+    return f"""あなたは新規営業のアポ取り電話で、日程が決まった電話のヒアリングを確かめる担当です。下の文字起こし(営=営業、先=先方。番号は発言の順番)を、項目ごとに確かめてください。
+
+決まり:
+- 日程が決まる前も含めた電話全体で見る。前段で先方が話していれば答えが得られたとする。
+- asked: 営業がその項目を質問したか (true/false)
+- answered: 判定に書いた「相応しい答え」が先方から得られたか (true/false)。営業が聞かずに先方が自分から話した場合も true
+- answer: 先方の答えを「先方の答え」の中から1つ。分からなければ「不明」
+- status は「対象」。該当なしに当たるとき、または文字起こしが崩れて判断できないときだけ「該当なし」
+- evidence は根拠の発言の番号。
+{COMMON}
+- detail: 具体的な金額や月が出たときだけ、その金額や月を書く(例「月20万円」「来年4月」)。無ければ空。
+
+項目:
+{items}
+
+文字起こし:
+{transcript(turns)}
+
+次の JSON だけを返してください:
+{{"checks": [{{"id": "...", "status": "...", "asked": true/false, "answered": true/false, "answer": "...", "evidence": [番号], "detail": "..."}}]}}"""
+
+
+def quote_from(turns, evidence):
+    """引用はモデルに書かせず、evidence の番号の発言を写す (「／」でつなぎ 200 字で切る。無い番号は無視)。"""
+    by_n = {t['n']: t['text'].strip() for t in turns}
+    seen, parts = set(), []
+    for n in evidence or []:
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            continue
+        if n in seen:
+            continue
+        seen.add(n)
+        if by_n.get(n):
+            parts.append(by_n[n])
+    return '／'.join(parts)[:QUOTE_MAX] if parts else None
 
 
 def extract_json(text):
@@ -161,16 +231,52 @@ def extract_json(text):
         return None
 
 
-def judge(env, model, checks, turns):
+def complete(env, model, prompt):
+    # MiniMax-M3 は temperature・top_p を無視し、常に 1 / 0.95 で動く (公式ドキュメント)。0 は送るが効かない
     base = env.get('MINIMAX_BASE_URL') or 'https://api.minimax.io/v1'
     body = {'model': model, 'temperature': 0, 'max_tokens': 24000,
-            'messages': [{'role': 'user', 'content': build_prompt(checks, turns) + '\n\n説明やコードブロックは付けず、JSON だけを出力してください。'}]}
+            'messages': [{'role': 'user', 'content': prompt + '\n\n説明やコードブロックは付けず、JSON だけを出力してください。'}]}
     for i in range(4):
         r = http(base + '/chat/completions', {'Authorization': 'Bearer ' + env['MINIMAX_API_KEY']}, body=body, method='POST')
         obj = extract_json(r['choices'][0]['message'].get('content'))
         if obj is not None:
             return obj
     raise RuntimeError('判定の応答から JSON を取り出せない')
+
+
+def judge(env, model, checks, turns):
+    """本番と同じ流れ: 今の判定 1 回 + 日程が決まった電話だけヒアリング 1 回。
+    引用は evidence から、助言は checks.json から、要約は最初の「できていない」項目の助言で作る。"""
+    out = complete(env, model, main_prompt(checks, turns))
+    got = {x.get('id'): x for x in out.get('checks', []) if isinstance(x, dict)}
+    hearing = {}
+    if out.get('outcome') == '日程が決まった':
+        try:
+            hearing = {x.get('id'): x for x in complete(env, model, hearing_prompt(checks, turns)).get('checks', []) if isinstance(x, dict)}
+        except RuntimeError as e:
+            print(f'ヒアリングの判定を取れない: {e}', file=sys.stderr)
+    rows = []
+    for c in checks['checks']:
+        if c['stage'] == HEARING_STAGE:
+            x = hearing.get(c['id'], {})
+            if x and x.get('status') != '該当なし' and isinstance(x.get('answered'), bool):
+                status = 'できた' if x['answered'] else 'できていない'
+                extra = {'asked': x.get('asked'), 'answered': x['answered'],
+                         'answer': x.get('answer') if x.get('answer') in c.get('answers', []) else None,
+                         'note': x.get('detail') or None}
+            else:
+                status, extra = '該当なし', {}
+        else:
+            x = got.get(c['id'], {})
+            status = x.get('status') if x.get('status') in ('できた', 'できていない') else '該当なし'
+            extra = {}
+        ev = x.get('evidence') or []
+        ev = ev if isinstance(ev, list) else [ev]
+        rows.append({'id': c['id'], 'status': status, 'evidence': ev, 'quote': quote_from(turns, ev),
+                     'advice': c.get('advice') if status == 'できていない' else None, **extra})
+    out['checks'] = rows
+    out['summary'] = next((r['advice'] for r in rows if r['status'] == 'できていない'), None)
+    return out
 
 
 def parse_targets(args):
@@ -323,7 +429,7 @@ def main():
     names = {d: hs.deal_name(d) for d in deals}
     zoom = None
     results, skipped = [], []
-    ver = hashlib_short(json.dumps(checks, ensure_ascii=False) + a.model)
+    ver = hashlib_short(json.dumps(checks, ensure_ascii=False) + a.model + main_prompt(checks, []) + hearing_prompt(checks, []))
     for r in rows:
         t = datetime.datetime.fromisoformat(r['ts'].replace('Z', '+00:00')).astimezone(JST) if r['ts'] else None
         r['when'] = t.strftime('%Y-%m-%d %H:%M') if t else ''

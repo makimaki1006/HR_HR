@@ -115,14 +115,13 @@ pub fn call_row(r: &ReviewRow, check_ids: &[String]) -> TalkCallRow {
         items: if judged {
             check_ids
                 .iter()
-                .map(|id| TalkItemMark {
-                    id: id.clone(),
-                    status: r
-                        .items
-                        .iter()
-                        .find(|i| &i.id == id)
-                        .map_or("na", |i| i.status.as_str())
-                        .to_string(),
+                .map(|id| {
+                    let item = r.items.iter().find(|i| &i.id == id);
+                    TalkItemMark {
+                        id: id.clone(),
+                        status: item.map_or("na", |i| i.status.as_str()).to_string(),
+                        answer: item.and_then(|i| i.answer.clone()),
+                    }
                 })
                 .collect()
         } else {
@@ -795,6 +794,9 @@ pub(in crate::crm) async fn get_call_detail(
                     quote: i.quote.clone(),
                     advice: i.advice.clone(),
                     note: i.note.clone(),
+                    answer: i.answer.clone(),
+                    asked: i.asked,
+                    answered: i.answered,
                 },
                 None => TalkItemDetail {
                     id: c.id.clone(),
@@ -803,6 +805,9 @@ pub(in crate::crm) async fn get_call_detail(
                     quote: None,
                     advice: None,
                     note: None,
+                    answer: None,
+                    asked: None,
+                    answered: None,
                 },
             },
         )
@@ -917,6 +922,9 @@ mod tests {
                 quote: None,
                 advice: None,
                 note: None,
+                answer: None,
+                asked: None,
+                answered: None,
             }],
             summary: Some("要約".into()),
             note: None,
@@ -924,12 +932,31 @@ mod tests {
         let ids = check_ids();
         let c = call_row(&r, &ids);
         assert_eq!(c.status, "judged");
-        assert_eq!(c.items.len(), 9);
+        assert_eq!(c.items.len(), 15);
         assert_eq!(
             (c.items[2].id.as_str(), c.items[2].status.as_str()),
             ("early_date", "not_done")
         );
         assert_eq!(c.items[0].status, "na");
+        assert_eq!(c.items[2].answer, None);
+        // ヒアリングの項目は先方の答えも一覧に出す
+        r.items.push(StoredItem {
+            id: "aq_budget".into(),
+            status: "done".into(),
+            evidence: vec![],
+            quote: None,
+            advice: None,
+            note: None,
+            answer: Some("具体額".into()),
+            asked: Some(true),
+            answered: Some(true),
+        });
+        let c = call_row(&r, &ids);
+        let b = c.items.iter().find(|x| x.id == "aq_budget").unwrap();
+        assert_eq!(
+            (b.status.as_str(), b.answer.as_deref()),
+            ("done", Some("具体額"))
+        );
         r.status = "pending_transcript".into();
         let c = call_row(&r, &ids);
         assert_eq!(c.status, "waiting");
@@ -1097,10 +1124,10 @@ mod tests {
             (Some("2026-10-01"), Some("2026-10-02"))
         );
         assert_eq!(v["people"], json!([]));
-        assert_eq!(v["checks"].as_array().unwrap().len(), 9);
+        assert_eq!(v["checks"].as_array().unwrap().len(), 15);
         assert_eq!(v["rules"]["item_min_applicable"], json!(5));
         assert_eq!(v["rules"]["appointment_min_dials"], json!(100));
-        assert_eq!(v["total"]["items"].as_array().unwrap().len(), 9);
+        assert_eq!(v["total"]["items"].as_array().unwrap().len(), 15);
         let (s, v) = get(
             &app,
             "/api/crm/talk-review/calls?from=2026-10-01&to=2026-10-02",

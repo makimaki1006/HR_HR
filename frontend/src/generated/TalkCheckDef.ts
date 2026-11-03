@@ -19,4 +19,8 @@ baseline_pct: number | null,
 /**
  * その割合の分母 (例: 話せた電話のうち)
  */
-baseline_basis: string | null, };
+baseline_basis: string | null, 
+/**
+ * 先方の答えの選択肢。空でなければヒアリングの項目 (「できた」= 相応しい答えが得られた)
+ */
+answers: Array<string>, };

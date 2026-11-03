@@ -7,4 +7,8 @@ export type TalkItemMark = { id: string,
 /**
  * "done" | "not_done" | "na"
  */
-status: string, };
+status: string, 
+/**
+ * ヒアリングの項目の先方の答え (選択肢の 1 つ)。無ければ null
+ */
+answer: string | null, };
