@@ -23,7 +23,7 @@ use super::config::TalkReviewConfig;
 use super::counts::TeamOwners;
 use super::judge::{
     hearing_na, is_hearing, sanitize_texts, source_text, summary_of, texts_foreign, Judge,
-    JudgeError, JudgeOutput, MiniMaxJudge, StoredItem, NO_APO_NOTE,
+    JudgeError, JudgeOutput, MiniMaxJudge, StoredItem, NO_APO_NOTE, SCHEDULED,
 };
 use super::store::{self, NewRow, ReviewRow, ST_FAILED, ST_QUEUED, ST_UNAVAILABLE};
 use super::target::{self, MarkState, Verdict, CONTACTED_NOTE};
@@ -647,6 +647,16 @@ fn judged_row(row: &ReviewRow, o: &JudgeOutput) -> ReviewRow {
     r
 }
 
+/// ヒアリングの周回で先に確かめる順 (小さいほど先)。今の判定が「日程が決まった」行と、
+/// ヒアリングが付いている行は、付ける・外す見込みが高い。それ以外は、ほとんどがアポにもならない行
+pub fn hearing_priority(row: &ReviewRow, checks: &Checks) -> u8 {
+    if row.outcome.as_deref() == Some(SCHEDULED) || has_hearing(row, checks) {
+        0
+    } else {
+        1
+    }
+}
+
 /// 1 周に HubSpot と突き合わせる行の上限
 const HEARING_CHECK_BATCH: usize = 300;
 
@@ -775,10 +785,11 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             self.hearing_check
                 .insert(r.hubspot_call_id.clone(), (r, now));
         }
+        let checks = &loaded().checks;
         let mut due: Vec<(ReviewRow, i64)> = Vec::new();
         let mut bad = Vec::new();
         for (id, (r, next)) in &self.hearing_check {
-            if *next > now || due.len() >= HEARING_CHECK_BATCH {
+            if *next > now {
                 continue;
             }
             match apo_link::call_ms(&r.call_at) {
@@ -789,6 +800,9 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         for id in bad {
             self.hearing_check.remove(&id);
         }
+        // 付ける・外す見込みの高い行を先に、新しい電話から
+        due.sort_by_key(|(r, ms)| (hearing_priority(r, checks), std::cmp::Reverse(*ms)));
+        due.truncate(HEARING_CHECK_BATCH);
         if due.is_empty() {
             return;
         }
@@ -808,7 +822,6 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 return;
             }
         };
-        let checks = &loaded().checks;
         let limit = rejudge_limit(self.cfg.concurrency);
         let mut run = Vec::new();
         for (r, ms) in due {
@@ -1321,11 +1334,13 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             self.promote().await;
             self.pending.flush(&self.audit).await;
             // 時間切れで判定待ちが残っていれば待たずに次の周回 (新しい電話を拾い直してから続ける)
-            if !self.process_due().await {
+            let busy = self.process_due().await;
+            // HubSpot のアポの記録と突き合わせて、ヒアリングを付ける・外す (毎周。日中は判定待ちが続き、
+            // 手の空いた周回が少ないため)
+            self.process_hearing().await;
+            if !busy {
                 // 新しい判定が無い周回に、文章が不合格の行を少しずつ判定し直す
                 self.process_rejudge().await;
-                // HubSpot のアポの記録と突き合わせて、ヒアリングを付ける・外す
-                self.process_hearing().await;
                 tokio::time::sleep(self.cfg.interval).await;
             }
         }
@@ -1509,6 +1524,20 @@ mod tests {
             "待っても記録が無ければ外す"
         );
         assert_eq!(hearing_action(false, false, true), Done);
+    }
+
+    #[test]
+    fn scheduled_or_heard_rows_are_checked_first() {
+        let c = &loaded().checks;
+        let mut r = row(Some("z"), "2026-10-27T00:00:00Z");
+        r.outcome = Some("決まらなかった".into());
+        assert_eq!(hearing_priority(&r, c), 1);
+        r.outcome = Some("日程が決まった".into());
+        assert_eq!(hearing_priority(&r, c), 0);
+        r.outcome = Some("決まらなかった".into());
+        r.items = hearing_na(c, NO_APO_NOTE);
+        r.items[0].status = "not_done".into();
+        assert_eq!(hearing_priority(&r, c), 0, "ヒアリングが付いている行も先");
     }
 
     #[test]
