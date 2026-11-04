@@ -100,14 +100,8 @@ pub const SCHEDULED: &str = "日程が決まった";
 const NA_ONLY_UNSCHEDULED: &str = "日程が決まらなかった電話";
 /// ヒアリングの呼び出しが失敗したときに、ヒアリングの項目に残すメモ
 pub const HEARING_FAILED_NOTE: &str = "ヒアリングの判定を取れませんでした";
-/// すでに決まっていた日程の確認・時刻の変更・お礼などの電話は、ヒアリングの対象から外す (2026-11-03 ユーザー決定)
-pub const FOLLOW_UP_KIND: &str = "決まった日程の連絡";
-/// その電話のヒアリングの項目に残すメモ
-pub const FOLLOW_UP_NOTE: &str = "決まっていた日程の確認・変更の電話のため対象外";
-/// 今の判定が「日程が決まった」でも、ヒアリングの判定で日時が決まっていないと見た電話も外す (2026-11-04 ユーザー決定)
-pub const NOT_SET_KIND: &str = "決まっていない";
-/// その電話のヒアリングの項目に残すメモ
-pub const NOT_SET_NOTE: &str = "日程が決まっていない電話のため対象外";
+/// アポの記録が無い電話のヒアリングの項目に残すメモ (HubSpot のアポ日確定で対象を決める。`apo_link`)
+pub const NO_APO_NOTE: &str = "アポの記録が無い電話のため対象外";
 /// 応答に項目が無かったときのメモ
 const MISSING_NOTE: &str = "判定の応答にこの項目がありませんでした";
 
@@ -209,12 +203,6 @@ pub fn build_hearing_prompt(checks: &Checks, turns: &[TalkTurn]) -> String {
     format!(
         r#"あなたは新規営業のアポ取り電話で、日程が決まった電話のヒアリングを確かめる担当です。下の文字起こし(営=営業、先=先方。番号は発言の順番)を、項目ごとに確かめてください。
 
-はじめに、この電話の種類を call_kind に書く:
-- "新しく決めた": この電話で打ち合わせの日時を新しく決めた。「前回〇〇の件で」と始まっても、日時を決めたのがこの電話ならこちら。
-- "決まった日程の連絡": この電話より前に日時がすでに決まっていて、この電話はその確認・時刻の変更・お礼・案内の送付などの連絡だけ。
-- "決まっていない": この電話で日時が決まらなかった (断られた、「また連絡する」で終わった、日時の了承が無い)。
-"決まった日程の連絡" と "決まっていない" のときは、項目の判定はしなくてよい (checks は空でよい)。
-
 決まり:
 - 日程が決まる前も含めた電話全体で見る。前段で先方が話していれば答えが得られたとする。
 - asked: 営業がその項目を質問したか (true/false)
@@ -232,8 +220,7 @@ pub fn build_hearing_prompt(checks: &Checks, turns: &[TalkTurn]) -> String {
 {tr}
 
 次の JSON だけを返してください:
-{{"call_kind": "新しく決めた" / "決まった日程の連絡" / "決まっていない" のどれか,
- "checks": [{{"id": "...", "status": "...", "asked": true/false, "answered": true/false, "answer": "...", "evidence": [番号], "detail": "..."}}]}}"#,
+{{"checks": [{{"id": "...", "status": "...", "asked": true/false, "answered": true/false, "answer": "...", "evidence": [番号], "detail": "..."}}]}}"#,
         items = items.join("\n"),
         tr = transcript(turns),
     )
@@ -460,22 +447,23 @@ pub fn convert_response(checks: &Checks, v: &Value, turns: &[TalkTurn]) -> Judge
 }
 
 /// ヒアリングの JSON で、items のヒアリングの項目を置き換える
-/// 決まっていた日程の連絡・日時が決まっていない電話なら、ヒアリングの項目はすべて該当なし (理由のメモ付き)
+/// ヒアリングの JSON で、items のヒアリングの項目を置き換える
 pub fn apply_hearing(checks: &Checks, v: &Value, turns: &[TalkTurn], items: &mut [StoredItem]) {
-    let excluded = match text_of(v, "call_kind").as_deref() {
-        Some(FOLLOW_UP_KIND) => Some(FOLLOW_UP_NOTE),
-        Some(NOT_SET_KIND) => Some(NOT_SET_NOTE),
-        _ => None,
-    };
     for c in checks.checks.iter().filter(|c| is_hearing(c)) {
         if let Some(i) = items.iter_mut().find(|i| i.id == c.id) {
-            *i = if let Some(note) = excluded {
-                na_item(c, Some(note))
-            } else {
-                convert_hearing_item(c, find_in(v, &c.id), turns)
-            };
+            *i = convert_hearing_item(c, find_in(v, &c.id), turns);
         }
     }
+}
+
+/// ヒアリングの項目をすべて該当なし (メモ付き) にした一覧 (checks の順)
+pub fn hearing_na(checks: &Checks, note: &str) -> Vec<StoredItem> {
+    checks
+        .checks
+        .iter()
+        .filter(|c| is_hearing(c))
+        .map(|c| na_item(c, Some(note)))
+        .collect()
 }
 
 /// 要約: checks の順で最初の「できていない」項目の助言 (無ければ None)
@@ -712,8 +700,9 @@ impl Completer for MiniMaxJudge {
 }
 
 impl Judge for MiniMaxJudge {
+    /// 今の判定だけ。ヒアリングは、HubSpot のアポの記録と突き合わせてから worker が別に付ける (`apo_link`)
     async fn judge(&self, checks: &Checks, turns: &[TalkTurn]) -> Result<JudgeOutput, JudgeError> {
-        judge_via(self, checks, turns).await
+        judge_main_via(self, checks, turns).await
     }
 
     async fn hearing(
@@ -1012,45 +1001,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn follow_up_calls_are_left_out_of_the_hearing() {
+    async fn hearing_only_returns_the_hearing_items_in_order() {
         let c = &loaded().checks;
-        let mut resp = hearing_resp();
-        resp["call_kind"] = json!(FOLLOW_UP_KIND);
-        let s = Scripted::new(vec![Ok(main_resp("日程が決まった")), Ok(resp)]);
-        let o = judge_via(&s, c, &turns9()).await.unwrap();
-        assert!(s.prompts()[1].contains("決まった日程の連絡"));
-        for h in c.checks.iter().filter(|c| is_hearing(c)) {
-            let i = item(&o.items, &h.id);
-            assert_eq!(
-                (i.status.as_str(), i.note.as_deref(), i.answer.as_deref()),
-                ("na", Some(FOLLOW_UP_NOTE), None),
-                "{}: 答えが書いてあっても数えない",
-                h.id
-            );
-        }
-        // 日時が決まっていない電話も外す
-        let mut resp = hearing_resp();
-        resp["call_kind"] = json!(NOT_SET_KIND);
-        let s = Scripted::new(vec![Ok(resp)]);
+        let s = Scripted::new(vec![Ok(hearing_resp())]);
         let h = hearing_via(&s, c, &turns9()).await.unwrap();
-        assert!(h
-            .iter()
-            .all(|i| i.status == "na" && i.note.as_deref() == Some(NOT_SET_NOTE)));
-        // 新しく決めた電話 (call_kind が「新しく決めた」・無い) は従来どおり
-        let mut resp = hearing_resp();
-        resp["call_kind"] = json!("新しく決めた");
-        let s = Scripted::new(vec![Ok(resp)]);
-        let h = hearing_via(&s, c, &turns9()).await.unwrap();
+        assert!(!s.prompts()[0].contains("call_kind"));
         assert_eq!(
             h.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
             c.checks
                 .iter()
                 .filter(|c| is_hearing(c))
                 .map(|c| c.id.as_str())
-                .collect::<Vec<_>>(),
-            "ヒアリングの項目だけを checks の順で返す"
+                .collect::<Vec<_>>()
         );
         assert_eq!(item(&h, "aq_budget").status, "done");
+        assert!(hearing_na(c, NO_APO_NOTE)
+            .iter()
+            .all(|i| i.status == "na" && i.note.as_deref() == Some(NO_APO_NOTE)));
     }
 
     #[tokio::test]
