@@ -22,6 +22,7 @@
 //! **単一インスタンス前提** (他の worker と同じ)。
 
 pub mod apo_breakdown;
+pub mod apo_link;
 pub mod checks;
 pub mod config;
 pub mod contact;

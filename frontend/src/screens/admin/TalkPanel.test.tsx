@@ -97,7 +97,7 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(screen.queryByRole('columnheader', { name: /時期改め/ })).toBeNull();
     expect(head.querySelector('[data-testid="talk-hearing-basis"]')).toBeNull();
     expect(screen.getByTestId('talk-hearing-rule').textContent).toContain('先方から相応しい答えが得られた電話の割合');
-    expect(screen.getByTestId('talk-hearing-rule').textContent).toContain('文字起こしを見直して日時が決まっていなかった電話は、この項目の対象に入れません');
+    expect(screen.getByTestId('talk-hearing-rule').textContent).toContain('その電話の取引が HubSpot でアポ日確定に入った電話です');
     cleanup();
     // アポ後のタブ: 日程が決まった後の6項目。割合の分母を見出しに書く
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} tab="after" />);
