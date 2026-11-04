@@ -535,6 +535,23 @@ pub struct Settled {
     pub waiting: Vec<Waiting>,
 }
 
+/// 接触の印を読む窓 (担当者, 開始, 終了)。録音 URL のある Call も含める (純粋)。
+/// 2026-10-26 に結び付けを担当者と時刻に変えたとき、URL のある Call (新規営業のほとんど) は ID で読んだままで、
+/// 印が 1 本も読まれず、6 時間待って見送られていた (10/27〜11/04 の新規営業の判定が 0 本)
+pub fn mark_windows(pool: &[Waiting]) -> Vec<(String, String, String)> {
+    let window = chrono::Duration::milliseconds(super::zoom::CALLER_WINDOW_MS);
+    pool.iter()
+        .filter_map(|w| {
+            let at = DateTime::<Utc>::from_timestamp_millis(w.cand.ts_ms)?;
+            Some((
+                w.owner.clone(),
+                store::ts_text(at - window),
+                store::ts_text(at + window),
+            ))
+        })
+        .collect()
+}
+
 /// 待っている Call を、接触の印に照らして振り分ける (純粋)。録音 URL のある Call を先に結び、新しい電話から
 pub fn settle(
     mut pool: Vec<Waiting>,
@@ -1014,23 +1031,10 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         if pool.is_empty() {
             return Ok(());
         }
-        // 接触の印を読む (SELECT のみ)。録音 URL のある Call は通話ログ ID で、無い Call は担当者と時刻の窓で
-        let ids: Vec<String> = pool.iter().filter_map(|w| w.cand.zoom_id.clone()).collect();
-        let window = chrono::Duration::milliseconds(super::zoom::CALLER_WINDOW_MS);
-        let windows: Vec<(String, String, String)> = pool
-            .iter()
-            .filter(|w| w.cand.zoom_id.is_none())
-            .filter_map(|w| {
-                let at = DateTime::<Utc>::from_timestamp_millis(w.cand.ts_ms)?;
-                Some((
-                    w.owner.clone(),
-                    store::ts_text(at - window),
-                    store::ts_text(at + window),
-                ))
-            })
-            .collect();
+        // 接触の印を読む (SELECT のみ)。結び付けは担当者と時刻なので (`target::verdict`)、録音 URL の有無にかかわらず窓で読む
+        let windows = mark_windows(&pool);
         let marks = match store::blocking(&self.audit, move |t| {
-            super::contact_store::marks_for(t, &ids, &windows)
+            super::contact_store::marks_for(t, &[], &windows)
         })
         .await
         {
@@ -1602,6 +1606,44 @@ mod tests {
                 .unwrap()
                 .status,
             "done"
+        );
+    }
+
+    #[test]
+    fn marks_are_read_for_calls_with_a_recording_url_too() {
+        let pool = vec![
+            waiting("c1", "o1", "2026-10-28T01:00:00Z", Some("20261028-aaaa")),
+            waiting("c2", "o2", "2026-10-28T02:00:00Z", None),
+        ];
+        let w = mark_windows(&pool);
+        assert_eq!(
+            w.len(),
+            2,
+            "録音 URL のある Call (新規営業のほとんど) も窓で読む"
+        );
+        assert_eq!(
+            w[0],
+            (
+                "o1".to_string(),
+                "2026-10-28T00:57:00Z".to_string(),
+                "2026-10-28T01:03:00Z".to_string()
+            )
+        );
+        // 読んだ印は担当者と時刻で結び付く (URL の ID は使わない)
+        let marks = vec![mk(
+            "zoomlog1",
+            "o1",
+            "2026-10-28T01:00:40Z",
+            "judged",
+            Some(true),
+        )];
+        let s = settle(pool, &marks, &mut HashSet::new(), Utc::now());
+        assert_eq!(
+            s.targets
+                .iter()
+                .map(|w| w.cand.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["c1"]
         );
     }
 
