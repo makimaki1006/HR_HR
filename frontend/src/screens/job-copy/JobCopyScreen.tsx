@@ -2,6 +2,7 @@ import { HoujinView } from './HoujinView';
 import { ApplyReasonCrosstab } from './ApplyReasonCrosstab';
 import { ConsultantMenu, ConsultantMenuHeader } from './ConsultantMenu';
 import { ConsultantRisk } from './ConsultantRisk';
+import { UnlinkedMtg } from './UnlinkedMtg';
 import { DealBoard } from './DealBoard';
 import { detailQueryKeys, navigateJobCopy, updateJobCopyQuery, useJobCopySearch } from './navigation';
 import type { ListingNavigation } from './ListingPopup';
@@ -628,5 +629,5 @@ function JobCopyMain() {
 export function JobCopyScreen() {
   const view = new URLSearchParams(useJobCopySearch()).get('view');
   const [menuVisit, setMenuVisit] = useState(0);
-  return <ConsultantMenu onNavigate={() => { setMenuVisit(n => n + 1); }} inlineHeader={!['risk', 'good', 'houjin', 'deals', 'occupations', 'reasons'].includes(view ?? '')}>{view === 'risk' || view === 'good' ? <ConsultantRisk key={view} good={view === 'good'} /> : view === 'houjin' ? <HoujinView /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : view === 'reasons' ? <ApplyReasonCrosstab /> : <JobCopyMain key={menuVisit} />}</ConsultantMenu>;
+  return <ConsultantMenu onNavigate={() => { setMenuVisit(n => n + 1); }} inlineHeader={!['risk', 'good', 'houjin', 'deals', 'occupations', 'reasons', 'unlinked'].includes(view ?? '')}>{view === 'risk' || view === 'good' ? <ConsultantRisk key={view} good={view === 'good'} /> : view === 'houjin' ? <HoujinView /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : view === 'reasons' ? <ApplyReasonCrosstab /> : view === 'unlinked' ? <UnlinkedMtg /> : <JobCopyMain key={menuVisit} />}</ConsultantMenu>;
 }
