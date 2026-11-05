@@ -3272,7 +3272,7 @@ mod tests {
         seed_row(
             &conn,
             ("5001", &at(10), "judged"),
-            (sched(), Some("z-5001")),
+            (sched(), Some("zoom5001")),
             Some(&na),
             Some("s"),
         );
@@ -3280,7 +3280,7 @@ mod tests {
         seed_row(
             &conn,
             ("5002", &at(24 * 5), "judged"),
-            (missed(), Some("z-5002")),
+            (missed(), Some("zoom5002")),
             Some(&heard),
             Some("s"),
         );
@@ -3288,7 +3288,7 @@ mod tests {
         seed_row(
             &conn,
             ("5003", &at(10), "judged"),
-            (missed(), Some("z-5003")),
+            (missed(), Some("zoom5003")),
             Some(&heard),
             Some("s"),
         );
@@ -3296,7 +3296,7 @@ mod tests {
         seed_row(
             &conn,
             ("5004", &at(24 * 5), "judged"),
-            (missed(), Some("z-5004")),
+            (missed(), Some("zoom5004")),
             Some(&na),
             Some("s"),
         );
@@ -3313,7 +3313,7 @@ mod tests {
         seed_row(
             &conn,
             ("5006", &at(10), "judged"),
-            (sched(), Some("z-5006")),
+            (sched(), Some("zoom5006")),
             Some(&na),
             Some("s"),
         );
