@@ -16,7 +16,7 @@ use super::store::{ts_text, ST_UNAVAILABLE};
 use super::transcript::has_both_sides;
 use super::types::{TalkPersonRow, TalkTurn};
 use super::worker::{backoff, MAX_ATTEMPTS};
-use super::zoom::{TranscriptSource, ZoomError};
+use super::zoom::{CallLog, TranscriptSource, ZoomError};
 
 pub const ST_PENDING: &str = "pending";
 pub const ST_JUDGED: &str = "judged";
@@ -49,7 +49,7 @@ pub struct Candidate {
 /// 発信だけ・`id`/`call_id` で重複除外・JST の日に入るもの・`user_id` 必須・`result == "Auto Recorded"`。
 /// Zoom ユーザー → メール → HubSpot の担当者に結び付き、`allowed` (対象チームの人) に入る人だけ。
 pub fn discover(
-    pages: &[Value],
+    logs: &[CallLog],
     day: NaiveDate,
     user_email: &HashMap<String, String>,
     email_owner: &HashMap<String, String>,
@@ -59,52 +59,59 @@ pub fn discover(
     let end = start + ChronoDuration::days(1);
     let mut seen = HashSet::new();
     let mut out = Vec::new();
-    for page in pages {
-        let Some(logs) = page.get("call_logs").and_then(Value::as_array) else {
+    for log in logs {
+        if log.direction.as_deref() != Some("outbound") {
+            continue;
+        }
+        let Some(id) = log
+            .id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| log.call_id.as_deref().filter(|s| !s.is_empty()))
+        else {
             continue;
         };
-        for log in logs {
-            if log.get("direction").and_then(Value::as_str) != Some("outbound") {
-                continue;
-            }
-            let text = |k: &str| log.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
-            let Some(id) = text("id").or_else(|| text("call_id")) else {
-                continue;
-            };
-            if !seen.insert(id.to_string()) {
-                continue;
-            }
-            let Some(at) = text("date_time").or_else(|| text("start_time")) else {
-                continue;
-            };
-            let Ok(when) = DateTime::parse_from_rfc3339(at) else {
-                continue;
-            };
-            let when = when.with_timezone(&Utc);
-            if when < start || when >= end {
-                continue;
-            }
-            if text("result") != Some("Auto Recorded") {
-                continue;
-            }
-            let Some(uid) = text("user_id") else {
-                continue;
-            };
-            let Some(owner) = user_email.get(uid).and_then(|e| email_owner.get(e)) else {
-                continue;
-            };
-            if !allowed.contains(owner) {
-                continue;
-            }
-            out.push(Candidate {
-                id: id.to_string(),
-                owner_id: owner.clone(),
-                call_at: ts_text(when),
-                callee9: text("callee_number")
-                    .or_else(|| text("callee_did_number"))
-                    .and_then(super::zoom::normalize_number),
-            });
+        if !seen.insert(id.to_string()) {
+            continue;
         }
+        let Some(at) = log
+            .date_time
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| log.start_time.as_deref().filter(|s| !s.is_empty()))
+        else {
+            continue;
+        };
+        let Ok(when) = DateTime::parse_from_rfc3339(at) else {
+            continue;
+        };
+        let when = when.with_timezone(&Utc);
+        if when < start || when >= end {
+            continue;
+        }
+        if log.result.as_deref().filter(|s| !s.is_empty()) != Some("Auto Recorded") {
+            continue;
+        }
+        let Some(uid) = log.user_id.as_deref().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let Some(owner) = user_email.get(uid).and_then(|e| email_owner.get(e)) else {
+            continue;
+        };
+        if !allowed.contains(owner) {
+            continue;
+        }
+        out.push(Candidate {
+            id: id.to_string(),
+            owner_id: owner.clone(),
+            call_at: ts_text(when),
+            callee9: log
+                .callee_number
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| log.callee_did_number.as_deref().filter(|s| !s.is_empty()))
+                .and_then(super::zoom::normalize_number),
+        });
     }
     out
 }
@@ -341,9 +348,10 @@ pub fn apply_contact(
 
 #[cfg(test)]
 mod tests {
+    use super::super::zoom::logs_from_json_pages;
     use super::*;
     use crate::crm::talk_review::summary::{build, Member, ALERT_RULES};
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     fn day() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 10, 20).unwrap()
@@ -396,7 +404,13 @@ mod tests {
                 log("10", "outbound", "2026-10-20T02:00:00Z", "u9", "Auto Recorded"),
             ]}),
         ];
-        let c = discover(&pages, day(), &users, &owners, &allowed);
+        let c = discover(
+            &logs_from_json_pages(&pages),
+            day(),
+            &users,
+            &owners,
+            &allowed,
+        );
         let got: Vec<(&str, &str, &str)> = c
             .iter()
             .map(|c| (c.id.as_str(), c.owner_id.as_str(), c.call_at.as_str()))

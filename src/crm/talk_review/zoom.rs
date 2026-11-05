@@ -146,6 +146,56 @@ pub fn pick_match<'a>(
         .min_by_key(|e| (e.start_ms - at_ms).abs())
 }
 
+/// 通話ログの利用側が読む欄だけを保持する。
+/// `Value::as_str` と同じく、欠損・null・文字列以外は None として扱う。
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct CallLog {
+    pub id: Option<String>,
+    pub call_id: Option<String>,
+    pub direction: Option<String>,
+    pub result: Option<String>,
+    pub date_time: Option<String>,
+    pub start_time: Option<String>,
+    pub user_id: Option<String>,
+    pub path: Option<String>,
+    pub callee_number: Option<String>,
+    pub callee_did_number: Option<String>,
+}
+
+/// 検証済みの 1 ページから必要な欄だけを追加する。非オブジェクトの行は全欄 None。
+fn append_call_log_page(page: &Value, logs: &mut Vec<CallLog>) -> Option<String> {
+    if let Some(rows) = page.get("call_logs").and_then(Value::as_array) {
+        logs.extend(rows.iter().map(|row| {
+            let text = |key: &str| row.get(key).and_then(Value::as_str).map(str::to_string);
+            CallLog {
+                id: text("id"),
+                call_id: text("call_id"),
+                direction: text("direction"),
+                result: text("result"),
+                date_time: text("date_time"),
+                start_time: text("start_time"),
+                user_id: text("user_id"),
+                path: text("path"),
+                callee_number: text("callee_number"),
+                callee_did_number: text("callee_did_number"),
+            }
+        }));
+    }
+    page.get("next_page_token")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+#[cfg(test)]
+pub(super) fn logs_from_json_pages(pages: &[Value]) -> Vec<CallLog> {
+    let mut logs = Vec::new();
+    for page in pages {
+        append_call_log_page(page, &mut logs);
+    }
+    logs
+}
+
 /// 通話ログの 1 件 (発信の相手番号・開始時刻・かけた人のメール)
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallerEntry {
@@ -156,33 +206,35 @@ pub struct CallerEntry {
 
 /// `phone/call_logs` のページから、発信ごとのかけた人。Call Queue からの発信も `user_id` に本人が入る。
 /// 着信・番号なし・時刻なし・メールが分からない人は除く
-pub fn caller_entries(pages: &[Value], user_email: &HashMap<String, String>) -> Vec<CallerEntry> {
+pub fn caller_entries(logs: &[CallLog], user_email: &HashMap<String, String>) -> Vec<CallerEntry> {
     let mut out = Vec::new();
-    for page in pages {
-        let Some(logs) = page.get("call_logs").and_then(Value::as_array) else {
+    for log in logs {
+        if log.direction.as_deref().filter(|s| !s.is_empty()) != Some("outbound") {
+            continue;
+        }
+        let (Some(number9), Some(start_ms), Some(email)) = (
+            log.callee_number
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .and_then(normalize_number),
+            log.date_time
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| log.start_time.as_deref().filter(|s| !s.is_empty()))
+                .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+                .map(|t| t.timestamp_millis()),
+            log.user_id
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .and_then(|u| user_email.get(u)),
+        ) else {
             continue;
         };
-        for log in logs {
-            let text = |k: &str| log.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
-            if text("direction") != Some("outbound") {
-                continue;
-            }
-            let (Some(number9), Some(start_ms), Some(email)) = (
-                text("callee_number").and_then(normalize_number),
-                text("date_time")
-                    .or_else(|| text("start_time"))
-                    .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
-                    .map(|t| t.timestamp_millis()),
-                text("user_id").and_then(|u| user_email.get(u)),
-            ) else {
-                continue;
-            };
-            out.push(CallerEntry {
-                number9,
-                start_ms,
-                email: email.clone(),
-            });
-        }
+        out.push(CallerEntry {
+            number9,
+            start_ms,
+            email: email.clone(),
+        });
     }
     out
 }
@@ -385,8 +437,8 @@ impl ZoomClient {
         Ok(out)
     }
 
-    /// 1 日分 (UTC の `from`/`to`) の通話ログ (`phone/call_logs`) のページ。上限 `MAX_LIVE_PAGES` ページ
-    pub async fn call_log_pages(&self, from: &str, to: &str) -> Result<Vec<Value>, ZoomError> {
+    /// 1 日分 (UTC の `from`/`to`) の軽い通話ログ。上限 `MAX_LIVE_PAGES` ページ
+    pub async fn call_log_pages(&self, from: &str, to: &str) -> Result<Vec<CallLog>, ZoomError> {
         let mut pages = Vec::new();
         let mut token: Option<String> = None;
         for _ in 0..MAX_LIVE_PAGES {
@@ -396,13 +448,11 @@ impl ZoomClient {
             }
             let url = reqwest::Url::parse_with_params("https://api.zoom.us/v2/phone/call_logs", &q)
                 .map_err(|_| ZoomError::Transient("url".into()))?;
-            let v = self.get_json(url.as_str()).await?;
-            let next = v
-                .get("next_page_token")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string);
-            pages.push(v);
+            let next = {
+                // 従来と同じ Value の検証を通し、次の取得前にページ全体を破棄する。
+                let page = self.get_json(url.as_str()).await?;
+                append_call_log_page(&page, &mut pages)
+            };
             match next {
                 Some(t) => token = Some(t),
                 None => break,
@@ -549,6 +599,309 @@ mod tests {
         assert_eq!(classify_400(r#"{"message":"x"}"#), ZoomError::NotReady);
     }
 
+    // API 相当の余分な欄・call queue 情報を含む。保持する欄は CallLog の定義だけ。
+    const REALISTIC_PAGE: &str = r#"{
+      "page_size": 300, "total_records": 10000, "next_page_token": "next",
+      "call_logs": [
+        {"id":"L1", "call_id":"C1", "direction":"outbound", "result":"Auto Recorded",
+         "date_time":"2026-10-20T00:00:00Z", "user_id":"U1", "path":"pstn",
+         "callee_number":"+81312345678", "duration":123, "caller_number":"+815012345678",
+         "caller_name":"Example Caller", "callee_name":"Example Company",
+         "owner":{"id":"queue1", "type":"call_queue", "name":"Sales Queue"},
+         "recordings":[{"id":"recording1", "download_url":"https://example.invalid/audio"}],
+         "billing":{"cost":1.25, "currency":"JPY"}},
+        {"id":"", "call_id":"C2", "direction":"outbound", "result":"Recorded",
+         "date_time":null, "start_time":"2026-10-20T01:00:00Z", "user_id":"U2",
+         "path":"extension", "callee_number":"03-9876-5432"},
+        {"id":"L3", "direction":"inbound", "result":"Auto Recorded",
+         "date_time":"2026-10-20T02:00:00Z", "user_id":"U1", "callee_number":"0312345678"},
+        {"id":"L4", "direction":"outbound", "result":"Auto Recorded",
+         "date_time":"2026-10-19T15:00:00Z", "user_id":"U1",
+         "callee_number":false, "callee_did_number":"+81311112222"},
+        {"id":"L5", "direction":"outbound", "result":"Call Cancel",
+         "date_time":"2026-10-20T14:59:59Z", "user_id":"U2", "path":"pstn"},
+        {"id":"L6", "direction":"outbound", "result":"Auto Recorded",
+         "date_time":"2026-10-20T15:00:00Z", "user_id":"U1", "callee_number":"0312345678"},
+        {"id":"L7", "direction":"outbound", "result":"Auto Recorded",
+         "date_time":"2026-10-20T02:00:00Z", "user_id":"UNKNOWN", "callee_number":"0312345678"}
+      ]
+    }"#;
+
+    #[test]
+    fn realistic_json_keeps_counts_contacts_and_caller_matches() {
+        use super::super::{contact, live_dials};
+        let first: Value = serde_json::from_str(REALISTIC_PAGE).unwrap();
+        let mut logs = Vec::new();
+        assert_eq!(
+            append_call_log_page(&first, &mut logs).as_deref(),
+            Some("next")
+        );
+        let second: Value = serde_json::from_str(
+            r#"{
+          "next_page_token":"", "call_logs":[
+            {"id":"L1", "direction":"outbound", "result":"Auto Recorded",
+             "date_time":"2026-10-20T00:00:00Z", "user_id":"U1", "callee_number":"0312345678"},
+            {"id":"L8", "direction":"outbound", "result":"Auto Recorded", "date_time":"bad"},
+            {"id":"L8", "direction":"outbound", "result":"Auto Recorded",
+             "date_time":"2026-10-20T03:00:00Z", "user_id":"U1"}
+          ]}"#,
+        )
+        .unwrap();
+        assert_eq!(append_call_log_page(&second, &mut logs), None);
+        let users = HashMap::from([
+            ("U1".into(), "a@example.test".into()),
+            ("U2".into(), "b@example.test".into()),
+        ]);
+        let owners = HashMap::from([
+            ("a@example.test".into(), "11".into()),
+            ("b@example.test".into(), "22".into()),
+        ]);
+        let day = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
+        let counts = live_dials::count_calls(&logs, day, &users, &owners);
+        assert_eq!(
+            counts.calls,
+            HashMap::from([("11".into(), 2), ("22".into(), 2)])
+        );
+        assert_eq!(
+            counts.connected,
+            HashMap::from([("11".into(), 2), ("22".into(), 0)])
+        );
+        assert_eq!(counts.breakdown["11"].connected, 2);
+        assert_eq!(counts.breakdown["22"].extension, 1);
+        assert_eq!(counts.breakdown["22"].cancelled, 1);
+        let candidates = contact::discover(
+            &logs,
+            day,
+            &users,
+            &owners,
+            &std::collections::HashSet::from(["11".into()]),
+        );
+        assert_eq!(
+            candidates,
+            vec![
+                contact::Candidate {
+                    id: "L1".into(),
+                    owner_id: "11".into(),
+                    call_at: "2026-10-20T00:00:00Z".into(),
+                    callee9: Some("312345678".into())
+                },
+                contact::Candidate {
+                    id: "L4".into(),
+                    owner_id: "11".into(),
+                    call_at: "2026-10-19T15:00:00Z".into(),
+                    callee9: Some("311112222".into())
+                }
+            ]
+        );
+        let callers = caller_entries(&logs, &users);
+        // かけた人の照合は従来どおり、ID の重複除外や JST の日の絞り込みをしない。
+        assert_eq!(callers.len(), 4);
+        assert_eq!(
+            pick_caller(&callers, "312345678", ms("2026-10-20T00:00:01Z")),
+            Some("a@example.test")
+        );
+        assert_eq!(
+            pick_caller(&callers, "398765432", ms("2026-10-20T01:00:01Z")),
+            Some("b@example.test")
+        );
+    }
+
+    #[test]
+    fn typed_logs_preserve_missing_wrong_types_and_empty_fallbacks() {
+        for raw in [
+            "null",
+            "true",
+            "123",
+            "1.5",
+            "[]",
+            "\"text\"",
+            "{}",
+            r#"{"call_logs": null}"#,
+            r#"{"call_logs": {"ignored":[1,2]}}"#,
+            r#"{"call_logs": false}"#,
+            r#"{"call_logs": 1}"#,
+            r#"{"call_logs": "bad"}"#,
+        ] {
+            let page: Value = serde_json::from_str(raw).unwrap();
+            let mut logs = Vec::new();
+            assert_eq!(append_call_log_page(&page, &mut logs), None, "{raw}");
+            assert!(logs.is_empty(), "{raw}");
+        }
+        let page: Value = serde_json::from_str(
+            r#"{
+          "next_page_token":42,
+          "call_logs":[null, false, 12, 1.5, "bad", [1,{}], {
+            "id":42, "call_id":"fallback", "direction":"outbound", "result":{},
+            "date_time":[], "start_time":"2026-10-20T00:00:00Z", "user_id":"U1",
+            "callee_number":"", "callee_did_number":"0312345678", "path":null,
+            "unused":{"large":[{"more":"ignored"}]}
+          }] }"#,
+        )
+        .unwrap();
+        let mut logs = Vec::new();
+        assert_eq!(append_call_log_page(&page, &mut logs), None);
+        assert_eq!(logs.len(), 7);
+        for log in &logs[..6] {
+            assert_eq!(log, &CallLog::default());
+        }
+        let log = &logs[6];
+        assert!(log.id.is_none());
+        assert!(log.result.is_none());
+        assert!(log.date_time.is_none());
+        assert_eq!(log.call_id.as_deref(), Some("fallback"));
+        assert_eq!(log.callee_number.as_deref(), Some(""));
+        let users = HashMap::from([("U1".into(), "a@example.test".into())]);
+        let owners = HashMap::from([("a@example.test".into(), "11".into())]);
+        let day = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
+        let counts = super::super::live_dials::count_calls(&logs, day, &users, &owners);
+        assert_eq!(counts.calls["11"], 1);
+        assert_eq!(counts.connected["11"], 0);
+        assert!(caller_entries(&logs, &users).is_empty());
+    }
+
+    const LOG_FIELDS: [&str; 10] = [
+        "id",
+        "call_id",
+        "direction",
+        "result",
+        "date_time",
+        "start_time",
+        "user_id",
+        "path",
+        "callee_number",
+        "callee_did_number",
+    ];
+
+    #[test]
+    fn duplicate_page_and_log_keys_use_the_last_value() {
+        // 生 JSON から読む。json! で作ると重複キーがパース前に失われる。
+        let fields = LOG_FIELDS
+            .iter()
+            .map(|key| format!(r#""{key}":"old","{key}":"{key}""#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let raw = format!(
+            r#"{{"call_logs":[{{"id":"discarded"}}],"call_logs":[{{{fields}}}],
+                "next_page_token":"old","next_page_token":"next"}}"#
+        );
+        let page: Value = serde_json::from_str(&raw).unwrap();
+        let mut logs = Vec::new();
+        assert_eq!(
+            append_call_log_page(&page, &mut logs).as_deref(),
+            Some("next")
+        );
+        assert_eq!(
+            logs,
+            vec![CallLog {
+                id: Some("id".into()),
+                call_id: Some("call_id".into()),
+                direction: Some("direction".into()),
+                result: Some("result".into()),
+                date_time: Some("date_time".into()),
+                start_time: Some("start_time".into()),
+                user_id: Some("user_id".into()),
+                path: Some("path".into()),
+                callee_number: Some("callee_number".into()),
+                callee_did_number: Some("callee_did_number".into()),
+            }]
+        );
+
+        let page = serde_json::from_str(
+            r#"{"call_logs":[{"id":"discarded"}],"call_logs":false,
+                "next_page_token":"next","next_page_token":42}"#,
+        )
+        .unwrap();
+        let mut logs = Vec::new();
+        assert_eq!(append_call_log_page(&page, &mut logs), None);
+        assert!(logs.is_empty());
+    }
+
+    #[test]
+    fn every_non_string_field_is_none() {
+        for value in [
+            json!(42),
+            json!(1.5),
+            json!(true),
+            json!(["text"]),
+            json!({"nested":"text"}),
+            Value::Null,
+        ] {
+            let row: serde_json::Map<String, Value> = LOG_FIELDS
+                .iter()
+                .map(|key| (key.to_string(), value.clone()))
+                .collect();
+            let page = json!({"call_logs": [row], "next_page_token": value});
+            let mut logs = Vec::new();
+            assert_eq!(append_call_log_page(&page, &mut logs), None, "{page}");
+            assert_eq!(logs, vec![CallLog::default()], "{page}");
+        }
+    }
+
+    fn invalid_unused_pages() -> Vec<String> {
+        let deep = format!("{}0{}", "[".repeat(150), "]".repeat(150));
+        ["1e400", r#""\uD800""#, deep.as_str()]
+            .into_iter()
+            .flat_map(|value| {
+                [
+                    format!(r#"{{"call_logs":[],"unused":{value}}}"#),
+                    format!(r#"{{"call_logs":[{{"id":"L1","unused":{value}}}]}}"#),
+                ]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn invalid_unused_values_fail_page_parsing() {
+        for raw in invalid_unused_pages() {
+            let error = serde_json::from_str::<Value>(&raw).unwrap_err();
+            assert_eq!(
+                error.classify(),
+                serde_json::error::Category::Syntax,
+                "{raw}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn get_json_rejects_invalid_unused_values_as_body_errors() {
+        let bodies = invalid_unused_pages();
+        let mut app = axum::Router::new();
+        for (i, body) in bodies.iter().enumerate() {
+            let body = body.clone();
+            app = app.route(
+                &format!("/{i}"),
+                axum::routing::get(move || async move { body }),
+            );
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = ZoomClient {
+            account_id: String::new(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            http: reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap(),
+            token: tokio::sync::Mutex::new(Some(Token {
+                value: "test-token".into(),
+                until: Instant::now() + Duration::from_secs(60),
+            })),
+            history: tokio::sync::Mutex::new(HashMap::new()),
+            callers: tokio::sync::Mutex::new(HashMap::new()),
+        };
+        for (i, raw) in bodies.iter().enumerate() {
+            assert_eq!(
+                client.get_json(&format!("http://{address}/{i}")).await,
+                Err(ZoomError::Transient("body".into())),
+                "{raw}"
+            );
+        }
+        server.abort();
+    }
+
     fn ms(s: &str) -> i64 {
         DateTime::parse_from_rfc3339(s).unwrap().timestamp_millis()
     }
@@ -643,7 +996,7 @@ mod tests {
                  "date_time": "2026-10-15T01:02:30Z"},
             ]}),
         ];
-        let e = caller_entries(&pages, &users);
+        let e = caller_entries(&logs_from_json_pages(&pages), &users);
         // 着信と、メールが分からない人は除く
         assert_eq!(e.len(), 2);
         let at = ms("2026-10-15T01:00:00Z");
