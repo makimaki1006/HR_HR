@@ -364,14 +364,6 @@ pub fn mark_judged(
     )
 }
 
-/// 判定済みの行 (新しい電話から)。助言の文が不合格の行を見つける起動時の 1 回の SELECT 用
-pub fn judged_since(t: &TursoDb, since: &str) -> Result<Vec<ReviewRow>, String> {
-    let sql = format!(
-        "SELECT {COLS} FROM call_talk_reviews WHERE status = 'judged' AND call_at >= ?1 ORDER BY call_at DESC"
-    );
-    Ok(t.query(&sql, &[&since])?.iter().map(row_from).collect())
-}
-
 /// 判定済みの行の項目とまとめだけを書き換える (録音が消えて判定し直せない行の文章の掃除と、
 /// ヒアリングを入れる前の行にヒアリングの項目を足すとき。outcome などは変えない)
 pub fn mark_text_cleaned(
@@ -404,14 +396,26 @@ fn page_cursor(r: &HashMap<String, Value>) -> Result<RowsCursor, String> {
     }
 }
 
+/// 読む行の絞り込み (期間のほかに)
+#[derive(Clone, Copy, Default)]
+struct RowsFilter<'a> {
+    /// この担当者の行だけ
+    owner: Option<&'a str>,
+    /// 判定済みの行だけ
+    judged_only: bool,
+}
+
 /// `[from, to)` の行の 1 ページ。新しい順 (`call_at` の降順、同じなら rowid の降順 = 索引
 /// `idx_call_talk_reviews_call_at` を逆に走査した順)。次のページは OFFSET でなく、前のページの最後の行から
-/// (`after`) 続ける。2 ページ目以降は上の端を最後の行の `call_at` まで狭めるので、読み終えた行を読み直さない
+/// (`after`) 続ける。2 ページ目以降は上の端を最後の行の `call_at` まで狭めるので、読み終えた行を読み直さない。
+/// 判定済みだけの絞り込みの `+status` は、`status` の索引 (status, next_retry_at) が選ばれて判定済みの全行を
+/// 毎ページ読むのを避け、期間の索引を使わせるための印 (索引の列に `+` を付けると、その条件では索引を使わない。
+/// `contact_store::marks_page` と同じ)
 fn rows_page(
     t: &TursoDb,
     cols: &str,
     (from, to): (&str, &str),
-    owner: Option<&str>,
+    filter: RowsFilter<'_>,
     after: Option<&RowsCursor>,
     page: usize,
 ) -> Result<Vec<HashMap<String, Value>>, String> {
@@ -428,12 +432,41 @@ fn rows_page(
             sql.push_str(" AND call_at <= ?2 AND (call_at < ?2 OR rowid < ?3)");
         }
     }
-    if let Some(o) = &owner {
+    if filter.judged_only {
+        sql.push_str(" AND +status = 'judged'");
+    }
+    if let Some(o) = &filter.owner {
         params.push(o);
         sql.push_str(&format!(" AND owner_id = ?{}", params.len()));
     }
     sql.push_str(&format!(" ORDER BY call_at DESC, rowid DESC LIMIT {page}"));
     t.query(&sql, &params)
+}
+
+/// 行を `page` 行ずつ読み、1 ページごとに `on_page` へ渡す (ページは渡したあとに捨てる)
+fn for_each_page(
+    t: &TursoDb,
+    cols: &str,
+    range: (&str, &str),
+    filter: RowsFilter<'_>,
+    page: usize,
+    mut on_page: impl FnMut(&[HashMap<String, Value>]),
+) -> Result<(), String> {
+    let page = page.max(1);
+    let mut after: Option<RowsCursor> = None;
+    loop {
+        let rows = rows_page(t, cols, range, filter, after.as_ref(), page)?;
+        on_page(&rows);
+        let Some(last) = rows.last().filter(|_| rows.len() >= page) else {
+            return Ok(());
+        };
+        let next = page_cursor(last)?;
+        // 続きが前に進まないなら、同じページを読み続けて終わらなくなる
+        if after.as_ref().is_some_and(|prev| next >= *prev) {
+            return Err("talk review: page cursor did not advance".to_string());
+        }
+        after = Some(next);
+    }
 }
 
 /// 期間の行を `page` 行ずつ読み、行ごとに `convert` で作って全部つなぐ
@@ -445,22 +478,15 @@ fn read_rows<T>(
     page: usize,
     mut convert: impl FnMut(&HashMap<String, Value>) -> T,
 ) -> Result<Vec<T>, String> {
-    let page = page.max(1);
+    let filter = RowsFilter {
+        owner,
+        judged_only: false,
+    };
     let mut out: Vec<T> = Vec::new();
-    let mut after: Option<RowsCursor> = None;
-    loop {
-        let rows = rows_page(t, cols, range, owner, after.as_ref(), page)?;
+    for_each_page(t, cols, range, filter, page, |rows| {
         out.extend(rows.iter().map(&mut convert));
-        let Some(last) = rows.last().filter(|_| rows.len() >= page) else {
-            return Ok(out);
-        };
-        let next = page_cursor(last)?;
-        // 続きが前に進まないなら、同じページを読み続けて終わらなくなる
-        if after.as_ref().is_some_and(|prev| next >= *prev) {
-            return Err("talk review: page cursor did not advance".to_string());
-        }
-        after = Some(next);
-    }
+    })?;
+    Ok(out)
 }
 
 /// `[from, to)` (UTC の文字列) の行を全部の列で読む。`owner` を指定するとその人だけ
@@ -512,6 +538,42 @@ fn rows_light_in_paged(
     read_rows(t, cols, (from, to), owner, page, |r| {
         light_row_from(r, with_summary)
     })
+}
+
+/// `for_each_judged_page` の上の端 (`call_at < ?`)。上の端は設けないので、どの電話の時刻よりも後の値
+/// (`call_at` は `ts_text` の形で、年は 4 桁)
+const JUDGED_UNTIL: &str = "9999-12-31T23:59:59Z";
+
+/// 判定済みの行 (`call_at >= since`) を全部の列で、新しい順に `page` 行ずつ読み、1 ページごとに `on_page` へ渡す
+/// (並びは `rows_in` と同じ)。ヒアリングの周回が起動後に 1 回だけ使う: 助言の文が不合格の行を見つけ、
+/// ヒアリングを確かめる行を集める。全部を 1 回で読むと数百 MB になる (`ROWS_PAGE`) ので、ページは渡したあとに捨てる。
+/// 持ち続けたい行だけを `on_page` の中で取り出す
+pub fn for_each_judged_page(
+    t: &TursoDb,
+    since: &str,
+    page: usize,
+    mut on_page: impl FnMut(Vec<ReviewRow>),
+) -> Result<(), String> {
+    let filter = RowsFilter {
+        owner: None,
+        judged_only: true,
+    };
+    for_each_page(t, COLS, (since, JUDGED_UNTIL), filter, page, |rows| {
+        on_page(rows.iter().map(row_from).collect());
+    })
+}
+
+/// 変更前の読み方 (1 回の問い合わせで判定済みの行を全部の列で読む)。`for_each_judged_page` の答えの基準と、
+/// メモリ計測の「前」に使う (テスト専用)
+#[cfg(test)]
+pub(crate) fn judged_since_single_query(
+    t: &TursoDb,
+    since: &str,
+) -> Result<Vec<ReviewRow>, String> {
+    let sql = format!(
+        "SELECT {COLS} FROM call_talk_reviews WHERE status = 'judged' AND call_at >= ?1 ORDER BY call_at DESC"
+    );
+    Ok(t.query(&sql, &[&since])?.iter().map(row_from).collect())
 }
 
 /// 変更前の読み方 (1 回の問い合わせで期間の全行を全部の列で読む)。ページ読み・軽い読み方の答えの基準と、
@@ -649,7 +711,11 @@ mod tests {
             );
             set_owner(t, "c1", "o1", "2026-10-15T00:51:00Z")?;
             // 判定済みの行の一覧と、文章だけの書き換え
-            assert_eq!(judged_since(t, "2026-10-01T00:00:00Z")?.len(), 1);
+            assert_eq!(judged_paged(t, "2026-10-01T00:00:00Z", 500)?.len(), 1);
+            assert_eq!(
+                judged_since_single_query(t, "2026-10-01T00:00:00Z")?.len(),
+                1
+            );
             let mut cleaned = out.items.clone();
             cleaned[0].advice = None;
             mark_text_cleaned(
@@ -1191,6 +1257,126 @@ mod tests {
         for sql in &reads {
             let plan = explain_plan(&conn, sql).join(" / ");
             assert!(plan.contains("idx_call_talk_reviews_call_at"), "{plan}");
+            assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+        }
+    }
+
+    // ---- 判定済みの行のページ読み (ヒアリングの周回の起動時の読み取り) ----------------------------
+
+    /// ページごとに渡される行を全部つないだもの (テスト用)
+    fn judged_paged(t: &TursoDb, since: &str, page: usize) -> Result<Vec<ReviewRow>, String> {
+        let mut out = Vec::new();
+        for_each_judged_page(t, since, page, |rows| out.extend(rows))?;
+        Ok(out)
+    }
+
+    /// `seed_period` の判定済みの行のうち `call_at >= FROM` の行の新しい順 (call_at の降順、同じなら rowid の降順)。
+    /// 上の端は無いので、期間の外 (`after1` = 10/17) の行も入る。
+    /// 入らない行: `before1` (FROM より前)、`t3`・`v1`・`f1`・`q1` (判定済みでない)
+    const JUDGED_IDS: [&str; 8] = ["after1", "w1", "t4", "t2", "t1", "v2", "bad1", "u1"];
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn judged_pages_return_the_same_rows_as_one_query_at_any_page_size() {
+        let (audit, conn, queries) = start_sqlite_audit_with_queries().await;
+        seed_period(&conn);
+        blocking(&audit, move |t| {
+            // 基準: 変更前の読み方 (1 回の問い合わせ)。並びが同じ call_at の行の順は決まっていないので、行の集まりで比べる
+            let single = judged_since_single_query(t, FROM)?;
+            let mut want: Vec<&str> = JUDGED_IDS.to_vec();
+            want.sort_unstable();
+            let mut got = ids(&single);
+            got.sort_unstable();
+            assert_eq!(got, want);
+            assert!(
+                single.windows(2).all(|w| w[0].call_at >= w[1].call_at),
+                "新しい電話から"
+            );
+            assert!(single.iter().all(|r| r.status == ST_JUDGED));
+
+            let count_reads = |queries: &std::sync::Mutex<Vec<String>>| {
+                let mut g = queries.lock().unwrap();
+                let n = g
+                    .iter()
+                    .filter(|q| q.contains("FROM call_talk_reviews") && q.contains("rowid AS rid"))
+                    .count();
+                g.clear();
+                n
+            };
+            for page in [1, 2, 3, 4, 7, 8, 9, 500] {
+                count_reads(&queries);
+                let paged = judged_paged(t, FROM, page)?;
+                // 同じ call_at の行 (10/16 05:00 の t4・t2・t1) は rowid の大きい順
+                assert_eq!(ids(&paged), JUDGED_IDS, "ページ {page}");
+                // 行の中身は全部の列で、1 回の問い合わせの行と同じ
+                for r in &paged {
+                    let one = single
+                        .iter()
+                        .find(|x| x.hubspot_call_id == r.hubspot_call_id);
+                    assert_eq!(Some(r), one, "{} (ページ {page})", r.hubspot_call_id);
+                }
+                // 8 行を page 行ずつ読む。最後のページが page 行ちょうどなら、空のページをもう 1 回読む
+                assert_eq!(
+                    count_reads(&queries),
+                    8 / page + 1,
+                    "ページ {page} の問い合わせ回数"
+                );
+            }
+            // 引用・助言・メモ・根拠は全部の列のまま (軽い読み方ではない)
+            let w1 = judged_paged(t, FROM, 3)?
+                .into_iter()
+                .find(|r| r.hubspot_call_id == "w1")
+                .unwrap();
+            assert_eq!(w1.items, full_items(6));
+            assert_eq!(w1.summary.as_deref(), Some("w1 のまとめ: 日程が早い"));
+            // 遡りの下限は `call_at >= since`: 10/16 05:00 から始めると、それより前の行は入らない
+            assert_eq!(
+                ids(&judged_paged(t, "2026-10-16T05:00:00Z", 2)?),
+                ["after1", "w1", "t4", "t2", "t1"]
+            );
+            // 該当する行が無ければ、問い合わせは 1 回で終わる
+            count_reads(&queries);
+            assert!(judged_paged(t, "2026-11-01T00:00:00Z", 3)?.is_empty());
+            assert_eq!(count_reads(&queries), 1);
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    /// 期間の索引を逆に走査し、並べ替えが要らない問い合わせになっている (1 ページ目も 2 ページ目以降も)。
+    /// `status` の索引 (status, next_retry_at) が選ばれると、判定済みの全行を毎ページ読んで並べ替えることになる
+    #[tokio::test(flavor = "multi_thread")]
+    async fn judged_pages_use_the_call_at_index_without_sorting() {
+        let (audit, conn, queries) = start_sqlite_audit_with_queries().await;
+        seed_period(&conn);
+        let q = queries.clone();
+        blocking(&audit, move |t| {
+            q.lock().unwrap().clear();
+            judged_paged(t, FROM, 3)?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let reads: Vec<String> = queries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|q| q.contains("FROM call_talk_reviews") && q.contains("rowid AS rid"))
+            .cloned()
+            .collect();
+        // 判定済みの 8 行を 3 行ずつ (3 + 3 + 2 の 3 回)
+        assert_eq!(reads.len(), 3);
+        assert!(
+            !reads[0].contains("rowid < ?3"),
+            "1 ページ目に続きの条件はない"
+        );
+        assert!(reads[1].contains("call_at <= ?2 AND (call_at < ?2 OR rowid < ?3)"));
+        for sql in &reads {
+            assert!(sql.contains("AND +status = 'judged'"), "{sql}");
+            assert!(sql.contains("ORDER BY call_at DESC, rowid DESC LIMIT 3"));
+            let plan = explain_plan(&conn, sql).join(" / ");
+            assert!(plan.contains("idx_call_talk_reviews_call_at"), "{plan}");
+            assert!(!plan.contains("idx_call_talk_reviews_retry"), "{plan}");
             assert!(!plan.contains("TEMP B-TREE"), "{plan}");
         }
     }
