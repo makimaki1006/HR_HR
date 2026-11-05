@@ -118,6 +118,7 @@ pub async fn normalize(
         InputKind::Excel => {
             let b64 = data_base64.ok_or_else(|| anyhow!("excel: data_base64 が必要です"))?;
             let bytes = decode_b64(&b64)?;
+            drop(b64);
             let rows = parse_xlsx(&bytes)?;
             // Excel も CSV と同じ判定に揃える。媒体形式なら CSV に直して同じ専用パーサへ通す。
             if rows.first().map(|h| is_media_csv(h)).unwrap_or(false) {
@@ -129,6 +130,7 @@ pub async fn normalize(
         InputKind::Pdf => {
             let b64 = data_base64.ok_or_else(|| anyhow!("pdf: data_base64 が必要です"))?;
             let bytes = decode_b64(&b64)?;
+            drop(b64);
             let text = extract_pdf_text(&bytes)?;
             Ok(vec![NormalizedJob {
                 title_hint: first_line_hint(&text),
@@ -278,7 +280,11 @@ fn decode_b64(s: &str) -> Result<Vec<u8>> {
         ));
     }
     // 改行・空白混入(メール添付やコピペ由来)は許容してから復号する。
-    let cleaned: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    let cleaned = if s.chars().any(char::is_whitespace) {
+        std::borrow::Cow::Owned(s.chars().filter(|c| !c.is_whitespace()).collect::<String>())
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    };
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(cleaned.as_bytes())
         .map_err(|e| anyhow!("base64 デコードに失敗しました: {e}"))?;
@@ -528,7 +534,7 @@ fn parse_csv(text: &str) -> Result<Vec<Vec<String>>> {
 /// xlsx バイナリの先頭シートを行列にする。
 fn parse_xlsx(bytes: &[u8]) -> Result<Vec<Vec<String>>> {
     use calamine::{open_workbook_from_rs, Reader, Xlsx};
-    let cursor = std::io::Cursor::new(bytes.to_vec());
+    let cursor = std::io::Cursor::new(bytes);
     let mut wb: Xlsx<_> =
         open_workbook_from_rs(cursor).map_err(|e| anyhow!("xlsx を開けませんでした: {e}"))?;
     let range = wb
@@ -761,6 +767,143 @@ mod calamine_shim {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn base64_matches_previous_whitespace_and_error_behavior() {
+        for input in [
+            "aGVsbG8=",
+            "aGVs\nbG8=",
+            " \t\raGVs\u{00a0}bG8=\u{3000}",
+            "",
+            " \n\u{2003}",
+            "aGVsbG8",
+            "!!!!",
+            "aGVs\u{200b}bG8=",
+            "é",
+        ] {
+            let cleaned: String = input.chars().filter(|c| !c.is_whitespace()).collect();
+            let previous = base64::engine::general_purpose::STANDARD
+                .decode(cleaned.as_bytes())
+                .map_err(|e| format!("base64 デコードに失敗しました: {e}"));
+            assert_eq!(
+                decode_b64(input).map_err(|e| e.to_string()),
+                previous,
+                "{input:?}"
+            );
+        }
+        let too_long = " ".repeat(MAX_B64_CHARS + 1);
+        assert_eq!(
+            decode_b64(&too_long).unwrap_err().to_string(),
+            format!(
+                "アップロードが大きすぎます(base64長 {} > 上限 {MAX_B64_CHARS})",
+                too_long.len()
+            )
+        );
+        let too_big =
+            base64::engine::general_purpose::STANDARD.encode(vec![0; MAX_UPLOAD_BYTES + 1]);
+        assert_eq!(
+            decode_b64(&too_big).unwrap_err().to_string(),
+            format!(
+                "アップロードが大きすぎます({}バイト > 上限{MAX_UPLOAD_BYTES}バイト)",
+                MAX_UPLOAD_BYTES + 1
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_excel_keeps_owned_reader_error_message() {
+        use calamine::{open_workbook_from_rs, Xlsx};
+        let bytes = b"not an xlsx";
+        let previous: Result<Xlsx<_>, _> =
+            open_workbook_from_rs(std::io::Cursor::new(bytes.to_vec()));
+        let message = format!("xlsx を開けませんでした: {}", previous.err().unwrap());
+        let actual = normalize(
+            InputKind::Excel,
+            None,
+            None,
+            Some(base64::engine::general_purpose::STANDARD.encode(bytes)),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(actual.to_string(), message);
+    }
+
+    #[tokio::test]
+    async fn excel_and_pdf_normalize_equally_with_unicode_whitespace() {
+        let mut fixtures = vec![(
+            InputKind::Excel,
+            include_bytes!("../../tests/fixtures/jobgen/customer.xlsx").to_vec(),
+        )];
+        #[cfg(feature = "pdf")]
+        fixtures.push((InputKind::Pdf, build_min_pdf("Hello PDF")));
+        for (kind, bytes) in fixtures {
+            let plain = base64::engine::general_purpose::STANDARD.encode(bytes);
+            let spaced = plain.chars().flat_map(|c| [c, '\u{3000}', '\n']).collect();
+            let expected = normalize(kind, None, None, Some(plain)).await.unwrap();
+            let actual = normalize(kind, None, None, Some(spaced)).await.unwrap();
+            assert_eq!(
+                serde_json::to_value(actual).unwrap(),
+                serde_json::to_value(expected).unwrap()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn normalize_handler_preserves_input_and_error_contract() {
+        use crate::job_gen::handlers::jobgen_normalize;
+        use axum::Json;
+        use serde_json::{json, Value};
+        for body in [Value::Null, json!([]), json!({}), json!({"kind": 123})] {
+            assert_eq!(
+                jobgen_normalize(Json(body)).await.0,
+                json!({"status":"error", "message":"不明なkind: "})
+            );
+        }
+        for (kind, field, message) in [
+            ("free_text", "text", "free_text: text が必要です"),
+            ("html", "text", "html: text(HTML文字列)が必要です"),
+            ("url", "url", "url: url が必要です"),
+            ("csv", "text", "csv: text(CSV本文)が必要です"),
+            ("excel", "data_base64", "excel: data_base64 が必要です"),
+            ("pdf", "data_base64", "pdf: data_base64 が必要です"),
+        ] {
+            for value in [Value::Null, json!(123), json!([]), json!({})] {
+                let mut body = json!({"kind":kind});
+                body[field] = value;
+                assert_eq!(
+                    jobgen_normalize(Json(body)).await.0,
+                    json!({"status":"error", "message":message})
+                );
+            }
+        }
+        assert_eq!(
+            jobgen_normalize(Json(
+                json!({"kind":"free_text", "text":"介護職\n月給25万円", "unused":"discarded"})
+            ))
+            .await
+            .0,
+            json!({"status":"ok", "jobs":[{"title_hint":"介護職", "source_text":"介護職\n月給25万円"}]})
+        );
+        let bytes = include_bytes!("../../tests/fixtures/jobgen/customer.xlsx");
+        let expected = normalize(
+            InputKind::Excel,
+            None,
+            None,
+            Some(base64::engine::general_purpose::STANDARD.encode(bytes)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(jobgen_normalize(Json(json!({"kind":"excel", "data_base64":base64::engine::general_purpose::STANDARD.encode(bytes)}))).await.0,
+            crate::job_gen::handlers::normalize_ok_response(&expected));
+        for kind in ["excel", "pdf"] {
+            assert_eq!(
+                jobgen_normalize(Json(json!({"kind":kind, "data_base64":"!"})))
+                    .await
+                    .0,
+                json!({"status":"error", "message":decode_b64("!").unwrap_err().to_string()})
+            );
+        }
+    }
+
+    #[test]
     fn csv_項目数不一致を値の欠落なしで拒否() {
         let err = parse_csv("職種,給与\n倉庫,250000,消してはいけない値\n").unwrap_err();
         assert!(err.to_string().contains("2行目"));
@@ -944,8 +1087,8 @@ mod tests {
         assert!(jobs[0].source_text.contains("勤務地: 東京"));
     }
 
-    #[test]
-    fn csv_indeed_sp形式は媒体パーサに委譲されタグでなく求人名になる() {
+    #[tokio::test]
+    async fn csv_indeed_sp形式は媒体パーサに委譲されタグでなく求人名になる() {
         // Indeed SP スクレイピングCSVの最小再現: 機械名ヘッダ(css-*)+タグ列が先行し、
         // 求人名(css-bxyec3)は3列目。汎用パーサだと先頭値やタグを求人名に拾うが、
         // 媒体パーサ委譲で求人名を正しく取り、本文に css-* が混入しないことを検証する。
@@ -983,6 +1126,27 @@ mod tests {
         assert!(jobs[0].source_text.contains("職種: 介護スタッフ"));
         assert!(jobs[0].source_text.contains("会社名: 株式会社ケア"));
         assert!(jobs[0].source_text.contains("給与: 月給25万円"));
+        // JSONからの所有権移動、Excelから媒体CSVへの変換も同じ結果にする。
+        let mut workbook = rust_xlsxwriter::Workbook::new();
+        let sheet = workbook.add_worksheet();
+        for (r, row) in rows.iter().enumerate() {
+            for (c, value) in row.iter().enumerate() {
+                sheet.write_string(r as u32, c as u16, value).unwrap();
+            }
+        }
+        let xlsx = workbook.save_to_buffer().unwrap();
+        let expected = crate::job_gen::handlers::normalize_ok_response(&jobs);
+        for body in [
+            serde_json::json!({"kind":"csv", "text":csv}),
+            serde_json::json!({"kind":"excel", "data_base64":base64::engine::general_purpose::STANDARD.encode(xlsx)}),
+        ] {
+            assert_eq!(
+                crate::job_gen::handlers::jobgen_normalize(axum::Json(body))
+                    .await
+                    .0,
+                expected
+            );
+        }
     }
 
     #[test]

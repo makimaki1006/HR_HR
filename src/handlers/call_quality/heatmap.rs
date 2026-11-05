@@ -17,7 +17,7 @@
 //! これで「返却バイト数」と「2回目以降の応答時間」が実測できる。
 //! 効果が小さければ PoC はここで終わり、という前提で最小構成にしてある。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -144,10 +144,13 @@ async fn fetch_cross_rows(client: &SheetsClient) -> Result<Vec<CrossRow>> {
     // 既存 SheetsClient は header をキーにした HashMap の Vec を返す。
     // 列の位置ではなく名前で引く形なので、列の増減・並び替えで壊れない。
     let raw = client.get_sheet_as_rows(SHEET_NAME).await?;
+    Ok(cross_rows_from_table(raw))
+}
 
+fn cross_rows_from_table(raw: Vec<HashMap<String, String>>) -> Vec<CrossRow> {
     // 都道府県・業種は値の種類が少ないので Arc<str> を使い回してメモリを抑える
     // （200,680行ぶんの String を個別に持つと無駄が大きい）
-    let mut interner: HashMap<String, Arc<str>> = HashMap::new();
+    let mut interner: HashSet<Arc<str>> = HashSet::new();
 
     let num = |s: &str| -> u32 { s.trim().parse::<f64>().ok().map(|v| v as u32).unwrap_or(0) };
 
@@ -167,7 +170,7 @@ async fn fetch_cross_rows(client: &SheetsClient) -> Result<Vec<CrossRow>> {
                 return Arc::clone(a);
             }
             let a: Arc<str> = Arc::from(s);
-            interner.insert(s.to_string(), Arc::clone(&a));
+            interner.insert(Arc::clone(&a));
             a
         };
 
@@ -182,7 +185,7 @@ async fn fetch_cross_rows(client: &SheetsClient) -> Result<Vec<CrossRow>> {
             apo_count: num(g("apo_count")),
         });
     }
-    Ok(out)
+    out
 }
 
 /// 絞り込み → 曜日×時間帯で集計。ここが「サーバ側集計」の本体。
@@ -301,6 +304,53 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parsed_rows_preserve_values_and_share_strings() {
+        let make = |wd: &str, hr: &str, pref: &str, ind: &str| {
+            [
+                ("weekday", wd),
+                ("hour", hr),
+                ("prefecture", pref),
+                ("industry", ind),
+                ("owner_id", "42"),
+                ("dial_count", "12.5"),
+                ("connect_count", "3"),
+                ("apo_count", "bad"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+        };
+        let rows = cross_rows_from_table(vec![
+            make("1", "9", " 東京都 ", "運輸"),
+            make("7", "9", "除外", "除外"),
+            make("2", "10", "東京都", "運輸"),
+            make("2", "24", "除外", "除外"),
+            make("3", "11", "運輸", ""),
+            make("4", "12", "", ""),
+        ]);
+        assert_eq!(rows.len(), 4);
+        assert_eq!(
+            rows.iter().map(|r| (r.weekday, r.hour)).collect::<Vec<_>>(),
+            [(1, 9), (2, 10), (3, 11), (4, 12)]
+        );
+        assert_eq!(&*rows[0].prefecture, "東京都");
+        assert_eq!(&*rows[0].industry, "運輸");
+        assert_eq!(
+            (
+                rows[0].owner_id,
+                rows[0].dial_count,
+                rows[0].connect_count,
+                rows[0].apo_count
+            ),
+            (42, 12, 3, 0)
+        );
+        assert!(Arc::ptr_eq(&rows[0].prefecture, &rows[1].prefecture));
+        assert!(Arc::ptr_eq(&rows[0].industry, &rows[1].industry));
+        assert!(Arc::ptr_eq(&rows[0].industry, &rows[2].prefecture));
+        assert!(Arc::ptr_eq(&rows[2].industry, &rows[3].prefecture));
+    }
 
     fn row(wd: u8, hr: u8, pref: &str, ind: &str, owner: u64, dial: u32, apo: u32) -> CrossRow {
         CrossRow {

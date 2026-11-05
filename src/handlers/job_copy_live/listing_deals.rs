@@ -424,8 +424,7 @@ pub(super) async fn body_dates(
     let mut dates = BTreeMap::new();
     for chunk in ids.chunks(50) {
         let data = service.request("/crm/v3/objects/0-420/batch/read", &[], Some(json!({"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(), "properties":["id_hrhakkaa","id_airwork","hrh_kyuujinhyou_honbun","shigotonaiyou"], "propertiesWithHistory":["hrh_kyuujinhyou_honbun","shigotonaiyou"]}))).await?;
-        let page: Page =
-            serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
+        let page: Page = Page::deserialize(&data).map_err(|_| fail("hubspot_invalid_response"))?;
         if data
             .get("errors")
             .and_then(Value::as_array)
@@ -473,6 +472,41 @@ pub(in crate::handlers::job_copy_live) async fn read_body_dates(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn borrowed_page_preserves_body_history_dates() {
+        let data = json!({"results":[
+            {"id":"1", "properties":{"id_hrhakkaa":"hrh1", "hrh_kyuujinhyou_honbun":"本文"},
+             "propertiesWithHistory":{"hrh_kyuujinhyou_honbun":[
+                 {"value":"本文", "timestamp":"2026-10-10T00:00:00Z"},
+                 {"value":"本文", "timestamp":"2026-10-09T00:00:00Z"},
+                 {"value":"旧本文", "timestamp":"2026-10-08T00:00:00Z"}]}},
+            {"id":"2", "properties":{"id_airwork":"air2", "shigotonaiyou":"仕事内容"},
+             "propertiesWithHistory":{"shigotonaiyou":[
+                 {"value":"仕事内容", "timestamp":"2026-10-11T00:00:00Z"}]}}
+        ]});
+        let page = Page::deserialize(&data).unwrap();
+        assert_eq!(
+            page.results
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>(),
+            ["1", "2"]
+        );
+        assert_eq!(
+            page.results[0].value("hrh_kyuujinhyou_honbun"),
+            Some("本文")
+        );
+        assert_eq!(page.results[1].value("shigotonaiyou"), Some("仕事内容"));
+        assert_eq!(
+            body_changed_at(&data["results"][0], "hrh").as_deref(),
+            Some("2026-10-09T00:00:00+00:00")
+        );
+        assert_eq!(
+            body_changed_at(&data["results"][1], "airwork").as_deref(),
+            Some("2026-10-11T00:00:00+00:00")
+        );
+    }
+
     #[test]
     fn job_copy_only_no_association_errors_count_as_none() {
         let none = json!({"status":"error","category":"OBJECT_NOT_FOUND","subCategory":"crm.associations.NO_ASSOCIATIONS_FOUND","context":{"fromObjectId":["548568732444", 7]}});

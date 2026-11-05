@@ -3009,8 +3009,8 @@ async fn fetch_journey_public_stats(state: &Arc<AppState>, location_text: &str) 
 }
 
 /// `POST /api/jobgen/normalize` — 入力6形式を求人原文テキストに正規化。
-pub async fn jobgen_normalize(Json(body): Json<Value>) -> Json<Value> {
-    let kind = match body_str(&body, "kind").as_str() {
+pub async fn jobgen_normalize(Json(mut body): Json<Value>) -> Json<Value> {
+    let kind = match body.get("kind").and_then(Value::as_str).unwrap_or("") {
         "free_text" => inputs::InputKind::FreeText,
         "url" => inputs::InputKind::Url,
         "csv" => inputs::InputKind::Csv,
@@ -3019,12 +3019,14 @@ pub async fn jobgen_normalize(Json(body): Json<Value>) -> Json<Value> {
         "html" => inputs::InputKind::Html,
         other => return Json(json!({"status":"error","message":format!("不明なkind: {other}")})),
     };
-    let text = body.get("text").and_then(Value::as_str).map(String::from);
-    let url = body.get("url").and_then(Value::as_str).map(String::from);
-    let b64 = body
-        .get("data_base64")
-        .and_then(Value::as_str)
-        .map(String::from);
+    let take_string = |body: &mut Value, key: &str| match body.get_mut(key).map(Value::take) {
+        Some(Value::String(s)) => Some(s),
+        _ => None,
+    };
+    let text = take_string(&mut body, "text");
+    let url = take_string(&mut body, "url");
+    let b64 = take_string(&mut body, "data_base64");
+    drop(body);
     match inputs::normalize(kind, text, url, b64).await {
         Ok(jobs) => Json(normalize_ok_response(&jobs)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
