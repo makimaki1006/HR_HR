@@ -1310,7 +1310,7 @@ mod tests {
         else {
             panic!()
         };
-        assert_eq!(months.len(), 15);
+        assert_eq!(months.len(), 16);
         assert!(rising.iter().all(|r| r.diff_pt > 0.0));
         assert!(falling.iter().all(|r| r.diff_pt < 0.0));
         assert!(rising.windows(2).all(|w| w[0].diff_pt >= w[1].diff_pt));
@@ -1324,11 +1324,11 @@ mod tests {
         else {
             panic!()
         };
-        assert_eq!(month, "2026-09");
-        assert_eq!(compare_month.as_deref(), Some("2025-09"));
+        assert_eq!(month, "2026-10");
+        assert_eq!(compare_month.as_deref(), Some("2025-10"));
         assert_eq!(rows[0].term, "事務");
         assert!(rows.len() <= 10);
-        // Google は 2026-07 まで、Indeed は 2025-07〜2026-09 → 重なるのは 2025-07〜2026-07 の 13 か月。
+        // Google は 2026-07 まで、Indeed は 2025-07〜2026-10 → 重なるのは 2025-07〜2026-07 の 13 か月。
         let OverlayPart::Ok {
             months,
             indeed_index,
