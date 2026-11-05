@@ -251,10 +251,8 @@ mod tests {
     #[test]
     fn classify_follows_path_then_result() {
         let k = |p: &str, r: &str| {
-            classify(
-                &serde_json::from_str::<CallLog>(&json!({"path": p, "result": r}).to_string())
-                    .unwrap(),
-            )
+            let logs = logs_from_json_pages(&[json!({"call_logs": [{"path": p, "result": r}]})]);
+            classify(&logs[0])
         };
         assert_eq!(k("pstn", "Auto Recorded"), DialKind::Connected);
         assert_eq!(k("pstn", "Recorded"), DialKind::Connected);
@@ -265,10 +263,7 @@ mod tests {
         // path が内線なら result に関わらず内線
         assert_eq!(k("extension", "Auto Recorded"), DialKind::Extension);
         // 値が無いものは失敗
-        assert_eq!(
-            classify(&serde_json::from_str::<CallLog>("{}").unwrap()),
-            DialKind::Failed
-        );
+        assert_eq!(classify(&CallLog::default()), DialKind::Failed);
     }
 
     #[test]

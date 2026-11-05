@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, NaiveDate, Utc};
-use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
 use super::transcript::turns_from;
@@ -147,163 +146,54 @@ pub fn pick_match<'a>(
         .min_by_key(|e| (e.start_ms - at_ms).abs())
 }
 
-/// 通話ログの利用側が読む欄だけを保持する。未知の欄は serde が読み飛ばす。
+/// 通話ログの利用側が読む欄だけを保持する。
 /// `Value::as_str` と同じく、欠損・null・文字列以外は None として扱う。
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct CallLog {
-    #[serde(deserialize_with = "string_or_none")]
     pub id: Option<String>,
-    #[serde(deserialize_with = "string_or_none")]
     pub call_id: Option<String>,
-    #[serde(deserialize_with = "string_or_none")]
     pub direction: Option<String>,
-    #[serde(deserialize_with = "string_or_none")]
     pub result: Option<String>,
-    #[serde(deserialize_with = "string_or_none")]
     pub date_time: Option<String>,
-    #[serde(deserialize_with = "string_or_none")]
     pub start_time: Option<String>,
-    #[serde(deserialize_with = "string_or_none")]
     pub user_id: Option<String>,
-    #[serde(deserialize_with = "string_or_none")]
     pub path: Option<String>,
-    #[serde(deserialize_with = "string_or_none")]
     pub callee_number: Option<String>,
-    #[serde(deserialize_with = "string_or_none")]
     pub callee_did_number: Option<String>,
 }
 
-fn string_or_none<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Text {
-        String(String),
-        Other(serde::de::IgnoredAny),
+/// 検証済みの 1 ページから必要な欄だけを追加する。非オブジェクトの行は全欄 None。
+fn append_call_log_page(page: &Value, logs: &mut Vec<CallLog>) -> Option<String> {
+    if let Some(rows) = page.get("call_logs").and_then(Value::as_array) {
+        logs.extend(rows.iter().map(|row| {
+            let text = |key: &str| row.get(key).and_then(Value::as_str).map(str::to_string);
+            CallLog {
+                id: text("id"),
+                call_id: text("call_id"),
+                direction: text("direction"),
+                result: text("result"),
+                date_time: text("date_time"),
+                start_time: text("start_time"),
+                user_id: text("user_id"),
+                path: text("path"),
+                callee_number: text("callee_number"),
+                callee_did_number: text("callee_did_number"),
+            }
+        }));
     }
-    Ok(match Text::deserialize(d)? {
-        Text::String(s) => Some(s),
-        Text::Other(_) => None,
-    })
-}
-
-#[derive(Default, Deserialize)]
-#[serde(default)]
-struct CallLogPage {
-    #[serde(deserialize_with = "logs_or_empty")]
-    call_logs: Vec<CallLog>,
-    #[serde(deserialize_with = "string_or_none")]
-    next_page_token: Option<String>,
-}
-
-// Value 時代は配列でない call_logs やオブジェクトでない行も読み飛ばしていた。
-// IgnoredAny の visitor を使い、その寛容さを保ちつつ未知の欄を割り当てずに捨てる。
-struct ObjectOrDefault<T>(T);
-
-impl<'de, T: Deserialize<'de> + Default> Deserialize<'de> for ObjectOrDefault<T> {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        struct ObjectVisitor<T>(std::marker::PhantomData<T>);
-        impl<'de, T: Deserialize<'de> + Default> serde::de::Visitor<'de> for ObjectVisitor<T> {
-            type Value = ObjectOrDefault<T>;
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("a JSON value")
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                map: A,
-            ) -> Result<Self::Value, A::Error> {
-                T::deserialize(serde::de::value::MapAccessDeserializer::new(map))
-                    .map(ObjectOrDefault)
-            }
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut seq: A,
-            ) -> Result<Self::Value, A::Error> {
-                while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
-                Ok(ObjectOrDefault(T::default()))
-            }
-            fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Self::Value, E> {
-                Ok(ObjectOrDefault(T::default()))
-            }
-            fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<Self::Value, E> {
-                Ok(ObjectOrDefault(T::default()))
-            }
-            fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<Self::Value, E> {
-                Ok(ObjectOrDefault(T::default()))
-            }
-            fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Self::Value, E> {
-                Ok(ObjectOrDefault(T::default()))
-            }
-            fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<Self::Value, E> {
-                Ok(ObjectOrDefault(T::default()))
-            }
-            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
-                Ok(ObjectOrDefault(T::default()))
-            }
-        }
-        d.deserialize_any(ObjectVisitor(std::marker::PhantomData))
-    }
-}
-
-fn logs_or_empty<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<CallLog>, D::Error> {
-    struct LogsVisitor;
-    impl<'de> serde::de::Visitor<'de> for LogsVisitor {
-        type Value = Vec<CallLog>;
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("a JSON value")
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut seq: A,
-        ) -> Result<Self::Value, A::Error> {
-            let mut out = Vec::new();
-            while let Some(ObjectOrDefault(log)) = seq.next_element()? {
-                out.push(log);
-            }
-            Ok(out)
-        }
-        fn visit_map<A: serde::de::MapAccess<'de>>(
-            self,
-            mut map: A,
-        ) -> Result<Self::Value, A::Error> {
-            while map
-                .next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?
-                .is_some()
-            {}
-            Ok(Vec::new())
-        }
-        fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Self::Value, E> {
-            Ok(Vec::new())
-        }
-        fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<Self::Value, E> {
-            Ok(Vec::new())
-        }
-        fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<Self::Value, E> {
-            Ok(Vec::new())
-        }
-        fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Self::Value, E> {
-            Ok(Vec::new())
-        }
-        fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<Self::Value, E> {
-            Ok(Vec::new())
-        }
-        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
-            Ok(Vec::new())
-        }
-    }
-    d.deserialize_any(LogsVisitor)
+    page.get("next_page_token")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 #[cfg(test)]
 pub(super) fn logs_from_json_pages(pages: &[Value]) -> Vec<CallLog> {
-    pages
-        .iter()
-        .flat_map(|page| {
-            let ObjectOrDefault(page): ObjectOrDefault<CallLogPage> =
-                serde_json::from_str(&page.to_string()).unwrap();
-            page.call_logs
-        })
-        .collect()
+    let mut logs = Vec::new();
+    for page in pages {
+        append_call_log_page(page, &mut logs);
+    }
+    logs
 }
 
 /// 通話ログの 1 件 (発信の相手番号・開始時刻・かけた人のメール)
@@ -457,10 +347,6 @@ impl ZoomClient {
     }
 
     async fn get_json(&self, url: &str) -> Result<Value, ZoomError> {
-        self.get_body(url).await
-    }
-
-    async fn get_body<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, ZoomError> {
         let tok = self.bearer().await?;
         let r = self
             .http
@@ -562,10 +448,11 @@ impl ZoomClient {
             }
             let url = reqwest::Url::parse_with_params("https://api.zoom.us/v2/phone/call_logs", &q)
                 .map_err(|_| ZoomError::Transient("url".into()))?;
-            let ObjectOrDefault(page): ObjectOrDefault<CallLogPage> =
-                self.get_body(url.as_str()).await?;
-            let next = page.next_page_token.filter(|s| !s.is_empty());
-            pages.extend(page.call_logs);
+            let next = {
+                // 従来と同じ Value の検証を通し、次の取得前にページ全体を破棄する。
+                let page = self.get_json(url.as_str()).await?;
+                append_call_log_page(&page, &mut pages)
+            };
             match next {
                 Some(t) => token = Some(t),
                 None => break,
@@ -743,10 +630,13 @@ mod tests {
     #[test]
     fn realistic_json_keeps_counts_contacts_and_caller_matches() {
         use super::super::{contact, live_dials};
-        let ObjectOrDefault(first): ObjectOrDefault<CallLogPage> =
-            serde_json::from_str(REALISTIC_PAGE).unwrap();
-        assert_eq!(first.next_page_token.as_deref(), Some("next"));
-        let ObjectOrDefault(second): ObjectOrDefault<CallLogPage> = serde_json::from_str(
+        let first: Value = serde_json::from_str(REALISTIC_PAGE).unwrap();
+        let mut logs = Vec::new();
+        assert_eq!(
+            append_call_log_page(&first, &mut logs).as_deref(),
+            Some("next")
+        );
+        let second: Value = serde_json::from_str(
             r#"{
           "next_page_token":"", "call_logs":[
             {"id":"L1", "direction":"outbound", "result":"Auto Recorded",
@@ -757,8 +647,7 @@ mod tests {
           ]}"#,
         )
         .unwrap();
-        let mut logs = first.call_logs;
-        logs.extend(second.call_logs);
+        assert_eq!(append_call_log_page(&second, &mut logs), None);
         let users = HashMap::from([
             ("U1".into(), "a@example.test".into()),
             ("U2".into(), "b@example.test".into()),
@@ -833,11 +722,12 @@ mod tests {
             r#"{"call_logs": 1}"#,
             r#"{"call_logs": "bad"}"#,
         ] {
-            let ObjectOrDefault(page): ObjectOrDefault<CallLogPage> =
-                serde_json::from_str(raw).unwrap();
-            assert!(page.call_logs.is_empty(), "{raw}");
+            let page: Value = serde_json::from_str(raw).unwrap();
+            let mut logs = Vec::new();
+            assert_eq!(append_call_log_page(&page, &mut logs), None, "{raw}");
+            assert!(logs.is_empty(), "{raw}");
         }
-        let ObjectOrDefault(page): ObjectOrDefault<CallLogPage> = serde_json::from_str(
+        let page: Value = serde_json::from_str(
             r#"{
           "next_page_token":42,
           "call_logs":[null, false, 12, 1.5, "bad", [1,{}], {
@@ -848,9 +738,13 @@ mod tests {
           }] }"#,
         )
         .unwrap();
-        assert!(page.next_page_token.is_none());
-        assert_eq!(page.call_logs.len(), 7);
-        let log = &page.call_logs[6];
+        let mut logs = Vec::new();
+        assert_eq!(append_call_log_page(&page, &mut logs), None);
+        assert_eq!(logs.len(), 7);
+        for log in &logs[..6] {
+            assert_eq!(log, &CallLog::default());
+        }
+        let log = &logs[6];
         assert!(log.id.is_none());
         assert!(log.result.is_none());
         assert!(log.date_time.is_none());
@@ -859,10 +753,153 @@ mod tests {
         let users = HashMap::from([("U1".into(), "a@example.test".into())]);
         let owners = HashMap::from([("a@example.test".into(), "11".into())]);
         let day = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
-        let counts = super::super::live_dials::count_calls(&page.call_logs, day, &users, &owners);
+        let counts = super::super::live_dials::count_calls(&logs, day, &users, &owners);
         assert_eq!(counts.calls["11"], 1);
         assert_eq!(counts.connected["11"], 0);
-        assert!(caller_entries(&page.call_logs, &users).is_empty());
+        assert!(caller_entries(&logs, &users).is_empty());
+    }
+
+    const LOG_FIELDS: [&str; 10] = [
+        "id",
+        "call_id",
+        "direction",
+        "result",
+        "date_time",
+        "start_time",
+        "user_id",
+        "path",
+        "callee_number",
+        "callee_did_number",
+    ];
+
+    #[test]
+    fn duplicate_page_and_log_keys_use_the_last_value() {
+        // 生 JSON から読む。json! で作ると重複キーがパース前に失われる。
+        let fields = LOG_FIELDS
+            .iter()
+            .map(|key| format!(r#""{key}":"old","{key}":"{key}""#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let raw = format!(
+            r#"{{"call_logs":[{{"id":"discarded"}}],"call_logs":[{{{fields}}}],
+                "next_page_token":"old","next_page_token":"next"}}"#
+        );
+        let page: Value = serde_json::from_str(&raw).unwrap();
+        let mut logs = Vec::new();
+        assert_eq!(
+            append_call_log_page(&page, &mut logs).as_deref(),
+            Some("next")
+        );
+        assert_eq!(
+            logs,
+            vec![CallLog {
+                id: Some("id".into()),
+                call_id: Some("call_id".into()),
+                direction: Some("direction".into()),
+                result: Some("result".into()),
+                date_time: Some("date_time".into()),
+                start_time: Some("start_time".into()),
+                user_id: Some("user_id".into()),
+                path: Some("path".into()),
+                callee_number: Some("callee_number".into()),
+                callee_did_number: Some("callee_did_number".into()),
+            }]
+        );
+
+        let page = serde_json::from_str(
+            r#"{"call_logs":[{"id":"discarded"}],"call_logs":false,
+                "next_page_token":"next","next_page_token":42}"#,
+        )
+        .unwrap();
+        let mut logs = Vec::new();
+        assert_eq!(append_call_log_page(&page, &mut logs), None);
+        assert!(logs.is_empty());
+    }
+
+    #[test]
+    fn every_non_string_field_is_none() {
+        for value in [
+            json!(42),
+            json!(1.5),
+            json!(true),
+            json!(["text"]),
+            json!({"nested":"text"}),
+            Value::Null,
+        ] {
+            let row: serde_json::Map<String, Value> = LOG_FIELDS
+                .iter()
+                .map(|key| (key.to_string(), value.clone()))
+                .collect();
+            let page = json!({"call_logs": [row], "next_page_token": value});
+            let mut logs = Vec::new();
+            assert_eq!(append_call_log_page(&page, &mut logs), None, "{page}");
+            assert_eq!(logs, vec![CallLog::default()], "{page}");
+        }
+    }
+
+    fn invalid_unused_pages() -> Vec<String> {
+        let deep = format!("{}0{}", "[".repeat(150), "]".repeat(150));
+        ["1e400", r#""\uD800""#, deep.as_str()]
+            .into_iter()
+            .flat_map(|value| {
+                [
+                    format!(r#"{{"call_logs":[],"unused":{value}}}"#),
+                    format!(r#"{{"call_logs":[{{"id":"L1","unused":{value}}}]}}"#),
+                ]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn invalid_unused_values_fail_page_parsing() {
+        for raw in invalid_unused_pages() {
+            let error = serde_json::from_str::<Value>(&raw).unwrap_err();
+            assert_eq!(
+                error.classify(),
+                serde_json::error::Category::Syntax,
+                "{raw}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn get_json_rejects_invalid_unused_values_as_body_errors() {
+        let bodies = invalid_unused_pages();
+        let mut app = axum::Router::new();
+        for (i, body) in bodies.iter().enumerate() {
+            let body = body.clone();
+            app = app.route(
+                &format!("/{i}"),
+                axum::routing::get(move || async move { body }),
+            );
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = ZoomClient {
+            account_id: String::new(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            http: reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap(),
+            token: tokio::sync::Mutex::new(Some(Token {
+                value: "test-token".into(),
+                until: Instant::now() + Duration::from_secs(60),
+            })),
+            history: tokio::sync::Mutex::new(HashMap::new()),
+            callers: tokio::sync::Mutex::new(HashMap::new()),
+        };
+        for (i, raw) in bodies.iter().enumerate() {
+            assert_eq!(
+                client.get_json(&format!("http://{address}/{i}")).await,
+                Err(ZoomError::Transient("body".into())),
+                "{raw}"
+            );
+        }
+        server.abort();
     }
 
     fn ms(s: &str) -> i64 {
