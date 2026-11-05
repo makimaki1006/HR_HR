@@ -47,7 +47,8 @@ concurrency:
 jobs:
   vrt:
     name: Visual Regression Test
-    runs-on: ubuntu-latest
+    # ubuntu-latest は 2026-11-05 から 26.04 になり、Playwright が chromium を入れられない。24.04 に固定する
+    runs-on: ubuntu-24.04
 
     steps:
       # ------------------------------------------------------------------
