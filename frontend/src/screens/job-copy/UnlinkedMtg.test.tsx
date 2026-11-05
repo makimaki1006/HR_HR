@@ -34,3 +34,9 @@ it('合成データで開催日・件名・選択済みを表示する', () => {
   expect(screen.getByText('選択済み・夜の更新で反映')).toBeTruthy();
   expect(screen.getAllByRole('button', { name: '取り消す' })).toHaveLength(1);
 });
+it('取引は最初は選ばれておらず、選ぶまで結び付けられない', () => {
+  window.history.replaceState(null, '', '/app/job-copy?view=unlinked&demo=1');
+  render(<UnlinkedMtg />);
+  for (const select of screen.getAllByRole('combobox', { name: '結び付ける取引' })) expect((select as HTMLSelectElement).value).toBe('');
+  for (const button of screen.getAllByRole('button', { name: '結び付ける' })) expect((button as HTMLButtonElement).disabled).toBe(true);
+});

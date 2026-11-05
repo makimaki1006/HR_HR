@@ -86,7 +86,8 @@ export function UnlinkedMtg() {
       {rows.map(r => {
         const chosen: Chosen = r.uuid in local ? local[r.uuid] ?? null : r.selected ? { deal_id: r.selected.deal_id, deal_name: r.selected.deal_name, pending: false } : null;
         const choices = dealChoices(r, data.own_deals);
-        const value = picked[r.uuid] ?? choices[0]?.id ?? '';
+        // 最初は何も選ばない。押し間違いで別の取引に付けないよう、本人が選んでから結び付ける。
+        const value = picked[r.uuid] ?? '';
         const key = chosen ? fieldKey(chosen.deal_id, 'deal', MANUAL_LINKS_FIELD) : '';
         const busy = (key !== '' && ['saving', 'queued'].includes(write.statuses[key]?.phase ?? '')) || ['保存しています…', '取り消しています…'].includes(messages[r.uuid] ?? '');
         return <li key={r.uuid} className="um-row">
@@ -96,6 +97,7 @@ export function UnlinkedMtg() {
             {chosen ? <p className="um-done" role="status">選択済み・夜の更新で反映<small>{chosen.deal_name || chosen.deal_id}{chosen.pending ? '（HubSpotへの反映待ち）' : ''}</small></p>
               : choices.length === 0 ? <p className="um-sub">選べる取引がありません。</p>
                 : <><label className="um-sub">結び付ける取引<select value={value} disabled={!canWrite || busy} onChange={e => { setPicked(p => ({ ...p, [r.uuid]: e.target.value })); }}>
+                  <option value="">取引を選んでください</option>
                   {choices.map(c => <option key={c.id} value={c.id}>{c.candidate ? '候補　' : ''}{c.name || c.id}</option>)}</select></label></>}
             <div className="um-actions">
               {chosen ? <button className="jc-button" disabled={!canWrite || busy} onClick={() => { void cancel(r, chosen.deal_id); }}>取り消す</button>
