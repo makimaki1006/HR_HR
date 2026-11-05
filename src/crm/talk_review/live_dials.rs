@@ -174,6 +174,8 @@ fn jst_text(now: DateTime<Utc>) -> String {
 }
 
 async fn refresh(zoom: Arc<ZoomClient>, owner_map: HashMap<String, String>, day: NaiveDate) {
+    // メモリ計測: 今日の架電数の読み直し 1 回 (Zoom の通話ログを今日の分だけ読む)
+    let _task = crate::mem_watch::task("talk_review.live_dials");
     let result = async {
         let users = active_users(&zoom).await?;
         let (from, to) = utc_range(day);

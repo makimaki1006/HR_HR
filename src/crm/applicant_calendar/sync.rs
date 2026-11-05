@@ -416,6 +416,8 @@ impl Cycle {
         now: DateTime<Utc>,
         portal_id: &str,
     ) -> Outcome {
+        // メモリ計測: 応募の日付をカレンダーに合わせる周回
+        let _task = crate::mem_watch::task("applicant_calendar.cycle");
         let mut outcome = Outcome::default();
         let hubspot_failed = |e: String| {
             tracing::warn!(error = %e, "[calendar] HubSpot の読み取りに失敗");

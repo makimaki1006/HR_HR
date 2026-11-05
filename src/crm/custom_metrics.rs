@@ -449,6 +449,8 @@ pub fn lookup_or_spawn(
         let r = r.clone();
         let pop = population.to_vec();
         tokio::spawn(async move {
+            // メモリ計測: 自分の項目 1 つの読み直し (Search を最大 2,000 件まで読む)
+            let _task = crate::mem_watch::task("custom_metrics.refresh");
             let res = fetch(&bg, &r, &pop).await;
             cache.finish(&key, Utc::now().max(now), res);
         });

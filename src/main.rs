@@ -49,7 +49,10 @@ async fn main() {
         rust_dashboard::handlers::cs_dashboard::prefetch().await;
     });
 
+    // メモリ計測 (rust_dashboard::mem_watch): 起動時の 1 回の読み込みも「裏の処理」として数える
+    let task = rust_dashboard::mem_watch::task("startup.geojson");
     decompress_geojson_if_needed();
+    drop(task);
     // I-P0-2: precompress_geojson() の呼び出しを削除 (二重 I/O / dead I/O)
     //   理由: 生成される `static/geojson/*.json.gz` はどこからも参照されない。
     //   GeoJSON 配信は `/api/geojson/{filename}` (handlers/api.rs) が
@@ -65,6 +68,8 @@ async fn main() {
         tracing::info!("HelloWork DB disabled (set HELLOWORK_DB_ENABLED=1 to load)");
         None
     } else {
+        // メモリ計測: 起動時の展開・INDEX 付与・ANALYZE (この分岐の終わりまで)
+        let _task = rust_dashboard::mem_watch::task("startup.hw_db");
         decompress_db_if_needed(&config.hellowork_db_path);
 
         match LocalDb::new(&config.hellowork_db_path) {
@@ -111,6 +116,7 @@ async fn main() {
 
     // Indeed 採用市場データ（分析層・約19MB）。
     // これが無くても他の機能は動くので、読めなければ None にして起動を続ける。
+    let task = rust_dashboard::mem_watch::task("startup.indeed_db");
     decompress_db_if_needed(&config.indeed_db_path);
     let indeed_db = match LocalDb::new(&config.indeed_db_path) {
         Ok(db) => {
@@ -122,6 +128,7 @@ async fn main() {
             None
         }
     };
+    drop(task);
 
     // 3つのTurso接続 (外部統計 / SalesNow / 監査) を tokio::join! で並列初期化する。
     // 各接続は相互に独立しており、cold start 時に直列 await すると 3回分の
@@ -385,10 +392,13 @@ async fn main() {
             tokio::time::sleep(std::time::Duration::from_secs(600)).await;
             loop {
                 let audit_clone = audit_for_purge.clone();
+                // メモリ計測: 監査ログの掃除 1 回 (次の 24 時間の眠りは数えない)
+                let task = rust_dashboard::mem_watch::task("audit.purge");
                 let res = tokio::task::spawn_blocking(move || {
                     rust_dashboard::audit::purge_old_activity(&audit_clone)
                 })
                 .await;
+                drop(task);
                 match res {
                     Ok(Ok(())) => tracing::info!("audit purge completed"),
                     Ok(Err(e)) => tracing::warn!("audit purge failed: {e}"),

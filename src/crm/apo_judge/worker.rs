@@ -439,6 +439,8 @@ impl Cycle {
         cfg: &ApoJudgeConfig,
         now: DateTime<Utc>,
     ) -> Result<CycleStats, String> {
+        // メモリ計測: アポの自動判定の周回 (5 分おき)
+        let _task = crate::mem_watch::task("apo_judge.cycle");
         let since = (now - cfg.lookback).timestamp_millis();
         let deals = hs
             .find_deals(&cfg.stages, since, cfg.max_per_cycle.max(1) * 3)

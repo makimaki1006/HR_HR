@@ -1177,6 +1177,8 @@ pub async fn prefetch() {
             return;
         }
     };
+    // メモリ計測: 起動時のシートの先読み (シートを取り終えたら手放し、案件の行を数える分とは分ける)
+    let task = crate::mem_watch::task("cs_dashboard.prefetch");
     let started = std::time::Instant::now();
     let mut ok = 0usize;
     let mut ng = 0usize;
@@ -1205,6 +1207,7 @@ pub async fn prefetch() {
         "コンサル先読み: 完了 {ok}枚 / 失敗 {ng}枚 / {:.1}秒",
         started.elapsed().as_secs_f64()
     );
+    drop(task);
     // 取り直した後の 1 回目を開いた人に数えさせない（理由と実測は `routes::warm_deal_rows`）
     routes::warm_deal_rows().await;
 
@@ -1216,6 +1219,8 @@ pub async fn prefetch() {
     let every = prefetch_interval();
     loop {
         tokio::time::sleep(every).await;
+        // メモリ計測: シートの定期更新 1 回 (眠っている間は数えない)
+        let task = crate::mem_watch::task("cs_dashboard.refresh");
         let started = std::time::Instant::now();
         let mut ng = 0usize;
         for name in SHEETS {
@@ -1230,6 +1235,7 @@ pub async fn prefetch() {
             SHEETS.len(),
             started.elapsed().as_secs_f64()
         );
+        drop(task);
         routes::warm_deal_rows().await;
     }
 }

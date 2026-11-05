@@ -855,6 +855,8 @@ pub(super) async fn refresh(
     titles: Vec<String>,
     pause: Duration,
 ) -> Result<(), ReadError> {
+    // メモリ計測: 求人一覧の作り直し 1 回 (HubSpot から全件を読んで索引にする)
+    let _task = crate::mem_watch::task("job_copy.index_build");
     let started = std::time::Instant::now();
     {
         let mut state = cache.state.write().await;

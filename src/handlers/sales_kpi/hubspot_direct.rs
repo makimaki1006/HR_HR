@@ -169,6 +169,8 @@ impl DirectState {
         let Ok(_flight) = self.flight.try_lock() else {
             return RunOutcome::AlreadyRunning;
         };
+        // メモリ計測: 営業KPI の HubSpot 直読みの更新 1 回 (5 分おき。有効なときだけ走る)
+        let _task = crate::mem_watch::task("sales_kpi.hubspot_direct");
         self.inner.lock().expect("lock").last_started = Some(Instant::now());
         let res = match tokio::time::timeout(UPDATE_TIMEOUT, (self.fetch)()).await {
             Ok(r) => r,

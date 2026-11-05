@@ -100,6 +100,8 @@ async fn refresh_with_limit(
     deals: &BTreeMap<String, WorkDeal>,
     limit: Duration,
 ) {
+    // メモリ計測: 求人と応募の集計の更新 1 回 (途中の保存も含む)
+    let _task = crate::mem_watch::task("job_copy.facts_refresh");
     let started = Instant::now();
     // 保存が固まっても「作成中」のまま戻らなくならないよう、全体にも上限を置く。
     let result = tokio::time::timeout(limit + PERSIST_GRACE, run_with_limit(service, deals, limit))

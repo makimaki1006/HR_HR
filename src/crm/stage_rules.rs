@@ -251,6 +251,8 @@ pub fn compare(rules: &StageRules, defs: &[CrmPipeline]) -> Vec<StageRuleMismatc
 
 /// 1 回検査して結果を保存する (背景の優先度のクライアントを渡す。書き込みはしない)
 pub async fn check_drift(client: &HubSpotClient) -> StageRulesDriftReport {
+    // メモリ計測: ステージ必須項目のずれの検査 1 回 (6 時間おき)
+    let _task = crate::mem_watch::task("stage_rules.drift_check");
     let mut report = empty_report();
     report.checked_at = Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
     let read = async {

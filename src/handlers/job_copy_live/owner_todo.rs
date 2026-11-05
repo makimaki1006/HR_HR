@@ -393,6 +393,8 @@ fn next(data: &Value) -> Result<Option<String>, ReadError> {
     Ok(Some(after))
 }
 async fn fetch(service: &JobReadService) -> Result<Snapshot, ReadError> {
+    // メモリ計測: 納品管理の取引の全件読み (5 分の更新) 1 回
+    let _task = crate::mem_watch::task("job_copy.owner_todo");
     let started = Instant::now();
     let owners = owners(service).await?;
     let mut deals = BTreeMap::new();

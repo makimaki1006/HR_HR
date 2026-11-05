@@ -878,6 +878,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
     /// 起動後に 1 回: 判定済みの行から、文章に日本語以外が混ざったものを集め、残りはヒアリングを確かめる一覧に入れる
     /// (`store::ROWS_PAGE` 行ずつの SELECT。日本語以外が混ざる行だけ全部の欄を持ち、残りは軽い型)
     async fn find_rejudge(&mut self) {
+        // メモリ計測: 起動時の 1 回の読み取り (判定済みの行を全部見る)
+        let _task = crate::mem_watch::task("talk_review.find_rejudge");
         let since = store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
         let now = Utc::now();
         match store::blocking(&self.audit, move |t| {
@@ -907,6 +909,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         if n == 0 {
             return;
         }
+        // メモリ計測: 判定し直しの周回 (行があるときだけ)
+        let _task = crate::mem_watch::task("talk_review.process_rejudge");
         let sem = Arc::new(tokio::sync::Semaphore::new(self.cfg.concurrency));
         let mut set = tokio::task::JoinSet::new();
         for row in self.rejudge.drain(..n) {
@@ -970,6 +974,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         if due.is_empty() {
             return;
         }
+        // メモリ計測: ヒアリングの周回 (確かめる行があるときだけ)
+        let _task = crate::mem_watch::task("talk_review.process_hearing");
         let calls: Vec<(String, i64)> = due.iter().map(|c| (c.id.clone(), c.call_ms)).collect();
         let matched = match apo_link::matched_calls(&self.client.background(), &calls).await {
             Ok(m) => m,
@@ -1084,6 +1090,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
     }
 
     async fn discover(&mut self, now: DateTime<Utc>) -> Result<(), String> {
+        // メモリ計測: 取り込みの周回 (HubSpot から新しい Call を探し、行にする。初回は遡って日ごとに読む)
+        let _task = crate::mem_watch::task("talk_review.discover");
         let bg = self.client.background();
         let list = crate::crm::owners::fetch_all(&bg)
             .await
@@ -1257,6 +1265,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
     /// 起動後に 1 回: この変更より前に取り込んだ順番待ちの行のうち、接触した電話に印を付ける。
     /// 印の無い行は枠に入らない。書き込みは接触した行の分だけ (200 行ずつ 1 文)
     async fn adopt_backlog(&self) {
+        // メモリ計測: 起動時の 1 回 (順番待ちの行と接触の印を読んで結び付ける)
+        let _task = crate::mem_watch::task("talk_review.adopt_backlog");
         let since = store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
         let to = store::ts_text(Utc::now() + chrono::Duration::days(1));
         let res = store::blocking(&self.audit, move |t| {
@@ -1281,6 +1291,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
 
     /// 起動後に 1 回: 取り込み済みの行の担当者を、Zoom でかけた人に直す (この変更より前に入った行)
     async fn reattribute(&self) -> Result<(), String> {
+        // メモリ計測: 起動時の 1 回 (取り込み済みの行を読み、担当者を付け直す)
+        let _task = crate::mem_watch::task("talk_review.reattribute");
         let bg = self.client.background();
         let list = crate::crm::owners::fetch_all(&bg)
             .await
@@ -1360,6 +1372,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
     /// 判定待ちを新しい電話から進める。新しく入った電話を拾い直せるよう、1 回に使うのは `interval` まで。
     /// 時間切れで残りがあれば true (呼び出し側は待たずに次の周回へ)
     async fn process_due(&mut self) -> bool {
+        // メモリ計測: 判定の周回 (判定待ちの行を取って、文字起こしと判定を進める)
+        let _task = crate::mem_watch::task("talk_review.process_due");
         let started = std::time::Instant::now();
         let mut done: HashSet<String> = HashSet::new();
         // 1 回に取る本数は同時に判定する本数の 8 倍 (遅い 1 本を待つ間も残りの枠で進める)

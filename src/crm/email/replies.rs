@@ -190,6 +190,8 @@ pub async fn run_round(
     domains: &[String],
     access: &rbac::CrmAccess,
 ) -> Result<(), EmailError> {
+    // メモリ計測: Gmail の返信の取り込みの周回
+    let _task = crate::mem_watch::task("email_replies.round");
     let operators = db(audit, |t| t.query("SELECT g.operator_email FROM crm_gmail_grants g LEFT JOIN accounts a ON a.email = g.operator_email WHERE g.revoked_at IS NULL AND a.disabled_at IS NULL ORDER BY g.operator_email", &[])).await?;
     let cutoff = pending::iso(chrono::Utc::now() - chrono::Duration::days(30));
     let mut imports = 0;

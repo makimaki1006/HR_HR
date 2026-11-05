@@ -1285,3 +1285,11 @@ HubSpot Search: アポ日確定に直近 72 時間以内に入った取引 か�
 
 - Google カレンダーの patch で `start.date` / `start.dateTime` を null にすると古い側が消える (公開仕様の patch の決まり)。偽のカレンダーで確かめただけで、本物では未確認。
 - ゲストを `sendUpdates=none` で足したとき、ゲストのカレンダーに予定が出るかは Google Workspace の「招待を自動で追加」の設定による。
+
+## 25. 裏の処理のメモリの記録 (2026-11-05)
+
+`src/mem_watch.rs` は RSS を 15 秒おきに測り、1 分おきに `mem`、100MB 以上増えたら `mem jump` を出す。起動時の読み込み・定期の作り直し・worker の周回は `mem_watch::task("領域.処理")` で包んで数える (名前は固定の文字列。一覧は `grep -rn "mem_watch::task" src`)。ログは増えるだけで、処理の動きは変わらない。
+
+- Render のログで `q=mem jump` を引くと急増の瞬間が出る。`tasks=` は走っている処理 (名前 経過ms 始めからの RSS の増減)、`tasks_done=` は前の行から終わった処理 (名前 かかったms RSS の差。差の大きい順)。毎分の `mem` の行にも、あるときだけ付く。
+- `q=mem task` を引くと、終わった処理の 1 行 (`name` `elapsed_ms` `rss_before_mb` `rss_after_mb` `delta_mb`) が出る。RSS が 50MB 以上動いたか 60 秒以上かかったものだけで、1 時間に 20 行まで (超えた分は次の行の `skipped=` に数が付く)。
+- RSS はプロセス全体の値。同時に走る別の処理や要求の分も入るので、`tasks=` と `inflight=` で重なりを見てから、動かした処理を決める。

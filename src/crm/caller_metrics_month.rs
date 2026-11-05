@@ -506,6 +506,8 @@ impl MonthState {
         let (first, next) = month_bounds(today);
         let bg = client.background();
         let mut store = self.store.lock().await;
+        // メモリ計測: 新規営業の今月の読み込み (確定していない日とアポ。ロックを取れてから数える)
+        let _task = crate::mem_watch::task("caller_metrics.month_fill");
         store.reset_if_changed(first, owners);
         let mut searches = 0u32;
         if !owners.is_empty() {
@@ -566,15 +568,19 @@ impl MonthState {
             store.apo_retry_at = Some(now + RETRY_AFTER_FAILURE);
         }
         let mut searches = 0u32;
-        let res = fetch_month_appointments(
-            &client.background(),
-            jst_midnight_ms(first),
-            jst_midnight_ms(next),
-            owners,
-            &mut searches,
-            self.max(),
-        )
-        .await;
+        let res = {
+            // メモリ計測: 今月のアポの読み直し 1 回 (5 分おき。HubSpot を読んでいる間だけ)
+            let _task = crate::mem_watch::task("caller_metrics.month_apo");
+            fetch_month_appointments(
+                &client.background(),
+                jst_midnight_ms(first),
+                jst_midnight_ms(next),
+                owners,
+                &mut searches,
+                self.max(),
+            )
+            .await
+        };
         let mut store = self.store.lock().await;
         match res {
             Ok(apo) => {
