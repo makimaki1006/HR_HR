@@ -92,6 +92,28 @@ pub struct TalkPersonRow {
     pub unavailable: u32,
     /// checks の順に並ぶ
     pub items: Vec<TalkItemRate>,
+    /// アポのランクの内訳 (ヒアリングの対象になった判定済みの電話。`apo_rank.rs`)
+    pub apo_ranks: TalkApoRanks,
+}
+
+/// アポのランクごとの電話の本数 (S / A / B / C)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, TS)]
+pub struct TalkApoRanks {
+    pub s: u32,
+    pub a: u32,
+    pub b: u32,
+    pub c: u32,
+}
+
+impl TalkApoRanks {
+    pub fn add(&mut self, rank: &str) {
+        match rank {
+            "S" => self.s += 1,
+            "A" => self.a += 1,
+            "B" => self.b += 1,
+            _ => self.c += 1,
+        }
+    }
 }
 
 /// 印の決まり (画面の下に平易に書く)
@@ -165,6 +187,8 @@ pub struct TalkCallRow {
     pub items: Vec<TalkItemMark>,
     /// 一番直すとよい点 (1 文)
     pub summary: Option<String>,
+    /// アポのランク ("S" | "A" | "B" | "C")。ヒアリングの対象でない・判定前は null
+    pub apo_rank: Option<String>,
 }
 
 /// GET /api/crm/talk-review/calls?owner=&from=&to=

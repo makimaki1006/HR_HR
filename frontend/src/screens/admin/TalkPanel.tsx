@@ -7,6 +7,7 @@ import type { DialBreakdown } from '../../generated/DialBreakdown';
 import type { TalkCallDetailResponse } from '../../generated/TalkCallDetailResponse';
 import type { TalkCallRow } from '../../generated/TalkCallRow';
 import type { TalkCallsResponse } from '../../generated/TalkCallsResponse';
+import type { TalkApoRanks } from '../../generated/TalkApoRanks';
 import type { TalkCheckDef } from '../../generated/TalkCheckDef';
 import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
@@ -16,6 +17,7 @@ import {
   fmtCallTime, fmtPct, fmtPerContact, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
   type TalkSort, TALK_TABS, parseTalkTab, type TalkTab, checksForTab, APO_KINDS, apoKindLabel, APO_VIA_LABEL, fixtureApo,
   HEARING_STAGES, hearingAskedText, hearingBasis, hearingLine, hearingResultText, isHearing,
+  AFTER_STAGE, APO_RANKS, APO_RANK_RULE, fmtRanks,
 } from './talkModel';
 import type { TalkItemDetail } from '../../generated/TalkItemDetail';
 import {
@@ -197,6 +199,20 @@ interface RowCompare { cmp?: TalkPersonRow | null | undefined; team?: TalkPerson
 /** アポ数のセルを押したときの開閉 (無ければ数字だけ) */
 interface ApoToggle { open: boolean; onToggle: () => void }
 
+/** アポのランクの内訳 (S・A・B・C の本数) */
+function RanksCell({ r }: { r: TalkApoRanks }) {
+  const n = r.s + r.a + r.b + r.c;
+  return (
+    <td className="talk-ranks" data-testid="talk-apo-ranks">
+      {n === 0 ? <span className="w8-muted">—</span> : (
+        <span className="talk-rankline">
+          {APO_RANKS.map(k => <span key={k} className={`talk-rank talk-rank-${k}`}>{k} {r[k.toLowerCase() as 's' | 'a' | 'b' | 'c']}</span>)}
+        </span>
+      )}
+    </td>
+  );
+}
+
 function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, onOpen, compare, select, rowId, tab, apo }: {
   p: TalkPersonRow; checks: TalkCheckDef[]; total: boolean; totalRow: TalkPersonRow; rules: TalkSummaryResponse['rules']; breakdownPending: boolean;
   onOpen?: (id: string) => void; compare?: RowCompare | undefined; select?: { checked: boolean; onChange: () => void } | undefined; rowId?: string;
@@ -254,6 +270,7 @@ function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, on
         <span className="talk-small">判定した {p.reviewed} 本のうち</span>
       </td>
       )}
+      {tab === 'after' && <RanksCell r={p.apo_ranks} />}
       {tab !== 'numbers' && <>
       {checks.map(c => {
         const it = p.items.find(i => i.id === c.id);
@@ -407,7 +424,7 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
   const rules = data.rules;
   const shown = checksForTab(data.checks, tab);
   // 名前・チーム + タブの列
-  const colCount = 2 + (tab === 'numbers' ? 9 : 1 + shown.length);
+  const colCount = 2 + (tab === 'numbers' ? 9 : 1 + shown.length) + (tab === 'after' ? 1 : 0);
   const apoOf = (key: string): ApoToggle | undefined => (apoQuery === undefined || tab !== 'numbers' ? undefined : {
     open: openApo === key,
     onToggle: () => { setOpenApo(prev => (prev === key ? null : key)); },
@@ -452,7 +469,7 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
           <thead>
             {tab !== 'numbers' && (
               <tr>
-                <th colSpan={3} className="talk-group-blank" />
+                <th colSpan={tab === 'after' ? 4 : 3} className="talk-group-blank" />
                 {stageGroups(shown).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
               </tr>
             )}
@@ -472,6 +489,7 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
               </>}
               {tab !== 'numbers' && <>
               {tab === 'talk' ? sortHead('判定した電話数（接触した電話）', { kind: 'reviewed' }) : <th className="w8-right">日程が決まった電話</th>}
+              {tab === 'after' && <th title={APO_RANK_RULE}>アポのランク<span className="talk-base">この表の全体 {fmtRanks(data.total.apo_ranks)}</span></th>}
               {shown.map(c => {
                 const key = { kind: 'item', id: c.id } as const;
                 const docTip = c.baseline_pct === null ? '' : `\n資料の全体: できた ${fmtPct(100 - c.baseline_pct)}${c.baseline_basis === null ? '' : `（${c.baseline_basis}）`}`;
@@ -524,6 +542,7 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
         <p className="talk-rules" data-testid="talk-rules">
           <span style={{ display: 'block' }}>各項目の割合は、その項目に当てはまる電話のうち、できた電話の割合です。</span>
           {data.checks.some(isHearing) && <span style={{ display: 'block' }} data-testid="talk-hearing-rule">「日程が決まった後」の項目は、日程が決まった電話のうち先方から相応しい答えが得られた電話の割合です（営業が聞かずに先方が話した場合も得られたに数えます）。ここでの「日程が決まった電話」は、電話の 1 時間前から 72 時間後までに、その電話の取引が HubSpot でアポ日確定に入った電話です（すでに決まっていた日程の確認の電話や、断られた電話は入りません）。アポの記録を待つため、直近 3 日の電話は後から増えることがあります。</span>}
+          {tab === 'after' && <span style={{ display: 'block' }} data-testid="talk-rank-rule">{APO_RANK_RULE}</span>}
           <span style={{ display: 'block' }} data-testid="talk-dials-rule">発信数は Zoom の発信すべて（相手が出る前に切ったもの・つながらなかったものを含む）、架電数はそのうちつながった通話の数で、営業KPI と同じです。アポ率 ＝ アポ数 ÷ 架電数です。</span>
           <span style={{ display: 'block' }} data-testid="talk-contact-rule">接触は、受付を越えて担当者・決裁者と話せた発信で、日程を出していなくても数えます。接触率 ＝ 接触数 ÷ 発信数。日程切り本数は、具体的な日時（週・曜日・日付）を 1 回以上出した発信の本数で、日程切り率 ＝ 日程切り本数 ÷ 発信数です。1 接触あたりの日程切り回数は、接触した電話で日時を出した回数の合計 ÷ 接触数です。つながらなかった発信は接触 0・日程切り 0 として数えます。新規営業の電話は、かけた時点の取引のステージがアポ取りの段階のものだけを数え、それ以外（商談前の確認・商談後の催促など）は接触率・日程切り率の分母からも外します。発信数は営業KPIの値のままです。</span>
           <span style={{ display: 'block' }} data-testid="talk-sampling">割合はすべて、判定した電話の中での割合です。判定は 1 人 1 日あたり新しい電話から {data.per_person_day} 本までで、「対象」は判定の対象になる、担当者と話せた電話（接触した電話）の本数です。電話の長さでは絞っていません。資料の全体の割合は 70 秒以上の電話で取った値で、短い電話も入るこの表とは、そのまま比べられません。</span>
@@ -550,13 +569,14 @@ export function TalkCallsTable({ data, onOpen }: { data: TalkCallsResponse; onOp
           <tr>
             <th colSpan={3} className="talk-group-blank" />
             {stageGroups(marks).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
-            <th colSpan={hasHearing ? 2 : 1} className="talk-group-blank" />
+            <th colSpan={hasHearing ? 3 : 1} className="talk-group-blank" />
           </tr>
           <tr>
             <th>日時</th>
             <th className="w8-right">通話時間</th>
             <th>結果</th>
             {marks.map(c => <th key={c.id} title={c.rule} className="talk-itemhead">{c.title}</th>)}
+            {hasHearing && <th title={APO_RANK_RULE} style={{ whiteSpace: 'nowrap' }}>ランク</th>}
             {hasHearing && <th title="日程が決まった後に先方から聞けた答え">先方の答え</th>}
             <th>直すとよい点</th>
           </tr>
@@ -571,11 +591,12 @@ export function TalkCallsTable({ data, onOpen }: { data: TalkCallsResponse; onOp
                 const m = c.items.find(i => i.id === ch.id);
                 return <td key={ch.id}>{c.status === 'judged' && m !== undefined ? <Mark status={m.status} /> : ''}</td>;
               })}
+              {hasHearing && <td data-testid="talk-call-rank">{c.apo_rank === null ? '' : <span className={`talk-rank talk-rank-${c.apo_rank}`}>{c.apo_rank}</span>}</td>}
               {hasHearing && <td data-testid="talk-call-answers">{c.status === 'judged' ? hearingLine(data.checks, c.items) : ''}</td>}
               <td>{c.summary ?? ''}</td>
             </tr>
           ))}
-          {data.calls.length === 0 && <tr><td colSpan={4 + marks.length + (hasHearing ? 1 : 0)} className="w8-muted">この期間の電話はありません。</td></tr>}
+          {data.calls.length === 0 && <tr><td colSpan={4 + marks.length + (hasHearing ? 2 : 0)} className="w8-muted">この期間の電話はありません。</td></tr>}
         </tbody>
       </table>
     </div>
@@ -641,6 +662,9 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
           {hearingGroups.map(g => (
             <div key={g.stage} data-testid="talk-hearing-group">
               <h3 className="w8-section-title">{g.heading}</h3>
+              {c.apo_rank !== null && g.stage === AFTER_STAGE && (
+                <p data-testid="talk-detail-rank">アポのランク <span className={`talk-rank talk-rank-${c.apo_rank}`}>{c.apo_rank}</span> <span className="w8-muted w8-xs">{APO_RANK_RULE}</span></p>
+              )}
               {g.items.every(it => it.status === 'na') ? (
                 <p className="w8-muted w8-xs">この電話は当てはまりません。</p>
               ) : g.items.map(it => <HearingItem key={it.id} it={it} title={checkOf(it.id)?.title ?? it.id} />)}

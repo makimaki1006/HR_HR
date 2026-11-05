@@ -419,3 +419,10 @@ code.w8-code {
 .talk-howto .talk-rules { margin-top: 6px; }
 /* 固定した見出しの境目から下の行が透けないよう、枠線をセルごとに持つ */
 table.w8-table.talk-table { border-collapse: separate; border-spacing: 0; }
+/* アポのランク (S/A/B/C) */
+.talk-rankline { display: inline-flex; gap: 6px; white-space: nowrap; }
+.talk-rank { display: inline-block; min-width: 1.6em; padding: 0 4px; border-radius: 3px; font-variant-numeric: tabular-nums; text-align: center; border: 1px solid currentColor; }
+.talk-rank-S { color: #4ade80; }
+.talk-rank-A { color: #60a5fa; }
+.talk-rank-B { color: #fbbf24; }
+.talk-rank-C { color: #94a3b8; }

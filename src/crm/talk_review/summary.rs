@@ -3,7 +3,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use super::store::{ReviewRow, ST_FAILED, ST_JUDGED, ST_PENDING, ST_UNAVAILABLE};
-use super::types::{TalkAlertRules, TalkItemRate, TalkPersonRow};
+use super::types::{TalkAlertRules, TalkApoRanks, TalkItemRate, TalkPersonRow};
 
 /// 印の決まり (1 か所。画面の下の説明にもこの値が出る)
 pub const ALERT_RULES: TalkAlertRules = TalkAlertRules {
@@ -52,6 +52,17 @@ fn item_rates(rows: &[&ReviewRow], ids: &[String]) -> Vec<TalkItemRate> {
             }
         })
         .collect()
+}
+
+/// 判定済みの電話のアポのランクの内訳
+fn apo_ranks(rows: &[&ReviewRow]) -> TalkApoRanks {
+    let mut r = TalkApoRanks::default();
+    for row in rows.iter().filter(|r| r.status == ST_JUDGED) {
+        if let Some(k) = super::apo_rank::rank(&row.items) {
+            r.add(k);
+        }
+    }
+    r
 }
 
 fn counts(rows: &[&ReviewRow]) -> (u32, u32, u32) {
@@ -120,6 +131,7 @@ pub fn build(
             waiting,
             unavailable,
             items: item_rates(&mine, check_ids),
+            apo_ranks: apo_ranks(&mine),
         });
     }
     people.sort_by(|a, b| b.dials.cmp(&a.dials).then_with(|| a.name.cmp(&b.name)));
@@ -159,6 +171,7 @@ pub fn build(
         waiting,
         unavailable,
         items: item_rates(&all, check_ids),
+        apo_ranks: apo_ranks(&all),
     };
     for p in &mut people {
         p.appointment_rate_flagged = match (p.appointment_rate_pct, total.appointment_rate_pct) {

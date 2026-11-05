@@ -136,6 +136,11 @@ pub fn call_row(r: &ReviewRow, check_ids: &[String]) -> TalkCallRow {
             vec![]
         },
         summary: r.summary.clone().filter(|_| judged),
+        apo_rank: if judged {
+            super::apo_rank::rank(&r.items).map(str::to_string)
+        } else {
+            None
+        },
     }
 }
 
@@ -513,6 +518,7 @@ pub(in crate::crm) async fn get_summary(
                 flagged: false,
             })
             .collect(),
+        apo_ranks: Default::default(),
     };
     let base = |enabled: bool,
                 people: Vec<TalkPersonRow>,
