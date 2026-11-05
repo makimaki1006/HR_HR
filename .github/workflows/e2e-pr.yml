@@ -19,7 +19,8 @@ concurrency:
 
 jobs:
   e2e-pr:
-    runs-on: ubuntu-latest
+    # ubuntu-latest は 2026-11-05 から 26.04 になり、Playwright が chromium を入れられない。24.04 に固定する
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     # spec ファイルを 3 台のランナーに分けて並列に流す。各ランナーが自分のサーバと
     # fixture DB を持つので、workers: 1 (サーバ・DB 共有) の前提は変わらない。
