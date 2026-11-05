@@ -3,6 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::judge::{JudgeOutput, StoredItem};
@@ -99,6 +100,67 @@ pub fn row_from(r: &HashMap<String, Value>) -> ReviewRow {
 
 const COLS: &str = "hubspot_call_id, owner_id, call_at, duration_sec, zoom_call_log_id, status, attempts, \
     checks_version, model, outcome, reached_person, reception, first_date_turn, items, summary, note";
+
+/// 集計と一覧が使う項目の判定だけ。引用・助言・メモ・根拠の番号は JSON から読み捨てる
+/// (1 行で数 KB あり、期間の全行を持つとメモリを食うため。2026-11-04 に本番がメモリの上限を超えて落ちた)
+#[derive(Deserialize)]
+struct LightItem {
+    id: String,
+    status: String,
+    #[serde(default)]
+    answer: Option<String>,
+    #[serde(default)]
+    asked: Option<bool>,
+    #[serde(default)]
+    answered: Option<bool>,
+}
+
+impl From<LightItem> for StoredItem {
+    fn from(i: LightItem) -> Self {
+        StoredItem {
+            id: i.id,
+            status: i.status,
+            evidence: Vec::new(),
+            quote: None,
+            advice: None,
+            note: None,
+            answer: i.answer,
+            asked: i.asked,
+            answered: i.answered,
+        }
+    }
+}
+
+/// 軽い読み方の列: 集計 (`summary.rs`) と一覧 (`routes.rs` の `call_row`) が使うものだけ
+const LIGHT_COLS: &str = "hubspot_call_id, owner_id, call_at, duration_sec, status, outcome, items";
+const LIGHT_COLS_WITH_SUMMARY: &str =
+    "hubspot_call_id, owner_id, call_at, duration_sec, status, outcome, items, summary";
+
+/// 軽い読み方の行。使わない欄 (録音 ID・試行回数・版・モデル・接触の印・メモ) は既定値、
+/// `items` の引用・助言・メモ・根拠の番号は空、`summary` は `with_summary` のときだけ入れる
+pub fn light_row_from(r: &HashMap<String, Value>, with_summary: bool) -> ReviewRow {
+    ReviewRow {
+        hubspot_call_id: s(r, "hubspot_call_id").unwrap_or_default(),
+        owner_id: s(r, "owner_id").unwrap_or_default(),
+        call_at: s(r, "call_at").unwrap_or_default(),
+        duration_sec: n(r, "duration_sec").unwrap_or(0).max(0) as u32,
+        zoom_call_log_id: None,
+        status: s(r, "status").unwrap_or_default(),
+        attempts: 0,
+        checks_version: None,
+        model: None,
+        outcome: s(r, "outcome"),
+        reached_person: None,
+        reception: None,
+        first_date_turn: None,
+        items: s(r, "items")
+            .and_then(|t| serde_json::from_str::<Vec<LightItem>>(&t).ok())
+            .map(|v| v.into_iter().map(StoredItem::from).collect())
+            .unwrap_or_default(),
+        summary: if with_summary { s(r, "summary") } else { None },
+        note: None,
+    }
+}
 
 /// 同期の Turso 呼び出しを async から使う
 pub async fn blocking<T: Send + 'static>(
@@ -327,8 +389,135 @@ pub fn mark_text_cleaned(
     )
 }
 
-/// `[from, to)` (UTC の文字列) の行。`owner` を指定するとその人だけ
+/// 期間の行を読む 1 ページの行数。Turso の応答は本文・`Value`・行の 3 つが同時にメモリに載るので、
+/// 期間の全行を 1 回で読むと数百 MB になる (2026-11-04 にメモリの上限 2GB を超えて落ちた)。
+/// ページに分けると、一時的に使う分は 1 ページ (数 MB) で済む
+pub const ROWS_PAGE: usize = 500;
+
+/// 次のページの始まり = 前のページの最後の行の (call_at, rowid)
+type RowsCursor = (String, i64);
+
+fn page_cursor(r: &HashMap<String, Value>) -> Result<RowsCursor, String> {
+    match (s(r, "call_at"), n(r, "rid")) {
+        (Some(at), Some(id)) => Ok((at, id)),
+        _ => Err("talk review: page cursor is missing".to_string()),
+    }
+}
+
+/// `[from, to)` の行の 1 ページ。新しい順 (`call_at` の降順、同じなら rowid の降順 = 索引
+/// `idx_call_talk_reviews_call_at` を逆に走査した順)。次のページは OFFSET でなく、前のページの最後の行から
+/// (`after`) 続ける。2 ページ目以降は上の端を最後の行の `call_at` まで狭めるので、読み終えた行を読み直さない
+fn rows_page(
+    t: &TursoDb,
+    cols: &str,
+    (from, to): (&str, &str),
+    owner: Option<&str>,
+    after: Option<&RowsCursor>,
+    page: usize,
+) -> Result<Vec<HashMap<String, Value>>, String> {
+    let mut sql = format!("SELECT rowid AS rid, {cols} FROM call_talk_reviews WHERE call_at >= ?1");
+    let mut params: Vec<&dyn ToSqlTurso> = vec![&from];
+    match after {
+        None => {
+            params.push(&to);
+            sql.push_str(" AND call_at < ?2");
+        }
+        Some((last_at, last_id)) => {
+            params.push(last_at);
+            params.push(last_id);
+            sql.push_str(" AND call_at <= ?2 AND (call_at < ?2 OR rowid < ?3)");
+        }
+    }
+    if let Some(o) = &owner {
+        params.push(o);
+        sql.push_str(&format!(" AND owner_id = ?{}", params.len()));
+    }
+    sql.push_str(&format!(" ORDER BY call_at DESC, rowid DESC LIMIT {page}"));
+    t.query(&sql, &params)
+}
+
+/// 期間の行を `page` 行ずつ読み、行ごとに `convert` で作って全部つなぐ
+fn read_rows<T>(
+    t: &TursoDb,
+    cols: &str,
+    range: (&str, &str),
+    owner: Option<&str>,
+    page: usize,
+    mut convert: impl FnMut(&HashMap<String, Value>) -> T,
+) -> Result<Vec<T>, String> {
+    let page = page.max(1);
+    let mut out: Vec<T> = Vec::new();
+    let mut after: Option<RowsCursor> = None;
+    loop {
+        let rows = rows_page(t, cols, range, owner, after.as_ref(), page)?;
+        out.extend(rows.iter().map(&mut convert));
+        let Some(last) = rows.last().filter(|_| rows.len() >= page) else {
+            return Ok(out);
+        };
+        let next = page_cursor(last)?;
+        // 続きが前に進まないなら、同じページを読み続けて終わらなくなる
+        if after.as_ref().is_some_and(|prev| next >= *prev) {
+            return Err("talk review: page cursor did not advance".to_string());
+        }
+        after = Some(next);
+    }
+}
+
+/// `[from, to)` (UTC の文字列) の行を全部の列で読む。`owner` を指定するとその人だけ
 pub fn rows_in(
+    t: &TursoDb,
+    from: &str,
+    to: &str,
+    owner: Option<&str>,
+) -> Result<Vec<ReviewRow>, String> {
+    rows_in_paged(t, from, to, owner, ROWS_PAGE)
+}
+
+fn rows_in_paged(
+    t: &TursoDb,
+    from: &str,
+    to: &str,
+    owner: Option<&str>,
+    page: usize,
+) -> Result<Vec<ReviewRow>, String> {
+    read_rows(t, COLS, (from, to), owner, page, row_from)
+}
+
+/// `[from, to)` の行を、集計と一覧が使う列だけで読む (引用・助言・メモ・根拠は空。`with_summary` でなければ
+/// `summary` も空)。並びと中身は `rows_in` と同じ。集計 (`summary.rs`)・一覧 (`call_row`)・担当者の付け直しは
+/// これで足りる。詳細の画面は `get` で 1 件だけ全部の列を読む
+pub fn rows_light_in(
+    t: &TursoDb,
+    from: &str,
+    to: &str,
+    owner: Option<&str>,
+    with_summary: bool,
+) -> Result<Vec<ReviewRow>, String> {
+    rows_light_in_paged(t, from, to, owner, with_summary, ROWS_PAGE)
+}
+
+fn rows_light_in_paged(
+    t: &TursoDb,
+    from: &str,
+    to: &str,
+    owner: Option<&str>,
+    with_summary: bool,
+    page: usize,
+) -> Result<Vec<ReviewRow>, String> {
+    let cols = if with_summary {
+        LIGHT_COLS_WITH_SUMMARY
+    } else {
+        LIGHT_COLS
+    };
+    read_rows(t, cols, (from, to), owner, page, |r| {
+        light_row_from(r, with_summary)
+    })
+}
+
+/// 変更前の読み方 (1 回の問い合わせで期間の全行を全部の列で読む)。ページ読み・軽い読み方の答えの基準と、
+/// メモリ計測の「前」に使う (テスト専用)
+#[cfg(test)]
+pub(crate) fn rows_in_single_query(
     t: &TursoDb,
     from: &str,
     to: &str,
@@ -606,5 +795,403 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    // ---- ページ読み・軽い読み方 ----------------------------------------------------------------
+
+    use crate::audit::fake_turso::{explain_plan, start_sqlite_audit_with_queries, SharedConn};
+
+    /// 本番に近い、引用・助言・メモ・根拠つきの項目 (ヒアリングの項目は先方の答えつき)
+    fn full_items(i: usize) -> Vec<StoredItem> {
+        let status = ["done", "not_done", "na"][i % 3];
+        vec![
+            StoredItem {
+                id: "early_date".into(),
+                status: status.into(),
+                evidence: vec![i as u32, 7],
+                quote: Some("来週の火曜日でどうですか".into()),
+                advice: Some("先に相手の状況を聞いてから日程を出す".into()),
+                note: Some(format!("{i} 本目のメモ")),
+                answer: None,
+                asked: None,
+                answered: None,
+            },
+            StoredItem {
+                id: "aq_budget".into(),
+                status: "done".into(),
+                evidence: vec![3],
+                quote: Some("月に二十万円くらいです".into()),
+                advice: None,
+                note: Some("予算は具体額".into()),
+                answer: Some("具体額".into()),
+                asked: Some(true),
+                answered: Some(true),
+            },
+        ]
+    }
+
+    /// 偽 Turso の SQLite に、行を直接入れる (rowid は入れた順)。`items` は JSON の文字列そのまま
+    fn seed(
+        conn: &SharedConn,
+        id: &str,
+        owner: &str,
+        at: &str,
+        status: &str,
+        items: Option<&str>,
+        summary: Option<&str>,
+    ) {
+        conn.lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO call_talk_reviews (hubspot_call_id, owner_id, call_at, duration_sec, \
+                 zoom_call_log_id, status, attempts, checks_version, model, outcome, reached_person, \
+                 reception, first_date_turn, items, summary, note, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, 95, 'zoom-' || ?1, ?4, 2, 'v1', 'MiniMax-M3', '決まらなかった', 1, 0, 3, \
+                 ?5, ?6, 'contacted', 'c', 'u')",
+                rusqlite::params![id, owner, at, status, items, summary],
+            )
+            .unwrap();
+    }
+
+    /// 期間 [2026-10-15T00:00:00Z, 2026-10-17T00:00:00Z) に 11 行、外に 2 行。
+    /// 同じ call_at の行 (2026-10-16T05:00 の 4 本、2026-10-15T12:00 の 2 本) は rowid の順がページの境目をまたぐ
+    fn seed_period(conn: &SharedConn) {
+        let judged = |i: usize| serde_json::to_string(&full_items(i)).unwrap();
+        let rows: [(&str, &str, &str, &str, Option<String>); 13] = [
+            (
+                "before1",
+                "o1",
+                "2026-10-14T23:59:59Z",
+                "judged",
+                Some(judged(0)),
+            ),
+            (
+                "t1",
+                "o1",
+                "2026-10-16T05:00:00Z",
+                "judged",
+                Some(judged(1)),
+            ),
+            (
+                "t2",
+                "o2",
+                "2026-10-16T05:00:00Z",
+                "judged",
+                Some(judged(2)),
+            ),
+            (
+                "t3",
+                "o1",
+                "2026-10-16T05:00:00Z",
+                "pending_transcript",
+                None,
+            ),
+            (
+                "u1",
+                "o3",
+                "2026-10-15T00:00:00Z",
+                "judged",
+                Some(judged(3)),
+            ),
+            (
+                "t4",
+                "o2",
+                "2026-10-16T05:00:00Z",
+                "judged",
+                Some(judged(4)),
+            ),
+            ("v1", "o1", "2026-10-15T12:00:00Z", "unavailable", None),
+            (
+                "v2",
+                "o1",
+                "2026-10-15T12:00:00Z",
+                "judged",
+                Some(judged(5)),
+            ),
+            (
+                "w1",
+                "o2",
+                "2026-10-16T23:59:59Z",
+                "judged",
+                Some(judged(6)),
+            ),
+            (
+                "after1",
+                "o1",
+                "2026-10-17T00:00:00Z",
+                "judged",
+                Some(judged(7)),
+            ),
+            // items が壊れている行は、全部の列の読み方でも空になる。軽い読み方も同じ
+            (
+                "bad1",
+                "o3",
+                "2026-10-15T06:00:00Z",
+                "judged",
+                Some("not json".into()),
+            ),
+            ("f1", "o1", "2026-10-15T18:00:00Z", "failed", None),
+            ("q1", "o2", "2026-10-15T19:00:00Z", "queued", None),
+        ];
+        for (id, owner, at, status, items) in rows {
+            let summary = (status == "judged").then(|| format!("{id} のまとめ: 日程が早い"));
+            seed(
+                conn,
+                id,
+                owner,
+                at,
+                status,
+                items.as_deref(),
+                summary.as_deref(),
+            );
+        }
+    }
+
+    const FROM: &str = "2026-10-15T00:00:00Z";
+    const TO: &str = "2026-10-17T00:00:00Z";
+    /// 期間の中の行の新しい順 (call_at の降順、同じなら rowid の降順 = 入れた順の逆)
+    const ALL_IDS: [&str; 11] = [
+        "w1", "t4", "t3", "t2", "t1", "q1", "f1", "v2", "v1", "bad1", "u1",
+    ];
+
+    fn ids(rows: &[ReviewRow]) -> Vec<&str> {
+        rows.iter().map(|r| r.hubspot_call_id.as_str()).collect()
+    }
+
+    /// 全部の列の行から、軽い読み方が返すはずの行を作る
+    fn light_of(full: &ReviewRow, with_summary: bool) -> ReviewRow {
+        ReviewRow {
+            zoom_call_log_id: None,
+            attempts: 0,
+            checks_version: None,
+            model: None,
+            reached_person: None,
+            reception: None,
+            first_date_turn: None,
+            note: None,
+            items: full
+                .items
+                .iter()
+                .map(|i| StoredItem {
+                    evidence: vec![],
+                    quote: None,
+                    advice: None,
+                    note: None,
+                    ..i.clone()
+                })
+                .collect(),
+            summary: full.summary.clone().filter(|_| with_summary),
+            ..full.clone()
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn paged_reads_return_the_same_rows_in_the_same_order_as_one_query() {
+        let (audit, conn, queries) = start_sqlite_audit_with_queries().await;
+        seed_period(&conn);
+        blocking(&audit, move |t| {
+            // 基準: 変更前の読み方 (1 回の問い合わせ・全部の列)
+            let single = rows_in_single_query(t, FROM, TO, None)?;
+            assert_eq!(single.len(), 11);
+            // 同じ call_at の行は rowid の大きい順 (入れた順の逆) で返る。これが今の並び
+            assert_eq!(ids(&single), ALL_IDS);
+            assert_eq!(single[0].call_at, "2026-10-16T23:59:59Z");
+            assert_eq!(single[10].call_at, "2026-10-15T00:00:00Z");
+            // 範囲は [from, to): call_at が from と同じ行は入り、to と同じ行は入らない
+            assert!(single.iter().all(|r| r.hubspot_call_id != "after1"));
+            assert!(single.iter().any(|r| r.hubspot_call_id == "u1"));
+
+            let count_reads = |queries: &std::sync::Mutex<Vec<String>>| {
+                let mut g = queries.lock().unwrap();
+                let n = g
+                    .iter()
+                    .filter(|q| q.contains("FROM call_talk_reviews") && q.contains("rowid AS rid"))
+                    .count();
+                g.clear();
+                n
+            };
+            for page in [1, 2, 3, 4, 5, 10, 11, 12, 500] {
+                count_reads(&queries);
+                let full = rows_in_paged(t, FROM, TO, None, page)?;
+                assert_eq!(full, single, "全部の列・ページ {page}");
+                // 11 行を page 行ずつ読む。最後のページが page 行ちょうどなら、空のページをもう 1 回読む
+                assert_eq!(
+                    count_reads(&queries),
+                    11 / page + 1,
+                    "ページ {page} の問い合わせ回数"
+                );
+                for with_summary in [true, false] {
+                    let light = rows_light_in_paged(t, FROM, TO, None, with_summary, page)?;
+                    let expected: Vec<ReviewRow> =
+                        single.iter().map(|r| light_of(r, with_summary)).collect();
+                    assert_eq!(
+                        light, expected,
+                        "軽い・summary={with_summary}・ページ {page}"
+                    );
+                    assert_eq!(count_reads(&queries), 11 / page + 1);
+                }
+            }
+            // 担当者で絞った読み方も、基準の絞り込みと同じ行・同じ順
+            for (owner, want) in [
+                ("o1", vec!["t3", "t1", "f1", "v2", "v1"]),
+                ("o2", vec!["w1", "t4", "t2", "q1"]),
+                ("o3", vec!["bad1", "u1"]),
+                ("nobody", vec![]),
+            ] {
+                let single = rows_in_single_query(t, FROM, TO, Some(owner))?;
+                assert_eq!(ids(&single), want, "{owner}");
+                for page in [1, 2, 3, 500] {
+                    assert_eq!(rows_in_paged(t, FROM, TO, Some(owner), page)?, single);
+                    assert_eq!(
+                        rows_light_in_paged(t, FROM, TO, Some(owner), true, page)?,
+                        single.iter().map(|r| light_of(r, true)).collect::<Vec<_>>(),
+                        "{owner}・ページ {page}"
+                    );
+                }
+            }
+            // 期間の行が 0 件なら、問い合わせは 1 回で終わる
+            count_reads(&queries);
+            assert!(rows_light_in_paged(
+                t,
+                "2026-11-01T00:00:00Z",
+                "2026-11-02T00:00:00Z",
+                None,
+                false,
+                3
+            )?
+            .is_empty());
+            assert_eq!(count_reads(&queries), 1);
+            // 既定のページの大きさでも同じ
+            assert_eq!(rows_in(t, FROM, TO, None)?, single_all(t)?);
+            assert_eq!(
+                rows_light_in(t, FROM, TO, None, true)?,
+                single_all(t)?
+                    .iter()
+                    .map(|r| light_of(r, true))
+                    .collect::<Vec<_>>()
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    fn single_all(t: &TursoDb) -> Result<Vec<ReviewRow>, String> {
+        rows_in_single_query(t, FROM, TO, None)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn light_rows_drop_the_text_but_keep_what_the_summary_and_the_list_use() {
+        let (audit, conn, _) = start_sqlite_audit_with_queries().await;
+        seed_period(&conn);
+        blocking(&audit, move |t| {
+            let rows = rows_light_in(t, FROM, TO, Some("o2"), true)?;
+            // o2 の判定済み 3 本 (w1・t4・t2) と、順番待ちの 1 本 (q1)
+            assert_eq!(ids(&rows), vec!["w1", "t4", "t2", "q1"]);
+            let w1 = &rows[0];
+            assert_eq!(w1.hubspot_call_id, "w1");
+            assert_eq!(w1.owner_id, "o2");
+            assert_eq!(w1.call_at, "2026-10-16T23:59:59Z");
+            assert_eq!(w1.duration_sec, 95);
+            assert_eq!(w1.status, ST_JUDGED);
+            assert_eq!(w1.outcome.as_deref(), Some("決まらなかった"));
+            assert_eq!(w1.summary.as_deref(), Some("w1 のまとめ: 日程が早い"));
+            // 項目は id と判定 (i = 6 なので 6 % 3 = 0 → done)、ヒアリングの答えだけ残る
+            assert_eq!(w1.items.len(), 2);
+            assert_eq!(
+                (w1.items[0].id.as_str(), w1.items[0].status.as_str()),
+                ("early_date", "done")
+            );
+            assert_eq!(w1.items[0].answer, None);
+            assert_eq!(
+                (
+                    w1.items[1].id.as_str(),
+                    w1.items[1].status.as_str(),
+                    w1.items[1].answer.as_deref(),
+                    w1.items[1].asked,
+                    w1.items[1].answered
+                ),
+                ("aq_budget", "done", Some("具体額"), Some(true), Some(true))
+            );
+            // 引用・助言・メモ・根拠の番号は空
+            for it in &w1.items {
+                assert_eq!(it.evidence, Vec::<u32>::new());
+                assert_eq!((&it.quote, &it.advice, &it.note), (&None, &None, &None));
+            }
+            // 使わない欄は既定値
+            assert_eq!(w1.zoom_call_log_id, None);
+            assert_eq!(w1.attempts, 0);
+            assert_eq!((&w1.checks_version, &w1.model), (&None, &None));
+            assert_eq!(
+                (w1.reached_person, w1.reception, w1.first_date_turn),
+                (None, None, None)
+            );
+            assert_eq!(w1.note, None);
+            // 順番待ち・失敗の行は項目が空
+            assert!(rows[3].items.is_empty());
+            assert_eq!(rows[3].status, ST_QUEUED);
+
+            // summary を読まない読み方では summary が空
+            let no_summary = rows_light_in(t, FROM, TO, Some("o2"), false)?;
+            assert!(no_summary.iter().all(|r| r.summary.is_none()));
+            assert_eq!(no_summary[0].items, w1.items);
+
+            // 全部の列の読み方 (詳細の画面の 1 件) は引用・助言・メモ・根拠をそのまま返す
+            let detail = get(t, "w1")?.unwrap();
+            assert_eq!(detail.items, full_items(6));
+            assert_eq!(detail.zoom_call_log_id.as_deref(), Some("zoom-w1"));
+            assert_eq!(detail.checks_version.as_deref(), Some("v1"));
+            // 壊れた items は、全部の列でも軽い読み方でも空
+            let bad = get(t, "bad1")?.unwrap();
+            assert!(bad.items.is_empty());
+            let light_bad = rows_light_in(t, FROM, TO, Some("o3"), false)?;
+            let bad = light_bad
+                .iter()
+                .find(|r| r.hubspot_call_id == "bad1")
+                .unwrap();
+            assert_eq!(bad.status, ST_JUDGED);
+            assert!(bad.items.is_empty());
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    /// 期間の索引を逆に走査し、並べ替えが要らない問い合わせになっている
+    /// (1 ページ目も 2 ページ目以降も、担当者で絞っても)。ページを重ねても読む行が増えない
+    #[tokio::test(flavor = "multi_thread")]
+    async fn row_pages_use_the_call_at_index_without_sorting() {
+        let (audit, conn, queries) = start_sqlite_audit_with_queries().await;
+        seed_period(&conn);
+        let q = queries.clone();
+        blocking(&audit, move |t| {
+            q.lock().unwrap().clear();
+            rows_light_in_paged(t, FROM, TO, None, false, 4)?;
+            rows_light_in_paged(t, FROM, TO, Some("o1"), true, 2)?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let reads: Vec<String> = queries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|q| q.contains("FROM call_talk_reviews") && q.contains("rowid AS rid"))
+            .cloned()
+            .collect();
+        // 全員 11 行を 4 行ずつ (4 + 4 + 3 の 3 回)、o1 の 5 行を 2 行ずつ (2 + 2 + 1 の 3 回)
+        assert_eq!(reads.len(), 6);
+        assert!(
+            !reads[0].contains("rowid < ?3"),
+            "1 ページ目に続きの条件はない"
+        );
+        assert!(reads[1].contains("call_at <= ?2 AND (call_at < ?2 OR rowid < ?3)"));
+        assert!(reads[1].contains("ORDER BY call_at DESC, rowid DESC LIMIT 4"));
+        assert!(reads[4].contains("AND owner_id = ?4"));
+        for sql in &reads {
+            let plan = explain_plan(&conn, sql).join(" / ");
+            assert!(plan.contains("idx_call_talk_reviews_call_at"), "{plan}");
+            assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+        }
     }
 }

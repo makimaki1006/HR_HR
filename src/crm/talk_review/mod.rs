@@ -34,6 +34,9 @@ pub mod dials;
 pub mod judge;
 pub mod lang;
 pub mod live_dials;
+/// 行・印の読み込みのメモリ計測 (`#[ignore]` のテストだけ。手順は中のコメント)
+#[cfg(test)]
+mod memory_bench;
 pub mod routes;
 pub mod scope;
 pub mod store;

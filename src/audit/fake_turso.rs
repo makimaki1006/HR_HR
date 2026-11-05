@@ -112,10 +112,18 @@ pub async fn start_sqlite_audit() -> (AuditDb, SharedConn) {
 
 /// SQL ごとの実際の HTTP 呼び出し回数も検証できる版。
 pub async fn start_sqlite_audit_with_queries() -> (AuditDb, SharedConn, Arc<Mutex<Vec<String>>>) {
+    let (audit, conn, queries, _) = start_sqlite_audit_with_url().await;
+    (audit, conn, queries)
+}
+
+/// 上に加えて、サーバの URL も返す版。別プロセスから接続して、使う側のメモリだけを測る計測用
+pub async fn start_sqlite_audit_with_url() -> (AuditDb, SharedConn, Arc<Mutex<Vec<String>>>, String)
+{
     let queries = Arc::new(Mutex::new(Vec::new()));
     let conn: SharedConn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
+    let base_url = base.clone();
     let app = Router::new()
         .route("/v2/pipeline", post(pipeline))
         .with_state((conn.clone(), queries.clone()));
@@ -132,7 +140,27 @@ pub async fn start_sqlite_audit_with_queries() -> (AuditDb, SharedConn, Arc<Mute
         .await
         .unwrap()
         .expect("監査スキーマを適用できない");
-    (AuditDb::new(turso, "test-salt".to_string()), conn, queries)
+    (
+        AuditDb::new(turso, "test-salt".to_string()),
+        conn,
+        queries,
+        base_url,
+    )
+}
+
+/// `EXPLAIN QUERY PLAN` の結果 (detail 列)。索引が使われているか・並べ替えが要るかを確かめるテスト用。
+/// 引数は NULL で埋める (実行計画は値に依らない)
+pub fn explain_plan(conn: &SharedConn, sql: &str) -> Vec<String> {
+    let c = conn.lock().unwrap();
+    let mut stmt = c
+        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+        .expect("実行計画を作れない");
+    let params =
+        rusqlite::params_from_iter(std::iter::repeat_n(SqlValue::Null, stmt.parameter_count()));
+    let rows = stmt
+        .query_map(params, |r| r.get::<_, String>(3))
+        .expect("実行計画を読めない");
+    rows.map(|r| r.unwrap()).collect()
 }
 
 #[cfg(test)]

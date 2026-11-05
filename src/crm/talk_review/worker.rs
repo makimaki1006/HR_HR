@@ -1120,8 +1120,11 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         let email_owner = super::live_dials::owner_by_email(&list.owners);
         let since = store::ts_text(Utc::now() - chrono::Duration::days(self.cfg.backfill_days + 2));
         let to = store::ts_text(Utc::now() + chrono::Duration::days(1));
-        let rows =
-            store::blocking(&self.audit, move |t| store::rows_in(t, &since, &to, None)).await?;
+        // 要るのは ID・担当者・時刻だけ。引用などを持たない軽い読み方で、ページに分けて読む
+        let rows = store::blocking(&self.audit, move |t| {
+            store::rows_light_in(t, &since, &to, None, false)
+        })
+        .await?;
         let ids: Vec<String> = rows.iter().map(|r| r.hubspot_call_id.clone()).collect();
         let numbers: HashMap<String, String> = bg
             .batch_read("calls", &ids, &["hs_call_to_number"])
