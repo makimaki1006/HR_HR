@@ -5,6 +5,7 @@ import type { TalkCallsResponse } from '../../generated/TalkCallsResponse';
 import type { DialBreakdown } from '../../generated/DialBreakdown';
 import type { TalkCheckDef } from '../../generated/TalkCheckDef';
 import type { TalkItemRate } from '../../generated/TalkItemRate';
+import type { TalkApoRanks } from '../../generated/TalkApoRanks';
 import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
 import type { TalkApoResponse } from '../../generated/TalkApoResponse';
@@ -347,8 +348,12 @@ function person(idx: number, id: string, name: string, team: string, dials: numb
     const hit = ap >= FIXTURE_RULES.item_min_applicable && tap > 0 && (nd / ap) * 100 >= (tnd / tap) * 100 + FIXTURE_RULES.item_excess_pct;
     return rate(c.id, nd, ap, hit);
   });
-  return { owner_id: id, name, team, outbound, dial_breakdown, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, contacts, contact_rate_pct: (contacts / outbound) * 100, date_proposal_calls: proposalCalls, date_proposal_rate_pct: (proposalCalls / outbound) * 100, proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: pending, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items };
+  return { owner_id: id, name, team, outbound, dial_breakdown, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, contacts, contact_rate_pct: (contacts / outbound) * 100, date_proposal_calls: proposalCalls, date_proposal_rate_pct: (proposalCalls / outbound) * 100, proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: pending, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items, apo_ranks: FIXTURE_RANKS[idx] ?? NO_RANKS };
 }
+
+const NO_RANKS: TalkApoRanks = { s: 0, a: 0, b: 0, c: 0 };
+/** 架空の人ごとのアポのランクの内訳 (人の順) */
+const FIXTURE_RANKS: TalkApoRanks[] = [{ s: 1, a: 2, b: 1, c: 3 }, { s: 0, a: 1, b: 0, c: 2 }, { s: 2, a: 1, b: 1, c: 1 }, NO_RANKS];
 
 export const FIXTURE_PEOPLE: TalkPersonRow[] = [
   person(0, '9001', '架空 花子', '架空BPOチーム', 220, 5, false, 60, 12, 8, [150, 60, 96, 4]),
@@ -375,6 +380,7 @@ function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow
     date_proposal_calls: proposalCalls, date_proposal_rate_pct: outbound === 0 ? null : (proposalCalls / outbound) * 100,
     proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: sum(p => p.contact_pending),
     eligible: sum(p => p.eligible), reviewed: sum(p => p.reviewed), waiting: sum(p => p.waiting), unavailable: sum(p => p.unavailable),
+    apo_ranks: { s: sum(p => p.apo_ranks.s), a: sum(p => p.apo_ranks.a), b: sum(p => p.apo_ranks.b), c: sum(p => p.apo_ranks.c) },
     items: checks.map(c => {
       const nd = sum(p => p.items.find(i => i.id === c.id)?.not_done ?? 0);
       const ap = sum(p => p.items.find(i => i.id === c.id)?.applicable ?? 0);
@@ -426,7 +432,7 @@ const FIXTURE_AGREED_ANSWERS: Record<string, string> = {
 export function fixtureCalls(ownerId: string, from: string, to: string): TalkCallsResponse {
   const name = FIXTURE_PEOPLE.find(p => p.owner_id === ownerId)?.name ?? '架空 担当者';
   const mk = (n: number, at: string, sec: number, status: string, outcome: string | null, m: string, summary: string | null, answers: Record<string, string> = {}): TalkCallRow =>
-    ({ hubspot_call_id: `fx-${ownerId}-${String(n)}`, call_at: `${to}T${at}:00+09:00`, duration_sec: sec, status, outcome, items: status === 'judged' ? marks(m, answers) : [], summary });
+    ({ hubspot_call_id: `fx-${ownerId}-${String(n)}`, call_at: `${to}T${at}:00+09:00`, duration_sec: sec, status, outcome, items: status === 'judged' ? marks(m, answers) : [], summary, apo_rank: status === 'judged' ? apoRankOf(marks(m, answers)) : null });
   return {
     owner_id: ownerId, name, from, to, checks: FIXTURE_CHECKS,
     calls: [
@@ -440,7 +446,7 @@ export function fixtureCalls(ownerId: string, from: string, to: string): TalkCal
   };
 }
 
-const fallbackCall: TalkCallRow = { hubspot_call_id: 'fx-9001-1', call_at: '2026-10-19T15:42:00+09:00', duration_sec: 0, status: 'waiting', outcome: null, items: [], summary: null };
+const fallbackCall: TalkCallRow = { hubspot_call_id: 'fx-9001-1', call_at: '2026-10-19T15:42:00+09:00', duration_sec: 0, status: 'waiting', outcome: null, items: [], summary: null, apo_rank: null };
 
 export function fixtureDetail(callId: string): TalkCallDetailResponse {
   const m = /^fx-(.+)-(\d+)$/.exec(callId);
@@ -514,6 +520,30 @@ export function checksForTab<T extends Pick<TalkCheckDef, 'stage'>>(checks: T[],
   if (tab === 'talk') return checks.filter(c => c.stage !== AFTER_STAGE);
   return checks;
 }
+
+// ------------------------------------------------------------ アポのランク
+
+/** ランクの並び (表の順) */
+export const APO_RANKS = ['S', 'A', 'B', 'C'] as const;
+/** 内訳の 1 行の文 (例: S 1・A 2・B 0・C 3) */
+export function fmtRanks(r: TalkApoRanks): string {
+  return `S ${String(r.s)}・A ${String(r.a)}・B ${String(r.b)}・C ${String(r.c)}`;
+}
+/** ランクの決め方 (Rust の apo_rank.rs と同じ。画面では架空データの電話にだけ使う) */
+export function apoRankOf(items: TalkCallRow['items']): string | null {
+  const ans = (id: string) => items.find(i => i.id === id)?.answer ?? null;
+  const budget = items.find(i => i.id === 'aq_budget');
+  if (budget === undefined || budget.status === 'na') return null;
+  if (budget.answer !== '具体額') return 'C';
+  const timing = ans('aq_timing');
+  if (timing === '3か月以内') return ans('aq_job') === '現場系' ? 'S' : 'A';
+  const reason = ans('aq_reason');
+  if (reason === '欠員' || reason === '若返り') return 'A';
+  if (timing === '4か月以上' || timing === '未定') return 'B';
+  return 'C';
+}
+/** ランクの決め方の説明 (画面の「数え方」と詳細) */
+export const APO_RANK_RULE = 'アポのランクは、日程が決まった電話で聞けた先方の答えから、営業戦略イメージの優先層の基準で決めています。S＝予算が具体額・入社時期が3か月以内・職種が現場系（製造・倉庫・ドライバー）、A＝予算が具体額・入社時期が3か月以内（S以外）、または予算が具体額・募集の理由が欠員か若返り、B＝予算が具体額・入社時期が4か月以上か未定、C＝それ以外（予算が無い・都度確保・未定・聞けていない、または入社時期が聞けていない）。聞けていない答えは資料どおり C に入れています。';
 
 // ------------------------------------------------------------ アポ数の内訳
 

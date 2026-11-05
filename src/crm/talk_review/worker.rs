@@ -25,6 +25,7 @@ use super::judge::{
     hearing_na, is_hearing, sanitize_texts, source_text, summary_of, texts_foreign, Judge,
     JudgeError, JudgeOutput, MiniMaxJudge, StoredItem, NO_APO_NOTE, SCHEDULED,
 };
+use super::slack::{ApoNotice, SlackNotifier};
 use super::store::{self, NewRow, ReviewRow, ST_FAILED, ST_QUEUED, ST_UNAVAILABLE};
 use super::target::{self, MarkState, Verdict, CONTACTED_NOTE};
 use super::transcript::{extract_call_log_id, has_both_sides};
@@ -558,25 +559,56 @@ async fn rewrite_hearing(
     hearing: Vec<StoredItem>,
     attach: bool,
 ) -> HearingWrite {
+    rewrite_hearing_row(audit, id, hearing, attach).await.0
+}
+
+/// ヒアリングを付けた行を Slack に送る (対象のチームの担当者・ランクが付く電話・新しい電話だけ)
+async fn notify_apo(
+    slack: &SlackNotifier,
+    members: &HashMap<String, (String, String)>,
+    row: &ReviewRow,
+) {
+    let Some((name, team)) = members.get(&row.owner_id) else {
+        return;
+    };
+    let Ok(at) = DateTime::parse_from_rfc3339(&row.call_at) else {
+        return;
+    };
+    let notice = ApoNotice {
+        call_id: &row.hubspot_call_id,
+        owner_id: &row.owner_id,
+        owner_name: name,
+        team,
+        call_at: at.with_timezone(&Utc),
+        items: &row.items,
+    };
+    if slack.send(&notice, Utc::now()).await {
+        tracing::info!("talk review: apo posted to slack");
+    }
+}
+
+/// `rewrite_hearing` と同じ。書いたときは、書いたあとの行 (項目はヒアリングを足したもの) も返す (Slack に送る材料)
+async fn rewrite_hearing_row(
+    audit: &crate::audit::AuditDb,
+    id: &str,
+    hearing: Vec<StoredItem>,
+    attach: bool,
+) -> (HearingWrite, Option<ReviewRow>) {
     let checks = &loaded().checks;
     let key = id.to_string();
     let row = match store::blocking(audit, move |t| store::get(t, &key)).await {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(error = %e, "talk review: hearing row read failed");
-            return HearingWrite::ReadFailed;
+            return (HearingWrite::ReadFailed, None);
         }
     };
-    let Some(row) = row.filter(|r| hearing_write_needed(r, checks, attach)) else {
-        return HearingWrite::Skipped;
+    let Some(mut row) = row.filter(|r| hearing_write_needed(r, checks, attach)) else {
+        return (HearingWrite::Skipped, None);
     };
-    write_items(
-        audit,
-        id.to_string(),
-        merge_hearing(checks, &row.items, hearing),
-    )
-    .await;
-    HearingWrite::Written
+    row.items = merge_hearing(checks, &row.items, hearing);
+    write_items(audit, id.to_string(), row.items.clone()).await;
+    (HearingWrite::Written, Some(row))
 }
 
 // ---------------------------------------------------------------------------
@@ -669,6 +701,10 @@ struct Worker<Z, J> {
     backfill_anchor: Option<DateTime<Utc>>,
     /// 起動後の担当者の付け直し (`reattribute`) を済ませたか
     reattributed: bool,
+    /// アポの判定結果を送る Slack (`TALK_REVIEW_SLACK_WEBHOOK_URL` があるときだけ)
+    slack: Option<SlackNotifier>,
+    /// 対象の担当者の名前とチーム (取り込みの周回で読み直す。Slack の文に使う)
+    members: Arc<HashMap<String, (String, String)>>,
     pending: Arc<PendingWrites>,
     /// 助言の文が日本語だけでない判定済みの行 (起動時に 1 回だけ探し、周回ごとに少しずつ判定し直す)。全部の欄を持つ
     rejudge: VecDeque<ReviewRow>,
@@ -1066,6 +1102,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 self.audit.clone(),
                 sem.clone(),
             );
+            let (slack, members) = (self.slack.clone(), self.members.clone());
             set.spawn(async move {
                 let id = c.id.clone();
                 let Ok(_p) = sem.acquire().await else {
@@ -1091,7 +1128,10 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                     }
                 };
                 // 文字起こしと判定に時間がかかる間に行が変わっていることがあるので、書く直前に読み直す
-                let wrote = rewrite_hearing(&audit, &id, hearing, true).await;
+                let (wrote, row) = rewrite_hearing_row(&audit, &id, hearing, true).await;
+                if let (Some(slack), Some(row)) = (slack, row) {
+                    notify_apo(&slack, &members, &row).await;
+                }
                 (id, wrote != HearingWrite::ReadFailed)
             });
         }
@@ -1126,6 +1166,12 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 .map(|m| m.id.clone())
                 .collect()
         };
+        self.members = Arc::new(
+            members
+                .iter()
+                .map(|m| (m.id.clone(), (m.name.clone(), m.team.clone())))
+                .collect(),
+        );
         self.team = Some(TeamOwners {
             bpo: of(true),
             sales: of(false),
@@ -1605,6 +1651,8 @@ pub fn spawn_worker(state: Arc<AppState>) {
         backfill_next: None,
         backfill_anchor: None,
         reattributed: false,
+        slack: SlackNotifier::from_env(),
+        members: Default::default(),
         pending: Arc::new(PendingWrites::default()),
         rejudge: Default::default(),
         hearing_check: Default::default(),
@@ -2428,6 +2476,8 @@ mod tests {
             backfill_next: None,
             backfill_anchor: None,
             reattributed: false,
+            slack: None,
+            members: Default::default(),
             pending: Arc::new(PendingWrites::default()),
             rejudge: VecDeque::new(),
             hearing_check: HashMap::new(),

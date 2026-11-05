@@ -313,6 +313,9 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 | `CALL_CONTACT_BACKFILL_DAYS` | `7` | 接触・日程切りの判定を、初回に過去何日まで遡るか (以後は今日と昨日だけ見直す)。1〜62、範囲外・数字でない値は既定の 7。`CALL_REVIEW_ENABLED=1` のときだけ動く |
 | `CALL_CONTACT_CONCURRENCY` | `16` | 接触・日程切りの判定を同時に進める本数。1〜64、範囲外・数字でない値は既定の 16 |
 | `CALL_REVIEW_TEAMS` | 未設定 | 対象の HubSpot チーム名 (カンマ区切り、前後の空白は除く)。未設定なら `BPO_リクロジ` と `新規営業` |
+| `TALK_REVIEW_SLACK_WEBHOOK_URL` | 未設定 | **秘密**。アポの判定結果を送る Slack のチャンネルの Incoming Webhook の URL (`https://hooks.slack.com/` で始まるもの)。未設定・形が違えば送らない。`CALL_REVIEW_ENABLED=1` のときだけ動く (設計書 §22「アポのランクと Slack への通知」) |
+| `TALK_REVIEW_SLACK_TEAMS` | 未設定 | Slack に送る担当者の HubSpot チーム名 (カンマ区切り)。未設定なら `BPO_リクロジ` |
+| `TALK_REVIEW_APP_URL` | `https://hr-hw.onrender.com` | Slack の文に入れる振り返りの画面のリンクの頭 |
 | `ZOOM_ACCOUNT_ID` | 未設定 | Zoom Server-to-Server OAuth のアカウント ID。Zoom Phone の録音・文字起こしの読み取りに使う |
 | `ZOOM_CLIENT_ID` | 未設定 | 同 OAuth のクライアント ID |
 | `ZOOM_CLIENT_SECRET` | 未設定 | 同 OAuth のクライアント secret。サーバだけが使い、ブラウザ・ログには出さない |

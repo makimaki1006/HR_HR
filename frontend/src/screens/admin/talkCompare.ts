@@ -2,6 +2,7 @@
 import type { DialBreakdown } from '../../generated/DialBreakdown';
 import type { TalkCheckDef } from '../../generated/TalkCheckDef';
 import type { TalkItemRate } from '../../generated/TalkItemRate';
+import type { TalkApoRanks } from '../../generated/TalkApoRanks';
 import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
 import { addDays, donePct } from './talkModel';
@@ -63,6 +64,11 @@ const pct = (n: number | null, d: number | null): number | null => (n === null |
  * 選んだ人の合計の行。率は件数の合計から出す (表の全体の行と同じ数え方)。
  * アポ数は人ごとの数の足し算。同じ取引を 2 人に付けた分は、足すと 2 回数える。
  */
+/** アポのランクの内訳を足す */
+export function sumRanks(rows: TalkPersonRow[]): TalkApoRanks {
+  return rows.reduce((a, p) => ({ s: a.s + p.apo_ranks.s, a: a.a + p.apo_ranks.a, b: a.b + p.apo_ranks.b, c: a.c + p.apo_ranks.c }), { s: 0, a: 0, b: 0, c: 0 });
+}
+
 export function sumRows(rows: TalkPersonRow[], checks: TalkCheckDef[], name: string): TalkPersonRow {
   const outbound = sumNullable(rows, p => p.outbound);
   const dials = sumNullable(rows, p => p.dials);
@@ -98,6 +104,7 @@ export function sumRows(rows: TalkPersonRow[], checks: TalkCheckDef[], name: str
     proposals_per_contact: contacts === null || contacts === 0 ? null : proposals / contacts,
     contact_pending: rows.reduce((a, p) => a + p.contact_pending, 0),
     eligible: rows.reduce((a, p) => a + p.eligible, 0), reviewed: rows.reduce((a, p) => a + p.reviewed, 0),
+    apo_ranks: sumRanks(rows),
     waiting: rows.reduce((a, p) => a + p.waiting, 0), unavailable: rows.reduce((a, p) => a + p.unavailable, 0),
     items,
   };

@@ -24,4 +24,8 @@ items: Array<TalkItemMark>,
 /**
  * 一番直すとよい点 (1 文)
  */
-summary: string | null, };
+summary: string | null, 
+/**
+ * アポのランク ("S" | "A" | "B" | "C")。ヒアリングの対象でない・判定前は null
+ */
+apo_rank: string | null, };

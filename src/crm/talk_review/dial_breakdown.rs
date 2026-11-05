@@ -368,6 +368,7 @@ mod tests {
             waiting: 0,
             unavailable: 0,
             items: vec![],
+            apo_ranks: Default::default(),
         };
         let mut people = vec![mk(Some("11")), mk(Some("22"))];
         let mut total = mk(None);

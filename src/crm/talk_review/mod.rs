@@ -23,6 +23,7 @@
 
 pub mod apo_breakdown;
 pub mod apo_link;
+pub mod apo_rank;
 pub mod checks;
 pub mod config;
 pub mod contact;
@@ -39,6 +40,7 @@ pub mod live_dials;
 mod memory_bench;
 pub mod routes;
 pub mod scope;
+pub mod slack;
 pub mod store;
 pub mod summary;
 pub mod target;
