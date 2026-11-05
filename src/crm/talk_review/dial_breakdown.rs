@@ -12,11 +12,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::NaiveDate;
-use serde_json::Value;
 
 use super::live_dials::{active_users, count_calls, utc_range, LiveToday};
 use super::types::{DialBreakdown, TalkPersonRow};
-use super::zoom::ZoomClient;
+use super::zoom::{CallLog, ZoomClient};
 
 /// キャッシュする日数の上限 (超えたら古い日から捨てる)
 pub const MAX_DAYS: usize = 120;
@@ -35,13 +34,13 @@ pub enum DialKind {
 /// 通話ログの 1 行 (発信) の種類。`path` が monitor ならモニタリング、extension なら内線、
 /// それ以外は `result` で、録音が残ったもの (Auto Recorded / Recorded) がつながった、Call Cancel が
 /// こちらで切った、そのほか (主に "Call connected" と出るが実際は失敗した発信) は失敗。
-pub fn classify(log: &Value) -> DialKind {
-    match log.get("path").and_then(Value::as_str) {
+pub fn classify(log: &CallLog) -> DialKind {
+    match log.path.as_deref() {
         Some("monitor") => return DialKind::Monitor,
         Some("extension") => return DialKind::Extension,
         _ => {}
     }
-    match log.get("result").and_then(Value::as_str) {
+    match log.result.as_deref() {
         Some("Auto Recorded" | "Recorded") => DialKind::Connected,
         Some("Call Cancel") => DialKind::Cancelled,
         _ => DialKind::Failed,
@@ -232,8 +231,9 @@ pub fn apply(
 
 #[cfg(test)]
 mod tests {
+    use super::super::zoom::logs_from_json_pages;
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     fn day() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 10, 20).unwrap()
@@ -250,7 +250,12 @@ mod tests {
 
     #[test]
     fn classify_follows_path_then_result() {
-        let k = |p: &str, r: &str| classify(&json!({"path": p, "result": r}));
+        let k = |p: &str, r: &str| {
+            classify(
+                &serde_json::from_str::<CallLog>(&json!({"path": p, "result": r}).to_string())
+                    .unwrap(),
+            )
+        };
         assert_eq!(k("pstn", "Auto Recorded"), DialKind::Connected);
         assert_eq!(k("pstn", "Recorded"), DialKind::Connected);
         assert_eq!(k("pstn", "Call Cancel"), DialKind::Cancelled);
@@ -260,7 +265,10 @@ mod tests {
         // path が内線なら result に関わらず内線
         assert_eq!(k("extension", "Auto Recorded"), DialKind::Extension);
         // 値が無いものは失敗
-        assert_eq!(classify(&json!({})), DialKind::Failed);
+        assert_eq!(
+            classify(&serde_json::from_str::<CallLog>("{}").unwrap()),
+            DialKind::Failed
+        );
     }
 
     #[test]
@@ -280,7 +288,7 @@ mod tests {
             log("10", "outbound", "2026-10-20T15:00:00Z", "pstn", "Call Cancel"), // JST 翌日
             log("11", "outbound", "2026-10-20T14:59:59Z", "pstn", "Call Cancel"), // JST 当日の最後
         ]})];
-        let r = count_calls(&pages, day(), &users, &owners);
+        let r = count_calls(&logs_from_json_pages(&pages), day(), &users, &owners);
         let b = r.breakdown.get("11").unwrap();
         assert_eq!(
             *b,

@@ -8,11 +8,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Utc};
-use serde_json::Value;
 
 use super::dial_breakdown::classify;
 use super::types::DialBreakdown;
-use super::zoom::ZoomClient;
+use super::zoom::{CallLog, ZoomClient};
 use crate::crm::owners::CrmOwner;
 
 /// 数え直す間隔
@@ -74,7 +73,7 @@ pub struct Counts {
 /// 発信だけ・`id`/`call_id` で重複除外・JST の日に入るものだけ・`user_id` 必須。発信数はそのすべて、
 /// 架電数は `Auto Recorded` だけ。Zoom ユーザーが有効でない/担当者に結び付かない人は数えない。
 pub fn count_calls(
-    pages: &[Value],
+    logs: &[CallLog],
     day: NaiveDate,
     user_email: &HashMap<String, String>,
     email_owner: &HashMap<String, String>,
@@ -83,43 +82,47 @@ pub fn count_calls(
     let end = start + ChronoDuration::days(1);
     let mut seen = std::collections::HashSet::new();
     let mut per_user: HashMap<String, (u32, u32, DialBreakdown)> = HashMap::new();
-    for page in pages {
-        let Some(logs) = page.get("call_logs").and_then(Value::as_array) else {
+    for log in logs {
+        if log.direction.as_deref() != Some("outbound") {
+            continue;
+        }
+        let Some(id) = log
+            .id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| log.call_id.as_deref().filter(|s| !s.is_empty()))
+        else {
             continue;
         };
-        for log in logs {
-            if log.get("direction").and_then(Value::as_str) != Some("outbound") {
-                continue;
-            }
-            let text = |k: &str| log.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
-            let Some(id) = text("id").or_else(|| text("call_id")) else {
-                continue;
-            };
-            if !seen.insert(id.to_string()) {
-                continue;
-            }
-            let Some(at) = text("date_time").or_else(|| text("start_time")) else {
-                continue;
-            };
-            let Ok(when) = DateTime::parse_from_rfc3339(at) else {
-                continue;
-            };
-            let when = when.with_timezone(&Utc);
-            if when < start || when >= end {
-                continue;
-            }
-            let Some(uid) = text("user_id") else {
-                continue;
-            };
-            let e = per_user
-                .entry(uid.to_string())
-                .or_insert((0, 0, DialBreakdown::default()));
-            e.0 += 1;
-            if text("result") == Some("Auto Recorded") {
-                e.1 += 1;
-            }
-            e.2.add(classify(log));
+        if !seen.insert(id.to_string()) {
+            continue;
         }
+        let Some(at) = log
+            .date_time
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| log.start_time.as_deref().filter(|s| !s.is_empty()))
+        else {
+            continue;
+        };
+        let Ok(when) = DateTime::parse_from_rfc3339(at) else {
+            continue;
+        };
+        let when = when.with_timezone(&Utc);
+        if when < start || when >= end {
+            continue;
+        }
+        let Some(uid) = log.user_id.as_deref().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let e = per_user
+            .entry(uid.to_string())
+            .or_insert((0, 0, DialBreakdown::default()));
+        e.0 += 1;
+        if log.result.as_deref().filter(|s| !s.is_empty()) == Some("Auto Recorded") {
+            e.1 += 1;
+        }
+        e.2.add(classify(log));
     }
     let mut out = Counts::default();
     for (uid, (c, k, b)) in per_user {
@@ -264,8 +267,9 @@ pub async fn live_today(
 
 #[cfg(test)]
 mod tests {
+    use super::super::zoom::logs_from_json_pages;
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     fn day() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 10, 20).unwrap()
@@ -328,7 +332,7 @@ mod tests {
                 log("11", "outbound", "2026-10-20T02:00:00Z", "u9", "Auto Recorded"),
             ]}),
         ];
-        let r = count_calls(&pages, day(), &users, &owners).connected;
+        let r = count_calls(&logs_from_json_pages(&pages), day(), &users, &owners).connected;
         assert_eq!(r.get("11"), Some(&2)); // id 1 と 8
         assert_eq!(r.get("22"), Some(&2)); // id 4 と 7
         assert_eq!(r.len(), 2);
@@ -347,7 +351,7 @@ mod tests {
             log("6", "outbound", "2026-10-20T01:00:00Z", "u2", "Call Cancel"),
             log("7", "outbound", "2026-10-20T01:00:00Z", "u3", "Call Cancel"),
         ]})];
-        let r = count_calls(&pages, day(), &users, &owners);
+        let r = count_calls(&logs_from_json_pages(&pages), day(), &users, &owners);
         assert_eq!(r.calls.get("11"), Some(&3)); // 1 + 2 + 3 (重複・着信・前日は除く)
         assert_eq!(r.connected.get("11"), Some(&1));
         assert_eq!(r.calls.get("22"), Some(&1));
