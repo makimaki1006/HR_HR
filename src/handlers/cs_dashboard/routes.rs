@@ -4005,7 +4005,7 @@ const TEAM_FLAG_EXPIRY60: &str = "満了まで60日以内";
 /// 名札の文字は `deal_rows` が立てる文字と画面の絞り込みが同じ文字で突き合わせるので、ここ 1 か所で決める。
 const TEAM_FLAG_NPS_LOW: &str = "満足度が4以下";
 
-pub(super) const PENDING_RECORDING_HEADER: &[&str] = &[
+pub const PENDING_RECORDING_HEADER: &[&str] = &[
     "録画UUID",
     "録画",
     "開催日",

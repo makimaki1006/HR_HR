@@ -48,6 +48,7 @@ mod rikurozi;
 mod rikurozi_listing;
 mod saved_notes;
 mod todo_signals;
+mod unlinked_mtg;
 
 #[derive(Debug)]
 pub struct ReadError(pub(super) StatusCode, pub(super) &'static str);
@@ -2269,6 +2270,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         )
         .route("/api/job-copy/consultant-risk", get(consultant_risk::read))
         .route("/api/job-copy/consultant-good", get(consultant_good::read))
+        .route("/api/job-copy/unlinked-mtg", get(unlinked_mtg::read))
         .route(
             "/api/job-copy/consultant-scope",
             get(consultant_risk::scope),
