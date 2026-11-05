@@ -24,6 +24,20 @@ impl Kind {
             Self::Facts => "job_copy_todo_fact_snapshots",
         }
     }
+    /// メモリ計測 (`mem_watch::task`) の名前: 保存した集計の復元
+    fn restore_task(self) -> &'static str {
+        match self {
+            Self::Recent => "job_copy.recent_restore",
+            Self::Facts => "job_copy.facts_restore",
+        }
+    }
+    /// メモリ計測の名前: 集計の保存
+    fn persist_task(self) -> &'static str {
+        match self {
+            Self::Recent => "job_copy.recent_persist",
+            Self::Facts => "job_copy.facts_persist",
+        }
+    }
 }
 #[derive(Serialize, Deserialize)]
 pub(super) struct Saved<T> {
@@ -134,6 +148,7 @@ pub(super) async fn restore<T: DeserializeOwned + Send + 'static>(
     kind: Kind,
 ) -> Option<Saved<T>> {
     let audit = audit?;
+    let _task = crate::mem_watch::task(kind.restore_task());
     match tokio::task::spawn_blocking(move || load(&audit, kind)).await {
         Ok(Ok(saved)) => saved,
         _ => {
@@ -154,6 +169,7 @@ pub(super) async fn persist<T: Serialize + Send + Sync + 'static>(
     let Some(audit) = audit else {
         return;
     };
+    let _task = crate::mem_watch::task(kind.persist_task());
     if !matches!(
         tokio::task::spawn_blocking(move || save(&audit, kind, &*data, built_at)).await,
         Ok(Ok(()))

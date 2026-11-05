@@ -860,6 +860,8 @@ async fn refresh(
     store: &mut Store,
     now: DateTime<Utc>,
 ) -> Result<Snapshot, HubSpotError> {
+    // メモリ計測: 今日の架電成績の読み直し 1 回 (最初は今日の分を全部、以降は増分)
+    let _task = crate::mem_watch::task("caller_metrics.refresh");
     let (day, start, end) = jst_day(now);
     store.reset_if_new_day(day);
     let bg = client.background();

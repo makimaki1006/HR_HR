@@ -181,6 +181,8 @@ pub(super) async fn restore(cache: &Cache, audit: Option<AuditDb>) {
     let Some(audit) = audit else {
         return;
     };
+    // メモリ計測: 保存した求人一覧の復元 (gzip を伸ばして JSON を読む)
+    let _task = crate::mem_watch::task("job_copy.index_restore");
     match tokio::task::spawn_blocking(move || load(&audit)).await {
         Ok(Ok(Some(index))) => {
             let mut state = cache.state.write().await;
@@ -195,6 +197,8 @@ pub(super) async fn persist(index: Arc<Index>, audit: Option<AuditDb>) {
     let Some(audit) = audit else {
         return;
     };
+    // メモリ計測: 求人一覧の保存 (JSON にして gzip・Base64 にし、Turso へ分けて書く)
+    let _task = crate::mem_watch::task("job_copy.index_persist");
     if !matches!(
         tokio::task::spawn_blocking(move || save(&audit, &index)).await,
         Ok(Ok(()))

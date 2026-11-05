@@ -172,6 +172,8 @@ pub(super) async fn warm_deal_rows() {
             return;
         }
     };
+    // メモリ計測: 案件の行の先読みの計算 1 回（数秒かかる）
+    let _task = crate::mem_watch::task("cs_dashboard.warm_deal_rows");
     let started = std::time::Instant::now();
     let done = tokio::task::spawn_blocking(move || {
         // 行と突き合わせの両方を覚える（今日動く先・チームと担当なども同じ行を使う）

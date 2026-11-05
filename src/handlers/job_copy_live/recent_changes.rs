@@ -302,6 +302,8 @@ async fn history_batch(
 }
 
 async fn fetch(service: &JobReadService, today: NaiveDate) -> Result<Report, ReadError> {
+    // メモリ計測: 直近 7 日の変更の作り直し 1 回
+    let _task = crate::mem_watch::task("job_copy.recent_fetch");
     let (start, end) = bounds(today);
     let mut stats = Stats::default();
     // 現時刻まで。翌日の値や Search 中の更新による窓の移動を避ける。

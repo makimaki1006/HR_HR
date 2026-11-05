@@ -2747,6 +2747,8 @@ pub struct Round {
 /// [`WORKER_CONCURRENCY`] 件を同時に進める (直列だと 1 件あたり HubSpot 2 回 + Turso 数回で、約 0.8 件/秒しか減らなかった)。
 /// HubSpot への呼び出しは背景の優先度のままなので、関所では画面の操作が先に通る
 pub async fn run_due_round(audit: &AuditDb, client: &HubSpotClient, write: &WriteConfig) -> Round {
+    // メモリ計測: 書き込みの再送の周回 (再送待ちが無い周回は台帳を 1 回読むだけ)
+    let _task = crate::mem_watch::task("crm_write.retry_round");
     let now = pending::now_iso();
     let rows = pending::blocking(audit, {
         let now = now.clone();

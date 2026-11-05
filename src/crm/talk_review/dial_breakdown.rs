@@ -127,6 +127,8 @@ fn gather(
 }
 
 async fn fill(zoom: Arc<ZoomClient>, owner_map: HashMap<String, String>, missing: Vec<NaiveDate>) {
+    // メモリ計測: 発信の内訳の取り込み (足りない過去の日の通話ログを Zoom から読む)
+    let _task = crate::mem_watch::task("talk_review.dial_breakdown");
     for day in missing {
         let r = async {
             let users = active_users(&zoom).await?;

@@ -665,6 +665,8 @@ pub(super) async fn load_companies(
 }
 
 async fn fetch_companies(service: &JobReadService, index: &Index) -> Result<CompanyMap, ReadError> {
+    // メモリ計測: ホームの会社の読み直し 1 回 (取引から会社名までを HubSpot から読む)
+    let _task = crate::mem_watch::task("job_copy.home_companies");
     let started = StdInstant::now();
     let stage = StdInstant::now();
     let defs = super::pipelines::load_defs(service).await;

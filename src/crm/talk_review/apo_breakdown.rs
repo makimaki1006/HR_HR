@@ -541,6 +541,8 @@ impl BreakdownCache {
                     key: key.clone(),
                 };
                 tokio::spawn(async move {
+                    // メモリ計測: アポ数の内訳の読み込み 1 回 (HubSpot から取引の履歴などを読む)
+                    let _task = crate::mem_watch::task("talk_review.apo_breakdown");
                     let out: Outcome = match load.await {
                         Ok(v) => {
                             guard.cache.put(guard.key.clone(), ttl, v.clone());

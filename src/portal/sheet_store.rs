@@ -879,6 +879,8 @@ impl SheetStore {
 
     /// 起動時の読み込み。成功したら使えるようにする
     pub async fn load(&self) -> Result<(), LoadError> {
+        // メモリ計測: 社内用シートの起動時の読み込み (全部のシートをメモリに読む)
+        let _task = crate::mem_watch::task("portal_sheet.load");
         match self.read_all(true).await {
             Ok(t) => {
                 let mut st = self.lock();
@@ -911,6 +913,8 @@ impl SheetStore {
 
     /// 読み直して取り込む。保存待ちの行はメモリの方を残す
     pub async fn reload(&self) -> Result<(), LoadError> {
+        // メモリ計測: 社内用シートの読み直し 1 回 (5 分おき)
+        let _task = crate::mem_watch::task("portal_sheet.reload");
         let mut fresh = match self.read_all(false).await {
             Ok(t) => t,
             Err(e) => {
@@ -1003,6 +1007,8 @@ impl SheetStore {
         if rows.is_empty() && logs.is_empty() {
             return Ok(());
         }
+        // メモリ計測: 社内用シートへの書き戻し 1 回 (保存待ちがあるときだけ)
+        let _task = crate::mem_watch::task("portal_sheet.flush");
         let result = self.write(&rows, &logs, &seen).await;
         let mut st = self.lock();
         match result {

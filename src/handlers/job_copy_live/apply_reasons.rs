@@ -443,6 +443,8 @@ fn assemble(
     }
 }
 async fn fetch(service: &JobReadService, today: NaiveDate) -> Result<Report, ReadError> {
+    // メモリ計測: 応募理由の集計の作り直し 1 回
+    let _task = crate::mem_watch::task("job_copy.apply_reasons");
     let since = since_for(today, *MONTHS.last().unwrap());
     let mut stats = Stats::default();
     let labels = read_labels(service).await;

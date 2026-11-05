@@ -246,6 +246,8 @@ impl CountsCache {
         }
         let mut searches = 0u32;
         if let (Some(first), Some(last)) = (need_apo.first(), need_apo.last()) {
+            // メモリ計測: アポの日ごとの数え (HubSpot から読む日があるときだけ)
+            let _task = crate::mem_watch::task("talk_review.counts");
             let by_day =
                 fetch_appointments(&client.background(), team, *first, *last, &mut searches)
                     .await?;

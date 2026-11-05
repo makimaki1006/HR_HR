@@ -53,6 +53,8 @@ struct ContactWorker<Z, J> {
 impl ContactWorker<ZoomClient, super::judge::MiniMaxJudge> {
     /// 対象チームの人のつながった発信を見つけて表に入れる。担当者・Zoom ユーザーが読めない周回は何もしない
     async fn discover(&mut self, now: DateTime<Utc>) -> Result<(), String> {
+        // メモリ計測: 見つけの周回 (Zoom の通話ログを日ごとに読み、つながった発信を表に入れる)
+        let _task = crate::mem_watch::task("contact_marks.discover");
         let bg = self.client.background();
         let list = crate::crm::owners::fetch_all(&bg)
             .await
@@ -166,6 +168,8 @@ impl<Z, J> ContactWorker<Z, J> {
         if self.scope_wait.is_empty() {
             return;
         }
+        // メモリ計測: アポ取りかの判定の周回 (待っている発信があるときだけ)
+        let _task = crate::mem_watch::task("contact_marks.scope");
         let waiting: Vec<contact::Candidate> = self.scope_wait.values().cloned().collect();
         let mut qs = Vec::with_capacity(waiting.len());
         let mut ages = HashMap::new();
@@ -231,6 +235,8 @@ async fn apply(audit: &crate::audit::AuditDb, id: String, u: Update) {
 impl<Z: TranscriptSource + 'static, J: ContactJudge + 'static> ContactWorker<Z, J> {
     /// 判定待ちを新しい電話から進める。時間切れで残りがあれば true
     async fn process_due(&self) -> bool {
+        // メモリ計測: 接触の判定の周回 (判定待ちの行の文字起こしを取って判定する)
+        let _task = crate::mem_watch::task("contact_marks.process_due");
         let started = Instant::now();
         let mut done: HashSet<String> = HashSet::new();
         let batch_size = (self.cfg.contact_concurrency * BATCH_FACTOR).max(40);
