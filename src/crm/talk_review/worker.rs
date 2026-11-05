@@ -52,6 +52,20 @@ const GONE_AFTER: chrono::Duration = chrono::Duration::days(1);
 /// 2 回目以降に読む範囲の始まり (`hs_lastmodifieddate`)。前回の 30 分前か、
 /// 録音 URL の猶予 + 30 分前の早い方。URL の無い Call (外部アポインターの通話など) は
 /// 作られた後に更新されないので、猶予が明けるまで読み続けないと取り込まれない
+/// 初回の取り込みで次に読む日。まだ何も読んでいなければ今日、そのあとは遡りの初日から昨日まで順に。読み終えたら `None`。
+/// 途中で日付が変わっても、前の「今日」は昨日として読み直す (同じ Call は既知として飛ばす)
+fn backfill_day(
+    next: Option<chrono::NaiveDate>,
+    start: chrono::NaiveDate,
+    today: chrono::NaiveDate,
+) -> Option<chrono::NaiveDate> {
+    match next {
+        None => Some(today),
+        Some(d) if d < today => Some(d.max(start)),
+        Some(_) => None,
+    }
+}
+
 fn poll_from(prev: DateTime<Utc>, now: DateTime<Utc>, backfill_from: i64) -> i64 {
     let margin = chrono::Duration::minutes(30);
     (prev - margin)
@@ -653,6 +667,8 @@ struct Worker<Z, J> {
     /// 初回の取り込みの進み具合 (次に読む日)。全部読み終えるまで `last_poll` は進めない
     backfill_next: Option<chrono::NaiveDate>,
     backfill_anchor: Option<DateTime<Utc>>,
+    /// 起動後の担当者の付け直し (`reattribute`) を済ませたか
+    reattributed: bool,
     pending: Arc<PendingWrites>,
     /// 助言の文が日本語だけでない判定済みの行 (起動時に 1 回だけ探し、周回ごとに少しずつ判定し直す)。全部の欄を持つ
     rejudge: VecDeque<ReviewRow>,
@@ -1123,17 +1139,19 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         let min_ms = MIN_CONNECTED_SEC * 1000;
         match self.last_poll {
             None => {
-                // 初回: 日ごとに読み、1 日済むたびに進み具合を覚える (途中で止まっても続きから)
+                // 初回: 日ごとに読み、1 日済むたびに進み具合を覚える (途中で止まっても続きから)。
+                // 今日を先に読み、残りは古い日から (再起動のたびに今日の電話が十数分遅れないように)
                 let anchor = *self.backfill_anchor.get_or_insert(now);
-                let mut day = self.backfill_next.unwrap_or(backfill_start);
-                while day <= today {
+                while let Some(day) = backfill_day(self.backfill_next, backfill_start, today) {
                     let (a, b) = (jst_midnight_ms(day), jst_midnight_ms(day) + 86_400_000);
                     let cands = search_candidates(&bg, "hs_timestamp", a, b, None, &ids, min_ms)
                         .await
                         .map_err(|e| e.error_kind().to_string())?;
                     self.ingest(cands, now, &email_owner).await?;
-                    day += chrono::Duration::days(1);
-                    self.backfill_next = Some(day);
+                    self.backfill_next = Some(match self.backfill_next {
+                        None => backfill_start,
+                        Some(_) => day + chrono::Duration::days(1),
+                    });
                 }
                 self.last_poll = Some(anchor);
             }
@@ -1513,9 +1531,6 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 tracing::warn!(error = %e, "talk review: requeue failed");
             }
         }
-        if let Err(e) = self.reattribute().await {
-            tracing::warn!(error = %e, "talk review: reattribute failed");
-        }
         self.adopt_backlog().await;
         self.find_rejudge().await;
         loop {
@@ -1532,6 +1547,13 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             // 手の空いた周回が少ないため)
             self.process_hearing().await;
             if !busy {
+                // 担当者の付け直しは数分かかるので、起動直後の取り込み・判定の後、最初に手が空いた周回で 1 回
+                if !self.reattributed {
+                    self.reattributed = true;
+                    if let Err(e) = self.reattribute().await {
+                        tracing::warn!(error = %e, "talk review: reattribute failed");
+                    }
+                }
                 // 新しい判定が無い周回に、文章が不合格の行を少しずつ判定し直す
                 self.process_rejudge().await;
                 tokio::time::sleep(self.cfg.interval).await;
@@ -1582,6 +1604,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         last_poll: None,
         backfill_next: None,
         backfill_anchor: None,
+        reattributed: false,
         pending: Arc::new(PendingWrites::default()),
         rejudge: Default::default(),
         hearing_check: Default::default(),
@@ -2021,6 +2044,30 @@ mod tests {
     }
 
     #[test]
+    fn backfill_reads_today_first_then_the_older_days_in_order() {
+        let d = |m: u32, day: u32| chrono::NaiveDate::from_ymd_opt(2026, m, day).unwrap();
+        let (start, today) = (d(11, 2), d(11, 5));
+        // 起動時の読み込みの順を、backfill_day と discover の進め方で再現する
+        let mut next = None;
+        let mut order = vec![];
+        while let Some(day) = backfill_day(next, start, today) {
+            order.push(day);
+            next = Some(match next {
+                None => start,
+                Some(_) => day + chrono::Duration::days(1),
+            });
+        }
+        assert_eq!(order, vec![d(11, 5), d(11, 2), d(11, 3), d(11, 4)]);
+        // 遡りが 0 日なら今日だけ
+        assert_eq!(backfill_day(Some(today), today, today), None);
+        // 途中で日付が変わったら、前の「今日」も昨日として読む
+        assert_eq!(
+            backfill_day(Some(d(11, 5)), start, d(11, 6)),
+            Some(d(11, 5))
+        );
+    }
+
+    #[test]
     fn poll_reaches_back_past_the_url_grace() {
         let t = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
         let ms = |s: &str| t(s).timestamp_millis();
@@ -2380,6 +2427,7 @@ mod tests {
             last_poll: None,
             backfill_next: None,
             backfill_anchor: None,
+            reattributed: false,
             pending: Arc::new(PendingWrites::default()),
             rejudge: VecDeque::new(),
             hearing_check: HashMap::new(),
