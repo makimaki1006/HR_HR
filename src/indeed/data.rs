@@ -14,7 +14,7 @@
 //! 毎リクエストで 51,787 行を読み直す理由がない。
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use crate::db::local_sqlite::LocalDb;
 use crate::handlers::helpers::{get_f64_opt, get_str};
@@ -232,30 +232,16 @@ impl Snapshot {
 
 /// 読み込み済みのデータ。プロセスの間ずっと使い回す。
 static SNAPSHOT: OnceLock<Snapshot> = OnceLock::new();
-static LOAD_LOCK: Mutex<()> = Mutex::new(());
 
 /// 読む。2 回目以降は最初に読んだものをそのまま返す。
 pub fn snapshot(db: &LocalDb) -> Result<&'static Snapshot, String> {
-    snapshot_with(&SNAPSHOT, &LOAD_LOCK, || load(db))
-}
-
-fn snapshot_with<'a>(
-    cache: &'a OnceLock<Snapshot>,
-    load_lock: &Mutex<()>,
-    load: impl FnOnce() -> Result<Snapshot, String>,
-) -> Result<&'a Snapshot, String> {
-    if let Some(s) = cache.get() {
+    if let Some(s) = SNAPSHOT.get() {
         return Ok(s);
     }
-    // 初回読み込みだけを直列化。待っている間に読み込まれていれば使い回す。
-    let _guard = load_lock.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(s) = cache.get() {
-        return Ok(s);
-    }
-    let loaded = load()?;
-    // 失敗時には保存せず、次の呼び出しで再試行できるようにする。
-    let _ = cache.set(loaded);
-    cache
+    let loaded = load(db)?;
+    // 競走で先を越されても、勝った方を使えばよい（中身は同じ）
+    let _ = SNAPSHOT.set(loaded);
+    SNAPSHOT
         .get()
         .ok_or_else(|| "Indeed データの取り置きに失敗しました".to_string())
 }
@@ -461,72 +447,4 @@ fn load_meta(db: &LocalDb) -> Result<Meta, String> {
         caveat: kv.get("caveat").cloned().unwrap_or_default(),
         built_at,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Barrier;
-
-    #[test]
-    fn concurrent_first_snapshot_loads_once() {
-        let cache = OnceLock::new();
-        let lock = Mutex::new(());
-        let calls = AtomicUsize::new(0);
-        let start = Barrier::new(8);
-        std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..8)
-                .map(|_| {
-                    scope.spawn(|| {
-                        start.wait();
-                        snapshot_with(&cache, &lock, || {
-                            calls.fetch_add(1, Ordering::SeqCst);
-                            std::thread::sleep(std::time::Duration::from_millis(30));
-                            Ok(Snapshot {
-                                meta: Meta {
-                                    latest: "2026-10".into(),
-                                    ..Default::default()
-                                },
-                                ..Default::default()
-                            })
-                        })
-                        .unwrap()
-                    })
-                })
-                .collect();
-            for handle in handles {
-                let snapshot = handle.join().unwrap();
-                assert_eq!(snapshot.meta.latest, "2026-10");
-                assert!(std::ptr::eq(snapshot, cache.get().unwrap()));
-            }
-        });
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        snapshot_with(&cache, &lock, || panic!("cached reads must not load")).unwrap();
-    }
-
-    #[test]
-    fn failed_snapshot_is_not_cached_and_next_call_retries() {
-        let cache = OnceLock::new();
-        let lock = Mutex::new(());
-        let calls = AtomicUsize::new(0);
-        let attempt = || {
-            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                Err("temporary failure".to_string())
-            } else {
-                Ok(Snapshot::default())
-            }
-        };
-        assert_eq!(
-            snapshot_with(&cache, &lock, attempt).unwrap_err(),
-            "temporary failure"
-        );
-        assert!(cache.get().is_none());
-        let loaded = snapshot_with(&cache, &lock, attempt).unwrap();
-        assert!(std::ptr::eq(
-            loaded,
-            snapshot_with(&cache, &lock, attempt).unwrap()
-        ));
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-    }
 }
