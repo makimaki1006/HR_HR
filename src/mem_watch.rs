@@ -20,6 +20,7 @@
 //!   RSS ≈ malloc_inuse_mb + malloc_free_mb + malloc_mmap_mb + (割り当て以外: スレッドのスタック・実行ファイル・ファイルの読み込みなど)。
 //!   `malloc_free_mb` が大きく増えていくなら「解放したが OS に返していない分」、`malloc_inuse_mb` が増えていくなら「実際に持ち続けているデータ」。
 //!   小さい解放済みの塊をスレッドごとに手元 (tcache) へ置いている分は、使用中に数えられる。
+//!   `malloc_stats_us` は数えるのにかかった時間 (マイクロ秒)。空きの塊が多いほど長く、その間は数えている arena を使う処理が待つ。
 use axum::{extract::Request, middleware::Next, response::Response};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -364,6 +365,8 @@ struct MallocStats {
     mmapped: u64,
     /// 通常の領域 (arena) の合計。使用中 + 空き。mmap の分は含まない (`arena`)
     arena: u64,
+    /// `mallinfo2()` を呼んで数え終わるまでの時間 (マイクロ秒)。空きの塊が多いほど長く、その間は数えている arena を使う処理が待つ
+    took_us: u64,
 }
 
 /// glibc の `mallinfo2()` を呼ぶ部分。glibc 2.33 から (本番のイメージは debian bookworm の 2.36。
@@ -411,12 +414,15 @@ mod glibc {
         // SAFETY: 引数も前提もない C の関数で、スレッドから呼んでよい (arena ごとにロックを取って数える)。
         // glibc の安全性の表で値が不確かになるのは `mallopt` と同時に呼んだときだけで、アプリも依存のクレートも `mallopt` を呼ばない。
         // シグナルハンドラの中では呼ばない (ここは普通のタスクの中)。
+        let started = std::time::Instant::now();
         let m = unsafe { mallinfo2() };
+        let took_us = started.elapsed().as_micros() as u64;
         MallocStats {
             in_use: m.uordblks as u64,
             free: m.fordblks as u64,
             mmapped: m.hblkhd as u64,
             arena: m.arena as u64,
+            took_us,
         }
     }
 }
@@ -548,6 +554,7 @@ fn log_jump(
         malloc_free_mb = malloc.map(|m| mb(m.free)),
         malloc_mmap_mb = malloc.map(|m| mb(m.mmapped)),
         malloc_arena_mb = malloc.map(|m| mb(m.arena)),
+        malloc_stats_us = malloc.map(|m| m.took_us),
         "mem jump"
     );
 }
@@ -573,6 +580,7 @@ fn log_minute(
         malloc_free_mb = malloc.map(|m| mb(m.free)),
         malloc_mmap_mb = malloc.map(|m| mb(m.mmapped)),
         malloc_arena_mb = malloc.map(|m| mb(m.arena)),
+        malloc_stats_us = malloc.map(|m| m.took_us),
         "mem"
     );
 }
@@ -1038,11 +1046,12 @@ mod tests {
             free: 1103 * MB + 700_000,
             mmapped: 48 * MB + 1,
             arena: 1315 * MB + 700_005,
+            took_us: 1234,
         }
     }
 
     const MALLOC_ITEMS: &str =
-        "malloc_inuse_mb=212 malloc_free_mb=1103 malloc_mmap_mb=48 malloc_arena_mb=1315";
+        "malloc_inuse_mb=212 malloc_free_mb=1103 malloc_mmap_mb=48 malloc_arena_mb=1315 malloc_stats_us=1234";
 
     #[test]
     fn the_minute_line_gets_the_malloc_numbers_at_its_end_and_nothing_else_changes() {
@@ -1132,11 +1141,12 @@ mod tests {
             free: 2 * MB - 1,
             mmapped: 3 * MB,
             arena: 3 * MB - 2,
+            took_us: 7,
         };
         let none = (String::new(), String::new());
         let text = captured(|| log_minute(&Sample::default(), 0, &none, Some(&m)));
         assert!(
-            text.contains("malloc_inuse_mb=0 malloc_free_mb=1 malloc_mmap_mb=3 malloc_arena_mb=2"),
+            text.contains("malloc_inuse_mb=0 malloc_free_mb=1 malloc_mmap_mb=3 malloc_arena_mb=2 malloc_stats_us=7"),
             "{text}"
         );
     }
