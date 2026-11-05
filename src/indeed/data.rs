@@ -248,6 +248,7 @@ pub fn snapshot(db: &LocalDb) -> Result<&'static Snapshot, String> {
 
 /// 取り置きを見ずに読む。テスト用。
 pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
+    let _task = crate::mem_watch::task("indeed.load");
     let meta = load_meta(db)?;
     let n = meta.months.len();
     if n == 0 {

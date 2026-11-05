@@ -38,6 +38,7 @@ impl LocalDb {
         let manager = SqliteConnectionManager::file(path);
         let pool = Pool::builder()
             .max_size(10)
+            .min_idle(Some(1))
             .connection_customizer(Box::new(PragmaCustomizer))
             .build(manager)
             .map_err(|e| format!("SQLite pool creation failed: {e}"))?;
@@ -150,6 +151,23 @@ mod tests {
         drop(conn);
         let db = LocalDb::new(path).unwrap();
         (tmp, db)
+    }
+
+    #[test]
+    fn pool_starts_with_one_connection_and_can_grow_to_ten() {
+        let (_tmp, db) = create_test_db();
+        assert_eq!(db.pool.min_idle(), Some(1));
+        assert_eq!(db.pool.max_size(), 10);
+        assert_eq!(db.pool.state().connections, 1);
+        assert_eq!(db.pool.state().idle_connections, 1);
+        let connections: Vec<_> = (0..10).map(|_| db.pool.get().unwrap()).collect();
+        assert_eq!(db.pool.state().connections, 10);
+        for conn in &connections {
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM test_data", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(count, 3);
+        }
     }
 
     // テスト16: DBファイル存在 → Pool作成成功
