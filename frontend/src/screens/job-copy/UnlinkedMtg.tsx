@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet } from '../../api/client';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { useCrmWrite, WRITES_OFF_NOTE } from '../crm/useCrmWrite';
@@ -32,14 +32,18 @@ export function UnlinkedMtg() {
   const [local, setLocal] = useState<Record<string, Chosen>>({});
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<Record<string, string>>({});
+  const shownQuery = useRef(query);
   useEffect(() => {
     if (demo) return;
+    // 担当者を切り替えたら、前の人の一覧は出したままにしない。
+    if (shownQuery.current !== query) { shownQuery.current = query; setData(null); }
     const ctl = new AbortController(); let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
       const r = await apiGet<UnlinkedResponse>(`/api/job-copy/unlinked-mtg?${query}${fresh ? '&fresh=1' : ''}`, { signal: ctl.signal, timeoutMs: 120_000 });
       if (ctl.signal.aborted) return;
       if (!r.ok) { setError(true); return; }
-      setData(r.data); setError(false);
+      // 作り直している間は、前に読めた一覧を出したままにする（操作を止めない）。
+      setData(prev => (r.data.status === 'preparing' && prev?.status === 'ready' ? prev : r.data)); setError(false);
       if (r.data.status === 'preparing') timer = setTimeout(() => { void load(); }, 2000);
     };
     void load(); return () => { ctl.abort(); clearTimeout(timer); };
@@ -61,7 +65,7 @@ export function UnlinkedMtg() {
     if (next === null) { setLocal(l => ({ ...l, [row.uuid]: { deal_id: dealId, deal_name: dealName, pending: false } })); say(row.uuid, ''); return; }
     const out = await write.save({ dealId, changes: [{ object: 'deal', name: MANUAL_LINKS_FIELD, base: current.base, value: next }] });
     if (out.kind === 'saved' || out.kind === 'queued') {
-      setLocal(l => ({ ...l, [row.uuid]: { deal_id: dealId, deal_name: dealName, pending: out.kind === 'queued' } })); say(row.uuid, ''); setFresh(true);
+      setLocal(l => ({ ...l, [row.uuid]: { deal_id: dealId, deal_name: dealName, pending: out.kind === 'queued' } })); say(row.uuid, '');
     } else if (out.kind === 'conflict') say(row.uuid, 'ほかの更新がありました。もう一度結び付けてください。');
     else say(row.uuid, out.kind === 'error' ? out.message : '保存できませんでした。内容を確かめてください。');
   }, [email, write]);
@@ -70,7 +74,7 @@ export function UnlinkedMtg() {
     const current = await readLinks(dealId);
     if (!current.ok) { say(row.uuid, '取引の今の内容を読めませんでした。もう一度お試しください。'); return; }
     const out = await write.save({ dealId, changes: [{ object: 'deal', name: MANUAL_LINKS_FIELD, base: current.base, value: removeManualLink(current.base, row.uuid) }] });
-    if (out.kind === 'saved' || out.kind === 'queued') { setLocal(l => ({ ...l, [row.uuid]: null })); say(row.uuid, ''); setFresh(true); }
+    if (out.kind === 'saved' || out.kind === 'queued') { setLocal(l => ({ ...l, [row.uuid]: null })); say(row.uuid, ''); }
     else say(row.uuid, out.kind === 'error' ? out.message : '取り消せませんでした。もう一度お試しください。');
   }, [write]);
 
