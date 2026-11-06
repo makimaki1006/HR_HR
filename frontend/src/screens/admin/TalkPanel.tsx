@@ -17,7 +17,7 @@ import {
   fmtCallTime, fmtPct, fmtPerContact, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
   type TalkSort, TALK_TABS, parseTalkTab, type TalkTab, checksForTab, APO_KINDS, apoKindLabel, APO_VIA_LABEL, fixtureApo,
   HEARING_STAGES, hearingAskedText, hearingBasis, hearingLine, hearingResultText, isHearing,
-  AFTER_STAGE, APO_RANKS, APO_RANK_RULE, fmtRanks,
+  APO_RANKS, APO_RANK_RULE, apoRankChecks, fmtRanks,
 } from './talkModel';
 import type { TalkItemDetail } from '../../generated/TalkItemDetail';
 import {
@@ -463,6 +463,7 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
           )}
         </p>
       )}
+      {tab === 'after' && <p className="w8-subtle" data-testid="talk-rank-legend">{APO_RANK_RULE}</p>}
       {apoQuery !== undefined && tab === 'numbers' && <p className="w8-subtle talk-apohint">アポ数を押すと、アポの内訳（過去客・再商談・再アポ・純粋なアポ）と明細が開きます。</p>}
       <div className="w8-table-wrap talk-scroll">
         <table className={`w8-table w8-table-dense talk-table talk-tab-${tab}`} data-testid="talk-table" data-tab={tab}>
@@ -591,7 +592,7 @@ export function TalkCallsTable({ data, onOpen }: { data: TalkCallsResponse; onOp
                 const m = c.items.find(i => i.id === ch.id);
                 return <td key={ch.id}>{c.status === 'judged' && m !== undefined ? <Mark status={m.status} /> : ''}</td>;
               })}
-              {hasHearing && <td data-testid="talk-call-rank">{c.apo_rank === null ? '' : <span className={`talk-rank talk-rank-${c.apo_rank}`}>{c.apo_rank}</span>}</td>}
+              {hasHearing && <td data-testid="talk-call-rank">{c.apo_rank === null ? '' : <RankWithChecks rank={c.apo_rank} items={c.items} />}</td>}
               {hasHearing && <td data-testid="talk-call-answers">{c.status === 'judged' ? hearingLine(data.checks, c.items) : ''}</td>}
               <td>{c.summary ?? ''}</td>
             </tr>
@@ -604,6 +605,42 @@ export function TalkCallsTable({ data, onOpen }: { data: TalkCallsResponse; onOp
 }
 
 // ------------------------------------------------------------ 詳細
+
+/** 電話の一覧のランク: ランクと、3 つの条件のどれを満たしたか */
+function RankWithChecks({ rank, items }: { rank: string; items: { id: string; answer: string | null }[] }) {
+  return (
+    <span className="talk-rankcell">
+      <span className={`talk-rank talk-rank-${rank}`}>{rank}</span>
+      <span className="w8-xs" data-testid="talk-call-rank-checks">
+        {apoRankChecks(items).map(k => <span key={k.short} className="talk-rankcheck">{k.short}<Mark status={k.met ? 'done' : 'not_done'} /></span>)}
+      </span>
+    </span>
+  );
+}
+
+/** 詳細のランク: 条件ごとに先方の答えと満たすか */
+function RankDetail({ rank, items }: { rank: string; items: { id: string; answer: string | null }[] }) {
+  const checks = apoRankChecks(items);
+  return (
+    <div className="talk-rankdetail" data-testid="talk-detail-rank">
+      <p>アポのランク <span className={`talk-rank talk-rank-${rank}`}>{rank}</span> 3 つのうち {checks.filter(k => k.met).length} つを満たす</p>
+      <table className="w8-table w8-table-dense">
+        <thead><tr><th>条件</th><th>満たす答え</th><th>先方の答え</th><th>判定</th></tr></thead>
+        <tbody>
+          {checks.map(k => (
+            <tr key={k.label} data-testid="talk-detail-rank-check">
+              <td>{k.label}</td>
+              <td>{k.want}</td>
+              <td>{k.answer ?? '分からない'}</td>
+              <td><Mark status={k.met ? 'done' : 'not_done'} /> {k.met ? '満たす' : '満たさない'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="w8-xs w8-muted">3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます。答えの根拠の発言は、下の「日程が決まった後に聞くこと」の各項目にあります。</p>
+    </div>
+  );
+}
 
 /** ヒアリングの 1 項目: 先方の答えと、答えが得られたか・営業が質問したか */
 function HearingItem({ it, title }: { it: TalkItemDetail; title: string }) {
@@ -649,6 +686,7 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
       </p>
       <div className="talk-detail-grid">
         <section data-testid="talk-items">
+          {c.apo_rank !== null && <RankDetail rank={c.apo_rank} items={data.items} />}
           <h2 className="w8-section-title">項目ごとの判定</h2>
           {data.items.length === 0 && <p className="w8-muted">この電話はまだ判定されていません。</p>}
           {talkItems.map(it => (
@@ -662,9 +700,6 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
           {hearingGroups.map(g => (
             <div key={g.stage} data-testid="talk-hearing-group">
               <h3 className="w8-section-title">{g.heading}</h3>
-              {c.apo_rank !== null && g.stage === AFTER_STAGE && (
-                <p data-testid="talk-detail-rank">アポのランク <span className={`talk-rank talk-rank-${c.apo_rank}`}>{c.apo_rank}</span> <span className="w8-muted w8-xs">{APO_RANK_RULE}</span></p>
-              )}
               {g.items.every(it => it.status === 'na') ? (
                 <p className="w8-muted w8-xs">この電話は当てはまりません。</p>
               ) : g.items.map(it => <HearingItem key={it.id} it={it} title={checkOf(it.id)?.title ?? it.id} />)}

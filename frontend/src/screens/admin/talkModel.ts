@@ -529,16 +529,29 @@ export const APO_RANKS = ['S', 'A', 'B', 'C'] as const;
 export function fmtRanks(r: TalkApoRanks): string {
   return `S ${String(r.s)}・A ${String(r.a)}・B ${String(r.b)}・C ${String(r.c)}`;
 }
+/** ランクに使う 3 つの条件 (Rust の apo_rank.rs と同じ) */
+export const APO_RANK_CONDITIONS = [
+  { id: 'aq_budget', label: '予算', short: '予算', want: '具体額' },
+  { id: 'aq_timing', label: '入社時期', short: '時期', want: '3か月以内' },
+  { id: 'aq_decider', label: '判断する人', short: '判断', want: '本人が判断者' },
+] as const;
+export interface ApoRankCheck { label: string; short: string; want: string; answer: string | null; met: boolean }
+/** 電話の答えが 3 つの条件をそれぞれ満たすか */
+export function apoRankChecks(items: { id: string; answer: string | null }[]): ApoRankCheck[] {
+  return APO_RANK_CONDITIONS.map(c => {
+    const answer = items.find(i => i.id === c.id)?.answer ?? null;
+    return { label: c.label, short: c.short, want: c.want, answer, met: answer === c.want };
+  });
+}
 /** ランクの決め方 (Rust の apo_rank.rs と同じ。画面では架空データの電話にだけ使う) */
 export function apoRankOf(items: TalkCallRow['items']): string | null {
   const budget = items.find(i => i.id === 'aq_budget');
   if (budget === undefined || budget.status === 'na') return null;
-  const ans = (id: string) => items.find(i => i.id === id)?.answer ?? null;
-  const met = [ans('aq_budget') === '具体額', ans('aq_timing') === '3か月以内', ans('aq_decider') === '本人が判断者'].filter(Boolean).length;
+  const met = apoRankChecks(items).filter(c => c.met).length;
   return APO_RANKS[3 - met] ?? null;
 }
-/** ランクの決め方の説明 (画面の「数え方」と詳細) */
-export const APO_RANK_RULE = 'アポのランクは、日程が決まった電話で聞けた先方の答えのうち、予算が具体額・入社時期が3か月以内・判断する人が本人の3つを、いくつ満たすかで決めています。3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます。';
+/** ランクの決め方の説明 (表の上・数え方・詳細) */
+export const APO_RANK_RULE = 'アポのランクは、日程が決まった電話で聞けた先方の答えが、次の 3 つをいくつ満たすかで決めています。予算が具体額・入社時期が3か月以内・判断する人が本人。3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます。';
 
 // ------------------------------------------------------------ アポ数の内訳
 

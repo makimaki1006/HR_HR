@@ -114,6 +114,8 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(ranks).toContain('—');
     expect(screen.getByRole('columnheader', { name: /^アポのランク/ }).textContent).toContain('この表の全体 S 3・A 4・B 2・C 6');
     expect(screen.getByTestId('talk-rank-rule').textContent).toContain('3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます');
+    // 決め方は「数え方」を開かなくても表の上に出す
+    expect(screen.getByTestId('talk-rank-legend').textContent).toContain('予算が具体額・入社時期が3か月以内・判断する人が本人');
   });
 
   it('色の凡例を表の上に出し、割合はできた割合だと書く', () => {
@@ -266,7 +268,9 @@ describe('トークの振り返り: 電話の一覧と詳細', () => {
       .toBe('入社 3か月以内・職種 現場系・理由 欠員・予算 得られず（未定）・本人が判断者');
     expect(rows[3]?.querySelector('[data-testid="talk-call-answers"]')?.textContent).toBe('');
     // ランク: 予算は未定・入社時期は3か月以内・判断する人は本人で、満たすのは 2 つなので A。日程が決まらなかった電話は空
-    expect(rows[1]?.querySelector('[data-testid="talk-call-rank"]')?.textContent).toBe('A');
+    // ランクの下に、3 つの条件 (予算・時期・判断) のどれを満たしたかを出す
+    expect(rows[1]?.querySelector('[data-testid="talk-call-rank"] .talk-rank')?.textContent).toBe('A');
+    expect(rows[1]?.querySelector('[data-testid="talk-call-rank-checks"]')?.textContent).toBe('予算×時期○判断○');
     expect(rows[0]?.querySelector('[data-testid="talk-call-rank"]')?.textContent).toBe('');
     expect(rows[3]?.textContent).toContain('文字起こし待ち');
     expect(rows[4]?.textContent).toContain('録音が残っていない');
@@ -304,6 +308,11 @@ describe('トークの振り返り: 電話の一覧と詳細', () => {
     expect(items[3]?.textContent).toContain('答えが得られていない・営業が質問した');
     expect(items[3]?.querySelector('[data-testid="talk-hearing-answer"]')?.textContent).toBe('先方の答え: 未定');
     expect(items[5]?.textContent).toContain('該当なし');
+    // ランク: 条件ごとに満たす答え・先方の答え・判定を出す
+    expect(screen.getByTestId('talk-detail-rank').textContent).toContain('3 つのうち 2 つを満たす');
+    expect(screen.getAllByTestId('talk-detail-rank-check').map(r => r.textContent)).toEqual([
+      '予算具体額未定× 満たさない', '入社時期3か月以内3か月以内○ 満たす', '判断する人本人が判断者本人が判断者○ 満たす',
+    ]);
     // 画面に開発者用語を出さない
     expect(document.body.textContent).not.toMatch(/asked|answered|status|aq_|tk_/);
     unmount();
