@@ -531,19 +531,14 @@ export function fmtRanks(r: TalkApoRanks): string {
 }
 /** ランクの決め方 (Rust の apo_rank.rs と同じ。画面では架空データの電話にだけ使う) */
 export function apoRankOf(items: TalkCallRow['items']): string | null {
-  const ans = (id: string) => items.find(i => i.id === id)?.answer ?? null;
   const budget = items.find(i => i.id === 'aq_budget');
   if (budget === undefined || budget.status === 'na') return null;
-  if (budget.answer !== '具体額') return 'C';
-  const timing = ans('aq_timing');
-  if (timing === '3か月以内') return ans('aq_job') === '現場系' ? 'S' : 'A';
-  const reason = ans('aq_reason');
-  if (reason === '欠員' || reason === '若返り') return 'A';
-  if (timing === '4か月以上' || timing === '未定') return 'B';
-  return 'C';
+  const ans = (id: string) => items.find(i => i.id === id)?.answer ?? null;
+  const met = [ans('aq_budget') === '具体額', ans('aq_timing') === '3か月以内', ans('aq_decider') === '本人が判断者'].filter(Boolean).length;
+  return APO_RANKS[3 - met] ?? null;
 }
 /** ランクの決め方の説明 (画面の「数え方」と詳細) */
-export const APO_RANK_RULE = 'アポのランクは、日程が決まった電話で聞けた先方の答えから、営業戦略イメージの優先層の基準で決めています。S＝予算が具体額・入社時期が3か月以内・職種が現場系（製造・倉庫・ドライバー）、A＝予算が具体額・入社時期が3か月以内（S以外）、または予算が具体額・募集の理由が欠員か若返り、B＝予算が具体額・入社時期が4か月以上か未定、C＝それ以外（予算が無い・都度確保・未定・聞けていない、または入社時期が聞けていない）。聞けていない答えは資料どおり C に入れています。';
+export const APO_RANK_RULE = 'アポのランクは、日程が決まった電話で聞けた先方の答えのうち、予算が具体額・入社時期が3か月以内・判断する人が本人の3つを、いくつ満たすかで決めています。3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます。';
 
 // ------------------------------------------------------------ アポ数の内訳
 
