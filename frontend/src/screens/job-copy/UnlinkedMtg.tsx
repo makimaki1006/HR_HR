@@ -91,7 +91,7 @@ export function UnlinkedMtg() {
         const key = chosen ? fieldKey(chosen.deal_id, 'deal', MANUAL_LINKS_FIELD) : '';
         const busy = (key !== '' && ['saving', 'queued'].includes(write.statuses[key]?.phase ?? '')) || ['保存しています…', '取り消しています…'].includes(messages[r.uuid] ?? '');
         return <li key={r.uuid} className="um-row">
-          <div><span className="um-date">{formatDateJst(r.date, '日付なし')}</span><span className="um-host">{r.host || 'ホスト不明'}</span></div>
+          <div><span className="um-date">{formatDateJst(r.date, '日付なし')}</span><span className="um-host">{r.host ? `ホスト：${r.host}` : 'ホスト不明'}</span></div>
           <div><p className="um-subject">{r.subject || '件名なし'}</p><span className="um-sub">{r.recording && <a href={r.recording} target="_blank" rel="noreferrer">録画を開く</a>}{r.other_candidates > 0 && <> ／ シートの候補はほかに{r.other_candidates}件</>}</span></div>
           <div className="um-pick">
             {chosen ? <p className="um-done" role="status">選択済み・夜の更新で反映<small>{chosen.deal_name || chosen.deal_id}{chosen.pending ? '（HubSpotへの反映待ち）' : ''}</small></p>

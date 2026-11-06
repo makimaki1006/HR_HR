@@ -30,6 +30,7 @@ it('合成データで開催日・件名・選択済みを表示する', () => {
   window.history.replaceState(null, '', '/app/job-copy?view=unlinked&demo=1');
   render(<UnlinkedMtg />);
   expect(screen.getByText('【合成商事】採用定例MTG')).toBeTruthy();
+  expect(screen.getAllByText('ホスト：合成担当A')).toHaveLength(3);
   expect(screen.getAllByRole('button', { name: '結び付ける' })).toHaveLength(2);
   expect(screen.getByText('選択済み・夜の更新で反映')).toBeTruthy();
   expect(screen.getAllByRole('button', { name: '取り消す' })).toHaveLength(1);
