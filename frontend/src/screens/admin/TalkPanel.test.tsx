@@ -113,7 +113,7 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(ranks[0]).toBe('S 1A 2B 1C 3');
     expect(ranks).toContain('—');
     expect(screen.getByRole('columnheader', { name: /^アポのランク/ }).textContent).toContain('この表の全体 S 3・A 4・B 2・C 6');
-    expect(screen.getByTestId('talk-rank-rule').textContent).toContain('聞けていない答えは資料どおり C に入れています');
+    expect(screen.getByTestId('talk-rank-rule').textContent).toContain('3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます');
   });
 
   it('色の凡例を表の上に出し、割合はできた割合だと書く', () => {
@@ -265,8 +265,8 @@ describe('トークの振り返り: 電話の一覧と詳細', () => {
     expect(rows[1]?.querySelector('[data-testid="talk-call-answers"]')?.textContent)
       .toBe('入社 3か月以内・職種 現場系・理由 欠員・予算 得られず（未定）・本人が判断者');
     expect(rows[3]?.querySelector('[data-testid="talk-call-answers"]')?.textContent).toBe('');
-    // ランク: 予算が聞けていない (未定) ので C。日程が決まらなかった電話は空
-    expect(rows[1]?.querySelector('[data-testid="talk-call-rank"]')?.textContent).toBe('C');
+    // ランク: 予算は未定・入社時期は3か月以内・判断する人は本人で、満たすのは 2 つなので A。日程が決まらなかった電話は空
+    expect(rows[1]?.querySelector('[data-testid="talk-call-rank"]')?.textContent).toBe('A');
     expect(rows[0]?.querySelector('[data-testid="talk-call-rank"]')?.textContent).toBe('');
     expect(rows[3]?.textContent).toContain('文字起こし待ち');
     expect(rows[4]?.textContent).toContain('録音が残っていない');
