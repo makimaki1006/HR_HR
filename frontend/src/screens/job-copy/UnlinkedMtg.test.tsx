@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
 import { UnlinkedMtg } from './UnlinkedMtg';
 import { addManualLink, dealChoices, hasManualLink, jstStamp, removeManualLink } from './unlinkedMtgModel';
 import { demoUnlinkedMtg } from './demoUnlinkedMtg';
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const now = new Date('2026-11-05T01:30:00Z');
 it('追記は録画UUID・JSTの日時・メールをタブ区切りで 1 行足す', () => {
   expect(jstStamp(now)).toBe('2026-11-05 10:30');
@@ -30,6 +30,7 @@ it('合成データで開催日・件名・選択済みを表示する', () => {
   window.history.replaceState(null, '', '/app/job-copy?view=unlinked&demo=1');
   render(<UnlinkedMtg />);
   expect(screen.getByText('【合成商事】採用定例MTG')).toBeTruthy();
+  expect(screen.getAllByText('ホスト：合成担当A')).toHaveLength(3);
   expect(screen.getAllByRole('button', { name: '結び付ける' })).toHaveLength(2);
   expect(screen.getByText('選択済み・夜の更新で反映')).toBeTruthy();
   expect(screen.getAllByRole('button', { name: '取り消す' })).toHaveLength(1);
@@ -39,4 +40,23 @@ it('取引は最初は選ばれておらず、選ぶまで結び付けられな�
   render(<UnlinkedMtg />);
   for (const select of screen.getAllByRole('combobox', { name: '結び付ける取引' })) expect((select as HTMLSelectElement).value).toBe('');
   for (const button of screen.getAllByRole('button', { name: '結び付ける' })) expect((button as HTMLButtonElement).disabled).toBe(true);
+});
+it('作り直している間も前に読めた一覧を出したままにする', async () => {
+  window.history.replaceState(null, '', '/app/job-copy?view=unlinked&owner=all');
+  const ready = { ...demoUnlinkedMtg, status: 'ready' };
+  let listCalls = 0;
+  vi.stubGlobal('fetch', vi.fn((url: string) => {
+    if (url.startsWith('/api/job-copy/unlinked-mtg')) {
+      listCalls += 1;
+      return Promise.resolve(new Response(JSON.stringify(listCalls === 1 ? ready : { status: 'preparing' }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    }
+    return Promise.resolve(new Response('{}', { status: 404 }));
+  }));
+  render(<UnlinkedMtg />);
+  expect(await screen.findByText('【合成商事】採用定例MTG')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '再読み込み' }));
+  await vi.waitFor(() => { expect(listCalls).toBeGreaterThan(1); });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  expect(screen.getByText('【合成商事】採用定例MTG')).toBeTruthy();
+  expect(screen.queryByText('一覧を準備しています…')).toBeNull();
 });
