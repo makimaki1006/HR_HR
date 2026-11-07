@@ -85,6 +85,32 @@ describe('ライフラインの行', () => {
   });
 });
 
+describe('リクロジ求人の詳細', () => {
+  const record: JobCopyRecord = { ...job, media: 'リクロジ', hrhPerformance: undefined };
+  const events = buildListingEvents(record, []);
+
+  it('時間軸の媒体名はリクロジで、週ごとの媒体実績は未取得のまま', () => {
+    const lifeline = buildLifeline(record, events, [], new Date('2026-07-13T12:00:00+09:00'));
+    expect(lifeline?.mediaLabel).toBe('リクロジ');
+    expect(lifeline?.hasPerformance).toBe(false);
+    expect(lifeline?.weeks.map(week => [week.impressions, week.clicks, week.mediaApplications, week.hubspotApplications])).toEqual([
+      [null, null, null, 1], [null, null, null, 0], [null, null, null, 0], [null, null, null, 2], [null, null, null, 0],
+    ]);
+  });
+
+  it('詳細にリクロジの応募集計と実績未取得の文言を表示し、HubSpotの応募数は保持する', () => {
+    render(<ListingOverview job={record} events={events} billing={[]} market={{ state: 'unset' }} selectedId={null} onSelect={() => undefined} onCompare={() => undefined} onOpenDrawer={() => undefined} />);
+    const lifeline = screen.getByTestId('lifeline');
+    expect(lifeline.querySelector('.lf-labels')?.textContent).toContain('応募数（リクロジの集計）');
+    for (const name of ['課金（週）', '閲覧数（表示回数）', 'クリック数', '応募数（リクロジの集計）']) {
+      expect(screen.getByRole('row', { name }).textContent).toBe('リクロジの実績はまだ取得していません');
+    }
+    const applications = screen.getByRole('row', { name: '応募数（HubSpot に記録された応募日）' });
+    expect([...applications.querySelectorAll('.lf-cell')].slice(0, 4).map(cell => cell.textContent)).toEqual(['1', '0', '0', '2']);
+    expect(lifeline.textContent).not.toMatch(/Indeed|AirWork/);
+  });
+});
+
 describe('画面', () => {
   const events = buildListingEvents(job, billing);
   function Harness({ record }: { record: JobCopyRecord }) {

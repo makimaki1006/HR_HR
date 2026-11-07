@@ -100,6 +100,9 @@ impl PerfDigest {
         Some(digest)
     }
     pub(super) fn from_record(record: &Record, media: &str) -> Option<Self> {
+        if !["hrh", "airwork"].contains(&media) {
+            return None;
+        }
         let perf = if media == "hrh" {
             listings::indeed_weekly_perf(record)
         } else {

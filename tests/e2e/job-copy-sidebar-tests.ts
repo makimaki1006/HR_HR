@@ -13,6 +13,22 @@ export function sidebarTests() {
     await page.goto('/app/job-copy?demo=1');
   });
 
+  for (const [width, height] of [[1440, 690], [1100, 623]]) {
+    test(`${width}×${height}: 畳んだ一覧は横書きで、開いても詳細の幅を保つ`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      const trigger = page.getByRole('button', { name: triggerName });
+      await expect(trigger).toHaveText('☰開く');
+      const label = page.locator('.jc-sidebar-current');
+      await expect(label).toHaveText('求人');
+      await expect(label).toHaveCSS('writing-mode', 'horizontal-tb');
+      expect((await page.locator('.jc-main').boundingBox())!.width).toBe(width - 48);
+      await trigger.click();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      expect((await page.locator('.jc-list').boundingBox())!.width).toBe(width === 1440 ? 360 : 320);
+      expect((await page.locator('.jc-main').boundingBox())!.width).toBe(width - 48);
+    });
+  }
+
   for (const width of [1440, 1920]) {
     test(`${width}px: マウスで開き、求人選択で閉じ、詳細が残り幅を使う`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 });

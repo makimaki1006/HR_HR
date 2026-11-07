@@ -10,7 +10,7 @@ import type { JobCopyRecord } from './data';
 import type { IndeedTitleState } from './marketMatch';
 export interface HubSpotListing {
   recent_performance?: { period_start: string; period_end: string; applications: number | null; cost_yen: number | null } | null;
-  id: string; media: 'hrh' | 'airwork'; media_job_id: string; account_id: string | null;
+  id: string; media: 'hrh' | 'airwork' | 'reclogi'; media_job_id: string; account_id: string | null;
   title: string | null; prefecture: string | null; municipality: string | null; category: string | null;
   /** 人が指定した「比べる Indeed 職種」。state: set / none（市場と比べない）/ unset。古い応答には無い。 */
   indeed_title?: string | null; indeed_title_state?: IndeedTitleState;
@@ -63,18 +63,18 @@ export function draftVersion(draft: DraftSnapshot, index: number): CopyVersion {
   const raw = columns.map(column => `${column}：${draft.row[column] ?? ''}`).join('\n');
   return { id: `hubspot-draft-${draft.draft_id}`, draft, label: `${draftStateLabel(draft.review_status)}の案 ${String(index + 1)}`, observedAt: draft.created_at, comparisonBody: raw, body: composeHrhBody(raw), bodySections: hrhCopySections(raw), kind: 'ai_draft', certainty: 'unknown', applications: null, source: draft.manual_edit ? '手直しで保存した案' : '求人票作成で保存した案', note: '未掲載の案です。掲載開始日時と応募は対応させていません。' };
 }
-export const mediaLabel = (media: HubSpotListing['media']) => media === 'hrh' ? 'HRハッカー' : 'AirWork';
+export const mediaLabel = (media: HubSpotListing['media']) => ({ hrh: 'HRハッカー', airwork: 'AirWork', reclogi: 'リクロジ' })[media];
 /** HubSpot に保存された週ごとの実績 (HRハッカーは Indeed、AirWork は AirWork)。媒体の求人番号が一致し、形が正しいときだけ使う。 */
 export function indeedWeeklyPerformance(raw: unknown, media: HubSpotListing['media'], mediaJobId: string): HrhPerformanceCollection | undefined {
-  if (raw === null || raw === undefined) return undefined;
+  if (media === 'reclogi' || raw === null || raw === undefined) return undefined;
   try { return parseHrhPerformance(raw, mediaJobId, media === 'hrh' ? 'hrhacker' : 'airwork'); } catch { return undefined; }
 }
 /** 一覧・詳細の応答から、その求人の媒体に合う週ごとの実績の元データを選ぶ。 */
-export const weeklyPerfRaw = (data: { indeed_weekly_perf?: unknown; airwork_weekly_perf?: unknown }, media: HubSpotListing['media']) => media === 'hrh' ? data.indeed_weekly_perf : data.airwork_weekly_perf;
+export const weeklyPerfRaw = (data: { indeed_weekly_perf?: unknown; airwork_weekly_perf?: unknown }, media: HubSpotListing['media']) => media === 'hrh' ? data.indeed_weekly_perf : media === 'airwork' ? data.airwork_weekly_perf : undefined;
 /** 求人の媒体に合う公開状況の履歴。HRハッカーは媒体の状況欄が無ければ求人の公開状況の欄。 */
 export function statusEntries(data: Pick<HubSpotVersions, 'status_history'>, media: HubSpotListing['media']): { at: string; value: string }[] {
   const history = data.status_history ?? {};
-  const own = history[media === 'hrh' ? 'baitai_genjoukyou_hrhakkaa' : 'baitai_genjoukyou_airwork'] ?? [];
+  const own = media === 'reclogi' ? [] : history[media === 'hrh' ? 'baitai_genjoukyou_hrhakkaa' : 'baitai_genjoukyou_airwork'] ?? [];
   const list = own.length ? own : history.kyuujin_status ?? [];
   return list.map(entry => ({ at: entry.timestamp, value: entry.value }));
 }

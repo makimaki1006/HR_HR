@@ -476,7 +476,8 @@ test('ホームは初回準備の2秒後にカードと顧客表を表示する'
   const changes = page.getByRole('region', { name: '直近7日に変更の一覧' });
   await expect(changes.getByRole('status')).toHaveText('変更のあった求人を集計しています…');
   changesReady = true;
-  await expect(page.locator('.jh-more')).toHaveText(moreLine('0件'), { timeout: 4_000 });
+  // 0 件になった項目は行から外す。
+  await expect(page.locator('.jh-more')).toHaveText(moreLine('集計中').replace('・直近7日に変更 集計中', ''), { timeout: 4_000 });
   await expect(changes.getByRole('heading')).toHaveText('直近7日に変更（0件）');
   await expect(changes).toContainText('該当する求人はありません。');
   expect(changesCalls).toBeGreaterThanOrEqual(2);

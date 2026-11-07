@@ -80,7 +80,7 @@ async fn round_trip_and_reject_invalid_snapshots() {
         assert_same(&load(&audit).unwrap().unwrap(), &index);
         conn.lock()
             .unwrap()
-            .execute("UPDATE job_copy_index_snapshots SET version=2", [])
+            .execute("UPDATE job_copy_index_snapshots SET version=3", [])
             .unwrap();
         assert!(load(&audit).unwrap().is_none());
         save(&audit, &index).unwrap();
@@ -110,6 +110,7 @@ async fn round_trip_and_reject_invalid_snapshots() {
         for (key, value_to_set) in [
             ("version", json!(1)),
             ("version", json!(2)),
+            ("version", json!(3)),
             ("index", json!({})),
         ] {
             let old = value[key].clone();
@@ -234,4 +235,30 @@ fn measure_41000_body_free_rows() {
     let parts = bytes.len().div_ceil(CHUNK_BYTES);
     println!("snapshot measurement: rows=41000 deals=500 json_bytes={json_bytes} gzip_bytes={} parts={parts} base64_bytes={}",bytes.len(),STANDARD.encode(&bytes).len());
     assert_same(&decode(&bytes, chrono::Utc::now()).unwrap(), &index);
+}
+
+#[test]
+fn reclogi_snapshot_round_trip_and_v3_rejection_without_network() {
+    let mut index = fixture(2);
+    for (n, row) in index.records.iter_mut().enumerate() {
+        row.media = "reclogi";
+        row.media_job_id = if n == 0 {
+            "424242".into()
+        } else {
+            String::new()
+        };
+        row.account_id = None;
+    }
+    let (bytes, _) = encode(&index).unwrap();
+    assert_same(&decode(&bytes, chrono::Utc::now()).unwrap(), &index);
+    let mut raw = Vec::new();
+    flate2::read::GzDecoder::new(&bytes[..])
+        .read_to_end(&mut raw)
+        .unwrap();
+    let mut saved: Value = serde_json::from_slice(&raw).unwrap();
+    assert_eq!(saved["version"], 4);
+    saved["version"] = json!(3);
+    let mut old = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    old.write_all(&serde_json::to_vec(&saved).unwrap()).unwrap();
+    assert!(decode(&old.finish().unwrap(), chrono::Utc::now()).is_err());
 }

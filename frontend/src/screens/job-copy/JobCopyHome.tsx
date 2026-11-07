@@ -85,6 +85,10 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const card = cards.find(item => item.key === open);
   const mainCards = cards.filter(item => mainCardKeys.includes(item.key));
   const otherCards = cards.filter(item => !mainCardKeys.includes(item.key));
+  // 前の集計に件数があれば、作り直し中もその件数を出す。0 件のときだけ、作り直し中・失敗を 0 件と見せない。
+  const recentCount = recent.data.status === 'ready'
+    ? recent.data.report.count > 0 ? recent.data.report.count : recent.data.refreshing ? '集計中' : recent.data.refresh_failed ? '取得できませんでした' : 0
+    : recent.data.status === 'preparing' ? '集計中' : '取得できませんでした';
   const reveal = useRevealOnMount();
   const tableShown = showAll || query.trim() !== '';
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
@@ -103,7 +107,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
           <strong className="jh-count">{item.count}<small>件</small></strong>
           <span className="jh-card-title">{item.title}</span>
         </button>)}</div>
-        <CountLine label="ほかの見るもの" items={[...otherCards.map(item => ({ key: item.key, label: item.title, count: `${String(item.count)}件` })), { key: 'recent_changes', label: '直近7日に変更', count: recent.data.status === 'ready' ? `${String(recent.data.report.count)}件` : recent.data.status === 'preparing' ? '集計中' : '取得できませんでした' }]} openKey={open} onToggle={key => { setOpen(open === key ? null : key as CardKey | 'recent_changes'); }} />
+        <CountLine label="ほかの見るもの" items={[...otherCards.map(item => ({ key: item.key, label: item.title, count: item.count })), { key: 'recent_changes', label: '直近7日に変更', count: recentCount }]} openKey={open} onToggle={key => { setOpen(open === key ? null : key as CardKey | 'recent_changes'); }} />
         {open !== 'recent_changes' && recent.data.status === 'ready' && <ReportFreshness builtAt={recent.data.built_at} stale={recent.data.stale} refreshing={recent.data.refreshing} />}
         {open === 'recent_changes' && <div key="recent_changes" ref={reveal} className="jh-reveal"><RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} onOpenListing={onOpenListing} /></div>}
         {card && <CardList key={card.key} card={card} onOpenListing={onOpenListing} />}

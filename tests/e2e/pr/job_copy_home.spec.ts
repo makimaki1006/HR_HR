@@ -160,7 +160,7 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   const cards = page.locator('.jh-todo-cards .jh-card');
   await expect(cards).toHaveCount(7);
   for (const [index, count] of [198, 95, 112, 1, 1, 1, 0].entries()) await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${count}件`);
-  await expect(page.locator('.jh-more').first()).toHaveText('ほかの要対応：満了後も稼働中 0件・初回で成果が出ていない 1件・定期NPSが低い 0件・採用目標に届いていない 0件・採用単価が高い 0件');
+  await expect(page.locator('.jh-more').first()).toHaveText('ほかの要対応：初回で成果が出ていない 1件');
   await expect(page.locator('.jh-todo-table')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'まず見るもの' })).toBeInViewport();
   const boxes = await cards.evaluateAll(elements => elements.map(el => ({ top: el.getBoundingClientRect().top, height: el.getBoundingClientRect().height })));
@@ -272,7 +272,7 @@ test('保存した前の集計と日時をすぐ表示し、新しい集計の�
   await expect(list.getByRole('button', { name: '合成の前回求人' })).toBeVisible();
   await expect(list).toContainText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。');
   complete = true;
-  await expect(card).toHaveText('直近7日に変更 0件');
+  await expect(card).toHaveCount(0);
   await expect(list).toContainText('該当する求人はありません。');
   await expect(page.getByText(/時点の集計です。新しい集計を作っています/)).toHaveCount(0);
 });
