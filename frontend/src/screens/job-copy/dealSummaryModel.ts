@@ -11,7 +11,7 @@ export const WINDOW_DAYS = 28;
 export interface DealListingInput {
   id: string;
   title: string;
-  media: 'hrh' | 'airwork';
+  media: 'hrh' | 'airwork' | 'reclogi';
   /** 掲載終了。終了した求人は、掲載していた間の応募と課金を合計に含める。 */
   ended: boolean;
   /** 応募日別の件数。取得できていないときは null。 */
@@ -246,11 +246,11 @@ export function dealEvents(listings: readonly DealListingInput[], sources: reado
   });
 }
 
-export interface MediaCutoff { media: 'hrh' | 'airwork'; lastApplication: string | null; lastBilling: string | null }
+export interface MediaCutoff { media: 'hrh' | 'airwork' | 'reclogi'; lastApplication: string | null; lastBilling: string | null }
 
 /** 媒体ごとの、応募と課金がどの日まであるか。 */
 export function mediaCutoffs(listings: readonly DealListingInput[]): MediaCutoff[] {
-  return (['hrh', 'airwork'] as const).filter(media => listings.some(listing => listing.media === media)).map(media => {
+  return (['hrh', 'airwork', 'reclogi'] as const).filter(media => listings.some(listing => listing.media === media)).map(media => {
     const own = listings.filter(listing => listing.media === media);
     const dates = own.flatMap(listing => Object.entries(listing.byDate ?? {}).filter(([, count]) => count > 0).map(([date]) => date));
     const ends = own.flatMap(listing => listing.billing.map(entry => entry.end));

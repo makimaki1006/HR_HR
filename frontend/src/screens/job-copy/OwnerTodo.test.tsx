@@ -30,7 +30,7 @@ it('7枚の件数カードと、ほかの要対応の件数の1行を表示し�
   expect(document.querySelectorAll('.jh-todo-cards .jh-card')).toHaveLength(7);
   expect([...document.querySelectorAll('.jh-todo-cards .jh-card .jh-card-title')].map(el => el.textContent)).toEqual(['期限切れ', '今日', '7日以内', '契約満了が近い', '接触が空いている', '応募が止まっている', 'MTGが途絶えている']);
   expect(document.querySelector('.jh-rule')).toBeNull();
-  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの要対応：満了後も稼働中 0件・初回で成果が出ていない 1件・定期NPSが低い 0件・採用目標に届いていない 0件・採用単価が高い 0件');
+  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの要対応：初回で成果が出ていない 1件');
   expect(screen.queryByRole('table')).toBeNull();
   const overdueCard = screen.getByRole('button', { name: /期限切れ/ });
   expect(overdueCard.classList.contains('jh-alert')).toBe(true);
@@ -58,7 +58,7 @@ it('満了後も稼働中は件数の1行に出し、押すと一覧にHubSpot�
   if (!base) throw new Error('合成データがありません');
   const work = { ...demoOwnerTodo, hubspot_portal_id: '123', signals: [{ ...base, id: '777', name: '合成案件777', reasons: [{ kind: 'expired' as const, text: '満了日から 14 日が過ぎている' }] }] };
   render(<OwnerTodo work={work} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
-  expect(document.querySelector('.jh-more')?.textContent.startsWith('ほかの要対応：満了後も稼働中 1件・')).toBe(true);
+  expect(document.querySelector('.jh-more')?.textContent === 'ほかの要対応：満了後も稼働中 1件').toBe(true);
   expect([...document.querySelectorAll('.jh-todo-cards .jh-card .jh-card-title')]).toHaveLength(7);
   fireEvent.click(screen.getByRole('button', { name: '満了後も稼働中 1件' }));
   const list = screen.getByRole('region', { name: '満了後も稼働中の一覧' });
@@ -106,7 +106,7 @@ it('要対応が1件以上なら期限切れと同じ警告色、0件なら通�
   const work = { ...demoOwnerTodo, signals: (demoOwnerTodo.signals ?? []).map(row => ({ ...row, reasons: (row.reasons ?? []).filter(r => r.kind === 'contact') })) };
   render(<OwnerTodo work={work} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
   expect(screen.getByRole('button', { name: /接触が空いている/ }).classList.contains('jh-alert')).toBe(true);
-  for (const name of ['契約満了が近い', '応募が止まっている', '初回で成果が出ていない']) expect(screen.getByRole('button', { name: new RegExp(name) }).classList.contains('jh-alert')).toBe(false);
+  for (const name of ['契約満了が近い', '応募が止まっている']) expect(screen.getByRole('button', { name: new RegExp(name) }).classList.contains('jh-alert')).toBe(false);
 });
 it('カードを押すと、開いた一覧の見出しまで画面が動く', () => {
   const scroll = vi.fn();
@@ -131,4 +131,10 @@ it('URL に card= があって最初から開いている一覧にも、表示�
   render(<OwnerTodo work={demoOwnerTodo} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
   expect(scroll).toHaveBeenCalledTimes(1);
   expect(scroll.mock.contexts[0]).toBe(screen.getByRole('region', { name: '期限切れの一覧' }));
+});
+
+it('その他の要対応がすべて0件なら行を表示しない', () => {
+  render(<OwnerTodo work={{ ...demoOwnerTodo, signals: [] }} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
+  expect(document.querySelector('.jh-more')).toBeNull();
+  expect(screen.getByRole('button', { name: /契約満了が近い/ }).textContent).toBe('0件契約満了が近い');
 });

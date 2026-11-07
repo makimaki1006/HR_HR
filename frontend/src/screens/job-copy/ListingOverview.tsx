@@ -87,7 +87,7 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
     if (element && selectedWeek !== null) element.scrollLeft = Math.max(0, selectedWeek * COLUMN_PX - element.clientWidth / 2 + COLUMN_PX / 2);
   }, [selectedWeek]);
   const media = lifeline.mediaLabel;
-  const noPerf = lifeline.hasPerformance ? '' : media === 'AirWork' ? '課金データなし' : 'Indeed の実績データなし';
+  const noPerf = lifeline.hasPerformance ? '' : media === 'リクロジ' ? 'リクロジの実績はまだ取得していません' : media === 'AirWork' ? '課金データなし' : 'Indeed の実績データなし';
   const rows: { key: string; label: string; cell: (week: LifelineWeek) => string; short: (week: LifelineWeek) => string; empty: string }[] = [
     { key: 'billing', label: '課金（週）', cell: week => yen(week.billing), short: week => shortNumber(week.billing, '¥'), empty: noPerf },
     { key: 'impressions', label: '閲覧数（表示回数）', cell: week => num(week.impressions), short: week => shortNumber(week.impressions), empty: noPerf },

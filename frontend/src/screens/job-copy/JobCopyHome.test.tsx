@@ -37,12 +37,12 @@ it('常に出すカードは2枚まで。残りは件数だけの1行で、押�
   api.mockResolvedValue({ ok: true, data: response });
   renderHome();
   await screen.findByRole('button', { name: /課金が高いまま応募が少ない求人/ });
-  await screen.findByRole('button', { name: /直近7日に変更 0件/ });
+  await waitFor(() => { expect(screen.queryByRole('button', { name: /直近7日に変更/ })).toBeNull(); });
   const cards = [...document.querySelectorAll('.jh-cards .jh-card')];
   expect(cards).toHaveLength(1);
   expect(within(at(cards, 0) as HTMLElement).getByText('0')).toBeTruthy();
   expect(document.querySelector('.jh-rule')).toBeNull();
-  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの見るもの：直近4週の応募が、前の4週より多い求人 1件・応募はあるが、前の4週とほぼ同じ求人 0件・直近4週の応募が、前の4週より少ない求人 130件・データが止まっている求人 0件・直近7日に変更 0件');
+  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの見るもの：直近4週の応募が、前の4週より多い求人 1件・直近4週の応募が、前の4週より少ない求人 130件');
   expect(screen.getByText('掲載中の求人の応募・課金です（応募はHubSpotに記録された分だけ）。増減は並べて見るためのもので、原因とは限りません。')).toBeTruthy();
   expect(screen.queryByText(/効果あり|効果なし|成功|失敗/)).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /より多い求人 1件/ }));
@@ -149,13 +149,13 @@ it('demo: 常に2枚のカード、残り5枚と直近7日の変更は件数だ�
   api.mockResolvedValue({ ok: true, data: demoHome });
   renderHome();
   await screen.findByRole('button', { name: /応募がゼロのままの求人 2件/ });
-  await screen.findByRole('button', { name: /直近7日に変更 0件/ });
+  await waitFor(() => { expect(screen.queryByRole('button', { name: /直近7日に変更/ })).toBeNull(); });
   const cards = [...document.querySelectorAll<HTMLElement>('.jh-cards .jh-card')];
   expect(cards.map(button => button.querySelector('.jh-card-title')?.textContent)).toEqual(['応募がゼロになった求人', '課金が高いまま応募が少ない求人']);
   expect(cards.map(button => button.querySelector('.jh-count')?.textContent)).toEqual(['1件', '2件']);
   expect(at(cards, 0).classList.contains('jh-alert')).toBe(true);
   expect(at(cards, 1).classList.contains('jh-warn')).toBe(true);
-  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの見るもの：応募がゼロのままの求人 2件・直近4週の応募が、前の4週より少ない求人 1件・直近4週の応募が、前の4週より多い求人 1件・応募はあるが、前の4週とほぼ同じ求人 1件・データが止まっている求人 1件・直近7日に変更 0件');
+  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの見るもの：応募がゼロのままの求人 2件・直近4週の応募が、前の4週より少ない求人 1件・直近4週の応募が、前の4週より多い求人 1件・応募はあるが、前の4週とほぼ同じ求人 1件・データが止まっている求人 1件');
   // 数え方は押すと開く説明の中にある。
   expect(screen.getByText(/2件以上、または20%以上の差を増減/).closest('details')?.hasAttribute('open')).toBe(false);
   expect(screen.getByText(/掲載中で、週ごとの実績の最新の週が14日より前に終わっている求人/)).toBeTruthy();
@@ -314,4 +314,32 @@ it('今日の画面は、ホームが準備中で担当者の一覧が無い間�
   await act(() => Promise.resolve());
   expect(screen.getByText('担当者の一覧を準備しています。準備ができると、担当で絞れます。')).toBeTruthy();
   expect(screen.queryByRole('combobox', { name: '担当者' })).toBeNull();
+});
+
+it.each(['ready', 'preparing', 'failed'] as const)('その他が0件で変更が%sのときの件数行', async status => {
+  api.mockResolvedValue({ ok: true, data: { ...response, home: { ...response.home, cards: response.home.cards.map(item => ({ ...item, count: 0, listings: [] })) } } });
+  recentApi.mockResolvedValue({ ok: true, data: status === 'ready' ? { status, report: { count: 0, listings: [] }, refresh_failed: false } : { status } });
+  renderHome();
+  await screen.findByRole('button', { name: /課金が高いまま応募が少ない求人/ });
+  await waitFor(() => {
+    if (status === 'ready') expect(document.querySelector('.jh-more')).toBeNull();
+    else expect(document.querySelector('.jh-more')?.textContent).toBe(`ほかの見るもの：直近7日に変更 ${status === 'preparing' ? '集計中' : '取得できませんでした'}`);
+  });
+});
+
+it.each([
+  { refreshing: true, refresh_failed: false, label: '集計中' },
+  { refreshing: false, refresh_failed: true, label: '取得できませんでした' },
+  { refreshing: true, refresh_failed: true, label: '集計中' },
+])('前回0件でも変更の入口を「$label」で残す（%#）', async ({ refreshing, refresh_failed, label }) => {
+  api.mockResolvedValue({ ok: true, data: { ...response, home: { ...response.home, cards: response.home.cards.map(item => ({ ...item, count: 0, listings: [] })) } } });
+  recentApi.mockResolvedValue({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refreshing, refresh_failed } });
+  renderHome();
+  await screen.findByRole('button', { name: /課金が高いまま応募が少ない求人/ });
+  await waitFor(() => {
+    expect(document.querySelector('.jh-more')?.textContent).toBe(`ほかの見るもの：直近7日に変更 ${label}`);
+  });
+  fireEvent.click(screen.getByRole('button', { name: `直近7日に変更 ${label}` }));
+  expect(screen.getByRole('region', { name: '直近7日に変更の一覧' }).querySelector('h3')?.textContent).toBe('直近7日に変更（0件）');
+  if (refresh_failed) expect(screen.getByText('最新の情報を読み込めなかったため、前回取得した件数を表示しています。時間を置いて再読み込みしてください。').textContent).toContain('前回取得した件数');
 });

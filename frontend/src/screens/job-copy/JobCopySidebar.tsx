@@ -92,7 +92,7 @@ export function JobCopySidebar({ pinned, expanded, setRoot, setTrigger, panelId,
   return <div className="jc-sidebar" ref={setRoot} onMouseEnter={reveal} onMouseLeave={deferClose}
     onFocus={revealOnFocus}
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) deferClose(); }}>
-    <div className="jc-sidebar-rail"><button type="button" ref={setTrigger} aria-label="求人一覧を開く" aria-expanded={expanded} aria-controls={panelId} onClick={reveal}><span aria-hidden="true">☰</span><small>一覧</small></button><span className="jc-sidebar-current" title={title}>{title}</span></div>
+    <div className="jc-sidebar-rail"><button type="button" ref={setTrigger} aria-label="求人一覧を開く" aria-expanded={expanded} aria-controls={panelId} onClick={reveal}><span aria-hidden="true">☰</span><small>開く</small></button><span className="jc-sidebar-current" title={title}>求人</span></div>
     <aside className="jc-list" id={panelId} aria-label="求人一覧と絞り込み" inert={!expanded} aria-hidden={!expanded}>
       <div className="jc-sidebar-actions"><strong>求人を選ぶ</strong><button type="button" className="jc-button" aria-pressed={pinned} onClick={togglePin}>{pinned ? '固定を解除' : '固定'}</button></div>
       {children}

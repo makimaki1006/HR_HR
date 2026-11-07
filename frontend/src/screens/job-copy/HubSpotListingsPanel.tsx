@@ -143,7 +143,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     window.addEventListener('popstate', cancel);
     return () => { window.removeEventListener('popstate', cancel); };
   }, []);
-  const conditions = [deal ? dealName : '', prefecture, title === 'unknown' ? '職種不明' : title, media === 'hrh' ? 'HRハッカー' : media === 'airwork' ? 'AirWork' : '', draftStatus ? draftStatus === 'none' ? '案なし・確認状態は未取得' : ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' } as Record<string, string>)[draftStatus] ?? '不明' : ''].filter(Boolean).join(' ／ ') || 'すべての求人';
+  const conditions = [deal ? dealName : '', prefecture, title === 'unknown' ? '職種不明' : title, media === 'hrh' ? 'HRハッカー' : media === 'airwork' ? 'AirWork' : media === 'reclogi' ? 'リクロジ' : '', draftStatus ? draftStatus === 'none' ? '案なし・確認状態は未取得' : ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' } as Record<string, string>)[draftStatus] ?? '不明' : ''].filter(Boolean).join(' ／ ') || 'すべての求人';
   const rows = useMemo(() => sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [], [page, sort]);
   useEffect(() => { orderRef.current = rows.map(item => item.id); }, [rows]);
   // 一覧に出ている求人の会社名をまとめて読んでおく。求人を開いたとき会社名がすぐ出る。
@@ -162,7 +162,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
       </>}
       <label>都道府県<select aria-label="都道府県" value={prefecture} onChange={event => { setPrefecture(event.target.value); }}><option value="">すべて</option>{AREA_MASTER.map(([pref]) => <option key={pref} value={pref}>{pref}</option>)}</select></label>
       <label>職種の分類<select aria-label="職種の分類" value={title} onChange={event => { setTitle(event.target.value); }}><option value="">すべて</option><option value="unknown">不明</option>{titles.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
-      <label>媒体<select aria-label="媒体" value={media} onChange={event => { setMedia(event.target.value); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label>
+      <label>媒体<select aria-label="媒体" value={media} onChange={event => { setMedia(event.target.value); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option><option value="reclogi">リクロジ</option></select></label>
       <label>案の確認状態<select aria-label="案の確認状態で絞り込む" value={draftStatus} onChange={event => { setDraftStatus(event.target.value); }}><option value="">すべて</option><option value="pending">確認待ち</option><option value="adopted">採用</option><option value="rejected">見送り</option><option value="none">案なし・確認状態は未取得</option></select></label>
       <label>並び順<select aria-label="並び順" value={sort} onChange={event => { setSort(event.target.value); }}><option value="title">求人名順</option><option value="media">媒体順</option><option value="applications">表示中の応募が多い順</option></select></label>
     </div><button type="button" className="jc-button" onClick={() => { setFiltersOpen(false); }}>条件を畳む</button></details>

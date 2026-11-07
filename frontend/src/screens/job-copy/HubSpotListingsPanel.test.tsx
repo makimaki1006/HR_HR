@@ -230,3 +230,31 @@ it('rechecks a ready list during refresh and removes the notice when the new lis
     expect(screen.queryByText(/最新の一覧を読み込み中です/)).toBeNull();
   } finally { vi.useRealTimers(); }
 });
+
+it('リクロジの媒体・応募数・出来事を保持し、AirWorkの実績や状態を混ぜない', () => {
+  const record = listingRecord({ ...history, listing: { ...row, media: 'reclogi', media_job_id: '424242', application_count: 3 }, status_history: { kyuujin_status: [{ timestamp: '2026-10-01T00:00:00Z', value: '公開前' }], baitai_genjoukyou_airwork: [{ timestamp: '2026-10-02T00:00:00Z', value: '01' }] }, airwork_weekly_perf: { source: 'airwork', job_id: '424242', rows: [] } });
+  expect(record.media).toBe('リクロジ');
+  expect(record.mediaJobId).toBe('424242');
+  expect(record.listingApplicationCount).toBe(3);
+  expect(record.versions.map(version => version.body)).toEqual(['合成の旧本文', '合成の新本文']);
+  expect(record.statusHistory).toEqual([{ at: '2026-10-01T00:00:00Z', value: '公開前' }]);
+  expect(record.hrhPerformance).toBeUndefined();
+});
+
+it('リクロジの求人を媒体名と応募3件で一覧に出し、媒体で絞って同じ本文を開く', async () => {
+  const reclogi = { ...row, media: 'reclogi' as const, media_job_id: '424242', application_count: 3 };
+  api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.includes('/versions') ? { ...history, listing: reclogi } : { ...page, total: 1, listings: [reclogi], next_offset: null } }));
+  const onOpen = vi.fn<(job: JobCopyRecord) => void>();
+  render(<HubSpotListingsPanel onOpen={onOpen} />);
+  const listing = await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
+  expect(listing.textContent).toContain('大分県大分市 · リクロジ · ドライバー');
+  expect(listing.textContent).toContain('応募 3件');
+  fireEvent.click(screen.getByText('絞り込み・並び順'));
+  fireEvent.change(screen.getByLabelText('媒体', { selector: 'select' }), { target: { value: 'reclogi' } });
+  await waitFor(() => { expect(api.mock.calls.some(([path]) => String(path).includes('media=reclogi'))).toBe(true); });
+  fireEvent.click(screen.getByRole('button', { name: '合成配送求人の本文を見る' }));
+  await waitFor(() => { expect(onOpen).toHaveBeenCalledOnce(); });
+  expect(onOpen.mock.calls[0]?.[0].media).toBe('リクロジ');
+  expect(onOpen.mock.calls[0]?.[0].listingApplicationCount).toBe(3);
+  expect(onOpen.mock.calls[0]?.[0].versions[1]?.body).toBe('合成の新本文');
+});

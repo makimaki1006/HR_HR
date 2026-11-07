@@ -4,9 +4,8 @@ use crate::audit::AuditDb;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::io::{Read, Write};
 
-// v3: 各求人に掲載開始日・掲載終了日・終了予定日を保持する。
-// 古い形式には日付がないため復元しない。
-const VERSION: i64 = 3;
+// v4: リクロジ（公開前を含む）を索引に追加。欠落する旧索引は復元しない。
+const VERSION: i64 = 4;
 // Base64 text stays at 1,000,000 bytes, leaving room for the pipeline envelope.
 const CHUNK_BYTES: usize = 750_000;
 const MAX_PARTS: usize = 128;
@@ -16,6 +15,7 @@ pub(super) fn media<'de, D: serde::Deserializer<'de>>(d: D) -> Result<&'static s
     match String::deserialize(d)?.as_str() {
         "hrh" => Ok("hrh"),
         "airwork" => Ok("airwork"),
+        "reclogi" => Ok("reclogi"),
         _ => Err(serde::de::Error::custom("invalid media")),
     }
 }

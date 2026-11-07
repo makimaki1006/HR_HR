@@ -198,6 +198,8 @@ const PROPERTIES: &[&str] = &[
     "hs_name",
     "id_hrhakkaa",
     "id_airwork",
+    "id_reclogi",
+    "reclogi_moto_hr_kyuujin_id",
     "airwork_account_login_id",
     "id_shop_hrhakkaa",
     "hrh_kyuujinhyou_honbun",
@@ -326,9 +328,16 @@ fn location(value: &str) -> (Option<String>, Option<String>) {
 fn listing(record: &Record) -> Option<Listing> {
     let hrh = record.value("id_hrhakkaa");
     let aw = record.value("id_airwork");
-    let (media, media_job_id, account_id) = match (hrh, aw) {
-        (Some(id), None) => ("hrh", id, record.value("id_shop_hrhakkaa")),
-        (None, Some(id)) => ("airwork", id, record.value("airwork_account_login_id")),
+    let reclogi = record.value("id_reclogi");
+    // 元のHR求人IDは作成経路の印だけ。媒体の求人IDとしては使わない。
+    let pending_reclogi = reclogi.is_none()
+        && record.value("reclogi_moto_hr_kyuujin_id").is_some()
+        && record.value("kyuujin_status") == Some("公開前");
+    let (media, media_job_id, account_id) = match (hrh, aw, reclogi) {
+        (Some(id), None, None) => ("hrh", id, record.value("id_shop_hrhakkaa")),
+        (None, Some(id), None) => ("airwork", id, record.value("airwork_account_login_id")),
+        (None, None, Some(id)) => ("reclogi", id, None),
+        (None, None, None) if pending_reclogi => ("reclogi", "", None),
         _ => return None,
     };
     let (prefecture, municipality) = if media == "hrh" {
@@ -1262,7 +1271,7 @@ pub(super) async fn read(
         || query
             .media
             .as_deref()
-            .is_some_and(|v| !["hrh", "airwork"].contains(&v))
+            .is_some_and(|v| !["hrh", "airwork", "reclogi"].contains(&v))
         || query
             .title
             .as_ref()
@@ -1573,7 +1582,11 @@ fn versions(
     let properties = if media == "hrh" {
         vec!["hrh_kyuujinhyou_honbun", "hrh_kyuujinhyou_gazou"]
     } else {
-        vec!["shigotonaiyou", AW_IMAGES]
+        if media == "airwork" {
+            vec!["shigotonaiyou", AW_IMAGES]
+        } else {
+            vec!["shigotonaiyou"]
+        }
     };
     let mut counts = BTreeMap::new();
     let mut events: BTreeMap<chrono::DateTime<chrono::Utc>, BTreeMap<&str, String>> =
@@ -1645,8 +1658,10 @@ fn current_body(record: &Record, media: &str) -> Option<Value> {
                 .value("hrh_kyuujinhyou_gazou")
                 .map(images_registered_value),
         )
-    } else {
+    } else if media == "airwork" {
         record.value(AW_IMAGES).map_or((None, None), aw_images)
+    } else {
+        (None, None)
     };
     Some(
         json!({"checked_at":chrono::Utc::now().to_rfc3339(),"body":body,"image_urls":images,"images_registered":registered}),
@@ -1871,8 +1886,10 @@ pub(super) async fn read_versions(
     let draft_revision = crate::job_gen::drafts::revision(&record.properties);
     let (indeed_perf, airwork_perf) = if row.media == "hrh" {
         (indeed_weekly_perf(&record), None)
-    } else {
+    } else if row.media == "airwork" {
         (None, airwork_weekly_perf(&record))
+    } else {
+        (None, None)
     };
     let can_write_drafts = state.audit.is_some() && super::drafts::Writes::from_env().allows(&id);
     // Use the same acquired counts as the list/deal table, across the entire index.
@@ -2666,6 +2683,81 @@ mod tests {
                 expected == "不明"
             );
         }
+    }
+    #[test]
+    fn job_copy_reclogi_listings_keep_media_identity() {
+        let make = |id: &str, properties: Value| {
+            serde_json::from_value::<Record>(json!({"id":id,"properties":properties})).unwrap()
+        };
+        let published = listing(&make("301", json!({"id_reclogi":"424242", "hs_name":"合成リクロジ求人", "kyuujin_status":"公開中", "shigotonaiyou":"合成の仕事内容", "qinwude":"東京都新宿区", "baitai_genjoukyou_airwork":"01"}))).unwrap();
+        assert_eq!(
+            (published.media, published.media_job_id.as_str()),
+            ("reclogi", "424242")
+        );
+        assert_eq!(published.publication_status.as_deref(), Some("掲載中"));
+        assert_eq!(published.prefecture.as_deref(), Some("東京都"));
+        let pending = listing(&make(
+            "302",
+            json!({"reclogi_moto_hr_kyuujin_id":"424242", "kyuujin_status":"公開前"}),
+        ))
+        .unwrap();
+        assert_eq!(
+            (pending.media, pending.media_job_id.as_str()),
+            ("reclogi", "")
+        );
+        assert_eq!(pending.publication_status.as_deref(), Some("掲載前"));
+        assert_eq!(pending.account_id, None);
+        assert!(listing(&make(
+            "305",
+            json!({"reclogi_moto_hr_kyuujin_id":"424242", "kyuujin_status":"公開終了"})
+        ))
+        .is_none());
+        for property in ["id_reclogi", "reclogi_moto_hr_kyuujin_id"] {
+            assert!(index_properties().contains(&property));
+        }
+        let raw = json!({"id":"301", "properties":{"id_reclogi":"424242", "shigotonaiyou":"合成の現在の本文", "aw_kyuujinhyou_gazou":"https://example.invalid/other.png"}, "propertiesWithHistory":{"shigotonaiyou":[{"timestamp":"2026-10-01T00:00:00Z", "value":"合成の以前の本文"}], "aw_kyuujinhyou_gazou":[{"timestamp":"2026-10-02T00:00:00Z", "value":"https://example.invalid/other.png"}]}});
+        let record: Record = serde_json::from_value(raw.clone()).unwrap();
+        let current = current_body(&record, "reclogi").unwrap();
+        assert_eq!(current["body"], "合成の現在の本文");
+        assert_eq!(current["image_urls"], Value::Null);
+        let (history, counts, _) = versions(&raw, "reclogi").unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].body, "合成の以前の本文");
+        assert_eq!(history[0].image_urls, None);
+        assert_eq!(counts, BTreeMap::from([("shigotonaiyou".into(), 1)]));
+        assert!(home::PerfDigest::from_record(&record, "reclogi").is_none());
+
+        for properties in [
+            json!({"id_hrhakkaa":"424242"}),
+            json!({"id_airwork":"424242"}),
+        ] {
+            let other = listing(&make("303", properties)).unwrap();
+            assert_ne!(other.media, published.media);
+        }
+        assert!(listing(&make(
+            "304",
+            json!({"id_hrhakkaa":"424242", "id_reclogi":"424242"})
+        ))
+        .is_none());
+        let index = Index {
+            built_at: chrono::Utc::now().to_rfc3339(),
+            records: vec![published, pending],
+            titles: vec![],
+            deals: vec![],
+        };
+        assert_eq!(index.records.len(), 2);
+        assert_eq!(
+            selected_page(
+                &index,
+                &ListingsQuery {
+                    media: Some("reclogi".into()),
+                    ..Default::default()
+                }
+            )
+            .0,
+            2
+        );
+        assert_eq!(index.records[1].media_job_id, "");
     }
     #[test]
     fn job_copy_media_keys_and_unknown_values() {

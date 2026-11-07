@@ -88,11 +88,11 @@ pub(super) fn publication(record: &Record, media: &str) -> Option<String> {
     Some(
         crate::job_gen::publication::label(
             record.value("kyuujin_status"),
-            record.value(if media == "hrh" {
-                "baitai_genjoukyou_hrhakkaa"
-            } else {
-                "baitai_genjoukyou_airwork"
-            }),
+            match media {
+                "hrh" => record.value("baitai_genjoukyou_hrhakkaa"),
+                "airwork" => record.value("baitai_genjoukyou_airwork"),
+                _ => None,
+            },
             media,
         )
         .to_owned(),
@@ -423,7 +423,7 @@ pub(super) async fn body_dates(
 ) -> Result<Value, ReadError> {
     let mut dates = BTreeMap::new();
     for chunk in ids.chunks(50) {
-        let data = service.request("/crm/v3/objects/0-420/batch/read", &[], Some(json!({"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(), "properties":["id_hrhakkaa","id_airwork","hrh_kyuujinhyou_honbun","shigotonaiyou"], "propertiesWithHistory":["hrh_kyuujinhyou_honbun","shigotonaiyou"]}))).await?;
+        let data = service.request("/crm/v3/objects/0-420/batch/read", &[], Some(json!({"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(), "properties":["id_hrhakkaa","id_airwork","id_reclogi","reclogi_moto_hr_kyuujin_id","kyuujin_status","hrh_kyuujinhyou_honbun","shigotonaiyou"], "propertiesWithHistory":["hrh_kyuujinhyou_honbun","shigotonaiyou"]}))).await?;
         let page: Page = Page::deserialize(&data).map_err(|_| fail("hubspot_invalid_response"))?;
         if data
             .get("errors")
@@ -436,11 +436,9 @@ pub(super) async fn body_dates(
             return Err(fail("hubspot_partial_read"));
         }
         for record in &page.results {
-            let media = match (record.value("id_hrhakkaa"), record.value("id_airwork")) {
-                (Some(_), None) => "hrh",
-                (None, Some(_)) => "airwork",
-                _ => return Err(fail("listing_media_invalid")),
-            };
+            let media = listing(record)
+                .ok_or_else(|| fail("listing_media_invalid"))?
+                .media;
             let raw = data["results"]
                 .as_array()
                 .and_then(|r| r.iter().find(|v| v["id"].as_str() == Some(&record.id)))

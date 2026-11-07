@@ -32,7 +32,7 @@ export interface Lifeline {
   todayIndex: number | null;
   /** 週ごとの実績（閲覧数・クリック数・媒体の応募数）の元データがあるか。 */
   hasPerformance: boolean;
-  mediaLabel: 'Indeed' | 'AirWork';
+  mediaLabel: 'Indeed' | 'AirWork' | 'リクロジ';
 }
 
 export const mondayOf = (date: string) => addDays(date, -((new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7));
@@ -47,7 +47,7 @@ export function weekIndex(lifeline: Pick<Lifeline, 'weeks'>, date: string): numb
 
 export function buildLifeline(job: JobCopyRecord, events: readonly ListingEvent[], billing: readonly BillingEntry[], now: Date = new Date()): Lifeline | null {
   const today = todayJst(now);
-  const mediaLabel = job.media === 'AirWork' || job.media === 'Airワーク' ? 'AirWork' : 'Indeed';
+  const mediaLabel = job.media === 'リクロジ' ? 'リクロジ' : job.media === 'AirWork' || job.media === 'Airワーク' ? 'AirWork' : 'Indeed';
   const startEvent = events.find(event => event.kind === 'start');
   const first = startEvent?.date ?? events.map(event => event.date).sort()[0];
   if (!first) return null;

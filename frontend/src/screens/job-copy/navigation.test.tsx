@@ -8,7 +8,7 @@ import { navigateJobCopy } from './navigation';
 
 vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }));
 const api = vi.hoisted(() => vi.fn());
-vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', refresh_failed: false, report: { count: 0, listings: [] } } }) : api(path, options) as Promise<unknown> }));
+vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path === '/api/job-copy/recent-changes' ? Promise.resolve({ ok: true, data: { status: 'ready', refresh_failed: false, report: { count: 1, listings: [{ id: '123', title: '合成求人', media: 'hrh', publication_status: '掲載中', deals: [], fields: ['本文'], last_changed_at: '2026-10-01T00:00:00Z' }] } } }) : api(path, options) as Promise<unknown> }));
 beforeEach(() => {
   window.history.replaceState(null, '', '/app/job-copy?demo=1');
   localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true');
@@ -105,7 +105,7 @@ it('変更案件カードの開く・閉じるをpushし、履歴で一覧と既
   expect(new URL(opened).searchParams.get('card')).toBe('recent_changes');
   expect(new URL(opened).searchParams.get('data')).toBe('actual');
   expect(new URL(opened).searchParams.get('keep')).toBe('1');
-  await screen.findByRole('heading', { name: '直近7日に変更（0件）' });
+  await screen.findByRole('heading', { name: '直近7日に変更（1件）' });
   expect(push).toHaveBeenCalledTimes(1);
   fireEvent.click(button);
   const closed = window.location.href;
@@ -113,7 +113,7 @@ it('変更案件カードの開く・閉じるをpushし、履歴で一覧と既
   expect(screen.queryByRole('region', { name: '直近7日に変更の一覧' })).toBeNull();
   expect(push).toHaveBeenCalledTimes(2);
   pop(opened);
-  expect(screen.getByRole('heading', { name: '直近7日に変更（0件）' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '直近7日に変更（1件）' })).toBeTruthy();
   expect(button.getAttribute('aria-pressed')).toBe('true');
   pop(closed);
   expect(screen.queryByRole('region', { name: '直近7日に変更の一覧' })).toBeNull();
