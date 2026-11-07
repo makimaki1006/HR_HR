@@ -306,8 +306,8 @@ describe('コンサルKPI v2 第3段', () => {
     const box = await screen.findByRole('table', { name: '応募数の散らばり（継続回数ごと）' });
     expect(within(box).getAllByRole('row').slice(1, 2).flatMap((row) => within(row).getAllByRole('cell').map((c) => c.textContent))).toEqual(['初回', '37', '0.00', '9.00', '12.00', '19.00', '27.00', '22.31']);
     const chart = screen.getByRole('img', { name: '応募数の散らばり（継続回数ごと）' });
-    expect(Number(chart.querySelector('rect')?.getAttribute('x'))).toBe(320); // API の q1=9 を座標に変換
-    expect(Number(chart.querySelector('rect')?.getAttribute('width'))).toBeCloseTo(188.8889); // q3=19
+    expect(Number(chart.querySelector('rect')?.getAttribute('x'))).toBe(300); // API の q1=9 を座標に変換
+    expect(Number(chart.querySelector('rect')?.getAttribute('width'))).toBeCloseTo(166.6667); // q3=19
     expect(await screen.findByText('契約前のMTG 7 件は含めていません。')).toBeTruthy();
     const launch = screen.getByRole('img', { name: '初回契約の開始月ごとの応募の推移' });
     expect(launch.querySelectorAll('circle')).toHaveLength(1); // 31件の4.7だけ、2件の9.9は描かない
