@@ -618,26 +618,39 @@ function RankWithChecks({ rank, items }: { rank: string; items: { id: string; an
   );
 }
 
-/** 詳細のランク: 条件ごとに先方の答えと満たすか */
-function RankDetail({ rank, items }: { rank: string; items: { id: string; answer: string | null }[] }) {
-  const checks = apoRankChecks(items);
+/** 詳細のランク: 決め方と、条件ごとに先方の答え・根拠の発言・判定の基準 */
+function RankDetail({ rank, items, checks, model }: { rank: string; items: TalkItemDetail[]; checks: TalkCheckDef[]; model: string | null }) {
+  const rows = apoRankChecks(items);
   return (
     <div className="talk-rankdetail" data-testid="talk-detail-rank">
-      <p>アポのランク <span className={`talk-rank talk-rank-${rank}`}>{rank}</span> 3 つのうち {checks.filter(k => k.met).length} つを満たす</p>
-      <table className="w8-table w8-table-dense">
-        <thead><tr><th>条件</th><th>満たす答え</th><th>先方の答え</th><th>判定</th></tr></thead>
-        <tbody>
-          {checks.map(k => (
-            <tr key={k.label} data-testid="talk-detail-rank-check">
-              <td>{k.label}</td>
-              <td>{k.want}</td>
-              <td>{k.answer ?? '分からない'}</td>
-              <td><Mark status={k.met ? 'done' : 'not_done'} /> {k.met ? '満たす' : '満たさない'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="w8-xs w8-muted">3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます。答えの根拠の発言は、下の「日程が決まった後に聞くこと」の各項目にあります。</p>
+      <h2 className="w8-section-title">アポのランク <span className={`talk-rank talk-rank-${rank}`}>{rank}</span> 3 つの条件のうち {rows.filter(k => k.met).length} つを満たす</h2>
+      <p className="w8-xs w8-muted" data-testid="talk-detail-rank-how">
+        決め方: この電話の文字起こしを AI{model !== null ? `（${model}）` : ''}が読み、項目ごとの基準で先方の答えを選んでいます。その答えが下の 3 つの条件に当たる数で、3つ＝S、2つ＝A、1つ＝B、0＝C にしています。聞けていない答えは満たさないとして数えます。
+      </p>
+      {rows.map(k => {
+        const it = items.find(i => i.id === k.id);
+        const rule = checks.find(c => c.id === k.id)?.rule;
+        const facts = it === undefined ? [] : [hearingAskedText(it.asked), hearingResultText(it.answered)].filter(t => t !== '');
+        return (
+          <div key={k.id} className="talk-rankcond" data-testid="talk-detail-rank-check">
+            <div>
+              <Mark status={k.met ? 'done' : 'not_done'} /> <strong>{k.label}</strong>
+              ：先方の答え「{k.answer ?? '分からない'}」→ 条件「{k.want}」を{k.met ? '満たす' : '満たさない'}
+            </div>
+            <div className={it?.quote != null ? 'talk-quote' : 'w8-xs w8-muted'} data-testid="talk-detail-rank-quote">
+              {it?.quote != null ? <>根拠の発言: 「{it.quote}」{it.evidence.length > 0 && <span className="w8-xs w8-muted"> （発言 {it.evidence.join('・')}）</span>}</> : '根拠の発言はありません'}
+            </div>
+            {facts.length > 0 && <div className="w8-xs w8-muted">{facts.join('・')}</div>}
+            {it?.note != null && <div className="w8-xs w8-muted">AI のメモ: {it.note}</div>}
+            {rule !== undefined && (
+              <details className="w8-xs">
+                <summary>AI に渡している判定の基準</summary>
+                <div className="w8-muted">{rule}</div>
+              </details>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -686,7 +699,7 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
       </p>
       <div className="talk-detail-grid">
         <section data-testid="talk-items">
-          {c.apo_rank !== null && <RankDetail rank={c.apo_rank} items={data.items} />}
+          {c.apo_rank !== null && <RankDetail rank={c.apo_rank} items={data.items} checks={data.checks} model={data.model} />}
           <h2 className="w8-section-title">項目ごとの判定</h2>
           {data.items.length === 0 && <p className="w8-muted">この電話はまだ判定されていません。</p>}
           {talkItems.map(it => (

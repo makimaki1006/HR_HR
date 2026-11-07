@@ -306,13 +306,25 @@ describe('トークの振り返り: 電話の一覧と詳細', () => {
     expect(items[0]?.textContent).toContain('答えが得られた・営業が質問した');
     expect(items[0]?.querySelector('[data-testid="talk-hearing-answer"]')?.textContent).toBe('先方の答え: 3か月以内');
     expect(items[3]?.textContent).toContain('答えが得られていない・営業が質問した');
-    expect(items[3]?.querySelector('[data-testid="talk-hearing-answer"]')?.textContent).toBe('先方の答え: 未定');
+    expect(items[3]?.querySelector('[data-testid="talk-hearing-answer"]')?.textContent).toBe('先方の答え: 未定（金額は出ず「上と相談」なので未定）');
     expect(items[5]?.textContent).toContain('該当なし');
     // ランク: 条件ごとに満たす答え・先方の答え・判定を出す
-    expect(screen.getByTestId('talk-detail-rank').textContent).toContain('3 つのうち 2 つを満たす');
-    expect(screen.getAllByTestId('talk-detail-rank-check').map(r => r.textContent)).toEqual([
-      '予算具体額未定× 満たさない', '入社時期3か月以内3か月以内○ 満たす', '判断する人本人が判断者本人が判断者○ 満たす',
+    expect(screen.getByTestId('talk-detail-rank').textContent).toContain('3 つの条件のうち 2 つを満たす');
+    expect(screen.getByTestId('talk-detail-rank-how').textContent).toContain('文字起こしを AI（架空モデル）が読み');
+    const conds = screen.getAllByTestId('talk-detail-rank-check');
+    expect(conds.map(r => r.firstElementChild?.textContent)).toEqual([
+      '× 予算：先方の答え「未定」→ 条件「具体額」を満たさない',
+      '○ 入社時期：先方の答え「3か月以内」→ 条件「3か月以内」を満たす',
+      '○ 判断する人：先方の答え「本人が判断者」→ 条件「本人が判断者」を満たす',
     ]);
+    expect(screen.getAllByTestId('talk-detail-rank-quote').map(q => q.textContent)).toEqual([
+      '根拠の発言: 「予算はまだ決めていなくて、上と相談してからですね。」 （発言 8）',
+      '根拠の発言: 「来月中には入ってほしいですね。」 （発言 6）',
+      '根拠の発言: 「採用は私が決めています。」 （発言 10）',
+    ]);
+    expect(conds[0]?.textContent).toContain('AI のメモ: 金額は出ず「上と相談」なので未定');
+    expect(conds[0]?.textContent).toContain('営業が質問した・答えが得られていない');
+    expect(conds[0]?.querySelector('details')?.textContent).toContain('「分からない」「上と相談」「未定」は相応しい答えではない');
     // 画面に開発者用語を出さない
     expect(document.body.textContent).not.toMatch(/asked|answered|status|aq_|tk_/);
     unmount();
