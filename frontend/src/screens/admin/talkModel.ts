@@ -474,11 +474,19 @@ export function fixtureDetail(callId: string): TalkCallDetailResponse {
   if (n === 2) {
     // 日程が決まった電話: 日程が決まった後に聞くことに先方の答えが入る
     const heard = (id: string, answer: string, answered: boolean) => ({ ...it(id, answered ? 'done' : 'not_done', [], null, null), answer, asked: true, answered });
+    // ランクの 3 条件には根拠の発言とメモを付ける
+    const said: Record<string, [number[], string, string | null]> = {
+      aq_timing: [[6], '来月中には入ってほしいですね。', null],
+      aq_budget: [[8], '予算はまだ決めていなくて、上と相談してからですね。', '金額は出ず「上と相談」なので未定'],
+      aq_decider: [[10], '採用は私が決めています。', null],
+    };
     const agreed = items.map(x => {
       const a = FIXTURE_AGREED_ANSWERS[x.id];
       if (x.id === 'aq_attend') return na(x.id, '話している相手が判断する人');
-      if (a !== undefined) return heard(x.id, a, a !== '未定');
-      return x;
+      if (a === undefined) return x;
+      const h = heard(x.id, a, a !== '未定');
+      const q = said[x.id];
+      return q === undefined ? h : { ...h, evidence: q[0], quote: q[1], note: q[2] };
     });
     return { ...base, items: agreed, transcript: null, transcript_error: '録音が残っていません' };
   }
@@ -535,12 +543,12 @@ export const APO_RANK_CONDITIONS = [
   { id: 'aq_timing', label: '入社時期', short: '時期', want: '3か月以内' },
   { id: 'aq_decider', label: '判断する人', short: '判断', want: '本人が判断者' },
 ] as const;
-export interface ApoRankCheck { label: string; short: string; want: string; answer: string | null; met: boolean }
+export interface ApoRankCheck { id: string; label: string; short: string; want: string; answer: string | null; met: boolean }
 /** 電話の答えが 3 つの条件をそれぞれ満たすか */
 export function apoRankChecks(items: { id: string; answer: string | null }[]): ApoRankCheck[] {
   return APO_RANK_CONDITIONS.map(c => {
     const answer = items.find(i => i.id === c.id)?.answer ?? null;
-    return { label: c.label, short: c.short, want: c.want, answer, met: answer === c.want };
+    return { id: c.id, label: c.label, short: c.short, want: c.want, answer, met: answer === c.want };
   });
 }
 /** ランクの決め方 (Rust の apo_rank.rs と同じ。画面では架空データの電話にだけ使う) */
@@ -551,7 +559,7 @@ export function apoRankOf(items: TalkCallRow['items']): string | null {
   return APO_RANKS[3 - met] ?? null;
 }
 /** ランクの決め方の説明 (表の上・数え方・詳細) */
-export const APO_RANK_RULE = 'アポのランクは、日程が決まった電話で聞けた先方の答えが、次の 3 つをいくつ満たすかで決めています。予算が具体額・入社時期が3か月以内・判断する人が本人。3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます。';
+export const APO_RANK_RULE = 'アポのランクは、日程が決まった電話の文字起こしを AI が読んで選んだ先方の答えが、次の 3 つをいくつ満たすかで決めています。予算が具体額・入社時期が3か月以内・判断する人が本人。3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます。電話を開くと、条件ごとの先方の答え・根拠の発言・判定の基準が見られます。';
 
 // ------------------------------------------------------------ アポ数の内訳
 

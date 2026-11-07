@@ -429,4 +429,6 @@ table.w8-table.talk-table { border-collapse: separate; border-spacing: 0; }
 .talk-rankcell { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; white-space: nowrap; }
 .talk-rankcheck { margin-right: 6px; }
 .talk-rankdetail { margin: 0 0 12px; }
-.talk-rankdetail table { width: auto; margin: 4px 0; }
+.talk-rankcond { padding: 8px 12px; border-radius: 4px; background: rgba(30, 41, 59, 0.5); margin-bottom: 6px; }
+.talk-rankcond .talk-quote { color: #cbd5e1; font-style: italic; }
+.talk-rankcond details { margin-top: 2px; }
