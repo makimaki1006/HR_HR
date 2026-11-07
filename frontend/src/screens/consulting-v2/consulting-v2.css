@@ -160,3 +160,5 @@ body:has(.cv2) { margin: 0; background: #f4f7fa; }
 .cv2-fresh-bad { background: #fbe6e3; color: #7d2019; }
 .cv2-fresh details { display: inline-block; margin-left: 12px; }
 .cv2-fresh .cv2-dim { color: inherit; opacity: 0.8; }
+
+.cv2-kpi[aria-pressed="true"] { border-color: #225d96; box-shadow: inset 0 0 0 2px #225d96; background: #edf4fb; }

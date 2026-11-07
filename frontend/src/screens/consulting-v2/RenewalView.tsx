@@ -1,3 +1,4 @@
+import { Overdue } from './SupplementalViews';
 import { useState } from 'react';
 import { DASH, num, orText, yen } from './format';
 import { Async, CaseLink, FlagChips, Fresh, HubspotLink, Kpi, Section } from './parts';
@@ -97,6 +98,7 @@ export function RenewalView({ go }: { go: (r: Partial<Route>) => void }) {
                 </details>
               </Section>
             )}
+            <Overdue go={go} />
             <Section title="ステージ別の件数（満了月ごと・実数）">
               <div className="cv2-table-wrap">
                 <table className="cv2-table">

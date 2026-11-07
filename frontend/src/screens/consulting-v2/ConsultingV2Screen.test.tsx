@@ -1,11 +1,14 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConsultingV2Screen } from './ConsultingV2Screen';
-import { BOARD, CUSTOMER, CUSTOMER_INDEX, DETAIL, GOALS, MTGQ, PHONE, RENEWAL_PIPE, RESULTS, TEAM, TODAY } from './__fixtures__/fixtures';
+import { DATA_QUALITY, STAGE_STAY, FOCUS, BOARD, CUSTOMER, CUSTOMER_INDEX, DETAIL, GOALS, MTGQ, PHONE, RENEWAL_PIPE, RESULTS, TEAM, TODAY, TODAY_ALL_CANDIDATES } from './__fixtures__/fixtures';
 import { caseManagementHref } from './format';
 
 function reply(path: string): unknown {
+  if (path.startsWith('/api/consulting/data-quality')) return DATA_QUALITY;
+  if (path.startsWith('/api/consulting/stage-stay')) return STAGE_STAY;
+  if (path.startsWith('/api/consulting/focus')) return FOCUS;
   if (path.startsWith('/api/consulting/team')) return TEAM;
   if (path.startsWith('/api/consulting/today')) return TODAY;
   if (path.startsWith('/api/consulting/deals')) return BOARD;
@@ -210,4 +213,174 @@ describe('案件管理へのリンク', () => {
     expect(caseManagementHref('')).toEqual({ href: '/app/job-copy', linked: false });
     expect(caseManagementHref(null)).toEqual({ href: '/app/job-copy', linked: false });
   });
+});
+
+
+describe('コンサルKPI v2 第3段', () => {
+  it('今日の札は一覧を切り替え、もう一度押すと解除する。開始前も表示できる', async () => {
+    open('?view=today');
+    render(<ConsultingV2Screen />);
+    await screen.findByText('今日動く先（2 件）');
+    const card = screen.getByRole('button', { name: /今週始まった契約/ });
+    fireEvent.click(card);
+    expect(card.getAttribute('aria-pressed')).toBe('true');
+    let table = screen.getByRole('table', { name: '今日動く案件' });
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(table.textContent).toContain('架空株式会社B 第二拠点');
+    expect(table.textContent).not.toContain('架空株式会社A 本社');
+    fireEvent.click(card);
+    expect(card.getAttribute('aria-pressed')).toBe('false');
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: /開始前の契約/ }));
+    table = screen.getByRole('table', { name: '今日動く案件' });
+    expect(table.textContent).toContain('架空株式会社D 開始前');
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+  });
+
+  it('今日の担当絞り込みは上位24件の外の候補も表示し、札の解除後も担当を保つ', async () => {
+    const fetcher = fetch;
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>((input, init) => input === '/api/consulting/today'
+      ? Promise.resolve(new Response(JSON.stringify(TODAY_ALL_CANDIDATES), { status: 200, headers: { 'Content-Type': 'application/json' } })) : fetcher(input, init)));
+    open('?view=today');
+    render(<ConsultingV2Screen />);
+    await screen.findByText('今日動く先（24 件）');
+    const table = screen.getByRole('table', { name: '今日動く案件' });
+    expect(within(table).getAllByRole('row')).toHaveLength(25);
+    expect(table.textContent).not.toContain('架空株式会社E 候補のみ');
+    const card = screen.getByRole('button', { name: /今日動く候補/ });
+    fireEvent.click(card);
+    fireEvent.change(screen.getByRole('combobox', { name: 'コンサル担当者' }), { target: { value: '架空担当きいろ' } });
+    expect(screen.getByText('今日動く先（1 件）')).toBeTruthy();
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(table.textContent).toContain('架空株式会社E 候補のみ');
+    expect(table.textContent).not.toContain('架空上位案件');
+    fireEvent.click(card);
+    expect(card.getAttribute('aria-pressed')).toBe('false');
+    expect(table.textContent).toContain('架空株式会社E 候補のみ');
+    fireEvent.change(screen.getByRole('combobox', { name: 'コンサル担当者' }), { target: { value: '' } });
+    expect(within(table).getAllByRole('row')).toHaveLength(25);
+    expect(table.textContent).not.toContain('架空株式会社E 候補のみ');
+  });
+
+  it.each([false, true])('今日の全候補が無い応答は一覧へ戻し、空配列なら0件のままにする（空配列: %s）', async (empty) => {
+    const fetcher = fetch;
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>((input, init) => input === '/api/consulting/today'
+      ? Promise.resolve(new Response(JSON.stringify({ ...TODAY, candidates: empty ? [] : undefined }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      })) : fetcher(input, init)));
+    open('?view=today&c=架空担当あお');
+    render(<ConsultingV2Screen />);
+    await screen.findByText(`今日動く先（${empty ? '0' : '1'} 件）`);
+    fireEvent.click(screen.getByRole('button', { name: /今日動く候補/ }));
+    if (empty) {
+      const section = screen.getByText('今日動く先（0 件）').closest('section');
+      if (!section) throw new Error('今日動く先のセクションがありません');
+      expect(section.textContent).toContain('この条件に合う案件はありません。');
+      expect(section.textContent).not.toContain('架空株式会社A 本社');
+    } else {
+      const table = screen.getByRole('table', { name: '今日動く案件' });
+      expect(within(table).getAllByRole('row')).toHaveLength(2);
+      expect(table.textContent).toContain('架空株式会社A 本社');
+      expect(table.textContent).not.toContain('架空株式会社B 第二拠点');
+    }
+  });
+
+  it('滞留の両方の表で内部IDの代わりにステージの表示名を出す', async () => {
+    open('?view=today');
+    render(<ConsultingV2Screen />);
+    fireEvent.click(await screen.findByText('滞留した案件'));
+    for (const name of ['同じステージに長く止まっている案件', '満了後も稼働中の案件']) {
+      const table = await screen.findByRole('table', { name });
+      const row = within(table).getAllByRole('row')[1];
+      if (!row) throw new Error('滞留案件の行がありません');
+      expect(within(row).getAllByRole('cell')[2]?.textContent).toBe('稼働中');
+      expect(table.textContent).not.toContain('fiction-active-stage');
+    }
+  });
+
+  it('箱ひげの五数・平均・件数と立ち上がり、2軸の未測定、データ品質をAPIの具体値で出す', async () => {
+    open('?view=results');
+    render(<ConsultingV2Screen />);
+    await screen.findByText('継続回数ごとの成果のばらつき');
+    screen.getAllByText('数字を表で見る').forEach((summary) => { fireEvent.click(summary); });
+    const box = await screen.findByRole('table', { name: '応募数の散らばり（継続回数ごと）' });
+    expect(within(box).getAllByRole('row').slice(1, 2).flatMap((row) => within(row).getAllByRole('cell').map((c) => c.textContent))).toEqual(['初回', '37', '0.00', '9.00', '12.00', '19.00', '27.00', '22.31']);
+    const chart = screen.getByRole('img', { name: '応募数の散らばり（継続回数ごと）' });
+    expect(Number(chart.querySelector('rect')?.getAttribute('x'))).toBe(320); // API の q1=9 を座標に変換
+    expect(Number(chart.querySelector('rect')?.getAttribute('width'))).toBeCloseTo(188.8889); // q3=19
+    expect(await screen.findByText('契約前のMTG 7 件は含めていません。')).toBeTruthy();
+    const launch = screen.getByRole('img', { name: '初回契約の開始月ごとの応募の推移' });
+    expect(launch.querySelectorAll('circle')).toHaveLength(1); // 31件の4.7だけ、2件の9.9は描かない
+    expect(launch.querySelector('circle')?.textContent).toContain('4.7（31件）');
+    expect(screen.getByRole('img', { name: '最優先の広がり' }).querySelector('circle')?.getAttribute('fill')).toBe('white');
+    const axes = screen.getByRole('table', { name: 'リスクの2軸' });
+    expect(within(axes).getAllByRole('row')[1]?.textContent).toContain('放置5119');
+    fireEvent.click(await screen.findByText('データの欠けと記入率の詳細'));
+    expect(await screen.findByRole('table', { name: '結果ごとの記入率' })).toBeTruthy();
+    const dq = screen.getByRole('table', { name: '結果ごとの記入率' });
+    expect(dq.textContent).toContain('応募数解約13753.8%');
+    expect(screen.getByRole('table', { name: '読んでいるシート' }).textContent).toContain('架空取引シート123');
+    expect(screen.getByRole('table', { name: '読んでいるシート' }).textContent).toContain('架空録画シート—');
+  });
+
+  it('滞留はAPIの印で分け、担当で絞る。履歴が無い件数も残す', async () => {
+    open('?view=today&c=架空担当あお');
+    render(<ConsultingV2Screen />);
+    fireEvent.click(await screen.findByText('滞留した案件'));
+    const table = await screen.findByRole('table', { name: '同じステージに長く止まっている案件' });
+    expect(table.textContent).toContain('架空株式会社A 本社');
+    expect(table.textContent).toContain('57');
+    expect(table.textContent).not.toContain('架空株式会社C 支店');
+    expect(await screen.findByText(/入った日が分からない案件 4 件/)).toBeTruthy();
+  });
+
+  it('満了日超過は今月分も含め、APIの印で選んで過ぎた日数の順に出す', async () => {
+    open('?view=renewal');
+    render(<ConsultingV2Screen />);
+    await screen.findByText('満了日超過の稼働中（今月の満了も含む）');
+    fireEvent.click(screen.getByText('満了日超過の稼働中（今月の満了も含む）'));
+    const table = await screen.findByRole('table', { name: '満了日超過の稼働中' });
+    expect(table.textContent).toContain('架空株式会社C 支店');
+    expect(table.textContent).toContain('12');
+    expect(table.textContent).not.toContain('架空株式会社A 本社');
+  });
+
+  it('注目顧客の満足度と採用単価は別々の指標として具体値を出す', async () => {
+    open('?view=customer');
+    render(<ConsultingV2Screen />);
+    await screen.findByText('注目顧客（満足度・採用単価・MTG の記録）');
+    fireEvent.click(screen.getByText('注目顧客（満足度・採用単価・MTG の記録）'));
+    const table = await screen.findByRole('table', { name: '満足度が低い顧客' });
+    expect(table.textContent).toContain('架空株式会社A 本社');
+    expect(table.textContent).toContain('3');
+    expect(screen.getByRole('table', { name: '採用単価が悪化した拠点' }).textContent).toContain('架空本社40万60万1.50');
+  });
+
+  it.each(['data-quality', 'stage-stay', 'focus', 'deals'])('%s の取得失敗を空一覧にしない', async (part) => {
+    const fetcher = fetch;
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>((input, init) => (typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).startsWith(`/api/consulting/${part}`)
+      ? Promise.resolve(new Response('{}', { status: 500 })) : fetcher(input, init)));
+    open(`?view=${part === 'data-quality' ? 'results' : part === 'stage-stay' ? 'today' : part === 'focus' ? 'customer' : 'renewal'}`);
+    render(<ConsultingV2Screen />);
+    if (part === 'stage-stay') fireEvent.click(await screen.findByText('滞留した案件'));
+    if (part === 'focus') fireEvent.click(await screen.findByText('注目顧客（満足度・採用単価・MTG の記録）'));
+    if (part === 'deals') fireEvent.click(await screen.findByText('満了日超過の稼働中（今月の満了も含む）'));
+    expect(await screen.findByText('読み込めませんでした。')).toBeTruthy();
+  });
+});
+
+
+it('少数の成果は図から外し、nullは表でも0にしない', async () => {
+  const fetcher = fetch;
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>((input, init) => input === '/api/consulting/results'
+    ? Promise.resolve(new Response(JSON.stringify({ ...RESULTS, renewal: { ...RESULTS.renewal, by_renewal: [
+      { ...RESULTS.renewal?.by_renewal?.[0], denom: 29, syoudaku: null },
+    ] } }), { status: 200, headers: { 'Content-Type': 'application/json' } })) : fetcher(input, init)));
+  open('?view=results');
+  render(<ConsultingV2Screen />);
+  await screen.findByText('継続回数ごとの成果のばらつき');
+  expect(screen.queryByRole('img', { name: '応募数の散らばり（継続回数ごと）' })).toBeNull();
+  screen.getAllByText('数字を表で見る').forEach((summary) => { fireEvent.click(summary); });
+  const table = screen.getByRole('table', { name: '承諾数の散らばり（継続回数ごと）' });
+  expect(within(table).getAllByRole('row').slice(1, 2).flatMap((row) => within(row).getAllByRole('cell').map((c) => c.textContent))).toEqual(['初回', '—', '—', '—', '—', '—', '—', '—']);
 });

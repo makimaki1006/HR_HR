@@ -1,6 +1,6 @@
 // 画面のテスト・スクリーンショット用の架空データ。実在の会社・人・取引 ID は入れない。
 // 形は /api/consulting/* の応答 (src/handlers/cs_dashboard/routes.rs) に合わせてある。
-import type { BoardResponse, CustomerResponse, DealRow, DetailResponse, GoalsResponse, MtgQualityResponse, PhoneResponse, RenewalPipeResponse, ResultsResponse, TeamResponse, TodayResponse } from '../types';
+import type { BoardResponse, DataQualityResponse, StageStayResponse, FocusResponse, CustomerResponse, DealRow, DetailResponse, GoalsResponse, MtgQualityResponse, PhoneResponse, RenewalPipeResponse, ResultsResponse, TeamResponse, TodayResponse } from '../types';
 
 const base = {
   retired: false,
@@ -121,8 +121,22 @@ export const TODAY: TodayResponse = {
   candidates: [DEAL_A, DEAL_B],
   expiring_this_week: [],
   started_this_week: [DEAL_B],
-  not_started: [],
+  not_started: [{ ...DEAL_B, deal_id: '70000000004', name: '架空株式会社D 開始前', not_started: true }],
   consultants: ['架空担当あお', '架空担当みどり'],
+};
+
+// 上位24件に入らない担当案件も、担当を選んだときは全候補から表示する。
+const TOP_TODAY_ROWS: DealRow[] = Array.from({ length: 24 }, (_, i) => ({
+  ...DEAL_A, deal_id: String(71000000001 + i), name: `架空上位案件${String(i + 1)}`,
+}));
+export const TODAY_ALL_CANDIDATES: TodayResponse = {
+  ...TODAY,
+  meta: { ...TODAY.meta, n_hit: 25, n_shown: 24, keep: 24 },
+  rows: TOP_TODAY_ROWS,
+  candidates: [...TOP_TODAY_ROWS, {
+    ...DEAL_A, deal_id: '71000000025', name: '架空株式会社E 候補のみ', consultant: '架空担当きいろ',
+  }],
+  consultants: [...TODAY.consultants ?? [], '架空担当きいろ'],
 };
 
 export const TEAM: TeamResponse = {
@@ -247,9 +261,10 @@ export const RESULTS: ResultsResponse = {
       { month: '2026-09', keep: 6, cancel: 2, fill: 1, denom: 9, pending: 0, rate: 66.7, rate_excl_fill: 75 },
       { month: '2026-10', keep: 1, cancel: 0, fill: 0, denom: 1, pending: 3, rate: 100, rate_excl_fill: 100 },
     ] },
-    by_renewal: [{ renewal_no: 0, n: 10, n_active: 2, keep: 6, cancel: 2, fill: 1, pending: 1, denom: 9, cancel_rate: 33.3, cancel_rate_excl_fill: 25 }],
+    by_renewal: [{ renewal_no: 0, n: 47, n_active: 8, keep: 26, cancel: 10, fill: 3, pending: 8, denom: 39, cancel_rate: 33.3, cancel_rate_excl_fill: 25, oubo: { n: 37, min: 0, q1: 9, median: 12, q3: 19, max: 27, mean: 22.31 }, syoudaku: { n: 31, min: 0, q1: 1, median: 2, q3: 3, max: 8, mean: 2.4 }, oubo_per_posting: null }],
   },
-  outcome: { goal_act: { pop: 3, has_goal: 2, both: 2, median: 0.25, bands: [{ label: '100%以上', n: 1 }, { label: '50〜100%', n: 0 }, { label: '1〜50%', n: 1 }] } },
+  outcome: { risk: { n_act: 25, ax3: { '赤': 5, '白': 11, '未測定': 9, rule: '契約後の最終接触から30日超' }, ax4: { '赤': 8, '白': 7, '未測定': 10, rule: '満了60日以内 かつ 50万円以上' }, bands: [{ label: '0＝安定', n: 13 }, { label: '1＝要注意', n: 11 }, { label: '2＝最優先', n: 1 }], top: [{ deal_id: DEAL_A.deal_id, name: '架空株式会社A 本社', amount: 1200000, days_to_expiry: 28, no_start: true, ax3w: '開始日が空' }] }, goal_act: { pop: 3, has_goal: 2, both: 2, median: 0.25, bands: [{ label: '100%以上', n: 1 }, { label: '50〜100%', n: 0 }, { label: '1〜50%', n: 1 }] } },
+  rampup: { phase: { rows: [{ label: '半ば', n: 25 }], rule: '契約長に対する割合' }, first_mtg: { n: 37, pre_contract: 7, stats: { n: 37, min: 0, q1: 7, median: 12, q3: 19, max: 57, mean: 18.1 }, buckets: [{ label: '14日以内', n: 37, denom: 31, cancel: 13, cancel_rate: 41.9 }], note: '相関であって因果ではありません。' }, launch: { n_first: 37, n_no_series: 2, n_decrease: 1, cohorts: [{ start: '2026-08', n_deals: 37, points: [{ m: 1, n: 31, mean: 4.7 }, { m: 2, n: 2, mean: 9.9 }] }] } },
   money: {
     active_total: { n: 3, amount: 2_000_000, amount_missing: 1 },
     retention: { rows: [{ month: '2026-09', keep: 4_000_000, cancel: 1_000_000, fill: 500_000, denom: 5_500_000, rate: 72.7, rate_excl_fill: 80 }] },
@@ -272,4 +287,27 @@ export const PHONE: PhoneResponse = {
   reach: { rows: 20, deals_with_call: 2, no_call: 1, no_contact: 1, no_call_rate: 33.3, no_contact_rate: 33.3, note: '1本の通話が複数の取引に結び付いていることがあります' },
   monthly: [{ month: '2026-10', calls: 10, contacts: 6, contact_rate: 60 }],
   silent: { n: 1, rule: '接触が1本も無い、または最後の接触から90日超', rows: [{ deal_id: '70000000002', name: '架空株式会社B 第二拠点', stage: '稼働中', n_calls: 0, n_contact: 0, last_contact: null }] },
+};
+
+
+export const DATA_QUALITY: DataQualityResponse = {
+  meta: { n_deals: 123, n_active: 25 },
+  houjin_source: { rows: [{ label: 'deal', n: 80 }, { label: 'company', n: 43 }], note: '架空の出どころ注記' },
+  outcome_bias: { rows: [{ field: 'oubo', group: '解約', n: 13, filled: 7, fill_rate: 53.8 }], note: '結果ごとの記入率には偏りがあります。' },
+  missing: [{ label: '満了日が空', n: 11, rate: 8.9, note: '継続率の対象に入りません' }],
+  sheets: [{ name: '架空取引シート', rows: 123 }, { name: '架空録画シート', rows: null }],
+};
+export const STAGE_STAY: StageStayResponse = {
+  meta: { stay_days: 45, n_active: 25, n_stay: 1, n_escalation: 1, n_unknown_entered: 4 },
+  rows: [
+    { deal_id: DEAL_A.deal_id, name: DEAL_A.name ?? null, consultant: DEAL_A.consultant ?? null, stage: 'fiction-active-stage', stage_label: '稼働中', entered: '2026-09-06', days: 57, expiry: DEAL_A.expiry ?? null, days_past_expiry: null, escalation: false, stay: true },
+    { deal_id: DEAL_C.deal_id, name: DEAL_C.name ?? null, consultant: DEAL_C.consultant ?? null, stage: 'fiction-active-stage', stage_label: '稼働中', entered: null, days: null, expiry: DEAL_C.expiry ?? null, days_past_expiry: 12, escalation: true, stay: false },
+  ],
+};
+export const FOCUS: FocusResponse = {
+  meta: {},
+  nps_low: { threshold: 4, n: 1, n_have_nps: 15, n_act: 25, coverage: 60, dist: [{ v: 3, n: 1 }, { v: 10, n: 14 }], rows: [{ deal_id: DEAL_A.deal_id, name: DEAL_A.name ?? null, nps: 3, nps_month: '2026-10', amount: 1200000, days_to_expiry: 28, n_contact: 2 }], note: '満足度はリスクの軸に入れていません。' },
+  cpa: { worse: 1, judged: 8, skipped_censored: 2, skipped_no_site: 3, rows: [{ site: 'fiction-a', site_name: '架空本社', prev: 400000, last: 600000, ratio: 1.5, n_points: 2 }], note: '確定した直近2点で比べています。' },
+  mtg_layers: { n_act: 25, both: 10, only_recording: 3, only_mail: 5, neither: 7, note: '録画は事実、メール由来は推定です。' },
+  shape: { n_display: 20, multi_site: 4, ltv: { n: 20, min: 100000, q1: 200000, median: 400000, q3: 800000, max: 2400000, mean: 550000 }, multi_site_note: '拠点が2つ以上ある法人' },
 };
