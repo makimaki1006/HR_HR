@@ -1,3 +1,4 @@
+import { Focus } from './SupplementalViews';
 import { useState } from 'react';
 import { DASH, num, orText, yen } from './format';
 import { Async, CaseLink, Fresh, HubspotLink, Kpi, Section } from './parts';
@@ -62,6 +63,7 @@ export function CustomerView({ route, go }: { route: Route; go: (r: Partial<Rout
               </div>
               {list.length > 200 ? <p className="cv2-dim">先頭の 200 社だけ出しています。法人名で絞ってください。</p> : null}
             </Section>
+            <Focus go={go} />
             </>
           );
         }

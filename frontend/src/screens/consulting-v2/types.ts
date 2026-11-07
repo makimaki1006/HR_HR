@@ -346,6 +346,11 @@ export interface MonthlyRetentionRow {
 }
 
 export interface ByRenewalRow {
+  oubo?: BoxStats | null;
+  mensetu?: BoxStats | null;
+  syoudaku?: BoxStats | null;
+  oubo_per_posting?: BoxStats | null;
+  amount?: BoxStats | null;
   renewal_no: number;
   n: number;
   n_active: number;
@@ -370,8 +375,9 @@ export interface MoneyRetentionRow {
 
 export interface ResultsResponse {
   meta: FreshMeta & { hubspot_portal_id?: string };
-  renewal?: { monthly_retention?: { rows?: MonthlyRetentionRow[] }; by_renewal?: ByRenewalRow[] };
-  outcome?: { goal_act?: { pop?: number; has_goal?: number; both?: number; median?: number | null; bands?: { label: string; n: number }[] } };
+  rampup?: Rampup;
+  renewal?: { meta?: { exclude_right_censored?: boolean; right_censored_n?: number }; monthly_retention?: { rows?: MonthlyRetentionRow[] }; by_renewal?: ByRenewalRow[] };
+  outcome?: { risk?: Risk; contact_source?: { calls_over_threshold: number; mtgs_linked: number; deals_with_contact: number }; goal_act?: { pop?: number; has_goal?: number; both?: number; median?: number | null; bands?: { label: string; n: number }[] } };
   money?: { active_total?: PipeAmount; window?: { months?: string[]; sum?: PipeAmount }; retention?: { rows?: MoneyRetentionRow[]; rule?: string }; amount_basis?: string };
   handover?: {
     meta?: { n?: number; n_active?: number; median_gap_days?: number | null; gap_rule?: string };
@@ -398,4 +404,38 @@ export interface PhoneResponse {
   reach?: { rows?: number; deals_with_call?: number; no_call?: number; no_contact?: number; no_call_rate?: number | null; no_contact_rate?: number | null; note?: string };
   silent?: { n: number; rule?: string; rows?: { deal_id: string; name?: string; stage?: string; n_calls?: number; n_contact?: number; last_contact?: string | null; days_since?: number | null }[] };
   monthly?: { month: string; calls: number; contacts: number; contact_rate: number | null }[];
+}
+
+
+export interface BoxStats { n: number; min: number; q1: number; median: number; q3: number; max: number; mean: number }
+export interface Rampup {
+  phase: { rows: { label: string; n: number }[]; rule: string };
+  first_mtg: { n: number; pre_contract: number; stats: BoxStats | null; buckets: { label: string; n: number; denom: number; cancel: number; cancel_rate: number | null }[]; note: string };
+  launch?: { n_first: number; n_no_series: number; n_decrease: number; cohorts: { start: string; n_deals: number; points: { m: number; n: number; mean: number | null }[] }[] };
+}
+export interface Risk {
+  n_act: number;
+  ax3: { '赤': number; '白': number; '未測定': number; rule: string };
+  ax4: { '赤': number; '白': number; '未測定': number; rule: string };
+  bands: { label: string; n: number }[];
+  top: { deal_id: string; name?: string | null; amount: number | null; days_to_expiry: number | null; no_start?: boolean; never_after_start?: boolean; ax3w?: string }[];
+  order_note?: string;
+}
+export interface DataQualityResponse {
+  meta: FreshMeta & { n_deals: number; n_active: number };
+  houjin_source: { rows: { label: string; n: number }[]; note: string };
+  outcome_bias: { rows: { field: string; group: string; n: number; filled: number; fill_rate: number | null }[]; note: string };
+  missing: { label: string; n: number; rate: number | null; note: string }[];
+  sheets: { name: string; rows: number | null }[];
+}
+export interface StageStayResponse {
+  meta: FreshMeta & { hubspot_portal_id?: string; stay_days: number; n_active: number; n_stay: number; n_escalation: number; n_unknown_entered: number };
+  rows: { deal_id: string; name?: string | null; consultant?: string | null; stage?: string | null; stage_label?: string | null; entered: string | null; days: number | null; expiry: string | null; days_past_expiry: number | null; escalation: boolean; stay: boolean }[];
+}
+export interface FocusResponse {
+  meta: FreshMeta & { hubspot_portal_id?: string };
+  nps_low: { threshold: number; n: number; n_have_nps: number; n_act: number; coverage: number | null; dist: { v: number; n: number }[]; rows: { deal_id: string; name?: string | null; nps: number; nps_month: string; amount: number | null; days_to_expiry: number | null; n_contact: number }[]; note: string };
+  cpa: { worse: number; judged: number; skipped_censored: number; skipped_no_site: number; truncated?: boolean; rows: { site: string; site_name: string | null; prev: number; last: number; ratio: number | null; n_points: number }[]; note: string };
+  mtg_layers: { n_act: number; both: number; only_recording: number; only_mail: number; neither: number; note: string };
+  shape: { n_display: number; multi_site: number; ltv: BoxStats | null; multi_site_note: string };
 }

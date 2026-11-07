@@ -5,9 +5,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { BOARD, CUSTOMER, CUSTOMER_INDEX, DETAIL, GOALS, MTGQ, PHONE, RENEWAL_PIPE, RESULTS, TEAM, TODAY } from '../../frontend/src/screens/consulting-v2/__fixtures__/fixtures';
+import { DATA_QUALITY, STAGE_STAY, FOCUS, BOARD, CUSTOMER, CUSTOMER_INDEX, DETAIL, GOALS, MTGQ, PHONE, RENEWAL_PIPE, RESULTS, TEAM, TODAY } from '../../frontend/src/screens/consulting-v2/__fixtures__/fixtures';
 
-const email = process.env.E2E_EMAIL ?? 'tester@f-a-c.co.jp';
+const email = process.env.E2E_EMAIL ?? 'tester@example.invalid';
 const pass = process.env.E2E_PASS ?? '';
 
 async function login(page: Page) {
@@ -19,6 +19,9 @@ async function login(page: Page) {
 }
 
 async function mockApi(page: Page) {
+  await page.route('**/api/consulting/data-quality*', (r) => r.fulfill({ json: DATA_QUALITY }));
+  await page.route('**/api/consulting/stage-stay*', (r) => r.fulfill({ json: STAGE_STAY }));
+  await page.route('**/api/consulting/focus*', (r) => r.fulfill({ json: FOCUS }));
   await page.route('**/api/consulting/team*', (r) => r.fulfill({ json: TEAM }));
   await page.route('**/api/consulting/today*', (r) => r.fulfill({ json: TODAY }));
   await page.route('**/api/consulting/deals*', (r) => r.fulfill({ json: BOARD }));
@@ -94,6 +97,27 @@ test.describe('コンサルKPI v2', () => {
     await page.goto('/app/consulting-v2');
     await expect(page.getByRole('img', { name: '担当ごとの1件あたりの接触回数の推移' })).toBeVisible();
     await shot(page, '10-team-trend');
+  });
+
+  test('第3段: 今日の絞り込みと成果の分布', async ({ page }) => {
+    await page.goto('/app/consulting-v2?view=today');
+    const card = page.getByRole('button', { name: /今週始まった契約/ });
+    await card.click();
+    await expect(card).toHaveAttribute('aria-pressed', 'true');
+    const table = page.getByRole('table', { name: '今日動く案件' });
+    await expect(table.getByRole('row')).toHaveCount(2);
+    await expect(table).toContainText('架空株式会社B 第二拠点');
+    await shot(page, '11-today-filter');
+    await card.click();
+    await expect(table.getByRole('row')).toHaveCount(3);
+    await page.goto('/app/consulting-v2?view=results');
+    const chart = page.getByRole('img', { name: '応募数の散らばり（継続回数ごと）' });
+    await expect(chart.locator('rect')).toHaveAttribute('x', '320');
+    await chart.scrollIntoViewIfNeeded();
+    await shot(page, '12-results-box');
+    await page.getByText('データの欠けと記入率の詳細').click();
+    await expect(page.getByRole('table', { name: '結果ごとの記入率' })).toContainText('53.8%');
+    await shot(page, '13-data-quality');
   });
 
   test('今のコンサルKPI (/consulting) は v2 の追加で変わらない', async ({ page }) => {

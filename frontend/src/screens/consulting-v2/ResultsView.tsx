@@ -5,6 +5,8 @@ import type { Route } from './route';
 import type { MtgQualityResponse, PhoneResponse, ResultsResponse } from './types';
 import { useApi } from './useApi';
 
+import { DataQuality, ResultsDetails } from './ResultsDetails';
+
 const MIN_N = 5;
 
 function Rate({ v }: { v: number | null | undefined }) {
@@ -195,6 +197,7 @@ export function ResultsView({ go }: { go: (r: Partial<Route>) => void }) {
                   </ul>
                 </Section>
               )}
+              <ResultsDetails d={d} go={go} />
               {d.headquarters && (
                 <Section title="本部向け（法人ごとの拠点と契約）">
                   <p className="cv2-dim">{d.headquarters.meta?.cancel_rule ?? ''}</p>
@@ -243,6 +246,7 @@ export function ResultsView({ go }: { go: (r: Partial<Route>) => void }) {
           );
         }}
       </Async>
+      <DataQuality />
       <Mtg result={mtg} retry={retry} />
       <Phone result={phone} retry={retry} go={go} />
     </>

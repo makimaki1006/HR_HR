@@ -10,6 +10,7 @@ export function Kpi({
   note,
   onClick,
   delta,
+  active,
 }: {
   label: string;
   value: string;
@@ -17,6 +18,7 @@ export function Kpi({
   note?: string | undefined;
   onClick?: (() => void) | undefined;
   delta?: ReactNode;
+  active?: boolean;
 }) {
   const body = (
     <>
@@ -30,7 +32,7 @@ export function Kpi({
     </>
   );
   return onClick ? (
-    <button type="button" className="cv2-kpi" onClick={onClick}>
+    <button type="button" className="cv2-kpi" aria-pressed={active} onClick={onClick}>
       {body}
     </button>
   ) : (
