@@ -10,25 +10,34 @@ export function DataTable({ title, heads, rows }: { title: string; heads: string
     <tbody>{rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j}>{v}</td>)}</tr>)}</tbody>
   </table>{rows.length === 0 && <p className="cv2-empty">該当するデータはありません。</p>}</div>;
 }
+// ひげは箱の幅 (上位4分の1 − 下位4分の1) の1.5倍まで。外れた大きい値で箱が潰れないよう、目盛りもひげの端までにする。
+export function whiskers(s: BoxStats): { low: number; high: number } {
+  const reach = 1.5 * (s.q3 - s.q1);
+  return { low: Math.max(s.min, s.q1 - reach), high: Math.min(s.max, s.q3 + reach) };
+}
 export function BoxPlot({ title, rows }: { title: string; rows: { label: string; stats: BoxStats | null | undefined; eligible?: boolean }[] }) {
   const shown = rows.filter((r): r is typeof r & { stats: BoxStats } => !!r.stats && r.stats.n >= CHART_MIN_N && r.eligible !== false);
-  const lo = Math.min(0, ...shown.map((r) => r.stats.min));
-  const hi = Math.max(lo + 1, ...shown.map((r) => r.stats.max));
-  const x = (v: number): number => 150 + (v - lo) / (hi - lo) * 510;
+  const lo = Math.min(0, ...shown.map((r) => whiskers(r.stats).low));
+  const hi = Math.max(lo + 1, ...shown.map((r) => Math.max(r.stats.q3, whiskers(r.stats).high)));
+  const x = (v: number): number => 150 + (v - lo) / (hi - lo) * 450;
   return <>
     {shown.length > 0 ? <svg className="cv2-chart" viewBox={`0 0 720 ${String(50 + shown.length * 42)}`} role="img" aria-label={title}>
-      {shown.map(({ label, stats: s }, i) => <g key={label} transform={`translate(0 ${String(25 + i * 42)})`}>
-        <title>{label}: 最小 {s.min}、下位4分の1 {s.q1}、中央値 {s.median}、上位4分の1 {s.q3}、最大 {s.max}、平均 {s.mean}、{s.n}件</title>
-        <text x="4" y="4" fontSize="12">{label}</text>
-        <line x1={x(s.min)} x2={x(s.max)} y1="0" y2="0" stroke="#225d96" />
-        {[s.min, s.max].map((v, k) => <line key={k} x1={x(v)} x2={x(v)} y1="-7" y2="7" stroke="#225d96" />)}
-        <rect x={x(s.q1)} y="-10" width={x(s.q3) - x(s.q1)} height="20" fill="#d8e6f3" stroke="#225d96" />
-        <line x1={x(s.median)} x2={x(s.median)} y1="-10" y2="10" stroke="#225d96" strokeWidth="3" />
-        <text x="710" y="4" textAnchor="end" fontSize="11">{s.n}件</text>
-      </g>)}
+      {shown.map(({ label, stats: s }, i) => {
+        const w = whiskers(s);
+        return <g key={label} transform={`translate(0 ${String(25 + i * 42)})`}>
+          <title>{label}: 最小 {s.min}、下位4分の1 {s.q1}、中央値 {s.median}、上位4分の1 {s.q3}、最大 {s.max}、平均 {s.mean}、{s.n}件</title>
+          <text x="4" y="-2" fontSize="12">{label}</text>
+          <text x="4" y="13" fontSize="11" fill="#5b6470">{s.n}件</text>
+          <line x1={x(w.low)} x2={x(w.high)} y1="0" y2="0" stroke="#225d96" />
+          {[w.low, w.high].map((v, k) => <line key={k} x1={x(v)} x2={x(v)} y1="-7" y2="7" stroke="#225d96" />)}
+          <rect x={x(s.q1)} y="-10" width={x(s.q3) - x(s.q1)} height="20" fill="#d8e6f3" stroke="#225d96" />
+          <line x1={x(s.median)} x2={x(s.median)} y1="-10" y2="10" stroke="#225d96" strokeWidth="3" />
+          {s.max > w.high && <text x="714" y="4" textAnchor="end" fontSize="11" fill="#5b6470">最大 {num(s.max, Number.isInteger(s.max) ? 0 : 1)}</text>}
+        </g>;
+      })}
       {[lo, hi].map((v) => <text key={v} x={x(v)} y={40 + shown.length * 42} textAnchor="middle" fontSize="11">{num(v, 1)}</text>)}
     </svg> : <p className="cv2-empty">図に載せられるデータがありません。</p>}
-    <p className="cv2-dim">箱は下位4分の1から上位4分の1、太線は中央値、ひげは最小から最大。対象または値が入った契約が30件未満の区分は図に載せず、表に残しています。</p>
+    <p className="cv2-dim">箱は下位4分の1から上位4分の1、太線は中央値。ひげは箱の両端から箱の幅の1.5倍まで（最小・最大を超えない範囲）伸ばしているので、ひげの端は実際の値とは限りません。それより大きい値があるときは、右端に最大値を書いています。対象または値が入った契約が30件未満の区分は図に載せず、表に残しています。</p>
     <details className="cv2-more"><summary>数字を表で見る</summary>
       <DataTable title={title} heads={['区分', '件数', '最小', '下位4分の1', '中央値', '上位4分の1', '最大', '平均']} rows={rows.map(({ label, stats: s }) => [label, s ? num(s.n) : DASH, ...[s?.min, s?.q1, s?.median, s?.q3, s?.max, s?.mean].map((v) => v === undefined ? DASH : num(v, 2))])} />
     </details>
