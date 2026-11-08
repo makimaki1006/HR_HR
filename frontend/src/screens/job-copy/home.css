@@ -57,7 +57,7 @@
 .jh-latest small { display: block; color: var(--jc-muted, #52697a); font-size: 12px; }
 .jh-badge.jh-now { background: var(--jc-accent, #007c91); color: #fff; }
 .jh-owner { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--jc-muted, #52697a); }
-.jh-owner strong { font-size: 12px; font-weight: 600; }
+.jh-owner-title { font-size: 12px; font-weight: 600; }
 .jc-app .jh-owner label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
 .jh-owner select { width: 155px; max-width: 100%; padding: 5px 7px; border: 1px solid #d4dfe7; border-radius: 6px; background: #fff; color: inherit; font: inherit; }
 .jh-owner .jc-button { min-height: 28px; padding: 4px 8px; font-size: 12px; }
