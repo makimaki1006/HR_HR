@@ -118,7 +118,7 @@
 .jc-topline .jc-snapshot-summary { padding: 0; border: 0; background: transparent; gap: 4px 14px; font-size: 12px; flex-wrap: wrap; }
 .jc-topline .jc-snapshot-summary span { gap: 3px; }
 .jc-topline .jc-snapshot-summary strong { font-size: 14px; }
-.jc-import-toggle { flex-shrink: 0; min-height: 32px !important; padding: 4px 12px !important; }
+.jc-import-toggle { flex-shrink: 0; margin-left: auto; min-height: 32px !important; padding: 4px 12px !important; }
 .jc-import-toggle[aria-expanded="true"] { background: var(--jc-soft); border-color: var(--jc-accent); }
 .jc-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .jc-panel-heading h2 { font-size: 16px; }
