@@ -26,3 +26,8 @@
 .ar-texts li { margin: 4px 0; }
 .ar-footnote { font-size: 13px; color: #4a5f6c; margin: 8px 0; }
 .ar-status { padding: 16px 0; }
+.ar-kinds { display: inline-flex; border: 1px solid #bdcbd1; border-radius: 6px; overflow: hidden; margin: 8px 0 4px; }
+.ar-kind { border: 0; background: white; padding: 8px 16px; font: inherit; font-size: 14px; color: #263c4b; cursor: pointer; }
+.ar-kind + .ar-kind { border-left: 1px solid #bdcbd1; }
+.ar-kind[aria-pressed="true"] { background: #263c4b; color: white; font-weight: 600; }
+.ar-main thead th:not(:first-child) { white-space: normal; min-width: 64px; max-width: 96px; font-size: 12px; line-height: 1.35; vertical-align: bottom; }

@@ -4,8 +4,8 @@ import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { useReportPolling } from './useReportPolling';
 import { ReportFreshness } from './ReportFreshness';
 import { MIN_SHARE_N } from './reasonCategories';
-import { buildCrosstab, formatCount, formatShare, TABLE_COLUMNS } from './applyReasonCrosstabModel';
-import type { AreaKind, CrosstabRow, ApplyReasonResponse } from './applyReasonCrosstabModel';
+import { buildCrosstab, formatCount, formatShare, REASON_KINDS } from './applyReasonCrosstabModel';
+import type { AreaKind, CrosstabRow, ApplyReasonResponse, ReasonKind } from './applyReasonCrosstabModel';
 import { demoApplyReasons } from './demoApplyReasons';
 import './apply-reason-crosstab.css';
 
@@ -16,24 +16,24 @@ function TextList({ row }: { row: CrosstabRow }) {
   const [open, setOpen] = useState(false);
   if (!row.details.length) return null;
   return <details className="ar-texts" onToggle={e => { setOpen(e.currentTarget.open); }}>
-    <summary>文を見る</summary>
+    <summary>内容を見る</summary>
     {open && <ul>
-      {row.details.slice(0, MAX_TEXTS).map(d => <li key={d.key}><strong>{d.categories}</strong>{d.items.map((i, n) => <div key={n}>{i.source}: {i.text}</div>)}</li>)}
+      {row.details.slice(0, MAX_TEXTS).map(d => <li key={d.key}><strong>{d.labels}</strong>{d.items.map((i, n) => <div key={n}>{i.source}: {i.text}</div>)}</li>)}
       {row.details.length > MAX_TEXTS && <li>ほか {formatCount(row.details.length - MAX_TEXTS)} 件</li>}
     </ul>}
   </details>;
 }
 
-function Cells({ row }: { row: CrosstabRow }) {
-  return <>{TABLE_COLUMNS.map(c => {
+function Cells({ row, columns }: { row: CrosstabRow; columns: string[] }) {
+  return <>{columns.map(c => {
     const n = row.counts[c] ?? 0;
     const s = n > 0 ? formatShare(n, row.withReason) : null;
     return <td key={c} className={n === 0 ? 'ar-zero' : undefined}>{formatCount(n)}{s && <span className="ar-share">{s}</span>}</td>;
   })}<td>{formatCount(row.withReason)}</td></>;
 }
 
-function Head({ first }: { first: string }) {
-  return <thead><tr><th scope="col">{first}</th>{TABLE_COLUMNS.map(c => <th key={c} scope="col">{c}</th>)}<th scope="col">理由のある応募</th></tr></thead>;
+function Head({ first, columns, base }: { first: string; columns: string[]; base: string }) {
+  return <thead><tr><th scope="col">{first}</th>{columns.map(c => <th key={c} scope="col">{c}</th>)}<th scope="col">{base}</th></tr></thead>;
 }
 
 export function ApplyReasonCrosstab() {
@@ -41,6 +41,8 @@ export function ApplyReasonCrosstab() {
   const demo = query.get('demo') === '1';
   const months = [1, 3, 6].includes(Number(query.get('period'))) ? Number(query.get('period')) : 6;
   const area: AreaKind = query.get('area') === 'job' ? 'job' : 'applicant';
+  const kind: ReasonKind = query.get('reason') === 'priority' ? 'priority' : 'motive';
+  const kindLabel = REASON_KINDS.find(k => k.kind === kind)?.label ?? '';
   const occupation = query.get('occupation');
   const [data, setData] = useState<ApplyReasonResponse | null>(demo ? demoApplyReasons : null);
   const [failed, setFailed] = useState(false);
@@ -55,49 +57,53 @@ export function ApplyReasonCrosstab() {
   }, []);
   useReportPolling(load, !demo, reload);
   const report = data?.status === 'ready' ? data.report : undefined;
-  const crosstab = useMemo(() => report ? buildCrosstab(report, { months, area, occupation }) : null, [report, months, area, occupation]);
+  const crosstab = useMemo(() => report ? buildCrosstab(report, { months, kind, area, occupation }) : null, [report, months, kind, area, occupation]);
   const set = (values: Record<string, string | null>) => { updateJobCopyQuery(values, 'replace'); };
 
   if (failed) return <main className="ar-main"><h2>応募理由の地域・職種別</h2><p role="alert" className="ar-status">集計を作れませんでした。</p><button type="button" className="jc-button" onClick={() => { setFailed(false); setReload(n => n + 1); }}>再読み込み</button></main>;
   if (!report || !crosstab) return <main className="ar-main"><h2>応募理由の地域・職種別</h2><p role="status" className="ar-status">集計を作っています。</p></main>;
 
-  const { period, excluded } = crosstab;
+  const { period, excluded, columns } = crosstab;
   const toggle = (key: string) => { setOpen(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; }); };
-  const share = period ? formatShare(period.with_reason, period.total) : null;
+  const share = period ? formatShare(crosstab.inTable, period.total) : null;
+  const base = `${kindLabel}を聞けた応募`;
+  const cols = columns.length + 2;
+  const late = period && crosstab.firstRecorded && crosstab.firstRecorded > period.since ? crosstab.firstRecorded : null;
   return <main className="ar-main">
     <h2>応募理由の地域・職種別</h2>
     <ReportFreshness builtAt={data?.built_at} stale={data?.stale} refreshing={data?.refreshing} />
+    <div className="ar-kinds" role="group" aria-label="表の中身">{REASON_KINDS.map(k => <button key={k.kind} type="button" className="ar-kind" aria-pressed={k.kind === kind} onClick={() => { set({ reason: k.kind === 'motive' ? null : k.kind }); }}>{k.label}</button>)}</div>
     <div className="ar-controls">
       <label>期間<select value={months} onChange={e => { set({ period: e.target.value }); }}>{PERIODS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}</select></label>
       <label>地域<select value={area} onChange={e => { set({ area: e.target.value }); }}><option value="applicant">応募者の住所</option><option value="job">求人の勤務地</option></select></label>
       <label>職種<select value={occupation ?? ''} onChange={e => { set({ occupation: e.target.value || null }); }}><option value="">すべて</option>{report.occupation_groups.map(g => <option key={g} value={g}>{g}</option>)}</select></label>
     </div>
-    {period && <p className="ar-lead">応募理由が入っている応募は {formatCount(period.total)} 件中 {formatCount(period.with_reason)} 件{share ? `（${share}）` : ''}</p>}
+    {period && <p className="ar-lead">{base} {formatCount(crosstab.inTable)} 件／全応募 {formatCount(period.total)} 件{share ? `（${share}）` : ''}</p>}
     <ul className="ar-notes">
-      <li>HubSpot に記録された応募だけを数えています。</li>
+      {late && <li>選択式の記録は {late.replaceAll('-', '/')} の応募からです。それより前の応募には値がありません。</li>}
+      <li>一次対応のヒアリングで選んだ値を、そのまま数えています。</li>
+      {kind === 'motive' ? <li>応募動機は複数選べるので、1 件の応募が複数の列に入ることがあります。</li> : <li>①〜③のどれかに選んだ応募を数えています。1 件の応募が最大 3 つの列に入ります。</li>}
       <li>地域・職種と理由の重なりは、理由の原因を示すとは限りません。</li>
-      <li>0 件は記録が無かったこと、未取得は読めなかったことを表します。</li>
-      <li>1 件の応募が複数の区分に入ることがあります。</li>
     </ul>
-    <p className="ar-excluded">表から外した応募: 地域が読めない {formatCount(excluded.noArea)} 件（地域別の表）・職種が分からない {formatCount(excluded.noOccupation)} 件（職種が無い {formatCount(excluded.occupationMissing)}・対応表に無い {formatCount(excluded.occupationUnmatched)}・求人票が食い違う {formatCount(excluded.occupationConflict)}。職種別の表では「未分類」の行）。理由を分類できない {formatCount(excluded.unclassified)} 件は「分類できない」の列に入れています。外した応募も上の {period ? formatCount(period.with_reason) : '0'} 件に含みます。</p>
+    <p className="ar-excluded">表から外した応募: 地域が読めない {formatCount(excluded.noArea)} 件（地域別の表）・職種が分からない {formatCount(excluded.noOccupation)} 件（職種が無い {formatCount(excluded.occupationMissing)}・対応表に無い {formatCount(excluded.occupationUnmatched)}・求人票が食い違う {formatCount(excluded.occupationConflict)}。職種別の表では「未分類」の行）。外した応募も上の {formatCount(crosstab.inTable)} 件に含みます。</p>
 
     <h3>地域別</h3>
-    <div className="ar-scroll"><table aria-label="地域別の応募理由">
-      <Head first="地域" />
+    <div className="ar-scroll"><table aria-label={`地域別の${kindLabel}`}>
+      <Head first="地域" columns={columns} base={base} />
       <tbody>
         {crosstab.area.map(p => <Fragment key={p.key}>
-          <tr><td><div className="ar-label"><span><button type="button" className="ar-toggle" aria-expanded={open.has(p.key)} aria-label={`${p.label}の市区町村を${open.has(p.key) ? '閉じる' : '開く'}`} onClick={() => { toggle(p.key); }}>{open.has(p.key) ? '▼' : '▶'}</button>{p.label}</span><TextList row={p} /></div></td><Cells row={p} /></tr>
-          {open.has(p.key) && p.children.map(c => <tr key={c.key} className="ar-child"><td><div className="ar-label"><span>{c.label}</span><TextList row={c} /></div></td><Cells row={c} /></tr>)}
+          <tr><td><div className="ar-label"><span><button type="button" className="ar-toggle" aria-expanded={open.has(p.key)} aria-label={`${p.label}の市区町村を${open.has(p.key) ? '閉じる' : '開く'}`} onClick={() => { toggle(p.key); }}>{open.has(p.key) ? '▼' : '▶'}</button>{p.label}</span><TextList row={p} /></div></td><Cells row={p} columns={columns} /></tr>
+          {open.has(p.key) && p.children.map(c => <tr key={c.key} className="ar-child"><td><div className="ar-label"><span>{c.label}</span><TextList row={c} /></div></td><Cells row={c} columns={columns} /></tr>)}
         </Fragment>)}
-        {!crosstab.area.length && <tr><td colSpan={TABLE_COLUMNS.length + 2}>この条件に当たる応募はありません。</td></tr>}
+        {!crosstab.area.length && <tr><td colSpan={cols}>この条件に当たる応募はありません。</td></tr>}
       </tbody>
     </table></div>
 
     <h3>職種別</h3>
-    <div className="ar-scroll"><table aria-label="職種別の応募理由">
-      <Head first="職種" />
-      <tbody>{crosstab.occupation.map(o => <tr key={o.key}><td>{o.label}</td><Cells row={o} /></tr>)}
-        {!crosstab.occupation.length && <tr><td colSpan={TABLE_COLUMNS.length + 2}>この期間に当たる応募はありません。</td></tr>}
+    <div className="ar-scroll"><table aria-label={`職種別の${kindLabel}`}>
+      <Head first="職種" columns={columns} base={base} />
+      <tbody>{crosstab.occupation.map(o => <tr key={o.key}><td>{o.label}</td><Cells row={o} columns={columns} /></tr>)}
+        {!crosstab.occupation.length && <tr><td colSpan={cols}>この期間に当たる応募はありません。</td></tr>}
       </tbody>
     </table></div>
     {crosstab.hiddenShare && <p className="ar-footnote">{String(MIN_SHARE_N)} 件未満の行は割合を出していません。</p>}

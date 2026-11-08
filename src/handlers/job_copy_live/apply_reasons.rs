@@ -1,28 +1,42 @@
 //! 応募理由 × 地域 × 職種の横断集計。応募者の情報は保存せず、プロセス内に6時間だけ持つ。
+//!
+//! 理由はヒアリングで選ぶ選択式の項目（応募動機・勤務条件の優先順位①〜③）。文章は詳細として添えるだけで、
+//! キーワードで分類しない。選択式の値がある応募だけを Search で読み、全応募の件数は Search の total で数える。
 use super::*;
 use chrono::{DateTime, Datelike, Months, NaiveDate, Utc};
 use std::time::Instant;
 
 const TTL: Duration = Duration::from_secs(6 * 60 * 60);
 const RETRY: Duration = Duration::from_secs(60);
-const MAX_PAGES: usize = 1000;
+const MAX_SEARCH_PAGES: usize = 50;
 const MONTHS: [u32; 3] = [1, 3, 6];
+/// 応募動機（複数選択）。
+const MOTIVE: &str = "oubodouki_1";
+/// 勤務条件の優先順位①②③（それぞれ1つ選ぶ）。
+const PRIORITIES: [&str; 3] = [
+    "kinmujoukennoyuusenjuni_1",
+    "kinmujoukennoyuusenjuni_2",
+    "kinmujoukennoyuusenjuni_3",
+];
+const SELECT_PROPERTIES: [&str; 4] = [MOTIVE, PRIORITIES[0], PRIORITIES[1], PRIORITIES[2]];
 const TEXT_PROPERTIES: [&str; 3] = [
     "oubodouki",
     "kinmujoukennoyuusenjuni",
     "honnin_kibou_kinyuuran",
 ];
-const APP_PROPERTIES: [&str; 10] = [
+const APP_PROPERTIES: [&str; 12] = [
     "yingmuri",
     "hs_createdate",
     "todoufuken",
     "shikuchouson",
     "oubosaki_shokushu",
+    MOTIVE,
+    PRIORITIES[0],
+    PRIORITIES[1],
+    PRIORITIES[2],
     "oubodouki",
     "kinmujoukennoyuusenjuni",
     "honnin_kibou_kinyuuran",
-    "ouboriyuukategori_hiaringu",
-    "ouboriyuukategori_baitaikisai",
 ];
 const OCCUPATION_GROUPS: [&str; 11] = [
     "営業",
@@ -85,6 +99,8 @@ struct Period {
 #[derive(Debug, Clone, Serialize)]
 struct Report {
     today: String,
+    /// 選択肢の名前（HubSpot の並び順）。応募動機と優先順位は同じ選択肢を使う。
+    options: Vec<String>,
     periods: Vec<Period>,
     occupation_groups: Vec<&'static str>,
     rows: Vec<Row>,
@@ -158,7 +174,7 @@ struct App {
 }
 impl App {
     fn has_reason(&self) -> bool {
-        !self.selections.is_empty() || !self.texts.is_empty()
+        !self.selections.is_empty()
     }
 }
 fn nonblank(properties: &Value, key: &str) -> Option<String> {
@@ -186,7 +202,7 @@ fn parse_app(row: &Value, labels: Option<&applicant_reasons::OptionLabels>) -> O
     let p = &row["properties"];
     let date = app_date(p)?;
     let mut selections = Vec::new();
-    for property in applicant_reasons::CATEGORY_PROPERTIES {
+    for property in SELECT_PROPERTIES {
         let Some(raw) = nonblank(p, property) else {
             continue;
         };
@@ -225,22 +241,6 @@ fn parse_app(row: &Value, labels: Option<&applicant_reasons::OptionLabels>) -> O
             })
         })
         .collect();
-    let mut listing_ids = BTreeSet::new();
-    for group in row["associations"]
-        .as_object()
-        .into_iter()
-        .flat_map(|m| m.values())
-    {
-        for result in group["results"].as_array().into_iter().flatten() {
-            if let Some(id) = result["id"]
-                .as_str()
-                .map(str::to_owned)
-                .or_else(|| result["id"].as_u64().map(|n| n.to_string()))
-            {
-                listing_ids.insert(id);
-            }
-        }
-    }
     Some(App {
         id,
         date,
@@ -248,77 +248,242 @@ fn parse_app(row: &Value, labels: Option<&applicant_reasons::OptionLabels>) -> O
         occupation_text: nonblank(p, "oubosaki_shokushu"),
         selections,
         texts,
-        listing_ids,
+        // Search は関連を返さない。read_links で後から入れる。
+        listing_ids: BTreeSet::new(),
     })
 }
 
 // ---- 読み取り ----
-async fn read_labels(service: &JobReadService) -> Option<applicant_reasons::OptionLabels> {
+struct Options {
+    labels: applicant_reasons::OptionLabels,
+    /// 応募動機の選択肢の名前（displayOrder の順）。
+    order: Vec<String>,
+}
+fn parse_options(data: &Value) -> Option<Options> {
+    let mut labels = applicant_reasons::OptionLabels::new();
+    let mut order = Vec::new();
+    for property in data["results"].as_array()? {
+        let Some(name) = property["name"]
+            .as_str()
+            .filter(|name| SELECT_PROPERTIES.contains(name))
+        else {
+            continue;
+        };
+        let mut options: Vec<(i64, String, String)> = property["options"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|o| {
+                let value = o["value"].as_str()?.trim();
+                let label = o["label"].as_str()?.trim();
+                (!value.is_empty() && !label.is_empty()).then(|| {
+                    (
+                        o["displayOrder"].as_i64().unwrap_or(i64::MAX),
+                        value.to_owned(),
+                        label.to_owned(),
+                    )
+                })
+            })
+            .collect();
+        options.sort_by_key(|(at, _, _)| *at);
+        if name == MOTIVE {
+            order = options.iter().map(|(_, _, l)| l.clone()).collect();
+        }
+        labels.insert(
+            name.to_owned(),
+            options.into_iter().map(|(_, v, l)| (v, l)).collect(),
+        );
+    }
+    (!labels.is_empty()).then_some(Options { labels, order })
+}
+async fn read_options(service: &JobReadService) -> Option<Options> {
     let data = service
         .request(
             "/crm/v3/properties/0-421/batch/read",
             &[],
-            Some(json!({"archived":false,"inputs":applicant_reasons::CATEGORY_PROPERTIES.iter().map(|name|json!({"name":name})).collect::<Vec<_>>()})),
+            Some(json!({"archived":false,"inputs":SELECT_PROPERTIES.iter().map(|name|json!({"name":name})).collect::<Vec<_>>()})),
         )
         .await
         .ok()?;
-    option_labels(&data)
+    parse_options(&data)
 }
 #[derive(Default)]
 struct Stats {
-    pages: usize,
+    searches: usize,
+    link_calls: usize,
     listing_calls: usize,
 }
+fn search_total(data: &Value) -> Result<u64, ReadError> {
+    data["total"]
+        .as_u64()
+        .ok_or_else(|| fail("apply_reasons_invalid_search"))
+}
+/// 選択式の理由が1つでも入っている応募（どれかの項目 HAS_PROPERTY の OR）。
 async fn read_apps(
     service: &JobReadService,
     since: NaiveDate,
     today: NaiveDate,
     labels: Option<&applicant_reasons::OptionLabels>,
     stats: &mut Stats,
-) -> Result<(Vec<NaiveDate>, Vec<App>), ReadError> {
-    let mut dates = Vec::new();
+) -> Result<Vec<App>, ReadError> {
+    // 作成日は応募日より前にならないので、作成日が起点以降なら期間の応募を取りこぼさない
+    // （古い応募が後から作られた分は、下で応募日を見て外す）。
+    let created_since = jst_ms(since).to_string();
+    let groups: Vec<Value> = SELECT_PROPERTIES
+        .iter()
+        .map(|p| {
+            json!({"filters":[{"propertyName":p,"operator":"HAS_PROPERTY"},
+                {"propertyName":"hs_createdate","operator":"GTE","value":created_since}]})
+        })
+        .collect();
     let mut apps = Vec::new();
-    let mut after: Option<String> = None;
-    let mut seen = BTreeSet::new();
-    for _ in 0..MAX_PAGES {
-        let mut query = vec![
-            ("limit", "100".to_owned()),
-            ("properties", APP_PROPERTIES.join(",")),
-            ("associations", "0-420".to_owned()),
-        ];
+    let mut ids = BTreeSet::new();
+    let mut after: Option<Value> = None;
+    for _ in 0..MAX_SEARCH_PAGES {
+        let mut body = json!({"filterGroups":groups,"properties":APP_PROPERTIES,"limit":200,
+            "sorts":[{"propertyName":"hs_object_id","direction":"ASCENDING"}]});
         if let Some(cursor) = &after {
-            query.push(("after", cursor.clone()));
+            body["after"] = cursor.clone();
         }
         let data = service
-            .request("/crm/v3/objects/0-421", &query, None)
+            .request("/crm/v3/objects/0-421/search", &[], Some(body))
             .await?;
-        stats.pages += 1;
+        stats.searches += 1;
+        if search_total(&data)? > 10_000 {
+            return Err(fail("apply_reasons_search_limit"));
+        }
         for row in data["results"]
             .as_array()
-            .ok_or_else(|| fail("apply_reasons_invalid_page"))?
+            .ok_or_else(|| fail("apply_reasons_invalid_search"))?
         {
             let Some(app) = parse_app(row, labels) else {
                 continue;
             };
-            if app.date > today {
+            if app.date > today || app.date < since || !app.has_reason() {
                 continue;
             }
-            dates.push(app.date);
-            if app.date >= since && app.has_reason() {
+            if ids.insert(app.id.clone()) {
                 apps.push(app);
             }
         }
-        match data.pointer("/paging/next/after").and_then(|v| {
-            v.as_str()
-                .map(str::to_owned)
-                .or_else(|| v.as_u64().map(|n| n.to_string()))
-        }) {
-            None => return Ok((dates, apps)),
-            Some(next) if seen.insert(next.clone()) => after = Some(next),
+        match data.pointer("/paging/next/after").cloned() {
+            None => return Ok(apps),
+            Some(next) if after.as_ref() != Some(&next) => after = Some(next),
             _ => return Err(fail("apply_reasons_invalid_paging")),
         }
     }
     Err(fail("apply_reasons_too_many_pages"))
+}
+fn day_ms(d: NaiveDate) -> i64 {
+    d.and_hms_opt(0, 0, 0)
+        .expect("midnight")
+        .and_utc()
+        .timestamp_millis()
+}
+/// JST のその日の 0 時 = 前日 15 時 (UTC)。
+fn jst_ms(d: NaiveDate) -> i64 {
+    day_ms(d) - 9 * 60 * 60 * 1000
+}
+/// 応募日 (yingmuri、無ければ作成日の JST の日付) が since 以降 today 以前の応募を数える Search。
+fn count_body(since: NaiveDate, today: NaiveDate) -> Value {
+    let end = today + chrono::Duration::days(1);
+    json!({"filterGroups":[
+        {"filters":[
+            {"propertyName":"yingmuri","operator":"GTE","value":day_ms(since).to_string()},
+            {"propertyName":"yingmuri","operator":"LT","value":day_ms(end).to_string()}]},
+        {"filters":[
+            {"propertyName":"yingmuri","operator":"NOT_HAS_PROPERTY"},
+            {"propertyName":"hs_createdate","operator":"GTE","value":jst_ms(since).to_string()},
+            {"propertyName":"hs_createdate","operator":"LT","value":jst_ms(end).to_string()}]}
+    ],"properties":["hs_object_id"],"limit":1})
+}
+async fn count_apps(
+    service: &JobReadService,
+    since: NaiveDate,
+    today: NaiveDate,
+    stats: &mut Stats,
+) -> Result<usize, ReadError> {
+    let data = service
+        .request(
+            "/crm/v3/objects/0-421/search",
+            &[],
+            Some(count_body(since, today)),
+        )
+        .await?;
+    stats.searches += 1;
+    Ok(search_total(&data)? as usize)
+}
+fn no_association_ids(error: &Value) -> Option<Vec<String>> {
+    if error["subCategory"].as_str() != Some("crm.associations.NO_ASSOCIATIONS_FOUND") {
+        return None;
+    }
+    error
+        .pointer("/context/fromObjectId")?
+        .as_array()?
+        .iter()
+        .map(|v| {
+            v.as_str()
+                .map(str::to_owned)
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
+        .collect()
+}
+/// 応募 → 求人票。関連の無い応募は空。欠けた応答は失敗にする（関連なしと見なさない）。
+async fn read_links(
+    service: &JobReadService,
+    ids: &[String],
+    stats: &mut Stats,
+) -> Result<BTreeMap<String, BTreeSet<String>>, ReadError> {
+    let mut links = BTreeMap::<String, BTreeSet<String>>::new();
+    for chunk in ids.chunks(100) {
+        let data = service
+            .request(
+                "/crm/v4/associations/0-421/0-420/batch/read",
+                &[],
+                Some(json!({"inputs":chunk.iter().map(|id|json!({"id":id})).collect::<Vec<_>>()})),
+            )
+            .await?;
+        stats.link_calls += 1;
+        let expected: BTreeSet<&str> = chunk.iter().map(String::as_str).collect();
+        let mut seen = BTreeSet::new();
+        for error in data["errors"].as_array().into_iter().flatten() {
+            for id in no_association_ids(error).ok_or_else(|| fail("hubspot_partial_read"))? {
+                if !expected.contains(id.as_str()) || !seen.insert(id.clone()) {
+                    return Err(fail("hubspot_invalid_response"));
+                }
+                links.entry(id).or_default();
+            }
+        }
+        for row in data["results"]
+            .as_array()
+            .ok_or_else(|| fail("hubspot_invalid_response"))?
+        {
+            let id = row
+                .pointer("/from/id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| fail("hubspot_invalid_response"))?;
+            if !expected.contains(id) || !seen.insert(id.to_owned()) || row.get("paging").is_some()
+            {
+                return Err(fail("hubspot_partial_read"));
+            }
+            let entry = links.entry(id.to_owned()).or_default();
+            for target in row["to"]
+                .as_array()
+                .ok_or_else(|| fail("hubspot_invalid_response"))?
+            {
+                let target = target["toObjectId"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .or_else(|| target["toObjectId"].as_u64().map(|n| n.to_string()))
+                    .ok_or_else(|| fail("hubspot_invalid_response"))?;
+                entry.insert(target);
+            }
+        }
+        if seen.len() != expected.len() {
+            return Err(fail("hubspot_partial_read"));
+        }
+    }
+    Ok(links)
 }
 /// 存在しない・読めない求人票は飛ばす（1件のために全体を失敗にしない）。
 async fn read_listings(
@@ -416,7 +581,8 @@ fn since_for(today: NaiveDate, months: u32) -> NaiveDate {
 }
 fn assemble(
     today: NaiveDate,
-    dates: &[NaiveDate],
+    options: Vec<String>,
+    totals: &[usize],
     apps: &[App],
     listings: &BTreeMap<String, Record>,
 ) -> Report {
@@ -425,18 +591,20 @@ fn assemble(
     let rows: Vec<Row> = sorted.iter().map(|a| build_row(a, listings)).collect();
     let periods = MONTHS
         .iter()
-        .map(|&months| {
+        .zip(totals)
+        .map(|(&months, &total)| {
             let since = since_for(today, months);
             Period {
                 months,
                 since: since.to_string(),
-                total: dates.iter().filter(|d| **d >= since).count(),
+                total,
                 with_reason: apps.iter().filter(|a| a.date >= since).count(),
             }
         })
         .collect();
     Report {
         today: today.to_string(),
+        options,
         periods,
         occupation_groups: OCCUPATION_GROUPS.to_vec(),
         rows,
@@ -447,8 +615,24 @@ async fn fetch(service: &JobReadService, today: NaiveDate) -> Result<Report, Rea
     let _task = crate::mem_watch::task("job_copy.apply_reasons");
     let since = since_for(today, *MONTHS.last().unwrap());
     let mut stats = Stats::default();
-    let labels = read_labels(service).await;
-    let (dates, apps) = read_apps(service, since, today, labels.as_ref(), &mut stats).await?;
+    let options = read_options(service).await;
+    let mut apps = read_apps(
+        service,
+        since,
+        today,
+        options.as_ref().map(|o| &o.labels),
+        &mut stats,
+    )
+    .await?;
+    let mut totals = Vec::new();
+    for months in MONTHS {
+        totals.push(count_apps(service, since_for(today, months), today, &mut stats).await?);
+    }
+    let app_ids: Vec<String> = apps.iter().map(|a| a.id.clone()).collect();
+    let mut links = read_links(service, &app_ids, &mut stats).await?;
+    for app in &mut apps {
+        app.listing_ids = links.remove(&app.id).unwrap_or_default();
+    }
     let ids: Vec<String> = apps
         .iter()
         .flat_map(|a| a.listing_ids.iter().cloned())
@@ -457,11 +641,14 @@ async fn fetch(service: &JobReadService, today: NaiveDate) -> Result<Report, Rea
         .collect();
     let listings = read_listings(service, &ids, &mut stats).await?;
     tracing::info!(
-        pages = stats.pages,
+        searches = stats.searches,
+        link_calls = stats.link_calls,
         listing_calls = stats.listing_calls,
+        apps = apps.len(),
         "job-copy apply reasons reads"
     );
-    Ok(assemble(today, &dates, &apps, &listings))
+    let order = options.map(|o| o.order).unwrap_or_default();
+    Ok(assemble(today, order, &totals, &apps, &listings))
 }
 
 // ---- API ----
