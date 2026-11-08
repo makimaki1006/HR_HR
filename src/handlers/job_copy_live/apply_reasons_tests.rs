@@ -8,40 +8,66 @@ fn day(s: &str) -> NaiveDate {
 fn today() -> NaiveDate {
     day("2026-10-21")
 }
-fn app(id: &str, props: Value, listings: &[&str]) -> Value {
-    json!({"id":id,"properties":props,
-        "associations":{"listings":{"results":listings.iter().map(|l|json!({"id":l,"type":"x"})).collect::<Vec<_>>()}}})
+fn app(id: &str, props: Value) -> Value {
+    json!({"id":id,"properties":props})
 }
-fn page1() -> Value {
-    json!({"results":[
-        app("1",json!({"yingmuri":"2026-10-20","todoufuken":"神奈川県","shikuchouson":"横浜市港北区","oubodouki":"家から近い"}),&["L1"]),
+fn search_page1() -> Value {
+    json!({"total":7,"results":[
+        app("1",json!({"yingmuri":"2026-10-20","todoufuken":"神奈川県","shikuchouson":"横浜市港北区",
+            "oubodouki_1":"給与／手当;勤務地／通勤（車通勤可等）","oubodouki":"家から近い"})),
         app("2",json!({"yingmuri":"2026-04-21","todoufuken":"大阪府","shikuchouson":"大阪市北区",
-            "ouboriyuukategori_hiaringu":"unset","ouboriyuukategori_baitaikisai":"kyuuyo"}),&["L2","L3","L2"]),
-        app("3",json!({"yingmuri":"2026-04-20","oubodouki":"範囲外"}),&[]),
-        app("4",json!({"yingmuri":"2026-10-01","genshokumaeshokukaranotenshokuriyuu":"転職理由","kyuujinkensakujouken":"探し方","ouboriyuukategori_hiaringu":"unset"}),&[]),
+            "kinmujoukennoyuusenjuni_1":"給与／手当","kinmujoukennoyuusenjuni_2":"","kinmujoukennoyuusenjuni_3":"休日／休暇"})),
+        app("3",json!({"yingmuri":"2026-04-20","oubodouki_1":"仕事内容"})),
+        app("4",json!({"yingmuri":"2026-10-01","oubodouki":"文章だけ","tenshokuriyuu":"給与／手当"})),
     ],"paging":{"next":{"after":"p2"}}})
 }
-fn page2() -> Value {
-    json!({"results":[
-        app("5",json!({"yingmuri":"","hs_createdate":"2026-10-19T16:00:00Z","todoufuken":"東京都","shikuchouson":"千代田区","honnin_kibou_kinyuuran":"090-1234-5678に連絡してください"}),&["L4"]),
-        app("6",json!({"yingmuri":"2026-09-10","kinmujoukennoyuusenjuni":"休みが多い","oubosaki_shokushu":"その他営業"}),&[]),
-        app("7",json!({"yingmuri":"2026-10-15","oubodouki":"理由","oubosaki_shokushu":"宇宙飛行士"}),&[]),
-        app("8",json!({"yingmuri":"2026-10-10","oubodouki":"あ".repeat(2500)}),&[]),
+fn search_page2() -> Value {
+    json!({"total":7,"results":[
+        app("5",json!({"yingmuri":"","hs_createdate":"2026-10-19T16:00:00Z","todoufuken":"東京都","shikuchouson":"千代田区",
+            "oubodouki_1":"その他（詳細）","honnin_kibou_kinyuuran":"090-1234-5678に連絡してください"})),
+        app("6",json!({"yingmuri":"2026-09-10","kinmujoukennoyuusenjuni_1":"休日／休暇","oubosaki_shokushu":"その他営業"})),
+        app("7",json!({"yingmuri":"2026-10-15","oubodouki_1":"仕事内容","oubosaki_shokushu":"宇宙飛行士"})),
+        app("8",json!({"yingmuri":"2026-10-10","oubodouki_1":"名前の無い値","oubodouki":"あ".repeat(2500)})),
     ]})
 }
+const NONE: &str = "crm.associations.NO_ASSOCIATIONS_FOUND";
 async fn serve(log: Arc<Mutex<Vec<String>>>) -> (JobReadService, tokio::task::JoinHandle<()>) {
     let app = Router::new().fallback(any(move |req: Request<Body>| {
         let log = log.clone();
         async move {
             let path = req.uri().path().to_owned();
-            let query = req.uri().query().unwrap_or("").to_owned();
-            log.lock().unwrap().push(format!("{} {path}?{query}", req.method()));
-            let value = if path == "/crm/v3/objects/0-421" {
-                if query.contains("after=p2") { page2() } else { page1() }
+            let body: Value = serde_json::from_slice(
+                &axum::body::to_bytes(req.into_body(), usize::MAX).await.unwrap(),
+            )
+            .unwrap_or(Value::Null);
+            log.lock().unwrap().push(format!("{path} {body}"));
+            let value = if path == "/crm/v3/objects/0-421/search" {
+                if body["limit"] == 1 {
+                    // 全応募の件数: yingmuri の起点ごとに total を返す。
+                    let since = body.pointer("/filterGroups/0/filters/0/value").and_then(Value::as_str).unwrap();
+                    let total = match since {
+                        "1789948800000" => 2914, // 2026-09-21
+                        "1784592000000" => 7000, // 2026-07-21
+                        "1776729600000" => 13454, // 2026-04-21
+                        other => panic!("unexpected since {other}"),
+                    };
+                    json!({"total":total,"results":[]})
+                } else if body["after"] == "p2" { search_page2() } else { search_page1() }
+            } else if path == "/crm/v4/associations/0-421/0-420/batch/read" {
+                let ids: Vec<String> = body["inputs"].as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap().to_owned()).collect();
+                let to = |id: &str| -> Vec<&str> { match id { "1" => vec!["L1"], "2" => vec!["L2","L3"], "5" => vec!["L4"], _ => vec![] } };
+                let (with, without): (Vec<_>, Vec<_>) = ids.iter().partition(|id| !to(id).is_empty());
+                json!({"results":with.iter().map(|id| json!({"from":{"id":id},"to":to(id).iter().map(|l| json!({"toObjectId":l})).collect::<Vec<_>>()})).collect::<Vec<_>>(),
+                    "errors":[{"status":"error","category":"OBJECT_NOT_FOUND","subCategory":NONE,"context":{"fromObjectId":without}}]})
             } else if path == "/crm/v3/properties/0-421/batch/read" {
-                json!({"results":[
-                    {"name":"ouboriyuukategori_hiaringu","options":[{"value":"unset","label":"未設定"},{"value":"kyuuyo","label":"給与"}]},
-                    {"name":"ouboriyuukategori_baitaikisai","options":[{"value":"unset","label":"未設定"},{"value":"kyuuyo","label":"給与"}]}]})
+                let options = json!([
+                    {"value":"勤務地／通勤（車通勤可等）","label":"勤務地／通勤（車通勤可等）","displayOrder":3},
+                    {"value":"給与／手当","label":"給与／手当","displayOrder":0},
+                    {"value":"休日／休暇","label":"休日／休暇","displayOrder":1},
+                    {"value":"仕事内容","label":"仕事内容","displayOrder":4},
+                    {"value":"その他（詳細）","label":"その他（詳細）","displayOrder":11}]);
+                let results: Vec<Value> = SELECT_PROPERTIES.iter().map(|n| json!({"name":n,"options":options})).collect();
+                json!({"results":results})
             } else if path == "/crm/v3/objects/0-420/batch/read" {
                 json!({"results":[
                     {"id":"L1","properties":{"todoufuken":"神奈川県","shikuchouson":"平塚市","zhizhong":"倉庫管理"}},
@@ -83,7 +109,7 @@ fn row<'a>(data: &'a Value, date: &str, index: usize) -> &'a Value {
 }
 
 #[tokio::test]
-async fn builds_crosstab_from_two_pages_and_caches_it() {
+async fn builds_crosstab_from_select_fields_and_caches_it() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let (service, server) = serve(log.clone()).await;
     assert_eq!(answer(&service, today()).await["status"], "preparing");
@@ -92,8 +118,20 @@ async fn builds_crosstab_from_two_pages_and_caches_it() {
     assert_eq!(data["stale"], false);
     let report = &data["report"];
     assert_eq!(report["today"], "2026-10-21");
-    let periods = report["periods"].as_array().unwrap();
-    let got: Vec<_> = periods
+    // 列は応募動機の選択肢を displayOrder の順に。
+    assert_eq!(
+        report["options"],
+        json!([
+            "給与／手当",
+            "休日／休暇",
+            "勤務地／通勤（車通勤可等）",
+            "仕事内容",
+            "その他（詳細）"
+        ])
+    );
+    let got: Vec<_> = report["periods"]
+        .as_array()
+        .unwrap()
         .iter()
         .map(|p| {
             (
@@ -104,16 +142,16 @@ async fn builds_crosstab_from_two_pages_and_caches_it() {
             )
         })
         .collect();
+    // 全応募の数は Search の total、選んだ値のある応募はこちらで数える。
     assert_eq!(
         got,
         vec![
-            (1, "2026-09-21", 5, 4),
-            (3, "2026-07-21", 6, 5),
-            (6, "2026-04-21", 7, 6)
+            (1, "2026-09-21", 2914, 4),
+            (3, "2026-07-21", 7000, 5),
+            (6, "2026-04-21", 13454, 6)
         ]
     );
-    assert_eq!(report["occupation_groups"].as_array().unwrap().len(), 11);
-    // 6か月以内の理由あり6件、日付の新しい順（2026-04-20 の応募3は範囲外）。
+    // 選択式の値がある 6 か月以内の応募だけ。文章だけ (4) と範囲外 (3) は入らない。
     let dates: Vec<_> = report["rows"]
         .as_array()
         .unwrap()
@@ -131,8 +169,17 @@ async fn builds_crosstab_from_two_pages_and_caches_it() {
             "2026-04-21"
         ]
     );
-    // 応募1: 政令市の区は市にまとめる。求人側は平塚市。倉庫管理は物流。
+    // 応募1: 応募動機の複数選択、文章は詳細として添える。関連の求人票の勤務地と職種。
     let r1 = row(&data, "2026-10-20", 0);
+    assert_eq!(
+        r1["selections"],
+        json!([{"source_property":"oubodouki_1","label":"勤務地／通勤（車通勤可等）"},
+               {"source_property":"oubodouki_1","label":"給与／手当"}])
+    );
+    assert_eq!(
+        r1["texts"],
+        json!([{"source_property":"oubodouki","text":"家から近い"}])
+    );
     assert_eq!(
         r1["applicant_area"],
         json!({"prefecture":"神奈川県","municipality":"横浜市"})
@@ -141,86 +188,87 @@ async fn builds_crosstab_from_two_pages_and_caches_it() {
         r1["job_area"],
         json!({"prefecture":"神奈川県","municipality":"平塚市"})
     );
-    assert_eq!(
-        (r1["occupation"].as_str(), r1["occupation_status"].as_str()),
-        (Some("物流"), Some("grouped"))
-    );
-    assert_eq!(
-        r1["texts"],
-        json!([{"source_property":"oubodouki","text":"家から近い"}])
-    );
-    assert_eq!(r1["selections"], json!([]));
-    // 応募5: JST の日付、東京の区はそのまま、電話番号は伏せる、事務。
+    assert_eq!(r1["occupation"], "物流");
+    // 応募5: 作成日の JST の日付、電話番号は伏せる。
     let r5 = row(&data, "2026-10-20", 1);
     assert_eq!(
-        r5["applicant_area"],
-        json!({"prefecture":"東京都","municipality":"千代田区"})
+        r5["selections"],
+        json!([{"source_property":"oubodouki_1","label":"その他（詳細）"}])
     );
-    assert_eq!(r5["job_area"]["municipality"], "千代田区");
-    assert_eq!(r5["occupation"], "事務");
     let text = r5["texts"][0]["text"].as_str().unwrap();
     assert!(text.contains("＊＊") && !text.contains("090"));
-    // 応募2: 求人票が2件で食い違い。区分は未設定を除いて「給与」だけ。
+    assert_eq!(r5["occupation"], "事務");
+    // 応募2: 優先順位①と③（空の②は無い）。求人票が 2 件で食い違い。
     let r2 = row(&data, "2026-04-21", 0);
-    assert_eq!(r2["job_area"], Value::Null);
-    assert_eq!(
-        (r2["occupation"].as_str(), r2["occupation_status"].as_str()),
-        (None, Some("conflict"))
-    );
     assert_eq!(
         r2["selections"],
-        json!([{"source_property":"ouboriyuukategori_baitaikisai","label":"給与"}])
+        json!([{"source_property":"kinmujoukennoyuusenjuni_1","label":"給与／手当"},
+               {"source_property":"kinmujoukennoyuusenjuni_3","label":"休日／休暇"}])
     );
-    assert_eq!(
-        r2["applicant_area"],
-        json!({"prefecture":"大阪府","municipality":"大阪市"})
-    );
-    // 求人票が無い応募: 「その他営業」→営業、当たらない→unmatched、職種なし→missing。
+    assert_eq!(r2["job_area"], Value::Null);
+    assert_eq!(r2["occupation_status"], "conflict");
+    // 関連の無い応募: 求人票なし、応募の職種で区分。
     let r6 = row(&data, "2026-09-10", 0);
     assert_eq!(
-        (r6["occupation"].as_str(), r6["occupation_status"].as_str()),
-        (Some("営業"), Some("grouped"))
+        (r6["occupation"].as_str(), r6["job_area"].clone()),
+        (Some("営業"), Value::Null)
     );
-    assert_eq!(r6["job_area"], Value::Null);
     assert_eq!(
         row(&data, "2026-10-15", 0)["occupation_status"],
         "unmatched"
     );
+    // 選択肢に無い値はそのまま、文章は 2000 字まで。
     let r8 = row(&data, "2026-10-10", 0);
-    assert_eq!(r8["occupation_status"], "missing");
+    assert_eq!(r8["selections"][0]["label"], "名前の無い値");
     assert_eq!(
         r8["texts"][0]["text"].as_str().unwrap().chars().count(),
         2000
     );
-    // 転職理由・探し方は理由に入らない（応募4は rows に無い）。
-    assert!(!dates.contains(&"2026-10-01"));
-    // 呼び出し: 項目定義1 + 応募2ページ + 求人票1回。
+    // 呼び出し: 項目定義1 + 理由の Search 2 + 件数の Search 3 + 関連1 + 求人票1。
     {
         let calls = log.lock().unwrap();
-        assert_eq!(calls.len(), 4, "{calls:?}");
-        let first = calls
-            .iter()
-            .find(|c| c.starts_with("GET /crm/v3/objects/0-421?"))
-            .unwrap();
+        assert_eq!(calls.len(), 8, "{calls:?}");
+        let first = calls.iter().find(|c| c.contains("HAS_PROPERTY")).unwrap();
         assert!(
-            first.contains("limit=100")
-                && first.contains("associations=0-420")
-                && first.contains("oubodouki")
+            first.contains("oubodouki_1")
+                && first.contains("hs_createdate")
+                && first.contains("kinmujoukennoyuusenjuni_3")
+                && first.contains("\"limit\":200")
         );
-        assert!(calls.iter().any(|c| c.contains("after=p2")));
+        assert!(!calls
+            .iter()
+            .any(|c| c.starts_with("/crm/v3/objects/0-421 ")));
+        assert!(
+            calls
+                .iter()
+                .filter(|c| c.contains("NOT_HAS_PROPERTY"))
+                .count()
+                == 3
+        );
     }
     // 2回目は HubSpot を呼ばず同じ内容を返す。
     assert_eq!(answer(&service, today()).await, data);
-    assert_eq!(log.lock().unwrap().len(), 4);
+    assert_eq!(log.lock().unwrap().len(), 8);
     server.abort();
+}
+
+#[test]
+fn links_fail_on_errors_other_than_no_associations() {
+    assert_eq!(
+        no_association_ids(&json!({"subCategory":NONE,"context":{"fromObjectId":["1",2]}})),
+        Some(vec!["1".to_owned(), "2".to_owned()])
+    );
+    assert_eq!(
+        no_association_ids(&json!({"subCategory":"crm.other","context":{"fromObjectId":["1"]}})),
+        None
+    );
 }
 
 #[tokio::test]
 async fn failure_with_no_previous_result_is_failed_then_waits_before_retry() {
-    use axum::routing::get;
     let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counter = hits.clone();
-    let app = Router::new().fallback(get(move || {
+    let app = Router::new().fallback(any(move || {
         let counter = counter.clone();
         async move {
             counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -232,6 +280,7 @@ async fn failure_with_no_previous_result_is_failed_then_waits_before_retry() {
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     assert_eq!(ready(&service).await["status"], "failed");
     let before = hits.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(before > 0);
     assert_eq!(answer(&service, today()).await["status"], "failed");
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), before);
@@ -268,4 +317,73 @@ fn occupation_table_maps_by_order_and_unmatched_is_none() {
     assert_eq!(classify("看護師"), Some("医療"));
     assert_eq!(classify("宇宙飛行士"), None);
     assert_eq!(classify("その他"), None);
+}
+
+/// HubSpot の Search の条件を、テスト用の応募 (応募日・作成日、ミリ秒) に当てる。
+fn matches(body: &Value, yingmuri: Option<i64>, created: i64) -> bool {
+    body["filterGroups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|group| {
+            group["filters"].as_array().unwrap().iter().all(|f| {
+                let value = match f["propertyName"].as_str().unwrap() {
+                    "yingmuri" => yingmuri,
+                    "hs_createdate" => Some(created),
+                    other => panic!("unexpected {other}"),
+                };
+                let limit = || f["value"].as_str().unwrap().parse::<i64>().unwrap();
+                match f["operator"].as_str().unwrap() {
+                    "NOT_HAS_PROPERTY" => value.is_none(),
+                    "GTE" => value.is_some_and(|v| v >= limit()),
+                    "LT" => value.is_some_and(|v| v < limit()),
+                    other => panic!("unexpected {other}"),
+                }
+            })
+        })
+}
+fn utc(s: &str) -> i64 {
+    DateTime::parse_from_rfc3339(s).unwrap().timestamp_millis()
+}
+
+#[test]
+fn count_uses_application_day_then_created_day_in_jst() {
+    let body = count_body(day("2026-09-21"), today());
+    let applied = |d: &str| Some(day_ms(day(d)));
+    // 応募日があれば作成日によらず応募日で決める（後から作られた古い応募は数えない）。
+    assert!(matches(
+        &body,
+        applied("2026-09-21"),
+        utc("2026-11-01T00:00:00Z")
+    ));
+    assert!(matches(
+        &body,
+        applied("2026-10-21"),
+        utc("2026-10-21T00:00:00Z")
+    ));
+    assert!(!matches(
+        &body,
+        applied("2026-09-20"),
+        utc("2026-10-01T00:00:00Z")
+    ));
+    assert!(!matches(
+        &body,
+        applied("2026-10-22"),
+        utc("2026-10-22T00:00:00Z")
+    ));
+    // 応募日が無ければ作成日の JST の日付: 09-21 0:00 JST = 09-20 15:00 UTC から 10-22 0:00 JST の前まで。
+    assert!(!matches(&body, None, utc("2026-09-20T14:59:59Z")));
+    assert!(matches(&body, None, utc("2026-09-20T15:00:00Z")));
+    assert!(matches(&body, None, utc("2026-10-21T14:59:59Z")));
+    assert!(!matches(&body, None, utc("2026-10-21T15:00:00Z")));
+}
+
+#[test]
+fn reason_search_reaches_every_application_of_the_period_within_limits() {
+    let since = day("2026-04-21");
+    let created_since = jst_ms(since);
+    // 応募日が起点ちょうどで、作成日が JST の起点 0 時ちょうどの応募も検索に入る。
+    assert_eq!(created_since, utc("2026-04-20T15:00:00Z"));
+    // filterGroups は HubSpot の上限 (5 まとまり・合計 18 条件) に収まる。
+    assert!(SELECT_PROPERTIES.len() <= 5 && SELECT_PROPERTIES.len() * 2 <= 18);
 }

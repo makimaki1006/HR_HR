@@ -1,60 +1,66 @@
 import { describe, expect, it } from 'vitest';
-import { applyReasonFixture, row } from './applyReason.testFixtures';
-import { buildCrosstab, classifyRow, formatShare, UNCLASSIFIED } from './applyReasonCrosstabModel';
+import { applyReasonFixture, REASON_OPTIONS, row } from './applyReason.testFixtures';
+import { buildCrosstab, columnsOf, formatShare, labelsOf } from './applyReasonCrosstabModel';
 
 const report = applyReasonFixture.report ?? (() => { throw new Error('fixture'); })();
 const K: [string, string] = ['神奈川県', '横浜市'];
+const opts = { months: 6, kind: 'motive' as const, area: 'applicant' as const, occupation: null };
 
-describe('classifyRow', () => {
-  it('選択が文より優先される', () => {
-    expect(classifyRow(row('2026-10-01', K, K, null, { sel: ['給与'], texts: ['家から近い'] }))).toEqual({ categories: ['給与'], basis: 'selected' });
+describe('labelsOf', () => {
+  it('応募動機と優先順位を分け、文章は数えない', () => {
+    const r = row('2026-10-01', K, K, null, { sel: ['給与／手当', '仕事内容'], pri: ['休日／休暇', '給与／手当'], texts: ['給料が良い'] });
+    expect(labelsOf(r, 'motive')).toEqual(['給与／手当', '仕事内容']);
+    expect(labelsOf(r, 'priority')).toEqual(['休日／休暇', '給与／手当']);
+    expect(labelsOf(row('2026-10-01', K, K, null, { texts: ['家から近い'] }), 'motive')).toEqual([]);
   });
-  it('未設定の選択は無視して文で推定する', () => {
-    expect(classifyRow(row('2026-10-01', K, K, null, { sel: ['未設定'], texts: ['駅から近い'] }))).toEqual({ categories: ['勤務地'], basis: 'estimated' });
+  it('①〜③で同じ値は 1 回', () => {
+    expect(labelsOf(row('2026-10-01', K, K, null, { pri: ['給与／手当', '給与／手当'] }), 'priority')).toEqual(['給与／手当']);
   });
-  it('文は結合して複数の区分に入る', () => {
-    expect(classifyRow(row('2026-10-01', K, K, null, { texts: ['給料が良い', '家から近い'] })).categories).toEqual(['給与', '勤務地']);
-  });
-  it('どれにも当たらなければ分類できない', () => {
-    expect(classifyRow(row('2026-10-01', K, K, null, { texts: ['特にありません'] }))).toEqual({ categories: [], basis: 'unclassified' });
+});
+
+describe('columnsOf', () => {
+  it('HubSpot の 13 個の順、選択肢に無い値は後ろに足す', () => {
+    const cols = columnsOf(report, 'motive');
+    expect(cols.slice(0, 13)).toEqual(REASON_OPTIONS);
+    expect(cols).toHaveLength(14);
+    expect(cols[13]).toBe('名前が変わった選択肢');
+    expect(columnsOf(report, 'priority')).toEqual(REASON_OPTIONS);
   });
 });
 
 describe('buildCrosstab', () => {
-  it('期間で絞る (1・3・6 か月)', () => {
-    expect([1, 3, 6].map(months => buildCrosstab(report, { months, area: 'applicant', occupation: null }).inPeriod)).toEqual([4, 7, 11]);
+  it('期間と表ごとに、値がある応募だけを数える', () => {
+    expect([1, 3, 6].map(months => buildCrosstab(report, { ...opts, months }).inTable)).toEqual([4, 6, 6]);
+    expect([1, 6].map(months => buildCrosstab(report, { ...opts, months, kind: 'priority' }).inTable)).toEqual([3, 3]);
   });
-  it('応募者の住所: 神奈川県 6 件、給与 3・勤務地 3・その他 1', () => {
-    const c = buildCrosstab(report, { months: 6, area: 'applicant', occupation: null });
-    expect(c.area.map(p => [p.label, p.withReason])).toEqual([['神奈川県', 6], ['埼玉県', 2], ['東京都', 2]]);
-    expect(c.area[0]?.counts).toEqual({ 給与: 3, 勤務地: 3, 職種興味: 0, 会社規模: 0, その他: 1, [UNCLASSIFIED]: 0 });
-    expect(c.area[0]?.children.map(m => [m.label, m.withReason])).toEqual([['横浜市', 6]]);
-  });
-  it('求人の勤務地に切り替えると 1 行目の数が変わる', () => {
-    const c = buildCrosstab(report, { months: 6, area: 'job', occupation: null });
-    expect(c.area[0]).toMatchObject({ label: '神奈川県', withReason: 7 });
-    expect(c.area[0]?.children.map(m => [m.label, m.withReason])).toEqual([['横浜市', 4], ['平塚市', 3]]);
-  });
-  it('地域が null の応募は外した件数に入り、表に出ない', () => {
-    const c = buildCrosstab(report, { months: 6, area: 'applicant', occupation: null });
+  it('応募動機・応募者の住所: 神奈川県 3 件、給与 2・勤務地 1・休日 1', () => {
+    const c = buildCrosstab(report, opts);
+    expect(c.area.map(p => [p.label, p.withReason])).toEqual([['神奈川県', 3], ['埼玉県', 1], ['東京都', 1]]);
+    expect(c.area[0]?.counts).toMatchObject({ '給与／手当': 2, '勤務地／通勤（車通勤可等）': 1, '休日／休暇': 1, 仕事内容: 0 });
     expect(c.excluded.noArea).toBe(1);
-    expect(c.area.reduce((n, p) => n + p.withReason, 0)).toBe(10);
-    expect(buildCrosstab(report, { months: 6, area: 'job', occupation: null }).excluded.noArea).toBe(1);
   });
-  it('職種 null は理由別に数え、職種別の表では未分類の行に入る', () => {
-    const c = buildCrosstab(report, { months: 6, area: 'applicant', occupation: null });
-    expect(c.excluded).toMatchObject({ noOccupation: 2, occupationMissing: 0, occupationUnmatched: 1, occupationConflict: 1, unclassified: 1 });
-    expect(c.occupation.map(o => [o.label, o.withReason])).toEqual([['営業', 2], ['事務', 2], ['物流', 5], ['未分類', 2]]);
+  it('優先順位: ①〜③のどれかに選んだ応募を数える', () => {
+    const c = buildCrosstab(report, { ...opts, kind: 'priority' });
+    expect(c.area.map(p => [p.label, p.withReason])).toEqual([['神奈川県', 2], ['東京都', 1]]);
+    expect(c.area[0]?.counts).toMatchObject({ '給与／手当': 2, '休日／休暇': 2, '勤務地／通勤（車通勤可等）': 1 });
   });
-  it('職種の絞り込みは地域別だけに効く', () => {
-    const c = buildCrosstab(report, { months: 6, area: 'applicant', occupation: '物流' });
-    expect(c.area.map(p => [p.label, p.withReason])).toEqual([['神奈川県', 5]]);
-    expect(c.occupation).toHaveLength(4);
+  it('求人の勤務地が分からない応募 (null) は地域別から外す', () => {
+    const c = buildCrosstab(report, { ...opts, kind: 'priority', area: 'job' });
+    expect(c.excluded.noArea).toBe(1);
+    expect(c.area.map(p => [p.label, p.withReason])).toEqual([['神奈川県', 2]]);
+  });
+  it('職種が無い応募は職種別の「未分類」の行', () => {
+    const c = buildCrosstab(report, opts);
+    expect(c.excluded).toMatchObject({ noOccupation: 1, occupationConflict: 1 });
+    expect(c.occupation.map(o => [o.label, o.withReason])).toEqual([['営業', 1], ['事務', 2], ['物流', 2], ['未分類', 1]]);
+  });
+  it('最初の記録日を返す (起点より後なら画面に出す)', () => {
+    expect(buildCrosstab(report, opts).firstRecorded).toBe('2026-09-18');
+    expect(buildCrosstab(report, { ...opts, kind: 'priority' }).firstRecorded).toBe('2026-09-22');
   });
   it('5 件未満の行は割合 null、5 件以上は小数 1 位', () => {
     expect(formatShare(2, 4)).toBeNull();
     expect(formatShare(3, 6)).toBe('50.0%');
-    const c = buildCrosstab(report, { months: 6, area: 'applicant', occupation: null });
-    expect(c.hiddenShare).toBe(true);
+    expect(buildCrosstab(report, opts).hiddenShare).toBe(true);
   });
 });

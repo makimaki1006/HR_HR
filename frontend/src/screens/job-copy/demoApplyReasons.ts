@@ -12,7 +12,7 @@ const TEXTS = [
   'やってみたい仕事でした', '大手で安定した会社だと思ったから', '土日が休みなのが条件でした',
   '駅から近くて通いやすい', '給料と通勤のしやすさで選びました', '特にありません', '友人に勧められて',
 ];
-const SELECTIONS = ['給与', '勤務地', '職種興味', '会社規模', 'その他'];
+const SELECTIONS = ['給与／手当', '休日／休暇', '勤務時間／シフト（夜勤なし等）', '勤務地／通勤（車通勤可等）', '仕事内容', '未経験可／研修', '雇用の安定（正社員・長期）', '職場環境／人間関係', '福利厚生（寮・食堂等）', '資格取得／キャリア', '家庭の事情', 'その他（詳細）', '回答なし'];
 
 const pick = <T,>(xs: readonly T[], i: number): T => xs[i % xs.length] as T;
 
@@ -29,14 +29,18 @@ function build(): ApplyReasonRow[] {
     const noArea = i % 17 === 5;
     const occ = i % 11 === 4 ? null : pick(OCCUPATIONS, (i * 5) % OCCUPATIONS.length);
     const status: OccupationStatus = occ !== null ? 'grouped' : (['missing', 'unmatched', 'conflict'] as const)[i % 3] as OccupationStatus;
-    const hasSel = i % 4 === 0;
+    const motive = [pick(SELECTIONS, (i * 3) % 6), ...(i % 3 === 0 ? [pick(SELECTIONS, (i + 4) % 10)] : [])];
+    const priority = i % 2 === 0 ? [pick(SELECTIONS, i % 7), pick(SELECTIONS, (i + 2) % 9), pick(SELECTIONS, (i + 5) % 11)] : [];
     rows.push({
-      date: dateBefore(TODAY, (i * 5) % 178),
+      date: dateBefore(TODAY, (i * 5) % 50),
       applicant_area: noArea ? { prefecture: null, municipality: null } : { prefecture: a[0], municipality: i % 13 === 2 ? null : a[1] },
       job_area: { prefecture: j[0], municipality: j[1] },
       occupation: occ, occupation_status: status,
-      selections: hasSel ? [{ source_property: 'ouboriyuukategori_hiaringu', label: pick(SELECTIONS, i % SELECTIONS.length) }] : [],
-      texts: hasSel && i % 8 === 0 ? [] : [{ source_property: i % 5 === 0 ? 'kinmujoukennoyuusenjuni' : 'oubodouki', text: pick(TEXTS, (i * 3) % TEXTS.length) }],
+      selections: [
+        ...[...new Set(motive)].map(label => ({ source_property: 'oubodouki_1', label })),
+        ...priority.map((label, n) => ({ source_property: `kinmujoukennoyuusenjuni_${String(n + 1)}`, label })),
+      ],
+      texts: i % 4 === 0 ? [{ source_property: 'oubodouki', text: pick(TEXTS, (i * 3) % TEXTS.length) }] : [],
     });
   }
   return rows;
@@ -48,6 +52,7 @@ export const demoApplyReasons: ApplyReasonResponse = {
   status: 'ready', built_at: '2026-10-21T04:00:00Z', refreshing: false, stale: false, refresh_failed: false,
   report: {
     today: TODAY,
+    options: SELECTIONS,
     periods: [
       { months: 1, since: '2026-09-21', total: 2914, with_reason: count('2026-09-21') },
       { months: 3, since: '2026-07-21', total: 7000, with_reason: count('2026-07-21') },
