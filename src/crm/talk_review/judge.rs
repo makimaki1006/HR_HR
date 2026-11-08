@@ -80,11 +80,13 @@ pub trait Judge: Send + Sync {
     ) -> impl std::future::Future<Output = Result<JudgeOutput, JudgeError>> + Send;
 
     /// ヒアリングだけ (呼び出し 1 回)。ヒアリングの項目を checks の順で返す。
-    /// ヒアリングを入れる前に判定した「日程が決まった」電話に、後から付けるために使う
+    /// ヒアリングを入れる前に判定した「日程が決まった」電話に、後から付けるために使う。
+    /// `call_date` は電話をした日 (JST の YYYY-MM-DD)。入社時期の期間をこの日から数えさせる
     fn hearing(
         &self,
         checks: &Checks,
         turns: &[TalkTurn],
+        call_date: Option<&str>,
     ) -> impl std::future::Future<Output = Result<Vec<StoredItem>, JudgeError>> + Send;
 }
 
@@ -180,8 +182,13 @@ pub fn build_prompt(checks: &Checks, turns: &[TalkTurn]) -> String {
     )
 }
 
-/// ヒアリングの判定 (場面「日程が決まった後」の項目)。今の判定で日程が決まった電話だけ、もう 1 回
-pub fn build_hearing_prompt(checks: &Checks, turns: &[TalkTurn]) -> String {
+/// ヒアリングの判定 (場面「日程が決まった後」の項目)。今の判定で日程が決まった電話だけ、もう 1 回。
+/// `call_date` (電話をした日) があれば決まりに書き、入社時期の期間をその日から数えさせる
+pub fn build_hearing_prompt(
+    checks: &Checks,
+    turns: &[TalkTurn],
+    call_date: Option<&str>,
+) -> String {
     let items: Vec<String> = checks
         .checks
         .iter()
@@ -211,7 +218,7 @@ pub fn build_hearing_prompt(checks: &Checks, turns: &[TalkTurn]) -> String {
 - status は「対象」。該当なしに当たるとき、または文字起こしが崩れて判断できないときだけ「該当なし」
 - evidence は根拠の発言の番号。
 {COMMON}
-- detail: 具体的な金額や月が出たときだけ、その金額や月を書く(例「月20万円」「来年4月」)。無ければ空。
+- detail: 具体的な金額や月が出たときだけ、その金額や月を書く(例「月20万円」「来年4月」)。無ければ空。{date}
 
 項目:
 {items}
@@ -223,7 +230,20 @@ pub fn build_hearing_prompt(checks: &Checks, turns: &[TalkTurn]) -> String {
 {{"checks": [{{"id": "...", "status": "...", "asked": true/false, "answered": true/false, "answer": "...", "evidence": [番号], "detail": "..."}}]}}"#,
         items = items.join("\n"),
         tr = transcript(turns),
+        date = call_date.map(call_date_rule).unwrap_or_default(),
     )
+}
+
+/// 電話をした日の決まり (ヒアリングのプロンプトの決まりの最後の行)
+fn call_date_rule(date: &str) -> String {
+    format!("\n- この電話をした日は {date}。入社時期などの期間はこの日から数える(例: 11月の電話で「3月まで」「4月から」は4か月以上)。")
+}
+
+/// 電話の時刻 (エポックミリ秒) を JST の日付 YYYY-MM-DD にする
+pub fn jst_date(call_ms: i64) -> Option<String> {
+    let jst = chrono::FixedOffset::east_opt(9 * 3600)?;
+    chrono::DateTime::from_timestamp_millis(call_ms)
+        .map(|t| t.with_timezone(&jst).format("%Y-%m-%d").to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -565,10 +585,14 @@ pub async fn judge_via<C: Completer>(
     c: &C,
     checks: &Checks,
     turns: &[TalkTurn],
+    call_date: Option<&str>,
 ) -> Result<JudgeOutput, JudgeError> {
     let mut out = judge_main_via(c, checks, turns).await?;
     if out.outcome.as_deref() == Some(SCHEDULED) && checks.checks.iter().any(is_hearing) {
-        match c.complete(&build_hearing_prompt(checks, turns)).await {
+        match c
+            .complete(&build_hearing_prompt(checks, turns, call_date))
+            .await
+        {
             Ok(h) => apply_hearing(checks, &h, turns, &mut out.items),
             Err(e) => {
                 // 理由は短い記号だけ (http 429・json など)。本文・鍵は含まない
@@ -590,8 +614,11 @@ pub async fn hearing_via<C: Completer>(
     c: &C,
     checks: &Checks,
     turns: &[TalkTurn],
+    call_date: Option<&str>,
 ) -> Result<Vec<StoredItem>, JudgeError> {
-    let v = c.complete(&build_hearing_prompt(checks, turns)).await?;
+    let v = c
+        .complete(&build_hearing_prompt(checks, turns, call_date))
+        .await?;
     let mut items: Vec<StoredItem> = checks
         .checks
         .iter()
@@ -709,8 +736,9 @@ impl Judge for MiniMaxJudge {
         &self,
         checks: &Checks,
         turns: &[TalkTurn],
+        call_date: Option<&str>,
     ) -> Result<Vec<StoredItem>, JudgeError> {
-        hearing_via(self, checks, turns).await
+        hearing_via(self, checks, turns, call_date).await
     }
 }
 
@@ -941,7 +969,7 @@ mod tests {
     async fn hearing_is_called_only_when_the_date_was_set() {
         let c = &loaded().checks;
         let s = Scripted::new(vec![Ok(main_resp("日程が決まった")), Ok(hearing_resp())]);
-        let o = judge_via(&s, c, &turns9()).await.unwrap();
+        let o = judge_via(&s, c, &turns9(), None).await.unwrap();
         let p = s.prompts();
         assert_eq!(p.len(), 2, "今の判定 1 回 + ヒアリング 1 回");
         assert!(p[0].starts_with("あなたは新規営業のアポ取り電話を評価する担当です。"));
@@ -1004,7 +1032,7 @@ mod tests {
     async fn hearing_only_returns_the_hearing_items_in_order() {
         let c = &loaded().checks;
         let s = Scripted::new(vec![Ok(hearing_resp())]);
-        let h = hearing_via(&s, c, &turns9()).await.unwrap();
+        let h = hearing_via(&s, c, &turns9(), None).await.unwrap();
         assert!(!s.prompts()[0].contains("call_kind"));
         assert_eq!(
             h.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
@@ -1025,7 +1053,7 @@ mod tests {
         let c = &loaded().checks;
         for outcome in ["決まらなかった", "担当者不在", "読めない値"] {
             let s = Scripted::new(vec![Ok(main_resp(outcome)), Ok(hearing_resp())]);
-            let o = judge_via(&s, c, &turns9()).await.unwrap();
+            let o = judge_via(&s, c, &turns9(), None).await.unwrap();
             assert_eq!(s.prompts().len(), 1, "{outcome}: 今の判定の 1 回だけ");
             for i in o.items.iter().filter(|i| i.id.starts_with("aq_")) {
                 assert_eq!((i.status.as_str(), i.note.as_deref()), ("na", None));
@@ -1042,7 +1070,7 @@ mod tests {
             Ok(hearing_resp()),
         ]);
         assert_eq!(
-            judge_via(&s, c, &turns9()).await,
+            judge_via(&s, c, &turns9(), None).await,
             Err(JudgeError::Transient("json".into()))
         );
         assert_eq!(s.prompts().len(), 1);
@@ -1051,7 +1079,7 @@ mod tests {
             Ok(main_resp("日程が決まった")),
             Err(JudgeError::Transient("http 429".into())),
         ]);
-        let o = judge_via(&s, c, &turns9()).await.unwrap();
+        let o = judge_via(&s, c, &turns9(), None).await.unwrap();
         assert_eq!(s.prompts().len(), 2);
         assert_eq!(item(&o.items, "early_date").status, "done");
         assert_eq!(item(&o.items, "kizonkan").status, "not_done");
@@ -1078,7 +1106,7 @@ mod tests {
             "\"checks\": [{\"id\": \"...\", \"status\": \"...\", \"evidence\": [番号]}]}"
         ));
         assert!(!p.contains("quote") && !p.contains("advice") && !p.contains("summary"));
-        let h = build_hearing_prompt(c, &turns);
+        let h = build_hearing_prompt(c, &turns, None);
         assert_eq!(h.matches("- id: aq_").count(), 6);
         assert!(h.contains(
             "- id: aq_budget\n  項目: 予算\n  判定: 質問: 採用にかける予算を営業が聞いたか。"
@@ -1092,6 +1120,13 @@ mod tests {
         assert!(h.contains(
             "正しい:「名乗りでも伊藤さんと名前で呼んでいる」\n- detail: 具体的な金額や月"
         ));
+        // 電話をした日を渡すと、決まりの最後に書き、期間をその日から数えさせる
+        assert!(!h.contains("この電話をした日"));
+        let d = build_hearing_prompt(c, &turns, Some("2026-11-05"));
+        assert!(d.contains("無ければ空。\n- この電話をした日は 2026-11-05。入社時期などの期間はこの日から数える(例: 11月の電話で「3月まで」「4月から」は4か月以上)。\n\n項目:"));
+        assert!(d.contains("期間は電話をした日から数える。"));
+        // JST の日付 (UTC の 15 時は翌日)
+        assert_eq!(jst_date(1793890800000).as_deref(), Some("2026-11-06"));
         let b = MiniMaxJudge::request_body("MiniMax-M3", "P");
         assert_eq!(b["temperature"], json!(0));
         assert_eq!(b["model"], json!("MiniMax-M3"));
@@ -1113,7 +1148,7 @@ mod tests {
              s=importlib.util.spec_from_file_location('ca','{script}');m=importlib.util.module_from_spec(s);s.loader.exec_module(m)\n\
              c=json.load(open('{checks}',encoding='utf-8'))\n\
              t=[{{'n':1,'sp':'営','text':'もしもし'}},{{'n':2,'sp':'先','text':'はい'}}]\n\
-             sys.stdout.write(json.dumps([m.main_prompt(c,t),m.hearing_prompt(c,t)],ensure_ascii=False))"
+             sys.stdout.write(json.dumps([m.main_prompt(c,t),m.hearing_prompt(c,t),m.hearing_prompt(c,t,'2026-11-05')],ensure_ascii=False))"
         );
         let Ok(out) = std::process::Command::new("python3")
             .args(["-I", "-c", &code])
@@ -1131,6 +1166,7 @@ mod tests {
         let c = &loaded().checks;
         let turns = vec![tt(1, true, "もしもし"), tt(2, false, "はい")];
         assert_eq!(py[0], build_prompt(c, &turns));
-        assert_eq!(py[1], build_hearing_prompt(c, &turns));
+        assert_eq!(py[1], build_hearing_prompt(c, &turns, None));
+        assert_eq!(py[2], build_hearing_prompt(c, &turns, Some("2026-11-05")));
     }
 }
