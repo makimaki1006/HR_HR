@@ -63,6 +63,7 @@ mod tests {
             answer: answer.map(Into::into),
             asked: None,
             answered: None,
+            counted_from: None,
         }
     }
 
