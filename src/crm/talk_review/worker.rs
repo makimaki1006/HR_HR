@@ -1120,7 +1120,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                     Err(_) => return (id, false),
                 };
                 let checks = &loaded().checks;
-                let hearing = match judge.hearing(checks, &turns).await {
+                let date = super::judge::jst_date(c.call_ms);
+                let hearing = match judge.hearing(checks, &turns, date.as_deref()).await {
                     Ok(h) => h,
                     Err(_) => {
                         tracing::info!("talk review: hearing skipped (judge)");
@@ -1706,6 +1707,7 @@ mod tests {
             &self,
             _: &super::super::checks::Checks,
             _: &[TalkTurn],
+            _: Option<&str>,
         ) -> Result<Vec<StoredItem>, JudgeError> {
             Err(JudgeError::NotConfigured)
         }
@@ -2442,6 +2444,7 @@ mod tests {
             &self,
             _: &super::super::checks::Checks,
             _: &[TalkTurn],
+            _: Option<&str>,
         ) -> Result<Vec<StoredItem>, JudgeError> {
             self.0.clone()
         }

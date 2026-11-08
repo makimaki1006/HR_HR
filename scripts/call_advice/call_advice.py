@@ -171,8 +171,11 @@ def main_prompt(checks, turns):
  "checks": [{{"id": "...", "status": "...", "evidence": [番号]}}]}}"""
 
 
-def hearing_prompt(checks, turns):
-    """ヒアリング (場面「日程が決まった後」の項目)。日程が決まった電話だけ、もう 1 回。"""
+def hearing_prompt(checks, turns, call_date=None):
+    """ヒアリング (場面「日程が決まった後」の項目)。日程が決まった電話だけ、もう 1 回。
+    call_date (電話をした日 YYYY-MM-DD) があれば、入社時期の期間をその日から数えさせる。"""
+    date = (f'\n- この電話をした日は {call_date}。入社時期などの期間はこの日から数える'
+            f'(例: 11月の電話で「3月まで」「4月から」は4か月以上)。') if call_date else ''
     items = '\n'.join(
         f'- id: {c["id"]}\n  項目: {c["title"]}\n  判定: {c["rule"]}\n  先方の答え: {" / ".join(c["answers"])}'
         + (f'\n  該当なし: {c["na_when"]}' if c['na_when'] != NA_ONLY_UNSCHEDULED else '')
@@ -187,7 +190,7 @@ def hearing_prompt(checks, turns):
 - status は「対象」。該当なしに当たるとき、または文字起こしが崩れて判断できないときだけ「該当なし」
 - evidence は根拠の発言の番号。
 {COMMON}
-- detail: 具体的な金額や月が出たときだけ、その金額や月を書く(例「月20万円」「来年4月」)。無ければ空。
+- detail: 具体的な金額や月が出たときだけ、その金額や月を書く(例「月20万円」「来年4月」)。無ければ空。{date}
 
 項目:
 {items}
