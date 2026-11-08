@@ -14,13 +14,11 @@ export function sidebarTests() {
   });
 
   for (const [width, height] of [[1440, 690], [1100, 623]]) {
-    test(`${width}×${height}: 畳んだ一覧は横書きで、開いても詳細の幅を保つ`, async ({ page }) => {
+    test(`${width}×${height}: 畳んだ一覧は横書きの1つのボタンで、開いても詳細の幅を保つ`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       const trigger = page.getByRole('button', { name: triggerName });
-      await expect(trigger).toHaveText('☰開く');
-      const label = page.locator('.jc-sidebar-current');
-      await expect(label).toHaveText('求人');
-      await expect(label).toHaveCSS('writing-mode', 'horizontal-tb');
+      await expect(trigger).toHaveText('☰求人');
+      await expect(trigger).toHaveCSS('writing-mode', 'horizontal-tb');
       expect((await page.locator('.jc-main').boundingBox())!.width).toBe(width - 48);
       await trigger.click();
       await expect(trigger).toHaveAttribute('aria-expanded', 'true');

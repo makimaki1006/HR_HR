@@ -19,7 +19,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capture_bundle: { schemaVersion: 1, jobs: [] }, results: [] } }));
   await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: { status: 'ready', total: 0, listings: [], deals: [], titles: [] } }));
   await login(page); await page.goto('/app/job-copy?owner=11&owner_field=consultant');
-  await page.getByRole('button', { name: '案件の一覧', exact: true }).click();
+  await page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: '案件一覧' }).click();
   await expect(page).toHaveURL(/view=deals/);
   await expect(page.getByRole('heading', { name: '案件の一覧' })).toBeVisible();
   const table = page.locator('.db-table');
@@ -193,7 +193,7 @@ test('求人と応募の前回集計をやることと案件一覧に残して�
   await page.goto('/app/job-copy?owner=11&owner_field=consultant');
   await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
   await expect(page.locator('.jh-todo-cards').getByRole('button', { name: /契約満了が近い/ }).locator('.jh-count')).toHaveText('1件');
-  await page.getByRole('button', { name: '案件の一覧', exact: true }).click();
+  await page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: '案件一覧' }).click();
   await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
   await expect(page.locator('.db-table tbody > tr')).toHaveCount(20);
   await expect(page.locator('.db-table tbody > tr').first()).toContainText('架空の採用支援01');
