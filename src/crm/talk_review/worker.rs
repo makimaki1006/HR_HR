@@ -923,14 +923,18 @@ impl JudgedScan {
             let recent = r.call_at.as_str() >= since;
             if recent && row_has_foreign_text(&r) {
                 self.rejudge.push_back(r);
-            } else if rehearing_needed(&r, checks) {
-                if let Some(c) = HearingCandidate::from_row(&r, checks, now) {
-                    self.rehearing.push_back(c);
-                }
-            } else if recent {
-                if let Some(c) = HearingCandidate::from_row(&r, checks, now) {
-                    self.hearing.insert(c.id.clone(), c);
-                }
+                continue;
+            }
+            let Some(c) = HearingCandidate::from_row(&r, checks, now) else {
+                continue;
+            };
+            if rehearing_needed(&r, checks) {
+                self.rehearing.push_back(c.clone());
+            }
+            // 付け直す行も、期間内なら今までどおりアポの記録と突き合わせる (記録が無ければヒアリングを外す)。
+            // 外した後に付け直しが来ても、書く直前の読み直しで見送る
+            if recent {
+                self.hearing.insert(c.id.clone(), c);
             }
         }
     }
@@ -1692,7 +1696,6 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             // HubSpot のアポの記録と突き合わせて、ヒアリングを付ける・外す (毎周。日中は判定待ちが続き、
             // 手の空いた周回が少ないため)
             self.process_hearing().await;
-            self.process_rehearing().await;
             if !busy {
                 // 担当者の付け直しは数分かかるので、起動直後の取り込み・判定の後、最初に手が空いた周回で 1 回
                 if !self.reattributed {
@@ -1703,6 +1706,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 }
                 // 新しい判定が無い周回に、文章が不合格の行を少しずつ判定し直す
                 self.process_rejudge().await;
+                // 通話日の印が無いヒアリングの付け直しも、新しい判定が無い周回だけ (遅いと新しい電話の判定を待たせるため)
+                self.process_rehearing().await;
                 tokio::time::sleep(self.cfg.interval).await;
             }
         }
@@ -2962,10 +2967,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["recent", "old"]
         );
-        assert_eq!(
-            scan.hearing.keys().map(String::as_str).collect::<Vec<_>>(),
-            ["marked"]
-        );
+        // 期間内の付け直す行も、アポの記録との突き合わせに残る
+        let mut keys: Vec<&str> = scan.hearing.keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(keys, ["marked", "recent"]);
         assert_eq!(
             scan.rejudge
                 .iter()
@@ -3019,10 +3024,10 @@ mod tests {
                         .collect::<Vec<_>>(),
                     ["recent", "old_foreign", "old"]
                 );
-                assert_eq!(
-                    scan.hearing.keys().map(String::as_str).collect::<Vec<_>>(),
-                    ["marked"]
-                );
+                // 期間内の付け直す行も、アポの記録との突き合わせに残る
+                let mut keys: Vec<&str> = scan.hearing.keys().map(String::as_str).collect();
+                keys.sort();
+                assert_eq!(keys, ["marked", "recent"]);
                 assert_eq!(
                     scan.rejudge
                         .iter()
