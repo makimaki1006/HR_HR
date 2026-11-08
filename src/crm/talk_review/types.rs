@@ -221,6 +221,10 @@ pub struct TalkItemDetail {
     pub asked: Option<bool>,
     /// ヒアリングの項目: 相応しい答えが得られたか (それ以外の項目は null)
     pub answered: Option<bool>,
+    /// 期間を数えた基準の日 (通話日、YYYY-MM-DD)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub counted_from: Option<String>,
 }
 
 /// 文字起こしの 1 発言

@@ -38,6 +38,9 @@ pub struct StoredItem {
     /// 相応しい答えが先方から得られたか。営業が聞かずに先方が話した場合も true (`answers` のある項目だけ)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answered: Option<bool>,
+    /// 期間を数えた基準の日 (通話日、YYYY-MM-DD)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counted_from: Option<String>,
 }
 
 /// ヒアリングの項目 (`answers` のある項目) を「できた」にする基準。相応しい答えが得られたら完了 (2026-11-02 ユーザー決定)。
@@ -340,6 +343,7 @@ fn na_item(c: &Check, note: Option<&str>) -> StoredItem {
         answer: None,
         asked: None,
         answered: None,
+        counted_from: None,
     }
 }
 
@@ -391,6 +395,7 @@ fn convert_item(c: &Check, raw: Option<&Value>, turns: &[TalkTurn]) -> StoredIte
         answer: None,
         asked: None,
         answered: None,
+        counted_from: None,
     }
 }
 
@@ -426,6 +431,7 @@ fn convert_hearing_item(c: &Check, raw: Option<&Value>, turns: &[TalkTurn]) -> S
         answer: text_of(r, "answer").filter(|a| c.answers.iter().any(|x| x == a)),
         asked,
         answered,
+        counted_from: None,
     }
 }
 
@@ -468,10 +474,17 @@ pub fn convert_response(checks: &Checks, v: &Value, turns: &[TalkTurn]) -> Judge
 
 /// ヒアリングの JSON で、items のヒアリングの項目を置き換える
 /// ヒアリングの JSON で、items のヒアリングの項目を置き換える
-pub fn apply_hearing(checks: &Checks, v: &Value, turns: &[TalkTurn], items: &mut [StoredItem]) {
+pub fn apply_hearing(
+    checks: &Checks,
+    v: &Value,
+    turns: &[TalkTurn],
+    items: &mut [StoredItem],
+    call_date: Option<&str>,
+) {
     for c in checks.checks.iter().filter(|c| is_hearing(c)) {
         if let Some(i) = items.iter_mut().find(|i| i.id == c.id) {
             *i = convert_hearing_item(c, find_in(v, &c.id), turns);
+            i.counted_from = call_date.map(str::to_string);
         }
     }
 }
@@ -593,7 +606,7 @@ pub async fn judge_via<C: Completer>(
             .complete(&build_hearing_prompt(checks, turns, call_date))
             .await
         {
-            Ok(h) => apply_hearing(checks, &h, turns, &mut out.items),
+            Ok(h) => apply_hearing(checks, &h, turns, &mut out.items, call_date),
             Err(e) => {
                 // 理由は短い記号だけ (http 429・json など)。本文・鍵は含まない
                 tracing::info!(reason = ?e, "talk review: hearing judge failed");
@@ -625,7 +638,7 @@ pub async fn hearing_via<C: Completer>(
         .filter(|c| is_hearing(c))
         .map(|c| na_item(c, None))
         .collect();
-    apply_hearing(checks, &v, turns, &mut items);
+    apply_hearing(checks, &v, turns, &mut items, call_date);
     Ok(items)
 }
 
@@ -963,6 +976,58 @@ mod tests {
              "evidence": [99], "detail": "施工管理orbital"},
             {"id": "aq_attend", "status": "該当なし", "asked": true, "answered": true, "answer": "判断者が同席する"}
         ]})
+    }
+
+    #[test]
+    fn counted_from_round_trips_and_old_json_has_no_date() {
+        let old = json!({"id": "aq_timing", "status": "done", "answer": "3か月以内"});
+        let mut i: StoredItem = serde_json::from_value(old).unwrap();
+        assert_eq!(i.counted_from, None);
+        assert!(serde_json::to_value(&i)
+            .unwrap()
+            .get("counted_from")
+            .is_none());
+        i.counted_from = Some("2026-11-06".into());
+        let encoded = serde_json::to_value(&i).unwrap();
+        assert_eq!(encoded["counted_from"], "2026-11-06");
+        assert_eq!(serde_json::from_value::<StoredItem>(encoded).unwrap(), i);
+    }
+
+    #[tokio::test]
+    async fn successful_hearing_marks_every_item_only_when_given_the_call_date() {
+        let checks = &loaded().checks;
+        for date in [Some("2026-11-06"), None] {
+            let s = Scripted::new(vec![Ok(hearing_resp())]);
+            let hearing = hearing_via(&s, checks, &turns9(), date).await.unwrap();
+            assert_eq!(hearing.len(), 6);
+            assert!(hearing.iter().all(|i| i.counted_from.as_deref() == date));
+            let s = Scripted::new(vec![Ok(main_resp(SCHEDULED)), Ok(hearing_resp())]);
+            let out = judge_via(&s, checks, &turns9(), date).await.unwrap();
+            for c in &checks.checks {
+                assert_eq!(
+                    item(&out.items, &c.id).counted_from.as_deref(),
+                    if is_hearing(c) { date } else { None },
+                    "{}",
+                    c.id
+                );
+            }
+        }
+        let s = Scripted::new(vec![
+            Ok(main_resp(SCHEDULED)),
+            Err(JudgeError::Transient("json".into())),
+        ]);
+        let out = judge_via(&s, checks, &turns9(), Some("2026-11-06"))
+            .await
+            .unwrap();
+        for c in checks.checks.iter().filter(|c| is_hearing(c)) {
+            let i = item(&out.items, &c.id);
+            assert_eq!(i.status, "na");
+            assert_eq!(i.note.as_deref(), Some(HEARING_FAILED_NOTE));
+            assert_eq!(i.counted_from, None);
+        }
+        assert!(hearing_na(checks, NO_APO_NOTE)
+            .iter()
+            .all(|i| i.counted_from.is_none()));
     }
 
     #[tokio::test]

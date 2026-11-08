@@ -95,6 +95,16 @@ impl SlackNotifier {
         })
     }
 
+    #[cfg(test)]
+    pub(super) fn for_test(webhook: String) -> Self {
+        Self {
+            webhook,
+            teams: vec!["BPO_リクロジ".into()],
+            app_url: "https://example.test".into(),
+            http: reqwest::Client::new(),
+        }
+    }
+
     /// このチームの担当者の電話を送るか
     pub fn covers(&self, team: &str) -> bool {
         self.teams.iter().any(|t| t == team)
@@ -187,6 +197,7 @@ mod tests {
             answer: Some(answer.into()),
             asked: Some(true),
             answered: Some(true),
+            counted_from: None,
         }
     }
 

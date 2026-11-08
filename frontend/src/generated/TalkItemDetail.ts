@@ -27,4 +27,8 @@ asked: boolean | null,
 /**
  * ヒアリングの項目: 相応しい答えが得られたか (それ以外の項目は null)
  */
-answered: boolean | null, };
+answered: boolean | null, 
+/**
+ * 期間を数えた基準の日 (通話日、YYYY-MM-DD)
+ */
+counted_from?: string, };

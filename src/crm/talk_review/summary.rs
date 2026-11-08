@@ -226,6 +226,7 @@ mod tests {
                         answer: None,
                         asked: None,
                         answered: None,
+                        counted_from: None,
                     }]
                 })
                 .unwrap_or_default(),

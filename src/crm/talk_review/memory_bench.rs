@@ -105,6 +105,7 @@ fn seed(conn: &SharedConn) {
                     answer: None,
                     asked: None,
                     answered: None,
+                    counted_from: None,
                 })
                 .collect();
             // ヒアリングの計測だけ: N 本に 1 本、助言に日本語以外が混ざる行 (判定し直す行) にする

@@ -968,6 +968,7 @@ pub(in crate::crm) async fn get_call_detail(
                     answer: i.answer.clone(),
                     asked: i.asked,
                     answered: i.answered,
+                    counted_from: i.counted_from.clone(),
                 },
                 None => TalkItemDetail {
                     id: c.id.clone(),
@@ -979,6 +980,7 @@ pub(in crate::crm) async fn get_call_detail(
                     answer: None,
                     asked: None,
                     answered: None,
+                    counted_from: None,
                 },
             },
         )
@@ -1096,6 +1098,7 @@ mod tests {
                 answer: None,
                 asked: None,
                 answered: None,
+                counted_from: None,
             }],
             summary: Some("要約".into()),
             note: None,
@@ -1121,6 +1124,7 @@ mod tests {
             answer: Some("具体額".into()),
             asked: Some(true),
             answered: Some(true),
+            counted_from: None,
         });
         let c = call_row(&r, &ids);
         let b = c.items.iter().find(|x| x.id == "aq_budget").unwrap();
@@ -1561,6 +1565,7 @@ mod tests {
             answer: hearing.then(|| "具体額".to_string()),
             asked: hearing.then_some(true),
             answered: hearing.then_some(true),
+            counted_from: None,
         }
     }
 

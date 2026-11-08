@@ -611,6 +611,46 @@ async fn rewrite_hearing_row(
     (HearingWrite::Written, Some(row))
 }
 
+/// 文字起こしを取り、保存直前の行に印が無いときだけヒアリングを置き換える。Slack には送らない。
+async fn rehear<Z: TranscriptSource, J: Judge>(
+    audit: &crate::audit::AuditDb,
+    zoom: &Z,
+    judge: &J,
+    c: HearingCandidate,
+) -> &'static str {
+    let Some(zid) = c.zoom_call_log_id.as_deref() else {
+        return "no_recording_id";
+    };
+    let turns = match zoom.fetch(zid).await {
+        Ok(t) if has_both_sides(&t) => t,
+        Ok(_) | Err(ZoomError::Gone) | Err(ZoomError::Untranscribable) => return "untranscribable",
+        Err(_) => return "transcript_failed",
+    };
+    let checks = &loaded().checks;
+    let date = super::judge::jst_date(c.call_ms);
+    let hearing = match judge.hearing(checks, &turns, date.as_deref()).await {
+        Ok(h) => h,
+        Err(_) => return "judge_failed",
+    };
+    let id = c.id.clone();
+    let row = match store::blocking(audit, move |t| store::get(t, &id)).await {
+        Ok(Some(r)) if rehearing_needed(&r, checks) => r,
+        Ok(_) => return "not_needed",
+        Err(_) => return "read_failed",
+    };
+    let items = merge_hearing(checks, &row.items, hearing);
+    let summary = summary_of(&items);
+    let now = store::ts_text(Utc::now());
+    match store::blocking(audit, move |t| {
+        store::mark_text_cleaned(t, &c.id, &items, summary.as_deref(), &now)
+    })
+    .await
+    {
+        Ok(()) => "written",
+        Err(_) => "write_failed",
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 1 周
 // ---------------------------------------------------------------------------
@@ -708,6 +748,8 @@ struct Worker<Z, J> {
     pending: Arc<PendingWrites>,
     /// 助言の文が日本語だけでない判定済みの行 (起動時に 1 回だけ探し、周回ごとに少しずつ判定し直す)。全部の欄を持つ
     rejudge: VecDeque<ReviewRow>,
+    /// 通話日を基準に付け直す行 (軽い型。新しい電話から)
+    rehearing: VecDeque<HearingCandidate>,
     /// ヒアリングを付けるか決めていない判定済みの行 (判断に要る欄だけ。項目の引用・助言・まとめは持たない)。
     /// 起動時に直近の行を全部入れ、新しく判定した行は `judged_rows` から足す。
     /// HubSpot のアポの記録で決まったら取り除く (`apo_link`)
@@ -848,11 +890,25 @@ fn select_due(
     due.into_iter().take(limit).cloned().collect()
 }
 
+// ヒアリングは 2026-10-19 の電話から。付け直しでは、その月の初めから読む。
+const REHEARING_SINCE: &str = "2026-10-01T00:00:00Z";
+
+/// 判定済みでヒアリングが付き、ヒアリングの項目のどれにも通話日の印が無い行
+fn rehearing_needed(row: &ReviewRow, checks: &Checks) -> bool {
+    row.status == store::ST_JUDGED
+        && has_hearing(row, checks)
+        && !row.items.iter().any(|i| {
+            i.counted_from.is_some() && checks.checks.iter().any(|c| c.id == i.id && is_hearing(c))
+        })
+}
+
 /// 起動時の判定済みの行の読み取りの結果
 #[derive(Debug, Default)]
 pub struct JudgedScan {
     /// 日本語以外が混ざる行 (判定し直す)。全部の欄を持つ。新しい電話から
     pub rejudge: VecDeque<ReviewRow>,
+    /// 通話日の印が無いヒアリングを付け直す行 (新しい電話から)
+    pub rehearing: VecDeque<HearingCandidate>,
     /// ヒアリングを確かめる行 (最初からすぐ確かめる)
     pub hearing: HashMap<String, HearingCandidate>,
     /// 読んだ判定済みの行の数 (電話の時刻が読めず確かめられない行も数える)
@@ -861,19 +917,27 @@ pub struct JudgedScan {
 
 impl JudgedScan {
     /// 1 ページの行を振り分ける。日本語以外が混ざる行 (少数) だけ全部の欄のまま持ち、残りは軽い型にして行は捨てる
-    fn add_page(&mut self, rows: Vec<ReviewRow>, checks: &Checks, now: DateTime<Utc>) {
+    fn add_page(&mut self, rows: Vec<ReviewRow>, checks: &Checks, now: DateTime<Utc>, since: &str) {
         self.read += rows.len();
         for r in rows {
-            if row_has_foreign_text(&r) {
+            let recent = r.call_at.as_str() >= since;
+            if recent && row_has_foreign_text(&r) {
                 self.rejudge.push_back(r);
-            } else if let Some(c) = HearingCandidate::from_row(&r, checks, now) {
-                self.hearing.insert(c.id.clone(), c);
+            } else if rehearing_needed(&r, checks) {
+                if let Some(c) = HearingCandidate::from_row(&r, checks, now) {
+                    self.rehearing.push_back(c);
+                }
+            } else if recent {
+                if let Some(c) = HearingCandidate::from_row(&r, checks, now) {
+                    self.hearing.insert(c.id.clone(), c);
+                }
             }
         }
     }
 }
 
-/// 起動時に 1 回: 判定済みの行 (`call_at >= since`) を `page` 行ずつ読んで振り分ける。
+/// 起動時に 1 回: 判定済みの行を `min(since, REHEARING_SINCE)` から `page` 行ずつ読む。
+/// `since` より古い行は、ヒアリングの付け直しだけに使う。
 /// 全部の行を 1 回で全部の欄のまま読むと、一時的にも持ち続けても数百 MB になる (`store::ROWS_PAGE`)
 pub fn scan_judged(
     t: &TursoDb,
@@ -883,7 +947,10 @@ pub fn scan_judged(
     page: usize,
 ) -> Result<JudgedScan, String> {
     let mut scan = JudgedScan::default();
-    store::for_each_judged_page(t, since, page, |rows| scan.add_page(rows, checks, now))?;
+    let read_since = since.min(REHEARING_SINCE);
+    store::for_each_judged_page(t, read_since, page, |rows| {
+        scan.add_page(rows, checks, now, since)
+    })?;
     Ok(scan)
 }
 
@@ -941,6 +1008,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         {
             Ok(scan) => {
                 self.rejudge = scan.rejudge;
+                self.rehearing = scan.rehearing;
+                tracing::info!(rows = self.rehearing.len(), "talk review: rows to rehear");
                 // 判定し直す行は、判定し直した後に `judged_rows` から入る
                 self.hearing_check = scan.hearing;
                 tracing::info!(
@@ -951,6 +1020,36 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 );
             }
             Err(e) => tracing::warn!(error = %e, "talk review: rejudge scan failed"),
+        }
+    }
+
+    /// 通話日を基準にヒアリングだけ付け直す。失敗した行もこの起動では見送り、無限に回さない。
+    async fn process_rehearing(&mut self) {
+        let n = rejudge_limit(self.cfg.concurrency).min(self.rehearing.len());
+        if n == 0 {
+            return;
+        }
+        // 同時に判定する本数までまとめて進める (1 本ずつ待つと周回が止まるため)
+        let sem = Arc::new(tokio::sync::Semaphore::new(self.cfg.concurrency));
+        let mut set = tokio::task::JoinSet::new();
+        for c in self.rehearing.drain(..n) {
+            let (zoom, judge, audit, sem) = (
+                self.zoom.clone(),
+                self.judge.clone(),
+                self.audit.clone(),
+                sem.clone(),
+            );
+            set.spawn(async move {
+                let Ok(_p) = sem.acquire().await else {
+                    return "closed";
+                };
+                rehear(&audit, &*zoom, &*judge, c).await
+            });
+        }
+        while let Some(r) = set.join_next().await {
+            if let Ok(result) = r {
+                tracing::info!(result, "talk review: rehear");
+            }
         }
     }
 
@@ -1593,6 +1692,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             // HubSpot のアポの記録と突き合わせて、ヒアリングを付ける・外す (毎周。日中は判定待ちが続き、
             // 手の空いた周回が少ないため)
             self.process_hearing().await;
+            self.process_rehearing().await;
             if !busy {
                 // 担当者の付け直しは数分かかるので、起動直後の取り込み・判定の後、最初に手が空いた周回で 1 回
                 if !self.reattributed {
@@ -1656,6 +1756,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         members: Default::default(),
         pending: Arc::new(PendingWrites::default()),
         rejudge: Default::default(),
+        rehearing: Default::default(),
         hearing_check: Default::default(),
         judged_rows: Default::default(),
     };
@@ -1819,6 +1920,7 @@ mod tests {
             answer: None,
             asked: None,
             answered: None,
+            counted_from: None,
         };
         let mut r = row(Some("z"), "2026-10-27T00:00:00Z");
         r.items = vec![
@@ -1921,6 +2023,7 @@ mod tests {
             answer: None,
             asked: None,
             answered: None,
+            counted_from: None,
         };
         let mut r = row(Some("z"), "2026-10-15T11:00:00Z");
         r.items = vec![item("先に用件を伝える", "来週は")];
@@ -2329,6 +2432,7 @@ mod tests {
                 answer: None,
                 asked: None,
                 answered: None,
+                counted_from: None,
             })
             .collect()
     }
@@ -2350,8 +2454,17 @@ mod tests {
                 answer: None,
                 asked: None,
                 answered: None,
+                counted_from: None,
             })
             .collect()
+    }
+
+    fn dated_hearing(status: &str) -> Vec<StoredItem> {
+        let mut items = hearing_items(status);
+        for i in &mut items {
+            i.counted_from = Some("2026-11-06".into());
+        }
+        items
     }
 
     /// ヒアリングの判定の結果 (先頭が「できた」で先方の答えつき、4 番目が「できていない」、残りは該当なし)
@@ -2450,12 +2563,12 @@ mod tests {
         }
     }
 
-    fn test_worker(
+    fn test_worker<J: Judge>(
         audit: crate::audit::AuditDb,
         hubspot_url: &str,
         zoom: FakeZoom,
-        judge: HearingJudge,
-    ) -> Worker<FakeZoom, HearingJudge> {
+        judge: J,
+    ) -> Worker<FakeZoom, J> {
         let opts = ClientOptions {
             timeout: Duration::from_millis(800),
             max_retries: 0,
@@ -2483,6 +2596,7 @@ mod tests {
             members: Default::default(),
             pending: Arc::new(PendingWrites::default()),
             rejudge: VecDeque::new(),
+            rehearing: VecDeque::new(),
             hearing_check: HashMap::new(),
             judged_rows: Default::default(),
         }
@@ -2626,8 +2740,8 @@ mod tests {
         foreign_advice[0].advice = Some("먼저 용건을 전한다".into());
         let mut foreign_note = main_items("f2", "done");
         foreign_note[1].note = Some("operatorsconciled を使う".into());
-        let heard = [main_items("a2", "done"), hearing_items("done")].concat();
-        let scheduled_heard = [main_items("a5", "not_done"), hearing_items("not_done")].concat();
+        let heard = [main_items("a2", "done"), dated_hearing("done")].concat();
+        let scheduled_heard = [main_items("a5", "not_done"), dated_hearing("not_done")].concat();
         let all_na = [main_items("a1", "done"), hearing_items("na")].concat();
         seed_row(
             &conn,
@@ -2803,6 +2917,346 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn judged_pages_route_rows_and_only_unmarked_hearing_can_be_rewritten() {
+        let checks = &loaded().checks;
+        let mut scan = JudgedScan::default();
+        let make = |id: &str, at: &str, items: Vec<StoredItem>| {
+            let mut r = row(Some("zoom"), at);
+            r.hubspot_call_id = id.into();
+            r.status = store::ST_JUDGED.into();
+            r.items = items;
+            r
+        };
+        let recent = make("recent", "2026-11-06T00:00:00Z", hearing_items("done"));
+        let mut marked = make("marked", "2026-11-05T00:00:00Z", hearing_items("done"));
+        // 1 項目にだけ印がある場合も、付け直さない。
+        marked.items[0].counted_from = Some("2026-11-06".into());
+        let old = make("old", "2026-10-19T00:00:00Z", hearing_items("done"));
+        let plain = make(
+            "old_plain",
+            "2026-10-20T00:00:00Z",
+            main_items("元", "done"),
+        );
+        let mut foreign = recent.clone();
+        foreign.hubspot_call_id = "foreign".into();
+        foreign.items[0].note = Some("这个问题".into());
+        assert!(rehearing_needed(&recent, checks));
+        assert!(!rehearing_needed(&marked, checks));
+        assert!(!rehearing_needed(&plain, checks));
+        let mut pending = recent.clone();
+        pending.status = ST_PENDING.into();
+        assert!(!rehearing_needed(&pending, checks));
+        scan.add_page(
+            vec![recent, marked, foreign],
+            checks,
+            now(),
+            "2026-11-01T00:00:00Z",
+        );
+        scan.add_page(vec![plain, old], checks, now(), "2026-11-01T00:00:00Z");
+        assert_eq!(scan.read, 5);
+        assert_eq!(
+            scan.rehearing
+                .iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>(),
+            ["recent", "old"]
+        );
+        assert_eq!(
+            scan.hearing.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["marked"]
+        );
+        assert_eq!(
+            scan.rejudge
+                .iter()
+                .map(|r| r.hubspot_call_id.as_str())
+                .collect::<Vec<_>>(),
+            ["foreign"]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn startup_scan_separates_rehearing_and_limits_old_rows_to_rehearing() {
+        let (audit, conn, _) = start_sqlite_audit_with_queries().await;
+        let main = main_items("今の項目", "done");
+        let heard = [main.clone(), hearing_items("done")].concat();
+        let marked = [main.clone(), dated_hearing("done")].concat();
+        let mut foreign = heard.clone();
+        foreign[0].advice = Some("这个问题".into());
+        // 範囲内外と印の組合せ。範囲外の外国語行も、rejudge には入れない。
+        for (id, at, items) in [
+            ("recent", "2026-11-06T00:00:00Z", &heard),
+            ("marked", "2026-11-05T00:00:00Z", &marked),
+            ("old", "2026-10-19T00:00:00Z", &heard),
+            ("old_plain", "2026-10-20T00:00:00Z", &main),
+            ("foreign", "2026-11-04T00:00:00Z", &foreign),
+            ("old_foreign", "2026-10-21T00:00:00Z", &foreign),
+            ("old_marked", "2026-10-22T00:00:00Z", &marked),
+            ("before_floor", "2026-09-30T23:59:59Z", &heard),
+        ] {
+            seed_row(
+                &conn,
+                (id, at, "judged"),
+                (sched(), Some("zoom")),
+                Some(items),
+                None,
+            );
+        }
+        store::blocking(&audit, move |t| {
+            for page in [1, 2, 500] {
+                let scan = scan_judged(
+                    t,
+                    "2026-11-01T00:00:00Z",
+                    &loaded().checks,
+                    ts("2026-11-08T00:00:00Z"),
+                    page,
+                )?;
+                assert_eq!(scan.read, 7);
+                assert_eq!(
+                    scan.rehearing
+                        .iter()
+                        .map(|c| c.id.as_str())
+                        .collect::<Vec<_>>(),
+                    ["recent", "old_foreign", "old"]
+                );
+                assert_eq!(
+                    scan.hearing.keys().map(String::as_str).collect::<Vec<_>>(),
+                    ["marked"]
+                );
+                assert_eq!(
+                    scan.rejudge
+                        .iter()
+                        .map(|r| r.hubspot_call_id.as_str())
+                        .collect::<Vec<_>>(),
+                    ["foreign"]
+                );
+            }
+            // 従来の読み始めが 10/01 より早ければ、その期間は狭めない。
+            let scan = scan_judged(t, "2026-09-01T00:00:00Z", &loaded().checks, Utc::now(), 2)?;
+            assert!(scan.rehearing.iter().any(|c| c.id == "before_floor"));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    /// 付け直し中に、別の処理が行を変えた場合も再現する偽の判定。
+    struct RehearingJudge {
+        calls: Arc<std::sync::Mutex<Vec<Option<String>>>>,
+        change: Option<(SharedConn, String, Vec<StoredItem>, &'static str)>,
+    }
+    impl Judge for RehearingJudge {
+        async fn judge(&self, _: &Checks, _: &[TalkTurn]) -> Result<JudgeOutput, JudgeError> {
+            panic!("今の 9 項目は判定し直さない");
+        }
+        async fn hearing(
+            &self,
+            _: &Checks,
+            _: &[TalkTurn],
+            date: Option<&str>,
+        ) -> Result<Vec<StoredItem>, JudgeError> {
+            self.calls.lock().unwrap().push(date.map(str::to_string));
+            if let Some((conn, id, items, status)) = &self.change {
+                conn.lock().unwrap().execute(
+                    "UPDATE call_talk_reviews SET items = ?2, status = ?3 WHERE hubspot_call_id = ?1",
+                    rusqlite::params![id, items_text(items), status],
+                ).unwrap();
+            }
+            let mut items = hearing_items("done");
+            for i in &mut items {
+                i.counted_from = date.map(str::to_string);
+            }
+            items
+                .iter_mut()
+                .find(|i| i.id == "aq_timing")
+                .unwrap()
+                .answer = Some("4か月以上".into());
+            items
+                .iter_mut()
+                .find(|i| i.id == "aq_budget")
+                .unwrap()
+                .answer = Some("具体額".into());
+            Ok(items)
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rehearing_cycle_replaces_only_hearing_and_never_notifies_slack() {
+        let (audit, conn, queries) = start_sqlite_audit_with_queries().await;
+        let now = Utc::now();
+        let main = main_items("保持する項目", "not_done");
+        assert_eq!(main.len(), 9);
+        let old = [main.clone(), hearing_items("not_done")].concat();
+        seed_row(
+            &conn,
+            ("rehear", &store::ts_text(now), "judged"),
+            (missed(), Some("zoom")),
+            Some(&old),
+            Some("元のまとめ"),
+        );
+        let candidate = HearingCandidate::from_row(
+            &get_row(&audit, "rehear").await.unwrap(),
+            &loaded().checks,
+            now,
+        )
+        .unwrap();
+        let calls = Arc::new(std::sync::Mutex::new(vec![]));
+        let mut w = test_worker(
+            audit.clone(),
+            "http://127.0.0.1:9",
+            FakeZoom(Ok(turns())),
+            RehearingJudge {
+                calls: calls.clone(),
+                change: None,
+            },
+        );
+        let posts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = posts.clone();
+        let app = axum::Router::new().route(
+            "/slack",
+            axum::routing::post(move || {
+                let counter = counter.clone();
+                async move {
+                    counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    axum::http::StatusCode::OK
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let webhook = format!("http://{}/slack", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let slack = SlackNotifier::for_test(webhook);
+        w.slack = Some(slack.clone());
+        w.members = Arc::new([("o1".into(), ("担当者".into(), "BPO_リクロジ".into()))].into());
+        w.rehearing.push_back(candidate);
+        queries.lock().unwrap().clear();
+        w.process_rehearing().await;
+        assert!(w.rehearing.is_empty());
+        assert_eq!(updates(&queries), 1);
+        let row = get_row(&audit, "rehear").await.unwrap();
+        assert_eq!(row.items[..9], main);
+        assert_eq!(row.outcome, missed().map(str::to_string));
+        assert_eq!(
+            row.items
+                .iter()
+                .find(|i| i.id == "aq_timing")
+                .unwrap()
+                .answer
+                .as_deref(),
+            Some("4か月以上")
+        );
+        let date = super::super::judge::jst_date(now.timestamp_millis());
+        assert!(row.items[9..].iter().all(|i| i.counted_from == date));
+        assert_eq!(*calls.lock().unwrap(), vec![date]);
+        assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        // 同じ行なら通知可能な設定であることも確かめる。
+        notify_apo(&slack, &w.members, &row).await;
+        assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 1);
+        server.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rehearing_rereads_the_row_and_skips_marked_stripped_or_unjudged_rows() {
+        let (audit, conn, queries) = start_sqlite_audit_with_queries().await;
+        let c = &loaded().checks;
+        let old = [main_items("元", "done"), hearing_items("done")].concat();
+        for (items, status) in [
+            (
+                [main_items("最新", "not_done"), dated_hearing("done")].concat(),
+                "judged",
+            ),
+            (
+                [main_items("最新", "not_done"), hearing_na(c, NO_APO_NOTE)].concat(),
+                "judged",
+            ),
+            (old.clone(), "pending_transcript"),
+        ] {
+            conn.lock()
+                .unwrap()
+                .execute(
+                    "DELETE FROM call_talk_reviews WHERE hubspot_call_id = 'changed'",
+                    [],
+                )
+                .unwrap();
+            seed_row(
+                &conn,
+                ("changed", "2026-11-05T15:30:00Z", "judged"),
+                (sched(), Some("zoom")),
+                Some(&old),
+                None,
+            );
+            let cand = HearingCandidate::from_row(
+                &get_row(&audit, "changed").await.unwrap(),
+                c,
+                Utc::now(),
+            )
+            .unwrap();
+            let judge = RehearingJudge {
+                calls: Default::default(),
+                change: Some((conn.clone(), "changed".into(), items.clone(), status)),
+            };
+            queries.lock().unwrap().clear();
+            assert_eq!(
+                rehear(&audit, &FakeZoom(Ok(turns())), &judge, cand).await,
+                "not_needed"
+            );
+            assert_eq!(updates(&queries), 0, "付け直しの UPDATE はしない");
+            let row = get_row(&audit, "changed").await.unwrap();
+            assert_eq!(row.items, items);
+            assert_eq!(row.status, status);
+            assert_eq!(
+                *judge.calls.lock().unwrap(),
+                vec![Some("2026-11-06".into())]
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rehearing_cycle_has_a_limit_and_drops_unavailable_and_failed_calls() {
+        let (audit, conn, queries) = start_sqlite_audit_with_queries().await;
+        let old = [main_items("元", "done"), hearing_items("done")].concat();
+        seed_row(
+            &conn,
+            ("limited", "2026-11-06T00:00:00Z", "judged"),
+            (sched(), Some("zoom")),
+            Some(&old),
+            None,
+        );
+        let candidate = HearingCandidate::from_row(
+            &get_row(&audit, "limited").await.unwrap(),
+            &loaded().checks,
+            Utc::now(),
+        )
+        .unwrap();
+        for zoom in [
+            Err(ZoomError::Gone),
+            Err(ZoomError::Untranscribable),
+            Err(ZoomError::Transient("通信".into())),
+            Ok(vec![]),
+            Ok(turns()[..1].to_vec()),
+            Ok(turns()),
+        ] {
+            let mut w = test_worker(
+                audit.clone(),
+                "http://127.0.0.1:9",
+                FakeZoom(zoom),
+                HearingJudge(Err(JudgeError::Transient("判定".into()))),
+            );
+            w.cfg.concurrency = 1;
+            w.rehearing = VecDeque::from(vec![candidate.clone(); 3]);
+            queries.lock().unwrap().clear();
+            w.process_rehearing().await;
+            assert_eq!(
+                w.rehearing.len(),
+                1,
+                "1 周に 2 本まで。失敗した行は列から外す"
+            );
+            w.process_rehearing().await;
+            assert!(w.rehearing.is_empty());
+            assert_eq!(updates(&queries), 0);
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn find_rejudge_fills_the_rejudge_queue_and_the_check_list() {
         let (audit, conn, _) = start_sqlite_audit_with_queries().await;
@@ -2823,7 +3277,7 @@ mod tests {
             Some(&foreign),
             None,
         );
-        // 遡りの日数 (既定 14 日 + 2 日) より前の行は読まない
+        // 遡りの日数 (既定 14 日 + 2 日) より前でヒアリングの無い行は、読んでも一覧に入れない
         seed_row(
             &conn,
             ("old", &recent(24 * 20), "judged"),
@@ -3382,7 +3836,7 @@ mod tests {
         let hours_ago = |h: i64| Utc::now() - chrono::Duration::hours(h);
         let at = |h: i64| store::ts_text(hours_ago(h));
         let na = [main_items("m", "done"), hearing_items("na")].concat();
-        let heard = [main_items("m", "done"), hearing_items("done")].concat();
+        let heard = [main_items("m", "done"), dated_hearing("done")].concat();
         // 5001: 日程が決まった・ヒアリング無し・電話の 1 時間後にアポ日確定の記録がある → 付ける
         seed_row(
             &conn,

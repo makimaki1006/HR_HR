@@ -127,6 +127,7 @@ impl From<LightItem> for StoredItem {
             answer: i.answer,
             asked: i.asked,
             answered: i.answered,
+            counted_from: None,
         }
     }
 }
@@ -643,6 +644,7 @@ mod tests {
                 answer: None,
                 asked: None,
                 answered: None,
+                counted_from: None,
             }],
             summary: Some("日付が早い".into()),
         };
@@ -881,6 +883,7 @@ mod tests {
                 answer: None,
                 asked: None,
                 answered: None,
+                counted_from: None,
             },
             StoredItem {
                 id: "aq_budget".into(),
@@ -892,6 +895,7 @@ mod tests {
                 answer: Some("具体額".into()),
                 asked: Some(true),
                 answered: Some(true),
+                counted_from: None,
             },
         ]
     }
