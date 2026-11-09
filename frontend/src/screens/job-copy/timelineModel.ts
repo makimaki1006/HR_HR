@@ -191,6 +191,8 @@ export interface TimelinePeriod {
   certainty: CopyVersion['certainty'];
   /** 'published': media publication times. 'captured': only the days the data was taken. */
   basis: 'published' | 'captured';
+  /** 掲載終了日の記録があり、その翌日からは空白として扱える。 */
+  publicationEndKnown?: boolean;
 }
 
 /**
@@ -235,22 +237,16 @@ export function buildPeriods(job: JobCopyRecord, asOf: string): TimelinePeriod[]
   const starts = versions.map(versionStart);
   return versions.map((version, index) => {
     const start = starts[index] ?? '';
-    const next = versions[index + 1];
     const nextStart = starts[index + 1] ?? null;
     const basis: TimelinePeriod['basis'] = version.publishedFrom ? 'published' : 'captured';
-    let end: string | null;
-    if (basis === 'published' && (!next || next.publishedFrom)) {
-      // Media publication times: the version runs until it was taken down or the next one started.
-      end = jstDate(version.publishedUntil) ?? nextStart;
-      if (end !== null && nextStart !== null && end > nextStart) end = nextStart;
-    } else {
-      // 記録された日から次の本文の前日までを、この版として数える。
-      end = nextStart;
-    }
+    // 掲載終了日はその日まで含める。内部の期間の終わりは翌日（含めない日）。
+    const until = jstDate(version.publishedUntil);
+    let end = until === null ? nextStart : addDays(until, 1);
+    if (end !== null && nextStart !== null && end > nextStart) end = nextStart;
     if (end !== null && end < start) end = start;
     const ongoing = end === null;
     const days = ongoing ? Math.max(0, daysBetween(start, asOf) + 1) : daysBetween(start, end ?? start);
-    return { versionId: version.id, label: version.label, start, end, days, ongoing, certainty: version.certainty, basis };
+    return { versionId: version.id, label: version.label, start, end, days, ongoing, certainty: version.certainty, basis, ...(until !== null ? { publicationEndKnown: true } : {}) };
   });
 }
 
@@ -263,7 +259,7 @@ export function uncertainSpans(job: JobCopyRecord, asOf: string, periods: readon
   const spans: UncertainSpan[] = [];
   periods.forEach((period, index) => {
     const next = periods[index + 1];
-    if (period.basis !== 'captured' || period.end === null) return;
+    if (period.basis !== 'captured' || period.end === null || period.publicationEndKnown) return;
     if (next) {
       if (period.end >= next.start) return;
       const change = changes[index + 1];
@@ -435,11 +431,11 @@ export function weekStraddlesChange(start: string, end: string, changeDate: stri
   return start < changeDate && changeDate <= end;
 }
 
-/** Published end dates are exclusive; acquisition gaps do not prove non-publication. */
+/** 掲載終了日の翌日から次の版までの空白。記録日時だけでは非掲載とは判断しない。 */
 export function unpublishedRanges(periods: readonly TimelinePeriod[], asOf: string): CountRange[] {
   return periods.flatMap((period, index) => {
     const next = periods[index + 1];
-    if (period.basis !== 'published' || period.end === null || (next && next.basis !== 'published')) return [];
+    if ((period.basis !== 'published' && !period.publicationEndKnown) || period.end === null) return [];
     const end = next?.start ?? addDays(asOf, 1);
     return period.end < end ? [{ start: period.end, end }] : [];
   });
@@ -664,7 +660,7 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
     const from = cursor ?? range.end;
     if (next && nextRange) {
       if (from >= nextRange.start) return;
-      if (period.basis === 'published' && next.basis === 'published') {
+      if (period.basis === 'published' || period.publicationEndKnown) {
         rows.push(make(`gap-${period.versionId}`, 'gap', '掲載が確認できない期間', (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}`, null, from, nextRange.start, false, from));
         return;
       }
@@ -676,6 +672,8 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
           const held = [period.start, next.start].filter((day, at, days) => day >= start && day <= lastDay && days.indexOf(day) === at).map(formatDay);
           return `${formatDay(start)}〜${formatDay(lastDay)}（どちらの内容か分からない期間${held.length ? `。文面を確認した日 ${held.join('・')} を含む` : ''}）`;
         }, null, from, nextRange.start, false, from));
+    } else if (period.publicationEndKnown && from <= asOf) {
+      rows.push(make(`gap-${period.versionId}`, 'gap', '掲載が確認できない期間', (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}`, null, from, addDays(asOf, 1), false, from));
     } else if (period.basis === 'captured' && !period.ongoing && from <= asOf) {
       rows.push(make(`unacquired-${period.versionId}`, 'unacquired', `最後の確認（${formatDay(period.start)}）より後`, (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}（${start <= period.start ? '最後に文面を確認した日を含む。' : ''}未取得）`, null, from, addDays(asOf, 1), false, from));
     }

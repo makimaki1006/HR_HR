@@ -91,7 +91,7 @@ it('does not count old category selections or infer reasons from the attached te
     selections: [{ applicant: 'b', sourceProperty: 'ouboriyuukategori_hiaringu', value: 'salary', label: '給与', applicationDate: '2026-09-19' }],
     items: [{ id: 'text', applicant: 'b', sourceProperty: 'oubodouki', applicationDate: '2026-09-19', versionId: null, collectedAt: null, text: '給与を希望。連絡先 090-1234-5678' }] };
   const { container } = render(<ApplicantReasons job={job} />);
-  expect(screen.getByText('選択式の記録は 2026/09/18 の応募からです')).toBeTruthy();
+  expect(screen.getByText('選択式の記録は 2026/09/14 の応募からです')).toBeTruthy();
   expect(screen.getByText('内容を見る（応募ごとの文章・社内確認用）').closest('details')?.open).toBe(false);
   expect(container.textContent).not.toContain('090-1234-5678');
   expect(container.textContent).not.toContain('推定');

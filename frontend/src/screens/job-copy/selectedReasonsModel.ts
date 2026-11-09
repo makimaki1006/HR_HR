@@ -3,7 +3,8 @@ import { asOfDate, buildPeriods, countRanges } from './timelineModel';
 
 export const MOTIVE = 'oubodouki_1';
 export const PRIORITIES = ['kinmujoukennoyuusenjuni_1', 'kinmujoukennoyuusenjuni_2', 'kinmujoukennoyuusenjuni_3'] as const;
-export const selectionNote = '選択式の記録は 2026/09/18 の応募からです';
+// 本番の応募で選択式の値が入っている最も古い応募日（2026-11-09 に応募理由のタブで確認）。
+export const selectionNote = '選択式の記録は 2026/09/14 の応募からです';
 
 /** 同じ応募・同じ選択肢を1回だけ数える。文章と旧カテゴリは参照しない。 */
 export function selectedCounts(rows: readonly ApplicationRow[], property: string) {
@@ -23,7 +24,7 @@ export function versionApplications(job: JobCopyRecord, versionId: string): Appl
   const periods = buildPeriods(job, asOf);
   const index = periods.findIndex(period => period.versionId === versionId);
   const range = countRanges(job, asOf, periods)[index];
-  return range ? (job.applicationRows ?? []).filter(row => row.date !== null && row.date >= range.start && row.date < range.end) : [];
+  return range ? reasonApplications(job).filter(row => row.date !== null && row.date >= range.start && row.date < range.end) : [];
 }
 
 /** 変更前後・期間ごとの理由は、応募件数と同じく複数求人への応募を除く。 */

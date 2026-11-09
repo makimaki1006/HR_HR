@@ -398,11 +398,12 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           : <p className="jt-empty" title={publication.title}>{publication.label}</p>}
       </Lane>}
 
-      <Lane rows={rowCount + (spans.length ? 1 : 0)} title="掲載期間" source={captured ? '文面を確認した日（掲載日は不明）' : '媒体の掲載日時'}>
+      <Lane rows={rowCount + (spans.length || unpublishedRanges(periods, asOf).length ? 1 : 0)} title="掲載期間" source={captured ? '文面を確認した日（掲載日は不明）' : '媒体の掲載日時'}>
         {periods.map(period => <Fragment key={period.versionId}><button type="button" aria-label={period.label} className={`jt-period ${period.basis === 'captured' ? 'jt-basis-captured' : `jt-cert-${period.certainty}`}`} aria-pressed={selected === period.versionId}
           style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), top: `${String(8 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }} onClick={() => { setSelected(period.versionId); }}
           title={period.basis === 'captured' ? `${period.label}: ${formatDay(period.start)}に確認${period.days > 1 && period.end ? `（${formatDay(addDays(period.end, -1))}まで同じ内容）` : ''}` : `${period.label}: ${formatDay(period.start)}〜${period.end ? formatDay(addDays(period.end, -1)) : '継続中'}（媒体の掲載日時）`}>
           <span>{period.label}</span></button><span aria-hidden="true" className="jt-period-label" style={{ ...pinned(period.start, range), top: `${String(12 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }}>{period.label}</span></Fragment>)}
+        {unpublishedRanges(periods, asOf).map(gap => <div key={`gap-${gap.start}`} className="jt-zone" style={{ ...span(range, gap.start, gap.end), top: `${String(8 + rowCount * 28)}px` }} title={`${formatDay(gap.start)}〜${formatDay(addDays(gap.end, -1))}（掲載が確認できない期間）`}><span>掲載が確認できない期間</span></div>)}
         {spans.map(item => <div key={`${item.kind}-${item.fromVersionId}`} className={item.kind === 'between' ? 'jt-zone' : 'jt-unacquired'} style={{ ...span(range, item.start, item.end), top: `${String(8 + rowCount * 28)}px` }}
           title={item.kind === 'between' ? `文面を確認した日${formatDay(item.from)}〜${formatDay(item.to ?? item.from)}の間${item.reason === 'changed' ? 'に変化' : '（変化したか確認できない）'}。どちらの内容か分からない期間です` : `最後の確認（${formatDay(item.from)}）より後は未取得です`}>
           <span>{item.kind === 'between' ? '文面を確認した日の間' : '未取得'}</span></div>)}

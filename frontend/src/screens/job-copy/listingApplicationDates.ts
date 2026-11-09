@@ -51,6 +51,19 @@ export async function loadApplicationDates(id: string, signal?: AbortSignal): Pr
   let reasons: JobCopyRecord['applicantReasons'];
   try { reasons = parseApplicantReasons(result.data.applicant_reasons, result.data.total, []); } catch { return null; }
   const rows = applicationRows(result.data.applications);
+  const sharedKeys = reasons?.multiListingApplicants;
+  if (sharedKeys != null) {
+    const keys = new Set(sharedKeys);
+    const shared = rows.filter(row => keys.has(row.key));
+    if (shared.length !== keys.size || new Set(shared.map(row => row.key)).size !== keys.size) return null;
+    const byDate: Record<string, number> = {};
+    let missingDate = 0;
+    for (const row of shared) {
+      if (row.date === null) missingDate += 1;
+      else byDate[row.date] = (byDate[row.date] ?? 0) + 1;
+    }
+    overall.multiListing = { byDate, missingDate };
+  }
   overall.selectionOptions = rows.length === overall.total ? result.data.selection_options ?? null : null;
   if (rows.length === overall.total) {
     const attributes = rows.map(row => ({ ...row, age: row.age ? Number(row.age) : null }));

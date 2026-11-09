@@ -23,8 +23,10 @@ export function ApplicationReasonTexts({ job, rows }: { job: JobCopyRecord; rows
 }
 
 export function ApplicantReasons({ job, before, after }: { job: JobCopyRecord; before?: CopyVersion | undefined; after?: CopyVersion | undefined }) {
+  const shared = job.applicantReasons?.multiListingApplicants;
   return <section className="ar-reasons" aria-label="応募理由の集計"><h2>応募理由</h2><p>{selectionNote}</p>
     <SelectedReasonTables job={job} /><ApplicationReasonTexts job={job} />
+    {shared == null ? <p>ほかの求人にも関連する応募を見分ける情報は未取得です。</p> : shared.length > 0 && <p>ほかの求人にも関連する応募 {shared.length}件は、本文ごとの応募数・理由から除いています。</p>}
     <div className="ar-pair">{[{ title: '比較元', version: before }, { title: '比較先', version: after }].map(({ title, version }) => {
       if (!version) return <section key={title}><h3>{title}</h3><p>本文未取得</p></section>;
       const rows = versionApplications(job, version.id);

@@ -775,7 +775,7 @@ mod tests {
             })
             .collect();
         let labels = OptionLabels::new();
-        let multi = BTreeSet::new();
+        let multi = BTreeSet::from(["1".to_owned(), "501".to_owned()]);
         let hearing = extract(
             "30",
             &rows,
@@ -802,6 +802,11 @@ mod tests {
             500
         );
         assert_eq!(data["applicant_reasons"]["truncated"], true);
+        assert_eq!(
+            data["applicant_reasons"]["multi_listing_applicants"],
+            json!([applicant_key("30", "1"), applicant_key("30", "501")])
+        );
+        assert_eq!(data["applications"][500]["key"], applicant_key("30", "501"));
     }
     #[test]
     fn work_condition_priority_is_counted_once_as_a_reason_and_still_shown_in_the_hearing() {

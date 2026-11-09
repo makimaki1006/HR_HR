@@ -83,7 +83,7 @@ test.describe('応募理由の変更ごとの表示', () => {
     await expect(page).toHaveURL(/reasonView=changes/);
     await expect(dialog.getByText('応募理由の記録はまだ少なく、1 つの求人・期間の件数だけで変更の効果は判断できません。')).toBeVisible();
     await expect(dialog.getByText('応募日も作成日も分からない記録 1件は、どの期間にも入れていません。')).toBeVisible();
-    await expect(dialog.getByLabel('変更ごとの応募理由').getByText('選択式の記録は 2026/09/18 の応募からです')).toBeVisible();
+    await expect(dialog.getByLabel('変更ごとの応募理由').getByText('選択式の記録は 2026/09/14 の応募からです')).toBeVisible();
 
     const blocks = dialog.getByTestId('change-reason-block');
     await expect(blocks).toHaveCount(2);
