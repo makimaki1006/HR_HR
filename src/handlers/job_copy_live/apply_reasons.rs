@@ -255,6 +255,7 @@ fn parse_app(row: &Value, labels: Option<&applicant_reasons::OptionLabels>) -> O
 }
 
 // ---- 読み取り ----
+#[derive(Clone)]
 pub(super) struct Options {
     pub(super) labels: applicant_reasons::OptionLabels,
     /// 応募動機の選択肢の名前（displayOrder の順）。
@@ -311,7 +312,22 @@ pub(super) fn parse_options(data: &Value) -> Option<Options> {
         definitions,
     })
 }
-async fn read_options(service: &JobReadService) -> Option<Options> {
+#[derive(Default)]
+pub(super) struct OptionsCache {
+    value: tokio::sync::Mutex<Option<(Instant, Option<Options>)>>,
+}
+pub(super) async fn read_options(service: &JobReadService) -> Option<Options> {
+    let mut cached = service.selection_options.value.lock().await;
+    if let Some((at, value)) = cached.as_ref() {
+        if at.elapsed() < if value.is_some() { TTL } else { RETRY } {
+            return value.clone();
+        }
+    }
+    let value = fetch_options(service).await;
+    *cached = Some((Instant::now(), value.clone()));
+    value
+}
+async fn fetch_options(service: &JobReadService) -> Option<Options> {
     let data = service
         .request(
             "/crm/v3/properties/0-421/batch/read",

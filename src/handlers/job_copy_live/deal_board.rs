@@ -48,6 +48,9 @@ struct DealBoardReason {
 }
 #[derive(Serialize, Deserialize, ts_rs::TS)]
 struct DealBoardRow {
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    application_reasons: Option<super::deal_application_reasons::DealApplicationReasonSummary>,
     id: String,
     name: Option<String>,
     company: Option<String>,
@@ -213,6 +216,8 @@ pub(super) struct Metrics<'a> {
     deals: BTreeMap<String, cs::Deal>,
     medians: [(Option<f64>, usize); 3],
     meetings: &'a MeetingData,
+    // 応募動機の選択肢の定義（全取引で共通。取引ごとには持たない）。
+    selection_options: Option<BTreeMap<String, Vec<Value>>>,
 }
 impl<'a> Metrics<'a> {
     pub(super) fn new(snapshot: &Snapshot, meetings: &'a MeetingData, today: NaiveDate) -> Self {
@@ -230,7 +235,15 @@ impl<'a> Metrics<'a> {
             medians: cpa_band_medians(&population, today),
             deals,
             meetings,
+            selection_options: None,
         }
+    }
+    pub(super) fn with_selection_options(
+        mut self,
+        options: Option<BTreeMap<String, Vec<Value>>>,
+    ) -> Self {
+        self.selection_options = options;
+        self
     }
     pub(super) fn reasons(&self, snapshot: &Snapshot, id: &str, today: NaiveDate) -> Vec<Value> {
         let Some(work) = snapshot.deals.get(id) else {
@@ -322,6 +335,7 @@ impl<'a> Metrics<'a> {
             let last = self.meetings.last.as_ref().and_then(|m| m.get(id)).and_then(|(d, _)| *d);
             let mtg_status = if !supported { "outside" } else if self.meetings.last.is_none() { "unavailable" } else if last.is_none() { "none" } else { "ready" };
             serde_json::from_value(json!({"id":id,"name":work.record.value("dealname"),"company":company.and_then(|c| c.1.as_ref()),
+                "application_reasons":super::deal_application_reasons::summarize(snapshot.facts.get(id),self.selection_options.as_ref(),today),
                 "pipeline":work.record.value("pipeline"),"active":d.is_active,"stage":snapshot.stages.get(&d.stage),
                 "consultant":consultant.map(|o| &o.name),"reasons":self.reasons(snapshot,id,today),
                 "months":contract_month(&d.contract_start_date,today),"expiration":cs::date10(&d.contract_expiration_date).map(|d| d.to_string()),
@@ -362,7 +376,9 @@ pub(super) async fn read(
     let body = if let Some(snapshot) = view.snapshot.filter(|s| s.complete) {
         let today = owner_todo::today(chrono::Utc::now());
         let meetings = MeetingData::cached().await;
-        let metrics = Metrics::new(&snapshot, &meetings, today);
+        let options = super::apply_reasons::read_options(listings::service(&access)?).await;
+        let metrics = Metrics::new(&snapshot, &meetings, today)
+            .with_selection_options(options.map(|o| o.definitions));
         let mut rows = metrics.rows_in(&snapshot, &query, &email, today, period);
         for row in &mut rows {
             row.media_recent_applications = apps
@@ -496,6 +512,52 @@ mod tests {
             rows[0].unknown_application_ids.as_ref().unwrap(),
             &["unknown"]
         );
+    }
+    #[test]
+    fn reason_summary_is_in_rows_and_old_facts_are_pending() {
+        let mut s = snapshot(0, "5", "21596025");
+        let old: super::super::todo_signals::Facts = serde_json::from_value(json!({
+            "live":1,"unknown_dates":0,"days":["2026-09-14"],
+            "application_days":{"a":"2026-09-14"},"listings":1,
+            // 前の版で取引ごとに持っていた定義が残る保存データも読める。
+            "selection_options":{"oubodouki_1":[]}
+        }))
+        .unwrap();
+        s.facts.insert("1".into(), old);
+        let query = OwnerQuery {
+            owner: Some("all".into()),
+            ..Default::default()
+        };
+        let meetings = MeetingData::default();
+        let rows = Metrics::new(&s, &meetings, day()).rows(&s, &query, "", day());
+        assert!(rows[0].application_reasons.is_none());
+        let facts = s.facts.get_mut("1").unwrap();
+        facts.selections = Some(BTreeMap::from([(
+            "a".into(),
+            BTreeMap::from([("oubodouki_1".into(), vec!["休日".into()])]),
+        )]));
+        let options = Some(
+            super::super::apply_reasons::SELECT_PROPERTIES
+                .into_iter()
+                .map(|p| {
+                    (
+                        p.into(),
+                        vec![json!({"value":"休日","label":"休日","display_order":0})],
+                    )
+                })
+                .collect(),
+        );
+        let rows = Metrics::new(&s, &meetings, day())
+            .with_selection_options(options)
+            .rows(&s, &query, "", day());
+        let value = serde_json::to_value(&rows[0]).unwrap();
+        assert_eq!(value["application_reasons"]["total"], 1);
+        assert_eq!(
+            value["application_reasons"]["answered"],
+            json!([1, 0, 0, 0])
+        );
+        assert_eq!(value["application_reasons"]["top"][0]["label"], "休日");
+        assert_eq!(value["application_reasons"]["top"][0]["counts"], json!([1]));
     }
     #[test]
     fn export_board_types() {

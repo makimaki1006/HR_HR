@@ -833,6 +833,7 @@ async fn restored_facts_keep_their_age_and_remain_visible_during_refresh() {
     let facts = BTreeMap::from([(
         "1".into(),
         super::super::todo_signals::Facts {
+            selections: None,
             application_days: BTreeMap::new(),
             live: 2,
             unknown_dates: 0,
@@ -924,6 +925,7 @@ fn measure_synthetic_facts_500_deals_30000_applications() {
             (
                 (i + 800000).to_string(),
                 super::super::todo_signals::Facts {
+                    selections: None,
                     application_days: BTreeMap::new(),
                     live: 82,
                     unknown_dates: 0,

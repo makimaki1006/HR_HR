@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>応募の集約の案</title>
+<style>
+  :root { --ink: #222; --sub: #555; --line: #c9c9c9; --paper: #fdfcf8; --mark: #f3eedf; --accent: #2d4f6c; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.75 "Hiragino Mincho ProN", "Yu Mincho", serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 40px 16px 80px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .meta { color: var(--sub); font-size: 13px; margin: 0 0 28px; }
+  h2 { font-size: 18px; border-bottom: 1px solid var(--ink); padding-bottom: 4px; margin: 36px 0 12px; }
+  h3 { font-size: 15px; margin: 20px 0 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 8px 0 6px; }
+  th, td { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--mark); font-weight: 600; }
+  td.n { text-align: right; white-space: nowrap; }
+  .says { margin: 4px 0 14px; padding: 8px 12px; border-left: 3px solid var(--accent); background: #fff; }
+  .tag { display: inline-block; font-size: 12px; padding: 0 6px; border: 1px solid var(--sub); color: var(--sub); margin-right: 6px; }
+  .tag.ok { border-color: var(--accent); color: var(--accent); }
+  figure { margin: 12px 0 4px; }
+  figcaption { font-size: 13px; color: var(--sub); }
+  svg text { font-family: "Hiragino Sans", sans-serif; }
+  ol.q > li { margin-bottom: 10px; }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>応募の集約の案（求人ごと・取引ごと）</h1>
+<p class="meta">2026-11-09 作成。案件管理（/app/job-copy）。<span class="tag">案</span>は未合意、<span class="tag ok">決定</span>は発言と日付つき。</p>
+
+<h2>1. 目的</h2>
+<p><span class="tag ok">決定</span>2026-11-09 ユーザーの発言:</p>
+<ul>
+  <li>応募データを求人データに集約し、案件管理の一覧に反映する。</li>
+  <li>求人の情報と、求人に紐づいた応募の情報を、取引ごとにまとめ直す。これを繰り返し集計できる形にする。</li>
+  <li>求人票をどう変えたら、どんな応募者が来て、その応募の理由は何か。この流れを一続きで追えるようにし、最終的にデータをすべて整える。</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 840 170" width="100%" role="img" aria-label="応募から求人、取引へのまとめの流れ">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2d4f6c"/></marker></defs>
+  <g font-size="13" fill="#222">
+    <rect x="10" y="40" width="200" height="90" fill="#fff" stroke="#555"/>
+    <text x="24" y="64" font-weight="700">応募 1 件の記録</text>
+    <text x="24" y="86">応募日・年齢・性別・住所</text>
+    <text x="24" y="104">応募動機・優先順位①〜③</text>
+    <text x="24" y="122">その日に出ていた本文の版</text>
+    <rect x="320" y="40" width="200" height="90" fill="#fff" stroke="#555"/>
+    <text x="334" y="64" font-weight="700">求人ごと</text>
+    <text x="334" y="86">期間ごとの応募数</text>
+    <text x="334" y="104">版ごとの応募数と理由</text>
+    <text x="334" y="122">応募者の属性の内訳</text>
+    <rect x="630" y="40" width="200" height="90" fill="#fff" stroke="#555"/>
+    <text x="644" y="64" font-weight="700">取引ごと</text>
+    <text x="644" y="86">求人の集計を足す</text>
+    <text x="644" y="104">同じ応募は 1 回だけ</text>
+    <text x="644" y="122">案件管理の一覧に出す</text>
+    <line x1="210" y1="85" x2="316" y2="85" stroke="#2d4f6c" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="520" y1="85" x2="626" y2="85" stroke="#2d4f6c" stroke-width="2" marker-end="url(#a)"/>
+    <text x="230" y="76" fill="#555">関連の求人票</text>
+    <text x="540" y="76" fill="#555">関連の取引</text>
+    <text x="10" y="160" fill="#555">応募は求人票にだけ関連し、取引には求人票を通してつながる（HubSpot の関連）。</text>
+  </g>
+</svg>
+<figcaption>図1 応募の記録を 1 回作り、求人ごと・取引ごとには同じ記録を足して作る。数え方を 1 か所にまとめれば、どの画面でも同じ数になる。</figcaption>
+</figure>
+
+<h2>2. 今の状態</h2>
+<p>案件管理の中に、応募を数える場所が 5 つあり、数え方がそろっていない。</p>
+<div class="scroll"><table>
+  <tr><th>場所</th><th>応募の数え方</th><th>日付</th><th>理由・属性</th></tr>
+  <tr><td>求人一覧の「応募 N件」</td><td>求人票に関連する応募の件数（全期間）</td><td>見ない</td><td>なし</td></tr>
+  <tr><td>求人一覧の「直近の応募が多い順」・取引の直近の応募</td><td>媒体の週次実績（Indeed・AirWork の数字）</td><td>週</td><td>なし</td></tr>
+  <tr><td>取引の「応募」</td><td>取引の項目 <code>oubo</code></td><td>—</td><td>なし</td></tr>
+  <tr><td>やること・案件一覧の期間の応募</td><td>取引→求人→応募を読み、取引の中で同じ応募を 1 回に</td><td>応募日（無ければ作成日）</td><td>なし</td></tr>
+  <tr><td>求人の詳細の応募理由</td><td>求人に関連する応募を読む</td><td>応募日</td><td>文章のみ。本文の版には割り当てていない</td></tr>
+</table></div>
+<p class="says">同じ求人でも、場所によって応募の数が違って見える。理由は求人の詳細で文章として見られるだけで、どの本文の版に来た応募かは分からない。</p>
+
+<h3>HubSpot の応募に入っている項目（応募日が直近 6 か月の応募 14,334 件）</h3>
+<table>
+  <tr><th>項目</th><th>入っている件数</th><th>割合</th></tr>
+  <tr><td>年齢</td><td class="n">13,979</td><td class="n">98%</td></tr>
+  <tr><td>性別</td><td class="n">13,829</td><td class="n">96%</td></tr>
+  <tr><td>都道府県</td><td class="n">12,334</td><td class="n">86%</td></tr>
+  <tr><td>応募先職種</td><td class="n">7,334</td><td class="n">51%</td></tr>
+  <tr><td>応募動機（選択式、2026-09-18 から）</td><td class="n">236</td><td class="n">2%</td></tr>
+</table>
+<p class="says">年齢・性別・住所はほぼ全員に入っている。理由はヒアリングできた応募だけなので少ない。「どんな応募者が来たか」は属性で、「なぜ来たか」は少ない件数で見ることになる。</p>
+<p>注意: 作成日が最近でも応募日が古い応募が多い（作成日が直近 30 日の 7,324 件のうち 4,723 件は応募日がそれより前）。後から取り込まれた応募なので、日付は応募日で数える必要がある。</p>
+
+<h2>3. 案</h2>
+<h3>3.1 応募 1 件の記録 <span class="tag">案</span></h3>
+<ul>
+  <li>応募日: <code>yingmuri</code>、無ければ作成日の日本時間の日付（今のやること・案件一覧と同じ）。</li>
+  <li>持つ項目: 応募日、関連の求人票、年齢、性別、都道府県・市区町村、応募動機、優先順位①〜③。氏名・連絡先・文章は持たない。</li>
+  <li>本文の版: 応募日に掲載されていた本文（本文の変更履歴の時刻と比べる）。変更した当日の応募は、どちらの版か決められないので「変更日の応募」として分ける。</li>
+</ul>
+<h3>3.2 求人ごと <span class="tag">案</span></h3>
+<ul>
+  <li>期間ごとの応募数（直近 4 週・その前の 4 週）。HubSpot の応募で数える。媒体の週次実績とは別の数として並べる。</li>
+  <li>本文の版ごとの応募数と、応募動機・優先順位の内訳、年齢・性別の内訳。</li>
+  <li>一覧のカードには、直近 4 週の応募数と前の 4 週との差、多い応募動機の上位 2 つを出す。</li>
+</ul>
+<h3>3.3 取引ごと <span class="tag">案</span></h3>
+<ul>
+  <li>取引に関連する求人の記録を足す。複数の求人に付いている同じ応募は 1 回だけ数える。</li>
+  <li>一覧の取引の行に、求人と同じ項目（直近の応募数・差・多い応募動機）を出す。</li>
+</ul>
+<h3>3.4 読み方と保存 <span class="tag">案</span></h3>
+<ul>
+  <li>応募を求人ごとに読むのは、今の索引（起動時と 6 時間ごとに作り直し、監査 Turso に保存して起動時に戻す）と同じ流れに足す。新しい DB は作らない。</li>
+  <li>直近 6 か月の応募は約 1.4 万件。求人ごとの関連は索引ですでに読んでいるので、増えるのは応募の本体の一括読み（100 件ずつ、約 150 回）。</li>
+  <li>保存するのは求人ごとの集計だけ（応募 1 件ずつは保存しない）。Turso の書き込みは索引の保存 1 回の中で済み、回数は増えない見込み。容量の増え方は作ってから測る。</li>
+</ul>
+
+<h2>4. 決まったこと</h2>
+<p><span class="tag ok">決定</span>2026-11-09 ユーザーの返事。</p>
+<table>
+  <tr><th>項目</th><th>決まったこと</th></tr>
+  <tr><td>応募数の正本</td><td>HubSpot の応募（0-421）を正本にする。</td></tr>
+  <tr><td>一覧に出す項目</td><td>直近 4 週の応募数と前の 4 週との差は、求人ごとではなく全体のまとめとして出す。求人を 1 件ずつ開いたときは、年齢・性別も含めて応募の中身をすべて見られるようにする。</td></tr>
+  <tr><td>本文の版への割り当て</td><td>応募日に出ていた本文に割り当てる。変更当日の応募も分けずに含める。</td></tr>
+  <tr><td>取引の数え方</td><td>同じ応募は取引の中で 1 回だけ数える。</td></tr>
+  <tr><td>応募の記録と求人の集計・進め方</td><td>3 章の案のとおりでよい。</td></tr>
+</table>
+<h3>返事から読み取った点 <span class="tag">案</span></h3>
+<ul>
+  <li>変更当日の応募は、変更後の本文に含める（変更した日からその本文が出ているため）。違っていれば直す。</li>
+  <li>全体のまとめは、案件一覧の上に置き、いま絞り込んでいる取引の範囲で数える。</li>
+</ul>
+<h3>取引ごとの応募動機の数え方 <span class="tag">案</span></h3>
+<ul>
+  <li>数える応募: 取引に関連する求人の応募のうち、応募日が 2026/09/14（選択式の記録が始まった日）以降のもの。同じ応募は 1 回だけ。日付の分からない応募は数えない。</li>
+  <li>案件一覧の行: 多い応募動機の上位 2 つと件数、「応募動機を聞けた N件／2026/09/14 以降の応募 M件」。</li>
+  <li>行の「詳しい数字」: 応募動機の全部の選択肢の件数と、勤務条件の優先順位①②③の件数（求人の詳細と同じ表）。</li>
+  <li>HubSpot の呼び出しは増やさない（今の応募の一括読みに項目を足すだけ）。</li>
+</ul>
+</main>
+</body>
+</html>

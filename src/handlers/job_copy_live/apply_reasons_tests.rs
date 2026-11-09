@@ -387,3 +387,35 @@ fn reason_search_reaches_every_application_of_the_period_within_limits() {
     // filterGroups は HubSpot の上限 (5 まとまり・合計 18 条件) に収まる。
     assert!(SELECT_PROPERTIES.len() <= 5 && SELECT_PROPERTIES.len() * 2 <= 18);
 }
+
+#[tokio::test]
+async fn selection_options_are_shared_and_cached_between_refreshes() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let app = Router::new().fallback(any(move || {
+        let seen = seen.clone();
+        async move {
+            seen.fetch_add(1, Ordering::SeqCst);
+            Json(
+                json!({"results":SELECT_PROPERTIES.map(|p| json!({"name":p,"options":[
+                    {"value":"給与","label":"給与","displayOrder":2},
+                    {"value":"休日","label":"休日","displayOrder":1}
+                ]}))}),
+            )
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let service = JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    assert_eq!(
+        read_options(&service).await.unwrap().order,
+        ["休日", "給与"]
+    );
+    assert_eq!(
+        read_options(&service.clone()).await.unwrap().order,
+        ["休日", "給与"]
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    server.abort();
+}
