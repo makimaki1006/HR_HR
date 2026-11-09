@@ -24,18 +24,19 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(hanako[5]?.textContent).toBe('2.27%');
     expect(hanako[5]?.getAttribute('data-flagged')).toBeNull();
     unmount();
-    // アポ前のタブ: 名前・チーム・判定数・9項目 (日程が決まった後の6項目はアポ後のタブ)
+    // アポ前のタブ: 名前・チーム・アポ数・判定数・9項目 (日程が決まった後の6項目はアポ後のタブ)
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} tab="talk" />);
     const talk = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'));
-    expect(talk).toHaveLength(12);
-    expect(talk[2]?.textContent).toContain('70');
-    expect(talk[2]?.textContent).toContain('待ち 6 ・ 取れない 4');
+    expect(talk).toHaveLength(13);
+    expect(talk[2]?.textContent).toBe(jiro[4]?.textContent);
+    expect(talk[3]?.textContent).toContain('70');
+    expect(talk[3]?.textContent).toContain('待ち 6 ・ 取れない 4');
     // 日程を早く出す: 36/45 = 80% が印、受付は 25% で印なし
-    expect(talk[5]?.textContent).toBe('20%できた 9/45本');
-    expect(talk[5]?.getAttribute('data-flagged')).toBe('true');
-    expect(talk[3]?.getAttribute('data-flagged')).toBeNull();
+    expect(talk[6]?.textContent).toBe('20%できた 9/45本');
+    expect(talk[6]?.getAttribute('data-flagged')).toBe('true');
+    expect(talk[4]?.getAttribute('data-flagged')).toBeNull();
     // 項目の印は別の人 (断られた後 14/16)
-    expect(Array.from(rowOf('ダミー 三郎').querySelectorAll('td'))[11]?.getAttribute('data-flagged')).toBe('true');
+    expect(Array.from(rowOf('ダミー 三郎').querySelectorAll('td'))[12]?.getAttribute('data-flagged')).toBe('true');
   });
 
   it('発信数にマウスを当てると、発信の内訳が本数と割合で出る（内線 0 件は行ごと出さない）', () => {
@@ -90,7 +91,7 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(screen.getByRole('columnheader', { name: /既存感/ }).textContent).toContain('この表の全体 64%');
     const last = lastCells();
     expect(last.slice(0, 2)).toEqual(['この表の全体', '-']);
-    expect(last[5]).toBe('43%できた 54/125本');
+    expect(last[6]).toBe('43%できた 54/125本');
     // 場面ごとのまとまり
     expect(Array.from(document.querySelectorAll('th.talk-group')).map(t => `${t.textContent}:${t.getAttribute('colspan') ?? ''}`)).toEqual(['受付:1', '日付の前:5', '断られた後:3']);
     // 時期改めの項目は本番から外した
@@ -132,7 +133,7 @@ describe('トークの振り返り: 人ごとの表', () => {
   it('判定した本数と対象の本数を並べ、割合は判定した電話の中の割合だと書く', () => {
     render(<TalkSummaryTable data={summary} onOpen={() => undefined} tab="talk" />);
     // 二郎: 判定 70、待ち 6、取れない 4、枠を超えて判定していない 35 → 対象 115
-    const cell = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'))[2]?.textContent ?? '';
+    const cell = Array.from(rowOf('サンプル 二郎').querySelectorAll('td'))[3]?.textContent ?? '';
     expect(cell).toContain('70');
     expect(cell).toContain('対象 115 本');
     const note = screen.getByTestId('talk-sampling').textContent;
@@ -620,9 +621,18 @@ describe('トークの振り返り: タブとアポの内訳', () => {
     }
   });
 
-  it('トークのタブではアポ数の列も内訳も出さない', () => {
-    render(<TalkPanel route={route({ tab: 'talk' })} navigate={() => undefined} fixture />);
-    expect(screen.queryByTestId('talk-apo-trigger')).toBeNull();
+  it('アポ前・アポ後のタブにもアポ数を出し、押すと内訳が開く', () => {
+    for (const tab of ['talk', 'after'] as const) {
+      const { unmount } = render(<TalkPanel route={route({ tab })} navigate={() => undefined} fixture />);
+      const heads = within(screen.getByTestId('talk-table')).getAllByRole('columnheader').map(h => h.textContent);
+      expect(heads).toContain('アポ数');
+      expect(screen.getAllByTestId('talk-apo-count').length).toBeGreaterThan(0);
+      const trigger = screen.getAllByTestId('talk-apo-trigger')[0];
+      if (trigger === undefined) throw new Error('アポ数のボタンが無い');
+      fireEvent.click(trigger);
+      expect(screen.getByTestId('talk-apo-open')).toBeTruthy();
+      unmount();
+    }
   });
 
   it('タブは数字・アポ前・アポ後の3つで、アポ前とアポ後で出す項目が分かれる', () => {

@@ -142,12 +142,12 @@ describe('表の上での動き', () => {
     // トークのタブでも、項目ごとに前との差が出る
     cleanup();
     panel(route({ cmp_from: '2026-10-18', cmp_to: '2026-10-18', tab: 'talk' }));
-    expect(cells(rowOf('架空 花子'))[5]?.textContent).toBe('50%できた 20/40本前 +5.0pt');
+    expect(cells(rowOf('架空 花子'))[6]?.textContent).toBe('50%できた 20/40本前 +5.0pt');
   });
 
   it('チームとの差: 率の横にチーム比と、チームの全体の行が出る', () => {
     panel(route({ vs_team: '1', tab: 'talk' }));
-    expect(cells(rowOf('架空 花子'))[5]?.textContent).toBe('50%できた 20/40本チーム比 +15.9pt');
+    expect(cells(rowOf('架空 花子'))[6]?.textContent).toBe('50%できた 20/40本チーム比 +15.9pt');
     expect(screen.getAllByTestId('talk-team-row')).toHaveLength(2);
     expect(screen.getByText('架空BPOチームの全体')).toBeTruthy();
   });
