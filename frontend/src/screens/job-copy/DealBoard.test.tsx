@@ -23,7 +23,7 @@ const rows: DealRow[] = [
   { ...row(2), interviews: 0, listing_count: 1, contract_applications: null, period_applications: null, first_contract: false },
   { ...row(3), interviews: 3, listing_count: null, contract_applications: null, period_applications: null, first_contract: false },
 ];
-function stub(goodIds: string[] | 'fail' = ['101', '103']) {
+function stub(goodIds: string[] | 'fail' = ['101', '103'], deals: DealRow[] = rows) {
   const urls: string[] = [];
   vi.stubGlobal('fetch', vi.fn((input: string) => {
     urls.push(input);
@@ -32,7 +32,7 @@ function stub(goodIds: string[] | 'fail' = ['101', '103']) {
       if (goodIds === 'fail') return Promise.resolve(new Response('{}', { status: 500 }));
       return Promise.resolve(Response.json({ status: 'ready', data_day: '2026-10-20', previous_day: null, comparison: 'unavailable', rows: goodIds.map(id => ({ deal_id: id, name: `案件${id}`, company: null, consultant: '合成担当A', flags: [], risk_flags: [], good_flags: [{ key: 'applications', label: '応募 3 → 7', new: false, since: null }], days_left: null, days_since_contact: null, mtg_last: null, actionyotei: null, actionnaiyou: null })) }));
     }
-    if (u.pathname.endsWith('/deals')) return Promise.resolve(Response.json({ ...boardFixture, rows, work: demoOwnerTodo }));
+    if (u.pathname.endsWith('/deals')) return Promise.resolve(Response.json({ ...boardFixture, rows: deals, work: demoOwnerTodo }));
     return Promise.resolve(Response.json({ hubspot_portal_id: '123', selected: { deal: {} }, partial: [] }));
   }));
   return urls;
@@ -51,7 +51,7 @@ it('既定の列は8つで、採用・採用単価・金額・採用目標は行
   expect(screen.queryByRole('button', { name: /^(採用|採用単価|金額|採用目標に対して) / })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: `${row(0).name ?? ''}の詳しい数字を開く` }));
   const detail = within(screen.getByRole('table', { name: `${row(0).name ?? ''}の詳しい数字` }));
-  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ▲▼/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期NPS', '応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
+  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ▲▼/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期NPS', '取引に記録された応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
   const cells = detail.getAllByRole('cell').map(td => td.textContent);
   expect(cells).toContain(yen(100_000));
   expect(cells).toContain(yen(50_000));
@@ -98,4 +98,28 @@ it('応募ゼロを調べる期間を指定すると、その期間の応募日�
   fireEvent.change(screen.getByRole('combobox', { name: '応募ゼロを調べる期間' }), { target: { value: 'contract' } });
   await waitFor(() => { expect(screen.getByRole('heading', { name: /初回契約の期間中/u })).toBeTruthy(); });
   expect(names()).toEqual([row(0).name]);
+});
+
+it('まとめは取引をまたぐ応募を1回に数え、絞り込みに従い、行に前の4週との差を出す', async () => {
+  stub(); await open();
+  const summary = () => within(screen.getByRole('region', { name: '絞り込み中の応募数' }));
+  expect(summary().getByText(/直近4週/u).textContent).toBe('直近4週 4件 ／ 前の4週 1件 ／ 差 +3件');
+  const first = screen.getByRole('table').querySelector('tbody tr');
+  expect(first?.textContent).toContain('前の4週 1件 ／ 差 0件');
+  fireEvent.click(screen.getByRole('checkbox', { name: '面接が1件も無い取引だけ' }));
+  expect(summary().getByText(/直近4週/u).textContent).toBe('直近4週 3件 ／ 前の4週 1件 ／ 差 +2件');
+  fireEvent.click(screen.getByRole('button', { name: '定期NPSが低い 1' }));
+  expect(summary().getByText(/直近4週/u).textContent).toBe('直近4週 1件 ／ 前の4週 1件 ／ 差 0件');
+});
+
+it('日付不明を添えて負の差を表示し、未取得の取引があればまとめを0件にしない', async () => {
+  stub([], [{ ...row(0), recent_applications: 1, previous_applications: 3, applications_change: -2, unknown_application_ids: ['u'] }, { ...row(1), recent_applications: null, recent_application_ids: null, previous_applications: null, previous_application_ids: null, unknown_application_ids: null, applications_change: null }]);
+  await open();
+  const summary = within(screen.getByRole('region', { name: '絞り込み中の応募数' }));
+  expect(summary.getByText(/直近4週/u).textContent).toBe('直近4週 未取得 ／ 前の4週 未取得 ／ 差 未取得');
+  expect(summary.getByText('日付不明の応募 1件は含めていません。')).toBeTruthy();
+  expect(summary.getByText('応募数が未取得の取引が1件あります。')).toBeTruthy();
+  const first = screen.getByRole('table').querySelector('tbody tr');
+  expect(first?.textContent).toContain('前の4週 3件 ／ 差 -2件');
+  expect(first?.textContent).toContain('日付不明 1件を除外');
 });

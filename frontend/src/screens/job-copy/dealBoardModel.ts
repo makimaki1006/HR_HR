@@ -8,7 +8,7 @@ export type DealBoardResponse = { status: 'preparing' | 'failed' } | {
 export const dealSorts = [
   ['priority', '印の多い順 → 金額の多い順'], ['name', '案件名'], ['company', '顧客名'], ['reasons', '要対応の印'],
   ['consultant', '担当'], ['stage', 'ステージ'], ['months', '何ヶ月目'], ['days_left', '満了まで'],
-  ['last_contact', '最後の接触'], ['last_mtg', '最後のMTG'], ['nps', '定期NPS'], ['applications', '応募'],
+  ['last_contact', '最後の接触'], ['last_mtg', '最後のMTG'], ['nps', '定期NPS'], ['applications', '取引に記録された応募'],
   ['recent_applications', '応募（直近4週）'], ['interviews', '面接'], ['hires', '採用'], ['achievement', '採用目標に対して'], ['cpa', '採用単価'], ['amount', '金額'],
 ] as const;
 export type DealSort = typeof dealSorts[number][0];
@@ -63,3 +63,20 @@ export function periodUnknown(row: DealRow, mode: ZeroPeriod): boolean {
 /** 面接の件数が 0 の取引。空（数字なし）は 0 に混ぜない。 */
 export const hasNoInterview = (row: DealRow) => row.interviews === 0;
 export const interviewMissing = (row: DealRow) => row.interviews === null;
+
+/** ページ分割前の絞り込み結果を集計し、取引をまたぐ応募IDを1回にまとめる。 */
+export function summarizeApplications(rows: readonly DealRow[]) {
+  const recent = new Set<string>(); const previous = new Set<string>(); const unknown = new Set<string>();
+  let missing = 0; let outOfScope = 0;
+  for (const row of rows) {
+    if (row.applications_out_of_scope) { outOfScope++; continue; }
+    if (row.recent_application_ids === null || row.previous_application_ids === null || row.unknown_application_ids === null) { missing++; continue; }
+    row.recent_application_ids.forEach(id => recent.add(id));
+    row.previous_application_ids.forEach(id => previous.add(id));
+    row.unknown_application_ids.forEach(id => unknown.add(id));
+  }
+  return { recent: recent.size, previous: previous.size, change: recent.size - previous.size, unknown: unknown.size, missing, outOfScope };
+}
+export function applicationChange(value: number | null): string {
+  return value === null ? '未取得' : `${value > 0 ? '+' : ''}${String(value)}件`;
+}

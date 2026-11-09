@@ -288,7 +288,7 @@ fn refresh_facts_on_request(service: &JobReadService, state: &mut CacheState) {
     let deals = snapshot
         .deals
         .iter()
-        .filter(|(_, deal)| super::todo_signals::eligible(deal))
+        .filter(|(_, deal)| super::todo_signals::eligible(deal, today(Utc::now())))
         .map(|(id, deal)| (id.clone(), deal.clone()))
         .collect();
     state.facts_refreshing = true;

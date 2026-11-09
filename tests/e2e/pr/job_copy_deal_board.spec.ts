@@ -60,6 +60,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(table).toContainText('条件に合う案件はありません');
   await marks.getByRole('button', { name: 'すべて 23', exact: true }).click();
   // 既定の列は 8 つ。採用・採用単価・金額・採用目標は「詳しい数字」を開くと出る
+  await expect(page.getByRole('region', { name: '絞り込み中の応募数' }).locator('strong')).toHaveText(['24件', '1件', '+23件']);
   await expect(table.locator('thead th')).toHaveText(['案件・顧客 ▲▼', '要対応の印 ▲▼', '応募（直近4週） ▲▼', '満了まで ▲▼', '最後の接触 ▲▼', '最後のMTG ▲▼', 'NPS ▲▼', '担当 ▲▼', '詳しい数字']);
   // 「いい」は印の先頭（すべての次）に並ぶ
   await expect(marks.getByRole('button').nth(1)).toHaveText(/^いい\s*2$/);
@@ -68,11 +69,14 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(table.locator('tbody > tr')).toHaveCount(2);
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
   await expect(page).toHaveURL(/deals_reason=good/);
+  await expect(page.getByRole('region', { name: '絞り込み中の応募数' }).locator('strong')).toHaveText(['6件', '1件', '+5件']);
   await good.click();
   await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
   await table.locator('tbody > tr').first().getByRole('button', { name: '架空の採用支援01の詳しい数字を開く' }).click();
   await expect(table.locator('.db-detail').getByRole('columnheader', { name: /定期NPS/ })).toBeVisible();
   await expect(table.locator('.db-detail tbody td').nth(3)).toHaveText('4');
+  await expect(table.locator('.db-detail')).toContainText('媒体の応募（直近4週） 50件');
+  await expect(table.locator('.db-detail')).toContainText('取引に記録された応募');
   await expect(table.locator('.db-detail tbody td').nth(7)).toHaveText('¥50,000');
   await expect(table.locator('.db-detail tbody td').nth(8)).toHaveText('¥100,000');
   await expect(table.locator('.db-detail tbody td').last()).toContainText('2 / 10人');

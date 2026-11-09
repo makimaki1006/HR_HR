@@ -70,6 +70,18 @@ struct DealBoardRow {
     #[serde(default)]
     #[ts(type = "number | null")]
     recent_applications: Option<i64>,
+    #[ts(type = "number | null")]
+    media_recent_applications: Option<i64>,
+    /// 満了から8週を過ぎた終了済みの取引は応募を数えない。
+    #[serde(default)]
+    applications_out_of_scope: bool,
+    recent_application_ids: Option<Vec<String>>,
+    previous_application_ids: Option<Vec<String>>,
+    unknown_application_ids: Option<Vec<String>>,
+    #[ts(type = "number | null")]
+    previous_applications: Option<i64>,
+    #[ts(type = "number | null")]
+    applications_change: Option<i64>,
     interviews: Option<f64>,
     hires: Option<f64>,
     target: Option<f64>,
@@ -135,6 +147,33 @@ fn applications_between(
             .filter(|d| **d >= from && **d <= to)
             .count() as i64,
     )
+}
+struct ApplicationWindows {
+    recent: Vec<String>,
+    previous: Vec<String>,
+    unknown: Vec<String>,
+}
+
+/// 今日を含む28日、その前の28日。日付不明は両期間から除く。
+fn application_windows(
+    facts: Option<&super::todo_signals::Facts>,
+    today: NaiveDate,
+) -> Option<ApplicationWindows> {
+    let facts = facts?;
+    let (mut recent, mut previous, mut unknown) = (vec![], vec![], vec![]);
+    for (id, day) in &facts.application_days {
+        match day.map(|d| (today - d).num_days()) {
+            Some(0..=27) => recent.push(id.clone()),
+            Some(28..=55) => previous.push(id.clone()),
+            None => unknown.push(id.clone()),
+            _ => {}
+        }
+    }
+    Some(ApplicationWindows {
+        recent,
+        previous,
+        unknown,
+    })
 }
 fn current(record: &Record) -> cs::Deal {
     let text = |key| record.value(key).unwrap_or("").to_owned();
@@ -275,6 +314,7 @@ impl<'a> Metrics<'a> {
     ) -> Vec<DealBoardRow> {
         let (owner, _) = snapshot.selection(query, email);
         snapshot.deals.iter().filter(|(id, work)| snapshot.matches(id, query.field(), owner.as_deref()) && listings::is_delivery(work.record.value("pipeline")) && !self.deals[*id].is_referral()).map(|(id, work)| {
+            let windows = application_windows(snapshot.facts.get(id), today);
             let d = &self.deals[id];
             let company = snapshot.companies.get(id);
             let consultant = snapshot.owners.iter().find(|o| Some(o.id.as_str()) == work.assignment.consultant.as_deref());
@@ -289,6 +329,14 @@ impl<'a> Metrics<'a> {
                 "last_contact":work.record.value("notes_last_contacted").and_then(super::owner_todo::date).map(|d| d.to_string()),
                 "last_mtg":if supported {last.map(|d| d.to_string())} else {None},"mtg_status":mtg_status,
                 "nps":nps(&work.record),"applications":d.oubo,"interviews":d.mensetu,"hires":d.syoudaku,
+                "recent_applications":windows.as_ref().map(|w| w.recent.len()),
+                "previous_applications":windows.as_ref().map(|w| w.previous.len()),
+                "applications_change":windows.as_ref().map(|w| w.recent.len() as i64-w.previous.len() as i64),
+                "recent_application_ids":windows.as_ref().map(|w| &w.recent),
+                "previous_application_ids":windows.as_ref().map(|w| &w.previous),
+                "unknown_application_ids":windows.as_ref().map(|w| &w.unknown),
+                "media_recent_applications":null,
+                "applications_out_of_scope":!super::todo_signals::eligible(work, today),
                 "first_contract": super::todo_signals::is_first_contract(&work.record),
                 "launch": super::todo_signals::launch(&work.record,snapshot.facts.get(id),today),
                 "listing_count":snapshot.facts.get(id).and_then(|f| f.listings),
@@ -317,7 +365,7 @@ pub(super) async fn read(
         let metrics = Metrics::new(&snapshot, &meetings, today);
         let mut rows = metrics.rows_in(&snapshot, &query, &email, today, period);
         for row in &mut rows {
-            row.recent_applications = apps
+            row.media_recent_applications = apps
                 .as_ref()
                 .and_then(|(counts, _, _)| counts.get(&row.id))
                 .map(|(_, recent)| *recent);
@@ -388,6 +436,66 @@ mod tests {
     }
     fn reasons(s: &Snapshot, m: &MeetingData) -> Vec<Value> {
         Metrics::new(s, m, day()).reasons(s, "1", day())
+    }
+    #[test]
+    fn application_windows_include_jst_today_and_exact_28_day_boundaries() {
+        let today = owner_todo::today(
+            chrono::DateTime::parse_from_rfc3339("2026-11-08T15:00:00Z")
+                .unwrap()
+                .to_utc(),
+        );
+        assert_eq!(today.to_string(), "2026-11-09");
+        let values = [
+            ("old", Some("2026-09-14T14:59:59Z")),
+            ("previous_start", Some("2026-09-14T15:00:00Z")),
+            ("previous_end", Some("2026-10-12T14:59:59Z")),
+            ("recent_start", Some("2026-10-12T15:00:00Z")),
+            ("today", Some("2026-11-09T14:59:59Z")),
+            ("future", Some("2026-11-09T15:00:00Z")),
+            ("unknown", None),
+        ];
+        let facts = super::super::todo_signals::Facts {
+            application_days: values
+                .into_iter()
+                .map(|(id, value)| {
+                    (
+                        id.into(),
+                        value
+                            .and_then(super::super::deal_summary::jst_day)
+                            .and_then(|d| owner_todo::date(&d)),
+                    )
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let ApplicationWindows {
+            recent,
+            previous,
+            unknown,
+        } = application_windows(Some(&facts), today).unwrap();
+        assert_eq!(recent, ["recent_start", "today"]);
+        assert_eq!(previous, ["previous_end", "previous_start"]);
+        assert_eq!(unknown, ["unknown"]);
+        assert!(application_windows(None, today).is_none());
+        let mut s = snapshot(0, "5", "21596025");
+        s.facts.insert("1".into(), facts);
+        let rows = Metrics::new(&s, &MeetingData::default(), today).rows(
+            &s,
+            &OwnerQuery {
+                owner: Some("all".into()),
+                ..Default::default()
+            },
+            "",
+            today,
+        );
+        assert_eq!(rows[0].recent_applications, Some(2));
+        assert_eq!(rows[0].previous_applications, Some(2));
+        assert_eq!(rows[0].applications_change, Some(0));
+        assert!(!rows[0].applications_out_of_scope);
+        assert_eq!(
+            rows[0].unknown_application_ids.as_ref().unwrap(),
+            &["unknown"]
+        );
     }
     #[test]
     fn export_board_types() {
