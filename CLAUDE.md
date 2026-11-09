@@ -531,6 +531,7 @@ turso db shell salesnow "SELECT COUNT(*) FROM v2_salesnow_companies"
 | `docs/requirements_*.md` | 要件定義 |
 | [`docs/sales_call_analysis/README.md`](docs/sales_call_analysis/README.md) | 営業通話分析v1: 監査済み実例・行動仮説・通話分類モデルの入口 |
 | [`docs/sales_call_analysis/apo-talk-v1.html`](docs/sales_call_analysis/apo-talk-v1.html) | アポ取りトークv1(HTML、現場向け): 第1部 話し方・トーク・言い回し集、第2部 根拠(対象データ・確かめ方・分かったこと) |
+| [`docs/sales_call_analysis/apo-hearing-script-v1.html`](docs/sales_call_analysis/apo-hearing-script-v1.html) | アポ後ヒアリングのトークスクリプト(案、HTML、現場向け): 日程確定後の質問・返答ごとの受け方・ランク(S〜C)の付き方と根拠 |
 | [`docs/sales_call_analysis/talk-knowledge-v1.md`](docs/sales_call_analysis/talk-knowledge-v1.md) | 営業トークナレッジv1: 最終監査済み8例 |
 | [`docs/sales_call_analysis/action-hypotheses-v1.md`](docs/sales_call_analysis/action-hypotheses-v1.md) | 行動仮説検証v1: 同じ観測時点で比較、介入試験は設計のみ |
 | [`docs/sales_call_analysis/utterance-impact-v1.md`](docs/sales_call_analysis/utterance-impact-v1.md) | 発言の影響と遡る範囲v1: アポ率を動かす発言と何ターン前で決まるか |
