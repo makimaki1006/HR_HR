@@ -22,3 +22,9 @@
 .ar-keywords dd { margin: 0 0 0 12px; }
 .ar-table td small { display: block; color: var(--jc-muted, #555); font-size: 0.85em; white-space: normal; }
 .ar-reasons h4 { margin: 0 0 6px; font-size: 0.95rem; }
+
+.ar-selection-denominator { margin: 6px 0; font-size: 0.875rem; line-height: 1.6; overflow-wrap: normal; }
+.ar-selection-table { width: 100%; min-width: 24rem; table-layout: fixed; }
+.ar-selection-table col.ar-selection-count { width: 4rem; }
+.ar-selection-table tbody th { font-weight: 400; white-space: normal; overflow-wrap: normal; word-break: normal; word-break: auto-phrase; line-break: strict; }
+.ar-selection-table thead th:not(:first-child), .ar-selection-table tbody td { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }

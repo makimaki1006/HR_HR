@@ -3,12 +3,14 @@ import { jobs } from './data';
 import type { JobCopyRecord } from './data';
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import { changeDateLabel, changeReasonBlocks, changeReasonSummary } from './changeReasonsModel';
+import { withSelectedReasons } from './selectedReasons.testFixtures';
+import { MOTIVE, selectedCounts } from './selectedReasonsModel';
 import { asOfDate } from './timelineModel';
 
 const demo = (id: string): JobCopyRecord => {
   const job = jobs.find(item => item.id === id);
   if (!job) throw new Error(`Missing ${id}`);
-  return job;
+  return withSelectedReasons(job);
 };
 const blocksOf = (job: JobCopyRecord, weeks: 2 | 4 | 8) => changeReasonBlocks(job, weeks, asOfDate(job));
 
@@ -25,7 +27,7 @@ function longJob(): JobCopyRecord {
   const v1 = base.versions.find(version => version.id === 'demo-001-v1');
   const v3 = base.versions.find(version => version.id === 'demo-001-v3');
   if (!v1 || !v3) throw new Error('Missing versions');
-  return {
+  return withSelectedReasons({
     ...base,
     versions: [{ ...v1, observedAt: '2026-08-01T09:00:00+09:00', publishedFrom: '2026-08-01T09:00:00+09:00', publishedUntil: '2026-09-10T09:00:00+09:00' }, { ...v3, observedAt: '2026-09-10T09:00:00+09:00', publishedFrom: '2026-09-10T09:00:00+09:00' }],
     overallApplications: { total: 11, missingDate: 0, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-08-05': 2, '2026-08-20': 1, '2026-09-01': 1, '2026-09-05': 1, '2026-09-12': 2, '2026-09-20': 1, '2026-10-01': 3 } },
@@ -33,7 +35,7 @@ function longJob(): JobCopyRecord {
       item(1, 'a', '2026-08-20', '時給が高いので'), item(2, 'b', '2026-09-01', '家から近いため'), item(3, 'c', '2026-09-12', '時給と月給が良い'),
       item(4, 'd', '2026-09-12', '大手で安心'), item(5, 'e', '2026-10-01', '土日休みが良い'), item(6, 'f', null, '日付不明の記録'),
     ]),
-  };
+  });
 }
 
 describe('changeReasonBlocks', () => {
@@ -67,9 +69,9 @@ describe('changeReasonBlocks', () => {
     expect(eight?.after.applications).toBe(6);
   });
 
-  it('keeps the reason categories of a window and the masked source texts together', () => {
+  it('keeps selected values and source texts in the same date window', () => {
     const after = blocksOf(longJob(), 2)[0]?.after;
-    expect(after?.reasons?.counts.map(row => [row.category, row.total])).toEqual([['給与', 1], ['勤務地', 0], ['職種興味', 0], ['会社規模', 1], ['その他', 0]]);
+    expect([...selectedCounts(after?.reasons?.rows ?? [], MOTIVE).counts]).toEqual([['option-0', 2]]);
     expect(after?.texts.map(text => [text.applicationDate, text.text, text.sourceLabel])).toEqual([['2026-09-12', '時給と月給が良い', '応募動機（HubSpot）'], ['2026-09-12', '大手で安心', '応募動機（HubSpot）']]);
   });
 
@@ -89,24 +91,23 @@ describe('changeReasonBlocks', () => {
     expect(latest?.summary).toContain('給与の行を変更');
   });
 
-  it('counts only known days for a change seen between two acquisitions (AirWork)', () => {
+  it('includes the days between records and starts the new body on its record day (AirWork)', () => {
     const job = demo('demo-job-004');
     const [block] = blocksOf(job, 4);
     expect(blocks004(block)).toEqual({ exact: false, from: '2026-09-10', to: '2026-09-28' });
     expect(changeDateLabel(block?.window ?? { from: '', to: '', exact: false })).toBe('9/10〜9/28 の間');
-    // The first acquisition day is not counted; the days up to the change are unknown, so the
-    // 9/15 application belongs to neither window.
-    expect(block?.before).toMatchObject({ start: '2026-09-11', end: '2026-09-11', days: 0, applications: 0 });
-    expect(block?.after).toMatchObject({ start: '2026-09-29', end: '2026-10-04', days: 5, applications: 2, shortened: { reason: 'today', date: '2026-10-03' } });
+    // 9/15 belongs to the previous body; 9/28 belongs to the new body.
+    expect(block?.before).toMatchObject({ start: '2026-09-10', end: '2026-09-28', days: 18, applications: 1 });
+    expect(block?.after).toMatchObject({ start: '2026-09-28', end: '2026-10-06', days: 8, applications: 2, shortened: { reason: 'today', date: '2026-10-05' } });
     expect(block?.after.reasons?.n).toBe(2);
     expect(block?.after.texts.map(text => text.applicationDate)).toEqual(['2026-09-29', '2026-10-02']);
-    expect(block?.before.reasons?.n).toBe(0);
+    expect(block?.before.reasons?.n).toBe(1);
     expect(changeReasonSummary(job)).toEqual({ reasonsAvailable: true, undated: 1, multiListing: null });
   });
 
   it('keeps unknown apart from zero when applications or reasons were not read', () => {
-    const { applicantReasons, overallApplications, ...rest } = demo('demo-job-001');
-    expect([applicantReasons, overallApplications].every(Boolean)).toBe(true);
+    const { applicantReasons, overallApplications, applicationRows, ...rest } = demo('demo-job-001');
+    expect([applicantReasons, overallApplications, applicationRows].every(Boolean)).toBe(true);
     const unread: JobCopyRecord = rest;
     const [block] = blocksOf(unread, 4);
     expect(block?.after.applications).toBeNull();
@@ -118,3 +119,41 @@ describe('changeReasonBlocks', () => {
 function blocks004(block: { window: { exact: boolean; from: string; to: string } } | undefined) {
   return block ? { exact: block.window.exact, from: block.window.from, to: block.window.to } : null;
 }
+
+it('counts the change-day application only in the after window, including selected values and texts', () => {
+  const job = longJob();
+  if (!job.overallApplications) throw new Error('Missing applications');
+  const key = 'change-day';
+  const changed = { ...job, overallApplications: { ...job.overallApplications, byDate: { ...job.overallApplications.byDate, '2026-09-10': 1 } },
+    applicationRows: [...(job.applicationRows ?? []), { key, date: '2026-09-10', gender: null, age: null, prefecture: null, municipality: null, selections: { [MOTIVE]: ['option-12'] } }] };
+  const block = blocksOf(changed, 2)[0];
+  expect(block?.before.applications).toBe(2);
+  expect(block?.after.applications).toBe(4);
+  expect(block?.before.reasons?.rows.some(row => row.key === key)).toBe(false);
+  expect(block?.after.reasons?.rows.some(row => row.key === key)).toBe(true);
+  expect(selectedCounts(block?.after.reasons?.rows ?? [], MOTIVE).counts.get('option-12')).toBe(1);
+});
+
+it('includes the record day in the after window for a body known from HubSpot records', () => {
+  const job = demo('demo-job-004');
+  if (!job.overallApplications) throw new Error('Missing applications');
+  const changed = { ...job, overallApplications: { ...job.overallApplications, byDate: { ...job.overallApplications.byDate, '2026-09-28': 1 } }, applicationRows: [...(job.applicationRows ?? []), { key: 'record-day', date: '2026-09-28', gender: null, age: null, prefecture: null, municipality: null, selections: { [MOTIVE]: ['option-12'] } }] };
+  const block = blocksOf(changed, 4)[0];
+  expect(block?.window).toEqual({ from: '2026-09-10', to: '2026-09-28', exact: false });
+  expect(block?.before.applications).toBe(1);
+  expect(block?.after.applications).toBe(3);
+  expect(block?.before.reasons?.n).toBe(1);
+  expect(block?.after.reasons?.n).toBe(3);
+  expect(selectedCounts(block?.after.reasons?.rows ?? [], MOTIVE).counts.get('option-12')).toBe(1);
+});
+
+it('excludes shared applications from both the counts and reasons when only applicant keys identify them', () => {
+  const job = demo('demo-job-001');
+  if (!job.applicantReasons) throw new Error('Missing reasons');
+  const changed = { ...job, applicantReasons: { ...job.applicantReasons, multiListingApplicants: ['4'.repeat(64)] } };
+  const block = blocksOf(changed, 4)[0];
+  expect(block?.before.applications).toBe(7);
+  expect(block?.before.reasons?.n).toBe(4);
+  expect(block?.before.texts.some(item => item.text === '配送の仕事をしてみたい')).toBe(false);
+  expect(changeReasonSummary(changed).multiListing).toBe(1);
+});

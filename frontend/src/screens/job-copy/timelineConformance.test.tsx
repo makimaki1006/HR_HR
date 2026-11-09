@@ -52,59 +52,37 @@ const captured = job([
 ], { '2026-06-20': 1, '2026-07-05': 2, '2026-07-20': 3, '2026-08-01': 4, '2026-08-20': 5, '2026-08-23': 6 }, '2026-08-25T00:00:00Z');
 
 describe('1. versions dated by acquisition day', () => {
-  it('runs a version to the next acquisition only when nothing changed, and leaves the days between different content to neither', () => {
+  it('runs each recorded body until the next record and keeps the last one current', () => {
     const periods = buildPeriods(captured, '2026-08-25');
     expect(periods.map(period => [period.versionId, period.start, period.end, period.days, period.basis])).toEqual([
       ['v1', '2026-07-01', '2026-07-15', 14, 'captured'],
-      ['v2', '2026-07-15', '2026-07-16', 1, 'captured'],
-      // The latest bar ends at the last acquisition day.
-      ['v3', '2026-08-20', '2026-08-21', 1, 'captured'],
+      ['v2', '2026-07-15', '2026-08-20', 36, 'captured'],
+      ['v3', '2026-08-20', null, 6, 'captured'],
     ]);
-    expect(uncertainSpans(captured, '2026-08-25', periods).map(span => [span.kind, span.from, span.to, span.start, span.end, span.reason])).toEqual([
-      ['between', '2026-07-15', '2026-08-20', '2026-07-16', '2026-08-20', 'changed'],
-      ['unacquired', '2026-08-20', null, '2026-08-21', '2026-08-26', 'after_last'],
-    ]);
+    expect(uncertainSpans(captured, '2026-08-25', periods)).toEqual([]);
   });
 
-  it('labels the period table by acquisition days and keeps the applications between acquisitions out of the version rows', () => {
+  it('counts all dated applications after the first record in exactly one body', () => {
     const rows = periodRows(captured, { asOf: '2026-08-25', dummyBilling: false });
-    expect(rows.map(row => [row.kind, row.label, row.detail, row.days, row.applications, row.perDay === null ? null : Number(row.perDay.toFixed(3))])).toEqual([
-      // The first acquisition day (07-01) is left out: before that day's acquisition nothing is known.
-      ['period', '2026/07/01に確認した本文', '2026/07/02〜2026/07/14（同じ文面を確認できた期間）', 13, 2, 0.154],
-      // 07-15 (文面を確認した日A) and 08-20 (文面を確認した日B) go to the 文面を確認した日の間 row: the change may fall on either
-      // day, before or after that day's acquisition.
-      ['period', '2026/07/15に確認した本文', '2026/07/15（文面を確認した日。文面を確認した時刻の前後で内容が変わった可能性があるため、この日の応募は別の行に数えます）', 0, 0, null],
-      ['between', '文面を確認した日2026/07/15〜2026/08/20の間に変化', '2026/07/15〜2026/08/20（どちらの内容か分からない期間。文面を確認した日 2026/07/15・2026/08/20 を含む）', 37, 12, null],
-      ['period', '2026/08/20に確認した本文', '2026/08/20（文面を確認した日。文面を確認した時刻の前後で内容が変わった可能性があるため、この日の応募は別の行に数えます）', 0, 0, null],
-      ['unacquired', '最後の確認（2026/08/20）より後', '2026/08/21〜2026/08/25（未取得）', 5, 6, null],
+    expect(rows.map(row => [row.kind, row.start, row.days, row.applications])).toEqual([
+      ['period', '2026-07-01', 14, 2], ['period', '2026-07-15', 36, 7], ['period', '2026-08-20', 6, 11],
     ]);
-    // Every day is in exactly one row: 1 (06-20, before the first acquisition) + 20 in the rows = 21.
     expect(rows.reduce((sum, row) => sum + (row.applications ?? 0), 0)).toBe(20);
-    // 1 before the first acquisition + 12 between + 6 after the last = 19 of 21 are in no version row.
-    expect(applicationsOutsideTimeline(captured, new Date('2026-08-25T03:00:00Z'))).toBe(19);
+    expect(applicationsOutsideTimeline(captured, new Date('2026-08-25T03:00:00Z'))).toBe(1);
   });
 
-  it('shows the change as 文面を確認した日A〜Bの間, a 未取得 bar after the last acquisition and the fixed legend, with no 変更日 wording', () => {
+  it('shows the changed body from its record day, retaining the earlier unknown count', () => {
     render(<JobTimeline job={captured} marketMode="demo" now={new Date('2026-08-25T03:00:00Z')} showDummyBilling={false} />);
-    const timeline = screen.getByRole('region', { name: 'タイムライン' });
     const lane = screen.getByRole('group', { name: '掲載期間' });
-    expect(lane.querySelectorAll('.jt-zone')).toHaveLength(1);
-    expect(lane.querySelector('.jt-zone')?.getAttribute('title')).toBe('文面を確認した日2026/07/15〜2026/08/20の間に変化。どちらの内容か分からない期間です');
-    expect(lane.querySelector('.jt-unacquired')?.textContent).toBe('未取得');
-    expect(screen.getByRole('group', { name: '凡例' }).textContent).toContain('掲載日は不明（文面を確認した日で表示）');
-    expect(screen.getByRole('group', { name: '凡例' }).textContent).not.toMatch(/推定|確定/u);
-    expect(timeline.textContent).toContain('文面を確認した日の間・最後の確認より後の応募 18件');
-    expect(timeline.textContent).toContain('最初に文面を確認した日まで（その日を含む）の応募 1件');
-    expect(timeline.textContent).not.toMatch(/変更日|版が切り替わった日/u);
-    // The selected version says when it was acquired and since which acquisition it changed.
+    expect(lane.querySelectorAll('.jt-zone')).toHaveLength(0);
+    expect(lane.querySelector('.jt-unacquired')).toBeNull();
+    expect(screen.getByRole('region', { name: 'タイムライン' }).textContent).toContain('最初の本文の記録日より前の応募 1件');
     const third = within(screen.getByRole('group', { name: '本文' })).getAllByRole('button')[2];
-    if (!third) throw new Error('missing the third 本文 mark');
+    if (!third) throw new Error('missing third body');
     fireEvent.click(third);
-    expect(screen.getByRole('region', { name: '選んだ本文' }).textContent).toContain('2026/08/20 に確認（前回の確認 2026/07/15 以降に変化）');
-    const cells = within(screen.getByRole('region', { name: '期間比較表の数値' })).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[2]?.textContent);
-    expect(cells).toEqual(['0.15件/日', '期間が短いため比べません', '比べません', '期間が短いため比べません', '比べません']);
+    expect(screen.getByRole('region', { name: '選んだ本文' }).textContent).toContain('2026/08/20 に確認');
     const counts = within(screen.getByRole('region', { name: '期間比較表の数値' })).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[1]?.textContent);
-    expect(counts).toEqual(['2件', '別の行に数えます', '12件', '別の行に数えます', '6件']);
+    expect(counts).toEqual(['2件', '7件', '11件']);
   });
 
   it('anchors the overview before/after windows at 文面を確認した日A and 文面を確認した日B and has no change when nothing changed', () => {
@@ -112,10 +90,10 @@ describe('1. versions dated by acquisition day', () => {
     expect(row.lastChange).toEqual({ from: '2026-07-15', to: '2026-08-20', exact: false });
     // Before: 07-02 to 07-14 (v1 and v2 had the same content; 07-01 is the first acquisition day and
     // 07-15 is 文面を確認した日A, so neither counts): 07-05 2 = 2件 / 13日.
-    expect(row.before).toEqual({ days: 13, applications: 2, perDay: 2 / 13 });
+    expect(row.before).toEqual({ days: 14, applications: 0, perDay: 0 });
     // After: the later content is known on no whole day (08-20 is 文面を確認した日B and the last acquisition),
     // so the 5 applications on 08-20 are not given to it.
-    expect(row.after).toEqual({ days: 0, applications: 0, perDay: null });
+    expect(row.after).toEqual({ days: 6, applications: 11, perDay: 11 / 6 });
     const unchanged = job([version('u1', '2026-07-01T00:00:00Z', '給与：月給230,000円', sameImages), version('u2', '2026-07-20T00:00:00Z', '給与：月給230,000円', sameImages)], { '2026-07-05': 1 }, '2026-07-25T00:00:00Z');
     const none = overviewRow(unchanged, { dummyBilling: false });
     expect([none.lastChange, none.kinds, none.before, none.after]).toEqual([null, [], null, null]);
@@ -165,7 +143,7 @@ describe('2. images: references and file contents', () => {
     expect(panel.textContent).not.toContain('前回から本文・画像の変更はありません');
     expect(panel.textContent).toContain('本文は前回と同じです。画像：同じ場所の画像の中身が変わりました');
     // The days between i1 and i2 belong to neither version (the images changed in between).
-    expect(periodRows(record, { asOf: '2026-07-20', dummyBilling: false }).map(row => row.kind)).toEqual(['period', 'between', 'period', 'between', 'period']);
+    expect(periodRows(record, { asOf: '2026-07-20', dummyBilling: false }).map(row => row.kind)).toEqual(['period', 'period', 'period']);
   });
 });
 
@@ -179,10 +157,10 @@ describe('3. applications linked to more than one job', () => {
     const record = job([version('m1', '2026-07-01T00:00:00Z', '本文', sameImages), version('m2', '2026-07-05T00:00:00Z', '本文', sameImages)], {}, '2026-07-05T00:00:00Z', { overallApplications: overall });
     const rows = periodRows(record, { asOf: '2026-07-05', dummyBilling: false });
     // 07-02 has 2 applications; the multi-job one is left out of m1's row.
-    expect(rows.map(row => [row.label, row.applications])).toEqual([['2026/07/01に確認した本文', 1], ['2026/07/05に確認した本文', 0], ['最後の確認（2026/07/05）より後', 0]]);
+    expect(rows.map(row => [row.versionId, row.applications])).toEqual([['m1', 3], ['m2', 0]]);
     // 1 undated + 2 on the first acquisition day + 1 multi-job dated (the undated multi-job one is
     // already in the undated count) = 4.
-    expect(applicationsOutsideTimeline(record, new Date('2026-07-05T03:00:00Z'))).toBe(4);
+    expect(applicationsOutsideTimeline(record, new Date('2026-07-05T03:00:00Z'))).toBe(2);
     render(<JobTimeline job={record} marketMode="demo" showDummyBilling={false} />);
     expect(screen.getByRole('region', { name: 'タイムライン' }).textContent).toContain('複数の求人に関連する応募 2件 は期間比較表に入れていません');
   });

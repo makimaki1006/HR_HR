@@ -36,7 +36,9 @@ export interface CopyVersion {
 }
 
 /** 応募1件ぶんの、日付と分かる属性（HubSpot の応募記録）。key は応募理由と結ぶ印。 */
-export interface ApplicationRow { media?: string | null; key: string; date: string | null; gender: string | null; age: string | null; prefecture: string | null; municipality: string | null }
+export interface SelectionOption { value: string; label: string; display_order: number }
+export type SelectionOptions = Record<string, SelectionOption[]>;
+export interface ApplicationRow { selections?: Record<string, string[]>; media?: string | null; key: string; date: string | null; gender: string | null; age: string | null; prefecture: string | null; municipality: string | null }
 /** 公開状況の履歴の1件（古い順）。 */
 export interface StatusEntry { at: string; value: string }
 
@@ -72,6 +74,7 @@ export interface JobCopyRecord {
   hubspotUrl?: string;
   attributionUnknown?: number;
   overallApplications?: {
+    selectionOptions?: SelectionOptions | null;
     total: number; missingDate: number; /** 応募日が無く、作成日で数えた応募（byDate に入っている。missingDate には入らない）。 */ createdDateCount?: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>>; byDate?: Record<string, number>;
     /**
      * Applications that HubSpot also links to another job, by application date (included in byDate

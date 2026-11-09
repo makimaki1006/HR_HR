@@ -1,7 +1,7 @@
 /**
  * Cross-job overview: one row per job on a shared calendar. Shows the latest change found between
  * two acquisitions (取得日A〜取得日B) and the applications per day in the N days before A and after B.
- * A, B and the days between them are left out: which content was shown then is not known. Rows are
+ * Counts follow the recorded-body periods, including each record day in the later body. Rows are
  * sortable but never ranked as winners; the numbers sit side by side and do not say why
  * applications changed.
  */
@@ -22,13 +22,7 @@ export function comparableRate(rate: WindowRate | null): boolean {
 }
 
 export interface WindowRate {
-  /**
-   * Days actually covered. Only days whose content is known count (timelineModel.countRanges): the
-   * before-window ends the day before 取得日A and the after-window starts the day after 取得日B,
-   * because the change may fall on either acquisition day, before or after that day's
-   * acquisition. The after-window stops at the last day the later content is known to be shown or
-   * at the day counts were taken.
-   */
+  /** Days covered by the recorded-body periods (timelineModel.countRanges). */
   days: number;
   applications: number;
   perDay: number | null;

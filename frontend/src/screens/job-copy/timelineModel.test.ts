@@ -248,25 +248,25 @@ describe('period ends, gaps and short periods (review round 2)', () => {
   const job = (versions: CopyVersion[], byDate: Record<string, number>, fetchedAt = '2026-09-30T09:00:00+09:00'): JobCopyRecord => ({ id: 'gap', title: 't', company: 'c', media: 'm', mediaJobId: 'x', location: '大分県', versions,
     overallApplications: { total: Object.values(byDate).reduce((sum, count) => sum + count, 0), missingDate: 0, fetchedAt, distributions: {}, byDate } });
 
-  it('adds a row for the days with no confirmed publication between two versions (09-10 → 09-15: 5 days, 1 application, too short for a per-day value)', () => {
+  it('adds a row for the days with no confirmed publication between two versions (09-11 → 09-15: 4 days, 1 application, too short for a per-day value)', () => {
     const record = job([version('v1', '2026-09-01T10:00:00+09:00', '2026-09-10T10:00:00+09:00'), version('v2', '2026-09-15T10:00:00+09:00')], { '2026-09-05': 2, '2026-09-12': 1, '2026-09-20': 3 });
     const rows = periodRows(record, { asOf: '2026-09-30' });
     expect(rows.map(item => [item.kind, item.label, item.start, item.end, item.days, item.applications])).toEqual([
-      ['period', 'v1', '2026-09-01', '2026-09-10', 9, 2],
-      ['gap', '掲載が確認できない期間', '2026-09-10', '2026-09-15', 5, 1],
+      ['period', 'v1', '2026-09-01', '2026-09-11', 10, 2],
+      ['gap', '掲載が確認できない期間', '2026-09-11', '2026-09-15', 4, 1],
       ['period', 'v2', '2026-09-15', null, 16, 3],
     ]);
-    // 5 days is shorter than MIN_RATE_DAYS (7): no per-day value, the same rule as the overview.
+    // 4 days is shorter than MIN_RATE_DAYS (7): no per-day value, the same rule as the overview.
     expect(rows[1]?.perDay).toBeNull();
     expect(rows[1]?.shortPeriod).toBe(true);
     expect(formatPerDay(rows[1]?.perDay ?? null)).toBe('—');
-    expect(rows[0]?.perDay).toBeCloseTo(2 / 9, 10);
+    expect(rows[0]?.perDay).toBeCloseTo(2 / 10, 10);
     expect(applicationsOutsidePeriods(record, rows)).toBe(0);
   });
 
   it('ends a period at publishedUntil when it is before the next start, and at the next start when it is after', () => {
     const early = buildPeriods(job([version('v1', '2026-09-01T10:00:00+09:00', '2026-09-10T10:00:00+09:00'), version('v2', '2026-09-15T10:00:00+09:00')], {}), '2026-09-30');
-    expect(early.map(period => [period.start, period.end, period.days])).toEqual([['2026-09-01', '2026-09-10', 9], ['2026-09-15', null, 16]]);
+    expect(early.map(period => [period.start, period.end, period.days])).toEqual([['2026-09-01', '2026-09-11', 10], ['2026-09-15', null, 16]]);
     // publishedUntil 09-20 runs past the next start (09-15): clamped, so the periods do not overlap.
     const late = job([version('v1', '2026-09-01T10:00:00+09:00', '2026-09-20T10:00:00+09:00'), version('v2', '2026-09-15T10:00:00+09:00')], { '2026-09-16': 4 });
     const periods = buildPeriods(late, '2026-09-30');

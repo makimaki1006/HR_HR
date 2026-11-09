@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { EChart } from '../../components/EChart';
-import type { JobCopyRecord } from './data';
+import type { ApplicationRow, JobCopyRecord } from './data';
 import { createdDateNote } from './liveApplications';
 import { marketRows } from './marketChartModel';
 import type { MarketData, MarketRow } from './marketChartModel';
@@ -19,8 +19,8 @@ import {
 import type { BillingEntry, ChangeWindowDays, Granularity, MarketChangeResult, PeriodRow, TimelineRange, VersionChange } from './timelineModel';
 import { IMAGE_CHANGE_MARK } from './images';
 import { DEMO_BILLING_LABEL, DEMO_BILLING_NOTE, DUMMY_BILLING_ENABLED, DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
-import { REASON_CATEGORIES, MIN_SHARE_N, basisText, classifyApplicationReasons, reasonsByPeriod, shareText, topReasonsWithTies } from './reasonCategories';
-import type { Classification, ReasonTally } from './reasonCategories';
+import { SelectedReasonTables } from './SelectedReasonTables';
+import { MOTIVE, PRIORITIES, hasSelectedReason, reasonApplications, selectedCounts, selectionNote } from './selectedReasonsModel';
 import './timeline.css';
 
 interface MarketState {
@@ -137,37 +137,15 @@ function Lane({ title, source, children, className = '', rows = 1 }: { rows?: nu
   </div>;
 }
 
-/**
- * The visible text of a 応募理由 chip: 「n=3 勤務地2件（選択1件・推定1件）」, or every category tied for the
- * most (「n=9 給与・勤務地・職種興味 各2件」) so a tie is never cut silently.
- */
-function reasonChipText(result: ReasonTally): string {
-  const { rows: [top], tiedOut } = topReasonsWithTies(result, 1);
-  if (!top) return `n=${String(result.n)}`;
-  if (!tiedOut) return `n=${String(result.n)} ${top.category}${String(top.total)}件（${basisText(top)}）`;
-  const tied = result.counts.filter(row => row.total === top.total).map(row => row.category);
-  return `n=${String(result.n)} ${tied.join('・')} 各${String(top.total)}件`;
-}
-
-/** 「n=6（応募）: 給与 3件・50%（選択2件・推定1件）…」 for the 応募理由 lane's chips (name and tooltip). */
-function reasonTallyText(result: ReasonTally, unit: string): string {
-  const parts = result.counts.filter(row => row.total > 0).map(row => {
-    const share = shareText(row.total, result.n);
-    return `${row.category} ${String(row.total)}件${share ? `・${share}` : ''}（${basisText(row)}）`;
-  });
-  return `n=${String(result.n)}（${unit}）${parts.length ? `: ${parts.join('、')}` : ''}${result.unclassified ? `、分類できない ${String(result.unclassified)}件` : ''}`;
-}
-
-/**
- * The 応募理由 lane when no application is counted: says why (left out as linked to another job,
- * only 「未設定」, categories not read) instead of saying that there is no record.
- */
-function emptyReasonText(classes: Classification, selectionsUnread: boolean, truncated: boolean): string {
-  const left: string[] = [];
-  if ((classes.multiListing ?? 0) > 0) left.push(`ほかの求人にも関連する${String(classes.multiListing)}件を除く`);
-  if (classes.unsetOnly > 0) left.push(`分類が「未設定」で${truncated ? '読み込めた' : ''}文もない${String(classes.unsetOnly)}件を除く`);
-  if (left.length) return `この求人だけに関連する、分類か文のある応募理由の記録はありません（${left.join('、')}）`;
-  return selectionsUnread ? '応募理由の文の記録はありません（分類の選択はこのデータでは未取得です。0件という意味ではありません）' : '応募理由の記録はありません';
+/** 項目を混ぜず、選ばれた値と件数をすべて読み上げる。 */
+function selectedReasonText(job: JobCopyRecord, rows: readonly ApplicationRow[]): string {
+  const labels = ['応募動機', '優先順位①', '優先順位②', '優先順位③'];
+  return [MOTIVE, ...PRIORITIES].map((property, index) => {
+    const counts = selectedCounts(rows, property);
+    const values = (job.overallApplications?.selectionOptions?.[property] ?? []).filter(option => (counts.counts.get(option.value) ?? 0) > 0)
+      .map(option => `${option.label} ${String(counts.counts.get(option.value))}件`);
+    return `${labels[index] ?? ''}: ${values.length ? values.join('・') : '記録なし'}`;
+  }).join('、');
 }
 
 function span(range: TimelineRange, start: string, endExclusive: string) {
@@ -284,8 +262,15 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const titleSelect = useRef<HTMLSelectElement>(null);
   const market = useTimelineMarket(job, marketMode, { retryButton, titleSelect });
   const rows = useMemo(() => periodRows(job, { asOf, billing: injected, market: market.state.rows, dummyBilling: showDummyBilling }), [job, asOf, injected, market.state.rows, showDummyBilling]);
-  const reasonClasses = useMemo(() => classifyApplicationReasons(job.applicantReasons), [job.applicantReasons]);
-  const reasonPeriods = useMemo(() => reasonClasses ? reasonsByPeriod(reasonClasses.applications, rows.filter(row => !row.afterCounts).map(row => ({ key: row.key, start: row.start, end: row.end ?? addDays(asOf, 1) }))) : null, [reasonClasses, rows, asOf]);
+
+  const reasonsAvailable = job.applicationRows !== undefined && job.overallApplications?.selectionOptions != null;
+  const reasonRows = useMemo(() => reasonApplications(job).filter(hasSelectedReason), [job]);
+  const reasonPeriods = useMemo(() => rows.map(period => ({ period, applications: reasonApplications(job).filter(application => application.date !== null && application.date >= period.start && application.date < (period.end ?? addDays(asOf, 1))) })), [job, rows, asOf]);
+  const reasonUndated = reasonRows.filter(row => row.date === null).length;
+  const reasonOutside = reasonRows.filter(row => row.date !== null && !reasonPeriods.some(({ period }) => !period.afterCounts && row.date !== null && row.date >= period.start && row.date < (period.end ?? addDays(asOf, 1)))).length;
+  const reasonInPeriods = reasonPeriods.some(({ period, applications }) => !period.afterCounts && applications.some(hasSelectedReason));
+  const reasonMulti = job.applicantReasons?.multiListingApplicants?.length ?? null;
+
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [selected, setSelected] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState<ChangeWindowDays>(7);
@@ -384,10 +369,6 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const multiTotal = multi ? Object.values(multi.byDate).reduce((sum, count) => sum + count, 0) + multi.missingDate : 0;
   const unsure = rows.filter(row => row.kind === 'between' || row.kind === 'unacquired').reduce((sum, row) => sum + (row.applications ?? 0), 0);
   const marketMeta = market.state.meta;
-  const reasonUnit = reasonClasses?.unit === 'text' ? '記述' : '応募';
-  const selectionsUnread = job.applicantReasons?.selections === null;
-  const reasonOf = (key: string): ReasonTally | null => reasonPeriods?.periods.find(period => period.key === key)?.tally ?? null;
-  const reasonInPeriods = reasonPeriods?.periods.some(period => period.tally.n > 0) ?? false;
   const reasonRowId = (key: string) => `${reasonIdPrefix}-reason-${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
   const showReasonRow = (key: string) => {
     const target = document.getElementById(reasonRowId(key));
@@ -402,7 +383,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <div className="jt-scope">応募は HubSpot に記録されたものだけです。<InfoTip label="並べて見るための表示です">
         <p>同じ時期に起きたことを並べて表示しています。応募が増えた・減った理由を示すものではありません。</p>
         <p>応募件数は HubSpot に記録された応募日で数えています。媒体上のすべての応募ではなく、どの本文を見て応募したかは分かりません。</p>
-        <p>掲載が変わった日は分かりません。期間比較表は文面を確認した日で区切り、前後の取得で内容が違うときは「文面を確認した日A〜文面を確認した日Bの間に変化」として、その間の応募を前後どちらの期間にも入れていません。文面を確認した日も、文面を確認した時刻の前後で変わった可能性があるため、この間に含めます。最後に文面を確認した日より後は「未取得」です。</p>
+        <p>本文が記録された日から次の本文の前日までで区切っています。変更当日の応募は変更後の本文に含みます。</p>
         {job.mediaPublication && <p>「媒体の公開状況」は HRハッカーの求人一覧の最新の状態で、求人全体の公開期間です。「掲載期間」はどの本文がいつ載っていたかを、文面を確認した日で示します。{publicationNotes(job.mediaPublication).join('')}</p>}
         <p>期間の長さが違うので「1日あたり」で並べて確認してください。{MIN_RATE_DAYS}日に満たない期間は1日あたりを出さず、比べません（求人の横断比較と同じ扱い）。</p>
       </InfoTip></div>
@@ -417,11 +398,12 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           : <p className="jt-empty" title={publication.title}>{publication.label}</p>}
       </Lane>}
 
-      <Lane rows={rowCount + (spans.length ? 1 : 0)} title="掲載期間" source={captured ? '文面を確認した日（掲載日は不明）' : '媒体の掲載日時'}>
+      <Lane rows={rowCount + (spans.length || unpublishedRanges(periods, asOf).length ? 1 : 0)} title="掲載期間" source={captured ? '文面を確認した日（掲載日は不明）' : '媒体の掲載日時'}>
         {periods.map(period => <Fragment key={period.versionId}><button type="button" aria-label={period.label} className={`jt-period ${period.basis === 'captured' ? 'jt-basis-captured' : `jt-cert-${period.certainty}`}`} aria-pressed={selected === period.versionId}
           style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), top: `${String(8 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }} onClick={() => { setSelected(period.versionId); }}
           title={period.basis === 'captured' ? `${period.label}: ${formatDay(period.start)}に確認${period.days > 1 && period.end ? `（${formatDay(addDays(period.end, -1))}まで同じ内容）` : ''}` : `${period.label}: ${formatDay(period.start)}〜${period.end ? formatDay(addDays(period.end, -1)) : '継続中'}（媒体の掲載日時）`}>
           <span>{period.label}</span></button><span aria-hidden="true" className="jt-period-label" style={{ ...pinned(period.start, range), top: `${String(12 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }}>{period.label}</span></Fragment>)}
+        {unpublishedRanges(periods, asOf).map(gap => <div key={`gap-${gap.start}`} className="jt-zone" style={{ ...span(range, gap.start, gap.end), top: `${String(8 + rowCount * 28)}px` }} title={`${formatDay(gap.start)}〜${formatDay(addDays(gap.end, -1))}（掲載が確認できない期間）`}><span>掲載が確認できない期間</span></div>)}
         {spans.map(item => <div key={`${item.kind}-${item.fromVersionId}`} className={item.kind === 'between' ? 'jt-zone' : 'jt-unacquired'} style={{ ...span(range, item.start, item.end), top: `${String(8 + rowCount * 28)}px` }}
           title={item.kind === 'between' ? `文面を確認した日${formatDay(item.from)}〜${formatDay(item.to ?? item.from)}の間${item.reason === 'changed' ? 'に変化' : '（変化したか確認できない）'}。どちらの内容か分からない期間です` : `最後の確認（${formatDay(item.from)}）より後は未取得です`}>
           <span>{item.kind === 'between' ? '文面を確認した日の間' : '未取得'}</span></div>)}
@@ -486,33 +468,29 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         <div className="jt-granularity" role="group" aria-label="応募の集計単位">{(['day', 'week', 'month'] as const).map(value => <button type="button" key={value} aria-pressed={granularity === value} onClick={() => { setGranularity(value); }}>{granularityLabel[value]}ごと</button>)}</div>
         {createdNote && <span>{createdNote}</span>}
         {applications && applications.missingDate > 0 && <span>応募日も作成日も分からない応募 {applications.missingDate}件 はグラフに含めていません</span>}
-        {outside > 0 && <span>{captured ? `最初に文面を確認した日まで（その日を含む）の応募 ${String(outside)}件` : `最初の掲載より前の日付の応募 ${String(outside)}件`}</span>}
+        {outside > 0 && <span>{captured ? `最初の本文の記録日より前の応募 ${String(outside)}件` : `最初の掲載より前の日付の応募 ${String(outside)}件`}</span>}
         {unsure > 0 && <span>文面を確認した日の間・最後の確認より後の応募 {unsure}件 は、どちらの内容への応募か分からないため期間比較表の各本文には入れていません</span>}
         {multi ? multiTotal > 0 && <span>複数の求人に関連する応募 {multiTotal}件 は期間比較表に入れていません</span>
           : applications?.byDate && <span>複数の求人に関連する応募を見分ける情報を取得していないため、期間比較表の件数に含まれている場合があります</span>}
       </div>
 
-      <Lane title="応募理由" source="応募日ごとの分類（選択済みと推定）">
-        {!reasonClasses ? <p className="jt-empty">応募理由は未取得です（0件という意味ではありません）</p>
-          : !reasonClasses.applications.length ? <p className="jt-empty">{emptyReasonText(reasonClasses, selectionsUnread, job.applicantReasons?.truncated === true)}</p>
-            : rows.length === 0 ? <p className="jt-empty">掲載期間が取得できていないため、期間ごとに分けられません（応募理由の記録 {reasonClasses.applications.length}件 は「応募理由」で確認できます）</p>
-              : !reasonInPeriods ? <p className="jt-empty">表の期間に入る応募理由はありません（応募理由の記録 {reasonClasses.applications.length}件 は、日付が分からないか表の期間の外です）</p>
-                : rows.filter(row => !row.afterCounts).map(row => {
-                  const result = reasonOf(row.key);
-                  if (!result || result.n === 0) return null;
-                  const detail = `${row.label}: ${reasonTallyText(result, reasonUnit)}`;
-                  return <button type="button" key={row.key} className={`jt-reason${row.kind !== 'period' ? ' jt-reason-zone' : ''}`} style={span(range, row.start, row.end ?? addDays(asOf, 1))}
-                    title={detail} aria-label={`${detail}。押すと下の「期間ごとの応募理由」の表のこの期間へ移動します`} onClick={() => { showReasonRow(row.key); }}>
-                    <span>{reasonChipText(result)}</span></button>;
+      <Lane title="応募理由" source="ヒアリングで選んだ応募動機・勤務条件">
+        {!reasonsAvailable ? <p className="jt-empty">選択式の応募理由は未取得です。</p>
+          : !reasonRows.length ? <p className="jt-empty">{reasonMulti ? `この求人だけに関連する選択式の応募理由の記録はありません（ほかの求人にも関連する${String(reasonMulti)}件を除く）` : '選択式の応募理由の記録はありません'}</p>
+            : rows.length === 0 ? <p className="jt-empty">掲載期間が取得できていないため、期間ごとに分けられません（選択式の記録 {reasonRows.length}件 は「応募理由」で確認できます）</p>
+              : !reasonInPeriods ? <p className="jt-empty">表の期間に入る応募理由はありません（選択式の記録 {reasonRows.length}件 は、日付が分からないか表の期間の外です）</p>
+                : reasonPeriods.filter(({ period }) => !period.afterCounts).map(({ period, applications }) => {
+                  const answered = applications.filter(hasSelectedReason).length;
+                  if (!answered) return null;
+                  const detail = `${period.label}: 選択式の記録 ${String(answered)}件。${selectedReasonText(job, applications)}`;
+                  return <button type="button" key={period.key} className={`jt-reason${period.kind !== 'period' ? ' jt-reason-zone' : ''}`} style={span(range, period.start, period.end ?? addDays(asOf, 1))} title={detail} aria-label={`${detail}。押すと下の「期間ごとの応募理由」の表のこの期間へ移動します`} onClick={() => { showReasonRow(period.key); }}><span>選択式の記録 {answered}件</span></button>;
                 })}
       </Lane>
-      {reasonPeriods && (reasonInPeriods || reasonPeriods.undated > 0 || reasonPeriods.outside > 0 || job.applicantReasons?.truncated === true || job.applicantReasons?.selections === null || (reasonClasses?.multiListing ?? 0) > 0) && <div className="jt-lane-tools">
-        {reasonInPeriods && <span>枠を押すと、下の「期間ごとの応募理由」の表で分類ごとの数を確認できます。斜線の枠は、どちらの内容への応募か分からない期間（文面を確認した日の間・最後の確認より後）です</span>}
-        {job.applicantReasons?.selections === null && reasonClasses?.applications.length ? <span>このデータでは分類の選択を取得していないため、数はすべて文から言葉で推定したものです（選択済みは0件ではなく未取得）</span> : null}
-        {job.applicantReasons?.truncated === true && <span>記述が多く一部しか読み込んでいないため、期間ごとの応募理由の数は実際より少ないことがあります</span>}
-        {reasonPeriods.undated > 0 && <span>応募日も作成日も分からない応募理由 {reasonPeriods.undated}件 は段と表に入れていません</span>}
-        {reasonPeriods.outside > 0 && <span>表のどの期間にも入らない日付の応募理由 {reasonPeriods.outside}件 は段と表に入れていません</span>}
-        {(reasonClasses?.multiListing ?? 0) > 0 && <span>複数の求人に関連する応募の応募理由 {reasonClasses?.multiListing}件 は、期間比較表と同じく段と表に入れていません</span>}
+      {reasonsAvailable && <div className="jt-lane-tools">
+        {reasonInPeriods && <span>枠を押すと、下の「期間ごとの応募理由」の表で項目ごとの数を確認できます。</span>}
+        {reasonUndated > 0 && <span>応募日も作成日も分からない応募理由 {reasonUndated}件 は段と表に入れていません</span>}
+        {reasonOutside > 0 && <span>表のどの期間にも入らない日付の応募理由 {reasonOutside}件 は段と表に入れていません</span>}
+        {(reasonMulti ?? 0) > 0 && <span>複数の求人に関連する応募の応募理由 {reasonMulti}件 は、期間比較表と同じく段と表に入れていません</span>}
       </div>}
 
       <Lane title="市場" source="Indeed（都道府県・職種の月ごと）" className="jt-lane-chart">
@@ -556,7 +534,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       {previous && selectedChange.bodyStatus === 'unchanged' && selectedChange.imageChange !== 'same' && <span>本文は前回と同じです。画像：{IMAGE_CHANGE_MARK[selectedChange.imageChange].spoken}</span>}
     </div>}
     <div className="jt-legend" role="group" aria-label="凡例">{captured
-      ? <><span className="jt-legend-title">掲載日は不明（文面を確認した日で表示）：</span><span><i className="jt-key jt-basis-captured" />文面を確認した日の内容</span><span><i className="jt-key jt-key-zone" />文面を確認した日の間（どちらの内容か分からない）</span><span><i className="jt-key jt-key-unacquired" />最後の確認より後（未取得）</span></>
+      ? <><span className="jt-legend-title">掲載日は不明（文面を確認した日で表示）：</span><span><i className="jt-key jt-basis-captured" />文面を確認した日の内容</span></>
       : <><span className="jt-legend-title">掲載日：</span><span><i className="jt-key jt-cert-confirmed" />媒体の掲載日時</span></>}
       {publication?.bar && <><span className="jt-legend-title">媒体の公開状況：</span><span><i className="jt-key jt-pub-public" />公開開始〜最後に公開を確認した日（途中で止めたかは不明）</span>{publication.bar.status === 'private' && <span><i className="jt-key jt-pub-private" />公開開始〜非公開を確認した日</span>}</>}</div>
 
@@ -580,28 +558,17 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       {rows.some(row => !row.afterCounts && row.applications !== null && row.shortPeriod && (row.kind === 'period' || row.kind === 'gap')) && <p className="jt-table-note">「期間が短いため比べません」は、{MIN_RATE_DAYS}日に満たない期間です。1日や2日の件数を1日あたりに直すと大きく振れるため、比べません。</p>}
       {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と本文の表示期間がずれているため、日数で割って配分した金額です。</p>}
     </section>
-    {reasonClasses && <section className="jt-periods jt-reasons" aria-label="期間ごとの応募理由">
-      <h3>期間ごとの応募理由</h3>
-      {rows.length === 0 ? <p className="jc-notice">掲載期間が取得できていないため、期間ごとの応募理由は出せません。応募理由の記録 {reasonClasses.applications.length}件 の分類は「応募理由」で確認できます。</p> : <>
-      <p className="jc-muted">期間比較表と同じ期間（文面を確認した日の間を含む）で、応募日ごとに応募理由の分類を数えています。nは応募理由の記録がある{reasonUnit}の件数です。分類ごとの数の下の「選択」はHubSpotで分類が選ばれた件数、「推定」は文から言葉で推定した件数です。1件が複数の分類に入ることがあります。nが{MIN_SHARE_N}件に満たない期間は割合を出しません。</p>
-      <div className="jt-table-scroll" role="region" aria-label="期間ごとの応募理由の数値" tabIndex={0}><table>
-        <thead><tr><th scope="col">期間</th><th scope="col">n</th><th scope="col">選択済み・推定・分類できない</th>{REASON_CATEGORIES.map(category => <th scope="col" key={category}>{category}</th>)}</tr></thead>
-        <tbody>{rows.map(row => {
-          const result = row.afterCounts ? null : reasonOf(row.key);
-          return <tr key={row.key} id={reasonRowId(row.key)} tabIndex={-1} className={row.kind !== 'period' ? `jt-gap-row jt-row-${row.kind}` : undefined}>
-            <th scope="row">{row.label}<small>{row.detail}</small></th>
-            {!result ? <td colSpan={2 + REASON_CATEGORIES.length}>応募件数を確認した後に始まった期間</td> : <>
-              <td>n={result.n}</td>
-              <td className="jt-reason-basis">{result.n ? <><span>{selectionsUnread ? '分類の選択件数は未取得' : `選択済み${String(result.selectedN)}件`}</span><span>推定{result.estimatedN}件</span><span>分類できない{result.unclassified}件</span></> : '記録なし'}</td>
-              {result.counts.map(count => { const share = shareText(count.total, result.n); const basis = basisText(count); return <td key={count.category}>{result.n ? <>{`${String(count.total)}件${share ? `（${share}）` : ''}`}{basis && <small>{basis}</small>}</> : '—'}</td>; })}
-            </>}
-          </tr>;
-        })}</tbody>
-      </table></div>
-      <p className="jt-table-note">件数は並べて見るためのものです。ある期間に件数が多い分類があっても、それがその期間の文面によるものかどうかは、この数だけでは分かりません。{reasonClasses.multiListing === null
-        ? '応募理由の記録では複数の求人に関連する応募を見分けられないため、期間比較表の応募件数と合わないことがあります。'
-        : reasonClasses.multiListing > 0 ? `複数の求人に関連する応募 ${String(reasonClasses.multiListing)}件 の応募理由は、期間比較表と同じく入れていません。` : ''}</p>
-      </>}
-    </section>}
+    <section className="jt-periods jt-reasons" aria-label="期間ごとの応募理由">
+      <h3>期間ごとの応募理由</h3><p>{selectionNote}</p>
+      {rows.length === 0 && <p>掲載期間が取得できていないため、期間ごとの応募理由は出せません。</p>}
+      <div className="jt-table-scroll" role="region" aria-label="期間ごとの応募理由の数値" tabIndex={0}>{reasonPeriods.map(({ period, applications }) => <section key={period.key} id={reasonRowId(period.key)} tabIndex={-1} className={period.kind !== 'period' ? 'jt-reason-zone' : undefined}>
+        <h4>{period.label}</h4><p>{period.detail}</p>
+        {period.kind !== 'period' && <p>この期間の応募は、どの本文への応募か分からないため別に数えています。</p>}
+        {period.afterCounts ? <p>応募件数を確認した後に始まった期間</p> : <SelectedReasonTables job={job} rows={applications} />}
+      </section>)}</div>
+      <p className="jt-table-note">件数は並べて見るためのものです。ある期間に多く選ばれた項目があっても、それがその期間の本文によるものかどうかは、この数だけでは分かりません。</p>
+      {reasonsAvailable && reasonMulti === null && <p className="jt-table-note">応募理由の記録では複数の求人に関連する応募を見分けられないため、期間比較表の応募件数と合わないことがあります。</p>}
+      {reasonsAvailable && (reasonMulti ?? 0) > 0 && <p className="jt-table-note">複数の求人に関連する応募 {reasonMulti}件 の応募理由は、期間比較表と同じく入れていません。</p>}
+    </section>
   </section>;
 }

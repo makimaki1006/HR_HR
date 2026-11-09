@@ -148,7 +148,7 @@
 .jt-reasons th, .jt-reasons td { white-space: normal; }
 .jt-reasons td small, .jt-reasons td.jt-reason-basis span { display: block; }
 .jt-reasons td small { color: #5c7080; font-size: 10px; }
-.jt-reasons tr:focus { outline: 2px solid #9a3d06; outline-offset: -2px; }
+.jt-reasons tr:focus, .jt-reasons section:focus { outline: 2px solid #9a3d06; outline-offset: -2px; }
 .jt-reason span { overflow: hidden; text-overflow: ellipsis; display: block; }
 .jt-reason-zone { background: repeating-linear-gradient(135deg, #f4f7fb 0 5px, #e3ebf4 5px 10px); border-style: dashed; }
 .jt-reasons { margin-top: 18px; }

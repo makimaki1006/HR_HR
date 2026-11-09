@@ -6,9 +6,11 @@ import type { ChangeReasonBlock, ReasonWeeks, ReasonWindow } from './changeReaso
 import { formatDateJst } from './format';
 import { md } from './listingEventsModel';
 import { maskPersonalDetails } from './personalText';
-import { MASK_NOTE, REASON_CATEGORIES } from './reasonCategories';
+import { MASK_NOTE } from './reasonCategories';
 import { persistableListingId, useSavedNote } from './savedNotes';
 import { addDays, asOfDate } from './timelineModel';
+import { SelectedReasonTables } from './SelectedReasonTables';
+import { selectionNote } from './selectedReasonsModel';
 import './change-reasons.css';
 
 const WEEKS: readonly ReasonWeeks[] = [2, 4, 8];
@@ -27,7 +29,7 @@ function limitText(window: ReasonWindow): string | null {
   return `${date.replace(/^（|）$/g, '')}までの${String(window.days)}日で区切っています（その先はまだ確認できていません）`;
 }
 
-function WindowColumn({ title, window }: { title: string; window: ReasonWindow }) {
+function WindowColumn({ title, window, job }: { title: string; window: ReasonWindow; job: JobCopyRecord }) {
   const reasons = window.reasons;
   const limit = window.days > 0 ? limitText(window) : null;
   return <div className="cr-column" role="group" aria-label={title}>
@@ -36,17 +38,8 @@ function WindowColumn({ title, window }: { title: string; window: ReasonWindow }
     {limit && <p className="cr-limit">{limit}</p>}
     {window.days === 0 ? null : <>
     <p className="cr-count">応募 {window.applications === null ? '未取得' : `${String(window.applications)}件`}</p>
-    {reasons === null ? <p>応募理由は未取得です。</p> : <>
-      <p className="cr-count">応募理由の記録 {String(reasons.n)}件</p>
-      {reasons.n === 0 ? <p className="cr-empty">この期間に応募理由の記録はありません</p> : <>
-        <table className="ar-table cr-table"><thead><tr><th scope="col">区分</th><th scope="col">件数</th><th scope="col">内訳</th></tr></thead>
-          <tbody>{REASON_CATEGORIES.map(category => {
-            const row = reasons.counts.find(item => item.category === category);
-            return <tr key={category}><th scope="row">{category}</th><td>{String(row?.total ?? 0)}件</td><td>{row && row.total > 0 ? [row.selected ? `選択済み${String(row.selected)}` : '', row.estimated ? `推定${String(row.estimated)}` : ''].filter(Boolean).join('・') : ''}</td></tr>;
-          })}</tbody></table>
-        {reasons.unclassified > 0 && <p className="ar-note">分類できない記録 {String(reasons.unclassified)}件</p>}
-      </>}
-    </>}
+    {reasons && <p className="cr-count">選択式の記録 {reasons.n}件</p>}
+    <SelectedReasonTables job={job} rows={reasons?.rows ?? []} />
     {window.texts.length > 0 && <details className="cr-texts"><summary>応募者が書いた文を開く（社内確認用）</summary>
       <p className="ar-note">{MASK_NOTE}顧客向けの印刷には含めません。</p>
       <ol className="ar-texts">{window.texts.map(item => <li key={item.id}><p className="ar-source">出典: {item.sourceLabel}</p><p>応募日: {item.applicationDate ? formatDateJst(item.applicationDate, item.applicationDate) : '不明'}</p><blockquote>{maskPersonalDetails(item.text)}</blockquote></li>)}</ol>
@@ -54,13 +47,13 @@ function WindowColumn({ title, window }: { title: string; window: ReasonWindow }
   </>}</div>;
 }
 
-function Block({ block }: { block: ChangeReasonBlock }) {
+function Block({ block, job }: { block: ChangeReasonBlock; job: JobCopyRecord }) {
   const label = `${changeDateLabel(block.window)} ${block.kinds.join('・')}の変更`;
   return <section className="cr-block" aria-label={label} data-testid="change-reason-block">
     <h3>{changeDateLabel(block.window)} · {block.kinds.join('・')}</h3>
     {block.summary && <p className="cr-summary">{block.summary}</p>}
-    {!block.window.exact && <p className="ar-note">この変更は、文面を確認した 2 つの日の間のどこかで起きました。その間の日は、前後どちらの応募にも数えていません。</p>}
-    <div className="cr-pair"><WindowColumn title={`変更前 ${String(block.before.days)}日`} window={block.before} /><WindowColumn title={`変更後 ${String(block.after.days)}日`} window={block.after} /></div>
+    {!block.window.exact && <p className="ar-note">本文の記録日で期間を区切り、その日の応募は変更後に含めています。</p>}
+    <div className="cr-pair"><WindowColumn title={`変更前 ${String(block.before.days)}日`} window={block.before} job={job} /><WindowColumn title={`変更後 ${String(block.after.days)}日`} window={block.after} job={job} /></div>
   </section>;
 }
 
@@ -74,6 +67,7 @@ export function ChangeReasons({ job, onOpenFactors }: { job: JobCopyRecord; onOp
   const memo = note.status === 'ready' && note.value?.trim() ? note.value.trim() : null;
   return <section className="cr-changes" aria-label="変更ごとの応募理由">
     <p className="cr-lead">応募理由の記録はまだ少なく、1 つの求人・期間の件数だけで変更の効果は判断できません。</p>
+    <p>{selectionNote}</p>
     <ul className="cr-notes">
       <li>HubSpot に記録された分だけを数えています。</li>
       {createdNote && <li>{createdNote}。</li>}
@@ -87,6 +81,6 @@ export function ChangeReasons({ job, onOpenFactors }: { job: JobCopyRecord; onOp
       {memo ? <p>要因メモ: {memo.length > EXCERPT ? `${memo.slice(0, EXCERPT)}…` : memo}</p> : <p>この求人の要因メモはまだありません</p>}
       <button type="button" className="jc-button" onClick={onOpenFactors}>要因メモを開く</button>
     </div>
-    {blocks.length === 0 ? <p className="cr-empty">この求人で給与・本文・画像の変更は見つかっていません</p> : blocks.map(block => <Block key={block.versionId} block={block} />)}
+    {blocks.length === 0 ? <p className="cr-empty">この求人で給与・本文・画像の変更は見つかっていません</p> : blocks.map(block => <Block key={block.versionId} block={block} job={job} />)}
   </section>;
 }

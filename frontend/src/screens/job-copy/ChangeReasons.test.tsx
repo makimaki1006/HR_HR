@@ -4,15 +4,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jobs } from './data';
 import type { JobCopyRecord } from './data';
 import { ChangeReasons } from './ChangeReasons';
+import { withSelectedReasons, selectedOptions, selectedRow, selectionOptions } from './selectedReasons.testFixtures';
+import { apiGet } from '../../api/client';
 import { ApplicantReasonReview } from './ApplicantReasonReview';
 
 vi.mock('../../api/client', () => ({ apiGet: vi.fn(), apiPut: vi.fn() }));
-afterEach(() => { cleanup(); });
+afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const demo = (id: string): JobCopyRecord => {
   const job = jobs.find(item => item.id === id);
   if (!job) throw new Error(`Missing ${id}`);
-  return job;
+  return withSelectedReasons(job);
 };
 
 function at<T>(list: readonly T[], index: number): T {
@@ -39,11 +41,12 @@ describe('ChangeReasons', () => {
     expect(screen.getByText('応募日も作成日も分からない記録 1件は、どの期間にも入れていません。')).toBeTruthy();
     const before = within(at(blocks, 0)).getByRole('group', { name: '変更前 10日' });
     expect(within(before).getByText('応募 8件')).toBeTruthy();
-    expect(within(before).getByText('応募理由の記録 5件')).toBeTruthy();
+    expect(within(before).getByText('応募動機を聞けた応募 5件／この求人の全応募 28件')).toBeTruthy();
+    expect(within(within(before).getByRole('table', { name: '応募動機の選択件数' })).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(selectedOptions.map(option => option.label));
     expect(within(before).getByText('前の変更（9/15）までの10日で区切っています')).toBeTruthy();
     const after = within(at(blocks, 0)).getByRole('group', { name: '変更後 11日' });
     expect(within(after).getByText('応募 3件')).toBeTruthy();
-    expect(within(after).getByText('この期間に応募理由の記録はありません')).toBeTruthy();
+    expect(within(after).getByText('応募動機を聞けた応募 0件／この求人の全応募 28件')).toBeTruthy();
     expect(container.textContent).not.toContain('%');
     expect(container.textContent).not.toContain('％');
   });
@@ -73,12 +76,12 @@ describe('ChangeReasons', () => {
   it('shows the range date of an AirWork change and the reasons of the days that can be counted', () => {
     render(<ChangeReasons job={demo('demo-job-004')} onOpenFactors={() => undefined} />);
     const block = screen.getByTestId('change-reason-block');
-    expect(within(block).getByRole('heading', { level: 3 }).textContent).toContain('9/10〜9/28 の間');
-    expect(within(block).getByText(/その間の日は、前後どちらの応募にも数えていません/u)).toBeTruthy();
-    const after = within(block).getByRole('group', { name: '変更後 5日' });
+    expect(within(block).getByRole('heading', { level: 3, name: /9\/10〜9\/28/u }).textContent).toContain('9/10〜9/28 の間');
+    expect(within(block).getByText('本文の記録日で期間を区切り、その日の応募は変更後に含めています。')).toBeTruthy();
+    const after = within(block).getByRole('group', { name: '変更後 8日' });
     expect(within(after).getByText('応募 2件')).toBeTruthy();
-    expect(within(after).getByText('応募理由の記録 2件')).toBeTruthy();
-    expect(within(block).getByText('この本文が出ていたと確かな日がないため、数えていません')).toBeTruthy();
+    expect(within(after).getByText('応募動機を聞けた応募 2件／この求人の全応募 6件')).toBeTruthy();
+    expect(within(within(block).getByRole('group', { name: '変更前 18日' })).getByText('応募 1件')).toBeTruthy();
   });
 
   it('masks personal details in the texts and offers the factor memo link', () => {
@@ -88,7 +91,7 @@ describe('ChangeReasons', () => {
     const job: JobCopyRecord = { ...base, applicantReasons: { ...reasons, items: reasons.items.map(row => row.applicationDate === '2026-09-29' ? { ...row, text: '連絡は 090-1234-5678 まで。時給が高いので' } : row) } };
     const open = vi.fn();
     render(<ChangeReasons job={job} onOpenFactors={open} />);
-    const text = screen.getByRole('group', { name: '変更後 5日' }).textContent;
+    const text = screen.getByRole('group', { name: '変更後 8日' }).textContent;
     expect(text).toContain('＊＊');
     expect(text).not.toContain('090-1234-5678');
     expect(screen.getAllByText('応募者が書いた文を開く（社内確認用）').length).toBeGreaterThan(0);
@@ -102,11 +105,53 @@ describe('ApplicantReasonReview display switch', () => {
   it('keeps the comparison as the default and switches to the per-change view', () => {
     const change = vi.fn();
     const { rerender } = render(<ApplicantReasonReview job={demo('demo-job-001')} onViewChange={change} />);
-    expect(screen.getByRole('button', { name: '記述の比較' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: '応募理由の比較' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.queryByLabelText('変更ごとの応募理由')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '変更ごと' }));
     expect(change).toHaveBeenCalledWith('changes');
     rerender(<ApplicantReasonReview job={demo('demo-job-001')} view="changes" onViewChange={change} />);
     expect(screen.getByLabelText('変更ごとの応募理由')).toBeTruthy();
   });
+});
+
+it('shows the saved factor-note excerpt and counts shared applications in neither window', async () => {
+  const base = demo('demo-job-001');
+  const note = '条件の変更と掲載期間を確認する。'.repeat(12);
+  vi.mocked(apiGet).mockResolvedValue({ ok: true, data: { notes: { factor: { value: note, updated_by: '合成の担当者', updated_at: '2026-10-05T00:00:00Z' } } } });
+  if (!base.applicantReasons || !base.overallApplications) throw new Error('Missing fixture');
+  const shared = '4'.repeat(64);
+  render(<ChangeReasons job={{ ...base, dataSource: 'hubspot', hubspotId: '10', applicantReasons: { ...base.applicantReasons, multiListingApplicants: [shared] }, overallApplications: { ...base.overallApplications, multiListing: { byDate: { '2026-09-16': 1 }, missingDate: 0 } } }} onOpenFactors={() => undefined} />);
+  expect(await screen.findByText(`要因メモ: ${note.slice(0, 120)}…`)).toBeTruthy();
+  expect(screen.getByText('ほかの求人にも関連する応募 1件は数えていません。')).toBeTruthy();
+  const before = within(at(screen.getAllByTestId('change-reason-block'), 0)).getByRole('group', { name: '変更前 10日' });
+  expect(within(before).getByText('応募 7件')).toBeTruthy();
+  expect(before.textContent).not.toContain('配送の仕事をしてみたい');
+  expect(within(before).getByText('応募動機を聞けた応募 4件／この求人の全応募 28件')).toBeTruthy();
+});
+
+it('compares the same requested 2, 4 or 8 weeks and updates counts when weeks change', () => {
+  const base = demo('demo-job-001');
+  const first = base.versions[0];
+  const last = base.versions[2];
+  if (!first || !last) throw new Error('Missing versions');
+  const job: JobCopyRecord = { ...base,
+    versions: [{ ...first, observedAt: '2026-08-01', publishedFrom: '2026-08-01', publishedUntil: '2026-09-10' }, { ...last, observedAt: '2026-09-10', publishedFrom: '2026-09-10' }],
+    overallApplications: { total: 4, missingDate: 0, distributions: {}, fetchedAt: '2026-10-05T00:00:00Z', byDate: { '2026-08-20': 1, '2026-09-01': 1, '2026-09-10': 1, '2026-09-30': 1 }, selectionOptions },
+    applicationRows: ['2026-08-20', '2026-09-01', '2026-09-10', '2026-09-30'].map(date => selectedRow(date, date)),
+  };
+  render(<ChangeReasons job={job} onOpenFactors={() => undefined} />);
+  expect(screen.getByRole('group', { name: '変更前 28日' }).textContent).toContain('応募 2件');
+  fireEvent.click(screen.getByRole('button', { name: '前後 2週' }));
+  const before = screen.getByRole('group', { name: '変更前 14日' });
+  const after = screen.getByRole('group', { name: '変更後 14日' });
+  expect(before.textContent).toContain('応募 1件');
+  expect(after.textContent).toContain('応募 1件');
+  expect(within(after).getByText('応募動機を聞けた応募 1件／この求人の全応募 4件')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '前後 8週' }));
+  expect(screen.getByRole('button', { name: '前後 8週' }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('group', { name: '変更前 40日' }).textContent).toContain('応募 2件');
+  expect(screen.getByRole('group', { name: '変更後 26日' }).textContent).toContain('応募 2件');
+  fireEvent.click(screen.getByRole('button', { name: '前後 4週' }));
+  expect(screen.getByRole('button', { name: '前後 4週' }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('group', { name: '変更前 28日' }).textContent).toContain('応募 2件');
 });

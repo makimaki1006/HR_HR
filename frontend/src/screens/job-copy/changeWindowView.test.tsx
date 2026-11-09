@@ -84,5 +84,6 @@ it('shows known unpublished days and shortens the before side at the previous ac
   fireEvent.click(within(panel).getByRole('button', { name: '14日' }));
   expect(panel.textContent).toContain('前 9日分（14日に届かず） 9件');
   expect(panel.textContent).toContain('後 11日分（14日に届かず） 100件');
-  expect(panel.textContent).toContain('掲載していない日 3日');
+  // 9/22は掲載終了日に含めるので、空白は9/23・24の2日。
+  expect(panel.textContent).toContain('掲載していない日 2日');
 });
