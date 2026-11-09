@@ -227,6 +227,15 @@ function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, on
       )}
     </>
   );
+  // アポ数はどのタブにも出す
+  const apoCell = (
+    <td className="w8-right" data-testid="talk-apo-count">
+      {apo === undefined || p.appointments === 0 ? p.appointments : (
+        <button type="button" className="talk-apobtn" aria-expanded={apo.open} data-testid="talk-apo-trigger" title="押すとアポの内訳が開きます" onClick={apo.onToggle}>{p.appointments}</button>
+      )}
+      {dn('appointments')}
+    </td>
+  );
   return (
     <tr className={total ? 'talk-total' : undefined} data-testid={rowId ?? (total ? 'talk-total-row' : 'talk-row')}>
       <td>
@@ -239,15 +248,11 @@ function PersonRowView({ p, checks, total, totalRow, rules, breakdownPending, on
         {compare?.cmp === null && <span className="talk-small" data-testid="talk-no-prev">比べる期間にはデータなし</span>}
       </td>
       <td className="w8-muted">{p.team ?? '-'}</td>
+      {tab !== 'numbers' && apoCell}
       {tab === 'numbers' && <>
       <OutboundCell value={p.outbound} breakdown={p.dial_breakdown} pending={breakdownPending} extra={dn('outbound')} />
       <td className="w8-right">{p.dials ?? '—'}{dn('dials')}</td>
-      <td className="w8-right">
-        {apo === undefined || p.appointments === 0 ? p.appointments : (
-          <button type="button" className="talk-apobtn" aria-expanded={apo.open} data-testid="talk-apo-trigger" title="押すとアポの内訳が開きます" onClick={apo.onToggle}>{p.appointments}</button>
-        )}
-        {dn('appointments')}
-      </td>
+      {apoCell}
       <Cell j={apj} className="w8-right">{fmtPct(p.appointment_rate_pct, 2)}{dn('appointmentRate')}</Cell>
       <td className="w8-right" data-testid="talk-contacts">
         {p.contacts ?? '—'}{dn('contacts')}
@@ -423,13 +428,13 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
   }
   const rules = data.rules;
   const shown = checksForTab(data.checks, tab);
-  // 名前・チーム + タブの列
-  const colCount = 2 + (tab === 'numbers' ? 9 : 1 + shown.length) + (tab === 'after' ? 1 : 0);
-  const apoOf = (key: string): ApoToggle | undefined => (apoQuery === undefined || tab !== 'numbers' ? undefined : {
+  // 名前・チーム + タブの列 (アポ数はどのタブにもある)
+  const colCount = 2 + (tab === 'numbers' ? 9 : 2 + shown.length) + (tab === 'after' ? 1 : 0);
+  const apoOf = (key: string): ApoToggle | undefined => (apoQuery === undefined ? undefined : {
     open: openApo === key,
     onToggle: () => { setOpenApo(prev => (prev === key ? null : key)); },
   });
-  const apoRow = (key: string, ownerId: string | null) => (apoQuery === undefined || tab !== 'numbers' || openApo !== key ? null : (
+  const apoRow = (key: string, ownerId: string | null) => (apoQuery === undefined || openApo !== key ? null : (
     <tr className="talk-apo-row" data-testid="talk-apo-open">
       <td colSpan={colCount}>
         <ApoBreakdown ownerId={ownerId} from={data.from} to={data.to} query={apoQuery} onClose={() => { setOpenApo(null); }} />
@@ -464,13 +469,13 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
         </p>
       )}
       {tab === 'after' && <p className="w8-subtle" data-testid="talk-rank-legend">{APO_RANK_RULE}</p>}
-      {apoQuery !== undefined && tab === 'numbers' && <p className="w8-subtle talk-apohint">アポ数を押すと、アポの内訳（過去客・再商談・再アポ・純粋なアポ）と明細が開きます。</p>}
+      {apoQuery !== undefined && <p className="w8-subtle talk-apohint">アポ数を押すと、アポの内訳（過去客・再商談・再アポ・純粋なアポ）と明細が開きます。</p>}
       <div className="w8-table-wrap talk-scroll">
         <table className={`w8-table w8-table-dense talk-table talk-tab-${tab}`} data-testid="talk-table" data-tab={tab}>
           <thead>
             {tab !== 'numbers' && (
               <tr>
-                <th colSpan={tab === 'after' ? 4 : 3} className="talk-group-blank" />
+                <th colSpan={tab === 'after' ? 5 : 4} className="talk-group-blank" />
                 {stageGroups(shown).map(g => <th key={g.stage + String(g.start)} colSpan={g.count} className="talk-group">{g.stage}</th>)}
               </tr>
             )}
@@ -489,6 +494,7 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
               {sortHead('1接触あたりの日程切り回数', { kind: 'perContact' })}
               </>}
               {tab !== 'numbers' && <>
+              {sortHead('アポ数', { kind: 'appointments' })}
               {tab === 'talk' ? sortHead('判定した電話数（接触した電話）', { kind: 'reviewed' }) : <th className="w8-right">日程が決まった電話</th>}
               {tab === 'after' && <th title={APO_RANK_RULE}>アポのランク<span className="talk-base">この表の全体 {fmtRanks(data.total.apo_ranks)}</span></th>}
               {shown.map(c => {
