@@ -6,8 +6,8 @@ use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
 use std::io::{Read, Write};
 
-// 2: application days now fall back to the creation day (todo facts rebuilt once).
-const VERSION: i64 = 2;
+// 3: facts retain application IDs and include all delivery deals.
+const VERSION: i64 = 3;
 const CHUNK_BYTES: usize = 750_000;
 const MAX_PARTS: usize = 128;
 const MAX_JSON_BYTES: u64 = 256 * 1024 * 1024;

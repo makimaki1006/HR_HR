@@ -16,7 +16,8 @@ const FIRST_CONTRACT_VALUE: &str = "新規契約";
 pub(super) struct Facts {
     pub(super) live: usize,
     pub(super) unknown_dates: usize,
-    // 応募 ID は取引ごとに重複排除してから日付だけを保持する。
+    // 既存の期間集計用の日付と、取引をまたぐ重複排除用の応募 ID。
+    pub(super) application_days: BTreeMap<String, Option<NaiveDate>>,
     pub(super) days: Vec<NaiveDate>,
     // 取引に付いた求人票の数（掲載の有無を問わない）。古い保存データでは不明。
     #[serde(default)]
@@ -187,13 +188,21 @@ pub(super) fn reasons(deal: &WorkDeal, facts: Option<&Facts>, today: NaiveDate) 
     reasons
 }
 
-pub(super) fn eligible(deal: &WorkDeal) -> bool {
-    !ENDED_STAGES.contains(&deal.record.value("dealstage").unwrap_or(""))
-        && deal
-            .record
-            .value("contract_start_date")
-            .and_then(date)
-            .is_some()
+/// 案件一覧の直近4週・前の4週を数える取引。終了した取引は、満了日が前の4週の始まり以降のものだけ。
+pub(super) fn eligible(deal: &WorkDeal, today: NaiveDate) -> bool {
+    let stage = deal.record.value("dealstage").unwrap_or("");
+    listings::is_delivery(deal.record.value("pipeline"))
+        // 紹介料の取引は案件一覧にもやることにも出さないので、応募も読まない。
+        && !crate::handlers::cs_dashboard::is_referral_deal(
+            deal.record.value("dealname").unwrap_or(""),
+            stage,
+        )
+        && (!ENDED_STAGES.contains(&stage)
+            || deal
+                .record
+                .value("contract_expiration_date")
+                .and_then(date)
+                .is_some_and(|end| (today - end).num_days() < 56))
 }
 
 pub(super) async fn fetch(
@@ -201,10 +210,11 @@ pub(super) async fn fetch(
     deals: &BTreeMap<String, WorkDeal>,
 ) -> Result<BTreeMap<String, Facts>, ReadError> {
     let started = std::time::Instant::now();
-    // 契約開始のない案件は応募条件を満たさない。翌日の境界分も用意する。
+    // 契約開始日のない取引と、最近終わった取引も、案件一覧の集計に含める。
+    let today = super::owner_todo::today(chrono::Utc::now());
     let ids: Vec<_> = deals
         .iter()
-        .filter(|(_, d)| eligible(d))
+        .filter(|(_, d)| eligible(d, today))
         .map(|(id, _)| id.clone())
         .collect();
     if ids.is_empty() {
@@ -289,6 +299,10 @@ fn assemble(
                 .flat_map(|id| applications.get(id).into_iter().flatten())
                 .collect();
             let facts = Facts {
+                application_days: apps
+                    .iter()
+                    .map(|id| ((*id).clone(), dates.get(*id).copied().flatten()))
+                    .collect(),
                 unknown_dates: apps
                     .iter()
                     .filter(|id| dates.get(**id).copied().flatten().is_none())
@@ -346,6 +360,37 @@ mod tests {
             .collect()
     }
     #[test]
+    fn facts_cover_delivery_deals_without_start_and_recently_ended() {
+        let today = day("2026-11-09");
+        let mut d = deal(1, None, 90);
+        d.record.properties.remove("contract_start_date");
+        assert!(eligible(&d, today));
+        d.record
+            .properties
+            .insert("dealstage".into(), Some(ENDED_STAGES[0].into()));
+        for (end, expected) in [("2026-09-15", true), ("2026-09-14", false)] {
+            d.record
+                .properties
+                .insert("contract_expiration_date".into(), Some(end.into()));
+            assert_eq!(eligible(&d, today), expected, "{end}");
+        }
+        d.record.properties.remove("contract_expiration_date");
+        assert!(!eligible(&d, today));
+        let mut referral = deal(1, None, 90);
+        referral
+            .record
+            .properties
+            .insert("dealname".into(), Some("紹介料_架空の会社".into()));
+        assert!(!eligible(&referral, today));
+        d.record
+            .properties
+            .insert("dealstage".into(), Some("other".into()));
+        d.record
+            .properties
+            .insert("pipeline".into(), Some("unrelated".into()));
+        assert!(!eligible(&d, today));
+    }
+    #[test]
     fn launch_boundaries_unknown_dates_and_shared_contract_filter() {
         let today = day("2026-10-16");
         for (age, count, status, remaining) in [
@@ -359,6 +404,7 @@ mod tests {
         ] {
             let d = deal(age, None, 90);
             let mut facts = Facts {
+                application_days: BTreeMap::new(),
                 live: 2,
                 unknown_dates: 0,
                 listings: None,
@@ -406,6 +452,7 @@ mod tests {
                 .unwrap()
         };
         let facts = Facts {
+            application_days: BTreeMap::new(),
             live: 3,
             unknown_dates: 0,
             listings: None,
@@ -459,6 +506,7 @@ mod tests {
             &dates,
             &BTreeSet::from(["10".into()]),
         );
+        assert_eq!(facts["1"].application_days, dates);
         assert_eq!(facts["1"].live, 1);
         assert_eq!(facts["1"].unknown_dates, 1);
         assert_eq!(facts["1"].days, [day("2026-10-16"), day("2026-10-01")]);
@@ -534,6 +582,7 @@ mod tests {
     fn stalled_fourteen_calendar_days_and_start_boundary() {
         let today = day("2026-10-16");
         let mut f = Facts {
+            application_days: BTreeMap::new(),
             unknown_dates: 0,
             listings: None,
             live: 2,
@@ -569,6 +618,7 @@ mod tests {
         ] {
             let d = deal(age, Some("2026-10-16"), 61);
             let f = Facts {
+                application_days: BTreeMap::new(),
                 unknown_dates: 0,
                 listings: None,
                 live: 1,
@@ -582,6 +632,7 @@ mod tests {
         }
         let mut d = deal(60, None, 0);
         let mut f = Facts {
+            application_days: BTreeMap::new(),
             unknown_dates: 0,
             listings: None,
             live: 1,

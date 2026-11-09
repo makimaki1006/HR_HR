@@ -68,3 +68,7 @@
 .jc-app .db-filters .db-period legend{font-size:11px;color:#64748b;padding:0 4px}
 .jc-app .db-filters .db-period input[type=number]{width:56px;padding:4px;border:1px solid #cbd5e1;border-radius:6px}
 .jc-app .db-filters .db-period input[type=date]{width:auto;padding:4px;border:1px solid #cbd5e1;border-radius:6px}
+
+.db-application-summary { margin: 1rem 0; padding: 1rem; border: 1px solid var(--jc-border, #dce3ea); border-radius: 8px; }
+.db-application-summary h2 { margin: 0 0 .5rem; font-size: 1rem; }
+.db-application-summary p { margin: .4rem 0; }

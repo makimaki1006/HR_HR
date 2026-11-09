@@ -833,6 +833,7 @@ async fn restored_facts_keep_their_age_and_remain_visible_during_refresh() {
     let facts = BTreeMap::from([(
         "1".into(),
         super::super::todo_signals::Facts {
+            application_days: BTreeMap::new(),
             live: 2,
             unknown_dates: 0,
             days: vec![today(built)],
@@ -867,10 +868,10 @@ async fn restored_facts_keep_their_age_and_remain_visible_during_refresh() {
             WorkDeal {
                 record: Record {
                     id: "1".into(),
-                    properties: BTreeMap::from([(
-                        "contract_start_date".into(),
-                        Some("2026-01-01".into()),
-                    )]),
+                    properties: BTreeMap::from([
+                        ("contract_start_date".into(), Some("2026-01-01".into())),
+                        ("pipeline".into(), Some("21596025".into())),
+                    ]),
                 },
                 assignment: Assignment::default(),
             },
@@ -923,6 +924,7 @@ fn measure_synthetic_facts_500_deals_30000_applications() {
             (
                 (i + 800000).to_string(),
                 super::super::todo_signals::Facts {
+                    application_days: BTreeMap::new(),
                     live: 82,
                     unknown_dates: 0,
                     days: (0..60).map(|j| day - chrono::Duration::days(j)).collect(),
