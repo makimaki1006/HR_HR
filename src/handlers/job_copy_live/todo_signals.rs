@@ -190,8 +190,14 @@ pub(super) fn reasons(deal: &WorkDeal, facts: Option<&Facts>, today: NaiveDate) 
 
 /// 案件一覧の直近4週・前の4週を数える取引。終了した取引は、満了日が前の4週の始まり以降のものだけ。
 pub(super) fn eligible(deal: &WorkDeal, today: NaiveDate) -> bool {
+    let stage = deal.record.value("dealstage").unwrap_or("");
     listings::is_delivery(deal.record.value("pipeline"))
-        && (!ENDED_STAGES.contains(&deal.record.value("dealstage").unwrap_or(""))
+        // 紹介料の取引は案件一覧にもやることにも出さないので、応募も読まない。
+        && !crate::handlers::cs_dashboard::is_referral_deal(
+            deal.record.value("dealname").unwrap_or(""),
+            stage,
+        )
+        && (!ENDED_STAGES.contains(&stage)
             || deal
                 .record
                 .value("contract_expiration_date")
@@ -370,6 +376,12 @@ mod tests {
         }
         d.record.properties.remove("contract_expiration_date");
         assert!(!eligible(&d, today));
+        let mut referral = deal(1, None, 90);
+        referral
+            .record
+            .properties
+            .insert("dealname".into(), Some("紹介料_架空の会社".into()));
+        assert!(!eligible(&referral, today));
         d.record
             .properties
             .insert("dealstage".into(), Some("other".into()));
