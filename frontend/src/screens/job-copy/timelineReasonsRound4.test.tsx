@@ -11,6 +11,8 @@ import type { JobCopyRecord } from './data';
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import { JobTimeline } from './JobTimeline';
 import { ApplicantReasons } from './ApplicantReasons';
+import { withSelectedReasons } from './selectedReasons.testFixtures';
+import { hasSelectedReason } from './selectedReasonsModel';
 import { inferCategories } from './reasonCategories';
 
 vi.mock('../../api/client', () => ({ apiGet: vi.fn() }));
@@ -35,47 +37,50 @@ function legacy(): ApplicantReasonCollection {
     sourceCounts: Object.fromEntries(Object.entries(reasons.sourceCounts).filter(([property]) => LEGACY.includes(property))) };
 }
 
-describe('a stored file without category selections', () => {
-  it('shows 選択済み as 未取得 on the 応募理由 tab, with no 0件 選択済み count or column', () => {
-    render(<ApplicantReasons job={{ ...demo(), applicantReasons: legacy() }} />);
-    const summary = screen.getByRole('region', { name: '応募理由の分類' });
-    expect(summary.textContent).toContain('n=7（記述7件） · 分類の選択件数は未取得 · キーワードで推定6件 · 分類できない1件');
-    expect(summary.textContent).not.toContain('選択済み0件');
-    const table = within(screen.getByRole('region', { name: '応募理由の分類の件数' })).getByRole('table');
-    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['分類', '件数（キーワードで推定）', 'nに対する割合']);
-    expect(within(table).getAllByRole('row')[1]?.textContent).toBe('給与2件29%');
-  });
-
-  it('shows 分類の選択件数は未取得 in every period of the timeline table', () => {
-    render(<JobTimeline job={{ ...demo(), applicantReasons: legacy() }} marketMode="demo" />);
-    const table = within(screen.getByRole('region', { name: '期間ごとの応募理由の数値' })).getByRole('table');
-    const basis = [...table.querySelectorAll('td.jt-reason-basis')].map(cell => cell.textContent);
-    expect(basis.slice(0, 2)).toEqual(['分類の選択件数は未取得推定2件分類できない0件', '分類の選択件数は未取得推定3件分類できない1件']);
-    expect(table.textContent).not.toContain('選択済み0件');
+describe('legacy sources in the listing detail', () => {
+  it('keeps unread selected reasons distinct from zero, on both the tab and timeline', () => {
+    const job = { ...demo(), applicantReasons: legacy() };
+    const { unmount } = render(<ApplicantReasons job={job} />);
+    expect(screen.getByText('選択式の応募理由は未取得です。')).toBeTruthy();
+    expect(screen.queryAllByRole('table')).toHaveLength(0);
+    unmount();
+    render(<JobTimeline job={job} marketMode="demo" />);
+    const lane = screen.getByRole('group', { name: '応募理由' });
+    expect(lane.textContent).toContain('選択式の応募理由は未取得です。');
+    expect(lane.querySelectorAll('button')).toHaveLength(0);
+    expect(screen.getByRole('region', { name: '期間ごとの応募理由' }).textContent).not.toContain('推定');
   });
 });
 
 describe('the 応募理由 lane when every reason was left out', () => {
-  it('says the records were left out, not that there are none', () => {
-    const keys = Array.from({ length: 9 }, (_, index) => String(index + 1).repeat(64));
-    render(<JobTimeline job={{ ...demo(), applicantReasons: { ...demoReasons(), multiListingApplicants: keys } }} marketMode="demo" />);
+  it('says selected records were excluded, rather than claiming there were no records', () => {
+    const job = withSelectedReasons(demo());
+    const keys = (job.applicationRows ?? []).filter(hasSelectedReason).map(row => row.key);
+    if (!job.applicantReasons) throw new Error('Missing reasons');
+    render(<JobTimeline job={{ ...job, applicantReasons: { ...job.applicantReasons, multiListingApplicants: keys } }} marketMode="demo" />);
     const lane = screen.getByRole('group', { name: '応募理由' });
-    expect(lane.querySelector('.jt-empty')?.textContent).not.toBe('応募理由の記録はありません');
-    expect(lane.textContent).toContain('この求人だけに関連する、分類か文のある応募理由の記録はありません（ほかの求人にも関連する9件を除く）');
+    expect(lane.textContent).toContain('この求人だけに関連する選択式の応募理由の記録はありません（ほかの求人にも関連する9件を除く）');
+    expect(lane.querySelectorAll('button')).toHaveLength(0);
+    const tables = within(screen.getByRole('region', { name: '期間ごとの応募理由の数値' })).getAllByRole('table');
+    expect(tables[0]?.closest('section')?.textContent).toContain('応募動機を聞けた応募 0件／この求人の全応募 28件');
   });
 });
 
 describe('texts cut by the read limit', () => {
-  it('says the transfer section could not read its texts, not that there is nothing to classify', () => {
-    const reasons = demoReasons();
-    expect(reasons.sourceCounts.genshokumaeshokukaranotenshokuriyuu?.nonblank).toBe(1);
-    const truncated = { ...reasons, truncated: true, items: reasons.items.filter(item => item.sourceProperty !== 'genshokumaeshokukaranotenshokuriyuu') };
-    render(<ApplicantReasons job={{ ...demo(), applicantReasons: truncated }} />);
-    const transfer = screen.getByRole('region', { name: '今の仕事・前の仕事から転職する理由の分類' });
-    expect(transfer.textContent).toContain('n=0（応募0件）');
-    expect(transfer.textContent).toContain('読み込めた記述がありません（記入あり 1件 は読み込める上限を超えたため読み込んでいません。0件という意味ではありません）。');
-    expect(transfer.textContent).not.toContain('分類できる記録はありません');
-    expect(document.body.textContent).toContain('「選択済み」はすべての応募で数えていますが、「キーワードで推定」「分類できない」の数と記述の一覧は、読み込んだ記述だけで数えています');
+  it('keeps selected counts complete and does not claim unread texts are absent', () => {
+    const job = withSelectedReasons(demo());
+    if (!job.applicantReasons) throw new Error('Missing reasons');
+    const truncated = { ...job, applicantReasons: { ...job.applicantReasons, truncated: true, items: [] } };
+    const { unmount } = render(<JobTimeline job={truncated} marketMode="demo" />);
+    expect(within(screen.getByRole('group', { name: '応募理由' })).getAllByRole('button').map(chip => chip.textContent)).toEqual(['選択式の記録 3件', '選択式の記録 5件']);
+    expect(screen.queryByText(/期間ごとの応募理由の数は実際より少ない/u)).toBeNull();
+    unmount();
+    render(<ApplicantReasons job={truncated} />);
+    expect(screen.getByText('文章は読み込み上限のため一部を表示しています。')).toBeTruthy();
+    expect(screen.getByText('読み込み上限により、表示できる応募理由の文章はありません。')).toBeTruthy();
+    expect(screen.queryByText('応募理由の文章は記録されていません。')).toBeNull();
+    const notes = [...document.querySelectorAll('details > p')].map(node => node.textContent).filter(text => text.includes('＊＊'));
+    expect(notes[0]).toContain('それ以外の個人情報が残っていることがあります');
   });
 });
 

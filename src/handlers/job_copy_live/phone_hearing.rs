@@ -320,7 +320,7 @@ impl JobReadService {
                 items: vec![],
                 truncated: false,
             };
-            return Ok(bundle(
+            let mut result = bundle(
                 listing,
                 &[],
                 &OptionLabels::new(),
@@ -328,10 +328,17 @@ impl JobReadService {
                 &BTreeSet::new(),
                 0,
                 None,
-            ));
+            );
+            result["selection_options"] = definitions
+                .ok()
+                .and_then(|d| apply_reasons::parse_options(&d))
+                .map(|o| json!(o.definitions))
+                .unwrap_or(Value::Null);
+            return Ok(result);
         }
         // Resolve media by its definition label, rather than guessing its internal name.
         let definitions = definitions?;
+        let select_options = apply_reasons::parse_options(&definitions);
         let definitions = definitions["results"]
             .as_array()
             .ok_or_else(|| fail("hearing_definitions_invalid"))?;
@@ -372,6 +379,7 @@ impl JobReadService {
             "shikuchouson",
         ]);
         properties.extend(applicant_reasons::PROPERTIES);
+        properties.extend(apply_reasons::SELECT_PROPERTIES);
         if let Some(media) = media {
             properties.push(media);
         }
@@ -409,15 +417,11 @@ impl JobReadService {
             media,
             ids.len(),
         )?;
-        Ok(bundle(
-            listing,
-            &rows,
-            &labels,
-            &hearing,
-            &multi,
-            ids.len(),
-            media,
-        ))
+        let mut result = bundle(listing, &rows, &labels, &hearing, &multi, ids.len(), media);
+        result["selection_options"] = select_options
+            .map(|o| json!(o.definitions))
+            .unwrap_or(Value::Null);
+        Ok(result)
     }
 }
 // Shared response: the exact same batched records supply events, reasons and hearings.
@@ -507,6 +511,12 @@ fn bundle(
     let (by_date, missing) = super::deal_summary::count_by_date(&days);
     let people: Vec<_> = rows.iter().zip(days).map(|(row, day)| json!({
         "key":applicant_key(listing, &row.id), "date":day,
+        "selections":apply_reasons::SELECT_PROPERTIES.iter().map(|p| {
+            let values: BTreeSet<_> = row.value(p).unwrap_or("").split(';').map(str::trim)
+                .filter(|v| !v.is_empty() && !apply_reasons::is_unset(v, labels.get(*p).and_then(|o| o.get(*v)).map(String::as_str)))
+                .map(|v| mask_personal_details(v).chars().take(applicant_reasons::MAX_VALUE_CHARS).collect::<String>()).collect();
+            ((*p).to_owned(), values.into_iter().collect::<Vec<_>>())
+        }).collect::<BTreeMap<_,_>>(),
         "gender":attribute(row,"seibetsu"), "age":row.value("nenrei").filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit())),
         "prefecture":attribute(row,"todoufuken"), "municipality":attribute(row,"shikuchouson"),
         "media":media.and_then(|p| display(row,p,labels)).map(|s| mask_personal_details(&s))
@@ -610,7 +620,7 @@ mod bundle_cache_tests {
         delay: Duration,
     ) -> (JobReadService, tokio::task::JoinHandle<()>) {
         let app = axum::Router::new().fallback(axum::routing::any(
-            move |uri: axum::http::Uri, _body: axum::body::Bytes| {
+            move |uri: axum::http::Uri, body: axum::body::Bytes| {
                 let calls = calls.clone();
                 async move {
                     calls.fetch_add(1, Ordering::SeqCst);
@@ -619,10 +629,17 @@ mod bundle_cache_tests {
                     let value = if path.ends_with("/associations/0-421") {
                         json!({"results":[{"toObjectId":201},{"toObjectId":202}]})
                     } else if path == "/crm/v3/properties/0-421" {
-                        json!({"results":[]})
+                        json!({"results":apply_reasons::SELECT_PROPERTIES.iter().map(|p| json!({"name":p,"options":[
+                            {"value":"second","label":"選択肢B","displayOrder":2},
+                            {"value":"unset","label":"未設定","displayOrder":0},
+                            {"value":"first","label":"選択肢A","displayOrder":1}]})).collect::<Vec<_>>()})
                     } else if path == "/crm/v3/objects/0-421/batch/read" {
+                        let body: Value = serde_json::from_slice(&body).unwrap();
+                        for property in apply_reasons::SELECT_PROPERTIES {
+                            assert!(body["properties"].as_array().unwrap().contains(&json!(property)));
+                        }
                         json!({"results":[
-                            {"id":"201","properties":{"yingmuri":"2026-10-01"}},
+                            {"id":"201","properties":{"yingmuri":"2026-10-01","oubodouki_1":"second;first;second;unset","kinmujoukennoyuusenjuni_1":"first","kinmujoukennoyuusenjuni_2":"second","kinmujoukennoyuusenjuni_3":"first"}},
                             {"id":"202","properties":{"yingmuri":"2026-10-02"}}]})
                     } else if path.ends_with("/0-421/notes/batch/read")
                         || path.ends_with("/0-421/0-420/batch/read")
@@ -655,6 +672,21 @@ mod bundle_cache_tests {
             service.applicant_bundle("10")
         );
         let (a, b) = (a.unwrap(), b.unwrap());
+        assert_eq!(
+            a["selection_options"]["oubodouki_1"],
+            json!([
+                {"value":"first","label":"選択肢A","display_order":1},
+                {"value":"second","label":"選択肢B","display_order":2}
+            ])
+        );
+        assert_eq!(
+            a["applications"][0]["selections"],
+            json!({
+                "oubodouki_1":["first","second"], "kinmujoukennoyuusenjuni_1":["first"],
+                "kinmujoukennoyuusenjuni_2":["second"], "kinmujoukennoyuusenjuni_3":["first"]
+            })
+        );
+        assert_eq!(a["applications"][1]["selections"]["oubodouki_1"], json!([]));
         assert_eq!(a["total"], 2);
         assert_eq!(a["by_date"], json!({"2026-10-01":1,"2026-10-02":1}));
         assert_eq!(a["fetched_at"], b["fetched_at"], "二度目は同じ結果を使う");
@@ -691,6 +723,46 @@ mod tests {
     use super::*;
     fn record(id: &str, values: Value) -> Record {
         serde_json::from_value(json!({"id": id, "properties": values})).unwrap()
+    }
+    #[test]
+    fn selected_values_and_definition_order_use_the_same_bundle_as_attributes() {
+        let definitions = json!({"results":apply_reasons::SELECT_PROPERTIES.iter().map(|name| json!({
+            "name":name,"options":[
+                {"value":"second","label":"合成の選択肢B","displayOrder":2},
+                {"value":"first","label":"合成の選択肢A","displayOrder":1}
+            ]})).collect::<Vec<_>>()});
+        let options = apply_reasons::parse_options(&definitions).unwrap();
+        assert_eq!(
+            options.definitions["oubodouki_1"][0],
+            json!({"value":"first","label":"合成の選択肢A","display_order":1})
+        );
+        let rows = vec![record(
+            "101",
+            json!({"yingmuri":"2026-09-18", "seibetsu":"女性",
+            "oubodouki_1":"second;first;second;unset", "kinmujoukennoyuusenjuni_1":"first",
+            "kinmujoukennoyuusenjuni_2":"second", "kinmujoukennoyuusenjuni_3":"first"}),
+        )];
+        let multi = BTreeSet::new();
+        let hearing = extract(
+            "30",
+            &rows,
+            &[],
+            &BTreeMap::new(),
+            &multi,
+            &options.labels,
+            None,
+            1,
+        )
+        .unwrap();
+        let data = bundle("30", &rows, &options.labels, &hearing, &multi, 1, None);
+        assert_eq!(
+            data["applications"][0]["selections"],
+            json!({"oubodouki_1":["first","second"],
+            "kinmujoukennoyuusenjuni_1":["first"], "kinmujoukennoyuusenjuni_2":["second"],
+            "kinmujoukennoyuusenjuni_3":["first"]})
+        );
+        assert_eq!(data["applications"][0]["gender"], "女性");
+        assert_eq!(data["by_date"], json!({"2026-09-18":1}));
     }
     #[test]
     fn bounded_output_keeps_all_applications_in_source_counts() {

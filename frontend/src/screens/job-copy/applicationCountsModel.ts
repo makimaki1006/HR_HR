@@ -12,7 +12,7 @@ const publishedWithCounts = (job: JobCopyRecord) => job.versions.filter(version 
 export function unmatchedApplicationCount(job: JobCopyRecord): number | null {
   if (job.attributionUnknown !== undefined) return job.attributionUnknown;
   // HubSpot の応募全体だけがあり、本文との対応が取れていない求人は全件が対象
-  if (job.overallApplications) return job.overallApplications.total;
+  if (job.overallApplications) return applicationsOutsideTimeline(job);
   const versions = publishedWithCounts(job);
   return versions.length ? versions.reduce((sum, version) => sum + (version.applications?.unknown ?? 0), 0) : null;
 }

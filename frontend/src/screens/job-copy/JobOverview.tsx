@@ -73,8 +73,8 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
   const byId = new Map(records.map(job => [job.id, job]));
   return <main className="jc-detail jo-overview" id="job-details" tabIndex={-1} aria-labelledby="job-overview-heading">
     <h1 id="job-overview-heading">求人の横断比較</h1>
-    <div className="jc-muted">直近の変化が見つかった2つの文面を確認した日について、前の文面を確認した日の前日までの{OVERVIEW_WINDOW_DAYS}日間と、後の文面を確認した日の翌日からの{OVERVIEW_WINDOW_DAYS}日間の1日あたり応募を並べています（HubSpot に記録された応募のみ）。<InfoTip className="jc-infotip-left" label="この表の見方">
-      <p>掲載が変わった日は分かりません。前の文面を確認した日と後の文面を確認した日の間のどこかで変わったとして、その間の応募は前後どちらにも入れていません。応募は日付だけで記録されていて、2つの文面を確認した日も文面を確認した時刻の前後で変わった可能性があるため、文面を確認した日当日の応募も入れていません。</p>
+    <div className="jc-muted">本文の変化を確認した日の前日までの{OVERVIEW_WINDOW_DAYS}日間と、確認した日からの{OVERVIEW_WINDOW_DAYS}日間の1日あたり応募を並べています（HubSpot に記録された応募のみ）。<InfoTip className="jc-infotip-left" label="この表の見方">
+      <p>本文が記録された日で期間を区切っています。変更当日の応募は変更後の本文に含みます。</p>
       <p>複数の求人に関連する応募は、どの求人の応募か決められないため数えていません（見分ける情報がある場合）。</p>
       <p>並べて見るための表で、どの求人が良いかを決めるものではありません。</p>
       <p>「多い応募理由」は、HubSpot に記録された応募理由を分類し、件数の多い2つを並べたものです。件数の後ろに、HubSpotで分類が選ばれた件数（選択）と、文から言葉で推定した件数（推定）を分けて書いています。nは応募理由の記録がある応募の件数です。古い保存データでは同じ応募の記述を見分けられないため、「記述n=」として記述ごとに数えています。「記録なし」は応募理由の記録が無いこと、「未取得」は応募理由を取得していないことです。「分類の選択は未取得」は、そのデータでは分類の選択を読んでいないことです。</p>
@@ -85,7 +85,7 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
       {range && <span className="jc-muted">カレンダー：{formatDay(range.start)}〜{formatDay(range.end)}（棒は週ごとの応募、色の付いた帯は変化が見つかった文面を確認した日の間）</span>}</div>
     <p className="jo-sort-note" role="note">並び順は数の大小で並べただけです。応募が増えた・減った理由を示すものではありません。</p>
     {!rows.length ? <p className="jc-notice">表示できる求人がありません。</p> : <div className="jo-table-scroll" role="region" aria-label="求人の横断比較の表" tabIndex={0}><table>
-      <thead><tr><th scope="col">求人</th><th scope="col">応募と変化</th><th scope="col">直近の変化</th><th scope="col">変化の種類</th><th scope="col">前の文面を確認した日の前日までの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">後の文面を確認した日の翌日からの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">実際の課金合計</th><th scope="col">多い応募理由</th></tr></thead>
+      <thead><tr><th scope="col">求人</th><th scope="col">応募と変化</th><th scope="col">直近の変化</th><th scope="col">変化の種類</th><th scope="col">変化を確認した日の前日までの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">変化を確認した日からの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">実際の課金合計</th><th scope="col">多い応募理由</th></tr></thead>
       <tbody>{sorted.map(row => {
         const job = byId.get(row.jobId);
         return <tr key={row.jobId}>

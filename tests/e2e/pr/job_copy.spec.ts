@@ -9,7 +9,7 @@ import { closeOtherAnalysis, openOtherAnalysis, openWork, selectJobFeature } fro
  * ここでは合成データを page.route で返し、市場 (/api/job-copy/market) も合成の月次データを返す。
  * 確かめること: 最初のタブがタイムライン、7 レーンの値、2 つの ECharts の描画完了、期間比較表の具体値、
  * 課金CSV を読み込むと課金レーンと期間比較表に入ること、取込と逆検索が主作業の外にあること。
- * 本文は文面を確認した日で区切る（文面を確認した日A〜Bの間は前後どちらの本文にも入れない）。仮の課金データは合計しない。
+ * 本文は記録日から次の記録日前日までで区切り、変更当日は後の本文に含める。仮の課金データは合計しない。
  */
 const defaultCapturedAt = '2026-08-20T00:00:00Z';
 const months = Array.from({ length: 14 }, (_, index) => `${2025 + Math.floor((index + 6) / 12)}-${String((index + 6) % 12 + 1).padStart(2, '0')}`);
@@ -129,37 +129,32 @@ test.describe('案件管理のタイムライン', () => {
     const market = await seriesLengths(page, 'jt-market');
     expect(market.length).toBe(2);
     expect(market[0]).toBeGreaterThan(0);
-    // 期間比較表: 文面を確認した日 07-01 と 08-20 の行と、その間（給与が変わった。どちらの内容か分からない）の行。
-    // 掲載日は分からず、応募は日付だけなので、変化の前後の文面を確認した日そのものもどちらの内容か分からない。
-    // 本文の行は 0 日で、文面を確認した日 08-20 の応募も間の行に数える（07-01 は最初の文面を確認した日で、表より前に数える）。
+    // 7/1〜8/19は31+19=50日で応募2+1=3件、8/20は1日で2件。記録日の間の独立した行は作らない。
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
-    await expect(rows).toHaveCount(3);
-    await expect(rows.nth(0).locator('th')).toContainText('2026/07/01に確認した本文');
-    await expect(rows.nth(1).locator('th')).toContainText('文面を確認した日2026/07/01〜2026/08/20の間に変化');
-    await expect(rows.nth(1).locator('th')).toContainText('2026/07/02〜2026/08/20（どちらの内容か分からない期間。文面を確認した日 2026/08/20 を含む）');
-    await expect(rows.nth(2).locator('th')).toContainText('2026/08/20に確認した本文');
-    // 仮の課金データは課金の段にだけ出し、期間比較表では合計しない
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).locator('th')).toContainText('2026/07/01時点の求人内容');
+    await expect(rows.nth(0).locator('th')).toContainText('2026/07/01〜2026/08/19（本文の記録日で区切った期間）');
+    await expect(rows.nth(1).locator('th')).toContainText('2026/08/20時点の求人内容');
+    await expect(rows.nth(1).locator('th')).toContainText('2026/08/20〜2026/08/20（本文の記録日で区切った期間）');
+    // 7月は系列の12番目で100+12×10=220件、8月は230件。前の本文は両月を含むので比較し、後の本文は8月内だけ。
     const noRealBilling = '実際の課金データなし（仮の課金データ（ダミー）は合計しません）';
-    await expect(rows.nth(0).locator('td')).toHaveText(['0日', '別の行に数えます', '期間が短いため比べません', '—', '同じ月の中（2026年7月 220件）']);
-    await expect(rows.nth(1).locator('td')).toHaveText(['50日', '5件', '比べません', noRealBilling, '+4.5%（2026年7月 220件 → 2026年8月 230件）']);
-    await expect(rows.nth(2).locator('td')).toHaveText(['0日', '別の行に数えます', '期間が短いため比べません', '—', '同じ月の中（2026年8月 230件）']);
+    await expect(rows.nth(0).locator('td')).toHaveText([`${String(31 + 19)}日`, `${String(2 + 1)}件`, `${((2 + 1) / (31 + 19)).toFixed(2)}件/日`, noRealBilling, '+4.5%（2026年7月 220件 → 2026年8月 230件）']);
+    await expect(rows.nth(1).locator('td')).toHaveText(['1日', '2件', '期間が短いため比べません', noRealBilling, '同じ月の中（2026年8月 230件）']);
     await expect(timeline.getByRole('region', { name: '期間比較表の数値' })).not.toContainText(/11万7,742円|2,355円/u);
-    await expect(timeline).toContainText('文面を確認した日の間・最後の確認より後の応募 5件 は、どちらの内容への応募か分からないため期間比較表の各本文には入れていません');
-    // 掲載期間の段: 文面を確認した日の間を別の帯で示し、凡例は「掲載日は不明（文面を確認した日で表示）」
+    await expect(timeline).not.toContainText('文面を確認した日の間・最後の確認より後の応募');
     const periodLane = timeline.getByRole('group', { name: '掲載期間', exact: true });
-    await expect(periodLane.locator('.jt-zone')).toHaveCount(1);
-    await expect(periodLane.locator('.jt-zone')).toHaveAttribute('title', '文面を確認した日2026/07/01〜2026/08/20の間に変化。どちらの内容か分からない期間です');
+    await expect(periodLane.locator('.jt-zone')).toHaveCount(0);
     await expect(timeline.getByRole('group', { name: '凡例', exact: true })).toContainText('掲載日は不明（文面を確認した日で表示）');
     await expect(timeline).not.toContainText(/変更日|本文が切り替わった日|掲載日の確かさ/u);
     await expect(page.locator('body')).not.toContainText(/過去CSVの本文|媒体CSV取得本文|接続待ち|実求人ID|原本不足/u);
     // ここから先は画面本体の操作なので、横画面を閉じる（開いている間は本体を操作できない）
     await closeOtherAnalysis(page);
-    // 上の帯の件数は期間比較表と同じ割り当てで数える（全 6 件のうち、本文の行に入った応募は無い）
+    // 保存データ自体の版対応は未取得だが、期間比較表では日付のある2+1+2=5件が本文の行に入り、日付不明1件だけが外に残る。
     await page.locator('.jc-snapshot-tip > summary').click();
     const summary = page.getByRole('region', { name: '取り込んだ内容の内訳' });
     await expect(summary).toContainText('6応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
     await expect(summary).toContainText('どの本文への応募か分からない応募 6件（求人ごとの件数の合計（重複あり））');
-    await expect(summary).toContainText('期間比較表の本文の行に入らない応募 6件（求人ごとの件数の合計（重複あり））');
+    await expect(summary).toContainText('期間比較表の本文の行に入らない応募 1件（求人ごとの件数の合計（重複あり））');
     await page.locator('.jc-snapshot-tip > summary').click();
     // 一部の求人だけを表示していることを、上の帯の下に 1 行で示す
     await expect(page.getByText('この画面は、選んで取り込んだ一部の求人（1件）だけを表示しています。管理しているすべての求人ではありません。', { exact: true })).toBeVisible();
@@ -268,15 +263,14 @@ test.describe('案件管理のタイムライン', () => {
     await open(page, '2026-10-05T00:00:00Z', { keepOpen: true });
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
-    // 文面を確認した日は 07-01 と 10-05。その間（07-02〜10-05、文面を確認した日 10-05 を含む）は給与が変わった期間で、どちらの内容か分からない。
-    await expect(rows).toHaveCount(3);
-    await expect(rows.nth(1).locator('th')).toContainText('文面を確認した日2026/07/01〜2026/10/05の間に変化');
-    await expect(rows.nth(1).locator('td').nth(0)).toHaveText('96日');
-    await expect(rows.nth(1).locator('td').nth(2)).toHaveText('比べません');
-    // 07 と 08 の市場データで比べ、09 以降はデータなしと書く。
-    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件、2026年9月以降はデータなし）');
-    // 期間がまるごと市場データより後: どの月までデータがあるかを書く（最後の月はデータから読む）
-    await expect(rows.nth(2).locator('td').nth(4)).toHaveText('データなし（市場求人数は2026年8月まで）');
+    // 前の本文は7/1〜10/4の31+31+30+4=96日。市場のある7・8月は比べ、9月以降の欠損も残す。
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).locator('th')).toContainText('2026/07/01〜2026/10/04');
+    await expect(rows.nth(0).locator('td').nth(0)).toHaveText(`${String(31 + 31 + 30 + 4)}日`);
+    await expect(rows.nth(0).locator('td').nth(2)).toHaveText(`${((2 + 1 + 2) / (31 + 31 + 30 + 4)).toFixed(2)}件/日`);
+    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件、2026年9月以降はデータなし）');
+    // 後の本文は10/5だけなので、期間全体が8月までの市場データより後になる。
+    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('データなし（市場求人数は2026年8月まで）');
     await expect(timeline).toContainText('市場データは2026年8月まで（毎月更新）。2026年9月以降はデータなしとして表示しています');
     await expect(timeline.getByRole('group', { name: '市場', exact: true }).locator('.jt-nodata')).toHaveText('データなし');
     const market = await seriesLengths(page, 'jt-market');
@@ -295,7 +289,9 @@ test.describe('案件管理のタイムライン', () => {
     await expect(rows.nth(0).locator('td').nth(4)).toHaveText('市場データを確認できませんでした');
     await expect(rows.nth(1).locator('td').nth(4)).toHaveText('市場データを確認できませんでした');
     await timeline.getByRole('button', { name: '市場データを再読み込み', exact: true }).click();
-    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件）');
+    // 再取得後、7/1〜8/19は7・8月を比較し、8/20だけの行は同じ月の値を出す。
+    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件）');
+    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('同じ月の中（2026年8月 230件）');
     await expect(timeline.getByText('市場と比べる職種：配送ドライバー（人が指定）', { exact: true })).toBeVisible();
     const market = await seriesLengths(page, 'jt-market');
     expect(market).toEqual([2, 2]);
@@ -319,13 +315,12 @@ test.describe('案件管理のタイムライン', () => {
     await expect(timeline.getByRole('group', { name: '課金', exact: true }).locator('.jt-billing')).toHaveText(['3万1,000円', 'ダミー 4万7,097円']);
     await expect(timeline.getByRole('group', { name: '課金', exact: true }).locator('.jt-billing-csv')).toHaveCount(1);
     await expect(timeline.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。', { exact: true })).toBeVisible();
-    // 07-01〜07-31 の 31 日分 31,000円 を日数で配分: 文面を確認した日の間（07-02〜）に 30 日分。07-01 の行は
-    // 内容の分かる日が無い（0 日）ので金額を書かない
+    // 7月の31,000円は31日すべてが7/1〜8/19に入るので、31,000÷31×31=31,000円（按分なし）。
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
-    // 実際の金額だけを書き、仮の金額は合計しない（7万5,742円 のような合計も、仮の金額も出さない）
-    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('—');
-    await expect(rows.nth(1).locator('td').nth(3)).toHaveText('約3万円（仮の課金データ（ダミー）は合計に入れていません）');
-    await expect(rows.nth(2).locator('td').nth(3)).toHaveText('—');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('3万1,000円（仮の課金データ（ダミー）は合計に入れていません）');
+    // 8/20には実課金がなく、残る8月のダミーも実課金額には足さない。
+    await expect(rows.nth(1).locator('td').nth(3)).toHaveText('実際の課金データなし（仮の課金データ（ダミー）は合計しません）');
     await expect(timeline.getByRole('region', { name: '期間比較表の数値' })).not.toContainText(/7万5,742円|4万4,742円/u);
     await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
     // 印刷する報告（比較・報告）も、反映した課金CSVを読む（画面と食い違わない）
@@ -339,7 +334,7 @@ test.describe('案件管理のタイムライン', () => {
     await page.setViewportSize({ width: 1440, height: 800 });
     await open(page);
     await page.getByRole('button', { name: 'データ取込', exact: true }).click();
-    // 08-01〜08-31 の 31 日で 31,000円。文面を確認した日の間（〜08-20、文面を確認した日 08-20 を含む）に 20 日分を配分する。
+    // 8/1〜8/31の31,000円を、前の本文の8/1〜19に19日分、後の本文の8/20に1日分配分する。
     const csv = '媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,0042,12345678,2026-08-01,2026-08-31,31000\n';
     await page.getByLabel('課金CSVファイル', { exact: true }).setInputFiles({ name: 'billing.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
     await page.getByRole('button', { name: '求人と照合する', exact: true }).click();
@@ -349,10 +344,10 @@ test.describe('案件管理のタイムライン', () => {
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     const table = timeline.getByRole('region', { name: '期間比較表の数値' });
     const rows = table.locator('tbody tr');
-    // 08 月は課金CSVの金額。07 月は CSV に無いので仮の課金データ（ダミー）のまま課金の段にだけ出し、合計しない
-    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('—');
-    await expect(rows.nth(1).locator('td').nth(3)).toHaveText('約2万円（仮の課金データ（ダミー）は合計に入れていません）');
-    await expect(rows.nth(2).locator('td').nth(3)).toHaveText('—');
+    // 前は31,000÷31×19=19,000円、後は31,000÷31×1=1,000円。7月のダミーは前の行の実課金に足さない。
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('約1万9,000円（仮の課金データ（ダミー）は合計に入れていません）');
+    await expect(rows.nth(1).locator('td').nth(3)).toHaveText('約1,000円');
     await expect(timeline.getByText('「約」の付いた課金額は、課金の期間と本文の表示期間がずれているため、日数で割って配分した金額です。', { exact: true })).toBeVisible();
     await expect(table.locator('[title]')).toHaveCount(0);
     // 本文の印: 画面の文字と読み上げが同じことを言う

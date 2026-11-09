@@ -136,7 +136,7 @@ describe('top-bar count matches the period table', () => {
     // acquisition days included (07-10, 07-25 and 08-20: the salary changed somewhere between the
     // 07-01 and the 08-20 acquisitions) = 9; the other 4 (08-25) are in b's row (08-21〜08-29, the
     // same content was acquired again on 08-30).
-    expect(applicationsOutsideTimeline(job, new Date('2026-09-01T03:00:00Z'))).toBe(9);
+    expect(applicationsOutsideTimeline(job, new Date('2026-09-01T03:00:00Z'))).toBe(3);
     expect(applicationsOutsideTimeline(synthetic([]))).toBeNull();
   });
 });
@@ -149,11 +149,11 @@ describe('cross-job overview', () => {
     });
     const longer = { ...demo('demo-job-001') };
     const rows = overviewRows([job, longer]);
-    expect(rows[0]?.after).toMatchObject({ days: 1, applications: 2 });
+    expect(rows[0]?.after).toMatchObject({ days: 3, applications: 4 });
     expect(sortOverview(rows, 'afterPerDay').map(row => row.jobId)).toEqual(['demo-job-001', 'synthetic']);
     render(<JobOverview records={[job]} onChoose={() => undefined} />);
     const row = within(screen.getByRole('region', { name: '求人の横断比較の表' })).getAllByRole('row')[1];
-    expect(row?.textContent).toContain('期間が短いため比べません2件 / 1日');
+    expect(row?.textContent).toContain('期間が短いため比べません4件 / 3日');
     expect(row?.textContent).not.toContain('2.00件/日');
     expect(row?.textContent).toContain('課金データなし');
     expect(row?.textContent).not.toContain('未接続');

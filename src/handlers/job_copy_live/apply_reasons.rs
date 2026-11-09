@@ -18,7 +18,8 @@ const PRIORITIES: [&str; 3] = [
     "kinmujoukennoyuusenjuni_2",
     "kinmujoukennoyuusenjuni_3",
 ];
-const SELECT_PROPERTIES: [&str; 4] = [MOTIVE, PRIORITIES[0], PRIORITIES[1], PRIORITIES[2]];
+pub(super) const SELECT_PROPERTIES: [&str; 4] =
+    [MOTIVE, PRIORITIES[0], PRIORITIES[1], PRIORITIES[2]];
 const TEXT_PROPERTIES: [&str; 3] = [
     "oubodouki",
     "kinmujoukennoyuusenjuni",
@@ -191,7 +192,7 @@ fn app_date(properties: &Value) -> Option<NaiveDate> {
         super::deal_summary::application_day_of(yingmuri.as_deref(), created.as_deref())?;
     NaiveDate::parse_from_str(&day, "%Y-%m-%d").ok()
 }
-fn is_unset(value: &str, label: Option<&str>) -> bool {
+pub(super) fn is_unset(value: &str, label: Option<&str>) -> bool {
     let plain = |s: &str| s.trim().to_lowercase();
     plain(value) == "unset"
         || plain(value) == "未設定"
@@ -254,14 +255,16 @@ fn parse_app(row: &Value, labels: Option<&applicant_reasons::OptionLabels>) -> O
 }
 
 // ---- 読み取り ----
-struct Options {
-    labels: applicant_reasons::OptionLabels,
+pub(super) struct Options {
+    pub(super) labels: applicant_reasons::OptionLabels,
     /// 応募動機の選択肢の名前（displayOrder の順）。
-    order: Vec<String>,
+    pub(super) order: Vec<String>,
+    pub(super) definitions: BTreeMap<String, Vec<Value>>,
 }
-fn parse_options(data: &Value) -> Option<Options> {
+pub(super) fn parse_options(data: &Value) -> Option<Options> {
     let mut labels = applicant_reasons::OptionLabels::new();
     let mut order = Vec::new();
+    let mut definitions = BTreeMap::new();
     for property in data["results"].as_array()? {
         let Some(name) = property["name"]
             .as_str()
@@ -286,6 +289,14 @@ fn parse_options(data: &Value) -> Option<Options> {
             })
             .collect();
         options.sort_by_key(|(at, _, _)| *at);
+        definitions.insert(
+            name.to_owned(),
+            options
+                .iter()
+                .filter(|(_, value, label)| !is_unset(value, Some(label)))
+                .map(|(at, value, label)| json!({"value":value,"label":label,"display_order":at}))
+                .collect(),
+        );
         if name == MOTIVE {
             order = options.iter().map(|(_, _, l)| l.clone()).collect();
         }
@@ -294,7 +305,11 @@ fn parse_options(data: &Value) -> Option<Options> {
             options.into_iter().map(|(_, v, l)| (v, l)).collect(),
         );
     }
-    (!labels.is_empty()).then_some(Options { labels, order })
+    (!labels.is_empty()).then_some(Options {
+        labels,
+        order,
+        definitions,
+    })
 }
 async fn read_options(service: &JobReadService) -> Option<Options> {
     let data = service

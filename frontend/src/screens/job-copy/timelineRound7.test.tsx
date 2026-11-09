@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * Review round 7 (2026-10-08): acquisition days next to a change are not given to either version,
+ * Review round 7, updated 2026-11-09: record days belong to the new body,
  * no 「1日あたり」 for periods shorter than 7 days (the same rule as the cross-job overview), the
  * dummy billing notes say where the amounts are shown, the real-data banner says the amounts are
  * made up, the printable report reads the applied billing CSV, area totals are counted from the
@@ -44,38 +44,32 @@ describe('acquisition days next to a change', () => {
     version('b2', '2026-08-31T00:00:00Z', '給与：月給250,000円'),
   ], { '2026-08-01': 1, '2026-08-05': 2, '2026-08-12': 3, '2026-08-15': 4, '2026-08-20': 5, '2026-08-25': 6, '2026-08-31': 7 }, '2026-09-02T00:00:00Z');
 
-  it('counts an acquisition day for a version only when the acquisitions on both sides found the same content', () => {
+  it('counts each record day in the body recorded that day', () => {
     expect(countRanges(record, '2026-09-02')).toEqual([
-      { start: '2026-08-02', end: '2026-08-12' },
-      { start: '2026-08-12', end: '2026-08-12' },
-      { start: '2026-08-21', end: '2026-08-31' },
-      { start: '2026-08-31', end: '2026-08-31' },
+      { start: '2026-08-01', end: '2026-08-12' },
+      { start: '2026-08-12', end: '2026-08-20' },
+      { start: '2026-08-20', end: '2026-08-31' },
+      { start: '2026-08-31', end: '2026-09-03' },
     ]);
     const rows = periodRows(record, { asOf: '2026-09-02', dummyBilling: false });
-    expect(rows.map(row => [row.kind, row.start, row.lastDay, row.days, row.applications, row.perDay])).toEqual([
-      ['period', '2026-08-02', '2026-08-11', 10, 2, 0.2],
-      ['period', '2026-08-12', '2026-08-12', 0, 0, null],
-      // 文面を確認した日A (08-12) and 文面を確認した日B (08-20) are in the 文面を確認した日の間 row: the change may fall on either day.
-      ['between', '2026-08-12', '2026-08-20', 9, 12, null],
-      ['period', '2026-08-21', '2026-08-30', 10, 6, 0.6],
-      ['period', '2026-08-31', '2026-08-31', 0, 0, null],
-      ['unacquired', '2026-08-31', '2026-09-02', 3, 7, null],
+    expect(rows.map(row => [row.kind, row.start, row.days, row.applications])).toEqual([
+      ['period', '2026-08-01', 11, 3], ['period', '2026-08-12', 8, 7],
+      ['period', '2026-08-20', 11, 11], ['period', '2026-08-31', 3, 7],
     ]);
-    // No day is in two rows; the only day outside is the first acquisition day (08-01).
     for (const [index, row] of rows.entries()) {
       const next = rows[index + 1];
       if (next) expect(row.end).toBe(next.start);
     }
-    expect(applicationsOutsidePeriods(record, rows)).toBe(1);
+    expect(applicationsOutsidePeriods(record, rows)).toBe(0);
   });
 
-  it('starts the overview after-window the day after 文面を確認した日B and ends the before-window the day before 文面を確認した日A', () => {
+  it('starts the overview after-window on the new body record day', () => {
     render(<JobOverview records={[record]} onChoose={() => undefined} showDummyBilling={false} now={new Date('2026-09-02T03:00:00Z')} />);
     const row = within(screen.getByRole('region', { name: '求人の横断比較の表' })).getAllByRole('row')[1];
-    // before: 08-02〜08-11 (2件 / 10日), after: 08-21〜08-30 (6件 / 10日).
-    expect(row?.textContent).toContain('0.20件/日2件 / 10日');
-    expect(row?.textContent).toContain('0.60件/日6件 / 10日');
-    expect(screen.getByRole('columnheader', { name: /前の文面を確認した日の前日まで/u })).toBeTruthy();
+    // before: 08-06〜08-19 (7件 / 14日), after: 08-20〜09-02 (18件 / 14日).
+    expect(row?.textContent).toContain('0.50件/日7件 / 14日');
+    expect(row?.textContent).toContain('1.29件/日18件 / 14日');
+    expect(screen.getByRole('columnheader', { name: /変化を確認した日の前日まで/u })).toBeTruthy();
   });
 });
 
@@ -87,7 +81,7 @@ describe('no 1日あたり for short periods', () => {
       version('b1', '2026-08-10T00:00:00Z', '給与：月給250,000円'),
     ], { '2026-08-03': 2 }, '2026-08-12T00:00:00Z');
     const rows = periodRows(record, { asOf: '2026-08-12', dummyBilling: false });
-    expect([rows[0]?.days, rows[0]?.applications, rows[0]?.perDay, rows[0]?.shortPeriod]).toEqual([3, 2, null, true]);
+    expect([rows[0]?.days, rows[0]?.applications, rows[0]?.perDay, rows[0]?.shortPeriod]).toEqual([4, 2, null, true]);
     expect(MIN_RATE_DAYS).toBe(7);
     render(<JobTimeline job={record} marketMode="demo" now={new Date('2026-08-12T03:00:00Z')} showDummyBilling={false} />);
     const table = screen.getByRole('region', { name: '期間比較表の数値' });

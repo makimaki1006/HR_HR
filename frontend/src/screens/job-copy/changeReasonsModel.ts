@@ -1,16 +1,14 @@
 /**
  * 変更ごとの応募理由: 給与・本文・画像を変えた日の前後 N 週に、応募の件数と応募理由の記録を並べる。
  * 割合や「効いた」という判定は作らない。区間の取り方は一覧表(overviewModel)と同じで、
- * 文面を確認した日と、その間の日はどちらの側にも数えない。
+ * 本文を記録した日から次の記録日前日までを、その本文の期間として数える。
  */
-import type { JobCopyRecord } from './data';
-import type { ApplicantReason } from './applicantReasonsModel';
-import { reasonSourceLabels } from './applicantReasonsModel';
+import type { ApplicationRow, JobCopyRecord } from './data';
+import { APPLICATION_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
 import { buildListingEvents, md } from './listingEventsModel';
 import { changeWindowOf, rate, runEndIndex, runStartIndex } from './overviewModel';
 import type { ChangeWindow } from './overviewModel';
-import { classifyApplicationReasons, tally } from './reasonCategories';
-import type { ReasonTally } from './reasonCategories';
+import { hasSelectedReason, reasonApplications } from './selectedReasonsModel';
 import { addDays, boundaryStatus, buildPeriods, changeKinds, countRanges, daysBetween, versionChanges } from './timelineModel';
 
 export type WindowLimit = 'previous_change' | 'next_change' | 'listing_start' | 'today';
@@ -25,7 +23,7 @@ export interface ReasonWindow {
   /** 応募の件数。応募の日別件数を取得していないときは null（0 ではない）。 */
   applications: number | null;
   /** 応募理由の記録。収集できていないときは null。 */
-  reasons: ReasonTally | null;
+  reasons: { n: number; rows: ApplicationRow[] } | null;
   texts: ReasonText[];
   /** 週数の長さに満たないとき、その理由と区切りになった変更・開始の日。 */
   shortened: { reason: WindowLimit; date: string | null } | null;
@@ -49,11 +47,18 @@ export interface ChangeReasonSummary {
 }
 
 export function changeReasonSummary(job: JobCopyRecord): ChangeReasonSummary {
-  const classified = classifyApplicationReasons(job.applicantReasons);
+  const rows = reasonApplications(job);
+  const multi = new Set(job.applicantReasons?.multiListingApplicants ?? []);
+  const dates = new Map(rows.filter(hasSelectedReason).map(row => [row.key, row.date]));
+  for (const item of job.applicantReasons?.items ?? []) {
+    if (!APPLICATION_TEXT_SOURCES.includes(item.sourceProperty) || (item.applicant && multi.has(item.applicant))) continue;
+    const row = rows.find(row => row.key === item.applicant);
+    dates.set(item.applicant ?? item.id, row ? row.date : item.applicationDate);
+  }
   return {
-    reasonsAvailable: classified !== null,
-    undated: classified ? classified.applications.filter(application => application.applicationDate === null).length : 0,
-    multiListing: classified?.multiListing ?? null,
+    reasonsAvailable: job.applicationRows !== undefined && job.overallApplications?.selectionOptions != null,
+    undated: [...dates.values()].filter(date => date === null).length,
+    multiListing: job.applicantReasons?.multiListingApplicants?.length ?? null,
   };
 }
 
@@ -68,7 +73,10 @@ export function changeReasonBlocks(job: JobCopyRecord, weeks: ReasonWeeks, asOf:
   const ranges = countRanges(job, asOf, periods);
   const same = (index: number) => { const change = changes[index]; return change !== undefined && boundaryStatus(change) === 'same'; };
   const events = buildListingEvents(job, []);
-  const classified = classifyApplicationReasons(job.applicantReasons);
+  const rows = reasonApplications(job);
+  const multi = new Set(job.applicantReasons?.multiListingApplicants ?? []);
+  const sharedRows = [...new Map((job.applicationRows ?? []).filter(row => multi.has(row.key)).map(row => [row.key, row])).values()];
+  const reasonsAvailable = job.applicationRows !== undefined && job.overallApplications?.selectionOptions != null;
   const applicationsAvailable = job.overallApplications?.byDate !== undefined;
   const length = weeks * 7;
   const tomorrow = addDays(asOf, 1);
@@ -76,14 +84,17 @@ export function changeReasonBlocks(job: JobCopyRecord, weeks: ReasonWeeks, asOf:
   const windowFor = (start: string, end: string, shortened: ReasonWindow['shortened']): ReasonWindow => {
     const from = start;
     const to = end < start ? start : end;
-    const inside = classified ? classified.applications.filter(application => application.applicationDate !== null && application.applicationDate >= from && application.applicationDate < to) : null;
-    const texts: ReasonText[] = inside ? inside.flatMap(application => application.texts.map((item: ApplicantReason) => ({
-      id: item.id, text: item.text, applicationDate: item.applicationDate ?? application.applicationDate, sourceLabel: reasonSourceLabels[item.sourceProperty] ?? 'HubSpotの記録欄',
-    }))).sort((a, b) => (a.applicationDate ?? '').localeCompare(b.applicationDate ?? '')) : [];
+    const inside = rows.filter(row => row.date !== null && row.date >= from && row.date < to);
+    const texts: ReasonText[] = (job.applicantReasons?.items ?? []).flatMap(item => {
+      if (!APPLICATION_TEXT_SOURCES.includes(item.sourceProperty) || (item.applicant && multi.has(item.applicant))) return [];
+      const row = rows.find(row => row.key === item.applicant);
+      const date = row ? row.date : item.applicationDate;
+      return date !== null && date >= from && date < to ? [{ id: item.id, text: item.text, applicationDate: date, sourceLabel: reasonSourceLabels[item.sourceProperty] ?? 'HubSpotの記録欄' }] : [];
+    }).sort((a, b) => a.applicationDate.localeCompare(b.applicationDate));
     return {
       start: from, end: to, days: Math.max(0, daysBetween(from, to)),
-      applications: applicationsAvailable ? rate(job, from, to).applications : null,
-      reasons: inside ? tally(inside) : null, texts, shortened,
+      applications: applicationsAvailable ? rate(job, from, to).applications - (job.overallApplications?.multiListing ? 0 : sharedRows.filter(row => row.date !== null && row.date >= from && row.date < to).length) : null,
+      reasons: reasonsAvailable ? { n: inside.filter(hasSelectedReason).length, rows: inside } : null, texts, shortened,
     };
   };
 

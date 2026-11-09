@@ -91,7 +91,7 @@ describe('explanations that can be read without hovering', () => {
       dataSource: 'hubspot', overallApplications: { total: 6, missingDate: 0, fetchedAt: '2026-08-22T00:00:00Z', distributions: {}, byDate: { '2026-08-10': 2, '2026-08-20': 2, '2026-08-21': 2 } } };
     render(<JobOverview records={[job]} onChoose={() => undefined} />);
     const table = screen.getByRole('region', { name: '求人の横断比較の表' });
-    expect(within(table).getAllByRole('row')[1]?.textContent).toContain('期間が短いため比べません2件 / 1日');
+    expect(within(table).getAllByRole('row')[1]?.textContent).toContain('期間が短いため比べません4件 / 3日');
     expect(table.querySelectorAll('td[title]')).toHaveLength(0);
     expect(document.querySelector('.jo-short-note')?.textContent).toContain('ある日数分だけで1日あたりを数えています');
   });
