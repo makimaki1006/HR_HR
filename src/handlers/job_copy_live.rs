@@ -32,6 +32,7 @@ mod consultant_flags;
 mod consultant_good;
 mod consultant_houjin;
 mod consultant_risk;
+mod deal_application_reasons;
 mod deal_board;
 mod deal_summary;
 mod drafts;
@@ -216,6 +217,7 @@ pub struct JobReadService {
     reports_restored: Arc<tokio::sync::OnceCell<()>>,
     recent_changes: Arc<recent_changes::Cache>,
     apply_reasons: Arc<apply_reasons::Cache>,
+    selection_options: Arc<apply_reasons::OptionsCache>,
     owner_todo: Arc<owner_todo::Cache>,
     /// Every HubSpot read goes through this client (the process-wide gateway: rate limit,
     /// priority, bounded waiting, global 429 pause, coalescing of identical reads).
@@ -270,6 +272,7 @@ impl JobReadService {
             reports_restored: Arc::default(),
             recent_changes: Arc::default(),
             apply_reasons: Arc::default(),
+            selection_options: Arc::default(),
             owner_todo: Arc::default(),
             labels: Arc::default(),
             publication: Arc::default(),

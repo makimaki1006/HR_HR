@@ -14,6 +14,8 @@ const FIRST_CONTRACT_VALUE: &str = "新規契約";
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub(super) struct Facts {
+    #[serde(default)]
+    pub(super) selections: Option<BTreeMap<String, BTreeMap<String, Vec<String>>>>,
     pub(super) live: usize,
     pub(super) unknown_dates: usize,
     // 既存の期間集計用の日付と、取引をまたぐ重複排除用の応募 ID。
@@ -262,9 +264,39 @@ pub(super) async fn fetch(
         "job-copy todo facts stage"
     );
     let phase = std::time::Instant::now();
-    let dates: BTreeMap<_, _> = service
-        .batch("0-421", &ids, &super::deal_summary::DATE_PROPERTIES)
-        .await?
+    let properties: Vec<_> = super::deal_summary::DATE_PROPERTIES
+        .into_iter()
+        .chain(super::apply_reasons::SELECT_PROPERTIES)
+        .collect();
+    let records = service.batch("0-421", &ids, &properties).await?;
+    let selections = records
+        .iter()
+        .filter_map(|r| {
+            let values: BTreeMap<_, _> = super::apply_reasons::SELECT_PROPERTIES
+                .into_iter()
+                .filter_map(|property| {
+                    let values: Vec<_> = r
+                        .value(property)
+                        .unwrap_or("")
+                        .split(';')
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty() && !super::apply_reasons::is_unset(v, None))
+                        .map(|v| {
+                            applicant_reasons::mask_personal_details(v)
+                                .chars()
+                                .take(applicant_reasons::MAX_VALUE_CHARS)
+                                .collect::<String>()
+                        })
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect();
+                    (!values.is_empty()).then(|| (property.to_owned(), values))
+                })
+                .collect();
+            (!values.is_empty()).then(|| (r.id.clone(), values))
+        })
+        .collect();
+    let dates: BTreeMap<_, _> = records
         .into_iter()
         .map(|r| {
             (
@@ -282,7 +314,13 @@ pub(super) async fn fetch(
         elapsed_ms = phase.elapsed().as_millis() as u64,
         "job-copy todo facts stage"
     );
-    Ok(assemble(relations, &applications, &dates, &live))
+    Ok(assemble(
+        relations,
+        &applications,
+        &dates,
+        &live,
+        &selections,
+    ))
 }
 
 fn assemble(
@@ -290,6 +328,7 @@ fn assemble(
     applications: &BTreeMap<String, Vec<String>>,
     dates: &BTreeMap<String, Option<NaiveDate>>,
     live: &BTreeSet<String>,
+    selections: &BTreeMap<String, BTreeMap<String, Vec<String>>>,
 ) -> BTreeMap<String, Facts> {
     relations
         .into_iter()
@@ -299,6 +338,11 @@ fn assemble(
                 .flat_map(|id| applications.get(id).into_iter().flatten())
                 .collect();
             let facts = Facts {
+                selections: Some(
+                    apps.iter()
+                        .filter_map(|id| selections.get(*id).map(|v| ((*id).clone(), v.clone())))
+                        .collect(),
+                ),
                 application_days: apps
                     .iter()
                     .map(|id| ((*id).clone(), dates.get(*id).copied().flatten()))
@@ -404,6 +448,7 @@ mod tests {
         ] {
             let d = deal(age, None, 90);
             let mut facts = Facts {
+                selections: None,
                 application_days: BTreeMap::new(),
                 live: 2,
                 unknown_dates: 0,
@@ -452,6 +497,7 @@ mod tests {
                 .unwrap()
         };
         let facts = Facts {
+            selections: None,
             application_days: BTreeMap::new(),
             live: 3,
             unknown_dates: 0,
@@ -505,8 +551,17 @@ mod tests {
             &applications,
             &dates,
             &BTreeSet::from(["10".into()]),
+            &BTreeMap::from([(
+                "100".into(),
+                BTreeMap::from([("oubodouki_1".into(), vec!["給与".into()])]),
+            )]),
         );
         assert_eq!(facts["1"].application_days, dates);
+        assert_eq!(facts["1"].selections.as_ref().unwrap().len(), 1);
+        assert_eq!(
+            facts["1"].selections.as_ref().unwrap()["100"]["oubodouki_1"],
+            ["給与"]
+        );
         assert_eq!(facts["1"].live, 1);
         assert_eq!(facts["1"].unknown_dates, 1);
         assert_eq!(facts["1"].days, [day("2026-10-16"), day("2026-10-01")]);
@@ -582,6 +637,7 @@ mod tests {
     fn stalled_fourteen_calendar_days_and_start_boundary() {
         let today = day("2026-10-16");
         let mut f = Facts {
+            selections: None,
             application_days: BTreeMap::new(),
             unknown_dates: 0,
             listings: None,
@@ -618,6 +674,7 @@ mod tests {
         ] {
             let d = deal(age, Some("2026-10-16"), 61);
             let f = Facts {
+                selections: None,
                 application_days: BTreeMap::new(),
                 unknown_dates: 0,
                 listings: None,
@@ -632,6 +689,7 @@ mod tests {
         }
         let mut d = deal(60, None, 0);
         let mut f = Facts {
+            selections: None,
             application_days: BTreeMap::new(),
             unknown_dates: 0,
             listings: None,

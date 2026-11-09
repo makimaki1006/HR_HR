@@ -123,3 +123,16 @@ it('日付不明を添えて負の差を表示し、未取得の取引があれ�
   expect(first?.textContent).toContain('前の4週 3件 ／ 差 -2件');
   expect(first?.textContent).toContain('日付不明 1件を除外');
 });
+
+it('取引ごとの応募動機を行に出し、詳しい数字で全件の表を開く', async () => {
+  const { default: application_reasons } = await import('../../../../scripts/e2e/deal_application_reasons.json');
+  stub([], [{ ...row(0), application_reasons }]);
+  render(<DealBoard />);
+  await screen.findByText('応募動機を聞けた 3件／2026/09/14 以降の応募 5件');
+  expect(screen.getByText('休日 2件').textContent).toBe('休日 2件');
+  fireEvent.click(screen.getByRole('button', { name: `${row(0).name ?? ''}の詳しい数字を開く` }));
+  const motives = within(screen.getByRole('table', { name: '応募動機の選択件数' }));
+  expect(motives.getAllByRole('cell').map(cell => cell.textContent)).toEqual(['2件', '2件', '0件', '1件']);
+  const priorities = within(screen.getByRole('table', { name: '勤務条件の優先順位の選択件数' }));
+  expect(priorities.getAllByRole('cell').map(cell => cell.textContent)).toEqual(['2件', '0件', '0件', '1件', '2件', '0件', '0件', '0件', '1件', '0件', '0件', '0件']);
+});

@@ -1,0 +1,20 @@
+{
+  "total": 5,
+  "answered": [3, 3, 2, 1],
+  "top": [
+    {"label": "休日", "unknown": false, "counts": [2]},
+    {"label": "給与", "unknown": false, "counts": [2]}
+  ],
+  "motives": [
+    {"label": "休日", "unknown": false, "counts": [2]},
+    {"label": "給与", "unknown": false, "counts": [2]},
+    {"label": "通勤", "unknown": false, "counts": [0]},
+    {"label": "旧選択肢", "unknown": true, "counts": [1]}
+  ],
+  "priorities": [
+    {"label": "休日", "unknown": false, "counts": [2, 0, 0]},
+    {"label": "給与", "unknown": false, "counts": [1, 2, 0]},
+    {"label": "通勤", "unknown": false, "counts": [0, 0, 1]},
+    {"label": "旧選択肢", "unknown": true, "counts": [0, 0, 0]}
+  ]
+}

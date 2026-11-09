@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { boardFixture, boardRows, firstRows } from '../../../frontend/src/screens/job-copy/dealBoard.testFixtures';
 import { demoHome } from '../../../frontend/src/screens/job-copy/demoHome';
@@ -38,7 +40,8 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   const layout = await controls.locator('select, input[type=checkbox]').evaluateAll(elements => elements.map(el => ({ top: el.getBoundingClientRect().top, center: el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2 })));
   expect(Math.max(...layout.map(box => box.center)) - Math.min(...layout.map(box => box.center))).toBeLessThan(3);
   const rowHeight = await table.locator('tbody > tr').first().evaluate(el => el.getBoundingClientRect().height);
-  expect(rowHeight).toBeLessThan(60);
+  // 応募動機の状況を案件名の下に1行足す。
+  expect(rowHeight).toBeLessThan(90);
   expect(await page.locator('.db-board').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false);
   const dir = process.env.BOARD_SCREENSHOT_DIR;
   if (dir) await page.screenshot({ path: `${dir}/deals-1440.png`, fullPage: true });
@@ -238,4 +241,20 @@ test('面接が1件も無い取引と、期間を指定した応募ゼロ（面�
   await page.getByLabel('から').fill('2026-10-01');
   await page.getByLabel('まで').fill('2026-10-15');
   await expect.poll(() => urls.some(url => url.includes('period_from=2026-10-01') && url.includes('period_to=2026-10-15'))).toBe(true);
+});
+
+test('取引の行に応募動機の上位2件、詳しい数字に全選択肢と優先順位を表示する', async ({ page }) => {
+  const application_reasons = JSON.parse(readFileSync(resolve(__dirname, '../../../scripts/e2e/deal_application_reasons.json'), 'utf8'));
+  await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, rows: [{ ...boardRows[0], application_reasons }] } }));
+  await page.route('**/api/job-copy/consultant-good?*', route => route.fulfill({ json: { status: 'ready', rows: [] } }));
+  await login(page); await page.goto('/app/job-copy?view=deals&owner=11');
+  const row = page.locator('.db-table > tbody > tr').first();
+  await expect(row).toContainText('多い応募動機：休日 2件 ／ 給与 2件');
+  await expect(row).toContainText('応募動機を聞けた 3件／2026/09/14 以降の応募 5件');
+  await row.getByRole('button', { name: '架空の採用支援01の詳しい数字を開く' }).click();
+  const motives = page.getByRole('table', { name: '応募動機の選択件数' });
+  await expect(motives.locator('tbody tr')).toHaveText(['休日2件', '給与2件', '通勤0件', '旧選択肢（いまの選択肢にない値）1件']);
+  const priorities = page.getByRole('table', { name: '勤務条件の優先順位の選択件数' });
+  await expect(priorities.locator('thead th')).toHaveText(['選択肢', '①', '②', '③']);
+  await expect(priorities.locator('tbody tr')).toHaveText(['休日2件0件0件', '給与1件2件0件', '通勤0件0件1件', '旧選択肢（いまの選択肢にない値）0件0件0件']);
 });
