@@ -1,4 +1,5 @@
 //! アポの判定結果を Slack のチャンネルに 1 件ずつ送る (2026-11-05 ユーザー決定: アポ 1 件ごと、Incoming Webhook)。
+//! 送るのはランク S と A のアポだけ (2026-11-10 ユーザー決定)。
 //!
 //! 送るのは、日程が決まった電話にヒアリングを付けたとき (= HubSpot でアポ日確定が確かめられたとき) だけ。
 //! 中身は 担当者・電話の時刻・アポのランク (`apo_rank.rs`)・ヒアリングの答え・振り返りと HubSpot へのリンク。
@@ -107,9 +108,13 @@ impl SlackNotifier {
         self.teams.iter().any(|t| t == team)
     }
 
-    /// 送る。ランクが無い (ヒアリングの対象外) ・古い電話・対象外のチームは送らない。送ったら true
+    /// 送る。ランクが S・A でない (ヒアリングの対象外を含む) ・古い電話・対象外のチームは送らない。送ったら true
     pub async fn send(&self, n: &ApoNotice<'_>, now: DateTime<Utc>) -> bool {
         if !self.covers(n.team) || now - n.call_at > MAX_AGE {
+            return false;
+        }
+        // 送るのは S と A だけ (2026-11-10 ユーザー決定)
+        if !apo_rank::rank(n.items).is_some_and(|r| super::slack_bot::NOTIFY_RANKS.contains(&r)) {
             return false;
         }
         let Some(text) = message(n, &self.app_url) else {
