@@ -3172,8 +3172,18 @@ mod tests {
         assert!(row.items[9..].iter().all(|i| i.counted_from == date));
         assert_eq!(*calls.lock().unwrap(), vec![date]);
         assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 0);
-        // 同じ行なら通知可能な設定であることも確かめる。
+        // 同じ設定で通知できることも確かめる (この行は 4か月以上 = S・A でないので送らない。時期を 3か月以内にすると送る)
         notify_apo(Some(&slack), None, &w.members, &row).await;
+        assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let mut hot = row.clone();
+        for i in hot.items.iter_mut() {
+            match i.id.as_str() {
+                "aq_timing" => i.answer = Some("3か月以内".into()),
+                "aq_budget" => i.answer = Some("具体額".into()),
+                _ => {}
+            }
+        }
+        notify_apo(Some(&slack), None, &w.members, &hot).await;
         assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 1);
         server.abort();
     }

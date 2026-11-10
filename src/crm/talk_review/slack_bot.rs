@@ -1,8 +1,12 @@
 //! 新規営業のアポを Slack Bot (`chat.postMessage`) でチームのチャンネルへ送る (2026-11-10 ユーザー決定)。
 //!
-//! BPO の Incoming Webhook (`slack.rs`) とは別の経路。Webhook では投稿の ts が取れずスレッドに書けないため、
-//! 新規営業は Bot で親の投稿 (営業本人とリーダーへのメンション + アポのランク) を出し、
-//! その ts をスレッドにして `slack::message` の中身 (担当者・時刻・ランク・ヒアリング・リンク) を返信する。
+//! BPO の Incoming Webhook (`slack.rs`) とは別の経路。Webhook では投稿の ts が取れずスレッドに書けないため Bot を使う。
+//! - 送るのはランク S と A のアポだけ (2026-11-10 ユーザー決定)
+//! - チームのチャンネルに 1 日 (日本時間) 1 回、その日最初の S・A のアポで親の投稿を出す
+//! - 以降のアポは親の投稿のスレッドに、営業本人とリーダーへのメンション + `slack::message` の中身
+//!   (担当者・時刻・ランク・ヒアリング・リンク) を書く
+//! - 親の投稿の ts はプロセス内に持つ。再起動などで手元に無いときは、そのチャンネルの今日の投稿を
+//!   `conversations.history` で読み、同じ文の親の投稿があればそれを使う (二重に親を出さない)
 //!
 //! 宛先はスプレッドシート「新規営業組織指定（Slack通知設定）」から引く (サービスアカウントで読み取りのみ。10 分キャッシュ)。
 //! - ①チーム設定_入力: チーム名 / Slack user ID (リーダー) / 有効 / アポ通知先チャンネルID
@@ -21,7 +25,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, Utc};
 use serde_json::json;
 
 use super::apo_rank;
@@ -185,11 +189,37 @@ impl Routing {
     }
 }
 
-/// 親の投稿の文
-pub fn parent_text(mentions: &[String], rank: &str) -> String {
+/// 送るランク
+pub const NOTIFY_RANKS: [&str; 2] = ["S", "A"];
+
+/// 親の投稿の文 (日ごと。再起動後に同じ親を探すときもこの文で見分ける)
+pub fn parent_text(day: NaiveDate) -> String {
+    format!("{} のアポ（ランク S・A）", day.format("%m/%d"))
+}
+
+/// スレッドに書く文: メンション + アポの中身
+pub fn reply_text(mentions: &[String], detail: &str) -> String {
     let mut s: String = mentions.iter().map(|m| format!("<@{m}> ")).collect();
-    s.push_str(&format!("アポ ランク {rank}"));
+    if !s.is_empty() {
+        s.pop();
+        s.push('\n');
+    }
+    s.push_str(detail);
     s
+}
+
+fn jst_day(t: DateTime<Utc>) -> NaiveDate {
+    t.with_timezone(&FixedOffset::east_opt(9 * 3600).expect("JST"))
+        .date_naive()
+}
+
+/// JST のその日の 0 時 (Unix 秒)
+fn day_start_epoch(day: NaiveDate) -> i64 {
+    day.and_hms_opt(0, 0, 0)
+        .expect("midnight")
+        .and_utc()
+        .timestamp()
+        - 9 * 3600
 }
 
 // ---- シートのキャッシュ ----------------------------------------------------
@@ -257,6 +287,8 @@ struct Inner {
     routing: RoutingCache,
     http: reqwest::Client,
     retry_wait: Duration,
+    /// (チャンネル, 日本時間の日) → 親の投稿の ts。ロックを持ったまま探す・出すので、同じ日に親は 1 回だけ
+    parents: tokio::sync::Mutex<HashMap<(String, NaiveDate), String>>,
 }
 
 impl BotNotifier {
@@ -325,6 +357,7 @@ impl BotNotifier {
                 routing: RoutingCache::new(source),
                 http,
                 retry_wait,
+                parents: tokio::sync::Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -388,7 +421,45 @@ impl BotNotifier {
         None
     }
 
-    /// 送る。親の投稿が出せたら true (スレッドの返信は失敗しても親を出し直さない)
+    /// そのチャンネルの今日の投稿から、同じ文の親の投稿 (Bot が出したもの) を探す。読めなければ None
+    async fn find_parent(&self, channel: &str, day: NaiveDate) -> Option<String> {
+        let i = &self.inner;
+        let oldest = day_start_epoch(day).to_string();
+        let r = i
+            .http
+            .get(format!("{}/conversations.history", i.api_base))
+            .bearer_auth(&i.token)
+            .query(&[
+                ("channel", channel),
+                ("oldest", oldest.as_str()),
+                ("limit", "200"),
+            ])
+            .send()
+            .await
+            .ok()?;
+        let v: serde_json::Value = r.json().await.ok()?;
+        if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
+            let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("unknown");
+            tracing::warn!(error = err, "talk review: slack history read failed");
+            return None;
+        }
+        let want = parent_text(day);
+        v.get("messages")?
+            .as_array()?
+            .iter()
+            .filter(|m| m.get("bot_id").is_some())
+            .filter(|m| m.get("text").and_then(|t| t.as_str()) == Some(want.as_str()))
+            .filter_map(|m| m.get("ts").and_then(|t| t.as_str()))
+            // 古い順の最初 (history は新しい順で返る)
+            .min_by(|a, b| {
+                a.parse::<f64>()
+                    .unwrap_or(0.0)
+                    .total_cmp(&b.parse::<f64>().unwrap_or(0.0))
+            })
+            .map(str::to_string)
+    }
+
+    /// 送る。スレッドに書けたら true。ランクが S・A でないアポは送らない
     pub async fn send(&self, n: &ApoNotice<'_>, now: DateTime<Utc>) -> bool {
         if !Self::covers(n.team) || now - n.call_at > MAX_AGE {
             return false;
@@ -397,6 +468,9 @@ impl BotNotifier {
         else {
             return false;
         };
+        if !NOTIFY_RANKS.contains(&rank) {
+            return false;
+        }
         let Some(routing) = self.inner.routing.get().await else {
             tracing::warn!("talk review: slack routing sheet has never been read; not posting");
             return false;
@@ -408,24 +482,40 @@ impl BotNotifier {
                 return false;
             }
         };
-        let parent = json!({
-            "channel": dest.channel,
-            "text": parent_text(&dest.mentions, rank),
-        });
-        let Some(ts) = self.post(parent, "parent").await else {
-            return false;
+        let day = jst_day(now);
+        let ts = {
+            let mut parents = self.inner.parents.lock().await;
+            parents.retain(|(_, d), _| *d >= day);
+            let key = (dest.channel.clone(), day);
+            match parents.get(&key) {
+                Some(ts) => ts.clone(),
+                None => {
+                    let ts = match self.find_parent(&dest.channel, day).await {
+                        Some(ts) => ts,
+                        None => {
+                            let parent = json!({
+                                "channel": dest.channel,
+                                "text": parent_text(day),
+                            });
+                            let Some(ts) = self.post(parent, "parent").await else {
+                                return false;
+                            };
+                            ts
+                        }
+                    };
+                    parents.insert(key, ts.clone());
+                    ts
+                }
+            }
         };
         let reply = json!({
             "channel": dest.channel,
             "thread_ts": ts,
-            "text": detail,
+            "text": reply_text(&dest.mentions, &detail),
             "unfurl_links": false,
             "unfurl_media": false,
         });
-        if self.post(reply, "thread").await.is_none() {
-            tracing::warn!("talk review: slack thread reply failed; parent kept");
-        }
-        true
+        self.post(reply, "thread").await.is_some()
     }
 }
 
@@ -557,12 +647,22 @@ mod tests {
     }
 
     #[test]
-    fn parent_text_mentions_then_rank() {
+    fn parent_is_per_day_and_reply_mentions_first() {
+        let day = NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        assert_eq!(parent_text(day), "11/05 のアポ（ランク S・A）");
         assert_eq!(
-            parent_text(&["U1".into(), "U2".into()], "A"),
-            "<@U1> <@U2> アポ ランク A"
+            reply_text(&["U1".into(), "U2".into()], "中身"),
+            "<@U1> <@U2>\n中身"
         );
-        assert_eq!(parent_text(&[], "B"), "アポ ランク B");
+        assert_eq!(reply_text(&[], "中身"), "中身");
+        // 日本時間の 0 時 = 前日 15 時 (UTC)
+        assert_eq!(
+            day_start_epoch(day),
+            "2026-11-04T15:00:00Z"
+                .parse::<DateTime<Utc>>()
+                .unwrap()
+                .timestamp()
+        );
     }
 
     #[test]
@@ -673,6 +773,60 @@ mod tests {
     }
 
     /// Slack の chat.postMessage のモック。`replies` は呼ばれた順に返す本文 (尽きたら最後を繰り返す)
+    /// Slack のモック。`replies` は chat.postMessage が呼ばれた順に返す本文 (尽きたら最後を繰り返す)。
+    /// `history` は conversations.history の本文。`seen` には投稿の本文、`reads` には履歴の読み取りの回数
+    async fn mock_slack_with(
+        replies: Vec<serde_json::Value>,
+        history: serde_json::Value,
+    ) -> (
+        String,
+        Arc<Mutex<Vec<serde_json::Value>>>,
+        Arc<AtomicUsize>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let reads = Arc::new(AtomicUsize::new(0));
+        let (seen2, reads2, n) = (seen.clone(), reads.clone(), Arc::new(AtomicUsize::new(0)));
+        let replies = Arc::new(replies);
+        let history = Arc::new(history);
+        let app = axum::Router::new()
+            .route(
+                "/api/chat.postMessage",
+                axum::routing::post(
+                    move |headers: axum::http::HeaderMap,
+                          axum::Json(body): axum::Json<serde_json::Value>| {
+                        let (seen, n, replies) = (seen2.clone(), n.clone(), replies.clone());
+                        async move {
+                            assert_eq!(headers.get("authorization").unwrap(), "Bearer xoxb-test");
+                            seen.lock().unwrap().push(body);
+                            let i = n.fetch_add(1, Ordering::SeqCst).min(replies.len() - 1);
+                            axum::Json(replies[i].clone())
+                        }
+                    },
+                ),
+            )
+            .route(
+                "/api/conversations.history",
+                axum::routing::get(
+                    move |axum::extract::Query(q): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| {
+                        let (reads, history) = (reads2.clone(), history.clone());
+                        async move {
+                            assert_eq!(q.get("channel").map(String::as_str), Some("CAPO1"));
+                            assert!(q.contains_key("oldest"));
+                            reads.fetch_add(1, Ordering::SeqCst);
+                            axum::Json((*history).clone())
+                        }
+                    },
+                ),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/api", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (base, seen, reads, server)
+    }
+
     async fn mock_slack(
         replies: Vec<serde_json::Value>,
     ) -> (
@@ -680,27 +834,8 @@ mod tests {
         Arc<Mutex<Vec<serde_json::Value>>>,
         tokio::task::JoinHandle<()>,
     ) {
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let (seen2, n) = (seen.clone(), Arc::new(AtomicUsize::new(0)));
-        let replies = Arc::new(replies);
-        let app = axum::Router::new().route(
-            "/api/chat.postMessage",
-            axum::routing::post(
-                move |headers: axum::http::HeaderMap,
-                      axum::Json(body): axum::Json<serde_json::Value>| {
-                    let (seen, n, replies) = (seen2.clone(), n.clone(), replies.clone());
-                    async move {
-                        assert_eq!(headers.get("authorization").unwrap(), "Bearer xoxb-test");
-                        seen.lock().unwrap().push(body);
-                        let i = n.fetch_add(1, Ordering::SeqCst).min(replies.len() - 1);
-                        axum::Json(replies[i].clone())
-                    }
-                },
-            ),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let base = format!("http://{}/api", listener.local_addr().unwrap());
-        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let (base, seen, _, server) =
+            mock_slack_with(replies, json!({"ok": true, "messages": []})).await;
         (base, seen, server)
     }
 
@@ -744,35 +879,137 @@ mod tests {
         "2026-11-05T02:00:00Z".parse().unwrap()
     }
 
+    /// ランク A (予算と時期だけ満たす)
+    fn items_a() -> Vec<StoredItem> {
+        vec![
+            item("aq_budget", "具体額"),
+            item("aq_timing", "3か月以内"),
+            item("aq_decider", "本人以外が判断者"),
+        ]
+    }
+
     #[tokio::test]
-    async fn posts_parent_then_thread_reply_with_details() {
-        let (base, seen, server) = mock_slack(vec![json!({"ok": true, "ts": "111.222"})]).await;
+    async fn first_s_or_a_of_the_day_posts_parent_then_thread_with_mentions() {
+        let (base, seen, reads, server) = mock_slack_with(
+            vec![json!({"ok": true, "ts": "111.222"})],
+            json!({"ok": true, "messages": []}),
+        )
+        .await;
         let bot = BotNotifier::for_test(base, Arc::new(Fixed::ok()));
         let items = items();
         assert!(bot.send(&notice("101", "新規営業", &items), now()).await);
         let seen = seen.lock().unwrap().clone();
         assert_eq!(seen.len(), 2);
         assert_eq!(seen[0]["channel"], "CAPO1");
-        assert_eq!(seen[0]["text"], "<@USALES1> <@ULEAD1> アポ ランク S");
+        assert_eq!(seen[0]["text"], "11/05 のアポ（ランク S・A）");
         assert!(seen[0].get("thread_ts").is_none());
         assert_eq!(seen[1]["channel"], "CAPO1");
         assert_eq!(seen[1]["thread_ts"], "111.222");
         let text = seen[1]["text"].as_str().unwrap();
         assert!(
-            text.starts_with("*アポ ランク S*　架空の営業（新規営業）11/05 10:30\n"),
+            text.starts_with(
+                "<@USALES1> <@ULEAD1>\n*アポ ランク S*　架空の営業（新規営業）11/05 10:30\n"
+            ),
             "{text}"
         );
         assert!(text.contains("予算: 具体額 / 入社時期: 3か月以内"));
         assert!(text.contains("owner=101&call=555|振り返りで開く>"));
         assert!(!text.contains("引用は送らない"));
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            1,
+            "手元に無いので今日の投稿を 1 回読む"
+        );
         server.abort();
     }
 
     #[tokio::test]
-    async fn does_not_post_for_bpo_unrouted_old_or_unranked_calls() {
-        let (base, seen, server) = mock_slack(vec![json!({"ok": true, "ts": "1.1"})]).await;
+    async fn later_apos_of_the_same_day_go_to_the_thread_only() {
+        let (base, seen, reads, server) = mock_slack_with(
+            vec![json!({"ok": true, "ts": "111.222"})],
+            json!({"ok": true, "messages": []}),
+        )
+        .await;
+        let bot = BotNotifier::for_test(base, Arc::new(Fixed::ok()));
+        let (s, a) = (items(), items_a());
+        assert!(bot.send(&notice("101", "新規営業", &s), now()).await);
+        assert!(bot.send(&notice("101", "新規営業", &a), now()).await);
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 3, "親 1 + スレッド 2");
+        assert_eq!(
+            seen.iter().filter(|b| b.get("thread_ts").is_none()).count(),
+            1
+        );
+        assert_eq!(seen[2]["thread_ts"], "111.222");
+        assert!(seen[2]["text"]
+            .as_str()
+            .unwrap()
+            .contains("*アポ ランク A*"));
+        assert_eq!(reads.load(Ordering::SeqCst), 1, "2 件目は手元の親を使う");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn the_next_day_gets_a_new_parent() {
+        let (base, seen, server) = mock_slack(vec![json!({"ok": true, "ts": "5.5"})]).await;
         let bot = BotNotifier::for_test(base, Arc::new(Fixed::ok()));
         let items = items();
+        assert!(bot.send(&notice("101", "新規営業", &items), now()).await);
+        let next = now() + chrono::Duration::days(1);
+        let mut later = notice("101", "新規営業", &items);
+        later.call_at = next - chrono::Duration::hours(1);
+        assert!(bot.send(&later, next).await);
+        let seen = seen.lock().unwrap().clone();
+        let parents: Vec<_> = seen
+            .iter()
+            .filter(|b| b.get("thread_ts").is_none())
+            .map(|b| b["text"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            parents,
+            ["11/05 のアポ（ランク S・A）", "11/06 のアポ（ランク S・A）"]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn after_restart_the_parent_already_posted_today_is_reused() {
+        let (base, seen, reads, server) = mock_slack_with(
+            vec![json!({"ok": true, "ts": "9.9"})],
+            json!({"ok": true, "messages": [
+                {"ts": "300.0", "bot_id": "B1", "text": "11/05 のアポ（ランク S・A）"},
+                {"ts": "250.0", "user": "U9", "text": "11/05 のアポ（ランク S・A）"},
+                {"ts": "200.0", "bot_id": "B1", "text": "11/05 のアポ（ランク S・A）"},
+                {"ts": "100.0", "bot_id": "B1", "text": "別の投稿"}
+            ]}),
+        )
+        .await;
+        let bot = BotNotifier::for_test(base, Arc::new(Fixed::ok()));
+        let items = items();
+        assert!(bot.send(&notice("101", "新規営業", &items), now()).await);
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1, "親は出さずスレッドだけ");
+        assert_eq!(
+            seen[0]["thread_ts"], "200.0",
+            "Bot の同じ文の、いちばん古い投稿"
+        );
+        assert_eq!(reads.load(Ordering::SeqCst), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ranks_b_and_c_bpo_unrouted_old_and_unranked_are_not_posted() {
+        let (base, seen, reads, server) = mock_slack_with(
+            vec![json!({"ok": true, "ts": "1.1"})],
+            json!({"ok": true, "messages": []}),
+        )
+        .await;
+        let bot = BotNotifier::for_test(base, Arc::new(Fixed::ok()));
+        let items = items();
+        let b = vec![item("aq_budget", "具体額"), item("aq_timing", "未定")];
+        let c = vec![item("aq_budget", "不明"), item("aq_timing", "不明")];
+        assert!(!bot.send(&notice("101", "新規営業", &b), now()).await, "B");
+        assert!(!bot.send(&notice("101", "新規営業", &c), now()).await, "C");
         assert!(
             !bot.send(&notice("101", "BPO_リクロジ", &items), now())
                 .await
@@ -783,6 +1020,11 @@ mod tests {
         let late = now() + MAX_AGE;
         assert!(!bot.send(&notice("101", "新規営業", &items), late).await);
         assert!(seen.lock().unwrap().is_empty());
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            0,
+            "送らないものは Slack を読まない"
+        );
         server.abort();
     }
 
@@ -809,12 +1051,17 @@ mod tests {
         .await;
         let bot = BotNotifier::for_test(base, Arc::new(Fixed::ok()));
         let items = items();
-        assert!(bot.send(&notice("101", "新規営業", &items), now()).await);
+        assert!(!bot.send(&notice("101", "新規営業", &items), now()).await);
+        // 親: 失敗 1 + 成功 1、返信: 3 回とも失敗
+        assert_eq!(seen.lock().unwrap().len(), 5);
+        // 次のアポは同じ親のスレッドへ (親を出し直さない)
+        assert!(!bot.send(&notice("101", "新規営業", &items), now()).await);
         let seen = seen.lock().unwrap().clone();
-        // 親: 失敗 1 + 成功 1、返信: 3 回とも失敗。親は出し直さない
-        assert_eq!(seen.len(), 5);
-        let parents = seen.iter().filter(|b| b.get("thread_ts").is_none()).count();
-        assert_eq!(parents, 2);
+        assert_eq!(seen.len(), 8);
+        assert_eq!(
+            seen.iter().filter(|b| b.get("thread_ts").is_none()).count(),
+            2
+        );
         assert!(seen[2..].iter().all(|b| b["thread_ts"] == "9.9"));
         server.abort();
     }
