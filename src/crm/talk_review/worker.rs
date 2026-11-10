@@ -26,6 +26,7 @@ use super::judge::{
     JudgeError, JudgeOutput, MiniMaxJudge, StoredItem, NO_APO_NOTE, SCHEDULED,
 };
 use super::slack::{ApoNotice, SlackNotifier};
+use super::slack_bot::BotNotifier;
 use super::store::{self, NewRow, ReviewRow, ST_FAILED, ST_QUEUED, ST_UNAVAILABLE};
 use super::target::{self, MarkState, Verdict, CONTACTED_NOTE};
 use super::transcript::{extract_call_log_id, has_both_sides};
@@ -562,9 +563,11 @@ async fn rewrite_hearing(
     rewrite_hearing_row(audit, id, hearing, attach).await.0
 }
 
-/// ヒアリングを付けた行を Slack に送る (対象のチームの担当者・ランクが付く電話・新しい電話だけ)
+/// ヒアリングを付けた行を Slack に送る (対象のチームの担当者・ランクが付く電話・新しい電話だけ)。
+/// BPO は Webhook (`slack`)、新規営業はシートで宛先を引いて Bot (`bot`) で送る
 async fn notify_apo(
-    slack: &SlackNotifier,
+    slack: Option<&SlackNotifier>,
+    bot: Option<&BotNotifier>,
     members: &HashMap<String, (String, String)>,
     row: &ReviewRow,
 ) {
@@ -582,8 +585,15 @@ async fn notify_apo(
         call_at: at.with_timezone(&Utc),
         items: &row.items,
     };
-    if slack.send(&notice, Utc::now()).await {
-        tracing::info!("talk review: apo posted to slack");
+    if let Some(slack) = slack {
+        if slack.send(&notice, Utc::now()).await {
+            tracing::info!("talk review: apo posted to slack");
+        }
+    }
+    if let Some(bot) = bot {
+        if bot.send(&notice, Utc::now()).await {
+            tracing::info!("talk review: sales apo posted to slack");
+        }
     }
 }
 
@@ -743,6 +753,8 @@ struct Worker<Z, J> {
     reattributed: bool,
     /// アポの判定結果を送る Slack (`TALK_REVIEW_SLACK_WEBHOOK_URL` があるときだけ)
     slack: Option<SlackNotifier>,
+    /// 新規営業のアポを送る Slack Bot (`TALK_REVIEW_SLACK_BOT_TOKEN` と宛先のシートがあるときだけ)
+    slack_bot: Option<BotNotifier>,
     /// 対象の担当者の名前とチーム (取り込みの周回で読み直す。Slack の文に使う)
     members: Arc<HashMap<String, (String, String)>>,
     pending: Arc<PendingWrites>,
@@ -1205,7 +1217,11 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 self.audit.clone(),
                 sem.clone(),
             );
-            let (slack, members) = (self.slack.clone(), self.members.clone());
+            let (slack, bot, members) = (
+                self.slack.clone(),
+                self.slack_bot.clone(),
+                self.members.clone(),
+            );
             set.spawn(async move {
                 let id = c.id.clone();
                 let Ok(_p) = sem.acquire().await else {
@@ -1233,8 +1249,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 };
                 // 文字起こしと判定に時間がかかる間に行が変わっていることがあるので、書く直前に読み直す
                 let (wrote, row) = rewrite_hearing_row(&audit, &id, hearing, true).await;
-                if let (Some(slack), Some(row)) = (slack, row) {
-                    notify_apo(&slack, &members, &row).await;
+                if let Some(row) = row {
+                    notify_apo(slack.as_ref(), bot.as_ref(), &members, &row).await;
                 }
                 (id, wrote != HearingWrite::ReadFailed)
             });
@@ -1758,6 +1774,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         backfill_anchor: None,
         reattributed: false,
         slack: SlackNotifier::from_env(),
+        slack_bot: BotNotifier::from_env(),
         members: Default::default(),
         pending: Arc::new(PendingWrites::default()),
         rejudge: Default::default(),
@@ -2598,6 +2615,7 @@ mod tests {
             backfill_anchor: None,
             reattributed: false,
             slack: None,
+            slack_bot: None,
             members: Default::default(),
             pending: Arc::new(PendingWrites::default()),
             rejudge: VecDeque::new(),
@@ -3155,7 +3173,7 @@ mod tests {
         assert_eq!(*calls.lock().unwrap(), vec![date]);
         assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 0);
         // 同じ行なら通知可能な設定であることも確かめる。
-        notify_apo(&slack, &w.members, &row).await;
+        notify_apo(Some(&slack), None, &w.members, &row).await;
         assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 1);
         server.abort();
     }

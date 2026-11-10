@@ -79,10 +79,7 @@ impl SlackNotifier {
             })
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| APPOINTMENT_TEAMS.iter().map(|s| s.to_string()).collect());
-        let app_url = text("TALK_REVIEW_APP_URL")
-            .unwrap_or_else(|| "https://hr-hw.onrender.com".to_string())
-            .trim_end_matches('/')
-            .to_string();
+        let app_url = app_url_from(&get);
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -141,6 +138,16 @@ impl SlackNotifier {
         }
         false
     }
+}
+
+/// 振り返りの画面の URL の頭 (`TALK_REVIEW_APP_URL`、既定 `https://hr-hw.onrender.com`)
+pub fn app_url_from(get: &impl Fn(&str) -> Option<String>) -> String {
+    get("TALK_REVIEW_APP_URL")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "https://hr-hw.onrender.com".to_string())
+        .trim_end_matches('/')
+        .to_string()
 }
 
 fn jst(t: DateTime<Utc>) -> DateTime<FixedOffset> {

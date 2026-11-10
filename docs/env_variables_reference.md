@@ -315,6 +315,8 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 | `CALL_REVIEW_TEAMS` | 未設定 | 対象の HubSpot チーム名 (カンマ区切り、前後の空白は除く)。未設定なら `BPO_リクロジ` と `新規営業` |
 | `TALK_REVIEW_SLACK_WEBHOOK_URL` | 未設定 | **秘密**。アポの判定結果を送る Slack のチャンネルの Incoming Webhook の URL (`https://hooks.slack.com/` で始まるもの)。未設定・形が違えば送らない。`CALL_REVIEW_ENABLED=1` のときだけ動く (設計書 §22「アポのランクと Slack への通知」) |
 | `TALK_REVIEW_SLACK_TEAMS` | 未設定 | Slack に送る担当者の HubSpot チーム名 (カンマ区切り)。未設定なら `BPO_リクロジ` |
+| `TALK_REVIEW_SLACK_BOT_TOKEN` | 未設定 | **秘密**。新規営業のアポをチームのチャンネルへ送る Slack Bot のトークン (`xoxb-` で始まるもの、`chat:write` が要る)。親の投稿で営業本人とリーダーをメンションしてランクだけを出し、スレッドに中身 (担当者・時刻・ランク・ヒアリング・リンク) を返信する。未設定・形が違えば新規営業の通知は丸ごと無効。BPO の Webhook の経路には影響しない。`CALL_REVIEW_ENABLED=1` のときだけ動く (`src/crm/talk_review/slack_bot.rs`) |
+| `TALK_REVIEW_SLACK_ROUTING_SHEET_ID` | 未設定 | 新規営業の Slack の宛先を引くスプレッドシート「新規営業組織指定（Slack通知設定）」の ID。`GOOGLE_SA_KEY_B64` のサービスアカウントで読み取りのみ (シートを共有しておく)。タブ「①チーム設定_入力」(チーム名・Slack user ID・有効・アポ通知先チャンネルID)、「②メンバー配置_入力」(所属チームを選択・HubSpot ID・有効)、「社員マスタ_API」(HubSpot owner ID・Slack user ID) を見出し名で読み、10 分キャッシュする。アポ通知先チャンネルIDが空・無いチームには送らない。未設定なら新規営業の通知は無効 |
 | `TALK_REVIEW_APP_URL` | `https://hr-hw.onrender.com` | Slack の文に入れる振り返りの画面のリンクの頭 |
 | `ZOOM_ACCOUNT_ID` | 未設定 | Zoom Server-to-Server OAuth のアカウント ID。Zoom Phone の録音・文字起こしの読み取りに使う |
 | `ZOOM_CLIENT_ID` | 未設定 | 同 OAuth のクライアント ID |

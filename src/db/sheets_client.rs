@@ -99,6 +99,14 @@ impl SheetsClient {
     ///   - GOOGLE_SA_KEY_B64 : base64 化された SA JSON
     ///   - SPREADSHEET_ID    : 対象スプシ ID
     pub fn from_env() -> Result<Self> {
+        let spreadsheet_id =
+            std::env::var("SPREADSHEET_ID").context("環境変数 SPREADSHEET_ID が未設定")?;
+        Self::from_env_for(spreadsheet_id)
+    }
+
+    /// `GOOGLE_SA_KEY_B64` の同じサービスアカウントで、`SPREADSHEET_ID` とは別のスプレッドシートを読む
+    /// (トークの振り返りの Slack 宛先のシート等。読み取りのみ)
+    pub fn from_env_for(spreadsheet_id: String) -> Result<Self> {
         let b64 =
             std::env::var("GOOGLE_SA_KEY_B64").context("環境変数 GOOGLE_SA_KEY_B64 が未設定")?;
         let json_bytes = B64
@@ -106,9 +114,6 @@ impl SheetsClient {
             .context("GOOGLE_SA_KEY_B64 の base64 デコードに失敗")?;
         let sa_key: ServiceAccountKey =
             serde_json::from_slice(&json_bytes).context("SA JSON のパースに失敗")?;
-
-        let spreadsheet_id =
-            std::env::var("SPREADSHEET_ID").context("環境変数 SPREADSHEET_ID が未設定")?;
 
         let http = reqwest::Client::builder()
             // 2026-08-17: 30秒だと大きいシートの初回取得が落ちる。

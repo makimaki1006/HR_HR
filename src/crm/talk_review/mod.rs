@@ -41,6 +41,7 @@ mod memory_bench;
 pub mod routes;
 pub mod scope;
 pub mod slack;
+pub mod slack_bot;
 pub mod store;
 pub mod summary;
 pub mod target;
