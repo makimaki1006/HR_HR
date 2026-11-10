@@ -8,6 +8,8 @@ export interface FreshMeta {
   source_age_days?: number | null;
   generated_at?: string | null;
   update_schedule?: string | null;
+  /** 自動の更新の依頼（見張り）が動いているか。false なら自動の依頼のことは出さない */
+  auto_refresh?: boolean;
   /** 更新を依頼した日時（JST、RFC3339）。更新完了の日時ではない */
   last_dispatch_at?: string | null;
   last_result?: 'success' | 'failure' | null;

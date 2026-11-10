@@ -2874,10 +2874,19 @@ check("録画の待ち", "未作成・別タブ・0件は隠し、2件は日付�
   if (!h.includes('録画のうち案件に結び付いていないもの 2 件') || h.indexOf('2026-10-18') > h.indexOf('2026-10-16')) throw new Error('件数か順番が違う');
   if (!h.includes('href="https://example.invalid/recording-a"') || h.includes('javascript:') || h.includes('<script>') || /<details[^>]* open/.test(h)) throw new Error('リンク・文字・畳みが違う');
 });
+check("鮮度見張り", "見張りが動いていなければ自動の依頼のことを出さない", async () => {
+  const t = boot();
+  t.ctx.__meta = {today: "2026-11-10", source_as_of: "2026-11-08 23:59:59", source_age_days: 2,
+    auto_refresh: false, last_dispatch_at: null, last_result: null};
+  t.R("setFresh(__meta)");
+  const h = t.reg["cs-fresh"].innerHTML;
+  if (/自動で更新を頼みました|自動の更新を頼めていません|自動の更新はこのあと頼みます|自動でデータを更新しています|自動の更新に失敗しました/.test(h))
+    throw new Error("見張りが無いのに自動の依頼を案内している: " + h);
+});
 check("鮮度見張り", "2日前以上だけ今日の依頼と実行の状態をJSTで出す", async () => {
   const t = boot();
   t.ctx.__meta = {today: "2026-11-10", source_as_of: "2026-11-08 23:59:59", source_age_days: 2,
-    last_dispatch_at: "2026-11-10T03:27:18.123+09:00", last_result: "success"};
+    auto_refresh: true, last_dispatch_at: "2026-11-10T03:27:18.123+09:00", last_result: "success"};
   const show = () => { t.R("setFresh(__meta)"); return t.reg["cs-fresh"].innerHTML; };
   let h = show();
   if (!h.includes("自動で更新を頼みました（03:27）") || !h.includes("2日前のデータです（2026-11-08 23:59）。"))

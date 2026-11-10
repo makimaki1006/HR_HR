@@ -10,6 +10,7 @@ const old: FreshMeta = {
   today: '2026-11-10',
   source_as_of: '2026-11-08 23:59:59',
   source_age_days: 2,
+  auto_refresh: true,
   last_dispatch_at: '2026-11-10T03:27:18.123+09:00',
   last_result: 'success',
 };
@@ -52,5 +53,10 @@ describe('鮮度の帯の自動更新の案内', () => {
     render(<Fresh meta={{ ...old, last_dispatch_at: '<script>alert(1)</script>' }} />);
     expect(screen.getByText('自動の更新はこのあと頼みます')).toBeTruthy();
     expect(document.querySelector('script')).toBeNull();
+  });
+
+  it('見張りが動いていなければ自動の依頼のことを出さない', () => {
+    render(<Fresh meta={{ ...old, auto_refresh: false }} />);
+    expect(screen.queryByText(/自動で更新を頼みました|自動の更新を頼めていません|自動の更新はこのあと頼みます|自動でデータを更新しています|自動の更新に失敗しました/)).toBeNull();
   });
 });

@@ -33,6 +33,9 @@ static STATE: Mutex<WatchState> = Mutex::new(WatchState {
     latest_run_state: None,
 });
 
+/// 鍵があり見張りが動いているか。無いときは画面に自動の依頼のことを何も言わない。
+static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn jst_now() -> DateTime<FixedOffset> {
     Utc::now().with_timezone(&FixedOffset::east_opt(9 * 3600).unwrap())
 }
@@ -58,6 +61,10 @@ impl WatchState {
     }
 
     fn add_meta(&self, meta: &mut serde_json::Map<String, Value>) {
+        meta.insert(
+            "auto_refresh".into(),
+            json!(ENABLED.load(std::sync::atomic::Ordering::Relaxed)),
+        );
         meta.insert("last_dispatch_at".into(), json!(self.last_dispatch_at));
         meta.insert("last_result".into(), json!(self.last_result));
         meta.insert("latest_run_state".into(), json!(self.latest_run_state));
@@ -285,6 +292,7 @@ pub fn spawn() {
         tracing::info!("コンサル鮮度見張り: 無効（CONSULTING_NIGHTLY_DISPATCH_TOKEN 未設定）");
         return;
     }
+    ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
     let repo = std::env::var("CONSULTING_NIGHTLY_REPO")
         .ok()
         .filter(|v| !v.trim().is_empty())

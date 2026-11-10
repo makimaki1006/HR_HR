@@ -182,7 +182,7 @@ export function Fresh({ meta }: { meta: FreshMeta }) {
       ) : (
         <b>{word === '' ? '取得日が分からない' : `${word}の`}データです（{stamp}）。</b>
       )}
-      {age !== null && age > 1 ? (
+      {meta.auto_refresh && age !== null && age > 1 ? (
         <div>{meta.latest_run_state === 'running' ? '自動でデータを更新しています'
           : meta.latest_run_state === 'failed' ? '自動の更新に失敗しました。次の更新を待っています'
           : meta.last_result === 'success' && requestedToday
