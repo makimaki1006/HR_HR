@@ -11,7 +11,14 @@ pub struct Gate {
     label: &'static str,
     achieved: Option<bool>,
     deadline: Option<NaiveDate>,
+    /// 間に合う最後の日。日数の関門は期限日の当日、段階3の関門は境目の前日。
+    /// 画面の「期限前（M/Dまで）」「期限超過（M/D）」はこの日を使う。
+    last_day: Option<NaiveDate>,
     overdue: bool,
+    /// 契約がまだ始まっていない（期限超過にしない）。
+    not_started: bool,
+    /// 開始前の MTG だけがある（商談の可能性が高いので達成にせず、確かめてもらう）。
+    check: bool,
     text: &'static str,
 }
 
@@ -30,7 +37,10 @@ fn gate(
         label,
         achieved,
         deadline,
+        last_day: deadline.map(|d| if before { d - Duration::days(1) } else { d }),
         overdue,
+        not_started: false,
+        check: false,
         text: match achieved {
             None => "判定できない",
             Some(true) => "達成",
@@ -46,6 +56,18 @@ fn gate(
 /// 満足度=CS_プロパティ履歴のnps〜nps11（NPS_PROPS）の契約開始〜今日の回答。
 /// 数値欠損・MTG/履歴の列不足は判定不能。期限内に達成したかの履歴は揃わないため、現在の達成を表示する。
 pub fn gates(d: &Deal, mtg: Option<bool>, nps: Option<bool>, today: NaiveDate) -> Vec<Gate> {
+    gates_with(d, mtg, false, nps, today)
+}
+
+/// `mtg_before_start`: 契約開始の30日前〜前日に MTG の記録がある（2026-11-10 ユーザー決定:
+/// 対象にするが、契約前の商談も同じ取引に付くので多くは誤検知。達成にせず「確かめてください」）。
+pub fn gates_with(
+    d: &Deal,
+    mtg: Option<bool>,
+    mtg_before_start: bool,
+    nps: Option<bool>,
+    today: NaiveDate,
+) -> Vec<Gate> {
     let start = date10(&d.contract_start_date);
     let expiry = date10(&d.contract_expiration_date);
     let line = start
@@ -78,12 +100,19 @@ pub fn gates(d: &Deal, mtg: Option<bool>, nps: Option<bool>, today: NaiveDate) -
         ),
         gate("満足度の回答", nps, line, today, true),
     ];
+    if mtg == Some(false) && mtg_before_start {
+        let g = &mut gates[0];
+        g.overdue = false;
+        g.check = true;
+        g.text = "確かめてください（開始前のMTGあり）";
+    }
     // 短期契約では段階3の境目が開始前に来る。契約が始まるまでは期限超過にしない。
     if start.is_some_and(|s| today < s) {
         for g in &mut gates {
             g.overdue = false;
+            g.not_started = true;
             if g.achieved == Some(false) {
-                g.text = "未達";
+                g.text = "開始前";
             }
         }
     }
@@ -157,13 +186,45 @@ impl Evidence {
                 Some(false)
             }
         });
-        let gs = gates(d, mtg, nps, today);
+        let mtg_before_start = mtg == Some(false)
+            && start.is_some_and(|s| {
+                self.dates
+                    .get(&d.id)
+                    .is_some_and(|ds| ds.iter().any(|dt| *dt >= s - Duration::days(30) && *dt < s))
+            });
+        let gs = gates_with(d, mtg, mtg_before_start, nps, today);
         let count = if start.is_some_and(|s| s <= today) {
             gs.iter().filter(|g| g.overdue).count()
         } else {
             0
         };
-        json!({"gates": gs, "overdue_count": count})
+        // 「今日」に入った理由（2026-11-10 レビュー: 名札が無く、なぜ出ているか分からなかった）。
+        let late: Vec<&str> = if count > 0 {
+            gs.iter()
+                .filter(|g| g.overdue)
+                .map(|g| short_label(g.label))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let reason = if late.is_empty() {
+            String::new()
+        } else {
+            format!("初回契約: {}が期限超過", late.join("・"))
+        };
+        json!({"gates": gs, "overdue_count": count, "reason": reason})
+    }
+}
+
+/// 「今日」の理由に使う短い呼び名。
+fn short_label(label: &str) -> &'static str {
+    match label {
+        "初回MTGの記録" => "初回MTG",
+        "求人が掲載中" => "求人掲載",
+        "応募1件以上" => "応募",
+        "面接1件以上" => "面接",
+        "満足度の回答" => "満足度",
+        _ => "関門",
     }
 }
 
@@ -254,72 +315,121 @@ pub(super) fn attach_gates(
 struct SalesCache {
     // TTL は再取得の期限。失敗時用の直近成功値は期限後も残す。
     values: std::sync::Mutex<HashMap<String, (Option<f64>, std::time::Instant)>>,
+    // 読めなかった・返ってこなかった ID。60 秒は読み直さない（混雑中に毎回待たせない）。
+    misses: std::sync::Mutex<HashMap<String, std::time::Instant>>,
     refresh: tokio::sync::Mutex<()>,
 }
+
+const SALES_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+const SALES_MISS_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
 impl SalesCache {
+    /// 読み直しが要る ID。数字でない ID は HubSpot に送ると束ごと失敗するので外す。
+    fn due(&self, ids: &[String]) -> Vec<String> {
+        let values = self.values.lock().unwrap();
+        let misses = self.misses.lock().unwrap();
+        ids.iter()
+            .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+            .filter(|id| {
+                values
+                    .get(*id)
+                    .is_none_or(|(_, at)| at.elapsed() >= SALES_TTL)
+            })
+            .filter(|id| {
+                misses
+                    .get(*id)
+                    .is_none_or(|at| at.elapsed() >= SALES_MISS_TTL)
+            })
+            .cloned()
+            .collect()
+    }
+
+    async fn fetch(&self, due: Vec<String>, client: crate::hubspot::HubSpotClient) {
+        let _guard = self.refresh.lock().await;
+        // 待っている間に別の要求が読み終えていれば、その分は読まない。
+        let due = self.due(&due);
+        if due.is_empty() {
+            return;
+        }
+        let client = client.with_priority(crate::hubspot::gateway::Priority::Background);
+        for chunk in due.chunks(100) {
+            let mut got = std::collections::HashSet::new();
+            match client
+                .batch_read("deals", chunk, &["number_of_sales"])
+                .await
+            {
+                Ok(records) => {
+                    let mut values = self.values.lock().unwrap();
+                    for record in records {
+                        if !chunk.contains(&record.id) {
+                            continue;
+                        }
+                        // プロパティ自体の欠落・不正値は空欄と混同せず、直近成功値を残す。
+                        let Some(raw) = record.properties.get("number_of_sales") else {
+                            continue;
+                        };
+                        let value = match raw.as_deref().map(str::trim) {
+                            None | Some("") => None,
+                            Some(raw) => match raw.parse::<f64>() {
+                                Ok(n) if n.is_finite() => Some(n),
+                                _ => continue,
+                            },
+                        };
+                        got.insert(record.id.clone());
+                        values.insert(record.id, (value, std::time::Instant::now()));
+                    }
+                }
+                Err(_) => {
+                    tracing::warn!("初回契約の売上回数をまとめて読めませんでした");
+                }
+            }
+            let now = std::time::Instant::now();
+            let mut misses = self.misses.lock().unwrap();
+            for id in chunk {
+                if got.contains(id) {
+                    misses.remove(id);
+                } else {
+                    misses.insert(id.clone(), now);
+                }
+            }
+        }
+    }
+
+    /// 前の値があれば待たずに返し、裏で読み直す（同時に 1 本）。一度も読めていないときだけ最大 15 秒待つ。
     async fn read(
-        &self,
+        &'static self,
         ids: &[String],
         client: Option<&crate::hubspot::HubSpotClient>,
     ) -> SalesSnapshot {
-        let fetch = async {
-            let _guard = self.refresh.lock().await;
-            let missing: Vec<String> = {
-                let values = self.values.lock().unwrap();
-                ids.iter()
-                    .filter(|id| {
-                        values.get(*id).is_none_or(|(_, at)| {
-                            at.elapsed() >= std::time::Duration::from_secs(300)
-                        })
-                    })
-                    .cloned()
-                    .collect()
-            };
-            if missing.is_empty() {
-                crate::hubspot::gateway::cache_hit("consulting_first_sales");
-                return;
-            }
+        let due = self.due(ids);
+        if due.is_empty() {
+            crate::hubspot::gateway::cache_hit("consulting_first_sales");
+        } else if let Some(client) = client.cloned() {
             crate::hubspot::gateway::cache_miss("consulting_first_sales");
-            let Some(client) = client else {
-                return;
+            let warm = {
+                let values = self.values.lock().unwrap();
+                ids.iter().any(|id| values.contains_key(id))
             };
-            let client = client.with_priority(crate::hubspot::gateway::Priority::Background);
-            for chunk in missing.chunks(100) {
-                match client
-                    .batch_read("deals", chunk, &["number_of_sales"])
-                    .await
-                {
-                    Ok(records) => {
-                        let mut values = self.values.lock().unwrap();
-                        for record in records {
-                            if !chunk.contains(&record.id) {
-                                continue;
-                            }
-                            // プロパティ自体の欠落・不正値は空欄と混同せず、直近成功値を残す。
-                            let Some(raw) = record.properties.get("number_of_sales") else {
-                                continue;
-                            };
-                            let value = match raw.as_deref().map(str::trim) {
-                                None | Some("") => None,
-                                Some(raw) => match raw.parse::<f64>() {
-                                    Ok(n) if n.is_finite() => Some(n),
-                                    _ => continue,
-                                },
-                            };
-                            values.insert(record.id, (value, std::time::Instant::now()));
-                        }
-                    }
-                    Err(_) => {
-                        tracing::warn!("初回契約の売上回数をまとめて読めませんでした");
-                    }
+            if warm {
+                if self.refresh.try_lock().is_ok() {
+                    tokio::spawn(async move { self.fetch(due, client).await });
                 }
+            } else {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(15),
+                    self.fetch(due, client),
+                )
+                .await;
             }
-        };
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(15), fetch).await;
+        }
         let mut values = self.values.lock().unwrap();
         // 現在の稼働母集団だけ保持し、終了した取引による無制限の増加を防ぐ。
         let active: std::collections::HashSet<_> = ids.iter().collect();
         values.retain(|id, _| active.contains(id));
+        self.misses
+            .lock()
+            .unwrap()
+            .retain(|id, _| active.contains(id));
         SalesSnapshot {
             values: values.iter().map(|(id, (n, _))| (id.clone(), *n)).collect(),
         }
@@ -566,7 +676,7 @@ mod tests {
 
     #[tokio::test]
     async fn クライアント未接続でも期限切れの前回値を使い未取得だけを外す() {
-        let cache = SalesCache::default();
+        let cache: &'static SalesCache = Box::leak(Box::default());
         let old = std::time::Instant::now() - std::time::Duration::from_secs(301);
         cache.values.lock().unwrap().extend([
             ("1".into(), (Some(1.0), old)),
@@ -579,7 +689,9 @@ mod tests {
         assert!(!sales.is_first("2"));
         assert_eq!(sales.values.get("3"), Some(&None));
         assert!(!sales.values.contains_key("4"));
-        let cold = SalesCache::default().read(&ids, None).await;
+        let cold = Box::leak(Box::<SalesCache>::default())
+            .read(&ids, None)
+            .await;
         assert!(cold.values.is_empty());
     }
 
@@ -632,7 +744,7 @@ mod tests {
         let client =
             crate::hubspot::HubSpotClient::new("test-token".into(), &base, Default::default())
                 .unwrap();
-        let cache = SalesCache::default();
+        let cache: &'static SalesCache = Box::leak(Box::default());
         let ids: Vec<_> = (1..=102).map(|i| i.to_string()).collect();
         let sales = cache.read(&ids, Some(&client)).await;
         assert!(sales.is_first("1"));
@@ -658,7 +770,9 @@ mod tests {
         assert_eq!(stale.values.get("2"), Some(&Some(2.0)));
         assert_eq!(stale.values.get("3"), Some(&None));
         assert!(!stale.values.contains_key("102"));
-        let cold = SalesCache::default().read(&ids, Some(&client)).await;
+        let cold = Box::leak(Box::<SalesCache>::default())
+            .read(&ids, Some(&client))
+            .await;
         assert!(cold.values.is_empty());
         assert_eq!(
             client
@@ -814,8 +928,10 @@ mod tests {
         assert_eq!(v["overdue_count"], 0);
         for g in v["gates"].as_array().unwrap() {
             assert_eq!(g["overdue"], false);
-            assert_eq!(g["text"], "未達");
+            assert_eq!(g["not_started"], true);
+            assert_eq!(g["text"], "開始前");
         }
+        assert_eq!(v["reason"], "");
         let v = Evidence::new(&sheets()).of(&d, day("2026-06-01"));
         assert_eq!(v["overdue_count"], 2);
         assert_eq!(v["gates"][3]["overdue"], true);
@@ -1044,5 +1160,73 @@ mod tests {
         enrich_goals(&mut v, Ok(()), None).await;
         assert_eq!(v["rows"][0]["name"], "架空の契約");
         assert_eq!(v["rows"][0]["goals"]["failed"], true);
+    }
+
+    #[test]
+    fn 間に合う最後の日は日数の関門は当日_段階3は境目の前日() {
+        let mut d = deal();
+        d.contract_start_date = "2026-01-01".into();
+        d.contract_expiration_date = "2026-06-30".into();
+        let gs = gates(&d, Some(false), Some(false), day("2026-01-05"));
+        assert_eq!(gs[0].last_day, gs[0].deadline);
+        assert_eq!(gs[2].last_day, gs[2].deadline);
+        assert_eq!(
+            gs[3].last_day.unwrap() + Duration::days(1),
+            gs[3].deadline.unwrap()
+        );
+        // 最後の日の当日は期限前、翌日（＝境目）に期限超過
+        let last = gs[3].last_day.unwrap();
+        assert!(!gates(&d, Some(false), Some(false), last)[3].overdue);
+        assert!(gates(&d, Some(false), Some(false), last + Duration::days(1))[3].overdue);
+    }
+
+    #[test]
+    fn 開始前のmtgだけなら赤にせず確かめてもらう() {
+        let mut d = deal();
+        d.contract_start_date = "2026-01-01".into();
+        d.contract_expiration_date = "2026-06-30".into();
+        let gs = gates_with(&d, Some(false), true, Some(true), day("2026-02-01"));
+        assert!(!gs[0].overdue && gs[0].check);
+        assert_eq!(gs[0].text, "確かめてください（開始前のMTGあり）");
+        // 開始後の MTG があれば達成のまま（開始前の記録は見ない）
+        let gs = gates_with(&d, Some(true), true, Some(true), day("2026-02-01"));
+        assert_eq!(gs[0].text, "達成");
+        assert!(!gs[0].check);
+        // 開始前の MTG も無ければ従来どおり期限超過
+        let gs = gates_with(&d, Some(false), false, Some(true), day("2026-02-01"));
+        assert!(gs[0].overdue && !gs[0].check);
+    }
+
+    #[test]
+    fn 今日の理由は期限超過の関門の短い名前() {
+        let mut d = deal();
+        d.contract_start_date = "2026-01-01".into();
+        d.contract_expiration_date = "2026-12-31".into();
+        d.keisaisu = Some(0.0);
+        d.oubo = Some(0.0);
+        d.mensetu = Some(1.0);
+        let v = Evidence::new(&sheets()).of(&d, day("2026-03-01"));
+        let reason = v["reason"].as_str().unwrap();
+        assert!(reason.starts_with("初回契約: "), "{reason}");
+        assert!(reason.contains("求人掲載・応募"), "{reason}");
+        assert!(reason.ends_with("が期限超過"), "{reason}");
+    }
+
+    #[test]
+    fn 数字でないidと直近に読めなかったidは読み直さない() {
+        let cache: &'static SalesCache = Box::leak(Box::default());
+        let now = std::time::Instant::now();
+        cache.misses.lock().unwrap().extend([
+            ("10".to_string(), now),
+            ("11".to_string(), now - std::time::Duration::from_secs(61)),
+        ]);
+        cache
+            .values
+            .lock()
+            .unwrap()
+            .insert("12".into(), (Some(1.0), now));
+        let ids = ["abc", "", "10", "11", "12", "13"].map(str::to_string);
+        // abc・空は送らない。10 は 60 秒以内に読めなかった。12 は 5 分以内に読んだ。
+        assert_eq!(cache.due(&ids), vec!["11".to_string(), "13".to_string()]);
     }
 }

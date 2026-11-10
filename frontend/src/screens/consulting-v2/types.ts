@@ -17,6 +17,8 @@ export interface FreshMeta {
 }
 
 export interface DealRow {
+  /** 初回契約の関門。reason は期限超過のときだけ「初回契約: 求人掲載が期限超過」など */
+  first_contract?: { overdue_count?: number; reason?: string };
   deal_id: string;
   name?: string | null;
   stage?: string | null;

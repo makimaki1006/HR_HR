@@ -6107,6 +6107,12 @@ function renderDq(D) {
    「満了90日前でMTGが30日以上途絶」が図では緋なのに枡では山吹だった（2026-09-28 段2 A で気づいた。fixture 1440px の実機）。
    分類の言葉（word）は title に添える（色だけで伝えない） */
 const tagColor = (f) => flagGroup(f).color === C.hi ? "hi" : flagGroup(f).color === C.ki ? "ki" : "murasaki";
+/* 初回契約の関門が期限超過の案件に、その理由を1行添える。名札は増やさない（2026-10-27 決定）ので、
+   名札の欄の下に小さく出す。「今日」に名札0本で入った初回契約も、なぜ出ているか読める（2026-11-10 レビュー） */
+function firstReason(r) {
+  const reason = r && r.first_contract && r.first_contract.reason;
+  return reason ? '<div class="muted">' + esc(reason) + "</div>" : "";
+}
 function tags(fs) {
   return tagsShort(fs);
 }
@@ -6266,7 +6272,7 @@ const BOARD_COLS = [
      🔴 折り返す列（w:"l"、td.wl は最大 22em）にする。2026-09-28 検証（fixture 1440px）: 2 列目に移した名札を
      折り返さないままにしたら列の幅が 799px になり、枠（1,149px）に最初から見える列が 8 列 → 3 列
      （案件・名札・担当）に減っていた。満了まで・定期NPS・最後の接触・最後のMTG が横スクロールの外 */
-  { k: "n_flags",    t: "注意",        n: 0, w: "l", fmt: (r) => tags(r.flags) },
+  { k: "n_flags",    t: "注意",        n: 0, w: "l", fmt: (r) => tags(r.flags) + firstReason(r) },
   { k: "consultant", t: "担当",        n: 0, fmt: (r) => esc(r.consultant) || DASH },
   /* 段階（2026-10-26）。サーバの phase_label（0 契約前〜4 2回目以降）。満了後は段階を付けず、不明は開始日か満了日が空 */
   { k: "phase",      t: "段階",        n: 0, fmt: phaseCell, sv: phaseSort },
@@ -6320,7 +6326,7 @@ const TODAY_COLS = ["name", "n_flags", "nps", "consultant", "phase", "days_left"
   .map((k) => {
     const c = BOARD_COLS.find((x) => x.k === k);
     if (k === "name") return Object.assign({}, c, { w: "l" });
-    if (k === "n_flags") return Object.assign({}, c, { w: "f", fmt: (r) => tagsShort(r.flags) });
+    if (k === "n_flags") return Object.assign({}, c, { w: "f", fmt: (r) => tagsShort(r.flags) + firstReason(r) });
     return c;
   });
 
@@ -6902,7 +6908,8 @@ let todayStartedOpen = false;
 function todayFilterRule(meta) {
   /* サーバの文が無い・空のときは句点から始めない（前は「。全件は …」と出た。サーバは必ず載せるが、応答の形に頼らない） */
   const rule = esc((meta && meta.filter_rule) || "");
-  return (rule ? rule + "。" : "") + "全件は " + goLink("deal", "board") + " で見られます。";
+  /* サーバの文は句点で終わる。重ねて「。。」にしない */
+  return (rule ? rule + (/[。．]$/.test(rule) ? "" : "。") : "") + "全件は " + goLink("deal", "board") + " で見られます。";
 }
 
 /* 選んだ担当で応答を絞った写し。サーバは名札2本以上の全候補（candidates、fixture 243 件）と、その上位 keep 件
@@ -6990,8 +6997,12 @@ function todayJump(id) {
 const FIRST_GATE_HEADERS = ['初回MTG（7日以内）', '求人掲載（14日以内）', '応募1件（30日以内）', '面接1件（段階3まで）', '満足度の回答（段階3まで）'];
 function firstGateStatus(g) {
   if (g && g.achieved === true) return { text: '達成', tone: 'achieved' };
-  if (!g || g.achieved !== false || !g.deadline || !/^\d{4}-\d{2}-\d{2}$/.test(g.deadline)) return { text: '判定できない', tone: 'unknown' };
-  const date = Number(g.deadline.slice(5, 7)) + '/' + Number(g.deadline.slice(8, 10));
+  if (g && g.check) return { text: '確かめてください（開始前のMTGあり）', tone: 'unknown' };
+  if (g && g.not_started) return { text: '開始前', tone: 'unknown' };
+  /* 間に合う最後の日（段階3の関門は境目の前日）。古い応答で無ければ期限日を使う */
+  const day = g && (g.last_day || g.deadline);
+  if (!g || g.achieved !== false || !day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return { text: '判定できない', tone: 'unknown' };
+  const date = Number(day.slice(5, 7)) + '/' + Number(day.slice(8, 10));
   return g.overdue ? { text: '期限超過（' + date + '）', tone: 'overdue' } : { text: '期限前（' + date + 'まで）', tone: 'pending' };
 }
 let firstContractData = null;

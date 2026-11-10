@@ -2929,6 +2929,21 @@ check("チームの並び", "多い順・同数は名前順、旧URLの名前順
   if (names() !== '架空あ,架空い,架空う') throw new Error('旧URLの名前順が使えない');
 });
 
+check("初回契約", "関門の言葉は最後の日・開始前・開始前のMTGを使い分け、今日の行に理由を出す", async () => {
+  const t = boot();
+  const g = (o) => JSON.stringify(Object.assign({label:'面接1件以上',achieved:false,deadline:'2026-05-02',overdue:false,text:'未達'}, o));
+  const st = (o) => t.R('firstGateStatus(' + g(o) + ').text');
+  if (st({last_day:'2026-05-01'}) !== '期限前（5/1まで）') throw new Error('段階3の最後の日を使っていない: ' + st({last_day:'2026-05-01'}));
+  if (st({last_day:'2026-05-01', overdue:true}) !== '期限超過（5/1）') throw new Error('期限超過の日付が違う');
+  if (st({not_started:true}) !== '開始前') throw new Error('開始前が出ない');
+  if (st({check:true}) !== '確かめてください（開始前のMTGあり）') throw new Error('開始前のMTGの案内が出ない');
+  const r = t.R('firstReason({first_contract:{reason:"初回契約: 求人掲載・応募が期限超過"}})');
+  if (!r.includes('初回契約: 求人掲載・応募が期限超過')) throw new Error('今日の理由が出ない');
+  if (t.R('firstReason({first_contract:{reason:""}})') !== '') throw new Error('理由が無いのに何か出ている');
+  const rule = t.R('todayFilterRule({filter_rule:"候補は 3 件です。"})');
+  if (rule.includes('。。')) throw new Error('句点が重なる: ' + rule);
+});
+
 check("初回契約", "共通の判定・目標を表示し担当を絞りURLへ戻せる", async () => {
   const t = boot();
   t.R(`__first = { consultants:['架空の担当甲','架空の担当乙'], rows:[

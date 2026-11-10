@@ -129,3 +129,11 @@ it('期限が無い・関門が無い場合は判定できず、達成済みは�
   expect(firstGateStatus({ label: '面接', achieved: false, overdue: false, deadline: null, text: '未達' }).text).toBe('判定できない');
   expect(firstGateStatus({ label: '面接', achieved: true, overdue: false, deadline: null, text: '達成' }).text).toBe('達成');
 });
+
+it('関門の言葉は間に合う最後の日・開始前・開始前のMTGを使い分ける', () => {
+  const base = { label: '面接1件以上', achieved: false, deadline: '2026-05-02', overdue: false, text: '未達' };
+  expect(firstGateStatus({ ...base, last_day: '2026-05-01' })).toEqual({ text: '期限前（5/1まで）', tone: 'pending' });
+  expect(firstGateStatus({ ...base, last_day: '2026-05-01', overdue: true })).toEqual({ text: '期限超過（5/1）', tone: 'overdue' });
+  expect(firstGateStatus({ ...base, not_started: true })).toEqual({ text: '開始前', tone: 'unknown' });
+  expect(firstGateStatus({ ...base, label: '初回MTGの記録', check: true })).toEqual({ text: '確かめてください（開始前のMTGあり）', tone: 'unknown' });
+});

@@ -170,3 +170,4 @@ body:has(.cv2) { margin: 0; background: #f4f7fa; }
 
 .cv2-goal-note { display: block; margin-top: 4px; font-size: 11px; }
 .cv2-first-note { font-size: 12px; }
+.cv2-first-reason { display: block; margin-top: 2px; font-size: 12px; color: var(--cv2-muted); }
