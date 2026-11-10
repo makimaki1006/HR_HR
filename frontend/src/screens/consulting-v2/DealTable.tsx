@@ -231,7 +231,13 @@ function Cell({ col, r, onOpen, portal }: { col: DealColumn; r: DealRow; onOpen:
         </>
       );
     case 'flags':
-      return <FlagChips flags={r.flags} />;
+      // 初回契約の関門が期限超過なら、その理由を名札の下に小さく出す（名札は増やさない）
+      return (
+        <>
+          <FlagChips flags={r.flags} />
+          {r.first_contract?.reason ? <small className="cv2-first-reason">{r.first_contract.reason}</small> : null}
+        </>
+      );
     case 'consultant':
       return <>{orText(r.consultant, DASH)}</>;
     case 'phase':

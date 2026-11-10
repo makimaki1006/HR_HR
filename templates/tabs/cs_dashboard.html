@@ -3124,7 +3124,7 @@ function cpaLine(st, w, h) {
   const pts = st.pts;
   return svgLine({
     w: w || 700, h: h || 240, labelPts: pts.length <= 10,
-    x: pts.map(p => (p.no === 0 ? "初回" : "継続" + p.no)),
+    x: pts.map(p => "継続" + p.no + "回"),
     xSub: pts.map(p => (p.d || "").slice(0, 7)),
     series: [{ color: C.hi, pts: pts.map(p =>
       ({ v: p.v, censored: p.cen, note: "採用" + num(p.syo) + "名" })) }],
@@ -4398,7 +4398,8 @@ function resultsActTables(D) {
 /** id: 成果と継続の中の節として描くとき、見出しに付ける id（目次の行き先）。付けたときは末尾の基準日の枠を出さない */
 function renderRenewal(D, id) {
   const mr = D.monthly_retention, br = D.by_renewal;
-  const label = (r) => (r.renewal_no === 0 ? "初回" : "継続" + r.renewal_no);
+  /* 継続回数の軸。「初回」と書かない（初回契約は売上回数が1回のもので、継続0回とは別。2026-11-10） */
+  const label = (r) => "継続" + r.renewal_no + "回";
   // 解約率の母数は決着済み（継続＋解約＋充足）。n<30 の足切りも母数で見る（全件の n ではない）
   const big = br.filter((r) => r.denom >= MIN_N);
   let h = sec("節", "継続回数と成果", id);
@@ -4406,7 +4407,7 @@ function renderRenewal(D, id) {
   /* 2026-09-29 組み替え（09 の 7「答えを先に」）: 継続回数ごとの解約率を先頭に（前は月次の継続率・満了月の表の下、
      1440px で y=1,103）。月次の継続率はその次 */
   h += sec("図", "継続回数ごとの解約率");
-  h += fig("分子は「解約 ＋ 充足」", "初回を乗り切れれば、あとは残ります",
+  h += fig("分子は「解約 ＋ 充足」", "最初の契約期間（継続0回）を乗り切れれば、あとは残ります",
     svgBarH({ w: 660, fmt: F.pp, rh: 26,
       rows: big.map((r) => ({
         label: label(r), v: r.cancel_rate, v0: r.cancel_rate_excl_fill, v0Label: "採れて終わった分（充足）を除くと",
@@ -5810,11 +5811,12 @@ function launchSection(L) {
     legend += '<i class="full" data-keep="1"><b>取引数が ' + MIN_N + " 件未満の " + num(dropped.length) + " 点を図から外しています</b>（" + list +
       "）。少ない件数の平均は、たまたまでも大きく振れるためです。</i>";
   }
-  legend += '<i class="full">初回契約（継続回数が 0）だけを、契約を始めた月ごとに分けています。横軸は開始の月を 1 ヶ月目とした暦の月、' +
+  legend += '<i class="full">初回契約（HubSpot の売上回数が1回）だけを、契約を始めた月ごとに分けています。横軸は開始の月を 1 ヶ月目とした暦の月、' +
     "縦軸は取引の応募数（累計）の月ごとの増え方の、取引あたりの平均です。終わっていない月は線を伸ばしていません（0 にはしていません）。</i>" +
     /* 外れた件数の文と、読み違えないための 1 行は畳まない（data-keep。fig() の figRules） */
     '<i class="full" data-keep="1">満了月より後の月と、応募数の記録が無い取引 ' + num(L.n_no_series || 0) + " 件は数えていません" +
-    (L.n_decrease ? "（累計が減った " + num(L.n_decrease) + " 取引の月も除いています）" : "") + "。</i>" +
+    (L.n_decrease ? "（累計が減った " + num(L.n_decrease) + " 取引の月も除いています）" : "") + "。" +
+    (L.n_sales_unread ? "売上回数を読めなかった " + num(L.n_sales_unread) + " 取引も数えていません。" : "") + "</i>" +
     '<i class="full" data-keep="1">HubSpot に記録された応募数だけの数字です。<b>開始の時期と応募の増え方の関係は相関であって、原因とは限りません。</b></i>';
   h += fig("開始月ごとの、契約してからの応募", "対象 " + num(L.n_first) + " 件（直近 " + L.cohorts.length + " か月に始まった初回契約）", body, legend);
   return h;
@@ -6107,6 +6109,12 @@ function renderDq(D) {
    「満了90日前でMTGが30日以上途絶」が図では緋なのに枡では山吹だった（2026-09-28 段2 A で気づいた。fixture 1440px の実機）。
    分類の言葉（word）は title に添える（色だけで伝えない） */
 const tagColor = (f) => flagGroup(f).color === C.hi ? "hi" : flagGroup(f).color === C.ki ? "ki" : "murasaki";
+/* 初回契約の関門が期限超過の案件に、その理由を1行添える。名札は増やさない（2026-10-27 決定）ので、
+   名札の欄の下に小さく出す。「今日」に名札0本で入った初回契約も、なぜ出ているか読める（2026-11-10 レビュー） */
+function firstReason(r) {
+  const reason = r && r.first_contract && r.first_contract.reason;
+  return reason ? '<div class="muted">' + esc(reason) + "</div>" : "";
+}
 function tags(fs) {
   return tagsShort(fs);
 }
@@ -6266,7 +6274,7 @@ const BOARD_COLS = [
      🔴 折り返す列（w:"l"、td.wl は最大 22em）にする。2026-09-28 検証（fixture 1440px）: 2 列目に移した名札を
      折り返さないままにしたら列の幅が 799px になり、枠（1,149px）に最初から見える列が 8 列 → 3 列
      （案件・名札・担当）に減っていた。満了まで・定期NPS・最後の接触・最後のMTG が横スクロールの外 */
-  { k: "n_flags",    t: "注意",        n: 0, w: "l", fmt: (r) => tags(r.flags) },
+  { k: "n_flags",    t: "注意",        n: 0, w: "l", fmt: (r) => tags(r.flags) + firstReason(r) },
   { k: "consultant", t: "担当",        n: 0, fmt: (r) => esc(r.consultant) || DASH },
   /* 段階（2026-10-26）。サーバの phase_label（0 契約前〜4 2回目以降）。満了後は段階を付けず、不明は開始日か満了日が空 */
   { k: "phase",      t: "段階",        n: 0, fmt: phaseCell, sv: phaseSort },
@@ -6320,7 +6328,7 @@ const TODAY_COLS = ["name", "n_flags", "nps", "consultant", "phase", "days_left"
   .map((k) => {
     const c = BOARD_COLS.find((x) => x.k === k);
     if (k === "name") return Object.assign({}, c, { w: "l" });
-    if (k === "n_flags") return Object.assign({}, c, { w: "f", fmt: (r) => tagsShort(r.flags) });
+    if (k === "n_flags") return Object.assign({}, c, { w: "f", fmt: (r) => tagsShort(r.flags) + firstReason(r) });
     return c;
   });
 
@@ -6902,7 +6910,8 @@ let todayStartedOpen = false;
 function todayFilterRule(meta) {
   /* サーバの文が無い・空のときは句点から始めない（前は「。全件は …」と出た。サーバは必ず載せるが、応答の形に頼らない） */
   const rule = esc((meta && meta.filter_rule) || "");
-  return (rule ? rule + "。" : "") + "全件は " + goLink("deal", "board") + " で見られます。";
+  /* サーバの文は句点で終わる。重ねて「。。」にしない */
+  return (rule ? rule + (/[。．]$/.test(rule) ? "" : "。") : "") + "全件は " + goLink("deal", "board") + " で見られます。";
 }
 
 /* 選んだ担当で応答を絞った写し。サーバは名札2本以上の全候補（candidates、fixture 243 件）と、その上位 keep 件
@@ -6990,8 +6999,12 @@ function todayJump(id) {
 const FIRST_GATE_HEADERS = ['初回MTG（7日以内）', '求人掲載（14日以内）', '応募1件（30日以内）', '面接1件（段階3まで）', '満足度の回答（段階3まで）'];
 function firstGateStatus(g) {
   if (g && g.achieved === true) return { text: '達成', tone: 'achieved' };
-  if (!g || g.achieved !== false || !g.deadline || !/^\d{4}-\d{2}-\d{2}$/.test(g.deadline)) return { text: '判定できない', tone: 'unknown' };
-  const date = Number(g.deadline.slice(5, 7)) + '/' + Number(g.deadline.slice(8, 10));
+  if (g && g.check) return { text: '確かめてください（開始前のMTGあり）', tone: 'unknown' };
+  if (g && g.not_started) return { text: '開始前', tone: 'unknown' };
+  /* 間に合う最後の日（段階3の関門は境目の前日）。古い応答で無ければ期限日を使う */
+  const day = g && (g.last_day || g.deadline);
+  if (!g || g.achieved !== false || !day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return { text: '判定できない', tone: 'unknown' };
+  const date = Number(day.slice(5, 7)) + '/' + Number(day.slice(8, 10));
   return g.overdue ? { text: '期限超過（' + date + '）', tone: 'overdue' } : { text: '期限前（' + date + 'まで）', tone: 'pending' };
 }
 let firstContractData = null;
@@ -8092,7 +8105,8 @@ function detailCrumbs(d) {
   const st = link && d.site_key
     ? '<a href="' + esc(hashFor("customer", { houjin: d.houjin, site: d.site_key })) + '">' + siteText + "</a>"
     : '<span class="muted">' + siteText + "</span>";
-  const nth = d.renewal_no == null ? "" : d.renewal_no === 0 ? "（初回）" : "（" + num(d.renewal_no) + "回目の継続）";
+  /* 初回契約は売上回数が1回のもの（first_sales）。継続回数とは別の軸なので、継続0回を「初回」と書かない */
+  const nth = d.first_sales === true ? "（初回契約）" : d.renewal_no == null ? "" : d.renewal_no === 0 ? "（継続0回）" : "（" + num(d.renewal_no) + "回目の継続）";
   const sep = '<span class="sep" aria-hidden="true">＞</span>';
   return '<nav class="crumbs" aria-label="この案件の位置">' + hj + sep + st + sep +
     '<span aria-current="page">この案件' + nth + "</span></nav>";
@@ -8306,6 +8320,25 @@ function renderDefs() {
 function shortWhen(s) {
   return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s || "") ? s.slice(5, 16) : (s || "");
 }
+/** 自動の更新の案内（Ver2 の consulting-v2/parts.tsx の autoRefreshText と同じ文言）。
+    見張りが動いていない・データが今日のもの・日時不明なら空 */
+function autoRefreshText(meta, age) {
+  if (!meta || !meta.auto_refresh || age == null || age < 1) return "";
+  const requested = String(meta.last_dispatch_at || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/);
+  switch (meta.auto_state) {
+    case "running": return "自動でデータを更新しています";
+    case "done": return "更新は済んでいます。まもなく表示に反映されます";
+    case "failed": return "自動の更新に失敗しました。次の更新を待っています";
+    case "unknown": return "自動の更新の状態を確かめられません";
+    case "tomorrow": return "自動の更新は明日1時以降に頼みます";
+    case "after_one": return "自動の更新は1時以降に頼みます";
+    case "requested":
+      return requested && requested[1] === meta.today ? "自動で更新を頼みました（" + requested[2] + "）" : "自動の更新はこのあと頼みます";
+    case "request_failed": return "自動の更新を頼めていません";
+    case "pending": return "自動の更新はこのあと頼みます";
+    default: return "";
+  }
+}
 function setFresh(meta) {
   const box = document.getElementById("cs-fresh");
   if (!box) return;
@@ -8346,22 +8379,13 @@ function setFresh(meta) {
     const stamp = String(when).replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}$/, "$1");
     h = "<b>" + (word ? word + "の" : "取得日が分からない") + "データです（" + esc(stamp) + "）。</b>";
   }
-  /* 今日の依頼かはJSTの日付で比べる。実行履歴で分かる状態を優先する。
-     S-9（1行目は短く）を守るため、依頼の状態は「ほかの時刻」の中の先頭に置く */
-  let auto = "";
-  if (meta && meta.auto_refresh && age != null && age > 1) {
-    const requested = String(meta.last_dispatch_at || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/);
-    const requestedToday = requested && requested[1] === meta.today;
-    auto = (meta.latest_run_state === "running" ? "自動でデータを更新しています"
-      : meta.latest_run_state === "failed" ? "自動の更新に失敗しました。次の更新を待っています"
-      : meta.last_result === "success" && requestedToday
-        ? "自動で更新を頼みました（" + requested[2] + "）"
-        : meta.last_result === "failure" && requestedToday
-          ? "自動の更新を頼めていません" : "自動の更新はこのあと頼みます") + "。";
-  }
+  /* 自動の更新の案内。見張りが頼む条件（データが今日 0:00 JST より前＝age が1以上）とそろえる。
+     状態の種類（meta.auto_state）はサーバが実行履歴と時刻から決める。文言は Ver2 の Fresh と同じ表。
+     S-9（1行目は短く）を守るため、案内は「ほかの時刻」の中の先頭に置く */
+  const auto = autoRefreshText(meta, age);
   /* 何日前のデータかと取得日時は常に見せる。時刻の内訳は行の続きに畳む。 */
   h += '<details class="fold inl"><summary>ほかの時刻</summary>' +
-    '<span class="muted">' + esc(auto);
+    '<span class="muted">' + esc(auto ? auto + "。" : "");
   /* 1行目を短くしたときだけ、元の全文をここに残す（黙って削らない） */
   if (when) h += (src ? "元データを落としたのは " : "シートを作ったのは ") + esc(when) + "。";
   if (gen && src && gen.slice(0, 10) !== src.slice(0, 10)) {

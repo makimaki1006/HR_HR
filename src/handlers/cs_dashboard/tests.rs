@@ -24,13 +24,27 @@ use std::time::Instant;
 
 use serde_json::Value;
 
+use super::first_contract::SalesSnapshot;
 use super::routes::{
     build_consultants, build_customer, build_data_quality, build_deal_board, build_focus,
     build_handover, build_headquarters, build_mtg_quality, build_outcome, build_phone,
     build_rampup, build_renewal, build_results, build_team, build_today_board,
 };
+use super::routes::{build_deal_board_with_sales, build_rampup_with_sales};
 use super::Sheets;
 use crate::handlers::call_quality::sheets::SheetData;
+
+/// 売上回数（HubSpot）はシートの fixture に無いので、継続回数から作った架空の売上回数。
+/// 継続0回 → 1回、継続 n 回 → n+1 回、継続回数が空 → 読めなかった（キーなし）。
+/// 初回契約を売上回数で決めるようにした（2026-11-10）後も、前と同じ集合で具体値を確かめるため
+fn sales_like_renewal(sh: &Sheets) -> SalesSnapshot {
+    SalesSnapshot::from_values(
+        super::deals_of(&sh.deal)
+            .into_iter()
+            .filter_map(|d| d.renewal_no.map(|n| (d.id, Some((n + 1) as f64))))
+            .collect(),
+    )
+}
 
 fn load_tsv(name: &str) -> Arc<SheetData> {
     // 実データなので生だと 9.4MB になる。gzip で 1.8MB。
@@ -987,8 +1001,14 @@ fn 立ち上がりは契約後のmtgだけで測る() {
 /// 稼働中の初回契約で、まだMTGの記録が無いもの。
 #[test]
 fn mtgが結べていない初回契約が出る() {
-    let v = build_rampup(&sheets(), fixture_day());
+    let sh = sheets();
+    // 売上回数を読めないときは初回契約に数えない（稼働中の全件が「読めなかった」に入る）
+    let none = build_rampup(&sh, fixture_day());
+    assert_eq!(none["no_mtg"]["first_active"], 0);
+    assert_eq!(none["no_mtg"]["sales_unread"], none["meta"]["n_active"]);
+    let v = build_rampup_with_sales(&sh, fixture_day(), &sales_like_renewal(&sh));
     let nm = &v["no_mtg"];
+    assert_eq!(nm["sales_unread"], SALES_UNREAD_ACTIVE);
     // 2026-09-23: 「マーケ関連」（紹介料・マーケ施策の計上）10件を表と分母から外した。
     //   264 -> 254、114 -> 104。10件とも MTG の記録が無かった。件数は別に返す
     assert_eq!(nm["first_active"], 254);
@@ -1856,6 +1876,8 @@ fn 全画面で母集団の件数が一致する() {
             Some(&Value::Null),
             "{name}"
         );
+        // 見張りが動いていなければ案内の種類も null（画面は自動の依頼のことを出さない）。
+        assert_eq!(v["meta"].get("auto_state"), Some(&Value::Null), "{name}");
         // 🔴 自動更新の予定（S-9）も freshen が全画面の meta に載せる。無いときも null のキーとして載せる
         //    （画面は「キーが無い」と「null」を区別しない＝配線が外れても黙って時刻なしに退化する。
         //    2026-09-28 検証: この6行の insert を消しても lib・app_routes・view_rules のどれも落ちなかった）。
@@ -6301,7 +6323,7 @@ fn has_str(v: &Value, x: &str) -> bool {
 #[test]
 fn act_views_are_defined_by_the_deal_flags() {
     let sh = sheets();
-    let b = build_deal_board(&sh, fixture_day());
+    let b = build_deal_board_with_sales(&sh, fixture_day(), &sales_like_renewal(&sh));
     let rows = b["rows"].as_array().unwrap();
     let (mut top, mut silent, mut no_mtg, mut risk) = (0, 0, 0, 0);
     for r in rows {
@@ -6314,7 +6336,14 @@ fn act_views_are_defined_by_the_deal_flags() {
         let want_silent = has_str(f, "接触の記録が無い")
             || (has_str(f, "接触が30日以上空いている")
                 && r["days_since_contact"].as_i64().is_some_and(|x| x > 90));
-        let want_no_mtg = r["renewal_no"] == 0 && r["mtg_band"] == "no_record";
+        // 初回契約は売上回数が1回（first_sales）。この fixture では継続0回と同じ集合にしてある
+        assert_eq!(
+            r["first_sales"] == true,
+            r["renewal_no"] == 0,
+            "初回契約 {}",
+            r["deal_id"]
+        );
+        let want_no_mtg = r["first_sales"] == true && r["mtg_band"] == "no_record";
         let want_risk = r["mtg_risk"] == "高";
         assert_eq!(has_str(views, "top"), want_top, "最優先 {}", r["deal_id"]);
         assert_eq!(
@@ -6379,7 +6408,7 @@ fn act_views_are_defined_by_the_deal_flags() {
 #[test]
 fn act_view_diff_counts_on_fixture() {
     let sh = sheets();
-    let b = build_deal_board(&sh, fixture_day());
+    let b = build_deal_board_with_sales(&sh, fixture_day(), &sales_like_renewal(&sh));
     let rows = b["rows"].as_array().unwrap();
     let diff = b["meta"]["act_view_diff"]
         .as_array()
@@ -6717,7 +6746,13 @@ fn act_view_diff_memo_reuses_only_for_the_same_sheets_and_day() {
     assert_eq!(a["meta"]["act_view_diff"], b["meta"]["act_view_diff"]);
     assert_eq!(
         a["meta"]["act_view_diff"],
-        super::routes::act_view_diff(&sh, d, a["rows"].as_array().unwrap())
+        super::routes::act_view_diff(
+            &sh,
+            d,
+            a["rows"].as_array().unwrap(),
+            &Default::default(),
+            None
+        )
     );
 }
 
@@ -7630,8 +7665,10 @@ fn act_views_stay_and_nps_match_the_original_screens() {
 /// 応募数は取引の累計なので、月の応募数は累計の差。まだ終わっていない月（9 月）の点は無い。
 #[test]
 fn 開始月ごとの応募の推移は終わった月だけで具体値が合う() {
-    let v = build_rampup(&sheets(), fixture_day());
+    let sh = sheets();
+    let v = build_rampup_with_sales(&sh, fixture_day(), &sales_like_renewal(&sh));
     let l = &v["launch"];
+    assert_eq!(l["n_sales_unread"], LAUNCH_SALES_UNREAD);
     assert_eq!(l["last_full"], "2026-08");
     assert_eq!(l["n_first"], 320);
     assert_eq!(l["n_no_series"], 5);
@@ -7833,4 +7870,104 @@ fn 法人の一覧に稼働中の案件の段階の件数が付く() {
         with_phase > 100,
         "段階が付いた法人が少なすぎる: {with_phase}"
     );
+}
+
+/// 稼働中で継続回数が空の取引（`sales_like_renewal` で売上回数を読めなかった扱いになる件数）。fixture では 0 件
+const SALES_UNREAD_ACTIVE: i64 = 0;
+/// 立ち上がりの図の開始月に始まった取引のうち、継続回数が空の取引。fixture では 0 件
+const LAUNCH_SALES_UNREAD: i64 = 0;
+
+/// 初回契約は継続回数ではなく売上回数で決まる（2026-11-10 ユーザー決定）。
+/// 継続0回でも売上回数が2回なら初回契約に入らず、継続1回以上でも売上回数が1回なら入る。
+/// 読めなかった取引は初回契約に数えず、件数だけ出す。名札（見方）・立ち上がりの表・突き合わせが同じ判定になる
+#[test]
+fn 初回契約は売上回数で決まる() {
+    let sh = sheets();
+    let day = fixture_day();
+    let base = sales_like_renewal(&sh);
+    let board = build_deal_board_with_sales(&sh, day, &base);
+    let rows = board["rows"].as_array().unwrap();
+    // A: 継続0回・MTG の記録なし（見方に入っている）。B: 継続1回以上・MTG の記録なし。C: 継続0回・MTG の記録あり
+    let pick = |f: &dyn Fn(&Value) -> bool| -> String {
+        rows.iter()
+            .filter(|r| f(r))
+            .map(|r| r["deal_id"].as_str().unwrap().to_string())
+            .min()
+            .expect("該当の案件")
+    };
+    let a = pick(&|r| r["renewal_no"] == 0 && r["mtg_band"] == "no_record");
+    let b =
+        pick(&|r| r["renewal_no"].as_i64().is_some_and(|n| n >= 1) && r["mtg_band"] == "no_record");
+    let c = pick(&|r| r["renewal_no"] == 0 && r["mtg_band"] == "recent");
+    let mut values: std::collections::HashMap<String, Option<f64>> = super::deals_of(&sh.deal)
+        .into_iter()
+        .filter_map(|d| d.renewal_no.map(|n| (d.id, Some((n + 1) as f64))))
+        .collect();
+    values.insert(a.clone(), Some(2.0));
+    values.insert(b.clone(), Some(1.0));
+    values.remove(&c);
+    let sales = SalesSnapshot::from_values(values);
+
+    let before = build_rampup_with_sales(&sh, day, &base);
+    let after = build_rampup_with_sales(&sh, day, &sales);
+    let n = |v: &Value, k: &str| v["no_mtg"][k].as_i64().unwrap();
+    // 初回契約は A と C が抜けて B が入る（254 → 253）。MTG の記録なしは A が抜けて B が入る（104 → 104）
+    assert_eq!(n(&before, "first_active"), 254);
+    assert_eq!(n(&after, "first_active"), 253);
+    assert_eq!(n(&after, "n"), n(&before, "n"));
+    assert_eq!(n(&after, "sales_unread"), n(&before, "sales_unread") + 1);
+    let ids = |v: &Value| -> Vec<String> {
+        v["no_mtg"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["deal_id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(!ids(&after).contains(&a) && ids(&after).contains(&b));
+
+    let board = build_deal_board_with_sales(&sh, day, &sales);
+    let row = |id: &str| {
+        board["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["deal_id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(row(&a)["first_sales"], false);
+    assert!(!has_str(&row(&a)["views"], "no_mtg"));
+    assert_eq!(row(&b)["first_sales"], true);
+    assert!(has_str(&row(&b)["views"], "no_mtg"));
+    assert!(row(&c)["first_sales"].is_null());
+    assert_eq!(
+        board["meta"]["sales_unread"].as_i64().unwrap(),
+        SALES_UNREAD_ACTIVE + 1
+    );
+    let view_n = |v: &Value| {
+        v["meta"]["act_views"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["key"] == "no_mtg")
+            .unwrap()["n"]
+            .as_i64()
+            .unwrap()
+    };
+    // 見方の件数は A が抜けて B が入る（11 → 11）
+    assert_eq!(view_n(&board), 11);
+    // 突き合わせの「外れた理由」は売上回数で書く
+    let dropped = board["meta"]["act_view_diff"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["key"] == "no_mtg")
+        .unwrap()["old"]["dropped_rows"]
+        .clone();
+    assert!(dropped
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| !r["reason"].as_str().unwrap().contains("初回契約ではない")));
 }

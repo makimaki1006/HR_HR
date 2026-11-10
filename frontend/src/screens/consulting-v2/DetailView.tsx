@@ -312,7 +312,8 @@ function Body({ d, go }: { d: DetailResponse; go: (r: Partial<Route>) => void })
   const nOlder = byKind.length - shown.length;
   const chain = d.chain?.rows ?? [];
   const at = chain.findIndex((r) => r.current === true);
-  const nth = deal.renewal_no === null || deal.renewal_no === undefined ? '' : deal.renewal_no === 0 ? '（初回）' : `（${num(deal.renewal_no)}回目の継続）`;
+  // 初回契約は売上回数が1回のもの。継続回数（同じ契約の続き何回目か）とは別の軸
+  const nth = deal.first_sales === true ? '（初回契約）' : deal.renewal_no === null || deal.renewal_no === undefined ? '' : deal.renewal_no === 0 ? '（継続0回）' : `（${num(deal.renewal_no)}回目の継続）`;
   return (
     <>
       <Fresh meta={d.meta} />

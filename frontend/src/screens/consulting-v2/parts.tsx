@@ -152,16 +152,37 @@ function shortWhen(s: string): string {
   return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? s.slice(5, 16) : s;
 }
 
+/**
+ * 自動の更新の案内。見張りが頼む条件（データが今日 0:00 JST より前＝age が1以上）とそろえる。
+ * 状態の種類（meta.auto_state）はサーバが実行履歴と時刻から決める。文言は Ver1 の setFresh（autoRefreshText）と同じ。
+ * 見張りが動いていない・データが今日のもの・日時不明なら空。
+ */
+export function autoRefreshText(meta: FreshMeta, age: number | null): string {
+  if (meta.auto_refresh !== true || age === null || age < 1) return '';
+  const requested = meta.last_dispatch_at?.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/);
+  const requestedTime = requested != null && requested[1] === meta.today ? requested[2] : undefined;
+  switch (meta.auto_state) {
+    case 'running': return '自動でデータを更新しています';
+    case 'done': return '更新は済んでいます。まもなく表示に反映されます';
+    case 'failed': return '自動の更新に失敗しました。次の更新を待っています';
+    case 'unknown': return '自動の更新の状態を確かめられません';
+    case 'tomorrow': return '自動の更新は明日1時以降に頼みます';
+    case 'after_one': return '自動の更新は1時以降に頼みます';
+    // today はサーバがJSTで返す基準日。端末のタイムゾーンに依存させない。
+    case 'requested': return requestedTime === undefined ? '自動の更新はこのあと頼みます' : `自動で更新を頼みました（${requestedTime}）`;
+    case 'request_failed': return '自動の更新を頼めていません';
+    case 'pending': return '自動の更新はこのあと頼みます';
+    default: return '';
+  }
+}
+
 /** データの取得日時と古さ。今のコンサルKPI の鮮度の帯 (setFresh) と同じ線引き。いつのものか分からないときは分からないと書く */
 export function Fresh({ meta }: { meta: FreshMeta }) {
   const src = meta.source_as_of ?? '';
   const gen = meta.generated_at ?? '';
   const age = meta.source_age_days ?? null;
   const when = src === '' ? gen : src;
-  const requested = meta.last_dispatch_at?.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/);
-  // today はサーバがJSTで返す基準日。端末のタイムゾーンに依存させない。
-  const requestedTime = requested && requested[1] === meta.today ? requested[2] : null;
-  const requestedToday = requestedTime != null;
+  const auto = autoRefreshText(meta, age);
   if (when === '') {
     return (
       <div className="cv2-fresh cv2-fresh-bad" role="status">
@@ -182,18 +203,10 @@ export function Fresh({ meta }: { meta: FreshMeta }) {
       ) : (
         <b>{word === '' ? '取得日が分からない' : `${word}の`}データです（{stamp}）。</b>
       )}
-      {meta.auto_refresh && age !== null && age > 1 ? (
-        <div>{meta.latest_run_state === 'running' ? '自動でデータを更新しています'
-          : meta.latest_run_state === 'failed' ? '自動の更新に失敗しました。次の更新を待っています'
-          : meta.last_result === 'success' && requestedToday
-            ? `自動で更新を頼みました（${requestedTime}）`
-            : meta.last_result === 'failure' && requestedToday
-              ? '自動の更新を頼めていません'
-              : '自動の更新はこのあと頼みます'}</div>
-      ) : null}
       <details className="cv2-more">
         <summary>ほかの時刻</summary>
         <p className="cv2-dim">
+          {auto === '' ? null : <span>{auto}。</span>}
           {src === '' ? 'シートを作ったのは' : '元データを落としたのは'} {when}。
           {gen !== '' && src !== '' && gen.slice(0, 10) !== src.slice(0, 10) ? `シートを作り直したのは ${gen}（元データはそれより前のもの）。` : ''}
           {meta.today ? `計算の基準日は ${meta.today}（データの新しさとは別物）。` : ''}

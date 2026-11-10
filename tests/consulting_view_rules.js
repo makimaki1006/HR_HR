@@ -312,7 +312,7 @@ check("V15: 継続回数の表で n<30 の行に印を付ける", () => {
       cancel_rate: 0, cancel_rate_excl_fill: 0,
       oubo: box, mensetu: box, syoudaku: box, oubo_per_posting: box, amount: box }] };
   const h = run("renderRenewal(__RN2)");
-  ok(/継続9 <span class="tag few">30件未満<\/span>/.test(h), "6件 の行に印が無い");
+  ok(/継続9回 <span class="tag few">30件未満<\/span>/.test(h), "6件 の行に印が無い");
 });
 
 /* ================================================================ V16 */
@@ -3366,7 +3366,12 @@ check("案件の詳細: 名前はエスケープし、値の無い項目は — 
   ok(h.indexOf("稼働中の案件にだけ付けています") >= 0, "注意が無い理由を書いていない");
   ok(h.indexOf("拠点名なし") >= 0 && h.indexOf("前後の契約はたどれません") >= 0, "拠点が無いときの断りが無い");
   ok(!/>[^<]*80000000001[^<]*</.test(h), "取引ID が画面の文字に出ている");
-  ok(h.indexOf("初回") >= 0, "継続回数 0 を「初回」と出していない");
+  /* 初回契約は売上回数が1回のもの（first_sales）。継続回数 0 を「初回」と書かない（2026-11-10） */
+  ok(h.indexOf("（継続0回）") >= 0 && h.indexOf("（初回）") < 0, "継続回数 0 を「継続0回」と出していない");
+
+  ctx.__DD2 = ddPayload();
+  ctx.__DD2.deal.first_sales = true;
+  ok(run("renderDetail(__DD2)").indexOf("この案件（初回契約）") >= 0, "売上回数が1回の案件を「初回契約」と出していない");
 });
 
 check("案件の詳細: 表の案件名（案件そのもの・継続を追いかける・法人番号で見る）は案件の詳細へのリンク", () => {

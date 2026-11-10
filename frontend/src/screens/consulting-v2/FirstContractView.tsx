@@ -9,8 +9,12 @@ export const FIRST_GATE_HEADERS = ['初回MTG（7日以内）', '求人掲載（
 
 export function firstGateStatus(g: FirstGate | undefined): { text: string; tone: string } {
   if (g?.achieved === true) return { text: '達成', tone: 'achieved' };
-  if (g?.achieved !== false || !g.deadline || !/^\d{4}-\d{2}-\d{2}$/.test(g.deadline)) return { text: '判定できない', tone: 'unknown' };
-  const date = `${String(Number(g.deadline.slice(5, 7)))}/${String(Number(g.deadline.slice(8, 10)))}`;
+  if (g?.check) return { text: '確かめてください（開始前のMTGあり）', tone: 'unknown' };
+  if (g?.not_started) return { text: '開始前', tone: 'unknown' };
+  // 間に合う最後の日（段階3の関門は境目の前日）。古い応答で無ければ期限日を使う
+  const day = g?.last_day ?? g?.deadline;
+  if (g?.achieved !== false || !day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return { text: '判定できない', tone: 'unknown' };
+  const date = `${String(Number(day.slice(5, 7)))}/${String(Number(day.slice(8, 10)))}`;
   return g.overdue ? { text: `期限超過（${date}）`, tone: 'overdue' } : { text: `期限前（${date}まで）`, tone: 'pending' };
 }
 
@@ -18,7 +22,10 @@ export interface FirstGate {
   label: string;
   achieved: boolean | null;
   deadline: string | null;
+  last_day?: string | null;
   overdue: boolean;
+  not_started?: boolean;
+  check?: boolean;
   text: string;
 }
 export interface FirstRow {
@@ -27,7 +34,7 @@ export interface FirstRow {
   consultant: string;
   start: string;
   expiry: string | null;
-  first_contract: { gates: FirstGate[]; overdue_count: number };
+  first_contract: { gates: FirstGate[]; overdue_count: number; reason?: string };
   goals?: { failed: boolean; ideal?: string; minimum?: string; draft?: boolean };
 }
 export interface FirstResponse {
