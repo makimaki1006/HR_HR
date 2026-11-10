@@ -421,6 +421,7 @@ pub(crate) fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value 
     let at = super::generated_at(&sheets.meta);
     let age = super::generated_age_days(&sheets.meta, today);
     if let Some(m) = v.get_mut("meta").and_then(Value::as_object_mut) {
+        super::freshness_watchdog::add_meta(m);
         m.insert(
             "generated_at".into(),
             at.map(Value::String).unwrap_or(Value::Null),

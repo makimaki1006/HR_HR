@@ -158,6 +158,7 @@ export function Fresh({ meta }: { meta: FreshMeta }) {
   const gen = meta.generated_at ?? '';
   const age = meta.source_age_days ?? null;
   const when = src === '' ? gen : src;
+  const requestedTime = meta.last_dispatch_at?.match(/^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/)?.[1];
   if (when === '') {
     return (
       <div className="cv2-fresh cv2-fresh-bad" role="status">
@@ -178,6 +179,11 @@ export function Fresh({ meta }: { meta: FreshMeta }) {
       ) : (
         <b>{word === '' ? '取得日が分からない' : `${word}の`}データです（{stamp}）。</b>
       )}
+      {age !== null && age > 1 ? (
+        <div>{meta.last_result === 'success' && requestedTime
+          ? `自動で更新を頼みました（${requestedTime}）`
+          : '自動の更新を頼めていません'}</div>
+      ) : null}
       <details className="cv2-more">
         <summary>ほかの時刻</summary>
         <p className="cv2-dim">

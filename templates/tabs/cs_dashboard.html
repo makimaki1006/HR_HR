@@ -8331,6 +8331,14 @@ function setFresh(meta) {
     const stamp = String(when).replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}$/, "$1");
     h = "<b>" + (word ? word + "の" : "取得日が分からない") + "データです（" + esc(stamp) + "）。</b>";
   }
+  /* 前日より古い場合だけ、更新を頼めたかを出す。更新完了とは言わない。
+     last_dispatch_at はサーバが返す JST の RFC3339。時刻以外は表示しない。 */
+  if (age != null && age > 1) {
+    const requestedTime = String(meta.last_dispatch_at || "").match(/^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/);
+    h += "<div>" + (meta.last_result === "success" && requestedTime
+      ? "自動で更新を頼みました（" + requestedTime[1] + "）"
+      : "自動の更新を頼めていません") + "</div>";
+  }
   /* 何日前のデータかと取得日時は常に見せる。時刻の内訳は行の続きに畳む。 */
   h += '<details class="fold inl"><summary>ほかの時刻</summary>' +
     '<span class="muted">';

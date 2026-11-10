@@ -2874,6 +2874,33 @@ check("録画の待ち", "未作成・別タブ・0件は隠し、2件は日付�
   if (!h.includes('録画のうち案件に結び付いていないもの 2 件') || h.indexOf('2026-10-18') > h.indexOf('2026-10-16')) throw new Error('件数か順番が違う');
   if (!h.includes('href="https://example.invalid/recording-a"') || h.includes('javascript:') || h.includes('<script>') || /<details[^>]* open/.test(h)) throw new Error('リンク・文字・畳みが違う');
 });
+check("鮮度見張り", "2日前以上だけ更新依頼の結果を出す。時刻はJST、失敗・未実行は頼めていないと書く", async () => {
+  const t = boot();
+  t.ctx.__meta = {source_as_of: "2026-11-08 23:59:59", source_age_days: 2,
+    last_dispatch_at: "2026-11-10T03:27:18.123+09:00", last_result: "success"};
+  const show = () => { t.R("setFresh(__meta)"); return t.reg["cs-fresh"].innerHTML; };
+  let h = show();
+  if (!h.includes("自動で更新を頼みました（03:27）") || !h.includes("2日前のデータです（2026-11-08 23:59）。"))
+    throw new Error("依頼時刻と古いデータの日時が出ていない: " + h);
+  for (const result of ["failure", null, undefined]) {
+    t.ctx.__meta.last_result = result;
+    h = show();
+    if (!h.includes("自動の更新を頼めていません") || h.includes("自動で更新を頼みました"))
+      throw new Error("失敗・未実行を成功扱いしている: " + h);
+  }
+  t.ctx.__meta.last_result = "success";
+  for (const age of [0, 1, null]) {
+    t.ctx.__meta.source_age_days = age;
+    h = show();
+    if (/自動で更新を頼みました|自動の更新を頼めていません/.test(h))
+      throw new Error("2日前より新しい・日時不明でも案内が出る: " + h);
+  }
+  t.ctx.__meta.source_age_days = 2;
+  t.ctx.__meta.last_dispatch_at = '<script>alert(1)</script>';
+  h = show();
+  if (!h.includes("自動の更新を頼めていません") || h.includes("<script>"))
+    throw new Error("時刻以外を表示している: " + h);
+});
 check("チームの並び", "多い順・同数は名前順、旧URLの名前順も使える", async () => {
   const t = boot();
   t.R(`__team = { meta:{not_counted:'担当者の評価ではありません。', n_consultant:3}, status:{rows:[

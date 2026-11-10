@@ -367,3 +367,21 @@ Google Cloud のプロジェクト (使う OAuth クライアントのもの) �
 
 - 練習の状態はサーバのメモリだけに持つ (保存しない・表を作らない)。再起動で消える。単一インスタンス前提。
 - 同時に呼ぶ LLM は 2 本まで (超えたら 503 `llm_busy`)。往復は 30 回、長さは 15 分まで。
+
+
+### コンサルKPIの鮮度の見張り
+
+| 変数 | 既定値 | 用途・未設定時の挙動 |
+|------|--------|---------------------|
+| `CONSULTING_NIGHTLY_DISPATCH_TOKEN` | 空 | GitHub の **fine-grained personal access token**。対象リポジトリだけを選び、リポジトリ権限 **Actions: Read and write** を付ける。Render の環境変数に設定する。未設定・空白なら見張りは動かず、起動時に info を1行出す。値はログ・画面・応答に出さない |
+| `CONSULTING_NIGHTLY_REPO` | `makimaki1006/hubspot-sales-automation` | 更新を頼む対象の `owner/repo`。未設定・空白なら既定値 |
+
+`src/handlers/cs_dashboard/freshness_watchdog.rs` が起動時から10分おきに、既存の
+`SheetStore` 経由で `CS_メタ` の「データ取得時刻(JST)」（画面の `data_as_of` と同じ）を確認する。
+今日00:00 JSTより前なら、01:00以上22:00未満に、前回の依頼から2時間以上あけて
+`consulting_nightly.yml` に更新を頼む（ref=`master`、mode=`nightly`、apply=`true`）。
+失敗も含め1日4回まで。日時不明なら推測して呼び出さない。
+**単一インスタンス前提**で、前回の時刻・結果・JSTの日付ごとの回数はプロセス内のみ。
+再起動で消えるため、再起動をまたいだ回数制限・複数インスタンス間の制限は保証しない。
+既存の定期先読みがシートキャッシュを更新するので、呼び出し後の強制読込は行わない。
+画面は前日より古いデータの場合だけ依頼の成否を表示する（更新完了を示すものではない）。
