@@ -2874,49 +2874,57 @@ check("録画の待ち", "未作成・別タブ・0件は隠し、2件は日付�
   if (!h.includes('録画のうち案件に結び付いていないもの 2 件') || h.indexOf('2026-10-18') > h.indexOf('2026-10-16')) throw new Error('件数か順番が違う');
   if (!h.includes('href="https://example.invalid/recording-a"') || h.includes('javascript:') || h.includes('<script>') || /<details[^>]* open/.test(h)) throw new Error('リンク・文字・畳みが違う');
 });
+const AUTO_ANY = /自動で更新を頼みました|自動の更新を頼めていません|自動の更新はこのあと頼みます|自動でデータを更新しています|自動の更新に失敗しました|更新は済んでいます|自動の更新の状態|1時以降に頼みます/;
 check("鮮度見張り", "見張りが動いていなければ自動の依頼のことを出さない", async () => {
   const t = boot();
-  t.ctx.__meta = {today: "2026-11-10", source_as_of: "2026-11-08 23:59:59", source_age_days: 2,
-    auto_refresh: false, last_dispatch_at: null, last_result: null};
-  t.R("setFresh(__meta)");
-  const h = t.reg["cs-fresh"].innerHTML;
-  if (/自動で更新を頼みました|自動の更新を頼めていません|自動の更新はこのあと頼みます|自動でデータを更新しています|自動の更新に失敗しました/.test(h))
-    throw new Error("見張りが無いのに自動の依頼を案内している: " + h);
+  for (const patch of [{auto_refresh: false, auto_state: "pending"}, {auto_refresh: true, auto_state: null}]) {
+    t.ctx.__meta = Object.assign({today: "2026-11-10", source_as_of: "2026-11-08 23:59:59", source_age_days: 2,
+      last_dispatch_at: null, last_result: null}, patch);
+    t.R("setFresh(__meta)");
+    const h = t.reg["cs-fresh"].innerHTML;
+    if (AUTO_ANY.test(h)) throw new Error("見張りが無いのに自動の依頼を案内している: " + h);
+  }
 });
-check("鮮度見張り", "2日前以上だけ今日の依頼と実行の状態をJSTで出す", async () => {
+check("鮮度見張り", "今日0時より前のデータで、状態ごとの案内を「ほかの時刻」の中に出す（Ver2 と同じ文言）", async () => {
   const t = boot();
   t.ctx.__meta = {today: "2026-11-10", source_as_of: "2026-11-08 23:59:59", source_age_days: 2,
-    auto_refresh: true, last_dispatch_at: "2026-11-10T03:27:18.123+09:00", last_result: "success"};
+    auto_refresh: true, last_dispatch_at: "2026-11-10T03:27:18.123+09:00", last_result: "success", auto_state: "requested"};
   const show = () => { t.R("setFresh(__meta)"); return t.reg["cs-fresh"].innerHTML; };
   let h = show();
-  if (!h.includes("自動で更新を頼みました（03:27）") || !h.includes("2日前のデータです（2026-11-08 23:59）。"))
-    throw new Error("依頼時刻と古いデータの日時が出ていない: " + h);
-  for (const result of ["failure", null, undefined]) {
-    t.ctx.__meta.last_result = result;
+  if (!h.includes("自動で更新を頼みました（03:27）。") || !h.startsWith("<b>2日前のデータです（2026-11-08 23:59）。</b><details"))
+    throw new Error("依頼時刻か1行目が違う: " + h);
+  if (h.indexOf("自動で更新を頼みました") < h.indexOf("<summary>ほかの時刻</summary>")) throw new Error("案内が「ほかの時刻」の外にある");
+  for (const [state, text] of [
+    ["running", "自動でデータを更新しています"],
+    ["done", "更新は済んでいます。まもなく表示に反映されます"],
+    ["failed", "自動の更新に失敗しました。次の更新を待っています"],
+    ["unknown", "自動の更新の状態を確かめられません"],
+    ["tomorrow", "自動の更新は明日1時以降に頼みます"],
+    ["after_one", "自動の更新は1時以降に頼みます"],
+    ["request_failed", "自動の更新を頼めていません"],
+    ["pending", "自動の更新はこのあと頼みます"],
+  ]) {
+    t.ctx.__meta.auto_state = state;
     h = show();
-    if (!h.includes(result === "failure" ? "自動の更新を頼めていません" : "自動の更新はこのあと頼みます") || h.includes("自動で更新を頼みました"))
-      throw new Error("失敗・未実行を成功扱いしている: " + h);
+    if (!h.includes(text + "。") || h.includes("自動で更新を頼みました")) throw new Error(state + " の文言が違う: " + h);
   }
-  t.ctx.__meta.last_result = "success";
-  for (const age of [0, 1, null]) {
+  // 昨日のデータ（age 1）も見張りの条件（今日0時より前）とそろえて出す。帯は緑の1行のまま。
+  Object.assign(t.ctx.__meta, {source_as_of: "2026-11-09 21:30:00", source_age_days: 1, auto_state: "done"});
+  h = show();
+  if (!/^<b>昨日　11-09 21:30<\/b> 時点のデータ/.test(h) || !h.includes("更新は済んでいます。まもなく表示に反映されます。"))
+    throw new Error("昨日のデータの案内が違う: " + h);
+  for (const age of [0, null]) {
     t.ctx.__meta.source_age_days = age;
     h = show();
-    if (/自動で更新を頼みました|自動の更新を頼めていません|自動の更新はこのあと頼みます|自動でデータを更新しています|自動の更新に失敗しました/.test(h))
-      throw new Error("2日前より新しい・日時不明でも案内が出る: " + h);
+    if (AUTO_ANY.test(h)) throw new Error("今日のデータ・日時不明でも案内が出る: " + h);
   }
-  t.ctx.__meta.source_age_days = 2;
-  t.ctx.__meta.last_dispatch_at = '<script>alert(1)</script>';
+  Object.assign(t.ctx.__meta, {source_age_days: 2, auto_state: "requested", last_dispatch_at: '<script>alert(1)</script>'});
   h = show();
-  if (!h.includes("自動の更新はこのあと頼みます") || h.includes("<script>"))
-    throw new Error("時刻以外を表示している: " + h);
+  if (!h.includes("自動の更新はこのあと頼みます") || h.includes("<script>")) throw new Error("時刻以外を表示している: " + h);
   t.ctx.__meta.last_dispatch_at = "2026-11-09T23:59:59+09:00";
   h = show();
   if (!h.includes("自動の更新はこのあと頼みます") || h.includes("自動で更新を頼みました")) throw new Error("前日の依頼を今日扱いしている");
-  for (const [state, text] of [["running", "自動でデータを更新しています"], ["failed", "自動の更新に失敗しました。次の更新を待っています"]]) {
-    t.ctx.__meta.latest_run_state = state;
-    h = show();
-    if (!h.includes(text) || h.includes("自動で更新を頼みました")) throw new Error("実行の状態が違う: " + h);
-  }
+  if (/dispatch|API|トークン/.test(h.replace(/<[^>]*>/g, ""))) throw new Error("開発の言葉が出ている");
 });
 check("チームの並び", "多い順・同数は名前順、旧URLの名前順も使える", async () => {
   const t = boot();

@@ -1856,6 +1856,8 @@ fn 全画面で母集団の件数が一致する() {
             Some(&Value::Null),
             "{name}"
         );
+        // 見張りが動いていなければ案内の種類も null（画面は自動の依頼のことを出さない）。
+        assert_eq!(v["meta"].get("auto_state"), Some(&Value::Null), "{name}");
         // 🔴 自動更新の予定（S-9）も freshen が全画面の meta に載せる。無いときも null のキーとして載せる
         //    （画面は「キーが無い」と「null」を区別しない＝配線が外れても黙って時刻なしに退化する。
         //    2026-09-28 検証: この6行の insert を消しても lib・app_routes・view_rules のどれも落ちなかった）。
