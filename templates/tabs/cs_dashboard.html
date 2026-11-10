@@ -8331,9 +8331,22 @@ function setFresh(meta) {
     const stamp = String(when).replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}$/, "$1");
     h = "<b>" + (word ? word + "の" : "取得日が分からない") + "データです（" + esc(stamp) + "）。</b>";
   }
+  /* 今日の依頼かはJSTの日付で比べる。実行履歴で分かる状態を優先する。
+     S-9（1行目は短く）を守るため、依頼の状態は「ほかの時刻」の中の先頭に置く */
+  let auto = "";
+  if (meta && meta.auto_refresh && age != null && age > 1) {
+    const requested = String(meta.last_dispatch_at || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/);
+    const requestedToday = requested && requested[1] === meta.today;
+    auto = (meta.latest_run_state === "running" ? "自動でデータを更新しています"
+      : meta.latest_run_state === "failed" ? "自動の更新に失敗しました。次の更新を待っています"
+      : meta.last_result === "success" && requestedToday
+        ? "自動で更新を頼みました（" + requested[2] + "）"
+        : meta.last_result === "failure" && requestedToday
+          ? "自動の更新を頼めていません" : "自動の更新はこのあと頼みます") + "。";
+  }
   /* 何日前のデータかと取得日時は常に見せる。時刻の内訳は行の続きに畳む。 */
   h += '<details class="fold inl"><summary>ほかの時刻</summary>' +
-    '<span class="muted">';
+    '<span class="muted">' + esc(auto);
   /* 1行目を短くしたときだけ、元の全文をここに残す（黙って削らない） */
   if (when) h += (src ? "元データを落としたのは " : "シートを作ったのは ") + esc(when) + "。";
   if (gen && src && gen.slice(0, 10) !== src.slice(0, 10)) {
@@ -8346,7 +8359,7 @@ function setFresh(meta) {
   /* 🔴 予定は meta から。無ければ自動更新のことは何も言わない（推測で 21:30 と書かない。
      「自動で回しています」を HTML に直書きすると、スケジューラを外した日から帯が嘘を言う。S-9「無ければ文言を出さない」）。
      赤の線引き（4日以上前）はこの関数の上の判定と同じ値。すでに赤いときは「止まると赤くなります」ではなく、いま赤い理由を言う */
-  if (sched) h += "自動更新: " + esc(sched) + "（タスクスケジューラ）。";
+  if (sched) h += "自動更新: " + esc(sched) + "。";
   h += (cls === "bad"
     ? "元データが4日以上前なので、この案内を赤くしています（" +
       (sched ? "予定「" + esc(sched) + "」の更新が入っていません" : "更新が止まっている可能性があります") + "）。"

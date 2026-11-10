@@ -49,6 +49,8 @@ async fn main() {
         rust_dashboard::handlers::cs_dashboard::prefetch().await;
     });
 
+    rust_dashboard::handlers::cs_dashboard::freshness_watchdog::spawn();
+
     // メモリ計測 (rust_dashboard::mem_watch): 起動時の 1 回の読み込みも「裏の処理」として数える
     let task = rust_dashboard::mem_watch::task("startup.geojson");
     decompress_geojson_if_needed();
