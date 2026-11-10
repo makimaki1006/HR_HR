@@ -31,8 +31,6 @@ export interface StageMoveCtx {
   ruleOf(stageId: string): StageRule | undefined;
   status: FieldStatus | undefined;
   defOf(name: string): FieldDef | null;
-  /** 項目の見出し用のグループ名 (HubSpot のプロパティのグループ。項目の一覧が読めていなければ null) */
-  groupOf(name: string): string | null;
   /** 画面に出せない項目も含めた表示名 (項目の一覧から。分からなければ null) */
   labelOf(name: string): string | null;
   /** 操作している本人の担当者 ID (引けなければ null)。「アポ獲得者」等の初期値に使う */
@@ -131,7 +129,6 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, meOwn
       for (const o of CATALOG_OBJECTS) { const e = index[o].get(name); if (e) return e; }
       return undefined;
     };
-    const groupOf = (name: string): string | null => entryOf(name)?.group ?? null;
     const labelOf = (name: string): string | null => entryOf(name)?.prop.label ?? schema?.editable.find(p => p.name === name)?.label ?? null;
     const pipelineId = data.deal.pipeline_id ?? schema?.pipeline_id ?? null;
     return {
@@ -141,7 +138,7 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, meOwn
       pipelines: schema?.pipelines ?? [],
       ruleOf: id => schema?.stages.find(r => r.id === id),
       status: write.statuses[stageKey(dealId)],
-      defOf, groupOf, labelOf, meOwnerId,
+      defOf, labelOf, meOwnerId,
       currentValues: async defs => {
         const out: Record<string, string | null> = {};
         const missing: FieldDef[] = [];

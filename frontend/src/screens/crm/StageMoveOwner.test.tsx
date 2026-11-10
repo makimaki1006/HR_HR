@@ -7,7 +7,7 @@ import { FIXTURE_OWNERS } from './ownerModel';
 import { OwnerChoicesProvider } from './OwnerSelect';
 import type { OwnerChoices } from './OwnerSelect';
 import { catalogIndex } from './propertyModel';
-import { StageMover, sectionsOf } from './StageMove';
+import { StageMover } from './StageMove';
 import { FIXTURE_CATALOG } from './usePropertyCatalog';
 import { useCrmWrite } from './useCrmWrite';
 import { useWriteBindings } from './writeBindings';
@@ -150,11 +150,12 @@ describe('担当者を選ぶ型の項目 (ステージを移す画面)', () => {
     expect(document.activeElement?.getAttribute('aria-label')).toBe('アポ日');
   });
 
-  it('項目はグループの見出しで区切る (項目の一覧にあるグループ名)。一覧に無ければ「その他の項目」', async () => {
+  it('項目は HubSpot と同じくステージの設定の順に 1 列で並べ、グループの見出しで分けない', async () => {
     const dlg = await openModal(vi.fn(), '9001');
-    const titles = within(dlg).getAllByRole('heading', { level: 4 }).map(h => h.textContent);
-    expect(titles).toEqual(['アポ情報(架空)', 'ヒアリング内容(架空)', 'その他の項目']);
-    expect(sectionsOf([], () => null)).toEqual([]);
+    const order = Array.from(dlg.querySelectorAll('[data-field]')).map(el => el.getAttribute('data-field'));
+    expect(order).toEqual(['fx_appo_company', 'fx_appo_date', 'bpo_26', 'fx_hear_budget', 'fx_hear_next', 'fstantousha']);
+    expect(within(dlg).queryAllByRole('heading', { level: 4 })).toEqual([]);
+    expect(dlg.className).not.toContain('is-wide');
   });
 
   it('422 で返った必須が画面に無いときは、内部名ではなく表示名で知らせる', async () => {
