@@ -6,6 +6,9 @@ use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 
+/// 開始前の MTG を見る幅（日）。2026-11-10 ユーザー決定で 14 日（仮の 30 日から変更）。
+const PRE_START_DAYS: i64 = 14;
+
 #[derive(Debug, Serialize)]
 pub struct Gate {
     label: &'static str,
@@ -59,7 +62,7 @@ pub fn gates(d: &Deal, mtg: Option<bool>, nps: Option<bool>, today: NaiveDate) -
     gates_with(d, mtg, false, nps, today)
 }
 
-/// `mtg_before_start`: 契約開始の30日前〜前日に MTG の記録がある（2026-11-10 ユーザー決定:
+/// `mtg_before_start`: 契約開始の14日前〜前日（`PRE_START_DAYS`、2026-11-10 ユーザー決定）に MTG の記録がある（同日ユーザー決定:
 /// 対象にするが、契約前の商談も同じ取引に付くので多くは誤検知。達成にせず「確かめてください」）。
 pub fn gates_with(
     d: &Deal,
@@ -189,9 +192,10 @@ impl Evidence {
         });
         let mtg_before_start = mtg == Some(false)
             && start.is_some_and(|s| {
-                self.dates
-                    .get(&d.id)
-                    .is_some_and(|ds| ds.iter().any(|dt| *dt >= s - Duration::days(30) && *dt < s))
+                self.dates.get(&d.id).is_some_and(|ds| {
+                    ds.iter()
+                        .any(|dt| *dt >= s - Duration::days(PRE_START_DAYS) && *dt < s)
+                })
             });
         let gs = gates_with(d, mtg, mtg_before_start, nps, today);
         let count = if start.is_some_and(|s| s <= today) {
@@ -1250,5 +1254,23 @@ mod tests {
         let ids = ["abc", "", "10", "11", "12", "13"].map(str::to_string);
         // abc・空は送らない。10 は 60 秒以内に読めなかった。12 は 5 分以内に読んだ。
         assert_eq!(cache.due(&ids), vec!["11".to_string(), "13".to_string()]);
+    }
+
+    #[test]
+    fn 開始前のmtgは14日前まで数え15日前は数えない() {
+        let mut sh = sheets();
+        let mut d = deal();
+        d.contract_start_date = "2026-01-01".into();
+        d.contract_expiration_date = "2026-06-30".into();
+        // 開始日の 14 日前（2025-12-18）は「確かめてください」
+        sh.mtg = sheet(&["deal_id", "開催日"], &[vec![&d.id, "2025-12-18"]]);
+        let v = Evidence::new(&sh).of(&d, day("2026-01-20"));
+        assert_eq!(v["gates"][0]["check"], true);
+        assert_eq!(v["gates"][0]["overdue"], false);
+        // 15 日前（2025-12-17）は数えず、従来どおり期限超過
+        sh.mtg = sheet(&["deal_id", "開催日"], &[vec![&d.id, "2025-12-17"]]);
+        let v = Evidence::new(&sh).of(&d, day("2026-01-20"));
+        assert_eq!(v["gates"][0]["check"], false);
+        assert_eq!(v["gates"][0]["overdue"], true);
     }
 }
