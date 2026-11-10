@@ -8317,6 +8317,25 @@ function renderDefs() {
 function shortWhen(s) {
   return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s || "") ? s.slice(5, 16) : (s || "");
 }
+/** 自動の更新の案内（Ver2 の consulting-v2/parts.tsx の autoRefreshText と同じ文言）。
+    見張りが動いていない・データが今日のもの・日時不明なら空 */
+function autoRefreshText(meta, age) {
+  if (!meta || !meta.auto_refresh || age == null || age < 1) return "";
+  const requested = String(meta.last_dispatch_at || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/);
+  switch (meta.auto_state) {
+    case "running": return "自動でデータを更新しています";
+    case "done": return "更新は済んでいます。まもなく表示に反映されます";
+    case "failed": return "自動の更新に失敗しました。次の更新を待っています";
+    case "unknown": return "自動の更新の状態を確かめられません";
+    case "tomorrow": return "自動の更新は明日1時以降に頼みます";
+    case "after_one": return "自動の更新は1時以降に頼みます";
+    case "requested":
+      return requested && requested[1] === meta.today ? "自動で更新を頼みました（" + requested[2] + "）" : "自動の更新はこのあと頼みます";
+    case "request_failed": return "自動の更新を頼めていません";
+    case "pending": return "自動の更新はこのあと頼みます";
+    default: return "";
+  }
+}
 function setFresh(meta) {
   const box = document.getElementById("cs-fresh");
   if (!box) return;
@@ -8357,22 +8376,13 @@ function setFresh(meta) {
     const stamp = String(when).replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}$/, "$1");
     h = "<b>" + (word ? word + "の" : "取得日が分からない") + "データです（" + esc(stamp) + "）。</b>";
   }
-  /* 今日の依頼かはJSTの日付で比べる。実行履歴で分かる状態を優先する。
-     S-9（1行目は短く）を守るため、依頼の状態は「ほかの時刻」の中の先頭に置く */
-  let auto = "";
-  if (meta && meta.auto_refresh && age != null && age > 1) {
-    const requested = String(meta.last_dispatch_at || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/);
-    const requestedToday = requested && requested[1] === meta.today;
-    auto = (meta.latest_run_state === "running" ? "自動でデータを更新しています"
-      : meta.latest_run_state === "failed" ? "自動の更新に失敗しました。次の更新を待っています"
-      : meta.last_result === "success" && requestedToday
-        ? "自動で更新を頼みました（" + requested[2] + "）"
-        : meta.last_result === "failure" && requestedToday
-          ? "自動の更新を頼めていません" : "自動の更新はこのあと頼みます") + "。";
-  }
+  /* 自動の更新の案内。見張りが頼む条件（データが今日 0:00 JST より前＝age が1以上）とそろえる。
+     状態の種類（meta.auto_state）はサーバが実行履歴と時刻から決める。文言は Ver2 の Fresh と同じ表。
+     S-9（1行目は短く）を守るため、案内は「ほかの時刻」の中の先頭に置く */
+  const auto = autoRefreshText(meta, age);
   /* 何日前のデータかと取得日時は常に見せる。時刻の内訳は行の続きに畳む。 */
   h += '<details class="fold inl"><summary>ほかの時刻</summary>' +
-    '<span class="muted">' + esc(auto);
+    '<span class="muted">' + esc(auto ? auto + "。" : "");
   /* 1行目を短くしたときだけ、元の全文をここに残す（黙って削らない） */
   if (when) h += (src ? "元データを落としたのは " : "シートを作ったのは ") + esc(when) + "。";
   if (gen && src && gen.slice(0, 10) !== src.slice(0, 10)) {

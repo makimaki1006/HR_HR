@@ -14,6 +14,8 @@ export interface FreshMeta {
   last_dispatch_at?: string | null;
   last_result?: 'success' | 'failure' | null;
   latest_run_state?: 'running' | 'failed' | null;
+  /** 画面に出す自動の更新の案内の種類（freshness_watchdog.rs の auto_state）。見張りが動いていなければ null */
+  auto_state?: 'running' | 'done' | 'failed' | 'unknown' | 'tomorrow' | 'after_one' | 'requested' | 'request_failed' | 'pending' | null;
 }
 
 export interface DealRow {

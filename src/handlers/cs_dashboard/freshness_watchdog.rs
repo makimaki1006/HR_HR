@@ -4,7 +4,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use chrono::{DateTime, FixedOffset, Timelike, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, Timelike, Utc};
 use reqwest::{header, Client, Request};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -20,17 +20,30 @@ enum DispatchResult {
     Failure,
 }
 
+/// 依頼の間隔と1日の上限。GitHub の実行履歴と、履歴に残らない失敗した依頼の両方で守る。
+const DISPATCH_SPACING: chrono::Duration = chrono::Duration::hours(2);
+const DAILY_LIMIT: usize = 4;
+
 #[derive(Clone, Default)]
 struct WatchState {
     last_dispatch_at: Option<DateTime<FixedOffset>>,
     last_result: Option<DispatchResult>,
     latest_run_state: Option<&'static str>,
+    /// このプロセスが出した依頼（成功・失敗）。今日（JST）の分だけ残す。単一インスタンス前提。
+    attempts: Vec<(DateTime<FixedOffset>, DispatchResult)>,
+    /// 今日（JST）0時以降に始まり success で終わった実行を見た日。
+    succeeded_on: Option<NaiveDate>,
+    /// 直近の確認で実行履歴を読めなかったか。
+    history_unreadable: bool,
 }
 
 static STATE: Mutex<WatchState> = Mutex::new(WatchState {
     last_dispatch_at: None,
     last_result: None,
     latest_run_state: None,
+    attempts: Vec::new(),
+    succeeded_on: None,
+    history_unreadable: false,
 });
 
 /// 鍵があり見張りが動いているか。無いときは画面に自動の依頼のことを何も言わない。
@@ -40,34 +53,137 @@ fn jst_now() -> DateTime<FixedOffset> {
     Utc::now().with_timezone(&FixedOffset::east_opt(9 * 3600).unwrap())
 }
 
-/// 日付の出どころ・解釈は画面の data_age_days と同じ。日時不明なら推測しない。
-/// now は JST。時間帯は [01:00, 22:00)。ローカルには10分の間隔だけ残す。
-fn should_dispatch(now: DateTime<FixedOffset>, as_of: Option<&str>, state: &WatchState) -> bool {
-    let stale = as_of
+/// 環境変数の鍵。前後の空白・改行を落とす（残すとヘッダを作れず、依頼が一度も出ない）。
+fn token_from(raw: Option<String>) -> Option<String> {
+    raw.map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+}
+
+/// データが今日 0:00 JST より前か。日付の出どころ・解釈は画面の source_age_days と同じ。
+/// 日時不明なら推測しない（古いとは扱わない）。
+fn is_stale(now: DateTime<FixedOffset>, as_of: Option<&str>) -> bool {
+    as_of
         .and_then(super::date10)
-        .is_some_and(|date| date < now.date_naive());
-    stale
-        && (1..22).contains(&now.hour())
-        && state
-            .last_dispatch_at
-            .is_none_or(|last| now.signed_duration_since(last) >= chrono::Duration::minutes(10))
+        .is_some_and(|date| date < now.date_naive())
+}
+
+/// 依頼してよい時間帯 [01:00, 22:00) JST。
+fn in_window(now: DateTime<FixedOffset>) -> bool {
+    (1..22).contains(&now.hour())
+}
+
+fn midnight(now: DateTime<FixedOffset>) -> Option<DateTime<FixedOffset>> {
+    now.date_naive()
+        .and_hms_opt(0, 0, 0)?
+        .and_local_timezone(*now.offset())
+        .single()
+}
+
+/// 今日（JST）0時以降に始まり success で終わった実行があるか。
+/// ワークフローが「前日分が入っている」で何もせず終えた回も success なので、
+/// HR_HR（CS_メタの取得時刻）とワークフロー（CS_日次状態の through）の基準のずれ、
+/// HR_HR のシートのキャッシュ（1時間）の遅れの両方をここで吸収する。
+fn succeeded_today(now: DateTime<FixedOffset>, history: &History) -> bool {
+    let Some(midnight) = midnight(now) else {
+        return false;
+    };
+    history.runs.iter().any(|run| {
+        run.status == "completed"
+            && run.conclusion.as_deref() == Some("success")
+            && run.created_at.with_timezone(now.offset()) >= midnight
+    })
+}
+
+/// 依頼するか。データが古い・時間帯の中・履歴を読めた・今日の成功が無い・
+/// 履歴とこのプロセスの失敗を合わせて間隔2時間・1日4回の上限内、のすべてで頼む。
+fn should_dispatch(
+    now: DateTime<FixedOffset>,
+    as_of: Option<&str>,
+    history: Option<&History>,
+    state: &WatchState,
+) -> bool {
+    let Some(history) = history else {
+        return false;
+    };
+    is_stale(now, as_of)
+        && in_window(now)
+        && !succeeded_today(now, history)
+        && state.local_allows(now)
+        && history_allows_dispatch(now, history, state.attempts_today(now))
 }
 
 impl WatchState {
-    fn attempted(&mut self, now: DateTime<FixedOffset>) {
+    fn attempts_today(&self, now: DateTime<FixedOffset>) -> (usize, usize) {
+        let today = now.date_naive();
+        let mut ok = 0;
+        let mut failed = 0;
+        for (at, result) in &self.attempts {
+            if at.date_naive() == today {
+                match result {
+                    DispatchResult::Success => ok += 1,
+                    DispatchResult::Failure => failed += 1,
+                }
+            }
+        }
+        (ok, failed)
+    }
+
+    /// 成功・失敗によらず、このプロセスの前回の依頼から2時間あける。
+    fn local_allows(&self, now: DateTime<FixedOffset>) -> bool {
+        self.attempts
+            .iter()
+            .all(|(at, _)| now.signed_duration_since(*at) >= DISPATCH_SPACING)
+    }
+
+    fn record(&mut self, now: DateTime<FixedOffset>, result: DispatchResult) {
+        let today = now.date_naive();
+        self.attempts.retain(|(at, _)| at.date_naive() == today);
+        self.attempts.push((now, result));
         self.last_dispatch_at = Some(now);
-        self.last_result = None;
+        self.last_result = Some(result);
         self.latest_run_state = None;
     }
 
-    fn add_meta(&self, meta: &mut serde_json::Map<String, Value>) {
-        meta.insert(
-            "auto_refresh".into(),
-            json!(ENABLED.load(std::sync::atomic::Ordering::Relaxed)),
-        );
+    fn add_meta(&self, meta: &mut serde_json::Map<String, Value>, enabled: bool) {
+        meta.insert("auto_refresh".into(), json!(enabled));
         meta.insert("last_dispatch_at".into(), json!(self.last_dispatch_at));
         meta.insert("last_result".into(), json!(self.last_result));
         meta.insert("latest_run_state".into(), json!(self.latest_run_state));
+        meta.insert(
+            "auto_state".into(),
+            json!(enabled.then(|| self.auto_state(jst_now()))),
+        );
+    }
+
+    /// 画面の案内の種類。文言は画面（Ver1 の setFresh・Ver2 の Fresh）が同じ表で出す。
+    /// 画面はデータが今日 0:00 JST より前（age が1以上）のときだけ出す。
+    fn auto_state(&self, now: DateTime<FixedOffset>) -> &'static str {
+        let today = now.date_naive();
+        if self.history_unreadable {
+            return "unknown"; // 自動の更新の状態を確かめられません
+        }
+        if self.latest_run_state == Some("running") {
+            return "running"; // 自動でデータを更新しています
+        }
+        if self.succeeded_on == Some(today) {
+            return "done"; // 更新は済んでいます。まもなく表示に反映されます
+        }
+        if self.latest_run_state == Some("failed") {
+            return "failed"; // 自動の更新に失敗しました。次の更新を待っています
+        }
+        if now.hour() >= 22 {
+            return "tomorrow"; // 自動の更新は明日1時以降に頼みます
+        }
+        if now.hour() < 1 {
+            return "after_one"; // 自動の更新は1時以降に頼みます
+        }
+        match (
+            self.last_dispatch_at.map(|at| at.date_naive()) == Some(today),
+            self.last_result,
+        ) {
+            (true, Some(DispatchResult::Success)) => "requested", // 自動で更新を頼みました（HH:MM）
+            (true, Some(DispatchResult::Failure)) => "request_failed", // 自動の更新を頼めていません
+            _ => "pending",                                       // 自動の更新はこのあと頼みます
+        }
     }
 }
 
@@ -75,7 +191,7 @@ pub(super) fn add_meta(meta: &mut serde_json::Map<String, Value>) {
     STATE
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .add_meta(meta);
+        .add_meta(meta, ENABLED.load(std::sync::atomic::Ordering::Relaxed));
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -97,25 +213,29 @@ struct History {
     active: bool,
 }
 
-fn history_allows_dispatch(now: DateTime<FixedOffset>, history: Option<&History>) -> bool {
-    let Some(history) = history else {
-        return false;
-    };
+/// 履歴から見て頼めるか。`local` は（このプロセスで成功した依頼, 失敗した依頼）の今日の件数。
+/// 成功した依頼は履歴に残るので、反映前の分を数え落とさないよう多い方を使い、
+/// 履歴に残らない失敗は足す。
+fn history_allows_dispatch(
+    now: DateTime<FixedOffset>,
+    history: &History,
+    local: (usize, usize),
+) -> bool {
+    let dispatched_today = history
+        .runs
+        .iter()
+        .filter(|run| {
+            run.event == "workflow_dispatch"
+                && run.created_at.with_timezone(now.offset()).date_naive() == now.date_naive()
+        })
+        .count();
     !history.active
         && !history.runs.iter().any(|run| {
             matches!(run.status.as_str(), "queued" | "in_progress")
                 || (run.event == "workflow_dispatch"
-                    && now.signed_duration_since(run.created_at) < chrono::Duration::hours(2))
+                    && now.signed_duration_since(run.created_at) < DISPATCH_SPACING)
         })
-        && history
-            .runs
-            .iter()
-            .filter(|run| {
-                run.event == "workflow_dispatch"
-                    && run.created_at.with_timezone(now.offset()).date_naive() == now.date_naive()
-            })
-            .count()
-            < 4
+        && dispatched_today.max(local.0) + local.1 < DAILY_LIMIT
 }
 
 fn history_request(
@@ -152,12 +272,7 @@ where
     S: FnMut(Request) -> F,
     F: std::future::Future<Output = Option<Value>>,
 {
-    let midnight = now
-        .date_naive()
-        .and_hms_opt(0, 0, 0)?
-        .and_local_timezone(*now.offset())
-        .single()?;
-    let since = midnight
+    let since = midnight(now)?
         .min(now - chrono::Duration::hours(2))
         .with_timezone(&Utc);
     let mut runs = Vec::new();
@@ -211,7 +326,17 @@ async fn history(
 }
 
 impl WatchState {
-    fn observe(&mut self, history: &History, now: DateTime<FixedOffset>) {
+    /// 実行履歴を読んだ結果を表示用の状態に写す。読めなければ「確かめられない」にする。
+    fn observe(&mut self, history: Option<&History>, now: DateTime<FixedOffset>) {
+        self.latest_run_state = None;
+        let Some(history) = history else {
+            self.history_unreadable = true;
+            return;
+        };
+        self.history_unreadable = false;
+        if succeeded_today(now, history) {
+            self.succeeded_on = Some(now.date_naive());
+        }
         self.latest_run_state = if history.active {
             Some("running")
         } else {
@@ -287,15 +412,14 @@ async fn dispatch(client: &Client, repo: &str, token: &str) -> DispatchResult {
 }
 
 pub fn spawn() {
-    let token = std::env::var("CONSULTING_NIGHTLY_DISPATCH_TOKEN").unwrap_or_default();
-    if token.trim().is_empty() {
+    let Some(token) = token_from(std::env::var("CONSULTING_NIGHTLY_DISPATCH_TOKEN").ok()) else {
         tracing::info!("コンサル鮮度見張り: 無効（CONSULTING_NIGHTLY_DISPATCH_TOKEN 未設定）");
         return;
-    }
-    ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    };
     let repo = std::env::var("CONSULTING_NIGHTLY_REPO")
         .ok()
-        .filter(|v| !v.trim().is_empty())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
         .unwrap_or_else(|| DEFAULT_REPO.into());
     let client = match Client::builder()
         .timeout(Duration::from_secs(30))
@@ -308,6 +432,7 @@ pub fn spawn() {
             return;
         }
     };
+    ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(CHECK_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -323,41 +448,35 @@ pub fn spawn() {
             };
             let as_of = super::data_as_of(&meta);
             let now = jst_now();
-            if !should_dispatch(
-                now,
-                as_of.as_deref(),
-                &STATE.lock().unwrap_or_else(|e| e.into_inner()),
-            ) {
+            // データが古い間は時間帯の外でも実行の状態を読み直す（表示のため。頼むのは時間帯の中だけ）。
+            if !is_stale(now, as_of.as_deref()) {
                 continue;
             }
             let history = history(&client, &repo, &token, now).await;
-            {
-                let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-                state.latest_run_state = None;
-                if let Some(history) = &history {
-                    state.observe(history, now);
-                }
+            if history.is_none() {
+                tracing::warn!("コンサル鮮度見張り: 実行履歴を確認できないため依頼を見送ります");
             }
-            if !history_allows_dispatch(now, history.as_ref()) {
-                if history.is_none() {
-                    tracing::warn!(
-                        "コンサル鮮度見張り: 実行履歴を確認できないため依頼を見送ります"
-                    );
-                }
+            let go = {
+                let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+                state.observe(history.as_ref(), now);
+                should_dispatch(now, as_of.as_deref(), history.as_ref(), &state)
+            };
+            if !go {
                 continue;
             }
+            let result = dispatch(&client, &repo, &token).await;
             STATE
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .attempted(now);
-            let result = dispatch(&client, &repo, &token).await;
-            STATE.lock().unwrap_or_else(|e| e.into_inner()).last_result = Some(result);
+                .record(now, result);
             match result {
                 DispatchResult::Success => {
                     tracing::info!("コンサル鮮度見張り: 更新依頼を受け付けました")
                 }
                 DispatchResult::Failure => {
-                    tracing::warn!("コンサル鮮度見張り: 更新を依頼できませんでした")
+                    tracing::warn!(
+                        "コンサル鮮度見張り: 更新を依頼できませんでした（2時間あけて再試行、1日4回まで）"
+                    )
                 }
             }
         }
@@ -372,17 +491,39 @@ mod tests {
         DateTime::parse_from_rfc3339(s).unwrap()
     }
 
+    fn run(event: &str, time: &str, status: &str) -> WorkflowRun {
+        WorkflowRun {
+            event: event.into(),
+            created_at: at(time).with_timezone(&Utc),
+            status: status.into(),
+            conclusion: (status == "completed").then(|| "success".into()),
+        }
+    }
+
+    fn empty() -> History {
+        History {
+            runs: vec![],
+            active: false,
+        }
+    }
+
+    const OLD: Option<&str> = Some("2026-11-09 23:59:59");
+
     #[test]
     fn freshness_and_window_boundaries() {
         let state = WatchState::default();
-        let old = Some("2026-11-09 23:59:59");
+        let h = empty();
         for (time, expected) in [
             ("2026-11-10T00:59:59+09:00", false),
             ("2026-11-10T01:00:00+09:00", true),
             ("2026-11-10T21:59:59+09:00", true),
             ("2026-11-10T22:00:00+09:00", false),
         ] {
-            assert_eq!(should_dispatch(at(time), old, &state), expected, "{time}");
+            assert_eq!(
+                should_dispatch(at(time), OLD, Some(&h), &state),
+                expected,
+                "{time}"
+            );
         }
         let now = at("2026-11-10T01:00:00+09:00");
         for value in [
@@ -392,36 +533,58 @@ mod tests {
             Some("2026-11-10 00:00:00"),
             Some("2026-11-11 00:00:00"),
         ] {
-            assert!(!should_dispatch(now, value, &state), "{value:?}");
+            assert!(!should_dispatch(now, value, Some(&h), &state), "{value:?}");
         }
+        // 履歴を読めなければ頼まない。
+        assert!(!should_dispatch(now, OLD, None, &state));
     }
 
-    fn run(event: &str, time: &str, status: &str) -> WorkflowRun {
-        WorkflowRun {
-            event: event.into(),
-            created_at: at(time).with_timezone(&Utc),
-            status: status.into(),
-            conclusion: Some("success".into()),
-        }
+    #[test]
+    fn success_since_jst_midnight_stops_dispatch() {
+        let now = at("2026-11-10T07:00:00+09:00");
+        let state = WatchState::default();
+        // 前日分が入っていて何もせず終えた回も success。今日 0:00 以降なら頼まない。
+        let mut h = empty();
+        h.runs = vec![run("schedule", "2026-11-10T00:00:00+09:00", "completed")];
+        assert!(succeeded_today(now, &h));
+        assert!(!should_dispatch(now, OLD, Some(&h), &state));
+        // 前日 23:59:59 JST の成功は今日の成功ではない（UTC では同じ日付）。
+        h.runs[0].created_at = at("2026-11-09T23:59:59+09:00").with_timezone(&Utc);
+        assert!(!succeeded_today(now, &h));
+        assert!(should_dispatch(now, OLD, Some(&h), &state));
+        // 今日でも失敗・実行中は成功に数えない。
+        h.runs = vec![run("schedule", "2026-11-10T05:00:00+09:00", "completed")];
+        h.runs[0].conclusion = Some("failure".into());
+        assert!(!succeeded_today(now, &h));
+        assert!(should_dispatch(now, OLD, Some(&h), &state));
+        h.runs = vec![run("schedule", "2026-11-10T05:00:00+09:00", "in_progress")];
+        assert!(!succeeded_today(now, &h));
+        // 成功を見たら表示は「済んでいます」。
+        let mut state = WatchState::default();
+        h.runs = vec![run(
+            "workflow_dispatch",
+            "2026-11-10T01:00:00+09:00",
+            "completed",
+        )];
+        state.observe(Some(&h), now);
+        assert_eq!(state.auto_state(now), "done");
+        // 翌日になれば前日の成功は使わない。
+        assert_eq!(state.auto_state(at("2026-11-11T07:00:00+09:00")), "pending");
     }
 
     #[test]
     fn history_limits_and_jst_boundaries() {
         let now = at("2026-11-10T10:00:00+09:00");
-        assert!(!history_allows_dispatch(now, None));
-        let mut h = History {
-            runs: vec![],
-            active: false,
-        };
-        assert!(history_allows_dispatch(now, Some(&h)));
+        let mut h = empty();
+        assert!(history_allows_dispatch(now, &h, (0, 0)));
         h.runs.push(run(
             "workflow_dispatch",
             "2026-11-10T08:00:01+09:00",
             "completed",
         ));
-        assert!(!history_allows_dispatch(now, Some(&h)));
+        assert!(!history_allows_dispatch(now, &h, (0, 0)));
         h.runs[0].created_at = at("2026-11-10T08:00:00+09:00").with_timezone(&Utc);
-        assert!(history_allows_dispatch(now, Some(&h)));
+        assert!(history_allows_dispatch(now, &h, (0, 0)));
         h.runs = ["00", "02", "04", "06"]
             .iter()
             .map(|hour| {
@@ -432,34 +595,157 @@ mod tests {
                 )
             })
             .collect();
-        assert!(!history_allows_dispatch(now, Some(&h)));
+        assert!(!history_allows_dispatch(now, &h, (0, 0)));
         // JST前日の実行を今日の回数には含めない（UTCの日付は同じ）。
         h.runs[0].created_at = at("2026-11-09T23:59:59+09:00").with_timezone(&Utc);
-        assert!(history_allows_dispatch(now, Some(&h)));
+        assert!(history_allows_dispatch(now, &h, (0, 0)));
+        // 履歴3回 + 失敗した依頼1回で4回。
+        assert!(!history_allows_dispatch(now, &h, (0, 1)));
+        // このプロセスで成功した依頼は履歴と重なるので多い方を使う。
+        assert!(history_allows_dispatch(now, &h, (3, 0)));
         for status in ["queued", "in_progress"] {
             h.runs = vec![run("schedule", "2026-11-09T01:00:00+09:00", status)];
-            assert!(!history_allows_dispatch(now, Some(&h)));
+            assert!(!history_allows_dispatch(now, &h, (0, 0)));
         }
         h.runs = vec![run("schedule", "2026-11-10T09:59:00+09:00", "completed")];
-        assert!(history_allows_dispatch(now, Some(&h)));
+        assert!(history_allows_dispatch(now, &h, (0, 0)));
         h.active = true;
-        assert!(!history_allows_dispatch(now, Some(&h)));
+        assert!(!history_allows_dispatch(now, &h, (0, 0)));
     }
 
     #[test]
-    fn local_attempt_spacing_is_ten_minutes() {
+    fn failed_dispatch_waits_two_hours_and_counts_toward_four() {
+        let h = empty();
         let mut state = WatchState::default();
-        state.attempted(at("2026-11-10T01:00:00+09:00"));
+        state.record(at("2026-11-10T01:00:00+09:00"), DispatchResult::Failure);
+        // 失敗しても10分後には頼まない。2時間あける。
+        for (time, expected) in [
+            ("2026-11-10T01:10:00+09:00", false),
+            ("2026-11-10T02:59:59+09:00", false),
+            ("2026-11-10T03:00:00+09:00", true),
+        ] {
+            assert_eq!(
+                should_dispatch(at(time), OLD, Some(&h), &state),
+                expected,
+                "{time}"
+            );
+        }
+        for time in [
+            "2026-11-10T03:00:00+09:00",
+            "2026-11-10T05:00:00+09:00",
+            "2026-11-10T07:00:00+09:00",
+        ] {
+            state.record(at(time), DispatchResult::Failure);
+        }
+        // 失敗を含めて4回で、その日はもう頼まない。
+        assert_eq!(
+            state.attempts_today(at("2026-11-10T09:00:00+09:00")),
+            (0, 4)
+        );
         assert!(!should_dispatch(
-            at("2026-11-10T01:09:59+09:00"),
-            Some("2026-11-08"),
+            at("2026-11-10T09:00:00+09:00"),
+            OLD,
+            Some(&h),
             &state
         ));
+        assert!(!should_dispatch(
+            at("2026-11-10T21:00:00+09:00"),
+            OLD,
+            Some(&h),
+            &state
+        ));
+        // 翌日は数え直す（前日 23 時の依頼から2時間たった 1 時から）。
+        let mut state = WatchState::default();
+        state.record(at("2026-11-10T21:00:00+09:00"), DispatchResult::Failure);
         assert!(should_dispatch(
-            at("2026-11-10T01:10:00+09:00"),
-            Some("2026-11-08"),
+            at("2026-11-11T01:00:00+09:00"),
+            Some("2026-11-10 21:00:00"),
+            Some(&h),
             &state
         ));
+        state.record(at("2026-11-11T01:00:00+09:00"), DispatchResult::Failure);
+        assert_eq!(state.attempts.len(), 1, "前日の依頼は捨てる");
+        assert_eq!(
+            state.auto_state(at("2026-11-11T01:00:00+09:00")),
+            "request_failed"
+        );
+    }
+
+    #[test]
+    fn token_is_trimmed_and_builds_headers() {
+        assert_eq!(token_from(None), None);
+        assert_eq!(token_from(Some(" \n\t".into())), None);
+        let token = token_from(Some("  test-secret\r\n".into())).unwrap();
+        assert_eq!(token, "test-secret");
+        let client = Client::new();
+        let request = dispatch_request(&client, DEFAULT_REPO, &token).unwrap();
+        assert_eq!(request.headers()["authorization"], "Bearer test-secret");
+        assert!(history_request(&client, DEFAULT_REPO, &token, &[]).is_some());
+        // trim しない値ではヘッダを作れない（以前は依頼が一度も出なかった）。
+        assert!(dispatch_request(&client, DEFAULT_REPO, "test-secret\n").is_none());
+    }
+
+    #[test]
+    fn status_outside_window_follows_history() {
+        let mut state = WatchState::default();
+        let night = at("2026-11-10T22:10:00+09:00");
+        // 22時に実行中だったものが、時間帯の外の読み直しで失敗に変わる。
+        let mut h = empty();
+        h.runs = vec![run(
+            "workflow_dispatch",
+            "2026-11-10T21:00:00+09:00",
+            "in_progress",
+        )];
+        state.observe(Some(&h), at("2026-11-10T21:50:00+09:00"));
+        assert_eq!(state.auto_state(night), "running");
+        h.runs[0].status = "completed".into();
+        h.runs[0].conclusion = Some("failure".into());
+        state.observe(Some(&h), night);
+        assert_eq!(state.auto_state(night), "failed");
+        // 時間帯の外では頼まない。
+        assert!(!should_dispatch(
+            night,
+            OLD,
+            Some(&empty()),
+            &WatchState::default()
+        ));
+        // 失敗も実行中も無ければ、いつ頼むかを言う。
+        let mut state = WatchState::default();
+        state.observe(Some(&empty()), night);
+        assert_eq!(state.auto_state(night), "tomorrow");
+        assert_eq!(
+            state.auto_state(at("2026-11-10T00:30:00+09:00")),
+            "after_one"
+        );
+        assert_eq!(state.auto_state(at("2026-11-10T01:00:00+09:00")), "pending");
+        // 読めなくなったら「確かめられない」、読めたら戻す。
+        state.observe(None, night);
+        assert_eq!(state.auto_state(night), "unknown");
+        assert_eq!(state.latest_run_state, None);
+        state.observe(Some(&empty()), night);
+        assert_eq!(state.auto_state(night), "tomorrow");
+    }
+
+    #[test]
+    fn auto_state_meta_and_texts() {
+        let now = at("2026-11-10T10:00:00+09:00");
+        let mut state = WatchState::default();
+        state.record(at("2026-11-10T03:27:18+09:00"), DispatchResult::Success);
+        assert_eq!(state.auto_state(now), "requested");
+        // 前日の依頼は今日の依頼ではない。
+        assert_eq!(state.auto_state(at("2026-11-11T10:00:00+09:00")), "pending");
+        state.record(at("2026-11-10T05:30:00+09:00"), DispatchResult::Failure);
+        assert_eq!(state.auto_state(now), "request_failed");
+        let mut meta = serde_json::Map::new();
+        state.add_meta(&mut meta, false);
+        assert_eq!(meta["auto_refresh"], json!(false));
+        assert_eq!(
+            meta["auto_state"],
+            Value::Null,
+            "見張りが動いていなければ出さない"
+        );
+        state.add_meta(&mut meta, true);
+        assert!(meta["auto_state"].is_string());
     }
 
     #[tokio::test]
@@ -485,9 +771,9 @@ mod tests {
             async move { Some(body) }
         }).await.unwrap();
         assert_eq!(calls, 4);
-        assert!(!history_allows_dispatch(now, Some(&h)));
+        assert!(!history_allows_dispatch(now, &h, (0, 0)));
         let mut state = WatchState::default();
-        state.observe(&h, now);
+        state.observe(Some(&h), now);
         assert_eq!(state.latest_run_state, Some("failed"));
         assert_eq!(
             state.last_dispatch_at,
@@ -504,7 +790,7 @@ mod tests {
                 async move { body }
             })
             .await;
-            assert!(!history_allows_dispatch(now, h.as_ref()));
+            assert!(h.is_none());
         }
     }
 
@@ -521,7 +807,7 @@ mod tests {
                 async move { value }
             })
             .await;
-            assert!(!history_allows_dispatch(now, h.as_ref()));
+            assert!(h.is_none());
             assert_eq!(calls, fail_at);
         }
         // 多すぎて確認しきれない履歴も、途中までの集計で許可しない。
@@ -531,12 +817,12 @@ mod tests {
             async { Some(json!({"total_count":1001,"workflow_runs":[{"event":"schedule","created_at":"2026-11-09T15:00:00Z","status":"completed","conclusion":"success"}]})) }
         }).await;
         assert_eq!(calls, 10);
-        assert!(!history_allows_dispatch(now, h.as_ref()));
+        assert!(h.is_none());
         let h = history_with(&client, DEFAULT_REPO, "bad\nsecret", now, |_| async {
             panic!("不正なヘッダで送らない")
         })
         .await;
-        assert!(!history_allows_dispatch(now, h.as_ref()));
+        assert!(h.is_none());
     }
 
     #[tokio::test]
@@ -586,10 +872,9 @@ mod tests {
             ).await;
             assert_eq!(result, expected);
             let mut state = WatchState::default();
-            state.attempted(at("2026-11-10T01:20:00+09:00"));
-            state.last_result = Some(result);
+            state.record(at("2026-11-10T01:20:00+09:00"), result);
             let mut meta = serde_json::Map::new();
-            state.add_meta(&mut meta);
+            state.add_meta(&mut meta, true);
             assert_eq!(meta["last_dispatch_at"], "2026-11-10T01:20:00+09:00");
             assert_eq!(meta["last_result"], json!(expected));
             assert!(!json!(meta).to_string().contains(token));
