@@ -130,10 +130,7 @@ impl Evidence {
         }
     }
     pub fn of(&self, d: &Deal, today: NaiveDate) -> Value {
-        if d.renewal_no != Some(0)
-            || !d.is_active
-            || date10(&d.contract_expiration_date).is_some_and(|e| e < today)
-        {
+        if !d.is_active || date10(&d.contract_expiration_date).is_some_and(|e| e < today) {
             return json!({"gates": [], "overdue_count": 0});
         }
         let start = date10(&d.contract_start_date);
@@ -170,11 +167,24 @@ impl Evidence {
     }
 }
 
-pub fn build_first_contract(sheets: &Sheets, today: NaiveDate) -> Value {
-    let (rows, meta) = super::routes::deal_rows(sheets, today);
+pub fn build_first_contract(sheets: &Sheets, today: NaiveDate, sales: &SalesSnapshot) -> Value {
+    let (mut rows, meta) = super::routes::deal_rows(sheets, today);
+    attach_gates(&mut rows, sheets, today, sales);
+    let eligible = rows.iter().filter(|r| r["past_expiry"] != true);
+    let mut missing = 0;
+    let mut failed = 0;
+    let mut population_size = 0;
+    for row in eligible {
+        population_size += 1;
+        match sales.values.get(row["deal_id"].as_str().unwrap_or("")) {
+            Some(None) => missing += 1,
+            None => failed += 1,
+            _ => {}
+        }
+    }
     let mut rows: Vec<Value> = rows
         .into_iter()
-        .filter(|r| r["renewal_no"] == 0 && r["past_expiry"] != true)
+        .filter(|r| sales.is_first(r["deal_id"].as_str().unwrap_or("")) && r["past_expiry"] != true)
         .collect();
     rows.sort_by(|a, b| {
         b["first_contract"]["overdue_count"]
@@ -199,8 +209,138 @@ pub fn build_first_contract(sheets: &Sheets, today: NaiveDate) -> Value {
         .filter_map(|r| r["consultant"].as_str())
         .filter(|s| !s.is_empty())
         .collect();
-    json!({"meta": meta, "consultants": consultants, "not_started": rows.iter().filter(|r| r["not_started"] == true).collect::<Vec<_>>(),
+    json!({"meta": meta, "sales_unavailable": failed > 0 && failed == population_size,
+        "sales_failed_count": failed, "sales_empty_count": missing, "consultants": consultants, "not_started": rows.iter().filter(|r| r["not_started"] == true).collect::<Vec<_>>(),
         "rows": rows.iter().filter(|r| r["not_started"] != true).collect::<Vec<_>>()})
+}
+
+/// None は取得済みの空欄。キーなしは未取得・部分失敗。
+#[derive(Default, Clone)]
+pub struct SalesSnapshot {
+    values: HashMap<String, Option<f64>>,
+}
+impl SalesSnapshot {
+    fn is_first(&self, id: &str) -> bool {
+        self.values.get(id) == Some(&Some(1.0))
+    }
+}
+
+/// 関門をシート由来の行キャッシュの外で適用する。売上回数の更新を即座に反映する。
+pub(super) fn attach_gates(
+    rows: &mut [Value],
+    sheets: &Sheets,
+    today: NaiveDate,
+    sales: &SalesSnapshot,
+) {
+    let evidence = Evidence::new(sheets);
+    let deals: HashMap<_, _> = super::deals_of(&sheets.deal)
+        .into_iter()
+        .map(|d| (d.id.clone(), d))
+        .collect();
+    for row in rows {
+        let id = row["deal_id"].as_str().unwrap_or("");
+        row["first_contract"] = if sales.is_first(id) {
+            deals
+                .get(id)
+                .map(|d| evidence.of(d, today))
+                .unwrap_or_else(|| json!({"gates":[],"overdue_count":0}))
+        } else {
+            json!({"gates":[],"overdue_count":0})
+        };
+    }
+}
+
+#[derive(Default)]
+struct SalesCache {
+    // TTL は再取得の期限。失敗時用の直近成功値は期限後も残す。
+    values: std::sync::Mutex<HashMap<String, (Option<f64>, std::time::Instant)>>,
+    refresh: tokio::sync::Mutex<()>,
+}
+impl SalesCache {
+    async fn read(
+        &self,
+        ids: &[String],
+        client: Option<&crate::hubspot::HubSpotClient>,
+    ) -> SalesSnapshot {
+        let fetch = async {
+            let _guard = self.refresh.lock().await;
+            let missing: Vec<String> = {
+                let values = self.values.lock().unwrap();
+                ids.iter()
+                    .filter(|id| {
+                        values.get(*id).is_none_or(|(_, at)| {
+                            at.elapsed() >= std::time::Duration::from_secs(300)
+                        })
+                    })
+                    .cloned()
+                    .collect()
+            };
+            if missing.is_empty() {
+                crate::hubspot::gateway::cache_hit("consulting_first_sales");
+                return;
+            }
+            crate::hubspot::gateway::cache_miss("consulting_first_sales");
+            let Some(client) = client else {
+                return;
+            };
+            let client = client.with_priority(crate::hubspot::gateway::Priority::Background);
+            for chunk in missing.chunks(100) {
+                match client
+                    .batch_read("deals", chunk, &["number_of_sales"])
+                    .await
+                {
+                    Ok(records) => {
+                        let mut values = self.values.lock().unwrap();
+                        for record in records {
+                            if !chunk.contains(&record.id) {
+                                continue;
+                            }
+                            // プロパティ自体の欠落・不正値は空欄と混同せず、直近成功値を残す。
+                            let Some(raw) = record.properties.get("number_of_sales") else {
+                                continue;
+                            };
+                            let value = match raw.as_deref().map(str::trim) {
+                                None | Some("") => None,
+                                Some(raw) => match raw.parse::<f64>() {
+                                    Ok(n) if n.is_finite() => Some(n),
+                                    _ => continue,
+                                },
+                            };
+                            values.insert(record.id, (value, std::time::Instant::now()));
+                        }
+                    }
+                    Err(_) => {
+                        tracing::warn!("初回契約の売上回数をまとめて読めませんでした");
+                    }
+                }
+            }
+        };
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(15), fetch).await;
+        let mut values = self.values.lock().unwrap();
+        // 現在の稼働母集団だけ保持し、終了した取引による無制限の増加を防ぐ。
+        let active: std::collections::HashSet<_> = ids.iter().collect();
+        values.retain(|id, _| active.contains(id));
+        SalesSnapshot {
+            values: values.iter().map(|(id, (n, _))| (id.clone(), *n)).collect(),
+        }
+    }
+}
+
+/// CRM の目標認可とは独立して、既存母集団の稼働中全件を読む（満了超過も取得対象）。
+pub(super) async fn read_sales(
+    sheets: &Sheets,
+    client: Option<&crate::hubspot::HubSpotClient>,
+) -> SalesSnapshot {
+    static CACHE: OnceLock<SalesCache> = OnceLock::new();
+    let ids: Vec<_> = super::deals_of(&sheets.deal)
+        .into_iter()
+        .filter(|d| d.is_active)
+        .map(|d| d.id)
+        .collect();
+    CACHE
+        .get_or_init(SalesCache::default)
+        .read(&ids, client)
+        .await
 }
 
 const PROPS: [&str; 3] = [
@@ -355,6 +495,186 @@ mod tests {
             all_cached: true,
         }
     }
+    #[test]
+    fn 売上回数だけで対象と空欄と未取得を分ける() {
+        let mut sh = sheets();
+        sh.deal = sheet(
+            &[
+                "deal_id",
+                "is_active",
+                "renewal_no",
+                "contract_start_date",
+                "contract_expiration_date",
+            ],
+            &[
+                vec!["1", "TRUE", "5", "2026-01-01", "2027-01-01"],
+                vec!["2", "TRUE", "0", "2026-01-01", "2027-01-01"],
+                vec!["3", "TRUE", "0", "2026-01-01", "2027-01-01"],
+                vec!["4", "TRUE", "0", "2026-01-01", "2027-01-01"],
+                vec!["5", "TRUE", "0", "2026-08-01", "2027-01-01"],
+                vec!["6", "TRUE", "0", "2025-01-01", "2026-01-01"],
+                vec!["7", "FALSE", "0", "2026-01-01", "2027-01-01"],
+            ],
+        );
+        let sales = SalesSnapshot {
+            values: HashMap::from([
+                ("1".into(), Some(1.0)),
+                ("2".into(), Some(2.0)),
+                ("3".into(), None),
+                ("5".into(), Some(1.0)),
+                ("6".into(), Some(1.0)),
+                ("7".into(), Some(1.0)),
+            ]),
+        };
+        let today = day("2026-06-01");
+        let body = build_first_contract(&sh, today, &sales);
+        assert_eq!(
+            body["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["deal_id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["1"]
+        );
+        assert_eq!(body["not_started"][0]["deal_id"], "5");
+        assert_eq!(body["not_started"].as_array().unwrap().len(), 1);
+        assert_eq!(body["sales_empty_count"], 1);
+        assert_eq!(body["sales_failed_count"], 1);
+        assert_eq!(body["sales_unavailable"], false);
+        let (mut rows, _) = super::super::routes::deal_rows(&sh, today);
+        attach_gates(&mut rows, &sh, today, &sales);
+        assert!(
+            rows.iter().find(|r| r["deal_id"] == "1").unwrap()["first_contract"]["overdue_count"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        for id in ["2", "3", "4", "5", "6"] {
+            assert_eq!(
+                rows.iter().find(|r| r["deal_id"] == id).unwrap()["first_contract"]
+                    ["overdue_count"],
+                0
+            );
+        }
+        let empty = build_first_contract(&sh, today, &SalesSnapshot::default());
+        assert_eq!(empty["rows"], json!([]));
+        assert_eq!(empty["not_started"], json!([]));
+        assert_eq!(empty["sales_failed_count"], 5);
+        assert_eq!(empty["sales_unavailable"], true);
+    }
+
+    #[tokio::test]
+    async fn クライアント未接続でも期限切れの前回値を使い未取得だけを外す() {
+        let cache = SalesCache::default();
+        let old = std::time::Instant::now() - std::time::Duration::from_secs(301);
+        cache.values.lock().unwrap().extend([
+            ("1".into(), (Some(1.0), old)),
+            ("2".into(), (Some(2.0), old)),
+            ("3".into(), (None, old)),
+        ]);
+        let ids = ["1", "2", "3", "4"].map(str::to_string);
+        let sales = cache.read(&ids, None).await;
+        assert!(sales.is_first("1"));
+        assert!(!sales.is_first("2"));
+        assert_eq!(sales.values.get("3"), Some(&None));
+        assert!(!sales.values.contains_key("4"));
+        let cold = SalesCache::default().read(&ids, None).await;
+        assert!(cold.values.is_empty());
+    }
+
+    #[tokio::test]
+    async fn 偽httpで百件分割と五分キャッシュと部分欠落と失敗時の前回値を確認() {
+        use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Mutex,
+        };
+        #[derive(Default)]
+        struct Fake {
+            fail: AtomicBool,
+            calls: Mutex<Vec<Value>>,
+        }
+        async fn respond(
+            State(fake): State<Arc<Fake>>,
+            Json(body): Json<Value>,
+        ) -> (StatusCode, Json<Value>) {
+            fake.calls.lock().unwrap().push(body.clone());
+            if fake.fail.load(Ordering::SeqCst) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"message":"test failure"})),
+                );
+            }
+            let results: Vec<_> = body["inputs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|r| r["id"] != "102")
+                .map(|r| {
+                    let n = match r["id"].as_str().unwrap() {
+                        "2" => json!("2"),
+                        "3" => Value::Null,
+                        _ => json!("1.0"),
+                    };
+                    json!({"id":r["id"], "properties":{"number_of_sales": n}})
+                })
+                .collect();
+            (StatusCode::OK, Json(json!({"results":results})))
+        }
+        let fake = Arc::new(Fake::default());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new()
+            .route("/crm/v3/objects/deals/batch/read", post(respond))
+            .with_state(fake.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client =
+            crate::hubspot::HubSpotClient::new("test-token".into(), &base, Default::default())
+                .unwrap();
+        let cache = SalesCache::default();
+        let ids: Vec<_> = (1..=102).map(|i| i.to_string()).collect();
+        let sales = cache.read(&ids, Some(&client)).await;
+        assert!(sales.is_first("1"));
+        assert!(!sales.is_first("2"));
+        assert_eq!(sales.values.get("3"), Some(&None));
+        assert!(!sales.values.contains_key("102"));
+        {
+            let calls = fake.calls.lock().unwrap();
+            assert_eq!(calls.len(), 2);
+            assert_eq!(calls[0]["inputs"].as_array().unwrap().len(), 100);
+            assert_eq!(calls[1]["inputs"].as_array().unwrap().len(), 2);
+            assert_eq!(calls[0]["properties"], json!(["number_of_sales"]));
+        }
+        // 取得済み101件は5分以内ならHTTPを再送しない。
+        cache.read(&ids[..101], Some(&client)).await;
+        assert_eq!(fake.calls.lock().unwrap().len(), 2);
+        for (_, at) in cache.values.lock().unwrap().values_mut() {
+            *at = std::time::Instant::now() - std::time::Duration::from_secs(301);
+        }
+        fake.fail.store(true, Ordering::SeqCst);
+        let stale = cache.read(&ids, Some(&client)).await;
+        assert!(stale.is_first("1"));
+        assert_eq!(stale.values.get("2"), Some(&Some(2.0)));
+        assert_eq!(stale.values.get("3"), Some(&None));
+        assert!(!stale.values.contains_key("102"));
+        let cold = SalesCache::default().read(&ids, Some(&client)).await;
+        assert!(cold.values.is_empty());
+        assert_eq!(
+            client
+                .gateway()
+                .snapshot()
+                .granted_by_priority
+                .get("background"),
+            Some(&(fake.calls.lock().unwrap().len() as u64))
+        );
+        assert_eq!(
+            client.gateway().snapshot().total_calls,
+            fake.calls.lock().unwrap().len() as u64
+        );
+        server.abort();
+    }
+
     #[test]
     fn 各関門の達成と未達と期限前と不明() {
         let mut d = deal();
@@ -664,7 +984,18 @@ mod tests {
             &rows,
         );
         let today = day("2026-06-01");
-        let first = build_first_contract(&sh, today);
+        let sales = SalesSnapshot {
+            values: super::super::deals_of(&sh.deal)
+                .iter()
+                .map(|d| {
+                    (
+                        d.id.clone(),
+                        Some(if d.id == "80000000901" { 2.0 } else { 1.0 }),
+                    )
+                })
+                .collect(),
+        };
+        let first = build_first_contract(&sh, today, &sales);
         assert_eq!(first["rows"].as_array().unwrap().len(), 28);
         assert_eq!(first["not_started"].as_array().unwrap().len(), 1);
         assert_eq!(first["rows"][0]["deal_id"], ids[0]);
@@ -673,7 +1004,7 @@ mod tests {
             assert_eq!(r["first_contract"]["overdue_count"], 5);
         }
         assert_eq!(first["rows"][27]["first_contract"]["overdue_count"], 3);
-        let board = super::super::routes::build_today_board(&sh, today);
+        let board = super::super::routes::build_today_board_with_sales(&sh, today, &sales);
         for id in ids {
             assert!(board["candidates"]
                 .as_array()

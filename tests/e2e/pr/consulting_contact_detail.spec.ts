@@ -20,7 +20,7 @@ async function open(page: Page, mode: boolean | Mode = {}, id = '90000000001') {
   await page.route('**/api/crm/workspace/deals/**', r => {
     if (m.goals === 'fail') return r.fulfill({ status: 502, body: 'x' });
     if (m.goals === 'partial') return r.fulfill({ json: { selected: { deal: {} }, partial: [{ part: 'selected_properties' }] } });
-    return r.fulfill({ json: { selected: { deal: { shokai_mtg_mokuhyou_risou: '架空の理想', shokai_mtg_mokuhyou_zenshin: '架空の前進' } }, partial: [] } });
+    return r.fulfill({ json: { selected: { deal: { shokai_mtg_mokuhyou_risou: '架空のマインド目標', shokai_mtg_mokuhyou_zenshin: '架空のコミット目標' } }, partial: [] } });
   });
   await page.route('**/api/consulting/**', r => {
     const u = new URL(r.request().url());
@@ -74,7 +74,7 @@ test('接触履歴: 件数・長文の全文・記録の詳細・フィルター
   // 案件管理・HubSpot の導線、契約の連なり
   await expect(page.locator('.dd-open a[href="/app/job-copy?deal=90000000001"]')).toBeVisible();
   await expect(page.locator('#dd-chain')).toBeAttached();
-  await expect(page.locator('#dd-goals')).toContainText('架空の理想');
+  await expect(page.locator('#dd-goals')).toContainText('架空のマインド目標');
   // 横スクロールが出ない
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: process.env.SHOT_DIR ? `${process.env.SHOT_DIR}/pc.png` : undefined, fullPage: true });
@@ -145,10 +145,12 @@ test('次の対応: 長い本文は上部でも先頭だけ出て、全文を表
   await expect(d.locator('.full')).toContainText('架空の次の対応。'.repeat(30));
 });
 
-test('初回MTGの目標: 理想と前進ラインの両方を実装のプロパティ名どおりに表示する', async ({ page }) => {
+test('初回MTGの目標: マインド目標とコミット目標の両方を実装のプロパティ名どおりに表示する', async ({ page }) => {
   await open(page);
-  await expect(page.locator('#dd-goals')).toContainText('架空の理想');
-  await expect(page.locator('#dd-goals')).toContainText('架空の前進');
+  await expect(page.locator('#dd-goals')).toContainText('架空のマインド目標');
+  await expect(page.locator('#dd-goals')).toContainText('架空のコミット目標');
+  await expect(page.locator('#dd-goals')).toContainText('マインド目標（目指す難易度が高い目標）');
+  await expect(page.locator('#dd-goals')).toContainText('コミット目標（絶対に達成する目標）');
   await expect(page.locator('#dd-goals')).not.toContainText('未入力');
 });
 

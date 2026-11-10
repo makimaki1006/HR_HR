@@ -45,7 +45,7 @@ describe('初回MTGの目標の読み書き', () => {
     ]);
   });
   it('何をするかが空・区分不明があると保存できない。いつまでが空なら契約期間中で保存する', () => {
-    expect(goalProblems(draft.goals)).toEqual(['区分不明の目標があります。理想か前進ラインを選んでください。']);
+    expect(goalProblems(draft.goals)).toEqual(['区分不明の目標があります。マインド目標かコミット目標を選んでください。']);
     expect(goalProblems([{ kind: 'ideal', what: ' ', target: '', by_when: '' }])).toEqual(['「何をするか」が空の目標があります。書くか、行を消してください。']);
     const data = confirmedData([{ kind: 'minimum', what: ' 応募を集める ', target: '2名', by_when: '' }], draft, new Date('2026-10-23T00:00:00Z'));
     expect(data).toEqual({ v: 1, status: 'confirmed', goals: [{ kind: 'minimum', what: '応募を集める', target: '2名', by_when: '契約期間中' }], meeting: draft.meeting, updated_at: '2026-10-23T00:00:00.000Z' });
@@ -107,11 +107,29 @@ describe('初回MTGの目標の画面', () => {
     render(<DealFirstGoals dealId="901" />);
     expect(await screen.findByText('HubSpot に初回MTGの目標の項目がまだありません。')).toBeTruthy();
   });
-  it('何も入っていなければ入力から始め、理想と前進ラインの 2 行を出す', async () => {
+  it('何も入っていなければ入力から始め、マインド目標とコミット目標の 2 行を出す', async () => {
     mockApi({});
     render(<DealFirstGoals dealId="901" />);
     fireEvent.click(await screen.findByRole('button', { name: '入力' }));
     expect(screen.getAllByLabelText('何をするか')).toHaveLength(2);
     expect(screen.getByRole('alert').textContent).toContain('「何をするか」が空の目標があります');
   });
+});
+
+it.each(['draft', 'confirmed'] as const)('目標の全体・各目標の注記を%sでも表示し、訂正保存で残す', async status => {
+  const note = '数の大小が逆の可能性があります。確かめてください';
+  const data: GoalData = { ...draft, status, notes: [note], goals: draft.goals.filter(goal => goal.kind !== 'unclassified').map((goal, i) => i === 0 ? { ...goal, notes: ['数の根拠を確認してください'] } : goal) };
+  const patches = mockApi(stored(data));
+  render(<DealFirstGoals dealId="901" />);
+  expect(await screen.findByText(note)).toBeTruthy();
+  expect(screen.getByText('数の根拠を確認してください').tagName).toBe('SMALL');
+  expect(screen.getByRole('heading', { name: 'マインド目標 （目指す難易度が高い目標）' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'コミット目標 （絶対に達成する目標）' })).toBeTruthy();
+  fireEvent.click(await screen.findByRole('button', { name: status === 'draft' ? '確かめて確定' : '訂正' }));
+  const first = screen.getAllByLabelText('数')[0];
+  if (!first) throw new Error('目標の数の入力がありません');
+  fireEvent.change(first, { target: { value: '5名' } });
+  fireEvent.click(screen.getByRole('button', { name: '確定して保存' }));
+  await waitFor(() => { expect(patches).toHaveLength(1); });
+  expect(JSON.parse(patches[0]?.set[GOAL_PROPS.data] ?? '')).toMatchObject({ notes: [note], goals: [{ notes: ['数の根拠を確認してください'] }, {}] });
 });

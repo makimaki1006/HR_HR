@@ -1090,7 +1090,7 @@ body.dd-page .lede.dd-open + *{ margin-top:0; }
   body.dd-page .tl .what{ padding:12px 0 0; }
   body.dd-page .tl .rec-head{ flex-wrap:wrap; }
 }
-.first-gates{display:inline-flex;gap:4px;white-space:nowrap;font-size:17px}.first-overdue{color:#b42318;font-weight:700}[data-first-deal]{cursor:pointer}
+.first-gate{white-space:nowrap;font-size:13px}.first-achieved{color:#647381}.first-unknown{color:#9ca3af}.first-overdue{color:#b42318;font-weight:700}[data-first-deal]{cursor:pointer}
 </style>
 </head>
 <body>
@@ -6987,26 +6987,39 @@ function todayJump(id) {
 }
 
 /* 初回契約はサーバが判定・整列した行をそのまま表示する。担当の絞り込みは案件一覧と同じ状態を使う。 */
+const FIRST_GATE_HEADERS = ['初回MTG（7日以内）', '求人掲載（14日以内）', '応募1件（30日以内）', '面接1件（段階3まで）', '満足度の回答（段階3まで）'];
+function firstGateStatus(g) {
+  if (g && g.achieved === true) return { text: '達成', tone: 'achieved' };
+  if (!g || g.achieved !== false || !g.deadline || !/^\d{4}-\d{2}-\d{2}$/.test(g.deadline)) return { text: '判定できない', tone: 'unknown' };
+  const date = Number(g.deadline.slice(5, 7)) + '/' + Number(g.deadline.slice(8, 10));
+  return g.overdue ? { text: '期限超過（' + date + '）', tone: 'overdue' } : { text: '期限前（' + date + 'まで）', tone: 'pending' };
+}
 let firstContractData = null;
 function renderFirstContract(D) {
   firstContractData = D;
   const owner = boardFilter.consultant;
   let h = '<div class="ctlbar"><label class="act">担当 <select id="first-consultant"><option value="">すべて</option>' +
     (D.consultants || []).map((c) => '<option value="' + esc(c) + '"' + (c === owner ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label></div>';
-  h += '<p>関門は左から、初回MTGの記録（7日以内）、求人掲載（14日以内）、応募1件（30日以内）、面接1件、満足度の回答です。面接と満足度は段階3に入るまでが期限です。期限は暫定です。</p>';
-  h += '<p class="muted">● 達成　○ 未達・判定できない。赤は期限超過です。各丸に重ねると判定と期限が読めます。期限超過が多い順、同じなら開始日が古い順です。</p>';
+  h += '<p class="muted small">期限は暫定です。</p>';
+  h += '<p class="muted">期限超過が多い順、同じなら開始日が古い順です。</p>';
+  h += '<p class="muted">対象は稼働中で売上回数が1回の契約です。</p>';
+  if (D.sales_unavailable) h += '<p role="status">売上回数を読めませんでした。少し待って読み直してください</p>';
+  if (!D.sales_unavailable && D.sales_failed_count > 0) h += '<p class="muted">売上回数を読めず対象から外した稼働中の契約 ' + num(D.sales_failed_count) + ' 件</p>';
+  if (D.sales_empty_count > 0) h += '<p class="muted">売上回数が空の稼働中の契約 ' + num(D.sales_empty_count) + ' 件</p>';
   if (D.goals_available === false) h += '<p>目標は社内の Google ログインで見られます</p>';
   const table = (source, title) => {
     const rows = (source || []).filter((r) => !owner || r.consultant === owner);
-    let t = '<h2>' + title + '（' + num(rows.length) + ' 件）</h2><div class="scroll"><table><caption>' + title + '</caption><thead><tr><th>案件</th><th>担当</th><th>開始〜満了</th><th>5つの関門</th><th>初回MTGの目標</th></tr></thead><tbody>';
+    let t = '<h2>' + title + '（' + num(rows.length) + ' 件）</h2><div class="scroll"><table><caption>' + title + '</caption><thead><tr><th>案件</th><th>担当</th><th>開始〜満了</th>' + FIRST_GATE_HEADERS.map((label) => '<th>' + label + '</th>').join('') + '<th>初回MTGの目標</th></tr></thead><tbody>';
     t += rows.map((r) => {
       const gs = r.goals || { failed: true };
-      const goals = D.goals_available === false ? '—' : gs.failed ? '読めませんでした' : (gs.draft ? '案 · ' : '') + '理想：' + esc(gs.ideal) + '<br>前進ライン：' + esc(gs.minimum);
-      const gates = r.first_contract.gates.map((g) => {
-        const text = g.label + '：' + g.text + '（期限 ' + (g.deadline || '不明') + '）';
-        return '<span class="first-gate' + (g.overdue ? ' first-overdue' : '') + '" title="' + esc(text) + '" aria-label="' + esc(text) + '" tabindex="0">' + (g.achieved === true ? '●' : '○') + '</span>';
+      const goals = D.goals_available === false ? '—' : gs.failed ? '読めませんでした' : (gs.draft ? '案 · ' : '') + 'マインド：' + esc(gs.ideal) + '<br>コミット：' + esc(gs.minimum);
+      const gates = FIRST_GATE_HEADERS.map((label, index) => {
+        const status = firstGateStatus(r.first_contract.gates[index]);
+        /* クラス名は組み立てずに書く（css_classes_exist が配っている CSS と照らすため）。期限前は色を付けない */
+        const cls = { achieved: 'first-gate first-achieved', overdue: 'first-gate first-overdue', unknown: 'first-gate first-unknown' }[status.tone] || 'first-gate';
+        return '<td class="' + cls + '">' + status.text + '</td>';
       }).join('');
-      return '<tr data-first-deal="' + esc(r.deal_id) + '"><td>' + dealLink(r.deal_id, r.name) + '</td><td>' + esc(r.consultant || '担当未設定') + '</td><td>' + esc(r.start || '開始日不明') + '〜' + esc(r.expiry || '満了日不明') + '</td><td><span class="first-gates">' + gates + '</span></td><td>' + goals + '</td></tr>';
+      return '<tr data-first-deal="' + esc(r.deal_id) + '"><td>' + dealLink(r.deal_id, r.name) + '</td><td>' + esc(r.consultant || '担当未設定') + '</td><td>' + esc(r.start || '開始日不明') + '〜' + esc(r.expiry || '満了日不明') + '</td>' + gates + '<td>' + goals + '</td></tr>';
     }).join('');
     return t + '</tbody></table></div>' + (rows.length ? '' : '<p>該当する契約は0件です。</p>');
   };
@@ -8148,7 +8161,7 @@ function detailNext(D) {
   return h;
 }
 
-/* 初回MTGの目標（2026-10-23）。保存先は HubSpot の取引の 3 項目（理想・前進ライン・データ）。
+/* 初回MTGの目標（2026-10-23）。保存先は HubSpot の取引の 3 項目（マインド目標・コミット目標・データ）。
    ここでは表示だけで、入力・訂正は案件管理の案件の画面で行う（明細の操作は案件管理に一本化）。 */
 const GOAL_PROPS = { ideal: "shokai_mtg_mokuhyou_risou", minimum: "shokai_mtg_mokuhyou_zenshin", data: "shokai_mtg_mokuhyou_data" };
 function goalsBlock(v) {
@@ -8161,10 +8174,12 @@ function goalsBlock(v) {
   const empty = !lines(v[GOAL_PROPS.ideal]).length && !lines(v[GOAL_PROPS.minimum]).length && !unclassified;
   let h = "";
   if (data && data.status === "draft") h += '<div class="muted">MTGから読み取った案です（まだ担当者が確かめていません）。</div>';
-  if (empty) return h + '<span class="muted">まだ入力されていません。</span>';
-  h += list("理想（頑張ればできそうな目標）", v[GOAL_PROPS.ideal]) + list("前進ライン（必ず達成する目標）", v[GOAL_PROPS.minimum]);
+  const notes = data ? [...new Set([...(Array.isArray(data.notes) ? data.notes : []), ...(Array.isArray(data.goals) ? data.goals.flatMap((g) => g && Array.isArray(g.notes) ? g.notes : []) : [])])].filter((n) => typeof n === 'string' && n.trim()) : [];
+  const noteHtml = notes.map((note) => '<div class="muted small">' + esc(note) + '</div>').join('');
+  if (empty) return h + noteHtml + '<span class="muted">まだ入力されていません。</span>';
+  h += list("マインド目標（目指す難易度が高い目標）", v[GOAL_PROPS.ideal]) + list("コミット目標（絶対に達成する目標）", v[GOAL_PROPS.minimum]);
   if (unclassified) h += '<div class="muted">どちらか決められない目標が ' + num(unclassified) + " 件あります。案件管理で選んでください。</div>";
-  return h;
+  return h + noteHtml;
 }
 function loadDetailGoals() {
   const box = document.getElementById("dd-goals");

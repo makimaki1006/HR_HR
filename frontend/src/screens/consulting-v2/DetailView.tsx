@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { goalDisplayNotes } from '../job-copy/firstGoalsModel';
 import { apiGet } from '../../api/client';
 import { DASH, dayDiff, durText, monthsBefore, num, orText, yen } from './format';
 import { Async, CaseLink, FlagChips, Fresh, HubspotLink, NoData, Section } from './parts';
@@ -213,15 +214,18 @@ function Goals({ dealId }: { dealId: string }) {
     const deal = state.v.selected?.deal ?? {};
     const ideal = lines(deal[GOAL_PROPS.ideal]);
     const minimum = lines(deal[GOAL_PROPS.minimum]);
-    inner =
-      ideal.length === 0 && minimum.length === 0 ? (
-        <NoData label="初回MTGの目標（理想・前進ライン）" />
+    const notes = goalDisplayNotes(deal);
+    inner = <>
+      {ideal.length === 0 && minimum.length === 0 ? (
+        <NoData label="初回MTGの目標（マインド目標・コミット目標）" />
       ) : (
         <div className="cv2-goals">
-          <div><h3>理想（頑張ればできそうな目標）</h3><ul>{ideal.map((x) => <li key={x}>{x}</li>)}</ul>{ideal.length === 0 ? <span className="cv2-dim">未入力</span> : null}</div>
-          <div><h3>前進ライン（必ず達成する目標）</h3><ul>{minimum.map((x) => <li key={x}>{x}</li>)}</ul>{minimum.length === 0 ? <span className="cv2-dim">未入力</span> : null}</div>
+          <div><h3>マインド目標（目指す難易度が高い目標）</h3><ul>{ideal.map((x) => <li key={x}>{x}</li>)}</ul>{ideal.length === 0 ? <span className="cv2-dim">未入力</span> : null}</div>
+          <div><h3>コミット目標（絶対に達成する目標）</h3><ul>{minimum.map((x) => <li key={x}>{x}</li>)}</ul>{minimum.length === 0 ? <span className="cv2-dim">未入力</span> : null}</div>
         </div>
-      );
+      )}
+      {notes.map((note, i) => <small key={i} className="cv2-dim cv2-goal-note">{note}</small>)}
+    </>;
   }
   return (
     <Section title="初回MTGの目標" aside={<CaseLink dealId={dealId} label="案件管理で入力・訂正する" />}>

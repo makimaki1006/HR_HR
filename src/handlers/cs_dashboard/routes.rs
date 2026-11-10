@@ -252,7 +252,31 @@ simple_handler!(handover, build_handover);
 simple_handler!(contact_trend, build_contact_trend);
 simple_handler!(deal_board, build_deal_board);
 simple_handler!(stage_stay, build_stage_stay);
-simple_handler!(today_board, build_today_board);
+async fn today_board(
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
+    session: Session,
+    Query(q): Query<FocusQuery>,
+) -> Result<Response, CqError> {
+    let _ = session;
+    let state = cq_state()?;
+    if q.refresh.as_deref() == Some("1") {
+        for name in super::SHEETS {
+            state.store.invalidate(Some(name)).await;
+        }
+    }
+    let sheets = load(&state.client, &state.store)
+        .await
+        .map_err(|e| CqError::from_anyhow("consulting", e))?;
+    let client = app.crm_hubspot();
+    let sales = super::first_contract::read_sales(&sheets, client.as_deref()).await;
+    let today = today_jst();
+    Ok(Json(freshen(
+        build_today_board_with_sales(&sheets, today, &sales),
+        &sheets,
+        today,
+    ))
+    .into_response())
+}
 async fn first_contract(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
     session: Session,
@@ -276,12 +300,13 @@ async fn first_contract(
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
     let today = today_jst();
+    let client = app.crm_hubspot();
+    let sales = super::first_contract::read_sales(&sheets, client.as_deref()).await;
     let mut body = freshen(
-        super::first_contract::build_first_contract(&sheets, today),
+        super::first_contract::build_first_contract(&sheets, today, &sales),
         &sheets,
         today,
     );
-    let client = app.crm_hubspot();
     super::first_contract::enrich_goals(&mut body, authorization, client.as_deref()).await;
     Ok((
         [(axum::http::header::CACHE_CONTROL, "no-store")],
@@ -3447,7 +3472,6 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     let mut cover_any = 0usize;
     let mut view_count: BTreeMap<&str, usize> = BTreeMap::new();
     let mut phase_count: BTreeMap<&str, usize> = BTreeMap::new();
-    let first_evidence = super::first_contract::Evidence::new(sheets);
     let mtg_risk = latest_mtg_risk_by_deal(&sheets.mtg);
     let (stay_long, stay_esc) = super::stage_stay::view_ids(sheets, today);
     for d in &act {
@@ -3651,7 +3675,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             "n_flags": flags.len(),
             // 継続回数（0＝初回契約）。見方「初回契約で MTG の記録が見つからない」の材料
             "renewal_no": d.renewal_no,
-            "first_contract": first_evidence.of(d, today),
+            "first_contract": {"gates": [], "overdue_count": 0},
             // 判定のある MTG のうち、いちばん新しいもののリスク判定と開催日（無ければ null）
             "mtg_risk": mrisk.map(|(_, r)| r.clone()),
             "mtg_risk_date": mrisk.map(|(dt, _)| dt.to_string()),
@@ -3864,8 +3888,18 @@ fn has_low_satisfaction(row: &Value) -> bool {
 ///
 /// 🔴 **件数が多すぎると使われない。** 上から順に潰せる長さに絞る。
 /// 絞った条件は画面に出す。
+#[cfg(test)]
 pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
-    let (rows, mut meta) = deal_rows(sheets, today);
+    build_today_board_with_sales(sheets, today, &Default::default())
+}
+
+pub(super) fn build_today_board_with_sales(
+    sheets: &Sheets,
+    today: NaiveDate,
+    sales: &super::first_contract::SalesSnapshot,
+) -> Value {
+    let (mut rows, mut meta) = deal_rows(sheets, today);
+    super::first_contract::attach_gates(&mut rows, sheets, today, sales);
 
     // 名札2本以上・満足度4以下・初回契約の期限超過の候補。名札自体は増やさない。
     // そのうえで `deal_rows` の並び（名札の本数が多い順、同じ本数なら金額の大きい順）の上から 24件。

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, expect, it, vi } from 'vitest';
 import { ConsultingV2Screen } from './ConsultingV2Screen';
 import type { FirstResponse, FirstRow } from './FirstContractView';
-import { FirstContractView } from './FirstContractView';
+import { firstGateStatus, FirstContractView } from './FirstContractView';
 import { TodayView } from './TodayView';
 import { parseRoute, routeHref } from './route';
 
@@ -38,11 +38,13 @@ it('入口から共通一覧を1回読み、判定・目標・開始前を表示
   expect(screen.getByRole('button', { name: '初回契約' }).getAttribute('aria-current')).toBe('page');
   const tr = screen.getByRole('button', { name: '架空の契約甲' }).closest('tr');
   if (tr === null) throw new Error('案件の行が見つかりません');
-  expect(tr.querySelector('.cv2-first-gates')?.textContent).toBe('●○○○○');
+  expect([...tr.querySelectorAll('.cv2-first-gate')].map(cell => cell.textContent)).toEqual(['達成', '期限超過（1/15）', '判定できない', '期限前（5/2まで）', '期限前（5/2まで）']);
   expect(tr.querySelectorAll('.cv2-first-overdue').length).toBe(1);
-  expect(within(tr).getByLabelText('求人が掲載中：期限超過（期限 2026-01-15）').className).toBe('cv2-first-overdue');
-  expect(within(tr).getByLabelText('応募1件以上：判定できない（期限 2026-01-31）').className).toBe('');
-  expect(tr.textContent).toContain('案 · 理想：採用を2名増やす前進ライン：未入力');
+  expect(tr.querySelector('.cv2-first-unknown')?.textContent).toBe('判定できない');
+  expect([...screen.getByRole('table', { name: '初回契約' }).querySelectorAll('th')].map(cell => cell.textContent)).toEqual(['案件', '担当', '開始〜満了', '初回MTG（7日以内）', '求人掲載（14日以内）', '応募1件（30日以内）', '面接1件（段階3まで）', '満足度の回答（段階3まで）', '初回MTGの目標']);
+  expect(screen.getByText('期限は暫定です。')).toBeTruthy();
+  expect(screen.queryByText(/関門は左から/)).toBeNull();
+  expect(tr.textContent).toContain('案 · マインド：採用を2名増やすコミット：未入力');
   expect(screen.getByText('読めませんでした')).toBeTruthy();
   expect(screen.getByRole('heading', { name: '開始前の初回契約（1 件）' })).toBeTruthy();
   expect(within(tr).getByRole('link', { name: /HubSpot で開く/ }).getAttribute('href')).toContain('80000000001');
@@ -104,7 +106,26 @@ it('CRM認可がない場合も一覧と関門を表示し目標の案内は1行
   render(<FirstContractView route={parseRoute('?view=first')} go={vi.fn()} />);
   expect(await screen.findByRole('button', { name: '架空の契約甲' })).toBeTruthy();
   expect(screen.getAllByText('目標は社内の Google ログインで見られます')).toHaveLength(1);
-  expect(screen.getAllByLabelText('求人が掲載中：期限超過（期限 2026-01-15）')).toHaveLength(3);
+  expect(screen.getAllByText('期限超過（1/15）')).toHaveLength(3);
   expect(screen.queryByText('読めませんでした')).toBeNull();
-  expect(screen.queryByText(/理想：/)).toBeNull();
+  expect(screen.queryByText(/マインド：/)).toBeNull();
+});
+
+
+it.each([
+  { sales_unavailable: true, sales_failed_count: 4, sales_empty_count: 0, message: '売上回数を読めませんでした。少し待って読み直してください' },
+  { sales_unavailable: false, sales_failed_count: 2, sales_empty_count: 3, message: '売上回数を読めず対象から外した稼働中の契約 2 件' },
+])('売上回数の取得状態を具体的な件数で表示する $sales_unavailable', async (state) => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ ...response, ...state, rows: [], not_started: [] }), { headers: { 'Content-Type': 'application/json' } }))));
+  render(<FirstContractView route={parseRoute('?view=first')} go={vi.fn()} />);
+  expect(await screen.findByText(state.message)).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '初回契約（0 件）' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '開始前の初回契約（0 件）' })).toBeTruthy();
+  if (state.sales_empty_count) expect(screen.getByText('売上回数が空の稼働中の契約 3 件')).toBeTruthy();
+});
+
+it('期限が無い・関門が無い場合は判定できず、達成済みは期限不要', () => {
+  expect(firstGateStatus(undefined)).toEqual({ text: '判定できない', tone: 'unknown' });
+  expect(firstGateStatus({ label: '面接', achieved: false, overdue: false, deadline: null, text: '未達' }).text).toBe('判定できない');
+  expect(firstGateStatus({ label: '面接', achieved: true, overdue: false, deadline: null, text: '達成' }).text).toBe('達成');
 });
