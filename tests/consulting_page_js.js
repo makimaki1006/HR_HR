@@ -2903,6 +2903,10 @@ check("初回契約", "共通の判定・目標を表示し担当を絞りURLへ
   h = t.R('renderFirstContract(__first)');
   if (!h.includes('初回契約（1 件）') || h.includes('架空の契約乙')) throw new Error('担当の絞り込みが違う');
   if (!t.R("hashFor('first', stateParams('first'))").includes('c=')) throw new Error('担当がURLに残らない');
+  t.R("__first.goals_available = false; __first.rows.forEach((r) => { delete r.goals; })");
+  h = t.R('renderFirstContract(__first)');
+  if ((h.match(/目標は社内の Google ログインで見られます/g) || []).length !== 1 || h.includes('理想：') || h.includes('読めませんでした')) throw new Error('目標の認可案内が違う');
+  if (!h.includes('架空の契約甲') || !h.includes('応募1件以上：判定できない')) throw new Error('未認可で一覧や関門が消えた');
 });
 
 (async () => {

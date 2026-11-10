@@ -6995,12 +6995,13 @@ function renderFirstContract(D) {
     (D.consultants || []).map((c) => '<option value="' + esc(c) + '"' + (c === owner ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label></div>';
   h += '<p>関門は左から、初回MTGの記録（7日以内）、求人掲載（14日以内）、応募1件（30日以内）、面接1件、満足度の回答です。面接と満足度は段階3に入るまでが期限です。期限は暫定です。</p>';
   h += '<p class="muted">● 達成　○ 未達・判定できない。赤は期限超過です。各丸に重ねると判定と期限が読めます。期限超過が多い順、同じなら開始日が古い順です。</p>';
+  if (D.goals_available === false) h += '<p>目標は社内の Google ログインで見られます</p>';
   const table = (source, title) => {
     const rows = (source || []).filter((r) => !owner || r.consultant === owner);
     let t = '<h2>' + title + '（' + num(rows.length) + ' 件）</h2><div class="scroll"><table><caption>' + title + '</caption><thead><tr><th>案件</th><th>担当</th><th>開始〜満了</th><th>5つの関門</th><th>初回MTGの目標</th></tr></thead><tbody>';
     t += rows.map((r) => {
       const gs = r.goals || { failed: true };
-      const goals = gs.failed ? '読めませんでした' : (gs.draft ? '案 · ' : '') + '理想：' + esc(gs.ideal) + '<br>前進ライン：' + esc(gs.minimum);
+      const goals = D.goals_available === false ? '—' : gs.failed ? '読めませんでした' : (gs.draft ? '案 · ' : '') + '理想：' + esc(gs.ideal) + '<br>前進ライン：' + esc(gs.minimum);
       const gates = r.first_contract.gates.map((g) => {
         const text = g.label + '：' + g.text + '（期限 ' + (g.deadline || '不明') + '）';
         return '<span class="first-gate' + (g.overdue ? ' first-overdue' : '') + '" title="' + esc(text) + '" aria-label="' + esc(text) + '" tabindex="0">' + (g.achieved === true ? '●' : '○') + '</span>';

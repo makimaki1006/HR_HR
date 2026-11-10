@@ -43,7 +43,7 @@ fn gate(
 /// 材料: 初回MTG=CS_MTGのdeal_id・開催日と実施済Zoom（factual_mtg）。
 /// メール由来の推定は達成に使わない。契約開始〜今日の開催記録を確認する。
 /// 掲載=CS_取引.keisaisu>0、応募=同oubo>=1、面接=同mensetu>=1（履歴の持越値と混ぜない）。
-/// 満足度=CS_プロパティ履歴のnps〜nps11（NPS_PROPS）の最新回答。履歴の列が揃っていて回答が無ければ未回答。
+/// 満足度=CS_プロパティ履歴のnps〜nps11（NPS_PROPS）の契約開始〜今日の回答。
 /// 数値欠損・MTG/履歴の列不足は判定不能。期限内に達成したかの履歴は揃わないため、現在の達成を表示する。
 pub fn gates(d: &Deal, mtg: Option<bool>, nps: Option<bool>, today: NaiveDate) -> Vec<Gate> {
     let start = date10(&d.contract_start_date);
@@ -53,7 +53,7 @@ pub fn gates(d: &Deal, mtg: Option<bool>, nps: Option<bool>, today: NaiveDate) -
         .filter(|(s, e)| e >= s)
         .map(|(s, e)| super::phase::renewal_decision_date(s, e));
     let due = |n| start.map(|s| s + Duration::days(n));
-    vec![
+    let mut gates = vec![
         gate("初回MTGの記録", mtg, due(7), today, false),
         gate(
             "求人が掲載中",
@@ -77,23 +77,54 @@ pub fn gates(d: &Deal, mtg: Option<bool>, nps: Option<bool>, today: NaiveDate) -
             true,
         ),
         gate("満足度の回答", nps, line, today, true),
-    ]
+    ];
+    // 短期契約では段階3の境目が開始前に来る。契約が始まるまでは期限超過にしない。
+    if start.is_some_and(|s| today < s) {
+        for g in &mut gates {
+            g.overdue = false;
+            if g.achieved == Some(false) {
+                g.text = "未達";
+            }
+        }
+    }
+    gates
 }
 
 pub(super) struct Evidence {
     dates: HashMap<String, Vec<NaiveDate>>,
     mtg_known: bool,
-    nps: HashMap<String, (String, f64)>,
+    nps: HashMap<String, Vec<NaiveDate>>,
+    nps_undated: BTreeSet<String>,
     nps_known: bool,
 }
 impl Evidence {
     pub fn new(sheets: &Sheets) -> Self {
         let mtg = sheets.factual_mtg();
+        let mut nps: HashMap<String, Vec<NaiveDate>> = HashMap::new();
+        let mut nps_undated = BTreeSet::new();
+        for row in &sheets.history.rows {
+            let id = sheets.history.get(row, "deal_id");
+            if id.is_empty()
+                || !super::NPS_PROPS.contains(&sheets.history.get(row, "prop"))
+                || super::opt_num(sheets.history.get(row, "v")).is_none()
+            {
+                continue;
+            }
+            // ts を JST 日付に変換する（UTC の履歴もある）。month は日を失うため代用しない。
+            // 日付欠損・不正の回答は期間内と証明できないので達成にせず、他に
+            // 期間内の回答がなければ不明とする（未回答として赤くするのも避ける）。
+            if let Some(date) = super::call_date_jst(sheets.history.get(row, "ts")) {
+                nps.entry(id.to_string()).or_default().push(date);
+            } else {
+                nps_undated.insert(id.to_string());
+            }
+        }
         Self {
             dates: super::contacts_by_deal(&super::empty_history_sheet(), &mtg).0,
             mtg_known: mtg.col("deal_id").is_some() && mtg.col("開催日").is_some(),
-            nps: super::latest_nps(&sheets.history),
-            nps_known: ["deal_id", "prop", "month", "v"]
+            nps,
+            nps_undated,
+            nps_known: ["deal_id", "prop", "ts", "v"]
                 .iter()
                 .all(|c| sheets.history.col(c).is_some()),
         }
@@ -113,13 +144,21 @@ impl Evidence {
                     .is_some_and(|ds| ds.iter().any(|dt| *dt >= s && *dt <= today))
             })
         });
-        let nps = self.nps_known.then(|| {
-            self.nps.get(&d.id).is_some_and(|(month, _)| {
-                start.is_some_and(|s| {
-                    month.as_str() >= s.format("%Y-%m").to_string().as_str()
-                        && month.as_str() <= today.format("%Y-%m").to_string().as_str()
-                })
-            })
+        let nps = start.and_then(|s| {
+            if !self.nps_known {
+                return None;
+            }
+            if self
+                .nps
+                .get(&d.id)
+                .is_some_and(|dates| dates.iter().any(|date| *date >= s && *date <= today))
+            {
+                Some(true)
+            } else if self.nps_undated.contains(&d.id) {
+                None
+            } else {
+                Some(false)
+            }
         });
         let gs = gates(d, mtg, nps, today);
         let count = if start.is_some_and(|s| s <= today) {
@@ -191,13 +230,26 @@ fn summarize(props: &std::collections::BTreeMap<String, Option<String>>) -> Valu
     json!({"ideal": short(PROPS[0]), "minimum": short(PROPS[1]), "draft": draft, "failed": false})
 }
 
+fn goals_cache() -> &'static crate::db::cache::AppCache {
+    static CACHE: OnceLock<crate::db::cache::AppCache> = OnceLock::new();
+    CACHE.get_or_init(|| crate::db::cache::AppCache::new(300, 2000))
+}
+
 /// 目標だけ5分のプロセス内キャッシュ（最大2000件）。取得失敗は保存しない。
 /// 同時要求はロック内で再確認し、関所の背景優先度で100件ずつ読む。全体の待ちは15秒まで。
 /// 欠落ID・部分エラー・未設定も目標欄だけ失敗にし、一覧の判定はそのまま返す。
-pub async fn enrich_goals(body: &mut Value, client: Option<&crate::hubspot::HubSpotClient>) {
-    static CACHE: OnceLock<crate::db::cache::AppCache> = OnceLock::new();
+pub async fn enrich_goals(
+    body: &mut Value,
+    authorization: Result<(), crate::crm::rbac::Denied>,
+    client: Option<&crate::hubspot::HubSpotClient>,
+) {
+    // キャッシュの初期化・参照も HubSpot の読み取りも、CRM 認可の後だけ行う。
+    body["goals_available"] = json!(authorization.is_ok());
+    if authorization.is_err() {
+        return;
+    }
     static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| crate::db::cache::AppCache::new(300, 2000));
+    let cache = goals_cache();
     let ids: Vec<String> = ["rows", "not_started"]
         .iter()
         .flat_map(|key| body[*key].as_array().into_iter().flatten())
@@ -292,7 +344,7 @@ mod tests {
             deal: empty.clone(),
             call: empty.clone(),
             mtg: sheet(&["deal_id", "開催日"], &[]),
-            history: sheet(&["deal_id", "prop", "month", "v"], &[]),
+            history: sheet(&["deal_id", "prop", "month", "v", "ts"], &[]),
             customer: empty.clone(),
             mail_mtg: empty.clone(),
             mail_history: empty.clone(),
@@ -385,6 +437,142 @@ mod tests {
         assert!(v["gates"][4]["achieved"].is_null());
         assert_eq!(v["gates"][0]["overdue"], false);
     }
+    #[test]
+    fn 満足度は開始日当日から今日までの日付だけを数える() {
+        let mut sh = sheets();
+        let mut d = deal();
+        d.contract_start_date = "2026-01-15".into();
+        for (ts, achieved) in [
+            ("2026-01-14", json!(false)),
+            ("2026-01-15", json!(true)),
+            ("2026-01-14T14:59:59Z", json!(false)),
+            ("2026-01-14T15:00:00Z", json!(true)),
+            ("2026-01-20", json!(true)),
+            ("2026-01-21", json!(false)),
+            ("2026-01-20T14:59:59Z", json!(true)),
+            ("2026-01-20T15:00:00Z", json!(false)),
+            ("", Value::Null),
+            ("不正", Value::Null),
+        ] {
+            sh.history = sheet(
+                &["deal_id", "prop", "month", "v", "ts"],
+                &[vec![&d.id, "nps", "2026-01", "8", ts]],
+            );
+            assert_eq!(
+                Evidence::new(&sh).of(&d, day("2026-01-20"))["gates"][4]["achieved"],
+                achieved,
+                "ts={ts}"
+            );
+        }
+        // 最新行が未来でも、期間内の別の回答を取り落とさない。0点も有効な回答。
+        sh.history = sheet(
+            &["deal_id", "prop", "v", "ts"],
+            &[
+                vec![&d.id, "nps", "0", "2026-01-15"],
+                vec![&d.id, "nps2", "9", "2026-02-01"],
+                vec![&d.id, "nps3", "7", ""],
+            ],
+        );
+        assert_eq!(
+            Evidence::new(&sh).of(&d, day("2026-01-20"))["gates"][4]["achieved"],
+            true
+        );
+        sh.history = sheet(
+            &["deal_id", "prop", "month", "v"],
+            &[vec![&d.id, "nps", "2026-01", "8"]],
+        );
+        assert!(Evidence::new(&sh).of(&d, day("2026-01-20"))["gates"][4]["achieved"].is_null());
+    }
+
+    #[test]
+    fn 開始前の短期契約は段階3を過ぎても赤と件数がともにゼロ() {
+        let mut d = deal();
+        d.contract_start_date = "2026-06-01".into();
+        d.contract_expiration_date = "2026-07-01".into();
+        let v = Evidence::new(&sheets()).of(&d, day("2026-05-31"));
+        assert_eq!(v["gates"][3]["deadline"], "2026-05-02");
+        assert_eq!(v["overdue_count"], 0);
+        for g in v["gates"].as_array().unwrap() {
+            assert_eq!(g["overdue"], false);
+            assert_eq!(g["text"], "未達");
+        }
+        let v = Evidence::new(&sheets()).of(&d, day("2026-06-01"));
+        assert_eq!(v["overdue_count"], 2);
+        assert_eq!(v["gates"][3]["overdue"], true);
+        assert_eq!(v["gates"][4]["overdue"], true);
+    }
+
+    #[tokio::test]
+    async fn 認可拒否は目標キャッシュとhubspotを読まず一覧と関門を残す() {
+        use crate::crm::rbac::{check_session_and_domain, CrmAccess, Principal};
+        // ポートを開かずに、実クライアントの関所で HubSpot 呼び出しがゼロか検証する。
+        let client = crate::hubspot::HubSpotClient::new(
+            "test-token".into(),
+            "http://127.0.0.1:1",
+            Default::default(),
+        )
+        .unwrap();
+        let body = json!({"rows":[{"deal_id":"89999999998","first_contract":{"gates":[{"achieved":true}]}}],"not_started":[{"deal_id":"89999999998"}]});
+        let access = CrmAccess::from_list("staff@f-a-c.co.jp,external@example.com");
+        let domains = vec!["f-a-c.co.jp".to_string()];
+        let check = |email: Option<&str>, method: Option<&str>| {
+            check_session_and_domain(
+                &Principal {
+                    email: email.map(str::to_owned),
+                    login_method: method.map(str::to_owned),
+                    role: None,
+                },
+                Some(crate::hubspot::RecordType::Deal),
+                &access,
+                &domains,
+            )
+        };
+        let google = Some(crate::auth::LOGIN_METHOD_GOOGLE_OIDC);
+        // 未認可を先に確認し、その後キャッシュが温まった状態でも確認する。
+        for warm in [false, true] {
+            if warm {
+                goals_cache().set(
+                    "89999999998".into(),
+                    json!({"ideal":"社内限定目標","failed":false}),
+                );
+                let mut authorized = body.clone();
+                enrich_goals(
+                    &mut authorized,
+                    check(Some("staff@f-a-c.co.jp"), google),
+                    Some(&client),
+                )
+                .await;
+                assert_eq!(authorized["rows"][0]["goals"]["ideal"], "社内限定目標");
+                assert_eq!(authorized["goals_available"], true);
+            }
+            for (email, method) in [
+                (None, None),
+                (
+                    Some("staff@f-a-c.co.jp"),
+                    Some(crate::auth::LOGIN_METHOD_PASSWORD_INTERNAL),
+                ),
+                (
+                    Some("staff@f-a-c.co.jp"),
+                    Some(crate::auth::LOGIN_METHOD_PASSWORD_EXTERNAL),
+                ),
+                (Some("external@example.com"), google),
+                (Some("other@f-a-c.co.jp"), google),
+            ] {
+                let authorization = check(email, method);
+                assert!(authorization.is_err());
+                let mut denied = body.clone();
+                enrich_goals(&mut denied, authorization, Some(&client)).await;
+                assert_eq!(denied["rows"], body["rows"]);
+                assert_eq!(denied["not_started"], body["not_started"]);
+                assert_eq!(denied["goals_available"], false);
+                assert!(!denied.to_string().contains("社内限定目標"));
+                assert_eq!(client.gateway().snapshot().total_calls, 0);
+                assert_eq!(client.gateway().snapshot().granted, 0);
+            }
+        }
+        goals_cache().remove_prefix("89999999998");
+    }
+
     #[test]
     fn 初回だけを整列し期限超過は今日の候補と表示にも入る() {
         let mut sh = sheets();
@@ -522,7 +710,7 @@ mod tests {
     async fn 目標を読めなくても案件は残る() {
         let mut v =
             json!({"rows":[{"deal_id":"89999999999","name":"架空の契約"}],"not_started":[]});
-        enrich_goals(&mut v, None).await;
+        enrich_goals(&mut v, Ok(()), None).await;
         assert_eq!(v["rows"][0]["name"], "架空の契約");
         assert_eq!(v["rows"][0]["goals"]["failed"], true);
     }

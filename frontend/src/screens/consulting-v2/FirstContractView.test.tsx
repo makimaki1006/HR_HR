@@ -46,6 +46,8 @@ it('入口から共通一覧を1回読み、判定・目標・開始前を表示
   expect(screen.getByText('読めませんでした')).toBeTruthy();
   expect(screen.getByRole('heading', { name: '開始前の初回契約（1 件）' })).toBeTruthy();
   expect(within(tr).getByRole('link', { name: /HubSpot で開く/ }).getAttribute('href')).toContain('80000000001');
+  expect(screen.getByRole('table', { name: '初回契約' }).querySelector('caption')).toBeNull();
+  expect(screen.getByRole('heading', { name: '初回契約（2 件）' })).toBeTruthy();
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(fetcher.mock.calls[0]?.[0]).toBe('/api/consulting/first-contract');
   fireEvent.change(screen.getByRole('combobox'), { target: { value: '架空の担当甲' } });
@@ -88,4 +90,21 @@ it('今日では上位の外にある初回契約も続けて表示する', asyn
   render(<TodayView route={parseRoute('?view=today')} go={vi.fn()} />);
   expect(await screen.findByRole('button', { name: '架空の期限超過' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: '今日動く先（1 件）' })).toBeTruthy();
+});
+
+it('CRM認可がない場合も一覧と関門を表示し目標の案内は1行だけ出す', async () => {
+  const withoutGoals = (r: FirstRow): FirstRow => {
+    const rest = { ...r };
+    delete rest.goals;
+    return rest;
+  };
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(() => Promise.resolve(new Response(JSON.stringify({
+    ...response, goals_available: false, rows: response.rows.map(withoutGoals), not_started: response.not_started.map(withoutGoals),
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } }))));
+  render(<FirstContractView route={parseRoute('?view=first')} go={vi.fn()} />);
+  expect(await screen.findByRole('button', { name: '架空の契約甲' })).toBeTruthy();
+  expect(screen.getAllByText('目標は社内の Google ログインで見られます')).toHaveLength(1);
+  expect(screen.getAllByLabelText('求人が掲載中：期限超過（期限 2026-01-15）')).toHaveLength(3);
+  expect(screen.queryByText('読めませんでした')).toBeNull();
+  expect(screen.queryByText(/理想：/)).toBeNull();
 });

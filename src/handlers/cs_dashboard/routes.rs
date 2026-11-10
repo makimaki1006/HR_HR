@@ -255,8 +255,17 @@ simple_handler!(stage_stay, build_stage_stay);
 simple_handler!(today_board, build_today_board);
 async fn first_contract(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
+    session: Session,
     Query(q): Query<FocusQuery>,
 ) -> Result<Response, CqError> {
+    let authorization = crate::crm::rbac::authorize(
+        &session,
+        &app,
+        &crate::crm::rbac::CrmAccess::from_env(),
+        Some(crate::hubspot::RecordType::Deal),
+    )
+    .await
+    .map(|_| ());
     let state = cq_state()?;
     if q.refresh.as_deref() == Some("1") {
         for name in super::SHEETS {
@@ -273,8 +282,12 @@ async fn first_contract(
         today,
     );
     let client = app.crm_hubspot();
-    super::first_contract::enrich_goals(&mut body, client.as_deref()).await;
-    Ok(Json(body).into_response())
+    super::first_contract::enrich_goals(&mut body, authorization, client.as_deref()).await;
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        Json(body),
+    )
+        .into_response())
 }
 
 async fn team(
