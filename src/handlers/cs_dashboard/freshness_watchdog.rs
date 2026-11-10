@@ -1,12 +1,12 @@
 //! コンサルKPIが古いとき、既存の日次更新に再実行を頼む。
-//! 単一インスタンス前提。状態はプロセス内のみで、再起動すると回数も失われる。
+//! 制限の根拠は GitHub の実行履歴。読めない場合は依頼しない。
 
 use std::sync::Mutex;
 use std::time::Duration;
 
-use chrono::{DateTime, FixedOffset, NaiveDate, Timelike, Utc};
+use chrono::{DateTime, FixedOffset, Timelike, Utc};
 use reqwest::{header, Client, Request};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const DEFAULT_REPO: &str = "makimaki1006/hubspot-sales-automation";
@@ -24,15 +24,13 @@ enum DispatchResult {
 struct WatchState {
     last_dispatch_at: Option<DateTime<FixedOffset>>,
     last_result: Option<DispatchResult>,
-    count_date: Option<NaiveDate>,
-    today_count: u8,
+    latest_run_state: Option<&'static str>,
 }
 
 static STATE: Mutex<WatchState> = Mutex::new(WatchState {
     last_dispatch_at: None,
     last_result: None,
-    count_date: None,
-    today_count: 0,
+    latest_run_state: None,
 });
 
 fn jst_now() -> DateTime<FixedOffset> {
@@ -40,33 +38,29 @@ fn jst_now() -> DateTime<FixedOffset> {
 }
 
 /// 日付の出どころ・解釈は画面の data_age_days と同じ。日時不明なら推測しない。
-/// now は JST。時間帯は [01:00, 22:00)。失敗も回数・間隔に含める。
+/// now は JST。時間帯は [01:00, 22:00)。ローカルには10分の間隔だけ残す。
 fn should_dispatch(now: DateTime<FixedOffset>, as_of: Option<&str>, state: &WatchState) -> bool {
     let stale = as_of
         .and_then(super::date10)
         .is_some_and(|date| date < now.date_naive());
     stale
         && (1..22).contains(&now.hour())
-        && (state.count_date != Some(now.date_naive()) || state.today_count < 4)
         && state
             .last_dispatch_at
-            .is_none_or(|last| now.signed_duration_since(last) >= chrono::Duration::hours(2))
+            .is_none_or(|last| now.signed_duration_since(last) >= chrono::Duration::minutes(10))
 }
 
 impl WatchState {
     fn attempted(&mut self, now: DateTime<FixedOffset>) {
-        if self.count_date != Some(now.date_naive()) {
-            self.count_date = Some(now.date_naive());
-            self.today_count = 0;
-        }
-        self.today_count += 1;
         self.last_dispatch_at = Some(now);
         self.last_result = None;
+        self.latest_run_state = None;
     }
 
     fn add_meta(&self, meta: &mut serde_json::Map<String, Value>) {
         meta.insert("last_dispatch_at".into(), json!(self.last_dispatch_at));
         meta.insert("last_result".into(), json!(self.last_result));
+        meta.insert("latest_run_state".into(), json!(self.latest_run_state));
     }
 }
 
@@ -75,6 +69,172 @@ pub(super) fn add_meta(meta: &mut serde_json::Map<String, Value>) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .add_meta(meta);
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct WorkflowRun {
+    event: String,
+    created_at: DateTime<Utc>,
+    status: String,
+    conclusion: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RunsPage {
+    total_count: usize,
+    workflow_runs: Vec<WorkflowRun>,
+}
+
+struct History {
+    runs: Vec<WorkflowRun>,
+    active: bool,
+}
+
+fn history_allows_dispatch(now: DateTime<FixedOffset>, history: Option<&History>) -> bool {
+    let Some(history) = history else {
+        return false;
+    };
+    !history.active
+        && !history.runs.iter().any(|run| {
+            matches!(run.status.as_str(), "queued" | "in_progress")
+                || (run.event == "workflow_dispatch"
+                    && now.signed_duration_since(run.created_at) < chrono::Duration::hours(2))
+        })
+        && history
+            .runs
+            .iter()
+            .filter(|run| {
+                run.event == "workflow_dispatch"
+                    && run.created_at.with_timezone(now.offset()).date_naive() == now.date_naive()
+            })
+            .count()
+            < 4
+}
+
+fn history_request(
+    client: &Client,
+    repo: &str,
+    token: &str,
+    query: &[(&str, String)],
+) -> Option<Request> {
+    let mut auth = header::HeaderValue::from_str(&format!("Bearer {token}")).ok()?;
+    auth.set_sensitive(true);
+    client
+        .get(format!(
+            "{API_BASE}/repos/{repo}/actions/workflows/consulting_nightly.yml/runs"
+        ))
+        .header(header::AUTHORIZATION, auth)
+        .header(header::ACCEPT, "application/vnd.github+json")
+        .header(header::USER_AGENT, "HR_HR-consulting-freshness-watchdog")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .query(query)
+        .build()
+        .ok()
+}
+
+/// 今日と直近2時間の両方を含める。実行中は開始日を限定せず別途調べる。
+/// ページの欠落、上限超過、通信・JSONエラーはすべて依頼を止める。
+async fn history_with<S, F>(
+    client: &Client,
+    repo: &str,
+    token: &str,
+    now: DateTime<FixedOffset>,
+    mut send: S,
+) -> Option<History>
+where
+    S: FnMut(Request) -> F,
+    F: std::future::Future<Output = Option<Value>>,
+{
+    let midnight = now
+        .date_naive()
+        .and_hms_opt(0, 0, 0)?
+        .and_local_timezone(*now.offset())
+        .single()?;
+    let since = midnight
+        .min(now - chrono::Duration::hours(2))
+        .with_timezone(&Utc);
+    let mut runs = Vec::new();
+    for page in 1..=10 {
+        let query = [
+            ("per_page", "100".into()),
+            ("page", page.to_string()),
+            ("created", format!(">={}", since.to_rfc3339())),
+        ];
+        let response: RunsPage =
+            serde_json::from_value(send(history_request(client, repo, token, &query)?).await?)
+                .ok()?;
+        if response.workflow_runs.is_empty() && runs.len() < response.total_count {
+            return None;
+        }
+        runs.extend(response.workflow_runs);
+        if runs.len() >= response.total_count {
+            break;
+        }
+        if page == 10 {
+            return None;
+        }
+    }
+    let mut active = false;
+    for status in ["queued", "in_progress"] {
+        let query = [("per_page", "1".into()), ("status", status.into())];
+        let response: RunsPage =
+            serde_json::from_value(send(history_request(client, repo, token, &query)?).await?)
+                .ok()?;
+        active |= response.total_count > 0;
+        runs.extend(response.workflow_runs);
+    }
+    Some(History { runs, active })
+}
+
+async fn history(
+    client: &Client,
+    repo: &str,
+    token: &str,
+    now: DateTime<FixedOffset>,
+) -> Option<History> {
+    history_with(client, repo, token, now, |request| async {
+        // 認証情報を含むRequest・エラー・本文はログに出さない。
+        let response = client.execute(request).await.ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        response.json().await.ok()
+    })
+    .await
+}
+
+impl WatchState {
+    fn observe(&mut self, history: &History, now: DateTime<FixedOffset>) {
+        self.latest_run_state = if history.active {
+            Some("running")
+        } else {
+            history
+                .runs
+                .iter()
+                .max_by_key(|run| run.created_at)
+                .and_then(|run| {
+                    if matches!(run.status.as_str(), "queued" | "in_progress") {
+                        Some("running")
+                    } else if run.conclusion.as_deref() == Some("failure") {
+                        Some("failed")
+                    } else {
+                        None
+                    }
+                })
+        };
+        if let Some(run) = history
+            .runs
+            .iter()
+            .filter(|run| run.event == "workflow_dispatch")
+            .max_by_key(|run| run.created_at)
+        {
+            let at = run.created_at.with_timezone(now.offset());
+            if self.last_dispatch_at.is_none_or(|last| at > last) {
+                self.last_dispatch_at = Some(at);
+                self.last_result = Some(DispatchResult::Success);
+            }
+        }
+    }
 }
 
 fn dispatch_request(client: &Client, repo: &str, token: &str) -> Option<Request> {
@@ -155,18 +315,33 @@ pub fn spawn() {
             };
             let as_of = super::data_as_of(&meta);
             let now = jst_now();
-            let attempt = {
-                let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-                if should_dispatch(now, as_of.as_deref(), &state) {
-                    state.attempted(now);
-                    true
-                } else {
-                    false
-                }
-            };
-            if !attempt {
+            if !should_dispatch(
+                now,
+                as_of.as_deref(),
+                &STATE.lock().unwrap_or_else(|e| e.into_inner()),
+            ) {
                 continue;
             }
+            let history = history(&client, &repo, &token, now).await;
+            {
+                let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+                state.latest_run_state = None;
+                if let Some(history) = &history {
+                    state.observe(history, now);
+                }
+            }
+            if !history_allows_dispatch(now, history.as_ref()) {
+                if history.is_none() {
+                    tracing::warn!(
+                        "コンサル鮮度見張り: 実行履歴を確認できないため依頼を見送ります"
+                    );
+                }
+                continue;
+            }
+            STATE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .attempted(now);
             let result = dispatch(&client, &repo, &token).await;
             STATE.lock().unwrap_or_else(|e| e.into_inner()).last_result = Some(result);
             match result {
@@ -213,42 +388,147 @@ mod tests {
         }
     }
 
+    fn run(event: &str, time: &str, status: &str) -> WorkflowRun {
+        WorkflowRun {
+            event: event.into(),
+            created_at: at(time).with_timezone(&Utc),
+            status: status.into(),
+            conclusion: Some("success".into()),
+        }
+    }
+
     #[test]
-    fn cooldown_failures_daily_limit_and_jst_rollover() {
-        let old = Some("2026-11-08 23:59:59");
+    fn history_limits_and_jst_boundaries() {
+        let now = at("2026-11-10T10:00:00+09:00");
+        assert!(!history_allows_dispatch(now, None));
+        let mut h = History {
+            runs: vec![],
+            active: false,
+        };
+        assert!(history_allows_dispatch(now, Some(&h)));
+        h.runs.push(run(
+            "workflow_dispatch",
+            "2026-11-10T08:00:01+09:00",
+            "completed",
+        ));
+        assert!(!history_allows_dispatch(now, Some(&h)));
+        h.runs[0].created_at = at("2026-11-10T08:00:00+09:00").with_timezone(&Utc);
+        assert!(history_allows_dispatch(now, Some(&h)));
+        h.runs = ["00", "02", "04", "06"]
+            .iter()
+            .map(|hour| {
+                run(
+                    "workflow_dispatch",
+                    &format!("2026-11-10T{hour}:00:00+09:00"),
+                    "completed",
+                )
+            })
+            .collect();
+        assert!(!history_allows_dispatch(now, Some(&h)));
+        // JST前日の実行を今日の回数には含めない（UTCの日付は同じ）。
+        h.runs[0].created_at = at("2026-11-09T23:59:59+09:00").with_timezone(&Utc);
+        assert!(history_allows_dispatch(now, Some(&h)));
+        for status in ["queued", "in_progress"] {
+            h.runs = vec![run("schedule", "2026-11-09T01:00:00+09:00", status)];
+            assert!(!history_allows_dispatch(now, Some(&h)));
+        }
+        h.runs = vec![run("schedule", "2026-11-10T09:59:00+09:00", "completed")];
+        assert!(history_allows_dispatch(now, Some(&h)));
+        h.active = true;
+        assert!(!history_allows_dispatch(now, Some(&h)));
+    }
+
+    #[test]
+    fn local_attempt_spacing_is_ten_minutes() {
         let mut state = WatchState::default();
         state.attempted(at("2026-11-10T01:00:00+09:00"));
-        state.last_result = Some(DispatchResult::Failure);
         assert!(!should_dispatch(
-            at("2026-11-10T02:59:59+09:00"),
-            old,
+            at("2026-11-10T01:09:59+09:00"),
+            Some("2026-11-08"),
             &state
         ));
         assert!(should_dispatch(
-            at("2026-11-10T03:00:00+09:00"),
-            old,
+            at("2026-11-10T01:10:00+09:00"),
+            Some("2026-11-08"),
             &state
         ));
-        for hour in [3, 5, 7] {
-            let now = at(&format!("2026-11-10T{hour:02}:00:00+09:00"));
-            assert!(should_dispatch(now, old, &state));
-            state.attempted(now);
+    }
+
+    #[tokio::test]
+    async fn history_http_contract_pagination_and_fail_closed() {
+        let client = Client::new();
+        let now = at("2026-11-10T01:00:00+09:00");
+        let mut calls = 0;
+        let h = history_with(&client, DEFAULT_REPO, "test-secret", now, |request| {
+            calls += 1;
+            assert_eq!(request.method(), "GET");
+            assert!(request.url().path().ends_with("/consulting_nightly.yml/runs"));
+            assert_eq!(request.headers()["authorization"], "Bearer test-secret");
+            assert!(!format!("{request:?}").contains("test-secret"));
+            let query: std::collections::HashMap<_, _> = request.url().query_pairs().into_owned().collect();
+            let body = if calls <= 2 {
+                assert_eq!(query["created"], ">=2026-11-09T14:00:00+00:00");
+                assert_eq!(query["page"], calls.to_string());
+                json!({"total_count": 2, "workflow_runs": [{"event":"workflow_dispatch", "created_at":"2026-11-09T15:30:00Z", "status":"completed", "conclusion":"failure"}]})
+            } else {
+                assert_eq!(query["status"], if calls == 3 { "queued" } else { "in_progress" });
+                json!({"total_count":0,"workflow_runs":[]})
+            };
+            async move { Some(body) }
+        }).await.unwrap();
+        assert_eq!(calls, 4);
+        assert!(!history_allows_dispatch(now, Some(&h)));
+        let mut state = WatchState::default();
+        state.observe(&h, now);
+        assert_eq!(state.latest_run_state, Some("failed"));
+        assert_eq!(
+            state.last_dispatch_at,
+            Some(at("2026-11-10T00:30:00+09:00"))
+        );
+        for body in [
+            None,
+            Some(json!({})),
+            Some(json!({"total_count":1,"workflow_runs":[]})),
+            Some(json!({"total_count":1,"workflow_runs":[{"created_at":"bad"}]})),
+        ] {
+            let h = history_with(&client, DEFAULT_REPO, "test-secret", now, |_| {
+                let body = body.clone();
+                async move { body }
+            })
+            .await;
+            assert!(!history_allows_dispatch(now, h.as_ref()));
         }
-        assert_eq!(state.today_count, 4);
-        assert!(!should_dispatch(
-            at("2026-11-10T09:00:00+09:00"),
-            old,
-            &state
-        ));
-        // UTCではまだ前日だが、JSTの日付で上限をリセット。
-        let tomorrow = at("2026-11-11T01:00:00+09:00");
-        assert!(should_dispatch(tomorrow, old, &state));
-        state.attempted(tomorrow);
-        assert_eq!(state.today_count, 1);
-        assert_eq!(state.count_date, Some(tomorrow.date_naive()));
-        // 日が変わっても2時間の制限は残る。
-        state.last_dispatch_at = Some(at("2026-11-10T23:30:00+09:00"));
-        assert!(!should_dispatch(tomorrow, old, &state));
+    }
+
+    #[tokio::test]
+    async fn incomplete_history_never_allows_dispatch() {
+        let client = Client::new();
+        let now = at("2026-11-10T10:00:00+09:00");
+        // 通常の履歴が空でも、実行中の照会を読めなければ呼ばない。
+        for fail_at in [2, 3] {
+            let mut calls = 0;
+            let h = history_with(&client, DEFAULT_REPO, "test-secret", now, |_| {
+                calls += 1;
+                let value = (calls != fail_at).then(|| json!({"total_count":0,"workflow_runs":[]}));
+                async move { value }
+            })
+            .await;
+            assert!(!history_allows_dispatch(now, h.as_ref()));
+            assert_eq!(calls, fail_at);
+        }
+        // 多すぎて確認しきれない履歴も、途中までの集計で許可しない。
+        let mut calls = 0;
+        let h = history_with(&client, DEFAULT_REPO, "test-secret", now, |_| {
+            calls += 1;
+            async { Some(json!({"total_count":1001,"workflow_runs":[{"event":"schedule","created_at":"2026-11-09T15:00:00Z","status":"completed","conclusion":"success"}]})) }
+        }).await;
+        assert_eq!(calls, 10);
+        assert!(!history_allows_dispatch(now, h.as_ref()));
+        let h = history_with(&client, DEFAULT_REPO, "bad\nsecret", now, |_| async {
+            panic!("不正なヘッダで送らない")
+        })
+        .await;
+        assert!(!history_allows_dispatch(now, h.as_ref()));
     }
 
     #[tokio::test]

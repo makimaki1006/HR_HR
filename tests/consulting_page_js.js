@@ -2874,9 +2874,9 @@ check("録画の待ち", "未作成・別タブ・0件は隠し、2件は日付�
   if (!h.includes('録画のうち案件に結び付いていないもの 2 件') || h.indexOf('2026-10-18') > h.indexOf('2026-10-16')) throw new Error('件数か順番が違う');
   if (!h.includes('href="https://example.invalid/recording-a"') || h.includes('javascript:') || h.includes('<script>') || /<details[^>]* open/.test(h)) throw new Error('リンク・文字・畳みが違う');
 });
-check("鮮度見張り", "2日前以上だけ更新依頼の結果を出す。時刻はJST、失敗・未実行は頼めていないと書く", async () => {
+check("鮮度見張り", "2日前以上だけ今日の依頼と実行の状態をJSTで出す", async () => {
   const t = boot();
-  t.ctx.__meta = {source_as_of: "2026-11-08 23:59:59", source_age_days: 2,
+  t.ctx.__meta = {today: "2026-11-10", source_as_of: "2026-11-08 23:59:59", source_age_days: 2,
     last_dispatch_at: "2026-11-10T03:27:18.123+09:00", last_result: "success"};
   const show = () => { t.R("setFresh(__meta)"); return t.reg["cs-fresh"].innerHTML; };
   let h = show();
@@ -2885,21 +2885,29 @@ check("鮮度見張り", "2日前以上だけ更新依頼の結果を出す。�
   for (const result of ["failure", null, undefined]) {
     t.ctx.__meta.last_result = result;
     h = show();
-    if (!h.includes("自動の更新を頼めていません") || h.includes("自動で更新を頼みました"))
+    if (!h.includes(result === "failure" ? "自動の更新を頼めていません" : "自動の更新はこのあと頼みます") || h.includes("自動で更新を頼みました"))
       throw new Error("失敗・未実行を成功扱いしている: " + h);
   }
   t.ctx.__meta.last_result = "success";
   for (const age of [0, 1, null]) {
     t.ctx.__meta.source_age_days = age;
     h = show();
-    if (/自動で更新を頼みました|自動の更新を頼めていません/.test(h))
+    if (/自動で更新を頼みました|自動の更新を頼めていません|自動の更新はこのあと頼みます|自動でデータを更新しています|自動の更新に失敗しました/.test(h))
       throw new Error("2日前より新しい・日時不明でも案内が出る: " + h);
   }
   t.ctx.__meta.source_age_days = 2;
   t.ctx.__meta.last_dispatch_at = '<script>alert(1)</script>';
   h = show();
-  if (!h.includes("自動の更新を頼めていません") || h.includes("<script>"))
+  if (!h.includes("自動の更新はこのあと頼みます") || h.includes("<script>"))
     throw new Error("時刻以外を表示している: " + h);
+  t.ctx.__meta.last_dispatch_at = "2026-11-09T23:59:59+09:00";
+  h = show();
+  if (!h.includes("自動の更新はこのあと頼みます") || h.includes("自動で更新を頼みました")) throw new Error("前日の依頼を今日扱いしている");
+  for (const [state, text] of [["running", "自動でデータを更新しています"], ["failed", "自動の更新に失敗しました。次の更新を待っています"]]) {
+    t.ctx.__meta.latest_run_state = state;
+    h = show();
+    if (!h.includes(text) || h.includes("自動で更新を頼みました")) throw new Error("実行の状態が違う: " + h);
+  }
 });
 check("チームの並び", "多い順・同数は名前順、旧URLの名前順も使える", async () => {
   const t = boot();

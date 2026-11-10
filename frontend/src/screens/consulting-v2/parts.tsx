@@ -158,7 +158,10 @@ export function Fresh({ meta }: { meta: FreshMeta }) {
   const gen = meta.generated_at ?? '';
   const age = meta.source_age_days ?? null;
   const when = src === '' ? gen : src;
-  const requestedTime = meta.last_dispatch_at?.match(/^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/)?.[1];
+  const requested = meta.last_dispatch_at?.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}(?:\.\d+)?\+09:00$/);
+  // today はサーバがJSTで返す基準日。端末のタイムゾーンに依存させない。
+  const requestedTime = requested && requested[1] === meta.today ? requested[2] : null;
+  const requestedToday = requestedTime != null;
   if (when === '') {
     return (
       <div className="cv2-fresh cv2-fresh-bad" role="status">
@@ -180,9 +183,13 @@ export function Fresh({ meta }: { meta: FreshMeta }) {
         <b>{word === '' ? '取得日が分からない' : `${word}の`}データです（{stamp}）。</b>
       )}
       {age !== null && age > 1 ? (
-        <div>{meta.last_result === 'success' && requestedTime
-          ? `自動で更新を頼みました（${requestedTime}）`
-          : '自動の更新を頼めていません'}</div>
+        <div>{meta.latest_run_state === 'running' ? '自動でデータを更新しています'
+          : meta.latest_run_state === 'failed' ? '自動の更新に失敗しました。次の更新を待っています'
+          : meta.last_result === 'success' && requestedToday
+            ? `自動で更新を頼みました（${requestedTime}）`
+            : meta.last_result === 'failure' && requestedToday
+              ? '自動の更新を頼めていません'
+              : '自動の更新はこのあと頼みます'}</div>
       ) : null}
       <details className="cv2-more">
         <summary>ほかの時刻</summary>

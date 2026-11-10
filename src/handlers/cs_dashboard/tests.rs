@@ -1843,6 +1843,7 @@ fn 全画面で母集団の件数が一致する() {
             "{name} の全取引（オプション・紹介料を除く）"
         );
         assert_eq!(p["deals_all"], 3649, "{name} の全取引（オプション込み）");
+        assert_eq!(v["meta"]["today"], day.to_string(), "{name}");
         // 未実行時もキーをnullで返す（画面への見張りの配線）。
         assert_eq!(
             v["meta"].get("last_dispatch_at"),
@@ -1850,6 +1851,11 @@ fn 全画面で母集団の件数が一致する() {
             "{name}"
         );
         assert_eq!(v["meta"].get("last_result"), Some(&Value::Null), "{name}");
+        assert_eq!(
+            v["meta"].get("latest_run_state"),
+            Some(&Value::Null),
+            "{name}"
+        );
         // 🔴 自動更新の予定（S-9）も freshen が全画面の meta に載せる。無いときも null のキーとして載せる
         //    （画面は「キーが無い」と「null」を区別しない＝配線が外れても黙って時刻なしに退化する。
         //    2026-09-28 検証: この6行の insert を消しても lib・app_routes・view_rules のどれも落ちなかった）。

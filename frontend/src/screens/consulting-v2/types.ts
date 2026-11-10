@@ -11,6 +11,7 @@ export interface FreshMeta {
   /** 更新を依頼した日時（JST、RFC3339）。更新完了の日時ではない */
   last_dispatch_at?: string | null;
   last_result?: 'success' | 'failure' | null;
+  latest_run_state?: 'running' | 'failed' | null;
 }
 
 export interface DealRow {
