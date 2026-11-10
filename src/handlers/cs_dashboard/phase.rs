@@ -103,6 +103,17 @@ pub fn label_of_key(key: &str) -> &'static str {
     .map_or("不明", Phase::label)
 }
 
+/// 段階3に入る最初の日。日単位なので7割の日数は切り上げる。
+/// 初回契約の面接・満足度の期限もこの境目を使う。
+pub fn renewal_decision_date(start: NaiveDate, expiry: NaiveDate) -> NaiveDate {
+    let total = (expiry - start).num_days();
+    start
+        + chrono::Duration::days(
+            (total - RENEWAL_DAYS_BEFORE_EXPIRY)
+                .min((total as f64 * RENEWAL_CONTRACT_RATIO).ceil() as i64),
+        )
+}
+
 /// 段階を決める。`mensetu` は HubSpot の取引の項目 mensetu の面接数（いずれ顧客ごとの別のデータから読む）
 pub fn phase_of_deal(
     start: Option<NaiveDate>,
@@ -120,9 +131,7 @@ pub fn phase_of_deal(
     let (Some(s), Some(e)) = (start, expiry) else {
         return Phase::Unknown;
     };
-    let total = (e - s).num_days() as f64;
-    let line = (total - RENEWAL_DAYS_BEFORE_EXPIRY as f64).min(total * RENEWAL_CONTRACT_RATIO);
-    if ((today - s).num_days() as f64) >= line {
+    if today >= renewal_decision_date(s, e) {
         return Phase::RenewalDecision;
     }
     if renewal_no.is_some_and(|n| n >= 1) {

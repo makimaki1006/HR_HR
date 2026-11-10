@@ -53,6 +53,7 @@
 
 pub mod contact_trend;
 pub mod deal_detail;
+pub mod first_contract;
 pub mod handover_contact;
 pub mod money;
 pub mod phase;

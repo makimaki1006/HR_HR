@@ -1853,8 +1853,8 @@ check("M-6", "移動: 左のメニューは作り直さず印だけ付け替え�
      区切りをまたぐ移動でも作り直さない */
   const side = t.reg["cs-side"];
   const keys = t.R("MENUS.map((m) => m.views.filter((v) => !v.hidden).map((v) => v.key)).flat()");
-  if (JSON.stringify(keys) !== JSON.stringify(["team", "today", "board", "customer", "overdue", "renewalpipe", "results"]))
-    throw new Error("左のメニューが 毎日(3)・調べる(2)・月1(2) の 7 項目でない: " + keys.join(","));
+  if (JSON.stringify(keys) !== JSON.stringify(["team", "today", "first", "board", "customer", "overdue", "renewalpipe", "results"]))
+    throw new Error("左のメニューが 毎日(4)・調べる(2)・月1(2) の 8 項目でない: " + keys.join(","));
   const sideBtns = keys.map((v) => mk({ v }));
   side.querySelectorAll = () => sideBtns;
   side.innerHTML = "SIDE";
@@ -2883,6 +2883,26 @@ check("チームの並び", "多い順・同数は名前順、旧URLの名前順
   if (names() !== '架空い,架空う,架空あ') throw new Error('既定の並びが違う');
   t.R("applyState('team', new URLSearchParams('sort=consultant'), true)");
   if (names() !== '架空あ,架空い,架空う') throw new Error('旧URLの名前順が使えない');
+});
+
+check("初回契約", "共通の判定・目標を表示し担当を絞りURLへ戻せる", async () => {
+  const t = boot();
+  t.R(`__first = { consultants:['架空の担当甲','架空の担当乙'], rows:[
+    {deal_id:'80000000001',name:'架空の契約甲',consultant:'架空の担当甲',start:'2026-01-01',expiry:'2026-07-01',
+     first_contract:{gates:[{label:'初回MTGの記録',achieved:true,text:'達成',deadline:'2026-01-08',overdue:false},
+       {label:'求人が掲載中',achieved:false,text:'期限超過',deadline:'2026-01-15',overdue:true},
+       {label:'応募1件以上',achieved:null,text:'判定できない',deadline:'2026-01-31',overdue:false}]},
+     goals:{ideal:'採用を2名増やす',minimum:'未入力',draft:true,failed:false}},
+    {deal_id:'80000000002',name:'架空の契約乙',consultant:'架空の担当乙',first_contract:{gates:[]},goals:{failed:true}}
+  ],not_started:[]};`);
+  let h = t.R('renderFirstContract(__first)');
+  if (!h.includes('初回契約（2 件）') || !h.includes('読めませんでした') || !h.includes('案 · 理想：採用を2名増やす')) throw new Error('行か目標の表示が違う');
+  if ((h.match(/first-overdue/g) || []).length !== 1 || !h.includes('応募1件以上：判定できない')) throw new Error('不明も赤になっている');
+  if (!h.includes('#deal/detail?id=80000000001')) throw new Error('既存の詳細へのリンクが無い');
+  t.R("applyState('first', new URLSearchParams('c=架空の担当甲'), true)");
+  h = t.R('renderFirstContract(__first)');
+  if (!h.includes('初回契約（1 件）') || h.includes('架空の契約乙')) throw new Error('担当の絞り込みが違う');
+  if (!t.R("hashFor('first', stateParams('first'))").includes('c=')) throw new Error('担当がURLに残らない');
 });
 
 (async () => {
