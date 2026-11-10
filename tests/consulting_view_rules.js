@@ -5984,3 +5984,17 @@ check("2026-10-26 段階: 案件一覧は段階で絞れて並べ替えられ、
     od.includes("案件po") && !od.includes("案件p1") && od.includes("17 日"), "満了日が過ぎた稼働中の一覧が違う: " + od.slice(0, 300));
   ok(run("MENUS.find((m) => m.key === 'research').views.some((v) => v.key === 'overdue' && !v.hidden)"), "調べるに満了日が過ぎた稼働中が無い");
 });
+
+check("初回MTGの目標: 新名称と全体・目標ごとの注記を小さく表示する", () => {
+  const values = { shokai_mtg_mokuhyou_risou: '応募4名', shokai_mtg_mokuhyou_zenshin: '応募2名', shokai_mtg_mokuhyou_data: JSON.stringify({ notes: ['数の大小が逆の可能性があります。確かめてください'], goals: [{ kind: 'ideal', notes: ['原文を確認<script>'] }] }) };
+  const h = run('goalsBlock(' + JSON.stringify(values) + ')');
+  ok(h.includes('マインド目標（目指す難易度が高い目標）') && h.includes('コミット目標（絶対に達成する目標）'), '見出しが違う');
+  ok(h.includes('<div class="muted small">数の大小が逆の可能性があります。確かめてください</div>'), '全体の注記が無い');
+  ok(h.includes('原文を確認&lt;script&gt;') && !h.includes('<script>'), '目標の注記が無い、またはエスケープされていない');
+});
+check("初回契約: 不明の期限を期限前にせず、5列の状態を言葉で表示する", () => {
+  const h = run("renderFirstContract({rows:[{deal_id:'1',name:'架空',first_contract:{gates:[{achieved:true},{achieved:false,deadline:'2026-11-01',overdue:true},{achieved:false,deadline:'2026-11-30',overdue:false},{achieved:null,deadline:'2026-11-01',overdue:true},{achieved:false,deadline:null}]},goals:{ideal:'応募4名',minimum:'応募2名'}}],not_started:[]})");
+  ok(h.includes('期限超過（11/1）') && h.includes('期限前（11/30まで）') && h.includes('>達成</td>'), '判定の言葉が違う');
+  ok((h.match(/class="first-gate first-unknown"/g) || []).length === 2 && (h.match(/class="first-gate first-overdue"/g) || []).length === 1, '不明まで期限超過にしている');
+  ok(h.includes('マインド：応募4名') && h.includes('コミット：応募2名'), '目標列の名前が違う');
+});

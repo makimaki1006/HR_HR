@@ -2935,13 +2935,17 @@ check("初回契約", "共通の判定・目標を表示し担当を絞りURLへ
     {deal_id:'80000000001',name:'架空の契約甲',consultant:'架空の担当甲',start:'2026-01-01',expiry:'2026-07-01',
      first_contract:{gates:[{label:'初回MTGの記録',achieved:true,text:'達成',deadline:'2026-01-08',overdue:false},
        {label:'求人が掲載中',achieved:false,text:'期限超過',deadline:'2026-01-15',overdue:true},
-       {label:'応募1件以上',achieved:null,text:'判定できない',deadline:'2026-01-31',overdue:false}]},
+       {label:'応募1件以上',achieved:null,text:'判定できない',deadline:'2026-01-31',overdue:false},
+       {label:'面接1件以上',achieved:false,deadline:'2026-05-02',overdue:false},
+       {label:'満足度の回答',achieved:false,deadline:null,overdue:false}]},
      goals:{ideal:'採用を2名増やす',minimum:'未入力',draft:true,failed:false}},
     {deal_id:'80000000002',name:'架空の契約乙',consultant:'架空の担当乙',first_contract:{gates:[]},goals:{failed:true}}
   ],not_started:[]};`);
   let h = t.R('renderFirstContract(__first)');
-  if (!h.includes('初回契約（2 件）') || !h.includes('読めませんでした') || !h.includes('案 · 理想：採用を2名増やす')) throw new Error('行か目標の表示が違う');
-  if ((h.match(/first-overdue/g) || []).length !== 1 || !h.includes('応募1件以上：判定できない')) throw new Error('不明も赤になっている');
+  if (!h.includes('初回契約（2 件）') || !h.includes('読めませんでした') || !h.includes('案 · マインド：採用を2名増やす')) throw new Error('行か目標の表示が違う');
+  if ((h.match(/first-overdue/g) || []).length !== 1 || !h.includes('判定できない')) throw new Error('不明も赤になっている');
+  for (const text of ['<th>初回MTG（7日以内）</th>', '<th>求人掲載（14日以内）</th>', '<th>応募1件（30日以内）</th>', '<th>面接1件（段階3まで）</th>', '<th>満足度の回答（段階3まで）</th>', '>達成</td>', '期限超過（1/15）', '期限前（5/2まで）', '>判定できない</td>', '期限は暫定です。']) { if (!h.includes(text)) throw new Error('表示が無い: ' + text); }
+  if (/5つの関門|関門は左から|●|○/.test(h)) throw new Error('古い関門の表示');
   if (!h.includes('#deal/detail?id=80000000001')) throw new Error('既存の詳細へのリンクが無い');
   t.R("applyState('first', new URLSearchParams('c=架空の担当甲'), true)");
   h = t.R('renderFirstContract(__first)');
@@ -2949,8 +2953,8 @@ check("初回契約", "共通の判定・目標を表示し担当を絞りURLへ
   if (!t.R("hashFor('first', stateParams('first'))").includes('c=')) throw new Error('担当がURLに残らない');
   t.R("__first.goals_available = false; __first.rows.forEach((r) => { delete r.goals; })");
   h = t.R('renderFirstContract(__first)');
-  if ((h.match(/目標は社内の Google ログインで見られます/g) || []).length !== 1 || h.includes('理想：') || h.includes('読めませんでした')) throw new Error('目標の認可案内が違う');
-  if (!h.includes('架空の契約甲') || !h.includes('応募1件以上：判定できない')) throw new Error('未認可で一覧や関門が消えた');
+  if ((h.match(/目標は社内の Google ログインで見られます/g) || []).length !== 1 || h.includes('マインド：') || h.includes('読めませんでした')) throw new Error('目標の認可案内が違う');
+  if (!h.includes('架空の契約甲') || !h.includes('判定できない')) throw new Error('未認可で一覧や関門が消えた');
 });
 
 check("初回契約", "売上回数の未取得と部分失敗と空欄を表示する", () => {

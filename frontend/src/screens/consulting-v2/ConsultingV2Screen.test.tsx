@@ -384,3 +384,17 @@ it('少数の成果は図から外し、nullは表でも0にしない', async ()
   const table = screen.getByRole('table', { name: '承諾数の散らばり（継続回数ごと）' });
   expect(within(table).getAllByRole('row').slice(1, 2).flatMap((row) => within(row).getAllByRole('cell').map((c) => c.textContent))).toEqual(['初回', '—', '—', '—', '—', '—', '—', '—']);
 });
+
+it('コンサル詳細で新しい目標名と全体・各目標の注記を表示する', async () => {
+  const goals = { ...GOALS, selected: { deal: { ...GOALS.selected?.deal, shokai_mtg_mokuhyou_data: JSON.stringify({ notes: ['数の大小が逆の可能性があります。確かめてください'], goals: [{ kind: 'ideal', notes: ['目標の数を確認してください'] }] }) } } };
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>((input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : input.url;
+    return Promise.resolve(new Response(JSON.stringify(url.startsWith('/api/crm/workspace/deals/') ? goals : reply(url)), { headers: { 'Content-Type': 'application/json' } }));
+  }));
+  open('?view=detail&id=70000000001');
+  render(<ConsultingV2Screen />);
+  expect(await screen.findByRole('heading', { name: 'マインド目標（目指す難易度が高い目標）' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'コミット目標（絶対に達成する目標）' })).toBeTruthy();
+  expect(screen.getByText('数の大小が逆の可能性があります。確かめてください').tagName).toBe('SMALL');
+  expect(screen.getByText('目標の数を確認してください').tagName).toBe('SMALL');
+});
