@@ -110,6 +110,10 @@ pub fn contacted_rows(rows: Vec<ReviewRow>, marks: &[MarkState]) -> Vec<ReviewRo
     let mut used: HashSet<String> = HashSet::new();
     let mut keep = vec![false; rows.len()];
     for (i, r) in rows.iter().enumerate() {
+        if super::apo_call::only(r) {
+            keep[i] = true;
+            continue;
+        }
         let Ok(at) = DateTime::parse_from_rfc3339(&r.call_at) else {
             continue;
         };

@@ -54,17 +54,6 @@ fn item_rates(rows: &[&ReviewRow], ids: &[String]) -> Vec<TalkItemRate> {
         .collect()
 }
 
-/// 判定済みの電話のアポのランクの内訳
-fn apo_ranks(rows: &[&ReviewRow]) -> TalkApoRanks {
-    let mut r = TalkApoRanks::default();
-    for row in rows.iter().filter(|r| r.status == ST_JUDGED) {
-        if let Some(k) = super::apo_rank::rank(&row.items) {
-            r.add(k);
-        }
-    }
-    r
-}
-
 fn counts(rows: &[&ReviewRow]) -> (u32, u32, u32) {
     let c = |f: &dyn Fn(&str) -> bool| rows.iter().filter(|r| f(&r.status)).count() as u32;
     (
@@ -101,7 +90,10 @@ pub fn build(
         }
     }
     for m in members {
-        let mine: Vec<&ReviewRow> = rows.iter().filter(|r| r.owner_id == m.owner_id).collect();
+        let mine: Vec<&ReviewRow> = rows
+            .iter()
+            .filter(|r| r.owner_id == m.owner_id && !super::apo_call::only(r))
+            .collect();
         // シートが読めたなら、行の無い人は 0 本
         let d = dials.map(|m2| m2.get(&m.owner_id).copied().unwrap_or(0));
         let ob = outbound.map(|m2| m2.get(&m.owner_id).copied().unwrap_or(0));
@@ -131,7 +123,10 @@ pub fn build(
             waiting,
             unavailable,
             items: item_rates(&mine, check_ids),
-            apo_ranks: apo_ranks(&mine),
+            apo_ranks: TalkApoRanks {
+                pending: a,
+                ..Default::default()
+            },
         });
     }
     people.sort_by(|a, b| b.dials.cmp(&a.dials).then_with(|| a.name.cmp(&b.name)));
@@ -142,7 +137,7 @@ pub fn build(
         .collect();
     let all: Vec<&ReviewRow> = rows
         .iter()
-        .filter(|r| ids.contains(r.owner_id.as_str()))
+        .filter(|r| ids.contains(r.owner_id.as_str()) && !super::apo_call::only(r))
         .collect();
     let (reviewed, waiting, unavailable) = counts(&all);
     let dials_sum: Option<u32> = dials.map(|_| people.iter().map(|p| p.dials.unwrap_or(0)).sum());
@@ -171,7 +166,10 @@ pub fn build(
         waiting,
         unavailable,
         items: item_rates(&all, check_ids),
-        apo_ranks: apo_ranks(&all),
+        apo_ranks: TalkApoRanks {
+            pending: apo_sum,
+            ..Default::default()
+        },
     };
     for p in &mut people {
         p.appointment_rate_flagged = match (p.appointment_rate_pct, total.appointment_rate_pct) {
@@ -194,12 +192,46 @@ pub fn build(
     (people, total)
 }
 
+/// アポ数の取引ごとにランクを数える (各取引はどれか 1 つ。付け先はアポ数と同じ人)。
+/// 電話をかけた人と日付はランクの付け先に使わない。worker がまだ決めていない取引は判定待ち
+pub fn apply_deal_ranks(
+    people: &mut [TalkPersonRow],
+    total: &mut TalkPersonRow,
+    deals: &[super::counts::ApoDeal],
+    ranks: &HashMap<super::apo_call::DealKey, super::apo_call::DealRank>,
+) {
+    use super::apo_call::{key, DealRank};
+    let count = |owners: &BTreeSet<&str>| {
+        let mut r = TalkApoRanks::default();
+        for d in deals
+            .iter()
+            .filter(|d| d.who.iter().any(|o| owners.contains(o.as_str())))
+        {
+            match ranks.get(&key(d)) {
+                Some(DealRank::Ranked { rank, .. }) => r.add(rank),
+                Some(DealRank::NoCall) => r.no_call += 1,
+                Some(DealRank::Unavailable) => r.unavailable += 1,
+                Some(DealRank::Pending) | None => r.pending += 1,
+            }
+        }
+        r
+    };
+    for p in people.iter_mut() {
+        p.apo_ranks = count(&p.owner_id.as_deref().into_iter().collect());
+    }
+    let owners = people
+        .iter()
+        .filter_map(|p| p.owner_id.as_deref())
+        .collect();
+    total.apo_ranks = count(&owners);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::crm::talk_review::judge::StoredItem;
 
-    fn row(id: &str, owner: &str, status: &str, early: Option<&str>) -> ReviewRow {
+    pub(super) fn row(id: &str, owner: &str, status: &str, early: Option<&str>) -> ReviewRow {
         ReviewRow {
             hubspot_call_id: id.into(),
             owner_id: owner.into(),
@@ -501,5 +533,122 @@ mod tests {
         let (people, total) = build(&members, Some(&dials), None, &[], &[], &[], &ALERT_RULES);
         assert!(people.iter().all(|p| p.outbound.is_none()));
         assert_eq!(total.outbound, None);
+    }
+}
+
+#[cfg(test)]
+mod deal_rank_tests {
+    use super::*;
+    use crate::crm::talk_review::{
+        apo_call::{DealRank, APO_ONLY},
+        counts::ApoDeal,
+    };
+    fn row(id: &str, status: &str, only: bool) -> ReviewRow {
+        let mut r = super::tests::row(id, "caller", status, Some("not_done"));
+        if only {
+            r.note = Some(APO_ONLY.into());
+        }
+        let mut budget = r.items[0].clone();
+        budget.id = "aq_budget".into();
+        budget.status = "not_done".into();
+        budget.answer = Some("不明".into());
+        r.items.push(budget);
+        r
+    }
+    #[test]
+    fn one_rank_per_deal_credits_taker_and_accounts_for_every_appointment() {
+        let deals: Vec<_> = (0..6)
+            .map(|i| ApoDeal {
+                deal_id: format!("deal-{i}"),
+                stage: "apo".into(),
+                entered_ms: 0,
+                who: vec!["taker".into()],
+            })
+            .collect();
+        let ranked = DealRank::Ranked {
+            rank: "C",
+            call_id: "one".into(),
+            call_ms: 0,
+            calls: vec!["one".into()],
+            items: vec![],
+        };
+        let ranks = HashMap::from([
+            (("deal-0".to_string(), 0), ranked),
+            (("deal-1".to_string(), 0), DealRank::NoCall),
+            (("deal-2".to_string(), 0), DealRank::Pending),
+            (("deal-3".to_string(), 0), DealRank::Unavailable),
+        ]);
+        let rows = vec![
+            row("one", ST_JUDGED, true),
+            row("second-call-same-deal", ST_JUDGED, false),
+            row("waiting", ST_PENDING, true),
+            row("gone", ST_UNAVAILABLE, true),
+        ];
+        let members = [
+            Member {
+                owner_id: "taker".into(),
+                name: "取得者".into(),
+                team: None,
+            },
+            Member {
+                owner_id: "caller".into(),
+                name: "発信者".into(),
+                team: None,
+            },
+        ];
+        let credits: Vec<_> = deals.iter().map(|d| d.who.clone()).collect();
+        let (mut people, mut total) = build(
+            &members,
+            None,
+            None,
+            &credits,
+            &rows,
+            &["early_date".into()],
+            &ALERT_RULES,
+        );
+        apply_deal_ranks(&mut people, &mut total, &deals, &ranks);
+        let expected = TalkApoRanks {
+            c: 1,
+            no_call: 1,
+            unavailable: 1,
+            pending: 3,
+            ..Default::default()
+        };
+        assert_eq!(total.apo_ranks, expected);
+        let taker = people
+            .iter()
+            .find(|p| p.owner_id.as_deref() == Some("taker"))
+            .unwrap();
+        assert_eq!(
+            (taker.appointments, taker.reviewed, taker.eligible),
+            (6, 0, 0)
+        );
+        assert_eq!(taker.apo_ranks, expected);
+        let caller = people
+            .iter()
+            .find(|p| p.owner_id.as_deref() == Some("caller"))
+            .unwrap();
+        assert_eq!(
+            (
+                caller.appointments,
+                caller.reviewed,
+                caller.eligible,
+                caller.waiting,
+                caller.unavailable
+            ),
+            (0, 1, 1, 0, 0)
+        );
+        assert_eq!(
+            (caller.items[0].not_done, caller.items[0].applicable),
+            (1, 1)
+        );
+        assert_eq!(caller.apo_ranks, TalkApoRanks::default());
+        for p in people.iter().chain([&total]) {
+            let r = p.apo_ranks;
+            assert_eq!(
+                r.s + r.a + r.b + r.c + r.pending + r.no_call + r.unavailable,
+                p.appointments
+            );
+        }
     }
 }

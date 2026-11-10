@@ -92,17 +92,20 @@ pub struct TalkPersonRow {
     pub unavailable: u32,
     /// checks の順に並ぶ
     pub items: Vec<TalkItemRate>,
-    /// アポのランクの内訳 (ヒアリングの対象になった判定済みの電話。`apo_rank.rs`)
+    /// アポのランクの内訳 (アポ数と同じ取引・付け先。`apo_rank.rs`)
     pub apo_ranks: TalkApoRanks,
 }
 
-/// アポのランクごとの電話の本数 (S / A / B / C)
+/// アポ数の取引ごとの内訳 (各取引はどれか 1 つ)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, TS)]
 pub struct TalkApoRanks {
     pub s: u32,
     pub a: u32,
     pub b: u32,
     pub c: u32,
+    pub pending: u32,
+    pub no_call: u32,
+    pub unavailable: u32,
 }
 
 impl TalkApoRanks {

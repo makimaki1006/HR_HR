@@ -522,7 +522,7 @@ async fn apply(
 }
 
 /// ヒアリングの周回の書き込み: 項目とまとめだけ (outcome などは変えない)。UPDATE 1 回
-async fn write_items(audit: &crate::audit::AuditDb, id: String, items: Vec<StoredItem>) {
+async fn write_items(audit: &crate::audit::AuditDb, id: String, items: Vec<StoredItem>) -> bool {
     let summary = summary_of(&items);
     let now = store::ts_text(Utc::now());
     if let Err(e) = store::blocking(audit, move |t| {
@@ -531,17 +531,19 @@ async fn write_items(audit: &crate::audit::AuditDb, id: String, items: Vec<Store
     .await
     {
         tracing::warn!(error = %e, "talk review: hearing write failed");
+        return false;
     }
+    true
 }
 
 /// ヒアリングの書き込みの結果
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HearingWrite {
-    /// 書いた (書き込みの失敗は記録して終わる。従来どおり)
+    /// 書いた
     Written,
     /// 行が無い・判定済みでない・もう済んでいる。書かずに、確かめる一覧から外す
     Skipped,
-    /// 行を読み直せなかった。書かずに、後で確かめ直す
+    /// 行の読み直し・書き込みに失敗した。後で確かめ直す
     ReadFailed,
 }
 
@@ -597,6 +599,49 @@ async fn notify_apo(
     }
 }
 
+/// 取引のランクが決まったとき、アポの付け先の人に送る (送るのはランク S・A だけ。`slack.rs` / `slack_bot.rs`)。
+/// 電話の時刻はアポを取った電話、項目は合わせたヒアリング
+async fn notify_deal(
+    slack: Option<&SlackNotifier>,
+    bot: Option<&BotNotifier>,
+    members: &HashMap<String, (String, String)>,
+    deal: &super::counts::ApoDeal,
+    rank: &super::apo_call::DealRank,
+) {
+    let super::apo_call::DealRank::Ranked {
+        call_id,
+        call_ms,
+        items,
+        ..
+    } = rank
+    else {
+        return;
+    };
+    let (Some(owner), Some(at)) = (deal.who.first(), DateTime::from_timestamp_millis(*call_ms))
+    else {
+        return;
+    };
+    let row = ReviewRow {
+        hubspot_call_id: call_id.clone(),
+        owner_id: owner.clone(),
+        call_at: store::ts_text(at),
+        duration_sec: 0,
+        zoom_call_log_id: None,
+        status: store::ST_JUDGED.into(),
+        attempts: 0,
+        checks_version: None,
+        model: None,
+        outcome: None,
+        reached_person: None,
+        reception: None,
+        first_date_turn: None,
+        items: items.clone(),
+        summary: None,
+        note: None,
+    };
+    notify_apo(slack, bot, members, &row).await;
+}
+
 /// `rewrite_hearing` と同じ。書いたときは、書いたあとの行 (項目はヒアリングを足したもの) も返す (Slack に送る材料)
 async fn rewrite_hearing_row(
     audit: &crate::audit::AuditDb,
@@ -617,7 +662,9 @@ async fn rewrite_hearing_row(
         return (HearingWrite::Skipped, None);
     };
     row.items = merge_hearing(checks, &row.items, hearing);
-    write_items(audit, id.to_string(), row.items.clone()).await;
+    if !write_items(audit, id.to_string(), row.items.clone()).await {
+        return (HearingWrite::ReadFailed, None);
+    }
     (HearingWrite::Written, Some(row))
 }
 
@@ -746,6 +793,8 @@ struct Worker<Z, J> {
     team: Option<TeamOwners>,
     counts_task: Option<tokio::task::JoinHandle<()>>,
     last_poll: Option<DateTime<Utc>>,
+    /// 直近の取り込み (`discover`) が成功したか
+    ingest_ok: bool,
     /// 初回の取り込みの進み具合 (次に読む日)。全部読み終えるまで `last_poll` は進めない
     backfill_next: Option<chrono::NaiveDate>,
     backfill_anchor: Option<DateTime<Utc>>,
@@ -1217,11 +1266,6 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 self.audit.clone(),
                 sem.clone(),
             );
-            let (slack, bot, members) = (
-                self.slack.clone(),
-                self.slack_bot.clone(),
-                self.members.clone(),
-            );
             set.spawn(async move {
                 let id = c.id.clone();
                 let Ok(_p) = sem.acquire().await else {
@@ -1248,9 +1292,10 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                     }
                 };
                 // 文字起こしと判定に時間がかかる間に行が変わっていることがあるので、書く直前に読み直す
-                let (wrote, row) = rewrite_hearing_row(&audit, &id, hearing, true).await;
-                if let Some(row) = row {
-                    notify_apo(slack.as_ref(), bot.as_ref(), &members, &row).await;
+                // Slack は取引のランクが決まったときに送る (`process_apo_calls`)。ここでは書いた電話を覚えるだけ
+                let wrote = rewrite_hearing(&audit, &id, hearing, true).await;
+                if wrote == HearingWrite::Written {
+                    super::routes::shared().apo_calls.mark_heard(&id);
                 }
                 (id, wrote != HearingWrite::ReadFailed)
             });
@@ -1553,6 +1598,106 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         }));
     }
 
+    /// アポ数の取引ごとにランクを決める (`apo_call.rs`)。E の 10 分後を過ぎた取引の候補の電話を読み (1 周 50 取引まで)、
+    /// 判定の行が無い候補は、取り込みの側で行になる見込みが無くなってから `apo_only` の行を作る。
+    /// ランクが決まった取引のうち、この起動でヒアリングを書いた電話を含むものだけ Slack に送る (1 取引 1 回)
+    async fn process_apo_calls(&mut self, now: DateTime<Utc>) -> Result<(), String> {
+        use super::apo_call as ac;
+        let st = super::routes::shared();
+        let (today, _, _) = jst_day(now);
+        let from = today - chrono::Duration::days(self.cfg.backfill_days);
+        let (deals, _) = st.counts.deals_in(from, today);
+        let now_ms = now.timestamp_millis();
+        let fetch = st.apo_calls.to_fetch(&deals, now_ms);
+        if !fetch.is_empty() {
+            // 読めなくても、読み終えた取引の評価は進める
+            match ac::fetch_calls(&self.client, &fetch).await {
+                Ok(found) => st.apo_calls.store_calls(now_ms, found),
+                Err(e) => {
+                    tracing::warn!(error = %e.error_kind(), "talk review: apo call read failed")
+                }
+            }
+        }
+        let open = st.apo_calls.open(&deals);
+        if open.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<String> = open
+            .iter()
+            .flat_map(|(_, calls)| calls.iter().map(|c| c.id.clone()))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let rows: HashMap<String, ReviewRow> =
+            store::blocking(&self.audit, move |t| store::by_ids(t, &ids))
+                .await?
+                .into_iter()
+                .map(|r| (r.hubspot_call_id.clone(), r))
+                .collect();
+        let mut made: HashSet<String> = HashSet::new();
+        // 取り込みが止まっている間・初回の読み込みの途中は作らない (普通の行になる電話を `apo_only` にしない)
+        let may_create = self.ingest_ok && self.last_poll.is_some();
+        for (d, calls) in open.iter().filter(|_| may_create) {
+            for c in calls {
+                if rows.contains_key(&c.id)
+                    || made.contains(&c.id)
+                    || self.waiting.contains_key(&c.id)
+                {
+                    continue;
+                }
+                // 接触の判定で外れた電話はすぐ、まだ見つけていない電話は待ってから
+                if !self.skipped.contains(&c.id) && now_ms - c.ts_ms < ac::ROW_GRACE_MS {
+                    continue;
+                }
+                let Some(at) = DateTime::from_timestamp_millis(c.ts_ms) else {
+                    continue;
+                };
+                let row = NewRow {
+                    hubspot_call_id: c.id.clone(),
+                    owner_id: d.who.first().cloned().unwrap_or_else(|| c.owner_id.clone()),
+                    call_at: store::ts_text(at),
+                    duration_sec: c.duration_ms / 1000,
+                    zoom_call_log_id: c.zoom_id.clone(),
+                    status: store::ST_PENDING,
+                    note: Some(ac::APO_ONLY.into()),
+                    next_retry_at: Some(store::ts_text(now)),
+                };
+                let ts = store::ts_text(now);
+                store::blocking(&self.audit, move |t| store::insert_new(t, &ts, &row)).await?;
+                self.known.insert(c.id.clone());
+                made.insert(c.id.clone());
+            }
+        }
+        let checks = &loaded().checks;
+        let hearing_ids: Vec<String> = checks
+            .checks
+            .iter()
+            .filter(|c| is_hearing(c))
+            .map(|c| c.id.clone())
+            .collect();
+        for (d, calls) in open {
+            let rank = ac::deal_rank(
+                &d,
+                &calls,
+                &rows,
+                |r| has_hearing(r, checks),
+                &hearing_ids,
+                now_ms,
+            );
+            if st.apo_calls.record(&d, rank.clone()) {
+                notify_deal(
+                    self.slack.as_ref(),
+                    self.slack_bot.as_ref(),
+                    &self.members,
+                    &d,
+                    &rank,
+                )
+                .await;
+            }
+        }
+        Ok(())
+    }
+
     /// 判定待ちを新しい電話から進める。新しく入った電話を拾い直せるよう、1 回に使うのは `interval` まで。
     /// 時間切れで残りがあれば true (呼び出し側は待たずに次の周回へ)
     async fn process_due(&mut self) -> bool {
@@ -1701,10 +1846,17 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         self.find_rejudge().await;
         loop {
             let now = Utc::now();
-            if let Err(e) = self.discover(now).await {
-                tracing::warn!(error = %e, "talk review discover failed");
-            }
+            self.ingest_ok = match self.discover(now).await {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::warn!(error = %e, "talk review discover failed");
+                    false
+                }
+            };
             self.prefill_counts(now);
+            if let Err(e) = self.process_apo_calls(now).await {
+                tracing::warn!(error = %e, "talk review: apo calls failed");
+            }
             self.promote().await;
             self.pending.flush(&self.audit).await;
             // 時間切れで判定待ちが残っていれば待たずに次の周回 (新しい電話を拾い直してから続ける)
@@ -1712,6 +1864,10 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             // HubSpot のアポの記録と突き合わせて、ヒアリングを付ける・外す (毎周。日中は判定待ちが続き、
             // 手の空いた周回が少ないため)
             self.process_hearing().await;
+            // ヒアリングを書いた取引を同じ周回で決める (書いてから送るまでの間を縮める)
+            if let Err(e) = self.process_apo_calls(Utc::now()).await {
+                tracing::warn!(error = %e, "talk review: apo calls failed");
+            }
             if !busy {
                 // 担当者の付け直しは数分かかるので、起動直後の取り込み・判定の後、最初に手が空いた周回で 1 回
                 if !self.reattributed {
@@ -1770,6 +1926,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         team: None,
         counts_task: None,
         last_poll: None,
+        ingest_ok: false,
         backfill_next: None,
         backfill_anchor: None,
         reattributed: false,
@@ -1795,7 +1952,7 @@ mod tests {
     use crate::crm::talk_review::store::ST_PENDING;
     use crate::crm::talk_review::types::TalkTurn;
 
-    struct FakeZoom(Result<Vec<TalkTurn>, ZoomError>);
+    pub(super) struct FakeZoom(pub(super) Result<Vec<TalkTurn>, ZoomError>);
     impl TranscriptSource for FakeZoom {
         async fn fetch(&self, _: &str) -> Result<Vec<TalkTurn>, ZoomError> {
             self.0.clone()
@@ -1817,7 +1974,7 @@ mod tests {
             }
         }
     }
-    struct FakeJudge(Result<JudgeOutput, JudgeError>);
+    pub(super) struct FakeJudge(pub(super) Result<JudgeOutput, JudgeError>);
     impl Judge for FakeJudge {
         async fn judge(
             &self,
@@ -1846,7 +2003,7 @@ mod tests {
             summary: None,
         }
     }
-    fn turns() -> Vec<TalkTurn> {
+    pub(super) fn turns() -> Vec<TalkTurn> {
         vec![
             TalkTurn {
                 n: 1,
@@ -1860,7 +2017,7 @@ mod tests {
             },
         ]
     }
-    fn row(zid: Option<&str>, call_at: &str) -> ReviewRow {
+    pub(super) fn row(zid: Option<&str>, call_at: &str) -> ReviewRow {
         ReviewRow {
             hubspot_call_id: "1".into(),
             owner_id: "o".into(),
@@ -2490,7 +2647,7 @@ mod tests {
     }
 
     /// ヒアリングの判定の結果 (先頭が「できた」で先方の答えつき、4 番目が「できていない」、残りは該当なし)
-    fn judged_hearing() -> Vec<StoredItem> {
+    pub(super) fn judged_hearing() -> Vec<StoredItem> {
         let mut h = hearing_items("na");
         h[0].status = "done".into();
         h[0].answer = Some("3か月以内".into());
@@ -2566,7 +2723,7 @@ mod tests {
     }
 
     /// ヒアリングを付けるための偽の判定 (今の判定は使わない)
-    struct HearingJudge(Result<Vec<StoredItem>, JudgeError>);
+    pub(super) struct HearingJudge(pub(super) Result<Vec<StoredItem>, JudgeError>);
     impl Judge for HearingJudge {
         async fn judge(
             &self,
@@ -2611,6 +2768,7 @@ mod tests {
             team: None,
             counts_task: None,
             last_poll: None,
+            ingest_ok: false,
             backfill_next: None,
             backfill_anchor: None,
             reattributed: false,
@@ -3978,5 +4136,108 @@ mod tests {
         queries.lock().unwrap().clear();
         w.process_hearing().await;
         assert_eq!(updates(&queries), 0);
+    }
+}
+
+#[cfg(test)]
+mod apo_only_tests {
+    use super::tests::{judged_hearing, row, turns, FakeJudge, FakeZoom};
+    use super::*;
+
+    #[tokio::test]
+    async fn apo_only_rows_get_the_main_judgement_to_know_if_the_date_was_decided() {
+        // ランクのためだけの行も、日程が決まったかを知るために今の判定をする (ヒアリングは後の周回で付く)
+        let mut r = row(Some("recording-test"), "2026-11-01T01:00:00Z");
+        r.note = Some(super::super::apo_call::APO_ONLY.into());
+        let mut o = JudgeOutput {
+            reached_person: Some(true),
+            reception: None,
+            first_date_turn: Some(3),
+            outcome: Some(super::super::judge::SCHEDULED.into()),
+            items: vec![],
+            summary: None,
+        };
+        let result = process_one(
+            &FakeZoom(Ok(turns())),
+            &FakeJudge(Ok(o.clone())),
+            &r,
+            Utc::now(),
+        )
+        .await;
+        let Outcome::Judged(output) = result else {
+            panic!("expected judged");
+        };
+        o.items = output.items.clone();
+        assert_eq!(output.outcome.as_deref(), Some("日程が決まった"));
+        assert_eq!(output, o);
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn apo_only_marker_survives_retries_success_and_unavailable_and_skips_daily_quota() {
+        use crate::audit::fake_turso::start_sqlite_audit_with_queries;
+        let (audit, _, _) = start_sqlite_audit_with_queries().await;
+        store::blocking(&audit, |t| {
+            let now = "2026-11-01T02:00:00Z";
+            let mut new = NewRow {
+                hubspot_call_id: "apo-only-test".into(),
+                owner_id: "test-owner".into(),
+                call_at: "2026-11-01T01:00:00Z".into(),
+                duration_sec: 90,
+                zoom_call_log_id: None,
+                status: store::ST_PENDING,
+                note: Some(super::super::apo_call::APO_ONLY.into()),
+                next_retry_at: Some(now.into()),
+            };
+            store::insert_new(t, now, &new)?;
+            new.hubspot_call_id = "normal-test".into();
+            new.status = ST_QUEUED;
+            new.note = Some(CONTACTED_NOTE.into());
+            store::insert_new(t, now, &new)?;
+            store::promote(t, "2026-11-01T00:00:00Z", 1, now)?;
+            assert_eq!(
+                store::get(t, "normal-test")?.unwrap().status,
+                store::ST_PENDING,
+                "専用行は1日枠を使わない"
+            );
+            store::demote_over_quota(t, "2026-11-01T00:00:00Z", 0, now)?;
+            assert_eq!(
+                store::get(t, "apo-only-test")?.unwrap().status,
+                store::ST_PENDING,
+                "専用行は順番待ちに戻さない"
+            );
+            store::mark_retry(t, "apo-only-test", 1, now, "zoom_error", now)?;
+            assert!(super::super::apo_call::only(
+                &store::get(t, "apo-only-test")?.unwrap()
+            ));
+            store::mark_final(t, "apo-only-test", ST_UNAVAILABLE, 2, "gone", now)?;
+            let failed = store::get(t, "apo-only-test")?.unwrap();
+            assert!(super::super::apo_call::only(&failed));
+            assert_eq!(failed.status, ST_UNAVAILABLE);
+            let output = JudgeOutput {
+                reached_person: None,
+                reception: None,
+                first_date_turn: None,
+                outcome: None,
+                items: judged_hearing(),
+                summary: None,
+            };
+            store::mark_judged(t, "apo-only-test", 3, "test", "fake", &output, now)?;
+            let saved = store::get(t, "apo-only-test")?.unwrap();
+            assert_eq!(saved.status, store::ST_JUDGED);
+            assert!(super::super::apo_call::only(&saved));
+            let light = store::by_ids(t, &["apo-only-test".into()])?;
+            assert!(super::super::apo_call::only(&light[0]));
+            assert_eq!(
+                target::contacted_rows(light, &[]).len(),
+                1,
+                "接触の印なしでも一覧に残る"
+            );
+            let list =
+                super::super::routes::call_row(&saved, &["early_date".into(), "aq_budget".into()]);
+            assert_eq!(list.items.len(), 1);
+            assert_eq!(list.items[0].id, "aq_budget");
+            Ok(())
+        })
+        .await
+        .unwrap();
     }
 }

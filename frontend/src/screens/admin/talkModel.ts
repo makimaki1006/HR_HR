@@ -348,12 +348,21 @@ function person(idx: number, id: string, name: string, team: string, dials: numb
     const hit = ap >= FIXTURE_RULES.item_min_applicable && tap > 0 && (nd / ap) * 100 >= (tnd / tap) * 100 + FIXTURE_RULES.item_excess_pct;
     return rate(c.id, nd, ap, hit);
   });
-  return { owner_id: id, name, team, outbound, dial_breakdown, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, contacts, contact_rate_pct: (contacts / outbound) * 100, date_proposal_calls: proposalCalls, date_proposal_rate_pct: (proposalCalls / outbound) * 100, proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: pending, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items, apo_ranks: FIXTURE_RANKS[idx] ?? NO_RANKS };
+  return { owner_id: id, name, team, outbound, dial_breakdown, dials, appointments: appts, appointment_rate_pct: dials === 0 ? null : (appts / dials) * 100, appointment_rate_flagged: flagged, contacts, contact_rate_pct: (contacts / outbound) * 100, date_proposal_calls: proposalCalls, date_proposal_rate_pct: (proposalCalls / outbound) * 100, proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: pending, eligible: reviewed + waiting + unavailable + Math.round(reviewed / 2), reviewed, waiting, unavailable, items, apo_ranks: fixtureRanks(idx, appts) };
 }
 
-const NO_RANKS: TalkApoRanks = { s: 0, a: 0, b: 0, c: 0 };
+function fixtureRanks(idx: number, appointments: number): TalkApoRanks {
+  const ranks = { ...(FIXTURE_RANKS[idx] ?? NO_RANKS) };
+  let left = appointments;
+  for (const key of ['s', 'a', 'b', 'c'] as const) {
+    ranks[key] = Math.min(ranks[key], left);
+    left -= ranks[key];
+  }
+  return { ...ranks, pending: left };
+}
+const NO_RANKS: TalkApoRanks = { s: 0, a: 0, b: 0, c: 0, pending: 0, no_call: 0, unavailable: 0 };
 /** 架空の人ごとのアポのランクの内訳 (人の順) */
-const FIXTURE_RANKS: TalkApoRanks[] = [{ s: 1, a: 2, b: 1, c: 3 }, { s: 0, a: 1, b: 0, c: 2 }, { s: 2, a: 1, b: 1, c: 1 }, NO_RANKS];
+const FIXTURE_RANKS: TalkApoRanks[] = [{ s: 1, a: 2, b: 1, c: 3, pending: 0, no_call: 0, unavailable: 0 }, { s: 0, a: 1, b: 0, c: 2, pending: 0, no_call: 0, unavailable: 0 }, { s: 2, a: 1, b: 1, c: 1, pending: 0, no_call: 0, unavailable: 0 }, NO_RANKS];
 
 export const FIXTURE_PEOPLE: TalkPersonRow[] = [
   person(0, '9001', '架空 花子', '架空BPOチーム', 220, 5, false, 60, 12, 8, [150, 60, 96, 4]),
@@ -380,7 +389,7 @@ function totalOf(people: TalkPersonRow[], checks: TalkCheckDef[]): TalkPersonRow
     date_proposal_calls: proposalCalls, date_proposal_rate_pct: outbound === 0 ? null : (proposalCalls / outbound) * 100,
     proposals_per_contact: contacts === 0 ? null : proposals / contacts, contact_pending: sum(p => p.contact_pending),
     eligible: sum(p => p.eligible), reviewed: sum(p => p.reviewed), waiting: sum(p => p.waiting), unavailable: sum(p => p.unavailable),
-    apo_ranks: { s: sum(p => p.apo_ranks.s), a: sum(p => p.apo_ranks.a), b: sum(p => p.apo_ranks.b), c: sum(p => p.apo_ranks.c) },
+    apo_ranks: { s: sum(p => p.apo_ranks.s), a: sum(p => p.apo_ranks.a), b: sum(p => p.apo_ranks.b), c: sum(p => p.apo_ranks.c), pending: sum(p => p.apo_ranks.pending), no_call: sum(p => p.apo_ranks.no_call), unavailable: sum(p => p.apo_ranks.unavailable) },
     items: checks.map(c => {
       const nd = sum(p => p.items.find(i => i.id === c.id)?.not_done ?? 0);
       const ap = sum(p => p.items.find(i => i.id === c.id)?.applicable ?? 0);
@@ -535,7 +544,7 @@ export function checksForTab<T extends Pick<TalkCheckDef, 'stage'>>(checks: T[],
 export const APO_RANKS = ['S', 'A', 'B', 'C'] as const;
 /** 内訳の 1 行の文 (例: S 1・A 2・B 0・C 3) */
 export function fmtRanks(r: TalkApoRanks): string {
-  return `S ${String(r.s)}・A ${String(r.a)}・B ${String(r.b)}・C ${String(r.c)}`;
+  return `S ${String(r.s)}・A ${String(r.a)}・B ${String(r.b)}・C ${String(r.c)}・判定待ち ${String(r.pending)}・電話なし ${String(r.no_call)}・取れない ${String(r.unavailable)}`;
 }
 /** ランクに使う 3 つの条件 (Rust の apo_rank.rs と同じ) */
 export const APO_RANK_CONDITIONS = [

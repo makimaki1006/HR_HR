@@ -76,6 +76,6 @@ unavailable: number,
  */
 items: Array<TalkItemRate>, 
 /**
- * アポのランクの内訳 (ヒアリングの対象になった判定済みの電話。`apo_rank.rs`)
+ * アポのランクの内訳 (アポ数と同じ取引・付け先。`apo_rank.rs`)
  */
 apo_ranks: TalkApoRanks, };

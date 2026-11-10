@@ -133,11 +133,12 @@ impl From<LightItem> for StoredItem {
 }
 
 /// 軽い読み方の列: 集計 (`summary.rs`) と一覧 (`routes.rs` の `call_row`) が使うものだけ
-const LIGHT_COLS: &str = "hubspot_call_id, owner_id, call_at, duration_sec, status, outcome, items";
+const LIGHT_COLS: &str =
+    "hubspot_call_id, owner_id, call_at, duration_sec, status, outcome, items, note";
 const LIGHT_COLS_WITH_SUMMARY: &str =
-    "hubspot_call_id, owner_id, call_at, duration_sec, status, outcome, items, summary";
+    "hubspot_call_id, owner_id, call_at, duration_sec, status, outcome, items, summary, note";
 
-/// 軽い読み方の行。使わない欄 (録音 ID・試行回数・版・モデル・接触の印・メモ) は既定値、
+/// 軽い読み方の行。使わない欄 (録音 ID・試行回数・版・モデル・接触の印) は既定値、
 /// `items` の引用・助言・メモ・根拠の番号は空、`summary` は `with_summary` のときだけ入れる
 pub fn light_row_from(r: &HashMap<String, Value>, with_summary: bool) -> ReviewRow {
     ReviewRow {
@@ -159,7 +160,7 @@ pub fn light_row_from(r: &HashMap<String, Value>, with_summary: bool) -> ReviewR
             .map(|v| v.into_iter().map(StoredItem::from).collect())
             .unwrap_or_default(),
         summary: if with_summary { s(r, "summary") } else { None },
-        note: None,
+        note: s(r, "note"),
     }
 }
 
@@ -217,7 +218,7 @@ pub fn promote(t: &TursoDb, since: &str, per_day: u32, now: &str) -> Result<(), 
                ORDER BY (status = 'queued'), call_at DESC) AS rn \
              FROM call_talk_reviews \
              WHERE call_at >= ?1 AND status IN ('queued', 'pending_transcript', 'judged') \
-               AND (status <> 'queued' OR note = 'contacted')) \
+               AND (note IS NULL OR note <> 'apo_only') AND (status <> 'queued' OR note = 'contacted')) \
            WHERE status = 'queued' AND rn <= ?2)",
         &[&since, &i64::from(per_day), &now],
     )
@@ -258,7 +259,7 @@ pub fn demote_over_quota(t: &TursoDb, since: &str, per_day: u32, now: &str) -> R
                PARTITION BY owner_id, date(call_at, '+9 hours') \
                ORDER BY (status = 'pending_transcript'), call_at DESC) AS rn \
              FROM call_talk_reviews \
-             WHERE call_at >= ?1 AND status IN ('pending_transcript', 'judged')) \
+             WHERE call_at >= ?1 AND status IN ('pending_transcript', 'judged') AND (note IS NULL OR note <> 'apo_only')) \
            WHERE status = 'pending_transcript' AND rn > ?2)",
         &[&since, &i64::from(per_day), &now],
     )
@@ -313,7 +314,7 @@ pub fn mark_retry(
     now: &str,
 ) -> Result<(), String> {
     t.execute(
-        "UPDATE call_talk_reviews SET attempts = ?2, next_retry_at = ?3, note = ?4, updated_at = ?5 \
+        "UPDATE call_talk_reviews SET attempts = ?2, next_retry_at = ?3, note = CASE WHEN note = 'apo_only' THEN note ELSE ?4 END, updated_at = ?5 \
          WHERE hubspot_call_id = ?1 AND status = 'pending_transcript'",
         &[&id, &i64::from(attempts), &next, &note, &now],
     )
@@ -328,7 +329,7 @@ pub fn mark_final(
     now: &str,
 ) -> Result<(), String> {
     t.execute(
-        "UPDATE call_talk_reviews SET status = ?2, attempts = ?3, next_retry_at = NULL, note = ?4, updated_at = ?5 \
+        "UPDATE call_talk_reviews SET status = ?2, attempts = ?3, next_retry_at = NULL, note = CASE WHEN note = 'apo_only' THEN note ELSE ?4 END, updated_at = ?5 \
          WHERE hubspot_call_id = ?1 AND status = 'pending_transcript'",
         &[&id, &status, &i64::from(attempts), &note, &now],
     )
@@ -347,7 +348,7 @@ pub fn mark_judged(
     t.execute(
         "UPDATE call_talk_reviews SET status = 'judged', attempts = ?2, next_retry_at = NULL, \
          checks_version = ?3, model = ?4, outcome = ?5, reached_person = ?6, reception = ?7, \
-         first_date_turn = ?8, items = ?9, summary = ?10, note = NULL, updated_at = ?11 \
+         first_date_turn = ?8, items = ?9, summary = ?10, note = CASE WHEN note = 'apo_only' THEN note ELSE NULL END, updated_at = ?11 \
          WHERE hubspot_call_id = ?1",
         &[
             &id,
@@ -606,6 +607,27 @@ pub fn get(t: &TursoDb, id: &str) -> Result<Option<ReviewRow>, String> {
     )?
     .first()
     .map(row_from))
+}
+
+/// 選ばれた電話を日付・担当者・接触の印で落とさずに読む (ランク集計用)。
+pub fn by_ids(t: &TursoDb, ids: &[String]) -> Result<Vec<ReviewRow>, String> {
+    let mut rows = Vec::new();
+    for chunk in ids.chunks(100) {
+        let placeholders = (1..=chunk.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT {LIGHT_COLS} FROM call_talk_reviews WHERE hubspot_call_id IN ({placeholders})"
+        );
+        let args: Vec<&dyn ToSqlTurso> = chunk.iter().map(|id| id as &dyn ToSqlTurso).collect();
+        rows.extend(
+            t.query(&sql, &args)?
+                .iter()
+                .map(|r| light_row_from(r, false)),
+        );
+    }
+    Ok(rows)
 }
 
 #[cfg(test)]
@@ -1038,7 +1060,7 @@ mod tests {
             reached_person: None,
             reception: None,
             first_date_turn: None,
-            note: None,
+            note: full.note.clone(),
             items: full
                 .items
                 .iter()
@@ -1196,7 +1218,7 @@ mod tests {
                 (w1.reached_person, w1.reception, w1.first_date_turn),
                 (None, None, None)
             );
-            assert_eq!(w1.note, None);
+            assert_eq!(w1.note.as_deref(), Some("contacted"));
             // 順番待ち・失敗の行は項目が空
             assert!(rows[3].items.is_empty());
             assert_eq!(rows[3].status, ST_QUEUED);

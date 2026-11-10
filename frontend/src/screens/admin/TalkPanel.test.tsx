@@ -111,9 +111,9 @@ describe('トークの振り返り: 人ごとの表', () => {
     expect(screen.getByTestId('talk-hearing-rule').textContent).toContain('先方から相応しい答えが得られた電話の割合');
     // アポのランクの内訳: 花子 S1・A2・B1・C3、四郎は無し、全体は足した値
     const ranks = screen.getAllByTestId('talk-apo-ranks').map(td => td.textContent);
-    expect(ranks[0]).toBe('S 1A 2B 1C 3');
-    expect(ranks).toContain('—');
-    expect(screen.getByRole('columnheader', { name: /^アポのランク/ }).textContent).toContain('この表の全体 S 3・A 4・B 2・C 6');
+    expect(ranks[0]).toBe('S 1A 2B 1C 1判定待ち 0・電話なし 0・取れない 0合計 5 件');
+    expect(ranks[3]).toBe('S 0A 0B 0C 0判定待ち 1・電話なし 0・取れない 0合計 1 件');
+    expect(screen.getByRole('columnheader', { name: /^アポのランク/ }).textContent).toContain('この表の全体 S 3・A 4・B 2・C 2');
     expect(screen.getByTestId('talk-rank-rule').textContent).toContain('3つ＝S、2つ＝A、1つ＝B、0＝C。聞けていない答えは満たさないとして数えます');
     // 決め方は「数え方」を開かなくても表の上に出す
     expect(screen.getByTestId('talk-rank-legend').textContent).toContain('予算が具体額・入社時期が3か月以内・判断する人が本人');
@@ -650,5 +650,36 @@ describe('トークの振り返り: タブとアポの内訳', () => {
     expect(after.some(t => t.includes('受付で担当者を名前で呼ぶ'))).toBe(false);
     expect(after.some(t => t.startsWith('日程が決まった電話'))).toBe(true);
     expect(screen.getAllByTestId('talk-after-calls').length).toBeGreaterThan(0);
+  });
+});
+
+describe('取引ごとのアポランク', () => {
+  it('ランクと判定待ち・電話なし・取れないを足した件数がアポ数になる', () => {
+    const ranks = { s: 1, a: 2, b: 3, c: 4, pending: 5, no_call: 6, unavailable: 7 };
+    const data = { ...summary, people: [{ ...summary.total, owner_id: '9001', name: '架空の取得者', appointments: 28, apo_ranks: ranks }], total: { ...summary.total, appointments: 28, apo_ranks: ranks } };
+    render(<TalkSummaryTable data={data} tab="after" onOpen={() => undefined} />);
+    const cells = screen.getAllByTestId('talk-apo-ranks');
+    expect(cells.map(c => c.textContent)).toEqual(Array(2).fill('S 1A 2B 3C 4判定待ち 5・電話なし 6・取れない 7合計 28 件'));
+    expect(screen.getAllByTestId('talk-apo-count').map(c => c.textContent)).toEqual(['28', '28']);
+    const rule = screen.getByText(/ランクはアポ数の取引ごとに1つです/).textContent;
+    expect(rule).toContain('24時間前から10分後');
+    expect(rule).toContain('日程が決まった電話');
+    expect(rule).toContain('後の電話で聞けた答え');
+  });
+  it('ヒアリングだけの電話は一覧の9項目が−で、詳細はヒアリングだけを表示する', () => {
+    const data = fixtureCalls('9001', '2026-10-19', '2026-10-19');
+    const detail = fixtureDetail('fx-9001-2');
+    const hearingIds = new Set(data.checks.filter(c => c.stage === '日程が決まった後').map(c => c.id));
+    const onlyCall = { ...detail.call, items: detail.call.items.filter(i => hearingIds.has(i.id)) };
+    const { unmount } = render(<TalkCallsTable data={{ ...data, calls: [onlyCall] }} onOpen={() => undefined} />);
+    const row = screen.getByTestId('talk-call-row');
+    expect(Array.from(row.querySelectorAll('td')).slice(3, 12).map(td => td.textContent)).toEqual(Array(9).fill('−'));
+    expect(within(row).getByTestId('talk-call-rank').textContent).toContain('A');
+    expect(within(row).getByTestId('talk-call-answers').textContent).toContain('3か月以内');
+    unmount();
+    render(<TalkDetailView data={{ ...detail, call: onlyCall, items: detail.items.filter(i => hearingIds.has(i.id)) }} />);
+    expect(screen.queryAllByTestId('talk-item')).toHaveLength(0);
+    expect(screen.getAllByTestId('talk-hearing-item')).toHaveLength(6);
+    expect(screen.getByTestId('talk-detail-rank').textContent).toContain('A');
   });
 });

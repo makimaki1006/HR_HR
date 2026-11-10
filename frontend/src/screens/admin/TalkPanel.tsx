@@ -201,7 +201,7 @@ interface ApoToggle { open: boolean; onToggle: () => void }
 
 /** アポのランクの内訳 (S・A・B・C の本数) */
 function RanksCell({ r }: { r: TalkApoRanks }) {
-  const n = r.s + r.a + r.b + r.c;
+  const n = r.s + r.a + r.b + r.c + r.pending + r.no_call + r.unavailable;
   return (
     <td className="talk-ranks" data-testid="talk-apo-ranks">
       {n === 0 ? <span className="w8-muted">—</span> : (
@@ -209,6 +209,8 @@ function RanksCell({ r }: { r: TalkApoRanks }) {
           {APO_RANKS.map(k => <span key={k} className={`talk-rank talk-rank-${k}`}>{k} {r[k.toLowerCase() as 's' | 'a' | 'b' | 'c']}</span>)}
         </span>
       )}
+      <span className="talk-small">判定待ち {r.pending}・電話なし {r.no_call}・取れない {r.unavailable}</span>
+      <span className="talk-small">合計 {n} 件</span>
     </td>
   );
 }
@@ -546,6 +548,7 @@ export function TalkSummaryTable({ data, onOpen, view, tab = 'numbers', onTab, a
       </div>
       <details className="talk-howto" data-testid="talk-howto">
         <summary>数え方</summary>
+        <p>ランクはアポ数の取引ごとに1つです。アポ日確定に入る24時間前から10分後までの60秒以上の電話のうち、日程が決まった電話（入る直前のもの。なければ直後のもの）をアポを取った電話にします。ヒアリングは、その電話から入った10分後までの電話の答えを合わせ、後の電話で聞けた答えを使います。日程が決まった電話が無い取引（日程の確認・変更の電話しか無い取引を含む）は「電話なし」、電話の判定やヒアリングを待っている取引は「判定待ち」、録音が取れない取引は「取れない」です。これらとS・A・B・Cの合計がアポ数になります。判定をさかのぼる日数（ふだんは14日）より前のアポは「判定待ち」のまま出ます。</p>
         <p className="talk-rules" data-testid="talk-rules">
           <span style={{ display: 'block' }}>各項目の割合は、その項目に当てはまる電話のうち、できた電話の割合です。</span>
           {data.checks.some(isHearing) && <span style={{ display: 'block' }} data-testid="talk-hearing-rule">「日程が決まった後」の項目は、日程が決まった電話のうち先方から相応しい答えが得られた電話の割合です（営業が聞かずに先方が話した場合も得られたに数えます）。ここでの「日程が決まった電話」は、電話の 1 時間前から 72 時間後までに、その電話の取引が HubSpot でアポ日確定に入った電話です（すでに決まっていた日程の確認の電話や、断られた電話は入りません）。アポの記録を待つため、直近 3 日の電話は後から増えることがあります。</span>}
@@ -596,7 +599,7 @@ export function TalkCallsTable({ data, onOpen }: { data: TalkCallsResponse; onOp
               <td>{c.status === 'judged' ? c.outcome ?? '-' : <span className="w8-muted">{CALL_STATUS_TEXT[c.status] ?? c.status}</span>}</td>
               {marks.map(ch => {
                 const m = c.items.find(i => i.id === ch.id);
-                return <td key={ch.id}>{c.status === 'judged' && m !== undefined ? <Mark status={m.status} /> : ''}</td>;
+                return <td key={ch.id}>{c.status === 'judged' && m !== undefined ? <Mark status={m.status} /> : '−'}</td>;
               })}
               {hasHearing && <td data-testid="talk-call-rank">{c.apo_rank === null ? '' : <RankWithChecks rank={c.apo_rank} items={c.items} />}</td>}
               {hasHearing && <td data-testid="talk-call-answers">{c.status === 'judged' ? hearingLine(data.checks, c.items) : ''}</td>}

@@ -66,7 +66,7 @@ const pct = (n: number | null, d: number | null): number | null => (n === null |
  */
 /** アポのランクの内訳を足す */
 export function sumRanks(rows: TalkPersonRow[]): TalkApoRanks {
-  return rows.reduce((a, p) => ({ s: a.s + p.apo_ranks.s, a: a.a + p.apo_ranks.a, b: a.b + p.apo_ranks.b, c: a.c + p.apo_ranks.c }), { s: 0, a: 0, b: 0, c: 0 });
+  return rows.reduce((a, p) => ({ s: a.s + p.apo_ranks.s, a: a.a + p.apo_ranks.a, b: a.b + p.apo_ranks.b, c: a.c + p.apo_ranks.c, pending: a.pending + p.apo_ranks.pending, no_call: a.no_call + p.apo_ranks.no_call, unavailable: a.unavailable + p.apo_ranks.unavailable }), { s: 0, a: 0, b: 0, c: 0, pending: 0, no_call: 0, unavailable: 0 });
 }
 
 export function sumRows(rows: TalkPersonRow[], checks: TalkCheckDef[], name: string): TalkPersonRow {
