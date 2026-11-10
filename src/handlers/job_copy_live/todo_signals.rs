@@ -10,7 +10,6 @@ const CONTACT_DAYS: i64 = 30;
 pub(super) const MTG_DAYS: i64 = 60;
 const APPLICATION_DAYS: i64 = 14;
 const FIRST_CONTRACT_TARGETS: [(i64, usize); 2] = [(30, 5), (60, 10)];
-const FIRST_CONTRACT_VALUE: &str = "新規契約";
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub(super) struct Facts {
@@ -35,8 +34,13 @@ pub(super) fn zero_applicants(facts: Option<&Facts>) -> bool {
 }
 
 /// #244 と案件一覧で共用する初回契約の判定。
+/// 初回契約 = 取引の「売上回数」（number_of_sales）が 1（2026-11-10 ユーザー決定。コンサルKPIと同じ。
+/// 前は契約種別 contract_type が「新規契約」で見ていた）。空欄・数値でない値は初回契約にしない。
 pub(super) fn is_first_contract(record: &Record) -> bool {
-    record.value("contract_type") == Some(FIRST_CONTRACT_VALUE)
+    record
+        .value("number_of_sales")
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        == Some(1.0)
 }
 
 #[derive(Serialize, Deserialize, ts_rs::TS)]
@@ -385,7 +389,7 @@ mod tests {
                     "contract_expiration_date",
                     Some((today + chrono::Duration::days(expiration)).to_string()),
                 ),
-                ("contract_type", Some("新規契約".into())),
+                ("number_of_sales", Some("1".into())),
                 ("notes_last_contacted", contact.map(str::to_owned)),
             ]
             .into_iter()
@@ -473,11 +477,23 @@ mod tests {
             assert_eq!(launch(&d.record, None, today).total, None);
         }
         let mut d = deal(60, None, 90);
-        for value in ["FS - 再契約", "", "求人追加"] {
+        // 売上回数が 1 以外・空・数値でないものは初回契約にしない。契約種別は見ない
+        d.record
+            .properties
+            .insert("contract_type".into(), Some("新規契約".into()));
+        for value in ["2", "0", "", "一"] {
             d.record
                 .properties
-                .insert("contract_type".into(), Some(value.into()));
-            assert!(!is_first_contract(&d.record));
+                .insert("number_of_sales".into(), Some(value.into()));
+            assert!(!is_first_contract(&d.record), "{value}");
+        }
+        d.record.properties.remove("number_of_sales");
+        assert!(!is_first_contract(&d.record));
+        for value in ["1", " 1 ", "1.0"] {
+            d.record
+                .properties
+                .insert("number_of_sales".into(), Some(value.into()));
+            assert!(is_first_contract(&d.record), "{value}");
         }
         d.record.properties.remove("contract_start_date");
         assert_eq!(
@@ -710,7 +726,7 @@ mod tests {
         assert!(kinds(&d, &f).contains(&"first_contract".into()));
         d.record
             .properties
-            .insert("contract_type".into(), Some("FS - 再契約".into()));
+            .insert("number_of_sales".into(), Some("2".into()));
         assert!(!kinds(&d, &f).contains(&"first_contract".into()));
         for stage in ENDED_STAGES {
             d.record

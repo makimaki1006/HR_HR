@@ -145,7 +145,7 @@ async fn outcome(Query(q): Query<OutcomeQuery>, session: Session) -> Result<Resp
 }
 
 /// 日本時間の今日。サーバのタイムゾーン設定に依存させない。
-fn today_jst() -> NaiveDate {
+pub(super) fn today_jst() -> NaiveDate {
     Utc::now()
         .with_timezone(&FixedOffset::east_opt(9 * 3600).expect("JST"))
         .date_naive()
@@ -242,7 +242,6 @@ macro_rules! simple_handler {
     };
 }
 
-simple_handler!(rampup, build_rampup);
 simple_handler!(phone, build_phone);
 simple_handler!(headquarters, build_headquarters);
 simple_handler!(mtg_quality, build_mtg_quality);
@@ -250,8 +249,36 @@ simple_handler!(data_quality, build_data_quality);
 simple_handler!(consultants, build_consultants);
 simple_handler!(handover, build_handover);
 simple_handler!(contact_trend, build_contact_trend);
-simple_handler!(deal_board, build_deal_board);
 simple_handler!(stage_stay, build_stage_stay);
+/// 売上回数（初回契約の判定）を読む画面。作りは `simple_handler!` と同じで、売上回数のスナップショットを渡す。
+/// 🔴 売上回数は `first_contract::read_sales`（5分キャッシュ・100件ずつ・背景の優先度）を共用し、呼び出しを増やさない。
+macro_rules! sales_handler {
+    ($name:ident, $build:ident) => {
+        async fn $name(
+            axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
+            Query(q): Query<FocusQuery>,
+            session: Session,
+        ) -> Result<Response, CqError> {
+            let _ = session;
+            let state = cq_state()?;
+            if q.refresh.as_deref() == Some("1") {
+                for name in super::SHEETS {
+                    state.store.invalidate(Some(name)).await;
+                }
+            }
+            let sheets = load(&state.client, &state.store)
+                .await
+                .map_err(|e| CqError::from_anyhow("consulting", e))?;
+            let client = app.crm_hubspot();
+            let sales = super::first_contract::read_sales(&sheets, client.as_deref()).await;
+            let today = today_jst();
+            Ok(Json(freshen($build(&sheets, today, &sales), &sheets, today)).into_response())
+        }
+    };
+}
+sales_handler!(rampup, build_rampup_with_sales);
+sales_handler!(deal_board, build_deal_board_with_sales);
+
 async fn today_board(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
     session: Session,
@@ -341,7 +368,11 @@ simple_handler!(renewal_pipe, build_renewal_pipe);
 
 /// 「成果と継続」。継続回数 × 成果の右側打ち切りの切り替え（`exclude_right_censored`）を受け取るので
 /// `simple_handler!` ではなく `renewal()` と同じ形にしている。読むシートは全部（束ねた6つの集計が全部を使う）
-async fn results(Query(q): Query<RenewalQuery>, session: Session) -> Result<Response, CqError> {
+async fn results(
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
+    Query(q): Query<RenewalQuery>,
+    session: Session,
+) -> Result<Response, CqError> {
     let _ = session;
     let state = cq_state()?;
     if q.refresh.as_deref() == Some("1") {
@@ -354,10 +385,13 @@ async fn results(Query(q): Query<RenewalQuery>, session: Session) -> Result<Resp
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
     let excl = q.exclude_right_censored.as_deref() == Some("1");
+    let client = app.crm_hubspot();
+    let sales = super::first_contract::read_sales(&sheets, client.as_deref()).await;
+    let today = today_jst();
     Ok(Json(freshen(
-        build_results(&sheets, excl, today_jst()),
+        build_results_with_sales(&sheets, excl, today, &sales),
         &sheets,
-        today_jst(),
+        today,
     ))
     .into_response())
 }
@@ -395,6 +429,7 @@ struct DealDetailQuery {
 /// ①案件 →「案件の詳細」。作りは `simple_handler!` と同じ（認証の内側・`freshen` で母集団と鮮度）。
 /// 違うのは、取引の指定を受け取ることと、`CS_通話要約` を読めなくても続けること。
 async fn deal_detail(
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
     Query(q): Query<DealDetailQuery>,
     session: Session,
 ) -> Result<Response, CqError> {
@@ -411,13 +446,23 @@ async fn deal_detail(
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
     let force = q.refresh.as_deref() == Some("1");
     let summary = super::load_call_summary(&state.client, &state.store, force).await;
-    let v = super::deal_detail::build_deal_detail(
+    let mut v = super::deal_detail::build_deal_detail(
         &sheets,
         summary.as_deref(),
         q.deal_id.as_deref(),
         q.q.as_deref(),
         today_jst(),
     );
+    // 初回契約（売上回数が1回）かどうか。読めなかった取引（終了した取引の多く）は null
+    if let Some(id) = v["deal"]["deal_id"].as_str().map(str::to_string) {
+        let client = app.crm_hubspot();
+        let sales = super::first_contract::read_sales(&sheets, client.as_deref()).await;
+        v["deal"]["first_sales"] = if sales.is_unread(&id) {
+            Value::Null
+        } else {
+            json!(sales.is_first(&id))
+        };
+    }
     Ok(Json(freshen(v, &sheets, today_jst())).into_response())
 }
 
@@ -623,7 +668,8 @@ fn monthly_retention(deals: &[Deal]) -> Value {
 /// 継続回数ごとの解約率と代表値。
 ///
 /// 解約率の分子は **解約 + 充足**、分母は **決着済み（継続＋解約＋充足）**。
-/// 充足を外さないのが確定した定義（外すと初回は 58.1%→46.9% に見える）。
+/// 充足を外さないのが確定した定義（外すと継続0回は 58.1%→46.9% に見える）。
+/// 🔴 これは継続回数の軸。「初回契約」（売上回数が1回）とは別なので、継続0回を「初回」と書かない（2026-11-10）。
 /// 充足を除いた値（`cancel_rate_excl_fill`）は 解約 ÷（継続＋解約）。充足は「採れて終わった」として別に数え、
 /// 分子にも分母にも入れない（`rate_excl_fill` の 継続 ÷（継続＋解約）と同じ分母）。比べるためだけに返す。
 fn by_renewal(deals: &[Deal], exclude_right_censored: bool) -> Vec<Value> {
@@ -650,7 +696,7 @@ fn by_renewal(deals: &[Deal], exclude_right_censored: bool) -> Vec<Value> {
             let pending = count(Outcome::Pending);
             // 🔴 解約率の分母は**決着済み（継続＋解約＋充足）**。結果待ちは入れない。
             //    以前は `n`（その継続回数の全取引）で割っていて、稼働中が分母に入っていた。
-            //    実測（fixture・オプション除外後）で初回は n=1,914 のうち結果待ち 264件、
+            //    実測（fixture・オプション除外後）で継続0回は n=1,914 のうち結果待ち 264件、
             //    解約＋充足 959件 → 50.1% と出ていたが、決着済み 1,650件で割ると 58.1%。
             let denom = keep + cancel + fill;
 
@@ -1382,10 +1428,18 @@ fn first_mtg(deals: &[Deal], mtg_first: &HashMap<String, NaiveDate>) -> Value {
 
 /// 稼働中の初回契約で、MTG の記録がまだ見つからないもの（していないのではなく記録が欠けていると読む。2026-09-29 藤巻さん。
 /// 2026-10-01 に初回契約に限った判断であることを確かめた）。
-fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDate) -> Value {
+/// 初回契約は HubSpot の取引の「売上回数」が 1 のもの（2026-11-10 ユーザー決定。前は継続回数 0 で見ていた）。
+fn no_mtg(
+    act: &[&Deal],
+    mtg_first: &HashMap<String, NaiveDate>,
+    today: NaiveDate,
+    sales: &super::first_contract::SalesSnapshot,
+) -> Value {
     // 紹介料の取引（マーケ関連・名前に「紹介料」）は、母集団（`deals_of`）の時点で外れている。
     // 外した件数は population の注記に出る。
-    let first_time: Vec<&&Deal> = act.iter().filter(|d| d.renewal_no == Some(0)).collect();
+    let first_time: Vec<&&Deal> = act.iter().filter(|d| sales.is_first(&d.id)).collect();
+    // 売上回数を読めなかった稼働中の取引。初回契約に数えない（件数だけ出す）
+    let unread = act.iter().filter(|d| sales.is_unread(&d.id)).count();
     let mut rows = Vec::new();
     for d in &first_time {
         if mtg_first.contains_key(&d.id) {
@@ -1408,12 +1462,13 @@ fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDat
     });
     json!({
         "first_active": first_time.len(),
+        "sales_unread": unread,
         "n": rows.len(),
         "rate": rate(rows.len() as f64, first_time.len() as f64),
         "rows": rows,
         // 🔴 2026-09-29 藤巻さんの判断（2026-10-01 再確認）: 初回契約で MTG をしないことは実務上ありえない。「していない」と読ませない。
         //    初回契約に限った判断（継続契約も含む MTG途絶の帯の no_record_note までは広げない）
-        "note": "稼働中の初回契約のうち、MTG の記録が1件も見つからないもの。初回契約で MTG をしないことは実務上ありません。\
+        "note": "稼働中の初回契約（売上回数が1回）のうち、MTG の記録が1件も見つからないもの。初回契約で MTG をしないことは実務上ありません。\
     MTG はしていて、記録が欠けていると読みます\
     （欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない・メールに残っていない）",
     })
@@ -1445,6 +1500,15 @@ fn first_mtg_by_deal(mtg: &SheetData) -> HashMap<String, NaiveDate> {
 /// 継続率と継続回数ごとの解約率は `build_renewal` が持っている
 /// （画面側で同じ payload から描く。**同じ数字の作り方を2つ持たない**）。
 pub fn build_rampup(sheets: &Sheets, today: NaiveDate) -> Value {
+    build_rampup_with_sales(sheets, today, &Default::default())
+}
+
+/// 初回契約（売上回数が1回）の判定に `sales` を使う版。画面の API はこちら。
+pub(super) fn build_rampup_with_sales(
+    sheets: &Sheets,
+    today: NaiveDate,
+    sales: &super::first_contract::SalesSnapshot,
+) -> Value {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let mf = first_mtg_by_deal(&sheets.mtg);
@@ -1458,8 +1522,8 @@ pub fn build_rampup(sheets: &Sheets, today: NaiveDate) -> Value {
         },
         "phase": phase_of(&act, today),
         "first_mtg": first_mtg(&deals, &mf),
-        "no_mtg": no_mtg(&act, &mf, today),
-        "launch": launch_trend(sheets, &deals, today),
+        "no_mtg": no_mtg(&act, &mf, today, sales),
+        "launch": launch_trend(sheets, &deals, today, sales),
     })
 }
 
@@ -1475,8 +1539,9 @@ pub fn build_rampup(sheets: &Sheets, today: NaiveDate) -> Value {
 ///    その記録の月の増えた分は分からないので、次の月から数える。
 const LAUNCH_COHORTS: usize = 6;
 
-fn launch_trend(sheets: &Sheets, deals: &[Deal], today: NaiveDate) -> Value {
-    let series = super::series_of(&sheets.history);
+/// 立ち上がりの図の開始月（直近 LAUNCH_COHORTS か月。古い順で、最後が一番新しい「終わった月」）。
+/// 売上回数を読む取引の範囲（`first_contract::read_sales`）もこれで決める。
+pub(super) fn launch_starts(today: NaiveDate) -> Vec<String> {
     let this_month = today.format("%Y-%m").to_string();
     // 一番新しい「終わった月」
     let last_full = {
@@ -1487,8 +1552,7 @@ fn launch_trend(sheets: &Sheets, deals: &[Deal], today: NaiveDate) -> Value {
             format!("{y:04}-{:02}", m - 1)
         }
     };
-    // 直近 LAUNCH_COHORTS か月の開始月（古い順。最後が last_full）
-    let mut starts: Vec<String> = vec![last_full.clone()];
+    let mut starts: Vec<String> = vec![last_full];
     while starts.len() < LAUNCH_COHORTS {
         let (y, m) = super::ym_of(&starts[0]).expect("開始月");
         starts.insert(
@@ -1500,16 +1564,34 @@ fn launch_trend(sheets: &Sheets, deals: &[Deal], today: NaiveDate) -> Value {
             },
         );
     }
+    starts
+}
+
+fn launch_trend(
+    sheets: &Sheets,
+    deals: &[Deal],
+    today: NaiveDate,
+    sales: &super::first_contract::SalesSnapshot,
+) -> Value {
+    let series = super::series_of(&sheets.history);
+    let starts = launch_starts(today);
+    let last_full = starts.last().expect("開始月").clone();
     let mut out = Vec::new();
     let mut n_first_all = 0usize;
+    // 対象の開始月に始まった取引のうち、売上回数を読めなかったもの（初回契約に数えない）
+    let mut n_sales_unread = 0usize;
     let mut n_no_series = 0usize;
     let mut n_decrease = 0usize;
     for s in &starts {
-        let members: Vec<&Deal> = deals
+        let in_month: Vec<&Deal> = deals
             .iter()
-            .filter(|d| {
-                d.renewal_no == Some(0) && d.contract_start_date.get(..7) == Some(s.as_str())
-            })
+            .filter(|d| d.contract_start_date.get(..7) == Some(s.as_str()))
+            .collect();
+        n_sales_unread += in_month.iter().filter(|d| sales.is_unread(&d.id)).count();
+        // 初回契約 = 売上回数が1回（2026-11-10 ユーザー決定。前は継続回数 0）
+        let members: Vec<&Deal> = in_month
+            .into_iter()
+            .filter(|d| sales.is_first(&d.id))
             .collect();
         n_first_all += members.len();
         // 開始月から数えて、終わった月は何か月目まで
@@ -1568,7 +1650,8 @@ fn launch_trend(sheets: &Sheets, deals: &[Deal], today: NaiveDate) -> Value {
         "n_no_series": n_no_series,
         "n_decrease": n_decrease,
         "last_full": last_full,
-        "note": "初回契約（継続回数 0）の応募数を、契約を始めた月ごとに分けて、開始の月を 1 か月目として並べています。\
+        "n_sales_unread": n_sales_unread,
+        "note": "初回契約（売上回数が1回）の応募数を、契約を始めた月ごとに分けて、開始の月を 1 か月目として並べています。\
     月の応募数は、取引の応募数（累計）の月ごとの増え方です。まだ終わっていない月は線を伸ばしていません。",
     })
 }
@@ -3127,8 +3210,8 @@ pub(super) const ACT_VIEWS: [ActView; 7] = [
         //    「していない」ではなく「記録が欠けている」と読む。名前・定義文とも「見つからない」にそろえる。
         //    初回契約に限った判断なので、定義文にもそう書く（継続契約まで広げて言い切らない）
         label: "初回契約で MTG の記録が見つからない",
-        rule: "初回契約で、MTGが空いている期間の区分が「MTGの記録が見つからない」の案件（録画とメール由来の実施日のどちらにも見つからない）。\
-立ち上がり期（契約開始30日以内）と開始前は区分を付けないので入りません。\
+        rule: "初回契約（HubSpot の売上回数が1回）で、MTGが空いている期間の区分が「MTGの記録が見つからない」の案件（録画とメール由来の実施日のどちらにも見つからない）。\
+立ち上がり期（契約開始30日以内）と開始前は区分を付けないので入りません。売上回数を読めなかった案件も入りません。\
 初回契約で MTG をしないことは実務上ないので、MTG はしていて記録が欠けていると読みます（初回契約に限った読み方です）。\
 欠ける理由の候補は、MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない・メールに残っていない、です",
         // 🔴 前の表の名前は、画面に出ていたとおりに残す（書き換えると、覚えている人が照合できず、履歴として事実でなくなる）。
@@ -3172,7 +3255,6 @@ pub(super) struct ActFacts<'a> {
     pub amount: Option<f64>,
     pub not_started: bool,
     pub days_since_contact: Option<i64>,
-    pub renewal_no: Option<i64>,
     pub band: super::MtgBand,
     pub mtg_risk: Option<&'a str>,
     /// 「滞留した案件」画面の滞留（満了後も稼働中は含めない）／満了後も稼働中
@@ -3199,9 +3281,8 @@ pub(super) fn act_views_of(f: &ActFacts) -> Vec<&'static str> {
     {
         out.push("silent");
     }
-    if f.renewal_no == Some(0) && f.band == super::MtgBand::NoRecord {
-        out.push("no_mtg");
-    }
+    // 見方「初回契約で MTG の記録が見つからない」は売上回数（HubSpot）で決まるので、
+    // シートだけで覚える行には付けず、`apply_first_sales` が後から付ける
     if f.mtg_risk == Some(MTG_RISK_HIGH) {
         out.push("mtg_risk");
     }
@@ -3215,6 +3296,55 @@ pub(super) fn act_views_of(f: &ActFacts) -> Vec<&'static str> {
         out.push("nps_low");
     }
     out
+}
+
+/// 案件の行（`deal_rows`）に、売上回数で決まる「初回契約か」（`first_sales`）と見方 `no_mtg` を付ける。
+///
+/// 🔴 2026-11-10 ユーザー決定: 初回契約は HubSpot の取引の「売上回数」（number_of_sales）が 1 のもの。
+///    売上回数はシートに無く 5 分で変わりうるので、シートと基準日で覚える行（`deal_rows`）の外で付ける（`attach_gates` と同じ）。
+///    読めなかった取引は初回契約に数えず、`first_sales` を null にして件数を `meta.sales_unread` に出す。
+pub(super) fn apply_first_sales(
+    rows: &mut [Value],
+    meta: &mut Value,
+    sales: &super::first_contract::SalesSnapshot,
+) {
+    let mut n_view = 0usize;
+    let mut unread = 0usize;
+    for row in rows.iter_mut() {
+        let id = row["deal_id"].as_str().unwrap_or("").to_string();
+        let first = sales.is_first(&id);
+        row["first_sales"] = if sales.is_unread(&id) {
+            unread += 1;
+            Value::Null
+        } else {
+            json!(first)
+        };
+        let hit = first && row["mtg_band"] == "no_record";
+        let mut keys: Vec<&str> = row["views"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
+            .unwrap_or_default();
+        keys.retain(|k| *k != "no_mtg");
+        if hit {
+            keys.push("no_mtg");
+            n_view += 1;
+        }
+        // 並びは ACT_VIEWS の順に戻す
+        let views: Vec<&str> = ACT_VIEWS
+            .iter()
+            .map(|v| v.key)
+            .filter(|k| keys.contains(k))
+            .collect();
+        row["views"] = json!(views);
+    }
+    if let Some(m) = meta.as_object_mut() {
+        m.insert("sales_unread".into(), json!(unread));
+        if let Some(list) = m.get_mut("act_views").and_then(Value::as_array_mut) {
+            for v in list.iter_mut().filter(|v| v["key"] == "no_mtg") {
+                v["n"] = json!(n_view);
+            }
+        }
+    }
 }
 
 /// 取引ごとに、リスク判定のある MTG のうちいちばん新しいものの（開催日, 判定）。
@@ -3254,7 +3384,16 @@ pub(super) fn latest_mtg_risk_by_deal(mtg: &SheetData) -> HashMap<String, (Naive
 /// 🔴 寄せ直した最初の版では、前の定義で入っていて外れた案件を**件数と理由つきで**画面に出す（09 の 10 章②）。
 ///    前の集合は前の関数そのもの（`risk` / `build_phone` / `no_mtg`）から取る。ここで前の定義を書き直さない。
 ///    理由は、その案件の行（名札・帯・日数）から「新しい定義のどこに当たらなかったか」を言うだけにする（推定を足さない）。
-pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -> Value {
+///
+/// `only` を渡すと、その見方だけを数える（`no_mtg` は売上回数で変わるので、覚えた結果を使わずにここだけ数え直す）。
+pub(super) fn act_view_diff(
+    sheets: &Sheets,
+    today: NaiveDate,
+    rows: &[Value],
+    sales: &super::first_contract::SalesSnapshot,
+    only: Option<&str>,
+) -> Value {
+    let want = |k: &str| only.is_none_or(|o| o == k);
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.factual_mtg());
@@ -3267,9 +3406,21 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
             })
             .unwrap_or_default()
     };
-    let old_top = ids(&risk(&act, &contacts, today)["top"]);
-    let old_silent = ids(&build_phone(sheets, today)["silent"]["rows"]);
-    let old_no_mtg = ids(&no_mtg(&act, &first_mtg_by_deal(&sheets.mtg), today)["rows"]);
+    let old_top = if want("top") {
+        ids(&risk(&act, &contacts, today)["top"])
+    } else {
+        Vec::new()
+    };
+    let old_silent = if want("silent") {
+        ids(&build_phone(sheets, today)["silent"]["rows"])
+    } else {
+        Vec::new()
+    };
+    let old_no_mtg = if want("no_mtg") {
+        ids(&no_mtg(&act, &first_mtg_by_deal(&sheets.mtg), today, sales)["rows"])
+    } else {
+        Vec::new()
+    };
 
     let by_id: HashMap<&str, &Value> = rows
         .iter()
@@ -3313,8 +3464,12 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
                 }
             }
             "no_mtg" => {
-                if r["renewal_no"].as_i64() != Some(0) {
-                    why.push("初回契約ではない".into());
+                if r["first_sales"] != true {
+                    why.push(if r["first_sales"].is_null() {
+                        "売上回数を読めなかった（初回契約か分からない）".to_string()
+                    } else {
+                        "初回契約ではない（売上回数が1回でない）".to_string()
+                    });
                 }
                 let band = r["mtg_band_label"].as_str().unwrap_or("");
                 if r["mtg_band"] != "no_record" {
@@ -3338,6 +3493,7 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
 
     let out: Vec<Value> = ACT_VIEWS
         .iter()
+        .filter(|v| want(v.key))
         .map(|v| {
             let now: Vec<&str> = rows
                 .iter()
@@ -3598,7 +3754,6 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             amount: d.amount,
             not_started,
             days_since_contact: days_since,
-            renewal_no: d.renewal_no,
             band: gap.band,
             mtg_risk: mrisk.map(|(_, r)| r.as_str()),
             stay_long: stay_long.contains(&d.id),
@@ -3673,8 +3828,10 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             "cpa_band": cband.map(|b| CPA_BANDS[b].0),
             "flags": flags,
             "n_flags": flags.len(),
-            // 継続回数（0＝初回契約）。見方「初回契約で MTG の記録が見つからない」の材料
+            // 継続回数（同じ契約の続き何回目か）。初回契約かどうかは売上回数で決める（`first_sales`）
             "renewal_no": d.renewal_no,
+            // 初回契約（売上回数が1回）か。売上回数はシートに無いので `apply_first_sales` が入れる（読めなければ null）
+            "first_sales": Value::Null,
             "first_contract": {"gates": [], "overdue_count": 0},
             // 判定のある MTG のうち、いちばん新しいもののリスク判定と開催日（無ければ null）
             "mtg_risk": mrisk.map(|(_, r)| r.clone()),
@@ -3785,12 +3942,29 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
 /// ②案件の立ち位置。稼働中の全件を返す（画面で並び替える）。
 /// 🔴 見方の突き合わせ（`act_view_diff`）はここだけで返す（今日動く先・チームと担当には要らない）。
 pub fn build_deal_board(sheets: &Sheets, today: NaiveDate) -> Value {
-    let (rows, mut meta) = deal_rows(sheets, today);
+    build_deal_board_with_sales(sheets, today, &Default::default())
+}
+
+/// 初回契約（売上回数が1回）の判定に `sales` を使う版。画面の API はこちら。
+/// 🔴 突き合わせはシートと基準日で覚える（重い `build_phone` を含むため）。売上回数で変わる `no_mtg` だけは毎回数え直して差し替える
+pub(super) fn build_deal_board_with_sales(
+    sheets: &Sheets,
+    today: NaiveDate,
+    sales: &super::first_contract::SalesSnapshot,
+) -> Value {
+    let (mut rows, mut meta) = deal_rows(sheets, today);
+    apply_first_sales(&mut rows, &mut meta, sales);
+    let mut diff = act_view_diff_memo(sheets, today, || {
+        act_view_diff(sheets, today, &rows, sales, None)
+    });
+    let fresh = act_view_diff(sheets, today, &rows, sales, Some("no_mtg"));
+    if let (Some(list), Some(entry)) = (diff.as_array_mut(), fresh.get(0)) {
+        for v in list.iter_mut().filter(|v| v["key"] == "no_mtg") {
+            *v = entry.clone();
+        }
+    }
     if let Some(m) = meta.as_object_mut() {
-        m.insert(
-            "act_view_diff".into(),
-            act_view_diff_memo(sheets, today, || act_view_diff(sheets, today, &rows)),
-        );
+        m.insert("act_view_diff".into(), diff);
     }
     json!({"meta": meta, "rows": rows})
 }
@@ -3900,6 +4074,7 @@ pub(super) fn build_today_board_with_sales(
 ) -> Value {
     let (mut rows, mut meta) = deal_rows(sheets, today);
     super::first_contract::attach_gates(&mut rows, sheets, today, sales);
+    apply_first_sales(&mut rows, &mut meta, sales);
 
     // 名札2本以上・満足度4以下・初回契約の期限超過の候補。名札自体は増やさない。
     // そのうえで `deal_rows` の並び（名札の本数が多い順、同じ本数なら金額の大きい順）の上から 24件。
@@ -4228,6 +4403,16 @@ pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
 /// 🔴 電話（`phone`）は外した（段B、2026-09-29）。「手を打つ先」の表（沈黙している取引）を畳んで残すためだけに
 ///    入れていたもので、手を打つ先は案件一覧の見方の印（`ACT_VIEWS`）に移った。電話の画面そのものは残っている（10 章⑤）。
 pub fn build_results(sheets: &Sheets, exclude_right_censored: bool, today: NaiveDate) -> Value {
+    build_results_with_sales(sheets, exclude_right_censored, today, &Default::default())
+}
+
+/// 初回契約（売上回数が1回）の判定に `sales` を使う版。画面の API はこちら。
+pub(super) fn build_results_with_sales(
+    sheets: &Sheets,
+    exclude_right_censored: bool,
+    today: NaiveDate,
+    sales: &super::first_contract::SalesSnapshot,
+) -> Value {
     json!({
         "meta": {
             "today": today.to_string(),
@@ -4246,7 +4431,7 @@ pub fn build_results(sheets: &Sheets, exclude_right_censored: bool, today: Naive
         "renewal": build_renewal(sheets, exclude_right_censored),
         "outcome": build_outcome(sheets, today),
         "focus": build_focus(sheets, today),
-        "rampup": build_rampup(sheets, today),
+        "rampup": build_rampup_with_sales(sheets, today, sales),
         "headquarters": build_headquarters(sheets, today),
         // 金額の札（稼働中の合計・今月〜再来月に満了する金額・金額で見た継続率）。会社全体だけ（10 章④。段B）
         "money": build_money(sheets, today),

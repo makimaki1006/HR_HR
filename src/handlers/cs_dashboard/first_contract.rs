@@ -281,8 +281,17 @@ pub struct SalesSnapshot {
     values: HashMap<String, Option<f64>>,
 }
 impl SalesSnapshot {
-    fn is_first(&self, id: &str) -> bool {
+    /// 初回契約 = HubSpot の取引の「売上回数」（number_of_sales）が 1。コンサルKPIの「初回」はすべてこれで決める。
+    pub(super) fn is_first(&self, id: &str) -> bool {
         self.values.get(id) == Some(&Some(1.0))
+    }
+    /// 売上回数を読めなかった（未取得・部分失敗）。空欄は読めた扱い（初回ではない）。
+    pub(super) fn is_unread(&self, id: &str) -> bool {
+        !self.values.contains_key(id)
+    }
+    #[cfg(test)]
+    pub(super) fn from_values(values: HashMap<String, Option<f64>>) -> Self {
+        Self { values }
     }
 }
 
@@ -437,14 +446,22 @@ impl SalesCache {
 }
 
 /// CRM の目標認可とは独立して、既存母集団の稼働中全件を読む（満了超過も取得対象）。
+/// 立ち上がりの図（開始月ごとの応募の推移）の対象月に始まった取引も、終了済みを含めて読む
+/// （稼働中だけにすると、解約した取引が図から抜けて残った取引だけの推移になるため）。
 pub(super) async fn read_sales(
     sheets: &Sheets,
     client: Option<&crate::hubspot::HubSpotClient>,
 ) -> SalesSnapshot {
     static CACHE: OnceLock<SalesCache> = OnceLock::new();
+    let starts = super::routes::launch_starts(super::routes::today_jst());
     let ids: Vec<_> = super::deals_of(&sheets.deal)
         .into_iter()
-        .filter(|d| d.is_active)
+        .filter(|d| {
+            d.is_active
+                || d.contract_start_date
+                    .get(..7)
+                    .is_some_and(|m| starts.iter().any(|s| s == m))
+        })
         .map(|d| d.id)
         .collect();
     CACHE

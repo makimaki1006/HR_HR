@@ -15,7 +15,7 @@ describe('BoxPlot のひげ', () => {
   });
 
   it('外れた大きい値があっても目盛りはひげの端までにし、右端に最大値を書く', () => {
-    render(<BoxPlot title="架空の散らばり" rows={[{ label: '初回', stats: stats(0, 2, 4, 10, 491) }, { label: '継続1', stats: stats(0, 1, 3, 6, 12) }]} />);
+    render(<BoxPlot title="架空の散らばり" rows={[{ label: '継続0回', stats: stats(0, 2, 4, 10, 491) }, { label: '継続1回', stats: stats(0, 1, 3, 6, 12) }]} />);
     const chart = screen.getByRole('img', { name: '架空の散らばり' });
     const texts = [...chart.querySelectorAll('text')].map((t) => t.textContent);
     expect(texts).toContain('22.0'); // 目盛りの右端は初回のひげの端 10 + 1.5×8
