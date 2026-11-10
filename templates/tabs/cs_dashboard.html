@@ -5894,6 +5894,7 @@ function renderRampup(D, id) {
   /* 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ない。「記録がまだ無い」は「していない」に読める。
      ただし前の表の名前は、画面に出ていたとおり（「MTG の記録がまだ無い初回契約」）に残す。書き換えると覚えている人が
      照合できず、履歴として事実でなくなる（2026-09-30 検証）。いまの読み方は文の末尾に添える */
+  if (nm && nm.sales_unread > 0) h += '<p class="muted small">売上回数を読めなかった ' + num(nm.sales_unread) + ' 件は、初回契約に数えていません。</p>';
   return h + '<p class="muted small">前の表「MTG の記録がまだ無い初回契約」（当時の名前のまま）' + num(nm.n) +
     " 件（録画だけで数えた件数）は、" +
     "注意に定義を揃えて " + '<a class="golink" href="' + esc(hashFor("board", { view: "no_mtg" })) + '">案件一覧のよく使う絞り込み</a>' +
@@ -6786,6 +6787,9 @@ function boardViewNote(D, who, pending) {
   const judged = k === "mtg_risk" ? (D.rows || []).filter((r) => r.mtg_risk).length : null;
   let h = '<p class="muted small">' + esc(v.rule) + '。稼働中' + (who ? '（全担当）' : '') + ' ' + num(D.rows.length) + ' 件のうち ' + num(v.n) + ' 件です。</p>';
   if (judged != null) h += '<p class="muted small">リスク判定のある案件は ' + num(judged) + ' 件。</p>';
+  /* 初回契約は売上回数で決める。読めなかった取引は初回に数えないので、0 件と「まだ読めていない」を分けて書く（2026-11-10 レビュー A） */
+  const unread = ((D.meta || {}).sales_unread) || 0;
+  if (k === "no_mtg" && unread > 0) h += '<p class="muted small">売上回数を読めなかった ' + num(unread) + ' 件は、初回契約に数えていません。</p>';
   if (o) h += foldNote("info", "前の定義との差", "以前の" + esc(o.where) + " " + num(o.n) + " 件のうち " + num(o.dropped) + " 件は外れました。新しく入った案件 " + num(o.added || 0) + " 件。", "", "");
   if (o && o.dropped && who) {
     const mine = (o.dropped_rows || []).filter((r) => r.consultant === who);

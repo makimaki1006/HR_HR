@@ -2952,6 +2952,16 @@ check("初回契約", "関門の言葉は最後の日・開始前・開始前の
   if (rule.includes('。。')) throw new Error('句点が重なる: ' + rule);
 });
 
+check("初回契約", "売上回数を読めなかった件数を、よく使う絞り込みにも出す", async () => {
+  const t = boot();
+  t.R('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "no_mtg" };');
+  t.R(`__d = { rows: [], meta: { sales_unread: 3, act_views: [{ key: "no_mtg", rule: "初回契約で MTG の記録が見つからない", n: 0 }] } };`);
+  const h = t.R('boardViewNote(__d, "", false)');
+  if (!h.includes('売上回数を読めなかった 3 件は、初回契約に数えていません。')) throw new Error('読めなかった件数が無い: ' + h);
+  t.R('__d.meta.sales_unread = 0');
+  if (t.R('boardViewNote(__d, "", false)').includes('売上回数を読めなかった')) throw new Error('0 件なのに出ている');
+});
+
 check("初回契約", "共通の判定・目標を表示し担当を絞りURLへ戻せる", async () => {
   const t = boot();
   t.R(`__first = { consultants:['架空の担当甲','架空の担当乙'], rows:[
