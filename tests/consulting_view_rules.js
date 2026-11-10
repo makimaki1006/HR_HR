@@ -3830,9 +3830,9 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   ok(JSON.stringify(heads) === JSON.stringify(["毎日", "調べる", "月1"]), "区切りの見出しが 毎日 / 調べる / 月1 でない: " + heads);
   ok(!side.includes('class="no"') && !/[①-⑩]/.test(side), "区切りに丸数字が残っている: " + side);
   const nBtn = (side.match(/<button /g) || []).length;
-  ok(nBtn === 7, "左の項目が 7 でない: " + nBtn);
+  ok(nBtn === 8, "左の項目が 8 でない: " + nBtn);
   const labels = [...side.matchAll(/<button [^>]*>([^<]*)<\/button>/g)].map((m) => m[1]);
-  ok(JSON.stringify(labels) === JSON.stringify(["チームと担当", "今日", "案件一覧", "顧客", "満了日超過の稼働中", "満了と継続", "成果と継続"]), "左の項目名が違う: " + labels.join(" / "));
+  ok(JSON.stringify(labels) === JSON.stringify(["チームと担当", "今日", "初回契約", "案件一覧", "顧客", "満了日超過の稼働中", "満了と継続", "成果と継続"]), "左の項目名が違う: " + labels.join(" / "));
   /* 外した画面は左に出さない。URL では今までどおり開ける（hidden） */
   for (const k of ["stagestay", "focus", "phone", "trust", "byowner", "detail"])
     ok(JSON.parse(run('JSON.stringify(MENUS.flatMap((m) => m.views).find((v) => v.key === "' + k + '"))')).hidden === true, k + " が hidden でない");
@@ -5946,9 +5946,9 @@ check("2026-10-26 今日: 全社の表は上位24件の後ろに満足度4以下
   run("todayConsultant = '';");
   const h = run("renderToday(__TDX)");
   const n = D.rows.length;
-  ok(textOf(h).includes("今日の案件（" + n + " 件 ＋ 満足度4以下 3 件）"), "見出し: " + textOf(h).slice(0, 400));
+  ok(textOf(h).includes("今日の案件（" + n + " 件 ＋ 満足度4以下・初回契約の期限超過 3 件）"), "見出し: " + textOf(h).slice(0, 400));
   ok(h.indexOf("案件x1") > 0 && h.indexOf("案件x1") < h.indexOf("案件x2") && h.indexOf("案件x2") < h.indexOf("案件x3"), "続きの並びが違う");
-  ok(textOf(h).includes("注意が2つ以上 243 件と、満足度が低いだけの 8 件から"), "内訳が無い");
+  ok(textOf(h).includes("注意が2つ以上 243 件と、満足度が低いだけの 8 件と、初回契約の期限超過 0 件から"), "内訳が無い");
   const D0 = JSON.parse(JSON.stringify(D)); D0.extra_low_satisfaction = [];
   ctx.__TDY = D0;
   ok(!textOf(run("renderToday(__TDY)")).includes("＋ 満足度4以下"), "0 件なのに見出しに足している");

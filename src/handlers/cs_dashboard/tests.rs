@@ -2866,9 +2866,9 @@ fn 今日動く先は名札2本以上の全候補も返す() {
     let cand = v["candidates"].as_array().expect("candidates が無い");
     let rows = v["rows"].as_array().unwrap();
     assert_eq!(v["meta"]["keep"], 24, "meta.keep");
-    // 243 件（注意2つ以上）+ 8 件（注意が満足度の1本だけで、満足度が低い。2026-10-26 に候補へ足した）
-    assert_eq!(cand.len(), 251, "候補の件数");
-    assert_eq!(v["meta"]["n_hit"], 251, "n_hit は候補の件数");
+    // 注意2つ以上243件 + 満足度だけで4以下8件 + 初回契約の期限超過で増える44件。
+    assert_eq!(cand.len(), 295, "初回契約の期限超過も含む候補の件数");
+    assert_eq!(v["meta"]["n_hit"], 295, "n_hit は候補の件数");
     assert_eq!(rows.len(), 24, "rows は今までどおり keep 件");
     assert_eq!(
         &cand[..rows.len()],
@@ -2881,10 +2881,10 @@ fn 今日動く先は名札2本以上の全候補も返す() {
         let n = r["n_flags"].as_u64().unwrap_or(0);
         let has_low = r["flags"].as_array().unwrap().iter().any(|f| f == low);
         assert!(
-            n >= 2 || has_low,
+            n >= 2 || has_low || r["first_contract"]["overdue_count"].as_u64().unwrap_or(0) > 0,
             "注意が2本未満で満足度も低くない行が候補に入っている: {r}"
         );
-        if n < 2 {
+        if n < 2 && has_low {
             one_flag_low += 1;
             assert_eq!(r["flags"][0], low, "1本だけの注意が満足度の名札でない: {r}");
             assert!(
@@ -2896,18 +2896,17 @@ fn 今日動く先は名札2本以上の全候補も返す() {
     assert_eq!(one_flag_low, 8, "注意1本で満足度が低いだけの候補");
     assert_eq!(v["meta"]["n_flags2"], 243);
     assert_eq!(v["meta"]["n_low_only"], 8);
-    assert_eq!(v["meta"]["n_hit"], 251);
+    assert_eq!(v["meta"]["n_first_overdue"], 117);
+    assert_eq!(v["meta"]["n_hit"], 295);
     // 全社の表（rows 24 件）に入らなかった満足度が低い案件は、同じ並びで後ろに続く
     let rows = v["rows"].as_array().unwrap();
     let extra = v["extra_low_satisfaction"].as_array().unwrap();
-    let low_all = cand
-        .iter()
-        .filter(|r| r["flags"].as_array().unwrap().iter().any(|f| f == low))
-        .count();
-    let low_in_top = rows
-        .iter()
-        .filter(|r| r["flags"].as_array().unwrap().iter().any(|f| f == low))
-        .count();
+    let required = |r: &&Value| {
+        r["flags"].as_array().unwrap().iter().any(|f| f == low)
+            || r["first_contract"]["overdue_count"].as_u64().unwrap_or(0) > 0
+    };
+    let low_all = cand.iter().filter(required).count();
+    let low_in_top = rows.iter().filter(required).count();
     assert_eq!(
         extra.len(),
         low_all - low_in_top,
@@ -2941,7 +2940,7 @@ fn 今日動く先は名札2本以上の全候補も返す() {
     };
     let (o24, oall) = (owners(rows), owners(cand));
     assert_eq!(o24.len(), 11, "24 件に出る担当者の数");
-    assert_eq!(oall.len(), 23, "候補に出る担当者の数");
+    assert_eq!(oall.len(), 24, "候補に出る担当者の数");
     assert!(
         o24.is_subset(&oall),
         "24 件の担当者が候補の担当者に含まれない"
@@ -2998,7 +2997,7 @@ fn 今日動く先は全担当と担当ごとのmtg途絶の実数も返す() {
     let missing: Vec<_> = all.difference(&seen).cloned().collect();
     assert_eq!(
         missing.len(),
-        2,
+        1,
         "候補・満了・新規に出ない担当（稼働中の案件はある）の数が fixture と違う: {missing:?}"
     );
 
@@ -3032,7 +3031,7 @@ fn 今日動く先は全担当と担当ごとのmtg途絶の実数も返す() {
         .collect();
     assert_eq!(
         off.len(),
-        8, // 重大を 60 日にして 5 → 8（名札 1 本だけの行が増えた）
+        7, // 初回契約の期限超過が候補に入り、実数と差がある担当が8名から7名へ減る
         "候補の中の件数と帯の実数がずれる担当の数が fixture と違う: {off:?}"
     );
     assert!(
@@ -6043,7 +6042,7 @@ fn 今日動く先の絞った条件に画面名を書かない() {
     );
     // 決まりの中身（何件から何件・線引きは取り決め）は残す
     assert!(
-        rule.contains("件を出しています") && rule.contains("線引きは取り決めです"),
+        rule.contains("24 件を出し") && rule.contains("初回契約の関門が期限超過"),
         "{rule}"
     );
 }
@@ -6075,7 +6074,7 @@ fn team_status_matches_today_and_board() {
         flags2_in_cands,
         "注意2つ以上の合計が今日動く先の候補（注意2つ以上）と違う"
     );
-    assert_eq!(today["meta"]["n_hit"], 251);
+    assert_eq!(today["meta"]["n_hit"], 295);
     let sum = |k: &str| rows.iter().map(|r| r[k].as_u64().unwrap()).sum::<u64>();
     assert_eq!(
         sum("n_active") + st["meta"]["unknown"]["n_active"].as_u64().unwrap(),
@@ -7224,9 +7223,9 @@ fn team_without_audit_keeps_counts_and_omits_comparison() {
     assert!(team["comparison"].is_null());
     assert_eq!(team["status"]["meta"]["n_active"], 594);
     assert_eq!(team["status"]["meta"]["n_flags2"], 243);
-    // チームの「注意2つ以上」は今日の候補のうち注意2つ以上の分（候補は満足度が低い注意1本の8件が加わって251件）
+    // チームの注意2つ以上は243件。今日の候補は満足度だけ8件と初回契約の期限超過で増える44件を含む。
     let today = build_today_board(&sh, fixture_day());
-    assert_eq!(today["meta"]["n_hit"], 251);
+    assert_eq!(today["meta"]["n_hit"], 295);
     assert_eq!(
         team["status"]["meta"]["n_flags2"].as_u64().unwrap() as usize,
         today["candidates"]

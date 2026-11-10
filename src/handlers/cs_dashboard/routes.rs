@@ -73,6 +73,7 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/deals", get(deal_board))
         .route("/api/consulting/stage-stay", get(stage_stay))
         .route("/api/consulting/today", get(today_board))
+        .route("/api/consulting/first-contract", get(first_contract))
         .route("/api/consulting/deal-detail", get(deal_detail))
         .route("/api/consulting/team", get(team))
         .route("/api/consulting/results", get(results))
@@ -252,6 +253,43 @@ simple_handler!(contact_trend, build_contact_trend);
 simple_handler!(deal_board, build_deal_board);
 simple_handler!(stage_stay, build_stage_stay);
 simple_handler!(today_board, build_today_board);
+async fn first_contract(
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
+    session: Session,
+    Query(q): Query<FocusQuery>,
+) -> Result<Response, CqError> {
+    let authorization = crate::crm::rbac::authorize(
+        &session,
+        &app,
+        &crate::crm::rbac::CrmAccess::from_env(),
+        Some(crate::hubspot::RecordType::Deal),
+    )
+    .await
+    .map(|_| ());
+    let state = cq_state()?;
+    if q.refresh.as_deref() == Some("1") {
+        for name in super::SHEETS {
+            state.store.invalidate(Some(name)).await;
+        }
+    }
+    let sheets = load(&state.client, &state.store)
+        .await
+        .map_err(|e| CqError::from_anyhow("consulting", e))?;
+    let today = today_jst();
+    let mut body = freshen(
+        super::first_contract::build_first_contract(&sheets, today),
+        &sheets,
+        today,
+    );
+    let client = app.crm_hubspot();
+    super::first_contract::enrich_goals(&mut body, authorization, client.as_deref()).await;
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        Json(body),
+    )
+        .into_response())
+}
+
 async fn team(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<AppState>>,
     Query(q): Query<FocusQuery>,
@@ -3406,6 +3444,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     let mut cover_any = 0usize;
     let mut view_count: BTreeMap<&str, usize> = BTreeMap::new();
     let mut phase_count: BTreeMap<&str, usize> = BTreeMap::new();
+    let first_evidence = super::first_contract::Evidence::new(sheets);
     let mtg_risk = latest_mtg_risk_by_deal(&sheets.mtg);
     let (stay_long, stay_esc) = super::stage_stay::view_ids(sheets, today);
     for d in &act {
@@ -3609,6 +3648,7 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             "n_flags": flags.len(),
             // 継続回数（0＝初回契約）。見方「初回契約で MTG の記録が見つからない」の材料
             "renewal_no": d.renewal_no,
+            "first_contract": first_evidence.of(d, today),
             // 判定のある MTG のうち、いちばん新しいもののリスク判定と開催日（無ければ null）
             "mtg_risk": mrisk.map(|(_, r)| r.clone()),
             "mtg_risk_date": mrisk.map(|(dt, _)| dt.to_string()),
@@ -3798,11 +3838,17 @@ pub(super) fn act_view_diff_memo_in<T: Clone>(
     v
 }
 
-/// 今日動く先の候補か。名札が2本以上、または満足度の名札（直近の値が 4 以下）が付いている。
+/// 今日動く先の候補か。名札2本以上・満足度4以下・初回契約の期限超過のいずれか。
 /// 名札 1 本でも満足度が低い案件を落とさない。満足度が無い案件は名札が付かないので、
 /// 「問題なし」ではなく「回答が無いだけ」。画面は値の欄に「満足度 未回答」と出す。
 pub(crate) fn is_today_candidate(row: &Value) -> bool {
-    row["n_flags"].as_u64().unwrap_or(0) >= 2 || has_low_satisfaction(row)
+    row["n_flags"].as_u64().unwrap_or(0) >= 2
+        || has_low_satisfaction(row)
+        || has_missed_first_gate(row)
+}
+
+fn has_missed_first_gate(row: &Value) -> bool {
+    row["first_contract"]["overdue_count"].as_u64().unwrap_or(0) > 0
 }
 
 fn has_low_satisfaction(row: &Value) -> bool {
@@ -3818,7 +3864,7 @@ fn has_low_satisfaction(row: &Value) -> bool {
 pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
     let (rows, mut meta) = deal_rows(sheets, today);
 
-    // 名札が2本以上、または満足度の名札（直近の値が 4 以下）が付いているもの（2026-10-26 に後者を足した）。
+    // 名札2本以上・満足度4以下・初回契約の期限超過の候補。名札自体は増やさない。
     // そのうえで `deal_rows` の並び（名札の本数が多い順、同じ本数なら金額の大きい順）の上から 24件。
     // 🔴 並びと 24 件の切り方は変えていない。名札 1 本の満足度低は並びの後ろに来るので、
     //    担当を選ばない画面の 24 件は今までと同じで、担当を選んだとき（candidates 全件）に出てくる
@@ -3841,14 +3887,17 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         .iter()
         .filter(|r| r["n_flags"].as_u64().unwrap_or(0) >= MIN_FLAGS)
         .count();
-    let n_low_only = n_hit - n_flags2;
+    let n_low_only = picked
+        .iter()
+        .filter(|r| r["n_flags"].as_u64().unwrap_or(0) < MIN_FLAGS && has_low_satisfaction(r))
+        .count();
+    let n_first = picked.iter().filter(|r| has_missed_first_gate(r)).count();
     let mut top = picked;
-    // 満足度の名札が付いているのに上位 KEEP 件に入らなかった案件は、同じ並びのまま後ろに続けて出す
-    // （2026-10-26 レビュー: 担当を選ばない全社の表にも満足度4以下を必ず入れる）
+    // 満足度4以下と初回契約の期限超過は、上位KEEP件から漏れても後ろに続けて出す。
     let extra_low: Vec<Value> = top
         .iter()
         .skip(KEEP)
-        .filter(|r| has_low_satisfaction(r))
+        .filter(|r| has_low_satisfaction(r) || has_missed_first_gate(r))
         .cloned()
         .collect();
     top.truncate(KEEP);
@@ -3932,14 +3981,11 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         //    メニューに無い名前を案内していた（左は「案件そのもの」。2026-09-28 UI/UX 改善 S-6）。
         //    全件への行き先は画面側が MENUS の名前で添える（cs_dashboard.html todayFilterRule）。
         m.insert("filter_rule".into(), json!(format!(
-            "候補は {n_hit} 件です（注意が {MIN_FLAGS} つ以上ついた案件 {n_flags2} 件と、注意が満足度の1つだけで満足度が低い（直近の値が4以下）案件 {n_low_only} 件）。\
-注意の数が多い順（同じ数なら金額の大きい順）に {KEEP} 件を出しています。その {KEEP} 件に入らなかった満足度が低い案件 {n_extra} 件は、同じ並びでその後ろに続けています。\
-毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} つという線引きは取り決めです。\
-「チームと担当」の「注意{MIN_FLAGS}つ以上」は満足度だけの案件を数えないので、その分だけ少なく出ます",
-            n_extra = extra_low.len()
+            "候補は {n_hit} 件です。注意が2つ以上 {n_flags2} 件、注意が満足度だけで4以下 {n_low_only} 件、初回契約の関門が期限超過のいずれかで選びます（重複を含みます）。初回契約の期限超過は {n_first} 件です。注意の数が多い順、同じ数なら金額の大きい順に {KEEP} 件を出し、満足度が低い案件と初回契約の期限超過は、その後ろにも続けて出します。"
         )));
         m.insert("n_flags2".into(), json!(n_flags2));
         m.insert("n_low_only".into(), json!(n_low_only));
+        m.insert("n_first_overdue".into(), json!(n_first));
         m.insert("n_extra_low".into(), json!(extra_low.len()));
         m.insert("n_hit".into(), json!(n_hit));
         m.insert("n_shown".into(), json!(top.len()));
@@ -3980,7 +4026,7 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         "meta": meta,
         "rows": top,
         "candidates": candidates,
-        // 上位 keep 件に入らなかった満足度が低い案件（rows の後ろに続けて出す。担当を選んだときは candidates 全件を出すので使わない）
+        // 上位keep件から漏れた満足度4以下・初回契約の期限超過。既存の応答の鍵を維持する。
         "extra_low_satisfaction": extra_low,
         "consultants": consultants,
         "expiring_this_week": soon,

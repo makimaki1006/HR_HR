@@ -85,6 +85,7 @@ export interface TodayResponse {
   meta: TodayMeta;
   rows: DealRow[];
   candidates?: DealRow[];
+  extra_low_satisfaction?: DealRow[];
   expiring_this_week?: DealRow[];
   started_this_week?: DealRow[];
   not_started?: DealRow[];

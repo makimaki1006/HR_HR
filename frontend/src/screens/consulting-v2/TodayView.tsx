@@ -20,7 +20,7 @@ export function TodayView({ route, go }: { route: Route; go: (r: Partial<Route>)
     <Async result={result} onRetry={() => { setReload((n) => n + 1); }}>
       {(d) => {
         const only = { c: route.c, flag: '', band: '' };
-        const source = selected === 'soon' ? d.expiring_this_week ?? [] : selected === 'started' ? d.started_this_week ?? [] : selected === 'before' ? d.not_started ?? [] : route.c !== '' ? d.candidates ?? d.rows : d.rows;
+        const source = selected === 'soon' ? d.expiring_this_week ?? [] : selected === 'started' ? d.started_this_week ?? [] : selected === 'before' ? d.not_started ?? [] : route.c !== '' ? d.candidates ?? d.rows : d.rows.concat(d.extra_low_satisfaction ?? []);
         const rows = filterRows(source, only);
         const soon = filterRows(d.expiring_this_week ?? [], only);
         const started = filterRows(d.started_this_week ?? [], only);

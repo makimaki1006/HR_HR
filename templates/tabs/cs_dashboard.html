@@ -1090,6 +1090,7 @@ body.dd-page .lede.dd-open + *{ margin-top:0; }
   body.dd-page .tl .what{ padding:12px 0 0; }
   body.dd-page .tl .rec-head{ flex-wrap:wrap; }
 }
+.first-gates{display:inline-flex;gap:4px;white-space:nowrap;font-size:17px}.first-overdue{color:#b42318;font-weight:700}[data-first-deal]{cursor:pointer}
 </style>
 </head>
 <body>
@@ -4135,7 +4136,7 @@ function foot(meta, counts) {
 const READ_BASE = "HubSpot に記録された分だけの数です。0 件と「まだ取れていない」は別です。";
 const READ_CORR = "成果との関係は相関であって、原因とは限りません。";
 const READ_LINE = {
-  team: READ_BASE, today: READ_BASE, board: READ_BASE, byowner: READ_BASE, stagestay: READ_BASE, overdue: READ_BASE, detail: READ_BASE,
+  team: READ_BASE, first: READ_BASE, today: READ_BASE, board: READ_BASE, byowner: READ_BASE, stagestay: READ_BASE, overdue: READ_BASE, detail: READ_BASE,
   customer: READ_BASE + READ_CORR, focus: READ_BASE + READ_CORR, renewalpipe: READ_BASE, phone: READ_BASE,
   results: READ_BASE + READ_CORR, trust: READ_BASE,
 };
@@ -6952,7 +6953,7 @@ function todayOwnerBar(D0) {
           : fromUrl ? "（リンクの担当で開いています。この端末が覚えている担当は変えていません。欄で選び直すと、この端末が覚えます）"
           : "（この端末では覚えられません。開き直すと全員に戻ります）")
       : "全社の上位 " + num(D.meta.n_shown) + " 件" +
-        ((D.extra_low_satisfaction || []).length ? "と、満足度4以下の " + num(D.extra_low_satisfaction.length) + " 件" : "") +
+        ((D.extra_low_satisfaction || []).length ? "と、満足度4以下・初回契約の期限超過の " + num(D.extra_low_satisfaction.length) + " 件" : "") +
         "。担当を選ぶと、その人の候補を全件出します") +
     "</span></div>";
 }
@@ -6985,6 +6986,40 @@ function todayJump(id) {
   if (f && f.focus) f.focus({ preventScroll: true });
 }
 
+/* 初回契約はサーバが判定・整列した行をそのまま表示する。担当の絞り込みは案件一覧と同じ状態を使う。 */
+let firstContractData = null;
+function renderFirstContract(D) {
+  firstContractData = D;
+  const owner = boardFilter.consultant;
+  let h = '<div class="ctlbar"><label class="act">担当 <select id="first-consultant"><option value="">すべて</option>' +
+    (D.consultants || []).map((c) => '<option value="' + esc(c) + '"' + (c === owner ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label></div>';
+  h += '<p>関門は左から、初回MTGの記録（7日以内）、求人掲載（14日以内）、応募1件（30日以内）、面接1件、満足度の回答です。面接と満足度は段階3に入るまでが期限です。期限は暫定です。</p>';
+  h += '<p class="muted">● 達成　○ 未達・判定できない。赤は期限超過です。各丸に重ねると判定と期限が読めます。期限超過が多い順、同じなら開始日が古い順です。</p>';
+  if (D.goals_available === false) h += '<p>目標は社内の Google ログインで見られます</p>';
+  const table = (source, title) => {
+    const rows = (source || []).filter((r) => !owner || r.consultant === owner);
+    let t = '<h2>' + title + '（' + num(rows.length) + ' 件）</h2><div class="scroll"><table><caption>' + title + '</caption><thead><tr><th>案件</th><th>担当</th><th>開始〜満了</th><th>5つの関門</th><th>初回MTGの目標</th></tr></thead><tbody>';
+    t += rows.map((r) => {
+      const gs = r.goals || { failed: true };
+      const goals = D.goals_available === false ? '—' : gs.failed ? '読めませんでした' : (gs.draft ? '案 · ' : '') + '理想：' + esc(gs.ideal) + '<br>前進ライン：' + esc(gs.minimum);
+      const gates = r.first_contract.gates.map((g) => {
+        const text = g.label + '：' + g.text + '（期限 ' + (g.deadline || '不明') + '）';
+        return '<span class="first-gate' + (g.overdue ? ' first-overdue' : '') + '" title="' + esc(text) + '" aria-label="' + esc(text) + '" tabindex="0">' + (g.achieved === true ? '●' : '○') + '</span>';
+      }).join('');
+      return '<tr data-first-deal="' + esc(r.deal_id) + '"><td>' + dealLink(r.deal_id, r.name) + '</td><td>' + esc(r.consultant || '担当未設定') + '</td><td>' + esc(r.start || '開始日不明') + '〜' + esc(r.expiry || '満了日不明') + '</td><td><span class="first-gates">' + gates + '</span></td><td>' + goals + '</td></tr>';
+    }).join('');
+    return t + '</tbody></table></div>' + (rows.length ? '' : '<p>該当する契約は0件です。</p>');
+  };
+  return h + table(D.rows, '初回契約') + table(D.not_started, '開始前の初回契約');
+}
+function wireFirstContract() {
+  const select = document.getElementById('first-consultant');
+  if (select) select.onchange = () => { boardFilter.consultant = select.value; redrawMain(firstContractData); };
+  document.querySelectorAll('[data-first-deal]').forEach((row) => {
+    row.onclick = (e) => { if (!e.target.closest('a, button, .first-gate')) location.hash = hashFor('detail', { id: row.dataset.firstDeal }); };
+  });
+}
+
 function renderToday(D0) {
   const D = todayScope(D0);
   const c = todayConsultant;
@@ -7012,9 +7047,9 @@ function renderToday(D0) {
   const crit = !c ? bandN("critical") : CB ? (CB[c] || 0) : D.rows.filter((r) => r.mtg_band === "critical").length;
   h += '<div class="kpis">' +
     kpi("今日出す先", num(D.rows.length + extra.length) + '<span class="u">件</span>',
-        c ? "注意が2つ以上、または満足度（顧客に聞いた点数）が低い候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
-          : "注意が2つ以上 " + num(D.meta.n_flags2) + " 件と、満足度が低いだけの " + num(D.meta.n_low_only) + " 件から" +
-            (extra.length ? "（満足度が低い " + num(extra.length) + " 件を表の後ろに続けています）" : ""),
+        c ? "注意が2つ以上、満足度4以下、初回契約の期限超過の候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
+          : "注意が2つ以上 " + num(D.meta.n_flags2) + " 件と、満足度が低いだけの " + num(D.meta.n_low_only) + " 件と、初回契約の期限超過 " + num(D.meta.n_first_overdue || 0) + " 件から（重複を含みます）" +
+            (extra.length ? "（満足度4以下・初回契約の期限超過 " + num(extra.length) + " 件を表の後ろに続けています）" : ""),
         "", { jump: "td-today-h", text: "表へ" }) +
     kpi("MTGが60日以上空いている", num(crit) + '<span class="u">件</span>',
         c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（注意2つ以上、または満足度が低い）の中で。") + "全社では " + num(bandN("critical")) + " 件"
@@ -7038,7 +7073,7 @@ function renderToday(D0) {
      決まりごと（絞った条件・並び・採用単価の比べ方）は取り決めなので、見出しの直下の 1 行に畳む（開けば全文）。
      母数（n_hit 件から n_shown 件）は畳まず、その 1 行目に書く */
   /* 見出しは今のメニュー名（今日）に合わせる。前は「今日動く先」で、左のメニューに無い名前だった（2026-09-29） */
-  h += sec("表", "今日の案件（" + num(D.rows.length) + " 件" + (extra.length ? " ＋ 満足度4以下 " + num(extra.length) + " 件" : "") + "）", "td-today-h");
+  h += sec("表", "今日の案件（" + num(D.rows.length) + " 件" + (extra.length ? " ＋ 満足度4以下・初回契約の期限超過 " + num(extra.length) + " 件" : "") + "）", "td-today-h");
   /* 決まりごとの畳み。母数（n_hit 件から n_shown 件）は枠の案内（scroll-cap の「N 行を出しています（全 T 件のうち）」）が
      言うので、summary では繰り返さない。🔴 2026-09-28 検証（fixture 1440×900）: summary と scroll-cap が同じ
      「243 件から 24 件」を 40px の間に 2 回言い、表の見出し行が 772 で 1 画面目に完全な行が 0 行だった。
@@ -8592,6 +8627,7 @@ const MENUS = [
         render: (D) => renderTeam(D) },
       { key: "today",    label: "今日",             path: "/api/consulting/today",
         render: (D) => renderToday(D) },
+      { key: "first", label: "初回契約", path: "/api/consulting/first-contract", render: (D) => renderFirstContract(D) },
       { key: "board",    label: "案件一覧",         path: "/api/consulting/deals",
         render: (D) => renderBoard(D) },
       /* 2026-10-21 メニューから外した（URL は残す）。同じステージに 45 日を超えている案件と満了後も稼働中の案件は、
@@ -8910,6 +8946,7 @@ const URL_STATE = {
          reset: () => { todayConsultant = loadTodayConsultant(); todayFromUrl = false; } },
     sort: sortState(() => todaySort["today-tbl"], (s) => { todaySort["today-tbl"] = s; }, TODAY_COLS, { key: "n_flags", asc: false }),
   },
+  first: { c: boardState("consultant") },
   board: BOARD_URL_STATE,
   byowner: BOARD_URL_STATE,
   /* 顧客: 拠点（site）は選んだときだけ載せる（既定の拠点は載せない。custSiteNow）。法人を選び直すと拠点は既定に戻る（wire の cs-houjin） */
@@ -9561,6 +9598,7 @@ function wire(v) {
   if (v.key === "team") wireTeam();
   if (v.key === "results") wireJumps();
   if (v.key === "today") wireToday();
+  if (v.key === "first") wireFirstContract();
   if (v.key === "stagestay") wireStageStay();
   if (v.key === "board" || v.key === "byowner") wireBoard();
   if (v.key === "customer") wireCustomer();

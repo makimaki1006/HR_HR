@@ -8,6 +8,7 @@ import { ResultsView } from './ResultsView';
 import { BoardView } from './BoardView';
 import { DetailView } from './DetailView';
 import { TeamView } from './TeamView';
+import { FirstContractView } from './FirstContractView';
 import { TodayView } from './TodayView';
 import { parseRoute, routeHref, VIEWS, type Route } from './route';
 
@@ -62,6 +63,7 @@ export function ConsultingV2Screen() {
             <small>今のコンサルKPIと同じデータを表示しています</small>
           </div>
           {route.view === 'team' && <TeamView go={go} />}
+          {route.view === 'first' && <FirstContractView route={route} go={go} />}
           {route.view === 'today' && <TodayView route={route} go={go} />}
           {route.view === 'board' && <BoardView route={route} go={go} />}
           {route.view === 'detail' && <DetailView route={route} go={go} />}
