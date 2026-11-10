@@ -3124,7 +3124,7 @@ function cpaLine(st, w, h) {
   const pts = st.pts;
   return svgLine({
     w: w || 700, h: h || 240, labelPts: pts.length <= 10,
-    x: pts.map(p => (p.no === 0 ? "初回" : "継続" + p.no)),
+    x: pts.map(p => "継続" + p.no + "回"),
     xSub: pts.map(p => (p.d || "").slice(0, 7)),
     series: [{ color: C.hi, pts: pts.map(p =>
       ({ v: p.v, censored: p.cen, note: "採用" + num(p.syo) + "名" })) }],
@@ -4398,7 +4398,8 @@ function resultsActTables(D) {
 /** id: 成果と継続の中の節として描くとき、見出しに付ける id（目次の行き先）。付けたときは末尾の基準日の枠を出さない */
 function renderRenewal(D, id) {
   const mr = D.monthly_retention, br = D.by_renewal;
-  const label = (r) => (r.renewal_no === 0 ? "初回" : "継続" + r.renewal_no);
+  /* 継続回数の軸。「初回」と書かない（初回契約は売上回数が1回のもので、継続0回とは別。2026-11-10） */
+  const label = (r) => "継続" + r.renewal_no + "回";
   // 解約率の母数は決着済み（継続＋解約＋充足）。n<30 の足切りも母数で見る（全件の n ではない）
   const big = br.filter((r) => r.denom >= MIN_N);
   let h = sec("節", "継続回数と成果", id);
@@ -4406,7 +4407,7 @@ function renderRenewal(D, id) {
   /* 2026-09-29 組み替え（09 の 7「答えを先に」）: 継続回数ごとの解約率を先頭に（前は月次の継続率・満了月の表の下、
      1440px で y=1,103）。月次の継続率はその次 */
   h += sec("図", "継続回数ごとの解約率");
-  h += fig("分子は「解約 ＋ 充足」", "初回を乗り切れれば、あとは残ります",
+  h += fig("分子は「解約 ＋ 充足」", "最初の契約期間（継続0回）を乗り切れれば、あとは残ります",
     svgBarH({ w: 660, fmt: F.pp, rh: 26,
       rows: big.map((r) => ({
         label: label(r), v: r.cancel_rate, v0: r.cancel_rate_excl_fill, v0Label: "採れて終わった分（充足）を除くと",
@@ -5810,11 +5811,12 @@ function launchSection(L) {
     legend += '<i class="full" data-keep="1"><b>取引数が ' + MIN_N + " 件未満の " + num(dropped.length) + " 点を図から外しています</b>（" + list +
       "）。少ない件数の平均は、たまたまでも大きく振れるためです。</i>";
   }
-  legend += '<i class="full">初回契約（継続回数が 0）だけを、契約を始めた月ごとに分けています。横軸は開始の月を 1 ヶ月目とした暦の月、' +
+  legend += '<i class="full">初回契約（HubSpot の売上回数が1回）だけを、契約を始めた月ごとに分けています。横軸は開始の月を 1 ヶ月目とした暦の月、' +
     "縦軸は取引の応募数（累計）の月ごとの増え方の、取引あたりの平均です。終わっていない月は線を伸ばしていません（0 にはしていません）。</i>" +
     /* 外れた件数の文と、読み違えないための 1 行は畳まない（data-keep。fig() の figRules） */
     '<i class="full" data-keep="1">満了月より後の月と、応募数の記録が無い取引 ' + num(L.n_no_series || 0) + " 件は数えていません" +
-    (L.n_decrease ? "（累計が減った " + num(L.n_decrease) + " 取引の月も除いています）" : "") + "。</i>" +
+    (L.n_decrease ? "（累計が減った " + num(L.n_decrease) + " 取引の月も除いています）" : "") + "。" +
+    (L.n_sales_unread ? "売上回数を読めなかった " + num(L.n_sales_unread) + " 取引も数えていません。" : "") + "</i>" +
     '<i class="full" data-keep="1">HubSpot に記録された応募数だけの数字です。<b>開始の時期と応募の増え方の関係は相関であって、原因とは限りません。</b></i>';
   h += fig("開始月ごとの、契約してからの応募", "対象 " + num(L.n_first) + " 件（直近 " + L.cohorts.length + " か月に始まった初回契約）", body, legend);
   return h;
@@ -8092,7 +8094,8 @@ function detailCrumbs(d) {
   const st = link && d.site_key
     ? '<a href="' + esc(hashFor("customer", { houjin: d.houjin, site: d.site_key })) + '">' + siteText + "</a>"
     : '<span class="muted">' + siteText + "</span>";
-  const nth = d.renewal_no == null ? "" : d.renewal_no === 0 ? "（初回）" : "（" + num(d.renewal_no) + "回目の継続）";
+  /* 初回契約は売上回数が1回のもの（first_sales）。継続回数とは別の軸なので、継続0回を「初回」と書かない */
+  const nth = d.first_sales === true ? "（初回契約）" : d.renewal_no == null ? "" : d.renewal_no === 0 ? "（継続0回）" : "（" + num(d.renewal_no) + "回目の継続）";
   const sep = '<span class="sep" aria-hidden="true">＞</span>';
   return '<nav class="crumbs" aria-label="この案件の位置">' + hj + sep + st + sep +
     '<span aria-current="page">この案件' + nth + "</span></nav>";

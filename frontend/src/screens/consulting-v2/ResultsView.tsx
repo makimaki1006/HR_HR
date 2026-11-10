@@ -173,7 +173,7 @@ export function ResultsView({ go }: { go: (r: Partial<Route>) => void }) {
                     <tbody>
                       {(d.renewal?.by_renewal ?? []).map((r) => (
                         <tr key={r.renewal_no}>
-                          <td>{r.renewal_no === 0 ? '初回' : `${num(r.renewal_no)}回目の継続`}</td>
+                          <td>{r.renewal_no === 0 ? '継続0回' : `${num(r.renewal_no)}回目の継続`}</td>
                           <td className="cv2-num">{num(r.n)}</td>
                           <td className="cv2-num">{num(r.n_active)}</td>
                           <td className="cv2-num">{num(r.keep)}</td>

@@ -14,7 +14,7 @@ function Launch({ launch: l }: { launch: NonNullable<Rampup['launch']> }) {
   const x = (m: number): number => 55 + (m - 1) / Math.max(1, maxM - 1) * 610;
   const y = (v: number): number => 210 - v / hi * 180;
   return <Section title="初回契約の開始月ごとの応募の推移">
-    <p>対象 {num(l.n_first)} 件。記録なし {num(l.n_no_series)} 件・累計が減った {num(l.n_decrease)} 取引の月は除いています。</p>
+    <p>初回契約（売上回数が1回）だけです。対象 {num(l.n_first)} 件。記録なし {num(l.n_no_series)} 件・累計が減った {num(l.n_decrease)} 取引の月は除いています。{(l.n_sales_unread ?? 0) > 0 && `売上回数を読めなかった ${num(l.n_sales_unread ?? 0)} 件は含めていません。`}</p>
     <svg className="cv2-chart" viewBox="0 0 720 250" role="img" aria-label="初回契約の開始月ごとの応募の推移">
       {[0, hi].map((v) => <g key={v}><line x1="55" x2="665" y1={y(v)} y2={y(v)} stroke="#dae2eb" /><text x="45" y={y(v)} textAnchor="end" fontSize="11">{num(v, 1)}</text></g>)}
       {Array.from({ length: maxM }, (_, i) => <text key={i} x={x(i + 1)} y="235" textAnchor="middle" fontSize="11">{i + 1}ヶ月目</text>)}
@@ -43,10 +43,10 @@ export function ResultsDetails({ d, go }: { d: ResultsResponse; go: (r: Partial<
     <Section title="継続回数ごとの成果のばらつき">
       {(['oubo', 'syoudaku', 'oubo_per_posting'] as const).map((key) => {
         const title = `${key === 'oubo_per_posting' ? '求人票あたり応募' : labels[key] ?? '成果'}の散らばり（継続回数ごと）`;
-        return <div key={key}><h3>{title}</h3><BoxPlot title={title} rows={by.map((r) => ({ label: r.renewal_no === 0 ? '初回' : `継続${num(r.renewal_no)}`, stats: r[key], eligible: r.denom >= CHART_MIN_N }))} /></div>;
+        return <div key={key}><h3>{title}</h3><BoxPlot title={title} rows={by.map((r) => ({ label: `継続${num(r.renewal_no)}回`, stats: r[key], eligible: r.denom >= CHART_MIN_N }))} /></div>;
       })}
       <p className="cv2-dim">{d.renewal?.meta?.exclude_right_censored === true ? '結果がまだ出ていない最近の契約を外しています。' : `結果がまだ出ていない最近の契約を含んでいます${d.renewal?.meta?.right_censored_n === undefined ? '' : `（${num(d.renewal.meta.right_censored_n)}件）`}。直近の契約は成果が低く出ることがあります。`}</p>
-      <details className="cv2-more"><summary>継続回数ごとの代表値</summary><DataTable title="継続回数ごとの代表値" heads={['継続回数', '応募数', '面接数', '承諾数', '求人票あたり応募', '契約額']} rows={by.map((r) => [r.renewal_no === 0 ? '初回' : `継続${num(r.renewal_no)}`, nz(r.oubo?.median), nz(r.mensetu?.median), nz(r.syoudaku?.median), r.oubo_per_posting ? num(r.oubo_per_posting.median, 1) : DASH, yen(r.amount?.median)])} /><p className="cv2-dim">各項目の中央値です。</p></details>
+      <details className="cv2-more"><summary>継続回数ごとの代表値</summary><DataTable title="継続回数ごとの代表値" heads={['継続回数', '応募数', '面接数', '承諾数', '求人票あたり応募', '契約額']} rows={by.map((r) => [`継続${num(r.renewal_no)}回`, nz(r.oubo?.median), nz(r.mensetu?.median), nz(r.syoudaku?.median), r.oubo_per_posting ? num(r.oubo_per_posting.median, 1) : DASH, yen(r.amount?.median)])} /><p className="cv2-dim">各項目の中央値です。</p></details>
     </Section>
     <Section title="立ち上がり">
       {ramp ? <>

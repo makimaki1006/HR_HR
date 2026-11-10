@@ -254,6 +254,8 @@ export interface DetailResponse {
     consultant_retired?: boolean;
     amount?: number | null;
     renewal_no?: number | null;
+    /** 初回契約（HubSpot の売上回数が1回）か。読めなかったら null */
+    first_sales?: boolean | null;
     is_active?: boolean;
     right_censored?: boolean;
     flags?: string[] | null;
@@ -418,7 +420,7 @@ export interface BoxStats { n: number; min: number; q1: number; median: number; 
 export interface Rampup {
   phase: { rows: { label: string; n: number }[]; rule: string };
   first_mtg: { n: number; pre_contract: number; stats: BoxStats | null; buckets: { label: string; n: number; denom: number; cancel: number; cancel_rate: number | null }[]; note: string };
-  launch?: { n_first: number; n_no_series: number; n_decrease: number; cohorts: { start: string; n_deals: number; points: { m: number; n: number; mean: number | null }[] }[] };
+  launch?: { n_first: number; n_no_series: number; n_decrease: number; n_sales_unread?: number; cohorts: { start: string; n_deals: number; points: { m: number; n: number; mean: number | null }[] }[] };
 }
 export interface Risk {
   n_act: number;

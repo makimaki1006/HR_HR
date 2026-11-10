@@ -304,7 +304,7 @@ describe('コンサルKPI v2 第3段', () => {
     await screen.findByText('継続回数ごとの成果のばらつき');
     screen.getAllByText('数字を表で見る').forEach((summary) => { fireEvent.click(summary); });
     const box = await screen.findByRole('table', { name: '応募数の散らばり（継続回数ごと）' });
-    expect(within(box).getAllByRole('row').slice(1, 2).flatMap((row) => within(row).getAllByRole('cell').map((c) => c.textContent))).toEqual(['初回', '37', '0.00', '9.00', '12.00', '19.00', '27.00', '22.31']);
+    expect(within(box).getAllByRole('row').slice(1, 2).flatMap((row) => within(row).getAllByRole('cell').map((c) => c.textContent))).toEqual(['継続0回', '37', '0.00', '9.00', '12.00', '19.00', '27.00', '22.31']);
     const chart = screen.getByRole('img', { name: '応募数の散らばり（継続回数ごと）' });
     expect(Number(chart.querySelector('rect')?.getAttribute('x'))).toBe(300); // API の q1=9 を座標に変換
     expect(Number(chart.querySelector('rect')?.getAttribute('width'))).toBeCloseTo(166.6667); // q3=19
@@ -382,7 +382,7 @@ it('少数の成果は図から外し、nullは表でも0にしない', async ()
   expect(screen.queryByRole('img', { name: '応募数の散らばり（継続回数ごと）' })).toBeNull();
   screen.getAllByText('数字を表で見る').forEach((summary) => { fireEvent.click(summary); });
   const table = screen.getByRole('table', { name: '承諾数の散らばり（継続回数ごと）' });
-  expect(within(table).getAllByRole('row').slice(1, 2).flatMap((row) => within(row).getAllByRole('cell').map((c) => c.textContent))).toEqual(['初回', '—', '—', '—', '—', '—', '—', '—']);
+  expect(within(table).getAllByRole('row').slice(1, 2).flatMap((row) => within(row).getAllByRole('cell').map((c) => c.textContent))).toEqual(['継続0回', '—', '—', '—', '—', '—', '—', '—']);
 });
 
 it('コンサル詳細で新しい目標名と全体・各目標の注記を表示する', async () => {
