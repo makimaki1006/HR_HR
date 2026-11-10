@@ -7015,7 +7015,9 @@ function renderFirstContract(D) {
       const goals = D.goals_available === false ? '—' : gs.failed ? '読めませんでした' : (gs.draft ? '案 · ' : '') + 'マインド：' + esc(gs.ideal) + '<br>コミット：' + esc(gs.minimum);
       const gates = FIRST_GATE_HEADERS.map((label, index) => {
         const status = firstGateStatus(r.first_contract.gates[index]);
-        return '<td class="first-gate first-' + status.tone + '">' + status.text + '</td>';
+        /* クラス名は組み立てずに書く（css_classes_exist が配っている CSS と照らすため）。期限前は色を付けない */
+        const cls = { achieved: 'first-gate first-achieved', overdue: 'first-gate first-overdue', unknown: 'first-gate first-unknown' }[status.tone] || 'first-gate';
+        return '<td class="' + cls + '">' + status.text + '</td>';
       }).join('');
       return '<tr data-first-deal="' + esc(r.deal_id) + '"><td>' + dealLink(r.deal_id, r.name) + '</td><td>' + esc(r.consultant || '担当未設定') + '</td><td>' + esc(r.start || '開始日不明') + '〜' + esc(r.expiry || '満了日不明') + '</td>' + gates + '<td>' + goals + '</td></tr>';
     }).join('');
