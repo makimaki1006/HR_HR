@@ -100,7 +100,8 @@ pub fn gates_with(
         ),
         gate("満足度の回答", nps, line, today, true),
     ];
-    if mtg == Some(false) && mtg_before_start {
+    // 開始前の契約は下で「開始前」にする。商談の MTG で「確かめてください」を出さない（2026-11-10 レビュー B）
+    if mtg == Some(false) && mtg_before_start && !start.is_some_and(|s| today < s) {
         let g = &mut gates[0];
         g.overdue = false;
         g.check = true;
@@ -1209,6 +1210,10 @@ mod tests {
         let gs = gates_with(&d, Some(true), true, Some(true), day("2026-02-01"));
         assert_eq!(gs[0].text, "達成");
         assert!(!gs[0].check);
+        // 開始前の契約には「確かめてください」を出さない
+        let gs = gates_with(&d, Some(false), true, Some(true), day("2025-12-20"));
+        assert!(!gs[0].check && gs[0].not_started);
+        assert_eq!(gs[0].text, "開始前");
         // 開始前の MTG も無ければ従来どおり期限超過
         let gs = gates_with(&d, Some(false), false, Some(true), day("2026-02-01"));
         assert!(gs[0].overdue && !gs[0].check);
