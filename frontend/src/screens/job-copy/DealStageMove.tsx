@@ -54,7 +54,7 @@ export function DealStageMove({ dealId, write, detail, props, request, locked, o
       writesEnabled: true, pipelineId: target.pipeline_id, stageId, stages, pipelines: [],
       ruleOf: sid => schema.stages.find(s => s.id === sid),
       defOf: name => defs.find(d => d.name === name) ?? null,
-      groupOf: () => null, labelOf: name => props.find(p => p.name === name)?.label ?? null,
+      labelOf: name => props.find(p => p.name === name)?.label ?? null,
       meOwnerId: null, status: undefined, schemaFailed: false,
       currentValues: () => Promise.resolve(current),
       move: async (to, changes) => {

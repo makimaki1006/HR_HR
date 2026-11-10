@@ -7,22 +7,6 @@ import type { SaveOutcome } from './useCrmWrite';
 
 export interface Target { pipeline_id: string; stage_id: string; label: string }
 
-/** 項目の見出しがまとめて決まらないとき (項目の一覧が読めていない・どのグループにも無い) の見出し */
-const OTHER_SECTION = 'その他の項目';
-
-interface Section { title: string; defs: FieldDef[] }
-
-/** 項目を HubSpot のプロパティのグループごとに分ける (並びは初めて出た順。ステージの規則の並びを保つ) */
-export function sectionsOf(defs: readonly FieldDef[], groupOf: (name: string) => string | null): Section[] {
-  const out: Section[] = [];
-  for (const d of defs) {
-    const title = groupOf(d.name) ?? OTHER_SECTION;
-    const found = out.find(x => x.title === title);
-    if (found) found.defs.push(d); else out.push({ title, defs: [d] });
-  }
-  return out;
-}
-
 /**
  * ステージを移す画面 (必須の項目の確認)。
  * 架電結果の入力欄から開くときは、入力欄の変更 (`extraChanges`) も同じ 1 回の保存で送る。
@@ -70,8 +54,6 @@ export function MoveModal({ ctx, target, onClose, extraChanges = [], presets = {
   const isMissing = (d: FieldDef): boolean => required.has(d.name) && draftToValue(d.kind, valueOf(d)) === null;
   const missing = defs.filter(isMissing);
   const canMove = !loading && missing.length === 0 && !sending;
-  const sections = sectionsOf(defs, n => ctx.groupOf(n));
-  const wide = defs.length > 4;
 
   /** 最初の未入力の必須項目へ移る (入力欄にフォーカスして見える位置へ) */
   function jumpToMissing() {
@@ -122,7 +104,7 @@ export function MoveModal({ ctx, target, onClose, extraChanges = [], presets = {
   };
 
   return <div className="wr-overlay">
-    <div className={`wr-dialog wr-dialog-stage${wide ? ' is-wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="stage-modal">
+    <div className="wr-dialog wr-dialog-stage" role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="stage-modal">
       <div className="wr-dialog-head">
         <h3 id={titleId}>{hasFields ? 'このステージに移すには次の項目が必要です' : 'ステージを移します'}</h3>
         <p className="wr-target">移し先: <strong>{target.label}</strong></p>
@@ -132,10 +114,8 @@ export function MoveModal({ ctx, target, onClose, extraChanges = [], presets = {
       </div>
       <div className="wr-dialog-body" ref={bodyRef}>
         {hasFields ? (loading ? <p role="status">いまの値を読み込み中…</p>
-          : sections.map(sec => <section key={sec.title} className="wr-section">
-            {sections.length > 1 && <h4 className="wr-section-title">{sec.title}</h4>}
-            <ul className="wr-fields">{sec.defs.map(field)}</ul>
-          </section>))
+          // HubSpot と同じく、ステージの設定の順に 1 列で並べる (見出しで分けない)
+          : <ul className="wr-fields">{defs.map(field)}</ul>)
           : <p>ステージを「{target.label}」に移します。よろしいですか。</p>}
         {message !== '' && <p className="wr-status wr-error" role="alert">{message}</p>}
       </div>

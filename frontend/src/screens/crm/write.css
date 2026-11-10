@@ -30,7 +30,6 @@
 
 /* ステージを移す画面: 見出し (上に固定) / 項目 (ここだけスクロール) / ボタン (下に固定) */
 .wr-dialog-stage { padding: 0; gap: 0; overflow: hidden; max-height: min(90vh, 760px); }
-.wr-dialog-stage.is-wide { width: min(880px, 94vw); }
 .wr-dialog-head { padding: 14px 18px 8px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid #e5e7eb; flex: none; }
 .wr-dialog-head .wr-target { margin: 0; font-size: 12px; }
 .wr-dialog-body { padding: 10px 18px; overflow-y: auto; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
@@ -39,10 +38,7 @@
 .wr-remaining:hover { background: #fecaca; }
 .wr-remaining-go { font-weight: 400; font-size: 11px; margin-left: 6px; }
 .wr-remaining.is-done { color: #166534; background: #dcfce7; border-color: #86efac; cursor: default; font-weight: 600; }
-.wr-section { display: flex; flex-direction: column; gap: 6px; }
-.wr-section-title { margin: 0; font-size: 12px; font-weight: 700; color: #374151; border-left: 3px solid var(--cq-accent, #1d4ed8); padding-left: 6px; }
 .wr-dialog-stage .wr-fields { display: grid; grid-template-columns: 1fr; gap: 8px 14px; }
-.wr-dialog-stage.is-wide .wr-fields { grid-template-columns: 1fr 1fr; }
 .wr-field { border-radius: 4px; padding: 3px 6px; margin: 0 -6px; }
 .wr-label-text { font-weight: 600; }
 .wr-field.is-full { grid-column: 1 / -1; }
