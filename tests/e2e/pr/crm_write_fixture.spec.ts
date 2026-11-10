@@ -70,11 +70,16 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     await expect(page.getByRole('article', { name: '架電先の詳細' }).getByText('✓ 保存済み')).toBeVisible();
     await expect(select.locator('option:checked')).toHaveText('アポ日確定');
   });
-  test('必須項目が多いステージ: 見出しで区切り、必須の残り数を出す。アポ獲得者は本人が最初から入り、担当者は名前で選べる', async ({ page }) => {
+  test('必須項目が多いステージ: HubSpot と同じく設定の順に 1 列で並べ (見出しなし)、必須の残り数を出す。アポ獲得者は本人が最初から入り、担当者は名前で選べる', async ({ page }) => {
     await openFirst(page);
     await page.getByRole('combobox', { name: 'ステージを変更' }).selectOption({ label: 'アポ日確定(多項目・確認用)' });
     const dlg = page.getByTestId('stage-modal');
-    await expect(dlg.getByRole('heading', { level: 4 })).toHaveText(['アポ情報(架空)', 'ヒアリング内容(架空)', '契約・連絡先(架空)']);
+    // 見出しで分けず、ステージの設定の順 (先頭はアポ先の会社名、最後は引き継ぎメモ) に 21 項目を並べる
+    await expect(dlg.getByRole('heading', { level: 4 })).toHaveCount(0);
+    const fields = dlg.locator('[data-field]');
+    await expect(fields).toHaveCount(21);
+    await expect(fields.first()).toHaveAttribute('data-field', 'fx_appo_company');
+    await expect(fields.last()).toHaveAttribute('data-field', 'fx_contract_memo');
     // 必須 21 項目のうち、アポ獲得者は本人 (架空の「架空 一郎」) が入っているので残り 20
     await expect(dlg.getByTestId('stage-remaining')).toContainText('必須 あと 20 項目');
     const owner = dlg.getByRole('combobox', { name: 'アポ獲得者' });
