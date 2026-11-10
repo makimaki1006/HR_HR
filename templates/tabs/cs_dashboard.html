@@ -6995,6 +6995,10 @@ function renderFirstContract(D) {
     (D.consultants || []).map((c) => '<option value="' + esc(c) + '"' + (c === owner ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label></div>';
   h += '<p>関門は左から、初回MTGの記録（7日以内）、求人掲載（14日以内）、応募1件（30日以内）、面接1件、満足度の回答です。面接と満足度は段階3に入るまでが期限です。期限は暫定です。</p>';
   h += '<p class="muted">● 達成　○ 未達・判定できない。赤は期限超過です。各丸に重ねると判定と期限が読めます。期限超過が多い順、同じなら開始日が古い順です。</p>';
+  h += '<p class="muted">対象は稼働中で売上回数が1回の契約です。</p>';
+  if (D.sales_unavailable) h += '<p role="status">売上回数を読めませんでした。少し待って読み直してください</p>';
+  if (!D.sales_unavailable && D.sales_failed_count > 0) h += '<p class="muted">売上回数を読めず対象から外した稼働中の契約 ' + num(D.sales_failed_count) + ' 件</p>';
+  if (D.sales_empty_count > 0) h += '<p class="muted">売上回数が空の稼働中の契約 ' + num(D.sales_empty_count) + ' 件</p>';
   if (D.goals_available === false) h += '<p>目標は社内の Google ログインで見られます</p>';
   const table = (source, title) => {
     const rows = (source || []).filter((r) => !owner || r.consultant === owner);

@@ -23,6 +23,9 @@ export interface FirstRow {
 }
 export interface FirstResponse {
   goals_available?: boolean;
+  sales_unavailable?: boolean;
+  sales_failed_count?: number;
+  sales_empty_count?: number;
   meta: BoardMeta;
   consultants: string[];
   rows: FirstRow[];
@@ -53,6 +56,10 @@ export function FirstContractView({ route, go }: { route: Route; go: (r: Partial
       return <>
         <Fresh meta={d.meta} />
         <div className="cv2-filters"><ConsultantSelect value={route.c} names={d.consultants} onChange={(c) => { go({ c }); }} /></div>
+        <p className="cv2-dim">対象は稼働中で売上回数が1回の契約です。</p>
+        {d.sales_unavailable && <p role="status">売上回数を読めませんでした。少し待って読み直してください</p>}
+        {!d.sales_unavailable && (d.sales_failed_count ?? 0) > 0 && <p className="cv2-dim">売上回数を読めず対象から外した稼働中の契約 {d.sales_failed_count} 件</p>}
+        {(d.sales_empty_count ?? 0) > 0 && <p className="cv2-dim">売上回数が空の稼働中の契約 {d.sales_empty_count} 件</p>}
         <p className="cv2-note">関門は左から、初回MTGの記録（7日以内）、求人掲載（14日以内）、応募1件（30日以内）、面接1件、満足度の回答です。面接と満足度は段階3に入るまでが期限です。期限は暫定です。</p>
         <p className="cv2-dim">● 達成 / ○ 未達・判定できない。赤は期限超過です。各丸に重ねると判定と期限が読めます。期限超過が多い順、同じなら開始日が古い順です。</p>
         {d.goals_available === false && <p className="cv2-note">目標は社内の Google ログインで見られます</p>}

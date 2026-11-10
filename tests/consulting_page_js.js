@@ -2953,6 +2953,16 @@ check("初回契約", "共通の判定・目標を表示し担当を絞りURLへ
   if (!h.includes('架空の契約甲') || !h.includes('応募1件以上：判定できない')) throw new Error('未認可で一覧や関門が消えた');
 });
 
+check("初回契約", "売上回数の未取得と部分失敗と空欄を表示する", () => {
+  const t = boot();
+  t.R(`__first = {consultants:[],rows:[],not_started:[],sales_unavailable:true,sales_failed_count:4,sales_empty_count:0}`);
+  let h = t.R('renderFirstContract(__first)');
+  if (!h.includes('売上回数を読めませんでした。少し待って読み直してください') || !h.includes('初回契約（0 件）')) throw new Error('未取得時の空一覧か案内が違う');
+  t.R('__first.sales_unavailable=false; __first.sales_failed_count=2; __first.sales_empty_count=3');
+  h = t.R('renderFirstContract(__first)');
+  if (!h.includes('売上回数を読めず対象から外した稼働中の契約 2 件') || !h.includes('売上回数が空の稼働中の契約 3 件')) throw new Error('失敗と空欄の件数が違う');
+});
+
 (async () => {
   if (mainJs == null) {
     console.error("FAIL 動きの見張り: 画面の <script> が取り出せない");

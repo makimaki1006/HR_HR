@@ -108,3 +108,16 @@ it('CRM認可がない場合も一覧と関門を表示し目標の案内は1行
   expect(screen.queryByText('読めませんでした')).toBeNull();
   expect(screen.queryByText(/理想：/)).toBeNull();
 });
+
+
+it.each([
+  { sales_unavailable: true, sales_failed_count: 4, sales_empty_count: 0, message: '売上回数を読めませんでした。少し待って読み直してください' },
+  { sales_unavailable: false, sales_failed_count: 2, sales_empty_count: 3, message: '売上回数を読めず対象から外した稼働中の契約 2 件' },
+])('売上回数の取得状態を具体的な件数で表示する $sales_unavailable', async (state) => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ ...response, ...state, rows: [], not_started: [] }), { headers: { 'Content-Type': 'application/json' } }))));
+  render(<FirstContractView route={parseRoute('?view=first')} go={vi.fn()} />);
+  expect(await screen.findByText(state.message)).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '初回契約（0 件）' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '開始前の初回契約（0 件）' })).toBeTruthy();
+  if (state.sales_empty_count) expect(screen.getByText('売上回数が空の稼働中の契約 3 件')).toBeTruthy();
+});
