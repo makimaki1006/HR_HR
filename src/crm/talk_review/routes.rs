@@ -123,6 +123,15 @@ pub fn call_row(r: &ReviewRow, check_ids: &[String]) -> TalkCallRow {
         items: if judged {
             check_ids
                 .iter()
+                .filter(|id| {
+                    // ランクのためだけに判定した電話は、ヒアリングの項目だけ出す (9 項目は集計に入れていない)
+                    !super::apo_call::only(r)
+                        || super::checks::loaded()
+                            .checks
+                            .checks
+                            .iter()
+                            .any(|c| &c.id == *id && super::judge::is_hearing(c))
+                })
                 .map(|id| {
                     let item = r.items.iter().find(|i| &i.id == id);
                     TalkItemMark {
@@ -321,6 +330,7 @@ pub(super) fn read_contacted_before(
 #[derive(Default)]
 pub struct TalkState {
     pub(super) counts: CountsCache,
+    pub(super) apo_calls: super::apo_call::ApoCalls,
     apo_breakdown: Arc<super::apo_breakdown::BreakdownCache>,
     rows: RowsCache,
     reads: ReadPermits,
@@ -358,6 +368,8 @@ impl TalkState {
     }
 
     /// 期間の行 (集計用)。60 秒持ち、同じ期間の読み込みは 1 本だけにする
+    // Axum の応答をそのまま認可・読み取りエラーとして返す。
+    #[allow(clippy::result_large_err)]
     async fn rows_in(
         &self,
         state: &AppState,
@@ -416,6 +428,7 @@ pub fn cacheable(r: &Result<Vec<TalkTurn>, ZoomError>) -> bool {
 // ハンドラ
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::result_large_err)]
 async fn login_gate(
     session: &Session,
     state: &Arc<AppState>,
@@ -449,6 +462,7 @@ fn now_text(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+#[allow(clippy::result_large_err)]
 async fn owners_list(
     ctx: &CrmCtx,
     client: &crate::hubspot::HubSpotClient,
@@ -584,8 +598,8 @@ pub(in crate::crm) async fn get_summary(
     };
     // アポ数は、worker が前もって数えた日だけで答える (HubSpot は待たない)。
     // 数え終わっていない日があれば、背景で読み始め (他が読んでいる最中なら任せる)、その日を応答に添える
-    let snap = st.counts.snapshot(from, to);
-    if !snap.counting.is_empty() {
+    let (apo_deals, counting) = st.counts.deals_in(from, to);
+    if !counting.is_empty() {
         let (st, client, team) = (st.clone(), client.clone(), team.clone());
         tokio::spawn(async move {
             if let Err(e) = st.counts.fill(&client, &team, from, to, now, false).await {
@@ -593,7 +607,9 @@ pub(in crate::crm) async fn get_summary(
             }
         });
     }
-    let deals = snap.deals;
+    let deals: Vec<_> = apo_deals.iter().map(|d| d.who.clone()).collect();
+    // ランクはアポ数と同じ取引ごと (worker が決めたものを使う。Turso・HubSpot は読まない)
+    let deal_ranks = st.apo_calls.ranks();
     // 架電数は営業KPI と同じシート。読めなければ出さない (HubSpot では数えない)
     // 期間に今日が入っていれば、今日の分は Zoom から約 15 分おきに数えた値 (数えられなければシート)
     let live = if from <= today && today <= to {
@@ -645,6 +661,7 @@ pub(in crate::crm) async fn get_summary(
         &ids,
         &ALERT_RULES,
     );
+    super::summary::apply_deal_ranks(&mut people, &mut total, &apo_deals, &deal_ranks);
     // 接触・日程切り。読めなければ空欄にする (ほかの列は出す)
     let marks = match state.audit.clone() {
         Some(audit) => {
@@ -680,6 +697,7 @@ pub(in crate::crm) async fn get_summary(
             &ids,
             &ALERT_RULES,
         );
+        super::summary::apply_deal_ranks(&mut tp, &mut tt, &apo_deals, &deal_ranks);
         apply_contact(&mut tp, &mut tt, marks.as_ref());
         if let super::dial_breakdown::Outcome::Ready(map) = &breakdown {
             super::dial_breakdown::apply(&mut tp, &mut tt, map);
@@ -693,7 +711,7 @@ pub(in crate::crm) async fn get_summary(
         people,
         total,
         team_totals,
-        &snap.counting,
+        &counting,
         dials.as_ref(),
         breakdown_pending,
     ))
@@ -956,6 +974,7 @@ pub(in crate::crm) async fn get_call_detail(
         .checks
         .checks
         .iter()
+        .filter(|c| !super::apo_call::only(&row) || super::judge::is_hearing(c))
         .map(
             |c| match row.items.iter().find(|i| i.id == c.id).filter(|_| judged) {
                 Some(i) => TalkItemDetail {
