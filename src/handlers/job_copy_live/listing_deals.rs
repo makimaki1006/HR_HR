@@ -425,7 +425,7 @@ pub(super) async fn body_dates(
     let mut changes = BTreeMap::new();
     for chunk in ids.chunks(50) {
         // 同じ 1 回の読み取りで、本文・画像・公開状況の履歴も読む（案件の出来事に使う。呼び出しは増えない）。
-        let data = service.request("/crm/v3/objects/0-420/batch/read", &[], Some(json!({"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(), "properties":["id_hrhakkaa","id_airwork","id_reclogi","reclogi_moto_hr_kyuujin_id","kyuujin_status","hrh_kyuujinhyou_honbun","shigotonaiyou","koukai_kaishi_nichiji"], "propertiesWithHistory":BODY_DATES_HISTORY}))).await?;
+        let data = service.request("/crm/v3/objects/0-420/batch/read", &[], Some(json!({"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(), "properties":["id_hrhakkaa","id_airwork","id_reclogi","reclogi_moto_hr_kyuujin_id","kyuujin_status","hrh_kyuujinhyou_honbun","shigotonaiyou","koukai_kaishi_nichiji","baitai_genjoukyou_hrhakkaa"], "propertiesWithHistory":BODY_DATES_HISTORY}))).await?;
         let page: Page = Page::deserialize(&data).map_err(|_| fail("hubspot_invalid_response"))?;
         if data
             .get("errors")
@@ -461,12 +461,16 @@ const BODY_DATES_HISTORY: [&str; 7] = [
     "baitai_genjoukyou_hrhakkaa",
     "baitai_genjoukyou_airwork",
 ];
-/// 値が前と変わった時刻（古い順、RFC 3339）。最初の記録は変更に数えない。
+/// 値が前と変わった時刻（古い順、RFC 3339）と、いちばん古い記録の時刻。最初の記録は変更に数えない。
 /// HubSpot の履歴は新しい 20 件までなので、それより前の変更は出ない。
 /// 同じ時刻に違う値があるときは順番が決まらないので、何も返さない。
-fn change_times<T: PartialEq>(data: &Value, key: &str, key_of: impl Fn(&str) -> T) -> Vec<String> {
+fn change_times<T: PartialEq>(
+    data: &Value,
+    key: &str,
+    key_of: impl Fn(&str) -> T,
+) -> (Vec<String>, Option<String>) {
     let Some(list) = data["propertiesWithHistory"][key].as_array() else {
-        return vec![];
+        return (vec![], None);
     };
     let mut history: Vec<(chrono::DateTime<chrono::FixedOffset>, &str)> = list
         .iter()
@@ -482,8 +486,11 @@ fn change_times<T: PartialEq>(data: &Value, key: &str, key_of: impl Fn(&str) -> 
         .windows(2)
         .any(|w| w[0].0 == w[1].0 && w[0].1 != w[1].1)
     {
-        return vec![];
+        return (vec![], None);
     }
+    let first = history
+        .first()
+        .map(|entry| entry.0.with_timezone(&chrono::Utc).to_rfc3339());
     let mut out = Vec::new();
     let mut previous: Option<T> = None;
     for (at, value) in history {
@@ -493,24 +500,43 @@ fn change_times<T: PartialEq>(data: &Value, key: &str, key_of: impl Fn(&str) -> 
         }
         previous = Some(key);
     }
-    out
+    (out, first)
+}
+/// 本文の比べ方: 空白（改行・全角空白を含む）だけの違いは変更に数えない。
+fn without_spaces(value: &str) -> String {
+    value.chars().filter(|c| !c.is_whitespace()).collect()
 }
 pub(super) fn listing_changes(data: &Value, media: &str) -> Value {
-    let body = if media == "hrh" {
-        change_times(data, "hrh_kyuujinhyou_honbun", str::to_owned)
-    } else {
-        change_times(data, "shigotonaiyou", str::to_owned)
-    };
+    let (body, body_first) = change_times(
+        data,
+        if media == "hrh" {
+            "hrh_kyuujinhyou_honbun"
+        } else {
+            "shigotonaiyou"
+        },
+        without_spaces,
+    );
     let images = match media {
-        "hrh" => change_times(data, "hrh_kyuujinhyou_gazou", |v| {
-            (super::image_urls(v), super::images_registered_value(v))
-        }),
-        "airwork" => change_times(data, super::AW_IMAGES, super::aw_images),
+        "hrh" => {
+            change_times(data, "hrh_kyuujinhyou_gazou", |v| {
+                (super::image_urls(v), super::images_registered_value(v))
+            })
+            .0
+        }
+        "airwork" => change_times(data, super::AW_IMAGES, super::aw_images).0,
         _ => vec![],
+    };
+    // 求人の画面と同じ: 媒体で「公開」から「非公開」になったことを記録した日（HRハッカーで、今が非公開のときだけ）。
+    let private_recorded_on = if media == "hrh" {
+        super::super::listing_status::summarize(data)["private_recorded_on"].clone()
+    } else {
+        Value::Null
     };
     json!({
         "body": body,
+        "body_first": body_first,
         "images": images,
+        "private_recorded_on": private_recorded_on,
         "status": super::status_history(data),
         "started_on": super::super::listing_status::day(data["properties"]["koukai_kaishi_nichiji"].as_str()),
     })

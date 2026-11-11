@@ -5,7 +5,7 @@
  */
 import { addDays, billingOverlaps, countApplications, daysBetween, jstDate } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
-import { statusEntries } from './hubspotListings';
+import { publicationLabel, statusEntries } from './hubspotListings';
 import type { HubSpotListing } from './hubspotListings';
 import { earliestStart, statusTimeline } from './listingEventsModel';
 
@@ -223,8 +223,13 @@ export const shortYen = (value: number): string => !Number.isFinite(value) || va
 
 /** サーバー（listing-body-dates の changes）から届く、求人ひとつの履歴。時刻は RFC 3339。 */
 export interface ListingChanges {
+  /** 本文を変えた時刻（空白だけの違いは除く）。 */
   body?: string[];
+  /** 本文のいちばん古い記録の時刻（HubSpot に本文を記録しはじめた時刻）。 */
+  body_first?: string | null;
   images?: string[];
+  /** 媒体で「公開」から「非公開」になったことを記録した日（HRハッカーで今が非公開のときだけ）。 */
+  private_recorded_on?: string | null;
   status?: Record<string, { timestamp: string; value: string }[]>;
   started_on?: string | null;
 }
@@ -246,19 +251,21 @@ export interface EventSource {
 const days = (values: readonly string[] | undefined): string[] => [...new Set((values ?? []).map(value => jstDate(value)).filter((value): value is string => value !== null))].sort();
 
 /**
- * 求人ひとつの出来事の元。掲載を始めた日は求人の画面と同じく、公開状況の履歴・公開開始日時・
- * 週ごとの実績の最初の週のうち、いちばん早い日。終了・再開は公開状況の履歴から。
+ * 求人ひとつの出来事の元。掲載を始めた日・終えた日は求人の画面（buildListingEvents）と同じ決め方:
+ * 開始は公開状況の履歴・公開開始日時・週ごとの実績の表示か課金のある最初の週のうちいちばん早い日。
+ * それより HubSpot に本文を記録しはじめた日が早い（か同じ）ときは、その日。
+ * 終了・再開は公開状況の履歴から。履歴に終了が無く、媒体で非公開を記録した日があればその日を終了にする。
  */
 export function eventSourceOf(row: Pick<HubSpotListing, 'id' | 'media'>, bodyChangedAt: string | null, changes: ListingChanges | undefined, billing: readonly BillingEntry[]): EventSource {
   if (!changes) return { listingId: row.id, bodyChangedAt };
   const status = statusTimeline({ statusHistory: statusEntries({ status_history: changes.status ?? {} }, row.media) });
-  const start = earliestStart({ listingStartedOn: changes.started_on ?? null }, billing, status.startOn);
-  return {
-    listingId: row.id, bodyChangedAt,
-    bodyChanges: days(changes.body), imageChanges: days(changes.images),
-    startOn: start?.date ?? null,
-    statusEvents: status.events.flatMap(event => event.kind === 'end' || event.kind === 'revive' ? [{ date: event.date, kind: event.kind }] : []),
-  };
+  const realStart = earliestStart({ listingStartedOn: changes.started_on ?? null }, billing, status.startOn);
+  const firstRecorded = jstDate(changes.body_first ?? undefined);
+  const startOn = realStart !== null && (firstRecorded === null || realStart.date < firstRecorded) ? realStart.date : firstRecorded;
+  const statusEvents = status.events.flatMap(event => event.kind === 'end' || event.kind === 'revive' ? [{ date: event.date, kind: event.kind }] : []);
+  const privateOn = changes.private_recorded_on;
+  if (!statusEvents.some(event => event.kind === 'end') && privateOn && /^\d{4}-\d{2}-\d{2}$/.test(privateOn)) statusEvents.push({ date: privateOn, kind: 'end' });
+  return { listingId: row.id, bodyChangedAt, bodyChanges: days(changes.body), imageChanges: days(changes.images), startOn, statusEvents };
 }
 
 const KIND_ORDER: Record<DealEventKind, number> = { start: 0, body: 1, image: 1, billing_start: 2, billing_end: 2, revive: 3, end: 4 };
@@ -267,10 +274,12 @@ const KIND_ORDER: Record<DealEventKind, number> = { start: 0, body: 1, image: 1,
  * 古い順に番号を付け、新しい順で返す。課金は期間の開始・停止。本文・画像は変えた日のすべて
  * （HubSpot の履歴は新しい 20 件までなので、それより前の変更は出ない）。掲載の開始・終了・再開も出す。
  */
-export function dealEvents(listings: readonly DealListingInput[], sources: readonly EventSource[], asOf: string, titleOf: (id: string) => string, formatYen: (value: number) => string, overlap: Overlap = {}): DealEvent[] {
+export function dealEvents(listings: readonly DealListingInput[], sources: readonly EventSource[], asOf: string, titleOf: (id: string) => string, formatYen: (value: number) => string, overlap: Overlap = {}, only?: ReadonlySet<string>): DealEvent[] {
   const events: Omit<DealEvent, 'n' | 'before' | 'after' | 'beforeIncomplete'>[] = [];
   const first = firstDataDate(listings);
-  for (const listing of listings) {
+  // only: 出来事を出す求人（応募・課金を読んだ先頭の求人）。応募の前後の数は全部の求人で数える。
+  const included = (id: string) => !only || only.has(id);
+  for (const listing of listings.filter(item => included(item.id))) {
     const title = titleOf(listing.id);
     for (const event of billingEvents(listing.billing)) {
       events.push(event.kind === 'start'
@@ -278,7 +287,7 @@ export function dealEvents(listings: readonly DealListingInput[], sources: reado
         : { date: event.date, kind: 'billing_end', listingId: listing.id, text: `${title}：課金が止まりました` });
     }
   }
-  for (const source of sources) {
+  for (const source of sources.filter(item => included(item.listingId))) {
     const title = titleOf(source.listingId);
     const push = (date: string, kind: DealEventKind, text: string) => { events.push({ date, kind, listingId: source.listingId, text: `${title}：${text}` }); };
     if (!source.bodyChanges) {
@@ -307,6 +316,9 @@ export function dealEvents(listings: readonly DealListingInput[], sources: reado
   }).reverse();
 }
 
+/** 同じ週の番号の見出し。3件までは「1・2・3」、4件以上は「1ほか3」。 */
+export const markLabel = (numbers: readonly number[]): string => numbers.length >= 4 ? `${String(numbers[0])}ほか${String(numbers.length - 1)}` : numbers.join('・');
+
 /** 週ごとの応募のグラフに出す出来事の番号。週（月曜はじまり）ごとにまとめる。グラフの期間の外は出さない。 */
 export function eventWeekMarks(events: readonly Pick<DealEvent, 'n' | 'date' | 'listingId'>[], weeks: readonly string[]): { index: number; numbers: number[]; listingIds: string[] }[] {
   const marks = new Map<number, { index: number; numbers: number[]; listingIds: string[] }>();
@@ -334,8 +346,9 @@ export function mediaCutoffs(listings: readonly DealListingInput[]): MediaCutoff
 }
 
 /** 課金の週ごとの行 (HRハッカー実績) を、日割りの計算に使う期間に直す。 */
-export function perfBillingEntries(perf: { source?: 'hrhacker' | 'airwork'; rows: readonly { period_start: string; period_end: string; cost_yen: number | null }[] } | undefined, mediaJobId: string): BillingEntry[] {
-  return (perf?.rows ?? []).map(row => ({ source: 'hrhacker' as const, start: row.period_start, end: row.period_end, amountYen: row.cost_yen, taxIncluded: null, media: perf?.source === 'airwork' ? 'AirWork' : 'HRハッカー', mediaJobId }));
+export function perfBillingEntries(perf: { source?: 'hrhacker' | 'airwork'; rows: readonly { period_start: string; period_end: string; cost_yen: number | null; impressions?: number | null }[] } | undefined, mediaJobId: string): BillingEntry[] {
+  // 表示回数も渡す（掲載を始めた日を「表示か課金のある最初の週」で数えるため。求人の画面と同じ）。
+  return (perf?.rows ?? []).map(row => ({ source: 'hrhacker' as const, start: row.period_start, end: row.period_end, amountYen: row.cost_yen, taxIncluded: null, media: perf?.source === 'airwork' ? 'AirWork' : 'HRハッカー', mediaJobId, impressions: row.impressions ?? null }));
 }
 
 /** 事業所（会社）の集計で、どの求人を何回数えるかを決める1か所の規則。 */
@@ -362,12 +375,13 @@ export function companyRollup(groups: readonly DealGroup[]): { inputs: DealListi
 }
 
 /** 求人の「比べる Indeed 職種」の指定状況。どの求人にも状態が無い（古い応答）ときは null。 */
-export function occupationStatus(rows: readonly Pick<HubSpotListing, 'id' | 'indeed_title_state'>[]): { total: number; set: number; none: number; unset: number } | null {
+export function occupationStatus(rows: readonly Pick<HubSpotListing, 'id' | 'indeed_title_state' | 'publication_status'>[]): { total: number; set: number; none: number; unset: number; unsetEnded: number } | null {
   const unique = [...new Map(rows.map(row => [row.id, row] as const)).values()];
   if (!unique.some(row => row.indeed_title_state !== undefined)) return null;
   const set = unique.filter(row => row.indeed_title_state === 'set').length;
   const none = unique.filter(row => row.indeed_title_state === 'none').length;
-  return { total: unique.length, set, none, unset: unique.length - set - none };
+  const unsetEnded = unique.filter(row => row.indeed_title_state !== 'set' && row.indeed_title_state !== 'none' && publicationLabel(row.publication_status) === '掲載終了').length;
+  return { total: unique.length, set, none, unset: unique.length - set - none, unsetEnded };
 }
 
 /** 求人の地域を都道府県ごとにまとめる（例: 東京都 新宿区・渋谷区）。市区町村は都道府県ごとに5つまで。どれも無ければ null。 */
