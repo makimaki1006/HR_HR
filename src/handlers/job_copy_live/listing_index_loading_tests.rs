@@ -26,7 +26,7 @@ fn synthetic_index_body_has_exact_summary_before_measuring() {
     .unwrap();
     assert_eq!(
         serde_json::to_value(summary(&record, "hrh")).unwrap(),
-        json!({"occupation":"看護補助","location":null,"salary_kind":"時給","salary_min":"0","salary_max":"1800","hours":"9時〜17時","holidays":"日曜","body_changed_at":null})
+        json!({"occupation":"看護補助","job_kind":null,"location":null,"salary_kind":"時給","salary_min":"0","salary_max":"1800","hours":"9時〜17時","holidays":"日曜","body_changed_at":null})
     );
 }
 
@@ -43,6 +43,10 @@ struct Fixture {
     page_fail_status: Arc<AtomicUsize>,
     page_calls: Arc<AtomicUsize>,
     call_times: Arc<std::sync::Mutex<Vec<(bool, std::time::Instant)>>>,
+    /// 一覧のページには出ない求人の項目 (batch read だけが返す)。1 件の差し替えの試験に使う。
+    extra: Arc<std::sync::Mutex<BTreeMap<String, Value>>>,
+    /// 書き込みで取っている間、一覧のページの応答を止める (作り直しを途中で止める)。
+    page_gate: Arc<tokio::sync::RwLock<()>>,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -80,6 +84,9 @@ impl Fixture {
         );
         let payload_bytes = Arc::new(AtomicUsize::new(0));
         let payload = payload_bytes.clone();
+        let extra = Arc::new(std::sync::Mutex::new(BTreeMap::<String, Value>::new()));
+        let page_gate = Arc::new(tokio::sync::RwLock::new(()));
+        let (extra_rows, gate) = (extra.clone(), page_gate.clone());
         let observed = calls.clone();
         let bandwidth = Arc::new(tokio::sync::Mutex::new(()));
         let app = Router::new().fallback(any(move |request: Request<Body>| {
@@ -88,6 +95,7 @@ impl Fixture {
             let payload = payload.clone();
             let (ids, page_failed, page_status, pages, times) = (ids.clone(), page_failed.clone(), page_status.clone(), pages.clone(), times.clone());
             let (seen, failed, status, active, maximum) = (seen.clone(), failed.clone(), status.clone(), active.clone(), maximum.clone());
+            let (extra_rows, gate) = (extra_rows.clone(), gate.clone());
             async move {
                 calls.fetch_add(1, Ordering::SeqCst);
                 let path = request.uri().path().to_owned();
@@ -96,6 +104,7 @@ impl Fixture {
                 let wants_body = request.uri().query().is_some_and(|q| q.contains("hrh_kyuujinhyou_honbun"));
                 let is_page = path == "/crm/v3/objects/0-420" && !light;
                 let page_nth = if is_page { pages.fetch_add(1, Ordering::SeqCst) + 1 } else { 0 };
+                if is_page { drop(gate.read().await); }
                 let is_association = path.contains("/associations/");
                 let nth = if is_association {
                     maximum.fetch_max(active.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
@@ -145,7 +154,10 @@ impl Fixture {
                 let results: Vec<_> = body["inputs"].as_array().unwrap().iter().map(|v| {
                     let id = v["id"].as_str().unwrap();
                     if path == "/crm/v3/objects/0-420/batch/read" {
-                        json!({"id":id,"properties":{"hrh_kyuujinhyou_honbun":synthetic_index_body(large_body)}})
+                        match extra_rows.lock().unwrap().get(id) {
+                            Some(props) => json!({"id":id,"properties":props}),
+                            None => json!({"id":id,"properties":{"hrh_kyuujinhyou_honbun":synthetic_index_body(large_body)}}),
+                        }
                     } else if path.contains("/associations/") {
                         let targets = if path.contains("/deals/") {vec![json!({"toObjectId":(id.parse::<u128>().unwrap()%205+1).to_string()})]} else {vec![]};
                         json!({"from":{"id":id},"to":targets})
@@ -194,6 +206,8 @@ impl Fixture {
             page_fail_status,
             page_calls,
             call_times,
+            extra,
+            page_gate,
         }
     }
 }
@@ -802,4 +816,104 @@ async fn index_payload_latency_probe() {
         let (one, ten) = (max(Duration::from_secs(1)), max(Duration::from_secs(10)));
         eprintln!("payload_probe mode={mode} records=41000 active=3000 elapsed_ms={elapsed} bytes={} pages={} calls={} max_1s={one} max_10s={ten}",f.payload_bytes.load(Ordering::SeqCst),f.page_calls.load(Ordering::SeqCst),f.calls.load(Ordering::SeqCst));
     }
+}
+
+/// リクロジ向けに作った公開前の求人 (一覧のページには出ない ID)。取引は `id % 205 + 1`。
+fn add_prepublication_listing(f: &Fixture, id: &str) {
+    f.extra.lock().unwrap().insert(
+        id.to_owned(),
+        json!({"reclogi_moto_hr_kyuujin_id":"1234567","kyuujin_status":"公開前","hs_name":"合成のリクロジ求人"}),
+    );
+}
+/// 一覧のページの応答を止めたまま (呼び出し側が `page_gate` の書き込みを持つ) 作り直しを始め、
+/// 作り直しが始まってページで止まるまで待つ。
+async fn start_paused_refresh(f: &Fixture) -> tokio::task::JoinHandle<Result<(), ReadError>> {
+    let (cache, service) = (f.service.listing_index.clone(), f.service.clone());
+    let pages = f.page_calls.load(Ordering::SeqCst);
+    let task = tokio::spawn(async move { refresh(&cache, &service, vec![], PAGE_PAUSE).await });
+    for _ in 0..500 {
+        if f.service.listing_index.state.read().await.refreshing
+            && f.page_calls.load(Ordering::SeqCst) > pages
+        {
+            return task;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("作り直しが始まりませんでした");
+}
+fn deal_count(index: &Index, id: &str) -> Option<usize> {
+    index.deals.iter().find(|d| d.id == id).map(|d| d.count)
+}
+
+#[tokio::test]
+async fn a_listing_added_during_a_rebuild_stays_in_the_rebuilt_index() {
+    let f = Fixture::new(200, Duration::ZERO).await;
+    refresh(&f.service.listing_index, &f.service, vec![], PAGE_PAUSE)
+        .await
+        .unwrap();
+    // 取引 181 は求人 180 だけに付いている。新しい求人 1000 も取引 181 (1000 % 205 + 1) に付く。
+    assert_eq!(
+        deal_count(
+            f.service
+                .listing_index
+                .state
+                .read()
+                .await
+                .snapshot
+                .as_ref()
+                .unwrap(),
+            "181"
+        ),
+        Some(1)
+    );
+    add_prepublication_listing(&f, "1000");
+    let gate = f.page_gate.write().await;
+    let task = start_paused_refresh(&f).await;
+    refresh_listing(&f.service, "1000", &[]).await.unwrap();
+    assert!(f
+        .service
+        .listing_index
+        .state
+        .read()
+        .await
+        .listing_updates
+        .contains_key("1000"));
+    drop(gate);
+    task.await.unwrap().unwrap();
+    let state = f.service.listing_index.state.read().await;
+    assert!(state.listing_updates.is_empty());
+    let index = state.snapshot.as_ref().unwrap();
+    assert_eq!(index.records.len(), 201);
+    let row = index.records.iter().find(|r| r.id == "1000").unwrap();
+    assert_eq!((row.media, row.media_job_id.as_str()), ("reclogi", ""));
+    assert_eq!(row.publication_status.as_deref(), Some("掲載前"));
+    assert_eq!(row.deal_ids, ["181"]);
+    assert_eq!(deal_count(index, "181"), Some(2));
+    assert_eq!(index.deals.iter().map(|d| d.count).sum::<usize>(), 201);
+}
+
+#[tokio::test]
+async fn a_failed_rebuild_keeps_the_added_listing_in_the_previous_index() {
+    let f = Fixture::new(200, Duration::ZERO).await;
+    refresh(&f.service.listing_index, &f.service, vec![], PAGE_PAUSE)
+        .await
+        .unwrap();
+    add_prepublication_listing(&f, "1000");
+    // 作り直しの 2 枚目のページを 400 にして失敗させる。
+    f.page_fail_on
+        .store(f.page_calls.load(Ordering::SeqCst) + 2, Ordering::SeqCst);
+    f.page_fail_status.store(400, Ordering::SeqCst);
+    let gate = f.page_gate.write().await;
+    let task = start_paused_refresh(&f).await;
+    refresh_listing(&f.service, "1000", &[]).await.unwrap();
+    drop(gate);
+    assert!(task.await.unwrap().is_err());
+    let state = f.service.listing_index.state.read().await;
+    assert!(state.refresh_failed);
+    assert!(state.listing_updates.is_empty());
+    let index = state.snapshot.as_ref().unwrap();
+    assert_eq!(index.records.len(), 201);
+    let row = index.records.iter().find(|r| r.id == "1000").unwrap();
+    assert_eq!(row.deal_ids, ["181"]);
+    assert_eq!(deal_count(index, "181"), Some(2));
 }

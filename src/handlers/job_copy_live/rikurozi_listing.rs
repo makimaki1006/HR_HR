@@ -85,6 +85,18 @@ fn id_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
+/// 案件管理の一覧の索引に、この求人 1 件を足す・差し替える。応答は待たせず、裏で動かす。
+/// 失敗しても求人は HubSpot にあり、次の作り直しで一覧に出るので、警告のログだけを出す。
+fn update_index_later(service: &JobReadService, listing_id: &str, linked_deals: Vec<String>) {
+    let (service, listing_id) = (service.clone(), listing_id.to_owned());
+    tokio::spawn(async move {
+        if let Err(e) = super::listings::refresh_listing(&service, &listing_id, &linked_deals).await
+        {
+            tracing::warn!(listing = %listing_id, code = e.code(), "job_copy_listing_index_update_failed");
+        }
+    });
+}
+
 /// 作る求人の項目。AIが書いた文があればそれを、なければ原本を使わず空のままにする (原本の文を無審査で出さない)。
 pub(super) fn build_properties(
     hr: &Record,
@@ -168,14 +180,14 @@ impl JobReadService {
             .collect())
     }
 
-    /// 取引への関連のうち足りないものを作る。付けられた数と付けられなかった数を返す。
+    /// 取引への関連のうち足りないものを作る。付いている取引と付けられなかった数を返す。
     async fn link_listing_to_deals(
         &self,
         listing_id: &str,
         deals: &[String],
         already: &BTreeSet<String>,
-    ) -> (usize, usize) {
-        let (mut ok, mut failed) = (0, 0);
+    ) -> (Vec<String>, usize) {
+        let (mut ok, mut failed) = (Vec::new(), 0);
         for deal in deals {
             let linked = already.contains(deal)
                 || self
@@ -184,7 +196,7 @@ impl JobReadService {
                     .await
                     .is_ok();
             if linked {
-                ok += 1;
+                ok.push(deal.clone());
             } else {
                 failed += 1;
             }
@@ -301,10 +313,13 @@ async fn create_inner(
             (created, "created", BTreeSet::new())
         }
     };
-    let (linked, unlinked) = service
+    let (linked_deals, unlinked) = service
         .link_listing_to_deals(&listing_id, &deals, &already)
         .await;
+    let linked = linked_deals.len();
     drop(remembered);
+    // 一覧の作り直し (6 時間ごと) を待たずに、案件管理の一覧へ「公開前」の求人として出す。
+    update_index_later(service, &listing_id, linked_deals);
     tracing::info!(listing = %id, created = status == "created", linked, unlinked, "job_copy_rikurozi_listing");
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
@@ -443,6 +458,8 @@ pub(super) async fn put_reclogi_id(
         .await
         .map_err(hubspot_error)?;
     service.detail_cache.forget_listing(&id);
+    // 一覧の行も差し替える (公開前で ID が空の行 → リクロジの求人IDの行)。
+    update_index_later(service, &id, vec![]);
     tracing::info!(listing = %id, "job_copy_reclogi_id_saved");
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
@@ -498,8 +515,38 @@ mod tests {
                 r.calls
                     .push((method.to_string(), path.clone(), body.clone()));
                 let reply = match (method, path.as_str()) {
+                    (Method::POST, "/crm/v3/objects/0-420/batch/read")
+                        if body["inputs"][0]["id"] == "900" =>
+                    {
+                        // 一覧の索引に入れるための読み直し。作った求人 (公開前) を返す。
+                        let mut props = r.created.first().map(|(_, p)| p.clone()).unwrap_or_else(
+                            || json!({"reclogi_moto_hr_kyuujin_id":"1234567","kyuujin_status":"公開前"}),
+                        );
+                        if let Some(v) = &r.listing900_reclogi {
+                            props["id_reclogi"] = json!(v);
+                        }
+                        json!({"results":[{"id":"900","properties":props}]})
+                    }
                     (Method::POST, "/crm/v3/objects/0-420/batch/read") => {
                         json!({"results":[{"id":"1","properties":hr_props()}]})
+                    }
+                    (Method::POST, "/crm/v4/associations/0-420/deals/batch/read") => {
+                        json!({"results":[{"from":{"id":"900"},"to":[{"toObjectId":10}]}]})
+                    }
+                    (Method::POST, "/crm/v4/associations/0-420/0-421/batch/read") => {
+                        json!({"results":[],"errors":[{"category":"OBJECT_NOT_FOUND",
+                            "subCategory":"crm.associations.NO_ASSOCIATIONS_FOUND",
+                            "context":{"fromObjectId":["900"]}}]})
+                    }
+                    (Method::POST, "/crm/v3/objects/deals/batch/read") => {
+                        let rows: Vec<Value> = body["inputs"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|i| json!({"id":i["id"],"properties":{
+                                "dealname":"取引","pipeline":"21596025","dealstage":"s"}}))
+                            .collect();
+                        json!({"results":rows})
                     }
                     (Method::GET, "/crm/v4/objects/0-420/1/associations/deals") => {
                         json!({"results":[{"toObjectId":10},{"toObjectId":20}]})
@@ -586,6 +633,23 @@ mod tests {
             .filter(|(m, p, _)| m == method && p == path)
             .count()
     }
+    type IndexRow = (&'static str, String, Option<String>, Vec<String>);
+    /// 裏で動く索引の更新を待つ (最大 5 秒)。条件に合う行が出たら返す。
+    async fn wait_row(
+        service: &JobReadService,
+        id: &str,
+        ready: impl Fn(&IndexRow) -> bool,
+    ) -> Option<IndexRow> {
+        for _ in 0..500 {
+            if let Some(row) = super::super::listings::upsert_test_support::row(service, id).await {
+                if ready(&row) {
+                    return Some(row);
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        None
+    }
     /// 同じ元HR求人IDを使うテストが並列で動いても、覚えている表が混ざらないよう直列にする。
     fn test_guard() -> &'static tokio::sync::Mutex<()> {
         static G: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
@@ -598,7 +662,18 @@ mod tests {
         created_lock().lock().await.clear();
         let remote: Shared = Default::default();
         let service = JobReadService::for_test(serve(remote.clone()).await);
+        super::super::listings::upsert_test_support::empty_index(&service).await;
         let (_, Json(first)) = create_inner(&service, "1", request(), true).await.unwrap();
+        // 一覧の作り直しを待たずに、案件管理の一覧へ「公開前」のリクロジ求人として出る (裏で入る)。
+        assert_eq!(
+            wait_row(&service, "900", |_| true).await,
+            Some((
+                "reclogi",
+                String::new(),
+                Some("掲載前".to_owned()),
+                vec!["10".to_owned(), "20".to_owned()]
+            ))
+        );
         assert_eq!(first["status"], "created");
         assert_eq!(first["listing_id"], "900");
         assert_eq!(first["linked_deals"], 2);
@@ -742,9 +817,10 @@ mod tests {
         let remote: Shared = Default::default();
         let base = serve(remote.clone()).await;
         let service = Arc::new(JobReadService::for_test(base));
+        super::super::listings::upsert_test_support::empty_index(&service).await;
         let state = super::super::integration_tests::moc_state();
         let access = Access {
-            service: Some(service),
+            service: Some(service.clone()),
             images: None,
             drive_listings: BTreeSet::new(),
             drive_config_error: None,
@@ -816,6 +892,11 @@ mod tests {
             .map(|(_, _, b)| b.clone())
             .unwrap();
         assert_eq!(patch, json!({"properties":{"id_reclogi":"424242"}}));
+        // 一覧の行もリクロジの求人IDの行になる。
+        let row = wait_row(&service, "900", |row| row.1 == "424242")
+            .await
+            .unwrap();
+        assert_eq!((row.0, row.1.as_str()), ("reclogi", "424242"));
         // 入力済みの求人は上書きしない
         assert_eq!(
             call("999", csrf).await.unwrap_err(),

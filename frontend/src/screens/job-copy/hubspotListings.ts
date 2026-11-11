@@ -19,7 +19,7 @@ export interface HubSpotListing {
   deal_ids?: string[]; summary?: ListingSummary;
   publication_status: string | null; last_csv_detected_at: string | null; application_count: number | null;
 }
-export interface ListingSummary { occupation: string | null; location: string | null; salary_kind: string | null; salary_min: string | null; salary_max: string | null; hours: string | null; holidays: string | null; body_changed_at: string | null }
+export interface ListingSummary { occupation: string | null; /** 求人票の項目「職種」。古い応答には無い。 */ job_kind?: string | null; location: string | null; salary_kind: string | null; salary_min: string | null; salary_max: string | null; hours: string | null; holidays: string | null; body_changed_at: string | null }
 export interface DealCandidate { id: string; name: string | null; count: number }
 export interface DealSelection { id: string; name: string; prefecture: string; title: string; media: string; publication?: string; draftStatus?: string }
 export const publicationLabel = (value: string | null) => {
@@ -30,7 +30,7 @@ export const publicationLabel = (value: string | null) => {
     default: return '不明';
   }
 };
-interface ListingPageBase { progress?: IndexProgress; indeed_title_counts?: { set: number; none: number; unset: number }; publication_statuses?: string[]; publication_counts?: { live: number; ended: number; before: number; unknown: number }; deals?: DealCandidate[]; no_deal_count?: number; listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
+interface ListingPageBase { progress?: IndexProgress; indeed_title_counts?: { set: number; none: number; unset: number }; publication_statuses?: string[]; publication_counts?: { live: number; ended: number; before: number; unknown: number }; deals?: DealCandidate[]; selected_deal?: { id: string; name: string | null } | null; no_deal_count?: number; listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
 export type HubSpotListingPage = ListingPageBase & (
   { status: 'ready'; total: number; index_built_at: string } |
   { status: 'preparing'; total: null; index_built_at: null }

@@ -151,6 +151,11 @@ mod cache_tests;
 mod deal_tests;
 #[path = "listing_snapshot.rs"]
 mod snapshot;
+#[path = "listing_upsert.rs"]
+mod upsert;
+pub(super) use upsert::refresh_listing;
+#[cfg(test)]
+pub(super) use upsert::test_support as upsert_test_support;
 
 /// AirWork image URLs, one per line. Written by `scripts/job_copy_airwork_image_urls.py`.
 pub(super) const AW_IMAGES: &str = "aw_kyuujinhyou_gazou";
@@ -254,6 +259,9 @@ pub(super) struct ListingsQuery {
     q: Option<String>,
     owner: Option<String>,
     owner_field: Option<String>,
+    /// 職種の一括指定（sort=bulk）だけ: 顧客名が `q` に一致した取引。サーバが埋める。
+    #[serde(skip)]
+    q_company_deals: Option<BTreeSet<String>>,
 }
 // Labels are decoded from a closed set of literals, never borrowed from the saved JSON.
 type IndexLabel = &'static str;
@@ -435,6 +443,8 @@ struct IndexState {
     refreshing: bool,
     refresh_failed: bool,
     draft_updates: BTreeMap<String, String>,
+    /// 作り直しの最中に足した・差し替えた求人。作り直しが終わった索引に当て直す。
+    listing_updates: BTreeMap<String, upsert::Upsert>,
     read_count: usize,
     estimated_total: Option<usize>,
     consecutive_failures: usize,
@@ -880,6 +890,10 @@ pub(super) async fn refresh(
     state.refresh_failed = result.is_err();
     match result {
         Ok(mut index) => {
+            // 求人の差し替えを先に当て、その後で案の状態を当てる (差し替えた行にも案の状態が乗るように)。
+            for (id, update) in std::mem::take(&mut state.listing_updates) {
+                upsert::apply(&mut index, &id, &update);
+            }
             for row in &mut index.records {
                 if let Some(status) = state.draft_updates.get(&row.id) {
                     row.draft_status = Some(status.clone());
@@ -903,6 +917,8 @@ pub(super) async fn refresh(
                 elapsed_ms = started.elapsed().as_millis() as u64,
                 "job-copy index build failed"
             );
+            // 足した分は前の索引に入っている。次の作り直しは足した後に HubSpot を読む。
+            state.listing_updates.clear();
             state.failed();
             Err(error) // An incomplete build never removes the previous snapshot.
         }
@@ -970,6 +986,23 @@ pub(super) fn start_worker(
         }
     }));
 }
+/// 顧客名（事業所名）が `q` を含む取引。空白・記号・大小は無視する。
+fn deals_by_company_name(map: &home::CompanyMap, q: &str) -> BTreeSet<String> {
+    let needle = normalize(q);
+    if needle.is_empty() {
+        return BTreeSet::new();
+    }
+    map.deal_company
+        .iter()
+        .filter(|(_, company)| {
+            map.names
+                .get(*company)
+                .and_then(|name| name.as_deref())
+                .is_some_and(|name| normalize(name).contains(&needle))
+        })
+        .map(|(deal, _)| deal.clone())
+        .collect()
+}
 fn indeed_state_matches(row: &Listing, state: Option<&str>) -> bool {
     match state {
         Some("unset") => row.indeed_title_state == "unset",
@@ -996,7 +1029,12 @@ fn matches_except_state(row: &Listing, query: &ListingsQuery) -> bool {
         && query.exclude_listing.as_ref().is_none_or(|v| &row.id != v)
         && query.q.as_ref().is_none_or(|q| {
             let needle = normalize(q);
-            needle.is_empty() || normalize(row.title.as_deref().unwrap_or("")).contains(&needle)
+            needle.is_empty()
+                || normalize(row.title.as_deref().unwrap_or("")).contains(&needle)
+                || query
+                    .q_company_deals
+                    .as_ref()
+                    .is_some_and(|deals| row.deal_ids.iter().any(|id| deals.contains(id)))
         })
         && query.deal.as_ref().is_none_or(|v| {
             if v == "none" {
@@ -1152,10 +1190,20 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
         let order = if let Some(order) = field_order {
             order.then_with(id_order)
         } else if query.sort.as_deref() == Some("bulk") {
-            // 職種の一括指定: 掲載中を先に、応募の多い順（同数は番号順）。
+            // 職種の一括指定: 掲載中を先に、直近4週の応募の多い順。4週分そろわない求人（画面の「—」）は
+            // 0件と同じ位置に置く。同数は求人に結び付いた応募の多い順、さらに同数は番号順。
             let not_live = |r: &Listing| r.publication_status.as_deref() != Some("掲載中");
+            let recent = |r: &Listing| {
+                r.perf
+                    .as_ref()
+                    .and_then(|p| p.comparison_recent.as_ref())
+                    .filter(|p| p.period_end <= today)
+                    .and_then(|p| p.applications)
+                    .unwrap_or(0)
+            };
             not_live(a)
                 .cmp(&not_live(b))
+                .then_with(|| recent(b).cmp(&recent(a)))
                 .then_with(|| {
                     b.indexed_application_count
                         .cmp(&a.indexed_application_count)
@@ -1304,15 +1352,46 @@ pub(super) async fn read(
     {
         return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
     }
-    if query.deal.as_ref().is_some_and(|id| {
-        id != "none"
-            && (id.split(',').count() > 20
-                || id
-                    .split(',')
-                    .any(|one| !index.deals.iter().any(|d| d.id == one)))
-    }) {
+    if query
+        .deal
+        .as_ref()
+        .is_some_and(|id| id != "none" && id.split(',').count() > 20)
+    {
         return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
     }
+    if query.deal.as_ref().is_some_and(|id| {
+        id != "none"
+            && id
+                .split(',')
+                .any(|one| !index.deals.iter().any(|d| d.id == one))
+    }) {
+        // 索引に無い取引（求人が結び付いていない・番号違い）。画面はこの理由で案内を分ける。
+        return Err(ReadError(StatusCode::BAD_REQUEST, "listing_deal_not_found"));
+    }
+    let mut query = query;
+    if query.sort.as_deref() == Some("bulk")
+        && query.q.as_deref().is_some_and(|q| !normalize(q).is_empty())
+    {
+        // 顧客名でも探す。顧客名は全件の索引（担当で絞る前）で作った対応表から引き、
+        // まだ無ければ少しだけ待つ。間に合わなければ求人名だけで探す。
+        let companies = tokio::time::timeout(
+            Duration::from_secs(10),
+            home::load_companies(service, &index),
+        )
+        .await;
+        if let Ok(Ok(map)) = companies {
+            query.q_company_deals = Some(deals_by_company_name(
+                &map,
+                query.q.as_deref().unwrap_or(""),
+            ));
+        }
+    }
+    let selected_deal = query
+        .deal
+        .as_deref()
+        .filter(|id| *id != "none" && !id.contains(','))
+        .and_then(|id| index.deals.iter().find(|d| d.id == id))
+        .map(|d| json!({"id": d.id, "name": d.name}));
     let owner_query = owner_todo::OwnerQuery {
         owner: query.owner.clone(),
         owner_field: query.owner_field.clone(),
@@ -1360,7 +1439,7 @@ pub(super) async fn read(
             "offset":query.offset, "next_offset":next_offset, "titles":index.titles,
             "publication_counts": publication_counts,
             "indeed_title_counts":{"set":counts.0,"none":counts.1,"unset":counts.2},
-            "refreshing":refreshing, "refresh_failed":refresh_failed, "deals":deal_candidates(&index, query.deal_search.as_deref().unwrap_or("")), "no_deal_count":index.records.iter().filter(|r| r.deal_ids.is_empty()).count()
+            "refreshing":refreshing, "refresh_failed":refresh_failed, "deals":deal_candidates(&index, query.deal_search.as_deref().unwrap_or("")), "selected_deal":selected_deal, "no_deal_count":index.records.iter().filter(|r| r.deal_ids.is_empty()).count()
         })),
     ))
 }
@@ -2492,6 +2571,276 @@ mod tests {
             ["5", "1", "4"]
         );
         assert_eq!(ids(q(Some("bulk"), None, Some("事務"))), ["3"]);
+    }
+    #[test]
+    fn job_copy_bulk_orders_by_recent_four_weeks_then_total() {
+        let today = chrono::Utc::now()
+            .with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap())
+            .date_naive();
+        let mk = |id: &str, recent: Option<i64>, total: usize| {
+            let record: Record = serde_json::from_value(
+                json!({"id":id,"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":"合成求人","kyuujin_status":"公開中"}}),
+            )
+            .unwrap();
+            let mut row = listing(&record).unwrap();
+            row.indexed_application_count = Some(total);
+            row.perf = recent.map(|apps| home::PerfDigest {
+                latest_end: today,
+                comparison_recent: Some(home::ComparisonRecent {
+                    period_start: today - chrono::Duration::days(27),
+                    period_end: today,
+                    applications: Some(apps),
+                    cost_yen: None,
+                }),
+                recent_apps: apps,
+                recent_cost: 0,
+                prev_apps: 0,
+            });
+            row
+        };
+        let index = Index {
+            // 全期間は 1 が多くても、直近4週で並ぶ。同数(3・2)は全期間の多い順。
+            // 4週そろわない 4・6（画面の「—」）は 0件の 5 と同じ位置で、その中は全期間の多い順。
+            records: vec![
+                mk("1", Some(1), 90),
+                mk("2", Some(5), 3),
+                mk("3", Some(5), 8),
+                mk("4", None, 50),
+                mk("5", Some(0), 99),
+                mk("6", None, 10),
+            ],
+            titles: vec![],
+            built_at: "2026-10-10T00:00:00Z".into(),
+            deals: vec![],
+        };
+        let query = ListingsQuery {
+            sort: Some("bulk".into()),
+            ..Default::default()
+        };
+        let (_, page) = selected_page(&index, &query);
+        let got: Vec<_> = page
+            .iter()
+            .map(|r| {
+                (
+                    r.listing.id.as_str(),
+                    r.recent_performance.as_ref().and_then(|p| p.applications),
+                    r.application_count,
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("3", Some(5), Some(8)),
+                ("2", Some(5), Some(3)),
+                ("1", Some(1), Some(90)),
+                ("5", Some(0), Some(99)),
+                ("4", None, Some(50)),
+                ("6", None, Some(10)),
+            ]
+        );
+    }
+    #[test]
+    fn job_copy_bulk_search_matches_company_name_and_deal_filter() {
+        let mk = |id: &str, title: &str, deal: &str| {
+            let record: Record = serde_json::from_value(
+                json!({"id":id,"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":title,"kyuujin_status":"公開中"}}),
+            )
+            .unwrap();
+            let mut row = listing(&record).unwrap();
+            row.deal_ids = vec![deal.into()];
+            row
+        };
+        let index = Index {
+            records: vec![
+                mk("1", "配送スタッフ", "801"),
+                mk("2", "事務スタッフ", "802"),
+                mk("3", "合成物流の倉庫", "803"),
+            ],
+            titles: vec![],
+            built_at: "2026-10-10T00:00:00Z".into(),
+            deals: vec![],
+        };
+        let mut map = home::CompanyMap::default();
+        map.deal_company.insert("801".into(), "701".into());
+        map.deal_company.insert("802".into(), "702".into());
+        map.deal_company.insert("803".into(), "703".into());
+        map.names
+            .insert("701".into(), Some("合成 物流株式会社".into()));
+        map.names.insert("702".into(), Some("架空商事".into()));
+        map.names.insert("703".into(), None);
+        let deals = deals_by_company_name(&map, "合成物流");
+        assert_eq!(deals, BTreeSet::from(["801".to_string()]));
+        assert!(deals_by_company_name(&map, " ").is_empty());
+        let ids = |q: ListingsQuery| {
+            selected_page(&index, &q)
+                .1
+                .into_iter()
+                .map(|r| r.listing.id)
+                .collect::<Vec<_>>()
+        };
+        // 顧客名で 1、求人名で 3 が一致する。
+        let query = ListingsQuery {
+            sort: Some("bulk".into()),
+            q: Some("合成物流".into()),
+            q_company_deals: Some(deals),
+            ..Default::default()
+        };
+        assert_eq!(ids(query), ["1", "3"]);
+        // 顧客名の対応表が無ければ求人名だけ。
+        let query = ListingsQuery {
+            sort: Some("bulk".into()),
+            q: Some("合成物流".into()),
+            ..Default::default()
+        };
+        assert_eq!(ids(query), ["3"]);
+        // 取引で絞る。
+        let query = ListingsQuery {
+            sort: Some("bulk".into()),
+            deal: Some("802".into()),
+            ..Default::default()
+        };
+        assert_eq!(ids(query), ["2"]);
+    }
+    #[tokio::test]
+    async fn job_copy_bulk_read_looks_up_company_names_only_for_bulk_and_names_the_deal() {
+        use axum::body::to_bytes;
+        // HubSpot は呼ばない（事業所の対応表は先に入れておく）。呼ばれたら接続に失敗する。
+        let service = Arc::new(JobReadService::for_test("http://127.0.0.1:9".into()));
+        let mk = |id: &str, title: &str, deal: &str| {
+            let record: Record = serde_json::from_value(
+                json!({"id":id,"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":title,"kyuujin_status":"公開中"}}),
+            )
+            .unwrap();
+            let mut row = listing(&record).unwrap();
+            row.deal_ids = vec![deal.into()];
+            row
+        };
+        let deal = |id: &str, name: &str| Deal {
+            id: id.into(),
+            name: Some(name.into()),
+            count: 1,
+            ..Default::default()
+        };
+        let index = Arc::new(Index {
+            records: vec![
+                mk("1", "配送スタッフ", "801"),
+                mk("2", "事務スタッフ", "802"),
+            ],
+            titles: vec![],
+            deals: vec![deal("801", "架空の配送案件"), deal("802", "架空の事務案件")],
+            built_at: "2026-10-12T00:00:00Z".into(),
+        });
+        service.listing_index.state.write().await.snapshot = Some(index.clone());
+        let mut map = home::CompanyMap::default();
+        map.deal_company.insert("801".into(), "701".into());
+        map.deal_company.insert("802".into(), "702".into());
+        map.names
+            .insert("701".into(), Some("架空物流株式会社".into()));
+        map.names.insert("702".into(), Some("架空商事".into()));
+        home::seed_companies(&service, &index, map).await;
+        let access = Access {
+            service: Some(service.clone()),
+            moc_path: None,
+            moc_drive: Ok(None),
+            snapshot_reader: None,
+            snapshot_cache: Arc::default(),
+            resolved_jobs: Arc::default(),
+            images: None,
+            drive_listings: BTreeSet::new(),
+            drive_config_error: None,
+        };
+        let state = super::super::integration_tests::moc_state();
+        let session = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+        session
+            .insert(SESSION_USER_KEY, "reader@example.test")
+            .await
+            .unwrap();
+        session
+            .insert(SESSION_LOGIN_METHOD_KEY, LOGIN_METHOD_GOOGLE_OIDC)
+            .await
+            .unwrap();
+        let call = |query: &str| {
+            let (state, access, session) = (state.clone(), access.clone(), session.clone());
+            let uri: axum::http::Uri = format!("http://test/?{query}").parse().unwrap();
+            let query = Query::<ListingsQuery>::try_from_uri(&uri).unwrap();
+            async move {
+                match read(State(state), Extension(access), session, query).await {
+                    Ok(response) => {
+                        let body = to_bytes(response.into_response().into_body(), 65536)
+                            .await
+                            .unwrap();
+                        Ok(serde_json::from_slice::<Value>(&body).unwrap())
+                    }
+                    Err(ReadError(status, code)) => Err((status, code)),
+                }
+            }
+        };
+        let ids = |body: &Value| {
+            body["listings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["id"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        let q = "q=%E6%9E%B6%E7%A9%BA%E7%89%A9%E6%B5%81"; // 架空物流
+                                                          // 一括指定(sort=bulk)だけ顧客名で一致する。ほかの並びは求人名だけ。
+        assert_eq!(ids(&call(&format!("sort=bulk&{q}")).await.unwrap()), ["1"]);
+        assert!(ids(&call(&format!("sort=title&{q}")).await.unwrap()).is_empty());
+        assert!(ids(&call(q).await.unwrap()).is_empty());
+        // 取引 1 件で絞ると案件名を返す。指定が無い・複数なら返さない。
+        let one = call("sort=bulk&deal=802").await.unwrap();
+        assert_eq!(ids(&one), ["2"]);
+        assert_eq!(
+            one["selected_deal"],
+            json!({"id":"802","name":"架空の事務案件"})
+        );
+        assert_eq!(
+            call("sort=bulk").await.unwrap()["selected_deal"],
+            Value::Null
+        );
+        assert_eq!(
+            call("sort=bulk&deal=801,802").await.unwrap()["selected_deal"],
+            Value::Null
+        );
+        // 索引に無い取引は専用の理由。ほかの誤りは従来の理由。
+        assert_eq!(
+            call("sort=bulk&deal=999").await.unwrap_err(),
+            (StatusCode::BAD_REQUEST, "listing_deal_not_found")
+        );
+        assert_eq!(
+            call("sort=bad").await.unwrap_err(),
+            (StatusCode::BAD_REQUEST, "listing_filter_invalid")
+        );
+    }
+    #[test]
+    fn job_copy_summary_has_job_kind_for_both_media() {
+        let hrh: Record = serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"HR-1","zhizhong":"一般事務","hrh_kyuujinhyou_honbun":"Indeed表示職種名：事務スタッフ"}})).unwrap();
+        let aw: Record = serde_json::from_value(
+            json!({"id":"2","properties":{"id_airwork":"AW-2","zhizhong":"倉庫管理"}}),
+        )
+        .unwrap();
+        let none: Record =
+            serde_json::from_value(json!({"id":"3","properties":{"id_hrhakkaa":"HR-3"}})).unwrap();
+        let s = summary(&hrh, "hrh");
+        assert_eq!(
+            (s.job_kind.as_deref(), s.occupation.as_deref()),
+            (Some("一般事務"), Some("事務スタッフ"))
+        );
+        let s = summary(&aw, "airwork");
+        assert_eq!(
+            (s.job_kind.as_deref(), s.occupation.as_deref()),
+            (Some("倉庫管理"), Some("倉庫管理"))
+        );
+        let s = summary(&none, "hrh");
+        assert_eq!((s.job_kind, s.occupation), (None, None));
+        // 古い保存データ（job_kind なし）も読める。
+        let old: Summary = serde_json::from_value(json!({"occupation":"配送","location":null,"salary_kind":null,"salary_min":null,"salary_max":null,"hours":null,"holidays":null,"body_changed_at":null})).unwrap();
+        assert_eq!(
+            (old.occupation.as_deref(), old.job_kind),
+            (Some("配送"), None)
+        );
     }
     #[test]
     fn job_copy_prefecture_specific_values() {
