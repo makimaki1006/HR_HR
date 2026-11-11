@@ -78,6 +78,16 @@ export function buildLifeline(job: JobCopyRecord, events: readonly ListingEvent[
   return lifeline;
 }
 
+/**
+ * 変更の印に出す番号。出来事の一覧の番号（ListingEvent.n）と同じ。
+ * 1件なら「4」、2件なら「4・5」、3件以上は印に収まらないので「4ほか2」（残りは押すと開く一覧と、印の説明で見られる）。
+ */
+export function changeMarkerNumbers(events: readonly Pick<ListingEvent, 'n'>[]): string {
+  const numbers = events.map(event => String(event.n));
+  if (numbers.length <= 2) return numbers.join('・');
+  return `${numbers[0] ?? ''}ほか${String(numbers.length - 1)}`;
+}
+
 /** 金額などの詳細を省き、印に収まる変更名にする。 */
 export function changeMarkerLabel(events: readonly ListingEvent[]): string {
   if (events.length > 1) return `変更×${String(events.length)}`;

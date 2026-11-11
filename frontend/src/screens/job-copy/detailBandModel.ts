@@ -99,3 +99,49 @@ export function noApplicationDatesText(job: Pick<JobCopyRecord, 'overallApplicat
   if (job.applicationDates === 'failed') return '応募を読み込めませんでした。';
   return 'この求人の応募はまだ記録されていません。';
 }
+
+/** 2026-06-10 → 6/10。今年でない日は 2025/6/10 のように年を付ける。 */
+function shortDate(date: string, thisYear: string): string {
+  const monthDay = `${String(Number(date.slice(5, 7)))}/${String(Number(date.slice(8, 10)))}`;
+  return date.slice(0, 4) === thisYear ? monthDay : `${date.slice(0, 4)}/${monthDay}`;
+}
+
+/**
+ * 上の帯に添える掲載の期間。「（6/10〜）」。ended（今の公開状況が掲載終了）のときだけ終了日を付けて「（6/10〜9/1）」、
+ * 掲載終了なのに終了日が分からなければ「（6/10〜、終了日の記録なし）」。掲載中なら end があっても終了日は出さない。
+ * 開始日が分からないときは空文字（何も出さない）。today は JST の今日（年を付けるかの判断だけに使う）。
+ */
+export function listingPeriodText(start: string | null, end: string | null, today: string, ended = false): string {
+  if (!start || !DATE.test(start)) return '';
+  const thisYear = today.slice(0, 4);
+  if (!ended) return `（${shortDate(start, thisYear)}〜）`;
+  return end && DATE.test(end) && end >= start ? `（${shortDate(start, thisYear)}〜${shortDate(end, thisYear)}）` : `（${shortDate(start, thisYear)}〜、終了日の記録なし）`;
+}
+
+export interface MarketMonthOverMonth {
+  /** 市場の求人数がある最後の月（YYYY-MM）。 */
+  month: string;
+  jobs: number;
+  /** その前の月。 */
+  previousMonth: string;
+  previousJobs: number | null;
+  /** 前月比（%）。前月の数字が無い・前月が0件のとき null。 */
+  changePct: number | null;
+}
+
+/** 競合の求人数の最新の月と、その前の月との比較。求人数が1か月も無いとき null。 */
+export function marketMonthOverMonth(rows: readonly { month: string; jobs: number | null }[]): MarketMonthOverMonth | null {
+  const latest = rows.filter((row): row is { month: string; jobs: number } => row.jobs !== null).sort((a, b) => a.month.localeCompare(b.month)).at(-1);
+  if (!latest) return null;
+  const total = Number(latest.month.slice(0, 4)) * 12 + Number(latest.month.slice(5, 7)) - 2;
+  const previousMonth = `${String(Math.floor(total / 12))}-${String(total % 12 + 1).padStart(2, '0')}`;
+  const previousJobs = rows.find(row => row.month === previousMonth)?.jobs ?? null;
+  const changePct = previousJobs !== null && previousJobs > 0 ? (latest.jobs - previousJobs) / previousJobs * 100 : null;
+  return { month: latest.month, jobs: latest.jobs, previousMonth, previousJobs, changePct };
+}
+
+/** 割合の差の文字。判定の言葉は付けず、符号と割合だけ（+3%・−12%・±0%）。 */
+export function signedPct(pct: number): string {
+  const rounded = Math.round(pct);
+  return `${rounded > 0 ? '+' : rounded < 0 ? '−' : '±'}${String(Math.abs(rounded))}%`;
+}

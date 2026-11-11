@@ -6,14 +6,14 @@ import type { ReactNode } from 'react';
 import type { JobCopyRecord } from './data';
 import { RetryApplicants } from './RetryApplicants';
 import { applicationsCutoffDate, noApplicationDatesText } from './detailBandModel';
-import { COLUMN_PX, buildLifeline, changeMarkerLabel, weekIndex } from './lifelineModel';
+import { COLUMN_PX, buildLifeline, changeMarkerLabel, changeMarkerNumbers, weekIndex } from './lifelineModel';
 import type { Lifeline, LifelineWeek } from './lifelineModel';
 import { HEARING_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
 import { ReasonCategorySummary } from './ReasonCategorySummary';
 import { maskPersonalDetails } from './personalText';
 import { selectedCategory } from './reasonCategories';
-import { eventChecks, eventCounts, md, resultText } from './listingEventsModel';
-import type { ListingEvent, MarketInput } from './listingEventsModel';
+import { eventChecks, eventCostNotes, eventCosts, eventCounts, md, resultText } from './listingEventsModel';
+import type { EventCosts, EventCounts, ListingEvent, MarketInput } from './listingEventsModel';
 import { chooseMarket, designatedTitle, indeedTitleState } from './marketMatch';
 import { marketRows } from './marketChartModel';
 import type { MarketRow } from './marketChartModel';
@@ -116,15 +116,37 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
         <div className="lf-row lf-head">{lifeline.weeks.map(week => <div key={week.start} className="lf-cell" title={`${week.start} の週`}>{md(week.start)}</div>)}</div>
         <div className="lf-row lf-changes">{lifeline.weeks.map(week => {
           const latest = week.changes.at(-1);
-          const details = week.changes.map(event => `${event.date} ${event.title}：${event.summary}`).join('\n');
+          const details = week.changes.map(event => `出来事${String(event.n)} ${event.date} ${event.title}：${event.summary}`).join('\n');
           const label = `${details}${week.changes.length > 1 ? '\n最新の出来事を開きます' : ''}`;
-          return <div key={week.start} className="lf-cell">{latest && <button type="button" className="lf-change" title={label} aria-label={label} onClick={() => { onSelect(latest.id); }}>{changeMarkerLabel(week.changes).split('・').map((part, index, parts) => <span key={part}>{part}{index < parts.length - 1 ? '・' : ''}</span>)}</button>}</div>;
+          return <div key={week.start} className="lf-cell">{latest && <button type="button" className="lf-change" title={label} aria-label={label} onClick={() => { onSelect(latest.id); }}><strong className="lf-change-num" data-testid="lifeline-change-num">{changeMarkerNumbers(week.changes)}</strong>{changeMarkerLabel(week.changes).split('・').map((part, index, parts) => <span key={part}>{part}{index < parts.length - 1 ? '・' : ''}</span>)}</button>}</div>;
         })}</div>
         {rows.map(row => <div key={row.key} className="lf-row" role="row" aria-label={row.label}>
           {row.empty && lifeline.weeks.every(week => row.cell(week) === '—') ? <div className="lf-empty">{row.empty}</div> : lifeline.weeks.map(week => <div key={week.start} className={`lf-cell${row.cell(week) === '0' || row.cell(week) === '¥0' ? ' lf-zero' : ''}`} title={row.short(week) === row.cell(week) ? undefined : row.cell(week)}>{row.short(week)}</div>)}
         </div>)}
       </div>
     </div>
+  </div>;
+}
+
+/** 出来事の前後4週の応募・課金・応募1件あたりの費用。差や判定の言葉は付けず、数字を並べるだけ。「—」の理由は下に1行ずつ出す。 */
+export function EventCostTable({ event, counts, costs, asOf }: { event: Pick<ListingEvent, 'date' | 'kind'>; counts: EventCounts; costs: EventCosts; asOf: string | null }) {
+  // 見出しは一覧の行（「前は掲載後14日分・後は11日分」）と同じ言い方にする。
+  const beforeHead = counts.before !== null && counts.beforeDays < 28 ? `前の4週（掲載後${String(counts.beforeDays)}日分）` : '前の4週';
+  const afterHead = counts.after !== null && counts.afterDays < 28 ? `後の4週（${String(counts.afterDays)}日分）` : '後の4週';
+  const apps = (value: number | null) => value === null ? '—' : `${value.toLocaleString('ja-JP')}件`;
+  // 応募の件数がどちらも無いときは、窓が決まらないので表を出さない（一覧の結果欄に理由が出ている）。
+  if (counts.before === null && counts.after === null) return null;
+  const notes = eventCostNotes(event, counts, costs, asOf);
+  return <div className="lo-costs">
+    <table className="lo-cost-table" data-testid="event-costs">
+      <thead><tr><th scope="col"><span className="jc-visually-hidden">項目</span></th><th scope="col">{beforeHead}</th><th scope="col">{afterHead}</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">応募</th><td data-testid="cost-before-applications">{apps(counts.before)}</td><td data-testid="cost-after-applications">{apps(counts.after)}</td></tr>
+        <tr><th scope="row">課金</th><td data-testid="cost-before-billing">{yen(costs.before?.billing ?? null)}</td><td data-testid="cost-after-billing">{yen(costs.after?.billing ?? null)}</td></tr>
+        <tr><th scope="row">応募1件あたり</th><td data-testid="cost-before-per-application">{yen(costs.before?.perApplication ?? null)}</td><td data-testid="cost-after-per-application">{yen(costs.after?.perApplication ?? null)}</td></tr>
+      </tbody>
+    </table>
+    {notes.length > 0 && <ul className="lo-cost-notes" data-testid="event-cost-notes">{notes.map(note => <li key={note}>{note}</li>)}</ul>}
   </div>;
 }
 
@@ -220,6 +242,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
             </button>
             {open && isApplication && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicationDetails job={job} event={event} hearing={hearing.data} loading={hearing.loading} /></div>}
             {open && !isApplication && <div className="lo-event-body">
+              <EventCostTable event={event} counts={counts} costs={eventCosts(event, counts, billing)} asOf={asOf} />
               <ul className="lo-checks" aria-label="ほかに応募を動かしそうなこと">
                 {checks.map(check => <li key={check.key}><span className={`lo-mark lo-mark-${check.mark}`}>{check.markLabel}</span><strong>{check.label}</strong><span>{check.text}</span></li>)}
               </ul>

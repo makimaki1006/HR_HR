@@ -70,7 +70,7 @@ import { AssumptionsRail, DetailBand } from './DetailBand';
 import { ListingOverview, useListingMarket } from './ListingOverview';
 import type { ListingDrawerKind } from './ListingOverview';
 import { ListingDrawer } from './ListingDrawer';
-import { buildListingEvents, eventCounts, md } from './listingEventsModel';
+import { buildListingEvents, eventCounts, listingPeriodOf, md } from './listingEventsModel';
 import type { ListingEvent } from './listingEventsModel';
 import { applicationsCutoffDate } from './detailBandModel';
 import type { BillingEntry } from './timelineModel';
@@ -238,8 +238,9 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
   const kind = detailQuery.get('drawer');
   const drawer = kind === 'who' || kind === 'market' || kind === 'billing' ? { kind, event: listingEvents.find(event => event.id === detailQuery.get('drawerEvent')) ?? null } : null;
   const listingMarket = useListingMarket(job, demo ? 'demo' : 'api');
+  const listingPeriod = useMemo(() => listingPeriodOf(listingEvents), [listingEvents]);
   return <article ref={detailElement} className="jc-detail" id="job-details" tabIndex={-1}>
-    <DetailBand job={job} billing={realBillingEntries} onOpenFullCompare={() => { setBandCompareOpen(true); }} latestEvent={listingEvents.at(-1) ?? null} onOpenLatest={() => { const latestId = listingEvents.at(-1)?.id; if (latestId) setSelectedEventId(latestId); }}
+    <DetailBand job={job} billing={realBillingEntries} listingStart={listingPeriod.start} listingEnd={listingPeriod.end} onOpenFullCompare={() => { setBandCompareOpen(true); }} latestEvent={listingEvents.at(-1) ?? null} onOpenLatest={() => { const latestId = listingEvents.at(-1)?.id; if (latestId) setSelectedEventId(latestId); }}
       onNewPattern={() => { if (current) { setEditing(current); setWorkOpen(true); setTab('body'); requestAnimationFrame(() => { document.getElementById('jc-manual-editor')?.scrollIntoView({ block: 'start' }); }); } }}
       newPatternDisabled={!job.hubspotId || !job.canWriteDrafts || !current?.body || editing !== null} />
     <FullTextCompareDialog record={job} open={bandCompareOpen} onClose={() => { setBandCompareOpen(false); }} />
@@ -331,7 +332,7 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
     </JobFeatureTabs>
     </ListingDrawer>}
     </div>
-    <AssumptionsRail job={job} billing={realBillingEntries} mode={demo ? 'demo' : 'api'} onIndeedTitleChanged={onIndeedTitleChanged} />
+    <AssumptionsRail job={job} billing={realBillingEntries} mode={demo ? 'demo' : 'api'} onIndeedTitleChanged={onIndeedTitleChanged} onOpenMarket={() => { setDrawer({ kind: 'market', event: null }); }} />
     </div>
   </article>;
 }
