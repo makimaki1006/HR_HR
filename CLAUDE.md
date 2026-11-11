@@ -503,6 +503,8 @@ turso db shell salesnow "SELECT COUNT(*) FROM v2_salesnow_companies"
 ## 13. ドキュメント索引
 
 - [リクロジメディア向け求人案の計画](docs/architecture/rikurozi-draft-plan.md)
+- [`docs/job_copy/rikurozi-expression-types-2026-11-11.html`](docs/job_copy/rikurozi-expression-types-2026-11-11.html) — リクロジメディア向け求人の条件の書き方の型（給与・勤務時間・休日など。求人サイトの詳細ページ853件から）
+- [`docs/job_copy/rikurozi-column-mapping-2026-11-11.html`](docs/job_copy/rikurozi-column-mapping-2026-11-11.html) — 上の型と HRハッカーの列の対応（案。未決定の点あり、別途議論）
 - [`docs/architecture/customer-applicant-portal-plan.html`](docs/architecture/customer-applicant-portal-plan.html) — 顧客向け応募者画面の計画（シートと 1 分以内で連動・メールとパスワードのログイン・アプリの情報も社内用シート）
 - [`docs/architecture/jobgen-to-job-copy.md`](docs/architecture/jobgen-to-job-copy.md) — 求人票作成の案の保存・履歴・比較と再送台帳（ADR-019）
 - [`docs/interview_hire_counts/interview-hire-counts-2026-11-06.html`](docs/interview_hire_counts/interview-hire-counts-2026-11-06.html) — 面接数・採用数の月末集計（リクロジ_納品管理、満了による減りを除いた月の増え、値を減らした書き換えの区分）。再現手順は同じフォルダの `README.md`

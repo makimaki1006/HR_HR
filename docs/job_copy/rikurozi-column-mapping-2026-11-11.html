@@ -1,0 +1,44 @@
+<!doctype html><html lang=ja><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>条件の型と列の対応</title>
+<style>
+:root{--ink:#222;--sub:#666;--line:#d8d4cc;--bg:#fbfaf7;--acc:#7a5c2e}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.75 "Hiragino Mincho ProN","Yu Mincho",serif}
+main{max-width:1200px;margin:0 auto;padding:32px 16px 80px}
+h1{font-size:23px;border-bottom:2px solid var(--ink);padding-bottom:6px}
+h2{font-size:18px;margin-top:40px;border-left:4px solid var(--acc);padding-left:10px}
+p.meta{color:var(--sub);font-size:13px}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px;min-width:980px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{background:#f1eee7;position:sticky;top:0}
+code{font-family:Menlo,monospace;font-size:11.5px;white-space:pre-wrap}
+.box{background:#fff;border:1px solid var(--line);padding:10px 18px}
+.q li{margin:6px 0}
+</style></head><body><main>
+<h1>条件の型と HRハッカーの列の対応</h1>
+<p class=meta>2026-11-11 作成。型の元: 求人サイトの詳細ページ 853件（資料「条件の書き方の型」）。HRハッカー側: 掲載中の HRハッカー求人 300件の本文（HubSpot の求人に保存されている本文）を読み、各要素がどの列に書かれているかを数えた。表の「案」の列は Claude の案で、まだ決まっていない。</p>
+
+<h2>1. 前提</h2>
+<div class=box><ul>
+<li>HRハッカーの84列には、<strong>値の列</strong>（給与形態・基本給与・平均稼働時間・固定残業代・試用の有無・受動喫煙対策など）と、<strong>文の列</strong>（給与補足・勤務時間・応募資格・試用・研修の詳細情報・仕事情報補足・自由項目など）がある。</li>
+<li>値の列は元の求人から写し、変えない。型にそろえるのは文の列だけ。</li>
+<li>HRハッカーには「休日」「福利厚生」「勤務地の住所」の専用の列が無い。今の求人では、休日・福利厚生は自由項目か仕事情報補足に、タイトルを付けて書かれている（自由項目1「休日・休暇」164件、自由項目2「福利厚生・待遇」152件が最多）。</li>
+<li>型の要素が元の求人に無いとき（例: 年間休日が書かれていない）は、その行を書かない。数字を作らない。</li>
+</ul></div>
+
+<h2>2. 対応表</h2>
+<div class=wrap><table>
+<tr><th>欄</th><th>要素</th><th>型の例</th><th>入れる HRハッカーの列</th><th>列の種類</th><th>今の HRハッカーでの入り方（300件）</th><th>案（未決定）</th></tr>
+<tr><td>給与</td><td>給与の形態と金額（見出し）</td><td><code>月給：22万7000円～34万8000円</code></td><td><strong>給与形態／基本給与 最小／基本給与 最大</strong></td><td>値（写す）</td><td>全件に値あり</td><td>値はそのまま写す。給与補足の1行目に、この型で見出しを書き直す</td></tr><tr><td>給与</td><td>想定年収・月収例</td><td><code>想定年収 377万円～527万円</code></td><td><strong>給与補足</strong></td><td>文（書く）</td><td>給与補足に「年収」「月収」が114件</td><td>元の文に年収・月収例があるときだけ、この型で書く。無ければ書かない</td></tr><tr><td>給与</td><td>月給の内訳</td><td><code>備考：月給￥227,000～ 基本給￥197,000～ 諸手当￥30,000～を含む/月</code></td><td><strong>給与補足</strong></td><td>文（書く）</td><td>手当の金額を箇条書きにしている例が多い</td><td>元の文に基本給・手当の金額があるときだけ、内訳の型で1行にまとめる</td></tr><tr><td>給与</td><td>固定残業代</td><td><code>固定残業代￥…を含む／相当時間 20.0時間/月</code></td><td><strong>固定残業代／想定残業時間（値）＋給与補足</strong></td><td>値＋文</td><td>値の列は12件。多くは給与補足の「固定残業代なし」</td><td>値は写す。文は給与補足に「固定残業代の相当時間：N時間/月」または「固定残業代なし」</td></tr><tr><td>給与</td><td>賞与</td><td><code>■賞与実績:年2回</code></td><td><strong>給与補足</strong></td><td>文（書く）</td><td>給与補足に261件</td><td>給与補足の中で「■賞与実績:」の型にそろえる</td></tr><tr><td>給与</td><td>昇給</td><td><code>（元データでは備考欄。型は「■昇給：年1回（4月）」）</code></td><td><strong>給与補足</strong></td><td>文（書く）</td><td>給与補足に260件</td><td>賞与と並べて「■昇給：」の型にそろえる</td></tr><tr><td>給与</td><td>諸手当</td><td><code>諸手当：通勤手当（会社規定に基づき支給）、残業手当（残業時間に応じて別途支給）</code></td><td><strong>給与補足</strong></td><td>文（書く）</td><td>給与補足に273件（【手当】の箇条書き）</td><td>「諸手当：」に続けて読点区切りで並べる</td></tr><tr><td>試用期間</td><td>有無・期間・条件の変更</td><td><code>試用期間あり／試用期間3ヶ月。</code></td><td><strong>試用・研修の有無／試用・研修時の雇用条件ほか（値）＋試用・研修の詳細情報</strong></td><td>値＋文</td><td>詳細情報に「試用」が127件</td><td>値は写す。詳細情報の1行目をこの型で書き、条件が変わるときだけ中身を続ける</td></tr><tr><td>勤務時間</td><td>働き方の種類</td><td><code>固定時間制／変形労働時間制／フレックスタイム制度</code></td><td><strong>勤務時間</strong></td><td>文（書く）</td><td>書いていない求人が多い</td><td>元の文から分かるときだけ1行目に書く。分からなければ書かない</td></tr><tr><td>勤務時間</td><td>就業時間</td><td><code>08:00～17:00（1日あたり所定労働時間08時間）</code></td><td><strong>勤務時間（＋平均稼働時間は値）</strong></td><td>文（書く）</td><td>「7:30-16:30」「8:00~24:00」など書き方がばらばら</td><td>時刻は元のまま、書き方だけこの型に直す（2桁・「～」・括弧で所定労働時間）</td></tr><tr><td>勤務時間</td><td>休憩</td><td><code>休憩：60分</code></td><td><strong>勤務時間</strong></td><td>文（書く）</td><td>勤務時間に「休憩」が251件</td><td>「休憩：N分」の型にそろえる。「法定通り」など分数が無いときは元の言い方のまま</td></tr><tr><td>勤務時間</td><td>残業</td><td><code>残業：有／残業：無</code></td><td><strong>勤務時間</strong></td><td>文（書く）</td><td>給与補足・メリットに書かれていることが多い</td><td>勤務時間の欄にも「残業：有／無」を1行入れる（元の文から分かるときだけ）</td></tr><tr><td>休日・休暇</td><td>年間休日</td><td><code>休日：121日</code></td><td><strong>（専用の列が無い）自由項目／仕事情報補足</strong></td><td>文（書く）</td><td>自由項目に179件（タイトル「休日・休暇」「休日休暇」）</td><td>休日・休暇は自由項目の1つにまとめる（どの番号かは決めたい）</td></tr><tr><td>休日・休暇</td><td>内訳</td><td><code>（内訳） 完全週休二日制 土曜 日曜 祝日 夏季9日 年末年始10日</code></td><td><strong>同上</strong></td><td>文（書く）</td><td>「週休2日制（日曜日・祝日+その他休み）」「◇年末年始休暇」など</td><td>決まった語を並べる型にそろえる</td></tr><tr><td>休日・休暇</td><td>その他</td><td><code>その他（シフト制）</code></td><td><strong>同上</strong></td><td>文（書く）</td><td>—</td><td>内訳の語で書けないことを括弧に入れる</td></tr><tr><td>休日・休暇</td><td>有給休暇</td><td><code>有給休暇：有（10日～）</code></td><td><strong>同上</strong></td><td>文（書く）</td><td>自由項目に203件</td><td>この型にそろえる。日数が無ければ「有給休暇：有」</td></tr><tr><td>勤務地</td><td>住所・事業所</td><td><code>勤務地①　事業所名：…　所在地：…</code></td><td><strong>（84列に住所の列は無い。店舗idで決まる）</strong></td><td>—</td><td>通勤経路24件・最寄り駅27件</td><td>住所は店舗のまま。文では扱わない（案）</td></tr><tr><td>勤務地</td><td>最寄駅・転勤</td><td><code>最寄駅：…／転勤：無</code></td><td><strong>最寄り駅（値）／メリット（「転勤なし」）</strong></td><td>値</td><td>転勤はメリットに98件</td><td>値は写す。文に入れるなら仕事情報補足（決めたい）</td></tr><tr><td>勤務地</td><td>喫煙環境</td><td><code>喫煙環境：屋内全面禁煙</code></td><td><strong>受動喫煙対策（値）＋受動喫煙についての補足情報</strong></td><td>値＋文</td><td>値は285件に入っている</td><td>値は写す。補足情報をこの言い方にそろえる</td></tr><tr><td>待遇・福利厚生</td><td>保険・その他制度・設備</td><td><code>【保険制度】・雇用保険…／退職金：有／寮・社宅：無／資格取得支援制度（全従業員利用可）</code></td><td><strong>（専用の列が無い）自由項目</strong></td><td>文（書く）</td><td>自由項目に「福利厚生・待遇」152件など</td><td>福利厚生は自由項目の1つにまとめ、この3段の型にそろえる</td></tr><tr><td>求めている人材</td><td>必須・歓迎・学歴・資格</td><td><code>【必須】…【歓迎】…／資格：第一種運転免許中型自動車</code></td><td><strong>応募資格</strong></td><td>文（書く）</td><td>応募資格に免許175件・学歴105件</td><td>応募資格をこの型にそろえる（条件は変えない）</td></tr>
+</table></div>
+
+<h2>3. 決めたいこと</h2>
+<ol class=q>
+<li><strong>休日・休暇と待遇・福利厚生を入れる場所</strong>: 自由項目の何番に固定するか。案: 自由項目1＝休日・休暇、自由項目2＝待遇・福利厚生、自由項目3・4＝会社概要などそれ以外。仕事情報補足に書かれている休日・福利厚生も、自由項目へ移す。</li>
+<li><strong>勤務時間の欄に入れるもの</strong>: 働き方の種類・就業時間・休憩・残業の4つを、勤務時間の列にこの順で入れてよいか。</li>
+<li><strong>給与補足の並び</strong>: 見出しの金額 → 想定年収・月収例 → 月給の内訳 → 固定残業代 → 賞与 → 昇給 → 諸手当 の順でよいか。</li>
+<li><strong>勤務地・転勤</strong>: 住所は店舗で決まるので文では扱わない。転勤の有無を文にも書くなら、どの列か（仕事情報補足など）。</li>
+<li><strong>元の求人に無い要素</strong>: 書かない（その行ごと省く）でよいか。</li>
+<li><strong>仕事情報補足の使い道</strong>: 今は「入社後の流れ」「社員の声」「会社の特徴」など自由に使われている。型にそろえた後も、仕事情報補足は自由に使ってよいか。</li>
+</ol>
+</main></body></html>

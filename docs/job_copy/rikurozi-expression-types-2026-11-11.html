@@ -1,0 +1,144 @@
+<!doctype html><html lang=ja><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>条件の書き方の型</title>
+<style>
+:root{--ink:#222;--sub:#666;--line:#d8d4cc;--bg:#fbfaf7;--acc:#7a5c2e}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.8 "Hiragino Mincho ProN","Yu Mincho",serif}
+main{max-width:900px;margin:0 auto;padding:32px 16px 80px}
+h1{font-size:24px;border-bottom:2px solid var(--ink);padding-bottom:6px}
+h2{font-size:19px;margin-top:44px;border-left:4px solid var(--acc);padding-left:10px}
+h3{font-size:16px;margin-top:24px}
+p.meta{color:var(--sub);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:10px 0 18px;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}
+th{background:#f1eee7;font-weight:600}
+td.n,th.n{text-align:right;white-space:nowrap}
+td.b{width:30%;white-space:nowrap;font-size:12px;color:var(--sub)}
+.bar{display:inline-block;height:9px;background:var(--acc);vertical-align:middle;max-width:70%}
+pre{background:#fff;border:1px solid var(--line);padding:12px 14px;font-size:13px;line-height:1.6;white-space:pre-wrap}
+code{font-family:"SFMono-Regular",Menlo,monospace;font-size:12px}
+.rule{background:#fff;border:1px solid var(--line);padding:10px 16px}
+.rule li{margin:4px 0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:640px){.two{grid-template-columns:1fr}}
+</style></head><body><main>
+<h1>条件の書き方の型（リクロジメディア向け求人の手本）</h1>
+<p class=meta>2026-11-11 作成。元データ: 求人サイトの詳細ページ 853 件（ドライバー・配送の職種が中心）。列の名前と並びは HRハッカーと違うので使わず、各欄の中の<strong>要素の並び・言い回し・数字の書き方</strong>だけを型として取り出した。表の「書き方」は、数字を N に置き換えて同じ形をまとめたもの。</p>
+
+<h2>1. 給与</h2>
+<p>給与の欄は、どの求人も同じ順番の5つのまとまりでできている。違うのは金額と、備考・手当・賞与の中身だけ。</p>
+<div class=rule><ol>
+<li><strong>見出しの金額</strong>: 「月給：22万7000円～34万8000円」。形態＋「：」＋金額。金額は「万」と「円」で書き、範囲は「～」、上限がなければ「以上」。</li>
+<li><strong>想定年収</strong>: 「377万円～527万円」。上限がなければ「350万円～」。</li>
+<li><strong>雇用形態</strong>: 「正社員」の次の行に「期間の定め：無」。</li>
+<li><strong>賃金形態</strong>: 「形態：月給制」→「備考：月給￥227,000～￥348,000 基本給￥…～￥… 諸手当￥…を含む/月」→「■賞与実績:…」→「諸手当：…」。備考の金額は「￥」と3桁区切りで書き、「月給の内訳」を「〜を含む/月」で締める。</li>
+<li><strong>試用期間</strong>: 「有」→「期間：3ヶ月」→「備考：変更無」（条件が変わるときは「変更有」）。</li>
+</ol></div>
+<h3>全文の例</h3><pre>月給：22万7000円～34万8000円
+
+想定年収
+377万円～527万円
+
+雇用形態
+正社員
+期間の定め：無
+
+賃金形態
+形態：月給制
+備考：月給￥227,000～￥348,000 基本給￥197,000～￥273,000 諸手当￥30,000～￥75,000を含む/月
+■賞与実績:年2回
+諸手当：通勤手当（会社規定に基づき支給）、残業手当（残業時間に応じて別途支給）
+
+試用期間
+有
+期間：2ヶ月
+備考：変更無</pre>
+<h3>見出しの金額の書き方</h3>
+<table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>月給：N万円～N万円</code></td><td class=n>223</td><td class=b><span class="bar" style="width:26%"></span> 26%</td></tr><tr><td><code>月給：N万N円～N万N円</code></td><td class=n>214</td><td class=b><span class="bar" style="width:25%"></span> 25%</td></tr><tr><td><code>月給：N万N円以上</code></td><td class=n>169</td><td class=b><span class="bar" style="width:20%"></span> 20%</td></tr><tr><td><code>月給：N万円以上</code></td><td class=n>122</td><td class=b><span class="bar" style="width:14%"></span> 14%</td></tr><tr><td><code>月給：N万N円～N万円</code></td><td class=n>61</td><td class=b><span class="bar" style="width:7%"></span> 7%</td></tr><tr><td><code>月給：N万円～N万N円</code></td><td class=n>33</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>年俸：N万円～N万円</code></td><td class=n>9</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>月給：N万円</code></td><td class=n>6</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr></table>
+<h3>形態</h3><table><tr><th>書き方</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>形態：月給制</code></td><td class=n>831</td><td class=b><span class="bar" style="width:97%"></span> 97%</td></tr><tr><td><code>形態：日給制</code></td><td class=n>11</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>形態：年俸制</code></td><td class=n>10</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>形態：時給制</code></td><td class=n>1</td><td class=b><span class="bar" style="width:0%"></span> 0%</td></tr></table>
+<h3>月給の内訳（備考）の書き方</h3>
+<p>入っている要素は「月給」「基本給」と、あれば「固定残業代」「諸手当」「営業手当」など。並びは月給→基本給→固定残業代→その他の手当。</p>
+<table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>備考：月給￥N～￥N 基本給￥N～￥Nを含む/月</code></td><td class=n>202</td><td class=b><span class="bar" style="width:24%"></span> 24%</td></tr><tr><td><code>備考：月給￥N～ 基本給￥N～を含む/月</code></td><td class=n>178</td><td class=b><span class="bar" style="width:21%"></span> 21%</td></tr><tr><td><code>備考：月給￥N～ 基本給￥N～ 諸手当￥N～を含む/月</code></td><td class=n>71</td><td class=b><span class="bar" style="width:8%"></span> 8%</td></tr><tr><td><code>備考：月給￥N～ 基本給￥N～ 固定残業代￥N～を含む/月</code></td><td class=n>59</td><td class=b><span class="bar" style="width:7%"></span> 7%</td></tr><tr><td><code>備考：月給￥N～￥N 基本給￥N～￥N 諸手当￥N～￥Nを含む/月</code></td><td class=n>50</td><td class=b><span class="bar" style="width:6%"></span> 6%</td></tr><tr><td><code>備考：月給￥N～￥N 基本給￥N～￥N 固定残業代￥N～￥Nを含む/月</code></td><td class=n>39</td><td class=b><span class="bar" style="width:5%"></span> 5%</td></tr><tr><td><code>備考：月給￥N～￥N 基本給￥N～ 固定残業代￥N～￥N 諸手当￥N～￥Nを含む/月</code></td><td class=n>33</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>備考：月給￥N～ 基本給￥N～ 固定残業代￥N～ 諸手当￥N～を含む/月</code></td><td class=n>31</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr></table>
+<h3>諸手当</h3><table><tr><th>書き方</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>諸手当：通勤手当（会社規定に基づき支給）、残業手当（残業時間に応じて別途支給）</code></td><td class=n>586</td><td class=b><span class="bar" style="width:69%"></span> 69%</td></tr><tr><td><code>諸手当：通勤手当（会社規定に基づき支給）、残業手当（固定残業代制 超過分別途支給）</code></td><td class=n>221</td><td class=b><span class="bar" style="width:26%"></span> 26%</td></tr><tr><td><code>諸手当：残業手当（残業時間に応じて別途支給）</code></td><td class=n>16</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>諸手当：</code></td><td class=n>11</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>諸手当：通勤手当（会社規定に基づき支給）、残業手当（残業時間に応じて支給）</code></td><td class=n>3</td><td class=b><span class="bar" style="width:0%"></span> 0%</td></tr></table>
+<h3>賞与</h3>
+<p>「■賞与実績:」に続けて、回数・時期・実績を書く。形はそろっていない（会社ごとに自由）。多い形:</p><table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>■賞与実績:年N回</code></td><td class=n>105</td><td class=b><span class="bar" style="width:12%"></span> 12%</td></tr><tr><td><code>■賞与実績:年N回支給</code></td><td class=n>17</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>■賞与実績:年N回（N月・N月・N月）年間Nヶ月＋α（前年度実績）</code></td><td class=n>15</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>■賞与実績:あり</code></td><td class=n>15</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>■賞与実績:あり（昨年度実績約Nヵ月分）</code></td><td class=n>15</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>■賞与実績:年N回（N月、N月）</code></td><td class=n>10</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>■賞与実績:有</code></td><td class=n>9</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>■賞与実績:年N回実績あり</code></td><td class=n>8</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr></table>
+
+<h2>2. 勤務時間</h2>
+<div class=rule><ol>
+<li><strong>働き方の種類</strong>（1行目）: 変形労働時間制・固定時間制・フレックスタイム制度 のどれか。</li>
+<li><strong>就業時間</strong>: 「08:00～17:00（1日あたり所定労働時間08時間）」。時刻は2桁の「時:分」、「～」でつなぎ、括弧で所定労働時間を書く。時間は「08時間」と2桁、分があれば「07時間45分」。シフト制などで時刻を書かないときは括弧だけ。</li>
+<li><strong>休憩</strong>: 「休憩：60分」。</li>
+<li><strong>残業</strong>: 「残業：有」または「残業：無」。</li>
+<li><strong>備考</strong>: 空欄が多い。固定残業代があるときは「固定残業代の相当時間：20.0時間/月」。</li>
+</ol></div>
+<div class=two><div><h3>例（固定時間制）</h3><pre>固定時間制
+
+就業時間
+08:00～17:00（1日あたり所定労働時間08時間）
+休憩：60分
+残業：有
+備考：</pre></div><div><h3>例（フレックス）</h3><pre>フレックスタイム制度
+
+就業時間
+（1日あたり所定労働時間08時間）フレックスタイム制あり（コアタイム：10:30～15:30）
+休憩：60分
+残業：有
+備考：</pre></div></div>
+<h3>働き方の種類</h3><table><tr><th>書き方</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>変形労働時間制</code></td><td class=n>513</td><td class=b><span class="bar" style="width:60%"></span> 60%</td></tr><tr><td><code>固定時間制</code></td><td class=n>235</td><td class=b><span class="bar" style="width:28%"></span> 28%</td></tr><tr><td><code>フレックスタイム制度</code></td><td class=n>68</td><td class=b><span class="bar" style="width:8%"></span> 8%</td></tr><tr><td><code>専門業務型裁量労働制</code></td><td class=n>1</td><td class=b><span class="bar" style="width:0%"></span> 0%</td></tr></table>
+<h3>就業時間の行</h3><table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>N:N～N:N（N日あたり所定労働時間N時間）</code></td><td class=n>394</td><td class=b><span class="bar" style="width:46%"></span> 46%</td></tr><tr><td><code>（N日あたり所定労働時間N時間）</code></td><td class=n>162</td><td class=b><span class="bar" style="width:19%"></span> 19%</td></tr><tr><td><code>N:N～N:N（N日あたり所定労働時間N時間N分）</code></td><td class=n>122</td><td class=b><span class="bar" style="width:14%"></span> 14%</td></tr><tr><td><code>（N日あたり所定労働時間N時間N分）</code></td><td class=n>106</td><td class=b><span class="bar" style="width:12%"></span> 12%</td></tr><tr><td><code>（N日あたり所定労働時間N時間）フレックスタイム制あり（コアタイム：N:N～N:N）</code></td><td class=n>39</td><td class=b><span class="bar" style="width:5%"></span> 5%</td></tr><tr><td><code>（N日あたり所定労働時間N時間）フレックスタイム制あり（コアタイム無）</code></td><td class=n>17</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>（N日あたり所定労働時間N時間N分）フレックスタイム制あり（コアタイム無）</code></td><td class=n>6</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>（N日あたり所定労働時間N時間N分）フレックスタイム制あり（コアタイム：N:N～N:N）</code></td><td class=n>6</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr></table>
+<h3>備考の行</h3><table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>備考：固定残業代の相当時間：N.N時間/月</code></td><td class=n>220</td><td class=b><span class="bar" style="width:26%"></span> 26%</td></tr><tr><td><code>備考：原則残業なし。残業が発生した際には残業時間に応じて別途支給</code></td><td class=n>11</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>備考：※残業代はN分単位で残業時間に応じ別途支給</code></td><td class=n>11</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>備考：固定残業代の相当時間：N.N時間/日</code></td><td class=n>4</td><td class=b><span class="bar" style="width:0%"></span> 0%</td></tr><tr><td><code>備考：【平均残業時間】 閑散期：N～N時間、繁忙期：N～N時間</code></td><td class=n>2</td><td class=b><span class="bar" style="width:0%"></span> 0%</td></tr><tr><td><code>備考：ほぼ無し(年間でN時間未満)</code></td><td class=n>2</td><td class=b><span class="bar" style="width:0%"></span> 0%</td></tr></table>
+
+<h2>3. 休日・休暇</h2>
+<div class=rule><ol>
+<li>「休日」の見出し。</li>
+<li><strong>年間休日</strong>: 「休日：121日」。全件に入っている。</li>
+<li><strong>内訳</strong>: 「（内訳） 完全週休二日制 土曜 日曜 祝日 夏季9日 年末年始10日」。決まった語を半角スペースで並べる。並びは 週休の制度 → 曜日 → 祝日 → 長期休暇（日数つき）。</li>
+<li><strong>その他</strong>: 「その他（…）」。内訳の語で書けないこと（シフト制・4週8休・会社カレンダー・GW など）を括弧の中に書く。書くことがなければ「その他（）」。</li>
+<li><strong>有給休暇</strong>: 「有給休暇：有（10日～）」または「有（10～20日）」。取得率などは後ろに括弧を足す。</li>
+</ol></div>
+<div class=two><div><h3>例（週休二日・土日）</h3><pre>休日
+休日：121日
+（内訳） 完全週休二日制 土曜 日曜 夏季9日 年末年始10日
+その他（GW9日）
+有給休暇：有（10～20日）（平均取得日数10日）</pre></div><div><h3>例（シフト制）</h3><pre>休日
+休日：105日
+（内訳） 完全週休二日制
+その他（4週8休制（シフトにより休み決定））
+有給休暇：有（10～20日）</pre></div></div>
+<h3>内訳に使う語</h3>
+<p>内訳は、次の語の組み合わせだけで書かれている（日数は N）。</p><table><tr><th>語</th><th class=n>出てくる件数</th><th>割合</th></tr><tr><td><code>日曜</code></td><td class=n>503</td><td class=b><span class="bar" style="width:59%"></span> 59%</td></tr><tr><td><code>祝日</code></td><td class=n>365</td><td class=b><span class="bar" style="width:43%"></span> 43%</td></tr><tr><td><code>完全週休二日制</code></td><td class=n>328</td><td class=b><span class="bar" style="width:38%"></span> 38%</td></tr><tr><td><code>土曜</code></td><td class=n>301</td><td class=b><span class="bar" style="width:35%"></span> 35%</td></tr><tr><td><code>年末年始N日</code></td><td class=n>162</td><td class=b><span class="bar" style="width:19%"></span> 19%</td></tr><tr><td><code>夏季N日</code></td><td class=n>142</td><td class=b><span class="bar" style="width:17%"></span> 17%</td></tr><tr><td><code>水曜</code></td><td class=n>6</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>月曜</code></td><td class=n>2</td><td class=b><span class="bar" style="width:0%"></span> 0%</td></tr><tr><td><code>木曜</code></td><td class=n>1</td><td class=b><span class="bar" style="width:0%"></span> 0%</td></tr></table>
+<h3>内訳の行の書き方</h3><table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>（内訳） 完全週休二日制 土曜 日曜 祝日</code></td><td class=n>95</td><td class=b><span class="bar" style="width:11%"></span> 11%</td></tr><tr><td><code>（内訳） 日曜 祝日</code></td><td class=n>85</td><td class=b><span class="bar" style="width:10%"></span> 10%</td></tr><tr><td><code>（内訳） 完全週休二日制</code></td><td class=n>68</td><td class=b><span class="bar" style="width:8%"></span> 8%</td></tr><tr><td><code>（内訳） 土曜 日曜 祝日</code></td><td class=n>63</td><td class=b><span class="bar" style="width:7%"></span> 7%</td></tr><tr><td><code>（内訳） 完全週休二日制 土曜 日曜 夏季N日 年末年始N日</code></td><td class=n>37</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>（内訳） 完全週休二日制 土曜 日曜 祝日 夏季N日 年末年始N日</code></td><td class=n>30</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>（内訳） 日曜</code></td><td class=n>30</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>（内訳） 日曜 祝日 夏季N日 年末年始N日</code></td><td class=n>29</td><td class=b><span class="bar" style="width:3%"></span> 3%</td></tr><tr><td><code>（内訳） 完全週休二日制 日曜 祝日</code></td><td class=n>23</td><td class=b><span class="bar" style="width:3%"></span> 3%</td></tr><tr><td><code>（内訳） 完全週休二日制 土曜 日曜</code></td><td class=n>23</td><td class=b><span class="bar" style="width:3%"></span> 3%</td></tr></table>
+<h3>その他の行</h3><table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>その他（）</code></td><td class=n>218</td><td class=b><span class="bar" style="width:26%"></span> 26%</td></tr><tr><td><code>その他（シフト制）</code></td><td class=n>36</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>その他（シフト制（希望相談可）※備考欄に記載）</code></td><td class=n>31</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>その他（休日は月間N日となります。）</code></td><td class=n>29</td><td class=b><span class="bar" style="width:3%"></span> 3%</td></tr><tr><td><code>その他（会社カレンダーによる）</code></td><td class=n>15</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>その他（N勤務N休日制◆誕生日休暇/慶弔休暇 等）</code></td><td class=n>15</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>その他（会社カレンダーによるが基本土日休み）</code></td><td class=n>15</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>その他（正社員登用後付与N日）</code></td><td class=n>13</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>その他（※週休N日制）</code></td><td class=n>12</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>その他（月N～N回程度土日祝出勤有(平日に振休)）</code></td><td class=n>11</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr></table>
+<h3>有給休暇の行</h3><table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>有給休暇：有（N日～）</code></td><td class=n>425</td><td class=b><span class="bar" style="width:50%"></span> 50%</td></tr><tr><td><code>有給休暇：有（N～N日）</code></td><td class=n>122</td><td class=b><span class="bar" style="width:14%"></span> 14%</td></tr><tr><td><code>有給休暇：有（N日～）（有給消化率N％以上（月N日程度取得））</code></td><td class=n>31</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>有給休暇：有（N日～）（取得率N％推奨、慶弔休暇制度あり）</code></td><td class=n>22</td><td class=b><span class="bar" style="width:3%"></span> 3%</td></tr><tr><td><code>有給休暇：有（N～N日）（※消化率N割）</code></td><td class=n>15</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>有給休暇：有（N日～）（★N割の社員が有給消化率N％超。）</code></td><td class=n>11</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>有給休暇：有（N～N日）（慶弔休暇、育児休暇、介護休暇）</code></td><td class=n>8</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>有給休暇：（夏季N日間計画有休消化）</code></td><td class=n>7</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr></table>
+
+<h2>4. 勤務地</h2>
+<div class=rule><ol>
+<li>住所と事業所の名前、「予定勤務地」（都道府県＋市区町村）。</li>
+<li>「勤務地①」ごとに「事業所名：…」「所在地：…」「最寄駅：…」「転勤：無／当面無」「喫煙環境：…」「備考：…」。勤務地が複数あれば①②…と続ける。</li>
+<li>喫煙環境は決まった言い方から選ぶ。</li>
+</ol></div>
+<table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>転勤：無</code></td><td class=n>551</td><td class=b><span class="bar" style="width:65%"></span> 65%</td></tr><tr><td><code>喫煙環境：屋内全面禁煙</code></td><td class=n>365</td><td class=b><span class="bar" style="width:43%"></span> 43%</td></tr><tr><td><code>転勤：当面無</code></td><td class=n>288</td><td class=b><span class="bar" style="width:34%"></span> 34%</td></tr><tr><td><code>喫煙環境：敷地内禁煙（屋外喫煙可能場所あり）</code></td><td class=n>262</td><td class=b><span class="bar" style="width:31%"></span> 31%</td></tr><tr><td><code>喫煙環境：屋内禁煙（屋内喫煙可能場所あり）</code></td><td class=n>181</td><td class=b><span class="bar" style="width:21%"></span> 21%</td></tr><tr><td><code>喫煙環境：敷地内全面禁煙</code></td><td class=n>43</td><td class=b><span class="bar" style="width:5%"></span> 5%</td></tr><tr><td><code>喫煙環境：敷地内禁煙（屋内喫煙可能場所あり）</code></td><td class=n>38</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>転勤：有</code></td><td class=n>14</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>喫煙環境：本社は敷地内禁煙（屋内喫煙可能場所あり）だが、顧客先により異なる</code></td><td class=n>7</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>喫煙環境：屋内全面禁煙（屋外喫煙可能場所あり）</code></td><td class=n>4</td><td class=b><span class="bar" style="width:0%"></span> 0%</td></tr></table>
+
+<h2>5. 試用期間（独立した欄）</h2>
+<p>1行目は「試用期間あり」か「試用期間なし」。あれば次に「試用期間3ヶ月。」と書き、条件が変わるときだけ、その後ろに中身（日当・勤務時間・研修）を続ける。</p>
+<table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>試用期間あり</code></td><td class=n>807</td><td class=b><span class="bar" style="width:95%"></span> 95%</td></tr><tr><td><code>試用期間Nヶ月。</code></td><td class=n>659</td><td class=b><span class="bar" style="width:77%"></span> 77%</td></tr><tr><td><code>試用期間なし</code></td><td class=n>46</td><td class=b><span class="bar" style="width:5%"></span> 5%</td></tr><tr><td><code>試用期間Nヶ月。※座学、空車での教習中（最大N日間）は就業時間がN:N～N:Nとなります。</code></td><td class=n>15</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>試用期間Nヶ月。試用期間中(Nヶ月間)は、残業代は残業時間に応じて別途支給。</code></td><td class=n>7</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr><tr><td><code>試用期間中(Nヶ月間)は、先輩社員との同行などOJTを中心に丁寧に育成・研修します。</code></td><td class=n>7</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr></table>
+
+<h2>6. 待遇・福利厚生</h2>
+<div class=rule><ol>
+<li>「【保険制度】」の下に「・雇用保険」「・労災保険」「・健康保険」「・厚生年金」を1行ずつ。</li>
+<li>「その他制度」の下に「退職金：有／無」「社会保険：健康保険 厚生年金保険 雇用保険 労災保険」「寮・社宅：有／無」。</li>
+<li>「制度、設備」の下に、制度名と「（全従業員利用可）」「（一部従業員利用可）」。</li>
+</ol></div>
+<table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>資格取得支援制度 （全従業員利用可）</code></td><td class=n>239</td><td class=b><span class="bar" style="width:28%"></span> 28%</td></tr><tr><td><code>従業員専用駐車場あり （全従業員利用可）</code></td><td class=n>198</td><td class=b><span class="bar" style="width:23%"></span> 23%</td></tr><tr><td><code>研修支援制度 （全従業員利用可）</code></td><td class=n>162</td><td class=b><span class="bar" style="width:19%"></span> 19%</td></tr><tr><td><code>継続雇用制度(再雇用) （全従業員利用可）</code></td><td class=n>159</td><td class=b><span class="bar" style="width:19%"></span> 19%</td></tr><tr><td><code>自転車通勤可 （全従業員利用可）</code></td><td class=n>122</td><td class=b><span class="bar" style="width:14%"></span> 14%</td></tr><tr><td><code>出産・育児支援制度 （全従業員利用可）</code></td><td class=n>120</td><td class=b><span class="bar" style="width:14%"></span> 14%</td></tr><tr><td><code>継続雇用制度(勤務延長) （全従業員利用可）</code></td><td class=n>48</td><td class=b><span class="bar" style="width:6%"></span> 6%</td></tr><tr><td><code>従業員専用駐車場あり （一部従業員利用可）</code></td><td class=n>48</td><td class=b><span class="bar" style="width:6%"></span> 6%</td></tr><tr><td><code>U・Iターン支援 （全従業員利用可）</code></td><td class=n>46</td><td class=b><span class="bar" style="width:5%"></span> 5%</td></tr><tr><td><code>時短制度 （全従業員利用可）</code></td><td class=n>44</td><td class=b><span class="bar" style="width:5%"></span> 5%</td></tr></table>
+
+<h2>7. 求めている人材（学歴・資格）</h2>
+<p>「必要な経験・能力等」の自由文（【必須】【歓迎】など）のあとに、「学歴・資格」「語学力：」「学歴：…」「資格：第一種運転免許普通自動車」と決まった形で書く。免許は「第一種運転免許＋車の種類」の言い方。</p>
+<table><tr><th>書き方（数字はNにした）</th><th class=n>件数</th><th>割合</th></tr><tr><td><code>資格：第一種運転免許普通自動車</code></td><td class=n>334</td><td class=b><span class="bar" style="width:39%"></span> 39%</td></tr><tr><td><code>資格：</code></td><td class=n>158</td><td class=b><span class="bar" style="width:19%"></span> 19%</td></tr><tr><td><code>資格：第一種運転免許大型自動車</code></td><td class=n>48</td><td class=b><span class="bar" style="width:6%"></span> 6%</td></tr><tr><td><code>資格：第一種運転免許中型自動車</code></td><td class=n>42</td><td class=b><span class="bar" style="width:5%"></span> 5%</td></tr><tr><td><code>資格：第二種運転免許大型自動車</code></td><td class=n>35</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>資格：第一種運転免許普通自動車 第一種運転免許中型自動車</code></td><td class=n>32</td><td class=b><span class="bar" style="width:4%"></span> 4%</td></tr><tr><td><code>資格：第一種運転免許普通自動車 第一種運転免許大型自動車</code></td><td class=n>15</td><td class=b><span class="bar" style="width:2%"></span> 2%</td></tr><tr><td><code>資格：フォークリフト運転者</code></td><td class=n>11</td><td class=b><span class="bar" style="width:1%"></span> 1%</td></tr></table>
+
+<h2>8. この資料の扱い</h2>
+<ul>
+<li>型として使うのは、各欄の中の要素の並び・言い回し・数字の書き方。値（金額・日数・時刻）は元の HRハッカー求人から写し、変えない。</li>
+<li>元データの列の名前・並びは HRハッカーと違うので使わない。</li>
+<li>元データの職種はドライバー・配送が中心。ほかの職種で型が合うかは、まだ確かめていない。</li>
+<li>元データには会社名・住所が入っている。この資料には、会社名・住所を入れていない。</li>
+</ul>
+</main></body></html>
