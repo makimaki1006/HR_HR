@@ -507,6 +507,12 @@ fn goals_cache() -> &'static crate::db::cache::AppCache {
     CACHE.get_or_init(|| crate::db::cache::AppCache::new(300, 2000))
 }
 
+/// 案件管理などから目標を保存したとき、その取引の分だけ捨てる (次の一覧の表示で読み直す)。
+/// HubSpot の画面で直した分はこのキャッシュの期限 (5 分) で反映される。
+pub fn forget_goals(deal_id: &str) {
+    goals_cache().remove(deal_id);
+}
+
 /// 目標だけ5分のプロセス内キャッシュ（最大2000件）。取得失敗は保存しない。
 /// 同時要求はロック内で再確認し、関所の背景優先度で100件ずつ読む。全体の待ちは15秒まで。
 /// 欠落ID・部分エラー・未設定も目標欄だけ失敗にし、一覧の判定はそのまま返す。
@@ -1029,6 +1035,25 @@ mod tests {
             }
         }
         goals_cache().remove_prefix("89999999998");
+    }
+
+    #[test]
+    fn 目標を保存した取引の分だけキャッシュを捨てる() {
+        goals_cache().set(
+            "89999999971".into(),
+            json!({"ideal":"保存前","failed":false}),
+        );
+        goals_cache().set(
+            "899999999712".into(),
+            json!({"ideal":"別の取引","failed":false}),
+        );
+        forget_goals("89999999971");
+        assert!(goals_cache().get("89999999971").is_none());
+        assert_eq!(
+            goals_cache().get("899999999712").unwrap()["ideal"],
+            "別の取引"
+        );
+        goals_cache().remove_prefix("89999999971");
     }
 
     #[test]

@@ -1075,6 +1075,8 @@ fn invalidate_caches(ctx: &CrmCtx, deal_id: &str, applicant: bool) {
     } else {
         ctx.workspace_cache.invalidate_deal(deal_id);
         ctx.queue.invalidate_pages();
+        // コンサルKPIの初回契約の一覧が持つ初回MTGの目標 (5 分) も捨てる
+        crate::handlers::cs_dashboard::first_contract::forget_goals(deal_id);
     }
 }
 

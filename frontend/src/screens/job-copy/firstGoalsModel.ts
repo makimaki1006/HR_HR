@@ -73,36 +73,50 @@ function fromLines(raw: string | null | undefined, kind: 'ideal' | 'minimum'): G
   });
 }
 
+/** データ (JSON) だけから目標を読む。読めなければ null。 */
+function parseData(rawText: string | null | undefined): GoalData | null {
+  try {
+    const raw = JSON.parse(rawText ?? '') as Partial<GoalData> | null;
+    if (!raw || !Array.isArray(raw.goals)) return null;
+    return {
+      v: 1,
+      status: raw.status === 'draft' ? 'draft' : 'confirmed',
+      goals: raw.goals.flatMap(item => {
+        const goal = item as Partial<Goal> | null;
+        return goal && text(goal.what).trim() ? [{ kind: isKind(goal.kind) ? goal.kind : 'unclassified', what: text(goal.what), target: text(goal.target), by_when: text(goal.by_when), ...(goalNotes(goal.notes).length ? { notes: goalNotes(goal.notes) } : {}) }] : [];
+      }),
+      ...(goalNotes(raw.notes).length ? { notes: goalNotes(raw.notes) } : {}),
+      ...(raw.meeting ? { meeting: raw.meeting } : {}),
+      ...(raw.updated_at ? { updated_at: raw.updated_at } : {}),
+    };
+  } catch { return null; }
+}
+
+/**
+ * HubSpot で文だけが直され、データ (JSON) が古いままか。画面は文を正として読み、確定済みとして扱う
+ * (夜のバッチも、文が直された取引には書かない)。次に保存すると 3 項目がそろう。
+ */
+export function textEditedInHubSpot(values: PropValues): boolean {
+  const parsed = parseData(values[GOAL_PROPS.data]);
+  return parsed !== null && (goalsText(parsed.goals, 'ideal') !== (values[GOAL_PROPS.ideal] ?? '').trim() || goalsText(parsed.goals, 'minimum') !== (values[GOAL_PROPS.minimum] ?? '').trim());
+}
+
 /** HubSpot の 3 項目から目標を読む。何も入っていなければ null。 */
 export function readGoals(values: PropValues): GoalData | null {
   const idealText = values[GOAL_PROPS.ideal] ?? '';
   const minimumText = values[GOAL_PROPS.minimum] ?? '';
-  let parsed: GoalData | null = null;
-  try {
-    const raw = JSON.parse(values[GOAL_PROPS.data] ?? '') as Partial<GoalData> | null;
-    if (raw && Array.isArray(raw.goals)) {
-      parsed = {
-        v: 1,
-        status: raw.status === 'draft' ? 'draft' : 'confirmed',
-        goals: raw.goals.flatMap(item => {
-          const goal = item as Partial<Goal> | null;
-          return goal && text(goal.what).trim() ? [{ kind: isKind(goal.kind) ? goal.kind : 'unclassified', what: text(goal.what), target: text(goal.target), by_when: text(goal.by_when), ...(goalNotes(goal.notes).length ? { notes: goalNotes(goal.notes) } : {}) }] : [];
-        }),
-        ...(goalNotes(raw.notes).length ? { notes: goalNotes(raw.notes) } : {}),
-        ...(raw.meeting ? { meeting: raw.meeting } : {}),
-        ...(raw.updated_at ? { updated_at: raw.updated_at } : {}),
-      };
-    }
-  } catch { parsed = null; }
+  const parsed = parseData(values[GOAL_PROPS.data]);
   const handEdited = parsed !== null && (goalsText(parsed.goals, 'ideal') !== idealText.trim() || goalsText(parsed.goals, 'minimum') !== minimumText.trim());
-  if (parsed && !handEdited) return parsed;
-  if (!idealText.trim() && !minimumText.trim()) return parsed && parsed.goals.length > 0 ? parsed : null;
+  if (parsed && !handEdited) return parsed.goals.length > 0 || idealText.trim() || minimumText.trim() ? parsed : null;
   // HubSpot の画面で文を直した (または文だけ入っている): 文を正として読み直し、区分不明は残す。
+  // 文を消していれば、データに古い目標が残っていても出さない。
   const unclassified = parsed?.goals.filter(goal => goal.kind === 'unclassified') ?? [];
+  const goals = [...fromLines(idealText, 'ideal'), ...fromLines(minimumText, 'minimum'), ...unclassified];
+  if (goals.length === 0) return null;
   return {
     v: 1,
     status: 'confirmed',
-    goals: [...fromLines(idealText, 'ideal'), ...fromLines(minimumText, 'minimum'), ...unclassified],
+    goals,
     ...(parsed && goalDisplayNotes(values).length ? { notes: goalDisplayNotes(values) } : {}),
     ...(parsed?.meeting ? { meeting: parsed.meeting } : {}),
   };
@@ -138,14 +152,32 @@ export function confirmedData(goals: Goal[], previous: GoalData | null, now: Dat
   };
 }
 
+/** 案を直さずにそのまま確定する。 */
+export function confirmDraft(data: GoalData, now: Date): GoalData {
+  return confirmedData(data.goals, data, now);
+}
+
+const withoutTime = (data: GoalData) => JSON.stringify({ ...data, updated_at: undefined });
+
+/**
+ * 3 項目を 1 回で送る。変わらない項目も、編集を始めたときの値を base にして必ず送る
+ * (サーバは送った項目だけを HubSpot の今の値と比べる。1 項目でも誰かが直していれば上書きしない)。
+ * 文・データ・確定済みであることがすべて同じなら何も送らない。
+ */
 export function goalsRequest(dealId: string, base: PropValues, data: GoalData): SaveRequest {
   const next: Record<string, string | null> = {
     [GOAL_PROPS.ideal]: goalsText(data.goals, 'ideal') || null,
     [GOAL_PROPS.minimum]: goalsText(data.goals, 'minimum') || null,
-    [GOAL_PROPS.data]: data.goals.length ? JSON.stringify(data) : null,
+    // 目標を全部消したときもデータは残す (確定済みの印。夜のバッチが新しい案を書かないように)
+    [GOAL_PROPS.data]: JSON.stringify(data),
   };
+  const prev = (() => {
+    try { return JSON.parse(base[GOAL_PROPS.data] ?? '') as GoalData | null; } catch { return null; }
+  })();
+  const same = (base[GOAL_PROPS.ideal] ?? null) === next[GOAL_PROPS.ideal] && (base[GOAL_PROPS.minimum] ?? null) === next[GOAL_PROPS.minimum]
+    && prev !== null && prev.status === 'confirmed' && withoutTime(prev) === withoutTime(data);
   return {
     dealId,
-    changes: GOAL_PROP_NAMES.filter(name => (base[name] ?? null) !== next[name]).map(name => ({ object: 'deal', name, base: base[name] ?? null, value: next[name] ?? null })),
+    changes: same ? [] : GOAL_PROP_NAMES.map(name => ({ object: 'deal' as const, name, base: base[name] ?? null, value: next[name] ?? null })),
   };
 }
