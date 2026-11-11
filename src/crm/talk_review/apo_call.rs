@@ -107,6 +107,15 @@ pub fn pick(
     if !settled && now_ms < deal.entered_ms + DECIDE_DEADLINE_MS {
         return Pick::Pending;
     }
+    // 上限を過ぎていても、行がまだ無い電話 (worker がこれから `apo_only` の行を作る) と、
+    // 判定の終わっていない `apo_only` の行は待つ (古い期間の取引は必ず上限を過ぎているため)。
+    // 取り込みの側の行 (順番待ちなど) は従来どおり上限で見切る
+    if cands.iter().any(|c| match rows.get(&c.id) {
+        None => true,
+        Some(r) => only(r) && !terminal(&r.status),
+    }) {
+        return Pick::Pending;
+    }
     let judged = |c: &Candidate| {
         rows.get(&c.id)
             .is_some_and(|r| r.status == store::ST_JUDGED)
@@ -643,6 +652,21 @@ mod tests {
         assert_eq!(
             pick(&deal(), &calls, &waiting, E + DECIDE_DEADLINE_MS),
             Pick::NoCall
+        );
+        // 古い期間の取引: 上限を過ぎていても、行がまだ無い電話・判定の終わっていない `apo_only` の行は待つ
+        let old = E + 30 * 24 * HOUR_MS;
+        assert_eq!(pick(&deal(), &calls, &HashMap::new(), old), Pick::Pending);
+        let mut apo_only = row("c", store::ST_PENDING, None, vec![]);
+        apo_only.note = Some(APO_ONLY.into());
+        assert_eq!(
+            pick(&deal(), &calls, &rows(vec![apo_only.clone()]), old),
+            Pick::Pending
+        );
+        apo_only.status = store::ST_JUDGED.into();
+        apo_only.outcome = Some(SCHEDULED.into());
+        assert_eq!(
+            pick(&deal(), &calls, &rows(vec![apo_only]), old),
+            ids(&["c"])
         );
     }
 

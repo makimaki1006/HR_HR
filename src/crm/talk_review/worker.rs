@@ -817,8 +817,8 @@ struct Worker<Z, J> {
     hearing_check: HashMap<String, HearingCandidate>,
     /// この起動で判定した行 (判定のタスクが入れ、ヒアリングの周回が `hearing_check` に移す)
     judged_rows: Arc<std::sync::Mutex<Vec<HearingCandidate>>>,
-    /// アポのランクを決めるために、ヒアリングの周回へ入れた電話 (1 本につき 1 回だけ入れる)
-    hearing_asked: HashSet<String>,
+    /// アポのランクを決めるために、ヒアリングを待ち始めた電話と、その時刻 (ms)。1 本につき 1 回だけ入れる
+    hearing_asked: HashMap<String, i64>,
 }
 
 /// 保存済みの行の文章に日本語以外が混ざっているか (英単語の許可は行の引用だけで判断する)
@@ -1020,6 +1020,11 @@ pub fn scan_judged(
     })?;
     Ok(scan)
 }
+
+/// アポのランクのためにヒアリングを待つ上限 (待ち始めてから)。過ぎたら付いている分だけで決める
+const HEARING_ASK_LIMIT_MS: i64 = 24 * 3_600_000;
+/// アポのランクのためにヒアリングの周回へ同時に入れておく本数の上限
+const HEARING_ASK_IN_FLIGHT: usize = 50;
 
 /// 1 周に HubSpot と突き合わせる行の上限
 const HEARING_CHECK_BATCH: usize = 300;
@@ -1687,10 +1692,29 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 if let ac::Pick::Decided(ids) = ac::pick(&d, &calls, &rows, now_ms) {
                     let mut wait = false;
                     for id in ac::missing_hearing(&ids, &rows, |r| has_hearing(r, checks)) {
+                        let asked = self.hearing_asked.get(&id).copied();
                         if self.hearing_check.contains_key(&id) {
-                            wait = true;
-                        } else if self.hearing_asked.insert(id.clone()) {
+                            // 周回の一覧にある電話は、待ち始めてから上限まで待つ (失敗し続けても止まらない)
+                            let since = *self.hearing_asked.entry(id.clone()).or_insert(now_ms);
+                            if now_ms - since < HEARING_ASK_LIMIT_MS {
+                                wait = true;
+                            }
+                        } else if asked.is_none() {
+                            // 一度に入れる本数を抑える (直近の電話の確かめが後回しにならないように)
+                            let in_flight = self
+                                .hearing_asked
+                                .iter()
+                                .filter(|(k, at)| {
+                                    now_ms - **at < HEARING_ASK_LIMIT_MS
+                                        && self.hearing_check.contains_key(*k)
+                                })
+                                .count();
+                            if in_flight >= HEARING_ASK_IN_FLIGHT {
+                                wait = true;
+                                continue;
+                            }
                             if let Some(c) = HearingCandidate::from_row(&rows[&id], checks, now) {
+                                self.hearing_asked.insert(id.clone(), now_ms);
                                 self.hearing_check.insert(id, c);
                                 wait = true;
                             }
