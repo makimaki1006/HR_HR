@@ -15,7 +15,9 @@ const props = { companyId: '100', billingByJob: {}, onOpenDeal: vi.fn(), onOpenL
 const row = { id: '7', title: '合成求人', media: 'hrh', publication_status: '掲載中', deal_ids: ['10'] };
 
 it('応募・課金が読めなかったら「読み込み中」で止まらず、押すと読み直して数字を出す', async () => {
-  api.mockResolvedValue({ ok: true, data: { status: 'ready', listings: [row], next_offset: null } });
+  api.mockImplementation((url: string) => Promise.resolve(url.startsWith('/api/job-copy/listing-flags')
+    ? { ok: true, data: { status: 'ready', flags: { '7': ['more'] }, cards: [] } }
+    : { ok: true, data: { status: 'ready', listings: [row], next_offset: null } }));
   load.mockResolvedValueOnce({ status: 'error', message: '' });
   const data: DealData = {
     id: '10', name: '合成案件', rows: [row] as DealData['rows'], capped: false,
@@ -28,7 +30,7 @@ it('応募・課金が読めなかったら「読み込み中」で止まらず�
   await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('応募・課金を読み込めませんでした'); });
   expect(screen.queryByText('応募・課金を読み込んでいます…')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'もう一度読み込む' }));
-  await waitFor(() => { expect(screen.getByText('4件')).toBeTruthy(); });
+  await waitFor(() => { expect(screen.getByText('0 → 4 件')).toBeTruthy(); });
   expect(load).toHaveBeenCalledTimes(2);
   expect(screen.queryByRole('alert')).toBeNull();
 });

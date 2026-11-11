@@ -39,6 +39,7 @@ mod drafts;
 mod hrh_copy;
 mod indeed_title;
 mod listing_cache;
+mod listing_flags;
 mod listing_retry;
 mod listing_status;
 mod listings;
@@ -2222,6 +2223,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route("/api/job-copy/home", get(listings::read_home))
         .route("/api/job-copy/deals/{id}/todo", get(owner_todo::read_deal))
         .route("/api/job-copy/recent-changes", get(recent_changes::read))
+        .route("/api/job-copy/listing-flags", get(listing_flags::read))
         .route("/api/job-copy/apply-reasons", get(apply_reasons::read))
         .route(
             "/api/job-copy/listing-body-dates",
