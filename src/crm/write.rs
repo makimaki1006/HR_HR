@@ -788,6 +788,8 @@ pub enum Stop {
     },
     Missing(Vec<String>),
     InvalidStage,
+    /// ステージを移すときだけ書ける項目 ([`STAGE_ONLY_WRITABLE`]) を、すでにそのステージにいる取引で変えようとした
+    StageOnlyWithoutMove(Vec<String>),
     Transient(HubSpotError),
     Permanent(HubSpotError),
 }
@@ -901,6 +903,23 @@ pub async fn prepare(client: &HubSpotClient, step: &Step) -> Result<Prepared, St
             .collect();
         if !missing.is_empty() {
             return Err(Stop::Missing(missing));
+        }
+    }
+    // 移すときだけ書ける項目は、実際にステージが動く要求でだけ変えられる (すでに移し先にいるなら、担当者だけの付け替えになる)。
+    // 同じ値 (応答を失った再送など) は変更ではないので通す
+    if moving.is_none() && step.object == "deals" {
+        let changing: Vec<String> = step
+            .set
+            .iter()
+            .filter(|(k, v)| {
+                STAGE_ONLY_WRITABLE.contains(&k.as_str())
+                    && norm(cur_of(k).as_deref(), step_ptype(step, k))
+                        != norm(v.as_deref(), step_ptype(step, k))
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        if !changing.is_empty() {
+            return Err(Stop::StageOnlyWithoutMove(changing));
         }
     }
     let props_equal = step.set.iter().all(|(k, v)| {
@@ -1932,7 +1951,8 @@ async fn verify_after_send(client: &HubSpotClient, steps: &mut [Step], run: &mut
             Ok(_)
             | Err(Stop::Conflict { .. })
             | Err(Stop::Missing(_))
-            | Err(Stop::InvalidStage) => return Verified::NotApplied,
+            | Err(Stop::InvalidStage)
+            | Err(Stop::StageOnlyWithoutMove(_)) => return Verified::NotApplied,
             Err(Stop::Transient(_)) | Err(Stop::Permanent(_)) => return Verified::Unknown,
         }
     }
@@ -1965,7 +1985,7 @@ async fn stop_response(
             count_rejection(&format!("read_failed:{}", e.error_kind()));
             hubspot_error_response(&e)
         }
-        Stop::Missing(_) | Stop::InvalidStage => {
+        Stop::Missing(_) | Stop::InvalidStage | Stop::StageOnlyWithoutMove(_) => {
             count_rejection(&outcome);
             (status, Json(body)).into_response()
         }
@@ -2096,6 +2116,21 @@ fn stop_body(
                 vec![],
             );
             (s, v, "invalid_stage".into(), None)
+        }
+        Stop::StageOnlyWithoutMove(names) => {
+            let (s, v) = invalid(
+                names
+                    .iter()
+                    .map(|n| {
+                        (
+                            n.clone(),
+                            "この項目はステージを移すときだけ変えられます".to_string(),
+                        )
+                    })
+                    .collect(),
+                vec![],
+            );
+            (s, v, "stage_only_without_move".into(), None)
         }
         Stop::Missing(m) => {
             let errors = m

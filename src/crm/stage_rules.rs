@@ -340,8 +340,32 @@ mod tests {
         assert!(req.contains(&"bpo_51".to_string()));
         assert!(!req.contains(&"bpo_28".to_string()));
         assert!(r.required("999999").is_empty());
-        assert!(r.source.contains("ConditionalPropertiesV2Rpc"));
-        assert_eq!(r.read_at, "2026-10-09 (架電); 2026-10-16 (納品管理追加)");
+        assert!(r.source.contains("ConditionalPropertiesV3Rpc"));
+        assert!(r.read_at.contains("2026-11-11"), "{}", r.read_at);
+        // 2026-11-11 の照合で HubSpot に合わせた 3 ステージ
+        // T_ターゲット外: nextaction などは必須でなくなった (HubSpot 側 10-15 更新)
+        let t = r.required("155012220");
+        assert!(
+            !t.contains(&"nextaction".to_string()) && t.contains(&"closed_lost_reason".to_string()),
+            "{t:?}"
+        );
+        // Aヨミ 90%: 任意の 3 項目が末尾に増えた (HubSpot 側 11-10 更新)
+        let a = r.shown("52035891");
+        assert_eq!(
+            &a[a.len() - 3..],
+            [
+                "kanri_mail_address",
+                "hrhacker_shop_ids",
+                "customer_sheet_url"
+            ]
+        );
+        assert!(!r
+            .required("52035891")
+            .contains(&"customer_sheet_url".to_string()));
+        // 求人出稿完了: 応募者通知の有無が必須に増えた (HubSpot 側 10-22 更新)
+        assert!(r
+            .required("52016155")
+            .contains(&"ouboshatsuuchinoumu".to_string()));
     }
 
     #[test]

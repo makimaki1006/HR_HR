@@ -1,5 +1,5 @@
 {
- "_note": "2026-10-14 に HubSpot の取引プロパティ定義 (読み取りのみ) から、stage_rules.json に出てくる項目だけを写した。選択肢は有無のみ。ステージの必須項目が画面で入力できるかの検査用。2026-10-16 に納品管理の項目定義を追加",
+ "_note": "2026-10-14 に HubSpot の取引プロパティ定義 (読み取りのみ) から、stage_rules.json に出てくる項目だけを写した。選択肢は有無のみ。ステージの必須項目が画面で入力できるかの検査用。2026-10-16 に納品管理の項目定義を追加。2026-11-11 に ouboshatsuuchinoumu (求人出稿完了の新しい必須) を追加",
  "deals": [
   {
    "name": "ahkessaifuro",
@@ -2750,6 +2750,23 @@
     "readOnlyValue": false
    },
    "options": []
+  },
+  {
+   "name": "ouboshatsuuchinoumu",
+   "label": "応募者通知の有無",
+   "type": "enumeration",
+   "fieldType": "select",
+   "calculated": false,
+   "externalOptions": false,
+   "modificationMetadata": {
+    "readOnlyValue": false
+   },
+   "options": [
+    {
+     "label": "x",
+     "value": "x"
+    }
+   ]
   }
  ]
 }

@@ -1,8 +1,8 @@
 {
- "source": "HubSpot UI internal read ConditionalPropertiesV2Rpc/getRules (objectTypeId 0-3), portal 23708633 (read-only)",
- "read_at": "2026-10-09 (架電); 2026-10-16 (納品管理追加)",
- "note": "ステージに移すとき表示される項目 (conditional stage properties)。required=true は必須。HubSpot は API の書き込みでは必須を強制しないため、HR_HR が移動前に確認する。label は src/crm/queue_pipelines.rs のコメント由来 (確認用)。HubSpot 側でルールを変えたらここを更新する。pipeline_id が null のステージは queue_pipelines の表に無い。2026-10-16 に納品管理2本を同じ読み取り手順で確認し、21596025 の25ステージのルールを追加。743961896 はルール0件。",
- "pipeline_rules": "架電6 パイプラインとも 0 件 (スキップ/後戻り/編集者制限なし)",
+ "source": "HubSpot UI internal read ConditionalPropertiesV2Rpc/getRules → 2026-11-11 から ConditionalPropertiesV3Rpc/getAllRulesByObjectTypeId (objectTypeId 0-3), portal 23708633 (read-only)",
+ "read_at": "2026-10-09 (架電); 2026-10-16 (納品管理追加); 2026-11-11 (全 61 ルールと照合し 3 ステージを更新)",
+ "note": "ステージに移すとき表示される項目 (conditional stage properties)。required=true は必須。HubSpot は API の書き込みでは必須を強制しないため、HR_HR が移動前に確認する。label は src/crm/queue_pipelines.rs のコメント由来 (確認用)。HubSpot 側でルールを変えたらここを更新する。pipeline_id が null のステージは queue_pipelines の表に無い。2026-10-16 に納品管理2本を同じ読み取り手順で確認し、21596025 の25ステージのルールを追加。743961896 はルール0件。 2026-11-11 に HubSpot の全ルール (61 件) と照合: 52035891 Aヨミ90% に任意 3 項目 (kanri_mail_address / hrhacker_shop_ids / customer_sheet_url、HubSpot 側 11-10 更新)、155012220 T_ターゲット外 の 8 項目が必須→任意 (10-15 更新)、52016155 求人出稿完了 に必須 ouboshatsuuchinoumu (10-22 更新) を反映。HubSpot だけにある 53282376 (商談管理_計上) と 1082014108 (請負契約_商談) は HR_HR から移せないパイプラインなので写さない。",
+ "pipeline_rules": "架電6 パイプラインとも 0 件 (スキップ/後戻り/編集者制限なし)。2026-11-11 に PipelinesGovernanceRpc で 6 本とも再確認",
  "rules": [
   {
    "stage_id": "1095457875",
@@ -928,6 +928,18 @@
     {
      "name": "shoudanzokusei",
      "required": true
+    },
+    {
+     "name": "kanri_mail_address",
+     "required": false
+    },
+    {
+     "name": "hrhacker_shop_ids",
+     "required": false
+    },
+    {
+     "name": "customer_sheet_url",
+     "required": false
     }
    ]
   },
@@ -1065,19 +1077,19 @@
    "props": [
     {
      "name": "nextaction",
-     "required": true
+     "required": false
     },
     {
      "name": "date_of_next_action",
-     "required": true
+     "required": false
     },
     {
      "name": "amount",
-     "required": true
+     "required": false
     },
     {
      "name": "teianplan",
-     "required": true
+     "required": false
     },
     {
      "name": "syoudandouga",
@@ -1109,19 +1121,19 @@
     },
     {
      "name": "teiannn",
-     "required": true
+     "required": false
     },
     {
      "name": "syokusyu",
-     "required": true
+     "required": false
     },
     {
      "name": "sinntyokukkauninn",
-     "required": true
+     "required": false
     },
     {
      "name": "saiyoujiki",
-     "required": true
+     "required": false
     },
     {
      "name": "d___need________",
@@ -2865,6 +2877,10 @@
     {
      "name": "rirekishoshokumukeirekishokakunoudoraibu",
      "required": false
+    },
+    {
+     "name": "ouboshatsuuchinoumu",
+     "required": true
     },
     {
      "name": "bikou",

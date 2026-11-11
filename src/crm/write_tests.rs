@@ -1541,6 +1541,40 @@ async fn 取引担当者は_それを出すステージ_案件差戻_へ移す�
     assert_eq!(patches[0]["properties"]["hubspot_owner_id"], "9002");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn すでに案件差戻にいる取引は_同じステージ指定でも取引担当者だけを付け替えられない() {
+    let mut fake = base_fake();
+    fake.objects
+        .get_mut(&("deals".to_string(), DEAL.to_string()))
+        .unwrap()
+        .insert("dealstage".into(), SASHIMODOSHI.into());
+    let e = env_with(fake, open(), true).await;
+    let sashi = json!({"pipeline_id": PIPELINE, "stage_id": SASHIMODOSHI});
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-own-stay-0001",
+            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9001"}, "stage": sashi}))
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(
+        v["errors"]["hubspot_owner_id"],
+        "この項目はステージを移すときだけ変えられます"
+    );
+    assert_eq!(e.calls("PATCH"), 0, "HubSpot には書かない");
+    // 同じ値 (応答を失った再送と同じ形) は変更ではないので、書かずに保存済みとして返す
+    e.hs.lock()
+        .unwrap()
+        .objects
+        .get_mut(&("deals".to_string(), DEAL.to_string()))
+        .unwrap()
+        .insert("hubspot_owner_id".into(), "9001".into());
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-own-stay-0002",
+            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9001"}, "stage": sashi}))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(e.calls("PATCH"), 0);
+}
+
 // ---------------------------------------------------------------------------
 // 同時書き込み (レコード単位の直列化)
 // ---------------------------------------------------------------------------

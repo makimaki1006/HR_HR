@@ -676,6 +676,15 @@ describe('ステージの変更', () => {
     const dlg = await screen.findByTestId('stage-modal');
     await waitFor(() => { expect(dlg.querySelector('[data-field="hubspot_owner_id"]')).not.toBeNull(); });
     expect(Array.from(dlg.querySelectorAll('[data-field]')).map(e => e.getAttribute('data-field'))).toEqual([BIKOU, 'hubspot_owner_id']);
+    fireEvent.click(within(dlg).getByRole('button', { name: 'やめる' }));
+    // 取引担当者を出さないステージ (アポ日確定) の画面には出ない
+    fireEvent.change(stageSelect(), { target: { value: 'st-appo' } });
+    const appo = await screen.findByTestId('stage-modal');
+    await waitFor(() => { expect(appo.querySelector('[data-field="aposyutokubi"]')).not.toBeNull(); });
+    expect(appo.querySelector('[data-field="hubspot_owner_id"]')).toBeNull();
+    fireEvent.click(within(appo).getByRole('button', { name: 'やめる' }));
+    // 項目の編集欄では書けない (編集のボタンが出ない)
+    expect(screen.queryByRole('button', { name: /取引担当者を編集/ })).toBeNull();
   });
 
   it('422 (必須の不足) → モーダルを開いたまま不足の項目名を出す', async () => {
