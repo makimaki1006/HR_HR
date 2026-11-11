@@ -12,7 +12,8 @@
 .ob-controls [role="tablist"] { display:flex; flex-wrap:wrap; gap:8px; }
 .ob-controls [role="tab"] { min-height:40px; padding:0 14px; border-radius:20px; border:1px solid #cbd5e1; background:#fff; color:#334155; font:inherit; cursor:pointer; }
 .ob-controls [role="tab"][aria-selected="true"] { border-color:#0f766e; background:#0f766e; color:#fff; font-weight:700; }
-.ob-search input { width:260px; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; box-sizing:border-box; font:inherit; }
+.ob-search { flex:0 1 300px; }
+.ob-search input { width:100%; height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:0 10px; box-sizing:border-box; font:inherit; }
 .ob-table-wrap { background:#fff; border:1px solid #e2e8f0; border-radius:8px; overflow-x:auto; }
 .ob-table { width:100%; min-width:1100px; border-collapse:collapse; }
 .ob-table th { padding:10px 8px; font-size:12px; font-weight:600; color:#475569; text-align:left; border-bottom:1px solid #e2e8f0; }
@@ -37,3 +38,11 @@
 /* 長い職種名・連続した英数字を表の中で折り返す。非表示の見出しもスクロール枠に収める。 */
 .ob-table-wrap { position: relative; min-width: 0; }
 .ob-table td { overflow-wrap: anywhere; }
+
+/* 案件で絞っているときの帯と、手がかり 2 つ。 */
+.ob-deal { display:flex; align-items:center; gap:12px; padding:10px 16px; border:1px solid #99d5cc; background:#f0faf8; border-radius:8px; color:#0f172a; }
+.ob-deal span { flex:1; }
+.ob-deal .jc-button { min-height:36px; padding:0 14px; }
+.ob-hints { margin:0; display:flex; flex-direction:column; gap:4px; }
+.ob-hints dt { font-size:11px; color:#64748b; }
+.ob-hints dd { margin:0; }

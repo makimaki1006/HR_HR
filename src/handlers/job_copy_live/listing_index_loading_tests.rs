@@ -26,7 +26,7 @@ fn synthetic_index_body_has_exact_summary_before_measuring() {
     .unwrap();
     assert_eq!(
         serde_json::to_value(summary(&record, "hrh")).unwrap(),
-        json!({"occupation":"看護補助","location":null,"salary_kind":"時給","salary_min":"0","salary_max":"1800","hours":"9時〜17時","holidays":"日曜","body_changed_at":null})
+        json!({"occupation":"看護補助","job_kind":null,"location":null,"salary_kind":"時給","salary_min":"0","salary_max":"1800","hours":"9時〜17時","holidays":"日曜","body_changed_at":null})
     );
 }
 

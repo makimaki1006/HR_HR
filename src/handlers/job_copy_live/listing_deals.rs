@@ -2,7 +2,11 @@
 use super::*;
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct Summary {
+    /// HRハッカーは本文の「Indeed表示職種名」、AirWork は項目「職種」。
     pub(super) occupation: Option<String>,
+    /// 求人票の項目「職種」（募集職種名）。職種の一括指定の手がかり。媒体によらず同じ項目。
+    #[serde(default)]
+    pub(super) job_kind: Option<String>,
     pub(super) location: Option<String>,
     pub(super) salary_kind: Option<String>,
     pub(super) salary_min: Option<String>,
@@ -55,6 +59,7 @@ pub(super) fn summary(record: &Record, media: &str) -> Summary {
         } else {
             record.value("zhizhong").map(str::to_owned)
         },
+        job_kind: record.value("zhizhong").map(str::to_owned),
         location: if media == "hrh" {
             let parts: Vec<_> = [record.value("todoufuken"), record.value("shikuchouson")]
                 .into_iter()
