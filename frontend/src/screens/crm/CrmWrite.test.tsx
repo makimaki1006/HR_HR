@@ -640,6 +640,53 @@ describe('ステージの変更', () => {
     expect(body(patch)?.stage).toEqual({ pipeline_id: 'pl-b', stage_id: 'b-new' });
   });
 
+  it('別のパイプラインへ: 移し先のステージの必須項目を HubSpot と同じく画面に出し、入れないと移せない', async () => {
+    const patch: Patch = vi.fn(() => Promise.resolve(savedOut({})));
+    const schema = schemaOf({
+      stages: [...schemaOf().stages, { id: 'b-appo', label: 'B のアポ', required: ['aposyutokubi'], shown: ['aposyutokubi'] }],
+      pipelines: [...schemaOf().pipelines.slice(0, 1), { id: 'pl-b', label: 'パイプラインB', stages: [{ id: 'b-new', label: '新規' }, { id: 'b-appo', label: 'B のアポ' }] }],
+    });
+    await setup(schema, patch);
+    fireEvent.click(screen.getByRole('button', { name: '別のパイプラインへ移す' }));
+    const dlg = await screen.findByTestId('pipeline-modal');
+    fireEvent.change(within(dlg).getByLabelText('パイプライン'), { target: { value: 'pl-b' } });
+    fireEvent.change(within(dlg).getByLabelText('ステージ'), { target: { value: 'b-appo' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: '次へ' }));
+    const move = await screen.findByTestId('stage-modal');
+    expect(within(move).getByText('このステージに移すには次の項目が必要です')).toBeTruthy();
+    await waitFor(() => { expect(move.querySelector('[data-field="aposyutokubi"]')).not.toBeNull(); });
+    fireEvent.click(within(move).getByRole('button', { name: '移す' }));
+    expect(patch).not.toHaveBeenCalled();
+    fireEvent.change((within(move).getAllByLabelText(/アポ取得日/)[0] as HTMLInputElement), { target: { value: '2026-11-01' } });
+    fireEvent.click(within(move).getByRole('button', { name: '移す' }));
+    await waitFor(() => { expect(patch).toHaveBeenCalledTimes(1); });
+    expect(body(patch)?.stage).toEqual({ pipeline_id: 'pl-b', stage_id: 'b-appo' });
+    expect(body(patch)?.set).toMatchObject({ aposyutokubi: '2026-11-01' });
+  });
+
+  it('移すときだけ書ける項目 (取引担当者): それを出すステージの画面にだけ出る', async () => {
+    const owner: EditableProp = { ...ed('hubspot_owner_id', '取引担当者', 'enumeration', 'select'), owner_ref: true };
+    const schema = schemaOf({
+      stage_only: [owner],
+      stages: [...schemaOf().stages, { id: 'st-back', label: '案件差戻', required: [], shown: [BIKOU, 'hubspot_owner_id'] }],
+      pipelines: [{ id: '753186575', label: 'パイプラインA', stages: [{ id: '1095387446', label: '担当者ブロック' }, { id: 'st-appo', label: 'アポ日確定' }, { id: 'st-back', label: '案件差戻' }] }],
+    });
+    await setup(schema, vi.fn(() => Promise.resolve(savedOut({}))));
+    fireEvent.change(stageSelect(), { target: { value: 'st-back' } });
+    const dlg = await screen.findByTestId('stage-modal');
+    await waitFor(() => { expect(dlg.querySelector('[data-field="hubspot_owner_id"]')).not.toBeNull(); });
+    expect(Array.from(dlg.querySelectorAll('[data-field]')).map(e => e.getAttribute('data-field'))).toEqual([BIKOU, 'hubspot_owner_id']);
+    fireEvent.click(within(dlg).getByRole('button', { name: 'やめる' }));
+    // 取引担当者を出さないステージ (アポ日確定) の画面には出ない
+    fireEvent.change(stageSelect(), { target: { value: 'st-appo' } });
+    const appo = await screen.findByTestId('stage-modal');
+    await waitFor(() => { expect(appo.querySelector('[data-field="aposyutokubi"]')).not.toBeNull(); });
+    expect(appo.querySelector('[data-field="hubspot_owner_id"]')).toBeNull();
+    fireEvent.click(within(appo).getByRole('button', { name: 'やめる' }));
+    // 項目の編集欄では書けない (編集のボタンが出ない)
+    expect(screen.queryByRole('button', { name: /取引担当者を編集/ })).toBeNull();
+  });
+
   it('422 (必須の不足) → モーダルを開いたまま不足の項目名を出す', async () => {
     const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({ kind: 'invalid', body: { status: 'invalid', errors: {}, missing_required: ['aposyutokubi'] } }));
     await setup(schemaOf(), patch);

@@ -238,9 +238,30 @@ pub struct CrmEditSchemaResponse {
     pub pipeline_id: Option<String>,
     pub stage_id: Option<String>,
     pub editable: Vec<CrmEditableProperty>,
+    /// ステージを移すときだけ書ける項目 ([`STAGE_ONLY_WRITABLE`])。移す画面で、その項目を出すステージへ移すときだけ使う。
+    /// 項目の編集欄には出さない
+    pub stage_only: Vec<CrmEditableProperty>,
+    /// 移せる全パイプライン (`pipelines`) のステージの必須・表示項目 (別のパイプラインへ移す画面でも HubSpot と同じ項目を出す)
     pub stages: Vec<CrmEditStage>,
     pub pipelines: Vec<CrmEditPipeline>,
     pub writes_enabled: bool,
+}
+
+/// 普段は書けないが、HubSpot がステージを移す画面に出している項目。そのステージへ移す要求の中でだけ書ける。
+/// 「案件差戻」で HubSpot が任意項目として出す取引担当者 (2026-11-11 ユーザー決定: 移動の画面は HubSpot と一致させる)。
+/// 値は担当者の一覧にある owner ID だけ (担当者を選ぶ型の検査)
+pub const STAGE_ONLY_WRITABLE: &[&str] = &["hubspot_owner_id"];
+
+/// `name` がステージ移動 `stage` の中でだけ書ける項目か (取引の項目で、移動先のステージがその項目を出すとき)
+fn stage_only_allowed(api: &str, name: &str, stage: Option<&StageMove>) -> bool {
+    api == "deals"
+        && STAGE_ONLY_WRITABLE.contains(&name)
+        && stage.is_some_and(|s| {
+            stage_rules::rules()
+                .shown(&s.stage_id)
+                .iter()
+                .any(|n| n == name)
+        })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -672,34 +693,24 @@ pub(super) async fn get_edit_schema(
     let pipeline_id = deal.properties.get("pipeline").cloned().flatten();
     let stage_id = deal.properties.get("dealstage").cloned().flatten();
     let rules = stage_rules::rules();
+    let editable_of = |api: &str, p: &CrmCatalogProperty| CrmEditableProperty {
+        object: object_label(api).to_string(),
+        name: p.name.clone(),
+        label: p.label.clone(),
+        property_type: p.property_type.clone(),
+        field_type: p.field_type.clone(),
+        options: p.options.clone(),
+        owner_ref: p.owner_ref,
+        max_length: matches!(p.property_type.as_str(), "string" | "phone_number")
+            .then(|| max_length(p)),
+    };
     let mut editable = Vec::new();
     for api in ["deals", "contacts", "companies"] {
         for p in catalog.writable(api) {
-            editable.push(CrmEditableProperty {
-                object: object_label(api).to_string(),
-                name: p.name.clone(),
-                label: p.label.clone(),
-                property_type: p.property_type.clone(),
-                field_type: p.field_type.clone(),
-                options: p.options.clone(),
-                owner_ref: p.owner_ref,
-                max_length: matches!(p.property_type.as_str(), "string" | "phone_number")
-                    .then(|| max_length(p)),
-            });
+            editable.push(editable_of(api, p));
         }
     }
-    let stages = defs
-        .iter()
-        .filter(|p| Some(&p.id) == pipeline_id.as_ref())
-        .flat_map(|p| p.stages.iter())
-        .map(|s| CrmEditStage {
-            id: s.id.clone(),
-            label: s.label.clone(),
-            required: rules.required(&s.id),
-            shown: rules.shown(&s.id),
-        })
-        .collect();
-    let pipelines = write_pipelines()
+    let pipelines: Vec<CrmEditPipeline> = write_pipelines()
         .filter(|p| {
             if pipeline_id.as_deref().is_some_and(is_write_only_pipeline) {
                 Some(p.id) == pipeline_id.as_deref()
@@ -721,12 +732,32 @@ pub(super) async fn get_edit_schema(
                 .collect(),
         })
         .collect();
+    // いまのパイプラインと、移せる全パイプラインのステージ (別のパイプラインへ移すときも移し先の必須を出す)
+    let stages: Vec<CrmEditStage> = defs
+        .iter()
+        .filter(|p| Some(&p.id) == pipeline_id.as_ref() || pipelines.iter().any(|q| q.id == p.id))
+        .flat_map(|p| p.stages.iter())
+        .map(|s| CrmEditStage {
+            id: s.id.clone(),
+            label: s.label.clone(),
+            required: rules.required(&s.id),
+            shown: rules.shown(&s.id),
+        })
+        .collect();
+    let stage_only: Vec<CrmEditableProperty> = STAGE_ONLY_WRITABLE
+        .iter()
+        .filter(|n| stages.iter().any(|s| s.shown.iter().any(|x| x == *n)))
+        .filter_map(|n| catalog.property("deals", n))
+        .filter(|p| p.owner_ref)
+        .map(|p| editable_of("deals", p))
+        .collect();
     Json(CrmEditSchemaResponse {
         writes_enabled: ctx.write.allows(&deal_id),
         deal_id,
         pipeline_id,
         stage_id,
         editable,
+        stage_only,
         stages,
         pipelines,
     })
@@ -757,6 +788,8 @@ pub enum Stop {
     },
     Missing(Vec<String>),
     InvalidStage,
+    /// ステージを移すときだけ書ける項目 ([`STAGE_ONLY_WRITABLE`]) を、すでにそのステージにいる取引で変えようとした
+    StageOnlyWithoutMove(Vec<String>),
     Transient(HubSpotError),
     Permanent(HubSpotError),
 }
@@ -870,6 +903,23 @@ pub async fn prepare(client: &HubSpotClient, step: &Step) -> Result<Prepared, St
             .collect();
         if !missing.is_empty() {
             return Err(Stop::Missing(missing));
+        }
+    }
+    // 移すときだけ書ける項目は、実際にステージが動く要求でだけ変えられる (すでに移し先にいるなら、担当者だけの付け替えになる)。
+    // 同じ値 (応答を失った再送など) は変更ではないので通す
+    if moving.is_none() && step.object == "deals" {
+        let changing: Vec<String> = step
+            .set
+            .iter()
+            .filter(|(k, v)| {
+                STAGE_ONLY_WRITABLE.contains(&k.as_str())
+                    && norm(cur_of(k).as_deref(), step_ptype(step, k))
+                        != norm(v.as_deref(), step_ptype(step, k))
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        if !changing.is_empty() {
+            return Err(Stop::StageOnlyWithoutMove(changing));
         }
     }
     let props_equal = step.set.iter().all(|(k, v)| {
@@ -1157,7 +1207,9 @@ async fn build_steps(
                 errors.insert(key(name), "項目名が不正です".into());
                 continue;
             }
-            let Some(def) = catalog.property(api, name).filter(|d| d.writable) else {
+            let Some(def) = catalog.property(api, name).filter(|d| {
+                d.writable || (d.owner_ref && stage_only_allowed(api, name, stage.as_ref()))
+            }) else {
                 errors.insert(key(name), "この項目は書き込めません".into());
                 continue;
             };
@@ -1901,7 +1953,8 @@ async fn verify_after_send(client: &HubSpotClient, steps: &mut [Step], run: &mut
             Ok(_)
             | Err(Stop::Conflict { .. })
             | Err(Stop::Missing(_))
-            | Err(Stop::InvalidStage) => return Verified::NotApplied,
+            | Err(Stop::InvalidStage)
+            | Err(Stop::StageOnlyWithoutMove(_)) => return Verified::NotApplied,
             Err(Stop::Transient(_)) | Err(Stop::Permanent(_)) => return Verified::Unknown,
         }
     }
@@ -1934,7 +1987,7 @@ async fn stop_response(
             count_rejection(&format!("read_failed:{}", e.error_kind()));
             hubspot_error_response(&e)
         }
-        Stop::Missing(_) | Stop::InvalidStage => {
+        Stop::Missing(_) | Stop::InvalidStage | Stop::StageOnlyWithoutMove(_) => {
             count_rejection(&outcome);
             (status, Json(body)).into_response()
         }
@@ -2065,6 +2118,21 @@ fn stop_body(
                 vec![],
             );
             (s, v, "invalid_stage".into(), None)
+        }
+        Stop::StageOnlyWithoutMove(names) => {
+            let (s, v) = invalid(
+                names
+                    .iter()
+                    .map(|n| {
+                        (
+                            n.clone(),
+                            "この項目はステージを移すときだけ変えられます".to_string(),
+                        )
+                    })
+                    .collect(),
+                vec![],
+            );
+            (s, v, "stage_only_without_move".into(), None)
         }
         Stop::Missing(m) => {
             let errors = m

@@ -3,4 +3,13 @@ import type { CrmEditPipeline } from "./CrmEditPipeline";
 import type { CrmEditStage } from "./CrmEditStage";
 import type { CrmEditableProperty } from "./CrmEditableProperty";
 
-export type CrmEditSchemaResponse = { deal_id: string, pipeline_id: string | null, stage_id: string | null, editable: Array<CrmEditableProperty>, stages: Array<CrmEditStage>, pipelines: Array<CrmEditPipeline>, writes_enabled: boolean, };
+export type CrmEditSchemaResponse = { deal_id: string, pipeline_id: string | null, stage_id: string | null, editable: Array<CrmEditableProperty>, 
+/**
+ * ステージを移すときだけ書ける項目 ([`STAGE_ONLY_WRITABLE`])。移す画面で、その項目を出すステージへ移すときだけ使う。
+ * 項目の編集欄には出さない
+ */
+stage_only: Array<CrmEditableProperty>, 
+/**
+ * 移せる全パイプライン (`pipelines`) のステージの必須・表示項目 (別のパイプラインへ移す画面でも HubSpot と同じ項目を出す)
+ */
+stages: Array<CrmEditStage>, pipelines: Array<CrmEditPipeline>, writes_enabled: boolean, };
