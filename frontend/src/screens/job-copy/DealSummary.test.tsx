@@ -30,3 +30,39 @@ it('案件の合計: 20/9/10/0 → 39件、前の4週31件、課金6万円 → 1
   expect(band.textContent).toContain('掲載中 3 ・ 終了 1');
   expect(screen.queryByText('市場の職種')).toBeNull();
 });
+
+it('右の欄に職種の指定状況・地域・一括指定へのリンク、表の「未指定」に印、出来事は番号付きで押すと求人を開く', async () => {
+  // 本文の日付の読み取りは同じ求人の組を15秒まとめるので、上のテストと違う番号にする。
+  const rows: HubSpotListing[] = [
+    { ...row('11', '求人A', '公開'), prefecture: '東京都', municipality: '新宿区', indeed_title_state: 'set', indeed_title: '介護職' },
+    { ...row('12', '求人B', '公開'), prefecture: '東京都', municipality: '渋谷区', indeed_title_state: 'unset' },
+    { ...row('13', '求人C', '公開'), prefecture: '東京都', municipality: '新宿区', indeed_title_state: 'none' },
+    { ...row('14', '求人D', '公開終了'), prefecture: '神奈川県', municipality: '横浜市', indeed_title_state: 'unset' },
+  ];
+  const day = addDays(todayJst(), -10);
+  api.mockImplementation((url: string) => {
+    if (url.includes('deal-applications')) return Promise.resolve({ ok: true, data: { shared_applications: 0, listings: rows.map(item => ({ listing_id: item.id, by_date: { [day]: 1 } })) } });
+    if (url.includes('listing-body-dates')) return Promise.resolve({ ok: true, data: { dates: {}, changes: {
+      '12': { body: [`${addDays(todayJst(), -30)}T00:00:00Z`, `${day}T00:00:00Z`], images: [], status: {}, started_on: null },
+    } } });
+    return Promise.resolve({ ok: true, data: { status: 'ready', total: 4, listings: rows, titles: [], offset: 0, next_offset: null, refreshing: false, refresh_failed: false, index_built_at: '2026-10-12T00:00:00Z' } });
+  });
+  const open = vi.fn();
+  render(<DealSummary deal={{ id: '9', name: '案件', prefecture: '', title: '', media: '' }} billingByJob={{}} onOpenListing={open} />);
+  const rail = await screen.findByRole('complementary', { name: '数字の前提' });
+  await waitFor(() => { expect(rail.textContent).toContain('4件中2件が指定済み'); });
+  expect(rail.textContent).toContain('うち「市場と比べない」1件');
+  expect(rail.textContent).toContain('東京都 新宿区・渋谷区、神奈川県 横浜市');
+  const link = screen.getByRole('link', { name: '未指定の 2 件を指定する' });
+  expect(link.getAttribute('href')).toBe('/app/job-copy?view=occupations&deal=9');
+  // 表は既定で掲載中だけ。掲載中で未指定の求人B に印が付く。
+  const unset = document.querySelectorAll('.ds-table .ds-unset');
+  expect(unset).toHaveLength(1);
+  expect(unset[0]?.closest('tr')?.textContent).toContain('求人B');
+  // 求人B の本文の変更 2 回（最後の 1 回だけでなく全部）
+  const latest = screen.getByRole('button', { name: '2. 求人B：本文を変えました（この求人の画面を開く）' });
+  expect(screen.getByRole('button', { name: '1. 求人B：本文を変えました（この求人の画面を開く）' })).toBeTruthy();
+  latest.click();
+  expect(open).toHaveBeenCalledTimes(1);
+  expect((open.mock.calls[0]?.[0] as HubSpotListing).id).toBe('12');
+});

@@ -1,6 +1,8 @@
 import { apiGet } from '../../api/client';
 
-interface BodyDates { dates?: Record<string, string | null> }
+import type { ListingChanges } from './dealSummaryModel';
+
+interface BodyDates { dates?: Record<string, string | null>; changes?: Record<string, ListingChanges> }
 const recent = new Map<string, { at: number; promise: ReturnType<typeof apiGet<BodyDates>> }>();
 const KEEP_MS = 15_000;
 

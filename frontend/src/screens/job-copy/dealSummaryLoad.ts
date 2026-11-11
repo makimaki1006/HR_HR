@@ -8,7 +8,7 @@ import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import { perfBillingEntries, ROLLUP_RULES } from './dealSummaryModel';
 import { loadCompanyDeals } from './companyDeals';
 import type { CompanyDeal } from './companyDeals';
-import type { DealGroup, DealListingInput } from './dealSummaryModel';
+import type { DealGroup, DealListingInput, ListingChanges } from './dealSummaryModel';
 import { publicationLabel } from './hubspotListings';
 import type { BillingEntry } from './timelineModel';
 
@@ -29,6 +29,8 @@ export interface DealData {
   overlap: Record<string, number>;
   fetched: Map<string, string | null>;
   bodyDates: Record<string, string | null>;
+  /** 求人ごとの本文・画像・公開状況の履歴。古い応答には無い。 */
+  changes?: Record<string, ListingChanges> | undefined;
   perf: Map<string, HrhPerformanceCollection | undefined>;
   company: { id: string; name: string } | null;
 }
@@ -46,7 +48,7 @@ export async function loadDealData(dealId: string, name: string, signal: AbortSi
   const rows = page.data.listings;
   const data: DealData = {
     id: dealId, name, rows, capped: page.data.next_offset !== null,
-    applications: new Map(rows.map(row => [row.id, null])), shared: 0, overlap: {}, fetched: new Map(), bodyDates: {}, perf: new Map(), company: null,
+    applications: new Map(rows.map(row => [row.id, null])), shared: 0, overlap: {}, fetched: new Map(), bodyDates: {}, changes: {}, perf: new Map(), company: null,
   };
   if (!rows.length) return data;
   const ids = rows.slice(0, 30).map(row => encodeURIComponent(row.id)).join(',');
@@ -66,6 +68,7 @@ export async function loadDealData(dealId: string, name: string, signal: AbortSi
     data.company = apps.data.company ?? null;
   }
   if (dates.ok && dates.data.dates) data.bodyDates = dates.data.dates;
+  if (dates.ok && dates.data.changes) data.changes = dates.data.changes;
   return data;
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, shareOfDeal, weeklySeries, weekStart } from './dealSummaryModel';
+import { dealCutoff, dealEvents, dealTotals, eventSourceOf, eventWeekMarks, listingNumbers, mediaCutoffs, occupationStatus, regionText, shareOfDeal, weeklySeries, weekStart } from './dealSummaryModel';
 import type { DealListingInput } from './dealSummaryModel';
 import type { BillingEntry } from './timelineModel';
 
@@ -141,5 +141,74 @@ describe('dealSummaryModel', () => {
       { media: 'hrh', lastApplication: '2026-10-01', lastBilling: '2026-10-12' },
       { media: 'airwork', lastApplication: '2026-10-01', lastBilling: '2026-09-30' },
     ]);
+  });
+
+  it('出来事の種類: 本文の変更はすべて、画像の変更、掲載の開始・終了・再開。番号は古い順', () => {
+    const source = eventSourceOf({ id: 'a', media: 'hrh' }, '2026-10-05', {
+      // 2026-09-30T20:00Z は JST では 10-01
+      body: ['2026-09-10T00:00:00+00:00', '2026-09-30T20:00:00+00:00', '2026-10-05T00:00:00+00:00'],
+      images: ['2026-10-05T03:00:00+00:00', '2026-09-20T00:00:00+00:00'],
+      status: { baitai_genjoukyou_hrhakkaa: [
+        { timestamp: '2026-08-20T00:00:00Z', value: '公開中' },
+        { timestamp: '2026-09-25T00:00:00Z', value: '公開終了' },
+        { timestamp: '2026-09-28T00:00:00Z', value: '公開中' },
+      ] },
+      started_on: '2026-08-15',
+    }, []);
+    expect(source.bodyChanges).toEqual(['2026-09-10', '2026-10-01', '2026-10-05']);
+    expect(source.imageChanges).toEqual(['2026-09-20', '2026-10-05']);
+    // 公開状況の最初の記録 (08-20) より公開開始日時 (08-15) が早い
+    expect(source.startOn).toBe('2026-08-15');
+    expect(source.statusEvents).toEqual([{ date: '2026-09-25', kind: 'end' }, { date: '2026-09-28', kind: 'revive' }]);
+    const events = dealEvents(listings, [source], ASOF, id => `求人${id}`, v => `${String(v)}円`);
+    const own = events.filter(e => e.listingId === 'a').map(e => [e.n, e.date, e.text]);
+    // 全体の番号: 01-01 求人d の課金 = 1、09-15 は求人a・b・c の課金 = 4〜6
+    expect(own).toEqual([
+      [11, '2026-10-05', '求人a：本文と画像を変えました'],
+      [10, '2026-10-01', '求人a：本文を変えました'],
+      [9, '2026-09-28', '求人a：掲載を再開しました'],
+      [8, '2026-09-25', '求人a：掲載を終えました'],
+      [7, '2026-09-20', '求人a：画像を変えました'],
+      [4, '2026-09-15', '求人a：課金が始まりました（28000円）'],
+      [3, '2026-09-10', '求人a：本文を変えました'],
+      [2, '2026-08-15', '求人a：掲載を始めました'],
+    ]);
+    // 番号は 1 から古い順で、表示は新しい順
+    expect(events.map(e => e.n)).toEqual([11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+    expect(events.at(-1)).toMatchObject({ n: 1, date: '2026-01-01', listingId: 'd' });
+  });
+
+  it('出来事: 履歴が届かない古い応答では、本文を最後に変えた日だけ', () => {
+    const events = dealEvents([], [eventSourceOf({ id: 'a', media: 'hrh' }, '2026-10-05', undefined, [])], ASOF, id => id, v => String(v));
+    expect(events.map(e => [e.n, e.date, e.kind])).toEqual([[1, '2026-10-05', 'body']]);
+  });
+
+  it('グラフの番号: 週（月曜はじまり）ごとにまとめ、期間の外は出さない', () => {
+    const weeks = ['2026-09-21', '2026-09-28', '2026-10-05'];
+    const marks = eventWeekMarks([
+      { n: 1, date: '2026-09-01', listingId: 'a' },
+      { n: 2, date: '2026-09-29', listingId: 'a' },
+      { n: 3, date: '2026-10-04', listingId: 'b' },
+      { n: 4, date: '2026-10-07', listingId: 'b' },
+    ], weeks);
+    expect(marks).toEqual([
+      { index: 1, numbers: [2, 3], listingIds: ['a', 'b'] },
+      { index: 2, numbers: [4], listingIds: ['b'] },
+    ]);
+  });
+
+  it('職種の指定状況と地域', () => {
+    expect(occupationStatus([
+      { id: '1', indeed_title_state: 'set' }, { id: '2', indeed_title_state: 'none' },
+      { id: '3', indeed_title_state: 'unset' }, { id: '4', indeed_title_state: 'unset' }, { id: '4', indeed_title_state: 'unset' },
+    ])).toEqual({ total: 4, set: 1, none: 1, unset: 2 });
+    expect(occupationStatus([{ id: '1' }])).toBeNull();
+    expect(regionText([
+      { id: '1', prefecture: '東京都', municipality: '新宿区' }, { id: '2', prefecture: '東京都', municipality: '渋谷区' },
+      { id: '3', prefecture: '東京都', municipality: '新宿区' }, { id: '4', prefecture: '神奈川県', municipality: null },
+    ])).toBe('東京都 新宿区・渋谷区、神奈川県');
+    expect(regionText([{ id: '1', prefecture: null, municipality: null }])).toBeNull();
+    const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((city, i) => ({ id: String(i), prefecture: '大阪府', municipality: `${city}市` }));
+    expect(regionText(many)).toBe('大阪府 a市・b市・c市・d市・e市 ほか2か所');
   });
 });

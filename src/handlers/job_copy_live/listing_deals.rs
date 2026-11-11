@@ -422,8 +422,10 @@ pub(super) async fn body_dates(
     ids: &[String],
 ) -> Result<Value, ReadError> {
     let mut dates = BTreeMap::new();
+    let mut changes = BTreeMap::new();
     for chunk in ids.chunks(50) {
-        let data = service.request("/crm/v3/objects/0-420/batch/read", &[], Some(json!({"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(), "properties":["id_hrhakkaa","id_airwork","id_reclogi","reclogi_moto_hr_kyuujin_id","kyuujin_status","hrh_kyuujinhyou_honbun","shigotonaiyou"], "propertiesWithHistory":["hrh_kyuujinhyou_honbun","shigotonaiyou"]}))).await?;
+        // 同じ 1 回の読み取りで、本文・画像・公開状況の履歴も読む（案件の出来事に使う。呼び出しは増えない）。
+        let data = service.request("/crm/v3/objects/0-420/batch/read", &[], Some(json!({"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(), "properties":["id_hrhakkaa","id_airwork","id_reclogi","reclogi_moto_hr_kyuujin_id","kyuujin_status","hrh_kyuujinhyou_honbun","shigotonaiyou","koukai_kaishi_nichiji"], "propertiesWithHistory":BODY_DATES_HISTORY}))).await?;
         let page: Page = Page::deserialize(&data).map_err(|_| fail("hubspot_invalid_response"))?;
         if data
             .get("errors")
@@ -444,9 +446,74 @@ pub(super) async fn body_dates(
                 .and_then(|r| r.iter().find(|v| v["id"].as_str() == Some(&record.id)))
                 .ok_or_else(|| fail("hubspot_invalid_response"))?;
             dates.insert(record.id.clone(), body_changed_at(raw, media));
+            changes.insert(record.id.clone(), listing_changes(raw, media));
         }
     }
-    Ok(json!({"dates":dates}))
+    Ok(json!({"dates":dates,"changes":changes}))
+}
+/// 本文・画像・公開状況の履歴を、案件の出来事に使う。本文・画像の値そのものは返さない。
+const BODY_DATES_HISTORY: [&str; 7] = [
+    "hrh_kyuujinhyou_honbun",
+    "shigotonaiyou",
+    "hrh_kyuujinhyou_gazou",
+    super::AW_IMAGES,
+    "kyuujin_status",
+    "baitai_genjoukyou_hrhakkaa",
+    "baitai_genjoukyou_airwork",
+];
+/// 値が前と変わった時刻（古い順、RFC 3339）。最初の記録は変更に数えない。
+/// HubSpot の履歴は新しい 20 件までなので、それより前の変更は出ない。
+/// 同じ時刻に違う値があるときは順番が決まらないので、何も返さない。
+fn change_times<T: PartialEq>(data: &Value, key: &str, key_of: impl Fn(&str) -> T) -> Vec<String> {
+    let Some(list) = data["propertiesWithHistory"][key].as_array() else {
+        return vec![];
+    };
+    let mut history: Vec<(chrono::DateTime<chrono::FixedOffset>, &str)> = list
+        .iter()
+        .filter_map(|v| {
+            Some((
+                chrono::DateTime::parse_from_rfc3339(v["timestamp"].as_str()?).ok()?,
+                v["value"].as_str()?,
+            ))
+        })
+        .collect();
+    history.sort_by_key(|entry| entry.0);
+    if history
+        .windows(2)
+        .any(|w| w[0].0 == w[1].0 && w[0].1 != w[1].1)
+    {
+        return vec![];
+    }
+    let mut out = Vec::new();
+    let mut previous: Option<T> = None;
+    for (at, value) in history {
+        let key = key_of(value);
+        if previous.as_ref().is_some_and(|p| *p != key) {
+            out.push(at.with_timezone(&chrono::Utc).to_rfc3339());
+        }
+        previous = Some(key);
+    }
+    out
+}
+pub(super) fn listing_changes(data: &Value, media: &str) -> Value {
+    let body = if media == "hrh" {
+        change_times(data, "hrh_kyuujinhyou_honbun", str::to_owned)
+    } else {
+        change_times(data, "shigotonaiyou", str::to_owned)
+    };
+    let images = match media {
+        "hrh" => change_times(data, "hrh_kyuujinhyou_gazou", |v| {
+            (super::image_urls(v), super::images_registered_value(v))
+        }),
+        "airwork" => change_times(data, super::AW_IMAGES, super::aw_images),
+        _ => vec![],
+    };
+    json!({
+        "body": body,
+        "images": images,
+        "status": super::status_history(data),
+        "started_on": super::super::listing_status::day(data["properties"]["koukai_kaishi_nichiji"].as_str()),
+    })
 }
 pub(in crate::handlers::job_copy_live) async fn read_body_dates(
     State(state): State<Arc<AppState>>,
