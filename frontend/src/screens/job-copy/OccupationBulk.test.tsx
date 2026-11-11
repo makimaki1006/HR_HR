@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../../api/client';
-import { OccupationBulk } from './OccupationBulk';
+import { OccupationBulk, periodLabel } from './OccupationBulk';
 import { ConsultantMenu } from './ConsultantMenu';
+import { updateJobCopyQuery } from './navigation';
 
 const get = vi.hoisted(() => vi.fn());
 const put = vi.hoisted(() => vi.fn());
@@ -42,9 +43,10 @@ describe('OccupationBulk', () => {
     const input = await screen.findByLabelText('配送A と比べる Indeed の職種');
     expect((input as HTMLInputElement).value).toBe('');
     // 直近4週の応募（全期間の 999 件ではない）と、手がかり 2 つ。
-    expect(screen.getByText('20 件').getAttribute('title')).toBe('10/13〜11/09');
-    expect(screen.queryByText('999 件')).toBeNull();
     const tr = input.closest('tr') as HTMLElement;
+    // 期間を件数の横に常に出す（今年でなければ年も付く）。
+    expect(tr.querySelector('.ob-num')?.textContent).toMatch(/^20 件（(2026\/)?10\/13〜(2026\/)?11\/09）$/u);
+    expect(screen.queryByText(/999 件/u)).toBeNull();
     expect(within(tr).getByText('求人票の職種').nextElementSibling?.textContent).toBe('配送Aの職種');
     expect(within(tr).getByText('Indeed 表示職種名').nextElementSibling?.textContent).toBe('配送Aの表示名');
     await waitFor(() => { expect(screen.getByText(/架空顧客A/u)).toBeTruthy(); });
@@ -141,7 +143,7 @@ describe('OccupationBulk', () => {
 
   it('見つからない案件では案内を出す', async () => {
     window.history.replaceState(null, '', '/app/job-copy?view=occupations&deal=999');
-    get.mockImplementation(() => Promise.resolve({ ok: false, error: new ApiHttpError(400, { code: 'listing_filter_invalid' }) }));
+    get.mockImplementation(() => Promise.resolve({ ok: false, error: new ApiHttpError(400, { code: 'listing_deal_not_found' }) }));
     render(<OccupationBulk />);
     expect((await screen.findByRole('alert')).textContent).toContain('この案件の求人が見つかりませんでした。');
     window.history.replaceState(null, '', '/');
@@ -155,6 +157,46 @@ describe('OccupationBulk', () => {
     const query = new URLSearchParams(window.location.search);
     expect([query.get('view'), query.get('deal'), query.get('owner')]).toEqual(['occupations', null, '11']);
     expect(screen.getByRole('button', { name: '職種の指定' }).getAttribute('aria-current')).toBe('page');
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('直近4週の期間: 今年は月日だけ、今年でなければ年も付ける', () => {
+    const now = new Date('2026-11-12T03:00:00Z');
+    expect(periodLabel('2026-10-13', '2026-11-09', now)).toBe('10/13〜11/09');
+    // 何か月も前の4週でも、そのまま期間を出す。
+    expect(periodLabel('2026-03-02', '2026-03-29', now)).toBe('03/02〜03/29');
+    expect(periodLabel('2025-12-08', '2026-01-04', now)).toBe('2025/12/08〜2026/01/04');
+    expect(periodLabel('2025-06-02', '2025-06-29', now)).toBe('2025/06/02〜2025/06/29');
+    // 日本時間で年が変わる瞬間（UTC では前年の 12/31）。
+    expect(periodLabel('2026-06-01', '2026-06-28', new Date('2026-12-31T15:00:00Z'))).toBe('2026/06/01〜2026/06/28');
+  });
+
+  it('400 は理由ごとに案内し、別の案件に変わったら前の案件名を消す', async () => {
+    window.history.replaceState(null, '', '/app/job-copy?view=occupations&deal=123');
+    get.mockImplementation((path: string) => {
+      if (path.startsWith('/api/job-copy/listings/companies')) return Promise.resolve({ ok: true, data: { companies: {} } });
+      if (path.includes('deal=777')) return Promise.resolve({ ok: false, error: new ApiHttpError(400, { code: 'listing_filter_invalid' }) });
+      if (path.includes('deal=555')) return new Promise(() => undefined);
+      return Promise.resolve({ ok: true, data: page([row('1', '配送A', 3, 'unset')], { set: 0, none: 0, unset: 1 }, { selected_deal: { id: '123', name: '架空の案件' } }) });
+    });
+    render(<OccupationBulk />);
+    expect(await screen.findByText('架空の案件')).toBeTruthy();
+    // 読み込み中の別の案件では、前の案件名を出さない。
+    act(() => { updateJobCopyQuery({ deal: '555' }); });
+    await waitFor(() => { expect(screen.queryByText('架空の案件')).toBeNull(); });
+    expect(screen.getByText('選んだ案件')).toBeTruthy();
+    act(() => { updateJobCopyQuery({ deal: '777' }); });
+    expect((await screen.findByRole('alert')).textContent).toContain('検索や絞り込みの指定が正しくありません');
+    expect(screen.queryByText(/この案件の求人が見つかりませんでした/u)).toBeNull();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('案件で絞っている間は、メニューに担当の選択を出さず理由を添える', () => {
+    window.history.replaceState(null, '', '/app/job-copy?view=occupations&deal=123&owner=11');
+    get.mockImplementation(() => new Promise(() => undefined));
+    render(<ConsultantMenu><p>画面</p></ConsultantMenu>);
+    expect(screen.getByText('案件で絞っている間は担当で絞りません')).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: '担当者' })).toBeNull();
     window.history.replaceState(null, '', '/');
   });
 });

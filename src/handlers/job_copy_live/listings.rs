@@ -1177,8 +1177,8 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
         let order = if let Some(order) = field_order {
             order.then_with(id_order)
         } else if query.sort.as_deref() == Some("bulk") {
-            // 職種の一括指定: 掲載中を先に、直近4週の応募の多い順（実績の無い求人は後ろ）、
-            // 同数は求人に結び付いた応募の多い順、さらに同数は番号順。
+            // 職種の一括指定: 掲載中を先に、直近4週の応募の多い順。4週分そろわない求人（画面の「—」）は
+            // 0件と同じ位置に置く。同数は求人に結び付いた応募の多い順、さらに同数は番号順。
             let not_live = |r: &Listing| r.publication_status.as_deref() != Some("掲載中");
             let recent = |r: &Listing| {
                 r.perf
@@ -1186,6 +1186,7 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
                     .and_then(|p| p.comparison_recent.as_ref())
                     .filter(|p| p.period_end <= today)
                     .and_then(|p| p.applications)
+                    .unwrap_or(0)
             };
             not_live(a)
                 .cmp(&not_live(b))
@@ -1338,14 +1339,21 @@ pub(super) async fn read(
     {
         return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
     }
+    if query
+        .deal
+        .as_ref()
+        .is_some_and(|id| id != "none" && id.split(',').count() > 20)
+    {
+        return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
+    }
     if query.deal.as_ref().is_some_and(|id| {
         id != "none"
-            && (id.split(',').count() > 20
-                || id
-                    .split(',')
-                    .any(|one| !index.deals.iter().any(|d| d.id == one)))
+            && id
+                .split(',')
+                .any(|one| !index.deals.iter().any(|d| d.id == one))
     }) {
-        return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
+        // 索引に無い取引（求人が結び付いていない・番号違い）。画面はこの理由で案内を分ける。
+        return Err(ReadError(StatusCode::BAD_REQUEST, "listing_deal_not_found"));
     }
     let mut query = query;
     if query.sort.as_deref() == Some("bulk")
@@ -2578,12 +2586,15 @@ mod tests {
             row
         };
         let index = Index {
-            // 全期間は 1 が最多でも、直近4週で並ぶ。直近の実績が無い 4 は後ろ。同数(3・2)は全期間の多い順。
+            // 全期間は 1 が多くても、直近4週で並ぶ。同数(3・2)は全期間の多い順。
+            // 4週そろわない 4・6（画面の「—」）は 0件の 5 と同じ位置で、その中は全期間の多い順。
             records: vec![
                 mk("1", Some(1), 90),
                 mk("2", Some(5), 3),
                 mk("3", Some(5), 8),
-                mk("4", None, 99),
+                mk("4", None, 50),
+                mk("5", Some(0), 99),
+                mk("6", None, 10),
             ],
             titles: vec![],
             built_at: "2026-10-10T00:00:00Z".into(),
@@ -2610,7 +2621,9 @@ mod tests {
                 ("3", Some(5), Some(8)),
                 ("2", Some(5), Some(3)),
                 ("1", Some(1), Some(90)),
-                ("4", None, Some(99))
+                ("5", Some(0), Some(99)),
+                ("4", None, Some(50)),
+                ("6", None, Some(10)),
             ]
         );
     }
@@ -2675,6 +2688,118 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(ids(query), ["2"]);
+    }
+    #[tokio::test]
+    async fn job_copy_bulk_read_looks_up_company_names_only_for_bulk_and_names_the_deal() {
+        use axum::body::to_bytes;
+        // HubSpot は呼ばない（事業所の対応表は先に入れておく）。呼ばれたら接続に失敗する。
+        let service = Arc::new(JobReadService::for_test("http://127.0.0.1:9".into()));
+        let mk = |id: &str, title: &str, deal: &str| {
+            let record: Record = serde_json::from_value(
+                json!({"id":id,"properties":{"id_hrhakkaa":format!("HR-{id}"),"hs_name":title,"kyuujin_status":"公開中"}}),
+            )
+            .unwrap();
+            let mut row = listing(&record).unwrap();
+            row.deal_ids = vec![deal.into()];
+            row
+        };
+        let deal = |id: &str, name: &str| Deal {
+            id: id.into(),
+            name: Some(name.into()),
+            count: 1,
+            ..Default::default()
+        };
+        let index = Arc::new(Index {
+            records: vec![
+                mk("1", "配送スタッフ", "801"),
+                mk("2", "事務スタッフ", "802"),
+            ],
+            titles: vec![],
+            deals: vec![deal("801", "架空の配送案件"), deal("802", "架空の事務案件")],
+            built_at: "2026-10-12T00:00:00Z".into(),
+        });
+        service.listing_index.state.write().await.snapshot = Some(index.clone());
+        let mut map = home::CompanyMap::default();
+        map.deal_company.insert("801".into(), "701".into());
+        map.deal_company.insert("802".into(), "702".into());
+        map.names
+            .insert("701".into(), Some("架空物流株式会社".into()));
+        map.names.insert("702".into(), Some("架空商事".into()));
+        home::seed_companies(&service, &index, map).await;
+        let access = Access {
+            service: Some(service.clone()),
+            moc_path: None,
+            moc_drive: Ok(None),
+            snapshot_reader: None,
+            snapshot_cache: Arc::default(),
+            resolved_jobs: Arc::default(),
+            images: None,
+            drive_listings: BTreeSet::new(),
+            drive_config_error: None,
+        };
+        let state = super::super::integration_tests::moc_state();
+        let session = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+        session
+            .insert(SESSION_USER_KEY, "reader@example.test")
+            .await
+            .unwrap();
+        session
+            .insert(SESSION_LOGIN_METHOD_KEY, LOGIN_METHOD_GOOGLE_OIDC)
+            .await
+            .unwrap();
+        let call = |query: &str| {
+            let (state, access, session) = (state.clone(), access.clone(), session.clone());
+            let uri: axum::http::Uri = format!("http://test/?{query}").parse().unwrap();
+            let query = Query::<ListingsQuery>::try_from_uri(&uri).unwrap();
+            async move {
+                match read(State(state), Extension(access), session, query).await {
+                    Ok(response) => {
+                        let body = to_bytes(response.into_response().into_body(), 65536)
+                            .await
+                            .unwrap();
+                        Ok(serde_json::from_slice::<Value>(&body).unwrap())
+                    }
+                    Err(ReadError(status, code)) => Err((status, code)),
+                }
+            }
+        };
+        let ids = |body: &Value| {
+            body["listings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["id"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        let q = "q=%E6%9E%B6%E7%A9%BA%E7%89%A9%E6%B5%81"; // 架空物流
+                                                          // 一括指定(sort=bulk)だけ顧客名で一致する。ほかの並びは求人名だけ。
+        assert_eq!(ids(&call(&format!("sort=bulk&{q}")).await.unwrap()), ["1"]);
+        assert!(ids(&call(&format!("sort=title&{q}")).await.unwrap()).is_empty());
+        assert!(ids(&call(q).await.unwrap()).is_empty());
+        // 取引 1 件で絞ると案件名を返す。指定が無い・複数なら返さない。
+        let one = call("sort=bulk&deal=802").await.unwrap();
+        assert_eq!(ids(&one), ["2"]);
+        assert_eq!(
+            one["selected_deal"],
+            json!({"id":"802","name":"架空の事務案件"})
+        );
+        assert_eq!(
+            call("sort=bulk").await.unwrap()["selected_deal"],
+            Value::Null
+        );
+        assert_eq!(
+            call("sort=bulk&deal=801,802").await.unwrap()["selected_deal"],
+            Value::Null
+        );
+        // 索引に無い取引は専用の理由。ほかの誤りは従来の理由。
+        assert_eq!(
+            call("sort=bulk&deal=999").await.unwrap_err(),
+            (StatusCode::BAD_REQUEST, "listing_deal_not_found")
+        );
+        assert_eq!(
+            call("sort=bad").await.unwrap_err(),
+            (StatusCode::BAD_REQUEST, "listing_filter_invalid")
+        );
     }
     #[test]
     fn job_copy_summary_has_job_kind_for_both_media() {

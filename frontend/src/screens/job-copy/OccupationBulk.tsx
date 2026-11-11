@@ -20,6 +20,26 @@ const tabState = (tab: Tab) => tab === 'unset' ? 'unset' : tab === 'assigned' ? 
 const listingUrl = (query: Record<string, string>) => `/api/job-copy/listings?${new URLSearchParams(query).toString()}`;
 const percent = (done: number, total: number) => total > 0 ? Math.min(100, Math.round(done / total * 1000) / 10) : 0;
 
+/** 直近4週の期間の表示。今年（日本時間）なら月日だけ、そうでなければ年も付ける。 */
+export function periodLabel(start: string, end: string, now = new Date()): string {
+  const year = String(new Date(now.getTime() + 9 * 3600_000).getUTCFullYear());
+  const thisYear = start.startsWith(year) && end.startsWith(year);
+  const day = (value: string) => (thisYear ? value.slice(5) : value).replaceAll('-', '/');
+  return `${day(start)}〜${day(end)}`;
+}
+
+/** 一覧を読めなかったときの案内。400 は理由ごとに分ける。 */
+function loadErrorText(error: unknown): string {
+  if (error instanceof AuthRequiredError) return 'Googleでログインしてから再取得してください。';
+  if (error instanceof ApiHttpError && error.status === 400) {
+    const code = typeof error.body === 'object' && error.body !== null && 'code' in error.body ? (error.body as { code?: unknown }).code : undefined;
+    if (code === 'listing_deal_not_found') return 'この案件の求人が見つかりませんでした。「すべてに戻す」で全体を表示できます。';
+    if (code === 'listing_filter_invalid') return '検索や絞り込みの指定が正しくありません（検索の文字は 100 文字まで）。指定を見直してください。';
+    return 'URL の指定が正しくないため読み込めませんでした。メニューから開き直してください。';
+  }
+  return '求人を読み込めませんでした。時間を置いて再取得してください。';
+}
+
 /** 求人ごとに、市場と比べる Indeed の職種を指定する一括画面。自動では決めない。 */
 export function OccupationBulk() {
   const search = useJobCopySearch();
@@ -38,7 +58,9 @@ export function OccupationBulk() {
   const [titles, setTitles] = useState<string[]>([]);
   const [saved, setSaved] = useState<Record<string, Saved>>({});
   const [, setCompanyTick] = useState(0);
-  const [dealName, setDealName] = useState('');
+  const [dealInfo, setDealInfo] = useState<{ id: string; name: string } | null>(null);
+  // 別の案件に変わったら、前の案件名は出さない。
+  const dealName = dealInfo?.id === deal ? dealInfo.name : '';
   const request = useRef<AbortController | null>(null);
 
   useEffect(() => { const timer = window.setTimeout(() => { setQ(text.trim()); setOffset(0); }, 250); return () => { window.clearTimeout(timer); }; }, [text]);
@@ -57,14 +79,15 @@ export function OccupationBulk() {
     ]);
     if (controller.signal.aborted) return;
     setLoadedKey(key);
-    if (!result.ok) { setError(result.error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : deal && result.error instanceof ApiHttpError && result.error.status === 400 ? 'この案件の求人が見つかりませんでした。「すべてに戻す」で全体を表示できます。' : '求人を読み込めませんでした。時間を置いて再取得してください。'); return; }
+    if (!result.ok) { setDealInfo(null); setError(loadErrorText(result.error)); return; }
     setError(''); setPage(result.data); setSaved({});
-    if (result.data.selected_deal) setDealName(result.data.selected_deal.name ?? '');
+    const selected = result.data.selected_deal;
+    setDealInfo(selected ? { id: selected.id, name: selected.name ?? '' } : null);
     if (result.data.titles.length) setTitles(result.data.titles);
     setLive(liveResult.ok ? liveResult.data.indeed_title_counts ?? null : null);
     const ids = result.data.listings.map(row => row.id);
     if (ids.length) void loadCompanies(ids).then(() => { if (!controller.signal.aborted) setCompanyTick(n => n + 1); });
-  }, [tab, q, offset, key, ownerQuery, deal]);
+  }, [tab, q, offset, key, ownerQuery]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 条件が変わるたびに一覧を取り直す（取得後に状態を入れる）
   useEffect(() => { void load(); return () => { request.current?.abort(); }; }, [load]);
   useEffect(() => {
@@ -86,7 +109,7 @@ export function OccupationBulk() {
   return <div className="ob-screen">
     <nav className="ob-crumb" aria-label="現在地"><a href="/app/job-copy">案件管理</a><span aria-hidden="true">›</span><span aria-current="page"><strong>市場と比べる職種を指定する</strong></span></nav>
     <section className="ob-intro" aria-label="説明と進み具合">
-      <p>求人ごとに、Indeed のどの職種と比べるかを指定します。自動では決めません。指定した求人から、市場の数字（競合の求人数・平均時給・求人を見た人）がつながります。掲載中で、直近 4 週の応募が多い求人から並べています。</p>
+      <p>求人ごとに、Indeed のどの職種と比べるかを指定します。自動では決めません。指定した求人から、市場の数字（競合の求人数・求人を見た人）がつながります。掲載中で、直近 4 週の応募が多い求人から並べています。</p>
       <div className="ob-progress">
         <div><span>職種を指定済みの掲載中の求人</span><strong>{live ? `${String(liveDone)} / ${String(liveTotal)} 件` : '—'}</strong></div>
         <div className="ob-bar" role="progressbar" aria-label="職種を指定済みの掲載中の求人" aria-valuemin={0} aria-valuemax={liveTotal} aria-valuenow={liveDone}><span style={{ width: `${String(percent(liveDone, liveTotal))}%` }} /></div>
@@ -115,7 +138,7 @@ export function OccupationBulk() {
       <button type="button" className="jc-button" disabled={busy || offset === 0} onClick={() => { setOffset(Math.max(0, offset - PAGE)); }}>前の{PAGE}件</button>
       <button type="button" className="jc-button" disabled={busy || page?.status !== 'ready' || page.next_offset === null} onClick={() => { if (page?.status === 'ready' && page.next_offset !== null) setOffset(page.next_offset); }}>次の{PAGE}件</button>
     </div>
-    <p className="ob-note">直近 4 週の応募は、媒体（Indeed・AirWork）の週ごとの実績の、最新の続いた 4 週の合計です。実績が無い求人は「—」です。</p>
+    <p className="ob-note">直近 4 週の応募は、媒体（Indeed・AirWork）の週ごとの実績の、最新の続いた 4 週の合計です。4週分の実績がそろっていない求人は「—」です。</p>
     <p className="ob-note">指定は求人 1 件ずつです。HubSpot の求人の項目「比べる Indeed 職種」に入るので、HubSpot の画面からも直せます。指定していない求人は、市場との比較を出しません。</p>
   </div>;
 }
@@ -153,7 +176,7 @@ function BulkRow({ row, titles, done, onSaved }: { row: HubSpotListing; titles: 
       {jobKind && <div><dt>求人票の職種</dt><dd>{jobKind}</dd></div>}
       {indeedName && indeedName !== jobKind && <div><dt>Indeed 表示職種名</dt><dd>{indeedName}</dd></div>}
     </dl>}</td>
-    <td className="ob-num">{recent?.applications == null ? '—' : <span title={`${recent.period_start.slice(5).replace('-', '/')}〜${recent.period_end.slice(5).replace('-', '/')}`}>{String(recent.applications)} 件</span>}</td>
+    <td className="ob-num">{recent?.applications == null ? '—' : <>{String(recent.applications)} 件<span className="ob-period">（{periodLabel(recent.period_start, recent.period_end)}）</span></>}</td>
     <td>{done || !wasUnset
       ? <><strong>{shown}</strong> <span className="mo-chip mo-chip-set">指定済み</span></>
       : <><input className="ob-select" list={listId} value={choice} aria-label={`${name} と比べる Indeed の職種`} placeholder="職種を選ぶ・探す" onChange={event => { setChoice(event.target.value); }} />

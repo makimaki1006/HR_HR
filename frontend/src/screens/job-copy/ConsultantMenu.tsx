@@ -41,9 +41,11 @@ export function ConsultantMenu({ children, inlineHeader = false, onNavigate }: {
   const nativeOwner = selected === 'deals' || (!selected && !['company', 'deal', 'listing', 'job'].some(key => query.has(key)) && !['fixed'].includes(query.get('source') ?? '') && query.get('demo') !== '1' && query.get('data') !== 'actual');
   // 担当の選択は「いつも見るもの」として、どの画面でも同じ形で手元に出す（応募理由だけは担当で絞らないので出さない）。
   const fullOwner = selected !== 'reasons';
+  // 職種の指定を案件（deal）で開いている間は、担当の選択を出さない（担当では絞らないため）。
+  const dealOnly = selected === 'occupations' && !!query.get('deal')?.trim();
   const [ownerTarget, setOwnerTarget] = useState<HTMLDivElement | null>(null);
   const menu = <OwnerFilterPlacement value={undefined}><div className="cm-menu"><nav aria-label="案件管理のメニュー">
     {([[null, '今日'], ['risk', '危ない案件'], ['houjin', '法人'], ['deals', '案件一覧'], ['occupations', '職種の指定'], ['reasons', '応募理由'], ['unlinked', '未連携のMTG']] as const).map(([view, label]) => <button type="button" key={label} aria-current={selected === view || (view === 'deals' && selected === 'good') ? 'page' : undefined} onClick={() => { updateJobCopyQuery({ view, company: null, deal: null, listing: null, job: null, risk_deal: null, ...(view === null ? { source: null, data: null, demo: null } : {}) }); onNavigate?.(); }}>{label}</button>)}
-  </nav>{nativeOwner ? <div ref={setOwnerTarget} className="cm-owner" /> : fullOwner && <ConsultantScopeFilter />}</div></OwnerFilterPlacement>;
+  </nav>{nativeOwner ? <div ref={setOwnerTarget} className="cm-owner" /> : dealOnly ? <p className="cm-owner-note">案件で絞っている間は担当で絞りません</p> : fullOwner && <ConsultantScopeFilter />}</div></OwnerFilterPlacement>;
   return <div className="jc-app cm-shell"><ConsultantHeaderContent value={inlineHeader ? menu : null}>{!inlineHeader && menu}<OwnerFilterPlacement value={nativeOwner ? ownerTarget : null}>{children}</OwnerFilterPlacement></ConsultantHeaderContent></div>;
 }

@@ -46,3 +46,4 @@
 .ob-hints { margin:0; display:flex; flex-direction:column; gap:4px; }
 .ob-hints dt { font-size:11px; color:#64748b; }
 .ob-hints dd { margin:0; }
+.ob-period { margin-left:2px; font-size:12px; color:#475569; }
