@@ -539,10 +539,12 @@ test('ライフラインの変更印は週でまとまり、キーボードで�
   await page.goto('/app/job-copy?data=actual');
   const chart = page.getByTestId('lifeline');
   const marks = chart.locator('.lf-change');
-  await expect(marks).toHaveText(['給与変更', '変更×2']);
+  // 印の先頭の数字は、出来事の一覧と同じ番号（1 掲載開始・2 給与 8/10・3 本文 8/17・4 本文 8/20）
+  await expect(marks).toHaveText(['2給与変更', '3・4変更×2']);
+  await expect(marks.locator('.lf-change-num')).toHaveText(['2', '3・4']);
   await expect(marks.nth(0)).toHaveAttribute('aria-label', /2026-08-10 給与を変更/);
   await expect(marks.nth(1)).toHaveAttribute('title', /2026-08-17 本文を変更[\s\S]*2026-08-20 本文を変更/);
-  await expect(chart.locator('.lf-changes .lf-cell').nth(7).locator('button')).toHaveText('変更×2');
+  await expect(chart.locator('.lf-changes .lf-cell').nth(7).locator('button')).toHaveText('3・4変更×2');
   if (process.env.LIFELINE_SCREENSHOT) {
     await chart.screenshot({ path: process.env.LIFELINE_SCREENSHOT });
   }
@@ -551,16 +553,18 @@ test('ライフラインの変更印は週でまとまり、キーボードで�
   const opened = page.locator('.lo-event.lo-open');
   await expect(opened.locator('.lo-event-head')).toHaveAttribute('aria-expanded', 'true');
   await expect(opened.locator('.lo-date')).toHaveText('8/20');
+  await expect(opened.locator('.lo-num')).toHaveText('4');
   await expect(opened.locator('.lo-summary')).toContainText('本文を変更');
   await expect(opened).toBeInViewport();
   await expect(chart.getByTestId('lifeline-selected')).toHaveCSS('left', '392px');
   await marks.nth(0).focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.lo-event.lo-open .lo-date')).toHaveText('8/10');
+  await expect(page.locator('.lo-event.lo-open .lo-num')).toHaveText('2');
   if (process.env.LIFELINE_SCREENSHOT) {
     await page.clock.setSystemTime(new Date('2026-10-05T03:00:00Z'));
     await page.goto('/app/job-copy?demo=1&job=demo-job-001');
-    await expect(chart.locator('.lf-change')).toHaveText(['本文・給与・画像変更', '本文・給与・画像変更']);
+    await expect(chart.locator('.lf-change')).toHaveText(['5本文・給与・画像変更', '9本文・給与・画像変更']);
     await chart.screenshot({ path: process.env.LIFELINE_SCREENSHOT.replace(/\.png$/, '-demo.png') });
   }
 });
