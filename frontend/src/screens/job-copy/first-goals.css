@@ -25,3 +25,7 @@
 
 .fg-note { display: block; margin-top: 4px; font-size: 11px; color: #647381; }
 .fg-row > .fg-note { grid-column: 1 / -1; }
+.fg-edited { margin-top: 12px; padding: 8px 12px; border-radius: 4px; background: #eef3f7; color: #34495a; }
+.fg-root header .jc-button + .jc-button { margin-left: 0; }
+.fg-root .dc-conflict .fg-group { color: #243746; }
+.fg-root .dc-conflict > .jc-button { margin: 8px 8px 0 0; }

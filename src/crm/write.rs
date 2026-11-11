@@ -1125,6 +1125,8 @@ fn invalidate_caches(ctx: &CrmCtx, deal_id: &str, applicant: bool) {
     } else {
         ctx.workspace_cache.invalidate_deal(deal_id);
         ctx.queue.invalidate_pages();
+        // コンサルKPIの初回契約の一覧が持つ初回MTGの目標 (5 分) も捨てる
+        crate::handlers::cs_dashboard::first_contract::forget_goals(deal_id);
     }
 }
 
@@ -2722,6 +2724,8 @@ pub async fn process_op(
                 attempts,
             )
             .await;
+            // 再送で書けたときも、コンサルKPIの初回契約の目標のキャッシュを捨てる (応募の ID なら何も無い)
+            crate::handlers::cs_dashboard::first_contract::forget_goals(&row.deal_id);
             log("saved_by_retry".into(), run.changes).await;
         }
         Err(Stop::Transient(e)) => {

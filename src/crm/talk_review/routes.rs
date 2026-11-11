@@ -599,6 +599,8 @@ pub(in crate::crm) async fn get_summary(
     // アポ数は、worker が前もって数えた日だけで答える (HubSpot は待たない)。
     // 数え終わっていない日があれば、背景で読み始め (他が読んでいる最中なら任せる)、その日を応答に添える
     let (apo_deals, counting) = st.counts.deals_in(from, to);
+    // 直近より前の期間でも、worker がアポを取った電話とランクを決める (再起動で消えるので作り直す)
+    st.apo_calls.want(from);
     if !counting.is_empty() {
         let (st, client, team) = (st.clone(), client.clone(), team.clone());
         tokio::spawn(async move {
