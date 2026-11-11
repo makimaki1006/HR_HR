@@ -308,6 +308,34 @@ describe('初回MTGの目標の追加の確かめ', () => {
     expect(patches.reads.length).toBe(before);
     expect(screen.queryByText('面接を月9件入れる（9件）／契約期間中')).toBeNull();
   });
+  it('キャンセルで閉じたら、編集中に HubSpot で直された値を読み直して出す', async () => {
+    const values: Record<string, string | null> = { ...stored(confirmed) };
+    const patches = mockApi(values);
+    render(<DealFirstGoals dealId="901" />);
+    fireEvent.click(await screen.findByRole('button', { name: '訂正' }));
+    await screen.findByRole('button', { name: '確定して保存' });
+    const before = patches.reads.length;
+    values[GOAL_PROPS.minimum] = '面接を月7件入れる（7件）／契約期間中';
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(await screen.findByText('面接を月7件入れる（7件）／契約期間中')).toBeTruthy();
+    expect(patches.reads.length).toBe(before + 1);
+    expect(patches.reads.at(-1)).toContain('fresh=1');
+    expect(patches).toHaveLength(0);
+  });
+  it('変更なしで「確定して保存」を押して閉じたときも、送らずに読み直す', async () => {
+    const values: Record<string, string | null> = { ...stored(confirmed) };
+    const patches = mockApi(values);
+    render(<DealFirstGoals dealId="901" />);
+    fireEvent.click(await screen.findByRole('button', { name: '訂正' }));
+    await screen.findByRole('button', { name: '確定して保存' });
+    const before = patches.reads.length;
+    values[GOAL_PROPS.minimum] = '面接を月8件入れる（8件）／契約期間中';
+    fireEvent.click(screen.getByRole('button', { name: '確定して保存' }));
+    expect(await screen.findByText('面接を月8件入れる（8件）／契約期間中')).toBeTruthy();
+    expect(patches.reads.length).toBe(before + 1);
+    expect(patches.reads.at(-1)).toContain('fresh=1');
+    expect(patches).toHaveLength(0);
+  });
   it('最初の読み込み中に画面に戻っても、読み込みを止めずに表示まで進む', async () => {
     const patches = mockApi({ ...stored(confirmed) }, true, undefined, 150);
     render(<DealFirstGoals dealId="901" refreshMs={30} />);

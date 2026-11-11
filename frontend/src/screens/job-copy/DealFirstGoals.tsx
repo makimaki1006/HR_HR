@@ -157,9 +157,15 @@ export function DealFirstGoals({ dealId, onSaved, refreshMs = GOALS_REFRESH_MS }
   const setRow = (index: number, patch: Partial<Goal>) => { setRows(prev => prev.map((row, i) => (i === index ? { ...row, ...patch } : row))); };
   const problems = goalProblems(rows);
   const warnings = goalWarnings(rows);
+  // 保存せずに閉じたら、編集中に止めていた読み直しの分を取り戻すため HubSpot の今の値を読み直す (失敗しても表示は変えない)
+  const closeWithoutSaving = () => {
+    setEditing(false);
+    editingRef.current = false;
+    void load(true, true);
+  };
   const send = (from: PropValues, next: GoalData) => {
     const request = { ...goalsRequest(dealId, from, next), fetchedAt: state?.fetchedAt };
-    if (!request.changes.length) { setEditing(false); return; }
+    if (!request.changes.length) { closeWithoutSaving(); return; }
     void write.save(request).then(outcome => { if (outcome.kind === 'saved' || outcome.kind === 'queued') setEditing(false); });
   };
   const save = () => { send(base, confirmedData(rows, readGoals(base), new Date())); };
@@ -211,7 +217,7 @@ export function DealFirstGoals({ dealId, onSaved, refreshMs = GOALS_REFRESH_MS }
         {problems.length === 0 && warnings.length > 0 && <ul className="fg-warnings">{warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
         <div className="dc-actions">
           <button className="jc-button" disabled={locked || problems.length > 0} onClick={save}>確定して保存</button>
-          <button className="jc-button" disabled={locked} onClick={() => { setEditing(false); }}>キャンセル</button>
+          <button className="jc-button" disabled={locked} onClick={closeWithoutSaving}>キャンセル</button>
         </div>
       </div>}
     </>}
