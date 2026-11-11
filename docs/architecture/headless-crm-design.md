@@ -321,6 +321,7 @@ Durable Retry の保存技術は ADR-018 (2026-10-09) で **既存の監査 Turs
   一時障害 (429・5xx・タイムアウト・接続失敗・混雑) だけを `pending` にして 202、worker が再送
   (1 分・5 分・30 分・2 時間・以降 6 時間、最大 8 回。**再送のたびに競合と必須項目を確かめ、HubSpot の値が変わっていたら上書きせず `failed`**)。
 - 書ける項目 (ADR-018): 担当者 (owner) を選ぶ型の項目 (`referencedObjectType=OWNER`。アポ獲得者・FS担当者など) も含む。ステージの必須項目にあり、書けないと移せないため。値は担当者の一覧にある owner ID だけ許す (`hubspot_owner_id` は対象外のまま)。移す画面は「アポ獲得者」「アポ取得者」が空なら操作者本人を最初から入れる (2026-10-14)。
+- ステージを移す画面は HubSpot と一致させる (2026-11-11 ユーザー決定)。項目はステージの設定の順に 1 列で、見出しで分けない。別のパイプラインへ移すときも移し先のステージの項目を出す (`edit-schema` の `stages` は移せる全パイプラインのステージを返す)。取引担当者 (`hubspot_owner_id`) は普段は書けないが、HubSpot が移す画面に出すステージ (「案件差戻」) へ移す要求の中でだけ、担当者の一覧にある owner ID を書ける (`STAGE_ONLY_WRITABLE`、`edit-schema` の `stage_only`)。§13 の「unrestricted owner change」の禁止は、この 1 か所を例外にする。「アポ獲得者」に本人を最初から入れる動きは HubSpot と違うが、ユーザーの判断で残す。
 - 恒久エラー (400 / 401 / 403 / 404 / 422)・競合・上限超えは即 `failed`。管理者の一覧 `GET /api/admin/crm-operations?status=failed|pending`、
   再試行 / 破棄 `POST /api/admin/crm-operations/{id}/retry|discard`。
 - 表は起動時に自動作成 (`CREATE TABLE IF NOT EXISTS`)。Turso への書き込みは受付・送信結果ごと・1 日 1 回の掃除だけで、
@@ -510,7 +511,7 @@ BPO の例:
 禁止例:
 - Delete
 - Deal amount update
-- unrestricted owner change
+- unrestricted owner change (例外: HubSpot が「案件差戻」へ移す画面に出す取引担当者。§10 の実装状況の「書ける項目」を参照)
 - unrestricted pipeline change
 - 他部署 record への不要アクセス
 

@@ -39,6 +39,8 @@ const STRANGER: &str = "7999";
 const PIPELINE: &str = "753186575";
 const UNPROCESSED: &str = "1095387442";
 const FUZUU: &str = "1095387443";
+/// 案件差戻 (HubSpot が移す画面に任意項目として取引担当者を出す)
+const SASHIMODOSHI: &str = "1095457877";
 
 // ---------------------------------------------------------------------------
 // 偽 HubSpot
@@ -230,7 +232,9 @@ async fn hs_props(State(st): State<Shared<Fake>>, Path(o): Path<String>) -> Resp
             {"name": "ro_prop", "label": "読み取り専用", "type": "string", "fieldType": "text", "groupName": "g", "modificationMetadata": ro},
             {"name": "calc_prop", "label": "計算", "type": "number", "fieldType": "number", "groupName": "g", "calculated": true},
             {"name": "dealstage", "label": "ステージ", "type": "enumeration", "fieldType": "select", "groupName": "g",
-             "options": [{"label": "x", "value": "x"}]}
+             "options": [{"label": "x", "value": "x"}]},
+            {"name": "hubspot_owner_id", "label": "取引担当者", "type": "enumeration", "fieldType": "select", "groupName": "g",
+             "externalOptions": true, "referencedObjectType": "OWNER", "options": []}
         ]),
         "contacts" => json!([
             {"name": "jobtitle", "label": "役職", "type": "string", "fieldType": "text", "groupName": "g"}
@@ -263,7 +267,11 @@ async fn hs_pipelines() -> Response {
     Json(
         json!({"results": [{"id": PIPELINE, "label": "テスト用", "displayOrder": 0, "stages": [
             {"id": UNPROCESSED, "label": "未済", "displayOrder": 0},
-            {"id": FUZUU, "label": "不通", "displayOrder": 1}
+            {"id": FUZUU, "label": "不通", "displayOrder": 1},
+            {"id": SASHIMODOSHI, "label": "案件差戻", "displayOrder": 2}
+        ]},
+        {"id": "21724969", "label": "営業", "displayOrder": 3, "stages": [
+            {"id": "71794963", "label": "※使わない　日程再調整中", "displayOrder": 0}
         ]},
         {"id": "21596025", "label": "リクロジ_納品管理", "displayOrder": 1, "stages": [
             {"id": "52016153", "label": "運用MTG実施前", "displayOrder": 0},
@@ -1456,6 +1464,81 @@ async fn 編集スキーマは書ける項目だけを返し_ステージの必�
     // 未ログインは 401
     let (s, _) = call(&e2.app, Method::GET, &uri, None, None, false).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 編集スキーマは_移せる全パイプラインのステージの必須と_移すときだけ書ける取引担当者を返す()
+{
+    let mut cfg = WriteConfig::default();
+    cfg.allowlist.insert(DEAL.to_string());
+    let e = env_with(base_fake(), cfg, true).await;
+    let uri = format!("/api/crm/edit-schema?deal_id={DEAL}");
+    let (s, v) = call(&e.app, Method::GET, &uri, Some(&e.op), None, false).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let stages = v["stages"].as_array().unwrap();
+    // 別のパイプライン (営業) のステージの必須も返す。別のパイプラインへ移す画面で HubSpot と同じ項目を出すため
+    let other = stages
+        .iter()
+        .find(|s| s["id"] == "71794963")
+        .expect("別のパイプラインのステージ");
+    assert_eq!(other["required"], json!(["risuto_saikadennbi"]));
+    // 移せない納品管理のステージは返さない (選べるパイプラインと同じ範囲)
+    assert!(!stages.iter().any(|s| s["id"] == "52016153"), "{stages:?}");
+    // 取引担当者は項目の編集欄 (editable) には出さず、移すときだけ書ける項目 (stage_only) で返す
+    assert!(!v["editable"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["name"] == "hubspot_owner_id"));
+    let only = v["stage_only"].as_array().unwrap();
+    assert_eq!(only.len(), 1, "{only:?}");
+    assert_eq!(only[0]["name"], "hubspot_owner_id");
+    assert_eq!(only[0]["owner_ref"], true);
+    let sashi = stages.iter().find(|s| s["id"] == SASHIMODOSHI).unwrap();
+    assert!(sashi["shown"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|n| n == "hubspot_owner_id"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 取引担当者は_それを出すステージ_案件差戻_へ移すときだけ_実在する担当者に書ける() {
+    let e = env().await;
+    // ステージ移動なしでは書けない (担当者の自由な付け替えはしない)
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-own-solo-0001",
+            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9001"}}))
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert!(v["errors"]["hubspot_owner_id"].is_string(), "{v}");
+    // 取引担当者を出さないステージ (不通) へ移す要求でも書けない
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-own-fuzuu-0001",
+            "base": {"hubspot_owner_id": null, "bpo_10": null},
+            "set": {"hubspot_owner_id": "9001", "bpo_10": "reception_refused"},
+            "stage": {"pipeline_id": PIPELINE, "stage_id": FUZUU}}))
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert!(v["errors"]["hubspot_owner_id"].is_string(), "{v}");
+    // 担当者の一覧に無い ID は、案件差戻へ移すときでも書けない
+    let sashi = json!({"pipeline_id": PIPELINE, "stage_id": SASHIMODOSHI});
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-own-bad-0001",
+            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "424242"}, "stage": sashi}))
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(e.calls("PATCH"), 0);
+    // 案件差戻へ移すときは、実在する担当者に書ける (ステージと同じ 1 回の PATCH)
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-own-ok-0001",
+            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9002"}, "stage": sashi}))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let patches = e.hs.lock().unwrap().patches();
+    assert_eq!(patches.len(), 1);
+    assert_eq!(patches[0]["properties"]["dealstage"], SASHIMODOSHI);
+    assert_eq!(patches[0]["properties"]["hubspot_owner_id"], "9002");
 }
 
 // ---------------------------------------------------------------------------

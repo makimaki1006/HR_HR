@@ -39,8 +39,10 @@ export type PipelineChoice = CrmEditPipeline;
  * GET /api/crm/edit-schema?deal_id=
  * バックエンドは書ける項目の全部を `editable` で返す。`editable_all` / `read_only` は架空サンプル (fakeWrite.ts) だけが使う
  */
-export type EditSchema = Omit<CrmEditSchemaResponse, 'editable'> & {
+export type EditSchema = Omit<CrmEditSchemaResponse, 'editable' | 'stage_only'> & {
   editable: EditableProp[];
+  /** ステージを移す画面でだけ書ける項目 (取引担当者など、HubSpot が移す画面に出すもの)。項目の編集欄には使わない。無ければ空 */
+  stage_only?: EditableProp[];
   editable_all?: boolean;
   read_only?: string[];
 };

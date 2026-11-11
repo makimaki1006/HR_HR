@@ -114,7 +114,8 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, meOwn
     if (dealId === null || data === null) return null;
     const defOf = (name: string): FieldDef | null => {
       if (schema === null) return null;
-      const listed = schema.editable.find(p => p.name === name && p.object === 'deal') ?? schema.editable.find(p => p.name === name);
+      const listed = schema.editable.find(p => p.name === name && p.object === 'deal') ?? schema.editable.find(p => p.name === name)
+        ?? schema.stage_only?.find(p => p.name === name);
       if (listed) return fieldDefFromEditable(listed);
       if (index === null || (schema.read_only ?? []).includes(name)) return null;
       for (const o of CATALOG_OBJECTS) {
