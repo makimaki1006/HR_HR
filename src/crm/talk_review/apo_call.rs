@@ -49,12 +49,19 @@ pub const SETTLE_WAIT_MS: i64 = 3 * HOUR_MS;
 pub const REFETCH_EVERY_MS: i64 = 30 * 60_000;
 /// 1 周に候補を読む取引の数
 const FETCH_BATCH: usize = 50;
+/// 1 周に HubSpot に残したランクを読む取引の数
+const LOAD_BATCH: usize = 200;
 
 /// 取引 1 件のアポの記録 (同じ取引が別の日にまた入ったら別の記録)
 pub type DealKey = (String, i64);
 
 pub fn key(d: &ApoDeal) -> DealKey {
     (d.deal_id.clone(), d.entered_ms)
+}
+
+/// 取引に残した時刻と同じアポか (HubSpot の日時が秒で丸められても同じとみなす)
+pub fn same_apo(a_ms: i64, b_ms: i64) -> bool {
+    (a_ms - b_ms).abs() < 1000
 }
 
 /// 窓に入る候補か (両端を含む)
@@ -275,6 +282,22 @@ struct Inner {
     was_pending: HashSet<DealKey>,
     /// 画面で開かれた期間の最初の日のうち最も古い日 (worker はここからの取引も扱う)
     want_from: Option<NaiveDate>,
+    /// HubSpot に残したランクを読んだアポの記録 (読む前の記録は候補を読まない・決めない・書かない)
+    loaded: HashSet<DealKey>,
+    /// 取引に残したランクのアポ (アポ日確定に入った時刻)。これより古いアポのランクでは上書きしない
+    stored_entered: HashMap<String, i64>,
+    /// HubSpot に書いた (または読み戻した) アポの記録
+    saved: HashSet<DealKey>,
+}
+
+/// 決まったランクを取引に書くか
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveDecision {
+    Save,
+    /// 取引に残したランクをまだ読んでいない (読んでから決める)
+    Later,
+    /// 書いた・もっと新しいアポのランクが残っている
+    Skip,
 }
 
 /// 取引ごとのアポを取った電話とランク (プロセス内だけ)
@@ -305,6 +328,79 @@ impl ApoCalls {
             .map_or(recent, |w| w.min(recent))
     }
 
+    /// HubSpot に残したランクをまだ読んでいない取引 (新しい記録から最大 `LOAD_BATCH` 件)
+    pub fn to_load(&self, deals: &[ApoDeal]) -> Vec<String> {
+        let g = self.inner.lock().unwrap();
+        let mut due: Vec<&ApoDeal> = deals
+            .iter()
+            .filter(|d| !g.loaded.contains(&key(d)))
+            .collect();
+        due.sort_by_key(|d| std::cmp::Reverse(d.entered_ms));
+        let mut ids: Vec<String> = Vec::new();
+        for d in due {
+            if !ids.contains(&d.deal_id) {
+                ids.push(d.deal_id.clone());
+            }
+            if ids.len() >= LOAD_BATCH {
+                break;
+            }
+        }
+        ids
+    }
+
+    /// 読んだランクを入れる。残っていたランクが同じアポのものなら決まったものとして使い、決め直さない・送らない
+    pub fn preload(
+        &self,
+        ids: &[String],
+        found: HashMap<String, super::hs_store::StoredRank>,
+        deals: &[ApoDeal],
+    ) {
+        let mut g = self.inner.lock().unwrap();
+        for d in deals.iter().filter(|d| ids.contains(&d.deal_id)) {
+            g.loaded.insert(key(d));
+        }
+        for (deal_id, s) in found {
+            g.stored_entered.insert(deal_id.clone(), s.entered_ms);
+            for d in deals
+                .iter()
+                .filter(|d| d.deal_id == deal_id && same_apo(d.entered_ms, s.entered_ms))
+            {
+                let k = key(d);
+                if g.ranks.get(&k).is_some_and(DealRank::settled) {
+                    continue;
+                }
+                g.saved.insert(k.clone());
+                g.notified.insert(k.clone());
+                g.ranks.insert(k, s.rank.clone());
+            }
+        }
+    }
+
+    /// 決まったランクを取引に書くか
+    pub fn save_decision(&self, d: &ApoDeal) -> SaveDecision {
+        let g = self.inner.lock().unwrap();
+        if g.saved.contains(&key(d)) {
+            SaveDecision::Skip
+        } else if !g.loaded.contains(&key(d)) {
+            SaveDecision::Later
+        } else if g
+            .stored_entered
+            .get(&d.deal_id)
+            .is_some_and(|e| *e > d.entered_ms && !same_apo(*e, d.entered_ms))
+        {
+            SaveDecision::Skip
+        } else {
+            SaveDecision::Save
+        }
+    }
+
+    /// 取引に書けた
+    pub fn mark_saved(&self, d: &ApoDeal) {
+        let mut g = self.inner.lock().unwrap();
+        g.saved.insert(key(d));
+        g.stored_entered.insert(d.deal_id.clone(), d.entered_ms);
+    }
+
     /// ヒアリングを書いた電話を覚える (この電話を含む取引だけ、決まったときに通知する)
     pub fn mark_heard(&self, call_id: &str) {
         self.inner
@@ -320,6 +416,7 @@ impl ApoCalls {
         let mut due: Vec<&ApoDeal> = deals
             .iter()
             .filter(|d| now_ms >= d.entered_ms + AFTER_MS)
+            .filter(|d| g.loaded.contains(&key(d)))
             .filter(|d| !g.ranks.get(&key(d)).is_some_and(DealRank::settled))
             .filter(|d| {
                 g.calls.get(&d.deal_id).is_none_or(|(at, _)| {
@@ -353,6 +450,7 @@ impl ApoCalls {
         let g = self.inner.lock().unwrap();
         deals
             .iter()
+            .filter(|d| g.loaded.contains(&key(d)))
             .filter(|d| !g.ranks.get(&key(d)).is_some_and(DealRank::settled))
             .filter_map(|d| {
                 let (at, calls) = g.calls.get(&d.deal_id)?;
@@ -778,6 +876,11 @@ mod tests {
         assert!(!cache.record(&later, DealRank::Pending));
         assert!(cache.record(&later, ranked(&["c"])));
         assert!(!cache.record(&later, ranked(&["c"])), "一度だけ");
+        cache.preload(
+            &["deal-test".into()],
+            HashMap::new(),
+            &[deal(), later.clone(), other.clone()],
+        );
         // 決まった記録はもう開かない・読み直さない
         cache.store_calls(
             E + SETTLE_WAIT_MS,
@@ -792,6 +895,9 @@ mod tests {
     #[test]
     fn candidates_are_read_after_ten_minutes_and_reread_for_a_later_record() {
         let cache = ApoCalls::default();
+        // 取引に残したランクを読む前は、候補を読まない
+        assert!(cache.to_fetch(&[deal()], E + AFTER_MS).is_empty());
+        cache.preload(&["deal-test".into()], HashMap::new(), &[deal()]);
         assert!(cache.to_fetch(&[deal()], E + AFTER_MS - 1).is_empty());
         assert_eq!(cache.to_fetch(&[deal()], E + AFTER_MS), ["deal-test"]);
         cache.store_calls(E + AFTER_MS, HashMap::from([("deal-test".into(), vec![])]));
@@ -812,6 +918,7 @@ mod tests {
         // 同じ取引が翌日にまた入ったら、その後で読み直す
         let mut again = deal();
         again.entered_ms = E + 24 * HOUR_MS;
+        cache.preload(&["deal-test".into()], HashMap::new(), &[again.clone()]);
         assert_eq!(
             cache.to_fetch(&[deal(), again.clone()], again.entered_ms + AFTER_MS),
             ["deal-test"]
@@ -831,6 +938,46 @@ mod tests {
         let r = rows(vec![with, without, pending]);
         let ids: Vec<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
         assert_eq!(missing_hearing(&ids, &r, heard), vec!["b".to_string()]);
+    }
+
+    #[test]
+    fn stored_rank_of_the_same_apo_is_used_and_not_saved_again() {
+        use super::super::hs_store::StoredRank;
+        let a = ApoCalls::default();
+        let d = deal();
+        let mut newer = deal();
+        newer.entered_ms = E + 5 * HOUR_MS;
+        let deals = vec![d.clone(), newer.clone()];
+        // 読む前は書かない
+        assert_eq!(a.save_decision(&d), SaveDecision::Later);
+        assert_eq!(a.to_load(&deals), vec!["deal-test".to_string()]);
+        let found = HashMap::from([(
+            "deal-test".to_string(),
+            StoredRank {
+                entered_ms: E,
+                rank: DealRank::NoCall,
+            },
+        )]);
+        a.preload(&["deal-test".to_string()], found, &deals);
+        assert!(a.to_load(&deals).is_empty());
+        // 同じアポは読み戻したランクで決まり、送らない・書かない
+        assert_eq!(a.ranks().get(&key(&d)), Some(&DealRank::NoCall));
+        assert!(!a.record(&d, DealRank::NoCall));
+        assert_eq!(a.save_decision(&d), SaveDecision::Skip);
+        // 新しいアポは決め直して書く。書いたら、古いアポのランクでは上書きしない
+        assert_eq!(a.ranks().get(&key(&newer)), None);
+        assert_eq!(a.save_decision(&newer), SaveDecision::Save);
+        a.mark_saved(&newer);
+        assert_eq!(a.save_decision(&newer), SaveDecision::Skip);
+        let mut older = deal();
+        older.entered_ms = E - HOUR_MS;
+        // 後から範囲に入った古いアポは、読み直してから決める
+        assert_eq!(a.save_decision(&older), SaveDecision::Later);
+        assert_eq!(a.to_load(&[older.clone()]), vec!["deal-test".to_string()]);
+        a.preload(&["deal-test".to_string()], HashMap::new(), &[older.clone()]);
+        assert_eq!(a.save_decision(&older), SaveDecision::Skip);
+        // 秒で丸められた時刻も同じアポ
+        assert!(same_apo(E, E + 999) && !same_apo(E, E + 1000));
     }
 
     #[test]

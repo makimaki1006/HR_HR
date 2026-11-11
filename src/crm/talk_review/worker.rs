@@ -298,7 +298,8 @@ pub async fn process_one<Z: TranscriptSource, J: Judge>(
     let Some(zid) = row.zoom_call_log_id.as_deref() else {
         return Outcome::Unavailable("no_recording_url");
     };
-    let turns = match zoom.fetch(zid).await {
+    // HubSpot の通話に残した文字起こしがあればそれを使い、無ければ Zoom から取って残す (`hs_store::Stored`)
+    let turns = match zoom.fetch_call(&row.hubspot_call_id, Some(zid)).await {
         Ok(t) => t,
         Err(ZoomError::NotReady) => return Outcome::Retry("transcript_not_ready"),
         Err(ZoomError::Untranscribable) => return Outcome::Unavailable("untranscribable"),
@@ -675,10 +676,7 @@ async fn rehear<Z: TranscriptSource, J: Judge>(
     judge: &J,
     c: HearingCandidate,
 ) -> &'static str {
-    let Some(zid) = c.zoom_call_log_id.as_deref() else {
-        return "no_recording_id";
-    };
-    let turns = match zoom.fetch(zid).await {
+    let turns = match zoom.fetch_call(&c.id, c.zoom_call_log_id.as_deref()).await {
         Ok(t) if has_both_sides(&t) => t,
         Ok(_) | Err(ZoomError::Gone) | Err(ZoomError::Untranscribable) => return "untranscribable",
         Err(_) => return "transcript_failed",
@@ -819,6 +817,8 @@ struct Worker<Z, J> {
     judged_rows: Arc<std::sync::Mutex<Vec<HearingCandidate>>>,
     /// アポのランクを決めるために、ヒアリングを待ち始めた電話と、その時刻 (ms)。1 本につき 1 回だけ入れる
     hearing_asked: HashMap<String, i64>,
+    /// 決まって、まだ取引に書いていないランク
+    rank_saves: Vec<(super::counts::ApoDeal, super::apo_call::DealRank)>,
 }
 
 /// 保存済みの行の文章に日本語以外が混ざっているか (英単語の許可は行の引用だけで判断する)
@@ -1020,6 +1020,9 @@ pub fn scan_judged(
     })?;
     Ok(scan)
 }
+
+/// 1 周に取引へ書くランクの数
+const RANK_SAVES_PER_CYCLE: usize = 100;
 
 /// アポのランクのためにヒアリングを待つ上限 (待ち始めてから)。過ぎたら付いている分だけで決める
 const HEARING_ASK_LIMIT_MS: i64 = 24 * 3_600_000;
@@ -1278,10 +1281,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 let Ok(_p) = sem.acquire().await else {
                     return (id, false);
                 };
-                let Some(zid) = c.zoom_call_log_id.as_deref() else {
-                    return (id, true);
-                };
-                let turns = match zoom.fetch(zid).await {
+                let turns = match zoom.fetch_call(&id, c.zoom_call_log_id.as_deref()).await {
                     Ok(t) if has_both_sides(&t) => t,
                     Ok(_) | Err(ZoomError::Gone) | Err(ZoomError::Untranscribable) => {
                         tracing::info!("talk review: hearing skipped (transcript)");
@@ -1618,6 +1618,16 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             .scope_from(today - chrono::Duration::days(self.cfg.backfill_days));
         let (deals, _) = st.counts.deals_in(from, today);
         let now_ms = now.timestamp_millis();
+        // 取引に残したランクを先に読む (同じアポのランクが残っていれば決め直さない。再起動しても消えない)
+        let load = st.apo_calls.to_load(&deals);
+        if !load.is_empty() {
+            match super::hs_store::load_ranks(&self.client.background(), &load).await {
+                Ok(found) => st.apo_calls.preload(&load, found, &deals),
+                Err(e) => {
+                    tracing::warn!(error = %e.error_kind(), "talk review: stored rank read failed")
+                }
+            }
+        }
         let fetch = st.apo_calls.to_fetch(&deals, now_ms);
         if !fetch.is_empty() {
             // 読めなくても、読み終えた取引の評価は進める
@@ -1734,6 +1744,9 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 &hearing_ids,
                 now_ms,
             );
+            if rank.settled() {
+                self.rank_saves.push((d.clone(), rank.clone()));
+            }
             if st.apo_calls.record(&d, rank.clone()) {
                 notify_deal(
                     self.slack.as_ref(),
@@ -1745,7 +1758,35 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 .await;
             }
         }
+        self.save_ranks().await;
         Ok(())
+    }
+
+    /// 決まったランクを取引に書く (1 周に `RANK_SAVES_PER_CYCLE` 件まで。書けなければ次の周回)
+    async fn save_ranks(&mut self) {
+        use super::apo_call::SaveDecision;
+        let st = super::routes::shared();
+        let mut keep = Vec::new();
+        let mut written = 0;
+        for (d, rank) in std::mem::take(&mut self.rank_saves) {
+            match st.apo_calls.save_decision(&d) {
+                SaveDecision::Skip => {}
+                SaveDecision::Later => keep.push((d, rank)),
+                SaveDecision::Save if written >= RANK_SAVES_PER_CYCLE => keep.push((d, rank)),
+                SaveDecision::Save => {
+                    written += 1;
+                    let bg = self.client.background();
+                    match super::hs_store::save_rank(&bg, &d.deal_id, d.entered_ms, &rank).await {
+                        Ok(()) => st.apo_calls.mark_saved(&d),
+                        Err(e) => {
+                            tracing::warn!(error = %e.error_kind(), "talk review: rank save failed");
+                            keep.push((d, rank));
+                        }
+                    }
+                }
+            }
+        }
+        self.rank_saves = keep;
     }
 
     /// 判定待ちを新しい電話から進める。新しく入った電話を拾い直せるよう、1 回に使うのは `interval` まで。
@@ -1965,8 +2006,11 @@ pub fn spawn_worker(state: Arc<AppState>) {
     );
     let w = Worker {
         audit,
+        zoom: Arc::new(super::hs_store::Stored {
+            zoom,
+            hubspot: client.clone(),
+        }),
         client,
-        zoom,
         judge,
         cfg,
         known: HashSet::new(),
@@ -1989,6 +2033,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         hearing_check: Default::default(),
         judged_rows: Default::default(),
         hearing_asked: Default::default(),
+        rank_saves: Vec::new(),
     };
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -2832,6 +2877,7 @@ mod tests {
             hearing_check: HashMap::new(),
             judged_rows: Default::default(),
             hearing_asked: Default::default(),
+            rank_saves: Vec::new(),
         }
     }
 
