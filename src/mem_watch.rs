@@ -21,7 +21,7 @@
 //!   `malloc_free_mb` が大きく増えていくなら「解放したが OS に返していない分」、`malloc_inuse_mb` が増えていくなら「実際に持ち続けているデータ」。
 //!   小さい解放済みの塊をスレッドごとに手元 (tcache) へ置いている分は、使用中に数えられる。
 //!   `malloc_stats_us` は数えるのにかかった時間 (マイクロ秒)。空きの塊が多いほど長く、その間は数えている arena を使う処理が待つ。
-//! - 重い裏の処理 (1 秒以上かかった、または RSS が 16MB 以上動いた) が終わったら、次の 15 秒おきの周回で
+//! - 重い裏の処理 (RSS が 16MB 以上増えて終わった) が終わったら、次の 15 秒おきの周回で
 //!   `malloc_trim(0)` を別スレッドで呼び、glibc が手元に持っている空きを OS に返す (2026-11-11)。本番の 3 日分のログで、
 //!   使用中は 200〜300MB で横ばいなのに、空き (返していない分) が起動時の重い処理の一時確保で 550〜650MB まで残っていたため。
 //!   毎分の `mem` の行の `trims=` が前の行からの回数、`trimmed_mb=` が返した RSS の合計、`trim_ms=` がかかった時間の合計。
@@ -66,21 +66,31 @@ static TASKS: LazyLock<Mutex<TaskBook>> = LazyLock::new(|| Mutex::new(TaskBook::
 /// `mem task` の行の出し過ぎを防ぐ枠
 static TASK_BUDGET: LazyLock<Mutex<LogBudget>> = LazyLock::new(|| Mutex::new(LogBudget::default()));
 
-/// 重い裏の処理が終わったら、空きを OS に返す (`malloc_trim`)。`MEM_TRIM_AFTER_TASKS=0` で止まる
-const TRIM_AFTER_ELAPSED: Duration = Duration::from_secs(1);
+/// RSS がこれ以上増えて終わった裏の処理のあとに、空きを OS に返す (`malloc_trim`)。`MEM_TRIM_AFTER_TASKS=0` で止まる。
+/// 時間では判定しない (HubSpot などを待つだけの周回も 1 秒を超え、ほぼ 15 秒ごとに返すことになるため)
 const TRIM_AFTER_BYTES: u64 = 16 * 1024 * 1024;
 static TRIM_ENABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("MEM_TRIM_AFTER_TASKS").map_or(true, |v| v.trim() != "0"));
+    LazyLock::new(|| trim_enabled_from(std::env::var("MEM_TRIM_AFTER_TASKS").ok().as_deref()));
 /// 重い処理が終わって、まだ返していない
 static TRIM_PENDING: AtomicBool = AtomicBool::new(false);
 /// 前の毎分の行からの (回数, 返した RSS のバイト, かかったマイクロ秒)
 static TRIM_DONE: LazyLock<Mutex<(u32, u64, u64)>> = LazyLock::new(|| Mutex::new((0, 0, 0)));
 
-/// 返す対象の重い処理か (時間がかかった、または RSS が大きく動いた)
+/// `MEM_TRIM_AFTER_TASKS` の値の読み方。`0` (前後の空白は無視) だけが止める
+fn trim_enabled_from(v: Option<&str>) -> bool {
+    v.is_none_or(|v| v.trim() != "0")
+}
+
+/// 返す対象の重い処理か (RSS が `TRIM_AFTER_BYTES` 以上増えて終わった = 一時確保の分が手元に残っている)
 fn heavy(f: &FinishedTask) -> bool {
-    f.elapsed >= TRIM_AFTER_ELAPSED
-        || f.delta()
-            .is_some_and(|d| d.unsigned_abs() >= TRIM_AFTER_BYTES)
+    f.delta().is_some_and(|d| d >= TRIM_AFTER_BYTES as i64)
+}
+
+/// 重い処理なら、次の見張りの周回で返す印を付ける
+fn mark_if_heavy(f: &FinishedTask) {
+    if heavy(f) && trim_supported() && *TRIM_ENABLED {
+        TRIM_PENDING.store(true, Ordering::Relaxed);
+    }
 }
 
 struct Guard {
@@ -289,9 +299,7 @@ impl Drop for TaskGuard {
         let Some(finished) = book().end(self.id, rss_now(), now) else {
             return;
         };
-        if heavy(&finished) && trim_supported() && *TRIM_ENABLED {
-            TRIM_PENDING.store(true, Ordering::Relaxed);
-        }
+        mark_if_heavy(&finished);
         if let Some(reason) = log_reason(&finished) {
             let budget = TASK_BUDGET
                 .lock()
@@ -729,13 +737,53 @@ mod tests {
             rss_before: bytes(before),
             rss_after: bytes(after),
         };
-        assert!(heavy(&f(1_000, 100, 100)), "1 秒かかった");
         assert!(heavy(&f(10, 100, 116)), "16MB 増えた");
-        assert!(heavy(&f(10, 116, 100)), "16MB 減った");
+        assert!(!heavy(&f(10, 100, 115)), "15MB は対象外");
         assert!(
-            !heavy(&f(999, 100, 115)),
-            "速くて少ししか動かない周回は対象外"
+            !heavy(&f(10, 116, 100)),
+            "減って終わった処理は返すものが無い"
         );
+        assert!(
+            !heavy(&f(60_000, 100, 100)),
+            "待っていただけの長い周回は対象外"
+        );
+        let unknown = FinishedTask {
+            rss_after: None,
+            ..f(10, 100, 200)
+        };
+        assert!(!heavy(&unknown), "RSS が読めない (Linux 以外) ときは対象外");
+    }
+
+    #[test]
+    fn 止める設定は_0_だけ() {
+        assert!(trim_enabled_from(None));
+        assert!(trim_enabled_from(Some("1")));
+        assert!(trim_enabled_from(Some("")));
+        assert!(!trim_enabled_from(Some("0")));
+        assert!(!trim_enabled_from(Some(" 0\n")));
+    }
+
+    /// 印を付ける → 見張りの周回で返す → 回数を足して印を下ろす (返せる環境だけ。印を下ろすのはこのテストだけ)
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[tokio::test]
+    async fn 重い処理の後に印が付き_次の周回で返して数える() {
+        let heavy_task = FinishedTask {
+            name: "t",
+            ended: Instant::now(),
+            elapsed: SEC,
+            rss_before: bytes(100),
+            rss_after: bytes(200),
+        };
+        let before = TRIM_DONE.lock().unwrap().0;
+        mark_if_heavy(&heavy_task);
+        assert!(TRIM_PENDING.load(Ordering::Relaxed));
+        trim_if_pending().await;
+        assert!(!TRIM_PENDING.load(Ordering::Relaxed), "返したら印を下ろす");
+        assert!(TRIM_DONE.lock().unwrap().0 > before, "回数を数える");
+        // 印が無ければ何もしない
+        let count = TRIM_DONE.lock().unwrap().0;
+        trim_if_pending().await;
+        assert_eq!(TRIM_DONE.lock().unwrap().0, count);
     }
 
     #[test]
