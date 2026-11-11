@@ -190,13 +190,14 @@ export function buildListingEvents(job: JobCopyRecord, billing: readonly Billing
   return marked.map((event, index) => ({ ...event, id: `ev-${String(index + 1)}`, n: index + 1 }));
 }
 
-/** 出来事の日の前後4週の応募。asOf は応募を取得した日（null なら数えない）。listingStart は掲載を始めた日。 */
+/** 出来事の日の前後4週の応募。asOf は応募を取得した日（null なら数えない）。listingStart は掲載を始めた日（前の窓はこの日より前に広げない）。 */
 export function eventCounts(job: JobCopyRecord, event: Pick<ListingEvent, 'date' | 'kind'>, asOf: string | null, listingStart: string | null): EventCounts {
   const byDate = job.overallApplications?.byDate;
   const none = { before: null, after: null, beforeDays: 0, afterDays: 0 };
   if (!byDate || !asOf) return none;
-  const beforeStart = addDays(event.date, -WINDOW_DAYS);
   const beforeDays = event.kind === 'start' || !listingStart ? 0 : Math.max(0, Math.min(WINDOW_DAYS, daysBetween(listingStart, event.date)));
+  // 前の窓は掲載を始めた日から（28日に満たないときは、見出しの「掲載後N日分」と同じ日数だけ数える）。
+  const beforeStart = addDays(event.date, -beforeDays);
   const afterEnd = addDays(asOf, 1);
   const afterDays = Math.max(0, Math.min(WINDOW_DAYS, daysBetween(event.date, afterEnd)));
   return {
@@ -217,27 +218,63 @@ export function listingPeriodOf(events: readonly Pick<ListingEvent, 'date' | 'ki
 }
 
 export interface EventCostSide {
-  /** 4週の課金（日割りで足した額）。課金のデータが無い・金額が分からないとき null。 */
+  /** 窓の課金（日割りで足した額）。出せないとき null（理由は reason）。 */
   billing: number | null;
-  /** 課金 ÷ 応募。課金が分からない・応募が0件・応募の件数が無いとき null。 */
+  /** 課金 ÷ 応募。出せないとき null（理由は reason）。 */
   perApplication: number | null;
+  /**
+   * 出せない理由。'no_billing' = 窓に課金のデータが無い・金額が分からない、
+   * 'billing_ends' = 課金のデータが窓の途中で終わっている（足すと安く出るので出さない）、
+   * 'no_applications' = 応募が0件で1件あたりを出せない。
+   */
+  reason: 'no_billing' | 'billing_ends' | 'no_applications' | null;
 }
-export interface EventCosts { before: EventCostSide | null; after: EventCostSide | null }
+export interface EventCosts {
+  before: EventCostSide | null;
+  after: EventCostSide | null;
+  /** 課金のデータの最後の日（全期間で）。課金のデータが無いとき null。 */
+  billingThrough: string | null;
+}
 
 /**
- * 出来事の前後4週の課金と、応募1件あたりの費用。応募の件数は eventCounts と同じ窓（前 = 出来事の日の前の28日、後 = 出来事の日から afterDays 日）。
- * 課金は上の帯と同じ billingInWindow（日割り）、1件あたりは上の帯と同じく最後に1回だけ丸める。
+ * 出来事の前後の課金と、応募1件あたりの費用。窓は eventCounts と同じ（前 = 掲載を始めた日か28日前の遅いほうから出来事の前の日まで、
+ * 後 = 出来事の日から afterDays 日）。課金は上の帯と同じ billingInWindow（日割り）、1件あたりは最後に1回だけ丸める。
+ * 窓の終わりが課金のデータの最後の日より後なら、課金も1件あたりも出さない（途中までの額で割ると安く出るため）。
  * 前の件数が無い（掲載開始など）ときは before が null、後の件数が無いときは after が null。
  */
 export function eventCosts(event: Pick<ListingEvent, 'date'>, counts: EventCounts, billing: readonly BillingEntry[]): EventCosts {
+  const billingThrough = billing.filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end).map(entry => entry.end).sort().at(-1) ?? null;
   const side = (start: string, end: string, applications: number): EventCostSide => {
+    if (billingThrough === null) return { billing: null, perApplication: null, reason: 'no_billing' };
+    if (end > billingThrough) return { billing: null, perApplication: null, reason: 'billing_ends' };
     const amount = billingInWindow(billing, start, end);
-    return { billing: amount, perApplication: amount !== null && applications > 0 ? Math.round(amount / applications) : null };
+    if (amount === null) return { billing: null, perApplication: null, reason: 'no_billing' };
+    if (applications === 0) return { billing: amount, perApplication: null, reason: 'no_applications' };
+    return { billing: amount, perApplication: Math.round(amount / applications), reason: null };
   };
   return {
-    before: counts.before === null ? null : side(addDays(event.date, -WINDOW_DAYS), addDays(event.date, -1), counts.before),
+    before: counts.before === null ? null : side(addDays(event.date, -counts.beforeDays), addDays(event.date, -1), counts.before),
     after: counts.after === null ? null : side(event.date, addDays(event.date, counts.afterDays - 1), counts.after),
+    billingThrough,
   };
+}
+
+/**
+ * 前後の表の下に出す注記（1つずつ別の行に出す）。asOf は応募を取得した日。
+ * 判定の言葉は使わない。「—」になっている理由だけを書く。
+ */
+export function eventCostNotes(event: Pick<ListingEvent, 'date' | 'kind'>, counts: EventCounts, costs: EventCosts, asOf: string | null): string[] {
+  const notes: string[] = [];
+  if (counts.before === null) notes.push(event.kind === 'start' ? '掲載を始めた出来事なので、前の4週はありません。' : '掲載を始めた日が分からないため、前の4週は数えていません。');
+  if (counts.after === null) notes.push(asOf ? `応募を取得した日（${md(asOf)}）より後の出来事なので、後の4週はまだありません。` : '応募を取得した日が分からないため、後の4週は数えていません。');
+  const sides = [{ label: '前の4週', side: costs.before }, { label: '後の4週', side: costs.after }];
+  const ends = sides.filter(({ side }) => side?.reason === 'billing_ends').map(({ label }) => label);
+  if (ends.length && costs.billingThrough) notes.push(`課金のデータは${md(costs.billingThrough)}までのため、${ends.join('と')}の課金と1件あたりは出せません。`);
+  const none = sides.filter(({ side }) => side?.reason === 'no_billing').map(({ label }) => label);
+  if (none.length) notes.push(`${none.join('と')}は、課金のデータが無いか金額が分からないため、課金と1件あたりは出せません。`);
+  const zero = sides.filter(({ side }) => side?.reason === 'no_applications').map(({ label }) => label);
+  if (zero.length) notes.push(`${zero.join('と')}は応募が0件のため、1件あたりは出せません。`);
+  return notes;
 }
 
 export type CheckMark = 'small' | 'caution' | 'unknown';

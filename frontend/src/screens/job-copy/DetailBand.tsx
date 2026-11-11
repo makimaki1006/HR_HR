@@ -19,8 +19,10 @@ const jpDate = (value: string | null) => value ? value.replace(/^(\d{4})-(\d{2})
 /** 詳細を縦にスクロールしても見え続ける上の帯。 */
 export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpenLatest, onNewPattern, newPatternDisabled = false, listingStart = null, listingEnd = null }: { job: JobCopyRecord; billing: readonly BillingEntry[] | undefined; onOpenFullCompare: () => void; latestEvent?: { date: string; title: string } | null; onOpenLatest?: () => void; onNewPattern?: () => void; newPatternDisabled?: boolean; /** 掲載を始めた日（出来事の「掲載を開始」と同じ日）。分からないとき null。 */ listingStart?: string | null; /** 掲載を終えた日。掲載中なら null。 */ listingEnd?: string | null }) {
   const n = bandNumbers(job, billing);
-  const period = listingPeriodText(listingStart, listingEnd, todayJst());
-  const status = job.dataSource === 'hubspot' ? `公開状況：${publicationLabel(job.listingPublicationStatus ?? null)}${period}` : period ? `掲載${period}` : '';
+  const label = job.dataSource === 'hubspot' ? publicationLabel(job.listingPublicationStatus ?? null) : null;
+  // 終了日は、今の公開状況が「掲載終了」のときだけ出す（掲載中なら、過去の終了の出来事があっても出さない）。
+  const period = listingPeriodText(listingStart, listingEnd, todayJst(), label === '掲載終了');
+  const status = label !== null ? `公開状況：${label}${period}` : period ? `掲載${period}` : '';
   const band = useRef<HTMLDivElement>(null);
   // 帯の実際の高さを --jc-band-h に持たせ、右の欄・下の固定見出しの位置をそこから決める
   useEffect(() => {

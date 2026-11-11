@@ -107,13 +107,15 @@ function shortDate(date: string, thisYear: string): string {
 }
 
 /**
- * 上の帯に添える掲載の期間。「（6/10〜）」、終了していれば「（6/10〜9/1）」。
+ * 上の帯に添える掲載の期間。「（6/10〜）」。ended（今の公開状況が掲載終了）のときだけ終了日を付けて「（6/10〜9/1）」、
+ * 掲載終了なのに終了日が分からなければ「（6/10〜、終了日の記録なし）」。掲載中なら end があっても終了日は出さない。
  * 開始日が分からないときは空文字（何も出さない）。today は JST の今日（年を付けるかの判断だけに使う）。
  */
-export function listingPeriodText(start: string | null, end: string | null, today: string): string {
+export function listingPeriodText(start: string | null, end: string | null, today: string, ended = false): string {
   if (!start || !DATE.test(start)) return '';
   const thisYear = today.slice(0, 4);
-  return `（${shortDate(start, thisYear)}〜${end && DATE.test(end) && end >= start ? shortDate(end, thisYear) : ''}）`;
+  if (!ended) return `（${shortDate(start, thisYear)}〜）`;
+  return end && DATE.test(end) && end >= start ? `（${shortDate(start, thisYear)}〜${shortDate(end, thisYear)}）` : `（${shortDate(start, thisYear)}〜、終了日の記録なし）`;
 }
 
 export interface MarketMonthOverMonth {

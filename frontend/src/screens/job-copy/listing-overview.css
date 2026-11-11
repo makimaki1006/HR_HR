@@ -39,7 +39,8 @@
 .lo-result small { color: var(--jc-muted); font-size: 11px; }
 .lo-caret { color: var(--jc-muted); }
 .lo-event-body { padding: 0 14px 14px 58px; display: grid; gap: 10px; }
-.lo-costs .lo-note { margin: 4px 0 0; }
+.lo-cost-notes { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--jc-muted); font-size: 12px; }
+.lo-cost-notes li { padding-left: 10px; border-left: 2px solid var(--jc-border); }
 .lo-cost-table { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .lo-cost-table th, .lo-cost-table td { padding: 4px 12px; border-bottom: 1px solid var(--jc-border); text-align: right; white-space: nowrap; }
 .lo-cost-table thead th { color: var(--jc-muted); font-weight: 600; }

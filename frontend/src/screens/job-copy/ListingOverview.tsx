@@ -12,8 +12,8 @@ import { HEARING_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsMode
 import { ReasonCategorySummary } from './ReasonCategorySummary';
 import { maskPersonalDetails } from './personalText';
 import { selectedCategory } from './reasonCategories';
-import { eventChecks, eventCosts, eventCounts, md, resultText } from './listingEventsModel';
-import type { EventCostSide, EventCounts, ListingEvent, MarketInput } from './listingEventsModel';
+import { eventChecks, eventCostNotes, eventCosts, eventCounts, md, resultText } from './listingEventsModel';
+import type { EventCosts, EventCounts, ListingEvent, MarketInput } from './listingEventsModel';
 import { chooseMarket, designatedTitle, indeedTitleState } from './marketMatch';
 import { marketRows } from './marketChartModel';
 import type { MarketRow } from './marketChartModel';
@@ -128,26 +128,25 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
   </div>;
 }
 
-/** 出来事の前後4週の応募・課金・応募1件あたりの費用。差や判定の言葉は付けず、数字を並べるだけ。 */
-export function EventCostTable({ counts, costs }: { counts: EventCounts; costs: { before: EventCostSide | null; after: EventCostSide | null } }) {
-  const days = (value: number) => value < 28 ? `（${String(value)}日分）` : '';
-  const head = (label: string, count: number | null, dayCount: number) => `${label}${count === null ? '' : days(dayCount)}`;
+/** 出来事の前後4週の応募・課金・応募1件あたりの費用。差や判定の言葉は付けず、数字を並べるだけ。「—」の理由は下に1行ずつ出す。 */
+export function EventCostTable({ event, counts, costs, asOf }: { event: Pick<ListingEvent, 'date' | 'kind'>; counts: EventCounts; costs: EventCosts; asOf: string | null }) {
+  // 見出しは一覧の行（「前は掲載後14日分・後は11日分」）と同じ言い方にする。
+  const beforeHead = counts.before !== null && counts.beforeDays < 28 ? `前の4週（掲載後${String(counts.beforeDays)}日分）` : '前の4週';
+  const afterHead = counts.after !== null && counts.afterDays < 28 ? `後の4週（${String(counts.afterDays)}日分）` : '後の4週';
   const apps = (value: number | null) => value === null ? '—' : `${value.toLocaleString('ja-JP')}件`;
   // 応募の件数がどちらも無いときは、窓が決まらないので表を出さない（一覧の結果欄に理由が出ている）。
   if (counts.before === null && counts.after === null) return null;
-  const sides = [{ side: costs.before, count: counts.before }, { side: costs.after, count: counts.after }];
-  const unknownBilling = sides.some(({ side }) => side !== null && side.billing === null);
-  const zeroApplications = sides.some(({ side, count }) => side !== null && side.billing !== null && count === 0);
+  const notes = eventCostNotes(event, counts, costs, asOf);
   return <div className="lo-costs">
     <table className="lo-cost-table" data-testid="event-costs">
-      <thead><tr><th scope="col"><span className="jc-visually-hidden">項目</span></th><th scope="col">{head('前の4週', counts.before, counts.beforeDays)}</th><th scope="col">{head('後の4週', counts.after, counts.afterDays)}</th></tr></thead>
+      <thead><tr><th scope="col"><span className="jc-visually-hidden">項目</span></th><th scope="col">{beforeHead}</th><th scope="col">{afterHead}</th></tr></thead>
       <tbody>
         <tr><th scope="row">応募</th><td data-testid="cost-before-applications">{apps(counts.before)}</td><td data-testid="cost-after-applications">{apps(counts.after)}</td></tr>
         <tr><th scope="row">課金</th><td data-testid="cost-before-billing">{yen(costs.before?.billing ?? null)}</td><td data-testid="cost-after-billing">{yen(costs.after?.billing ?? null)}</td></tr>
         <tr><th scope="row">応募1件あたり</th><td data-testid="cost-before-per-application">{yen(costs.before?.perApplication ?? null)}</td><td data-testid="cost-after-per-application">{yen(costs.after?.perApplication ?? null)}</td></tr>
       </tbody>
     </table>
-    {(unknownBilling || zeroApplications || counts.before === null) && <p className="lo-note">{[counts.before === null ? '前の4週は比べる期間が無いため「—」です。' : '', unknownBilling ? '課金のデータが無い、または金額が分からない期間は「—」です。' : '', zeroApplications ? '応募が0件の期間は、応募1件あたりを出せません。' : ''].filter(Boolean).join('')}</p>}
+    {notes.length > 0 && <ul className="lo-cost-notes" data-testid="event-cost-notes">{notes.map(note => <li key={note}>{note}</li>)}</ul>}
   </div>;
 }
 
@@ -243,7 +242,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
             </button>
             {open && isApplication && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicationDetails job={job} event={event} hearing={hearing.data} loading={hearing.loading} /></div>}
             {open && !isApplication && <div className="lo-event-body">
-              <EventCostTable counts={counts} costs={eventCosts(event, counts, billing)} />
+              <EventCostTable event={event} counts={counts} costs={eventCosts(event, counts, billing)} asOf={asOf} />
               <ul className="lo-checks" aria-label="ほかに応募を動かしそうなこと">
                 {checks.map(check => <li key={check.key}><span className={`lo-mark lo-mark-${check.mark}`}>{check.markLabel}</span><strong>{check.label}</strong><span>{check.text}</span></li>)}
               </ul>
