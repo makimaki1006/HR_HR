@@ -33,6 +33,7 @@ pub mod contact_worker;
 pub mod counts;
 pub mod dial_breakdown;
 pub mod dials;
+pub mod hs_store;
 pub mod judge;
 pub mod lang;
 pub mod live_dials;
