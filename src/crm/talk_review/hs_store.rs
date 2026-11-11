@@ -4,7 +4,7 @@
 //!   Zoom の録音が消えた後も、判定し直し・ヒアリング・画面の文字起こしに使える。
 //! - 取引のランク (`talk_apo_rank` ほか): 決まったランクを取引に書き、再起動後はそれを読む (決め直さない)。
 //!
-//! プロパティは `scripts/ensure_talk_review_properties.py` で作る。HubSpot の呼び出しはすべて `Background`。
+//! プロパティは `scripts/ensure_talk_review_properties.py` で作る。HubSpot の呼び出しは worker では `Background`、画面の詳細は画面の優先度。
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -132,17 +132,19 @@ pub async fn fetch_stored<Z: TranscriptSource + ?Sized>(
     hubspot_call_id: &str,
     call_log_id: Option<&str>,
 ) -> Result<Vec<TalkTurn>, ZoomError> {
-    match load_transcript(hubspot, hubspot_call_id).await {
+    let read_failed = match load_transcript(hubspot, hubspot_call_id).await {
         Ok(Some(t)) => return Ok(t),
-        Ok(None) => {}
+        Ok(None) => false,
         Err(e) => {
-            tracing::info!(error = %e.error_kind(), "talk review: stored transcript read failed")
+            tracing::info!(error = %e.error_kind(), "talk review: stored transcript read failed");
+            true
         }
-    }
-    let Some(zid) = call_log_id else {
-        return Err(ZoomError::Gone);
     };
-    let r = zoom.fetch(zid).await;
+    let r = match call_log_id {
+        Some(zid) => zoom.fetch(zid).await,
+        None => Err(ZoomError::Gone),
+    };
+    let r = after_read_failure(read_failed, r);
     if let Ok(t) = &r {
         if !t.is_empty() {
             if let Err(e) = save_transcript(hubspot, hubspot_call_id, t).await {
@@ -151,6 +153,20 @@ pub async fn fetch_stored<Z: TranscriptSource + ?Sized>(
         }
     }
     r
+}
+
+/// HubSpot を読めなかったときに Zoom の録音も無ければ、「消えた」と決めずに一時的な失敗にする (純粋)。
+/// HubSpot に文字起こしが残っているかもしれないので、後でやり直す
+pub fn after_read_failure(
+    read_failed: bool,
+    r: Result<Vec<TalkTurn>, ZoomError>,
+) -> Result<Vec<TalkTurn>, ZoomError> {
+    match r {
+        Err(ZoomError::Gone) if read_failed => {
+            Err(ZoomError::Transient("stored transcript unreadable".into()))
+        }
+        r => r,
+    }
 }
 
 /// ランクの内部値 (`scripts/ensure_talk_review_properties.py` の RANK_OPTIONS と同じ)
@@ -301,6 +317,25 @@ mod tests {
         let back = from_text(&text);
         assert!(back.iter().all(|t| t.text.chars().count() == 50));
         assert!(back.len() > 1000 && back.len() < 2000);
+    }
+
+    #[test]
+    fn unreadable_store_with_gone_recording_is_temporary() {
+        let gone = || Err(ZoomError::Gone);
+        assert!(matches!(
+            after_read_failure(true, gone()),
+            Err(ZoomError::Transient(_))
+        ));
+        assert!(matches!(
+            after_read_failure(false, gone()),
+            Err(ZoomError::Gone)
+        ));
+        assert!(matches!(
+            after_read_failure(true, Err(ZoomError::Untranscribable)),
+            Err(ZoomError::Untranscribable)
+        ));
+        let ok = after_read_failure(true, Ok(vec![turn(1, "rep", "x")])).unwrap();
+        assert_eq!(ok.len(), 1);
     }
 
     #[test]

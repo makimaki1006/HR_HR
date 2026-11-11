@@ -799,11 +799,33 @@ impl HubSpotClient {
         self.patch_object_inner("calls", id, properties).await
     }
 
+    /// 取引の、HR_HR だけが読む項目 (トークの振り返りのランク) を書く。
+    /// 画面・案件管理が読む項目ではないので、取引の書き込みの印 (`deal_write_revision`) を動かさない
+    /// (動かすと案件管理の読み直しが捨てられる)
+    pub async fn patch_deal_own(
+        &self,
+        id: &str,
+        properties: &BTreeMap<String, Option<String>>,
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        self.patch_object_with("deals", id, properties, false).await
+    }
+
     async fn patch_object_inner(
         &self,
         object: &str,
         id: &str,
         properties: &BTreeMap<String, Option<String>>,
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        self.patch_object_with(object, id, properties, true).await
+    }
+
+    /// `mark_deal_write` が false なら、取引に書いても書き込みの印を動かさない
+    async fn patch_object_with(
+        &self,
+        object: &str,
+        id: &str,
+        properties: &BTreeMap<String, Option<String>>,
+        mark_deal_write: bool,
     ) -> Result<HubSpotRecord, HubSpotError> {
         check_id(id)?;
         let props: serde_json::Map<String, Value> = properties
@@ -823,6 +845,7 @@ impl HubSpotClient {
             .await;
         // 通信不明も保存された可能性がある。再送 worker を含め、古い読み取りを残さない。
         if object == "deals"
+            && mark_deal_write
             && result
                 .as_ref()
                 .map_or(true, |reply| (200..=299).contains(&reply.status))
