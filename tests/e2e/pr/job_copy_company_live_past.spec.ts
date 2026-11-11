@@ -34,7 +34,7 @@ test('顧客の掲載中・過去の全求人、案件リンクと求人の往�
   await expect(live.locator('tbody tr')).toHaveCount(3);
   await expect(live.locator('tbody tr').first()).toContainText('合成求人02');
   await expect(live.locator('tbody tr').nth(1)).toContainText('合成求人01合成案件A · 契約中合成案件B · 契約終了');
-  await expect(live.locator('tbody tr').first()).toContainText('7件');
+  await expect(live.locator('tbody tr').first()).toContainText('0 → 7 件');
   await expect(live.locator('tbody tr').first()).toContainText('2026/09/01 〜 今日');
   await expect(live.locator('tbody tr').last()).toContainText('開始日不明 〜 今日');
   await expect(live.locator('tbody tr').first()).toContainText('本文を変更2026/10/15 09:00');
