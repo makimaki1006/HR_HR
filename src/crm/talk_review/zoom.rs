@@ -51,6 +51,21 @@ pub trait TranscriptSource: Send + Sync {
         call_log_id: &str,
     ) -> impl std::future::Future<Output = Result<Vec<TalkTurn>, ZoomError>> + Send;
 
+    /// HubSpot の通話の文字起こし。既定は Zoom から取るだけ (`hs_store::Stored` は HubSpot に残したものを先に読む)。
+    /// 録音 ID が無ければ `Gone`
+    fn fetch_call(
+        &self,
+        _hubspot_call_id: &str,
+        call_log_id: Option<&str>,
+    ) -> impl std::future::Future<Output = Result<Vec<TalkTurn>, ZoomError>> + Send {
+        async move {
+            match call_log_id {
+                Some(id) => self.fetch(id).await,
+                None => Err(ZoomError::Gone),
+            }
+        }
+    }
+
     /// HubSpot の Call に録音 URL が無いとき、通話履歴から録音 ID を探す (Call Queue 経由の発信)。
     /// 相手番号と開始時刻 (ミリ秒) で照合する。見つからなければ `None`
     fn find_recording(

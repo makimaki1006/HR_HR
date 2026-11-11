@@ -395,8 +395,14 @@ impl TalkState {
         self.zoom.get_or_init(ZoomClient::from_env).clone()
     }
 
-    async fn transcript(&self, zoom_id: &str) -> Result<Vec<TalkTurn>, ZoomError> {
-        if let Some((at, v)) = self.transcripts.lock().unwrap().get(zoom_id) {
+    /// 通話の文字起こし (プロセス内に 10 分持つ。鍵は HubSpot の通話 ID)
+    async fn transcript(
+        &self,
+        hubspot: Option<&crate::hubspot::HubSpotClient>,
+        call_id: &str,
+        zoom_id: Option<&str>,
+    ) -> Result<Vec<TalkTurn>, ZoomError> {
+        if let Some((at, v)) = self.transcripts.lock().unwrap().get(call_id) {
             if at.elapsed() < TRANSCRIPT_TTL {
                 return v.clone();
             }
@@ -406,13 +412,16 @@ impl TalkState {
             .get_or_init(ZoomClient::from_env)
             .clone()
             .ok_or(ZoomError::NotConfigured)?;
-        let r = zoom.fetch(zoom_id).await;
+        let r = match hubspot {
+            Some(h) => super::hs_store::fetch_stored(h, &*zoom, call_id, zoom_id).await,
+            None => zoom.fetch_call(call_id, zoom_id).await,
+        };
         if cacheable(&r) {
             let mut g = self.transcripts.lock().unwrap();
             if g.len() >= TRANSCRIPT_MAX {
                 g.clear();
             }
-            g.insert(zoom_id.to_string(), (Instant::now(), r.clone()));
+            g.insert(call_id.to_string(), (Instant::now(), r.clone()));
         }
         r
     }
@@ -959,17 +968,26 @@ pub(in crate::crm) async fn get_call_detail(
         None => None,
     }
     .unwrap_or_else(|| "(名前を取得できません)".to_string());
-    let (transcript, transcript_error) = match row.zoom_call_log_id.as_deref() {
-        None => (None, Some("録音が残っていません".to_string())),
-        Some(z) => match tokio::time::timeout(CRM_REQUEST_DEADLINE, shared().transcript(z)).await {
+    // HubSpot の通話に残した文字起こしを先に読み、無ければ Zoom から取って残す
+    let hubspot = state.crm_hubspot();
+    let st = shared();
+    let fetched = st.transcript(
+        hubspot.as_deref(),
+        &row.hubspot_call_id,
+        row.zoom_call_log_id.as_deref(),
+    );
+    let (transcript, transcript_error) =
+        match tokio::time::timeout(CRM_REQUEST_DEADLINE, fetched).await {
             Ok(Ok(t)) => (Some(t), None),
+            Ok(Err(ZoomError::Gone)) if row.zoom_call_log_id.is_none() => {
+                (None, Some("録音が残っていません".to_string()))
+            }
             Ok(Err(e)) => (None, Some(transcript_error_text(&e).to_string())),
             Err(_) => (
                 None,
                 Some(transcript_error_text(&ZoomError::Transient(String::new())).to_string()),
             ),
-        },
-    };
+        };
     let ids = check_ids();
     let judged = row.status == ST_JUDGED;
     let items = loaded()

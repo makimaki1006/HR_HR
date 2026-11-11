@@ -790,6 +790,15 @@ impl HubSpotClient {
         self.patch_object_inner(object, id, properties).await
     }
 
+    /// 通話 (Call) のプロパティを書く。HR_HR が作ったプロパティ (文字起こし) だけに使う
+    pub async fn patch_call(
+        &self,
+        id: &str,
+        properties: &BTreeMap<String, Option<String>>,
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        self.patch_object_inner("calls", id, properties).await
+    }
+
     async fn patch_object_inner(
         &self,
         object: &str,
