@@ -26,7 +26,17 @@ export function companyListingsModel(rows: readonly HubSpotListing[], datas: rea
 /** ホーム（listing_home.rs の classify）が求人ごとに付けた分類のキー。求人 ID → キーの並び。 */
 export type ListingFlags = Readonly<Record<string, readonly string[]>>;
 export interface ListingFlagCard { key: string; title: string; rule: string }
-export type ListingFlagsResponse = { status: 'preparing' | 'failed' } | { status: 'ready'; flags: ListingFlags; cards: ListingFlagCard[] };
+/** 分類の判定に使った数字（求人に付いた週ごとの実績の、最新の週までの4週とその前の4週）。実績が無い求人は null。 */
+export interface FlagNumbers { prev_apps: number; recent_apps: number; recent_cost: number; latest_end: string }
+export type ListingFlagNumbers = Readonly<Record<string, FlagNumbers | null>>;
+export type ListingFlagsResponse = { status: 'preparing' | 'failed' } | { status: 'ready'; flags: ListingFlags; numbers: ListingFlagNumbers; cards: ListingFlagCard[] };
+
+/** 分類の印に添える「判定に使った数字」。例: 前4週 3件 → 直近4週 0件、課金 ¥20,000、〜11/02 の週まで */
+export function flagNumbersLabel(numbers: FlagNumbers | null | undefined): string {
+  if (!numbers) return '判定に使った数字: 週ごとの実績がありません';
+  const [, month, day] = numbers.latest_end.split('-');
+  return `判定に使った数字: 前4週 ${String(numbers.prev_apps)}件 → 直近4週 ${String(numbers.recent_apps)}件、課金 ¥${numbers.recent_cost.toLocaleString('ja-JP')}、〜${month ?? ''}/${day ?? ''} の週まで`;
+}
 
 /** 表に出す分類と、その短い名前。並びはホームのカードの順。対象外・判定できないは出さない。 */
 export const FLAG_LABELS: Readonly<Record<string, string>> = {
@@ -35,7 +45,8 @@ export const FLAG_LABELS: Readonly<Record<string, string>> = {
 };
 const shownFlags = (keys: readonly string[] | undefined) => Object.keys(FLAG_LABELS).filter(key => keys?.includes(key) === true);
 
-/** 「分類」の並べ替えで先に出す分類と、その順。ほかの分類（増えた・ほぼ同じ）は、この後に変更日の新しい順。 */
+/** 「分類」の並べ替えで先に出す分類と、その順。同じ分類の中は今の課金が多い順 → 変更日の新しい順（ホームのカードと同じく課金の多い順）。
+ * ほかの分類（増えた・ほぼ同じ）は、この後に変更日の新しい順。 */
 export const ATTENTION_ORDER = ['to_zero', 'zero_stay', 'costly', 'less', 'stale'] as const;
 
 export type ListingSort = 'attention' | 'cpa' | 'apps' | 'billing' | 'changed';
@@ -60,18 +71,19 @@ function sortValue(item: SortItem, sort: ListingSort): number | null {
     case 'changed': return null;
   }
 }
-/** 同じ値の中は、最後に本文を変えた日が新しい順 → 求人名 → ID。 */
+/** 大きい順。値がない行は最後。 */
+function descending(left: number | null, right: number | null): number {
+  if (left === right) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return right - left;
+}
+/** 同じ値の中は、最後に本文を変えた日が新しい順 → 求人名 → ID。「分類」の並びだけ、その前に今の課金が多い順を挟む。 */
 export function sortListingItems<T extends SortItem>(items: readonly T[], sort: ListingSort): T[] {
   const byChange = (a: T, b: T) => (b.changedAt ?? '').localeCompare(a.changedAt ?? '') || (a.row.title ?? '').localeCompare(b.row.title ?? '', 'ja') || a.row.id.localeCompare(b.row.id);
-  return [...items].sort((a, b) => {
-    const left = sortValue(a, sort); const right = sortValue(b, sort);
-    if (left !== right) {
-      if (left === null) return 1;
-      if (right === null) return -1;
-      return right - left;
-    }
-    return byChange(a, b);
-  });
+  return [...items].sort((a, b) => descending(sortValue(a, sort), sortValue(b, sort))
+    || (sort === 'attention' && sortValue(a, sort) !== null ? descending(a.numbers?.billing ?? null, b.numbers?.billing ?? null) : 0)
+    || byChange(a, b));
 }
 
 /** 応募1件あたり。課金があって応募が0件なら「応募0件」と書き、0円と区別する。 */

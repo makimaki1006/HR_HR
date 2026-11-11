@@ -58,7 +58,7 @@ it('コンサル担当から取引担当・全員への切り替えを掲載中�
 
 it('掲載中の求人だけをホームと同じ分類で読み、分類を先に並べ、並べ替えを選べる', async () => {
   api.mockImplementation((url: string) => {
-    if (url.startsWith('/api/job-copy/listing-flags')) return Promise.resolve({ ok: true, data: { status: 'ready', flags: { '1': ['more'], '2': ['to_zero', 'costly'] }, cards: [
+    if (url.startsWith('/api/job-copy/listing-flags')) return Promise.resolve({ ok: true, data: { status: 'ready', flags: { '1': ['more'], '2': ['to_zero', 'costly'] }, numbers: { '1': null, '2': { prev_apps: 3, recent_apps: 0, recent_cost: 20000, latest_end: '2026-11-02' } }, cards: [
       { key: 'to_zero', title: '応募がゼロになった求人', rule: '掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。' },
       { key: 'costly', title: '課金が高いまま応募が少ない求人', rule: '課金の基準' },
     ] } });
@@ -78,7 +78,8 @@ it('掲載中の求人だけをホームと同じ分類で読み、分類を先�
   const titles = () => [...liveTable.querySelectorAll('tbody th > button.jh-link')].map(button => button.textContent);
   expect(titles()).toEqual(['合成求人・古い', '合成求人・新しい']);
   const zeroChip = [...liveTable.querySelectorAll('.jh-change-chip')].find(chip => chip.textContent === '応募がゼロになった');
-  expect(zeroChip?.getAttribute('title')).toBe('掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。');
+  expect(zeroChip?.getAttribute('title')).toBe('掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。\n判定に使った数字: 前4週 3件 → 直近4週 0件、課金 ¥20,000、〜11/02 の週まで');
+  expect(screen.getByText('期間：分類は週ごとの実績の最新の週までの4週間。表は応募を取得した日までの4週間。')).toBeTruthy();
   fireEvent.change(screen.getByRole('combobox', { name: '並べ替え' }), { target: { value: 'changed' } });
   expect(titles()).toEqual(['合成求人・新しい', '合成求人・古い']);
 });

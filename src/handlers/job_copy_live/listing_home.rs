@@ -356,15 +356,23 @@ pub(super) fn enrich_recent_changes(
     let by_id: BTreeMap<_, _> = records.iter().map(|r| (r.id.as_str(), r)).collect();
     let mut counts = BTreeMap::<&str, usize>::new();
     for row in rows {
-        let keys = row["id"]
-            .as_str()
-            .and_then(|id| by_id.get(id))
+        let record = row["id"].as_str().and_then(|id| by_id.get(id));
+        let keys = record
             .map(|r| classify(r, median, today))
             .unwrap_or_else(|| vec!["unknown"]);
         for key in &keys {
             *counts.entry(key).or_default() += 1;
         }
         row["classifications"] = json!(keys);
+        // 顧客の求人の表（listing_flags.rs）だけが求める、判定に使った数字。直近7日の変更の応答は変えない。
+        if row.get("with_perf") == Some(&json!(true)) {
+            row["perf"] = record
+                .and_then(|r| r.perf.as_ref())
+                .map_or(Value::Null, |p| json!({"prev_apps":p.prev_apps,"recent_apps":p.recent_apps,"recent_cost":p.recent_cost,"latest_end":p.latest_end.to_string()}));
+            if let Some(object) = row.as_object_mut() {
+                object.remove("with_perf");
+            }
+        }
     }
     let mut definitions = card_definitions();
     definitions.extend([

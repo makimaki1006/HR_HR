@@ -749,3 +749,142 @@ fn consultant_applications_share_home_more_and_week_boundaries() {
     assert_eq!(totals["d1"], (12, 20));
     assert_eq!(totals["d2"], (8, 12));
 }
+
+/// 顧客の求人の表の分類（listing_flags.rs）が、担当者で絞ったときも絞らないときも、
+/// 同じ範囲のホームのカード（compute）と同じ求人に同じ分類を付け、同じ数字を返すこと。
+#[tokio::test]
+async fn customer_listing_flags_match_home_cards_with_and_without_owner_scope() {
+    use crate::handlers::job_copy_live::listing_flags::classify_ids;
+    let today = date("2026-10-16");
+    let mut snapshot = owner_todo::Snapshot::default();
+    for (id, owner) in [("d1", "11"), ("d3", "22")] {
+        let record = Record {
+            id: id.into(),
+            properties: [("consultant".into(), Some(owner.into()))]
+                .into_iter()
+                .collect(),
+        };
+        snapshot.deals.insert(
+            id.into(),
+            owner_todo::WorkDeal {
+                assignment: owner_todo::Assignment::from_record(&record),
+                record,
+            },
+        );
+    }
+    let mut records = Vec::new();
+    // 応募1件あたり: 1 = 3,000円, 2 = 1,000円（担当 11）、3・4 = 200円（担当 22）。
+    for (id, deal, prev, recent, cost) in [
+        ("1", "d1", 6, 4, 12_000),
+        ("2", "d1", 10, 10, 10_000),
+        ("3", "d3", 50, 50, 10_000),
+        ("4", "d3", 0, 50, 10_000),
+    ] {
+        let mut row = listing(id, &[deal], "掲載中", "unset", None);
+        row.perf = Some(PerfDigest {
+            latest_end: date("2026-10-15"),
+            recent_apps: recent,
+            prev_apps: prev,
+            recent_cost: cost,
+            comparison_recent: None,
+        });
+        records.push(row);
+    }
+    let service = JobReadService::for_test("http://127.0.0.1:9".into());
+    service.listing_index.state.write().await.snapshot = Some(Arc::new(Index {
+        records: records.clone(),
+        titles: vec![],
+        deals: vec![],
+        built_at: "2026-10-16T00:00:00Z".into(),
+    }));
+    let ids: Vec<String> = ["1", "2", "3", "4"].map(String::from).to_vec();
+    let flags_of = |data: &Value, id: &str| -> Vec<String> {
+        data["flags"][id]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| k.as_str().unwrap().to_owned())
+            .collect()
+    };
+    let home_keys = |home: &Home, id: &str| -> Vec<String> {
+        let mut keys: Vec<String> = home
+            .cards
+            .iter()
+            .filter(|card| card.listings.iter().any(|row| row.id == id))
+            .map(|card| card.key.to_owned())
+            .collect();
+        keys.sort();
+        keys
+    };
+    let sorted = |mut keys: Vec<String>| {
+        keys.sort();
+        keys
+    };
+    // 絞らない: 中央値 (200 + 1,000) / 2 = 600円、2倍 = 1,200円。1 は 3,000円で「課金が高い」。
+    let all = classify_ids(&service, &ids, today, None).await;
+    let home = compute(&records, &CompanyMap::default(), today);
+    assert_eq!(home.median_cost_per_app, Some(600));
+    assert_eq!(flags_of(&all, "1"), ["less", "costly"]);
+    for id in ["1", "2", "3", "4"] {
+        assert_eq!(sorted(flags_of(&all, id)), home_keys(&home, id), "{id}");
+        let row = home
+            .cards
+            .iter()
+            .flat_map(|c| &c.listings)
+            .find(|r| r.id == id)
+            .unwrap();
+        assert_eq!(
+            all["numbers"][id]["prev_apps"],
+            json!(row.prev_apps),
+            "{id}"
+        );
+        assert_eq!(
+            all["numbers"][id]["recent_apps"],
+            json!(row.recent_apps),
+            "{id}"
+        );
+        assert_eq!(
+            all["numbers"][id]["recent_cost"],
+            json!(row.recent_cost),
+            "{id}"
+        );
+        assert_eq!(
+            all["numbers"][id]["latest_end"],
+            json!(row.latest_week_end),
+            "{id}"
+        );
+    }
+    // 担当 11 で絞る: 中央値 (1,000 + 3,000) / 2 = 2,000円、2倍 = 4,000円。1 は「課金が高い」にならない。
+    let query = owner_todo::OwnerQuery {
+        owner_field: Some("consultant".into()),
+        owner: Some("11".into()),
+    };
+    let scoped_flags = classify_ids(
+        &service,
+        &ids,
+        today,
+        Some((&snapshot, &query, "reader@example.test")),
+    )
+    .await;
+    let (selected, map) = scoped(
+        &records,
+        &CompanyMap::default(),
+        &snapshot,
+        "consultant",
+        Some("11"),
+    );
+    let home = compute(&selected, &map, today);
+    assert_eq!(home.median_cost_per_app, Some(2000));
+    assert_eq!(flags_of(&scoped_flags, "1"), ["less"]);
+    assert_eq!(flags_of(&scoped_flags, "2"), ["flat"]);
+    for id in ["1", "2"] {
+        assert_eq!(
+            sorted(flags_of(&scoped_flags, id)),
+            home_keys(&home, id),
+            "{id}"
+        );
+    }
+    // 範囲の外の求人は、ホームにも出ないので「判定できない」。
+    assert_eq!(flags_of(&scoped_flags, "3"), ["unknown"]);
+    assert!(home_keys(&home, "3").is_empty());
+}

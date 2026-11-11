@@ -108,3 +108,5 @@
 .jc-app .jh-listing-tools label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
 .jh-listing-tools select { padding: 5px 7px; border: 1px solid #d4dfe7; border-radius: 6px; background: #fff; color: inherit; font: inherit; }
 .jh-flag-summary .jh-change-chip { margin: 2px 4px 2px 0; }
+.jh-flag-basis p { margin: 0; }
+.jh-flag-basis ul { margin: 2px 0 8px; padding-left: 18px; }

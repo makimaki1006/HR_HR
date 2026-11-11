@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { companyListingPeriod, companyListingsModel, perApplicationLabel, sortListingItems } from './companyListingsModel';
+import { companyListingPeriod, companyListingsModel, flagNumbersLabel, perApplicationLabel, sortListingItems } from './companyListingsModel';
 import { yen } from './homeModel';
 import type { HubSpotListing } from './hubspotListings';
 import type { CompanyDeal } from './companyDeals';
@@ -69,15 +69,21 @@ const items = [
   item('D', '2026-10-10', ['more'], 8, null), // 課金不明
   item('E', '2026-10-02', ['zero_stay'], 0, 15000), // 応募0件・課金1.5万
   item('F', null, ['stale', 'less'], null, null), // 応募・課金とも不明
+  item('G', '2026-09-01', ['to_zero'], 0, 50000), // 応募0件・課金5万。変更日はいちばん古い
 ];
-it('「応募ゼロ・課金が高い求人を先に」は ゼロになった → ゼロのまま → 課金が高い → 減った・止まっている、残りは変更日の新しい順', () => {
-  expect(ids(sortListingItems(items, 'attention'))).toEqual(['B', 'E', 'C', 'F', 'A', 'D']);
+it('「応募ゼロ・課金が高い求人を先に」は ゼロになった → ゼロのまま → 課金が高い → 減った・止まっている、同じ分類の中は今の課金が多い順、残りは変更日の新しい順', () => {
+  // G と B はどちらも「ゼロになった」。変更日は B が新しいが、課金 5万 の G が先（ホームのカードと同じく課金の多い順）。
+  expect(ids(sortListingItems(items, 'attention'))).toEqual(['G', 'B', 'E', 'C', 'F', 'A', 'D']);
+});
+it('判定に使った数字を「前4週 → 直近4週・課金・最新の週の終わり」で書く', () => {
+  expect(flagNumbersLabel({ prev_apps: 3, recent_apps: 0, recent_cost: 20000, latest_end: '2026-11-02' })).toBe('判定に使った数字: 前4週 3件 → 直近4週 0件、課金 ¥20,000、〜11/02 の週まで');
+  expect(flagNumbersLabel(null)).toBe('判定に使った数字: 週ごとの実績がありません');
 });
 it('応募1件あたりは応募0件で課金のある求人を最も高いとして先に（課金の多い順）、不明は最後', () => {
-  expect(ids(sortListingItems(items, 'cpa'))).toEqual(['B', 'E', 'C', 'A', 'D', 'F']);
+  expect(ids(sortListingItems(items, 'cpa'))).toEqual(['G', 'B', 'E', 'C', 'A', 'D', 'F']);
 });
 it('応募が多い順・課金が多い順・最後に変えた日が新しい順。値がない求人は最後', () => {
-  expect(ids(sortListingItems(items, 'apps'))).toEqual(['A', 'D', 'C', 'E', 'B', 'F']); // 同じ0件は変更日の新しい E が先
-  expect(ids(sortListingItems(items, 'billing'))).toEqual(['B', 'C', 'E', 'A', 'D', 'F']);
-  expect(ids(sortListingItems(items, 'changed'))).toEqual(['A', 'D', 'C', 'E', 'B', 'F']);
+  expect(ids(sortListingItems(items, 'apps'))).toEqual(['A', 'D', 'C', 'E', 'B', 'G', 'F']); // 同じ0件は変更日の新しい E が先
+  expect(ids(sortListingItems(items, 'billing'))).toEqual(['G', 'B', 'C', 'E', 'A', 'D', 'F']);
+  expect(ids(sortListingItems(items, 'changed'))).toEqual(['A', 'D', 'C', 'E', 'B', 'G', 'F']);
 });
