@@ -21,9 +21,14 @@
 //!   `malloc_free_mb` が大きく増えていくなら「解放したが OS に返していない分」、`malloc_inuse_mb` が増えていくなら「実際に持ち続けているデータ」。
 //!   小さい解放済みの塊をスレッドごとに手元 (tcache) へ置いている分は、使用中に数えられる。
 //!   `malloc_stats_us` は数えるのにかかった時間 (マイクロ秒)。空きの塊が多いほど長く、その間は数えている arena を使う処理が待つ。
+//! - 重い裏の処理 (1 秒以上かかった、または RSS が 16MB 以上動いた) が終わったら、次の 15 秒おきの周回で
+//!   `malloc_trim(0)` を別スレッドで呼び、glibc が手元に持っている空きを OS に返す (2026-11-11)。本番の 3 日分のログで、
+//!   使用中は 200〜300MB で横ばいなのに、空き (返していない分) が起動時の重い処理の一時確保で 550〜650MB まで残っていたため。
+//!   毎分の `mem` の行の `trims=` が前の行からの回数、`trimmed_mb=` が返した RSS の合計、`trim_ms=` がかかった時間の合計。
+//!   環境変数 `MEM_TRIM_AFTER_TASKS=0` で止まる (比べるとき・不具合のとき)。Linux の glibc のときだけ。
 use axum::{extract::Request, middleware::Next, response::Response};
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -60,6 +65,23 @@ static RECENT: LazyLock<Mutex<VecDeque<(String, Instant, Duration)>>> =
 static TASKS: LazyLock<Mutex<TaskBook>> = LazyLock::new(|| Mutex::new(TaskBook::default()));
 /// `mem task` の行の出し過ぎを防ぐ枠
 static TASK_BUDGET: LazyLock<Mutex<LogBudget>> = LazyLock::new(|| Mutex::new(LogBudget::default()));
+
+/// 重い裏の処理が終わったら、空きを OS に返す (`malloc_trim`)。`MEM_TRIM_AFTER_TASKS=0` で止まる
+const TRIM_AFTER_ELAPSED: Duration = Duration::from_secs(1);
+const TRIM_AFTER_BYTES: u64 = 16 * 1024 * 1024;
+static TRIM_ENABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("MEM_TRIM_AFTER_TASKS").map_or(true, |v| v.trim() != "0"));
+/// 重い処理が終わって、まだ返していない
+static TRIM_PENDING: AtomicBool = AtomicBool::new(false);
+/// 前の毎分の行からの (回数, 返した RSS のバイト, かかったマイクロ秒)
+static TRIM_DONE: LazyLock<Mutex<(u32, u64, u64)>> = LazyLock::new(|| Mutex::new((0, 0, 0)));
+
+/// 返す対象の重い処理か (時間がかかった、または RSS が大きく動いた)
+fn heavy(f: &FinishedTask) -> bool {
+    f.elapsed >= TRIM_AFTER_ELAPSED
+        || f.delta()
+            .is_some_and(|d| d.unsigned_abs() >= TRIM_AFTER_BYTES)
+}
 
 struct Guard {
     id: u64,
@@ -267,6 +289,9 @@ impl Drop for TaskGuard {
         let Some(finished) = book().end(self.id, rss_now(), now) else {
             return;
         };
+        if heavy(&finished) && trim_supported() && *TRIM_ENABLED {
+            TRIM_PENDING.store(true, Ordering::Relaxed);
+        }
         if let Some(reason) = log_reason(&finished) {
             let budget = TASK_BUDGET
                 .lock()
@@ -408,6 +433,16 @@ mod glibc {
     extern "C" {
         /// 全 arena を順にロックして、空きの塊を数える
         fn mallinfo2() -> Mallinfo2;
+        /// 全 arena の空きのページを OS に返す (返したら 1)
+        fn malloc_trim(pad: usize) -> std::os::raw::c_int;
+    }
+
+    pub(super) fn trim() {
+        // SAFETY: 引数 0 は「末尾に余白を残さない」。arena ごとにロックを取って空きのページを madvise で返すだけで、
+        // 使用中の塊には触らない。スレッドから呼んでよい (シグナルハンドラの中では呼ばない)。
+        unsafe {
+            malloc_trim(0);
+        }
     }
 
     pub(super) fn stats() -> MallocStats {
@@ -437,6 +472,36 @@ fn malloc_stats() -> Option<MallocStats> {
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn malloc_stats() -> Option<MallocStats> {
     None
+}
+
+/// 空きを OS に返せるか (Linux の glibc のときだけ)
+const fn trim_supported() -> bool {
+    cfg!(all(target_os = "linux", target_env = "gnu"))
+}
+
+/// 重い処理が終わっていたら、空きを OS に返す。arena のロックを順に取るので、非同期の実行スレッドでは呼ばない
+async fn trim_if_pending() {
+    if !TRIM_PENDING.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    let done = tokio::task::spawn_blocking(|| {
+        let before = rss_now();
+        let started = Instant::now();
+        #[cfg(all(target_os = "linux", target_env = "gnu"))]
+        glibc::trim();
+        let took_us = started.elapsed().as_micros() as u64;
+        let freed = before
+            .zip(rss_now())
+            .map_or(0, |(b, a)| b.saturating_sub(a));
+        (freed, took_us)
+    })
+    .await;
+    if let Ok((freed, took_us)) = done {
+        let mut t = TRIM_DONE.lock().unwrap_or_else(|e| e.into_inner());
+        t.0 += 1;
+        t.1 += freed;
+        t.2 += took_us;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +630,7 @@ fn log_minute(
     inflight: usize,
     (tasks, tasks_done): &(String, String),
     malloc: Option<&MallocStats>,
+    trims: Option<(u32, u64, u64)>,
 ) {
     tracing::info!(
         rss_mb = mb(now.rss),
@@ -581,6 +647,9 @@ fn log_minute(
         malloc_mmap_mb = malloc.map(|m| mb(m.mmapped)),
         malloc_arena_mb = malloc.map(|m| mb(m.arena)),
         malloc_stats_us = malloc.map(|m| m.took_us),
+        trims = trims.map(|t| t.0),
+        trimmed_mb = trims.map(|t| mb(t.1)),
+        trim_ms = trims.map(|t| t.2 / 1000),
         "mem"
     );
 }
@@ -598,6 +667,7 @@ pub fn spawn() {
         let mut interval = tokio::time::interval(SAMPLE_EVERY);
         loop {
             interval.tick().await;
+            trim_if_pending().await;
             let Some(now) = sample() else { continue };
             let at = Instant::now();
             // 割り当ての内訳は、行を出す回にだけ、最初に要った行のところで 1 回取る (急増の行と毎分の行が
@@ -620,11 +690,16 @@ pub fn spawn() {
             }
             if count.is_multiple_of(LOG_EVERY_SAMPLES) {
                 let inflight = INFLIGHT.lock().unwrap().len();
+                // 返した回数などは、返せる環境 (glibc) で有効なときだけ行に載せる
+                let trims = (trim_supported() && *TRIM_ENABLED).then(|| {
+                    std::mem::take(&mut *TRIM_DONE.lock().unwrap_or_else(|e| e.into_inner()))
+                });
                 log_minute(
                     &now,
                     inflight,
                     &task_activity(last_line, now.rss),
                     malloc.get_or_insert_with(malloc_stats).as_ref(),
+                    trims,
                 );
                 last_line = Some(at);
             }
@@ -643,6 +718,42 @@ mod tests {
 
     fn bytes(n: u64) -> Option<u64> {
         Some(n * MB)
+    }
+
+    #[test]
+    fn 重い処理だけを_空きを返す対象にする() {
+        let f = |ms: u64, before: u64, after: u64| FinishedTask {
+            name: "t",
+            ended: Instant::now(),
+            elapsed: Duration::from_millis(ms),
+            rss_before: bytes(before),
+            rss_after: bytes(after),
+        };
+        assert!(heavy(&f(1_000, 100, 100)), "1 秒かかった");
+        assert!(heavy(&f(10, 100, 116)), "16MB 増えた");
+        assert!(heavy(&f(10, 116, 100)), "16MB 減った");
+        assert!(
+            !heavy(&f(999, 100, 115)),
+            "速くて少ししか動かない周回は対象外"
+        );
+    }
+
+    #[test]
+    fn 毎分の行に_空きを返した回数と量と時間が載る() {
+        let now = Sample {
+            rss: 300 * MB,
+            ..Sample::default()
+        };
+        let none = (String::new(), String::new());
+        let text = captured(|| log_minute(&now, 0, &none, None, Some((3, 120 * MB, 45_000))));
+        assert!(text.contains("trims=3"), "{text}");
+        assert!(text.contains("trimmed_mb=120"), "{text}");
+        assert!(text.contains("trim_ms=45"), "{text}");
+        let text = captured(|| log_minute(&now, 0, &none, None, None));
+        assert!(
+            !text.contains("trims="),
+            "返せない環境・止めたときは項目ごと出さない: {text}"
+        );
     }
 
     #[test]
@@ -1027,11 +1138,11 @@ mod tests {
         assert!(text.contains("tasks= tasks_done="), "{text}");
 
         // 毎分の行: ある項目だけ出す
-        let text = captured(|| log_minute(&now, 2, &(String::new(), String::new()), None));
+        let text = captured(|| log_minute(&now, 2, &(String::new(), String::new()), None, None));
         assert!(text.contains("mem rss_mb=1100"), "{text}");
         assert!(text.contains("inflight=2"), "{text}");
         assert!(!text.contains("tasks"), "{text}");
-        let text = captured(|| log_minute(&now, 2, &tasks, None));
+        let text = captured(|| log_minute(&now, 2, &tasks, None, None));
         assert!(
             text.contains("inflight=2 tasks=job_copy.index_build 45123ms +612MB tasks_done="),
             "{text}"
@@ -1069,21 +1180,21 @@ mod tests {
         let malloc = malloc_sample();
 
         // 裏の処理があるとき: 今までの項目の後ろ (tasks_done= の後ろ) に 4 つ付く
-        let text = captured(|| log_minute(&now, 2, &tasks, Some(&malloc)));
+        let text = captured(|| log_minute(&now, 2, &tasks, Some(&malloc), None));
         assert!(
             text.contains(&format!("{head} {task_items} {MALLOC_ITEMS}")),
             "{text}"
         );
         assert!(text.trim_end().ends_with(MALLOC_ITEMS), "{text}");
         // 裏の処理が無いとき: inflight= の後ろに付く
-        let text = captured(|| log_minute(&now, 2, &none, Some(&malloc)));
+        let text = captured(|| log_minute(&now, 2, &none, Some(&malloc), None));
         assert!(text.contains(&format!("{head} {MALLOC_ITEMS}")), "{text}");
         // 内訳が無いとき (glibc 以外): 今までの行のまま、割り当ての項目は 1 つも出ない
-        let text = captured(|| log_minute(&now, 2, &tasks, None));
+        let text = captured(|| log_minute(&now, 2, &tasks, None, None));
         assert!(text.contains(&format!("{head} {task_items}")), "{text}");
         assert!(text.trim_end().ends_with(task_items), "{text}");
         assert!(!text.contains("malloc"), "{text}");
-        let text = captured(|| log_minute(&now, 2, &none, None));
+        let text = captured(|| log_minute(&now, 2, &none, None, None));
         assert!(text.trim_end().ends_with("inflight=2"), "{text}");
         assert!(!text.contains("malloc"), "{text}");
     }
@@ -1144,7 +1255,7 @@ mod tests {
             took_us: 7,
         };
         let none = (String::new(), String::new());
-        let text = captured(|| log_minute(&Sample::default(), 0, &none, Some(&m)));
+        let text = captured(|| log_minute(&Sample::default(), 0, &none, Some(&m), None));
         assert!(
             text.contains("malloc_inuse_mb=0 malloc_free_mb=1 malloc_mmap_mb=3 malloc_arena_mb=2 malloc_stats_us=7"),
             "{text}"
@@ -1160,7 +1271,7 @@ mod tests {
             ..Sample::default()
         };
         let none = (String::new(), String::new());
-        let text = captured(|| log_minute(&now, 0, &none, malloc_stats().as_ref()));
+        let text = captured(|| log_minute(&now, 0, &none, malloc_stats().as_ref(), None));
         assert!(text.contains("mem rss_mb=1100"), "{text}");
         assert!(!text.contains("malloc"), "{text}");
         let text = captured(|| log_jump(&now, &now, &none, &none, malloc_stats().as_ref()));
@@ -1191,7 +1302,7 @@ mod tests {
         assert_eq!(m.arena, m.in_use + m.free, "{m:?}");
         // 行にも出る
         let none = (String::new(), String::new());
-        let text = captured(|| log_minute(&Sample::default(), 0, &none, Some(&m)));
+        let text = captured(|| log_minute(&Sample::default(), 0, &none, Some(&m), None));
         assert!(
             text.contains(&format!(
                 "malloc_inuse_mb={} malloc_free_mb={} malloc_mmap_mb={} malloc_arena_mb={}",
