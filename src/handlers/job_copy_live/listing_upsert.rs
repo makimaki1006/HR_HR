@@ -74,10 +74,17 @@ pub(in crate::handlers::job_copy_live) async fn refresh_listing(
         )
         .await?;
     let page: Page = serde_json::from_value(data).map_err(|_| fail("hubspot_invalid_response"))?;
-    let record = page.results.into_iter().find(|r| r.id == id);
-    let mut row = record.as_ref().and_then(listing);
+    // 読めなかった (応答に無い) ときは索引に触らない。行を外すのは、読めたうえで行にならない求人
+    // (HRハッカーとリクロジの両方の ID を持つなど) のときだけ。
+    let record = page
+        .results
+        .into_iter()
+        .find(|r| r.id == id)
+        .ok_or_else(|| fail("hubspot_partial_read"))?;
+    let mut row = listing(&record);
     let mut new_deals = Vec::new();
-    if let (Some(row), Some(record)) = (row.as_mut(), record.as_ref()) {
+    if let Some(row) = row.as_mut() {
+        let record = &record;
         row.summary = summary(record, row.media);
         row.body_summary = Some(row.summary.clone());
         let ids = [id.to_owned()];
@@ -129,12 +136,21 @@ pub(in crate::handlers::job_copy_live) async fn refresh_listing(
             }
         }
     }
-    let update = Upsert {
+    let mut update = Upsert {
         row,
         deals: new_deals,
     };
     let mut state = service.listing_index.state.write().await;
     if state.refreshing {
+        // 同じ作り直しの間に同じ求人を 2 回更新したとき、1 回目に足した取引を引き継ぐ。
+        // (2 回目は 1 回目で今の索引に入った取引を「既知」と見て足さないが、作り直した索引には無いことがある。)
+        if let Some(previous) = state.listing_updates.get(id) {
+            for deal in &previous.deals {
+                if !update.deals.iter().any(|d| d.id == deal.id) {
+                    update.deals.push(deal.clone());
+                }
+            }
+        }
         state.listing_updates.insert(id.to_owned(), update.clone());
     }
     if let Some(index) = state.snapshot.as_mut() {
@@ -290,7 +306,12 @@ mod tests {
                 let reply = match (method, path.as_str()) {
                     (Method::POST, "/crm/v3/objects/0-420/batch/read") => {
                         assert_eq!(body["inputs"], json!([{"id":"900"}]));
-                        json!({"results":[{"id":"900","properties":props}]})
+                        if props.is_null() {
+                            // 読めなかった (アーカイブ済みなど): 結果に入らずエラーの行だけ返る。
+                            json!({"status":"COMPLETE","results":[],"errors":[{"category":"OBJECT_NOT_FOUND"}]})
+                        } else {
+                            json!({"results":[{"id":"900","properties":props}]})
+                        }
                     }
                     (Method::POST, "/crm/v4/associations/0-420/deals/batch/read") => {
                         json!({"results":[{"from":{"id":"900"},"to":[{"toObjectId":10},{"toObjectId":30}]}]})
@@ -399,13 +420,47 @@ mod tests {
             state.snapshot = Some(Arc::new(index()));
             state.refreshing = true;
         }
+        // 1 回目で取引 30 (索引に無かった) を足す。2 回目は 30 を既知と見て読まないが、1 回目の分を引き継ぐ。
+        refresh_listing(&service, "900", &[]).await.unwrap();
         refresh_listing(&service, "900", &[]).await.unwrap();
         let mut state = service.listing_index.state.write().await;
         let update = state.listing_updates.get("900").cloned().unwrap();
-        // 作り直しで読んだ索引 (900 を含まない) に当て直すと、900 が入る。
+        assert_eq!(
+            update
+                .deals
+                .iter()
+                .map(|d| d.id.as_str())
+                .collect::<Vec<_>>(),
+            ["30"]
+        );
+        // 作り直しで読んだ索引 (900 も取引 30 も含まない) に当て直すと、900 が取引 10・30 付きで入る。
         let mut rebuilt = index();
         apply(&mut rebuilt, "900", &update);
-        assert!(rebuilt.records.iter().any(|r| r.id == "900"));
+        let row = rebuilt.records.iter().find(|r| r.id == "900").unwrap();
+        assert_eq!(row.deal_ids, ["10", "30"]);
+        assert_eq!(
+            counts(&rebuilt),
+            [("10".into(), 3), ("20".into(), 1), ("30".into(), 1)]
+        );
         state.listing_updates.clear();
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_listing_is_an_error_and_leaves_the_index_alone() {
+        let (base, calls) = serve(Value::Null).await;
+        let service = JobReadService::for_test(base);
+        let mut start = index();
+        let mut pending = row("900", &["10"]);
+        pending.media = "reclogi";
+        start.records.push(pending);
+        start.deals[0].count = 3;
+        service.listing_index.state.write().await.snapshot = Some(Arc::new(start));
+        assert!(refresh_listing(&service, "900", &[]).await.is_err());
+        let state = service.listing_index.state.read().await;
+        let index = state.snapshot.as_ref().unwrap();
+        assert_eq!(index.records.iter().filter(|r| r.id == "900").count(), 1);
+        assert_eq!(counts(index), [("10".into(), 3), ("20".into(), 1)]);
+        assert!(state.listing_updates.is_empty());
+        assert_eq!(calls.lock().unwrap().len(), 1);
     }
 }

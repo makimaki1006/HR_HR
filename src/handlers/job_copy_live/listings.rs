@@ -887,15 +887,16 @@ pub(super) async fn refresh(
     state.refresh_failed = result.is_err();
     match result {
         Ok(mut index) => {
+            // 求人の差し替えを先に当て、その後で案の状態を当てる (差し替えた行にも案の状態が乗るように)。
+            for (id, update) in std::mem::take(&mut state.listing_updates) {
+                upsert::apply(&mut index, &id, &update);
+            }
             for row in &mut index.records {
                 if let Some(status) = state.draft_updates.get(&row.id) {
                     row.draft_status = Some(status.clone());
                 }
             }
             state.draft_updates.clear();
-            for (id, update) in std::mem::take(&mut state.listing_updates) {
-                upsert::apply(&mut index, &id, &update);
-            }
             let index = Arc::new(index);
             tracing::info!(
                 count = index.records.len(),
