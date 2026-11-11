@@ -61,6 +61,11 @@ impl AppCache {
         self.map.retain(|_, entry| now < entry.expires_at);
     }
 
+    /// 指定したキーだけを削除
+    pub fn remove(&self, key: &str) {
+        self.map.remove(key);
+    }
+
     /// 指定プレフィックスで始まるエントリを削除
     pub fn remove_prefix(&self, prefix: &str) {
         self.map.retain(|key, _| !key.starts_with(prefix));

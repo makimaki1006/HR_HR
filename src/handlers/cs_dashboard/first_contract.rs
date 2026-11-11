@@ -480,6 +480,38 @@ const PROPS: [&str; 3] = [
     "shokai_mtg_mokuhyou_zenshin",
     "shokai_mtg_mokuhyou_data",
 ];
+/// 夜のバッチ (first_mtg_goals.py の goal_line) と画面 (firstGoalsModel.ts の goalLine) と同じ形の 1 行
+fn goal_line(goal: &Value) -> String {
+    let text = |key: &str| goal[key].as_str().unwrap_or("").trim().to_string();
+    let target = text("target");
+    let by_when = text("by_when");
+    format!(
+        "{}{}／{}",
+        text("what"),
+        if target.is_empty() {
+            String::new()
+        } else {
+            format!("（{target}）")
+        },
+        if by_when.is_empty() {
+            "契約期間中".to_string()
+        } else {
+            by_when
+        }
+    )
+}
+
+fn goals_text(goals: &Value, kind: &str) -> String {
+    goals
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|g| g["kind"] == kind)
+        .map(goal_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn summarize(props: &std::collections::BTreeMap<String, Option<String>>) -> Value {
     let value = |key: &str| props.get(key).and_then(|s| s.as_deref()).unwrap_or("");
     let short = |key: &str| {
@@ -496,15 +528,26 @@ fn summarize(props: &std::collections::BTreeMap<String, Option<String>>) -> Valu
             })
             .unwrap_or_else(|| "未入力".into())
     };
+    // HubSpot で文だけ直された (JSON から作った文と今の文が違う) 取引は、案件管理と同じく確定済みとして扱う
     let draft = serde_json::from_str::<Value>(value(PROPS[2]))
         .ok()
-        .is_some_and(|v| v["status"] == "draft");
+        .is_some_and(|v| {
+            v["status"] == "draft"
+                && goals_text(&v["goals"], "ideal") == value(PROPS[0]).trim()
+                && goals_text(&v["goals"], "minimum") == value(PROPS[1]).trim()
+        });
     json!({"ideal": short(PROPS[0]), "minimum": short(PROPS[1]), "draft": draft, "failed": false})
 }
 
 fn goals_cache() -> &'static crate::db::cache::AppCache {
     static CACHE: OnceLock<crate::db::cache::AppCache> = OnceLock::new();
     CACHE.get_or_init(|| crate::db::cache::AppCache::new(300, 2000))
+}
+
+/// 案件管理などから目標を保存したとき、その取引の分だけ捨てる (次の一覧の表示で読み直す)。
+/// HubSpot の画面で直した分はこのキャッシュの期限 (5 分) で反映される。
+pub fn forget_goals(deal_id: &str) {
+    goals_cache().remove(deal_id);
 }
 
 /// 目標だけ5分のプロセス内キャッシュ（最大2000件）。取得失敗は保存しない。
@@ -1032,6 +1075,70 @@ mod tests {
     }
 
     #[test]
+    fn 目標の文はバッチの_goal_line_と同じ形() {
+        assert_eq!(
+            goal_line(
+                &json!({"what":"合成ドライバーを採用する","target":"2名","by_when":"2027/01まで"})
+            ),
+            "合成ドライバーを採用する（2名）／2027/01まで"
+        );
+        assert_eq!(
+            goal_line(&json!({"what":" 応募を集める ","target":"","by_when":"契約期間中"})),
+            "応募を集める／契約期間中"
+        );
+        assert_eq!(
+            goal_line(&json!({"what":"面接を入れる","target":"月3件","by_when":""})),
+            "面接を入れる（月3件）／契約期間中"
+        );
+    }
+
+    #[test]
+    fn hubspot_で文だけ直された案は案として出さない() {
+        let data = json!({"v":1,"status":"draft","goals":[
+            {"kind":"ideal","what":"合成ドライバーを採用する","target":"2名","by_when":"2027/01まで"},
+            {"kind":"minimum","what":"応募を集める","target":"","by_when":""}
+        ]})
+        .to_string();
+        let props = |ideal: &str| {
+            std::collections::BTreeMap::from([
+                (PROPS[0].to_string(), Some(ideal.to_string())),
+                (
+                    PROPS[1].to_string(),
+                    Some("応募を集める／契約期間中".to_string()),
+                ),
+                (PROPS[2].to_string(), Some(data.clone())),
+            ])
+        };
+        assert_eq!(
+            summarize(&props("合成ドライバーを採用する（2名）／2027/01まで"))["draft"],
+            true
+        );
+        assert_eq!(
+            summarize(&props("合成ドライバーを3名採用する／2027/03まで"))["draft"],
+            false
+        );
+    }
+
+    #[test]
+    fn 目標を保存した取引の分だけキャッシュを捨てる() {
+        goals_cache().set(
+            "89999999971".into(),
+            json!({"ideal":"保存前","failed":false}),
+        );
+        goals_cache().set(
+            "899999999712".into(),
+            json!({"ideal":"別の取引","failed":false}),
+        );
+        forget_goals("89999999971");
+        assert!(goals_cache().get("89999999971").is_none());
+        assert_eq!(
+            goals_cache().get("899999999712").unwrap()["ideal"],
+            "別の取引"
+        );
+        goals_cache().remove_prefix("89999999971");
+    }
+
+    #[test]
     fn 初回だけを整列し期限超過は今日の候補と表示にも入る() {
         let mut sh = sheets();
         let mut rows = vec![];
@@ -1165,12 +1272,21 @@ mod tests {
     #[test]
     fn 目標は先頭行を短くし案と空欄を返す() {
         let p = std::collections::BTreeMap::from([
-            (PROPS[0].into(), Some("\n 採用を2名増やす\n次の目標".into())),
-            (PROPS[2].into(), Some(r#"{"status":"draft"}"#.into())),
+            (
+                PROPS[0].into(),
+                Some("\n 採用を2名増やす／契約期間中\n次の目標／契約期間中".into()),
+            ),
+            (
+                PROPS[2].into(),
+                Some(
+                    r#"{"status":"draft","goals":[{"kind":"ideal","what":"採用を2名増やす"},{"kind":"ideal","what":"次の目標"}]}"#
+                        .into(),
+                ),
+            ),
         ]);
         assert_eq!(
             summarize(&p),
-            json!({"ideal":"採用を2名増やす","minimum":"未入力","draft":true,"failed":false})
+            json!({"ideal":"採用を2名増やす／契約期間中","minimum":"未入力","draft":true,"failed":false})
         );
         let p = std::collections::BTreeMap::from([(PROPS[0].into(), Some("あ".repeat(80)))]);
         assert_eq!(summarize(&p)["ideal"].as_str().unwrap().chars().count(), 61);
