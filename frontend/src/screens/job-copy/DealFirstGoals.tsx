@@ -59,34 +59,45 @@ export function DealFirstGoals({ dealId, onSaved, refreshMs = GOALS_REFRESH_MS }
   const editingRef = useRef(false);
   useEffect(() => { editingRef.current = editing || opening; }, [editing, opening]);
 
+  const busyRef = useRef(false);
+  const stateRef = useRef<Loaded | null>(null);
+  useEffect(() => { stateRef.current = state; }, [state]);
+
   /** HubSpot の今の値を読む。`fresh` ならサーバのキャッシュを使わない。`quiet` なら失敗しても表示を変えない */
   const load = useCallback(async (fresh: boolean, quiet: boolean): Promise<Loaded | null> => {
     ctlRef.current?.abort();
     const ctl = new AbortController();
     ctlRef.current = ctl;
+    busyRef.current = true;
     const fail = () => { if (!ctl.signal.aborted && !quiet) setError('初回MTGの目標を取得できませんでした。再読み込みしてください。'); return null; };
-    let props = propsRef.current?.dealId === dealId ? propsRef.current.props : null;
-    if (!props) {
-      const catalog = await apiGet<CrmPropertyCatalogResponse>('/api/crm/property-catalog', { signal: ctl.signal, timeoutMs: 35_000 });
-      if (!catalog.ok || !Array.isArray(catalog.data.objects)) return fail();
-      const known = new Set(catalog.data.objects.find(object => object.object_type === 'deals')?.groups.flatMap(group => group.properties.map(prop => prop.name)) ?? []);
-      props = GOAL_PROP_NAMES.filter(name => known.has(name));
-      if (props.length < GOAL_PROP_NAMES.length) {
-        if (ctl.signal.aborted) return null;
-        const missing = { values: {}, fetchedAt: '', pipeline: '', missing: true };
-        setState(missing);
-        return missing;
+    try {
+      let props = propsRef.current?.dealId === dealId ? propsRef.current.props : null;
+      if (!props) {
+        const catalog = await apiGet<CrmPropertyCatalogResponse>('/api/crm/property-catalog', { signal: ctl.signal, timeoutMs: 35_000 });
+        if (!catalog.ok || !Array.isArray(catalog.data.objects)) return fail();
+        const known = new Set(catalog.data.objects.find(object => object.object_type === 'deals')?.groups.flatMap(group => group.properties.map(prop => prop.name)) ?? []);
+        props = GOAL_PROP_NAMES.filter(name => known.has(name));
+        if (props.length < GOAL_PROP_NAMES.length) {
+          if (ctl.signal.aborted) return null;
+          const missing = { values: {}, fetchedAt: '', pipeline: '', missing: true };
+          setState(missing);
+          return missing;
+        }
+        propsRef.current = { dealId, props };
       }
-      propsRef.current = { dealId, props };
+      const query = new URLSearchParams({ deal_props: props.join(','), ...(fresh ? { fresh: '1' } : {}) });
+      const detail = await apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(dealId)}?${query}`, { signal: ctl.signal, timeoutMs: 35_000 });
+      if (ctl.signal.aborted) return null;
+      if (!detail.ok || detail.data.partial.some(part => part.part === 'selected_properties')) return fail();
+      const loaded = { values: { ...detail.data.selected.deal }, fetchedAt: detail.data.fetched_at, pipeline: detail.data.deal.pipeline_id ?? '', missing: false };
+      setState(loaded);
+      setError('');
+      return loaded;
+    } catch {
+      return fail();
+    } finally {
+      if (ctlRef.current === ctl) busyRef.current = false;
     }
-    const query = new URLSearchParams({ deal_props: props.join(','), ...(fresh ? { fresh: '1' } : {}) });
-    const detail = await apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(dealId)}?${query}`, { signal: ctl.signal, timeoutMs: 35_000 });
-    if (ctl.signal.aborted) return null;
-    if (!detail.ok || detail.data.partial.some(part => part.part === 'selected_properties')) return fail();
-    const loaded = { values: { ...detail.data.selected.deal }, fetchedAt: detail.data.fetched_at, pipeline: detail.data.deal.pipeline_id ?? '', missing: false };
-    setState(loaded);
-    setError('');
-    return loaded;
   }, [dealId]);
 
   useEffect(() => {
@@ -98,8 +109,13 @@ export function DealFirstGoals({ dealId, onSaved, refreshMs = GOALS_REFRESH_MS }
   // HubSpot の画面で直された値を取り込む: 画面に戻ったときはすぐ読み直し、開いたままなら一定の間隔で読む。編集中は読まない
   useEffect(() => {
     const visible = () => document.visibilityState === 'visible';
-    const onVisible = () => { if (visible() && !editingRef.current) void load(true, true); };
-    const timer = setInterval(() => { if (visible() && !editingRef.current) void load(false, true); }, refreshMs);
+    // 読み込み中は重ねて読まない (進行中の読み込みを止めない)。まだ一度も読めていなければ、失敗も表示する通常の読み込みにする
+    const refresh = (fresh: boolean) => {
+      if (!visible() || editingRef.current || busyRef.current) return;
+      void load(fresh, stateRef.current !== null);
+    };
+    const onVisible = () => { refresh(true); };
+    const timer = setInterval(() => { refresh(false); }, refreshMs);
     document.addEventListener('visibilitychange', onVisible);
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
   }, [load, refreshMs]);
@@ -123,14 +139,20 @@ export function DealFirstGoals({ dealId, onSaved, refreshMs = GOALS_REFRESH_MS }
   // 編集を始める前に HubSpot の今の値を読み直し、その値を「編集を始めたときの値」(base) にする
   const startEdit = () => {
     setOpening(true);
-    void load(true, false).then(loaded => {
-      setOpening(false);
-      if (!loaded || loaded.missing) return;
-      const current = readGoals(loaded.values);
-      setBase(loaded.values);
-      setRows(current?.goals.length ? current.goals.map(goal => ({ ...goal })) : [emptyGoal('ideal'), emptyGoal('minimum')]);
-      setEditing(true);
-    });
+    void (async () => {
+      try {
+        const loaded = await load(true, false);
+        if (!loaded || loaded.missing) return;
+        const current = readGoals(loaded.values);
+        setBase(loaded.values);
+        setRows(current?.goals.length ? current.goals.map(goal => ({ ...goal })) : [emptyGoal('ideal'), emptyGoal('minimum')]);
+        setEditing(true);
+      } catch {
+        setError('初回MTGの目標を取得できませんでした。再読み込みしてください。');
+      } finally {
+        setOpening(false);
+      }
+    })();
   };
   const setRow = (index: number, patch: Partial<Goal>) => { setRows(prev => prev.map((row, i) => (i === index ? { ...row, ...patch } : row))); };
   const problems = goalProblems(rows);

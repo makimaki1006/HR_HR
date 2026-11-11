@@ -87,7 +87,7 @@ describe('初回MTGの目標の読み書き', () => {
 });
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-function mockApi(values: Record<string, string | null>, withProps = true, conflictWith?: Record<string, string | null>) {
+function mockApi(values: Record<string, string | null>, withProps = true, conflictWith?: Record<string, string | null>, delayFirstReadMs = 0) {
   const patches: ReturnType<typeof buildPatchBody>[] = [];
   const reads: string[] = [];
   const goalProps = Object.values(GOAL_PROPS).map(name => ({ ...contractCatalog.objects[0]?.groups[0]?.properties[0], name, label: name, property_type: 'string', field_type: 'textarea', options: [] }));
@@ -96,11 +96,27 @@ function mockApi(values: Record<string, string | null>, withProps = true, confli
   vi.stubGlobal('fetch', vi.fn((url: string, options?: RequestInit) => {
     if (url.includes('property-catalog')) return Promise.resolve(response(catalog));
     if (url.includes('edit-schema')) return Promise.resolve(response({ ...schema, pipeline_id: '21596025', writes_enabled: true }));
-    if (url.includes('workspace/deals')) { reads.push(url); const detail = contractDetail(contractValues, '21596025'); return Promise.resolve(response({ ...detail, selected: { ...detail.selected, deal: values } })); }
+    if (url.includes('workspace/deals')) {
+      reads.push(url);
+      const detail = contractDetail(contractValues, '21596025');
+      const body = response({ ...detail, selected: { ...detail.selected, deal: { ...values } } });
+      const signal = options?.signal;
+      if (reads.length === 1 && delayFirstReadMs > 0) {
+        return new Promise<Response>((resolve, reject) => {
+          const timer = setTimeout(() => { resolve(body); }, delayFirstReadMs);
+          signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('中断', 'AbortError')); });
+        });
+      }
+      return Promise.resolve(body);
+    }
     if (options?.method === 'PATCH') {
       const body = JSON.parse(typeof options.body === 'string' ? options.body : '') as ReturnType<typeof buildPatchBody>;
       patches.push(body);
-      if (conflictWith) return Promise.resolve(response({ status: 'conflict', object: 'deal', current: { ...body.set, ...conflictWith }, changed_by_hubspot: Object.keys(conflictWith) }, 409));
+      // HubSpot の今の値で 1 回だけ競合にする (サーバは送った全項目の今の値を返す)
+      if (conflictWith && patches.length === 1) {
+        Object.assign(values, conflictWith);
+        return Promise.resolve(response({ status: 'conflict', object: 'deal', current: Object.fromEntries(Object.keys(body.set).map(key => [key, values[key] ?? null])), changed_by_hubspot: Object.keys(conflictWith) }, 409));
+      }
       Object.assign(values, body.set);
       return Promise.resolve(response({ status: 'saved', operation_id: body.operation_id, values: body.set, objects_values: {} }));
     }
@@ -230,5 +246,74 @@ describe('初回MTGの目標の両方向の反映', () => {
     document.dispatchEvent(new Event('visibilitychange'));
     await waitFor(() => { expect(patches.reads.length).toBeGreaterThan(before); });
     expect(patches.reads.some(url => !url.includes('fresh=1'))).toBe(true);
+  });
+});
+
+describe('初回MTGの目標の追加の確かめ', () => {
+  const confirmed: GoalData = { ...draft, status: 'confirmed', goals: draft.goals.filter(goal => goal.kind !== 'unclassified') };
+  it('文の形は夜のバッチの goal_line と同じ（数あり・数なし・期限が空）', () => {
+    // 同じ例と期待値を src/handlers/cs_dashboard/first_contract.rs のテストでも使う
+    expect(goalLine({ kind: 'ideal', what: '合成ドライバーを採用する', target: '2名', by_when: '2027/01まで' })).toBe('合成ドライバーを採用する（2名）／2027/01まで');
+    expect(goalLine({ kind: 'minimum', what: ' 応募を集める ', target: '', by_when: '契約期間中' })).toBe('応募を集める／契約期間中');
+    expect(goalLine({ kind: 'minimum', what: '面接を入れる', target: '月3件', by_when: '' })).toBe('面接を入れる（月3件）／契約期間中');
+  });
+  it('確定してもバッチが書いた項目を残す。直した目標の分だけは残さない', () => {
+    const raw = {
+      v: 1, status: 'draft', extracted_at: '2026-10-20T00:00:00Z',
+      goals: [
+        { kind: 'ideal', what: '合成ドライバーを採用する', target: '2名', by_when: '契約期間中', label: '採用', subject: '合成ドライバー', metric: 'hires' },
+        { kind: 'minimum', what: '応募を集める', target: '4件', by_when: '契約期間中', label: '応募', subject: '合成ドライバー', metric: 'applications' },
+      ],
+      meeting: { start_jst: '2026-10-19 10:55', sources: ['transcript'] },
+    };
+    const values = { [GOAL_PROPS.ideal]: '合成ドライバーを採用する（2名）／契約期間中', [GOAL_PROPS.minimum]: '応募を集める（4件）／契約期間中', [GOAL_PROPS.data]: JSON.stringify(raw) };
+    const read = readGoals(values);
+    if (!read) throw new Error('読めません');
+    const goals = read.goals.map(goal => (goal.kind === 'minimum' ? { ...goal, target: '6件' } : goal));
+    const saved = JSON.parse(JSON.stringify(confirmedData(goals, read, new Date('2026-10-23T00:00:00Z')))) as Record<string, unknown> & { goals: Record<string, unknown>[] };
+    expect(saved.extracted_at).toBe('2026-10-20T00:00:00Z');
+    expect(saved.status).toBe('confirmed');
+    expect(saved.goals[0]).toMatchObject({ label: '採用', subject: '合成ドライバー', metric: 'hires' });
+    expect(saved.goals[1]).toEqual({ kind: 'minimum', what: '応募を集める', target: '6件', by_when: '契約期間中' });
+    expect(saved).not.toHaveProperty('extra');
+    expect(saved.goals[0]).not.toHaveProperty('origin');
+    // そのまま確定しても項目は残る
+    const asIs = JSON.parse(JSON.stringify(confirmDraft(read, new Date('2026-10-23T00:00:00Z')))) as { goals: Record<string, unknown>[] };
+    expect(asIs.goals[1]).toMatchObject({ metric: 'applications' });
+  });
+  it('「上書きして保存」は base を HubSpot の今の 3 項目に替え、値は入力のまま送る', async () => {
+    const hubspotNow = '面接を月5件入れる（5件）／2027/03まで';
+    const patches = mockApi({ ...stored(confirmed) }, true, { [GOAL_PROPS.minimum]: hubspotNow });
+    render(<DealFirstGoals dealId="901" />);
+    fireEvent.click(await screen.findByRole('button', { name: '訂正' }));
+    fireEvent.change(firstOf(await screen.findAllByLabelText('数')), { target: { value: '6名' } });
+    fireEvent.click(screen.getByRole('button', { name: '確定して保存' }));
+    fireEvent.click(await screen.findByRole('button', { name: '今の目標を上書きして、入力した目標で保存' }));
+    await waitFor(() => { expect(patches).toHaveLength(2); });
+    const [first, second] = patches;
+    expect(second?.base).toEqual({ ...stored(confirmed), [GOAL_PROPS.minimum]: hubspotNow });
+    expect(second?.set).toEqual(first?.set);
+    expect(second?.set[GOAL_PROPS.ideal]).toBe('合成ドライバーの応募を集める（6名）／契約期間中');
+  });
+  it('編集中は読み直さない', async () => {
+    const values: Record<string, string | null> = { ...stored(confirmed) };
+    const patches = mockApi(values);
+    render(<DealFirstGoals dealId="901" refreshMs={30} />);
+    fireEvent.click(await screen.findByRole('button', { name: '訂正' }));
+    await screen.findByRole('button', { name: '確定して保存' });
+    const before = patches.reads.length;
+    values[GOAL_PROPS.minimum] = '面接を月9件入れる（9件）／契約期間中';
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise(resolve => setTimeout(resolve, 200));
+    expect(patches.reads.length).toBe(before);
+    expect(screen.queryByText('面接を月9件入れる（9件）／契約期間中')).toBeNull();
+  });
+  it('最初の読み込み中に画面に戻っても、読み込みを止めずに表示まで進む', async () => {
+    const patches = mockApi({ ...stored(confirmed) }, true, undefined, 150);
+    render(<DealFirstGoals dealId="901" refreshMs={30} />);
+    await waitFor(() => { expect(patches.reads.length).toBe(1); });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(await screen.findByRole('button', { name: '訂正' }, { timeout: 2000 })).toBeTruthy();
+    expect(screen.queryByText('初回MTGの目標を読み込んでいます…')).toBeNull();
   });
 });

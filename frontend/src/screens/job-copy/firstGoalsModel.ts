@@ -23,7 +23,13 @@ export const KIND_NOTE: Record<GoalKind, string> = {
   unclassified: 'MTGからはどちらか決められませんでした。マインド目標かコミット目標を選んでください。',
 };
 
-export interface Goal { kind: GoalKind; what: string; target: string; by_when: string; notes?: string[] }
+export interface Goal {
+  kind: GoalKind; what: string; target: string; by_when: string; notes?: string[];
+  /** バッチが書いた画面で使わない項目 (label / subject / metric など)。目標を直さなければ確定のときもそのまま残す */
+  extra?: Record<string, unknown>;
+  /** 読んだときの区分と文。これと違えば直した目標とみなし、extra を残さない */
+  origin?: string;
+}
 export interface GoalMeeting { start_jst?: string; topic?: string; sources?: string[]; notes?: string[] }
 export interface GoalData {
   v: 1;
@@ -33,7 +39,17 @@ export interface GoalData {
   notes?: string[];
   meeting?: GoalMeeting;
   updated_at?: string;
+  /** バッチが書いた画面で使わない項目 (extracted_at など)。確定のときもそのまま残す */
+  extra?: Record<string, unknown>;
 }
+
+const GOAL_KEYS = new Set(['kind', 'what', 'target', 'by_when', 'notes']);
+const DATA_KEYS = new Set(['v', 'status', 'goals', 'notes', 'meeting', 'updated_at']);
+function rest(value: object, known: Set<string>): Record<string, unknown> | undefined {
+  const out = Object.fromEntries(Object.entries(value).filter(([key]) => !known.has(key)));
+  return Object.keys(out).length ? out : undefined;
+}
+const originOf = (goal: Goal) => `${goal.kind}\u0000${goalLine(goal)}`;
 
 const SOURCE_LABEL: Record<string, string> = {
   transcript: 'Zoom の文字起こし', asr: '録音の音声認識', summary: 'Zoom AI Companion の要約', slide: '画面に映した目標の資料',
@@ -78,16 +94,21 @@ function parseData(rawText: string | null | undefined): GoalData | null {
   try {
     const raw = JSON.parse(rawText ?? '') as Partial<GoalData> | null;
     if (!raw || !Array.isArray(raw.goals)) return null;
+    const extra = rest(raw, DATA_KEYS);
     return {
       v: 1,
       status: raw.status === 'draft' ? 'draft' : 'confirmed',
       goals: raw.goals.flatMap(item => {
         const goal = item as Partial<Goal> | null;
-        return goal && text(goal.what).trim() ? [{ kind: isKind(goal.kind) ? goal.kind : 'unclassified', what: text(goal.what), target: text(goal.target), by_when: text(goal.by_when), ...(goalNotes(goal.notes).length ? { notes: goalNotes(goal.notes) } : {}) }] : [];
+        if (!goal || typeof goal !== 'object' || !text(goal.what).trim()) return [];
+        const read: Goal = { kind: isKind(goal.kind) ? goal.kind : 'unclassified', what: text(goal.what), target: text(goal.target), by_when: text(goal.by_when), ...(goalNotes(goal.notes).length ? { notes: goalNotes(goal.notes) } : {}) };
+        const extra = rest(goal, GOAL_KEYS);
+        return [{ ...read, ...(extra ? { extra } : {}), origin: originOf(read) }];
       }),
       ...(goalNotes(raw.notes).length ? { notes: goalNotes(raw.notes) } : {}),
       ...(raw.meeting ? { meeting: raw.meeting } : {}),
       ...(raw.updated_at ? { updated_at: raw.updated_at } : {}),
+      ...(extra ? { extra } : {}),
     };
   } catch { return null; }
 }
@@ -119,6 +140,7 @@ export function readGoals(values: PropValues): GoalData | null {
     goals,
     ...(parsed && goalDisplayNotes(values).length ? { notes: goalDisplayNotes(values) } : {}),
     ...(parsed?.meeting ? { meeting: parsed.meeting } : {}),
+    ...(parsed?.extra ? { extra: parsed.extra } : {}),
   };
 }
 
@@ -142,14 +164,20 @@ export function goalWarnings(goals: Goal[]): string[] {
 
 /** 確定として保存する。いつまでが空なら「契約期間中」を入れる。 */
 export function confirmedData(goals: Goal[], previous: GoalData | null, now: Date): GoalData {
-  return {
-    v: 1,
-    status: 'confirmed',
-    goals: goals.map(goal => ({ kind: goal.kind, what: goal.what.trim(), target: goal.target.trim(), by_when: goal.by_when.trim() || DEFAULT_BY_WHEN, ...(goal.notes ? { notes: goal.notes } : {}) })),
+  // バッチが書いた項目 (extracted_at、目標ごとの label / subject / metric など) は残す。直した目標の分は残さない
+  const data = {
+    ...previous?.extra,
+    v: 1 as const,
+    status: 'confirmed' as const,
+    goals: goals.map(goal => ({
+      ...(goal.extra && goal.origin === originOf(goal) ? goal.extra : {}),
+      kind: goal.kind, what: goal.what.trim(), target: goal.target.trim(), by_when: goal.by_when.trim() || DEFAULT_BY_WHEN, ...(goal.notes ? { notes: goal.notes } : {}),
+    })),
     ...(previous?.notes ? { notes: previous.notes } : {}),
     ...(previous?.meeting ? { meeting: previous.meeting } : {}),
     updated_at: now.toISOString(),
   };
+  return data;
 }
 
 /** 案を直さずにそのまま確定する。 */

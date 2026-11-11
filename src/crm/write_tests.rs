@@ -802,6 +802,21 @@ async fn 不通へ移すには_bpo_10_が必須で_あれば_dealstage_と一緒
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn 値を変えない項目でも_hubspot_の今の値が_base_と違えば_409() {
+    let e = env().await;
+    // 初回MTGの目標と同じ使い方: 変えない項目も「見た値」のまま送り、HubSpot で直されていれば止める
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-same-00001",
+            "base": {"bpo_50": "見たメモ", "bpo_13": ""},
+            "set": {"bpo_50": "見たメモ", "bpo_13": "2026-10-12"}}))
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["current"]["bpo_50"], "旧メモ");
+    assert_eq!(v["changed_by_hubspot"], json!(["bpo_50"]));
+    assert_eq!(e.calls("PATCH"), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn hubspot_の値が_base_と違えば_409_で上書きしない() {
     let e = env().await;
     // 利用者は「別のメモ」を見ていたが、HubSpot は「旧メモ」

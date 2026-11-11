@@ -2656,6 +2656,8 @@ pub async fn process_op(
                 attempts,
             )
             .await;
+            // 再送で書けたときも、コンサルKPIの初回契約の目標のキャッシュを捨てる (応募の ID なら何も無い)
+            crate::handlers::cs_dashboard::first_contract::forget_goals(&row.deal_id);
             log("saved_by_retry".into(), run.changes).await;
         }
         Err(Stop::Transient(e)) => {
