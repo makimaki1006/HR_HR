@@ -92,8 +92,13 @@ COPY scripts/pdf/render.cjs scripts/pdf/render.cjs
 #
 # ランタイムに載せるのは rust_dashboard 1 本だけ。--bin を付けないと
 # src/bin/ の 10 本 (probe_* / gen_vrt_fixtures 等) も一緒にビルド・リンクされる。
+#
+# -j 4: アプリ本体のコンパイルの並列数を絞り、Render のビルド機の上限 (8GB) に収める。
+# 2026-11-11 に #442・#441 のデプロイが 2 回続けて「Ran out of memory (used over 8GB)」で失敗した。
+# 手元 (15 コア) の実測で、最大メモリは 並列数指定なし 8.97GB / -j 4 6.66GB / -j 2 6.14GB、
+# 時間は 1分24秒 / 2分24秒 / 3分45秒。#440 の版も 8.94GB で、境目で成功・失敗が揺れていた。
 RUN touch src/main.rs src/lib.rs \
-    && cargo build --release --locked --bin rust_dashboard
+    && cargo build --release --locked -j 4 --bin rust_dashboard
 
 # ===== ランタイムステージ =====
 FROM debian:bookworm-slim
