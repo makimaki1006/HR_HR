@@ -636,6 +636,14 @@ async fn companies_or_refresh(
     state.map.clone()
 }
 
+/// テスト用: 事業所の対応表をすでに読んだ状態にする（HubSpot を読まない）。
+#[cfg(test)]
+pub(super) async fn seed_companies(service: &JobReadService, index: &Index, mut map: CompanyMap) {
+    map.built_for = index.built_at.clone();
+    map.at = Some(StdInstant::now());
+    service.listing_index.home.companies.lock().await.map = Some(Arc::new(map));
+}
+
 pub(super) async fn prefetch(service: &JobReadService, index: &Arc<Index>) {
     companies_or_refresh(service, index).await;
 }

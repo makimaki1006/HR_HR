@@ -41,3 +41,4 @@
 .cr-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0 0 12px; font-size: 13px; color: #33475b; }
 .jc-page .cr-scope label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 500; white-space: nowrap; }
 .jc-page .cr-scope input[type=checkbox] { width: auto; margin: 0; }
+.cm-owner-note { margin:6px 0 0; font-size:13px; color:#475569; }

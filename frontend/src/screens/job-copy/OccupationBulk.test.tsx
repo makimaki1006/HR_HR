@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../../api/client';
-import { OccupationBulk } from './OccupationBulk';
+import { OccupationBulk, periodLabel } from './OccupationBulk';
+import { ConsultantMenu } from './ConsultantMenu';
+import { updateJobCopyQuery } from './navigation';
 
 const get = vi.hoisted(() => vi.fn());
 const put = vi.hoisted(() => vi.fn());
@@ -10,10 +12,11 @@ vi.mock('../../api/client', async importOriginal => ({ ...await importOriginal<t
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const titles = ['配送ドライバー', '看護師'];
-const row = (id: string, title: string, apps: number, state: 'set' | 'none' | 'unset', pub = '公開中') => ({
-  id, media: 'hrh', media_job_id: `J-${id}`, account_id: null, title, prefecture: '大分県', municipality: null, category: null,
+const row = (id: string, title: string, apps: number, state: 'set' | 'none' | 'unset', pub = '公開中', media = 'hrh') => ({
+  id, media, media_job_id: `J-${id}`, account_id: null, title, prefecture: '大分県', municipality: null, category: null,
   indeed_title: state === 'set' ? '看護師' : null, indeed_title_state: state, publication_status: pub, last_csv_detected_at: null,
-  application_count: apps, summary: { occupation: `${title}の職種`, location: null, salary_kind: null, salary_min: null, salary_max: null, hours: null, holidays: null, body_changed_at: null },
+  application_count: 999, recent_performance: { period_start: '2026-10-13', period_end: '2026-11-09', applications: apps, cost_yen: null },
+  summary: { occupation: `${title}の表示名`, job_kind: `${title}の職種`, location: null, salary_kind: null, salary_min: null, salary_max: null, hours: null, holidays: null, body_changed_at: null },
 });
 const page = (listings: unknown[], counts: { set: number; none: number; unset: number }, extra: object = {}) => ({
   status: 'ready', listings, total: listings.length, index_built_at: 'x', offset: 0, next_offset: null, titles, refreshing: false, refresh_failed: false, indeed_title_counts: counts, ...extra,
@@ -39,8 +42,13 @@ describe('OccupationBulk', () => {
     expect(listCalls()[0]).toBe('/api/job-copy/listings?owner=me&sort=bulk&offset=0&indeed_state=unset');
     const input = await screen.findByLabelText('配送A と比べる Indeed の職種');
     expect((input as HTMLInputElement).value).toBe('');
-    expect(screen.getByText('20 件')).toBeTruthy();
-    expect(screen.getByText('配送Aの職種')).toBeTruthy();
+    // 直近4週の応募（全期間の 999 件ではない）と、手がかり 2 つ。
+    const tr = input.closest('tr') as HTMLElement;
+    // 期間を件数の横に常に出す（今年でなければ年も付く）。
+    expect(tr.querySelector('.ob-num')?.textContent).toMatch(/^20 件（(2026\/)?10\/13〜(2026\/)?11\/09）$/u);
+    expect(screen.queryByText(/999 件/u)).toBeNull();
+    expect(within(tr).getByText('求人票の職種').nextElementSibling?.textContent).toBe('配送Aの職種');
+    expect(within(tr).getByText('Indeed 表示職種名').nextElementSibling?.textContent).toBe('配送Aの表示名');
     await waitFor(() => { expect(screen.getByText(/架空顧客A/u)).toBeTruthy(); });
   });
 
@@ -100,7 +108,95 @@ describe('OccupationBulk', () => {
     expect(await screen.findByText('指定済み', { selector: '.mo-chip' })).toBeTruthy();
     expect(screen.getAllByRole('button', { name: '指定済み' }).every(b => (b as HTMLButtonElement).disabled)).toBe(true);
     fireEvent.click(screen.getByRole('tab', { name: 'すべて（10）' }));
-    fireEvent.change(screen.getByPlaceholderText('求人名で探す'), { target: { value: '看護' } });
+    fireEvent.change(screen.getByPlaceholderText('求人名・顧客名で探す'), { target: { value: '看護' } });
     await waitFor(() => { expect(listCalls().at(-1)).toBe('/api/job-copy/listings?owner=me&sort=bulk&offset=0&q=%E7%9C%8B%E8%AD%B7'); });
+  });
+
+  it('AirWork は求人票の職種だけ、実績の無い求人は「—」', async () => {
+    const aw = { ...row('5', '倉庫E', 0, 'unset', '公開中', 'airwork'), recent_performance: null, summary: { occupation: '倉庫管理', job_kind: '倉庫管理', location: null, salary_kind: null, salary_min: null, salary_max: null, hours: null, holidays: null, body_changed_at: null } };
+    serve([aw]);
+    render(<OccupationBulk />);
+    const tr = (await screen.findByLabelText('倉庫E と比べる Indeed の職種')).closest('tr') as HTMLElement;
+    expect(within(tr).getByText('求人票の職種').nextElementSibling?.textContent).toBe('倉庫管理');
+    expect(within(tr).queryByText('Indeed 表示職種名')).toBeNull();
+    expect(within(tr).getAllByText('—')).toHaveLength(1);
+  });
+
+  it('deal=<取引ID> で絞り、案件名と「すべてに戻す」を出す', async () => {
+    window.history.replaceState(null, '', '/app/job-copy?view=occupations&deal=123&owner=me');
+    get.mockImplementation((path: string) => {
+      if (path.startsWith('/api/job-copy/listings/companies')) return Promise.resolve({ ok: true, data: { companies: {} } });
+      if (path.includes('publication=')) return Promise.resolve({ ok: true, data: page([], { set: 1, none: 0, unset: 2 }, { total: 0 }) });
+      return Promise.resolve({ ok: true, data: page([row('1', '配送A', 3, 'unset')], { set: 1, none: 0, unset: 2 }, { selected_deal: { id: '123', name: '架空の案件' } }) });
+    });
+    render(<OccupationBulk />);
+    expect((await screen.findByText('架空の案件')).closest('[role="status"]')?.textContent).toContain('架空の案件 の求人だけを表示しています');
+    // 担当では絞らず、取引で絞る。進み具合も同じ取引。
+    expect(listCalls()[0]).toBe('/api/job-copy/listings?deal=123&sort=bulk&offset=0&indeed_state=unset');
+    expect(get.mock.calls.map(c => String(c[0])).find(p => p.includes('publication='))).toBe('/api/job-copy/listings?deal=123&sort=bulk&publication=%E6%8E%B2%E8%BC%89%E4%B8%AD&offset=100000');
+    fireEvent.click(screen.getByRole('button', { name: 'すべてに戻す' }));
+    expect(new URLSearchParams(window.location.search).get('deal')).toBeNull();
+    await waitFor(() => { expect(listCalls().at(-1)).toBe('/api/job-copy/listings?owner=me&sort=bulk&offset=0&indeed_state=unset'); });
+    expect(screen.queryByText('すべてに戻す')).toBeNull();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('見つからない案件では案内を出す', async () => {
+    window.history.replaceState(null, '', '/app/job-copy?view=occupations&deal=999');
+    get.mockImplementation(() => Promise.resolve({ ok: false, error: new ApiHttpError(400, { code: 'listing_deal_not_found' }) }));
+    render(<OccupationBulk />);
+    expect((await screen.findByRole('alert')).textContent).toContain('この案件の求人が見つかりませんでした。');
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('案件管理のメニューに「職種の指定」があり、押すと一括指定の画面へ移る', () => {
+    window.history.replaceState(null, '', '/app/job-copy?view=deals&deal=55&owner=11');
+    get.mockImplementation(() => new Promise(() => undefined));
+    render(<ConsultantMenu><p>画面</p></ConsultantMenu>);
+    fireEvent.click(screen.getByRole('button', { name: '職種の指定' }));
+    const query = new URLSearchParams(window.location.search);
+    expect([query.get('view'), query.get('deal'), query.get('owner')]).toEqual(['occupations', null, '11']);
+    expect(screen.getByRole('button', { name: '職種の指定' }).getAttribute('aria-current')).toBe('page');
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('直近4週の期間: 今年は月日だけ、今年でなければ年も付ける', () => {
+    const now = new Date('2026-11-12T03:00:00Z');
+    expect(periodLabel('2026-10-13', '2026-11-09', now)).toBe('10/13〜11/09');
+    // 何か月も前の4週でも、そのまま期間を出す。
+    expect(periodLabel('2026-03-02', '2026-03-29', now)).toBe('03/02〜03/29');
+    expect(periodLabel('2025-12-08', '2026-01-04', now)).toBe('2025/12/08〜2026/01/04');
+    expect(periodLabel('2025-06-02', '2025-06-29', now)).toBe('2025/06/02〜2025/06/29');
+    // 日本時間で年が変わる瞬間（UTC では前年の 12/31）。
+    expect(periodLabel('2026-06-01', '2026-06-28', new Date('2026-12-31T15:00:00Z'))).toBe('2026/06/01〜2026/06/28');
+  });
+
+  it('400 は理由ごとに案内し、別の案件に変わったら前の案件名を消す', async () => {
+    window.history.replaceState(null, '', '/app/job-copy?view=occupations&deal=123');
+    get.mockImplementation((path: string) => {
+      if (path.startsWith('/api/job-copy/listings/companies')) return Promise.resolve({ ok: true, data: { companies: {} } });
+      if (path.includes('deal=777')) return Promise.resolve({ ok: false, error: new ApiHttpError(400, { code: 'listing_filter_invalid' }) });
+      if (path.includes('deal=555')) return new Promise(() => undefined);
+      return Promise.resolve({ ok: true, data: page([row('1', '配送A', 3, 'unset')], { set: 0, none: 0, unset: 1 }, { selected_deal: { id: '123', name: '架空の案件' } }) });
+    });
+    render(<OccupationBulk />);
+    expect(await screen.findByText('架空の案件')).toBeTruthy();
+    // 読み込み中の別の案件では、前の案件名を出さない。
+    act(() => { updateJobCopyQuery({ deal: '555' }); });
+    await waitFor(() => { expect(screen.queryByText('架空の案件')).toBeNull(); });
+    expect(screen.getByText('選んだ案件')).toBeTruthy();
+    act(() => { updateJobCopyQuery({ deal: '777' }); });
+    expect((await screen.findByRole('alert')).textContent).toContain('検索や絞り込みの指定が正しくありません');
+    expect(screen.queryByText(/この案件の求人が見つかりませんでした/u)).toBeNull();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('案件で絞っている間は、メニューに担当の選択を出さず理由を添える', () => {
+    window.history.replaceState(null, '', '/app/job-copy?view=occupations&deal=123&owner=11');
+    get.mockImplementation(() => new Promise(() => undefined));
+    render(<ConsultantMenu><p>画面</p></ConsultantMenu>);
+    expect(screen.getByText('案件で絞っている間は担当で絞りません')).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: '担当者' })).toBeNull();
+    window.history.replaceState(null, '', '/');
   });
 });
