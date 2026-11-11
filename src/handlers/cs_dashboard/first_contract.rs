@@ -547,7 +547,22 @@ fn goals_cache() -> &'static crate::db::cache::AppCache {
 /// 案件管理などから目標を保存したとき、その取引の分だけ捨てる (次の一覧の表示で読み直す)。
 /// HubSpot の画面で直した分はこのキャッシュの期限 (5 分) で反映される。
 pub fn forget_goals(deal_id: &str) {
+    let mut forgotten = forgotten_goals().lock().unwrap_or_else(|e| e.into_inner());
+    let now = std::time::Instant::now();
+    // 一覧の読み込みは 15 秒で打ち切るので、それより古い印は要らない。
+    forgotten.retain(|_, at| now.duration_since(*at) < FORGOTTEN_KEEP);
+    forgotten.insert(deal_id.to_owned(), now);
+    // 印を付けてから捨てるまでを同じロックの中で行い、読み込み側の「確かめて入れる」と交互にならないようにする。
     goals_cache().remove(deal_id);
+}
+
+/// 一覧の読み込み (最大 15 秒) より長く、捨てた時刻を覚える。
+const FORGOTTEN_KEEP: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// 取引ごとに、目標のキャッシュを捨てた時刻。捨てる前に読み始めた一覧の結果で古い目標を入れ直さないために使う。
+fn forgotten_goals() -> &'static std::sync::Mutex<HashMap<String, std::time::Instant>> {
+    static MAP: OnceLock<std::sync::Mutex<HashMap<String, std::time::Instant>>> = OnceLock::new();
+    MAP.get_or_init(Default::default)
 }
 
 /// 目標だけ5分のプロセス内キャッシュ（最大2000件）。取得失敗は保存しない。
@@ -589,22 +604,38 @@ pub async fn enrich_goals(
             return;
         };
         let client = client.with_priority(crate::hubspot::gateway::Priority::Background);
-        for chunk in missing.chunks(100) {
-            match client.batch_read("deals", chunk, &PROPS).await {
-                Ok(records) => {
-                    for record in records {
-                        // AppCacheの通常上限に加え、期限内の項目だけで上限に達した場合も抑える。
-                        if cache.len() >= 2000 {
-                            cache.clear();
+        // 読んでいる間に保存されて捨てられた取引は、読んだ値 (保存前の古い値) を入れず、1 回だけ読み直す。
+        let mut pending = missing;
+        for _ in 0..2 {
+            let mut stale = Vec::new();
+            for chunk in pending.chunks(100) {
+                let started = std::time::Instant::now();
+                match client.batch_read("deals", chunk, &PROPS).await {
+                    Ok(records) => {
+                        // 確かめてから入れるまで、捨てる側 (forget_goals) を待たせる。
+                        let forgotten = forgotten_goals().lock().unwrap_or_else(|e| e.into_inner());
+                        for record in records {
+                            if forgotten.get(&record.id).is_some_and(|at| *at >= started) {
+                                stale.push(record.id);
+                                continue;
+                            }
+                            // AppCacheの通常上限に加え、期限内の項目だけで上限に達した場合も抑える。
+                            if cache.len() >= 2000 {
+                                cache.clear();
+                            }
+                            cache.set(record.id, summarize(&record.properties));
                         }
-                        cache.set(record.id, summarize(&record.properties));
+                    }
+                    Err(_) => {
+                        tracing::warn!("初回契約の目標をまとめて読めませんでした");
+                        return;
                     }
                 }
-                Err(_) => {
-                    tracing::warn!("初回契約の目標をまとめて読めませんでした");
-                    break;
-                }
             }
+            if stale.is_empty() {
+                break;
+            }
+            pending = stale;
         }
     };
     let _ = tokio::time::timeout(std::time::Duration::from_secs(15), fetch).await;
@@ -1136,6 +1167,68 @@ mod tests {
             "別の取引"
         );
         goals_cache().remove_prefix("89999999971");
+    }
+
+    /// 保存より前に読み始めた一覧の読み込みが、保存前の目標を入れ直さない。
+    #[tokio::test]
+    async fn 保存の前に読み始めた一覧は古い目標を入れ直さず読み直す() {
+        use axum::{routing::post, Router};
+        const ID: &str = "89999999961";
+        goals_cache().remove(ID);
+        // 偽の HubSpot: 1 回目は保存前の目標を、合図を待ってから返す。2 回目は保存後の目標を返す。
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (arrived_tx, arrived_rx) = tokio::sync::oneshot::channel::<()>();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let gates = Arc::new(tokio::sync::Mutex::new((
+            Some(arrived_tx),
+            Some(release_rx),
+        )));
+        let seen = calls.clone();
+        let app = Router::new().route(
+            "/crm/v3/objects/deals/batch/read",
+            post(move || {
+                let (seen, gates) = (seen.clone(), gates.clone());
+                async move {
+                    let n = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let ideal = if n == 0 {
+                        let (arrived, release) = {
+                            let mut g = gates.lock().await;
+                            (g.0.take().unwrap(), g.1.take().unwrap())
+                        };
+                        arrived.send(()).unwrap();
+                        release.await.unwrap();
+                        "保存前の目標"
+                    } else {
+                        "保存後の目標"
+                    };
+                    axum::Json(
+                        json!({"status":"COMPLETE","results":[{"id":ID,"properties":{
+                        "shokai_mtg_mokuhyou_risou":ideal,
+                        "shokai_mtg_mokuhyou_zenshin":"応募を集める／契約期間中"}}]}),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client =
+            crate::hubspot::HubSpotClient::new("test-token".into(), &base, Default::default())
+                .unwrap();
+        let reader = tokio::spawn(async move {
+            let mut body = json!({"rows":[{"deal_id":ID}],"not_started":[]});
+            enrich_goals(&mut body, Ok(()), Some(&client)).await;
+            body
+        });
+        // 一覧の読み込みが HubSpot に届いた後で保存し (キャッシュを捨てる)、それから古い値を返させる。
+        arrived_rx.await.unwrap();
+        forget_goals(ID);
+        release_tx.send(()).unwrap();
+        let body = reader.await.unwrap();
+        assert_eq!(body["rows"][0]["goals"]["ideal"], "保存後の目標");
+        assert_eq!(goals_cache().get(ID).unwrap()["ideal"], "保存後の目標");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        goals_cache().remove(ID);
     }
 
     #[test]

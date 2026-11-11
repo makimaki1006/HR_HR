@@ -151,6 +151,11 @@ mod cache_tests;
 mod deal_tests;
 #[path = "listing_snapshot.rs"]
 mod snapshot;
+#[path = "listing_upsert.rs"]
+mod upsert;
+pub(super) use upsert::refresh_listing;
+#[cfg(test)]
+pub(super) use upsert::test_support as upsert_test_support;
 
 /// AirWork image URLs, one per line. Written by `scripts/job_copy_airwork_image_urls.py`.
 pub(super) const AW_IMAGES: &str = "aw_kyuujinhyou_gazou";
@@ -435,6 +440,8 @@ struct IndexState {
     refreshing: bool,
     refresh_failed: bool,
     draft_updates: BTreeMap<String, String>,
+    /// 作り直しの最中に足した・差し替えた求人。作り直しが終わった索引に当て直す。
+    listing_updates: BTreeMap<String, upsert::Upsert>,
     read_count: usize,
     estimated_total: Option<usize>,
     consecutive_failures: usize,
@@ -886,6 +893,9 @@ pub(super) async fn refresh(
                 }
             }
             state.draft_updates.clear();
+            for (id, update) in std::mem::take(&mut state.listing_updates) {
+                upsert::apply(&mut index, &id, &update);
+            }
             let index = Arc::new(index);
             tracing::info!(
                 count = index.records.len(),
@@ -903,6 +913,8 @@ pub(super) async fn refresh(
                 elapsed_ms = started.elapsed().as_millis() as u64,
                 "job-copy index build failed"
             );
+            // 足した分は前の索引に入っている。次の作り直しは足した後に HubSpot を読む。
+            state.listing_updates.clear();
             state.failed();
             Err(error) // An incomplete build never removes the previous snapshot.
         }
