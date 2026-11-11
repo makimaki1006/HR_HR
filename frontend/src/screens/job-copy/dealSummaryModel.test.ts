@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { dealCutoff, dealEvents, dealTotals, listingNumbers, mediaCutoffs, shareOfDeal, weeklySeries, weekStart } from './dealSummaryModel';
+import { dealCutoff, dealEvents, dealTotals, eventSourceOf, eventWeekMarks, listingNumbers, markLabel, mediaCutoffs, occupationStatus, perfBillingEntries, regionText, shareOfDeal, weeklySeries, weekStart } from './dealSummaryModel';
 import type { DealListingInput } from './dealSummaryModel';
 import type { BillingEntry } from './timelineModel';
+import { listingRecord } from './hubspotListings';
+import type { HubSpotListing, HubSpotVersions } from './hubspotListings';
+import { buildListingEvents } from './listingEventsModel';
 
 const ASOF = '2026-10-12';
 // 直近4週 = 2026-09-15〜2026-10-12、前の4週 = 2026-08-18〜2026-09-14
@@ -141,5 +144,118 @@ describe('dealSummaryModel', () => {
       { media: 'hrh', lastApplication: '2026-10-01', lastBilling: '2026-10-12' },
       { media: 'airwork', lastApplication: '2026-10-01', lastBilling: '2026-09-30' },
     ]);
+  });
+
+  it('出来事の種類: 本文の変更はすべて、画像の変更、掲載の開始・終了・再開。番号は古い順', () => {
+    const source = eventSourceOf({ id: 'a', media: 'hrh' }, '2026-10-05', {
+      // 2026-09-30T20:00Z は JST では 10-01
+      body: ['2026-09-10T00:00:00+00:00', '2026-09-30T20:00:00+00:00', '2026-10-05T00:00:00+00:00'],
+      images: ['2026-10-05T03:00:00+00:00', '2026-09-20T00:00:00+00:00'],
+      status: { baitai_genjoukyou_hrhakkaa: [
+        { timestamp: '2026-08-20T00:00:00Z', value: '公開中' },
+        { timestamp: '2026-09-25T00:00:00Z', value: '公開終了' },
+        { timestamp: '2026-09-28T00:00:00Z', value: '公開中' },
+      ] },
+      started_on: '2026-08-15',
+    }, []);
+    expect(source.bodyChanges).toEqual(['2026-09-10', '2026-10-01', '2026-10-05']);
+    expect(source.imageChanges).toEqual(['2026-09-20', '2026-10-05']);
+    // 公開状況の最初の記録 (08-20) より公開開始日時 (08-15) が早い
+    expect(source.startOn).toBe('2026-08-15');
+    expect(source.statusEvents).toEqual([{ date: '2026-09-25', kind: 'end' }, { date: '2026-09-28', kind: 'revive' }]);
+    const events = dealEvents(listings, [source], ASOF, id => `求人${id}`, v => `${String(v)}円`);
+    const own = events.filter(e => e.listingId === 'a').map(e => [e.n, e.date, e.text]);
+    // 全体の番号: 01-01 求人d の課金 = 1、09-15 は求人a・b・c の課金 = 4〜6
+    expect(own).toEqual([
+      [11, '2026-10-05', '求人a：本文と画像を変えました'],
+      [10, '2026-10-01', '求人a：本文を変えました'],
+      [9, '2026-09-28', '求人a：掲載を再開しました'],
+      [8, '2026-09-25', '求人a：掲載を終えました'],
+      [7, '2026-09-20', '求人a：画像を変えました'],
+      [4, '2026-09-15', '求人a：課金が始まりました（28000円）'],
+      [3, '2026-09-10', '求人a：本文を変えました'],
+      [2, '2026-08-15', '求人a：掲載を始めました'],
+    ]);
+    // 番号は 1 から古い順で、表示は新しい順
+    expect(events.map(e => e.n)).toEqual([11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+    expect(events.at(-1)).toMatchObject({ n: 1, date: '2026-01-01', listingId: 'd' });
+  });
+
+  it('出来事: 履歴が届かない古い応答では、本文を最後に変えた日だけ', () => {
+    const events = dealEvents([], [eventSourceOf({ id: 'a', media: 'hrh' }, '2026-10-05', undefined, [])], ASOF, id => id, v => String(v));
+    expect(events.map(e => [e.n, e.date, e.kind])).toEqual([[1, '2026-10-05', 'body']]);
+  });
+
+  it('グラフの番号: 週（月曜はじまり）ごとにまとめ、期間の外は出さない', () => {
+    const weeks = ['2026-09-21', '2026-09-28', '2026-10-05'];
+    const marks = eventWeekMarks([
+      { n: 1, date: '2026-09-01', listingId: 'a' },
+      { n: 2, date: '2026-09-29', listingId: 'a' },
+      { n: 3, date: '2026-10-04', listingId: 'b' },
+      { n: 4, date: '2026-10-07', listingId: 'b' },
+    ], weeks);
+    expect(marks).toEqual([
+      { index: 1, numbers: [2, 3], listingIds: ['a', 'b'] },
+      { index: 2, numbers: [4], listingIds: ['b'] },
+    ]);
+    expect(markLabel([2, 3])).toBe('2・3');
+    expect(markLabel([3, 4, 5])).toBe('3・4・5');
+    expect(markLabel([3, 4, 5, 6])).toBe('3ほか3');
+  });
+
+  it('出来事: 応募と課金を読んだ求人（only）の分だけ出す。番号は詰める', () => {
+    const events = dealEvents(listings, [{ listingId: 'a', bodyChangedAt: '2026-10-05' }, { listingId: 'b', bodyChangedAt: '2026-10-06' }], ASOF, id => id, v => String(v), {}, new Set(['a']));
+    expect(events.map(e => [e.n, e.listingId, e.kind])).toEqual([[2, 'a', 'body'], [1, 'a', 'billing_start']]);
+  });
+
+  describe('掲載の開始・終了は求人の画面（buildListingEvents）と同じ日', () => {
+    const row: HubSpotListing = { id: '7', media: 'hrh', media_job_id: 'h7', account_id: null, title: '求人7', prefecture: null, municipality: null, category: null, publication_status: '公開', last_csv_detected_at: null, application_count: null };
+    const job = (bodyFirst: string, extra: Partial<HubSpotVersions> = {}) => listingRecord({ listing: row, versions: [{ written_at: bodyFirst, body: '本文1', image_urls: null }, { written_at: '2026-10-01T00:00:00Z', body: '本文2', image_urls: null }], history_counts: {}, history_may_be_incomplete: false, ...extra });
+    // 表示だけあって費用が 0 の週も「表示か課金のある最初の週」に入る
+    const billing = perfBillingEntries({ source: 'hrhacker', rows: [
+      { period_start: '2026-07-06', period_end: '2026-07-12', cost_yen: 0, impressions: 120 },
+      { period_start: '2026-07-13', period_end: '2026-07-19', cost_yen: 5000, impressions: 300 },
+    ] }, 'h7');
+    const startOf = (events: readonly { kind: string; date: string }[]) => events.find(e => e.kind === 'start')?.date;
+
+    it('表示のある最初の週が、本文を記録しはじめた日より早いとき: その週', () => {
+      const listingStart = startOf(buildListingEvents(job('2026-08-01T00:00:00Z', { listing_started_on: '2026-08-10' }), billing));
+      const deal = eventSourceOf(row, null, { body: ['2026-10-01T00:00:00Z'], body_first: '2026-08-01T00:00:00Z', images: [], status: {}, started_on: '2026-08-10' }, billing);
+      expect(listingStart).toBe('2026-07-06');
+      expect(deal.startOn).toBe(listingStart);
+    });
+
+    it('本文を記録しはじめた日のほうが早いとき: その日', () => {
+      const listingStart = startOf(buildListingEvents(job('2026-06-01T00:00:00Z', { listing_started_on: '2026-08-10' }), billing));
+      const deal = eventSourceOf(row, null, { body: ['2026-10-01T00:00:00Z'], body_first: '2026-06-01T00:00:00Z', images: [], status: {}, started_on: '2026-08-10' }, billing);
+      expect(listingStart).toBe('2026-06-01');
+      expect(deal.startOn).toBe(listingStart);
+    });
+
+    it('公開状況の履歴に終了が無いとき: 媒体で非公開を記録した日', () => {
+      const record = { ...job('2026-06-01T00:00:00Z'), mediaPublication: { start: null, plannedEnd: null, status: 'private' as const, lastInCsv: null, privateRecordedOn: '2026-10-21' } };
+      const listingEnd = buildListingEvents(record, billing).find(e => e.kind === 'end')?.date;
+      const deal = eventSourceOf(row, null, { body: [], body_first: '2026-06-01T00:00:00Z', images: [], status: {}, started_on: null, private_recorded_on: '2026-10-21' }, billing);
+      expect(listingEnd).toBe('2026-10-21');
+      expect(deal.statusEvents).toEqual([{ date: listingEnd, kind: 'end' }]);
+      // 履歴に終了があれば、その日だけ（非公開を記録した日を重ねない）
+      const withHistory = eventSourceOf(row, null, { body: [], private_recorded_on: '2026-10-21', status: { baitai_genjoukyou_hrhakkaa: [{ timestamp: '2026-08-01T00:00:00Z', value: '公開' }, { timestamp: '2026-10-19T00:00:00Z', value: '非公開' }] } }, billing);
+      expect(withHistory.statusEvents).toEqual([{ date: '2026-10-19', kind: 'end' }]);
+    });
+  });
+
+  it('職種の指定状況と地域', () => {
+    expect(occupationStatus([
+      { id: '1', indeed_title_state: 'set', publication_status: '公開' }, { id: '2', indeed_title_state: 'none', publication_status: '公開' },
+      { id: '3', indeed_title_state: 'unset', publication_status: '公開' }, { id: '4', indeed_title_state: 'unset', publication_status: '公開終了' }, { id: '4', indeed_title_state: 'unset', publication_status: '公開終了' },
+    ])).toEqual({ total: 4, set: 1, none: 1, unset: 2, unsetEnded: 1 });
+    expect(occupationStatus([{ id: '1', publication_status: null }])).toBeNull();
+    expect(regionText([
+      { id: '1', prefecture: '東京都', municipality: '新宿区' }, { id: '2', prefecture: '東京都', municipality: '渋谷区' },
+      { id: '3', prefecture: '東京都', municipality: '新宿区' }, { id: '4', prefecture: '神奈川県', municipality: null },
+    ])).toBe('東京都 新宿区・渋谷区、神奈川県');
+    expect(regionText([{ id: '1', prefecture: null, municipality: null }])).toBeNull();
+    const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((city, i) => ({ id: String(i), prefecture: '大阪府', municipality: `${city}市` }));
+    expect(regionText(many)).toBe('大阪府 a市・b市・c市・d市・e市 ほか2か所');
   });
 });

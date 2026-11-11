@@ -30,3 +30,9 @@
 .jc-deal-table.ds-table { table-layout: auto; min-width: 900px; }
 .jc-deal-table.ds-table thead th { white-space: normal; min-width: 72px; word-break: keep-all; overflow-wrap: break-word; }
 .ds-main section, .ds-main h2 { scroll-margin-top: 140px; }
+.ds-unset { display: inline-block; padding: 1px 6px; border-radius: 4px; background: #fff1b8; color: #6b4e00; border: 1px solid #e0b400; font-weight: 600; }
+.ds-event-open { display: inline-flex; align-items: baseline; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ds-event-open:hover, .ds-event-open:focus-visible { text-decoration: underline; }
+.ds-event-n { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px; color: #fff; font-size: 11px; font-weight: 700; flex: none; }
+.ds-occupation { margin: 4px 0 8px; }
+.ds-rail .ds-occupation-link { display: inline-block; max-width: 100%; margin-bottom: 8px; white-space: normal; text-align: left; text-decoration: none; }

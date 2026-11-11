@@ -1,5 +1,5 @@
 //! Concrete summary and batch paging tests, using local mock servers only.
-use super::deals::body_changed_at;
+use super::deals::{body_changed_at, listing_changes};
 use super::*;
 #[test]
 fn job_copy_deal_salary_sort_matches_display_normalization() {
@@ -186,9 +186,10 @@ async fn job_copy_visible_history_reads_are_batches_of_fifty_and_exclude_other_r
         let input: Value = serde_json::from_slice(&to_bytes(req.into_body(),100000).await.unwrap()).unwrap();
         let ids = input["inputs"].as_array().unwrap();
         assert!(ids.len() <= 50);
-        assert_eq!(input["propertiesWithHistory"], json!(["hrh_kyuujinhyou_honbun","shigotonaiyou"]));
+        assert!(input["properties"].as_array().unwrap().contains(&json!("koukai_kaishi_nichiji")));
+        assert_eq!(input["propertiesWithHistory"], json!(["hrh_kyuujinhyou_honbun","shigotonaiyou","hrh_kyuujinhyou_gazou","aw_kyuujinhyou_gazou","kyuujin_status","baitai_genjoukyou_hrhakkaa","baitai_genjoukyou_airwork"]));
         seen.lock().unwrap().push(ids.clone());
-        Json(json!({"status":"COMPLETE","startedAt":"2026-10-11T00:00:00Z","completedAt":"2026-10-11T00:00:01Z","results":ids.iter().map(|v| json!({"id":v["id"],"properties":{"id_airwork":"123","shigotonaiyou":"架空の本文"},"propertiesWithHistory":{"shigotonaiyou":[{"value":"架空の本文","timestamp":"2026-10-10T00:00:00Z","sourceType":"API","sourceId":"synthetic"}]},"createdAt":"2026-10-01T00:00:00Z","updatedAt":"2026-10-11T00:00:00Z","archived":false})).collect::<Vec<_>>() }))
+        Json(json!({"status":"COMPLETE","startedAt":"2026-10-11T00:00:00Z","completedAt":"2026-10-11T00:00:01Z","results":ids.iter().map(|v| json!({"id":v["id"],"properties":{"id_airwork":"123","shigotonaiyou":"架空の本文","koukai_kaishi_nichiji":"2026-09-01T03:00:00Z"},"propertiesWithHistory":{"shigotonaiyou":[{"value":"架空の本文","timestamp":"2026-10-10T00:00:00Z","sourceType":"API","sourceId":"synthetic"},{"value":"架空の 旧本文","timestamp":"2026-10-01T00:00:00Z","sourceType":"API","sourceId":"synthetic"}],"aw_kyuujinhyou_gazou":[{"value":"https://example.com/b.jpg","timestamp":"2026-10-05T00:00:00Z"},{"value":"https://example.com/a.jpg","timestamp":"2026-10-02T00:00:00Z"}]},"createdAt":"2026-10-01T00:00:00Z","updatedAt":"2026-10-11T00:00:00Z","archived":false})).collect::<Vec<_>>() }))
     }}));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let service = JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
@@ -209,6 +210,19 @@ async fn job_copy_visible_history_reads_are_batches_of_fifty_and_exclude_other_r
     assert_eq!(result["dates"].as_object().unwrap().len(), 101);
     assert_eq!(result["dates"]["51"], "2026-10-10T00:00:00+00:00");
     assert!(result["dates"].get("1").is_none());
+    // 同じ読み取りの結果から、案件の出来事に使う履歴を返す（値そのものは返さない）。
+    assert_eq!(
+        result["changes"]["51"],
+        json!({
+            "body": ["2026-10-10T00:00:00+00:00"],
+            "body_first": "2026-10-01T00:00:00+00:00",
+            "images": ["2026-10-05T00:00:00+00:00"],
+            "private_recorded_on": null,
+            "status": {"kyuujin_status": [], "baitai_genjoukyou_hrhakkaa": [], "baitai_genjoukyou_airwork": []},
+            "started_on": "2026-09-01"
+        })
+    );
+    assert_eq!(result["changes"].as_object().unwrap().len(), 101);
     task.abort();
 }
 #[test]
@@ -236,5 +250,100 @@ fn job_copy_holidays_can_be_work_supplement_two_instead_of_free_one() {
     assert_eq!(
         deals::comparison_fields(&record, "hrh")["休日・休暇"],
         "週休2日・夏季休暇"
+    );
+}
+
+#[test]
+fn job_copy_listing_changes_lists_every_body_and_image_change_and_status_history() {
+    let h = |entries: &[(&str, &str)]| {
+        json!(entries
+            .iter()
+            .map(|(at, value)| json!({"timestamp":at,"value":value}))
+            .collect::<Vec<_>>())
+    };
+    let data = json!({
+        "properties":{"hrh_kyuujinhyou_honbun":"本文3","koukai_kaishi_nichiji":"2026-08-01T03:00:00Z"},
+        "propertiesWithHistory":{
+            // 新しい順で届く。同じ値の書き直しは変更に数えない。
+            "hrh_kyuujinhyou_honbun": h(&[("2026-10-05T00:00:00Z","本文3"),("2026-09-20T00:00:00Z","本文2"),("2026-09-10T00:00:00Z","本文2"),("2026-09-01T00:00:00Z","本文1")]),
+            "hrh_kyuujinhyou_gazou": h(&[("2026-10-01T00:00:00Z","画像1：https://example.com/b.jpg"),("2026-09-02T00:00:00Z","画像1：https://example.com/a.jpg")]),
+            "kyuujin_status": h(&[("2026-10-20T00:00:00Z","公開終了"),("2026-08-01T00:00:00Z","公開中")])
+        }
+    });
+    let changes = listing_changes(&data, "hrh");
+    assert_eq!(
+        changes["body"],
+        json!(["2026-09-10T00:00:00+00:00", "2026-10-05T00:00:00+00:00"])
+    );
+    assert_eq!(changes["images"], json!(["2026-10-01T00:00:00+00:00"]));
+    assert_eq!(
+        changes["status"]["kyuujin_status"],
+        json!([{"timestamp":"2026-08-01T00:00:00Z","value":"公開中"},{"timestamp":"2026-10-20T00:00:00Z","value":"公開終了"}])
+    );
+    assert_eq!(changes["started_on"], "2026-08-01");
+    // 同じ時刻に違う値があると順番が決まらないので出さない。
+    let ambiguous = json!({"propertiesWithHistory":{"shigotonaiyou": h(&[("2026-10-05T00:00:00Z","A"),("2026-10-05T00:00:00Z","B")])}});
+    assert_eq!(listing_changes(&ambiguous, "airwork")["body"], json!([]));
+}
+
+#[test]
+fn job_copy_listing_changes_ignore_whitespace_only_body_edits_and_keep_twenty_entries() {
+    let h = |entries: &[(String, String)]| {
+        json!(entries
+            .iter()
+            .map(|(at, value)| json!({"timestamp":at,"value":value}))
+            .collect::<Vec<_>>())
+    };
+    // 空白・改行・全角空白だけの違いは変更に数えない。
+    let spaces = json!({"propertiesWithHistory":{"hrh_kyuujinhyou_honbun": h(&[
+        ("2026-10-03T00:00:00Z".into(), "給与 25万円\n勤務 9時".into()),
+        ("2026-10-02T00:00:00Z".into(), "給与　25万円 勤務 9時 ".into()),
+        ("2026-10-01T00:00:00Z".into(), "給与25万円勤務9時".into()),
+    ])}});
+    let changes = listing_changes(&spaces, "hrh");
+    assert_eq!(changes["body"], json!([]));
+    assert_eq!(changes["body_first"], "2026-10-01T00:00:00+00:00");
+    // HubSpot が返す上限の 20 件: 交互の値なら変更は 19 回、いちばん古い記録が body_first。
+    let twenty: Vec<(String, String)> = (1..=20)
+        .rev()
+        .map(|day| {
+            (
+                format!("2026-09-{day:02}T00:00:00Z"),
+                format!("本文{}", day % 2),
+            )
+        })
+        .collect();
+    let changes = listing_changes(
+        &json!({"propertiesWithHistory":{"shigotonaiyou": h(&twenty)}}),
+        "airwork",
+    );
+    assert_eq!(changes["body"].as_array().unwrap().len(), 19);
+    assert_eq!(changes["body"][0], "2026-09-02T00:00:00+00:00");
+    assert_eq!(changes["body_first"], "2026-09-01T00:00:00+00:00");
+}
+#[test]
+fn job_copy_listing_changes_airwork_images_and_private_recorded_day() {
+    // AirWork の画像: URL の並びが同じなら変更にしない。
+    let data = json!({"propertiesWithHistory":{"aw_kyuujinhyou_gazou":[
+        {"timestamp":"2026-10-09T00:00:00Z","value":"https://example.com/a.jpg"},
+        {"timestamp":"2026-10-05T00:00:00Z","value":"https://example.com/a.jpg"},
+        {"timestamp":"2026-10-03T00:00:00Z","value":"  https://example.com/a.jpg  "},
+        {"timestamp":"2026-10-01T00:00:00Z","value":"https://example.com/z.jpg"}
+    ]}});
+    assert_eq!(
+        listing_changes(&data, "airwork")["images"],
+        json!(["2026-10-03T00:00:00+00:00"])
+    );
+    // HRハッカーで今が非公開: 公開→非公開を記録した日（JST）。
+    let hrh = json!({
+        "properties":{"id_hrhakkaa":"h1","kyuujin_status":"公開終了","baitai_genjoukyou_hrhakkaa":"非公開"},
+        "propertiesWithHistory":{"baitai_genjoukyou_hrhakkaa":[
+            {"timestamp":"2026-10-20T16:00:00Z","value":"非公開"},
+            {"timestamp":"2026-09-01T00:00:00Z","value":"公開"}
+        ]}
+    });
+    assert_eq!(
+        listing_changes(&hrh, "hrh")["private_recorded_on"],
+        "2026-10-21"
     );
 }
