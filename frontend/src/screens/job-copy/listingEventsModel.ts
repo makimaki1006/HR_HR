@@ -12,6 +12,7 @@
  */
 import type { JobCopyRecord } from './data';
 import { publicationLabel } from './hubspotListings';
+import { billingInWindow } from './detailBandModel';
 import { addDays, changeKinds, countApplications, daysBetween, formatMonthJa, jstDate, marketChange, publishedVersions, versionChanges } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import type { MarketRow } from './marketChartModel';
@@ -202,6 +203,40 @@ export function eventCounts(job: JobCopyRecord, event: Pick<ListingEvent, 'date'
     before: event.kind === 'start' || beforeDays === 0 ? null : countApplications(byDate, beforeStart, event.date),
     after: afterDays === 0 ? null : countApplications(byDate, event.date, addDays(event.date, afterDays)),
     beforeDays, afterDays,
+  };
+}
+
+/**
+ * 掲載の期間。開始 = 出来事の「掲載を開始」の日。終了 = 最後の掲載の状態の変化が「掲載を終了」ならその日（復活していれば null）。
+ * 週ごとの表（ライフライン）と同じ決め方。
+ */
+export function listingPeriodOf(events: readonly Pick<ListingEvent, 'date' | 'kind'>[]): { start: string | null; end: string | null } {
+  const start = events.find(event => event.kind === 'start')?.date ?? null;
+  const lastState = [...events].reverse().find(event => event.kind === 'end' || event.kind === 'revive');
+  return { start, end: lastState?.kind === 'end' ? lastState.date : null };
+}
+
+export interface EventCostSide {
+  /** 4週の課金（日割りで足した額）。課金のデータが無い・金額が分からないとき null。 */
+  billing: number | null;
+  /** 課金 ÷ 応募。課金が分からない・応募が0件・応募の件数が無いとき null。 */
+  perApplication: number | null;
+}
+export interface EventCosts { before: EventCostSide | null; after: EventCostSide | null }
+
+/**
+ * 出来事の前後4週の課金と、応募1件あたりの費用。応募の件数は eventCounts と同じ窓（前 = 出来事の日の前の28日、後 = 出来事の日から afterDays 日）。
+ * 課金は上の帯と同じ billingInWindow（日割り）、1件あたりは上の帯と同じく最後に1回だけ丸める。
+ * 前の件数が無い（掲載開始など）ときは before が null、後の件数が無いときは after が null。
+ */
+export function eventCosts(event: Pick<ListingEvent, 'date'>, counts: EventCounts, billing: readonly BillingEntry[]): EventCosts {
+  const side = (start: string, end: string, applications: number): EventCostSide => {
+    const amount = billingInWindow(billing, start, end);
+    return { billing: amount, perApplication: amount !== null && applications > 0 ? Math.round(amount / applications) : null };
+  };
+  return {
+    before: counts.before === null ? null : side(addDays(event.date, -WINDOW_DAYS), addDays(event.date, -1), counts.before),
+    after: counts.after === null ? null : side(event.date, addDays(event.date, counts.afterDays - 1), counts.after),
   };
 }
 
