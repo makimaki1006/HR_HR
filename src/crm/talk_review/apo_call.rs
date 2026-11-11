@@ -14,6 +14,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Mutex;
 
+use chrono::NaiveDate;
 use serde_json::{json, Value};
 
 use super::counts::ApoDeal;
@@ -263,6 +264,8 @@ struct Inner {
     heard_now: HashSet<String>,
     /// この起動で一度「判定待ち」だった記録 (起動して最初の評価で決まった記録は送らない)
     was_pending: HashSet<DealKey>,
+    /// 画面で開かれた期間の最初の日のうち最も古い日 (worker はここからの取引も扱う)
+    want_from: Option<NaiveDate>,
 }
 
 /// 取引ごとのアポを取った電話とランク (プロセス内だけ)
@@ -275,6 +278,22 @@ impl ApoCalls {
     /// 集計用: アポの記録ごとのランクの状態 (無い記録は判定待ち)
     pub fn ranks(&self) -> HashMap<DealKey, DealRank> {
         self.inner.lock().unwrap().ranks.clone()
+    }
+
+    /// 画面で開かれた期間の最初の日を覚える。worker が直近 `CALL_REVIEW_BACKFILL_DAYS` 日より前の取引も扱うため
+    /// (結果はプロセス内だけなので、再起動の後に古い期間を開くと、そこから作り直す)
+    pub fn want(&self, from: NaiveDate) {
+        let mut g = self.inner.lock().unwrap();
+        g.want_from = Some(g.want_from.map_or(from, |w| w.min(from)));
+    }
+
+    /// worker が扱う取引の最初の日: 直近の日 (`recent`) と、画面で開かれた最も古い日の早い方
+    pub fn scope_from(&self, recent: NaiveDate) -> NaiveDate {
+        self.inner
+            .lock()
+            .unwrap()
+            .want_from
+            .map_or(recent, |w| w.min(recent))
     }
 
     /// ヒアリングを書いた電話を覚える (この電話を含む取引だけ、決まったときに通知する)
@@ -356,6 +375,23 @@ impl ApoCalls {
         g.ranks.insert(k, rank);
         notify
     }
+}
+
+/// アポを取った電話とヒアリングを合わせる電話のうち、判定済みでヒアリングが付いていない電話 (純粋)。
+/// ヒアリングを待つ上限 (E の 48 時間後) を過ぎた取引で、まだ付けていない電話にヒアリングを付けてから決めるために使う
+/// (再起動の後の古い取引・#437 で新しく作った行など、ヒアリングの周回の一覧に入っていない電話)
+pub fn missing_hearing(
+    ids: &[String],
+    rows: &HashMap<String, ReviewRow>,
+    has_hearing: impl Fn(&ReviewRow) -> bool,
+) -> Vec<String> {
+    ids.iter()
+        .filter(|id| {
+            rows.get(*id)
+                .is_some_and(|r| r.status == store::ST_JUDGED && !has_hearing(r))
+        })
+        .cloned()
+        .collect()
 }
 
 /// 取引の候補の電話を HubSpot から読む (読み取りだけ、`Background`)。関連は取引の電話 ∪ 担当者の電話
@@ -757,6 +793,32 @@ mod tests {
             ["deal-test"]
         );
         assert_eq!(cache.open(&[again]).len(), 0, "読む前は開かない");
+    }
+    #[test]
+    fn missing_hearing_only_judged_rows_without_hearing() {
+        let with = row(
+            "a",
+            store::ST_JUDGED,
+            Some(SCHEDULED),
+            vec![item("aq_budget", "done", Some("具体額"), Some(true))],
+        );
+        let without = row("b", store::ST_JUDGED, Some(SCHEDULED), vec![]);
+        let pending = row("c", store::ST_PENDING, None, vec![]);
+        let r = rows(vec![with, without, pending]);
+        let ids: Vec<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(missing_hearing(&ids, &r, heard), vec!["b".to_string()]);
+    }
+
+    #[test]
+    fn scope_from_takes_the_oldest_wanted_day() {
+        let day = |d: u32| NaiveDate::from_ymd_opt(2026, 11, d).unwrap();
+        let a = ApoCalls::default();
+        assert_eq!(a.scope_from(day(1)), day(1));
+        a.want(day(5));
+        assert_eq!(a.scope_from(day(1)), day(1));
+        a.want(day(3));
+        a.want(day(9));
+        assert_eq!(a.scope_from(day(10)), day(3));
     }
 }
 

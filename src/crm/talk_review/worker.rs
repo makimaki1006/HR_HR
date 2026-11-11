@@ -817,6 +817,8 @@ struct Worker<Z, J> {
     hearing_check: HashMap<String, HearingCandidate>,
     /// この起動で判定した行 (判定のタスクが入れ、ヒアリングの周回が `hearing_check` に移す)
     judged_rows: Arc<std::sync::Mutex<Vec<HearingCandidate>>>,
+    /// アポのランクを決めるために、ヒアリングの周回へ入れた電話 (1 本につき 1 回だけ入れる)
+    hearing_asked: HashSet<String>,
 }
 
 /// 保存済みの行の文章に日本語以外が混ざっているか (英単語の許可は行の引用だけで判断する)
@@ -1605,7 +1607,10 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         use super::apo_call as ac;
         let st = super::routes::shared();
         let (today, _, _) = jst_day(now);
-        let from = today - chrono::Duration::days(self.cfg.backfill_days);
+        // 直近 `backfill_days` 日と、画面で開かれた古い期間 (数え終わった日だけが返る)
+        let from = st
+            .apo_calls
+            .scope_from(today - chrono::Duration::days(self.cfg.backfill_days));
         let (deals, _) = st.counts.deals_in(from, today);
         let now_ms = now.timestamp_millis();
         let fetch = st.apo_calls.to_fetch(&deals, now_ms);
@@ -1676,6 +1681,27 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             .map(|c| c.id.clone())
             .collect();
         for (d, calls) in open {
+            // ヒアリングを待つ上限を過ぎても、付いていない電話があれば、ヒアリングの周回に入れて付けてから決める。
+            // 付け終わる (または録音が取れない・アポの記録が無いとあきらめる) まで判定待ち。1 本につき 1 回だけ
+            if now_ms >= d.entered_ms + ac::HEARING_DEADLINE_MS {
+                if let ac::Pick::Decided(ids) = ac::pick(&d, &calls, &rows, now_ms) {
+                    let mut wait = false;
+                    for id in ac::missing_hearing(&ids, &rows, |r| has_hearing(r, checks)) {
+                        if self.hearing_check.contains_key(&id) {
+                            wait = true;
+                        } else if self.hearing_asked.insert(id.clone()) {
+                            if let Some(c) = HearingCandidate::from_row(&rows[&id], checks, now) {
+                                self.hearing_check.insert(id, c);
+                                wait = true;
+                            }
+                        }
+                    }
+                    if wait {
+                        st.apo_calls.record(&d, ac::DealRank::Pending);
+                        continue;
+                    }
+                }
+            }
             let rank = ac::deal_rank(
                 &d,
                 &calls,
@@ -1938,6 +1964,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         rehearing: Default::default(),
         hearing_check: Default::default(),
         judged_rows: Default::default(),
+        hearing_asked: Default::default(),
     };
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -2780,6 +2807,7 @@ mod tests {
             rehearing: VecDeque::new(),
             hearing_check: HashMap::new(),
             judged_rows: Default::default(),
+            hearing_asked: Default::default(),
         }
     }
 
