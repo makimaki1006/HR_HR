@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRM 画面 操作マニュアル</title><style>
+:root{color-scheme:light;--ink:#1c1c1a;--sub:#66625b;--rule:#d9d4ca;--acc:#a8432a;--paper:#fbfaf7;--ok:#2f6b3a;--wait:#8a6a12}
+*{box-sizing:border-box}html,body{overflow-x:hidden}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;font-size:15.5px;line-height:1.85}
+main{max-width:960px;margin:0 auto;padding:48px 20px 96px;overflow-wrap:anywhere}
+h1,h2,h3,.sn{font-family:"Hiragino Mincho ProN","Noto Serif JP","Yu Mincho",serif}
+.eyebrow{font-size:12.5px;letter-spacing:.12em;color:var(--sub);margin:0}
+h1{font-size:34px;line-height:1.35;margin:6px 0 10px;font-weight:600}
+.lead{color:var(--sub);margin:0 0 28px;max-width:52em}
+h2{font-size:23px;font-weight:600;margin:64px 0 6px;padding-top:14px;border-top:1px solid var(--ink)}
+h2 small{display:block;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-size:12.5px;letter-spacing:.1em;color:var(--sub);font-weight:400}
+h3{font-size:18px;margin:30px 0 4px;font-weight:600}
+p{margin:8px 0}a{color:var(--acc)}
+ul,ol{margin:6px 0;padding-left:22px}li{margin:2px 0}
+.part{margin:72px 0 0;padding:10px 0;border-top:3px double var(--ink);border-bottom:1px solid var(--rule);font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;font-size:20px;letter-spacing:.12em;color:var(--acc)}
+.toc{columns:2;column-gap:28px;font-size:14px;margin:18px 0;padding:0;list-style:none;counter-reset:t}
+.toc li{break-inside:avoid;padding:3px 0;border-bottom:1px dotted var(--rule)}.toc li:before{counter-increment:t;content:counter(t) ". ";color:var(--sub)}
+.toc a{color:var(--ink);text-decoration:none}
+.toc-g{font-size:12.5px;letter-spacing:.1em;color:var(--sub);margin:16px 0 0}
+@media (max-width:560px){.toc{columns:1}h1{font-size:27px}}
+figure{margin:20px 0 10px}
+.shot{position:relative;border:1px solid var(--rule);background:#fff;overflow-x:auto}
+.shot img{display:block;width:100%;min-width:640px;height:auto}
+.shot.small img{min-width:0;max-width:520px}
+.shot.small{display:inline-block;max-width:100%}
+.pinwrap{position:relative;min-width:640px}
+.pin{position:absolute;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:50%;background:var(--acc);color:#fff;font-size:13px;font-weight:700;line-height:24px;text-align:center;box-shadow:0 0 0 2px #fff}
+figcaption{font-size:12.5px;color:var(--sub);margin:6px 0 0}
+figcaption b{color:var(--ink)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:12px 0}
+th{text-align:left;font-weight:600;border-bottom:1.5px solid var(--ink);padding:8px 10px 6px 0;vertical-align:bottom}
+td{border-bottom:1px solid var(--rule);padding:9px 10px 9px 0;vertical-align:top}
+td.n{font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;color:var(--acc);font-weight:600;white-space:nowrap;width:2.2em}
+td.k{white-space:nowrap;font-weight:600}
+.tbl{overflow-x:auto}
+.ui{display:inline-block;font-size:13px;border:1px solid #b9b3a7;background:#fff;padding:0 7px;border-radius:3px;line-height:1.7;white-space:nowrap}
+.kbd{display:inline-block;font-size:12.5px;border:1px solid var(--ink);border-bottom-width:2px;padding:0 6px;border-radius:3px;line-height:1.6;white-space:nowrap;background:#fff}
+.note{font-size:13.5px;color:var(--sub)}
+.aside{border-left:3px solid var(--acc);padding:2px 0 2px 14px;margin:16px 0;font-size:14.5px}
+.aside.plain{border-left-color:var(--rule)}
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:0;margin:22px 0 6px}
+.fs{position:relative;padding:10px 14px 10px 10px;border-top:3px solid #3b3a37;margin-right:12px}
+.fs:after{content:"";position:absolute;right:-12px;top:-9px;border:7.5px solid transparent;border-left:9px solid #3b3a37}
+.fs.last{border-top-color:var(--acc)}.fs.last:after{display:none}
+.fh{font-weight:700;font-size:15px}.fs.last .fh{color:var(--acc)}
+.fd{font-size:12.5px;color:var(--sub);line-height:1.6}
+@media (max-width:760px){.flow{grid-template-columns:1fr}.fs:after{display:none}.fs{margin:0 0 8px}}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+.dot.g{background:var(--ok)}.dot.y{background:#d4a72c}.dot.r{background:var(--acc)}.dot.s{background:#9a958c}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+.cols>*{min-width:0}
+@media (max-width:760px){.cols{grid-template-columns:1fr}}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps>li{display:grid;grid-template-columns:40px 1fr;gap:6px;padding:10px 0;border-bottom:1px solid var(--rule)}
+.steps>li:before{counter-increment:s;content:counter(s);font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;font-size:24px;line-height:1.1;color:var(--acc)}
+footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-size:12.5px;color:var(--sub)}
+@media print{body{background:#fff}figure,.flow,table{break-inside:avoid}.part{break-before:page}}
+</style></head><body><main>
+
+<p class="eyebrow">HR_HR ／ CRM（/app/crm）</p>
+<h1>CRM 画面 操作マニュアル</h1>
+<p class="lead">BPO のアポインター（取引）と、応募者に電話する一次対応の担当（応募）が使う画面の操作をまとめた資料。HubSpot の取引・応募をこの画面で開き、電話をかけ、結果を HubSpot に保存する。</p>
+
+<div class="aside plain">
+<ul>
+<li>画面写真はすべて架空のサンプル（<code>?mode=fixture</code>）で撮影した。会社名・氏名・番号は実在しない。右の枠の検索結果はぼかしてある。</li>
+<li>実際の画面では、項目名とステージ名は HubSpot の設定どおりに出る。サンプルとは項目の数が違う所がある（例: 移す画面の必須項目）。</li>
+<li>2026-11-12 時点の画面に基づく。</li>
+</ul>
+</div>
+
+<p class="toc-g">取引（BPO アポインター）</p>
+<ol class="toc">
+<li><a href="#start">開き方と前提</a></li>
+<li><a href="#layout">画面の見方</a></li>
+<li><a href="#flow">1 件の流れ</a></li>
+<li><a href="#list">取引一覧</a></li>
+<li><a href="#filter">条件を変える・ビュー</a></li>
+<li><a href="#call">電話をかける</a></li>
+<li><a href="#result">架電結果の入力</a></li>
+<li><a href="#move">ステージを移す（必須項目）</a></li>
+<li><a href="#save">保存の状態と競合</a></li>
+<li><a href="#prop">プロパティを見る・直す</a></li>
+<li><a href="#log">活動ログ</a></li>
+<li><a href="#mail">メール</a></li>
+<li><a href="#right">右の枠（求人検索など）</a></li>
+<li><a href="#metrics">今日の成績</a></li>
+<li><a href="#dock">配置を変える</a></li>
+</ol>
+<p class="toc-g">応募（一次対応）・共通</p>
+<ol class="toc" start="16" style="counter-reset:t 15">
+<li><a href="#app">応募の画面</a></li>
+<li><a href="#app-input">対応の入力</a></li>
+<li><a href="#app-remind">約束架電の帯と「開いています」</a></li>
+<li><a href="#keys">キーボード操作</a></li>
+<li><a href="#trouble">困ったとき</a></li>
+<li><a href="#admin">管理者だけの機能</a></li>
+</ol>
+
+<!-- ============================================================ -->
+<div class="part">第 1 部　取引（BPO アポインター）</div>
+
+<h2 id="start">開き方と前提<small>START</small></h2>
+<ul>
+<li>ブラウザ（Chrome）で <code>https://hr-hw.onrender.com/app/crm</code> を開く。会社の Google アカウント（f-a-c.co.jp）でログインする。</li>
+<li>ここで見ている取引・担当者・会社・活動は HubSpot のデータ。ここで保存した内容は HubSpot に書き込まれ、HubSpot の画面でも同じ値になる。</li>
+<li>電話は Zoom Phone を使う。Zoom アプリを起動してサインインしておく（<a href="#call">電話をかける</a>）。</li>
+<li>メールを送る場合は、最初に一度だけ Gmail の許可が要る（<a href="#mail">メール</a>）。</li>
+<li>画面上部の <span class="ui">取引</span> <span class="ui">応募</span> で、取引（架電）と応募（一次対応）を切り替える。</li>
+</ul>
+
+<h2 id="layout">画面の見方<small>LAYOUT</small></h2>
+<p>左に一覧、中央に選んだ取引、右に検索結果やホームページを出す 3 列の画面。</p>
+<figure>
+<div class="shot"><div class="pinwrap"><img src="img/01-overview.jpg" alt="取引の画面全体">
+<span class="pin" style="left:7.4%;top:2.2%">1</span>
+<span class="pin" style="left:93.6%;top:5.4%">2</span>
+<span class="pin" style="left:12.8%;top:8.3%">3</span>
+<span class="pin" style="left:22%;top:34%">4</span>
+<span class="pin" style="left:25.6%;top:14.2%">5</span>
+<span class="pin" style="left:36%;top:12%">6</span>
+<span class="pin" style="left:41.6%;top:24.3%">7</span>
+<span class="pin" style="left:38.5%;top:46%">8</span>
+<span class="pin" style="left:34%;top:53.7%">9</span>
+<span class="pin" style="left:49.8%;top:97%">10</span>
+<span class="pin" style="left:80%;top:52%">11</span>
+</div></div>
+<figcaption><b>図1</b>　取引の画面（架空サンプル）。番号は下の表と対応。</figcaption>
+</figure>
+<div class="tbl"><table>
+<tr><th></th><th>場所</th><th>できること</th></tr>
+<tr><td class="n">1</td><td class="k">取引／応募</td><td>取引（架電）と応募（一次対応）の切り替え。</td></tr>
+<tr><td class="n">2</td><td class="k">条件の帯</td><td>いまの条件が 1 行で出る。<span class="ui">条件を変更 ▾</span> で絞り込み・並びを変える。</td></tr>
+<tr><td class="n">3</td><td class="k">今日の成績</td><td>自分の今日の架電数・通話時間・アポ。<span class="ui">開く</span> で数字を出す。</td></tr>
+<tr><td class="n">4</td><td class="k">取引一覧</td><td>電話をかける取引の一覧。押すと中央に開く。</td></tr>
+<tr><td class="n">5</td><td class="k">縦のタブ</td><td>左の列を「取引一覧」と「プロパティ」で切り替える。</td></tr>
+<tr><td class="n">6</td><td class="k">案件の概要</td><td>会社名・案件名、ステージ、<span class="ui">HubSpotで開く</span>、前回の通話。</td></tr>
+<tr><td class="n">7</td><td class="k">架ける番号</td><td>電話番号と <span class="ui">発信</span> <span class="ui">番号をコピー</span>。</td></tr>
+<tr><td class="n">8</td><td class="k">タブ</td><td>「活動ログ」と「架電結果の入力」を切り替える。</td></tr>
+<tr><td class="n">9</td><td class="k">架電結果の入力</td><td>結果のステージ、次回架電日、タスクメモを入れる。</td></tr>
+<tr><td class="n">10</td><td class="k">記録して次へ</td><td>HubSpot に保存して、一覧の次の取引へ進む。</td></tr>
+<tr><td class="n">11</td><td class="k">右の枠</td><td>求人検索・ホームページ・求人票。<span class="ui">広げる</span> で画面いっぱいにする。</td></tr>
+</table></div>
+<p class="note">画面の高さが低い（800px 以下）ときは、案件の概要が自動で 1 行表示になる。<span class="ui">詳しく表示</span> と <span class="ui">1 行にする</span> で切り替えられる。</p>
+
+<h2 id="flow">1 件の流れ<small>FLOW</small></h2>
+<div class="flow">
+<div class="fs"><div class="fh">選ぶ</div><div class="fd">取引一覧の行を押す（↑↓でも移れる）</div></div>
+<div class="fs"><div class="fh">かける</div><div class="fd"><span class="ui">発信</span> を押す。Zoom で呼び出す</div></div>
+<div class="fs"><div class="fh">入れる</div><div class="fd">通話が終わると「架電結果の入力」が開く。ステージ・次回架電日・メモを入れる</div></div>
+<div class="fs"><div class="fh">確かめる</div><div class="fd">必須項目のあるステージなら、移す画面で入力する</div></div>
+<div class="fs last"><div class="fh">記録して次へ</div><div class="fd"><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> でも押せる。次の未記録の取引が開く</div></div>
+</div>
+<p class="note">図2　1 件あたりの操作の順番。</p>
+
+<figure>
+<div class="shot"><img src="img/08-saved-next.jpg" alt="保存して次の取引に進んだ画面"></div>
+<figcaption><b>図3</b>　「記録して次へ」のあと。下に「前の架電先: ○○ を HubSpot に保存しました。」が出て、次の取引が開いている。一覧の件数には「(保存して外れた 1 件)」が出ている。</figcaption>
+</figure>
+
+<h2 id="list">取引一覧<small>LIST</small></h2>
+<h3>行の見方</h3>
+<ul>
+<li>1 行目: 会社名（無ければ案件名）と、右に印とステージ名。</li>
+<li>2 行目: 担当者名と電話番号。担当者が複数いると「ほか N 人」が付く。</li>
+<li>3 行目: 「次回 月/日 時刻」「最終 月/日」（未架電なら「未架電」）「担当 ○○」。</li>
+<li>条件や並びに使った項目があると、その値が 1 行追加で出る（最大 4 つ）。</li>
+</ul>
+<h3>行に出る印</h3>
+<div class="tbl"><table>
+<tr><th>印</th><th>意味</th></tr>
+<tr><td class="k">✓記録済</td><td>この画面から HubSpot に保存した。印はこのタブだけに残る。</td></tr>
+<tr><td class="k">⚠記録済</td><td>HubSpot には保存した。ただし印を残せないため、閉じたり再読み込みしたりすると消える。</td></tr>
+<tr><td class="k">条件から外れました</td><td>保存した内容で、いまの条件に合わなくなった。別の行を選ぶと一覧から消える。</td></tr>
+<tr><td class="k">架電禁止／ブロック</td><td>理由が入っている。マウスを載せると理由が出る。発信はできない。</td></tr>
+<tr><td class="k">不通チェック</td><td>不通時チェックが付いている。マウスを載せると中身が出る。</td></tr>
+</table></div>
+<h3>件数と「⚠」</h3>
+<ul>
+<li>見出しの「全 N 件中 M 件を表示」は、条件に合う件数と表示している件数。電話番号が無い取引と、架電禁止・ブロック理由のある取引は一覧に出さないため、表示できる数は少なくなる。</li>
+<li><span class="ui">⚠N</span> は、一部の情報が欠けていることを示す。押すと内訳が出る（担当者情報を取れなかった行、電話番号が無いため除いた件数など）。</li>
+<li>下までスクロールすると続きを自動で読み込む。最後まで読むと「すべて表示しました（N 件）」が出る。</li>
+<li>HubSpot の検索は 1 万件までのため、それより先は出ない。条件を絞る。</li>
+</ul>
+
+<h2 id="filter">条件を変える・ビュー<small>FILTER</small></h2>
+<p>条件の帯の右の <span class="ui">条件を変更 ▾</span> を押すと、操作欄が開く。帯にマウスを少し載せても開く。<span class="kbd">Esc</span> で閉じる。</p>
+<figure>
+<div class="shot"><img src="img/02-conditions.jpg" alt="条件を変更の操作欄"></div>
+<figcaption><b>図4</b>　条件を変更の操作欄。</figcaption>
+</figure>
+<div class="tbl"><table>
+<tr><th>欄</th><th>使い方</th></tr>
+<tr><td class="k">パイプライン</td><td>1 つ以上選んで <span class="ui">パイプラインを適用</span>。変えるとステージの選択は「すべて」に戻る。</td></tr>
+<tr><td class="k">ステージ</td><td>表示するステージを選ぶ。<span class="ui">すべて選択</span> <span class="ui">すべて外す</span> のあと <span class="ui">適用</span>。</td></tr>
+<tr><td class="k">対象</td><td>「架電対象だけ」（既定）か「すべての取引」。すべての取引では、架電禁止・ブロックの取引も印付きで出る（発信はできない）。</td></tr>
+<tr><td class="k">担当</td><td>「全員分」「担当者なし」「自分」「一覧から選ぶ」。管理者以外の人は「自分」が既定。</td></tr>
+<tr><td class="k">会社名・案件名で検索</td><td>入力して <span class="kbd">Enter</span>。</td></tr>
+<tr><td class="k">並び</td><td>「標準(次回日が来たもの → 未済)」が既定。次回架電日・最終架電日の順も選べる。「ほかの項目で並べ替え…」で任意の項目の昇順・降順にできる。</td></tr>
+<tr><td class="k">次回日が来たものだけ</td><td>次回架電日が今日以前の取引だけにする。</td></tr>
+</table></div>
+<p>適用中の条件は帯の下にチップで出る。チップの「×」で 1 つずつ外せる。<span class="ui">条件をクリア</span> はパイプラインだけ残して元に戻す。</p>
+
+<h3>詳細条件（AND と OR）</h3>
+<figure>
+<div class="shot"><img src="img/03-detail-conditions.jpg" alt="詳細条件のパネル"></div>
+<figcaption><b>図5</b>　<span class="ui">条件を追加</span> で開く詳細条件のパネル。項目を検索して選ぶ。</figcaption>
+</figure>
+<ul>
+<li>まとまりの中の条件は「すべてに合う」（AND）、まとまり同士は「いずれかに合う」（OR）。HubSpot の絞り込みと同じ考え方。</li>
+<li><span class="ui">＋ 条件を追加</span> で項目を選び、比べ方（いずれかに一致・を含む・以上・範囲・今日より前・過去 N 日以内・空 など）と値を入れて <span class="ui">この条件を追加</span>。</li>
+<li><span class="ui">＋ 「または」の条件を追加</span> でまとまりを増やす。まとまりは 3 つまで、1 つのまとまりは 6 条件まで。「条件はあと N 個です」が残りの数。</li>
+<li>パネルの下に「次回架電日」「最終架電日」の から・まで もある。</li>
+</ul>
+
+<h3>ビュー（条件の保存）</h3>
+<div class="cols">
+<div>
+<ul>
+<li>詳細条件のパネルの下に「ビュー」がある。いまの条件に名前を付けて <span class="ui">＋ ビューを保存</span>。</li>
+<li>共有範囲は「自分だけ」か「全員に共有」。自分用は 50 件、共有は 100 件まで。</li>
+<li>ビューを開いて条件を変えると「変更あり」が出る。<span class="ui">上書き保存</span> <span class="ui">別名で保存</span> <span class="ui">元に戻す</span> を選ぶ。</li>
+<li>共有のビューを直せるのは、作った人と管理者。</li>
+<li>「すべて」を選ぶと条件なしに戻る。</li>
+</ul>
+</div>
+<figure style="margin-top:6px">
+<div class="shot small"><img src="img/16-save-view.jpg" alt="新しいビューを保存"></div>
+<figcaption><b>図6</b>　新しいビューを保存。</figcaption>
+</figure>
+</div>
+
+<h2 id="call">電話をかける<small>CALL</small></h2>
+<ul>
+<li><span class="ui">発信</span>: Zoom Phone で発信する。消音・保留・通話を切る・数字の入力は Zoom の枠で行う（案件の概要の <span class="ui">Zoomを開く</span>）。</li>
+<li><span class="ui">番号をコピー</span>: 番号をコピーする。Zoom が使えないときに使う。</li>
+<li><span class="ui">端末の電話で発信</span>: パソコン・スマートフォンの電話アプリで発信する。</li>
+<li>「ほかの番号(N)」を開くと、担当者の電話・携帯、会社の電話が並ぶ。</li>
+<li>通話中は案件の概要に「呼び出し中」「通話中」と経過時間が出る。終わると「通話が終了しました（通話時間 M:SS）」などが出て、架電結果の入力が開く。</li>
+</ul>
+<h3>発信できないとき</h3>
+<div class="tbl"><table>
+<tr><th>表示</th><th>すること</th></tr>
+<tr><td>架電禁止のため発信できません／ブロックのため発信できません</td><td>かけない。理由は一覧の印に出ている。</td></tr>
+<tr><td>Zoom にログインしてください。ログインできたら、もう一度発信を押してください</td><td>Zoom の枠でサインインしてから、もう一度 <span class="ui">発信</span>。</td></tr>
+<tr><td>Zoom Phone を準備しています。少しお待ちください</td><td>数秒待ってから <span class="ui">発信</span>。</td></tr>
+<tr><td>Zoomが応答しません。Zoomアプリを起動してサインインしてから、もう一度発信してください</td><td>Zoom アプリを起動・サインインする。枠に「No available device」が出ていれば、サインイン後に画面を再読み込みする。その間は <span class="ui">番号をコピー</span> か <span class="ui">端末の電話で発信</span> を使う。</td></tr>
+<tr><td>ダイヤルできる形式ではないため発信できません</td><td>HubSpot の番号を確かめる。</td></tr>
+<tr><td>通話中のため、新しい発信はできません。</td><td>いまの通話を Zoom の枠で切ってから発信する。</td></tr>
+</table></div>
+
+<h2 id="result">架電結果の入力<small>RESULT</small></h2>
+<figure>
+<div class="shot"><img src="img/05-result-stage.jpg" alt="架電結果の入力でアポ日確定を選んだところ"></div>
+<figcaption><b>図7</b>　結果のボタンで「アポ日確定」を選んだところ。「要入力」が付いたステージは、移すときに入力する項目がある。</figcaption>
+</figure>
+<ol class="steps">
+<li><div><b>結果（ステージ）を選ぶ</b><br>よく使うステージはボタン（不在・受付ブロック・不通・担当者ブロック・日程確保・アポ日確定 など）。無いものは「ほかのステージ」から選ぶ。今のステージのボタンは押せない。ステージを変えないなら選ばなくてよい。</div></li>
+<li><div><b>架電日・次回架電日・次回架電時間</b><br>架電日には今日が最初から入っている。横に「前回: 月/日」が出る。</div></li>
+<li><div><b>タスクメモ</b><br>上に今の内容が出る。下の「追記する」に書くと、今の内容の末尾に「月/日」を付けて足される。全文を直すときは左の「プロパティ」で編集する。</div></li>
+<li><div><b><span class="ui">記録して次へ</span></b><br>入力欄の中で <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span>（Mac は <span class="kbd">⌘</span>+<span class="kbd">Enter</span>）でも押せる。<span class="kbd">Enter</span> だけでは保存されない。保存できると一覧の次の未記録の取引が開く。変更が無ければ保存せずに進む。</div></li>
+</ol>
+<ul>
+<li><span class="ui">入力を消す</span>: 押すと「入力した内容を消します(HubSpot の値は変わりません)。」と出る。<span class="ui">消す</span> で入力だけ消える。</li>
+<li>入力途中の内容は、このタブを閉じない限り再読み込みしても残る。</li>
+<li>保存できなかった（赤）ときは次へ進まない。表示に従って直してから、もう一度押す（<a href="#save">保存の状態と競合</a>）。</li>
+</ul>
+
+<h2 id="move">ステージを移す（必須項目）<small>STAGE</small></h2>
+<p>HubSpot では、ステージによって移すときに入力する項目（必須・任意）が決まっている。この画面でも同じ項目・同じ順番で入力する。</p>
+<h3>移し方は 3 通り</h3>
+<div class="tbl"><table>
+<tr><th>入口</th><th>どこ</th></tr>
+<tr><td class="k">結果のボタン</td><td>架電結果の入力でステージを選び、<span class="ui">記録して次へ</span>。必須項目があれば移す画面が先に開く。</td></tr>
+<tr><td class="k">見出しのステージ</td><td>案件の概要のステージのプルダウンで選ぶ。</td></tr>
+<tr><td class="k">別のパイプラインへ移す</td><td>案件の概要の <span class="ui">別のパイプラインへ移す</span>。パイプラインとステージを選んで <span class="ui">次へ</span>。移し先のステージの項目が出る。</td></tr>
+</table></div>
+<div class="cols">
+<figure>
+<div class="shot small"><img src="img/06-move-required.jpg" alt="移す画面"></div>
+<figcaption><b>図8</b>　移す画面。未入力の必須項目は赤く囲まれ、上に「必須 あと N 項目」が出る。</figcaption>
+</figure>
+<figure>
+<div class="shot small"><img src="img/07-move-filled.jpg" alt="必須項目を入れ終えた移す画面"></div>
+<figcaption><b>図9</b>　すべて入れると「必須項目はすべて入力済みです」に変わる。</figcaption>
+</figure>
+</div>
+<ul>
+<li>項目は HubSpot の設定の順に 1 列で並ぶ。必須には「(必須)」が付く。値がすでに入っている項目は、その値が入った状態で出る。</li>
+<li>「必須 あと N 項目 最初の未入力へ移る」を押すと、最初の未入力の欄へ移る。</li>
+<li>未入力のまま <span class="ui">移す</span> を押しても保存されず、最初の未入力の欄へ移る。</li>
+<li>すべて入れて <span class="ui">移す</span> を押すと、ステージと入力した項目がまとめて保存される。結果のボタンから開いた場合は、架電日・次回架電日・メモも同じ保存に入る。</li>
+<li><span class="ui">やめる</span> で何も保存せずに閉じる。ステージは元のまま。</li>
+</ul>
+<div class="aside">
+<b>HubSpot と違う点（1 つだけ）</b><br>
+「アポ獲得者」「アポ取得者」が空のときは、操作している本人が最初から入っている。別の人なら選び直す。FS 担当者・IS 担当者などには何も入れない。
+</div>
+<ul>
+<li>「案件差戻」に移す画面には、HubSpot と同じく任意の「取引担当者」が出る。取引担当者はこの画面以外では変えられない。</li>
+<li>必要な項目の数はステージで違う。例: bpo_リクロジの「アポ日確定」は必須 22 項目、リクロジ受注管理_商談の「Aヨミ：90％」は必須 45 項目。</li>
+<li>画面に出せない必須項目があると「HubSpot 側で必須の項目のうち、この画面で入力できないものがあります(○○)」と出る。管理者に伝える。</li>
+</ul>
+<figure>
+<div class="shot small"><img src="img/13-other-pipeline.jpg" alt="別のパイプラインへ移す"></div>
+<figcaption><b>図10</b>　別のパイプラインへ移す。次へで移す画面が開く。</figcaption>
+</figure>
+
+<h2 id="save">保存の状態と競合<small>SAVE</small></h2>
+<p>保存した項目の横や、画面の下に状態が出る。</p>
+<div class="tbl"><table>
+<tr><th>色</th><th>表示</th><th>意味とすること</th></tr>
+<tr><td><span class="dot s"></span></td><td>保存中…</td><td>送信中。待つ。</td></tr>
+<tr><td><span class="dot g"></span>緑</td><td>✓ 保存済み</td><td>HubSpot に保存できた。</td></tr>
+<tr><td><span class="dot y"></span>黄</td><td>反映待ち(HubSpot に一時保存しました。つながり次第、自動で反映します)</td><td>HubSpot が混んでいる・つながらないため、一時保存した。自動で送り直すので、入れ直さない。</td></tr>
+<tr><td><span class="dot y"></span>黄</td><td>まだ反映待ちです(…しばらくしても反映されないときは管理者に伝えてください)</td><td>30 分たっても反映されていない。管理者に伝える。</td></tr>
+<tr><td><span class="dot r"></span>赤</td><td>入力を確認してください: ○○</td><td>入力の誤り・必須の不足。直して保存し直す。何も保存されていない。</td></tr>
+<tr><td><span class="dot r"></span>赤</td><td>保存できていません: ○○</td><td>保存できていない。<span class="ui">もう一度保存</span> が出ていれば押す。</td></tr>
+</table></div>
+<h3>HubSpot 側で先に変更されていたとき</h3>
+<p>見ていた間に、HubSpot（ほかの人・自動処理）で同じ項目が変わっていると、上書きせずに止まる。「HubSpot 側で先に変更されています」の画面に「項目／HubSpot の今の値／あなたの値」が並ぶ。</p>
+<ul>
+<li><span class="ui">HubSpotの値を使う</span>: 自分の入力を捨て、HubSpot の値のままにする。</li>
+<li><span class="ui">自分の値で上書き</span>: 自分の値で保存し直す。</li>
+</ul>
+
+<h2 id="prop">プロパティを見る・直す<small>PROPERTIES</small></h2>
+<figure>
+<div class="shot"><img src="img/09-property.jpg" alt="プロパティの列"></div>
+<figcaption><b>図11</b>　左の縦タブ「プロパティ」。カードごとに項目が並ぶ。</figcaption>
+</figure>
+<figure>
+<div class="shot small"><img src="img/10-property-edit.jpg" alt="項目を編集しているところ"></div>
+<figcaption><b>図12</b>　<span class="ui">編集</span> で入力欄になる。<span class="ui">保存</span> か <span class="kbd">Enter</span>。</figcaption>
+</figure>
+<ul>
+<li>各項目の <span class="ui">編集</span> か、行のダブルクリックで直す。<span class="kbd">Enter</span> で保存（複数行の欄は <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span>）、<span class="kbd">Esc</span> でやめる。</li>
+<li>「※編集不可」の項目や、HubSpot が自動で入れる項目は直せない。</li>
+<li><span class="ui">表示設定 ▾</span> →「表示する項目を選ぶ」で、出す項目と順番を変えられる（最大 100 項目）。HubSpot のカードからまとめて選ぶこともできる。<span class="ui">既定に戻す</span> で元に戻る。</li>
+<li>「役割の標準に戻す」は、管理者が役割ごとに決めた並びに戻す。</li>
+</ul>
+
+<h2 id="log">活動ログ<small>ACTIVITY</small></h2>
+<figure>
+<div class="shot"><img src="img/11-activity.jpg" alt="活動ログ"></div>
+<figcaption><b>図13</b>　活動ログ。通話・メモ・メールが新しい順に並ぶ。</figcaption>
+</figure>
+<ul>
+<li>上の <span class="ui">すべて</span> <span class="ui">通話</span> <span class="ui">メモ</span> <span class="ui">メール</span> <span class="ui">ミーティング</span> で種類を絞る。</li>
+<li>通話には状態（完了・応答なし・話し中 など）と通話時間が出る。録音があれば「録音を聞く」。</li>
+<li>担当者経由の通話には「担当者の通話(別の案件のものを含む場合があります)」が付く。同じ担当者の別の取引の通話が混ざることがある。</li>
+<li>長い本文は「全文を表示」、引用は「以前のやりとりを表示」で開く。</li>
+<li>案件の概要の「前回 …」の行を押しても活動ログが前に出る。</li>
+</ul>
+
+<h2 id="mail">メール<small>EMAIL</small></h2>
+<div class="cols">
+<div>
+<h3 style="margin-top:6px">最初に一度だけ: Gmail の許可</h3>
+<ul>
+<li>「Gmail での送信を許可してください」が出ていれば、<span class="ui">Gmail で送信を許可する</span> を押し、Google の画面で許可する。</li>
+<li>メールは自分の Gmail から送られる。送ったメールは HubSpot の活動に記録される。</li>
+<li>許可が切れると「Gmail の許可が切れています」と出る。<span class="ui">Gmail の許可を更新する</span> を押す。</li>
+<li>取り消すときは、メール作成画面の「その他」→「Gmail の許可を取り消す」。</li>
+</ul>
+</div>
+<figure style="margin-top:6px">
+<div class="shot small"><img src="img/12-email-permission.jpg" alt="Gmail の許可"></div>
+<figcaption><b>図14</b>　許可の前に出る案内。</figcaption>
+</figure>
+</div>
+<h3>送る</h3>
+<ol class="steps">
+<li><div><span class="ui">メールを書く</span> を押す。</div></li>
+<li><div>「宛先」を選ぶ（この取引の担当者のうち、メールアドレスのある人だけが出る）。必要なら「CC」も選ぶ。</div></li>
+<li><div>「件名」「本文」を書いて <span class="ui">送信</span>。通常 10 秒ほどかかる。</div></li>
+<li><div>送れると活動ログの先頭に出る。</div></li>
+</ol>
+<div class="tbl"><table>
+<tr><th>送信後の表示</th><th>すること</th></tr>
+<tr><td>送信済み・保存済み</td><td>何もしない。</td></tr>
+<tr><td>送信済み・記録の保存待ち</td><td>メールは届いている。HubSpot への記録は自動で続く。送り直さない。</td></tr>
+<tr><td>送信結果を確認中です。もう一度送らずにお待ちください。</td><td>待つ。送り直さない。</td></tr>
+<tr><td>送信結果を確認できませんでした。Gmail の送信済みを確認してください。</td><td>Gmail の送信済みを見て、送れていなければ送り直す。</td></tr>
+<tr><td>送信済み・記録を保存できませんでした。管理者にご連絡ください。</td><td>管理者に伝える。</td></tr>
+</table></div>
+<h3>開封・クリックと返信</h3>
+<ul>
+<li>送ったメールのカードに「開封 N 回・クリック N 回」（開封が無ければ「未開封」）が出る。「開封・クリックの詳細」で最初と最後の開封の時刻、リンクごとのクリック数を見られる。</li>
+<li>開封は画像の読み込みで数えるため、実際の開封と違うことがある。送った本人が Gmail の送信済みを開いても数えることがある。</li>
+<li>相手からの返信は自動で取り込まれ、「受信」として活動ログに並ぶ。活動ログの上に「返信の確認 N 分前」が出る。</li>
+</ul>
+
+<h2 id="right">右の枠（求人検索など）<small>RIGHT PANEL</small></h2>
+<ul>
+<li><b>求人検索</b>: 「検索:」で <span class="ui">電話番号</span> か <span class="ui">会社名</span> を選ぶ。番号または会社名に「求人」を付けて Google で検索した結果が出る。</li>
+<li><b>ホームページ</b>: 取引か会社に登録されたホームページ。</li>
+<li><b>求人票</b>: 取引に登録された求人票の URL。</li>
+<li>プロパティの値のリンクを押すと、右の枠に新しいタブで開く（最大 5 つ）。<span class="kbd">Ctrl</span>（<span class="kbd">⌘</span>）を押しながらクリックするとブラウザの新しいタブで開く。</li>
+<li>枠に表示できないサイトは「このページは画面の中に表示できません」と出る。<span class="ui">新しいタブで開く</span> を使う。</li>
+<li><span class="ui">広げる</span> で画面いっぱいに広げる。<span class="ui">戻す</span> か <span class="kbd">Esc</span> で戻る。</li>
+</ul>
+
+<h2 id="metrics">今日の成績<small>TODAY</small></h2>
+<figure>
+<div class="shot"><img src="img/04-metrics.jpg" alt="今日の成績の帯"></div>
+<figcaption><b>図15</b>　<span class="ui">開く</span> で出る今日の成績。各数字の横は「チーム平均・順位/人数」。</figcaption>
+</figure>
+<div class="tbl"><table>
+<tr><th>項目</th><th>数え方</th></tr>
+<tr><td class="k">架電数</td><td>今日、Zoom で発信した件数。着信は数えない（横に「着信 N」）。</td></tr>
+<tr><td class="k">90秒以上</td><td>通話が 90 秒以上だった発信の件数と、架電数に対する割合。30・60・360 秒も選べる。</td></tr>
+<tr><td class="k">通話時間</td><td>今日の通話時間の合計と、1 件あたりの平均。</td></tr>
+<tr><td class="k">アポ</td><td>今日「アポ日確定」に入った取引の数。アポ獲得者（空なら取引担当者）に数える。</td></tr>
+</table></div>
+<ul>
+<li>比べる相手は、同じ HubSpot チームで今日架電した人。今日の架電が 0 件のときは順位は出ない。</li>
+<li>2 分ごとに自動で更新される。「○時○分時点」が集計の時刻。</li>
+<li><span class="ui">⚙ 項目</span> で帯に出す項目と順番を選ぶ。<span class="ui">＋ 自分の項目を足す</span> で、条件に合う取引の件数などを自分用に足せる（最大 6 個）。</li>
+<li>新規営業チームの人には、今月の成績の帯が出る。</li>
+</ul>
+
+<h2 id="dock">配置を変える<small>LAYOUT</small></h2>
+<ul>
+<li>パネル（取引一覧・プロパティ・案件の概要・活動ログ・架電結果の入力・求人検索・リンク先）は、タブをドラッグして別の列へ移せる。タブの「⋮」から「左へ移動」「中央へ移動」「右へ移動」も選べる。</li>
+<li>列の境目をドラッグすると幅が変わる。</li>
+<li>配置はこのブラウザに保存される。条件の操作欄の「…」→ <span class="ui">元の配置に戻す</span> で最初の配置に戻る。</li>
+</ul>
+
+<!-- ============================================================ -->
+<div class="part">第 2 部　応募（一次対応）・共通</div>
+
+<h2 id="app">応募の画面<small>APPLICANTS</small></h2>
+<p>画面上部の <span class="ui">応募</span> で切り替える。配置は取引と同じ 3 列。</p>
+<figure>
+<div class="shot"><img src="img/15-applicant-detail.jpg" alt="応募の画面"></div>
+<figcaption><b>図16</b>　応募の画面。左が応募一覧、中央が応募の概要と対応の入力、右が求人票・報告シート。上の赤い帯は約束架電の時刻が近い応募。</figcaption>
+</figure>
+<ul>
+<li>一覧の既定は「一次対応が必要な未完了」。<span class="ui">条件を変更</span> で「すべての応募」、ステージ、応募媒体を選べる。</li>
+<li>「検索対象」（応募者・取引・求人）を選んで「応募を検索」に入れる。</li>
+<li>行には氏名・ステージ・電話番号・取引名・求人名・応募日・応募媒体・約束架電日時が出る。続きは <span class="ui">続きを読み込む</span>。</li>
+<li>中央の上に「この求人の対応ルール」（初動対応・資格保有確認など）が出る。電話の前に読む。</li>
+<li>右の枠は「求人票」「報告シート」「スクリプト」「顧客シート」。</li>
+<li>ヘッダーの <span class="ui">Zoom</span> で Zoom の枠を開く。<span class="ui">最新にする</span> で一覧と詳細を読み直す。</li>
+<li>左の縦タブ「プロパティ」に応募者の情報・応募先・応募の内容・ヒアリングが出る。</li>
+</ul>
+
+<h2 id="app-input">対応の入力<small>INPUT</small></h2>
+<ol class="steps">
+<li><div><b>ステージ</b>: ボタン（朝連絡・昼連絡・夕連絡・約束あり連絡・選考書類待ち・足切り猶予期間・一次対応実施済）か「ステージ」で選ぶ。</div></li>
+<li><div><b>対応結果</b>: 対応種別、一次対応実施内容などを選ぶ。約束架電日時は日付と時刻で入れる。</div></li>
+<li><div><b>連絡確認目的詳細</b>: 書くと今の内容の末尾に「月/日」を付けて足される。</div></li>
+<li><div><b><span class="ui">記録して次へ</span></b>（<span class="kbd">Ctrl</span>+<span class="kbd">Enter</span>）: 保存して次の応募へ進む。</div></li>
+</ol>
+<ul>
+<li>保存の状態の表示は取引と同じ（<a href="#save">保存の状態と競合</a>）。</li>
+<li>取引と違い、HubSpot 側で先に変更されていたときは上書きを選べない。「HubSpot 側で先に変更されています。保存せず、最新の内容を確認してください。」が出たら <span class="ui">最新の内容を読み直す</span> を押し、入れ直す。</li>
+<li>「この応募のパイプラインは読み取り専用です。」と出る応募は、見るだけになる。</li>
+</ul>
+
+<h2 id="app-remind">約束架電の帯と「開いています」<small>REMINDER</small></h2>
+<figure>
+<div class="shot"><img src="img/14-applicants-list.jpg" alt="約束架電の帯と開いています表示"></div>
+<figcaption><b>図17</b>　上の赤い帯が約束架電の時刻。一覧の黄色い印は、ほかの人が開いている応募。</figcaption>
+</figure>
+<ul>
+<li>ステージが「約束あり連絡」の応募は、約束架電日時の 5 分前から上に赤い帯で出る（「14:05（あと3分）」、過ぎると「（N分過ぎ）」）。氏名を押すとその応募が開く。</li>
+<li>帯はステージを「約束あり連絡」から移すまで出続ける。応募画面を開いている全員に出る。</li>
+<li>「○○ さんが開いています」は、ほかの人が同じ応募を開いていることを示す。「同じ電話番号の応募を開いています」は、番号が同じ別の応募を開いていること。</li>
+<li>発信は止まらない。印を見たら、かける前に声をかけて二重にかけないようにする。</li>
+</ul>
+
+<h2 id="keys">キーボード操作<small>KEYS</small></h2>
+<div class="tbl"><table>
+<tr><th>場所</th><th>キー</th><th>動き</th></tr>
+<tr><td>取引一覧</td><td><span class="kbd">↑</span> <span class="kbd">↓</span></td><td>選ぶ取引を移す</td></tr>
+<tr><td>取引一覧</td><td><span class="kbd">Enter</span></td><td>架電結果の入力を開き、結果のボタンへ移る</td></tr>
+<tr><td>架電結果・対応の入力</td><td><span class="kbd">Ctrl</span>/<span class="kbd">⌘</span>+<span class="kbd">Enter</span></td><td>記録して次へ</td></tr>
+<tr><td>プロパティの編集</td><td><span class="kbd">Enter</span> ／ <span class="kbd">Esc</span></td><td>保存 ／ やめる（複数行の欄は <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> で保存）</td></tr>
+<tr><td>条件の帯・広げた枠・Zoom の枠・メール作成</td><td><span class="kbd">Esc</span></td><td>閉じる・戻す</td></tr>
+<tr><td>列の境目</td><td><span class="kbd">←</span> <span class="kbd">→</span></td><td>幅を変える</td></tr>
+</table></div>
+
+<h2 id="trouble">困ったとき<small>TROUBLE</small></h2>
+<div class="tbl"><table>
+<tr><th>表示</th><th>すること</th></tr>
+<tr><td>HubSpot が混み合っています。少し待ってから再試行してください。</td><td>数十秒待って <span class="ui">再試行</span>。</td></tr>
+<tr><td>HubSpot の呼び出し回数の上限に達しました。／HubSpot からの応答が時間内に返りませんでした。</td><td>少し待って <span class="ui">再試行</span>。</td></tr>
+<tr><td>取得に時間がかかりすぎたため中断しました。条件を絞って再試行してください。</td><td>条件を絞る。</td></tr>
+<tr><td>続きの読み込みに使う情報が古くなりました。最初から読み直してください。</td><td><span class="ui">最初から読み直す</span>。</td></tr>
+<tr><td>短時間に保存が多すぎます。少し待ってから保存してください。何も保存されていません。</td><td>少し待って保存し直す。</td></tr>
+<tr><td>いま保存を受け付けられません。何も保存されていません。</td><td>少し待って保存し直す。</td></tr>
+<tr><td>ログインが切れています。再読み込みしてログインしてください。</td><td>画面を再読み込みしてログインする。入力途中の架電結果は残る。</td></tr>
+<tr><td>あなたのメールアドレスに対応する HubSpot の所有者が見つかりません。</td><td>担当の欄で自分を一覧から選ぶ。続くときは管理者に伝える。</td></tr>
+<tr><td>画面を読み込めませんでした。通信の状態を確かめて、再読み込みしてください。</td><td><span class="ui">再読み込み</span>。</td></tr>
+<tr><td>HubSpot で変えた値が画面に出ない</td><td>案件の概要の <span class="ui">最新にする</span>。画面は同じ取引の内容を最大 60 秒使い回している。</td></tr>
+<tr><td>「管理者に連絡してください」と出るもの（接続設定・権限・反映できなかった など）</td><td>表示の文言と取引名を管理者に伝える。</td></tr>
+</table></div>
+
+<h2 id="admin">管理者だけの機能<small>ADMIN</small></h2>
+<ul>
+<li>画面上部の「HubSpot に保存できなかった操作が N 件あります」: 管理者にだけ出る。押すと管理画面の一覧（再試行・破棄）が開く。</li>
+<li>プロパティの「この並びを ○○ の標準にする」: 役割（管理者・営業・コンサルタント・BPO・一般）ごとに、プロパティの標準の並びを決める。</li>
+<li>全員の今日の成績: 管理画面 <code>/app/admin?view=callers</code>。</li>
+<li>担当の既定は、管理者は「全員分」、それ以外の人は「自分」。</li>
+</ul>
+
+<footer>
+HR_HR CRM（/app/crm）操作マニュアル　2026-11-12 作成。画面写真は架空サンプル（?mode=fixture）。<br>
+仕組みの詳細: <a href="../../architecture/headless-crm-design.md">docs/architecture/headless-crm-design.md</a>
+</footer>
+</main></body></html>
