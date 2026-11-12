@@ -133,7 +133,7 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <tr><th></th><th>場所</th><th>できること</th></tr>
 <tr><td class="n">1</td><td class="k">取引／応募</td><td>取引（架電）と応募（一次対応）の切り替え。</td></tr>
 <tr><td class="n">2</td><td class="k">条件の帯</td><td>いまの条件が 1 行で出る。<span class="ui">条件を変更 ▾</span> で絞り込み・並びを変える。</td></tr>
-<tr><td class="n">3</td><td class="k">今日の成績</td><td>自分の今日の架電数・通話時間・アポ。<span class="ui">開く</span> で数字を出す。</td></tr>
+<tr><td class="n">3</td><td class="k">今日の成績</td><td>自分の今日の架電数・通話時間・アポ。<span class="ui">閉じる</span> で畳み、<span class="ui">開く</span> で戻す。</td></tr>
 <tr><td class="n">4</td><td class="k">取引一覧</td><td>電話をかける取引の一覧。押すと中央に開く。</td></tr>
 <tr><td class="n">5</td><td class="k">縦のタブ</td><td>左の列を「取引一覧」と「プロパティ」で切り替える。</td></tr>
 <tr><td class="n">6</td><td class="k">案件の概要</td><td>会社名・案件名、ステージ、<span class="ui">HubSpotで開く</span>、前回の通話。</td></tr>
@@ -143,7 +143,7 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <tr><td class="n">10</td><td class="k">記録して次へ</td><td>HubSpot に保存して、一覧の次の取引へ進む。</td></tr>
 <tr><td class="n">11</td><td class="k">右の枠</td><td>求人検索・ホームページ・求人票。<span class="ui">広げる</span> で画面いっぱいにする。</td></tr>
 </table></div>
-<p class="note">画面の高さが低い（800px 以下）ときは、案件の概要が自動で 1 行表示になる。<span class="ui">詳しく表示</span> と <span class="ui">1 行にする</span> で切り替えられる。</p>
+<p class="note">画面の高さが低い（800px 以下）ときは、案件の概要が自動で 1 行表示になる。1 行表示では <span class="ui">番号をコピー</span> <span class="ui">端末の電話で発信</span>、ほかの番号、ステージのプルダウン、<span class="ui">別のパイプラインへ移す</span>、<span class="ui">最新にする</span> が出ない。使うときは <span class="ui">詳しく表示</span> を押す（<span class="ui">1 行にする</span> で戻る）。</p>
 
 <h2 id="flow">1 件の流れ<small>FLOW</small></h2>
 <div class="flow">
@@ -171,7 +171,7 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <h3>行に出る印</h3>
 <div class="tbl"><table>
 <tr><th>印</th><th>意味</th></tr>
-<tr><td class="k">✓記録済</td><td>この画面から HubSpot に保存した。印はこのタブだけに残る。</td></tr>
+<tr><td class="k">✓記録済</td><td>この画面から保存した（反映待ちを含む）。印はこのタブだけに残る。</td></tr>
 <tr><td class="k">⚠記録済</td><td>HubSpot には保存した。ただし印を残せないため、閉じたり再読み込みしたりすると消える。</td></tr>
 <tr><td class="k">条件から外れました</td><td>保存した内容で、いまの条件に合わなくなった。別の行を選ぶと一覧から消える。</td></tr>
 <tr><td class="k">架電禁止／ブロック</td><td>理由が入っている。マウスを載せると理由が出る。発信はできない。</td></tr>
@@ -240,6 +240,7 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <li>「ほかの番号(N)」を開くと、担当者の電話・携帯、会社の電話が並ぶ。</li>
 <li>通話中は案件の概要に「呼び出し中」「通話中」と経過時間が出る。終わると「通話が終了しました（通話時間 M:SS）」などが出て、架電結果の入力が開く。</li>
 </ul>
+<p class="note">案件の概要が 1 行表示のときは、<span class="ui">詳しく表示</span> を押すとコピーと端末の電話が出る。</p>
 <h3>発信できないとき</h3>
 <div class="tbl"><table>
 <tr><th>表示</th><th>すること</th></tr>
@@ -258,9 +259,9 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 </figure>
 <ol class="steps">
 <li><div><b>結果（ステージ）を選ぶ</b><br>よく使うステージはボタン（不在・受付ブロック・不通・担当者ブロック・日程確保・アポ日確定 など）。無いものは「ほかのステージ」から選ぶ。今のステージのボタンは押せない。ステージを変えないなら選ばなくてよい。</div></li>
-<li><div><b>架電日・次回架電日・次回架電時間</b><br>架電日には今日が最初から入っている。横に「前回: 月/日」が出る。</div></li>
+<li><div><b>架電日・次回架電日・次回架電時間・接触・日程切り</b><br>架電日には今日が最初から入っている。横に「前回: 月/日」が出る。入力欄は所属チームで決まる（BPO: 架電日・次回架電日・次回架電時間・タスクメモ・接触・日程切り。新規営業: 架電日・再架電日・再架電時間・激アツメモ）。</div></li>
 <li><div><b>タスクメモ</b><br>上に今の内容が出る。下の「追記する」に書くと、今の内容の末尾に「月/日」を付けて足される。全文を直すときは左の「プロパティ」で編集する。</div></li>
-<li><div><b><span class="ui">記録して次へ</span></b><br>入力欄の中で <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span>（Mac は <span class="kbd">⌘</span>+<span class="kbd">Enter</span>）でも押せる。<span class="kbd">Enter</span> だけでは保存されない。保存できると一覧の次の未記録の取引が開く。変更が無ければ保存せずに進む。</div></li>
+<li><div><b><span class="ui">記録して次へ</span></b><br>入力欄の中で <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span>（Mac は <span class="kbd">⌘</span>+<span class="kbd">Enter</span>）でも押せる。<span class="kbd">Enter</span> だけでは保存されない。保存できると一覧の次の未記録の取引が開く。何も入れずに押しても、架電日は今日の日付で保存される。架電日がすでに今日で、ほかに入力が無いときだけ保存せずに進む。</div></li>
 </ol>
 <ul>
 <li><span class="ui">入力を消す</span>: 押すと「入力した内容を消します(HubSpot の値は変わりません)。」と出る。<span class="ui">消す</span> で入力だけ消える。</li>
@@ -273,8 +274,8 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <h3>移し方は 3 通り</h3>
 <div class="tbl"><table>
 <tr><th>入口</th><th>どこ</th></tr>
-<tr><td class="k">結果のボタン</td><td>架電結果の入力でステージを選び、<span class="ui">記録して次へ</span>。必須項目があれば移す画面が先に開く。</td></tr>
-<tr><td class="k">見出しのステージ</td><td>案件の概要のステージのプルダウンで選ぶ。</td></tr>
+<tr><td class="k">結果のボタン</td><td>架電結果の入力でステージを選び、<span class="ui">記録して次へ</span>。必須項目があれば移す画面が先に開く。無ければそのまま保存される。</td></tr>
+<tr><td class="k">見出しのステージ</td><td>案件の概要のステージのプルダウンで選ぶ。必須項目が無いステージでも「ステージを「○○」に移します。よろしいですか。」の確認が出る。</td></tr>
 <tr><td class="k">別のパイプラインへ移す</td><td>案件の概要の <span class="ui">別のパイプラインへ移す</span>。パイプラインとステージを選んで <span class="ui">次へ</span>。移し先のステージの項目が出る。</td></tr>
 </table></div>
 <div class="cols">
@@ -317,13 +318,14 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <tr><td><span class="dot y"></span>黄</td><td>反映待ち(HubSpot に一時保存しました。つながり次第、自動で反映します)</td><td>HubSpot が混んでいる・つながらないため、一時保存した。自動で送り直すので、入れ直さない。</td></tr>
 <tr><td><span class="dot y"></span>黄</td><td>まだ反映待ちです(…しばらくしても反映されないときは管理者に伝えてください)</td><td>30 分たっても反映されていない。管理者に伝える。</td></tr>
 <tr><td><span class="dot r"></span>赤</td><td>入力を確認してください: ○○</td><td>入力の誤り・必須の不足。直して保存し直す。何も保存されていない。</td></tr>
-<tr><td><span class="dot r"></span>赤</td><td>保存できていません: ○○</td><td>保存できていない。<span class="ui">もう一度保存</span> が出ていれば押す。</td></tr>
+<tr><td><span class="dot r"></span>赤</td><td>保存できていません: ○○</td><td>保存できていない、または保存できたか分からない（通信が切れたときなど）。<span class="ui">もう一度保存</span> が出ていれば押してよい（二重には保存されない）。ボタンが無いときは表示の文言を管理者に伝える。</td></tr>
 </table></div>
 <h3>HubSpot 側で先に変更されていたとき</h3>
 <p>見ていた間に、HubSpot（ほかの人・自動処理）で同じ項目が変わっていると、上書きせずに止まる。「HubSpot 側で先に変更されています」の画面に「項目／HubSpot の今の値／あなたの値」が並ぶ。</p>
 <ul>
 <li><span class="ui">HubSpotの値を使う</span>: 自分の入力を捨て、HubSpot の値のままにする。</li>
 <li><span class="ui">自分の値で上書き</span>: 自分の値で保存し直す。</li>
+<li>架電結果の入力から保存したときは、どちらを選んでも次へは進まない。内容を確かめて、もう一度 <span class="ui">記録して次へ</span> を押す。</li>
 </ul>
 
 <h2 id="prop">プロパティを見る・直す<small>PROPERTIES</small></h2>
@@ -383,7 +385,8 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <tr><td>送信済み・保存済み</td><td>何もしない。</td></tr>
 <tr><td>送信済み・記録の保存待ち</td><td>メールは届いている。HubSpot への記録は自動で続く。送り直さない。</td></tr>
 <tr><td>送信結果を確認中です。もう一度送らずにお待ちください。</td><td>待つ。送り直さない。</td></tr>
-<tr><td>送信結果を確認できませんでした。Gmail の送信済みを確認してください。</td><td>Gmail の送信済みを見て、送れていなければ送り直す。</td></tr>
+<tr><td>送信結果を確認できません。「送信結果を確認」を押してください。</td><td><span class="ui">送信結果を確認</span> を押す。送り直さない。</td></tr>
+<tr><td>送信結果を確認できませんでした。Gmail の送信済みを確認してください。</td><td>Gmail の送信済みを見る。無ければ画面を再読み込みしてから書き直す。</td></tr>
 <tr><td>送信済み・記録を保存できませんでした。管理者にご連絡ください。</td><td>管理者に伝える。</td></tr>
 </table></div>
 <h3>開封・クリックと返信</h3>
@@ -406,7 +409,7 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <h2 id="metrics">今日の成績<small>TODAY</small></h2>
 <figure>
 <div class="shot"><img src="img/04-metrics.jpg" alt="今日の成績の帯"></div>
-<figcaption><b>図15</b>　<span class="ui">開く</span> で出る今日の成績。各数字の横は「チーム平均・順位/人数」。</figcaption>
+<figcaption><b>図15</b>　今日の成績。各数字の横は「チーム平均・順位/人数」。</figcaption>
 </figure>
 <div class="tbl"><table>
 <tr><th>項目</th><th>数え方</th></tr>
@@ -416,7 +419,9 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <tr><td class="k">アポ</td><td>今日「アポ日確定」に入った取引の数。アポ獲得者（空なら取引担当者）に数える。</td></tr>
 </table></div>
 <ul>
-<li>比べる相手は、同じ HubSpot チームで今日架電した人。今日の架電が 0 件のときは順位は出ない。</li>
+<li>数字は最初から出ている。<span class="ui">閉じる</span> で畳み、<span class="ui">開く</span> で戻す（このブラウザに残る）。</li>
+<li>比べる相手は、同じ HubSpot チームで今日架電した人。同じチームに今日架電した人がいなければ全員と比べ、「全体平均」と出る。今日の架電が 0 件のときは順位は出ない。</li>
+<li>アポの欄は、BPO_リクロジのチームの人と、チームに入っていない人にだけ出る。</li>
 <li>2 分ごとに自動で更新される。「○時○分時点」が集計の時刻。</li>
 <li><span class="ui">⚙ 項目</span> で帯に出す項目と順番を選ぶ。<span class="ui">＋ 自分の項目を足す</span> で、条件に合う取引の件数などを自分用に足せる（最大 6 個）。</li>
 <li>新規営業チームの人には、今月の成績の帯が出る。</li>
@@ -443,9 +448,9 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <li>「検索対象」（応募者・取引・求人）を選んで「応募を検索」に入れる。</li>
 <li>行には氏名・ステージ・電話番号・取引名・求人名・応募日・応募媒体・約束架電日時が出る。続きは <span class="ui">続きを読み込む</span>。</li>
 <li>中央の上に「この求人の対応ルール」（初動対応・資格保有確認など）が出る。電話の前に読む。</li>
-<li>右の枠は「求人票」「報告シート」「スクリプト」「顧客シート」。</li>
+<li>右の枠は「求人票」「報告シート」「スクリプト」「顧客シート」。スクリプトと顧客シートは URL がまだ設定されておらず、「…の URL がまだ設定されていません。」と出る。</li>
 <li>ヘッダーの <span class="ui">Zoom</span> で Zoom の枠を開く。<span class="ui">最新にする</span> で一覧と詳細を読み直す。</li>
-<li>左の縦タブ「プロパティ」に応募者の情報・応募先・応募の内容・ヒアリングが出る。</li>
+<li>左の縦タブ「プロパティ」に応募者の情報・応募先・応募の内容・ヒアリングと結果が出る。</li>
 </ul>
 
 <h2 id="app-input">対応の入力<small>INPUT</small></h2>
@@ -453,11 +458,11 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <li><div><b>ステージ</b>: ボタン（朝連絡・昼連絡・夕連絡・約束あり連絡・選考書類待ち・足切り猶予期間・一次対応実施済）か「ステージ」で選ぶ。</div></li>
 <li><div><b>対応結果</b>: 対応種別、一次対応実施内容などを選ぶ。約束架電日時は日付と時刻で入れる。</div></li>
 <li><div><b>連絡確認目的詳細</b>: 書くと今の内容の末尾に「月/日」を付けて足される。</div></li>
-<li><div><b><span class="ui">記録して次へ</span></b>（<span class="kbd">Ctrl</span>+<span class="kbd">Enter</span>）: 保存して次の応募へ進む。</div></li>
+<li><div><b><span class="ui">記録して次へ</span></b>（<span class="kbd">Ctrl</span>+<span class="kbd">Enter</span>。Mac も <span class="kbd">Ctrl</span>）: 保存して次の応募へ進む。</div></li>
 </ol>
 <ul>
 <li>保存の状態の表示は取引と同じ（<a href="#save">保存の状態と競合</a>）。</li>
-<li>取引と違い、HubSpot 側で先に変更されていたときは上書きを選べない。「HubSpot 側で先に変更されています。保存せず、最新の内容を確認してください。」が出たら <span class="ui">最新の内容を読み直す</span> を押し、入れ直す。</li>
+<li>取引と違い、HubSpot 側で先に変更されていたときは選ぶ画面が出ない。「HubSpot 側で先に変更されています。保存せず、最新の内容を確認してください。」が出たら <span class="ui">最新の内容を読み直す</span> を押す。画面が読み直され、入力していた内容は残る。HubSpot の今の内容を確かめ、必要なら直してから <span class="ui">記録して次へ</span> を押す（自分の入力で上書きになる）。</li>
 <li>「この応募のパイプラインは読み取り専用です。」と出る応募は、見るだけになる。</li>
 </ul>
 
@@ -478,7 +483,8 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <tr><th>場所</th><th>キー</th><th>動き</th></tr>
 <tr><td>取引一覧</td><td><span class="kbd">↑</span> <span class="kbd">↓</span></td><td>選ぶ取引を移す</td></tr>
 <tr><td>取引一覧</td><td><span class="kbd">Enter</span></td><td>架電結果の入力を開き、結果のボタンへ移る</td></tr>
-<tr><td>架電結果・対応の入力</td><td><span class="kbd">Ctrl</span>/<span class="kbd">⌘</span>+<span class="kbd">Enter</span></td><td>記録して次へ</td></tr>
+<tr><td>架電結果の入力（取引）</td><td><span class="kbd">Ctrl</span>/<span class="kbd">⌘</span>+<span class="kbd">Enter</span></td><td>記録して次へ</td></tr>
+<tr><td>対応の入力（応募）</td><td><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span></td><td>記録して次へ（Mac も <span class="kbd">Ctrl</span>）</td></tr>
 <tr><td>プロパティの編集</td><td><span class="kbd">Enter</span> ／ <span class="kbd">Esc</span></td><td>保存 ／ やめる（複数行の欄は <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> で保存）</td></tr>
 <tr><td>条件の帯・広げた枠・Zoom の枠・メール作成</td><td><span class="kbd">Esc</span></td><td>閉じる・戻す</td></tr>
 <tr><td>列の境目</td><td><span class="kbd">←</span> <span class="kbd">→</span></td><td>幅を変える</td></tr>
@@ -496,6 +502,7 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <tr><td>ログインが切れています。再読み込みしてログインしてください。</td><td>画面を再読み込みしてログインする。入力途中の架電結果は残る。</td></tr>
 <tr><td>あなたのメールアドレスに対応する HubSpot の所有者が見つかりません。</td><td>担当の欄で自分を一覧から選ぶ。続くときは管理者に伝える。</td></tr>
 <tr><td>画面を読み込めませんでした。通信の状態を確かめて、再読み込みしてください。</td><td><span class="ui">再読み込み</span>。</td></tr>
+<tr><td>この案件は、まだ HubSpot に保存できないため、ここでは入力できません(試験運用中)。</td><td>この取引はまだ保存の対象になっていない。HubSpot で入力するか、管理者に伝える。</td></tr>
 <tr><td>HubSpot で変えた値が画面に出ない</td><td>案件の概要の <span class="ui">最新にする</span>。画面は同じ取引の内容を最大 60 秒使い回している。</td></tr>
 <tr><td>「管理者に連絡してください」と出るもの（接続設定・権限・反映できなかった など）</td><td>表示の文言と取引名を管理者に伝える。</td></tr>
 </table></div>
@@ -503,7 +510,7 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <h2 id="admin">管理者だけの機能<small>ADMIN</small></h2>
 <ul>
 <li>画面上部の「HubSpot に保存できなかった操作が N 件あります」: 管理者にだけ出る。押すと管理画面の一覧（再試行・破棄）が開く。</li>
-<li>プロパティの「この並びを ○○ の標準にする」: 役割（管理者・営業・コンサルタント・BPO・一般）ごとに、プロパティの標準の並びを決める。</li>
+<li>プロパティの「この並びを ○○ の標準にする」: 役割（管理者／営業・コンサルタント／BPO／一般 の 4 つ）ごとに、プロパティの標準の並びを決める。</li>
 <li>全員の今日の成績: 管理画面 <code>/app/admin?view=callers</code>。</li>
 <li>担当の既定は、管理者は「全員分」、それ以外の人は「自分」。</li>
 </ul>
