@@ -1,8 +1,9 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CRM 画面 操作マニュアル</title><style>
+<title>CRM 画面 案内と操作マニュアル</title><style>
 :root{color-scheme:light;--ink:#1c1c1a;--sub:#66625b;--rule:#d9d4ca;--acc:#a8432a;--paper:#fbfaf7;--ok:#2f6b3a;--wait:#8a6a12}
-*{box-sizing:border-box}html,body{overflow-x:hidden}
+*{box-sizing:border-box}html,body{overflow-x:clip}
+h2,h3,.part{scroll-margin-top:64px}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;font-size:15.5px;line-height:1.85}
 main{max-width:960px;margin:0 auto;padding:48px 20px 96px;overflow-wrap:anywhere}
 h1,h2,h3,.sn{font-family:"Hiragino Mincho ProN","Noto Serif JP","Yu Mincho",serif}
@@ -57,10 +58,128 @@ td.k{white-space:nowrap;font-weight:600}
 .steps>li:before{counter-increment:s;content:counter(s);font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;font-size:24px;line-height:1.1;color:var(--acc)}
 footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-size:12.5px;color:var(--sub)}
 @media print{body{background:#fff}figure,.flow,table{break-inside:avoid}.part{break-before:page}}
+
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--ink);margin:18px 0 26px;position:sticky;top:0;background:var(--paper);z-index:5}
+.tabs button{font:inherit;font-size:15px;background:none;border:1px solid transparent;border-bottom:none;padding:9px 18px 8px;margin-bottom:-1px;cursor:pointer;color:var(--sub)}
+.tabs button[aria-selected="true"]{color:var(--ink);font-weight:600;border-color:var(--ink);background:var(--paper)}
+.tabs button:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,45%),1fr));border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:22px 0}
+.sum div{padding:14px 14px 12px 0}
+.big{font-family:"Hiragino Mincho ProN","Noto Serif JP","Yu Mincho",serif;font-size:30px;line-height:1.15;color:var(--acc)}.sum .l{font-size:12.5px;color:var(--sub);margin-top:4px}
+.sys,.sys2{display:grid;grid-template-columns:1fr 90px 1fr 90px 1fr;align-items:center;margin:20px 0 8px}
+.sys2{grid-template-columns:1fr 90px 1fr;max-width:66%;margin-top:6px}
+.sbox{border:1px solid var(--ink);background:#fff;padding:10px 12px;text-align:center}
+.sbox b{display:block}.sbox small{display:block;color:var(--sub);font-size:12.5px;line-height:1.6;margin-top:2px}
+.sbox.key{border:2px solid var(--acc)}.sbox.key b{color:var(--acc)}
+.sarr{position:relative;height:1px;background:var(--ink);margin:0 8px}
+.sarr:after{content:"";position:absolute;right:-1px;top:-5px;border:5px solid transparent;border-left:7px solid var(--ink)}
+.sarr:before{content:"";position:absolute;left:-1px;top:-5px;border:5px solid transparent;border-right:7px solid var(--ink)}
+.sarr.one:before{display:none}
+.sarr span{position:absolute;left:50%;top:-22px;transform:translateX(-50%);font-size:11.5px;color:var(--sub);white-space:nowrap}
+@media (max-width:760px){.sys,.sys2{grid-template-columns:1fr;max-width:none}.sarr{height:28px;width:1px;margin:4px auto}.sarr:before,.sarr:after{display:none}.sarr span{top:6px;left:12px;transform:none}}
+@media print{.tabs{display:none}.tabpanel[hidden]{display:block !important}#tab-manual{break-before:page}}
 </style></head><body><main>
 
 <p class="eyebrow">HR_HR ／ CRM（/app/crm）</p>
-<h1>CRM 画面 操作マニュアル</h1>
+<h1>CRM 画面</h1>
+<div class="tabs" role="tablist" aria-label="資料の切り替え">
+<button type="button" role="tab" id="tabbtn-about" aria-controls="tab-about" aria-selected="true">この画面について</button>
+<button type="button" role="tab" id="tabbtn-manual" aria-controls="tab-manual" aria-selected="false">操作マニュアル</button>
+</div>
+<section id="tab-about" class="tabpanel" role="tabpanel" aria-labelledby="tabbtn-about">
+
+<p class="lead">架電と応募者への一次対応のために、社内で用意した画面。HubSpot の取引・応募をこの画面で開き、電話をかけ、結果を HubSpot に保存する。この画面にデータを置くことはなく、入れた値はそのまま HubSpot に入る。</p>
+
+<div class="sum">
+<div><div class="big">1 画面</div><div class="l">一覧・電話・結果の入力・求人検索をまとめた</div></div>
+<div><div class="big">HubSpot</div><div class="l">データの置き場所は今までどおり</div></div>
+<div><div class="big">同じ決まり</div><div class="l">ステージを移すときの必須項目は HubSpot と同じ</div></div>
+</div>
+
+<h2 id="about-why">用意した理由<small>WHY</small></h2>
+<p>架電と一次対応で毎日使う操作を、1 つの画面で続けて行えるようにするため。データの置き場所と業務の決まりは HubSpot のまま変えず、日々の操作だけをこの画面で行う。</p>
+<p>架電の作業で使うものを、次のように 1 つの画面にまとめた。</p>
+<div class="tbl"><table>
+<tr><th>架電で使うもの</th><th>この画面での置き場所</th></tr>
+<tr><td class="k">かける取引の一覧</td><td>左の「取引一覧」。条件で絞り込み、よく使う条件は「ビュー」として名前を付けて保存・共有できる。</td></tr>
+<tr><td class="k">電話番号と発信</td><td>中央の「架ける番号」。<span class="ui">発信</span> で Zoom Phone から電話する。</td></tr>
+<tr><td class="k">これまでの経過</td><td>中央の「活動ログ」。通話・メモ・メールが新しい順に並ぶ。</td></tr>
+<tr><td class="k">結果の入力</td><td>中央の「架電結果の入力」。ステージ・次回架電日・メモを入れて <span class="ui">記録して次へ</span> で保存し、次の取引へ進む。</td></tr>
+<tr><td class="k">会社の求人・ホームページ</td><td>右の枠。会社名か電話番号で求人を検索した結果を、画面を切り替えずに見られる。</td></tr>
+<tr><td class="k">今日の自分の数字</td><td>上の「今日の成績」。架電数・通話時間・アポを、チームの平均・順位と並べて見られる。</td></tr>
+</table></div>
+
+<h2 id="about-hubspot">HubSpot との関係<small>HUBSPOT</small></h2>
+<div class="sys">
+<div class="sbox"><b>この画面</b><small>ブラウザで開く<br>（会社の Google アカウントでログイン）</small></div>
+<div class="sarr"><span>読む・保存する</span></div>
+<div class="sbox"><b>社内のサーバー</b><small>入力の確認<br>HubSpot の決まりどおりか確かめる</small></div>
+<div class="sarr"><span>読む・保存する</span></div>
+<div class="sbox key"><b>HubSpot</b><small>取引・応募・担当者・会社・活動の置き場所<br>（今までどおり）</small></div>
+</div>
+<div class="sys2">
+<div class="sbox"><b>Zoom Phone</b><small>この画面の <span class="ui">発信</span> から電話する</small></div>
+<div class="sarr one"><span>通話の記録</span></div>
+<div class="sbox key"><b>HubSpot</b><small>通話は今までどおり Zoom の連携で記録される</small></div>
+</div>
+<p class="note">図A　データの流れ。この画面は HubSpot を読み書きする窓口で、データは HubSpot にだけある。</p>
+<ul>
+<li>この画面で <span class="ui">記録して次へ</span> や <span class="ui">保存</span> を押すと、その場で HubSpot に保存される。HubSpot の画面で見ても同じ値になる。</li>
+<li>HubSpot が混み合っていて保存できないときは、いったん一時保存（黄色の表示）し、つながり次第自動で HubSpot に送る。入れ直す必要はない。</li>
+<li>HubSpot 側で設定されている自動の処理（ワークフロー）は、今までどおり HubSpot で動く。</li>
+<li>見ている間にほかの人が同じ取引の同じ項目を変えていたときは、上書きせずに止まり、どちらの値を使うかを選ぶ画面が出る。</li>
+</ul>
+
+<h2 id="about-change">変わること・変わらないこと<small>CHANGES</small></h2>
+<div class="tbl"><table>
+<tr><th>変わらないこと</th><th>変わること</th></tr>
+<tr><td>データの置き場所は HubSpot</td><td>毎日の架電・一次対応は、この画面で行う</td></tr>
+<tr><td>パイプライン・ステージの分け方</td><td>ログインは会社の Google アカウント</td></tr>
+<tr><td>ステージを移すときの必須項目と、その並び順（HubSpot の設定どおり）</td><td>結果は「架電結果の入力」にまとめて入れ、<span class="ui">記録して次へ</span> で保存して次の取引へ進む</td></tr>
+<tr><td>電話は Zoom Phone、通話の記録は Zoom の連携で HubSpot に残る</td><td>一覧の条件を「ビュー」として保存し、チームで共有できる</td></tr>
+<tr><td>HubSpot の自動の処理</td><td>今日の自分の数字を、チームの平均・順位と並べてその場で見られる</td></tr>
+</table></div>
+<p class="note">HubSpot と違う動きは 1 つだけ。ステージを移すとき、「アポ獲得者」「アポ取得者」が空なら、操作している本人が最初から入っている（別の人なら選び直す）。</p>
+
+<h2 id="about-users">使う人と画面<small>USERS</small></h2>
+<div class="tbl"><table>
+<tr><th>画面</th><th>使う人</th><th>主な作業</th></tr>
+<tr><td class="k">取引</td><td>BPO のアポインター</td><td>取引の一覧から電話をかけ、結果（ステージ・次回架電日・メモ）を入れる。アポが取れたら必須項目を入れて「アポ日確定」に移す。</td></tr>
+<tr><td class="k">応募</td><td>一次対応の担当</td><td>応募者に電話をかけ、対応の結果と約束架電日時を入れる。約束の時刻が近い応募は画面の上に出る。</td></tr>
+</table></div>
+<p>画面の上の <span class="ui">取引</span> <span class="ui">応募</span> で切り替える。</p>
+
+<h2 id="about-day">1 日の使い方<small>A DAY</small></h2>
+<div class="flow">
+<div class="fs"><div class="fh">開く</div><div class="fd">Chrome で画面を開き、会社の Google アカウントでログイン。Zoom アプリも起動しておく</div></div>
+<div class="fs"><div class="fh">一覧を決める</div><div class="fd">いつものビューを開くか、条件を変えて今日かける取引を出す</div></div>
+<div class="fs"><div class="fh">かける</div><div class="fd">一覧の上から開いて <span class="ui">発信</span></div></div>
+<div class="fs"><div class="fh">入れる</div><div class="fd">結果を入れて <span class="ui">記録して次へ</span>。次の取引が開く</div></div>
+<div class="fs last"><div class="fh">見る</div><div class="fd">上の「今日の成績」で、架電数・通話時間・アポを確かめる</div></div>
+</div>
+<p class="note">図B　1 日の流れ。操作の細かい手順は「操作マニュアル」のタブにある。</p>
+
+<h2 id="about-care">気をつけること<small>NOTES</small></h2>
+<ul>
+<li>入れた値は HubSpot に保存され、社内のほかの人もすぐに見る。メモは相手に失礼のない書き方にする。</li>
+<li>保存の表示の色を見る。緑は保存済み、黄色は一時保存（自動で送る）、赤は保存できていない。赤のときは表示に従って直してから、もう一度保存する。</li>
+<li>右の枠の中では、ログインや支払いの情報を入れない。</li>
+<li>困ったときは、画面に出ている文言と取引名を控えて、管理者に伝える。よく出る表示と対処は「操作マニュアル」の「困ったとき」にある。</li>
+</ul>
+
+<h2 id="about-start">はじめに用意するもの<small>SETUP</small></h2>
+<div class="tbl"><table>
+<tr><th>もの</th><th>用意のしかた</th></tr>
+<tr><td class="k">ブラウザ</td><td>Google Chrome</td></tr>
+<tr><td class="k">アカウント</td><td>会社の Google アカウント（f-a-c.co.jp）</td></tr>
+<tr><td class="k">電話</td><td>Zoom アプリを起動してサインインしておく</td></tr>
+<tr><td class="k">右の枠の拡張機能</td><td>求人サイトを右の枠に出すための社内用の拡張機能。管理者から ZIP を受け取って入れる（<a href="#ext">入れ方</a>）</td></tr>
+<tr><td class="k">メール（使う人だけ）</td><td>最初の 1 回だけ「Gmail で送信を許可する」を押して許可する（<a href="#mail">メール</a>）</td></tr>
+</table></div>
+
+</section>
+
+<section id="tab-manual" class="tabpanel" role="tabpanel" aria-labelledby="tabbtn-manual" hidden>
 <p class="lead">BPO のアポインター（取引）と、応募者に電話する一次対応の担当（応募）が使う画面の操作をまとめた資料。HubSpot の取引・応募をこの画面で開き、電話をかけ、結果を HubSpot に保存する。</p>
 
 <div class="aside plain">
@@ -907,8 +1026,29 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <li>担当の既定は、管理者は「全員分」、それ以外の人は「自分」。</li>
 </ul>
 
+</section>
 <footer>
-HR_HR CRM（/app/crm）操作マニュアル　2026-11-12 作成。画面写真は架空サンプル（?mode=fixture）。<br>
-仕組みの詳細: <a href="../../architecture/headless-crm-design.md">docs/architecture/headless-crm-design.md</a>
+HR_HR CRM（/app/crm）案内と操作マニュアル　2026-11-12 作成。画面写真は架空サンプル。
 </footer>
-</main></body></html>
+</main>
+<script>
+(function(){
+  var btns=[].slice.call(document.querySelectorAll('.tabs [role=tab]'));
+  function show(id,focus){
+    btns.forEach(function(b){var on=b.getAttribute('aria-controls')===id;b.setAttribute('aria-selected',on?'true':'false');b.tabIndex=on?0:-1;document.getElementById(b.getAttribute('aria-controls')).hidden=!on;if(on&&focus)b.focus();});
+  }
+  btns.forEach(function(b,i){
+    b.addEventListener('click',function(){show(b.getAttribute('aria-controls'));window.scrollTo(0,0);});
+    b.addEventListener('keydown',function(e){var k=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(!k)return;e.preventDefault();var n=btns[(i+k+btns.length)%btns.length];show(n.getAttribute('aria-controls'),true);});
+  });
+  function fromHash(){
+    var h=decodeURIComponent(location.hash.slice(1));if(!h)return;
+    var el=document.getElementById(h);if(!el)return;
+    var panel=el.closest('.tabpanel');if(!panel)return;
+    show(panel.id);el.scrollIntoView();
+  }
+  window.addEventListener('hashchange',fromHash);
+  fromHash();
+})();
+</script>
+</body></html>
