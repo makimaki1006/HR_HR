@@ -1,4 +1,4 @@
-.cm-menu { position: sticky; top: 0; z-index: 20; padding: 6px 16px; border-bottom: 1px solid #d4dfe7; }
+.cm-menu { position: sticky; top: 0; z-index: 20; padding: 6px 16px; border-bottom: 1px solid #d4dfe7; background: #f3f6f8; }
 .cm-menu nav { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 0; }
 .cm-menu nav button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 6px 2px 4px; color: #355466; font-size: 14px; cursor: pointer; }
 .cm-menu nav button:hover { color: #00586a; border-bottom-color: #c5d9e0; }
@@ -31,7 +31,7 @@
 .cm-owner:empty { display: none; }
 .cm-menu > .jh-owner, .cm-owner:not(:empty) { margin-top: 6px; }
 
-.jc-topline > .cm-menu { flex: 0 1 auto; padding: 0; border: 0; position: static; z-index: auto; }
+.jc-topline > .cm-menu { flex: 0 1 auto; padding: 0; border: 0; position: static; z-index: auto; background: none; }
 .jc-topline > .cm-menu nav { gap: 18px; }
 
 /* 担当の2項目を同じ行に保ち、求人作業中の見出し行の高さは増やさない。 */
