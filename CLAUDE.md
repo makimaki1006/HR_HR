@@ -502,7 +502,7 @@ turso db shell salesnow "SELECT COUNT(*) FROM v2_salesnow_companies"
 
 ## 13. ドキュメント索引
 
-- [CRM 画面 操作マニュアル](docs/crm/manual/index.html) — BPO アポインター（取引）と一次対応（応募）向けの /app/crm の使い方（HTML、画面写真は架空サンプル）
+- [CRM 画面 案内と操作マニュアル](docs/crm/manual/index.html) — BPO アポインター（取引）と一次対応（応募）向け。「この画面について」（趣旨・HubSpot との関係）と「操作マニュアル」のタブ。ファイル 1 つで開ける
 - [リクロジメディア向け求人案の計画](docs/architecture/rikurozi-draft-plan.md)
 - [`docs/job_copy/rikurozi-expression-types-2026-11-11.html`](docs/job_copy/rikurozi-expression-types-2026-11-11.html) — リクロジメディア向け求人の条件の書き方の型（給与・勤務時間・休日など。求人サイトの詳細ページ853件から）
 - [`docs/job_copy/rikurozi-column-mapping-2026-11-11.html`](docs/job_copy/rikurozi-column-mapping-2026-11-11.html) — 上の型と HRハッカーの列の対応（案。未決定の点あり、別途議論）
