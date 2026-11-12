@@ -86,11 +86,12 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <li><a href="#log">活動ログ</a></li>
 <li><a href="#mail">メール</a></li>
 <li><a href="#right">右の枠（求人検索など）</a></li>
+<li><a href="#ext">右の枠の拡張機能</a></li>
 <li><a href="#metrics">今日の成績</a></li>
 <li><a href="#dock">配置を変える</a></li>
 </ol>
 <p class="toc-g">応募（一次対応）・共通</p>
-<ol class="toc" start="16" style="counter-reset:t 15">
+<ol class="toc" start="17" style="counter-reset:t 16">
 <li><a href="#app">応募の画面</a></li>
 <li><a href="#app-input">対応の入力</a></li>
 <li><a href="#app-remind">約束架電の帯と「開いています」</a></li>
@@ -402,8 +403,55 @@ footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-siz
 <li><b>ホームページ</b>: 取引か会社に登録されたホームページ。</li>
 <li><b>求人票</b>: 取引に登録された求人票の URL。</li>
 <li>プロパティの値のリンクを押すと、右の枠に新しいタブで開く（最大 5 つ）。<span class="kbd">Ctrl</span>（<span class="kbd">⌘</span>）を押しながらクリックするとブラウザの新しいタブで開く。</li>
-<li>枠に表示できないサイトは「このページは画面の中に表示できません」と出る。<span class="ui">新しいタブで開く</span> を使う。</li>
+<li>枠に表示できないサイトは「このページは画面の中に表示できません」と出る。<span class="ui">新しいタブで開く</span> を使う。拡張機能を入れると、多くのサイトを枠の中に表示できる（<a href="#ext">右の枠の拡張機能</a>）。</li>
 <li><span class="ui">広げる</span> で画面いっぱいに広げる。<span class="ui">戻す</span> か <span class="kbd">Esc</span> で戻る。</li>
+</ul>
+
+
+<h2 id="ext">右の枠の拡張機能（HR_HR CRM Frames）<small>EXTENSION</small></h2>
+<p>Indeed などの求人サイトや HubSpot は、ほかの画面の枠の中に表示されるのを断る設定になっていて、右の枠では「接続が拒否されました」と出る。社内用の Chrome 拡張機能「HR_HR CRM Frames」を入れると、CRM 画面のタブの中に限って、これらのサイトを右の枠に表示できる。</p>
+
+<h3>入れると変わること</h3>
+<div class="tbl"><table>
+<tr><th>場面</th><th>拡張機能なし</th><th>拡張機能あり</th></tr>
+<tr><td class="k">Indeed・求人媒体・会社のサイト</td><td>断られて「接続が拒否されました」などと出ることがある。<span class="ui">新しいタブで開く</span> で見る</td><td>右の枠にそのまま出る</td></tr>
+<tr><td class="k">HubSpot のリンク</td><td>右の枠ではなく、ブラウザの新しいタブで開く</td><td>右の枠のタブで開く（ログイン画面が繰り返し出るときは <span class="ui">新しいタブで開く</span>）</td></tr>
+<tr><td class="k">枠の上の案内</td><td>「一部の求人サイトはこの枠で開けません（⌘/Ctrl＋クリックで新しいタブ）」が出る</td><td>出ない</td></tr>
+<tr><td class="k">CRM 画面以外のタブ</td><td colspan="2">何も変わらない。拡張機能は CRM 画面（/app/crm）のタブの中の枠だけに働く</td></tr>
+</table></div>
+<p class="note">次のページは、拡張機能を入れても枠には出さず <span class="ui">新しいタブで開く</span> だけを出す: Google のドキュメント・ドライブ・Gmail・地図（Google 検索は枠に出る）、Zoom、Yahoo・DuckDuckGo の検索、会社のドメイン（f-a-c.co.jp）、https でないページ。</p>
+
+<h3>入れ方（最初に一度）</h3>
+<div class="flow">
+<div class="fs"><div class="fh">ZIP を受け取る</div><div class="fd">管理者から <code>hrhr-crm-frames-1.0.1.zip</code> を受け取る</div></div>
+<div class="fs"><div class="fh">固定の場所に展開</div><div class="fd">消さないフォルダに展開する。あとで動かす・消すと拡張機能が止まる</div></div>
+<div class="fs"><div class="fh">デベロッパー モード</div><div class="fd">Chrome で <code>chrome://extensions</code> を開き、右上の「デベロッパー モード」を ON</div></div>
+<div class="fs"><div class="fh">読み込む</div><div class="fd">「パッケージ化されていない拡張機能を読み込む」で、展開したフォルダ（中に manifest.json がある階層）を選ぶ</div></div>
+<div class="fs last"><div class="fh">確かめる</div><div class="fd">CRM 画面を開いて拡張機能のアイコンを押し、「有効 (この CRM タブ)」と出ればよい</div></div>
+</div>
+<p class="note">拡張機能を入れる順番。</p>
+<ul>
+<li>入ったかどうかは、右の枠の上の「一部の求人サイトはこの枠で開けません…」の案内が消えることでも分かる。</li>
+<li>拡張機能のアイコンは、Chrome の右上のパズルの形のボタンから固定（ピン留め）しておくと見つけやすい。</li>
+<li>CRM 画面以外のタブでアイコンを押すと「対象外」と出る。これは正しい動き。</li>
+</ul>
+
+<h3>Chrome を起動したときの警告</h3>
+<p>Chrome の起動時に「デベロッパー モードの拡張機能を無効にしてください」と出ることがある。<b><span class="ui">キャンセル</span> を押せば拡張機能は有効のまま</b>。<span class="ui">無効にする</span> を押してしまったときは、<code>chrome://extensions</code> で「HR_HR CRM Frames」のスイッチを ON に戻す。</p>
+
+<h3>更新・削除</h3>
+<ul>
+<li>更新: 新しい ZIP を、今と同じフォルダに上書きで展開する（フォルダは変えない）。<code>chrome://extensions</code> で「HR_HR CRM Frames」の再読み込み（丸い矢印）を押し、バージョンが上がったことを確かめる。</li>
+<li>削除: <code>chrome://extensions</code> で <span class="ui">削除</span> を押し、展開したフォルダも消す。</li>
+</ul>
+
+<h3>使うときの注意</h3>
+<ul>
+<li>右の枠の中では、ログインや支払いの情報を入れない。Google・Microsoft などのログイン画面と、PayPal・Stripe などの決済画面は、拡張機能の対象から最初から外してある。</li>
+<li>HubSpot を枠の中で開くと、Chrome の Cookie の制限でログイン画面が繰り返し出ることがある。そのときは <span class="ui">新しいタブで開く</span> を使う。</li>
+<li>拡張機能の設定画面（アイコンの「設定を開く」）には、対象から外すサイトの一覧がある。通常は触らない。</li>
+<li>拡張機能が通信をしたり、閲覧の記録を送ったりすることはない。CRM 画面のタブの中の枠で、表示を断る設定を外すことだけを行う。</li>
+<li>入らない・動かないときは管理者に伝える。</li>
 </ul>
 
 <h2 id="metrics">今日の成績<small>TODAY</small></h2>
