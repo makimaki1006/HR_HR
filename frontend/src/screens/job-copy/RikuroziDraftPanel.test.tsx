@@ -6,12 +6,13 @@ import type { RikuroziDraft } from './RikuroziDraftPanel';
 const draft: RikuroziDraft = { images: ['https://example.invalid/one.jpg', '', 'https://example.invalid/three.png'], review_required: true, threshold: 0.2, min_sentence_chars: 8, csv: '\ufeff求人id,店舗id\r\n,4081\r\n', generated_values: { 案件名: '新しい案件名', 仕事内容: '' }, comparisons: [{ title: '倉庫の仕分け', media: 'AirWork', publication: '掲載中か不明', ratio: 0.2, too_similar: true, whole_match: false, matched_sentences: ['配送の手順を研修で学びます'] }, { title: '基準の求人', media: 'HRハッカー', publication: '基準', ratio: null, too_similar: false, whole_match: false, matched_sentences: [] }], copied: [{ label: '給与', value: '時給 1,200円〜1,400円', review: false, reason: null, missing_chunks: [] }, { label: '休日・休暇', value: null, review: true, reason: '原本から取得できていません。', missing_chunks: [] }], generated: [{ label: '仕事内容', value: null, review: true, reason: '原文にない数字の表記があるため空欄にしました。', missing_chunks: ['日給1100円'] }] };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 /** 画面が呼ぶ口ごとに答える偽の fetch。呼ばれた (メソッド, URL, 本文) を記録する。 */
-function routed(handlers: { draft?: () => Response; create?: () => Response; list?: () => Response; put?: () => Response }) {
+function routed(handlers: { draft?: () => Response; job?: () => Response; create?: () => Response; list?: () => Response; put?: () => Response }) {
   const calls: { method: string; url: string; body: unknown }[] = [];
   const fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     calls.push({ method, url, body: typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : null });
-    if (url.endsWith('/rikurozi-draft')) return Promise.resolve(handlers.draft?.() ?? json(draft));
+    if (url.endsWith('/rikurozi-draft')) return Promise.resolve(handlers.draft?.() ?? json({ job_id: 'j1' }, 202));
+    if (url.endsWith('/rikurozi-draft-jobs/j1')) return Promise.resolve(handlers.job?.() ?? json({ status: 'done', draft }));
     if (url.endsWith('/reclogi-id')) return Promise.resolve(handlers.put?.() ?? json({ listing_id: '900', reclogi_id: '424242' }));
     if (url.endsWith('/rikurozi-listing') && method === 'POST') return Promise.resolve(handlers.create?.() ?? json({ status: 'created', listing_id: '900', linked_deals: 2, unlinked_deals: 0 }));
     if (url.endsWith('/rikurozi-listing')) return Promise.resolve(handlers.list?.() ?? json({ listings: [] }));
@@ -56,7 +57,7 @@ describe('リクロジメディア向けの案', () => {
   });
   it('全文一致の不合格と短文設定を示す', async () => {
     const result = { ...draft, min_sentence_chars: 8, comparisons: [{ ...draft.comparisons[0], whole_match: true, ratio: null, matched_sentences: [] }] };
-    routed({ draft: () => json(result) });
+    routed({ job: () => json({ status: 'done', draft: result }) });
     render(<RikuroziDraftPanel listingId="1" />);
     fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
     expect((await screen.findByText('生成した全文が相手の本文に含まれています。')).textContent).toBeTruthy();
@@ -64,14 +65,14 @@ describe('リクロジメディア向けの案', () => {
     expect(screen.getByText(/掲載中か不明 ／ 文の一致率/).textContent).toContain('似すぎ・不合格');
   });
   it('転記の不一致は要確認として出力を止める', async () => {
-    routed({ draft: () => json({ code: 'draft_copy_mismatch' }, 422) });
+    routed({ job: () => json({ code: 'draft_copy_mismatch' }, 422) });
     render(<RikuroziDraftPanel listingId="1" />);
     fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
     expect((await screen.findByRole('alert')).textContent).toContain('原本から写した条件が一致しないため、出力を止めました（要確認）');
     expect(screen.queryByRole('button', { name: 'この案でCSVを出す' })).toBeNull();
   });
   it('失敗時に原本の確認と再実行を案内する', async () => {
-    routed({ draft: () => json({ code: 'customer_relation_unknown' }, 422) });
+    routed({ job: () => json({ code: 'customer_relation_unknown' }, 422) });
     render(<RikuroziDraftPanel listingId="1" />); fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
     expect((await screen.findByRole('alert')).textContent).toContain('取引先との関連');
     expect(screen.queryByRole('button', { name: 'この案でCSVを出す' })).toBeNull();
@@ -82,8 +83,42 @@ describe('リクロジメディア向けの案', () => {
     const { unmount } = render(<RikuroziDraftPanel listingId="1" />);
     fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
     await waitFor(() => { expect(complete).toBeDefined(); }); unmount();
-    render(<RikuroziDraftPanel listingId="2" />); complete?.(new Response(JSON.stringify(draft), { headers: { 'Content-Type': 'application/json' } }));
+    render(<RikuroziDraftPanel listingId="2" />); complete?.(json({ job_id: 'j1' }, 202));
     expect(screen.queryByText('要確認の案')).toBeNull();
+  });
+  it('受け付けたあと、作っている間は待ち、出来上がったら案を出す', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let polls = 0;
+    const { calls } = routed({ job: () => { polls += 1; return polls < 2 ? json({ status: 'running' }) : json({ status: 'done', draft }); } });
+    render(<RikuroziDraftPanel listingId="654321" />);
+    fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
+    expect((await screen.findByRole('status')).textContent).toContain('数分かかります');
+    await vi.advanceTimersByTimeAsync(3_000);
+    await screen.findByText('要確認の案');
+    vi.useRealTimers();
+    expect(polls).toBe(2);
+    expect(calls.filter(c => c.url === '/api/job-copy/rikurozi-draft-jobs/j1').every(c => c.method === 'GET')).toBe(true);
+  });
+  it('混んでいて受け付けられないとき・受付が消えたときは、押し直すよう案内する', async () => {
+    routed({ draft: () => json({ code: 'draft_busy' }, 503) });
+    render(<RikuroziDraftPanel listingId="1" />); fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('ほかの案を作っている最中');
+    cleanup();
+    routed({ job: () => json({ code: 'draft_job_not_found' }, 404) });
+    render(<RikuroziDraftPanel listingId="1" />); fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('作っていた案が見つかりません');
+  });
+  it('確認の通信が一時的に失敗しても待ち続け、出来上がった案を出す', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let polls = 0;
+    routed({ job: () => { polls += 1; return polls === 1 ? new Response('Bad Gateway', { status: 502 }) : json({ status: 'done', draft }); } });
+    render(<RikuroziDraftPanel listingId="1" />);
+    fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
+    await waitFor(() => { expect(polls).toBe(1); });
+    await vi.advanceTimersByTimeAsync(3_000);
+    await screen.findByText('要確認の案');
+    vi.useRealTimers();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
   async function openDraft(listingId = '1') {
     render(<RikuroziDraftPanel listingId={listingId} />);

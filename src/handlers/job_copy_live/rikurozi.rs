@@ -137,13 +137,102 @@ impl JobReadService {
         })
     }
 }
+/// 裏で作っている案の受付。単一インスタンス前提でプロセス内にだけ持つ（再起動で消える）。
+/// HubSpot には何も書かないので、消えても作り直せば足りる。
+#[derive(Default)]
+struct DraftJobs {
+    jobs: std::collections::HashMap<String, DraftJob>,
+}
+struct DraftJob {
+    owner: String,
+    listing: String,
+    started: Instant,
+    outcome: Option<Result<Value, ReadError>>,
+}
+/// 終わった案を覚えておく時間。画面は数秒おきに確かめるので短くてよい。
+const JOB_KEEP: Duration = Duration::from_secs(60 * 60);
+/// 同時に裏で作る案の上限（MiniMax に同時に頼む量を抑える。1件で26項目を同時に頼む）。
+const MAX_RUNNING: usize = 2;
+/// 1件の作成全体の上限（HubSpot の読み取り + 案の作成）。画面は 1,020 秒まで待つ。
+const BUILD_LIMIT: Duration = Duration::from_secs(960);
+impl DraftJobs {
+    fn prune(&mut self, now: Instant) {
+        // 終わったものは1時間、作っている途中のものは作成の上限を少し過ぎたら捨てる。
+        self.jobs.retain(|_, job| {
+            let limit = if job.outcome.is_some() {
+                JOB_KEEP
+            } else {
+                BUILD_LIMIT + Duration::from_secs(60)
+            };
+            now.saturating_duration_since(job.started) < limit
+        });
+    }
+    /// 受け付ける。同じ人・同じ求人で作っている途中ならその受付を返す（二重に作らない）。
+    fn start(
+        &mut self,
+        owner: &str,
+        listing: &str,
+        now: Instant,
+    ) -> Result<(String, bool), ReadError> {
+        self.prune(now);
+        if let Some((id, _)) = self
+            .jobs
+            .iter()
+            .find(|(_, j)| j.owner == owner && j.listing == listing && j.outcome.is_none())
+        {
+            return Ok((id.clone(), false));
+        }
+        if self.jobs.values().filter(|j| j.outcome.is_none()).count() >= MAX_RUNNING {
+            return Err(ReadError(StatusCode::SERVICE_UNAVAILABLE, "draft_busy"));
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        self.jobs.insert(
+            id.clone(),
+            DraftJob {
+                owner: owner.to_owned(),
+                listing: listing.to_owned(),
+                started: now,
+                outcome: None,
+            },
+        );
+        Ok((id, true))
+    }
+    fn finish(&mut self, id: &str, outcome: Result<Value, ReadError>) {
+        if let Some(job) = self.jobs.get_mut(id) {
+            job.outcome = Some(outcome);
+        }
+    }
+    /// 本人の受付だけを返す。無い・他人のものは同じ「見つからない」。
+    fn get(
+        &mut self,
+        owner: &str,
+        id: &str,
+        now: Instant,
+    ) -> Option<Result<Option<Value>, ReadError>> {
+        self.prune(now);
+        let job = self.jobs.get(id).filter(|j| j.owner == owner)?;
+        Some(match &job.outcome {
+            None => Ok(None),
+            Some(Ok(value)) => Ok(Some(value.clone())),
+            Some(Err(error)) => Err(ReadError(error.0, error.1)),
+        })
+    }
+}
+static JOBS: std::sync::LazyLock<std::sync::Mutex<DraftJobs>> =
+    std::sync::LazyLock::new(Default::default);
+fn jobs() -> std::sync::MutexGuard<'static, DraftJobs> {
+    JOBS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 案作りを受け付けて 202 と受付番号を返す。作るのは裏で行い、画面は `draft_job` で確かめる。
 pub(super) async fn generate(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
     session: Session,
     AxumPath(id): AxumPath<String>,
 ) -> Result<impl IntoResponse, ReadError> {
-    authorized_user(&state, &access, &session).await?;
+    let owner = authorized_user(&state, &access, &session).await?;
+    valid_id(&id)?;
     let threshold = draft::threshold(std::env::var("RIKUROZI_OVERLAP_THRESHOLD").ok().as_deref())
         .map_err(|_| {
         ReadError(
@@ -159,7 +248,7 @@ pub(super) async fn generate(
                     "draft_configuration_invalid",
                 )
             })?;
-    let service = access.service.as_ref().ok_or(ReadError(
+    let service = access.service.clone().ok_or(ReadError(
         StatusCode::SERVICE_UNAVAILABLE,
         "hubspot_not_configured",
     ))?;
@@ -176,21 +265,53 @@ pub(super) async fn generate(
             StatusCode::SERVICE_UNAVAILABLE,
             "draft_configuration_invalid",
         ))?;
-    let source = service.rikurozi_source(&id).await?;
+    let (job_id, created) = jobs().start(&owner, &id, Instant::now())?;
+    if created {
+        let job = job_id.clone();
+        tokio::spawn(async move {
+            // 作る処理が途中で落ちても（panic）、受付を必ず失敗で閉じる。閉じないと
+            // 同じ求人を作り直せず、同時に作る枠も塞いだままになる。
+            let work = tokio::spawn(async move {
+                tokio::time::timeout(
+                    BUILD_LIMIT,
+                    build(&service, &id, threshold, min_chars, &minimax),
+                )
+                .await
+                .unwrap_or_else(|_| Err(fail("draft_generation_failed")))
+            });
+            let outcome = work.await.unwrap_or_else(|_| {
+                tracing::warn!("rikurozi draft task ended unexpectedly");
+                Err(fail("draft_generation_failed"))
+            });
+            jobs().finish(&job, outcome);
+        });
+    }
+    Ok((
+        StatusCode::ACCEPTED,
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({ "job_id": job_id })),
+    ))
+}
+
+async fn build(
+    service: &JobReadService,
+    id: &str,
+    threshold: f64,
+    min_chars: usize,
+    minimax: &crate::crm::talk_review::judge::MiniMaxJudge,
+) -> Result<Value, ReadError> {
+    let source = service.rikurozi_source(id).await?;
     let result = draft::run(
         &source,
         threshold,
         min_chars,
-        |prompt, _schema, _temperature| {
-            let minimax = &minimax;
-            async move {
-                // The item prompt specifies the single text field. The shared client
-                // reuses its connection and never logs the prompt or response body.
-                minimax
-                    .complete_json(&prompt)
-                    .await
-                    .map_err(|_| anyhow::anyhow!("MiniMaxで項目を作成できませんでした"))
-            }
+        |prompt, _schema, _temperature| async move {
+            // The item prompt specifies the single text field. The shared client
+            // reuses its connection and never logs the prompt or response body.
+            minimax
+                .complete_json(&prompt)
+                .await
+                .map_err(|_| anyhow::anyhow!("MiniMaxで項目を作成できませんでした"))
         },
     )
     .await
@@ -198,15 +319,77 @@ pub(super) async fn generate(
         if error.downcast_ref::<draft::CopyMismatch>().is_some() {
             ReadError(StatusCode::UNPROCESSABLE_ENTITY, "draft_copy_mismatch")
         } else {
+            // 理由はこちらで決めた文だけ（本文・応答は含まない）。画面には出さずログに残す。
+            tracing::warn!(reason = %error, "rikurozi draft generation failed");
             fail("draft_generation_failed")
         }
     })?;
-    Ok(([(header::CACHE_CONTROL, "private, no-store")], Json(result)))
+    serde_json::to_value(result).map_err(|_| fail("draft_generation_failed"))
+}
+
+/// 受付の状態。作っている間は 200 `running`、できたら 200 `done` と案、失敗は元の状態コードとコード。
+pub(super) async fn draft_job(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    AxumPath(job_id): AxumPath<String>,
+) -> Result<impl IntoResponse, ReadError> {
+    let owner = authorized_user(&state, &access, &session).await?;
+    let state = jobs()
+        .get(&owner, &job_id, Instant::now())
+        .ok_or(ReadError(StatusCode::NOT_FOUND, "draft_job_not_found"))??;
+    let body = match state {
+        None => json!({ "status": "running" }),
+        Some(draft) => json!({ "status": "done", "draft": draft }),
+    };
+    Ok(([(header::CACHE_CONTROL, "private, no-store")], Json(body)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn draft_jobs_dedupe_limit_owner_and_expiry() {
+        let mut jobs = DraftJobs::default();
+        let now = Instant::now();
+        let (a, created) = jobs.start("a@x", "1", now).unwrap();
+        assert!(created);
+        // 同じ人・同じ求人の作成中は同じ受付を返す。
+        assert_eq!(jobs.start("a@x", "1", now).unwrap(), (a.clone(), false));
+        // 他人には見えない。
+        assert!(jobs.get("b@x", &a, now).is_none());
+        assert!(matches!(jobs.get("a@x", &a, now), Some(Ok(None))));
+        jobs.start("a@x", "2", now).unwrap();
+        let busy = jobs.start("b@x", "5", now).unwrap_err();
+        assert_eq!(
+            (busy.0, busy.1),
+            (StatusCode::SERVICE_UNAVAILABLE, "draft_busy")
+        );
+        jobs.finish(&a, Ok(json!({"csv":"x"})));
+        assert_eq!(
+            jobs.get("a@x", &a, now).unwrap().unwrap(),
+            Some(json!({"csv":"x"}))
+        );
+        // 終わった分は数えないので次を受け付ける。終わったあとは同じ求人でも新しく作る。
+        let (b, created) = jobs.start("a@x", "1", now).unwrap();
+        assert!(created && b != a);
+        jobs.finish(
+            &b,
+            Err(ReadError(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "draft_copy_mismatch",
+            )),
+        );
+        let err = jobs.get("a@x", &b, now).unwrap().unwrap_err();
+        assert_eq!(
+            (err.0, err.1),
+            (StatusCode::UNPROCESSABLE_ENTITY, "draft_copy_mismatch")
+        );
+        // 1時間を過ぎたら消える。
+        assert!(jobs
+            .get("a@x", &a, now + Duration::from_secs(3601))
+            .is_none());
+    }
     #[test]
     fn publication_uses_only_media_status_and_includes_unknown() {
         let cases: Value = serde_json::from_str(include_str!(
