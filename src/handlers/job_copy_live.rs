@@ -2262,6 +2262,10 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             axum::routing::post(rikurozi::generate),
         )
         .route(
+            "/api/job-copy/rikurozi-draft-jobs/{job_id}",
+            get(rikurozi::draft_job),
+        )
+        .route(
             "/api/job-copy/listings/{id}/rikurozi-listing",
             get(rikurozi_listing::read).post(rikurozi_listing::create),
         )

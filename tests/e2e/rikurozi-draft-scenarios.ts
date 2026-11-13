@@ -1,9 +1,16 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { fixtureJobs, fixtureHistory } from './job-copy-listings-fixture.mjs';
 import { findListings, openWork } from './job-copy-navigation';
 const shots = path.resolve('docs/screenshots/rikurozi-draft');
+/** 案作りは受け付け (202) と出来上がりの確認の2段。確認の応答を差し替える。 */
+async function routeDraft(page: Page, status: number, json: unknown) {
+  await page.route('**/api/job-copy/listings/1/rikurozi-draft', route => {
+    expect(route.request().method()).toBe('POST'); return route.fulfill({ status: 202, json: { job_id: 'e2e' } });
+  });
+  await page.route('**/api/job-copy/rikurozi-draft-jobs/e2e', route => route.fulfill({ status, json }));
+}
 const csv = '\ufeff求人id,店舗id,画像1,画像2,画像3\r\n,4081,https://example.invalid/one.jpg,,https://example.invalid/three.png\r\n';
 const result = {
   generated_values: { 案件名: '日用品を届ける配送スタッフ', 仕事内容: '' },
@@ -43,9 +50,7 @@ test.beforeEach(async ({ page }) => {
 for (const width of [1440, 1920]) {
   test(`${width}px: selected HRハッカー creates a draft, checks unknown/similar and downloads`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
-    await page.route('**/api/job-copy/listings/1/rikurozi-draft', route => {
-      expect(route.request().method()).toBe('POST'); return route.fulfill({ json: result });
-    });
+    await routeDraft(page, 200, { status: 'done', draft: result });
     await page.goto('/app/job-copy?demo=1');
     await findListings(page);
     await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
@@ -93,7 +98,7 @@ for (const width of [1440, 1920]) {
 }
 test('1440px: failure is readable and allows retry', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.route('**/api/job-copy/listings/1/rikurozi-draft', route => route.fulfill({ status: 422, json: { code: 'customer_relation_unknown' } }));
+  await routeDraft(page, 422, { code: 'customer_relation_unknown' });
   await page.goto('/app/job-copy?demo=1');
   await findListings(page);
   await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
@@ -109,7 +114,7 @@ test('1440px: failure is readable and allows retry', async ({ page }) => {
 
 test('1440px: copied condition mismatch stops CSV output', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.route('**/api/job-copy/listings/1/rikurozi-draft', route => route.fulfill({ status: 422, json: { code: 'draft_copy_mismatch' } }));
+  await routeDraft(page, 422, { code: 'draft_copy_mismatch' });
   await page.goto('/app/job-copy?demo=1');
   await findListings(page);
   await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();

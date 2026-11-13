@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiGet, apiPost, apiPut, ApiHttpError, AuthRequiredError } from '../../api/client';
+import { apiGet, apiPost, apiPut, ApiHttpError, ApiInvalidResponseError, ApiNetworkError, ApiTimeoutError, AuthRequiredError } from '../../api/client';
+import type { ApiResult } from '../../api/client';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 interface Check { label: string; value: string | null; review: boolean; reason: string | null; missing_chunks: string[] }
 export interface RikuroziDraft {
@@ -7,6 +8,7 @@ export interface RikuroziDraft {
   comparisons: { title: string; media: string; publication: string; ratio: number | null; too_similar: boolean; whole_match: boolean; matched_sentences: string[] }[];
   copied: Check[]; generated: Check[]; images?: string[]; generated_values?: Record<string, string>;
 }
+interface DraftJob { status: 'running' | 'done'; draft?: RikuroziDraft }
 interface CreatedListing { status: 'created' | 'existing' | 'skipped'; listing_id: string | null; linked_deals: number; unlinked_deals: number }
 interface MadeListing { listing_id: string; name: string | null; reclogi_id: string | null }
 function errorCode(error: unknown): string {
@@ -59,6 +61,29 @@ function ReclogiIdField({ listingId, reload }: { listingId: string; reload: numb
   </section>;
 }
 
+const isAborted = (signal: AbortSignal) => signal.aborted;
+/** 確認の通信が一時的に失敗したもの（理由のコードが無い）。続けて待つ。 */
+function transient(error: unknown): boolean {
+  return error instanceof ApiNetworkError || error instanceof ApiInvalidResponseError || error instanceof ApiTimeoutError || (error instanceof ApiHttpError && errorCode(error) === '');
+}
+const POLL_INTERVAL_MS = 3_000;
+const POLL_LIMIT_MS = 1_020_000;
+const POLL_TRANSIENT_MAX = 5;
+/** 出来上がるまで数秒おきに確かめる。一時的な失敗は続けて5回までは待ち続ける。 */
+async function waitDraft(jobId: string, signal: AbortSignal, now: () => number = Date.now): Promise<ApiResult<DraftJob> | 'gave_up'> {
+  const deadline = now() + POLL_LIMIT_MS;
+  let failures = 0;
+  for (;;) {
+    const res = await apiGet<DraftJob>(`/api/job-copy/rikurozi-draft-jobs/${encodeURIComponent(jobId)}`, { signal, timeoutMs: 30_000 });
+    if (res.ok && res.data.status === 'done') return res;
+    if (!res.ok && !transient(res.error)) return res;
+    failures = res.ok ? 0 : failures + 1;
+    if (failures >= POLL_TRANSIENT_MAX || now() >= deadline || signal.aborted) return 'gave_up';
+    await new Promise<void>(resolve => { const timer = window.setTimeout(resolve, POLL_INTERVAL_MS); signal.addEventListener('abort', () => { window.clearTimeout(timer); resolve(); }, { once: true }); });
+    if (isAborted(signal)) return 'gave_up';
+  }
+}
+
 export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
   const [draft, setDraft] = useState<RikuroziDraft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,12 +96,23 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
   async function generate() {
     controller.current?.abort(); const request = new AbortController(); controller.current = request;
     setBusy(true); setError(''); setDraft(null); setExportMessage('');
-    const result = await apiPost<RikuroziDraft>(`/api/job-copy/listings/${encodeURIComponent(listingId)}/rikurozi-draft`, {}, { signal: request.signal, timeoutMs: 300_000 });
-    if (request.signal.aborted) return;
-    if (result.ok) setDraft(result.data);
+    const stale = () => request.signal.aborted;
+    // 受け付けたら裏で作る。画面は数秒おきに出来上がりを確かめる（数分かかる）。
+    const accepted = await apiPost<{ job_id: string }>(`/api/job-copy/listings/${encodeURIComponent(listingId)}/rikurozi-draft`, {}, { signal: request.signal, timeoutMs: 60_000 });
+    if (stale()) return;
+    const result = accepted.ok ? await waitDraft(accepted.data.job_id, request.signal) : accepted;
+    if (stale()) return;
+    if (result === 'gave_up') setError('出来上がりを確かめられないまま時間が過ぎたため、待つのをやめました。もう一度押すと、作っている途中ならその続きを待ちます。');
+    else if (result.ok && result.data.draft) setDraft(result.data.draft);
     else {
-      const copyMismatch = result.error instanceof ApiHttpError && typeof result.error.body === 'object' && result.error.body !== null && 'code' in result.error.body && result.error.body.code === 'draft_copy_mismatch';
-      setError(copyMismatch ? '原本から写した条件が一致しないため、出力を止めました（要確認）。担当者が原本の内容を確認してください。' : result.error instanceof AuthRequiredError ? 'Googleでログインしてから作り直してください。' : isHubSpotBusy(result.error) ? HUBSPOT_BUSY_MESSAGE : '案を作成できませんでした（要確認）。取引先との関連、求人の本文・事業所の情報を確認してから作り直してください。');
+      const code = result.ok ? '' : errorCode(result.error);
+      setError(code === 'draft_copy_mismatch' ? '原本から写した条件が一致しないため、出力を止めました（要確認）。担当者が原本の内容を確認してください。'
+        : !result.ok && result.error instanceof AuthRequiredError ? 'Googleでログインしてから作り直してください。'
+        : !result.ok && isHubSpotBusy(result.error) ? HUBSPOT_BUSY_MESSAGE
+        : code === 'draft_busy' ? 'ほかの案を作っている最中のため受け付けられませんでした。少し待ってからもう一度押してください。'
+        : code === 'draft_job_not_found' ? '作っていた案が見つかりません（サーバーが再起動した可能性があります）。もう一度押してください。'
+        : !result.ok && result.error instanceof ApiTimeoutError ? '受け付けの返事が来ませんでした。少し待ってからもう一度押してください。'
+        : '案を作成できませんでした（要確認）。取引先との関連、求人の本文・事業所の情報を確認してから作り直してください。');
     }
     setBusy(false);
   }
@@ -115,7 +151,7 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
     <p>選んだHRハッカーの求人を基準に、同じ取引先のAirWork求人と文章を比べます。</p>
     <p>新しい求人として取り込むCSVを作成します。画像は元の求人と同じ順序で最大3枚を使います。</p>
     <p>元の求人から取得できない連絡先・フォーム設定・公開設定などの項目は空欄で出力します。</p>
-    {busy && <p role="status">本文と掲載状況を読み取り、項目ごとに文章の案を作成しています…</p>}
+    {busy && <p role="status">本文と掲載状況を読み取り、項目ごとに文章の案を作成しています。数分かかります。この画面を開いたままお待ちください…</p>}
     {error && <p role="alert">{error}</p>}
     <ReclogiIdField listingId={listingId} reload={reload} />
     {draft && <>
