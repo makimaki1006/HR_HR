@@ -7922,6 +7922,11 @@ function detailItem(e) {
         ddMore([["要約の作成", (s.model || "") + (s.generated_at ? "（" + s.generated_at + " 作成）" : "")]]);
     } else {
       body += '<span class="via"><span class="tag d">要約なし</span></span>';
+      /* 要約を作れなかった通話は、文字起こし全文を畳んで置く（開いたときだけ読む） */
+      if (s && s.transcript) {
+        body += '<details class="fold"><summary>文字起こし全文を開く</summary>' +
+          '<div class="small" style="white-space:pre-wrap">' + esc(s.transcript) + "</div></details>";
+      }
     }
   } else if (e.kind === "handover") {
     head = '<span class="mark">交代</span>' + meta(esc(e.source_label));
