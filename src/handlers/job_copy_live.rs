@@ -782,12 +782,9 @@ impl JobReadService {
         let pending_labels = self.reason_option_labels();
         // 同じ求人への同じ人の 2 件目以降は、件数・日別・応募者構成・応募の理由・版ごとの比較の
         // どれにも入れない（2026-11-15 ユーザー決定）。数えた件数だけを `repeat_applications` で返す。
-        let all_rows = self.batch("0-421", &ids, &properties).await?;
-        let repeats = deal_summary::repeat_applications(&all_rows);
-        let rows: Vec<Record> = all_rows
-            .into_iter()
-            .filter(|row| !repeats.contains(&row.id))
-            .collect();
+        // 2 件目以降の理由・属性は残す 1 件に寄せる（空の項目だけ埋める）。
+        let (rows, repeats) =
+            deal_summary::merge_repeat_applications(self.batch("0-421", &ids, &properties).await?);
         // Missing/undefined properties remain unknown; do not turn an existing
         // appointment into zero applications. hs_appointment_start is synthesized
         // by the importer from yingmuri and does not prove the real event time.
@@ -890,7 +887,7 @@ impl JobReadService {
             Ok((_, multi)) => add_multi_listing(&mut summary, &rows, multi),
             Err(ReadError(_, code)) => response["listing_links_status"] = json!(code),
         }
-        summary["repeat_applications"] = json!(repeats.len());
+        summary["repeat_count"] = json!(repeats.len());
         response["summary"] = summary;
         // No small group of applicants (fewer than 3 in an area or a gender × age × area cell)
         // leaves the server.

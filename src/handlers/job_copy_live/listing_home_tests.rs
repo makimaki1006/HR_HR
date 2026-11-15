@@ -890,39 +890,13 @@ async fn customer_listing_flags_match_home_cards_with_and_without_owner_scope() 
 }
 
 #[test]
-fn home_reports_the_newest_media_week_of_live_listings() {
-    // 「まず見るもの」は媒体の週ごとの実績で数える。画面に出す時点は、掲載中の求人の最新の週の終わり。
-    let recent = perf(&[("2026-10-05", "2026-10-11", 100, 1)]);
-    let old = perf(&[("2026-08-03", "2026-08-09", 100, 1)]);
-    let ended = perf(&[("2026-10-12", "2026-10-18", 100, 1)]);
-    let rows = vec![
-        listing("1", &["d1"], "掲載中", "set", Some(&recent)),
-        listing("2", &["d1"], "掲載中", "set", Some(&old)),
-        listing("3", &["d1"], "掲載終了", "set", Some(&ended)),
-        listing("4", &["d1"], "掲載中", "set", None),
-    ];
-    let home = compute(&rows, &map(), date("2026-11-15"));
-    // Indeed（HRハッカー）は 10/11 が 1 件・08/09 が 1 件で同数 → 新しい 10/11。掲載終了の 10/18 は数えない。
-    assert_eq!(
-        home.media_weeks,
-        vec![MediaWeek {
-            label: "Indeed",
-            week_end: "2026-10-11".into(),
-            listings: 1,
-            total: 2
-        }]
-    );
-    let none = compute(&rows[3..], &map(), date("2026-11-15"));
-    assert!(none.media_weeks.is_empty());
-}
-
-#[test]
-fn media_weeks_show_where_most_live_listings_stop_per_media() {
-    // 本番の形: Indeed の多くは 10/11 で止まり、一部だけ 11/08。AirWork は 11/08。
+fn media_weeks_count_every_live_listing_and_split_newer_older_and_no_data() {
+    // 本番の形: Indeed の多くは 10/11 で止まり、一部だけ 11/08、実績の無い求人もある。AirWork は 11/08。
     let stuck = perf(&[("2026-10-05", "2026-10-11", 100, 1)]);
     let fresh = perf(&[("2026-11-02", "2026-11-08", 100, 1)]);
-    let airwork = |id: &str| {
-        let mut row = listing(id, &["d1"], "掲載中", "set", Some(&fresh));
+    let old = perf(&[("2026-08-03", "2026-08-09", 100, 1)]);
+    let airwork = |id: &str, perf: Option<&Value>| {
+        let mut row = listing(id, &["d1"], "掲載中", "set", perf);
         row.media = "airwork";
         row
     };
@@ -931,8 +905,12 @@ fn media_weeks_show_where_most_live_listings_stop_per_media() {
         listing("2", &["d1"], "掲載中", "set", Some(&stuck)),
         listing("3", &["d1"], "掲載中", "set", Some(&stuck)),
         listing("4", &["d1"], "掲載中", "set", Some(&fresh)),
-        airwork("5"),
-        airwork("6"),
+        listing("5", &["d1"], "掲載中", "set", Some(&old)),
+        listing("6", &["d1"], "掲載中", "set", None),
+        // 掲載終了は数えない
+        listing("7", &["d1"], "掲載終了", "set", Some(&fresh)),
+        airwork("8", Some(&fresh)),
+        airwork("9", Some(&fresh)),
     ];
     let home = compute(&rows, &map(), date("2026-11-15"));
     assert_eq!(
@@ -940,15 +918,59 @@ fn media_weeks_show_where_most_live_listings_stop_per_media() {
         vec![
             MediaWeek {
                 label: "Indeed",
-                week_end: "2026-10-11".into(),
+                week_end: Some("2026-10-11".into()),
                 listings: 3,
-                total: 4
+                newer: 1,
+                older: 1,
+                no_data: 1,
+                total: 6
             },
             MediaWeek {
                 label: "AirWork",
-                week_end: "2026-11-08".into(),
+                week_end: Some("2026-11-08".into()),
                 listings: 2,
+                newer: 0,
+                older: 0,
+                no_data: 0,
                 total: 2
+            },
+        ]
+    );
+}
+
+#[test]
+fn media_weeks_tie_picks_the_newer_week_and_keep_a_media_without_data() {
+    let recent = perf(&[("2026-10-05", "2026-10-11", 100, 1)]);
+    let old = perf(&[("2026-08-03", "2026-08-09", 100, 1)]);
+    let mut aw = listing("3", &["d1"], "掲載中", "set", None);
+    aw.media = "airwork";
+    let rows = vec![
+        listing("1", &["d1"], "掲載中", "set", Some(&recent)),
+        listing("2", &["d1"], "掲載中", "set", Some(&old)),
+        aw,
+    ];
+    let home = compute(&rows, &map(), date("2026-11-15"));
+    assert_eq!(
+        home.media_weeks,
+        vec![
+            MediaWeek {
+                label: "Indeed",
+                week_end: Some("2026-10-11".into()),
+                listings: 1,
+                newer: 0,
+                older: 1,
+                no_data: 0,
+                total: 2
+            },
+            // 実績が 1 件も無い媒体も黙って消さない
+            MediaWeek {
+                label: "AirWork",
+                week_end: None,
+                listings: 0,
+                newer: 0,
+                older: 0,
+                no_data: 1,
+                total: 1
             },
         ]
     );

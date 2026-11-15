@@ -254,31 +254,50 @@ pub(super) struct Home {
 pub(super) struct MediaWeek {
     /// 画面の呼び名（Indeed / AirWork）。
     pub(super) label: &'static str,
-    pub(super) week_end: String,
-    /// その週までそろっている掲載中の求人の数。
+    /// 最新の週が同じ求人が最も多い週の終わり（同数なら新しい方）。実績のある求人が無ければ null。
+    pub(super) week_end: Option<String>,
+    /// 最新の週がその週の求人の数。
     pub(super) listings: usize,
-    /// その媒体で実績のある掲載中の求人の数。
+    /// 最新の週がそれより新しい求人の数。
+    pub(super) newer: usize,
+    /// 最新の週がそれより古い求人の数。
+    pub(super) older: usize,
+    /// 実績が 1 週も無い掲載中の求人の数。
+    pub(super) no_data: usize,
+    /// その媒体の掲載中の求人の数（実績の有無を問わない）。
     pub(super) total: usize,
 }
 fn media_weeks(live: &[&Listing]) -> Vec<MediaWeek> {
     [("hrh", "Indeed"), ("airwork", "AirWork")]
         .into_iter()
-        .filter_map(|(media, label)| {
+        .map(|(media, label)| {
+            let rows: Vec<_> = live.iter().filter(|row| row.media == media).collect();
             let mut by_week: BTreeMap<NaiveDate, usize> = BTreeMap::new();
-            for row in live.iter().filter(|row| row.media == media) {
-                if let Some(perf) = &row.perf {
-                    *by_week.entry(perf.latest_end).or_default() += 1;
-                }
+            for perf in rows.iter().filter_map(|row| row.perf.as_ref()) {
+                *by_week.entry(perf.latest_end).or_default() += 1;
             }
-            let total = by_week.values().sum();
+            let with_data: usize = by_week.values().sum();
             // 件数が多い週、同数なら新しい週（BTreeMap は古い順なので max_by_key は同数で後＝新しい方）。
-            let (week, listings) = by_week.into_iter().max_by_key(|(_, n)| *n)?;
-            Some(MediaWeek {
+            let mode = by_week
+                .iter()
+                .max_by_key(|(_, n)| **n)
+                .map(|(w, n)| (*w, *n));
+            let count = |pick: &dyn Fn(&NaiveDate) -> bool| -> usize {
+                by_week
+                    .iter()
+                    .filter(|(w, _)| pick(w))
+                    .map(|(_, n)| n)
+                    .sum()
+            };
+            MediaWeek {
                 label,
-                week_end: week.to_string(),
-                listings,
-                total,
-            })
+                week_end: mode.map(|(w, _)| w.to_string()),
+                listings: mode.map_or(0, |(_, n)| n),
+                newer: mode.map_or(0, |(m, _)| count(&|w| *w > m)),
+                older: mode.map_or(0, |(m, _)| count(&|w| *w < m)),
+                no_data: rows.len() - with_data,
+                total: rows.len(),
+            }
         })
         .collect()
 }

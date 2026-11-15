@@ -11,7 +11,7 @@ import { buildDistribution } from './applicantCompositionModel';
 import { roundJointDemographics } from './applicantArea';
 import type { ApplicationRow, JobCopyRecord, RepeatApplicationRow, SelectionOptions } from './data';
 
-interface ApplicationDates { selection_options?: SelectionOptions | null; created_date_count?: number; listing_id: string; total: number; missing_date: number; by_date: Record<string, number>; fetched_at: string; applications?: ApplicationRow[]; repeat_applications?: unknown; applicant_reasons?: unknown; phone_hearing?: unknown }
+interface ApplicationDates { selection_options?: SelectionOptions | null; created_date_count?: number; listing_id: string; total: number; missing_date: number; by_date: Record<string, number>; fetched_at: string; applications?: ApplicationRow[]; repeat_entries?: unknown; applicant_reasons?: unknown; phone_hearing?: unknown }
 
 export interface LoadedApplications {
   overall: NonNullable<JobCopyRecord['overallApplications']>;
@@ -29,8 +29,8 @@ export function repeatApplicationRows(raw: unknown): RepeatApplicationRow[] {
     if (typeof item !== 'object' || item === null) return [];
     const row = item as Record<string, unknown>;
     const key = text(row.key);
-    const date = text(row.date);
-    return key ? [{ key, date: date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null }] : [];
+    const day = (value: unknown) => { const date = text(value); return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null; };
+    return key ? [{ key, date: day(row.date), firstDate: day(row.first_date) }] : [];
   });
 }
 
@@ -95,5 +95,5 @@ export async function loadApplicationDates(id: string, signal?: AbortSignal): Pr
       overall.distributions[dimension] = { total: rows.length, categories: [...counts].map(([category, count]) => ({ category, count, percentage: rows.length ? count / rows.length * 100 : null })) };
     }
   }
-  return { overall, rows, repeats: repeatApplicationRows(result.data.repeat_applications), reasons, phoneHearing: isPhoneHearing(result.data.phone_hearing) ? result.data.phone_hearing : undefined };
+  return { overall, rows, repeats: repeatApplicationRows(result.data.repeat_entries), reasons, phoneHearing: isPhoneHearing(result.data.phone_hearing) ? result.data.phone_hearing : undefined };
 }

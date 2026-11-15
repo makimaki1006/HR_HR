@@ -6,11 +6,14 @@ export interface HomeCard { key: CardKey; title: string; rule: string; count: nu
 export interface LatestDeal { name: string | null; stage_label: string | null; active: boolean; created_at: string | null }
 export interface HomeCustomer { company_id: string; name: string | null; deals: number; active_deals: number; latest_deal: LatestDeal | null; live_listings: number; total_listings: number; recent_apps: number; prev_apps: number; recent_cost: number; cost_per_app: number | null }
 export interface HomeData { cards: HomeCard[]; customers: HomeCustomer[]; live_without_company: number; median_cost_per_app: number | null; media_weeks?: MediaWeek[] }
-/** 媒体ごとの実績の時点。掲載中の求人で最も多くそろっている週（listings / total 件）。 */
-export interface MediaWeek { label: string; week_end: string; listings: number; total: number }
-export function mediaWeeksText(weeks: readonly MediaWeek[] | undefined, format: (day: string) => string): string {
-  if (!weeks?.length) return '未取得';
-  return weeks.map(week => `${week.label} ${format(week.week_end)} までの週（掲載中${String(week.total)}件のうち${String(week.listings)}件）`).join('・');
+/** 媒体ごとの実績の時点。最新の週が同じ求人が最も多い週と、それより新しい・古い・実績なしの件数（掲載中の求人）。 */
+export interface MediaWeek { label: string; week_end: string | null; listings: number; newer: number; older: number; no_data: number; total: number }
+/** 例「Indeed：最新の週が 10/11 の求人が最も多い（98件）・それより新しい 12件・実績なし 10件」。 */
+export function mediaWeekText(week: MediaWeek, format: (day: string) => string): string {
+  if (week.total === 0) return `${week.label}：掲載中の求人なし`;
+  if (week.week_end === null) return `${week.label}：実績なし`;
+  const rest = [week.newer > 0 && `それより新しい ${String(week.newer)}件`, week.older > 0 && `それより古い ${String(week.older)}件`, week.no_data > 0 && `実績なし ${String(week.no_data)}件`].filter(Boolean);
+  return [`${week.label}：最新の週が ${format(week.week_end)} の求人が最も多い（${String(week.listings)}件）`, ...rest].join('・');
 }
 export type HomeResponse =
   | { status: 'preparing'; progress?: IndexProgress }

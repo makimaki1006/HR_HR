@@ -45,6 +45,8 @@ export interface ListingEvent {
   applicationKey?: string | null | undefined;
   /** 同じ方の2回目以降の応募（件数には入れない）。 */
   repeat?: boolean | undefined;
+  /** 同じ方の記録を寄せた1件目の応募日。 */
+  repeatOf?: string | null | undefined;
 }
 
 export interface EventCounts {
@@ -79,7 +81,7 @@ export function billingBands(entries: readonly BillingEntry[]): { start: string;
   return bands;
 }
 
-interface RawEvent { date: string; kind: EventKind; title: string; summary: string; versionId: string | null; previousVersionId: string | null; billingFrom: number | null; billingTo: number | null; applicationKey?: string | null | undefined; repeat?: boolean | undefined }
+interface RawEvent { date: string; kind: EventKind; title: string; summary: string; versionId: string | null; previousVersionId: string | null; billingFrom: number | null; billingTo: number | null; applicationKey?: string | null | undefined; repeat?: boolean | undefined; repeatOf?: string | null | undefined }
 
 function billingEvents(entries: readonly BillingEntry[]): RawEvent[] {
   const events: RawEvent[] = [];
@@ -141,10 +143,14 @@ export function statusTimeline(job: Pick<JobCopyRecord, 'statusHistory'>): { sta
 }
 
 /** 応募1件ずつの出来事。日付が分かる応募だけ。 */
-export const REPEAT_APPLICATION_NOTE = '同じ方の2回目の応募（数に入れません）';
+/** 「応募（N件）を出す」の N。同じ方の2回目以降の応募は数えない。 */
+export function countedApplications(events: readonly Pick<ListingEvent, 'kind' | 'repeat'>[]): number {
+  return events.filter(event => event.kind === 'application' && !event.repeat).length;
+}
+export const REPEAT_APPLICATION_NOTE = '同じ方の2回目以降の応募（数に入れません）';
 export function applicationEvents(job: Pick<JobCopyRecord, 'applicationRows' | 'repeatApplicationRows'>): RawEvent[] {
   const counted = (job.applicationRows ?? []).flatMap(row => row.date ? [{ ...RAW_BASE, date: row.date, kind: 'application' as const, title: '応募', summary: applicantText(row), applicationKey: row.key }] : []);
-  const repeats = (job.repeatApplicationRows ?? []).flatMap(row => row.date ? [{ ...RAW_BASE, date: row.date, kind: 'application' as const, title: '応募', summary: REPEAT_APPLICATION_NOTE, applicationKey: row.key, repeat: true }] : []);
+  const repeats = (job.repeatApplicationRows ?? []).flatMap(row => row.date ? [{ ...RAW_BASE, date: row.date, kind: 'application' as const, title: '応募', summary: REPEAT_APPLICATION_NOTE, applicationKey: row.key, repeat: true, repeatOf: row.firstDate }] : []);
   return [...counted, ...repeats];
 }
 export function applicantText(row: { gender: string | null; age: string | null; prefecture: string | null; municipality: string | null }): string {

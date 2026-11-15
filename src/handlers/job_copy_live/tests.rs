@@ -715,6 +715,15 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
             )
                 .into_response()
         }
+        // RepeatApplicant: 2 件目（51）だけが別の求人 31 にも付いている。
+        "/crm/v4/associations/0-421/0-420/batch/read"
+            if matches!(fixture.scenario, Scenario::RepeatApplicant) =>
+        {
+            json!({"status":"COMPLETE","results":[
+                {"from":{"id":"50"},"to":[{"toObjectId":"30"}]},
+                {"from":{"id":"51"},"to":[{"toObjectId":"30"},{"toObjectId":31}]}
+            ]})
+        }
         "/crm/v4/associations/0-421/0-420/batch/read" => json!({"status":"COMPLETE","results":[
             {"from":{"id":"50"},"to":[{"toObjectId":"30"},{"toObjectId":31}]},
             {"from":{"id":"51"},"to":[{"toObjectId":"30"}]}
@@ -776,12 +785,12 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
                             ("/crm/v3/objects/0-421/batch/read", "50" | "51")
                                 if matches!(fixture.scenario, Scenario::RepeatApplicant) =>
                             {
-                                let (day, phone) = if id == "50" {
-                                    ("2026-10-03", "090-0000-1111")
+                                if id == "50" {
+                                    json!({"yingmuri":"2026-10-03","nenrei":"30","ouboshashimei":"架空 花子","denwabangou":"090-0000-1111","meeruadoresu":"hanako@kakuu.jp","seinengappi":"1996-01-02"})
                                 } else {
-                                    ("2026-10-05", "09000001111")
-                                };
-                                json!({"yingmuri":day,"seibetsu":"女性","nenrei":"30","ouboshashimei":"架空 花子","denwabangou":phone,"meeruadoresu":"hanako@example.test","seinengappi":"1996-01-02"})
+                                    // 性別と応募動機は 2 件目にだけある。
+                                    json!({"yingmuri":"2026-10-05","seibetsu":"女性","nenrei":"30","ouboshashimei":"架空花子","denwabangou":"09000001111","oubodouki":"家から近い"})
+                                }
                             }
                             ("/crm/v3/objects/0-421/batch/read", "50") => {
                                 json!({"yingmuri":"2026-10-03","nenrei":"35","seibetsu":null,"oubodouki":"Flexible hours","ouboriyuu_baitaikisai":"  ","ouboriyuu_hiaringu":null,"genshokumaeshokukaranotenshokuriyuu":"山田さんの店が遠かった","ouboriyuukategori_hiaringu":"kyuuyo"})
@@ -1903,15 +1912,39 @@ async fn the_same_person_applying_twice_counts_once_on_the_listing_page() {
     assert_eq!(applicants["summary"]["total"], 1);
     assert_eq!(applicants["summary"]["by_date"], json!({"2026-10-03": 1}));
     assert_eq!(applicants["summary"]["missing_date"], 0);
-    assert_eq!(applicants["summary"]["repeat_applications"], 1);
+    assert_eq!(applicants["summary"]["repeat_count"], 1);
+    // 2 件目にだけあった性別は 1 件目に寄せて数える（1 人）。
     assert_eq!(applicants["summary"]["dimensions"]["gender"]["女性"], 1);
+    // 2 件目は別の求人にも付いているが、数えないので複数求人の数にも入れない。
+    assert_eq!(applicants["summary"]["multi_listing_by_date"], json!({}));
+    assert_eq!(applicants["summary"]["multi_listing_missing_date"], 0);
+    assert_eq!(
+        applicants["applicant_reasons"]["multi_listing_applicants"],
+        json!([])
+    );
+    // 2 件目の応募動機は 1 件目の応募として 1 回だけ出る（2 件目の鍵では出ない）。
+    let items = applicants["applicant_reasons"]["items"].as_array().unwrap();
+    let motives: Vec<_> = items
+        .iter()
+        .filter(|item| item["text"] == "家から近い")
+        .collect();
+    assert_eq!(motives.len(), 1);
+    assert_eq!(
+        motives[0]["applicant"],
+        json!(super::applicant_reasons::applicant_key("30", "50"))
+    );
+    assert!(!applicants
+        .to_string()
+        .contains(&super::applicant_reasons::applicant_key("30", "51")));
+    // この求人は版ごとの比較の設定が無いので、比較は作られない（2 件目は比較の入力にも渡していない）。
+    assert!(applicants["dated_comparison"].is_null());
     let text = applicants.to_string();
     for secret in [
         "架空",
         "090-0000-1111",
         "09000001111",
         "hanako",
-        "example.test",
+        "kakuu.jp",
         "1996-01-02",
     ] {
         assert!(

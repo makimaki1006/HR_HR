@@ -393,13 +393,22 @@ impl JobReadService {
             self.hearing_links(&selected, "notes"),
             self.hearing_links(&selected, "0-420")
         );
-        let (all_rows, note_links, listing_links) = (rows?, note_links?, listing_links?);
+        let (all_rows, mut note_links, listing_links) = (rows?, note_links?, listing_links?);
         // 同じ求人への同じ人の 2 件目以降は数えない（件数・日別・応募者構成・応募の理由・電話ヒアリング）。
-        // 出来事の一覧には残すので、日付と印だけを `repeat_applications` で返す。
-        let repeat_ids = super::deal_summary::repeat_applications(&all_rows);
-        let (repeat_rows, rows): (Vec<Record>, Vec<Record>) = all_rows
-            .into_iter()
-            .partition(|row| repeat_ids.contains(&row.id));
+        // 2 件目以降の電話ヒアリング・メモ・理由・属性は、残す 1 件に寄せて出す（消さない・同じ人なら 1 回）。
+        // 出来事の一覧には 2 件目以降も残すので、日付と寄せた先の日付と印だけを `repeat_entries` で返す。
+        let (rows, repeats) = super::deal_summary::merge_repeat_applications(all_rows);
+        let repeat_ids: BTreeSet<String> = repeats.iter().map(|(r, _)| r.id.clone()).collect();
+        for (repeat, to) in &repeats {
+            if let Some(notes) = note_links.remove(&repeat.id) {
+                let entry = note_links.entry(to.clone()).or_default();
+                for note in notes {
+                    if !entry.contains(&note) {
+                        entry.push(note);
+                    }
+                }
+            }
+        }
         let note_ids: Vec<_> = note_links
             .values()
             .flatten()
@@ -427,7 +436,7 @@ impl JobReadService {
             counted,
         )?;
         let mut result = bundle(listing, &rows, &labels, &hearing, &multi, counted, media);
-        result["repeat_applications"] = repeat_entries(listing, &repeat_rows);
+        result["repeat_entries"] = repeat_entries(listing, &rows, &repeats);
         result["selection_options"] = select_options
             .map(|o| json!(o.definitions))
             .unwrap_or(Value::Null);
@@ -539,14 +548,21 @@ fn bundle(
     json!({"listing_id":listing,"total":total,"missing_date":missing,"created_date_count":from_created,"by_date":by_date,
         "applications":people,"applicant_reasons":reasons,"phone_hearing":hearing,"fetched_at":fetched})
 }
-/// 同じ方の 2 回目以降の応募。出来事の一覧に「数に入れません」と添えるため、鍵と日付だけを返す
-/// （氏名・電話・メール・生年月日・属性は出さない）。
-fn repeat_entries(listing: &str, rows: &[Record]) -> Value {
-    let (days, _) = super::deal_summary::days_of(rows);
-    json!(rows
+/// 同じ方の 2 回目以降の応募。出来事の一覧に「数に入れません」と添えるため、鍵・日付・記録を寄せた
+/// 1 件目の応募の日付（`first_date`）だけを返す（氏名・電話・メール・生年月日・属性は出さない）。
+fn repeat_entries(listing: &str, kept: &[Record], repeats: &[(Record, String)]) -> Value {
+    let first: BTreeMap<&str, Option<String>> = kept
         .iter()
-        .zip(days)
-        .map(|(row, day)| json!({"key": applicant_key(listing, &row.id), "date": day, "repeat": true}))
+        .map(|r| (r.id.as_str(), r.application_day().map(|(day, _)| day)))
+        .collect();
+    json!(repeats
+        .iter()
+        .map(|(row, to)| json!({
+            "key": applicant_key(listing, &row.id),
+            "date": row.application_day().map(|(day, _)| day),
+            "first_date": first.get(to.as_str()).cloned().flatten(),
+            "repeat": true,
+        }))
         .collect::<Vec<_>>())
 }
 fn add_reason(
@@ -673,13 +689,19 @@ mod bundle_cache_tests {
                         if repeat {
                             json!({"results":[
                                 {"id":"201","properties":{"yingmuri":"2026-10-01","denwabangou":"080-0000-3333"}},
-                                {"id":"202","properties":{"yingmuri":"2026-10-02","ouboshashimei":"架空 次郎","denwabangou":"090-0000-2222","seibetsu":"男性"}},
-                                {"id":"203","properties":{"yingmuri":"2026-11-05","ouboshashimei":"架空次郎","denwabangou":"09000002222","seibetsu":"男性"}}]})
+                                {"id":"202","properties":{"yingmuri":"2026-10-02","ouboshashimei":"架空 次郎","denwabangou":"090-0000-2222"}},
+                                {"id":"203","properties":{"yingmuri":"2026-11-05","ouboshashimei":"架空次郎","denwabangou":"09000002222","seibetsu":"男性","kanrengyoumukeiken":"倉庫で5年"}}]})
                         } else {
                             json!({"results":[
                                 {"id":"201","properties":{"yingmuri":"2026-10-01","oubodouki_1":"second;first;second;unset","kinmujoukennoyuusenjuni_1":"first","kinmujoukennoyuusenjuni_2":"second","kinmujoukennoyuusenjuni_3":"first"}},
                                 {"id":"202","properties":{"yingmuri":"2026-10-02"}}]})
                         }
+                    } else if repeat && path.ends_with("/0-421/0-420/batch/read") {
+                        // 2 件目（203）は別の求人にも付いている。
+                        json!({"results":[
+                            {"from":{"id":"201"},"to":[{"toObjectId":10}]},
+                            {"from":{"id":"202"},"to":[{"toObjectId":10}]},
+                            {"from":{"id":"203"},"to":[{"toObjectId":10},{"toObjectId":11}]}]})
                     } else if path.ends_with("/0-421/notes/batch/read")
                         || path.ends_with("/0-421/0-420/batch/read")
                     {
@@ -711,10 +733,39 @@ mod bundle_cache_tests {
         assert_eq!(bundle["by_date"], json!({"2026-10-01": 1, "2026-10-02": 1}));
         assert_eq!(bundle["applications"].as_array().unwrap().len(), 2);
         assert_eq!(bundle["phone_hearing"]["total_applicants"], 2);
-        // 出来事に出すための印だけ（鍵・日付・repeat）。
+        // 2 件目にだけあった電話ヒアリングと性別は、1 件目（202、10/02）に寄せて出す。
+        let first = applicant_key("10", "202");
+        let card = bundle["phone_hearing"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["applicant"] == json!(first))
+            .expect("hearing card of the first application");
+        assert!(card["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["label"] == "関連業務経験" && f["text"] == "倉庫で5年"));
         assert_eq!(
-            bundle["repeat_applications"],
-            json!([{"key": applicant_key("10", "203"), "date": "2026-11-05", "repeat": true}])
+            bundle["phone_hearing"]["items"].as_array().unwrap().len(),
+            1
+        );
+        let person = bundle["applications"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["key"] == json!(first))
+            .unwrap();
+        assert_eq!(person["gender"], "男性");
+        // 2 件目は複数の求人に付いているが、数えないので複数求人の一覧にも入れない。
+        assert_eq!(
+            bundle["applicant_reasons"]["multi_listing_applicants"],
+            json!([])
+        );
+        // 出来事に出すための印だけ（鍵・日付・寄せた先の日付・repeat）。
+        assert_eq!(
+            bundle["repeat_entries"],
+            json!([{"key": applicant_key("10", "203"), "date": "2026-11-05", "first_date": "2026-10-02", "repeat": true}])
         );
         let text = bundle.to_string();
         for secret in ["架空", "090-0000-2222", "09000002222", "080-0000-3333"] {
@@ -742,10 +793,14 @@ mod bundle_cache_tests {
             .map(|(k, v)| (k.to_owned(), Some(v.to_owned())))
             .collect(),
         };
-        let value = repeat_entries("10", &[row]);
+        let first = Record {
+            id: "202".into(),
+            properties: [("yingmuri".to_owned(), Some("2026-11-02".to_owned()))].into(),
+        };
+        let value = repeat_entries("10", &[first], &[(row, "202".into())]);
         assert_eq!(
             value,
-            json!([{"key": applicant_key("10", "203"), "date": "2026-11-05", "repeat": true}])
+            json!([{"key": applicant_key("10", "203"), "date": "2026-11-05", "first_date": "2026-11-02", "repeat": true}])
         );
     }
 
