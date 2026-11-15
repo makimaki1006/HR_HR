@@ -354,6 +354,11 @@ describe('トークの振り返り: 電話の一覧と詳細', () => {
     expect(callStatusText({ status: 'unavailable', reason: '短すぎる通話か、設定により文字起こしできません' })).toBe('取れない（短すぎる通話か、設定により文字起こしできません）');
     expect(callStatusText({ status: 'waiting', reason: 'x' })).toBe('文字起こし待ち');
   });
+
+  it('reason の無い古い API の応答でも「取れない（undefined）」にしない', () => {
+    const old = { status: 'unavailable' } as unknown as Parameters<typeof callStatusText>[0];
+    expect(callStatusText(old)).toBe('取れない');
+  });
 });
 
 describe('トークの振り返り: 画面とルート', () => {

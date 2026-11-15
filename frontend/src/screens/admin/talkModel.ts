@@ -115,7 +115,7 @@ export const CALL_STATUS_TEXT: Record<string, string> = {
 /** 判定済みでない電話の状態の文。取れない・判定できなかった電話は理由を添える (理由が残っていない行は状態だけ) */
 export function callStatusText(c: Pick<TalkCallRow, 'status' | 'reason'>): string {
   const head = CALL_STATUS_TEXT[c.status] ?? c.status;
-  return c.reason !== null && (c.status === 'unavailable' || c.status === 'failed') ? `${head}（${c.reason}）` : head;
+  return c.reason != null && (c.status === 'unavailable' || c.status === 'failed') ? `${head}（${c.reason}）` : head;
 }
 
 export const MARK_TEXT: Record<string, string> = { done: '○', not_done: '×', na: '−' };
