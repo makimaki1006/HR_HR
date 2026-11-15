@@ -73,7 +73,7 @@ it('権限のエラーを赤で表示し、キャッシュ更新を通知しな�
   await save(); expect((await screen.findByRole('alert')).className).toBe('nt-red'); expect(saved).not.toHaveBeenCalled();
 });
 
-it('案件のラベルも取得が終われば定期通信を止める', async () => {
+it('案件のタグも取得が終われば定期通信を止める', async () => {
   vi.useFakeTimers();
   try {
     const mock = api('saved');

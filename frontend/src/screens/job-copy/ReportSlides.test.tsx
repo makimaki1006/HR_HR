@@ -5,7 +5,7 @@ import type { ReportInput } from './reportSlidesModel';
 
 const input: ReportInput = {
   scope: 'listing', id: '501', name: '合成の配送求人', company: '合成運輸', overlap: {}, asOf: '2026-11-15', outcomes: null,
-  listings: [{ id: '501', title: '合成の配送求人', media: 'hrh', ended: false, endedOn: null, billing: [], billingUnavailable: false,
+  listings: [{ id: '501', title: '合成の配送求人', media: 'hrh', ended: false, endedOn: null,
     byDate: { '2026-08-20': 1, '2026-10-20': 2 }, events: { listingId: '501', bodyChangedAt: null, bodyChanges: [], imageChanges: [], startOn: '2026-08-01', statusEvents: [] } }],
   applicants: { rows: null, reasons: null, missingReason: '応募者を読み込めなかったため' },
 };

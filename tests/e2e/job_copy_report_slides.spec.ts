@@ -81,7 +81,10 @@ test('案件の報告のスライド: 左で選び、外したものは理由を
   const stage = page.getByRole('region', { name: 'スライド', exact: true });
   await side.getByRole('button', { name: /まとめ/ }).click();
   await expect(stage).toContainText('応募は前の期間の 3件から 7件に増えました');
-  await expect(stage).not.toContainText(/未取得|HubSpot/);
+  // 面接・採用は案件に記録された累計を出す。媒体の費用は書かない（2026-11-16 利用者決定）
+  await expect(stage.locator('.rs-kp > div').filter({ hasText: '面接' })).toHaveText('面接4件ご契約からの合計');
+  await expect(stage.locator('.rs-kp > div').filter({ hasText: '採用' })).toHaveText('採用1名ご契約からの合計');
+  await expect(stage).not.toContainText(/未取得|HubSpot|費用|円/);
   // 応募理由は電話でうかがった分類の件数、どのスライドも枠からはみ出さない
   await side.getByRole('button', { name: /応募理由/ }).click();
   await expect(stage).toContainText('お電話で応募理由をうかがえた 7件の内訳');
