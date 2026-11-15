@@ -819,6 +819,8 @@ struct Worker<Z, J> {
     hearing_asked: HashMap<String, i64>,
     /// 決まって、まだ取引に書いていないランク
     rank_saves: Vec<(super::counts::ApoDeal, super::apo_call::DealRank)>,
+    /// 判定済みの電話の文字起こしを HubSpot の通話へ移す待ち行列 (プロセス内だけ。Turso には書かない)
+    transcript_backfill: super::transcript_backfill::TranscriptBackfill,
 }
 
 /// 保存済みの行の文章に日本語以外が混ざっているか (英単語の許可は行の引用だけで判断する)
@@ -1904,6 +1906,68 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         true
     }
 
+    /// #442 より前に判定した電話の文字起こしを HubSpot の通話へ一度だけ移す (手の空いた周回だけ。
+    /// `transcript_backfill`)。最初の 1 回で切り目より前の判定済みの行の通話 ID・録音 ID を読む
+    /// (読めなければ次の手の空いた周回でやり直す)。全部片付いたら、この起動の間は何も読まない
+    async fn process_transcript_backfill(&mut self) {
+        use super::transcript_backfill::{CUTOFF, CYCLE_BUDGET, SINCE};
+        if self.transcript_backfill.is_done() {
+            return;
+        }
+        if self.transcript_backfill.needs_load() {
+            // 新しい順に読むので、先頭に足して古い順に並べる (向きを変えるための複製を作らない)
+            let refs = store::blocking(&self.audit, move |t| {
+                let mut out = VecDeque::new();
+                store::for_each_judged_ref_page(t, SINCE, CUTOFF, store::ROWS_PAGE, |rows| {
+                    for r in rows {
+                        out.push_front(r);
+                    }
+                })?;
+                Ok(out)
+            })
+            .await;
+            match refs {
+                Ok(refs) => {
+                    tracing::info!(rows = refs.len(), "talk review: transcript backfill loaded");
+                    self.transcript_backfill.load(refs);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "talk review: transcript backfill read failed");
+                    return;
+                }
+            }
+        }
+        let deadline = tokio::time::Instant::now() + CYCLE_BUDGET;
+        let rep = self
+            .transcript_backfill
+            .step(&self.client.background(), &*self.zoom, deadline, Utc::now())
+            .await;
+        if rep != Default::default() {
+            tracing::info!(
+                checked = rep.checked,
+                present = rep.present,
+                saved = rep.saved,
+                marked = rep.marked,
+                given_up = rep.given_up,
+                retry_later = rep.retry_later,
+                stopped = rep.stopped,
+                remaining = self.transcript_backfill.remaining(),
+                "talk review: transcript backfill"
+            );
+        }
+        if self.transcript_backfill.is_done() {
+            let t = self.transcript_backfill.totals();
+            tracing::info!(
+                present = t.present,
+                saved = t.saved,
+                marked = t.marked,
+                given_up = t.given_up,
+                no_recording_id = t.no_recording_id,
+                "talk review: transcript backfill 移し終えた"
+            );
+        }
+    }
+
     async fn run(mut self) {
         match store::blocking(&self.audit, {
             let since =
@@ -1971,6 +2035,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 self.process_rejudge().await;
                 // 通話日の印が無いヒアリングの付け直しも、新しい判定が無い周回だけ (遅いと新しい電話の判定を待たせるため)
                 self.process_rehearing().await;
+                // 判定済みの電話の文字起こしを、Zoom の録音が消える前に HubSpot へ移す (いちばん後ろ)
+                self.process_transcript_backfill().await;
                 tokio::time::sleep(self.cfg.interval).await;
             }
         }
@@ -2034,6 +2100,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         judged_rows: Default::default(),
         hearing_asked: Default::default(),
         rank_saves: Vec::new(),
+        transcript_backfill: Default::default(),
     };
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -2878,6 +2945,7 @@ mod tests {
             judged_rows: Default::default(),
             hearing_asked: Default::default(),
             rank_saves: Vec::new(),
+            transcript_backfill: Default::default(),
         }
     }
 
