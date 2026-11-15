@@ -108,9 +108,15 @@ export function fmtSeconds(sec: number): string {
 
 export const CALL_STATUS_TEXT: Record<string, string> = {
   waiting: '文字起こし待ち',
-  unavailable: '録音が残っていない',
+  unavailable: '取れない',
   failed: '判定できなかった',
 };
+
+/** 判定済みでない電話の状態の文。取れない・判定できなかった電話は理由を添える (理由が残っていない行は状態だけ) */
+export function callStatusText(c: Pick<TalkCallRow, 'status' | 'reason'>): string {
+  const head = CALL_STATUS_TEXT[c.status] ?? c.status;
+  return c.reason !== null && (c.status === 'unavailable' || c.status === 'failed') ? `${head}（${c.reason}）` : head;
+}
 
 export const MARK_TEXT: Record<string, string> = { done: '○', not_done: '×', na: '−' };
 export const MARK_LABEL: Record<string, string> = { done: 'できている', not_done: 'できていない', na: '該当なし' };
@@ -438,10 +444,12 @@ const FIXTURE_AGREED_ANSWERS: Record<string, string> = {
   aq_timing: '3か月以内', aq_job: '現場系', aq_reason: '欠員', aq_budget: '未定', aq_decider: '本人が判断者',
 };
 
+const FIXTURE_REASONS: Record<string, string> = { unavailable: '録音が残っていません', failed: '判定が続けて失敗しました' };
+
 export function fixtureCalls(ownerId: string, from: string, to: string): TalkCallsResponse {
   const name = FIXTURE_PEOPLE.find(p => p.owner_id === ownerId)?.name ?? '架空 担当者';
   const mk = (n: number, at: string, sec: number, status: string, outcome: string | null, m: string, summary: string | null, answers: Record<string, string> = {}): TalkCallRow =>
-    ({ hubspot_call_id: `fx-${ownerId}-${String(n)}`, call_at: `${to}T${at}:00+09:00`, duration_sec: sec, status, outcome, items: status === 'judged' ? marks(m, answers) : [], summary, apo_rank: status === 'judged' ? apoRankOf(marks(m, answers)) : null });
+    ({ hubspot_call_id: `fx-${ownerId}-${String(n)}`, call_at: `${to}T${at}:00+09:00`, duration_sec: sec, status, outcome, items: status === 'judged' ? marks(m, answers) : [], summary, apo_rank: status === 'judged' ? apoRankOf(marks(m, answers)) : null, reason: FIXTURE_REASONS[status] ?? null });
   return {
     owner_id: ownerId, name, from, to, checks: FIXTURE_CHECKS,
     calls: [
@@ -455,7 +463,7 @@ export function fixtureCalls(ownerId: string, from: string, to: string): TalkCal
   };
 }
 
-const fallbackCall: TalkCallRow = { hubspot_call_id: 'fx-9001-1', call_at: '2026-10-19T15:42:00+09:00', duration_sec: 0, status: 'waiting', outcome: null, items: [], summary: null, apo_rank: null };
+const fallbackCall: TalkCallRow = { hubspot_call_id: 'fx-9001-1', call_at: '2026-10-19T15:42:00+09:00', duration_sec: 0, status: 'waiting', outcome: null, items: [], summary: null, apo_rank: null, reason: null };
 
 export function fixtureDetail(callId: string): TalkCallDetailResponse {
   const m = /^fx-(.+)-(\d+)$/.exec(callId);

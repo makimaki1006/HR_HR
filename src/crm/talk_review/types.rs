@@ -192,6 +192,8 @@ pub struct TalkCallRow {
     pub summary: Option<String>,
     /// アポのランク ("S" | "A" | "B" | "C")。ヒアリングの対象でない・判定前は null
     pub apo_rank: Option<String>,
+    /// 取れない・判定できなかった理由 (画面に出す文)。それ以外の状態・理由が残っていない行は null
+    pub reason: Option<String>,
 }
 
 /// GET /api/crm/talk-review/calls?owner=&from=&to=
