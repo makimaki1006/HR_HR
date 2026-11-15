@@ -13,7 +13,7 @@ import type { TalkPersonRow } from '../../generated/TalkPersonRow';
 import type { TalkSummaryResponse } from '../../generated/TalkSummaryResponse';
 import type { TalkApoResponse } from '../../generated/TalkApoResponse';
 import {
-  CALL_STATUS_TEXT, MARK_LABEL, dialBreakdownRows, MARK_TEXT, PERIOD_LABELS, activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary,
+  callStatusText, MARK_LABEL, dialBreakdownRows, MARK_TEXT, PERIOD_LABELS, activePeriod, describeDays, fixtureCalls, fixtureDetail, fixtureSummary,
   fmtCallTime, fmtPct, fmtPerContact, fmtSeconds, jstToday, periodRange, sortPeople, donePct, judgeItem, judgeAppointment, ratioText, type CellJudgement,
   type TalkSort, TALK_TABS, parseTalkTab, type TalkTab, checksForTab, APO_KINDS, apoKindLabel, APO_VIA_LABEL, fixtureApo,
   HEARING_STAGES, hearingAskedText, hearingBasis, hearingLine, hearingResultText, isHearing,
@@ -596,7 +596,7 @@ export function TalkCallsTable({ data, onOpen }: { data: TalkCallsResponse; onOp
             <tr key={c.hubspot_call_id} data-testid="talk-call-row">
               <td style={{ whiteSpace: 'nowrap' }}><button type="button" className="talk-namebtn" onClick={() => { onOpen(c.hubspot_call_id); }}>{fmtCallTime(c.call_at)}</button></td>
               <td className="w8-right" style={{ whiteSpace: 'nowrap' }}>{fmtSeconds(c.duration_sec)}</td>
-              <td>{c.status === 'judged' ? c.outcome ?? '-' : <span className="w8-muted">{CALL_STATUS_TEXT[c.status] ?? c.status}</span>}</td>
+              <td>{c.status === 'judged' ? c.outcome ?? '-' : <span className="w8-muted" data-testid="talk-call-status">{callStatusText(c)}</span>}</td>
               {marks.map(ch => {
                 const m = c.items.find(i => i.id === ch.id);
                 return <td key={ch.id}>{c.status === 'judged' && m !== undefined ? <Mark status={m.status} /> : '−'}</td>;
@@ -703,7 +703,7 @@ export function TalkDetailView({ data }: { data: TalkCallDetailResponse }) {
     <>
       <p className="w8-subtle">
         {data.rep_name} ・ {fmtCallTime(c.call_at)} ・ {fmtSeconds(c.duration_sec)}
-        {c.status === 'judged' ? ` ・ ${c.outcome ?? '-'}` : ` ・ ${CALL_STATUS_TEXT[c.status] ?? c.status}`}
+        {c.status === 'judged' ? ` ・ ${c.outcome ?? '-'}` : ` ・ ${callStatusText(c)}`}
         {' ・ '}<a className="w8-link" href={data.hubspot_url} target="_blank" rel="noreferrer">HubSpot で開く</a>
       </p>
       <div className="talk-detail-grid">

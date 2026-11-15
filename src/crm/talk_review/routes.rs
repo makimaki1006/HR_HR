@@ -150,6 +150,22 @@ pub fn call_row(r: &ReviewRow, check_ids: &[String]) -> TalkCallRow {
         } else {
             None
         },
+        reason: super::apo_call::final_reason(r).map(|c| final_reason_text(c).to_string()),
+    }
+}
+
+/// 取れない・判定できなかった理由の記号 (`worker::Outcome`) を画面の文に直す
+pub fn final_reason_text(code: &str) -> &'static str {
+    match code {
+        "recording_gone" | "gone" => "録音が残っていません",
+        "no_recording_url" | "no_recording_found" => "Zoom で録音が見つかりません",
+        "untranscribable" => "短すぎる通話か、設定により文字起こしできません",
+        "speakers_not_separated" => "営業と先方の声を分けられませんでした",
+        "transcript_not_ready" | "transcript_empty" => "文字起こしができないまま期限を過ぎました",
+        "recording_not_found_yet" => "録音が見つからないまま期限を過ぎました",
+        "zoom_error" | "zoom_not_configured" => "Zoom から読めないまま期限を過ぎました",
+        "judge_error" | "judge_not_configured" => "判定が続けて失敗しました",
+        _ => "理由が分かりません",
     }
 }
 
@@ -1175,8 +1191,32 @@ mod tests {
         let c = call_row(&r, &ids);
         assert_eq!(c.status, "waiting");
         assert!(c.items.is_empty() && c.outcome.is_none() && c.summary.is_none());
+        assert_eq!(c.reason, None);
         assert_eq!(call_status("failed"), "failed");
         assert_eq!(call_status("unavailable"), "unavailable");
+        // 取れない行は理由を出す。ふつうの行は note、ランクのためだけの行は summary から
+        r.status = "unavailable".into();
+        r.note = Some("untranscribable".into());
+        r.summary = None;
+        assert_eq!(
+            call_row(&r, &ids).reason.as_deref(),
+            Some("短すぎる通話か、設定により文字起こしできません")
+        );
+        r.note = Some(super::super::apo_call::APO_ONLY.into());
+        r.summary = Some("recording_gone".into());
+        let c = call_row(&r, &ids);
+        assert_eq!(c.reason.as_deref(), Some("録音が残っていません"));
+        assert_eq!(c.summary, None, "判定前の行のまとめは出さない");
+        // 理由を入れる前に終わったランク用の行 (理由が残っていない) は null
+        r.summary = None;
+        assert_eq!(call_row(&r, &ids).reason, None);
+        r.status = "failed".into();
+        r.summary = Some("judge_error".into());
+        assert_eq!(
+            call_row(&r, &ids).reason.as_deref(),
+            Some("判定が続けて失敗しました")
+        );
+        assert_eq!(final_reason_text("unknown_code"), "理由が分かりません");
     }
 
     /// パスワードログインの人 (社内パスワード) のセッションを作る

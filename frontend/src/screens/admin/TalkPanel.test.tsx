@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAdminRoute, adminHref } from './route';
 import { ApoBreakdownView, TalkCallsTable, TalkDetailView, TalkPanel, TalkSummaryTable, type TalkRoute } from './TalkPanel';
-import { activePeriod, describeDays, fixtureApo, fixtureCalls, fixtureDetail, fixtureSummary, periodRange, sortPeople, judgeItem, judgeAppointment, donePct } from './talkModel';
+import { activePeriod, callStatusText, describeDays, fixtureApo, fixtureCalls, fixtureDetail, fixtureSummary, periodRange, sortPeople, judgeItem, judgeAppointment, donePct } from './talkModel';
 
 afterEach(cleanup);
 
@@ -274,8 +274,9 @@ describe('トークの振り返り: 電話の一覧と詳細', () => {
     expect(rows[1]?.querySelector('[data-testid="talk-call-rank-checks"]')?.textContent).toBe('予算×時期○判断○');
     expect(rows[0]?.querySelector('[data-testid="talk-call-rank"]')?.textContent).toBe('');
     expect(rows[3]?.textContent).toContain('文字起こし待ち');
-    expect(rows[4]?.textContent).toContain('録音が残っていない');
-    expect(rows[5]?.textContent).toContain('判定できなかった');
+    // 取れない・判定できなかった電話は理由を添える
+    expect(rows[4]?.querySelector('[data-testid="talk-call-status"]')?.textContent).toBe('取れない（録音が残っていません）');
+    expect(rows[5]?.querySelector('[data-testid="talk-call-status"]')?.textContent).toBe('判定できなかった（判定が続けて失敗しました）');
   });
 
   it('できていない根拠の発言に色が付き、営業と先方を見分けられる', () => {
@@ -341,6 +342,22 @@ describe('トークの振り返り: 電話の一覧と詳細', () => {
     render(<TalkDetailView data={fixtureDetail('fx-9001-2')} />);
     expect(screen.getByTestId('talk-transcript').textContent).toContain('録音が残っていません');
     expect(screen.queryAllByTestId('talk-turn')).toHaveLength(0);
+  });
+
+  it('取れない電話の詳細の見出しに理由を出す（ランクのためだけの電話も同じ）', () => {
+    render(<TalkDetailView data={fixtureDetail('fx-9001-5')} />);
+    expect(screen.getByText(/取れない（録音が残っていません）/)).toBeTruthy();
+  });
+
+  it('理由が残っていない行は状態だけを出す', () => {
+    expect(callStatusText({ status: 'unavailable', reason: null })).toBe('取れない');
+    expect(callStatusText({ status: 'unavailable', reason: '短すぎる通話か、設定により文字起こしできません' })).toBe('取れない（短すぎる通話か、設定により文字起こしできません）');
+    expect(callStatusText({ status: 'waiting', reason: 'x' })).toBe('文字起こし待ち');
+  });
+
+  it('reason の無い古い API の応答でも「取れない（undefined）」にしない', () => {
+    const old = { status: 'unavailable' } as unknown as Parameters<typeof callStatusText>[0];
+    expect(callStatusText(old)).toBe('取れない');
   });
 });
 
