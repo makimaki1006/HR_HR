@@ -40,6 +40,18 @@ pub const DEFAULT_BASE_URL: &str = "https://api.hubapi.com";
 pub(crate) const INDEED_TITLE_PROPERTY: &str = "jobcopy_indeed_title";
 /// その項目が HubSpot に無いときの `HubSpotError::Decode` の中身。
 pub(crate) const INDEED_TITLE_PROPERTY_MISSING: &str = "indeed_title_property_missing";
+/// 競合調査の記録を持つ求人 (0-420) の項目。先頭が月ごとの記録 (JSON)、残りは人が読む要約。
+/// 作成は `scripts/ensure_competitor_properties.py`。
+pub(crate) const COMPETITOR_PROPERTIES: [&str; 6] = [
+    "competitor_monthly",
+    "competitor_last_date",
+    "competitor_count",
+    "competitor_salary_median",
+    "competitor_salary_gap",
+    "competitor_summary",
+];
+/// 競合調査の項目が HubSpot に無い (書き込みが 400、定義が 404)。
+pub(crate) const COMPETITOR_PROPERTY_MISSING: &str = "competitor_property_missing";
 
 /// HubSpot API の接続先。`HUBSPOT_BASE_URL` (負荷試験の偽 HubSpot 用) が `http://` / `https://` で
 /// 始まればそれを、そうでなければ [`DEFAULT_BASE_URL`]。**鍵 (Bearer) はこの接続先に送られる**ので本番では設定しない
@@ -761,6 +773,41 @@ impl HubSpotClient {
                 .await?,
         )
         .map(|_| ())
+    }
+
+    /// 求人に競合調査の記録 (`competitor_*` の 6 項目) だけを書く。1 回だけ送り、retry しない。
+    /// 項目が HubSpot に無いときは `Decode(COMPETITOR_PROPERTY_MISSING)`。
+    pub(crate) async fn patch_listing_competitor(
+        &self,
+        id: &str,
+        properties: &BTreeMap<String, Option<String>>,
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        if properties.is_empty()
+            || properties
+                .keys()
+                .any(|key| !COMPETITOR_PROPERTIES.contains(&key.as_str()))
+        {
+            return Err(HubSpotError::Decode("invalid competitor properties".into()));
+        }
+        match self.patch_object_inner("0-420", id, properties).await {
+            // 失敗の本文は読めないので、項目の有無を定義で確かめる (無ければ 404)。
+            Err(HubSpotError::Upstream { status: 400 }) => {
+                let definition = self
+                    .read_raw(
+                        false,
+                        &format!("/crm/v3/properties/0-420/{}", COMPETITOR_PROPERTIES[0]),
+                        &[],
+                        None,
+                    )
+                    .await?;
+                if definition.status == 404 {
+                    Err(HubSpotError::Decode(COMPETITOR_PROPERTY_MISSING.into()))
+                } else {
+                    Err(HubSpotError::Upstream { status: 400 })
+                }
+            }
+            other => other,
+        }
     }
 
     /// リクロジの求人ID (`id_reclogi`) だけを書く。

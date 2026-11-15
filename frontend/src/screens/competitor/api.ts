@@ -7,6 +7,7 @@ import {
   ApiTimeoutError,
   AuthRequiredError,
   apiGet,
+  apiPut,
   apiUpload,
   type ApiError,
   type ApiResult,
@@ -16,6 +17,7 @@ import type { CompetitorErrorCode } from '../../generated/CompetitorErrorCode';
 import type { CompetitorProgress } from '../../generated/CompetitorProgress';
 import type { CompetitorOptions } from '../../generated/CompetitorOptions';
 import type { CompetitorReportResponse } from '../../generated/CompetitorReportResponse';
+import type { CompetitorRecordSaved } from '../../generated/CompetitorRecordSaved';
 
 /** レポート作成。アップロード + 集計 + Google 待ち (サーバ側 45 秒) を含めて 120 秒より長く待つ。 */
 export const REPORT_TIMEOUT_MS = 150_000;
@@ -197,6 +199,53 @@ export function describeFailure(error: ApiError, ctx: Context): Failure {
   }
   if (error instanceof ApiHttpError) return failureFromHttp(error.status, error.body, ctx);
   return { kind: 'server', message: SERVER_MESSAGE[ctx] };
+}
+
+// ---------------------------------------------------------------- 求人に記録する
+
+/** 保存できなかった理由（サーバのコード別）。知らないコードは共通の文にする。 */
+const RECORD_MESSAGE: Record<string, string> = {
+  competitor_report_not_found: EXPIRED_MESSAGE,
+  competitor_record_too_large:
+    'この求人の競合調査の記録が、HubSpot に入る量の上限に近づいているため保存できません。何も保存されていません。開発の担当に知らせてください。',
+  competitor_record_unreadable:
+    'この求人にすでにある競合調査の記録を読めないため、上書きせずに止めました。何も保存されていません。開発の担当に知らせてください。',
+  competitor_property_missing:
+    'HubSpot の求人に、競合調査の記録を入れる項目がまだありません。何も保存されていません。開発の担当に知らせてください。',
+  listing_not_found: 'HubSpot にこの求人が見つかりません。案件管理の求人のページから開き直してください。',
+  job_copy_access_denied: 'この求人に記録できるのは、会社の Google アカウントでログインした人だけです。',
+  account_disabled: 'このアカウントでは記録できません。',
+  hubspot_busy: 'HubSpot が混み合っています。少し待ってからもう一度お試しください。何も保存されていません。',
+  hubspot_rate_limited: 'HubSpot が混み合っています。少し待ってからもう一度お試しください。',
+  hubspot_scope_denied: 'HubSpot の求人に書き込む権限がありません。何も保存されていません。',
+  hubspot_not_configured: 'HubSpot につながっていないため、保存できません。',
+};
+const RECORD_FAILED = '保存できませんでした。時間をおいてもう一度お試しください。';
+
+export type RecordResult = { ok: true; saved: CompetitorRecordSaved } | ({ ok: false } & Failure);
+
+/**
+ * 保持中のレポート (`report_id`) を、HubSpot の求人に月ごとの記録として保存する。
+ * 数字はサーバがレポートから写す（画面からは送らない）。同じ月の記録は置き換わる。
+ */
+export async function saveToListing(listingId: string, reportId: string, sourceType: string): Promise<RecordResult> {
+  const res = await apiPut<CompetitorRecordSaved>(
+    `/api/job-copy/listings/${encodeURIComponent(listingId)}/competitor-record`,
+    { report_id: reportId, source_type: sourceType },
+    { timeoutMs: 40_000 },
+  );
+  if (res.ok) return { ok: true, saved: res.data };
+  const error = res.error;
+  if (error instanceof AuthRequiredError) return { ok: false, kind: 'auth', message: AUTH_MESSAGE };
+  if (error instanceof ApiNetworkError) return { ok: false, kind: 'network', message: '通信に失敗しました。接続を確認して、もう一度お試しください。' };
+  if (error instanceof ApiTimeoutError) return { ok: false, kind: 'timeout', message: '保存に時間がかかり、中断しました。保存できたかは、案件管理の求人のページで確かめてください。' };
+  if (error instanceof ApiHttpError) {
+    const code = typeof error.body === 'object' && error.body !== null ? (error.body as { code?: unknown }).code : undefined;
+    const message = typeof code === 'string' ? RECORD_MESSAGE[code] : undefined;
+    if (error.status === 401) return { ok: false, kind: 'auth', message: AUTH_MESSAGE };
+    return { ok: false, kind: code === 'competitor_report_not_found' ? 'expired' : 'server', message: message ?? RECORD_FAILED };
+  }
+  return { ok: false, kind: 'server', message: RECORD_FAILED };
 }
 
 // ---------------------------------------------------------------- PDF

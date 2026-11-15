@@ -190,6 +190,10 @@ function body(slide: Slide) {
     }
     case 'applicants': return <div className="rs-three">{slide.groups.map(group => <div key={group.title}><h3>{group.title}</h3><HBars rows={group.rows} unit="" /></div>)}</div>;
     case 'reasons': return <HBars rows={slide.bars} />;
+    case 'around': return <>
+      <div className="rs-kp">{slide.kpis.map(kpi => <div key={kpi.label}><span>{kpi.label}</span><b>{kpi.value}</b>{kpi.sub && <small>{kpi.sub}</small>}</div>)}</div>
+      {slide.bars.length > 0 && <HBars rows={slide.bars} />}
+    </>;
     case 'next': return <ol className="rs-next">{slide.items.map((item, i) => <li key={i}><span>{item.text}{item.sub && <small>{item.sub}</small>}</span></li>)}</ol>;
     default: return null;
   }

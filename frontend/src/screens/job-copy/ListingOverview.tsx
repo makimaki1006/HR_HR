@@ -1,3 +1,4 @@
+import { CompetitorMonthDetails } from './CompetitorHistory';
 import { PhoneHearingContent, usePhoneHearing } from './PhoneHearing';
 import type { PhoneHearing as Hearing } from '../../generated/PhoneHearing';
 import { formatDateJst } from './format';
@@ -171,7 +172,7 @@ export function EventCostTable({ event, counts, costs, asOf }: { event: Pick<Lis
   </div>;
 }
 
-const KIND_LABEL: Record<ListingEvent['kind'], string> = { start: '掲載', end: '掲載', revive: '掲載', content: '求人内容', image: '画像', billing: '課金', application: '応募' };
+const KIND_LABEL: Record<ListingEvent['kind'], string> = { start: '掲載', end: '掲載', revive: '掲載', content: '求人内容', image: '画像', billing: '課金', application: '応募', competitor: '競合' };
 
 function ApplicationDetails({ job, event, hearing, loading, onShowHearing }: { job: JobCopyRecord; event: ListingEvent; hearing: Hearing | null; loading: boolean; onShowHearing: (applicant: string) => void }) {
   const collection = job.applicantReasons;
@@ -257,21 +258,25 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
         {shownEvents.map(event => {
           const open = event.id === selected?.id;
           const isApplication = event.kind === 'application';
+          // 競合調査は求人票を変える出来事ではないので、前後4週の応募は並べず、その月の記録だけを出す。
+          const isCompetitor = event.kind === 'competitor';
+          const competitorEntry = isCompetitor ? job.competitorMonthly?.find(entry => entry.month === event.competitorMonth) : undefined;
           const counts = eventCounts(job, event, asOf, listingStart);
-          const checks = isApplication ? [] : eventChecks(event, events, billing, market, asOf);
+          const checks = isApplication || isCompetitor ? [] : eventChecks(event, events, billing, market, asOf);
           const diff = counts.before !== null && counts.after !== null ? counts.after - counts.before : null;
           const partial = [counts.before !== null && counts.beforeDays < 28 ? `前は掲載後${String(counts.beforeDays)}日分` : '', counts.after !== null && counts.afterDays < 28 ? `後は${String(counts.afterDays)}日分` : ''].filter(Boolean).join('・');
           return <article id={isApplication ? `application-${event.applicationKey ?? event.id}` : undefined} key={event.id} ref={open ? card : undefined} className={`lo-event lo-kind-${event.kind}${open ? ' lo-open' : ''}`}>
             <button type="button" className="lo-event-head" aria-expanded={open} onClick={() => { onSelect(open ? null : event.id); }}>
               <span className="lo-num">{isApplication ? '応' : event.n}</span>
               <span className="lo-date">{md(event.date)}</span>
-              <span className="lo-title"><small className="lo-kind">{KIND_LABEL[event.kind]}</small>{event.title}{isApplication && <small className="lo-attrs">{event.summary}</small>}</span>
-              {isApplication ? <span /> : <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>}
+              <span className="lo-title"><small className="lo-kind">{KIND_LABEL[event.kind]}</small>{event.title}{(isApplication || isCompetitor) && <small className="lo-attrs">{event.summary}</small>}</span>
+              {isApplication || isCompetitor ? <span /> : <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>}
               <span className="lo-caret jc-open" aria-hidden="true">{open ? '閉じる ▲' : '詳細 ▼'}</span>
             </button>
             {open && isApplication && event.repeat && <div className="lo-event-body"><p className="lo-summary">{event.repeatOf ? `この方の記録は${md(event.repeatOf)}の応募にまとめて出しています。` : 'この方の記録は最初の応募にまとめて出しています。'}</p></div>}
             {open && isApplication && !event.repeat && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicationDetails job={job} event={event} hearing={hearing.data} loading={hearing.loading} onShowHearing={showHearing} /></div>}
-            {open && !isApplication && <div className="lo-event-body">
+            {open && isCompetitor && <div className="lo-event-body">{competitorEntry ? <CompetitorMonthDetails entry={competitorEntry} /> : <p className="lo-summary">この月の記録を読めませんでした。</p>}</div>}
+            {open && !isApplication && !isCompetitor && <div className="lo-event-body">
               <EventCostTable event={event} counts={counts} costs={eventCosts(event, counts, billing)} asOf={asOf} />
               <ul className="lo-checks" aria-label="ほかに応募を動かしそうなこと">
                 {checks.map(check => <li key={check.key}><span className={`lo-mark lo-mark-${check.mark}`}>{check.markLabel}</span><strong>{check.label}</strong><span>{check.text}</span></li>)}

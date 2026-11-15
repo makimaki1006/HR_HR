@@ -8,6 +8,7 @@ import {
   downloadPdf,
   fetchOptions,
   newProgressId,
+  saveToListing,
   type Failure,
 } from './api';
 import { ProgressBar, useReportProgress } from './ProgressBar';
@@ -23,6 +24,7 @@ import {
 } from './form';
 import { fmtInt } from './format';
 import { ReportView, isTabId, type TabId } from './ReportView';
+import { currentMonthLabel, fitRegion, readListingTarget, withListing, type ListingTarget } from './listingLink';
 import './competitor.css';
 
 const STORAGE_KEY = 'competitor.form.v1';
@@ -32,6 +34,14 @@ type OptionsState =
   | { status: 'loading' }
   | { status: 'failed' }
   | { status: 'ok'; options: CompetitorOptions };
+
+/** 「この求人に記録する」の状態。confirm = 保存する前に確かめている。 */
+type RecordState =
+  | { status: 'idle' }
+  | { status: 'confirm' }
+  | { status: 'busy' }
+  | { status: 'done'; month: string; replaced: boolean }
+  | { status: 'error'; failure: Failure };
 
 type PdfState =
   | { status: 'idle' }
@@ -109,7 +119,10 @@ function writeTab(tab: TabId): void {
 // ---------------------------------------------------------------- 画面
 
 export function CompetitorScreen() {
-  const [values, setValues] = useState<FormValues>(loadValues);
+  // 案件管理の求人から開いたとき（URL に求人の番号がある）は、求人の条件を入力欄に入れる。
+  const [target] = useState<ListingTarget | null>(() => readListingTarget(window.location.search));
+  const [values, setValues] = useState<FormValues>(() => (target ? withListing(loadValues(), target) : loadValues()));
+  const [record, setRecord] = useState<RecordState>({ status: 'idle' });
   const [errors, setErrors] = useState<FormErrors>({});
   const [optionsState, setOptionsState] = useState<OptionsState>({ status: 'loading' });
   const [submitting, setSubmitting] = useState(false);
@@ -135,11 +148,13 @@ export function CompetitorScreen() {
     void fetchOptions(controller.signal).then((res) => {
       if (controller.signal.aborted) return;
       setOptionsState(res.ok ? { status: 'ok', options: res.data } : { status: 'failed' });
+      // 求人の地域の書き方が選択肢と違うときは、その欄だけ外す（送信で止まらないように）。
+      if (res.ok && target) setValues((v) => fitRegion(v, res.data.prefectures, res.data.municipalities));
     });
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [target]);
 
   useEffect(
     () => () => {
@@ -196,6 +211,7 @@ export function CompetitorScreen() {
       if (res.ok) {
         setResult(res.data);
         setPdf({ status: 'idle' });
+        setRecord({ status: 'idle' });
         setFailure(null);
       } else {
         setFailure(describeFailure(res.error, 'report'));
@@ -230,10 +246,21 @@ export function CompetitorScreen() {
     });
   };
 
+  const onRecord = (): void => {
+    if (busyRef.current || result === null || target === null) return;
+    busyRef.current = true;
+    setRecord({ status: 'busy' });
+    void saveToListing(target.id, result.report_id, values.sourceType).then((res) => {
+      busyRef.current = false;
+      setRecord(res.ok ? { status: 'done', month: res.saved.month, replaced: res.saved.replaced } : { status: 'error', failure: res });
+    });
+  };
+
   const backToForm = (): void => {
     if (busyRef.current) return;
     setResult(null);
     setPdf({ status: 'idle' });
+    setRecord({ status: 'idle' });
   };
 
   const changeTab = (next: TabId): void => {
@@ -249,6 +276,11 @@ export function CompetitorScreen() {
         <a href="/?tab=%2Ftab%2Findeed">採用市場</a>
       </nav>
       <h1>競合調査</h1>
+      {target !== null && result === null && (
+        <p className="cmp-hint" data-testid="listing-target">
+          求人「{target.name ?? `番号 ${target.id}`}」の競合調査として開いています。職種名と地域は求人から入れてあります。結果の画面で、この求人に記録できます。
+        </p>
+      )}
       {result === null ? (
         <FormView
           values={values}
@@ -271,6 +303,10 @@ export function CompetitorScreen() {
           onTab={changeTab}
           onPdf={onPdf}
           onBack={backToForm}
+          target={target}
+          record={record}
+          onRecordState={setRecord}
+          onRecord={onRecord}
         />
       )}
     </main>
@@ -601,11 +637,16 @@ interface ResultViewProps {
   onTab: (tab: TabId) => void;
   onPdf: () => void;
   onBack: () => void;
+  /** 案件管理の求人から開いたときだけ。無ければ「この求人に記録する」は出さない。 */
+  target: ListingTarget | null;
+  record: RecordState;
+  onRecordState: (state: RecordState) => void;
+  onRecord: () => void;
 }
 
-function ResultView({ data, tab, pdf, onTab, onPdf, onBack }: ResultViewProps) {
+function ResultView({ data, tab, pdf, onTab, onPdf, onBack, target, record, onRecordState, onRecord }: ResultViewProps) {
   const { meta } = data.report;
-  const busy = pdf.status === 'busy';
+  const busy = pdf.status === 'busy' || record.status === 'busy';
   return (
     <>
       <section className="cmp-card cmp-result-head">
@@ -623,7 +664,20 @@ function ResultView({ data, tab, pdf, onTab, onPdf, onBack }: ResultViewProps) {
           <button type="button" className="cmp-btn" disabled={busy} onClick={onBack}>
             条件を変えて再作成
           </button>
+          {target !== null && (
+            <button
+              type="button"
+              className="cmp-btn"
+              disabled={busy || record.status === 'confirm'}
+              onClick={() => {
+                onRecordState({ status: 'confirm' });
+              }}
+            >
+              この求人に記録する
+            </button>
+          )}
         </div>
+        {target !== null && <RecordStatus target={target} record={record} onRecordState={onRecordState} onRecord={onRecord} />}
         <PdfStatus pdf={pdf} />
         <p className="cmp-hint">
           このレポートは {String(Math.round(data.expires_in_secs / 60))}{' '}
@@ -632,6 +686,59 @@ function ResultView({ data, tab, pdf, onTab, onPdf, onBack }: ResultViewProps) {
         <Warnings report={data} />
       </section>
       <ReportView report={data.report} tab={tab} onTabChange={onTab} />
+    </>
+  );
+}
+
+/** 2026-11 → 「11月」 */
+const monthLabel = (month: string): string => `${String(Number(month.slice(5, 7)))}月`;
+
+function RecordStatus({
+  target,
+  record,
+  onRecordState,
+  onRecord,
+}: {
+  target: ListingTarget;
+  record: RecordState;
+  onRecordState: (state: RecordState) => void;
+  onRecord: () => void;
+}) {
+  const name = target.name ?? `番号 ${target.id}`;
+  return (
+    <>
+      {record.status === 'confirm' && (
+        <div className="cmp-confirm" role="group" aria-label="保存の確認" data-testid="record-confirm">
+          <p>
+            HubSpot の求人「{name}」に、{currentMonthLabel()}の競合調査として保存します。同じ月の記録は置き換わります。
+          </p>
+          <div className="cmp-actions">
+            <button type="button" className="cmp-btn cmp-btn--primary" onClick={onRecord}>
+              保存する
+            </button>
+            <button
+              type="button"
+              className="cmp-btn"
+              onClick={() => {
+                onRecordState({ status: 'idle' });
+              }}
+            >
+              やめる
+            </button>
+          </div>
+        </div>
+      )}
+      <p role="status" aria-live="polite" className="cmp-status" data-testid="record-status">
+        {record.status === 'busy' && 'HubSpot の求人に保存しています。'}
+        {record.status === 'done' &&
+          `求人「${name}」に、${monthLabel(record.month)}の競合調査として保存しました。${record.replaced ? '同じ月の前の記録は置き換えました。' : ''}案件管理の求人のページの「競合の推移」に出ます。`}
+      </p>
+      {record.status === 'error' && (
+        <div role="alert" className="cmp-error">
+          <p>{record.failure.message}</p>
+          {record.failure.kind === 'auth' && <LoginLink />}
+        </div>
+      )}
     </>
   );
 }

@@ -12,6 +12,7 @@
  */
 import type { JobCopyRecord } from './data';
 import { publicationLabel } from './hubspotListings';
+import { salaryText } from './competitorHistoryModel';
 import { billingInWindow } from './detailBandModel';
 import { addDays, changeKinds, countApplications, daysBetween, formatMonthJa, jstDate, marketChange, publishedVersions, versionChanges } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
@@ -24,7 +25,7 @@ export const BILLING_EVENT_MIN_PCT = 20;
 /** 市場の求人数がこの割合以上動いていたら「要注意」。 */
 export const MARKET_CAUTION_PCT = 5;
 
-export type EventKind = 'start' | 'content' | 'image' | 'billing' | 'end' | 'revive' | 'application';
+export type EventKind = 'start' | 'content' | 'image' | 'billing' | 'end' | 'revive' | 'application' | 'competitor';
 
 export interface ListingEvent {
   id: string;
@@ -47,6 +48,8 @@ export interface ListingEvent {
   repeat?: boolean | undefined;
   /** 同じ方の記録を寄せた1件目の応募日。 */
   repeatOf?: string | null | undefined;
+  /** 競合調査の出来事のとき、その記録の月（YYYY-MM）。 */
+  competitorMonth?: string | undefined;
 }
 
 export interface EventCounts {
@@ -81,7 +84,7 @@ export function billingBands(entries: readonly BillingEntry[]): { start: string;
   return bands;
 }
 
-interface RawEvent { date: string; kind: EventKind; title: string; summary: string; versionId: string | null; previousVersionId: string | null; billingFrom: number | null; billingTo: number | null; applicationKey?: string | null | undefined; repeat?: boolean | undefined; repeatOf?: string | null | undefined }
+interface RawEvent { date: string; kind: EventKind; title: string; summary: string; versionId: string | null; previousVersionId: string | null; billingFrom: number | null; billingTo: number | null; applicationKey?: string | null | undefined; repeat?: boolean | undefined; repeatOf?: string | null | undefined; competitorMonth?: string | undefined }
 
 function billingEvents(entries: readonly BillingEntry[]): RawEvent[] {
   const events: RawEvent[] = [];
@@ -121,7 +124,7 @@ export function earliestStart(job: Pick<JobCopyRecord, 'listingStartedOn'>, bill
   return candidates.sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
 }
 
-const KIND_ORDER: Record<EventKind, number> = { start: 0, application: 1, content: 2, image: 2, revive: 2, billing: 3, end: 4 };
+const KIND_ORDER: Record<EventKind, number> = { start: 0, application: 1, content: 2, image: 2, revive: 2, billing: 3, competitor: 3, end: 4 };
 
 const RAW_BASE = { versionId: null, previousVersionId: null, billingFrom: null, billingTo: null } as const;
 
@@ -158,6 +161,16 @@ export function applicantText(row: { gender: string | null; age: string | null; 
   return parts.length ? parts.join(' ・ ') : '応募者の属性は記録されていません';
 }
 
+/** 競合調査を記録した日の出来事。求人票は変えていないので、前後4週の比較は付けない。 */
+export function competitorEvents(job: Pick<JobCopyRecord, 'competitorMonthly'>): RawEvent[] {
+  return (job.competitorMonthly ?? []).flatMap(entry => {
+    const date = entry.run_at.slice(0, 10);
+    if (!DATE.test(date)) return [];
+    const median = entry.salary.all.min_median;
+    return [{ ...RAW_BASE, date, kind: 'competitor' as const, title: '競合調査', summary: `競合 ${String(entry.count.total)}件${median === null ? '' : `・給与の中央値（下限） ${salaryText(median, entry.salary.unit)}`}`, competitorMonth: entry.month }];
+  });
+}
+
 /** 出来事を古い順に番号を付けて返す。billing は実際の課金（仮の金額は渡さない）。 */
 export function buildListingEvents(job: JobCopyRecord, billing: readonly BillingEntry[]): ListingEvent[] {
   const raw: RawEvent[] = [];
@@ -189,7 +202,7 @@ export function buildListingEvents(job: JobCopyRecord, billing: readonly Billing
     raw.push({ date: change.date, kind: imageOnly ? 'image' : 'content', title, summary: `${parts.join('。')}。`, versionId: change.versionId, previousVersionId: previous?.versionId ?? null, billingFrom: null, billingTo: null });
   }
   raw.push(...billingEvents(billing));
-  raw.push(...status.events, ...applicationEvents(job));
+  raw.push(...status.events, ...applicationEvents(job), ...competitorEvents(job));
   const publication = job.mediaPublication;
   if (!status.events.some(event => event.kind === 'end') && publication && publication !== 'unavailable' && publication.status === 'private' && publication.privateRecordedOn && DATE.test(publication.privateRecordedOn)) {
     raw.push({ date: publication.privateRecordedOn, kind: 'end', title: '掲載を終了', summary: '媒体で非公開になったことを記録した日です。実際に止まったのはこの日かそれ以前です。', versionId: versions.at(-1)?.id ?? null, previousVersionId: null, billingFrom: null, billingTo: null });
@@ -341,7 +354,7 @@ export function eventChecks(event: ListingEvent, events: readonly ListingEvent[]
       checks.push({ key: 'market', label: '市場', mark: 'unknown', markLabel: '未確認', text: marketUnknownText(result) });
     }
   }
-  const others = events.filter(other => other.kind !== 'billing' && other.kind !== 'application' && near(other));
+  const others = events.filter(other => other.kind !== 'billing' && other.kind !== 'application' && other.kind !== 'competitor' && near(other));
   if (others.length) {
     const shown = others.slice(0, 2).map(other => `「${plainTitle(other)}」が${distanceText(event, other)}に`);
     checks.push({ key: 'other', label: 'ほかの変更', mark: 'caution', markLabel: '要注意', text: `${shown.join('、')}あります${others.length > 2 ? `（ほか${String(others.length - 2)}件）` : ''}。` });

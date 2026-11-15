@@ -1,3 +1,4 @@
+import type { CompetitorMonth } from '../../generated/CompetitorMonth';
 import type { PhoneHearing } from '../../generated/PhoneHearing';
 import { demoPhoneHearing } from './demoPhoneHearing';
 import type { DraftSnapshot } from '../../generated/DraftSnapshot';
@@ -47,6 +48,10 @@ export interface StatusEntry { at: string; value: string }
 export interface JobCopyRecord {
   listingSummary?: import('./hubspotListings').ListingSummary | undefined;
   listingPrefecture?: string | null;
+  /** HubSpot の求人の市区町村。競合調査を開くときの条件に使う。 */
+  listingMunicipality?: string | null;
+  /** 競合調査の月ごとの記録（HubSpot の求人の competitor_monthly）。古い月から。 */
+  competitorMonthly?: CompetitorMonth[] | undefined;
   listingDealIds?: string[] | undefined;
   /** 応募1件ずつ（日付が分かるものは出来事に出す）。 */
   applicationRows?: ApplicationRow[] | undefined;

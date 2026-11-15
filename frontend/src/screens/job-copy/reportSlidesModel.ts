@@ -7,6 +7,8 @@
  * - 分からない数字・一部だけの数字は紙に書かない。スライド（または図の一部）を外し、外した理由を社内向けに返す。
  * - 日付は JST の暦日 YYYY-MM-DD。期間は両端を含む。
  */
+import type { CompetitorMonth } from '../../generated/CompetitorMonth';
+import { salaryText } from './competitorHistoryModel';
 import { addDays, countApplications, daysBetween, formatYen } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import { weekStart } from './dealSummaryModel';
@@ -41,11 +43,11 @@ export const REPORT_SENDER = '';
 export const HEARING_CATEGORY_SOURCE = 'ouboriyuukategori_hiaringu';
 
 export type ReportScope = 'deal' | 'listing';
-export type SlideId = 'cover' | 'summary' | 'trend' | 'listings' | 'changes' | 'applicants' | 'reasons' | 'next';
-export const SLIDE_ORDER: readonly SlideId[] = ['cover', 'summary', 'trend', 'listings', 'changes', 'applicants', 'reasons', 'next'];
+export type SlideId = 'cover' | 'summary' | 'trend' | 'listings' | 'changes' | 'applicants' | 'reasons' | 'around' | 'next';
+export const SLIDE_ORDER: readonly SlideId[] = ['cover', 'summary', 'trend', 'listings', 'changes', 'applicants', 'reasons', 'around', 'next'];
 export const SLIDE_NAMES: Record<SlideId, string> = {
   cover: '表紙', summary: 'まとめ', trend: '応募の推移', listings: '求人ごとの応募', changes: '変えたことと前後の応募',
-  applicants: '応募者の傾向', reasons: '応募理由', next: '次に行うこと',
+  applicants: '応募者の傾向', reasons: '応募理由', around: '周りの求人の様子', next: '次に行うこと',
 };
 const MEDIA_LABELS = { hrh: 'HRハッカー', airwork: 'AirWork', reclogi: 'リクロジ' } as const;
 
@@ -94,6 +96,8 @@ export interface ReportInput {
   /** 案件の面接・採用（手入力の値。期間の数ではない）。求人の単位・読めなかったときは null。既定では紙に出さない。 */
   outcomes: { interviews: number | null; hires: number | null } | null;
   applicants: ReportApplicants;
+  /** 競合調査の月ごとの記録（求人の報告だけ。案件の報告では読まない）。 */
+  competitor?: readonly CompetitorMonth[] | undefined;
   /** 求人の一部しか数えていない理由（求人が多くて切った等）。あれば件数を使うスライドを外す。 */
   partial?: readonly string[] | undefined;
 }
@@ -129,6 +133,7 @@ export type Slide = SlideBase & (
   | { id: 'changes'; cards: ChangeCard[] }
   | { id: 'applicants'; total: number; groups: { title: string; rows: Bar[] }[] }
   | { id: 'reasons'; n: number; bars: Bar[] }
+  | { id: 'around'; kpis: Kpi[]; bars: Bar[] }
   | { id: 'next'; items: NextAction[] }
 );
 export interface Excluded { name: string; reason: string }
@@ -512,6 +517,29 @@ export function buildReport(input: ReportInput, options: ReportOptions): ReportR
   else if (!reasons.ok) exclude('reasons', reasons.reason);
   else if (reasons.n === 0) exclude('reasons', '期間中に、お電話で応募理由をうかがって分類した応募が無いため');
   else slides.push({ id: 'reasons', name: SLIDE_NAMES.reasons, kicker: SLIDE_NAMES.reasons, headline: reasonsHeadline(reasons.bars), note: `お電話で応募理由をうかがえた ${String(reasons.n)}件の内訳。1件で複数の理由をうかがった場合は、それぞれに数えています。`, n: reasons.n, bars: reasons.bars });
+
+  // 周りの求人の様子（競合調査の記録。期間の終わりまでに記録した、いちばん新しい月を 1 枚に写す。判定は付けない）
+  if (input.scope === 'deal') exclude('around', '競合調査は求人ごとの記録のため、案件の報告には入れていません（求人の報告で出せます）');
+  else {
+    const records = [...(input.competitor ?? [])].sort((a, b) => a.run_at.localeCompare(b.run_at));
+    const record = records.filter(item => item.run_at.slice(0, 10) <= to).at(-1);
+    if (!record) exclude('around', records.length ? '期間の終わりまでに記録した競合調査がありません' : '競合調査の記録がありません');
+    else {
+      const unit = record.salary.unit;
+      const day = record.run_at.slice(0, 10);
+      const median = record.salary.all.min_median;
+      const kpis: Kpi[] = [{ label: '周りの求人', value: `${String(record.count.total)}件`, sub: null }];
+      if (median !== null) kpis.push({ label: '周りの求人の給与（下限の中央値）', value: salaryText(median, unit), sub: null });
+      if (record.own_salary?.min != null) kpis.push({ label: '貴社の求人の給与（下限）', value: salaryText(record.own_salary.min, unit), sub: `${shortDay(day)} 時点` });
+      const place = `${record.conditions.prefecture ?? ''}${record.conditions.municipality ?? ''}` || '全国';
+      slides.push({
+        id: 'around', name: SLIDE_NAMES.around, kicker: SLIDE_NAMES.around,
+        headline: median === null ? `${dayJa(day)}に調べた周りの求人は ${String(record.count.total)}件でした` : `${dayJa(day)}に調べた周りの求人は ${String(record.count.total)}件、給与の下限の中央値は ${salaryText(median, unit)}でした`,
+        note: `${fullDayJa(day)}に Indeed で調べた周りの求人（${place}）。下の棒は、求人票によく出てくる言葉と、その言葉がある求人の件数です。`,
+        kpis, bars: record.keywords_top5.map(([word, count]) => ({ label: word, count })),
+      });
+    }
+  }
 
   // 次に行うこと
   if (!nextItems.length) exclude('next', '「次に行うこと」が未記入のため');

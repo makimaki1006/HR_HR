@@ -31,9 +31,27 @@ pub use api::{
     CompetitorOptions, CompetitorReportResponse,
 };
 
+/// 保持中 (30 分) のレポートを、作った本人として読む。案件管理の「この求人に記録する」が使う。
+/// 期限切れ・存在しない・他人の ID はどれも `None`。
+pub(crate) fn stored_report(
+    user: &str,
+    report_id: &str,
+) -> Option<Arc<crate::handlers::survey::report_html::competitor_model::CompetitorReport>> {
+    api::store().get(user, report_id, std::time::Instant::now())
+}
+/// テスト用: レポートを保持に入れて ID を返す。
+#[cfg(test)]
+pub(crate) fn store_report_for_test(user: &str, title: &str) -> String {
+    api::store().insert(
+        user,
+        api_tests::sample_report(title),
+        std::time::Instant::now(),
+    )
+}
+
 #[cfg(test)]
 #[path = "competitor_api_tests.rs"]
-mod api_tests;
+pub(crate) mod api_tests;
 
 // 旧 HTML の golden(PR-1)。非公開関数を直接使うため子モジュールにしている。テスト専用。
 #[cfg(test)]
