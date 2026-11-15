@@ -140,6 +140,49 @@ struct ApoDay {
 #[derive(Default)]
 struct Inner {
     apo: BTreeMap<NaiveDate, ApoDay>,
+    /// 控えたアポ (`apo_events`。監査 Turso の `talk_apo_events`)。入り直して HubSpot の数えから消えた分もここに残る
+    stored: BTreeMap<NaiveDate, Vec<ApoDeal>>,
+    /// 控えを起動時に読み終えたか。読み終えるまで `apo_events::START` 以降の日は数え終わっていない扱い
+    stored_ready: bool,
+    /// 控えにまだ書いていないアポ (worker が書く)
+    unsaved: Vec<super::apo_events::ApoEvent>,
+}
+
+impl Inner {
+    /// 控えに無いアポを足す。足したものを返す
+    fn add_stored(
+        &mut self,
+        events: Vec<super::apo_events::ApoEvent>,
+    ) -> Vec<super::apo_events::ApoEvent> {
+        let mut added = Vec::new();
+        for e in events {
+            let v = self.stored.entry(e.day).or_default();
+            if v.iter().any(|d| d.deal_id == e.deal.deal_id) {
+                continue;
+            }
+            v.push(e.deal.clone());
+            added.push(e);
+        }
+        added
+    }
+
+    /// その日のアポ。控えと HubSpot の数えを合わせる (同じ取引は控えを使う)。数え終わっていなければ None
+    fn day_deals(&self, d: NaiveDate) -> Option<Vec<ApoDeal>> {
+        let live = self.apo.get(&d)?;
+        if d < super::apo_events::start_day() {
+            return Some(live.deals.clone());
+        }
+        if !self.stored_ready {
+            return None;
+        }
+        let mut out = self.stored.get(&d).cloned().unwrap_or_default();
+        for x in &live.deals {
+            if !out.iter().any(|o| o.deal_id == x.deal_id) {
+                out.push(x.clone());
+            }
+        }
+        Some(out)
+    }
 }
 
 #[derive(Default)]
@@ -195,8 +238,8 @@ impl CountsCache {
         let g = self.inner.lock().unwrap();
         let mut out = Snapshot::default();
         for d in days(from, to) {
-            match g.apo.get(&d) {
-                Some(e) => out.deals.extend(e.deals.iter().map(|x| x.who.clone())),
+            match g.day_deals(d) {
+                Some(v) => out.deals.extend(v.into_iter().map(|x| x.who)),
                 None => out.counting.push(d),
             }
         }
@@ -209,12 +252,53 @@ impl CountsCache {
         let mut deals = Vec::new();
         let mut counting = Vec::new();
         for d in days(from, to) {
-            match g.apo.get(&d) {
-                Some(e) => deals.extend(e.deals.iter().cloned()),
+            match g.day_deals(d) {
+                Some(v) => deals.extend(v),
                 None => counting.push(d),
             }
         }
         (deals, counting)
+    }
+
+    /// 起動時に読んだ控えを入れる。同じ取引・同じ日は控え (DB) の行を使い、書く待ちからも外す
+    pub fn load_stored(&self, events: Vec<super::apo_events::ApoEvent>) {
+        let mut g = self.inner.lock().unwrap();
+        for (d, v) in super::apo_events::by_day(events) {
+            for x in v {
+                let cur = g.stored.entry(d).or_default();
+                cur.retain(|o| o.deal_id != x.deal_id);
+                cur.push(x.clone());
+                g.unsaved
+                    .retain(|e| !(e.day == d && e.deal.deal_id == x.deal_id));
+            }
+        }
+    }
+
+    /// 控えがそろった (DB を読み、9/1 からの作り直しも済んだ)。これより前は 9/1 以降の日を数え終わっていない扱い
+    pub fn set_ready(&self) {
+        self.inner.lock().unwrap().stored_ready = true;
+    }
+
+    pub fn stored_ready(&self) -> bool {
+        self.inner.lock().unwrap().stored_ready
+    }
+
+    /// 履歴の読み直しで見つけたアポを足す (控えに無いものだけ、書く待ちにも入れる)。足した数
+    pub fn add_events(&self, events: Vec<super::apo_events::ApoEvent>) -> usize {
+        let mut g = self.inner.lock().unwrap();
+        let added = g.add_stored(events);
+        let n = added.len();
+        g.unsaved.extend(added);
+        n
+    }
+
+    /// 書く待ちを取り出す (書けなければ `return_unsaved` で戻す)
+    pub fn take_unsaved(&self) -> Vec<super::apo_events::ApoEvent> {
+        std::mem::take(&mut self.inner.lock().unwrap().unsaved)
+    }
+
+    pub fn return_unsaved(&self, events: Vec<super::apo_events::ApoEvent>) {
+        self.inner.lock().unwrap().unsaved.extend(events);
     }
 
     /// 持っていない日・古い日のアポを HubSpot から読んで残す。同時に読むのは 1 本。
@@ -253,6 +337,22 @@ impl CountsCache {
                     .await?;
             let covered: BTreeSet<String> = owners.iter().cloned().collect();
             let mut g = self.inner.lock().unwrap();
+            // 見つけたアポを控えにも足す (入り直すと HubSpot の数えから消えるため)。控えがそろう前は足さない
+            // (付ける人は、作り直しの履歴から入った時点の値で決めるため)
+            let ready = g.stored_ready;
+            let start = super::apo_events::start_day();
+            let found: Vec<super::apo_events::ApoEvent> = by_day
+                .iter()
+                .filter(|(d, _)| ready && **d >= start)
+                .flat_map(|(d, v)| {
+                    v.iter().map(|x| super::apo_events::ApoEvent {
+                        day: *d,
+                        deal: x.clone(),
+                    })
+                })
+                .collect();
+            let added = g.add_stored(found);
+            g.unsaved.extend(added);
             for d in &need_apo {
                 g.apo.insert(
                     *d,
@@ -476,6 +576,72 @@ mod tests {
     }
 
     #[test]
+    fn stored_events_keep_past_appointments_after_the_deal_re_enters() {
+        use super::super::apo_events::ApoEvent;
+        let d = |n: u32| NaiveDate::from_ymd_opt(2026, 10, n).unwrap();
+        let at = DateTime::parse_from_rfc3339("2026-10-30T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let deal = |id: &str, who: &str| ApoDeal {
+            deal_id: id.into(),
+            stage: ST_APO.into(),
+            entered_ms: 0,
+            who: vec![who.into()],
+        };
+        let c = CountsCache::default();
+        {
+            let mut g = c.inner.lock().unwrap();
+            // HubSpot の数え: 10/13 は取引 2 だけ (取引 1 は 10/27 に入り直したので 10/13 から消えた)
+            for (day, v) in [(d(13), vec![deal("2", "B")]), (d(27), vec![deal("1", "A")])] {
+                g.apo.insert(
+                    day,
+                    ApoDay {
+                        at,
+                        covered: BTreeSet::new(),
+                        deals: v,
+                    },
+                );
+            }
+        }
+        // 控えを読み終えるまでは 9/1 以降の日を数え終わっていない扱い
+        assert_eq!(c.snapshot(d(13), d(13)).counting, vec![d(13)]);
+        c.load_stored(vec![ApoEvent {
+            day: d(13),
+            deal: deal("1", "A"),
+        }]);
+        // DB を読んでも、9/1 からの作り直しが済むまでは数え終わっていない扱い
+        assert_eq!(c.snapshot(d(13), d(13)).counting, vec![d(13)]);
+        c.set_ready();
+        // 10/13 は控えの取引 1 と、数えの取引 2 の 2 件。10/27 の取引 1 も残る
+        let s = c.snapshot(d(13), d(13));
+        assert!(s.counting.is_empty());
+        assert_eq!(s.deals.len(), 2);
+        assert_eq!(c.snapshot(d(27), d(27)).deals, vec![vec!["A".to_string()]]);
+        // 同じ日の同じ取引は 1 件 (控えを使う)
+        c.load_stored(vec![ApoEvent {
+            day: d(27),
+            deal: deal("1", "Z"),
+        }]);
+        assert_eq!(c.snapshot(d(27), d(27)).deals, vec![vec!["Z".to_string()]]);
+        // 足したアポは書く待ちに入る。控えにあるものは入らない
+        assert_eq!(
+            c.add_events(vec![
+                ApoEvent {
+                    day: d(13),
+                    deal: deal("1", "A")
+                },
+                ApoEvent {
+                    day: d(14),
+                    deal: deal("3", "C")
+                }
+            ]),
+            1
+        );
+        assert_eq!(c.take_unsaved().len(), 1);
+        assert!(c.take_unsaved().is_empty());
+    }
+
+    #[test]
     fn snapshot_answers_with_counted_days_and_lists_the_rest() {
         let d = |n: u32| NaiveDate::from_ymd_opt(2026, 10, n).unwrap();
         let at = DateTime::parse_from_rfc3339("2026-10-09T10:00:00Z")
@@ -499,6 +665,7 @@ mod tests {
             };
             g.apo.insert(d(7), apo(vec![vec!["1".into()]]));
             g.apo.insert(d(8), apo(vec![]));
+            g.stored_ready = true;
         }
         let s = c.snapshot(d(6), d(9));
         assert_eq!(s.deals, vec![vec!["1".to_string()]]);
