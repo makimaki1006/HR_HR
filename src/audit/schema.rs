@@ -39,6 +39,12 @@ const TABLE_DDL: &[&str] = &[
         attempts INTEGER NOT NULL DEFAULT 0, next_retry_at TEXT,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     )"#,
+    // トークの振り返り: アポの控え。1 行 = 取引 1 件がアポ日確定に入った JST の日 1 日。入れた行は書き換えない
+    r#"CREATE TABLE IF NOT EXISTS talk_apo_events (
+        deal_id TEXT NOT NULL, entered_day TEXT NOT NULL, stage TEXT NOT NULL,
+        entered_ms INTEGER NOT NULL, owner_id TEXT NOT NULL, source TEXT NOT NULL,
+        created_at TEXT NOT NULL, PRIMARY KEY(deal_id, entered_day)
+    )"#,
     // ADR-032: empty deal/key is the daily completion marker, including zero flags.
     r#"CREATE TABLE IF NOT EXISTS consulting_deal_flags (
         data_day TEXT NOT NULL, deal_id TEXT NOT NULL, flag_key TEXT NOT NULL,
@@ -206,6 +212,7 @@ const TABLE_DDL: &[&str] = &[
 const INDEX_DDL: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_call_contact_marks_call_at ON call_contact_marks(call_at)",
     "CREATE INDEX IF NOT EXISTS idx_call_contact_marks_retry ON call_contact_marks(status, next_retry_at)",
+    "CREATE INDEX IF NOT EXISTS idx_talk_apo_events_day ON talk_apo_events(entered_day, deal_id)",
     "CREATE INDEX IF NOT EXISTS idx_call_talk_reviews_call_at ON call_talk_reviews(call_at)",
     "CREATE INDEX IF NOT EXISTS idx_call_talk_reviews_retry ON call_talk_reviews(status, next_retry_at)",
     "CREATE INDEX IF NOT EXISTS idx_job_copy_draft_retry ON job_copy_draft_operations(status, next_retry_at)",

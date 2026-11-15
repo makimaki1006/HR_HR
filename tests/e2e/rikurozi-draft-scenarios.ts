@@ -53,7 +53,7 @@ for (const width of [1440, 1920]) {
     await routeDraft(page, 200, { status: 'done', draft: result });
     await page.goto('/app/job-copy?demo=1');
     await findListings(page);
-    await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+    await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
     await findListings(page);
     await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
     await openWork(page);
@@ -101,7 +101,7 @@ test('1440px: failure is readable and allows retry', async ({ page }) => {
   await routeDraft(page, 422, { code: 'customer_relation_unknown' });
   await page.goto('/app/job-copy?demo=1');
   await findListings(page);
-  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
   await openWork(page);
@@ -117,7 +117,7 @@ test('1440px: copied condition mismatch stops CSV output', async ({ page }) => {
   await routeDraft(page, 422, { code: 'draft_copy_mismatch' });
   await page.goto('/app/job-copy?demo=1');
   await findListings(page);
-  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
   await openWork(page);

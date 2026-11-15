@@ -43,10 +43,11 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   for (const card of ['契約満了が近い', '接触が空いている', '応募が止まっている']) {
     const button = page.getByRole('button', { name: new RegExp(card) });
     await expect(button.locator('.jh-count')).toHaveText('1件');
-    await expect(button).toHaveClass(/jh-alert/);
+    // ラベルが付いた案件は注意（橙）。
+    await expect(button).toHaveClass(/jh-warn/);
   }
-  // 初回で成果が出ていないは、件数だけの1行（ほかの要対応）に畳まれている。
-  await expect(page.getByRole('button', { name: '初回で成果が出ていない 1件', exact: true })).toBeVisible();
+  // 初回で成果が出ていないは別の画面（案件一覧）で見るので、「→ 案件一覧で見る」の行にする。
+  await expect(page.locator('.jh-go-line')).toHaveText('初回で成果が出ていない 1件→ 案件一覧で見る');
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/home.png` });
   await page.getByRole('button', { name: /接触が空いている/ }).click();
   const list = page.getByRole('region', { name: '接触が空いているの一覧' });

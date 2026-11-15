@@ -100,10 +100,10 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await page.getByRole('combobox', { name: 'パイプライン', exact: true }).selectOption('743961896');
   await expect(table.locator('tbody > tr')).toHaveCount(1);
   await expect(table).toContainText('記録なし（対象外）');
-  await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('22');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当B（退職）'); await await page.getByRole('combobox', { name: '担当者', exact: true }).press('Enter');
   await expect(table).toContainText('条件に合う案件はありません');
   expect(requests.some(url => new URL(url).searchParams.get('owner') === '22')).toBe(true);
-  await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('11');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当A'); await await page.getByRole('combobox', { name: '担当者', exact: true }).press('Enter');
   await page.getByRole('combobox', { name: 'パイプライン', exact: true }).selectOption('all');
   await page.getByRole('button', { name: '標準の並びに戻す' }).click();
   const overflow = await page.locator('.db-board').evaluate(el => el.scrollWidth > el.clientWidth);
@@ -119,11 +119,11 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await page.goBack();
   await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
   await page.goBack();
-  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toBeVisible();
   await page.goForward();
   await expect(page.getByRole('heading', { name: '案件の一覧' })).toBeVisible();
   await page.getByRole('navigation', { name: '現在地' }).getByRole('button', { name: '案件管理', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toBeVisible();
 });
 
 test('シート未取得でも案件とHubSpotの値を表示する', async ({ page }) => {
@@ -166,9 +166,9 @@ test('初回案件の立ち上がり・要約・URL・ホームのカード', as
   await page.getByRole('combobox', { name: 'パイプライン', exact: true }).selectOption('743961896');
   await expect(table).toContainText('条件に合う案件はありません');
   await page.goto('/app/job-copy?owner=11');
-  const homeCard = page.getByRole('button', { name: /初回で成果が出ていない/ });
-  await expect(homeCard).toHaveText('初回で成果が出ていない 2件');
-  await homeCard.click();
+  // 別の画面（案件一覧）へ移るものは「→ 案件一覧で見る」の青い下線。
+  await expect(page.locator('.jh-go-line')).toHaveText('初回で成果が出ていない 2件→ 案件一覧で見る');
+  await page.locator('.jh-go-line').getByRole('button', { name: '案件一覧で見る', exact: true }).click();
   await expect(page).toHaveURL(/view=deals/);
   await expect(page.getByLabel('初回案件だけ', { exact: true })).toBeChecked();
   await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();

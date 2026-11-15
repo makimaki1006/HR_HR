@@ -163,7 +163,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       const { requests } = await mockFlow(page);
       await page.goto('/app/job-copy?demo=1');
       await findListings(page);
-      await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+      await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
       await findListings(page);
       const list = page.getByRole('region', { name: 'HubSpot の求人' });
       await list.getByText('絞り込み・並び順', { exact: true }).click();

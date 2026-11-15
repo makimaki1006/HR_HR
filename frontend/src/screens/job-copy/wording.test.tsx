@@ -9,6 +9,7 @@ import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import { updateJobCopyQuery } from './navigation';
 import { jobs } from './data';
 import { CAUSAL_PATTERN, JARGON_PATTERN } from './format';
+import { toggleDataImport } from './moreMenu.testUtil';
 
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', () => ({ apiGet: api }));
@@ -67,7 +68,7 @@ describe('job copy screen wording', () => {
       }
     }
     // データ取込（HubSpot・媒体・課金CSV・外部文面）と、そこから開く外部文面の照合
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'データ取込' })); await Promise.resolve(); });
+    toggleDataImport(); await act(async () => { await Promise.resolve(); });
     expect(visibleWording()).not.toMatch(JARGON_PATTERN);
     expect(visibleWording()).not.toMatch(CAUSAL_PATTERN);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '外部文面を照合する' })); await Promise.resolve(); });
@@ -102,7 +103,7 @@ describe('job copy screen wording', () => {
       return Promise.resolve({ ok: true, data: { customers: [{ id: '77', properties: { name: '合成取引先' } }], next_after: null, total_ms: 123 } });
     });
     const { container } = render(<JobCopyScreen />);
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'データ取込' })); await Promise.resolve(); });
+    toggleDataImport(); await act(async () => { await Promise.resolve(); });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '取引先を取得' })); await Promise.resolve(); });
     await screen.findByRole('option', { name: '合成取引先' });
     expect(visibleWording()).not.toMatch(/\d+\s?ms/);

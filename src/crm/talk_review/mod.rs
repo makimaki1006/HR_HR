@@ -12,6 +12,7 @@
 //! - `live_dials`: 今日の架電数を Zoom の通話ログから約 15 分おきに数える
 //! - `contact` / `contact_store` / `contact_worker`: 接触・日程切りの判定 (表 `call_contact_marks`、別の周回)
 //! - `scope`: アポ取り以外の電話を、かけた時点の取引のステージで外す (接触の判定の手前)
+//! - `apo_events`: アポの控え (過去のアポ数を後から減らさない。監査 Turso の `talk_apo_events`)
 //! - `counts`: アポ数 (日ごとにキャッシュ)
 //! - `apo_breakdown`: アポ数の内訳 (過去客・再商談・再アポ・純粋なアポ)
 //! - `target`: 9 項目の判定の対象 = 接触した電話 (接触の印と Call の結び付け)
@@ -24,6 +25,7 @@
 
 pub mod apo_breakdown;
 pub mod apo_call;
+pub mod apo_events;
 pub mod apo_link;
 pub mod apo_rank;
 pub mod checks;

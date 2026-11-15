@@ -252,15 +252,16 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   await page
     .getByRole("combobox", { name: "担当者", exact: true })
-    .selectOption("22");
+    .fill("合成担当B（退職）");
+  await page.getByRole("combobox", { name: "担当者", exact: true }).press("Enter");
   await expect(table.locator("tbody>tr")).toHaveCount(1);
-  await expect(page.getByRole("combobox", { name: "担当者", exact: true })).toHaveValue("22");
+  await expect(page.getByRole("combobox", { name: "担当者", exact: true })).toHaveValue("合成担当B（退職）");
   await expect(table).toContainText("架空の採用支援02");
   for (const label of ["危ない案件", "法人"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
     await expect(
       page.getByRole("combobox", { name: "担当者", exact: true }),
-    ).toHaveValue("22");
+    ).toHaveValue("架空の担当B");
     await expect(page).toHaveURL(/owner=22/);
     if (label === "法人") {
       await expect(page.getByText("条件に合う法人がありません")).toBeVisible();
@@ -275,7 +276,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await page.reload();
   await expect(
     page.getByRole("combobox", { name: "担当者", exact: true }),
-  ).toHaveValue("22");
+  ).toHaveValue("架空の担当B");
   await expect(page.getByText("条件に合う法人がありません")).toBeVisible();
   await page.getByRole("button", { name: "条件を戻す", exact: true }).click();
   await expect(page.getByRole("region", { name: "法人の数字" })).toContainText("架空の法人わかば");
