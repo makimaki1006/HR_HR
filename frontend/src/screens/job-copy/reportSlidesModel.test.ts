@@ -43,7 +43,7 @@ const route: ReportListing = {
 };
 const input = (patch: Partial<ReportInput> = {}): ReportInput => ({
   scope: 'deal', id: '901', name: '合成・定期採用', company: '合成運輸', listings: [truck, route], overlap: { '2026-10-25': 1 },
-  asOf: '2026-11-15', outcomes: { interviews: 4, hires: 1 }, applicants, ...patch,
+  asOf: '2026-11-15', outcomes: { interviews: 4, hires: 1, readOn: '2026-11-16' }, applicants, ...patch,
 });
 const options = (patch: Partial<ReportOptions> = {}): ReportOptions => ({
   from: '2026-10-19', to: '2026-11-15', addressee: '合成運輸', subject: '', owner: '担当A', sender: '', createdOn: '2026-11-15', nextActions: [], nextHeadline: '', ...patch,
@@ -103,24 +103,49 @@ describe('案件の単位のまとめ', () => {
     expect(summary?.headline).toBe('応募は前の期間の 2件から 6件に増えました');
     expect(summary?.kpis).toEqual([
       { label: '応募', value: '6件', sub: '前の期間 2件' },
-      { label: '面接', value: '4件', sub: 'ご契約からの合計' },
-      { label: '採用', value: '1名', sub: 'ご契約からの合計' },
       { label: '応募のあった求人', value: '2件', sub: '求人 2件のうち' },
       { label: '掲載中の求人', value: '1件', sub: null },
     ]);
+    // 面接・採用は期間の数ではないので、期間の数字とは別の段。見出しに案件を読んだ日を書く。
+    expect(summary?.totals).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '面接', value: '4件', sub: null }, { label: '採用', value: '1名', sub: null }] });
+    expect(result.excluded.some(item => item.name.includes('面接') || item.name.includes('採用'))).toBe(false);
     expect(summary?.points).toEqual(['10月19日の「合成トラックドライバー」の本文の見直しの前後4週で、応募は 1件から 5件になりました', 'お電話でうかがえた応募理由は「給与・手当」が最も多くなっています']);
   });
   it('入れないスライドの文はまとめの箇条書きにも入れない', () => {
     const off = buildReport(input(), options({ off: ['changes'] }));
     expect(slide(off.slides, 'summary')?.points).toEqual(['お電話でうかがえた応募理由は「給与・手当」が最も多くなっています']);
   });
-  it('面接・採用は外す指定のときだけ出さない。値が無ければ出さない（数字を作らない）', () => {
+  const totalsOf = (r: ReturnType<typeof buildReport>) => slide(r.slides, 'summary')?.totals ?? null;
+  const outcomeReasons = (r: ReturnType<typeof buildReport>) => r.excluded.filter(item => item.name.startsWith('まとめ（面接') || item.name.startsWith('まとめ（採用'));
+  const periodKpis = ['応募 6件', '応募のあった求人 2件', '掲載中の求人 1件'];
+  it('過去の期間で作っても、面接・採用の見出しは案件を読んだ日のまま', () => {
+    const past = buildReport(input(), options({ from: '2026-09-21', to: '2026-10-18' }));
+    expect(totalsOf(past)?.heading).toBe('ご契約からの合計（11/16 時点）');
+  });
+  it('切り替えで外すと面接・採用の段が無くなり、外した理由にも入れない（期間の数字は変わらない）', () => {
     const without = buildReport(input(), options({ include: { outcomes: false } }));
-    expect(slide(without.slides, 'summary')?.kpis.map(kpi => `${kpi.label} ${kpi.value}`)).toEqual(['応募 6件', '応募のあった求人 2件', '掲載中の求人 1件']);
-    const unknown = buildReport(input({ outcomes: null }), options());
-    expect(slide(unknown.slides, 'summary')?.kpis.map(kpi => kpi.label)).toEqual(['応募', '応募のあった求人', '掲載中の求人']);
-    const hiresOnly = buildReport(input({ outcomes: { interviews: null, hires: 0 } }), options());
-    expect(slide(hiresOnly.slides, 'summary')?.kpis.map(kpi => `${kpi.label} ${kpi.value}`)).toEqual(['応募 6件', '採用 0名', '応募のあった求人 2件', '掲載中の求人 1件']);
+    expect(totalsOf(without)).toBeNull();
+    expect(slide(without.slides, 'summary')?.kpis.map(kpi => `${kpi.label} ${kpi.value}`)).toEqual(periodKpis);
+    expect(outcomeReasons(without)).toEqual([]);
+  });
+  it('案件を読み込めなかったときは出さず、外した理由に「読み込めなかったため」を入れる', () => {
+    const failed = buildReport(input({ outcomes: null, outcomesFailed: true }), options());
+    expect(totalsOf(failed)).toBeNull();
+    expect(slide(failed.slides, 'summary')?.kpis.map(kpi => `${kpi.label} ${kpi.value}`)).toEqual(periodKpis);
+    expect(outcomeReasons(failed)).toEqual([{ name: 'まとめ（面接・採用）', reason: '面接・採用は読み込めなかったため外しています' }]);
+  });
+  it('案件に記録が無いときは出さず、外した理由に「記録が無いため」を入れる', () => {
+    const empty = buildReport(input({ outcomes: { interviews: null, hires: null, readOn: '2026-11-16' } }), options());
+    expect(totalsOf(empty)).toBeNull();
+    expect(outcomeReasons(empty)).toEqual([{ name: 'まとめ（面接・採用）', reason: '面接・採用は案件に記録が無いため外しています' }]);
+  });
+  it('片方だけ空なら、ある方だけ出して空の方の理由を入れる。入力された 0 はそのまま出す', () => {
+    const hiresOnly = buildReport(input({ outcomes: { interviews: null, hires: 0, readOn: '2026-11-16' } }), options());
+    expect(totalsOf(hiresOnly)).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '採用', value: '0名', sub: null }] });
+    expect(outcomeReasons(hiresOnly)).toEqual([{ name: 'まとめ（面接）', reason: '面接は案件に記録が無いため外しています' }]);
+    const interviewsOnly = buildReport(input({ outcomes: { interviews: 0, hires: null, readOn: '2026-11-16' } }), options());
+    expect(totalsOf(interviewsOnly)).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '面接', value: '0件', sub: null }] });
+    expect(outcomeReasons(interviewsOnly)).toEqual([{ name: 'まとめ（採用）', reason: '採用は案件に記録が無いため外しています' }]);
   });
   it('週ごとの応募と見直しの印', () => {
     const trend = slide(result.slides, 'trend');

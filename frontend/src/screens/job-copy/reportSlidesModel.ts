@@ -87,8 +87,13 @@ export interface ReportInput {
   overlap: Overlap;
   /** 応募データがそろっている最後の日。 */
   asOf: string;
-  /** 案件の面接・採用（手入力の値。期間の数ではない）。求人の単位・読めなかったときは null。既定では紙に出さない。 */
-  outcomes: { interviews: number | null; hires: number | null } | null;
+  /**
+   * 案件の面接・採用（案件に手入力した、ご契約からの累計。期間の数ではない）。readOn は案件を読んだ日（JST）。
+   * 求人の単位・読めなかったときは null。既定で紙に出す（期間の数字とは段を分け、読んだ日を添える）。
+   */
+  outcomes: { interviews: number | null; hires: number | null; readOn: string } | null;
+  /** 案件の面接・採用を読み込めなかった（未入力とは区別して、外した理由に書く）。 */
+  outcomesFailed?: boolean | undefined;
   applicants: ReportApplicants;
   /** 求人の一部しか数えていない理由（求人が多くて切った等）。あれば件数を使うスライドを外す。 */
   partial?: readonly string[] | undefined;
@@ -119,7 +124,7 @@ export interface Kpi { label: string; value: string; sub: string | null }
 interface SlideBase { name: string; kicker: string; headline: string; note: string | null }
 export type Slide = SlideBase & (
   | { id: 'cover'; addressee: string; title: string; subtitle: string; footer: string }
-  | { id: 'summary'; kpis: Kpi[]; points: string[] }
+  | { id: 'summary'; kpis: Kpi[]; /** ご契約からの合計（面接・採用）。期間の数字とは別の段に出す。 */ totals: { heading: string; kpis: Kpi[] } | null; points: string[] }
   | { id: 'trend'; unit: 'week' | 'month'; bars: TrendBar[] }
   | { id: 'listings'; bars: Bar[] }
   | { id: 'changes'; cards: ChangeCard[] }
@@ -427,10 +432,18 @@ export function buildReport(input: ReportInput, options: ReportOptions): ReportR
     // まとめ
     if (previous === null) excluded.push({ name: 'まとめ（前の期間）', reason: '最初の応募が前の期間の初めより後のため、前の期間と比べていません' });
     const kpis: Kpi[] = [{ label: '応募', value: `${String(current)}件`, sub: previous === null ? null : `前の期間 ${String(previous)}件` }];
-    if (options.include?.outcomes !== false) {
-      if (input.outcomes?.interviews != null) kpis.push({ label: '面接', value: `${String(input.outcomes.interviews)}件`, sub: 'ご契約からの合計' });
-      if (input.outcomes?.hires != null) kpis.push({ label: '採用', value: `${String(input.outcomes.hires)}名`, sub: 'ご契約からの合計' });
+    // 面接・採用は期間の数ではなく、案件を読んだ日までの累計。期間の数字とは段を分け、読んだ日を見出しに書く。
+    const totalKpis: Kpi[] = [];
+    if (input.scope === 'deal' && options.include?.outcomes !== false) {
+      const { interviews = null, hires = null } = input.outcomes ?? {};
+      if (interviews !== null) totalKpis.push({ label: '面接', value: `${String(interviews)}件`, sub: null });
+      if (hires !== null) totalKpis.push({ label: '採用', value: `${String(hires)}名`, sub: null });
+      if (input.outcomesFailed || !input.outcomes) excluded.push({ name: 'まとめ（面接・採用）', reason: '面接・採用は読み込めなかったため外しています' });
+      else if (interviews === null && hires === null) excluded.push({ name: 'まとめ（面接・採用）', reason: '面接・採用は案件に記録が無いため外しています' });
+      else if (interviews === null) excluded.push({ name: 'まとめ（面接）', reason: '面接は案件に記録が無いため外しています' });
+      else if (hires === null) excluded.push({ name: 'まとめ（採用）', reason: '採用は案件に記録が無いため外しています' });
     }
+    const totals = totalKpis.length && input.outcomes ? { heading: `ご契約からの合計（${shortDay(input.outcomes.readOn)} 時点）`, kpis: totalKpis } : null;
     const withApplications = input.listings.filter(listing => countApplications(listing.byDate ?? undefined, from, end) > 0).length;
     if (input.listings.length > 1) kpis.push({ label: '応募のあった求人', value: `${String(withApplications)}件`, sub: `求人 ${String(input.listings.length)}件のうち` });
     const live = input.listings.filter(listing => !listing.ended).length;
@@ -440,7 +453,7 @@ export function buildReport(input: ReportInput, options: ReportOptions): ReportR
       reasons?.ok && reasons.n > 0 && !off.has('reasons') && reasonsHeadline(reasons.bars) !== REASONS_PLAIN_HEADLINE ? reasonsHeadline(reasons.bars) : null,
       nextItems[0] && !off.has('next') ? `次は、${nextItems[0].text}` : null,
     ].filter((point): point is string => point !== null);
-    slides.push({ id: 'summary', name: SLIDE_NAMES.summary, kicker: SLIDE_NAMES.summary, headline: summaryHeadline(current, previous), note: null, kpis, points });
+    slides.push({ id: 'summary', name: SLIDE_NAMES.summary, kicker: SLIDE_NAMES.summary, headline: summaryHeadline(current, previous), note: null, kpis, totals, points });
 
     // 応募の推移
     const trend = trendBars(input, from, to, changes.map(change => ({ date: change.date, what: change.what })));
@@ -497,6 +510,8 @@ export interface ReportDraft {
   subject: string;
   owner: string;
   off: SlideId[];
+  /** 面接・採用（ご契約からの合計）を出すか。未指定は出す。 */
+  outcomes?: boolean | undefined;
   next: NextAction[];
   nextHeadline: string;
 }

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReportInput } from './reportSlidesModel';
 
 const input: ReportInput = {
@@ -9,9 +9,11 @@ const input: ReportInput = {
     byDate: { '2026-08-20': 1, '2026-10-20': 2 }, events: { listingId: '501', bodyChangedAt: null, bodyChanges: [], imageChanges: [], startOn: '2026-08-01', statusEvents: [] } }],
   applicants: { rows: null, reasons: null, missingReason: '応募者を読み込めなかったため' },
 };
-vi.mock('./reportSlidesLoad', () => ({ loadReportInput: () => Promise.resolve({ ok: true, input }) }));
+const dealInput: ReportInput = { ...input, scope: 'deal', id: '901', name: '合成・定期採用', outcomes: { interviews: 4, hires: 1, readOn: '2026-11-16' } };
+vi.mock('./reportSlidesLoad', () => ({ loadReportInput: (target: { scope: string }) => Promise.resolve({ ok: true, input: target.scope === 'deal' ? dealInput : input }) }));
 const { ReportSlides } = await import('./ReportSlides');
 
+afterEach(cleanup);
 describe('報告のスライドを作る画面', () => {
   it('入れるスライドを左で選び、外したものを社内向けに出し、印刷には選んだものだけを並べる', async () => {
     render(<ReportSlides target={{ scope: 'listing', id: '501' }} />);
@@ -27,5 +29,19 @@ describe('報告のスライドを作る画面', () => {
     const cover = document.querySelector('.rs-print-deck [data-slide="cover"]')?.textContent ?? '';
     expect(cover).toContain('合成運輸 御中');
     expect(cover).not.toMatch(/HubSpot|未取得/);
+  });
+  it('案件の報告は面接・採用を別の段に出し、左の切り替えで外せる（求人の報告には切り替えを出さない）', async () => {
+    render(<ReportSlides target={{ scope: 'deal', id: '901' }} />);
+    const side = await screen.findByRole('complementary', { name: '報告の設定' });
+    const box = within(side).getByRole('checkbox', { name: /面接・採用を出す/ });
+    expect((box as HTMLInputElement).checked).toBe(true);
+    const totals = () => document.querySelector('.rs-print-deck [data-slide="summary"] .rs-totals');
+    expect(totals()?.querySelector('.rs-totals-h')?.textContent).toBe('ご契約からの合計（11/16 時点）');
+    expect([...(totals()?.querySelectorAll('.rs-kp > div') ?? [])].map(item => item.textContent)).toEqual(['面接4件', '採用1名']);
+    // 期間の数字の段には面接・採用を並べない
+    expect(document.querySelector('.rs-print-deck [data-slide="summary"] .rs-body > .rs-kp')?.textContent).not.toMatch(/面接|採用/);
+    fireEvent.click(box);
+    expect(totals()).toBeNull();
+    expect(document.querySelector('.rs-print-deck [data-slide="summary"] .rs-body')?.textContent).toBe('応募2件掲載中の求人1件');
   });
 });

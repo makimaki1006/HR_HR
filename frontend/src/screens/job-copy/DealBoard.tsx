@@ -18,7 +18,7 @@ import './home.css';
 import './deal-board.css';
 import { recheckSelfOwner } from './selfOwner';
 const PAGE_SIZE = 20;
-// 案件一覧だけの印。「MTGが途絶えている」（60日以上）の手前の30〜59日を分けて数える。今日の画面には出さない。
+// 案件一覧だけのタグ。「MTGが途絶えている」（60日以上）の手前の30〜59日を分けて数える。今日の画面には出さない。
 const boardSignalCards: (readonly [string, string, string])[] = signalCards.flatMap((card): (readonly [string, string, string])[] => card[0] === 'mtg' ? [card, ['mtg_gap', 'MTGが空いている', '最後のMTGから30〜59日']] : [card]);
 function lastContactLabel(row: DealRow): string {
   if (row.contact_status === 'outside') return '記録なし（対象外）';
@@ -83,7 +83,7 @@ export function DealBoard() {
   }, [data]);
   const ready = data?.status === 'ready' ? data : null;
   const isReady = !!ready;
-  // 「いい」の印は、いい案件の集計（応募が増えた・採用単価が中央値より低い・MTGで前向きな話）を使う。取れなければ印だけ件数なしにする。
+  // 「いい」のタグは、いい案件の集計（応募が増えた・採用単価が中央値より低い・MTGで前向きな話）を使う。取れなければタグだけ件数なしにする。
   const [goodState, setGood] = useState<{ key: string; value: Map<string, NonNullable<RiskRow['good_flags']>> | 'failed' } | null>(null);
   const good = goodState?.key === ownerQuery ? goodState.value : null;
   useEffect(() => {

@@ -64,7 +64,7 @@ it('「いい」は印の先頭に並び、いい案件の集計にある案件�
   const group = screen.getByRole('group', { name: 'タグで絞る' });
   expect([...group.querySelectorAll('button')].slice(0, 2).map(b => b.textContent.replace(/\s+/gu, ' '))).toEqual(['すべて 4', 'いい 2']);
   fireEvent.click(chip);
-  // 標準の並びはタグの数、続いて金額の多い順
+  // 標準の並びはタグが多い順、続いて金額が多い順
   expect(names()).toEqual([row(3).name, row(1).name]);
   expect(urls.some(u => u.includes('/api/job-copy/consultant-good?') && u.includes('owner=11'))).toBe(true);
 });

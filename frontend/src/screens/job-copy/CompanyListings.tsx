@@ -97,7 +97,7 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
   if (!rows || loadedQuery !== ownerQuery) return <p role="status">求人を読み込んでいます…</p>;
   const model = companyListingsModel(rows, source.status === 'ready' ? source.datas : partial, deals, billingByJob, flagState.status === 'ready' ? flagState.flags : {}, sort);
   const ruleOf = (key: string) => flagState.status === 'ready' ? flagState.cards.find(card => card.key === key)?.rule : undefined;
-  /** 印の説明: 基準の文と、この求人の判定に使った数字。 */
+  /** タグの説明: 基準の文と、この求人の判定に使った数字。 */
   const flagTitle = (key: string, id: string) => [ruleOf(key), flagState.status === 'ready' ? flagNumbersLabel(flagState.numbers[id]) : undefined].filter(Boolean).join('\n');
   const flagCounts = Object.keys(FLAG_LABELS).map(key => ({ key, count: model.live.filter(item => item.flags.includes(key)).length })).filter(entry => entry.count > 0);
   const table = (items: typeof model.live, page: number, setPage: (page: number) => void, label: string) => { const view = paginate(items, page, PAGE_SIZE); return <>
@@ -125,7 +125,7 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
       {flagState.status === 'error' && <span role="alert">タグを読み込めませんでした。求人の表はそのまま使えます。</span>}
     </div>
     <section className="jh-live-listings" aria-labelledby={liveId}><h2 id={liveId}>掲載中 <span>{String(model.live.length)}件</span></h2>
-      {flagState.status === 'ready' && <p className="jh-note jh-flag-summary">{flagCounts.length ? <>タグ：{flagCounts.map(entry => <span key={entry.key} className="jh-change-chip" title={ruleOf(entry.key)}>{FLAG_LABELS[entry.key]} {String(entry.count)}件</span>)}</> : '分類が付いた掲載中の求人はありません。'}</p>}
+      {flagState.status === 'ready' && <p className="jh-note jh-flag-summary">{flagCounts.length ? <>タグ：{flagCounts.map(entry => <span key={entry.key} className="jh-change-chip" title={ruleOf(entry.key)}>{FLAG_LABELS[entry.key]} {String(entry.count)}件</span>)}</> : 'タグが付いた掲載中の求人はありません。'}</p>}
       {flagState.status === 'ready' && <div className="jh-note jh-flag-basis"><p>タグはホームのカードと同じ基準です。タグと表の数字は、次の3つの数え方が違うため、合わないことがあります。タグにマウスを置くと、判定に使った数字が出ます。</p><ul>
         <li>応募：タグは週ごとの実績の応募数。表は応募日ごとの件数。</li>
         <li>課金：タグは週ごとの実績の課金だけ。表は週ごとの実績の課金と、取り込んだ課金CSV（HRハッカーの求人）を合わせ、日割りにしたもの。</li>

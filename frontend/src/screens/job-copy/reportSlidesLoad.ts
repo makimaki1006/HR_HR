@@ -1,6 +1,6 @@
 /**
  * 顧客報告のスライドに渡す数を、既存の読み込みから集める（新しい API は使わない）。
- * - 案件: 案件のまとめと同じ loadDealData（求人・応募日別・課金・本文と画像の変更）、
+ * - 案件: 案件のまとめと同じ loadDealData（求人・応募日別・本文と画像の変更。課金は読むが紙には出さない）、
  *         契約・成果と同じ案件の読み取り（案件名・面接 mensetu・採用 syoudaku）、求人ごとの応募者（listingApplicationDates）。
  * - 求人: 求人の画面と同じ loadVersions・loadApplicationDates・fetchBodyDates。
  * 読んだ結果はこのタブのメモリに持ち、開き直したときは読み直さない（「最新にする」で読み直す）。
@@ -98,7 +98,7 @@ async function loadDeal(id: string, signal: AbortSignal): Promise<LoadResult> {
   return { ok: true, input: {
     scope: 'deal', id, name: (detail.ok ? detail.data.deal.name : null) ?? null, company: data.company?.name ?? null,
     listings, overlap: data.overlap, asOf: dealCutoff(inputs) ?? todayJst(),
-    outcomes: values ? { interviews: count(values.mensetu), hires: count(values.syoudaku) } : null,
+    outcomes: values ? { interviews: count(values.mensetu), hires: count(values.syoudaku), readOn: todayJst() } : null, outcomesFailed: !values,
     applicants: combineApplicants(loaded, wanted.length > APPLICANT_LISTING_LIMIT ? wanted.length : 0, 'deal'),
     partial: data.capped ? ['求人が多いため、先頭の50件までしか読んでいません'] : [],
   } };
