@@ -2,6 +2,10 @@
 
 export type CompetitorCount = { total: number, salary_parsed: number, 
 /**
+ * 給与の中央値 (下限) の元になった求人の件数。
+ */
+salary_median_n: number | null, 
+/**
  * 人気の表示がある求人。人気の表示が無い CSV では null。
  */
 popular: number | null, super_popular: number | null, };

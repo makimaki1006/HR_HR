@@ -40,7 +40,7 @@ type RecordState =
   | { status: 'idle' }
   | { status: 'confirm' }
   | { status: 'busy' }
-  | { status: 'done'; month: string; replaced: boolean }
+  | { status: 'done'; month: string; replaced: boolean; listingName: string | null }
   | { status: 'error'; failure: Failure };
 
 type PdfState =
@@ -131,6 +131,8 @@ export function CompetitorScreen() {
   const stage = useReportProgress(progressId);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [result, setResult] = useState<CompetitorReportResponse | null>(null);
+  // レポートが届いた時刻。記録の月はレポートを作った月なので、確かめる文の月もこれで決める。
+  const [resultAt, setResultAt] = useState<Date>(() => new Date());
   const [tab, setTab] = useState<TabId>(readTab);
   const [pdf, setPdf] = useState<PdfState>({ status: 'idle' });
 
@@ -210,6 +212,7 @@ export function CompetitorScreen() {
       setProgressId(null);
       if (res.ok) {
         setResult(res.data);
+        setResultAt(new Date());
         setPdf({ status: 'idle' });
         setRecord({ status: 'idle' });
         setFailure(null);
@@ -250,9 +253,13 @@ export function CompetitorScreen() {
     if (busyRef.current || result === null || target === null) return;
     busyRef.current = true;
     setRecord({ status: 'busy' });
-    void saveToListing(target.id, result.report_id, values.sourceType).then((res) => {
+    void saveToListing(target.id, result.report_id).then((res) => {
       busyRef.current = false;
-      setRecord(res.ok ? { status: 'done', month: res.saved.month, replaced: res.saved.replaced } : { status: 'error', failure: res });
+      setRecord(
+        res.ok
+          ? { status: 'done', month: res.saved.month, replaced: res.saved.replaced, listingName: res.saved.listing_name }
+          : { status: 'error', failure: res },
+      );
     });
   };
 
@@ -303,6 +310,7 @@ export function CompetitorScreen() {
           onTab={changeTab}
           onPdf={onPdf}
           onBack={backToForm}
+          resultAt={resultAt}
           target={target}
           record={record}
           onRecordState={setRecord}
@@ -637,6 +645,8 @@ interface ResultViewProps {
   onTab: (tab: TabId) => void;
   onPdf: () => void;
   onBack: () => void;
+  /** レポートが届いた時刻（記録の月を確かめる文に使う）。 */
+  resultAt: Date;
   /** 案件管理の求人から開いたときだけ。無ければ「この求人に記録する」は出さない。 */
   target: ListingTarget | null;
   record: RecordState;
@@ -644,7 +654,7 @@ interface ResultViewProps {
   onRecord: () => void;
 }
 
-function ResultView({ data, tab, pdf, onTab, onPdf, onBack, target, record, onRecordState, onRecord }: ResultViewProps) {
+function ResultView({ data, tab, pdf, onTab, onPdf, onBack, resultAt, target, record, onRecordState, onRecord }: ResultViewProps) {
   const { meta } = data.report;
   const busy = pdf.status === 'busy' || record.status === 'busy';
   return (
@@ -677,7 +687,9 @@ function ResultView({ data, tab, pdf, onTab, onPdf, onBack, target, record, onRe
             </button>
           )}
         </div>
-        {target !== null && <RecordStatus target={target} record={record} onRecordState={onRecordState} onRecord={onRecord} />}
+        {target !== null && (
+          <RecordStatus target={target} resultAt={resultAt} record={record} onRecordState={onRecordState} onRecord={onRecord} />
+        )}
         <PdfStatus pdf={pdf} />
         <p className="cmp-hint">
           このレポートは {String(Math.round(data.expires_in_secs / 60))}{' '}
@@ -695,22 +707,27 @@ const monthLabel = (month: string): string => `${String(Number(month.slice(5, 7)
 
 function RecordStatus({
   target,
+  resultAt,
   record,
   onRecordState,
   onRecord,
 }: {
   target: ListingTarget;
+  resultAt: Date;
   record: RecordState;
   onRecordState: (state: RecordState) => void;
   onRecord: () => void;
 }) {
   const name = target.name ?? `番号 ${target.id}`;
+  // 保存したあとは、HubSpot から読んだ求人名を出す。案件管理から開いたときの名前と違えば知らせる。
+  const savedName = record.status === 'done' ? (record.listingName ?? name) : name;
+  const nameDiffers = record.status === 'done' && record.listingName !== null && target.name !== null && record.listingName !== target.name;
   return (
     <>
       {record.status === 'confirm' && (
         <div className="cmp-confirm" role="group" aria-label="保存の確認" data-testid="record-confirm">
           <p>
-            HubSpot の求人「{name}」に、{currentMonthLabel()}の競合調査として保存します。同じ月の記録は置き換わります。
+            HubSpot の求人「{name}」（番号 {target.id}）に、{currentMonthLabel(resultAt)}の競合調査として保存します。同じ月の記録は置き換わります。
           </p>
           <div className="cmp-actions">
             <button type="button" className="cmp-btn cmp-btn--primary" onClick={onRecord}>
@@ -731,8 +748,13 @@ function RecordStatus({
       <p role="status" aria-live="polite" className="cmp-status" data-testid="record-status">
         {record.status === 'busy' && 'HubSpot の求人に保存しています。'}
         {record.status === 'done' &&
-          `求人「${name}」に、${monthLabel(record.month)}の競合調査として保存しました。${record.replaced ? '同じ月の前の記録は置き換えました。' : ''}案件管理の求人のページの「競合の推移」に出ます。`}
+          `求人「${savedName}」に、${monthLabel(record.month)}の競合調査として保存しました。${record.replaced ? '同じ月の前の記録は置き換えました。' : ''}案件管理の求人のページの「競合の推移」に出ます。`}
       </p>
+      {nameDiffers && (
+        <p className="cmp-hint" data-testid="record-name-differs">
+          開いたときの求人名「{target.name}」と、HubSpot の求人名「{savedName}」が違います。保存先の求人（番号 {target.id}）が合っているか、案件管理で確かめてください。
+        </p>
+      )}
       {record.status === 'error' && (
         <div role="alert" className="cmp-error">
           <p>{record.failure.message}</p>

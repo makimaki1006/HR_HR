@@ -9,11 +9,11 @@ import type { CompetitorSalary } from "./CompetitorSalary";
  */
 export type CompetitorMonth = { 
 /**
- * "2026-11" (JST)。同じ月の記録は 1 件だけ。
+ * "2026-11" (JST)。レポートを作った月。同じ月の記録は 1 件だけ。
  */
 month: string, 
 /**
- * 記録した日時 (JST、RFC 3339)。
+ * レポートを作った (調べた) 日時 (JST、RFC 3339)。
  */
 run_at: string, 
 /**

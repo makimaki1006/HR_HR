@@ -1,6 +1,6 @@
 import type { CompetitorMonth } from '../../generated/CompetitorMonth';
 import type { JobCopyRecord } from './data';
-import { competitorEntryUrl, competitorRows, conditionsText, monthJa, salaryText } from './competitorHistoryModel';
+import { applicationsNote, competitorEntryUrl, competitorRows, conditionsText, monthJa, salaryText } from './competitorHistoryModel';
 import { OutLink } from './Pressable';
 
 /** その月の記録の中身（件数・給与・よく出る言葉・条件）。出来事を開いたときに出す。 */
@@ -9,7 +9,7 @@ export function CompetitorMonthDetails({ entry }: { entry: CompetitorMonth }) {
   return <div className="lo-competitor-month" data-testid="competitor-month">
     <dl className="lo-application-fields">
       <div><dt>競合の件数</dt><dd>{count.total.toLocaleString('ja-JP')}件（給与が読めた求人 {count.salary_parsed.toLocaleString('ja-JP')}件{count.popular !== null ? `・人気の表示 ${count.popular.toLocaleString('ja-JP')}件` : ''}{count.super_popular !== null ? `・とても人気の表示 ${count.super_popular.toLocaleString('ja-JP')}件` : ''}）</dd></div>
-      <div><dt>競合の給与（下限）</dt><dd>中央値 {salaryText(salary.all.min_median, salary.unit)} ／ 平均 {salaryText(salary.all.min_mean, salary.unit)}</dd></div>
+      <div><dt>競合の給与（下限）</dt><dd>中央値 {salaryText(salary.all.min_median, salary.unit)}{count.salary_median_n !== null ? `（${count.salary_median_n.toLocaleString('ja-JP')}件から）` : ''} ／ 平均 {salaryText(salary.all.min_mean, salary.unit)}{entry.conditions.salary_converted ? '（CSV の給与を月給に換算した値）' : ''}</dd></div>
       <div><dt>競合の給与（上限）</dt><dd>中央値 {salaryText(salary.all.max_median, salary.unit)} ／ 平均 {salaryText(salary.all.max_mean, salary.unit)}</dd></div>
       <div><dt>このときの自社の給与</dt><dd>{entry.own_salary ? `${salaryText(entry.own_salary.min, salary.unit)} 〜 ${salaryText(entry.own_salary.max, salary.unit)}` : '記録なし（求人の本文から読めませんでした）'}</dd></div>
       <div><dt>よく出る言葉</dt><dd>{entry.keywords_top5.length ? entry.keywords_top5.map(([word, n]) => `${word}（${String(n)}件）`).join('、') : '記録なし'}</dd></div>
@@ -34,13 +34,13 @@ export function CompetitorHistory({ job }: { job: JobCopyRecord }) {
         <tbody>{rows.map(row => <tr key={row.month} data-testid={`competitor-row-${row.month}`}>
           <th scope="row">{monthJa(row.month)}</th>
           <td>{row.total.toLocaleString('ja-JP')}件</td>
-          <td>{salaryText(row.median, row.unit)}</td>
+          <td>{salaryText(row.median, row.unit)}{row.median !== null && row.salaryN !== null && <small className="lo-competitor-n">（{row.salaryN.toLocaleString('ja-JP')}件から）</small>}{row.median !== null && row.converted && <small className="lo-competitor-n">月給に換算した値</small>}</td>
           <td>{salaryText(row.own, row.unit)}</td>
-          <td>{row.applications === null ? '—' : `${row.applications.toLocaleString('ja-JP')}件`}</td>
+          <td>{row.applications === null ? '—' : `${row.applications.toLocaleString('ja-JP')}件`}{row.applications !== null && row.partial && <small className="lo-competitor-n">（途中）</small>}</td>
           <td className="lo-competitor-cond">{row.changed.length ? <span className="lo-mark lo-mark-caution" title={conditionsText(row.entry)}>前の月と違う：{row.changed.join('・')}</span> : <span title={conditionsText(row.entry)}>{rows[0] === row ? '最初の記録' : '前の月と同じ'}</span>}</td>
         </tr>)}</tbody>
       </table></div>
-      <p className="lo-note">自社の給与は、その月に記録したときの求人の給与です。自社の応募は、応募日がその月に入る応募の数です{rows.some(row => row.applications === null) ? '（応募の日別データが無いため「—」）' : ''}。条件が前の月と違う月は、数字をそのまま比べられません。</p>
+      <p className="lo-note">自社の給与は、その月に記録したときの求人の給与です（AirWork・リクロジの求人は本文から給与を読まないため空になります）。{applicationsNote(job, rows)}条件が前の月と違う月は、数字をそのまま比べられません。</p>
     </>}
   </section>;
 }

@@ -399,6 +399,7 @@ async fn build(
         &population,
     );
     super::apply_region(&mut report.meta, &req);
+    super::apply_record_context(&mut report.meta, &req, chrono::Utc::now());
     if !req.top_n_raw.is_empty() {
         report.meta.top_n_requested = Some(req.top_n_raw.clone());
         if req.top_n_raw.parse::<i64>().ok() != Some(req.top_n as i64) {

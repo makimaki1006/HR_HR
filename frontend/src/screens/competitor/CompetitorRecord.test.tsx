@@ -64,15 +64,37 @@ describe('この求人に記録する', () => {
     mSave.mockResolvedValue({ ok: true, saved: { listing_id: '30', listing_name: '顧客A 配送スタッフ', month: '2026-11', replaced: true, months: 3 } });
     await openResult(LISTING_URL);
     fireEvent.click(screen.getByRole('button', { name: 'この求人に記録する' }));
-    expect(screen.getByTestId('record-confirm').textContent).toContain('HubSpot の求人「顧客A 配送スタッフ」に、11月の競合調査として保存します。同じ月の記録は置き換わります。');
+    expect(screen.getByTestId('record-confirm').textContent).toContain('HubSpot の求人「顧客A 配送スタッフ」（番号 30）に、11月の競合調査として保存します。同じ月の記録は置き換わります。');
     expect(mSave).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '保存する' }));
     await waitFor(() => {
       expect(screen.getByTestId('record-status').textContent).toBe('求人「顧客A 配送スタッフ」に、11月の競合調査として保存しました。同じ月の前の記録は置き換えました。案件管理の求人のページの「競合の推移」に出ます。');
     });
-    // 送るのは求人の番号・レポートの ID・CSV の媒体だけ（数字はサーバーがレポートから写す）。
-    expect(mSave.mock.calls).toEqual([['30', 'a'.repeat(64), 'indeed_sp']]);
+    // 送るのは求人の番号・レポートの ID だけ（数字・月・CSV の媒体はサーバーがレポートから決める）。
+    expect(mSave.mock.calls).toEqual([['30', 'a'.repeat(64)]]);
     expect(screen.queryByTestId('record-confirm')).toBeNull();
+    expect(screen.queryByTestId('record-name-differs')).toBeNull();
+  });
+
+  it('保存の文は HubSpot から読んだ求人名を使い、開いたときの名前と違えば知らせる', async () => {
+    mSave.mockResolvedValue({ ok: true, saved: { listing_id: '30', listing_name: '顧客A 配送スタッフ（夜勤）', month: '2026-11', replaced: false, months: 1 } });
+    await openResult(LISTING_URL);
+    fireEvent.click(screen.getByRole('button', { name: 'この求人に記録する' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('record-status').textContent).toBe('求人「顧客A 配送スタッフ（夜勤）」に、11月の競合調査として保存しました。案件管理の求人のページの「競合の推移」に出ます。');
+    });
+    expect(screen.getByTestId('record-name-differs').textContent).toBe(
+      '開いたときの求人名「顧客A 配送スタッフ」と、HubSpot の求人名「顧客A 配送スタッフ（夜勤）」が違います。保存先の求人（番号 30）が合っているか、案件管理で確かめてください。',
+    );
+  });
+
+  it('確かめる文の月は、保存を押した月ではなくレポートが届いた月', async () => {
+    vi.setSystemTime(new Date('2026-10-31T14:50:00Z')); // 日本時間 10/31 23:50
+    await openResult(LISTING_URL);
+    vi.setSystemTime(new Date('2026-10-31T15:10:00Z')); // 日本時間 11/1 0:10
+    fireEvent.click(screen.getByRole('button', { name: 'この求人に記録する' }));
+    expect(screen.getByTestId('record-confirm').textContent).toContain('10月の競合調査として保存します');
   });
 
   it('「やめる」では送らない', async () => {

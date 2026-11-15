@@ -216,7 +216,10 @@ const RECORD_MESSAGE: Record<string, string> = {
   job_copy_access_denied: 'この求人に記録できるのは、会社の Google アカウントでログインした人だけです。',
   account_disabled: 'このアカウントでは記録できません。',
   hubspot_busy: 'HubSpot が混み合っています。少し待ってからもう一度お試しください。何も保存されていません。',
-  hubspot_rate_limited: 'HubSpot が混み合っています。少し待ってからもう一度お試しください。',
+  hubspot_rate_limited: 'HubSpot が混み合っています。少し待ってからもう一度お試しください。何も保存されていません。',
+  hubspot_write_rejected:
+    'HubSpot が保存を受け付けませんでした。何も保存されていません。競合調査の記録を入れる項目の作成が済んでいるか、開発の担当に確かめてもらってください。',
+  record_busy: 'ほかの人がこの求人に保存中です。少し待ってからもう一度押してください。何も保存されていません。',
   hubspot_scope_denied: 'HubSpot の求人に書き込む権限がありません。何も保存されていません。',
   hubspot_not_configured: 'HubSpot につながっていないため、保存できません。',
 };
@@ -226,12 +229,12 @@ export type RecordResult = { ok: true; saved: CompetitorRecordSaved } | ({ ok: f
 
 /**
  * 保持中のレポート (`report_id`) を、HubSpot の求人に月ごとの記録として保存する。
- * 数字はサーバがレポートから写す（画面からは送らない）。同じ月の記録は置き換わる。
+ * 数字・月・CSV の媒体は、サーバがレポートを作ったときの値を使う（画面からは送らない）。同じ月の記録は置き換わる。
  */
-export async function saveToListing(listingId: string, reportId: string, sourceType: string): Promise<RecordResult> {
+export async function saveToListing(listingId: string, reportId: string): Promise<RecordResult> {
   const res = await apiPut<CompetitorRecordSaved>(
     `/api/job-copy/listings/${encodeURIComponent(listingId)}/competitor-record`,
-    { report_id: reportId, source_type: sourceType },
+    { report_id: reportId },
     { timeoutMs: 40_000 },
   );
   if (res.ok) return { ok: true, saved: res.data };

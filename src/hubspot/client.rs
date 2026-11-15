@@ -790,21 +790,23 @@ impl HubSpotClient {
             return Err(HubSpotError::Decode("invalid competitor properties".into()));
         }
         match self.patch_object_inner("0-420", id, properties).await {
-            // 失敗の本文は読めないので、項目の有無を定義で確かめる (無ければ 404)。
+            // 失敗の本文は読めないので、書こうとした項目の定義を 1 つずつ確かめる (1 つでも 404 なら「項目が無い」)。
+            // 一部の項目だけ作られていない場合も、項目が無いと分かるように全部見る (失敗のときだけ、最大 6 回)。
             Err(HubSpotError::Upstream { status: 400 }) => {
-                let definition = self
-                    .read_raw(
-                        false,
-                        &format!("/crm/v3/properties/0-420/{}", COMPETITOR_PROPERTIES[0]),
-                        &[],
-                        None,
-                    )
-                    .await?;
-                if definition.status == 404 {
-                    Err(HubSpotError::Decode(COMPETITOR_PROPERTY_MISSING.into()))
-                } else {
-                    Err(HubSpotError::Upstream { status: 400 })
+                for name in properties.keys() {
+                    let definition = self
+                        .read_raw(
+                            false,
+                            &format!("/crm/v3/properties/0-420/{name}"),
+                            &[],
+                            None,
+                        )
+                        .await?;
+                    if definition.status == 404 {
+                        return Err(HubSpotError::Decode(COMPETITOR_PROPERTY_MISSING.into()));
+                    }
                 }
+                Err(HubSpotError::Upstream { status: 400 })
             }
             other => other,
         }

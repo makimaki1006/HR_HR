@@ -47,9 +47,9 @@ READABLE = [
         'description': '最後の競合調査の、競合の給与の下限の中央値。月給は万円、時給は円 (HR_HR が書く)',
     },
     {
-        'name': 'competitor_salary_gap', 'label': '競合調査 自社の給与との差', 'type': 'number',
+        'name': 'competitor_salary_gap', 'label': '競合調査 自社と競合の給与の差(自社−競合)', 'type': 'number',
         'fieldType': 'number',
-        'description': '自社の給与(下限) − 競合の給与の中央値(下限)。自社の給与が読めないときは空 (HR_HR が書く)',
+        'description': '自社の給与(下限) − 競合の給与の中央値(下限)。プラスなら自社の方が多い。自社の給与が読めない・競合の給与が月給に換算した値 (PC の CSV) のときは空 (HR_HR が書く)',
     },
     {
         'name': 'competitor_summary', 'label': '競合調査 要約', 'type': 'string',

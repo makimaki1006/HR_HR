@@ -3,12 +3,15 @@
 //! - `PUT /api/job-copy/listings/{id}/competitor-record`: 競合調査の画面が保持中 (30 分) のレポートの ID を渡す。
 //!   サーバーがレポートから月ごとの 1 件 (`CompetitorMonth`) を写して作り、求人の `competitor_monthly`
 //!   (JSON の配列) に足す。同じ月は置き換える。人が読む 5 項目 (`competitor_last_date` ほか) も同じ PATCH で上書きする。
+//! - 月・媒体・職種名・地域を入力したかは、レポートを作ったときにサーバーが持たせた値を使う (画面からは受け取らない)。
 //! - HubSpot の呼び出しは、求人の読み取り 1 回 (今の記録と自社の給与) と PATCH 1 回。
+//!   読む→足す→書くの間は求人ごとの鍵を持つ (同時に 2 人が保存して片方の月が消えないように)。
 //! - 数字はレポートから写すだけ。自社の給与は求人の本文の基本給与 (円) を、競合の給与の単位 (万円 / 円) に合わせるだけ。
 //! - 元の CSV とレポートの全体は残さない (`csv_url` は常に null)。新しい DB・表・環境変数は無い。
 //! - `competitor_monthly` は HubSpot の文字数の上限 (65,536 字) があるので、超えそうなら書かずに止める。
 use super::{authorized_user, client_error, listings, valid_id, Access, ReadError, Record};
-use crate::handlers::survey::report_html::competitor_model::CompetitorReport;
+use crate::crm::record_lock;
+use crate::handlers::survey::report_html::competitor_model::{CompetitorReport, RecordContext};
 use crate::hubspot::client::{COMPETITOR_PROPERTIES, COMPETITOR_PROPERTY_MISSING};
 use crate::{hubspot::HubSpotError, AppState};
 use axum::{
@@ -21,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tower_sessions::Session;
 use ts_rs::TS;
 use unicode_normalization::UnicodeNormalization;
@@ -35,9 +39,9 @@ const KEYWORDS: usize = 5;
 /// 月ごとの記録の 1 件。HubSpot の求人の `competitor_monthly` に、この形の配列で入る。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct CompetitorMonth {
-    /// "2026-11" (JST)。同じ月の記録は 1 件だけ。
+    /// "2026-11" (JST)。レポートを作った月。同じ月の記録は 1 件だけ。
     pub month: String,
-    /// 記録した日時 (JST、RFC 3339)。
+    /// レポートを作った (調べた) 日時 (JST、RFC 3339)。
     pub run_at: String,
     /// 記録した人のメール。
     pub by: String,
@@ -54,17 +58,31 @@ pub struct CompetitorMonth {
 /// 調べたときの条件。月ごとに違うと比べられないので必ず残す。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct CompetitorConditions {
+    /// 報告書の題名 (地域と職種名から組み立てたもの)。
     pub title: String,
+    /// 入力した職種名。入力しなかったときは null。
+    #[serde(default)]
+    pub job_name: Option<String>,
+    /// 求人の中でいちばん多い雇用形態。
     pub employment_type: Option<String>,
     pub prefecture: Option<String>,
     pub municipality: Option<String>,
+    /// 都道府県を入力したか。false なら全国の求人が対象 (prefecture は求人の中でいちばん多い都道府県)。
+    #[serde(default)]
+    pub region_specified: Option<bool>,
     pub top_n: u32,
     pub source: String,
+    /// 総合の給与が、CSV 内の給与を月給に換算した値か (PC の CSV など)。true のときは自社との差を出さない。
+    #[serde(default)]
+    pub salary_converted: Option<bool>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct CompetitorCount {
     pub total: u32,
     pub salary_parsed: u32,
+    /// 給与の中央値 (下限) の元になった求人の件数。
+    #[serde(default)]
+    pub salary_median_n: Option<u32>,
     /// 人気の表示がある求人。人気の表示が無い CSV では null。
     pub popular: Option<u32>,
     pub super_popular: Option<u32>,
@@ -104,9 +122,9 @@ pub struct CompetitorRecordSaved {
 #[serde(deny_unknown_fields)]
 pub(super) struct Request {
     report_id: String,
-    /// 競合調査の画面で選んだ CSV の媒体 (`indeed_sp` / `indeed`)。条件として残す。
-    source_type: String,
 }
+/// 同じ求人への保存を待つ最長。超えたら 503 `record_busy` (何も保存しない)。
+const LOCK_WAIT: Duration = Duration::from_secs(10);
 
 fn err(status: StatusCode, code: &'static str) -> ReadError {
     ReadError(status, code)
@@ -136,13 +154,14 @@ pub(super) fn monthly(record: &Record) -> Vec<CompetitorMonth> {
     rows
 }
 
-/// 本文の金額の文字 (全角・桁区切りあり) を数にする。数字だけでなければ None。
+/// 本文の金額の文字 (全角・桁区切りあり) を数にする。数字だけでない・0 以下は None (0 円として比べない)。
 fn yen(text: Option<&str>) -> Option<f64> {
     let normalized: String = text?.nfkc().filter(|c| *c != ',').collect();
     let value = normalized.trim();
     (!value.is_empty() && value.bytes().all(|c| c.is_ascii_digit()))
         .then(|| value.parse::<f64>().ok())
         .flatten()
+        .filter(|v| *v > 0.0)
 }
 /// 自社の給与を、競合の給与の単位に合わせる。月給どうし (万円)・時給どうし (円) のときだけ。
 fn own_salary(record: &Record, is_hourly: bool) -> Option<CompetitorOwnSalary> {
@@ -167,12 +186,12 @@ fn own_salary(record: &Record, is_hourly: bool) -> Option<CompetitorOwnSalary> {
 /// レポートから月ごとの 1 件を写す。新しい集計はしない。
 pub(super) fn build_month(
     report: &CompetitorReport,
-    source: &str,
+    context: &RecordContext,
     by: &str,
     own_salary: Option<CompetitorOwnSalary>,
-    now: DateTime<Utc>,
 ) -> CompetitorMonth {
-    let at = jst(now);
+    // 記録の月は、保存を押した時刻ではなくレポートを作った時刻で決める (月をまたいで保存しても同じ月)。
+    let at = jst(context.created_at);
     let row = |label: &str| {
         report
             .excel
@@ -197,15 +216,21 @@ pub(super) fn build_month(
         by: by.to_owned(),
         conditions: CompetitorConditions {
             title: meta.title.clone(),
+            job_name: Some(context.job_name.trim().to_owned()).filter(|name| !name.is_empty()),
             employment_type: meta.employment_type.clone(),
             prefecture: meta.prefecture.clone(),
             municipality: meta.municipality.clone(),
+            region_specified: Some(context.region_specified),
             top_n: meta.top_n_effective,
-            source: source.to_owned(),
+            source: source_label(context.source_type)
+                .unwrap_or("Indeed の一覧CSV")
+                .to_owned(),
+            salary_converted: Some(meta.salary_converted),
         },
         count: CompetitorCount {
             total: meta.total_count,
             salary_parsed: meta.salary_parsed_count,
+            salary_median_n: Some(report.excel.salary_counts[0]),
             popular: report.popularity_split.as_ref().map(|p| p.popular),
             super_popular: report.popularity_split.as_ref().map(|p| p.super_popular),
         },
@@ -266,15 +291,19 @@ fn amount(value: f64, hourly: bool) -> String {
         format!("{value:.1}万円")
     }
 }
+/// 自社と比べてよい自社の給与 (下限)。競合の給与が月給に換算した値のときは比べない。
+fn comparable_own(entry: &CompetitorMonth) -> Option<f64> {
+    if entry.conditions.salary_converted == Some(true) {
+        return None;
+    }
+    entry.own_salary.as_ref().and_then(|own| own.min)
+}
 /// 人が読む 1 行。例「競合 86件・給与中央値 23.5万円（自社 22.0万円）・人気 12件」。
 pub(super) fn summary_line(entry: &CompetitorMonth) -> String {
     let hourly = entry.salary.unit != "万円";
     let mut parts = vec![format!("競合 {}件", entry.count.total)];
     if let Some(median) = entry.salary.all.min_median {
-        let own = entry
-            .own_salary
-            .as_ref()
-            .and_then(|own| own.min)
+        let own = comparable_own(entry)
             .map(|own| format!("（自社 {}）", amount(own, hourly)))
             .unwrap_or_default();
         parts.push(format!("給与中央値 {}{own}", amount(median, hourly)));
@@ -295,7 +324,7 @@ pub(super) fn properties(
     monthly: String,
 ) -> BTreeMap<String, Option<String>> {
     let median = entry.salary.all.min_median;
-    let own = entry.own_salary.as_ref().and_then(|own| own.min);
+    let own = comparable_own(entry);
     // 自社の給与(下限) − 競合の給与の中央値(下限)。
     let gap = own
         .zip(median)
@@ -324,6 +353,9 @@ fn hubspot_error(e: HubSpotError) -> ReadError {
         HubSpotError::NotFound => err(StatusCode::NOT_FOUND, "listing_not_found"),
         HubSpotError::Auth { .. } => err(StatusCode::FORBIDDEN, "hubspot_scope_denied"),
         HubSpotError::RateLimited => err(StatusCode::TOO_MANY_REQUESTS, "hubspot_rate_limited"),
+        HubSpotError::Upstream { status: 400 } => {
+            err(StatusCode::BAD_GATEWAY, "hubspot_write_rejected")
+        }
         _ => err(StatusCode::BAD_GATEWAY, "hubspot_write_failed"),
     }
 }
@@ -341,10 +373,10 @@ pub(super) async fn put(
     headers: HeaderMap,
     Json(req): Json<Request>,
 ) -> Result<Reply, ReadError> {
-    save(&state, &access, &session, &id, &headers, req, Utc::now()).await
+    save(&state, &access, &session, &id, &headers, req).await
 }
 
-/// 時刻を引数にした本体 (テストで月を決める)。
+/// 本体。記録の月はレポートを作った時刻で決まる (`RecordContext::created_at`)。
 async fn save(
     state: &AppState,
     access: &Access,
@@ -352,7 +384,6 @@ async fn save(
     id: &str,
     headers: &HeaderMap,
     req: Request,
-    now: DateTime<Utc>,
 ) -> Result<Reply, ReadError> {
     let user = authorized_user(state, access, session).await?;
     valid_id(id)?;
@@ -363,15 +394,22 @@ async fn save(
     {
         return Err(err(StatusCode::FORBIDDEN, "csrf_required"));
     }
-    let source = source_label(&req.source_type)
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "competitor_source_unknown"))?;
     // 本人が作って保持中のレポートだけ。期限切れ・他人の ID は区別しない。
+    // 作ったときの条件 (月・媒体など) が無いレポートは記録に使わない (画面の API が作ったものには必ずある)。
     let report = crate::handlers::competitor::stored_report(&user, &req.report_id)
+        .filter(|report| report.meta.record.is_some())
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "competitor_report_not_found"))?;
+    let context = report.meta.record.clone().expect("checked above");
     let service = access.service.as_deref().ok_or(ReadError(
         StatusCode::SERVICE_UNAVAILABLE,
         "hubspot_not_configured",
     ))?;
+    // 読む→足す→書くの間、この求人の鍵を持つ (同時の保存で片方の月が消えないように)。
+    // 案の保存 (drafts.rs) と同じ鍵。取れなければ何も読まず・書かずに 503。
+    let _lock = record_lock::shared()
+        .acquire([record_lock::key("0-420", id)], LOCK_WAIT)
+        .await
+        .map_err(|_| err(StatusCode::SERVICE_UNAVAILABLE, "record_busy"))?;
     // 今の記録と自社の給与を 1 回で読む (ほかの読み取りと相乗りしない)。
     let found = service
         .hubspot()
@@ -401,10 +439,9 @@ async fn save(
     };
     let entry = build_month(
         &report,
-        source,
+        &context,
         &user,
         own_salary(&record, report.meta.is_hourly),
-        now,
     );
     let (text, replaced, months) = merge(record.value(MONTHLY), &entry, MONTHLY_MAX_CHARS)
         .map_err(|e| match e {
@@ -439,7 +476,12 @@ async fn save(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{extract::State as MockState, response::IntoResponse, routing::get, Router};
+    use axum::{
+        extract::{Path as MockPath, State as MockState},
+        response::IntoResponse,
+        routing::get,
+        Router,
+    };
     use chrono::TimeZone;
     use serde_json::json;
     use std::collections::BTreeSet;
@@ -449,13 +491,23 @@ mod tests {
     struct Remote {
         reads: usize,
         patches: Vec<Value>,
-        property_exists: bool,
+        /// HubSpot にまだ作られていない項目。1 つでもあれば PATCH は 400。
+        missing: Vec<&'static str>,
+        /// 読み取りの応答を遅らせる (同時の保存を作るため)。値はこの時点のものを返す。
+        read_delay: Duration,
         properties: serde_json::Map<String, Value>,
     }
     async fn read_remote(MockState(remote): MockState<Arc<Mutex<Remote>>>) -> Json<Value> {
-        let mut remote = remote.lock().unwrap();
-        remote.reads += 1;
-        Json(json!({"id":"30","properties":remote.properties}))
+        let (delay, body) = {
+            let mut remote = remote.lock().unwrap();
+            remote.reads += 1;
+            (
+                remote.read_delay,
+                json!({"id":"30","properties":remote.properties}),
+            )
+        };
+        tokio::time::sleep(delay).await;
+        Json(body)
     }
     async fn write_remote(
         MockState(remote): MockState<Arc<Mutex<Remote>>>,
@@ -463,7 +515,7 @@ mod tests {
     ) -> axum::response::Response {
         let mut remote = remote.lock().unwrap();
         remote.patches.push(payload.clone());
-        if !remote.property_exists {
+        if !remote.missing.is_empty() {
             return (StatusCode::BAD_REQUEST, Json(json!({"status":"error"}))).into_response();
         }
         for (key, value) in payload["properties"].as_object().unwrap() {
@@ -473,11 +525,12 @@ mod tests {
     }
     async fn property_definition(
         MockState(remote): MockState<Arc<Mutex<Remote>>>,
+        MockPath(name): MockPath<String>,
     ) -> axum::response::Response {
-        if remote.lock().unwrap().property_exists {
-            Json(json!({"name":"competitor_monthly"})).into_response()
-        } else {
+        if remote.lock().unwrap().missing.contains(&name.as_str()) {
             (StatusCode::NOT_FOUND, Json(json!({}))).into_response()
+        } else {
+            Json(json!({"name":name})).into_response()
         }
     }
     struct Fixture {
@@ -516,9 +569,9 @@ mod tests {
         }
         props.as_object().unwrap().clone()
     }
-    async fn fixture(property_exists: bool, monthly: Option<&str>) -> Fixture {
+    async fn fixture(missing: &[&'static str], monthly: Option<&str>) -> Fixture {
         let remote = Arc::new(Mutex::new(Remote {
-            property_exists,
+            missing: missing.to_vec(),
             properties: listing_properties(monthly),
             ..Default::default()
         }));
@@ -529,10 +582,7 @@ mod tests {
                 "/crm/v3/objects/0-420/30",
                 get(read_remote).patch(write_remote),
             )
-            .route(
-                "/crm/v3/properties/0-420/competitor_monthly",
-                get(property_definition),
-            )
+            .route("/crm/v3/properties/0-420/{name}", get(property_definition))
             .with_state(remote.clone());
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -572,7 +622,6 @@ mod tests {
         id: &str,
         csrf: bool,
         report_id: &str,
-        now: DateTime<Utc>,
     ) -> Result<CompetitorRecordSaved, (StatusCode, &'static str)> {
         save(
             &f.state,
@@ -582,16 +631,27 @@ mod tests {
             &headers(csrf),
             Request {
                 report_id: report_id.to_owned(),
-                source_type: "indeed_sp".into(),
             },
-            now,
         )
         .await
         .map(|(_, Json(v))| v)
         .map_err(|ReadError(status, code)| (status, code))
     }
+    /// レポートを作ったときの条件 (Indeed SP・職種名「配送ドライバー」・都道府県を入力)。
+    fn context(created_at: DateTime<Utc>) -> RecordContext {
+        RecordContext {
+            source_type: "indeed_sp",
+            created_at,
+            job_name: "配送ドライバー".into(),
+            region_specified: true,
+        }
+    }
+    /// 11 月に作ったレポート。
     fn report_id() -> String {
-        crate::handlers::competitor::store_report_for_test(USER, "配送 大阪")
+        report_at(november())
+    }
+    fn report_at(created_at: DateTime<Utc>) -> String {
+        crate::handlers::competitor::store_report_for_test(USER, "配送 大阪", context(created_at))
     }
     fn stored(f: &Fixture) -> Vec<Value> {
         let raw = f.remote.lock().unwrap().properties["competitor_monthly"]
@@ -603,8 +663,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_first_record_writes_the_month_and_the_five_readable_fields_in_one_patch() {
-        let f = fixture(true, None).await;
-        let saved = call(&f, &f.session, "30", true, &report_id(), november())
+        let f = fixture(&[], None).await;
+        let saved = call(&f, &f.session, "30", true, &report_id())
             .await
             .unwrap();
         assert_eq!(
@@ -645,9 +705,10 @@ mod tests {
                 "month": "2026-11",
                 "run_at": "2026-11-15T16:20:00+09:00",
                 "by": USER,
-                "conditions": {"title": "配送 大阪", "employment_type": "不明", "prefecture": "大阪府",
-                               "municipality": "大阪市", "top_n": 10, "source": "Indeed SP の一覧CSV"},
-                "count": {"total": 2, "salary_parsed": 2, "popular": 0, "super_popular": 0},
+                "conditions": {"title": "配送 大阪", "job_name": "配送ドライバー", "employment_type": "不明",
+                               "prefecture": "大阪府", "municipality": "大阪市", "region_specified": true,
+                               "top_n": 10, "source": "Indeed SP の一覧CSV", "salary_converted": false},
+                "count": {"total": 2, "salary_parsed": 2, "salary_median_n": 2, "popular": 0, "super_popular": 0},
                 "salary": {"unit": "万円",
                            "all": {"min_mean": 30.0, "min_median": 30.0, "max_mean": 35.0, "max_median": 35.0},
                            "popular": {"min_mean": null, "min_median": null, "max_mean": null, "max_median": null}},
@@ -665,8 +726,8 @@ mod tests {
             {"month":"2026-09","run_at":"2026-09-10T10:00:00+09:00","by":"old@example.test","count":{"total":7}}
         ])
         .to_string();
-        let f = fixture(true, Some(&old)).await;
-        let saved = call(&f, &f.session, "30", true, &report_id(), november())
+        let f = fixture(&[], Some(&old)).await;
+        let saved = call(&f, &f.session, "30", true, &report_id())
             .await
             .unwrap();
         assert_eq!((saved.replaced, saved.months), (true, 2));
@@ -683,9 +744,9 @@ mod tests {
             "同じ月は新しい記録に置き換わる"
         );
         assert_eq!(rows[1]["by"], USER);
-        // 次の月 (JST 12/1 0:30 = UTC 11/30 15:30) は足される。
+        // 次の月 (JST 12/1 0:30 = UTC 11/30 15:30) に作ったレポートは足される。
         let december = Utc.with_ymd_and_hms(2026, 11, 30, 15, 30, 0).unwrap();
-        let saved = call(&f, &f.session, "30", true, &report_id(), december)
+        let saved = call(&f, &f.session, "30", true, &report_at(december))
             .await
             .unwrap();
         assert_eq!(
@@ -705,10 +766,9 @@ mod tests {
     fn merge_stops_before_the_character_limit_and_on_unreadable_values() {
         let entry = build_month(
             &crate::handlers::competitor::api_tests::sample_report("配送"),
-            "Indeed SP の一覧CSV",
+            &context(november()),
             USER,
             None,
-            november(),
         );
         let one = merge(None, &entry, MONTHLY_MAX_CHARS).unwrap().0;
         let size = one.chars().count();
@@ -739,8 +799,8 @@ mod tests {
             (filler.as_str(), "competitor_record_too_large"),
             ("not json", "competitor_record_unreadable"),
         ] {
-            let f = fixture(true, Some(existing)).await;
-            let e = call(&f, &f.session, "30", true, &report_id(), november())
+            let f = fixture(&[], Some(existing)).await;
+            let e = call(&f, &f.session, "30", true, &report_id())
                 .await
                 .unwrap_err();
             assert_eq!(e, (StatusCode::UNPROCESSABLE_ENTITY, code));
@@ -750,12 +810,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_bad_listing_id_or_an_unknown_report_never_reaches_hubspot() {
-        let f = fixture(true, None).await;
+        let f = fixture(&[], None).await;
         let id = report_id();
         for listing in ["", "abc", "30x"] {
-            let e = call(&f, &f.session, listing, true, &id, november())
-                .await
-                .unwrap_err();
+            let e = call(&f, &f.session, listing, true, &id).await.unwrap_err();
             assert_eq!(
                 e,
                 (StatusCode::BAD_REQUEST, "invalid_record_id"),
@@ -763,12 +821,13 @@ mod tests {
             );
         }
         // 存在しない ID と、ほかの人が作ったレポートは区別しない。
-        let others =
-            crate::handlers::competitor::store_report_for_test("someone@example.test", "x");
+        let others = crate::handlers::competitor::store_report_for_test(
+            "someone@example.test",
+            "x",
+            context(november()),
+        );
         for report in ["missing", others.as_str()] {
-            let e = call(&f, &f.session, "30", true, report, november())
-                .await
-                .unwrap_err();
+            let e = call(&f, &f.session, "30", true, report).await.unwrap_err();
             assert_eq!(e, (StatusCode::NOT_FOUND, "competitor_report_not_found"));
         }
         let remote = f.remote.lock().unwrap();
@@ -777,20 +836,16 @@ mod tests {
 
     #[tokio::test]
     async fn anonymous_other_domains_and_missing_csrf_never_write() {
-        let f = fixture(true, None).await;
+        let f = fixture(&[], None).await;
         let id = report_id();
-        let e = call(&f, &session_for(None).await, "30", true, &id, november())
+        let e = call(&f, &session_for(None).await, "30", true, &id)
             .await
             .unwrap_err();
         assert_eq!(e.0, StatusCode::UNAUTHORIZED);
         let outsider = session_for(Some("other@other.test")).await;
-        let e = call(&f, &outsider, "30", true, &id, november())
-            .await
-            .unwrap_err();
+        let e = call(&f, &outsider, "30", true, &id).await.unwrap_err();
         assert_eq!(e.0, StatusCode::FORBIDDEN);
-        let e = call(&f, &f.session, "30", false, &id, november())
-            .await
-            .unwrap_err();
+        let e = call(&f, &f.session, "30", false, &id).await.unwrap_err();
         assert_eq!(e, (StatusCode::FORBIDDEN, "csrf_required"));
         let remote = f.remote.lock().unwrap();
         assert_eq!((remote.reads, remote.patches.len()), (0, 0));
@@ -798,8 +853,8 @@ mod tests {
 
     #[tokio::test]
     async fn missing_hubspot_properties_give_the_friendly_error() {
-        let f = fixture(false, None).await;
-        let e = call(&f, &f.session, "30", true, &report_id(), november())
+        let f = fixture(&COMPETITOR_PROPERTIES, None).await;
+        let e = call(&f, &f.session, "30", true, &report_id())
             .await
             .unwrap_err();
         assert_eq!(e, (StatusCode::CONFLICT, "competitor_property_missing"));
@@ -838,10 +893,9 @@ mod tests {
     fn the_listing_read_returns_valid_months_in_order_and_drops_broken_ones() {
         let entry = build_month(
             &crate::handlers::competitor::api_tests::sample_report("配送"),
-            "Indeed SP の一覧CSV",
+            &context(november()),
             USER,
             None,
-            november(),
         );
         let mut earlier = entry.clone();
         earlier.month = "2026-09".into();
@@ -863,13 +917,12 @@ mod tests {
     fn the_summary_line_follows_the_unit_and_omits_what_is_missing() {
         let mut entry = build_month(
             &crate::handlers::competitor::api_tests::sample_report("配送"),
-            "Indeed SP の一覧CSV",
+            &context(november()),
             USER,
             Some(CompetitorOwnSalary {
                 min: Some(22.0),
                 max: None,
             }),
-            november(),
         );
         entry.count.total = 86;
         entry.count.popular = Some(12);
@@ -883,5 +936,189 @@ mod tests {
         entry.own_salary = None;
         entry.count.popular = None;
         assert_eq!(summary_line(&entry), "競合 86件・給与中央値 1250円");
+    }
+
+    #[tokio::test]
+    async fn two_saves_at_the_same_time_keep_both_months() {
+        // 読み取りを 300ms 止めた偽 HubSpot に、11 月と 12 月のレポートを同時に保存する。
+        // 鍵が無いと 2 本とも「記録なし」を読み、後から書いた方が先の月を消す。
+        let f = fixture(&[], None).await;
+        f.remote.lock().unwrap().read_delay = Duration::from_millis(300);
+        let december = Utc.with_ymd_and_hms(2026, 11, 30, 15, 30, 0).unwrap();
+        let (nov, dec) = (report_id(), report_at(december));
+        let (a, b) = tokio::join!(
+            call(&f, &f.session, "30", true, &nov),
+            call(&f, &f.session, "30", true, &dec),
+        );
+        let (a, b) = (a.unwrap(), b.unwrap());
+        let mut months = [a.months, b.months];
+        months.sort_unstable();
+        assert_eq!(months, [1, 2], "2 本目は 1 本目の書いた後を読む");
+        assert_eq!(
+            stored(&f)
+                .iter()
+                .map(|r| r["month"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["2026-11", "2026-12"]
+        );
+        let remote = f.remote.lock().unwrap();
+        assert_eq!((remote.reads, remote.patches.len()), (2, 2));
+    }
+
+    #[tokio::test]
+    async fn a_held_listing_gives_record_busy_and_writes_nothing() {
+        // 鍵の待ちは 10 秒なので、時間を進めて確かめる (実時間は待たない)。
+        let f = fixture(&[], None).await;
+        let id = report_id();
+        let _held = record_lock::shared()
+            .acquire([record_lock::key("0-420", "31")], LOCK_WAIT)
+            .await
+            .unwrap();
+        tokio::time::pause();
+        let e = call(&f, &f.session, "31", true, &id).await.unwrap_err();
+        tokio::time::resume();
+        assert_eq!(e, (StatusCode::SERVICE_UNAVAILABLE, "record_busy"));
+        let remote = f.remote.lock().unwrap();
+        assert_eq!((remote.reads, remote.patches.len()), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn the_month_comes_from_when_the_report_was_made_not_when_saved() {
+        // 10/31 23:50 (JST) に作ったレポートは、11 月に入ってから保存しても 10 月の記録。
+        let f = fixture(&[], None).await;
+        let made = Utc.with_ymd_and_hms(2026, 10, 31, 14, 50, 0).unwrap();
+        let saved = call(&f, &f.session, "30", true, &report_at(made))
+            .await
+            .unwrap();
+        assert_eq!(saved.month, "2026-10");
+        let rows = stored(&f);
+        assert_eq!(rows[0]["run_at"], "2026-10-31T23:50:00+09:00");
+        let props = f.remote.lock().unwrap().patches[0]["properties"].clone();
+        assert_eq!(props["competitor_last_date"], "2026-10-31");
+    }
+
+    #[tokio::test]
+    async fn only_some_properties_missing_still_gives_the_friendly_error() {
+        // 月ごとの記録の項目はあるが、差の項目だけ作られていない。
+        let f = fixture(&["competitor_salary_gap"], None).await;
+        let e = call(&f, &f.session, "30", true, &report_id())
+            .await
+            .unwrap_err();
+        assert_eq!(e, (StatusCode::CONFLICT, "competitor_property_missing"));
+    }
+
+    #[test]
+    fn a_zero_own_salary_is_unreadable_not_zero_yen() {
+        let rec = |body: &str| -> Record {
+            serde_json::from_value(
+                json!({"id":"1","properties":{"id_hrhakkaa":"HR-1","hrh_kyuujinhyou_honbun":body}}),
+            )
+            .unwrap()
+        };
+        // 最小 0・最大 1800 の時給の求人: 最小は読めない値、最大だけ残す。
+        let hourly = rec("給与形態：時給\n基本給与 最小：0\n基本給与 最大：1800");
+        assert_eq!(
+            own_salary(&hourly, true),
+            Some(CompetitorOwnSalary {
+                min: None,
+                max: Some(1800.0)
+            })
+        );
+        // 最小も最大も 0 なら、自社の給与は無し (0 円として比べない)。
+        assert_eq!(
+            own_salary(
+                &rec("給与形態：時給\n基本給与 最小：０\n基本給与 最大：0"),
+                true
+            ),
+            None
+        );
+        let mut entry = build_month(
+            &crate::handlers::competitor::api_tests::sample_report("配送"),
+            &context(november()),
+            USER,
+            own_salary(&hourly, true),
+        );
+        entry.salary.unit = "円/時".into();
+        entry.salary.all.min_median = Some(1250.0);
+        let props = properties(&entry, "[]".into());
+        assert_eq!(props["competitor_salary_median"].as_deref(), Some("1250"));
+        assert_eq!(props["competitor_salary_gap"], None, "差は出さない");
+        assert_eq!(
+            props["competitor_summary"].as_deref(),
+            Some("競合 2件・給与中央値 1250円・人気 0件")
+        );
+    }
+
+    #[test]
+    fn a_converted_monthly_salary_keeps_the_own_salary_but_no_gap() {
+        let mut entry = build_month(
+            &crate::handlers::competitor::api_tests::sample_report("配送"),
+            &context(november()),
+            USER,
+            Some(CompetitorOwnSalary {
+                min: Some(22.0),
+                max: None,
+            }),
+        );
+        assert_eq!(
+            properties(&entry, "[]".into())["competitor_salary_gap"].as_deref(),
+            Some("-8")
+        );
+        entry.conditions.salary_converted = Some(true);
+        let props = properties(&entry, "[]".into());
+        assert_eq!(props["competitor_salary_gap"], None);
+        assert_eq!(
+            props["competitor_summary"].as_deref(),
+            Some("競合 2件・給与中央値 30.0万円・人気 0件")
+        );
+        assert_eq!(
+            entry.own_salary.unwrap().min,
+            Some(22.0),
+            "自社の給与は残す"
+        );
+    }
+
+    #[test]
+    fn a_report_without_a_region_or_job_name_is_recorded_as_such() {
+        let entry = build_month(
+            &crate::handlers::competitor::api_tests::sample_report("Indeed競合調査"),
+            &RecordContext {
+                source_type: "indeed",
+                created_at: november(),
+                job_name: "  ".into(),
+                region_specified: false,
+            },
+            USER,
+            None,
+        );
+        assert_eq!(entry.conditions.job_name, None);
+        assert_eq!(entry.conditions.region_specified, Some(false));
+        assert_eq!(entry.conditions.source, "Indeed PC の一覧CSV");
+    }
+
+    #[test]
+    fn records_saved_before_the_new_fields_still_load() {
+        let old = json!([{
+            "month":"2026-09","run_at":"2026-09-10T10:00:00+09:00","by":"old@example.test",
+            "conditions":{"title":"配送","employment_type":null,"prefecture":null,"municipality":null,"top_n":10,"source":"Indeed SP の一覧CSV"},
+            "count":{"total":7,"salary_parsed":5,"popular":null,"super_popular":null},
+            "salary":{"unit":"万円","all":{"min_mean":null,"min_median":null,"max_mean":null,"max_median":null},
+                      "popular":{"min_mean":null,"min_median":null,"max_mean":null,"max_median":null}},
+            "own_salary":null,"keywords_top5":[],"csv_url":null
+        }])
+        .to_string();
+        let rec: Record =
+            serde_json::from_value(json!({"id":"1","properties":{"competitor_monthly":old}}))
+                .unwrap();
+        let rows = monthly(&rec);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (
+                rows[0].conditions.job_name.clone(),
+                rows[0].conditions.region_specified,
+                rows[0].count.salary_median_n
+            ),
+            (None, None, None)
+        );
     }
 }

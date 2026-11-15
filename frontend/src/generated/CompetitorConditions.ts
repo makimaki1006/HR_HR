@@ -3,4 +3,24 @@
 /**
  * 調べたときの条件。月ごとに違うと比べられないので必ず残す。
  */
-export type CompetitorConditions = { title: string, employment_type: string | null, prefecture: string | null, municipality: string | null, top_n: number, source: string, };
+export type CompetitorConditions = { 
+/**
+ * 報告書の題名 (地域と職種名から組み立てたもの)。
+ */
+title: string, 
+/**
+ * 入力した職種名。入力しなかったときは null。
+ */
+job_name: string | null, 
+/**
+ * 求人の中でいちばん多い雇用形態。
+ */
+employment_type: string | null, prefecture: string | null, municipality: string | null, 
+/**
+ * 都道府県を入力したか。false なら全国の求人が対象 (prefecture は求人の中でいちばん多い都道府県)。
+ */
+region_specified: boolean | null, top_n: number, source: string, 
+/**
+ * 総合の給与が、CSV 内の給与を月給に換算した値か (PC の CSV など)。true のときは自社との差を出さない。
+ */
+salary_converted: boolean | null, };

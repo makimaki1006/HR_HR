@@ -8,7 +8,7 @@
  * - 日付は JST の暦日 YYYY-MM-DD。期間は両端を含む。
  */
 import type { CompetitorMonth } from '../../generated/CompetitorMonth';
-import { salaryText } from './competitorHistoryModel';
+import { regionText, salaryText } from './competitorHistoryModel';
 import { addDays, countApplications, daysBetween, formatYen } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import { weekStart } from './dealSummaryModel';
@@ -530,12 +530,16 @@ export function buildReport(input: ReportInput, options: ReportOptions): ReportR
       const median = record.salary.all.min_median;
       const kpis: Kpi[] = [{ label: '周りの求人', value: `${String(record.count.total)}件`, sub: null }];
       if (median !== null) kpis.push({ label: '周りの求人の給与（下限の中央値）', value: salaryText(median, unit), sub: null });
-      if (record.own_salary?.min != null) kpis.push({ label: '貴社の求人の給与（下限）', value: salaryText(record.own_salary.min, unit), sub: `${shortDay(day)} 時点` });
-      const place = `${record.conditions.prefecture ?? ''}${record.conditions.municipality ?? ''}` || '全国';
+      // 周りの給与が月給に換算した値のときは、貴社の給与と並べない（記録の差と同じ決まり）。
+      if (record.own_salary?.min != null && record.conditions.salary_converted !== true) kpis.push({ label: '貴社の求人の給与（下限）', value: salaryText(record.own_salary.min, unit), sub: `${shortDay(day)} 時点` });
+      const place = regionText(record);
+      // 期間の始めより前に調べた記録しか無いときは、それと分かるように書く。
+      const before = day < from;
+      const when = before ? `${num(record.month.slice(5, 7))}月の調査（期間より前）、${dayJa(day)}` : dayJa(day);
       slides.push({
-        id: 'around', name: SLIDE_NAMES.around, kicker: SLIDE_NAMES.around,
-        headline: median === null ? `${dayJa(day)}に調べた周りの求人は ${String(record.count.total)}件でした` : `${dayJa(day)}に調べた周りの求人は ${String(record.count.total)}件、給与の下限の中央値は ${salaryText(median, unit)}でした`,
-        note: `${fullDayJa(day)}に Indeed で調べた周りの求人（${place}）。下の棒は、求人票によく出てくる言葉と、その言葉がある求人の件数です。`,
+        id: 'around', name: SLIDE_NAMES.around, kicker: before ? `${SLIDE_NAMES.around}（${num(record.month.slice(5, 7))}月の調査・期間より前）` : SLIDE_NAMES.around,
+        headline: median === null ? `${when}に調べた周りの求人は ${String(record.count.total)}件でした` : `${when}に調べた周りの求人は ${String(record.count.total)}件、給与の下限の中央値は ${salaryText(median, unit)}でした`,
+        note: `${fullDayJa(day)}に Indeed で調べた周りの求人（${place}）${before ? '。報告の期間より前の調査です' : ''}。下の棒は、求人票によく出てくる言葉と、その言葉がある求人の件数です。`,
         kpis, bars: record.keywords_top5.map(([word, count]) => ({ label: word, count })),
       });
     }

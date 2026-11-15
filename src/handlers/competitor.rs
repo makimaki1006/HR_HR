@@ -39,14 +39,34 @@ pub(crate) fn stored_report(
 ) -> Option<Arc<crate::handlers::survey::report_html::competitor_model::CompetitorReport>> {
     api::store().get(user, report_id, std::time::Instant::now())
 }
-/// テスト用: レポートを保持に入れて ID を返す。
+/// レポートを作ったときの条件を、求人への記録用にレポートに持たせる (画面には送らない)。
+fn apply_record_context(
+    meta: &mut crate::handlers::survey::report_html::competitor_model::ReportMeta,
+    req: &ReportRequest,
+    created_at: chrono::DateTime<chrono::Utc>,
+) {
+    meta.record = Some(
+        crate::handlers::survey::report_html::competitor_model::RecordContext {
+            source_type: match req.source {
+                UserSourceHint::IndeedSp => "indeed_sp",
+                _ => "indeed",
+            },
+            created_at,
+            job_name: req.job_name.clone(),
+            region_specified: !req.pref.is_empty(),
+        },
+    );
+}
+/// テスト用: 作ったときの条件を付けたレポートを保持に入れて ID を返す。
 #[cfg(test)]
-pub(crate) fn store_report_for_test(user: &str, title: &str) -> String {
-    api::store().insert(
-        user,
-        api_tests::sample_report(title),
-        std::time::Instant::now(),
-    )
+pub(crate) fn store_report_for_test(
+    user: &str,
+    title: &str,
+    record: crate::handlers::survey::report_html::competitor_model::RecordContext,
+) -> String {
+    let mut report = api_tests::sample_report(title);
+    report.meta.record = Some(record);
+    api::store().insert(user, report, std::time::Instant::now())
 }
 
 #[cfg(test)]
@@ -198,6 +218,8 @@ struct ReportRequest {
     market_title: String,
     /// 報告書の題名。地域・職種名から組み立てる (どちらも無ければ旧 `survey_title`、それも空なら空)。
     survey_title: String,
+    /// 入力した職種名 (空白をまとめたもの。空なら指定なし)。求人への記録に残す。
+    job_name: String,
     search_keyword: String,
     include_google: bool,
     output_format: String,
@@ -312,6 +334,7 @@ fn parse_request(raw: RawForm) -> Result<ReportRequest, FormError> {
         top_n_raw: get("top_n").to_owned(),
         market_title: get("market_title").to_owned(),
         survey_title,
+        job_name,
         municipality,
         search_keyword: get("search_keyword").to_owned(),
         include_google: get("include_google") == "1",
