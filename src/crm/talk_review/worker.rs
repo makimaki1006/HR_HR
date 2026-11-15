@@ -819,6 +819,8 @@ struct Worker<Z, J> {
     hearing_asked: HashMap<String, i64>,
     /// 決まって、まだ取引に書いていないランク
     rank_saves: Vec<(super::counts::ApoDeal, super::apo_call::DealRank)>,
+    /// 判定済みの電話の文字起こしを HubSpot の通話へ移す待ち行列 (プロセス内だけ。Turso には書かない)
+    transcript_backfill: super::transcript_backfill::TranscriptBackfill,
 }
 
 /// 保存済みの行の文章に日本語以外が混ざっているか (英単語の許可は行の引用だけで判断する)
@@ -1904,6 +1906,52 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         true
     }
 
+    /// 判定済みの電話の文字起こしを HubSpot の通話へ移す (手の空いた周回だけ)。
+    /// 最初の 1 回で判定済みの行の 3 つの欄を読む (読めなければ次の手の空いた周回でやり直す)
+    async fn process_transcript_backfill(&mut self) {
+        use super::transcript_backfill::SINCE_DAYS;
+        if !self.transcript_backfill.is_loaded() {
+            let since = store::ts_text(Utc::now() - chrono::Duration::days(SINCE_DAYS));
+            let refs = store::blocking(&self.audit, move |t| {
+                let mut out = Vec::new();
+                store::for_each_judged_ref_page(t, &since, store::ROWS_PAGE, |rows| {
+                    out.extend(rows)
+                })?;
+                Ok(out)
+            })
+            .await;
+            match refs {
+                Ok(refs) => {
+                    tracing::info!(rows = refs.len(), "talk review: transcript backfill loaded");
+                    self.transcript_backfill.load(refs);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "talk review: transcript backfill read failed");
+                    return;
+                }
+            }
+        }
+        if self.transcript_backfill.remaining() == 0 {
+            return;
+        }
+        let rep = self
+            .transcript_backfill
+            .step(&self.client.background(), &*self.zoom)
+            .await;
+        if rep != Default::default() {
+            tracing::info!(
+                checked = rep.checked,
+                present = rep.present,
+                saved = rep.saved,
+                given_up = rep.given_up,
+                retry_later = rep.retry_later,
+                stopped = rep.stopped,
+                remaining = self.transcript_backfill.remaining(),
+                "talk review: transcript backfill"
+            );
+        }
+    }
+
     async fn run(mut self) {
         match store::blocking(&self.audit, {
             let since =
@@ -1971,6 +2019,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 self.process_rejudge().await;
                 // 通話日の印が無いヒアリングの付け直しも、新しい判定が無い周回だけ (遅いと新しい電話の判定を待たせるため)
                 self.process_rehearing().await;
+                // 判定済みの電話の文字起こしを、Zoom の録音が消える前に HubSpot へ移す (いちばん後ろ)
+                self.process_transcript_backfill().await;
                 tokio::time::sleep(self.cfg.interval).await;
             }
         }
@@ -2034,6 +2084,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         judged_rows: Default::default(),
         hearing_asked: Default::default(),
         rank_saves: Vec::new(),
+        transcript_backfill: Default::default(),
     };
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -2878,6 +2929,7 @@ mod tests {
             judged_rows: Default::default(),
             hearing_asked: Default::default(),
             rank_saves: Vec::new(),
+            transcript_backfill: Default::default(),
         }
     }
 

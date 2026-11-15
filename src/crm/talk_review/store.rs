@@ -565,6 +565,40 @@ pub fn for_each_judged_page(
     })
 }
 
+/// 文字起こしを HubSpot に移すために持つ、判定済みの行の 3 つの欄 (通話 ID・電話の時刻・録音 ID)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JudgedRef {
+    pub hubspot_call_id: String,
+    pub call_at: String,
+    pub zoom_call_log_id: Option<String>,
+}
+
+/// 判定済みの行 (`call_at >= since`) の通話 ID・時刻・録音 ID だけを、新しい順に `page` 行ずつ読む。
+/// 項目の JSON などの重い列は読まない (`for_each_judged_page` と同じ索引・並び・ページの進め方)
+pub fn for_each_judged_ref_page(
+    t: &TursoDb,
+    since: &str,
+    page: usize,
+    mut on_page: impl FnMut(Vec<JudgedRef>),
+) -> Result<(), String> {
+    let filter = RowsFilter {
+        owner: None,
+        judged_only: true,
+    };
+    let cols = "hubspot_call_id, call_at, zoom_call_log_id";
+    for_each_page(t, cols, (since, JUDGED_UNTIL), filter, page, |rows| {
+        on_page(
+            rows.iter()
+                .map(|r| JudgedRef {
+                    hubspot_call_id: s(r, "hubspot_call_id").unwrap_or_default(),
+                    call_at: s(r, "call_at").unwrap_or_default(),
+                    zoom_call_log_id: s(r, "zoom_call_log_id"),
+                })
+                .collect(),
+        );
+    })
+}
+
 /// 変更前の読み方 (1 回の問い合わせで判定済みの行を全部の列で読む)。`for_each_judged_page` の答えの基準と、
 /// メモリ計測の「前」に使う (テスト専用)
 #[cfg(test)]
@@ -1300,6 +1334,31 @@ mod tests {
     /// 上の端は無いので、期間の外 (`after1` = 10/17) の行も入る。
     /// 入らない行: `before1` (FROM より前)、`t3`・`v1`・`f1`・`q1` (判定済みでない)
     const JUDGED_IDS: [&str; 8] = ["after1", "w1", "t4", "t2", "t1", "v2", "bad1", "u1"];
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn judged_refs_are_the_judged_rows_with_three_columns_only() {
+        let (audit, conn, queries) = start_sqlite_audit_with_queries().await;
+        seed_period(&conn);
+        blocking(&audit, move |t| {
+            for page in [1, 3, 8, 500] {
+                queries.lock().unwrap().clear();
+                let mut got = Vec::new();
+                for_each_judged_ref_page(t, FROM, page, |rows| got.extend(rows))?;
+                let ids: Vec<&str> = got.iter().map(|r| r.hubspot_call_id.as_str()).collect();
+                assert_eq!(ids, JUDGED_IDS, "ページ {page}");
+                assert_eq!(got[0].call_at, "2026-10-17T00:00:00Z");
+                assert_eq!(got[0].zoom_call_log_id.as_deref(), Some("zoom-after1"));
+                let reads = queries.lock().unwrap();
+                assert!(reads
+                    .iter()
+                    .filter(|q| q.contains("FROM call_talk_reviews"))
+                    .all(|q| !q.contains("items") && q.contains("+status = 'judged'")));
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn judged_pages_return_the_same_rows_as_one_query_at_any_page_size() {
