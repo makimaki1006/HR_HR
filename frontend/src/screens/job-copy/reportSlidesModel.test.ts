@@ -25,7 +25,7 @@ const collection = (selections: ReasonSelection[], multi: string[] | null, trunc
   items: [{ id: 'x', applicant: 'r2', text: '家から近い', sourceProperty: 'ouboriyuu_hiaringu', applicationDate: '2026-10-25', collectedAt: null, versionId: null }],
   selections, optionLabels: 'read', multiListingApplicants: multi,
 });
-const loaded = (rows: ApplicationRow[], reasons: ApplicantReasonCollection): LoadedApplications => ({ overall: { total: rows.length, missingDate: 0, fetchedAt: '2026-11-15T00:00:00Z', distributions: {}, byDate: byDateOf(rows) }, rows, reasons });
+const loaded = (rows: ApplicationRow[], reasons: ApplicantReasonCollection): LoadedApplications => ({ overall: { total: rows.length, missingDate: 0, fetchedAt: '2026-11-15T00:00:00Z', distributions: {}, byDate: byDateOf(rows) }, rows, repeats: [], reasons });
 const truckReasons = collection([
   pick('t1', '給与', '2026-09-25'), pick('t2', '給与', '2026-10-20'), pick('t3', '給与', '2026-10-20'), pick('t3', '勤務地', '2026-10-20'),
   pick('t6', '給与', '2026-10-25'), pick('t4', '勤務地', '2026-10-28'), pick('t4', '会社規模', '2026-10-28', 'ouboriyuukategori_baitaikisai'), pick('t5', '給与', '2026-11-03'),
