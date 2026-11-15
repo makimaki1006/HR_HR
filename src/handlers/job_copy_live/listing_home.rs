@@ -244,6 +244,8 @@ pub(super) struct Home {
     /// 取引に結び付いていない（または事業所が分からない）掲載中の求人の数。
     pub(super) live_without_company: usize,
     pub(super) median_cost_per_app: Option<i64>,
+    /// 掲載中の求人の媒体の実績のうち、いちばん新しい週の終わりの日（「まず見るもの」の数字の時点）。
+    pub(super) latest_week_end: Option<String>,
 }
 
 fn is_live(row: &Listing) -> bool {
@@ -546,6 +548,11 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
         customers,
         live_without_company,
         median_cost_per_app: median_cpa,
+        latest_week_end: live
+            .iter()
+            .filter_map(|row| row.perf.as_ref().map(|p| p.latest_end))
+            .max()
+            .map(|d| d.to_string()),
     }
 }
 

@@ -64,7 +64,7 @@ describe('HubSpot listing history', () => {
     await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
     expect(screen.getByText('51件')).toBeTruthy();
     fireEvent.click(screen.getByText('絞り込み・並び順'));
-    expect(screen.getByRole('button', { name: '合成配送求人の本文を見る' }).textContent).toContain('応募 未取得');
+    expect(screen.getByRole('button', { name: '合成配送求人の本文を見る' }).textContent).toContain('応募の記録 未取得');
     fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: '大分県' } });
     fireEvent.change(screen.getByLabelText('職種の分類'), { target: { value: 'ドライバー' } });
     fireEvent.change(screen.getByLabelText('媒体', { selector: 'select' }), { target: { value: 'airwork' } });
@@ -248,7 +248,7 @@ it('リクロジの求人を媒体名と応募3件で一覧に出し、媒体で
   render(<HubSpotListingsPanel onOpen={onOpen} />);
   const listing = await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
   expect(listing.textContent).toContain('大分県大分市 · リクロジ · ドライバー');
-  expect(listing.textContent).toContain('応募 3件');
+  expect(listing.textContent).toContain('応募の記録 3件');
   fireEvent.click(screen.getByText('絞り込み・並び順'));
   fireEvent.change(screen.getByLabelText('媒体', { selector: 'select' }), { target: { value: 'reclogi' } });
   await waitFor(() => { expect(api.mock.calls.some(([path]) => String(path).includes('media=reclogi'))).toBe(true); });

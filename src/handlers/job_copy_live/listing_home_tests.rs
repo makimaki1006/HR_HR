@@ -888,3 +888,21 @@ async fn customer_listing_flags_match_home_cards_with_and_without_owner_scope() 
     assert_eq!(flags_of(&scoped_flags, "3"), ["unknown"]);
     assert!(home_keys(&home, "3").is_empty());
 }
+
+#[test]
+fn home_reports_the_newest_media_week_of_live_listings() {
+    // 「まず見るもの」は媒体の週ごとの実績で数える。画面に出す時点は、掲載中の求人の最新の週の終わり。
+    let recent = perf(&[("2026-10-05", "2026-10-11", 100, 1)]);
+    let old = perf(&[("2026-08-03", "2026-08-09", 100, 1)]);
+    let ended = perf(&[("2026-10-12", "2026-10-18", 100, 1)]);
+    let rows = vec![
+        listing("1", &["d1"], "掲載中", "set", Some(&recent)),
+        listing("2", &["d1"], "掲載中", "set", Some(&old)),
+        listing("3", &["d1"], "掲載終了", "set", Some(&ended)),
+        listing("4", &["d1"], "掲載中", "set", None),
+    ];
+    let home = compute(&rows, &map(), date("2026-11-15"));
+    assert_eq!(home.latest_week_end.as_deref(), Some("2026-10-11"));
+    let none = compute(&rows[3..], &map(), date("2026-11-15"));
+    assert_eq!(none.latest_week_end, None);
+}

@@ -29,7 +29,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
   await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
   await expect(page.getByText(/2026\/10\/15 時点（前日の集計）/)).toBeVisible();
-  await expect(table.locator('.nt-strong')).toHaveText('MTGが60日以上空いている');
+  await expect(table.locator('.nt-strong')).toHaveText('MTGが途絶えている（最後のMTGから 107 日）');
   await expect(page.getByRole('checkbox', { name: '終わった案件も出す' })).not.toBeChecked();
   await expect(page.getByRole('combobox', { name: '並べ替え' })).toHaveCount(0);
   await expect(page.getByText('並び: 要対応の印が多い順', { exact: true })).toBeVisible();

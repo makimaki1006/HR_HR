@@ -41,7 +41,7 @@ export function OwnerFilter({ work }: { work: Pick<WorkReady, 'owner' | 'owner_f
 export const signalCards = [
   ['expiration', '契約満了が近い', '今日から60日後まで'],
   ['expired', '満了後も稼働中', '満了日が今日より前で、終了していないステージ（ステージはHubSpotで直す）'],
-  ['contact', '接触が空いている', '最後の接触から30日以上'],
+  ['contact', '接触が空いている', '最後の接触から31日以上（MTGか60秒を超える電話。メールは数えない）'],
   ['stalled', '応募が止まっている', '掲載中の求人があり、直近14日の応募が0件'],
   ['first_contract', '初回で成果が出ていない', '開始30日で5件未満、または60日で10件未満'],
   ['nps', '定期NPSが低い', '定期NPSが4以下'],
