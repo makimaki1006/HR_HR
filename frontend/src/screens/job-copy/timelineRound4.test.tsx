@@ -26,6 +26,7 @@ import { overviewRange, overviewRow, overviewRows, sortOverview } from './overvi
 import { DUMMY_BILLING_LABEL, dummyBillingEntries, withoutRealDays } from './dummyBilling';
 import { billingEntries, changeKinds, dummyBilling, periodRows, realBilling, versionChanges } from './timelineModel';
 import { canonicalMedia, importBillingCsv } from './billingImport';
+import { toggleDataImport } from './moreMenu.testUtil';
 
 const api = vi.hoisted(() => vi.fn());
 const spies = vi.hoisted(() => ({ overviewRows: vi.fn() }));
@@ -179,8 +180,8 @@ describe('cross-job overview', () => {
     await screen.findByRole('heading', { name: '求人の横断比較' });
     const calls = spies.overviewRows.mock.calls.length;
     expect(calls).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: 'データ取込' }));
-    fireEvent.click(screen.getByRole('button', { name: 'データ取込' }));
+    toggleDataImport();
+    toggleDataImport();
     fireEvent.click(screen.getByRole('button', { name: '応募者の条件で探す' }));
     expect(spies.overviewRows.mock.calls.length).toBe(calls);
   });

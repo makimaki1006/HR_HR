@@ -104,7 +104,7 @@ test('billing CSV import matches on media + account + job ID and fills the billi
   const billingLane = timeline.getByRole('group', { name: '課金', exact: true });
   // The demo's HRハッカー amounts are made up and say so (the demo banner is not printed).
   await expect(billingLane.locator('.jt-billing')).toHaveText(['架空 3万円', '架空 4万5,000円', '架空 1万2,000円']);
-  await page.getByRole('button', { name: 'データ取込', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'データを取り込む（作業用）', exact: true }).click();
   await expect(page.getByRole('region', { name: 'データ取込', exact: true })).toBeVisible();
   // 媒体 + 店舗ID（Airワークは口座ログインID）+ 媒体求人ID で結びつける。HRハッカーの媒体求人IDは 8 桁の数字でないと使わない。
   const csv = '媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,DEMO-SHOP-01,DEMO-HRH-001,2026-09-01,2026-09-14,33000\nAirワーク,DEMO-ACCOUNT-01,DEMO-AIR-002,2026-09-05,2026-09-30,40000\n';

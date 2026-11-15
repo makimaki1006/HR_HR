@@ -7,6 +7,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobCopyScreen } from './JobCopyScreen';
 import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
+import { toggleDataImport } from './moreMenu.testUtil';
 
 vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }));
 
@@ -45,9 +46,11 @@ describe('job copy layout', () => {
     // 一覧は 8 件。絞り込みは 1 行にたたむ。
     expect(document.querySelectorAll('.jc-job')).toHaveLength(8);
     expect(document.querySelector('.jc-filter-more')?.hasAttribute('open')).toBe(false);
-    // データ取込は閉じていて、HubSpot・媒体・課金CSV・外部文面の 4 つが中にある
-    const importToggle = screen.getByRole('button', { name: 'データ取込' });
-    expect(importToggle.getAttribute('aria-expanded')).toBe('false');
+    // データ取込は「⋯ その他」の中で閉じていて、HubSpot・媒体・課金CSV・外部文面の 4 つが中にある
+    expect(screen.queryByRole('button', { name: 'データ取込' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'その他' }));
+    expect(screen.getByRole('button', { name: 'データを取り込む（作業用）' }).getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: 'その他' }));
     const importArea = document.getElementById('job-copy-data-import');
     expect(importArea?.hasAttribute('hidden')).toBe(true);
     expect(importArea?.querySelector('.jc-live-panel')).not.toBeNull();
@@ -68,7 +71,7 @@ describe('job copy layout', () => {
   it('opens the external-text check from データ取込 and returns to the timeline', async () => {
     vi.stubGlobal('fetch', vi.fn());
     render(<JobCopyScreen />);
-    fireEvent.click(screen.getByRole('button', { name: 'データ取込' }));
+    toggleDataImport();
     expect(document.getElementById('job-copy-data-import')?.hasAttribute('hidden')).toBe(false);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '外部文面を照合する' })); await Promise.resolve(); });
     expect(document.getElementById('job-copy-data-import')?.hasAttribute('hidden')).toBe(true);
@@ -87,7 +90,7 @@ describe('job copy layout', () => {
     // 取り込む前: demo-001 は HRハッカー実績の 3万円（09-01〜09-14）
     expect(within(periodTable()).getAllByRole('row')[1]?.textContent).toContain('3万円');
     expect(screen.queryByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'データ取込' }));
+    toggleDataImport();
     // HRハッカーの行は媒体求人IDが 8 桁でないため使わない。Airワークの行は 口座ログインID + 求人ID で結びつく。
     upload('媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,DEMO-SHOP-01,DEMO-HRH-001,2026-09-01,2026-09-14,33000\nAirワーク,DEMO-ACCOUNT-01,DEMO-AIR-002,2026-09-05,2026-09-30,40000\nAirワーク,OTHER-ACCOUNT,DEMO-AIR-004,2026-09-05,2026-09-30,1000');
     await screen.findByText('2. 列の対応を確かめる');

@@ -49,13 +49,13 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   expect(patches[0]?.set.teian).toMatch(/^10\/16 求人の見直しを提案 \/ \d{2}\/\d{2} 募集職種を増やす提案をした。 来週の打ち合わせで内容を決める。$/);
   await expect(draft).toHaveValue('');
   await detail.getByRole('button', { name: '閉じる', exact: true }).click();
-  await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('22');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('架空の担当B');
   await expect(list.getByText('該当する案件はありません。')).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: /^いい案件/ })).toHaveText('いい案件 0件');
   await page.reload(); await expect(list.getByText('該当する案件はありません。')).toBeVisible();
   await expect(page).toHaveURL(/view=good/); await expect(page).toHaveURL(/owner=22/);
   await page.getByRole('button', { name: '案件一覧', exact: true }).click(); await expect(page).toHaveURL(/view=deals/);
   await page.goBack(); await expect(list).toBeVisible();
-  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('22');
+  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('架空の担当B');
   expect(errors).toEqual([]);
 });

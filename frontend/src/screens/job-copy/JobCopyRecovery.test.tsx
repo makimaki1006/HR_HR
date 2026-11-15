@@ -5,9 +5,20 @@ clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pin
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
+import type { MoreActions } from './MoreMenu';
 // Recovery tests isolate the snapshot transport; menu requests are covered separately.
-vi.mock('./ConsultantMenu', () => ({ ConsultantMenuHeader: () => null, ConsultantMenu: ({ children }: { children: ReactNode }) => children }));
+// 「⋯ その他」（データ取込の入口）だけは本物を置く。
+vi.mock('./ConsultantMenu', async () => {
+  const { useState } = await import('react');
+  const { MoreActionsProvider, MoreMenu } = await import('./MoreMenu');
+  function ConsultantMenu({ children }: { children: ReactNode }) {
+    const [actions, setActions] = useState<MoreActions | null>(null);
+    return <MoreActionsProvider value={setActions}><MoreMenu actions={actions} onGoHome={() => undefined} />{children}</MoreActionsProvider>;
+  }
+  return { ConsultantMenuHeader: () => null, ConsultantMenu };
+});
 import { JobCopyScreen } from './JobCopyScreen';
+import { toggleDataImport } from './moreMenu.testUtil';
 
 const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 const snapshot = (total = 2) => {
@@ -114,7 +125,7 @@ describe('snapshot recovery without fictional replacement', () => {
     job.title = '合成の手動取込';
     const file = new File([JSON.stringify(capture)], 'synthetic-capture.json', { type: 'application/json' });
     // 媒体で取得したデータは「データ取込」の中にある（2026-10-08 の配置の組み直し）
-    fireEvent.click(screen.getByRole('button', { name: 'データ取込' }));
+    toggleDataImport();
     await act(async () => {
       fireEvent.change(screen.getByLabelText('媒体保存データを読み込む'), { target: { files: [file] } });
       await Promise.resolve();

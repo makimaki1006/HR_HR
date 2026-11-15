@@ -1,5 +1,7 @@
-.cm-menu { position: sticky; top: 0; z-index: 20; padding: 6px 16px; border-bottom: 1px solid #d4dfe7; background: #f3f6f8; }
+.cm-menu { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 20px; padding: 6px 16px; border-bottom: 1px solid #d4dfe7; background: #f3f6f8; }
 .cm-menu nav { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 0; }
+/* 担当の欄と「⋯ その他」は、どの画面でも帯の右の同じ場所に置く。 */
+.cm-right { display: flex; flex-wrap: wrap; align-items: center; justify-content: end; gap: 6px 14px; margin-left: auto; }
 .cm-menu nav button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 6px 2px 4px; color: #355466; font-size: 14px; cursor: pointer; }
 .cm-menu nav button:hover { color: #00586a; border-bottom-color: #c5d9e0; }
 .cm-menu nav button[aria-current=page] { color: #00586a; font-weight: 700; border-bottom-color: #007c91; }
@@ -29,16 +31,31 @@
 .pm-current { overflow-wrap: anywhere; }
 
 .cm-owner:empty { display: none; }
-.cm-menu > .jh-owner, .cm-owner:not(:empty) { margin-top: 6px; }
+.cm-owner-pending { margin: 0; font-size: 12px; color: #52697a; }
 
 .jc-topline > .cm-menu { flex: 0 1 auto; padding: 0; border: 0; position: static; z-index: auto; background: none; }
 .jc-topline > .cm-menu nav { gap: 18px; }
+/* 求人の作業画面の上の帯は、2 段（メニューと担当）になっても低く保つ。 */
+.jc-topline > .cm-menu { row-gap: 2px; }
+.jc-topline > .cm-menu nav button { padding: 3px 2px 2px; line-height: 1.4; }
+.jc-topline:has(> .cm-menu) { padding-block: 4px; }
+.jc-topline .cm-more-toggle { line-height: 1.4; }
 
 /* 担当の2項目を同じ行に保ち、求人作業中の見出し行の高さは増やさない。 */
-.jc-topline > .cm-menu:has(.cm-owner:not(:empty)) { flex: 1 1 660px; }
+.jc-topline > .cm-menu { flex: 1 1 660px; }
 .jc-topline:has(> .cm-menu) > .jc-demo { flex-basis: 0; }
 .cr-since { display: block; margin-top: 4px; color: #4b5d6b; font-size: 12px; }
 .cr-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0 0 12px; font-size: 13px; color: #33475b; }
 .jc-page .cr-scope label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 500; white-space: nowrap; }
 .jc-page .cr-scope input[type=checkbox] { width: auto; margin: 0; }
 .cm-owner-note { margin:6px 0 0; font-size:13px; color:#475569; }
+
+/* 「⋯ その他」: 毎日は使わない作業（データ取込・固定一覧）を畳む。 */
+.cm-more { position: relative; }
+.cm-more-toggle { min-height: 26px; padding: 2px 10px; border: 1px solid #c9d6df; border-radius: 6px; background: #fff; color: #355466; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.cm-more-toggle:hover, .cm-more-toggle[aria-expanded='true'] { background: #eaf5f7; border-color: #8aafbb; }
+.cm-more-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; display: grid; gap: 2px; min-width: 260px; padding: 6px; border: 1px solid #c9d6df; border-radius: 8px; background: #fff; box-shadow: 0 6px 18px rgb(22 38 49 / 16%); }
+.cm-more-item { display: grid; gap: 2px; padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: #172b3a; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.cm-more-item:hover, .cm-more-item:focus-visible { background: #eef5fb; }
+.cm-more-item small { color: #52697a; font-size: 11px; }
+.cm-more-item[aria-pressed='true'] { font-weight: 700; }

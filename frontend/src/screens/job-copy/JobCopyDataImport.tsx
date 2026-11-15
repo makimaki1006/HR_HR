@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 export function JobCopyDataImport({ open = true, onClose, children }: { open?: boolean; onClose?: () => void; children: ReactNode }) {
   return <section className="jc-data-import" id="job-copy-data-import" aria-labelledby="job-copy-data-import-heading" hidden={!open}>
     <div className="jc-panel-heading"><h2 id="job-copy-data-import-heading" tabIndex={-1}>データ取込</h2>{onClose && <button type="button" className="jc-button" onClick={onClose}>閉じる</button>}</div>
+    <p className="jc-data-import-purpose">課金のCSVや媒体の本文をこの画面に読み込むための作業用です。</p>
     <p className="jc-muted">取り込んだ内容はこの画面の中だけで使います。HubSpot や媒体には書き込みません。</p>
     <div className="jc-data-import-body">{children}</div>
   </section>;

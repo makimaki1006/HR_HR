@@ -3,7 +3,12 @@ import { test, expect } from '@playwright/test';
 import { openOtherAnalysis, closeOtherAnalysis, findListings } from './job-copy-navigation';
 import { fixtureJobs, fixtureHistory } from './job-copy-listings-fixture.mjs';
 
-const triggerName = '求人一覧を開く';
+const triggerName = '左の一覧で求人を探す';
+/** 上の帯の「⋯ その他」から、左の一覧を HubSpot の求人に切り替える。 */
+async function showHubSpotListings(page: import('@playwright/test').Page) {
+  await page.getByRole('button', { name: 'その他', exact: true }).click();
+  await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
+}
 export function sidebarTests() {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
@@ -17,7 +22,7 @@ export function sidebarTests() {
     test(`${width}×${height}: 畳んだ一覧は横書きの1つのボタンで、開いても詳細の幅を保つ`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       const trigger = page.getByRole('button', { name: triggerName });
-      await expect(trigger).toHaveText('☰求人');
+      await expect(trigger).toHaveText('求人を探す');
       await expect(trigger).toHaveCSS('writing-mode', 'horizontal-tb');
       expect((await page.locator('.jc-main').boundingBox())!.width).toBe(width - 48);
       await trigger.click();
@@ -28,7 +33,7 @@ export function sidebarTests() {
   }
 
   for (const width of [1440, 1920]) {
-    test(`${width}px: マウスで開き、求人選択で閉じ、詳細が残り幅を使う`, async ({ page }) => {
+    test(`${width}px: マウスが通るだけでは開かず、押すと開き、求人選択で閉じ、詳細が残り幅を使う`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 });
       const trigger = page.getByRole('button', { name: triggerName });
       await expect(trigger).toHaveAttribute('aria-expanded', 'false');
@@ -39,8 +44,13 @@ export function sidebarTests() {
       const shots = path.resolve(__dirname, '../../docs/screenshots/job-copy-collapsible-sidebar');
       if (width === 1440 && process.env.JOB_COPY_SIDEBAR_SCREENSHOTS) await page.screenshot({ path: path.join(shots, 'closed-1440.png') });
       await trigger.hover();
+      await page.waitForTimeout(300);
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      await trigger.click();
       await expect(trigger).toHaveAttribute('aria-expanded', 'true');
       await expect(page.getByRole('complementary', { name: '求人一覧と絞り込み' })).toBeVisible();
+      // 開いたら最初に検索欄へ移る。
+      await expect(page.getByLabel('求人名・企業名・勤務地で検索')).toBeFocused();
       expect((await page.locator('.jc-main').boundingBox())!.width).toBe(width - 48);
       if (width === 1440 && process.env.JOB_COPY_SIDEBAR_SCREENSHOTS) {
         await expect.poll(() => page.locator('.jc-list').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
@@ -52,8 +62,8 @@ export function sidebarTests() {
       await expect(trigger).toHaveAttribute('aria-expanded', 'false');
       await expect(page.locator('.jc-band h1')).toHaveText(title);
       await expect(page.locator('#job-details')).toBeFocused();
-      await trigger.hover();
-      await page.getByRole('button', { name: '固定', exact: true }).click();
+      await trigger.click();
+      await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
       expect((await page.locator('.jc-main').boundingBox())!.width).toBe(width - 300);
       if (width === 1440 && process.env.JOB_COPY_SIDEBAR_SCREENSHOTS) await page.screenshot({ path: path.join(shots, 'pinned-1440.png') });
     });
@@ -67,7 +77,7 @@ export function sidebarTests() {
       const region = page.getByRole('region', { name: 'HubSpot の求人' });
       async function openList() {
         await page.mouse.move(width - 100, 500);
-        await trigger.hover();
+        await trigger.click();
         await expect(trigger).toHaveAttribute('aria-expanded', 'true');
         await expect(panel).toBeVisible();
       }
@@ -84,8 +94,7 @@ export function sidebarTests() {
         await expect.poll(() => page.locator('.jc-list').evaluate(element => getComputedStyle(element).opacity)).toBe(state === 'closed' ? '0' : '1');
         await page.screenshot({ path: path.join(shots, `hubspot-${state}-1440.png`) });
       }
-      await openList();
-      await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+      await showHubSpotListings(page);
       await findListings(page);
       await expect(region.locator('.jc-job')).toHaveCount(40);
       await expectFullDetail();
@@ -112,58 +121,58 @@ export function sidebarTests() {
       await openList();
       await expectFullDetail();
       await screenshot('open');
-      await page.getByRole('button', { name: '固定', exact: true }).click();
+      await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
       const pinnedWidth = Math.min(420, Math.max(320, width * 0.25));
       expect((await page.locator('.jc-sidebar').boundingBox())!.width).toBe(pinnedWidth);
       expect((await page.locator('.jc-main').boundingBox())!.width).toBe(width - pinnedWidth);
       await screenshot('pinned');
-      await page.getByRole('button', { name: '固定を解除', exact: true }).click();
+      await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
       await expect(trigger).toHaveAttribute('aria-expanded', 'false');
       await expect(trigger).toBeFocused();
       await expectFullDetail();
     });
   }
 
-  test('Tab・Esc・外クリックと、マウスが少し離れたときの猶予', async ({ page }) => {
+  test('Tab で通っても開かず、Enter で開いて検索欄へ移り、Esc・外クリックで閉じる', async ({ page }) => {
     const trigger = page.getByRole('button', { name: triggerName });
     await trigger.focus();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await page.keyboard.press('Enter');
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('complementary', { name: '求人一覧と絞り込み' })).toBeVisible();
-    await page.keyboard.press('Tab');
-    await expect(page.getByRole('button', { name: '固定', exact: true })).toBeFocused();
-    await page.keyboard.press('Tab');
-    await expect(page.getByRole('button', { name: 'HubSpot の求人', exact: true })).toBeFocused();
+    await expect(page.getByLabel('求人名・企業名・勤務地で検索')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(trigger).toBeFocused();
     await page.keyboard.press('Tab');
     expect(await page.locator('.jc-list').evaluate(element => element.contains(document.activeElement))).toBe(false);
+    // マウスが通る・離れるだけでは開閉しない。
     await trigger.hover();
     await page.mouse.move(1100, 500);
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(300);
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await trigger.hover();
-    await page.mouse.click(1100, 220);
-    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await page.keyboard.press('Tab');
-    await trigger.focus();
-    await page.keyboard.press('Tab');
+    await page.mouse.move(1100, 500);
+    await page.waitForTimeout(300);
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await page.mouse.click(1100, 220);
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     expect(await page.locator('.jc-list').evaluate(element => element.contains(document.activeElement))).toBe(false);
   });
 
-  test('固定を記憶し、解除で閉じた状態を記憶する', async ({ page }) => {
+  test('開いたままにするを記憶し、解除で閉じた状態を記憶する', async ({ page }) => {
     const trigger = page.getByRole('button', { name: triggerName });
-    await trigger.hover();
-    await page.getByRole('button', { name: '固定', exact: true }).click();
+    await trigger.click();
+    const pin = page.getByRole('button', { name: '開いたままにする', exact: true });
+    await pin.click();
     await page.locator('.jc-fixed-list .jc-job').nth(1).click();
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: '固定を解除', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(pin).toHaveAttribute('aria-pressed', 'true');
+    await expect(pin).toHaveText('✓ 開いたままにする');
     await page.reload();
-    await expect(page.getByRole('button', { name: '固定を解除', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: '固定を解除', exact: true }).click();
+    await expect(pin).toBeVisible();
+    await pin.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(trigger).toBeFocused();
     await page.reload();
@@ -179,16 +188,16 @@ export function sidebarTests() {
     await page.reload();
     const trigger = page.getByRole('button', { name: triggerName });
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await trigger.hover();
+    await trigger.click();
     expect(await page.locator('.jc-list').evaluate(element => getComputedStyle(element).transitionDuration)).toBe('0s');
-    await page.getByRole('button', { name: '固定', exact: true }).click();
-    await page.getByRole('button', { name: '固定を解除', exact: true }).click();
+    await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
+    await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 
   test('固定一覧の検索条件・選択・スクロールを開閉で失わない', async ({ page }) => {
     const trigger = page.getByRole('button', { name: triggerName });
-    await trigger.hover();
+    await trigger.click();
     await page.getByLabel('求人名・企業名・勤務地で検索').fill('デモ');
     await page.locator('.jc-fixed-list .jc-filter-more > summary').click();
     await page.locator('.jc-fixed-list').getByLabel('並び順', { exact: true }).selectOption('applications');
@@ -199,7 +208,7 @@ export function sidebarTests() {
     const selected = await page.locator('.jc-fixed-list .jc-job[aria-pressed="true"] strong').innerText();
     await page.keyboard.press('Escape');
     await page.mouse.move(1100, 500);
-    await trigger.hover();
+    await trigger.click();
     await expect(page.getByLabel('求人名・企業名・勤務地で検索')).toHaveValue('デモ');
     await expect(page.locator('.jc-fixed-list').getByLabel('並び順', { exact: true })).toHaveValue('applications');
     expect(await scroll.evaluate(element => element.scrollTop)).toBe(before);
@@ -208,8 +217,7 @@ export function sidebarTests() {
 
   test('HubSpot の求人を選ぶと閉じ、絞り込みとスクロールを保持する', async ({ page }) => {
     const trigger = page.getByRole('button', { name: triggerName });
-    await trigger.hover();
-    await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+    await showHubSpotListings(page);
     await findListings(page);
     const region = page.getByRole('region', { name: 'HubSpot の求人' });
     await expect(region.locator('.jc-job')).toHaveCount(40);
@@ -223,7 +231,7 @@ export function sidebarTests() {
     expect(before).toBeGreaterThan(0);
     await page.keyboard.press('Escape');
     await page.mouse.move(1100, 500);
-    await trigger.hover();
+    await trigger.click();
     await expect(filter).toHaveValue(value);
     expect(await scroll.evaluate(element => element.scrollTop)).toBe(before);
     await region.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();

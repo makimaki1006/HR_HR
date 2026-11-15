@@ -12,17 +12,36 @@
 .jh-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .jh-card { display: flex; flex-direction: column; gap: 6px; text-align: left; background: var(--jc-paper, #fff); border: 1px solid var(--jc-border, #d4dfe7); border-radius: 10px; padding: 16px; cursor: pointer; font: inherit; color: inherit; }
 .jh-card:hover { border-color: #8aafbb; }
-.jh-card[aria-pressed='true'] { border-color: var(--jc-accent, #007c91); box-shadow: inset 0 0 0 1px var(--jc-accent, #007c91); background: var(--jc-soft, #eaf5f7); }
-.jh-card.jh-warn { border-color: #e9b676; }
-.jh-card.jh-alert { border-color: #fdba74; background: #fff7ed; }
+/* 色: 赤＝急ぐ（予定が過ぎた・満了30日以内）、橙＝注意、灰＝0件・参考。押せるものは青。 */
+.jh-card.jh-warn { border-color: #e9a15c; background: #fff7ed; }
+.jh-card.jh-alert { border-color: #e0827a; background: #fef2f2; }
+.jh-card.jh-alert .jh-count { color: #b42318; }
+.jh-card.jh-zero .jh-count { color: #8a99a6; }
+.jh-card.jh-zero .jh-card-title { color: #52697a; }
+/* 選んでいるカードは太い枠。色のカード（橙・赤）より後ろ・強い指定にして負けないようにする。 */
+.jh-cards .jh-card[aria-pressed='true'] { border-color: var(--jc-accent, #007c91); box-shadow: inset 0 0 0 2px var(--jc-accent, #007c91); }
+.jh-card-cue { align-self: flex-end; margin-top: auto; }
 .jh-count { font-size: 32px; line-height: 1.1; }
 .jh-count small { font-size: 14px; margin-left: 4px; font-weight: 400; }
 .jh-card-title { font-size: 15px; font-weight: 700; }
-.jh-more { margin: 8px 0 0; font-size: 13px; color: var(--jc-muted, #52697a); }
-.jh-more .jh-link { font-weight: 400; }
+.jh-more { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 0; font-size: 13px; color: var(--jc-muted, #52697a); }
+.jh-more-label { font-size: 12px; margin-right: 2px; }
+.jh-go-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 10px 0 0; font-size: 13px; color: #33475b; }
 .jh-rule { color: var(--jc-muted, #52697a); font-size: 12px; line-height: 1.5; }
 .jh-list { margin-top: 16px; background: var(--jc-paper, #fff); border: 1px solid var(--jc-border, #d4dfe7); border-radius: 8px; padding: 14px 16px; }
-.jh-list h3 { margin: 0 0 8px; font-size: 16px; }
+.jh-list h3 { margin: 0; font-size: 16px; }
+.jh-list-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.jh-reveal-head { justify-content: end; margin: 16px 0 -8px; }
+.jh-section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+.jh-section-head h2, .jh-section-head h3 { margin: 0; }
+.jh-section-head h3 small { margin-left: 6px; font-size: 12px; font-weight: 400; color: var(--jc-muted, #52697a); }
+.jc-infotip.jc-infotip-aside > summary { font-size: 12px; text-decoration: none; color: var(--jc-accent, #007c91); white-space: nowrap; }
+.jc-infotip.jc-infotip-aside > summary:hover { text-decoration: underline; }
+.jh-head h1 .jh-head-owner { font-size: 20px; font-weight: 600; }
+.jh-refresh { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 0; background: none; color: var(--jc-muted, #52697a); font: inherit; font-size: 12px; cursor: pointer; border-radius: 4px; }
+.jh-refresh:hover { color: var(--jc-accent, #007c91); background: var(--jc-soft, #eaf5f7); }
+.jh-scope-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; padding: 8px 12px; border: 1px solid #e6c200; border-radius: 6px; background: #fff8c5; color: #4d3d00; font-size: 13px; }
+.jh-scope-banner .jc-button { min-height: 28px; padding: 3px 10px; font-size: 13px; }
 .jh-scroll { overflow-x: auto; }
 .jh-home table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .jh-home th, .jh-home td { padding: 9px 8px; border-bottom: 1px solid #e6edf2; text-align: left; vertical-align: middle; }
@@ -56,11 +75,18 @@
 .jh-latest-name { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .jh-latest small { display: block; color: var(--jc-muted, #52697a); font-size: 12px; }
 .jh-badge.jh-now { background: var(--jc-accent, #007c91); color: #fff; }
-.jh-owner { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--jc-muted, #52697a); }
-.jh-owner-title { font-size: 12px; font-weight: 600; }
-.jc-app .jh-owner label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
-.jh-owner select { width: 155px; max-width: 100%; padding: 5px 7px; border: 1px solid #d4dfe7; border-radius: 6px; background: #fff; color: inherit; font: inherit; }
-.jh-owner .jc-button { min-height: 28px; padding: 4px 8px; font-size: 12px; }
+.jh-owner { display: flex; gap: 6px 12px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--jc-muted, #52697a); }
+.jh-owner-label { flex-shrink: 0; font-size: 12px; font-weight: 600; color: #33475b; white-space: nowrap; }
+.jc-app .jh-owner label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; margin: 0; }
+.jh-owner select { width: 120px; }
+.jc-app .jh-owner select { width: 120px; padding: 0 6px; line-height: 22px; }
+.jc-app .jh-owner .jh-owner-name { padding: 0 7px; }
+.jh-owner select, .jh-owner .jh-owner-name { box-sizing: border-box; height: 26px; max-width: 100%; min-height: 0; padding: 1px 7px; border: 1px solid #d4dfe7; border-radius: 6px; background: #fff; color: #172b3a; font: inherit; }
+.jh-owner-quick { display: inline-flex; gap: 4px; }
+.jh-owner-quick-button { min-height: 24px; padding: 1px 10px; border: 1px solid #d4dfe7; border-radius: 999px; background: #fff; color: #355466; font: inherit; font-size: 12px; cursor: pointer; }
+.jh-owner-quick-button[aria-pressed='true'] { border-color: var(--jc-accent, #007c91); background: var(--jc-soft, #eaf5f7); color: var(--jc-accent, #007c91); font-weight: 700; cursor: default; }
+.jh-owner-disabled select, .jh-owner-disabled .jh-owner-name { background: #f1f4f6; color: #8a99a6; cursor: not-allowed; }
+.jh-owner .cm-owner-note { margin: 0; font-size: 12px; }
 .jh-owner p { margin: 0; font-size: 12px; }
 .jh-todo-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .jh-todo-later { margin-top: 10px; font-size: 12px; font-weight: 400; }
@@ -110,3 +136,25 @@
 .jh-flag-summary .jh-change-chip { margin: 2px 4px 2px 0; }
 .jh-flag-basis p { margin: 0; }
 .jh-flag-basis ul { margin: 2px 0 8px; padding-left: 18px; }
+
+/*
+ * 押せるものの 4 通り（案件管理の全画面で共通。部品は Pressable.tsx）。
+ * 別の画面へ移る＝青い字に下線（→）、小窓・詳細・一覧が開く＝文字付きのボタン（▸ ▾）、
+ * 外へ出る＝「↗ HubSpot」、一覧を絞る・開く切り替え＝件数付きの丸い札。
+ */
+.jc-go { display: inline; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: #0a5fb4; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; text-align: left; }
+.jc-go:hover { color: #08447f; }
+.jc-open { display: inline-flex; align-items: center; gap: 2px; padding: 3px 9px; border: 1px solid #9fc3d9; border-radius: 6px; background: #fff; color: #0a5fb4; font: inherit; font-size: 12px; font-weight: 600; line-height: 1.4; white-space: nowrap; cursor: pointer; }
+button.jc-open:hover, .jh-card:hover .jc-open { background: #eef5fb; }
+.jh-card[aria-pressed='true'] .jc-open { background: #0a5fb4; border-color: #0a5fb4; color: #fff; }
+.jc-out { display: inline-flex; align-items: center; gap: 2px; color: #0a5fb4; font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.jc-out:hover { text-decoration: underline; }
+.jc-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 12px; border: 1px solid #b9cfdd; border-radius: 999px; background: #fff; color: #0a5fb4; font: inherit; font-size: 13px; cursor: pointer; }
+.jc-chip-count { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.jc-chip:hover { background: #eef5fb; }
+.jc-chip[aria-pressed='true'] { border-color: #0a5fb4; background: #0a5fb4; color: #fff; }
+.jc-chip.is-zero { border-color: #dde5eb; color: #8a99a6; }
+.jc-chip.is-zero[aria-pressed='true'] { background: #8a99a6; border-color: #8a99a6; color: #fff; }
+.jh-owner .jh-owner-name { width: 150px; }
+/* 上の帯の中では、担当の欄を 1 行に保つ（入らないときは欄ごと次の行へ回る）。 */
+.cm-right .jh-owner { flex-wrap: nowrap; }

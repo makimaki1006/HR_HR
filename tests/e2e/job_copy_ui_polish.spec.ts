@@ -20,9 +20,9 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await page.route('**/api/job-copy/listings/1/versions', route => route.fulfill({ json: { ...fixtureHistory('1'), company_name: '合成運輸株式会社' } }));
       await page.setViewportSize({ width, height });
       await page.goto('/app/job-copy');
+      // 左の一覧は押したときだけ開く（findListings が開く）。
       await findListings(page);
-      if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
-      await expect(page.getByRole('button', { name: 'HubSpot の求人', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByRole('region', { name: 'HubSpot の求人' })).toBeVisible();
       await expect(page.locator('.jc-hubspot-job')).toHaveCount(40);
       await expect.poll(() => wholeCards(page)).toBeGreaterThanOrEqual(5);
       expect(calls.some(url => url.endsWith('/moc'))).toBe(false);
@@ -40,7 +40,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await expect(page.locator('.jc-detail-heading')).toContainText('合成運輸株式会社 · 大分県大分市 · HRハッカー');
       await expect(page.locator('.jc-record-meta')).toContainText('2026/10/02 09:00 にHubSpotに記録された本文');
       await expect(page.locator('.jc-main')).not.toContainText(/保存を確認・掲載時刻不明|確認した本文 1|取引先名未取得/);
-      if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
+      if (!pinned) await page.getByRole('button', { name: '左の一覧で求人を探す' }).click();
       await expect.poll(() => wholeCards(page)).toBeGreaterThanOrEqual(5);
       await expect(page.locator('.jc-listings-panel .jc-history-status')).toHaveCount(0);
       if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-detail-1440.png') });
@@ -112,7 +112,6 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await page.setViewportSize({ width, height });
       await page.goto('/app/job-copy?data=actual');
       await findListings(page);
-      if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
       const cards = page.locator('.jc-fixed-list .jc-job');
       await expect(cards).toHaveCount(36);
       if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-fixed-list-1440.png') });
@@ -127,7 +126,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await page.locator('.jc-fixed-list .jc-list-scroll').evaluate(element => { element.scrollTop = 0; });
       await cards.nth(1).click();
       await expect(page.locator('.jc-band')).toContainText('特殊機械の組立スタッフ2');
-      if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
+      if (!pinned) await page.getByRole('button', { name: '左の一覧で求人を探す' }).click();
       await expect.poll(() => wholeCards(page, '.jc-fixed-list .jc-job')).toBeGreaterThanOrEqual(5);
       if (!pinned) {
         await page.keyboard.press('Escape');
@@ -158,7 +157,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await expect(page.locator('.ac-composition')).not.toContainText('版');
       await selectJobFeature(page, 'body');
       await closeOtherAnalysis(page);
-      if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
+      if (!pinned) await page.getByRole('button', { name: '左の一覧で求人を探す' }).click();
       if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-fixed-detail-1440.png') });
     });
   }

@@ -136,12 +136,12 @@ for (const width of [1280, 1440]) for (const scenario of cases) test(`案件管�
   await login(page);
   const prefix = `${width}-${scenario.name}`;
   await page.goto('/app/job-copy?owner=11');
-  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toBeVisible();
   await audit(page, `${prefix}-home`);
   const cardCount = await page.locator('.jh-card').count();
   for (let index = 0; index < cardCount; index++) {
     await page.goto('/app/job-copy?owner=11');
-    await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toBeVisible();
     await page.locator('.jh-card').nth(index).click();
     await audit(page, `${prefix}-card-${index}`);
   }
@@ -173,10 +173,10 @@ await audit(page, `${prefix}-sort`);
   await page.goto('/app/job-copy?company=900&owner=11');
   await expect(page.locator('.jc-main')).not.toContainText('求人を読み込んでいます…');
   await audit(page, `${prefix}-company`);
-  await page.getByRole('button', { name: '求人一覧を開く', exact: true }).click();
-  await page.getByRole('button', { name: '固定', exact: true }).click();
+  await page.getByRole('button', { name: '左の一覧で求人を探す', exact: true }).click();
+  await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
   await audit(page, `${prefix}-company-sidebar`);
-  await page.getByRole('button', { name: '固定を解除', exact: true }).click();
+  await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
   await page.goto('/app/job-copy?view=occupations');
   await expect(page.getByText('市場と比べる職種を指定する', { exact: true })).toBeVisible();
   await expect(page.locator('.ob-table tbody tr')).toHaveCount(listings.length || 1);
@@ -184,8 +184,8 @@ await audit(page, `${prefix}-sort`);
   for (const tab of await page.getByRole('tab').all()) { await tab.click(); await audit(page, `${prefix}-occupation-${await tab.textContent()}`); }
   if (!listings.length) {
     await page.goto('/app/job-copy?owner=11');
-    await page.getByRole('button', { name: '求人一覧を開く', exact: true }).click();
-    await page.getByRole('button', { name: '固定', exact: true }).click();
+    await page.getByRole('button', { name: '左の一覧で求人を探す', exact: true }).click();
+    await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
     await findListings(page);
     await expect(page.locator('.jc-listings-panel')).toBeVisible();
     await audit(page, `${prefix}-empty-listings`);
@@ -205,14 +205,14 @@ await audit(page, `${prefix}-sort`);
   await picker.getByLabel('市場と比べない', { exact: true }).check();
   await audit(page, `${prefix}-occupation-picker-empty`);
   await picker.getByRole('button', { name: 'やめる', exact: true }).click();
-  await page.getByRole('button', { name: '求人一覧を開く', exact: true }).click();
-  await page.getByRole('button', { name: '固定', exact: true }).click();
+  await page.getByRole('button', { name: '左の一覧で求人を探す', exact: true }).click();
+  await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
   await findListings(page);
   await expect(page.locator('.jc-hubspot-job')).toHaveCount(listings.length);
   await audit(page, `${prefix}-pinned`);
   await page.locator('.jc-listings-panel').getByLabel('並び順', { exact: true }).selectOption('applications');
   await audit(page, `${prefix}-listing-sort`);
-  await page.getByRole('button', { name: '固定を解除', exact: true }).click();
+  await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
   if (await page.locator('.lo-event-head').count()) { await page.locator('.lo-event-head').first().click(); await audit(page, `${prefix}-selected-week`); }
   ended = true;
   await page.reload();
@@ -226,7 +226,7 @@ await audit(page, `${prefix}-sort`);
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   await audit(page, `${prefix}-popup`);
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'データ取込', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'データを取り込む（作業用）', exact: true }).click();
   await audit(page, `${prefix}-import`);
   await page.getByRole('button', { name: '外部文面を照合する', exact: true }).click();
   await expect(page.locator('dialog[open]')).toBeVisible();
@@ -291,7 +291,7 @@ for (const width of [1280, 1440]) test(`固定一覧・横断比較・応募者�
   await page.getByRole('button', { name: '一覧', exact: true }).click();
   await page.getByRole('button', { name: '応募者の条件で探す', exact: true }).click();
   await audit(page, `${width}-demo-reverse`);
-  await page.getByRole('button', { name: 'データ取込', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'データを取り込む（作業用）', exact: true }).click();
   const csv = '媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\n' + Array.from({ length: 80 }, (_, i) => `Airワーク,SYNTHETIC,${i},2026-10-01,2026-10-18,987654321`).join('\n');
   await page.getByLabel('課金CSVファイル', { exact: true }).setInputFiles({ name: 'synthetic-billing.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await page.getByRole('button', { name: '求人と照合する', exact: true }).click();

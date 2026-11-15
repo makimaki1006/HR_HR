@@ -19,6 +19,7 @@ import { ColumnComparison, compareColumns } from './ColumnComparison';
 import { draftVersion } from './hubspotListings';
 import type { DraftSnapshot } from '../../generated/DraftSnapshot';
 import { JobCopySidebar, useJobCopySidebar } from './JobCopySidebar';
+import { clearPendingMoreAction, peekPendingMoreAction, useRegisterMoreActions } from './MoreMenu';
 import { JobCopyHome } from './JobCopyHome';
 import { CompanyView } from './CompanyView';
 import { SidebarDeals, sidebarMode } from './SidebarContext';
@@ -380,7 +381,7 @@ function JobCopyMain() {
   const [captured, setCaptured] = useState(false);
   const [live, setLive] = useState(false);
   const originalListing = useRef<{ records: JobCopyRecord[]; snapshotAt: string; live: boolean; captured: boolean; selectedId: string } | null>(null);
-  const [listingSource, setListingSource] = useState<'fixed' | 'hubspot'>(query.has('listing') || query.get('source') === 'hubspot' ? 'hubspot' : query.get('demo') === '1' || query.get('data') === 'actual' || query.has('job') ? 'fixed' : 'hubspot');
+  const [listingSource, setListingSource] = useState<'fixed' | 'hubspot'>(query.has('listing') || query.get('source') === 'hubspot' ? 'hubspot' : query.get('source') === 'fixed' || query.get('demo') === '1' || query.get('data') === 'actual' || query.has('job') ? 'fixed' : 'hubspot');
   // 階層（ホーム → 顧客 → 案件 → 求人）。URL の company / deal / listing が正本で、名前だけ画面に持つ。
   const [initialTrail] = useState<Trail>(() => readTrail(window.location.search));
   const [initialDeal] = useState<DealSelection | null>(() => initialTrail.deal && !initialTrail.listing ? { id: initialTrail.deal, name: '', prefecture: '', title: '', media: '' } : null);
@@ -414,7 +415,7 @@ function JobCopyMain() {
   function changeDummyBilling(value: boolean) { setShowDummyBilling(value); writeDummyBillingChoice(value); }
   const demoMode = !snapshotRequested && !live && !captured;
   // データ取込と応募者の条件検索は、主作業（一覧とタイムライン）の外に置き、ボタンで開く。
-  const [importOpen, setImportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(() => peekPendingMoreAction() === 'import');
   const [reverseOpen, setReverseOpen] = useState(false);
   const [featureRequest, setFeatureRequest] = useState<FeatureRequest | null>(null);
   // 一覧と詳細を、画面の下端まで使う高さにする（上の帯の高さを測る）。
@@ -549,6 +550,14 @@ function JobCopyMain() {
     setRecords(items => [...items.filter(item => item.id.startsWith('hubspot-history-') && item.id !== job.id), job]);
     setFeatureRequest(null); setSelectedId(job.id); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(false); setLive(true);
   }
+  function showHubSpotListings() {
+    if (listingSource === 'hubspot') return;
+    originalListing.current = { records, snapshotAt, live, captured, selectedId }; updateJobCopyQuery({ source: 'hubspot', job: null, company: null, deal: null, listing: null, feature: null, analysis: null, popup: null }); stopSnapshot(); setListingSource('hubspot'); setListingDetail('idle'); setMobileListingView('list');
+  }
+  // 固定一覧の切り替えとデータ取込は、上の帯の「⋯ その他」から開く。
+  useRegisterMoreActions({ importOpen, toggleImport, fixedShown: listingSource === 'fixed', toggleFixed: () => { if (listingSource === 'fixed') showHubSpotListings(); else restoreOriginalListing(); } });
+  // ほかの画面の「⋯ その他」でデータ取込を押して移ってきたときは、開いた状態で始める（受け取ったら消す）。
+  useEffect(() => { clearPendingMoreAction(); }, []);
   function restoreOriginalListing() {
     setComparisonDeal(null); setListingSource('fixed');
     const url = new URL(window.location.href); url.search = writeTrail(url.search, {}); url.searchParams.set('source', 'fixed'); for (const key of detailQueryKeys) url.searchParams.delete(key); navigateJobCopy(url);
@@ -587,10 +596,9 @@ function JobCopyMain() {
   const sideMode = sidebarMode(sideLevel, Boolean(sideDealId));
   const scopeDeal = sideMode === 'listings' && !finding && sideDealId ? { id: sideDealId, name: [comparisonDeal?.name, trailNames.deal, dealSel?.name].find(Boolean) ?? '' } : undefined;
   const shownTrail: Trail = comparisonDeal ? { ...(trail.company ? { company: trail.company } : {}), deal: comparisonDeal.id } : listingDetail === 'idle' ? trail.company ? { company: trail.company } : {} : trail;
-  return <MarketCacheContext.Provider value={marketCache}><div className="jc-page"><div className="jc-topline"><header className="jc-page-heading"><h1>案件管理</h1>{listingSource === 'fixed' && <InfoTip className="jc-mode jc-infotip-left" label="試作画面"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip>}</header><ConsultantMenuHeader />
+  return <MarketCacheContext.Provider value={marketCache}><div className="jc-page"><div className="jc-topline"><h1 className="jc-visually-hidden">案件管理</h1>{listingSource === 'fixed' && <header className="jc-page-heading"><InfoTip className="jc-mode jc-infotip-left" label="試作画面"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip></header>}<ConsultantMenuHeader />
     {listingSource === 'fixed' && <div className="jc-demo" title={bannerText}><strong>{bannerLabel}</strong><span>{bannerText}</span></div>}
-    {snapshotAt && <InfoTip className="jc-snapshot-tip" label="取り込んだ内容"><section className="jc-snapshot-summary" aria-label="取り込んだ内容の内訳"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>取り込んだ本文</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募（HubSpot記録分・求人ごとの件数の合計（重複あり））</span><span>どの本文への応募か分からない応募 <strong>{records.reduce((sum, job) => sum + (unmatchedApplicationCount(job) ?? 0), 0)}</strong>件（求人ごとの件数の合計（重複あり））</span><span>期間比較表の本文の行に入らない応募 <strong>{records.reduce((sum, job) => sum + (applicationsOutsideTimeline(job) ?? 0), 0)}</strong>件（求人ごとの件数の合計（重複あり））</span></section><p className="jc-snapshot-note">1件の応募が複数の求人に関連することがあるため、求人ごとの件数を足した値は応募の実数より多いことがあります。「期間比較表の本文の行に入らない応募」は、応募日が無い応募、最初の確認より前・文面を確認した日の間・最後の確認より後の日付の応募、複数の求人に関連する応募です。</p></InfoTip>}
-    <button type="button" className="jc-button jc-import-toggle" aria-expanded={importOpen} aria-controls="job-copy-data-import" onClick={toggleImport}>データ取込</button></div>
+    {snapshotAt && <InfoTip className="jc-snapshot-tip" label="取り込んだ内容"><section className="jc-snapshot-summary" aria-label="取り込んだ内容の内訳"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>取り込んだ本文</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募（HubSpot記録分・求人ごとの件数の合計（重複あり））</span><span>どの本文への応募か分からない応募 <strong>{records.reduce((sum, job) => sum + (unmatchedApplicationCount(job) ?? 0), 0)}</strong>件（求人ごとの件数の合計（重複あり））</span><span>期間比較表の本文の行に入らない応募 <strong>{records.reduce((sum, job) => sum + (applicationsOutsideTimeline(job) ?? 0), 0)}</strong>件（求人ごとの件数の合計（重複あり））</span></section><p className="jc-snapshot-note">1件の応募が複数の求人に関連することがあるため、求人ごとの件数を足した値は応募の実数より多いことがあります。「期間比較表の本文の行に入らない応募」は、応募日が無い応募、最初の確認より前・文面を確認した日の間・最後の確認より後の日付の応募、複数の求人に関連する応募です。</p></InfoTip>}</div>
     {listingSource === 'fixed' && <div className="jc-scope-line"><p>この画面は、選んで取り込んだ一部の求人{records.length ? `（${String(records.length)}件）` : ''}だけを表示しています。管理しているすべての求人ではありません。</p>
       <label className="jc-dummy-toggle"><input type="checkbox" checked={showDummyBilling} onChange={event => { changeDummyBilling(event.target.checked); }} />仮の課金データを表示</label></div>}
     {listingSource === 'fixed' && snapshotLoading && <div className="jc-notice"><p role="status">{snapshotSlow ? '読み込みに時間がかかっています。待機を続けるか、求人データを再読み込みできます。' : '求人一覧・本文・応募集計を読み込んでいます…画像は表示時に取得します。'}</p>{snapshotSlow && <button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再読み込み</button>}</div>}
@@ -601,7 +609,7 @@ function JobCopyMain() {
       <BillingImportPanel records={records} applied={billingPeriods} onApply={setBillingPeriods} onClear={() => { setBillingPeriods([]); }} />
       <section className="jc-receive-entry" aria-labelledby="job-copy-receive-entry-heading"><h3 id="job-copy-receive-entry-heading">外部文面を確認</h3><p>外部から届いた本文を、選んでいる求人{selected ? `「${selected.title}」` : ''}の現在の本文と照合します。求人本文は書き換えません。</p><button type="button" className="jc-button" disabled={!selected} onClick={openReceive}>外部文面を照合する</button></section>
     </JobCopyDataImport>
-    <div className={`jc-workspace jc-mobile-${mobileListingView} ${sidebar.pinned ? 'jc-sidebar-pinned' : 'jc-sidebar-collapsed'} ${sidebar.expanded ? 'jc-sidebar-open' : ''}`} ref={workspace} style={{ '--jc-workspace-top': `${String(workspaceTop)}px` } as CSSProperties}><JobCopySidebar {...sidebar} title={listingSource === 'hubspot' && listingDetail !== 'ready' ? '求人一覧' : selected?.title ?? '求人一覧'}><nav className="jc-list-source" aria-label="求人一覧の選択"><button type="button" aria-pressed={listingSource === 'hubspot'} onClick={() => { if (listingSource === 'hubspot') return; originalListing.current = { records, snapshotAt, live, captured, selectedId }; updateJobCopyQuery({ source: 'hubspot', job: null, company: null, deal: null, listing: null, feature: null, analysis: null, popup: null }); stopSnapshot(); setListingSource('hubspot'); setListingDetail('idle'); setMobileListingView('list'); }}>HubSpot の求人</button><button type="button" aria-pressed={listingSource === 'fixed'} onClick={restoreOriginalListing}>固定一覧を表示</button></nav>
+    <div className={`jc-workspace jc-mobile-${mobileListingView} ${sidebar.pinned ? 'jc-sidebar-pinned' : 'jc-sidebar-collapsed'} ${sidebar.expanded ? 'jc-sidebar-open' : ''}`} ref={workspace} style={{ '--jc-workspace-top': `${String(workspaceTop)}px` } as CSSProperties}><JobCopySidebar {...sidebar} onOpen={() => { if (listingSource === 'hubspot' && sideMode === 'search') setFinding(true); }} title={listingSource === 'hubspot' && listingDetail !== 'ready' ? '求人一覧' : selected?.title ?? '求人一覧'}>
       {listingSource === 'hubspot' && sideMode === 'deals' && trail.company && <SidebarDeals companyId={trail.company} onOpenDeal={deal => { openDeal({ ...deal, prefecture: '', title: '', media: '' }, trail.company); }} />}
       {listingSource === 'hubspot' && !(sideMode === 'listings' && !finding) && <button type="button" className="jc-button jc-side-find" aria-expanded={finding} onClick={() => { setFinding(value => !value); }}>{finding ? '求人の検索を閉じる' : '求人を探す'}</button>}
       {listingSource === 'hubspot' && sideMode === 'listings' && !finding && <button type="button" className="jc-button jc-side-find" onClick={() => { setFinding(true); }}>ほかの案件の求人も探す</button>}
