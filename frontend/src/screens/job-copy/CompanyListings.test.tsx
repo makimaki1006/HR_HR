@@ -56,7 +56,7 @@ it('コンサル担当から案件担当・全員への切り替えを掲載中�
   expect(screen.getByRole('button', { name: '過去・all', hidden: true })).toBeTruthy();
 });
 
-it('掲載中の求人だけをホームと同じラベルで読み、ラベルを先に並べ、並べ替えを選べる', async () => {
+it('掲載中の求人だけをホームと同じタグで読み、タグを先に並べ、並べ替えを選べる', async () => {
   api.mockImplementation((url: string) => {
     if (url.startsWith('/api/job-copy/listing-flags')) return Promise.resolve({ ok: true, data: { status: 'ready', flags: { '1': ['more'], '2': ['to_zero', 'costly'] }, numbers: { '1': null, '2': { prev_apps: 3, recent_apps: 0, recent_cost: 20000, latest_end: '2026-11-02' } }, cards: [
       { key: 'to_zero', title: '応募がゼロになった求人', rule: '掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。' },
@@ -79,16 +79,16 @@ it('掲載中の求人だけをホームと同じラベルで読み、ラベル�
   expect(titles()).toEqual(['合成求人・古い', '合成求人・新しい']);
   const zeroChip = [...liveTable.querySelectorAll('.jh-change-chip')].find(chip => chip.textContent === '応募がゼロになった');
   expect(zeroChip?.getAttribute('title')).toBe('掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。\n判定に使った数字: 前4週 3件 → 直近4週 0件、課金 ¥20,000、〜11/02 の週まで');
-  expect(screen.getByText('期間：ラベルは週ごとの実績の最新の週までの4週間。表は応募を取得した日までの4週間。')).toBeTruthy();
+  expect(screen.getByText('期間：タグは週ごとの実績の最新の週までの4週間。表は応募を取得した日までの4週間。')).toBeTruthy();
   fireEvent.change(screen.getByRole('combobox', { name: '並べ替え' }), { target: { value: 'changed' } });
   expect(titles()).toEqual(['合成求人・新しい', '合成求人・古い']);
 });
 
-it('ラベルが読めなくても求人の表は出し、読めなかったことを伝える', async () => {
+it('タグが読めなくても求人の表は出し、読めなかったことを伝える', async () => {
   api.mockImplementation((url: string) => Promise.resolve(url.startsWith('/api/job-copy/listing-flags')
     ? { ok: false, status: 503 }
     : { ok: true, data: { status: 'ready', next_offset: null, listings: [{ id: '1', title: '合成求人', publication_status: '掲載中', deal_ids: ['10'], media: 'hrh' }] } }));
   render(<CompanyListings {...props} deals={[{ id: '10', name: '合成案件' } as CompanyDeal]} />);
-  await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('ラベルを読み込めませんでした。求人の表はそのまま使えます。'); });
+  await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('タグを読み込めませんでした。求人の表はそのまま使えます。'); });
   expect(screen.getByRole('button', { name: '合成求人' })).toBeTruthy();
 });

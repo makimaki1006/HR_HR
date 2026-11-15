@@ -124,7 +124,7 @@ describe('求人の出来事', () => {
 describe('報告のスライド「周りの求人の様子」', () => {
   const input = (patch: Partial<ReportInput> = {}): ReportInput => ({
     scope: 'listing', id: '30', name: '顧客A フォークリフト', company: '顧客A', overlap: {}, asOf: '2026-11-16', outcomes: null,
-    listings: [{ id: '30', title: '顧客A フォークリフト', media: 'hrh', ended: false, endedOn: null, byDate: { '2026-11-01': 2 }, billing: [], billingUnavailable: false, events: { listingId: '30', bodyChangedAt: null, bodyChanges: [], imageChanges: [], startOn: '2026-08-01', statusEvents: [] } }],
+    listings: [{ id: '30', title: '顧客A フォークリフト', media: 'hrh', ended: false, endedOn: null, byDate: { '2026-11-01': 2 }, events: { listingId: '30', bodyChangedAt: null, bodyChanges: [], imageChanges: [], startOn: '2026-08-01', statusEvents: [] } }],
     applicants: { rows: null, reasons: null, missingReason: 'テスト' }, competitor: records, ...patch,
   });
   const options: ReportOptions = { from: '2026-10-19', to: '2026-11-15', addressee: '', subject: '', owner: '', sender: '', createdOn: '2026-11-16', nextActions: [], nextHeadline: '' };

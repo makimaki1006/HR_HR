@@ -43,7 +43,7 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   for (const card of ['契約満了が近い', '接触が空いている', '応募が止まっている']) {
     const button = page.getByRole('button', { name: new RegExp(card) });
     await expect(button.locator('.jh-count')).toHaveText('1件');
-    // ラベルが付いた案件は注意（橙）。
+    // タグが付いた案件は注意（橙）。
     await expect(button).toHaveClass(/jh-warn/);
   }
   // 初回で成果が出ていないは別の画面（案件一覧）で見るので、「→ 案件一覧で見る」の行にする。

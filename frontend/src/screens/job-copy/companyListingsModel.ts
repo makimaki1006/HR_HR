@@ -31,7 +31,7 @@ export interface FlagNumbers { prev_apps: number; recent_apps: number; recent_co
 export type ListingFlagNumbers = Readonly<Record<string, FlagNumbers | null>>;
 export type ListingFlagsResponse = { status: 'preparing' | 'failed' } | { status: 'ready'; flags: ListingFlags; numbers: ListingFlagNumbers; cards: ListingFlagCard[] };
 
-/** 分類の印に添える「判定に使った数字」。例: 前4週 3件 → 直近4週 0件、課金 ¥20,000、〜11/02 の週まで */
+/** タグに添える「判定に使った数字」。例: 前4週 3件 → 直近4週 0件、課金 ¥20,000、〜11/02 の週まで */
 export function flagNumbersLabel(numbers: FlagNumbers | null | undefined): string {
   if (!numbers) return '判定に使った数字: 週ごとの実績がありません';
   const [, month, day] = numbers.latest_end.split('-');

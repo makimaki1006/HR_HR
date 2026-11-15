@@ -94,7 +94,7 @@ it('内訳の件数・重なるチップ・説明と、再選択・すべてで�
   fireEvent.click(screen.getByRole('button', { name: 'すべて 3件' }));
   expect(screen.getAllByRole('row')).toHaveLength(4);
   fireEvent.click(screen.getByRole('button', { name: 'ほぼ同じ 0件' }));
-  expect(screen.getByText('この分類の求人はありません。')).toBeTruthy();
+  expect(screen.getByText('このタグの求人はありません。')).toBeTruthy();
 });
 
 it('内訳だけが集計中でも一覧を保ち、完成まで取り直す', async () => {

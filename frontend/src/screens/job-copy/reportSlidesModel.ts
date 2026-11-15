@@ -9,8 +9,7 @@
  */
 import type { CompetitorMonth } from '../../generated/CompetitorMonth';
 import { regionText, salaryText } from './competitorHistoryModel';
-import { addDays, countApplications, daysBetween, formatYen } from './timelineModel';
-import type { BillingEntry } from './timelineModel';
+import { addDays, countApplications, daysBetween } from './timelineModel';
 import { weekStart } from './dealSummaryModel';
 import type { EventSource, Overlap } from './dealSummaryModel';
 import type { ApplicationRow } from './data';
@@ -62,9 +61,6 @@ export interface ReportListing {
   endedOn: string | null;
   /** 応募日別の件数。読めなかったときは null（0 とは区別する）。 */
   byDate: Record<string, number> | null;
-  billing: readonly BillingEntry[];
-  /** 課金データを集めていない求人（AirWork で実績が無いもの）。 */
-  billingUnavailable: boolean;
   /** 本文・画像の変更と掲載の開始・終了。読めなかったときは null。 */
   events: EventSource | null;
 }
@@ -93,8 +89,13 @@ export interface ReportInput {
   overlap: Overlap;
   /** 応募データがそろっている最後の日。 */
   asOf: string;
-  /** 案件の面接・採用（手入力の値。期間の数ではない）。求人の単位・読めなかったときは null。既定では紙に出さない。 */
-  outcomes: { interviews: number | null; hires: number | null } | null;
+  /**
+   * 案件の面接・採用（案件に手入力した、ご契約からの累計。期間の数ではない）。readOn は案件を読んだ日（JST）。
+   * 求人の単位・読めなかったときは null。既定で紙に出す（期間の数字とは段を分け、読んだ日を添える）。
+   */
+  outcomes: { interviews: number | null; hires: number | null; readOn: string } | null;
+  /** 案件の面接・採用を読み込めなかった（未入力とは区別して、外した理由に書く）。 */
+  outcomesFailed?: boolean | undefined;
   applicants: ReportApplicants;
   /** 競合調査の月ごとの記録（求人の報告だけ。案件の報告では読まない）。 */
   competitor?: readonly CompetitorMonth[] | undefined;
@@ -115,8 +116,8 @@ export interface ReportOptions {
   nextHeadline: string;
   /** 入れないスライド。まとめの箇条書きにも使わない。 */
   off?: readonly SlideId[] | undefined;
-  /** 利用者の判断待ち: 面接・採用（手入力の値）と費用（媒体の課金額）。既定は出さない。 */
-  include?: { outcomes?: boolean; cost?: boolean } | undefined;
+  /** 面接・採用（案件に手入力した累計）を出すか。既定は出す（2026-11-16 利用者決定）。媒体の費用は報告に書かない。 */
+  include?: { outcomes?: boolean } | undefined;
 }
 
 export interface Bar { label: string; count: number }
@@ -127,7 +128,7 @@ export interface Kpi { label: string; value: string; sub: string | null }
 interface SlideBase { name: string; kicker: string; headline: string; note: string | null }
 export type Slide = SlideBase & (
   | { id: 'cover'; addressee: string; title: string; subtitle: string; footer: string }
-  | { id: 'summary'; kpis: Kpi[]; points: string[] }
+  | { id: 'summary'; kpis: Kpi[]; /** ご契約からの合計（面接・採用）。期間の数字とは別の段に出す。 */ totals: { heading: string; kpis: Kpi[] } | null; points: string[] }
   | { id: 'trend'; unit: 'week' | 'month'; bars: TrendBar[] }
   | { id: 'listings'; bars: Bar[] }
   | { id: 'changes'; cards: ChangeCard[] }
@@ -200,29 +201,6 @@ function firstPositive(byDate: Record<string, number> | null): string | null {
 export function previousKnown(listings: readonly Pick<ReportListing, 'byDate'>[], previousFrom: string): boolean {
   const first = listings.map(listing => firstPositive(listing.byDate)).filter((date): date is string => date !== null).sort()[0];
   return first !== undefined && first <= previousFrom;
-}
-
-/** 課金の行が [from, toExclusive) を切れ目なく覆い、金額が全部分かるか（費用を出すときの条件）。 */
-export function billingCovers(entries: readonly BillingEntry[], from: string, toExclusive: string): boolean {
-  const rows = [...entries].filter(entry => entry.end >= from && entry.start < toExclusive).sort((a, b) => a.start.localeCompare(b.start));
-  let next: string | null = null;
-  for (const row of rows) {
-    if (row.amountYen === null) return false;
-    // 最初の行は期間の初めから、あとの行は前の行の翌日から（空き・重なりがあれば合計しない）
-    if (next === null ? row.start > from : row.start !== next) return false;
-    next = addDays(row.end, 1);
-  }
-  return next !== null && next >= toExclusive;
-}
-function costInRange(entries: readonly BillingEntry[], from: string, toExclusive: string): number {
-  let total = 0;
-  for (const entry of entries) {
-    const first = entry.start > from ? entry.start : from;
-    const last = addDays(entry.end, 1) < toExclusive ? addDays(entry.end, 1) : toExclusive;
-    const days = Math.max(0, daysBetween(first, last));
-    if (days) total += (entry.amountYen ?? 0) * days / (daysBetween(entry.start, entry.end) + 1);
-  }
-  return Math.round(total);
 }
 
 // ---- 見出しの1文 ----
@@ -459,26 +437,28 @@ export function buildReport(input: ReportInput, options: ReportOptions): ReportR
     // まとめ
     if (previous === null) excluded.push({ name: 'まとめ（前の期間）', reason: '最初の応募が前の期間の初めより後のため、前の期間と比べていません' });
     const kpis: Kpi[] = [{ label: '応募', value: `${String(current)}件`, sub: previous === null ? null : `前の期間 ${String(previous)}件` }];
-    if (options.include?.outcomes) {
-      if (input.outcomes?.interviews != null) kpis.push({ label: '面接', value: `${String(input.outcomes.interviews)}件`, sub: 'ご契約からの合計' });
-      if (input.outcomes?.hires != null) kpis.push({ label: '採用', value: `${String(input.outcomes.hires)}名`, sub: 'ご契約からの合計' });
+    // 面接・採用は期間の数ではなく、案件を読んだ日までの累計。期間の数字とは段を分け、読んだ日を見出しに書く。
+    const totalKpis: Kpi[] = [];
+    if (input.scope === 'deal' && options.include?.outcomes !== false) {
+      const { interviews = null, hires = null } = input.outcomes ?? {};
+      if (interviews !== null) totalKpis.push({ label: '面接', value: `${String(interviews)}件`, sub: null });
+      if (hires !== null) totalKpis.push({ label: '採用', value: `${String(hires)}名`, sub: null });
+      if (input.outcomesFailed || !input.outcomes) excluded.push({ name: 'まとめ（面接・採用）', reason: '面接・採用は読み込めなかったため外しています' });
+      else if (interviews === null && hires === null) excluded.push({ name: 'まとめ（面接・採用）', reason: '面接・採用は案件に記録が無いため外しています' });
+      else if (interviews === null) excluded.push({ name: 'まとめ（面接）', reason: '面接は案件に記録が無いため外しています' });
+      else if (hires === null) excluded.push({ name: 'まとめ（採用）', reason: '採用は案件に記録が無いため外しています' });
     }
+    const totals = totalKpis.length && input.outcomes ? { heading: `ご契約からの合計（${shortDay(input.outcomes.readOn)} 時点）`, kpis: totalKpis } : null;
     const withApplications = input.listings.filter(listing => countApplications(listing.byDate ?? undefined, from, end) > 0).length;
     if (input.listings.length > 1) kpis.push({ label: '応募のあった求人', value: `${String(withApplications)}件`, sub: `求人 ${String(input.listings.length)}件のうち` });
     const live = input.listings.filter(listing => !listing.ended).length;
     kpis.push({ label: '掲載中の求人', value: `${String(live)}件`, sub: null });
-    if (options.include?.cost) {
-      const covered = input.listings.every(listing => !listing.billingUnavailable && billingCovers(listing.billing, from, end));
-      const cost = covered ? input.listings.reduce((sum, listing) => sum + costInRange(listing.billing, from, end), 0) : null;
-      if (cost !== null && cost > 0) kpis.push({ label: '費用', value: formatYen(cost), sub: current > 0 ? `応募1件あたり ${formatYen(Math.round(cost / current))}` : null });
-      else excluded.push({ name: 'まとめ（費用）', reason: 'この期間の課金が全部の求人で切れ目なくそろっていないため外しています' });
-    }
     const points = [
       changesSlide && !off.has('changes') && changesSlide.headline !== CHANGES_PLAIN_HEADLINE ? changesSlide.headline : null,
       reasons?.ok && reasons.n > 0 && !off.has('reasons') && reasonsHeadline(reasons.bars) !== REASONS_PLAIN_HEADLINE ? reasonsHeadline(reasons.bars) : null,
       nextItems[0] && !off.has('next') ? `次は、${nextItems[0].text}` : null,
     ].filter((point): point is string => point !== null);
-    slides.push({ id: 'summary', name: SLIDE_NAMES.summary, kicker: SLIDE_NAMES.summary, headline: summaryHeadline(current, previous), note: null, kpis, points });
+    slides.push({ id: 'summary', name: SLIDE_NAMES.summary, kicker: SLIDE_NAMES.summary, headline: summaryHeadline(current, previous), note: null, kpis, totals, points });
 
     // 応募の推移
     const trend = trendBars(input, from, to, changes.map(change => ({ date: change.date, what: change.what })));
@@ -562,6 +542,8 @@ export interface ReportDraft {
   subject: string;
   owner: string;
   off: SlideId[];
+  /** 面接・採用（ご契約からの合計）を出すか。未指定は出す。 */
+  outcomes?: boolean | undefined;
   next: NextAction[];
   nextHeadline: string;
 }

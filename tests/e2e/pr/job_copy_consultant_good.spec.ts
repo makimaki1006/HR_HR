@@ -25,7 +25,7 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   await expect(list.getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する', { exact: true })).toBeVisible();
   const row = list.getByRole('row').filter({ has: page.getByRole('button', { name: goodRow.name }) });
   await expect(row.getByRole('listitem')).toHaveText((goodRow.good_flags ?? []).map(f => f.label));
-  await expect(row.getByText('危ないラベルもあり（2件）')).toBeVisible();
+  await expect(row.getByText('危ないタグもあり（2件）')).toBeVisible();
   await expect(page.locator('.cr-new-mark')).toHaveCount(0);
   // メニューからは外した（案件一覧の「いい」の印へ）。URL で開いたときは案件一覧が現在地
   await expect(page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: 'いい案件' })).toHaveCount(0);

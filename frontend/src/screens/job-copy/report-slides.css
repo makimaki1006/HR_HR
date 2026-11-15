@@ -51,6 +51,13 @@
 .rs-kp span { display: block; font-size: max(10px, 1.4cqw); color: #4a5560; }
 .rs-kp b { font-size: max(18px, 3.4cqw); line-height: 1.1; }
 .rs-kp small { display: block; font-size: max(9px, 1.2cqw); color: #4a5560; }
+.rs-totals { margin-top: .9em; }
+.rs-totals-h { font-size: max(10px, 1.4cqw); color: #4a5560; margin-bottom: .3em; }
+.rs-totals .rs-kp div { flex: 0 0 22%; border-top-color: #8a97a3; }
+.rs-totals .rs-kp b { font-size: max(15px, 2.6cqw); }
+.rs-side label.rs-check { display: grid; grid-template-columns: auto 1fr; align-items: center; justify-items: start; gap: 2px 6px; margin: 6px 0 0; padding: 0 7px; font-size: 13px; text-align: left; }
+.rs-side label.rs-check input { width: auto; margin: 0; }
+.rs-side label.rs-check small { grid-column: 1 / -1; font-size: 11px; font-weight: 400; color: var(--jc-muted); }
 .rs-points { margin: .8em 0 0; padding-left: 1.2em; font-size: max(11px, 1.7cqw); line-height: 1.6; }
 .rs-vbars { flex: 1; display: flex; align-items: flex-end; gap: 1.2%; padding: 2.6em 0 1.6em; border-bottom: 1px solid #b9c1c9; margin-bottom: 1.6em; min-height: 0; }
 .rs-c { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; position: relative; font-size: max(9px, 1.2cqw); }

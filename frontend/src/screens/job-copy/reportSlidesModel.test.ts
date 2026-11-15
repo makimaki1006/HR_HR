@@ -4,7 +4,7 @@ import type { ApplicationRow } from './data';
 import type { LoadedApplications } from './listingApplicationDates';
 import { combineApplicants, parseReportTarget } from './reportSlidesLoad';
 import {
-  alignedPeriod, applicantGroups, applicantsHeadline, billingCovers, buildReport, changesHeadline, clampPeriod, listingsHeadline, normalizeGender, periodText, reasonBars,
+  alignedPeriod, applicantGroups, applicantsHeadline, buildReport, changesHeadline, clampPeriod, listingsHeadline, normalizeGender, periodText, reasonBars,
   reasonsHeadline, summaryHeadline, trendHeadline,
 } from './reportSlidesModel';
 import type { ReportInput, ReportListing, ReportOptions, Slide } from './reportSlidesModel';
@@ -34,16 +34,16 @@ const routeReasons = collection([pick('r2', '職種興味', '2026-10-25'), pick(
 const applicants = combineApplicants([loaded(truckRows, truckReasons), loaded(routeRows, routeReasons)], 0, 'deal');
 
 const truck: ReportListing = {
-  id: '101', title: '合成トラックドライバー', media: 'hrh', ended: false, endedOn: null, byDate: byDateOf(truckRows), billing: [], billingUnavailable: false,
+  id: '101', title: '合成トラックドライバー', media: 'hrh', ended: false, endedOn: null, byDate: byDateOf(truckRows),
   events: { listingId: '101', bodyChangedAt: null, bodyChanges: ['2026-10-19'], imageChanges: ['2026-11-01'], startOn: '2026-08-01', statusEvents: [] },
 };
 const route: ReportListing = {
-  id: '102', title: '合成ルート配送', media: 'hrh', ended: true, endedOn: '2026-11-05', byDate: byDateOf(routeRows), billing: [], billingUnavailable: false,
+  id: '102', title: '合成ルート配送', media: 'hrh', ended: true, endedOn: '2026-11-05', byDate: byDateOf(routeRows),
   events: { listingId: '102', bodyChangedAt: null, bodyChanges: [], imageChanges: [], startOn: '2026-09-01', statusEvents: [{ date: '2026-11-05', kind: 'end' }] },
 };
 const input = (patch: Partial<ReportInput> = {}): ReportInput => ({
   scope: 'deal', id: '901', name: '合成・定期採用', company: '合成運輸', listings: [truck, route], overlap: { '2026-10-25': 1 },
-  asOf: '2026-11-15', outcomes: { interviews: 4, hires: 1 }, applicants, ...patch,
+  asOf: '2026-11-15', outcomes: { interviews: 4, hires: 1, readOn: '2026-11-16' }, applicants, ...patch,
 });
 const options = (patch: Partial<ReportOptions> = {}): ReportOptions => ({
   from: '2026-10-19', to: '2026-11-15', addressee: '合成運輸', subject: '', owner: '担当A', sender: '', createdOn: '2026-11-15', nextActions: [], nextHeadline: '', ...patch,
@@ -97,7 +97,7 @@ describe('期間', () => {
 
 describe('案件の単位のまとめ', () => {
   const result = buildReport(input(), options());
-  it('求人をまとめ、重なる応募は1回だけ数え、前の期間と比べる（面接・採用・費用は既定で出さない）', () => {
+  it('求人をまとめ、重なる応募は1回だけ数え、前の期間と比べる（面接・採用は既定で出す。費用は出さない）', () => {
     const summary = slide(result.slides, 'summary');
     // 今の期間: 合成トラック 5 + 合成ルート配送 2 − 重なり 1 = 6。前の期間: 1 + 1 = 2。
     expect(summary?.headline).toBe('応募は前の期間の 2件から 6件に増えました');
@@ -106,15 +106,46 @@ describe('案件の単位のまとめ', () => {
       { label: '応募のあった求人', value: '2件', sub: '求人 2件のうち' },
       { label: '掲載中の求人', value: '1件', sub: null },
     ]);
+    // 面接・採用は期間の数ではないので、期間の数字とは別の段。見出しに案件を読んだ日を書く。
+    expect(summary?.totals).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '面接', value: '4件', sub: null }, { label: '採用', value: '1名', sub: null }] });
+    expect(result.excluded.some(item => item.name.includes('面接') || item.name.includes('採用'))).toBe(false);
     expect(summary?.points).toEqual(['10月19日の「合成トラックドライバー」の本文の見直しの前後4週で、応募は 1件から 5件になりました', 'お電話でうかがえた応募理由は「給与・手当」が最も多くなっています']);
   });
   it('入れないスライドの文はまとめの箇条書きにも入れない', () => {
     const off = buildReport(input(), options({ off: ['changes'] }));
     expect(slide(off.slides, 'summary')?.points).toEqual(['お電話でうかがえた応募理由は「給与・手当」が最も多くなっています']);
   });
-  it('面接・採用は入れる指定のときだけ', () => {
-    const withOutcomes = buildReport(input(), options({ include: { outcomes: true } }));
-    expect(slide(withOutcomes.slides, 'summary')?.kpis.map(kpi => `${kpi.label} ${kpi.value}`)).toEqual(['応募 6件', '面接 4件', '採用 1名', '応募のあった求人 2件', '掲載中の求人 1件']);
+  const totalsOf = (r: ReturnType<typeof buildReport>) => slide(r.slides, 'summary')?.totals ?? null;
+  const outcomeReasons = (r: ReturnType<typeof buildReport>) => r.excluded.filter(item => item.name.startsWith('まとめ（面接') || item.name.startsWith('まとめ（採用'));
+  const periodKpis = ['応募 6件', '応募のあった求人 2件', '掲載中の求人 1件'];
+  it('過去の期間で作っても、面接・採用の見出しは案件を読んだ日のまま', () => {
+    const past = buildReport(input(), options({ from: '2026-09-21', to: '2026-10-18' }));
+    expect(totalsOf(past)?.heading).toBe('ご契約からの合計（11/16 時点）');
+  });
+  it('切り替えで外すと面接・採用の段が無くなり、外した理由にも入れない（期間の数字は変わらない）', () => {
+    const without = buildReport(input(), options({ include: { outcomes: false } }));
+    expect(totalsOf(without)).toBeNull();
+    expect(slide(without.slides, 'summary')?.kpis.map(kpi => `${kpi.label} ${kpi.value}`)).toEqual(periodKpis);
+    expect(outcomeReasons(without)).toEqual([]);
+  });
+  it('案件を読み込めなかったときは出さず、外した理由に「読み込めなかったため」を入れる', () => {
+    const failed = buildReport(input({ outcomes: null, outcomesFailed: true }), options());
+    expect(totalsOf(failed)).toBeNull();
+    expect(slide(failed.slides, 'summary')?.kpis.map(kpi => `${kpi.label} ${kpi.value}`)).toEqual(periodKpis);
+    expect(outcomeReasons(failed)).toEqual([{ name: 'まとめ（面接・採用）', reason: '面接・採用は読み込めなかったため外しています' }]);
+  });
+  it('案件に記録が無いときは出さず、外した理由に「記録が無いため」を入れる', () => {
+    const empty = buildReport(input({ outcomes: { interviews: null, hires: null, readOn: '2026-11-16' } }), options());
+    expect(totalsOf(empty)).toBeNull();
+    expect(outcomeReasons(empty)).toEqual([{ name: 'まとめ（面接・採用）', reason: '面接・採用は案件に記録が無いため外しています' }]);
+  });
+  it('片方だけ空なら、ある方だけ出して空の方の理由を入れる。入力された 0 はそのまま出す', () => {
+    const hiresOnly = buildReport(input({ outcomes: { interviews: null, hires: 0, readOn: '2026-11-16' } }), options());
+    expect(totalsOf(hiresOnly)).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '採用', value: '0名', sub: null }] });
+    expect(outcomeReasons(hiresOnly)).toEqual([{ name: 'まとめ（面接）', reason: '面接は案件に記録が無いため外しています' }]);
+    const interviewsOnly = buildReport(input({ outcomes: { interviews: 0, hires: null, readOn: '2026-11-16' } }), options());
+    expect(totalsOf(interviewsOnly)).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '面接', value: '0件', sub: null }] });
+    expect(outcomeReasons(interviewsOnly)).toEqual([{ name: 'まとめ（採用）', reason: '採用は案件に記録が無いため外しています' }]);
   });
   it('週ごとの応募と見直しの印', () => {
     const trend = slide(result.slides, 'trend');
@@ -168,21 +199,11 @@ describe('案件の単位のまとめ', () => {
     expect(full.slides).toHaveLength(8);
     expect(slide(full.slides, 'next')?.items).toEqual([{ text: '給与の書き方をほかの求人にも広げます', sub: '11月下旬まで' }, { text: '応募理由を引き続きうかがいます', sub: '' }]);
   });
-  it('費用は入れる指定があり、課金の行が期間を切れ目なく覆うときだけ', () => {
-    const week = (start: string, end: string, amountYen: number | null) => ({ source: 'hrhacker' as const, start, end, amountYen });
-    const full = [week('2026-10-19', '2026-10-25', 7000), week('2026-10-26', '2026-11-01', 7000), week('2026-11-02', '2026-11-08', 7000), week('2026-11-09', '2026-11-15', 7000)];
-    expect(billingCovers(full, '2026-10-19', '2026-11-16')).toBe(true);
-    expect(billingCovers([full[0], full[2], full[3]].filter(Boolean) as typeof full, '2026-10-19', '2026-11-16')).toBe(false);
-    expect(billingCovers([...full.slice(0, 3), week('2026-11-09', '2026-11-15', null)], '2026-10-19', '2026-11-16')).toBe(false);
-    const priced = input({ listings: [{ ...truck, billing: full }, { ...route, billing: full.map(item => ({ ...item, amountYen: 0 })) }] });
-    expect(slide(buildReport(priced, options()).slides, 'summary')?.kpis.some(kpi => kpi.label === '費用')).toBe(false);
-    expect(slide(buildReport(priced, options({ include: { cost: true } })).slides, 'summary')?.kpis.at(-1)).toEqual({ label: '費用', value: '2万8,000円', sub: '応募1件あたり 4,667円' });
-  });
 });
 
 describe('外す判定', () => {
   it('一部の求人しか数えられないときは、まとめ・推移・求人ごとを外す', () => {
-    const airwork: ReportListing = { id: '103', title: '合成倉庫スタッフ', media: 'airwork', ended: false, endedOn: null, byDate: null, billing: [], billingUnavailable: true, events: null };
+    const airwork: ReportListing = { id: '103', title: '合成倉庫スタッフ', media: 'airwork', ended: false, endedOn: null, byDate: null, events: null };
     const result = buildReport(input({ listings: [truck, route, airwork] }), options());
     expect(result.slides.map(item => item.id)).toEqual(['cover', 'changes', 'applicants', 'reasons']);
     expect(result.excluded).toContainEqual({ name: 'まとめ', reason: '求人の一部しか数えられないため（応募日を読み込めなかった求人が 1件あります（合成倉庫スタッフ））' });

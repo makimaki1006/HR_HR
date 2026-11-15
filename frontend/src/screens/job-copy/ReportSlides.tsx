@@ -74,7 +74,7 @@ function ReportEditor({ input, back, onRefresh }: { input: ReportInput; back: Re
   const fallback = useMemo(() => defaultPeriod(input.asOf), [input.asOf]);
   const from = validPeriod ? draft.from : fallback.from;
   const to = validPeriod ? draft.to : fallback.to;
-  const result = useMemo(() => buildReport(input, { from, to, addressee: draft.addressee, subject: draft.subject, owner: draft.owner, sender: REPORT_SENDER, createdOn: todayJst(), nextActions: draft.next, nextHeadline: draft.nextHeadline, off: draft.off }), [input, from, to, draft]);
+  const result = useMemo(() => buildReport(input, { from, to, addressee: draft.addressee, subject: draft.subject, owner: draft.owner, sender: REPORT_SENDER, createdOn: todayJst(), nextActions: draft.next, nextHeadline: draft.nextHeadline, off: draft.off, include: { outcomes: draft.outcomes !== false } }), [input, from, to, draft]);
   const included = result.slides.filter(slide => !draft.off.includes(slide.id));
   const shown = result.slides.find(slide => slide.id === current) ?? result.slides[0];
   const index = shown ? result.slides.indexOf(shown) : 0;
@@ -120,6 +120,7 @@ function ReportEditor({ input, back, onRefresh }: { input: ReportInput; back: Re
             <button type="button" aria-current={slide.id === shown?.id ? 'true' : undefined} onClick={() => { setCurrent(slide.id); }}><span className="rs-num">{String(pageOf(slide) ?? '－')}</span>{slide.name}</button>
           </li>;
         })}</ol>
+        {input.scope === 'deal' && <label className="rs-check"><input type="checkbox" checked={draft.outcomes !== false} onChange={event => { change({ outcomes: event.target.checked }); }} />面接・採用を出す<small>案件に記録された、ご契約からの合計です。値が古いときは外してください。</small></label>}
         <h2>次に行うこと</h2>
         <div className="rs-next-inputs">
           {draft.next.map((item, i) => <fieldset key={i}><legend>{String(i + 1)}</legend>
@@ -171,6 +172,7 @@ function body(slide: Slide) {
   switch (slide.id) {
     case 'summary': return <>
       <div className="rs-kp">{slide.kpis.map(kpi => <div key={kpi.label}><span>{kpi.label}</span><b>{kpi.value}</b>{kpi.sub && <small>{kpi.sub}</small>}</div>)}</div>
+      {slide.totals && <div className="rs-totals"><div className="rs-totals-h">{slide.totals.heading}</div><div className="rs-kp">{slide.totals.kpis.map(kpi => <div key={kpi.label}><span>{kpi.label}</span><b>{kpi.value}</b></div>)}</div></div>}
       {slide.points.length > 0 && <ul className="rs-points">{slide.points.map((point, i) => <li key={i}>{point}</li>)}</ul>}
     </>;
     case 'trend': {
