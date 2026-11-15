@@ -29,9 +29,9 @@ for (const width of [1440, 1920]) test(`実応答の形を使った表・横並�
   await findListings(page);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
   await panel.getByText('絞り込み・並び順', { exact: true }).click();
-  await panel.getByLabel('取引', { exact: true }).selectOption('901');
-  await panel.getByRole('button', { name: 'この取引の求人', exact: true }).click();
-  const table = page.getByRole('table', { name: '取引の求人一覧表' });
+  await panel.getByLabel('案件', { exact: true }).selectOption('901');
+  await panel.getByRole('button', { name: 'この案件の求人', exact: true }).click();
+  const table = page.getByRole('table', { name: '案件の求人一覧表' });
   await expect(table.locator('tbody tr').first()).toContainText('月給 213,000円〜249,000円');
   await expect(table.locator('tbody tr').last()).toContainText('月給 金額は未取得');
   await expect(table.locator('tbody tr').first()).toContainText('2026/10/09');
@@ -76,7 +76,7 @@ test('作り直し回数と写した条件の表示を1440×900で確認する',
   await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
-  await openWork(page);
+  await openWork(page, 'リクロジ向けの案を作る');
   await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
   await expect(draft).toContainText('自動で作り直した回数：2回（最大2回）');

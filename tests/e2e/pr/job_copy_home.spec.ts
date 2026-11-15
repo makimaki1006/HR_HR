@@ -84,14 +84,15 @@ test('ホームの常時2枚のカード・件数の1行と、変更求人の一
   await page.goBack();
   await changes.getByRole('button', { name: '合成案件A' }).first().click();
   await expect(page).toHaveURL(/deal=10/);
-  await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();
-  await expect(page.locator('.jc-deal-comparison > header p')).toHaveText('合成案件A');
+  // 案件のページの大見出しは案件名。今日の画面から開いたので、戻るリンクは「今日に戻る」
+  await expect(page.locator('.jc-deal-head h1')).toHaveText('合成案件A');
+  await expect(page.getByRole('button', { name: '← 今日に戻る' })).toBeVisible();
   await page.goBack();
   await expect(changes).toBeVisible();
   expect(new URL(page.url()).searchParams.get('card')).toBe('recent_changes');
   await expect(changes.locator('tbody tr')).toHaveCount(3);
   await page.goForward();
-  await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();
+  await expect(page.locator('.jc-deal-head h1')).toHaveText('合成案件A');
 });
 
 test('デプロイ直後で本人の判定が作り直し中（preparing）でも、分かった時点で「あなたの担当分」と「自分」に切り替わる', async ({ page }) => {

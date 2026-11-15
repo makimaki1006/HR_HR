@@ -78,7 +78,7 @@ test.describe('応募理由の変更ごとの表示', () => {
   test('変更ごとに前後の応募と選択式の件数・母数を並べ、期間を切り替えられる', async ({ page }) => {
     await page.goto('/app/job-copy?listing=301');
     await openOtherAnalysis(page, '応募理由');
-    const dialog = page.getByRole('dialog', { name: 'ほかの分析', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'くわしい分析', exact: true });
     await dialog.getByRole('button', { name: '変更ごと', exact: true }).click();
     await expect(page).toHaveURL(/reasonView=changes/);
     await expect(dialog.getByText('応募理由の記録はまだ少なく、1 つの求人・期間の件数だけで変更の効果は判断できません。')).toBeVisible();
@@ -120,7 +120,7 @@ test.describe('応募理由の変更ごとの表示', () => {
 
   test('AirWorkの記録日の間は前の本文に入れ、変更当日は変更後に含める', async ({ page }) => {
     await page.goto('/app/job-copy?listing=304&analysis=1&feature=reasons&reasonView=changes');
-    const dialog = page.getByRole('dialog', { name: 'ほかの分析', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'くわしい分析', exact: true });
     const block = dialog.getByTestId('change-reason-block');
     await expect(block).toHaveCount(1);
     await expect(block.getByRole('heading', { level: 3, name: /給与・本文・画像$/ })).toHaveText('9/10〜9/28 の間 · 給与・本文・画像');

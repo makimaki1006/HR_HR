@@ -25,8 +25,8 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   await expect(list.getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する', { exact: true })).toBeVisible();
   const row = list.getByRole('row').filter({ has: page.getByRole('button', { name: goodRow.name }) });
   await expect(row.getByRole('listitem')).toHaveText((goodRow.good_flags ?? []).map(f => f.label));
-  await expect(row.getByText('危ない名札もあり（2件）')).toBeVisible();
-  await expect(page.getByText('今日わかった', { exact: true })).toHaveCount(0);
+  await expect(row.getByText('危ないラベルもあり（2件）')).toBeVisible();
+  await expect(page.locator('.cr-new-mark')).toHaveCount(0);
   // メニューからは外した（案件一覧の「いい」の印へ）。URL で開いたときは案件一覧が現在地
   await expect(page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: 'いい案件' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '案件一覧', exact: true })).toHaveAttribute('aria-current', 'page');
@@ -35,15 +35,16 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   if (dir) await page.screenshot({ path: `${dir}/good-list.png`, fullPage: false });
   await row.getByRole('button').click();
   const detail = page.getByRole('dialog');
-  await expect(detail.getByRole('button', { name: '終わった → 次の予定' })).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'この予定を済みにして、次の予定を入れる…' })).toBeVisible();
   await expect(detail.getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する', { exact: true })).toBeVisible();
   await expect(detail.getByText('10/16 求人の見直しを提案', { exact: true })).toBeVisible();
   const draft = detail.getByLabel('追記するメモ');
   await draft.fill('募集職種を増やす提案をした。\n来週の打ち合わせで内容を決める。');
   expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   if (dir) await page.screenshot({ path: `${dir}/good-detail-memo.png`, fullPage: false });
-  await detail.getByRole('button', { name: 'メモを保存' }).click();
-  await expect(detail.getByText('保存済み', { exact: true })).toHaveClass('nt-green');
+  await expect(detail.getByRole('heading', { name: '提案メモ（HubSpot の案件に日付付きで追記されます）' })).toBeVisible();
+  await detail.getByRole('button', { name: 'メモを追記する' }).click();
+  await expect(detail.getByText(/^保存しました \d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/)).toHaveClass('nt-green');
   expect(patches).toHaveLength(1);
   expect(patches[0]?.base).toEqual({ teian: '10/16 求人の見直しを提案' });
   expect(patches[0]?.set.teian).toMatch(/^10\/16 求人の見直しを提案 \/ \d{2}\/\d{2} 募集職種を増やす提案をした。 来週の打ち合わせで内容を決める。$/);

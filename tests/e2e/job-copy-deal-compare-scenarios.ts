@@ -17,9 +17,9 @@ export function registerDealCompareTests(path: string) {
     await findListings(page);
     const panel = page.getByRole('region', { name: 'HubSpot の求人' });
     await panel.getByText('絞り込み・並び順', { exact: true }).click();
-    await panel.getByLabel('取引', { exact: true }).selectOption('901');
-    await panel.getByRole('button', { name: 'この取引の求人', exact: true }).click();
-    const table = page.getByRole('table', { name: '取引の求人一覧表' });
+    await panel.getByLabel('案件', { exact: true }).selectOption('901');
+    await panel.getByRole('button', { name: 'この案件の求人', exact: true }).click();
+    const table = page.getByRole('table', { name: '案件の求人一覧表' });
     await expect(table.locator('tbody tr').first()).toContainText('月給 250,000円');
     await expect(table.locator('tbody tr').last()).toContainText('月給 9,000円');
     for (const job of jobs) await table.getByLabel(`${job.title}を比較に選ぶ`).check();
@@ -35,7 +35,7 @@ export function registerDealCompareTests(path: string) {
       await page.screenshot({ path: 'docs/screenshots/job-copy-deal-compare/04-whitespace-comparison-1440.png' });
     }
   });
-  for (const width of [1440, 1920]) test(`取引の絞り込み・101件の表・横並び比較 ${width}`, async ({ page }) => {
+  for (const width of [1440, 1920]) test(`案件の絞り込み・101件の表・横並び比較 ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
     const jobs = Array.from({ length: 103 }, (_, index) => ({ id: String(index + 1), title: `配送スタッフ${String(index + 1).padStart(3, '0')}`, media: index % 2 ? 'airwork' : 'hrh', media_job_id: `hidden-${index}`, account_id: null,
@@ -66,9 +66,9 @@ export function registerDealCompareTests(path: string) {
     await findListings(page);
     const panel = page.getByRole('region', { name: 'HubSpot の求人' });
     await panel.getByText('絞り込み・並び順', { exact: true }).click();
-    await panel.getByLabel('取引名を検索').fill('那覇');
+    await panel.getByLabel('案件名を検索').fill('那覇');
     await expect(panel.getByRole('option', { name: '合成物流・那覇の契約（101件）' })).toHaveCount(1);
-    await panel.getByLabel('取引', { exact: true }).selectOption('901');
+    await panel.getByLabel('案件', { exact: true }).selectOption('901');
     await expect(panel.locator('.jc-hubspot-list-heading')).toContainText('101件');
     await panel.getByLabel('都道府県', { exact: true }).selectOption('沖縄県');
     await panel.getByLabel('職種の分類').selectOption('ドライバー');
@@ -87,8 +87,8 @@ export function registerDealCompareTests(path: string) {
       await mkdir('docs/screenshots/job-copy-ui-polish-2', { recursive: true });
       await page.screenshot({ path: 'docs/screenshots/job-copy-ui-polish-2/01-deal-filter-1440.png' });
     }
-    await panel.getByRole('button', { name: 'この取引の求人', exact: true }).click();
-    const table = page.getByRole('table', { name: '取引の求人一覧表' });
+    await panel.getByRole('button', { name: 'この案件の求人', exact: true }).click();
+    const table = page.getByRole('table', { name: '案件の求人一覧表' });
     await expect(table.getByRole('row')).toHaveCount(51);
     await expect(table.locator('tbody tr').first()).toContainText('月給 250,000円');
     if (width === 1440) await page.screenshot({ path: 'docs/screenshots/job-copy-deal-compare/02-deal-table-1440.png' });
@@ -146,6 +146,6 @@ export function registerDealCompareTests(path: string) {
     await expect(comparison).not.toContainText('基本給与 最小');
     await page.getByRole('button', { name: '前の50件' }).click();
     await table.getByRole('button', { name: '配送スタッフ051', exact: true }).click();
-    await expect(page.locator('.jc-main')).toContainText('HubSpotに記録された本文');
+    await expect(page.getByTestId('band-version')).toHaveText('10/10 の本文（最新）');
   });
 }

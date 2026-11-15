@@ -18,7 +18,7 @@ function snapshot(capturedAt = defaultCapturedAt) {
   return {
     schemaVersion: 1, capturedAt,
     capture_bundle: { schemaVersion: 1, capturedAt, jobs: [{
-      id: 'synthetic-pr-timeline', hubspotListingId: '30', shopId: '0042', title: '合成配送ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: '12345678',
+      id: 'synthetic-pr-timeline', hubspotListingId: '30', shopId: '0042', title: '合成配送ドライバー', company: '合成顧客', media: 'HRハッカー', mediaJobId: '12345678',
       location: '大分県大分市', body: '仕事内容：合成の配送業務です。\n給与：月給250,000円〜280,000円\n休日：土日', images: [],
       history: [{ id: 'synthetic-pr-timeline-previous', capturedAt: '2026-07-01T00:00:00Z', body: '仕事内容：合成の配送業務です。\n給与：月給230,000円〜260,000円\n休日：土日', images: [] }],
     }] },
@@ -27,7 +27,7 @@ function snapshot(capturedAt = defaultCapturedAt) {
 }
 
 /**
- * 画面を開き、市場と比べる職種を指定する。タイムラインなど旧タブは「ほかの分析」の横画面の中にある。
+ * 画面を開き、市場と比べる職種を指定する。タイムラインなど旧タブは「くわしい分析」の横画面の中にある。
  * 既定では最後に横画面を閉じる（ページ本体の操作は横画面が開いている間はできないため）。
  * 再取得の回数を数える試験など、閉じて開き直すと取得が増える試験は keepOpen で開いたままにする。
  */
@@ -60,7 +60,7 @@ async function open(page: Page, capturedAt = defaultCapturedAt, options: { serie
   await openOtherAnalysis(page, 'タイムライン');
   await expect(timeline).toContainText('市場と比べる職種が未指定です');
   expect(calls.filter(search => search.includes('title='))).toHaveLength(0);
-  // 職種の指定は右の「数字の前提」の欄から行う（横画面が開いている間は操作できないので閉じる）
+  // 職種の指定は「市場の今」の欄から行う（横画面が開いている間は操作できないので閉じる）
   await closeOtherAnalysis(page);
   await page.getByRole('button', { name: '職種を指定する', exact: true }).click();
   const drawer = page.getByRole('dialog', { name: '市場と比べる職種を指定する' });
@@ -87,7 +87,7 @@ async function seriesLengths(page: Page, testId: string) {
 }
 
 test.describe('案件管理のタイムライン', () => {
-  test('最初に週ごとの応募と出来事が出て、ほかの分析（旧タブ）の 7 レーン・グラフ・期間比較表に具体値が出る', async ({ page }) => {
+  test('最初に週ごとの応募と出来事が出て、くわしい分析（旧タブ）の 7 レーン・グラフ・期間比較表に具体値が出る', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
     const calls = await open(page);
     // 最初の画面: 週ごとの応募のグラフと、出来事（新しい順）の一覧。旧タブは主領域に出ていない
@@ -101,10 +101,10 @@ test.describe('案件管理のタイムライン', () => {
     await expect(eventHeads).toHaveCount(2);
     await expect(eventHeads.nth(0)).toContainText('給与を変更');
     await expect(eventHeads.nth(1)).toContainText('掲載を開始');
-    // ここから「ほかの分析」の横画面（旧タブ全体）の中を確かめる
+    // ここから「くわしい分析」の横画面（旧タブ全体）の中を確かめる
     await openOtherAnalysis(page, 'タイムライン');
     const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-    await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']);
+    await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', 'メモ']);
     await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     for (const lane of ['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場']) await expect(timeline.getByRole('group', { name: lane, exact: true })).toBeVisible();
@@ -357,7 +357,7 @@ test.describe('案件管理のタイムライン', () => {
     await expect(page.locator('.jc-mode')).not.toHaveAttribute('title', /.+/u);
   });
 
-  test('最初の画面: 出来事の一覧・最新の出来事の印・展開時の 3 つの確認・応募者の前後の横画面・ほかの分析の入口', async ({ page }) => {
+  test('最初の画面: 出来事の一覧・最新の出来事の印・展開時の 3 つの確認・応募者の前後の横画面・くわしい分析の入口', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page);
     // 出来事（新しい順）: 合成データは 2026/08/20 の給与の変更と 2026/07/01 の掲載開始の 2 件
@@ -392,11 +392,11 @@ test.describe('案件管理のタイムライン', () => {
     await expect(who).toBeHidden();
     // 出来事の説明に、原因を決める言葉を使わない
     await expect(eventsSection).not.toContainText(/増えた|減った|効果/u);
-    // ほかの分析は畳んだ「作業」の中の入口のボタン 1 つから開き、タブは 6 つ（13 → 6）
-    await openWork(page);
-    const more = page.getByRole('region', { name: 'ほかの分析', exact: true });
-    await expect(more.getByRole('button')).toHaveText(['ほかの分析を開く']);
-    await expect(page.getByRole('dialog', { name: 'ほかの分析', exact: true })).toHaveCount(0);
+    // 手を動かす入口は出来事の上の「この求人でやること」の 4 枚の札。くわしい分析は押すまで開かない
+    const tasks = page.getByRole('region', { name: 'この求人でやること', exact: true });
+    await expect(tasks.locator('.lt-card strong')).toHaveText(['文面を手直しする', 'リクロジ向けの案を作る', '電話ヒアリングを見る', 'くわしい分析を開く']);
+    expect(await tasks.evaluate(element => element.compareDocumentPosition(document.getElementById('lo-events-title')!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
+    await expect(page.getByRole('dialog', { name: 'くわしい分析', exact: true })).toHaveCount(0);
   });
 });
 
@@ -404,11 +404,12 @@ test('電話ヒアリングを開くとデモの聞き取りと通話記録を�
   await page.setViewportSize({ width: 1440, height: 1000 });
   await login(page);
   await page.goto('/app/job-copy?demo=1&job=demo-job-001');
-  await openWork(page);
+  // 「この求人でやること」の札に件数が出て、押すと札の下に開いた状態で出る
+  await expect(page.locator('.lt-card', { hasText: '電話ヒアリングを見る' })).toContainText('記録あり 3件 ／ 応募 28件');
+  await expect(page.locator('.ph-section')).toHaveCount(0);
+  await openWork(page, '電話ヒアリングを見る');
   const section = page.locator('.ph-section');
-  await expect(section.locator('summary')).toHaveText('電話ヒアリング（記録あり 3件 / 応募 28件）');
-  await expect(section).not.toHaveAttribute('open');
-  await section.locator('summary').click();
+  await expect(section).toHaveAttribute('open');
   const card = section.locator('article').first();
   await expect(card).toContainText('応募日：2026/09/24');
   await expect(card.locator('h3')).toHaveText('応募者：38・女性・大分県大分市');
@@ -418,7 +419,7 @@ test('電話ヒアリングを開くとデモの聞き取りと通話記録を�
   await expect(card).toContainText('通勤時間、休日、給与の順で希望');
   await expect(card).toContainText('【架電】土日休みと、見学できる日程を確認したい。');
   await expect(section.locator('article').nth(1)).toContainText('ほかの求人にも関連する応募');
-  await section.locator('summary').scrollIntoViewIfNeeded();
+  await section.scrollIntoViewIfNeeded();
   if (process.env.PHONE_HEARING_SCREENSHOT) await page.screenshot({ path: process.env.PHONE_HEARING_SCREENSHOT, fullPage: true });
 });
 

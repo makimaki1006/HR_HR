@@ -54,8 +54,9 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   await expect(list.locator('tbody tr')).toHaveCount(1);
   await expect(list.locator('.nt-reason')).toHaveText(reasons.map(r => r.text));
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/signals.png` });
-  await list.getByRole('button', { name: '終わった → 次の予定' }).click();
-  const dialog = page.getByRole('dialog', { name: '次の予定を入れる' });
+  await list.getByRole('button', { name: 'この予定を済みにして、次の予定を入れる…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'この予定を済みにして、次の予定を入れる' });
+  await expect(dialog).toContainText('保存すると HubSpot の案件の次の予定（日付と内容）が書き換わります。');
   await dialog.getByLabel('日付').fill('2026/10/23');
   await dialog.getByRole('combobox', { name: '内容', exact: true }).selectOption('review_value');
   if (dir) await dialog.screenshot({ path: `${dir}/next-plan.png` });
@@ -69,14 +70,19 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   await expect(list.locator('tbody tr')).toContainText('2026/10/23応募状況を確認する');
   await expect(page.getByRole('button', { name: /期限切れ/ }).locator('.jh-count')).toHaveText('0件');
   await list.getByRole('button', { name: '合成案件106' }).click();
-  const next = page.getByRole('region', { name: '次にやること' });
+  const next = page.getByRole('region', { name: '次の予定' });
   await expect(next).toContainText('2026/10/23 ・ 応募状況を確認する');
   await expect(next.locator('.nt-reason')).toHaveText(reasons.map(r => r.text));
   await expect(page.getByRole('region', { name: '契約・成果', exact: true }).getByText('¥240,000', { exact: true })).toBeVisible();
-  const stage = page.getByRole('combobox', { name: 'ステージを変更' });
+  // ステージは文字で出し、「ステージを変える…」を押したときだけ選ぶ欄を開く
+  const contract = page.getByRole('region', { name: '契約・成果', exact: true });
+  await expect(contract.locator('.dc-stage-now strong')).toHaveText(stageSchema.stages[0]!.label);
+  await expect(contract).toContainText('HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。');
+  await contract.getByRole('button', { name: 'ステージを変える…' }).click();
+  const stage = page.getByRole('combobox', { name: '移す先のステージ' });
   await expect(stage).toBeEnabled();
   await expect(stage).toHaveValue('stage-demo');
-  await expect(stage.locator('option')).toHaveText(stageSchema.stages.map(s => s.label));
+  await expect(stage.locator('option')).toHaveText(stageSchema.stages.map(s => s.id === 'stage-demo' ? `${s.label}（今のステージ）` : s.label));
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/deal.png` });
   await stage.selectOption('delivery-done');
   const move = page.getByRole('dialog');
@@ -86,7 +92,9 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   await stage.selectOption('delivery-done');
   await page.getByRole('dialog').getByRole('button', { name: '移す', exact: true }).click();
   await expect(page.getByRole('region', { name: '契約・成果', exact: true }).getByText('保存済み', { exact: true })).toBeVisible();
-  await expect(stage).toHaveValue('delivery-done');
+  // 移したら選ぶ欄は閉じ、文字のステージが新しいものになる
+  await expect(stage).toHaveCount(0);
+  await expect(contract.locator('.dc-stage-now strong')).toHaveText('納品完了');
   expect(patches).toHaveLength(2);
   expect(patches[1]).toMatchObject({ base: {}, set: {}, stage: { pipeline_id: '21596025', stage_id: 'delivery-done' } });
 });

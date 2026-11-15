@@ -10,7 +10,7 @@ import { selectJobFeature } from '../job-copy-navigation';
 const snapshot = {
   schemaVersion: 1, capturedAt: '2026-08-20T00:00:00Z',
   capture_bundle: { schemaVersion: 1, capturedAt: '2026-08-20T00:00:00Z', jobs: [{
-    id: 'synthetic-pr-notes', hubspotListingId: '30', shopId: '0042', title: '合成配送ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: '12345678',
+    id: 'synthetic-pr-notes', hubspotListingId: '30', shopId: '0042', title: '合成配送ドライバー', company: '合成顧客', media: 'HRハッカー', mediaJobId: '12345678',
     location: '大分県大分市', body: '仕事内容：合成の配送業務です。\n給与：月給250,000円〜280,000円', images: [], history: [],
   }] },
   results: [{ listing_id: '30', summary: { total: 2, missing_date: 0, by_date: { '2026-08-10': 2 }, dimensions: { gender: { 男性: 2 } } }, dated_comparison: null }],
