@@ -540,6 +540,7 @@ turso db shell salesnow "SELECT COUNT(*) FROM v2_salesnow_companies"
 | [`docs/sales_call_analysis/utterance-impact-examples-v1.md`](docs/sales_call_analysis/utterance-impact-examples-v1.md) | 発言の影響の実例: 匿名化済み16件 |
 | [`docs/sales_call_analysis/list-attributes-v1.md`](docs/sales_call_analysis/list-attributes-v1.md) | リストの属性とアポ率v1: 会社属性・接点の履歴・かける時間 |
 | [`docs/sales_call_analysis/call-classification-v1.md`](docs/sales_call_analysis/call-classification-v1.md) | 通話分類モデルv1: 時系列・番号分離・確認コスト |
+| [`docs/sales_call_analysis/apo-rank-vs-outcome-2026-11.html`](docs/sales_call_analysis/apo-rank-vs-outcome-2026-11.html) | アポのランクと商談の結果 (2026-11): ランクごとの成約率。集計は `scripts/apo_rank_outcome.py` (HubSpot 読み取りのみ) |
 
 ### 運用・移行
 | ファイル | 内容 |

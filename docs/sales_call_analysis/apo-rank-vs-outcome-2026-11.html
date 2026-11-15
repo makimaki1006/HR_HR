@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アポのランクと商談の結果 2026年11月</title>
+<style>
+  :root { --ink:#1d1d1b; --sub:#5a5a55; --line:#c9c6bd; --paper:#fbfaf6; --bar:#4a5a6a; --bar2:#a9a49a; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+         font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif; line-height:1.8; }
+  main { max-width:820px; margin:0 auto; padding:40px 20px 80px; }
+  h1 { font-size:1.6rem; margin:0 0 4px; letter-spacing:.02em; }
+  .meta { color:var(--sub); font-size:.9rem; border-bottom:2px solid var(--ink); padding-bottom:12px; margin-bottom:28px; }
+  h2 { font-size:1.15rem; border-bottom:1px solid var(--line); padding-bottom:4px; margin-top:40px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:.92rem;
+          font-family:"Hiragino Sans","Yu Gothic",sans-serif; }
+  th, td { border-bottom:1px solid var(--line); padding:6px 8px; text-align:right; }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { border-bottom:1.5px solid var(--ink); font-weight:600; }
+  tr.sep td { border-top:1.5px solid var(--ink); }
+  .note { font-size:.88rem; color:var(--sub); }
+  .read { background:#f1efe8; border-left:3px solid var(--ink); padding:8px 14px; margin:10px 0 20px; }
+  .chart { font-family:"Hiragino Sans","Yu Gothic",sans-serif; font-size:.88rem; margin:14px 0; }
+  .row { display:grid; grid-template-columns:140px 1fr 150px; align-items:center; gap:10px; margin:6px 0; }
+  .track { background:#ebe8df; height:18px; position:relative; }
+  .fill { background:var(--bar); height:100%; }
+  .fill.other { background:var(--bar2); }
+  .num { text-align:right; color:var(--ink); }
+  .axis { display:grid; grid-template-columns:140px 1fr 150px; gap:10px; color:var(--sub); font-size:.78rem; }
+  .axis span { display:flex; justify-content:space-between; }
+  dl { font-size:.92rem; }
+  dt { font-weight:600; margin-top:8px; }
+  dd { margin:0 0 0 1.2em; }
+  @media (max-width:560px) { .row, .axis { grid-template-columns:96px 1fr 110px; } }
+</style>
+</head>
+<body>
+<main>
+
+<h1>アポのランクと商談の結果</h1>
+<div class="meta">2026年11月15日時点の集計　｜　対象: トークの振り返りでランクが付いた取引 1,115件（アポ日確定 2026年10月13日〜11月13日）　｜　HubSpot の取引を読み取りで集計</div>
+
+<h2>1. まとめ</h2>
+<ul>
+  <li>商談予定日から7日以上たった取引（ランクの付いた304件）で、成約率は A 22.2%（2/9件）、B 5.0%（3/60件）、C 1.7%（4/234件）。ランクの順に並んでいる。</li>
+  <li>3つの条件を1つ以上満たした取引（S・A・B）の成約率は 7.1%（5/70件）、それ以外（C）は 1.7%（4/234件）。</li>
+  <li>成約は全部で9件しかない。1件増減すると率が大きく動くので、順に並ぶとはまだ言い切れない。期間を前半と後半に分けると、後半は B の成約が0件で並びがそろわない（4章）。</li>
+  <li>商談実施と価値合意も A が最も高いが、B と C の差は小さい（価値合意 B 41.7%、C 39.7%）。</li>
+  <li>ランクが付かなかった取引（電話が見つからない・文字起こしが取れない）は成約率 3.7〜4.3% で、C より高い。この差が何によるかは今回の集計では分からない。</li>
+</ul>
+
+<h2>2. 数え方</h2>
+<dl>
+  <dt>ランク</dt>
+  <dd>日程が決まった電話のヒアリングの答えで決まる。予算が具体額・入社時期が3か月以内・判断する人が本人、の3つのうち満たした数が 3 なら S、2 なら A、1 なら B、0 なら C。取引のプロパティ「アポのランク」に入っている値をそのまま使った。電話が見つからない取引は「電話なし」、文字起こしが取れない取引は「取れない」として別に数えた。</dd>
+  <dt>成約</dt>
+  <dd>リクロジ受注管理_商談の「成約」または請負契約_商談の「成約」に入った取引、または受注のパイプライン（リクロジ_納品管理・請負契約_納品管理・商談管理_計上・リクロジバイト＿計上・請負契約_計上）のどれかのステージに入った・今そこにいる取引。受注のパイプラインはトークの振り返りのアポ数の内訳（過去客の判定）で使っているものと同じ。</dd>
+  <dt>商談実施</dt>
+  <dd>営業KPI の「商談実施」と同じステージ（進捗確認〜成約）・パイプライン（商談済リード・新 商談実施済リード・商談管理_計上・リクロジ_納品管理）に入った取引、BPO の「商談実施処理」に入った取引、商談済リードのステージに入った取引。今いるステージでなく、一度でも入ったかで数えた。</dd>
+  <dt>価値合意</dt>
+  <dd>Cヨミ（決定者との価値合意）以上、または商談済リードの C 以上に入った取引。成約も含む。</dd>
+  <dt>まだ結果が出ていない取引の扱い</dt>
+  <dd>商談予定日が11月7日以前（集計日の7日前まで）の取引だけを主な表に入れた。予定日がそれより後の 520件は外した。商談予定日が空の 7件と、商談予定日がアポ日確定より前の日付のまま残っている 18件（前回のアポの日付が残っているもの）も外した。7日たっても、成約までには数週間かかる取引が多いので、成約率はこれから上がる。</dd>
+</dl>
+
+<h2>3. ランクごとの成約率</h2>
+<p class="note">商談予定日が11月7日以前の取引。棒の長さは成約率。</p>
+<div class="chart">
+  <div class="row"><div>S（3つ）</div><div class="track"><div class="fill" style="width:0%"></div></div><div class="num">0%（0/1件）</div></div>
+  <div class="row"><div>A（2つ）</div><div class="track"><div class="fill" style="width:88.8%"></div></div><div class="num">22.2%（2/9件）</div></div>
+  <div class="row"><div>B（1つ）</div><div class="track"><div class="fill" style="width:20%"></div></div><div class="num">5.0%（3/60件）</div></div>
+  <div class="row"><div>C（0）</div><div class="track"><div class="fill" style="width:6.8%"></div></div><div class="num">1.7%（4/234件）</div></div>
+  <div class="row"><div>電話なし</div><div class="track"><div class="fill other" style="width:14.8%"></div></div><div class="num">3.7%（3/82件）</div></div>
+  <div class="row"><div>取れない</div><div class="track"><div class="fill other" style="width:17.2%"></div></div><div class="num">4.3%（8/184件）</div></div>
+  <div class="axis"><div></div><span><i>0%</i><i>25%</i></span><div></div></div>
+</div>
+<div class="read">A・B・C の順に成約率が下がっている。ただし A は9件のうち2件、B は60件のうち3件で、どちらも1件違えば率が大きく変わる。S は1件だけで、まだ何も言えない。</div>
+
+<table>
+  <thead><tr><th>ランク</th><th>件数</th><th>商談実施</th><th>価値合意</th><th>成約</th></tr></thead>
+  <tbody>
+    <tr><td>S（3つ満たす）</td><td>1</td><td>0%（0件）</td><td>0%（0件）</td><td>0%（0件）</td></tr>
+    <tr><td>A（2つ）</td><td>9</td><td>100%（9件）</td><td>66.7%（6件）</td><td>22.2%（2件）</td></tr>
+    <tr><td>B（1つ）</td><td>60</td><td>83.3%（50件）</td><td>41.7%（25件）</td><td>5.0%（3件）</td></tr>
+    <tr><td>C（0）</td><td>234</td><td>82.1%（192件）</td><td>39.7%（93件）</td><td>1.7%（4件）</td></tr>
+    <tr class="sep"><td>電話なし</td><td>82</td><td>80.5%（66件）</td><td>50.0%（41件）</td><td>3.7%（3件）</td></tr>
+    <tr><td>取れない</td><td>184</td><td>77.7%（143件）</td><td>35.3%（65件）</td><td>4.3%（8件）</td></tr>
+  </tbody>
+</table>
+<div class="read">商談をしたかどうかは、B と C でほぼ同じ（83.3% と 82.1%）。価値合意も B 41.7%、C 39.7% で差は小さい。成約で差が開いているのは、成約の件数が少ないことによる揺れの可能性が残る。</div>
+
+<h3 style="font-size:1rem">条件を1つ以上満たしたかで2つに分けた場合</h3>
+<table>
+  <thead><tr><th>分け方</th><th>件数</th><th>価値合意</th><th>成約</th></tr></thead>
+  <tbody>
+    <tr><td>S・A・B（1つ以上満たす）</td><td>70</td><td>44.3%（31件）</td><td>7.1%（5件）</td></tr>
+    <tr><td>C（どれも満たさない）</td><td>234</td><td>39.7%（93件）</td><td>1.7%（4件）</td></tr>
+  </tbody>
+</table>
+<div class="read">1つ以上満たした取引の成約率は 7.1%（それ以外 1.7%）。成約は合わせて9件なので、この差が続くかは件数が増えてから確かめる。</div>
+
+<h2>4. 期間を前半と後半に分けた場合</h2>
+<p class="note">アポ日確定の日で分けた。前半は10月13日〜23日、後半は10月24日〜11月7日。どちらも商談予定日が11月7日以前の取引。</p>
+<table>
+  <thead><tr><th>ランク</th><th>前半 件数</th><th>前半 成約</th><th>後半 件数</th><th>後半 成約</th></tr></thead>
+  <tbody>
+    <tr><td>S</td><td>0</td><td>—</td><td>1</td><td>0%（0件）</td></tr>
+    <tr><td>A</td><td>4</td><td>25.0%（1件）</td><td>5</td><td>20.0%（1件）</td></tr>
+    <tr><td>B</td><td>25</td><td>12.0%（3件）</td><td>35</td><td>0%（0件）</td></tr>
+    <tr><td>C</td><td>117</td><td>2.6%（3件）</td><td>117</td><td>0.9%（1件）</td></tr>
+    <tr class="sep"><td>電話なし</td><td>52</td><td>1.9%（1件）</td><td>30</td><td>6.7%（2件）</td></tr>
+    <tr><td>取れない</td><td>176</td><td>4.0%（7件）</td><td>8</td><td>12.5%（1件）</td></tr>
+  </tbody>
+</table>
+<div class="read">前半は A・B・C の順に並ぶが、後半は B の成約が0件で、B と C の順がそろわない。後半はアポから日が浅く、成約がまだ出ていない取引が多い。「取れない」の取引はほぼ前半に集まっていて（184件中176件）、前半の取引は文字起こしの再判定がまだ終わっていない。</div>
+
+<h2>5. 言えること・言えないこと</h2>
+<dl>
+  <dt>言えること</dt>
+  <dd>今の集計では、成約率は A・B・C の順に下がっている。商談実施と価値合意も A が最も高い。</dd>
+  <dt>言えないこと</dt>
+  <dd>成約が9件しかなく、前半と後半で並びがそろわないため、ランクの順に成約率が並ぶとは言い切れない。S は1件で判断できない。ランクの高さが成約を生むかどうか（ヒアリングで条件を聞き出したから成約したのか、もともと成約しやすい先だから答えが出たのか）は、この集計では区別できない。ランクが付かなかった取引の成約率が C より高い理由も分からない。</dd>
+  <dt>次に数え直す時期</dt>
+  <dd>10月の取引の再判定が終わり、商談予定日から1か月以上たった取引が増えたとき。成約がランクごとに10件以上ずつそろうまでは、価値合意の率を途中の目安として見る。</dd>
+</dl>
+
+<h2>付録. 結果が出ていない取引も含めた全件</h2>
+<p class="note">ランクが付いた 1,115件すべて。商談がまだ先の取引も含むので、率は低めに出る。</p>
+<table>
+  <thead><tr><th>ランク</th><th>件数</th><th>商談実施</th><th>価値合意</th><th>成約</th></tr></thead>
+  <tbody>
+    <tr><td>S</td><td>1</td><td>0%（0件）</td><td>0%（0件）</td><td>0%（0件）</td></tr>
+    <tr><td>A</td><td>29</td><td>72.4%（21件）</td><td>44.8%（13件）</td><td>6.9%（2件）</td></tr>
+    <tr><td>B</td><td>141</td><td>68.1%（96件）</td><td>41.1%（58件）</td><td>2.1%（3件）</td></tr>
+    <tr><td>C</td><td>584</td><td>65.8%（384件）</td><td>33.0%（193件）</td><td>1.4%（8件）</td></tr>
+    <tr class="sep"><td>電話なし</td><td>161</td><td>78.3%（126件）</td><td>49.7%（80件）</td><td>5.0%（8件）</td></tr>
+    <tr><td>取れない</td><td>199</td><td>76.9%（153件）</td><td>35.7%（71件）</td><td>4.0%（8件）</td></tr>
+  </tbody>
+</table>
+<p class="note">集計の手順: <code>scripts/apo_rank_outcome.py</code>（HubSpot は読み取りだけ。出力は集計値だけ）。</p>
+
+</main>
+</body>
+</html>
