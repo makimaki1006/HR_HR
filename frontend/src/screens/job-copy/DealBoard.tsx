@@ -175,6 +175,6 @@ export function DealBoard() {
       </tbody></table></div></div>
       <PageNav className="db-pages" label="案件のページ送り" size={PAGE_SIZE} hasPrev={page > 1} hasNext={page < pages} onPrev={() => { updateJobCopyQuery({ deals_page: String(page - 1) }); }} onNext={() => { updateJobCopyQuery({ deals_page: String(page + 1) }); }}>{page} / {pages}</PageNav>
     </>}
-    {selected && <RiskDetail key={selected.id} row={{ ...detailRow(selected.id, selected.name ?? '案件名未登録', selected.company), consultant: selected.consultant ?? '', days_left: selected.days_left, mtg_last: selected.last_mtg, ...(reason === 'good' && goodIds?.get(selected.id) ? { good_flags: goodIds.get(selected.id) ?? [] } : {}) }} onClose={() => { updateJobCopyQuery({ risk_deal: null }); }} onSaved={() => { setReload(n => n + 1); }} />}
+    {selected && <RiskDetail key={selected.id} row={{ ...detailRow(selected.id, selected.name ?? '案件名未登録', selected.company), consultant: selected.consultant ?? '', days_left: selected.days_left, mtg_last: selected.last_mtg, list_contact: { date: selected.last_contact, status: selected.contact_status }, ...(reason === 'good' && goodIds?.get(selected.id) ? { good_flags: goodIds.get(selected.id) ?? [] } : {}) }} onClose={() => { updateJobCopyQuery({ risk_deal: null }); }} onSaved={() => { setReload(n => n + 1); }} />}
   </main></div>;
 }

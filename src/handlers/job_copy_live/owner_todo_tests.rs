@@ -508,12 +508,12 @@ fn merges_reasons_sorts_count_then_expiration_and_filters_owner() {
     let s = snapshot();
     // 接触（MTG か60秒超の通話）は記録から渡す。取引の notes_last_contacted は使わない。
     let meetings = super::super::deal_board::MeetingData {
-        contacts: Some(
-            [("1", "2026-09-16"), ("2", "2026-09-01")]
+        contacts: Some(std::sync::Arc::new(
+            [("1", "2026-09-15"), ("2", "2026-09-01")]
                 .into_iter()
                 .map(|(id, d)| (id.to_owned(), day(d)))
                 .collect(),
-        ),
+        )),
         ..Default::default()
     };
     let r = s.report_with_metrics(

@@ -7,7 +7,9 @@ use serde::de::DeserializeOwned;
 use std::io::{Read, Write};
 
 // 3: facts retain application IDs and include all delivery deals.
-const VERSION: i64 = 3;
+// 4: facts drop repeat applications by the same person (2026-11-15). Older progress must not
+//    be resumed into a new aggregate that mixes both counting rules.
+const VERSION: i64 = 4;
 const CHUNK_BYTES: usize = 750_000;
 const MAX_PARTS: usize = 128;
 const MAX_JSON_BYTES: u64 = 256 * 1024 * 1024;

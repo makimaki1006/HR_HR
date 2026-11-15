@@ -11,7 +11,7 @@ import { formatDateJst } from './format';
 import { yen } from './homeModel';
 import './home.css';
 export interface RiskFlag { key: string; label: string; new: boolean; since: string | null }
-export interface RiskRow { deal_id: string; name: string; company: string | null; consultant: string; flags: string[]; risk_flags: RiskFlag[]; good_flags?: RiskFlag[]; days_left: number | null; days_since_contact: number | null; mtg_last: string | null; actionyotei: string | null; actionnaiyou: string | null }
+export interface RiskRow { deal_id: string; name: string; company: string | null; consultant: string; flags: string[]; risk_flags: RiskFlag[]; good_flags?: RiskFlag[]; days_left: number | null; days_since_contact: number | null; mtg_last: string | null; actionyotei: string | null; actionnaiyou: string | null; /** 案件一覧から開くときの最後の接触（一覧と同じ値を出す）。 */ list_contact?: { date: string | null; status: 'ready' | 'outside' | 'unavailable' | 'none' } }
 export interface RiskResponse { status: string; data_day: string | null; previous_day: string | null; comparison: 'ready' | 'first' | 'unavailable'; rows: RiskRow[]; refreshing?: boolean; refresh_failed?: boolean }
 export function riskGroups(data: RiskResponse) {
   if (data.comparison !== 'ready') return [{ title: '危ない案件の一覧', rows: data.rows }];
@@ -54,7 +54,10 @@ export function RiskDetail({ row, onClose, onSaved }: { row: RiskRow; onClose: (
   const action = actionOptions.find(o => o.value === workspaceDeal?.actionnaiyou)?.label ?? row.actionnaiyou;
   const inContract = (e: NonNullable<Detail['events']>[number]) => !e.attach || e.attach.state === 'own' || e.attach.state === 'moved_in';
   const lastContact = data?.events?.filter(e => inContract(e) && (e.kind === 'mtg' || e.kind === 'zoom_mtg' || (e.kind === 'call' && e.contact))).map(e => e.date).sort().at(-1);
-  const contact = row.days_since_contact === null ? formatDateJst(lastContact, '記録なし') : `${String(row.days_since_contact)}日前`;
+  const listContact = row.list_contact;
+  const contact = listContact
+    ? listContact.status === 'outside' ? '記録なし（対象外）' : listContact.status === 'unavailable' ? '未取得' : formatDateJst(listContact.date, '記録なし')
+    : row.days_since_contact === null ? formatDateJst(lastContact, '記録なし') : `${String(row.days_since_contact)}日前`;
   const lastMtg = row.mtg_last ?? data?.events?.filter(e => inContract(e) && (e.kind === 'mtg' || e.kind === 'zoom_mtg')).map(e => e.date).sort().at(-1) ?? null;
   return <dialog className="cr-detail" ref={dialog} aria-labelledby="risk-detail-title" onCancel={onClose}>
     <header><h2 id="risk-detail-title">{row.name}</h2><button className="jc-button" onClick={onClose}>閉じる</button></header>

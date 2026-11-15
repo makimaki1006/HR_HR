@@ -10,6 +10,22 @@ const DEALS_PER_CHUNK: usize = 50;
 /// 最後の保存から数えれば、1 回でも先へ進んだ分は次の回へ必ず引き継がれる。
 /// 週末（金曜の夕方〜月曜の朝）をまたいでも切れないよう 72 時間にする。
 const RESUME_WINDOW: Duration = Duration::from_secs(72 * 60 * 60);
+/// 途中経過の開始からの絶対の上限。少しずつ進むたびに上の期限が延びても、最初に読んだ分が
+/// これより古くなったら捨てて読み直す（完成集計に 7 日より前の読み取りを混ぜない）。
+const RESUME_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// 途中経過を引き継げるか。最後の保存から `RESUME_WINDOW` 以内、かつ開始から `RESUME_MAX_AGE` 以内。
+fn resumable(progress: &Progress, now: chrono::DateTime<Utc>) -> bool {
+    let within = |from: chrono::DateTime<Utc>, limit: Duration| {
+        now.signed_duration_since(from)
+            .to_std()
+            .is_ok_and(|age| age < limit)
+    };
+    within(
+        progress.saved_at.unwrap_or(progress.started_at),
+        RESUME_WINDOW,
+    ) && within(progress.started_at, RESUME_MAX_AGE)
+}
 /// 締め切りの後の保存待ちも含めた、1回の更新の絶対的な上限の余裕。
 const PERSIST_GRACE: Duration = Duration::from_secs(120);
 
@@ -136,7 +152,6 @@ async fn run_with_limit(
 ) -> Result<(), ReadError> {
     let deadline = tokio::time::Instant::now() + limit;
     let started = Instant::now();
-    let resume_window = RESUME_WINDOW;
     let mut progress = service
         .owner_todo
         .state
@@ -144,12 +159,7 @@ async fn run_with_limit(
         .await
         .facts_pending
         .clone()
-        .filter(|p| {
-            Utc::now()
-                .signed_duration_since(p.saved_at.unwrap_or(p.started_at))
-                .to_std()
-                .is_ok_and(|age| age < resume_window)
-        })
+        .filter(|p| resumable(p, Utc::now()))
         .unwrap_or_else(|| Progress {
             started_at: Utc::now(),
             saved_at: None,
@@ -462,6 +472,26 @@ mod tests {
 
     fn done_again(deals: &BTreeMap<String, WorkDeal>) -> BTreeSet<String> {
         deals.keys().take(50).cloned().collect()
+    }
+
+    #[test]
+    fn resume_window_slides_with_saves_but_stops_seven_days_after_start() {
+        let now = Utc::now();
+        let progress = |started_h: i64, saved_h: Option<i64>| Progress {
+            started_at: now - chrono::Duration::hours(started_h),
+            saved_at: saved_h.map(|h| now - chrono::Duration::hours(h)),
+            completed: BTreeSet::new(),
+            facts: BTreeMap::new(),
+        };
+        // 毎日少しずつ進み、最後の保存は 1 時間前: 開始から 6 日 23 時間なら引き継ぐ
+        assert!(resumable(&progress(7 * 24 - 1, Some(1)), now));
+        // 同じく最後の保存は 1 時間前でも、開始から 7 日を過ぎたら捨てる
+        assert!(!resumable(&progress(7 * 24 + 1, Some(1)), now));
+        // 最後の保存から 72 時間ちょうど・過ぎたら捨てる
+        assert!(!resumable(&progress(80, Some(72)), now));
+        assert!(resumable(&progress(80, Some(71)), now));
+        // 未来の時刻（時計のずれ）は引き継がない
+        assert!(!resumable(&progress(-1, None), now));
     }
 
     #[test]

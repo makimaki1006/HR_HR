@@ -121,26 +121,55 @@ fn identity_keys(record: &Record) -> Vec<String> {
 /// 同じ人 = 電話（下 9 桁）・メール・氏名と生年月日の組 のどれかが一致。応募日の早い順に見て最初の 1 件を残す。
 /// `rows` は 1 つの求人の応募だけを渡す。
 pub(super) fn repeat_applications(rows: &[Record]) -> BTreeSet<String> {
-    let mut order: Vec<&Record> = rows.iter().collect();
-    order.sort_by_key(|r| {
+    // 鍵（電話・メール・氏名と生年月日）を 1 つでも共有する応募を、並び順によらず 1 人にまとめる
+    // （union-find）。電話だけ → メールだけ → 電話とメール のように後の応募で初めてつながる場合も 1 人。
+    fn root(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let mut parent: Vec<usize> = (0..rows.len()).collect();
+    let mut owner_of_key: BTreeMap<String, usize> = BTreeMap::new();
+    for (i, record) in rows.iter().enumerate() {
+        for key in identity_keys(record) {
+            match owner_of_key.get(&key) {
+                Some(&j) => {
+                    let (a, b) = (root(&mut parent, i), root(&mut parent, j));
+                    parent[a] = b;
+                }
+                None => {
+                    owner_of_key.insert(key, i);
+                }
+            }
+        }
+    }
+    // 各まとまりで残すのは、応募日の最も早い 1 件（同じ日は作成時刻、次に ID の順。
+    // 日付が分からない応募は日付のある応募より後）。
+    let order = |r: &Record| {
+        let day = r.application_day().map(|(day, _)| day);
         (
-            r.application_day().map(|(day, _)| day),
+            day.is_none(),
+            day,
             r.value(CREATED).map(str::to_owned),
             r.id.clone(),
         )
-    });
-    // 日付が分からない応募は最後に回す（None は Some より前に並ぶため入れ替える）。
-    order.sort_by_key(|r| r.application_day().is_none());
-    let mut seen = BTreeSet::new();
-    let mut repeats = BTreeSet::new();
-    for record in order {
-        let keys = identity_keys(record);
-        if keys.iter().any(|k| seen.contains(k)) {
-            repeats.insert(record.id.clone());
+    };
+    let mut keep: BTreeMap<usize, usize> = BTreeMap::new();
+    for i in 0..rows.len() {
+        let group = root(&mut parent, i);
+        let best = keep.entry(group).or_insert(i);
+        if order(&rows[i]) < order(&rows[*best]) {
+            *best = i;
         }
-        seen.extend(keys);
     }
-    repeats
+    let kept: BTreeSet<usize> = keep.into_values().collect();
+    rows.iter()
+        .enumerate()
+        .filter(|(i, _)| !kept.contains(i))
+        .map(|(_, r)| r.id.clone())
+        .collect()
 }
 
 /// 同じ人の 2 件目以降を除いた応募。
@@ -386,10 +415,11 @@ mod tests {
                 } else if path.ends_with("/associations/0-421") {
                     json!({"results":[{"toObjectId":501},{"toObjectId":502},{"toObjectId":503}]})
                 } else if path == "/crm/v3/objects/0-421/batch/read" {
+                    // 503 は 501 と同じ人（電話の書き方だけ違う）。
                     json!({"results":[
-                        {"id":"501","properties":{"yingmuri":"2026-10-01"}},
-                        {"id":"502","properties":{"yingmuri":"2026-10-01"}},
-                        {"id":"503","properties":{"yingmuri":"2026-10-02"}}]})
+                        {"id":"501","properties":{"yingmuri":"2026-10-01","ouboshashimei":"架空 一郎","denwabangou":"090-0000-1111","meeruadoresu":"ichiro@example.test","seinengappi":"1990-04-01"}},
+                        {"id":"502","properties":{"yingmuri":"2026-10-01","ouboshashimei":"架空 二郎","denwabangou":"080-0000-2222"}},
+                        {"id":"503","properties":{"yingmuri":"2026-10-02","ouboshashimei":"架空一郎","denwabangou":"09000001111"}}]})
                 } else {
                     panic!("unexpected {path}")
                 })
@@ -410,9 +440,25 @@ mod tests {
     async fn one_listing_counts_its_applications_by_day() {
         let (service, server) = mock("10").await;
         let (value, pairs) = read_listing(&service, "10", "7").await.unwrap();
-        assert_eq!(value["total"], 3);
-        assert_eq!(value["by_date"], json!({"2026-10-01":2,"2026-10-02":1}));
-        assert_eq!(pairs.len(), 3);
+        // 同じ人の 2 件目（503）は数えない。
+        assert_eq!(value["total"], 2);
+        assert_eq!(value["by_date"], json!({"2026-10-01":2}));
+        assert_eq!(pairs.len(), 2);
+        let text = value.to_string();
+        for secret in [
+            "架空",
+            "090-0000-1111",
+            "09000001111",
+            "080-0000-2222",
+            "ichiro",
+            "example.test",
+            "1990-04-01",
+        ] {
+            assert!(
+                !text.contains(secret),
+                "{secret} must not be in the response"
+            );
+        }
         server.abort();
     }
 
@@ -467,6 +513,66 @@ mod tests {
             by_date,
             BTreeMap::from([("2026-11-02".to_owned(), 1), ("2026-11-03".to_owned(), 1)])
         );
+    }
+
+    #[test]
+    fn a_chain_found_only_by_a_later_application_is_still_one_person() {
+        // 電話だけ（11/01）→ メールだけ（11/02）→ 電話とメール（11/03）。3 件目で初めてつながる。
+        let rows = [
+            applicant("1", "2026-11-01", &[("denwabangou", "090-3333-4444")]),
+            applicant("2", "2026-11-02", &[("meeruadoresu", "b@example.test")]),
+            applicant(
+                "3",
+                "2026-11-03",
+                &[
+                    ("denwabangou", "09033334444"),
+                    ("meeruadoresu", "b@example.test"),
+                ],
+            ),
+        ];
+        assert_eq!(
+            repeat_applications(&rows),
+            BTreeSet::from(["2".to_owned(), "3".to_owned()])
+        );
+        // 並びを逆にしても、残すのは応募日の最も早い 1 件
+        let reversed: Vec<Record> = rows.iter().rev().cloned().collect();
+        assert_eq!(
+            repeat_applications(&reversed),
+            BTreeSet::from(["2".to_owned(), "3".to_owned()])
+        );
+    }
+
+    #[test]
+    fn same_day_keeps_the_earliest_created_then_the_smaller_id_and_undated_comes_last() {
+        let with_created = |id: &str, day: &str, created: &str| {
+            let mut r = applicant(id, day, &[("denwabangou", "090-5555-6666")]);
+            r.properties.insert(CREATED.into(), Some(created.into()));
+            r
+        };
+        let same_day = [
+            with_created("9", "2026-11-02", "2026-11-02T05:00:00Z"),
+            with_created("8", "2026-11-02", "2026-11-02T01:00:00Z"),
+        ];
+        assert_eq!(
+            repeat_applications(&same_day),
+            BTreeSet::from(["9".to_owned()])
+        );
+        let same_time = [
+            with_created("9", "2026-11-02", "2026-11-02T01:00:00Z"),
+            with_created("8", "2026-11-02", "2026-11-02T01:00:00Z"),
+        ];
+        assert_eq!(
+            repeat_applications(&same_time),
+            BTreeSet::from(["9".to_owned()])
+        );
+        // 応募日も作成日も無い応募は、日付のある応募より後に回す
+        let mut undated = applicant("1", "", &[("denwabangou", "090-5555-6666")]);
+        undated.properties.remove("yingmuri");
+        let rows = [
+            undated,
+            applicant("2", "2026-11-05", &[("denwabangou", "090-5555-6666")]),
+        ];
+        assert_eq!(repeat_applications(&rows), BTreeSet::from(["1".to_owned()]));
     }
 
     #[test]

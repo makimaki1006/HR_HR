@@ -174,7 +174,7 @@ it.each(['list-first', 'detail-first'])('shows zero applications from a direct l
     await act(async () => { resolveList(listResult); await listResponse; });
   }
   await waitFor(() => { expect(applications()).toContain('応募数0件'); });
-  expect(screen.getByRole('button', { name: `${listing.title}の本文を見る` }).textContent).toContain('応募 0件');
+  expect(screen.getByRole('button', { name: `${listing.title}の本文を見る` }).textContent).toContain('応募の記録 0件');
 });
 
 it.each([0, 7, null])('uses the detail count %s for a direct link outside the first fifty rows', async count => {

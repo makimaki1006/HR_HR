@@ -12,14 +12,24 @@ type LastMeetings = HashMap<String, (Option<NaiveDate>, Option<NaiveDate>)>;
 
 #[derive(Default)]
 pub(super) struct MeetingData {
-    pub(super) last: Option<LastMeetings>,
+    pub(super) last: Option<Arc<LastMeetings>>,
     pub(super) as_of: Option<String>,
     /// 取引ごとの最後の接触日（MTG または60秒超の通話。メールは数えない）。
     /// 危ない案件・コンサルKPIと同じ `contacts_by_deal` で数える。シートを読めていなければ `None`。
-    pub(super) contacts: Option<HashMap<String, NaiveDate>>,
+    pub(super) contacts: Option<Arc<HashMap<String, NaiveDate>>>,
     /// 取引ごとの最後のメールの日（`CS_メール履歴`。接触には数えない）。
-    pub(super) emails: Option<HashMap<String, NaiveDate>>,
+    pub(super) emails: Option<Arc<HashMap<String, NaiveDate>>>,
 }
+/// シートの取得時刻（MTG・Zoom・通話・メール）。どれかが取り直されたら数え直す。
+type SheetsKey = [Option<std::time::Instant>; 4];
+type Counted = (
+    Option<Arc<LastMeetings>>,
+    Option<Arc<HashMap<String, NaiveDate>>>,
+    Option<Arc<HashMap<String, NaiveDate>>>,
+);
+/// 数えた結果を 1 組だけ覚える（取り直したシートの分で置き換えるので増えない）。
+/// 通話明細（約 2 万行）を画面の要求のたびに数え直さないため。
+static COUNTED: std::sync::Mutex<Option<(SheetsKey, Counted)>> = std::sync::Mutex::new(None);
 impl MeetingData {
     pub(super) async fn cached() -> Self {
         let Ok(state) = crate::handlers::call_quality::routes::cq_state() else {
@@ -31,18 +41,17 @@ impl MeetingData {
         let zoom = state.store.fresh(cs::SHEET_ZOOM_MTG).await;
         let call = state.store.fresh(cs::SHEET_CALL).await;
         let mail = state.store.fresh(cs::SHEET_MAIL_HISTORY).await;
-        let empty = cs::empty_history_sheet();
-        let factual = mtg
-            .as_ref()
-            .map(|m| cs::factual_mtg(m, zoom.as_deref().unwrap_or(&empty)));
+        let (last, contacts, emails) = counted(
+            mtg.as_deref(),
+            zoom.as_deref(),
+            call.as_deref(),
+            mail.as_deref(),
+        );
         Self {
-            last: factual.as_ref().map(|m| cs::last_recorded_mtg_by_deal(m)),
+            last,
             as_of: meta.as_ref().and_then(|m| cs::data_as_of(m)),
-            contacts: factual
-                .as_ref()
-                .zip(call.as_ref())
-                .map(|(m, c)| last_contacts(c, m)),
-            emails: mail.as_deref().map(last_emails),
+            contacts,
+            emails,
         }
     }
     /// 案件一覧・要対応で使う接触。MTG の集計対象（リクロジ_納品管理）だけ記録から決める。
@@ -56,6 +65,36 @@ impl MeetingData {
             None => Contact::Unknown,
         }
     }
+}
+/// MTG・接触・メールの日付を数える。同じ取得時刻のシートなら前に数えた結果を返す。
+fn counted(
+    mtg: Option<&SheetData>,
+    zoom: Option<&SheetData>,
+    call: Option<&SheetData>,
+    mail: Option<&SheetData>,
+) -> Counted {
+    let key: SheetsKey = [mtg, zoom, call, mail].map(|s| s.map(|s| s.fetched_at));
+    if let Some((saved, result)) = COUNTED.lock().ok().as_deref().and_then(Option::as_ref) {
+        if *saved == key {
+            return result.clone();
+        }
+    }
+    let empty = cs::empty_history_sheet();
+    let factual = mtg.map(|m| cs::factual_mtg(m, zoom.unwrap_or(&empty)));
+    let result: Counted = (
+        factual
+            .as_ref()
+            .map(|m| Arc::new(cs::last_recorded_mtg_by_deal(m))),
+        factual
+            .as_ref()
+            .zip(call)
+            .map(|(m, c)| Arc::new(last_contacts(c, m))),
+        mail.map(|m| Arc::new(last_emails(m))),
+    );
+    if let Ok(mut slot) = COUNTED.lock() {
+        *slot = Some((key, result.clone()));
+    }
+    result
 }
 /// MTG と接触の記録を集めているパイプライン（コンサルKPIの対象。リクロジ_納品管理）。
 const MTG_PIPELINE: &str = "21596025";
@@ -511,13 +550,13 @@ mod tests {
     }
     fn meetings(days: i64) -> MeetingData {
         MeetingData {
-            last: Some(HashMap::from([(
+            last: Some(Arc::new(HashMap::from([(
                 "1".into(),
                 (Some(day() - chrono::Duration::days(days)), None),
-            )])),
+            )]))),
             as_of: Some("2026-10-15".into()),
-            contacts: Some(HashMap::from([("1".into(), day())])),
-            emails: Some(HashMap::new()),
+            contacts: Some(Arc::new(HashMap::from([("1".into(), day())]))),
+            emails: Some(Arc::new(HashMap::new())),
         }
     }
     fn reasons(s: &Snapshot, m: &MeetingData) -> Vec<Value> {
@@ -788,8 +827,8 @@ mod tests {
         // 取引の notes_last_contacted（メールを含む今日）が新しくても、記録からの接触で印を立てる。
         let s = snapshot(120, "5", "21596025");
         let m = MeetingData {
-            contacts: Some(last),
-            emails: Some(last_emails(&mail)),
+            contacts: Some(Arc::new(last)),
+            emails: Some(Arc::new(last_emails(&mail))),
             ..meetings(10)
         };
         let metrics = Metrics::new(&s, &m, day());
@@ -808,6 +847,35 @@ mod tests {
         assert_eq!(row["last_contact"], "2026-09-10");
         assert_eq!(row["contact_status"], "ready");
         assert_eq!(row["last_email"], "2026-10-15");
+    }
+    #[test]
+    fn counted_dates_are_reused_until_a_sheet_is_fetched_again() {
+        let call = sheet(
+            &["deal_id", "duration_sec", "ts"],
+            &[&["1", "120", "2026-09-05T01:00:00Z"]],
+        );
+        let mtg = sheet(&["deal_id", "開催日"], &[&["1", "2026-09-10"]]);
+        let first = counted(Some(&mtg), None, Some(&call), None);
+        let again = counted(Some(&mtg), None, Some(&call), None);
+        // 同じ取得時刻のシートなら数え直さず、同じ結果（同じ入れ物）を返す。
+        assert!(Arc::ptr_eq(
+            first.1.as_ref().unwrap(),
+            again.1.as_ref().unwrap()
+        ));
+        assert_eq!(again.1.as_ref().unwrap()["1"].to_string(), "2026-09-10");
+        // 通話明細を取り直したら数え直す（覚えるのは 1 組だけ）。
+        let newer = sheet(
+            &["deal_id", "duration_sec", "ts"],
+            &[&["1", "120", "2026-09-20T01:00:00Z"]],
+        );
+        let recounted = counted(Some(&mtg), None, Some(&newer), None);
+        assert!(!Arc::ptr_eq(
+            first.1.as_ref().unwrap(),
+            recounted.1.as_ref().unwrap()
+        ));
+        assert_eq!(recounted.1.as_ref().unwrap()["1"].to_string(), "2026-09-20");
+        // 通話明細が無ければ接触は「読めていない」。
+        assert!(counted(Some(&mtg), None, None, None).1.is_none());
     }
     #[test]
     fn contact_is_not_judged_outside_the_sheet_or_before_it_is_read() {
@@ -832,7 +900,7 @@ mod tests {
         // 記録を読めていて接触が 1 件も無い取引（開始から 30 日以上）は「接触の記録が無い」。
         let s = snapshot(120, "5", "21596025");
         let m = MeetingData {
-            contacts: Some(HashMap::new()),
+            contacts: Some(Arc::new(HashMap::new())),
             ..meetings(10)
         };
         let r = Metrics::new(&s, &m, day()).reasons(&s, "1", day());

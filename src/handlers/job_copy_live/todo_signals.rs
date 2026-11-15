@@ -5,7 +5,11 @@ use chrono::NaiveDate;
 
 // ユーザー決定 2026-10-16。判定に使う閾値の正本。
 pub(super) const EXPIRATION_DAYS: i64 = 60;
-const CONTACT_DAYS: i64 = 30;
+/// 接触が空いている: 最後の接触からこの日数を**超えた**とき（31日以上）。危ない案件の名札
+/// 「接触が30日以上空いている」（`cs_dashboard::routes`、`days_since > 30`）と同じ境目にする。
+pub(super) const CONTACT_GAP_DAYS: i64 = 30;
+/// 接触の記録が無いと言うのは、契約開始からこの日数が過ぎてから（立ち上がり直後は言わない）。
+const NO_CONTACT_START_DAYS: i64 = 30;
 const APPLICATION_DAYS: i64 = 14;
 const FIRST_CONTRACT_TARGETS: [(i64, usize); 2] = [(30, 5), (60, 10)];
 
@@ -170,11 +174,11 @@ pub(super) fn reasons(
         .and_then(date)
         .map(|d| (today - d).num_days());
     match contact {
-        Contact::Last(Some(last)) if (today - last).num_days() >= CONTACT_DAYS => add(
+        Contact::Last(Some(last)) if (today - last).num_days() > CONTACT_GAP_DAYS => add(
             "contact",
             format!("最後の接触から {} 日", (today - last).num_days()),
         ),
-        Contact::Last(None) if elapsed.is_some_and(|n| n >= CONTACT_DAYS) => {
+        Contact::Last(None) if elapsed.is_some_and(|n| n >= NO_CONTACT_START_DAYS) => {
             add("contact", "接触の記録が無い".into())
         }
         _ => {}
@@ -429,7 +433,7 @@ mod tests {
                     Some((today + chrono::Duration::days(expiration)).to_string()),
                 ),
                 ("number_of_sales", Some("1".into())),
-                ("notes_last_contacted", contact.map(str::to_owned)),
+                (TEST_CONTACT, contact.map(str::to_owned)),
             ]
             .into_iter()
             .map(|(k, v)| (k.into(), v))
@@ -440,12 +444,14 @@ mod tests {
             record,
         }
     }
-    /// テストでは接触日を取引の `notes_last_contacted` に置いておき、そこから渡す。
-    fn contact_of(d: &WorkDeal) -> Contact {
-        Contact::Last(d.record.value("notes_last_contacted").and_then(date))
+    /// テストの取引に持たせる最後の接触日の置き場所（HubSpot の項目ではない）。
+    /// 本番は記録（MTG か60秒超の通話）から `Contact` を作って渡す。
+    const TEST_CONTACT: &str = "test_last_contact";
+    fn test_contact(d: &WorkDeal) -> Contact {
+        Contact::Last(d.record.value(TEST_CONTACT).and_then(date))
     }
     fn kinds(d: &WorkDeal, f: &Facts) -> Vec<String> {
-        reasons(d, Some(f), contact_of(d), day("2026-10-16"))
+        reasons(d, Some(f), test_contact(d), day("2026-10-16"))
             .iter()
             .map(|v| v["kind"].as_str().unwrap().into())
             .collect()
@@ -674,9 +680,11 @@ mod tests {
                 has
             );
         }
+        // 今日は 10/16。危ない案件と同じく 30 日を超えたら（31 日から）印。
         for (contact, has) in [
-            ("2026-09-16T14:59:59Z", true),
-            ("2026-09-16T15:00:00Z", false),
+            ("2026-09-15", true),
+            ("2026-09-16", false),
+            ("2026-10-16", false),
             ("2026-10-17", false),
         ] {
             assert_eq!(
@@ -723,7 +731,7 @@ mod tests {
             );
         }
         let d = deal(100, Some("2026-10-16"), -14);
-        let r = reasons(&d, Some(&f), contact_of(&d), day("2026-10-16"));
+        let r = reasons(&d, Some(&f), test_contact(&d), day("2026-10-16"));
         let expired = r.iter().find(|v| v["kind"] == "expired").unwrap();
         assert_eq!(expired["text"], "満了日から 14 日が過ぎている");
         // 終了したステージは対象外（案件管理の稼働中 = 終了ステージでない）
@@ -732,7 +740,7 @@ mod tests {
             .record
             .properties
             .insert("dealstage".into(), Some(ENDED_STAGES[0].into()));
-        assert!(reasons(&ended, Some(&f), contact_of(&ended), day("2026-10-16")).is_empty());
+        assert!(reasons(&ended, Some(&f), test_contact(&ended), day("2026-10-16")).is_empty());
     }
     #[test]
     fn stalled_fourteen_calendar_days_and_start_boundary() {
@@ -803,7 +811,7 @@ mod tests {
         );
         d.record
             .properties
-            .insert("notes_last_contacted".into(), Some("2026-10-16".into()));
+            .insert(TEST_CONTACT.into(), Some("2026-10-16".into()));
         d.assignment.contract_expiration_date = Some("2027-01-01".into());
         f.days = vec![day("2026-10-16"); 10];
         assert!(kinds(&d, &f).is_empty());

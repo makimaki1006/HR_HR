@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ConsultantRisk, jobsHref, riskGroups } from './ConsultantRisk';
+import { ConsultantRisk, RiskDetail, detailRow, jobsHref, riskGroups } from './ConsultantRisk';
 import { ConsultantMenu } from './ConsultantMenu';
 import { OwnerFilter } from './OwnerTodo';
 import { detailFixture, goodFixture, riskFixture, riskRow, scopeFixture } from './consultantRisk.testFixtures';
@@ -178,4 +178,17 @@ it('本番の準備中の応答（{"status":"preparing"}）では、顧客・求
       unmount();
     }
   } finally { vi.useRealTimers(); }
+});
+
+it.each([
+  [{ date: '2026-10-12', status: 'ready' as const }, '接触：2026/10/12'],
+  [{ date: null, status: 'none' as const }, '接触：記録なし'],
+  [{ date: null, status: 'outside' as const }, '接触：記録なし（対象外）'],
+  [{ date: null, status: 'unavailable' as const }, '接触：未取得'],
+])('案件一覧から開いた小窓は、一覧と同じ最後の接触を出す（詳細の記録の 10/18 では上書きしない）', async (listContact, text) => {
+  window.history.replaceState(null, '', '/app/job-copy?view=deals'); mock();
+  render(<RiskDetail row={{ ...detailRow('101', riskRow.name), list_contact: listContact }} onClose={() => undefined} onSaved={() => undefined} />);
+  const dialog = await screen.findByRole('dialog');
+  expect(await within(dialog).findByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeTruthy();
+  expect(within(dialog).getByText(new RegExp(`^${text} ／ MTG：`))).toBeTruthy();
 });
