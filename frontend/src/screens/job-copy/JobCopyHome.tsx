@@ -14,7 +14,7 @@ import type { CardKey, CustomerSort, HomeCard, HomeCustomer, HomeResponse } from
 import './home.css';
 import { useRevealOnMount } from './revealList';
 import { CountLine, OwnerFilter, OwnerScopeBanner, OwnerTodo, PendingOwnerFilter, cardToneClass, ownerParams, ownerScope, ownerScopeTitle } from './OwnerTodo';
-import { useSelfOwner } from './selfOwner';
+import { recheckSelfOwner, useSelfOwner } from './selfOwner';
 import { CardOpenCue, CloseListButton } from './Pressable';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '案件管理のホームを読み込めませんでした。時間を置いて再取得してください。';
@@ -69,6 +69,8 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     saveHomeCache(cache, result.data);
     setData(result.data); setError(''); setLoadedAt(new Date().toISOString());
     const work = result.data.status === 'ready' ? result.data.work : undefined;
+    // 担当者の情報が揃ったら、本人の判定がまだならすぐ確かめ直す（デプロイ直後の作り直しを待っていた分）。
+    if (work?.status === 'ready') recheckSelfOwner();
     if (work?.status === 'ready' && !work.notice && [null, 'me'].includes(new URLSearchParams(requestOwnerQuery).get('owner'))) {
       const to = new URLSearchParams({ owner_field: work.owner_field, owner: work.owner }).toString();
       setResolvedSelf({ from: requestOwnerQuery, to });

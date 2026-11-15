@@ -388,3 +388,22 @@ it('本人の担当者情報が無い人（notice あり）には黄色の帯を
   expect(document.querySelector('.jh-scope-banner')).toBeNull();
   expect(screen.getByText('ログインした方の担当者情報が見つからないため、全員を表示しています。').className).toBe('jh-owner-notice');
 });
+
+it('本人の判定が作り直し中（preparing）のあいだは担当者名の見出しで、ホームが揃ったらすぐ確かめ直して「あなたの担当分」に切り替える', async () => {
+  setSelfOwnerForTest(undefined);
+  window.history.replaceState(null, '', '/app/job-copy?owner=11&owner_field=consultant');
+  let scopeReady = false;
+  let releaseHome: (() => void) | undefined;
+  api.mockImplementation((path: string) => path.startsWith('/api/job-copy/consultant-scope')
+    ? Promise.resolve(scopeReady ? { ok: true, data: { status: 'ready', owner: '11', owner_field: 'consultant', notice: null, owners: [] } } : { ok: true, data: { status: 'preparing' } })
+    : new Promise(resolve => { releaseHome = () => { resolve({ ok: true, data: { ...response, work: demoOwnerTodo } }); }; }));
+  renderHome();
+  await waitFor(() => { expect(api.mock.calls.some(([path]) => String(path).startsWith('/api/job-copy/consultant-scope'))).toBe(true); });
+  await act(() => Promise.resolve());
+  // 索引ができてホームが届く。本人の判定はまだ preparing の待ちの途中だが、待たずに確かめ直す。
+  scopeReady = true;
+  await act(async () => { releaseHome?.(); await Promise.resolve(); });
+  await waitFor(() => { expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('今日 — あなたの担当分'); }, { timeout: 2_000 });
+  expect(screen.getByRole('button', { name: '自分' }).getAttribute('aria-pressed')).toBe('true');
+  expect(document.querySelector('.jh-scope-banner')).toBeNull();
+});

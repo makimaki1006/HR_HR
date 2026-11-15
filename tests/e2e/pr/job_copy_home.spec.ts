@@ -94,6 +94,28 @@ test('ホームの常時2枚のカード・件数の1行と、変更求人の一
   await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();
 });
 
+test('デプロイ直後で本人の判定が作り直し中（preparing）でも、分かった時点で「あなたの担当分」と「自分」に切り替わる', async ({ page }) => {
+  let indexReady = false;
+  const scopeCalls: string[] = [];
+  await page.route('**/api/job-copy/consultant-scope?*', route => {
+    // 本人の判定（owner=me）の問い合わせだけを数える。担当の欄の読み込みは数えない。
+    if (new URL(route.request().url()).searchParams.get('owner') === 'me') scopeCalls.push(route.request().url());
+    return route.fulfill({ json: indexReady ? { status: 'ready', owner: '11', owner_field: 'consultant', notice: null, owners: demoOwnerTodo.owners } : { status: 'preparing' } });
+  });
+  await page.route(/\/api\/job-copy\/home(?:\?|$)/, route => route.fulfill({ json: indexReady ? { ...demoHome, work: demoOwnerTodo } : { status: 'preparing' } }));
+  await page.route('**/api/job-copy/recent-changes*', route => route.fulfill({ json: { status: 'ready', refresh_failed: false, report: { count: 0, listings: [] } } }));
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', capture_bundle: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', jobs: [] }, results: [] } }));
+  await login(page);
+  await page.goto('/app/job-copy?owner=11&owner_field=consultant');
+  await expect.poll(() => scopeCalls.length).toBeGreaterThanOrEqual(2);
+  // 作り直しの間は「自分なし」に決めない（帯は出さない）。
+  await expect(page.locator('.jh-scope-banner')).toHaveCount(0);
+  indexReady = true;
+  await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toHaveText('今日 — あなたの担当分', { timeout: 20_000 });
+  await expect(page.getByRole('button', { name: '自分', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.jh-scope-banner')).toHaveCount(0);
+});
+
 test('担当者の切替でホームのカードを絞り、案件・会社から戻って一覧を保つ', async ({ page }) => {
   await page.route(/\/api\/job-copy\/home(?:\?|$)/, route => {
     const query = new URL(route.request().url()).searchParams;

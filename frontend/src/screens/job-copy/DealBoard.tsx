@@ -16,6 +16,7 @@ import type { DealBoardResponse, DealSort, DealRow, ZeroPeriod } from './dealBoa
 import type { RiskRow } from './ConsultantRisk';
 import './home.css';
 import './deal-board.css';
+import { recheckSelfOwner } from './selfOwner';
 const PAGE_SIZE = 20;
 // 案件一覧だけの印。「MTGが途絶えている」（60日以上）の手前の30〜59日を分けて数える。今日の画面には出さない。
 const boardSignalCards: (readonly [string, string, string])[] = signalCards.flatMap((card): (readonly [string, string, string])[] => card[0] === 'mtg' ? [card, ['mtg_gap', 'MTGが空いている', '最後のMTGから30〜59日']] : [card]);
@@ -70,6 +71,7 @@ export function DealBoard() {
       if (controller.signal.aborted) return;
       if (!result.ok) { setError('案件の一覧を読み込めませんでした。時間を置いて再読み込みしてください。'); return; }
       setData(result.data); setError('');
+      if (result.data.status === 'ready') recheckSelfOwner();
       if (result.data.status === 'ready' && !result.data.work.notice && [null, 'me'].includes(new URLSearchParams(ownerQuery).get('owner'))) updateJobCopyQuery({ owner: result.data.work.owner, owner_field: result.data.work.owner_field }, 'replace');
     });
     return () => { controller.abort(); };

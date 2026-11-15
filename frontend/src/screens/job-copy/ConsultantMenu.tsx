@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { apiGet } from '../../api/client';
 import { DisabledOwnerFilter, OwnerFilter, OwnerFilterPlacement, PendingOwnerFilter, ownerParams } from './OwnerTodo';
 import { MoreActionsProvider, MoreMenu } from './MoreMenu';
+import { recheckSelfOwner } from './selfOwner';
 import type { MoreActions } from './MoreMenu';
 import type { WorkReady } from './OwnerTodo';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
@@ -29,7 +30,7 @@ function ConsultantScopeFilter() {
       // 形の違う応答（担当者の一覧が無い等）で画面全体が落ちないよう、読み込めなかった扱いにする。
       if (r.data.status === 'ready' && !Array.isArray(r.data.owners)) { setError(true); return; }
       if (r.data.status !== 'ready') { attempt += 1; timer = setTimeout(() => { void load(); }, Math.min(10_000, 2000 * attempt)); return; }
-      setScope(r.data); setError(false);
+      setScope(r.data); setError(false); recheckSelfOwner();
       if (!r.data.notice && [null, 'me'].includes(new URLSearchParams(ownerQuery).get('owner'))) updateJobCopyQuery({ owner: r.data.owner, owner_field: r.data.owner_field }, 'replace');
     };
     void load(); return () => { controller.abort(); clearTimeout(timer); };
