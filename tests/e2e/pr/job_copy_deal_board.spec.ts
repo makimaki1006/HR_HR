@@ -32,7 +32,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(table.locator('.nt-strong')).toHaveText('MTGが途絶えている（最後のMTGから 107 日）');
   await expect(page.getByRole('checkbox', { name: '終わった案件も出す' })).not.toBeChecked();
   await expect(page.getByRole('combobox', { name: '並べ替え' })).toHaveCount(0);
-  await expect(page.getByText('並び: ラベルが多い順', { exact: true })).toBeVisible();
+  await expect(page.getByText('並び: タグが多い順', { exact: true })).toBeVisible();
   await expect(table.locator('thead th[aria-sort="descending"]')).toHaveCount(0);
   const crumbs = page.getByRole('navigation', { name: '現在地' });
   await expect(crumbs).toContainText('案件管理案件の一覧');
@@ -45,7 +45,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   expect(await page.locator('.db-board').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false);
   const dir = process.env.BOARD_SCREENSHOT_DIR;
   if (dir) await page.screenshot({ path: `${dir}/deals-1440.png`, fullPage: true });
-  const marks = page.getByRole('group', { name: 'ラベルで絞る' });
+  const marks = page.getByRole('group', { name: 'タグで絞る' });
   const nps = marks.getByRole('button', { name: '定期の満足度が低い 1', exact: true });
   await nps.click();
   await expect(nps).toHaveAttribute('aria-pressed', 'true');
@@ -64,7 +64,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await marks.getByRole('button', { name: 'すべて 23', exact: true }).click();
   // 既定の列は 8 つ。採用・採用単価・金額・採用目標は「詳しい数字」を開くと出る
   await expect(page.getByRole('region', { name: '絞り込み中の応募数' }).locator('strong')).toHaveText(['24件', '1件', '+23件']);
-  await expect(table.locator('thead th')).toHaveText(['案件・顧客 ▲▼', 'ラベル ▲▼', '応募（直近4週） ▲▼', '満了まで ▲▼', '最後の接触 ▲▼', '最後のMTG ▲▼', '満足度 ▲▼', '担当 ▲▼', '詳しい数字']);
+  await expect(table.locator('thead th')).toHaveText(['案件・顧客 ▲▼', 'タグ ▲▼', '応募（直近4週） ▲▼', '満了まで ▲▼', '最後の接触 ▲▼', '最後のMTG ▲▼', '満足度 ▲▼', '担当 ▲▼', '詳しい数字']);
   // 「いい」は印の先頭（すべての次）に並ぶ
   await expect(marks.getByRole('button').nth(1)).toHaveText(/^いい\s*2$/);
   const good = marks.getByRole('button', { name: 'いい 2', exact: true });
@@ -161,7 +161,7 @@ test('初回案件の立ち上がり・要約・URL・ホームのカード', as
   await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();
-  await page.getByRole('group', { name: 'ラベルで絞る' }).getByRole('button', { name: '定期の満足度が低い 1', exact: true }).click();
+  await page.getByRole('group', { name: 'タグで絞る' }).getByRole('button', { name: '定期の満足度が低い 1', exact: true }).click();
   await expect(page.getByText('1件・1 / 1ページ', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'パイプライン', exact: true }).selectOption('743961896');
   await expect(table).toContainText('条件に合う案件はありません');

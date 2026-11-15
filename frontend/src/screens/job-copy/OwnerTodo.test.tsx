@@ -28,15 +28,15 @@ it('担当の種類・ほかの人・全員・自分をreplaceで切り替え、
   expect(window.history.state).toEqual({ keep: 7 }); expect(replace).toHaveBeenCalledTimes(4); expect(push).not.toHaveBeenCalled();
   vi.restoreAllMocks();
 });
-it('7枚の件数カードと、ほかのラベルの札・案件一覧へ移る行を表示し、押すと日付をスラッシュで表示した一覧を開く', () => {
+it('7枚の件数カードと、ほかのタグの札・案件一覧へ移る行を表示し、押すと日付をスラッシュで表示した一覧を開く', () => {
   const company = vi.fn(); const deal = vi.fn();
   const push = vi.spyOn(window.history, 'pushState');
   render(<OwnerTodo work={demoOwnerTodo} onOpenCompany={company} onOpenDeal={deal} />);
   expect(document.querySelectorAll('.jh-todo-cards .jh-card')).toHaveLength(7);
   expect([...document.querySelectorAll('.jh-todo-cards .jh-card .jh-card-title')].map(el => el.textContent)).toEqual(['期限切れ', '今日', '7日以内', '契約満了が近い', '接触が空いている', '応募が止まっている', 'MTGが途絶えている']);
   expect(document.querySelector('.jh-rule')).toBeNull();
-  // ほかのラベルは0件も薄い札で残す。初回で成果が出ていないは札にせず、案件一覧へ移る青い下線。
-  const others = screen.getByRole('group', { name: 'ほかのラベル' });
+  // ほかのタグは0件も薄い札で残す。初回で成果が出ていないは札にせず、案件一覧へ移る青い下線。
+  const others = screen.getByRole('group', { name: 'ほかのタグ' });
   expect(within(others).getAllByRole('button').map(b => [b.textContent, b.classList.contains('is-zero')])).toEqual([['満了後も稼働中 0件', true], ['定期の満足度が低い 0件', true], ['採用目標に届いていない 0件', true], ['採用単価が高い 0件', true]]);
   expect(document.querySelector('.jh-go-line')?.textContent).toBe('初回で成果が出ていない 1件→ 案件一覧で見る');
   expect(screen.getByRole('button', { name: 'それ以降の予定 1件' }).getAttribute('aria-pressed')).toBe('false');
@@ -47,9 +47,9 @@ it('7枚の件数カードと、ほかのラベルの札・案件一覧へ移る
   expect(overdueCard.querySelector('.jh-card-cue')?.textContent).toBe('一覧を見る ▾');
   fireEvent.click(overdueCard);
   expect(overdueCard.querySelector('.jh-card-cue')?.textContent).toBe('閉じる ▴');
-  // 一覧は押した段（予定）のすぐ下に開き、ラベルの段より前にある。
+  // 一覧は押した段（予定）のすぐ下に開き、タグの段より前にある。
   const planRegion = screen.getByRole('region', { name: '期限切れの一覧' });
-  expect(planRegion.compareDocumentPosition(screen.getByRole('heading', { name: 'ラベルが付いた案件' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(planRegion.compareDocumentPosition(screen.getByRole('heading', { name: 'タグが付いた案件' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(new URLSearchParams(window.location.search).get('card')).toBe('todo_overdue');
   expect(push).toHaveBeenCalledTimes(1);
   const overdue = screen.getByRole('region', { name: '期限切れの一覧' });
@@ -64,8 +64,8 @@ it('7枚の件数カードと、ほかのラベルの札・案件一覧へ移る
   fireEvent.click(screen.getByRole('button', { name: /契約満了が近い/ }));
   expect(screen.queryByRole('region', { name: '期限切れの一覧' })).toBeNull();
   expect(screen.getByText('満了まで 30 日')).toBeTruthy();
-  // ラベルの段の一覧は、その段のカードの下に開く。
-  expect(screen.getByRole('heading', { name: 'ラベルが付いた案件' }).compareDocumentPosition(screen.getByRole('region', { name: '契約満了が近いの一覧' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // タグの段の一覧は、その段のカードの下に開く。
+  expect(screen.getByRole('heading', { name: 'タグが付いた案件' }).compareDocumentPosition(screen.getByRole('region', { name: '契約満了が近いの一覧' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '契約満了が近いの一覧を閉じる' }));
   expect(screen.queryByRole('table')).toBeNull();
   expect(new URLSearchParams(window.location.search).get('card')).toBeNull();
@@ -125,7 +125,7 @@ it('全件を取得中はやることを0件と表示しない', () => {
   expect(screen.queryByRole('heading', { name: /CSアクション/ })).toBeNull();
 });
 
-it('ラベルが1件以上なら橙（注意）、0件なら灰。期限切れは件数があるときだけ赤', () => {
+it('タグが1件以上なら橙（注意）、0件なら灰。期限切れは件数があるときだけ赤', () => {
   const work = { ...demoOwnerTodo, signals: (demoOwnerTodo.signals ?? []).map(row => ({ ...row, reasons: (row.reasons ?? []).filter(r => r.kind === 'contact') })) };
   const { unmount } = render(<OwnerTodo work={work} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
   expect(screen.getByRole('button', { name: /接触が空いている/ }).className).toBe('jh-card jh-warn');
@@ -160,9 +160,9 @@ it('URL に card= があって最初から開いている一覧にも、表示�
   expect(scroll.mock.contexts[0]).toBe(screen.getByRole('region', { name: '期限切れの一覧' }));
 });
 
-it('ほかのラベルがすべて0件でも、札を薄く残して並びを変えない', () => {
+it('ほかのタグがすべて0件でも、札を薄く残して並びを変えない', () => {
   render(<OwnerTodo work={{ ...demoOwnerTodo, signals: [] }} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
-  expect(within(screen.getByRole('group', { name: 'ほかのラベル' })).getAllByRole('button').map(b => b.textContent)).toEqual(['満了後も稼働中 0件', '定期の満足度が低い 0件', '採用目標に届いていない 0件', '採用単価が高い 0件']);
+  expect(within(screen.getByRole('group', { name: 'ほかのタグ' })).getAllByRole('button').map(b => b.textContent)).toEqual(['満了後も稼働中 0件', '定期の満足度が低い 0件', '採用目標に届いていない 0件', '採用単価が高い 0件']);
   expect(document.querySelectorAll('.jh-more .jc-chip.is-zero')).toHaveLength(4);
   // 0件のカードには「一覧を見る ▾」を出さない。
   expect(screen.getByRole('button', { name: /契約満了が近い/ }).textContent).toBe('0件契約満了が近い');

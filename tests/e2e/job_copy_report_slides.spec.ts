@@ -69,19 +69,35 @@ test('案件の報告のスライド: 左で選び、外したものは理由を
   await page.setViewportSize({ width: 1440, height: 1000 });
   await open(page);
   const side = page.getByRole('complementary', { name: '報告の設定' });
-  await expect(side.getByRole('checkbox')).toHaveCount(7);
+  await expect(side.locator('.rs-thumbs').getByRole('checkbox')).toHaveCount(7);
+  await expect(side.getByRole('checkbox', { name: /面接・採用を出す/ })).toBeChecked();
   await expect(page.getByRole('region', { name: '外したもの' })).toContainText('次に行うこと：「次に行うこと」が未記入のため');
   await side.getByLabel('開始', { exact: true }).fill('2026-10-19');
   await side.getByLabel('終了', { exact: true }).fill('2026-11-15');
   await side.getByRole('textbox', { name: '次に行うこと1', exact: true }).fill('給与の書き方を、ほかの求人にも広げます');
   await side.getByRole('textbox', { name: '次に行うこと1の補足', exact: true }).fill('11月下旬までに掲載内容を見直し');
   await side.getByRole('textbox', { name: '次に行うこと2', exact: true }).fill('面接に進んだ方の応募理由を、引き続きうかがいます');
-  await expect(side.getByRole('checkbox')).toHaveCount(8);
+  await expect(side.locator('.rs-thumbs').getByRole('checkbox')).toHaveCount(8);
   await expect(page.locator('.rs-print-deck .rs-slide')).toHaveCount(8);
   const stage = page.getByRole('region', { name: 'スライド', exact: true });
   await side.getByRole('button', { name: /まとめ/ }).click();
   await expect(stage).toContainText('応募は前の期間の 3件から 7件に増えました');
+  // 面接・採用は期間の数字（応募）とは別の段に、案件を読んだ日つきの見出しで出す（2026-11-16 利用者決定）
+  const today = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric' }).format(new Date());
+  await expect(stage.locator('.rs-totals-h')).toHaveText(`ご契約からの合計（${today} 時点）`);
+  await expect(stage.locator('.rs-totals .rs-kp > div')).toHaveText(['面接4件', '採用1名']);
+  await expect(stage.locator('.rs-body > .rs-kp')).not.toContainText(/面接|採用/);
   await expect(stage).not.toContainText(/未取得|HubSpot/);
+  // 媒体の費用は紙のどこにも書かない（印刷用の束の全スライド）
+  const printed = page.locator('.rs-print-deck');
+  await expect(printed.locator('.rs-slide')).toHaveCount(8);
+  await expect(printed).not.toContainText(/費用|課金|円/);
+  // 切り替えで面接・採用を外せる
+  await side.getByRole('checkbox', { name: /面接・採用を出す/ }).uncheck();
+  await expect(printed.locator('.rs-totals')).toHaveCount(0);
+  await expect(printed).not.toContainText(/面接\d|採用\d|ご契約からの合計/);
+  await side.getByRole('checkbox', { name: /面接・採用を出す/ }).check();
+  await expect(printed.locator('.rs-totals .rs-kp > div')).toHaveText(['面接4件', '採用1名']);
   // 応募理由は電話でうかがった分類の件数、どのスライドも枠からはみ出さない
   await side.getByRole('button', { name: /応募理由/ }).click();
   await expect(stage).toContainText('お電話で応募理由をうかがえた 7件の内訳');

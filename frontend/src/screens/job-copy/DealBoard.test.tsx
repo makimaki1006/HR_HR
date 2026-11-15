@@ -47,7 +47,7 @@ const names = () => within(screen.getByRole('table')).getAllByRole('row').slice(
 it('既定の列は8つで、採用・採用単価・金額・採用目標は行の「詳しい数字」を開くと見られる', async () => {
   stub(); await open();
   const headers = [...screen.getByRole('table').querySelectorAll('thead th')].map(th => th.textContent.replace(/ ▲▼| ▼| ▲/gu, ''));
-  expect(headers).toEqual(['案件・顧客', 'ラベル', '応募（直近4週）', '満了まで', '最後の接触', '最後のMTG', '満足度', '担当', '詳しい数字']);
+  expect(headers).toEqual(['案件・顧客', 'タグ', '応募（直近4週）', '満了まで', '最後の接触', '最後のMTG', '満足度', '担当', '詳しい数字']);
   expect(screen.queryByRole('button', { name: /^(採用|採用単価|金額|採用目標に対して) / })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: `${row(0).name ?? ''}の詳しい数字を開く` }));
   const detail = within(screen.getByRole('table', { name: `${row(0).name ?? ''}の詳しい数字` }));
@@ -61,10 +61,10 @@ it('既定の列は8つで、採用・採用単価・金額・採用目標は行
 it('「いい」は印の先頭に並び、いい案件の集計にある案件だけを出す', async () => {
   const urls = stub(['101', '103']); await open();
   const chip = await screen.findByRole('button', { name: 'いい 2' });
-  const group = screen.getByRole('group', { name: 'ラベルで絞る' });
+  const group = screen.getByRole('group', { name: 'タグで絞る' });
   expect([...group.querySelectorAll('button')].slice(0, 2).map(b => b.textContent.replace(/\s+/gu, ' '))).toEqual(['すべて 4', 'いい 2']);
   fireEvent.click(chip);
-  // 標準の並びはラベルの数、続いて金額の多い順
+  // 標準の並びはタグが多い順、続いて金額が多い順
   expect(names()).toEqual([row(3).name, row(1).name]);
   expect(urls.some(u => u.includes('/api/job-copy/consultant-good?') && u.includes('owner=11'))).toBe(true);
 });
@@ -140,7 +140,7 @@ it('案件ごとの応募動機を行に出し、詳しい数字で全件の表�
 it('MTGが途絶えている（60日以上）と MTGが空いている（30〜59日）を別の印で数え、接触はメールを添えるだけにする', async () => {
   stub(['101'], [row(0), { ...row(1), reasons: [{ kind: 'mtg_gap', text: 'MTGが空いている（最後のMTGから 45 日）' }] }, row(2), { ...row(23), active: true }]);
   await open('&deals_ended=yes');
-  const filters = screen.getByRole('group', { name: 'ラベルで絞る' });
+  const filters = screen.getByRole('group', { name: 'タグで絞る' });
   expect(within(filters).getByRole('button', { name: 'MTGが途絶えている 1' })).toBeTruthy();
   expect(within(filters).getByRole('button', { name: 'MTGが空いている 1' })).toBeTruthy();
   fireEvent.click(within(filters).getByRole('button', { name: 'MTGが空いている 1' }));
