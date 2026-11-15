@@ -98,7 +98,8 @@ test('デプロイ直後で本人の判定が作り直し中（preparing）で�
   let indexReady = false;
   const scopeCalls: string[] = [];
   await page.route('**/api/job-copy/consultant-scope?*', route => {
-    scopeCalls.push(route.request().url());
+    // 本人の判定（owner=me）の問い合わせだけを数える。担当の欄の読み込みは数えない。
+    if (new URL(route.request().url()).searchParams.get('owner') === 'me') scopeCalls.push(route.request().url());
     return route.fulfill({ json: indexReady ? { status: 'ready', owner: '11', owner_field: 'consultant', notice: null, owners: demoOwnerTodo.owners } : { status: 'preparing' } });
   });
   await page.route(/\/api\/job-copy\/home(?:\?|$)/, route => route.fulfill({ json: indexReady ? { ...demoHome, work: demoOwnerTodo } : { status: 'preparing' } }));
