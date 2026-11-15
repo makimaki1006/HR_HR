@@ -1906,16 +1906,22 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         true
     }
 
-    /// 判定済みの電話の文字起こしを HubSpot の通話へ移す (手の空いた周回だけ)。
-    /// 最初の 1 回で判定済みの行の 3 つの欄を読む (読めなければ次の手の空いた周回でやり直す)
+    /// #442 より前に判定した電話の文字起こしを HubSpot の通話へ一度だけ移す (手の空いた周回だけ。
+    /// `transcript_backfill`)。最初の 1 回で切り目より前の判定済みの行の通話 ID・録音 ID を読む
+    /// (読めなければ次の手の空いた周回でやり直す)。全部片付いたら、この起動の間は何も読まない
     async fn process_transcript_backfill(&mut self) {
-        use super::transcript_backfill::SINCE_DAYS;
-        if !self.transcript_backfill.is_loaded() {
-            let since = store::ts_text(Utc::now() - chrono::Duration::days(SINCE_DAYS));
+        use super::transcript_backfill::{CUTOFF, CYCLE_BUDGET, SINCE};
+        if self.transcript_backfill.is_done() {
+            return;
+        }
+        if self.transcript_backfill.needs_load() {
+            // 新しい順に読むので、先頭に足して古い順に並べる (向きを変えるための複製を作らない)
             let refs = store::blocking(&self.audit, move |t| {
-                let mut out = Vec::new();
-                store::for_each_judged_ref_page(t, &since, store::ROWS_PAGE, |rows| {
-                    out.extend(rows)
+                let mut out = VecDeque::new();
+                store::for_each_judged_ref_page(t, SINCE, CUTOFF, store::ROWS_PAGE, |rows| {
+                    for r in rows {
+                        out.push_front(r);
+                    }
                 })?;
                 Ok(out)
             })
@@ -1931,23 +1937,34 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 }
             }
         }
-        if self.transcript_backfill.remaining() == 0 {
-            return;
-        }
+        let deadline = tokio::time::Instant::now() + CYCLE_BUDGET;
+        let today = (Utc::now() + chrono::Duration::hours(9)).date_naive();
         let rep = self
             .transcript_backfill
-            .step(&self.client.background(), &*self.zoom)
+            .step(&self.client.background(), &*self.zoom, deadline, today)
             .await;
         if rep != Default::default() {
             tracing::info!(
                 checked = rep.checked,
                 present = rep.present,
                 saved = rep.saved,
+                marked = rep.marked,
                 given_up = rep.given_up,
                 retry_later = rep.retry_later,
                 stopped = rep.stopped,
                 remaining = self.transcript_backfill.remaining(),
                 "talk review: transcript backfill"
+            );
+        }
+        if self.transcript_backfill.is_done() {
+            let t = self.transcript_backfill.totals();
+            tracing::info!(
+                present = t.present,
+                saved = t.saved,
+                marked = t.marked,
+                given_up = t.given_up,
+                no_recording_id = t.no_recording_id,
+                "talk review: transcript backfill 移し終えた"
             );
         }
     }

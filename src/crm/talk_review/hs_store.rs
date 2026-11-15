@@ -66,11 +66,37 @@ pub fn from_text(s: &str) -> Vec<TalkTurn> {
         .collect()
 }
 
-/// 通話に残した文字起こし。無ければ `None`
+/// 録音が消えていた通話に書く印の文 (`transcript_backfill` が書く)。読んだら Zoom を呼ばずに `Gone` にする
+pub const GONE_MARK: &str = "（録音が残っていないため文字起こしはありません）";
+/// 文字起こしできない通話 (Zoom の 12000 / 12001) に書く印の文。読んだら `Untranscribable` にする
+pub const UNTRANSCRIBABLE_MARK: &str = "（文字起こしできない通話のため文字起こしはありません）";
+
+/// 通話に残したもの
+#[derive(Debug, Clone, PartialEq)]
+pub enum Kept {
+    Turns(Vec<TalkTurn>),
+    /// 印の文: 録音が残っていない
+    Gone,
+    /// 印の文: 文字起こしできない
+    Untranscribable,
+}
+
+/// 項目の値を読む (純粋)。空・発言が 1 つも無い値は `None`
+pub fn parse_kept(s: &str) -> Option<Kept> {
+    match s.trim() {
+        GONE_MARK => Some(Kept::Gone),
+        UNTRANSCRIBABLE_MARK => Some(Kept::Untranscribable),
+        _ => Some(from_text(s))
+            .filter(|t| !t.is_empty())
+            .map(Kept::Turns),
+    }
+}
+
+/// 通話に残した文字起こし (または印)。無ければ `None`
 pub async fn load_transcript(
     client: &HubSpotClient,
     call_id: &str,
-) -> Result<Option<Vec<TalkTurn>>, HubSpotError> {
+) -> Result<Option<Kept>, HubSpotError> {
     let r = client
         .get_object("calls", call_id, &[TRANSCRIPT_PROP])
         .await?;
@@ -78,8 +104,22 @@ pub async fn load_transcript(
         .get(TRANSCRIPT_PROP)
         .cloned()
         .flatten()
-        .map(|s| from_text(&s))
-        .filter(|t| !t.is_empty()))
+        .and_then(|s| parse_kept(&s)))
+}
+
+/// 録音が消えた・文字起こしできない通話に印の文を書く (次からは Zoom を呼ばない)
+pub async fn save_mark(
+    client: &HubSpotClient,
+    call_id: &str,
+    untranscribable: bool,
+) -> Result<(), HubSpotError> {
+    let mark = if untranscribable {
+        UNTRANSCRIBABLE_MARK
+    } else {
+        GONE_MARK
+    };
+    let props = BTreeMap::from([(TRANSCRIPT_PROP.to_string(), Some(mark.to_string()))]);
+    client.patch_call(call_id, &props).await.map(|_| ())
 }
 
 pub async fn save_transcript(
@@ -133,7 +173,10 @@ pub async fn fetch_stored<Z: TranscriptSource + ?Sized>(
     call_log_id: Option<&str>,
 ) -> Result<Vec<TalkTurn>, ZoomError> {
     let read_failed = match load_transcript(hubspot, hubspot_call_id).await {
-        Ok(Some(t)) => return Ok(t),
+        Ok(Some(Kept::Turns(t))) => return Ok(t),
+        // 印の文があれば Zoom を呼ばない (画面の文言は Zoom の 404・12000 と同じになる)
+        Ok(Some(Kept::Gone)) => return Err(ZoomError::Gone),
+        Ok(Some(Kept::Untranscribable)) => return Err(ZoomError::Untranscribable),
         Ok(None) => false,
         Err(e) => {
             tracing::info!(error = %e.error_kind(), "talk review: stored transcript read failed");
@@ -317,6 +360,22 @@ mod tests {
         let back = from_text(&text);
         assert!(back.iter().all(|t| t.text.chars().count() == 50));
         assert!(back.len() > 1000 && back.len() < 2000);
+    }
+
+    #[test]
+    fn marks_are_read_as_gone_or_untranscribable() {
+        assert_eq!(parse_kept(GONE_MARK), Some(Kept::Gone));
+        assert_eq!(
+            parse_kept(UNTRANSCRIBABLE_MARK),
+            Some(Kept::Untranscribable)
+        );
+        assert_eq!(parse_kept(&format!("{GONE_MARK}\n")), Some(Kept::Gone));
+        assert_eq!(parse_kept(""), None);
+        assert_eq!(parse_kept("何か別の文"), None);
+        assert_eq!(
+            parse_kept("営業: もしもし"),
+            Some(Kept::Turns(vec![turn(1, "rep", "もしもし")]))
+        );
     }
 
     #[test]

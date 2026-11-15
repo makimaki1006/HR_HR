@@ -16,7 +16,7 @@
 //! - `apo_breakdown`: アポ数の内訳 (過去客・再商談・再アポ・純粋なアポ)
 //! - `target`: 9 項目の判定の対象 = 接触した電話 (接触の印と Call の結び付け)
 //! - `summary`: 集計と印 (純粋な計算)
-//! - `transcript_backfill`: 判定済みの電話の文字起こしを、Zoom の録音が消える前に HubSpot の通話へ移す
+//! - `transcript_backfill`: #442 より前に判定した電話の文字起こしを、Zoom の録音が消える前に HubSpot の通話へ一度だけ移す (移行。終わったら外す)
 //! - `worker`: 背景で対象の Call を見つけて判定する (`CALL_REVIEW_ENABLED=1` のときだけ)
 //! - `routes`: `/api/crm/talk-review/*` (Google ログインした社内の人なら誰でも)
 //!
