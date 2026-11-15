@@ -49,7 +49,7 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   expect(patches[0]?.set.teian).toMatch(/^10\/16 求人の見直しを提案 \/ \d{2}\/\d{2} 募集職種を増やす提案をした。 来週の打ち合わせで内容を決める。$/);
   await expect(draft).toHaveValue('');
   await detail.getByRole('button', { name: '閉じる', exact: true }).click();
-  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('架空の担当B');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('架空の担当B'); await await page.getByRole('combobox', { name: '担当者', exact: true }).press('Enter');
   await expect(list.getByText('該当する案件はありません。')).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: /^いい案件/ })).toHaveText('いい案件 0件');
   await page.reload(); await expect(list.getByText('該当する案件はありません。')).toBeVisible();

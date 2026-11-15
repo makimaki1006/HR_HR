@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { JobCopyHome } from './JobCopyHome';
+import { setSelfOwnerForTest } from './selfOwner';
 import { demoOwnerTodo } from './demoOwnerTodo';
 import { demoHome } from './demoHome';
 import { Breadcrumbs } from './Breadcrumbs';
@@ -267,7 +268,7 @@ it('集計が続く60秒間は6回、その次の60秒間は2回読み、ホー�
     }
     for (let i = 0; i < 2; i++) await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(api).toHaveBeenCalledTimes(8);
-    fireEvent.click(screen.getByRole('button', { name: /時点のデータ。読み込み直す$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /に読み込み。読み込み直す$/ }));
     await act(() => Promise.resolve());
     expect(api).toHaveBeenCalledTimes(9);
     expect(recentApi).toHaveBeenCalledTimes(1);
@@ -353,6 +354,7 @@ it.each([
 });
 
 it('見出しに今だれの担当分かを出し、自分以外を見ている間だけ黄色の帯と「自分の担当分に戻す」を出す', async () => {
+  setSelfOwnerForTest('11');
   window.history.replaceState(null, '', '/app/job-copy?owner=me');
   api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: { ...response, work: { ...demoOwnerTodo, owner: path.includes('owner=22') ? '22' : path.includes('owner=all') ? 'all' : '11' } } }));
   renderHome();
@@ -360,8 +362,8 @@ it('見出しに今だれの担当分かを出し、自分以外を見ている�
   expect(screen.queryByText(/担当分を表示中です/)).toBeNull();
   // 自分を見ている間は「自分」が押された状態（目立たせない）。
   expect(screen.getByRole('button', { name: '自分' }).getAttribute('aria-pressed')).toBe('true');
-  // いつのデータかを小さく出す。
-  expect(screen.getByRole('button', { name: /^\d{2}:\d{2} 時点のデータ。読み込み直す$/ }).textContent).toMatch(/^\d{2}:\d{2} 時点 ⟳$/);
+  // この画面が取りに行った時刻を小さく出す。
+  expect(screen.getByRole('button', { name: /^\d{2}:\d{2} に読み込み。読み込み直す$/ }).textContent).toMatch(/^\d{2}:\d{2} に読み込み ⟳$/);
   fireEvent.change(screen.getByRole('combobox', { name: '担当者' }), { target: { value: '合成担当B（退職）' } });
   await waitFor(() => { expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('今日 — 合成担当B（退職）さんの担当分'); });
   const banner = document.querySelector('.jh-scope-banner');
@@ -373,4 +375,14 @@ it('見出しに今だれの担当分かを出し、自分以外を見ている�
   fireEvent.click(screen.getByRole('button', { name: '自分の担当分に戻す' }));
   await waitFor(() => { expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('今日 — あなたの担当分'); });
   expect(document.querySelector('.jh-scope-banner')).toBeNull();
+});
+
+it('本人の担当者情報が無い人（notice あり）には黄色の帯を出さない', async () => {
+  setSelfOwnerForTest(null);
+  window.history.replaceState(null, '', '/app/job-copy?owner=all');
+  api.mockResolvedValue({ ok: true, data: { ...response, work: { ...demoOwnerTodo, owner: 'all', notice: 'ログインした方の担当者情報が見つからないため、全員を表示しています。' } } });
+  renderHome();
+  await waitFor(() => { expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('今日 — 全員の担当分'); });
+  expect(document.querySelector('.jh-scope-banner')).toBeNull();
+  expect(screen.getByText('ログインした方の担当者情報が見つからないため、全員を表示しています。').className).toBe('jh-owner-notice');
 });

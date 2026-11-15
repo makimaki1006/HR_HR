@@ -68,6 +68,18 @@ describe('job copy layout', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('「⋯ その他」: データ取込を閉じると「その他」へフォーカスを戻し、固定一覧の切り替えにも押された状態を付けない', () => {
+    vi.stubGlobal('fetch', vi.fn());
+    render(<JobCopyScreen />);
+    toggleDataImport();
+    const region = screen.getByRole('region', { name: 'データ取込' });
+    expect(region.querySelector('.jc-data-import-purpose')?.textContent).toBe('課金のCSVや媒体の本文をこの画面に読み込むための作業用です。');
+    fireEvent.click(within(region).getByRole('button', { name: '閉じる' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'その他' }));
+    fireEvent.click(screen.getByRole('button', { name: 'その他' }));
+    expect(screen.getByRole('button', { name: 'HubSpot の求人に戻す' }).hasAttribute('aria-pressed')).toBe(false);
+  });
+
   it('opens the external-text check from データ取込 and returns to the timeline', async () => {
     vi.stubGlobal('fetch', vi.fn());
     render(<JobCopyScreen />);

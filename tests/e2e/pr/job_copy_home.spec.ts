@@ -108,6 +108,9 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', capture_bundle: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', jobs: [] }, results: [] } }));
   await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: { status: 'ready', total: 0, listings: [], deals: [], titles: [], index_built_at: '2026-10-16T00:00:00Z' } }));
   await page.route('**/api/job-copy/company-deals?*', route => route.fulfill({ json: { company: { id: '901', name: '合成事業所' }, deals: [], index_ready: true } }));
+  // 本人の担当者は、ページの読み込みごとに1回だけ owner=me で確かめる。
+  const selfChecks: string[] = [];
+  await page.route('**/api/job-copy/consultant-scope?*', route => { selfChecks.push(route.request().url()); return route.fulfill({ json: { status: 'ready', owner: '11', owner_field: 'consultant', notice: null, owners: demoOwnerTodo.owners } }); });
   await login(page);
   await page.goto('/app/job-copy');
   await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('合成担当A');
@@ -120,7 +123,7 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   const overdue = page.getByRole('region', { name: '期限切れの一覧' });
   await expect(overdue.locator('tbody tr')).toHaveCount(2);
   await expect(overdue.locator('tbody tr').first()).toContainText('合成事業所合成案件101対応中2026/10/15電話する合成担当A');
-  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当B（退職）');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当B（退職）'); await await page.getByRole('combobox', { name: '担当者', exact: true }).press('Enter');
   await expect(overdueCard.locator('.jh-count')).toHaveText('0件');
   // ほかの人の分を見ている間だけ黄色の帯と「自分の担当分に戻す」。
   await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toHaveText('今日 — 合成担当B（退職）さんの担当分');
@@ -132,6 +135,7 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('合成担当A');
   await expect(overdueCard.locator('.jh-count')).toHaveText('2件');
   await expect(page.locator('.jh-scope-banner')).toHaveCount(0);
+  expect(selfChecks.filter(url => url.includes('owner=me'))).toHaveLength(1);
   await page.getByLabel('担当の種類').selectOption('hubspot_owner_id');
   await expect(page).toHaveURL(/owner_field=hubspot_owner_id/);
   await page.getByRole('button', { name: '全員', exact: true }).click();

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 const storageKey = 'hrhr-job-copy-sidebar-pinned';
@@ -94,17 +94,26 @@ export function useJobCopySidebar() {
  */
 export function JobCopySidebar({ pinned, expanded, setRoot, setTrigger, panelId, reveal, dismiss, deferClose, togglePin, title, onOpen, children }: ReturnType<typeof useJobCopySidebar> & { title: string; onOpen?: () => void; children: ReactNode }) {
   const panel = useRef<HTMLElement>(null);
+  // 開いたあと、検索欄へフォーカスを移すまで待っている間は true。
+  const wantsFocus = useRef(false);
+  // 開いた一覧の検索欄（無ければ最初の入力欄）へ移る。見つかって移れたら待つのをやめる。
+  // 欄がまだ描かれていなければ次の描画で、開く動き（visibility の切り替え）の途中で移れなければ動きのあとに探し直す。
+  const focusSearch = useCallback(() => {
+    if (!wantsFocus.current) return;
+    const fields = [...(panel.current?.querySelectorAll<HTMLInputElement>('#jc-listing-q, .jc-list-search input, input:not([type="hidden"])') ?? [])];
+    const field = fields.find(element => !element.disabled && !element.closest('[hidden]'));
+    if (!field) return;
+    field.focus({ preventScroll: true });
+    if (document.activeElement === field) wantsFocus.current = false;
+    else window.setTimeout(() => { if (wantsFocus.current) { field.focus({ preventScroll: true }); wantsFocus.current = false; } }, 200);
+  }, []);
+  useEffect(() => {
+    if (!expanded) { wantsFocus.current = false; return; }
+    requestAnimationFrame(focusSearch);
+  });
   function open() {
     reveal(); onOpen?.();
-    // 開いた一覧の検索欄（無ければ最初の入力欄）へ移る。描画が済んでから探し、
-    // 開く動き（visibility の切り替え）の途中で移れなかったときは、動きが終わってからもう一度試す。
-    const focusSearch = () => {
-      const fields = [...(panel.current?.querySelectorAll<HTMLInputElement>('#jc-listing-q, .jc-list-search input, input:not([type="hidden"])') ?? [])];
-      const field = fields.find(element => !element.disabled && !element.closest('[hidden]'));
-      field?.focus({ preventScroll: true });
-      return !field || document.activeElement === field;
-    };
-    requestAnimationFrame(() => { if (!focusSearch()) window.setTimeout(focusSearch, 200); });
+    wantsFocus.current = true;
   }
   return <div className="jc-sidebar" ref={setRoot}
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) deferClose(); }}>

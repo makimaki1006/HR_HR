@@ -38,7 +38,11 @@ export function MoreMenu({ actions, onGoHome }: { actions: MoreActions | null; o
   }, [open]);
   const run = (kind: Pending) => {
     setOpen(false);
-    if (actions) { if (kind === 'import') actions.toggleImport(); else actions.toggleFixed(); return; }
+    if (actions) {
+      if (kind === 'import') { actions.toggleImport(); return; }
+      // 一覧の切り替えのあとは、押した場所（「⋯ その他」）へフォーカスを戻す。
+      actions.toggleFixed(); window.requestAnimationFrame(() => { trigger.current?.focus(); }); return;
+    }
     // 作業画面の無い画面では、今日の画面へ移ってから開く（固定一覧は URL で、データ取込は印で渡す）。
     pending = kind === 'import' ? 'import' : null; onGoHome(kind === 'fixed');
   };
@@ -46,7 +50,7 @@ export function MoreMenu({ actions, onGoHome }: { actions: MoreActions | null; o
     <button type="button" ref={trigger} className="cm-more-toggle" aria-expanded={open} aria-controls={menuId} onClick={() => { setOpen(value => !value); }}><span aria-hidden="true">⋯ </span>その他</button>
     {open && <div className="cm-more-menu" id={menuId} role="group" aria-label="その他の操作">
       <button type="button" className="cm-more-item" aria-label="データを取り込む（作業用）" aria-expanded={actions?.importOpen ?? false} onClick={() => { run('import'); }}>データを取り込む（作業用）<small>課金のCSVや媒体の本文を読み込みます</small></button>
-      <button type="button" className="cm-more-item" aria-label={actions?.fixedShown ? 'HubSpot の求人に戻す' : '固定一覧を表示'} aria-pressed={actions?.fixedShown ?? false} onClick={() => { run('fixed'); }}>{actions?.fixedShown ? 'HubSpot の求人に戻す' : '固定一覧を表示'}<small>{actions?.fixedShown ? '左の一覧を HubSpot の求人に戻します' : '取り込んだ一部の求人だけを左に並べます'}</small></button>
+      <button type="button" className="cm-more-item" aria-label={actions?.fixedShown ? 'HubSpot の求人に戻す' : '固定一覧を表示'} onClick={() => { run('fixed'); }}>{actions?.fixedShown ? 'HubSpot の求人に戻す' : '固定一覧を表示'}<small>{actions?.fixedShown ? '左の一覧を HubSpot の求人に戻します' : '取り込んだ一部の求人だけを左に並べます'}</small></button>
     </div>}
   </div>;
 }

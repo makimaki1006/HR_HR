@@ -164,5 +164,6 @@ it('ほかのラベルがすべて0件でも、札を薄く残して並びを変
   render(<OwnerTodo work={{ ...demoOwnerTodo, signals: [] }} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
   expect(within(screen.getByRole('group', { name: 'ほかのラベル' })).getAllByRole('button').map(b => b.textContent)).toEqual(['満了後も稼働中 0件', '定期NPSが低い 0件', '採用目標に届いていない 0件', '採用単価が高い 0件']);
   expect(document.querySelectorAll('.jh-more .jc-chip.is-zero')).toHaveLength(4);
-  expect(screen.getByRole('button', { name: /契約満了が近い/ }).textContent).toBe('0件契約満了が近い一覧を見る ▾');
+  // 0件のカードには「一覧を見る ▾」を出さない。
+  expect(screen.getByRole('button', { name: /契約満了が近い/ }).textContent).toBe('0件契約満了が近い');
 });

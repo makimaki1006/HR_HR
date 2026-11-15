@@ -253,6 +253,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await page
     .getByRole("combobox", { name: "担当者", exact: true })
     .fill("合成担当B（退職）");
+  await page.getByRole("combobox", { name: "担当者", exact: true }).press("Enter");
   await expect(table.locator("tbody>tr")).toHaveCount(1);
   await expect(page.getByRole("combobox", { name: "担当者", exact: true })).toHaveValue("合成担当B（退職）");
   await expect(table).toContainText("架空の採用支援02");

@@ -100,10 +100,10 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await page.getByRole('combobox', { name: 'パイプライン', exact: true }).selectOption('743961896');
   await expect(table.locator('tbody > tr')).toHaveCount(1);
   await expect(table).toContainText('記録なし（対象外）');
-  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当B（退職）');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当B（退職）'); await await page.getByRole('combobox', { name: '担当者', exact: true }).press('Enter');
   await expect(table).toContainText('条件に合う案件はありません');
   expect(requests.some(url => new URL(url).searchParams.get('owner') === '22')).toBe(true);
-  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当A');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当A'); await await page.getByRole('combobox', { name: '担当者', exact: true }).press('Enter');
   await page.getByRole('combobox', { name: 'パイプライン', exact: true }).selectOption('all');
   await page.getByRole('button', { name: '標準の並びに戻す' }).click();
   const overflow = await page.locator('.db-board').evaluate(el => el.scrollWidth > el.clientWidth);

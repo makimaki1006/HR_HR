@@ -8,6 +8,7 @@ import { formatDateJst } from './format';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { InfoTip } from './InfoTip';
 import { useRevealOnMount } from './revealList';
+import { useSelfOwner } from './selfOwner';
 import { CardOpenCue, CloseListButton, CountChip, GoLink, OutLink } from './Pressable';
 
 export interface TodoRow { id: string; name: string | null; company_id: string | null; company: string | null; stage: string | null; content: string | null; due: string; consultant: string | null; actionyotei?: string | null; actionnaiyou?: string | null; reasons?: TodoReason[] }
@@ -25,69 +26,76 @@ export function PendingOwnerFilter() { return <p className="cm-owner-pending" ro
 /** undefined は元の位置、null は非表示、要素があれば共通メニューへ移す。 */
 export const OwnerFilterPlacement = createContext<HTMLElement | null | undefined>(undefined);
 
-// ログインした本人の担当者。サーバが「自分」を解決した応答から覚える（タブを閉じると消える。API は変えない）。
-const SELF_OWNER_KEY = 'hrhr-job-copy-self-owner';
-export function rememberSelfOwner(owner: string) {
-  if (!owner || owner === 'all') return;
-  try { sessionStorage.setItem(SELF_OWNER_KEY, owner); } catch { /* 覚えられなくても、見出しが担当者名になるだけ */ }
-}
-export function selfOwner(): string | null {
-  try { return sessionStorage.getItem(SELF_OWNER_KEY); } catch { return null; }
-}
 type OwnerWork = Pick<WorkReady, 'owner' | 'owner_field' | 'notice' | 'owners'>;
-/** 今だれの担当分を見ているか。本人が分からないときは unknown（帯は出さず、見出しは担当者名）。 */
-export function ownerScope(work: OwnerWork, self: string | null = selfOwner()): { kind: 'self' | 'all' | 'other' | 'unknown'; name: string | null } {
+/** 今だれの担当分を見ているか。本人が分からないときは unknown（帯は出さず、見出しは担当者名）。self は useSelfOwner() の値。 */
+export function ownerScope(work: OwnerWork, self: string | null | undefined): { kind: 'self' | 'all' | 'other' | 'unknown'; name: string | null } {
   if (work.owner === 'all') return { kind: 'all', name: null };
   const name = work.owners.find(o => o.id === work.owner)?.name ?? null;
-  if (self === work.owner) return { kind: 'self', name };
+  if (self && self === work.owner) return { kind: 'self', name };
   return { kind: self ? 'other' : 'unknown', name };
 }
 export function ownerScopeTitle(scope: ReturnType<typeof ownerScope>): string {
   return scope.kind === 'self' ? 'あなたの担当分' : scope.kind === 'all' ? '全員の担当分' : scope.name ? `${scope.name}さんの担当分` : '選択中の担当者の担当分';
 }
-/** 担当者の候補の表示名。退職者には印を付け、同じ名前が並ぶときだけ番号を添える。 */
-function ownerOptions(owners: WorkReady['owners']): { id: string; label: string }[] {
+/** 担当者の候補の表示名。退職者には印を付け、同じ名前が並ぶときは「（2人目）」のように順番を添える。 */
+export function ownerOptions(owners: WorkReady['owners']): { id: string; label: string }[] {
   const base = [...owners.filter(o => !o.archived), ...owners.filter(o => o.archived)].map(o => ({ id: o.id, label: o.archived && !o.name.includes('退職') ? `${o.name}（退職）` : o.name }));
-  return base.map(o => base.filter(other => other.label === o.label).length > 1 ? { ...o, label: `${o.label}（${o.id}）` } : o);
+  return base.map((o, index) => {
+    const order = base.slice(0, index).filter(other => other.label === o.label).length;
+    return order > 0 ? { ...o, label: `${o.label}（${String(order + 1)}人目）` } : o;
+  });
 }
+const fieldNotes: Record<string, string> = {
+  consultant: 'HubSpot の案件の「コンサル担当」の項目で絞っています。',
+  hubspot_owner_id: 'HubSpot の案件の担当者（案件の所有者）で絞っています。',
+};
 const changeOwner = (owner: string) => { updateJobCopyQuery({ owner, todo_page: null, deals_page: null }, 'replace'); };
 export function OwnerFilter({ work }: { work: OwnerWork }) {
   const placed = useContext(OwnerFilterPlacement);
   const listId = useId();
+  const self = useSelfOwner();
   const options = ownerOptions(work.owners);
   const currentLabel = work.owner === 'all' ? '' : options.find(o => o.id === work.owner)?.label ?? '選択中の担当者（該当案件なし）';
-  const [text, setText] = useState(currentLabel);
-  // 担当が変わったら（URL・ほかの操作）入力欄も合わせる。
-  const [shown, setShown] = useState(currentLabel);
-  if (shown !== currentLabel) { setShown(currentLabel); setText(currentLabel); }
+  // 入力中の文字。null の間は今の担当者名を出す（フォーカス中は空にして、候補を全員分出す）。
+  const [text, setText] = useState<string | null>(null);
   if (placed === null) return null;
-  const scope = ownerScope(work);
-  const pick = (value: string) => {
-    setText(value);
-    const hit = options.find(o => o.label === value);
-    if (hit && hit.id !== work.owner) changeOwner(hit.id);
-  };
-  const filter = <section className="jh-owner" aria-label="担当者で絞る">
+  const scope = ownerScope(work, self);
+  const typed = text?.trim() ?? '';
+  const notFound = typed !== '' && !options.some(o => o.label.includes(typed));
+  const pick = (id: string) => { setText(null); if (id !== work.owner) changeOwner(id); };
+  const filter = <><section className="jh-owner" aria-label="担当者で絞る">
     <label><span className="jh-owner-label">担当の種類</span><select value={work.owner_field} onChange={event => { updateJobCopyQuery({ owner_field: event.target.value, todo_page: null, deals_page: null }, 'replace'); }}><option value="consultant">コンサル担当</option><option value="hubspot_owner_id">案件の担当者</option></select></label>
-    <label><span className="jh-owner-label">担当者</span><input className="jh-owner-name" list={listId} value={text} placeholder={work.owner === 'all' ? '全員（名前で探す）' : '名前を入力'} autoComplete="off"
-      onFocus={event => { event.currentTarget.select(); }}
-      onChange={event => { pick(event.target.value); }}
-      onKeyDown={event => {
-        if (event.key === 'Escape') { setText(currentLabel); return; }
-        if (event.key !== 'Enter') return;
-        const typed = text.trim();
-        const hits = typed ? options.filter(o => o.label.includes(typed)) : [];
-        const only = hits.length === 1 ? hits[0] : undefined;
-        if (only) { event.preventDefault(); pick(only.label); }
+    <InfoTip className="jh-owner-tip" iconFirst label={<span className="jc-visually-hidden">担当の種類の説明</span>}><p>{fieldNotes[work.owner_field] ?? fieldNotes.consultant}</p></InfoTip>
+    <label><span className="jh-owner-label">担当者</span><input className="jh-owner-name" list={listId} value={text ?? currentLabel} placeholder={text !== null ? currentLabel || '全員（名前で探す）' : work.owner === 'all' ? '全員（名前で探す）' : '名前を入力'} autoComplete="off" aria-describedby={notFound ? `${listId}-none` : undefined}
+      onFocus={() => { setText(''); }}
+      onChange={event => {
+        const value = event.target.value;
+        setText(value);
+        // 候補を選んだとき（文字の入力ではないとき）だけ切り替える。打っている途中の一致では切り替えない。
+        const inputType = (event.nativeEvent as InputEvent).inputType as string | undefined;
+        if (inputType === undefined || inputType === 'insertReplacementText') { const hit = options.find(o => o.label === value); if (hit) pick(hit.id); }
       }}
-      onBlur={() => { if (!options.some(o => o.label === text)) setText(currentLabel); }} /></label>
+      onKeyDown={event => {
+        // IME の変換確定の Enter は無視する（keyCode 229 は古いブラウザの変換中の印）。
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- isComposing を返さないブラウザのため
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if (event.key === 'Escape') { setText(null); event.currentTarget.blur(); return; }
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const exact = options.find(o => o.label === typed);
+        const hits = options.filter(o => o.label.includes(typed));
+        const only = exact ?? (typed && hits.length === 1 ? hits[0] : undefined);
+        if (only) pick(only.id);
+      }}
+      onBlur={() => { setText(null); }} /></label>
     <datalist id={listId}>{options.map(o => <option key={o.id} value={o.label} />)}</datalist>
     <span className="jh-owner-quick" role="group" aria-label="担当の切り替え">
       <button type="button" className="jh-owner-quick-button" aria-pressed={work.owner === 'all'} onClick={() => { changeOwner('all'); }}>全員</button>
       <button type="button" className="jh-owner-quick-button" aria-pressed={scope.kind === 'self'} onClick={() => { changeOwner('me'); }}>自分</button>
     </span>
-    {work.notice && <p role="status">{work.notice}</p>}
-  </section>;
+  </section>
+    {notFound && <p className="jh-owner-notice" id={`${listId}-none`} role="status">「{typed}」に合う担当者が見つかりません</p>}
+    {work.notice && <p className="jh-owner-notice" role="status">{work.notice}</p>}</>;
   return placed === undefined ? filter : createPortal(filter, placed);
 }
 /** 担当で絞れない画面でも、同じ場所に押せない欄と理由を出す（画面を切り替えても帯の形が変わらないように）。 */
@@ -98,12 +106,12 @@ export function DisabledOwnerFilter({ reason }: { reason: string }) {
     <small className="cm-owner-note">{reason}</small>
   </section>;
 }
-/** 自分以外を見ている間だけ出す黄色の帯。 */
+/** 自分以外を見ている間だけ出す黄色の帯。本人の担当者情報が無い人（notice あり）には出さない。 */
 export function OwnerScopeBanner({ work }: { work: OwnerWork }) {
-  const scope = ownerScope(work);
-  if (scope.kind === 'self' || scope.kind === 'unknown') return null;
+  const scope = ownerScope(work, useSelfOwner());
+  if (work.notice || scope.kind === 'self' || scope.kind === 'unknown') return null;
   return <p className="jh-scope-banner" role="status"><span>{scope.kind === 'all' ? '全員の担当分を表示中です' : `ほかの人の担当分を表示中です（${scope.name ?? '選択中の担当者'}）`}</span>
-    {!work.notice && <button type="button" className="jc-button" onClick={() => { changeOwner('me'); }}>自分の担当分に戻す</button>}</p>;
+    <button type="button" className="jc-button" onClick={() => { changeOwner('me'); }}>自分の担当分に戻す</button></p>;
 }
 export const signalCards = [
   ['expiration', '契約満了が近い', '今日から60日後まで'],
@@ -156,7 +164,7 @@ export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved, onShowList
   const mainSignals = signalGroups.filter(group => mainSignalKeys.includes(group.key));
   const otherSignals = signalGroups.filter(group => !mainSignalKeys.includes(group.key) && !goSignalKeys.includes(group.key));
   const goSignals = signalGroups.filter(group => goSignalKeys.includes(group.key));
-  const card = (group: (typeof groups)[number]) => { const pressed = open === `todo_${group.key}`; return <button type="button" key={group.key} className={`jh-card ${cardToneClass(group.items.length, group.tone)}`} aria-pressed={pressed} onClick={() => { toggle(group.key); }}><strong className="jh-count">{group.items.length}<small>件</small></strong><span className="jh-card-title">{group.label}</span><CardOpenCue open={pressed} /></button>; };
+  const card = (group: (typeof groups)[number]) => { const pressed = open === `todo_${group.key}`; return <button type="button" key={group.key} className={`jh-card ${cardToneClass(group.items.length, group.tone)}`} aria-pressed={pressed} onClick={() => { toggle(group.key); }}><strong className="jh-count">{group.items.length}<small>件</small></strong><span className="jh-card-title">{group.label}</span>{group.items.length > 0 && <CardOpenCue open={pressed} />}</button>; };
   // 押した段のすぐ下に一覧を開く（予定の段・ラベルの段のどちらか）。
   const inPlan = selected ? ['overdue', 'today', 'week', 'later'].includes(selected.key) : false;
   const list = selected && <section key={selected.key} ref={reveal} className={`jh-list ${selected.key === 'overdue' ? 'jh-todo-overdue' : ''}`} aria-label={`${selected.label}の一覧`}>
@@ -166,10 +174,10 @@ export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved, onShowList
     </section>;
   return <section className="jh-todo" aria-labelledby="jh-todo-title"><h2 id="jh-todo-title">やること</h2><ReportFreshness builtAt={work.facts_built_at} stale={work.facts_stale} refreshing={work.refreshing} />
     {work.refresh_failed && <p role="status">最新の情報を読み込めなかったため、前回取得した情報を表示しています。</p>}
-    <div><div className="jh-section-head"><h3>予定 <small>自分で入れた次の予定</small></h3></div><div className="jh-cards jh-todo-cards">{planGroups.map(group => card(group))}</div>
+    <div><div className="jh-section-head"><h3>予定 <small>担当者が入れた次の予定</small></h3></div><div className="jh-cards jh-todo-cards">{planGroups.map(group => card(group))}</div>
       <CountLine label="ほかの予定" items={[{ key: 'later', label: 'それ以降の予定', count: work.actions.later.length, pressedKey: 'todo_later' }]} openKey={open} onToggle={toggle} />
       {inPlan && list}</div>
-    <div><div className="jh-section-head"><h3>ラベルが付いた案件</h3><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>ラベルは記録から自動で付き、条件が解消すると消えます。日付は日本時間、終了した案件は除いています。</p><p>色の意味：赤は急ぐもの（予定が過ぎた・満了30日以内）、橙は注意、灰は0件です。ラベルの赤い札は、MTGが60日以上空いている案件です。</p><p>MTGが途絶えているラベル：{work.sheet_as_of ? `${formatDateJst(work.sheet_as_of)} 時点（前日の集計）` : '集計した日が未取得'}。</p><ul>{signalGroups.map(group => <li key={group.key}>{group.label}：{group.rule}</li>)}</ul></InfoTip></div>
+    <div><div className="jh-section-head"><h3>ラベルが付いた案件</h3><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>ラベルは記録から自動で付き、条件が解消すると消えます。日付は日本時間、終了した案件は除いています。</p><p>色の意味：赤は予定が過ぎたもの（期限切れ）、橙は注意、灰は0件です。ラベルの赤い札は、MTGが60日以上空いている案件です。</p><p>MTGが途絶えているラベル：{work.sheet_as_of ? `${formatDateJst(work.sheet_as_of)} 時点（前日の集計）` : '集計した日が未取得'}。</p><ul>{signalGroups.map(group => <li key={group.key}>{group.label}：{group.rule}</li>)}</ul></InfoTip></div>
       <div className="jh-cards jh-todo-cards">{mainSignals.map(group => card(group))}</div>
       <CountLine label="ほかのラベル" items={otherSignals.map(group => ({ key: group.key, label: group.label, count: group.items.length, pressedKey: `todo_${group.key}` }))} openKey={open} onToggle={toggle} />
       {goSignals.map(group => <p key={group.key} className="jh-go-line"><span>{group.label} {group.items.length}件</span><GoLink onClick={() => { toggle(group.key); }}>案件一覧で見る</GoLink></p>)}

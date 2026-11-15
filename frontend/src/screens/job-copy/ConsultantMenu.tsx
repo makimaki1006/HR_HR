@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { apiGet } from '../../api/client';
-import { DisabledOwnerFilter, OwnerFilter, OwnerFilterPlacement, PendingOwnerFilter, ownerParams, rememberSelfOwner } from './OwnerTodo';
+import { DisabledOwnerFilter, OwnerFilter, OwnerFilterPlacement, PendingOwnerFilter, ownerParams } from './OwnerTodo';
 import { MoreActionsProvider, MoreMenu } from './MoreMenu';
 import type { MoreActions } from './MoreMenu';
 import type { WorkReady } from './OwnerTodo';
@@ -28,7 +28,6 @@ function ConsultantScopeFilter() {
       if (r.data.status === 'ready' && !Array.isArray(r.data.owners)) { setError(true); return; }
       if (r.data.status !== 'ready') { attempt += 1; timer = setTimeout(() => { void load(); }, Math.min(10_000, 2000 * attempt)); return; }
       setScope(r.data); setError(false);
-      if (!r.data.notice && [null, 'me'].includes(new URLSearchParams(ownerQuery).get('owner'))) rememberSelfOwner(r.data.owner);
       if (!r.data.notice && [null, 'me'].includes(new URLSearchParams(ownerQuery).get('owner'))) updateJobCopyQuery({ owner: r.data.owner, owner_field: r.data.owner_field }, 'replace');
     };
     void load(); return () => { controller.abort(); clearTimeout(timer); };

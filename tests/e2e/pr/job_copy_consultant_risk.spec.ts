@@ -53,7 +53,7 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await expect(plan.getByLabel('日付')).toBeVisible(); await expect(plan.getByLabel('内容')).toBeVisible();
   await plan.getByRole('button', { name: '閉じる' }).click();
   await detail.getByRole('button', { name: '閉じる' }).click();
-  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('架空の担当B');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('架空の担当B'); await await page.getByRole('combobox', { name: '担当者', exact: true }).press('Enter');
   await expect(fresh).toContainText('架空の採用支援B'); await expect(fresh).not.toContainText('架空の採用支援A');
   await page.reload(); await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('架空の担当B');
   await expect(fresh).toContainText('架空の採用支援B');
@@ -90,7 +90,7 @@ test('求人作業中も担当選択が開いていて切り替えられる', as
   await page.goto('/app/job-copy?source=fixed&data=actual&owner=11&owner_field=consultant');
   const owner = page.getByRole('combobox', { name: '担当者', exact: true });
   await expect(owner).toHaveValue('架空の担当A');
-  await owner.fill('架空の担当B');
+  await owner.fill('架空の担当B'); await owner.press('Enter');
   await expect(owner).toHaveValue('架空の担当B');
   await expect(page).toHaveURL(/owner=22/);
   await expect(page).toHaveURL(/source=fixed/);

@@ -64,7 +64,7 @@
 .jc-feature-purpose { margin: 12px 0; color: var(--jc-muted); font-size: 12px; }
 .jc-feature-panel[hidden], .jc-feature-secondary[hidden] { display: none !important; }
 .jc-filter-reset { align-self: start; }
-@media print { .jc-filter-reset, .jc-import-toggle, .jc-reverse-toggle, .jc-data-import, .jc-filter-more { display: none !important; } }
+@media print { .jc-filter-reset, .jc-reverse-toggle, .jc-data-import, .jc-filter-more { display: none !important; } }
 .jc-factor-note { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
 .jc-factor-note textarea { width: 100%; max-width: 100%; padding: 12px; border: 1px solid var(--jc-border); border-radius: 6px; }
 @media (max-width: 600px) { .jc-feature-primary button { flex: 1 1 30%; padding: 10px 8px; }.jc-feature-secondary button { padding: 10px; } }
@@ -118,8 +118,6 @@
 .jc-topline .jc-snapshot-summary { padding: 0; border: 0; background: transparent; gap: 4px 14px; font-size: 12px; flex-wrap: wrap; }
 .jc-topline .jc-snapshot-summary span { gap: 3px; }
 .jc-topline .jc-snapshot-summary strong { font-size: 14px; }
-.jc-import-toggle { flex-shrink: 0; margin-left: auto; min-height: 32px !important; padding: 4px 12px !important; }
-.jc-import-toggle[aria-expanded="true"] { background: var(--jc-soft); border-color: var(--jc-accent); }
 .jc-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .jc-panel-heading h2 { font-size: 16px; }
 .jc-data-import[hidden] { display: none !important; }
@@ -202,9 +200,6 @@
 .jc-workspace:has(.jc-listings-panel:not([hidden])) { grid-template-columns: clamp(320px, 25vw, 420px) minmax(0, 1fr); }
 .jc-fixed-list { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
 .jc-fixed-list[hidden], .jc-listings-panel[hidden] { display: none !important; }
-.jc-list-source { display: flex; flex-shrink: 0; gap: 4px; padding: 4px; background: #eaf0f4; border-radius: 7px; }
-.jc-list-source button { flex: 1; min-height: 38px; border: 0; border-radius: 5px; background: transparent; font-weight: 600; }
-.jc-list-source button[aria-pressed="true"] { background: white; color: #006879; box-shadow: 0 1px 4px #25394c1a; }
 .jc-listings-panel { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 4px; }
 .jc-listings-panel h2 { margin: 0; font-size: 15px; }
 .jc-listings-panel p { font-size: 12px; line-height: 1.5; }
@@ -264,8 +259,6 @@
 @media (max-width: 800px) { .jc-copy-content > div:last-child { grid-row: 1; } }
 .jc-hubspot-list-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .jc-fixed-list { gap: 4px; }
-.jc-list:has(.jc-fixed-list:not([hidden])) .jc-list-source { padding: 2px; }
-.jc-list:has(.jc-fixed-list:not([hidden])) .jc-list-source button { min-height: 32px; }
 .jc-fixed-list .jc-list-heading { gap: 6px; }
 .jc-fixed-list .jc-reverse-toggle { padding: 3px 6px !important; font-size: 11px; white-space: nowrap; }
 .jc-hubspot-filter-details { flex-shrink: 0; }
@@ -288,7 +281,6 @@
   .jc-hubspot-job .jc-job-bottom small { font-size: 10px; }
   .jc-listings-panel { gap: 5px; }
   .jc-listings-panel .jc-index-date { font-size: 10px; line-height: 1.4; margin: 0; }
-  .jc-list-source button { min-height: 32px; font-size: 12px; }
   .jc-listings-panel > .jc-button { min-height: 28px; padding: 3px; font-size: 11px; }
 
 }

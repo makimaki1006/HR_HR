@@ -89,7 +89,6 @@
 .jh-owner .cm-owner-note { margin: 0; font-size: 12px; }
 .jh-owner p { margin: 0; font-size: 12px; }
 .jh-todo-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.jh-todo-later { margin-top: 10px; font-size: 12px; font-weight: 400; }
 .jh-todo h3 { margin: 0 0 8px; font-size: 16px; }
 .jh-list.jh-todo-overdue { border-color: #fdba74; }
 .jh-todo-overdue time { color: #9a3412; font-weight: 700; }
@@ -158,3 +157,7 @@ button.jc-open:hover, .jh-card:hover .jc-open { background: #eef5fb; }
 .jh-owner .jh-owner-name { width: 150px; }
 /* 上の帯の中では、担当の欄を 1 行に保つ（入らないときは欄ごと次の行へ回る）。 */
 .cm-right .jh-owner { flex-wrap: nowrap; }
+/* 担当の欄の下に出す 1 行（見つからない・本人の担当者が無い）。折り返さない行の外に置く。 */
+.jh-owner-notice { flex-basis: 100%; margin: 0; font-size: 12px; color: #4d3d00; text-align: right; }
+.jh-owner-tip > summary { text-decoration: none; color: var(--jc-muted, #52697a); font-size: 12px; }
+.jh-owner-tip .jc-infotip-body { width: min(18rem, 80vw); }

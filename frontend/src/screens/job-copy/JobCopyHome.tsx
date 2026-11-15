@@ -13,7 +13,8 @@ import { appsChange, customerName, dealCountLabel, filterCustomers, listingCount
 import type { CardKey, CustomerSort, HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 import './home.css';
 import { useRevealOnMount } from './revealList';
-import { CountLine, OwnerFilter, OwnerScopeBanner, OwnerTodo, PendingOwnerFilter, cardToneClass, ownerParams, ownerScope, ownerScopeTitle, rememberSelfOwner } from './OwnerTodo';
+import { CountLine, OwnerFilter, OwnerScopeBanner, OwnerTodo, PendingOwnerFilter, cardToneClass, ownerParams, ownerScope, ownerScopeTitle } from './OwnerTodo';
+import { useSelfOwner } from './selfOwner';
 import { CardOpenCue, CloseListButton } from './Pressable';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '案件管理のホームを読み込めませんでした。時間を置いて再取得してください。';
@@ -56,6 +57,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const [onlyActive, setOnlyActive] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
+  const self = useSelfOwner();
   useReportPolling(useCallback(async signal => {
     if (reload === 0 && cache?.current?.status === 'ready' && !cache.current.work && !requestOwnerQuery) return false;
     const result = await apiGet<HomeResponse>(`/api/job-copy/home${requestOwnerQuery ? `?${requestOwnerQuery}` : ''}`, { signal, timeoutMs: 120_000 });
@@ -68,7 +70,6 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     setData(result.data); setError(''); setLoadedAt(new Date().toISOString());
     const work = result.data.status === 'ready' ? result.data.work : undefined;
     if (work?.status === 'ready' && !work.notice && [null, 'me'].includes(new URLSearchParams(requestOwnerQuery).get('owner'))) {
-      rememberSelfOwner(work.owner);
       const to = new URLSearchParams({ owner_field: work.owner_field, owner: work.owner }).toString();
       setResolvedSelf({ from: requestOwnerQuery, to });
       updateJobCopyQuery({ owner: work.owner, owner_field: work.owner_field }, 'replace');
@@ -96,9 +97,9 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const reveal = useRevealOnMount();
   const tableShown = showAll || query.trim() !== '';
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
-    <header className="jh-head"><h1>今日{work && <span className="jh-head-owner"> — {ownerScopeTitle(ownerScope(work))}</span>}</h1>
-      {/* いつのデータかを小さく出し、押すと読み直す */}
-      <button type="button" className="jh-refresh" aria-label={loadedAt ? `${formatDateTimeJst(loadedAt).slice(-5)} 時点のデータ。読み込み直す` : '読み込み直す'} title="読み込み直す" onClick={() => { setReload(value => value + 1); }}>{loadedAt ? `${formatDateTimeJst(loadedAt).slice(-5)} 時点` : '読み込み直す'} <span aria-hidden="true">⟳</span></button></header>
+    <header className="jh-head"><h1>今日{work && <span className="jh-head-owner"> — {ownerScopeTitle(ownerScope(work, self))}</span>}</h1>
+      {/* この画面が取りに行った時刻を小さく出し、押すと読み直す（データ自体の時点は各段の説明に出す） */}
+      <button type="button" className="jh-refresh" aria-label={loadedAt ? `${formatDateTimeJst(loadedAt).slice(-5)} に読み込み。読み込み直す` : '読み込み直す'} title="読み込み直す" onClick={() => { setReload(value => value + 1); }}>{loadedAt ? `${formatDateTimeJst(loadedAt).slice(-5)} に読み込み` : '読み込み直す'} <span aria-hidden="true">⟳</span></button></header>
     {work && <OwnerScopeBanner work={work} />}
     {data && !work && <PendingOwnerFilter />}
     {error && <p role="alert">{error}</p>}
@@ -113,7 +114,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
         <div className="jh-cards">{mainCards.map(item => <button type="button" key={item.key} className={`jh-card ${cardToneClass(item.count, cardTone[item.key])}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>
           <strong className="jh-count">{item.count}<small>件</small></strong>
           <span className="jh-card-title">{item.title}</span>
-          <CardOpenCue open={open === item.key} />
+          {item.count > 0 && <CardOpenCue open={open === item.key} />}
         </button>)}</div>
         <CountLine label="ほかの見るもの" items={[...otherCards.map(item => ({ key: item.key, label: item.title, count: item.count })), { key: 'recent_changes', label: '直近7日に変更', count: recentCount }]} openKey={open} onToggle={key => { setOpen(open === key ? null : key as CardKey | 'recent_changes'); }} />
         {open !== 'recent_changes' && recent.data.status === 'ready' && <ReportFreshness builtAt={recent.data.built_at} stale={recent.data.stale} refreshing={recent.data.refreshing} />}
