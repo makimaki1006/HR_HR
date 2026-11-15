@@ -3,7 +3,7 @@ import './applicant-reasons.css';
 
 type Summary = NonNullable<DealRow['application_reasons']>;
 export function DealApplicationReasons({ value, outOfScope = false, details = false }: { value: Summary | null | undefined; outOfScope?: boolean; details?: boolean }) {
-  // 満了から8週を過ぎた終了済みの取引は応募を読んでいない（応募数と同じく対象外）。
+  // 満了から8週を過ぎた終了済みの案件は応募を読んでいない（応募数と同じく対象外）。
   if (!value && outOfScope) return details ? null : <span className="db-application-reasons">応募動機：対象外</span>;
   if (!value) return <span className="db-application-reasons">応募動機：集計中</span>;
   const denominator = `応募動機を聞けた ${String(value.answered[0] ?? 0)}件／2026/09/14 以降の応募 ${String(value.total)}件`;

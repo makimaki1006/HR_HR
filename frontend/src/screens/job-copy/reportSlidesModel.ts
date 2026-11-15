@@ -91,7 +91,7 @@ export interface ReportInput {
   overlap: Overlap;
   /** 応募データがそろっている最後の日。 */
   asOf: string;
-  /** 取引の面接・採用（手入力の値。期間の数ではない）。求人の単位・読めなかったときは null。既定では紙に出さない。 */
+  /** 案件の面接・採用（手入力の値。期間の数ではない）。求人の単位・読めなかったときは null。既定では紙に出さない。 */
   outcomes: { interviews: number | null; hires: number | null } | null;
   applicants: ReportApplicants;
   /** 求人の一部しか数えていない理由（求人が多くて切った等）。あれば件数を使うスライドを外す。 */

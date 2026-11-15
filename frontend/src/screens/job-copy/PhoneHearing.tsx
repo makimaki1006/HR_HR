@@ -13,8 +13,8 @@ export function applicantAttributes(rows: NonNullable<JobCopyRecord['application
     .map(value => value?.trim()).filter(value => value && value !== '不明').join('・');
 }
 
-export function PhoneHearingContent({ data, loading = false, applicationRows = [], onApplication }: { data: Hearing | null; loading?: boolean; applicationRows?: JobCopyRecord['applicationRows']; onApplication?: (key: string) => void }) {
-  return <details className="lo-card ph-section"><summary>{data ? `電話ヒアリング（記録あり ${String(data.items.length)}件 / 応募 ${String(data.total_applicants)}件）` : '電話ヒアリング'}</summary>
+export function PhoneHearingContent({ data, loading = false, applicationRows = [], onApplication, bare = false }: { data: Hearing | null; loading?: boolean; applicationRows?: JobCopyRecord['applicationRows']; onApplication?: (key: string) => void; /** 「この求人でやること」の札の中に出す（見出しは札の側にあるので、畳む見出しを付けない） */ bare?: boolean }) {
+  const body = <>
     {loading ? <p role="status">電話ヒアリングを読み込み中です</p> : !data ? <p role="status">電話ヒアリングを読み込めませんでした</p> : <>
       {data.truncated && <p className="lo-note">一部だけ表示しています</p>}
       {!data.items.length && <p>この求人の応募には、電話で聞いた内容の記録がありません</p>}
@@ -30,7 +30,9 @@ export function PhoneHearingContent({ data, loading = false, applicationRows = [
         </article>;
       })}
     </>}
-  </details>;
+  </>;
+  if (bare) return <div className="ph-section">{body}</div>;
+  return <details className="lo-card ph-section"><summary>{data ? `電話ヒアリング（記録あり ${String(data.items.length)}件 / 応募 ${String(data.total_applicants)}件）` : '電話ヒアリング'}</summary>{body}</details>;
 }
 
 export function usePhoneHearing(job: JobCopyRecord) {

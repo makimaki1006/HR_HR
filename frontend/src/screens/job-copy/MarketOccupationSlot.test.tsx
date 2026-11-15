@@ -29,6 +29,7 @@ describe('MarketOccupationSlot', () => {
     const { unmount } = render(<MarketOccupationSlot record={record} prefecture="大分県" onChanged={() => undefined} />);
     expect(screen.getByText('未指定', { selector: '.mo-chip' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '職種を指定する' })).toBeTruthy();
+    expect(screen.getByText('選んだ職種は、HubSpot のこの求人の項目「比べる Indeed 職種」に保存されます。')).toBeTruthy();
     unmount();
     render(<MarketOccupationSlot record={{ ...record, indeedTitle: '看護師', indeedTitleState: 'set' }} prefecture="大分県" onChanged={() => undefined} />);
     expect(screen.getByText('指定済み')).toBeTruthy();
@@ -43,7 +44,9 @@ describe('MarketOccupationSlot', () => {
     expect(within(dialog).getAllByText('配送ドライバー').length).toBeGreaterThan(0);
     expect(within(dialog).getAllByRole<HTMLInputElement>('radio').every(radio => !radio.checked)).toBe(true);
     expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: 'この職種を指定する' }).disabled).toBe(true);
-    expect(within(dialog).getByText('この求人だけに指定します。HubSpot の求人の項目「比べる Indeed 職種」に入り、HubSpot の画面からも直せます。')).toBeTruthy();
+    // 保存先は押すボタンの真上に書き、ボタンは色付き（主ボタン）。
+    expect(within(dialog).getByText('押すと、HubSpot のこの求人の項目「比べる Indeed 職種」に保存されます。この求人だけが変わり、HubSpot の画面からも直せます。').closest('footer')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'この職種を指定する' }).className).toContain('jc-primary');
     expect(put).not.toHaveBeenCalled();
   });
 

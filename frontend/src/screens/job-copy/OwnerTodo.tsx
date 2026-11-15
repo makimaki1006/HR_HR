@@ -1,7 +1,7 @@
-import { createContext, useContext, useId, useState } from 'react';
+import { createContext, useContext, useEffect, useId, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ReportFreshness } from './ReportFreshness';
-import { NextTodoButton, ReasonChips } from './NextTodo';
+import { NextTodoButton, OverdueBadge, ReasonChips } from './NextTodo';
 import type { TodoReason } from './NextTodo';
 import type { ChangedDeal } from './RecentChangesCard';
 import { formatDateJst } from './format';
@@ -9,6 +9,7 @@ import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { InfoTip } from './InfoTip';
 import { useRevealOnMount } from './revealList';
 import { useSelfOwner } from './selfOwner';
+import { publishOwnerNames } from './ownerNames';
 import { CardOpenCue, CloseListButton, CountChip, GoLink, OutLink } from './Pressable';
 
 export interface TodoRow { id: string; name: string | null; company_id: string | null; company: string | null; stage: string | null; content: string | null; due: string; consultant: string | null; actionyotei?: string | null; actionnaiyou?: string | null; reasons?: TodoReason[] }
@@ -54,6 +55,7 @@ export function OwnerFilter({ work }: { work: OwnerWork }) {
   const placed = useContext(OwnerFilterPlacement);
   const listId = useId();
   const self = useSelfOwner();
+  useEffect(() => { publishOwnerNames(work.owners); }, [work.owners]);
   const options = ownerOptions(work.owners);
   const currentLabel = work.owner === 'all' ? '' : options.find(o => o.id === work.owner)?.label ?? '選択中の担当者（該当案件なし）';
   // 入力中の文字。null の間は今の担当者名を出す（フォーカス中は空にして、候補を全員分出す）。
@@ -119,7 +121,7 @@ export const signalCards = [
   ['contact', '接触が空いている', '最後の接触から31日以上（MTGか60秒を超える電話。メールは数えない）'],
   ['stalled', '応募が止まっている', '掲載中の求人があり、直近14日の応募が0件'],
   ['first_contract', '初回で成果が出ていない', '開始30日で5件未満、または60日で10件未満'],
-  ['nps', '定期NPSが低い', '定期NPSが4以下'],
+  ['nps', '定期の満足度が低い', '定期の満足度が4以下'],
   ['target', '採用目標に届いていない', '開始30日を過ぎ、採用目標の半分未満'],
   ['cpa', '採用単価が高い', '同じ進捗帯の中央値の1.5倍以上'],
   ['mtg', 'MTGが途絶えている', '最後のMTGから60日以上'],
@@ -130,7 +132,7 @@ const planCards = [
   ['week', '7日以内', '明日から7日後までの予定', 'plain'],
 ] as const;
 const PAGE_SIZE = 20;
-/** ホームのカードに常に出す要対応（残りは件数付きの札に畳む）。 */
+/** ホームのカードに常に出すラベル（残りは件数付きの札に畳む）。 */
 export const mainSignalKeys: readonly string[] = ['expiration', 'contact', 'stalled', 'mtg'];
 /** 別の画面（案件一覧）で見るもの。札にはせず「→ 案件一覧で見る」で移る。 */
 const goSignalKeys: readonly string[] = ['first_contract'];
@@ -169,7 +171,7 @@ export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved, onShowList
   const inPlan = selected ? ['overdue', 'today', 'week', 'later'].includes(selected.key) : false;
   const list = selected && <section key={selected.key} ref={reveal} className={`jh-list ${selected.key === 'overdue' ? 'jh-todo-overdue' : ''}`} aria-label={`${selected.label}の一覧`}>
       <div className="jh-list-head"><h3>{selected.label}（{selected.items.length}件）</h3><CloseListButton label={`${selected.label}の一覧`} onClick={close} /></div>
-      {items.length ? <><p className="jh-note">{start + 1}〜{start + items.length}件 ／ 全{selected.items.length}件</p><div className="jh-scroll"><table className="jh-todo-table"><thead><tr><th scope="col">会社</th><th scope="col">案件名</th><th scope="col">ステージ</th><th scope="col">ラベル</th><th scope="col">次の予定</th><th scope="col">コンサル担当</th><th scope="col">予定の登録</th></tr></thead><tbody>{items.map(row => <tr key={row.id}><td>{row.company_id ? <button type="button" className="jh-link" onClick={() => { onOpenCompany({ id: row.company_id ?? '', name: row.company ?? '会社名未取得' }); }}>{row.company ?? '会社名未取得'}</button> : '—'}</td><th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenDeal(row); }}>{row.name ?? '案件名未取得'}</button>{selected.key === 'expired' && /^\d+$/.test(work.hubspot_portal_id ?? '') && <><br /><OutLink href={`https://app.hubspot.com/contacts/${work.hubspot_portal_id ?? ''}/record/0-3/${row.id}`} name="HubSpotで開く" /></>}</th><td>{row.stage ?? 'ステージ未取得'}</td><td><ReasonChips reasons={row.reasons ?? []} /></td><td><time>{formatDateJst(row.actionyotei ?? (selected.key === 'expiration' || signalCards.some(c => c[0] === selected.key) ? null : row.due), '予定なし')}</time><br />{row.content ?? '内容未登録'}</td><td>{row.consultant ?? '担当未登録'}</td><td><NextTodoButton dealId={row.id} hasPlan={!!row.actionyotei || planCards.some(c => c[0] === selected.key) || selected.key === 'later'} onSaved={onSaved} /></td></tr>)}</tbody></table></div></> : <p className="jh-note">該当する案件はありません。</p>}
+      {items.length ? <><p className="jh-note">{start + 1}〜{start + items.length}件 ／ 全{selected.items.length}件</p><div className="jh-scroll"><table className="jh-todo-table"><thead><tr><th scope="col">会社</th><th scope="col">案件名</th><th scope="col">ステージ</th><th scope="col">ラベル</th><th scope="col">次の予定</th><th scope="col">コンサル担当</th><th scope="col">次の予定を入れる</th></tr></thead><tbody>{items.map(row => <tr key={row.id}><td>{row.company_id ? <button type="button" className="jh-link" onClick={() => { onOpenCompany({ id: row.company_id ?? '', name: row.company ?? '会社名未取得' }); }}>{row.company ?? '会社名未取得'}</button> : '—'}</td><th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenDeal(row); }}>{row.name ?? '案件名未取得'}</button>{selected.key === 'expired' && /^\d+$/.test(work.hubspot_portal_id ?? '') && <><br /><OutLink href={`https://app.hubspot.com/contacts/${work.hubspot_portal_id ?? ''}/record/0-3/${row.id}`} name="HubSpotで開く" /></>}</th><td>{row.stage ?? 'ステージ未取得'}</td><td><ReasonChips reasons={row.reasons ?? []} /></td><td><time>{formatDateJst(row.actionyotei ?? (selected.key === 'expiration' || signalCards.some(c => c[0] === selected.key) ? null : row.due), '予定なし')}</time><OverdueBadge due={row.actionyotei ?? (selected.key === 'expiration' || signalCards.some(c => c[0] === selected.key) ? null : row.due)} /><br />{row.content ?? '内容未登録'}</td><td>{row.consultant ?? '担当未登録'}</td><td><NextTodoButton compact dealId={row.id} hasPlan={!!row.actionyotei || planCards.some(c => c[0] === selected.key) || selected.key === 'later'} onSaved={onSaved} /></td></tr>)}</tbody></table></div></> : <p className="jh-note">該当する案件はありません。</p>}
       {pages > 1 && <nav className="jh-todo-pages" aria-label={`${selected.label}のページ`}><button type="button" className="jc-button" disabled={page === 1} onClick={() => { changePage(page - 1); }}>前の20件</button><span>{page} / {pages}ページ</span><button type="button" className="jc-button" disabled={page === pages} onClick={() => { changePage(page + 1); }}>次の20件</button></nav>}
     </section>;
   return <section className="jh-todo" aria-labelledby="jh-todo-title"><h2 id="jh-todo-title">やること</h2><ReportFreshness builtAt={work.facts_built_at} stale={work.facts_stale} refreshing={work.refreshing} />

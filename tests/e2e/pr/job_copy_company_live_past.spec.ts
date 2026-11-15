@@ -55,7 +55,9 @@ test('顧客の掲載中・過去の全求人、案件リンクと求人の往�
   await main.screenshot({ path: 'artifacts/company-live-past-expanded.png' });
   await live.getByRole('button', { name: '合成案件B' }).click();
   await expect(page).toHaveURL(/company=100&deal=20/);
-  await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '合成案件B', exact: true })).toBeVisible();
+  // 顧客のページから開いたので、左上の戻るリンクは顧客のページへ
+  await expect(page.getByRole('button', { name: '顧客のページに戻る', exact: true })).toBeVisible();
   await page.goBack();
   await expect(live).toBeVisible();
   await live.locator('tbody tr').first().getByRole('cell').first().click();

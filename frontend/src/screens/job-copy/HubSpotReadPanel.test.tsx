@@ -24,7 +24,7 @@ const summary = {
     { gender: '男性', age: '40代', prefecture: '大分県大分市府内町1-1', municipality: '大分県 / 大分市府内町1-1', count: 2 },
   ] },
 };
-const customers = { customers: [{ id: 'c1', properties: { name: '合成取引先' } }], next_after: null, total_ms: 1 };
+const customers = { customers: [{ id: 'c1', properties: { name: '合成顧客' } }], next_after: null, total_ms: 1 };
 const jobsPage = { company_id: 'c1', contracts: [], jobs: [{ record: { id: 'L1', properties: { hs_name: '合成求人', shigotonaiyou: '合成の本文', id_hrhakkaa: '12345678', qinwude: '東京都' } }, deal_ids: [] }], total: 1, next_offset: null, total_ms: 1, fetched_at: fetchedAt };
 const applicants = { metric: '応募', summary, total_ms: 1, fetched_at: fetchedAt, version_attribution: '合成の説明', attribute_basis: '合成の説明' };
 
@@ -34,9 +34,9 @@ function mockApi(page: Record<string, unknown>) {
 
 async function openJob(onOpen: (job: JobCopyRecord) => void) {
   render(<HubSpotReadPanel onOpen={onOpen} />);
-  fireEvent.click(screen.getByText('取引先を取得'));
-  await screen.findByText('取引先を1件取得しました。');
-  fireEvent.change(screen.getByLabelText('HubSpotの取引先'), { target: { value: 'c1' } });
+  fireEvent.click(screen.getByText('顧客を取得'));
+  await screen.findByText('顧客を1件取得しました。');
+  fireEvent.change(screen.getByLabelText('HubSpotの顧客'), { target: { value: 'c1' } });
   fireEvent.click(screen.getByText('関連する求人を読み込む'));
   fireEvent.click(await screen.findByText('合成求人（関連契約0件）'));
   await screen.findByText('応募を取得しました。');
@@ -49,13 +49,13 @@ describe('HubSpotReadPanel errors', () => {
   it('shows the busy message (not the settings checklist) when the server says HubSpot is busy', async () => {
     api.mockResolvedValue({ ok: false, error: Object.assign(new Error('HTTP 503'), { status: 503, body: { code: 'hubspot_busy' } }) });
     render(<HubSpotReadPanel onOpen={vi.fn()} />);
-    fireEvent.click(screen.getByText('取引先を取得'));
+    fireEvent.click(screen.getByText('顧客を取得'));
     expect((await screen.findByRole('alert')).textContent).toBe('HubSpot が混み合っています。少し待ってから再試行してください。');
   });
   it('keeps the settings checklist for other failures', async () => {
     api.mockResolvedValue({ ok: false, error: Object.assign(new Error('HTTP 502'), { status: 502, body: { code: 'hubspot_read_failed' } }) });
     render(<HubSpotReadPanel onOpen={vi.fn()} />);
-    fireEvent.click(screen.getByText('取引先を取得'));
+    fireEvent.click(screen.getByText('顧客を取得'));
     expect((await screen.findByRole('alert')).textContent).toContain('HubSpotの読み取りに失敗しました（HTTP 502）');
   });
 });
@@ -89,7 +89,7 @@ describe('HubSpotReadPanel applicant addresses', () => {
     const capturedAt = '2026-10-05T00:00:00.000Z';
     const versionId = `capture-synthetic-${capturedAt}`;
     mockApi({ ...applicants,
-      capture_bundle: { schemaVersion: 1, capturedAt, jobs: [{ id: 'synthetic', hubspotListingId: 'L1', title: '合成求人', company: '合成取引先', media: 'HRハッカー', mediaJobId: '12345678', location: '東京都', body: '合成の本文', images: [] }] },
+      capture_bundle: { schemaVersion: 1, capturedAt, jobs: [{ id: 'synthetic', hubspotListingId: 'L1', title: '合成求人', company: '合成顧客', media: 'HRハッカー', mediaJobId: '12345678', location: '東京都', body: '合成の本文', images: [] }] },
       dated_comparison: { total: 6, unknown: 2, basis: '合成の日付対応', daily_representatives: {},
         by_version: { [versionId]: { count: 4, dimensions: { gender: null, age: null, prefecture: null, municipality: { denominator: 4, categories: [{ category: `東京都 / ${street.slice(3)}`, count: 4, percentage: 100 }] } } } } } });
     const onOpen = vi.fn<(job: JobCopyRecord) => void>();

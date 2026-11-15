@@ -44,3 +44,4 @@
 .jc-listing-image-cell > .jc-image-section > h3 { display:none; }
 
 .jc-app .jc-listing-changes input { width:auto; margin:0; padding:0; flex-shrink:0; }
+.jc-listing-popup mark.jc-mark-removed { background:#f2a3a3; color:#5c0f0f; border-radius:2px; box-shadow:0 -1px 0 #a33b3b inset; }

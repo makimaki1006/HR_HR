@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-/** 今の取引の画面で、顧客の全求人を出しているとき、左の一覧も同じ範囲にそろえるための共有の値。 */
+/** 今の案件の画面で、顧客の全求人を出しているとき、左の一覧も同じ範囲にそろえるための共有の値。 */
 export interface CompanyScope { dealId: string; dealIds: string[] }
 let current: CompanyScope | null = null;
 const listeners = new Set<() => void>();

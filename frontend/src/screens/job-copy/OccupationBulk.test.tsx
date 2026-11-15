@@ -122,7 +122,7 @@ describe('OccupationBulk', () => {
     expect(within(tr).getAllByText('—')).toHaveLength(1);
   });
 
-  it('deal=<取引ID> で絞り、案件名と「すべてに戻す」を出す', async () => {
+  it('deal=<案件ID> で絞り、案件名と「すべてに戻す」を出す', async () => {
     window.history.replaceState(null, '', '/app/job-copy?view=occupations&deal=123&owner=me');
     get.mockImplementation((path: string) => {
       if (path.startsWith('/api/job-copy/listings/companies')) return Promise.resolve({ ok: true, data: { companies: {} } });
@@ -131,7 +131,7 @@ describe('OccupationBulk', () => {
     });
     render(<OccupationBulk />);
     expect((await screen.findByText('架空の案件')).closest('[role="status"]')?.textContent).toContain('架空の案件 の求人だけを表示しています');
-    // 担当では絞らず、取引で絞る。進み具合も同じ取引。
+    // 担当では絞らず、案件で絞る。進み具合も同じ案件。
     expect(listCalls()[0]).toBe('/api/job-copy/listings?deal=123&sort=bulk&offset=0&indeed_state=unset');
     expect(get.mock.calls.map(c => String(c[0])).find(p => p.includes('publication='))).toBe('/api/job-copy/listings?deal=123&sort=bulk&publication=%E6%8E%B2%E8%BC%89%E4%B8%AD&offset=100000');
     fireEvent.click(screen.getByRole('button', { name: 'すべてに戻す' }));

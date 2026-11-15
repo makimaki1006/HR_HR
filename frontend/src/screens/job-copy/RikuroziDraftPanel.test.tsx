@@ -53,7 +53,7 @@ describe('リクロジメディア向けの案', () => {
     expect(create).toHaveLength(1);
     expect(create[0]?.url).toBe('/api/job-copy/listings/654321/rikurozi-listing');
     expect(create[0]?.body).toEqual({ generated: { 案件名: '新しい案件名', 仕事内容: '' } });
-    expect((await screen.findByText(/HubSpotに新しい求人（公開前）を作りました。2件の取引に関連付けました。/)).textContent).toBeTruthy();
+    expect((await screen.findByText(/HubSpotに新しい求人（公開前）を作りました。2件の案件に関連付けました。/)).textContent).toBeTruthy();
   });
   it('全文一致の不合格と短文設定を示す', async () => {
     const result = { ...draft, min_sentence_chars: 8, comparisons: [{ ...draft.comparisons[0], whole_match: true, ratio: null, matched_sentences: [] }] };
@@ -74,7 +74,7 @@ describe('リクロジメディア向けの案', () => {
   it('失敗時に原本の確認と再実行を案内する', async () => {
     routed({ job: () => json({ code: 'customer_relation_unknown' }, 422) });
     render(<RikuroziDraftPanel listingId="1" />); fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('取引先との関連');
+    expect((await screen.findByRole('alert')).textContent).toContain('顧客との関連');
     expect(screen.queryByRole('button', { name: 'この案でCSVを出す' })).toBeNull();
   });
   it('別の求人を選んだ後に古い結果を表示しない', async () => {
@@ -132,7 +132,7 @@ describe('リクロジメディア向けの案', () => {
     await openDraft();
     fireEvent.click(screen.getByRole('button', { name: 'この案でCSVを出す' }));
     const note = await screen.findByText(/新しくは作っていません/);
-    expect(note.textContent).toContain('2件の取引に関連付けました。関連付けできなかった取引が1件あります。');
+    expect(note.textContent).toContain('2件の案件に関連付けました。関連付けできなかった案件が1件あります。');
     expect(url).toHaveBeenCalledTimes(1);
   });
   it('求人を作れなかったときはCSVを出さず、理由を平易に示す', async () => {
@@ -140,7 +140,7 @@ describe('リクロジメディア向けの案', () => {
     const url = vi.fn(); vi.stubGlobal('URL', { createObjectURL: url, revokeObjectURL: vi.fn() });
     await openDraft();
     fireEvent.click(screen.getByRole('button', { name: 'この案でCSVを出す' }));
-    expect((await screen.findByText(/関連する取引がないため、求人を作っていません/)).textContent).toBeTruthy();
+    expect((await screen.findByText(/関連する案件がないため、求人を作っていません/)).textContent).toBeTruthy();
     expect(url).not.toHaveBeenCalled();
   });
   it('リクロジの求人IDを入れて保存でき、重複は理由つきで保存されない', async () => {

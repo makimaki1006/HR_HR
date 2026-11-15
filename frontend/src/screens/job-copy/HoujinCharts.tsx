@@ -138,12 +138,12 @@ export function MonthlyCharts({
           />
           <div className="hj-chart-pair">
             <Figure
-              title="定期NPS"
+              title="定期の満足度"
               id={`hj-nps-${mm.deal_id}`}
               height={190}
               option={chartOption(
                 axis,
-                [{ name: "定期NPS", type: "line", data: nps.map(point) }],
+                [{ name: "定期の満足度", type: "line", data: nps.map(point) }],
                 "点",
               )}
             />
@@ -360,7 +360,7 @@ export function AcrossCharts({
       />
       <Figure
         title="契約中の案件の採用数（累計）の合算"
-        note="各月に契約期間中だった案件の累計を拠点ごとに積み上げ。持ち越しは薄い柱。"
+        note="各月に契約期間中だった案件の累計を事業所ごとに積み上げ。持ち越しは薄い柱。"
         id="hj-hires-total"
         option={chartOption(
           months,
@@ -389,8 +389,8 @@ export function AcrossCharts({
         )}
       />
       <Figure
-        title="LTVの推移"
-        note="契約金額の累計を拠点ごとに積み上げ。"
+        title="これまでの売上の推移"
+        note="契約金額の累計を事業所ごとに積み上げ。"
         id="hj-ltv"
         option={chartOption(
           ltvMonths,

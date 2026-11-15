@@ -9,7 +9,7 @@ afterEach(() => { vi.resetAllMocks(); });
 
 const deals = (ids: string[]) => ids.map(id => ({ id, name: `案件${id}` })) as CompanyDeal[];
 const listing = (id: string) => ({ id, title: `求人${id}`, media: 'hrh', publication_status: '掲載中', deal_ids: [] });
-/** 取引ごとに求人 1 件、応募日ごとの件数 { '2026-10-01': 取引番号 } を返す。`broken` の取引は読み取りに失敗する。 */
+/** 案件ごとに求人 1 件、応募日ごとの件数 { '2026-10-01': 案件番号 } を返す。`broken` の案件は読み取りに失敗する。 */
 function fake(broken: string[]) {
   api.mockImplementation((url: string) => {
     const params = new URL(url, 'http://localhost').searchParams;
@@ -20,7 +20,7 @@ function fake(broken: string[]) {
   });
 }
 
-it('取引を並べたまま読み、読めた順に途中経過を出して全部そろったら ready にする', async () => {
+it('案件を並べたまま読み、読めた順に途中経過を出して全部そろったら ready にする', async () => {
   fake([]);
   const seen: string[][] = [];
   const result = await loadCompanyDatas('1', new AbortController().signal, deals(['1', '2', '3', '4']), datas => { seen.push(datas.map(data => data.id)); });
@@ -33,22 +33,22 @@ it('取引を並べたまま読み、読めた順に途中経過を出して全�
   expect(seen.at(-1)).toEqual(['1', '2', '3', '4']);
 });
 
-it('1 つの取引が読めなくても、ほかの取引の数字は出して、読めなかった件数を伝える', async () => {
+it('1 つの案件が読めなくても、ほかの案件の数字は出して、読めなかった件数を伝える', async () => {
   fake(['2']);
   const result = await loadCompanyDatas('1', new AbortController().signal, deals(['1', '2', '3']));
   expect(result.status).toBe('ready');
   if (result.status !== 'ready') return;
   expect(result.datas.map(data => data.id)).toEqual(['1', '3']);
-  expect(result.notes).toEqual(['読み込めなかった取引が 1件あります。その取引の求人は合計に含まれていません。']);
+  expect(result.notes).toEqual(['読み込めなかった案件が 1件あります。その案件の求人は合計に含まれていません。']);
 });
 
-it('全部の取引が読めないときは、読み込み中のまま止めず error を返す', async () => {
+it('全部の案件が読めないときは、読み込み中のまま止めず error を返す', async () => {
   fake(['1', '2']);
   const result = await loadCompanyDatas('1', new AbortController().signal, deals(['1', '2']));
   expect(result).toEqual({ status: 'error', message: 'この事業所の求人を読み込めませんでした。' });
 });
 
-it('全体の待ちを過ぎたら、まだ終わらない取引を待たずに結果を返す', async () => {
+it('全体の待ちを過ぎたら、まだ終わらない案件を待たずに結果を返す', async () => {
   vi.useFakeTimers();
   try {
     api.mockImplementation((url: string, options?: { signal?: AbortSignal }) => {
@@ -63,6 +63,6 @@ it('全体の待ちを過ぎたら、まだ終わらない取引を待たずに�
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') return;
     expect(result.datas.map(data => data.id)).toEqual(['1']);
-    expect(result.notes[0]).toContain('読み込めなかった取引が 1件');
+    expect(result.notes[0]).toContain('読み込めなかった案件が 1件');
   } finally { vi.useRealTimers(); }
 });

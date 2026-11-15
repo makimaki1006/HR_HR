@@ -172,9 +172,9 @@ export function HoujinView() {
         <thead>
           <tr>
             {[
-              "取引",
+              "案件",
               "ステージ",
-              "拠点",
+              "事業所",
               "種別",
               "開始〜満了",
               "継続",
@@ -208,7 +208,7 @@ export function HoujinView() {
                 </button>
               </th>
               <td>{d.stage}</td>
-              <td>{d.site_name || "拠点未登録"}</td>
+              <td>{d.site_name || "事業所未登録"}</td>
               <td>{d.kind}</td>
               <td>
                 {d.start || "—"}
@@ -233,7 +233,7 @@ export function HoujinView() {
     <div className="jc-page">
       <main className="jh-home hj-main" id="job-details">
         <header className="jh-head">
-          <h1>法人</h1>
+          <h1>顧客</h1>
           <button
             className="jc-button"
             onClick={() => {
@@ -245,38 +245,38 @@ export function HoujinView() {
         </header>
         {error && (
           <p role="alert">
-            法人を読み込めませんでした。再読み込みしてください。
+            顧客を読み込めませんでした。再読み込みしてください。
           </p>
         )}
         {!ready && !error && (
           <p role="status">
             {loaded?.value.status === "failed"
-              ? "法人を取得できませんでした。"
-              : "法人を読み込んでいます…"}
+              ? "顧客を取得できませんでした。"
+              : "顧客を読み込んでいます…"}
           </p>
         )}
         {ready && (
           <>
-            <section aria-label="法人の選択" className="hj-picker">
+            <section aria-label="顧客の選択" className="hj-picker">
               <div className="hj-controls">
                 <label>
-                  法人を選ぶ
+                  顧客を選ぶ
                   <select
                     value={matchesSelection ? ready.selected_houjin ?? "" : ""}
                     onChange={(e) => {
                       choose(e.target.value);
                     }}
                   >
-                    <option value="">法人を選ぶ</option>
+                    <option value="">顧客を選ぶ</option>
                     {rows.map((r) => (
                       <option key={r.houjin} value={r.houjin}>
-                        {r.name}（取引{r.deals ?? "—"} / 拠点{r.sites ?? "—"}）
+                        {r.name}（案件{r.deals ?? "—"} / 事業所{r.sites ?? "—"}）
                       </option>
                     ))}
                   </select>
                 </label>
                 <label>
-                  法人の検索
+                  顧客の検索
                   <input
                     value={query.get("houjin_search") ?? ""}
                     onChange={(e) => {
@@ -298,9 +298,9 @@ export function HoujinView() {
                       );
                     }}
                   >
-                    <option value="ltv">LTVが大きい順</option>
-                    <option value="deals">取引が多い順</option>
-                    <option value="name">法人名順</option>
+                    <option value="ltv">これまでの売上が大きい順</option>
+                    <option value="deals">案件が多い順</option>
+                    <option value="name">顧客名順</option>
                   </select>
                 </label>
               </div>
@@ -325,7 +325,7 @@ export function HoujinView() {
                 ))}
               </div>
                 <p className="jh-note">
-                  月額は取引の最大額、継続の回数は最大回数。空欄の条件は使いません。
+                  月額は案件の最大額、継続の回数は最大回数。空欄の条件は使いません。
                 </p>
                 <div className="hj-controls">
                   {customerFilters.map(([key, , label, unit]) => (
@@ -350,7 +350,7 @@ export function HoujinView() {
                           <input
                             type="number"
                             min="0"
-                            aria-label="拠点数の上限"
+                            aria-label="事業所数の上限"
                             value={query.get("houjin_sites_max") ?? ""}
                             onChange={(e) => {
                               updateJobCopyQuery(
@@ -359,7 +359,7 @@ export function HoujinView() {
                               );
                             }}
                           />
-                          拠点以下
+                          事業所以下
                         </>
                       )}
                     </label>
@@ -414,18 +414,18 @@ export function HoujinView() {
                 ) : null,
               )}
               <details>
-                <summary>法人の一覧</summary>
+                <summary>顧客の一覧</summary>
                 <div className="hj-scroll">
-                  <table aria-label="法人の一覧">
+                  <table aria-label="顧客の一覧">
                     <thead>
                       <tr>
                         {[
-                          "法人",
-                          "取引",
-                          "拠点",
+                          "顧客",
+                          "案件",
+                          "事業所",
                           "従業員数",
                           "月額（最大）",
-                          "LTV",
+                          "これまでの売上",
                           "継続（最大）",
                           "応募",
                           "面接",
@@ -468,20 +468,20 @@ export function HoujinView() {
                 </div>
               </details>
             </section>
-            {!rows.length && <p role="status">条件に合う法人がありません</p>}
+            {!rows.length && <p role="status">条件に合う顧客がありません</p>}
             {data?.customer && (
               <>
-                <section aria-label="法人の数字">
+                <section aria-label="顧客の数字">
                   <h2>{data.customer.name}</h2>
                   <div className="hj-kpis">
                     {[
-                      ["取引", `${String(deals.length)}件`],
+                      ["案件", `${String(deals.length)}件`],
                       [
                         "稼働中",
                         `${String(deals.filter((d) => d.is_active).length)}件`,
                       ],
-                      ["拠点", `${String(data.customer.sites ?? "—")}拠点`],
-                      ["LTV", yen(sumKnown(deals, (d) => d.amount))],
+                      ["事業所", `${String(data.customer.sites ?? "—")}事業所`],
+                      ["これまでの売上", yen(sumKnown(deals, (d) => d.amount))],
                       [
                         "継続回数（最大）",
                         String(data.customer.max_renewal_no ?? "—"),
@@ -500,7 +500,7 @@ export function HoujinView() {
                       </div>
                     ))}
                   </div>
-                  <p className="jh-note">LTVは追加契約を除く契約金額の合計。</p>
+                  <p className="jh-note">これまでの売上は追加契約を除く契約金額の合計。</p>
                   {data.customer.last_expiration !==
                     deals
                       .map((d) => d.expiration)
@@ -513,14 +513,14 @@ export function HoujinView() {
                   )}
                   {data.customer.ltv !== sumKnown(deals, (d) => d.amount) && (
                     <p className="jh-note">
-                      一覧のLTVは追加契約を含む {yen(data.customer.ltv)}。
+                      一覧のこれまでの売上は追加契約を含む {yen(data.customer.ltv)}。
                     </p>
                   )}
                 </section>
                 <section id="hj-site">
                   <h2>事業所</h2>
                   <label>
-                    拠点を選ぶ
+                    事業所を選ぶ
                     <select
                       value={site?.key ?? ""}
                       onChange={(e) => {
@@ -535,8 +535,8 @@ export function HoujinView() {
                     </select>
                   </label>
                   <p>
-                    法人の{deals.length}件のうち、この拠点の{siteDeals.length}件
-                    {!query.get("houjin_site") && "（最新の契約がある拠点）"}
+                    顧客の{deals.length}件のうち、この事業所の{siteDeals.length}件
+                    {!query.get("houjin_site") && "（最新の契約がある事業所）"}
                   </p>
                   <h3>契約の系列</h3>
                   {dealTable(siteDeals)}
@@ -574,20 +574,20 @@ export function HoujinView() {
                   />
                 </section>
                 <p>
-                  <a className="jh-link" href={kpiHref}>他の法人と比べる（コンサルKPI）</a>
+                  <a className="jh-link" href={kpiHref}>他の顧客と比べる（コンサルKPI）</a>
                 </p>
-                <Fold summary={`分析の図と拠点の比較（図${String(figureCount)}点）`} id="hj-analysis">
+                <Fold summary={`分析の図と事業所の比較（図${String(figureCount)}点）`} id="hj-analysis">
                 <section>
-                  <h2>拠点の比較</h2>
+                  <h2>事業所の比較</h2>
                   <p className="jh-note">
                     金額と採用は値がある契約の合計。括弧内は採用の値がある契約数。
                   </p>
                   <div className="hj-scroll">
-                    <table aria-label="拠点の比較">
+                    <table aria-label="事業所の比較">
                       <thead>
                         <tr>
                           {[
-                            "拠点",
+                            "事業所",
                             "契約",
                             "稼働中",
                             "継続（最大）",
@@ -756,7 +756,7 @@ export function HoujinView() {
                   <CpaCharts data={data} deals={siteDeals} prefix="hj-site" />
                 </section>
                 <section>
-                  <h2>拠点をまたいだ図</h2>
+                  <h2>事業所をまたいだ図</h2>
                   <h3>図に入れる案件</h3>
                   <div className="hj-controls">
                     <button
@@ -838,24 +838,24 @@ export function HoujinView() {
                   </p>
                   <p>
                     表示対象 {data.focus.n_display}社中 {data.focus.n_focus}社
-                    ／ 全{data.focus.n_houjin}法人中 {data.focus.n_focus_all}社
+                    ／ 全{data.focus.n_houjin}顧客中 {data.focus.n_focus_all}社
                   </p>
                   <p>
                     月額30万円以上 {data.focus.monthly_over_300k}社 ／
-                    従業員1,000人以上 {data.focus.enterprise}社 ／ 拠点3つ以上{" "}
+                    従業員1,000人以上 {data.focus.enterprise}社 ／ 事業所3つ以上{" "}
                     {data.focus.multi_site}社
                   </p>
                   <p className="jh-note">
                     条件は重複。表示対象には追加契約のみの
                     {data.focus.n_display_option_only}
-                    社を含み、全法人の集計は追加契約のみの
+                    社を含み、全顧客の集計は追加契約のみの
                     {data.focus.n_houjin_option_only}社を除く。
                   </p>
                 </section>
                 </Fold>
                 <section>
-                  <h2>取引と求人</h2>
-                  {dealTable(deals, "取引と求人の取引")}
+                  <h2>案件と求人</h2>
+                  {dealTable(deals, "案件と求人の案件")}
                   {ready.companies.map((company) => (
                     <div key={company.id}>
                       {/^\d+$/.test(data.meta.hubspot_portal_id ?? "") && (
@@ -900,15 +900,15 @@ export function HoujinView() {
                 </section>
                 <p className="jh-note">
                   集計日 {data.meta.today} ／ 取得元{" "}
-                  {data.meta.source_as_of ?? "未取得"} ／ 取引 {deals.length}
+                  {data.meta.source_as_of ?? "未取得"} ／ 案件 {deals.length}
                   件・稼働中 {deals.filter((d) => d.is_active).length}件
                 </p>
               </>
             )}
-            {rows.length > 0 && !data && <p role="status">法人を読み込んでいます…</p>}
+            {rows.length > 0 && !data && <p role="status">顧客を読み込んでいます…</p>}
             <p className="jh-note">
-              会社との結び付き：{ready.linkage.total}法人中{" "}
-              {ready.linkage.unmatched}法人が未確認
+              会社との結び付き：{ready.linkage.total}顧客中{" "}
+              {ready.linkage.unmatched}顧客が未確認
             </p>
             {selected && (
               <RiskDetail

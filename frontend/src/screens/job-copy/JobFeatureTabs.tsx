@@ -3,7 +3,7 @@ import type { KeyboardEvent, ReactNode } from 'react';
 export type JobFeature = 'timeline' | 'body' | 'applications' | 'applicants' | 'reasons' | 'performance' | 'market' | 'market-table' | 'factors' | 'diff' | 'ab' | 'report' | 'receive';
 interface Feature { id: JobFeature; label: string; description: string }
 /**
- * hidden: タブの列に出さないグループ。外した分析と外部文面の確認は、URL で直接開ける（2026-10-21、ほかの分析を 13 → 6）。
+ * hidden: タブの列に出さないグループ。外した分析と外部文面の確認は、URL で直接開ける（2026-10-21、くわしい分析（旧ほかの分析）を 13 → 6）。
  */
 export const jobFeatureGroups: { id: string; label: string; hidden?: boolean; features: Feature[] }[] = [
   { id: 'timeline', label: 'タイムライン', features: [{ id: 'timeline', label: 'タイムライン', description: '掲載期間・給与・本文・画像・課金・応募・市場を同じ日付の軸に並べて確認します。' }] },
@@ -12,16 +12,16 @@ export const jobFeatureGroups: { id: string; label: string; hidden?: boolean; fe
   { id: 'ab', label: '求人比較', features: [{ id: 'ab', label: '求人比較', description: '同じ顧客の求人や、ほかの顧客で応募が多い求人と、内容と成果を比べます。' }] },
   { id: 'applicants', label: '応募者構成', features: [{ id: 'applicants', label: '応募者構成', description: '性別・年代・地域の構成と、本文ごとの違いを確認します。' }] },
   { id: 'reasons', label: '応募理由', features: [{ id: 'reasons', label: '応募理由', description: '応募理由・応募動機の記録を出典別に確認します。' }] },
-  { id: 'factors', label: '要因・仮説', features: [{ id: 'factors', label: '要因・仮説', description: '本文・画像を確認した履歴と、次に確認する要因を整理します。' }] },
+  { id: 'factors', label: 'メモ', features: [{ id: 'factors', label: 'メモ', description: '本文・画像を確認した履歴と、次に確認する要因を整理します。' }] },
   // 次の 6 つはタブに並べない。画面の URL（feature=…）で直接開ける。開いたときは見出しと「タイムラインに戻る」だけを出す。
   { id: 'applications', label: '応募推移', hidden: true, features: [{ id: 'applications', label: '応募推移', description: '応募日の分かる実績を月別に確認します。' }] },
   { id: 'performance', label: '課金・クリック', hidden: true, features: [{ id: 'performance', label: '課金・クリック', description: '媒体の期間別実績を確認します。未接続のデータは表示しません。' }] },
-  { id: 'market', label: '市場グラフ', hidden: true, features: [{ id: 'market', label: '市場グラフ', description: '各指標の月次推移を確認します。市場と比べる職種は右の欄で指定します。' }] },
+  { id: 'market', label: '市場グラフ', hidden: true, features: [{ id: 'market', label: '市場グラフ', description: '各指標の月次推移を確認します。市場と比べる職種は、求人のページの「市場の今」で指定します。' }] },
   { id: 'market-table', label: '市場データ', hidden: true, features: [{ id: 'market-table', label: '市場データ', description: '市場グラフと同じ職種・地域・期間の実数を確認します。' }] },
   { id: 'report', label: '検証記録', hidden: true, features: [{ id: 'report', label: '検証記録', description: '仮説・評価基準・結果と根拠・次に試すことを社内のメモとして残します。' }] },
   { id: 'import', label: '外部文面を確認', hidden: true, features: [{ id: 'receive', label: '外部文面を確認', description: '外部から届いた本文を現在の本文と照合します。' }] },
 ];
-/** 「ほかの分析」に出す 6 つ。タブの並びと、ページ内の入口のボタンで同じ。 */
+/** 「くわしい分析」に出す 6 つ。タブの並びと、ページ内の入口のボタンで同じ。 */
 export const jobFeatureMenu = jobFeatureGroups.filter(group => !group.hidden).flatMap(group => group.features);
 
 function keyboardSelection(event: KeyboardEvent<HTMLButtonElement>, ids: string[], current: string, select: (id: string) => void, prefix: string) {

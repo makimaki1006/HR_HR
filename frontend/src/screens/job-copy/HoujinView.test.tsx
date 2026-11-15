@@ -36,6 +36,7 @@ vi.mock("./ProposalMemo", () => ({ ProposalMemo: () => <p>案件のメモ</p> })
 vi.mock("./NextTodo", () => ({
   NextTodoButton: () => <button>次の予定を記録</button>,
   ReasonChips: () => null,
+  OverdueBadge: () => null,
 }));
 afterEach(() => {
   cleanup();
@@ -117,15 +118,15 @@ it("条件ボタン4つ・上下限・欠損とURLの往復", () => {
     carry: true,
   });
 });
-it("法人の全節と数字・案件の詳細・条件のURLを表示", async () => {
+it("顧客の全節と数字・案件の詳細・条件のURLを表示", async () => {
   window.history.replaceState(null, "", "/app/job-copy?view=houjin&owner=11");
   mock();
   render(<HoujinView />);
-  const stats = await screen.findByRole("region", { name: "法人の数字" });
+  const stats = await screen.findByRole("region", { name: "顧客の数字" });
   expect(stats.textContent).toContain("3件");
-  expect(stats.textContent).toContain("2拠点");
+  expect(stats.textContent).toContain("2事業所");
   expect(stats.textContent).toContain("¥900,000");
-  expect(screen.queryByRole("table", { name: "拠点の比較" })).toBeNull();
+  expect(screen.queryByRole("table", { name: "事業所の比較" })).toBeNull();
   expect(screen.queryByTestId("hj-monthly-101")).toBeNull();
   expect(screen.queryByTestId("hj-funnel")).toBeNull();
   expect(screen.queryByTestId("hj-focus")).toBeNull();
@@ -133,21 +134,21 @@ it("法人の全節と数字・案件の詳細・条件のURLを表示", async (
     "hj-contracts",
   ]);
   expect(
-    screen.getByRole("link", { name: "他の法人と比べる（コンサルKPI）" }).getAttribute("href"),
+    screen.getByRole("link", { name: "他の顧客と比べる（コンサルKPI）" }).getAttribute("href"),
   ).toBe("/consulting#research/customer?houjin=sample-a");
-  const fold = screen.getByText(/^分析の図と拠点の比較/).closest("details");
+  const fold = screen.getByText(/^分析の図と事業所の比較/).closest("details");
   if (!fold) throw new Error("fold missing");
   expect(fold.open).toBe(false);
   expect(screen.getByRole("table", { name: "契約の系列" })).toBeTruthy();
-  expect(screen.getByRole("table", { name: "取引と求人の取引" })).toBeTruthy();
+  expect(screen.getByRole("table", { name: "案件と求人の案件" })).toBeTruthy();
   fold.open = true;
   fireEvent(fold, new Event("toggle"));
   const figures = screen.getAllByTestId(/^hj-/).length - 1;
-  expect(screen.getByText(/^分析の図と拠点の比較/).textContent).toBe(
-    `分析の図と拠点の比較（図${String(figures)}点）`,
+  expect(screen.getByText(/^分析の図と事業所の比較/).textContent).toBe(
+    `分析の図と事業所の比較（図${String(figures)}点）`,
   );
   expect(figures).toBe(14 - 1);
-  const sites = await screen.findByRole("table", { name: "拠点の比較" });
+  const sites = await screen.findByRole("table", { name: "事業所の比較" });
   expect(within(sites).getByText("¥800,000")).toBeTruthy();
   expect(within(sites).getByText("6（2件）")).toBeTruthy();
   const mtg = screen.getByRole("table", { name: "MTGの履歴" });
@@ -163,7 +164,7 @@ it("法人の全節と数字・案件の詳細・条件のURLを表示", async (
   expect(screen.getByTestId("hj-nps-101").dataset.option).toContain(
     "emptyCircle",
   );
-  for (const title of ["こちらの動き", "取引と求人", "重点顧客の内訳"])
+  for (const title of ["こちらの動き", "案件と求人", "重点顧客の内訳"])
     expect(screen.getByRole("heading", { name: title })).toBeTruthy();
   const cpa = required(
     screen.getAllByRole("table", { name: "採用単価の3つの出し方" })[0],
@@ -179,7 +180,7 @@ it("法人の全節と数字・案件の詳細・条件のURLを表示", async (
   expect(option('hj-funnel').series.map(s=>s.data)).toEqual([[4,1,1]]);
   expect(screen.getByTestId('hj-monthly-101').dataset.option).toContain('20');
   fireEvent.click(
-    screen.getByRole("button", { name: "大きいのに拠点が少ない" }),
+    screen.getByRole("button", { name: "大きいのに事業所が少ない" }),
   );
   expect(location.search).toContain("houjin_sites_max=2");
   fireEvent.click(
@@ -189,11 +190,12 @@ it("法人の全節と数字・案件の詳細・条件のURLを表示", async (
     ),
   );
   expect(await screen.findByRole("dialog")).toBeTruthy();
+  // 顧客の画面から開いた案件のページは、来た元（顧客）を ?from= に残す。
   expect(
-    await screen.findByRole("link", { name: "取引の画面を開く" }),
-  ).toBeTruthy();
+    (await screen.findByRole("link", { name: "案件のページを開く" })).getAttribute("href"),
+  ).toContain("from=houjin");
 });
-it("応募が1件も無い取引だけを、求人票の数とHubSpotへのリンク付きで出す", async () => {
+it("応募が1件も無い案件だけを、求人票の数とHubSpotへのリンク付きで出す", async () => {
   window.history.replaceState(
     null,
     "",
@@ -202,9 +204,9 @@ it("応募が1件も無い取引だけを、求人票の数とHubSpotへのリ�
   mock();
   render(<DealBoard />);
   expect(
-    (await screen.findByRole("heading", { name: /応募が1件も無い取引/ }))
+    (await screen.findByRole("heading", { name: /応募が1件も無い案件/ }))
       .textContent,
-  ).toBe("応募が1件も無い取引 1件");
+  ).toBe("応募が1件も無い案件 1件");
   expect(screen.getByRole("button", { name: "架空の採用支援01" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "架空の採用支援02" })).toBeNull();
   expect(screen.getByText("3件")).toBeTruthy();
@@ -217,7 +219,7 @@ it("案件一覧の新しい列を両方向に並べ替える", async () => {
   mock();
   render(<DealBoard />);
   await screen.findByRole("button", { name: "架空の採用支援01" });
-  // 既定の列は NPS と応募。採用・採用単価・金額・採用目標は「詳しい数字」を開くと並べ替えられる。
+  // 既定の列は 満足度 と応募。採用・採用単価・金額・採用目標は「詳しい数字」を開くと並べ替えられる。
   fireEvent.click(await screen.findByRole("button", { name: "架空の採用支援01の詳しい数字を開く" }));
   for (const label of ["採用", "採用単価", "金額", "採用目標に対して"]) {
     expect(within(screen.getByRole("table", { name: "架空の採用支援01の詳しい数字" })).getByRole("button", { name: `${label} ▲▼` })).toBeTruthy();
@@ -230,7 +232,7 @@ it("案件一覧の新しい列を両方向に並べ替える", async () => {
     expect(sortDeals(rows, key, false).map((r) => r.id)).toEqual(["101", "100", "102"]);
   }
   for (const [key, label] of [
-    ["nps", "NPS"],
+    ["nps", "満足度"],
     ["recent_applications", "応募（直近4週）"],
   ] as const) {
     const button = screen.getByRole("button", { name: `${label} ▲▼` });
@@ -262,38 +264,38 @@ it("案件一覧の新しい列を両方向に並べ替える", async () => {
   }
 });
 
-it("条件が0社なら法人の内容を隠し、解除すると復元する", async () => {
+it("条件が0社なら顧客の内容を隠し、解除すると復元する", async () => {
   window.history.replaceState(null, "", "/app/job-copy?view=houjin&owner=11");
   mock();
   render(<HoujinView />);
-  await screen.findByRole("region", { name: "法人の数字" });
-  fireEvent.change(screen.getByRole("textbox", { name: "法人の検索" }), { target: { value: "該当なし" } });
-  expect(screen.getByText("条件に合う法人がありません")).toBeTruthy();
-  expect(screen.queryByRole("region", { name: "法人の数字" })).toBeNull();
+  await screen.findByRole("region", { name: "顧客の数字" });
+  fireEvent.change(screen.getByRole("textbox", { name: "顧客の検索" }), { target: { value: "該当なし" } });
+  expect(screen.getByText("条件に合う顧客がありません")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "顧客の数字" })).toBeNull();
   expect(screen.queryByRole("table", { name: "MTGの履歴" })).toBeNull();
-  expect(screen.queryByRole("heading", { name: "取引と求人" })).toBeNull();
-  expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "法人を選ぶ" }).value).toBe("");
+  expect(screen.queryByRole("heading", { name: "案件と求人" })).toBeNull();
+  expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "顧客を選ぶ" }).value).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "条件を戻す" }));
-  expect(await screen.findByRole("region", { name: "法人の数字" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "顧客の数字" })).toBeTruthy();
 });
-it("選択中の法人が条件から外れると先頭へ切り替え、拠点と詳細を解除する", async () => {
+it("選択中の顧客が条件から外れると先頭へ切り替え、事業所と詳細を解除する", async () => {
   window.history.replaceState(null, "", "/app/job-copy?view=houjin&owner=11&houjin_site=east&risk_deal=101");
   mock();
   render(<HoujinView />);
-  await screen.findByRole("region", { name: "法人の数字" });
-  fireEvent.change(screen.getByRole("textbox", { name: "法人の検索" }), { target: { value: "わかば" } });
+  await screen.findByRole("region", { name: "顧客の数字" });
+  fireEvent.change(screen.getByRole("textbox", { name: "顧客の検索" }), { target: { value: "わかば" } });
   await waitFor(() => {
-    expect(screen.getByRole("region", { name: "法人の数字" }).textContent).toContain("架空の法人わかば");
+    expect(screen.getByRole("region", { name: "顧客の数字" }).textContent).toContain("架空の顧客わかば");
   });
   expect(location.search).toContain("houjin=sample-b");
   expect(location.search).not.toContain("houjin_site");
   expect(location.search).not.toContain("risk_deal");
-  expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "法人を選ぶ" }).options.length).toBe(2);
+  expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "顧客を選ぶ" }).options.length).toBe(2);
 });
-it("担当変更後も絞り込みを保ち、0社なら法人を出さない", async () => {
+it("担当変更後も絞り込みを保ち、0社なら顧客を出さない", async () => {
   window.history.replaceState(null, "", "/app/job-copy?view=houjin&owner=22&houjin_employees=1000");
   mock();
   render(<HoujinView />);
-  await screen.findByText("条件に合う法人がありません");
-  expect(screen.queryByRole("region", { name: "法人の数字" })).toBeNull();
+  await screen.findByText("条件に合う顧客がありません");
+  expect(screen.queryByRole("region", { name: "顧客の数字" })).toBeNull();
 });

@@ -37,7 +37,7 @@ it('7枚の件数カードと、ほかのラベルの札・案件一覧へ移る
   expect(document.querySelector('.jh-rule')).toBeNull();
   // ほかのラベルは0件も薄い札で残す。初回で成果が出ていないは札にせず、案件一覧へ移る青い下線。
   const others = screen.getByRole('group', { name: 'ほかのラベル' });
-  expect(within(others).getAllByRole('button').map(b => [b.textContent, b.classList.contains('is-zero')])).toEqual([['満了後も稼働中 0件', true], ['定期NPSが低い 0件', true], ['採用目標に届いていない 0件', true], ['採用単価が高い 0件', true]]);
+  expect(within(others).getAllByRole('button').map(b => [b.textContent, b.classList.contains('is-zero')])).toEqual([['満了後も稼働中 0件', true], ['定期の満足度が低い 0件', true], ['採用目標に届いていない 0件', true], ['採用単価が高い 0件', true]]);
   expect(document.querySelector('.jh-go-line')?.textContent).toBe('初回で成果が出ていない 1件→ 案件一覧で見る');
   expect(screen.getByRole('button', { name: 'それ以降の予定 1件' }).getAttribute('aria-pressed')).toBe('false');
   expect(screen.queryByRole('table')).toBeNull();
@@ -162,7 +162,7 @@ it('URL に card= があって最初から開いている一覧にも、表示�
 
 it('ほかのラベルがすべて0件でも、札を薄く残して並びを変えない', () => {
   render(<OwnerTodo work={{ ...demoOwnerTodo, signals: [] }} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
-  expect(within(screen.getByRole('group', { name: 'ほかのラベル' })).getAllByRole('button').map(b => b.textContent)).toEqual(['満了後も稼働中 0件', '定期NPSが低い 0件', '採用目標に届いていない 0件', '採用単価が高い 0件']);
+  expect(within(screen.getByRole('group', { name: 'ほかのラベル' })).getAllByRole('button').map(b => b.textContent)).toEqual(['満了後も稼働中 0件', '定期の満足度が低い 0件', '採用目標に届いていない 0件', '採用単価が高い 0件']);
   expect(document.querySelectorAll('.jh-more .jc-chip.is-zero')).toHaveLength(4);
   // 0件のカードには「一覧を見る ▾」を出さない。
   expect(screen.getByRole('button', { name: /契約満了が近い/ }).textContent).toBe('0件契約満了が近い');

@@ -9,7 +9,7 @@ const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', () => ({ apiGet: api }));
 vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }));
 const metadata = { source: '合成市場', titles: ['合成職種'], prefectures: ['合成県'], ctk_basis: '応募数ではありません', series: null };
-const job: JobCopyRecord = { id: 'synthetic', title: '合成求人', company: '合成取引先', media: '合成媒体', mediaJobId: 'synthetic', location: '合成県', versions: [] };
+const job: JobCopyRecord = { id: 'synthetic', title: '合成求人', company: '合成顧客', media: '合成媒体', mediaJobId: 'synthetic', location: '合成県', versions: [] };
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('market UI evidence and recovery', () => {

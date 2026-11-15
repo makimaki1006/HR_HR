@@ -39,7 +39,7 @@ export function ReportSlides({ target }: { target: ReportTarget }) {
 
 const emptyActions = (): NextAction[] => Array.from({ length: MAX_NEXT_ACTIONS }, () => ({ text: '', sub: '' }));
 function initialDraft(input: ReportInput): ReportDraft {
-  // 件名の既定は空（取引名には社内の書き方が入るため）。空なら表紙は期間だけ。
+  // 件名の既定は空（案件名には社内の書き方が入るため）。空なら表紙は期間だけ。
   return { ...defaultPeriod(input.asOf), addressee: input.company ?? '', subject: '', owner: '', off: [], next: emptyActions(), nextHeadline: '' };
 }
 /**

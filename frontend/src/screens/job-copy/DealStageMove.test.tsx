@@ -39,8 +39,13 @@ function setup(failure = '', pipeline = '21596025', populated = false) {
   return { patches, saved, ...view, failRead: () => { failRead = true; } };
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+/** 今のステージは文字で出し、「ステージを変える…」を押したときだけ移す先を選ぶ欄が開く。 */
+async function openChooser() {
+  fireEvent.click(await screen.findByRole('button', { name: 'ステージを変える…' }));
+  return screen.getByLabelText<HTMLSelectElement>('移す先のステージ');
+}
 async function select(id: string) {
-  fireEvent.change(await screen.findByLabelText('ステージを変更'), { target: { value: id } });
+  fireEvent.change(await openChooser(), { target: { value: id } });
   return screen.findByRole('dialog');
 }
 async function fillRequired(dialog: HTMLElement) {
@@ -52,8 +57,14 @@ it('schemaの順で同じ区分だけ選び、必須入力と未保存の契約�
   const { patches, saved, container } = setup();
   fireEvent.click(await screen.findByRole('button', { name: '編集' }));
   fireEvent.change(screen.getByLabelText('金額', { exact: true }), { target: { value: '360000' } });
-  expect([...screen.getByLabelText<HTMLSelectElement>('ステージを変更').options].map(o => o.value)).toEqual(['stage-demo', '66848546', 'delivery-done', 'cancelled']);
-  const dialog = await select('66848546');
+  expect(container.querySelector('.dc-stage-now strong')?.textContent).toBe('合成・契約中');
+  expect(screen.getByText('HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。')).toBeTruthy();
+  expect(screen.queryByLabelText('移す先のステージ')).toBeNull();
+  const chooser = await openChooser();
+  expect([...chooser.options].map(o => o.value)).toEqual(['stage-demo', '66848546', 'delivery-done', 'cancelled']);
+  expect(chooser.options[0]?.textContent).toBe('合成・契約中（今のステージ）');
+  fireEvent.change(chooser, { target: { value: '66848546' } });
+  const dialog = await screen.findByRole('dialog');
   await within(dialog).findByText('必須 あと 2 項目', { exact: false });
   expect(within(dialog).getByRole('button', { name: '移す' }).getAttribute('aria-disabled')).toBe('true');
   expect(patches).toHaveLength(0);
@@ -64,7 +75,8 @@ it('schemaの順で同じ区分だけ選び、必須入力と未保存の契約�
   expect(patches[0]?.operation_id).toMatch(/^[a-zA-Z0-9_-]{8,64}$/);
   expect(patches[0]).toMatchObject({ stage: { pipeline_id: '21596025', stage_id: '66848546' }, base: { oubo: '', mensetu: '', amount: '240000' }, set: { oubo: '25', mensetu: '10', amount: '360000' } });
   expect(container.querySelector('.dc-green')?.textContent).toBe('保存済み');
-  expect(screen.getByLabelText<HTMLSelectElement>('ステージを変更').value).toBe('66848546');
+  expect(container.querySelector('.dc-stage-now strong')?.textContent).toBe('継続済');
+  expect(screen.queryByLabelText('移す先のステージ')).toBeNull();
   expect(saved).toHaveBeenCalledOnce();
 });
 for (const id of ['delivery-done', 'cancelled']) it(`${id}: 必須なしでも確定前に1回確認し、取消では送らない`, async () => {
@@ -73,7 +85,9 @@ for (const id of ['delivery-done', 'cancelled']) it(`${id}: 必須なしでも�
   expect(within(dialog).getByText(/よろしいですか/)).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: 'やめる' }));
   expect(patches).toHaveLength(0);
-  dialog = await select(id);
+  // 確認の画面でやめても、移す先を選ぶ欄は開いたまま（もう一度選び直せる）。
+  fireEvent.change(screen.getByLabelText('移す先のステージ'), { target: { value: id } });
+  dialog = await screen.findByRole('dialog');
   fireEvent.click(within(dialog).getByRole('button', { name: '移す' }));
   await screen.findByText('保存済み');
   expect(patches[0]?.operation_id).toMatch(/^[a-zA-Z0-9_-]{8,64}$/);
@@ -90,14 +104,14 @@ for (const failure of ['missing_required', 'invalid_stage']) it(`422 ${failure}�
   const { container } = setup(failure);
   const dialog = await select('66848546'); await fillRequired(dialog);
   fireEvent.click(within(dialog).getByRole('button', { name: '移す' }));
-  await waitFor(() => { expect(container.querySelector('.dc-red')?.textContent).toContain(failure === 'missing_required' ? '移動に必要な項目が未入力' : '同じ取引区分のステージ'); });
+  await waitFor(() => { expect(container.querySelector('.dc-red')?.textContent).toContain(failure === 'missing_required' ? '移動に必要な項目が未入力' : '同じ案件区分のステージ'); });
   if (failure === 'missing_required') await within(dialog).findByText('次の項目を入力してください: 応募数');
   expect(within(dialog).getByLabelText<HTMLInputElement>('応募数 (必須)').value).toBe('25');
 });
 it('必須項目の読取失敗時はダイアログを開かず書かない', async () => {
   const { failRead, patches } = setup();
-  await screen.findByLabelText('ステージを変更'); failRead();
-  fireEvent.change(screen.getByLabelText('ステージを変更'), { target: { value: '66848546' } });
+  const chooser = await openChooser(); failRead();
+  fireEvent.change(chooser, { target: { value: '66848546' } });
   await screen.findByText(/移動に必要な現在の値を取得できませんでした/);
   expect(screen.queryByRole('dialog')).toBeNull(); expect(patches).toHaveLength(0);
 });
@@ -127,8 +141,8 @@ it('反映待ち中はステージを黄で表示して再操作を止め、反�
   fireEvent.click(within(dialog).getByRole('button', { name: '移す' }));
   await screen.findByText('一時保存済み・HubSpotへの反映待ち');
   expect(container.querySelector('.dc-yellow')?.textContent).toContain('反映待ち');
-  const selector = screen.getByLabelText<HTMLSelectElement>('ステージを変更');
-  expect(selector.value).toBe('delivery-done'); expect(selector.disabled).toBe(true);
+  expect(container.querySelector('.dc-stage-now strong')?.textContent).toBe('納品完了');
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'ステージを変える…' }).disabled).toBe(true);
   expect(saved).not.toHaveBeenCalled();
   await screen.findByText('保存済み', {}, { timeout: 7000 });
   await waitFor(() => { expect(saved).toHaveBeenCalledOnce(); });

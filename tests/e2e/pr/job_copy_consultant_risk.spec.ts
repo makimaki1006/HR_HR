@@ -16,19 +16,19 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await page.route('**/api/crm/deals/101/edit-schema', route => route.fulfill({ json: { writes_enabled: true, editable: [{ object: 'deal', name: 'actionyotei', type: 'date' }, { object: 'deal', name: 'actionnaiyou', type: 'enumeration', options: [{ value: 'call', label: '電話' }] }] } }));
   await login(page);
   await page.goto('/app/job-copy?view=risk&owner=11&owner_field=consultant');
-  // 既定は名札2本以上（1本だけの2件は件数だけ出して外す）
-  await expect(page.getByRole('note')).toContainText('名札が2本以上の案件 1件を出しています');
-  await expect(page.getByRole('note')).toContainText('名札が1本だけの案件 2件は出していません');
+  // 既定はラベル2つ以上（1つだけの2件は件数だけ出して外す）
+  await expect(page.getByRole('note')).toContainText('ラベルが2つ以上の案件 1件を出しています');
+  await expect(page.getByRole('note')).toContainText('ラベルが1つだけの案件 2件は出していません');
   await expect(page.getByRole('button', { name: riskRow.name })).toHaveCount(1);
   await expect(page.getByRole('button', { name: '架空の採用支援C' })).toHaveCount(0);
-  await page.getByRole('checkbox', { name: '名札が1本だけの案件も出す' }).check();
+  await page.getByRole('checkbox', { name: 'ラベルが1つだけの案件も出す' }).check();
   await expect(page).toHaveURL(/risk_all=1/);
-  const fresh = page.getByRole('region', { name: '今日わかった' });
-  const ongoing = page.getByRole('region', { name: '前から出ていて直っていない' });
-  await expect(fresh.getByRole('heading', { level: 2 })).toHaveText('今日わかった 2件');
-  await expect(ongoing.getByRole('heading', { level: 2 })).toHaveText('前から出ていて直っていない 1件');
+  const fresh = page.getByRole('region', { name: '新しくラベルが付いた案件' });
+  const ongoing = page.getByRole('region', { name: '前回から続いている案件' });
+  await expect(fresh.getByRole('heading', { level: 2 })).toHaveText('新しくラベルが付いた案件 2件');
+  await expect(ongoing.getByRole('heading', { level: 2 })).toHaveText('前回から続いている案件 1件');
   const mixed = fresh.getByRole('row').filter({ has: page.getByRole('button', { name: riskRow.name }) });
-  await expect(mixed.getByRole('listitem')).toHaveText(['NPSが4以下今日わかった', '満了まで60日以内']);
+  await expect(mixed.getByRole('listitem')).toHaveText(['満足度が4以下新', '満了まで60日以内']);
   await expect(mixed.getByRole('listitem').nth(0)).toHaveClass('cr-new');
   await expect(mixed.getByRole('listitem').nth(1)).not.toHaveClass('cr-new');
   await expect(mixed.getByRole('cell').nth(3)).toHaveText('1日前');
@@ -48,8 +48,8 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await expect(detail.getByRole('link', { name: 'HubSpotで開く' })).toHaveAttribute('href', /record\/0-3\/101$/);
   expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   if (dir) await page.screenshot({ path: `${dir}/risk-detail.png`, fullPage: false });
-  await detail.getByRole('button', { name: '終わった → 次の予定' }).click();
-  const plan = page.getByRole('dialog', { name: '次の予定を入れる' });
+  await detail.getByRole('button', { name: 'この予定を済みにして、次の予定を入れる…' }).click();
+  const plan = page.getByRole('dialog', { name: 'この予定を済みにして、次の予定を入れる' });
   await expect(plan.getByLabel('日付')).toBeVisible(); await expect(plan.getByLabel('内容')).toBeVisible();
   await plan.getByRole('button', { name: '閉じる' }).click();
   await detail.getByRole('button', { name: '閉じる' }).click();
@@ -62,6 +62,24 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await expect(page).toHaveURL(/owner=22/); await expect(page).toHaveURL(/view=deals/);
   await page.goBack(); await expect(fresh).toContainText('架空の採用支援B');
   await expect(page.getByRole('combobox', { name: '担当の種類' })).toHaveValue('consultant');
+});
+
+// 危ない案件から開いた案件のページは、「← 危ない案件に戻る」で危ない案件に戻る。
+test('危ない案件から開いた案件のページから、危ない案件に戻る', async ({ page }) => {
+  await page.route('**/api/job-copy/consultant-scope?*', route => route.fulfill({ json: { ...scopeFixture, owner: new URL(route.request().url()).searchParams.get('owner') ?? '11' } }));
+  await page.route('**/api/job-copy/consultant-risk?*', route => route.fulfill({ json: riskFixture }));
+  await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: { status: 'ready', total: 0, next_offset: null, listings: [], deals: [], titles: [] } }));
+  await login(page);
+  await page.goto('/app/job-copy?deal=101&from=risk&owner=11&owner_field=consultant');
+  const menu = page.getByRole('navigation', { name: '案件管理のメニュー' });
+  await expect(menu.getByRole('button', { name: '危ない案件', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('button', { name: '危ない案件に戻る', exact: true }).click();
+  await expect(page).toHaveURL(/view=risk/);
+  const params = new URL(page.url()).searchParams;
+  expect(params.has('deal')).toBe(false); expect(params.has('from')).toBe(false);
+  expect(params.get('owner')).toBe('11');
+  await expect(page.getByRole('button', { name: riskRow.name })).toBeVisible();
+  await expect(page.getByRole('button', { name: '危ない案件に戻る', exact: true })).toHaveCount(0);
 });
 
 // 共通メニューのホームは、固定一覧・求人の選択状態も解除する。

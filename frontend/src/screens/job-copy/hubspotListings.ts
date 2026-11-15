@@ -1,5 +1,19 @@
 import type { IndexProgress } from './ListingPreparationNotice';
 import { formatDateTimeJst } from './format';
+
+/**
+ * 本文の版の短い名前。「11/13 の本文（最新）」のように日付だけにし、同じ日に 2 つ以上あるときだけ時刻を添える。
+ * 今年でない日は年を付ける。正確な日時は画面の ⓘ に出す。
+ */
+export function historyVersionLabel(writtenAt: string | null | undefined, all: readonly (string | null | undefined)[], latest: boolean, thisYear = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 4)): string {
+  const full = formatDateTimeJst(writtenAt, '');
+  if (!full) return `日時不明の本文${latest ? '（最新）' : ''}`;
+  const day = full.slice(0, 10);
+  const sameDay = all.filter(other => formatDateTimeJst(other, '').slice(0, 10) === day).length > 1;
+  const monthDay = `${String(Number(day.slice(5, 7)))}/${String(Number(day.slice(8, 10)))}`;
+  const date = day.slice(0, 4) === thisYear ? monthDay : `${day.slice(0, 4)}/${monthDay}`;
+  return `${date}${sameDay ? ` ${full.slice(11)}` : ''} の本文${latest ? '（最新）' : ''}`;
+}
 import { parseHrhPerformance } from './hrhPerformanceModel';
 import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import type { DraftSnapshot } from '../../generated/DraftSnapshot';
@@ -96,13 +110,13 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
     indeedTitle: row.indeed_title ?? null, indeedTitleState: row.indeed_title_state ?? 'unset',
     ...(data.current_images ? { currentImageObservation: { observedAt: data.current_images.observed_at, images: data.current_images.image_urls.map((url, index) => ({ id: `observed-${String(index)}`, url, caption: `現在の画像${String(index + 1)}` })) } } : {}),
     versions: [...data.versions.map((version, index) => ({
-      id: `hubspot-history-${row.id}-${String(index)}`, label: `${formatDateTimeJst(version.written_at, '日時不明')} にHubSpotに記録された本文`,
+      id: `hubspot-history-${row.id}-${String(index)}`, label: historyVersionLabel(version.written_at, data.versions.map(item => item.written_at), !data.current && index === data.versions.length - 1),
       observedAt: version.written_at, ...copy(version.body), kind: 'published' as const, certainty: 'unknown' as const,
       source: 'HubSpotに記録された本文', applications: null,
       ...(version.image_urls !== null ? { images: version.image_urls.map((url, slot) => ({ id: `history-image-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}),
       imagesRegistered: version.images_registered ?? undefined,
       historicalImageBytesAvailable: false,
       note: '本文がHubSpotに記録された日時です。掲載開始日時は不明です。画像は当時と異なる可能性があります。この本文への応募件数は未取得です。',
-    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: `${formatDateTimeJst(data.current.checked_at, '日時不明')} に確認した現在の本文`, observedAt: data.current.checked_at, ...copy(data.current.body), imagesRegistered: data.current.images_registered ?? undefined, kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotの現在の本文', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '以前の本文を確認できないため、現在の本文を表示しています。日時は今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' }] : []), ...(data.drafts ?? []).map(draftVersion)],
+    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: data.current.checked_at ? `今の本文（${historyVersionLabel(data.current.checked_at, [], false).replace(' の本文', '')} に確認）` : '今の本文', observedAt: data.current.checked_at, ...copy(data.current.body), imagesRegistered: data.current.images_registered ?? undefined, kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotの現在の本文', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '以前の本文を確認できないため、現在の本文を表示しています。日時は今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' }] : []), ...(data.drafts ?? []).map(draftVersion)],
   };
 }

@@ -56,7 +56,7 @@ for (const width of [1440, 1920]) {
     await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
     await findListings(page);
     await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
-    await openWork(page);
+    await openWork(page, 'リクロジ向けの案を作る');
     await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
     const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
     await expect(draft.getByText('要確認の案', { exact: true })).toBeVisible();
@@ -76,7 +76,7 @@ for (const width of [1440, 1920]) {
     await draft.getByRole('button', { name: 'この案でCSVを出す' }).click();
     const file = await download;
     expect(await fs.readFile((await file.path())!, 'utf8')).toBe(csv);
-    await expect(draft).toContainText('HubSpotに新しい求人（公開前）を作りました。2件の取引に関連付けました。');
+    await expect(draft).toContainText('HubSpotに新しい求人（公開前）を作りました。2件の案件に関連付けました。');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     if (width === 1440) {
       await fs.mkdir(shots, { recursive: true });
@@ -91,7 +91,7 @@ for (const width of [1440, 1920]) {
     await page.getByRole('button', { name: '看護スタッフ・大分31の本文を見る' }).click();
     await expect(page.getByRole('button', { name: 'リクロジメディア向けの案を作る' })).toHaveCount(0);
     await page.getByRole('button', { name: '配送ドライバー・沖縄2の本文を見る' }).click();
-    await openWork(page);
+    await openWork(page, 'リクロジ向けの案を作る');
     await expect(page.getByRole('button', { name: 'リクロジメディア向けの案を作る' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'この案でCSVを出す' })).toHaveCount(0);
   });
@@ -104,10 +104,10 @@ test('1440px: failure is readable and allows retry', async ({ page }) => {
   await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
-  await openWork(page);
+  await openWork(page, 'リクロジ向けの案を作る');
   await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
-  await expect(draft.getByRole('alert')).toContainText('取引先との関連');
+  await expect(draft.getByRole('alert')).toContainText('顧客との関連');
   await expect(draft.getByRole('button', { name: 'リクロジメディア向けの案を作る' })).toBeEnabled();
   await expect(draft.getByRole('button', { name: 'この案でCSVを出す' })).toHaveCount(0);
 });
@@ -120,7 +120,7 @@ test('1440px: copied condition mismatch stops CSV output', async ({ page }) => {
   await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
-  await openWork(page);
+  await openWork(page, 'リクロジ向けの案を作る');
   await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
   await expect(draft.getByRole('alert')).toContainText('出力を止めました（要確認）');

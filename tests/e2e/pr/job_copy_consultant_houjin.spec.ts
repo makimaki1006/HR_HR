@@ -16,7 +16,7 @@ import {
   goodFixture,
   detailFixture,
 } from "../../../frontend/src/screens/job-copy/consultantRisk.testFixtures";
-test("法人の値と図・採用単価の並び・4メニューの担当引き継ぎ", async ({
+test("顧客の値と図・採用単価の並び・4メニューの担当引き継ぎ", async ({
   page,
 }, testInfo) => {
   const shots = process.env.CONSULTANT_SCREENSHOT_DIR ?? testInfo.outputPath("houjin");
@@ -139,16 +139,16 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await login(page);
   await page.goto("/app/job-copy?view=houjin&owner=11&owner_field=consultant");
   const charts = page.locator('[data-chart-ready="true"]');
-  await expect(page.getByRole("region", { name: "法人の数字" })).toContainText(
+  await expect(page.getByRole("region", { name: "顧客の数字" })).toContainText(
     "¥900,000",
   );
   await expect(page.getByTestId("hj-contracts")).toHaveAttribute("data-chart-ready", "true");
   expect(await charts.count()).toBe(1);
-  await expect(page.getByRole("table", { name: "拠点の比較" })).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "事業所の比較" })).toHaveCount(0);
   await expect(
-    page.getByRole("link", { name: "他の法人と比べる（コンサルKPI）" }),
+    page.getByRole("link", { name: "他の顧客と比べる（コンサルKPI）" }),
   ).toHaveAttribute("href", "/consulting#research/customer?houjin=sample-a");
-  await page.getByText(/^分析の図と拠点の比較（図13点）/).click();
+  await page.getByText(/^分析の図と事業所の比較（図13点）/).click();
   await expect.poll(() => charts.count()).toBe(14);
   const rendered = await charts.evaluateAll((els) =>
     els.map((el) => {
@@ -177,7 +177,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(
     page.getByRole("heading", { name: "掲載中 1件", exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("table", { name: "拠点の比較" })).toContainText(
+  await expect(page.getByRole("table", { name: "事業所の比較" })).toContainText(
     "6（2件）",
   );
   await mkdir(shots, { recursive: true });
@@ -204,13 +204,13 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   ).toBe(true);
   await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await page
-    .getByRole("button", { name: "大きいのに拠点が少ない", exact: true })
+    .getByRole("button", { name: "大きいのに事業所が少ない", exact: true })
     .click();
   await expect(page).toHaveURL(/houjin_sites_max=2/);
   await page.reload();
   await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await expect(
-    page.getByRole("button", { name: "大きいのに拠点が少ない", exact: true }),
+    page.getByRole("button", { name: "大きいのに事業所が少ない", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await page
     .getByRole("table", { name: "契約の系列", exact: true })
@@ -218,7 +218,7 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
     .click();
   await expect(page.getByRole("dialog")).toContainText("次の予定");
   await expect(
-    page.getByRole("link", { name: "取引の画面を開く" }),
+    page.getByRole("link", { name: "案件のページを開く" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("button", { name: "案件一覧", exact: true }).click();
@@ -257,15 +257,15 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(table.locator("tbody>tr")).toHaveCount(1);
   await expect(page.getByRole("combobox", { name: "担当者", exact: true })).toHaveValue("合成担当B（退職）");
   await expect(table).toContainText("架空の採用支援02");
-  for (const label of ["危ない案件", "法人"]) {
+  for (const label of ["危ない案件", "顧客"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
     await expect(
       page.getByRole("combobox", { name: "担当者", exact: true }),
     ).toHaveValue("架空の担当B");
     await expect(page).toHaveURL(/owner=22/);
-    if (label === "法人") {
-      await expect(page.getByText("条件に合う法人がありません")).toBeVisible();
-      await expect(page.getByRole("region", { name: "法人の数字" })).toHaveCount(0);
+    if (label === "顧客") {
+      await expect(page.getByText("条件に合う顧客がありません")).toBeVisible();
+      await expect(page.getByRole("region", { name: "顧客の数字" })).toHaveCount(0);
       await expect(page.getByRole("table", { name: "MTGの履歴" })).toHaveCount(0);
     } else
       await expect(
@@ -277,12 +277,12 @@ test("法人の値と図・採用単価の並び・4メニューの担当引き�
   await expect(
     page.getByRole("combobox", { name: "担当者", exact: true }),
   ).toHaveValue("架空の担当B");
-  await expect(page.getByText("条件に合う法人がありません")).toBeVisible();
+  await expect(page.getByText("条件に合う顧客がありません")).toBeVisible();
   await page.getByRole("button", { name: "条件を戻す", exact: true }).click();
-  await expect(page.getByRole("region", { name: "法人の数字" })).toContainText("架空の法人わかば");
+  await expect(page.getByRole("region", { name: "顧客の数字" })).toContainText("架空の顧客わかば");
   await page.goto("/app/job-copy?view=houjin&owner=11&owner_field=consultant&houjin=sample-a&houjin_site=east");
-  await page.getByRole("textbox", { name: "法人の検索" }).fill("わかば");
-  await expect(page.getByRole("region", { name: "法人の数字" })).toContainText("架空の法人わかば");
+  await page.getByRole("textbox", { name: "顧客の検索" }).fill("わかば");
+  await expect(page.getByRole("region", { name: "顧客の数字" })).toContainText("架空の顧客わかば");
   await expect(page).toHaveURL(/houjin=sample-b/);
   expect(new URL(page.url()).searchParams.has("houjin_site")).toBe(false);
   await page.goto("/app/job-copy?view=houjin&owner=11&owner_field=consultant");

@@ -65,8 +65,8 @@ function Inner({ record, onClose, initialLeft, initialRight }: { record: JobCopy
       <button type="button" className="jc-button" onClick={onClose}>閉じる</button></header>
     <div className="jc-ftc-scroll">
       {versions.length === 0 ? <p className="jc-notice">比べられる本文がまだありません。</p> : <>
-        <div className="jc-ftc-grid jc-ftc-pickers"><strong>比べる版</strong><Picker label="左（前）" versions={versions} value={leftId} onChange={setLeftId} /><Picker label="右（後）" versions={versions} value={rightId} onChange={setRightId} /></div>
-        <p className="jc-ftc-summary" role="status">全 {totalCount} 項目のうち {changedCount} 項目が違います。</p>
+        <div className="jc-ftc-grid jc-ftc-pickers"><strong>比べる版</strong><Picker label="前の本文（左）" versions={versions} value={leftId} onChange={setLeftId} /><Picker label="後の本文（右）" versions={versions} value={rightId} onChange={setRightId} /></div>
+        <p className="jc-ftc-summary" role="status">全 {totalCount} 項目のうち {changedCount} 項目が違います。<span className="jc-ftc-legend">左＝前・右＝後。消えた所は赤、増えた所は緑です。</span></p>
         <div className="jc-ftc-rows">
           {shown.map(row => { const marked = pairs(row); return <div key={row.key} className="jc-ftc-grid jc-ftc-row" data-changed={row.different}>
             <div className="jc-ftc-label">{row.label}{row.different && <span className="jc-ftc-tag">変わった</span>}</div>

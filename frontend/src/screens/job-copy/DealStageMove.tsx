@@ -18,6 +18,7 @@ export function DealStageMove({ dealId, write, detail, props, request, locked, o
   const [flow, setFlow] = useState<{ target: Target; ctx: StageMoveCtx } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [choosing, setChoosing] = useState(false);
   const schema = write.schema.phase === 'ready' ? write.schema.schema : null;
   const overlay = write.stageOverlay[dealId];
   const stageId = overlay && (overlay.pending || !overlay.fetchedAt || detail.fetched_at <= overlay.fetchedAt) ? overlay.stage_id : detail.deal.stage_id;
@@ -66,13 +67,17 @@ export function DealStageMove({ dealId, write, detail, props, request, locked, o
     };
     setFlow({ target, ctx }); setLoading(false);
   }
+  // 今のステージは文字で出し、変えるときだけ選ぶ欄を開く（選ぶと HubSpot が変わる操作なので、ただの選択欄に見せない）。
   return <div className="dc-stage">
-    <label>ステージ：<select aria-label="ステージを変更" value={stageId ?? ''} disabled={locked || loading || flow !== null} onChange={e => { void pick(e.target.value); }}>
+    <p className="dc-stage-now">ステージ：<strong>{label ?? '現在のステージ'}</strong>
+      {!choosing && <button type="button" className="jc-button" disabled={locked || loading || flow !== null} onClick={() => { setChoosing(true); setError(''); }}>ステージを変える…</button>}</p>
+    <p className="dc-stage-note">HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。</p>
+    {choosing && <div className="dc-stage-pick"><label>移す先のステージ<select value={stageId ?? ''} disabled={locked || loading || flow !== null} onChange={e => { void pick(e.target.value); }}>
       {!stages.some(s => s.id === stageId) && <option value={stageId ?? ''}>{label ?? '現在のステージ'}</option>}
-      {stages.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-    </select></label>
+      {stages.map(s => <option key={s.id} value={s.id}>{s.id === stageId ? `${s.label}（今のステージ）` : s.label}</option>)}
+    </select></label><button type="button" className="jc-button" disabled={loading} onClick={() => { setChoosing(false); setError(''); }}>やめる</button></div>}
     {loading && <p role="status">移動に必要な項目を確認しています…</p>}
     {error && <p role="alert" className="dc-status dc-red">{error}</p>}
-    {flow && <MoveModal ctx={flow.ctx} target={flow.target} extraChanges={request.changes} presets={Object.fromEntries(request.changes.map(c => [c.name, c.value ?? '']))} onClose={() => { setFlow(null); }} onDone={onDone} />}
+    {flow && <MoveModal ctx={flow.ctx} target={flow.target} extraChanges={request.changes} presets={Object.fromEntries(request.changes.map(c => [c.name, c.value ?? '']))} onClose={() => { setFlow(null); }} onDone={() => { setChoosing(false); onDone(); }} />}
   </div>;
 }

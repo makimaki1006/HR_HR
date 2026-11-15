@@ -30,7 +30,7 @@ const version = (id: string, observedAt: string, body: string): CopyVersion => (
   id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '', images: sameImages,
 });
 const job = (versions: CopyVersion[], byDate: Record<string, number>, fetchedAt: string): JobCopyRecord => ({
-  id: 'synthetic', title: '合成配送ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: '12345678', location: '大分県大分市', dataSource: 'hubspot', versions,
+  id: 'synthetic', title: '合成配送ドライバー', company: '合成顧客', media: 'HRハッカー', mediaJobId: '12345678', location: '大分県大分市', dataSource: 'hubspot', versions,
   overallApplications: { total: Object.values(byDate).reduce((sum, count) => sum + count, 0), missingDate: 0, fetchedAt, distributions: {}, byDate },
 });
 

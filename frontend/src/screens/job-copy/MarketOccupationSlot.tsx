@@ -34,6 +34,7 @@ export function MarketOccupationSlot({ record, prefecture, onChanged }: Props) {
     <span className={`mo-chip mo-chip-${state}`}>{state === 'set' ? '指定済み' : state === 'none' ? '市場と比べない' : '未指定'}</span>
     {prefecture && <span className="mo-pref">都道府県：{prefecture}</span>}
     <button type="button" className="jc-button mo-open" onClick={() => { setOpen(true); }}>{state === 'unset' ? '職種を指定する' : '職種を変える'}</button>
+    <span className="mo-save-note">選んだ職種は、HubSpot のこの求人の項目「比べる Indeed 職種」に保存されます。</span>
     {state === 'unset' && <a className="mo-bulk-link" href="/app/job-copy?view=occupations">職種が未指定の求人をまとめて指定する</a>}
     {open && <OccupationDrawer record={record} onClose={() => { setOpen(false); }} onSaved={next => { onChanged(next); setOpen(false); }} />}
   </div>;
@@ -98,10 +99,10 @@ function OccupationDrawer({ record, onClose, onSaved }: { record: JobCopyRecord;
           {shown.map(title => <label className="mo-option" key={title}><input type="radio" name="mo-title" checked={choice === title} onChange={() => { setChoice(title); }} />{title}</label>)}
           {!shown.length && <p>一致する職種はありません。</p>}
         </fieldset>}
-        <p className="mo-note">この求人だけに指定します。HubSpot の求人の項目「比べる Indeed 職種」に入り、HubSpot の画面からも直せます。</p>
+
         {error && <p role="alert" className="mo-error">{error}</p>}
       </div>
-      <footer><button type="button" className="jc-button" onClick={onClose} disabled={saving}>やめる</button><button type="button" className="jc-button" disabled={choice === null || saving || !record.hubspotId} onClick={() => { void save(); }}>この職種を指定する</button></footer>
+      <footer><p className="mo-note">押すと、HubSpot のこの求人の項目「比べる Indeed 職種」に保存されます。この求人だけが変わり、HubSpot の画面からも直せます。</p><button type="button" className="jc-button" onClick={onClose} disabled={saving}>やめる</button><button type="button" className="jc-button jc-primary" disabled={choice === null || saving || !record.hubspotId} onClick={() => { void save(); }}>この職種を指定する</button></footer>
     </aside>
   </div>, document.body);
 }

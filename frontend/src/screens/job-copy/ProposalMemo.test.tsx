@@ -29,14 +29,14 @@ function api(mode: 'saved' | 'queued' | 'conflict' | 'off' | 'missing' | 'error'
   })); return bodies;
 }
 async function enter() {
-  const input = await screen.findByLabelText<HTMLTextAreaElement>('追記するメモ');
+  const input = await screen.findByLabelText<HTMLTextAreaElement>(/^追記するメモ/);
   fireEvent.change(input, { target: { value: '来週相談する' } });
-  fireEvent.click(screen.getByRole('button', { name: 'メモを保存' }));
+  fireEvent.click(screen.getByRole('button', { name: 'メモを追記する' }));
   return input;
 }
 it('保存は既存PATCHを1回だけ送り、緑を表示する', async () => {
   const bodies = api('saved'); render(<ProposalMemo dealId="101" />);
-  const input = await enter(); expect((await screen.findByText('保存済み')).className).toBe('nt-green');
+  const input = await enter(); expect((await screen.findByText(/^保存しました \d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/)).className).toBe('nt-green'); expect(screen.getByRole('region', { name: '提案メモ' }).querySelector('h3')?.textContent).toBe('提案メモ（HubSpot の案件に日付付きで追記されます）');
   expect(bodies).toHaveLength(1); expect(bodies[0]?.set.teian).toMatch(/^前のメモ \/ \d{2}\/\d{2} 来週相談する$/); expect(input.value).toBe('');
 });
 it('競合で入力を残し、最新の内容への追記を改めて保存する', async () => {
@@ -46,21 +46,21 @@ it('競合で入力を残し、最新の内容への追記を改めて保存す�
   fireEvent.click(screen.getByRole('button', { name: '最新のメモを確認' }));
   await waitFor(() => { expect(screen.queryByRole('alert')).toBeNull(); });
   expect(input.value).toBe('来週相談する');
-  fireEvent.click(screen.getByRole('button', { name: 'メモを保存' })); await screen.findByText('保存済み');
+  fireEvent.click(screen.getByRole('button', { name: 'メモを追記する' })); await screen.findByText(/^保存しました /);
   expect(bodies).toHaveLength(2); expect(bodies[1]?.base.teian).toBe('ほかの人のメモ'); expect(bodies[1]?.set.teian).toMatch(/^ほかの人のメモ \/ \d{2}\/\d{2} 来週相談する$/);
 });
 it.each(['off', 'missing'] as const)('書けないときは入力欄を隠して理由を表示する（%s）', async mode => {
   api(mode); render(<ProposalMemo dealId="101" />);
   await screen.findByText(mode === 'off' ? 'この案件はまだ編集できません（試験運用中）' : 'このメモを編集する権限がありません。');
-  expect(screen.queryByRole('textbox')).toBeNull(); expect(screen.queryByRole('button', { name: 'メモを保存' })).toBeNull();
+  expect(screen.queryByRole('textbox')).toBeNull(); expect(screen.queryByRole('button', { name: 'メモを追記する' })).toBeNull();
 });
 it('反映待ちは黄色、入力を空にして二重の追記を防ぐ', async () => {
   api('queued'); render(<ProposalMemo dealId="101" />); const input = await enter();
-  expect((await screen.findByText('一時保存済み・HubSpotへの反映待ち')).className).toBe('nt-yellow'); expect(input.value).toBe(''); expect(input.disabled).toBe(true);
+  expect((await screen.findByText(/^受け付けました（HubSpot への反映待ち） \d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/)).className).toBe('nt-yellow'); expect(input.value).toBe(''); expect(input.disabled).toBe(true);
 });
 it('通信エラーは赤で入力を残し、再送は同じ操作を使う', async () => {
   const bodies = api('error'); render(<ProposalMemo dealId="101" />); const input = await enter();
   expect((await screen.findByRole('alert')).className).toBe('nt-red'); expect(input.value).toBe('来週相談する');
-  fireEvent.click(screen.getByRole('button', { name: 'メモを保存' })); await waitFor(() => { expect(bodies).toHaveLength(2); });
+  fireEvent.click(screen.getByRole('button', { name: 'メモを追記する' })); await waitFor(() => { expect(bodies).toHaveLength(2); });
   expect(bodies[1]).toEqual(bodies[0]);
 });

@@ -7,6 +7,8 @@ import type { SaveRequest } from '../crm/writeModel';
 import type { PropValues } from '../crm/writeTypes';
 import { contractWriteApi } from './dealContractApi';
 import { formatDateJst } from './format';
+import { todayJst } from './timelineModel';
+import { dayOf } from './DealHeading';
 import './next-todo.css';
 
 const FIELDS = ['actionyotei', 'actionnaiyou'] as const;
@@ -25,11 +27,28 @@ export interface TodoReason { kind: 'expiration' | 'expired' | 'contact' | 'stal
 export function ReasonChips({ reasons }: { reasons: TodoReason[] }) {
   return <span className="nt-reasons">{reasons.map(reason => <span className={`nt-reason${reason.strong ? ' nt-strong' : ''}`} key={reason.kind}>{reason.text}</span>)}</span>;
 }
-export function NextTodoButton({ dealId, hasPlan = false, onSaved }: { dealId: string; hasPlan?: boolean; onSaved?: (() => void) | undefined }) {
-  const [open, setOpen] = useState(false);
-  return <><button className="jc-button" type="button" onClick={() => { setOpen(true); }}>{hasPlan ? '終わった → 次の予定' : '次の予定を入れる'}</button>{open && <NextTodoDialog dealId={dealId} onClose={() => { setOpen(false); }} onSaved={onSaved} />}</>;
+/** 予定を入れるボタン・小窓の題。予定があるときは「済みにして次を入れる」とそろえる。 */
+export function nextTodoLabel(hasPlan: boolean): string {
+  return hasPlan ? 'この予定を済みにして、次の予定を入れる' : '次の予定を入れる';
 }
-export function NextTodoDialog({ dealId, onClose, onSaved }: { dealId: string; onClose: () => void; onSaved?: (() => void) | undefined }) {
+/** 予定の日が今日より前なら何日過ぎたか。過ぎていない・日付が無いときは null。 */
+export function overdueDays(due: string | null | undefined, today = todayJst()): number | null {
+  const day = dayOf(due);
+  if (!day) return null;
+  const days = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86_400_000);
+  return days > 0 ? days : null;
+}
+/** 過ぎた予定の赤い札「◯日過ぎています」。 */
+export function OverdueBadge({ due }: { due: string | null | undefined }) {
+  const days = overdueDays(due);
+  return days === null ? null : <span className="nt-overdue">{days}日過ぎています</span>;
+}
+/** compact: 表の中に置くときの短い文字。読み上げと title は全文のまま。 */
+export function NextTodoButton({ dealId, hasPlan = false, onSaved, compact = false }: { dealId: string; hasPlan?: boolean; onSaved?: (() => void) | undefined; compact?: boolean }) {
+  const [open, setOpen] = useState(false);
+  return <><button className="jc-button" type="button" aria-label={`${nextTodoLabel(hasPlan)}…`} title={compact ? nextTodoLabel(hasPlan) : undefined} onClick={() => { setOpen(true); }}>{compact && hasPlan ? '済みにして次を入れる' : nextTodoLabel(hasPlan)}…</button>{open && <NextTodoDialog dealId={dealId} hasPlan={hasPlan} onClose={() => { setOpen(false); }} onSaved={onSaved} />}</>;
+}
+export function NextTodoDialog({ dealId, hasPlan = false, onClose, onSaved }: { dealId: string; hasPlan?: boolean; onClose: () => void; onSaved?: (() => void) | undefined }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [base, setBase] = useState<PropValues | null>(null);
   const [due, setDue] = useState(defaultTodoDate);
@@ -61,7 +80,7 @@ export function NextTodoDialog({ dealId, onClose, onSaved }: { dealId: string; o
   const queued = statuses.some(s => s.phase === 'queued');
   const failures = statuses.flatMap(s => s.phase === 'error' || s.phase === 'invalid' ? [s.message] : []);
   const display = (name: string, value: string | null | undefined) => name === 'actionyotei' ? formatDateJst(value ?? null, '未登録') : options.find(o => o.value === value)?.label ?? '未登録';
-  return <dialog ref={dialog} className="nt-dialog" aria-labelledby="nt-title" onCancel={e => { if (statuses.some(s => s.phase === 'saving')) e.preventDefault(); else onClose(); }}><h2 id="nt-title">次の予定を入れる</h2>
+  return <dialog ref={dialog} className="nt-dialog" aria-labelledby="nt-title" onCancel={e => { if (statuses.some(s => s.phase === 'saving')) e.preventDefault(); else onClose(); }}><h2 id="nt-title">{nextTodoLabel(hasPlan)}</h2><p className="nt-current">保存すると HubSpot の案件の次の予定（日付と内容）が書き換わります。{hasPlan && '前の予定は上書きされ、残りません。'}</p>
     {base && <p className="nt-current">現在の予定：{display('actionyotei', base.actionyotei)} ・ {display('actionnaiyou', base.actionnaiyou)}</p>}
     <label>日付<input type="text" inputMode="numeric" placeholder="YYYY/MM/DD" value={due.replaceAll('-', '/')} disabled={busy} onChange={e => { setDue(e.target.value.replaceAll('/', '-')); dismiss(); }} /></label>
     {due.length >= 10 && !validTodoDate(due) && <p role="alert">存在する日付を YYYY/MM/DD で入力してください。</p>}
@@ -101,5 +120,5 @@ export function DealNextTodo({ dealId, onSaved }: { dealId: string; onSaved: () 
     return () => { ctl.abort(); clearTimeout(timer); };
   }, [dealId, revision]);
   const values = data?.selected.deal;
-  return <section className="dc-root nt-deal" aria-label="次にやること"><h2>次にやること</h2>{error && <p role="alert">{error}</p>}<p>{formatDateJst(values?.actionyotei ?? null, '予定なし')} ・ {props.find(o => o.value === values?.actionnaiyou)?.label ?? '内容未登録'}</p><NextTodoButton dealId={dealId} hasPlan={!!values?.actionyotei} onSaved={refresh} /><h3>要対応</h3><ReasonChips reasons={reasons} />{state === 'preparing' ? <p role="status">要対応を集計しています…</p> : state === 'failed' ? <p role="alert">要対応を取得できませんでした。</p> : state === 'stale' ? <p role="status">前回取得した要対応を表示しています。</p> : !reasons.length && <p>現在、要対応の条件に該当しません。</p>}</section>;
+  return <section className="dc-root nt-deal" aria-label="次の予定"><h2>次の予定</h2>{error && <p role="alert">{error}</p>}<p>{formatDateJst(values?.actionyotei ?? null, '予定なし')} ・ {props.find(o => o.value === values?.actionnaiyou)?.label ?? '内容未登録'}<OverdueBadge due={values?.actionyotei ?? null} /></p><NextTodoButton dealId={dealId} hasPlan={!!values?.actionyotei} onSaved={refresh} /><h3>ラベル</h3><ReasonChips reasons={reasons} />{state === 'preparing' ? <p role="status">ラベルを集計しています…</p> : state === 'failed' ? <p role="alert">ラベルを取得できませんでした。</p> : state === 'stale' ? <p role="status">前回取得したラベルを表示しています。</p> : !reasons.length && <p>今、この案件に付いているラベルはありません。</p>}</section>;
 }

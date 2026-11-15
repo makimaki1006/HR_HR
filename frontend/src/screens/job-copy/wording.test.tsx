@@ -45,10 +45,10 @@ describe('job copy screen wording', () => {
       const job = container.querySelectorAll<HTMLButtonElement>('.jc-job')[index];
       if (!job) throw new Error('missing job button');
       fireEvent.click(job);
-      // 主領域（週ごとの応募・出来事）の言葉も確かめ、旧タブは「ほかの分析」の横画面から開く
+      // 主領域（週ごとの応募・出来事）の言葉も確かめ、旧タブは「くわしい分析」の横画面から開く
       expect(visibleWording(), job.textContent).not.toMatch(JARGON_PATTERN);
       expect(visibleWording(), job.textContent).not.toMatch(CAUSAL_PATTERN);
-      if (!screen.queryByRole('dialog', { name: 'ほかの分析' })) openOtherAnalysis('タイムライン');
+      if (!screen.queryByRole('dialog', { name: 'くわしい分析' })) openOtherAnalysis('タイムライン');
       // タブ 7 つ。タブに並べない 6 つの画面（応募推移・課金・クリック・市場グラフ・市場データ・検証記録・外部文面）は URL で開く。
       const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"][id*="-group-"], [role="tab"][id*="-feature-"]')];
       expect(tabs.length).toBe(7);
@@ -100,14 +100,14 @@ describe('job copy screen wording', () => {
       if (path.includes('listing=')) return Promise.resolve({ ok: true, data: { metric: 'HubSpot応募レコード数', total_ms: 812, fetched_at: '2026-10-05T00:00:00Z', version_attribution: '現在の関連による集計。', attribute_basis: '現在取得できる属性',
         summary: { total: 5, duplicate_ids: 0, missing_date: 1, by_date: { '2026-09-20': 1, '2026-10-01': 3 }, dimensions: { gender: { 男性: 3, 女性: 1, 不明: 1 } } }, capture_bundle: null, dated_comparison: null } });
       if (path.includes('company=')) return Promise.resolve({ ok: true, data: { company_id: '77', portal_id: null, contracts: [{ id: '5', properties: { dealname: '合成契約' } }], jobs: [{ record, deal_ids: ['5'] }], total: 1, next_offset: null, total_ms: 345, fetched_at: '2026-10-05T00:00:00Z' } });
-      return Promise.resolve({ ok: true, data: { customers: [{ id: '77', properties: { name: '合成取引先' } }], next_after: null, total_ms: 123 } });
+      return Promise.resolve({ ok: true, data: { customers: [{ id: '77', properties: { name: '合成顧客' } }], next_after: null, total_ms: 123 } });
     });
     const { container } = render(<JobCopyScreen />);
     toggleDataImport(); await act(async () => { await Promise.resolve(); });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '取引先を取得' })); await Promise.resolve(); });
-    await screen.findByRole('option', { name: '合成取引先' });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '顧客を取得' })); await Promise.resolve(); });
+    await screen.findByRole('option', { name: '合成顧客' });
     expect(visibleWording()).not.toMatch(/\d+\s?ms/);
-    fireEvent.change(screen.getByLabelText('HubSpotの取引先'), { target: { value: '77' } });
+    fireEvent.change(screen.getByLabelText('HubSpotの顧客'), { target: { value: '77' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '関連する求人を読み込む' })); await Promise.resolve(); });
     await act(async () => { fireEvent.click(await screen.findByRole('button', { name: '合成ドライバー（関連契約1件）' })); await Promise.resolve(); });
     await waitFor(() => { expect(screen.getByText('応募を取得しました。')).toBeTruthy(); });
@@ -134,8 +134,8 @@ describe('job copy screen wording', () => {
   it('formats the selected version timestamp as YYYY/MM/DD HH:mm', () => {
     render(<JobCopyScreen />);
     // demo-001 の最新版 v3 は 2026-09-25T12:30:00+09:00 に確認した本文（data.ts）。
-    const meta = document.querySelector('.jc-record-meta')?.textContent ?? '';
-    expect(meta).toContain('本文を確認した日時: 2026/09/25 12:30');
+    const meta = document.querySelector('.jc-band-version .jc-infotip-body')?.textContent ?? '';
+    expect(meta).toContain('本文を確認した日時：2026/09/25 12:30');
     expect(meta).not.toContain('JST');
   });
 });

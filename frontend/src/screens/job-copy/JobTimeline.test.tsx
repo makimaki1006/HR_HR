@@ -190,7 +190,7 @@ describe('job timeline lanes', () => {
 });
 
 describe('job copy screen integration (demo mode)', () => {
-  it('opens on the weekly chart, opens the timeline tab from ほかの分析, and switches the list to the cross-job overview', async () => {
+  it('opens on the weekly chart, opens the timeline tab from くわしい分析, and switches the list to the cross-job overview', async () => {
     window.history.replaceState(null, '', '/app/job-copy?demo=1');
     render(<JobCopyScreen />);
     expect(screen.getByRole('heading', { name: '求人のライフライン' })).toBeTruthy();

@@ -87,7 +87,7 @@ describe('explanations that can be read without hovering', () => {
   });
 
   it('explains short windows on the cross-job overview below the table', () => {
-    const job: JobCopyRecord = { id: 'synthetic', title: '合成ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: 'S-1', location: '大分県大分市',
+    const job: JobCopyRecord = { id: 'synthetic', title: '合成ドライバー', company: '合成顧客', media: 'HRハッカー', mediaJobId: 'S-1', location: '大分県大分市',
       versions: [version('a', '2026-08-01T00:00:00Z', '給与：月給230,000円'), version('b', '2026-08-20T00:00:00Z', '給与：月給250,000円', sameImage), version('b2', '2026-08-22T00:00:00Z', '給与：月給250,000円', sameImage)],
       dataSource: 'hubspot', overallApplications: { total: 6, missingDate: 0, fetchedAt: '2026-08-22T00:00:00Z', distributions: {}, byDate: { '2026-08-10': 2, '2026-08-20': 2, '2026-08-21': 2 } } };
     render(<JobOverview records={[job]} onChoose={() => undefined} />);
@@ -102,7 +102,9 @@ describe('explanations that can be read without hovering', () => {
     render(<JobCopyScreen />);
     const summaries = [...document.querySelectorAll('.jc-infotip > summary')].map(node => node.textContent);
     expect(summaries).toContain('試作画面 ⓘ');
-    expect(summaries).toContain('本文を確認した日時: 2026/09/25 12:30 ⓘ');
+    // 本文の版の名前は上の帯に出し、押すと確認した日時の説明が開く。
+    expect(summaries).toContain('初回文面への復帰 ⓘ');
+    expect(document.querySelector('.jc-band-version .jc-infotip-body')?.textContent).toContain('本文を確認した日時：2026/09/25 12:30');
     expect(document.querySelector('.jc-mode')?.getAttribute('title')).toBeNull();
     expect(document.querySelector('.jc-record-meta [title]')).toBeNull();
   });

@@ -112,7 +112,7 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
         : code === 'draft_busy' ? 'ほかの案を作っている最中のため受け付けられませんでした。少し待ってからもう一度押してください。'
         : code === 'draft_job_not_found' ? '作っていた案が見つかりません（サーバーが再起動した可能性があります）。もう一度押してください。'
         : !result.ok && result.error instanceof ApiTimeoutError ? '受け付けの返事が来ませんでした。少し待ってからもう一度押してください。'
-        : '案を作成できませんでした（要確認）。取引先との関連、求人の本文・事業所の情報を確認してから作り直してください。');
+        : '案を作成できませんでした（要確認）。顧客との関連、求人の本文・事業所の情報を確認してから作り直してください。');
     }
     setBusy(false);
   }
@@ -132,7 +132,7 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
       const code = errorCode(result.error);
       setExportMessage(result.error instanceof AuthRequiredError ? 'Googleでログインしてから、もう一度押してください。'
         : isHubSpotBusy(result.error) ? HUBSPOT_BUSY_MESSAGE
-        : code === 'deal_relation_missing' ? '元の求人に関連する取引がないため、求人を作っていません。取引との関連を確認してください。'
+        : code === 'deal_relation_missing' ? '元の求人に関連する案件がないため、求人を作っていません。案件との関連を確認してください。'
         : code === 'listing_title_missing' ? '案件名の案が空欄のため、求人を作っていません。案を作り直してください。'
         : 'HubSpotに求人を作れなかったため、CSVは出していません。少し待ってからもう一度押してください。');
       return;
@@ -140,15 +140,15 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
     const made = result.data;
     if (made.status === 'skipped') setExportMessage('いまはHubSpotへの登録を止めているため、求人は作らずにCSVだけを出しました。');
     else {
-      const linked = `${String(made.linked_deals)}件の取引に関連付けました。`;
-      setExportMessage(`${made.status === 'created' ? 'HubSpotに新しい求人（公開前）を作りました。' : 'すでに作ってある求人を使いました（新しくは作っていません）。'}${linked}${made.unlinked_deals > 0 ? `関連付けできなかった取引が${String(made.unlinked_deals)}件あります。もう一度押すと付け直します。` : ''}`);
+      const linked = `${String(made.linked_deals)}件の案件に関連付けました。`;
+      setExportMessage(`${made.status === 'created' ? 'HubSpotに新しい求人（公開前）を作りました。' : 'すでに作ってある求人を使いました（新しくは作っていません）。'}${linked}${made.unlinked_deals > 0 ? `関連付けできなかった案件が${String(made.unlinked_deals)}件あります。もう一度押すと付け直します。` : ''}`);
       setReload(count => count + 1);
     }
     download();
   }
   return <section className="jc-rikurozi" aria-label="リクロジメディア向けの案">
     <button type="button" className="jc-button" disabled={busy} onClick={() => { void generate(); }}>リクロジメディア向けの案を作る</button>
-    <p>選んだHRハッカーの求人を基準に、同じ取引先のAirWork求人と文章を比べます。</p>
+    <p>選んだHRハッカーの求人を基準に、同じ顧客のAirWork求人と文章を比べます。</p>
     <p>新しい求人として取り込むCSVを作成します。画像は元の求人と同じ順序で最大3枚を使います。</p>
     <p>元の求人から取得できない連絡先・フォーム設定・公開設定などの項目は空欄で出力します。</p>
     {busy && <p role="status">本文と掲載状況を読み取り、項目ごとに文章の案を作成しています。数分かかります。この画面を開いたままお待ちください…</p>}
@@ -176,7 +176,7 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
       <dl>{draft.generated.map(item => <div key={item.label}><dt>{item.label}{item.review && '（要確認）'}</dt><dd>{item.value ?? '未取得'}{item.reason && <p>{item.reason}</p>}{item.missing_chunks.length > 0 && <><p>原文にない数字の表記</p><ul>{item.missing_chunks.map(chunk => <li key={chunk}>{chunk}</li>)}</ul></>}</dd></div>)}</dl>
       {draft.review_required && <p role="status">要確認の項目があります。原文にない数字の表記がある文章は空欄です。似すぎの文章は作り直すか、担当者が確認してください。</p>}
       <button type="button" className="jc-button" disabled={exporting} onClick={() => { void exportCsv(); }}>この案でCSVを出す</button>
-      <p>押すと、HubSpotに新しい求人（公開前）を1件作り、元の求人と同じ取引に関連付けてから、CSVを出します。同じ求人で何度押しても、作るのは1件だけです。</p>
+      <p>押すと、HubSpotに新しい求人（公開前）を1件作り、元の求人と同じ案件に関連付けてから、CSVを出します。同じ求人で何度押しても、作るのは1件だけです。</p>
       {exportMessage && <p role="status">{exportMessage}</p>}
     </>}
   </section>;

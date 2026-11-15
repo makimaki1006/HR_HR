@@ -63,7 +63,8 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('0件');
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('掲載終了');
   await expect(dialog.locator('.jc-listing-popup-missing').first()).not.toContainText(/公開状況|求人名|勤務地|給与形態/);
-  expect(await dialog.locator('.jc-listing-popup-section').first().locator('p').textContent()).toBe(description);
+  // 左が前の本文、右が後の本文（選んでいる本文）
+  expect(await dialog.locator('.jc-listing-comparison-row').first().locator('.jc-listing-popup-section').last().locator('p').textContent()).toBe(description);
   await expect(dialog).toContainText('確認が必要');
   await expect(dialog).not.toContainText(/hidden-job-id|hidden-shop-id|hidden-hrh-id|基本給与 最小|求人id|店舗id|shigotonaiyou/);
   const dialogBounds = (await dialog.boundingBox())!;
@@ -85,22 +86,22 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   const focusInside = await dialog.evaluate(element => element.contains(document.activeElement)); expect(focusInside).toBe(true);
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect(opener).toBeFocused();
   await openOtherAnalysis(page, '本文・画像');
-  await page.getByRole('button', { name: /2026\/10\/01 09:00 にHubSpotに記録された本文/ }).click();
+  await page.getByRole('button', { name: /10\/1( 09:00)? の本文/ }).click();
   await closeOtherAnalysis(page);
   await opener.click(); await expect(dialog).toContainText('以前の本文の最後の文章です。'); await expect(dialog).not.toContainText('最後の作業では翌日の出荷予定を確認');
   await dialog.getByRole('button', { name: '求人の内容を閉じる' }).click(); await expect(opener).toBeFocused();
   await opener.click(); await page.mouse.click(20, 20); await expect(dialog).toHaveCount(0); await expect(opener).toBeFocused();
   await panel.getByRole('button', { name: `${aw.title}の本文を見る` }).click(); await opener.click();
   const awDialog = page.getByRole('dialog', { name: aw.title });
-  expect(await awDialog.locator('.jc-listing-popup-section').first().locator('p').textContent()).toBe(awDescription);
+  expect(await awDialog.locator('.jc-listing-comparison-row').first().locator('.jc-listing-popup-section').last().locator('p').textContent()).toBe(awDescription);
   await expect(awDialog.locator('.jc-listing-popup-summary')).toContainText('月給 金額は未取得');
   await expect(awDialog.locator('.jc-listing-popup-summary')).toContainText('未取得');
   await expect(awDialog).toContainText('社会保険・交通費支給'); await expect(awDialog).toContainText('現在の取得値');
   if (viewport.width === 1440) await page.screenshot({ path: `${screenshots}/03-airwork-popup-1440.png` });
   await page.keyboard.press('Escape');
-  await panel.getByText('絞り込み・並び順', { exact: true }).click(); await panel.getByLabel('取引', { exact: true }).selectOption('901');
-  await panel.getByRole('button', { name: 'この取引の求人', exact: true }).click();
-  const table = page.getByRole('table', { name: '取引の求人一覧表' });
+  await panel.getByText('絞り込み・並び順', { exact: true }).click(); await panel.getByLabel('案件', { exact: true }).selectOption('901');
+  await panel.getByRole('button', { name: 'この案件の求人', exact: true }).click();
+  const table = page.getByRole('table', { name: '案件の求人一覧表' });
   for (const [index, job] of [hrh, aw].entries()) {
     const rowOpener = table.locator('tbody tr').nth(index).getByRole('button', { name: '内容を見る', exact: true });
     await rowOpener.click();

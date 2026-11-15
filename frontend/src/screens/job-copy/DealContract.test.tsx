@@ -5,7 +5,7 @@ import { DealContract } from './DealContract';
 import { DealSummary } from './DealSummary';
 vi.mock('../../components/EChart', () => ({ EChart: () => null }));
 import { contractCatalog, contractDetail, contractSchema, contractValues, contractProps } from './dealContract.testFixtures';
-import { contractRequest, displayValue, inputValue } from './dealContractModel';
+import { contractRequest, displayValue, fieldLabel, inputValue } from './dealContractModel';
 import { buildPatchBody } from '../crm/writeModel';
 import { clearCompanyDealsCache, loadCompanyDeals } from './companyDeals';
 
@@ -56,7 +56,10 @@ describe('契約・成果の差分', () => {
 });
 
 describe('契約・成果の表示形式', () => {
-  it('金額は円に四捨五入、件数は桁区切りと件、単位不明の契約期間は数値のみ、日付表示と入力を分ける', () => {
+  it('金額は円に四捨五入、件数は桁区切りと件、契約期間は「か月」、日付表示と入力を分け、項目名の更新注記は外す', () => {
+    expect(fieldLabel('契約種別 (20251031更新)')).toBe('契約種別');
+    expect(fieldLabel('契約種別（20251031更新）')).toBe('契約種別');
+    expect(fieldLabel('契約期間')).toBe('契約期間');
     const display = (name: string, value: string | null) => {
       const prop = contractProps.find(item => item.name === name);
       if (!prop) throw new Error('合成項目がありません');
@@ -69,7 +72,9 @@ describe('契約・成果の表示形式', () => {
     expect(display('amount', '-1234.5')).toBe('-¥1,235');
     for (const name of ['oubo', 'mensetu', 'naite', 'syoudaku']) expect(display(name, '1234')).toBe('1,234件');
     expect(display('oubo', '0')).toBe('0件');
-    expect(display('contract_period', '1200')).toBe('1,200');
+    // 契約期間は月数なので「か月」を付ける（2026-11-15 利用者の指示）。
+    expect(display('contract_period', '1200')).toBe('1,200か月');
+    expect(display('contract_period', '3')).toBe('3か月');
     expect(display('contract_start_date', '2026-10-01T00:00:00Z')).toBe('2026/10/01');
     expect(display('contract_expiration_date', '2027-09-30')).toBe('2027/09/30');
     expect(display('amount', null)).toBe('未入力');
@@ -196,15 +201,16 @@ describe('実APIクライアントと既存の書き込みhookを使う表示', 
   it('対象外パイプラインは表示のみ', async () => {
     mockApi(200, '', 'other');
     render(<DealContract dealId="901" onSaved={vi.fn()} />);
-    await screen.findByText('この取引は契約・成果の編集対象外です。');
+    await screen.findByText('この案件の契約・成果は、ここでは変更できません。');
+    expect(document.querySelector('p.dc-stage')?.textContent).toBe('ステージ：合成・契約中（ここでは変更できません）');
     expect(screen.queryByRole('button', { name: '編集' })).toBeNull();
   });
-  it('案件画面からの保存で取引キャッシュを破棄し、契約日を取り直す', async () => {
+  it('案件画面からの保存で案件キャッシュを破棄し、契約日を取り直す', async () => {
     const { fetch } = mockApi();
     await loadCompanyDeals('501');
     const saved = vi.fn();
     render(<DealSummary deal={{ id: '901', name: '合成案件', prefecture: '', title: '', media: '' }} billingByJob={{}} onOpenListing={vi.fn()} onContractSaved={saved} />);
-    await screen.findByText(/取引の状態/);
+    await screen.findByText(/案件の状態/);
     expect(fetch.mock.calls.filter(call => call[0].includes('company-deals'))).toHaveLength(1);
     fireEvent.click(await screen.findByRole('button', { name: '編集' }));
     fireEvent.change(screen.getByLabelText('契約開始日'), { target: { value: '2026-11-01' } });

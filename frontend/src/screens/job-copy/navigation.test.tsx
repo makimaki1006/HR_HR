@@ -68,7 +68,7 @@ it('分析の開閉と機能タブを各1回積み、戻ると前のタブと閉
   render(<JobCopyScreen />);
   const start = window.location.href;
   const push = vi.spyOn(window.history, 'pushState');
-  fireEvent.click(within(screen.getByRole('region', { name: 'ほかの分析' })).getByRole('button', { name: 'ほかの分析を開く' }));
+  fireEvent.click(within(screen.getByRole('region', { name: 'この求人でやること' })).getByRole('button', { name: /^くわしい分析を開く/ }));
   const timeline = window.location.href;
   fireEvent.click(screen.getByRole('tab', { name: '本文・画像' }));
   const body = window.location.href;
@@ -78,7 +78,7 @@ it('分析の開閉と機能タブを各1回積み、戻ると前のタブと閉
   pop(body);
   expect(screen.getByRole('tab', { name: '本文・画像' }).getAttribute('aria-selected')).toBe('true');
   pop(start);
-  expect(screen.queryByRole('dialog', { name: 'ほかの分析' })).toBeNull();
+  expect(screen.queryByRole('dialog', { name: 'くわしい分析' })).toBeNull();
 });
 it('ホームのカード一覧を履歴から復元し、既存クエリを保つ', async () => {
   window.history.replaceState(null, '', '/app/job-copy?data=actual');

@@ -8,7 +8,7 @@ import { demoOwnerTodo } from './demoOwnerTodo';
 import { yen } from './homeModel';
 
 vi.mock('./ProposalMemo', () => ({ ProposalMemo: () => <p>案件のメモ</p> }));
-vi.mock('./NextTodo', () => ({ NextTodoButton: () => <button>次の予定を記録</button>, ReasonChips: () => null }));
+vi.mock('./NextTodo', () => ({ NextTodoButton: () => <button>次の予定を記録</button>, ReasonChips: () => null, OverdueBadge: () => null }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const row = (i: number): DealRow => {
@@ -47,11 +47,11 @@ const names = () => within(screen.getByRole('table')).getAllByRole('row').slice(
 it('既定の列は8つで、採用・採用単価・金額・採用目標は行の「詳しい数字」を開くと見られる', async () => {
   stub(); await open();
   const headers = [...screen.getByRole('table').querySelectorAll('thead th')].map(th => th.textContent.replace(/ ▲▼| ▼| ▲/gu, ''));
-  expect(headers).toEqual(['案件・顧客', '要対応の印', '応募（直近4週）', '満了まで', '最後の接触', '最後のMTG', 'NPS', '担当', '詳しい数字']);
+  expect(headers).toEqual(['案件・顧客', 'ラベル', '応募（直近4週）', '満了まで', '最後の接触', '最後のMTG', '満足度', '担当', '詳しい数字']);
   expect(screen.queryByRole('button', { name: /^(採用|採用単価|金額|採用目標に対して) / })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: `${row(0).name ?? ''}の詳しい数字を開く` }));
   const detail = within(screen.getByRole('table', { name: `${row(0).name ?? ''}の詳しい数字` }));
-  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ▲▼/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期NPS', '取引に記録された応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
+  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ▲▼/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期の満足度', '案件に記録された応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
   const cells = detail.getAllByRole('cell').map(td => td.textContent);
   expect(cells).toContain(yen(100_000));
   expect(cells).toContain(yen(50_000));
@@ -61,10 +61,10 @@ it('既定の列は8つで、採用・採用単価・金額・採用目標は行
 it('「いい」は印の先頭に並び、いい案件の集計にある案件だけを出す', async () => {
   const urls = stub(['101', '103']); await open();
   const chip = await screen.findByRole('button', { name: 'いい 2' });
-  const group = screen.getByRole('group', { name: '要対応の印で絞る' });
+  const group = screen.getByRole('group', { name: 'ラベルで絞る' });
   expect([...group.querySelectorAll('button')].slice(0, 2).map(b => b.textContent.replace(/\s+/gu, ' '))).toEqual(['すべて 4', 'いい 2']);
   fireEvent.click(chip);
-  // 標準の並びは要対応の印の数、続いて金額の多い順
+  // 標準の並びはラベルの数、続いて金額の多い順
   expect(names()).toEqual([row(3).name, row(1).name]);
   expect(urls.some(u => u.includes('/api/job-copy/consultant-good?') && u.includes('owner=11'))).toBe(true);
 });
@@ -76,55 +76,55 @@ it('いい案件の集計を読めないときは、印を押せず件数を出�
   expect(chip.textContent).toContain('—');
 });
 
-it('面接が1件も無い取引だけを出し、面接の数が空の取引は0件に混ぜず別に数える', async () => {
+it('面接が1件も無い案件だけを出し、面接の数が空の案件は0件に混ぜず別に数える', async () => {
   stub(); await open();
-  fireEvent.click(screen.getByRole('checkbox', { name: '面接が1件も無い取引だけ' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: '面接が1件も無い案件だけ' }));
   expect(names()).toEqual([row(0).name, row(2).name]);
   expect(screen.getByText(/面接の数が入っていない1件は、0件とは別に数えて含めていません/u)).toBeTruthy();
   expect(new URLSearchParams(window.location.search).get('deals_interview')).toBe('zero');
 });
 
-it('応募ゼロを調べる期間を指定すると、その期間の応募日が0件の取引だけを出し、数えられない取引は別に数える', async () => {
+it('応募ゼロを調べる期間を指定すると、その期間の応募日が0件の案件だけを出し、数えられない案件は別に数える', async () => {
   const urls = stub(); await open('&deals_zero=yes');
-  expect(screen.getByRole('heading', { name: /応募が1件も無い取引/u })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: /応募が1件も無い案件/u })).toBeTruthy();
   fireEvent.change(screen.getByRole('combobox', { name: '応募ゼロを調べる期間' }), { target: { value: 'weeks' } });
   await waitFor(() => { expect(urls.some(u => /period_from=\d{4}-\d{2}-\d{2}&period_to=\d{4}-\d{2}-\d{2}/u.test(u))).toBe(true); });
   const last = new URL(urls.filter(u => u.includes('period_from')).at(-1) ?? '', location.origin);
   const days = (Date.parse(last.searchParams.get('period_to') ?? '') - Date.parse(last.searchParams.get('period_from') ?? '')) / 86_400_000;
   expect(days).toBe(27);
   await waitFor(() => { expect(names()).toEqual([row(0).name]); });
-  expect(screen.getByRole('heading', { name: /応募が1件も無い取引（.*〜.*） 1件/u })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: /応募が1件も無い案件（.*〜.*） 1件/u })).toBeTruthy();
   expect(screen.getByText(/応募日も作成日も分からない応募がある1件は、期間の応募数を数えられないため含みません/u)).toBeTruthy();
   fireEvent.change(screen.getByRole('combobox', { name: '応募ゼロを調べる期間' }), { target: { value: 'contract' } });
   await waitFor(() => { expect(screen.getByRole('heading', { name: /初回契約の期間中/u })).toBeTruthy(); });
   expect(names()).toEqual([row(0).name]);
 });
 
-it('まとめは取引をまたぐ応募を1回に数え、絞り込みに従い、行に前の4週との差を出す', async () => {
+it('まとめは案件をまたぐ応募を1回に数え、絞り込みに従い、行に前の4週との差を出す', async () => {
   stub(); await open();
   const summary = () => within(screen.getByRole('region', { name: '絞り込み中の応募数' }));
   expect(summary().getByText(/直近4週/u).textContent).toBe('直近4週 4件 ／ 前の4週 1件 ／ 差 +3件');
   const first = screen.getByRole('table').querySelector('tbody tr');
   expect(first?.textContent).toContain('前の4週 1件 ／ 差 0件');
-  fireEvent.click(screen.getByRole('checkbox', { name: '面接が1件も無い取引だけ' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: '面接が1件も無い案件だけ' }));
   expect(summary().getByText(/直近4週/u).textContent).toBe('直近4週 3件 ／ 前の4週 1件 ／ 差 +2件');
-  fireEvent.click(screen.getByRole('button', { name: '定期NPSが低い 1' }));
+  fireEvent.click(screen.getByRole('button', { name: '定期の満足度が低い 1' }));
   expect(summary().getByText(/直近4週/u).textContent).toBe('直近4週 1件 ／ 前の4週 1件 ／ 差 0件');
 });
 
-it('日付不明を添えて負の差を表示し、未取得の取引があればまとめを0件にしない', async () => {
+it('日付不明を添えて負の差を表示し、未取得の案件があればまとめを0件にしない', async () => {
   stub([], [{ ...row(0), recent_applications: 1, previous_applications: 3, applications_change: -2, unknown_application_ids: ['u'] }, { ...row(1), recent_applications: null, recent_application_ids: null, previous_applications: null, previous_application_ids: null, unknown_application_ids: null, applications_change: null }]);
   await open();
   const summary = within(screen.getByRole('region', { name: '絞り込み中の応募数' }));
   expect(summary.getByText(/直近4週/u).textContent).toBe('直近4週 未取得 ／ 前の4週 未取得 ／ 差 未取得');
   expect(summary.getByText('日付不明の応募 1件は含めていません。')).toBeTruthy();
-  expect(summary.getByText('応募数が未取得の取引が1件あります。')).toBeTruthy();
+  expect(summary.getByText('応募数が未取得の案件が1件あります。')).toBeTruthy();
   const first = screen.getByRole('table').querySelector('tbody tr');
   expect(first?.textContent).toContain('前の4週 3件 ／ 差 -2件');
   expect(first?.textContent).toContain('日付不明 1件を除外');
 });
 
-it('取引ごとの応募動機を行に出し、詳しい数字で全件の表を開く', async () => {
+it('案件ごとの応募動機を行に出し、詳しい数字で全件の表を開く', async () => {
   const { default: application_reasons } = await import('../../../../scripts/e2e/deal_application_reasons.json');
   stub([], [{ ...row(0), application_reasons }]);
   render(<DealBoard />);
@@ -140,7 +140,7 @@ it('取引ごとの応募動機を行に出し、詳しい数字で全件の表�
 it('MTGが途絶えている（60日以上）と MTGが空いている（30〜59日）を別の印で数え、接触はメールを添えるだけにする', async () => {
   stub(['101'], [row(0), { ...row(1), reasons: [{ kind: 'mtg_gap', text: 'MTGが空いている（最後のMTGから 45 日）' }] }, row(2), { ...row(23), active: true }]);
   await open('&deals_ended=yes');
-  const filters = screen.getByRole('group', { name: '要対応の印で絞る' });
+  const filters = screen.getByRole('group', { name: 'ラベルで絞る' });
   expect(within(filters).getByRole('button', { name: 'MTGが途絶えている 1' })).toBeTruthy();
   expect(within(filters).getByRole('button', { name: 'MTGが空いている 1' })).toBeTruthy();
   fireEvent.click(within(filters).getByRole('button', { name: 'MTGが空いている 1' }));

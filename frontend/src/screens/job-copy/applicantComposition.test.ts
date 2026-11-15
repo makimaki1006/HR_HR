@@ -105,7 +105,7 @@ describe('composition fixture boundary and UI', () => {
 
   it('renders images before charts, exact textual values, dates, and observational caveats', () => {
     const html = renderToStaticMarkup(createElement(ApplicantComposition, { job: driver }));
-    expect(html.indexOf('構成比較元の掲載画像')).toBeLessThan(html.indexOf('性別の構成比較'));
+    expect(html.indexOf('前の本文の掲載画像')).toBeLessThan(html.indexOf('性別の構成比較'));
     expect(html).toContain('58.3%'); expect(html).toContain('33.3%'); expect(html).toContain('-25.0pt');
     expect(html).toContain('2026/09/01');
     expect(html).toContain('架空の応募者属性');

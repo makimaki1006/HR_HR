@@ -10,7 +10,7 @@ import { boardFixture, boardRows } from '../../../frontend/src/screens/job-copy/
 import { contractCatalog, contractSchema, contractDetail, contractValues } from '../../../frontend/src/screens/job-copy/dealContract.testFixtures';
 import { fixtureJobs, fixtureHistory } from '../job-copy-listings-fixture.mjs';
 
-const long = '架空の法人と拠点と担当者の長い名前'.repeat(3) + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.repeat(2);
+const long = '架空の顧客と事業所と担当者の長い名前'.repeat(3) + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.repeat(2);
 const emptyReport = { overlaps: [], spills: [], svgClipped: [], pageOverflow: false };
 const cases = [
   { name: 'empty', count: 0, weeks: 1, text: '', value: null },
@@ -156,14 +156,14 @@ await audit(page, `${prefix}-sort`);
   await page.getByRole('combobox', { name: 'パイプライン', exact: true }).selectOption('all');
   if (rows.length) { await page.locator('.db-table tbody button[aria-expanded]').first().click(); await audit(page, `${prefix}-expanded`); }
   await page.goto('/app/job-copy?deal=100');
-  await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();
-  await expect(page.getByRole('table', { name: '取引の求人一覧表' })).toBeVisible();
+  await expect(page.locator('.jc-deal-head h1')).toBeVisible();
+  await expect(page.getByRole('table', { name: '案件の求人一覧表' })).toBeVisible();
   await expect(page.locator('.dc-fields')).toBeVisible();
   await audit(page, `${prefix}-deal`);
   await page.locator('.dc-root').getByRole('button', { name: '編集', exact: true }).click();
   await audit(page, `${prefix}-contract-edit`);
   await page.locator('.dc-root').getByRole('button', { name: 'キャンセル', exact: true }).click();
-  await page.getByRole('button', { name: '次の予定を入れる', exact: true }).click();
+  await page.getByRole('button', { name: '次の予定を入れる…', exact: true }).click();
   await audit(page, `${prefix}-next-todo`);
   await page.getByRole('dialog', { name: '次の予定を入れる' }).getByRole('button', { name: '閉じる', exact: true }).click();
   const selection = page.locator('.jc-deal-table input[type=checkbox]');
@@ -219,7 +219,7 @@ await audit(page, `${prefix}-sort`);
   await expect(page.locator('[data-testid="lifeline"]')).toBeVisible();
   await expect(page.locator('.lf-marker-end')).toHaveCount(1);
   await audit(page, `${prefix}-ended`);
-  await page.getByRole('button', { name: 'この求人から新しいパターンを作る', exact: true }).click();
+  await page.locator('.lt-card', { hasText: '文面を手直しする' }).click();
   await expect(page.getByRole('region', { name: '求人の手直し', exact: true })).toBeVisible();
   await audit(page, `${prefix}-new-pattern`);
   await page.getByRole('button', { name: '手直しを閉じる', exact: true }).click();
@@ -243,7 +243,7 @@ await audit(page, `${prefix}-sort`);
   }
   await page.goto('/app/job-copy?listing=1&analysis=1&feature=timeline');
   await expect(page.locator('dialog[open]')).toBeVisible();
-  for (const group of ['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']) {
+  for (const group of ['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', 'メモ']) {
     await page.getByRole('tab', { name: group, exact: true }).click();
     if (group === 'タイムライン' && scenario.weeks > 1) {
       for (const id of ['jt-applications', 'jt-market']) expect((await getChartSeriesLengths(page, id)).some(n => n > 0)).toBe(true);

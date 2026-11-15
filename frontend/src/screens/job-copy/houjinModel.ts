@@ -130,8 +130,8 @@ export interface CustomerData {
 export const customerFilters = [
   ["employees", "kigyouzentaininzuu", "従業員数", "人", 1],
   ["monthly", "monthly_amount_max", "月額", "万円", 10000],
-  ["sites", "sites", "拠点数", "拠点", 1],
-  ["ltv", "ltv", "これまでの売上（LTV）", "万円", 10000],
+  ["sites", "sites", "事業所数", "事業所", 1],
+  ["ltv", "ltv", "これまでの売上", "万円", 10000],
   ["renewals", "max_renewal_no", "継続の回数", "回", 1],
   ["applications", "oubo_total", "応募", "件", 1],
   ["interviews", "mensetu_total", "面接", "件", 1],
@@ -143,7 +143,7 @@ export const customerPresets: {
 }[] = [
   { label: "本社に提案できそう", values: { acceptances: "5", active: "1" } },
   {
-    label: "大きいのに拠点が少ない",
+    label: "大きいのに事業所が少ない",
     values: { employees: "1000", sites_max: "2" },
   },
   { label: "お金を多くかけている", values: { monthly: "30", active: "1" } },
@@ -210,7 +210,7 @@ export function sitesOf(deals: CustomerDeal[]) {
         key,
         name:
           rows.find((d) => d.site_name)?.site_name ??
-          (key === "__no_site__" ? "拠点未登録" : key),
+          (key === "__no_site__" ? "事業所未登録" : key),
         rows,
         lastStart: rows.reduce((m, d) => (d.start > m ? d.start : m), ""),
       };

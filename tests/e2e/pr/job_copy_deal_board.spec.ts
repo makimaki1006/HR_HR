@@ -32,7 +32,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(table.locator('.nt-strong')).toHaveText('MTGが途絶えている（最後のMTGから 107 日）');
   await expect(page.getByRole('checkbox', { name: '終わった案件も出す' })).not.toBeChecked();
   await expect(page.getByRole('combobox', { name: '並べ替え' })).toHaveCount(0);
-  await expect(page.getByText('並び: 要対応の印が多い順', { exact: true })).toBeVisible();
+  await expect(page.getByText('並び: ラベルが多い順', { exact: true })).toBeVisible();
   await expect(table.locator('thead th[aria-sort="descending"]')).toHaveCount(0);
   const crumbs = page.getByRole('navigation', { name: '現在地' });
   await expect(crumbs).toContainText('案件管理案件の一覧');
@@ -45,8 +45,8 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   expect(await page.locator('.db-board').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false);
   const dir = process.env.BOARD_SCREENSHOT_DIR;
   if (dir) await page.screenshot({ path: `${dir}/deals-1440.png`, fullPage: true });
-  const marks = page.getByRole('group', { name: '要対応の印で絞る' });
-  const nps = marks.getByRole('button', { name: '定期NPSが低い 1', exact: true });
+  const marks = page.getByRole('group', { name: 'ラベルで絞る' });
+  const nps = marks.getByRole('button', { name: '定期の満足度が低い 1', exact: true });
   await nps.click();
   await expect(nps).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('1件・1 / 1ページ')).toBeVisible();
@@ -55,7 +55,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   if (dir) await page.screenshot({ path: `${dir}/deals-filtered.png`, fullPage: true });
   await nps.click();
   await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
-  await marks.getByRole('button', { name: '定期NPSが低い 1', exact: true }).click();
+  await marks.getByRole('button', { name: '定期の満足度が低い 1', exact: true }).click();
   await marks.getByRole('button', { name: 'すべて 23', exact: true }).click();
   const zero = marks.getByRole('button', { name: '採用単価が高い 0', exact: true });
   await expect(zero).toHaveClass(/db-zero/);
@@ -64,7 +64,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await marks.getByRole('button', { name: 'すべて 23', exact: true }).click();
   // 既定の列は 8 つ。採用・採用単価・金額・採用目標は「詳しい数字」を開くと出る
   await expect(page.getByRole('region', { name: '絞り込み中の応募数' }).locator('strong')).toHaveText(['24件', '1件', '+23件']);
-  await expect(table.locator('thead th')).toHaveText(['案件・顧客 ▲▼', '要対応の印 ▲▼', '応募（直近4週） ▲▼', '満了まで ▲▼', '最後の接触 ▲▼', '最後のMTG ▲▼', 'NPS ▲▼', '担当 ▲▼', '詳しい数字']);
+  await expect(table.locator('thead th')).toHaveText(['案件・顧客 ▲▼', 'ラベル ▲▼', '応募（直近4週） ▲▼', '満了まで ▲▼', '最後の接触 ▲▼', '最後のMTG ▲▼', '満足度 ▲▼', '担当 ▲▼', '詳しい数字']);
   // 「いい」は印の先頭（すべての次）に並ぶ
   await expect(marks.getByRole('button').nth(1)).toHaveText(/^いい\s*2$/);
   const good = marks.getByRole('button', { name: 'いい 2', exact: true });
@@ -76,10 +76,10 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await good.click();
   await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
   await table.locator('tbody > tr').first().getByRole('button', { name: '架空の採用支援01の詳しい数字を開く' }).click();
-  await expect(table.locator('.db-detail').getByRole('columnheader', { name: /定期NPS/ })).toBeVisible();
+  await expect(table.locator('.db-detail').getByRole('columnheader', { name: /定期の満足度/ })).toBeVisible();
   await expect(table.locator('.db-detail tbody td').nth(3)).toHaveText('4');
   await expect(table.locator('.db-detail')).toContainText('媒体の応募（直近4週） 50件');
-  await expect(table.locator('.db-detail')).toContainText('取引に記録された応募');
+  await expect(table.locator('.db-detail')).toContainText('案件に記録された応募');
   await expect(table.locator('.db-detail tbody td').nth(7)).toHaveText('¥50,000');
   await expect(table.locator('.db-detail tbody td').nth(8)).toHaveText('¥100,000');
   await expect(table.locator('.db-detail tbody td').last()).toContainText('2 / 10人');
@@ -113,7 +113,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(page).toHaveURL(/risk_deal=100/);
   const detail = page.getByRole('dialog');
   await expect(detail).toBeVisible();
-  await expect(detail.getByRole('link', { name: '取引の画面を開く' })).toHaveAttribute('href', /[?&]deal=100(?:&|$)/);
+  await expect(detail.getByRole('link', { name: '案件のページを開く' })).toHaveAttribute('href', /[?&]deal=100(?:&|$)/);
   await page.goBack();
   await expect(page.getByRole('heading', { name: '案件の一覧' })).toBeVisible();
   await page.goBack();
@@ -127,10 +127,10 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
 });
 
 test('シート未取得でも案件とHubSpotの値を表示する', async ({ page }) => {
-  await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, sheet_as_of: null, rows: [{ ...boardRows[0], mtg_status: 'unavailable', last_mtg: null, reasons: [{ kind: 'nps', text: '定期NPSが4以下' }] }] } }));
+  await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, sheet_as_of: null, rows: [{ ...boardRows[0], mtg_status: 'unavailable', last_mtg: null, reasons: [{ kind: 'nps', text: '定期の満足度が4以下' }] }] } }));
   await login(page); await page.goto('/app/job-copy?view=deals&owner=11');
   await expect(page.locator('.db-table')).toContainText('未取得');
-  await expect(page.locator('.db-table .nt-reason')).toHaveText('定期NPSが4以下');
+  await expect(page.locator('.db-table .nt-reason')).toHaveText('定期の満足度が4以下');
 });
 
 
@@ -161,7 +161,7 @@ test('初回案件の立ち上がり・要約・URL・ホームのカード', as
   await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();
-  await page.getByRole('group', { name: '要対応の印で絞る' }).getByRole('button', { name: '定期NPSが低い 1', exact: true }).click();
+  await page.getByRole('group', { name: 'ラベルで絞る' }).getByRole('button', { name: '定期の満足度が低い 1', exact: true }).click();
   await expect(page.getByText('1件・1 / 1ページ', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'パイプライン', exact: true }).selectOption('743961896');
   await expect(table).toContainText('条件に合う案件はありません');
@@ -206,7 +206,7 @@ test('求人と応募の前回集計をやることと案件一覧に残して�
   await expect(page.locator('.db-table tbody > tr').first()).toContainText('架空の採用支援01');
 });
 
-test('面接が1件も無い取引と、期間を指定した応募ゼロ（面接の数が空・応募日が不明な取引は別に数える）', async ({ page }) => {
+test('面接が1件も無い案件と、期間を指定した応募ゼロ（面接の数が空・応募日が不明な案件は別に数える）', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const urls: string[] = [];
   // 100: 面接 0・期間 0 件、101: 面接が空・期間 2 件、102: 面接 0・応募日が不明、103: 面接 3・求人票なし
@@ -221,14 +221,14 @@ test('面接が1件も無い取引と、期間を指定した応募ゼロ（面�
   await login(page); await page.goto('/app/job-copy?view=deals&owner=11&owner_field=consultant');
   const table = page.locator('.db-table');
   await expect(table.locator('tbody > tr')).toHaveCount(4);
-  await page.getByRole('checkbox', { name: '面接が1件も無い取引だけ' }).check();
+  await page.getByRole('checkbox', { name: '面接が1件も無い案件だけ' }).check();
   await expect(page).toHaveURL(/deals_interview=zero/);
   await expect(table.locator('tbody > tr')).toHaveCount(2);
   await expect(table.locator('tbody > tr').nth(0)).toContainText('架空の採用支援01');
   await expect(table.locator('tbody > tr').nth(1)).toContainText('架空の採用支援03');
   await expect(page.getByText('面接の数が入っていない1件は、0件とは別に数えて含めていません。')).toBeVisible();
-  await page.getByRole('checkbox', { name: '面接が1件も無い取引だけ' }).uncheck();
-  await page.getByRole('checkbox', { name: '応募が1件も無い取引だけ' }).check();
+  await page.getByRole('checkbox', { name: '面接が1件も無い案件だけ' }).uncheck();
+  await page.getByRole('checkbox', { name: '応募が1件も無い案件だけ' }).check();
   await page.getByRole('combobox', { name: '応募ゼロを調べる期間' }).selectOption('weeks');
   await expect(table.locator('tbody > tr')).toHaveCount(1);
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
@@ -243,7 +243,7 @@ test('面接が1件も無い取引と、期間を指定した応募ゼロ（面�
   await expect.poll(() => urls.some(url => url.includes('period_from=2026-10-01') && url.includes('period_to=2026-10-15'))).toBe(true);
 });
 
-test('取引の行に応募動機の上位2件、詳しい数字に全選択肢と優先順位を表示する', async ({ page }) => {
+test('案件の行に応募動機の上位2件、詳しい数字に全選択肢と優先順位を表示する', async ({ page }) => {
   const application_reasons = JSON.parse(readFileSync(resolve(__dirname, '../../../scripts/e2e/deal_application_reasons.json'), 'utf8'));
   await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, rows: [{ ...boardRows[0], application_reasons }] } }));
   await page.route('**/api/job-copy/consultant-good?*', route => route.fulfill({ json: { status: 'ready', rows: [] } }));

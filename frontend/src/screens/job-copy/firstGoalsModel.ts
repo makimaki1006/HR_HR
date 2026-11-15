@@ -2,7 +2,7 @@ import type { PropValues } from '../crm/writeTypes';
 import type { SaveRequest } from '../crm/writeModel';
 
 /**
- * 初回MTGで顧客と決める 2 つの目標。保存先は HubSpot の取引の 3 項目。
+ * 初回MTGで顧客と決める 2 つの目標。保存先は HubSpot の案件の 3 項目。
  * - マインド目標 / コミット目標: 人が読む文 (1 行 1 目標)。HubSpot の画面でもそのまま読める。
  * - データ: 画面と夜のバッチが使う JSON (案か確定か、MTG の根拠など)。
  * HubSpot で文を直接直した場合は、文のほうを正とする (JSON から作った文と食い違えば文を読み直す)。
@@ -115,7 +115,7 @@ function parseData(rawText: string | null | undefined): GoalData | null {
 
 /**
  * HubSpot で文だけが直され、データ (JSON) が古いままか。画面は文を正として読み、確定済みとして扱う
- * (夜のバッチも、文が直された取引には書かない)。次に保存すると 3 項目がそろう。
+ * (夜のバッチも、文が直された案件には書かない)。次に保存すると 3 項目がそろう。
  */
 export function textEditedInHubSpot(values: PropValues): boolean {
   const parsed = parseData(values[GOAL_PROPS.data]);

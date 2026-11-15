@@ -27,7 +27,7 @@ it('回答0件と未集計を区別する', () => {
   expect(screen.getByText('応募動機：集計中').textContent).toBe('応募動機：集計中');
   expect(screen.queryByText(/0件/u)).toBeNull();
 });
-it('応募を読まない終了済みの取引は、集計中でなく対象外と出す', () => {
+it('応募を読まない終了済みの案件は、集計中でなく対象外と出す', () => {
   const { container, rerender } = render(<DealApplicationReasons value={null} outOfScope />);
   expect(container.textContent).toBe('応募動機：対象外');
   rerender(<DealApplicationReasons value={null} outOfScope details />);

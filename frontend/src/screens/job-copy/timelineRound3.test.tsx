@@ -40,7 +40,7 @@ const demo = (id: string): JobCopyRecord => {
 const version = (id: string, observedAt: string, body: string, images?: JobCopyRecord['versions'][number]['images']): JobCopyRecord['versions'][number] => ({ id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '', ...(images ? { images } : {}) });
 /** The same image on two acquisitions, so the second acquisition is the same content (not unknown). */
 const sameImage = [{ id: 'img-1', url: `/api/job-copy/snapshot-image?listing_id=30&version=0&slot=1&image_hash=${'a'.repeat(64)}`, caption: '', contentHash: 'a'.repeat(64), sourceReferenceHash: 'b'.repeat(64), sourceSlot: 1 }];
-const synthetic = (versions: JobCopyRecord['versions'], extra: Partial<JobCopyRecord> = {}): JobCopyRecord => ({ id: 'synthetic', title: '合成ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: 'S-1', location: '大分県大分市', versions, ...extra });
+const synthetic = (versions: JobCopyRecord['versions'], extra: Partial<JobCopyRecord> = {}): JobCopyRecord => ({ id: 'synthetic', title: '合成ドライバー', company: '合成顧客', media: 'HRハッカー', mediaJobId: 'S-1', location: '大分県大分市', versions, ...extra });
 
 describe('salary direction (▲ only for a raise)', () => {
   it('marks a raise ▲ and a cut ▼ on the demo driver job (25万〜28万 → 27万〜30万 → 25万〜28万)', () => {
@@ -194,8 +194,10 @@ describe('plain wording for versions, the header and the diff panel', () => {
   beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy?demo=1'); });
   it('shows plain header wording and one image notice in the diff panel', () => {
     render(<JobCopyScreen />);
+    // 表示中の本文の名前は上の帯に1回だけ出し、正確な日時はその ⓘ に畳む。
+    expect(screen.getByTestId('band-version').textContent).toBe('初回文面への復帰');
+    expect(document.body.textContent).not.toContain('表示中の本文:');
     const meta = document.querySelector('.jc-record-meta');
-    expect(meta?.textContent).toContain('表示中の本文: 初回文面への復帰');
     expect(meta?.textContent).toContain('HubSpotの求人と未連携');
     expect(meta?.textContent).not.toMatch(/接続待ち|実求人ID|確認した本文/u);
     openOtherAnalysis('変更差分');

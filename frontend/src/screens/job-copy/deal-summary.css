@@ -1,5 +1,5 @@
 .ds-root { display: grid; gap: 16px; margin-bottom: 24px; }
-.ds-band { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; padding: 10px 14px; background: var(--jc-surface, #fff); border: 1px solid var(--jc-border, #d9d9d9); border-radius: 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06); }
+.ds-band { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; padding: 10px 14px; background: var(--jc-surface, #fff); border: 1px solid var(--jc-border, #d9d9d9); border-radius: 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06); }
 .ds-band > div { display: grid; gap: 2px; }
 .ds-band span { font-size: 12px; color: var(--jc-muted, #5b5b5b); }
 .ds-band strong { font-size: 20px; }

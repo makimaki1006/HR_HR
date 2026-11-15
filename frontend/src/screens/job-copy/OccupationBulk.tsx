@@ -43,7 +43,7 @@ function loadErrorText(error: unknown): string {
 /** 求人ごとに、市場と比べる Indeed の職種を指定する一括画面。自動では決めない。 */
 export function OccupationBulk() {
   const search = useJobCopySearch();
-  // `deal=<取引ID>` の指定があれば、その取引の求人だけを出す（担当では絞らない）。
+  // `deal=<案件ID>` の指定があれば、その案件の求人だけを出す（担当では絞らない）。
   const deal = new URLSearchParams(search).get('deal')?.trim() ?? '';
   const ownerQuery = deal ? `deal=${encodeURIComponent(deal)}` : ownerParams(search) || 'owner=me';
   const [tab, setTab] = useState<Tab>('unset');

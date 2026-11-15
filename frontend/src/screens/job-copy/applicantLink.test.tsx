@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ListingOverview } from './ListingOverview';
+import type { ListingTask } from './ListingTasks';
 import { jobs } from './data';
 import type { JobCopyRecord } from './data';
 import { buildListingEvents } from './listingEventsModel';
@@ -13,7 +14,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const demo = (): JobCopyRecord => { const job = jobs[0]; if (!job) throw new Error('fixture'); return job; };
 function Overview({ job = demo() }: { job?: JobCopyRecord }) {
   const [selectedId, onSelect] = useState<string | null>(null);
-  return <ListingOverview job={job} events={buildListingEvents(job, [])} billing={[]} market={{ state: 'unset' }} selectedId={selectedId} onSelect={onSelect} onCompare={() => undefined} onOpenDrawer={() => undefined} />;
+  // 電話ヒアリングは「この求人でやること」の札から開く（画面と同じく札の状態を持つ）。
+  const [task, setTask] = useState<ListingTask | null>(null);
+  return <ListingOverview job={job} events={buildListingEvents(job, [])} billing={[]} market={{ state: 'unset' }} selectedId={selectedId} onSelect={onSelect} onCompare={() => undefined} onOpenDrawer={() => undefined}
+    tasks={{ active: task, onChange: setTask, edit: { disabled: null, onOpen: () => undefined, panel: null }, rikurozi: { disabled: null, panel: null }, onAnalysis: () => undefined }} />;
 }
 it('同じ応募に属性・応募理由・電話ヒアリング・メモを表示し、カードと往復できる', () => {
   const { container } = render(<Overview />);
@@ -25,7 +29,9 @@ it('同じ応募に属性・応募理由・電話ヒアリング・メモを表�
   expect(event.textContent).toContain('勤務条件の優先順位：通勤時間、休日、給与の順で希望');
   expect(event.textContent).toContain('【架電】土日休みと、見学できる日程を確認したい。');
   fireEvent.click(within(event).getByRole('button', { name: '電話ヒアリングのこの応募へ' }));
-  expect(container.querySelector('details.ph-section')?.hasAttribute('open')).toBe(true);
+  // 電話ヒアリングの札が開き、札の中では畳む見出しを付けずにそのまま出す
+  expect(container.querySelector<HTMLElement>('.lt-panel[aria-label="電話ヒアリングを見る"]')?.hidden).toBe(false);
+  expect(container.querySelector('.lt-panel details.ph-section')).toBeNull();
   const card = container.querySelector<HTMLElement>(`#hearing-${'8'.repeat(64)}`);
   if (!card) throw new Error('card');
   expect(card.textContent).toContain('応募者：38・女性・大分県大分市');

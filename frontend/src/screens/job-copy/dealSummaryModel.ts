@@ -1,5 +1,5 @@
 /**
- * 案件（取引）でまとめる数字。画面に依存しない計算だけを置く。
+ * 案件（案件）でまとめる数字。画面に依存しない計算だけを置く。
  * 日付は JST の暦日 YYYY-MM-DD。応募日別の件数 (byDate) が無い求人は null として扱い、0 とは区別する。
  * 課金は重なる期間・金額なしの行があると足さず、分からないものは null のまま返す。
  */
@@ -25,7 +25,7 @@ export interface DealListingInput {
   fetchedDate: string | null;
   /** 課金データを集めていない媒体 (AirWork)。課金の合計・1件あたりから外す。 */
   billingUnavailable?: boolean;
-  /** ほかの取引にも結び付いている求人。 */
+  /** ほかの案件にも結び付いている求人。 */
   inOtherDeals?: boolean;
 }
 
@@ -353,19 +353,19 @@ export function perfBillingEntries(perf: { source?: 'hrhacker' | 'airwork'; rows
 
 /** 事業所（会社）の集計で、どの求人を何回数えるかを決める1か所の規則。 */
 export const ROLLUP_RULES = {
-  /** 複数の取引に結び付いた求人: 取引の集計ではどの取引でも全部数え、事業所の集計では1回だけ数える。 */
-  multiDeal: '取引の集計ではそれぞれ全部数え、事業所の集計では1回だけ数える',
+  /** 複数の案件に結び付いた求人: 案件の集計ではどの案件でも全部数え、事業所の集計では1回だけ数える。 */
+  multiDeal: '案件の集計ではそれぞれ全部数え、事業所の集計では1回だけ数える',
   /** 集計する期間は絞らない。 */
   period: '契約期間では絞らず、取得できている全期間',
-  /** 事業所 = 取引に結び付いた会社。 */
-  company: '事業所は、取引に結び付いた会社',
-  /** 取引が多い事業所は先頭だけ集計する。 */
+  /** 事業所 = 案件に結び付いた会社。 */
+  company: '事業所は、案件に結び付いた会社',
+  /** 案件が多い事業所は先頭だけ集計する。 */
   maxDeals: 10,
 } as const;
 
 export interface DealGroup { id: string; name: string; inputs: DealListingInput[]; overlap: Overlap }
 
-/** 事業所の集計に使う求人 (同じ求人は1回だけ) と、重なる応募 (日ごとに、取引のうち最大のもの)。 */
+/** 事業所の集計に使う求人 (同じ求人は1回だけ) と、重なる応募 (日ごとに、案件のうち最大のもの)。 */
 export function companyRollup(groups: readonly DealGroup[]): { inputs: DealListingInput[]; overlap: Overlap } {
   const byId = new Map<string, DealListingInput>();
   for (const group of groups) for (const input of group.inputs) if (!byId.has(input.id)) byId.set(input.id, input);
