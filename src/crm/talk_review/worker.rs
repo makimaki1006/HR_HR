@@ -1938,10 +1938,9 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             }
         }
         let deadline = tokio::time::Instant::now() + CYCLE_BUDGET;
-        let today = (Utc::now() + chrono::Duration::hours(9)).date_naive();
         let rep = self
             .transcript_backfill
-            .step(&self.client.background(), &*self.zoom, deadline, today)
+            .step(&self.client.background(), &*self.zoom, deadline, Utc::now())
             .await;
         if rep != Default::default() {
             tracing::info!(

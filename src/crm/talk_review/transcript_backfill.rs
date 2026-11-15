@@ -16,10 +16,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use tokio::time::{timeout_at, Instant};
 
-use super::hs_store::{save_mark, save_transcript, TRANSCRIPT_PROP};
+use super::hs_store::{save_mark, save_transcript, transcript_is_empty, TRANSCRIPT_PROP};
 use super::store::JudgedRef;
 use super::types::TalkTurn;
 use super::zoom::{TranscriptSource, ZoomError, REC_PREFIX};
@@ -42,11 +42,17 @@ pub const CHECK_CHUNK: usize = 50;
 pub const MAX_NOT_READY: u32 = 3;
 /// 1 周にかけてよい時間。過ぎたら残りは次の周回 (取り込み・判定を待たせない)
 pub const CYCLE_BUDGET: Duration = Duration::from_secs(180);
-/// 1 日 (日本時間) にこの処理が Zoom を呼ぶ回数の上限。録音・文字起こしの API の rate limit の種類は
+/// 1 日 (UTC) にこの処理が Zoom を呼ぶ回数の上限。録音・文字起こしの API の rate limit の種類は
 /// 公式の資料で確かめられなかったので、Zoom Phone でいちばん厳しい Heavy とみなす。会社の Zoom は Business+
-/// (2026-11-15 ユーザー確認) で、Heavy は 10 回/秒・Heavy と Resource-intensive で共有の 1 日 30,000 回。
-/// 判定・接触の判定の分を残す
+/// (2026-11-15 ユーザー確認) で、Heavy は 10 回/秒・Heavy と Resource-intensive で共有の 1 日 30,000 回
+/// (<https://developers.zoom.us/docs/api/rate-limits/>)。判定・接触の判定の分を残す。
+/// 日の区切りは UTC 0:00 (日本時間 9:00) にする。同じページは日次の上限の区切りを明記していないが、
+/// 書いてある唯一の区切り (会議の作成・更新の上限) が「00:00 UTC にリセット」なので、それに合わせる
+/// (日本時間の日で数えると、日本時間 0〜9 時に使い切った分が Zoom の同じ日に二重に乗る)
 pub const ZOOM_DAILY_BUDGET: u32 = 8_000;
+/// 1 時間 (UTC の時) にこの処理が Zoom を呼ぶ回数の上限 (8,000 ÷ 24 ≈ 333 を切り上げ)。数えはプロセス内だけで
+/// 再起動すると 0 に戻るが、この上限で、再起動しても前倒しで使えるのは 1 時間分までになる
+pub const ZOOM_HOURLY_BUDGET: u32 = 340;
 /// batch read がこの回数続けて失敗したら warn を出す (同じ 50 件で止まっていると分かるように)
 pub const CHECK_FAIL_WARN: u32 = 3;
 
@@ -108,8 +114,10 @@ pub struct TranscriptBackfill {
     not_ready: HashMap<String, u32>,
     /// batch read が続けて失敗した回数
     check_failures: u32,
-    /// Zoom を呼んだ回数 (日本時間の日ごと)
+    /// Zoom を呼んだ回数 (UTC の日ごと)
     zoom_day: Option<(NaiveDate, u32)>,
+    /// Zoom を呼んだ回数 (UTC の時ごと。UNIX 時刻 ÷ 3600)
+    zoom_hour: Option<(i64, u32)>,
     totals: Totals,
 }
 
@@ -166,27 +174,34 @@ impl TranscriptBackfill {
         self.unchecked.len() + self.missing.len()
     }
 
-    /// Zoom を `cost` 回呼べるか。呼べるなら数える
-    fn take_zoom(&mut self, today: NaiveDate, cost: u32) -> bool {
-        let used = match self.zoom_day {
-            Some((d, n)) if d == today => n,
+    /// Zoom を `cost` 回呼べるか (UTC の日・時の上限)。呼べるなら数える
+    fn take_zoom(&mut self, now: DateTime<Utc>, cost: u32) -> bool {
+        let day = now.date_naive();
+        let hour = now.timestamp().div_euclid(3600);
+        let used_day = match self.zoom_day {
+            Some((d, n)) if d == day => n,
             _ => 0,
         };
-        if used + cost > ZOOM_DAILY_BUDGET {
+        let used_hour = match self.zoom_hour {
+            Some((h, n)) if h == hour => n,
+            _ => 0,
+        };
+        if used_day + cost > ZOOM_DAILY_BUDGET || used_hour + cost > ZOOM_HOURLY_BUDGET {
             return false;
         }
-        self.zoom_day = Some((today, used + cost));
+        self.zoom_day = Some((day, used_day + cost));
+        self.zoom_hour = Some((hour, used_hour + cost));
         true
     }
 
     /// 1 周。HubSpot は `client` の優先度のまま呼ぶ (worker は `Background` を渡す)。
-    /// `deadline` を過ぎたら残りは次の周回。`today` は日本時間の日付 (Zoom の 1 日の上限に使う)
+    /// `deadline` を過ぎたら残りは次の周回。`now` は Zoom の日・時の上限に使う
     pub async fn step<Z: TranscriptSource + ?Sized>(
         &mut self,
         client: &HubSpotClient,
         zoom: &Z,
         deadline: Instant,
-        today: NaiveDate,
+        now: DateTime<Utc>,
     ) -> StepReport {
         let mut rep = StepReport::default();
         if self.phase != Phase::Running {
@@ -194,7 +209,7 @@ impl TranscriptBackfill {
         }
         self.check(client, deadline, &mut rep).await;
         if !rep.stopped {
-            self.fetch_missing(client, zoom, deadline, today, &mut rep)
+            self.fetch_missing(client, zoom, deadline, now, &mut rep)
                 .await;
         }
         if self.remaining() == 0 {
@@ -280,7 +295,7 @@ impl TranscriptBackfill {
         client: &HubSpotClient,
         zoom: &Z,
         deadline: Instant,
-        today: NaiveDate,
+        now: DateTime<Utc>,
         rep: &mut StepReport,
     ) {
         let mut later = Vec::new();
@@ -289,7 +304,7 @@ impl TranscriptBackfill {
             let Some(r) = self.missing.pop_front() else {
                 break;
             };
-            if Instant::now() >= deadline || !self.take_zoom(today, zoom_cost(&r.zid)) {
+            if Instant::now() >= deadline || !self.take_zoom(now, zoom_cost(&r.zid)) {
                 self.missing.push_front(r);
                 rep.stopped = true;
                 break;
@@ -327,6 +342,27 @@ impl TranscriptBackfill {
                     break;
                 }
             };
+            // 印を書く直前に読み直す。「空」と確かめてから今までの間に、画面やヒアリング (`fetch_stored`) が
+            // 本物の文字起こしを残していれば、印で上書きしない (上書きすると戻せない)
+            if matches!(write, Write::Mark(_)) {
+                match timeout_at(deadline, transcript_is_empty(client, &r.id)).await {
+                    Ok(Ok(true)) => {}
+                    Ok(Ok(false)) => {
+                        self.not_ready.remove(&r.id);
+                        rep.present += 1;
+                        self.totals.present += 1;
+                        continue;
+                    }
+                    failed => {
+                        if let Ok(Err(e)) = failed {
+                            tracing::info!(error = %e.error_kind(), "talk review: transcript backfill re-read failed");
+                        }
+                        self.missing.push_front(r);
+                        rep.stopped = true;
+                        break;
+                    }
+                }
+            }
             let saved = match &write {
                 Write::Turns(t) => timeout_at(deadline, save_transcript(client, &r.id, t)).await,
                 Write::Mark(u) => timeout_at(deadline, save_mark(client, &r.id, *u)).await,
@@ -459,6 +495,8 @@ mod tests {
         results: Mutex<HashMap<String, ZoomResult>>,
         calls: Mutex<Vec<String>>,
         delay: Duration,
+        /// 答える前に偽 HubSpot の通話へ文字起こしを書く (画面・ヒアリングが同時に残した場合を再現)
+        on_fetch: Option<(Arc<Hs>, String, String)>,
     }
     impl Zoom {
         fn with(results: impl IntoIterator<Item = (String, ZoomResult)>) -> Self {
@@ -477,6 +515,9 @@ mod tests {
     impl TranscriptSource for Zoom {
         async fn fetch(&self, id: &str) -> Result<Vec<TalkTurn>, ZoomError> {
             self.calls.lock().unwrap().push(id.to_string());
+            if let Some((hs, call, text)) = &self.on_fetch {
+                hs.calls.lock().unwrap().insert(call.clone(), text.clone());
+            }
             if !self.delay.is_zero() {
                 tokio::time::sleep(self.delay).await;
             }
@@ -537,8 +578,12 @@ mod tests {
         Instant::now() + Duration::from_secs(60)
     }
 
-    fn day() -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 11, 16).unwrap()
+    fn day() -> DateTime<Utc> {
+        at("2026-11-16T03:00:00Z")
+    }
+
+    fn at(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -807,16 +852,96 @@ mod tests {
         let mut b = TranscriptBackfill::default();
         b.load(refs(&["1", "2"]));
         // 今日はあと 3 回だけ (通話ログ ID は 1 本 2 回)
-        b.zoom_day = Some((day(), ZOOM_DAILY_BUDGET - 3));
+        b.zoom_day = Some((day().date_naive(), ZOOM_DAILY_BUDGET - 3));
         let rep = b.step(&client, &zoom, later(), day()).await;
         assert_eq!((rep.saved, rep.stopped), (1, true));
         let rep = b.step(&client, &zoom, later(), day()).await;
         assert_eq!((rep.saved, rep.stopped), (0, true));
-        let next = day().succ_opt().unwrap();
+        let next = day() + chrono::Duration::days(1);
         let rep = b.step(&client, &zoom, later(), next).await;
         assert_eq!((rep.saved, rep.finished), (1, true));
         assert_eq!(zoom_cost("rec:abc"), 1);
         assert_eq!(zoom_cost("12345"), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_hourly_zoom_budget_stops_until_the_next_hour() {
+        let hs = Arc::new(Hs::default());
+        empty_calls(&hs, &["1", "2"]);
+        let client = start(hs.clone()).await;
+        let zoom = Zoom::ok_for(&numbered(2));
+        let mut b = TranscriptBackfill::default();
+        b.load(refs(&["1", "2"]));
+        // この時はあと 3 回だけ。日の上限には余裕がある
+        b.zoom_hour = Some((day().timestamp().div_euclid(3600), ZOOM_HOURLY_BUDGET - 3));
+        let rep = b.step(&client, &zoom, later(), day()).await;
+        assert_eq!((rep.saved, rep.stopped), (1, true));
+        let rep = b
+            .step(
+                &client,
+                &zoom,
+                later(),
+                day() + chrono::Duration::minutes(59),
+            )
+            .await;
+        assert_eq!((rep.saved, rep.stopped), (0, true));
+        let rep = b
+            .step(&client, &zoom, later(), day() + chrono::Duration::hours(1))
+            .await;
+        assert_eq!((rep.saved, rep.finished), (1, true));
+    }
+
+    #[test]
+    fn the_daily_budget_is_counted_by_the_utc_day() {
+        // 日本時間 11/16 0:30 (= UTC 11/15 15:30) に 1 日分を使い切った
+        let mut b = TranscriptBackfill {
+            zoom_day: Some((at("2026-11-15T15:30:00Z").date_naive(), ZOOM_DAILY_BUDGET)),
+            ..Default::default()
+        };
+        // 日本時間 11/16 8:30 は UTC ではまだ同じ日なので呼べない (日本時間の日で数えると呼べてしまう)
+        assert!(!b.take_zoom(at("2026-11-15T23:30:00Z"), 1));
+        // UTC 0:00 (日本時間 9:00) を過ぎたら呼べる
+        assert!(b.take_zoom(at("2026-11-16T00:10:00Z"), 2));
+        assert_eq!(
+            b.zoom_day,
+            Some((at("2026-11-16T00:10:00Z").date_naive(), 2))
+        );
+        // 1 時間の上限: 同じ時にはそれ以上呼べない
+        let mut b = TranscriptBackfill::default();
+        let t = at("2026-11-16T05:00:00Z");
+        for _ in 0..ZOOM_HOURLY_BUDGET / 2 {
+            assert!(b.take_zoom(t, 2));
+        }
+        assert!(!b.take_zoom(t + chrono::Duration::minutes(59), 2));
+        assert!(b.take_zoom(t + chrono::Duration::hours(1), 2));
+        // 再起動 (数えが 0 に戻る) しても、前倒しで使えるのは 1 時間分まで
+        let mut restarted = TranscriptBackfill::default();
+        let used = (0..10_000)
+            .take_while(|_| restarted.take_zoom(t, 1))
+            .count();
+        assert_eq!(used, ZOOM_HOURLY_BUDGET as usize);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_mark_does_not_overwrite_a_transcript_saved_in_the_meantime() {
+        let hs = Arc::new(Hs::default());
+        empty_calls(&hs, &["1", "2"]);
+        let client = start(hs.clone()).await;
+        let real = "営業: お世話になっております\n先方: はい".to_string();
+        let mut zoom = Zoom::with([z("z1", Err(ZoomError::Gone)), z("z2", Err(ZoomError::Gone))]);
+        // z1 を取りに行く間に、画面が通話 1 の本物の文字起こしを残した
+        zoom.on_fetch = Some((hs.clone(), "1".into(), real.clone()));
+        let mut b = TranscriptBackfill::default();
+        b.load(refs(&["1", "2"]));
+        let rep = b.step(&client, &zoom, later(), day()).await;
+        assert_eq!(
+            (rep.present, rep.marked, rep.finished),
+            (1, 1, true),
+            "{rep:?}"
+        );
+        assert_eq!(hs.calls.lock().unwrap()["1"], real);
+        assert_eq!(hs.calls.lock().unwrap()["2"], GONE_MARK);
+        assert_eq!(*hs.patches.lock().unwrap(), ["2"]);
     }
 
     #[test]

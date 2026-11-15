@@ -107,6 +107,21 @@ pub async fn load_transcript(
         .and_then(|s| parse_kept(&s)))
 }
 
+/// 通話の文字起こしの項目が空か (空白だけも空)。印を書く直前の読み直しに使う
+pub async fn transcript_is_empty(
+    client: &HubSpotClient,
+    call_id: &str,
+) -> Result<bool, HubSpotError> {
+    let r = client
+        .get_object("calls", call_id, &[TRANSCRIPT_PROP])
+        .await?;
+    Ok(r.properties
+        .get(TRANSCRIPT_PROP)
+        .cloned()
+        .flatten()
+        .is_none_or(|s| s.trim().is_empty()))
+}
+
 /// 録音が消えた・文字起こしできない通話に印の文を書く (次からは Zoom を呼ばない)
 pub async fn save_mark(
     client: &HubSpotClient,
