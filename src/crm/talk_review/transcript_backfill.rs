@@ -32,8 +32,9 @@ pub const CUTOFF: &str = "2026-11-12T00:00:00Z";
 /// 対象の下の端。トークの振り返りの判定は 2026-10 から (これより前の行は無い)
 pub const SINCE: &str = "2026-01-01T00:00:00Z";
 /// 1 周に Zoom から取る本数の上限
-pub const PER_CYCLE: usize = 40;
-/// 1 周に HubSpot の有無を確かめる本数の上限 (batch read 40 回まで)
+pub const PER_CYCLE: usize = 80;
+/// 1 周に HubSpot の有無を確かめる本数の上限 (batch read 40 回まで)。
+/// 1 周 80 本が `CYCLE_BUDGET` に収まらなければ、締め切りで残りを次の周回に回す
 pub const CHECK_PER_CYCLE: usize = 2_000;
 /// HubSpot の有無を 1 回で確かめる本数。文字起こしの本文 (最大 65,000 字) ごと返るので、100 件より小さくする
 pub const CHECK_CHUNK: usize = 50;
@@ -42,9 +43,10 @@ pub const MAX_NOT_READY: u32 = 3;
 /// 1 周にかけてよい時間。過ぎたら残りは次の周回 (取り込み・判定を待たせない)
 pub const CYCLE_BUDGET: Duration = Duration::from_secs(180);
 /// 1 日 (日本時間) にこの処理が Zoom を呼ぶ回数の上限。録音・文字起こしの API の rate limit の種類は
-/// 公式の資料で確かめられなかったので、Zoom Phone でいちばん厳しい Heavy (Pro: 5 回/秒、Heavy と
-/// Resource-intensive で共有の 1 日 15,000 回) とみなし、判定・接触の判定の分を残す
-pub const ZOOM_DAILY_BUDGET: u32 = 4_000;
+/// 公式の資料で確かめられなかったので、Zoom Phone でいちばん厳しい Heavy とみなす。会社の Zoom は Business+
+/// (2026-11-15 ユーザー確認) で、Heavy は 10 回/秒・Heavy と Resource-intensive で共有の 1 日 30,000 回。
+/// 判定・接触の判定の分を残す
+pub const ZOOM_DAILY_BUDGET: u32 = 8_000;
 /// batch read がこの回数続けて失敗したら warn を出す (同じ 50 件で止まっていると分かるように)
 pub const CHECK_FAIL_WARN: u32 = 3;
 
@@ -606,7 +608,7 @@ mod tests {
         b.load(refs(&ids));
         let rep = b.step(&client, &zoom, later(), day()).await;
         assert_eq!((rep.saved, rep.finished), (PER_CYCLE, false));
-        // 40 本見つけるまで 50 件ずつ確かめる (1 回)
+        // 80 本見つけるまで 50 件ずつ確かめる (50 + 40。残りの 10 本も同じ読み取りで確かめ済み)
         let sizes: Vec<usize> = hs
             .batch_reads
             .lock()
@@ -614,7 +616,7 @@ mod tests {
             .iter()
             .map(Vec::len)
             .collect();
-        assert_eq!(sizes, [50]);
+        assert_eq!(sizes, [50, 40]);
         assert_eq!(b.remaining(), 10);
         assert_eq!(zoom.called()[0], "z1");
         assert_eq!(zoom.called()[PER_CYCLE - 1], format!("z{PER_CYCLE}"));
