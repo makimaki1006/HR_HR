@@ -223,7 +223,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   expect(dialog.textContent).toContain('現在の本文です。');
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
   const drawer = openOtherAnalysis('本文・画像');
-  fireEvent.click(within(drawer).getByRole('button', { name: /10\/01 の本文/ }));
+  fireEvent.click(within(drawer).getByRole('button', { name: /10\/1 の本文/ }));
   fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);
   expect(screen.getByRole('dialog', { name: listing.title }).textContent).toContain('以前の本文です。');

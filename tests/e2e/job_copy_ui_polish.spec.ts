@@ -36,9 +36,10 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
       await openOtherAnalysis(page, '本文・画像');
       await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
+      // 表示中の本文は記録された日で呼ぶ（年は今年なら省く）
+      await expect(page.locator('.jc-reading-title h2')).toHaveText(/^(2026\/)?10\/2( 09:00)? の本文（最新）$/);
       await closeOtherAnalysis(page);
       await expect(page.locator('.jc-detail-heading')).toContainText('合成運輸株式会社 · 大分県大分市 · HRハッカー');
-      await expect(page.locator('.jc-record-meta')).toContainText('2026/10/02 09:00 にHubSpotに記録された本文');
       await expect(page.locator('.jc-main')).not.toContainText(/保存を確認・掲載時刻不明|確認した本文 1|取引先名未取得/);
       if (!pinned) await page.getByRole('button', { name: '左の一覧で求人を探す' }).click();
       await expect.poll(() => wholeCards(page)).toBeGreaterThanOrEqual(5);
@@ -150,7 +151,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-scope-wording-1440.png') });
       await scope.locator('summary').click();
       await selectJobFeature(page, 'diff');
-      await expect(page.locator('.jc-image-comparison')).toContainText('比較元または比較先の画像が未取得のため、画像が変わったかどうかは不明です。');
+      await expect(page.locator('.jc-image-comparison')).toContainText('前の本文または後の本文の画像が未取得のため、画像が変わったかどうかは不明です。');
       await expect(page.locator('.jc-image-comparison')).not.toContainText('版');
       await selectJobFeature(page, 'applicants');
       await expect(page.locator('.ac-overall')).toContainText('どの本文への応募か不明');

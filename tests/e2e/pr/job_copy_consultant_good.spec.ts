@@ -42,7 +42,7 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   await draft.fill('募集職種を増やす提案をした。\n来週の打ち合わせで内容を決める。');
   expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   if (dir) await page.screenshot({ path: `${dir}/good-detail-memo.png`, fullPage: false });
-  await expect(detail.getByRole('heading', { name: '提案メモ（HubSpot の案件に日付付きで追記されます）' })).toBeVisible();
+  await expect(detail.getByRole('heading', { name: /^提案メモ\s*（HubSpot の案件に日付付きで追記されます）$/ })).toBeVisible();
   await detail.getByRole('button', { name: 'メモを追記する' }).click();
   await expect(detail.getByText(/^保存しました \d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/)).toHaveClass('nt-green');
   expect(patches).toHaveLength(1);

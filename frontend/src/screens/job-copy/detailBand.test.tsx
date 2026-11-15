@@ -79,7 +79,7 @@ describe('求人のページの上の帯の表示', () => {
     expect(screen.getByText('応募1件の費用')).toBeTruthy();
     expect(screen.getByTestId('band-per-application').textContent).toBe('¥1,500直近4週の課金 ÷ 応募');
     // 課金は、最後の課金の週までの4週であることを日付で示す。
-    expect(screen.getByText('課金（10/05 までの4週）')).toBeTruthy();
+    expect(screen.getByText('課金（10/5 までの4週）')).toBeTruthy();
     expect(screen.getByTestId('band-billing').textContent).toBe('¥30,000');
     // データの最後の日は帯の中の1行。右の「数字の前提」欄はない。
     expect(screen.getByTestId('rail-last-application').textContent).toMatch(/^応募データ：(2026\/)?10\/5まで$/);

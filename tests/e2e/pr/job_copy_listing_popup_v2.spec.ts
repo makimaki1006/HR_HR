@@ -37,7 +37,9 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   await expect(dialog).toContainText('1 / 3件目');
   await expect(dialog.getByRole('button', { name: '‹ 前の求人' })).toBeDisabled();
   await expect(dialog.locator('.jc-listing-two-columns')).toHaveCount(1);
-  await expect(dialog.locator('mark').first()).toHaveText('梱包');
+  // 左が前の本文（消えた所は赤）、右が後の本文（増えた所は緑）
+  await expect(dialog.locator('mark.jc-mark-removed').first()).toHaveText('出荷');
+  await expect(dialog.locator('mark.jc-mark-added').first()).toHaveText('梱包');
   const bounds = (await dialog.boundingBox())!;
   expect(bounds.width).toBe(width * 0.95); expect(Math.abs(bounds.height / 742 - 0.9)).toBeLessThan(0.01);
   const pair = dialog.locator('.jc-listing-comparison-row').first().locator('section');
@@ -83,7 +85,7 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: `${rows[0]!.title}の本文を見る` }).click();
   await openOtherAnalysis(page, '本文・画像');
-  await page.getByRole('button', { name: /10\/01( 09:00)? の本文/ }).click();
+  await page.getByRole('button', { name: /10\/1( 09:00)? の本文/ }).click();
   await closeOtherAnalysis(page);
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   await expect(dialog.locator('.jc-listing-two-columns')).toHaveCount(0);
@@ -134,9 +136,9 @@ for (const width of [1440, 1920]) test(`取得不能の給与・任意項目と�
     await expect(dialog).not.toContainText('記載のない任意項目（0件）');
     await expect(dialog.getByText('任意項目の記載状況を取得できていません。', { exact: true })).toHaveCount(2);
     const row = dialog.locator('.jc-listing-comparison-row').first();
-    await expect(row.locator('p')).toHaveText([after, before]);
-    await expect(row.locator('mark')).toHaveText([scenario.added, scenario.removed]);
-    expect(await row.locator('mark').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 209, 158)');
+    await expect(row.locator('p')).toHaveText([before, after]);
+    await expect(row.locator('mark')).toHaveText([scenario.removed, scenario.added]);
+    expect(await row.locator('mark.jc-mark-added').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 209, 158)');
     if (width === 1440) {
       await mkdir(shots, { recursive: true });
       await row.locator('mark').first().scrollIntoViewIfNeeded();

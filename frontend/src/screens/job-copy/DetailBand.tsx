@@ -5,7 +5,6 @@ import { RetryApplicants } from './RetryApplicants';
 import { bandNumbers, formatBandYen, listingPeriodText, marketMonthOverMonth, noApplicationDatesText, signedPct } from './detailBandModel';
 import type { MarketMonthOverMonth } from './detailBandModel';
 import { formatMonthJa, todayJst } from './timelineModel';
-import { md } from './listingEventsModel';
 import type { BillingEntry } from './timelineModel';
 import { publicationLabel } from './hubspotListings';
 import { InfoTip } from './InfoTip';
@@ -53,16 +52,16 @@ export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpe
     return () => { observer.disconnect(); host.style.removeProperty('--jc-band-h'); };
   }, []);
   const parts = [job.media, status].filter(Boolean);
-  return <div className="jc-band" ref={band} role="region" aria-label="この案件の要点">
+  return <div className="jc-band" ref={band} role="region" aria-label="この求人の要点">
     <div className="jc-band-name"><h1 title={job.title}>{job.title}</h1>
       <span className="jc-band-status"><span data-testid="band-status">{parts.join(' ・ ')}</span>
         {version && <>{parts.length > 0 && <span aria-hidden="true"> ・ </span>}<InfoTip className="jc-infotip-left jc-band-version" label={<span data-testid="band-version">{version.label}</span>}>{version.detail}</InfoTip></>}</span></div>
     <dl className="jc-band-numbers">
       <div><dt>応募（直近4週）</dt><dd data-testid="band-recent">{n.recent === null ? '—' : `${String(n.recent)}件`}<small>{n.previous === null ? '' : `前の4週は${String(n.previous)}件`}</small></dd></div>
       <div><dt>応募1件の費用</dt><dd data-testid="band-per-application">{formatBandYen(n.perApplicationYen)}<small>{n.perApplicationYen === null ? n.billingPer4WeeksYen === null ? '課金データなし' : n.recent === 0 ? '応募なし' : '' : '直近4週の課金 ÷ 応募'}</small></dd></div>
-      <div><dt>{n.lastBillingDate ? `課金（${md(n.lastBillingDate)} までの4週）` : '課金（4週あたり）'}</dt><dd data-testid="band-billing">{formatBandYen(n.billingPer4WeeksYen)}<small>{n.billingPer4WeeksYen === null ? '課金データなし' : ''}</small></dd></div>
+      <div><dt>{n.lastBillingDate ? `課金（${shortDay(n.lastBillingDate)} までの4週）` : '課金（4週あたり）'}</dt><dd data-testid="band-billing">{formatBandYen(n.billingPer4WeeksYen)}<small>{n.billingPer4WeeksYen === null ? '課金データなし' : ''}</small></dd></div>
     </dl>
-    {latestEvent && onOpenLatest && <button type="button" className="jc-band-latest jc-open" data-testid="band-latest-event" onClick={onOpenLatest}><span>最新の変更：{md(latestEvent.date)} {latestEvent.title}</span><span aria-hidden="true" className="jc-band-latest-cue">見る ›</span></button>}
+    {latestEvent && onOpenLatest && <button type="button" className="jc-band-latest jc-open" data-testid="band-latest-event" onClick={onOpenLatest}><span>最新の変更：{shortDay(latestEvent.date)} {latestEvent.title}</span><span aria-hidden="true" className="jc-band-latest-cue">見る ›</span></button>}
     <span className="jc-band-spacer" />
     <button type="button" className="jc-button" onClick={onOpenFullCompare}>求人の全文を比べる</button>
     <DataLine job={job} n={n} />

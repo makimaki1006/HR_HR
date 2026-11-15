@@ -10,7 +10,7 @@ export function historyVersionLabel(writtenAt: string | null | undefined, all: r
   if (!full) return `日時不明の本文${latest ? '（最新）' : ''}`;
   const day = full.slice(0, 10);
   const sameDay = all.filter(other => formatDateTimeJst(other, '').slice(0, 10) === day).length > 1;
-  const monthDay = `${String(Number(day.slice(5, 7)))}/${day.slice(8, 10)}`;
+  const monthDay = `${String(Number(day.slice(5, 7)))}/${String(Number(day.slice(8, 10)))}`;
   const date = day.slice(0, 4) === thisYear ? monthDay : `${day.slice(0, 4)}/${monthDay}`;
   return `${date}${sameDay ? ` ${full.slice(11)}` : ''} の本文${latest ? '（最新）' : ''}`;
 }

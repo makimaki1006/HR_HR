@@ -90,6 +90,9 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
   .jc-detail .jc-band { flex-wrap: wrap; gap: 12px; }
   .jc-detail .jc-band-name { flex: 1 1 90px; min-width: 90px; }
   .jc-detail .jc-band-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 幅が足りないとき、本文の呼び名は枠の中で「…」に切る（枠の外へ出さない）。 */
+  .jc-detail .jc-band-version { min-width: 0; max-width: 100%; }
+  .jc-detail .jc-band-version > summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .jc-detail .jc-band-numbers { flex-wrap: nowrap; gap: 12px; flex: 0 0 auto; }
   .jc-detail .jc-band-numbers dd { font-size: 18px; }
   .jc-detail .jc-band-numbers dd small { display: block; margin-left: 0; font-size: 11px; }
@@ -193,4 +196,5 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .lo-head label.lo-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
 .lo-head label.lo-toggle input { margin: 0; }
 .jc-detail .jc-band-latest.jc-open { flex: 0 1 auto; min-width: 200px; }
-.lt-panel .ph-section > summary { display: none; }
+
+.lt-panel[hidden] { display: none; }

@@ -218,7 +218,7 @@ test("顧客の値と図・採用単価の並び・4メニューの担当引き�
     .click();
   await expect(page.getByRole("dialog")).toContainText("次の予定");
   await expect(
-    page.getByRole("link", { name: "案件の画面を開く" }),
+    page.getByRole("link", { name: "案件のページを開く" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("button", { name: "案件一覧", exact: true }).click();

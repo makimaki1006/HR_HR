@@ -408,8 +408,10 @@ test('電話ヒアリングを開くとデモの聞き取りと通話記録を�
   await expect(page.locator('.lt-card', { hasText: '電話ヒアリングを見る' })).toContainText('記録あり 3件 ／ 応募 28件');
   await expect(page.locator('.ph-section')).toHaveCount(0);
   await openWork(page, '電話ヒアリングを見る');
+  // 札の中では畳む見出しを付けず、そのまま出す
   const section = page.locator('.ph-section');
-  await expect(section).toHaveAttribute('open');
+  await expect(section).toBeVisible();
+  await expect(page.locator('details.ph-section')).toHaveCount(0);
   const card = section.locator('article').first();
   await expect(card).toContainText('応募日：2026/09/24');
   await expect(card.locator('h3')).toHaveText('応募者：38・女性・大分県大分市');

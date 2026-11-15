@@ -43,9 +43,10 @@ export function OverdueBadge({ due }: { due: string | null | undefined }) {
   const days = overdueDays(due);
   return days === null ? null : <span className="nt-overdue">{days}日過ぎています</span>;
 }
-export function NextTodoButton({ dealId, hasPlan = false, onSaved }: { dealId: string; hasPlan?: boolean; onSaved?: (() => void) | undefined }) {
+/** compact: 表の中に置くときの短い文字。読み上げと title は全文のまま。 */
+export function NextTodoButton({ dealId, hasPlan = false, onSaved, compact = false }: { dealId: string; hasPlan?: boolean; onSaved?: (() => void) | undefined; compact?: boolean }) {
   const [open, setOpen] = useState(false);
-  return <><button className="jc-button" type="button" onClick={() => { setOpen(true); }}>{nextTodoLabel(hasPlan)}…</button>{open && <NextTodoDialog dealId={dealId} hasPlan={hasPlan} onClose={() => { setOpen(false); }} onSaved={onSaved} />}</>;
+  return <><button className="jc-button" type="button" aria-label={`${nextTodoLabel(hasPlan)}…`} title={compact ? nextTodoLabel(hasPlan) : undefined} onClick={() => { setOpen(true); }}>{compact && hasPlan ? '済みにして次を入れる' : nextTodoLabel(hasPlan)}…</button>{open && <NextTodoDialog dealId={dealId} hasPlan={hasPlan} onClose={() => { setOpen(false); }} onSaved={onSaved} />}</>;
 }
 export function NextTodoDialog({ dealId, hasPlan = false, onClose, onSaved }: { dealId: string; hasPlan?: boolean; onClose: () => void; onSaved?: (() => void) | undefined }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -79,7 +80,7 @@ export function NextTodoDialog({ dealId, hasPlan = false, onClose, onSaved }: { 
   const queued = statuses.some(s => s.phase === 'queued');
   const failures = statuses.flatMap(s => s.phase === 'error' || s.phase === 'invalid' ? [s.message] : []);
   const display = (name: string, value: string | null | undefined) => name === 'actionyotei' ? formatDateJst(value ?? null, '未登録') : options.find(o => o.value === value)?.label ?? '未登録';
-  return <dialog ref={dialog} className="nt-dialog" aria-labelledby="nt-title" onCancel={e => { if (statuses.some(s => s.phase === 'saving')) e.preventDefault(); else onClose(); }}><h2 id="nt-title">{nextTodoLabel(hasPlan)}</h2><p className="nt-current">保存すると HubSpot の案件の次の予定（日付と内容）が書き換わります。</p>
+  return <dialog ref={dialog} className="nt-dialog" aria-labelledby="nt-title" onCancel={e => { if (statuses.some(s => s.phase === 'saving')) e.preventDefault(); else onClose(); }}><h2 id="nt-title">{nextTodoLabel(hasPlan)}</h2><p className="nt-current">保存すると HubSpot の案件の次の予定（日付と内容）が書き換わります。{hasPlan && '前の予定は上書きされ、残りません。'}</p>
     {base && <p className="nt-current">現在の予定：{display('actionyotei', base.actionyotei)} ・ {display('actionnaiyou', base.actionnaiyou)}</p>}
     <label>日付<input type="text" inputMode="numeric" placeholder="YYYY/MM/DD" value={due.replaceAll('-', '/')} disabled={busy} onChange={e => { setDue(e.target.value.replaceAll('/', '-')); dismiss(); }} /></label>
     {due.length >= 10 && !validTodoDate(due) && <p role="alert">存在する日付を YYYY/MM/DD で入力してください。</p>}

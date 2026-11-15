@@ -479,3 +479,4 @@
 .jc-review-mark { display: grid; justify-items: end; gap: 4px; max-width: 280px; }
 .jc-review-mark small { color: var(--jc-muted, #64748b); font-size: 12px; text-align: right; line-height: 1.5; }
 .jc-deal-sep { margin: 0 6px; color: #8a99a6; }
+.jc-deal-expiry.is-ended { color:#6b7a86; font-weight:500; }

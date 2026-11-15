@@ -163,7 +163,7 @@ await audit(page, `${prefix}-sort`);
   await page.locator('.dc-root').getByRole('button', { name: '編集', exact: true }).click();
   await audit(page, `${prefix}-contract-edit`);
   await page.locator('.dc-root').getByRole('button', { name: 'キャンセル', exact: true }).click();
-  await page.getByRole('button', { name: '次の予定を入れる', exact: true }).click();
+  await page.getByRole('button', { name: '次の予定を入れる…', exact: true }).click();
   await audit(page, `${prefix}-next-todo`);
   await page.getByRole('dialog', { name: '次の予定を入れる' }).getByRole('button', { name: '閉じる', exact: true }).click();
   const selection = page.locator('.jc-deal-table input[type=checkbox]');

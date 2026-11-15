@@ -18,7 +18,7 @@ function query(selector: string): HTMLElement {
 describe('求人の画面（案3-2）', () => {
   it('上の帯に最新の変更と全文を比べる操作があり、手直しの入口は「この求人でやること」の1つにまとめる', () => {
     render(<JobCopyScreen />);
-    const band = screen.getByRole('region', { name: 'この案件の要点' });
+    const band = screen.getByRole('region', { name: 'この求人の要点' });
     expect(within(band).getByTestId('band-latest-event').textContent).toBe('最新の変更：9/25 給与と本文と画像を変更見る ›');
     expect(within(band).getByRole('button', { name: '求人の全文を比べる' })).toBeTruthy();
     expect(within(band).queryByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeNull();
@@ -71,9 +71,13 @@ describe('求人の画面（案3-2）', () => {
     fireEvent.click(hearingCard);
     expect(cards[2]?.getAttribute('aria-pressed')).toBe('true');
     const panel = screen.getByRole('region', { name: '電話ヒアリングを見る' });
-    expect(panel.querySelector<HTMLDetailsElement>('details.ph-section')?.open).toBe(true);
+    expect(panel.hidden).toBe(false);
+    // 札の中では見出しが二重にならないよう、畳む見出し（details）を付けない
+    expect(panel.querySelector('details')).toBeNull();
+    expect(panel.querySelector('.ph-section')).not.toBeNull();
     fireEvent.click(within(panel).getByRole('button', { name: '電話ヒアリングを見るを閉じる' }));
-    expect(screen.queryByRole('region', { name: '電話ヒアリングを見る' })).toBeNull();
+    // 閉じても中身は消さず hidden にする（作りかけを残すため）
+    expect(document.querySelector<HTMLElement>('.lt-panel[aria-label="電話ヒアリングを見る"]')?.hidden).toBe(true);
   });
 
   it('出来事を押すと、ほかに応募を動かしそうなことが出る。もう一度押すと閉じる', () => {

@@ -28,7 +28,7 @@ import './listing-overview.css';
 /** 出来事の「数え方」（見出しの ⓘ に畳む）。 */
 function EventRules() {
   return <>
-    <p>出来事の日の前の4週と後の4週の応募を、件数で比べます。どちらが良いかの判定はしません。応募の数はほかの要因でも動くため、原因を決めるものではありません。</p>
+    <p>出来事の日の前の4週と後の4週の応募を、件数で比べます。応募の数はほかの要因でも動くため、比べた差で良し悪しや原因は決めません。</p>
     <ul className="lo-rules">
       <li>課金：前後4週にほかの課金の変更（開始・停止・{BILLING_EVENT_MIN_PCT}%以上の増減）があれば「要注意」、なければ「小さい」。</li>
       <li>市場：職種を指定した求人だけ。前後4週で競合の求人数が{MARKET_CAUTION_PCT}%以上動いていれば「要注意」。</li>
@@ -228,7 +228,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
   const applicationCount = countedApplications(events);
   const card = useRef<HTMLElement | null>(null);
   useEffect(() => { card.current?.scrollIntoView({ block: 'nearest' }); }, [selectedId]);
-  const phonePanel = <PhoneHearingContent open applicationRows={job.applicationRows ?? []} {...hearing} onApplication={key => {
+  const phonePanel = <PhoneHearingContent bare applicationRows={job.applicationRows ?? []} {...hearing} onApplication={key => {
     const event = events.find(event => event.applicationKey === key);
     if (!event) return;
     setShowApplications(true);

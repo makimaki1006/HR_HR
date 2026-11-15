@@ -67,7 +67,8 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   expect(patches[0]!.set).toEqual({ actionyotei: '2026-10-23', actionnaiyou: 'review_value' });
   expect(patches[0]!.operation_id).toMatch(/^[0-9a-f-]{36}$/);
   await dialog.getByRole('button', { name: '閉じる' }).click();
-  await expect(list.locator('tbody tr')).toContainText('2026/10/23応募状況を確認する');
+  // 日付と内容の間には、過ぎていれば「◯日過ぎています」の札が入る
+  await expect(list.locator('tbody tr')).toContainText('2026/10/23'); await expect(list.locator('tbody tr')).toContainText('応募状況を確認する');
   await expect(page.getByRole('button', { name: /期限切れ/ }).locator('.jh-count')).toHaveText('0件');
   await list.getByRole('button', { name: '合成案件106' }).click();
   const next = page.getByRole('region', { name: '次の予定' });

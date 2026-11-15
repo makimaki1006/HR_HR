@@ -18,9 +18,13 @@ export function dayOf(value: string | null | undefined): string | null {
 export function daysUntil(day: string, today = todayJst()): number {
   return Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
 }
-/** 満了までの日数の表示。30日以内（過ぎたものを含む）は急ぐものとして赤。 */
-export function expiryText(days: number): { text: string; urgent: boolean } {
-  return { text: days >= 0 ? `満了まで ${String(days)}日` : `満了から ${String(-days)}日`, urgent: days <= 30 };
+/**
+ * 満了までの日数の表示。赤（急ぐ）は残り 30 日以内と、過ぎて 30 日以内だけ。
+ * 過ぎて 31 日以上たった案件は「満了済み」と灰色にする（終わった案件を急ぐものに見せない）。
+ */
+export function expiryText(days: number): { text: string; tone: 'normal' | 'urgent' | 'ended' } {
+  if (days >= 0) return { text: `満了まで ${String(days)}日`, tone: days <= 30 ? 'urgent' : 'normal' };
+  return -days <= 30 ? { text: `満了から ${String(-days)}日`, tone: 'urgent' } : { text: '満了済み', tone: 'ended' };
 }
 
 /** 大見出しは案件名。下に顧客名・担当・ステージ・満了までの日数と HubSpot へのリンク。 */
@@ -35,7 +39,7 @@ export function DealHeading({ deal, head }: { deal: DealSelection; head: DealHea
   return <header className="jc-deal-head">
     <h1>{name}</h1>
     <p className="jc-deal-meta">{parts.map((part, index) => <span key={part}>{index > 0 && <span aria-hidden="true" className="jc-deal-sep">・</span>}{part}</span>)}
-      {expiry && <span>{parts.length > 0 && <span aria-hidden="true" className="jc-deal-sep">・</span>}<strong className={`jc-deal-expiry${expiry.urgent ? ' is-urgent' : ''}`} data-testid="deal-expiry">{expiry.text}</strong></span>}
+      {expiry && <span>{parts.length > 0 && <span aria-hidden="true" className="jc-deal-sep">・</span>}<strong className={`jc-deal-expiry${expiry.tone === 'urgent' ? ' is-urgent' : expiry.tone === 'ended' ? ' is-ended' : ''}`} data-testid="deal-expiry">{expiry.text}</strong></span>}
       {head.detail?.deal.deep_link && <OutLink href={head.detail.deal.deep_link} name="HubSpotで案件を開く" />}</p>
   </header>;
 }

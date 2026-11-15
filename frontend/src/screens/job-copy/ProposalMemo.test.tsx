@@ -56,7 +56,7 @@ it.each(['off', 'missing'] as const)('書けないときは入力欄を隠して
 });
 it('反映待ちは黄色、入力を空にして二重の追記を防ぐ', async () => {
   api('queued'); render(<ProposalMemo dealId="101" />); const input = await enter();
-  expect((await screen.findByText('一時保存済み・HubSpotへの反映待ち')).className).toBe('nt-yellow'); expect(input.value).toBe(''); expect(input.disabled).toBe(true);
+  expect((await screen.findByText(/^受け付けました（HubSpot への反映待ち） \d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/)).className).toBe('nt-yellow'); expect(input.value).toBe(''); expect(input.disabled).toBe(true);
 });
 it('通信エラーは赤で入力を残し、再送は同じ操作を使う', async () => {
   const bodies = api('error'); render(<ProposalMemo dealId="101" />); const input = await enter();

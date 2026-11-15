@@ -359,7 +359,7 @@ impl<'a> Metrics<'a> {
             reasons.push(json!({"kind":kind,"text":text,"strong":strong}))
         };
         if cs::low_nps(nps(&work.record)) {
-            add("nps", "定期NPSが4以下", false);
+            add("nps", "定期の満足度が4以下", false);
         }
         let established =
             cs::date10(&d.contract_start_date).is_some_and(|st| (today - st).num_days() > 30);

@@ -113,7 +113,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(page).toHaveURL(/risk_deal=100/);
   const detail = page.getByRole('dialog');
   await expect(detail).toBeVisible();
-  await expect(detail.getByRole('link', { name: '案件の画面を開く' })).toHaveAttribute('href', /[?&]deal=100(?:&|$)/);
+  await expect(detail.getByRole('link', { name: '案件のページを開く' })).toHaveAttribute('href', /[?&]deal=100(?:&|$)/);
   await page.goBack();
   await expect(page.getByRole('heading', { name: '案件の一覧' })).toBeVisible();
   await page.goBack();

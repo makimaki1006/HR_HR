@@ -53,7 +53,7 @@ export function ProposalMemo({ dealId }: { dealId: string }) {
         void write.save(request).then(outcome => { if (outcome.kind === 'saved' || outcome.kind === 'queued') { setDraft(''); setSavedAt(new Date()); } });
       }}>メモを追記する</button></>}
     {status?.phase === 'saved' && <p role="status" className="nt-green">保存しました{savedAt ? ` ${savedTime(savedAt)}` : ''}</p>}
-    {busy && <p role="status" className="nt-yellow">{status.phase === 'queued' ? '一時保存済み・HubSpotへの反映待ち' : '保存しています…'}</p>}
+    {busy && <p role="status" className="nt-yellow">{status.phase === 'queued' ? `受け付けました（HubSpot への反映待ち）${savedAt ? ` ${savedTime(savedAt)}` : ''}` : '保存しています…'}</p>}
     {(status?.phase === 'error' || status?.phase === 'invalid') && <p role="alert" className="nt-red">{status.message}</p>}
     {write.conflict && <div role="alert" className="nt-red"><p>ほかの更新があります。最新のメモを確認してください。</p><button className="jc-button" onClick={() => { setBase(current); write.resolveConflict('theirs'); }}>最新のメモを確認</button></div>}
   </section>;

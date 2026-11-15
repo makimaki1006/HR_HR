@@ -101,7 +101,8 @@ for (const width of [1440, 1920]) test(`AirWorkの改行コードと空白だけ
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('checkbox', { name: '変わった項目だけ表示（0項目）' })).toBeVisible();
     await expect(dialog.locator('.jc-listing-change-dot, mark')).toHaveCount(0);
-    expect(await dialog.locator('.jc-listing-comparison-row').first().locator('p').first().textContent()).toBe(after);
+    // 左が前の本文、右が後の本文
+    expect(await dialog.locator('.jc-listing-comparison-row').first().locator('section').last().locator('p').first().textContent()).toBe(after);
     if (width === 1440 && text === '棚から集めます。\n箱に詰めます。') {
       await mkdir(shots, { recursive: true });
       await page.screenshot({ path: `${shots}/07-airwork-line-endings-popup.png` });

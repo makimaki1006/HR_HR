@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { CloseListButton } from './Pressable';
 
@@ -27,7 +28,11 @@ function Card({ title, text, note, pressed, disabled, onClick }: { title: string
 export function ListingTasks({ options, hearingSummary, hearingPanel }: { options: ListingTaskOptions; /** 「記録あり 0件 ／ 応募 3件」 */ hearingSummary: string; hearingPanel: ReactNode }) {
   const { active, onChange } = options;
   const toggle = (task: ListingTask) => { onChange(active === task ? null : task); };
-  const panel = active === 'edit' ? options.edit.panel : active === 'rikurozi' ? options.rikurozi.panel : active === 'hearing' ? hearingPanel : null;
+  // 手直しの入力やリクロジ向けの案の生成は、札を閉じる・切り替えても消さない。
+  // 一度開いた札の中身は描いたままにして、開いていない札は hidden にする（開く前は描かないので、開く前の読み込みは増えない）。
+  const [opened, setOpened] = useState<readonly ListingTask[]>(active ? [active] : []);
+  if (active && !opened.includes(active)) setOpened([...opened, active]);
+  const panels: [ListingTask, ReactNode][] = [['edit', options.edit.panel], ['rikurozi', options.rikurozi.panel], ['hearing', hearingPanel]];
   return <section className="lt-root" aria-labelledby="lt-title">
     <h2 id="lt-title">この求人でやること</h2>
     <div className="lt-cards">
@@ -36,9 +41,9 @@ export function ListingTasks({ options, hearingSummary, hearingPanel }: { option
       <Card title={TITLES.hearing} text={hearingSummary} pressed={active === 'hearing'} onClick={() => { toggle('hearing'); }} />
       <Card title={TITLES.analysis} text="本文と画像・変更の前後・応募者など" onClick={options.onAnalysis} />
     </div>
-    {active && panel && <div className="lt-panel" role="region" aria-label={TITLES[active]}>
-      <div className="lt-panel-head"><h3>{TITLES[active]}</h3><CloseListButton label={TITLES[active]} onClick={() => { onChange(null); }} /></div>
+    {panels.map(([task, panel]) => panel && (active === task || opened.includes(task)) ? <div key={task} className="lt-panel" role="region" aria-label={TITLES[task]} hidden={active !== task}>
+      <div className="lt-panel-head"><h3>{TITLES[task]}</h3><CloseListButton label={TITLES[task]} onClick={() => { onChange(null); }} /></div>
       {panel}
-    </div>}
+    </div> : null)}
   </section>;
 }

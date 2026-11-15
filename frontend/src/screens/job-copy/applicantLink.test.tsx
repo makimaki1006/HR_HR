@@ -29,7 +29,9 @@ it('同じ応募に属性・応募理由・電話ヒアリング・メモを表�
   expect(event.textContent).toContain('勤務条件の優先順位：通勤時間、休日、給与の順で希望');
   expect(event.textContent).toContain('【架電】土日休みと、見学できる日程を確認したい。');
   fireEvent.click(within(event).getByRole('button', { name: '電話ヒアリングのこの応募へ' }));
-  expect(container.querySelector('details.ph-section')?.hasAttribute('open')).toBe(true);
+  // 電話ヒアリングの札が開き、札の中では畳む見出しを付けずにそのまま出す
+  expect(container.querySelector<HTMLElement>('.lt-panel[aria-label="電話ヒアリングを見る"]')?.hidden).toBe(false);
+  expect(container.querySelector('.lt-panel details.ph-section')).toBeNull();
   const card = container.querySelector<HTMLElement>(`#hearing-${'8'.repeat(64)}`);
   if (!card) throw new Error('card');
   expect(card.textContent).toContain('応募者：38・女性・大分県大分市');

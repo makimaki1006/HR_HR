@@ -64,6 +64,24 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await expect(page.getByRole('combobox', { name: '担当の種類' })).toHaveValue('consultant');
 });
 
+// 危ない案件から開いた案件のページは、「← 危ない案件に戻る」で危ない案件に戻る。
+test('危ない案件から開いた案件のページから、危ない案件に戻る', async ({ page }) => {
+  await page.route('**/api/job-copy/consultant-scope?*', route => route.fulfill({ json: { ...scopeFixture, owner: new URL(route.request().url()).searchParams.get('owner') ?? '11' } }));
+  await page.route('**/api/job-copy/consultant-risk?*', route => route.fulfill({ json: riskFixture }));
+  await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: { status: 'ready', total: 0, next_offset: null, listings: [], deals: [], titles: [] } }));
+  await login(page);
+  await page.goto('/app/job-copy?deal=101&from=risk&owner=11&owner_field=consultant');
+  const menu = page.getByRole('navigation', { name: '案件管理のメニュー' });
+  await expect(menu.getByRole('button', { name: '危ない案件', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('button', { name: '危ない案件に戻る', exact: true }).click();
+  await expect(page).toHaveURL(/view=risk/);
+  const params = new URL(page.url()).searchParams;
+  expect(params.has('deal')).toBe(false); expect(params.has('from')).toBe(false);
+  expect(params.get('owner')).toBe('11');
+  await expect(page.getByRole('button', { name: riskRow.name })).toBeVisible();
+  await expect(page.getByRole('button', { name: '危ない案件に戻る', exact: true })).toHaveCount(0);
+});
+
 // 共通メニューのホームは、固定一覧・求人の選択状態も解除する。
 test('固定一覧・求人詳細からホームへ戻り、担当を保つ', async ({ page }) => {
   await page.route('**/api/job-copy/home*', route => route.fulfill({ json: { ...demoHome, work: { ...demoOwnerTodo, owner: '22' } } }));
