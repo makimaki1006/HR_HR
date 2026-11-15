@@ -244,8 +244,62 @@ pub(super) struct Home {
     /// 取引に結び付いていない（または事業所が分からない）掲載中の求人の数。
     pub(super) live_without_company: usize,
     pub(super) median_cost_per_app: Option<i64>,
-    /// 掲載中の求人の媒体の実績のうち、いちばん新しい週の終わりの日（「まず見るもの」の数字の時点）。
-    pub(super) latest_week_end: Option<String>,
+    /// 媒体ごとの実績の時点（「まず見るもの」の数字の時点）。媒体ごとに取込の止まり方が違うため分けて出す。
+    pub(super) media_weeks: Vec<MediaWeek>,
+}
+/// 1 つの媒体の実績の時点。掲載中の求人それぞれの最新の週の終わりのうち、**最も多くの求人がそろっている週**
+/// （同数なら新しい方）。最大値だと 1 件だけ新しい求人があっても全体がそろって見え、取込が止まった求人の
+/// 多さが分からないため（2026-11-15、HRハッカーの多くは 10/11 のまま、一部だけ 11/08）。
+#[derive(Serialize, Debug, PartialEq)]
+pub(super) struct MediaWeek {
+    /// 画面の呼び名（Indeed / AirWork）。
+    pub(super) label: &'static str,
+    /// 最新の週が同じ求人が最も多い週の終わり（同数なら新しい方）。実績のある求人が無ければ null。
+    pub(super) week_end: Option<String>,
+    /// 最新の週がその週の求人の数。
+    pub(super) listings: usize,
+    /// 最新の週がそれより新しい求人の数。
+    pub(super) newer: usize,
+    /// 最新の週がそれより古い求人の数。
+    pub(super) older: usize,
+    /// 実績が 1 週も無い掲載中の求人の数。
+    pub(super) no_data: usize,
+    /// その媒体の掲載中の求人の数（実績の有無を問わない）。
+    pub(super) total: usize,
+}
+fn media_weeks(live: &[&Listing]) -> Vec<MediaWeek> {
+    [("hrh", "Indeed"), ("airwork", "AirWork")]
+        .into_iter()
+        .map(|(media, label)| {
+            let rows: Vec<_> = live.iter().filter(|row| row.media == media).collect();
+            let mut by_week: BTreeMap<NaiveDate, usize> = BTreeMap::new();
+            for perf in rows.iter().filter_map(|row| row.perf.as_ref()) {
+                *by_week.entry(perf.latest_end).or_default() += 1;
+            }
+            let with_data: usize = by_week.values().sum();
+            // 件数が多い週、同数なら新しい週（BTreeMap は古い順なので max_by_key は同数で後＝新しい方）。
+            let mode = by_week
+                .iter()
+                .max_by_key(|(_, n)| **n)
+                .map(|(w, n)| (*w, *n));
+            let count = |pick: &dyn Fn(&NaiveDate) -> bool| -> usize {
+                by_week
+                    .iter()
+                    .filter(|(w, _)| pick(w))
+                    .map(|(_, n)| n)
+                    .sum()
+            };
+            MediaWeek {
+                label,
+                week_end: mode.map(|(w, _)| w.to_string()),
+                listings: mode.map_or(0, |(_, n)| n),
+                newer: mode.map_or(0, |(m, _)| count(&|w| *w > m)),
+                older: mode.map_or(0, |(m, _)| count(&|w| *w < m)),
+                no_data: rows.len() - with_data,
+                total: rows.len(),
+            }
+        })
+        .collect()
 }
 
 fn is_live(row: &Listing) -> bool {
@@ -548,11 +602,7 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
         customers,
         live_without_company,
         median_cost_per_app: median_cpa,
-        latest_week_end: live
-            .iter()
-            .filter_map(|row| row.perf.as_ref().map(|p| p.latest_end))
-            .max()
-            .map(|d| d.to_string()),
+        media_weeks: media_weeks(&live),
     }
 }
 

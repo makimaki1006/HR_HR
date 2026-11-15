@@ -27,7 +27,7 @@ const response: HomeResponse = {
   rules: { trend_min_diff: 2, trend_min_percent: 20, cost_floor_yen: 10000, cost_per_app_times: 2, stale_days: 14, list_cap: 100 },
   home: {
     cards: [card('more', '直近4週の応募が、前の4週より多い求人', [row('1', '配送ドライバー・大分1', 20, 13)]), card('flat', '応募はあるが、前の4週とほぼ同じ求人', []), card('less', '直近4週の応募が、前の4週より少ない求人', [row('2', '介護スタッフ・熊本', 4, 5)], 130), card('costly', '課金が高いまま応募が少ない求人', []), card('stale', 'データが止まっている求人', [])],
-    customers, live_without_company: 2, median_cost_per_app: 7000, latest_week_end: '2026-10-11',
+    customers, live_without_company: 2, median_cost_per_app: 7000, media_weeks: [{ label: 'Indeed', week_end: '2026-10-11', listings: 98, newer: 12, older: 0, no_data: 10, total: 120 }, { label: 'AirWork', week_end: null, listings: 0, newer: 0, older: 0, no_data: 30, total: 30 }],
   },
 };
 const at = <T,>(items: T[], index: number): T => { const item = items[index]; if (item === undefined) throw new Error('missing'); return item; };
@@ -48,7 +48,7 @@ it('常に出すカードは2枚まで。残りは件数付きの札で、押す
   expect(at(cards, 0).className).toBe('jh-card jh-zero');
   expect(document.querySelector('.jh-rule')).toBeNull();
   expect(moreChips()).toEqual(['直近4週の応募が、前の4週より多い求人 1件', '応募はあるが、前の4週とほぼ同じ求人 0件（薄）', '直近4週の応募が、前の4週より少ない求人 130件', 'データが止まっている求人 0件（薄）', '直近7日に変更 0件（薄）']);
-  expect([...document.querySelectorAll('.jh-note')].map(el => el.textContent)).toContain('掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。媒体の実績：2026/10/11 までの週。増減は並べて見るためのもので、原因とは限りません。');
+  expect([...document.querySelectorAll('.jh-note')].map(el => el.textContent)).toContain('掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。媒体の実績：Indeed：最新の週が 10/11 の求人が最も多い（98件）・それより新しい 12件・実績なし 10件 ／ AirWork：実績なし。増減は並べて見るためのもので、原因とは限りません。');
   // 求人の一覧を読み込んだ時刻は「ⓘ 数え方を見る」の中に置く（媒体の実績の時点とは別）。
   expect(document.querySelector('section[aria-labelledby="jh-look"] .jh-section-head .jc-infotip-body')?.textContent).toContain('求人の一覧を読み込んだ時刻：2026/10/14 10:00。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。');
   expect(screen.queryByText(/効果あり|効果なし|成功|失敗/)).toBeNull();

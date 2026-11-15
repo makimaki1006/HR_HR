@@ -12,7 +12,7 @@ import { HEARING_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsMode
 import { ReasonCategorySummary } from './ReasonCategorySummary';
 import { maskPersonalDetails } from './personalText';
 import { selectedCategory } from './reasonCategories';
-import { eventChecks, eventCostNotes, eventCosts, eventCounts, md, resultText } from './listingEventsModel';
+import { countedApplications, eventChecks, eventCostNotes, eventCosts, eventCounts, md, resultText } from './listingEventsModel';
 import type { EventCosts, EventCounts, ListingEvent, MarketInput } from './listingEventsModel';
 import { chooseMarket, designatedTitle, indeedTitleState } from './marketMatch';
 import { marketRows } from './marketChartModel';
@@ -224,7 +224,8 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
   const shownEvents = expanded ? newestFirst : newestFirst.slice(0, RECENT_EVENT_COUNT);
   const lifeline = useMemo(() => buildLifeline(job, events, billing), [job, events, billing]);
   const selectedWeek = lifeline && selected ? weekIndex(lifeline, selected.date) : null;
-  const applicationCount = events.filter(event => event.kind === 'application').length;
+  // 同じ方の2回目以降の応募は出来事に出すが、件数には入れない。
+  const applicationCount = countedApplications(events);
   const card = useRef<HTMLElement | null>(null);
   useEffect(() => { card.current?.scrollIntoView({ block: 'nearest' }); }, [selectedId]);
   const phonePanel = <PhoneHearingContent open applicationRows={job.applicationRows ?? []} {...hearing} onApplication={key => {
@@ -268,7 +269,8 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
               {isApplication ? <span /> : <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>}
               <span className="lo-caret jc-open" aria-hidden="true">{open ? '閉じる ▲' : '詳細 ▼'}</span>
             </button>
-            {open && isApplication && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicationDetails job={job} event={event} hearing={hearing.data} loading={hearing.loading} onShowHearing={showHearing} /></div>}
+            {open && isApplication && event.repeat && <div className="lo-event-body"><p className="lo-summary">{event.repeatOf ? `この方の記録は${md(event.repeatOf)}の応募にまとめて出しています。` : 'この方の記録は最初の応募にまとめて出しています。'}</p></div>}
+            {open && isApplication && !event.repeat && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicationDetails job={job} event={event} hearing={hearing.data} loading={hearing.loading} onShowHearing={showHearing} /></div>}
             {open && !isApplication && <div className="lo-event-body">
               <EventCostTable event={event} counts={counts} costs={eventCosts(event, counts, billing)} asOf={asOf} />
               <ul className="lo-checks" aria-label="ほかに応募を動かしそうなこと">

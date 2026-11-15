@@ -95,13 +95,13 @@ fn identity_keys(record: &Record) -> Vec<String> {
     let mut keys = vec![];
     if let Some(phone) = record.value("denwabangou") {
         let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
-        if digits.len() >= 9 {
+        if digits.len() >= 9 && !placeholder_phone(&digits) {
             keys.push(format!("tel:{}", &digits[digits.len() - 9..]));
         }
     }
     if let Some(mail) = record.value("meeruadoresu") {
         let mail = mail.trim().to_lowercase();
-        if mail.contains('@') {
+        if mail.contains('@') && !placeholder_mail(&mail) {
             keys.push(format!("mail:{mail}"));
         }
     }
@@ -117,10 +117,51 @@ fn identity_keys(record: &Record) -> Vec<String> {
     keys
 }
 
+/// 入力欄を埋めるための仮の電話番号（000000000・111111111 のような同じ数字だけ、0123456789 のような並び）。
+/// 別の人どうしを同じ人にしないよう、鍵にしない。
+fn placeholder_phone(digits: &str) -> bool {
+    let tail = &digits[digits.len() - 9..];
+    let same = tail.chars().all(|c| Some(c) == tail.chars().next());
+    // 並びは番号全体で見る（本物の番号の下 9 桁がたまたま並ぶことがあるため）。
+    let sequence = [
+        "123456789",
+        "1234567890",
+        "0123456789",
+        "987654321",
+        "9876543210",
+        "0987654321",
+    ]
+    .contains(&digits);
+    same || sequence
+}
+/// 仮のメールアドレス（example.* などの例の名前・none@ / test@ のような中身の無い名前・同じ文字だけ）。
+fn placeholder_mail(mail: &str) -> bool {
+    let Some((local, domain)) = mail.split_once('@') else {
+        return true;
+    };
+    let same = local.chars().all(|c| Some(c) == local.chars().next());
+    same || [
+        "none", "no", "test", "dummy", "sample", "nomail", "noemail", "xxx", "x",
+    ]
+    .contains(&local)
+        || domain.starts_with("example.")
+        || ["example", "test", "invalid", "localhost"].contains(&domain)
+}
+
 /// 同じ求人への同じ人の 2 件目以降の応募 ID（2026-11-15 ユーザー決定: 数えない）。
 /// 同じ人 = 電話（下 9 桁）・メール・氏名と生年月日の組 のどれかが一致。応募日の早い順に見て最初の 1 件を残す。
 /// `rows` は 1 つの求人の応募だけを渡す。
 pub(super) fn repeat_applications(rows: &[Record]) -> BTreeSet<String> {
+    applicant_groups(rows)
+        .into_iter()
+        .filter(|(id, kept)| id != kept)
+        .map(|(id, _)| id)
+        .collect()
+}
+
+/// 応募 ID → その人のまとまりで残す 1 件の応募 ID（`repeat_applications` と同じ判定）。
+/// 残す 1 件は自分自身を指す。
+pub(super) fn applicant_groups(rows: &[Record]) -> BTreeMap<String, String> {
     // 鍵（電話・メール・氏名と生年月日）を 1 つでも共有する応募を、並び順によらず 1 人にまとめる
     // （union-find）。電話だけ → メールだけ → 電話とメール のように後の応募で初めてつながる場合も 1 人。
     fn root(parent: &mut [usize], mut i: usize) -> usize {
@@ -164,12 +205,58 @@ pub(super) fn repeat_applications(rows: &[Record]) -> BTreeSet<String> {
             *best = i;
         }
     }
-    let kept: BTreeSet<usize> = keep.into_values().collect();
-    rows.iter()
-        .enumerate()
-        .filter(|(i, _)| !kept.contains(i))
-        .map(|(_, r)| r.id.clone())
+    (0..rows.len())
+        .map(|i| {
+            let best = keep[&root(&mut parent, i)];
+            (rows[i].id.clone(), rows[best].id.clone())
+        })
         .collect()
+}
+
+/// 応募の日付の項目。2 件目以降の値で残す 1 件を埋めない（残す 1 件の応募日で数えるため）。
+const DATE_FIELDS: [&str; 2] = ["yingmuri", CREATED];
+
+/// 同じ人の 2 件目以降を残す 1 件に寄せる。数える応募（残す 1 件）と、2 件目以降（寄せた先の ID 付き）を返す。
+/// 残す 1 件の項目が空なら、2 件目以降の値（応募日が早い順）で埋める。電話ヒアリング・応募の理由・属性が
+/// 2 件目にだけあっても消えず、同じ人なら 1 回だけ数える。
+pub(super) fn merge_repeat_applications(rows: Vec<Record>) -> (Vec<Record>, Vec<(Record, String)>) {
+    let groups = applicant_groups(&rows);
+    let (repeats, mut kept): (Vec<Record>, Vec<Record>) =
+        rows.into_iter().partition(|r| groups[&r.id] != r.id);
+    let mut repeats: Vec<(Record, String)> = repeats
+        .into_iter()
+        .map(|r| {
+            let to = groups[&r.id].clone();
+            (r, to)
+        })
+        .collect();
+    repeats.sort_by_key(|(r, _)| {
+        (
+            r.application_day().map(|(d, _)| d).is_none(),
+            r.application_day().map(|(d, _)| d),
+            r.id.clone(),
+        )
+    });
+    let index: BTreeMap<String, usize> = kept
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.id.clone(), i))
+        .collect();
+    for (repeat, to) in &repeats {
+        let Some(&i) = index.get(to) else { continue };
+        for (key, value) in &repeat.properties {
+            if DATE_FIELDS.contains(&key.as_str())
+                || value.as_deref().is_none_or(|v| v.trim().is_empty())
+            {
+                continue;
+            }
+            let slot = kept[i].properties.entry(key.clone()).or_insert(None);
+            if slot.as_deref().is_none_or(|v| v.trim().is_empty()) {
+                *slot = value.clone();
+            }
+        }
+    }
+    (kept, repeats)
 }
 
 /// 同じ人の 2 件目以降を除いた応募。
@@ -520,13 +607,13 @@ mod tests {
         // 電話だけ（11/01）→ メールだけ（11/02）→ 電話とメール（11/03）。3 件目で初めてつながる。
         let rows = [
             applicant("1", "2026-11-01", &[("denwabangou", "090-3333-4444")]),
-            applicant("2", "2026-11-02", &[("meeruadoresu", "b@example.test")]),
+            applicant("2", "2026-11-02", &[("meeruadoresu", "ben@kakuu.jp")]),
             applicant(
                 "3",
                 "2026-11-03",
                 &[
                     ("denwabangou", "09033334444"),
-                    ("meeruadoresu", "b@example.test"),
+                    ("meeruadoresu", "ben@kakuu.jp"),
                 ],
             ),
         ];
@@ -576,12 +663,99 @@ mod tests {
     }
 
     #[test]
+    fn placeholder_phone_and_mail_never_join_different_people() {
+        for phone in [
+            "000-0000-0000",
+            "111111111",
+            "0999999999",
+            "0123456789",
+            "123-456-789",
+        ] {
+            let rows = [
+                applicant("1", "2026-11-01", &[("denwabangou", phone)]),
+                applicant("2", "2026-11-02", &[("denwabangou", phone)]),
+            ];
+            assert!(repeat_applications(&rows).is_empty(), "{phone}");
+        }
+        for mail in [
+            "none@example.test",
+            "test@kakuu.jp",
+            "aaa@kakuu.jp",
+            "taro@example.com",
+            "x@kakuu.jp",
+        ] {
+            let rows = [
+                applicant("1", "2026-11-01", &[("meeruadoresu", mail)]),
+                applicant("2", "2026-11-02", &[("meeruadoresu", mail)]),
+            ];
+            assert!(repeat_applications(&rows).is_empty(), "{mail}");
+        }
+        // 本物らしい番号・アドレスは今までどおり同じ人
+        let rows = [
+            applicant(
+                "1",
+                "2026-11-01",
+                &[
+                    ("denwabangou", "090-1234-5678"),
+                    ("meeruadoresu", "taro@kakuu.jp"),
+                ],
+            ),
+            applicant("2", "2026-11-02", &[("denwabangou", "09012345678")]),
+        ];
+        assert_eq!(repeat_applications(&rows).len(), 1);
+    }
+
+    #[test]
+    fn repeats_are_merged_into_the_first_one_without_overwriting_it() {
+        let rows = vec![
+            applicant(
+                "2",
+                "2026-11-05",
+                &[
+                    ("denwabangou", "090-1234-5678"),
+                    ("seibetsu", "男性"),
+                    ("ouboriyuu_hiaringu", "通勤が近い"),
+                    ("nenrei", "40"),
+                ],
+            ),
+            applicant(
+                "1",
+                "2026-11-02",
+                &[("denwabangou", "09012345678"), ("nenrei", "35")],
+            ),
+            applicant("3", "2026-11-03", &[("denwabangou", "080-2222-3333")]),
+        ];
+        let groups = applicant_groups(&rows);
+        assert_eq!(groups["2"], "1");
+        assert_eq!(groups["1"], "1");
+        assert_eq!(groups["3"], "3");
+        let (kept, repeats) = merge_repeat_applications(rows);
+        assert_eq!(
+            kept.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["1", "3"]
+        );
+        let first = &kept[0];
+        // 空の項目だけ 2 件目で埋め、入っている値（年齢 35）と応募日は変えない
+        assert_eq!(first.value("seibetsu"), Some("男性"));
+        assert_eq!(first.value("ouboriyuu_hiaringu"), Some("通勤が近い"));
+        assert_eq!(first.value("nenrei"), Some("35"));
+        assert_eq!(first.value("yingmuri"), Some("2026-11-02"));
+        assert_eq!(
+            repeats
+                .iter()
+                .map(|(r, to)| (r.id.as_str(), to.as_str()))
+                .collect::<Vec<_>>(),
+            [("2", "1")]
+        );
+    }
+
+    #[test]
     fn same_person_keys_are_phone_mail_or_name_with_birthday() {
         let base = |id: &str, props: &[(&str, &str)]| applicant(id, "2026-11-01", props);
         // メール（大文字小文字・前後の空白の違いは同じ）
         let mail = [
-            base("1", &[("meeruadoresu", "Kakuu@example.test")]),
-            base("2", &[("meeruadoresu", "kakuu@example.test ")]),
+            base("1", &[("meeruadoresu", "Kakuu@kakuu.jp")]),
+            base("2", &[("meeruadoresu", "kakuu@kakuu.jp ")]),
         ];
         assert_eq!(repeat_applications(&mail).len(), 1);
         // 氏名と生年月日の組（全角の空白も同じ）
@@ -632,10 +806,10 @@ mod tests {
                 "2026-11-02",
                 &[
                     ("denwabangou", "09011112222"),
-                    ("meeruadoresu", "a@example.test"),
+                    ("meeruadoresu", "aoi@kakuu.jp"),
                 ],
             ),
-            applicant("3", "2026-11-03", &[("meeruadoresu", "a@example.test")]),
+            applicant("3", "2026-11-03", &[("meeruadoresu", "aoi@kakuu.jp")]),
         ];
         assert_eq!(
             repeat_applications(&chain),

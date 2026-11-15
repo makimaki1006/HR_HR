@@ -9,15 +9,29 @@ import { parseApplicantReasons } from './applicantReasonsParser';
 import { overallFromLiveSummary } from './liveApplications';
 import { buildDistribution } from './applicantCompositionModel';
 import { roundJointDemographics } from './applicantArea';
-import type { ApplicationRow, JobCopyRecord, SelectionOptions } from './data';
+import type { ApplicationRow, JobCopyRecord, RepeatApplicationRow, SelectionOptions } from './data';
 
-interface ApplicationDates { selection_options?: SelectionOptions | null; created_date_count?: number; listing_id: string; total: number; missing_date: number; by_date: Record<string, number>; fetched_at: string; applications?: ApplicationRow[]; applicant_reasons?: unknown; phone_hearing?: unknown }
+interface ApplicationDates { selection_options?: SelectionOptions | null; created_date_count?: number; listing_id: string; total: number; missing_date: number; by_date: Record<string, number>; fetched_at: string; applications?: ApplicationRow[]; repeat_entries?: unknown; applicant_reasons?: unknown; phone_hearing?: unknown }
 
 export interface LoadedApplications {
   overall: NonNullable<JobCopyRecord['overallApplications']>;
   rows: ApplicationRow[];
   phoneHearing?: JobCopyRecord['phoneHearing'];
   reasons: JobCopyRecord['applicantReasons'];
+  /** 同じ方の2回目以降の応募（数に入れない）。 */
+  repeats: RepeatApplicationRow[];
+}
+
+/** 同じ方の2回目以降の応募。鍵と日付だけを読む。 */
+export function repeatApplicationRows(raw: unknown): RepeatApplicationRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item: unknown) => {
+    if (typeof item !== 'object' || item === null) return [];
+    const row = item as Record<string, unknown>;
+    const key = text(row.key);
+    const day = (value: unknown) => { const date = text(value); return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null; };
+    return key ? [{ key, date: day(row.date), firstDate: day(row.first_date) }] : [];
+  });
 }
 
 /** サーバーの締め切り（40 秒）より少し長い。これを過ぎたら「読み込めませんでした」にする。 */
@@ -81,5 +95,5 @@ export async function loadApplicationDates(id: string, signal?: AbortSignal): Pr
       overall.distributions[dimension] = { total: rows.length, categories: [...counts].map(([category, count]) => ({ category, count, percentage: rows.length ? count / rows.length * 100 : null })) };
     }
   }
-  return { overall, rows, reasons, phoneHearing: isPhoneHearing(result.data.phone_hearing) ? result.data.phone_hearing : undefined };
+  return { overall, rows, repeats: repeatApplicationRows(result.data.repeat_entries), reasons, phoneHearing: isPhoneHearing(result.data.phone_hearing) ? result.data.phone_hearing : undefined };
 }
