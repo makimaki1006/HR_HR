@@ -790,6 +790,12 @@ struct Worker<Z, J> {
     /// 対象の担当者 (アポの数えに使う)
     team: Option<TeamOwners>,
     counts_task: Option<tokio::task::JoinHandle<()>>,
+    /// アポの控えを履歴から読み直した日 (JST)。起動時と、日が変わった最初の周回で読み直す
+    apo_scan_day: Option<chrono::NaiveDate>,
+    /// 控えを DB から読み終えたか
+    apo_loaded: bool,
+    /// 9/1 からの作り直しの印が DB にあるか
+    apo_rebuilt: bool,
     last_poll: Option<DateTime<Utc>>,
     /// 直近の取り込み (`discover`) が成功したか
     ingest_ok: bool,
@@ -1607,6 +1613,82 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
         }));
     }
 
+    /// アポの控え (`apo_events`)。起動時に読み込み、9 月 1 日以降 (2 回目からは直近 14 日) を HubSpot の
+    /// ステージの履歴から読み直して足し、まだ書いていないアポを監査 Turso に書く。控えを読めるまでは
+    /// 9 月 1 日以降の日のアポ数を出さない (数え終わっていない扱い)
+    async fn process_apo_events(&mut self, now: DateTime<Utc>) {
+        use super::apo_events as ev;
+        let st = super::routes::shared();
+        if !self.apo_loaded {
+            match store::blocking(&self.audit, ev::load).await {
+                Ok((events, rebuilt)) => {
+                    tracing::info!(
+                        rows = events.len(),
+                        rebuilt,
+                        "talk review: apo events loaded"
+                    );
+                    st.counts.load_stored(events);
+                    self.apo_loaded = true;
+                    self.apo_rebuilt = rebuilt;
+                    if rebuilt {
+                        st.counts.set_ready();
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "talk review: apo events load failed");
+                    return;
+                }
+            }
+        }
+        let today = jst_day(now).0;
+        if self.apo_scan_day != Some(today) {
+            // 作り直しの印が無ければ 9/1 から。あれば直近 14 日
+            let start = ev::start_day();
+            let from = if self.apo_rebuilt {
+                (today - chrono::Duration::days(ev::RESCAN_DAYS)).max(start)
+            } else {
+                start
+            };
+            match ev::scan(&self.client, from, now).await {
+                Ok(found) => {
+                    let seen = found.len();
+                    let added = st.counts.add_events(found);
+                    tracing::info!(%from, seen, added, "talk review: apo events rescanned");
+                    self.apo_scan_day = Some(today);
+                    // 9/1 からそろったので画面に出してよい (書けていない分はメモリにあり、次の周回で書く)
+                    st.counts.set_ready();
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e.error_kind(), "talk review: apo events rescan failed")
+                }
+            }
+        }
+        let at = store::ts_text(now);
+        let new = st.counts.take_unsaved();
+        if !new.is_empty() {
+            let (n, rows, at2) = (new.len(), new.clone(), at.clone());
+            match store::blocking(&self.audit, move |t| ev::insert(t, &rows, &at2, "worker")).await
+            {
+                Ok(()) => tracing::info!(rows = n, "talk review: apo events saved"),
+                Err(e) => {
+                    tracing::warn!(error = %e, "talk review: apo events save failed");
+                    st.counts.return_unsaved(new);
+                    return;
+                }
+            }
+        }
+        // 作り直しの分を全部書けたら印を入れる (途中で切れたら、次の起動でまた 9/1 から作り直す)
+        if !self.apo_rebuilt && self.apo_scan_day.is_some() {
+            match store::blocking(&self.audit, move |t| ev::mark_rebuilt(t, &at)).await {
+                Ok(()) => {
+                    self.apo_rebuilt = true;
+                    tracing::info!("talk review: apo events rebuilt from 9/1");
+                }
+                Err(e) => tracing::warn!(error = %e, "talk review: apo events mark failed"),
+            }
+        }
+    }
+
     /// アポ数の取引ごとにランクを決める (`apo_call.rs`)。E の 10 分後を過ぎた取引の候補の電話を読み (1 周 50 取引まで)、
     /// 判定の行が無い候補は、取り込みの側で行になる見込みが無くなってから `apo_only` の行を作る。
     /// ランクが決まった取引のうち、この起動でヒアリングを書いた電話を含むものだけ Slack に送る (1 取引 1 回)
@@ -1997,6 +2079,8 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 tracing::warn!(error = %e, "talk review: requeue failed");
             }
         }
+        // アポの控えを先に読む (読み終えるまで 9/1 以降のアポ数が出ないため、時間のかかる取り込みより前)
+        self.process_apo_events(Utc::now()).await;
         self.adopt_backlog().await;
         self.find_rejudge().await;
         loop {
@@ -2009,6 +2093,7 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
                 }
             };
             self.prefill_counts(now);
+            self.process_apo_events(now).await;
             if let Err(e) = self.process_apo_calls(now).await {
                 tracing::warn!(error = %e, "talk review: apo calls failed");
             }
@@ -2047,18 +2132,26 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
 pub fn spawn_worker(state: Arc<AppState>) {
     let cfg = TalkReviewConfig::from_env();
     if !cfg.enabled {
+        // worker が動かないので控えは使わない (HubSpot の数えだけで答える)
+        super::routes::shared().counts.set_ready();
         return;
     }
     let (Some(audit), Some(client)) = (state.audit.clone(), state.crm_hubspot()) else {
         tracing::warn!("talk review: HubSpot または監査 DB が未接続のため起動しません");
+        // worker が動かないので控えは使わない (HubSpot の数えだけで答える)
+        super::routes::shared().counts.set_ready();
         return;
     };
     let Some(zoom) = ZoomClient::from_env() else {
         tracing::warn!("talk review: ZOOM_ACCOUNT_ID / ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET が未設定のため起動しません");
+        // worker が動かないので控えは使わない (HubSpot の数えだけで答える)
+        super::routes::shared().counts.set_ready();
         return;
     };
     let Some(judge) = MiniMaxJudge::new(&cfg.minimax_base_url, &cfg.model) else {
         tracing::warn!("talk review: MINIMAX_API_KEY が未設定のため起動しません");
+        // worker が動かないので控えは使わない (HubSpot の数えだけで答える)
+        super::routes::shared().counts.set_ready();
         return;
     };
     tracing::info!(model = %cfg.model, teams = ?cfg.teams, "talk review worker started");
@@ -2085,6 +2178,9 @@ pub fn spawn_worker(state: Arc<AppState>) {
         used_marks: HashSet::new(),
         team: None,
         counts_task: None,
+        apo_scan_day: None,
+        apo_loaded: false,
+        apo_rebuilt: false,
         last_poll: None,
         ingest_ok: false,
         backfill_next: None,
@@ -2930,6 +3026,9 @@ mod tests {
             used_marks: HashSet::new(),
             team: None,
             counts_task: None,
+            apo_scan_day: None,
+            apo_loaded: false,
+            apo_rebuilt: false,
             last_poll: None,
             ingest_ok: false,
             backfill_next: None,

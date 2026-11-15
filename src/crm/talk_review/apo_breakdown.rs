@@ -166,7 +166,14 @@ pub fn history_short(record: &Value, entered_ms: i64) -> bool {
     oldest.is_some_and(|o| o >= entered_ms - SAME_ENTRY_MS)
 }
 
-/// 同じ取引が別のアポ日確定 (BPO と新規営業) にも入っているとき、今回の時刻は早い方にそろえる
+/// 2 つの時刻 (ms) が同じ JST の日か
+pub fn same_jst_day(a: i64, b: i64) -> bool {
+    const DAY: i64 = 86_400_000;
+    const JST: i64 = 9 * 3_600_000;
+    (a + JST).div_euclid(DAY) == (b + JST).div_euclid(DAY)
+}
+
+/// 同じ取引が同じ JST の日に別のアポ日確定 (BPO と新規営業) にも入っているとき、今回の時刻は早い方にそろえる
 /// (もう片方を前のアポとして数えない)。返すのは `deals` と同じ順の「今回の時刻」
 pub fn effective_times(deals: &[ApoDeal]) -> Vec<i64> {
     deals
@@ -174,7 +181,11 @@ pub fn effective_times(deals: &[ApoDeal]) -> Vec<i64> {
         .map(|d| {
             deals
                 .iter()
-                .filter(|o| o.deal_id == d.deal_id && o.stage != d.stage)
+                .filter(|o| {
+                    o.deal_id == d.deal_id
+                        && o.stage != d.stage
+                        && same_jst_day(o.entered_ms, d.entered_ms)
+                })
                 .map(|o| o.entered_ms)
                 .fold(d.entered_ms, i64::min)
         })
@@ -204,9 +215,11 @@ pub fn classify(
     {
         return ApoKind::ReMeeting;
     }
+    // 同じ JST の日に入ったアポは同じアポ (アポの数えでも同じ日は 1 件)
     if history
         .iter()
         .filter(before)
+        .filter(|e| !same_jst_day(e.at_ms, entered_ms))
         .any(|e| e.stage == ST_APO || e.stage == ST_APO_BPO)
     {
         return ApoKind::ReApo;
@@ -896,8 +909,46 @@ mod tests {
         ];
         assert_eq!(classify("D1", t[0], &h, &[]), ApoKind::Fresh);
         assert_eq!(classify("D1", t[1], &h, &[]), ApoKind::Fresh);
-        // そろえなければ遅い方は再アポになってしまう (従来の誤り)
-        assert_eq!(classify("D1", rows[1].entered_ms, &h, &[]), ApoKind::ReApo);
+        // 同じ日の前の入りは再アポにしないので、そろえなくても純粋なアポ
+        assert_eq!(classify("D1", rows[1].entered_ms, &h, &[]), ApoKind::Fresh);
+    }
+
+    #[test]
+    fn other_stage_on_another_day_is_not_aligned_and_counts_as_re_apo() {
+        // 9/5 に BPO、10/20 に新規営業。10/20 の今回の時刻は 9/5 にそろえない
+        let rows = [
+            apo("D1", ST_APO_BPO, "2026-09-05T03:00:00Z"),
+            apo("D1", ST_APO, "2026-10-20T03:00:00Z"),
+        ];
+        let t = effective_times(&rows);
+        assert_eq!(t, vec![rows[0].entered_ms, rows[1].entered_ms]);
+        let h = vec![
+            entry("2026-09-05T03:00:00Z", ST_APO_BPO),
+            entry("2026-10-20T03:00:00Z", ST_APO),
+        ];
+        assert_eq!(classify("D1", t[1], &h, &[]), ApoKind::ReApo);
+    }
+
+    #[test]
+    fn same_day_entries_are_one_appointment() {
+        // 控えは同じ日を 1 件 (その日の最後に入った時刻) にする。同じ日の前の入りは再アポにしない
+        let h = vec![
+            entry("2026-10-20T01:00:00Z", ST_APO_BPO),
+            entry("2026-10-20T02:00:00Z", "51997752"),
+            entry("2026-10-20T05:00:00Z", ST_APO),
+        ];
+        assert_eq!(
+            classify("D1", ms("2026-10-20T05:00:00Z"), &h, &[]),
+            ApoKind::Fresh
+        );
+        assert!(same_jst_day(
+            ms("2026-10-20T14:59:00Z"),
+            ms("2026-10-20T01:00:00Z")
+        ));
+        assert!(!same_jst_day(
+            ms("2026-10-20T15:00:00Z"),
+            ms("2026-10-20T01:00:00Z")
+        ));
     }
 
     #[test]
