@@ -18,7 +18,7 @@ export const jobFeatureGroups: { id: string; label: string; hidden?: boolean; fe
   { id: 'performance', label: '課金・クリック', hidden: true, features: [{ id: 'performance', label: '課金・クリック', description: '媒体の期間別実績を確認します。未接続のデータは表示しません。' }] },
   { id: 'market', label: '市場グラフ', hidden: true, features: [{ id: 'market', label: '市場グラフ', description: '各指標の月次推移を確認します。市場と比べる職種は右の欄で指定します。' }] },
   { id: 'market-table', label: '市場データ', hidden: true, features: [{ id: 'market-table', label: '市場データ', description: '市場グラフと同じ職種・地域・期間の実数を確認します。' }] },
-  { id: 'report', label: '顧客報告・検証', hidden: true, features: [{ id: 'report', label: '顧客報告・検証', description: '比較結果を整理し、次に検証する施策を記録します。' }] },
+  { id: 'report', label: '検証記録', hidden: true, features: [{ id: 'report', label: '検証記録', description: '仮説・評価基準・結果と根拠・次に試すことを社内のメモとして残します。' }] },
   { id: 'import', label: '外部文面を確認', hidden: true, features: [{ id: 'receive', label: '外部文面を確認', description: '外部から届いた本文を現在の本文と照合します。' }] },
 ];
 /** 「ほかの分析」に出す 6 つ。タブの並びと、ページ内の入口のボタンで同じ。 */

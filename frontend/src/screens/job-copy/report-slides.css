@@ -1,0 +1,100 @@
+/* 顧客報告のスライド（暫定。見た目は後で決める） */
+.rs-root { padding: 16px 24px 40px; min-width: 0; }
+.rs-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rs-top h1 { font-size: 19px; margin: 0; }
+.rs-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.rs-hint, .rs-save-status { color: var(--jc-muted); font-size: 12px; margin: 6px 0 0; }
+.rs-deck { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 14px; align-items: start; margin-top: 10px; }
+.rs-side { background: #fff; border: 1px solid var(--jc-border); border-radius: 6px; padding: 10px 12px; font-size: 12.5px; min-width: 0; }
+.rs-side h2 { font-size: 12.5px; margin: 12px 0 4px; }
+.rs-side h2:first-child { margin-top: 0; }
+.rs-scope { margin: 0; overflow-wrap: anywhere; }
+.rs-scope small { display: block; color: var(--jc-muted); }
+.rs-period { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.rs-period label, .rs-field { display: grid; gap: 2px; font-size: 12px; color: var(--jc-muted); }
+.rs-field { margin-top: 4px; }
+.rs-period input, .rs-field input, .rs-next-inputs input { font: inherit; color: var(--jc-ink); border: 1px solid #b8c4cd; border-radius: 4px; padding: 3px 6px; min-width: 0; }
+.rs-presets { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.rs-presets .jc-button { font-size: 11.5px; padding: 1px 8px; }
+.rs-thumbs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.rs-thumbs li { display: grid; grid-template-columns: 20px 1fr; align-items: center; border: 1px solid var(--jc-border); border-radius: 4px; background: #fff; padding: 2px 4px; }
+.rs-thumbs li.rs-on { outline: 2px solid var(--jc-accent); }
+.rs-thumbs li.rs-off button { opacity: .5; }
+.rs-thumbs button { all: unset; cursor: pointer; display: grid; grid-template-columns: 22px 1fr; gap: 4px; font-size: 12px; padding: 2px 0; }
+.rs-num { color: var(--jc-muted); text-align: center; }
+.rs-next-inputs fieldset { border: none; margin: 0 0 6px; padding: 0; display: grid; grid-template-columns: 16px 1fr; gap: 3px 4px; }
+.rs-next-inputs legend { float: left; color: var(--jc-muted); width: 16px; padding: 0; }
+.rs-next-inputs input:nth-of-type(2) { grid-column: 2; font-size: 11.5px; }
+.rs-excluded { margin-top: 12px; border-top: 1px dashed var(--jc-border); padding-top: 6px; }
+.rs-excluded ul { margin: 0; padding-left: 16px; color: var(--jc-muted); }
+.rs-stage { background: #e9ebee; border-radius: 6px; padding: 14px; min-width: 0; }
+.rs-big.rs-dim { opacity: .45; }
+.rs-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12.5px; }
+@media (max-width: 980px) { .rs-deck { grid-template-columns: minmax(0, 1fr); } }
+
+/* スライド本体。16:9、文字は幅に合わせて伸び縮みする */
+.rs-slide { width: 100%; aspect-ratio: 16 / 9; background: #fff; box-shadow: 0 1px 8px rgba(0, 0, 0, .2); position: relative; overflow: hidden; color: #16202b; container-type: inline-size; font-family: "Hiragino Sans", "Noto Sans JP", Meiryo, sans-serif; }
+.rs-in { position: absolute; inset: 5.5% 6% 9% 6%; display: flex; flex-direction: column; }
+.rs-kicker { font-size: max(10px, 1.5cqw); color: #3d6e8f; font-weight: 700; letter-spacing: .04em; }
+.rs-msg { font-size: max(15px, 3.1cqw); font-weight: 700; line-height: 1.35; margin: .3em 0 .6em; }
+.rs-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.rs-note { font-size: max(9px, 1.2cqw); color: #5b6570; margin-top: .5em; }
+.rs-foot { position: absolute; left: 6%; right: 6%; bottom: 3.5%; display: flex; justify-content: space-between; font-size: max(9px, 1.2cqw); color: #7a8590; border-top: 1px solid #e1e5e9; padding-top: .4em; }
+.rs-cover { background: #16324a; color: #fff; }
+.rs-cover .rs-in { justify-content: center; }
+.rs-to { font-size: max(12px, 2cqw); opacity: .85; }
+.rs-title { font-size: max(22px, 5cqw); font-weight: 700; margin: .3em 0; }
+.rs-sub { font-size: max(11px, 1.8cqw); opacity: .85; }
+.rs-cover-foot { position: absolute; left: 6%; bottom: 8%; font-size: max(10px, 1.5cqw); opacity: .8; }
+.rs-kp { display: flex; gap: 2.5%; }
+.rs-kp div { flex: 1; min-width: 0; border-top: 4px solid #3d6e8f; background: #f4f7fa; padding: .6em .8em; }
+.rs-kp span { display: block; font-size: max(10px, 1.4cqw); color: #4a5560; }
+.rs-kp b { font-size: max(18px, 3.4cqw); line-height: 1.1; }
+.rs-kp small { display: block; font-size: max(9px, 1.2cqw); color: #4a5560; }
+.rs-points { margin: .8em 0 0; padding-left: 1.2em; font-size: max(11px, 1.7cqw); line-height: 1.6; }
+.rs-vbars { flex: 1; display: flex; align-items: flex-end; gap: 1.2%; padding: 2.6em 0 1.6em; border-bottom: 1px solid #b9c1c9; margin-bottom: 1.6em; min-height: 0; }
+.rs-c { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; position: relative; font-size: max(9px, 1.2cqw); }
+.rs-c i { display: block; width: 70%; background: #3d6e8f; }
+.rs-c em { font-style: normal; color: #4a5560; position: absolute; bottom: -1.6em; white-space: nowrap; }
+.rs-v { font-weight: 700; margin-bottom: 2px; }
+.rs-mark { position: absolute; top: -2.2em; font-size: max(8px, 1.05cqw); background: #fff1dc; color: #9a5b10; border: 1px solid #f0b37e; padding: 0 .3em; border-radius: 3px; white-space: nowrap; }
+.rs-ev::after { content: ""; position: absolute; top: 0; bottom: 0; border-left: 2px dashed #d9822b; z-index: 0; }
+.rs-c i, .rs-v { position: relative; z-index: 1; }
+.rs-hb { display: grid; gap: .45em; font-size: max(10px, 1.5cqw); }
+.rs-hb-row { display: grid; grid-template-columns: 38% 1fr; gap: 1em; align-items: center; }
+.rs-hb-label { text-align: right; color: #2b3640; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-hb-bar { display: flex; align-items: center; gap: .4em; }
+.rs-hb-bar i { display: block; height: 1.1em; background: #3d6e8f; max-width: 85%; }
+.rs-hb-bar b { font-size: .95em; white-space: nowrap; }
+.rs-pairs { display: grid; grid-template-columns: 1fr 1fr; gap: .8em 4%; }
+.rs-pair { background: #f7f9fb; border: 1px solid #dfe4e9; padding: .6em .8em; font-size: max(10px, 1.4cqw); }
+.rs-d { color: #4a5560; font-size: .9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-w { font-weight: 700; margin: .2em 0 .5em; }
+.rs-pp { display: grid; grid-template-columns: 4.5em 1fr 2.8em; gap: .3em .5em; align-items: center; }
+.rs-pp i { display: block; height: 1em; }
+.rs-b1 { background: #a9b8c6; }
+.rs-b2 { background: #3d6e8f; }
+.rs-three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3%; }
+.rs-three h3 { margin: 0 0 .4em; font-size: max(10px, 1.5cqw); }
+.rs-three .rs-hb { font-size: max(9px, 1.35cqw); }
+.rs-three .rs-hb-row { grid-template-columns: 40% 1fr; }
+.rs-next { list-style: none; counter-reset: n; display: grid; gap: .8em; font-size: max(11px, 1.8cqw); margin: 0; padding: 0; }
+.rs-next li { display: grid; grid-template-columns: 2.2em 1fr; gap: .6em; align-items: start; }
+.rs-next li::before { counter-increment: n; content: counter(n); background: #3d6e8f; color: #fff; font-weight: 700; width: 1.8em; height: 1.8em; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+.rs-next small { display: block; color: #5b6570; font-size: .8em; }
+
+/* 印刷: スライドだけを横長1枚ずつ。画面の他の部分は出さない */
+/* 画面では見えない所に印刷と同じ大きさで並べる（はみ出しを測るため） */
+.rs-print-deck { position: absolute; left: -20000px; top: 0; width: 10in; visibility: hidden; pointer-events: none; }
+.rs-print-deck .rs-slide { width: 10in; height: 5.625in; aspect-ratio: auto; }
+@page rs-slide { size: 10in 5.625in; margin: 0; }
+@media print {
+  body:has(.rs-print-deck) > *:not(.rs-print-deck) { display: none !important; }
+  .rs-print-deck { position: static; left: auto; width: auto; visibility: visible; page: rs-slide; }
+  .rs-print-deck .rs-slide { width: 10in; height: 5.625in; aspect-ratio: auto; box-shadow: none; break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .rs-print-deck .rs-slide:last-child { break-after: auto; }
+}
+
+/* 案件のページの入口 */
+.ds-report-entry { margin: 0 0 8px; display: flex; justify-content: flex-end; }
+.rs-overflow ul { color: #b42318; }
