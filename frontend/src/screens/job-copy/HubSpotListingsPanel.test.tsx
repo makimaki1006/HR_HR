@@ -9,7 +9,7 @@ import { scopeFixture } from './consultantRisk.testFixtures';
 import { JobCopyScreen } from './JobCopyScreen';
 import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import type { JobCopyRecord } from './data';
-import { listingRecord } from './hubspotListings';
+import { historyVersionLabel, listingRecord } from './hubspotListings';
 import type { HubSpotListing, HubSpotVersions } from './hubspotListings';
 import { CAUSAL_PATTERN, JARGON_PATTERN } from './format';
 import { pressMoreItem } from './moreMenu.testUtil';
@@ -34,7 +34,15 @@ describe('HubSpot listing history', () => {
     expect(record.location).toBe('大分県大分市');
     expect(record.company).toBe('');
     expect(listingRecord({ ...history, company_name: '合成運輸株式会社' }).company).toBe('合成運輸株式会社');
-    expect(record.versions[1]?.label).toBe('2026/10/02 09:00 にHubSpotに記録された本文');
+    // 本文の版は日付だけの短い名前。いちばん新しい版に（最新）を付け、正確な日時は画面の ⓘ に出す。
+    expect(record.versions[0]?.label).toMatch(/^(2026\/)?10\/01 の本文$/);
+    expect(record.versions[1]?.label).toMatch(/^(2026\/)?10\/02 の本文（最新）$/);
+    // 同じ日に2つあるときだけ時刻を添え、今年でない日は年を付ける。
+    const sameDay = ['2026-11-12T17:22:00Z', '2026-11-13T03:05:00Z'];
+    expect(historyVersionLabel(sameDay[0], sameDay, false, '2026')).toBe('11/13 02:22 の本文');
+    expect(historyVersionLabel(sameDay[1], sameDay, true, '2026')).toBe('11/13 12:05 の本文（最新）');
+    expect(historyVersionLabel('2025-03-01T00:00:00Z', [], false, '2026')).toBe('2025/3/01 の本文');
+    expect(historyVersionLabel(null, [], true, '2026')).toBe('日時不明の本文（最新）');
     expect(record.versions.map(v => [v.observedAt, v.body])).toEqual([['2026-10-01T00:00:00Z', '合成の旧本文'], ['2026-10-02T00:00:00Z', '合成の新本文']]);
     expect(record.versions[0]?.images).toBeUndefined();
     expect(record.versions[1]?.images?.map(image => image.url)).toEqual(['https://example.invalid/1.png']);

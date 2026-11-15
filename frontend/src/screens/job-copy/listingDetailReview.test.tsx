@@ -43,7 +43,7 @@ it('excludes shared dated and undated applications consistently across version r
   const block = changeReasonBlocks(job, 4, '2026-10-05')[0];
   expect([block?.before.applications, block?.after.applications, block?.after.reasons?.n]).toEqual([1, 0, 0]);
   const { unmount } = render(<ApplicantReasons job={job} before={job.versions[0]} after={job.versions[1]} />);
-  const compared = required(screen.getByRole('heading', { name: '比較先: 新しい本文' }).parentElement);
+  const compared = required(screen.getByRole('heading', { name: '後の本文: 新しい本文' }).parentElement);
   expect(within(compared).getByText('応募 0件')).toBeTruthy();
   expect(within(compared).getByText('応募動機を聞けた応募 0件／この求人の全応募 3件')).toBeTruthy();
   expect(within(within(compared).getByRole('table', { name: '応募動機の選択件数' })).getAllByRole('cell').map(cell => cell.textContent)).toEqual(Array<string>(13).fill('0件'));

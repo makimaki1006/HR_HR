@@ -39,8 +39,9 @@ export interface TrailNames { company?: string | undefined; deal?: string | unde
 export interface Crumb { level: Level; label: string; current: boolean }
 /** 「案件管理 › 顧客 › 案件 › 求人」。いま開いている階層だけがリンクにならない。 */
 const named = (value: string | undefined) => value?.trim() ? value : undefined;
-export function buildCrumbs(trail: Trail, names: TrailNames): Crumb[] {
-  const items: Omit<Crumb, 'current'>[] = [{ level: 'home', label: '案件管理' }];
+/** homeLabel: 先頭の言葉。案件のページを案件一覧などから開いたときは、来た元の言葉にする。 */
+export function buildCrumbs(trail: Trail, names: TrailNames, homeLabel = '案件管理'): Crumb[] {
+  const items: Omit<Crumb, 'current'>[] = [{ level: 'home', label: homeLabel }];
   if (trail.company) items.push({ level: 'company', label: named(names.company) ?? '顧客' });
   if (trail.deal) items.push({ level: 'deal', label: named(names.deal) ?? '案件' });
   if (trail.listing) items.push({ level: 'listing', label: named(names.listing) ?? '求人' });

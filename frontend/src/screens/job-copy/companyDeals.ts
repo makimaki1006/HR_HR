@@ -2,11 +2,11 @@ import { ownerParams } from './OwnerTodo';
 import { apiGet } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 
-/** 顧客の案件 1 件。納品管理のパイプラインの取引だけが来る（サーバが絞る）。 */
+/** 顧客の案件 1 件。納品管理のパイプラインの案件だけが来る（サーバが絞る）。 */
 export interface CompanyDeal {
   id: string; name: string | null;
   pipeline_id: string; pipeline_label: string; stage_label: string | null; active: boolean;
-  /** その顧客の「今の取引」（契約中で最新。契約中が無ければ最新の取引）。顧客ごとに 1 件。 */
+  /** その顧客の「今の案件」（契約中で最新。契約中が無ければ最新の案件）。顧客ごとに 1 件。 */
   current: boolean;
   created_at: string | null; contract_start: string | null; contract_end: string | null;
   /** 結び付いた求人。索引の準備前は null。 */
@@ -19,7 +19,7 @@ export interface CompanyDeals {
   delivery_pipelines?: { id: string; label: string }[];
   index_ready?: boolean;
 }
-export const dealName = (deal: { name: string | null }) => deal.name ?? '取引名未取得';
+export const dealName = (deal: { name: string | null }) => deal.name ?? '案件名未取得';
 /** 「掲載中 X ／ 全 Y」。索引の準備前は「集計中」。 */
 export const listingsLabel = (deal: Pick<CompanyDeal, 'listings_live' | 'listings_total'>) => deal.listings_total === null || deal.listings_live === null ? '集計中' : `掲載中 ${String(deal.listings_live)} ／ 全 ${String(deal.listings_total)}`;
 /** 契約の期間。片方だけ分かるときは分かる側だけ。 */

@@ -22,7 +22,7 @@ const lane = (name: string) => screen.getByRole('group', { name });
 const periodTable = () => within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table');
 
 describe('job copy layout', () => {
-  it('opens on the weekly chart and event list with the list beside it, keeps the old tabs inside ほかの分析, and keeps imports and the applicant search out of the main flow', () => {
+  it('opens on the weekly chart and event list with the list beside it, keeps the old tabs inside くわしい分析, and keeps imports and the applicant search out of the main flow', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     render(<JobCopyScreen />);
@@ -30,11 +30,11 @@ describe('job copy layout', () => {
     expect(screen.getByRole('heading', { name: '求人のライフライン' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '出来事（新しい順）' })).toBeTruthy();
     expect(screen.queryByRole('tablist', { name: '求人管理の機能' })).toBeNull();
-    expect(screen.queryByRole('dialog', { name: 'ほかの分析' })).toBeNull();
-    // ほかの分析からタイムラインを開くと、従来のタブがそのまま使える
+    expect(screen.queryByRole('dialog', { name: 'くわしい分析' })).toBeNull();
+    // くわしい分析からタイムラインを開くと、従来のタブがそのまま使える
     const drawer = openOtherAnalysis('タイムライン');
     const primary = within(drawer).getByRole('tablist', { name: '求人管理の機能' });
-    expect(within(primary).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']);
+    expect(within(primary).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', 'メモ']);
     expect(within(primary).getByRole('tab', { name: 'タイムライン' }).getAttribute('aria-selected')).toBe('true');
     expect(within(drawer).getByRole('region', { name: 'タイムライン' })).toBeTruthy();
     // 1 つしかないサブタブの段は出さない。旧来の操作バーも無い。
@@ -118,7 +118,7 @@ describe('job copy layout', () => {
     const airJob = [...document.querySelectorAll<HTMLButtonElement>('.jc-job')].find(button => button.textContent.includes('倉庫内ピッキングスタッフ'));
     if (!airJob) throw new Error('missing demo-job-002');
     fireEvent.click(airJob);
-    if (!screen.queryByRole('dialog', { name: 'ほかの分析' })) openOtherAnalysis('タイムライン');
+    if (!screen.queryByRole('dialog', { name: 'くわしい分析' })) openOtherAnalysis('タイムライン');
     await waitFor(() => { expect(lane('課金').textContent).toContain('4万円'); });
     // 横断比較の課金合計にも同じ値が入る
     fireEvent.click(screen.getByRole('button', { name: '横断比較' }));

@@ -9,7 +9,7 @@ describe('functional job tabs', () => {
     const change = vi.fn();
     render(<JobFeatureTabs value="body" onChange={change} remembered={{ content: 'body' }} prefix="test">content</JobFeatureTabs>);
     const tabs = screen.getByRole('tablist', { name: '求人管理の機能' });
-    expect(within(tabs).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']);
+    expect(within(tabs).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', 'メモ']);
     expect(jobFeatureMenu.map(feature => feature.id)).toEqual(['timeline', 'body', 'diff', 'ab', 'applicants', 'reasons', 'factors']);
     // サブタブの段は無い
     expect(screen.queryByRole('tablist', { name: '本文・画像の表示' })).toBeNull();

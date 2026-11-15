@@ -14,6 +14,11 @@ export function GoLink({ children, onClick, className = '' }: { children: ReactN
   return <button type="button" className={`jc-go ${className}`.trim()} onClick={onClick}><span aria-hidden="true">→ </span>{children}</button>;
 }
 
+/** 来た画面へ戻る（青い字に下線、「←」付き）。 */
+export function BackLink({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return <button type="button" className="jc-go jc-back" onClick={onClick}><span aria-hidden="true">← </span>{children}</button>;
+}
+
 /** 外へ出る（新しいタブで HubSpot などを開く）。 */
 export function OutLink({ href, label = 'HubSpot', name }: { href: string; label?: string; name?: string }) {
   return <a className="jc-out" href={href} target="_blank" rel="noreferrer" aria-label={name}><span aria-hidden="true">↗ </span>{label}</a>;

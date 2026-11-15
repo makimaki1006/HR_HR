@@ -20,7 +20,7 @@ const perf = (id: string, weekly: number) => {
 const day = addDays(todayJst(), -3);
 function mockApi() {
   api.mockImplementation((url: string) => {
-    if (url.includes('company-deals')) return Promise.resolve({ ok: true, data: { company: { id: 'c', name: '会社' }, deals: [{ id: 'd1', name: '取引1', current: false }, { id: 'd2', name: '取引2', current: false }] } });
+    if (url.includes('company-deals')) return Promise.resolve({ ok: true, data: { company: { id: 'c', name: '会社' }, deals: [{ id: 'd1', name: '案件1', current: false }, { id: 'd2', name: '案件2', current: false }] } });
     if (url.includes('deal-applications')) {
       const deal = /deal=(d\d)/.exec(url)?.[1] ?? '';
       return Promise.resolve({ ok: true, data: { shared_applications: 0, company: { id: 'c', name: '会社' }, listings: (listings[deal] ?? []).map(l => ({ listing_id: l.id, by_date: { [day]: l.id === '1' ? 10 : l.id === '2' ? 90 : 4 }, fetched_at: fetchedAt, indeed_weekly_perf: l.media === 'hrh' ? perf(l.id, 7000) : null })) } });
@@ -31,25 +31,25 @@ function mockApi() {
   });
 }
 
-it('事業所: 求人は 1 回だけ数える (10 + 90 + 4 = 104件)、取引ごとの見出しが出る、AirWork は課金データなし', async () => {
+it('事業所: 求人は 1 回だけ数える (10 + 90 + 4 = 104件)、案件ごとの見出しが出る、AirWork は課金データなし', async () => {
   mockApi();
   render(<CompanySummary company={{ id: 'c', name: '会社' }} billingByJob={{}} onOpenListing={vi.fn()} />);
   const band = await screen.findByRole('group', { name: '事業所の合計' });
   await waitFor(() => { expect(band.textContent).toContain('104件'); });
-  expect(band.textContent).toContain('求人 3 件 ・ 取引 2 件');
+  expect(band.textContent).toContain('求人 3 件 ・ 案件 2 件');
   expect(band.textContent).toContain('課金データのない求人 1件（AirWork）は含みません');
-  // 顧客の全求人は 1 か所の表に、同じ求人は 1 回だけ出る（求人1 は取引1・取引2 の両方に付いている）。
+  // 顧客の全求人は 1 か所の表に、同じ求人は 1 回だけ出る（求人1 は案件1・案件2 の両方に付いている）。
   expect(screen.getAllByRole('button', { name: /^求人\d$/ }).map(b => b.textContent)).toEqual(['求人1', '求人2', '求人3']);
-  expect(screen.getByText('取引：取引1、取引2')).toBeTruthy();
-  expect(screen.getByText('取引：取引1')).toBeTruthy();
-  expect(screen.getByText('取引：取引2')).toBeTruthy();
+  expect(screen.getByText('案件：案件1、案件2')).toBeTruthy();
+  expect(screen.getByText('案件：案件1')).toBeTruthy();
+  expect(screen.getByText('案件：案件2')).toBeTruthy();
   expect(screen.getAllByText('課金データなし').length).toBeGreaterThan(0);
 });
 
-it('取引: HubSpot の週ごとの実績から課金が出て、事業所へのリンクがある', async () => {
+it('案件: HubSpot の週ごとの実績から課金が出て、事業所へのリンクがある', async () => {
   mockApi();
   const open = vi.fn();
-  render(<DealSummary deal={{ id: 'd1', name: '取引1', prefecture: '', title: '', media: '' }} billingByJob={{}} onOpenListing={vi.fn()} onOpenCompany={open} />);
+  render(<DealSummary deal={{ id: 'd1', name: '案件1', prefecture: '', title: '', media: '' }} billingByJob={{}} onOpenListing={vi.fn()} onOpenCompany={open} />);
   const band = await screen.findByRole('group', { name: '案件の合計' });
   await waitFor(() => { expect(band.textContent).toContain('100件'); });
   // 課金のある求人(1)だけの応募 10 件で割る。課金は 1 日 1,000 円。

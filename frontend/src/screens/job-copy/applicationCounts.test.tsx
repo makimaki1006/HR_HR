@@ -26,8 +26,8 @@ describe('one application denominator across panels', () => {
   it('shows the same 34 unmatched applications on 本文・画像 and 応募者構成, with the plain no-linked sentence', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(snapshot()))));
     const { container } = render(<JobCopyScreen />);
-    // 主領域は週ごとの応募。ほかの分析から本文・画像を開いてから確かめる
-    await screen.findByRole('region', { name: 'ほかの分析' });
+    // 主領域は週ごとの応募。くわしい分析から本文・画像を開いてから確かめる
+    await screen.findByRole('region', { name: 'この求人でやること' });
     openOtherAnalysis('本文・画像');
     const summary = await screen.findByRole('region', { name: '本文ごとの応募状況' });
     expect(within(summary).getByRole('status').textContent).toBe('この本文に結びつく応募はまだありません（求人全体では34件）');

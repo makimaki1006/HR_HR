@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jobs } from './data';
 import type { CopyVersion, JobCopyRecord } from './data';
-import { AssumptionsRail, DetailBand } from './DetailBand';
+import { DetailBand, MarketNowBar } from './DetailBand';
 import { listingPeriodText, marketMonthOverMonth, signedPct } from './detailBandModel';
 import { EventCostTable, LifelineChart, ListingOverview } from './ListingOverview';
 import { buildLifeline, changeMarkerNumbers } from './lifelineModel';
@@ -62,26 +62,26 @@ describe('上の帯の掲載の期間', () => {
     expect(listingPeriodOf([{ date: '2026-06-10', kind: 'start' }, { date: '2026-08-01', kind: 'end' }, { date: '2026-08-20', kind: 'revive' }])).toEqual({ start: '2026-06-10', end: null });
     expect(listingPeriodOf([{ date: '2026-08-01', kind: 'content' }])).toEqual({ start: null, end: null });
   });
-  it('帯に「HRハッカー · 公開状況：掲載中（6/10〜）」と出す。開始日が無ければ期間を出さない', () => {
+  it('帯に「HRハッカー ・ 掲載中（6/10〜）」と出す。開始日が無ければ期間を出さない', () => {
     vi.useFakeTimers({ now: new Date('2026-11-12T03:00:00Z'), toFake: ['Date'] });
     try {
       render(<DetailBand job={job} billing={billing} listingStart="2026-06-10" listingEnd={null} onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー · 公開状況：掲載中（6/10〜）');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載中（6/10〜）');
       cleanup();
       render(<DetailBand job={job} billing={billing} onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー · 公開状況：掲載中');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載中');
       cleanup();
       // 掲載中なのに終了日がある組み合わせ: 終了日は出さない
       render(<DetailBand job={job} billing={billing} listingStart="2026-06-10" listingEnd="2026-09-01" onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー · 公開状況：掲載中（6/10〜）');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載中（6/10〜）');
       cleanup();
       const ended: JobCopyRecord = { ...job, listingPublicationStatus: '非公開' };
       render(<DetailBand job={ended} billing={billing} listingStart="2026-06-10" listingEnd="2026-09-01" onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー · 公開状況：掲載終了（6/10〜9/1）');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載終了（6/10〜9/1）');
       cleanup();
       // 掲載終了なのに終了の出来事が無い組み合わせ
       render(<DetailBand job={ended} billing={billing} listingStart="2026-06-10" listingEnd={null} onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー · 公開状況：掲載終了（6/10〜、終了日の記録なし）');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載終了（6/10〜、終了日の記録なし）');
     } finally { vi.useRealTimers(); }
   });
 });
@@ -102,25 +102,26 @@ describe('右の欄の「市場の今」', () => {
   it('職種を指定した求人は、競合の求人数と前月比、「市場の推移を見る」を出す（デモの市場データ: ドライバー・大分県）', async () => {
     const open = vi.fn();
     const demo = jobs[0]!; // eslint-disable-line @typescript-eslint/no-non-null-assertion
-    render(<AssumptionsRail job={demo} billing={undefined} mode="demo" onIndeedTitleChanged={() => undefined} onOpenMarket={open} />);
+    render(<MarketNowBar job={demo} mode="demo" onIndeedTitleChanged={() => undefined} onOpenMarket={open} />);
     await waitFor(() => { expect(screen.getByTestId('rail-market-jobs').textContent).toBe('111件'); });
     const section = screen.getByRole('region', { name: '市場の今' });
     expect(within(section).getByText('競合の求人数（2026年8月）')).toBeTruthy();
     expect(within(section).getByText('前月比（2026年7月と比べて）')).toBeTruthy();
     expect(screen.getByTestId('rail-market-change').textContent).toBe('+5%（106件 → 111件）');
     expect(section.textContent).not.toContain('時給');
-    fireEvent.click(within(section).getByRole('button', { name: '市場の推移を見る' }));
+    fireEvent.click(within(section).getByRole('button', { name: /^市場の推移を見る/ }));
     expect(open).toHaveBeenCalledTimes(1);
   });
   it('職種が未指定なら案内だけを出し、市場の数字は取りに行かない', () => {
     const unset: JobCopyRecord = { ...jobs[0]!, indeedTitle: null, indeedTitleState: 'unset' }; // eslint-disable-line @typescript-eslint/no-non-null-assertion
-    render(<AssumptionsRail job={unset} billing={undefined} mode="demo" onIndeedTitleChanged={() => undefined} onOpenMarket={() => undefined} />);
-    expect(screen.getByTestId('rail-market-note').textContent).toBe('市場と比べる職種が未指定です。上の「市場（Indeed）と比べる範囲」で職種を指定すると、競合の求人数と前月比が出ます。');
+    render(<MarketNowBar job={unset} mode="demo" onIndeedTitleChanged={() => undefined} onOpenMarket={() => undefined} />);
+    expect(screen.getByTestId('rail-market-note').textContent).toBe('職種を指定すると、競合の求人数と前月比が出ます。');
+    expect(screen.getByRole('button', { name: '職種を指定する' })).toBeTruthy();
     expect(screen.queryByTestId('rail-market-jobs')).toBeNull();
   });
   it('市場と比べないと指定した求人は、そのことだけを出す', () => {
     const none: JobCopyRecord = { ...jobs[0]!, indeedTitle: null, indeedTitleState: 'none' }; // eslint-disable-line @typescript-eslint/no-non-null-assertion
-    render(<AssumptionsRail job={none} billing={undefined} mode="demo" onIndeedTitleChanged={() => undefined} />);
+    render(<MarketNowBar job={none} mode="demo" onIndeedTitleChanged={() => undefined} />);
     expect(screen.getByTestId('rail-market-note').textContent).toBe('市場と比べないと指定されています。');
   });
 });

@@ -3,7 +3,7 @@ import type { HoujinResponse } from "./HoujinView";
 export const houjinIndex: CustomerIndex[] = [
   {
     houjin: "sample-a",
-    name: "架空の法人あおぞら",
+    name: "架空の顧客あおぞら",
     ltv: 900000,
     deals: 3,
     sites: 2,
@@ -20,7 +20,7 @@ export const houjinIndex: CustomerIndex[] = [
   },
   {
     houjin: "sample-b",
-    name: "架空の法人わかば",
+    name: "架空の顧客わかば",
     ltv: 200000,
     deals: 1,
     sites: 1,
@@ -44,7 +44,7 @@ export const houjinData: CustomerData = {
     source_as_of: "2026-10-18",
   },
   customer: {
-    name: "架空の法人あおぞら",
+    name: "架空の顧客あおぞら",
     ltv: 900000,
     deals: 3,
     sites: 2,
@@ -228,7 +228,7 @@ export const houjinData: CustomerData = {
     multi_site: 0,
     n_display_option_only: 0,
     n_houjin_option_only: 0,
-    rule: "月額30万円・従業員1,000人・拠点3つ",
+    rule: "月額30万円・従業員1,000人・事業所3つ",
   },
 };
 export const houjinFixture: HoujinResponse = {
@@ -249,7 +249,7 @@ export const memberHoujinFixture: HoujinResponse = {
   customer: {
     ...houjinData,
     customer: {
-      name: "架空の法人わかば",
+      name: "架空の顧客わかば",
       ltv: 200000,
       deals: 1,
       sites: 1,

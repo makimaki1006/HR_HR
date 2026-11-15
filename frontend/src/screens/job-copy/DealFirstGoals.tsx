@@ -43,7 +43,7 @@ export const GOALS_REFRESH_MS = 5 * 60_000;
 
 interface Loaded { values: PropValues; fetchedAt: string; pipeline: string; missing: boolean }
 
-/** 初回MTGで決めた 2 つの目標 (マインド目標・コミット目標) を表示・入力・訂正する。保存先は HubSpot の取引。 */
+/** 初回MTGで決めた 2 つの目標 (マインド目標・コミット目標) を表示・入力・訂正する。保存先は HubSpot の案件。 */
 export function DealFirstGoals({ dealId, onSaved, refreshMs = GOALS_REFRESH_MS }: { dealId: string; onSaved?: (() => void) | undefined; refreshMs?: number }) {
   const [state, setState] = useState<Loaded | null>(null);
   const [error, setError] = useState('');
@@ -101,7 +101,7 @@ export function DealFirstGoals({ dealId, onSaved, refreshMs = GOALS_REFRESH_MS }
   }, [dealId]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 取引を開いたとき・保存の後に HubSpot から読み直す（取得後に状態を入れる）
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 案件を開いたとき・保存の後に HubSpot から読み直す（取得後に状態を入れる）
     void load(true, false);
     return () => { ctlRef.current?.abort(); };
   }, [load, revision]);
@@ -189,7 +189,7 @@ export function DealFirstGoals({ dealId, onSaved, refreshMs = GOALS_REFRESH_MS }
         <button className="jc-button" onClick={() => { write.resolveConflict('theirs'); setEditing(false); }}>HubSpot の今の目標を使う</button>
         <button className="jc-button" onClick={() => { write.resolveConflict('mine'); setEditing(false); }}>今の目標を上書きして、入力した目標で保存</button></div>}
       {write.writesEnabled === false ? <p>{WRITES_OFF_NOTE}</p> : write.schema.phase === 'error' ? <p>編集できるか確認できないため、表示のみです。</p>
-        : !targeted ? <p>この取引は納品管理ではないため、表示のみです。</p> : schema && !writable ? <p>HubSpot でこの項目の編集が許可されていないため、表示のみです。</p> : null}
+        : !targeted ? <p>この案件は納品管理ではないため、表示のみです。</p> : schema && !writable ? <p>HubSpot でこの項目の編集が許可されていないため、表示のみです。</p> : null}
       {!editing && data?.status === 'draft' && <DraftNote data={data} />}
       {!editing && edited && <p className="fg-edited" role="note">HubSpot で目標の文が直されています。直された文を表示しています（確定済みとして扱います）。</p>}
       {!editing && (data ? <><GoalList goals={data.goals} />{goalNotes(data.notes).map((note, i) => <small className="fg-note" key={i}>{note}</small>)}</> : <p>まだ入力されていません。初回MTGで決めたマインド目標とコミット目標を入力してください。</p>)}

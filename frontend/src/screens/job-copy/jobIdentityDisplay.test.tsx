@@ -11,7 +11,7 @@ vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: api }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
-const job: JobCopyRecord = { id: 'hubspot-history-901234567890', hubspotId: '901234567890', accountId: 'SHOP-SECRET-001', mediaJobId: 'HR-1', dataSource: 'hubspot', title: '合成の配送求人', company: '合成の取引先', media: 'HRハッカー', location: '大分県大分市', versions: [{ id: 'v1', label: '確認した本文1', observedAt: '2026-10-01T00:00:00Z', body: '仕事内容：配送します', kind: 'published', certainty: 'unknown', source: '保存された文面', applications: null, note: '' }] };
+const job: JobCopyRecord = { id: 'hubspot-history-901234567890', hubspotId: '901234567890', accountId: 'SHOP-SECRET-001', mediaJobId: 'HR-1', dataSource: 'hubspot', title: '合成の配送求人', company: '合成の顧客', media: 'HRハッカー', location: '大分県大分市', versions: [{ id: 'v1', label: '確認した本文1', observedAt: '2026-10-01T00:00:00Z', body: '仕事内容：配送します', kind: 'published', certainty: 'unknown', source: '保存された文面', applications: null, note: '' }] };
 const forbidden = /HR-|901234567890|SHOP-SECRET|求人ID|店舗ID|HubSpot ID/;
 describe('媒体名と求人名で示す', () => {
   it.each([false, true])('課金の取得有無 %s でも照合番号を表示しない', available => {
@@ -44,12 +44,12 @@ describe('媒体名と求人名で示す', () => {
     expect(columns.textContent).toContain('媒体求人ID');
     expect(columns.textContent).toContain('店舗ID');
   });
-  it('取引先確認の契約名が欠けても生のレコード番号で代用しない', async () => {
-    api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.includes('company=') ? { company_id: '77', contracts: [{ id: '901234567890', properties: { code_of_customer: 'SHOP-SECRET-001' } }], jobs: [], total: 0, next_offset: null } : { customers: [{ id: '77', properties: { name: '合成の取引先' } }], next_after: null } }));
+  it('顧客確認の契約名が欠けても生のレコード番号で代用しない', async () => {
+    api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.includes('company=') ? { company_id: '77', contracts: [{ id: '901234567890', properties: { code_of_customer: 'SHOP-SECRET-001' } }], jobs: [], total: 0, next_offset: null } : { customers: [{ id: '77', properties: { name: '合成の顧客' } }], next_after: null } }));
     const { container } = render(<HubSpotReadPanel onOpen={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: '取引先を取得' }));
-    await screen.findByRole('option', { name: '合成の取引先' });
-    fireEvent.change(screen.getByLabelText('HubSpotの取引先'), { target: { value: '77' } });
+    fireEvent.click(screen.getByRole('button', { name: '顧客を取得' }));
+    await screen.findByRole('option', { name: '合成の顧客' });
+    fireEvent.change(screen.getByLabelText('HubSpotの顧客'), { target: { value: '77' } });
     fireEvent.click(screen.getByRole('button', { name: '関連する求人を読み込む' }));
     await waitFor(() => { expect(screen.getByLabelText('契約で絞り込む')).toBeTruthy(); });
     expect(container.textContent).not.toMatch(forbidden);

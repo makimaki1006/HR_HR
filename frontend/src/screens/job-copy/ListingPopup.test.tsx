@@ -223,7 +223,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   expect(dialog.textContent).toContain('現在の本文です。');
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
   const drawer = openOtherAnalysis('本文・画像');
-  fireEvent.click(within(drawer).getByRole('button', { name: /2026\/10\/01 09:00 にHubSpotに記録された本文/ }));
+  fireEvent.click(within(drawer).getByRole('button', { name: /10\/01 の本文/ }));
   fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);
   expect(screen.getByRole('dialog', { name: listing.title }).textContent).toContain('以前の本文です。');
@@ -355,11 +355,16 @@ it.each([
   render(<ListingPopup job={job} version={selected} onClose={vi.fn()} />);
   const row = screen.getByRole('dialog').querySelector('.jc-listing-comparison-row');
   expect(row?.querySelectorAll('[aria-label="変更あり"]')).toHaveLength(2);
+  // 左＝前の本文（消えた所は赤）、右＝後の本文（増えた所は緑）。
+  const headings = [...screen.getByRole('dialog').querySelectorAll('.jc-listing-column-heading h3')].map(h => h.textContent);
+  expect(headings).toEqual(['前の本文', '後の本文']);
   const paragraphs = row?.querySelectorAll('p');
-  expect(paragraphs?.[0]?.textContent).toBe(after);
-  expect(paragraphs?.[1]?.textContent).toBe(before);
-  expect([...paragraphs?.[0]?.querySelectorAll('mark') ?? []].map(mark => mark.textContent).join('')).toBe(added);
-  expect([...paragraphs?.[1]?.querySelectorAll('mark') ?? []].map(mark => mark.textContent).join('')).toBe(removed);
+  expect(paragraphs?.[0]?.textContent).toBe(before);
+  expect(paragraphs?.[1]?.textContent).toBe(after);
+  expect([...paragraphs?.[0]?.querySelectorAll('mark.jc-mark-removed') ?? []].map(mark => mark.textContent).join('')).toBe(removed);
+  expect([...paragraphs?.[1]?.querySelectorAll('mark.jc-mark-added') ?? []].map(mark => mark.textContent).join('')).toBe(added);
+  expect(paragraphs?.[0]?.querySelector('mark.jc-mark-added')).toBeNull();
+  expect(paragraphs?.[1]?.querySelector('mark.jc-mark-removed')).toBeNull();
 });
 
 it('ignores whitespace-only changes without altering original values and matches the body status', async () => {
@@ -374,7 +379,8 @@ it('ignores whitespace-only changes without altering original values and matches
   const holiday = [...row].find(element => element.textContent.includes('休日・休暇'));
   expect(holiday?.getAttribute('data-changed')).toBe('false');
   expect(holiday?.querySelectorAll('mark, .jc-listing-change-dot')).toHaveLength(0);
-  expect(holiday?.querySelector('p')?.textContent).toBe(after);
+  // 左が前の本文、右が後の本文。値はどちらも元のまま。
+  expect([...holiday?.querySelectorAll('p') ?? []].map(p => p.textContent)).toEqual([before, after]);
   const { compareCopy } = await import('./diff');
   expect(compareCopy(before, after).status).toBe('unchanged');
 });
@@ -387,7 +393,8 @@ it('counts omitted optional HRH fields from a sparse body and retains unknown fo
   expect(model.missing).toContain('仕事の案内4の本文');
   render(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
   expect(screen.getByText('記載のない任意項目（70件）')).toBeTruthy();
-  expect(screen.getByRole('dialog').textContent).not.toContain('左の本文');
+  expect(screen.getByRole('dialog').textContent).not.toContain('右（後）の本文');
+  expect(screen.getByRole('dialog').textContent).not.toContain('前の本文');
   expect(screen.getByRole('dialog').textContent).not.toContain('任意項目の記載状況を取得できていません');
   const current = job.versions[0];
   if (!current) throw new Error('比較する本文が必要です');

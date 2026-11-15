@@ -27,7 +27,7 @@ export function ApplicantReasons({ job, before, after }: { job: JobCopyRecord; b
   return <section className="ar-reasons" aria-label="応募理由の集計"><h2>応募理由</h2><p>{selectionNote}</p>
     <SelectedReasonTables job={job} /><ApplicationReasonTexts job={job} />
     {shared == null ? <p>ほかの求人にも関連する応募を見分ける情報は未取得です。</p> : shared.length > 0 && <p>ほかの求人にも関連する応募 {shared.length}件は、本文ごとの応募数・理由から除いています。</p>}
-    <div className="ar-pair">{[{ title: '比較元', version: before }, { title: '比較先', version: after }].map(({ title, version }) => {
+    <div className="ar-pair">{[{ title: '前の本文', version: before }, { title: '後の本文', version: after }].map(({ title, version }) => {
       if (!version) return <section key={title}><h3>{title}</h3><p>本文未取得</p></section>;
       const rows = versionApplications(job, version.id);
       return <section key={title}><h3>{title}: {version.label}</h3><p>応募 {job.applicationRows ? `${String(rows.length)}件` : '未取得'}</p><SelectedReasonTables job={job} rows={rows} /><ApplicationReasonTexts job={job} rows={rows} /></section>;

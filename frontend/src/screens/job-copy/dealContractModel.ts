@@ -5,6 +5,12 @@ import type { CrmCatalogProperty } from '../../generated/CrmCatalogProperty';
 export const CONTRACT_FIELDS = ['contract_plan', 'contract_type', 'contract_start_date', 'contract_expiration_date', 'contract_period', 'amount', 'discount_amount', 'oubo', 'mensetu', 'naite', 'syoudaku'] as const;
 export const DISPLAY_FIELDS = [...CONTRACT_FIELDS, 'sales_amount', 'split_sales_amount'] as const;
 export const DELIVERY_PIPELINES = ['21596025', '743961896'];
+/** 案件のページの見出しに出す、契約・成果の欄の外の項目（コンサル担当）。 */
+export const HEADER_FIELDS = ['consultant'] as const;
+/** 項目名に付いた作り手の注記（「(20251031更新)」など）を外す。HubSpot の項目名そのものは変えない。 */
+export function fieldLabel(label: string): string {
+  return label.replace(/\s*[(（]\s*\d{8}\s*更新\s*[)）]\s*$/u, '').trim() || label;
+}
 
 /** 読み取った生の値を base に残す。日付の表示だけ YYYY-MM-DD にする。 */
 export function inputValue(prop: CrmCatalogProperty, value: string | null | undefined): string {
@@ -23,7 +29,8 @@ export function displayValue(prop: CrmCatalogProperty, value: string | null | un
       return `${number < 0 ? '-' : ''}¥${Math.abs(number).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`;
     }
     const formatted = number.toLocaleString('ja-JP', { maximumFractionDigits: 20 });
-    // 既存の項目定義・読み取り API には契約期間の単位説明がないため、推測して単位を付けない。
+    // 契約期間は月数（2026-11-15 利用者の指示で「3か月」と単位を付ける）。
+    if (prop.name === 'contract_period') return `${formatted}か月`;
     return ['oubo', 'mensetu', 'naite', 'syoudaku'].includes(prop.name) ? `${formatted}件` : formatted;
   }
   return prop.options.find(option => option.value === value)?.label ?? value;

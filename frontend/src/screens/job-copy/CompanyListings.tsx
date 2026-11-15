@@ -41,7 +41,7 @@ async function loadRows(deals: readonly CompanyDeal[], ownerQuery: string, signa
 }
 
 type FlagState = { status: 'loading' | 'preparing' | 'error' } | { status: 'ready'; flags: ListingFlags; numbers: ListingFlagNumbers; cards: ListingFlagCard[] };
-/** ホームと同じ分類を、掲載中の求人について 200 件ずつ読む。読めなくても求人の表は出す。 */
+/** ホームと同じラベルを、掲載中の求人について 200 件ずつ読む。読めなくても求人の表は出す。 */
 async function loadFlags(ids: readonly string[], ownerQuery: string, signal: AbortSignal): Promise<FlagState> {
   const flags: Record<string, readonly string[]> = {};
   const numbers: Record<string, ListingFlagNumbers[string]> = {};
@@ -102,7 +102,7 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
   const flagCounts = Object.keys(FLAG_LABELS).map(key => ({ key, count: model.live.filter(item => item.flags.includes(key)).length })).filter(entry => entry.count > 0);
   const table = (items: typeof model.live, page: number, setPage: (page: number) => void, label: string) => { const view = paginate(items, page, PAGE_SIZE); return <>
     {items.length ? <div className="jh-scroll"><table className="jh-listing-table" aria-label={`${label}の求人`}><thead><tr>
-      <th scope="col">求人名</th><th scope="col">分類</th><th scope="col">媒体</th><th scope="col">掲載期間</th><th scope="col" className="num">応募（前4週→直近4週）</th><th scope="col" className="num">今の課金（4週）</th><th scope="col" className="num">応募1件あたり</th><th scope="col">最後の変更</th>
+      <th scope="col">求人名</th><th scope="col">ラベル</th><th scope="col">媒体</th><th scope="col">掲載期間</th><th scope="col" className="num">応募（前4週→直近4週）</th><th scope="col" className="num">今の課金（4週）</th><th scope="col" className="num">応募1件あたり</th><th scope="col">最後の変更</th>
     </tr></thead><tbody>{view.items.map(item => <tr key={item.row.id} onClick={event => { if (!(event.target as HTMLElement).closest('button, a')) onOpenListing(item.row); }}>
       <th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenListing(item.row); }}>{item.row.title ?? '求人名未取得'}</button><div className="jh-listing-deals">{item.deals.map(deal => <small key={deal.id}><button type="button" className="jh-link" onClick={() => { onOpenDeal({ id: deal.id, name: dealName(deal) }); }}>{dealName(deal)}</button> · {deal.stage_label ?? 'ステージ不明'}</small>)}</div></th>
       <td>{item.flags.length ? item.flags.map(key => <span key={key} className="jh-change-chip" title={flagTitle(key, item.row.id)}>{FLAG_LABELS[key]}</span>) : '—'}</td>
@@ -120,16 +120,16 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
     <p className="jh-note">納品管理の求人を表示。案件名から求人を比較できます。<br />応募・課金は {formatDay(model.asOf)} までの4週間と、その前の4週間（未取得は「—」）。応募1件あたり＝今の課金 ÷ 直近4週の応募。最後の変更は本文のみ。</p>
     <div className="jh-listing-tools">
       <label>並べ替え <select value={sort} onChange={event => { setSort(event.target.value as ListingSort); setLivePage(0); setPastPage(0); }}>{LISTING_SORTS.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
-      {flagState.status === 'loading' && <span role="status">分類を読み込んでいます…</span>}
-      {flagState.status === 'preparing' && <span className="jh-note">分類はまだ準備中です。少し待って画面を開き直してください。</span>}
-      {flagState.status === 'error' && <span role="alert">分類を読み込めませんでした。求人の表はそのまま使えます。</span>}
+      {flagState.status === 'loading' && <span role="status">ラベルを読み込んでいます…</span>}
+      {flagState.status === 'preparing' && <span className="jh-note">ラベルはまだ準備中です。少し待って画面を開き直してください。</span>}
+      {flagState.status === 'error' && <span role="alert">ラベルを読み込めませんでした。求人の表はそのまま使えます。</span>}
     </div>
     <section className="jh-live-listings" aria-labelledby={liveId}><h2 id={liveId}>掲載中 <span>{String(model.live.length)}件</span></h2>
-      {flagState.status === 'ready' && <p className="jh-note jh-flag-summary">{flagCounts.length ? <>分類：{flagCounts.map(entry => <span key={entry.key} className="jh-change-chip" title={ruleOf(entry.key)}>{FLAG_LABELS[entry.key]} {String(entry.count)}件</span>)}</> : '分類が付いた掲載中の求人はありません。'}</p>}
-      {flagState.status === 'ready' && <div className="jh-note jh-flag-basis"><p>分類はホームのカードと同じ基準です。分類と表の数字は、次の3つの数え方が違うため、合わないことがあります。分類の印にマウスを置くと、判定に使った数字が出ます。</p><ul>
-        <li>応募：分類は週ごとの実績の応募数。表は応募日ごとの件数。</li>
-        <li>課金：分類は週ごとの実績の課金だけ。表は週ごとの実績の課金と、取り込んだ課金CSV（HRハッカーの求人）を合わせ、日割りにしたもの。</li>
-        <li>期間：分類は週ごとの実績の最新の週までの4週間。表は応募を取得した日までの4週間。</li>
+      {flagState.status === 'ready' && <p className="jh-note jh-flag-summary">{flagCounts.length ? <>ラベル：{flagCounts.map(entry => <span key={entry.key} className="jh-change-chip" title={ruleOf(entry.key)}>{FLAG_LABELS[entry.key]} {String(entry.count)}件</span>)}</> : '分類が付いた掲載中の求人はありません。'}</p>}
+      {flagState.status === 'ready' && <div className="jh-note jh-flag-basis"><p>ラベルはホームのカードと同じ基準です。ラベルと表の数字は、次の3つの数え方が違うため、合わないことがあります。ラベルにマウスを置くと、判定に使った数字が出ます。</p><ul>
+        <li>応募：ラベルは週ごとの実績の応募数。表は応募日ごとの件数。</li>
+        <li>課金：ラベルは週ごとの実績の課金だけ。表は週ごとの実績の課金と、取り込んだ課金CSV（HRハッカーの求人）を合わせ、日割りにしたもの。</li>
+        <li>期間：ラベルは週ごとの実績の最新の週までの4週間。表は応募を取得した日までの4週間。</li>
       </ul></div>}
       {table(model.live, livePage, setLivePage, '掲載中')}</section>
     <details className="jh-past-listings"><summary>過去（掲載終了） {String(model.past.length)}件</summary><p className="jh-note">掲載前・掲載状況不明の求人もこちらに表示しています。</p>{table(model.past, pastPage, setPastPage, '過去')}</details>

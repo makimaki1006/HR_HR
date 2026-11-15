@@ -10,9 +10,10 @@ export interface ListingNavigation {
   ids: string[];
   load: (id: string, signal: AbortSignal) => Promise<JobCopyRecord>;
 }
-function ChangedText({ value, reference, different }: { value: string; reference: string; different: boolean }) {
+/** tone: 前の本文は消えた所を赤（removed）、後の本文は増えた所を緑（added）。 */
+function ChangedText({ value, reference, different, tone = 'added' }: { value: string; reference: string; different: boolean; tone?: 'added' | 'removed' }) {
   const segments = different ? markValueChanges(reference, value) : undefined;
-  return <p className={value === '記載なし' ? 'jc-listing-absent' : undefined}>{segments ? segments.map((segment, index) => segment.changed ? <mark key={index} className="jc-mark-added">{segment.text}</mark> : segment.text) : value}</p>;
+  return <p className={value === '記載なし' ? 'jc-listing-absent' : undefined}>{segments ? segments.map((segment, index) => segment.changed ? <mark key={index} className={`jc-mark-${tone}`}>{segment.text}</mark> : segment.text) : value}</p>;
 }
 export function ListingPopup({ job, version, onClose, returnFocus, navigation }: {
   job: JobCopyRecord; version?: CopyVersion | undefined; onClose: () => void; returnFocus?: HTMLElement | null; navigation?: ListingNavigation | undefined;
@@ -88,17 +89,17 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
     <div ref={scroller} className="jc-listing-popup-scroll" aria-busy={busy}>
       {busy && <p role="status">求人の内容を読み込んでいます…</p>}{error && <p role="alert">{error}</p>}
       <dl className="jc-listing-popup-summary">{[['求人名', model.title], ['媒体', displayed.media], ['公開状況', model.publication], ['勤務地', model.location], ['給与', model.salary], ['応募数', model.applications]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      <p className="jc-listing-popup-note">本文が記録された日時です。掲載開始日時とは異なります。{selectedVersion?.source === 'HubSpotの現在の本文' && ' 現在の本文は確認した日時です。本文の記録日時は不明です。'}{model.hasCurrentConditions && ` ${old ? '左の' : ''}本文以外の補足条件・公開状況は現在の取得値です。過去の本文に補っていません。`} 応募数は求人全体の取得値で、この本文への応募数ではありません。</p>
+      <p className="jc-listing-popup-note">本文が記録された日時です。掲載開始日時とは異なります。{selectedVersion?.source === 'HubSpotの現在の本文' && ' 現在の本文は確認した日時です。本文の記録日時は不明です。'}{model.hasCurrentConditions && ` ${old ? '右（後）の' : ''}本文以外の補足条件・公開状況は現在の取得値です。過去の本文に補っていません。`} 応募数は求人全体の取得値で、この本文への応募数ではありません。</p>
       {selectedVersion?.kind === 'ai_draft' && <p className="jc-notice">未掲載の案です。</p>}
       {!model.bodyAvailable && <p className="jc-notice">本文を取得できていません。</p>}
       {old && <label className="jc-listing-changes"><input type="checkbox" checked={changesOnly} onChange={event => { setChangesOnly(event.target.checked); }} />変わった項目だけ表示（{changedCount}項目）</label>}
       <div className={`jc-listing-comparison ${old ? 'jc-listing-two-columns' : ''}`}>
-        <div className="jc-listing-column-heading"><h3>選んでいる本文</h3><p>記録日時：{formatDateTimeJst(selectedVersion?.observedAt, '未取得')}</p></div>
-        {old && <div className="jc-listing-column-heading"><h3>1つ前に記録された本文</h3><p>記録日時：{formatDateTimeJst(previous?.observedAt, '未取得')}</p></div>}
-        {rows.filter(row => !changesOnly || row.different).map(row => <div className="jc-listing-comparison-row" key={row.key} data-changed={row.different}><section className="jc-listing-popup-section"><h3>{row.different && <span className="jc-listing-change-dot" aria-label="変更あり">● </span>}{row.label}</h3><ChangedText value={row.value} reference={row.before} different={row.different} /></section>{old && <section className="jc-listing-popup-section"><h3>{row.different && <span className="jc-listing-change-dot" aria-label="変更あり">● </span>}{row.label}</h3><ChangedText value={row.before} reference={row.value} different={row.different} /></section>}</div>)}
+        {old && <div className="jc-listing-column-heading"><h3>前の本文</h3><p>記録日時：{formatDateTimeJst(previous?.observedAt, '未取得')}・消えた所は赤</p></div>}
+        <div className="jc-listing-column-heading"><h3>{old ? '後の本文' : '本文'}</h3><p>記録日時：{formatDateTimeJst(selectedVersion?.observedAt, '未取得')}{old ? '・増えた所は緑' : ''}</p></div>
+        {rows.filter(row => !changesOnly || row.different).map(row => <div className="jc-listing-comparison-row" key={row.key} data-changed={row.different}>{old && <section className="jc-listing-popup-section"><h3>{row.different && <span className="jc-listing-change-dot" aria-label="変更あり">● </span>}{row.label}</h3><ChangedText value={row.before} reference={row.value} different={row.different} tone="removed" /></section>}<section className="jc-listing-popup-section"><h3>{row.different && <span className="jc-listing-change-dot" aria-label="変更あり">● </span>}{row.label}</h3><ChangedText value={row.value} reference={row.before} different={row.different} /></section></div>)}
         {changesOnly && changedCount === 0 && <p>確認できる変更はありません。</p>}
-        {(!changesOnly || imagesChanged) && <>{images(model, selectedVersion)}{old && images(old, previous)}</>}
-        {!changesOnly && <><div key={`${displayed.id}-missing`}>{missing(model)}</div>{old && <div key={`${displayed.id}-previous-missing`}>{missing(old)}</div>}</>}
+        {(!changesOnly || imagesChanged) && <>{old && images(old, previous)}{images(model, selectedVersion)}</>}
+        {!changesOnly && <>{old && <div key={`${displayed.id}-previous-missing`}>{missing(old)}</div>}<div key={`${displayed.id}-missing`}>{missing(model)}</div></>}
       </div>
     </div>
   </dialog>;

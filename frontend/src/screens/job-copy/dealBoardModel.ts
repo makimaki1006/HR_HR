@@ -6,9 +6,9 @@ export type DealBoardResponse = { status: 'preparing' | 'failed' } | {
   status: 'ready'; hubspot_portal_id: string; rows: DealRow[]; work: WorkReady; sheet_as_of: string | null; refreshing: boolean; facts_built_at?: string | null; facts_stale?: boolean; refresh_failed: boolean; applications_status: 'ready' | 'preparing' | 'unavailable';
 };
 export const dealSorts = [
-  ['priority', '印の多い順 → 金額の多い順'], ['name', '案件名'], ['company', '顧客名'], ['reasons', '要対応の印'],
+  ['priority', '印の多い順 → 金額の多い順'], ['name', '案件名'], ['company', '顧客名'], ['reasons', 'ラベル'],
   ['consultant', '担当'], ['stage', 'ステージ'], ['months', '何ヶ月目'], ['days_left', '満了まで'],
-  ['last_contact', '最後の接触'], ['last_mtg', '最後のMTG'], ['nps', '定期NPS'], ['applications', '取引に記録された応募'],
+  ['last_contact', '最後の接触'], ['last_mtg', '最後のMTG'], ['nps', '定期の満足度'], ['applications', '案件に記録された応募'],
   ['recent_applications', '応募（直近4週）'], ['interviews', '面接'], ['hires', '採用'], ['achievement', '採用目標に対して'], ['cpa', '採用単価'], ['amount', '金額'],
 ] as const;
 export type DealSort = typeof dealSorts[number][0];
@@ -34,7 +34,7 @@ export function sortLaunch(rows: DealRow[]): DealRow[] {
   return [...rows].sort((a, b) => Number(b.launch.status === 'below') - Number(a.launch.status === 'below') || (b.launch.elapsed ?? -Infinity) - (a.launch.elapsed ?? -Infinity) || a.id.localeCompare(b.id));
 }
 
-/** 応募ゼロを調べる期間。all は全期間（従来の「応募が1件も無い取引」）。 */
+/** 応募ゼロを調べる期間。all は全期間（従来の「応募が1件も無い案件」）。 */
 export type ZeroPeriod = 'all' | 'contract' | 'weeks' | 'dates';
 export const zeroPeriods: readonly (readonly [ZeroPeriod, string])[] = [['all', '全期間'], ['contract', '初回契約の期間中'], ['weeks', '直近の週数'], ['dates', '日付を選ぶ']];
 export const DEFAULT_PERIOD_WEEKS = 4;
@@ -49,22 +49,22 @@ export function periodRange(mode: ZeroPeriod, weeks: number, from: string | null
   return null;
 }
 const attached = (row: DealRow) => (row.listing_count ?? 0) >= 1;
-/** 応募が1件も無い取引か。期間を指定したときは、その期間の応募日が0件の取引（求人票が付いていない取引は出さない）。 */
+/** 応募が1件も無い案件か。期間を指定したときは、その期間の応募日が0件の案件（求人票が付いていない案件は出さない）。 */
 export function isZeroApplicant(row: DealRow, mode: ZeroPeriod): boolean {
   if (mode === 'all') return row.zero_applicants;
   if (!row.active || !attached(row)) return false;
   return mode === 'contract' ? row.first_contract && row.contract_applications === 0 : row.period_applications === 0;
 }
-/** 期間の応募数を数えられない取引（求人票はあるが応募日も作成日も分からない応募がある）。 */
+/** 期間の応募数を数えられない案件（求人票はあるが応募日も作成日も分からない応募がある）。 */
 export function periodUnknown(row: DealRow, mode: ZeroPeriod): boolean {
   if (mode === 'all' || !row.active || !attached(row)) return false;
   return mode === 'contract' ? row.first_contract && row.contract_applications == null : row.period_applications == null;
 }
-/** 面接の件数が 0 の取引。空（数字なし）は 0 に混ぜない。 */
+/** 面接の件数が 0 の案件。空（数字なし）は 0 に混ぜない。 */
 export const hasNoInterview = (row: DealRow) => row.interviews === 0;
 export const interviewMissing = (row: DealRow) => row.interviews === null;
 
-/** ページ分割前の絞り込み結果を集計し、取引をまたぐ応募IDを1回にまとめる。 */
+/** ページ分割前の絞り込み結果を集計し、案件をまたぐ応募IDを1回にまとめる。 */
 export function summarizeApplications(rows: readonly DealRow[]) {
   const recent = new Set<string>(); const previous = new Set<string>(); const unknown = new Set<string>();
   let missing = 0; let outOfScope = 0;

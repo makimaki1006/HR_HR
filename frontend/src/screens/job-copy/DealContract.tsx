@@ -9,7 +9,7 @@ import { DealStageMove } from './DealStageMove';
 import { fieldKey, stageKey } from '../crm/writeModel';
 import type { PropValues } from '../crm/writeTypes';
 import { contractWriteApi } from './dealContractApi';
-import { CONTRACT_FIELDS, DISPLAY_FIELDS, DELIVERY_PIPELINES, contractRequest, displayValue, inputValue } from './dealContractModel';
+import { CONTRACT_FIELDS, DISPLAY_FIELDS, DELIVERY_PIPELINES, HEADER_FIELDS, contractRequest, displayValue, fieldLabel, inputValue } from './dealContractModel';
 import './deal-contract.css';
 
 export function SaveStatus({ statuses }: { statuses: FieldStatus[] }) {
@@ -24,8 +24,8 @@ export function SaveStatus({ statuses }: { statuses: FieldStatus[] }) {
   return <div role={tone === 'red' ? 'alert' : 'status'} className={`dc-status dc-${tone}`}>{messages.map(message => <span key={message}>{message}</span>)}</div>;
 }
 
-/** 案件の集計とは別に、その取引自身の HubSpot の契約・成果を表示する。 */
-export function DealContract({ dealId, onSaved, onQueued }: { dealId: string; onSaved: () => void; onQueued?: (() => void) | undefined }) {
+/** 案件の集計とは別に、その案件自身の HubSpot の契約・成果を表示する。 */
+export function DealContract({ dealId, onSaved, onQueued, onDetail }: { dealId: string; onSaved: () => void; onQueued?: (() => void) | undefined; /** 読んだ案件の値（ページの見出しの担当・ステージ・満了日に使う） */ onDetail?: ((detail: WorkspaceResponse) => void) | undefined }) {
   const [data, setData] = useState<{ props: CrmCatalogProperty[]; detail: WorkspaceResponse } | null>(null);
   const [error, setError] = useState('');
   const [refreshError, setRefreshError] = useState('');
@@ -35,6 +35,8 @@ export function DealContract({ dealId, onSaved, onQueued }: { dealId: string; on
   const [base, setBase] = useState<PropValues>({});
   const [savedFields, setSavedFields] = useState<string[]>([]);
   const stageSaving = useRef(false);
+  const onDetailRef = useRef(onDetail);
+  useEffect(() => { onDetailRef.current = onDetail; });
   const refresh = useCallback(() => {
     void (async () => {
       if (stageSaving.current) {
@@ -52,10 +54,11 @@ export function DealContract({ dealId, onSaved, onQueued }: { dealId: string; on
       if (!catalog.ok || !Array.isArray(catalog.data.objects)) { if (!ctl.signal.aborted) setError('契約・成果の項目を取得できませんでした。再読み込みしてください。'); return; }
       const all = catalog.data.objects.find(object => object.object_type === 'deals')?.groups.flatMap(group => group.properties) ?? [];
       const props = all;
-      const query = new URLSearchParams({ deal_props: DISPLAY_FIELDS.filter(name => props.some(prop => prop.name === name)).join(','), fresh: '1' });
+      // 見出しの「担当」に使うコンサル担当も同じ読み取りで受け取る（項目がある場合だけ）。
+      const query = new URLSearchParams({ deal_props: [...DISPLAY_FIELDS, ...HEADER_FIELDS].filter(name => props.some(prop => prop.name === name)).join(','), fresh: '1' });
       const detail = await apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(dealId)}?${query}`, { signal: ctl.signal, timeoutMs: 35_000 });
       if (ctl.signal.aborted) return;
-      if (detail.ok && !detail.data.partial.some(part => part.part === 'selected_properties')) { setData({ props, detail: detail.data }); setError(''); }
+      if (detail.ok && !detail.data.partial.some(part => part.part === 'selected_properties')) { setData({ props, detail: detail.data }); setError(''); onDetailRef.current?.(detail.data); }
       else setError('契約・成果の値を取得できませんでした。再読み込みしてください。');
     })();
     return () => { ctl.abort(); };
@@ -80,7 +83,7 @@ export function DealContract({ dealId, onSaved, onQueued }: { dealId: string; on
   const request = { ...contractRequest(dealId, writable, base, draft), fetchedAt: data?.detail.fetched_at };
   const statuses = savedFields.flatMap(name => { const status = write.statuses[name === 'dealstage' ? stageKey(dealId) : fieldKey(dealId, 'deal', name)]; return status ? [status] : []; });
   return <section className="dc-root" aria-label="契約・成果">
-    <header><h2>契約・成果</h2>{data && <a href={data.detail.deal.deep_link} target="_blank" rel="noreferrer">HubSpotで取引を見る</a>}{canEdit && !editing && <button className="jc-button" disabled={locked} onClick={startEdit}>編集</button>}</header>
+    <header><h2>契約・成果</h2>{canEdit && !editing && <button className="jc-button" disabled={locked} onClick={startEdit}>編集</button>}</header>
     {!data && !error && <p role="status">契約・成果を読み込んでいます…</p>}
     {error && <p role="alert">{error} <button className="jc-button" onClick={() => { setRevision(value => value + 1); }}>再読み込み</button></p>}
     {refreshError && <p role="alert">{refreshError}</p>}
@@ -88,13 +91,13 @@ export function DealContract({ dealId, onSaved, onQueued }: { dealId: string; on
       {!write.conflict && <SaveStatus statuses={statuses} />}
       {write.conflict && <div role="alert" className="dc-conflict"><h3>ほかの更新があります。現在の値を確認してください。</h3><p>今回の変更は保存されていません。</p><ul>{write.conflict.req.stage && 'dealstage' in write.conflict.current && <li>ステージ：現在の値「{schema?.stages.find(s => s.id === write.conflict?.current.dealstage)?.label ?? '取得できませんでした'}」／移動先「{write.conflict.req.stage.label}」</li>}{write.conflict.req.changes.map(change => {
         const prop = data.props.find(item => item.name === change.name);
-        return prop && <li key={change.name}>{prop.label}：現在の値「{displayValue(prop, write.conflict?.current[change.name])}」／入力した値「{displayValue(prop, change.value)}」</li>;
+        return prop && <li key={change.name}>{fieldLabel(prop.label)}：現在の値「{displayValue(prop, write.conflict?.current[change.name])}」／入力した値「{displayValue(prop, change.value)}」</li>;
       })}</ul><button className="jc-button" onClick={() => { write.resolveConflict('theirs'); setEditing(false); }}>現在の値を使う</button><button className="jc-button" onClick={() => { write.resolveConflict('mine'); setEditing(false); }}>確認して入力した値で保存</button></div>}
       {targeted && write.writesEnabled === true && schema && schema.stages.length > 0
         ? <DealStageMove dealId={dealId} write={write} detail={data.detail} props={data.props} request={editing ? request : { dealId, changes: [], fetchedAt: data.detail.fetched_at }} locked={locked}
             onStart={names => { stageSaving.current = true; setSavedFields([...names, 'dealstage']); }} onDone={() => { setEditing(false); }} />
-        : <p>ステージ：{data.detail.deal.stage_label ?? '未取得'}（表示のみ）</p>}
-      {write.writesEnabled === false ? <p>{WRITES_OFF_NOTE}</p> : write.schema.phase === 'error' ? <p>編集できるか確認できないため、表示のみです。</p> : !targeted ? <p>この取引は契約・成果の編集対象外です。</p> : schema && writable.length < CONTRACT_FIELDS.length ? <p>HubSpotで編集が許可された項目だけ変更できます。</p> : null}
+        : <p className="dc-stage">ステージ：<strong>{data.detail.deal.stage_label ?? '未取得'}</strong><small>（ここでは変更できません）</small></p>}
+      {write.writesEnabled === false ? <p>{WRITES_OFF_NOTE}</p> : write.schema.phase === 'error' ? <p>編集できるか確認できないため、見るだけです。</p> : !targeted ? <p>この案件の契約・成果は、ここでは変更できません。</p> : schema && writable.length < CONTRACT_FIELDS.length ? <p>HubSpotで編集が許可された項目だけ変更できます。</p> : null}
       {DISPLAY_FIELDS.some(name => !data.props.some(prop => prop.name === name)) && <p>一部の項目を取得できないため、確認できた項目だけ表示しています。</p>}
       <div className="dc-fields">{DISPLAY_FIELDS.map(name => {
         const prop = data.props.find(item => item.name === name);
@@ -103,9 +106,9 @@ export function DealContract({ dealId, onSaved, onQueued }: { dealId: string; on
         const editable = editing && canEdit && writable.some(item => item.name === name);
         const value = draft[name] ?? '';
         const change = (next: string) => { setDraft(prev => ({ ...prev, [name]: next })); write.dismiss(key); };
-        return <div className={`dc-field${savedFields.includes(name) && write.statuses[key]?.phase === 'saved' ? ' dc-written' : ''}`} key={name}><label htmlFor={`dc-${name}`}>{prop.label}</label>{!editable && <strong>{displayValue(prop, values[name])}</strong>}
+        return <div className={`dc-field${savedFields.includes(name) && write.statuses[key]?.phase === 'saved' ? ' dc-written' : ''}`} key={name}><label htmlFor={`dc-${name}`}>{fieldLabel(prop.label)}</label>{!editable && <strong>{displayValue(prop, values[name])}</strong>}
           {editable && (prop.property_type === 'enumeration' ? <select id={`dc-${name}`} disabled={locked} value={value} onChange={event => { change(event.target.value); }}><option value="">未入力</option>{value && !prop.options.some(option => option.value === value) && <option value={value}>{displayValue(prop, value)}</option>}{prop.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input id={`dc-${name}`} disabled={locked} type={prop.property_type === 'date' ? 'date' : prop.property_type === 'number' ? 'number' : 'text'} step="any" value={value} onChange={event => { change(event.target.value); }} />)}
-          {!CONTRACT_FIELDS.some(field => field === name) && <small>表示のみ</small>}
+          {!CONTRACT_FIELDS.some(field => field === name) && <small>（ここでは変更できません）</small>}
           {editable && request.changes.some(change => change.name === name) && <small className="dc-original">元: {displayValue(prop, base[name])}</small>}
         </div>;
       })}</div>

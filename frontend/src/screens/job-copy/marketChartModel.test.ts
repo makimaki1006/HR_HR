@@ -11,7 +11,7 @@ describe('market chart evidence', () => {
     ]);
   });
   it('uses actual application dates without assigning version-unknown applicants to observation days', () => {
-    const job: JobCopyRecord = { id: 'synthetic', title: '合成求人', company: '合成取引先', media: '合成媒体', mediaJobId: 'synthetic', location: '合成県', versions: [], overallApplications: { byDate: { '2026-09-03': 2, '2026-08-30': 3, '2026-09-20': 4 }, missingDate: 1, total: 10, fetchedAt: '2026-10-05T00:00:00Z', distributions: {} }, attributionUnknown: 10 };
+    const job: JobCopyRecord = { id: 'synthetic', title: '合成求人', company: '合成顧客', media: '合成媒体', mediaJobId: 'synthetic', location: '合成県', versions: [], overallApplications: { byDate: { '2026-09-03': 2, '2026-08-30': 3, '2026-09-20': 4 }, missingDate: 1, total: 10, fetchedAt: '2026-10-05T00:00:00Z', distributions: {} }, attributionUnknown: 10 };
     expect(monthlyApplications(job)).toEqual([{ month: '2026-08', count: 3 }, { month: '2026-09', count: 6 }]);
     expect(monthlyApplications({} as JobCopyRecord)).toBeNull();
     if (!job.overallApplications) throw new Error('Missing synthetic totals');

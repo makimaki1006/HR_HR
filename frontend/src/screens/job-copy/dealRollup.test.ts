@@ -31,7 +31,7 @@ describe('週ごとの実績から作る課金と、AirWork の扱い', () => {
     expect(totals.perApplication).toBe(2700);
   });
 
-  it('AirWork だけの取引は課金の合計を出さない', () => {
+  it('AirWork だけの案件は課金の合計を出さない', () => {
     const totals = dealTotals([air('w', 3)], ASOF);
     expect(totals.billing).toBeNull();
     expect(totals.perApplication).toBeNull();
@@ -60,7 +60,7 @@ describe('AirWork の週ごとの実績', () => {
     expect(totals.perApplication).toBe(2700);
     expect(awPerf('w', 3500)[0]?.media).toBe('AirWork');
   });
-  it('混ざった取引: 実績のない AirWork だけが外れる', () => {
+  it('混ざった案件: 実績のない AirWork だけが外れる', () => {
     const totals = dealTotals([hrh('a', 10, 7000), airBilled('w', 5, 3500), air('x', 50)], ASOF);
     expect(totals.billing).toBe(27000 + 13500);
     expect(totals.excludedBilling).toBe(1);
@@ -94,10 +94,10 @@ describe('帯の短い金額', () => {
 });
 
 describe('事業所の集計', () => {
-  it('2 つの取引に結び付いた求人は、取引ごとには全部数え、事業所では 1 回だけ数える', () => {
+  it('2 つの案件に結び付いた求人は、案件ごとには全部数え、事業所では 1 回だけ数える', () => {
     const shared = hrh('s', 10, 7000, { inOtherDeals: true });
-    const d1 = { id: 'd1', name: '取引1', inputs: [shared, hrh('a', 5, 3500)], overlap: {} };
-    const d2 = { id: 'd2', name: '取引2', inputs: [shared, hrh('b', 2, 1400)], overlap: {} };
+    const d1 = { id: 'd1', name: '案件1', inputs: [shared, hrh('a', 5, 3500)], overlap: {} };
+    const d2 = { id: 'd2', name: '案件2', inputs: [shared, hrh('b', 2, 1400)], overlap: {} };
     expect(dealTotals(d1.inputs, ASOF).recent).toBe(15);
     expect(dealTotals(d2.inputs, ASOF).recent).toBe(12);
     const company = companyRollup([d1, d2]);
@@ -109,7 +109,7 @@ describe('事業所の集計', () => {
     expect(totals.billing).toBe(27000 + 13500 + 5400);
   });
 
-  it('重なる応募は日ごとに取引のうち大きいほうを使う (二重に引かない)', () => {
+  it('重なる応募は日ごとに案件のうち大きいほうを使う (二重に引かない)', () => {
     const rollup = companyRollup([
       { id: 'd1', name: '', inputs: [], overlap: { '2026-10-01': 2, '2026-10-02': 1 } },
       { id: 'd2', name: '', inputs: [], overlap: { '2026-10-01': 1 } },

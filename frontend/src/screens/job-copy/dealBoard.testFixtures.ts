@@ -3,7 +3,7 @@ import { demoOwnerTodo } from './demoOwnerTodo';
 export const boardRows: DealRow[] = Array.from({ length: 24 }, (_, i) => ({
   id: String(100 + i), name: `架空の採用支援${String(i + 1).padStart(2, '0')}`, company: '合成事業所',
   pipeline: i === 23 ? '743961896' : '21596025', active: i !== 22, stage: '支援中', consultant: '合成担当A',
-  reasons: i === 0 ? [{ kind: 'nps', text: '定期NPSが4以下' }, { kind: 'mtg', text: 'MTGが途絶えている（最後のMTGから 107 日）', strong: true }] : [],
+  reasons: i === 0 ? [{ kind: 'nps', text: '定期の満足度が4以下' }, { kind: 'mtg', text: 'MTGが途絶えている（最後のMTGから 107 日）', strong: true }] : [],
   first_contract: false, launch: { start: null, elapsed: null, status: 'unavailable', total: null, remaining: null, first: null, first_day: null, weeks: null, live: null },
   months: 3, expiration: '2026-12-31', days_left: 76, last_contact: i === 23 ? null : '2026-10-12', contact_status: i === 23 ? 'outside' : 'ready', last_email: i === 0 ? '2026-10-14' : null, last_mtg: i === 23 ? null : i === 0 ? '2026-07-01' : '2026-10-01',
   recent_application_ids: Array.from({ length: i + 1 }, (_, n) => `app-${String(n)}`), previous_application_ids: ['previous-1'], unknown_application_ids: [], previous_applications: 1, applications_change: i, media_recent_applications: 50 + i, applications_out_of_scope: false,

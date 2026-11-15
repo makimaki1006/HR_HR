@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ListingOverview } from './ListingOverview';
+import type { ListingTask } from './ListingTasks';
 import { jobs } from './data';
 import type { JobCopyRecord } from './data';
 import { buildListingEvents } from './listingEventsModel';
@@ -13,7 +14,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const demo = (): JobCopyRecord => { const job = jobs[0]; if (!job) throw new Error('fixture'); return job; };
 function Overview({ job = demo() }: { job?: JobCopyRecord }) {
   const [selectedId, onSelect] = useState<string | null>(null);
-  return <ListingOverview job={job} events={buildListingEvents(job, [])} billing={[]} market={{ state: 'unset' }} selectedId={selectedId} onSelect={onSelect} onCompare={() => undefined} onOpenDrawer={() => undefined} />;
+  // 電話ヒアリングは「この求人でやること」の札から開く（画面と同じく札の状態を持つ）。
+  const [task, setTask] = useState<ListingTask | null>(null);
+  return <ListingOverview job={job} events={buildListingEvents(job, [])} billing={[]} market={{ state: 'unset' }} selectedId={selectedId} onSelect={onSelect} onCompare={() => undefined} onOpenDrawer={() => undefined}
+    tasks={{ active: task, onChange: setTask, edit: { disabled: null, onOpen: () => undefined, panel: null }, rikurozi: { disabled: null, panel: null }, onAnalysis: () => undefined }} />;
 }
 it('同じ応募に属性・応募理由・電話ヒアリング・メモを表示し、カードと往復できる', () => {
   const { container } = render(<Overview />);

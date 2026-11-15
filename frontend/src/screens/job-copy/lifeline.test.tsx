@@ -102,9 +102,10 @@ describe('リクロジ求人の詳細', () => {
     render(<ListingOverview job={record} events={events} billing={[]} market={{ state: 'unset' }} selectedId={null} onSelect={() => undefined} onCompare={() => undefined} onOpenDrawer={() => undefined} />);
     const lifeline = screen.getByTestId('lifeline');
     expect(lifeline.querySelector('.lf-labels')?.textContent).toContain('応募数（リクロジの集計）');
-    for (const name of ['課金（週）', '閲覧数（表示回数）', 'クリック数', '応募数（リクロジの集計）']) {
-      expect(screen.getByRole('row', { name }).textContent).toBe('リクロジの実績はまだ取得していません');
-    }
+    // 媒体の実績が無い求人は、空の4行（課金・閲覧・クリック・媒体の集計）を1行にまとめる。
+    expect(screen.getByRole('row', { name: '課金・閲覧・クリック・応募数（リクロジの集計）' }).textContent).toBe('リクロジの実績はまだ取得していません');
+    for (const name of ['課金（週）', '閲覧数（表示回数）', 'クリック数', '応募数（リクロジの集計）']) expect(screen.queryByRole('row', { name })).toBeNull();
+    expect(lifeline.querySelectorAll('.lf-empty')).toHaveLength(1);
     const applications = screen.getByRole('row', { name: '応募数（HubSpot に記録された応募日）' });
     expect([...applications.querySelectorAll('.lf-cell')].slice(0, 4).map(cell => cell.textContent)).toEqual(['1', '0', '0', '2']);
     expect(lifeline.textContent).not.toMatch(/Indeed|AirWork/);

@@ -40,7 +40,7 @@ it('直近N週は今日を含む7×N日間で、日付を選ぶときは両方�
   expect([parseWeeks(null), parseWeeks('0'), parseWeeks('12'), parseWeeks('x')]).toEqual([4, 4, 12, 4]);
 });
 
-it('応募ゼロは期間ごとに、求人票が付いた取引だけを数え、数えられない取引は別にする。面接は空を0に混ぜない', async () => {
+it('応募ゼロは期間ごとに、求人票が付いた案件だけを数え、数えられない案件は別にする。面接は空を0に混ぜない', async () => {
   const { isZeroApplicant, periodUnknown, hasNoInterview, interviewMissing } = await import('./dealBoardModel');
   const base = boardRows[5];
   if (!base) throw new Error('fixture missing');

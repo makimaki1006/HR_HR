@@ -16,12 +16,18 @@ function query(selector: string): HTMLElement {
 }
 
 describe('求人の画面（案3-2）', () => {
-  it('上の帯に最新の出来事と、全文を比べる・新しいパターンを作る操作がある', () => {
+  it('上の帯に最新の変更と全文を比べる操作があり、手直しの入口は「この求人でやること」の1つにまとめる', () => {
     render(<JobCopyScreen />);
     const band = screen.getByRole('region', { name: 'この案件の要点' });
-    expect(within(band).getByTestId('band-latest-event').textContent).toBe('最新の出来事9/25 給与と本文と画像を変更');
+    expect(within(band).getByTestId('band-latest-event').textContent).toBe('最新の変更：9/25 給与と本文と画像を変更見る ›');
     expect(within(band).getByRole('button', { name: '求人の全文を比べる' })).toBeTruthy();
-    expect(within(band).getByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeTruthy();
+    expect(within(band).queryByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeNull();
+    // データの最後の日は帯の中の1行。右の「数字の前提」欄はない。
+    expect(within(band).getByTestId('band-data').textContent).toContain('応募データ：');
+    expect(document.querySelector('[aria-label="数字の前提"]')).toBeNull();
+    // 最新の変更を押すと、その出来事が下で開く。
+    fireEvent.click(within(band).getByTestId('band-latest-event'));
+    expect(query('.lo-event.lo-open .lo-num').textContent).toBe('9');
   });
 
   it('出来事は既定で新しい順に5件だけ出し、すべて表示で全9件になる。番号は古い順で、判定語を出さない', () => {
@@ -40,25 +46,45 @@ describe('求人の画面（案3-2）', () => {
     expect(nums()).toHaveLength(5);
   });
 
-  it('必要なときだけ使うもの（案・手直し・ほかの分析・電話ヒアリング）は畳んだ「作業」に入り、開くとすぐ使える', () => {
+  it('「この求人でやること」の4枚の札を出来事の上に並べ、札ごとに1行の説明を付ける', () => {
     render(<JobCopyScreen />);
-    const work = query('details.lo-work');
-    expect((work as HTMLDetailsElement).open).toBe(false);
-    expect(work.querySelector('summary')?.textContent).toContain('作業');
-    expect(within(work).getByRole('button', { name: 'ほかの分析を開く' })).toBeTruthy();
-    expect(work.querySelector('details.ph-section summary')?.textContent).toContain('電話ヒアリング');
-    // いつも見るもの（ライフライン・応募理由・出来事）は作業の外にある。
-    for (const name of ['求人のライフライン', '応募理由（ヒアリング内容）', '出来事（新しい順）']) expect(work.contains(screen.getByRole('heading', { name }))).toBe(false);
-    fireEvent.click(query('details.lo-work > summary'));
-    expect((query('details.lo-work') as HTMLDetailsElement).open).toBe(true);
+    expect(document.querySelector('details.lo-work')).toBeNull();
+    expect(document.body.textContent).not.toContain('求人を選ぶ → 手直し');
+    const tasks = screen.getByRole('region', { name: 'この求人でやること' });
+    const cards = within(tasks).getAllByRole('button');
+    expect(cards.map(card => card.querySelector('strong')?.textContent)).toEqual(['文面を手直しする', 'リクロジ向けの案を作る', '電話ヒアリングを見る', 'くわしい分析を開く']);
+    expect(cards[0]?.textContent).toContain('今の本文を基に直し、確認待ちの案として保存します');
+    expect(cards[1]?.textContent).toContain('AirWork と重ならない文章を作ります（数分）');
+    expect(cards[3]?.textContent).toContain('本文と画像・変更の前後・応募者など');
+    // 操作デモの求人は HubSpot の求人と結び付いていないので、手直し・リクロジ向けの案は押せず、理由を出す。
+    expect((cards[0] as HTMLButtonElement).disabled).toBe(true);
+    expect(cards[0]?.textContent).toContain('HubSpot の求人と結び付いた求人だけで使えます');
+    expect((cards[1] as HTMLButtonElement).disabled).toBe(true);
+    expect(cards[1]?.textContent).toContain('HRハッカーの求人だけで作れます');
+    // 出来事の上、ライフラインの下に置く。
+    const events = screen.getByRole('heading', { name: '出来事（新しい順）' });
+    const lifeline = screen.getByRole('heading', { name: '求人のライフライン' });
+    expect(tasks.compareDocumentPosition(events) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tasks.compareDocumentPosition(lifeline) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    // 電話ヒアリングの札を押すと、札の下に開いた状態で出て、「× 閉じる」で閉じる。
+    const hearingCard = cards[2]; if (!hearingCard) throw new Error('電話ヒアリングの札が必要です');
+    fireEvent.click(hearingCard);
+    expect(cards[2]?.getAttribute('aria-pressed')).toBe('true');
+    const panel = screen.getByRole('region', { name: '電話ヒアリングを見る' });
+    expect(panel.querySelector<HTMLDetailsElement>('details.ph-section')?.open).toBe(true);
+    fireEvent.click(within(panel).getByRole('button', { name: '電話ヒアリングを見るを閉じる' }));
+    expect(screen.queryByRole('region', { name: '電話ヒアリングを見る' })).toBeNull();
   });
 
   it('出来事を押すと、ほかに応募を動かしそうなことが出る。もう一度押すと閉じる', () => {
     render(<JobCopyScreen />);
     const head = query('.lo-event-head');
     expect(head.getAttribute('aria-expanded')).toBe('false');
+    expect(head.querySelector('.lo-caret')?.textContent).toBe('詳細 ▼');
+    expect(screen.getByText('行を押すと、その出来事の詳細が開きます。上のライフラインのその週にも印が付きます。')).toBeTruthy();
     fireEvent.click(head);
     expect(head.getAttribute('aria-expanded')).toBe('true');
+    expect(head.querySelector('.lo-caret')?.textContent).toBe('閉じる ▲');
     const checks = screen.getByRole('list', { name: 'ほかに応募を動かしそうなこと' });
     expect(within(checks).getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['課金', '市場', 'ほかの変更']);
     expect(within(checks).getByText('「課金を開始」が24日前（9/01）に、「課金を増額」が10日前（9/15）にあります。')).toBeTruthy();
@@ -75,7 +101,7 @@ describe('求人の画面（案3-2）', () => {
     expect(query('.lo-event.lo-open .lo-num').textContent).toBe('9');
   });
 
-  it('応募者・応募理由の前後は横から出て、閉じられる。「ほかの分析」は入口の1つから開き、タブは7つ', () => {
+  it('応募者・応募理由の前後は横から出て、閉じられる。「くわしい分析」は入口の1つから開き、タブは7つ', () => {
     render(<JobCopyScreen />);
     fireEvent.click(query('.lo-event-head'));
     fireEvent.click(screen.getByRole('button', { name: '応募者・応募理由の前後を見る' }));
@@ -83,9 +109,9 @@ describe('求人の画面（案3-2）', () => {
     expect(within(drawer).getByText(/前の4週 15 件 → 後の4週 3 件/u)).toBeTruthy();
     fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
     expect(screen.queryByRole('dialog', { name: '応募者・応募理由の前後' })).toBeNull();
-    const more = within(screen.getByRole('region', { name: 'ほかの分析' }));
-    expect(more.getAllByRole('button').map(button => button.textContent)).toEqual(['ほかの分析を開く']);
-    fireEvent.click(more.getByRole('button', { name: 'ほかの分析を開く' }));
-    expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']);
+    const tasks = within(screen.getByRole('region', { name: 'この求人でやること' }));
+    fireEvent.click(tasks.getByRole('button', { name: /^くわしい分析を開く/ }));
+    expect(screen.getByRole('dialog', { name: 'くわしい分析' })).toBeTruthy();
+    expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', 'メモ']);
   });
 });

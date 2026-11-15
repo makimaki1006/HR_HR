@@ -11,7 +11,7 @@ function fixture() {
   const id = 'capture-synthetic-real-2026-10-04T00:00:00.000Z';
   const empty = { denominator: 0, categories: [] };
   return { schemaVersion: 1, capturedAt: '2026-10-04T00:00:00.000Z', capture_bundle: { schemaVersion: 1, capturedAt: '2026-10-04T00:00:00.000Z', jobs: [{
-    id: 'synthetic-real', hubspotListingId: '30', title: '架空集計求人', company: '架空取引先', media: 'HRハッカー', mediaJobId: 'TEST-REAL', location: '架空市', body: '架空の本文', images: [],
+    id: 'synthetic-real', hubspotListingId: '30', title: '架空集計求人', company: '架空顧客', media: 'HRハッカー', mediaJobId: 'TEST-REAL', location: '架空市', body: '架空の本文', images: [],
   }] }, results: [{ listing_id: '30', summary: { total: 11, missing_date: 0, by_date: { '2026-09-01': 11 }, dimensions: { gender: { 男性: 6, 女性: 4, 不明: 1 }, age: { '30代': 8, 不明: 3 }, prefecture: { 東京都: 9, 不明: 2 }, municipality: { 不明: 11 } } },
     dated_comparison: { total: 11, unknown: 11, basis: '架空の日付対応', by_version: { [id]: { count: 0, dimensions: { gender: empty, age: empty, prefecture: empty, municipality: empty } } } as Record<string, { count: number; dimensions: Record<string, typeof empty> }>, daily_representatives: {} },
   }] };

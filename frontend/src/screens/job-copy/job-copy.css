@@ -379,6 +379,19 @@
 /* Deal comparison stays within the existing desktop detail pane. */
 .jc-deal-comparison { min-width:0; }
 .jc-deal-comparison > header { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+/* 案件のページの見出し：大見出しは案件名、下に顧客名・担当・ステージ・満了まで。 */
+.jc-deal-comparison > header.jc-deal-head { display:block; margin:4px 0 8px; }
+.jc-deal-head h1 { margin:0; font-size:24px; line-height:1.35; overflow-wrap:anywhere; }
+.jc-deal-meta { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 0; margin:6px 0 0; color:#3d5363; font-size:14px; }
+.jc-deal-meta .jc-out { margin-left:14px; }
+.jc-deal-expiry { font-weight:600; }
+.jc-deal-expiry.is-urgent { color:#b42318; font-weight:700; }
+.jc-deal-back { margin:0 0 6px; }
+/* 来た元へ戻るリンクとパンくずを1行に並べる。 */
+.jc-locbar { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; padding:10px 30px 0; }
+.jc-locbar .jh-crumbs { padding:0; }
+.jc-locbar .jc-back { font-size:14px; }
+@media (max-width: 560px) { .jc-locbar { padding:10px 16px 0; } }
 .jc-deal-controls { display:flex; gap:16px; align-items:end; margin:16px 0; flex-wrap:wrap; }
 .jc-deal-controls label { display:grid; gap:6px; }
 .jc-deal-controls select { padding:8px; border:1px solid #cbd5e1; border-radius:6px; background:white; }
@@ -439,16 +452,10 @@
 .jc-band-numbers dt { color: var(--jc-muted); font-size: 11px; }
 .jc-band-numbers dd { margin: 0; font-size: 22px; font-weight: 700; }
 .jc-band-numbers dd small { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--jc-muted); }
-.jc-detail-cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 22px; align-items: start; }
+.jc-detail-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: start; }
 .jc-detail-content { min-width: 0; }
-.jc-rail { position: sticky; top: calc(var(--jc-band-h) + 12px); display: grid; gap: 14px; padding: 14px 16px; border: 1px solid var(--jc-border); background: var(--jc-paper); }
-.jc-rail h2 { font-size: 15px; margin: 0; }
-.jc-rail h3 { font-size: 13px; margin: 0 0 6px; }
-.jc-rail dl { margin: 0; display: grid; gap: 2px; }
-.jc-rail dt { color: var(--jc-muted); font-size: 12px; }
-.jc-rail dd { margin: 0 0 6px; font-weight: 600; overflow-wrap: anywhere; }
 .jc-feature-primary { top: var(--jc-band-h, 0); }
-@media (max-width: 1100px) { .jc-detail-cols { grid-template-columns: minmax(0, 1fr); } .jc-rail { position: static; } }
+
 @media (max-width: 800px) { .jc-band { position: static; } .jc-feature-primary { top: 0; } .jc-band-numbers { gap: 14px; } }
 
 /* 長い事業所名・比較に選んだ求人名も、操作ボタンの枠内で読めるようにする。 */
@@ -469,3 +476,6 @@
 /* 左の「求人を探す」の検索欄 */
 .jc-listing-q { display: grid; gap: 4px; margin: 6px 0; font-size: 12px; color: var(--jc-muted); }
 .jc-listing-q input { width: 100%; box-sizing: border-box; }
+.jc-review-mark { display: grid; justify-items: end; gap: 4px; max-width: 280px; }
+.jc-review-mark small { color: var(--jc-muted, #64748b); font-size: 12px; text-align: right; line-height: 1.5; }
+.jc-deal-sep { margin: 0 6px; color: #8a99a6; }

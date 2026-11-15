@@ -19,7 +19,23 @@ import { marketRows } from './marketChartModel';
 import type { MarketRow } from './marketChartModel';
 import { useMarketFetch } from './marketSource';
 import type { BillingEntry } from './timelineModel';
+import { InfoTip } from './InfoTip';
+import { ListingTasks } from './ListingTasks';
+import type { ListingTaskOptions } from './ListingTasks';
+import { BILLING_EVENT_MIN_PCT, MARKET_CAUTION_PCT } from './listingEventsModel';
 import './listing-overview.css';
+
+/** 出来事の「数え方」（見出しの ⓘ に畳む）。 */
+function EventRules() {
+  return <>
+    <p>出来事の日の前の4週と後の4週の応募を、件数で比べます。増えた・減ったの判定はしません。応募の数はほかの要因でも動くため、原因を決めるものではありません。</p>
+    <ul className="lo-rules">
+      <li>課金：前後4週にほかの課金の変更（開始・停止・{BILLING_EVENT_MIN_PCT}%以上の増減）があれば「要注意」、なければ「小さい」。</li>
+      <li>市場：職種を指定した求人だけ。前後4週で競合の求人数が{MARKET_CAUTION_PCT}%以上動いていれば「要注意」。</li>
+      <li>ほかの変更：前後4週に別の出来事があれば「要注意」。</li>
+    </ul>
+  </>;
+}
 
 /** 出来事の「市場」の確認に使う市場の数字。職種を指定した求人だけ取得する。 */
 export function useListingMarket(job: JobCopyRecord, mode: 'api' | 'demo'): MarketInput {
@@ -59,10 +75,10 @@ interface Props {
   onSelect: (id: string | null) => void;
   onCompare: (left: string | undefined, right: string | undefined) => void;
   onOpenDrawer: (kind: ListingDrawerKind, event: ListingEvent | null) => void;
-  /** 必要なときだけ使うもの（案を作る・手直し・ほかの分析）。電話ヒアリングと一緒に「作業」へ畳む。 */
-  work?: ReactNode;
-  workOpen?: boolean;
-  onWorkToggle?: (open: boolean) => void;
+  /** 「この求人でやること」の札（手直し・リクロジ向けの案・電話ヒアリング・くわしい分析）。出来事の上に並べる。 */
+  tasks?: ListingTaskOptions;
+  /** ライフラインのすぐ下に置くもの（市場の今）。 */
+  marketSlot?: ReactNode;
 }
 
 const num = (value: number | null) => value === null ? '—' : value.toLocaleString('ja-JP');
@@ -87,14 +103,19 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
     if (element && selectedWeek !== null) element.scrollLeft = Math.max(0, selectedWeek * COLUMN_PX - element.clientWidth / 2 + COLUMN_PX / 2);
   }, [selectedWeek]);
   const media = lifeline.mediaLabel;
-  const noPerf = lifeline.hasPerformance ? '' : media === 'リクロジ' ? 'リクロジの実績はまだ取得していません' : media === 'AirWork' ? '課金データなし' : 'Indeed の実績データなし';
-  const rows: { key: string; label: string; cell: (week: LifelineWeek) => string; short: (week: LifelineWeek) => string; empty: string }[] = [
+  const noPerf = lifeline.hasPerformance ? '' : media === 'リクロジ' ? 'リクロジの実績はまだ取得していません' : media === 'AirWork' ? '課金データなし' : 'この求人の Indeed の実績データはありません';
+  const allRows: { key: string; label: string; cell: (week: LifelineWeek) => string; short: (week: LifelineWeek) => string; empty: string }[] = [
     { key: 'billing', label: '課金（週）', cell: week => yen(week.billing), short: week => shortNumber(week.billing, '¥'), empty: noPerf },
     { key: 'impressions', label: '閲覧数（表示回数）', cell: week => num(week.impressions), short: week => shortNumber(week.impressions), empty: noPerf },
     { key: 'clicks', label: 'クリック数', cell: week => num(week.clicks), short: week => shortNumber(week.clicks), empty: noPerf },
     { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), short: week => shortNumber(week.hubspotApplications), empty: '' },
     { key: 'media', label: `応募数（${media}の集計）`, cell: week => num(week.mediaApplications), short: week => shortNumber(week.mediaApplications), empty: noPerf },
   ];
+  // 媒体の実績（課金・閲覧・クリック・媒体の集計の応募）が無い求人は、空の4行を1行にまとめる。
+  const perfKeys = ['billing', 'impressions', 'clicks', 'media'];
+  const rows = noPerf && allRows.filter(row => perfKeys.includes(row.key)).every(row => lifeline.weeks.every(week => row.cell(week) === '—'))
+    ? [{ key: 'performance', label: `課金・閲覧・クリック・応募数（${media}の集計）`, cell: () => '—', short: () => '—', empty: noPerf }, ...allRows.filter(row => !perfKeys.includes(row.key))]
+    : allRows;
   // 同じ週に印が重なる（掲載を始めた週がまだ今週など）ときは、名前を縦にずらして重ねない
   const placed: number[] = [];
   const marker = (index: number | null, label: string, tone: string) => {
@@ -152,7 +173,7 @@ export function EventCostTable({ event, counts, costs, asOf }: { event: Pick<Lis
 
 const KIND_LABEL: Record<ListingEvent['kind'], string> = { start: '掲載', end: '掲載', revive: '掲載', content: '求人内容', image: '画像', billing: '課金', application: '応募' };
 
-function ApplicationDetails({ job, event, hearing, loading }: { job: JobCopyRecord; event: ListingEvent; hearing: Hearing | null; loading: boolean }) {
+function ApplicationDetails({ job, event, hearing, loading, onShowHearing }: { job: JobCopyRecord; event: ListingEvent; hearing: Hearing | null; loading: boolean; onShowHearing: (applicant: string) => void }) {
   const collection = job.applicantReasons;
   const items = (collection?.items ?? []).filter(item => item.applicant === event.applicationKey && item.text.trim());
   const picked = (collection?.selections ?? []).filter(item => item.applicant === event.applicationKey && selectedCategory(item) !== 'unset');
@@ -171,7 +192,7 @@ function ApplicationDetails({ job, event, hearing, loading }: { job: JobCopyReco
     {card && <>
       <h3>電話ヒアリング</h3><dl className="lo-application-fields">{fields.map(field => <div key={field.label}><dt>{field.label}</dt><dd>{maskPersonalDetails(field.text)}</dd></div>)}</dl>
       {card.notes.length > 0 && <section aria-label="メモ"><h3>メモ</h3>{card.notes.map((note, index) => <p key={index}>{maskPersonalDetails(note.text)}</p>)}</section>}
-      <button type="button" className="jc-button" onClick={() => { const target = document.getElementById(`hearing-${card.applicant}`); for (let section = target?.closest('details') ?? null; section; section = section.parentElement?.closest('details') ?? null) section.open = true; target?.scrollIntoView({ block: 'center' }); target?.focus(); }}>電話ヒアリングのこの応募へ</button>
+      <button type="button" className="jc-button" onClick={() => { onShowHearing(card.applicant); }}>電話ヒアリングのこの応募へ</button>
     </>}
   </div>;
 }
@@ -189,7 +210,7 @@ export function ListingReasons({ job }: { job: JobCopyRecord }) {
 /** 出来事を既定で出す件数。残りは「すべて表示」で出す。 */
 export const RECENT_EVENT_COUNT = 5;
 
-export function ListingOverview({ job, events, billing, market, selectedId, onSelect, onCompare, onOpenDrawer, work, workOpen = false, onWorkToggle }: Props) {
+export function ListingOverview({ job, events, billing, market, selectedId, onSelect, onCompare, onOpenDrawer, tasks, marketSlot }: Props) {
   const hearing = usePhoneHearing(job);
   const asOf = applicationsCutoffDate(job);
   const listingStart = events.find(event => event.kind === 'start')?.date ?? null;
@@ -206,24 +227,31 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
   const applicationCount = events.filter(event => event.kind === 'application').length;
   const card = useRef<HTMLElement | null>(null);
   useEffect(() => { card.current?.scrollIntoView({ block: 'nearest' }); }, [selectedId]);
-  const phonePanel = <PhoneHearingContent applicationRows={job.applicationRows ?? []} {...hearing} onApplication={key => {
+  const phonePanel = <PhoneHearingContent open applicationRows={job.applicationRows ?? []} {...hearing} onApplication={key => {
     const event = events.find(event => event.applicationKey === key);
     if (!event) return;
     setShowApplications(true);
     onSelect(event.id);
     requestAnimationFrame(() => { document.getElementById(`application-${key}`)?.scrollIntoView({ block: 'center' }); });
   }} />;
-  const workSection = <details className="lo-work" open={workOpen} onToggle={event => { onWorkToggle?.(event.currentTarget.open); }}><summary>作業（案を作る・手直し・電話ヒアリング・ほかの分析）</summary><div className="lo-work-body">{work}{phonePanel}</div></details>;
-  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section><ListingReasons job={job} />{workSection}</div>;
+  const hearingSummary = hearing.data ? `記録あり ${String(hearing.data.items.length)}件 ／ 応募 ${String(hearing.data.total_applicants)}件` : hearing.loading ? '記録を読み込み中です' : '聞き取った内容と通話の記録';
+  const taskSection = tasks && <ListingTasks options={tasks} hearingSummary={hearingSummary} hearingPanel={phonePanel} />;
+  // 応募の出来事から「電話ヒアリングのこの応募へ」を押したとき、電話ヒアリングの札を開いてその応募へ移る。
+  const showHearing = (applicant: string) => {
+    tasks?.onChange('hearing');
+    requestAnimationFrame(() => { const target = document.getElementById(`hearing-${applicant}`); target?.scrollIntoView({ block: 'center' }); target?.focus(); });
+  };
+  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section>{marketSlot}{taskSection}<ListingReasons job={job} /></div>;
   return <div className="lo-main">
     <section className="lo-card" aria-labelledby="lo-chart-title">
-      <div className="lo-head"><h2 id="lo-chart-title">求人のライフライン</h2><span>掲載開始から{lifeline?.endIndex !== null && lifeline?.endIndex !== undefined ? '掲載終了' : '今日'}まで、1週を1列で並べています（月曜はじまり）。横にスクロールできます。</span></div>
+      <div className="lo-head"><h2 id="lo-chart-title">求人のライフライン</h2><InfoTip className="jc-infotip-left" iconFirst label="見方"><p>掲載開始から{lifeline?.endIndex !== null && lifeline?.endIndex !== undefined ? '掲載終了' : '今日'}まで、1週を1列で並べています（月曜はじまり）。横にスクロールできます。上の段の番号を押すと、その出来事が下で開きます。</p></InfoTip><span>1週を1列で並べています。番号は下の出来事の番号です。</span></div>
       {lifeline ? <LifelineChart lifeline={lifeline} job={job} selectedWeek={selectedWeek} onSelect={onSelect} /> : <p className="lo-note" role="status">掲載の開始日が分からないため、週ごとの推移は出せません。</p>}
-      {!job.overallApplications && <p className="lo-note" role={job.applicationDates === 'failed' ? 'alert' : 'status'}>{noApplicationDatesText(job)}{job.applicationDates === 'failed' && <RetryApplicants id={job.hubspotId} />}</p>}
     </section>
+    {marketSlot}
+    {taskSection}
     <section aria-labelledby="lo-events-title">
-      <div className="lo-head"><h2 id="lo-events-title">出来事（新しい順）</h2>{applicationCount > 0 && <label className="lo-toggle"><input type="checkbox" checked={showApplications} onChange={event => { setShowApplications(event.target.checked); }} />応募（{applicationCount}件）を出す</label>}</div>
-      <p className="lo-note">押すと、横の時間軸のその週に印が付きます。前後4週の応募の件数の差は、出来事のほかの要因でも動くため、原因を決めるものではありません。</p>
+      <div className="lo-head"><h2 id="lo-events-title">出来事（新しい順）</h2><InfoTip className="jc-infotip-left" iconFirst label="数え方"><EventRules /></InfoTip>{applicationCount > 0 && <label className="lo-toggle"><input type="checkbox" checked={showApplications} onChange={event => { setShowApplications(event.target.checked); }} />応募（{applicationCount}件）も一覧に並べる</label>}</div>
+      <p className="lo-note">行を押すと、その出来事の詳細が開きます。上のライフラインのその週にも印が付きます。</p>
       <div className="lo-events">
         {shownEvents.map(event => {
           const open = event.id === selected?.id;
@@ -238,9 +266,9 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
               <span className="lo-date">{md(event.date)}</span>
               <span className="lo-title"><small className="lo-kind">{KIND_LABEL[event.kind]}</small>{event.title}{isApplication && <small className="lo-attrs">{event.summary}</small>}</span>
               {isApplication ? <span /> : <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>}
-              <span className="lo-caret" aria-hidden="true">{open ? '▲' : '▼'}</span>
+              <span className="lo-caret jc-open" aria-hidden="true">{open ? '閉じる ▲' : '詳細 ▼'}</span>
             </button>
-            {open && isApplication && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicationDetails job={job} event={event} hearing={hearing.data} loading={hearing.loading} /></div>}
+            {open && isApplication && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicationDetails job={job} event={event} hearing={hearing.data} loading={hearing.loading} onShowHearing={showHearing} /></div>}
             {open && !isApplication && <div className="lo-event-body">
               <EventCostTable event={event} counts={counts} costs={eventCosts(event, counts, billing)} asOf={asOf} />
               <ul className="lo-checks" aria-label="ほかに応募を動かしそうなこと">
@@ -260,6 +288,5 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
       {newestFirst.length > RECENT_EVENT_COUNT && <p className="lo-more-events"><span>{expanded ? `${String(newestFirst.length)}件すべてを表示しています。` : `新しい順に${String(RECENT_EVENT_COUNT)}件を表示しています（全${String(newestFirst.length)}件）。`}</span>{selectedIndex < RECENT_EVENT_COUNT && <button type="button" className="jc-button" aria-expanded={expanded} onClick={() => { setShowAllEvents(value => !value); }}>{expanded ? `最新${String(RECENT_EVENT_COUNT)}件だけにする` : `すべて表示（${String(newestFirst.length)}件）`}</button>}</p>}
     </section>
     <ListingReasons job={job} />
-    {workSection}
   </div>;
 }

@@ -40,7 +40,7 @@ const version = (id: string, observedAt: string, body: string, images?: CopyImag
   id, label: `${observedAt.slice(0, 10).replaceAll('-', '/')}時点の求人内容`, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '', ...(images ? { images } : {}), ...extra,
 });
 const job = (versions: CopyVersion[], byDate: Record<string, number>, fetchedAt: string, extra: Partial<JobCopyRecord> = {}): JobCopyRecord => ({
-  id: 'synthetic', title: '合成配送ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: '12345678', location: '大分県大分市', dataSource: 'hubspot', versions,
+  id: 'synthetic', title: '合成配送ドライバー', company: '合成顧客', media: 'HRハッカー', mediaJobId: '12345678', location: '大分県大分市', dataSource: 'hubspot', versions,
   overallApplications: { total: Object.values(byDate).reduce((sum, count) => sum + count, 0), missingDate: 0, fetchedAt, distributions: {}, byDate }, ...extra,
 });
 const sameImages = [image('a', '1', 1), image('b', '2', 2)];
@@ -173,9 +173,9 @@ describe('3. applications linked to more than one job', () => {
 
 describe('6–8. dummy billing switch, selected subset, sort note', () => {
   beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy?demo=1'); vi.stubGlobal('fetch', vi.fn()); });
-  // タイムラインは「ほかの分析」の横画面にある。開いていなければ開く。
+  // タイムラインは「くわしい分析」の横画面にある。開いていなければ開く。
   const billingLane = () => {
-    if (!screen.queryByRole('dialog', { name: 'ほかの分析' })) openOtherAnalysis('タイムライン');
+    if (!screen.queryByRole('dialog', { name: 'くわしい分析' })) openOtherAnalysis('タイムライン');
     return screen.getByRole('group', { name: '課金' });
   };
   const chooseJob = (title: string) => {

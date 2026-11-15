@@ -1,4 +1,4 @@
-/** 取引ひとつ分の求人・応募・課金を読み込む。取引の画面と事業所の画面が同じものを使う。 */
+/** 案件ひとつ分の求人・応募・課金を読み込む。案件の画面と事業所の画面が同じものを使う。 */
 import { apiGet } from '../../api/client';
 import { fetchBodyDates } from './bodyDatesShared';
 import { applicationsCutoffDate } from './detailBandModel';
@@ -35,11 +35,11 @@ export interface DealData {
   company: { id: string; name: string } | null;
 }
 
-/** 取引ひとつの 1 回の読み取りの待ち。サーバーの締め切り（40 秒）より少し長い。 */
+/** 案件ひとつの 1 回の読み取りの待ち。サーバーの締め切り（40 秒）より少し長い。 */
 const DEAL_STEP_TIMEOUT_MS = 60_000;
-/** 事業所ぜんぶの読み込みの待ち。これを過ぎた取引は「読み込めなかった」として数える。 */
+/** 事業所ぜんぶの読み込みの待ち。これを過ぎた案件は「読み込めなかった」として数える。 */
 export const COMPANY_LOAD_TIMEOUT_MS = 120_000;
-/** 事業所の取引を同時に読む数。HubSpot の呼び出しは関所が順番に通す。 */
+/** 事業所の案件を同時に読む数。HubSpot の呼び出しは関所が順番に通す。 */
 const COMPANY_PARALLEL = 3;
 
 export async function loadDealData(dealId: string, name: string, signal: AbortSignal): Promise<DealData | null> {
@@ -88,12 +88,12 @@ export function dealGroup(data: DealData, billingByJob: Readonly<Record<string, 
   return { id: data.id, name: data.name, inputs: dealInputs(data, billingByJob), overlap: data.overlap };
 }
 
-/** 顧客（事業所）の全部の取引の求人を集める。同じ求人は取引をまたいで 1 回だけ数える（合計は呼び出し側）。 */
+/** 顧客（事業所）の全部の案件の求人を集める。同じ求人は案件をまたいで 1 回だけ数える（合計は呼び出し側）。 */
 export async function loadCompanyDatas(companyId: string, signal: AbortSignal, knownDeals?: CompanyDeal[], onProgress?: (datas: DealData[]) => void): Promise<{ status: 'ready'; datas: DealData[]; notes: string[] } | { status: 'error'; message: string }> {
   const deals = knownDeals ? { ok: true as const, data: { deals: knownDeals } } : await loadCompanyDeals(companyId);
-  if (!deals.ok) return { status: 'error', message: 'この事業所の取引を読み込めませんでした。' };
+  if (!deals.ok) return { status: 'error', message: 'この事業所の案件を読み込めませんでした。' };
   const wanted = deals.data.deals.slice(0, ROLLUP_RULES.maxDeals);
-  // 全体の待ちを区切る。区切りを過ぎても、読めた取引の分は出す。
+  // 全体の待ちを区切る。区切りを過ぎても、読めた案件の分は出す。
   const limit = new AbortController();
   const timer = setTimeout(() => { limit.abort(); }, COMPANY_LOAD_TIMEOUT_MS);
   const forward = () => { limit.abort(); };
@@ -105,7 +105,7 @@ export async function loadCompanyDatas(companyId: string, signal: AbortSignal, k
       const index = next; next += 1;
       const deal = wanted[index];
       if (!deal || limit.signal.aborted) return;
-      const data = await loadDealData(deal.id, deal.name ?? '取引名未取得', limit.signal).catch(() => null);
+      const data = await loadDealData(deal.id, deal.name ?? '案件名未取得', limit.signal).catch(() => null);
       results[index] = data;
       if (data?.rows.length && !signal.aborted) onProgress?.(results.filter((item): item is DealData => !!item?.rows.length));
     }
@@ -118,11 +118,11 @@ export async function loadCompanyDatas(companyId: string, signal: AbortSignal, k
   }
   if (signal.aborted) return { status: 'error', message: '' };
   const loaded = results.filter((item): item is DealData => !!item?.rows.length);
-  // 読み込めなかった = 失敗、または全体の待ちを過ぎて読み始められなかった取引
+  // 読み込めなかった = 失敗、または全体の待ちを過ぎて読み始められなかった案件
   const missing = results.filter(item => item === null || item === undefined).length;
   const notes: string[] = [];
-  if (deals.data.deals.length > wanted.length) notes.push(`取引が多いため、先頭の${String(wanted.length)}件までで集計しています。`);
-  if (missing > 0) notes.push(`読み込めなかった取引が ${String(missing)}件あります。その取引の求人は合計に含まれていません。`);
+  if (deals.data.deals.length > wanted.length) notes.push(`案件が多いため、先頭の${String(wanted.length)}件までで集計しています。`);
+  if (missing > 0) notes.push(`読み込めなかった案件が ${String(missing)}件あります。その案件の求人は合計に含まれていません。`);
   if (loaded.length === 0 && missing > 0) return { status: 'error', message: 'この事業所の求人を読み込めませんでした。' };
   return { status: 'ready', datas: loaded, notes };
 }

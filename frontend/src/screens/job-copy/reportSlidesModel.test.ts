@@ -159,7 +159,7 @@ describe('案件の単位のまとめ', () => {
     expect(result.slides.map(item => item.id)).toEqual(['cover', 'summary', 'trend', 'listings', 'changes', 'applicants', 'reasons']);
     expect(JSON.stringify(result.slides)).not.toMatch(/未取得|HubSpot|pt|効果|合成・定期採用/);
   });
-  it('表紙の件名は既定で空（取引名を出さない）。空なら期間だけ', () => {
+  it('表紙の件名は既定で空（案件名を出さない）。空なら期間だけ', () => {
     expect(slide(result.slides, 'cover')).toMatchObject({ addressee: '合成運輸 御中', subtitle: '2026年10月19日〜11月15日', footer: '担当：担当A ／ 2026年11月15日' });
     expect(slide(buildReport(input(), options({ subject: '第2支店' })).slides, 'cover')?.subtitle).toBe('第2支店 ／ 2026年10月19日〜11月15日');
   });

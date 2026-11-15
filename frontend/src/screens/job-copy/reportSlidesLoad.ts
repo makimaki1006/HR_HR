@@ -1,7 +1,7 @@
 /**
  * 顧客報告のスライドに渡す数を、既存の読み込みから集める（新しい API は使わない）。
  * - 案件: 案件のまとめと同じ loadDealData（求人・応募日別・課金・本文と画像の変更）、
- *         契約・成果と同じ取引の読み取り（取引名・面接 mensetu・採用 syoudaku）、求人ごとの応募者（listingApplicationDates）。
+ *         契約・成果と同じ案件の読み取り（案件名・面接 mensetu・採用 syoudaku）、求人ごとの応募者（listingApplicationDates）。
  * - 求人: 求人の画面と同じ loadVersions・loadApplicationDates・fetchBodyDates。
  * 読んだ結果はこのタブのメモリに持ち、開き直したときは読み直さない（「最新にする」で読み直す）。
  */

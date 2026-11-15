@@ -54,7 +54,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     if (request !== generation.current) return;
     if (result.ok) {
       setCustomers(previous => more ? [...new Map([...previous, ...result.data.customers].map(row => [row.id, row])).values()] : result.data.customers);
-      setAfter(result.data.next_after); setMessage(`取引先を${String(result.data.customers.length)}件取得しました。`);
+      setAfter(result.data.next_after); setMessage(`顧客を${String(result.data.customers.length)}件取得しました。`);
     } else failure(result.error);
     setBusy(false);
   }
@@ -72,7 +72,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     if (!page) return;
     const request = ++generation.current;
     setBusy(true); setError(''); setApplications(null);
-    const name = customers.find(row => row.id === page.company_id)?.properties.name ?? '取引先名未取得';
+    const name = customers.find(row => row.id === page.company_id)?.properties.name ?? '顧客名未取得';
     const body = record.properties.shigotonaiyou;
     const accountId = record.properties.id_hrhakkaa ? record.properties.id_shop_hrhakkaa : record.properties.id_airwork ? record.properties.airwork_account_login_id : null;
     const selectedJob: JobCopyRecord = { id: `hubspot-${record.id}`, title: record.properties.hs_name ?? '求人名未取得', company: name,
@@ -118,12 +118,12 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     else failure(result.error);
     setBusy(false);
   }
-  return <details className="jc-live-panel"><summary>HubSpotの取引先・求人・応募を確認</summary>
+  return <details className="jc-live-panel"><summary>HubSpotの顧客・求人・応募を確認</summary>
     <p>既存の求人連携を読み取ります。更新・関連付けの変更は行いません。</p>
-    <button className="jc-button" disabled={busy} onClick={() => { void loadCustomers(); }}>取引先を取得</button>
-    {after && <button className="jc-button" disabled={busy} onClick={() => { void loadCustomers(true); }}>取引先をさらに取得</button>}
-    <label>取得済みの取引先を検索<input value={search} onChange={event => { setSearch(event.target.value); }} /></label>
-    <label>HubSpotの取引先<select disabled={busy} value={customer} onChange={event => { ++generation.current; setCustomer(event.target.value); setPage(null); setApplications(null); }}><option value="">取引先を選択</option>{customers.filter(row => (row.properties.name ?? '').includes(search)).map(row => <option key={row.id} value={row.id}>{row.properties.name ?? '名称未取得'}</option>)}</select></label>
+    <button className="jc-button" disabled={busy} onClick={() => { void loadCustomers(); }}>顧客を取得</button>
+    {after && <button className="jc-button" disabled={busy} onClick={() => { void loadCustomers(true); }}>顧客をさらに取得</button>}
+    <label>取得済みの顧客を検索<input value={search} onChange={event => { setSearch(event.target.value); }} /></label>
+    <label>HubSpotの顧客<select disabled={busy} value={customer} onChange={event => { ++generation.current; setCustomer(event.target.value); setPage(null); setApplications(null); }}><option value="">顧客を選択</option>{customers.filter(row => (row.properties.name ?? '').includes(search)).map(row => <option key={row.id} value={row.id}>{row.properties.name ?? '名称未取得'}</option>)}</select></label>
     <button className="jc-button" disabled={busy || !customer} onClick={() => { void loadJobs(); }}>関連する求人を読み込む</button>
     {busy && <p role="status">HubSpotを読み取り中…</p>}{message && <p role="status">{message}</p>}{error && <p className="jc-error" role="alert">{error}</p>}
     {page && <><p>関連する求人は{page.total}件。このページは{page.jobs.length}件です。現契約・旧契約を含む現在の関連を使用しています。</p>

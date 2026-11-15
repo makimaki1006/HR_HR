@@ -152,10 +152,45 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 /* 印の縦線にも数値の先頭を重ねない。変更ボタンの列幅は保つ。 */
 .lf-row[role="row"] > .lf-cell { padding-inline: 3px; }
 
-/* 必要なときだけ使うものを 1 つにまとめた「作業」。畳んでいても 1 行で場所が分かる。 */
-.lo-work { background: var(--jc-paper); border: 1px solid var(--jc-border); border-radius: 8px; padding: 0 16px; }
-.lo-work > summary { cursor: pointer; padding: 12px 0; font-size: 14px; font-weight: 600; }
-.lo-work[open] > summary { border-bottom: 1px solid var(--jc-border); margin-bottom: 12px; }
-.lo-work-body { display: grid; gap: 16px; padding-bottom: 16px; min-width: 0; }
-.lo-work-body .lo-more { margin-top: 0; }
 .lo-more-events { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 0; color: var(--jc-muted); font-size: 12px; }
+
+/* 2026-11-15 求人のページ：帯の中のデータの最後の日、最新の変更、この求人でやること、市場の今。 */
+.jc-band-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 2px; color: var(--jc-muted); font-size: 12px; }
+.jc-band-version > summary { color: var(--jc-ink); }
+.jc-band-data { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin: 0; color: var(--jc-muted); font-size: 12px; }
+.jc-band-data .jc-infotip { margin-left: 10px; }
+.jc-detail .jc-band-latest.jc-open { flex-direction: row; align-items: center; gap: 0; max-width: 340px; padding: 4px 10px; border-color: #9fc3d9; background: #fff; color: #0a5fb4; font-size: 13px; }
+.jc-detail .jc-band-latest.jc-open > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--jc-ink); font-weight: 500; }
+.lo-event-head { grid-template-columns: 34px 52px minmax(0, 1fr) minmax(200px, 300px) auto; }
+.lo-caret.jc-open { justify-self: end; }
+.lo-head .jc-infotip > summary { font-size: 12px; color: var(--jc-accent, #007c91); }
+.lo-market { display: grid; gap: 10px; margin-top: 16px; }
+.lo-market .mo-slot { margin: 0; }
+.lo-market-now { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
+.lo-market-now dl { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0; }
+.lo-market-now dt { color: var(--jc-muted); font-size: 12px; }
+.lo-market-now dd { margin: 0; font-weight: 700; }
+.lo-market-now p { margin: 0; }
+.lt-root { margin: 20px 0; }
+.lt-root > h2 { margin: 0 0 10px; font-size: 16px; }
+.lt-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.lt-card { display: grid; grid-template-rows: auto 1fr auto; gap: 4px; min-height: 104px; padding: 12px 14px; border: 1px solid #b9cfdd; border-radius: 8px; background: var(--jc-paper); color: var(--jc-ink); font: inherit; text-align: left; cursor: pointer; }
+.lt-card:hover:not(:disabled) { border-color: #0a5fb4; background: #f5f9fd; }
+.lt-card[aria-pressed='true'] { border: 2px solid #0a5fb4; padding: 11px 13px; }
+.lt-card strong { font-size: 15px; }
+.lt-card > span:not(.lt-cue) { color: var(--jc-muted); font-size: 12px; line-height: 1.5; }
+.lt-card small { color: #8a4b0f; font-size: 12px; }
+.jc-app .lt-card:disabled { opacity: 1; cursor: not-allowed; background: #f4f6f8; }
+.lt-card:disabled .lt-cue { visibility: hidden; }
+.lt-cue { justify-self: end; }
+.lt-card[aria-pressed='true'] .lt-cue { background: #0a5fb4; border-color: #0a5fb4; color: #fff; }
+.lt-panel { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--jc-border); border-radius: 8px; background: var(--jc-paper); display: grid; gap: 12px; min-width: 0; }
+.lt-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lt-panel-head h3 { margin: 0; font-size: 15px; }
+.lt-panel .jc-flow-actions { margin: 0; }
+.lt-panel .ph-section { border: 0; padding: 0; }
+.jc-band-latest-cue { margin-left: 12px; flex: 0 0 auto; }
+.lo-head label.lo-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
+.lo-head label.lo-toggle input { margin: 0; }
+.jc-detail .jc-band-latest.jc-open { flex: 0 1 auto; min-width: 200px; }
+.lt-panel .ph-section > summary { display: none; }

@@ -28,6 +28,7 @@ it('shows only the 2 differing items by default and all items in 全文', () => 
   const dialog = screen.getByRole('dialog');
   expect(dialog.getAttribute('aria-modal')).toBe('true');
   expect(screen.getByRole('status').textContent).toContain('全 3 項目のうち 2 項目が違います。');
+  expect(screen.getByRole('status').textContent).toContain('左＝前・右＝後。消えた所は赤、増えた所は緑です。');
   expect(dialog.querySelectorAll('.jc-ftc-row')).toHaveLength(2);
   expect(dialog.querySelector('.jc-ftc-rows')?.textContent).not.toContain('勤務時間');
   expect(dialog.textContent).toContain('掲載開始時の内容');
@@ -42,10 +43,11 @@ it('switches versions and updates the result and the change range', () => {
   // default: second-latest (v2) vs latest (v3): identical
   expect(screen.getByRole('status').textContent).toContain('全 3 項目のうち 0 項目が違います。');
   expect(screen.getByText('違う項目はありません。')).toBeTruthy();
-  const left = screen.getByRole('group', { name: '左（前）' });
+  const left = screen.getByRole('group', { name: '前の本文（左）' });
   fireEvent.click(within(left).getByRole('button', { name: /初回/ }));
   expect(screen.getByRole('status').textContent).toContain('全 3 項目のうち 2 項目が違います。');
-  const right = screen.getByRole('group', { name: '右（後）' });
+  expect(screen.getByRole('status').textContent).toContain('左＝前・右＝後。消えた所は赤、増えた所は緑です。');
+  const right = screen.getByRole('group', { name: '後の本文（右）' });
   fireEvent.click(within(right).getByRole('button', { name: /変更後/ }));
   expect(screen.getByRole('dialog').textContent).toContain('2026/09/01 09:00〜2026/09/15 09:00 の間に変わった内容');
 });

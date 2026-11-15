@@ -49,7 +49,7 @@ export function UnlinkedMtg() {
     void load(); return () => { ctl.abort(); clearTimeout(timer); };
   }, [query, reload, demo, fresh]);
   const rows = data?.status === 'ready' ? data.rows ?? [] : [];
-  // 編集できる項目の確認には、一覧のどれか 1 つの取引を使う（編集できる項目は取引によらず同じ）。
+  // 編集できる項目の確認には、一覧のどれか 1 つの案件を使う（編集できる項目は案件によらず同じ）。
   const schemaDeal = rows.flatMap(r => [r.selected?.deal_id, ...r.candidates.map(c => c.id)]).find((id): id is string => !!id) ?? null;
   const write = useCrmWrite({ dealId: demo ? null : schemaDeal, api: contractWriteApi, onSaved: () => undefined });
   const editable = write.schema.phase === 'ready' && write.schema.schema.editable.some(p => p.object === 'deal' && p.name === MANUAL_LINKS_FIELD);
@@ -60,7 +60,7 @@ export function UnlinkedMtg() {
   const bind = useCallback(async (row: UnlinkedRow, dealId: string, dealName: string) => {
     say(row.uuid, '保存しています…');
     const current = await readLinks(dealId);
-    if (!current.ok) { say(row.uuid, '取引の今の内容を読めませんでした。もう一度お試しください。'); return; }
+    if (!current.ok) { say(row.uuid, '案件の今の内容を読めませんでした。もう一度お試しください。'); return; }
     const next = addManualLink(current.base, row.uuid, email, new Date());
     if (next === null) { setLocal(l => ({ ...l, [row.uuid]: { deal_id: dealId, deal_name: dealName, pending: false } })); say(row.uuid, ''); return; }
     const out = await write.save({ dealId, changes: [{ object: 'deal', name: MANUAL_LINKS_FIELD, base: current.base, value: next }] });
@@ -72,13 +72,13 @@ export function UnlinkedMtg() {
   const cancel = useCallback(async (row: UnlinkedRow, dealId: string) => {
     say(row.uuid, '取り消しています…');
     const current = await readLinks(dealId);
-    if (!current.ok) { say(row.uuid, '取引の今の内容を読めませんでした。もう一度お試しください。'); return; }
+    if (!current.ok) { say(row.uuid, '案件の今の内容を読めませんでした。もう一度お試しください。'); return; }
     const out = await write.save({ dealId, changes: [{ object: 'deal', name: MANUAL_LINKS_FIELD, base: current.base, value: removeManualLink(current.base, row.uuid) }] });
     if (out.kind === 'saved' || out.kind === 'queued') { setLocal(l => ({ ...l, [row.uuid]: null })); say(row.uuid, ''); }
     else say(row.uuid, out.kind === 'error' ? out.message : '取り消せませんでした。もう一度お試しください。');
   }, [write]);
 
-  return <div className="jc-page"><main className="um-main" id="job-details"><header><div><h1>未連携のMTG</h1><p className="um-sub">夜の更新で取引に結び付けられなかった録画です。取引を選ぶと、次の夜の更新で反映されます。</p></div><button className="jc-button" onClick={() => { setFresh(true); setReload(n => n + 1); }}>再読み込み</button></header>
+  return <div className="jc-page"><main className="um-main" id="job-details"><header><div><h1>未連携のMTG</h1><p className="um-sub">夜の更新で案件に結び付けられなかった録画です。案件を選ぶと、次の夜の更新で反映されます。</p></div><button className="jc-button" onClick={() => { setFresh(true); setReload(n => n + 1); }}>再読み込み</button></header>
     {error && <p role="alert">一覧を読み込めませんでした。再読み込みしてください。</p>}
     {!error && (!data || data.status === 'preparing') && <p role="status">一覧を準備しています…</p>}
     {data?.status === 'failed' && <p role="alert">一覧を取得できませんでした。再読み込みしてください。</p>}
@@ -90,7 +90,7 @@ export function UnlinkedMtg() {
       {rows.map(r => {
         const chosen: Chosen = r.uuid in local ? local[r.uuid] ?? null : r.selected ? { deal_id: r.selected.deal_id, deal_name: r.selected.deal_name, pending: false } : null;
         const choices = dealChoices(r, data.own_deals);
-        // 最初は何も選ばない。押し間違いで別の取引に付けないよう、本人が選んでから結び付ける。
+        // 最初は何も選ばない。押し間違いで別の案件に付けないよう、本人が選んでから結び付ける。
         const value = picked[r.uuid] ?? '';
         const key = chosen ? fieldKey(chosen.deal_id, 'deal', MANUAL_LINKS_FIELD) : '';
         const busy = (key !== '' && ['saving', 'queued'].includes(write.statuses[key]?.phase ?? '')) || ['保存しています…', '取り消しています…'].includes(messages[r.uuid] ?? '');
@@ -99,9 +99,9 @@ export function UnlinkedMtg() {
           <div><p className="um-subject">{r.subject || '件名なし'}</p><span className="um-sub">{r.recording && <a href={r.recording} target="_blank" rel="noreferrer">録画を開く</a>}{r.other_candidates > 0 && <> ／ シートの候補はほかに{r.other_candidates}件</>}</span></div>
           <div className="um-pick">
             {chosen ? <p className="um-done" role="status">選択済み・夜の更新で反映<small>{chosen.deal_name || chosen.deal_id}{chosen.pending ? '（HubSpotへの反映待ち）' : ''}</small></p>
-              : choices.length === 0 ? <p className="um-sub">選べる取引がありません。</p>
-                : <><label className="um-sub">結び付ける取引<select value={value} disabled={!canWrite || busy} onChange={e => { setPicked(p => ({ ...p, [r.uuid]: e.target.value })); }}>
-                  <option value="">取引を選んでください</option>
+              : choices.length === 0 ? <p className="um-sub">選べる案件がありません。</p>
+                : <><label className="um-sub">結び付ける案件<select value={value} disabled={!canWrite || busy} onChange={e => { setPicked(p => ({ ...p, [r.uuid]: e.target.value })); }}>
+                  <option value="">案件を選んでください</option>
                   {choices.map(c => <option key={c.id} value={c.id}>{c.candidate ? '候補　' : ''}{c.name || c.id}</option>)}</select></label></>}
             <div className="um-actions">
               {chosen ? <button className="jc-button" disabled={!canWrite || busy} onClick={() => { void cancel(r, chosen.deal_id); }}>取り消す</button>
@@ -109,6 +109,7 @@ export function UnlinkedMtg() {
               {messages[r.uuid] && <span className="um-sub" role="status">{messages[r.uuid]}</span>}
             </div>
             {write.statuses[key]?.phase === 'error' && <p role="alert" className="nt-red">保存できませんでした。もう一度お試しください。</p>}
+            {!chosen && choices.length > 0 && <p className="um-sub um-save-note">押すと、選んだ案件の HubSpot にこの録画を結び付けた記録を書き込みます。この一覧には「選択済み」と残り、案件の MTG の記録に入るのは次の夜の更新のあとです。</p>}
           </div>
         </li>;
       })}

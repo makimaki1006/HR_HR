@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jobs } from './data';
 import type { JobCopyRecord } from './data';
-import { AssumptionsRail, DetailBand } from './DetailBand';
+import { DetailBand, MarketNowBar } from './DetailBand';
 import { applicationsCutoffDate, bandNumbers, billingInWindow } from './detailBandModel';
 import type { BillingEntry } from './timelineModel';
 
@@ -70,25 +70,35 @@ describe('基準日と窓の課金', () => {
   });
 });
 
-describe('案件の上の帯と数字の前提の表示', () => {
-  it('数字を表示し、全文を比べるボタンで呼び出しが走る', () => {
+describe('求人のページの上の帯の表示', () => {
+  it('数字を単位付きで表示し、全文を比べるボタンで呼び出しが走る', () => {
     const open = vi.fn();
-    render(<DetailBand job={job} billing={[bill('2026-09-08', '2026-10-05', 30000)]} onOpenFullCompare={open} />);
-    expect(screen.getByTestId('band-recent').textContent).toBe('20前の4週 13');
-    expect(screen.getByTestId('band-per-application').textContent).toBe('¥1,500');
+    const { container } = render(<DetailBand job={job} billing={[bill('2026-09-08', '2026-10-05', 30000)]} onOpenFullCompare={open} />);
+    expect(screen.getByTestId('band-recent').textContent).toBe('20件前の4週は13件');
+    expect(screen.getByText('応募（直近4週）')).toBeTruthy();
+    expect(screen.getByText('応募1件の費用')).toBeTruthy();
+    expect(screen.getByTestId('band-per-application').textContent).toBe('¥1,500直近4週の課金 ÷ 応募');
+    // 課金は、最後の課金の週までの4週であることを日付で示す。
+    expect(screen.getByText('課金（10/05 までの4週）')).toBeTruthy();
     expect(screen.getByTestId('band-billing').textContent).toBe('¥30,000');
+    // データの最後の日は帯の中の1行。右の「数字の前提」欄はない。
+    expect(screen.getByTestId('rail-last-application').textContent).toMatch(/^応募データ：(2026\/)?10\/5まで$/);
+    expect(screen.getByTestId('rail-last-billing').textContent).toMatch(/^課金データ：(2026\/)?10\/5まで$/);
+    expect(container.querySelector('[aria-label="数字の前提"]')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '求人の全文を比べる' }));
     expect(open).toHaveBeenCalledTimes(1);
   });
   it('課金が不明なら「—」を出す', () => {
     render(<DetailBand job={job} billing={undefined} onOpenFullCompare={() => undefined} />);
-    expect(screen.getByTestId('band-per-application').textContent).toBe('—');
-    expect(screen.getByTestId('band-billing').textContent).toBe('—');
+    expect(screen.getByTestId('band-per-application').textContent).toBe('—課金データなし');
+    expect(screen.getByText('課金（4週あたり）')).toBeTruthy();
+    expect(screen.getByTestId('band-billing').textContent).toBe('—課金データなし');
+    expect(screen.getByTestId('rail-last-billing').textContent).toBe('課金データ：なし');
   });
-  it('右の前提にデータの最後の日と、指定した職種・地域を出す', async () => {
-    render(<AssumptionsRail job={job} billing={[bill('2026-09-08', '2026-10-05', 30000)]} mode="demo" onIndeedTitleChanged={() => undefined} />);
-    expect(screen.getByTestId('rail-last-application').textContent).toBe('2026年10月5日');
-    expect(screen.getByTestId('rail-last-billing').textContent).toBe('2026年10月5日');
+  it('「市場の今」に指定した職種・地域を出す', async () => {
+    render(<MarketNowBar job={job} mode="demo" onIndeedTitleChanged={() => undefined} />);
+    expect(screen.getByRole('region', { name: '市場の今' })).toBeTruthy();
     await waitFor(() => { expect(screen.getByText('都道府県：大分県')).toBeTruthy(); });
   });
 });
@@ -100,7 +110,7 @@ describe('応募を読み込めなかったとき', () => {
     const heard = vi.fn();
     const listen = (event: Event) => { heard((event as CustomEvent<string>).detail); };
     window.addEventListener('jobcopy:retry-applicants', listen);
-    render(<AssumptionsRail job={failed} billing={undefined} mode="demo" onIndeedTitleChanged={() => undefined} />);
+    render(<DetailBand job={failed} billing={undefined} onOpenFullCompare={() => undefined} />);
     expect(screen.getByRole('alert').textContent).toContain('応募を読み込めませんでした。');
     expect(screen.queryByText('応募を読み込み中です。')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'もう一度読み込む' }));

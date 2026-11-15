@@ -22,7 +22,7 @@ const failure = (error: Error) => error instanceof AuthRequiredError ? 'Google�
 const cardTone: Record<CardKey, 'warn' | 'plain'> = { zero_stay: 'warn', to_zero: 'warn', less: 'plain', more: 'plain', flat: 'plain', costly: 'warn', stale: 'warn' };
 /** ホームのカードに常に出す 2 枚。ほかは件数だけの 1 行に畳む。 */
 const mainCardKeys: readonly CardKey[] = ['to_zero', 'costly'];
-const customerColumns: [CustomerSort, string, boolean][] = [['name', '顧客名', false], ['deals', '契約中の案件 ／ 全案件', true], ['latest', '今の取引', false], ['live', '掲載中の求人 ／ 全求人', true], ['apps', '応募（前の 4 週 → 直近 4 週）', true], ['cost', '課金（直近 4 週）', true], ['cpa', '応募 1 件あたり', true]];
+const customerColumns: [CustomerSort, string, boolean][] = [['name', '顧客名', false], ['deals', '契約中の案件 ／ 全案件', true], ['latest', '今の案件', false], ['live', '掲載中の求人 ／ 全求人', true], ['apps', '応募（前の 4 週 → 直近 4 週）', true], ['cost', '課金（直近 4 週）', true], ['cpa', '応募 1 件あたり', true]];
 
 function CardList({ card, onOpenListing, onClose }: { card: HomeCard; onOpenListing: (id: string) => void; onClose: () => void }) {
   const reveal = useRevealOnMount();
