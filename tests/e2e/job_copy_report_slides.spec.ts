@@ -7,11 +7,12 @@ const SHOTS = process.env.JOB_COPY_SHOTS_DIR;
 const listing = (id: string, title: string, status: string) => ({ id, media: 'hrh', media_job_id: `9${id}`, account_id: 'synthetic-shop', title, prefecture: '神奈川県', municipality: '横浜市', category: 'ドライバー', publication_status: status, last_csv_detected_at: null, application_count: null, deal_ids: ['901'] });
 const listings = [listing('301', '合成トラックドライバー', '公開中'), listing('302', '合成ルート配送', '非公開')];
 const byDate: Record<string, Record<string, number>> = {
-  301: { '2026-09-25': 1, '2026-10-05': 1, '2026-10-20': 2, '2026-10-28': 1, '2026-11-03': 2 },
+  301: { '2026-09-15': 1, '2026-09-25': 1, '2026-10-05': 1, '2026-10-20': 2, '2026-10-28': 1, '2026-11-03': 2 },
   302: { '2026-10-02': 1, '2026-10-25': 2 },
 };
 const people: Record<string, { date: string; gender: string; age: string; prefecture: string; municipality: string; text: string }[]> = {
   301: [
+    { date: '2026-09-15', gender: '男性', age: '48', prefecture: '千葉県', municipality: '千葉市', text: '給与' },
     { date: '2026-09-25', gender: '男性', age: '50', prefecture: '千葉県', municipality: '千葉市', text: '給与が良いので' },
     { date: '2026-10-05', gender: '男性', age: '41', prefecture: '神奈川県', municipality: '横浜市', text: '家から近い' },
     { date: '2026-10-20', gender: '男性', age: '35', prefecture: '神奈川県', municipality: '横浜市', text: '給与が良いので' },
@@ -27,18 +28,22 @@ const people: Record<string, { date: string; gender: string; age: string; prefec
   ],
 };
 const key = (id: string, n: number) => `${id}${String(n)}`.padStart(64, 'a');
+// 電話でうかがった応募理由の分類（ouboriyuukategori_hiaringu）。本文からの推定は報告には使わない。
+const CATEGORY: Record<string, string> = { 給与が良いので: '給与', 給料が高い: '給与', 手当が多い: '給与', 給与が良い: '給与', ボーナスがある: '給与', 家から近い: '勤務地', 自宅から近い: '勤務地', 近所なので: '勤務地', '給与と、家から近いので': '給与' };
 function applicants(id: string) {
   const rows = people[id] ?? [];
   const total = rows.length;
+  const chosen = rows.map((row, n) => ({ applicant: key(id, n), source_property: 'ouboriyuukategori_hiaringu', value: CATEGORY[row.text] ?? 'その他', label: CATEGORY[row.text] ?? 'その他', application_date: row.date }));
   const sources = ['oubodouki', 'ouboriyuu_baitaikisai', 'ouboriyuu_hiaringu', 'genshokumaeshokukaranotenshokuriyuu', 'ouboriyuukategori_hiaringu', 'ouboriyuukategori_baitaikisai'];
-  const source_counts = Object.fromEntries(sources.map(name => [name, name === 'ouboriyuu_hiaringu' ? { missing: 0, blank: 0, nonblank: total } : { missing: 0, blank: total, nonblank: 0 }]));
+  const nonblank: Record<string, number> = { ouboriyuu_hiaringu: total, ouboriyuukategori_hiaringu: total };
+  const source_counts = Object.fromEntries(sources.map(name => [name, { missing: 0, blank: total - (nonblank[name] ?? 0), nonblank: nonblank[name] ?? 0 }]));
   return {
     listing_id: id, total, missing_date: 0, by_date: byDate[id], fetched_at: '2026-11-15T09:00:00+09:00',
     applications: rows.map((row, n) => ({ key: key(id, n), date: row.date, gender: row.gender, age: row.age, prefecture: row.prefecture, municipality: row.municipality })),
     applicant_reasons: {
       available: true, source: 'hubspot', basis: 'recorded_applicant_reason', source_property: null, fetched_at: '2026-11-15T09:00:00+09:00', total_applicants: total, total_source_values: total * 6, source_counts,
       items: rows.map((row, n) => ({ id: key(`r${id}`, n).replace(/[^a-f0-9]/g, 'b'), applicant: key(id, n), text: row.text, source: 'hubspot', source_property: 'ouboriyuu_hiaringu', application_date: row.date, collected_at: null, version_id: null })),
-      selections: [], option_labels: 'unavailable', missing: 0, blank: total * 5, truncated: false,
+      selections: chosen, option_labels: 'read', multi_listing_applicants: [], missing: 0, blank: total * 4, truncated: false,
     },
   };
 }
@@ -77,6 +82,28 @@ test('案件の報告のスライド: 左で選び、外したものは理由を
   await side.getByRole('button', { name: /まとめ/ }).click();
   await expect(stage).toContainText('応募は前の期間の 3件から 7件に増えました');
   await expect(stage).not.toContainText(/未取得|HubSpot/);
+  // 応募理由は電話でうかがった分類の件数、どのスライドも枠からはみ出さない
+  await side.getByRole('button', { name: /応募理由/ }).click();
+  await expect(stage).toContainText('お電話で応募理由をうかがえた 7件の内訳');
+  await expect(page.getByRole('region', { name: 'はみ出し' })).toHaveCount(0);
+  // 長すぎる文は、はみ出しとして左に出る（紙は直さず、担当者が短くする）
+  const long = '長い文の確認です。'.repeat(13);
+  for (const n of [1, 2, 3]) {
+    await side.getByRole('textbox', { name: `次に行うこと${String(n)}`, exact: true }).fill(long);
+    await side.getByRole('textbox', { name: `次に行うこと${String(n)}の補足`, exact: true }).fill(long);
+  }
+  await expect(page.getByRole('region', { name: 'はみ出し' })).toContainText('次に行うこと（枠からはみ出しています）');
+  await side.getByRole('textbox', { name: '次に行うこと1', exact: true }).fill('給与の書き方を、ほかの求人にも広げます');
+  await side.getByRole('textbox', { name: '次に行うこと1の補足', exact: true }).fill('11月下旬までに掲載内容を見直し');
+  await side.getByRole('textbox', { name: '次に行うこと2', exact: true }).fill('面接に進んだ方の応募理由を、引き続きうかがいます');
+  await side.getByRole('textbox', { name: '次に行うこと2の補足', exact: true }).fill('');
+  await side.getByRole('textbox', { name: '次に行うこと3', exact: true }).fill('');
+  await side.getByRole('textbox', { name: '次に行うこと3の補足', exact: true }).fill('');
+  await expect(page.getByRole('region', { name: 'はみ出し' })).toHaveCount(0);
+  // 期間が正しくないときは PDF に出せない
+  await side.getByLabel('開始', { exact: true }).fill('2026-12-01');
+  await expect(page.getByRole('button', { name: 'PDF に出す' })).toBeDisabled();
+  await side.getByLabel('開始', { exact: true }).fill('2026-10-19');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/report-slides-screen.png` });
   if (SHOTS) for (const [n, id] of ['cover', 'summary', 'trend', 'listings', 'changes', 'applicants', 'reasons', 'next'].entries()) {
     await side.locator('.rs-thumbs li').nth(n).getByRole('button').click();

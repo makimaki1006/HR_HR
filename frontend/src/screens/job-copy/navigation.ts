@@ -28,9 +28,15 @@ export function updateJobCopyQuery(values: Record<string, string | null>, mode: 
   navigateJobCopy(url, mode);
 }
 
-/** 顧客報告のスライドの画面を開く（?report=deal:ID / listing:ID）。戻るときは report を外す。 */
+/** 顧客報告のスライドの画面の URL（今の画面の指定に ?report=deal:ID / listing:ID を足す）。 */
+export function reportUrl(target: { scope: 'deal' | 'listing'; id: string }): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set('report', `${target.scope}:${target.id}`);
+  return url.pathname + url.search;
+}
+/** 顧客報告のスライドの画面を新しいタブで開く（元の画面の入力途中を消さない）。 */
 export function openReport(target: { scope: 'deal' | 'listing'; id: string }) {
-  updateJobCopyQuery({ report: `${target.scope}:${target.id}` });
+  window.open(reportUrl(target), '_blank', 'noopener');
 }
 export function closeReport() {
   updateJobCopyQuery({ report: null });

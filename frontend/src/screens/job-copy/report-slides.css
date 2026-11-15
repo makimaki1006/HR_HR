@@ -84,14 +84,17 @@
 .rs-next small { display: block; color: #5b6570; font-size: .8em; }
 
 /* 印刷: スライドだけを横長1枚ずつ。画面の他の部分は出さない */
-.rs-print-deck { display: none; }
+/* 画面では見えない所に印刷と同じ大きさで並べる（はみ出しを測るため） */
+.rs-print-deck { position: absolute; left: -20000px; top: 0; width: 10in; visibility: hidden; pointer-events: none; }
+.rs-print-deck .rs-slide { width: 10in; height: 5.625in; aspect-ratio: auto; }
 @page rs-slide { size: 10in 5.625in; margin: 0; }
 @media print {
   body:has(.rs-print-deck) > *:not(.rs-print-deck) { display: none !important; }
-  .rs-print-deck { display: block; page: rs-slide; }
+  .rs-print-deck { position: static; left: auto; width: auto; visibility: visible; page: rs-slide; }
   .rs-print-deck .rs-slide { width: 10in; height: 5.625in; aspect-ratio: auto; box-shadow: none; break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .rs-print-deck .rs-slide:last-child { break-after: auto; }
 }
 
 /* 案件のページの入口 */
 .ds-report-entry { margin: 0 0 8px; display: flex; justify-content: flex-end; }
+.rs-overflow ul { color: #b42318; }
