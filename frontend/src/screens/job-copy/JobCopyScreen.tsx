@@ -4,7 +4,9 @@ import { ConsultantMenu, ConsultantMenuHeader } from './ConsultantMenu';
 import { ConsultantRisk } from './ConsultantRisk';
 import { UnlinkedMtg } from './UnlinkedMtg';
 import { DealBoard } from './DealBoard';
-import { detailQueryKeys, navigateJobCopy, updateJobCopyQuery, useJobCopySearch } from './navigation';
+import { ReportSlides } from './ReportSlides';
+import { parseReportTarget } from './reportSlidesLoad';
+import { detailQueryKeys, navigateJobCopy, openReport, updateJobCopyQuery, useJobCopySearch } from './navigation';
 import type { ListingNavigation } from './ListingPopup';
 import { listingRecord, publicationLabel } from './hubspotListings';
 import type { HubSpotListing } from './hubspotListings';
@@ -246,7 +248,7 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
     <FullTextCompareDialog record={job} open={bandCompareOpen} onClose={() => { setBandCompareOpen(false); }} />
     <FullTextCompareDialog record={job} open={eventCompare !== null} onClose={() => { setEventCompare(null); }} initialLeft={eventCompare?.left} initialRight={eventCompare?.right} />
     <div className="jc-detail-cols"><div className="jc-detail-content">
-    <header className="jc-detail-heading"><div><div className="jc-detail-title-row"><button className="jc-button" onClick={() => { setListingPopupOpen(true); }}>求人の内容を確認する</button></div><p>{joinPresent([job.company, job.location, job.media])}{job.dataSource === 'hubspot' && <span className="jc-publication"> ／ 公開状況：{publicationLabel(job.listingPublicationStatus ?? null)}</span>}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
+    <header className="jc-detail-heading"><div><div className="jc-detail-title-row"><button className="jc-button" onClick={() => { setListingPopupOpen(true); }}>求人の内容を確認する</button>{job.dataSource === 'hubspot' && job.hubspotId && /^\d+$/.test(job.hubspotId) && <button type="button" className="jc-button jc-no-print" onClick={() => { if (job.hubspotId) openReport({ scope: 'listing', id: job.hubspotId }); }}>報告書を作る</button>}</div><p>{joinPresent([job.company, job.location, job.media])}{job.dataSource === 'hubspot' && <span className="jc-publication"> ／ 公開状況：{publicationLabel(job.listingPublicationStatus ?? null)}</span>}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
     {listingPopupOpen && <ListingPopup navigation={popupNavigation} job={job} version={version} onClose={() => { setListingPopupOpen(false); }} />}
     {job.historyMayBeIncomplete && <p className="jc-notice" role="status">履歴は項目ごとに20件までの可能性があり、過去の文面がすべて含まれているとは限りません。</p>}
     <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '表示中の本文（HubSpotの現在値）' : '表示中の本文'}: {current?.label ?? '本文未取得'}</span><InfoTip className="jc-infotip-left" label={`${job.id.startsWith('hubspot-history-') && current?.source !== 'HubSpotの現在の本文' ? 'HubSpot記録日時' : '本文を確認した日時'}: ${current ? date(current.observedAt) : '—'}`}><p>{current?.source === 'HubSpotの現在の本文' ? '今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' : job.id.startsWith('hubspot-history-') ? '本文がHubSpotに記録された日時です。掲載開始日時は不明です。' : 'ファイルの本文を確認した日時です。掲載開始日時は不明です。'}</p></InfoTip>{job.hubspotId ? null : <InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip>}</div>
@@ -626,9 +628,11 @@ function JobCopyMain() {
   </div></MarketCacheContext.Provider>;
 }
 
-/** `?view=occupations` は職種の一括指定画面。それ以外は従来の案件管理。 */
+/** `?view=occupations` は職種の一括指定画面。`?report=deal:ID` / `listing:ID` は顧客報告のスライド。それ以外は従来の案件管理。 */
 export function JobCopyScreen() {
-  const view = new URLSearchParams(useJobCopySearch()).get('view');
+  const search = new URLSearchParams(useJobCopySearch());
+  const view = search.get('view');
+  const report = parseReportTarget(search.get('report'));
   const [menuVisit, setMenuVisit] = useState(0);
-  return <ConsultantMenu onNavigate={() => { setMenuVisit(n => n + 1); }} inlineHeader={!['risk', 'good', 'houjin', 'deals', 'occupations', 'reasons', 'unlinked'].includes(view ?? '')}>{view === 'risk' || view === 'good' ? <ConsultantRisk key={view} good={view === 'good'} /> : view === 'houjin' ? <HoujinView /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : view === 'reasons' ? <ApplyReasonCrosstab /> : view === 'unlinked' ? <UnlinkedMtg /> : <JobCopyMain key={menuVisit} />}</ConsultantMenu>;
+  return <ConsultantMenu onNavigate={() => { setMenuVisit(n => n + 1); }} inlineHeader={!report && !['risk', 'good', 'houjin', 'deals', 'occupations', 'reasons', 'unlinked'].includes(view ?? '')}>{report ? <ReportSlides target={report} /> : view === 'risk' || view === 'good' ? <ConsultantRisk key={view} good={view === 'good'} /> : view === 'houjin' ? <HoujinView /> : view === 'deals' ? <DealBoard /> : view === 'occupations' ? <OccupationBulk /> : view === 'reasons' ? <ApplyReasonCrosstab /> : view === 'unlinked' ? <UnlinkedMtg /> : <JobCopyMain key={menuVisit} />}</ConsultantMenu>;
 }

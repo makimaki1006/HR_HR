@@ -27,3 +27,11 @@ export function updateJobCopyQuery(values: Record<string, string | null>, mode: 
   }
   navigateJobCopy(url, mode);
 }
+
+/** 顧客報告のスライドの画面を開く（?report=deal:ID / listing:ID）。戻るときは report を外す。 */
+export function openReport(target: { scope: 'deal' | 'listing'; id: string }) {
+  updateJobCopyQuery({ report: `${target.scope}:${target.id}` });
+}
+export function closeReport() {
+  updateJobCopyQuery({ report: null });
+}

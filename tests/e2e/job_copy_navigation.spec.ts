@@ -235,7 +235,7 @@ test('tab keyboard Arrow/Home/End movement activates valid linked panels and ina
   await selectJobFeature(page, 'report');
   await page.emulateMedia({ media: 'print' });
   await expect(primary).toBeHidden();
-  await expect(page.getByRole('region', { name: '顧客報告と検証記録', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: '検証記録', exact: true })).toBeVisible();
   await expect(page.getByTestId('jc-market-jobs')).toBeHidden();
   await expect(page.getByLabel('受け取った文面')).toBeHidden();
 });
