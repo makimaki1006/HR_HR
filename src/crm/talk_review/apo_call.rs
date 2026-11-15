@@ -30,6 +30,20 @@ pub fn only(row: &ReviewRow) -> bool {
     row.note.as_deref() == Some(APO_ONLY)
 }
 
+/// 取れない・判定できないで終わった行の理由の記号。ふつうの行は `note`、ランクのためだけの行は `summary`
+/// (`store::mark_final`)。終わっていない行・判定済みの行は None
+pub fn final_reason(row: &ReviewRow) -> Option<&str> {
+    if row.status != store::ST_UNAVAILABLE && row.status != store::ST_FAILED {
+        return None;
+    }
+    if only(row) {
+        row.summary.as_deref()
+    } else {
+        row.note.as_deref()
+    }
+    .filter(|s| !s.is_empty())
+}
+
 const HOUR_MS: i64 = 3_600_000;
 /// 候補の窓: E の 24 時間前から
 pub const BEFORE_MS: i64 = 24 * HOUR_MS;

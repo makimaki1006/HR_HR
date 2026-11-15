@@ -320,6 +320,8 @@ pub fn mark_retry(
     )
 }
 
+/// 取れない・判定できないで終わった行。理由の記号は `note` に入れる。ただしランクのためだけの行 (`note` が印 `apo_only`)
+/// は印を残すため、理由をまとめ (`summary`。判定済みの行だけが使う列) に入れる (`apo_call::final_reason`)
 pub fn mark_final(
     t: &TursoDb,
     id: &str,
@@ -329,7 +331,8 @@ pub fn mark_final(
     now: &str,
 ) -> Result<(), String> {
     t.execute(
-        "UPDATE call_talk_reviews SET status = ?2, attempts = ?3, next_retry_at = NULL, note = CASE WHEN note = 'apo_only' THEN note ELSE ?4 END, updated_at = ?5 \
+        "UPDATE call_talk_reviews SET status = ?2, attempts = ?3, next_retry_at = NULL, note = CASE WHEN note = 'apo_only' THEN note ELSE ?4 END, \
+         summary = CASE WHEN note = 'apo_only' THEN ?4 ELSE summary END, updated_at = ?5 \
          WHERE hubspot_call_id = ?1 AND status = 'pending_transcript'",
         &[&id, &status, &i64::from(attempts), &note, &now],
     )
@@ -646,6 +649,58 @@ mod tests {
             note: None,
             next_retry_at: Some("2026-10-15T01:00:00Z".into()),
         }
+    }
+
+    /// 取れないで終わった行の理由: ふつうの行は note、ランクのためだけの行は印を残して summary に入る
+    #[tokio::test(flavor = "multi_thread")]
+    async fn final_reason_is_kept_for_apo_only_rows() {
+        let (audit, _conn) = start_sqlite_audit().await;
+        blocking(&audit, move |t| {
+            let now = "2026-10-15T00:30:00Z";
+            insert_new(t, now, &new("n1", "o1", "2026-10-15T00:00:00Z"))?;
+            let mut a = new("a1", "o1", "2026-10-15T00:01:00Z");
+            a.note = Some(super::super::apo_call::APO_ONLY.into());
+            insert_new(t, now, &a)?;
+            let mut a2 = new("a2", "o1", "2026-10-15T00:02:00Z");
+            a2.note = Some(super::super::apo_call::APO_ONLY.into());
+            insert_new(t, now, &a2)?;
+            mark_final(t, "n1", ST_UNAVAILABLE, 1, "untranscribable", now)?;
+            mark_final(t, "a1", ST_UNAVAILABLE, 1, "untranscribable", now)?;
+            mark_final(t, "a2", ST_FAILED, 8, "judge_error", now)?;
+            let n = get(t, "n1")?.unwrap();
+            assert_eq!(n.note.as_deref(), Some("untranscribable"));
+            assert_eq!(n.summary, None);
+            let r = get(t, "a1")?.unwrap();
+            assert!(super::super::apo_call::only(&r));
+            assert_eq!(r.summary.as_deref(), Some("untranscribable"));
+            for row in [&n, &r] {
+                assert_eq!(
+                    super::super::apo_call::final_reason(row),
+                    Some("untranscribable")
+                );
+            }
+            let r2 = get(t, "a2")?.unwrap();
+            assert_eq!(
+                super::super::apo_call::final_reason(&r2),
+                Some("judge_error")
+            );
+            // 一覧の軽い行 (まとめ付き) でも同じ理由が読める
+            let light = rows_light_in(
+                t,
+                "2026-10-14T00:00:00Z",
+                "2026-10-16T00:00:00Z",
+                None,
+                true,
+            )?;
+            let l = light.iter().find(|x| x.hubspot_call_id == "a1").unwrap();
+            assert_eq!(
+                super::super::apo_call::final_reason(l),
+                Some("untranscribable")
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]

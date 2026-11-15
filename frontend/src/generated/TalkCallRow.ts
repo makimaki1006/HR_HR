@@ -28,4 +28,8 @@ summary: string | null,
 /**
  * アポのランク ("S" | "A" | "B" | "C")。ヒアリングの対象でない・判定前は null
  */
-apo_rank: string | null, };
+apo_rank: string | null, 
+/**
+ * 取れない・判定できなかった理由 (画面に出す文)。それ以外の状態・理由が残っていない行は null
+ */
+reason: string | null, };
