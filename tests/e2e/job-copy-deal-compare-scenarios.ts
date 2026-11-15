@@ -95,7 +95,7 @@ export function registerDealCompareTests(path: string) {
     const scroll = table.locator('..');
     const sizes = await scroll.evaluate(element => ({ client: element.clientWidth, scroll: element.scrollWidth }));
     expect(sizes.scroll - sizes.client).toBe(0);
-    for (const label of ['求人名', '媒体', '公開状況', '職種', '勤務地', '給与', '応募数', '本文の最終変更日']) {
+    for (const label of ['求人名', '媒体', '公開状況', '職種', '勤務地', '給与', '応募の記録数', '本文の最終変更日']) {
       const box = await table.getByRole('columnheader').filter({ has: page.getByRole('button', { name: new RegExp(`^${label}(?: [▲▼])?$`) }) }).boundingBox();
       const bounds = (await scroll.boundingBox())!;
       expect(box!.x).toBeGreaterThanOrEqual(bounds.x);

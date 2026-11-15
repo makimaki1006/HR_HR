@@ -24,7 +24,7 @@ test('HubSpotの求人を絞って履歴を比較し、固定一覧へ戻る', a
   await panel.getByLabel('都道府県', { exact: true }).selectOption('大分県');
   await panel.getByLabel('媒体', { exact: true }).selectOption('hrh');
   await panel.getByRole('button', { name: '求人を読み込む' }).click();
-  await expect(panel.getByText('応募 4件', { exact: true })).toBeVisible();
+  await expect(panel.getByText('応募の記録 4件', { exact: true })).toBeVisible();
   await panel.getByLabel('職種の分類').selectOption('ドライバー');
   const request = page.waitForRequest(req => req.url().includes('/listings?') && new URL(req.url()).searchParams.get('title') === 'ドライバー');
   await panel.getByRole('button', { name: '求人を読み込む' }).click();
