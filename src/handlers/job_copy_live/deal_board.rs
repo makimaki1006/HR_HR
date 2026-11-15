@@ -14,6 +14,11 @@ type LastMeetings = HashMap<String, (Option<NaiveDate>, Option<NaiveDate>)>;
 pub(super) struct MeetingData {
     pub(super) last: Option<LastMeetings>,
     pub(super) as_of: Option<String>,
+    /// 取引ごとの最後の接触日（MTG または60秒超の通話。メールは数えない）。
+    /// 危ない案件・コンサルKPIと同じ `contacts_by_deal` で数える。シートを読めていなければ `None`。
+    pub(super) contacts: Option<HashMap<String, NaiveDate>>,
+    /// 取引ごとの最後のメールの日（`CS_メール履歴`。接触には数えない）。
+    pub(super) emails: Option<HashMap<String, NaiveDate>>,
 }
 impl MeetingData {
     pub(super) async fn cached() -> Self {
@@ -24,21 +29,65 @@ impl MeetingData {
         let mtg = state.store.fresh(cs::SHEET_MTG).await;
         let meta = state.store.fresh(cs::SHEET_META).await;
         let zoom = state.store.fresh(cs::SHEET_ZOOM_MTG).await;
+        let call = state.store.fresh(cs::SHEET_CALL).await;
+        let mail = state.store.fresh(cs::SHEET_MAIL_HISTORY).await;
+        let empty = cs::empty_history_sheet();
+        let factual = mtg
+            .as_ref()
+            .map(|m| cs::factual_mtg(m, zoom.as_deref().unwrap_or(&empty)));
         Self {
-            last: mtg.as_ref().map(|m| {
-                cs::last_recorded_mtg_by_deal(&cs::factual_mtg(
-                    m,
-                    zoom.as_deref().unwrap_or(&cs::empty_history_sheet()),
-                ))
-            }),
+            last: factual.as_ref().map(|m| cs::last_recorded_mtg_by_deal(m)),
             as_of: meta.as_ref().and_then(|m| cs::data_as_of(m)),
+            contacts: factual
+                .as_ref()
+                .zip(call.as_ref())
+                .map(|(m, c)| last_contacts(c, m)),
+            emails: mail.as_deref().map(last_emails),
         }
     }
+    /// 案件一覧・要対応で使う接触。MTG の集計対象（リクロジ_納品管理）だけ記録から決める。
+    fn contact(&self, work: &WorkDeal) -> super::todo_signals::Contact {
+        use super::todo_signals::Contact;
+        if work.record.value("pipeline") != Some(MTG_PIPELINE) {
+            return Contact::Unknown;
+        }
+        match &self.contacts {
+            Some(by) => Contact::Last(by.get(&work.record.id).copied()),
+            None => Contact::Unknown,
+        }
+    }
+}
+/// MTG と接触の記録を集めているパイプライン（コンサルKPIの対象。リクロジ_納品管理）。
+const MTG_PIPELINE: &str = "21596025";
+type SheetData = crate::handlers::call_quality::sheets::SheetData;
+fn last_contacts(call: &SheetData, mtg: &SheetData) -> HashMap<String, NaiveDate> {
+    cs::contacts_by_deal(call, mtg)
+        .0
+        .into_iter()
+        .filter_map(|(id, days)| days.last().copied().map(|d| (id, d)))
+        .collect()
+}
+fn last_emails(mail: &SheetData) -> HashMap<String, NaiveDate> {
+    let mut by: HashMap<String, NaiveDate> = HashMap::new();
+    for row in &mail.rows {
+        let deal = mail.get(row, "deal_id").trim();
+        let Some(day) = cs::date10(mail.get(row, "送信日時（JST）")) else {
+            continue;
+        };
+        if deal.is_empty() {
+            continue;
+        }
+        let e = by.entry(deal.to_string()).or_insert(day);
+        if day > *e {
+            *e = day;
+        }
+    }
+    by
 }
 #[derive(Serialize, Deserialize, ts_rs::TS)]
 struct DealBoardReason {
     #[ts(
-        type = "'expiration' | 'contact' | 'stalled' | 'first_contract' | 'nps' | 'target' | 'cpa' | 'mtg'"
+        type = "'expiration' | 'expired' | 'contact' | 'stalled' | 'first_contract' | 'nps' | 'target' | 'cpa' | 'mtg' | 'mtg_gap'"
     )]
     kind: String,
     text: String,
@@ -64,7 +113,15 @@ struct DealBoardRow {
     expiration: Option<String>,
     #[ts(type = "number | null")]
     days_left: Option<i64>,
+    /// 最後の接触（MTG または60秒超の通話。メールは数えない）。
     last_contact: Option<String>,
+    #[serde(default)]
+    #[ts(type = "'ready' | 'outside' | 'unavailable' | 'none'")]
+    contact_status: String,
+    /// 最後のメールの日（接触には数えない。添えて見せるだけ）。
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    last_email: Option<String>,
     last_mtg: Option<String>,
     #[ts(type = "'ready' | 'outside' | 'unavailable' | 'none'")]
     mtg_status: String,
@@ -250,7 +307,12 @@ impl<'a> Metrics<'a> {
             return vec![];
         };
         let d = &self.deals[id];
-        let mut reasons = super::todo_signals::reasons(work, snapshot.facts.get(id), today);
+        let mut reasons = super::todo_signals::reasons(
+            work,
+            snapshot.facts.get(id),
+            self.meetings.contact(work),
+            today,
+        );
         if !d.is_active || !listings::is_delivery(work.record.value("pipeline")) {
             return reasons;
         }
@@ -269,10 +331,20 @@ impl<'a> Metrics<'a> {
         if cs::high_cpa(cs::cpa(d), median) {
             add("cpa", "採用単価が同じ進捗帯の1.5倍以上", false);
         }
+        // 60日以上は「MTGが途絶えている」（今日の要対応と同じ基準）、30〜59日は別の印「MTGが空いている」。
         if let Some(days) = self.mtg_days(work, today) {
-            let band = cs::mtg_band_for_days(days);
-            if band.is_alert() {
-                add("mtg", band.label(), days >= cs::MTG_GAP_CRITICAL_DAYS);
+            match cs::mtg_band_for_days(days) {
+                cs::MtgBand::Critical => add(
+                    "mtg",
+                    &format!("MTGが途絶えている（最後のMTGから {days} 日）"),
+                    true,
+                ),
+                cs::MtgBand::Yellow => add(
+                    "mtg_gap",
+                    &format!("MTGが空いている（最後のMTGから {days} 日）"),
+                    false,
+                ),
+                _ => {}
             }
         }
         reasons
@@ -287,8 +359,7 @@ impl<'a> Metrics<'a> {
         cs::mtg_gap_of(d, last, today).days
     }
     /// ホームの要対応と取引ごとの「次にやること」で使う理由。
-    /// 「MTGが途絶えている」は案件管理で決めた基準（60 日以上）で絞る。
-    /// 案件一覧の印は共有の段階（`reasons`）のまま。
+    /// 「MTGが途絶えている」（60 日以上）だけを出し、30〜59 日の「MTGが空いている」は案件一覧の印だけにする。
     pub(super) fn todo_reasons(
         &self,
         snapshot: &Snapshot,
@@ -296,16 +367,7 @@ impl<'a> Metrics<'a> {
         today: NaiveDate,
     ) -> Vec<Value> {
         let mut reasons = self.reasons(snapshot, id, today);
-        if reasons.iter().any(|r| r["kind"] == "mtg") {
-            let long_gap = snapshot
-                .deals
-                .get(id)
-                .and_then(|w| self.mtg_days(w, today))
-                .is_some_and(|days| days >= super::todo_signals::MTG_DAYS);
-            if !long_gap {
-                reasons.retain(|r| r["kind"] != "mtg");
-            }
-        }
+        reasons.retain(|r| r["kind"] != "mtg_gap");
         reasons
     }
     fn rows(
@@ -331,7 +393,13 @@ impl<'a> Metrics<'a> {
             let d = &self.deals[id];
             let company = snapshot.companies.get(id);
             let consultant = snapshot.owners.iter().find(|o| Some(o.id.as_str()) == work.assignment.consultant.as_deref());
-            let supported = work.record.value("pipeline") == Some("21596025");
+            let supported = work.record.value("pipeline") == Some(MTG_PIPELINE);
+            let contact = match self.meetings.contact(work) {
+                super::todo_signals::Contact::Last(day) => day,
+                super::todo_signals::Contact::Unknown => None,
+            };
+            let contact_status = if !supported { "outside" } else if self.meetings.contacts.is_none() { "unavailable" } else if contact.is_none() { "none" } else { "ready" };
+            let last_email = self.meetings.emails.as_ref().and_then(|m| m.get(id)).map(|d| d.to_string());
             let last = self.meetings.last.as_ref().and_then(|m| m.get(id)).and_then(|(d, _)| *d);
             let mtg_status = if !supported { "outside" } else if self.meetings.last.is_none() { "unavailable" } else if last.is_none() { "none" } else { "ready" };
             serde_json::from_value(json!({"id":id,"name":work.record.value("dealname"),"company":company.and_then(|c| c.1.as_ref()),
@@ -340,7 +408,7 @@ impl<'a> Metrics<'a> {
                 "consultant":consultant.map(|o| &o.name),"reasons":self.reasons(snapshot,id,today),
                 "months":contract_month(&d.contract_start_date,today),"expiration":cs::date10(&d.contract_expiration_date).map(|d| d.to_string()),
                 "days_left":cs::date10(&d.contract_expiration_date).map(|d| (d-today).num_days()),
-                "last_contact":work.record.value("notes_last_contacted").and_then(super::owner_todo::date).map(|d| d.to_string()),
+                "last_contact":contact.map(|d| d.to_string()),"contact_status":contact_status,"last_email":last_email,
                 "last_mtg":if supported {last.map(|d| d.to_string())} else {None},"mtg_status":mtg_status,
                 "nps":nps(&work.record),"applications":d.oubo,"interviews":d.mensetu,"hires":d.syoudaku,
                 "recent_applications":windows.as_ref().map(|w| w.recent.len()),
@@ -448,6 +516,8 @@ mod tests {
                 (Some(day() - chrono::Duration::days(days)), None),
             )])),
             as_of: Some("2026-10-15".into()),
+            contacts: Some(HashMap::from([("1".into(), day())])),
+            emails: Some(HashMap::new()),
         }
     }
     fn reasons(s: &Snapshot, m: &MeetingData) -> Vec<Value> {
@@ -615,51 +685,160 @@ mod tests {
             .any(|r| r["kind"] == "target"));
     }
     #[test]
-    fn mtg_exact_days_only_sixty_is_strong_even_near_expiry() {
+    fn mtg_sixty_days_is_stopped_and_thirty_to_fifty_nine_is_a_separate_mark() {
         let s = snapshot(120, "5", "21596025");
-        for (days, label, strong) in [
-            (29, None, false),
-            (30, Some("MTGが30〜59日空いている"), false),
-            (59, Some("MTGが30〜59日空いている"), false),
-            (60, Some("MTGが60日以上空いている"), true),
-            (89, Some("MTGが60日以上空いている"), true),
-            (90, Some("MTGが60日以上空いている"), true),
+        for (days, kind, text, strong) in [
+            (29, None, "", false),
+            (
+                30,
+                Some("mtg_gap"),
+                "MTGが空いている（最後のMTGから 30 日）",
+                false,
+            ),
+            (
+                59,
+                Some("mtg_gap"),
+                "MTGが空いている（最後のMTGから 59 日）",
+                false,
+            ),
+            (
+                60,
+                Some("mtg"),
+                "MTGが途絶えている（最後のMTGから 60 日）",
+                true,
+            ),
+            (
+                90,
+                Some("mtg"),
+                "MTGが途絶えている（最後のMTGから 90 日）",
+                true,
+            ),
         ] {
             let r = reasons(&s, &meetings(days));
-            let mtg = r.iter().find(|r| r["kind"] == "mtg");
-            assert_eq!(mtg.is_some(), label.is_some(), "days={days}");
-            if let Some(mtg) = mtg {
-                assert_eq!(mtg["strong"], strong);
-                assert_eq!(mtg["text"], label.unwrap());
+            let marks: Vec<_> = r
+                .iter()
+                .filter(|r| r["kind"] == "mtg" || r["kind"] == "mtg_gap")
+                .collect();
+            assert_eq!(marks.len(), usize::from(kind.is_some()), "days={days}");
+            if let Some(kind) = kind {
+                assert_eq!(marks[0]["kind"], kind, "days={days}");
+                assert_eq!(marks[0]["text"], text);
+                assert_eq!(marks[0]["strong"], strong);
             }
         }
     }
     #[test]
-    fn home_todo_mtg_reason_needs_sixty_days_but_deal_board_mark_keeps_shared_bands() {
+    fn home_todo_and_deal_board_count_the_same_stopped_mtg_deals() {
+        // 本番の食い違い（案件一覧 7 件・今日 2 件）の形: 30〜59 日の案件は「MTGが途絶えている」に入らない。
         let s = snapshot(120, "5", "21596025");
-        for (days, in_todo) in [
-            (29, false),
-            (30, false),
-            (59, false),
-            (60, true),
-            (89, true),
-            (90, true),
+        for (days, stopped, gap) in [
+            (29, false, false),
+            (30, false, true),
+            (59, false, true),
+            (60, true, false),
+            (90, true, false),
         ] {
             let m = meetings(days);
             let metrics = Metrics::new(&s, &m, day());
-            let has = |v: Vec<Value>| v.iter().any(|r| r["kind"] == "mtg");
-            assert_eq!(
-                has(metrics.todo_reasons(&s, "1", day())),
-                in_todo,
-                "days={days}"
-            );
-            // 案件一覧の印は共有の段階（30 日から）のまま
-            assert_eq!(
-                has(metrics.reasons(&s, "1", day())),
-                days >= 30,
-                "days={days}"
-            );
+            let has = |v: &[Value], k: &str| v.iter().any(|r| r["kind"] == k);
+            let todo = metrics.todo_reasons(&s, "1", day());
+            let board = metrics.reasons(&s, "1", day());
+            assert_eq!(has(&todo, "mtg"), stopped, "days={days}");
+            assert_eq!(has(&board, "mtg"), stopped, "days={days}");
+            assert_eq!(has(&board, "mtg_gap"), gap, "days={days}");
+            assert!(!has(&todo, "mtg_gap"), "days={days}");
         }
+    }
+    fn sheet(header: &[&str], rows: &[&[&str]]) -> SheetData {
+        SheetData {
+            header: header.iter().map(|h| (*h).to_owned()).collect(),
+            rows: rows
+                .iter()
+                .map(|r| r.iter().map(|v| std::sync::Arc::from(*v)).collect())
+                .collect(),
+            fetched_at: std::time::Instant::now(),
+        }
+    }
+    #[test]
+    fn contact_is_mtg_or_call_over_sixty_seconds_and_never_email() {
+        let call = sheet(
+            &["deal_id", "duration_sec", "ts"],
+            &[
+                &["1", "61", "2026-09-05T01:00:00Z"],
+                // 60秒ちょうどは接触にしない。
+                &["1", "60", "2026-10-10T01:00:00Z"],
+                // 日本時間では 10/01。
+                &["2", "300", "2026-09-30T15:30:00Z"],
+            ],
+        );
+        let mtg = sheet(
+            &["deal_id", "開催日"],
+            &[&["1", "2026-09-10"], &["3", "2026-08-01"]],
+        );
+        let mail = sheet(
+            &["deal_id", "送信日時（JST）"],
+            &[&["1", "2026-10-15 10:00:00"], &["1", "2026-10-01 09:00:00"]],
+        );
+        let last = last_contacts(&call, &mtg);
+        assert_eq!(last["1"].to_string(), "2026-09-10");
+        assert_eq!(last["2"].to_string(), "2026-10-01");
+        assert_eq!(last["3"].to_string(), "2026-08-01");
+        assert_eq!(last_emails(&mail)["1"].to_string(), "2026-10-15");
+
+        // 取引の notes_last_contacted（メールを含む今日）が新しくても、記録からの接触で印を立てる。
+        let s = snapshot(120, "5", "21596025");
+        let m = MeetingData {
+            contacts: Some(last),
+            emails: Some(last_emails(&mail)),
+            ..meetings(10)
+        };
+        let metrics = Metrics::new(&s, &m, day());
+        let contact: Vec<_> = metrics
+            .reasons(&s, "1", day())
+            .into_iter()
+            .filter(|r| r["kind"] == "contact")
+            .collect();
+        assert_eq!(contact.len(), 1);
+        assert_eq!(contact[0]["text"], "最後の接触から 36 日");
+        let q = OwnerQuery {
+            owner: Some("all".into()),
+            ..Default::default()
+        };
+        let row = serde_json::to_value(&metrics.rows(&s, &q, "", day())[0]).unwrap();
+        assert_eq!(row["last_contact"], "2026-09-10");
+        assert_eq!(row["contact_status"], "ready");
+        assert_eq!(row["last_email"], "2026-10-15");
+    }
+    #[test]
+    fn contact_is_not_judged_outside_the_sheet_or_before_it_is_read() {
+        for (pipeline, m, status) in [
+            ("21596025", MeetingData::default(), "unavailable"),
+            ("743961896", meetings(10), "outside"),
+        ] {
+            let s = snapshot(120, "5", pipeline);
+            let metrics = Metrics::new(&s, &m, day());
+            assert!(!metrics
+                .reasons(&s, "1", day())
+                .iter()
+                .any(|r| r["kind"] == "contact"));
+            let q = OwnerQuery {
+                owner: Some("all".into()),
+                ..Default::default()
+            };
+            let row = serde_json::to_value(&metrics.rows(&s, &q, "", day())[0]).unwrap();
+            assert_eq!(row["contact_status"], status);
+            assert_eq!(row["last_contact"], Value::Null);
+        }
+        // 記録を読めていて接触が 1 件も無い取引（開始から 30 日以上）は「接触の記録が無い」。
+        let s = snapshot(120, "5", "21596025");
+        let m = MeetingData {
+            contacts: Some(HashMap::new()),
+            ..meetings(10)
+        };
+        let r = Metrics::new(&s, &m, day()).reasons(&s, "1", day());
+        assert!(r
+            .iter()
+            .any(|r| r["kind"] == "contact" && r["text"] == "接触の記録が無い"));
     }
     #[test]
     fn sheet_failure_outside_pipeline_no_mtg_flags_or_dates_and_contract_values() {

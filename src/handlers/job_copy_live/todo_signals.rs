@@ -6,8 +6,6 @@ use chrono::NaiveDate;
 // ユーザー決定 2026-10-16。判定に使う閾値の正本。
 pub(super) const EXPIRATION_DAYS: i64 = 60;
 const CONTACT_DAYS: i64 = 30;
-/// ホームの要対応「MTGが途絶えている」の基準（2026-10-21 ユーザー決定）。案件一覧の印には使わない。
-pub(super) const MTG_DAYS: i64 = 60;
 const APPLICATION_DAYS: i64 = 14;
 const FIRST_CONTRACT_TARGETS: [(i64, usize); 2] = [(30, 5), (60, 10)];
 
@@ -122,7 +120,22 @@ pub(super) fn launch(record: &Record, facts: Option<&Facts>, today: NaiveDate) -
     result
 }
 
-pub(super) fn reasons(deal: &WorkDeal, facts: Option<&Facts>, today: NaiveDate) -> Vec<Value> {
+/// 最後の接触。接触 = MTG または60秒超の通話（メールは数えない。危ない案件・コンサルKPIと同じ
+/// `cs_dashboard::contacts_by_deal`）。HubSpot の `notes_last_contacted` はメールを含むので使わない。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Contact {
+    /// 接触の記録を集めていない取引（請負契約）か、記録をまだ読めていない。印を立てない。
+    Unknown,
+    /// 最後の接触日。記録が無ければ `None`。
+    Last(Option<NaiveDate>),
+}
+
+pub(super) fn reasons(
+    deal: &WorkDeal,
+    facts: Option<&Facts>,
+    contact: Contact,
+    today: NaiveDate,
+) -> Vec<Value> {
     if !listings::is_delivery(deal.record.value("pipeline"))
         || ENDED_STAGES.contains(&deal.record.value("dealstage").unwrap_or(""))
     {
@@ -156,12 +169,12 @@ pub(super) fn reasons(deal: &WorkDeal, facts: Option<&Facts>, today: NaiveDate) 
         .value("contract_start_date")
         .and_then(date)
         .map(|d| (today - d).num_days());
-    match deal.record.value("notes_last_contacted").and_then(date) {
-        Some(last) if (today - last).num_days() >= CONTACT_DAYS => add(
+    match contact {
+        Contact::Last(Some(last)) if (today - last).num_days() >= CONTACT_DAYS => add(
             "contact",
             format!("最後の接触から {} 日", (today - last).num_days()),
         ),
-        None if elapsed.is_some_and(|n| n >= CONTACT_DAYS) => {
+        Contact::Last(None) if elapsed.is_some_and(|n| n >= CONTACT_DAYS) => {
             add("contact", "接触の記録が無い".into())
         }
         _ => {}
@@ -271,8 +284,11 @@ pub(super) async fn fetch(
     let properties: Vec<_> = super::deal_summary::DATE_PROPERTIES
         .into_iter()
         .chain(super::apply_reasons::SELECT_PROPERTIES)
+        .chain(super::deal_summary::IDENTITY_PROPERTIES)
         .collect();
     let records = service.batch("0-421", &ids, &properties).await?;
+    // 同じ求人への同じ人の 2 件目以降は数えない（求人ごとに見分ける）。
+    let applications = without_repeats(applications, &records);
     let selections = records
         .iter()
         .filter_map(|r| {
@@ -325,6 +341,29 @@ pub(super) async fn fetch(
         &live,
         &selections,
     ))
+}
+
+/// 求人ごとの応募から、同じ人の 2 件目以降を除く。
+fn without_repeats(
+    applications: BTreeMap<String, Vec<String>>,
+    records: &[Record],
+) -> BTreeMap<String, Vec<String>> {
+    let by_id: BTreeMap<&str, &Record> = records.iter().map(|r| (r.id.as_str(), r)).collect();
+    applications
+        .into_iter()
+        .map(|(listing, apps)| {
+            let rows: Vec<Record> = apps
+                .iter()
+                .filter_map(|id| by_id.get(id.as_str()).map(|r| (*r).clone()))
+                .collect();
+            let repeats = super::deal_summary::repeat_applications(&rows);
+            let kept = apps
+                .into_iter()
+                .filter(|id| !repeats.contains(id))
+                .collect();
+            (listing, kept)
+        })
+        .collect()
 }
 
 fn assemble(
@@ -401,8 +440,12 @@ mod tests {
             record,
         }
     }
+    /// テストでは接触日を取引の `notes_last_contacted` に置いておき、そこから渡す。
+    fn contact_of(d: &WorkDeal) -> Contact {
+        Contact::Last(d.record.value("notes_last_contacted").and_then(date))
+    }
     fn kinds(d: &WorkDeal, f: &Facts) -> Vec<String> {
-        reasons(d, Some(f), day("2026-10-16"))
+        reasons(d, Some(f), contact_of(d), day("2026-10-16"))
             .iter()
             .map(|v| v["kind"].as_str().unwrap().into())
             .collect()
@@ -551,6 +594,46 @@ mod tests {
     }
 
     #[test]
+    fn the_same_person_on_one_listing_is_counted_once_in_deal_facts() {
+        let rec = |id: &str, day: &str, phone: &str| Record {
+            id: id.into(),
+            properties: BTreeMap::from([
+                ("yingmuri".into(), Some(day.into())),
+                ("denwabangou".into(), Some(phone.into())),
+            ]),
+        };
+        let records = vec![
+            rec("100", "2026-11-02", "090-0000-1111"),
+            rec("200", "2026-11-05", "09000001111"),
+            rec("300", "2026-11-03", "080-0000-2222"),
+            // 別の求人への同じ人の応募は数える（求人ごとに見分ける）
+            rec("400", "2026-11-06", "090-0000-1111"),
+        ];
+        let applications = without_repeats(
+            BTreeMap::from([
+                ("10".into(), vec!["100".into(), "200".into(), "300".into()]),
+                ("20".into(), vec!["400".into()]),
+            ]),
+            &records,
+        );
+        let dates = records
+            .iter()
+            .map(|r| (r.id.clone(), r.value("yingmuri").and_then(date)))
+            .collect();
+        let facts = assemble(
+            BTreeMap::from([("1".into(), vec!["10".into(), "20".into()])]),
+            &applications,
+            &dates,
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+        );
+        assert_eq!(
+            facts["1"].application_days.keys().collect::<Vec<_>>(),
+            ["100", "300", "400"]
+        );
+        assert_eq!(facts["1"].days.len(), 3);
+    }
+    #[test]
     fn one_application_linked_to_two_listings_counts_once_and_unknown_date_is_not_zero_day() {
         let relations = BTreeMap::from([("1".into(), vec!["10".into(), "20".into()])]);
         let applications = BTreeMap::from([
@@ -608,7 +691,12 @@ mod tests {
             );
         }
         assert_eq!(
-            reasons(&deal(30, None, 61), Some(&f), day("2026-10-16"))[0]["text"],
+            reasons(
+                &deal(30, None, 61),
+                Some(&f),
+                Contact::Last(None),
+                day("2026-10-16")
+            )[0]["text"],
             "接触の記録が無い"
         );
     }
@@ -634,11 +722,8 @@ mod tests {
                 "expiration={expiration}"
             );
         }
-        let r = reasons(
-            &deal(100, Some("2026-10-16"), -14),
-            Some(&f),
-            day("2026-10-16"),
-        );
+        let d = deal(100, Some("2026-10-16"), -14);
+        let r = reasons(&d, Some(&f), contact_of(&d), day("2026-10-16"));
         let expired = r.iter().find(|v| v["kind"] == "expired").unwrap();
         assert_eq!(expired["text"], "満了日から 14 日が過ぎている");
         // 終了したステージは対象外（案件管理の稼働中 = 終了ステージでない）
@@ -647,7 +732,7 @@ mod tests {
             .record
             .properties
             .insert("dealstage".into(), Some(ENDED_STAGES[0].into()));
-        assert!(reasons(&ended, Some(&f), day("2026-10-16")).is_empty());
+        assert!(reasons(&ended, Some(&f), contact_of(&ended), day("2026-10-16")).is_empty());
     }
     #[test]
     fn stalled_fourteen_calendar_days_and_start_boundary() {

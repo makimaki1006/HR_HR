@@ -5,7 +5,7 @@ export interface HomeRowData { id: string; title: string | null; company: string
 export interface HomeCard { key: CardKey; title: string; rule: string; count: number; listings: HomeRowData[] }
 export interface LatestDeal { name: string | null; stage_label: string | null; active: boolean; created_at: string | null }
 export interface HomeCustomer { company_id: string; name: string | null; deals: number; active_deals: number; latest_deal: LatestDeal | null; live_listings: number; total_listings: number; recent_apps: number; prev_apps: number; recent_cost: number; cost_per_app: number | null }
-export interface HomeData { cards: HomeCard[]; customers: HomeCustomer[]; live_without_company: number; median_cost_per_app: number | null }
+export interface HomeData { cards: HomeCard[]; customers: HomeCustomer[]; live_without_company: number; median_cost_per_app: number | null; latest_week_end?: string | null }
 export type HomeResponse =
   | { status: 'preparing'; progress?: IndexProgress }
   | { status: 'ready'; work?: Work; index_built_at: string; today: string; companies_ok: boolean; rules: { trend_min_diff: number; trend_min_percent: number; cost_floor_yen: number; cost_per_app_times: number; stale_days: number; list_cap: number; delivery_pipelines?: { id: string; label: string }[] }; home: HomeData };

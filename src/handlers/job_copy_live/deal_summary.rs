@@ -81,6 +81,76 @@ impl Record {
     }
 }
 
+/// 同じ人の応募を見分けるための応募の項目（サーバーの中だけで使い、画面へは返さない）。
+pub(super) const IDENTITY_PROPERTIES: [&str; 4] = [
+    "ouboshashimei",
+    "denwabangou",
+    "meeruadoresu",
+    "seinengappi",
+];
+
+/// 同じ人かを比べる鍵。電話は下 9 桁（CRM の目印と同じ）、メールは小文字、
+/// 氏名だけ・生年月日だけでは同じ人にしない（同姓同名・同じ誕生日の別人がいるため、氏名と生年月日の組で見る）。
+fn identity_keys(record: &Record) -> Vec<String> {
+    let mut keys = vec![];
+    if let Some(phone) = record.value("denwabangou") {
+        let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
+        if digits.len() >= 9 {
+            keys.push(format!("tel:{}", &digits[digits.len() - 9..]));
+        }
+    }
+    if let Some(mail) = record.value("meeruadoresu") {
+        let mail = mail.trim().to_lowercase();
+        if mail.contains('@') {
+            keys.push(format!("mail:{mail}"));
+        }
+    }
+    let name = record
+        .value("ouboshashimei")
+        .map(|n| n.chars().filter(|c| !c.is_whitespace()).collect::<String>());
+    let birth = record
+        .value("seinengappi")
+        .and_then(|b| jst_day(b).or_else(|| b.trim().get(..10).map(str::to_owned)));
+    if let (Some(name), Some(birth)) = (name.filter(|n| !n.is_empty()), birth) {
+        keys.push(format!("person:{name}:{birth}"));
+    }
+    keys
+}
+
+/// 同じ求人への同じ人の 2 件目以降の応募 ID（2026-11-15 ユーザー決定: 数えない）。
+/// 同じ人 = 電話（下 9 桁）・メール・氏名と生年月日の組 のどれかが一致。応募日の早い順に見て最初の 1 件を残す。
+/// `rows` は 1 つの求人の応募だけを渡す。
+pub(super) fn repeat_applications(rows: &[Record]) -> BTreeSet<String> {
+    let mut order: Vec<&Record> = rows.iter().collect();
+    order.sort_by_key(|r| {
+        (
+            r.application_day().map(|(day, _)| day),
+            r.value(CREATED).map(str::to_owned),
+            r.id.clone(),
+        )
+    });
+    // 日付が分からない応募は最後に回す（None は Some より前に並ぶため入れ替える）。
+    order.sort_by_key(|r| r.application_day().is_none());
+    let mut seen = BTreeSet::new();
+    let mut repeats = BTreeSet::new();
+    for record in order {
+        let keys = identity_keys(record);
+        if keys.iter().any(|k| seen.contains(k)) {
+            repeats.insert(record.id.clone());
+        }
+        seen.extend(keys);
+    }
+    repeats
+}
+
+/// 同じ人の 2 件目以降を除いた応募。
+pub(super) fn first_applications(rows: Vec<Record>) -> Vec<Record> {
+    let repeats = repeat_applications(&rows);
+    rows.into_iter()
+        .filter(|r| !repeats.contains(&r.id))
+        .collect()
+}
+
 /// Day per application (None when neither date exists) and how many of them came from the
 /// creation time. The latter is inside the dated count, not added to it.
 pub(super) fn days_of(rows: &[Record]) -> (Vec<Option<String>>, usize) {
@@ -177,9 +247,11 @@ async fn read_listing(
         return Err(ReadError(StatusCode::FORBIDDEN, "listing_not_in_deal"));
     }
     let applications = service.all_associations("0-420", id, "0-421").await?;
-    let rows = service
-        .batch("0-421", &applications, &DATE_PROPERTIES)
-        .await?;
+    let properties: Vec<_> = DATE_PROPERTIES
+        .into_iter()
+        .chain(IDENTITY_PROPERTIES)
+        .collect();
+    let rows = first_applications(service.batch("0-421", &applications, &properties).await?);
     let (days, from_created) = days_of(&rows);
     let (by_date, missing) = count_by_date(&days);
     let pairs = rows.iter().map(|r| r.id.clone()).zip(days).collect();
@@ -342,6 +414,127 @@ mod tests {
         assert_eq!(value["by_date"], json!({"2026-10-01":2,"2026-10-02":1}));
         assert_eq!(pairs.len(), 3);
         server.abort();
+    }
+
+    fn applicant(id: &str, day: &str, props: &[(&str, &str)]) -> Record {
+        let mut properties: BTreeMap<String, Option<String>> = props
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), Some((*v).to_owned())))
+            .collect();
+        properties.insert("yingmuri".into(), Some(day.into()));
+        Record {
+            id: id.into(),
+            properties,
+        }
+    }
+
+    #[test]
+    fn the_same_person_applying_again_to_one_listing_counts_once() {
+        // 本番の形: 11/02 と 11/05 が同じ人、ほかに別の人が 1 件。3 件ではなく 2 件。
+        let rows = vec![
+            applicant(
+                "3",
+                "2026-11-05",
+                &[
+                    ("ouboshashimei", "架空 太郎"),
+                    ("denwabangou", "090-0000-1111"),
+                ],
+            ),
+            applicant(
+                "1",
+                "2026-11-02",
+                &[
+                    ("ouboshashimei", "架空太郎"),
+                    ("denwabangou", "+81 90 0000 1111"),
+                ],
+            ),
+            applicant(
+                "2",
+                "2026-11-03",
+                &[
+                    ("ouboshashimei", "架空 花子"),
+                    ("denwabangou", "080-0000-2222"),
+                ],
+            ),
+        ];
+        assert_eq!(repeat_applications(&rows), BTreeSet::from(["3".to_owned()]));
+        let kept = first_applications(rows);
+        let (days, _) = days_of(&kept);
+        let (by_date, missing) = count_by_date(&days);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(missing, 0);
+        assert_eq!(
+            by_date,
+            BTreeMap::from([("2026-11-02".to_owned(), 1), ("2026-11-03".to_owned(), 1)])
+        );
+    }
+
+    #[test]
+    fn same_person_keys_are_phone_mail_or_name_with_birthday() {
+        let base = |id: &str, props: &[(&str, &str)]| applicant(id, "2026-11-01", props);
+        // メール（大文字小文字・前後の空白の違いは同じ）
+        let mail = [
+            base("1", &[("meeruadoresu", "Kakuu@example.test")]),
+            base("2", &[("meeruadoresu", "kakuu@example.test ")]),
+        ];
+        assert_eq!(repeat_applications(&mail).len(), 1);
+        // 氏名と生年月日の組（全角の空白も同じ）
+        let person = [
+            base(
+                "1",
+                &[
+                    ("ouboshashimei", "架空 次郎"),
+                    ("seinengappi", "1990-04-01"),
+                ],
+            ),
+            base(
+                "2",
+                &[
+                    ("ouboshashimei", "架空\u{3000}次郎"),
+                    ("seinengappi", "1990-04-01"),
+                ],
+            ),
+        ];
+        assert_eq!(repeat_applications(&person).len(), 1);
+        // 同姓同名でも生年月日が違えば別の人。氏名だけ・生年月日だけ・短い番号では同じ人にしない
+        let others = [
+            base(
+                "1",
+                &[
+                    ("ouboshashimei", "架空 次郎"),
+                    ("seinengappi", "1990-04-01"),
+                ],
+            ),
+            base(
+                "2",
+                &[
+                    ("ouboshashimei", "架空 次郎"),
+                    ("seinengappi", "1985-01-01"),
+                ],
+            ),
+            base("3", &[("ouboshashimei", "架空 次郎")]),
+            base("4", &[("seinengappi", "1990-04-01")]),
+            base("5", &[("denwabangou", "1234")]),
+            base("6", &[("denwabangou", "1234")]),
+        ];
+        assert!(repeat_applications(&others).is_empty());
+        // つながりをたどる: 1 と 2 は電話、2 と 3 はメールで同じ人 → 2 と 3 を数えない
+        let chain = [
+            applicant("1", "2026-11-01", &[("denwabangou", "090-1111-2222")]),
+            applicant(
+                "2",
+                "2026-11-02",
+                &[
+                    ("denwabangou", "09011112222"),
+                    ("meeruadoresu", "a@example.test"),
+                ],
+            ),
+            applicant("3", "2026-11-03", &[("meeruadoresu", "a@example.test")]),
+        ];
+        assert_eq!(
+            repeat_applications(&chain),
+            BTreeSet::from(["2".to_owned(), "3".to_owned()])
+        );
     }
 
     #[tokio::test]

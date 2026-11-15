@@ -136,3 +136,19 @@ it('取引ごとの応募動機を行に出し、詳しい数字で全件の表�
   const priorities = within(screen.getByRole('table', { name: '勤務条件の優先順位の選択件数' }));
   expect(priorities.getAllByRole('cell').map(cell => cell.textContent)).toEqual(['2件', '0件', '0件', '1件', '2件', '0件', '0件', '0件', '1件', '0件', '0件', '0件']);
 });
+
+it('MTGが途絶えている（60日以上）と MTGが空いている（30〜59日）を別の印で数え、接触はメールを添えるだけにする', async () => {
+  stub(['101'], [row(0), { ...row(1), reasons: [{ kind: 'mtg_gap', text: 'MTGが空いている（最後のMTGから 45 日）' }] }, row(2), { ...row(23), active: true }]);
+  await open('&deals_ended=yes');
+  const filters = screen.getByRole('group', { name: '要対応の印で絞る' });
+  expect(within(filters).getByRole('button', { name: 'MTGが途絶えている 1' })).toBeTruthy();
+  expect(within(filters).getByRole('button', { name: 'MTGが空いている 1' })).toBeTruthy();
+  fireEvent.click(within(filters).getByRole('button', { name: 'MTGが空いている 1' }));
+  await waitFor(() => { expect(names()).toEqual([row(1).name]); });
+  fireEvent.click(within(filters).getByRole('button', { name: 'MTGが空いている 1' }));
+  await waitFor(() => { expect(names()).toHaveLength(4); });
+  const cell = (r: DealRow) => screen.getByRole('button', { name: r.name ?? '' }).closest('tr')?.querySelectorAll('td')[3]?.textContent;
+  expect(cell(row(0))).toBe('2026/10/12メール 2026/10/14');
+  expect(cell(row(2))).toBe('2026/10/12');
+  expect(cell(row(23))).toBe('記録なし（対象外）');
+});

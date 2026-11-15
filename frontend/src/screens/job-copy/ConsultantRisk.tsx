@@ -45,7 +45,7 @@ export function RiskDetail({ row, onClose, onSaved }: { row: RiskRow; onClose: (
   useEffect(() => {
     const ctl = new AbortController();
     void apiGet<Detail>(`/api/consulting/deal-detail?deal_id=${encodeURIComponent(row.deal_id)}`, { signal: ctl.signal }).then(r => { if (!ctl.signal.aborted) { if (r.ok) setData(r.data); else setError('案件の詳細を読み込めませんでした。'); } });
-    void apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(row.deal_id)}?deal_props=actionyotei,actionnaiyou,notes_last_contacted`, { signal: ctl.signal }).then(r => { if (r.ok && !ctl.signal.aborted) { setPortal(r.data.hubspot_portal_id); setWorkspaceDeal(r.data.selected.deal); } });
+    void apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(row.deal_id)}?deal_props=actionyotei,actionnaiyou`, { signal: ctl.signal }).then(r => { if (r.ok && !ctl.signal.aborted) { setPortal(r.data.hubspot_portal_id); setWorkspaceDeal(r.data.selected.deal); } });
     void contractWriteApi.editSchema(row.deal_id, ctl.signal).then(r => { if (r.ok && !ctl.signal.aborted) setActionOptions((Array.isArray(r.data.editable) ? r.data.editable : []).find(p => p.name === 'actionnaiyou')?.options ?? []); });
     void apiGet<{ status: string; total: number | null; next_offset: number | null; listings: { id: string }[] }>(`/api/job-copy/listings?deal=${encodeURIComponent(row.deal_id)}&offset=0`, { signal: ctl.signal }).then(r => { if (r.ok && !ctl.signal.aborted && r.data.status === 'ready') { if (r.data.total === 1 && r.data.next_offset === null) setListing(r.data.listings[0]?.id); setJobsReady(true); } });
     return () => { ctl.abort(); };

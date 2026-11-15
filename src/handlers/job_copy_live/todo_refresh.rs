@@ -4,15 +4,21 @@ use super::*;
 
 const TIME_LIMIT: Duration = Duration::from_secs(10 * 60);
 const DEALS_PER_CHUNK: usize = 50;
-/// 途中経過を引き継げる期間。通常の期限(60分)で捨てると、画面を開く人がいない時間や
-/// 再起動をまたいだとき、いつまでも最初からやり直しになるため、一日は引き継ぐ。
-const RESUME_WINDOW: Duration = Duration::from_secs(24 * 60 * 60);
+/// 途中経過を引き継げる期間。**最後に途中保存した時刻から**数える（2026-11-15 変更）。
+/// 開始時刻から 24 時間で数えていたとき、1 回 10 分で約 800 / 1,213 件まで進んで止まり、
+/// 次の開始が前回の開始の 24 時間と数分後だったため毎回 0 件からやり直し、3 日間完成しなかった。
+/// 最後の保存から数えれば、1 回でも先へ進んだ分は次の回へ必ず引き継がれる。
+/// 週末（金曜の夕方〜月曜の朝）をまたいでも切れないよう 72 時間にする。
+const RESUME_WINDOW: Duration = Duration::from_secs(72 * 60 * 60);
 /// 締め切りの後の保存待ちも含めた、1回の更新の絶対的な上限の余裕。
 const PERSIST_GRACE: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Progress {
     started_at: chrono::DateTime<Utc>,
+    /// 最後に途中保存した時刻。古い保存データには無いので、そのときは開始時刻で数える。
+    #[serde(default)]
+    saved_at: Option<chrono::DateTime<Utc>>,
     completed: BTreeSet<String>,
     facts: BTreeMap<String, Facts>,
 }
@@ -140,12 +146,13 @@ async fn run_with_limit(
         .clone()
         .filter(|p| {
             Utc::now()
-                .signed_duration_since(p.started_at)
+                .signed_duration_since(p.saved_at.unwrap_or(p.started_at))
                 .to_std()
                 .is_ok_and(|age| age < resume_window)
         })
         .unwrap_or_else(|| Progress {
             started_at: Utc::now(),
+            saved_at: None,
             completed: BTreeSet::new(),
             facts: BTreeMap::new(),
         });
@@ -171,6 +178,7 @@ async fn run_with_limit(
                 .map_err(|_| ReadError(StatusCode::GATEWAY_TIMEOUT, "todo_facts_timeout"))??;
         progress.facts.extend(facts);
         progress.completed.extend(chunk.iter().cloned());
+        progress.saved_at = Some(Utc::now());
         service.owner_todo.state.lock().await.facts_pending = Some(progress.clone());
         persist(service).await;
         tracing::info!(
@@ -384,6 +392,7 @@ mod tests {
         let done: BTreeSet<String> = deals.keys().take(50).cloned().collect();
         service.owner_todo.state.lock().await.facts_pending = Some(Progress {
             started_at: Utc::now() - chrono::Duration::hours(3),
+            saved_at: None,
             facts: done
                 .iter()
                 .map(|id| {
@@ -410,9 +419,26 @@ mod tests {
         let facts = view.snapshot.unwrap().facts.clone();
         assert_eq!(facts.len(), 51);
         assert_eq!(facts.values().filter(|f| f.live == 4).count(), 50);
-        // Progress older than the window is discarded.
+        // 本番で起きた形: 25 時間前に始め、10 分後まで途中保存して止まった。開始からは 24 時間を
+        // 過ぎているが、最後の保存からは 72 時間以内なので、保存済みの 50 件は読み直さない。
         service.owner_todo.state.lock().await.facts_pending = Some(Progress {
             started_at: Utc::now() - chrono::Duration::hours(25),
+            saved_at: Some(
+                Utc::now() - chrono::Duration::hours(24) - chrono::Duration::minutes(50),
+            ),
+            completed: done_again(&deals),
+            facts: BTreeMap::new(),
+        });
+        refresh_with_limit(&service, &deals, Duration::from_secs(5)).await;
+        assert_eq!(
+            big_reads.load(Ordering::SeqCst),
+            0,
+            "progress saved within the window resumes even when it started over a day ago"
+        );
+        // 最後の保存から 72 時間を過ぎた途中経過は捨てて最初から読む。
+        service.owner_todo.state.lock().await.facts_pending = Some(Progress {
+            started_at: Utc::now() - chrono::Duration::hours(80),
+            saved_at: Some(Utc::now() - chrono::Duration::hours(73)),
             completed: deals.keys().cloned().collect(),
             facts: BTreeMap::new(),
         });
@@ -422,6 +448,27 @@ mod tests {
             1,
             "expired progress restarts from scratch"
         );
+        // 古い保存データ（saved_at なし）は開始時刻で数える。
+        service.owner_todo.state.lock().await.facts_pending = Some(Progress {
+            started_at: Utc::now() - chrono::Duration::hours(73),
+            saved_at: None,
+            completed: deals.keys().cloned().collect(),
+            facts: BTreeMap::new(),
+        });
+        refresh_with_limit(&service, &deals, Duration::from_secs(5)).await;
+        assert_eq!(big_reads.load(Ordering::SeqCst), 2);
         server.abort();
+    }
+
+    fn done_again(deals: &BTreeMap<String, WorkDeal>) -> BTreeSet<String> {
+        deals.keys().take(50).cloned().collect()
+    }
+
+    #[test]
+    fn old_progress_without_saved_time_still_reads() {
+        let old = json!({"started_at":"2026-11-12T06:39:00Z","completed":["1"],"facts":{}});
+        let progress: Progress = serde_json::from_value(old).unwrap();
+        assert_eq!(progress.saved_at, None);
+        assert_eq!(progress.completed.len(), 1);
     }
 }

@@ -3,7 +3,15 @@ import type { DealApplicationReasonSummary } from "./DealApplicationReasonSummar
 import type { DealBoardReason } from "./DealBoardReason";
 import type { Launch } from "./Launch";
 
-export type DealBoardRow = { application_reasons?: DealApplicationReasonSummary | null, id: string, name: string | null, company: string | null, pipeline: string, active: boolean, stage: string | null, consultant: string | null, reasons: Array<DealBoardReason>, months: number | null, expiration: string | null, days_left: number | null, last_contact: string | null, last_mtg: string | null, mtg_status: 'ready' | 'outside' | 'unavailable' | 'none', nps: number | null, applications: number | null, recent_applications: number | null, media_recent_applications: number | null, 
+export type DealBoardRow = { application_reasons?: DealApplicationReasonSummary | null, id: string, name: string | null, company: string | null, pipeline: string, active: boolean, stage: string | null, consultant: string | null, reasons: Array<DealBoardReason>, months: number | null, expiration: string | null, days_left: number | null, 
+/**
+ * 最後の接触（MTG または60秒超の通話。メールは数えない）。
+ */
+last_contact: string | null, contact_status: 'ready' | 'outside' | 'unavailable' | 'none', 
+/**
+ * 最後のメールの日（接触には数えない。添えて見せるだけ）。
+ */
+last_email?: string | null, last_mtg: string | null, mtg_status: 'ready' | 'outside' | 'unavailable' | 'none', nps: number | null, applications: number | null, recent_applications: number | null, media_recent_applications: number | null, 
 /**
  * 満了から8週を過ぎた終了済みの取引は応募を数えない。
  */

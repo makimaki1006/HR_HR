@@ -1486,7 +1486,11 @@ pub(super) async fn read_application_dates(
     ];
     properties.extend(super::applicant_reasons::PROPERTIES);
     let pending_labels = service.reason_option_labels();
-    let rows = service.batch("0-421", &applications, &properties).await?;
+    properties.extend(super::deal_summary::IDENTITY_PROPERTIES);
+    // 同じ人の 2 件目以降は数えない（件数・日ごと・応募者構成・応募の理由のすべて）。
+    let rows = super::deal_summary::first_applications(
+        service.batch("0-421", &applications, &properties).await?,
+    );
     let labels = match pending_labels {
         super::PendingLabels::Ready(labels) => labels,
         super::PendingLabels::Reading(mut handle) => {
