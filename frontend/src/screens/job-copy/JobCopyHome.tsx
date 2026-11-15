@@ -9,7 +9,7 @@ import { useReportPolling } from './useReportPolling';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { formatDateTimeJst, formatDateJst } from './format';
-import { appsChange, customerName, dealCountLabel, filterCustomers, listingCountLabel, mediaName, sortCustomers, yen } from './homeModel';
+import { appsChange, customerName, dealCountLabel, filterCustomers, listingCountLabel, mediaName, mediaWeeksText, sortCustomers, yen } from './homeModel';
 import type { CardKey, CustomerSort, HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 import './home.css';
 import { useRevealOnMount } from './revealList';
@@ -102,7 +102,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     {ready && <>
       {work && <><OwnerFilter work={work} /><OwnerTodo work={work} onOpenCompany={onOpenCompany} onOpenDeal={onOpenDeal} onShowList={() => { setReload(value => value + 1); }} /></>}
       <section aria-labelledby="jh-look"><h2 id="jh-look">まず見るもの <InfoTip className="jc-infotip-left" label="数え方"><p>応募・課金のカードは掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。</p><p>求人の一覧を読み込んだ時刻：{formatDateTimeJst(ready.index_built_at, '日時不明')}。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。</p><ul>{cards.map(item => <li key={item.key}>{item.title}：{item.rule}</li>)}<li>直近7日に変更：{recentChangesRule}</li></ul></InfoTip></h2>
-        <p className="jh-note">掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。<strong>媒体の実績：{ready.home.latest_week_end ? `${formatDateJst(ready.home.latest_week_end)} までの週` : '未取得'}</strong>。増減は並べて見るためのもので、原因とは限りません。</p>
+        <p className="jh-note">掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。<strong>媒体の実績：{mediaWeeksText(ready.home.media_weeks, day => formatDateJst(day))}</strong>。増減は並べて見るためのもので、原因とは限りません。</p>
         <div className="jh-cards">{mainCards.map(item => <button type="button" key={item.key} className={`jh-card jh-${cardTone[item.key]}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>
           <strong className="jh-count">{item.count}<small>件</small></strong>
           <span className="jh-card-title">{item.title}</span>

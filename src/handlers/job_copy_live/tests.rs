@@ -570,6 +570,8 @@ enum Scenario {
     SlowDefinitions,
     /// The first definition read works; every later one is refused (403, not retried).
     DefinitionsFailAfterFirst,
+    /// 応募 50（10/03）と 51（10/05）が同じ人（電話の書き方だけ違う）。
+    RepeatApplicant,
 }
 #[derive(Clone)]
 struct Seen {
@@ -771,6 +773,16 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
                             return None;
                         }
                         let props = match (path.as_str(), id) {
+                            ("/crm/v3/objects/0-421/batch/read", "50" | "51")
+                                if matches!(fixture.scenario, Scenario::RepeatApplicant) =>
+                            {
+                                let (day, phone) = if id == "50" {
+                                    ("2026-10-03", "090-0000-1111")
+                                } else {
+                                    ("2026-10-05", "09000001111")
+                                };
+                                json!({"yingmuri":day,"seibetsu":"女性","nenrei":"30","ouboshashimei":"架空 花子","denwabangou":phone,"meeruadoresu":"hanako@example.test","seinengappi":"1996-01-02"})
+                            }
                             ("/crm/v3/objects/0-421/batch/read", "50") => {
                                 json!({"yingmuri":"2026-10-03","nenrei":"35","seibetsu":null,"oubodouki":"Flexible hours","ouboriyuu_baitaikisai":"  ","ouboriyuu_hiaringu":null,"genshokumaeshokukaranotenshokuriyuu":"山田さんの店が遠かった","ouboriyuukategori_hiaringu":"kyuuyo"})
                             }
@@ -922,7 +934,12 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
             "kinmujoukennoyuusenjuni",
             "honnin_kibou_kinyuuran",
             "ouboriyuukategori_hiaringu",
-            "ouboriyuukategori_baitaikisai"
+            "ouboriyuukategori_baitaikisai",
+            // 同じ人の見分けにだけ使う（応答には出さない）
+            "ouboshashimei",
+            "denwabangou",
+            "meeruadoresu",
+            "seinengappi"
         ])
     );
     // One applicant batch read for all the reason sources, and one definition read.
@@ -1876,4 +1893,30 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(calls.lock().unwrap().len(), 8);
     task.abort();
+}
+
+#[tokio::test]
+async fn the_same_person_applying_twice_counts_once_on_the_listing_page() {
+    let upstream = Upstream::start(Scenario::RepeatApplicant).await;
+    let applicants = upstream.service().applicants("10", "30").await.unwrap();
+    // 2 件の応募のうち 2 件目（10/05）は同じ人なので数えない。
+    assert_eq!(applicants["summary"]["total"], 1);
+    assert_eq!(applicants["summary"]["by_date"], json!({"2026-10-03": 1}));
+    assert_eq!(applicants["summary"]["missing_date"], 0);
+    assert_eq!(applicants["summary"]["repeat_applications"], 1);
+    assert_eq!(applicants["summary"]["dimensions"]["gender"]["女性"], 1);
+    let text = applicants.to_string();
+    for secret in [
+        "架空",
+        "090-0000-1111",
+        "09000001111",
+        "hanako",
+        "example.test",
+        "1996-01-02",
+    ] {
+        assert!(
+            !text.contains(secret),
+            "{secret} must not be in the response"
+        );
+    }
 }

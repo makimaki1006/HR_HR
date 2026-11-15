@@ -902,7 +902,54 @@ fn home_reports_the_newest_media_week_of_live_listings() {
         listing("4", &["d1"], "掲載中", "set", None),
     ];
     let home = compute(&rows, &map(), date("2026-11-15"));
-    assert_eq!(home.latest_week_end.as_deref(), Some("2026-10-11"));
+    // Indeed（HRハッカー）は 10/11 が 1 件・08/09 が 1 件で同数 → 新しい 10/11。掲載終了の 10/18 は数えない。
+    assert_eq!(
+        home.media_weeks,
+        vec![MediaWeek {
+            label: "Indeed",
+            week_end: "2026-10-11".into(),
+            listings: 1,
+            total: 2
+        }]
+    );
     let none = compute(&rows[3..], &map(), date("2026-11-15"));
-    assert_eq!(none.latest_week_end, None);
+    assert!(none.media_weeks.is_empty());
+}
+
+#[test]
+fn media_weeks_show_where_most_live_listings_stop_per_media() {
+    // 本番の形: Indeed の多くは 10/11 で止まり、一部だけ 11/08。AirWork は 11/08。
+    let stuck = perf(&[("2026-10-05", "2026-10-11", 100, 1)]);
+    let fresh = perf(&[("2026-11-02", "2026-11-08", 100, 1)]);
+    let airwork = |id: &str| {
+        let mut row = listing(id, &["d1"], "掲載中", "set", Some(&fresh));
+        row.media = "airwork";
+        row
+    };
+    let rows = vec![
+        listing("1", &["d1"], "掲載中", "set", Some(&stuck)),
+        listing("2", &["d1"], "掲載中", "set", Some(&stuck)),
+        listing("3", &["d1"], "掲載中", "set", Some(&stuck)),
+        listing("4", &["d1"], "掲載中", "set", Some(&fresh)),
+        airwork("5"),
+        airwork("6"),
+    ];
+    let home = compute(&rows, &map(), date("2026-11-15"));
+    assert_eq!(
+        home.media_weeks,
+        vec![
+            MediaWeek {
+                label: "Indeed",
+                week_end: "2026-10-11".into(),
+                listings: 3,
+                total: 4
+            },
+            MediaWeek {
+                label: "AirWork",
+                week_end: "2026-11-08".into(),
+                listings: 2,
+                total: 2
+            },
+        ]
+    );
 }

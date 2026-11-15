@@ -5,7 +5,13 @@ export interface HomeRowData { id: string; title: string | null; company: string
 export interface HomeCard { key: CardKey; title: string; rule: string; count: number; listings: HomeRowData[] }
 export interface LatestDeal { name: string | null; stage_label: string | null; active: boolean; created_at: string | null }
 export interface HomeCustomer { company_id: string; name: string | null; deals: number; active_deals: number; latest_deal: LatestDeal | null; live_listings: number; total_listings: number; recent_apps: number; prev_apps: number; recent_cost: number; cost_per_app: number | null }
-export interface HomeData { cards: HomeCard[]; customers: HomeCustomer[]; live_without_company: number; median_cost_per_app: number | null; latest_week_end?: string | null }
+export interface HomeData { cards: HomeCard[]; customers: HomeCustomer[]; live_without_company: number; median_cost_per_app: number | null; media_weeks?: MediaWeek[] }
+/** 媒体ごとの実績の時点。掲載中の求人で最も多くそろっている週（listings / total 件）。 */
+export interface MediaWeek { label: string; week_end: string; listings: number; total: number }
+export function mediaWeeksText(weeks: readonly MediaWeek[] | undefined, format: (day: string) => string): string {
+  if (!weeks?.length) return '未取得';
+  return weeks.map(week => `${week.label} ${format(week.week_end)} までの週（掲載中${String(week.total)}件のうち${String(week.listings)}件）`).join('・');
+}
 export type HomeResponse =
   | { status: 'preparing'; progress?: IndexProgress }
   | { status: 'ready'; work?: Work; index_built_at: string; today: string; companies_ok: boolean; rules: { trend_min_diff: number; trend_min_percent: number; cost_floor_yen: number; cost_per_app_times: number; stale_days: number; list_cap: number; delivery_pipelines?: { id: string; label: string }[] }; home: HomeData };

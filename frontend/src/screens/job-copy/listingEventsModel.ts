@@ -43,6 +43,8 @@ export interface ListingEvent {
   billingTo: number | null;
   /** 応募の出来事のとき、応募理由と結ぶ印。 */
   applicationKey?: string | null | undefined;
+  /** 同じ方の2回目以降の応募（件数には入れない）。 */
+  repeat?: boolean | undefined;
 }
 
 export interface EventCounts {
@@ -77,7 +79,7 @@ export function billingBands(entries: readonly BillingEntry[]): { start: string;
   return bands;
 }
 
-interface RawEvent { date: string; kind: EventKind; title: string; summary: string; versionId: string | null; previousVersionId: string | null; billingFrom: number | null; billingTo: number | null; applicationKey?: string | null | undefined }
+interface RawEvent { date: string; kind: EventKind; title: string; summary: string; versionId: string | null; previousVersionId: string | null; billingFrom: number | null; billingTo: number | null; applicationKey?: string | null | undefined; repeat?: boolean | undefined }
 
 function billingEvents(entries: readonly BillingEntry[]): RawEvent[] {
   const events: RawEvent[] = [];
@@ -139,8 +141,11 @@ export function statusTimeline(job: Pick<JobCopyRecord, 'statusHistory'>): { sta
 }
 
 /** 応募1件ずつの出来事。日付が分かる応募だけ。 */
-export function applicationEvents(job: Pick<JobCopyRecord, 'applicationRows'>): RawEvent[] {
-  return (job.applicationRows ?? []).flatMap(row => row.date ? [{ ...RAW_BASE, date: row.date, kind: 'application' as const, title: '応募', summary: applicantText(row), applicationKey: row.key }] : []);
+export const REPEAT_APPLICATION_NOTE = '同じ方の2回目の応募（数に入れません）';
+export function applicationEvents(job: Pick<JobCopyRecord, 'applicationRows' | 'repeatApplicationRows'>): RawEvent[] {
+  const counted = (job.applicationRows ?? []).flatMap(row => row.date ? [{ ...RAW_BASE, date: row.date, kind: 'application' as const, title: '応募', summary: applicantText(row), applicationKey: row.key }] : []);
+  const repeats = (job.repeatApplicationRows ?? []).flatMap(row => row.date ? [{ ...RAW_BASE, date: row.date, kind: 'application' as const, title: '応募', summary: REPEAT_APPLICATION_NOTE, applicationKey: row.key, repeat: true }] : []);
+  return [...counted, ...repeats];
 }
 export function applicantText(row: { gender: string | null; age: string | null; prefecture: string | null; municipality: string | null }): string {
   const parts = [row.gender, row.age, [row.prefecture, row.municipality].filter(Boolean).join('')].filter(Boolean);

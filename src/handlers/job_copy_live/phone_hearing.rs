@@ -380,6 +380,8 @@ impl JobReadService {
         ]);
         properties.extend(applicant_reasons::PROPERTIES);
         properties.extend(apply_reasons::SELECT_PROPERTIES);
+        // 同じ人の見分けにだけ使う（応答・ログには出さない）。
+        properties.extend(super::deal_summary::IDENTITY_PROPERTIES);
         if let Some(media) = media {
             properties.push(media);
         }
@@ -391,7 +393,13 @@ impl JobReadService {
             self.hearing_links(&selected, "notes"),
             self.hearing_links(&selected, "0-420")
         );
-        let (rows, note_links, listing_links) = (rows?, note_links?, listing_links?);
+        let (all_rows, note_links, listing_links) = (rows?, note_links?, listing_links?);
+        // 同じ求人への同じ人の 2 件目以降は数えない（件数・日別・応募者構成・応募の理由・電話ヒアリング）。
+        // 出来事の一覧には残すので、日付と印だけを `repeat_applications` で返す。
+        let repeat_ids = super::deal_summary::repeat_applications(&all_rows);
+        let (repeat_rows, rows): (Vec<Record>, Vec<Record>) = all_rows
+            .into_iter()
+            .partition(|row| repeat_ids.contains(&row.id));
         let note_ids: Vec<_> = note_links
             .values()
             .flatten()
@@ -404,9 +412,10 @@ impl JobReadService {
             .await?;
         let multi = listing_links
             .into_iter()
-            .filter(|(_, ids)| ids.len() > 1)
+            .filter(|(id, ids)| ids.len() > 1 && !repeat_ids.contains(id))
             .map(|(id, _)| id)
             .collect();
+        let counted = ids.len() - repeat_ids.len();
         let hearing = extract(
             listing,
             &rows,
@@ -415,9 +424,10 @@ impl JobReadService {
             &multi,
             &labels,
             media,
-            ids.len(),
+            counted,
         )?;
-        let mut result = bundle(listing, &rows, &labels, &hearing, &multi, ids.len(), media);
+        let mut result = bundle(listing, &rows, &labels, &hearing, &multi, counted, media);
+        result["repeat_applications"] = repeat_entries(listing, &repeat_rows);
         result["selection_options"] = select_options
             .map(|o| json!(o.definitions))
             .unwrap_or(Value::Null);
@@ -529,6 +539,16 @@ fn bundle(
     json!({"listing_id":listing,"total":total,"missing_date":missing,"created_date_count":from_created,"by_date":by_date,
         "applications":people,"applicant_reasons":reasons,"phone_hearing":hearing,"fetched_at":fetched})
 }
+/// 同じ方の 2 回目以降の応募。出来事の一覧に「数に入れません」と添えるため、鍵と日付だけを返す
+/// （氏名・電話・メール・生年月日・属性は出さない）。
+fn repeat_entries(listing: &str, rows: &[Record]) -> Value {
+    let (days, _) = super::deal_summary::days_of(rows);
+    json!(rows
+        .iter()
+        .zip(days)
+        .map(|(row, day)| json!({"key": applicant_key(listing, &row.id), "date": day, "repeat": true}))
+        .collect::<Vec<_>>())
+}
 fn add_reason(
     reasons: &mut applicant_reasons::Reasons,
     listing: &str,
@@ -619,6 +639,14 @@ mod bundle_cache_tests {
         calls: Arc<AtomicUsize>,
         delay: Duration,
     ) -> (JobReadService, tokio::task::JoinHandle<()>) {
+        serve_with(calls, delay, false).await
+    }
+    /// `repeat`: 応募 203（11/05）を足す。202（10/02）と同じ人（電話の書き方だけ違う）。
+    async fn serve_with(
+        calls: Arc<AtomicUsize>,
+        delay: Duration,
+        repeat: bool,
+    ) -> (JobReadService, tokio::task::JoinHandle<()>) {
         let app = axum::Router::new().fallback(axum::routing::any(
             move |uri: axum::http::Uri, body: axum::body::Bytes| {
                 let calls = calls.clone();
@@ -627,7 +655,11 @@ mod bundle_cache_tests {
                     tokio::time::sleep(delay).await;
                     let path = uri.path().to_owned();
                     let value = if path.ends_with("/associations/0-421") {
-                        json!({"results":[{"toObjectId":201},{"toObjectId":202}]})
+                        if repeat {
+                            json!({"results":[{"toObjectId":201},{"toObjectId":202},{"toObjectId":203}]})
+                        } else {
+                            json!({"results":[{"toObjectId":201},{"toObjectId":202}]})
+                        }
                     } else if path == "/crm/v3/properties/0-421" {
                         json!({"results":apply_reasons::SELECT_PROPERTIES.iter().map(|p| json!({"name":p,"options":[
                             {"value":"second","label":"選択肢B","displayOrder":2},
@@ -638,15 +670,21 @@ mod bundle_cache_tests {
                         for property in apply_reasons::SELECT_PROPERTIES {
                             assert!(body["properties"].as_array().unwrap().contains(&json!(property)));
                         }
-                        json!({"results":[
-                            {"id":"201","properties":{"yingmuri":"2026-10-01","oubodouki_1":"second;first;second;unset","kinmujoukennoyuusenjuni_1":"first","kinmujoukennoyuusenjuni_2":"second","kinmujoukennoyuusenjuni_3":"first"}},
-                            {"id":"202","properties":{"yingmuri":"2026-10-02"}}]})
+                        if repeat {
+                            json!({"results":[
+                                {"id":"201","properties":{"yingmuri":"2026-10-01","denwabangou":"080-0000-3333"}},
+                                {"id":"202","properties":{"yingmuri":"2026-10-02","ouboshashimei":"架空 次郎","denwabangou":"090-0000-2222","seibetsu":"男性"}},
+                                {"id":"203","properties":{"yingmuri":"2026-11-05","ouboshashimei":"架空次郎","denwabangou":"09000002222","seibetsu":"男性"}}]})
+                        } else {
+                            json!({"results":[
+                                {"id":"201","properties":{"yingmuri":"2026-10-01","oubodouki_1":"second;first;second;unset","kinmujoukennoyuusenjuni_1":"first","kinmujoukennoyuusenjuni_2":"second","kinmujoukennoyuusenjuni_3":"first"}},
+                                {"id":"202","properties":{"yingmuri":"2026-10-02"}}]})
+                        }
                     } else if path.ends_with("/0-421/notes/batch/read")
                         || path.ends_with("/0-421/0-420/batch/read")
                     {
-                        json!({"results":[
-                            {"from":{"id":"201"},"to":[]},
-                            {"from":{"id":"202"},"to":[]}]})
+                        let ids: &[&str] = if repeat { &["201", "202", "203"] } else { &["201", "202"] };
+                        json!({"results": ids.iter().map(|id| json!({"from":{"id":id},"to":[]})).collect::<Vec<_>>()})
                     } else if path == "/crm/v3/objects/notes/batch/read" {
                         json!({"results":[]})
                     } else {
@@ -661,6 +699,54 @@ mod bundle_cache_tests {
             JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         (service, server)
+    }
+
+    #[tokio::test]
+    async fn the_same_person_twice_is_counted_once_and_kept_only_as_a_marked_event() {
+        let (service, server) =
+            serve_with(Arc::new(AtomicUsize::new(0)), Duration::ZERO, true).await;
+        let bundle = service.applicant_bundle("10").await.unwrap();
+        // 3 件の応募のうち 203 は 202 と同じ人: 件数は 2、日別も 2 件。
+        assert_eq!(bundle["total"], 2);
+        assert_eq!(bundle["by_date"], json!({"2026-10-01": 1, "2026-10-02": 1}));
+        assert_eq!(bundle["applications"].as_array().unwrap().len(), 2);
+        assert_eq!(bundle["phone_hearing"]["total_applicants"], 2);
+        // 出来事に出すための印だけ（鍵・日付・repeat）。
+        assert_eq!(
+            bundle["repeat_applications"],
+            json!([{"key": applicant_key("10", "203"), "date": "2026-11-05", "repeat": true}])
+        );
+        let text = bundle.to_string();
+        for secret in ["架空", "090-0000-2222", "09000002222", "080-0000-3333"] {
+            assert!(
+                !text.contains(secret),
+                "{secret} must not be in the response"
+            );
+        }
+        server.abort();
+    }
+
+    #[test]
+    fn repeat_entries_carry_only_a_key_a_date_and_the_mark() {
+        let row = Record {
+            id: "203".into(),
+            properties: [
+                ("yingmuri", "2026-11-05"),
+                ("ouboshashimei", "架空 太郎"),
+                ("denwabangou", "090-0000-1111"),
+                ("meeruadoresu", "taro@example.test"),
+                ("seinengappi", "1990-04-01"),
+                ("seibetsu", "男性"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), Some(v.to_owned())))
+            .collect(),
+        };
+        let value = repeat_entries("10", &[row]);
+        assert_eq!(
+            value,
+            json!([{"key": applicant_key("10", "203"), "date": "2026-11-05", "repeat": true}])
+        );
     }
 
     #[tokio::test]

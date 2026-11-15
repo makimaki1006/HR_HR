@@ -773,12 +773,21 @@ impl JobReadService {
             "shikuchouson",
         ];
         properties.extend(applicant_reasons::PROPERTIES);
+        // 同じ人の見分けにだけ使う（応答・ログには出さない）。
+        properties.extend(deal_summary::IDENTITY_PROPERTIES);
         // The option labels of the two category selects come from a separate definition read,
         // kept for OPTION_LABELS_TTL. When none are kept, that read runs in the background while
         // the applications are read, and the response waits for it at most LABEL_GRACE after
         // everything else is done; a slower read only fills the labels for later requests.
         let pending_labels = self.reason_option_labels();
-        let rows = self.batch("0-421", &ids, &properties).await?;
+        // 同じ求人への同じ人の 2 件目以降は、件数・日別・応募者構成・応募の理由・版ごとの比較の
+        // どれにも入れない（2026-11-15 ユーザー決定）。数えた件数だけを `repeat_applications` で返す。
+        let all_rows = self.batch("0-421", &ids, &properties).await?;
+        let repeats = deal_summary::repeat_applications(&all_rows);
+        let rows: Vec<Record> = all_rows
+            .into_iter()
+            .filter(|row| !repeats.contains(&row.id))
+            .collect();
         // Missing/undefined properties remain unknown; do not turn an existing
         // appointment into zero applications. hs_appointment_start is synthesized
         // by the importer from yingmuri and does not prove the real event time.
@@ -881,6 +890,7 @@ impl JobReadService {
             Ok((_, multi)) => add_multi_listing(&mut summary, &rows, multi),
             Err(ReadError(_, code)) => response["listing_links_status"] = json!(code),
         }
+        summary["repeat_applications"] = json!(repeats.len());
         response["summary"] = summary;
         // No small group of applicants (fewer than 3 in an area or a gender × age × area cell)
         // leaves the server.

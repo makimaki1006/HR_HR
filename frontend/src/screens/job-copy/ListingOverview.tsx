@@ -203,7 +203,8 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
   const shownEvents = expanded ? newestFirst : newestFirst.slice(0, RECENT_EVENT_COUNT);
   const lifeline = useMemo(() => buildLifeline(job, events, billing), [job, events, billing]);
   const selectedWeek = lifeline && selected ? weekIndex(lifeline, selected.date) : null;
-  const applicationCount = events.filter(event => event.kind === 'application').length;
+  // 同じ方の2回目以降の応募は出来事に出すが、件数には入れない。
+  const applicationCount = events.filter(event => event.kind === 'application' && !event.repeat).length;
   const card = useRef<HTMLElement | null>(null);
   useEffect(() => { card.current?.scrollIntoView({ block: 'nearest' }); }, [selectedId]);
   const phonePanel = <PhoneHearingContent applicationRows={job.applicationRows ?? []} {...hearing} onApplication={key => {

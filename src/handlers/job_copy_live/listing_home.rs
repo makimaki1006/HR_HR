@@ -244,8 +244,43 @@ pub(super) struct Home {
     /// 取引に結び付いていない（または事業所が分からない）掲載中の求人の数。
     pub(super) live_without_company: usize,
     pub(super) median_cost_per_app: Option<i64>,
-    /// 掲載中の求人の媒体の実績のうち、いちばん新しい週の終わりの日（「まず見るもの」の数字の時点）。
-    pub(super) latest_week_end: Option<String>,
+    /// 媒体ごとの実績の時点（「まず見るもの」の数字の時点）。媒体ごとに取込の止まり方が違うため分けて出す。
+    pub(super) media_weeks: Vec<MediaWeek>,
+}
+/// 1 つの媒体の実績の時点。掲載中の求人それぞれの最新の週の終わりのうち、**最も多くの求人がそろっている週**
+/// （同数なら新しい方）。最大値だと 1 件だけ新しい求人があっても全体がそろって見え、取込が止まった求人の
+/// 多さが分からないため（2026-11-15、HRハッカーの多くは 10/11 のまま、一部だけ 11/08）。
+#[derive(Serialize, Debug, PartialEq)]
+pub(super) struct MediaWeek {
+    /// 画面の呼び名（Indeed / AirWork）。
+    pub(super) label: &'static str,
+    pub(super) week_end: String,
+    /// その週までそろっている掲載中の求人の数。
+    pub(super) listings: usize,
+    /// その媒体で実績のある掲載中の求人の数。
+    pub(super) total: usize,
+}
+fn media_weeks(live: &[&Listing]) -> Vec<MediaWeek> {
+    [("hrh", "Indeed"), ("airwork", "AirWork")]
+        .into_iter()
+        .filter_map(|(media, label)| {
+            let mut by_week: BTreeMap<NaiveDate, usize> = BTreeMap::new();
+            for row in live.iter().filter(|row| row.media == media) {
+                if let Some(perf) = &row.perf {
+                    *by_week.entry(perf.latest_end).or_default() += 1;
+                }
+            }
+            let total = by_week.values().sum();
+            // 件数が多い週、同数なら新しい週（BTreeMap は古い順なので max_by_key は同数で後＝新しい方）。
+            let (week, listings) = by_week.into_iter().max_by_key(|(_, n)| *n)?;
+            Some(MediaWeek {
+                label,
+                week_end: week.to_string(),
+                listings,
+                total,
+            })
+        })
+        .collect()
 }
 
 fn is_live(row: &Listing) -> bool {
@@ -548,11 +583,7 @@ pub(super) fn compute(records: &[Listing], map: &CompanyMap, today: NaiveDate) -
         customers,
         live_without_company,
         median_cost_per_app: median_cpa,
-        latest_week_end: live
-            .iter()
-            .filter_map(|row| row.perf.as_ref().map(|p| p.latest_end))
-            .max()
-            .map(|d| d.to_string()),
+        media_weeks: media_weeks(&live),
     }
 }
 

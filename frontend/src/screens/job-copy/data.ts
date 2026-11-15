@@ -38,6 +38,7 @@ export interface CopyVersion {
 /** 応募1件ぶんの、日付と分かる属性（HubSpot の応募記録）。key は応募理由と結ぶ印。 */
 export interface SelectionOption { value: string; label: string; display_order: number }
 export type SelectionOptions = Record<string, SelectionOption[]>;
+export interface RepeatApplicationRow { key: string; date: string | null }
 export interface ApplicationRow { selections?: Record<string, string[]>; media?: string | null; key: string; date: string | null; gender: string | null; age: string | null; prefecture: string | null; municipality: string | null }
 /** 公開状況の履歴の1件（古い順）。 */
 export interface StatusEntry { at: string; value: string }
@@ -48,6 +49,8 @@ export interface JobCopyRecord {
   listingDealIds?: string[] | undefined;
   /** 応募1件ずつ（日付が分かるものは出来事に出す）。 */
   applicationRows?: ApplicationRow[] | undefined;
+  /** 同じ方の2回目以降の応募（件数には入れない。出来事に印を付けて出すだけ）。鍵と日付だけ。 */
+  repeatApplicationRows?: RepeatApplicationRow[] | undefined;
   /** HubSpot の公開状況の履歴（求人の媒体に合う欄）。 */
   statusHistory?: StatusEntry[] | undefined;
   currentImagesRegistered?: boolean | undefined;
