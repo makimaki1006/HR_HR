@@ -35,7 +35,6 @@ pub(super) const DEAL_PROPERTIES: &[&str] = &[
     "contract_start_date",
     // 初回契約の判定（売上回数が 1）。`todo_signals::is_first_contract`。契約種別（contract_type）は使わなくなった
     "number_of_sales",
-    "notes_last_contacted",
 ];
 /// HubSpot の closed / probability は業務上の終了と異なるため参照しない。
 pub(super) const ENDED_STAGES: [&str; 6] = [

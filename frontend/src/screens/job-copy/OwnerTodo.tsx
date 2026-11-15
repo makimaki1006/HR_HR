@@ -116,7 +116,7 @@ export function OwnerScopeBanner({ work }: { work: OwnerWork }) {
 export const signalCards = [
   ['expiration', '契約満了が近い', '今日から60日後まで'],
   ['expired', '満了後も稼働中', '満了日が今日より前で、終了していないステージ（ステージはHubSpotで直す）'],
-  ['contact', '接触が空いている', '最後の接触から30日以上'],
+  ['contact', '接触が空いている', '最後の接触から31日以上（MTGか60秒を超える電話。メールは数えない）'],
   ['stalled', '応募が止まっている', '掲載中の求人があり、直近14日の応募が0件'],
   ['first_contract', '初回で成果が出ていない', '開始30日で5件未満、または60日で10件未満'],
   ['nps', '定期NPSが低い', '定期NPSが4以下'],
@@ -177,7 +177,7 @@ export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved, onShowList
     <div><div className="jh-section-head"><h3>予定 <small>担当者が入れた次の予定</small></h3></div><div className="jh-cards jh-todo-cards">{planGroups.map(group => card(group))}</div>
       <CountLine label="ほかの予定" items={[{ key: 'later', label: 'それ以降の予定', count: work.actions.later.length, pressedKey: 'todo_later' }]} openKey={open} onToggle={toggle} />
       {inPlan && list}</div>
-    <div><div className="jh-section-head"><h3>ラベルが付いた案件</h3><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>ラベルは記録から自動で付き、条件が解消すると消えます。日付は日本時間、終了した案件は除いています。</p><p>色の意味：赤は予定が過ぎたもの（期限切れ）、橙は注意、灰は0件です。ラベルの赤い札は、MTGが60日以上空いている案件です。</p><p>MTGが途絶えているラベル：{work.sheet_as_of ? `${formatDateJst(work.sheet_as_of)} 時点（前日の集計）` : '集計した日が未取得'}。</p><ul>{signalGroups.map(group => <li key={group.key}>{group.label}：{group.rule}</li>)}</ul></InfoTip></div>
+    <div><div className="jh-section-head"><h3>ラベルが付いた案件</h3><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>ラベルは記録から自動で付き、条件が解消すると消えます。日付は日本時間、終了した案件は除いています。</p><p>色の意味：赤は予定が過ぎたもの（期限切れ）、橙は注意、灰は0件です。ラベルの赤い札は、MTGが60日以上途絶えている案件です。</p><p>MTGが途絶えているラベル：{work.sheet_as_of ? `${formatDateJst(work.sheet_as_of)} 時点（前日の集計）` : '集計した日が未取得'}。</p><ul>{signalGroups.map(group => <li key={group.key}>{group.label}：{group.rule}</li>)}</ul></InfoTip></div>
       <div className="jh-cards jh-todo-cards">{mainSignals.map(group => card(group))}</div>
       <CountLine label="ほかのラベル" items={otherSignals.map(group => ({ key: group.key, label: group.label, count: group.items.length, pressedKey: `todo_${group.key}` }))} openKey={open} onToggle={toggle} />
       {goSignals.map(group => <p key={group.key} className="jh-go-line"><span>{group.label} {group.items.length}件</span><GoLink onClick={() => { toggle(group.key); }}>案件一覧で見る</GoLink></p>)}

@@ -146,7 +146,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
   await expect(panel.locator('.jc-hubspot-job')).toHaveCount(50);
   await expect(panel.getByRole('button', { name: `${hrh.title}の本文を見る` })).toHaveCount(0);
-  await expect(panel).toContainText('応募 99件');
+  await expect(panel).toContainText('応募の記録 99件');
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   const dialog = page.getByRole('dialog', { name: hrh.title });
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('0件');

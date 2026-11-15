@@ -1486,7 +1486,11 @@ pub(super) async fn read_application_dates(
     ];
     properties.extend(super::applicant_reasons::PROPERTIES);
     let pending_labels = service.reason_option_labels();
-    let rows = service.batch("0-421", &applications, &properties).await?;
+    properties.extend(super::deal_summary::IDENTITY_PROPERTIES);
+    // 同じ人の 2 件目以降は数えない（件数・日ごと・応募者構成・応募の理由のすべて）。
+    let rows = super::deal_summary::first_applications(
+        service.batch("0-421", &applications, &properties).await?,
+    );
     let labels = match pending_labels {
         super::PendingLabels::Ready(labels) => labels,
         super::PendingLabels::Reading(mut handle) => {
@@ -1497,33 +1501,83 @@ pub(super) async fn read_application_dates(
                 .flatten()
         }
     };
-    let (days, from_created) = super::deal_summary::days_of(&rows);
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(application_dates_body(&id, &rows, labels.as_ref())),
+    ))
+}
+/// 求人の応募の日別・応募者構成・応募の理由の応答。`rows` は同じ人の 2 件目以降を除いた応募。
+/// 同じ人の見分けに読んだ氏名・電話・メール・生年月日は応答に入れない。
+fn application_dates_body(
+    id: &str,
+    rows: &[Record],
+    labels: Option<&super::applicant_reasons::OptionLabels>,
+) -> Value {
+    let (days, from_created) = super::deal_summary::days_of(rows);
     let (by_date, missing) = super::deal_summary::count_by_date(&days);
     let people: Vec<Value> = rows
         .iter()
         .zip(&days)
         .take(APPLICATION_ROWS_MAX)
         .map(|(r, day)| {
-            json!({"key": super::applicant_reasons::applicant_key(&id, &r.id), "date": day,
+            json!({"key": super::applicant_reasons::applicant_key(id, &r.id), "date": day,
                 "gender": r.value("seibetsu"), "age": r.value("nenrei"),
                 "prefecture": r.value("todoufuken"), "municipality": r.value("shikuchouson")})
         })
         .collect();
     let reasons = super::applicant_reasons::extract_with_labels(
-        &id,
-        &rows,
+        id,
+        rows,
         chrono::Utc::now().to_rfc3339(),
-        labels.as_ref(),
+        labels,
         super::applicant_reasons::OptionLabelsStatus::Unavailable,
     );
-    Ok((
-        [(header::CACHE_CONTROL, "private, no-store")],
-        Json(
-            json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"created_date_count":from_created,"by_date":by_date,
-            "applications":people,"applicant_reasons":reasons,
-            "fetched_at":chrono::Utc::now().to_rfc3339()}),
-        ),
-    ))
+    json!({"listing_id":id,"total":rows.len(),"missing_date":missing,"created_date_count":from_created,"by_date":by_date,
+        "applications":people,"applicant_reasons":reasons,
+        "fetched_at":chrono::Utc::now().to_rfc3339()})
+}
+#[cfg(test)]
+mod application_dates_tests {
+    use super::*;
+
+    #[test]
+    fn repeat_applicant_is_counted_once_and_identity_fields_never_leave() {
+        let rec = |id: &str, day: &str| Record {
+            id: id.into(),
+            properties: [
+                ("yingmuri", day),
+                ("ouboshashimei", "架空 太郎"),
+                ("denwabangou", "090-0000-1111"),
+                ("meeruadoresu", "kakuu@example.test"),
+                ("seinengappi", "1990-04-01"),
+                ("seibetsu", "男性"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), Some(v.to_owned())))
+            .collect(),
+        };
+        let rows = super::super::deal_summary::first_applications(vec![
+            rec("2", "2026-11-05"),
+            rec("1", "2026-11-02"),
+        ]);
+        let body = application_dates_body("598", &rows, None);
+        assert_eq!(body["total"], 1);
+        assert_eq!(body["by_date"], json!({"2026-11-02": 1}));
+        assert_eq!(body["applications"].as_array().unwrap().len(), 1);
+        let text = body.to_string();
+        for secret in [
+            "架空",
+            "090-0000-1111",
+            "kakuu",
+            "example.test",
+            "1990-04-01",
+        ] {
+            assert!(
+                !text.contains(secret),
+                "{secret} must not be in the response"
+            );
+        }
+    }
 }
 const APPLICATION_ROWS_MAX: usize = 2000;
 /// The history of the status properties (公開状況), oldest first, for the listing's 出来事.
