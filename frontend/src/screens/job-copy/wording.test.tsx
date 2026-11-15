@@ -49,7 +49,7 @@ describe('job copy screen wording', () => {
       expect(visibleWording(), job.textContent).not.toMatch(JARGON_PATTERN);
       expect(visibleWording(), job.textContent).not.toMatch(CAUSAL_PATTERN);
       if (!screen.queryByRole('dialog', { name: 'ほかの分析' })) openOtherAnalysis('タイムライン');
-      // タブ 7 つ。タブに並べない 6 つの画面（応募推移・課金・クリック・市場グラフ・市場データ・顧客報告・検証・外部文面）は URL で開く。
+      // タブ 7 つ。タブに並べない 6 つの画面（応募推移・課金・クリック・市場グラフ・市場データ・検証記録・外部文面）は URL で開く。
       const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"][id*="-group-"], [role="tab"][id*="-feature-"]')];
       expect(tabs.length).toBe(7);
       for (const tab of tabs) {

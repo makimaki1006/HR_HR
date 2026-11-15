@@ -87,7 +87,7 @@ test('actual recorded reasons are unknown-cohort originals with desktop/mobile v
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: resolve(evidence, 'reasons-mobile.png') });
       await selectJobFeature(page, 'report');
-      await page.getByRole('region', { name: '顧客報告と検証記録', exact: true }).getByText('記録された文を開く（社内確認用）', { exact: true }).first().click();
+      await page.getByRole('region', { name: '検証記録', exact: true }).getByText('記録された文を開く（社内確認用）', { exact: true }).first().click();
       await page.emulateMedia({ media: 'print' });
       for (const original of await page.locator('.ar-reasons').all()) await expect(original).toBeHidden();
       await page.emulateMedia({ media: 'screen' });
