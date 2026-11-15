@@ -121,6 +121,8 @@ async function loadListing(id: string, signal: AbortSignal): Promise<LoadResult>
     scope: 'listing', id, name: row.title ?? null, company: versions.data.company_name ?? null,
     listings: [listing], overlap: {}, asOf: jstDate(applications?.overall.fetchedAt) ?? todayJst(), outcomes: null,
     applicants: combineApplicants([applications], 0, 'listing'),
+    // 求人の読み取りと同じ応答に入っている（HubSpot の呼び出しは増えない）。
+    competitor: versions.data.competitor_monthly ?? [],
   } };
 }
 

@@ -495,6 +495,15 @@ struct PageListing {
     recent_performance: Option<home::ComparisonRecent>,
 }
 
+/// 求人の本文から読める自社の給与 (給与形態の名前・基本給与の最小・最大。どれも本文の文字のまま)。
+/// 媒体が分からない求人は None。競合調査の記録が保存時点の値として写す。
+pub(super) fn own_salary_text(
+    record: &Record,
+) -> Option<(Option<String>, Option<String>, Option<String>)> {
+    let row = listing(record)?;
+    let summary = deals::summary(record, row.media);
+    Some((summary.salary_kind, summary.salary_min, summary.salary_max))
+}
 /// 職種の指定を書けたら、全件索引の行にも反映する（再構築を待たない）。
 /// `value` は書いた保存値（職種名、または `__none__`）。
 pub(super) async fn update_indeed_title(service: &JobReadService, id: &str, value: &str) {
@@ -1947,12 +1956,14 @@ async fn listing_data(
                 (
                     "properties",
                     format!(
-                        "{},{},{},{},{}",
+                        "{},{},{},{},{},{}",
                         PROPERTIES.join(","),
                         INDEED_WEEKLY_PERF,
                         AIRWORK_WEEKLY_PERF,
                         super::super::job_copy_image_bridge::PROPERTY,
-                        crate::job_gen::drafts::PROPERTIES.join(",")
+                        crate::job_gen::drafts::PROPERTIES.join(","),
+                        // 競合調査の月ごとの記録。同じ 1 回の読み取りに項目を足すだけ (呼び出しは増えない)。
+                        super::competitor_record::MONTHLY
                     ),
                 ),
                 (
@@ -2040,7 +2051,7 @@ pub(super) async fn read_versions(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count, recent_performance: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf,"airwork_weekly_perf":airwork_perf,"listing_started_on":super::listing_status::day(record.value("koukai_kaishi_nichiji")),"status_history":status_history(data)}),
+            json!({"current_fields":current_fields,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count, recent_performance: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"current_images_registered":current_images_registered,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete,"indeed_weekly_perf":indeed_perf,"airwork_weekly_perf":airwork_perf,"listing_started_on":super::listing_status::day(record.value("koukai_kaishi_nichiji")),"status_history":status_history(data),"competitor_monthly":super::competitor_record::monthly(&record)}),
         ),
     ))
 }

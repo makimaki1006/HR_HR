@@ -17,6 +17,7 @@ export function historyVersionLabel(writtenAt: string | null | undefined, all: r
 import { parseHrhPerformance } from './hrhPerformanceModel';
 import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import type { DraftSnapshot } from '../../generated/DraftSnapshot';
+import type { CompetitorMonth } from '../../generated/CompetitorMonth';
 import type { CopyVersion } from './data';
 import columns from '../../generated/jobgen/columns.json';
 import { hrhCopySections, composeHrhBody } from './hrhCopy';
@@ -64,6 +65,8 @@ export interface HubSpotVersions {
   indeed_weekly_perf?: unknown;
   /** AirWork 求人の週ごとの実績（HubSpot の airwork_weekly_perf）。無い・読めないときは null。 */
   airwork_weekly_perf?: unknown;
+  /** 競合調査の月ごとの記録（HubSpot の competitor_monthly）。古い応答には無い。 */
+  competitor_monthly?: CompetitorMonth[];
   /** HubSpot の公開開始日時（koukai_kaishi_nichiji）の日付。無いとき null。 */
   listing_started_on?: string | null; listing_ended_on?: string | null;
   /** 公開状況の履歴（欄ごと、古い順）。 */
@@ -96,7 +99,7 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
   const row = data.listing;
   const copy = (body: string) => row.media === 'hrh' ? { comparisonBody: body, body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: '仕事内容', text: body }] : [] };
   return {
-    listingSummary: row.summary ?? listedRow?.summary, listingPrefecture: row.prefecture ?? listedRow?.prefecture ?? null, listingDealIds: listedRow?.deal_ids ?? row.deal_ids,
+    listingSummary: row.summary ?? listedRow?.summary, listingPrefecture: row.prefecture ?? listedRow?.prefecture ?? null, listingMunicipality: row.municipality ?? listedRow?.municipality ?? null, competitorMonthly: data.competitor_monthly ?? [], listingDealIds: listedRow?.deal_ids ?? row.deal_ids,
     currentImagesRegistered: data.current_images_registered ?? undefined,
     ...(indeedWeeklyPerformance(weeklyPerfRaw(data, row.media), row.media, row.media_job_id) ? { hrhPerformance: indeedWeeklyPerformance(weeklyPerfRaw(data, row.media), row.media, row.media_job_id) } : {}),
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',

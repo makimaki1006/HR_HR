@@ -28,6 +28,7 @@ use std::{
 use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
+pub mod competitor_record;
 mod consultant_flags;
 mod consultant_good;
 mod consultant_houjin;
@@ -2283,6 +2284,10 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route(
             "/api/job-copy/listings/{id}/indeed-title",
             axum::routing::put(indeed_title::put),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/competitor-record",
+            axum::routing::put(competitor_record::put),
         )
         .route("/api/job-copy/consultant-risk", get(consultant_risk::read))
         .route("/api/job-copy/consultant-good", get(consultant_good::read))

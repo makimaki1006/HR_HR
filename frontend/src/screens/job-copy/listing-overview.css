@@ -198,3 +198,10 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .jc-detail .jc-band-latest.jc-open { flex: 0 1 auto; min-width: 200px; }
 
 .lt-panel[hidden] { display: none; }
+.lo-competitor { display: grid; gap: 8px; margin-top: 16px; }
+.lo-competitor-scroll { overflow-x: auto; }
+.lo-competitor-table th:first-child { text-align: left; }
+.lo-competitor-table td.lo-competitor-cond { text-align: left; font-weight: 400; white-space: normal; min-width: 160px; }
+.lo-competitor-cond .lo-mark { display: inline-block; padding: 1px 8px; }
+.lo-competitor-month dd { white-space: normal; }
+.lo-competitor-n { display: block; font-size: 11px; font-weight: 400; color: var(--jc-muted); }

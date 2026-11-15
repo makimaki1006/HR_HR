@@ -31,9 +31,47 @@ pub use api::{
     CompetitorOptions, CompetitorReportResponse,
 };
 
+/// 保持中 (30 分) のレポートを、作った本人として読む。案件管理の「この求人に記録する」が使う。
+/// 期限切れ・存在しない・他人の ID はどれも `None`。
+pub(crate) fn stored_report(
+    user: &str,
+    report_id: &str,
+) -> Option<Arc<crate::handlers::survey::report_html::competitor_model::CompetitorReport>> {
+    api::store().get(user, report_id, std::time::Instant::now())
+}
+/// レポートを作ったときの条件を、求人への記録用にレポートに持たせる (画面には送らない)。
+fn apply_record_context(
+    meta: &mut crate::handlers::survey::report_html::competitor_model::ReportMeta,
+    req: &ReportRequest,
+    created_at: chrono::DateTime<chrono::Utc>,
+) {
+    meta.record = Some(
+        crate::handlers::survey::report_html::competitor_model::RecordContext {
+            source_type: match req.source {
+                UserSourceHint::IndeedSp => "indeed_sp",
+                _ => "indeed",
+            },
+            created_at,
+            job_name: req.job_name.clone(),
+            region_specified: !req.pref.is_empty(),
+        },
+    );
+}
+/// テスト用: 作ったときの条件を付けたレポートを保持に入れて ID を返す。
+#[cfg(test)]
+pub(crate) fn store_report_for_test(
+    user: &str,
+    title: &str,
+    record: crate::handlers::survey::report_html::competitor_model::RecordContext,
+) -> String {
+    let mut report = api_tests::sample_report(title);
+    report.meta.record = Some(record);
+    api::store().insert(user, report, std::time::Instant::now())
+}
+
 #[cfg(test)]
 #[path = "competitor_api_tests.rs"]
-mod api_tests;
+pub(crate) mod api_tests;
 
 // 旧 HTML の golden(PR-1)。非公開関数を直接使うため子モジュールにしている。テスト専用。
 #[cfg(test)]
@@ -180,6 +218,8 @@ struct ReportRequest {
     market_title: String,
     /// 報告書の題名。地域・職種名から組み立てる (どちらも無ければ旧 `survey_title`、それも空なら空)。
     survey_title: String,
+    /// 入力した職種名 (空白をまとめたもの。空なら指定なし)。求人への記録に残す。
+    job_name: String,
     search_keyword: String,
     include_google: bool,
     output_format: String,
@@ -294,6 +334,7 @@ fn parse_request(raw: RawForm) -> Result<ReportRequest, FormError> {
         top_n_raw: get("top_n").to_owned(),
         market_title: get("market_title").to_owned(),
         survey_title,
+        job_name,
         municipality,
         search_keyword: get("search_keyword").to_owned(),
         include_google: get("include_google") == "1",

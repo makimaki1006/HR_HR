@@ -72,6 +72,7 @@ import { MarketCacheContext } from './marketSource';
 import type { MarketCache } from './marketSource';
 import { billingEntries, billingEntriesByJob, realBilling } from './timelineModel';
 import { DetailBand, MarketNowBar } from './DetailBand';
+import { CompetitorHistory } from './CompetitorHistory';
 import type { ListingTask } from './ListingTasks';
 import { ListingOverview, useListingMarket } from './ListingOverview';
 import type { ListingDrawerKind } from './ListingOverview';
@@ -248,7 +249,7 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
   const listingMarket = useListingMarket(job, demo ? 'demo' : 'api');
   const listingPeriod = useMemo(() => listingPeriodOf(listingEvents), [listingEvents]);
   // 上の帯の「最新の変更」は、応募を除いたいちばん新しい出来事。
-  const latestChange = [...listingEvents].reverse().find(event => event.kind !== 'application') ?? null;
+  const latestChange = [...listingEvents].reverse().find(event => event.kind !== 'application' && event.kind !== 'competitor') ?? null;
   const canStartEdit = Boolean(job.canWriteDrafts && current?.body && editing === null);
   const rikuroziReady = job.id.startsWith('hubspot-history-') && job.media === 'HRハッカー' && Boolean(job.hubspotId);
   const fromHubSpot = job.id.startsWith('hubspot-history-') && current?.source !== 'HubSpotの現在の本文';
@@ -267,7 +268,7 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
     <ListingOverview job={job} events={listingEvents} billing={realBillingEntries} market={listingMarket} selectedId={selectedEventId} onSelect={setSelectedEventId}
       onCompare={(left, right) => { setEventCompare({ left, right }); }}
       onOpenDrawer={(kind, event) => { setWhoSelection(event?.previousVersionId && event.versionId ? [event.previousVersionId, event.versionId] : undefined); setDrawer({ kind, event }); }}
-      marketSlot={<MarketNowBar job={job} mode={demo ? 'demo' : 'api'} onIndeedTitleChanged={onIndeedTitleChanged} onOpenMarket={() => { setDrawer({ kind: 'market', event: null }); }} />}
+      marketSlot={<><MarketNowBar job={job} mode={demo ? 'demo' : 'api'} onIndeedTitleChanged={onIndeedTitleChanged} onOpenMarket={() => { setDrawer({ kind: 'market', event: null }); }} /><CompetitorHistory job={job} /></>}
       tasks={{
         active: task, onChange: setTask,
         edit: {

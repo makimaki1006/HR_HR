@@ -904,7 +904,7 @@ async fn api_routes_require_login_as_json_and_reject_foreign_or_headerless_write
 
 // ---------------------------------------------------------------- 補助
 
-fn sample_report(
+pub(crate) fn sample_report(
     title: &str,
 ) -> crate::handlers::survey::report_html::competitor_model::CompetitorReport {
     use crate::handlers::survey::aggregator::{aggregate_records_with_mode, salary_fixture};

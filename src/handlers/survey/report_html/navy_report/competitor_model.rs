@@ -58,6 +58,28 @@ pub struct ReportMeta {
     /// 重複排除後の件数のうち、給与の下限が読めなかった件数。
     pub salary_missing_count: u32,
     pub warnings: Vec<String>,
+    /// 総合の給与が、Indeed SP の月給の実額ではなく CSV 内の給与を月給に換算した値か (PC の CSV など)。
+    /// 画面には送らない。求人への記録 (自社との差を出さない判断) に使う。
+    #[serde(skip)]
+    #[ts(skip)]
+    pub salary_converted: bool,
+    /// 求人への記録に使う、作ったときの条件。API 層だけが埋める。画面には送らない。
+    #[serde(skip)]
+    #[ts(skip)]
+    pub record: Option<RecordContext>,
+}
+
+/// レポートを作ったときの条件のうち、レポートの本体に無いもの。求人に記録するときに使う。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordContext {
+    /// 選んだ CSV の媒体 (`indeed_sp` / `indeed`)。
+    pub source_type: &'static str,
+    /// レポートを作った時刻。記録の月はこれで決める。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 入力した職種名 (空白をまとめたもの)。空なら指定なし。
+    pub job_name: String,
+    /// 都道府県を入力したか。入力しなければ全国の求人を対象にしている。
+    pub region_specified: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -529,6 +551,8 @@ pub(crate) fn build_competitor_report(
             salary_parsed_count: lo.len() as u32,
             salary_missing_count: agg.total_count.saturating_sub(lo.len()) as u32,
             warnings: Vec::new(),
+            salary_converted: use_fallback && !agg.is_hourly,
+            record: None,
         },
         excel: ExcelSection {
             decimals: if agg.is_hourly { 0 } else { 2 },

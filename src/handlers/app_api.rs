@@ -186,6 +186,11 @@ mod tests {
         crate::job_gen::contract::export_ts(&cfg).expect("jobgen 契約型の TS 型を書き出せない");
         crate::handlers::guide::GuideResponse::export_all(&cfg)
             .expect("GuideResponse の TS 型を書き出せない");
+        // 競合調査の月ごとの記録 (HubSpot の求人の competitor_monthly の 1 件) と保存の応答
+        crate::handlers::job_copy_live::competitor_record::CompetitorMonth::export_all(&cfg)
+            .expect("CompetitorMonth の TS 型を書き出せない");
+        crate::handlers::job_copy_live::competitor_record::CompetitorRecordSaved::export_all(&cfg)
+            .expect("CompetitorRecordSaved の TS 型を書き出せない");
         // 競合調査 (/app/competitor): レポート本体 (CompetitorReport と依存型)・選択肢・エラー
         crate::handlers::competitor::CompetitorReportResponse::export_all(&cfg)
             .expect("CompetitorReportResponse の TS 型を書き出せない");
