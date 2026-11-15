@@ -323,11 +323,6 @@ test.describe('案件管理のタイムライン', () => {
     await expect(rows.nth(1).locator('td').nth(3)).toHaveText('実際の課金データなし（仮の課金データ（ダミー）は合計しません）');
     await expect(timeline.getByRole('region', { name: '期間比較表の数値' })).not.toContainText(/7万5,742円|4万4,742円/u);
     await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
-    // 印刷する報告（比較・報告）も、反映した課金CSVを読む（画面と食い違わない）
-    await selectJobFeature(page, 'report');
-    const report = page.getByRole('region', { name: '顧客報告と検証記録', exact: true });
-    await expect(report).toContainText('読み込んだ課金CSV：1行・2026/07/01〜2026/07/31・金額の分かる行の合計 3万1,000円');
-    await expect(report).not.toContainText('課金情報は未取得');
   });
 
   test('課金を日数で配分した「約」と本文の印の読み上げを、ホバーしなくても読める文字で示す', async ({ page }) => {

@@ -13,11 +13,11 @@ export const jobFeatures: Record<JobFeature, { group: string; label: string }> =
   factors: { group: '要因・仮説', label: '要因・仮説' },
   diff: { group: '変更差分', label: '変更差分' },
   ab: { group: '求人比較', label: '求人比較' },
-  report: { group: '顧客報告・検証', label: '顧客報告・検証' },
+  report: { group: '検証記録', label: '検証記録' },
   receive: { group: '外部文面を確認', label: '外部文面を確認' },
 };
 
-/** 「ほかの分析」のタブに並ぶ 7 つ。それ以外（応募推移・課金・クリック・市場グラフ・市場データ・顧客報告・検証）は URL の feature で開く。 */
+/** 「ほかの分析」のタブに並ぶ 7 つ。それ以外（応募推移・課金・クリック・市場グラフ・市場データ・検証記録）は URL の feature で開く。 */
 const tabbedFeatures = new Set<JobFeature>(['timeline', 'body', 'diff', 'ab', 'applicants', 'reasons', 'factors']);
 
 /**

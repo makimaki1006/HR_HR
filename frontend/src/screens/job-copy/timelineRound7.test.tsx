@@ -16,7 +16,6 @@ import type { CopyImage } from './images';
 import { JobTimeline } from './JobTimeline';
 import { JobOverview } from './JobOverview';
 import { JobCopyScreen, DUMMY_BILLING_STORAGE_KEY } from './JobCopyScreen';
-import { ConsultantReview } from './ConsultantReview';
 import { reportBillingText } from './consultantReviewModel';
 import { roundApplicantAreasInRecord } from './applicantArea';
 import { maskPersonalDetails } from './personalText';
@@ -128,7 +127,6 @@ describe('real-data banner', () => {
 
 describe('printable report billing', () => {
   const record = job([version('a1', '2026-08-01T00:00:00Z', '給与：月給230,000円')], { '2026-08-03': 1 }, '2026-08-12T00:00:00Z');
-  const draft = { stage: 'plan', target: 'body', fields: {}, selection: ['a1', 'a1'] as [string, string] };
 
   it('reads the billing CSV rows the user applied, the same rows the timeline shows', () => {
     const csv = [{ source: 'csv' as const, start: '2026-08-01', end: '2026-08-15', amountYen: 31000 }, { source: 'csv' as const, start: '2026-08-16', end: '2026-08-31', amountYen: null }];
@@ -136,10 +134,6 @@ describe('printable report billing', () => {
     const text = reportBillingText(record, csv);
     expect(text.heading).toBe('読み込んだ課金CSVあり');
     expect(text.detail).toContain('2行・2026/08/01〜2026/08/31・金額の分かる行の合計 3万1,000円（金額の記載がない行あり）');
-    render(<ConsultantReview job={record} draft={draft} onDraft={() => undefined} billing={csv} />);
-    const report = screen.getByRole('region', { name: '顧客報告と検証記録' });
-    expect(report.textContent).not.toContain('課金情報は未取得');
-    expect(report.textContent).toContain('3万1,000円');
     // Overlapping rows are not added up.
     expect(reportBillingText(record, [csv[0], { source: 'csv', start: '2026-08-10', end: '2026-08-20', amountYen: 5000 }].filter(Boolean) as typeof csv).detail).toContain('期間が重なる行があるため合計していません');
   });

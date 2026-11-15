@@ -6,6 +6,8 @@ import type { DealSelection, HubSpotListing } from './hubspotListings';
 import { companyRollup, dealCutoff, dealEvents, dealTotals, eventSourceOf, eventWeekMarks, listingNumbers, markLabel, mediaCutoffs, occupationStatus, regionText, ROLLUP_RULES, shareOfDeal, shortYen, weeklySeries } from './dealSummaryModel';
 import { dealGroup, loadCompanyDatas, loadDealData } from './dealSummaryLoad';
 import { DealNextTodo } from './NextTodo';
+import { reportUrl } from './navigation';
+import { OutLink } from './Pressable';
 import { DealContract } from './DealContract';
 import { DealFirstGoals } from './DealFirstGoals';
 import { clearCompanyDealsCache, loadCompanyDeals } from './companyDeals';
@@ -69,7 +71,7 @@ export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany, 
     });
     return () => { controller.abort(); setCompanyScope(null); onWideRef.current?.(false); };
   }, [deal.id, deal.name, revision]);
-  return <><div className="nt-contract-grid"><DealContract key={deal.id} dealId={deal.id} onSaved={saved} onQueued={saved} /><DealNextTodo key={`todo-${deal.id}`} dealId={deal.id} onSaved={saved} /></div><DealFirstGoals key={`goals-${deal.id}`} dealId={deal.id} /><SummaryView scope="deal" dealId={deal.id} wide={wide} dealInfo={info} source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} {...(onOpenCompany ? { onOpenCompany } : {})} /></>;
+  return <><p className="ds-report-entry"><OutLink href={reportUrl({ scope: 'deal', id: deal.id })} label="報告書を作る（新しいタブ）" /></p><div className="nt-contract-grid"><DealContract key={deal.id} dealId={deal.id} onSaved={saved} onQueued={saved} /><DealNextTodo key={`todo-${deal.id}`} dealId={deal.id} onSaved={saved} /></div><DealFirstGoals key={`goals-${deal.id}`} dealId={deal.id} /><SummaryView scope="deal" dealId={deal.id} wide={wide} dealInfo={info} source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} {...(onOpenCompany ? { onOpenCompany } : {})} /></>;
 }
 
 export function SummaryView({ scope, dealId, wide = false, dealInfo = null, source, billingByJob, onOpenListing, onOpenCompany }: { scope: 'deal' | 'company'; /** 取引の画面のときの取引 ID（職種の一括指定へのリンクに使う） */ dealId?: string; /** 今の取引の画面で、顧客の全求人を出しているとき */ wide?: boolean; /** 取引の画面で、この取引の契約状態（契約中かどうか）。分からなければ null */ dealInfo?: CompanyDeal | null; source: Source; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void }) {
