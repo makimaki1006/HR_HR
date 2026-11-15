@@ -22,13 +22,12 @@ const tabbedFeatures = new Set<JobFeature>(['timeline', 'body', 'diff', 'ab', 'a
 
 /**
  * 求人の復元を待ち、開いているドロワーのタブか、画面本体の機能ボタンから選ぶ。
- * 外部文面の確認はタブではなく、画面上部の「データ取込」から開く。
+ * 外部文面の確認はタブではなく、画面上部の「⋯ その他」→「データを取り込む（作業用）」から開く。
  */
 export async function selectJobFeature(page: Page, key: JobFeature) {
   const { label } = jobFeatures[key];
   if (key === 'receive') {
-    const toggle = page.getByRole('button', { name: 'データ取込', exact: true });
-    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+    await openDataImport(page);
     await page.getByRole('button', { name: '外部文面を照合する', exact: true }).click();
     return;
   }
@@ -84,9 +83,18 @@ export async function closeOtherAnalysis(page: Page) {
   await dialog.waitFor({ state: 'hidden' });
 }
 
+/** 上の帯の「⋯ その他」からデータ取込を開く。すでに開いていれば何もしない。 */
+export async function openDataImport(page: Page) {
+  if (await page.getByRole('region', { name: 'データ取込', exact: true }).isVisible()) return;
+  await page.getByRole('button', { name: 'その他', exact: true }).click();
+  await page.getByRole('button', { name: 'データを取り込む（作業用）', exact: true }).click();
+}
+
 /** 左の一覧は「求人を探す」を押すまで求人を読まない（案件管理 2026-10-15）。押して、求人の一覧を開く。 */
 export async function findListings(page: Page) {
-  await page.locator('.jc-sidebar').hover();
+  // 左の帯は押したときだけ開く（マウスが通るだけでは開かない。2026-11-15）。
+  const trigger = page.getByRole('button', { name: '左の一覧で求人を探す', exact: true });
+  if (await trigger.isVisible() && await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
   const button = page.getByRole('button', { name: '求人を探す', exact: true });
   const open = page.getByRole('button', { name: '求人の検索を閉じる', exact: true });
   // マウスで開く側は展開に時間がかかる。すでに開いている・ボタンが無い画面（固定一覧など）では待たずに抜ける。

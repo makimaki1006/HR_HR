@@ -13,18 +13,21 @@ import { appsChange, customerName, dealCountLabel, filterCustomers, listingCount
 import type { CardKey, CustomerSort, HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 import './home.css';
 import { useRevealOnMount } from './revealList';
-import { CountLine, OwnerFilter, OwnerTodo, PendingOwnerFilter, ownerParams } from './OwnerTodo';
+import { CountLine, OwnerFilter, OwnerScopeBanner, OwnerTodo, PendingOwnerFilter, cardToneClass, ownerParams, ownerScope, ownerScopeTitle } from './OwnerTodo';
+import { useSelfOwner } from './selfOwner';
+import { CardOpenCue, CloseListButton } from './Pressable';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '案件管理のホームを読み込めませんでした。時間を置いて再取得してください。';
-const cardTone: Record<CardKey, string> = { zero_stay: 'alert', to_zero: 'alert', less: 'plain', more: 'plain', flat: 'plain', costly: 'warn', stale: 'alert' };
+// 色: 橙＝注意、灰＝0件。応募・課金のカードに急ぐもの（赤）は無い。
+const cardTone: Record<CardKey, 'warn' | 'plain'> = { zero_stay: 'warn', to_zero: 'warn', less: 'plain', more: 'plain', flat: 'plain', costly: 'warn', stale: 'warn' };
 /** ホームのカードに常に出す 2 枚。ほかは件数だけの 1 行に畳む。 */
 const mainCardKeys: readonly CardKey[] = ['to_zero', 'costly'];
 const customerColumns: [CustomerSort, string, boolean][] = [['name', '顧客名', false], ['deals', '契約中の案件 ／ 全案件', true], ['latest', '今の取引', false], ['live', '掲載中の求人 ／ 全求人', true], ['apps', '応募（前の 4 週 → 直近 4 週）', true], ['cost', '課金（直近 4 週）', true], ['cpa', '応募 1 件あたり', true]];
 
-function CardList({ card, onOpenListing }: { card: HomeCard; onOpenListing: (id: string) => void }) {
+function CardList({ card, onOpenListing, onClose }: { card: HomeCard; onOpenListing: (id: string) => void; onClose: () => void }) {
   const reveal = useRevealOnMount();
   return <section ref={reveal} className="jh-list" aria-label={`${card.title}の一覧`}>
-    <h3>{card.title}（{card.count}件）</h3>
+    <div className="jh-list-head"><h3>{card.title}（{card.count}件）</h3><CloseListButton label={`${card.title}の一覧`} onClick={onClose} /></div>
     {card.count === 0 ? <p>該当する求人はありません。</p> : <div className="jh-scroll"><table><thead><tr><th scope="col">求人</th><th scope="col">顧客</th><th scope="col">媒体</th><th scope="col" className="num">応募（前 → 直近）</th><th scope="col" className="num">課金（直近 4 週）</th><th scope="col">実績の最新の週</th></tr></thead><tbody>
       {card.listings.map(row => <tr key={row.id}><th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenListing(row.id); }}>{row.title ?? '求人名未取得'}</button></th><td>{row.company ?? '—'}</td><td>{mediaName(row.media)}</td><td className="num">{appsChange(row.prev_apps, row.recent_apps)}</td><td className="num">{yen(row.recent_cost)}</td><td>{formatDateJst(row.latest_week_end, '実績なし')}</td></tr>)}
     </tbody></table></div>}
@@ -53,6 +56,8 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const [descending, setDescending] = useState(true);
   const [onlyActive, setOnlyActive] = useState(true);
   const [showAll, setShowAll] = useState(false);
+  const [loadedAt, setLoadedAt] = useState<string | null>(null);
+  const self = useSelfOwner();
   useReportPolling(useCallback(async signal => {
     if (reload === 0 && cache?.current?.status === 'ready' && !cache.current.work && !requestOwnerQuery) return false;
     const result = await apiGet<HomeResponse>(`/api/job-copy/home${requestOwnerQuery ? `?${requestOwnerQuery}` : ''}`, { signal, timeoutMs: 120_000 });
@@ -62,7 +67,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
       return false;
     }
     saveHomeCache(cache, result.data);
-    setData(result.data); setError('');
+    setData(result.data); setError(''); setLoadedAt(new Date().toISOString());
     const work = result.data.status === 'ready' ? result.data.work : undefined;
     if (work?.status === 'ready' && !work.notice && [null, 'me'].includes(new URLSearchParams(requestOwnerQuery).get('owner'))) {
       const to = new URLSearchParams({ owner_field: work.owner_field, owner: work.owner }).toString();
@@ -92,7 +97,10 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const reveal = useRevealOnMount();
   const tableShown = showAll || query.trim() !== '';
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
-    <header className="jh-head"><h1>今日</h1><button type="button" className="jc-button" onClick={() => { setReload(value => value + 1); }}>再読み込み</button></header>
+    <header className="jh-head"><h1>今日{work && <span className="jh-head-owner"> — {ownerScopeTitle(ownerScope(work, self))}</span>}</h1>
+      {/* この画面が取りに行った時刻を小さく出し、押すと読み直す（データ自体の時点は各段の説明に出す） */}
+      <button type="button" className="jh-refresh" aria-label={loadedAt ? `${formatDateTimeJst(loadedAt).slice(-5)} に読み込み。読み込み直す` : '読み込み直す'} title="読み込み直す" onClick={() => { setReload(value => value + 1); }}>{loadedAt ? `${formatDateTimeJst(loadedAt).slice(-5)} に読み込み` : '読み込み直す'} <span aria-hidden="true">⟳</span></button></header>
+    {work && <OwnerScopeBanner work={work} />}
     {data && !work && <PendingOwnerFilter />}
     {error && <p role="alert">{error}</p>}
     {!data && !error && <p role="status">今日の画面を読み込んでいます…</p>}
@@ -101,16 +109,17 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     {data?.status === 'ready' && data.work?.status === 'failed' && <p role="alert">担当者とやることの情報を読み込めませんでした。再読み込みしてください。</p>}
     {ready && <>
       {work && <><OwnerFilter work={work} /><OwnerTodo work={work} onOpenCompany={onOpenCompany} onOpenDeal={onOpenDeal} onShowList={() => { setReload(value => value + 1); }} /></>}
-      <section aria-labelledby="jh-look"><h2 id="jh-look">まず見るもの <InfoTip className="jc-infotip-left" label="数え方"><p>応募・課金のカードは掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。</p><p>求人の一覧を読み込んだ時刻：{formatDateTimeJst(ready.index_built_at, '日時不明')}。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。</p><ul>{cards.map(item => <li key={item.key}>{item.title}：{item.rule}</li>)}<li>直近7日に変更：{recentChangesRule}</li></ul></InfoTip></h2>
+      <section aria-labelledby="jh-look"><div className="jh-section-head"><h2 id="jh-look">まず見るもの</h2><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>応募・課金のカードは掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。</p><p>求人の一覧を読み込んだ時刻：{formatDateTimeJst(ready.index_built_at, '日時不明')}。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。</p><ul>{cards.map(item => <li key={item.key}>{item.title}：{item.rule}</li>)}<li>直近7日に変更：{recentChangesRule}</li></ul><p>色の意味：橙は注意、灰は0件です。</p></InfoTip></div>
         <p className="jh-note">掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。<strong>媒体の実績：{ready.home.latest_week_end ? `${formatDateJst(ready.home.latest_week_end)} までの週` : '未取得'}</strong>。増減は並べて見るためのもので、原因とは限りません。</p>
-        <div className="jh-cards">{mainCards.map(item => <button type="button" key={item.key} className={`jh-card jh-${cardTone[item.key]}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>
+        <div className="jh-cards">{mainCards.map(item => <button type="button" key={item.key} className={`jh-card ${cardToneClass(item.count, cardTone[item.key])}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>
           <strong className="jh-count">{item.count}<small>件</small></strong>
           <span className="jh-card-title">{item.title}</span>
+          {item.count > 0 && <CardOpenCue open={open === item.key} />}
         </button>)}</div>
         <CountLine label="ほかの見るもの" items={[...otherCards.map(item => ({ key: item.key, label: item.title, count: item.count })), { key: 'recent_changes', label: '直近7日に変更', count: recentCount }]} openKey={open} onToggle={key => { setOpen(open === key ? null : key as CardKey | 'recent_changes'); }} />
         {open !== 'recent_changes' && recent.data.status === 'ready' && <ReportFreshness builtAt={recent.data.built_at} stale={recent.data.stale} refreshing={recent.data.refreshing} />}
-        {open === 'recent_changes' && <div key="recent_changes" ref={reveal} className="jh-reveal"><RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} onOpenListing={onOpenListing} /></div>}
-        {card && <CardList key={card.key} card={card} onOpenListing={onOpenListing} />}
+        {open === 'recent_changes' && <div key="recent_changes" ref={reveal} className="jh-reveal"><div className="jh-list-head jh-reveal-head"><CloseListButton label="直近7日に変更の一覧" onClick={() => { setOpen(null); }} /></div><RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} onOpenListing={onOpenListing} /></div>}
+        {card && <CardList key={card.key} card={card} onOpenListing={onOpenListing} onClose={() => { setOpen(null); }} />}
       </section>
       <section aria-labelledby="jh-customers" className="jh-customers"><div className="jh-customers-head"><h2 id="jh-customers">顧客</h2>
         <label>顧客名で探す<input type="search" value={query} onChange={event => { setQuery(event.target.value); }} placeholder="顧客名の一部" /></label>

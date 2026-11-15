@@ -17,6 +17,7 @@ import { JobCopyScreen } from './JobCopyScreen';
 import { openOtherAnalysis } from './openOtherAnalysis.test-helper';
 import { JARGON_PATTERN } from './format';
 import { bodyMark, versionChanges } from './timelineModel';
+import { toggleDataImport } from './moreMenu.testUtil';
 
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', () => ({ apiGet: api }));
@@ -117,7 +118,7 @@ describe('plain names for version kinds and counts', () => {
     window.history.replaceState(null, '', '/app/job-copy?demo=1');
     api.mockResolvedValue({ ok: true, data: { titles: [], prefectures: [] } });
     render(<JobCopyScreen />);
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'データ取込' })); await Promise.resolve(); });
+    toggleDataImport(); await act(async () => { await Promise.resolve(); });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '外部文面を照合する' })); await Promise.resolve(); });
     fireEvent.change(screen.getByLabelText('受け取った文面'), { target: { value: '仕事内容：配送\n給与：月給30万円' } });
     fireEvent.click(screen.getByRole('button', { name: '現在の本文と比較' }));

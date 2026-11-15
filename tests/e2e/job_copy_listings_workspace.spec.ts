@@ -12,7 +12,7 @@ for (const width of [1440, 1920, 390]) {
   test(`${width}px: forty jobs share the workspace, and both media show body and images`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/app/job-copy?demo=1');
-    await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+    await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
     const list = page.getByRole('region', { name: 'HubSpot の求人' });
     await expect(list.getByRole('button', { name: /の本文を見る$/ })).toHaveCount(40);
     if (width === 390) {
@@ -78,7 +78,7 @@ test('preparing switches to forty jobs automatically; missing history and failed
   await context.addCookies([{ name: 'jc_preparing', value: 'workspace', domain: '127.0.0.1', path: '/' }]);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/app/job-copy?demo=1');
-  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   const list = page.getByRole('region', { name: 'HubSpot の求人' });
   await expect(list.getByText('求人の一覧を準備しています', { exact: true })).toBeVisible();
   await expect(list).toContainText('準備が終わると自動で一覧');
@@ -104,7 +104,7 @@ test('a pending version request shows a message in the detail before the body ar
   let deliver: (() => Promise<void>) | undefined;
   await page.route('**/api/job-copy/listings/1/versions', route => { deliver = () => route.fulfill({ json: fixtureHistory('1') }); });
   await page.goto('/app/job-copy?demo=1');
-  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
   await expect(page.getByRole('heading', { name: '求人票を読み込んでいます' })).toBeVisible();
   await expect(page.getByText('本文・画像・文面の履歴を確認しています。')).toBeVisible();
@@ -117,7 +117,7 @@ test('a pending version request shows a message in the detail before the body ar
 test('390×844: mobile list shows at least four whole jobs, opens detail and returns without reloading', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/app/job-copy?demo=1');
-  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   const list = page.getByRole('region', { name: 'HubSpot の求人' });
   await expect(list.getByRole('button', { name: /の本文を見る$/ })).toHaveCount(40);
   const viewport = await list.locator('.jc-list-scroll').boundingBox();
@@ -135,7 +135,7 @@ test('390px: incomplete history warning stays visible in detail and raw IDs are 
   await page.setViewportSize({ width: 390, height: 1000 });
   await page.route('**/api/job-copy/listings/1/versions', route => route.fulfill({ json: { ...fixtureHistory('1'), versions: Array.from({ length: 20 }, (_, index) => ({ ...fixtureHistory('1').versions[index % 2], written_at: `2026-09-${String(index + 1).padStart(2, '0')}T00:00:00Z` })), history_may_be_incomplete: true, history_counts: { hrh_kyuujinhyou_honbun: 20, hrh_kyuujinhyou_gazou: 2 } } }));
   await page.goto('/app/job-copy?demo=1');
-  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   const list = page.getByRole('region', { name: 'HubSpot の求人' });
   await expect(list.getByRole('button', { name: /の本文を見る$/ })).toHaveCount(40);
   await list.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
@@ -148,7 +148,7 @@ test('390px: incomplete history warning stays visible in detail and raw IDs are 
 test('1440px: listing and detail do not expose raw IDs', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/app/job-copy?demo=1');
-  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   const list = page.getByRole('region', { name: 'HubSpot の求人' });
   await expect(list.getByRole('button', { name: /の本文を見る$/ })).toHaveCount(40);
   await expect(list).not.toContainText(/HR-|HubSpot求人ID/);
@@ -161,7 +161,7 @@ for (const width of [1440, 1920]) {
   test(`${width}px: all job-copy features identify jobs by media and title without raw IDs`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/app/job-copy?demo=1');
-    await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+    await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
     const list = page.getByRole('region', { name: 'HubSpot の求人' });
     await list.getByRole('button', { name: '配送ドライバー・沖縄2の本文を見る' }).click();
     await expect(page.getByLabel('求人票')).toContainText('決まったルート');
