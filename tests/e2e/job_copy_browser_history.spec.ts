@@ -102,7 +102,7 @@ test('ホーム→会社→案件→求人と案件内ポップアップを履�
   const listing = page.url();
   const reads = versionReads;
   for (const url of [deal, company, home]) { await page.goBack(); await expect(page).toHaveURL(url); }
-  await expect(page.getByRole('heading', { name: '今日', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toBeVisible();
   expect(homeReads).toBe(initialHomeReads);
   for (const url of [company, deal, listing]) { await page.goForward(); await expect(page).toHaveURL(url); }
   await expect(page.getByRole('button', { name: '求人の内容を確認する' })).toBeVisible();

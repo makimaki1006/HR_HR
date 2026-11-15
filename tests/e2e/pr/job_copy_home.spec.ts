@@ -32,12 +32,16 @@ test('ホームの常時2枚のカード・件数の1行と、変更求人の一
   }
   for (const index of [0, 2, 3, 4, 6]) await expect(chip(index)).toBeVisible();
   await expect(cards.locator('.jh-rule')).toHaveCount(0);
-  await expect(cards.nth(0)).toHaveClass(/jh-alert/);
+  // 応募・課金のカードは注意（橙）。押せる手がかりとして右下に「一覧を見る ▾」。
+  await expect(cards.nth(0)).toHaveClass(/jh-warn/);
+  await expect(cards.nth(0).locator('.jh-card-cue')).toHaveText('一覧を見る ▾');
+  const howTo = page.locator('section[aria-labelledby="jh-look"] .jh-section-head summary');
+  await expect(howTo).toHaveText('ⓘ 数え方を見る');
   await expect(page.getByText(/2件以上、または20%以上の差を増減/)).toBeHidden();
-  await page.locator('#jh-look summary').click();
+  await howTo.click();
   await expect(page.getByText(/2件以上、または20%以上の差を増減/)).toBeVisible();
   for (const card of home) await expect(page.locator('.jc-infotip-body li').filter({ hasText: card.rule })).toBeVisible();
-  await page.locator('#jh-look summary').click();
+  await howTo.click();
   for (const [index, applications] of ['0 → 0 件', '1 → 0 件', '5 → 4 件', '0 → 1 件', '10 → 9 件'].entries()) {
     await opener(index).click();
     const list = page.getByRole('region', { name: `${home[index]!.title}の一覧` });
@@ -104,10 +108,14 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', capture_bundle: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', jobs: [] }, results: [] } }));
   await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: { status: 'ready', total: 0, listings: [], deals: [], titles: [], index_built_at: '2026-10-16T00:00:00Z' } }));
   await page.route('**/api/job-copy/company-deals?*', route => route.fulfill({ json: { company: { id: '901', name: '合成事業所' }, deals: [], index_ready: true } }));
+  // 本人の担当者は、ページの読み込みごとに1回だけ owner=me で確かめる。
+  const selfChecks: string[] = [];
+  await page.route('**/api/job-copy/consultant-scope?*', route => { selfChecks.push(route.request().url()); return route.fulfill({ json: { status: 'ready', owner: '11', owner_field: 'consultant', notice: null, owners: demoOwnerTodo.owners } }); });
   await login(page);
   await page.goto('/app/job-copy');
-  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('11');
-  await expect(page.getByLabel('担当の項目')).toHaveValue('consultant');
+  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('合成担当A');
+  await expect(page.getByLabel('担当の種類')).toHaveValue('consultant');
+  await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toHaveText('今日 — あなたの担当分');
   const overdueCard = page.locator('.jh-todo-cards').getByRole('button', { name: /期限切れ/ });
   await expect(overdueCard.locator('.jh-count')).toHaveText('2件');
   await expect(page.locator('.jh-todo-table')).toHaveCount(0);
@@ -115,18 +123,24 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   const overdue = page.getByRole('region', { name: '期限切れの一覧' });
   await expect(overdue.locator('tbody tr')).toHaveCount(2);
   await expect(overdue.locator('tbody tr').first()).toContainText('合成事業所合成案件101対応中2026/10/15電話する合成担当A');
-  await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('22');
+  await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当B（退職）'); await await page.getByRole('combobox', { name: '担当者', exact: true }).press('Enter');
   await expect(overdueCard.locator('.jh-count')).toHaveText('0件');
+  // ほかの人の分を見ている間だけ黄色の帯と「自分の担当分に戻す」。
+  await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toHaveText('今日 — 合成担当B（退職）さんの担当分');
+  await expect(page.locator('.jh-scope-banner')).toContainText('ほかの人の担当分を表示中です');
   await expect(page.locator('.jh-customer-table')).toHaveCount(0);
   await page.getByRole('button', { name: /^すべて表示/ }).click();
   await expect(page.locator('.jh-customer-table tbody')).toContainText('契約中の案件がある顧客はありません');
-  await page.getByRole('button', { name: '自分に戻す' }).click();
-  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('11');
+  await page.getByRole('button', { name: '自分の担当分に戻す' }).click();
+  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('合成担当A');
   await expect(overdueCard.locator('.jh-count')).toHaveText('2件');
-  await page.getByLabel('担当の項目').selectOption('hubspot_owner_id');
+  await expect(page.locator('.jh-scope-banner')).toHaveCount(0);
+  expect(selfChecks.filter(url => url.includes('owner=me'))).toHaveLength(1);
+  await page.getByLabel('担当の種類').selectOption('hubspot_owner_id');
   await expect(page).toHaveURL(/owner_field=hubspot_owner_id/);
-  await page.getByRole('combobox', { name: '担当者', exact: true }).selectOption('all');
-  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('all');
+  await page.getByRole('button', { name: '全員', exact: true }).click();
+  await expect(page.getByRole('button', { name: '全員', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('');
   await overdue.getByRole('button', { name: '合成案件101' }).click();
   await expect(page).toHaveURL(/deal=101/);
   expect(new URL(page.url()).searchParams.get('owner')).toBe('all');
@@ -136,7 +150,7 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   await expect(page).toHaveURL(/company=901/);
   await page.goBack();
   await expect(overdue).toBeVisible();
-  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('all');
+  await expect(page.getByRole('button', { name: '全員', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('本人が解決できる既定画面と、198件の期限切れを20件ずつ開いた画面を日本語で確認する', async ({ page }) => {
@@ -154,13 +168,13 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   await login(page);
   await page.goto('/app/job-copy');
   expect(await page.evaluate(() => navigator.language)).toBe('ja-JP');
-  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('11');
-  await expect(page.getByRole('combobox', { name: '担当の項目' })).toHaveValue('consultant');
+  await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('合成担当A');
+  await expect(page.getByRole('combobox', { name: '担当の種類' })).toHaveValue('consultant');
   await expect(page).toHaveURL(/owner=11/);
   const cards = page.locator('.jh-todo-cards .jh-card');
   await expect(cards).toHaveCount(7);
   for (const [index, count] of [198, 95, 112, 1, 1, 1, 0].entries()) await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${count}件`);
-  await expect(page.locator('.jh-more').first()).toHaveText('ほかの要対応：初回で成果が出ていない 1件');
+  await expect(page.locator('.jh-go-line')).toHaveText('初回で成果が出ていない 1件→ 案件一覧で見る');
   await expect(page.locator('.jh-todo-table')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'まず見るもの' })).toBeInViewport();
   const boxes = await cards.evaluateAll(elements => elements.map(el => ({ top: el.getBoundingClientRect().top, height: el.getBoundingClientRect().height })));
@@ -193,8 +207,8 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   const expiration = page.getByRole('region', { name: '契約満了が近いの一覧' });
   await expect(expiration.locator('tbody tr')).toHaveCount(1);
   await expect(expiration).toContainText('2026/11/15');
-  await page.getByRole('button', { name: 'それ以降の予定（154件）' }).click();
-  await expect(page.getByRole('region', { name: 'それ以降の一覧' }).locator('tbody tr')).toHaveCount(20);
+  await page.getByRole('button', { name: 'それ以降の予定 154件' }).click();
+  await expect(page.getByRole('region', { name: 'それ以降の予定の一覧' }).locator('tbody tr')).toHaveCount(20);
 });
 
 test('変更求人の内訳を数え、説明・チップ・絞り込み・集計中の一覧を確認する', async ({ page }) => {
@@ -264,7 +278,7 @@ test('保存した前の集計と日時をすぐ表示し、新しい集計の�
   await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', capture_bundle: { schemaVersion: 1, capturedAt: '2026-10-16T00:00:00Z', jobs: [] }, results: [] } }));
   await login(page);
   await page.goto('/app/job-copy');
-  const card = page.getByRole('button', { name: /直近7日に変更/ });
+  const card = page.locator('.jh-more').getByRole('button', { name: /直近7日に変更/ });
   await expect(card).toHaveText('直近7日に変更 1件');
   await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
   await card.click();
@@ -272,7 +286,9 @@ test('保存した前の集計と日時をすぐ表示し、新しい集計の�
   await expect(list.getByRole('button', { name: '合成の前回求人' })).toBeVisible();
   await expect(list).toContainText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。');
   complete = true;
-  await expect(card).toHaveCount(0);
+  // 0件になっても札は薄く残す（並びを変えない）。
+  await expect(card).toHaveText('直近7日に変更 0件');
+  await expect(card).toHaveClass(/is-zero/);
   await expect(list).toContainText('該当する求人はありません。');
   await expect(page.getByText(/時点の集計です。新しい集計を作っています/)).toHaveCount(0);
 });

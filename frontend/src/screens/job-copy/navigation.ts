@@ -34,10 +34,6 @@ export function reportUrl(target: { scope: 'deal' | 'listing'; id: string }): st
   url.searchParams.set('report', `${target.scope}:${target.id}`);
   return url.pathname + url.search;
 }
-/** 顧客報告のスライドの画面を新しいタブで開く（元の画面の入力途中を消さない）。 */
-export function openReport(target: { scope: 'deal' | 'listing'; id: string }) {
-  window.open(reportUrl(target), '_blank', 'noopener');
-}
 export function closeReport() {
   updateJobCopyQuery({ report: null });
 }

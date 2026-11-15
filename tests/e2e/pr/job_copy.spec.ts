@@ -302,7 +302,7 @@ test.describe('案件管理のタイムライン', () => {
   test('課金CSVを読み込むと課金の段と期間比較表に入り、再読み込みで消えることを示す', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
     await open(page);
-    await page.getByRole('button', { name: 'データ取込', exact: true }).click();
+    await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'データを取り込む（作業用）', exact: true }).click();
     // 媒体 + 店舗ID + 媒体求人ID の 3 つで結びつける（先頭の 0 も文字のまま比べる）
     const csv = '媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,0042,12345678,2026-07-01,2026-07-31,31000\n';
     await page.getByLabel('課金CSVファイル', { exact: true }).setInputFiles({ name: 'billing.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
@@ -328,7 +328,7 @@ test.describe('案件管理のタイムライン', () => {
   test('課金を日数で配分した「約」と本文の印の読み上げを、ホバーしなくても読める文字で示す', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
     await open(page);
-    await page.getByRole('button', { name: 'データ取込', exact: true }).click();
+    await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'データを取り込む（作業用）', exact: true }).click();
     // 8/1〜8/31の31,000円を、前の本文の8/1〜19に19日分、後の本文の8/20に1日分配分する。
     const csv = '媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,0042,12345678,2026-08-01,2026-08-31,31000\n';
     await page.getByLabel('課金CSVファイル', { exact: true }).setInputFiles({ name: 'billing.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
@@ -453,9 +453,9 @@ test('ホームは初回準備の2秒後にカードと顧客表を表示する'
   await expect(page.getByText('求人の一覧を準備しています', { exact: true })).toBeVisible();
   const cardCounts = page.locator('.jh-cards .jh-card .jh-count');
   const title = (key: string) => demoHome.home.cards.find(card => card.key === key)!.title;
-  const moreLine = (recent: string) => `ほかの見るもの：${title('zero_stay')} 2件・${title('less')} 3件・${title('more')} 8件・${title('flat')} 12件・${title('stale')} 1件・直近7日に変更 ${recent}`;
+  const moreLine = (recent: string) => [`${title('zero_stay')} 2件`, `${title('less')} 3件`, `${title('more')} 8件`, `${title('flat')} 12件`, `${title('stale')} 1件`, `直近7日に変更 ${recent}`];
   await expect(cardCounts).toHaveText(['1件', '2件'], { timeout: 4_000 });
-  await expect(page.locator('.jh-more')).toHaveText(moreLine('集計中'));
+  await expect(page.locator('.jh-more .jc-chip')).toHaveText(moreLine('集計中'));
   await expect(page.locator('.jh-customer-table')).toHaveCount(0);
   await page.getByRole('button', { name: /^すべて表示/ }).click();
   await expect(page.locator('.jh-customer-table tbody tr')).toHaveCount(2);
@@ -466,8 +466,9 @@ test('ホームは初回準備の2秒後にカードと顧客表を表示する'
   const changes = page.getByRole('region', { name: '直近7日に変更の一覧' });
   await expect(changes.getByRole('status')).toHaveText('変更のあった求人を集計しています…');
   changesReady = true;
-  // 0 件になった項目は行から外す。
-  await expect(page.locator('.jh-more')).toHaveText(moreLine('集計中').replace('・直近7日に変更 集計中', ''), { timeout: 4_000 });
+  // 0 件になった項目も薄い札で残す（並びを変えない）。
+  await expect(page.locator('.jh-more .jc-chip')).toHaveText(moreLine('0件'), { timeout: 4_000 });
+  await expect(page.locator('.jh-more .jc-chip').last()).toHaveClass(/is-zero/);
   await expect(changes.getByRole('heading')).toHaveText('直近7日に変更（0件）');
   await expect(changes).toContainText('該当する求人はありません。');
   expect(changesCalls).toBeGreaterThanOrEqual(2);
@@ -486,7 +487,7 @@ test('ホームの準備中に読み終えた件数と失敗後の待ち時間�
   await expect(page.getByText('約 41,000 件中 12,300 件まで読みました', { exact: true })).toBeVisible();
   if (process.env.PREPARING_PROGRESS_SCREENSHOT) await page.screenshot({ path: process.env.PREPARING_PROGRESS_SCREENSHOT, fullPage: true });
   failed = true;
-  await page.getByRole('button', { name: '再読み込み', exact: true }).click();
+  await page.getByRole('button', { name: /読み込み直す$/ }).click();
   await expect(page.getByText('読み込みに失敗したため、1 分後にもう一度読み込みます。', { exact: true })).toBeVisible();
 });
 

@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { closeReport } from './navigation';
+import { GoLink } from './Pressable';
 import { loadReportInput } from './reportSlidesLoad';
 import type { ReportTarget } from './reportSlidesLoad';
 import { alignedPeriod, buildReport, defaultPeriod, MAX_NEXT_ACTIONS, REPORT_SENDER, shortDay, SLIDE_NAMES } from './reportSlidesModel';
@@ -29,7 +30,7 @@ export function ReportSlides({ target }: { target: ReportTarget }) {
     return () => { controller.abort(); };
   }, [target.scope, target.id, revision]);
   const source: Source = loaded?.key === key && loaded.revision === revision ? loaded.source : { status: 'loading' };
-  const back = <button type="button" className="jc-button" onClick={closeReport}>← 戻る</button>;
+  const back = <GoLink onClick={closeReport}>{target.scope === 'deal' ? '案件の画面に戻る' : '求人の画面に戻る'}</GoLink>;
   const refresh = () => { setRevision(value => value + 1); };
   if (source.status === 'loading') return <main className="rs-root" aria-label="報告のスライドを作る"><div className="rs-top">{back}<h1>報告のスライドを作る</h1></div><p role="status">{target.scope === 'deal' ? '案件の求人と応募を読み込んでいます…' : '求人と応募を読み込んでいます…'}</p></main>;
   if (source.status === 'error') return <main className="rs-root" aria-label="報告のスライドを作る"><div className="rs-top">{back}<h1>報告のスライドを作る</h1></div><p role="alert">{source.message}</p><button type="button" className="jc-button" onClick={refresh}>もう一度読み込む</button></main>;

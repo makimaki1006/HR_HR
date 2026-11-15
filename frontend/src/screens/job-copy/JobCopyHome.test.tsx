@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { JobCopyHome } from './JobCopyHome';
+import { setSelfOwnerForTest } from './selfOwner';
 import { demoOwnerTodo } from './demoOwnerTodo';
 import { demoHome } from './demoHome';
 import { Breadcrumbs } from './Breadcrumbs';
@@ -11,7 +12,7 @@ import type { HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 const api = vi.hoisted(() => vi.fn());
 const recentApi = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path.startsWith('/api/job-copy/recent-changes') ? recentApi(path, options) as Promise<unknown> : api(path, options) as Promise<unknown> }));
-beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); recentApi.mockResolvedValue({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refresh_failed: false } }); });
+beforeEach(() => { sessionStorage.clear(); window.history.replaceState(null, '', '/app/job-copy'); recentApi.mockResolvedValue({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refresh_failed: false } }); });
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.restoreAllMocks(); });
 
 const row = (id: string, title: string, recent: number, prev: number) => ({ id, title, company: '合成運輸', media: 'hrh' as const, recent_apps: recent, prev_apps: prev, recent_cost: 12000, latest_week_end: '2026-10-04' });
@@ -26,24 +27,30 @@ const response: HomeResponse = {
   rules: { trend_min_diff: 2, trend_min_percent: 20, cost_floor_yen: 10000, cost_per_app_times: 2, stale_days: 14, list_cap: 100 },
   home: {
     cards: [card('more', '直近4週の応募が、前の4週より多い求人', [row('1', '配送ドライバー・大分1', 20, 13)]), card('flat', '応募はあるが、前の4週とほぼ同じ求人', []), card('less', '直近4週の応募が、前の4週より少ない求人', [row('2', '介護スタッフ・熊本', 4, 5)], 130), card('costly', '課金が高いまま応募が少ない求人', []), card('stale', 'データが止まっている求人', [])],
-    customers, live_without_company: 2, median_cost_per_app: 7000,
+    customers, live_without_company: 2, median_cost_per_app: 7000, latest_week_end: '2026-10-11',
   },
 };
 const at = <T,>(items: T[], index: number): T => { const item = items[index]; if (item === undefined) throw new Error('missing'); return item; };
 const open = vi.fn(); const openListing = vi.fn();
 const renderHome = () => render(<JobCopyHome onOpenCompany={open} onOpenListing={openListing} onOpenDeal={vi.fn()} />);
+/** 「ほかの見るもの」の札（0件も薄く残す）。 */
+const moreChips = () => within(screen.getByRole('group', { name: 'ほかの見るもの' })).getAllByRole('button').map(button => `${button.textContent}${button.classList.contains('is-zero') ? '（薄）' : ''}`);
 
-it('常に出すカードは2枚まで。残りは件数だけの1行で、押すとその求人の一覧が開く', async () => {
+it('常に出すカードは2枚まで。残りは件数付きの札で、押すとその求人の一覧が開き、× 閉じるで閉じる', async () => {
   api.mockResolvedValue({ ok: true, data: response });
   renderHome();
   await screen.findByRole('button', { name: /課金が高いまま応募が少ない求人/ });
-  await waitFor(() => { expect(screen.queryByRole('button', { name: /直近7日に変更/ })).toBeNull(); });
+  await waitFor(() => { expect(screen.getByRole('button', { name: '直近7日に変更 0件' })).toBeTruthy(); });
   const cards = [...document.querySelectorAll('.jh-cards .jh-card')];
   expect(cards).toHaveLength(1);
   expect(within(at(cards, 0) as HTMLElement).getByText('0')).toBeTruthy();
+  // 0件のカードは灰色の数字。
+  expect(at(cards, 0).className).toBe('jh-card jh-zero');
   expect(document.querySelector('.jh-rule')).toBeNull();
-  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの見るもの：直近4週の応募が、前の4週より多い求人 1件・直近4週の応募が、前の4週より少ない求人 130件');
-  expect(screen.getByText('掲載中の求人の応募・課金です（応募はHubSpotに記録された分だけ）。増減は並べて見るためのもので、原因とは限りません。')).toBeTruthy();
+  expect(moreChips()).toEqual(['直近4週の応募が、前の4週より多い求人 1件', '応募はあるが、前の4週とほぼ同じ求人 0件（薄）', '直近4週の応募が、前の4週より少ない求人 130件', 'データが止まっている求人 0件（薄）', '直近7日に変更 0件（薄）']);
+  expect([...document.querySelectorAll('.jh-note')].map(el => el.textContent)).toContain('掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。媒体の実績：2026/10/11 までの週。増減は並べて見るためのもので、原因とは限りません。');
+  // 求人の一覧を読み込んだ時刻は「ⓘ 数え方を見る」の中に置く（媒体の実績の時点とは別）。
+  expect(document.querySelector('section[aria-labelledby="jh-look"] .jh-section-head .jc-infotip-body')?.textContent).toContain('求人の一覧を読み込んだ時刻：2026/10/14 10:00。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。');
   expect(screen.queryByText(/効果あり|効果なし|成功|失敗/)).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /より多い求人 1件/ }));
   const list = screen.getByRole('region', { name: '直近4週の応募が、前の4週より多い求人の一覧' });
@@ -53,6 +60,9 @@ it('常に出すカードは2枚まで。残りは件数だけの1行で、押�
   // 一覧に出ている数より件数が多いときは、先頭だけだと伝える。
   fireEvent.click(screen.getByRole('button', { name: /より少ない求人 130件/ }));
   expect(screen.getByText('先頭の1件だけを表示しています。')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '直近4週の応募が、前の4週より少ない求人の一覧を閉じる' }));
+  expect(screen.queryByRole('region', { name: '直近4週の応募が、前の4週より少ない求人の一覧' })).toBeNull();
+  expect(new URLSearchParams(window.location.search).get('card')).toBeNull();
 });
 
 it.each(['api', 'cache'] as const)('%s の古い職種カードと未知のキーを無視する', async source => {
@@ -149,13 +159,14 @@ it('demo: 常に2枚のカード、残り5枚と直近7日の変更は件数だ�
   api.mockResolvedValue({ ok: true, data: demoHome });
   renderHome();
   await screen.findByRole('button', { name: /応募がゼロのままの求人 2件/ });
-  await waitFor(() => { expect(screen.queryByRole('button', { name: /直近7日に変更/ })).toBeNull(); });
+  await waitFor(() => { expect(screen.getByRole('button', { name: '直近7日に変更 0件' })).toBeTruthy(); });
   const cards = [...document.querySelectorAll<HTMLElement>('.jh-cards .jh-card')];
   expect(cards.map(button => button.querySelector('.jh-card-title')?.textContent)).toEqual(['応募がゼロになった求人', '課金が高いまま応募が少ない求人']);
   expect(cards.map(button => button.querySelector('.jh-count')?.textContent)).toEqual(['1件', '2件']);
-  expect(at(cards, 0).classList.contains('jh-alert')).toBe(true);
-  expect(at(cards, 1).classList.contains('jh-warn')).toBe(true);
-  expect(document.querySelector('.jh-more')?.textContent).toBe('ほかの見るもの：応募がゼロのままの求人 2件・直近4週の応募が、前の4週より少ない求人 1件・直近4週の応募が、前の4週より多い求人 1件・応募はあるが、前の4週とほぼ同じ求人 1件・データが止まっている求人 1件');
+  // 応募・課金のカードは注意（橙）。急ぐもの（赤）は無い。
+  expect(cards.map(button => button.className)).toEqual(['jh-card jh-warn', 'jh-card jh-warn']);
+  expect(cards.map(button => button.querySelector('.jh-card-cue')?.textContent)).toEqual(['一覧を見る ▾', '一覧を見る ▾']);
+  expect(moreChips()).toEqual(['応募がゼロのままの求人 2件', '直近4週の応募が、前の4週より少ない求人 1件', '直近4週の応募が、前の4週より多い求人 1件', '応募はあるが、前の4週とほぼ同じ求人 1件', 'データが止まっている求人 1件', '直近7日に変更 0件（薄）']);
   // 数え方は押すと開く説明の中にある。
   expect(screen.getByText(/2件以上、または20%以上の差を増減/).closest('details')?.hasAttribute('open')).toBe(false);
   expect(screen.getByText(/掲載中で、週ごとの実績の最新の週が14日より前に終わっている求人/)).toBeTruthy();
@@ -208,20 +219,20 @@ it('ほかの人から自分に戻すとき、取得前の担当者でURLを上�
   api.mockImplementation((path: string) => path.includes('owner=me') ? new Promise(resolve => { resolveSelf = resolve; }) : Promise.resolve({ ok: true, data: { ...response, work: { ...demoOwnerTodo, owner: path.includes('owner=11') ? '11' : '22' } } }));
   renderHome();
   await screen.findByRole('combobox', { name: '担当者' });
-  fireEvent.click(screen.getByRole('button', { name: '自分に戻す' }));
+  fireEvent.click(screen.getByRole('button', { name: '自分' }));
   await waitFor(() => { expect(resolveSelf).toBeDefined(); });
   expect(new URLSearchParams(window.location.search).get('owner')).toBe('me');
   await act(async () => { resolveSelf?.({ ok: true, data: { ...response, work: demoOwnerTodo } }); await Promise.resolve(); });
   await waitFor(() => { expect(new URLSearchParams(window.location.search).get('owner')).toBe('11'); });
-  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('11');
+  expect(screen.getByRole<HTMLInputElement>('combobox', { name: '担当者' }).value).toBe('合成担当A');
 });
 
 it('初期URLではコンサル担当と解決済み本人を選び、全員への注記は出さない', async () => {
   api.mockResolvedValue({ ok: true, data: { ...response, work: demoOwnerTodo } });
   renderHome();
   await screen.findByRole('combobox', { name: '担当者' });
-  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当の項目' }).value).toBe('consultant');
-  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('11');
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当の種類' }).value).toBe('consultant');
+  expect(screen.getByRole<HTMLInputElement>('combobox', { name: '担当者' }).value).toBe('合成担当A');
   await waitFor(() => { expect(new URLSearchParams(window.location.search).get('owner')).toBe('11'); });
   expect(new URLSearchParams(window.location.search).get('owner_field')).toBe('consultant');
   expect(screen.queryByText(/全員を表示しています/)).toBeNull();
@@ -259,7 +270,7 @@ it('集計が続く60秒間は6回、その次の60秒間は2回読み、ホー�
     }
     for (let i = 0; i < 2; i++) await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(api).toHaveBeenCalledTimes(8);
-    fireEvent.click(screen.getByRole('button', { name: /^再読み込み$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /に読み込み。読み込み直す$/ }));
     await act(() => Promise.resolve());
     expect(api).toHaveBeenCalledTimes(9);
     expect(recentApi).toHaveBeenCalledTimes(1);
@@ -273,7 +284,7 @@ it('owner=meを担当者に置き換えてもホームは1回だけ読み、別�
   await waitFor(() => { expect(new URLSearchParams(window.location.search).get('owner')).toBe('11'); });
   expect(api).toHaveBeenCalledTimes(1);
   expect(recentApi).toHaveBeenCalledTimes(1);
-  fireEvent.change(screen.getByRole('combobox', { name: '担当者' }), { target: { value: '22' } });
+  fireEvent.change(screen.getByRole('combobox', { name: '担当者' }), { target: { value: '合成担当B（退職）' } });
   await waitFor(() => { expect(api).toHaveBeenCalledTimes(2); });
   expect(api.mock.calls[1]?.[0]).toContain('owner=22');
 });
@@ -316,14 +327,14 @@ it('今日の画面は、ホームが準備中で担当者の一覧が無い間�
   expect(screen.queryByRole('combobox', { name: '担当者' })).toBeNull();
 });
 
-it.each(['ready', 'preparing', 'failed'] as const)('その他が0件で変更が%sのときの件数行', async status => {
+it.each(['ready', 'preparing', 'failed'] as const)('その他が0件で変更が%sのときの札', async status => {
   api.mockResolvedValue({ ok: true, data: { ...response, home: { ...response.home, cards: response.home.cards.map(item => ({ ...item, count: 0, listings: [] })) } } });
   recentApi.mockResolvedValue({ ok: true, data: status === 'ready' ? { status, report: { count: 0, listings: [] }, refresh_failed: false } : { status } });
   renderHome();
   await screen.findByRole('button', { name: /課金が高いまま応募が少ない求人/ });
   await waitFor(() => {
-    if (status === 'ready') expect(document.querySelector('.jh-more')).toBeNull();
-    else expect(document.querySelector('.jh-more')?.textContent).toBe(`ほかの見るもの：直近7日に変更 ${status === 'preparing' ? '集計中' : '取得できませんでした'}`);
+    // 0件の札も薄く残す。集計中・取得失敗は0件と見せない。
+    expect(moreChips()).toEqual(['直近4週の応募が、前の4週より多い求人 0件（薄）', '応募はあるが、前の4週とほぼ同じ求人 0件（薄）', '直近4週の応募が、前の4週より少ない求人 0件（薄）', 'データが止まっている求人 0件（薄）', `直近7日に変更 ${status === 'ready' ? '0件（薄）' : status === 'preparing' ? '集計中' : '取得できませんでした'}`]);
   });
 });
 
@@ -337,9 +348,43 @@ it.each([
   renderHome();
   await screen.findByRole('button', { name: /課金が高いまま応募が少ない求人/ });
   await waitFor(() => {
-    expect(document.querySelector('.jh-more')?.textContent).toBe(`ほかの見るもの：直近7日に変更 ${label}`);
+    expect(moreChips().at(-1)).toBe(`直近7日に変更 ${label}`);
   });
   fireEvent.click(screen.getByRole('button', { name: `直近7日に変更 ${label}` }));
   expect(screen.getByRole('region', { name: '直近7日に変更の一覧' }).querySelector('h3')?.textContent).toBe('直近7日に変更（0件）');
   if (refresh_failed) expect(screen.getByText('最新の情報を読み込めなかったため、前回取得した件数を表示しています。時間を置いて再読み込みしてください。').textContent).toContain('前回取得した件数');
+});
+
+it('見出しに今だれの担当分かを出し、自分以外を見ている間だけ黄色の帯と「自分の担当分に戻す」を出す', async () => {
+  setSelfOwnerForTest('11');
+  window.history.replaceState(null, '', '/app/job-copy?owner=me');
+  api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: { ...response, work: { ...demoOwnerTodo, owner: path.includes('owner=22') ? '22' : path.includes('owner=all') ? 'all' : '11' } } }));
+  renderHome();
+  await waitFor(() => { expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('今日 — あなたの担当分'); });
+  expect(screen.queryByText(/担当分を表示中です/)).toBeNull();
+  // 自分を見ている間は「自分」が押された状態（目立たせない）。
+  expect(screen.getByRole('button', { name: '自分' }).getAttribute('aria-pressed')).toBe('true');
+  // この画面が取りに行った時刻を小さく出す。
+  expect(screen.getByRole('button', { name: /^\d{2}:\d{2} に読み込み。読み込み直す$/ }).textContent).toMatch(/^\d{2}:\d{2} に読み込み ⟳$/);
+  fireEvent.change(screen.getByRole('combobox', { name: '担当者' }), { target: { value: '合成担当B（退職）' } });
+  await waitFor(() => { expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('今日 — 合成担当B（退職）さんの担当分'); });
+  const banner = document.querySelector('.jh-scope-banner');
+  expect(banner?.textContent).toBe('ほかの人の担当分を表示中です（合成担当B（退職））自分の担当分に戻す');
+  expect(screen.getByRole('button', { name: '自分' }).getAttribute('aria-pressed')).toBe('false');
+  fireEvent.click(screen.getByRole('button', { name: '全員' }));
+  await waitFor(() => { expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('今日 — 全員の担当分'); });
+  expect(document.querySelector('.jh-scope-banner')?.textContent).toBe('全員の担当分を表示中です自分の担当分に戻す');
+  fireEvent.click(screen.getByRole('button', { name: '自分の担当分に戻す' }));
+  await waitFor(() => { expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('今日 — あなたの担当分'); });
+  expect(document.querySelector('.jh-scope-banner')).toBeNull();
+});
+
+it('本人の担当者情報が無い人（notice あり）には黄色の帯を出さない', async () => {
+  setSelfOwnerForTest(null);
+  window.history.replaceState(null, '', '/app/job-copy?owner=all');
+  api.mockResolvedValue({ ok: true, data: { ...response, work: { ...demoOwnerTodo, owner: 'all', notice: 'ログインした方の担当者情報が見つからないため、全員を表示しています。' } } });
+  renderHome();
+  await waitFor(() => { expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('今日 — 全員の担当分'); });
+  expect(document.querySelector('.jh-scope-banner')).toBeNull();
+  expect(screen.getByText('ログインした方の担当者情報が見つからないため、全員を表示しています。').className).toBe('jh-owner-notice');
 });

@@ -19,12 +19,12 @@ test('HubSpotの求人を絞って履歴を比較し、固定一覧へ戻る', a
   const original = await page.locator('.jc-fixed-list .jc-job').count();
   expect(original).toBeGreaterThan(0);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
-  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'HubSpot の求人に戻す', exact: true }).click();
   await panel.getByText('絞り込み・並び順', { exact: true }).click();
   await panel.getByLabel('都道府県', { exact: true }).selectOption('大分県');
   await panel.getByLabel('媒体', { exact: true }).selectOption('hrh');
   await panel.getByRole('button', { name: '求人を読み込む' }).click();
-  await expect(panel.getByText('応募 4件', { exact: true })).toBeVisible();
+  await expect(panel.getByText('応募の記録 4件', { exact: true })).toBeVisible();
   await panel.getByLabel('職種の分類').selectOption('ドライバー');
   const request = page.waitForRequest(req => req.url().includes('/listings?') && new URL(req.url()).searchParams.get('title') === 'ドライバー');
   await panel.getByRole('button', { name: '求人を読み込む' }).click();
@@ -38,6 +38,6 @@ test('HubSpotの求人を絞って履歴を比較し、固定一覧へ戻る', a
   await selectJobFeature(page, 'diff');
   await expect(jobFeaturePanel(page, 'diff')).toContainText('合成の旧本文');
   await expect(jobFeaturePanel(page, 'diff')).toContainText('合成の新本文');
-  await page.getByRole('button', { name: '固定一覧を表示' }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: '固定一覧を表示', exact: true }).click();
   await expect(page.locator('.jc-fixed-list .jc-job')).toHaveCount(original);
 });

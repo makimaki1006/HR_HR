@@ -12,6 +12,7 @@ import type { JobCopyRecord } from './data';
 import { listingRecord } from './hubspotListings';
 import type { HubSpotListing, HubSpotVersions } from './hubspotListings';
 import { CAUSAL_PATTERN, JARGON_PATTERN } from './format';
+import { pressMoreItem } from './moreMenu.testUtil';
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', async importOriginal => ({ ...await importOriginal<typeof import('../../api/client')>(), apiGet: api }));
 vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }));
@@ -64,7 +65,7 @@ describe('HubSpot listing history', () => {
     await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
     expect(screen.getByText('51件')).toBeTruthy();
     fireEvent.click(screen.getByText('絞り込み・並び順'));
-    expect(screen.getByRole('button', { name: '合成配送求人の本文を見る' }).textContent).toContain('応募 未取得');
+    expect(screen.getByRole('button', { name: '合成配送求人の本文を見る' }).textContent).toContain('応募の記録 未取得');
     fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: '大分県' } });
     fireEvent.change(screen.getByLabelText('職種の分類'), { target: { value: 'ドライバー' } });
     fireEvent.change(screen.getByLabelText('媒体', { selector: 'select' }), { target: { value: 'airwork' } });
@@ -109,7 +110,7 @@ describe('HubSpot listing history', () => {
     window.history.replaceState(null, '', '/app/job-copy?demo=1'); mock();
     const { container } = render(<JobCopyScreen />);
     const originalCount = container.querySelectorAll('.jc-fixed-list .jc-job').length;
-    fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
+    pressMoreItem('HubSpot の求人に戻す');
     fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
     fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(1); });
@@ -118,7 +119,7 @@ describe('HubSpot listing history', () => {
     fireEvent.click(main.getByRole('tab', { name: '変更差分' }));
     expect(container.querySelector('[id$="-panel-diff"]')?.textContent).toContain('合成の旧本文');
     expect(container.querySelector('[id$="-panel-diff"]')?.textContent).toContain('合成の新本文');
-    fireEvent.click(screen.getByRole('button', { name: '固定一覧を表示' }));
+    pressMoreItem('固定一覧を表示');
     await waitFor(() => { expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(originalCount); });
   });
   it('restores the fixed file records and their acquisition date after opening HubSpot history', async () => {
@@ -130,12 +131,12 @@ describe('HubSpot listing history', () => {
     api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.includes('/consultant-scope?') ? scopeFixture : path.endsWith('/moc') ? fixed : path.endsWith('/listing-status') ? { listings: {} } : path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.includes('/versions') ? history : page }));
     const { container } = render(<JobCopyScreen />);
     await waitFor(() => { expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成の固定求人'); });
-    fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
+    pressMoreItem('HubSpot の求人に戻す');
     fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
     fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成配送求人'); });
     expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: '固定一覧を表示' }));
+    pressMoreItem('固定一覧を表示');
     expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成の固定求人');
     expect(screen.getByRole('region', { name: '取り込んだ内容の内訳' }).textContent).toContain('2応募');
     expect(screen.getByText('実データ（取得済み）')).toBeTruthy();
@@ -179,7 +180,7 @@ describe('opening a listing quickly', () => {
     const company = new Promise(resolve => { resolveCompany = resolve; });
     api.mockImplementation((path: string) => reply(path, company));
     const { container } = render(<JobCopyScreen />);
-    fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
+    pressMoreItem('HubSpot の求人に戻す');
     fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
     fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(container.querySelector('.jc-band h1')?.textContent).toBe('合成配送求人'); });
@@ -248,7 +249,7 @@ it('リクロジの求人を媒体名と応募3件で一覧に出し、媒体で
   render(<HubSpotListingsPanel onOpen={onOpen} />);
   const listing = await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
   expect(listing.textContent).toContain('大分県大分市 · リクロジ · ドライバー');
-  expect(listing.textContent).toContain('応募 3件');
+  expect(listing.textContent).toContain('応募の記録 3件');
   fireEvent.click(screen.getByText('絞り込み・並び順'));
   fireEvent.change(screen.getByLabelText('媒体', { selector: 'select' }), { target: { value: 'reclogi' } });
   await waitFor(() => { expect(api.mock.calls.some(([path]) => String(path).includes('media=reclogi'))).toBe(true); });

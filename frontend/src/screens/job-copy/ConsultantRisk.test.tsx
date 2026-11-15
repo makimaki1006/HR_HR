@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ConsultantRisk, jobsHref, riskGroups } from './ConsultantRisk';
+import { ConsultantRisk, RiskDetail, detailRow, jobsHref, riskGroups } from './ConsultantRisk';
 import { ConsultantMenu } from './ConsultantMenu';
 import { OwnerFilter } from './OwnerTodo';
 import { detailFixture, goodFixture, riskFixture, riskRow, scopeFixture } from './consultantRisk.testFixtures';
@@ -30,16 +30,16 @@ it('メニューの往復・再読込相当でも担当をURLに保持する', a
   window.history.replaceState(null, '', '/app/job-copy?view=risk&owner=11&owner_field=consultant'); mock();
   render(<ConsultantMenu><p>画面</p></ConsultantMenu>);
   const owner = await screen.findByRole('combobox', { name: '担当者' });
-  fireEvent.change(owner, { target: { value: '22' } });
-  fireEvent.change(screen.getByRole('combobox', { name: '担当の項目' }), { target: { value: 'hubspot_owner_id' } });
+  fireEvent.change(owner, { target: { value: '架空の担当B' } });
+  fireEvent.change(screen.getByRole('combobox', { name: '担当の種類' }), { target: { value: 'hubspot_owner_id' } });
   fireEvent.click(screen.getByRole('button', { name: '案件一覧' }));
   expect(new URLSearchParams(window.location.search).get('owner')).toBe('22');
   expect(new URLSearchParams(window.location.search).get('view')).toBe('deals');
   expect(new URLSearchParams(window.location.search).get('owner_field')).toBe('hubspot_owner_id');
   fireEvent.click(screen.getByRole('button', { name: '危ない案件' }));
-  await waitFor(() => { expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('22'); });
+  await waitFor(() => { expect(screen.getByRole<HTMLInputElement>('combobox', { name: '担当者' }).value).toBe('架空の担当B'); });
   cleanup(); render(<ConsultantMenu><p>画面</p></ConsultantMenu>);
-  await waitFor(() => { expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '担当者' }).value).toBe('22'); });
+  await waitFor(() => { expect(screen.getByRole<HTMLInputElement>('combobox', { name: '担当者' }).value).toBe('架空の担当B'); });
 });
 it.each([true, false])('新旧の名札・開始日・詳細・求人リンク（求人1件=%s）', async single => {
   window.history.replaceState(null, '', '/app/job-copy?view=risk&owner=11&risk_all=1'); mock(single);
@@ -112,7 +112,7 @@ it('いい案件の一覧は全ての印と危ない名札の有無を表示し�
   expect(within(dialog).getByRole('heading', { name: 'CS提案内容メモ' })).toBeTruthy();
   expect(within(dialog).getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する')).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }));
-  fireEvent.change(screen.getByRole('combobox', { name: '担当者' }), { target: { value: '22' } });
+  fireEvent.change(screen.getByRole('combobox', { name: '担当者' }), { target: { value: '架空の担当B' } });
   await within(list).findByText('該当する案件はありません。');
   expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('いい案件 0件');
   expect(calls.some(url => url.includes('consultant-good?') && url.includes('owner=22'))).toBe(true);
@@ -127,7 +127,7 @@ it.each(['', '?view=deals'])('既存画面の担当情報を共通欄へ移し�
   expect(owner.closest('.cm-menu')).toBeTruthy();
   expect(container.querySelectorAll('.jc-app')).toHaveLength(1);
   expect(screen.getAllByRole('combobox', { name: '担当者' })).toHaveLength(1);
-  fireEvent.change(owner, { target: { value: '22' } });
+  fireEvent.change(owner, { target: { value: '架空の担当B' } });
   expect(new URLSearchParams(window.location.search).get('owner')).toBe('22');
   expect(calls).toEqual([]);
 });
@@ -137,9 +137,12 @@ it('求人の作業中も担当選択を他の画面と同じ形で出し、求�
   render(<ConsultantMenu><p>求人の本文</p></ConsultantMenu>);
   expect(screen.queryByRole('button', { name: '担当者で絞る' })).toBeNull();
   const owner = await screen.findByRole('combobox', { name: '担当者' });
-  expect((owner as HTMLSelectElement).value).toBe('22');
-  expect(screen.getByRole('combobox', { name: '担当の項目' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: '自分に戻す' })).toBeTruthy();
+  expect((owner as HTMLInputElement).value).toBe('架空の担当B');
+  expect(screen.getByRole('combobox', { name: '担当の種類' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '自分' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '全員' })).toBeTruthy();
+  // 「⋯ その他」は担当の欄の右の同じ場所にある。
+  expect(owner.closest('.cm-right')?.querySelector('.cm-more-toggle')?.textContent).toBe('⋯ その他');
   expect(calls).toEqual(['/api/job-copy/consultant-scope?owner=22']);
   expect(new URLSearchParams(window.location.search).get('listing')).toBe('501');
 });
@@ -178,4 +181,17 @@ it('本番の準備中の応答（{"status":"preparing"}）では、顧客・求
       unmount();
     }
   } finally { vi.useRealTimers(); }
+});
+
+it.each([
+  [{ date: '2026-10-12', status: 'ready' as const }, '接触：2026/10/12'],
+  [{ date: null, status: 'none' as const }, '接触：記録なし'],
+  [{ date: null, status: 'outside' as const }, '接触：記録なし（対象外）'],
+  [{ date: null, status: 'unavailable' as const }, '接触：未取得'],
+])('案件一覧から開いた小窓は、一覧と同じ最後の接触を出す（詳細の記録の 10/18 では上書きしない）', async (listContact, text) => {
+  window.history.replaceState(null, '', '/app/job-copy?view=deals'); mock();
+  render(<RiskDetail row={{ ...detailRow('101', riskRow.name), list_contact: listContact }} onClose={() => undefined} onSaved={() => undefined} />);
+  const dialog = await screen.findByRole('dialog');
+  expect(await within(dialog).findByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeTruthy();
+  expect(within(dialog).getByText(new RegExp(`^${text} ／ MTG：`))).toBeTruthy();
 });

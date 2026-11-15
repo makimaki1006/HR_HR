@@ -30,6 +30,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   const deal = wide ? wide.dealIds.join(',') : scopeDeal?.id ?? dealPick;
   const dealName = scopeDeal ? scopeDeal.name || '案件' : dealPickName;
   const [dealSearch, setDealSearch] = useState('');
+  const [nameSearch, setNameSearch] = useState('');
   const [status, setStatusKey] = useStatusFilter();
   const publication = STATUS_PUBLICATION[status];
   const [draftStatus, setDraftStatus] = useState('');
@@ -56,19 +57,20 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     if (media) query.set('media', media);
     if (deal) query.set('deal', deal);
     if (dealSearch) query.set('deal_search', dealSearch);
+    if (nameSearch.trim()) query.set('q', nameSearch.trim().slice(0, 100));
     if (publication) query.set('publication', publication);
     if (draftStatus) query.set('draft_status', draftStatus);
     const result = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${query.toString()}`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
     if (result.ok) { pageRef.current = result.data; setPage(result.data); if (result.data.titles.length) setTitles(result.data.titles); } else setError(message(result.error));
     setBusy(false);
-  }, [prefecture, title, media, sort, deal, dealSearch, publication, draftStatus, ownerQuery]);
+  }, [prefecture, title, media, sort, deal, dealSearch, nameSearch, publication, draftStatus, ownerQuery]);
   useEffect(() => {
     if (!active) { listRequest.current?.abort(); detailRequest.current?.abort(); countRequest.current?.controller.abort(); return; }
     if (!autoLoad) { listRequest.current?.abort(); return; }
-    const timer = window.setTimeout(() => { void load(); }, dealSearch ? 250 : 0);
+    const timer = window.setTimeout(() => { void load(); }, dealSearch || nameSearch ? 250 : 0);
     return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
-  }, [active, autoLoad, load, dealSearch, revision]);
+  }, [active, autoLoad, load, dealSearch, nameSearch, revision]);
   useEffect(() => {
     if (!active || !autoLoad || (page?.status !== 'preparing' && !page?.refreshing) || busy || error) return;
     const timer = window.setTimeout(() => { void load(page.offset); }, 5_000);
@@ -151,6 +153,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
   useEffect(() => { if (active) onVisibleRows?.(rows); }, [active, rows, onVisibleRows]);
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active || !autoLoad}>
     <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">{wide ? 'この顧客の求人' : scopeDeal ? 'この案件の求人' : 'HubSpot の求人'}</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span><button type="button" className="jc-button jc-reload" disabled={busy} onClick={() => { void load(); }}>求人を読み込む</button></div>
+    <label className="jc-listing-q">求人名で探す<input id="jc-listing-q" type="search" value={nameSearch} maxLength={100} onChange={event => { setNameSearch(event.target.value); }} placeholder="求人名の一部" /></label>
     {scopeDeal
       ? <p className="jc-status-counts" aria-label="掲載状況の件数">{(() => { const c = countsFromServer(page?.publication_counts); return c ? `表示中：${STATUS_LABEL[status]} ／ 掲載中 ${String(c.live)} ・ 掲載終了 ${String(c.ended)} ・ すべて ${String(c.all)}（絞り込みは本文の表で切り替え）` : `表示中：${STATUS_LABEL[status]}`; })()}</p>
       : <StatusFilter status={status} counts={countsFromServer(page?.publication_counts)} onChange={next => { setStatusKey(next); }} />}
@@ -176,7 +179,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
       <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の本文を見る`} onClick={() => { void openId(row.id, row); }}>
         <strong>{row.title ?? '求人名未取得'}</strong><span className="jc-job-company"><span className="jc-publication">{publicationLabel(row.publication_status)}</span><span>案：{row.draft_status ? draftStateLabel(row.draft_status) : '案なし・確認状態は未取得'}</span></span>
         <span className="jc-job-location">{row.prefecture ?? '不明'}{row.municipality ?? ''} · {mediaLabel(row.media)} · {row.category ?? '職種不明'}</span>
-        <span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small></span>
+        <span className="jc-job-bottom"><small title="同じ人がもう一度応募した分も含む件数です。求人を開くと、同じ人の2件目以降を除いた件数を出します。">応募の記録 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small></span>
         <span className="jc-visually-hidden">媒体の一覧で最後に確認した日：{formatDateTimeJst(row.last_csv_detected_at, '未取得')}</span>
       </button>)}{!rows.length && <p>条件に合う求人はありません。</p>}</div>
       <div className="jc-list-pagination"><span>{page.total ? `${String(page.offset + 1)}〜${String(page.offset + rows.length)}件を表示` : '条件に合う求人はありません'}<span className="jc-index-date"> ・ {formatDateTimeJst(page.index_built_at, '日時不明')}時点の求人・応募数</span></span>{page.offset > 0 && <button className="jc-button" disabled={busy} onClick={() => { void load(Math.max(0, page.offset - 50)); }}>前の求人</button>}{page.next_offset !== null && <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(page.next_offset ?? 0); }}>次の求人</button>}</div>

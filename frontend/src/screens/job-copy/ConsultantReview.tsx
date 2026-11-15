@@ -3,6 +3,7 @@ import type { JobCopyRecord } from './data';
 import { ApplicantComposition } from './ApplicantComposition';
 import { observationWindowError } from './consultantReviewModel';
 import { reportUrl } from './navigation';
+import { OutLink } from './Pressable';
 import { SavedNoteBar } from './SavedNoteBar';
 import { persistableListingId, useSavedNote } from './savedNotes';
 import type { BillingEntry } from './timelineModel';
@@ -51,7 +52,7 @@ export function ConsultantReview({ job, draft, onDraft, billing }: { job: JobCop
   ];
   const reportTarget = persistableListingId(job);
   return <section className="jc-consultant" aria-label="検証記録">
-    <p className="jc-report-moved">{job.title} · {job.media}。顧客への報告は、スライドの画面で作ります。{reportTarget && <a className="jc-button jc-no-print" href={reportUrl({ scope: 'listing', id: reportTarget })} target="_blank" rel="noopener">報告書を作る（新しいタブ）</a>}</p>
+    <p className="jc-report-moved">{job.title} · {job.media}。顧客への報告は、スライドの画面で作ります。{reportTarget && <span className="jc-no-print"><OutLink href={reportUrl({ scope: 'listing', id: reportTarget })} label="報告書を作る（新しいタブ）" /></span>}</p>
     <ApplicantComposition job={job} billing={billing} selection={selection} onSelectionChange={value => { onDraft({ ...draft, selection: value }); }} />
     <section className="jc-cycle" id="job-copy-review-cycle"><h3>記録欄</h3><p>仮説 → 実施 → 結果の確認 → 次の施策を残すための記録欄です。{persisted ? '「保存」を押すと、この求人の記録として残り、案件管理を開ける人に表示されます。' : '入力はこの画面の中だけに残り、求人の切り替え・再読み込みで消えます。'}HubSpotには保存しません。</p>
       <div className="jc-cycle-controls"><label>進行状況<select value={stage} onChange={event => { onDraft({ ...draft, stage: event.target.value }); }}><option value="plan">Plan · 仮説と計画</option><option value="do">Do · 掲載変更を実施</option><option value="check">Check · 結果を確認</option><option value="act">Act · 次の施策を決定</option></select></label><label>変更対象<select value={target} onChange={event => { onDraft({ ...draft, target: event.target.value }); }}><option value="body">本文</option><option value="image">画像</option><option value="both">本文と画像</option></select></label>

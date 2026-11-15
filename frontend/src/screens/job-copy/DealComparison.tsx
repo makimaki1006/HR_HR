@@ -17,7 +17,7 @@ import { composeSalary } from './hrhCopy';
 import type { ComparedJob } from './dealComparisonModel';
 import { markValueChanges } from './diff';
 import { STATUS_PUBLICATION, useStatusFilter } from './statusFilter';
-const columns = [['title', '求人名'], ['media', '媒体'], ['publication', '公開状況'], ['occupation', '職種'], ['location', '勤務地'], ['salary', '給与'], ['applications', '応募数'], ['body_changed_at', '本文の最終変更日'], ['hours', '勤務時間'], ['holidays', '休日'], ['salary_kind', '給与形態'], ['salary_min', '給与の下限'], ['salary_max', '給与の上限']] as const;
+const columns = [['title', '求人名'], ['media', '媒体'], ['publication', '公開状況'], ['occupation', '職種'], ['location', '勤務地'], ['salary', '給与'], ['applications', '応募の記録数'], ['body_changed_at', '本文の最終変更日'], ['hours', '勤務時間'], ['holidays', '休日'], ['salary_kind', '給与形態'], ['salary_min', '給与の下限'], ['salary_max', '給与の上限']] as const;
 const optionalColumns = columns.slice(8);
 type ColumnKey = typeof columns[number][0];
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '求人を読み込めませんでした。時間を置いて再取得してください。';

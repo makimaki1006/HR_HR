@@ -82,7 +82,7 @@ test('manual media capture cancels pending snapshot and its slow timer without l
   await page.route('**/api/job-copy/moc', route => { held = route; });
   await page.goto('/app/job-copy?data=actual');
   await expect.poll(() => Boolean(held)).toBe(true);
-  await page.getByRole('button', { name: 'データ取込', exact: true }).click();
+  await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'データを取り込む（作業用）', exact: true }).click();
   await page.getByText('媒体で取得した求人本文・画像を確認', { exact: true }).click();
   const capture = snapshot().capture_bundle;
   const job = capture.jobs[0];
