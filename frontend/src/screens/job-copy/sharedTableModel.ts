@@ -21,5 +21,5 @@ export function paginate<T>(items: readonly T[], pageIndex: number, size: number
   return { items: slice, pageIndex: index, pages, from: slice.length ? index * size + 1 : 0, to: index * size + slice.length };
 }
 
-/** 見出しの並べ替え矢印。選んでいる列だけ向きを出す。 */
-export function sortArrow(active: boolean, descending: boolean): string { return active ? descending ? ' ▼' : ' ▲' : ' ▲▼'; }
+/** 見出しの並べ替え矢印。選んでいる列だけ向き（▼▲）を出し、ほかの列は並べ替えできる印（⇅）を出す。 */
+export function sortArrow(active: boolean, descending: boolean): string { return active ? descending ? ' ▼' : ' ▲' : ' ⇅'; }

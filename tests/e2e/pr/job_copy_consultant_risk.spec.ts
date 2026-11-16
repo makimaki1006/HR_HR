@@ -19,7 +19,7 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   // 既定はタグ2つ以上（1つだけの2件は件数だけ出して外す）
   await expect(page.getByRole('note')).toContainText('タグが2つ以上の案件 1件を出しています');
   await expect(page.getByRole('note')).toContainText('タグが1つだけの案件 2件は出していません');
-  await expect(page.getByRole('button', { name: riskRow.name })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: riskRow.name, exact: true })).toHaveCount(1);
   await expect(page.getByRole('button', { name: '架空の採用支援C' })).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'タグが1つだけの案件も出す' }).check();
   await expect(page).toHaveURL(/risk_all=1/);
@@ -27,19 +27,19 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   const ongoing = page.getByRole('region', { name: '前回から続いている案件' });
   await expect(fresh.getByRole('heading', { level: 2 })).toHaveText('新しくタグが付いた案件 2件');
   await expect(ongoing.getByRole('heading', { level: 2 })).toHaveText('前回から続いている案件 1件');
-  const mixed = fresh.getByRole('row').filter({ has: page.getByRole('button', { name: riskRow.name }) });
+  const mixed = fresh.getByRole('row').filter({ has: page.getByRole('button', { name: riskRow.name, exact: true }) });
   await expect(mixed.getByRole('listitem')).toHaveText(['満足度が4以下新', '満了まで60日以内']);
   await expect(mixed.getByRole('listitem').nth(0)).toHaveClass('cr-new');
   await expect(mixed.getByRole('listitem').nth(1)).not.toHaveClass('cr-new');
   await expect(mixed.getByRole('cell').nth(3)).toHaveText('1日前');
   await expect(mixed.getByText('2026/10/16から')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: riskRow.name })).toHaveCount(1);
-  await expect(ongoing.getByRole('button')).toHaveText(['架空の採用支援C']);
+  await expect(page.getByRole('button', { name: riskRow.name, exact: true })).toHaveCount(1);
+  await expect(ongoing.getByRole('button')).toHaveText(['架空の採用支援C', '詳細 ▸']);
   await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveCount(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const dir = process.env.CONSULTANT_SCREENSHOT_DIR;
   if (dir) await page.screenshot({ path: `${dir}/risk-list.png`, fullPage: false });
-  await fresh.getByRole('button', { name: riskRow.name }).click();
+  await fresh.getByRole('button', { name: riskRow.name, exact: true }).click();
   const detail = page.getByRole('dialog');
   await expect(detail.getByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeVisible();
   await expect(detail.getByText('接触：1日前 ／ MTG：2026/10/01')).toBeVisible();
@@ -78,7 +78,7 @@ test('危ない案件から開いた案件のページから、危ない案件�
   const params = new URL(page.url()).searchParams;
   expect(params.has('deal')).toBe(false); expect(params.has('from')).toBe(false);
   expect(params.get('owner')).toBe('11');
-  await expect(page.getByRole('button', { name: riskRow.name })).toBeVisible();
+  await expect(page.getByRole('button', { name: riskRow.name, exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '危ない案件に戻る', exact: true })).toHaveCount(0);
 });
 
