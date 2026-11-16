@@ -3,7 +3,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobCopyRecord } from './data';
 import { LifelineChart } from './ListingOverview';
-import { columnWidth, fitsColumn, MIN_COLUMN_PX } from './lifelineModel';
+import { columnWidth, fitsColumn, MAX_COLUMN_PX, MIN_COLUMN_PX } from './lifelineModel';
 import type { Lifeline, LifelineWeek } from './lifelineModel';
 import { addDays } from './timelineModel';
 
@@ -17,9 +17,12 @@ const lifeline = (count: number, value: number | null = 12): Lifeline => ({
 });
 
 describe('列の幅の決まり', () => {
-  it('見えている幅を週の数で割る。最小の幅より狭くしない。測れないときは最小の幅', () => {
-    expect(columnWidth(1600, 2)).toBe(800);
-    expect(columnWidth(1601, 3)).toBe(533);
+  it('見えている幅を週の数で割る。96px より狭くせず、160px より広くしない。測れないときは最小の幅', () => {
+    expect(MAX_COLUMN_PX).toBe(160);
+    expect(columnWidth(1600, 2)).toBe(MAX_COLUMN_PX);
+    expect(columnWidth(1601, 3)).toBe(MAX_COLUMN_PX);
+    expect(columnWidth(1600, 12)).toBe(133);
+    expect(columnWidth(1159.5, 9)).toBe(128);
     expect(columnWidth(1600, 40)).toBe(MIN_COLUMN_PX);
     expect(columnWidth(null, 2)).toBe(MIN_COLUMN_PX);
     expect(columnWidth(0, 2)).toBe(MIN_COLUMN_PX);
@@ -53,15 +56,23 @@ describe('広げた表', () => {
   const scroller = () => document.querySelector<HTMLElement>('.lf-scroll');
   const track = () => document.querySelector<HTMLElement>('.lf-track');
 
-  it('2週の求人は、見えている幅を2で割った幅で横幅いっぱいに広げる', () => {
+  it('2週の求人は上限の 160px で止め、表は左に寄せる（右は空く）', () => {
     visible = 1600;
     render(<LifelineChart lifeline={lifeline(2)} job={job} selectedWeek={1} onSelect={() => undefined} />);
-    expect(track()?.style.getPropertyValue('--lf-col')).toBe('800px');
-    expect(track()?.style.width).toBe('1600px');
-    expect(screen.getByTestId('lifeline-selected').style.left).toBe('800px');
-    expect(screen.getByTestId('lifeline-selected').style.width).toBe('800px');
+    expect(track()?.style.getPropertyValue('--lf-col')).toBe('160px');
+    expect(track()?.style.width).toBe('320px');
+    expect(screen.getByTestId('lifeline-selected').style.left).toBe('160px');
+    expect(screen.getByTestId('lifeline-selected').style.width).toBe('160px');
     expect(document.querySelector<HTMLElement>('.lf-marker-start')?.style.left).toBe('0px');
-    expect(document.querySelector<HTMLElement>('.lf-marker-today')?.style.left).toBe('800px');
+    expect(document.querySelector<HTMLElement>('.lf-marker-today')?.style.left).toBe('160px');
+  });
+  it('12週の求人は、見えている幅を12で割った幅で横幅いっぱいに広げる', () => {
+    visible = 1600;
+    render(<LifelineChart lifeline={lifeline(12)} job={job} selectedWeek={5} onSelect={() => undefined} />);
+    expect(track()?.style.getPropertyValue('--lf-col')).toBe('133px');
+    expect(track()?.style.width).toBe('1596px');
+    expect(screen.getByTestId('lifeline-selected').style.left).toBe('665px');
+    expect(document.querySelector<HTMLElement>('.lf-marker-today')?.style.left).toBe(`${String(11 * 133)}px`);
   });
   it('40週の求人は最小の幅のまま横にスクロールする', () => {
     visible = 1600;
@@ -85,8 +96,8 @@ describe('広げた表', () => {
   });
   it('小数の幅（表示倍率 125% など）は切り捨て、表を見えている幅より広くしない', () => {
     visible = 1159.5;
-    render(<LifelineChart lifeline={lifeline(2)} job={job} selectedWeek={null} onSelect={() => undefined} />);
-    expect(track()?.style.getPropertyValue('--lf-col')).toBe('579px');
+    render(<LifelineChart lifeline={lifeline(9)} job={job} selectedWeek={null} onSelect={() => undefined} />);
+    expect(track()?.style.getPropertyValue('--lf-col')).toBe('128px');
     expect(parseFloat(track()?.style.width ?? '')).toBeLessThanOrEqual(1159.5);
     cleanup();
     visible = 1159.5;

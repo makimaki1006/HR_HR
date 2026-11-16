@@ -12,10 +12,13 @@ import type { BillingEntry } from './timelineModel';
 /** 1週の列の最小の幅。「3・4変更×2」や「¥1.2万」が1行で読める幅。週が多いときはこの幅で横にスクロールする。 */
 export const MIN_COLUMN_PX = 96;
 
-/** 1週の列の幅。見えている幅を週の数で割り、最小の幅より狭くはしない（測れないときは最小の幅）。 */
+/** 1週の列の最大の幅。週が少ないときも、これより広げて間延びさせない（表は左に寄せ、右は空ける）。 */
+export const MAX_COLUMN_PX = 160;
+
+/** 1週の列の幅。見えている幅を週の数で割り、最小の幅と最大の幅の間に収める（測れないときは最小の幅）。 */
 export const columnWidth = (visiblePx: number | null, weekCount: number) => {
   if (!visiblePx || visiblePx <= 0 || weekCount <= 0) return MIN_COLUMN_PX;
-  return Math.max(MIN_COLUMN_PX, Math.floor(visiblePx / weekCount));
+  return Math.min(MAX_COLUMN_PX, Math.max(MIN_COLUMN_PX, Math.floor(visiblePx / weekCount)));
 };
 
 /** 数の文字が列に1行で収まるか（12px で数字・記号は約7px、「,」「.」は約3.5px、日本語は約12px。左右の余白と線の分 10px を引く）。 */
