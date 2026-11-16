@@ -45,9 +45,12 @@ pub const BUILTIN_KEYS: &[&str] = &[
     "duration",
     "avg_duration",
     "appointments",
+    "contacts",
+    "scheduled",
 ];
-/// 設定が無い人の帯 (今までの帯と同じ)
-pub const DEFAULT_ITEMS: &[&str] = &["outbound", "over_90s", "duration", "appointments"];
+/// 設定が無い人の帯。BPO の会議 (2026-11-16) で通話時間より接触・日程設定を重視することになり、
+/// 架電数・接触件数・日程設定件数・アポにした (以前は 架電数・90 秒以上・通話時間・アポ)
+pub const DEFAULT_ITEMS: &[&str] = &["outbound", "contacts", "scheduled", "appointments"];
 /// 自分の項目は 1 人 6 個まで
 pub const MAX_CUSTOM: usize = 6;
 /// 自分の項目の条件の数。HubSpot の Search は 1 つのまとまりに 6 条件までで、

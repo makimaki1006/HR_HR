@@ -114,6 +114,10 @@ pub struct CallerMetrics {
     #[ts(type = "number | null")]
     pub avg_duration_ms: Option<i64>,
     pub appointments: u32,
+    /// 接触件数: 「接触」(bpo_51) が「はい」の取引の数。接触入力者 (bpo_56、空なら担当者) に付ける
+    pub contacts: u32,
+    /// 日程設定件数: 「日程切り」(nitteigiri) が 1 以上の取引の数。付け方は接触件数と同じ
+    pub scheduled: u32,
     /// 最初・最後の架電の時刻 (RFC 3339)
     pub first_call_at: Option<String>,
     pub last_call_at: Option<String>,
@@ -136,6 +140,8 @@ pub struct TeamAverage {
     /// 通話時間の合計 ÷ 通話ありの件数の合計
     pub avg_duration_ms: Option<f64>,
     pub appointments: f64,
+    pub contacts: f64,
+    pub scheduled: f64,
     /// 着信の 1 人あたり (帯の項目を自分で選んだときに出す)
     pub inbound: f64,
 }
@@ -307,6 +313,15 @@ pub fn aggregate<'a>(
         .collect()
 }
 
+/// 「今月」の帯を主にするか。新規営業のチームの人だけ。BPO のチームにも入っている人は今日のまま
+/// (BPO の会議 2026-11-16: BPO は月間でなく日次の実績を見る)
+pub fn month_view_for(teams: &[String]) -> bool {
+    super::caller_metrics_month::is_sales(teams)
+        && !teams
+            .iter()
+            .any(|t| APPOINTMENT_TEAMS.contains(&t.as_str()))
+}
+
 /// 集団に入れる人 = 今日 1 件以上架電した人
 pub fn is_caller(m: &CallerMetrics) -> bool {
     m.outbound >= 1
@@ -340,6 +355,8 @@ pub fn average(pop: &[&CallerMetrics]) -> Option<TeamAverage> {
         total_duration_ms: dur / n,
         avg_duration_ms: (talked > 0.0).then(|| dur / talked),
         appointments: sum(|m| m.appointments) / n,
+        contacts: sum(|m| m.contacts) / n,
+        scheduled: sum(|m| m.scheduled) / n,
         inbound: sum(|m| m.inbound) / n,
     })
 }
@@ -577,6 +594,84 @@ pub(super) async fn fetch_calls(
 /// 取引 1 件のアポを付ける owner ID。アポ獲得者 (`bpo_26`) を優先し、空なら担当者
 pub fn appointment_owner(properties: &Value) -> Option<&str> {
     prop_str(properties, APPOINTER_PROPERTY).or_else(|| prop_str(properties, "hubspot_owner_id"))
+}
+
+/// 接触・日程切りを数えるパイプライン (bpo_リクロジ)。現場が取引ごとに付け、毎日夕方に一括で空に戻す
+pub const FLAG_PIPELINE: &str = "753186575";
+/// 「接触」(はい = `true`)。HubSpot の説明は「接触カウント用」
+pub const CONTACT_PROPERTY: &str = "bpo_51";
+/// 「接触入力者」(担当者型)。「接触」を付けるとワークフローが入れる
+pub const CONTACT_BY_PROPERTY: &str = "bpo_56";
+/// 「日程切り」(数。同じ取引で 1、2、3… と増える)
+pub const SCHEDULE_PROPERTY: &str = "nitteigiri";
+
+/// 接触・日程切りを付ける owner ID。接触入力者を優先し、空なら担当者
+pub fn flag_owner(properties: &Value) -> Option<&str> {
+    prop_str(properties, CONTACT_BY_PROPERTY).or_else(|| prop_str(properties, "hubspot_owner_id"))
+}
+
+/// 接触件数・日程設定件数を人ごとの数字に入れる。架電の無い人も 1 行になる (集団には入らない)
+pub fn apply_flags(
+    all: &mut HashMap<String, CallerMetrics>,
+    contacts: &HashMap<String, u32>,
+    scheduled: &HashMap<String, u32>,
+) {
+    for (o, n) in contacts {
+        all.entry(o.clone()).or_default().contacts = *n;
+    }
+    for (o, n) in scheduled {
+        all.entry(o.clone()).or_default().scheduled = *n;
+    }
+}
+
+/// `flag` に合う bpo_リクロジ の取引を、接触入力者 (空なら担当者) ごとに数える。
+/// 夕方に空へ戻し忘れた前の日の値を数えないよう、今日更新された取引だけを見る
+async fn fetch_flag_counts(
+    client: &HubSpotClient,
+    flag: Value,
+    day_start: i64,
+    searches: &mut u32,
+) -> Result<HashMap<String, u32>, HubSpotError> {
+    let mut by: HashMap<String, u32> = HashMap::new();
+    let mut after: Option<String> = None;
+    loop {
+        *searches += 1;
+        if *searches > MAX_SEARCHES {
+            return Err(HubSpotError::Decode("too many searches".into()));
+        }
+        let mut body = json!({
+            "filterGroups": [{"filters": [
+                flag.clone(),
+                flt("pipeline", "EQ", json!(FLAG_PIPELINE)),
+                flt("hs_lastmodifieddate", "GTE", json!(day_start.to_string())),
+            ]}],
+            "properties": ["hubspot_owner_id", CONTACT_BY_PROPERTY],
+            "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
+            "limit": PAGE,
+        });
+        if let Some(a) = &after {
+            body["after"] = json!(a);
+        }
+        let v = client.search("deals", body).await?;
+        let results = v
+            .get("results")
+            .and_then(Value::as_array)
+            .ok_or_else(|| HubSpotError::Decode("deals without results".into()))?;
+        for r in results {
+            if let Some(o) = r.get("properties").and_then(flag_owner) {
+                *by.entry(o.to_string()).or_default() += 1;
+            }
+        }
+        match v
+            .pointer("/paging/next/after")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            Some(n) => after = Some(n.to_string()),
+            None => break,
+        }
+    }
+    Ok(by)
 }
 
 /// 今日アポ日確定に入った取引をアポ獲得者 (空なら担当者) ごとに数える
@@ -897,6 +992,20 @@ async fn refresh(
         }
     };
     let apo = fetch_appointments(&bg, start, end, &mut searches).await?;
+    let contacts = fetch_flag_counts(
+        &bg,
+        flt(CONTACT_PROPERTY, "EQ", json!("true")),
+        start,
+        &mut searches,
+    )
+    .await?;
+    let scheduled = fetch_flag_counts(
+        &bg,
+        flt(SCHEDULE_PROPERTY, "GTE", json!("1")),
+        start,
+        &mut searches,
+    )
+    .await?;
     store.merge(rows);
     store.last_fetch_start = Some(now);
     tracing::info!(
@@ -904,10 +1013,12 @@ async fn refresh(
         calls = store.len(),
         "crm caller metrics refreshed"
     );
+    let mut all = aggregate(store.calls.values(), &apo);
+    apply_flags(&mut all, &contacts, &scheduled);
     Ok(Snapshot {
         day,
         as_of: now,
-        all: aggregate(store.calls.values(), &apo),
+        all,
     })
 }
 
@@ -1010,9 +1121,7 @@ pub(super) async fn get_today(
         population: label.to_string(),
         team_names: viewer_teams,
         appointments_tracked,
-        month_view: me_ref
-            .as_ref()
-            .is_some_and(|o| super::caller_metrics_month::is_sales(&o.teams)),
+        month_view: me_ref.as_ref().is_some_and(|o| month_view_for(&o.teams)),
         message,
     })
     .into_response()

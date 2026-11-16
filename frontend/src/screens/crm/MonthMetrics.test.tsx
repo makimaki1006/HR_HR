@@ -13,10 +13,10 @@ describe('新規営業の今月の帯', () => {
     render(<TodayMetrics fixture={false} fetcher={ok(FIXTURE_TODAY_SALES)} monthFetcher={ok(FIXTURE_MONTH)} />);
     await screen.findByText('10月の成績');
     const outbound = screen.getByTestId('metric-outbound');
-    expect(outbound.textContent).toBe('架電数812（チーム平均 760.4・3位/14人）今日 52');
+    expect(outbound.textContent).toBe('架電数812（チーム平均 760.4）今日 52');
     expect(screen.getByTestId('metric-today').textContent).toBe('今日 52');
-    expect(screen.getByTestId('metric-duration').textContent).toBe('通話時間10:15:00・1件 2:03（チーム平均 9:30:00・2位/14人）');
-    expect(screen.getByTestId('metric-appointments').textContent).toBe('アポ9（チーム平均 6.2・1位/14人）');
+    expect(screen.getByTestId('metric-duration').textContent).toBe('通話時間10:15:00・1件 2:03（チーム平均 9:30:00）');
+    expect(screen.getByTestId('metric-appointments').textContent).toBe('アポ9（チーム平均 6.2）');
     expect(screen.getByText('10月の成績')).toBeTruthy();
     expect(screen.queryByText('90秒以上')).toBeNull();
     expect(screen.queryByText('今日の成績')).toBeNull();
@@ -26,9 +26,9 @@ describe('新規営業の今月の帯', () => {
   it('BPO の人は今日の帯のまま。今月は読みにいかない', async () => {
     const month = vi.fn(ok(FIXTURE_MONTH));
     render(<TodayMetrics fixture={false} fetcher={ok(FIXTURE_TODAY)} monthFetcher={month} />);
-    expect((await screen.findByTestId('metric-outbound')).textContent).toBe('架電数52（チーム平均 47.5・3位/8人）着信 3');
+    expect((await screen.findByTestId('metric-outbound')).textContent).toBe('架電数52（チーム平均 47.5）着信 3');
     expect(screen.getByText('今日の成績')).toBeTruthy();
-    expect(screen.getByTestId('metric-over_90s')).toBeTruthy();
+    expect(screen.getByTestId('metric-contacts')).toBeTruthy();
     expect(month).not.toHaveBeenCalled();
   });
 
@@ -61,11 +61,11 @@ describe('今月の表示用の計算', () => {
     expect(monthStripItems({ ...FIXTURE_MONTH, me: null })).toBeNull();
   });
 
-  it('順位なしの人は「順位なし」', () => {
+  it('比べる文に順位は出さない', () => {
     const me = FIXTURE_MONTH.me;
     if (me === null) throw new Error('fixture');
     const items = monthStripItems({ ...FIXTURE_MONTH, me: { ...me, rank: { outbound: null, total_duration: null, appointments: null, avg_duration: null } } });
-    expect(items?.[0]?.compare).toBe('チーム平均 760.4・順位なし');
+    expect(items?.[0]?.compare).toBe('チーム平均 760.4');
   });
 
   it('管理者の表の並べ替え。値の無い行は最後', () => {

@@ -118,11 +118,11 @@ fn prefs_with(custom: Vec<CustomMetricDef>) -> MetricPrefs {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 既定は今までの帯と同じ4項目で_自分の項目は無い() {
+fn 既定は架電数_接触件数_日程設定件数_アポの4項目で_自分の項目は無い() {
     let p = MetricPrefs::default();
     assert_eq!(
         p.items,
-        ["outbound", "over_90s", "duration", "appointments"]
+        ["outbound", "contacts", "scheduled", "appointments"]
     );
     assert!(p.custom.is_empty());
     assert!(validate_shape(&p).is_ok());
@@ -883,7 +883,7 @@ async fn 監査dbが無いとき_帯は既定で_設定は案内_保存は503() 
     assert_eq!(v["saved"], false);
     assert_eq!(
         v["prefs"]["items"],
-        json!(["outbound", "over_90s", "duration", "appointments"])
+        json!(["outbound", "contacts", "scheduled", "appointments"])
     );
     assert_eq!(v["message"], UNAVAILABLE_MESSAGE);
     let (s, v) = send(

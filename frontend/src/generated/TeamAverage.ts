@@ -11,7 +11,7 @@ rate_30s: number | null, rate_60s: number | null, rate_90s: number | null, rate_
 /**
  * 通話時間の合計 ÷ 通話ありの件数の合計
  */
-avg_duration_ms: number | null, appointments: number, 
+avg_duration_ms: number | null, appointments: number, contacts: number, scheduled: number, 
 /**
  * 着信の 1 人あたり (帯の項目を自分で選んだときに出す)
  */

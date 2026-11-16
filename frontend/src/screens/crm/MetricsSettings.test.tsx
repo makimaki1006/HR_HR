@@ -47,18 +47,18 @@ const shownList = () => within(screen.getByRole('list', { name: '出す項目' }
 describe('帯の項目の設定パネル', () => {
   it('出す項目を並べ替え・隠し、保存のときだけ 1 回送る', async () => {
     const onSave = settingsPanel();
-    expect(shownList()).toEqual(['架電数', '90秒以上', '通話時間', 'アポ']);
-    fireEvent.click(screen.getByRole('button', { name: '通話時間を上へ' }));
-    expect(shownList()).toEqual(['架電数', '通話時間', '90秒以上', 'アポ']);
+    expect(shownList()).toEqual(['架電数', '接触件数', '日程設定件数', 'アポ']);
+    fireEvent.click(screen.getByRole('button', { name: '日程設定件数を上へ' }));
+    expect(shownList()).toEqual(['架電数', '日程設定件数', '接触件数', 'アポ']);
     fireEvent.click(screen.getByRole('checkbox', { name: 'アポを帯に出す' }));
-    expect(shownList()).toEqual(['架電数', '通話時間', '90秒以上']);
+    expect(shownList()).toEqual(['架電数', '日程設定件数', '接触件数']);
     // 出さない項目から 60 秒以上を出す (最後に足す)
     fireEvent.click(screen.getByRole('checkbox', { name: '60秒以上を帯に出す' }));
-    expect(shownList()).toEqual(['架電数', '通話時間', '90秒以上', '60秒以上']);
+    expect(shownList()).toEqual(['架電数', '日程設定件数', '接触件数', '60秒以上']);
     expect(onSave).not.toHaveBeenCalled();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存' })); await Promise.resolve(); });
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave).toHaveBeenCalledWith({ items: ['outbound', 'duration', 'over_90s', 'over_60s'], custom: [] });
+    expect(onSave).toHaveBeenCalledWith({ items: ['outbound', 'scheduled', 'contacts', 'over_60s'], custom: [] });
     expect(screen.getByText('保存しました')).toBeTruthy();
   });
 
@@ -85,7 +85,7 @@ describe('帯の項目の設定パネル', () => {
     expect(screen.getByText('最終架電日 今月')).toBeTruthy();
     expect(screen.getByText('条件はあと 4 個です')).toBeTruthy();
     fireEvent.click(decide);
-    expect(shownList()).toEqual(['架電数', '90秒以上', '通話時間', 'アポ', '今月の金額']);
+    expect(shownList()).toEqual(['架電数', '接触件数', '日程設定件数', 'アポ', '今月の金額']);
     expect(screen.getByText('自分の項目・合計')).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存' })); await Promise.resolve(); });
     const saved = onSave.mock.calls[0]?.[0];
@@ -140,13 +140,13 @@ describe('帯の自分の項目', () => {
   it('もともとの項目と同じ見た目で、設定の並びに出す。合計は桁区切り', async () => {
     render(<TodayMetrics fixture={false} fetcher={ok(FIXTURE_TODAY)} prefsApi={memoryPrefsApi({ prefs: WITH_CUSTOM, saved: true, available: true, message: null })}
       customFetcher={() => ok(customResponse())} settings={settings} />);
-    await waitFor(() => { expect(screen.getByTestId('metric-c-absent').textContent).toBe('不在12（チーム平均 9.5・3位/8人）'); });
-    expect(screen.getByTestId('metric-c-amount').textContent).toBe('今月の金額1,250,000（チーム平均 980,000・2位/8人）');
+    await waitFor(() => { expect(screen.getByTestId('metric-c-absent').textContent).toBe('不在12（チーム平均 9.5）'); });
+    expect(screen.getByTestId('metric-c-amount').textContent).toBe('今月の金額1,250,000（チーム平均 980,000）');
     const keys = [...screen.getByTestId('today-metrics').querySelectorAll('.tm-item')].map(li => li.getAttribute('data-testid'));
     expect(keys).toEqual(['metric-outbound', 'metric-c-absent', 'metric-duration', 'metric-c-amount']);
     // 外した 90 秒以上・アポは出ない
     expect(screen.queryByTestId('metric-over_90s')).toBeNull();
-    expect(screen.getByTestId('metric-c-amount').querySelector('.tm-cmp')?.getAttribute('data-short')).toBe('（平均980,000・2位/8）');
+    expect(screen.getByTestId('metric-c-amount').querySelector('.tm-cmp')?.getAttribute('data-short')).toBe('（平均980,000）');
   });
 
   it('件数が多すぎる項目は数字を出さず理由を出す。少し前の値には印を付ける', async () => {
@@ -176,7 +176,7 @@ describe('帯の自分の項目', () => {
     render(<TodayMetrics fixture={false} fetcher={ok(FIXTURE_TODAY)} prefsApi={api} settings={settings} />);
     await screen.findByTestId('metric-outbound');
     expect([...screen.getByTestId('today-metrics').querySelectorAll('.tm-item')].map(li => li.getAttribute('data-testid')))
-      .toEqual(['metric-outbound', 'metric-over_90s', 'metric-duration', 'metric-appointments']);
+      .toEqual(['metric-outbound', 'metric-contacts', 'metric-scheduled', 'metric-appointments']);
     fireEvent.click(screen.getByRole('button', { name: '⚙ 項目' }));
     expect(screen.getByTestId('metrics-settings').textContent).toContain('いまは項目の設定を読み書きできません。');
   });
@@ -184,7 +184,7 @@ describe('帯の自分の項目', () => {
   it('設定を読めない (通信の失敗) ときも標準の項目で出す', async () => {
     const api: PrefsApi = { load: () => Promise.resolve({ ok: false, error: new ApiHttpError(500) }), save: () => Promise.resolve({ ok: false, error: new ApiHttpError(500) }) };
     render(<TodayMetrics fixture={false} fetcher={ok(FIXTURE_TODAY)} prefsApi={api} settings={settings} />);
-    expect((await screen.findByTestId('metric-appointments')).textContent).toBe('アポ2（チーム平均 1.1・1位/8人）');
+    expect((await screen.findByTestId('metric-appointments')).textContent).toBe('アポ2（チーム平均 1.1）');
   });
 
   it('保存すると新しい設定で帯が変わり、自分の項目を読み直す', async () => {
@@ -210,10 +210,10 @@ describe('自分の項目の表示の計算', () => {
     expect(formatMetricNumber(1234.56)).toBe('1,234.6');
     expect(formatMetricNumber(null)).toBe('-');
   });
-  it('全員と比べるときは「全体平均」、順位なしは「順位なし」', () => {
+  it('全員と比べるときは「全体平均」、順位は出さない', () => {
     const v = customResponse([{ rank: null }]).items[0];
     if (!v) throw new Error('fixture');
-    expect(customStripItem(v, { population: 'all' }).compare).toBe('全体平均 9.5・順位なし');
+    expect(customStripItem(v, { population: 'all' }).compare).toBe('全体平均 9.5');
   });
   it('数字の応答が来るまでは集計中、読めなかったら理由', () => {
     const builtin: never[] = [];

@@ -33,19 +33,26 @@ describe('割合・平均・時刻', () => {
 });
 
 describe('stripItems', () => {
-  it('各項目が「自分の値（チーム平均・順位/人数）」にそろう', () => {
+  it('各項目が「自分の値（チーム平均）」にそろい、順位は出さない', () => {
     const items = stripItems(FIXTURE_TODAY);
-    expect(items?.map(i => [i.key, i.label, i.value, i.compare, i.extra])).toEqual([
-      ['outbound', '架電数', '52', 'チーム平均 47.5・3位/8人', '着信 3'],
-      ['over_90s', '90秒以上', '11・21.2%', 'チーム平均 8.4・2位/8人', null],
-      ['duration', '通話時間', '55:12・1件 2:18', 'チーム平均 44:00・2位/8人', null],
-      ['appointments', 'アポ', '2', 'チーム平均 1.1・1位/8人', null],
+    expect(items?.map(i => [i.key, i.label, i.value, i.compare, i.compareShort, i.extra])).toEqual([
+      ['outbound', '架電数', '52', 'チーム平均 47.5', '平均47.5', '着信 3'],
+      ['contacts', '接触件数', '14', 'チーム平均 11.3', '平均11.3', null],
+      ['scheduled', '日程設定件数', '9', 'チーム平均 6.8', '平均6.8', null],
+      ['appointments', 'アポ', '2', 'チーム平均 1.1', '平均1.1', null],
+    ]);
+  });
+  it('並びを選べば秒数・通話時間も出せる', () => {
+    const items = stripItems(FIXTURE_TODAY, ['over_90s', 'duration']);
+    expect(items?.map(i => [i.key, i.value, i.compare])).toEqual([
+      ['over_90s', '11・21.2%', 'チーム平均 8.4'],
+      ['duration', '55:12・1件 2:18', 'チーム平均 44:00'],
     ]);
   });
   it('比較が全員に落ちたら「全体平均」', () => {
     const items = stripItems({ ...FIXTURE_TODAY, population: 'all' });
-    expect(items?.[0]?.compare).toBe('全体平均 47.5・3位/8人');
-    expect(items?.[0]?.compareShort).toBe('平均47.5・3位/8');
+    expect(items?.[0]?.compare).toBe('全体平均 47.5');
+    expect(items?.[0]?.compareShort).toBe('平均47.5');
   });
   it('本人が引けなければ null', () => {
     expect(stripItems({ ...FIXTURE_TODAY, me: null })).toBeNull();
