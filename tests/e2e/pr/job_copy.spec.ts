@@ -556,7 +556,10 @@ test('ライフラインの変更印は週でまとまり、キーボードで�
   await expect(opened.locator('.lo-num')).toHaveText('4');
   await expect(opened.locator('.lo-summary')).toContainText('本文を変更');
   await expect(opened).toBeInViewport();
-  await expect(chart.getByTestId('lifeline-selected')).toHaveCSS('left', '392px');
+  // 選んだ週（8週目）の印は、列の幅 × 7 の位置。列の幅は画面の幅で変わるので、実際の列の幅から求める。
+  const column = await chart.locator('.lf-head .lf-cell').first().evaluate(element => element.getBoundingClientRect().width);
+  expect(column).toBeGreaterThanOrEqual(96);
+  await expect(chart.getByTestId('lifeline-selected')).toHaveCSS('left', `${String(column * 7)}px`);
   await marks.nth(0).focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.lo-event.lo-open .lo-date')).toHaveText('8/10');

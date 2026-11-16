@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CopyVersion, JobCopyRecord } from './data';
 import { LifelineChart, ListingOverview, ListingReasons } from './ListingOverview';
-import { buildLifeline, changeMarkerLabel, COLUMN_PX, weekIndex } from './lifelineModel';
+import { buildLifeline, changeMarkerLabel, MIN_COLUMN_PX, weekIndex } from './lifelineModel';
 import { applicationEvents, applicantText, buildListingEvents, statusTimeline } from './listingEventsModel';
 import type { BillingEntry } from './timelineModel';
 
@@ -124,7 +124,7 @@ describe('画面', () => {
     const lifeline = screen.getByTestId('lifeline');
     for (const label of ['課金（週）', '閲覧数（表示回数）', 'クリック数', '応募数（HubSpot に記録された応募日）', '応募数（Indeedの集計）']) expect(lifeline.textContent).toContain(label);
     expect(screen.getByRole('row', { name: '課金（週）' }).textContent).toContain('¥0');
-    expect(COLUMN_PX).toBe(56);
+    expect(MIN_COLUMN_PX).toBe(96);
   });
   it('応募の出来事を開くと、その人の応募理由が出る', () => {
     const reasons = { ...job, applicantReasons: { available: true, basis: 'b', fetchedAt: '2026-07-13T00:00:00Z', totalApplicants: 3, totalSourceValues: 0, sourceCounts: {}, missing: 0, blank: 0, truncated: false, selections: [], optionLabels: 'read' as const,

@@ -102,7 +102,8 @@ describe('求人の画面（案3-2）', () => {
     expect(screen.queryByTestId('lifeline-selected')).toBeNull();
     fireEvent.click(query('.lo-event-head'));
     const mark = screen.getByTestId('lifeline-selected');
-    expect(mark.style.width).toBe('56px');
+    // 幅を測れないテスト環境では、列は最小の幅（96px）になる。
+    expect(mark.style.width).toBe('96px');
     // 「—」（取れていない）と「0」（0件）を見分けられるよう、表の下に1行で書く。
     expect(screen.getByTestId('lifeline-legend').textContent).toBe('「—」はデータを取れていない週、「0」は0件の週です。');
     expect(query('.lo-event.lo-open .lo-num').textContent).toBe('5');
