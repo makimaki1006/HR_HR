@@ -101,7 +101,8 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return undefined;
-    const measure = () => { setVisible(element.clientWidth || null); };
+    // clientWidth は整数に丸める（1159.5 → 1160 もある）ので、表示倍率によっては表が 0.5px はみ出して要らない横スクロールが出る。実寸を切り捨てて使う。
+    const measure = () => { setVisible(Math.floor(element.getBoundingClientRect().width) || null); };
     measure();
     if (typeof ResizeObserver === 'undefined') return undefined;
     const observer = new ResizeObserver(measure);
@@ -110,7 +111,10 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
   }, []);
   const column = columnWidth(visible, lifeline.weeks.length);
   const width = lifeline.weeks.length * column;
-  useEffect(() => { const element = scroller.current; if (element) element.scrollLeft = element.scrollWidth; }, [lifeline.weeks.length, job.id, column]);
+  // 最新の週へ寄せるのは、求人・週の数が変わったときと、最初に幅を測れたとき（非表示で作られて表示されたときを含む）だけ。
+  // 幅が変わっただけでは寄せない（手で動かした位置を保つ）。
+  const measured = visible !== null;
+  useEffect(() => { const element = scroller.current; if (element) element.scrollLeft = element.scrollWidth; }, [lifeline.weeks.length, job.id, measured]);
   useEffect(() => {
     const element = scroller.current;
     if (element && selectedWeek !== null) element.scrollLeft = Math.max(0, selectedWeek * column - element.clientWidth / 2 + column / 2);

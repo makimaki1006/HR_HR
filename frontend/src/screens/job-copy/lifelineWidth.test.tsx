@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobCopyRecord } from './data';
 import { LifelineChart } from './ListingOverview';
@@ -35,10 +35,22 @@ describe('列の幅の決まり', () => {
 
 describe('広げた表', () => {
   let visible = 0;
+  let resize: (() => void)[] = [];
   beforeEach(() => {
-    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('lf-scroll') ? visible : 0; });
+    resize = [];
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const width = this.classList.contains('lf-scroll') ? visible : 0;
+      return { width, height: 0, x: 0, y: 0, top: 0, left: 0, right: width, bottom: 0, toJSON: () => ({}) };
+    });
+    // 表の幅（見えていないときは 0）。最新の週へ寄せるときの位置になる。
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('lf-scroll') && visible > 0 ? parseFloat(this.querySelector<HTMLElement>('.lf-track')?.style.width ?? '0') : 0;
+    });
+    vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { resize.push(callback); } observe() { /* テストでは手で呼ぶ */ } disconnect() { /* なし */ } });
   });
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  const fireResize = () => { act(() => { for (const callback of resize) callback(); }); };
+  const scroller = () => document.querySelector<HTMLElement>('.lf-scroll');
   const track = () => document.querySelector<HTMLElement>('.lf-track');
 
   it('2週の求人は、見えている幅を2で割った幅で横幅いっぱいに広げる', () => {
@@ -70,6 +82,39 @@ describe('広げた表', () => {
     const narrow = screen.getByRole('row', { name: '課金（週）' }).querySelector('.lf-cell');
     expect(narrow?.textContent).toBe('¥988億');
     expect(narrow?.getAttribute('title')).toBe('¥98,765,432,100');
+  });
+  it('小数の幅（表示倍率 125% など）は切り捨て、表を見えている幅より広くしない', () => {
+    visible = 1159.5;
+    render(<LifelineChart lifeline={lifeline(2)} job={job} selectedWeek={null} onSelect={() => undefined} />);
+    expect(track()?.style.getPropertyValue('--lf-col')).toBe('579px');
+    expect(parseFloat(track()?.style.width ?? '')).toBeLessThanOrEqual(1159.5);
+    cleanup();
+    visible = 1159.5;
+    render(<LifelineChart lifeline={lifeline(7)} job={job} selectedWeek={null} onSelect={() => undefined} />);
+    expect(parseFloat(track()?.style.width ?? '')).toBeLessThanOrEqual(1159.5);
+  });
+  it('幅が変わっても、手で動かした位置を最新の週へ戻さない', () => {
+    visible = 1600;
+    render(<LifelineChart lifeline={lifeline(15)} job={job} selectedWeek={null} onSelect={() => undefined} />);
+    expect(track()?.style.getPropertyValue('--lf-col')).toBe('106px');
+    const element = scroller();
+    if (!element) throw new Error('表がありません');
+    element.scrollLeft = 50;
+    visible = 1200;
+    fireResize();
+    expect(track()?.style.getPropertyValue('--lf-col')).toBe(`${String(MIN_COLUMN_PX)}px`);
+    expect(element.scrollLeft).toBe(50);
+  });
+  it('見えない状態で作られて表示されたら、最新の週が見える位置へ寄せる', () => {
+    visible = 0;
+    render(<LifelineChart lifeline={lifeline(40)} job={job} selectedWeek={null} onSelect={() => undefined} />);
+    const element = scroller();
+    if (!element) throw new Error('表がありません');
+    expect(element.scrollLeft).toBe(0);
+    visible = 1160;
+    fireResize();
+    expect(track()?.style.getPropertyValue('--lf-col')).toBe(`${String(MIN_COLUMN_PX)}px`);
+    expect(element.scrollLeft).toBe(40 * MIN_COLUMN_PX);
   });
   it('測れないときは最小の幅', () => {
     visible = 0;
