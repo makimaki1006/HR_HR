@@ -66,22 +66,22 @@ describe('上の帯の掲載の期間', () => {
     vi.useFakeTimers({ now: new Date('2026-11-12T03:00:00Z'), toFake: ['Date'] });
     try {
       render(<DetailBand job={job} billing={billing} listingStart="2026-06-10" listingEnd={null} onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載中（6/10〜）');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー\u00a0・ 掲載中（6/10〜）');
       cleanup();
       render(<DetailBand job={job} billing={billing} onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載中');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー\u00a0・ 掲載中');
       cleanup();
       // 掲載中なのに終了日がある組み合わせ: 終了日は出さない
       render(<DetailBand job={job} billing={billing} listingStart="2026-06-10" listingEnd="2026-09-01" onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載中（6/10〜）');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー\u00a0・ 掲載中（6/10〜）');
       cleanup();
       const ended: JobCopyRecord = { ...job, listingPublicationStatus: '非公開' };
       render(<DetailBand job={ended} billing={billing} listingStart="2026-06-10" listingEnd="2026-09-01" onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載終了（6/10〜9/1）');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー\u00a0・ 掲載終了（6/10〜9/1）');
       cleanup();
       // 掲載終了なのに終了の出来事が無い組み合わせ
       render(<DetailBand job={ended} billing={billing} listingStart="2026-06-10" listingEnd={null} onOpenFullCompare={() => undefined} />);
-      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー ・ 掲載終了（6/10〜、終了日の記録なし）');
+      expect(screen.getByTestId('band-status').textContent).toBe('HRハッカー\u00a0・ 掲載終了（6/10〜、終了日の記録なし）');
     } finally { vi.useRealTimers(); }
   });
 });

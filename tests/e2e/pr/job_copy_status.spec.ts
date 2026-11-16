@@ -41,9 +41,9 @@ for (const width of [1440, 1920]) test(`公開状況・空白だけの本文比�
   await selector.getByRole('button', { name: /^すべて/ }).click();
   await expect(panel.locator('.jc-hubspot-job')).toHaveCount(4);
   expect(new URL(page.url()).searchParams.get('status')).toBe('all');
-  await expect(page.locator('.jc-detail-heading')).toContainText('公開状況：掲載中');
-  await expect(page.locator('.jc-detail-heading')).toContainText('本文：前の本文と同じ');
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await expect(page.getByTestId('band-status')).toContainText('掲載中');
+  await expect(page.getByTestId('band-body-state')).toHaveText('本文：前の本文と同じ');
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.locator('.jc-listing-popup-summary > div').filter({ has: page.locator('dt', { hasText: '公開状況' }) }).locator('dd')).toHaveText('掲載中');
   // 小窓は今の内容だけ。前の本文との比較は全文比較で行い、空白だけの違いは上部の「前の本文と同じ」と同じく変更にしない
@@ -69,7 +69,7 @@ for (const width of [1440, 1920]) test(`公開状況・空白だけの本文比�
   await page.keyboard.press('Escape');
   single = true;
   await page.reload();
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   await expect(dialog.locator('.jc-listing-two-columns')).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: '前の本文と全文を比べる' })).toHaveCount(0);
   await expect(dialog).toContainText('本文以外の補足条件・公開状況は現在の取得値です');
@@ -97,12 +97,12 @@ for (const width of [1440, 1920]) test(`AirWorkの改行コードと空白だけ
     after = text;
     await page.goto('/app/job-copy?listing=1');
     await findListings(page);
-    await expect(page.locator('.jc-detail-heading .jc-badge')).toHaveText('本文：前の本文と同じ');
+    await expect(page.getByTestId('band-body-state')).toHaveText('本文：前の本文と同じ');
     if (width === 1440 && text === '棚から集めます。\n箱に詰めます。') {
       await mkdir(shots, { recursive: true });
       await page.screenshot({ path: `${shots}/06-airwork-body-summary.png` });
     }
-    await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+    await page.getByRole('button', { name: '求人の内容', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.locator('.jc-listing-change-dot, mark')).toHaveCount(0);
     // 小窓は今の本文（後の本文）だけ
@@ -121,8 +121,8 @@ for (const width of [1440, 1920]) test(`AirWorkの改行コードと空白だけ
   after = '棚から集めます。\n箱に詰め、伝票を確認します。';
   await page.goto('/app/job-copy?listing=1');
   await findListings(page);
-  await expect(page.locator('.jc-detail-heading .jc-badge')).toHaveText('本文：前の本文から内容が変わっています');
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await expect(page.getByTestId('band-body-state')).toHaveText('本文：前の本文から内容が変わっています');
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: '前の本文と全文を比べる' }).click();
   await expect(page.getByRole('dialog', { name: '求人の全文を比べる' }).getByRole('status')).toContainText('項目のうち 1 項目が違います');

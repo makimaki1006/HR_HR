@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { JobCopyRecord } from './data';
 import { RetryApplicants } from './RetryApplicants';
@@ -32,13 +32,17 @@ function DataLine({ job, n }: { job: JobCopyRecord; n: ReturnType<typeof bandNum
   </p>;
 }
 
+/** 帯の求人名の下の行の区切り。「・」の前では改行しない。 */
+const SEP = '\u00a0・ ';
+
 /** 詳細を縦にスクロールしても見え続ける上の帯。 */
-export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpenLatest, listingStart = null, listingEnd = null, version = null }: { job: JobCopyRecord; billing: readonly BillingEntry[] | undefined; onOpenFullCompare: () => void; /** いちばん新しい変更（応募は含めない）。 */ latestEvent?: { date: string; title: string } | null; onOpenLatest?: () => void; /** 掲載を始めた日（出来事の「掲載を開始」と同じ日）。分からないとき null。 */ listingStart?: string | null; /** 掲載を終えた日。掲載中なら null。 */ listingEnd?: string | null; /** 表示中の本文の短い名前（「11/13 の本文（最新）」）と、正確な日時の説明。 */ version?: { label: string; detail: ReactNode } | null }) {
+export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpenLatest, listingStart = null, listingEnd = null, version = null, onOpenListing, reportHref = null, bodyState = null }: { job: JobCopyRecord; billing: readonly BillingEntry[] | undefined; onOpenFullCompare: () => void; /** いちばん新しい変更（応募は含めない）。 */ latestEvent?: { date: string; title: string } | null; onOpenLatest?: () => void; /** 掲載を始めた日（出来事の「掲載を開始」と同じ日）。分からないとき null。 */ listingStart?: string | null; /** 掲載を終えた日。掲載中なら null。 */ listingEnd?: string | null; /** 表示中の本文の短い名前（「11/13 の本文（最新）」）と、正確な日時の説明。 */ version?: { label: string; detail: ReactNode } | null; /** 「求人の内容 ▸」で求人の内容の小窓を開く。 */ onOpenListing?: () => void; /** 報告書の画面（HubSpot の求人だけ）。 */ reportHref?: string | null; /** 本文の状態（「前の本文と同じ」など）。押せない小さな文字で出す。 */ bodyState?: string | null }) {
   const n = bandNumbers(job, billing);
   const label = job.dataSource === 'hubspot' ? publicationLabel(job.listingPublicationStatus ?? null) : null;
   // 終了日は、今の公開状況が「掲載終了」のときだけ出す（掲載中なら、過去の終了の出来事があっても出さない）。
   const period = listingPeriodText(listingStart, listingEnd, todayJst(), label === '掲載終了');
-  const status = label !== null ? `${label}${period}` : period ? `掲載${period}` : '';
+  // 公開状況が分からないときは「不明」だけだと何のことか分からないので、「公開状況：」を付ける。
+  const status = label !== null ? `${label === '不明' ? '公開状況：不明' : label}${period}` : period ? `掲載${period}` : '';
   const band = useRef<HTMLDivElement>(null);
   // 帯の実際の高さを --jc-band-h に持たせ、下の固定見出しの位置をそこから決める
   useEffect(() => {
@@ -52,10 +56,16 @@ export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpe
     return () => { observer.disconnect(); host.style.removeProperty('--jc-band-h'); };
   }, []);
   const parts = [job.media, status].filter(Boolean);
+  // 会社・地域は帯の求人名の下の行に、媒体・公開状況の前に出す（見出しの行をなくしたため）。
+  const places = [job.company, job.location].filter((item): item is string => Boolean(item));
+  const statusLine = [...places, ...parts, version?.label].filter(Boolean).join(' ・ ');
   return <div className="jc-band" ref={band} role="region" aria-label="この求人の要点">
     <div className="jc-band-name"><h1 title={job.title}>{job.title}</h1>
-      <span className="jc-band-status"><span data-testid="band-status">{parts.join(' ・ ')}</span>
-        {version && <>{parts.length > 0 && <span aria-hidden="true"> ・ </span>}<InfoTip className="jc-infotip-left jc-band-version" label={<span data-testid="band-version">{version.label}</span>}>{version.detail}</InfoTip></>}</span></div>
+      {/* 幅が足りないときは「・」の区切りの後ろで折り返す（言葉の途中で切らず、「…」で隠さない）。 */}
+      <span className="jc-band-status" title={statusLine}>
+        {places.length > 0 && <><span data-testid="band-place">{places.map((place, index) => <Fragment key={index}>{index > 0 && SEP}<span className="jc-band-word">{place}</span></Fragment>)}</span>{(parts.length > 0 || version) && <span aria-hidden="true">{SEP}</span>}</>}
+        <span data-testid="band-status">{parts.map((part, index) => <Fragment key={index}>{index > 0 && SEP}<span className="jc-band-word">{part}</span></Fragment>)}</span>
+        {version && <>{parts.length > 0 && <span aria-hidden="true">{SEP}</span>}<InfoTip className="jc-infotip-left jc-band-version" label={<span data-testid="band-version">{version.label}</span>}>{version.detail}</InfoTip></>}</span></div>
     <dl className="jc-band-numbers">
       <div><dt>応募（直近4週）</dt><dd data-testid="band-recent">{n.recent === null ? '—' : `${String(n.recent)}件`}<small>{n.previous === null ? '' : `前の4週は${String(n.previous)}件`}</small></dd></div>
       <div><dt>応募1件の費用</dt><dd data-testid="band-per-application">{formatBandYen(n.perApplicationYen)}<small>{n.perApplicationYen === null ? n.billingPer4WeeksYen === null ? '課金データなし' : n.recent === 0 ? '応募なし' : '' : '直近4週の課金 ÷ 応募'}</small></dd></div>
@@ -63,7 +73,15 @@ export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpe
     </dl>
     {latestEvent && onOpenLatest && <button type="button" className="jc-band-latest jc-open" data-testid="band-latest-event" onClick={onOpenLatest}><span>最新の変更：{shortDay(latestEvent.date)} {latestEvent.title}</span><span aria-hidden="true" className="jc-band-latest-cue">見る ›</span></button>}
     <span className="jc-band-spacer" />
-    <button type="button" className="jc-button" onClick={onOpenFullCompare}>求人の全文を比べる</button>
+    {/* 常に使う 3 つ。同じ大きさの枠付きで 1 列に並べる。 */}
+    <div className="jc-band-actions">
+      <div className="jc-band-buttons">
+        <button type="button" className="jc-button" onClick={onOpenFullCompare}>全文を比べる<span aria-hidden="true"> ▸</span></button>
+        {onOpenListing && <button type="button" className="jc-button" onClick={onOpenListing}>求人の内容<span aria-hidden="true"> ▸</span></button>}
+        {reportHref && <a className="jc-button jc-band-report jc-no-print" href={reportHref} target="_blank" rel="noreferrer" title="報告書を作ります。新しいタブで開きます" aria-label="報告書（新しいタブで開きます）"><span aria-hidden="true">↗ </span>報告書</a>}
+      </div>
+      {bodyState && <small className="jc-band-body-state" data-testid="band-body-state">本文：{bodyState}</small>}
+    </div>
     <DataLine job={job} n={n} />
   </div>;
 }

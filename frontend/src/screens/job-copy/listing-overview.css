@@ -99,7 +99,7 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
   .jc-detail .jc-band-numbers dt { white-space: nowrap; font-size: 11px; }
   .jc-detail .jc-band-latest { flex: 0 1 150px; min-width: 100px; padding: 3px 8px; }
   .jc-detail .jc-band-spacer { flex: 0 0 0; }
-  .jc-detail .jc-band > .jc-button { flex: 0 0 auto; white-space: nowrap; padding-inline: 8px; font-size: 13px; }
+  .jc-detail .jc-band-buttons > .jc-button { flex: 0 0 auto; white-space: nowrap; padding-inline: 10px; font-size: 13px; }
 }
 
 /* ライフライン（横の時間軸）。列の幅は固定（56px）、期間が長ければ横にスクロール */
@@ -196,6 +196,17 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .lo-head label.lo-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
 .lo-head label.lo-toggle input { margin: 0; }
 .jc-detail .jc-band-latest.jc-open { flex: 0 1 auto; min-width: 200px; }
+/* 常に使う 3 つ（全文を比べる・求人の内容・報告書）。同じ大きさの枠付きで 1 列に。本文の状態はその下の小さな灰色の文字。 */
+.jc-band-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: 0 0 auto; }
+.jc-band-buttons { display: flex; flex-wrap: nowrap; gap: 6px; }
+.jc-band-buttons > .jc-button { display: inline-flex; align-items: center; justify-content: center; gap: .25em; color: var(--jc-ink); text-decoration: none; font: inherit; cursor: pointer; }
+.jc-band-buttons > .jc-band-report { color: #0a5fb4; }
+/* 会社・地域・媒体・公開状況の行。言葉の途中では折り返さず、区切りの後ろで次の行へ送る（「…」で切らない）。 */
+.jc-detail .jc-band-name .jc-band-status { display: block; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
+.jc-detail .jc-band-name .jc-band-status span { white-space: normal; overflow: visible; text-overflow: clip; }
+.jc-detail .jc-band-name .jc-band-status .jc-band-word { white-space: nowrap; }
+.jc-detail .jc-band-status .jc-band-version { display: inline-block; vertical-align: bottom; }
+.jc-band-body-state { color: var(--jc-muted); font-size: 11px; white-space: nowrap; }
 
 .lt-panel[hidden] { display: none; }
 .lo-competitor { display: grid; gap: 8px; margin-top: 16px; }

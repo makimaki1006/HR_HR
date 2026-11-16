@@ -223,7 +223,7 @@ await audit(page, `${prefix}-sort`);
   await expect(page.getByRole('region', { name: '求人の手直し', exact: true })).toBeVisible();
   await audit(page, `${prefix}-new-pattern`);
   await page.getByRole('button', { name: '手直しを閉じる', exact: true }).click();
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   await audit(page, `${prefix}-popup`);
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'その他', exact: true }).click(); await page.getByRole('button', { name: 'データを取り込む（作業用）', exact: true }).click();

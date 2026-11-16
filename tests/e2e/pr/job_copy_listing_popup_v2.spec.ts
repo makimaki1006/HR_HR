@@ -32,7 +32,7 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   await page.route('**/popup-workplace.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="520" height="180"><rect width="520" height="180" fill="#eaf5f7"/><path d="M50 120h420M80 50h80v70H80zM200 50h80v70h-80zM320 50h80v70h-80z" stroke="#357d87" stroke-width="8" fill="#c2e0e5"/><text x="165" y="158" font-size="18" fill="#25394c">職場の案内画像（架空）</text></svg>' }));
   await page.goto('/app/job-copy?listing=1');
   await findListings(page);
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('1 / 3件目');
   // 先頭の求人なので「前の求人」は出さない（押せないボタンは出さない）
@@ -89,7 +89,7 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   await openOtherAnalysis(page, '本文と画像');
   await page.getByRole('button', { name: /10\/1( 09:00)? の本文/ }).click();
   await closeOtherAnalysis(page);
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   await expect(dialog.locator('.jc-listing-two-columns')).toHaveCount(0);
   await expect(dialog).toContainText('画像はありますが、取得できていません');
   await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
@@ -100,7 +100,7 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   await panel.getByLabel('並び順', { exact: true }).selectOption('applications');
   await expect(panel.locator('.jc-hubspot-job').first()).toContainText('倉庫内の整理スタッフ');
   await panel.getByRole('button', { name: '出荷準備スタッフの本文を見る' }).click();
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   await expect(dialog).toContainText('2 / 3件目');
   await page.keyboard.press('ArrowLeft');
   await expect(dialog.getByRole('heading', { name: '倉庫内の整理スタッフ', exact: true })).toBeVisible();
@@ -130,7 +130,7 @@ for (const width of [1440, 1920]) test(`取得不能の給与・任意項目と�
   ]) {
     before = scenario.before; after = scenario.after;
     await page.goto('/app/job-copy?listing=31');
-    await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+    await page.getByRole('button', { name: '求人の内容', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.locator('.jc-listing-popup-summary > div').filter({ has: page.locator('dt', { hasText: '給与' }) }).locator('dd')).toHaveText('取得できていません');
     // 小窓は今の内容だけ（1列）。前の本文と比べて色を付けるのは全文比較

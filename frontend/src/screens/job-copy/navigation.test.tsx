@@ -42,7 +42,7 @@ it('求人内容のポップアップを1回だけ積み、戻るで閉じて進
   render(<JobCopyScreen />);
   const start = window.location.href;
   const push = vi.spyOn(window.history, 'pushState');
-  fireEvent.click(screen.getByRole('button', { name: '求人の内容を確認する' }));
+  fireEvent.click(screen.getByRole('button', { name: '求人の内容' }));
   const opened = window.location.href;
   expect(new URL(opened).searchParams.get('popup')).toBe('listing');
   expect(screen.getByRole('dialog')).toBeTruthy();

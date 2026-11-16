@@ -48,7 +48,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await page.goto('/app/job-copy?listing=1');
   await findListings(page);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
-  const opener = page.getByRole('button', { name: '求人の内容を確認する' });
+  const opener = page.getByRole('button', { name: '求人の内容', exact: true });
   await expect(opener).toBeVisible();
   const bounds = (await opener.boundingBox())!;
   expect(bounds.y).toBeGreaterThanOrEqual(0); expect(bounds.y + bounds.height).toBeLessThan(viewport.height);
@@ -148,7 +148,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await expect(panel.locator('.jc-hubspot-job')).toHaveCount(50);
   await expect(panel.getByRole('button', { name: `${hrh.title}の本文を見る` })).toHaveCount(0);
   await expect(panel).toContainText('応募の記録 99件');
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: hrh.title });
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('0件');
   await expect(dialog.locator('.jc-listing-popup-summary')).not.toContainText('99件');
@@ -184,7 +184,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await findListings(page);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
   await expect(panel.getByText('求人の一覧を準備しています', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: hrh.title });
   const applications = dialog.locator('.jc-listing-popup-summary > div').filter({ has: page.locator('dt', { hasText: '応募数' }) }).locator('dd');
   await expect(applications).toHaveText('未取得');
