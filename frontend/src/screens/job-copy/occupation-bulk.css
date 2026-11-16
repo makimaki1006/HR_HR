@@ -49,3 +49,5 @@
 .ob-period { margin-left:2px; font-size:12px; color:#475569; }
 /* 押せない間も「指定する」を読める濃さにする（全体の半透明を打ち消す）。 */
 .ob-table .jc-button:disabled { opacity:1; color:#475569 !important; }
+.ob-tab-note { font-size:12px; color:#475569; margin-right:auto; }
+.ob-intro .ob-save-note { flex-basis:100%; font-size:13px; color:#475569; }

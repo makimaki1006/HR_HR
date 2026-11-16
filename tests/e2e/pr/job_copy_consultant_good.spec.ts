@@ -33,7 +33,7 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const dir = process.env.CONSULTANT_SCREENSHOT_DIR;
   if (dir) await page.screenshot({ path: `${dir}/good-list.png`, fullPage: false });
-  await row.getByRole('button').click();
+  await row.getByRole('button', { name: /の詳細を開く$/ }).click();
   const detail = page.getByRole('dialog');
   await expect(detail.getByRole('button', { name: 'この予定を済みにして、次の予定を入れる…' })).toBeVisible();
   await expect(detail.getByText('MTG：採用を継続し、次の募集職種を増やす方向で相談する', { exact: true })).toBeVisible();

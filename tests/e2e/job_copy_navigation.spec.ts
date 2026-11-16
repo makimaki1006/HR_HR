@@ -53,7 +53,7 @@ test('the first view shows the full-height list beside the timeline, tabs stay o
   await expect(page.getByRole('navigation', { name: '求人の閲覧操作', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '求人一覧に戻る', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '機能を切り替える', exact: true })).toHaveCount(0);
-  const inactiveTabContrast = await page.getByRole('tab', { name: '求人比較', exact: true }).evaluate(element => {
+  const inactiveTabContrast = await page.getByRole('tab', { name: 'ほかの求人と比べる', exact: true }).evaluate(element => {
     const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
     const luminance = (channels: number[]) => channels.reduce((sum, channel, index) => {
       const value = channel / 255;
@@ -70,7 +70,7 @@ test('the first view shows the full-height list beside the timeline, tabs stay o
   // The group tabs stay at the top of the detail while the long body scrolls.
   await expect(primary).toBeInViewport();
   await jump.click();
-  await expect(page.getByRole('tablist', { name: '求人管理の機能', exact: true }).getByRole('tab', { name: '変更差分', exact: true })).toBeFocused();
+  await expect(page.getByRole('tablist', { name: '求人管理の機能', exact: true }).getByRole('tab', { name: '変更の前後', exact: true })).toBeFocused();
   // Filters other than search fold into one row.
   const filters = page.locator('details.jc-filter-more');
   await expect(filters).not.toHaveAttribute('open', '');
@@ -104,7 +104,7 @@ test('functional tabs isolate applicants, reasons, application trends, market gr
   await setup(page);
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
   await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', '要因・仮説']);
-  await expect(primary.getByRole('tab', { name: '本文・画像', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(primary.getByRole('tab', { name: '本文と画像', exact: true })).toHaveAttribute('aria-selected', 'true');
   const panel = (name: string) => page.getByRole('tabpanel', { name, exact: true });
   await expect(jobFeaturePanel(page, 'body').locator('.jc-body')).toHaveText('合成Aの求人本文です。');
   await selectJobFeature(page, 'applicants');
@@ -138,7 +138,7 @@ test('functional tabs isolate applicants, reasons, application trends, market gr
   await expect(panel('市場データ').locator('tbody tr')).toHaveCount(12);
   await expect(panel('市場データ').locator('tbody tr').first()).toContainText('2025/07');
   await expect(panel('市場データ').getByTestId('jc-market-jobs')).toHaveCount(0);
-  await primary.getByRole('tab', { name: '本文・画像', exact: true }).click();
+  await primary.getByRole('tab', { name: '本文と画像', exact: true }).click();
   await selectJobFeature(page, 'market-table');
   await expect(panel('市場データ').locator('tbody tr')).toHaveCount(12);
   await selectJobFeature(page, 'market');
@@ -169,12 +169,12 @@ test('tab keyboard Arrow/Home/End movement activates valid linked panels and ina
   // Sticky group tabs (2026-10-08): still on screen after scrolling the long body.
   await expect(primary).toBeInViewport();
   await jump.click();
-  const difference = primary.getByRole('tab', { name: '変更差分', exact: true });
+  const difference = primary.getByRole('tab', { name: '変更の前後', exact: true });
   await expect(difference).toBeFocused();
   await expect(difference).toBeInViewport();
   await expect(page.getByRole('tabpanel', { name: '変更差分', exact: true })).toBeVisible();
   await selectJobFeature(page, 'body');
-  const content = primary.getByRole('tab', { name: '本文・画像', exact: true });
+  const content = primary.getByRole('tab', { name: '本文と画像', exact: true });
   await content.focus();
   await page.keyboard.press('ArrowRight');
   await expect(difference).toBeFocused();

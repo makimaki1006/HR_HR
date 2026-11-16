@@ -32,7 +32,7 @@ test('AirWorkの画像URL: 5枚の順序・画像なし・取得できない', a
   await page.goto('/app/job-copy?listing=1');
 
   await findListings(page);
-  await openOtherAnalysis(page, '本文・画像');
+  await openOtherAnalysis(page, '本文と画像');
   const gallery = page.getByRole('region', { name: 'この本文に対応する掲載画像', exact: true });
   await expect(gallery.locator('img')).toHaveCount(5);
   for (let i = 0; i < 5; i += 1) await expect(gallery.locator('img').nth(i)).toHaveAttribute('src', photo(i + 1));
@@ -62,11 +62,11 @@ test('AirWorkの画像URL: 5枚の順序・画像なし・取得できない', a
   await page.goto('/app/job-copy?listing=2');
 
   await findListings(page);
-  await openOtherAnalysis(page, '本文・画像');
+  await openOtherAnalysis(page, '本文と画像');
   await expect(page.getByText('この求人には画像がありません', { exact: true })).toBeVisible();
   await shot('04-body-no-images');
   await page.goto('/app/job-copy?listing=3');
   await findListings(page);
-  await openOtherAnalysis(page, '本文・画像');
+  await openOtherAnalysis(page, '本文と画像');
   await expect(page.getByText('画像を取得できませんでした', { exact: true })).toBeVisible();
 });

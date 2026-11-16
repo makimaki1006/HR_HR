@@ -3,22 +3,22 @@ import type { Page } from '@playwright/test';
 export type JobFeature = 'timeline' | 'body' | 'applications' | 'applicants' | 'reasons' | 'performance' | 'market' | 'market-table' | 'factors' | 'diff' | 'ab' | 'report' | 'receive';
 export const jobFeatures: Record<JobFeature, { group: string; label: string }> = {
   timeline: { group: 'タイムライン', label: 'タイムライン' },
-  body: { group: '本文・画像', label: '本文・画像' },
+  body: { group: '本文と画像', label: '本文と画像' },
   applications: { group: '応募推移', label: '応募推移' },
-  applicants: { group: '応募者構成', label: '応募者構成' },
+  applicants: { group: '応募者', label: '応募者' },
   reasons: { group: '応募理由', label: '応募理由' },
   performance: { group: '課金・クリック', label: '課金・クリック' },
   market: { group: '市場グラフ', label: '市場グラフ' },
   'market-table': { group: '市場データ', label: '市場データ' },
   factors: { group: 'メモ', label: 'メモ' },
-  diff: { group: '変更差分', label: '変更差分' },
-  ab: { group: '求人比較', label: '求人比較' },
+  diff: { group: '変更の前後', label: '変更の前後' },
+  ab: { group: 'ほかの求人と比べる', label: 'ほかの求人と比べる' },
   report: { group: '検証記録', label: '検証記録' },
   receive: { group: '外部文面を確認', label: '外部文面を確認' },
 };
 
-/** 「くわしい分析」のタブに並ぶ 7 つ。それ以外（応募推移・課金・クリック・市場グラフ・市場データ・検証記録）は URL の feature で開く。 */
-const tabbedFeatures = new Set<JobFeature>(['timeline', 'body', 'diff', 'ab', 'applicants', 'reasons', 'factors']);
+/** 「くわしい分析」のタブに並ぶ 6 つ。それ以外（タイムライン・応募推移・課金・クリック・市場グラフ・市場データ・検証記録）は URL の feature で開く。 */
+const tabbedFeatures = new Set<JobFeature>(['body', 'diff', 'ab', 'applicants', 'reasons', 'factors']);
 
 /**
  * 求人の復元を待ち、開いているドロワーのタブか、画面本体の機能ボタンから選ぶ。

@@ -118,7 +118,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     else failure(result.error);
     setBusy(false);
   }
-  return <details className="jc-live-panel"><summary>HubSpotの顧客・求人・応募を確認</summary>
+  return <details className="jc-live-panel"><summary>HubSpotの求人と応募をこの画面に読み込む</summary>
     <p>既存の求人連携を読み取ります。更新・関連付けの変更は行いません。</p>
     <button className="jc-button" disabled={busy} onClick={() => { void loadCustomers(); }}>顧客を取得</button>
     {after && <button className="jc-button" disabled={busy} onClick={() => { void loadCustomers(true); }}>顧客をさらに取得</button>}

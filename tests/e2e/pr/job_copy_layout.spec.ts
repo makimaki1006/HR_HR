@@ -178,7 +178,7 @@ await audit(page, `${prefix}-sort`);
   await audit(page, `${prefix}-company-sidebar`);
   await page.getByRole('button', { name: '開いたままにする', exact: true }).click();
   await page.goto('/app/job-copy?view=occupations');
-  await expect(page.getByText('市場と比べる職種を指定する', { exact: true })).toBeVisible();
+  await expect(page.locator('.ob-crumb').getByText('職種の指定', { exact: true })).toBeVisible();
   await expect(page.locator('.ob-table tbody tr')).toHaveCount(listings.length || 1);
   await audit(page, `${prefix}-occupations`);
   for (const tab of await page.getByRole('tab').all()) { await tab.click(); await audit(page, `${prefix}-occupation-${await tab.textContent()}`); }
@@ -202,7 +202,7 @@ await audit(page, `${prefix}-sort`);
   expect.soft(await picker.locator('.mo-body').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
   await picker.getByLabel('職種を探す', { exact: true }).fill('存在しない架空の職種');
   await expect(picker.getByText('一致する職種はありません。', { exact: true })).toBeVisible();
-  await picker.getByLabel('市場と比べない', { exact: true }).check();
+  await picker.getByLabel('指定しない（市場の数字を出さない）', { exact: true }).check();
   await audit(page, `${prefix}-occupation-picker-empty`);
   await picker.getByRole('button', { name: 'やめる', exact: true }).click();
   await page.getByRole('button', { name: '左の一覧で求人を探す', exact: true }).click();
@@ -241,13 +241,15 @@ await audit(page, `${prefix}-sort`);
     await expect(page.locator('dialog[open]')).toBeVisible();
     await audit(page, `${prefix}-drawer-${drawer}`);
   }
+  // タイムラインはタブから外した（URL の feature=timeline で開く）
   await page.goto('/app/job-copy?listing=1&analysis=1&feature=timeline');
   await expect(page.locator('dialog[open]')).toBeVisible();
-  for (const group of ['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', 'メモ']) {
+  if (scenario.weeks > 1) {
+    for (const id of ['jt-applications', 'jt-market']) expect((await getChartSeriesLengths(page, id)).some(n => n > 0)).toBe(true);
+  }
+  await audit(page, `${prefix}-タイムライン`);
+  for (const group of ['本文と画像', '変更の前後', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']) {
     await page.getByRole('tab', { name: group, exact: true }).click();
-    if (group === 'タイムライン' && scenario.weeks > 1) {
-      for (const id of ['jt-applications', 'jt-market']) expect((await getChartSeriesLengths(page, id)).some(n => n > 0)).toBe(true);
-    }
     await audit(page, `${prefix}-${group}`);
   }
 });

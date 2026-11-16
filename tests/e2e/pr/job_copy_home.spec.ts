@@ -53,7 +53,7 @@ test('ホームの常時2枚のカード・件数の1行と、変更求人の一
   await expect(list.locator('tbody tr').nth(0)).toContainText('¥24,000');
   await expect(list.locator('tbody tr').nth(1)).toContainText('¥0');
   await expect(page.locator('.jh-customer-table')).toHaveCount(0);
-  await page.getByRole('button', { name: /^すべて表示/ }).click();
+  await page.getByRole('button', { name: '顧客の一覧を開く ▾' }).click();
   await expect(page.getByRole('columnheader', { name: '応募（前の 4 週 → 直近 4 週）' })).toBeVisible();
   await page.getByRole('button', { name: /直近7日に変更/ }).click();
   const changes = page.getByRole('region', { name: '直近7日に変更の一覧' });
@@ -155,7 +155,7 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toHaveText('今日 — 合成担当B（退職）さんの担当分');
   await expect(page.locator('.jh-scope-banner')).toContainText('ほかの人の担当分を表示中です');
   await expect(page.locator('.jh-customer-table')).toHaveCount(0);
-  await page.getByRole('button', { name: /^すべて表示/ }).click();
+  await page.getByRole('button', { name: '顧客の一覧を開く ▾' }).click();
   await expect(page.locator('.jh-customer-table tbody')).toContainText('契約中の案件がある顧客はありません');
   await page.getByRole('button', { name: '自分の担当分に戻す' }).click();
   await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('合成担当A');
@@ -202,7 +202,7 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   for (const [index, count] of [198, 95, 112, 1, 1, 1, 0].entries()) await expect(cards.nth(index).locator('.jh-count')).toHaveText(`${count}件`);
   await expect(page.locator('.jh-go-line')).toHaveText('初回で成果が出ていない 1件→ 案件一覧で見る');
   await expect(page.locator('.jh-todo-table')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'まず見るもの' })).toBeInViewport();
+  await expect(page.getByRole('heading', { name: '気になる求人' })).toBeInViewport();
   const boxes = await cards.evaluateAll(elements => elements.map(el => ({ top: el.getBoundingClientRect().top, height: el.getBoundingClientRect().height })));
   expect(new Set(boxes.map(box => Math.round(box.top))).size).toBe(2);
   const filterLayout = await page.locator('.jh-owner').evaluate(el => {
@@ -287,7 +287,7 @@ test('職種の一括指定は URL から引き続き開ける', async ({ page }
   } }));
   await login(page);
   await page.goto('/app/job-copy?view=occupations');
-  await expect(page.getByText('市場と比べる職種を指定する', { exact: true })).toBeVisible();
+  await expect(page.locator('.ob-crumb').getByText('職種の指定', { exact: true })).toBeVisible();
   await expect(page.getByRole('tab', { name: '未指定（0）' })).toBeVisible();
   await expect(page.getByText('職種が未指定の求人はありません。', { exact: true })).toBeVisible();
 });

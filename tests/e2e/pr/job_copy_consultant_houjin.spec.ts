@@ -202,13 +202,11 @@ test("顧客の値と図・採用単価の並び・4メニューの担当引き�
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await page
     .getByRole("button", { name: "大きいのに事業所が少ない", exact: true })
     .click();
   await expect(page).toHaveURL(/houjin_sites_max=2/);
   await page.reload();
-  await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await expect(
     page.getByRole("button", { name: "大きいのに事業所が少ない", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -223,15 +221,15 @@ test("顧客の値と図・採用単価の並び・4メニューの担当引き�
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("button", { name: "案件一覧", exact: true }).click();
   // 既定の列は 8 つ（採用単価は「詳しい数字」の中）。並べ替えは応募（直近4週）で確かめる。
-  await page.getByRole("button", { name: "応募（直近4週） ▲▼", exact: true }).click();
-  await page.getByRole("button", { name: "応募（直近4週） ▼", exact: true }).click();
+  const applicationsSort = page.getByRole("button", { name: "応募（直近4週）", exact: true });
+  await applicationsSort.click();
+  await expect(page.getByRole("columnheader", { name: "応募（直近4週）" })).toHaveAttribute("aria-sort", "descending");
+  await applicationsSort.click();
+  await expect(page.getByRole("columnheader", { name: "応募（直近4週）" })).toHaveAttribute("aria-sort", "ascending");
   const table = page.locator(".db-board-scroll>.db-table");
   await expect(table.locator("tbody>tr").first()).toContainText(
     "架空の採用支援01",
   );
-  await expect(
-    page.getByRole("columnheader", { name: "応募（直近4週） ▲", exact: true }),
-  ).toHaveAttribute("aria-sort", "ascending");
   await expect(page.getByText("HubSpotの今の値と、シートにある最後のMTGを確認できます。")).toHaveCount(0);
   // 8 列は 1100px 以上あれば横に流れない。狭い画面で横に流れる合図が出ることを確かめる。
   await page.setViewportSize({ width: 900, height: 800 });

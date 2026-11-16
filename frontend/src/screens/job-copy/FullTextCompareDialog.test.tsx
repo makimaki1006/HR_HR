@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FullTextCompareDialog } from './FullTextCompareDialog';
+import { compareRows } from './fullTextCompareModel';
 import type { CopyVersion, JobCopyRecord } from './data';
 
 beforeEach(() => {
@@ -96,4 +97,24 @@ it('AirWork: a heading missing on one side is 記録していません and not c
   fireEvent.click(screen.getByRole('button', { name: '全文' }));
   expect(rowOf('Indeed表示職種名')?.textContent).toContain('記録していません');
   expect(rowOf('Indeed表示職種名')?.getAttribute('data-changed')).toBe('false');
+});
+
+it('欄が移っただけの文は「記載なし」とせず、移った先・元を示す', () => {
+  const before = version('m1', '前', '2026-09-01T00:00:00Z', [{ heading: '仕事内容', text: '荷物を運びます。' }, { heading: '待遇', text: '交通費を支給します。' }]);
+  const after = version('m2', '後', '2026-09-15T00:00:00Z', [{ heading: '仕事内容', text: '荷物を運びます。' }, { heading: '自由項目1', text: '交通費を支給します。\n制服を貸します。' }]);
+  const rows = compareRows({ media: 'HRハッカー' }, before, after);
+  expect(rows.find(row => row.key === '待遇')).toMatchObject({ right: '', movedTo: '自由項目1' });
+  expect(rows.find(row => row.key === '自由項目1')?.movedFrom).toBeUndefined();
+  const job: JobCopyRecord = { id: 'mv', title: '架空の配送', company: '架空運輸', media: 'HRハッカー', mediaJobId: 'X', location: '東京都', versions: [before, after] };
+  render(<FullTextCompareDialog record={job} open onClose={vi.fn()} initialLeft="m1" initialRight="m2" />);
+  const row = [...document.querySelectorAll('.jc-ftc-row')].find(element => element.querySelector('.jc-ftc-label')?.textContent.startsWith('待遇'));
+  expect(row?.textContent).toContain('（『自由項目1』へ移動）');
+  expect(row?.textContent).not.toContain('（記載なし）');
+  expect(row?.querySelectorAll('del, ins')).toHaveLength(0);
+});
+
+it('空白・改行コードだけの違いは「変わった」にしない（上部の「前の本文と同じ」と同じ判定）', () => {
+  const before = version('w1', '前', '2026-09-01T00:00:00Z', [{ heading: '休日・休暇', text: '土日休み。\n夏季休暇あり。' }]);
+  const after = version('w2', '後', '2026-09-15T00:00:00Z', [{ heading: '休日・休暇', text: '土日休み。　\r\n夏季休暇あり。' }]);
+  expect(compareRows({ media: 'HRハッカー' }, before, after).find(row => row.key === '休日・休暇')?.different).toBe(false);
 });

@@ -27,20 +27,21 @@ describe('求人の画面（案3-2）', () => {
     expect(document.querySelector('[aria-label="数字の前提"]')).toBeNull();
     // 最新の変更を押すと、その出来事が下で開く。
     fireEvent.click(within(band).getByTestId('band-latest-event'));
-    expect(query('.lo-event.lo-open .lo-num').textContent).toBe('9');
+    expect(query('.lo-event.lo-open .lo-num').textContent).toBe('5');
   });
 
-  it('出来事は既定で新しい順に5件だけ出し、すべて表示で全9件になる。番号は古い順で、判定語を出さない', () => {
+  it('出来事は既定で新しい順に5件だけ出し、すべて表示で全9件になる。番号は応募以外に古い順で振り、判定語を出さない', () => {
     render(<JobCopyScreen />);
     const nums = () => [...query('.lo-events').querySelectorAll('.lo-event-head')].map(head => head.querySelector('.lo-num')?.textContent);
-    expect(nums()).toEqual(['9', '応', '応', '6', '5']);
+    expect(nums()).toEqual(['5', '応', '応', '4', '3']);
     expect(screen.getByText('新しい順に5件を表示しています（全9件）。')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'すべて表示（9件）' }));
-    expect(nums()).toEqual(['9', '応', '応', '6', '5', '応', '応', '2', '1']);
+    expect(nums()).toEqual(['5', '応', '応', '4', '3', '応', '応', '2', '1']);
     const list = query('.lo-events');
     const heads = list.querySelectorAll('.lo-event-head');
     expect(heads[0]?.querySelector('.lo-result strong')?.textContent).toBe('15 → 3 件');
-    expect(heads[0]?.querySelector('.lo-result small')?.textContent).toBe('差 −12 件（前は掲載後24日分・後は11日分）');
+    // 前と後の日数が違う（前24日・後11日）ので、件数の差は出さない
+    expect(heads[0]?.querySelector('.lo-result small')?.textContent).toBe('後の期間がまだ短いため差は出していません（前 24 日・後 11 日）');
     expect(list.textContent).not.toMatch(/増えた|減った|効果|効いた/u);
     fireEvent.click(screen.getByRole('button', { name: '最新5件だけにする' }));
     expect(nums()).toHaveLength(5);
@@ -102,7 +103,9 @@ describe('求人の画面（案3-2）', () => {
     fireEvent.click(query('.lo-event-head'));
     const mark = screen.getByTestId('lifeline-selected');
     expect(mark.style.width).toBe('56px');
-    expect(query('.lo-event.lo-open .lo-num').textContent).toBe('9');
+    // 「—」（取れていない）と「0」（0件）を見分けられるよう、表の下に1行で書く。
+    expect(screen.getByTestId('lifeline-legend').textContent).toBe('「—」はデータを取れていない週、「0」は0件の週です。');
+    expect(query('.lo-event.lo-open .lo-num').textContent).toBe('5');
   });
 
   it('応募者・応募理由の前後は横から出て、閉じられる。「くわしい分析」は入口の1つから開き、タブは7つ', () => {
@@ -116,6 +119,6 @@ describe('求人の画面（案3-2）', () => {
     const tasks = within(screen.getByRole('region', { name: 'この求人でやること' }));
     fireEvent.click(tasks.getByRole('button', { name: /^くわしい分析を開く/ }));
     expect(screen.getByRole('dialog', { name: 'くわしい分析' })).toBeTruthy();
-    expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', 'メモ']);
+    expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['本文と画像', '変更の前後', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']);
   });
 });

@@ -17,8 +17,11 @@ test('応募理由の画面: メニューから開き、期間・地域・表の
   await expect(menu.getByRole('button', { name: '担当者で絞る' })).toHaveCount(0);
   await expect(page.getByRole('heading', { level: 2, name: '応募理由の地域・職種別' })).toBeVisible();
   await expect(page.getByText('応募動機を聞けた応募 6 件／全応募 13,454 件（0.0%）')).toBeVisible();
+  // 注意書きは ⓘ「数え方と注意」に畳んである。開くと読める
+  await page.locator('summary', { hasText: '数え方と注意' }).click();
   await expect(page.getByText('応募動機は複数選べるので、1 件の応募が複数の列に入ることがあります。')).toBeVisible();
   await expect(page.getByText('選択式の記録は 2026/09/18 の応募からです。それより前の応募には値がありません。')).toBeVisible();
+  await page.locator('summary', { hasText: '数え方と注意' }).click(); // 閉じて表を操作する
   const table = page.getByRole('table', { name: '地域別の応募動機' });
   await expect(table.getByRole('columnheader').nth(1)).toHaveText('給与／手当');
   await expect(table.getByRole('row').nth(1)).toContainText('神奈川県');

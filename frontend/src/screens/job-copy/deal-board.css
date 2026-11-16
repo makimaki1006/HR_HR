@@ -27,14 +27,14 @@
 .db-board .db-table small{display:block;color:#64748b;font-size:11px;line-height:1.4;margin-top:2px;font-weight:400}
 .db-board .db-table .nt-reasons{display:flex;flex-wrap:wrap;gap:4px}
 .db-board .db-table .nt-reason{font-size:10px;white-space:normal}
-.jc-app .db-table .db-expand{display:inline-flex;justify-content:center;align-items:center;width:26px;height:26px;padding:0;border:1px solid #d4dfe7;border-radius:5px;background:white;color:#0369a1;cursor:pointer;font-size:15px;line-height:1}
-.db-board .db-table .db-toggle-cell{text-align:right}
+.db-board .db-table .db-toggle-cell{text-align:right;white-space:nowrap}
+.db-board .db-table .db-toggle-cell .jc-open+.jc-open{margin-left:6px}
 .db-table .db-detail{background:#f8fafc}
 .db-board .db-detail table{width:100%;font-size:12px;table-layout:fixed}
 .db-board .db-detail th,.db-board .db-detail td{padding:4px 6px;border:0}
 .db-board .db-detail thead{background:none}
 .db-pages{display:flex;justify-content:center;gap:16px;align-items:center;margin:12px 0}
-.db-board .db-table>tbody>tr>th .jh-link,.db-board .db-table>tbody>tr>th small{display:block;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.db-board .db-table>tbody>tr>th .jc-row-name,.db-board .db-table>tbody>tr>th small{display:block;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 
 .db-launch-summary{align-items:center}
 .db-board .db-launch-table>thead>tr>th:nth-child(2){width:7%}
@@ -56,7 +56,7 @@
 .db-board .db-board-scroll>.db-table>thead>tr>th {width:auto;min-width:82px;}
 .db-board .db-board-scroll>.db-table>thead>tr>th:first-child {min-width:190px;}
 .db-board .db-board-scroll>.db-table>thead>tr>th:nth-child(2) {min-width:150px;}
-.db-board .db-board-scroll>.db-table>thead>tr>th.db-toggle-column {min-width:64px;white-space:nowrap;font-size:11px;font-weight:600;text-align:right;}
+.db-board .db-board-scroll>.db-table>thead>tr>th.db-toggle-column {min-width:150px;white-space:nowrap;font-size:11px;font-weight:600;text-align:right;}
 .db-board-scroll {scroll-margin-top:125px;}
 
 .db-scroll-frame {position:relative;min-width:0;}
@@ -77,3 +77,10 @@
 .db-board .db-table>tbody>tr>th .db-application-reasons small{white-space:normal}
 .db-reason-tables{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 @media(max-width:700px){.db-reason-tables{grid-template-columns:1fr}}
+
+/* 表の列が変わる切り替え（ふつう／初回案件の立ち上がり／応募ゼロの案件）。選んでいる方に色。 */
+.db-view-switch{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px}
+.db-view-switch-label{color:#52697a;margin-right:2px}
+.jc-app .db-view-switch button{border:1px solid #b9cfdd;border-radius:6px;padding:4px 12px;background:#fff;color:#0a5fb4;font:inherit;font-size:12px;cursor:pointer}
+.jc-app .db-view-switch button:hover{background:#eef5fb}
+.jc-app .db-view-switch button[aria-pressed=true]{border-color:#0a5fb4;background:#0a5fb4;color:#fff;font-weight:700;cursor:default}

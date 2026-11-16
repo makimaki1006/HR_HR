@@ -200,7 +200,7 @@ describe('plain wording for versions, the header and the diff panel', () => {
     const meta = document.querySelector('.jc-record-meta');
     expect(meta?.textContent).toContain('HubSpotの求人と未連携');
     expect(meta?.textContent).not.toMatch(/接続待ち|実求人ID|確認した本文/u);
-    openOtherAnalysis('変更差分');
+    openOtherAnalysis('変更の前後');
     const overview = screen.getByRole('region', { name: '比較結果の要約' });
     expect(overview.textContent).toContain('画像の差し替え・並び順');
     expect(overview.textContent).toContain('画像の中身');

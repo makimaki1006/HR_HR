@@ -16,6 +16,7 @@ import { useRevealOnMount } from './revealList';
 import { CountLine, OwnerFilter, OwnerScopeBanner, OwnerTodo, PendingOwnerFilter, cardToneClass, ownerParams, ownerScope, ownerScopeTitle } from './OwnerTodo';
 import { recheckSelfOwner, useSelfOwner } from './selfOwner';
 import { CardOpenCue, CloseListButton } from './Pressable';
+import { SortArrow } from './SharedTable';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '案件管理のホームを読み込めませんでした。時間を置いて再取得してください。';
 // 色: 橙＝注意、灰＝0件。応募・課金のカードに急ぐもの（赤）は無い。
@@ -29,7 +30,7 @@ function CardList({ card, onOpenListing, onClose }: { card: HomeCard; onOpenList
   return <section ref={reveal} className="jh-list" aria-label={`${card.title}の一覧`}>
     <div className="jh-list-head"><h3>{card.title}（{card.count}件）</h3><CloseListButton label={`${card.title}の一覧`} onClick={onClose} /></div>
     {card.count === 0 ? <p>該当する求人はありません。</p> : <div className="jh-scroll"><table><thead><tr><th scope="col">求人</th><th scope="col">顧客</th><th scope="col">媒体</th><th scope="col" className="num">応募（前 → 直近）</th><th scope="col" className="num">課金（直近 4 週）</th><th scope="col">実績の最新の週</th></tr></thead><tbody>
-      {card.listings.map(row => <tr key={row.id}><th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenListing(row.id); }}>{row.title ?? '求人名未取得'}</button></th><td>{row.company ?? '—'}</td><td>{mediaName(row.media)}</td><td className="num">{appsChange(row.prev_apps, row.recent_apps)}</td><td className="num">{yen(row.recent_cost)}</td><td>{formatDateJst(row.latest_week_end, '実績なし')}</td></tr>)}
+      {card.listings.map(row => <tr key={row.id}><th scope="row"><button type="button" className="jc-go" onClick={() => { onOpenListing(row.id); }}>{row.title ?? '求人名未取得'}</button></th><td>{row.company ?? '—'}</td><td>{mediaName(row.media)}</td><td className="num">{appsChange(row.prev_apps, row.recent_apps)}</td><td className="num">{yen(row.recent_cost)}</td><td>{formatDateJst(row.latest_week_end, '実績なし')}</td></tr>)}
     </tbody></table></div>}
     {card.count > card.listings.length && <p className="jh-note">先頭の{card.listings.length}件だけを表示しています。</p>}
   </section>;
@@ -39,7 +40,7 @@ function saveHomeCache(cacheRef: { current: HomeResponse | null } | undefined, d
   if (cacheRef) cacheRef.current = data;
 }
 
-/** 案件管理のホーム。まず見るものの件数と、顧客ごとの表。 */
+/** 案件管理のホーム。気になる求人の件数と、顧客ごとの表。 */
 export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }: { cache?: { current: HomeResponse | null }; onOpenCompany: (company: { id: string; name: string }) => void; onOpenListing: (id: string) => void; onOpenDeal: (deal: ChangedDeal) => void }) {
   const [data, setData] = useState<HomeResponse | null>(cache?.current ?? null);
   const [error, setError] = useState('');
@@ -111,7 +112,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     {data?.status === 'ready' && data.work?.status === 'failed' && <p role="alert">担当者とやることの情報を読み込めませんでした。再読み込みしてください。</p>}
     {ready && <>
       {work && <><OwnerFilter work={work} /><OwnerTodo work={work} onOpenCompany={onOpenCompany} onOpenDeal={onOpenDeal} onShowList={() => { setReload(value => value + 1); }} /></>}
-      <section aria-labelledby="jh-look"><div className="jh-section-head"><h2 id="jh-look">まず見るもの</h2><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>応募・課金のカードは掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。</p><p>求人の一覧を読み込んだ時刻：{formatDateTimeJst(ready.index_built_at, '日時不明')}。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。</p><ul>{cards.map(item => <li key={item.key}>{item.title}：{item.rule}</li>)}<li>直近7日に変更：{recentChangesRule}</li></ul><p>色の意味：橙は注意、灰は0件です。</p></InfoTip></div>
+      <section aria-labelledby="jh-look"><div className="jh-section-head"><h2 id="jh-look">気になる求人</h2><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>応募・課金のカードは掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。</p><p>求人の一覧を読み込んだ時刻：{formatDateTimeJst(ready.index_built_at, '日時不明')}。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。</p><ul>{cards.map(item => <li key={item.key}>{item.title}：{item.rule}</li>)}<li>直近7日に変更：{recentChangesRule}</li></ul><p>色の意味：橙は注意、灰は0件です。</p></InfoTip></div>
         <p className="jh-note">掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。<strong>媒体の実績：{ready.home.media_weeks?.length ? ready.home.media_weeks.map(week => mediaWeekText(week, day => formatDateJst(day).slice(5))).join(' ／ ') : '未取得'}</strong>。増減は並べて見るためのもので、原因とは限りません。</p>
         <div className="jh-cards">{mainCards.map(item => <button type="button" key={item.key} className={`jh-card ${cardToneClass(item.count, cardTone[item.key])}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>
           <strong className="jh-count">{item.count}<small>件</small></strong>
@@ -125,14 +126,14 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
       </section>
       <section aria-labelledby="jh-customers" className="jh-customers"><div className="jh-customers-head"><h2 id="jh-customers">顧客</h2>
         <label>顧客名で探す<input type="search" value={query} onChange={event => { setQuery(event.target.value); }} placeholder="顧客名の一部" /></label>
-        <button type="button" className="jc-button" aria-pressed={showAll} onClick={() => { setShowAll(value => !value); }}>{showAll ? '表を閉じる' : `すべて表示（${String(ready.home.customers.length)}件）`}</button></div>
+        <button type="button" className="jc-open" aria-expanded={showAll} onClick={() => { setShowAll(value => !value); }}>{showAll ? '顧客の一覧を閉じる ▴' : '顧客の一覧を開く ▾'}</button></div>
         {!ready.companies_ok && <p role="status">顧客の情報を読み込めなかったため、表を出せません。時間を置いて再読み込みしてください。</p>}
         {tableShown && <>
         <div className="jh-chips" role="group" aria-label="顧客の絞り込み"><button type="button" className="jh-chip" aria-pressed={onlyActive} onClick={() => { setOnlyActive(true); }}>契約中の案件がある顧客<span>{activeCount}</span></button><button type="button" className="jh-chip" aria-pressed={!onlyActive} onClick={() => { setOnlyActive(false); }}>すべて<span>{ready.home.customers.length}</span></button>
           <InfoTip className="jc-infotip-left" label="数え方"><p>納品管理のパイプラインの案件だけを数えています（計上・商談などのパイプラインは含めません）。「契約中」は、案件のステージが完了（契約終了・失注など）でないものです。求人が結び付いた案件だけを数えています。応募は媒体の週ごとの実績で、直近 4 週とその前の 4 週を比べています。{ready.home.live_without_company > 0 ? `納品管理の案件に結び付いていない掲載中の求人が ${String(ready.home.live_without_company)} 件あり、この表には入っていません。` : ''}</p></InfoTip></div>
         <p className="jh-note">応募・課金は掲載中の求人の、媒体の週ごとの実績の合計です。</p>
-        <div className="jh-scroll"><table className="jh-customer-table"><thead><tr>{customerColumns.map(([key, label, numeric]) => <th key={key} scope="col" className={numeric ? 'num' : ''} aria-sort={sort === key ? descending ? 'descending' : 'ascending' : 'none'}><button type="button" onClick={() => { if (sort === key) setDescending(!descending); else { setSort(key); setDescending(key !== 'name'); } }}>{label}{sort === key ? descending ? ' ▼' : ' ▲' : ''}</button></th>)}<th scope="col"><span className="jc-visually-hidden">開く</span></th></tr></thead><tbody>
-          {customers.map(customer => <tr key={customer.company_id}><th scope="row">{customerName(customer)}</th><td className="num">{dealCountLabel(customer)}</td><td className="jh-latest">{customer.latest_deal ? <><span className="jh-latest-name">{customer.latest_deal.name ?? '案件名未取得'}</span><small>{customer.latest_deal.stage_label ?? 'ステージ未取得'}{!customer.latest_deal.active && <span className="jh-badge">終了</span>} ・ 作成 {formatDateJst(customer.latest_deal.created_at, '—')}</small></> : '—'}</td><td className="num">{listingCountLabel(customer)}</td><td className="num">{appsChange(customer.prev_apps, customer.recent_apps)}</td><td className="num">{yen(customer.recent_cost)}</td><td className="num">{yen(customer.cost_per_app)}</td><td className="num"><button type="button" className="jc-button" aria-label={`${customerName(customer)}を開く`} onClick={() => { onOpenCompany({ id: customer.company_id, name: customerName(customer) }); }}>顧客を開く ›</button></td></tr>)}
+        <div className="jh-scroll"><table className="jh-customer-table"><thead><tr>{customerColumns.map(([key, label, numeric]) => <th key={key} scope="col" className={numeric ? 'num' : ''} aria-sort={sort === key ? descending ? 'descending' : 'ascending' : 'none'}><button type="button" onClick={() => { if (sort === key) setDescending(!descending); else { setSort(key); setDescending(key !== 'name'); } }}>{label}<SortArrow active={sort === key} descending={descending} /></button></th>)}<th scope="col"><span className="jc-visually-hidden">開く</span></th></tr></thead><tbody>
+          {customers.map(customer => <tr key={customer.company_id}><th scope="row"><button type="button" className="jc-go" onClick={() => { onOpenCompany({ id: customer.company_id, name: customerName(customer) }); }}>{customerName(customer)}</button></th><td className="num">{dealCountLabel(customer)}</td><td className="jh-latest">{customer.latest_deal ? <><span className="jh-latest-name">{customer.latest_deal.name ?? '案件名未取得'}</span><small>{customer.latest_deal.stage_label ?? 'ステージ未取得'}{!customer.latest_deal.active && <span className="jh-badge">終了</span>} ・ 作成 {formatDateJst(customer.latest_deal.created_at, '—')}</small></> : '—'}</td><td className="num">{listingCountLabel(customer)}</td><td className="num">{appsChange(customer.prev_apps, customer.recent_apps)}</td><td className="num">{yen(customer.recent_cost)}</td><td className="num">{yen(customer.cost_per_app)}</td><td className="num"><button type="button" className="jc-button" aria-label={`${customerName(customer)}を開く`} onClick={() => { onOpenCompany({ id: customer.company_id, name: customerName(customer) }); }}>顧客を開く ›</button></td></tr>)}
           {!customers.length && <tr><td colSpan={8}>{query ? '条件に合う顧客はありません。' : onlyActive ? '契約中の案件がある顧客はありません。「すべて」に切り替えると終了した案件だけの顧客も表示します。' : '表示できる顧客がありません。'}</td></tr>}
         </tbody></table></div></>}
       </section>

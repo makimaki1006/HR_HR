@@ -37,7 +37,7 @@ describe('OccupationBulk', () => {
     expect(await screen.findByRole('tab', { name: '未指定（6）' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: '指定済み（4）' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'すべて（10）' })).toBeTruthy();
-    expect(screen.getByText('5 / 10 件')).toBeTruthy();
+    expect(screen.getByText('掲載中 10件のうち 5件を指定済み')).toBeTruthy();
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('5');
     expect(listCalls()[0]).toBe('/api/job-copy/listings?owner=me&sort=bulk&offset=0&indeed_state=unset');
     const input = await screen.findByLabelText('配送A と比べる Indeed の職種');
@@ -73,7 +73,7 @@ describe('OccupationBulk', () => {
     // 6 → 5 件、指定済み 4 → 5 件、掲載中の進み 5 → 6 / 10。もう片方の行は触らない。
     expect(screen.getByRole('tab', { name: '未指定（5）' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: '指定済み（5）' })).toBeTruthy();
-    expect(screen.getByText('6 / 10 件')).toBeTruthy();
+    expect(screen.getByText('掲載中 10件のうち 6件を指定済み')).toBeTruthy();
     expect((screen.getByLabelText<HTMLInputElement>('配送B と比べる Indeed の職種')).value).toBe('');
   });
 
@@ -82,10 +82,10 @@ describe('OccupationBulk', () => {
     put.mockResolvedValue({ ok: true, data: { indeed_title: null, indeed_title_state: 'none' } });
     render(<OccupationBulk />);
     const input = await screen.findByLabelText('配送A と比べる Indeed の職種');
-    fireEvent.change(input, { target: { value: '市場と比べない' } });
+    fireEvent.change(input, { target: { value: '指定しない（市場の数字を出さない）' } });
     fireEvent.click(within(input.closest('tr') as HTMLElement).getByRole('button', { name: '指定する' }));
     await waitFor(() => { expect(put).toHaveBeenCalledWith('/api/job-copy/listings/1/indeed-title', { title: null, compare: false }); });
-    expect(await screen.findByText('市場と比べない', { selector: 'strong' })).toBeTruthy();
+    expect(await screen.findByText('指定しない（市場の数字を出さない）', { selector: 'strong' })).toBeTruthy();
   });
 
   it('shows the plain message when the save property is missing and leaves the row unchanged', async () => {

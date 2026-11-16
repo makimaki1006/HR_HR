@@ -64,10 +64,10 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await marks.getByRole('button', { name: 'すべて 23', exact: true }).click();
   // 既定の列は 8 つ。採用・採用単価・金額・採用目標は「詳しい数字」を開くと出る
   await expect(page.getByRole('region', { name: '絞り込み中の応募数' }).locator('strong')).toHaveText(['24件', '1件', '+23件']);
-  await expect(table.locator('thead th')).toHaveText(['案件・顧客 ▲▼', 'タグ ▲▼', '応募（直近4週） ▲▼', '満了まで ▲▼', '最後の接触 ▲▼', '最後のMTG ▲▼', '満足度 ▲▼', '担当 ▲▼', '詳しい数字']);
-  // 「いい」は印の先頭（すべての次）に並ぶ
-  await expect(marks.getByRole('button').nth(1)).toHaveText(/^いい\s*2$/);
-  const good = marks.getByRole('button', { name: 'いい 2', exact: true });
+  await expect(table.locator('thead th')).toHaveText(['案件・顧客 ⇅', 'タグ ⇅', '応募（直近4週） ⇅', '満了まで ⇅', '最後の接触 ⇅', '最後のMTG ⇅', '満足度 ⇅', '担当 ⇅', '詳しい数字・詳細']);
+  // 「順調」は印の先頭（すべての次）に並ぶ
+  await expect(marks.getByRole('button').nth(1)).toHaveText(/^順調\s*2$/);
+  const good = marks.getByRole('button', { name: '順調 2', exact: true });
   await good.click();
   await expect(table.locator('tbody > tr')).toHaveCount(2);
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
@@ -142,7 +142,7 @@ test('初回案件の立ち上がり・要約・URL・ホームのカード', as
   await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capture_bundle: { schemaVersion: 1, jobs: [] }, results: [] } }));
   await page.route('**/api/job-copy/listings?*', route => route.fulfill({ json: { status: 'ready', total: 0, listings: [], deals: [], titles: [] } }));
   await login(page); await page.goto('/app/job-copy?view=deals&owner=11');
-  await page.getByLabel('初回案件だけ', { exact: true }).check();
+  await page.getByRole('group', { name: '表示を切り替える' }).getByRole('button', { name: '初回案件の立ち上がり', exact: true }).click();
   await expect(page).toHaveURL(/deals_first=yes/);
   await expect(page.getByText('5件・1 / 1ページ', { exact: true })).toBeVisible();
   const table = page.locator('.db-table');
@@ -170,7 +170,7 @@ test('初回案件の立ち上がり・要約・URL・ホームのカード', as
   await expect(page.locator('.jh-go-line')).toHaveText('初回で成果が出ていない 2件→ 案件一覧で見る');
   await page.locator('.jh-go-line').getByRole('button', { name: '案件一覧で見る', exact: true }).click();
   await expect(page).toHaveURL(/view=deals/);
-  await expect(page.getByLabel('初回案件だけ', { exact: true })).toBeChecked();
+  await expect(page.getByRole('group', { name: '表示を切り替える' }).getByRole('button', { name: '初回案件の立ち上がり', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();
   if (dir) await page.screenshot({ path: `${dir}/first-from-home-1440.png`, fullPage: true });
   await page.getByRole('group', { name: '初回案件の応募で絞る' }).getByRole('button', { name: '未取得 1', exact: true }).click();
@@ -228,7 +228,7 @@ test('面接が1件も無い案件と、期間を指定した応募ゼロ（面�
   await expect(table.locator('tbody > tr').nth(1)).toContainText('架空の採用支援03');
   await expect(page.getByText('面接の数が入っていない1件は、0件とは別に数えて含めていません。')).toBeVisible();
   await page.getByRole('checkbox', { name: '面接が1件も無い案件だけ' }).uncheck();
-  await page.getByRole('checkbox', { name: '応募が1件も無い案件だけ' }).check();
+  await page.getByRole('group', { name: '表示を切り替える' }).getByRole('button', { name: '応募ゼロの案件', exact: true }).click();
   await page.getByRole('combobox', { name: '応募ゼロを調べる期間' }).selectOption('weeks');
   await expect(table.locator('tbody > tr')).toHaveCount(1);
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');

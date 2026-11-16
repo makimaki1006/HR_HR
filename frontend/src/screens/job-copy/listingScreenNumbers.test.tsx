@@ -122,7 +122,7 @@ describe('右の欄の「市場の今」', () => {
   it('市場と比べないと指定した求人は、そのことだけを出す', () => {
     const none: JobCopyRecord = { ...jobs[0]!, indeedTitle: null, indeedTitleState: 'none' }; // eslint-disable-line @typescript-eslint/no-non-null-assertion
     render(<MarketNowBar job={none} mode="demo" onIndeedTitleChanged={() => undefined} />);
-    expect(screen.getByTestId('rail-market-note').textContent).toBe('市場と比べないと指定されています。');
+    expect(screen.getByTestId('rail-market-note').textContent).toBe('職種を「指定しない」にしているため、市場の数字は出しません。');
   });
 });
 
@@ -171,8 +171,8 @@ describe('出来事の前後4週の課金と応募1件あたり', () => {
     expect(heads.slice(1)).toEqual(['前の4週（掲載後14日分）', '後の4週']);
     expect(screen.getByTestId('cost-before-applications').textContent).toBe('24件');
     expect(screen.getByTestId('cost-before-billing').textContent).toBe('¥7,000');
-    // 一覧の行も同じ窓・同じ言い方
-    expect(document.querySelector('.lo-open .lo-result')?.textContent).toBe('24 → 56 件差 +32 件（前は掲載後14日分）');
+    // 一覧の行も同じ窓。前と後の日数が違うので、件数の差は出さない
+    expect(document.querySelector('.lo-open .lo-result')?.textContent).toBe('24 → 56 件前の期間が短いため差は出していません（前 14 日・後 28 日）');
   });
   it('後の4週が無い出来事（応募を取得した日より後）は、その理由を書く。注記が2つなら1つずつ別の行に出す', () => {
     const late = { date: '2026-10-12', kind: 'content' as const };

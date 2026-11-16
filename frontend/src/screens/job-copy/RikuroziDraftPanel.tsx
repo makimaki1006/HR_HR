@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost, apiPut, ApiHttpError, ApiInvalidResponseError, ApiNetworkError, ApiTimeoutError, AuthRequiredError } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
+import { InfoTip } from './InfoTip';
 interface Check { label: string; value: string | null; review: boolean; reason: string | null; missing_chunks: string[] }
 export interface RikuroziDraft {
   regeneration_count?: number; review_required: boolean; threshold: number; min_sentence_chars: number; csv: string;
@@ -91,11 +92,18 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
   const [exportMessage, setExportMessage] = useState('');
   const [reload, setReload] = useState(0);
   const [error, setError] = useState('');
+  // 要確認が残っているときに「このまま作りますか」を一度だけたずねる（たずねている間は true）。
+  const [confirming, setConfirming] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   const controller = useRef<AbortController | null>(null);
+  const draftTop = useRef<HTMLHeadingElement | null>(null);
   useEffect(() => () => { controller.current?.abort(); }, []);
+  // 案ができたら、案の先頭までスクロールする。
+  useEffect(() => { if (draft) draftTop.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, [draft]);
+  const reviewCount = draft ? [...draft.copied, ...draft.generated].filter(item => item.review).length : 0;
   async function generate() {
     controller.current?.abort(); const request = new AbortController(); controller.current = request;
-    setBusy(true); setError(''); setDraft(null); setExportMessage('');
+    setBusy(true); setError(''); setDraft(null); setExportMessage(''); setConfirming(false); setConfirmed(false);
     const stale = () => request.signal.aborted;
     // 受け付けたら裏で作る。画面は数秒おきに出来上がりを確かめる（数分かかる）。
     const accepted = await apiPost<{ job_id: string }>(`/api/job-copy/listings/${encodeURIComponent(listingId)}/rikurozi-draft`, {}, { signal: request.signal, timeoutMs: 60_000 });
@@ -123,8 +131,10 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
     window.setTimeout(() => { URL.revokeObjectURL(url); }, 1000);
   }
   // 押したときに、HubSpotへ新しい求人を1件だけ作ってからCSVを出す。作れなければCSVは出さない。
-  async function exportCsv() {
+  async function exportCsv(force = false) {
     if (!draft || exporting) return;
+    if (reviewCount > 0 && !confirmed && !force) { setConfirming(true); return; }
+    setConfirming(false);
     setExporting(true); setExportMessage('');
     const result = await apiPost<CreatedListing>(`/api/job-copy/listings/${encodeURIComponent(listingId)}/rikurozi-listing`, { generated: draft.generated_values ?? {} }, { timeoutMs: 60_000 });
     setExporting(false);
@@ -148,25 +158,23 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
   }
   return <section className="jc-rikurozi" aria-label="リクロジメディア向けの案">
     <button type="button" className="jc-button" disabled={busy} onClick={() => { void generate(); }}>リクロジメディア向けの案を作る</button>
+    {busy && <div className="jc-rikurozi-busy" role="status"><span className="jc-spinner" aria-hidden="true" />作っています（数分かかります）。この画面を開いたままお待ちください。</div>}
     <p>選んだHRハッカーの求人を基準に、同じ顧客のAirWork求人と文章を比べます。</p>
     <p>新しい求人として取り込むCSVを作成します。画像は元の求人と同じ順序で最大3枚を使います。</p>
     <p>元の求人から取得できない連絡先・フォーム設定・公開設定などの項目は空欄で出力します。</p>
-    {busy && <p role="status">本文と掲載状況を読み取り、項目ごとに文章の案を作成しています。数分かかります。この画面を開いたままお待ちください…</p>}
     {error && <p role="alert">{error}</p>}
     <ReclogiIdField listingId={listingId} reload={reload} />
     {draft && <>
-      <h3>{draft.review_required ? '要確認の案' : '確認用の案'}</h3>
-      <p>CSVを出す前に内容を確認してください。先方への送信・掲載は行いません。</p>
-      <p>数字は原文に同じ表記があるかだけを確かめます。通常と研修の取り違えなど、正しい数字を違う文脈で使った誤りは検知できません。給与や時間の意味は担当者が確認してください。</p>
-      <p>自動で作り直した回数：{String(draft.regeneration_count ?? 0)}回（最大2回）</p>
+      <h3 ref={draftTop} tabIndex={-1}>{draft.review_required ? '要確認の案' : '確認用の案'}</h3>
+      <InfoTip className="jc-infotip-left" iconFirst label="確かめていること"><p>CSVを出す前に内容を確認してください。先方への送信・掲載は行いません。</p><p>数字は原文に同じ表記があるかだけを確かめます。通常と研修の取り違えなど、正しい数字を違う文脈で使った誤りは検知できません。給与や時間の意味は担当者が確認してください。</p><p>自動で作り直した回数：{String(draft.regeneration_count ?? 0)}回（最大2回）</p></InfoTip>
       <h4>比べた求人と文の一致率</h4>
-      <p>文の一致率が{(draft.threshold * 100).toLocaleString('ja-JP', { maximumSignificantDigits: 6 })}％以上の場合、または生成した全文が相手の本文に含まれると「似すぎ・不合格」です。既知の項目見出しを除いて文を比べます。{draft.min_sentence_chars === 0 ? '短い文もすべて数えます。' : `${draft.min_sentence_chars.toLocaleString('ja-JP')}文字未満の文は一致率に数えません。`}</p>
+      <InfoTip className="jc-infotip-left" iconFirst label="一致率の決まり"><p>文の一致率が{(draft.threshold * 100).toLocaleString('ja-JP', { maximumSignificantDigits: 6 })}％以上の場合、または生成した全文が相手の本文に含まれると「似すぎ・不合格」です。既知の項目見出しを除いて文を比べます。{draft.min_sentence_chars === 0 ? '短い文もすべて数えます。' : `${draft.min_sentence_chars.toLocaleString('ja-JP')}文字未満の文は一致率に数えません。`}</p></InfoTip>
       <ul>{draft.comparisons.map((item, index) => <li key={index}><strong>{item.media} · {item.title}</strong><span>{item.publication} ／ 文の一致率：{item.ratio === null ? '未取得（要確認）' : `${(item.ratio * 100).toFixed(1)}％`}{item.too_similar && ' ／ 似すぎ・不合格（要確認）'}</span>
         {item.whole_match && <p>生成した全文が相手の本文に含まれています。</p>}
         {item.matched_sentences.length > 0 && <><span>一致した文</span><ul>{item.matched_sentences.map((sentence, sentenceIndex) => <li key={sentenceIndex}>{sentence}</li>)}</ul></>}
       </li>)}</ul>
       <h4>原本の条件</h4>
-      <p>勤務地は基準の事業所を引き継ぎます。詳しい住所は事業所の情報で確認してください。</p>
+      <InfoTip className="jc-infotip-left" iconFirst label="勤務地について"><p>勤務地は基準の事業所を引き継ぎます。詳しい住所は事業所の情報で確認してください。</p></InfoTip>
       <dl>{draft.copied.map(item => <div key={item.label}><dt>{item.label}{item.review && '（要確認）'}</dt><dd>{item.value ?? '未取得'}{item.reason && <p>{item.reason}</p>}</dd></div>)}</dl>
       {draft.images && <>
         <h4>使用する画像</h4>
@@ -174,9 +182,16 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
       </>}
       <h4>作成した文章と確認結果</h4>
       <dl>{draft.generated.map(item => <div key={item.label}><dt>{item.label}{item.review && '（要確認）'}</dt><dd>{item.value ?? '未取得'}{item.reason && <p>{item.reason}</p>}{item.missing_chunks.length > 0 && <><p>原文にない数字の表記</p><ul>{item.missing_chunks.map(chunk => <li key={chunk}>{chunk}</li>)}</ul></>}</dd></div>)}</dl>
-      {draft.review_required && <p role="status">要確認の項目があります。原文にない数字の表記がある文章は空欄です。似すぎの文章は作り直すか、担当者が確認してください。</p>}
-      <button type="button" className="jc-button" disabled={exporting} onClick={() => { void exportCsv(); }}>この案でCSVを出す</button>
-      <p>押すと、HubSpotに新しい求人（公開前）を1件作り、元の求人と同じ案件に関連付けてから、CSVを出します。同じ求人で何度押しても、作るのは1件だけです。</p>
+      {draft.review_required && <p role="status">要確認の項目があります。<InfoTip className="jc-infotip-left" label="くわしく"><p>原文にない数字の表記がある文章は空欄です。似すぎの文章は作り直すか、担当者が確認してください。</p></InfoTip></p>}
+      <div className="jc-rikurozi-create">
+        <p>押すと HubSpot に新しい求人（公開前）を1件作り、元の求人と同じ案件に付けてから CSV を出します。何度押しても作るのは1件です。</p>
+        <button type="button" className="jc-button jc-button-create" disabled={exporting || confirming} onClick={() => { void exportCsv(); }}>HubSpotに求人を作ってCSVを出す</button>
+        {confirming && <div className="jc-rikurozi-confirm" role="alertdialog" aria-label="作る前の確認">
+          <p>要確認の項目が {String(reviewCount)} 件残っています。このまま作りますか</p>
+          <button type="button" className="jc-button jc-button-create" onClick={() => { setConfirmed(true); void exportCsv(true); }}>このまま作る</button>
+          <button type="button" className="jc-button" onClick={() => { setConfirming(false); }}>やめる</button>
+        </div>}
+      </div>
       {exportMessage && <p role="status">{exportMessage}</p>}
     </>}
   </section>;

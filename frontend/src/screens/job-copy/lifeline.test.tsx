@@ -187,14 +187,14 @@ describe('ライフラインの変更印', () => {
     const onSelect = vi.fn();
     render(<LifelineChart lifeline={model} job={changedJob} selectedWeek={null} onSelect={onSelect} />);
     const single = screen.getByRole('button', { name: /2026-06-21 給与を変更/u });
-    // 番号は出来事の一覧と同じ（6/15 掲載開始1・課金2、6/16 応募3 のあと）
-    expect(single.textContent).toBe('4給与変更');
+    // 番号は出来事の一覧と同じ（6/15 掲載開始1・課金2 のあと。6/16 の応募には番号を振らない）
+    expect(single.textContent).toBe('3給与変更');
     expect(single.getAttribute('type')).toBe('button');
     fireEvent.click(single);
     expect(onSelect).toHaveBeenLastCalledWith(required(changes.find(event => event.versionId === 'salary')).id);
     const group = screen.getByRole('button', { name: /2026-06-22 画像を変更/u });
-    // 同じ週の画像5・本文7（間の6は 6/22 の課金の増額で、印には入れない）
-    expect(group.textContent).toBe('5・7変更×2');
+    // 同じ週の画像4・本文6（間の5は 6/22 の課金の増額で、印には入れない）
+    expect(group.textContent).toBe('4・6変更×2');
     expect(group.title).toContain('2026-06-23 給与と本文を変更');
     expect(group.getAttribute('aria-label')).toContain('本文を変更（追加');
     fireEvent.click(group);

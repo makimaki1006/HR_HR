@@ -32,7 +32,7 @@ it('案件の合計: 20/9/10/0 → 39件、前の4週31件、課金6万円 → 1
   expect(screen.queryByText('市場の職種')).toBeNull();
 });
 
-it('右の欄に職種の指定状況・地域・一括指定へのリンク、表の「未指定」に印、出来事は番号付きで押すと求人を開く', async () => {
+it('表の上に職種の指定状況・地域・一括指定へのリンク、帯に1行のデータの最後の日、表の「未指定」に印、出来事は番号付きで押すと求人を開く', async () => {
   // 本文の日付の読み取りは同じ求人の組を15秒まとめるので、上のテストと違う番号にする。
   const rows: HubSpotListing[] = [
     { ...row('11', '求人A', '公開'), prefecture: '東京都', municipality: '新宿区', indeed_title_state: 'set', indeed_title: '介護職' },
@@ -50,13 +50,15 @@ it('右の欄に職種の指定状況・地域・一括指定へのリンク、�
   });
   const open = vi.fn();
   render(<DealSummary deal={{ id: '9', name: '案件', prefecture: '', title: '', media: '' }} billingByJob={{}} onOpenListing={open} />);
-  const rail = await screen.findByRole('complementary', { name: '数字の前提' });
+  expect(screen.queryByRole('complementary', { name: '数字の前提' })).toBeNull();
+  const rail = await screen.findByRole('group', { name: '地域と比べる職種' });
   await waitFor(() => { expect(rail.textContent).toContain('4件中2件が指定済み'); });
   expect(rail.textContent).toContain('うち「市場と比べない」1件');
   expect(rail.textContent).toContain('東京都 新宿区・渋谷区、神奈川県 横浜市');
   // 未指定の 2 件には掲載を終えた求人D も入る（表は既定で掲載中だけ）
   const link = screen.getByRole('link', { name: '未指定の 2 件（うち掲載終了 1 件）を指定する' });
   expect(link.getAttribute('href')).toBe('/app/job-copy?view=occupations&deal=9');
+  expect(screen.getByTestId('ds-dataline').textContent).toContain('データの最後の日：HRハッカー 応募');
   // 表は既定で掲載中だけ。掲載中で未指定の求人B に印が付く。
   const unset = document.querySelectorAll('.ds-table .ds-unset');
   expect(unset).toHaveLength(1);
@@ -86,4 +88,12 @@ it('求人が31件以上の案件では、出来事は先頭30件の求人の分
   expect(await screen.findByText('出来事は先頭30件の求人の分です。')).toBeTruthy();
   // 31件目（求人30）の本文の変更は出さない。出来事は30件
   expect(screen.getByRole('button', { name: 'すべて表示（30件）' })).toBeTruthy();
+});
+
+it('案件の求人を読めなかったら、色付きの帯と「もう一度読み込む」を出す', async () => {
+  api.mockResolvedValue({ ok: false, status: 500, error: 'x' });
+  render(<DealSummary deal={{ id: '7', name: '案件', prefecture: '', title: '', media: '' }} billingByJob={{}} onOpenListing={vi.fn()} />);
+  const band = await screen.findByText('この案件の求人を読み込めませんでした。時間を置いて再取得してください。');
+  expect(band.closest('.jc-load-band')?.getAttribute('role')).toBe('alert');
+  expect(screen.getByRole('button', { name: 'もう一度読み込む' })).toBeTruthy();
 });

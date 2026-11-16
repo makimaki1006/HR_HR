@@ -34,7 +34,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       expect((await filters.boundingBox())!.y).toBe(top);
       await page.locator('.jc-listings-panel .jc-list-scroll').evaluate(element => { element.scrollTop = 0; });
       await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
-      await openOtherAnalysis(page, '本文・画像');
+      await openOtherAnalysis(page, '本文と画像');
       await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
       // 表示中の本文は記録された日で呼ぶ（年は今年なら省く）
       await expect(page.locator('.jc-reading-title h2')).toHaveText(/^(2026\/)?10\/2( 09:00)? の本文（最新）$/);
