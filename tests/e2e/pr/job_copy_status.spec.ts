@@ -46,16 +46,20 @@ for (const width of [1440, 1920]) test(`公開状況・空白だけの本文比�
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.locator('.jc-listing-popup-summary > div').filter({ has: page.locator('dt', { hasText: '公開状況' }) }).locator('dd')).toHaveText('掲載中');
-  await expect(dialog.getByRole('checkbox', { name: '変わった項目だけ表示（0項目）' })).toBeVisible();
-  await expect(dialog.locator('.jc-listing-change-dot')).toHaveCount(0);
+  // 小窓は今の内容だけ。前の本文との比較は全文比較で行い、空白だけの違いは上部の「前の本文と同じ」と同じく変更にしない
+  await expect(dialog.locator('.jc-listing-change-dot, mark')).toHaveCount(0);
   await shot('02-popup-summary');
-  const holiday = dialog.locator('.jc-listing-comparison-row').filter({ has: page.getByRole('heading', { name: '休日・休暇', exact: true }) }).first();
-  await holiday.scrollIntoViewIfNeeded();
+  await dialog.getByRole('button', { name: '前の本文と全文を比べる' }).click();
+  const compare = page.getByRole('dialog', { name: '求人の全文を比べる' });
+  await expect(compare.getByRole('status')).toContainText('項目のうち 0 項目が違います');
+  await compare.getByRole('button', { name: '全文', exact: true }).click();
+  const holiday = compare.locator('.jc-ftc-row').filter({ hasText: '休日・休暇' }).first();
   await expect(holiday).toHaveAttribute('data-changed', 'false');
-  await expect(holiday.locator('mark')).toHaveCount(0);
+  await expect(holiday.locator('del, ins')).toHaveCount(0);
   await shot('03-whitespace-no-change');
+  await compare.getByRole('button', { name: '閉じる', exact: true }).click();
   const missing = dialog.locator('.jc-listing-popup-missing');
-  await expect(missing.locator('summary')).toHaveText(['記載のない任意項目（68件）', '記載のない任意項目（68件）']);
+  await expect(missing.locator('summary')).toHaveText(['記載のない任意項目（68件）']);
   await expect(dialog).not.toContainText('任意項目の記載状況を取得できていません');
   await missing.first().locator('summary').scrollIntoViewIfNeeded();
   await shot('04-hrh-missing-optional');
@@ -67,6 +71,7 @@ for (const width of [1440, 1920]) test(`公開状況・空白だけの本文比�
   await page.reload();
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   await expect(dialog.locator('.jc-listing-two-columns')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: '前の本文と全文を比べる' })).toHaveCount(0);
   await expect(dialog).toContainText('本文以外の補足条件・公開状況は現在の取得値です');
   await expect(dialog).not.toContainText('左の本文');
   await shot('05-single-column-note');
@@ -99,10 +104,14 @@ for (const width of [1440, 1920]) test(`AirWorkの改行コードと空白だけ
     }
     await page.getByRole('button', { name: '求人の内容を確認する' }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog.getByRole('checkbox', { name: '変わった項目だけ表示（0項目）' })).toBeVisible();
     await expect(dialog.locator('.jc-listing-change-dot, mark')).toHaveCount(0);
-    // 左が前の本文、右が後の本文
+    // 小窓は今の本文（後の本文）だけ
     expect(await dialog.locator('.jc-listing-comparison-row').first().locator('section').last().locator('p').first().textContent()).toBe(after);
+    await dialog.getByRole('button', { name: '前の本文と全文を比べる' }).click();
+    const compare = page.getByRole('dialog', { name: '求人の全文を比べる' });
+    await expect(compare.getByRole('status')).toContainText('項目のうち 0 項目が違います');
+    await compare.getByRole('button', { name: '閉じる', exact: true }).click();
+    await expect(compare).toHaveCount(0);
     if (width === 1440 && text === '棚から集めます。\n箱に詰めます。') {
       await mkdir(shots, { recursive: true });
       await page.screenshot({ path: `${shots}/07-airwork-line-endings-popup.png` });
@@ -115,6 +124,6 @@ for (const width of [1440, 1920]) test(`AirWorkの改行コードと空白だけ
   await expect(page.locator('.jc-detail-heading .jc-badge')).toHaveText('本文：前の本文から内容が変わっています');
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('checkbox', { name: '変わった項目だけ表示（1項目）' })).toBeVisible();
-  await expect(dialog.locator('.jc-listing-change-dot')).toHaveCount(2);
+  await dialog.getByRole('button', { name: '前の本文と全文を比べる' }).click();
+  await expect(page.getByRole('dialog', { name: '求人の全文を比べる' }).getByRole('status')).toContainText('項目のうち 1 項目が違います');
 });

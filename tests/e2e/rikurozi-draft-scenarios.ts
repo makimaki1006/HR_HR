@@ -73,7 +73,10 @@ for (const width of [1440, 1920]) {
     await expect(draft).not.toContainText(/1234567|4081|求人id|店舗id|基本給与 最小|3-gram|LLM/);
     await expect(draft.getByLabel(/リクロジの求人ID（リクロジに取り込んだあとで入力します）/)).toBeVisible();
     const download = page.waitForEvent('download');
-    await draft.getByRole('button', { name: 'この案でCSVを出す' }).click();
+    await draft.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' }).click();
+    // 要確認の項目が残っているので、作る前に一度だけたずねられる。
+    await expect(draft.getByRole('alertdialog', { name: '作る前の確認' })).toContainText(/要確認の項目が \d+ 件残っています。このまま作りますか/);
+    await draft.getByRole('button', { name: 'このまま作る' }).click();
     const file = await download;
     expect(await fs.readFile((await file.path())!, 'utf8')).toBe(csv);
     await expect(draft).toContainText('HubSpotに新しい求人（公開前）を作りました。2件の案件に関連付けました。');
@@ -84,7 +87,7 @@ for (const width of [1440, 1920]) {
       await page.screenshot({ path: path.join(shots, 'review-1440.png') });
       await draft.getByRole('region', { name: 'リクロジ向けに作った求人' }).scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(shots, 'reclogi-id-1440.png') });
-      await draft.getByRole('button', { name: 'この案でCSVを出す' }).scrollIntoViewIfNeeded();
+      await draft.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' }).scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(shots, 'checks-1440.png') });
     }
     // AirWork selections must not offer generation; a new HRハッカー starts with no old result.
@@ -93,7 +96,7 @@ for (const width of [1440, 1920]) {
     await page.getByRole('button', { name: '配送ドライバー・沖縄2の本文を見る' }).click();
     await openWork(page, 'リクロジ向けの案を作る');
     await expect(page.getByRole('button', { name: 'リクロジメディア向けの案を作る' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'この案でCSVを出す' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' })).toHaveCount(0);
   });
 }
 test('1440px: failure is readable and allows retry', async ({ page }) => {
@@ -109,7 +112,7 @@ test('1440px: failure is readable and allows retry', async ({ page }) => {
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
   await expect(draft.getByRole('alert')).toContainText('顧客との関連');
   await expect(draft.getByRole('button', { name: 'リクロジメディア向けの案を作る' })).toBeEnabled();
-  await expect(draft.getByRole('button', { name: 'この案でCSVを出す' })).toHaveCount(0);
+  await expect(draft.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' })).toHaveCount(0);
 });
 
 test('1440px: copied condition mismatch stops CSV output', async ({ page }) => {
@@ -124,7 +127,7 @@ test('1440px: copied condition mismatch stops CSV output', async ({ page }) => {
   await page.getByRole('button', { name: 'リクロジメディア向けの案を作る' }).click();
   const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
   await expect(draft.getByRole('alert')).toContainText('出力を止めました（要確認）');
-  await expect(draft.getByRole('button', { name: 'この案でCSVを出す' })).toHaveCount(0);
+  await expect(draft.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' })).toHaveCount(0);
 });
 
 }

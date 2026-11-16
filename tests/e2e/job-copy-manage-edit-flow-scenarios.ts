@@ -49,7 +49,7 @@ function parseCsv(text: string): string[][] {
 }
 /** 本文は「くわしい分析」の横画面にある。開いて確かめ、ページを操作できるよう閉じる。 */
 async function expectBodyContains(page: Page, text: string) {
-  await openOtherAnalysis(page, '本文・画像');
+  await openOtherAnalysis(page, '本文と画像');
   await expect(page.getByLabel('求人票')).toContainText(text);
   await closeOtherAnalysis(page);
 }
@@ -224,7 +224,7 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       expect(csv[1][columns.indexOf('仕事内容')]).toBe(requests[0].body.row['仕事内容']);
       expect(csv[1][columns.indexOf('求人id')]).toBe('secret-job');
       expect(csv[1][columns.indexOf('公開')]).toBe('非公開');
-      await page.reload(); await openOtherAnalysis(page, '変更差分'); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案');
+      await page.reload(); await openOtherAnalysis(page, '変更の前後'); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案');
       expect(await page.locator('.jc-app').innerText()).not.toMatch(/secret-|private-reviewer@|基本給与|求人id|店舗id/);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     });

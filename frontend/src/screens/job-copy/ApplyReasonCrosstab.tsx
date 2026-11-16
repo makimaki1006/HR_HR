@@ -7,6 +7,7 @@ import { MIN_SHARE_N } from './reasonCategories';
 import { buildCrosstab, formatCount, formatShare, REASON_KINDS } from './applyReasonCrosstabModel';
 import type { AreaKind, CrosstabRow, ApplyReasonResponse, ReasonKind } from './applyReasonCrosstabModel';
 import { demoApplyReasons } from './demoApplyReasons';
+import { InfoTip } from './InfoTip';
 import './apply-reason-crosstab.css';
 
 const PERIODS = [[1, '直近1か月'], [3, '直近3か月'], [6, '直近6か月']] as const;
@@ -79,13 +80,15 @@ export function ApplyReasonCrosstab() {
       <label>職種<select value={occupation ?? ''} onChange={e => { set({ occupation: e.target.value || null }); }}><option value="">すべて</option>{report.occupation_groups.map(g => <option key={g} value={g}>{g}</option>)}</select></label>
     </div>
     {period && <p className="ar-lead">{base} {formatCount(crosstab.inTable)} 件／全応募 {formatCount(period.total)} 件{share ? `（${share}）` : ''}</p>}
-    <ul className="ar-notes">
-      {late && <li>選択式の記録は {late.replaceAll('-', '/')} の応募からです。それより前の応募には値がありません。</li>}
-      <li>一次対応のヒアリングで選んだ値を、そのまま数えています。</li>
-      {kind === 'motive' ? <li>応募動機は複数選べるので、1 件の応募が複数の列に入ることがあります。</li> : <li>①〜③のどれかに選んだ応募を数えています。1 件の応募が最大 3 つの列に入ります。</li>}
-      <li>地域・職種と理由の重なりは、理由の原因を示すとは限りません。</li>
-    </ul>
-    <p className="ar-excluded">表から外した応募: 地域が読めない {formatCount(excluded.noArea)} 件（地域別の表）・職種が分からない {formatCount(excluded.noOccupation)} 件（職種が無い {formatCount(excluded.occupationMissing)}・対応表に無い {formatCount(excluded.occupationUnmatched)}・求人票が食い違う {formatCount(excluded.occupationConflict)}。職種別の表では「未分類」の行）。外した応募も上の {formatCount(crosstab.inTable)} 件に含みます。</p>
+    <InfoTip className="jc-infotip-left ar-notes-tip" iconFirst label="数え方と注意">
+      <ul className="ar-notes">
+        {late && <li>選択式の記録は {late.replaceAll('-', '/')} の応募からです。それより前の応募には値がありません。</li>}
+        <li>一次対応のヒアリングで選んだ値を、そのまま数えています。</li>
+        {kind === 'motive' ? <li>応募動機は複数選べるので、1 件の応募が複数の列に入ることがあります。</li> : <li>①〜③のどれかに選んだ応募を数えています。1 件の応募が最大 3 つの列に入ります。</li>}
+        <li>地域・職種と理由の重なりは、理由の原因を示すとは限りません。</li>
+        <li className="ar-excluded">表から外した応募: 地域が読めない {formatCount(excluded.noArea)} 件（地域別の表）・職種が分からない {formatCount(excluded.noOccupation)} 件（職種が無い {formatCount(excluded.occupationMissing)}・対応表に無い {formatCount(excluded.occupationUnmatched)}・求人票が食い違う {formatCount(excluded.occupationConflict)}。職種別の表では「未分類」の行）。外した応募も上の {formatCount(crosstab.inTable)} 件に含みます。</li>
+      </ul>
+    </InfoTip>
 
     <h3>地域別</h3>
     <div className="ar-scroll"><table aria-label={`地域別の${kindLabel}`}>

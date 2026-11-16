@@ -28,11 +28,11 @@ describe('one application denominator across panels', () => {
     const { container } = render(<JobCopyScreen />);
     // 主領域は週ごとの応募。くわしい分析から本文・画像を開いてから確かめる
     await screen.findByRole('region', { name: 'この求人でやること' });
-    openOtherAnalysis('本文・画像');
+    openOtherAnalysis('本文と画像');
     const summary = await screen.findByRole('region', { name: '本文ごとの応募状況' });
     expect(within(summary).getByRole('status').textContent).toBe('この本文に結びつく応募はまだありません（求人全体では34件）');
     expect(summary.querySelector('.jc-counts')?.textContent).toContain('どの本文への応募か不明（求人全体）34件');
-    fireEvent.click(screen.getByRole('tab', { name: '応募者構成' }));
+    fireEvent.click(screen.getByRole('tab', { name: '応募者' }));
     const overall = await screen.findByRole('region', { name: '求人全体の実応募者構成' });
     expect(overall.textContent).toContain('応募34件 · 応募日も作成日も不明0件 · どの本文への応募か不明34件');
     expect(screen.getByText(/どの本文への応募か不明: 34件/u)).toBeDefined();

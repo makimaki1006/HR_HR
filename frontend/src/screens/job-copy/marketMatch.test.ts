@@ -25,7 +25,7 @@ describe('market choice for a job', () => {
     expect(indeedTitleState({ indeedTitleState: 'set', indeedTitle: ' 　 ' })).toBe('unset');
     expect(chooseMarket({ location: '大分県大分市', indeedTitle: '   ', indeedTitleState: 'set' }, ['大分県'])).toEqual({ title: null, titleState: 'unset', prefecture: '大分県' });
     expect(marketTitleNote('unset')).toBe('市場と比べる職種が未指定です');
-    expect(marketTitleNote('none')).toBe('市場と比べないと指定されています');
+    expect(marketTitleNote('none')).toBe('職種を「指定しない」にしているため、市場の数字は出しません');
     expect(marketTitleNote('set')).toBeNull();
   });
 });

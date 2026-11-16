@@ -3,7 +3,7 @@ import type { CopyVersion, JobCopyRecord } from './data';
 import { formatDateTimeJst } from './format';
 import { ImageGallery } from './ImageGallery';
 import { compareImages, imagesByVersion, referenceImages } from './images';
-import { comparableRows, compareRows, EMPTY_TEXT, isAirwork, markPair, NOT_RECORDED_TEXT } from './fullTextCompareModel';
+import { comparableRows, compareRows, EMPTY_TEXT, isAirwork, markPair, movedFromText, movedToText, NOT_RECORDED_TEXT } from './fullTextCompareModel';
 import type { CompareRow } from './fullTextCompareModel';
 import type { InlineSegment } from './diff';
 import './full-text-compare.css';
@@ -11,9 +11,9 @@ import './full-text-compare.css';
 const versionImages = (version: CopyVersion | undefined) => version ? version.images ?? imagesByVersion[version.id] : undefined;
 const day = (value: string | undefined) => value ? formatDateTimeJst(value, '日時不明') : '日時不明';
 
-function Text({ value, segments, side }: { value: string | null; segments: InlineSegment[] | undefined; side: 'left' | 'right' }) {
+function Text({ value, segments, side, moved }: { value: string | null; segments: InlineSegment[] | undefined; side: 'left' | 'right'; moved?: string | undefined }) {
   if (value === null) return <p className="jc-ftc-muted">{NOT_RECORDED_TEXT}</p>;
-  if (!value) return <p className="jc-ftc-muted">{EMPTY_TEXT}</p>;
+  if (!value) return <p className="jc-ftc-muted">{moved ?? EMPTY_TEXT}</p>;
   if (!segments) return <p>{value}</p>;
   return <p>{segments.map((segment, index) => !segment.changed ? segment.text : side === 'left' ? <del key={index} className="jc-mark-removed">{segment.text}</del> : <ins key={index} className="jc-mark-added">{segment.text}</ins>)}</p>;
 }
@@ -56,7 +56,8 @@ function Inner({ record, onClose, initialLeft, initialRight }: { record: JobCopy
   const changedCount = rows.filter(row => row.different).length + Number(imageChanged);
   const totalCount = comparable.length + Number(imageKnown);
   const shown = mode === 'diff' ? rows.filter(row => row.different) : rows;
-  const pairs = (row: CompareRow) => row.different && row.left !== null && row.right !== null ? markPair(row.left, row.right) : undefined;
+  // 欄が移っただけの行は、色で消えた・増えたと見せない。
+  const pairs = (row: CompareRow) => row.different && !row.movedTo && !row.movedFrom && row.left !== null && row.right !== null ? markPair(row.left, row.right) : undefined;
   return <dialog ref={dialog} className="jc-ftc" role="dialog" aria-modal="true" aria-labelledby={headingId} tabIndex={-1}
     onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose(); } }}
     onCancel={event => { event.preventDefault(); onClose(); }}>
@@ -70,7 +71,7 @@ function Inner({ record, onClose, initialLeft, initialRight }: { record: JobCopy
         <div className="jc-ftc-rows">
           {shown.map(row => { const marked = pairs(row); return <div key={row.key} className="jc-ftc-grid jc-ftc-row" data-changed={row.different}>
             <div className="jc-ftc-label">{row.label}{row.different && <span className="jc-ftc-tag">変わった</span>}</div>
-            <Text value={row.left} segments={marked?.[0]} side="left" /><Text value={row.right} segments={marked?.[1]} side="right" /></div>; })}
+            <Text value={row.left} segments={marked?.[0]} side="left" moved={row.movedFrom ? movedFromText(row.movedFrom) : undefined} /><Text value={row.right} segments={marked?.[1]} side="right" moved={row.movedTo ? movedToText(row.movedTo) : undefined} /></div>; })}
           {mode === 'diff' && changedCount === 0 && <p className="jc-ftc-muted">違う項目はありません。</p>}
           {(mode === 'all' || imageChanged) && <div className="jc-ftc-grid jc-ftc-row" data-changed={imageChanged}>
             <div className="jc-ftc-label">画像{imageChanged && <span className="jc-ftc-tag">変わった</span>}</div>

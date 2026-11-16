@@ -113,7 +113,7 @@ export function sidebarTests() {
       await expect.poll(() => Boolean(deliver)).toBe(true);
       if (!deliver) throw new Error('合成求人の取得待ちがありません');
       await deliver();
-      await openOtherAnalysis(page, '本文・画像');
+      await openOtherAnalysis(page, '本文と画像');
       await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
       await closeOtherAnalysis(page);
       await expectFullDetail();
@@ -236,7 +236,7 @@ export function sidebarTests() {
     expect(await scroll.evaluate(element => element.scrollTop)).toBe(before);
     await region.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await openOtherAnalysis(page, '本文・画像');
+    await openOtherAnalysis(page, '本文と画像');
     await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
     await closeOtherAnalysis(page);
   });

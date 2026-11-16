@@ -109,7 +109,7 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
     { key: 'billing', label: '課金（週）', cell: week => yen(week.billing), short: week => shortNumber(week.billing, '¥'), empty: noPerf },
     { key: 'impressions', label: '閲覧数（表示回数）', cell: week => num(week.impressions), short: week => shortNumber(week.impressions), empty: noPerf },
     { key: 'clicks', label: 'クリック数', cell: week => num(week.clicks), short: week => shortNumber(week.clicks), empty: noPerf },
-    { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), short: week => shortNumber(week.hubspotApplications), empty: '' },
+    { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), short: week => shortNumber(week.hubspotApplications), empty: job.applicationDates === 'loading' ? '' : '応募の日付を取得できていません' },
     { key: 'media', label: `応募数（${media}の集計）`, cell: week => num(week.mediaApplications), short: week => shortNumber(week.mediaApplications), empty: noPerf },
   ];
   // 媒体の実績（課金・閲覧・クリック・媒体の集計の応募）が無い求人は、空の4行を1行にまとめる。
@@ -147,6 +147,7 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
         </div>)}
       </div>
     </div>
+    <p className="lf-legend" data-testid="lifeline-legend">「—」はデータを取れていない週、「0」は0件の週です。</p>
   </div>;
 }
 
@@ -185,7 +186,7 @@ function ApplicationDetails({ job, event, hearing, loading, onShowHearing }: { j
   const recorded = items.length > 0 || picked.length > 0 || Boolean(card);
   return <div className="lo-reasons-of">
     <p className="lo-summary">応募日：{formatDateJst(event.date, '不明')} / 応募媒体：{card?.media ?? job.applicationRows?.find(row => row.key === event.applicationKey)?.media ?? '記録なし'}</p>
-    {job.applicationDates === 'failed' ? <p role="alert">応募の記録を読み込めませんでした。<RetryApplicants id={job.hubspotId} /></p> : loading || job.applicationDates === 'loading' ? <p role="status">電話で聞いた内容を読み込み中です。</p> : !hearing && job.hubspotId ? <p role="status">電話で聞いた内容を取得できませんでした。時間を置いて、もう一度開いてください。</p> : !recorded && job.applicantReasons?.truncated ? <p>一部だけ表示しているため、この応募の記録を確認できません。</p> : !recorded && <p>この応募には、応募理由や電話で聞いた内容の記録がありません</p>}
+    {job.applicationDates === 'failed' ? <p role="alert">応募の記録を読み込めませんでした。<RetryApplicants id={job.hubspotId} /></p> : loading || job.applicationDates === 'loading' ? null : !hearing && job.hubspotId ? <p role="status">電話で聞いた内容を取得できませんでした。時間を置いて、もう一度開いてください。</p> : !recorded && job.applicantReasons?.truncated ? <p>一部だけ表示しているため、この応募の記録を確認できません。</p> : !recorded && <p>この応募には、応募理由や電話で聞いた内容の記録がありません</p>}
     <div className="lo-reasons-of">
     {picked.map(item => <p key={`${item.sourceProperty}-${item.value}`} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由の分類'}：</strong>{item.label ?? '分類の名前を確認できません'}</p>)}
     {reasons.map(item => <p key={item.id} className="lo-summary"><strong>{reasonSourceLabels[item.sourceProperty] ?? '応募理由'}：</strong>{maskPersonalDetails(item.text)}</p>)}
@@ -201,7 +202,8 @@ function ApplicationDetails({ job, event, hearing, loading, onShowHearing }: { j
 /** 求人の応募理由（ヒアリング内容）の内訳。記録が無い求人は、無いと言う。 */
 export function ListingReasons({ job }: { job: JobCopyRecord }) {
   const collection = job.applicantReasons;
-  const body = job.applicationDates === 'loading' ? <p className="lo-note" role="status">応募理由を読み込み中です。</p>
+  // 読み込み中は上の帯の 1 か所だけに出す。ここは何も出さない。
+  const body = job.applicationDates === 'loading' ? null
     : job.applicationDates === 'failed' ? <p className="lo-note" role="alert">応募理由を読み込めませんでした。<RetryApplicants id={job.hubspotId} /></p>
     : !collection?.available || (!collection.items.some(item => item.text.trim()) && !(collection.selections ?? []).length) ? <p className="lo-note" role="status">応募理由の記録はまだありません。</p>
     : <ReasonCategorySummary collection={collection} />;
@@ -236,7 +238,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
     onSelect(event.id);
     requestAnimationFrame(() => { document.getElementById(`application-${key}`)?.scrollIntoView({ block: 'center' }); });
   }} />;
-  const hearingSummary = hearing.data ? `記録あり ${String(hearing.data.items.length)}件 ／ 応募 ${String(hearing.data.total_applicants)}件` : hearing.loading ? '記録を読み込み中です' : '聞き取った内容と通話の記録';
+  const hearingSummary = hearing.data ? `記録あり ${String(hearing.data.items.length)}件 ／ 応募 ${String(hearing.data.total_applicants)}件` : '聞き取った内容と通話の記録';
   const taskSection = tasks && <ListingTasks options={tasks} hearingSummary={hearingSummary} hearingPanel={phonePanel} />;
   // 応募の出来事から「電話ヒアリングのこの応募へ」を押したとき、電話ヒアリングの札を開いてその応募へ移る。
   const showHearing = (applicant: string) => {
@@ -263,14 +265,17 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
           const competitorEntry = isCompetitor ? job.competitorMonthly?.find(entry => entry.month === event.competitorMonth) : undefined;
           const counts = eventCounts(job, event, asOf, listingStart);
           const checks = isApplication || isCompetitor ? [] : eventChecks(event, events, billing, market, asOf);
-          const diff = counts.before !== null && counts.after !== null ? counts.after - counts.before : null;
+          // 前と後の日数が違うと、件数の差は短い方が少なく出るので出さない。
+          const unequal = counts.before !== null && counts.after !== null && counts.beforeDays !== counts.afterDays;
+          const diff = counts.before !== null && counts.after !== null && !unequal ? counts.after - counts.before : null;
+          const shortSide = unequal ? counts.afterDays < counts.beforeDays ? '後' : '前' : '';
           const partial = [counts.before !== null && counts.beforeDays < 28 ? `前は掲載後${String(counts.beforeDays)}日分` : '', counts.after !== null && counts.afterDays < 28 ? `後は${String(counts.afterDays)}日分` : ''].filter(Boolean).join('・');
           return <article id={isApplication ? `application-${event.applicationKey ?? event.id}` : undefined} key={event.id} ref={open ? card : undefined} className={`lo-event lo-kind-${event.kind}${open ? ' lo-open' : ''}`}>
             <button type="button" className="lo-event-head" aria-expanded={open} onClick={() => { onSelect(open ? null : event.id); }}>
               <span className="lo-num">{isApplication ? '応' : event.n}</span>
               <span className="lo-date">{md(event.date)}</span>
               <span className="lo-title"><small className="lo-kind">{KIND_LABEL[event.kind]}</small>{event.title}{(isApplication || isCompetitor) && <small className="lo-attrs">{event.summary}</small>}</span>
-              {isApplication || isCompetitor ? <span /> : <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{diff === null && partial && <small>{partial}</small>}</span>}
+              {isApplication || isCompetitor ? <span /> : <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{unequal && <small data-testid="event-no-diff">{shortSide === '後' ? '後の期間がまだ短い' : '前の期間が短い'}ため差は出していません（前 {String(counts.beforeDays)} 日・後 {String(counts.afterDays)} 日）</small>}{diff === null && !unequal && partial && <small>{partial}</small>}</span>}
               <span className="lo-caret jc-open" aria-hidden="true">{open ? '閉じる ▲' : '詳細 ▼'}</span>
             </button>
             {open && isApplication && event.repeat && <div className="lo-event-body"><p className="lo-summary">{event.repeatOf ? `この方の記録は${md(event.repeatOf)}の応募にまとめて出しています。` : 'この方の記録は最初の応募にまとめて出しています。'}</p></div>}

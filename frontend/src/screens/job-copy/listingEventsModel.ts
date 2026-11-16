@@ -29,7 +29,7 @@ export type EventKind = 'start' | 'content' | 'image' | 'billing' | 'end' | 'rev
 
 export interface ListingEvent {
   id: string;
-  /** 古い順の番号（1 から）。グラフの番号と一覧の番号が同じ。 */
+  /** 古い順の番号（1 から）。応募には振らず 0（応募以外だけで続けて数える）。ライフラインの番号と一覧の番号が同じ。 */
   n: number;
   date: string;
   kind: EventKind;
@@ -211,7 +211,9 @@ export function buildListingEvents(job: JobCopyRecord, billing: readonly Billing
   // 掲載開始より前の課金は、そのままでは矛盾して見えるので、前の記録であることを書く。
   const startDate = raw.find(event => event.kind === 'start')?.date ?? null;
   const marked = raw.map(event => event.kind === 'billing' && startDate !== null && event.date < startDate ? { ...event, summary: `掲載を開始した日より前の課金の記録です。求人票は変えていません。` } : event);
-  return marked.map((event, index) => ({ ...event, id: `ev-${String(index + 1)}`, n: index + 1 }));
+  // 番号は応募以外の出来事だけに 1, 2, 3… と振る（応募は数が多く、番号が飛んで見えるため）。応募は 0（画面では「応」）。
+  let counter = 0;
+  return marked.map((event, index) => ({ ...event, id: `ev-${String(index + 1)}`, n: event.kind === 'application' ? 0 : ++counter }));
 }
 
 /** 出来事の日の前後4週の応募。asOf は応募を取得した日（null なら数えない）。listingStart は掲載を始めた日（前の窓はこの日より前に広げない）。 */
@@ -340,7 +342,7 @@ export function eventChecks(event: ListingEvent, events: readonly ListingEvent[]
     }
   }
   if (market.state === 'unset') checks.push({ key: 'market', label: '市場', mark: 'unknown', markLabel: '未指定', text: '職種が未指定のため比べていません。' });
-  else if (market.state === 'none') checks.push({ key: 'market', label: '市場', mark: 'unknown', markLabel: '未指定', text: '市場と比べないと指定されています。' });
+  else if (market.state === 'none') checks.push({ key: 'market', label: '市場', mark: 'unknown', markLabel: '未指定', text: '職種を「指定しない」にしているため、市場とは比べません。' });
   else if (!market.rows) checks.push({ key: 'market', label: '市場', mark: 'unknown', markLabel: '未確認', text: '市場の数字を取得できていないため、比べていません。' });
   else {
     const last = asOf && addDays(event.date, WINDOW_DAYS) > asOf ? asOf : addDays(event.date, WINDOW_DAYS);

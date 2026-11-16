@@ -205,3 +205,4 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .lo-competitor-cond .lo-mark { display: inline-block; padding: 1px 8px; }
 .lo-competitor-month dd { white-space: normal; }
 .lo-competitor-n { display: block; font-size: 11px; font-weight: 400; color: var(--jc-muted); }
+.lf-legend { grid-column: 1 / -1; margin: 6px 0 0; font-size: 12px; color: var(--jc-muted); }

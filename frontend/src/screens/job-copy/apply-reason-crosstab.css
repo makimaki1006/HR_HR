@@ -31,3 +31,9 @@
 .ar-kind + .ar-kind { border-left: 1px solid #bdcbd1; }
 .ar-kind[aria-pressed="true"] { background: #263c4b; color: white; font-weight: 600; }
 .ar-main thead th:not(:first-child) { white-space: normal; min-width: 64px; max-width: 96px; font-size: 12px; line-height: 1.35; vertical-align: bottom; }
+/* 表の列の見出しを、下へ送っても残す（表は枠の中でスクロールする） */
+.ar-scroll { max-height: 70vh; }
+.ar-main thead th { position: sticky; top: 0; z-index: 1; }
+.ar-notes-tip { margin: 0 0 12px; }
+.ar-notes-tip .ar-notes { margin: 0; }
+.ar-notes .ar-excluded { padding: 0; background: none; margin: 2px 0; font-size: inherit; }

@@ -111,7 +111,7 @@ export function MarketNowBar({ job, mode, onIndeedTitleChanged, onOpenMarket }: 
   return <section className="lo-card lo-market" aria-label="市場の今">
     <div className="lo-head"><h2>市場の今</h2><span>Indeed の競合の求人と比べます。</span></div>
     <MarketOccupationSlot record={job} prefecture={prefectureFromLocation(job.location)} onChanged={onIndeedTitleChanged} />
-    {titleState === 'none' && <p className="jc-muted" data-testid="rail-market-note">市場と比べないと指定されています。</p>}
+    {titleState === 'none' && <p className="jc-muted" data-testid="rail-market-note">職種を「指定しない」にしているため、市場の数字は出しません。</p>}
     {titleState === 'unset' && <p className="jc-muted" data-testid="rail-market-note">職種を指定すると、競合の求人数と前月比が出ます。</p>}
     {titleState === 'set' && <div className="lo-market-now">
       {now.status === 'loading' && <p className="jc-muted" role="status">市場の数字を読み込み中です。</p>}

@@ -5,7 +5,7 @@
  */
 export const ORIGIN_LABELS: Readonly<Record<string, string>> = {
   today: '今日', risk: '危ない案件', good: 'いい案件', deals: '案件一覧', houjin: '顧客の一覧',
-  occupations: '職種の指定', reasons: '応募理由', unlinked: '未連携のMTG',
+  occupations: '職種の指定', reasons: '応募理由', unlinked: '案件が決まっていないMTG録画',
 };
 export function originOf(search: string): string | null {
   const from = new URLSearchParams(search).get('from');

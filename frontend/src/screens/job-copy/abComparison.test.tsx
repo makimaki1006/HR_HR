@@ -114,6 +114,14 @@ describe('求人比較', () => {
     expect(screen.queryByRole('checkbox')).toBeNull();
     expect(screen.getByText('応募者構成（性別・年代・地域）').parentElement?.hasAttribute('open')).toBe(false);
   });
+  it('names the button 比較に追加, shows each candidate period, and never offers the job being viewed', () => {
+    const a = job('a'); const records = [a, job('b')];
+    render(<AbComparison job={a} records={records} />);
+    const add = screen.getByRole('button', { name: '募集bを比較に追加' });
+    expect(add.textContent).toBe('比較に追加');
+    expect(add.closest('li')?.querySelector('[data-testid="ab-candidate-period"]')?.textContent).toMatch(/^掲載期間：/u);
+    expect(screen.queryByRole('button', { name: '募集aを比較に追加' })).toBeNull();
+  });
   it('shows missing start explicitly and changes every column to the same recent period', () => {
     const a = { ...job('a'), listingStartedOn: null };
     render(<AbComparison job={a} records={[a, { ...job('b'), hrhPerformance: undefined }]} />);

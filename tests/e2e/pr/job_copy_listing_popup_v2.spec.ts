@@ -35,21 +35,23 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('1 / 3件目');
-  await expect(dialog.getByRole('button', { name: '‹ 前の求人' })).toBeDisabled();
-  await expect(dialog.locator('.jc-listing-two-columns')).toHaveCount(1);
-  // 左が前の本文（消えた所は赤）、右が後の本文（増えた所は緑）
-  await expect(dialog.locator('mark.jc-mark-removed').first()).toHaveText('出荷');
-  await expect(dialog.locator('mark.jc-mark-added').first()).toHaveText('梱包');
+  // 先頭の求人なので「前の求人」は出さない（押せないボタンは出さない）
+  await expect(dialog.getByRole('button', { name: '‹ 前の求人' })).toHaveCount(0);
+  // 小窓は今の内容を見る専用。比べるときは全文比較を開く
+  await expect(dialog.locator('.jc-listing-two-columns')).toHaveCount(0);
+  await expect(dialog.locator('mark')).toHaveCount(0);
   const bounds = (await dialog.boundingBox())!;
   expect(bounds.width).toBe(width * 0.95); expect(Math.abs(bounds.height / 742 - 0.9)).toBeLessThan(0.01);
-  const pair = dialog.locator('.jc-listing-comparison-row').first().locator('section');
-  expect((await pair.nth(0).boundingBox())!.y).toBe((await pair.nth(1).boundingBox())!.y);
   const shot = async (name: string) => { if (width === 1440) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/${name}.png` }); } };
-  await shot('v2-01-two-columns');
-  await dialog.getByRole('checkbox', { name: /変わった項目だけ表示/ }).check();
-  await expect(dialog.locator('.jc-listing-comparison-row')).toHaveCount(2);
-  await shot('v2-02-changes-only');
-  await dialog.getByRole('checkbox', { name: /変わった項目だけ表示/ }).uncheck();
+  await shot('v2-01-current-only');
+  await dialog.getByRole('button', { name: '前の本文と全文を比べる' }).click();
+  const compare = page.getByRole('dialog', { name: '求人の全文を比べる' });
+  // 左が前の本文（消えた所は赤）、右が後の本文（増えた所は緑）
+  await expect(compare.locator('del.jc-mark-removed', { hasText: '出荷' }).first()).toBeVisible();
+  await expect(compare.locator('ins.jc-mark-added', { hasText: '梱包' }).first()).toBeVisible();
+  await shot('v2-02-full-compare');
+  await compare.getByRole('button', { name: '閉じる', exact: true }).click();
+  await expect(compare).toHaveCount(0);
   const scroller = dialog.locator('.jc-listing-popup-scroll');
   await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
   await expect(dialog.getByRole('img', { name: '現在の画像1', exact: true })).toBeVisible();
@@ -77,14 +79,14 @@ for (const width of [1440, 1920]) test(`求人内容の前回比較・空欄・�
   await expect(dialog).toContainText('2 / 3件目');
   await dialog.getByRole('button', { name: '次の求人 ›' }).click();
   await expect(dialog.getByRole('heading', { name: rows[2]!.title, exact: true })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: '次の求人 ›' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: '次の求人 ›' })).toHaveCount(0);
   await expect(dialog.locator('.jc-listing-two-columns')).toHaveCount(0);
   await expect(dialog).toContainText('この求人には画像が登録されていません');
   await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
   await shot('v2-06-no-images');
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: `${rows[0]!.title}の本文を見る` }).click();
-  await openOtherAnalysis(page, '本文・画像');
+  await openOtherAnalysis(page, '本文と画像');
   await page.getByRole('button', { name: /10\/1( 09:00)? の本文/ }).click();
   await closeOtherAnalysis(page);
   await page.getByRole('button', { name: '求人の内容を確認する' }).click();
@@ -131,22 +133,28 @@ for (const width of [1440, 1920]) test(`取得不能の給与・任意項目と�
     await page.getByRole('button', { name: '求人の内容を確認する' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.locator('.jc-listing-popup-summary > div').filter({ has: page.locator('dt', { hasText: '給与' }) }).locator('dd')).toHaveText('取得できていません');
+    // 小窓は今の内容だけ（1列）。前の本文と比べて色を付けるのは全文比較
     const salary = dialog.locator('.jc-listing-comparison-row').filter({ has: page.getByRole('heading', { name: '給与', exact: true }) });
-    await expect(salary.locator('p')).toHaveText(['取得できていません', '取得できていません']);
+    await expect(salary.locator('p')).toHaveText(['取得できていません']);
     await expect(dialog).not.toContainText('記載のない任意項目（0件）');
-    await expect(dialog.getByText('任意項目の記載状況を取得できていません。', { exact: true })).toHaveCount(2);
-    const row = dialog.locator('.jc-listing-comparison-row').first();
+    await expect(dialog.getByText('任意項目の記載状況を取得できていません。', { exact: true })).toHaveCount(1);
+    await expect(dialog.locator('.jc-listing-comparison-row').first().locator('p')).toHaveText([after]);
+    await expect(dialog.locator('mark')).toHaveCount(0);
+    await dialog.getByRole('button', { name: '前の本文と全文を比べる' }).click();
+    const compare = page.getByRole('dialog', { name: '求人の全文を比べる' });
+    const row = compare.locator('.jc-ftc-row[data-changed="true"]').first();
     await expect(row.locator('p')).toHaveText([before, after]);
-    await expect(row.locator('mark')).toHaveText([scenario.removed, scenario.added]);
-    expect(await row.locator('mark.jc-mark-added').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 209, 158)');
+    expect(await row.locator('del.jc-mark-removed').evaluateAll(items => items.map(item => item.textContent).join(''))).toBe(scenario.removed);
+    expect(await row.locator('ins.jc-mark-added').evaluateAll(items => items.map(item => item.textContent).join(''))).toBe(scenario.added);
     if (width === 1440) {
       await mkdir(shots, { recursive: true });
-      await row.locator('mark').first().scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${shots}/${scenario.shot}.png` });
-      if (scenario.after === '梱包') {
-        await dialog.locator('.jc-listing-popup-scroll').evaluate(element => { element.scrollTop = element.scrollHeight; });
-        await page.screenshot({ path: `${shots}/review-04-optional-unavailable.png` });
-      }
+    }
+    await compare.getByRole('button', { name: '閉じる', exact: true }).click();
+    await expect(compare).toHaveCount(0);
+    if (width === 1440 && scenario.after === '梱包') {
+      await dialog.locator('.jc-listing-popup-scroll').evaluate(element => { element.scrollTop = element.scrollHeight; });
+      await page.screenshot({ path: `${shots}/review-04-optional-unavailable.png` });
     }
     await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
   }

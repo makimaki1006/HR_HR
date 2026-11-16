@@ -107,7 +107,7 @@ it('opens the selected timeline version from the detail heading, initially the l
   opener.focus(); fireEvent.click(opener);
   expect(screen.getByRole('dialog').textContent).toContain(jobs[0]?.versions[2]?.body);
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
-  const drawer = openOtherAnalysis('本文・画像');
+  const drawer = openOtherAnalysis('本文と画像');
   fireEvent.click(within(drawer).getByRole('button', { name: /給与・勤務条件変更.*2026\/09\/15/ }));
   fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);
@@ -222,7 +222,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   expect(dialog.querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '未取得' : `${String(count)}件`}`);
   expect(dialog.textContent).toContain('現在の本文です。');
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
-  const drawer = openOtherAnalysis('本文・画像');
+  const drawer = openOtherAnalysis('本文と画像');
   fireEvent.click(within(drawer).getByRole('button', { name: /10\/1 の本文/ }));
   fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);
@@ -235,20 +235,36 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   expect(api.mock.calls.filter(call => String(call[0]).endsWith('/applications'))).toHaveLength(1);
 });
 
-it('renders exactly two changed rows with colored characters and no mark for unavailable pairs', () => {
+it('shows only the selected copy, and compares with the previous copy in the full-text comparison', () => {
   const job = record({ 仕事内容: '商品を確認して梱包します。', 勤務時間: '9:00〜18:00', 応募資格: '' });
   const latest = job.versions[0];
   if (!latest) throw new Error('掲載本文が必要です');
   job.versions.unshift({ ...latest, id: 'previous', observedAt: '2026-10-01T00:00:00Z', comparisonBody: (latest.comparisonBody ?? '').replace('商品を確認して梱包します。', '商品を確認して出荷します。').replace('9:00〜18:00', '8:00〜17:00'), body: '商品を確認して出荷します。' });
   render(<ListingPopup job={job} version={latest} onClose={vi.fn()} />);
-  const dialog = screen.getByRole('dialog');
-  expect(dialog.querySelectorAll('[data-changed="true"]')).toHaveLength(2);
-  expect(dialog.querySelectorAll('[aria-label="変更あり"]')).toHaveLength(4);
-  expect([...dialog.querySelectorAll('mark')].map(element => element.textContent).join('')).toContain('梱包');
-  fireEvent.click(screen.getByRole('checkbox', { name: '変わった項目だけ表示（2項目）' }));
-  expect(dialog.querySelectorAll('.jc-listing-comparison-row')).toHaveLength(2);
-  expect(dialog.textContent).not.toContain('記載のない任意項目');
-  expect(dialog.textContent).not.toContain('記載なし');
+  const dialog = screen.getByRole('dialog', { name: listing.title });
+  // 小窓は今の内容を見る専用。2列の比較・変更の印・色は出さない。
+  expect(dialog.querySelector('.jc-listing-two-columns')).toBeNull();
+  expect(dialog.querySelectorAll('[aria-label="変更あり"], mark')).toHaveLength(0);
+  expect(dialog.textContent).toContain('商品を確認して梱包します。');
+  expect(dialog.textContent).not.toContain('商品を確認して出荷します。');
+  fireEvent.click(within(dialog).getByRole('button', { name: '前の本文と全文を比べる' }));
+  const compare = screen.getByRole('dialog', { name: '求人の全文を比べる' });
+  // 全文比較は、前の本文（左）と、小窓で見ていた本文（右）で開く。
+  const pressed = (name: string) => within(within(compare).getByRole('group', { name })).getAllByRole('button').findIndex(button => button.getAttribute('aria-pressed') === 'true');
+  expect([pressed('前の本文（左）'), pressed('後の本文（右）')]).toEqual([0, 1]);
+  fireEvent.click(within(compare).getByRole('button', { name: '閉じる' }));
+  expect(screen.queryByRole('dialog', { name: '求人の全文を比べる' })).toBeNull();
+});
+
+it('folds the notes about dates and counts into ⓘ, and names the close button 閉じる', () => {
+  render(<ListingPopup job={record()} onClose={vi.fn()} />);
+  const dialog = screen.getByRole('dialog', { name: listing.title });
+  expect(dialog.querySelector('.jc-listing-popup-bar details summary')?.textContent).toContain('日時と応募数について');
+  expect(within(dialog).getByRole('button', { name: '求人の内容を閉じる' }).textContent).toBe('閉じる');
+  // 前の本文が無いときは、比べるボタンを出さない。一覧から開いていなければ切り替えも出さない。
+  expect(within(dialog).queryByRole('button', { name: '前の本文と全文を比べる' })).toBeNull();
+  expect(within(dialog).queryByRole('navigation', { name: '求人の切り替え' })).toBeNull();
+  expect(dialog.textContent).not.toContain('一覧の範囲外');
 });
 
 it('distinguishes absent images, unresolved filenames and unknown registration, and prefers acquired URLs over empty arrays', () => {
@@ -273,37 +289,19 @@ it('switches in the supplied order, uses the latest published copy, and ignores 
   render(<ListingPopup job={second} version={second.versions[0]} navigation={{ ids: [first.id, second.id], load }} onClose={vi.fn()} />);
   const dialog = screen.getByRole('dialog');
   expect(screen.getByText('2 / 2件目')).toBeTruthy();
-  expect(screen.getByRole('button', { name: '次の求人 ›' })).toHaveProperty('disabled', true);
+  // 最後の求人なので「次の求人」は出さない（押せないボタンは出さない）。
+  expect(screen.queryByRole('button', { name: '次の求人 ›' })).toBeNull();
   fireEvent.keyDown(dialog, { key: 'ArrowLeft' });
   await screen.findByRole('heading', { name: '最初の求人' });
   expect(screen.getByRole('dialog')).toBe(dialog);
   expect(screen.getByText('1 / 2件目')).toBeTruthy();
-  expect(screen.getByRole('button', { name: '‹ 前の求人' })).toHaveProperty('disabled', true);
+  expect(screen.queryByRole('button', { name: '‹ 前の求人' })).toBeNull();
   const input = document.createElement('input'); dialog.append(input);
   fireEvent.keyDown(input, { key: 'ArrowRight' }); expect(load).toHaveBeenCalledTimes(1); input.remove();
   fireEvent.keyDown(dialog, { key: 'ArrowRight' });
   await screen.findByRole('heading', { name: '次の求人' });
   expect(dialog.textContent).toContain('最新の本文です。');
   expect(dialog.textContent).not.toContain('未掲載の案です。');
-});
-
-it('does not mark unknown historical conditions and shows changed image references in the changes filter', () => {
-  const aw = listingRecord({ listing: { ...listing, media: 'airwork' }, current_fields: { 勤務時間: '9:00〜18:00' }, versions: [
-    { written_at: '2026-10-01T00:00:00Z', body: '荷物を確認します。', image_urls: null },
-    { written_at: '2026-10-11T00:00:00Z', body: '荷物を確認します。', image_urls: null },
-  ], history_counts: {}, history_may_be_incomplete: false });
-  const { unmount } = render(<ListingPopup job={aw} version={aw.versions[1]} onClose={vi.fn()} />);
-  expect(screen.getByRole('dialog').querySelectorAll('[aria-label="変更あり"]')).toHaveLength(0);
-  unmount();
-  const job = record({ 画像1: 'new.jpg' });
-  const selected = job.versions[0];
-  if (!selected) throw new Error('掲載本文が必要です');
-  job.versions.unshift({ ...selected, id: 'before-image', comparisonBody: (selected.comparisonBody ?? '').replace('new.jpg', 'old.jpg') });
-  render(<ListingPopup job={job} version={selected} onClose={vi.fn()} />);
-  fireEvent.click(screen.getByRole('checkbox', { name: '変わった項目だけ表示（1項目）' }));
-  expect(screen.getByRole('dialog').querySelectorAll('[aria-label="変更あり"]')).toHaveLength(2);
-  expect(screen.getAllByText('画像はありますが、取得できていません')).toHaveLength(2);
-  expect(screen.getByRole('dialog').textContent).not.toMatch(/new.jpg|old.jpg/);
 });
 
 it('keeps the current copy while loading and after a failed switch, then permits retry', async () => {
@@ -344,46 +342,6 @@ it('does not replace an explicitly empty acquired location with the current summ
   expect(model.sections.find(section => section.heading === '勤務地・アクセス')?.entries[0]?.value).toBe('記載なし');
 });
 
-it.each([
-  ['検品', '梱包', '検品', '梱包'],
-  ['前'.repeat(299) + '検品' + '後'.repeat(299), '前'.repeat(299) + '梱包' + '後'.repeat(299), '検品', '梱包'],
-  ['検'.repeat(600), '梱'.repeat(600), '検'.repeat(600), '梱'.repeat(600)],
-])('colours changed text on both sides for %s → %s', (before, after, removed, added) => {
-  const job = record({ 仕事内容: after });
-  const selected = job.versions[0]; if (!selected) throw new Error('掲載本文が必要です');
-  job.versions.unshift({ ...selected, id: 'before-text', comparisonBody: rowBody({ 案件名: listing.title, 仕事内容: before, 給与形態: '月給', '基本給与 最小': '213000', '基本給与 最大': '249000', 公開: '公開' }) });
-  render(<ListingPopup job={job} version={selected} onClose={vi.fn()} />);
-  const row = screen.getByRole('dialog').querySelector('.jc-listing-comparison-row');
-  expect(row?.querySelectorAll('[aria-label="変更あり"]')).toHaveLength(2);
-  // 左＝前の本文（消えた所は赤）、右＝後の本文（増えた所は緑）。
-  const headings = [...screen.getByRole('dialog').querySelectorAll('.jc-listing-column-heading h3')].map(h => h.textContent);
-  expect(headings).toEqual(['前の本文', '後の本文']);
-  const paragraphs = row?.querySelectorAll('p');
-  expect(paragraphs?.[0]?.textContent).toBe(before);
-  expect(paragraphs?.[1]?.textContent).toBe(after);
-  expect([...paragraphs?.[0]?.querySelectorAll('mark.jc-mark-removed') ?? []].map(mark => mark.textContent).join('')).toBe(removed);
-  expect([...paragraphs?.[1]?.querySelectorAll('mark.jc-mark-added') ?? []].map(mark => mark.textContent).join('')).toBe(added);
-  expect(paragraphs?.[0]?.querySelector('mark.jc-mark-added')).toBeNull();
-  expect(paragraphs?.[1]?.querySelector('mark.jc-mark-removed')).toBeNull();
-});
-
-it('ignores whitespace-only changes without altering original values and matches the body status', async () => {
-  const before = '土日休み。\n夏季休暇あり。';
-  const after = '\n  土日休み。　\r\n夏季休暇あり。\n';
-  const job = record({ 自由項目1のタイトル: '休日・休暇', 自由項目1の内容: after });
-  const current = job.versions[0];
-  if (!current) throw new Error('比較する本文が必要です');
-  job.versions.unshift({ ...current, id: 'previous', comparisonBody: rowBody({ 自由項目1のタイトル: '休日・休暇', 自由項目1の内容: before }) });
-  render(<ListingPopup job={job} version={current} onClose={vi.fn()} />);
-  const row = screen.getByRole('dialog').querySelectorAll('.jc-listing-comparison-row');
-  const holiday = [...row].find(element => element.textContent.includes('休日・休暇'));
-  expect(holiday?.getAttribute('data-changed')).toBe('false');
-  expect(holiday?.querySelectorAll('mark, .jc-listing-change-dot')).toHaveLength(0);
-  // 左が前の本文、右が後の本文。値はどちらも元のまま。
-  expect([...holiday?.querySelectorAll('p') ?? []].map(p => p.textContent)).toEqual([before, after]);
-  const { compareCopy } = await import('./diff');
-  expect(compareCopy(before, after).status).toBe('unchanged');
-});
 it('counts omitted optional HRH fields from a sparse body and retains unknown for unstructured text', () => {
   const body = '案件名：架空のピッキング作業スタッフ\n仕事内容：注文の商品を棚から集めます。\n勤務時間：9:00〜18:00';
   const job = listingRecord({ listing, versions: [{ written_at: '2026-10-11T00:00:00Z', body, image_urls: null }], history_counts: {}, history_may_be_incomplete: false });

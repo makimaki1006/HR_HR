@@ -33,7 +33,7 @@ export function indeedTitleState(job: IndeedTitleFields): IndeedTitleState {
 /** The plain note shown instead of market data when there is no designated title. */
 export function marketTitleNote(state: IndeedTitleState): string | null {
   if (state === 'unset') return '市場と比べる職種が未指定です';
-  if (state === 'none') return '市場と比べないと指定されています';
+  if (state === 'none') return '職種を「指定しない」にしているため、市場の数字は出しません';
   return null;
 }
 

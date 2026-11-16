@@ -14,6 +14,15 @@ import { formatDateJst, formatYen, orderCategories } from './format';
 import { ImageGallery } from './ImageGallery';
 import './ab-comparison.css';
 
+/** 候補の掲載期間（開始〜終了。掲載中なら「〜掲載中」）。分からない日は「不明」。 */
+function candidatePeriod(entry: { row?: HubSpotListing | undefined; job?: JobCopyRecord | undefined }): string {
+  const start = entry.row ? entry.row.listing_started_on ?? null : entry.job?.listingStartedOn ?? null;
+  const end = entry.row ? entry.row.listing_ended_on ?? null : null;
+  const live = entry.row ? publicationLabel(entry.row.publication_status) === '掲載中' : publicationLabel(entry.job?.listingPublicationStatus ?? null) === '掲載中';
+  const day = (value: string | null) => value ? formatDateJst(value, '不明') : '不明';
+  return `${day(start)}〜${end ? day(end) : live ? '掲載中' : '不明'}`;
+}
+
 const number = (value: number | null | undefined, unit = '') => value == null ? '未取得' : `${value.toLocaleString('ja-JP', { maximumFractionDigits: 2 })}${unit}`;
 const dimensions = [{ id: 'gender', label: '性別' }, { id: 'age', label: '年代' }, { id: 'prefecture', label: '都道府県' }, { id: 'municipality', label: '市区町村' }] as const;
 interface Selection { id: string; title: string; row?: HubSpotListing; job?: JobCopyRecord; error?: string; loading?: boolean; applicantsFailed?: boolean }
@@ -117,7 +126,8 @@ export function AbComparison({ job, records, source = 'fixed' }: { job: JobCopyR
   };
   const remove = (entryId: string) => { actions.current.get(entryId)?.abort(); actions.current.delete(entryId); setSelected(items => items.filter(item => item.id !== entryId)); };
   const local = localCandidates(job, records, tab, filters, today);
-  const candidates: Selection[] = live ? (page?.listings ?? []).map(row => ({ id: row.id, title: row.title ?? '求人名未取得', row })) : local.slice(offset, offset + 20).map(other => ({ id: other.id, title: other.title, job: other }));
+  // 見ている求人そのものは候補に出さない。
+  const candidates: Selection[] = live ? (page?.listings ?? []).filter(row => row.id !== job.hubspotId && `hubspot-history-${row.id}` !== job.id).map(row => ({ id: row.id, title: row.title ?? '求人名未取得', row })) : local.slice(offset, offset + 20).map(other => ({ id: other.id, title: other.title, job: other }));
   const entries: Selection[] = [{ id: job.id, title: job.title, job }, ...selected];
   const jobs = entries.flatMap(item => item.job ? [item.job] : []);
   const commonPeriod = jobs.length === entries.length ? commonRecentPeriod(jobs, today) : null;
@@ -135,7 +145,7 @@ export function AbComparison({ job, records, source = 'fixed' }: { job: JobCopyR
         {tab === 'other' && <div className="ab-controls"><label>本文の職種<input value={filters.occupation} maxLength={200} onChange={e => { changeFilter('occupation', e.target.value); }} /></label><label>都道府県<select value={filters.prefecture} onChange={e => { changeFilter('prefecture', e.target.value); }}><option value="">全国</option>{PREFECTURE_NAMES.map(prefecture => <option key={prefecture}>{prefecture}</option>)}</select></label><label>媒体<select value={filters.media} onChange={e => { changeFilter('media', e.target.value); }}><option value="">すべて</option><option>HRハッカー</option><option>AirWork</option></select></label><label>求人名の検索<input type="search" maxLength={100} value={filters.q} onChange={e => { changeFilter('q', e.target.value); }} /></label><button className="jc-button" onClick={() => { setFilters({ occupation: '', prefecture: '', media: '', q: '' }); setOffset(0); }}>絞り込みを外す</button></div>}
         {live && !job.accountId ? <p>顧客が分からないため、比較する相手を探せません。</p> : <>{listError ? <p role="alert">{listError}<button onClick={() => { setReload(v => v + 1); }}>再取得</button></p> : live && !page ? <p role="status">比較する求人を読み込んでいます…</p> : page?.status === 'preparing' ? <p role="status">求人一覧を準備しています。<button onClick={() => { setReload(v => v + 1); }}>もう一度確認</button></p> : <>
           {page?.refresh_failed && <p>一覧を更新できなかったため、前回取得した候補を表示しています。</p>}
-          <ul className="ab-candidates">{candidates.map(entry => <li key={entry.id}><div><strong>{entry.title}</strong><small>{entry.row ? [entry.row.summary?.occupation, entry.row.prefecture, mediaLabel(entry.row.media), publicationLabel(entry.row.publication_status)].filter(Boolean).join(' · ') : [entry.job?.company, entry.job?.location, entry.job?.media].filter(Boolean).join(' · ')}</small><CandidateNumbers entry={entry} today={today} /></div><button className="jc-button" disabled={selected.length >= 4 || selected.some(item => item.id === entry.id)} onClick={() => { add(entry); }}>{selected.some(item => item.id === entry.id) ? '選択済み' : `${entry.title}を比較に追加`}</button></li>)}</ul>
+          <ul className="ab-candidates">{candidates.map(entry => <li key={entry.id}><div><strong>{entry.title}</strong><small>{entry.row ? [entry.row.summary?.occupation, entry.row.prefecture, mediaLabel(entry.row.media), publicationLabel(entry.row.publication_status)].filter(Boolean).join(' · ') : [entry.job?.company, entry.job?.location, entry.job?.media].filter(Boolean).join(' · ')}</small><small className="ab-period-of" data-testid="ab-candidate-period">掲載期間：{candidatePeriod(entry)}</small><CandidateNumbers entry={entry} today={today} /></div><button className="jc-button" aria-label={selected.some(item => item.id === entry.id) ? `${entry.title}は選択済み` : `${entry.title}を比較に追加`} disabled={selected.length >= 4 || selected.some(item => item.id === entry.id)} onClick={() => { add(entry); }}>{selected.some(item => item.id === entry.id) ? '選択済み' : '比較に追加'}</button></li>)}</ul>
           {!candidates.length && <p>条件に合う求人はありません。</p>}
           <nav className="ab-pages" aria-label="比較候補のページ"><button className="jc-button" disabled={offset === 0} onClick={() => { setOffset(v => Math.max(0, v - 20)); }}>前の20件</button><span>{candidates.length ? `${String(offset + 1)}〜${String(offset + candidates.length)}件` : '0件'}</span><button className="jc-button" disabled={next === null} onClick={() => { if (next !== null) setOffset(next); }}>次の20件</button></nav>
         </>}</>}

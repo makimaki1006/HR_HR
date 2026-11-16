@@ -3,18 +3,17 @@ import type { CopyVersion, JobCopyRecord } from './data';
 import { formatDateTimeJst } from './format';
 import { ImageGallery } from './ImageGallery';
 import { listingComparisonRows, listingPopupModel } from './listingPopupModel';
-import { markValueChanges } from './diff';
+import { FullTextCompareDialog } from './FullTextCompareDialog';
+import { InfoTip } from './InfoTip';
 import './listing-popup.css';
 
 export interface ListingNavigation {
   ids: string[];
   load: (id: string, signal: AbortSignal) => Promise<JobCopyRecord>;
 }
-/** tone: 前の本文は消えた所を赤（removed）、後の本文は増えた所を緑（added）。 */
-function ChangedText({ value, reference, different, tone = 'added' }: { value: string; reference: string; different: boolean; tone?: 'added' | 'removed' }) {
-  const segments = different ? markValueChanges(reference, value) : undefined;
-  return <p className={value === '記載なし' ? 'jc-listing-absent' : undefined}>{segments ? segments.map((segment, index) => segment.changed ? <mark key={index} className={`jc-mark-${tone}`}>{segment.text}</mark> : segment.text) : value}</p>;
-}
+/**
+ * 求人の内容の小窓。今の内容を見る専用（2026-11-16）。前の本文と比べたいときは、全文比較を開く。
+ */
 export function ListingPopup({ job, version, onClose, returnFocus, navigation }: {
   job: JobCopyRecord; version?: CopyVersion | undefined; onClose: () => void; returnFocus?: HTMLElement | null; navigation?: ListingNavigation | undefined;
 }) {
@@ -24,18 +23,16 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
   const [switched, setSwitched] = useState<JobCopyRecord | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [changesOnly, setChangesOnly] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const displayed = switched ?? job;
   const selectedVersion = switched ? switched.versions.filter(item => item.kind === 'published').at(-1) : version;
   const versions = displayed.versions.filter(item => item.kind === 'published');
   const previous = versions[versions.findIndex(item => item.id === selectedVersion?.id) - 1];
   const headingId = useId();
   const model = listingPopupModel(displayed, selectedVersion);
-  const old = previous ? listingPopupModel(displayed, previous) : undefined;
-  const rows = listingComparisonRows(model, old);
-  const imagesChanged = Boolean(old && model.imageSignature !== undefined && old.imageSignature !== undefined && model.imageSignature !== old.imageSignature);
-  const changedCount = rows.filter(row => row.different).length + Number(imagesChanged);
+  const rows = listingComparisonRows(model, undefined);
   const index = navigation?.ids.indexOf(displayed.id) ?? -1;
+  const total = navigation?.ids.length ?? 0;
   const navigate = async (direction: number) => {
     const id = navigation?.ids[index + direction];
     if (!navigation || index < 0 || !id || busy) return;
@@ -45,7 +42,7 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
     try {
       const next = await navigation.load(id, controller.signal);
       if (controller.signal.aborted) return;
-      setSwitched(next); setChangesOnly(false);
+      setSwitched(next); setCompareOpen(false);
       if (scroller.current) scroller.current.scrollTop = 0;
     } catch {
       if (!controller.signal.aborted) setError('切り替え先の求人を取得できませんでした。もう一度切り替えてください。');
@@ -69,7 +66,7 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
     if (scroller.current) scroller.current.scrollTop = 0;
   }, [displayed.id]);
   const images = (item: typeof model, recorded?: CopyVersion) => <section className="jc-listing-popup-section jc-listing-image-cell">
-    <h3>{imagesChanged && <span className="jc-listing-change-dot" aria-label="変更あり">● </span>}画像</h3>
+    <h3>画像</h3>
     {item.images?.length ? <><ImageGallery failureMessage="画像はありますが、取得できていません" title="掲載画像" images={item.images} />{recorded?.historicalImageBytesAvailable === false && <p className="jc-listing-popup-note">画像は当時と異なる可能性があります。</p>}</> : item.observedImages ? <><p className="jc-listing-popup-note">現在取得できる画像（確認日時：{formatDateTimeJst(item.observedImages.observedAt, '未取得')}）。本文の記録時点の画像とは限りません。</p><ImageGallery failureMessage="画像はありますが、取得できていません" title="掲載画像" images={item.observedImages.images} /></> : <p>{item.imageReason}</p>}
   </section>;
   const missing = (item: typeof model) => !item.optionalFieldsKnown ? <p className="jc-listing-popup-note">任意項目の記載状況を取得できていません。</p> : <details className="jc-listing-popup-missing"><summary>記載のない任意項目（{item.missing.length}件）</summary><ul>{item.missing.map((name, i) => <li key={i}>{name}</li>)}</ul></details>;
@@ -85,22 +82,23 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
       const bounds = event.currentTarget.getBoundingClientRect();
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
     }}>
-    <header className="jc-listing-popup-heading"><div><span>求人の内容</span><h2 id={headingId}>{model.title}</h2><nav aria-label="求人の切り替え"><button className="jc-button" disabled={busy || index <= 0} onClick={() => { void navigate(-1); }}>‹ 前の求人</button><span>{index >= 0 ? `${String(index + 1)} / ${String(navigation?.ids.length)}件目` : '一覧の範囲外'}</span><button className="jc-button" disabled={busy || index < 0 || index >= (navigation?.ids.length ?? 0) - 1} onClick={() => { void navigate(1); }}>次の求人 ›</button></nav></div><button type="button" className="jc-button jc-listing-close" aria-label="求人の内容を閉じる" onClick={onClose}>×</button></header>
+    <header className="jc-listing-popup-heading"><div><span>求人の内容</span><h2 id={headingId}>{model.title}</h2>{index >= 0 && total > 1 && <nav aria-label="求人の切り替え">{index > 0 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(-1); }}>‹ 前の求人</button>}<span>{`${String(index + 1)} / ${String(total)}件目`}</span>{index < total - 1 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(1); }}>次の求人 ›</button>}</nav>}</div><button type="button" className="jc-button jc-listing-close" aria-label="求人の内容を閉じる" onClick={onClose}>閉じる</button></header>
     <div ref={scroller} className="jc-listing-popup-scroll" aria-busy={busy}>
       {busy && <p role="status">求人の内容を読み込んでいます…</p>}{error && <p role="alert">{error}</p>}
       <dl className="jc-listing-popup-summary">{[['求人名', model.title], ['媒体', displayed.media], ['公開状況', model.publication], ['勤務地', model.location], ['給与', model.salary], ['応募数', model.applications]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      <p className="jc-listing-popup-note">本文が記録された日時です。掲載開始日時とは異なります。{selectedVersion?.source === 'HubSpotの現在の本文' && ' 現在の本文は確認した日時です。本文の記録日時は不明です。'}{model.hasCurrentConditions && ` ${old ? '右（後）の' : ''}本文以外の補足条件・公開状況は現在の取得値です。過去の本文に補っていません。`} 応募数は求人全体の取得値で、この本文への応募数ではありません。</p>
+      <div className="jc-listing-popup-bar">
+        <p className="jc-listing-popup-note">記録日時：{formatDateTimeJst(selectedVersion?.observedAt, '未取得')}</p>
+        <InfoTip className="jc-infotip-left" iconFirst label="日時と応募数について"><p>本文が記録された日時です。掲載開始日時とは異なります。{selectedVersion?.source === 'HubSpotの現在の本文' && '現在の本文は確認した日時です。本文の記録日時は不明です。'}</p>{model.hasCurrentConditions && <p>本文以外の補足条件・公開状況は現在の取得値です。過去の本文に補っていません。</p>}<p>応募数は求人全体の取得値で、この本文への応募数ではありません。</p></InfoTip>
+        {previous && selectedVersion && <button type="button" className="jc-button" onClick={() => { setCompareOpen(true); }}>前の本文と全文を比べる</button>}
+      </div>
       {selectedVersion?.kind === 'ai_draft' && <p className="jc-notice">未掲載の案です。</p>}
       {!model.bodyAvailable && <p className="jc-notice">本文を取得できていません。</p>}
-      {old && <label className="jc-listing-changes"><input type="checkbox" checked={changesOnly} onChange={event => { setChangesOnly(event.target.checked); }} />変わった項目だけ表示（{changedCount}項目）</label>}
-      <div className={`jc-listing-comparison ${old ? 'jc-listing-two-columns' : ''}`}>
-        {old && <div className="jc-listing-column-heading"><h3>前の本文</h3><p>記録日時：{formatDateTimeJst(previous?.observedAt, '未取得')}・消えた所は赤</p></div>}
-        <div className="jc-listing-column-heading"><h3>{old ? '後の本文' : '本文'}</h3><p>記録日時：{formatDateTimeJst(selectedVersion?.observedAt, '未取得')}{old ? '・増えた所は緑' : ''}</p></div>
-        {rows.filter(row => !changesOnly || row.different).map(row => <div className="jc-listing-comparison-row" key={row.key} data-changed={row.different}>{old && <section className="jc-listing-popup-section"><h3>{row.different && <span className="jc-listing-change-dot" aria-label="変更あり">● </span>}{row.label}</h3><ChangedText value={row.before} reference={row.value} different={row.different} tone="removed" /></section>}<section className="jc-listing-popup-section"><h3>{row.different && <span className="jc-listing-change-dot" aria-label="変更あり">● </span>}{row.label}</h3><ChangedText value={row.value} reference={row.before} different={row.different} /></section></div>)}
-        {changesOnly && changedCount === 0 && <p>確認できる変更はありません。</p>}
-        {(!changesOnly || imagesChanged) && <>{old && images(old, previous)}{images(model, selectedVersion)}</>}
-        {!changesOnly && <>{old && <div key={`${displayed.id}-previous-missing`}>{missing(old)}</div>}<div key={`${displayed.id}-missing`}>{missing(model)}</div></>}
+      <div className="jc-listing-comparison">
+        {rows.map(row => <div className="jc-listing-comparison-row" key={row.key}><section className="jc-listing-popup-section"><h3>{row.label}</h3><p className={row.value === '記載なし' ? 'jc-listing-absent' : undefined}>{row.value}</p></section></div>)}
+        {images(model, selectedVersion)}
+        <div key={`${displayed.id}-missing`}>{missing(model)}</div>
       </div>
     </div>
+    <FullTextCompareDialog record={displayed} open={compareOpen} onClose={() => { setCompareOpen(false); }} initialLeft={previous?.id} initialRight={selectedVersion?.id} />
   </dialog>;
 }
