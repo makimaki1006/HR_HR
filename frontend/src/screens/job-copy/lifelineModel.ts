@@ -9,7 +9,20 @@ import type { ListingEvent } from './listingEventsModel';
 import { addDays, countApplications, daysBetween, todayJst } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 
-export const COLUMN_PX = 56;
+/** 1週の列の最小の幅。「3・4変更×2」や「¥1.2万」が1行で読める幅。週が多いときはこの幅で横にスクロールする。 */
+export const MIN_COLUMN_PX = 96;
+
+/** 1週の列の幅。見えている幅を週の数で割り、最小の幅より狭くはしない（測れないときは最小の幅）。 */
+export const columnWidth = (visiblePx: number | null, weekCount: number) => {
+  if (!visiblePx || visiblePx <= 0 || weekCount <= 0) return MIN_COLUMN_PX;
+  return Math.max(MIN_COLUMN_PX, Math.floor(visiblePx / weekCount));
+};
+
+/** 数の文字が列に1行で収まるか（12px で数字・記号は約7px、「,」「.」は約3.5px、日本語は約12px。左右の余白と線の分 10px を引く）。 */
+export const fitsColumn = (text: string, columnPx: number) => {
+  const width = Array.from(text).reduce((sum, char) => sum + (char === ',' || char === '.' ? 3.5 : char.charCodeAt(0) < 0x2000 ? 7 : 12), 0);
+  return width <= columnPx - 10;
+};
 
 export interface LifelineWeek {
   /** 月曜の日付。 */

@@ -2,12 +2,12 @@ import { CompetitorMonthDetails } from './CompetitorHistory';
 import { PhoneHearingContent, usePhoneHearing } from './PhoneHearing';
 import type { PhoneHearing as Hearing } from '../../generated/PhoneHearing';
 import { formatDateJst } from './format';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { JobCopyRecord } from './data';
 import { RetryApplicants } from './RetryApplicants';
 import { applicationsCutoffDate, noApplicationDatesText } from './detailBandModel';
-import { COLUMN_PX, buildLifeline, changeMarkerLabel, changeMarkerNumbers, weekIndex } from './lifelineModel';
+import { buildLifeline, columnWidth, fitsColumn, changeMarkerLabel, changeMarkerNumbers, weekIndex } from './lifelineModel';
 import type { Lifeline, LifelineWeek } from './lifelineModel';
 import { HEARING_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
 import { ReasonCategorySummary } from './ReasonCategorySummary';
@@ -84,7 +84,7 @@ interface Props {
 
 const num = (value: number | null) => value === null ? '—' : value.toLocaleString('ja-JP');
 const yen = (value: number | null) => value === null ? '—' : `¥${Math.round(value).toLocaleString('ja-JP')}`;
-/** ライフラインの1列（56px）に収まる短い数。10万以上は「万」「億」で縮める（正確な値は title に出す）。 */
+/** ライフラインの1列に収まる短い数（列が狭いときに使う）。10万以上は「万」「億」で縮める（正確な値は title に出す）。 */
 export const shortNumber = (value: number | null, prefix = '') => {
   if (value === null) return '—';
   const abs = Math.abs(value), sign = value < 0 ? '-' : '';
@@ -94,23 +94,37 @@ export const shortNumber = (value: number | null, prefix = '') => {
   return `${sign}${prefix}${Math.round(abs).toLocaleString('ja-JP')}`;
 };
 
-/** 横の時間軸。1週 = 1列（幅は固定）。開いたときは最新の週が見える位置にする。 */
+/** 横の時間軸。1週 = 1列。週が少ないときは横幅いっぱいに広げ、多いときは最小の幅で横にスクロールする。開いたときは最新の週が見える位置にする。 */
 export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifeline: Lifeline; job: JobCopyRecord; selectedWeek: number | null; onSelect: (id: string) => void }) {
   const scroller = useRef<HTMLDivElement | null>(null);
-  const width = lifeline.weeks.length * COLUMN_PX;
-  useEffect(() => { const element = scroller.current; if (element) element.scrollLeft = element.scrollWidth; }, [lifeline.weeks.length, job.id]);
+  const [visible, setVisible] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element) return undefined;
+    const measure = () => { setVisible(element.clientWidth || null); };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => { observer.disconnect(); };
+  }, []);
+  const column = columnWidth(visible, lifeline.weeks.length);
+  const width = lifeline.weeks.length * column;
+  useEffect(() => { const element = scroller.current; if (element) element.scrollLeft = element.scrollWidth; }, [lifeline.weeks.length, job.id, column]);
   useEffect(() => {
     const element = scroller.current;
-    if (element && selectedWeek !== null) element.scrollLeft = Math.max(0, selectedWeek * COLUMN_PX - element.clientWidth / 2 + COLUMN_PX / 2);
-  }, [selectedWeek]);
+    if (element && selectedWeek !== null) element.scrollLeft = Math.max(0, selectedWeek * column - element.clientWidth / 2 + column / 2);
+  }, [selectedWeek, column]);
+  // 列に収まる数はそのまま出し、収まらないときだけ「万」「億」で縮める。
+  const fit = (full: string, short: string) => fitsColumn(full, column) ? full : short;
   const media = lifeline.mediaLabel;
   const noPerf = lifeline.hasPerformance ? '' : media === 'リクロジ' ? 'リクロジの実績はまだ取得していません' : media === 'AirWork' ? '課金データなし' : 'この求人の Indeed の実績データはありません';
   const allRows: { key: string; label: string; cell: (week: LifelineWeek) => string; short: (week: LifelineWeek) => string; empty: string }[] = [
-    { key: 'billing', label: '課金（週）', cell: week => yen(week.billing), short: week => shortNumber(week.billing, '¥'), empty: noPerf },
-    { key: 'impressions', label: '閲覧数（表示回数）', cell: week => num(week.impressions), short: week => shortNumber(week.impressions), empty: noPerf },
-    { key: 'clicks', label: 'クリック数', cell: week => num(week.clicks), short: week => shortNumber(week.clicks), empty: noPerf },
-    { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), short: week => shortNumber(week.hubspotApplications), empty: job.applicationDates === 'loading' ? '' : '応募の日付を取得できていません' },
-    { key: 'media', label: `応募数（${media}の集計）`, cell: week => num(week.mediaApplications), short: week => shortNumber(week.mediaApplications), empty: noPerf },
+    { key: 'billing', label: '課金（週）', cell: week => yen(week.billing), short: week => fit(yen(week.billing), shortNumber(week.billing, '¥')), empty: noPerf },
+    { key: 'impressions', label: '閲覧数（表示回数）', cell: week => num(week.impressions), short: week => fit(num(week.impressions), shortNumber(week.impressions)), empty: noPerf },
+    { key: 'clicks', label: 'クリック数', cell: week => num(week.clicks), short: week => fit(num(week.clicks), shortNumber(week.clicks)), empty: noPerf },
+    { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), short: week => fit(num(week.hubspotApplications), shortNumber(week.hubspotApplications)), empty: job.applicationDates === 'loading' ? '' : '応募の日付を取得できていません' },
+    { key: 'media', label: `応募数（${media}の集計）`, cell: week => num(week.mediaApplications), short: week => fit(num(week.mediaApplications), shortNumber(week.mediaApplications)), empty: noPerf },
   ];
   // 媒体の実績（課金・閲覧・クリック・媒体の集計の応募）が無い求人は、空の4行を1行にまとめる。
   const perfKeys = ['billing', 'impressions', 'clicks', 'media'];
@@ -123,7 +137,7 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
     if (index === null) return null;
     const stack = placed.filter(at => at === index).length;
     placed.push(index);
-    return <div key={label} className={`lf-marker lf-marker-${tone}`} style={{ left: `${String(index * COLUMN_PX)}px` }}><span style={stack ? { marginBottom: `${String(stack * 16)}px` } : undefined}>{label}</span></div>;
+    return <div key={label} className={`lf-marker lf-marker-${tone}`} style={{ left: `${String(index * column)}px` }}><span style={stack ? { marginBottom: `${String(stack * 16)}px` } : undefined}>{label}</span></div>;
   };
   return <div className="lf" data-testid="lifeline">
     <div className="lf-labels" aria-hidden="true">
@@ -132,8 +146,8 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
       {rows.map(row => <div key={row.key} className="lf-row-label">{row.label}</div>)}
     </div>
     <div className="lf-scroll" ref={scroller} tabIndex={0} role="region" aria-label="週ごとの推移（横にスクロールできます）">
-      <div className="lf-track" style={{ width: `${String(width)}px` }}>
-        {selectedWeek !== null && <div className="lf-selected" data-testid="lifeline-selected" style={{ left: `${String(selectedWeek * COLUMN_PX)}px`, width: `${String(COLUMN_PX)}px` }} />}
+      <div className="lf-track" style={{ width: `${String(width)}px`, ['--lf-col' as string]: `${String(column)}px` }}>
+        {selectedWeek !== null && <div className="lf-selected" data-testid="lifeline-selected" style={{ left: `${String(selectedWeek * column)}px`, width: `${String(column)}px` }} />}
         {marker(lifeline.startIndex, '掲載開始', 'start')}{marker(lifeline.endIndex, '掲載終了', 'end')}{marker(lifeline.todayIndex, '今日', 'today')}
         <div className="lf-row lf-head">{lifeline.weeks.map(week => <div key={week.start} className="lf-cell" title={`${week.start} の週`}>{md(week.start)}</div>)}</div>
         <div className="lf-row lf-changes">{lifeline.weeks.map(week => {
