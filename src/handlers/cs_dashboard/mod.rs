@@ -1263,31 +1263,92 @@ fn on_view(
     }
 }
 
+/// 待つ画面が取り直しを待つ上限。コンサルKPI の React 画面は 60 秒で打ち切る (`consulting-v2/useApi.ts`)。
+/// 案件管理の危ない/いい案件・法人・結び付け待ちは 120 秒 (`timeoutMs: 120_000`)。旧画面 (`/consulting` のテンプレート) は打ち切らない。
+/// 12 枚の取り直しは 18〜24 秒 (2026-09 の実測)。上限を超えたら待つのをやめ、要求はそのまま進む
+/// (`load` が手元の値で答える。TTL を過ぎた枚は従来どおり `SheetStore::get` が取りに行く)。
+pub(crate) const VIEW_WAIT: std::time::Duration = std::time::Duration::from_secs(45);
+
 /// このシートを使う画面の要求が来たときに呼ぶ (先読みは見ている人がいる間だけ続けるため)。
-/// シートが 1 周期より古ければ取り直す。TTL を過ぎていれば取り直し終わるまで待つ (次に開いた人が最初だけ待つ)。
+/// シートが 1 周期より古ければ取り直しを始める。取り直しは要求とは別の 1 本のタスク ([`ensure_pass`]) で走り、
+/// 要求が切れても最後まで走る。同時の要求は同じタスクを共有する。
+/// - `wait` が Some (コンサルKPI の画面と、もともとシートを待っていた案件管理の API) で、TTL を過ぎて手元の値が無いとき
+///   だけ、その上限まで取り直しを待つ。
+/// - `wait` が None (案件管理のホーム・案件一覧・次にやること。`deal_board::MeetingData::cached`) は待たない。
+///   以前どおり手元の値 (`SheetStore::fresh`) で答え、TTL を過ぎていれば MTG・接触の日付が空のまま答える。
+///
 /// 先読み・定期更新 (`warm_deal_rows` を含む) からは呼ばない (見ている人に数えない)。
-pub(crate) async fn note_view() {
+pub(crate) async fn note_view(wait: Option<std::time::Duration>) {
     let now = std::time::Instant::now();
     *LAST_VIEW.lock().unwrap_or_else(|e| e.into_inner()) = Some(now);
     let every = prefetch_interval();
-    match on_view(
-        last_pass(),
-        now,
-        every,
-        crate::handlers::call_quality::sheets::CACHE_TTL,
-    ) {
-        OnView::Fresh => {}
-        OnView::Background => {
-            if crate::handlers::call_quality::routes::cq_state().is_ok() {
-                tokio::spawn(run_pass(Pass::OnView, Some(every)));
-            }
-        }
-        OnView::Wait => {
-            if crate::handlers::call_quality::routes::cq_state().is_ok() {
-                run_pass(Pass::OnView, Some(every)).await;
-            }
+    let action = view_action(
+        on_view(
+            last_pass(),
+            now,
+            every,
+            crate::handlers::call_quality::sheets::CACHE_TTL,
+        ),
+        wait,
+    );
+    if action == ViewAction::None || crate::handlers::call_quality::routes::cq_state().is_err() {
+        return;
+    }
+    let mut done = ensure_pass(&PASS_TASK, || run_pass(Pass::OnView, Some(every)));
+    if let ViewAction::SpawnAndWait(limit) = action {
+        if tokio::time::timeout(limit, done.wait_for(|d| *d))
+            .await
+            .is_err()
+        {
+            tracing::warn!("コンサル再開時の更新: 待つ上限を超えたので手元の値で答える");
         }
     }
+}
+
+/// 要求で取り直すときの動き
+#[derive(Debug, PartialEq, Eq)]
+enum ViewAction {
+    None,
+    /// 取り直しを始めて (始まっていれば相乗りして) 待たずに答える
+    Spawn,
+    /// 取り直しを始めて、上限まで待つ
+    SpawnAndWait(std::time::Duration),
+}
+
+fn view_action(on: OnView, wait: Option<std::time::Duration>) -> ViewAction {
+    match (on, wait) {
+        (OnView::Fresh, _) => ViewAction::None,
+        (OnView::Wait, Some(limit)) => ViewAction::SpawnAndWait(limit),
+        _ => ViewAction::Spawn,
+    }
+}
+
+/// 走っている取り直しのタスク (終わったら `true` が届く)
+type PassSlot = std::sync::Mutex<Option<tokio::sync::watch::Receiver<bool>>>;
+static PASS_TASK: PassSlot = std::sync::Mutex::new(None);
+
+/// 取り直しのタスクが走っていればその受け口を、無ければ `make` を `tokio::spawn` して受け口を返す。
+/// タスクは要求と切り離されているので、待っていた要求が切れても最後まで走る。
+fn ensure_pass<F, Fut>(slot: &PassSlot, make: F) -> tokio::sync::watch::Receiver<bool>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let mut g = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(rx) = g.as_ref() {
+        // 終わっていない (送り手が生きていて false のまま) なら相乗り
+        if !*rx.borrow() && rx.has_changed().is_ok() {
+            return rx.clone();
+        }
+    }
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    let fut = make();
+    tokio::spawn(async move {
+        fut.await;
+        let _ = tx.send(true);
+    });
+    *g = Some(rx.clone());
+    rx
 }
 
 #[derive(Clone, Copy)]
@@ -1410,6 +1471,70 @@ mod idle_prefetch_tests {
             Duration::from_secs(1)
         );
         assert_eq!(next_wake(None, now, every), every);
+    }
+
+    #[test]
+    fn 案件管理の要求はシートの読み込みを待たない() {
+        // 待たない要求 (wait = None) は、TTL を過ぎていても取り直しを始めるだけ
+        assert_eq!(view_action(OnView::Wait, None), ViewAction::Spawn);
+        assert_eq!(view_action(OnView::Background, None), ViewAction::Spawn);
+        assert_eq!(view_action(OnView::Fresh, None), ViewAction::None);
+        // コンサルKPI の画面は TTL を過ぎたときだけ上限まで待つ
+        assert_eq!(
+            view_action(OnView::Wait, Some(VIEW_WAIT)),
+            ViewAction::SpawnAndWait(VIEW_WAIT)
+        );
+        assert_eq!(
+            view_action(OnView::Background, Some(VIEW_WAIT)),
+            ViewAction::Spawn
+        );
+        // 上限は画面の打ち切り (React 60 秒) より短い
+        assert!(VIEW_WAIT < Duration::from_secs(60));
+        // 案件管理のホーム・案件一覧・次にやることが使う MeetingData は待たない呼び方をしている
+        let src = include_str!("../job_copy_live/deal_board.rs");
+        assert!(src.contains("cs::note_view(None).await"));
+    }
+
+    #[tokio::test]
+    async fn 要求が切れても取り直しは最後まで走り_同時の要求は同じタスクを使う() {
+        let slot: PassSlot = std::sync::Mutex::new(None);
+        let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let gate = std::sync::Arc::new(tokio::sync::Notify::new());
+        let make = || {
+            let (s, f, g) = (started.clone(), finished.clone(), gate.clone());
+            move || async move {
+                s.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                g.notified().await;
+                // run_pass が最後に LAST_PASS を付ける所の代わり
+                f.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        };
+        // 待っていた要求が 10ms で切れる (画面の打ち切り・接続断)
+        {
+            let mut rx = ensure_pass(&slot, make());
+            let cut = tokio::time::timeout(Duration::from_millis(10), rx.wait_for(|d| *d)).await;
+            assert!(cut.is_err());
+        }
+        // 走っている間の別の要求は同じタスクに相乗りする
+        let mut again = ensure_pass(&slot, make());
+        tokio::task::yield_now().await;
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 1);
+        gate.notify_one();
+        tokio::time::timeout(Duration::from_secs(5), again.wait_for(|d| *d))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            finished.load(std::sync::atomic::Ordering::SeqCst),
+            "最後まで走った"
+        );
+        // 終わった後の要求は新しいタスクを始める
+        let _next = ensure_pass(&slot, make());
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 2);
+        gate.notify_one();
     }
 
     #[test]

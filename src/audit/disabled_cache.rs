@@ -2,7 +2,8 @@
 //!
 //! それまでは画面の要求ごとに監査 Turso へ SELECT していた (ログイン済みの要求のたび 1 回、CRM・案件管理の API はさらに 1 回)。
 //! 無効にした人が最大 5 分使えることはユーザーが了承済み。
-//! - 鍵はメールを前後の空白を除いて小文字にしたもの (照会の SQL も大文字小文字を区別しない)。
+//! - 鍵はメールを英字だけ小文字にしたもの。照会の SQL (`lower(email) = lower(?1)`、SQLite の lower は英字だけ) と同じ比べ方にする。
+//!   空白は除かない (除くと、頭に空白を付けた照会の結果が正しい表記の鍵に入ってしまう)。
 //! - 照会に失敗した結果は覚えない (止めない方針はそのまま。次の要求でまた照会する)。
 //! - ログインの瞬間 (パスワード・Google) と Gmail などの許可の保存は、覚えた値を使わず毎回照会する
 //!   (`crate::account_is_disabled_fresh`)。照会できた結果はここに入れ直す。
@@ -25,7 +26,7 @@ pub struct DisabledCache {
 
 impl DisabledCache {
     fn key(email: &str) -> String {
-        email.trim().to_lowercase()
+        email.to_ascii_lowercase()
     }
 
     /// 覚えていて、まだ `DISABLED_CACHE_TTL` 経っていない値
@@ -71,10 +72,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 五分のあいだだけ覚え_鍵は大文字小文字と空白を区別しない() {
+    fn 五分のあいだだけ覚え_鍵は大文字小文字を区別しない() {
         let c = DisabledCache::default();
         let t0 = Instant::now();
-        c.put(" Taro@F-A-C.co.jp ", t0, true);
+        c.put("Taro@F-A-C.co.jp", t0, true);
         assert_eq!(c.get("taro@f-a-c.co.jp", t0), Some(true));
         assert_eq!(
             c.get("TARO@f-a-c.co.jp", t0 + Duration::from_secs(299)),
@@ -85,6 +86,22 @@ mod tests {
             None
         );
         assert_eq!(c.get("hanako@f-a-c.co.jp", t0), None);
+    }
+
+    #[test]
+    fn 空白付きの照会結果は正しい表記の鍵に入らない() {
+        // SQL は lower(email) = lower(' a@x') で比べるので、空白付きは別のメール (行が無く「有効」になる)
+        let c = DisabledCache::default();
+        let t0 = Instant::now();
+        c.put("a@x", t0, true);
+        c.put(" a@x", t0, false);
+        assert_eq!(
+            c.get("a@x", t0),
+            Some(true),
+            "正しい表記の無効が上書きされない"
+        );
+        assert_eq!(c.get(" a@x", t0), Some(false));
+        assert_eq!(c.get("A@X", t0), Some(true));
     }
 
     #[test]

@@ -17,6 +17,15 @@ pub(super) struct Upsert {
     deals: Vec<Deal>,
 }
 
+/// テスト用: 索引から外す 1 件分
+#[cfg(test)]
+pub(super) fn removal() -> Upsert {
+    Upsert {
+        row: None,
+        deals: Vec::new(),
+    }
+}
+
 /// 索引の 1 件を差し替える。取引ごとの求人数も合わせ、0 件になった取引は外す (作り直しと同じ形)。
 pub(super) fn apply(index: &mut Index, id: &str, update: &Upsert) {
     let position = index.records.iter().position(|r| r.id == id);

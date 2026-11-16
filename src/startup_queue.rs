@@ -3,6 +3,8 @@
 //! 起動直後は、求人一覧の索引の復元・作り直し、直近 7 日の変更の集計、今月の架電成績、コンサルKPI のシートの先読み、
 //! トークの振り返りの担当者の付け直しが重なって走り、一時確保の山が重なっていた (#403 の `mem task` の行)。
 //! それぞれの最初の 1 回の重い部分を [`turn`] で包むと、同時に走るのは 1 本だけになる。
+//! 索引は控えの復元を順番の前に済ませ (一覧をすぐ出す)、作り直しと保存だけ順番を待つ。
+//! 周回の中で呼ぶ処理 (担当者の付け直し) は待たない [`try_turn`] を使い、埋まっていれば次の周回で試す。
 //!
 //! - 効くのはプロセスが起動してから [`WINDOW`] の間に始めた分だけ。それより後 (6 時間ごとの作り直しなど普段の周期) は待たずに走る。
 //! - 待つのは最長 [`MAX_WAIT`]。超えたら順番を持たずに走る (止まったままにしない)。
@@ -35,6 +37,39 @@ pub async fn turn(name: &'static str) -> Option<SemaphorePermit<'static>> {
         return None;
     }
     acquire(&QUEUE, *STARTED, name, WINDOW, MAX_WAIT).await
+}
+
+/// 順番が空いていない (待たずに次の機会に回す)
+#[derive(Debug, PartialEq, Eq)]
+pub struct Busy;
+
+/// [`turn`] の待たない版。周回の中で順番を待つと周回ごと止まる処理 (トークの振り返りの担当者の付け直し) に使う。
+/// 起動直後でなければ `Ok(None)` (順番なしで走ってよい)、空いていれば `Ok(Some)`、
+/// 埋まっていれば `Err(Busy)` (今回は走らせず、次の周回でまた試す)。
+pub fn try_turn(name: &'static str) -> Result<Option<SemaphorePermit<'static>>, Busy> {
+    if cfg!(test) {
+        return Ok(None);
+    }
+    try_acquire(&QUEUE, *STARTED, name, WINDOW)
+}
+
+fn try_acquire<'a>(
+    queue: &'a Semaphore,
+    started: Instant,
+    name: &'static str,
+    window: Duration,
+) -> Result<Option<SemaphorePermit<'a>>, Busy> {
+    if started.elapsed() >= window {
+        return Ok(None);
+    }
+    match queue.try_acquire() {
+        Ok(permit) => Ok(Some(permit)),
+        Err(tokio::sync::TryAcquireError::NoPermits) => {
+            tracing::info!(task = name, "startup queue: busy, try again next round");
+            Err(Busy)
+        }
+        Err(tokio::sync::TryAcquireError::Closed) => Ok(None),
+    }
 }
 
 async fn acquire<'a>(
@@ -108,6 +143,20 @@ mod tests {
         .await
         .expect("待たずに返る");
         assert!(got.is_none());
+    }
+
+    #[tokio::test]
+    async fn 待たない版は埋まっていれば次の機会に回し_窓の外は順番なしで走る() {
+        let q = Semaphore::new(1);
+        let started = Instant::now();
+        let first = try_acquire(&q, started, "a", LONG).unwrap();
+        assert!(first.is_some());
+        assert_eq!(try_acquire(&q, started, "b", LONG).err(), Some(Busy));
+        drop(first);
+        assert!(try_acquire(&q, started, "b", LONG).unwrap().is_some());
+        let _held = q.acquire().await.unwrap();
+        let late = Instant::now() - Duration::from_secs(16 * 60);
+        assert!(try_acquire(&q, late, "c", WINDOW).unwrap().is_none());
     }
 
     #[tokio::test(start_paused = true)]

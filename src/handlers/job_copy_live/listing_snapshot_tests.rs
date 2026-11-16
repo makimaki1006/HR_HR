@@ -437,3 +437,35 @@ async fn worker_skips_the_startup_build_when_the_saved_copy_is_recent() {
     );
     server.abort();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skipping_the_startup_build_drops_queued_updates() {
+    // 起動時に作り直しを省くとき、作り直し用に積んだ差し替えを捨てる (索引には当て済み。
+    // 残すと 6 時間後の作り直しの後に古い値で当て直す)
+    let service = JobReadService::for_test("http://127.0.0.1:9".to_owned());
+    let cache = service.listing_index.clone();
+    let mut recent = fixture(1);
+    recent.built_at = (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339();
+    {
+        let mut state = cache.state.write().await;
+        state.snapshot = Some(Arc::new(recent));
+        state.refreshing = true;
+        state
+            .listing_updates
+            .insert("100".into(), upsert::removal());
+        state.draft_updates.insert("100".into(), "adopted".into());
+    }
+    let wait = skip_startup_build(&cache, service.hs.clone())
+        .await
+        .unwrap();
+    assert!(wait > Duration::from_secs(3 * 3600) && wait <= Duration::from_secs(4 * 3600));
+    let state = cache.state.read().await;
+    assert!(!state.refreshing);
+    assert!(state.listing_updates.is_empty());
+    assert!(state.draft_updates.is_empty());
+    assert_eq!(
+        state.snapshot.as_ref().unwrap().records.len(),
+        1,
+        "索引そのものは変えない"
+    );
+}

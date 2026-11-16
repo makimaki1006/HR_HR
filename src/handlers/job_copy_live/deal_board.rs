@@ -35,9 +35,9 @@ impl MeetingData {
         let Ok(state) = crate::handlers::call_quality::routes::cq_state() else {
             return Self::default();
         };
-        // 既存の定期先読みを借りる。先読みは見ている人がいる間だけ続くので、この要求も「見ている」に数える
-        // (2026-11-16)。シートが TTL を過ぎていれば、ここで取り直しを待つ (次に開いた人が最初だけ待つ)。
-        cs::note_view().await;
+        // 既存の定期先読みを借りる。画面要求からシートの読み込みを待たない (以前どおり手元の値だけ)。
+        // 先読みは見ている人がいる間だけ続くので、この要求も「見ている」に数え、古ければ裏で取り直しを始める (2026-11-16)。
+        cs::note_view(None).await;
         let mtg = state.store.fresh(cs::SHEET_MTG).await;
         let meta = state.store.fresh(cs::SHEET_META).await;
         let zoom = state.store.fresh(cs::SHEET_ZOOM_MTG).await;

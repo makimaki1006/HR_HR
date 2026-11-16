@@ -1535,8 +1535,6 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
 
     /// 起動後に 1 回: 取り込み済みの行の担当者を、Zoom でかけた人に直す (この変更より前に入った行)
     async fn reattribute(&self) -> Result<(), String> {
-        // 起動直後の重い処理は 1 本ずつ (startup_queue。今日の取り込みはこの前に済んでいる)
-        let _turn = crate::startup_queue::turn("talk_review.reattribute").await;
         // メモリ計測: 起動時の 1 回 (取り込み済みの行を読み、担当者を付け直す)
         let _task = crate::mem_watch::task("talk_review.reattribute");
         let bg = self.client.background();
@@ -2112,7 +2110,14 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             }
             if !busy {
                 // 担当者の付け直しは数分かかるので、起動直後の取り込み・判定の後、最初に手が空いた周回で 1 回
-                if !self.reattributed {
+                // 起動直後の重い処理は 1 本ずつ (startup_queue)。順番が埋まっていれば待たずに次の周回で
+                // (周回ごと止めて今日の取り込みを遅らせない)
+                let turn = if self.reattributed {
+                    Err(crate::startup_queue::Busy)
+                } else {
+                    crate::startup_queue::try_turn("talk_review.reattribute")
+                };
+                if let Ok(_turn) = turn {
                     self.reattributed = true;
                     if let Err(e) = self.reattribute().await {
                         tracing::warn!(error = %e, "talk review: reattribute failed");

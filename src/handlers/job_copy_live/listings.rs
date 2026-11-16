@@ -950,13 +950,17 @@ fn restored_wait(built_at: &str, now: chrono::DateTime<chrono::Utc>) -> Option<D
     INDEX_TTL.checked_sub(age).filter(|wait| !wait.is_zero())
 }
 /// 復元した索引が新しければ、起動時の作り直しを省く準備をして待つ時間を返す。
-/// 省くときは「最新化中」の印を外し、ホームの事業所の先読みだけは作り直したときと同じく始める。
+/// 省くときは「最新化中」の印を外し、作り直し用に積んだ差し替えを捨て、ホームの事業所の先読みだけは作り直したときと同じく始める。
 async fn skip_startup_build(cache: &Cache, hs: crate::hubspot::HubSpotClient) -> Option<Duration> {
     let index = {
         let mut state = cache.state.write().await;
         let index = state.snapshot.clone()?;
         let wait = restored_wait(&index.built_at, chrono::Utc::now())?;
         state.refreshing = false;
+        // 復元から省く判断までの間に積まれた差し替えは索引に当て済み。作り直しの最中ではないので捨てる
+        // (残すと 6 時間後の作り直しの後に古い値で当て直してしまう)。
+        state.listing_updates.clear();
+        state.draft_updates.clear();
         tracing::info!(
             next_build_in_secs = wait.as_secs(),
             "job-copy index restored copy is recent, skipped the startup build"
@@ -986,8 +990,6 @@ pub(super) fn start_worker(
     // Keep the HTTP client, not the cache/service; holding the service here would form a cycle.
     let hs = service.hs.background();
     *worker = Some(tokio::spawn(async move {
-        // 起動直後の重い処理は 1 本ずつ (復元と、要るときの最初の作り直し・保存まで持つ)。
-        let mut turn = crate::startup_queue::turn("job_copy.index_build").await;
         // 最後に保存した控え。中身が同じなら作り直しのたびに保存し直さない。
         let mut saved = match weak.upgrade() {
             Some(cache) => snapshot::restore(&cache, audit.clone()).await,
@@ -999,10 +1001,15 @@ pub(super) fn start_worker(
             Some(cache) => skip_startup_build(&cache, hs.clone()).await,
             None => None,
         };
-        if let Some(wait) = restored_wait {
-            drop(turn.take());
-            tokio::time::sleep(wait).await;
-        }
+        // 起動直後の重い処理は 1 本ずつ (startup_queue)。復元は順番の前に済ませて一覧をすぐ出し、
+        // 順番を待つのは作り直し (と保存) だけ。控えが新しく作り直さないときは待たない。
+        let mut turn = match restored_wait {
+            Some(wait) => {
+                tokio::time::sleep(wait).await;
+                None
+            }
+            None => crate::startup_queue::turn("job_copy.index_build").await,
+        };
         loop {
             let Some(cache) = weak.upgrade() else {
                 return;

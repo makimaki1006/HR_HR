@@ -1429,9 +1429,9 @@ async fn 無効化の照会は五分覚えてログインの瞬間だけ読み�
             .filter(|q| q.contains("disabled_at") && q.trim_start().starts_with("SELECT"))
             .count()
     };
-    // 1 回目だけ監査 DB を読み、2 回目 (大文字・空白違いのメールも同じ人) は覚えた値
+    // 1 回目だけ監査 DB を読み、2 回目 (大文字違いのメールも同じ人) は覚えた値
     assert!(!crate::account_is_disabled(&state, "taro@f-a-c.co.jp").await);
-    assert!(!crate::account_is_disabled(&state, " Taro@F-A-C.co.jp").await);
+    assert!(!crate::account_is_disabled(&state, "Taro@F-A-C.co.jp").await);
     assert_eq!(selects(), 1);
     // 監査 DB で無効にしても、覚えている間はそのまま (最大 5 分使える。ユーザー了承済み)
     conn.lock()

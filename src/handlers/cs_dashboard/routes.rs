@@ -85,7 +85,7 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
 
 /// コンサルKPI の要求を「見ている」に数え、シートが古ければ取り直してから答える
 async fn note_view_layer(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
-    super::note_view().await;
+    super::note_view(Some(super::VIEW_WAIT)).await;
     next.run(req).await
 }
 
