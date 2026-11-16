@@ -1,4 +1,5 @@
 import { ownerParams } from './OwnerTodo';
+import { usePreparingRetry } from '../../shared/preparingRetry';
 import { useJobCopySearch } from './navigation';
 import { ListingPreparationNotice } from './ListingPreparationNotice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -71,11 +72,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     const timer = window.setTimeout(() => { void load(); }, dealSearch || nameSearch ? 250 : 0);
     return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
   }, [active, autoLoad, load, dealSearch, nameSearch, revision]);
-  useEffect(() => {
-    if (!active || !autoLoad || (page?.status !== 'preparing' && !page?.refreshing) || busy || error) return;
-    const timer = window.setTimeout(() => { void load(page.offset); }, 5_000);
-    return () => { window.clearTimeout(timer); };
-  }, [active, autoLoad, page, busy, error, load]);
+  usePreparingRetry(active && autoLoad && (page?.status === 'preparing' || !!page?.refreshing) && !error, 5_000, page, () => { if (page && !busy) void load(page.offset); });
   const orderRef = useRef<string[]>([]);
   const opened = useRef('');
   const restored = useRef('');

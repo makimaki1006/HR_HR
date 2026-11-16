@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiGet } from '../../api/client';
+import { runWhenDue } from '../../shared/preparingRetry';
 import type { EmailTrackingSummary } from '../../generated/EmailTrackingSummary';
 import { formatTimestamp } from './workspaceModel';
 
@@ -11,14 +12,14 @@ export function EmailTracking({ emailId }: { emailId: string }) {
   useEffect(() => {
     if (!/^\d{1,20}$/.test(emailId)) return;
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
       try {
         const response = await apiGet<EmailTrackingSummary>(`/api/crm/emails/${emailId}/tracking`, { signal: controller.signal });
         if (!controller.signal.aborted) {
           if (response.ok) {
             setResult({ id: emailId, data: response.data });
-            timer = setTimeout(() => { void load(); }, 60_000);
+            // タブが隠れている間は読み直さない (表示に戻って 60 秒たっていればすぐ読む)。
+            runWhenDue(controller.signal, 60_000, () => { void load(); });
           } else setResult(null);
         }
       } catch {
@@ -27,7 +28,7 @@ export function EmailTracking({ emailId }: { emailId: string }) {
       }
     };
     void load();
-    return () => { controller.abort(); if (timer !== undefined) clearTimeout(timer); };
+    return () => { controller.abort(); };
   }, [emailId]);
   const data = result?.id === emailId ? result.data : null;
   if (!data) return null;

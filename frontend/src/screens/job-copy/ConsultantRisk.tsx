@@ -6,6 +6,7 @@ import { ProposalMemo } from './ProposalMemo';
 import { contractWriteApi } from './dealContractApi';
 import { NextTodoButton, OverdueBadge } from './NextTodo';
 import { ownerParams } from './OwnerTodo';
+import { backoff, runWhenDue } from '../../shared/preparingRetry';
 import { navigateJobCopy, updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { formatDateJst } from './format';
 import { yen } from './homeModel';
@@ -103,13 +104,13 @@ export function ConsultantRisk({ good = false }: { good?: boolean }) {
   const search = useJobCopySearch(); const query = ownerParams(search); const selected = new URLSearchParams(search).get('risk_deal');
   const [data, setData] = useState<RiskResponse | null>(null); const [error, setError] = useState(false); const [reload, setReload] = useState(0);
   useEffect(() => {
-    const ctl = new AbortController(); let timer: ReturnType<typeof setTimeout>;
+    const ctl = new AbortController(); const wait = backoff(2000);
     const load = async () => {
       const r = await apiGet<RiskResponse>(`/api/job-copy/consultant-${good ? 'good' : 'risk'}?${query}`, { signal: ctl.signal, timeoutMs: 120_000 });
       if (ctl.signal.aborted) return;
-      if (r.ok) { setData(r.data); setError(false); if (r.data.status === 'preparing' || r.data.refreshing) timer = setTimeout(() => { void load(); }, 2000); } else setError(true);
+      if (r.ok) { setData(r.data); setError(false); if (r.data.status === 'preparing' || r.data.refreshing) runWhenDue(ctl.signal, wait(), () => { void load(); }); } else setError(true);
     };
-    void load(); return () => { ctl.abort(); clearTimeout(timer); };
+    void load(); return () => { ctl.abort(); };
   }, [query, reload, good]);
   const ready = data?.status === 'ready' ? data : null;
   const includeSingle = !good && new URLSearchParams(search).get('risk_all') === '1';

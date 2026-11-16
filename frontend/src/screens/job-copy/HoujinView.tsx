@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiGet } from "../../api/client";
 import { ownerParams } from "./OwnerTodo";
+import { backoff, runWhenDue } from "../../shared/preparingRetry";
 import {
   updateJobCopyQuery,
   useJobCopySearch,
@@ -88,7 +89,7 @@ export function HoujinView() {
   const scope = `${ownerQuery}&houjin=${encodeURIComponent(requested)}`;
   useEffect(() => {
     const ctl = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
+    const wait = backoff(2000);
     const load = async () => {
       const r = await apiGet<HoujinResponse>(`/api/job-copy/houjin?${scope}`, {
         signal: ctl.signal,
@@ -102,14 +103,13 @@ export function HoujinView() {
       setError(false);
       setLoaded({ scope, value: r.data });
       if (r.data.status === "preparing")
-        timer = setTimeout(() => {
+        runWhenDue(ctl.signal, wait(), () => {
           void load();
-        }, 2000);
+        });
     };
     void load();
     return () => {
       ctl.abort();
-      clearTimeout(timer);
     };
   }, [scope, reload]);
   const ready =

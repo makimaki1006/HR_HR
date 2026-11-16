@@ -115,4 +115,33 @@ describe('HubSpotUsagePanel', () => {
     expect(screen.getByTestId('hubspot-refresh-error').textContent).toContain('前回の値のまま');
     expect(screen.getByTestId('c-calls').textContent).toBe('2,000 回');
   });
+
+  it('タブが隠れている 1 時間は読まず、表示に戻ったらすぐ 1 回読む', async () => {
+    vi.useFakeTimers();
+    let hidden = false;
+    vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+    api.mockResolvedValue({ ok: true, data: sample });
+    render(<HubSpotUsagePanel />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+    hidden = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_600_000);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+    hidden = false;
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+    });
+    expect(api).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(api).toHaveBeenCalledTimes(3);
+    vi.restoreAllMocks();
+  });
 });
