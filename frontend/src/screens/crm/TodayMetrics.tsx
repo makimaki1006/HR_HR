@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
-import { asOfLabel, clockJst, populationLabel, stripItems } from './metricsModel';
+import { LEGACY_DEFAULT_ITEMS, asOfLabel, clockJst, populationLabel, stripItems } from './metricsModel';
 import { MonthMetrics } from './MonthMetrics';
 import { MetricsStrip } from './MetricsStrip';
 import { MetricsSettings } from './MetricsSettings';
@@ -45,7 +45,7 @@ export function TodayMetricsView({ data, refreshFailed, collapsed, onToggle, ext
   const items = builtin === null ? null : arrangeStrip(builtin, extras.prefs, extras.custom);
   const first = clockJst(data.me?.metrics.first_call_at ?? null);
   const last = clockJst(data.me?.metrics.last_call_at ?? null);
-  const detail = `${populationLabel(data)}と比べています。${first !== null && last !== null ? `最初の架電 ${first}・最後の架電 ${last}。` : ''}${data.me?.rank.outbound === null ? '今日はまだ架電がないため、順位は出ません。' : ''}`;
+  const detail = `${populationLabel(data)}と比べています。${first !== null && last !== null ? `最初の架電 ${first}・最後の架電 ${last}。` : ''}`;
   const stale = data.stale || refreshFailed || (extras.custom !== null && extras.custom !== 'failed' && extras.custom.items.some(i => i.stale));
   return <MetricsStrip label="今日の架電成績" testId="today-metrics" title="今日の成績" detail={detail} asOf={asOfLabel(data.as_of)} asOfTitle={asOfLabel(data.as_of)}
     items={items} warn={stale ? '最新の数字を読めていません（前回の数字を表示中）' : null} collapsed={collapsed} onToggle={onToggle}
@@ -111,11 +111,14 @@ export function TodayMetrics({ fixture, fetcher, monthFetcher, prefsApi, customF
   }
   const onToggle = () => { const next = !collapsed; setCollapsed(next); writeCollapsed(next); };
   const ready = prefsState.phase === 'ready';
+  // 帯を設定していない人のうち、アポを数えるチーム (BPO) とチーム無しの人以外は以前の既定のまま出す
+  // (接触・日程設定は bpo_リクロジ の取引でしか数えないので、新規営業・コンサル営業では 0 が並ぶだけになる)
+  const stripPrefs = !state.data.appointments_tracked && !(ready && prefsState.saved) ? { ...prefs, items: [...LEGACY_DEFAULT_ITEMS] } : prefs;
   const panel = open && ready && settings
-    ? <MetricsSettings prefs={prefsState.prefs} available={prefsState.available} note={prefsState.message} monthView={state.data.month_view}
+    ? <MetricsSettings prefs={stripPrefs} available={prefsState.available} note={prefsState.message} monthView={state.data.month_view}
       catalog={settings.catalog} onReloadCatalog={settings.onReloadCatalog} choices={settings.choices} onSave={save} onClose={() => { setPanel(false); }} />
     : null;
-  const extras: StripExtras = { prefs, custom, onSettings: settings && ready ? () => { setPanel(!open); } : null, settingsOpen: open, panel };
+  const extras: StripExtras = { prefs: stripPrefs, custom, onSettings: settings && ready ? () => { setPanel(!open); } : null, settingsOpen: open, panel };
   const today = <TodayMetricsView data={state.data} refreshFailed={state.refreshFailed} collapsed={collapsed} onToggle={onToggle} extras={extras} />;
   // 新規営業の人は今月の帯を主にする (BPO は今日のまま)。今月が読めるまでは今日の帯を出す
   if (state.data.month_view) {

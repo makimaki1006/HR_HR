@@ -29,6 +29,14 @@ total_duration_ms: number,
  */
 avg_duration_ms: number | null, appointments: number, 
 /**
+ * 接触件数: 「接触」(bpo_51) が「はい」の取引の数。接触入力者 (bpo_56、空なら担当者) に付ける
+ */
+contacts: number, 
+/**
+ * 日程設定件数: 「日程切り」(nitteigiri) が 1 以上の取引の数。付け方は接触件数と同じ
+ */
+scheduled: number, 
+/**
  * 最初・最後の架電の時刻 (RFC 3339)
  */
 first_call_at: string | null, last_call_at: string | null, };

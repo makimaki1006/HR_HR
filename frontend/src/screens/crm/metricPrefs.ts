@@ -47,7 +47,7 @@ export function customStripItem(v: CustomMetricValue, res: Pick<CustomMetricsRes
     return { ...base, value: '', compare: '', compareShort: '', note: v.message ?? (v.status === 'loading' ? '集計しています…' : 'いまは数字を読めません') };
   }
   const value = formatMetricNumber(v.value, v.kind === 'count');
-  return { ...base, value, ...compareTexts(avgLabel, formatMetricNumber(v.team_avg), v.rank, v.ranked), note: null };
+  return { ...base, value, ...compareTexts(avgLabel, formatMetricNumber(v.team_avg)), note: null };
 }
 
 /** 集計がまだ来ていない自分の項目 */

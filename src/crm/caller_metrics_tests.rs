@@ -365,6 +365,18 @@ struct FakeCall {
     source: &'static str,
 }
 
+#[derive(Clone)]
+struct FlagDeal {
+    id: &'static str,
+    owner: &'static str,
+    /// 接触入力者 (bpo_56)
+    by: Option<&'static str>,
+    contact: bool,
+    nitteigiri: i64,
+    pipeline: &'static str,
+    modified: i64,
+}
+
 #[derive(Default)]
 struct FakeHs {
     calls: Vec<FakeCall>,
@@ -372,6 +384,8 @@ struct FakeHs {
     deals: Vec<(String, String, i64)>,
     /// (ステージ ID, 取引 id, 担当者, 入った時刻 ms)。空でなければ `deals` の代わりにこちらを使う
     stage_deals: Vec<(String, String, String, i64)>,
+    /// 接触・日程切りの取引
+    flag_deals: Vec<FlagDeal>,
     /// メール → (id, teams)
     owners_by_email: HashMap<String, (String, Vec<String>)>,
     owner_list: Vec<Value>,
@@ -455,6 +469,37 @@ async fn hs_search(
             .collect()
     } else {
         let prop = filters[0]["propertyName"].as_str().unwrap().to_string();
+        if prop == CONTACT_PROPERTY || prop == SCHEDULE_PROPERTY {
+            let eq = |p: &str| {
+                filters
+                    .iter()
+                    .find(|f| f["propertyName"] == p)
+                    .map(|f| f["value"].clone())
+            };
+            let pipe = eq("pipeline");
+            let since = bound("hs_lastmodifieddate", "GTE");
+            let rows: Vec<Value> = s
+                .flag_deals
+                .iter()
+                .filter(|d| pipe.as_ref().is_none_or(|p| p == d.pipeline))
+                .filter(|d| since.is_none_or(|a| d.modified >= a))
+                .filter(|d| {
+                    if prop == CONTACT_PROPERTY {
+                        filters[0]["operator"] == "EQ" && filters[0]["value"] == "true" && d.contact
+                    } else {
+                        filters[0]["operator"] == "GTE" && d.nitteigiri >= filter_val(&filters[0])
+                    }
+                })
+                .map(|d| json!({"id": d.id, "properties": {"hubspot_owner_id": d.owner, CONTACT_BY_PROPERTY: d.by}}))
+                .collect();
+            let total = rows.len();
+            let page: Vec<Value> = rows.into_iter().skip(after).take(limit).collect();
+            let mut v = json!({"results": page, "total": total});
+            if after + limit < total {
+                v["paging"] = json!({"next": {"after": (after + limit).to_string()}});
+            }
+            return Json(v).into_response();
+        }
         assert!(prop.starts_with("hs_v2_date_entered_"), "{prop}");
         let (a, b) = (bound(&prop, "GTE"), bound(&prop, "LT"));
         let in_range = |t: &i64| a.is_none_or(|a| *t >= a) && b.is_none_or(|b| *t < b);
@@ -560,6 +605,111 @@ fn searches_of(st: &Shared, object: &str) -> Vec<Value> {
 // 状態 (最初の全件読み・増分・日替わり・失敗)
 // ---------------------------------------------------------------------------
 
+fn flag(
+    id: &'static str,
+    owner: &'static str,
+    by: Option<&'static str>,
+    contact: bool,
+    nittei: i64,
+    modified: i64,
+) -> FlagDeal {
+    FlagDeal {
+        id,
+        owner,
+        by,
+        contact,
+        nitteigiri: nittei,
+        pipeline: FLAG_PIPELINE,
+        modified,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 接触件数と日程設定件数は接触入力者ごとに今日更新された_bpo_の取引だけ数える() {
+    let t = day_start();
+    let mut f = FakeHs::default();
+    f.calls = vec![
+        fc("1", "7", "OUTBOUND", 100_000, t + 1000, t + 1000),
+        fc("2", "8", "OUTBOUND", 10_000, t + 2000, t + 2000),
+    ];
+    f.flag_deals = vec![
+        // 7 が接触し日程を 2 回切った (日程設定は取引 1 件として数える)
+        flag("a", "7", Some("7"), true, 2, t + 10),
+        flag("b", "7", Some("7"), true, 0, t + 10),
+        // 担当は 8 だが接触入力者は 7
+        flag("c", "8", Some("7"), true, 1, t + 10),
+        // 接触入力者が空なら担当者
+        flag("d", "8", None, true, 1, t + 10),
+        // 前の日に付いたまま (今日更新されていない) は数えない
+        flag("e", "8", Some("8"), true, 3, t - 10),
+        // ほかのパイプラインは数えない
+        FlagDeal {
+            pipeline: "default",
+            ..flag("f", "8", Some("8"), true, 1, t + 10)
+        },
+        // 架電の無い人も行になる (集団には入らない)
+        flag("g", "9", Some("9"), true, 0, t + 10),
+    ];
+    let (client, _st) = start_hs(f).await;
+    let state = CallerMetricsState::new();
+    let (snap, _) = state.get(&client, now0()).await.unwrap();
+    let c = |o: &str| (snap.all[o].contacts, snap.all[o].scheduled);
+    assert_eq!(c("7"), (3, 2));
+    assert_eq!(c("8"), (1, 1));
+    assert_eq!(c("9"), (1, 0));
+    assert!(!is_caller(&snap.all["9"]));
+    // 平均は今日架電した 7・8 の 2 人で割る
+    let (_, avg, size, _) = build_today(&snap.all, Some("7"), &[], &HashMap::new());
+    let avg = avg.unwrap();
+    assert_eq!(size, 2);
+    assert_eq!((avg.contacts, avg.scheduled), (2.0, 1.5));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 接触が200件を超えてもページを送って全部数える() {
+    let t = day_start();
+    let mut f = FakeHs::default();
+    f.calls = vec![fc("1", "7", "OUTBOUND", 100_000, t + 1000, t + 1000)];
+    let ids: Vec<&'static str> = (0..201)
+        .map(|i| &*Box::leak(format!("p{i}").into_boxed_str()))
+        .collect();
+    f.flag_deals = ids
+        .iter()
+        .map(|id| flag(id, "7", Some("7"), true, 1, t + 10))
+        .collect();
+    let (client, st) = start_hs(f).await;
+    let state = CallerMetricsState::new();
+    let (snap, _) = state.get(&client, now0()).await.unwrap();
+    assert_eq!(
+        (snap.all["7"].contacts, snap.all["7"].scheduled),
+        (201, 201)
+    );
+    // アポ 1 + 接触 2 ページ + 日程切り 2 ページ
+    assert_eq!(searches_of(&st, "deals").len(), 5);
+}
+
+#[test]
+fn 接触の付け先は接触入力者_空なら担当者() {
+    assert_eq!(
+        flag_owner(&json!({"bpo_56": "7", "hubspot_owner_id": "8"})),
+        Some("7")
+    );
+    assert_eq!(
+        flag_owner(&json!({"bpo_56": "", "hubspot_owner_id": "8"})),
+        Some("8")
+    );
+    assert_eq!(flag_owner(&json!({"hubspot_owner_id": "8"})), Some("8"));
+}
+
+#[test]
+fn 今月の帯は新規営業だけで_bpo_にも入っている人は今日のまま() {
+    let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert!(month_view_for(&t(&["新規営業"])));
+    assert!(!month_view_for(&t(&["新規営業", "BPO_リクロジ"])));
+    assert!(!month_view_for(&t(&["BPO_リクロジ"])));
+    assert!(!month_view_for(&t(&[])));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn 初回は今日の分を全部読み_2分以内は読み直さない() {
     let t = day_start();
@@ -590,13 +740,13 @@ async fn 初回は今日の分を全部読み_2分以内は読み直さない() 
     );
     assert_eq!(snap.all["8"].appointments, 1);
     assert_eq!(snap.as_of, now0());
-    // 呼び出し: calls 1 + deals 1
+    // 呼び出し: calls 1 + deals 3 (アポ 1・接触 1・日程切り 1)
     assert_eq!(
         (
             searches_of(&st, "calls").len(),
             searches_of(&st, "deals").len()
         ),
-        (1, 1)
+        (1, 3)
     );
     // 1 分後は同じ結果を返し、HubSpot を呼ばない
     state
@@ -1109,7 +1259,8 @@ async fn 利用者が増えても_hubspot_の_search_は共有される() {
         let _ = get_json(&e.app, "/api/crm/metrics/today", Some(c)).await;
     }
     assert_eq!(searches_of(&e.st, "calls").len(), 1);
-    assert_eq!(searches_of(&e.st, "deals").len(), 1);
+    // アポ・接触・日程切りの 3 回
+    assert_eq!(searches_of(&e.st, "deals").len(), 3);
 }
 
 #[test]
@@ -1170,6 +1321,8 @@ use chrono::NaiveDate;
 use std::collections::BTreeMap;
 
 const SALES: &str = "sales@f-a-c.co.jp";
+/// 新規営業と BPO_リクロジ の両方に入っている人 (担当者一覧には入れない。今月の集計の人数を変えないため)
+const BOTH: &str = "both@f-a-c.co.jp";
 const SALES_TEAM_NAME: &str = "新規営業";
 
 /// JST の日時 → UTC エポック ms
@@ -1195,6 +1348,13 @@ fn month_fake() -> FakeHs {
         (
             BPO.to_string(),
             ("b1".to_string(), vec!["BPO_リクロジ".to_string()]),
+        ),
+        (
+            BOTH.to_string(),
+            (
+                "x1".to_string(),
+                vec![SALES_TEAM_NAME.to_string(), "BPO_リクロジ".to_string()],
+            ),
         ),
         (ADMIN.to_string(), ("a1".to_string(), vec![])),
     ]);
@@ -1297,7 +1457,11 @@ fn owner_in_count(st: &Shared) -> usize {
 fn month_deal_searches(st: &Shared) -> usize {
     searches_of(st, "deals")
         .iter()
-        .filter(|b| !b.to_string().contains("bpo_26"))
+        .filter(|b| {
+            let t = b.to_string();
+            // 今日のアポ (bpo_26) と接触・日程切り (bpo_56) の検索は除く
+            !t.contains("bpo_26") && !t.contains(CONTACT_BY_PROPERTY)
+        })
         .count()
 }
 
@@ -1558,16 +1722,18 @@ struct MonthEnv {
     admin: String,
     sales: String,
     bpo: String,
+    both: String,
 }
 
 async fn menv() -> MonthEnv {
     let (client, st) = start_hs(month_fake()).await;
     let app = Router::new()
         .merge(super::routes::router_with_queue(
-            CrmAccess::from_list(&format!("{ADMIN},{BPO},{SALES}"))
+            CrmAccess::from_list(&format!("{ADMIN},{BPO},{SALES},{BOTH}"))
                 .with_test_role(ADMIN, CrmRole::Admin)
                 .with_test_role(BPO, CrmRole::Bpo)
-                .with_test_role(SALES, CrmRole::Bpo),
+                .with_test_role(SALES, CrmRole::Bpo)
+                .with_test_role(BOTH, CrmRole::Bpo),
             CallQueueState::for_test([7u8; 32], now0()),
         ))
         .route("/__test/session", post(inject_session))
@@ -1577,6 +1743,7 @@ async fn menv() -> MonthEnv {
         admin: login(&app, ADMIN).await,
         sales: login(&app, SALES).await,
         bpo: login(&app, BPO).await,
+        both: login(&app, BOTH).await,
         app,
         st,
     }
@@ -1614,6 +1781,10 @@ async fn http_新規営業の今月_最初は集計中で_やがて数字() {
     assert_eq!(t["month_view"], true);
     let (_, t) = get_json(&e.app, "/api/crm/metrics/today", Some(&e.bpo)).await;
     assert_eq!(t["month_view"], false);
+    // 新規営業と BPO の両方に入っている人は今日の帯 (アポ欄も出す)
+    let (_, t) = get_json(&e.app, "/api/crm/metrics/today", Some(&e.both)).await;
+    assert_eq!(t["month_view"], false, "{t}");
+    assert_eq!(t["appointments_tracked"], true);
 }
 
 #[tokio::test(flavor = "multi_thread")]
