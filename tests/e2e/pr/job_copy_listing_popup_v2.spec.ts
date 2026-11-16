@@ -133,22 +133,28 @@ for (const width of [1440, 1920]) test(`取得不能の給与・任意項目と�
     await page.getByRole('button', { name: '求人の内容を確認する' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.locator('.jc-listing-popup-summary > div').filter({ has: page.locator('dt', { hasText: '給与' }) }).locator('dd')).toHaveText('取得できていません');
+    // 小窓は今の内容だけ（1列）。前の本文と比べて色を付けるのは全文比較
     const salary = dialog.locator('.jc-listing-comparison-row').filter({ has: page.getByRole('heading', { name: '給与', exact: true }) });
-    await expect(salary.locator('p')).toHaveText(['取得できていません', '取得できていません']);
+    await expect(salary.locator('p')).toHaveText(['取得できていません']);
     await expect(dialog).not.toContainText('記載のない任意項目（0件）');
-    await expect(dialog.getByText('任意項目の記載状況を取得できていません。', { exact: true })).toHaveCount(2);
-    const row = dialog.locator('.jc-listing-comparison-row').first();
+    await expect(dialog.getByText('任意項目の記載状況を取得できていません。', { exact: true })).toHaveCount(1);
+    await expect(dialog.locator('.jc-listing-comparison-row').first().locator('p')).toHaveText([after]);
+    await expect(dialog.locator('mark')).toHaveCount(0);
+    await dialog.getByRole('button', { name: '前の本文と全文を比べる' }).click();
+    const compare = page.getByRole('dialog', { name: '求人の全文を比べる' });
+    const row = compare.locator('.jc-ftc-row[data-changed="true"]').first();
     await expect(row.locator('p')).toHaveText([before, after]);
-    await expect(row.locator('mark')).toHaveText([scenario.removed, scenario.added]);
-    expect(await row.locator('mark.jc-mark-added').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 209, 158)');
+    expect(await row.locator('del.jc-mark-removed').evaluateAll(items => items.map(item => item.textContent).join(''))).toBe(scenario.removed);
+    expect(await row.locator('ins.jc-mark-added').evaluateAll(items => items.map(item => item.textContent).join(''))).toBe(scenario.added);
     if (width === 1440) {
       await mkdir(shots, { recursive: true });
-      await row.locator('mark').first().scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${shots}/${scenario.shot}.png` });
-      if (scenario.after === '梱包') {
-        await dialog.locator('.jc-listing-popup-scroll').evaluate(element => { element.scrollTop = element.scrollHeight; });
-        await page.screenshot({ path: `${shots}/review-04-optional-unavailable.png` });
-      }
+    }
+    await compare.getByRole('button', { name: '閉じる', exact: true }).click();
+    await expect(compare).toHaveCount(0);
+    if (width === 1440 && scenario.after === '梱包') {
+      await dialog.locator('.jc-listing-popup-scroll').evaluate(element => { element.scrollTop = element.scrollHeight; });
+      await page.screenshot({ path: `${shots}/review-04-optional-unavailable.png` });
     }
     await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
   }

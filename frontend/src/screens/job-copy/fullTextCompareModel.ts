@@ -1,6 +1,6 @@
 import type { CopyVersion, JobCopyRecord } from './data';
 import { jobCopySections } from './JobCopyBody';
-import { markInlineChanges } from './diff';
+import { comparisonWhitespace, markInlineChanges } from './diff';
 import type { InlineSegment } from './diff';
 
 export const EMPTY_TEXT = '（記載なし）';
@@ -47,7 +47,8 @@ export function compareRows(record: Pick<JobCopyRecord, 'media'>, left: CopyVers
   return keys.map(key => {
     const x = a.get(key); const y = b.get(key);
     if (airwork && (x === undefined || y === undefined)) return { key, label: itemLabel(key), left: x ?? null, right: y ?? null, different: false };
-    const row: CompareRow = { key, label: itemLabel(key), left: x ?? '', right: y ?? '', different: (x ?? '') !== (y ?? '') };
+    // 空白・改行コードだけの違いは「変わった」にしない（上の「本文：前の本文と同じ」と同じ判定）。
+    const row: CompareRow = { key, label: itemLabel(key), left: x ?? '', right: y ?? '', different: comparisonWhitespace(x ?? '') !== comparisonWhitespace(y ?? '') };
     // 欄が移っただけ（同じ文が別の見出しの下にある）なら、消えた・増えたと見せず、移った先・元を示す。
     if (x && !y) { const to = movedInto(x, key, b); if (to) row.movedTo = to; }
     if (y && !x) { const from = movedInto(y, key, a); if (from) row.movedFrom = from; }

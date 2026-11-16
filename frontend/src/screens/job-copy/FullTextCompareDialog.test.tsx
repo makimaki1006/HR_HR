@@ -112,3 +112,9 @@ it('欄が移っただけの文は「記載なし」とせず、移った先・�
   expect(row?.textContent).not.toContain('（記載なし）');
   expect(row?.querySelectorAll('del, ins')).toHaveLength(0);
 });
+
+it('空白・改行コードだけの違いは「変わった」にしない（上部の「前の本文と同じ」と同じ判定）', () => {
+  const before = version('w1', '前', '2026-09-01T00:00:00Z', [{ heading: '休日・休暇', text: '土日休み。\n夏季休暇あり。' }]);
+  const after = version('w2', '後', '2026-09-15T00:00:00Z', [{ heading: '休日・休暇', text: '土日休み。　\r\n夏季休暇あり。' }]);
+  expect(compareRows({ media: 'HRハッカー' }, before, after).find(row => row.key === '休日・休暇')?.different).toBe(false);
+});

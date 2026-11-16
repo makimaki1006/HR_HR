@@ -236,6 +236,8 @@ const dayMs = (date: string) => dayNumber(date) * 86_400_000;
 
 export interface JobTimelineProps {
   job: JobCopyRecord;
+  /** false: 見出し「タイムライン」を出さない（くわしい分析では、開いたときの見出しが同じ名前で上にあるため）。 */
+  heading?: boolean;
   /** Billing rows from outside the snapshot (the billing CSV). Kept in the browser only. */
   billing?: readonly BillingEntry[] | undefined;
   /** 'demo' uses fictional market data and sends no request. */
@@ -251,7 +253,7 @@ export function JobTimeline(props: JobTimelineProps) {
   return <JobTimelineForJob key={props.job.id} {...props} />;
 }
 
-function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenVersion, onCompareVersions, now, showDummyBilling = DUMMY_BILLING_ENABLED }: JobTimelineProps) {
+function JobTimelineForJob({ job, heading = true, billing: injected, marketMode = 'api', onOpenVersion, onCompareVersions, now, showDummyBilling = DUMMY_BILLING_ENABLED }: JobTimelineProps) {
   const asOf = asOfDate(job, now);
   const billing = useMemo(() => billingEntries(job, injected, { asOf, dummy: showDummyBilling }), [job, injected, asOf, showDummyBilling]);
   const periods = useMemo(() => buildPeriods(job, asOf), [job, asOf]);
@@ -344,7 +346,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   }, [range, lane]);
 
   if (!range) {
-    return <section className="jt-timeline" aria-label="タイムライン"><h2>タイムライン</h2><p className="jc-notice">掲載期間・応募日・課金のどれも取得できていないため、時間軸を作れません。</p></section>;
+    return <section className="jt-timeline" aria-label="タイムライン">{heading && <h2>タイムライン</h2>}<p className="jc-notice">掲載期間・応募日・課金のどれも取得できていないため、時間軸を作れません。</p></section>;
   }
   const ticks = axisMonths(range);
   const previous = selectedChange ? changes[selectedChange.index - 1] : undefined;
@@ -379,7 +381,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
 
   return <section className="jt-timeline" aria-label="タイムライン">
     <header className="jt-heading">
-      <div><h2>タイムライン</h2><p className="jc-muted">{formatDay(range.start)} 〜 {formatDay(range.end)}（応募は {formatDay(asOf)} 時点）</p></div>
+      <div>{heading && <h2>タイムライン</h2>}<p className="jc-muted">{formatDay(range.start)} 〜 {formatDay(range.end)}（応募は {formatDay(asOf)} 時点）</p></div>
       <div className="jt-scope">応募は HubSpot に記録されたものだけです。<InfoTip label="並べて見るための表示です">
         <p>同じ時期に起きたことを並べて表示しています。応募が増えた・減った理由を示すものではありません。</p>
         <p>応募件数は HubSpot に記録された応募日で数えています。媒体上のすべての応募ではなく、どの本文を見て応募したかは分かりません。</p>
