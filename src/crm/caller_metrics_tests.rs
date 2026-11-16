@@ -665,6 +665,29 @@ async fn 接触件数と日程設定件数は接触入力者ごとに今日更�
     assert_eq!((avg.contacts, avg.scheduled), (2.0, 1.5));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn 接触が200件を超えてもページを送って全部数える() {
+    let t = day_start();
+    let mut f = FakeHs::default();
+    f.calls = vec![fc("1", "7", "OUTBOUND", 100_000, t + 1000, t + 1000)];
+    let ids: Vec<&'static str> = (0..201)
+        .map(|i| &*Box::leak(format!("p{i}").into_boxed_str()))
+        .collect();
+    f.flag_deals = ids
+        .iter()
+        .map(|id| flag(id, "7", Some("7"), true, 1, t + 10))
+        .collect();
+    let (client, st) = start_hs(f).await;
+    let state = CallerMetricsState::new();
+    let (snap, _) = state.get(&client, now0()).await.unwrap();
+    assert_eq!(
+        (snap.all["7"].contacts, snap.all["7"].scheduled),
+        (201, 201)
+    );
+    // アポ 1 + 接触 2 ページ + 日程切り 2 ページ
+    assert_eq!(searches_of(&st, "deals").len(), 5);
+}
+
 #[test]
 fn 接触の付け先は接触入力者_空なら担当者() {
     assert_eq!(
@@ -1298,6 +1321,8 @@ use chrono::NaiveDate;
 use std::collections::BTreeMap;
 
 const SALES: &str = "sales@f-a-c.co.jp";
+/// 新規営業と BPO_リクロジ の両方に入っている人 (担当者一覧には入れない。今月の集計の人数を変えないため)
+const BOTH: &str = "both@f-a-c.co.jp";
 const SALES_TEAM_NAME: &str = "新規営業";
 
 /// JST の日時 → UTC エポック ms
@@ -1323,6 +1348,13 @@ fn month_fake() -> FakeHs {
         (
             BPO.to_string(),
             ("b1".to_string(), vec!["BPO_リクロジ".to_string()]),
+        ),
+        (
+            BOTH.to_string(),
+            (
+                "x1".to_string(),
+                vec![SALES_TEAM_NAME.to_string(), "BPO_リクロジ".to_string()],
+            ),
         ),
         (ADMIN.to_string(), ("a1".to_string(), vec![])),
     ]);
@@ -1690,16 +1722,18 @@ struct MonthEnv {
     admin: String,
     sales: String,
     bpo: String,
+    both: String,
 }
 
 async fn menv() -> MonthEnv {
     let (client, st) = start_hs(month_fake()).await;
     let app = Router::new()
         .merge(super::routes::router_with_queue(
-            CrmAccess::from_list(&format!("{ADMIN},{BPO},{SALES}"))
+            CrmAccess::from_list(&format!("{ADMIN},{BPO},{SALES},{BOTH}"))
                 .with_test_role(ADMIN, CrmRole::Admin)
                 .with_test_role(BPO, CrmRole::Bpo)
-                .with_test_role(SALES, CrmRole::Bpo),
+                .with_test_role(SALES, CrmRole::Bpo)
+                .with_test_role(BOTH, CrmRole::Bpo),
             CallQueueState::for_test([7u8; 32], now0()),
         ))
         .route("/__test/session", post(inject_session))
@@ -1709,6 +1743,7 @@ async fn menv() -> MonthEnv {
         admin: login(&app, ADMIN).await,
         sales: login(&app, SALES).await,
         bpo: login(&app, BPO).await,
+        both: login(&app, BOTH).await,
         app,
         st,
     }
@@ -1746,6 +1781,10 @@ async fn http_新規営業の今月_最初は集計中で_やがて数字() {
     assert_eq!(t["month_view"], true);
     let (_, t) = get_json(&e.app, "/api/crm/metrics/today", Some(&e.bpo)).await;
     assert_eq!(t["month_view"], false);
+    // 新規営業と BPO の両方に入っている人は今日の帯 (アポ欄も出す)
+    let (_, t) = get_json(&e.app, "/api/crm/metrics/today", Some(&e.both)).await;
+    assert_eq!(t["month_view"], false, "{t}");
+    assert_eq!(t["appointments_tracked"], true);
 }
 
 #[tokio::test(flavor = "multi_thread")]

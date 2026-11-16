@@ -3,6 +3,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FIXTURE_MONTH, FIXTURE_MONTH_ALL, FIXTURE_TODAY, FIXTURE_TODAY_SALES, monthName, monthStripItems, sortMonthRows } from './metricsModel';
 import { TodayMetrics } from './TodayMetrics';
+import { memoryPrefsApi } from './metricPrefs';
 
 afterEach(() => { cleanup(); vi.useRealTimers(); window.localStorage.clear(); });
 
@@ -72,5 +73,24 @@ describe('今月の表示用の計算', () => {
     expect(sortMonthRows(FIXTURE_MONTH_ALL.callers, 'avg_duration', 'desc').at(-1)?.name).toBe('架空 三郎');
     expect(sortMonthRows(FIXTURE_MONTH_ALL.callers, 'avg_duration', 'asc').at(-1)?.name).toBe('架空 三郎');
     expect(sortMonthRows(FIXTURE_MONTH_ALL.callers, 'appointments', 'desc')[0]?.name).toBe('サンプル 花子');
+  });
+});
+
+describe('帯の既定の項目 (設定を保存していない人)', () => {
+  it('アポを数えないチームの人 (コンサル営業など) は以前の既定のまま。接触・日程設定は出さない', async () => {
+    const other = { ...FIXTURE_TODAY, team_names: ['架空コンサル'], appointments_tracked: false, month_view: false };
+    render(<TodayMetrics fixture={false} fetcher={ok(other)} />);
+    await screen.findByTestId('metric-outbound');
+    expect([...screen.getByTestId('today-metrics').querySelectorAll('.tm-item')].map(li => li.getAttribute('data-testid')))
+      .toEqual(['metric-outbound', 'metric-over_90s', 'metric-duration']);
+  });
+
+  it('保存した並びは、チームによらずそのまま使う', async () => {
+    const other = { ...FIXTURE_TODAY, team_names: ['架空コンサル'], appointments_tracked: false, month_view: false };
+    const api = memoryPrefsApi({ prefs: { items: ['contacts', 'outbound'], custom: [] }, saved: true, available: true, message: null });
+    render(<TodayMetrics fixture={false} fetcher={ok(other)} prefsApi={api} />);
+    await screen.findByTestId('metric-contacts');
+    expect([...screen.getByTestId('today-metrics').querySelectorAll('.tm-item')].map(li => li.getAttribute('data-testid')))
+      .toEqual(['metric-contacts', 'metric-outbound']);
   });
 });

@@ -60,8 +60,8 @@ export const BUILTIN_LABELS: Record<BuiltinKey, string> = {
 };
 /** 設定の無い人の帯 (Rust の DEFAULT_ITEMS と同じ) */
 export const DEFAULT_ITEMS: readonly string[] = ['outbound', 'contacts', 'scheduled', 'appointments'];
-/** 設定の無い新規営業の人の「今月」の帯 (接触・日程設定は今月で数えていないので、以前の既定のうち今月で出せるもの) */
-export const MONTH_DEFAULT_ITEMS: readonly string[] = ['outbound', 'duration', 'appointments'];
+/** 設定の無い、BPO でない人 (新規営業・コンサル営業など) の帯。接触・日程設定は bpo_リクロジ の取引でしか数えないので、以前の既定のまま */
+export const LEGACY_DEFAULT_ITEMS: readonly string[] = ['outbound', 'over_90s', 'duration', 'appointments'];
 /** 今月の帯で出せる項目 (今月は秒数の基準と着信を数えていない) */
 export const MONTH_KEYS: readonly BuiltinKey[] = ['outbound', 'duration', 'avg_duration', 'appointments'];
 export function isBuiltinKey(k: string): k is BuiltinKey {

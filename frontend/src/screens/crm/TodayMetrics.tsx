@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
-import { MONTH_DEFAULT_ITEMS, asOfLabel, clockJst, populationLabel, stripItems } from './metricsModel';
+import { LEGACY_DEFAULT_ITEMS, asOfLabel, clockJst, populationLabel, stripItems } from './metricsModel';
 import { MonthMetrics } from './MonthMetrics';
 import { MetricsStrip } from './MetricsStrip';
 import { MetricsSettings } from './MetricsSettings';
@@ -111,8 +111,9 @@ export function TodayMetrics({ fixture, fetcher, monthFetcher, prefsApi, customF
   }
   const onToggle = () => { const next = !collapsed; setCollapsed(next); writeCollapsed(next); };
   const ready = prefsState.phase === 'ready';
-  // 帯を設定していない新規営業の人は、今月の帯をこれまでの項目のまま出す (BPO 向けの既定は接触・日程設定で、今月では数えていない)
-  const stripPrefs = state.data.month_view && !(ready && prefsState.saved) ? { ...prefs, items: [...MONTH_DEFAULT_ITEMS] } : prefs;
+  // 帯を設定していない人のうち、アポを数えるチーム (BPO) とチーム無しの人以外は以前の既定のまま出す
+  // (接触・日程設定は bpo_リクロジ の取引でしか数えないので、新規営業・コンサル営業では 0 が並ぶだけになる)
+  const stripPrefs = !state.data.appointments_tracked && !(ready && prefsState.saved) ? { ...prefs, items: [...LEGACY_DEFAULT_ITEMS] } : prefs;
   const panel = open && ready && settings
     ? <MetricsSettings prefs={stripPrefs} available={prefsState.available} note={prefsState.message} monthView={state.data.month_view}
       catalog={settings.catalog} onReloadCatalog={settings.onReloadCatalog} choices={settings.choices} onSave={save} onClose={() => { setPanel(false); }} />
