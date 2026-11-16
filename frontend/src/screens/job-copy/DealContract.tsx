@@ -9,7 +9,7 @@ import { DealStageMove } from './DealStageMove';
 import { fieldKey, stageKey } from '../crm/writeModel';
 import type { PropValues } from '../crm/writeTypes';
 import { contractWriteApi } from './dealContractApi';
-import { CONTRACT_FIELDS, DISPLAY_FIELDS, DELIVERY_PIPELINES, HEADER_FIELDS, contractRequest, displayValue, fieldLabel, inputValue } from './dealContractModel';
+import { CONTRACT_FIELDS, DISPLAY_FIELDS, DELIVERY_PIPELINES, HEADER_FIELDS, contractLabel, contractRequest, displayValue, inputValue } from './dealContractModel';
 import './deal-contract.css';
 
 export function SaveStatus({ statuses }: { statuses: FieldStatus[] }) {
@@ -91,7 +91,7 @@ export function DealContract({ dealId, onSaved, onQueued, onDetail }: { dealId: 
       {!write.conflict && <SaveStatus statuses={statuses} />}
       {write.conflict && <div role="alert" className="dc-conflict"><h3>ほかの更新があります。現在の値を確認してください。</h3><p>今回の変更は保存されていません。</p><ul>{write.conflict.req.stage && 'dealstage' in write.conflict.current && <li>ステージ：現在の値「{schema?.stages.find(s => s.id === write.conflict?.current.dealstage)?.label ?? '取得できませんでした'}」／移動先「{write.conflict.req.stage.label}」</li>}{write.conflict.req.changes.map(change => {
         const prop = data.props.find(item => item.name === change.name);
-        return prop && <li key={change.name}>{fieldLabel(prop.label)}：現在の値「{displayValue(prop, write.conflict?.current[change.name])}」／入力した値「{displayValue(prop, change.value)}」</li>;
+        return prop && <li key={change.name}>{contractLabel(prop)}：現在の値「{displayValue(prop, write.conflict?.current[change.name])}」／入力した値「{displayValue(prop, change.value)}」</li>;
       })}</ul><button className="jc-button" onClick={() => { write.resolveConflict('theirs'); setEditing(false); }}>現在の値を使う</button><button className="jc-button" onClick={() => { write.resolveConflict('mine'); setEditing(false); }}>確認して入力した値で保存</button></div>}
       {targeted && write.writesEnabled === true && schema && schema.stages.length > 0
         ? <DealStageMove dealId={dealId} write={write} detail={data.detail} props={data.props} request={editing ? request : { dealId, changes: [], fetchedAt: data.detail.fetched_at }} locked={locked}
@@ -106,7 +106,7 @@ export function DealContract({ dealId, onSaved, onQueued, onDetail }: { dealId: 
         const editable = editing && canEdit && writable.some(item => item.name === name);
         const value = draft[name] ?? '';
         const change = (next: string) => { setDraft(prev => ({ ...prev, [name]: next })); write.dismiss(key); };
-        return <div className={`dc-field${savedFields.includes(name) && write.statuses[key]?.phase === 'saved' ? ' dc-written' : ''}`} key={name}><label htmlFor={`dc-${name}`}>{fieldLabel(prop.label)}</label>{!editable && <strong>{displayValue(prop, values[name])}</strong>}
+        return <div className={`dc-field${savedFields.includes(name) && write.statuses[key]?.phase === 'saved' ? ' dc-written' : ''}`} key={name}><label htmlFor={`dc-${name}`}>{contractLabel(prop)}</label>{!editable && <strong>{displayValue(prop, values[name])}</strong>}
           {editable && (prop.property_type === 'enumeration' ? <select id={`dc-${name}`} disabled={locked} value={value} onChange={event => { change(event.target.value); }}><option value="">未入力</option>{value && !prop.options.some(option => option.value === value) && <option value={value}>{displayValue(prop, value)}</option>}{prop.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input id={`dc-${name}`} disabled={locked} type={prop.property_type === 'date' ? 'date' : prop.property_type === 'number' ? 'number' : 'text'} step="any" value={value} onChange={event => { change(event.target.value); }} />)}
           {!CONTRACT_FIELDS.some(field => field === name) && <small>（ここでは変更できません）</small>}
           {editable && request.changes.some(change => change.name === name) && <small className="dc-original">元: {displayValue(prop, base[name])}</small>}

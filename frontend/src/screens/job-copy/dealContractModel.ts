@@ -12,6 +12,15 @@ export function fieldLabel(label: string): string {
   return label.replace(/\s*[(（]\s*\d{8}\s*更新\s*[)）]\s*$/u, '').trim() || label;
 }
 
+/**
+ * 契約・成果の欄に出す項目名。応募数は担当者が HubSpot に手で入れた数で、求人に結び付いた応募の記録とは別なので、
+ * そう分かる名前にする（2026-11-15 の点検）。
+ */
+export function contractLabel(prop: { name: string; label: string }): string {
+  if (prop.name === 'oubo') return '応募数（担当者の入力）';
+  return fieldLabel(prop.label);
+}
+
 /** 読み取った生の値を base に残す。日付の表示だけ YYYY-MM-DD にする。 */
 export function inputValue(prop: CrmCatalogProperty, value: string | null | undefined): string {
   if (!value) return '';

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiGet } from "../../api/client";
 import { ownerParams } from "./OwnerTodo";
 import {
@@ -30,6 +30,10 @@ import {
   cpaFigureCount,
   acrossFigureCount,
 } from "./HoujinCharts";
+import { OutLink } from "./Pressable";
+import { ChoiceSwitch } from "./StatusSwitch";
+import { InfoTip } from "./InfoTip";
+import { formatDateJst } from "./format";
 import "./home.css";
 import "./houjin.css";
 export interface HoujinResponse {
@@ -115,11 +119,23 @@ export function HoujinView() {
   const rows = filterCustomers(ready?.index ?? [], query);
   const matchesSelection = rows.some((r) => r.houjin === ready?.selected_houjin);
   const firstMatch = rows[0]?.houjin;
+  /** 利用者が選んだ顧客（URL で開いたものを含む）。これと違う顧客を出しているときは、並びの先頭を自動で選んでいる。 */
+  const [userChosen, setUserChosen] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("houjin"),
+  );
   useEffect(() => {
     if (ready && !matchesSelection && firstMatch) {
       updateJobCopyQuery({ houjin: firstMatch, houjin_site: null, risk_deal: null }, "replace");
     }
   }, [ready, matchesSelection, firstMatch]);
+  const showingAuto =
+    !!ready?.selected_houjin && ready.selected_houjin !== userChosen;
+  const sortLabel =
+    ({ ltv: "これまでの売上が大きい順", deals: "案件が多い順", name: "顧客名順" } as Record<string, string>)[
+      query.get("houjin_sort") ?? "ltv"
+    ] ?? "これまでの売上が大きい順";
+  /** 一覧の社名を押したら、読み込み後に下の詳細へ移る。 */
+  const scrollAfterLoad = useRef<string | null>(null);
   const data = matchesSelection ? ready?.customer : null;
   const deals = data?.deals ?? [];
   const [selection, setSelection] = useState<{
@@ -160,9 +176,25 @@ export function HoujinView() {
       ) +
       1
     : 0;
-  const choose = (houjin: string) => {
+  const choose = (houjin: string, scroll = false) => {
+    setUserChosen(houjin);
+    scrollAfterLoad.current = scroll ? houjin : null;
     updateJobCopyQuery({ houjin, houjin_site: null, risk_deal: null });
   };
+  const loadedHoujin = data?.customer ? ready?.selected_houjin : null;
+  useEffect(() => {
+    if (loadedHoujin && scrollAfterLoad.current === loadedHoujin) {
+      scrollAfterLoad.current = null;
+      document.getElementById("hj-customer")?.scrollIntoView({ block: "start" });
+    }
+  }, [loadedHoujin]);
+  const [showEnded, setShowEnded] = useState(false);
+  const activeDeals = deals.filter((d) => d.is_active);
+  const endedCount = deals.length - activeDeals.length;
+  const hasConditions =
+    filterKeys.some((k) => (query.get(`houjin_${k}`) ?? "") !== "") ||
+    (query.get("houjin_search") ?? "") !== "";
+  const pickedIndex = ready?.index.find((r) => r.houjin === ready.selected_houjin);
   const open = (id: string) => {
     updateJobCopyQuery({ risk_deal: id });
   };
@@ -177,7 +209,7 @@ export function HoujinView() {
               "事業所",
               "種別",
               "開始〜満了",
-              "継続",
+              "継続回数",
               "金額",
               "応募",
               "面接",
@@ -199,7 +231,7 @@ export function HoujinView() {
             >
               <th>
                 <button
-                  className="jh-link"
+                  className="jc-go"
                   onClick={() => {
                     open(d.deal_id);
                   }}
@@ -210,12 +242,11 @@ export function HoujinView() {
               <td>{d.stage}</td>
               <td>{d.site_name || "事業所未登録"}</td>
               <td>{d.kind}</td>
-              <td>
-                {d.start || "—"}
-                <br />〜{d.expiration || "—"}
+              <td className="hj-nowrap">
+                {formatDateJst(d.start, "—")}〜{formatDateJst(d.expiration, "—")}
               </td>
               <td>{d.renewal_no ?? "—"}</td>
-              <td>{yen(d.amount)}</td>
+              <td className="hj-nowrap">{yen(d.amount)}</td>
               <td>{d.oubo ?? "—"}</td>
               <td>{d.mensetu ?? "—"}</td>
               <td>{d.syoudaku ?? "—"}</td>
@@ -304,33 +335,36 @@ export function HoujinView() {
                   </select>
                 </label>
               </div>
-              <details className="hj-fold" id="hj-conditions">
-                <summary>条件で絞る（ボタン・数値条件）</summary>
-              <div className="hj-controls">
-                {customerPresets.map((p) => (
-                  <button
-                    key={p.label}
-                    className="jc-button"
-                    aria-pressed={filterKeys.every(
-                      (k) =>
-                        (query.get(`houjin_${k}`) ?? "") ===
-                        (p.values[k] ?? ""),
-                    )}
-                    onClick={() => {
-                      updateJobCopyQuery(presetQuery(p.values), "replace");
-                    }}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+              <div className="hj-controls hj-presets" role="group" aria-label="よく使う条件">
+                {customerPresets.map((p) => {
+                  const pressed = filterKeys.every(
+                    (k) =>
+                      (query.get(`houjin_${k}`) ?? "") === (p.values[k] ?? ""),
+                  );
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      className="jc-chip"
+                      aria-pressed={pressed}
+                      onClick={() => {
+                        updateJobCopyQuery(
+                          presetQuery(pressed ? {} : p.values),
+                          "replace",
+                        );
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
               </div>
-                <p className="jh-note">
-                  月額は案件の最大額、継続の回数は最大回数。空欄の条件は使いません。
-                </p>
-                <div className="hj-controls">
+              <details className="hj-fold" id="hj-conditions">
+                <summary>条件で絞る</summary>
+                <div className="hj-cond-grid">
                   {customerFilters.map(([key, , label, unit]) => (
-                    <label key={key}>
-                      {label}
+                    <label key={key} className="hj-cond">
+                      <span className="hj-cond-label">{label}</span>
                       <input
                         type="number"
                         min="0"
@@ -344,7 +378,7 @@ export function HoujinView() {
                           );
                         }}
                       />
-                      {unit}以上
+                      <span className="hj-cond-unit">{unit}以上</span>
                       {key === "sites" && (
                         <>
                           <input
@@ -359,50 +393,56 @@ export function HoujinView() {
                               );
                             }}
                           />
-                          事業所以下
+                          <span className="hj-cond-unit">事業所以下</span>
                         </>
                       )}
                     </label>
                   ))}
+                </div>
+                <div className="hj-controls">
                   {(
                     [
                       ["active", "稼働中だけ"],
                       ["focus", "重点顧客だけ"],
                     ] as const
                   ).map(([key, label]) => (
-                    <label key={key}>
-                      <input
-                        type="checkbox"
-                        checked={query.get(`houjin_${key}`) === "1"}
-                        onChange={(e) => {
-                          updateJobCopyQuery(
-                            {
-                              [`houjin_${key}`]: e.target.checked ? "1" : null,
-                            },
-                            "replace",
-                          );
-                        }}
-                      />
-                      {label}
-                    </label>
+                    <ChoiceSwitch
+                      key={key}
+                      label={label}
+                      value={query.get(`houjin_${key}`) === "1" ? "on" : "off"}
+                      onChange={(value) => {
+                        updateJobCopyQuery(
+                          { [`houjin_${key}`]: value === "on" ? "1" : null },
+                          "replace",
+                        );
+                      }}
+                      options={[
+                        { key: "off", label: "すべて" },
+                        { key: "on", label },
+                      ]}
+                    />
                   ))}
+                  <InfoTip className="jc-infotip-left" iconFirst label="条件の見方">
+                    <p>月額は案件のうちいちばん大きい額、継続の回数はいちばん長く続いた事業所の回数です。空欄の条件は使いません。</p>
+                  </InfoTip>
                 </div>
               </details>
-              <div className="hj-controls">
-                <button
-                  className="jc-button"
-                  onClick={() => {
-                    updateJobCopyQuery(
-                      { ...presetQuery({}), houjin_search: null },
-                      "replace",
-                    );
-                  }}
-                >
-                  条件を戻す
-                </button>
-              </div>
-              <p role="status">
+              <p role="status" className="hj-count-line">
                 条件に合う {rows.length}社 ／ 全{ready.index.length}社
+                {hasConditions && (
+                  <button
+                    type="button"
+                    className="jc-button"
+                    onClick={() => {
+                      updateJobCopyQuery(
+                        { ...presetQuery({}), houjin_search: null },
+                        "replace",
+                      );
+                    }}
+                  >
+                    条件を戻す
+                  </button>
+                )}
               </p>
               {customerFilters.map(([key, field, label]) =>
                 query.get(`houjin_${key}`) &&
@@ -413,8 +453,8 @@ export function HoujinView() {
                   </p>
                 ) : null,
               )}
-              <details>
-                <summary>顧客の一覧</summary>
+              <details className="hj-customer-list" open>
+                <summary>顧客の一覧（{rows.length}社）</summary>
                 <div className="hj-scroll">
                   <table aria-label="顧客の一覧">
                     <thead>
@@ -426,7 +466,7 @@ export function HoujinView() {
                           "従業員数",
                           "月額（最大）",
                           "これまでの売上",
-                          "継続（最大）",
+                          "最長の継続回数",
                           "応募",
                           "面接",
                           "承諾",
@@ -439,12 +479,17 @@ export function HoujinView() {
                     </thead>
                     <tbody>
                       {rows.map((r) => (
-                        <tr key={r.houjin}>
+                        <tr
+                          key={r.houjin}
+                          className={r.houjin === ready.selected_houjin && matchesSelection ? "hj-current" : undefined}
+                          aria-current={r.houjin === ready.selected_houjin && matchesSelection ? "true" : undefined}
+                        >
                           <th>
                             <button
-                              className="jh-link"
+                              type="button"
+                              className="jc-go"
                               onClick={() => {
-                                choose(r.houjin);
+                                choose(r.houjin, true);
                               }}
                             >
                               {r.name}
@@ -460,7 +505,7 @@ export function HoujinView() {
                           <td>{r.mensetu_total ?? "—"}</td>
                           <td>{r.syoudaku_total ?? "—"}</td>
                           <td>{r.active ?? "—"}</td>
-                          <td>{r.last_expiration || "—"}</td>
+                          <td className="hj-nowrap">{formatDateJst(r.last_expiration, "—")}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -469,53 +514,73 @@ export function HoujinView() {
               </details>
             </section>
             {!rows.length && <p role="status">条件に合う顧客がありません</p>}
+            {showingAuto && data?.customer && (
+              <p className="hj-auto-note">
+                一覧の並び（{sortLabel}）の先頭の顧客を表示しています。ほかの顧客は一覧の社名を押してください。
+              </p>
+            )}
             {data?.customer && (
               <>
-                <section aria-label="顧客の数字">
+                <section aria-label="顧客の数字" id="hj-customer">
                   <h2>{data.customer.name}</h2>
                   <div className="hj-kpis">
-                    {[
-                      ["案件", `${String(deals.length)}件`],
+                    {(
                       [
-                        "稼働中",
-                        `${String(deals.filter((d) => d.is_active).length)}件`,
-                      ],
-                      ["事業所", `${String(data.customer.sites ?? "—")}事業所`],
-                      ["これまでの売上", yen(sumKnown(deals, (d) => d.amount))],
-                      [
-                        "継続回数（最大）",
-                        String(data.customer.max_renewal_no ?? "—"),
-                      ],
-                      [
-                        "最終満了",
-                        deals.reduce(
-                          (m, d) => (d.expiration > m ? d.expiration : m),
-                          "",
-                        ) || "—",
-                      ],
-                    ].map(([label, value]) => (
+                        [
+                          "案件（追加契約を除く）",
+                          `${String(deals.length)}件`,
+                          pickedIndex?.deals != null && pickedIndex.deals !== deals.length
+                            ? `追加契約を含むと${String(pickedIndex.deals)}件`
+                            : null,
+                        ],
+                        ["稼働中", `${String(activeDeals.length)}件`, null],
+                        ["事業所", `${String(data.customer.sites ?? "—")}事業所`, null],
+                        [
+                          "これまでの売上",
+                          yen(sumKnown(deals, (d) => d.amount)),
+                          data.customer.ltv !== sumKnown(deals, (d) => d.amount)
+                            ? `追加契約を含むと${yen(data.customer.ltv)}`
+                            : null,
+                        ],
+                        [
+                          "いちばん長く続いた事業所の継続回数",
+                          data.customer.max_renewal_no == null
+                            ? "—"
+                            : `${String(data.customer.max_renewal_no)}回`,
+                          null,
+                        ],
+                        [
+                          "最終満了",
+                          formatDateJst(
+                            deals.reduce(
+                              (m, d) => (d.expiration > m ? d.expiration : m),
+                              "",
+                            ),
+                            "—",
+                          ),
+                          data.customer.last_expiration !==
+                          deals
+                            .map((d) => d.expiration)
+                            .sort()
+                            .at(-1)
+                            ? `追加契約を含むと${formatDateJst(data.customer.last_expiration, "未取得")}`
+                            : null,
+                        ],
+                      ] as const
+                    ).map(([label, value, sub]) => (
                       <div key={label}>
                         <span>{label}</span>
                         <strong>{value}</strong>
+                        {sub && <small>{sub}</small>}
                       </div>
                     ))}
                   </div>
-                  <p className="jh-note">これまでの売上は追加契約を除く契約金額の合計。</p>
-                  {data.customer.last_expiration !==
-                    deals
-                      .map((d) => d.expiration)
-                      .sort()
-                      .at(-1) && (
-                    <p className="jh-note">
-                      追加契約を含む最終満了は{" "}
-                      {data.customer.last_expiration || "未取得"}。
-                    </p>
-                  )}
-                  {data.customer.ltv !== sumKnown(deals, (d) => d.amount) && (
-                    <p className="jh-note">
-                      一覧のこれまでの売上は追加契約を含む {yen(data.customer.ltv)}。
-                    </p>
-                  )}
+                  <div className="hj-kpi-note">
+                    <InfoTip className="jc-infotip-left" iconFirst label="数え方">
+                      <p>案件・これまでの売上・最終満了は、追加契約を除いた契約で数えています。上の一覧と顧客を選ぶ欄の案件の数は、追加契約を含みます。</p>
+                      <p>継続回数は、事業所ごとに契約が続いた回数のうち、いちばん長いものです。</p>
+                    </InfoTip>
+                  </div>
                 </section>
                 <section id="hj-site">
                   <h2>事業所</h2>
@@ -574,7 +639,7 @@ export function HoujinView() {
                   />
                 </section>
                 <p>
-                  <a className="jh-link" href={kpiHref}>他の顧客と比べる（コンサルKPI）</a>
+                  <a className="jc-go" href={kpiHref}><span aria-hidden="true">→ </span>他の顧客と比べる（コンサルKPI）</a>
                 </p>
                 <Fold summary={`分析の図と事業所の比較（図${String(figureCount)}点）`} id="hj-analysis">
                 <section>
@@ -590,7 +655,7 @@ export function HoujinView() {
                             "事業所",
                             "契約",
                             "稼働中",
-                            "継続（最大）",
+                            "最長の継続回数",
                             "金額の合計",
                             "採用の合計",
                             "最初の開始",
@@ -605,7 +670,7 @@ export function HoujinView() {
                           <tr key={s.key}>
                             <th>
                               <button
-                                className="jh-link"
+                                className="jc-go"
                                 onClick={() => {
                                   updateJobCopyQuery({ houjin_site: s.key });
                                 }}
@@ -627,18 +692,24 @@ export function HoujinView() {
                               {s.rows.filter((d) => d.syoudaku !== null).length}
                               件）
                             </td>
-                            <td>
-                              {s.rows
-                                .map((d) => d.start)
-                                .filter(Boolean)
-                                .sort()[0] ?? "—"}
+                            <td className="hj-nowrap">
+                              {formatDateJst(
+                                s.rows
+                                  .map((d) => d.start)
+                                  .filter(Boolean)
+                                  .sort()[0],
+                                "—",
+                              )}
                             </td>
-                            <td>
-                              {s.rows
-                                .map((d) => d.expiration)
-                                .filter(Boolean)
-                                .sort()
-                                .at(-1) ?? "—"}
+                            <td className="hj-nowrap">
+                              {formatDateJst(
+                                s.rows
+                                  .map((d) => d.expiration)
+                                  .filter(Boolean)
+                                  .sort()
+                                  .at(-1),
+                                "—",
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -677,14 +748,14 @@ export function HoujinView() {
                                 <td>
                                   {data.contacts
                                     .find((c) => c.deal_id === d.deal_id)
-                                    ?.dates.join("、") ?? "記録なし"}
+                                    ?.dates.map((date) => formatDateJst(date, date)).join("、") ?? "記録なし"}
                                 </td>
                                 <td>
                                   {data.handover
                                     .filter((h) => h.deal_id === d.deal_id)
                                     .map(
                                       (h) =>
-                                        `${h.date} ${h.from} → ${h.to}（${h.reflected || "反映状況未取得"}）`,
+                                        `${formatDateJst(h.date, h.date)} ${h.from} → ${h.to}（${h.reflected || "反映状況未取得"}）`,
                                     )
                                     .join("、") || "記録なし"}
                                 </td>
@@ -724,10 +795,10 @@ export function HoujinView() {
                               .filter((m) => siteIds.has(m.deal_id))
                               .map((m, i) => (
                                 <tr key={i}>
-                                  <td>{m.date}</td>
+                                  <td>{formatDateJst(m.date, m.date)}</td>
                                   <th>
                                     <button
-                                      className="jh-link"
+                                      className="jc-go"
                                       onClick={() => {
                                         open(m.deal_id);
                                       }}
@@ -855,17 +926,34 @@ export function HoujinView() {
                 </Fold>
                 <section>
                   <h2>案件と求人</h2>
-                  {dealTable(deals, "案件と求人の案件")}
+                  {endedCount > 0 && activeDeals.length > 0 && (
+                    <div className="hj-ended-toggle">
+                      <ChoiceSwitch
+                        label="表に出す案件"
+                        value={showEnded ? "all" : "active"}
+                        onChange={(value) => {
+                          setShowEnded(value === "all");
+                        }}
+                        options={[
+                          { key: "active", label: "稼働中だけ", count: activeDeals.length },
+                          { key: "all", label: `終了した案件も出す（${String(endedCount)}件）` },
+                        ]}
+                      />
+                    </div>
+                  )}
+                  {showEnded || !endedCount || !activeDeals.length
+                    ? dealTable(deals, "案件と求人の案件")
+                    : dealTable(activeDeals, "案件と求人の案件")}
+
                   {ready.companies.map((company) => (
-                    <div key={company.id}>
+                    <div key={company.id} className="hj-company">
                       {/^\d+$/.test(data.meta.hubspot_portal_id ?? "") && (
-                        <a
-                          href={`https://app.hubspot.com/contacts/${data.meta.hubspot_portal_id ?? ""}/record/0-2/${company.id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          HubSpotで会社を開く
-                        </a>
+                        <p className="hj-company-out">
+                          <OutLink
+                            href={`https://app.hubspot.com/contacts/${data.meta.hubspot_portal_id ?? ""}/record/0-2/${company.id}`}
+                            name="HubSpotで会社を開く"
+                          />
+                        </p>
                       )}
                       <CompanyView
                         embedded
@@ -899,8 +987,8 @@ export function HoujinView() {
                   )}
                 </section>
                 <p className="jh-note">
-                  集計日 {data.meta.today} ／ 取得元{" "}
-                  {data.meta.source_as_of ?? "未取得"} ／ 案件 {deals.length}
+                  集計日 {formatDateJst(data.meta.today, data.meta.today)} ／ 取得元{" "}
+                  {formatDateJst(data.meta.source_as_of, data.meta.source_as_of ?? "未取得")} ／ 案件 {deals.length}
                   件・稼働中 {deals.filter((d) => d.is_active).length}件
                 </p>
               </>

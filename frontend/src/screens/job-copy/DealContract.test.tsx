@@ -87,7 +87,7 @@ describe('契約・成果の表示形式', () => {
     expect(screen.queryByText(/^元:/)).toBeNull();
     fireEvent.change(screen.getByLabelText('金額', { exact: true }), { target: { value: '360000' } });
     expect(screen.getByText('元: ¥240,000')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('応募数'), { target: { value: '1234' } });
+    fireEvent.change(screen.getByLabelText('応募数（担当者の入力）'), { target: { value: '1234' } });
     expect(screen.getByText('元: 20件')).toBeTruthy();
     expect(container.querySelectorAll('.dc-original')).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: /^保存$/ }));

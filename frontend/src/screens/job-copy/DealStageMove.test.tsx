@@ -119,7 +119,7 @@ it('競合時は現在の応募数40件を示し、確認後のbaseも40で再�
   const { patches } = setup('conflict');
   const dialog = await select('66848546'); await fillRequired(dialog);
   fireEvent.click(within(dialog).getByRole('button', { name: '移す' }));
-  await screen.findByText('応募数：現在の値「40件」／入力した値「25件」');
+  await screen.findByText('応募数（担当者の入力）：現在の値「40件」／入力した値「25件」');
   expect(patches).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: '確認して入力した値で保存' }));
   await waitFor(() => { expect(patches).toHaveLength(2); });
@@ -150,7 +150,7 @@ it('反映待ち中はステージを黄で表示して再操作を止め、反�
 it('契約欄と必須入力が重なる応募数は入力を引き継ぎ、ダイアログの最終値と編集前のbaseを送る', async () => {
   const { patches } = setup();
   fireEvent.click(await screen.findByRole('button', { name: '編集' }));
-  fireEvent.change(screen.getByLabelText('応募数', { exact: true }), { target: { value: '25' } });
+  fireEvent.change(screen.getByLabelText('応募数（担当者の入力）', { exact: true }), { target: { value: '25' } });
   const dialog = await select('66848546');
   await waitFor(() => { expect(within(dialog).getByRole<HTMLInputElement>('spinbutton', { name: '応募数' }).value).toBe('25'); });
   fireEvent.change(within(dialog).getByRole('spinbutton', { name: '応募数' }), { target: { value: '30' } });
