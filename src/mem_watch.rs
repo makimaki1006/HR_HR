@@ -26,6 +26,12 @@
 //!   使用中は 200〜300MB で横ばいなのに、空き (返していない分) が起動時の重い処理の一時確保で 550〜650MB まで残っていたため。
 //!   毎分の `mem` の行の `trims=` が前の行からの回数、`trimmed_mb=` が返した RSS の合計、`trim_ms=` がかかった時間の合計。
 //!   環境変数 `MEM_TRIM_AFTER_TASKS=0` で止まる (比べるとき・不具合のとき)。Linux の glibc のときだけ。
+//! - 毎分の `mem` の行の `rx_kb=` は、前の行から外部の相手ごとに受け取った本文の量 (KB。0 の相手は出さない。
+//!   `hubspot` / `sheets` / `zoom` / `turso` / `other`)。reqwest が gzip を伸ばした**後**の量で、通信路の実際の量ではない。
+//!   数えているのは主な読み取りの箇所 (HubSpot・Sheets・Zoom・Turso の各クライアントの成功した応答の本文) だけで、
+//!   `other` は求人票生成の URL 取得と Drive の読み込みだけ (Gmail・MiniMax などは数えていない)。
+//!   `tx_kb=` はブラウザへ送った応答の本文の合計 (KB。gzip で縮めた**後**。送り終わる前に切れた分も送った分まで数える)。
+//!   どちらも 0 のときは項目ごと出さない (2026-11-16)。
 use axum::{extract::Request, middleware::Next, response::Response};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -116,7 +122,8 @@ pub async fn track(req: Request, next: Next) -> Response {
     let path = format!("{} {}", req.method(), req.uri().path());
     INFLIGHT.lock().unwrap().insert(id, (path, Instant::now()));
     let _guard = Guard { id };
-    next.run(req).await
+    // 圧縮 (CompressionLayer) より外側なので、縮めた後の量を数える
+    count_sent(next.run(req).await)
 }
 
 // ---------------------------------------------------------------------------
@@ -380,6 +387,92 @@ fn task_activity(since: Option<Instant>, rss: u64) -> (String, String) {
 }
 
 // ---------------------------------------------------------------------------
+// 送受信のバイト数 (毎分の `mem` の行の `rx_kb=` / `tx_kb=`)
+// ---------------------------------------------------------------------------
+
+/// 外部の相手 (受け取った量を数える単位)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Peer {
+    HubSpot,
+    Sheets,
+    Zoom,
+    Turso,
+    Other,
+}
+
+const PEERS: [(Peer, &str); 5] = [
+    (Peer::HubSpot, "hubspot"),
+    (Peer::Sheets, "sheets"),
+    (Peer::Zoom, "zoom"),
+    (Peer::Turso, "turso"),
+    (Peer::Other, "other"),
+];
+
+/// 前の毎分の行から受け取った本文のバイト (`PEERS` の順)
+static RECEIVED: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+/// 前の毎分の行からブラウザへ送った本文のバイト
+static SENT: AtomicU64 = AtomicU64::new(0);
+
+/// 外部の相手から本文を受け取った (伸ばした後のバイト数)。数えるだけ。
+pub fn received(peer: Peer, bytes: usize) {
+    let i = PEERS.iter().position(|(p, _)| *p == peer).unwrap_or(4);
+    RECEIVED[i].fetch_add(bytes as u64, Ordering::Relaxed);
+}
+
+/// 前の行からの受信 (`hubspot=12 zoom=3` のように KB、0 の相手は出さない) と送信の KB を取り出して 0 に戻す
+fn take_traffic() -> (String, u64) {
+    let rx = RECEIVED.each_ref().map(|n| n.swap(0, Ordering::Relaxed));
+    (fmt_rx(&rx), SENT.swap(0, Ordering::Relaxed).div_ceil(1024))
+}
+
+/// `PEERS` の順のバイト数を `hubspot=12 zoom=3` (KB、切り上げ) に。0 の相手は出さない
+fn fmt_rx(bytes: &[u64; 5]) -> String {
+    PEERS
+        .iter()
+        .zip(bytes)
+        .filter(|(_, v)| **v > 0)
+        .map(|((_, name), v)| format!("{name}={}", v.div_ceil(1024)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 応答の本文を、送り出した分だけ数えながら流す (中身は変えない)
+struct CountingBody {
+    inner: axum::body::Body,
+}
+
+impl http_body::Body for CountingBody {
+    type Data = axum::body::Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        let polled = std::pin::Pin::new(&mut self.inner).poll_frame(cx);
+        if let std::task::Poll::Ready(Some(Ok(frame))) = &polled {
+            if let Some(data) = frame.data_ref() {
+                SENT.fetch_add(data.len() as u64, Ordering::Relaxed);
+            }
+        }
+        polled
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.inner.size_hint()
+    }
+}
+
+fn count_sent(resp: Response) -> Response {
+    let (parts, body) = resp.into_parts();
+    Response::from_parts(parts, axum::body::Body::new(CountingBody { inner: body }))
+}
+
+// ---------------------------------------------------------------------------
 // 割り当ての仕組みの数字 (glibc の mallinfo2)
 // ---------------------------------------------------------------------------
 
@@ -639,6 +732,7 @@ fn log_minute(
     (tasks, tasks_done): &(String, String),
     malloc: Option<&MallocStats>,
     trims: Option<(u32, u64, u64)>,
+    (rx, tx_kb): &(String, u64),
 ) {
     tracing::info!(
         rss_mb = mb(now.rss),
@@ -658,6 +752,8 @@ fn log_minute(
         trims = trims.map(|t| t.0),
         trimmed_mb = trims.map(|t| mb(t.1)),
         trim_ms = trims.map(|t| t.2 / 1000),
+        rx_kb = shown(rx),
+        tx_kb = (*tx_kb > 0).then_some(*tx_kb),
         "mem"
     );
 }
@@ -708,6 +804,7 @@ pub fn spawn() {
                     &task_activity(last_line, now.rss),
                     malloc.get_or_insert_with(malloc_stats).as_ref(),
                     trims,
+                    &take_traffic(),
                 );
                 last_line = Some(at);
             }
@@ -755,6 +852,38 @@ mod tests {
     }
 
     #[test]
+    fn 送受信の量は_0_の相手を出さず_kb_で載せる() {
+        assert_eq!(fmt_rx(&[3000, 0, 1, 0, 0]), "hubspot=3 zoom=1");
+        assert_eq!(fmt_rx(&[0; 5]), "");
+        let before = RECEIVED[3].load(Ordering::Relaxed);
+        received(Peer::Turso, 2048);
+        assert!(RECEIVED[3].load(Ordering::Relaxed) >= before + 2048);
+        let now = Sample::default();
+        let none = (String::new(), String::new());
+        let text =
+            captured(|| log_minute(&now, 0, &none, None, None, &("hubspot=3 zoom=1".into(), 7)));
+        assert!(text.contains("rx_kb=hubspot=3 zoom=1"), "{text}");
+        assert!(text.contains("tx_kb=7"), "{text}");
+        let text = captured(|| log_minute(&now, 0, &none, None, None, &(String::new(), 0)));
+        assert!(!text.contains("rx_kb") && !text.contains("tx_kb"), "{text}");
+    }
+
+    /// 送った本文を数えても、中身と長さの見込み (Content-Length の元) は変わらない
+    #[tokio::test]
+    async fn 送った本文を数えても中身は変わらない() {
+        use http_body::Body as _;
+        let before = SENT.load(Ordering::Relaxed);
+        let resp = count_sent(Response::new(axum::body::Body::from("合成の本文")));
+        assert_eq!(
+            resp.body().size_hint().exact(),
+            Some("合成の本文".len() as u64)
+        );
+        let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        assert_eq!(&body[..], "合成の本文".as_bytes());
+        assert!(SENT.load(Ordering::Relaxed) >= before + body.len() as u64);
+    }
+
+    #[test]
     fn 止める設定は_0_だけ() {
         assert!(trim_enabled_from(None));
         assert!(trim_enabled_from(Some("1")));
@@ -793,11 +922,20 @@ mod tests {
             ..Sample::default()
         };
         let none = (String::new(), String::new());
-        let text = captured(|| log_minute(&now, 0, &none, None, Some((3, 120 * MB, 45_000))));
+        let text = captured(|| {
+            log_minute(
+                &now,
+                0,
+                &none,
+                None,
+                Some((3, 120 * MB, 45_000)),
+                &(String::new(), 0),
+            )
+        });
         assert!(text.contains("trims=3"), "{text}");
         assert!(text.contains("trimmed_mb=120"), "{text}");
         assert!(text.contains("trim_ms=45"), "{text}");
-        let text = captured(|| log_minute(&now, 0, &none, None, None));
+        let text = captured(|| log_minute(&now, 0, &none, None, None, &(String::new(), 0)));
         assert!(
             !text.contains("trims="),
             "返せない環境・止めたときは項目ごと出さない: {text}"
@@ -1186,11 +1324,20 @@ mod tests {
         assert!(text.contains("tasks= tasks_done="), "{text}");
 
         // 毎分の行: ある項目だけ出す
-        let text = captured(|| log_minute(&now, 2, &(String::new(), String::new()), None, None));
+        let text = captured(|| {
+            log_minute(
+                &now,
+                2,
+                &(String::new(), String::new()),
+                None,
+                None,
+                &(String::new(), 0),
+            )
+        });
         assert!(text.contains("mem rss_mb=1100"), "{text}");
         assert!(text.contains("inflight=2"), "{text}");
         assert!(!text.contains("tasks"), "{text}");
-        let text = captured(|| log_minute(&now, 2, &tasks, None, None));
+        let text = captured(|| log_minute(&now, 2, &tasks, None, None, &(String::new(), 0)));
         assert!(
             text.contains("inflight=2 tasks=job_copy.index_build 45123ms +612MB tasks_done="),
             "{text}"
@@ -1228,21 +1375,23 @@ mod tests {
         let malloc = malloc_sample();
 
         // 裏の処理があるとき: 今までの項目の後ろ (tasks_done= の後ろ) に 4 つ付く
-        let text = captured(|| log_minute(&now, 2, &tasks, Some(&malloc), None));
+        let text =
+            captured(|| log_minute(&now, 2, &tasks, Some(&malloc), None, &(String::new(), 0)));
         assert!(
             text.contains(&format!("{head} {task_items} {MALLOC_ITEMS}")),
             "{text}"
         );
         assert!(text.trim_end().ends_with(MALLOC_ITEMS), "{text}");
         // 裏の処理が無いとき: inflight= の後ろに付く
-        let text = captured(|| log_minute(&now, 2, &none, Some(&malloc), None));
+        let text =
+            captured(|| log_minute(&now, 2, &none, Some(&malloc), None, &(String::new(), 0)));
         assert!(text.contains(&format!("{head} {MALLOC_ITEMS}")), "{text}");
         // 内訳が無いとき (glibc 以外): 今までの行のまま、割り当ての項目は 1 つも出ない
-        let text = captured(|| log_minute(&now, 2, &tasks, None, None));
+        let text = captured(|| log_minute(&now, 2, &tasks, None, None, &(String::new(), 0)));
         assert!(text.contains(&format!("{head} {task_items}")), "{text}");
         assert!(text.trim_end().ends_with(task_items), "{text}");
         assert!(!text.contains("malloc"), "{text}");
-        let text = captured(|| log_minute(&now, 2, &none, None, None));
+        let text = captured(|| log_minute(&now, 2, &none, None, None, &(String::new(), 0)));
         assert!(text.trim_end().ends_with("inflight=2"), "{text}");
         assert!(!text.contains("malloc"), "{text}");
     }
@@ -1303,7 +1452,16 @@ mod tests {
             took_us: 7,
         };
         let none = (String::new(), String::new());
-        let text = captured(|| log_minute(&Sample::default(), 0, &none, Some(&m), None));
+        let text = captured(|| {
+            log_minute(
+                &Sample::default(),
+                0,
+                &none,
+                Some(&m),
+                None,
+                &(String::new(), 0),
+            )
+        });
         assert!(
             text.contains("malloc_inuse_mb=0 malloc_free_mb=1 malloc_mmap_mb=3 malloc_arena_mb=2 malloc_stats_us=7"),
             "{text}"
@@ -1319,7 +1477,16 @@ mod tests {
             ..Sample::default()
         };
         let none = (String::new(), String::new());
-        let text = captured(|| log_minute(&now, 0, &none, malloc_stats().as_ref(), None));
+        let text = captured(|| {
+            log_minute(
+                &now,
+                0,
+                &none,
+                malloc_stats().as_ref(),
+                None,
+                &(String::new(), 0),
+            )
+        });
         assert!(text.contains("mem rss_mb=1100"), "{text}");
         assert!(!text.contains("malloc"), "{text}");
         let text = captured(|| log_jump(&now, &now, &none, &none, malloc_stats().as_ref()));
@@ -1350,7 +1517,16 @@ mod tests {
         assert_eq!(m.arena, m.in_use + m.free, "{m:?}");
         // 行にも出る
         let none = (String::new(), String::new());
-        let text = captured(|| log_minute(&Sample::default(), 0, &none, Some(&m), None));
+        let text = captured(|| {
+            log_minute(
+                &Sample::default(),
+                0,
+                &none,
+                Some(&m),
+                None,
+                &(String::new(), 0),
+            )
+        });
         assert!(
             text.contains(&format!(
                 "malloc_inuse_mb={} malloc_free_mb={} malloc_mmap_mb={} malloc_arena_mb={}",

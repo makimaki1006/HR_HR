@@ -413,7 +413,7 @@ async fn fetch(service: &JobReadService) -> Result<Snapshot, ReadError> {
             .map_err(client_error)?;
         calls += 1;
         let page: Page =
-            serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
+            serde::Deserialize::deserialize(&data).map_err(|_| fail("hubspot_invalid_response"))?;
         for record in page.results {
             if !listings::is_delivery(record.value("pipeline")) || deals.contains_key(&record.id) {
                 return Err(fail("hubspot_invalid_response"));

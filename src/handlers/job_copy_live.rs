@@ -422,7 +422,7 @@ impl JobReadService {
             {
                 return Err(fail("hubspot_partial_read"));
             }
-            let rows: Vec<Record> = serde_json::from_value(data["results"].clone())
+            let rows: Vec<Record> = serde::Deserialize::deserialize(&data["results"])
                 .map_err(|_| fail("hubspot_invalid_response"))?;
             let expected: BTreeSet<_> = chunk.iter().cloned().collect();
             let actual: BTreeSet<_> = rows.iter().map(|r| r.id.clone()).collect();

@@ -175,7 +175,7 @@ impl JobReadService {
             .ok_or_else(|| err(StatusCode::BAD_GATEWAY, "hubspot_invalid_response"))?;
         Ok(rows
             .iter()
-            .filter_map(|row| serde_json::from_value::<Record>(row.clone()).ok())
+            .filter_map(|row| <Record as serde::Deserialize>::deserialize(row).ok())
             .filter(|r| r.value("id_hrhakkaa").is_none())
             .collect())
     }

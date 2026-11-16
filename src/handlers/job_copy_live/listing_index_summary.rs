@@ -70,10 +70,9 @@ pub(super) async fn enrich_index_summaries(
         for chunk in group.chunks(100) {
             let (reader, ids) = (reader.clone(), chunk.to_vec());
             tasks.spawn(async move {
-                let mut properties = index_properties();
-                properties.extend(["hrh_kyuujinhyou_honbun", "shigotonaiyou"]);
-                // Weekly results were already read by the list; avoid reading them twice.
-                properties.retain(|p| ![INDEED_WEEKLY_PERF, AIRWORK_WEEKLY_PERF].contains(p));
+                // 結果は id と `summary` にしか使わないので、`summary` が読む欄だけを頼む
+                // (索引の項目一式・週ごとの実績は一覧の読み取りで済んでいる)。
+                let properties = super::deals::SUMMARY_PROPERTIES;
                 let data = reader
                     .read(
                         "/crm/v3/objects/0-420/batch/read",
@@ -85,7 +84,7 @@ pub(super) async fn enrich_index_summaries(
                         &super::super::listing_retry::DELAYS[..1],
                     )
                     .await?;
-                let page: Page = serde_json::from_value(data.clone())
+                let page: Page = serde::Deserialize::deserialize(&data)
                     .map_err(|_| fail("hubspot_invalid_response"))?;
                 if data
                     .get("errors")
@@ -126,6 +125,32 @@ mod tests {
             "zhizhong":"看護補助","kyuuyokeitai":"時給","kinmujikan":"9時〜17時","kyuujitsu":"日曜"
         }}))
         .unwrap()
+    }
+
+    /// まとめ読みで頼む欄 (`SUMMARY_PROPERTIES`) だけで、全項目を読んだときと同じ要約になる。
+    #[test]
+    fn summary_reads_only_summary_properties() {
+        let body = "Indeed表示職種名：看護補助\n給与形態：時給\n基本給与 最小：0\n基本給与 最大：1800\n勤務時間：9時〜17時\n休日休暇：日曜";
+        for media in ["hrh", "airwork"] {
+            let mut full = record("1", media, "公開中");
+            for (i, p) in PROPERTIES.iter().enumerate() {
+                full.properties
+                    .entry((*p).to_owned())
+                    .or_insert_with(|| Some(format!("合成{i}")));
+            }
+            for p in ["hrh_kyuujinhyou_honbun", "shigotonaiyou"] {
+                full.properties.insert(p.into(), Some(body.into()));
+            }
+            let mut narrow = full.clone();
+            narrow
+                .properties
+                .retain(|k, _| super::super::deals::SUMMARY_PROPERTIES.contains(&k.as_str()));
+            assert_eq!(
+                serde_json::to_value(summary(&full, media)).unwrap(),
+                serde_json::to_value(summary(&narrow, media)).unwrap(),
+                "{media}"
+            );
+        }
     }
 
     #[tokio::test]

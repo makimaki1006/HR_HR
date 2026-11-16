@@ -23,7 +23,7 @@ fn date(value: &Value) -> Option<chrono::NaiveDate> {
 pub(super) fn validate(result: &Value, job: &Value) -> bool {
     let total = result["summary"]["total"].as_u64().unwrap_or(u64::MAX);
     if let Some(value) = result.get("applicant_reasons") {
-        let Ok(r) = serde_json::from_value::<Reasons>(value.clone()) else {
+        let Ok(r) = <Reasons as serde::Deserialize>::deserialize(value) else {
             return false;
         };
         if !r.available

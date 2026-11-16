@@ -34,7 +34,7 @@ r2d2 = "0.8"
 r2d2_sqlite = "0.25"
 
 # Turso HTTP API (外部統計データ用)
-reqwest = { version = "0.12", features = ["blocking", "json"] }
+reqwest = { version = "0.12", features = ["blocking", "json", "gzip"] }
 
 # Cache
 dashmap = "6"

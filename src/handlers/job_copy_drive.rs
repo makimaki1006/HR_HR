@@ -325,6 +325,7 @@ async fn bounded(mut response: Response, limit: usize) -> Result<(String, Vec<u8
         }
         raw.extend_from_slice(&chunk);
     }
+    crate::mem_watch::received(crate::mem_watch::Peer::Other, raw.len());
     Ok((mime, raw))
 }
 

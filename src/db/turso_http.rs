@@ -167,8 +167,11 @@ impl TursoDb {
             ));
         }
 
-        let data: Value = resp
-            .json()
+        let body = resp
+            .bytes()
+            .map_err(|e| format!("Turso response parse failed: {e}"))?;
+        crate::mem_watch::received(crate::mem_watch::Peer::Turso, body.len());
+        let data: Value = serde_json::from_slice(&body)
             .map_err(|e| format!("Turso response parse failed: {e}"))?;
 
         // エラーチェック

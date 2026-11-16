@@ -375,6 +375,38 @@ async fn response_invalidates_for_jst_date_local_edits_index_and_company_rebuild
     assert_eq!(f.calls.load(Ordering::SeqCst) - calls, 6);
 }
 
+/// 応答のキャッシュは索引を握らない。編集 (`Arc::make_mut`) で索引全体が複製されず、
+/// それでもキャッシュは前と同じく無効になる。
+#[tokio::test]
+async fn response_cache_does_not_hold_index_or_force_index_copy() {
+    let f = Fixture::new().await;
+    let today = tests::date("2026-10-15");
+    let mut own = Arc::new((*f.index).clone());
+    let first = answer(&f.service, own.clone(), today).await;
+    assert_eq!(
+        Arc::strong_count(&own),
+        1,
+        "cache keeps no strong reference"
+    );
+    let again = answer(&f.service, own.clone(), today).await;
+    assert_eq!(first.as_ptr(), again.as_ptr(), "same index still hits");
+    let records = own.records.as_ptr();
+    let edited = Arc::make_mut(&mut own);
+    assert_eq!(
+        edited.records.as_ptr(),
+        records,
+        "make_mut moves the index without copying its rows"
+    );
+    let after = answer(&f.service, own.clone(), today).await;
+    assert_ne!(
+        first.as_ptr(),
+        after.as_ptr(),
+        "edits invalidate the response"
+    );
+    assert_eq!(first, after, "unchanged content gives the same answer");
+    assert_eq!(f.calls.load(Ordering::SeqCst), 7, "company map reused");
+}
+
 #[tokio::test]
 async fn failed_initial_read_keeps_cards_empty_table_and_retries_are_bounded() {
     let f = Fixture::new().await;

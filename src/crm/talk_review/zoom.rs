@@ -382,9 +382,12 @@ impl ZoomClient {
             }
             return Err(classify_status(st.as_u16()));
         }
-        r.json()
+        let body = r
+            .bytes()
             .await
-            .map_err(|_| ZoomError::Transient("body".into()))
+            .map_err(|_| ZoomError::Transient("body".into()))?;
+        crate::mem_watch::received(crate::mem_watch::Peer::Zoom, body.len());
+        serde_json::from_slice(&body).map_err(|_| ZoomError::Transient("body".into()))
     }
 }
 
