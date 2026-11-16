@@ -247,6 +247,25 @@ impl SheetStore {
             .map(Arc::clone)
     }
 
+    /// 手元にある最後の値を返す。**期限 (TTL) を過ぎていても返し、取りに行かない。**
+    ///
+    /// 期限を過ぎた枚もメモリから消していない (取り直しの `refresh`・`get` で差し替えるか、
+    /// `invalidate` で消すまで残る) ので、これで返しても持つ量は増えない。
+    /// 案件管理の画面は読み込みを待たない作りなので、夜のあいだ取り直さず期限が切れていても
+    /// 前回の値で答える (2026-11-16。取り直しは `cs_dashboard::note_view` が裏で始める)。
+    pub async fn latest(&self, sheet: &str) -> Option<Arc<SheetData>> {
+        self.inner.read().await.get(sheet).map(Arc::clone)
+    }
+
+    /// テスト用: 取得したことにして入れる
+    #[cfg(test)]
+    pub async fn put_for_test(&self, sheet: &str, data: SheetData) {
+        self.inner
+            .write()
+            .await
+            .insert(sheet.to_string(), Arc::new(data));
+    }
+
     /// 取り直して差し替える。**取得のあいだロックを持たない。**
     ///
     /// `get` は TTL が切れていると書き込みロックを持ったまま取りに行くので、

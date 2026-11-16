@@ -1275,7 +1275,8 @@ pub(crate) const VIEW_WAIT: std::time::Duration = std::time::Duration::from_secs
 /// - `wait` が Some (コンサルKPI の画面と、もともとシートを待っていた案件管理の API) で、TTL を過ぎて手元の値が無いとき
 ///   だけ、その上限まで取り直しを待つ。
 /// - `wait` が None (案件管理のホーム・案件一覧・次にやること。`deal_board::MeetingData::cached`) は待たない。
-///   以前どおり手元の値 (`SheetStore::fresh`) で答え、TTL を過ぎていれば MTG・接触の日付が空のまま答える。
+///   手元の値で答える。TTL を過ぎていても前回の値 (`SheetStore::latest`) で答え、手元に一度も値が無いときだけ
+///   接触は「不明」・日付は空のまま答える。
 ///
 /// 先読み・定期更新 (`warm_deal_rows` を含む) からは呼ばない (見ている人に数えない)。
 pub(crate) async fn note_view(wait: Option<std::time::Duration>) {
@@ -1294,8 +1295,9 @@ pub(crate) async fn note_view(wait: Option<std::time::Duration>) {
     if action == ViewAction::None || crate::handlers::call_quality::routes::cq_state().is_err() {
         return;
     }
-    let mut done = ensure_pass(&PASS_TASK, || run_pass(Pass::OnView, Some(every)));
-    if let ViewAction::SpawnAndWait(limit) = action {
+    if let Some((mut done, limit)) =
+        start_on_view(&PASS_TASK, action, || run_pass(Pass::OnView, Some(every)))
+    {
         if tokio::time::timeout(limit, done.wait_for(|d| *d))
             .await
             .is_err()
@@ -1320,6 +1322,26 @@ fn view_action(on: OnView, wait: Option<std::time::Duration>) -> ViewAction {
         (OnView::Fresh, _) => ViewAction::None,
         (OnView::Wait, Some(limit)) => ViewAction::SpawnAndWait(limit),
         _ => ViewAction::Spawn,
+    }
+}
+
+/// 要求の動きに合わせて取り直しを始め (走っていれば相乗り)、待つなら受け口と上限を返す
+fn start_on_view<F, Fut>(
+    slot: &PassSlot,
+    action: ViewAction,
+    make: F,
+) -> Option<(tokio::sync::watch::Receiver<bool>, std::time::Duration)>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    match action {
+        ViewAction::None => None,
+        ViewAction::Spawn => {
+            ensure_pass(slot, make);
+            None
+        }
+        ViewAction::SpawnAndWait(limit) => Some((ensure_pass(slot, make), limit)),
     }
 }
 
@@ -1534,6 +1556,29 @@ mod idle_prefetch_tests {
         tokio::task::yield_now().await;
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 2);
+        gate.notify_one();
+    }
+
+    #[tokio::test]
+    async fn 待たない要求は取り直しを一回だけ始めてすぐ返る() {
+        let slot: PassSlot = std::sync::Mutex::new(None);
+        let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let gate = std::sync::Arc::new(tokio::sync::Notify::new());
+        let make = || {
+            let (s, g) = (started.clone(), gate.clone());
+            move || async move {
+                s.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                g.notified().await;
+            }
+        };
+        // TTL を過ぎた (OnView::Wait) 待たない要求が 2 本続けて来ても、待つ受け口は返さず、取り直しは 1 本
+        let a = view_action(OnView::Wait, None);
+        assert!(start_on_view(&slot, a, make()).is_none());
+        assert!(start_on_view(&slot, view_action(OnView::Wait, None), make()).is_none());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // 新しい値があるとき (Fresh) は始めない
+        assert!(start_on_view(&slot, view_action(OnView::Fresh, None), make()).is_none());
         gate.notify_one();
     }
 
