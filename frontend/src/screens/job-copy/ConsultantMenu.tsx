@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { apiGet } from '../../api/client';
 import { DisabledOwnerFilter, OwnerFilter, OwnerFilterPlacement, PendingOwnerFilter, ownerParams } from './OwnerTodo';
 import { MoreActionsProvider, MoreMenu } from './MoreMenu';
+import { backoff, runWhenDue } from '../../shared/preparingRetry';
 import { recheckSelfOwner } from './selfOwner';
 import type { MoreActions } from './MoreMenu';
 import type { WorkReady } from './OwnerTodo';
@@ -22,18 +23,18 @@ function ConsultantScopeFilter() {
   const [reload, setReload] = useState(0);
   useEffect(() => {
     if (demo) return;
-    const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>; let attempt = 0;
+    const controller = new AbortController(); const wait = backoff(2000);
     const load = async () => {
       const r = await apiGet<ConsultantScope & { status: string }>(`/api/job-copy/consultant-scope?${ownerQuery}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (!r.ok || r.data.status === 'failed') { setError(true); return; }
       // 形の違う応答（担当者の一覧が無い等）で画面全体が落ちないよう、読み込めなかった扱いにする。
       if (r.data.status === 'ready' && !Array.isArray(r.data.owners)) { setError(true); return; }
-      if (r.data.status !== 'ready') { attempt += 1; timer = setTimeout(() => { void load(); }, Math.min(10_000, 2000 * attempt)); return; }
+      if (r.data.status !== 'ready') { runWhenDue(controller.signal, wait(), () => { void load(); }); return; }
       setScope(r.data); setError(false); recheckSelfOwner();
       if (!r.data.notice && [null, 'me'].includes(new URLSearchParams(ownerQuery).get('owner'))) updateJobCopyQuery({ owner: r.data.owner, owner_field: r.data.owner_field }, 'replace');
     };
-    void load(); return () => { controller.abort(); clearTimeout(timer); };
+    void load(); return () => { controller.abort(); };
   }, [ownerQuery, reload, demo]);
   useEffect(() => { if (scope) publishOwnerNames(scope.owners); }, [scope]);
   // 一覧が届くまでは短い 1 行だけを出す（選択欄を先に出すと上の帯が高くなり、一覧に見える枚数が減る）。

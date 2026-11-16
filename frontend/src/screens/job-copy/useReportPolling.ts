@@ -1,34 +1,21 @@
 import { useEffect } from 'react';
+import { backoff, runWhenDue } from '../../shared/preparingRetry';
 
-/** Reports advance independently, and hidden tabs do not send repeated reads. */
+/**
+ * Reports advance independently, and hidden tabs do not send repeated reads.
+ * 表示に戻ったとき、前回から間隔以上たっていればすぐ 1 回読む。
+ */
 export function useReportPolling(load: (signal: AbortSignal) => Promise<boolean>, enabled = true, reload = 0) {
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let delay = 2_000;
-    let pending = true;
-    let loading = false;
-    const schedule = () => {
-      if (!pending || loading || document.hidden || controller.signal.aborted) return;
-      timer = setTimeout(() => { delay = Math.min(delay * 2, 30_000); void run(); }, delay);
-    };
+    const wait = backoff(2_000, 30_000);
     const run = async () => {
-      if (document.hidden || controller.signal.aborted) return;
-      loading = true;
-      try { pending = await load(controller.signal); }
-      finally { loading = false; }
-      schedule();
+      if (controller.signal.aborted) return;
+      const pending = await load(controller.signal);
+      if (pending) runWhenDue(controller.signal, wait(), () => { void run(); });
     };
-    const visibility = () => {
-      clearTimeout(timer);
-      if (!document.hidden) schedule();
-    };
-    document.addEventListener('visibilitychange', visibility);
     void run();
-    return () => {
-      controller.abort(); clearTimeout(timer);
-      document.removeEventListener('visibilitychange', visibility);
-    };
+    return () => { controller.abort(); };
   }, [load, enabled, reload]);
 }

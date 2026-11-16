@@ -8,6 +8,7 @@ import { OwnerFilter, ownerParams, signalCards } from './OwnerTodo';
 import { Breadcrumbs } from './Breadcrumbs';
 import { ReasonChips } from './NextTodo';
 import { formatDateJst } from './format';
+import { backoff, runWhenDue, usePreparingRetry } from '../../shared/preparingRetry';
 import { yen } from './homeModel';
 import { SortHeader, PageNav } from './SharedTable';
 import { pageCount } from './sharedTableModel';
@@ -76,11 +77,7 @@ export function DealBoard() {
     });
     return () => { controller.abort(); };
   }, [ownerQuery, rangeQuery, reload]);
-  useEffect(() => {
-    if (data?.status !== 'preparing' && !(data?.status === 'ready' && data.refreshing)) return;
-    const timer = window.setTimeout(() => { setReload(n => n + 1); }, 2_000);
-    return () => { window.clearTimeout(timer); };
-  }, [data]);
+  usePreparingRetry(data?.status === 'preparing' || (data?.status === 'ready' && data.refreshing), 2_000, data, () => { setReload(n => n + 1); }, `${ownerQuery}${rangeQuery}`);
   const ready = data?.status === 'ready' ? data : null;
   const isReady = !!ready;
   // 「いい」のタグは、いい案件の集計（応募が増えた・採用単価が中央値より低い・MTGで前向きな話）を使う。取れなければタグだけ件数なしにする。
@@ -88,16 +85,16 @@ export function DealBoard() {
   const good = goodState?.key === ownerQuery ? goodState.value : null;
   useEffect(() => {
     if (!isReady) return;
-    const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController(); const wait = backoff(3_000);
     const load = async () => {
       const result = await apiGet<{ status: string; rows?: RiskRow[] }>(`/api/job-copy/consultant-good?${ownerQuery}`, { signal: controller.signal, timeoutMs: 120_000 });
       if (controller.signal.aborted) return;
       if (!result.ok || result.data.status === 'failed') { setGood({ key: ownerQuery, value: 'failed' }); return; }
-      if (result.data.status !== 'ready') { timer = setTimeout(() => { void load(); }, 3_000); return; }
+      if (result.data.status !== 'ready') { runWhenDue(controller.signal, wait(), () => { void load(); }); return; }
       setGood({ key: ownerQuery, value: new Map((result.data.rows ?? []).map(row => [row.deal_id, row.good_flags ?? []] as const)) });
     };
     void load();
-    return () => { controller.abort(); clearTimeout(timer); };
+    return () => { controller.abort(); };
   }, [isReady, ownerQuery]);
   const goodIds = good instanceof Map ? good : null;
   useEffect(() => {

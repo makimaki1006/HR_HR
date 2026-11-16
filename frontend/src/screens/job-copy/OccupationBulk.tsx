@@ -1,4 +1,5 @@
 import { ownerParams } from './OwnerTodo';
+import { usePreparingRetry } from '../../shared/preparingRetry';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { apiGet, ApiHttpError, apiPut, AuthRequiredError } from '../../api/client';
@@ -90,11 +91,8 @@ export function OccupationBulk() {
   }, [tab, q, offset, key, ownerQuery]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 条件が変わるたびに一覧を取り直す（取得後に状態を入れる）
   useEffect(() => { void load(); return () => { request.current?.abort(); }; }, [load]);
-  useEffect(() => {
-    if (page?.status !== 'preparing' || busy) return;
-    const timer = window.setTimeout(() => { setReload(n => n + 1); }, 5_000);
-    return () => { window.clearTimeout(timer); };
-  }, [page, busy]);
+  // 読み込みが終わるたび (失敗しても) loadedKey が変わるので、準備中なら次の取り直しを予約する。
+  usePreparingRetry(page?.status === 'preparing', 5_000, loadedKey, () => { if (!busy) setReload(n => n + 1); }, `${ownerQuery}|${tab}|${q}|${String(offset)}`);
 
   const savedRows = Object.values(saved);
   const base = page?.indeed_title_counts;

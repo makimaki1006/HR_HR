@@ -3,7 +3,10 @@ import type { ApplicantPresence } from '../../generated/ApplicantPresence';
 import type { ApplicantViewer } from '../../generated/ApplicantViewer';
 import { applicantPresenceFixture } from './applicantFixture';
 
-const BEAT_MS = 15_000;
+/** 表示中に知らせる間隔。 */
+export const BEAT_MS = 15_000;
+/** タブが隠れている間に知らせる間隔 (サーバで消えるまでの 150 秒より短く)。 */
+export const HIDDEN_BEAT_MS = 60_000;
 const URL = '/api/crm/applicants/presence';
 const HEADERS = { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' };
 
@@ -41,26 +44,40 @@ const tabId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : St
 
 /**
  * 開いている応募を 15 秒おきに知らせ、ほかの人が開いている応募を受け取る。
- * タブが隠れていても知らせ続ける (開きっぱなしも目印にする)。閉じるときは取り下げる。
+ * タブが隠れている間も 60 秒おきに知らせ続ける (開きっぱなしも目印にする。失敗した直後だけ 15 秒後)。表示に戻ったらすぐ 1 回知らせ、15 秒おきに戻す。
+ * 閉じるときは取り下げる。
  */
 export function useApplicantPresence(fixture: boolean, applicant: string | null, phone: string): ApplicantViewer[] {
   const [viewers, setViewers] = useState<ApplicantViewer[]>([]);
   useEffect(() => {
     if (fixture) return;
     let abort: AbortController | null = null;
-    const beat = () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let last = 0;
+    // 直前の知らせが失敗したら、隠れていても 15 秒後に知らせ直す (150 秒で目印が消えないように)。
+    let failed = false;
+    const schedule = () => {
+      clearTimeout(timer);
+      const gap = document.hidden && !failed ? HIDDEN_BEAT_MS : BEAT_MS;
+      timer = setTimeout(beat, Math.max(0, last + gap - Date.now()));
+    };
+    function beat() {
       abort?.abort();
       const current = new AbortController();
       abort = current;
+      last = Date.now();
       void fetch(URL, { method: 'POST', credentials: 'same-origin', headers: HEADERS, signal: current.signal, body: JSON.stringify({ tab: tabId, applicant, phone }) })
         .then(async r => { if (!r.ok) throw new Error(String(r.status)); return await r.json() as ApplicantPresence; })
-        .then(d => { if (!current.signal.aborted) setViewers(Array.isArray(d.viewers) ? d.viewers : []); })
-        .catch(() => { /* 次の周回で知らせ直す */ });
-    };
+        .then(d => { if (current.signal.aborted) return; if (failed) { failed = false; schedule(); } setViewers(Array.isArray(d.viewers) ? d.viewers : []); })
+        .catch(() => { if (current.signal.aborted) return; failed = true; schedule(); });
+      schedule();
+    }
+    // 隠れたら次を 60 秒後に延ばし、表示に戻ったらすぐ知らせる。
+    const onVisibility = () => { if (document.hidden) schedule(); else beat(); };
     beat();
-    const timer = window.setInterval(beat, BEAT_MS);
+    document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', leave);
-    return () => { abort?.abort(); window.clearInterval(timer); window.removeEventListener('pagehide', leave); };
+    return () => { abort?.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('pagehide', leave); };
   }, [fixture, applicant, phone]);
   // 応募画面を離れたとき (取引への切り替え) も取り下げる。応募を切り替えるたびには送らない (新しい知らせと前後するため)。
   useEffect(() => { if (fixture) return; return leave; }, [fixture]);

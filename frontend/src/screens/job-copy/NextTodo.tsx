@@ -7,6 +7,7 @@ import type { SaveRequest } from '../crm/writeModel';
 import type { PropValues } from '../crm/writeTypes';
 import { contractWriteApi } from './dealContractApi';
 import { formatDateJst } from './format';
+import { backoff, runWhenDue } from '../../shared/preparingRetry';
 import { todayJst } from './timelineModel';
 import { dayOf } from './DealHeading';
 import './next-todo.css';
@@ -110,14 +111,14 @@ export function DealNextTodo({ dealId, onSaved }: { dealId: string; onSaved: () 
       if (!ctl.signal.aborted) { if (r.ok && Object.hasOwn(r.data, 'selected') && !r.data.partial.some(p => p.part === 'selected_properties')) setData(r.data); else setError('予定を取得できませんでした。'); }
     });
     void contractWriteApi.editSchema(dealId, ctl.signal).then(r => { if (r.ok && !ctl.signal.aborted) setProps((Array.isArray(r.data.editable) ? r.data.editable : []).find(p => p.name === 'actionnaiyou')?.options ?? []); });
-    let timer: ReturnType<typeof setTimeout>;
+    const wait = backoff(2000);
     const poll = async () => {
       const r = await apiGet<{ status: string; reasons?: TodoReason[]; refresh_failed?: boolean; refreshing?: boolean }>(`/api/job-copy/deals/${encodeURIComponent(dealId)}/todo`, { signal: ctl.signal });
       if (ctl.signal.aborted) return;
-      if (r.ok) { setState(r.data.refresh_failed ? 'stale' : r.data.status); setReasons(r.data.reasons ?? []); if (r.data.status === 'preparing' || r.data.refreshing) timer = setTimeout(() => { void poll(); }, 2000); } else setState('failed');
+      if (r.ok) { setState(r.data.refresh_failed ? 'stale' : r.data.status); setReasons(r.data.reasons ?? []); if (r.data.status === 'preparing' || r.data.refreshing) runWhenDue(ctl.signal, wait(), () => { void poll(); }); } else setState('failed');
     };
     void poll();
-    return () => { ctl.abort(); clearTimeout(timer); };
+    return () => { ctl.abort(); };
   }, [dealId, revision]);
   const values = data?.selected.deal;
   return <section className="dc-root nt-deal" aria-label="次の予定"><h2>次の予定</h2>{error && <p role="alert">{error}</p>}<p>{formatDateJst(values?.actionyotei ?? null, '予定なし')} ・ {props.find(o => o.value === values?.actionnaiyou)?.label ?? '内容未登録'}<OverdueBadge due={values?.actionyotei ?? null} /></p><NextTodoButton dealId={dealId} hasPlan={!!values?.actionyotei} onSaved={refresh} /><h3>タグ</h3><ReasonChips reasons={reasons} />{state === 'preparing' ? <p role="status">タグを集計しています…</p> : state === 'failed' ? <p role="alert">タグを取得できませんでした。</p> : state === 'stale' ? <p role="status">前回取得したタグを表示しています。</p> : !reasons.length && <p>今、この案件に付いているタグはありません。</p>}</section>;

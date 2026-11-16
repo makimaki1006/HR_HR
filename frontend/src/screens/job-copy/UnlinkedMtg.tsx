@@ -11,6 +11,7 @@ import { OutLink } from './Pressable';
 import { MANUAL_LINKS_FIELD, addManualLink, dealChoices, removeManualLink } from './unlinkedMtgModel';
 import type { UnlinkedResponse, UnlinkedRow } from './unlinkedMtgModel';
 import { demoUnlinkedMtg } from './demoUnlinkedMtg';
+import { backoff, runWhenDue } from '../../shared/preparingRetry';
 import './consultant-risk.css';
 import './next-todo.css';
 import './unlinked-mtg.css';
@@ -38,16 +39,16 @@ export function UnlinkedMtg() {
     if (demo) return;
     // 担当者を切り替えたら、前の人の一覧は出したままにしない。
     if (shownQuery.current !== query) { shownQuery.current = query; setData(null); }
-    const ctl = new AbortController(); let timer: ReturnType<typeof setTimeout>;
+    const ctl = new AbortController(); const wait = backoff(2000);
     const load = async () => {
       const r = await apiGet<UnlinkedResponse>(`/api/job-copy/unlinked-mtg?${query}${fresh ? '&fresh=1' : ''}`, { signal: ctl.signal, timeoutMs: 120_000 });
       if (ctl.signal.aborted) return;
       if (!r.ok) { setError(true); return; }
       // 作り直している間は、前に読めた一覧を出したままにする（操作を止めない）。
       setData(prev => (r.data.status === 'preparing' && prev?.status === 'ready' ? prev : r.data)); setError(false);
-      if (r.data.status === 'preparing') timer = setTimeout(() => { void load(); }, 2000);
+      if (r.data.status === 'preparing') runWhenDue(ctl.signal, wait(), () => { void load(); });
     };
-    void load(); return () => { ctl.abort(); clearTimeout(timer); };
+    void load(); return () => { ctl.abort(); };
   }, [query, reload, demo, fresh]);
   const rows = data?.status === 'ready' ? data.rows ?? [] : [];
   // 編集できる項目の確認には、一覧のどれか 1 つの案件を使う（編集できる項目は案件によらず同じ）。

@@ -176,7 +176,7 @@ type PanelState =
   | { status: 'ok'; data: HubSpotUsageResponse; refreshError: ApiError | null }
   | { status: 'error'; error: ApiError };
 
-/** 最初に 1 回読み、その後 15 秒ごとに読み直す。読み直しに失敗したら前の値を出したまま知らせる */
+/** 最初に 1 回読み、その後 15 秒ごとに読み直す (タブが隠れている間は読まない)。読み直しに失敗したら前の値を出したまま知らせる */
 export function HubSpotUsagePanel({ intervalMs = HUBSPOT_USAGE_REFRESH_MS }: { intervalMs?: number }) {
   const [state, setState] = useState<PanelState>({ status: 'loading' });
   useEffect(() => {
@@ -199,11 +199,21 @@ export function HubSpotUsagePanel({ intervalMs = HUBSPOT_USAGE_REFRESH_MS }: { i
         }
       });
     };
+    // タブが隠れている間は読まない。表示に戻ったとき前回から間隔以上たっていればすぐ読む。
+    let last = Date.now();
     load();
-    const timer = window.setInterval(load, intervalMs);
+    const tick = () => {
+      // setInterval は少し早く・遅く動くことがあるので 1 秒の余裕を持たせる (15 秒が 30 秒にならないように)。
+      if (document.hidden || Date.now() - last < intervalMs - 1000) return;
+      last = Date.now();
+      load();
+    };
+    const timer = window.setInterval(tick, intervalMs);
+    document.addEventListener('visibilitychange', tick);
     return () => {
       stopped = true;
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', tick);
       controller?.abort();
     };
   }, [intervalMs]);
