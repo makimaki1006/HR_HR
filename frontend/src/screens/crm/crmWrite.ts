@@ -37,6 +37,14 @@ function partialOf(b: Record<string, unknown> | null): PatchPartial | undefined 
   return { values: values as PatchPartial['values'], objects_values: (obj(p.objects_values) ?? {}) as PatchPartial['objects_values'] };
 }
 
+/** 403 の種類ごとの文 (無い種類は画面の既定の文) */
+const FORBIDDEN_MESSAGES: Partial<Record<string, string>> = {
+  applicants_write_scope: 'HubSpot の鍵に応募を書き込む権限がありません。何も保存されていません。',
+  // 管理者以外は自分の担当の取引だけ保存できる (2026-11-16)
+  not_owner: 'この取引はあなたの担当ではないため保存できません。何も保存されていません。',
+  owner_not_found: 'あなたのアカウントが HubSpot の担当者と結び付いていないため保存できません。何も保存されていません。',
+};
+
 /** HTTP の結果 → PatchOutcome (テストできるよう分けてある) */
 export function classifyPatch(res: ApiResult<PatchResponse>): PatchOutcome {
   if (res.ok) {
@@ -49,7 +57,11 @@ export function classifyPatch(res: ApiResult<PatchResponse>): PatchOutcome {
     const b = obj(e.body);
     if (e.status === 409 && b?.status === 'conflict') return { kind: 'conflict', body: b as unknown as PatchConflict };
     if (e.status === 422 && b?.status === 'invalid') return { kind: 'invalid', body: b as unknown as PatchInvalid };
-    if (e.status === 403) return b?.error === 'writes_disabled' ? { kind: 'writes_disabled' } : { kind: 'forbidden', partial: partialOf(b), ...(b?.error_kind === 'applicants_write_scope' ? { message: 'HubSpot の鍵に応募を書き込む権限がありません。何も保存されていません。' } : {}) };
+    if (e.status === 403) {
+      if (b?.error === 'writes_disabled') return { kind: 'writes_disabled' };
+      const message = typeof b?.error_kind === 'string' ? FORBIDDEN_MESSAGES[b.error_kind] : undefined;
+      return { kind: 'forbidden', partial: partialOf(b), ...(message !== undefined ? { message } : {}) };
+    }
     if (e.status === 429 && b?.error === 'rate_limited') return { kind: 'rate_limited' };
     if (e.status === 410 && b?.error === 'discarded') return { kind: 'discarded' };
     // queue_unavailable = 台帳 (監査 DB) に記録できず、書かずに断った。queue_full と同じく何も保存されていない。

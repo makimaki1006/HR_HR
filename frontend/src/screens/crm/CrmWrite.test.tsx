@@ -715,6 +715,13 @@ describe('契約の読み取り', () => {
     expect(http(410, { error: 'discarded' }).kind).toBe('discarded');
     expect(http(429, { error: 'rate_limited' }).kind).toBe('rate_limited');
     expect(http(500, undefined).kind).toBe('error');
+    // 管理者以外が他人の担当の取引に保存した・担当者に結び付かない: 何も保存されていないと分かる文
+    const notOwner = http(403, { error: 'not_owner', error_kind: 'not_owner' });
+    expect(notOwner.kind === 'forbidden' && notOwner.message).toBe('この取引はあなたの担当ではないため保存できません。何も保存されていません。');
+    const noOwner = http(403, { error: 'owner_not_found', error_kind: 'owner_not_found' });
+    expect(noOwner.kind === 'forbidden' && noOwner.message).toBe('あなたのアカウントが HubSpot の担当者と結び付いていないため保存できません。何も保存されていません。');
+    const plain = http(403, { error: 'forbidden', error_kind: 'forbidden' });
+    expect(plain.kind === 'forbidden' && plain.message).toBeUndefined();
     const withPartial = http(403, { error: 'forbidden', partial: { values: { amount: '2' }, objects_values: {} } });
     expect(withPartial.kind === 'forbidden' && withPartial.partial?.values).toEqual({ amount: '2' });
     const err = http(404, { error: 'not_found', partial: { values: { amount: '2' }, objects_values: { contact: {} } } });
