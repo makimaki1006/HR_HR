@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ConsultantRisk, RiskDetail, detailRow, jobsHref, riskGroups } from './ConsultantRisk';
+import { ConsultantRisk, RiskDetail, detailRow, expiryClass, jobsHref, riskGroups } from './ConsultantRisk';
 import { ConsultantMenu } from './ConsultantMenu';
 import { OwnerFilter } from './OwnerTodo';
 import { detailFixture, goodFixture, riskFixture, riskRow, scopeFixture } from './consultantRisk.testFixtures';
@@ -59,7 +59,7 @@ it.each([true, false])('新旧のタグ・開始日・詳細・求人リンク�
   expect(within(mixed).getAllByRole('cell')[3]?.textContent).toBe('1日前');
   const ongoing = screen.getByRole('region', { name: '前回から続いている案件' });
   expect(within(ongoing).getByRole('heading', { level: 2 }).textContent).toBe('前回から続いている案件 1件');
-  expect(within(ongoing).getAllByRole('button').map(el => el.textContent)).toEqual(['架空の採用支援C']);
+  expect(within(ongoing).getAllByRole('button').map(el => el.textContent)).toEqual(['架空の採用支援C', '詳細 ▸']);
   expect(ongoing.textContent).toContain('2026/10/16から');
   expect(screen.getAllByRole('button', { name: riskRow.name })).toHaveLength(1);
   fireEvent.click(within(fresh).getByRole('button', { name: riskRow.name }));
@@ -108,7 +108,7 @@ it('いい案件の一覧は全ての印と危ないタグの有無を表示し�
   expect(within(row).getByText('危ないタグもあり（2件）')).toBeTruthy();
   expect(document.querySelector('.cr-new-mark')).toBeNull();
   expect(screen.queryByText('前回との比較を取得できないため、一覧で表示しています。')).toBeNull();
-  fireEvent.click(within(row).getByRole('button'));
+  fireEvent.click(within(row).getByRole('button', { name: `${riskRow.name}の詳細を開く` }));
   const dialog = await screen.findByRole('dialog');
   expect(await within(dialog).findByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeTruthy();
   expect(within(dialog).getByRole('button', { name: 'この予定を済みにして、次の予定を入れる…' })).toBeTruthy();
@@ -178,7 +178,8 @@ it('本番の準備中の応答（{"status":"preparing"}）では、顧客・求
       await act(async () => { await vi.advanceTimersByTimeAsync(10); });
       expect(screen.queryByText('担当者を確認しています…')).toBeNull();
       expect(screen.getByRole('status').textContent).toContain('準備しています');
-      expect(screen.queryByRole('combobox')).toBeNull();
+      // 準備中も同じ形の欄を出す（押せない）。帯の高さが変わらない。
+      expect(screen.getAllByRole<HTMLSelectElement>('combobox').every(el => el.disabled)).toBe(true);
       await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
       expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(6);
       unmount();
@@ -197,4 +198,34 @@ it.each([
   const dialog = await screen.findByRole('dialog');
   expect(await within(dialog).findByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeTruthy();
   expect(within(dialog).getByText(new RegExp(`^${text} ／ MTG：`))).toBeTruthy();
+});
+
+it('満了までの色は案件のページの見出しと同じ判定（30日以内と過ぎて30日以内は赤、過ぎて31日以上は灰）', () => {
+  expect([31, 30, 0, -1, -30, -31].map(expiryClass)).toEqual(['', 'jc-expiry-urgent', 'jc-expiry-urgent', 'jc-expiry-urgent', 'jc-expiry-urgent', 'jc-expiry-ended']);
+});
+
+it('小窓は次へ進むボタンを記録の上に出し、記録は最新3件と「残りを見る」、読み込めなければやり直せる', async () => {
+  const events = Array.from({ length: 5 }, (_, i) => ({ kind: 'call', date: `2026-10-${String(20 - i)}`, contact: true, source_label: '電話の記録', fact: true, summary: { summary: `架空の通話${String(i + 1)}` } }));
+  let failOnce = true;
+  vi.stubGlobal('fetch', vi.fn((input: string) => {
+    const path = new URL(input, window.location.origin).pathname;
+    if (path.includes('deal-detail') && failOnce) { failOnce = false; return Promise.resolve(new Response('{}', { status: 500, headers: { 'Content-Type': 'application/json' } })); }
+    const data = path.includes('deal-detail') ? { ...detailFixture, events } : path.endsWith('/edit-schema') ? { writes_enabled: false, editable: [] } : path.endsWith('/listings') ? { status: 'ready', total: 0, next_offset: null, listings: [] } : { hubspot_portal_id: '123', selected: { deal: {} }, partial: [] };
+    return Promise.resolve(new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  }));
+  window.history.replaceState(null, '', '/app/job-copy?view=risk');
+  render(<RiskDetail row={riskRow} onClose={vi.fn()} onSaved={vi.fn()} />);
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('案件の詳細を読み込めませんでした。');
+  fireEvent.click(within(alert).getByRole('button', { name: 'もう一度読み込む' }));
+  expect(await screen.findByText('架空の通話1')).toBeTruthy();
+  const dialog = screen.getByRole('dialog');
+  // 次へ進むボタンは記録の見出しより前にある。
+  const next = within(dialog).getByRole('navigation', { name: '次へ進む' });
+  const recordsHeading = within(dialog).getByRole('heading', { name: /メール・電話・MTGの記録/u });
+  expect(next.compareDocumentPosition(recordsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(dialog).getAllByRole('article')).toHaveLength(3);
+  expect(screen.queryByText('架空の通話4')).toBeNull();
+  fireEvent.click(within(dialog).getByRole('button', { name: '残りを見る（2件） ▾' }));
+  expect(within(dialog).getAllByRole('article')).toHaveLength(5);
 });
