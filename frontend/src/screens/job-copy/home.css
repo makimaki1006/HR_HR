@@ -90,8 +90,8 @@
 .jh-owner p { margin: 0; font-size: 12px; }
 .jh-todo-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .jh-todo h3 { margin: 0 0 8px; font-size: 16px; }
-.jh-list.jh-todo-overdue { border-color: #fdba74; }
-.jh-todo-overdue time { color: #9a3412; font-weight: 700; }
+.jh-list.jh-todo-overdue { border-color: #e0827a; }
+.jh-todo-overdue time { color: #b42318; font-weight: 700; }
 .jh-todo-table { min-width: 740px; }
 .jh-todo-table time { white-space: nowrap; }
 .jh-todo-pages { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: 13px; }
@@ -154,6 +154,12 @@ button.jc-open:hover, .jh-card:hover .jc-open { background: #eef5fb; }
 .jc-chip[aria-pressed='true'] { border-color: #0a5fb4; background: #0a5fb4; color: #fff; }
 .jc-chip.is-zero { border-color: #dde5eb; color: #8a99a6; }
 .jc-chip.is-zero[aria-pressed='true'] { background: #8a99a6; border-color: #8a99a6; color: #fff; }
+/* job-copy.css の「.jc-app button { color: inherit }」に字の色を消されないよう、押せるものの色は .jc-app を付けて指定する（これが無いと下線だけの黒い字になる）。 */
+.jc-app .jc-go, .jc-app .jc-open, .jc-app .jc-chip { color: #0a5fb4; }
+.jc-app .jc-go:hover { color: #08447f; }
+.jc-app .jc-chip[aria-pressed='true'] { color: #fff; }
+.jc-app .jc-chip.is-zero { color: #8a99a6; }
+.jc-app .jc-chip.is-zero[aria-pressed='true'] { color: #fff; }
 .jh-owner .jh-owner-name { width: 150px; }
 /* 上の帯の中では、担当の欄を 1 行に保つ（入らないときは欄ごと次の行へ回る）。 */
 .cm-right .jh-owner { flex-wrap: nowrap; }
@@ -161,3 +167,12 @@ button.jc-open:hover, .jh-card:hover .jc-open { background: #eef5fb; }
 .jh-owner-notice { flex-basis: 100%; margin: 0; font-size: 12px; color: #4d3d00; text-align: right; }
 .jh-owner-tip > summary { text-decoration: none; color: var(--jc-muted, #52697a); font-size: 12px; }
 .jh-owner-tip .jc-infotip-body { width: min(18rem, 80vw); }
+/* 並べ替えの印。並べている列だけ濃い ▲▼、ほかの列は薄い ⇅。 */
+.jc-sort { color: #a7b6c2; font-weight: 400; }
+.jc-sort.is-active { color: #0a5fb4; font-weight: 700; }
+/* 行全体で小窓が開く表の名前。下線は付けず、行の右端の「詳細 ▸」を手がかりにする。 */
+.jc-row-name { display: inline; padding: 0; border: 0; background: none; font: inherit; font-weight: 700; color: inherit; text-align: left; cursor: pointer; }
+.jc-row-name:hover { text-decoration: underline; }
+/* 満了まで 30 日以内・過ぎて 30 日以内は赤い太字（急ぐ）、過ぎて 31 日以上は灰（案件のページの見出しと同じ判定）。 */
+.jc-expiry-urgent { color: #b42318; font-weight: 700; }
+.jc-expiry-ended { color: #8a99a6; }

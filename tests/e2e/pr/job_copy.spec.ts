@@ -461,7 +461,7 @@ test('ホームは初回準備の2秒後にカードと顧客表を表示する'
   await expect(cardCounts).toHaveText(['1件', '2件'], { timeout: 4_000 });
   await expect(page.locator('.jh-more .jc-chip')).toHaveText(moreLine('集計中'));
   await expect(page.locator('.jh-customer-table')).toHaveCount(0);
-  await page.getByRole('button', { name: /^すべて表示/ }).click();
+  await page.getByRole('button', { name: '顧客の一覧を開く ▾' }).click();
   await expect(page.locator('.jh-customer-table tbody tr')).toHaveCount(2);
   await expect(page.locator('.jh-customer-table')).toContainText('18 → 24 件');
   await expect(page.locator('.jh-customer-table')).toContainText('¥2,500');

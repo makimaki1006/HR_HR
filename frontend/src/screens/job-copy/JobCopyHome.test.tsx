@@ -92,11 +92,11 @@ it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客�
   api.mockResolvedValue({ ok: true, data: response });
   renderHome();
   await screen.findByLabelText('顧客名で探す');
-  // 検索前・「すべて表示」前は表を出さない。
+  // 検索前・「顧客の一覧を開く」前は表を出さない。
   expect(screen.queryByRole('table')).toBeNull();
   expect(screen.queryByText('合成運輸')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'すべて表示（3件）' }));
-  expect(screen.getByRole('button', { name: '表を閉じる' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '顧客の一覧を開く ▾' }));
+  expect(screen.getByRole('button', { name: '顧客の一覧を閉じる ▴' })).toBeTruthy();
   const names = () => screen.getAllByRole('rowheader').map(cell => cell.textContent);
   // 既定は「契約中の案件がある顧客」だけ。合成介護（契約終了だけ）は外れる。
   expect(names()).toEqual(['合成運輸', '合成倉庫']);
@@ -119,8 +119,12 @@ it('顧客の表は応募の多い順で、並べ替え・絞り込み・顧客�
   expect(names()).toEqual(['合成介護']);
   fireEvent.click(screen.getByRole('button', { name: '合成介護を開く' }));
   expect(open).toHaveBeenCalledWith({ id: '12', name: '合成介護' });
+  // 顧客名そのものも同じ顧客のページへの入口。
+  open.mockClear();
+  fireEvent.click(screen.getByRole('button', { name: '合成介護' }));
+  expect(open).toHaveBeenCalledWith({ id: '12', name: '合成介護' });
   expect(screen.getByText(/納品管理の案件に結び付いていない掲載中の求人が 2 件/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: '表を閉じる' }));
+  fireEvent.click(screen.getByRole('button', { name: '顧客の一覧を閉じる ▴' }));
   expect(screen.getByRole('table')).toBeTruthy(); // 検索語が残っている間は表を出す
   fireEvent.change(screen.getByLabelText('顧客名で探す'), { target: { value: '' } });
   expect(screen.queryByRole('table')).toBeNull();
@@ -191,7 +195,7 @@ it('初回の準備中は2秒後に取り直し、表示できたら自動取得
     expect(api).toHaveBeenCalledTimes(1);
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(api).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('まず見るもの')).toBeTruthy();
+    expect(screen.getByText('気になる求人')).toBeTruthy();
     await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
     expect(api).toHaveBeenCalledTimes(2);
     cleanup();
@@ -261,7 +265,7 @@ it('集計が続く60秒間は6回、その次の60秒間は2回読み、ホー�
     await act(() => Promise.resolve());
     expect(screen.getByText('やることを集計しています…')).toBeTruthy();
     expect(within(screen.getByRole('region', { name: '担当者で絞る' })).queryByRole('status')).toBeNull();
-    expect(screen.getByText('まず見るもの')).toBeTruthy();
+    expect(screen.getByText('気になる求人')).toBeTruthy();
     expect(screen.getByLabelText('顧客名で探す')).toBeTruthy();
     for (const [seconds, calls] of [[2, 2], [4, 3], [8, 4], [16, 5], [30, 6]] as const) {
       await act(async () => { await vi.advanceTimersByTimeAsync(seconds * 1_000); });
@@ -314,7 +318,7 @@ it('担当者を集計している間もカードと顧客の検索欄を表示�
   api.mockResolvedValue({ ok: true, data: { ...response, work: { status: 'preparing' } } });
   renderHome();
   expect(await screen.findByText('担当者とやることを集計しています…')).toBeTruthy();
-  expect(screen.getByText('まず見るもの')).toBeTruthy();
+  expect(screen.getByText('気になる求人')).toBeTruthy();
   expect(screen.getByLabelText('顧客名で探す')).toBeTruthy();
 });
 
