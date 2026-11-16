@@ -5,11 +5,8 @@
 .ds-band strong { font-size: 20px; }
 .ds-band small, .ds-note, .ds-table small { color: var(--jc-muted, #5b5b5b); font-size: 12px; }
 .ds-table small { display: block; }
-.ds-grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 20px; align-items: start; }
 .ds-main { display: grid; gap: 20px; min-width: 0; }
 .ds-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ds-toggle { display: flex; gap: 6px; }
-.ds-toggle [aria-pressed='true'] { font-weight: 700; outline: 2px solid currentColor; }
 .ds-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; list-style: none; padding: 0; margin: 4px 0; font-size: 12px; }
 .ds-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
 .ds-billing-label { margin: 8px 0 0; }
@@ -18,9 +15,6 @@
 .ds-events { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .ds-events li { display: grid; grid-template-columns: 90px 1fr; gap: 2px 10px; padding-bottom: 8px; border-bottom: 1px solid var(--jc-border, #e3e3e3); }
 .ds-events small { grid-column: 2; color: var(--jc-muted, #5b5b5b); }
-.ds-rail { font-size: 13px; padding: 12px; border: 1px solid var(--jc-border, #d9d9d9); border-radius: 8px; position: sticky; top: 96px; }
-.ds-rail ul { padding-left: 16px; margin: 4px 0 8px; }
-@media (max-width: 900px) { .ds-grid { grid-template-columns: 1fr; } .ds-rail { position: static; } }
 .jc-deal-table.ds-table th:first-child { width: 24%; }
 .ds-table td:first-child .jc-button { white-space: normal; text-align: left; }
 .ds-company-link { margin: 0; }
@@ -34,5 +28,12 @@
 .ds-event-open { display: inline-flex; align-items: baseline; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .ds-event-open:hover, .ds-event-open:focus-visible { text-decoration: underline; }
 .ds-event-n { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px; color: #fff; font-size: 11px; font-weight: 700; flex: none; }
-.ds-occupation { margin: 4px 0 8px; }
-.ds-rail .ds-occupation-link { display: inline-block; max-width: 100%; margin-bottom: 8px; white-space: normal; text-align: left; text-decoration: none; }
+/* 帯の中の 1 行：直近4週の終わりと、データの最後の日。説明は「ⓘ 数え方」に畳む。 */
+.ds-band .ds-dataline { grid-column: 1 / -1; margin: 2px 0 0; padding-top: 6px; border-top: 1px solid var(--jc-border, #e3e3e3); font-size: 12px; color: var(--jc-muted, #5b5b5b); display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.ds-band .ds-dataline span { font-size: 12px; }
+/* 案件の求人の表の上：地域と比べる職種。 */
+.ds-facts { display: grid; gap: 4px; margin: 0 0 10px; font-size: 13px; }
+.ds-facts p { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.ds-facts p > span:first-child { min-width: 6em; color: var(--jc-muted, #5b5b5b); font-size: 12px; }
+.ds-facts small { color: var(--jc-muted, #5b5b5b); font-size: 12px; }
+.ds-filter-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 8px; }

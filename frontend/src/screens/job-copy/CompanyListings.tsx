@@ -16,6 +16,8 @@ import { ownerParams } from './OwnerTodo';
 import { useJobCopySearch } from './navigation';
 import { PageNav } from './SharedTable';
 import { paginate } from './sharedTableModel';
+import { InfoTip } from './InfoTip';
+import './status-filter.css';
 
 const PAGE_SIZE = 20;
 /** 全求人の一覧は索引だけを読む。応募・課金は従来の読み取りを共用し、追加取得しない。 */
@@ -100,24 +102,24 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
   /** タグの説明: 基準の文と、この求人の判定に使った数字。 */
   const flagTitle = (key: string, id: string) => [ruleOf(key), flagState.status === 'ready' ? flagNumbersLabel(flagState.numbers[id]) : undefined].filter(Boolean).join('\n');
   const flagCounts = Object.keys(FLAG_LABELS).map(key => ({ key, count: model.live.filter(item => item.flags.includes(key)).length })).filter(entry => entry.count > 0);
+  /** 応募・課金が読めていない求人の数字の欄。「—」（応募なし）と見分けがつくようにする。 */
+  const missing = source.status === 'loading' ? '読込中' : source.status === 'error' ? '未取得' : null;
   const table = (items: typeof model.live, page: number, setPage: (page: number) => void, label: string) => { const view = paginate(items, page, PAGE_SIZE); return <>
     {items.length ? <div className="jh-scroll"><table className="jh-listing-table" aria-label={`${label}の求人`}><thead><tr>
       <th scope="col">求人名</th><th scope="col">タグ</th><th scope="col">媒体</th><th scope="col">掲載期間</th><th scope="col" className="num">応募（前4週→直近4週）</th><th scope="col" className="num">今の課金（4週）</th><th scope="col" className="num">応募1件あたり</th><th scope="col">最後の変更</th>
     </tr></thead><tbody>{view.items.map(item => <tr key={item.row.id} onClick={event => { if (!(event.target as HTMLElement).closest('button, a')) onOpenListing(item.row); }}>
-      <th scope="row"><button type="button" className="jh-link" onClick={() => { onOpenListing(item.row); }}>{item.row.title ?? '求人名未取得'}</button><div className="jh-listing-deals">{item.deals.map(deal => <small key={deal.id}><button type="button" className="jh-link" onClick={() => { onOpenDeal({ id: deal.id, name: dealName(deal) }); }}>{dealName(deal)}</button> · {deal.stage_label ?? 'ステージ不明'}</small>)}</div></th>
+      <th scope="row"><button type="button" className="jc-go" onClick={() => { onOpenListing(item.row); }}>{item.row.title ?? '求人名未取得'}</button><div className="jh-listing-deals">{item.deals.map(deal => <small key={deal.id}><button type="button" className="jc-go" onClick={() => { onOpenDeal({ id: deal.id, name: dealName(deal) }); }}>{dealName(deal)}</button> · {deal.stage_label ?? 'ステージ不明'}</small>)}</div></th>
       <td>{item.flags.length ? item.flags.map(key => <span key={key} className="jh-change-chip" title={flagTitle(key, item.row.id)}>{FLAG_LABELS[key]}</span>) : '—'}</td>
       <td>{mediaLabel(item.row.media)}</td><td>{companyListingPeriod(item.row)}{!item.live && publicationLabel(item.row.publication_status) !== '掲載終了' && <small>掲載状況：{publicationLabel(item.row.publication_status)}</small>}</td>
-      <td className="num">{appsChange(item.numbers?.previous ?? null, item.numbers?.recent ?? null)}</td><td className="num">{yen(item.numbers?.billing ?? null)}</td><td className="num">{perApplicationLabel(item.numbers, yen)}</td>
+      {item.numbers === null && missing ? <><td className="num jh-missing">{missing}</td><td className="num jh-missing">{missing}</td><td className="num jh-missing">{missing}</td></> : <><td className="num">{appsChange(item.numbers?.previous ?? null, item.numbers?.recent ?? null)}</td><td className="num">{yen(item.numbers?.billing ?? null)}</td><td className="num">{perApplicationLabel(item.numbers, yen)}</td></>}
       <td>{item.changedAt ? <>本文を変更<small>{formatDateTimeJst(item.changedAt, '日時不明')}</small></> : '変更日不明'}</td>
     </tr>)}</tbody></table></div> : <p>{label}の求人はありません。</p>}
     {items.length > PAGE_SIZE && <PageNav className="jh-pages" label={`${label}のページ`} size={PAGE_SIZE} hasPrev={view.pageIndex > 0} hasNext={view.pageIndex + 1 < view.pages} onPrev={() => { setPage(page - 1); }} onNext={() => { setPage(page + 1); }}>{String(view.from)}〜{String(view.to)} / {String(items.length)}件</PageNav>}
   </>; };
   return <>
-    {source.status === 'loading' && <p role="status">応募・課金を読み込んでいます…</p>}
-    {source.status === 'error' && <p role="alert">応募・課金を読み込めませんでした。求人は表示しています。<button type="button" className="jh-link" onClick={() => { setReload(count => count + 1); }}>もう一度読み込む</button></p>}
-    {source.status === 'ready' && source.notes?.map(note => <p key={note} className="jh-note">応募・課金：{note}</p>)}
-    {source.status === 'ready' && source.datas.some(data => data.capped || data.rows.length > 30) && <p className="jh-note">応募・課金は各案件で取得できた求人の分だけ表示しています。</p>}
-    <p className="jh-note">納品管理の求人を表示。案件名から求人を比較できます。<br />応募・課金は {formatDay(model.asOf)} までの4週間と、その前の4週間（未取得は「—」）。応募1件あたり＝今の課金 ÷ 直近4週の応募。最後の変更は本文のみ。</p>
+    {source.status === 'error' && <div role="alert" className="jc-load-band"><span>応募・課金を読み込めませんでした。表の「未取得」は応募なしではありません。</span><button type="button" className="jc-button" onClick={() => { setReload(count => count + 1); }}>もう一度読み込む</button></div>}
+    <div className="jh-note jh-listings-scope">納品管理の求人です。応募・課金は {formatDay(model.asOf)} までの4週間{source.status === 'loading' && <span role="status">（応募・課金を読み込んでいます…）</span>}
+      <InfoTip className="jc-infotip-left" iconFirst label="数え方"><p>応募・課金は {formatDay(model.asOf)} までの4週間と、その前の4週間です。取得できなかった数字は「—」です。</p><p>応募1件あたり＝今の課金 ÷ 直近4週の応募。最後の変更は本文の変更だけです。案件名から求人を比べられます。</p>{source.status === 'ready' && source.datas.some(data => data.capped || data.rows.length > 30) && <p>応募・課金は各案件で取得できた求人の分だけ表示しています。</p>}{source.status === 'ready' && source.notes?.map(note => <p key={note}>応募・課金：{note}</p>)}</InfoTip></div>
     <div className="jh-listing-tools">
       <label>並べ替え <select value={sort} onChange={event => { setSort(event.target.value as ListingSort); setLivePage(0); setPastPage(0); }}>{LISTING_SORTS.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
       {flagState.status === 'loading' && <span role="status">タグを読み込んでいます…</span>}
@@ -125,13 +127,12 @@ export function CompanyListings({ companyId, deals, billingByJob, onOpenDeal, on
       {flagState.status === 'error' && <span role="alert">タグを読み込めませんでした。求人の表はそのまま使えます。</span>}
     </div>
     <section className="jh-live-listings" aria-labelledby={liveId}><h2 id={liveId}>掲載中 <span>{String(model.live.length)}件</span></h2>
-      {flagState.status === 'ready' && <p className="jh-note jh-flag-summary">{flagCounts.length ? <>タグ：{flagCounts.map(entry => <span key={entry.key} className="jh-change-chip" title={ruleOf(entry.key)}>{FLAG_LABELS[entry.key]} {String(entry.count)}件</span>)}</> : 'タグが付いた掲載中の求人はありません。'}</p>}
-      {flagState.status === 'ready' && <div className="jh-note jh-flag-basis"><p>タグはホームのカードと同じ基準です。タグと表の数字は、次の3つの数え方が違うため、合わないことがあります。タグにマウスを置くと、判定に使った数字が出ます。</p><ul>
+      {flagState.status === 'ready' && <div className="jh-note jh-flag-summary">{flagCounts.length ? <>タグ：{flagCounts.map(entry => <span key={entry.key} className="jh-change-chip" title={ruleOf(entry.key)}>{FLAG_LABELS[entry.key]} {String(entry.count)}件</span>)}<InfoTip className="jc-infotip-left jh-flag-basis" iconFirst label="表の数字と合わないとき"><p>タグはホームのカードと同じ基準です。タグにマウスを置くと、判定に使った数字が出ます。次の3つの数え方が違うため、表の数字と合わないことがあります。</p><ul>
         <li>応募：タグは週ごとの実績の応募数。表は応募日ごとの件数。</li>
         <li>課金：タグは週ごとの実績の課金だけ。表は週ごとの実績の課金と、取り込んだ課金CSV（HRハッカーの求人）を合わせ、日割りにしたもの。</li>
         <li>期間：タグは週ごとの実績の最新の週までの4週間。表は応募を取得した日までの4週間。</li>
-      </ul></div>}
+      </ul></InfoTip></> : 'タグが付いた掲載中の求人はありません。'}</div>}
       {table(model.live, livePage, setLivePage, '掲載中')}</section>
-    <details className="jh-past-listings"><summary>過去（掲載終了） {String(model.past.length)}件</summary><p className="jh-note">掲載前・掲載状況不明の求人もこちらに表示しています。</p>{table(model.past, pastPage, setPastPage, '過去')}</details>
+    <details className="jh-past-listings"><summary>過去（掲載終了） {String(model.past.length)}件</summary><p className="jh-note">掲載前・掲載状況が分からない求人も含みます。</p>{table(model.past, pastPage, setPastPage, '過去')}</details>
   </>;
 }

@@ -194,3 +194,90 @@
   cursor: pointer;
   font-weight: 600;
 }
+
+/* 日付と金額は 1 行で（「¥1,080,00／0」のように割らない）。 */
+.hj-main th.hj-nowrap,
+.hj-main td.hj-nowrap {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+/* よく使う条件：押している間は色が付く札（jc-chip）。 */
+.hj-presets {
+  margin: 12px 0 4px;
+}
+/* 数値の条件：名前・入力・単位の位置をそろえる。 */
+.hj-cond-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+  gap: 8px 20px;
+  margin: 10px 0;
+}
+.hj-main .hj-cond {
+  display: grid;
+  grid-template-columns: 7.5em 80px auto 80px auto;
+  justify-content: start;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 400;
+}
+.hj-main .hj-cond-label {
+  font-weight: 600;
+}
+.hj-cond input[type="number"] {
+  width: 80px;
+}
+.hj-cond-unit {
+  white-space: nowrap;
+  color: #52697a;
+}
+.hj-count-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+/* 顧客の一覧は最初から開いて見せる。長いときは枠の中で縦に流し、下の詳細を押し下げない。 */
+.hj-customer-list > summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin: 8px 0;
+}
+.hj-customer-list .hj-scroll {
+  max-height: 360px;
+  background: #fff;
+}
+.hj-customer-list thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.hj-customer-list tr.hj-current > * {
+  background: #eef5fb;
+}
+.hj-auto-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #52697a;
+}
+#hj-customer {
+  scroll-margin-top: 140px;
+}
+.hj-kpis small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #52697a;
+}
+.hj-kpi-note {
+  margin: 6px 0 0;
+}
+.hj-ended-toggle {
+  margin: 0 0 8px;
+}
+.hj-company-out {
+  margin: 12px 0 4px;
+}
+.hj-company {
+  margin-top: 24px;
+}

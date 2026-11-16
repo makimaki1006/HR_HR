@@ -38,7 +38,7 @@ it('今の案件の画面には、過去の案件にだけ結び付いた求人�
   expect(screen.getByText('この顧客の全部の求人')).toBeTruthy();
   expect(screen.getByText('案件：今の案件、過去の案件')).toBeTruthy();
   // 案件の軸（契約中か）は、求人の軸（掲載中か）とは別に出る。
-  await waitFor(() => { expect(document.querySelector('.ds-contract')?.textContent).toContain('案件の状態：契約中（契約中） ・ この顧客の今の案件 ・ 作成 2026-09-01'); });
+  await waitFor(() => { expect(document.querySelector('.ds-contract')?.textContent).toContain('案件の状態：契約中（契約中） ・ この顧客の今の案件 ・ 作成 2026/09/01'); });
 });
 
 it('今の案件でない古い案件の画面は、その案件の求人だけを出す', async () => {
