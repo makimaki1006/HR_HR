@@ -202,13 +202,11 @@ test("顧客の値と図・採用単価の並び・4メニューの担当引き�
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await page
     .getByRole("button", { name: "大きいのに事業所が少ない", exact: true })
     .click();
   await expect(page).toHaveURL(/houjin_sites_max=2/);
   await page.reload();
-  await page.getByText("条件で絞る（ボタン・数値条件）").click();
   await expect(
     page.getByRole("button", { name: "大きいのに事業所が少ない", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");

@@ -175,7 +175,7 @@ it("顧客の全節と数字・案件の詳細・条件のURLを表示", async (
   expect(option('hj-funnel').series.map(s=>s.data)).toEqual([[24,9,6]]);
   expect(option('hj-ltv').series.map(s=>s.data)).toEqual([[200000,800000],[100000,100000]]);
   expect(option('hj-hires').series[0]?.data).toEqual([{value:1,symbol:'circle',symbolSize:5},{value:2,symbol:'circle',symbolSize:5},{value:5,symbol:'circle',symbolSize:5}]);
-  expect(screen.getByRole('table',{name:'接触と担当交代'}).textContent).toContain('2026-09-01 架空の担当A → 架空の担当B（あり）');
+  expect(screen.getByRole('table',{name:'接触と担当交代'}).textContent).toContain('2026/09/01 架空の担当A → 架空の担当B（あり）');
   fireEvent.click(screen.getByRole('checkbox',{name:/架空の採用支援・秋/}));
   expect(option('hj-funnel').series.map(s=>s.data)).toEqual([[4,1,1]]);
   expect(screen.getByTestId('hj-monthly-101').dataset.option).toContain('20');
@@ -298,4 +298,37 @@ it("担当変更後も絞り込みを保ち、0社なら顧客を出さない", 
   render(<HoujinView />);
   await screen.findByText("条件に合う顧客がありません");
   expect(screen.queryByRole("region", { name: "顧客の数字" })).toBeNull();
+});
+it("最初は一覧を開いて先頭の顧客と理由を出し、案件と求人は稼働中だけ・日付は1行で出す", async () => {
+  window.history.replaceState(null, "", "/app/job-copy?view=houjin&owner=11");
+  mock();
+  render(<HoujinView />);
+  await screen.findByRole("region", { name: "顧客の数字" });
+  const list = screen.getByRole("table", { name: "顧客の一覧" }).closest("details");
+  expect(list?.open).toBe(true);
+  expect(screen.getByText(/の先頭の顧客を表示しています/).textContent).toContain("これまでの売上が大きい順");
+  // 条件が無いときは「条件を戻す」を出さない。よく使う条件は畳まずに出す。
+  expect(screen.queryByRole("button", { name: "条件を戻す" })).toBeNull();
+  expect(screen.getByText("条件で絞る").closest("details")?.open).toBe(false);
+  const preset = screen.getByRole("button", { name: "重点顧客" });
+  expect(preset.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(preset);
+  expect(screen.getByRole("button", { name: "重点顧客" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "条件を戻す" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "重点顧客" }));
+  expect(location.search).not.toContain("houjin_focus");
+  // 案件の数え方の違いを添える。継続回数は分かる名前にする。
+  const stats = screen.getByRole("region", { name: "顧客の数字" });
+  expect(stats.textContent).toContain("案件（追加契約を除く）");
+  expect(stats.textContent).toContain("いちばん長く続いた事業所の継続回数");
+  expect(stats.textContent).toContain("2026/12/31");
+  // 案件と求人：最初は稼働中だけ、切り替えで終了した案件も出す。
+  const table = () => screen.getByRole("table", { name: "案件と求人の案件" });
+  expect(within(table()).getAllByRole("row")).toHaveLength(2);
+  expect(within(table()).getByText("2026/08/01〜2026/12/31")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "終了した案件も出す（2件）" }));
+  expect(within(table()).getAllByRole("row")).toHaveLength(4);
+  // 社名を押すと、その顧客に切り替わり、自動で選んだ旨の1行は消える。
+  fireEvent.click(required(within(screen.getByRole("table", { name: "顧客の一覧" })).getAllByRole("button")[0]));
+  await waitFor(() => { expect(screen.queryByText(/の先頭の顧客を表示しています/)).toBeNull(); });
 });

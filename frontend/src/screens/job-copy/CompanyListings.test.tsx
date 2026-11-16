@@ -6,8 +6,9 @@ import { updateJobCopyQuery } from './navigation';
 import type { CompanyDeal } from './companyDeals';
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', () => ({ apiGet: api }));
-vi.mock('./dealSummaryLoad', async original => ({ ...await original<typeof import('./dealSummaryLoad')>(), loadCompanyDatas: () => Promise.resolve({ status: 'ready', datas: [], notes: [] }) }));
-afterEach(() => { cleanup(); vi.resetAllMocks(); window.history.replaceState(null, '', '/app/job-copy'); });
+const summary = vi.hoisted((): { result: unknown } => ({ result: { status: 'ready', datas: [], notes: [] } }));
+vi.mock('./dealSummaryLoad', async original => ({ ...await original<typeof import('./dealSummaryLoad')>(), loadCompanyDatas: () => Promise.resolve(summary.result) }));
+afterEach(() => { cleanup(); vi.resetAllMocks(); summary.result = { status: 'ready', datas: [], notes: [] }; window.history.replaceState(null, '', '/app/job-copy'); });
 const props = { companyId: '100', billingByJob: {}, onOpenDeal: vi.fn(), onOpenListing: vi.fn() };
 it('求人ゼロの案件を除き、21案件は20+1に分けて索引を読む', async () => {
   const deals = Array.from({ length: 21 }, (_, i) => ({ id: String(i + 1), listings_total: 1 })) as CompanyDeal[];
@@ -75,7 +76,7 @@ it('掲載中の求人だけをホームと同じタグで読み、タグを先�
   expect(flagsUrl.searchParams.get('owner')).toBe('me');
   expect(screen.getByText('課金が高いまま応募が少ない 1件')).toBeTruthy();
   const liveTable = screen.getByRole('table', { name: '掲載中の求人' });
-  const titles = () => [...liveTable.querySelectorAll('tbody th > button.jh-link')].map(button => button.textContent);
+  const titles = () => [...liveTable.querySelectorAll('tbody th > button.jc-go')].map(button => button.textContent);
   expect(titles()).toEqual(['合成求人・古い', '合成求人・新しい']);
   const zeroChip = [...liveTable.querySelectorAll('.jh-change-chip')].find(chip => chip.textContent === '応募がゼロになった');
   expect(zeroChip?.getAttribute('title')).toBe('掲載中で、前の4週に応募が1件以上あり、直近4週は0件になった求人。\n判定に使った数字: 前4週 3件 → 直近4週 0件、課金 ¥20,000、〜11/02 の週まで');
@@ -91,4 +92,17 @@ it('タグが読めなくても求人の表は出し、読めなかったこと�
   render(<CompanyListings {...props} deals={[{ id: '10', name: '合成案件' } as CompanyDeal]} />);
   await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('タグを読み込めませんでした。求人の表はそのまま使えます。'); });
   expect(screen.getByRole('button', { name: '合成求人' })).toBeTruthy();
+});
+
+it('応募・課金を読めなかったら、表の真上に帯と「もう一度読み込む」を出し、数字の欄を「未取得」にする', async () => {
+  summary.result = { status: 'error', message: '' };
+  api.mockResolvedValue({ ok: true, data: { status: 'ready', next_offset: null, listings: [
+    { id: '1', title: '合成求人・掲載中', publication_status: '掲載中', deal_ids: ['10'], media: 'hrh' },
+  ] } });
+  render(<CompanyListings {...props} deals={[{ id: '10', name: '合成案件' } as CompanyDeal]} />);
+  const band = await screen.findByText(/応募・課金を読み込めませんでした/);
+  expect(band.closest('.jc-load-band')?.getAttribute('role')).toBe('alert');
+  expect(screen.getByRole('button', { name: 'もう一度読み込む' })).toBeTruthy();
+  const cells = [...screen.getByRole('table', { name: '掲載中の求人' }).querySelectorAll('td.jh-missing')].map(cell => cell.textContent);
+  expect(cells).toEqual(['未取得', '未取得', '未取得']);
 });

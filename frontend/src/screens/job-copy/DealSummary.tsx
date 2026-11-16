@@ -12,7 +12,9 @@ import { DealContract } from './DealContract';
 import { DealFirstGoals } from './DealFirstGoals';
 import { clearCompanyDealsCache, loadCompanyDeals } from './companyDeals';
 import type { CompanyDeal } from './companyDeals';
-import { StatusFilter } from './StatusSwitch';
+import { ChoiceSwitch, StatusFilter } from './StatusSwitch';
+import { InfoTip } from './InfoTip';
+import { formatDateJst } from './format';
 import { setCompanyScope } from './companyScope';
 import { countStatuses, matchesStatus, useStatusFilter } from './statusFilter';
 import type { DealData } from './dealSummaryLoad';
@@ -74,10 +76,11 @@ export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany, 
     });
     return () => { controller.abort(); setCompanyScope(null); onWideRef.current?.(false); };
   }, [deal.id, deal.name, revision]);
-  return <><p className="ds-report-entry"><OutLink href={reportUrl({ scope: 'deal', id: deal.id })} label="報告書を作る（新しいタブ）" /></p><div className="nt-contract-grid"><DealContract key={deal.id} dealId={deal.id} onSaved={saved} onQueued={saved} onDetail={onDetail} /><DealNextTodo key={`todo-${deal.id}`} dealId={deal.id} onSaved={saved} /></div><DealFirstGoals key={`goals-${deal.id}`} dealId={deal.id} /><SummaryView scope="deal" dealId={deal.id} wide={wide} dealInfo={info} source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} {...(onOpenCompany ? { onOpenCompany } : {})} /></>;
+  const retry = useCallback(() => { setSource({ status: 'loading' }); setRevision(value => value + 1); }, []);
+  return <><p className="ds-report-entry"><OutLink href={reportUrl({ scope: 'deal', id: deal.id })} label="報告書を作る（新しいタブ）" /></p><div className="nt-contract-grid"><DealContract key={deal.id} dealId={deal.id} onSaved={saved} onQueued={saved} onDetail={onDetail} /><DealNextTodo key={`todo-${deal.id}`} dealId={deal.id} onSaved={saved} /></div><DealFirstGoals key={`goals-${deal.id}`} dealId={deal.id} /><SummaryView scope="deal" dealId={deal.id} wide={wide} dealInfo={info} source={source} billingByJob={billingByJob} onOpenListing={onOpenListing} onRetry={retry} {...(onOpenCompany ? { onOpenCompany } : {})} /></>;
 }
 
-export function SummaryView({ scope, dealId, wide = false, dealInfo = null, source, billingByJob, onOpenListing, onOpenCompany }: { scope: 'deal' | 'company'; /** 案件の画面のときの案件 ID（職種の一括指定へのリンクに使う） */ dealId?: string; /** 今の案件の画面で、顧客の全求人を出しているとき */ wide?: boolean; /** 案件の画面で、この案件の契約状態（契約中かどうか）。分からなければ null */ dealInfo?: CompanyDeal | null; source: Source; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void }) {
+export function SummaryView({ scope, dealId, wide = false, dealInfo = null, source, billingByJob, onOpenListing, onOpenCompany, onRetry }: { /** 読み込みに失敗したとき「もう一度読み込む」で呼ぶ */ onRetry?: () => void; scope: 'deal' | 'company'; /** 案件の画面のときの案件 ID（職種の一括指定へのリンクに使う） */ dealId?: string; /** 今の案件の画面で、顧客の全求人を出しているとき */ wide?: boolean; /** 案件の画面で、この案件の契約状態（契約中かどうか）。分からなければ null */ dealInfo?: CompanyDeal | null; source: Source; billingByJob: Billing; onOpenListing: (row: HubSpotListing, opener?: HTMLElement) => void; onOpenCompany?: (company: { id: string; name: string }) => void }) {
   const [colored, setColored] = useState(true);
   const [showAllEvents, setShowAllEvents] = useState(false);
   const [status, setStatus] = useStatusFilter();
@@ -111,7 +114,7 @@ export function SummaryView({ scope, dealId, wide = false, dealInfo = null, sour
   }, [source, billingByJob]);
 
   if (source.status === 'loading') return <section className="ds-root" aria-label={aria}><p role="status">{noun}のまとめを読み込んでいます…</p></section>;
-  if (source.status === 'error') return <section className="ds-root" aria-label={aria}><p role="alert">{source.message}</p></section>;
+  if (source.status === 'error') return <section className="ds-root" aria-label={aria}><div role="alert" className="jc-load-band"><span>{source.message}</span>{onRetry && <button type="button" className="jc-button" onClick={onRetry}>もう一度読み込む</button>}</div></section>;
   if (!model?.inputs.length) return <section className="ds-root" aria-label={aria}><p>この{noun}の求人はありません。</p></section>;
 
   const { inputs, totals, series, numbers, events, cutoffs, asOf } = model;
@@ -185,23 +188,29 @@ export function SummaryView({ scope, dealId, wide = false, dealInfo = null, sour
 
   return <section className="ds-root" aria-label={aria}>
     {scope === 'deal' && model.company && onOpenCompany && <p className="ds-note ds-company-link">この案件の事業所：<button type="button" className="jc-button" onClick={() => { if (model.company) onOpenCompany(model.company); }}>{model.company.name}の合計を見る</button></p>}
-    {scope === 'deal' && dealInfo && <p className="ds-note ds-contract">案件の状態：<strong>{dealInfo.active ? '契約中' : '契約終了'}</strong>（{dealInfo.stage_label ?? 'ステージ未取得'}）{dealInfo.current ? ' ・ この顧客の今の案件' : ' ・ 過去の案件'} ・ 作成 {dealInfo.created_at ?? '—'}。求人の「掲載中／掲載終了」は、下の求人ごとの切り替えです。</p>}
+    {scope === 'deal' && dealInfo && <p className="ds-note ds-contract">案件の状態：<strong>{dealInfo.active ? '契約中' : '契約終了'}</strong>（{dealInfo.stage_label ?? 'ステージ未取得'}）{dealInfo.current ? ' ・ この顧客の今の案件' : ' ・ 過去の案件'} ・ 作成 {formatDateJst(dealInfo.created_at, '—')}</p>}
     <div className="ds-band" role="group" aria-label={`${noun}の合計`}>
       <div><span>直近4週の応募（{noun}の合計）</span><strong>{count(totals.recent)}</strong><small>前の4週 {count(totals.previous)}</small></div>
       <div><span>応募1件あたり</span><strong>{yen(totals.perApplication)}</strong><small>課金の合計 ÷ 応募の合計</small></div>
       <div><span>今の課金（求人の合計）/4週</span><strong>{yen(totals.billing)}</strong>{totals.unknownBilling > 0 && <small>課金が分からない求人が {String(totals.unknownBilling)}件あるため、合計は出していません</small>}{totals.excludedBilling > 0 && <small>課金データのない求人 {String(totals.excludedBilling)}件（AirWork）は含みません</small>}</div>
       <div><span>求人 {String(totals.listings)} 件{flat ? ` ・ 案件 ${String(source.datas.length)} 件` : ''}</span><strong>掲載中 {String(totals.live)} ・ 終了 {String(totals.ended)}</strong>{totals.unknownApplications > 0 && <small>応募日が未取得の求人 {String(totals.unknownApplications)}件は含みません</small>}</div>
+      <div className="ds-dataline" data-testid="ds-dataline">直近4週は {formatDay(asOf)} まで<span aria-hidden="true"> ／ </span>データの最後の日：{cutoffs.map((cutoff, index) => <span key={cutoff.media}>{index > 0 && '、'}{mediaLabel(cutoff.media)} 応募 {cutoff.lastApplication ? formatDay(cutoff.lastApplication) : '未取得'}・課金 {cutoff.lastBilling ? formatDay(cutoff.lastBilling) : cutoff.media === 'airwork' ? 'なし' : '未取り込み'}</span>)}
+        <InfoTip className="jc-infotip-left" iconFirst label="数え方">
+          <p>直近4週は{formatDay(asOf)}（全部の求人の応募データがそろっている最後の日）までの28日間、前の4週はその前の28日間です。{ROLLUP_RULES.period}。</p>
+          {lastBilling !== null && lastBilling < asOf && <p>課金は {formatDay(lastBilling)} までの週の分です。それより後の日は課金に含まれません。</p>}
+          <p>{scope === 'deal' ? 'この案件の求人を合計します。' : 'この事業所の全部の案件の求人を、同じ求人は1回だけ数えて合計します。'}掲載を終えた求人も、掲載していた間の応募と課金を含みます。</p>
+          <p>複数の案件に結び付いた求人：{ROLLUP_RULES.multiDeal}。{model.multiCount > 0 ? `この${noun}には ${String(model.multiCount)}件あります。` : ''}</p>
+          {scope === 'company' && <p>{ROLLUP_RULES.company}。</p>}
+          <p>課金は Indeed と AirWork の週ごとの実績です。課金データのない求人（AirWork でまだ取り込めていないもの）は、課金の合計と応募1件あたりから外しています{model.excluded > 0 ? `（${String(model.excluded)}件）` : ''}。</p>
+          <p>{noun}の画面では市場の数字を合計しません。求人ごとに職種が違うことがあるためです。</p>
+        </InfoTip></div>
     </div>
     {capped && <p className="ds-note">求人が多いため、先頭の50件までで集計しています。</p>}
     {source.notes?.map(note => <p className="ds-note" key={note}>{note}</p>)}
-    <div className="ds-grid">
-      <div className="ds-main">
+    <div className="ds-main">
         <section aria-label="週ごとの応募">
           <header className="ds-head"><h2>週ごとの応募</h2>
-            <div className="ds-toggle" role="group" aria-label="グラフの見かた">
-              <button type="button" className="jc-button" aria-pressed={colored} onClick={() => { setColored(true); }}>求人ごとに色分け</button>
-              <button type="button" className="jc-button" aria-pressed={!colored} onClick={() => { setColored(false); }}>合計だけ</button>
-            </div></header>
+            <ChoiceSwitch label="グラフの見かた" value={colored ? 'colored' : 'total'} onChange={value => { setColored(value === 'colored'); }} options={[{ key: 'colored', label: '求人ごとに色分け' }, { key: 'total', label: '合計だけ' }]} /></header>
           {series.perListing.every(row => row.counts === null) ? <p className="ds-note">応募日別の件数を取得できませんでした。</p> : <EChart option={applicationOption} testId="ds-applications" height={220} renderer="svg" />}
           {colored && <ul className="ds-legend">{inputs.map(input => <li key={input.id}><i style={{ background: colorOf(input.id) }} aria-hidden="true" />{input.title}{input.ended ? '（終了）' : ''}</li>)}</ul>}
           {billingOption ? <><p className="ds-note ds-billing-label">課金（求人の合計、日割り）</p><EChart option={billingOption} testId="ds-billing" height={84} renderer="svg" /></> : <p className="ds-note">課金の合計は出せません（課金が分からない求人があるか、課金のある求人がありません）。</p>}
@@ -210,9 +219,12 @@ export function SummaryView({ scope, dealId, wide = false, dealInfo = null, sour
 
         <section aria-label={scope === 'deal' ? 'この案件の求人' : 'この事業所の求人'}>
           <h2>{wide ? 'この顧客の全部の求人' : scope === 'deal' ? 'この案件の求人' : 'この事業所の案件と求人'}</h2>
-          {wide && <p className="sf-note">今の案件（契約中で最新の案件）です。この顧客の納品管理のどの案件に結び付いた求人も、ここに出ます。過去の案件にだけ結び付いた求人も含みます。</p>}
-          <StatusFilter status={status} counts={statusCounts} onChange={setStatus} />
-          <p className="sf-note">表の求人を掲載状況で絞り込みます。上の合計とグラフは、掲載を終えた求人の掲載していた間の応募・課金も含みます（絞り込みの影響を受けません）。</p>
+          {scope === 'deal' && <div className="ds-facts" role="group" aria-label="地域と比べる職種">
+            <p><span>地域</span>{region ?? '求人の地域を取得できていません。'}</p>
+            <p><span>比べる職種</span>{occupation ? <><strong>{String(occupation.total)}件中{String(occupation.set + occupation.none)}件が指定済み</strong>{occupation.none > 0 && <small>（うち「市場と比べない」{String(occupation.none)}件）</small>}{occupation.unset > 0 && dealId ? <a className="jc-go ds-occupation-link" href={`/app/job-copy?${new URLSearchParams({ view: 'occupations', deal: dealId }).toString()}`}><span aria-hidden="true">→ </span>未指定の {String(occupation.unset)} 件{occupation.unsetEnded > 0 ? `（うち掲載終了 ${String(occupation.unsetEnded)} 件）` : ''}を指定する</a> : <small>すべての求人で指定済みです。</small>}</> : '職種の指定状況を取得できていません。'}</p>
+          </div>}
+          <div className="ds-filter-line"><StatusFilter status={status} counts={statusCounts} onChange={setStatus} />
+            <InfoTip className="jc-infotip-left" iconFirst label="絞り込みの範囲"><p>表の求人だけを掲載状況で絞り込みます。上の合計とグラフは、掲載を終えた求人の掲載していた間の応募・課金も含みます（絞り込みの影響を受けません）。</p>{wide && <p>今の案件（契約中で最新の案件）なので、この顧客の納品管理のどの案件に結び付いた求人も出します。過去の案件にだけ結び付いた求人も含みます。</p>}</InfoTip></div>
           <div className="jc-deal-table-scroll"><table className="jc-deal-table ds-table"><thead><tr><th>求人</th><th>媒体</th><th>掲載期間</th><th>直近4週の応募（前の4週）</th><th>{noun}の応募に占める割合</th><th>課金/4週</th><th>応募1件あたり</th>{showIndeed && <th>市場の職種</th>}</tr></thead>
             <tbody>{shown(allRows).length ? shown(allRows).map(listingRow) : emptyRow}</tbody>
           </table></div>
@@ -226,36 +238,10 @@ export function SummaryView({ scope, dealId, wide = false, dealInfo = null, sour
           </li>)}</ol> : <p className="ds-note">記録できる出来事はまだありません。</p>}
           {events.length > EVENT_LIMIT && <button type="button" className="jc-button" onClick={() => { setShowAllEvents(value => !value); }}>{showAllEvents ? '新しい10件だけにする' : `すべて表示（${String(events.length)}件）`}</button>}
           {model.eventsCapped && <p className="ds-note">出来事は先頭{String(EVENT_LISTING_LIMIT)}件の求人の分です。</p>}
-          <p className="ds-note">番号は古い順で、上の週ごとの応募のグラフの点線の数字と同じです。グラフには一覧に出ていない古い出来事の番号も出ます。「すべて表示」で古い出来事も見られます。同じ週に4件以上あるときは「3ほか2」のように縮めています。</p>
-          <p className="ds-note">番号の色は求人の色です（グラフの色分けと同じ）。{colorsRepeat ? '9件以上は色が重なります。' : ''}掲載を終えた求人は灰色です。グラフで同じ週に複数の求人の出来事があるときは、番号を黒で出します。押すとその求人の画面を開きます。</p>
-          <p className="ds-note">本文と画像の変更は、HubSpot に残っている求人ごとの新しい20回分までです。空白だけの違いは変更に数えません。給与だけを変えたときも「本文を変えました」と出します（求人の画面では「給与を変更」と分けています）。掲載の開始・終了は HubSpot に履歴が残っている分だけです。</p>
+          {events.length > 0 && <InfoTip className="jc-infotip-left" iconFirst label="番号と色の見方"><p>番号は古い順で、上の週ごとの応募のグラフの点線の数字と同じです。グラフには一覧に出ていない古い出来事の番号も出ます。「すべて表示」で古い出来事も見られます。同じ週に4件以上あるときは「3ほか2」のように縮めています。</p>
+          <p>番号の色は求人の色です（グラフの色分けと同じ）。{colorsRepeat ? '9件以上は色が重なります。' : ''}掲載を終えた求人は灰色です。グラフで同じ週に複数の求人の出来事があるときは、番号を黒で出します。押すとその求人の画面を開きます。</p>
+          <p>本文と画像の変更は、HubSpot に残っている求人ごとの新しい20回分までです。空白だけの違いは変更に数えません。給与だけを変えたときも「本文を変えました」と出します（求人の画面では「給与を変更」と分けています）。掲載の開始・終了は HubSpot に履歴が残っている分だけです。</p></InfoTip>}
         </section>
-      </div>
-
-      <aside className="ds-rail" aria-label="数字の前提">
-        <h2>数字の前提</h2>
-        <h3>データ</h3>
-        <p>直近4週の終わり：{formatDay(asOf)}（全部の求人の応募データがそろっている最後の日）</p>
-        <h3>データの最終日</h3>
-        <ul>{cutoffs.map(cutoff => <li key={cutoff.media}><strong>{mediaLabel(cutoff.media)}</strong><br />応募：{cutoff.lastApplication ? formatDay(cutoff.lastApplication) : '未取得'}<br />課金：{cutoff.lastBilling ? formatDay(cutoff.lastBilling) : cutoff.media === 'airwork' ? '課金データなし' : '未取り込み'}</li>)}</ul>
-        {lastBilling !== null && lastBilling < asOf && <p>課金は {formatDay(lastBilling)} までの週の分です。それより後の日は課金に含まれません。</p>}
-        <h3>{noun}の合計の数え方</h3>
-        <p>{scope === 'deal' ? 'この案件の求人を合計します。' : 'この事業所の全部の案件の求人を、同じ求人は1回だけ数えて合計します。'}掲載を終えた求人も、掲載していた間の応募と課金を含みます。</p>
-        <p>直近4週は{formatDay(asOf)}までの28日間、前の4週はその前の28日間です。{ROLLUP_RULES.period}。</p>
-        <p>複数の案件に結び付いた求人：{ROLLUP_RULES.multiDeal}。{model.multiCount > 0 ? `この${noun}には ${String(model.multiCount)}件あります。` : ''}</p>
-        {scope === 'company' && <p>{ROLLUP_RULES.company}。</p>}
-        <p>課金は Indeed と AirWork の週ごとの実績です。課金データのない求人（AirWork でまだ取り込めていないもの）は、課金の合計と応募1件あたりから外しています{model.excluded > 0 ? `（${String(model.excluded)}件）` : ''}。</p>
-        <p>{noun}の画面では市場の数字を合計しません。求人ごとに職種が違うことがあるためです。</p>
-        {scope === 'deal' && <>
-          <h3>比べる職種の指定</h3>
-          {occupation ? <>
-            <p className="ds-occupation"><strong>{String(occupation.total)}件中{String(occupation.set + occupation.none)}件が指定済み</strong>{occupation.none > 0 && <><br /><small>うち「市場と比べない」{String(occupation.none)}件</small></>}</p>
-            {occupation.unset > 0 && dealId ? <a className="jc-button ds-occupation-link" href={`/app/job-copy?${new URLSearchParams({ view: 'occupations', deal: dealId }).toString()}`}>未指定の {String(occupation.unset)} 件{occupation.unsetEnded > 0 ? `（うち掲載終了 ${String(occupation.unsetEnded)} 件）` : ''}を指定する</a> : <p>すべての求人で指定済みです。</p>}
-          </> : <p>職種の指定状況を取得できていません。</p>}
-          <h3>地域</h3>
-          <p>{region ?? '求人の地域を取得できていません。'}</p>
-        </>}
-      </aside>
     </div>
   </section>;
 }

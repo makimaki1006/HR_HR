@@ -12,3 +12,9 @@
 .jc-hubspot-list-heading .jc-reload { margin-left: auto; min-height: 28px; padding: 3px 8px; }
 .jc-hubspot-list-heading > span { color: var(--jc-muted, #52697a); }
 .jc-status-counts { color: var(--jc-muted, #52697a); font-size: 12px; line-height: 1.5; margin: 0; }
+/* 読み込みに失敗したとき、表の真上に出す色付きの帯（「もう一度読み込む」付き）。 */
+.jc-load-band { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 0; padding: 8px 12px; border: 1px solid #e0827a; border-left-width: 4px; border-radius: 6px; background: #fef2f2; color: #8a1c12; font-size: 13px; font-weight: 600; }
+.jc-load-band .jc-button { font-weight: 400; }
+/* 応募・課金が読めていない数字の欄（「—」＝応募なしと見分ける）。 */
+.jh-missing { color: #8a99a6; font-size: 12px; white-space: nowrap; }
+.jh-listings-scope, .jh-flag-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
