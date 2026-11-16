@@ -52,7 +52,33 @@ struct SavedIndex<T> {
     listings: Vec<PrivateListing>,
     deals: Vec<PrivateDeal>,
 }
-fn encode(index: &Index) -> Result<(Vec<u8>, usize), ()> {
+/// 最後に保存した (または復元した) 控え。中身が同じなら作り直しても保存し直さないために持つ。
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Saved {
+    generation: String,
+    parts: i64,
+    digest: [u8; 32],
+}
+/// 控えの JSON の要約値。索引の作成時刻 (`built_at`) の値は除くので、
+/// HubSpot から作り直して中身が同じなら同じ値になる。
+fn digest(json: &[u8], built_at: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let pattern = format!(
+        "\"built_at\":{}",
+        serde_json::to_string(built_at).unwrap_or_default()
+    );
+    let pattern = pattern.as_bytes();
+    let mut hasher = Sha256::new();
+    let mut rest = json;
+    while let Some(at) = rest.windows(pattern.len()).position(|w| w == pattern) {
+        hasher.update(&rest[..at]);
+        hasher.update(b"\"built_at\":null");
+        rest = &rest[at + pattern.len()..];
+    }
+    hasher.update(rest);
+    hasher.finalize().into()
+}
+fn to_json(index: &Index) -> Result<Vec<u8>, ()> {
     let saved = SavedIndex {
         version: VERSION,
         index,
@@ -80,11 +106,26 @@ fn encode(index: &Index) -> Result<(Vec<u8>, usize), ()> {
     if json.len() as u64 > MAX_JSON_BYTES {
         return Err(());
     }
-    let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    gzip.write_all(&json).map_err(|_| ())?;
-    Ok((gzip.finish().map_err(|_| ())?, json.len()))
+    Ok(json)
 }
-fn decode(bytes: &[u8], now: chrono::DateTime<chrono::Utc>) -> Result<Index, ()> {
+fn gzip(json: &[u8]) -> Result<Vec<u8>, ()> {
+    let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gzip.write_all(json).map_err(|_| ())?;
+    gzip.finish().map_err(|_| ())
+}
+#[cfg(test)]
+fn encode(index: &Index) -> Result<(Vec<u8>, usize), ()> {
+    let json = to_json(index)?;
+    Ok((gzip(&json)?, json.len()))
+}
+/// `confirmed_at` は、この中身が HubSpot と同じだと最後に確かめた時刻 (行の `built_at`)。
+/// 中身が変わらない間は保存し直さず行の時刻だけを進めるので、中身の作成時刻より新しいことがある。
+/// 復元した索引の `built_at` はこの時刻にする。
+fn decode(
+    bytes: &[u8],
+    now: chrono::DateTime<chrono::Utc>,
+    confirmed_at: Option<&str>,
+) -> Result<(Index, [u8; 32]), ()> {
     let mut json = Vec::new();
     flate2::read::GzDecoder::new(bytes)
         .take(MAX_JSON_BYTES + 1)
@@ -95,8 +136,11 @@ fn decode(bytes: &[u8], now: chrono::DateTime<chrono::Utc>) -> Result<Index, ()>
     }
     let mut saved: SavedIndex<Index> = serde_json::from_slice(&json).map_err(|_| ())?;
     let built = chrono::DateTime::parse_from_rfc3339(&saved.index.built_at).map_err(|_| ())?;
-    let age = now.signed_duration_since(built);
+    let confirmed_text = confirmed_at.unwrap_or(&saved.index.built_at).to_owned();
+    let confirmed = chrono::DateTime::parse_from_rfc3339(&confirmed_text).map_err(|_| ())?;
+    let age = now.signed_duration_since(confirmed);
     if saved.version != VERSION
+        || confirmed < built
         || age < chrono::Duration::zero()
         || age > chrono::Duration::hours(24)
         || saved.listings.len() != saved.index.records.len()
@@ -104,6 +148,8 @@ fn decode(bytes: &[u8], now: chrono::DateTime<chrono::Utc>) -> Result<Index, ()>
     {
         return Err(());
     }
+    let digest = digest(&json, &saved.index.built_at);
+    drop(json);
     for (row, private) in saved.index.records.iter_mut().zip(saved.listings) {
         row.indexed_application_count = private.applications;
         row.body_summary = private.body_summary;
@@ -115,10 +161,31 @@ fn decode(bytes: &[u8], now: chrono::DateTime<chrono::Utc>) -> Result<Index, ()>
         deal.stage = private.stage;
         deal.created_at = private.created_at;
     }
-    Ok(saved.index)
+    saved.index.built_at = confirmed_text;
+    Ok((saved.index, digest))
 }
-fn save(audit: &AuditDb, index: &Index) -> Result<(), ()> {
-    let (bytes, json_bytes) = encode(index)?;
+/// 中身が前回の控え (`previous`) と同じなら、控えを送り直さず、その行の時刻だけを進める
+/// (UPDATE 1 文)。違う・前回が無い・時刻を進められなかったときは全部を保存する。
+fn save(audit: &AuditDb, index: &Index, previous: Option<&Saved>) -> Result<Saved, ()> {
+    let json = to_json(index)?;
+    let json_bytes = json.len();
+    let digest = digest(&json, &index.built_at);
+    if let Some(previous) = previous.filter(|p| p.digest == digest) {
+        let rows = audit.turso().query(
+            "UPDATE job_copy_index_snapshots SET built_at = ? WHERE generation = ? AND version = ? RETURNING part",
+            &[&index.built_at, &previous.generation, &VERSION],
+        );
+        if matches!(&rows, Ok(rows) if rows.len() as i64 == previous.parts) {
+            tracing::info!(
+                json_bytes,
+                parts = previous.parts,
+                "job-copy index snapshot unchanged, kept the saved copy"
+            );
+            return Ok(previous.clone());
+        }
+    }
+    let bytes = gzip(&json)?;
+    drop(json);
     let total = bytes.len().div_ceil(CHUNK_BYTES);
     if total == 0 || total > MAX_PARTS {
         return Err(());
@@ -137,9 +204,13 @@ fn save(audit: &AuditDb, index: &Index) -> Result<(), ()> {
         parts = total,
         "job-copy index snapshot saved"
     );
-    Ok(())
+    Ok(Saved {
+        generation,
+        parts: total as i64,
+        digest,
+    })
 }
-fn load(audit: &AuditDb) -> Result<Option<Index>, ()> {
+fn load(audit: &AuditDb) -> Result<Option<(Index, Saved)>, ()> {
     // Incomplete generations are ignored. Fetch each payload separately to bound HTTP responses too.
     let rows = audit.turso().query(
         "SELECT generation, total, built_at FROM job_copy_index_snapshots WHERE version = ? GROUP BY generation HAVING COUNT(*) = MAX(total) AND MIN(total) = MAX(total) AND MIN(part) = 0 AND MAX(part) = MAX(total)-1 ORDER BY built_at DESC LIMIT 1",
@@ -153,8 +224,8 @@ fn load(audit: &AuditDb) -> Result<Option<Index>, ()> {
     if !(1..=MAX_PARTS as i64).contains(&total) {
         return Err(());
     }
-    let built = chrono::DateTime::parse_from_rfc3339(row["built_at"].as_str().ok_or(())?)
-        .map_err(|_| ())?;
+    let built_text = row["built_at"].as_str().ok_or(())?.to_owned();
+    let built = chrono::DateTime::parse_from_rfc3339(&built_text).map_err(|_| ())?;
     let age = chrono::Utc::now().signed_duration_since(built);
     if age < chrono::Duration::zero() || age > chrono::Duration::hours(24) {
         return Ok(None);
@@ -171,39 +242,49 @@ fn load(audit: &AuditDb) -> Result<Option<Index>, ()> {
         }
         bytes.extend(STANDARD.decode(text).map_err(|_| ())?);
     }
-    let index = decode(&bytes, chrono::Utc::now())?;
-    if chrono::DateTime::parse_from_rfc3339(&index.built_at).map_err(|_| ())? != built {
-        return Err(());
-    }
-    Ok(Some(index))
+    let (index, digest) = decode(&bytes, chrono::Utc::now(), Some(&built_text))?;
+    Ok(Some((
+        index,
+        Saved {
+            generation,
+            parts: total,
+            digest,
+        },
+    )))
 }
-pub(super) async fn restore(cache: &Cache, audit: Option<AuditDb>) {
-    let Some(audit) = audit else {
-        return;
-    };
+pub(super) async fn restore(cache: &Cache, audit: Option<AuditDb>) -> Option<Saved> {
+    let audit = audit?;
     // メモリ計測: 保存した求人一覧の復元 (gzip を伸ばして JSON を読む)
     let _task = crate::mem_watch::task("job_copy.index_restore");
     match tokio::task::spawn_blocking(move || load(&audit)).await {
-        Ok(Ok(Some(index))) => {
+        Ok(Ok(Some((index, saved)))) => {
             let mut state = cache.state.write().await;
             state.snapshot = Some(Arc::new(index));
             state.refreshing = true;
+            Some(saved)
         }
-        Ok(Ok(None)) => {}
-        _ => tracing::warn!("job-copy index snapshot restore failed"),
+        Ok(Ok(None)) => None,
+        _ => {
+            tracing::warn!("job-copy index snapshot restore failed");
+            None
+        }
     }
 }
-pub(super) async fn persist(index: Arc<Index>, audit: Option<AuditDb>) {
+/// `previous` は前回保存した (または復元した) 控え。保存できたら新しい控えに置き換える。
+pub(super) async fn persist(
+    index: Arc<Index>,
+    audit: Option<AuditDb>,
+    previous: &mut Option<Saved>,
+) {
     let Some(audit) = audit else {
         return;
     };
+    let last = previous.clone();
     // メモリ計測: 求人一覧の保存 (JSON にして gzip・Base64 にし、Turso へ分けて書く)
     let _task = crate::mem_watch::task("job_copy.index_persist");
-    if !matches!(
-        tokio::task::spawn_blocking(move || save(&audit, &index)).await,
-        Ok(Ok(()))
-    ) {
-        tracing::warn!("job-copy index snapshot save failed");
+    match tokio::task::spawn_blocking(move || save(&audit, &index, last.as_ref())).await {
+        Ok(Ok(saved)) => *previous = Some(saved),
+        _ => tracing::warn!("job-copy index snapshot save failed"),
     }
 }
 
@@ -215,8 +296,8 @@ mod tests;
 pub(super) async fn test_round_trip(index: Index) -> Index {
     let (audit, _) = crate::audit::fake_turso::start_sqlite_audit().await;
     tokio::task::spawn_blocking(move || {
-        save(&audit, &index).unwrap();
-        load(&audit).unwrap().unwrap()
+        save(&audit, &index, None).unwrap();
+        load(&audit).unwrap().unwrap().0
     })
     .await
     .unwrap()
