@@ -88,7 +88,8 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 /* 通常は帯を1行に収め、大きな金額や一覧の固定で幅が足りないときは次の行へ送る。 */
 @media (min-width: 801px) {
   .jc-detail .jc-band { flex-wrap: wrap; gap: 12px; }
-  .jc-detail .jc-band-name { flex: 1 1 90px; min-width: 90px; }
+  /* 求人名の列は 300px より狭くしない（会社・地域・媒体・掲載状況の行が縦に折れないように）。足りないときは右の操作が次の段へ回る。 */
+  .jc-detail .jc-band-name { flex: 1 1 320px; min-width: 300px; }
   .jc-detail .jc-band-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 幅が足りないとき、本文の呼び名は枠の中で「…」に切る（枠の外へ出さない）。 */
   .jc-detail .jc-band-version { min-width: 0; max-width: 100%; }
@@ -195,9 +196,10 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .jc-band-latest-cue { margin-left: 12px; flex: 0 0 auto; }
 .lo-head label.lo-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
 .lo-head label.lo-toggle input { margin: 0; }
-.jc-detail .jc-band-latest.jc-open { flex: 0 1 auto; min-width: 200px; }
+/* 最新の変更は長い文を「…」で切り、求人名の列に幅を回す（全文はボタンの title）。 */
+.jc-detail .jc-band-latest.jc-open { flex: 0 1 auto; min-width: 160px; max-width: 250px; }
 /* 常に使う 3 つ（全文を比べる・求人の内容・報告書）。同じ大きさの枠付きで 1 列に。本文の状態はその下の小さな灰色の文字。 */
-.jc-band-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: 0 0 auto; }
+.jc-band-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: 0 0 auto; margin-left: auto; }
 .jc-band-buttons { display: flex; flex-wrap: nowrap; gap: 6px; }
 .jc-band-buttons > .jc-button { display: inline-flex; align-items: center; justify-content: center; gap: .25em; color: var(--jc-ink); text-decoration: none; font: inherit; cursor: pointer; }
 .jc-band-buttons > .jc-band-report { color: #0a5fb4; }

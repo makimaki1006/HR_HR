@@ -71,7 +71,7 @@ export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpe
       <div><dt>応募1件の費用</dt><dd data-testid="band-per-application">{formatBandYen(n.perApplicationYen)}<small>{n.perApplicationYen === null ? n.billingPer4WeeksYen === null ? '課金データなし' : n.recent === 0 ? '応募なし' : '' : '直近4週の課金 ÷ 応募'}</small></dd></div>
       <div><dt>{n.lastBillingDate ? `課金（${shortDay(n.lastBillingDate)} までの4週）` : '課金（4週あたり）'}</dt><dd data-testid="band-billing">{formatBandYen(n.billingPer4WeeksYen)}<small>{n.billingPer4WeeksYen === null ? '課金データなし' : ''}</small></dd></div>
     </dl>
-    {latestEvent && onOpenLatest && <button type="button" className="jc-band-latest jc-open" data-testid="band-latest-event" onClick={onOpenLatest}><span>最新の変更：{shortDay(latestEvent.date)} {latestEvent.title}</span><span aria-hidden="true" className="jc-band-latest-cue">見る ›</span></button>}
+    {latestEvent && onOpenLatest && <button type="button" className="jc-band-latest jc-open" data-testid="band-latest-event" title={`最新の変更：${shortDay(latestEvent.date)} ${latestEvent.title}`} onClick={onOpenLatest}><span>最新の変更：{shortDay(latestEvent.date)} {latestEvent.title}</span><span aria-hidden="true" className="jc-band-latest-cue">見る ›</span></button>}
     <span className="jc-band-spacer" />
     {/* 常に使う 3 つ。同じ大きさの枠付きで 1 列に並べる。 */}
     <div className="jc-band-actions">
