@@ -38,14 +38,14 @@ test('顧客の掲載中・過去の全求人、案件リンクと求人の往�
   await expect(live.locator('tbody tr').first()).toContainText('2026/09/01 〜 今日');
   await expect(live.locator('tbody tr').last()).toContainText('開始日不明 〜 今日');
   await expect(live.locator('tbody tr').first()).toContainText('本文を変更2026/10/15 09:00');
-  await expect(main.locator('summary')).toHaveText('過去（掲載終了） 23件');
+  await expect(main.locator('.jh-past-listings > summary')).toHaveText('過去（掲載終了） 23件');
   const past = page.getByRole('table', { name: '過去の求人', exact: true });
   await expect(past).toBeHidden();
   expect(indexOffsets).toEqual([0, 15]);
   expect(versions).toBe(0);
   expect(companyReads).toBe(1);
   await main.screenshot({ path: 'artifacts/company-live-past-collapsed.png' });
-  await main.locator('summary').click();
+  await main.locator('.jh-past-listings > summary').click();
   await expect(past.locator('tbody tr')).toHaveCount(20);
   await expect(past.locator('tbody tr').first()).toContainText('2026/04/01 〜 2026/09/30');
   await page.getByRole('navigation', { name: '過去のページ' }).getByRole('button', { name: '次の20件' }).click();
