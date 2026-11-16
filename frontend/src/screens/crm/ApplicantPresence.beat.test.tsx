@@ -56,3 +56,20 @@ it('閉じるときは取り下げ、そのあとは知らせない', () => {
   advance(600_000);
   expect(beats()).toBe(1);
 });
+
+it('隠れている間に知らせが失敗したら 15 秒後に知らせ直し、成功したら 60 秒おきに戻る', async () => {
+  renderHook(() => useApplicantPresence(false, '1', '09012345678'));
+  setHidden(true);
+  fetchMock.mockImplementationOnce(() => Promise.reject(new Error('network')));
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+  expect(beats()).toBe(2);
+  await act(async () => { await vi.advanceTimersByTimeAsync(14_999); });
+  expect(beats()).toBe(2);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(beats()).toBe(3);
+  // 3 回目は成功したので、次はその 60 秒後。
+  await act(async () => { await vi.advanceTimersByTimeAsync(59_999); });
+  expect(beats()).toBe(3);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(beats()).toBe(4);
+});

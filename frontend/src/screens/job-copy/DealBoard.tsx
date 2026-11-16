@@ -77,7 +77,7 @@ export function DealBoard() {
     });
     return () => { controller.abort(); };
   }, [ownerQuery, rangeQuery, reload]);
-  usePreparingRetry(data?.status === 'preparing' || (data?.status === 'ready' && data.refreshing), 2_000, data, () => { setReload(n => n + 1); });
+  usePreparingRetry(data?.status === 'preparing' || (data?.status === 'ready' && data.refreshing), 2_000, data, () => { setReload(n => n + 1); }, `${ownerQuery}${rangeQuery}`);
   const ready = data?.status === 'ready' ? data : null;
   const isReady = !!ready;
   // 「いい」のタグは、いい案件の集計（応募が増えた・採用単価が中央値より低い・MTGで前向きな話）を使う。取れなければタグだけ件数なしにする。

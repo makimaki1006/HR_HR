@@ -203,7 +203,8 @@ export function HubSpotUsagePanel({ intervalMs = HUBSPOT_USAGE_REFRESH_MS }: { i
     let last = Date.now();
     load();
     const tick = () => {
-      if (document.hidden || Date.now() - last < intervalMs) return;
+      // setInterval は少し早く・遅く動くことがあるので 1 秒の余裕を持たせる (15 秒が 30 秒にならないように)。
+      if (document.hidden || Date.now() - last < intervalMs - 1000) return;
       last = Date.now();
       load();
     };

@@ -100,3 +100,23 @@ it('useReportPolling: 隠れている間は読まず、戻ったとき期限を�
   await act(async () => { await vi.advanceTimersByTimeAsync(1); });
   expect(load).toHaveBeenCalledTimes(3);
 });
+
+it('usePreparingRetry: 準備中のまま条件が変わったら、前の予約を捨てて最初の間隔に戻す', () => {
+  const times: number[] = [];
+  const start = Date.now();
+  const { rerender } = renderHook(({ key, scope }: { key: number; scope: string }) => {
+    usePreparingRetry(true, 2_000, key, () => { times.push(Date.now() - start); }, scope);
+  }, { initialProps: { key: 0, scope: 'owner=1' } });
+  act(() => { vi.advanceTimersByTime(2_000); });
+  rerender({ key: 1, scope: 'owner=1' });
+  // 2 回目の予約は 4 秒後。その途中 (1 秒後) に条件が変わる。
+  act(() => { vi.advanceTimersByTime(1_000); });
+  rerender({ key: 1, scope: 'owner=2' });
+  // 前の予約 (3 秒後に来るはずだった) は呼ばれず、新しい条件で 2 秒後に 1 回。
+  act(() => { vi.advanceTimersByTime(1_999); });
+  expect(times).toEqual([2_000]);
+  act(() => { vi.advanceTimersByTime(1); });
+  expect(times).toEqual([2_000, 5_000]);
+  act(() => { vi.advanceTimersByTime(600_000); });
+  expect(times).toEqual([2_000, 5_000]);
+});

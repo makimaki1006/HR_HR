@@ -31,6 +31,30 @@ function serve(rows: unknown[]) {
 const listCalls = () => get.mock.calls.map(call => String(call[0])).filter(path => path.startsWith('/api/job-copy/listings?') && !path.includes('publication='));
 
 describe('OccupationBulk', () => {
+  it('準備中に取り直しが失敗しても、5 秒後にまた取り直す', async () => {
+    vi.useFakeTimers();
+    try {
+      let n = 0;
+      get.mockImplementation((path: string) => {
+        if (path.startsWith('/api/job-copy/listings/companies')) return Promise.resolve({ ok: true, data: { companies: {} } });
+        if (path.includes('publication=')) return Promise.resolve({ ok: true, data: page([], { set: 0, none: 0, unset: 0 }, { status: 'preparing' }) });
+        n += 1;
+        // 1 回目は準備中、2 回目は失敗、3 回目以降は準備中。
+        return Promise.resolve(n === 2 ? { ok: false, error: new ApiHttpError(503, 'busy') } : { ok: true, data: page([], { set: 0, none: 0, unset: 0 }, { status: 'preparing' }) });
+      });
+      render(<OccupationBulk />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(listCalls()).toHaveLength(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(listCalls()).toHaveLength(2);
+      // 失敗のあとも準備中のまま: 次は倍の 10 秒後に取り直す。
+      await act(async () => { await vi.advanceTimersByTimeAsync(9_999); });
+      expect(listCalls()).toHaveLength(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(listCalls()).toHaveLength(3);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('shows tab counts, progress for 掲載中, and requests 未指定 sorted for bulk with no pre-selection', async () => {
     serve([row('1', '配送A', 20, 'unset'), row('2', '配送B', 9, 'unset')]);
     render(<OccupationBulk />);

@@ -35,19 +35,22 @@ export function backoff(first: number, max = PREPARING_MAX_MS): () => number {
 
 /**
  * 準備中の応答のあと、もう一度読むきっかけ (再読み込みの番号を上げる等) を呼ぶ。
- * waiting の間、key (応答) が変わるたびに 1 回だけ予約し、間隔は first から倍々 (最大 60 秒)。
- * 準備が終わった (waiting が false) ら間隔を first に戻す。タブが隠れている間は呼ばない。
+ * waiting の間、key (読み込みの結果) が変わるたびに 1 回だけ予約し、間隔は first から倍々 (最大 60 秒)。
+ * 準備が終わった (waiting が false) か、条件 (scope: 担当者・期間・絞り込み等) が変わったら、
+ * 前の予約を捨てて間隔を first に戻す。タブが隠れている間は呼ばない。
  */
-export function usePreparingRetry(waiting: boolean, first: number, key: unknown, retry: () => void): void {
+export function usePreparingRetry(waiting: boolean, first: number, key: unknown, retry: () => void, scope: unknown = null): void {
   const next = useRef(first);
+  const lastScope = useRef(scope);
   const retryRef = useRef(retry);
   useEffect(() => { retryRef.current = retry; });
   useEffect(() => {
+    if (!Object.is(lastScope.current, scope)) { lastScope.current = scope; next.current = first; }
     if (!waiting) { next.current = first; return; }
     const ctl = new AbortController();
     const ms = next.current;
     next.current = Math.min(ms * 2, PREPARING_MAX_MS);
     runWhenDue(ctl.signal, ms, () => { retryRef.current(); });
     return () => { ctl.abort(); };
-  }, [waiting, first, key]);
+  }, [waiting, first, key, scope]);
 }

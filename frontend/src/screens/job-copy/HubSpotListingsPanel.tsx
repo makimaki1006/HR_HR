@@ -72,7 +72,7 @@ export function HubSpotListingsPanel({ onOpen, onVisibleRows, active = true, onL
     const timer = window.setTimeout(() => { void load(); }, dealSearch || nameSearch ? 250 : 0);
     return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
   }, [active, autoLoad, load, dealSearch, nameSearch, revision]);
-  usePreparingRetry(active && autoLoad && (page?.status === 'preparing' || !!page?.refreshing) && !error, 5_000, page, () => { if (page && !busy) void load(page.offset); });
+  usePreparingRetry(active && autoLoad && (page?.status === 'preparing' || !!page?.refreshing) && !error, 5_000, page, () => { if (page && !busy) void load(page.offset); }, load);
   const orderRef = useRef<string[]>([]);
   const opened = useRef('');
   const restored = useRef('');

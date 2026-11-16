@@ -44,7 +44,7 @@ const tabId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : St
 
 /**
  * 開いている応募を 15 秒おきに知らせ、ほかの人が開いている応募を受け取る。
- * タブが隠れている間も 60 秒おきに知らせ続ける (開きっぱなしも目印にする)。表示に戻ったらすぐ 1 回知らせ、15 秒おきに戻す。
+ * タブが隠れている間も 60 秒おきに知らせ続ける (開きっぱなしも目印にする。失敗した直後だけ 15 秒後)。表示に戻ったらすぐ 1 回知らせ、15 秒おきに戻す。
  * 閉じるときは取り下げる。
  */
 export function useApplicantPresence(fixture: boolean, applicant: string | null, phone: string): ApplicantViewer[] {
@@ -54,9 +54,11 @@ export function useApplicantPresence(fixture: boolean, applicant: string | null,
     let abort: AbortController | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let last = 0;
+    // 直前の知らせが失敗したら、隠れていても 15 秒後に知らせ直す (150 秒で目印が消えないように)。
+    let failed = false;
     const schedule = () => {
       clearTimeout(timer);
-      const gap = document.hidden ? HIDDEN_BEAT_MS : BEAT_MS;
+      const gap = document.hidden && !failed ? HIDDEN_BEAT_MS : BEAT_MS;
       timer = setTimeout(beat, Math.max(0, last + gap - Date.now()));
     };
     function beat() {
@@ -66,8 +68,8 @@ export function useApplicantPresence(fixture: boolean, applicant: string | null,
       last = Date.now();
       void fetch(URL, { method: 'POST', credentials: 'same-origin', headers: HEADERS, signal: current.signal, body: JSON.stringify({ tab: tabId, applicant, phone }) })
         .then(async r => { if (!r.ok) throw new Error(String(r.status)); return await r.json() as ApplicantPresence; })
-        .then(d => { if (!current.signal.aborted) setViewers(Array.isArray(d.viewers) ? d.viewers : []); })
-        .catch(() => { /* 次の周回で知らせ直す */ });
+        .then(d => { if (current.signal.aborted) return; if (failed) { failed = false; schedule(); } setViewers(Array.isArray(d.viewers) ? d.viewers : []); })
+        .catch(() => { if (current.signal.aborted) return; failed = true; schedule(); });
       schedule();
     }
     // 隠れたら次を 60 秒後に延ばし、表示に戻ったらすぐ知らせる。
