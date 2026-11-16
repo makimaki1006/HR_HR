@@ -31,6 +31,8 @@ use crate::AppState;
 type Shared<T> = Arc<Mutex<T>>;
 
 const OPERATOR: &str = "operator@example.com";
+/// 操作者の HubSpot の owner (偽 HubSpot のメール検索が返す。テストの取引は既定でこの人の担当)
+const OPERATOR_OWNER: &str = "9101";
 const OTHER: &str = "other@example.com";
 const ADMIN: &str = "admin@example.com";
 const DEAL: &str = "7001";
@@ -251,9 +253,20 @@ async fn hs_owners(Query(q): Query<HashMap<String, String>>) -> Response {
     if q.get("archived").map(String::as_str) == Some("true") {
         return Json(json!({"results": []})).into_response();
     }
+    // メールでの検索 (本人の owner)。操作者 = 9101、ほかの人 = 9102、管理者 = 9103
+    if let Some(email) = q.get("email") {
+        let id = match email.as_str() {
+            OPERATOR => "9101",
+            OTHER => "9102",
+            ADMIN => "9103",
+            _ => return Json(json!({"results": []})).into_response(),
+        };
+        return Json(json!({"results": [{"id": id, "email": email}]})).into_response();
+    }
     Json(json!({"results": [
         {"id": "9001", "firstName": "架空", "lastName": "一郎", "email": "ichiro@example.invalid"},
-        {"id": "9002", "firstName": "サンプル", "lastName": "二郎", "email": "jiro@example.invalid"}
+        {"id": "9002", "firstName": "サンプル", "lastName": "二郎", "email": "jiro@example.invalid"},
+        {"id": OPERATOR_OWNER, "firstName": "架空", "lastName": "操作者", "email": OPERATOR}
     ]}))
     .into_response()
 }
@@ -464,6 +477,7 @@ fn base_fake() -> Fake {
             ("pipeline".to_string(), PIPELINE.to_string()),
             ("bpo_50".to_string(), "旧メモ".to_string()),
             ("amount".to_string(), "1000".to_string()),
+            ("hubspot_owner_id".to_string(), OPERATOR_OWNER.to_string()),
         ]),
     );
     f.objects.insert(
@@ -1523,14 +1537,14 @@ async fn 取引担当者は_それを出すステージ_案件差戻_へ移す�
     // ステージ移動なしでは書けない (担当者の自由な付け替えはしない)
     let (s, v) = e
         .patch(json!({"operation_id": "op-own-solo-0001",
-            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9001"}}))
+            "base": {"hubspot_owner_id": OPERATOR_OWNER}, "set": {"hubspot_owner_id": "9001"}}))
         .await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
     assert!(v["errors"]["hubspot_owner_id"].is_string(), "{v}");
     // 取引担当者を出さないステージ (不通) へ移す要求でも書けない
     let (s, v) = e
         .patch(json!({"operation_id": "op-own-fuzuu-0001",
-            "base": {"hubspot_owner_id": null, "bpo_10": null},
+            "base": {"hubspot_owner_id": OPERATOR_OWNER, "bpo_10": null},
             "set": {"hubspot_owner_id": "9001", "bpo_10": "reception_refused"},
             "stage": {"pipeline_id": PIPELINE, "stage_id": FUZUU}}))
         .await;
@@ -1540,14 +1554,14 @@ async fn 取引担当者は_それを出すステージ_案件差戻_へ移す�
     let sashi = json!({"pipeline_id": PIPELINE, "stage_id": SASHIMODOSHI});
     let (s, v) = e
         .patch(json!({"operation_id": "op-own-bad-0001",
-            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "424242"}, "stage": sashi}))
+            "base": {"hubspot_owner_id": OPERATOR_OWNER}, "set": {"hubspot_owner_id": "424242"}, "stage": sashi}))
         .await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
     assert_eq!(e.calls("PATCH"), 0);
     // 案件差戻へ移すときは、実在する担当者に書ける (ステージと同じ 1 回の PATCH)
     let (s, v) = e
         .patch(json!({"operation_id": "op-own-ok-0001",
-            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9002"}, "stage": sashi}))
+            "base": {"hubspot_owner_id": OPERATOR_OWNER}, "set": {"hubspot_owner_id": "9002"}, "stage": sashi}))
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     let patches = e.hs.lock().unwrap().patches();
@@ -1567,7 +1581,7 @@ async fn すでに案件差戻にいる取引は_同じステージ指定でも�
     let sashi = json!({"pipeline_id": PIPELINE, "stage_id": SASHIMODOSHI});
     let (s, v) = e
         .patch(json!({"operation_id": "op-own-stay-0001",
-            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9001"}, "stage": sashi}))
+            "base": {"hubspot_owner_id": OPERATOR_OWNER}, "set": {"hubspot_owner_id": "9001"}, "stage": sashi}))
         .await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
     assert_eq!(
@@ -1575,18 +1589,132 @@ async fn すでに案件差戻にいる取引は_同じステージ指定でも�
         "この項目はステージを移すときだけ変えられます"
     );
     assert_eq!(e.calls("PATCH"), 0, "HubSpot には書かない");
-    // 同じ値 (応答を失った再送と同じ形) は変更ではないので、書かずに保存済みとして返す
+    // 同じ値 (応答を失った再送と同じ形: base と現在値は違うが、書く値と現在値が同じ) は変更ではないので、
+    // 書かずに保存済みとして返す。担当者が操作者でなくなった取引なので、管理者で送る
     e.hs.lock()
         .unwrap()
         .objects
         .get_mut(&("deals".to_string(), DEAL.to_string()))
         .unwrap()
         .insert("hubspot_owner_id".into(), "9001".into());
+    let admin = login(&e.app, ADMIN, "google_oidc").await;
+    let (s, v) = call(
+        &e.app,
+        Method::PATCH,
+        &format!("/api/crm/deals/{DEAL}"),
+        Some(&admin),
+        Some(json!({"operation_id": "op-own-stay-0002",
+            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9001"}, "stage": sashi})),
+        true,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(e.calls("PATCH"), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 管理者以外は自分の担当でない取引に保存できず_403_not_owner_で何も書かない() {
+    let e = env_with(base_fake(), open(), true).await;
+    // 取引の担当は操作者 (9101)。ほかの人 (9102) は保存できない
+    let (s, v) = call(
+        &e.app,
+        Method::PATCH,
+        &format!("/api/crm/deals/{DEAL}"),
+        Some(&e.other),
+        Some(json!({"operation_id": "op-not-owner-0001", "base": {"bpo_50": "旧メモ"}, "set": {"bpo_50": "他人のメモ"}})),
+        true,
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error_kind"], "not_owner");
+    // 担当者だけを書く要求 (取引の段が無い) も同じ
+    let (s, v) = call(
+        &e.app,
+        Method::PATCH,
+        &format!("/api/crm/deals/{DEAL}"),
+        Some(&e.other),
+        Some(json!({"operation_id": "op-not-owner-0002",
+            "objects": {"contact": {"id": CONTACT, "base": {"jobtitle": "旧役職"}, "set": {"jobtitle": "部長"}}}})),
+        true,
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error_kind"], "not_owner");
+    assert_eq!(e.calls("PATCH"), 0, "HubSpot には書かない");
+    assert_eq!(
+        e.hs.lock()
+            .unwrap()
+            .value("deals", DEAL, "bpo_50")
+            .as_deref(),
+        Some("旧メモ")
+    );
+    // 断った要求は台帳に積まない
+    let n: i64 = e
+        .conn
+        .lock()
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM crm_pending_operations", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(n, 0);
+    // 担当者本人と管理者は保存できる
     let (s, v) = e
-        .patch(json!({"operation_id": "op-own-stay-0002",
-            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9001"}, "stage": sashi}))
+        .patch(json!({"operation_id": "op-owner-0003", "base": {"bpo_50": "旧メモ"}, "set": {"bpo_50": "本人のメモ"}}))
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
+    let admin = login(&e.app, ADMIN, "google_oidc").await;
+    let (s, v) = call(
+        &e.app,
+        Method::PATCH,
+        &format!("/api/crm/deals/{DEAL}"),
+        Some(&admin),
+        Some(json!({"operation_id": "op-admin-0004", "base": {"bpo_50": "本人のメモ"}, "set": {"bpo_50": "管理者のメモ"}})),
+        true,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        e.hs.lock()
+            .unwrap()
+            .value("deals", DEAL, "bpo_50")
+            .as_deref(),
+        Some("管理者のメモ")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 担当者が空の取引は管理者以外は保存できない() {
+    let e = env_with(base_fake(), open(), true).await;
+    e.hs.lock()
+        .unwrap()
+        .objects
+        .get_mut(&("deals".to_string(), DEAL.to_string()))
+        .unwrap()
+        .remove("hubspot_owner_id");
+    let (s, v) = e
+        .patch(json!({"operation_id": "op-no-owner-0001", "base": {"bpo_50": "旧メモ"}, "set": {"bpo_50": "x"}}))
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error_kind"], "not_owner");
+    assert_eq!(e.calls("PATCH"), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hubspot_の担当者に結び付かない人は保存できず_403_owner_not_found() {
+    let e = env_with(base_fake(), open(), true).await;
+    let nobody = login(&e.app, "nobody@example.com", "google_oidc").await;
+    let (s, v) = call(
+        &e.app,
+        Method::PATCH,
+        &format!("/api/crm/deals/{DEAL}"),
+        Some(&nobody),
+        Some(json!({"operation_id": "op-nobody-0001", "base": {"bpo_50": "旧メモ"}, "set": {"bpo_50": "x"}})),
+        true,
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error_kind"], "owner_not_found");
     assert_eq!(e.calls("PATCH"), 0);
 }
 
@@ -1605,6 +1733,7 @@ fn concurrent_fake(deals: &[&str]) -> Fake {
                 ("dealstage".to_string(), UNPROCESSED.to_string()),
                 ("pipeline".to_string(), PIPELINE.to_string()),
                 ("bpo_50".to_string(), "初期値".to_string()),
+                ("hubspot_owner_id".to_string(), OPERATOR_OWNER.to_string()),
             ]),
         );
     }
@@ -1654,7 +1783,6 @@ async fn fire(e: &Env, deals: &[&str], n: usize) -> Vec<(String, StatusCode, Val
 async fn 同じ案件へ_15_件同時に同じ_base_で書くと_1_件だけ保存され_14_件は_409() {
     let cfg = open();
     let e = env_with(concurrent_fake(&["7201"]), cfg.clone(), true).await;
-    let before = e.client.gateway().snapshot().coalesced;
     let res = fire(&e, &["7201"], 15).await;
     let saved = res.iter().filter(|r| r.1 == StatusCode::OK).count();
     let conflict = res.iter().filter(|r| r.1 == StatusCode::CONFLICT).count();
@@ -1671,8 +1799,12 @@ async fn 同じ案件へ_15_件同時に同じ_base_で書くと_1_件だけ保�
         e.hs.lock().unwrap().value("deals", "7201", "bpo_50"),
         Some(won)
     );
-    // 競合確認の読み取りは相乗りしない
-    assert_eq!(e.client.gateway().snapshot().coalesced, before);
+    // 競合確認の読み取りは相乗りしない (15 件とも取引を読む)。
+    // 本人の owner の検索 (同じメールで同時に 15 件) は相乗りしてよいので、相乗りの数ではなく取引の読み取りの数で見る
+    assert_eq!(
+        e.hs.lock().unwrap().count("GET /crm/v3/objects/deals/7201"),
+        15
+    );
     // 鍵の表は空に戻る
     assert!(cfg.locks.is_empty());
 }

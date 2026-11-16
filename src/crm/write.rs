@@ -790,6 +790,8 @@ pub enum Stop {
     InvalidStage,
     /// ステージを移すときだけ書ける項目 ([`STAGE_ONLY_WRITABLE`]) を、すでにそのステージにいる取引で変えようとした
     StageOnlyWithoutMove(Vec<String>),
+    /// 管理者以外が、自分の担当でない取引に書こうとした (BPO の会議 2026-11-16: 他人のリストを勝手に扱わない)
+    NotOwner,
     Transient(HubSpotError),
     Permanent(HubSpotError),
 }
@@ -817,6 +819,17 @@ fn step_ptype<'a>(step: &'a Step, prop: &str) -> &'a str {
 
 /// 現在値を読み、競合 (`base` と違う) と移動先の必須項目の不足を確かめる。HubSpot の書き込みはしない
 pub async fn prepare(client: &HubSpotClient, step: &Step) -> Result<Prepared, Stop> {
+    prepare_owned(client, step, None).await
+}
+
+/// [`prepare`] に加えて、取引の段なら担当者 (`hubspot_owner_id`) が `owner` と同じかを、競合より先に確かめる
+/// (同じ読み取りで読むので HubSpot の呼び出しは増えない)。`owner` が None なら確かめない (管理者・再送)
+pub async fn prepare_owned(
+    client: &HubSpotClient,
+    step: &Step,
+    owner: Option<&str>,
+) -> Result<Prepared, Stop> {
+    let check_owner = owner.filter(|_| step.object == "deals");
     let mut props: BTreeSet<String> = step.set.keys().cloned().collect();
     props.extend(step.base.keys().cloned());
     let required = step
@@ -832,12 +845,21 @@ pub async fn prepare(client: &HubSpotClient, step: &Step) -> Result<Prepared, St
     if step.object == "0-421" {
         props.insert("hs_pipeline".into());
     }
-    let names: Vec<&str> = props.iter().map(String::as_str).collect();
+    let mut names: Vec<&str> = props.iter().map(String::as_str).collect();
+    if check_owner.is_some() && !props.contains("hubspot_owner_id") {
+        names.push("hubspot_owner_id");
+    }
     // 競合確認の読み取りは相乗り・キャッシュをしない (直前の書き込み前の値と比べると、更新を取りこぼす)
     let rec = client
         .get_object_fresh(&step.object, &step.id, &names)
         .await
         .map_err(classify)?;
+    if let Some(me) = check_owner {
+        let cur_owner = rec.properties.get("hubspot_owner_id").cloned().flatten();
+        if cur_owner.as_deref() != Some(me) {
+            return Err(Stop::NotOwner);
+        }
+    }
     let cur: BTreeMap<String, Option<String>> = props
         .iter()
         .map(|k| (k.clone(), rec.properties.get(k).cloned().flatten()))
@@ -1481,6 +1503,7 @@ async fn patch_record(
                 reuse_failed,
                 &gate,
                 applicant,
+                !applicant && !is_admin,
             )
             .await
         }
@@ -1527,7 +1550,25 @@ async fn run_patch(
     reuse_failed: bool,
     gate: &CommitGate,
     applicant: bool,
+    own_deals_only: bool,
 ) -> Response {
+    // 管理者以外は自分の担当の取引だけ保存できる (BPO の会議 2026-11-16「他人のリストを勝手に自分へ割り当てられないようにする」。
+    // ユーザー決定: 見るのは今までどおり全件、保存は自分の担当分だけ)。本人の owner は 10 分キャッシュから引く
+    let owner_guard: Option<String> = if own_deals_only {
+        match ctx.queue.owner_for(client, operator).await {
+            Ok(Some(o)) => Some(o),
+            Ok(None) => {
+                count_rejection("owner_not_found");
+                return err(StatusCode::FORBIDDEN, "owner_not_found");
+            }
+            Err(e) => {
+                count_rejection(&format!("read_failed:{}", e.error_kind()));
+                return hubspot_error_response(&e);
+            }
+        }
+    } else {
+        None
+    };
     // 同じ案件への書き込みは 1 つずつ (読む → 比べる → 書く の間に他の要求が割り込めない)
     let Ok(mut held) = ctx
         .write
@@ -1591,10 +1632,15 @@ async fn run_patch(
         return record_busy();
     }
 
-    // 事前確認 (現在値の読み取り → 競合・必須項目)
+    // 取引の段は担当者・会社だけを書く要求にも必ずある (build_steps が set の空の段を作る) ので、
+    // 担当者の確認はその段の事前確認の読み取りで一緒に行う (HubSpot の呼び出しは増えない)
+    // 事前確認 (現在値の読み取り → 担当者・競合・必須項目)
     let mut prepared = Vec::new();
     for s in &steps {
-        match prepare(client, s).await {
+        let guard = owner_guard
+            .as_deref()
+            .filter(|_| s.object == "deals" && s.id == deal_id);
+        match prepare_owned(client, s, guard).await {
             Ok(p) => prepared.push(p),
             Err(stop) => {
                 // 何も書かない終わり方 (競合など)。監査の書き込みを待たせないよう、先に鍵を放す
@@ -1954,7 +2000,8 @@ async fn verify_after_send(client: &HubSpotClient, steps: &mut [Step], run: &mut
             | Err(Stop::Conflict { .. })
             | Err(Stop::Missing(_))
             | Err(Stop::InvalidStage)
-            | Err(Stop::StageOnlyWithoutMove(_)) => return Verified::NotApplied,
+            | Err(Stop::StageOnlyWithoutMove(_))
+            | Err(Stop::NotOwner) => return Verified::NotApplied,
             Err(Stop::Transient(_)) | Err(Stop::Permanent(_)) => return Verified::Unknown,
         }
     }
@@ -1987,7 +2034,7 @@ async fn stop_response(
             count_rejection(&format!("read_failed:{}", e.error_kind()));
             hubspot_error_response(&e)
         }
-        Stop::Missing(_) | Stop::InvalidStage | Stop::StageOnlyWithoutMove(_) => {
+        Stop::Missing(_) | Stop::InvalidStage | Stop::StageOnlyWithoutMove(_) | Stop::NotOwner => {
             count_rejection(&outcome);
             (status, Json(body)).into_response()
         }
@@ -2134,6 +2181,12 @@ fn stop_body(
             );
             (s, v, "stage_only_without_move".into(), None)
         }
+        Stop::NotOwner => (
+            StatusCode::FORBIDDEN,
+            json!({"error": "not_owner", "error_kind": "not_owner"}),
+            "not_owner".into(),
+            None,
+        ),
         Stop::Missing(m) => {
             let errors = m
                 .iter()
