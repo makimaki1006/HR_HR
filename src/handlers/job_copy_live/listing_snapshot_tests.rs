@@ -76,14 +76,14 @@ async fn round_trip_and_reject_invalid_snapshots() {
     let (audit, conn) = crate::audit::fake_turso::start_sqlite_audit().await;
     tokio::task::spawn_blocking(move || {
         let index = fixture(12);
-        save(&audit, &index).unwrap();
-        assert_same(&load(&audit).unwrap().unwrap(), &index);
+        save(&audit, &index, None).unwrap();
+        assert_same(&load(&audit).unwrap().unwrap().0, &index);
         conn.lock()
             .unwrap()
             .execute("UPDATE job_copy_index_snapshots SET version=3", [])
             .unwrap();
         assert!(load(&audit).unwrap().is_none());
-        save(&audit, &index).unwrap();
+        save(&audit, &index, None).unwrap();
         conn.lock()
             .unwrap()
             .execute(
@@ -92,7 +92,7 @@ async fn round_trip_and_reject_invalid_snapshots() {
             )
             .unwrap();
         assert!(load(&audit).unwrap().is_none());
-        save(&audit, &index).unwrap();
+        save(&audit, &index, None).unwrap();
         conn.lock()
             .unwrap()
             .execute("UPDATE job_copy_index_snapshots SET payload='broken'", [])
@@ -119,12 +119,12 @@ async fn round_trip_and_reject_invalid_snapshots() {
                 flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
             gzip.write_all(&serde_json::to_vec(&value).unwrap())
                 .unwrap();
-            assert!(decode(&gzip.finish().unwrap(), chrono::Utc::now()).is_err());
+            assert!(decode(&gzip.finish().unwrap(), chrono::Utc::now(), None).is_err());
             value[key] = old;
         }
         let mut old = index;
         old.built_at = (chrono::Utc::now() - chrono::Duration::hours(25)).to_rfc3339();
-        assert!(decode(&encode(&old).unwrap().0, chrono::Utc::now()).is_err());
+        assert!(decode(&encode(&old).unwrap().0, chrono::Utc::now(), None).is_err());
         conn.lock()
             .unwrap()
             .execute("DROP TABLE job_copy_index_snapshots", [])
@@ -139,20 +139,20 @@ async fn interrupted_write_keeps_previous_generation_and_costs_one_request_per_p
     use rand::{Rng, SeedableRng};
     let (audit, conn, queries) = crate::audit::fake_turso::start_sqlite_audit_with_queries().await;
     tokio::task::spawn_blocking(move || {
-        let old = fixture(3); save(&audit,&old).unwrap();
+        let old = fixture(3); save(&audit, &old, None).unwrap();
         let mut next = fixture(4);
         let mut rng = rand::rngs::StdRng::seed_from_u64(42);
         next.records[0].title = Some((0..2_000_000).map(|_| char::from(rng.gen_range(b'!'..=b'~'))).collect());
         let parts = encode(&next).unwrap().0.len().div_ceil(CHUNK_BYTES);
         assert!(parts > 1);
         conn.lock().unwrap().execute_batch("CREATE TRIGGER fail_snapshot BEFORE INSERT ON job_copy_index_snapshots WHEN NEW.part=1 BEGIN SELECT RAISE(ABORT,'simulated'); END").unwrap();
-        assert!(save(&audit,&next).is_err());
-        assert_same(&load(&audit).unwrap().unwrap(),&old);
+        assert!(save(&audit, &next, None).is_err());
+        assert_same(&load(&audit).unwrap().unwrap().0,&old);
         conn.lock().unwrap().execute_batch("DROP TRIGGER fail_snapshot").unwrap();
         queries.lock().unwrap().clear();
-        save(&audit,&next).unwrap();
+        save(&audit, &next, None).unwrap();
         assert_eq!(queries.lock().unwrap().len(),parts);
-        assert_same(&load(&audit).unwrap().unwrap(),&next);
+        assert_same(&load(&audit).unwrap().unwrap().0,&next);
         let generations:i64=conn.lock().unwrap().query_row("SELECT COUNT(DISTINCT generation) FROM job_copy_index_snapshots",[],|r|r.get(0)).unwrap();
         assert_eq!(generations,1);
     }).await.unwrap();
@@ -162,7 +162,7 @@ async fn worker_serves_restored_index_then_replaces_and_saves_it() {
     use axum::routing::any;
     let (audit, _) = crate::audit::fake_turso::start_sqlite_audit().await;
     let initial = Arc::new(fixture(1));
-    persist(initial.clone(), Some(audit.clone())).await;
+    persist(initial.clone(), Some(audit.clone()), &mut None).await;
     let entered = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Semaphore::new(0));
     let (seen, gate) = (entered.clone(), release.clone());
@@ -213,7 +213,7 @@ async fn worker_serves_restored_index_then_replaces_and_saves_it() {
             // The worker may be mid-save: the last INSERT's trigger can drop the generation
             // this read picked, so a failed read here means "not yet", not a broken snapshot.
             if tokio::task::spawn_blocking(
-                move || matches!(load(&a), Ok(Some(index)) if index.records.is_empty()),
+                move || matches!(load(&a), Ok(Some((index, _))) if index.records.is_empty()),
             )
             .await
             .unwrap()
@@ -228,13 +228,90 @@ async fn worker_serves_restored_index_then_replaces_and_saves_it() {
     server.abort();
     restore(&service.listing_index, None).await;
 }
+#[tokio::test(flavor = "multi_thread")]
+async fn unchanged_rebuild_moves_the_time_without_resending_the_copy() {
+    let (audit, conn, queries) = crate::audit::fake_turso::start_sqlite_audit_with_queries().await;
+    tokio::task::spawn_blocking(move || {
+        // 30 時間前に作った中身を、そのあと同じ中身のまま作り直し続けた場合。
+        let mut first = fixture(12);
+        first.built_at = (chrono::Utc::now() - chrono::Duration::hours(30)).to_rfc3339();
+        let saved = save(&audit, &first, None).unwrap();
+        let payload_before: String = conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT group_concat(payload,'') FROM job_copy_index_snapshots",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        let mut rebuilt = fixture(12);
+        rebuilt.built_at = chrono::Utc::now().to_rfc3339();
+        queries.lock().unwrap().clear();
+        let kept = save(&audit, &rebuilt, Some(&saved)).unwrap();
+        assert_eq!(kept, saved);
+        // 送るのは時刻を進める UPDATE 1 文だけ。中身は送り直さない。
+        let sent = queries.lock().unwrap().clone();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("UPDATE job_copy_index_snapshots"));
+        let payload_after: String = conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT group_concat(payload,'') FROM job_copy_index_snapshots",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(payload_before, payload_after);
+
+        // 中身は 30 時間前のものでも、確かめた時刻が新しいので復元でき、時刻は確かめた時刻になる。
+        let (restored, restored_saved) = load(&audit).unwrap().unwrap();
+        assert_eq!(restored.built_at, rebuilt.built_at);
+        assert_same(&restored, &rebuilt);
+        // 復元した控えの要約値は保存したときと同じ (再起動後の作り直しも保存し直さない)。
+        assert_eq!(restored_saved, saved);
+
+        // 中身が 1 か所でも変われば全部を保存し、新しい控えになる。
+        let mut changed = fixture(12);
+        changed.records[3].title = Some("変わった求人".into());
+        queries.lock().unwrap().clear();
+        let next = save(&audit, &changed, Some(&saved)).unwrap();
+        assert_ne!(next.generation, saved.generation);
+        assert!(queries.lock().unwrap().iter().all(|q| q.contains("INSERT")));
+        assert_same(&load(&audit).unwrap().unwrap().0, &changed);
+
+        // 前回の控えが消えていたら (UPDATE が 0 行)、全部を保存し直す。
+        conn.lock()
+            .unwrap()
+            .execute("DELETE FROM job_copy_index_snapshots", [])
+            .unwrap();
+        let again = save(&audit, &changed, Some(&next)).unwrap();
+        assert_ne!(again.generation, next.generation);
+        assert_same(&load(&audit).unwrap().unwrap().0, &changed);
+    })
+    .await
+    .unwrap();
+}
+#[test]
+fn digest_ignores_only_the_build_time() {
+    let mut a = fixture(3);
+    let mut b = fixture(3);
+    a.built_at = "2026-11-01T00:00:00+00:00".into();
+    b.built_at = "2026-11-16T09:00:00+00:00".into();
+    let d = |i: &Index| digest(&to_json(i).unwrap(), &i.built_at);
+    assert_eq!(d(&a), d(&b));
+    b.deals[0].count += 1;
+    assert_ne!(d(&a), d(&b));
+}
 #[test]
 fn measure_41000_body_free_rows() {
     let index = fixture(41_000);
     let (bytes, json_bytes) = encode(&index).unwrap();
     let parts = bytes.len().div_ceil(CHUNK_BYTES);
     println!("snapshot measurement: rows=41000 deals=500 json_bytes={json_bytes} gzip_bytes={} parts={parts} base64_bytes={}",bytes.len(),STANDARD.encode(&bytes).len());
-    assert_same(&decode(&bytes, chrono::Utc::now()).unwrap(), &index);
+    assert_same(&decode(&bytes, chrono::Utc::now(), None).unwrap().0, &index);
 }
 
 #[test]
@@ -250,7 +327,7 @@ fn reclogi_snapshot_round_trip_and_v3_rejection_without_network() {
         row.account_id = None;
     }
     let (bytes, _) = encode(&index).unwrap();
-    assert_same(&decode(&bytes, chrono::Utc::now()).unwrap(), &index);
+    assert_same(&decode(&bytes, chrono::Utc::now(), None).unwrap().0, &index);
     let mut raw = Vec::new();
     flate2::read::GzDecoder::new(&bytes[..])
         .read_to_end(&mut raw)
@@ -260,5 +337,5 @@ fn reclogi_snapshot_round_trip_and_v3_rejection_without_network() {
     saved["version"] = json!(3);
     let mut old = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     old.write_all(&serde_json::to_vec(&saved).unwrap()).unwrap();
-    assert!(decode(&old.finish().unwrap(), chrono::Utc::now()).is_err());
+    assert!(decode(&old.finish().unwrap(), chrono::Utc::now(), None).is_err());
 }

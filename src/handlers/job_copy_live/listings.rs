@@ -840,6 +840,13 @@ async fn build_index(
         elapsed_ms = stage.elapsed().as_millis() as u64,
         "job-copy index deal names"
     );
+    // 範囲を並行して読み、読み終えた順に足しているので、並びが作るたびに変わる。
+    // 中身が同じなら同じ控えになるよう (保存し直さないため)、求人 ID の新しい順に固定する。
+    // 画面の並びは表示のときに別に並べ替える。
+    records.sort_by(|a, b| {
+        let key = |id: &str| (id.parse::<u64>().ok(), id.to_owned());
+        key(&b.id).cmp(&key(&a.id))
+    });
     let mut deal_counts = BTreeMap::<String, usize>::new();
     for row in &mut records {
         row.deal_ids = mapping
@@ -951,9 +958,11 @@ pub(super) fn start_worker(
     // Keep the HTTP client, not the cache/service; holding the service here would form a cycle.
     let hs = service.hs.background();
     *worker = Some(tokio::spawn(async move {
-        if let Some(cache) = weak.upgrade() {
-            snapshot::restore(&cache, audit.clone()).await;
-        }
+        // 最後に保存した控え。中身が同じなら作り直しのたびに保存し直さない。
+        let mut saved = match weak.upgrade() {
+            Some(cache) => snapshot::restore(&cache, audit.clone()).await,
+            None => None,
+        };
         loop {
             let Some(cache) = weak.upgrade() else {
                 return;
@@ -972,7 +981,7 @@ pub(super) fn start_worker(
             if result.is_ok() {
                 let snapshot = cache.state.read().await.snapshot.clone();
                 if let Some(index) = snapshot {
-                    snapshot::persist(index.clone(), audit.clone()).await;
+                    snapshot::persist(index.clone(), audit.clone(), &mut saved).await;
                     // Attach the shared cache: the worker's temporary service has its own caches.
                     let mut home_service = service.clone();
                     home_service.listing_index = cache.clone();
