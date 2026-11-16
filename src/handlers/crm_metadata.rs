@@ -133,7 +133,7 @@ fn parse_properties(
         if !allowed_property(api_name, name) {
             continue;
         }
-        let p: HubProperty = serde_json::from_value(item.clone())
+        let p: HubProperty = serde::Deserialize::deserialize(&item)
             .map_err(|_| decode_error("property definition"))?;
         out.push(CrmPropertyDefinition {
             object_type: api_name.to_owned(),

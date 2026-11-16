@@ -544,6 +544,7 @@ impl HubSpotClient {
                 HubSpotError::Transport(transport_message(e))
             }
         })?;
+        crate::mem_watch::received(crate::mem_watch::Peer::HubSpot, bytes.len());
         let v: Value = serde_json::from_slice(&bytes)
             .map_err(|_| HubSpotError::Decode("invalid json".into()))?;
         let scopes = v
@@ -1364,6 +1365,7 @@ impl HubSpotClient {
                 HubSpotError::Transport(transport_message(e))
             }
         })?;
+        crate::mem_watch::received(crate::mem_watch::Peer::HubSpot, bytes.len());
         let v = if bytes.is_empty() {
             Value::Null
         } else {
@@ -1476,10 +1478,13 @@ impl HubSpotClient {
         let status = resp.status();
         if status.is_success() {
             return match resp.bytes().await {
-                Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
-                    Ok(v) => Attempt::Ok(v),
-                    Err(_) => Attempt::Fatal(HubSpotError::Decode("invalid json".into())),
-                },
+                Ok(bytes) => {
+                    crate::mem_watch::received(crate::mem_watch::Peer::HubSpot, bytes.len());
+                    match serde_json::from_slice::<Value>(&bytes) {
+                        Ok(v) => Attempt::Ok(v),
+                        Err(_) => Attempt::Fatal(HubSpotError::Decode("invalid json".into())),
+                    }
+                }
                 Err(e) if e.is_timeout() => Attempt::Retryable {
                     err: HubSpotError::Timeout,
                     wait: None,

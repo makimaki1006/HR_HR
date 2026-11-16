@@ -30,6 +30,20 @@ pub(super) struct Deal {
     pub(super) assignment: owner_todo::Assignment,
     pub(super) count: usize,
 }
+/// [`summary`] が読む欄 (本文 2 欄と、求人票の構造化された欄)。
+/// 本文のまとめ読みはこの欄だけを頼む。`summary` で読む欄を足したらここにも足す
+/// (テスト `summary_reads_only_summary_properties` で確かめる)。
+pub(super) const SUMMARY_PROPERTIES: &[&str] = &[
+    "hrh_kyuujinhyou_honbun",
+    "shigotonaiyou",
+    "zhizhong",
+    "todoufuken",
+    "shikuchouson",
+    "qinwude",
+    "kyuuyokeitai",
+    "kinmujikan",
+    "kyuujitsu",
+];
 pub(super) fn summary(record: &Record, media: &str) -> Summary {
     let body = record
         .value(if media == "hrh" {
@@ -291,7 +305,7 @@ pub(super) async fn index_deal_records(
                         &super::super::listing_retry::DELAYS,
                     )
                     .await?;
-                let page: Page = serde_json::from_value(data.clone())
+                let page: Page = serde::Deserialize::deserialize(&data)
                     .map_err(|_| fail("hubspot_invalid_response"))?;
                 if data
                     .get("errors")

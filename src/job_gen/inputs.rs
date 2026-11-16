@@ -222,6 +222,7 @@ async fn fetch_url(url: &str) -> Result<String> {
         }
         buf.extend_from_slice(&chunk);
     }
+    crate::mem_watch::received(crate::mem_watch::Peer::Other, buf.len());
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 

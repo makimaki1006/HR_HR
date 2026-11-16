@@ -535,7 +535,7 @@ async fn read_listings(
             )
             .await?;
         stats.listing_calls += 1;
-        let rows: Vec<Record> = serde_json::from_value(data["results"].clone())
+        let rows: Vec<Record> = serde::Deserialize::deserialize(&data["results"])
             .map_err(|_| fail("hubspot_invalid_response"))?;
         found.extend(rows.into_iter().map(|r| (r.id.clone(), r)));
     }

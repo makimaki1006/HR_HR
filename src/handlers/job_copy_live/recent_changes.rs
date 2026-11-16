@@ -9,8 +9,10 @@ const PROPERTIES: &[&str] = &[
     "kyuuyokeitai",
     "hs_name",
 ];
-// 本番読み取りで100件は400、50件は200を確認。履歴付きの要求は50件に抑える。
-const HISTORY_BATCH: usize = 50;
+// 本番読み取りで100件は400、50件は200を確認。履歴付きの要求は上限50件のところ、
+// 1 回に受け取る本文と履歴の量 (メモリ) を抑えるため 25 件・同時 2 本にする。
+const HISTORY_BATCH: usize = 25;
+const HISTORY_PARALLEL: usize = 2;
 const TTL: Duration = Duration::from_secs(3 * 60 * 60);
 const RETRY: Duration = Duration::from_secs(60);
 #[derive(Default)]
@@ -248,8 +250,8 @@ async fn histories(
     stats: &mut Stats,
 ) -> Result<BTreeMap<String, BTreeMap<&'static str, DateTime<Utc>>>, ReadError> {
     let mut changed = BTreeMap::new();
-    // Background の要求だけを最大4本。本文・履歴を全件分メモリに積まない。
-    for group in ids.chunks(HISTORY_BATCH * 4) {
+    // Background の要求だけを最大 HISTORY_PARALLEL 本。本文・履歴を全件分メモリに積まない。
+    for group in ids.chunks(HISTORY_BATCH * HISTORY_PARALLEL) {
         let mut tasks = tokio::task::JoinSet::new();
         for chunk in group.chunks(HISTORY_BATCH) {
             let service = service.clone();

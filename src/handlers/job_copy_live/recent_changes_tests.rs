@@ -392,7 +392,7 @@ async fn settle(service: &JobReadService) {
 }
 
 #[tokio::test]
-async fn history_batches_are_at_most_fifty_and_partial_results_fail() {
+async fn history_batches_are_at_most_twenty_five_and_partial_results_fail() {
     use axum::routing::post;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     let sizes = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -417,7 +417,7 @@ async fn history_batches_are_at_most_fifty_and_partial_results_fail() {
                 active.fetch_sub(1, Ordering::SeqCst);
                 let inputs = body["inputs"].as_array().unwrap();
                 sizes.lock().unwrap().push(inputs.len());
-                assert!(inputs.len() <= 50);
+                assert!(inputs.len() <= 25);
                 let mut rows: Vec<_> = inputs
                     .iter()
                     .map(|v| json!({"id":v["id"],"properties":{},"propertiesWithHistory":{}}))
@@ -440,9 +440,11 @@ async fn history_batches_are_at_most_fifty_and_partial_results_fail() {
         .unwrap()
         .is_empty());
     sizes.lock().unwrap().sort_unstable();
-    assert_eq!(*sizes.lock().unwrap(), vec![1, 50, 50, 50, 50]);
-    assert_eq!(stats.history_calls, 5);
-    assert_eq!(peak.load(Ordering::SeqCst), 4);
+    let mut expected = vec![25; 8];
+    expected.insert(0, 1);
+    assert_eq!(*sizes.lock().unwrap(), expected);
+    assert_eq!(stats.history_calls, 9);
+    assert_eq!(peak.load(Ordering::SeqCst), 2);
     partial.store(true, Ordering::SeqCst);
     assert!(histories(&service, &ids, start, end, &mut stats)
         .await

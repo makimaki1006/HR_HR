@@ -280,7 +280,10 @@ impl SheetsClient {
 
             let status = resp.status();
             let text = match resp.text().await {
-                Ok(t) => t,
+                Ok(t) => {
+                    crate::mem_watch::received(crate::mem_watch::Peer::Sheets, t.len());
+                    t
+                }
                 Err(e) => {
                     // 本文の読み込み中に切れる場合も同じ扱い（実際に
                     // "error decoding response body" → "operation timed out" が出た）

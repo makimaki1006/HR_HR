@@ -283,7 +283,7 @@ impl JobReadService {
         Ok(output)
     }
     async fn phone_hearing(&self, listing: &str) -> Result<PhoneHearing, ReadError> {
-        serde_json::from_value(self.applicant_bundle(listing).await?["phone_hearing"].clone())
+        serde::Deserialize::deserialize(&self.applicant_bundle(listing).await?["phone_hearing"])
             .map_err(|_| fail("hubspot_invalid_response"))
     }
     /// 応募の束（日付・理由・電話で聞いた内容）。同じ求人は 60 秒、全員で 1 回の読み取りを共有する。

@@ -646,8 +646,10 @@ pub(super) struct Cache {
     response: tokio::sync::Mutex<Option<CachedHome>>,
 }
 struct CachedHome {
-    // Holding this Arc also makes local index edits copy-on-write, invalidating this key.
-    index: Arc<Index>,
+    // 索引の本体は握らない (Weak)。Arc で握ると、編集のたびに `Arc::make_mut` が索引全体を
+    // 複製し、古い版もここに残っていた。Weak は割り当てを残すだけなので同じ番地が別の索引に
+    // 使い回されず、編集 (make_mut で別の割り当てへ移る) や作り直しで一致しなくなる。
+    index: std::sync::Weak<Index>,
     company_at: Option<StdInstant>,
     today: NaiveDate,
     body: axum::body::Bytes,
@@ -841,7 +843,7 @@ async fn answer(
     );
     let mut slot = service.listing_index.home.response.lock().await;
     if let Some(cached) = slot.as_ref() {
-        if Arc::ptr_eq(&cached.index, &index)
+        if std::ptr::eq(cached.index.as_ptr(), Arc::as_ptr(&index))
             && cached.company_at == map.at
             && cached.today == today
         {
@@ -868,7 +870,7 @@ async fn answer(
     );
     if companies_ok {
         *slot = Some(CachedHome {
-            index,
+            index: Arc::downgrade(&index),
             company_at: map.at,
             today,
             body: body.clone(),

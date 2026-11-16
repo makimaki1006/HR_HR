@@ -673,7 +673,7 @@ async fn read_index_range(
             )
             .await?;
         let page: Page =
-            serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
+            serde::Deserialize::deserialize(&data).map_err(|_| fail("hubspot_invalid_response"))?;
         if page.results.len() > 100 {
             return Err(fail("hubspot_invalid_response"));
         }
@@ -1744,7 +1744,7 @@ fn versions(
         BTreeMap::new();
     for property in &properties {
         let values: Vec<History> = match data["propertiesWithHistory"].get(property) {
-            Some(value) => serde_json::from_value(value.clone())
+            Some(value) => serde::Deserialize::deserialize(value)
                 .map_err(|_| fail("hubspot_invalid_history"))?,
             None => vec![],
         };
@@ -2001,7 +2001,7 @@ pub(super) async fn read_versions(
         listing_data(service(&access)?, &id, fresh.requested()).await?;
     let data = &*data_arc;
     let record: Record =
-        serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
+        serde::Deserialize::deserialize(data).map_err(|_| fail("hubspot_invalid_response"))?;
     if record.id != id {
         return Err(fail("hubspot_invalid_response"));
     }
