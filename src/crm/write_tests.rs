@@ -1589,12 +1589,25 @@ async fn すでに案件差戻にいる取引は_同じステージ指定でも�
         "この項目はステージを移すときだけ変えられます"
     );
     assert_eq!(e.calls("PATCH"), 0, "HubSpot には書かない");
-    // 同じ値 (応答を失った再送と同じ形) は変更ではないので、書かずに保存済みとして返す
-    // (管理者以外は自分の担当の取引にしか書けないので、担当者は操作者のまま同じ値を送る)
-    let (s, v) = e
-        .patch(json!({"operation_id": "op-own-stay-0002",
-            "base": {"hubspot_owner_id": OPERATOR_OWNER}, "set": {"hubspot_owner_id": OPERATOR_OWNER}, "stage": sashi}))
-        .await;
+    // 同じ値 (応答を失った再送と同じ形: base と現在値は違うが、書く値と現在値が同じ) は変更ではないので、
+    // 書かずに保存済みとして返す。担当者が操作者でなくなった取引なので、管理者で送る
+    e.hs.lock()
+        .unwrap()
+        .objects
+        .get_mut(&("deals".to_string(), DEAL.to_string()))
+        .unwrap()
+        .insert("hubspot_owner_id".into(), "9001".into());
+    let admin = login(&e.app, ADMIN, "google_oidc").await;
+    let (s, v) = call(
+        &e.app,
+        Method::PATCH,
+        &format!("/api/crm/deals/{DEAL}"),
+        Some(&admin),
+        Some(json!({"operation_id": "op-own-stay-0002",
+            "base": {"hubspot_owner_id": null}, "set": {"hubspot_owner_id": "9001"}, "stage": sashi})),
+        true,
+    )
+    .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(e.calls("PATCH"), 0);
 }
@@ -1770,7 +1783,6 @@ async fn fire(e: &Env, deals: &[&str], n: usize) -> Vec<(String, StatusCode, Val
 async fn 同じ案件へ_15_件同時に同じ_base_で書くと_1_件だけ保存され_14_件は_409() {
     let cfg = open();
     let e = env_with(concurrent_fake(&["7201"]), cfg.clone(), true).await;
-    let before = e.client.gateway().snapshot().coalesced;
     let res = fire(&e, &["7201"], 15).await;
     let saved = res.iter().filter(|r| r.1 == StatusCode::OK).count();
     let conflict = res.iter().filter(|r| r.1 == StatusCode::CONFLICT).count();
@@ -1793,7 +1805,6 @@ async fn 同じ案件へ_15_件同時に同じ_base_で書くと_1_件だけ保�
         e.hs.lock().unwrap().count("GET /crm/v3/objects/deals/7201"),
         15
     );
-    let _ = before;
     // 鍵の表は空に戻る
     assert!(cfg.locks.is_empty());
 }

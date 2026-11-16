@@ -1632,36 +1632,8 @@ async fn run_patch(
         return record_busy();
     }
 
-    // 取引の段が無い (担当者・会社だけを書く) 要求は、取引の担当者だけを読んで確かめる。
-    // 取引の段があれば、その段の事前確認の読み取りで一緒に確かめる (呼び出しは増えない)
-    if let Some(me) = owner_guard.as_deref() {
-        if !steps.iter().any(|s| s.object == "deals" && s.id == deal_id) {
-            match client
-                .get_object_fresh("deals", deal_id, &["hubspot_owner_id"])
-                .await
-            {
-                Ok(rec) => {
-                    if rec
-                        .properties
-                        .get("hubspot_owner_id")
-                        .cloned()
-                        .flatten()
-                        .as_deref()
-                        != Some(me)
-                    {
-                        drop(held);
-                        count_rejection("not_owner");
-                        return err(StatusCode::FORBIDDEN, "not_owner");
-                    }
-                }
-                Err(e) => {
-                    count_rejection(&format!("read_failed:{}", e.error_kind()));
-                    return hubspot_error_response(&e);
-                }
-            }
-        }
-    }
-
+    // 取引の段は担当者・会社だけを書く要求にも必ずある (build_steps が set の空の段を作る) ので、
+    // 担当者の確認はその段の事前確認の読み取りで一緒に行う (HubSpot の呼び出しは増えない)
     // 事前確認 (現在値の読み取り → 担当者・競合・必須項目)
     let mut prepared = Vec::new();
     for s in &steps {
