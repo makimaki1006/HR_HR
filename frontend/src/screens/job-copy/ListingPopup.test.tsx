@@ -103,7 +103,7 @@ it('opens the selected timeline version from the detail heading, initially the l
   window.history.replaceState(null, '', '/app/job-copy?demo=1');
   localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true');
   render(<JobCopyScreen />);
-  const opener = screen.getByRole('button', { name: '求人の内容を確認する' });
+  const opener = screen.getByRole('button', { name: '求人の内容' });
   opener.focus(); fireEvent.click(opener);
   expect(screen.getByRole('dialog').textContent).toContain(jobs[0]?.versions[2]?.body);
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
@@ -167,7 +167,7 @@ it.each(['list-first', 'detail-first'])('shows zero applications from a direct l
   await waitFor(() => { expect(api.mock.calls.some(call => String(call[0]).includes('/listings?'))).toBe(true); });
   if (order === 'list-first') await act(async () => { resolveList(listResult); await listResponse; });
   await act(async () => { resolveDetail(detailResult); await detailResponse; });
-  fireEvent.click(await screen.findByRole('button', { name: '求人の内容を確認する' }));
+  fireEvent.click(await screen.findByRole('button', { name: '求人の内容' }));
   const applications = () => screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent;
   if (order === 'detail-first') {
     expect(applications()).toContain('応募数未取得');
@@ -186,7 +186,7 @@ it.each([0, 7, null])('uses the detail count %s for a direct link outside the fi
   fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
   await screen.findByRole('button', { name: '架空求人2の本文を見る' });
   expect(screen.queryByRole('button', { name: `${listing.title}の本文を見る` })).toBeNull();
-  fireEvent.click(await screen.findByRole('button', { name: '求人の内容を確認する' }));
+  fireEvent.click(await screen.findByRole('button', { name: '求人の内容' }));
   expect(screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '未取得' : `${String(count)}件`}`);
 });
 
@@ -208,7 +208,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   render(<JobCopyScreen />);
   fireEvent.click(await screen.findByRole('button', { name: '求人を探す' }));
   await screen.findByText('求人の一覧を準備しています');
-  const opener = await screen.findByRole('button', { name: '求人の内容を確認する' });
+  const opener = await screen.findByRole('button', { name: '求人の内容' });
   fireEvent.click(opener);
   const dialog = screen.getByRole('dialog', { name: listing.title });
   expect(dialog.querySelector('.jc-listing-popup-summary')?.textContent).toContain('応募数未取得');

@@ -20,7 +20,7 @@ describe('求人の画面（案3-2）', () => {
     render(<JobCopyScreen />);
     const band = screen.getByRole('region', { name: 'この求人の要点' });
     expect(within(band).getByTestId('band-latest-event').textContent).toBe('最新の変更：9/25 給与と本文と画像を変更見る ›');
-    expect(within(band).getByRole('button', { name: '求人の全文を比べる' })).toBeTruthy();
+    expect(within(band).getByRole('button', { name: '全文を比べる' })).toBeTruthy();
     expect(within(band).queryByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeNull();
     // データの最後の日は帯の中の1行。右の「数字の前提」欄はない。
     expect(within(band).getByTestId('band-data').textContent).toContain('応募データ：');

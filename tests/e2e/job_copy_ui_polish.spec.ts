@@ -39,7 +39,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       // 表示中の本文は記録された日で呼ぶ（年は今年なら省く）
       await expect(page.locator('.jc-reading-title h2')).toHaveText(/^(2026\/)?10\/2( 09:00)? の本文（最新）$/);
       await closeOtherAnalysis(page);
-      await expect(page.locator('.jc-detail-heading')).toContainText('合成運輸株式会社 · 大分県大分市 · HRハッカー');
+      await expect(page.locator('.jc-band-status')).toContainText(/合成運輸株式会社\s・\s大分県大分市\s・\sHRハッカー/);
       await expect(page.locator('.jc-main')).not.toContainText(/保存を確認・掲載時刻不明|確認した本文 1|取引先名未取得/);
       if (!pinned) await page.getByRole('button', { name: '左の一覧で求人を探す' }).click();
       await expect.poll(() => wholeCards(page)).toBeGreaterThanOrEqual(5);
@@ -54,7 +54,7 @@ test('会社名が未取得なら省略し、絞り込みの具体値を送る',
   await page.goto('/app/job-copy');
   await findListings(page);
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
-  await expect(page.locator('.jc-detail-heading p')).toHaveText('大分県大分市 · HRハッカー ／ 公開状況：掲載終了');
+  await expect(page.locator('.jc-band-status')).toHaveText(/^大分県大分市\s・\sHRハッカー\s・\s掲載終了/);
   await page.locator('.jc-hubspot-filter-details > summary').click();
   const request = page.waitForRequest(request => new URL(request.url()).searchParams.get('prefecture') === '沖縄県');
   await page.getByLabel('都道府県', { exact: true }).selectOption('沖縄県');
@@ -72,7 +72,7 @@ test('固定一覧の空項目は区切りごと省略し、近接する給与�
   await findListings(page);
   await expect(page.locator('.jc-fixed-list .jc-job')).toHaveCount(1);
   await expect(page.locator('.jc-fixed-list .jc-job')).not.toContainText('·');
-  await expect(page.locator('.jc-detail-heading p')).toHaveText('HRハッカー ／ 公開状況：不明');
+  await expect(page.locator('.jc-band-status')).toHaveText(/^HRハッカー\s・\s公開状況：不明/);
   await selectJobFeature(page, 'timeline');
   const marker = page.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark');
   await expect(marker).toHaveCount(1);
@@ -140,7 +140,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await expect(page.locator('.jc-reading')).toContainText('媒体から取り込んだ本文です。');
       await expect(page.locator('.jc-reading')).toContainText('この本文に対応する画像はありません。');
       await expect(page.locator('.jc-reading')).not.toContainText(/この版|前の版|媒体CSVから/);
-      await expect(page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: '前の本文と全文を比べる ▸', exact: true })).toBeVisible();
       await expect(page.locator('.jc-main')).not.toContainText('この版を前の版と比較する');
       await closeOtherAnalysis(page);
       const scope = page.locator('.jc-snapshot-tip');

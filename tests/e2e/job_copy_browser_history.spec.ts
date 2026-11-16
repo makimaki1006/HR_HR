@@ -13,7 +13,7 @@ test('求人選択・内容ポップアップ・分析を戻る／進むで復�
   await rows.nth(1).click();
   expect(await page.evaluate(() => history.length)).toBe(initialCount + 1);
   await page.evaluate(() => { (window as unknown as { historyTestMarker: string }).historyTestMarker = '保持'; });
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   const popup = page.url();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.goBack();
@@ -98,23 +98,23 @@ test('ホーム→会社→案件→求人と案件内ポップアップを履�
   await expect(page.getByRole('dialog')).toContainText('合成の求人内容です。');
   await page.goBack();
   await page.getByRole('table', { name: '取引の求人一覧表' }).getByRole('button', { name: row.title, exact: true }).click();
-  await expect(page.getByRole('button', { name: '求人の内容を確認する' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '求人の内容', exact: true })).toBeVisible();
   const listing = page.url();
   const reads = versionReads;
   for (const url of [deal, company, home]) { await page.goBack(); await expect(page).toHaveURL(url); }
   await expect(page.getByRole('heading', { level: 1, name: /^今日/ })).toBeVisible();
   expect(homeReads).toBe(initialHomeReads);
   for (const url of [company, deal, listing]) { await page.goForward(); await expect(page).toHaveURL(url); }
-  await expect(page.getByRole('button', { name: '求人の内容を確認する' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '求人の内容', exact: true })).toBeVisible();
   expect(versionReads).toBe(reads);
   await page.getByRole('navigation', { name: '現在地' }).getByRole('button', { name: '案件管理', exact: true }).click();
   await expect(page).toHaveURL(home);
   await page.goBack();
   await expect(page).toHaveURL(listing);
-  await expect(page.getByRole('button', { name: '求人の内容を確認する' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '求人の内容', exact: true })).toBeVisible();
   // 会社・案件を含む求人URLを直接開いても、案件のパンくずから戻れる。
   await page.goto(listing);
-  await expect(page.getByRole('button', { name: '求人の内容を確認する' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '求人の内容', exact: true })).toBeVisible();
   await page.getByRole('navigation', { name: '現在地' }).getByRole('button').nth(2).click();
   await expect(page).toHaveURL(deal);
   await expect(page.getByRole('heading', { name: 'この取引の求人', exact: true })).toBeVisible();

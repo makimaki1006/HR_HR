@@ -41,7 +41,7 @@ test('AirWorkの画像URL: 5枚の順序・画像なし・取得できない', a
   await shot('01-body-five-images');
   await closeOtherAnalysis(page);
 
-  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   const dialog = page.getByRole('dialog').first();
   await dialog.locator('.jc-listing-popup-scroll').evaluate(element => { element.scrollTop = element.scrollHeight; });
   await expect(dialog.getByRole('img')).toHaveCount(5);

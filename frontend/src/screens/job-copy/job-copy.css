@@ -29,7 +29,7 @@
 .jc-badge { background: var(--jc-soft); color: var(--jc-accent); padding: 5px 9px; border: 1px solid #b8dce2; border-radius: 4px; font-size: 11px; flex-shrink: 0; }
 .jc-record-meta { display: flex; gap: 7px 20px; flex-wrap: wrap; margin-top: 18px; color: var(--jc-muted); font-size: 11px; }.jc-record-meta span { overflow-wrap: anywhere; }
 .jc-history-layout { display: grid; grid-template-columns: 205px minmax(0, 1fr); gap: 20px; }.jc-history h2 { font-size: 14px; }.jc-muted { color: var(--jc-muted); font-size: 11px; }.jc-history > p { margin: 4px 0 14px; }
-.jc-version { background: var(--jc-paper); border: 1px solid var(--jc-border); border-left: 3px solid var(--jc-border); border-radius: 4px; padding: 11px; margin-bottom: 9px; text-align: left; width: 100%; display: flex; flex-direction: column; gap: 5px; }.jc-version:hover { border-color: #8aafbb; }.jc-version[aria-pressed="true"] { border-left-color: var(--jc-accent); background: var(--jc-soft); }.jc-version time, .jc-version > span:not(.jc-version-top), .jc-version > small { font-size: 10px; color: var(--jc-muted); overflow-wrap: anywhere; }.jc-version-top { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; }.jc-version-top small { font-size: 10px; color: var(--jc-muted); }
+.jc-version { background: var(--jc-paper); border: 1px solid var(--jc-border); border-left: 3px solid var(--jc-border); border-radius: 4px; padding: 11px; margin-bottom: 9px; text-align: left; width: 100%; display: flex; flex-direction: column; gap: 5px; }.jc-version:hover { border-color: #8aafbb; }.jc-version[aria-pressed="true"] { border-left-color: var(--jc-accent); background: var(--jc-soft); }.jc-version time, .jc-version > span:not(.jc-version-top) { font-size: 10px; color: var(--jc-muted); overflow-wrap: anywhere; }.jc-version-top { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; }.jc-version-top small { font-size: 10px; color: var(--jc-muted); }
 .jc-reading { border: 1px solid var(--jc-border); border-radius: 7px; background: var(--jc-paper); padding: 22px; }.jc-reading-title { display: flex; align-items: start; gap: 12px; justify-content: space-between; }.jc-reading h2 { font-size: 18px; }.jc-button { padding: 8px 12px; background: var(--jc-paper); border: 1px solid #94a9b9; border-radius: 4px; white-space: nowrap; font-size: 12px !important; }.jc-button:hover { background: var(--jc-soft); }.jc-primary { background: var(--jc-accent); color: #fff !important; border-color: var(--jc-accent); }.jc-primary:hover { background: #006275; }
 .jc-notice { background: #f4f7f9; border-left: 3px solid #a6bac8; padding: 10px 12px; color: #52697a; font-size: 11px; margin: 16px 0 !important; }
 .jc-body { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.95; padding: 13px 0; margin: 5px 0 18px; }
@@ -226,7 +226,7 @@
 .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-history > p { display: none; }
 .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version { flex: 0 1 210px; padding: 8px 12px; margin: 0; }
 .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version time { font-size: 11px; }
-.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version > span:not(:first-child), .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version > small { display: none; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version > span:not(:first-child) { display: none; }
 .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-reading { padding: 20px; }
 .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-image-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .jc-job-sheet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
@@ -476,8 +476,6 @@
 /* 左の「求人を探す」の検索欄 */
 .jc-listing-q { display: grid; gap: 4px; margin: 6px 0; font-size: 12px; color: var(--jc-muted); }
 .jc-listing-q input { width: 100%; box-sizing: border-box; }
-.jc-review-mark { display: grid; justify-items: end; gap: 4px; max-width: 280px; }
-.jc-review-mark small { color: var(--jc-muted, #64748b); font-size: 12px; text-align: right; line-height: 1.5; }
 .jc-deal-sep { margin: 0 6px; color: #8a99a6; }
 .jc-deal-expiry.is-ended { color:#6b7a86; font-weight:500; }
 /* リクロジ案: 作っている間の印と、HubSpot に新しく作るボタン（赤い枠） */

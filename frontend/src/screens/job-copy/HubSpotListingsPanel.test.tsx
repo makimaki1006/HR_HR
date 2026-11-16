@@ -194,9 +194,9 @@ describe('opening a listing quickly', () => {
     await waitFor(() => { expect(container.querySelector('.jc-band h1')?.textContent).toBe('合成配送求人'); });
     // The body is on screen and the name has been asked for, but has not arrived.
     expect(api.mock.calls.some(call => String(call[0]) === '/api/job-copy/listings/10/company')).toBe(true);
-    expect(container.querySelector('.jc-detail-heading p')?.textContent).not.toContain('合成運輸株式会社');
+    expect(container.querySelector('.jc-band-status')?.textContent).not.toContain('合成運輸株式会社');
     await act(async () => { resolveCompany({ ok: true, data: { listing_id: '10', company_name: '合成運輸株式会社' } }); await company; });
-    await waitFor(() => { expect(container.querySelector('.jc-detail-heading p')?.textContent).toContain('合成運輸株式会社'); });
+    await waitFor(() => { expect(container.querySelector('.jc-band-status')?.textContent).toContain('合成運輸株式会社'); });
   });
   it('shows a reopened listing from the kept result without asking the server again, and warms only its neighbours', async () => {
     api.mockImplementation((path: string) => reply(path));

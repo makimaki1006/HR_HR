@@ -86,8 +86,25 @@ describe('求人のページの上の帯の表示', () => {
     expect(screen.getByTestId('rail-last-billing').textContent).toMatch(/^課金データ：(2026\/)?10\/5まで$/);
     expect(container.querySelector('[aria-label="数字の前提"]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '求人の全文を比べる' }));
+    fireEvent.click(screen.getByRole('button', { name: '全文を比べる' }));
     expect(open).toHaveBeenCalledTimes(1);
+  });
+  it('常に使う 3 つを帯に並べ、本文の状態と会社・地域は押せない文字で出す', () => {
+    const listing = vi.fn();
+    render(<DetailBand job={{ ...job, company: '架空運輸株式会社' }} billing={undefined} onOpenFullCompare={() => undefined} onOpenListing={listing} reportHref="/app/job-copy/report?listing=1" bodyState="前の本文と同じ" />);
+    fireEvent.click(screen.getByRole('button', { name: '求人の内容' }));
+    expect(listing).toHaveBeenCalledTimes(1);
+    const report = screen.getByRole('link', { name: '報告書（新しいタブで開きます）' });
+    expect(report.getAttribute('target')).toBe('_blank');
+    expect(report.textContent).toBe('↗ 報告書');
+    expect(screen.getByTestId('band-body-state').textContent).toBe('本文：前の本文と同じ');
+    expect(screen.getByTestId('band-body-state').closest('button')).toBeNull();
+    expect(screen.getByTestId('band-place').textContent).toBe('架空運輸株式会社\u00a0・ 大分県大分市');
+  });
+  it('報告書の行き先が無い求人（HubSpot 以外）には報告書を出さない', () => {
+    render(<DetailBand job={job} billing={undefined} onOpenFullCompare={() => undefined} onOpenListing={() => undefined} />);
+    expect(screen.queryByRole('link', { name: /報告書/ })).toBeNull();
+    expect(screen.getByRole('button', { name: '全文を比べる' })).toBeTruthy();
   });
   it('課金が不明なら「—」を出す', () => {
     render(<DetailBand job={job} billing={undefined} onOpenFullCompare={() => undefined} />);

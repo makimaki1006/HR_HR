@@ -7,7 +7,7 @@ test('手直しの空欄と管理項目、本文の比較状態を利用者の�
   await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'));
   await mockFlow(page);
   await page.goto('/app/job-copy?listing=30');
-  await expect(page.locator('.jc-detail-heading')).toContainText('過去の本文がないため比較できません');
+  await expect(page.getByTestId('band-body-state')).toContainText('過去の本文がないため比較できません');
   await openWork(page);
   await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
   const editor = page.getByRole('region', { name: '求人の手直し' });

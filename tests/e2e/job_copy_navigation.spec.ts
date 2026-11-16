@@ -65,12 +65,16 @@ test('the first view shows the full-height list beside the timeline, tabs stay o
   });
   expect(inactiveTabContrast).toBeGreaterThanOrEqual(4.5);
   await selectJobFeature(page, 'body');
-  const jump = page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true });
+  const jump = page.getByRole('button', { name: '前の本文と全文を比べる ▸', exact: true });
   await jump.scrollIntoViewIfNeeded();
   // The group tabs stay at the top of the detail while the long body scrolls.
   await expect(primary).toBeInViewport();
+  // 押すと、前の本文と今の本文の全文比較の小窓が開く（変更の前後タブへは移らない）。
   await jump.click();
-  await expect(page.getByRole('tablist', { name: '求人管理の機能', exact: true }).getByRole('tab', { name: '変更の前後', exact: true })).toBeFocused();
+  const compare = page.getByRole('dialog', { name: '求人の全文を比べる' });
+  await expect(compare).toBeVisible();
+  await compare.getByRole('button', { name: /閉じる/ }).first().click();
+  await expect(compare).toBeHidden();
   // Filters other than search fold into one row.
   const filters = page.locator('details.jc-filter-more');
   await expect(filters).not.toHaveAttribute('open', '');
@@ -164,12 +168,12 @@ test('functional tabs isolate applicants, reasons, application trends, market gr
 test('tab keyboard Arrow/Home/End movement activates valid linked panels and inactive controls stay hidden', async ({ page }) => {
   await setup(page, true);
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-  const jump = page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true });
+  const jump = page.getByRole('button', { name: '前の本文と全文を比べる ▸', exact: true });
   await jump.scrollIntoViewIfNeeded();
   // Sticky group tabs (2026-10-08): still on screen after scrolling the long body.
   await expect(primary).toBeInViewport();
-  await jump.click();
   const difference = primary.getByRole('tab', { name: '変更の前後', exact: true });
+  await difference.click();
   await expect(difference).toBeFocused();
   await expect(difference).toBeInViewport();
   await expect(page.getByRole('tabpanel', { name: '変更差分', exact: true })).toBeVisible();

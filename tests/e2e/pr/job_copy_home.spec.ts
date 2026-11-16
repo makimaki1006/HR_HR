@@ -74,7 +74,7 @@ test('ホームの常時2枚のカード・件数の1行と、変更求人の一
   await changes.getByRole('button', { name: '合成終了求人' }).click();
   await expect(page).toHaveURL(/listing=1/);
   await expect(page.getByRole('heading', { name: '合成終了求人', exact: true })).toBeVisible();
-  await expect(page.locator('.jc-detail-heading')).toContainText('掲載終了');
+  await expect(page.locator('.jc-band-status')).toContainText('掲載終了');
   await page.goBack();
   await expect(changes).toBeVisible();
   expect(new URL(page.url()).searchParams.get('card')).toBe('recent_changes');
