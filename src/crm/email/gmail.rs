@@ -119,7 +119,12 @@ impl EmailService {
             .await
             .map_err(|_| EmailError::SendUncertain)?;
         match r.status().as_u16() {
-            200..=299 => r.json().await.map_err(|_| EmailError::SendUncertain),
+            200..=299 => {
+                let body = crate::mem_watch::read_body(crate::mem_watch::Peer::Gmail, r)
+                    .await
+                    .map_err(|_| EmailError::SendUncertain)?;
+                serde_json::from_slice(&body).map_err(|_| EmailError::SendUncertain)
+            }
             400..=499 => Err(EmailError::GmailRejected),
             _ => Err(EmailError::SendUncertain),
         }
@@ -145,7 +150,10 @@ impl EmailService {
         if !r.status().is_success() {
             return Err(EmailError::GmailUnavailable);
         }
-        let v: Value = r.json().await.map_err(|_| EmailError::GmailUnavailable)?;
+        let body = crate::mem_watch::read_body(crate::mem_watch::Peer::Gmail, r)
+            .await
+            .map_err(|_| EmailError::GmailUnavailable)?;
+        let v: Value = serde_json::from_slice(&body).map_err(|_| EmailError::GmailUnavailable)?;
         v["payload"]["headers"]
             .as_array()
             .and_then(|headers| {
@@ -179,7 +187,10 @@ impl EmailService {
         if !r.status().is_success() {
             return Err(EmailError::GmailUnavailable);
         }
-        let v: Value = r.json().await.map_err(|_| EmailError::GmailUnavailable)?;
+        let body = crate::mem_watch::read_body(crate::mem_watch::Peer::Gmail, r)
+            .await
+            .map_err(|_| EmailError::GmailUnavailable)?;
+        let v: Value = serde_json::from_slice(&body).map_err(|_| EmailError::GmailUnavailable)?;
         let messages = v["messages"].as_array();
         if messages.is_some_and(|m| m.len() > 1) {
             return Err(EmailError::SendUncertain);

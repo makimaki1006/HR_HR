@@ -940,7 +940,39 @@ pub(super) async fn refresh(
         }
     }
 }
-/// Runs once at startup and every six hours, even when no one opens the screen.
+/// 起動時に控えから復元した索引が `INDEX_TTL` (6 時間) より新しければ、次に作り直すまでの時間。
+/// 古い・控えが無い・時刻が読めないときは None (起動時に作り直す)。
+/// 時刻は控えの `built_at` (中身が HubSpot と同じだと最後に確かめた時刻。画面の「○時点」と同じ値)。
+/// 未来の時刻・24 時間より古い控えは `snapshot::restore` が採らないので、ここには来ない。
+fn restored_wait(built_at: &str, now: chrono::DateTime<chrono::Utc>) -> Option<Duration> {
+    let built = chrono::DateTime::parse_from_rfc3339(built_at).ok()?;
+    let age = now.signed_duration_since(built).to_std().ok()?;
+    INDEX_TTL.checked_sub(age).filter(|wait| !wait.is_zero())
+}
+/// 復元した索引が新しければ、起動時の作り直しを省く準備をして待つ時間を返す。
+/// 省くときは「最新化中」の印を外し、作り直し用に積んだ差し替えを捨て、ホームの事業所の先読みだけは作り直したときと同じく始める。
+async fn skip_startup_build(cache: &Cache, hs: crate::hubspot::HubSpotClient) -> Option<Duration> {
+    let index = {
+        let mut state = cache.state.write().await;
+        let index = state.snapshot.clone()?;
+        let wait = restored_wait(&index.built_at, chrono::Utc::now())?;
+        state.refreshing = false;
+        // 復元から省く判断までの間に積まれた差し替えは索引に当て済み。作り直しの最中ではないので捨てる
+        // (残すと 6 時間後の作り直しの後に古い値で当て直してしまう)。
+        state.listing_updates.clear();
+        state.draft_updates.clear();
+        tracing::info!(
+            next_build_in_secs = wait.as_secs(),
+            "job-copy index restored copy is recent, skipped the startup build"
+        );
+        (index, wait)
+    };
+    let mut home_service = JobReadService::from_client(hs);
+    home_service.listing_index = cache.clone();
+    home::prefetch(&home_service, &index.0).await;
+    Some(index.1)
+}
+/// Runs at startup (unless the saved copy is recent) and every six hours, even when no one opens the screen.
 /// The worker holds only a Weak cache so dropping the router/service cancels it.
 pub(super) fn start_worker(
     service: &Arc<JobReadService>,
@@ -962,6 +994,21 @@ pub(super) fn start_worker(
         let mut saved = match weak.upgrade() {
             Some(cache) => snapshot::restore(&cache, audit.clone()).await,
             None => None,
+        };
+        // 控えが 6 時間以内なら起動時に作り直さず、控えの時刻から 6 時間後に作り直す
+        // (2026-11-16 ユーザー決定。ADR-029 の追記)。
+        let restored_wait = match weak.upgrade() {
+            Some(cache) => skip_startup_build(&cache, hs.clone()).await,
+            None => None,
+        };
+        // 起動直後の重い処理は 1 本ずつ (startup_queue)。復元は順番の前に済ませて一覧をすぐ出し、
+        // 順番を待つのは作り直し (と保存) だけ。控えが新しく作り直さないときは待たない。
+        let mut turn = match restored_wait {
+            Some(wait) => {
+                tokio::time::sleep(wait).await;
+                None
+            }
+            None => crate::startup_queue::turn("job_copy.index_build").await,
         };
         loop {
             let Some(cache) = weak.upgrade() else {
@@ -988,6 +1035,8 @@ pub(super) fn start_worker(
                     home::prefetch(&home_service, &index).await;
                 }
             }
+            // 順番を手放してから眠る (定期の作り直しは順番待ちをしない)
+            drop(turn.take());
             let delay = if result.is_ok() {
                 INDEX_TTL
             } else {

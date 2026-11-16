@@ -629,6 +629,8 @@ impl CallerMetricsState {
                 let owners = owners.to_vec();
                 tokio::spawn(async move {
                     let _guard = WarmGuard(ms2.clone());
+                    // 起動直後の重い処理は 1 本ずつ (今日の集計の温めはこの外で、待たせない)
+                    let _turn = crate::startup_queue::turn("caller_metrics.month_fill").await;
                     if let Err(e) = ms2.fill(&client, &owners, now).await {
                         tracing::warn!(
                             error_kind = e.error_kind(),

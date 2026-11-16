@@ -144,7 +144,16 @@ impl GoogleSa {
         if !status.is_success() {
             return Err(GoogleError::Status(status.as_u16()));
         }
-        resp.json().await.map_err(|_| GoogleError::Network)
+        // 受け取った量を数える (Sheets はシート、それ以外の Drive などは other)
+        let peer = if resp.url().host_str() == Some("sheets.googleapis.com") {
+            crate::mem_watch::Peer::Sheets
+        } else {
+            crate::mem_watch::Peer::Other
+        };
+        let body = crate::mem_watch::read_body(peer, resp)
+            .await
+            .map_err(|_| GoogleError::Network)?;
+        serde_json::from_slice(&body).map_err(|_| GoogleError::Network)
     }
 
     pub async fn get(&self, url: &str, query: &[(&str, &str)]) -> Result<Value, GoogleError> {

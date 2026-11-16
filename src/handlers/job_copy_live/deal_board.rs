@@ -35,12 +35,20 @@ impl MeetingData {
         let Ok(state) = crate::handlers::call_quality::routes::cq_state() else {
             return Self::default();
         };
-        // 既存の定期先読みを借りる。画面要求からSheets APIを呼ばない。
-        let mtg = state.store.fresh(cs::SHEET_MTG).await;
-        let meta = state.store.fresh(cs::SHEET_META).await;
-        let zoom = state.store.fresh(cs::SHEET_ZOOM_MTG).await;
-        let call = state.store.fresh(cs::SHEET_CALL).await;
-        let mail = state.store.fresh(cs::SHEET_MAIL_HISTORY).await;
+        // 既存の定期先読みを借りる。画面要求からシートの読み込みを待たない (以前どおり手元の値だけ)。
+        // 先読みは見ている人がいる間だけ続くので、この要求も「見ている」に数え、古ければ裏で取り直しを始める (2026-11-16)。
+        cs::note_view(None).await;
+        Self::from_store(&state.store).await
+    }
+    /// 手元のシートで数える。期限 (TTL) を過ぎていても前回の値があればそれで答え、`as_of` はその値の
+    /// データの日付になる (夜のあいだ取り直さなくても、朝いちばんの画面が「不明」にならないように。2026-11-16)。
+    /// 手元に一度も値が無いとき (起動直後など) だけ、接触は「不明」・日付は空。
+    async fn from_store(store: &crate::handlers::call_quality::sheets::SheetStore) -> Self {
+        let mtg = store.latest(cs::SHEET_MTG).await;
+        let meta = store.latest(cs::SHEET_META).await;
+        let zoom = store.latest(cs::SHEET_ZOOM_MTG).await;
+        let call = store.latest(cs::SHEET_CALL).await;
+        let mail = store.latest(cs::SHEET_MAIL_HISTORY).await;
         let (last, contacts, emails) = counted(
             mtg.as_deref(),
             zoom.as_deref(),
@@ -847,6 +855,60 @@ mod tests {
         assert_eq!(row["last_contact"], "2026-09-10");
         assert_eq!(row["contact_status"], "ready");
         assert_eq!(row["last_email"], "2026-10-15");
+    }
+    #[tokio::test]
+    async fn expired_sheets_still_answer_with_the_previous_values_and_date() {
+        // 夜のあいだ取り直さず、期限 (60 分) を 2 時間過ぎた前回の値だけが手元にある
+        let store = crate::handlers::call_quality::sheets::SheetStore::new();
+        let old = std::time::Instant::now() - std::time::Duration::from_secs(2 * 3600);
+        let put = |name: &str, mut data: SheetData| {
+            data.fetched_at = old;
+            (name.to_owned(), data)
+        };
+        let sheets = [
+            put(
+                cs::SHEET_CALL,
+                sheet(
+                    &["deal_id", "duration_sec", "ts"],
+                    &[&["7", "120", "2026-11-14T01:00:00Z"]],
+                ),
+            ),
+            put(
+                cs::SHEET_MTG,
+                sheet(&["deal_id", "開催日"], &[&["7", "2026-11-10"]]),
+            ),
+            put(
+                cs::SHEET_MAIL_HISTORY,
+                sheet(
+                    &["deal_id", "送信日時（JST）"],
+                    &[&["7", "2026-11-13 10:00"]],
+                ),
+            ),
+            put(
+                cs::SHEET_META,
+                sheet(
+                    &["key", "value"],
+                    &[&["データ取得時刻(JST)", "2026-11-15 21:30:00"]],
+                ),
+            ),
+        ];
+        for (name, data) in sheets {
+            store.put_for_test(&name, data).await;
+        }
+        assert!(
+            store.fresh(cs::SHEET_CALL).await.is_none(),
+            "期限は切れている"
+        );
+        let m = MeetingData::from_store(&store).await;
+        // 古い日付のまま答える (画面の「○時点」も前回のデータの日付)
+        assert_eq!(m.as_of.as_deref(), Some("2026-11-15 21:30:00"));
+        assert_eq!(m.contacts.as_ref().unwrap()["7"].to_string(), "2026-11-14");
+        assert_eq!(m.last.as_ref().map(|l| l.len()), Some(1));
+        assert_eq!(m.emails.as_ref().unwrap()["7"].to_string(), "2026-11-13");
+        // 手元に一度も値が無いときだけ「不明」(接触は読めていない・日付は空)
+        let empty = crate::handlers::call_quality::sheets::SheetStore::new();
+        let none = MeetingData::from_store(&empty).await;
+        assert!(none.contacts.is_none() && none.as_of.is_none() && none.last.is_none());
     }
     #[test]
     fn counted_dates_are_reused_until_a_sheet_is_fetched_again() {

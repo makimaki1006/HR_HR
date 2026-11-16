@@ -141,6 +141,8 @@ pub async fn api_change_role(
     }
     // 次のリクエストから新しい役割で判定する (このプロセス。別プロセスはキャッシュ期限まで)
     rbac::invalidate_role(&target.email);
+    // 無効化の照会結果も捨てる (accounts を書き換えた人の分。このプロセスだけ)
+    audit.disabled_cache().forget(&target.email);
     let meta = serde_json::json!({
         "email": target.email,
         "from": target.role,

@@ -2110,7 +2110,14 @@ impl<Z: TranscriptSource + 'static, J: Judge + 'static> Worker<Z, J> {
             }
             if !busy {
                 // 担当者の付け直しは数分かかるので、起動直後の取り込み・判定の後、最初に手が空いた周回で 1 回
-                if !self.reattributed {
+                // 起動直後の重い処理は 1 本ずつ (startup_queue)。順番が埋まっていれば待たずに次の周回で
+                // (周回ごと止めて今日の取り込みを遅らせない)
+                let turn = if self.reattributed {
+                    Err(crate::startup_queue::Busy)
+                } else {
+                    crate::startup_queue::try_turn("talk_review.reattribute")
+                };
+                if let Ok(_turn) = turn {
                     self.reattributed = true;
                     if let Err(e) = self.reattribute().await {
                         tracing::warn!(error = %e, "talk review: reattribute failed");

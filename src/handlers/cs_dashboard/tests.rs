@@ -7130,19 +7130,27 @@ fn 取り直した後に案件の行を先に数えておく() {
         .map(|e| start + e)
         .expect("prefetch の終わり");
     let body = &m[start..end];
-    let first = body
-        .find("コンサル先読み: 完了")
-        .expect("最初の先読みのログ");
+    // 2026-11-16: 起動時・定期更新・見に来た人の要求の取り直しは、どれも `run_pass` を通る
     let lp = body.find("loop {").expect("定期更新の loop");
-    let warm = "routes::warm_deal_rows().await";
     assert!(
-        body[first..lp].contains(warm),
-        "最初の先読みの後に数えていない"
+        body[..lp].contains("run_pass(Pass::Startup"),
+        "最初の先読みが run_pass を通っていない"
     );
-    let refresh = body.find("コンサル定期更新:").expect("定期更新のログ");
     assert!(
-        body[refresh..].contains(warm),
-        "定期更新でシートを取り直した後に数えていない"
+        body[lp..].contains("run_pass(Pass::Periodic"),
+        "定期更新が run_pass を通っていない"
+    );
+    let ps = m.find("async fn run_pass").expect("run_pass");
+    let pe = m[ps..]
+        .find("\n}\n")
+        .map(|e| ps + e)
+        .expect("run_pass の終わり");
+    let pass = &m[ps..pe];
+    let warm = "routes::warm_deal_rows().await";
+    let fetched = pass.find("state.store.refresh(").expect("シートの取り直し");
+    assert!(
+        pass[fetched..].contains(warm),
+        "シートを取り直した後に数えていない"
     );
     let r = code(include_str!("routes.rs"));
     let ws = r.find("async fn warm_deal_rows").expect("warm_deal_rows");

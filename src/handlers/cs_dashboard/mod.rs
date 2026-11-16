@@ -1165,80 +1165,427 @@ pub const SHEETS: &[&str] = &[
 /// そのタブだけ「データが取れていません」と出るほうがよい（起動できないほうが困る）。
 /// なので戻り値は `()` で、失敗はログに出すだけにしてある。
 ///
-/// 🔴 **`tokio::spawn` で呼ぶこと（`main.rs` 参照）。** `SheetStore::get` は
-/// 取得のあいだ書き込みロックを持つので、待って（await して）から listen すると
+/// 🔴 **`tokio::spawn` で呼ぶこと（`main.rs` 参照）。** 待って（await して）から listen すると
 /// 起動が 24秒遅れ、Render のヘルスチェックが落ちる。
-/// 🔴 **戻ってこない。** 最初の先読みのあと、TTL が切れる前に取り直し続ける。
+/// 🔴 **戻ってこない。** 最初の先読みのあと、見ている人がいる間は TTL が切れる前に取り直し続ける。
+///
+/// 2026-11-16 ユーザー決定: **誰も見ていない時間は取り直さない。** 「見ている」は、このシートを使う画面の要求
+/// （コンサルKPI の `/api/consulting/*` と、案件管理の同じシートを読む API。[`note_view`] を呼ぶ所）が
+/// 直近の 1 周期（[`prefetch_interval`]、45 分）以内にあったこと。止まっている間に要求が来て、シートが 1 周期より
+/// 古ければ、その要求で取り直す（[`note_view`]。同時の要求は 1 本にまとめる）。
+/// 起動直後の最初の先読みは残す: 案件管理のホーム・案件一覧（`deal_board::MeetingData::cached`）は
+/// 取り直しを待たない作りで、デプロイ直後（業務時間中が多い）に開いた人が MTG・接触の日付を見られるように。
 pub async fn prefetch() {
-    let state = match crate::handlers::call_quality::routes::cq_state() {
-        Ok(s) => s,
-        Err(_) => {
-            // GOOGLE_SA_KEY_B64 / SPREADSHEET_ID が無い。init_from_env が
-            // 既に warn を出しているので、ここでは二重に騒がない
-            tracing::warn!("コンサルダッシュボード: Sheets が未設定のため先読みしない");
-            return;
+    if crate::handlers::call_quality::routes::cq_state().is_err() {
+        // GOOGLE_SA_KEY_B64 / SPREADSHEET_ID が無い。init_from_env が
+        // 既に warn を出しているので、ここでは二重に騒がない
+        tracing::warn!("コンサルダッシュボード: Sheets が未設定のため先読みしない");
+        return;
+    }
+    {
+        // 起動直後の重い処理は 1 本ずつ (startup_queue)。順番を待ってから取り直しの枠を取る
+        // (順番待ちの間に来た画面の要求は、自分で取り直してよい)
+        let _turn = crate::startup_queue::turn("cs_dashboard.prefetch").await;
+        run_pass(Pass::Startup, None).await;
+    }
+    let every = prefetch_interval();
+    loop {
+        let wait = next_wake(last_pass(), std::time::Instant::now(), every);
+        tokio::time::sleep(wait).await;
+        let now = std::time::Instant::now();
+        if !viewed_within(last_view(), now, every) {
+            // 誰も見ていない。取り直さず、次に見に来た人の要求に任せる (1 周期ごとに見直す)
+            tokio::time::sleep(every).await;
+            continue;
         }
+        run_pass(Pass::Periodic, Some(every)).await;
+    }
+}
+
+/// 最後にこのシートを使う画面の要求が来た時刻
+static LAST_VIEW: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+/// 最後に全部のシートを取り直し終えた時刻
+static LAST_PASS: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+/// 取り直しを 1 本にまとめる
+static PASS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn last_view() -> Option<std::time::Instant> {
+    *LAST_VIEW.lock().unwrap_or_else(|e| e.into_inner())
+}
+fn last_pass() -> Option<std::time::Instant> {
+    *LAST_PASS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// 直近 `every` 以内に見ている人がいたか
+fn viewed_within(
+    view: Option<std::time::Instant>,
+    now: std::time::Instant,
+    every: std::time::Duration,
+) -> bool {
+    view.is_some_and(|v| now.saturating_duration_since(v) < every)
+}
+
+/// 次に起きるまでの時間 (最後の取り直しから `every` 後。まだ取れていなければ `every`)
+fn next_wake(
+    pass: Option<std::time::Instant>,
+    now: std::time::Instant,
+    every: std::time::Duration,
+) -> std::time::Duration {
+    match pass {
+        Some(p) => (p + every)
+            .saturating_duration_since(now)
+            .max(std::time::Duration::from_secs(1)),
+        None => every,
+    }
+}
+
+/// 要求で取り直すかどうか
+#[derive(Debug, PartialEq, Eq)]
+enum OnView {
+    /// 1 周期以内に取り直している
+    Fresh,
+    /// 1 周期より古いが TTL 内 (常駐キャッシュから答えられる)。裏で取り直し、要求は待たせない
+    Background,
+    /// TTL を過ぎた・まだ一度も取れていない。取り直してから答える
+    Wait,
+}
+
+fn on_view(
+    pass: Option<std::time::Instant>,
+    now: std::time::Instant,
+    every: std::time::Duration,
+    ttl: std::time::Duration,
+) -> OnView {
+    match pass.map(|p| now.saturating_duration_since(p)) {
+        Some(age) if age < every => OnView::Fresh,
+        Some(age) if age < ttl => OnView::Background,
+        _ => OnView::Wait,
+    }
+}
+
+/// 待つ画面が取り直しを待つ上限。コンサルKPI の React 画面は 60 秒で打ち切る (`consulting-v2/useApi.ts`)。
+/// 案件管理の危ない/いい案件・法人・結び付け待ちは 120 秒 (`timeoutMs: 120_000`)。旧画面 (`/consulting` のテンプレート) は打ち切らない。
+/// 12 枚の取り直しは 18〜24 秒 (2026-09 の実測)。上限を超えたら待つのをやめ、要求はそのまま進む
+/// (`load` が手元の値で答える。TTL を過ぎた枚は従来どおり `SheetStore::get` が取りに行く)。
+pub(crate) const VIEW_WAIT: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// このシートを使う画面の要求が来たときに呼ぶ (先読みは見ている人がいる間だけ続けるため)。
+/// シートが 1 周期より古ければ取り直しを始める。取り直しは要求とは別の 1 本のタスク ([`ensure_pass`]) で走り、
+/// 要求が切れても最後まで走る。同時の要求は同じタスクを共有する。
+/// - `wait` が Some (コンサルKPI の画面と、もともとシートを待っていた案件管理の API) で、TTL を過ぎて手元の値が無いとき
+///   だけ、その上限まで取り直しを待つ。
+/// - `wait` が None (案件管理のホーム・案件一覧・次にやること。`deal_board::MeetingData::cached`) は待たない。
+///   手元の値で答える。TTL を過ぎていても前回の値 (`SheetStore::latest`) で答え、手元に一度も値が無いときだけ
+///   接触は「不明」・日付は空のまま答える。
+///
+/// 先読み・定期更新 (`warm_deal_rows` を含む) からは呼ばない (見ている人に数えない)。
+pub(crate) async fn note_view(wait: Option<std::time::Duration>) {
+    let now = std::time::Instant::now();
+    *LAST_VIEW.lock().unwrap_or_else(|e| e.into_inner()) = Some(now);
+    let every = prefetch_interval();
+    let action = view_action(
+        on_view(
+            last_pass(),
+            now,
+            every,
+            crate::handlers::call_quality::sheets::CACHE_TTL,
+        ),
+        wait,
+    );
+    if action == ViewAction::None || crate::handlers::call_quality::routes::cq_state().is_err() {
+        return;
+    }
+    if let Some((mut done, limit)) =
+        start_on_view(&PASS_TASK, action, || run_pass(Pass::OnView, Some(every)))
+    {
+        if tokio::time::timeout(limit, done.wait_for(|d| *d))
+            .await
+            .is_err()
+        {
+            tracing::warn!("コンサル再開時の更新: 待つ上限を超えたので手元の値で答える");
+        }
+    }
+}
+
+/// 要求で取り直すときの動き
+#[derive(Debug, PartialEq, Eq)]
+enum ViewAction {
+    None,
+    /// 取り直しを始めて (始まっていれば相乗りして) 待たずに答える
+    Spawn,
+    /// 取り直しを始めて、上限まで待つ
+    SpawnAndWait(std::time::Duration),
+}
+
+fn view_action(on: OnView, wait: Option<std::time::Duration>) -> ViewAction {
+    match (on, wait) {
+        (OnView::Fresh, _) => ViewAction::None,
+        (OnView::Wait, Some(limit)) => ViewAction::SpawnAndWait(limit),
+        _ => ViewAction::Spawn,
+    }
+}
+
+/// 要求の動きに合わせて取り直しを始め (走っていれば相乗り)、待つなら受け口と上限を返す
+fn start_on_view<F, Fut>(
+    slot: &PassSlot,
+    action: ViewAction,
+    make: F,
+) -> Option<(tokio::sync::watch::Receiver<bool>, std::time::Duration)>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    match action {
+        ViewAction::None => None,
+        ViewAction::Spawn => {
+            ensure_pass(slot, make);
+            None
+        }
+        ViewAction::SpawnAndWait(limit) => Some((ensure_pass(slot, make), limit)),
+    }
+}
+
+/// 走っている取り直しのタスク (終わったら `true` が届く)
+type PassSlot = std::sync::Mutex<Option<tokio::sync::watch::Receiver<bool>>>;
+static PASS_TASK: PassSlot = std::sync::Mutex::new(None);
+
+/// 取り直しのタスクが走っていればその受け口を、無ければ `make` を `tokio::spawn` して受け口を返す。
+/// タスクは要求と切り離されているので、待っていた要求が切れても最後まで走る。
+fn ensure_pass<F, Fut>(slot: &PassSlot, make: F) -> tokio::sync::watch::Receiver<bool>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let mut g = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(rx) = g.as_ref() {
+        // 終わっていない (送り手が生きていて false のまま) なら相乗り
+        if !*rx.borrow() && rx.has_changed().is_ok() {
+            return rx.clone();
+        }
+    }
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    let fut = make();
+    tokio::spawn(async move {
+        fut.await;
+        let _ = tx.send(true);
+    });
+    *g = Some(rx.clone());
+    rx
+}
+
+#[derive(Clone, Copy)]
+enum Pass {
+    Startup,
+    Periodic,
+    OnView,
+}
+
+/// 全部のシートを取り直して、案件の行を先に数える。同時に 1 本だけ。
+/// `skip_if_newer` があれば、枠を取れた時点で最後の取り直しがそれより新しいときは何もしない
+/// (待っている間にほかの要求・定期更新が取り直した)。
+async fn run_pass(kind: Pass, skip_if_newer: Option<std::time::Duration>) {
+    let Ok(state) = crate::handlers::call_quality::routes::cq_state() else {
+        return;
     };
-    // メモリ計測: 起動時のシートの先読み (シートを取り終えたら手放し、案件の行を数える分とは分ける)
-    let task = crate::mem_watch::task("cs_dashboard.prefetch");
+    let _pass = PASS_LOCK.lock().await;
+    let recent = last_pass().is_some_and(|p| match skip_if_newer {
+        Some(every) => p.elapsed() < every,
+        // 起動時: 順番を待つ間に画面の要求が取り直していれば、もう一度は読まない
+        None => true,
+    });
+    if recent {
+        return;
+    }
+    // メモリ計測: 起動時のシートの先読み / 定期更新 1 回 (眠っている間は数えない)
+    let task = crate::mem_watch::task(match kind {
+        Pass::Startup => "cs_dashboard.prefetch",
+        Pass::Periodic | Pass::OnView => "cs_dashboard.refresh",
+    });
+    let label = match kind {
+        Pass::Startup => "コンサル先読み",
+        Pass::Periodic => "コンサル定期更新",
+        Pass::OnView => "コンサル再開時の更新",
+    };
     let started = std::time::Instant::now();
-    let mut ok = 0usize;
     let mut ng = 0usize;
+    // `refresh` はロックを持たずに取ってから差し替えるので、そのあいだ架電クオリティ・営業KPI の画面は待たない
     for name in SHEETS {
-        match state.store.get(&state.client, name).await {
-            Ok((data, from_cache)) => {
-                ok += 1;
-                tracing::info!(
-                    "コンサル先読み: {name} {}行{}",
-                    data.rows.len(),
-                    if from_cache {
-                        "（キャッシュ）"
-                    } else {
-                        ""
-                    }
-                );
+        match state.store.refresh(&state.client, name).await {
+            Ok(data) => {
+                if matches!(kind, Pass::Startup) {
+                    tracing::info!("{label}: {name} {}行", data.rows.len());
+                }
             }
             Err(e) => {
                 ng += 1;
-                // 1枚読めなくても残りは続ける。どの枚が落ちたかを残す
-                tracing::warn!("コンサル先読み: {name} が読めない: {e:#}");
+                // 1枚読めなくても残りは続ける。取れなかった枚は古いまま残る。TTL が切れたら `get` が取りに行く
+                tracing::warn!("{label}: {name} が読めない: {e:#}");
             }
         }
     }
     tracing::info!(
-        "コンサル先読み: 完了 {ok}枚 / 失敗 {ng}枚 / {:.1}秒",
+        "{label}: {}枚 / 失敗 {ng}枚 / {:.1}秒",
+        SHEETS.len(),
         started.elapsed().as_secs_f64()
     );
     drop(task);
+    *LAST_PASS.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
     // 取り直した後の 1 回目を開いた人に数えさせない（理由と実測は `routes::warm_deal_rows`）
     routes::warm_deal_rows().await;
+}
 
-    // 🔴 **TTL が切れる前に取り直し続ける。** 起動時の1回だけだと、1時間後に
-    //    最初に開いた人が9枚の直列取得を待つ（初回は実測 18.7秒・2026-09-23 本番）。
-    //    しかも `SheetStore::get` は取得中ずっと書き込みロックを持つので、
-    //    そのあいだ架電クオリティ・営業KPI の画面まで止まる。
-    //    `refresh` はロックを持たずに取ってから差し替えるので、誰も待たない。
-    let every = prefetch_interval();
-    loop {
-        tokio::time::sleep(every).await;
-        // メモリ計測: シートの定期更新 1 回 (眠っている間は数えない)
-        let task = crate::mem_watch::task("cs_dashboard.refresh");
-        let started = std::time::Instant::now();
-        let mut ng = 0usize;
-        for name in SHEETS {
-            if let Err(e) = state.store.refresh(&state.client, name).await {
-                ng += 1;
-                // 取れなかった枚は古いまま残る。TTL が切れたら `get` が取りに行く
-                tracing::warn!("コンサル定期更新: {name} が読めない: {e:#}");
-            }
-        }
-        tracing::info!(
-            "コンサル定期更新: {}枚 / 失敗 {ng}枚 / {:.1}秒",
-            SHEETS.len(),
-            started.elapsed().as_secs_f64()
+#[cfg(test)]
+mod idle_prefetch_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    const MIN: Duration = Duration::from_secs(60);
+
+    #[test]
+    fn 直近の一周期に要求があれば見ている() {
+        let now = Instant::now() + 120 * MIN;
+        let every = 45 * MIN;
+        assert!(viewed_within(Some(now - 44 * MIN), now, every));
+        assert!(
+            !viewed_within(Some(now - 45 * MIN), now, every),
+            "ちょうど 1 周期前は見ていない"
         );
-        drop(task);
-        routes::warm_deal_rows().await;
+        assert!(
+            !viewed_within(None, now, every),
+            "起動してから誰も来ていない"
+        );
+    }
+
+    #[test]
+    fn 要求で取り直すかは最後の取り直しからの時間で決める() {
+        let now = Instant::now() + 300 * MIN;
+        let (every, ttl) = (45 * MIN, 60 * MIN);
+        assert_eq!(
+            on_view(Some(now - 10 * MIN), now, every, ttl),
+            OnView::Fresh
+        );
+        // 1 周期より古いが TTL 内: 常駐キャッシュで答え、裏で取り直す
+        assert_eq!(
+            on_view(Some(now - 45 * MIN), now, every, ttl),
+            OnView::Background
+        );
+        assert_eq!(
+            on_view(Some(now - 59 * MIN), now, every, ttl),
+            OnView::Background
+        );
+        // TTL を過ぎた (夜の間だれも見ていなかった) / まだ一度も取れていない: 取り直してから答える
+        assert_eq!(on_view(Some(now - 60 * MIN), now, every, ttl), OnView::Wait);
+        assert_eq!(
+            on_view(Some(now - 600 * MIN), now, every, ttl),
+            OnView::Wait
+        );
+        assert_eq!(on_view(None, now, every, ttl), OnView::Wait);
+    }
+
+    #[test]
+    fn 次に起きるのは最後の取り直しの一周期後() {
+        let now = Instant::now() + 300 * MIN;
+        let every = 45 * MIN;
+        assert_eq!(next_wake(Some(now - 15 * MIN), now, every), 30 * MIN);
+        // 期限を過ぎていてもすぐ回り続けない (最短 1 秒)
+        assert_eq!(
+            next_wake(Some(now - 90 * MIN), now, every),
+            Duration::from_secs(1)
+        );
+        assert_eq!(next_wake(None, now, every), every);
+    }
+
+    #[test]
+    fn 案件管理の要求はシートの読み込みを待たない() {
+        // 待たない要求 (wait = None) は、TTL を過ぎていても取り直しを始めるだけ
+        assert_eq!(view_action(OnView::Wait, None), ViewAction::Spawn);
+        assert_eq!(view_action(OnView::Background, None), ViewAction::Spawn);
+        assert_eq!(view_action(OnView::Fresh, None), ViewAction::None);
+        // コンサルKPI の画面は TTL を過ぎたときだけ上限まで待つ
+        assert_eq!(
+            view_action(OnView::Wait, Some(VIEW_WAIT)),
+            ViewAction::SpawnAndWait(VIEW_WAIT)
+        );
+        assert_eq!(
+            view_action(OnView::Background, Some(VIEW_WAIT)),
+            ViewAction::Spawn
+        );
+        // 上限は画面の打ち切り (React 60 秒) より短い
+        assert!(VIEW_WAIT < Duration::from_secs(60));
+        // 案件管理のホーム・案件一覧・次にやることが使う MeetingData は待たない呼び方をしている
+        let src = include_str!("../job_copy_live/deal_board.rs");
+        assert!(src.contains("cs::note_view(None).await"));
+    }
+
+    #[tokio::test]
+    async fn 要求が切れても取り直しは最後まで走り_同時の要求は同じタスクを使う() {
+        let slot: PassSlot = std::sync::Mutex::new(None);
+        let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let gate = std::sync::Arc::new(tokio::sync::Notify::new());
+        let make = || {
+            let (s, f, g) = (started.clone(), finished.clone(), gate.clone());
+            move || async move {
+                s.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                g.notified().await;
+                // run_pass が最後に LAST_PASS を付ける所の代わり
+                f.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        };
+        // 待っていた要求が 10ms で切れる (画面の打ち切り・接続断)
+        {
+            let mut rx = ensure_pass(&slot, make());
+            let cut = tokio::time::timeout(Duration::from_millis(10), rx.wait_for(|d| *d)).await;
+            assert!(cut.is_err());
+        }
+        // 走っている間の別の要求は同じタスクに相乗りする
+        let mut again = ensure_pass(&slot, make());
+        tokio::task::yield_now().await;
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 1);
+        gate.notify_one();
+        tokio::time::timeout(Duration::from_secs(5), again.wait_for(|d| *d))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            finished.load(std::sync::atomic::Ordering::SeqCst),
+            "最後まで走った"
+        );
+        // 終わった後の要求は新しいタスクを始める
+        let _next = ensure_pass(&slot, make());
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 2);
+        gate.notify_one();
+    }
+
+    #[tokio::test]
+    async fn 待たない要求は取り直しを一回だけ始めてすぐ返る() {
+        let slot: PassSlot = std::sync::Mutex::new(None);
+        let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let gate = std::sync::Arc::new(tokio::sync::Notify::new());
+        let make = || {
+            let (s, g) = (started.clone(), gate.clone());
+            move || async move {
+                s.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                g.notified().await;
+            }
+        };
+        // TTL を過ぎた (OnView::Wait) 待たない要求が 2 本続けて来ても、待つ受け口は返さず、取り直しは 1 本
+        let a = view_action(OnView::Wait, None);
+        assert!(start_on_view(&slot, a, make()).is_none());
+        assert!(start_on_view(&slot, view_action(OnView::Wait, None), make()).is_none());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // 新しい値があるとき (Fresh) は始めない
+        assert!(start_on_view(&slot, view_action(OnView::Fresh, None), make()).is_none());
+        gate.notify_one();
+    }
+
+    #[test]
+    fn 周期はttlより短い() {
+        assert_eq!(prefetch_interval(), 45 * MIN);
+        assert!(prefetch_interval() < crate::handlers::call_quality::sheets::CACHE_TTL);
     }
 }
 

@@ -79,6 +79,14 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/results", get(results))
         // 満了と継続（09 の 5、段B）。今月・来月・再来月に満了する稼働中の契約の件数・金額・ステージ
         .route("/api/consulting/renewal-pipe", get(renewal_pipe))
+        // 見ている人がいる間だけシートを取り直す (`super::note_view`、2026-11-16 ユーザー決定)
+        .layer(axum::middleware::from_fn(note_view_layer))
+}
+
+/// コンサルKPI の要求を「見ている」に数え、シートが古ければ取り直してから答える
+async fn note_view_layer(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    super::note_view(Some(super::VIEW_WAIT)).await;
+    next.run(req).await
 }
 
 #[derive(Template)]

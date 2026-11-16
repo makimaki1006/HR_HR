@@ -52,6 +52,8 @@ pub(super) async fn read(
     };
     let cq = crate::handlers::call_quality::routes::cq_state()
         .map_err(|_| ReadError(StatusCode::SERVICE_UNAVAILABLE, "consulting_unavailable"))?;
+    // コンサルKPI と同じシートを読むので「見ている」に数える (古ければ取り直す。画面は 120 秒待つので上限付きで待つ)
+    cs::note_view(Some(cs::VIEW_WAIT)).await;
     let sheets = cs::load(&cq.client, &cq.store)
         .await
         .map_err(|_| ReadError(StatusCode::SERVICE_UNAVAILABLE, "consulting_unavailable"))?;
